@@ -226,10 +226,6 @@ private:
 };
 
 LogicalResult freezeFlatQueueGraph(ModuleOp model) {
-  auto contractEpoch = model->getAttrOfType<StringAttr>("ac.contract_epoch");
-  if (!contractEpoch || contractEpoch.getValue() != "0.5")
-    return model.emitError(
-        "flat QueueGraph freeze requires ac.contract_epoch = \"0.5\"");
   auto modelKind = model->getAttrOfType<StringAttr>("ac.model_kind");
   if (!modelKind || modelKind.getValue() != "queue_graph")
     return model.emitError(
@@ -255,20 +251,13 @@ LogicalResult freezeFlatQueueGraph(ModuleOp model) {
   if (detail::hasTopologyFreezeEvidence(model))
     return verifyFrozenFlatQueueGraph(model);
   Builder builder(model.getContext());
-  model->setAttr("ac.freeze_epoch", builder.getStringAttr("0.5"));
   model->setAttr("ac.frozen_owners", builder.getArrayAttr({}));
   model->setAttr("ac.topology_frozen", builder.getBoolAttr(true));
-  model->setAttr("ac.topology_digest",
-                 builder.getStringAttr(detail::computeTopologyDigest(model)));
   materializeSourceProvenance(model);
   return success();
 }
 
 LogicalResult freezeStructuredQueueGraph(ModuleOp model) {
-  auto contractEpoch = model->getAttrOfType<StringAttr>("ac.contract_epoch");
-  if (!contractEpoch || contractEpoch.getValue() != "0.5")
-    return model.emitError(
-        "structured QueueGraph freeze requires ac.contract_epoch = \"0.5\"");
   auto domain = model->getAttrOfType<StringAttr>("ac.queue_graph_domain");
   if (!domain || domain.getValue() != "cycle")
     return model.emitError("structured QueueGraph freeze requires exact "
@@ -301,42 +290,15 @@ LogicalResult freezeStructuredQueueGraph(ModuleOp model) {
         "structured QueueGraph root must resolve to a materialized module");
 
   Builder builder(model.getContext());
-  for (ac::ModuleOp definition : model.getOps<ac::ModuleOp>()) {
-    definition->removeAttr("ac.specialization");
-    definition->setAttr(
-        "ac.definition_fingerprint",
-        builder.getStringAttr(
-            detail::computeQueueGraphDefinitionFingerprint(definition)));
-  }
-  for (ac::ModuleOp definition : model.getOps<ac::ModuleOp>())
-    for (ac::InstanceOp instance :
-         definition.getBody().front().getOps<ac::InstanceOp>()) {
-      auto target = dyn_cast_or_null<ac::ModuleOp>(
-          symbols.lookup(instance.getDefinitionAttr().getValue()));
-      if (!target)
-        return instance.emitOpError(
-            "QueueGraph instance requires a materialized module definition");
-      instance->setAttr("ac.specialization",
-                        builder.getStringAttr(
-                            detail::computeQueueGraphSpecializationFingerprint(
-                                target, instance.getStaticArgs())));
-    }
-  root->setAttr(
-      "ac.specialization",
-      builder.getStringAttr(detail::computeQueueGraphSpecializationFingerprint(
-          root, root.getStaticParams())));
 
   FailureOr<ArrayAttr> ownerManifest = detail::buildFrozenOwnerManifest(model);
   if (failed(ownerManifest))
     return failure();
-  model->setAttr("ac.freeze_epoch", builder.getStringAttr("0.5"));
   model->setAttr(
       "ac.frozen_system",
       FlatSymbolRefAttr::get(model.getContext(), selected.getSymName()));
   model->setAttr("ac.frozen_owners", *ownerManifest);
   model->setAttr("ac.topology_frozen", builder.getBoolAttr(true));
-  model->setAttr("ac.topology_digest",
-                 builder.getStringAttr(detail::computeTopologyDigest(model)));
   materializeSourceProvenance(model);
   return verifyFrozenStructuredQueueGraph(model);
 }
@@ -348,7 +310,7 @@ LogicalResult freezeTopology(ModuleOp model) {
   // dynamic-index proof path as rule lowering.
   if (failed(verifyValueConstraints(model)))
     return failure();
-  // Closure precedes every canonicalization/hash mutation so unresolved
+  // Closure precedes every canonicalization mutation so unresolved
   // obligations cannot be dropped or hidden by a generic transform.
   if (failed(verifyRuleClosure(model)))
     return failure();
@@ -393,7 +355,6 @@ LogicalResult freezeTopology(ModuleOp model) {
   if (failed(ownerManifest))
     return failure();
   Builder builder(model.getContext());
-  model->setAttr("ac.freeze_epoch", builder.getStringAttr("0.5"));
   model->setAttr(
       "ac.frozen_system",
       FlatSymbolRefAttr::get(model.getContext(), selected.getSymName()));
@@ -499,8 +460,6 @@ LogicalResult freezeTopology(ModuleOp model) {
     return failure();
 
   model->setAttr("ac.topology_frozen", builder.getBoolAttr(true));
-  model->setAttr("ac.topology_digest",
-                 builder.getStringAttr(detail::computeTopologyDigest(model)));
   materializeSourceProvenance(model);
   return verifyModel(model);
 }

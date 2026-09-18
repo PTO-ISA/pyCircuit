@@ -10,13 +10,10 @@ from typing import Literal, NoReturn
 import tomllib
 
 from ._canonical_json import JsonValue, validate_ijson_value
-from ._contract import CONTRACT_EPOCH
 from ._diagnostics import AgenticCircuitError, Diagnostic
 
 _NAME = re.compile(r"^[A-Za-z_][A-Za-z0-9_.-]*$")
-_TOP_LEVEL = frozenset(
-    {"contract_epoch", "project", "providers", "build", "run", "diagnostics"}
-)
+_TOP_LEVEL = frozenset({"project", "providers", "build", "run", "diagnostics"})
 
 
 class UserInputError(AgenticCircuitError):
@@ -32,7 +29,6 @@ class WorkspaceConfig:
     root: Path
     project_name: str
     project_version: str
-    contract_epoch: str
     architecture: Path
     default_system: str
     standard_library_providers: tuple[str, ...]
@@ -139,9 +135,6 @@ def load_workspace(manifest: Path) -> WorkspaceConfig:
     if missing:
         _fail("ACPY-CONFIG-002", f"workspace is missing {missing[0]!r}")
 
-    epoch = document["contract_epoch"]
-    if epoch != CONTRACT_EPOCH:
-        _fail("ACPY-CONFIG-005", f"contract_epoch must equal {CONTRACT_EPOCH}")
     root = manifest.parent.resolve()
 
     project = _closed_table(
@@ -250,7 +243,6 @@ def load_workspace(manifest: Path) -> WorkspaceConfig:
         root=root,
         project_name=project_name,
         project_version=project_version,
-        contract_epoch=CONTRACT_EPOCH,
         architecture=architecture,
         default_system=default_system,
         standard_library_providers=provider_names,

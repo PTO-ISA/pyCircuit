@@ -14,7 +14,6 @@ from .._capabilities import (
     schema_root,
     standard_library_catalog,
 )
-from .._contract import CONTRACT_EPOCH
 from .._diagnostics import Diagnostic
 from .._exit_codes import ExitCode
 from .._output import OutputSink
@@ -67,7 +66,6 @@ def _listing(kind: str, names: list[str]) -> dict[str, JsonValue]:
     return {
         "schema": "agentic-circuit-schema-list",
         "version": "0.1",
-        "contract_epoch": CONTRACT_EPOCH,
         "kind": kind,
         "items": sorted(names),
     }
@@ -137,7 +135,6 @@ def run(arguments: object, sink: OutputSink) -> int:
             document = {
                 "schema": "agentic-circuit-interface-definition",
                 "version": "0.1",
-                "contract_epoch": CONTRACT_EPOCH,
                 "canonical_name": "ac.Stream",
                 "availability": "available",
             }

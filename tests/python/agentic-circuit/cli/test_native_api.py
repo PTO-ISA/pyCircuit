@@ -8,7 +8,7 @@ from agentic_circuit._native_api import NativeRequest, capabilities, run_native_
 
 
 VALID_ACIR = b"""
-module attributes {ac.contract_epoch = "0.5"} {
+module {
   ac.system @main root @top as "root" tick 0 "cycle"
       workload @top::@workload seed {kind = "fixed", value = 0 : i64}
       instrumentation [] results {id = "default", format = "json"} selected true
@@ -27,8 +27,8 @@ class NativeApiTest(unittest.TestCase):
         result = run_native_compiler(
             NativeRequest(
                 acir=VALID_ACIR,
-                stop_after="acsim-verify",
-                emits=("frozen-acir", "acsim"),
+                stop_after="topology-closure",
+                emits=("verified-acir",),
             )
         )
 
@@ -37,11 +37,8 @@ class NativeApiTest(unittest.TestCase):
         # per-module units are produced by the ACIR stage, and the ACSim module
         # only after the ACIS-to-ACSim conversion has run.
         self.assertEqual(
-            ("frozen.ac.mlir", "modules/top.ac.mlir", "model.acsim.mlir"),
+            ("verified.ac.mlir",),
             tuple(item.path for item in result.artifacts),
-        )
-        self.assertTrue(
-            all(item.sha256.startswith("sha256:") for item in result.artifacts)
         )
 
     def test_compiler_failure_is_a_structured_result(self) -> None:
@@ -65,7 +62,7 @@ class NativeApiTest(unittest.TestCase):
             NativeRequest(acir=VALID_ACIR, stop_after="acir-parse", emits=())
         )
         with self.assertRaises(FrozenInstanceError):
-            result.executable = "changed"  # type: ignore[misc]
+            result.diagnostics = ()  # type: ignore[misc]
 
     def test_capabilities_have_stable_build_identity(self) -> None:
         found = capabilities()

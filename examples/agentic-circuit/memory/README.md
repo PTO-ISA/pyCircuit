@@ -6,7 +6,7 @@
 identities. Native QueueGraph/gfsim supports it; PYC deliberately rejects
 `rate>1` until shared ordered FIFO lane lowering is implemented.
 
-## Explicit memory (epoch 0.5)
+## Explicit memory
 
 `memory_simple.py` declares one root-owned, 16-entry `u16` memory and connects
 two typed logical endpoints from child scopes. Writer endpoint ordinal 0 has
@@ -26,21 +26,16 @@ reader run, and it observes the final value `99`. This exercises:
 From the repository root:
 
 ```bash
-AC_BUILD=.pycircuit_out/acir/dev-llvm22
 AC_MEMORY_OUT=.pycircuit_out/examples/agentic-circuit/memory
 mkdir -p "${AC_MEMORY_OUT}"
 
 PYTHONDONTWRITEBYTECODE=1 \
 PYTHONPATH=python/semantic-core/src:python/agentic-circuit/src \
-python3 compiler/acir/tools/ac-queue-cxxgen.py \
-  examples/agentic-circuit/memory/memory_simple.py \
-  --system memory_simple \
-  --acir-output "${AC_MEMORY_OUT}/memory_simple.ac.mlir" \
-  --plan-output "${AC_MEMORY_OUT}/memory_simple.plan.json" \
-  --acir-opt "${AC_BUILD}/bin/acir-opt" \
-  --queue-plan-tool "${AC_BUILD}/bin/acir-queue-plan" \
-  --queue-cxxgen-tool "${AC_BUILD}/bin/acir-queue-cxxgen" \
-  --output "${AC_MEMORY_OUT}/memory_simple.generated.cpp"
+acc.py --project examples/agentic-circuit/agentic-circuit.toml \
+  -c "$PWD/examples/agentic-circuit/memory/memory_simple.py" \
+  -o "${AC_MEMORY_OUT}/memory_simple.ac"
+acc -c "${AC_MEMORY_OUT}/memory_simple.ac" -emit-cpp \
+  -o "${AC_MEMORY_OUT}/memory_simple.generated.cpp"
 
 c++ \
   -std=c++20 \
@@ -71,21 +66,16 @@ has independent storage and one outstanding request; responses from different
 banks may be reordered, so the harness checks them by tag.
 
 ```bash
-AC_BUILD=.pycircuit_out/acir/dev-llvm22
 AC_MEMORY_OUT=.pycircuit_out/examples/agentic-circuit/memory
 mkdir -p "${AC_MEMORY_OUT}"
 
 PYTHONDONTWRITEBYTECODE=1 \
 PYTHONPATH=python/semantic-core/src:python/agentic-circuit/src \
-python3 compiler/acir/tools/ac-queue-cxxgen.py \
-  examples/agentic-circuit/memory/memory_banks.py \
-  --system memory_banks \
-  --acir-output "${AC_MEMORY_OUT}/memory_banks.ac.mlir" \
-  --plan-output "${AC_MEMORY_OUT}/memory_banks.plan.json" \
-  --acir-opt "${AC_BUILD}/bin/acir-opt" \
-  --queue-plan-tool "${AC_BUILD}/bin/acir-queue-plan" \
-  --queue-cxxgen-tool "${AC_BUILD}/bin/acir-queue-cxxgen" \
-  --output "${AC_MEMORY_OUT}/memory_banks.generated.cpp"
+acc.py --project examples/agentic-circuit/agentic-circuit.toml \
+  -c "$PWD/examples/agentic-circuit/memory/memory_banks.py" \
+  -o "${AC_MEMORY_OUT}/memory_banks.ac"
+acc -c "${AC_MEMORY_OUT}/memory_banks.ac" -emit-cpp \
+  -o "${AC_MEMORY_OUT}/memory_banks.generated.cpp"
 
 c++ \
   -std=c++20 \
@@ -113,21 +103,16 @@ physical access latency, then is accepted only after the first response
 releases `busy`.
 
 ```bash
-AC_BUILD=.pycircuit_out/acir/dev-llvm22
 AC_MEMORY_OUT=.pycircuit_out/examples/agentic-circuit/memory
 mkdir -p "${AC_MEMORY_OUT}"
 
 PYTHONDONTWRITEBYTECODE=1 \
 PYTHONPATH=python/semantic-core/src:python/agentic-circuit/src \
-python3 compiler/acir/tools/ac-queue-cxxgen.py \
-  examples/agentic-circuit/memory/memory_busy.py \
-  --system memory_busy \
-  --acir-output "${AC_MEMORY_OUT}/memory_busy.ac.mlir" \
-  --plan-output "${AC_MEMORY_OUT}/memory_busy.plan.json" \
-  --acir-opt "${AC_BUILD}/bin/acir-opt" \
-  --queue-plan-tool "${AC_BUILD}/bin/acir-queue-plan" \
-  --queue-cxxgen-tool "${AC_BUILD}/bin/acir-queue-cxxgen" \
-  --output "${AC_MEMORY_OUT}/memory_busy.generated.cpp"
+acc.py --project examples/agentic-circuit/agentic-circuit.toml \
+  -c "$PWD/examples/agentic-circuit/memory/memory_busy.py" \
+  -o "${AC_MEMORY_OUT}/memory_busy.ac"
+acc -c "${AC_MEMORY_OUT}/memory_busy.ac" -emit-cpp \
+  -o "${AC_MEMORY_OUT}/memory_busy.generated.cpp"
 
 c++ \
   -std=c++20 \
@@ -164,21 +149,16 @@ endpoint. The harness first seeds `DRAM[5]` with `0x1234`, runs one DMA copy to
 `SRAM[3]`, then reads SRAM back to verify the transferred value.
 
 ```bash
-AC_BUILD=.pycircuit_out/acir/dev-llvm22
 AC_MEMORY_OUT=.pycircuit_out/examples/agentic-circuit/memory
 mkdir -p "${AC_MEMORY_OUT}"
 
 PYTHONDONTWRITEBYTECODE=1 \
 PYTHONPATH=python/semantic-core/src:python/agentic-circuit/src \
-python3 compiler/acir/tools/ac-queue-cxxgen.py \
-  examples/agentic-circuit/memory/dma.py \
-  --system dma \
-  --acir-output "${AC_MEMORY_OUT}/dma.ac.mlir" \
-  --plan-output "${AC_MEMORY_OUT}/dma.plan.json" \
-  --acir-opt "${AC_BUILD}/bin/acir-opt" \
-  --queue-plan-tool "${AC_BUILD}/bin/acir-queue-plan" \
-  --queue-cxxgen-tool "${AC_BUILD}/bin/acir-queue-cxxgen" \
-  --output "${AC_MEMORY_OUT}/dma.generated.cpp"
+acc.py --project examples/agentic-circuit/agentic-circuit.toml \
+  -c "$PWD/examples/agentic-circuit/memory/dma.py" \
+  -o "${AC_MEMORY_OUT}/dma.ac"
+acc -c "${AC_MEMORY_OUT}/dma.ac" -emit-cpp \
+  -o "${AC_MEMORY_OUT}/dma.generated.cpp"
 
 c++ \
   -std=c++20 \

@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import hashlib
 import json
 import os
 import shutil
@@ -195,17 +194,6 @@ class PrivateQueuePayloadRuntimeTest(unittest.TestCase):
             self.assertEqual(
                 "private_transform_tuple_v1",
                 cost_private["projection_profile"],
-            )
-            self.assertEqual(
-                "sha256:" + hashlib.sha256(plan_text.encode()).hexdigest(),
-                cost_report["identity"]["queuegraph_sha256"],
-            )
-            source_map_bytes = (
-                bundle / "share/generated/source-map.json"
-            ).read_bytes()
-            self.assertEqual(
-                "sha256:" + hashlib.sha256(source_map_bytes).hexdigest(),
-                cost_report["identity"]["source_map_sha256"],
             )
             gfsim_source = work / "gfsim.cpp"
             generated = self._run((self.cxxgen, frozen), cwd=ROOT)

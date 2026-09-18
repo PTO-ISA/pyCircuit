@@ -23,7 +23,6 @@
 #include "llvm/ADT/TypeSwitch.h"
 #include "llvm/Support/JSON.h"
 #include "llvm/Support/MathExtras.h"
-#include "llvm/Support/SHA256.h"
 
 #include <limits>
 #include <optional>
@@ -320,8 +319,8 @@ verifyTypedRuleSummary(Operation *operation, ValueRange inputs,
     effect.set("kind", RuleEffectKindAttr::get(operation->getContext(),
                                                RuleEffectKind::StateRead));
     effect.set("resource", get.getSlotAttr());
-    effect.set("guard_kind", RuleGuardKindAttr::get(
-                                 operation->getContext(), RuleGuardKind::Always));
+    effect.set("guard_kind", RuleGuardKindAttr::get(operation->getContext(),
+                                                    RuleGuardKind::Always));
     expectedEffects.push_back(builder.getDictionaryAttr(effect));
   });
   body.walk([&](SlotProposeReleaseOp release) {
@@ -329,9 +328,9 @@ verifyTypedRuleSummary(Operation *operation, ValueRange inputs,
     effect.set("kind", RuleEffectKindAttr::get(operation->getContext(),
                                                RuleEffectKind::StateWrite));
     effect.set("resource", release.getSlotAttr());
-    effect.set("guard_kind", RuleGuardKindAttr::get(
-                                 operation->getContext(),
-                                 guardKindFor(release.getWhen())));
+    effect.set("guard_kind",
+               RuleGuardKindAttr::get(operation->getContext(),
+                                      guardKindFor(release.getWhen())));
     expectedEffects.push_back(builder.getDictionaryAttr(effect));
   });
 
@@ -653,11 +652,12 @@ LogicalResult RuleOp::verify() {
     return emitOpError("permits at most one functional condition");
   SmallVector<RuleOutputOp> outputPaths;
   getBody().walk([&](RuleOutputOp output) { outputPaths.push_back(output); });
-  const bool hasPathEvidence = getOutputs().size() > 1 ||
-                               !outputPaths.empty() ||
-                               llvm::any_of(proposals, [](TableProposeOp op) {
-                                 return static_cast<bool>(op.getWhen());
-                               }) || !slotReleases.empty();
+  const bool hasPathEvidence =
+      getOutputs().size() > 1 || !outputPaths.empty() ||
+      llvm::any_of(
+          proposals,
+          [](TableProposeOp op) { return static_cast<bool>(op.getWhen()); }) ||
+      !slotReleases.empty();
   if (hasPathEvidence) {
     if (conditions != 1)
       return emitOpError("SSA path evidence requires one rule condition");
@@ -902,11 +902,12 @@ LogicalResult SourceOp::verify() {
     if (!declaration || !active.insert(declaration).second)
       return false;
     auto fields = declaration->getAttrOfType<ArrayAttr>("fields");
-    const bool found = fields && llvm::any_of(fields, [&](Attribute rawField) {
-      auto field = dyn_cast<DictionaryAttr>(rawField);
-      auto fieldType = field ? field.getAs<TypeAttr>("type") : TypeAttr();
-      return fieldType && containsDeclaredRange(fieldType.getValue());
-    });
+    const bool found =
+        fields && llvm::any_of(fields, [&](Attribute rawField) {
+          auto field = dyn_cast<DictionaryAttr>(rawField);
+          auto fieldType = field ? field.getAs<TypeAttr>("type") : TypeAttr();
+          return fieldType && containsDeclaredRange(fieldType.getValue());
+        });
     active.erase(declaration);
     return found;
   };
@@ -1310,9 +1311,8 @@ LogicalResult FiringOp::verify() {
   SmallVector<FiringConditionOp> conditions;
   getBody().walk(
       [&](TableProposeOp proposal) { proposals.push_back(proposal); });
-  getBody().walk([&](SlotProposeReleaseOp release) {
-    slotReleases.push_back(release);
-  });
+  getBody().walk(
+      [&](SlotProposeReleaseOp release) { slotReleases.push_back(release); });
   getBody().walk([&](TableGetOp read) { tableReads.push_back(read); });
   getBody().walk(
       [&](FiringConditionOp condition) { conditions.push_back(condition); });
@@ -1335,11 +1335,12 @@ LogicalResult FiringOp::verify() {
     if (output.getOrdinal() < 0 ||
         static_cast<size_t>(output.getOrdinal()) >= getOutputs().size())
       return output.emitOpError("ordinal must name one firing output");
-  const bool hasPathEvidence = getOutputs().size() > 1 ||
-                               !outputPaths.empty() ||
-                               llvm::any_of(proposals, [](TableProposeOp op) {
-                                 return static_cast<bool>(op.getWhen());
-                               }) || !slotReleases.empty();
+  const bool hasPathEvidence =
+      getOutputs().size() > 1 || !outputPaths.empty() ||
+      llvm::any_of(
+          proposals,
+          [](TableProposeOp op) { return static_cast<bool>(op.getWhen()); }) ||
+      !slotReleases.empty();
   if (hasPathEvidence) {
     if (conditions.size() != 1)
       return emitOpError("SSA path evidence requires one firing condition");
@@ -1450,9 +1451,8 @@ LogicalResult FiringOp::verify() {
             "inferred footprint must exactly match its state operation");
     }
   }
-  const bool validArity =
-      !getInputs().empty() || !getOutputs().empty() || !proposals.empty() ||
-      !slotReleases.empty();
+  const bool validArity = !getInputs().empty() || !getOutputs().empty() ||
+                          !proposals.empty() || !slotReleases.empty();
   if (conditions.empty() && requiresInferredSchedule) {
     return emitOpError("requires one typed functional condition");
   }
@@ -1903,26 +1903,6 @@ LogicalResult verifyUniqueEnumerants(EnumOp op) {
   return success();
 }
 
-std::string bitfieldFingerprint(int64_t width, ArrayAttr fields) {
-  std::string preimage;
-  llvm::raw_string_ostream stream(preimage);
-  stream << R"({"kind":"bitfield","version":1,"width":)" << width
-         << R"(,"fields":[)";
-  for (auto [index, attribute] : llvm::enumerate(fields)) {
-    DictionaryAttr field = cast<DictionaryAttr>(attribute);
-    if (index)
-      stream << ',';
-    stream << '['
-           << llvm::json::Value(cast<StringAttr>(field.get("name")).getValue())
-           << ',' << cast<IntegerAttr>(field.get("msb")).getInt() << ','
-           << cast<IntegerAttr>(field.get("lsb")).getInt() << ']';
-  }
-  stream << "]}";
-  llvm::SHA256 sha;
-  sha.update(stream.str());
-  return "sha256:" + llvm::toHex(sha.final(), /*LowerCase=*/true);
-}
-
 } // namespace
 
 DataLayoutSpecInterface TypeScopeOp::getDataLayoutSpec() {
@@ -1977,8 +1957,6 @@ LogicalResult BitfieldOp::verify() {
       return emitOpError() << "field '" << name.getValue()
                            << "' range must satisfy 0 <= lsb <= msb < width";
   }
-  if (getFingerprint() != bitfieldFingerprint(getWidth(), getFields()))
-    return emitOpError("fingerprint does not match canonical schema");
   return success();
 }
 
@@ -2028,10 +2006,9 @@ LogicalResult VarConstantOp::verify() {
   if (auto range = dyn_cast<RangeType>(result.getElementType())) {
     auto integer = dyn_cast_or_null<IntegerAttr>(value);
     const uint64_t upper = range.getUpper();
-    const unsigned width =
-        upper == std::numeric_limits<uint64_t>::max()
-            ? 64
-            : std::max(1u, llvm::Log2_64_Ceil(upper + 1));
+    const unsigned width = upper == std::numeric_limits<uint64_t>::max()
+                               ? 64
+                               : std::max(1u, llvm::Log2_64_Ceil(upper + 1));
     if (!integer || !integer.getType().isSignlessInteger(width) ||
         integer.getValue().getZExtValue() < range.getLower() ||
         integer.getValue().getZExtValue() > upper)
@@ -2199,7 +2176,8 @@ LogicalResult VarWithElementOp::verify() {
     return emitOpError("index must be an unsigned scalar");
   if (range && range.getUpper() >= static_cast<uint64_t>(array.getLength()))
     return emitOpError("bounded index exceeds the value_array length");
-  if (getValue().getType() != VarType::get(getContext(), array.getElementType()))
+  if (getValue().getType() !=
+      VarType::get(getContext(), array.getElementType()))
     return emitOpError("replacement must match the value_array element type");
   if (getResult().getType() != getAggregate().getType())
     return emitOpError("result must preserve the value_array type");
@@ -2221,8 +2199,8 @@ static bool supportsZeroImage(Operation *operation, Type type,
   Operation *declaration = recordDecl(operation, type);
   if (!declaration || !seen.insert(declaration).second)
     return false;
-  const bool supported = llvm::all_of(
-      declarationFields(declaration), [&](Attribute rawField) {
+  const bool supported =
+      llvm::all_of(declarationFields(declaration), [&](Attribute rawField) {
         return supportsZeroImage(
             operation, fieldType(cast<DictionaryAttr>(rawField)), seen);
       });
@@ -2259,10 +2237,9 @@ LogicalResult VarDeclOp::verify() {
   const bool zeroImage = zero && zero.getValue().isZero();
   if (auto range = dyn_cast<RangeType>(getValueType())) {
     const uint64_t upper = range.getUpper();
-    const unsigned width =
-        upper == std::numeric_limits<uint64_t>::max()
-            ? 64
-            : std::max(1u, llvm::Log2_64_Ceil(upper + 1));
+    const unsigned width = upper == std::numeric_limits<uint64_t>::max()
+                               ? 64
+                               : std::max(1u, llvm::Log2_64_Ceil(upper + 1));
     if (!zero || !zero.getType().isSignlessInteger(width) ||
         zero.getValue().getZExtValue() < range.getLower() ||
         zero.getValue().getZExtValue() > upper)
@@ -2273,8 +2250,8 @@ LogicalResult VarDeclOp::verify() {
     if ((!init || init.getType() != getValueType()) &&
         !(zeroImage && isa<StructType, EnumType>(getValueType()) &&
           supportsZeroImage(*this, getValueType(), seen)))
-      return emitOpError(
-          "init must match value type or be the zero image for a struct or enum");
+      return emitOpError("init must match value type or be the zero image for "
+                         "a struct or enum");
   }
   if (getOwner().empty() || !getOwner().starts_with('/') ||
       (getOwner().size() > 1 && getOwner().ends_with('/')))
@@ -2587,7 +2564,8 @@ struct CanonicalizeUnsignedPowerOfTwo final : OpRewritePattern<SourceOp> {
   LogicalResult matchAndRewrite(SourceOp operation,
                                 PatternRewriter &rewriter) const override {
     auto divisor = operation.getRhs().template getDefiningOp<VarConstantOp>();
-    auto value = divisor ? dyn_cast<IntegerAttr>(divisor.getValue()) : IntegerAttr();
+    auto value =
+        divisor ? dyn_cast<IntegerAttr>(divisor.getValue()) : IntegerAttr();
     if (!value || !value.getValue().isPowerOf2())
       return failure();
     auto resultType = cast<VarType>(operation.getResult().getType());
@@ -2596,11 +2574,11 @@ struct CanonicalizeUnsignedPowerOfTwo final : OpRewritePattern<SourceOp> {
     const uint64_t replacementValue =
         IsRemainder ? divisorValue - 1 : llvm::Log2_64(divisorValue);
     auto replacementConstant = VarConstantOp::create(
-        rewriter,
-        operation.getLoc(), resultType,
+        rewriter, operation.getLoc(), resultType,
         rewriter.getIntegerAttr(integerType, replacementValue));
-    auto replacement = TargetOp::create(rewriter, operation.getLoc(), resultType,
-                                        operation.getLhs(), replacementConstant);
+    auto replacement =
+        TargetOp::create(rewriter, operation.getLoc(), resultType,
+                         operation.getLhs(), replacementConstant);
     replacement->setDiscardableAttrs(operation->getDiscardableAttrDictionary());
     rewriter.replaceOp(operation, replacement.getResult());
     return success();
@@ -2907,25 +2885,17 @@ static FailureOr<std::pair<int64_t, int64_t>> bitfieldRange(BitfieldOp schema,
 static FailureOr<BitfieldOp> bitfieldProvenance(Operation *operation,
                                                 StringRef selectionAttribute) {
   Attribute schemaAttribute = operation->getAttr("ac.bitfield_schema");
-  Attribute fingerprintAttribute =
-      operation->getAttr("ac.bitfield_fingerprint");
   Attribute selection = operation->getAttr(selectionAttribute);
-  if (!schemaAttribute && !fingerprintAttribute && !selection)
+  if (!schemaAttribute && !selection)
     return BitfieldOp();
   auto reference = dyn_cast_or_null<SymbolRefAttr>(schemaAttribute);
-  auto fingerprint = dyn_cast_or_null<StringAttr>(fingerprintAttribute);
-  if (!reference || !fingerprint || !selection) {
-    operation->emitOpError(
-        "bitfield provenance requires schema, fingerprint, and selection");
+  if (!reference || !selection) {
+    operation->emitOpError("bitfield provenance requires schema and selection");
     return failure();
   }
   auto schema = dyn_cast_or_null<BitfieldOp>(lookup(operation, reference));
   if (!schema) {
     operation->emitOpError("bitfield schema reference does not resolve");
-    return failure();
-  }
-  if (fingerprint.getValue() != schema.getFingerprint()) {
-    operation->emitOpError("bitfield provenance fingerprint is stale");
     return failure();
   }
   return schema;
@@ -3039,8 +3009,8 @@ static bool isUnsignedScalar(Type type) {
 static LogicalResult verifyRangeConversion(Operation *operation, Value input,
                                            Value result) {
   Type inputElement = cast<VarType>(input.getType()).getElementType();
-  auto resultRange = dyn_cast<RangeType>(
-      cast<VarType>(result.getType()).getElementType());
+  auto resultRange =
+      dyn_cast<RangeType>(cast<VarType>(result.getType()).getElementType());
   if (!isUnsignedScalar(inputElement) || !resultRange)
     return operation->emitOpError(
         "range conversion requires unsigned scalar input and range result");
@@ -3069,8 +3039,8 @@ LogicalResult VarRangeRefineOp::verify() {
 }
 
 LogicalResult VarRangeBitsOp::verify() {
-  auto inputRange = dyn_cast<RangeType>(
-      cast<VarType>(getInput().getType()).getElementType());
+  auto inputRange =
+      dyn_cast<RangeType>(cast<VarType>(getInput().getType()).getElementType());
   auto resultInteger = dyn_cast<IntegerType>(
       cast<VarType>(getResult().getType()).getElementType());
   if (!inputRange || !resultInteger || !resultInteger.isSignless() ||
@@ -3083,12 +3053,12 @@ LogicalResult VarRangeBitsOp::verify() {
 static LogicalResult verifyRangeArithmetic(Operation *operation, Value lhs,
                                            Value rhs, Value result,
                                            bool subtract) {
-  auto left = dyn_cast<RangeType>(
-      cast<VarType>(lhs.getType()).getElementType());
-  auto right = dyn_cast<RangeType>(
-      cast<VarType>(rhs.getType()).getElementType());
-  auto actual = dyn_cast<RangeType>(
-      cast<VarType>(result.getType()).getElementType());
+  auto left =
+      dyn_cast<RangeType>(cast<VarType>(lhs.getType()).getElementType());
+  auto right =
+      dyn_cast<RangeType>(cast<VarType>(rhs.getType()).getElementType());
+  auto actual =
+      dyn_cast<RangeType>(cast<VarType>(result.getType()).getElementType());
   if (!left || !right || !actual)
     return operation->emitOpError(
         "bounded arithmetic requires range operands and result");
@@ -3345,6 +3315,16 @@ static std::string queueScopePath(Operation *operation) {
   return path.empty() ? "/" : path;
 }
 
+static MemoryInstanceOp resolveMemoryInstance(Operation *root,
+                                              FlatSymbolRefAttr reference) {
+  MemoryInstanceOp resolved;
+  root->walk([&](MemoryInstanceOp candidate) {
+    if (candidate.getSymName() == reference.getValue())
+      resolved = candidate;
+  });
+  return resolved;
+}
+
 LogicalResult MemoryInstanceOp::verify() {
   auto data = dyn_cast<IntegerType>(getDataType());
   if (!data || data.getWidth() == 0 || data.getWidth() > 64)
@@ -3493,18 +3473,13 @@ LogicalResult MemoryRequestOp::verify() {
   if (*data != dataType)
     return emitOpError("data must match result_field type");
 
-  Operation *root = getOperation();
-  while (root->getParentOp())
-    root = root->getParentOp();
   DenseSet<int64_t> ordinals;
   StringSet<> endpointPaths;
   Type payloadType;
   uint64_t maximumOrdinal = 0;
   unsigned endpointCount = 0;
   WalkResult endpointResult = root->walk([&](MemoryRequestOp request) {
-    auto resolved =
-        dyn_cast_or_null<MemoryInstanceOp>(SymbolTable::lookupNearestSymbolFrom(
-            request, request.getInstanceAttr()));
+    auto resolved = resolveMemoryInstance(root, request.getInstanceAttr());
     if (resolved != instance)
       return WalkResult::advance();
     ++endpointCount;
@@ -3762,26 +3737,6 @@ static SmallVector<int64_t> canonicalTableStrides(ArrayRef<int64_t> shape) {
   return strides;
 }
 
-static std::string
-canonicalTableSchemaId(TableOp table, ArrayRef<int64_t> shape,
-                       std::string *canonicalBytes = nullptr) {
-  std::string entry;
-  llvm::raw_string_ostream entryStream(entry);
-  entryStream << table.getEntryType();
-  std::string preimage;
-  llvm::raw_string_ostream stream(preimage);
-  stream << R"({"entry":)" << llvm::json::Value(entryStream.str())
-         << R"(,"layout":"row_major","layout_version":1,"shape":[)";
-  llvm::interleave(shape, stream, ",");
-  stream << "]}";
-  stream.flush();
-  if (canonicalBytes)
-    *canonicalBytes = preimage;
-  llvm::SHA256 sha;
-  sha.update(preimage);
-  return "sha256:" + llvm::toHex(sha.final(), /*LowerCase=*/true);
-}
-
 static LogicalResult verifyTableInitValue(Operation *anchor, Type type,
                                           Attribute value) {
   if (auto integer = dyn_cast<IntegerType>(type)) {
@@ -3845,14 +3800,12 @@ LogicalResult TableOp::verify() {
     return emitOpError("entries must be positive");
   const bool hasTypedSchema = getShapeAttr() || getAxisWidthsAttr() ||
                               getLayoutAttr() || getLayoutVersionAttr() ||
-                              getSchemaIdAttr() || getInitVersionAttr() ||
-                              getInitImageAttr();
-  if (hasTypedSchema &&
-      (!getShapeAttr() || !getAxisWidthsAttr() || !getLayoutAttr() ||
-       !getLayoutVersionAttr() || !getSchemaIdAttr()))
+                              getInitVersionAttr() || getInitImageAttr();
+  if (hasTypedSchema && (!getShapeAttr() || !getAxisWidthsAttr() ||
+                         !getLayoutAttr() || !getLayoutVersionAttr()))
     return emitOpError(
         "typed Table schema requires shape, axis_widths, layout, "
-        "layout_version, and schema_id");
+        "and layout_version");
   auto shape = canonicalTableShape(*this);
   if (failed(shape))
     return emitOpError("shape must be a non-empty tuple of positive extents");
@@ -3871,13 +3824,6 @@ LogicalResult TableOp::verify() {
       if (width != canonicalTableIndexWidth(extent))
         return emitOpError(
             "axis_widths must be the canonical unsigned widths for shape");
-    std::string schemaBytes;
-    std::string expectedSchemaId =
-        canonicalTableSchemaId(*this, *shape, &schemaBytes);
-    if (getSchemaId() != expectedSchemaId)
-      return emitOpError()
-             << "schema_id does not match canonical Table schema; expected "
-             << expectedSchemaId << " for " << schemaBytes;
   }
   const uint64_t scalarInit = static_cast<uint64_t>(getInit());
   if (scalarInit != 0) {
@@ -4046,9 +3992,8 @@ LogicalResult TableIndexOp::verify() {
     Type element = cast<VarType>(coordinate.getType()).getElementType();
     auto type = dyn_cast<IntegerType>(element);
     auto range = dyn_cast<RangeType>(element);
-    if ((!range &&
-         (!type || !type.isSignless() ||
-          type.getWidth() != canonicalTableIndexWidth(extent))) ||
+    if ((!range && (!type || !type.isSignless() ||
+                    type.getWidth() != canonicalTableIndexWidth(extent))) ||
         (range && range.getUpper() >= static_cast<uint64_t>(extent)))
       return emitOpError(
           "coordinate type must use the canonical unsigned axis width or a "

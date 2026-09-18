@@ -42,9 +42,9 @@ decisions, historical evidence, and verification:
 - [`VER-PYC-VERILOG-001`](../../development/acir/verification/pyc-verilog-backend.md) records the
   integrated PYC-to-Verilog bridge and its executable fixtures.
 - [IR coverage ledger](../../development/acir/verification/ir-coverage.md) is generated from the
-  current ACIR/ACSim manifests and lit coverage.
+  current ACIR operation inventory and lit coverage.
 
 Product releases are represented by Git tags and GitHub Releases. The source
 tree does not retain product-version or implementation-phase paths, aliases,
-or compatibility symlinks. Serialized contract epochs and external dependency
-pins remain versioned where interoperability and reproducibility require them.
+or compatibility symlinks. Release compatibility is selected by the external
+package/source revision; IR does not carry a release epoch.

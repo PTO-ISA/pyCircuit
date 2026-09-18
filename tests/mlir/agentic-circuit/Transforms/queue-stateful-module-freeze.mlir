@@ -6,7 +6,6 @@
 // RUN: %cxx -std=c++20 -I%source_root/simulator/gfsim/include -fsyntax-only %t.cpp
 
 builtin.module attributes {
-  ac.contract_epoch = "0.5",
   ac.model_kind = "queue_graph",
   ac.queue_graph_domain = "cycle"
 } {
@@ -93,18 +92,14 @@ builtin.module attributes {
 }
 
 // FROZEN: ac.module @Accumulator
-// FROZEN-SAME: ac.definition_fingerprint = "[[DEFINITION:sha256:[0-9a-f]{64}]]"
 // FROZEN: ac.instance @left of @Accumulator
-// FROZEN-SAME: ac.specialization = "[[SPECIALIZATION:sha256:[0-9a-f]{64}]]"
 // FROZEN: ac.instance @right of @Accumulator
-// FROZEN-SAME: ac.specialization = "[[SPECIALIZATION]]"
 
 // PLAN: "activation_edges":[
 // PLAN-SAME: "definition":"Top"
 // PLAN-SAME: "module_instances":[{"definition":"Accumulator"
-// PLAN-SAME: "specialization":"[[PLAN_SPECIALIZATION:sha256:[0-9a-f]{64}]]"
 // PLAN-SAME: {"definition":"Accumulator"
-// PLAN-SAME: "specialization":"[[PLAN_SPECIALIZATION]]"
+// PLAN-SAME: "specialization":"@Accumulator{}"
 // PLAN-SAME: "module_specializations":[{
 // PLAN-SAME: "activation_edges":[
 // PLAN-SAME: "kind":"enum_constant"
@@ -114,7 +109,7 @@ builtin.module attributes {
 // PLAN-SAME: "name":"sum"
 // PLAN: "work_closure_edges":[
 
-// CXX-COUNT-1: class [[IMPLEMENTATION:Module_Accumulator]] final : public gfsim::Module
+// CXX-COUNT-1: class [[IMPLEMENTATION:Accumulator]] final : public gfsim::Module
 // CXX: gfsim::SimTable<gfsim::UInt<8>> state_sum_;
 // CXX: gfsim::QueueTableTransition<
 // CXX: class StatefulReuse final : public gfsim::Module

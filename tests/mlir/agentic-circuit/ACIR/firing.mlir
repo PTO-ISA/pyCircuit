@@ -2,7 +2,7 @@
 // RUN: %acir_opt --emit-bytecode -o %t.bc %s
 // RUN: %acir_opt %t.bc | %FileCheck %s
 
-builtin.module attributes {ac.contract_epoch = "0.5"} {
+builtin.module  {
   %input = "builtin.unrealized_conversion_cast"() : () -> !ac.queue<i32>
   %output = ac.firing %input depths [2] latencies [1]
       stable_id "increment" domain "cycle" {

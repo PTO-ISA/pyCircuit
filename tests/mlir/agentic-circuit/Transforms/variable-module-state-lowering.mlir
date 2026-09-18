@@ -6,18 +6,17 @@
 // RUN: %cxx -std=c++20 -I%source_root/simulator/gfsim/include -fsyntax-only %t.cpp
 // RUN: rm -rf %t.bundle
 // RUN: %acir_queue_cxxgen %t.frozen.mlir --output-root=%t.bundle --sdk-product-version=6.0.0 --sdk-source-revision=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
-// RUN: %FileCheck %s --check-prefix=BUNDLE-H < %t.bundle/include/generated/modules/Module_Accumulator.h
-// RUN: %FileCheck %s --check-prefix=BUNDLE-CPP < %t.bundle/src/generated/modules/Module_Accumulator.cpp
+// RUN: %FileCheck %s --check-prefix=BUNDLE-H < %t.bundle/include/generated/modules/Accumulator.h
+// RUN: %FileCheck %s --check-prefix=BUNDLE-CPP < %t.bundle/src/generated/modules/Accumulator.cpp
 // RUN: %FileCheck %s --check-prefix=BUNDLE-ROOT < %t.bundle/src/generated/queuegraph.cpp
 // RUN: %FileCheck %s --check-prefix=BUNDLE-TYPE < %t.bundle/include/generated/types/Mode.h
 // RUN: %FileCheck %s --check-prefix=BUNDLE-HELPER < %t.bundle/src/generated/helpers/queuegraph_helpers.cpp
-// RUN: %cxx -std=c++20 -I%source_root/simulator/gfsim/include -I%t.bundle/include -c %t.bundle/src/generated/modules/Module_Accumulator.cpp -o %t.module.o
+// RUN: %cxx -std=c++20 -I%source_root/simulator/gfsim/include -I%t.bundle/include -c %t.bundle/src/generated/modules/Accumulator.cpp -o %t.module.o
 // RUN: %cxx -std=c++20 -I%source_root/simulator/gfsim/include -I%t.bundle/include -c %t.bundle/src/generated/helpers/queuegraph_helpers.cpp -o %t.helper.o
 // RUN: %cxx -std=c++20 -I%source_root/simulator/gfsim/include -I%t.bundle/include -c %t.bundle/src/generated/queuegraph.cpp -o %t.queuegraph.o
 // RUN: %cxx -std=c++20 -I%source_root/simulator/gfsim/include -I%t.bundle/include -c %t.bundle/src/generated/model.cpp -o %t.model.o
 
 builtin.module attributes {
-  ac.contract_epoch = "0.5",
   ac.model_kind = "queue_graph",
   ac.queue_graph_domain = "cycle"
 } {
@@ -84,21 +83,21 @@ builtin.module attributes {
 // PLAN-SAME: "tables":[{"axis_widths":[1],"entries":1
 // PLAN-SAME: "name":"total"
 
-// CXX-COUNT-1: class [[IMPLEMENTATION:Module_Accumulator]] final : public gfsim::Module
+// CXX-COUNT-1: class [[IMPLEMENTATION:Accumulator]] final : public gfsim::Module
 // CXX: gfsim::SimTable<gfsim::UInt<8>> state_total_;
 // CXX-COUNT-2: [[IMPLEMENTATION]] instance_
 
 // BUNDLE-H: #include "generated/modules/queuegraph_types.h"
-// BUNDLE-H: class Module_Accumulator final : public gfsim::Module
+// BUNDLE-H: class Accumulator final : public gfsim::Module
 // BUNDLE-H: gfsim::SimTable<gfsim::UInt<8>> state_total_;
 
-// BUNDLE-CPP: #include "generated/modules/Module_Accumulator.h"
-// BUNDLE-CPP: Module_Accumulator::Module_Accumulator(
-// BUNDLE-CPP: Module_Accumulator::dispatch_row(
+// BUNDLE-CPP: #include "generated/modules/Accumulator.h"
+// BUNDLE-CPP: [[CLASS:Accumulator]]::[[CLASS]](
+// BUNDLE-CPP: [[CLASS]]::dispatch_row(
 
 // BUNDLE-ROOT: #include "generated/modules/queuegraph_types.h"
-// BUNDLE-ROOT: #include "generated/modules/Module_Accumulator.h"
-// BUNDLE-ROOT: Module_Accumulator instance_
+// BUNDLE-ROOT: #include "generated/modules/Accumulator.h"
+// BUNDLE-ROOT: Accumulator instance_
 
 // BUNDLE-TYPE: enum class Mode
 

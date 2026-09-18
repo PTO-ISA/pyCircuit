@@ -2,7 +2,7 @@
 // RUN: %acir_opt --emit-bytecode -o %t.bc %s
 // RUN: %acir_opt %t.bc | %FileCheck %s
 
-builtin.module attributes {ac.contract_epoch = "0.5"} {
+builtin.module  {
   ac.type_scope @types {
     ac.enum @Mode enumerants ["idle", "run", "wait"]
     ac.enum @Opcode enumerants ["none", "read", "write"] values [0 : i64, 3 : i64, 9 : i64] width 4

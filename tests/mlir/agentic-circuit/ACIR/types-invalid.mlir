@@ -16,42 +16,39 @@
 // MALFORMED-TOPOLOGY: error: expected ','
 
 //--- channel-standalone.mlir
-builtin.module attributes {ac.contract_epoch = "0.5"} {
+builtin.module  {
   "builtin.unrealized_conversion_cast"() : () -> !ac.channel<i8, @ready_valid>
 }
 
 //--- channel-tuple.mlir
-builtin.module attributes {ac.contract_epoch = "0.5"} {
+builtin.module  {
   "builtin.unrealized_conversion_cast"() : () -> tuple<i8, tuple<!ac.channel<i8, @ready_valid>>>
 }
 
 //--- channel-function.mlir
 builtin.module attributes {
-  ac.contract_epoch = "0.5",
   test.signature = (i8) -> !ac.channel<i8, @ready_valid>
 } {
 }
 
 //--- channel-type-attr.mlir
 builtin.module attributes {
-  ac.contract_epoch = "0.5",
   test.type = !ac.channel<i8, @ready_valid>
 } {
 }
 
 //--- channel-composite-attr.mlir
 builtin.module attributes {
-  ac.contract_epoch = "0.5",
   test.types = [tuple<i8, !ac.channel<i8, @ready_valid>>]
 } {
 }
 
 //--- malformed-named.mlir
-builtin.module attributes {ac.contract_epoch = "0.5"} {
+builtin.module  {
   "builtin.unrealized_conversion_cast"() : () -> !ac.struct<i8>
 }
 
 //--- malformed-topology.mlir
-builtin.module attributes {ac.contract_epoch = "0.5"} {
+builtin.module  {
   "builtin.unrealized_conversion_cast"() : () -> !ac.flow<i8>
 }\n

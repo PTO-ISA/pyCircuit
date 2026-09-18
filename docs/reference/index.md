@@ -44,6 +44,7 @@ selection; top-level `mux()` is CycleAware and always returns a CAS.
 ## Reference documents
 
 - [V6 language specification](language.md)
+- [Source, MLIR, and generated C++ naming](name-mangling.md)
 - [Frontend API details](frontend-api.md)
 - [Testbench API](testbench.md)
 - [Primitive reference](primitives.md)

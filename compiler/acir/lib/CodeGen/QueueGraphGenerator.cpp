@@ -85,11 +85,40 @@ interfaceParameterNames(const QueueGraphPlan &specialization,
   return result;
 }
 
+void emitNdfComments(std::ostringstream &output,
+                     llvm::ArrayRef<std::string> ids,
+                     llvm::ArrayRef<std::string> requiredIds) {
+  auto emit = [&](llvm::StringRef label, llvm::ArrayRef<std::string> values) {
+    if (values.empty())
+      return;
+    output << "// " << label.str() << ": ";
+    for (auto [index, value] : llvm::enumerate(values)) {
+      if (index)
+        output << ", ";
+      output << value;
+    }
+    output << "\n";
+  };
+  emit("ndf", ids);
+  emit("ndf-requires", requiredIds);
+}
+
+void emitDefinitionProvenance(std::ostringstream &output,
+                              const QueueGraphPlan &plan) {
+  if (!plan.definition.empty())
+    output << "// definition: " << plan.definition << "\n";
+  emitNdfComments(output, plan.ndfIds, plan.ndfRequires);
+  if (!plan.sourceFile.empty())
+    output << "// source: " << plan.sourceFile << ':' << plan.sourceLine << ':'
+           << plan.sourceColumn << "\n";
+}
+
 void emitRuleProvenance(std::ostringstream &output,
                         const QueueBlockPlan &block) {
   output << "// rule: "
          << (block.displayRuleName.empty() ? block.name : block.displayRuleName)
          << "; stable_id: " << block.stableId << "\n";
+  emitNdfComments(output, block.ndfIds, block.ndfRequires);
   if (!block.sourceFile.empty())
     output << "// source: " << block.sourceFile << ':' << block.sourceLine
            << ':' << block.sourceColumn << "\n";
@@ -2140,8 +2169,10 @@ struct StructuredQueueGraphCpp {
   std::string helperDeclarations;
   std::string helperDefinitions;
   struct ModuleUnit {
+    std::string fileStem;
     std::string className;
-    std::vector<std::string> childClassNames;
+    std::vector<std::string> childFileStems;
+    std::string provenance;
     std::string header;
     std::string source;
   };
@@ -2420,7 +2451,7 @@ generateStructuredQueueGraphCpp(const QueueGraphPlan &plan) {
       continue;
     }
     if (!scheduledSpecializations
-             .insert(frame.specialization->specializationFingerprint)
+             .insert(frame.specialization->specializationKey)
              .second)
       continue;
     pending.push_back({frame.specialization, true});
@@ -2516,7 +2547,7 @@ generateStructuredQueueGraphCpp(const QueueGraphPlan &plan) {
         return generatorError(
             "first multi-rule specialization slice requires direct interface "
             "Queue bindings");
-    specializations[specialization->specializationFingerprint] = specialization;
+    specializations[specialization->specializationKey] = specialization;
   }
 
   for (const QueueBlockPlan &block : plan.blocks)
@@ -2526,32 +2557,49 @@ generateStructuredQueueGraphCpp(const QueueGraphPlan &plan) {
           "first structured QueueGraph root supports source, broadcast, "
           "sink, and observe blocks");
 
-  llvm::StringMap<std::vector<const QueueGraphPlan *>> readableClasses;
-  for (const QueueGraphPlan *specialization : emissionOrder)
-    readableClasses["Module_" + className(specialization->definition)]
-        .push_back(specialization);
   llvm::StringMap<std::string> specializationClassNames;
   llvm::StringSet<> resolvedClassNames;
-  for (const auto &entry : readableClasses) {
-    for (const QueueGraphPlan *specialization : entry.getValue()) {
-      std::string resolved = entry.getKey().str();
-      if (entry.getValue().size() > 1) {
-        llvm::StringRef fingerprint(specialization->specializationFingerprint);
-        fingerprint.consume_front("sha256:");
-        resolved += "_s" + fingerprint.take_front(16).str();
-      }
-      if (!resolvedClassNames.insert(resolved).second)
-        return generatorError(
-            "readable specialization class names collide after local "
-            "fingerprint disambiguation");
-      specializationClassNames[specialization->specializationFingerprint] =
-          std::move(resolved);
-    }
+  for (const QueueGraphPlan *specialization : emissionOrder) {
+    std::string resolved = className(specialization->definition);
+    for (const auto &[name, value] : specialization->specializationParameters)
+      resolved.append("_")
+          .append(legalizeQueueGraphIdentifier(name))
+          .append("_")
+          .append(legalizeQueueGraphIdentifier(value));
+    if (!resolvedClassNames.insert(resolved).second)
+      return generatorError(
+          "parameter-derived specialization class names collide; make the "
+          "MLIR specialization parameters explicit");
+    specializationClassNames[specialization->specializationKey] =
+        std::move(resolved);
   }
   auto specializationClassName =
       [&](const QueueGraphPlan &specialization) -> std::string {
     return specializationClassNames.lookup(
-        specialization.specializationFingerprint);
+        specialization.specializationKey);
+  };
+  llvm::StringMap<std::string> specializationFileStems;
+  llvm::StringMap<std::string> portableFileDefinitions;
+  for (const QueueGraphPlan *specialization : emissionOrder) {
+    const std::string fileStem =
+        legalizeQueueGraphIdentifier(specialization->definition);
+    std::string portableKey = fileStem;
+    for (char &character : portableKey)
+      if (character >= 'A' && character <= 'Z')
+        character = static_cast<char>(character - 'A' + 'a');
+    auto [entry, inserted] = portableFileDefinitions.try_emplace(
+        portableKey, specialization->definition);
+    if (!inserted && entry->getValue() != specialization->definition)
+      return generatorError(
+          "portable readable module file names collide; rename one Python "
+          "definition");
+    specializationFileStems[specialization->specializationKey] =
+        fileStem;
+  }
+  auto specializationFileStem =
+      [&](const QueueGraphPlan &specialization) -> std::string {
+    return specializationFileStems.lookup(
+        specialization.specializationKey);
   };
   llvm::StringMap<uint64_t> specializationObjectCounts;
   for (const QueueGraphPlan *specialization : emissionOrder) {
@@ -2566,18 +2614,18 @@ generateStructuredQueueGraphCpp(const QueueGraphPlan &plan) {
     for (const QueueModuleInstancePlan &instance :
          specialization->moduleInstances) {
       auto child =
-          specializationObjectCounts.find(instance.specializationFingerprint);
+          specializationObjectCounts.find(instance.specializationKey);
       if (child == specializationObjectCounts.end())
         return generatorError(
             "nested specialization object count dependency is unavailable");
       count += child->getValue();
     }
-    specializationObjectCounts[specialization->specializationFingerprint] =
+    specializationObjectCounts[specialization->specializationKey] =
         count;
   }
   auto specializationObjectCount = [&](const QueueGraphPlan &specialization) {
     return specializationObjectCounts.lookup(
-        specialization.specializationFingerprint);
+        specialization.specializationKey);
   };
 
   llvm::StringMap<std::string> queueMembers;
@@ -2647,7 +2695,7 @@ generateStructuredQueueGraphCpp(const QueueGraphPlan &plan) {
       const QueueModuleInstancePlan &instance =
           plan.moduleInstances[item.instanceIndex];
       const QueueGraphPlan *specialization =
-          specializations.lookup(instance.specializationFingerprint);
+          specializations.lookup(instance.specializationKey);
       for (uint64_t index = 0;
            index < specializationObjectCount(*specialization); ++index)
         instanceObjectIds[item.instanceIndex].push_back(nextId++);
@@ -2827,7 +2875,7 @@ generateStructuredQueueGraphCpp(const QueueGraphPlan &plan) {
     for (const QueueModuleInstancePlan &instance :
          specialization.moduleInstances) {
       const QueueGraphPlan *child =
-          specializations.lookup(instance.specializationFingerprint);
+          specializations.lookup(instance.specializationKey);
       if (!child)
         return generatorError("nested activation specialization is missing");
       const uint64_t childCount = specializationObjectCount(*child);
@@ -2858,7 +2906,7 @@ generateStructuredQueueGraphCpp(const QueueGraphPlan &plan) {
   };
   for (auto [instanceIndex, instance] : llvm::enumerate(plan.moduleInstances)) {
     const QueueGraphPlan *specialization =
-        specializations.lookup(instance.specializationFingerprint);
+        specializations.lookup(instance.specializationKey);
     if (!specialization)
       return generatorError("activation specialization is missing");
     llvm::StringMap<uint64_t> bindings;
@@ -2897,7 +2945,7 @@ generateStructuredQueueGraphCpp(const QueueGraphPlan &plan) {
     workClosureOffsets[index] += workClosureOffsets[index - 1];
 
   std::ostringstream output;
-  output << "// Generated from hierarchy-preserving frozen ACIR QueueGraph "
+  output << "// Generated from hierarchy-preserving verified ACIR QueueGraph "
             "plan; do not edit.\n"
             "#include \"gfsim/bits.h\"\n"
             "#include \"gfsim/dispatch.h\"\n"
@@ -3002,8 +3050,10 @@ generateStructuredQueueGraphCpp(const QueueGraphPlan &plan) {
     return std::move(error);
   output << helperOutput.str();
   struct ModuleSpan {
+    std::string fileStem;
     std::string className;
-    std::vector<std::string> childClassNames;
+    std::vector<std::string> childFileStems;
+    std::string provenance;
     std::size_t begin = 0;
     std::size_t end = 0;
   };
@@ -3623,7 +3673,7 @@ generateStructuredQueueGraphCpp(const QueueGraphPlan &plan) {
     for (auto [instanceIndex, instance] :
          llvm::enumerate(specialization.moduleInstances)) {
       const QueueGraphPlan *child =
-          specializations.lookup(instance.specializationFingerprint);
+          specializations.lookup(instance.specializationKey);
       if (!child)
         return generatorError("nested wrapper child specialization is missing");
       const uint64_t childCount = specializationObjectCount(*child);
@@ -3650,7 +3700,7 @@ generateStructuredQueueGraphCpp(const QueueGraphPlan &plan) {
     for (auto [instanceIndex, instance] :
          llvm::enumerate(specialization.moduleInstances)) {
       const QueueGraphPlan *child =
-          specializations.lookup(instance.specializationFingerprint);
+          specializations.lookup(instance.specializationKey);
       const uint64_t childCount = specializationObjectCount(*child);
       output << "    if (index < " << objectOffset + childCount
              << ") return child_" << instanceIndex << "_.dispatch_row(index - "
@@ -3661,7 +3711,7 @@ generateStructuredQueueGraphCpp(const QueueGraphPlan &plan) {
     for (auto [instanceIndex, instance] :
          llvm::enumerate(specialization.moduleInstances)) {
       const QueueGraphPlan *child =
-          specializations.lookup(instance.specializationFingerprint);
+          specializations.lookup(instance.specializationKey);
       output << "  " << specializationClassName(*child) << " child_"
              << instanceIndex << "_;\n";
     }
@@ -3756,7 +3806,7 @@ generateStructuredQueueGraphCpp(const QueueGraphPlan &plan) {
     for (auto [instanceIndex, instance] :
          llvm::enumerate(specialization.moduleInstances)) {
       const QueueGraphPlan *child =
-          specializations.lookup(instance.specializationFingerprint);
+          specializations.lookup(instance.specializationKey);
       if (!child)
         return generatorError("mixed nested child specialization is missing");
       const uint64_t childCount = specializationObjectCount(*child);
@@ -3791,7 +3841,7 @@ generateStructuredQueueGraphCpp(const QueueGraphPlan &plan) {
     for (auto [instanceIndex, instance] :
          llvm::enumerate(specialization.moduleInstances)) {
       const QueueGraphPlan *child =
-          specializations.lookup(instance.specializationFingerprint);
+          specializations.lookup(instance.specializationKey);
       const uint64_t childCount = specializationObjectCount(*child);
       output << "    if (index < " << childOffset + childCount
              << ") return child_" << instanceIndex << "_.dispatch_row(index - "
@@ -3807,7 +3857,7 @@ generateStructuredQueueGraphCpp(const QueueGraphPlan &plan) {
     for (auto [instanceIndex, instance] :
          llvm::enumerate(specialization.moduleInstances)) {
       const QueueGraphPlan *child =
-          specializations.lookup(instance.specializationFingerprint);
+          specializations.lookup(instance.specializationKey);
       output << "  " << specializationClassName(*child) << " child_"
              << instanceIndex << "_;\n";
     }
@@ -3817,18 +3867,23 @@ generateStructuredQueueGraphCpp(const QueueGraphPlan &plan) {
 
   for (const QueueGraphPlan *specialization : emissionOrder) {
     const std::string implementation = specializationClassName(*specialization);
-    std::vector<std::string> childClassNames;
+    const std::string fileStem = specializationFileStem(*specialization);
+    std::vector<std::string> childFileStems;
     for (const QueueModuleInstancePlan &instance :
          specialization->moduleInstances) {
       const QueueGraphPlan *child =
-          specializations.lookup(instance.specializationFingerprint);
+          specializations.lookup(instance.specializationKey);
       if (!child)
         return generatorError("specialization child is missing");
-      childClassNames.push_back(specializationClassName(*child));
+      childFileStems.push_back(specializationFileStem(*child));
     }
     const std::size_t begin = static_cast<std::size_t>(output.tellp());
+    std::ostringstream provenance;
+    emitDefinitionProvenance(provenance, *specialization);
+    output << provenance.str();
     auto recordModule = [&]() -> llvm::Error {
-      moduleSpans.push_back({implementation, childClassNames, begin,
+      moduleSpans.push_back({fileStem, implementation, childFileStems,
+                             provenance.str(), begin,
                              static_cast<std::size_t>(output.tellp())});
       return llvm::Error::success();
     };
@@ -4005,6 +4060,7 @@ generateStructuredQueueGraphCpp(const QueueGraphPlan &plan) {
 
   const std::size_t rootBegin = static_cast<std::size_t>(output.tellp());
   const std::string modelClass = className(plan.system);
+  emitDefinitionProvenance(output, plan);
   output << "class " << modelClass
          << " final : public gfsim::Module {\npublic:\n  " << modelClass
          << "() : gfsim::Module(\"" << plan.system
@@ -4036,7 +4092,7 @@ generateStructuredQueueGraphCpp(const QueueGraphPlan &plan) {
   }
   for (auto [index, instance] : llvm::enumerate(plan.moduleInstances)) {
     const QueueGraphPlan *specialization =
-        specializations.lookup(instance.specializationFingerprint);
+        specializations.lookup(instance.specializationKey);
     if (!specialization)
       return generatorError("structured module specialization is missing");
     auto parent = modulePointer(instance.scope);
@@ -4188,7 +4244,7 @@ generateStructuredQueueGraphCpp(const QueueGraphPlan &plan) {
     for (const QueueModuleInstancePlan &instance :
          specialization.moduleInstances) {
       const QueueGraphPlan *child =
-          specializations.lookup(instance.specializationFingerprint);
+          specializations.lookup(instance.specializationKey);
       if (!child)
         continue;
       const size_t count = specializationObjectCount(*child);
@@ -4198,7 +4254,7 @@ generateStructuredQueueGraphCpp(const QueueGraphPlan &plan) {
   };
   for (auto [index, instance] : llvm::enumerate(plan.moduleInstances)) {
     const QueueGraphPlan *specialization =
-        specializations.lookup(instance.specializationFingerprint);
+        specializations.lookup(instance.specializationKey);
     if (specialization)
       collectNestedArbitration(*specialization, instanceObjectIds[index]);
   }
@@ -4217,7 +4273,7 @@ generateStructuredQueueGraphCpp(const QueueGraphPlan &plan) {
       const QueueModuleInstancePlan &instance =
           plan.moduleInstances[item.instanceIndex];
       const QueueGraphPlan *specialization =
-          specializations.lookup(instance.specializationFingerprint);
+          specializations.lookup(instance.specializationKey);
       for (uint64_t index = 0;
            index < specializationObjectCount(*specialization); ++index)
         output << "        instance_" << item.instanceIndex << "_.dispatch_row("
@@ -4310,7 +4366,7 @@ generateStructuredQueueGraphCpp(const QueueGraphPlan &plan) {
   }
   for (auto [index, instance] : llvm::enumerate(plan.moduleInstances)) {
     const QueueGraphPlan *specialization =
-        specializations.lookup(instance.specializationFingerprint);
+        specializations.lookup(instance.specializationKey);
     output << "  " << specializationClassName(*specialization) << " instance_"
            << index << "_;\n";
   }
@@ -4343,9 +4399,9 @@ generateStructuredQueueGraphCpp(const QueueGraphPlan &plan) {
         llvm::StringRef(result.concatenated).slice(span.begin, span.end));
     if (!outlined)
       return outlined.takeError();
-    result.modules.push_back({span.className, span.childClassNames,
-                              std::move(outlined->first),
-                              std::move(outlined->second)});
+    result.modules.push_back(
+        {span.fileStem, span.className, span.childFileStems, span.provenance,
+         std::move(outlined->first), std::move(outlined->second)});
   }
   llvm::StringRef root(result.concatenated);
   root = root.drop_front(rootBegin);
@@ -4533,9 +4589,9 @@ llvm::Expected<std::string> generateQueueGraphCpp(const QueueGraphPlan &plan) {
   }
 
   std::ostringstream output;
-  output << "// Generated from frozen ACIR QueueGraph plan; do not edit.\n";
-  if (!plan.specializationFingerprint.empty())
-    output << "// Specialization: " << plan.specializationFingerprint << "\n";
+  output << "// Generated from verified ACIR QueueGraph plan; do not edit.\n";
+  if (!plan.specializationKey.empty())
+    output << "// Specialization: " << plan.specializationKey << "\n";
   output << "#include \"gfsim/bits.h\"\n"
             "#include \"gfsim/dispatch.h\"\n"
             "#include \"gfsim/object.h\"\n"
@@ -5420,6 +5476,9 @@ llvm::Expected<std::string> generateQueueGraphCpp(const QueueGraphPlan &plan) {
           return type.takeError();
         outputTypes.push_back(std::move(*type));
       }
+      if (!block->displayRuleName.empty() || !block->ndfIds.empty() ||
+          !block->ndfRequires.empty())
+        emitRuleProvenance(output, *block);
       output << "struct block_" << index << "_policy {\n  std::tuple<";
       for (auto [typeIndex, type] : llvm::enumerate(outputTypes)) {
         if (typeIndex)
@@ -5461,6 +5520,9 @@ llvm::Expected<std::string> generateQueueGraphCpp(const QueueGraphPlan &plan) {
     std::string policy =
         "block_" + std::to_string(index) +
         (block->kind == "feedback" ? "_update_policy" : "_policy");
+    if (!block->displayRuleName.empty() || !block->ndfIds.empty() ||
+        !block->ndfRequires.empty())
+      emitRuleProvenance(output, *block);
     output << "struct " << policy << " {\n  ";
     if (block->kind == "route" || block->kind == "select")
       output << "size_t";
@@ -5562,6 +5624,7 @@ llvm::Expected<std::string> generateQueueGraphCpp(const QueueGraphPlan &plan) {
   }
 
   std::string modelClass = className(plan.system);
+  emitDefinitionProvenance(output, plan);
   output << "class " << modelClass
          << " final : public gfsim::Module {\npublic:\n  " << modelClass
          << "() : gfsim::Module(\"" << plan.system
@@ -6659,8 +6722,8 @@ generateQueueGraphModelBundle(const QueueGraphPlan &plan,
     queueGraphSource << "#include \"generated/modules/queuegraph_types.h\"\n";
     llvm::StringSet<> included;
     for (const auto &unit : structured->modules)
-      if (included.insert(unit.className).second)
-        queueGraphSource << "#include \"generated/modules/" << unit.className
+      if (included.insert(unit.fileStem).second)
+        queueGraphSource << "#include \"generated/modules/" << unit.fileStem
                          << ".h\"\n";
     queueGraphSource << "\nnamespace ac_generated {\n\n"
                      << structured->rootClass
@@ -7073,9 +7136,7 @@ agentic_model_query_v1(void) {
   const std::string queueGraphBytes = *canonicalQueueGraph + "\n";
   const std::string sourceMapBytes = *sourceMap + "\n";
   auto costReport = generateQueueGraphCostReport(
-      plan, options.sdkProductVersion, options.sdkSourceRevision,
-      bindings::sha256Fingerprint(queueGraphBytes),
-      bindings::sha256Fingerprint(sourceMapBytes));
+      plan, options.sdkProductVersion, options.sdkSourceRevision);
   if (!costReport)
     return costReport.takeError();
   result.push_back({"include/generated/model.h", modelHeader});
@@ -7124,28 +7185,47 @@ agentic_model_query_v1(void) {
                   << "} // namespace ac_generated\n";
     result.push_back(
         {"src/generated/helpers/queuegraph_helpers.cpp", helpersSource.str()});
-    llvm::StringSet<> emittedHeaders;
+    struct ModuleFileGroup {
+      std::string fileStem;
+      std::vector<std::string> childFileStems;
+      std::string provenance;
+      std::string header;
+      std::string source;
+    };
+    std::vector<ModuleFileGroup> moduleFiles;
+    llvm::StringMap<size_t> moduleFileIndices;
     for (const auto &unit : structured->modules) {
-      if (!emittedHeaders.insert(unit.className).second)
-        continue;
+      auto [entry, inserted] =
+          moduleFileIndices.try_emplace(unit.fileStem, moduleFiles.size());
+      if (inserted)
+        moduleFiles.push_back({unit.fileStem, {}, {}, {}, {}});
+      ModuleFileGroup &group = moduleFiles[entry->getValue()];
+      for (const std::string &child : unit.childFileStems)
+        if (child != group.fileStem &&
+            !llvm::is_contained(group.childFileStems, child))
+          group.childFileStems.push_back(child);
+      group.header.append(unit.header);
+      group.provenance.append(unit.provenance);
+      group.source.append(unit.source);
+    }
+    for (const ModuleFileGroup &group : moduleFiles) {
       std::ostringstream header;
       header << "#pragma once\n\n"
                 "#include \"generated/modules/queuegraph_types.h\"\n"
                 "#include \"generated/modules/queuegraph_helpers.h\"\n";
-      llvm::StringSet<> childIncludes;
-      for (const std::string &child : unit.childClassNames)
-        if (childIncludes.insert(child).second)
-          header << "#include \"generated/modules/" << child << ".h\"\n";
+      for (const std::string &child : group.childFileStems)
+        header << "#include \"generated/modules/" << child << ".h\"\n";
       header << "\nnamespace ac_generated {\n\n"
-             << unit.header << "} // namespace ac_generated\n";
+             << group.header << "} // namespace ac_generated\n";
       result.push_back(
-          {"include/generated/modules/" + unit.className + ".h", header.str()});
+          {"include/generated/modules/" + group.fileStem + ".h", header.str()});
       std::ostringstream source;
-      source << "#include \"generated/modules/" << unit.className
+      source << "#include \"generated/modules/" << group.fileStem
              << ".h\"\n\nnamespace ac_generated {\n\n"
-             << unit.source << "} // namespace ac_generated\n";
+             << group.provenance << group.source
+             << "} // namespace ac_generated\n";
       result.push_back(
-          {"src/generated/modules/" + unit.className + ".cpp", source.str()});
+          {"src/generated/modules/" + group.fileStem + ".cpp", source.str()});
     }
   }
   result.push_back({"share/generated/cost-report.json", *costReport + "\n"});

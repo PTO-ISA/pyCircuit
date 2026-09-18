@@ -40,7 +40,7 @@ TEST(ACIROpsTest, SemanticPrimitiveWidthsAcceptOneTo64AndReject65To130) {
     const unsigned countWidth = acir::primitiveCountWidth(width);
     std::string source;
     llvm::raw_string_ostream stream(source);
-    stream << "builtin.module attributes {ac.contract_epoch = \"0.5\"} {\n"
+    stream << "builtin.module {\n"
            << "  %value = \"builtin.unrealized_conversion_cast\"() : () -> "
            << "!ac.var<i" << width << ">\n"
            << "  %index, %valid = ac.var.priority_encode %value order \"low\" : "
@@ -60,7 +60,7 @@ TEST(ACIROpsTest, QueueBoundariesOwnEffectsAndFiringBodyIsPure) {
   mlir::MLIRContext context;
   context.loadDialect<ACIRDialect>();
   auto module = mlir::parseSourceString<mlir::ModuleOp>(R"mlir(
-    module attributes {ac.contract_epoch = "0.5"} {
+    module  {
       %input = ac.source depth 4 latency 1 : !ac.queue<i32>
       %output = ac.firing %input depths [4] latencies [1]
           stable_id "identity" domain "cycle" {
@@ -298,6 +298,7 @@ TEST(ACIROpsTest, RegistryContainsExactQueueVarOperations) {
       "ac.table.yield",
       "ac.slot",
       "ac.slot.get",
+      "ac.slot.propose_release",
       "ac.slot.release",
       "ac.slot.yield",
       "ac.reorder",
@@ -409,7 +410,6 @@ TEST(ACIROpsTest, PublicBuildersConstructEveryTaskSixOperation) {
   mlir::OpBuilder builder(&context);
   auto loc = builder.getUnknownLoc();
   auto file = mlir::ModuleOp::create(loc);
-  file->setAttr("ac.contract_epoch", builder.getStringAttr("0.5"));
   builder.setInsertionPointToStart(file.getBody());
 
   auto emptyType = builder.getFunctionType({}, {});
@@ -495,7 +495,7 @@ TEST(ACIROpsTest, PublicBuildersConstructEveryTaskEightOperation) {
   mlir::OpBuilder builder(&context);
   auto loc = builder.getUnknownLoc();
   auto file = mlir::parseSourceString<mlir::ModuleOp>(R"mlir(
-    builtin.module attributes {ac.contract_epoch = "0.5"} {
+    builtin.module  {
       ac.protocol @fifo {
         ac.role @sender dual @receiver cardinality "exclusive"
         ac.role @receiver dual @sender cardinality "exclusive"
@@ -717,7 +717,7 @@ TEST(ACIROpsTest, RuntimeAndQueueVarRegistryIsExact) {
         << name.str();
   EXPECT_FALSE(mlir::OperationName("ac.try_issue", &context).isRegistered());
   EXPECT_FALSE(mlir::OperationName("ac.connect", &context).isRegistered());
-  const std::array<llvm::StringLiteral, 108> queueVarNames = {
+  const std::array<llvm::StringLiteral, 109> queueVarNames = {
       "ac.transform",
       "ac.transform.yield",
       "ac.rule",
@@ -814,6 +814,7 @@ TEST(ACIROpsTest, RuntimeAndQueueVarRegistryIsExact) {
       "ac.table.yield",
       "ac.slot",
       "ac.slot.get",
+      "ac.slot.propose_release",
       "ac.slot.release",
       "ac.slot.yield",
       "ac.reorder",
@@ -830,7 +831,7 @@ TEST(ACIROpsTest, RuntimeAndQueueVarRegistryIsExact) {
   for (llvm::StringLiteral name : queueVarNames)
     EXPECT_TRUE(mlir::OperationName(name, &context).isRegistered())
         << name.str();
-  EXPECT_EQ(context.getRegisteredOperationsByDialect("ac").size(), 151u);
+  EXPECT_EQ(context.getRegisteredOperationsByDialect("ac").size(), 152u);
 }
 
 
@@ -1299,7 +1300,7 @@ TEST(ACIROpsTest, StaticContractsUseFreezePhaseModuleEffects) {
   mlir::MLIRContext context;
   context.loadDialect<ACIRDialect>();
   auto file = mlir::parseSourceString<mlir::ModuleOp>(R"mlir(
-    builtin.module attributes {ac.contract_epoch = "0.5"} {
+    builtin.module  {
       ac.module @M(i1) parameters {} graph {
       ^bb0(%condition : i1):
         ac.require %condition, "capacity"
@@ -1510,7 +1511,7 @@ TEST(ACIROpsTest, TableEntryTypeRejectsNonStructRecordKinds) {
   context.loadDialect<ACIRDialect, mlir::DLTIDialect>();
   constexpr std::array<llvm::StringLiteral, 2> sources = {
       R"mlir(
-        builtin.module attributes {ac.contract_epoch = "0.5"} {
+        builtin.module  {
           "ac.type_scope"() <{sym_name = "types"}> ({
             "ac.packet"() <{sym_name = "Entry", fields = [{name = "value", type = i8}]}> : () -> ()
           }) {dlti.dl_spec = #dlti.dl_spec<!ac.packet<@types::@Entry> = {abi_alignment = 1 : i64, endianness = "little", preferred_alignment = 1 : i64, serialization_width = 1 : i64, size = 1 : i64}>} : () -> ()
@@ -1518,7 +1519,7 @@ TEST(ACIROpsTest, TableEntryTypeRejectsNonStructRecordKinds) {
         }
       )mlir",
       R"mlir(
-        builtin.module attributes {ac.contract_epoch = "0.5"} {
+        builtin.module  {
           "ac.type_scope"() <{sym_name = "types"}> ({
             "ac.transaction"() <{sym_name = "Entry", fields = [{name = "value", type = i8}]}> : () -> ()
           }) : () -> ()
@@ -2392,7 +2393,7 @@ TEST(ACIRFreezeEffectsTest, FrozenEffectsUseElaboratedAbsoluteOwnerSets) {
   acir::registerAllDialects(registry);
   mlir::MLIRContext context(registry);
   auto file = mlir::parseSourceString<mlir::ModuleOp>(R"mlir(
-    builtin.module attributes {ac.contract_epoch = "0.5"} {
+    builtin.module  {
       ac.system @soc root @Top as "root" tick 0 "cycle"
           workload @Top::@workload seed {kind = "fixed", value = 0 : i64}
           instrumentation [] results {id = "default", format = "json"}
@@ -2437,16 +2438,6 @@ TEST(ACIRFreezeEffectsTest, FrozenEffectsUseElaboratedAbsoluteOwnerSets) {
   checkAbsoluteOwners(&process.getBody().front().back(), "root.workload");
   checkAbsoluteOwners(stat, "root.requests");
 
-  std::string diagnostic;
-  mlir::ScopedDiagnosticHandler handler(&context, [&](mlir::Diagnostic &value) {
-    llvm::raw_string_ostream stream(diagnostic);
-    stream << value;
-    return mlir::success();
-  });
-  stat->removeAttr("ac.frozen_owners");
-  EXPECT_TRUE(mlir::failed(acir::verifyModel(*file)));
-  EXPECT_NE(diagnostic.find("frozen topology digest mismatch"),
-            std::string::npos);
 }
 
 } // namespace

@@ -1,0 +1,12 @@
+rg -n 'contract_epoch|ac\.contract_epoch|ac\.freeze_epoch' <active-tree>
+pytest tests/python/agentic-circuit/python_frontend tests/python/agentic-circuit/cli tests/python/agentic-circuit/contracts
+pytest tests/unit -m unit
+PYC_BUILD_DIR=.pycircuit_out/acc-clean-build PYC_INSTALL_PREFIX=.pycircuit_out/acc-clean-install2 PYC_BUILD_AGENTIC_CIRCUIT=ON PYC_BUILD_AGENTIC_CIRCUIT_TESTS=ON bash flows/scripts/pyc build --llvm-config /opt/homebrew/opt/llvm/bin/llvm-config
+cmake --build .pycircuit_out/acc-clean-build --target check-acir
+ctest --test-dir .pycircuit_out/acc-clean-build --output-on-failure
+AC_GATE_BUILD_ROOT=.pycircuit_out/acc-clean-build AC_GATE_TOOLCHAIN_ROOT=.pycircuit_out/acc-clean-install2 PYC_GATE_RUN_ID=20260919-external-release-identity-r3 bash flows/scripts/run_agentic_circuit.sh
+AC_GATE_BUILD_ROOT=.pycircuit_out/acc-clean-build AC_GATE_TOOLCHAIN_ROOT=.pycircuit_out/acc-clean-install2 AC_GATE_RESUME_FROM=g2 PYC_GATE_RUN_ID=20260919-external-release-identity-r4 bash flows/scripts/run_agentic_circuit.sh
+python3 tools/agentic-circuit/check-contracts.py
+python3 tools/agentic-circuit/check-sdk-contract.py
+mkdocs build --strict
+python3 flows/tools/check_decision_status.py --status docs/gates/decision_status_v6.md --out .pycircuit_out/gates/20260919-external-release-identity/decision_status_report.json --require-no-deferred --require-concrete-evidence --require-existing-evidence

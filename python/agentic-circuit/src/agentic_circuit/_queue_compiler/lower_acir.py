@@ -17,8 +17,7 @@ from _pycircuit_semantics import (
     ValueType,
 )
 
-from .._canonical_json import canonical_json_bytes, canonical_mlir_string, sha256_bytes
-from .._contract import CONTRACT_EPOCH
+from .._canonical_json import canonical_mlir_string
 from .._static_eval import StaticEnvironment, StaticValue, evaluate_static
 from .acir_text import (
     _enum_layout_entry,
@@ -64,6 +63,7 @@ from .model import (
     TableReadBinding,
     TableWriteBinding,
 )
+from .provenance import DefinitionNdfMetadata, NdfMetadata
 from .source import (
     SourceFrame,
     _render_callsite_location,
@@ -88,6 +88,40 @@ class _ModuleRenderSpec:
     inputs: tuple[tuple[str, ValueType], ...]
     outputs: tuple[tuple[str, ValueType], ...]
     static_arguments: tuple[tuple[str, StaticValue], ...] = ()
+    ndf: NdfMetadata = NdfMetadata()
+    source_file: str = ""
+    source_line: int = 0
+    source_column: int = 0
+
+
+def _ndf_attribute_fields(metadata: NdfMetadata) -> tuple[str, ...]:
+    fields = []
+    if metadata.ids:
+        fields.append(
+            "ac.ndf_ids = ["
+            + ", ".join(canonical_mlir_string(value) for value in metadata.ids)
+            + "]"
+        )
+    if metadata.requires:
+        fields.append(
+            "ac.ndf_requires = ["
+            + ", ".join(canonical_mlir_string(value) for value in metadata.requires)
+            + "]"
+        )
+    return tuple(fields)
+
+
+def _module_attribute_fields(module: _ModuleRenderSpec) -> tuple[str, ...]:
+    fields = list(_ndf_attribute_fields(module.ndf))
+    if module.source_file:
+        fields.extend(
+            (
+                "ac.source_file = " + canonical_mlir_string(module.source_file),
+                f"ac.source_line = {module.source_line} : i64",
+                f"ac.source_column = {module.source_column} : i64",
+            )
+        )
+    return tuple(fields)
 
 
 def lower_queue_program(
@@ -95,7 +129,10 @@ def lower_queue_program(
     *,
     module: _ModuleRenderSpec | None = None,
     include_helpers: bool = True,
+    definition_ndf: DefinitionNdfMetadata | None = None,
 ) -> str:
+    definition_ndf = definition_ndf or {}
+
     def add_display_name(
         emitted_lines: list[str], result: str, logical_name: str
     ) -> None:
@@ -135,41 +172,10 @@ def lower_queue_program(
     def table_writer_identity(
         write: TableWriteBinding | MaskedTableWriteBinding,
     ) -> str:
-        record: dict[str, object] = {
-            "address": (
-                ast.dump(write.address, include_attributes=False)
-                if isinstance(write, TableWriteBinding)
-                else None
-            ),
-            "arbitration_rank": write.arbitration_rank,
-            "candidates": (
-                write.candidates if isinstance(write, MaskedTableWriteBinding) else None
-            ),
-            "enable": ast.dump(write.enable, include_attributes=False),
-            "input": (
-                write.input_name if isinstance(write, TableWriteBinding) else None
-            ),
-            "mode": write.write_mode,
-            "owner": "/".join((*write.scope, write.table)),
-            "patch_fields": [
-                [name, ast.dump(value, include_attributes=False)]
-                for name, value in write.patch_fields
-            ],
-            "value": (
-                None
-                if write.value is None
-                else ast.dump(write.value, include_attributes=False)
-            ),
-            "write_fields": list(write.write_fields),
-        }
-        digest = sha256_bytes(canonical_json_bytes(record))
-        return digest[len("sha256:") :]
+        kind = "masked_write" if isinstance(write, MaskedTableWriteBinding) else "write"
+        owner = "_".join((*write.scope, write.table))
+        return f"{owner}_{kind}_{write.arbitration_rank}"
 
-    specialization = (
-        ""
-        if program.specialization_fingerprint is None
-        else f', ac.specialization = "{program.specialization_fingerprint}"'
-    )
     static_type_attributes = _render_static_type_attributes(
         program.static_type_bindings,
         program.payloads,
@@ -180,12 +186,24 @@ def lower_queue_program(
     module_outputs = set() if module is None else {name for name, _ in module.outputs}
     initial_mapping: dict[str, str] = {}
     if module is None:
+        system_fields = list(
+            _ndf_attribute_fields(definition_ndf.get(program.system, NdfMetadata()))
+        )
+        if program.system_source is not None:
+            system_fields.extend(
+                (
+                    "ac.source_file = "
+                    + canonical_mlir_string(program.system_source.file),
+                    f"ac.source_line = {program.system_source.line} : i64",
+                    f"ac.source_column = {program.system_source.column} : i64",
+                )
+            )
+        system_metadata_text = "".join(f", {field}" for field in system_fields)
         lines = [
-            "module attributes {ac.contract_epoch = "
-            f"{canonical_mlir_string(CONTRACT_EPOCH)}, "
+            "module attributes {"
             f'ac.model_kind = "queue_graph", '
             f'ac.queue_graph_domain = "cycle", '
-            f'ac.system = "{program.system}"{specialization}'
+            f'ac.system = "{program.system}"{system_metadata_text}'
             f"{static_type_attributes}}} {{"
         ]
         content_indent = "  "
@@ -221,7 +239,7 @@ def lower_queue_program(
         lines = [
             f"  ac.module @{module.name}({argument_types}){result_signature} "
             f"parameters {_render_static_mlir_dictionary(module.static_arguments)} "
-            f"{_render_interface_display_attributes(tuple(name for name, _ in module.inputs), tuple(name for name, _ in module.outputs))} "
+            f"{_render_interface_display_attributes(tuple(name for name, _ in module.inputs), tuple(name for name, _ in module.outputs), _module_attribute_fields(module))} "
             "graph {",
             f"    {scope_lhs}ac.scope @body({scope_operands}) {{",
             f"    ^bb0({scope_arguments}):" if scope_arguments else "    ^bb0:",
@@ -574,8 +592,10 @@ def lower_queue_program(
         rates: tuple[int, ...],
         output_names: tuple[str, ...] = (),
         source: tuple[str, int, int] | None = None,
+        ndf: NdfMetadata = NdfMetadata(),
     ) -> str:
         attributes = [f'ac.name = "{name}"']
+        attributes.extend(_ndf_attribute_fields(ndf))
         if output_names:
             attributes.append(
                 "ac.output_names = ["
@@ -1815,7 +1835,7 @@ def lower_queue_program(
             )
             lines.append(
                 f"{indent}}} "
-                f"{queue_attributes(queue.name, (queue.rate,), queue.rule_output_names, (queue.rule_source_path or program.source_path, queue.rule_source_line or 1, queue.rule_source_column or 1))} : "
+                f"{queue_attributes(queue.name, (queue.rate,), queue.rule_output_names, (queue.rule_source_path or program.source_path, queue.rule_source_line or 1, queue.rule_source_column or 1), definition_ndf.get(queue.rule_name, NdfMetadata()))} : "
                 f"("
                 + ", ".join(
                     f"!ac.queue<{_render_type(payload)}>" for payload in rule_payloads

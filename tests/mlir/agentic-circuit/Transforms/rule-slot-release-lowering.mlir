@@ -1,6 +1,6 @@
 // RUN: %acir_opt --pass-pipeline='builtin.module(ac-lower-rules)' %s | %FileCheck %s
 
-module attributes {ac.contract_epoch = "0.5", ac.model_kind = "queue_graph", ac.queue_graph_domain = "cycle", ac.system = "slot_rule"} {
+module attributes {ac.model_kind = "queue_graph", ac.queue_graph_domain = "cycle", ac.system = "slot_rule"} {
   %input = ac.source depth 1 latency 1 {ac.name = "input"} : !ac.queue<i8>
   ac.slot @mailbox, %input owner "/" stable_id "slot/mailbox" : !ac.queue<i8>
   %output = ac.rule depths [1] latencies [1] name "consume" stable_id "consume" domain "cycle" type exact {

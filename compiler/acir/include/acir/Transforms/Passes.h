@@ -15,7 +15,6 @@ namespace acir {
 
 std::unique_ptr<mlir::Pass> createNormalizeACIRFilePass();
 std::unique_ptr<mlir::Pass> createVerifyACIRFilePass();
-std::unique_ptr<mlir::Pass> createLowerProcessStatePass();
 std::unique_ptr<mlir::Pass> createSourceAwareCSEPass();
 std::unique_ptr<mlir::Pass> createSourceAwareCanonicalizerPass();
 std::unique_ptr<mlir::Pass> createPruneInternalPayloadsPass();
@@ -46,7 +45,7 @@ std::unique_ptr<mlir::Pass> createPruneInternalPayloadsPass();
 mlir::LogicalResult canonicalizeModel(mlir::ModuleOp model);
 
 /// Reject every transient rule and typed marker before
-/// freeze/hash/serialization.
+/// freeze and serialization.
 mlir::LogicalResult verifyRuleClosure(mlir::ModuleOp model);
 
 /// Prove that every dynamic state index is within its declared resource

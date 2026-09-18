@@ -7,29 +7,28 @@ Semantic Agentic designs use the shared PYC compiler and qualified RTL
 selection path:
 
 ```text
-frozen ACIR
+verified ACIR
   -> acir-queue-pycgen
   -> canonical textual PYC IR
   -> pycc + pyc-select-rtl-primitives
-  -> Verilog + digest-verified RTL source closure and selection manifest
+  -> Verilog + closed RTL source inventory and selection record
 ```
 
 `ac.popcount(value)` lowers to vendor-neutral `pyc.popcount`. Only pycc's
 Verilog selection pass may introduce `pyc.rtl.comb` and the qualified
-`pyc_popcount_primitive` implementation. The standalone
-`acir-queue-veriloggen.py` verification emitter does not select or hard-code
-semantic primitives; unsupported semantic PYC operations fail and must be
-routed through pycc.
+`pyc_popcount_primitive` implementation. `acc -emit-verilog` routes verified
+ACIR through canonical PYC and the sibling `pycc`; it does not select or
+hard-code semantic primitives itself.
 
 Leading and trailing zero-count helpers follow the same route through one
 `pyc.count_zeros` operation with a static `direction` parameter. Their
 all-zero result is `N`, and only the Verilog selection pass introduces the
-digest-verified `pyc_count_zeros_primitive` module.
+catalog-owned `pyc_count_zeros_primitive` module.
 
 Example:
 
 ```bash
-acir-queue-pycgen model.frozen.ac.mlir > model.pyc
+acir-queue-pycgen model.verified.ac.mlir > model.pyc
 PYC_PRIMITIVES_DIR="$PWD/library/verilog" \
   pycc model.pyc --emit=verilog --out-dir build/verilog \
   --hierarchy-policy=strict --inline-policy=off
@@ -47,6 +46,6 @@ cmake --build .pycircuit_out/toolchain/build \
 `tests/mlir/agentic-circuit/CodeGen/count-leading-zeros.mlir` proves the same
 boundary for leading-zero count.
 `tests/system/test_primitive_selection.py` then runs the canonical PYC through
-pycc, checks the selection manifest and BSD source digest, and lints the closed
+pycc, checks the selection inventory and BSD source/license ownership, and lints the closed
 output with Verilator. `pyc-primitives-smoke.sv` retains bounded FIFO/arbiter
 runtime coverage and now uses the same canonical popcount module.

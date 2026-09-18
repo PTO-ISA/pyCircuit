@@ -3,7 +3,7 @@
 <!-- markdownlint-disable MD032 MD036 -->
 
 **Status:** Proposed
-**Baseline:** pyCircuit 6.1.0（决策登记截至 0265）
+**Baseline:** pyCircuit 6.1.0（决策登记截至 0268；release identity 位于 IR 外部）
 **Target repository:** `PTO-ISA/pyCircuit`
 **Primary validation workload:** large concurrent architecture 的 reduced generic fixture（完整设计留在 consumer repository）
 **Scope:** Agentic Circuit / ACIR / 编译器分析 / codegen / 验证 / CBB refinement
@@ -111,7 +111,7 @@ writer arbitration、deterministic codegen 与 C++/Verilog backend parity。这�
 | assertion 落到两个 backend | `compiler/mlir/include/pyc/Dialect/PYC/PYCOps.td:384-389`；C++ `CppEmitter.cpp:1536-1542,1920-1926`；Verilog `VerilogEmitter.cpp:785-801` |
 | 逐拍 trace 基础设施（comb / TICK-OBS / XFER-OBS） | `library/cpp/pyc_trace_bin.hpp:19,122-124,182-192`；解码 `tools/pycircuit/dump_pyctrace.py:20-35` |
 | IR/op 覆盖门禁与 ledger | `tools/agentic-circuit/check-ir-coverage.py`；`docs/development/acir/verification/ir-coverage.md` |
-| C++/Verilog 差分 parity | `tests/integration/agentic-circuit/e2e/test_pyc_backend.py:291-292`（stdout 逐字节相等） |
+| C++/Verilog backend closure | `tests/mlir/agentic-circuit/CodeGen/acc-driver.mlir` 与 `acc-python-driver.mlir` |
 
 **关键结论：需求 A 的验收判据在一维 field writer 范围内已经实现。**
 `verifyWriterArbitration` 对同一 owner 的每一对重叠 writer 依次检查：
@@ -172,8 +172,8 @@ field 不相交则放行（`fieldsAreDisjoint`，`VerifyValueConstraints.cpp:128
 | 拼写 | 现有语义 | 证据 | 建议 |
 | --- | --- | --- | --- |
 | `obligation` | rule 输出握手凭证的 pending/materialized/discharged 生命周期 | `ACIRAttributes.td:48-78`；`LowerRules.cpp:479-561` | **扩展** 该 enum 与 resolver，不要另建 `ac.obligation` 方言层 |
-| `epoch` | ① `ac.contract_epoch = "0.5"` 工具链契约版本；② `gfsim::Epoch` 仿真时钟 | `_contract.py:3`；`_queue_codegen.py:1209` | recovery epoch 必须显式命名，禁止裸 `epoch` |
-| `generation` | code generation | `_queue_codegen.py:733` | 事务 generation 用 `slot_generation` 或在 `TransactionRef` 内命名空间化 |
+| `epoch` | `gfsim::Epoch` 仿真时钟；release 不编码进 IR | `simulator/gfsim/include/gfsim/core.h`；Decision 0268 | recovery epoch 必须显式命名，禁止裸 `epoch` |
+| `generation` | compiler/code generation 通用术语 | compiler codegen | 事务 generation 用 `slot_generation` 或在 `TransactionRef` 内命名空间化 |
 | `allocator` | `EntityAllocator`/`StableNameAllocator`，编译器内部命名与实体 ID 分配 | `_acpy.py:254`；`_naming.py` | 硬件分配器另立名字，或限定在 `ac.allocator(...)` 且文档明确区分 |
 | `reservation` | compiler-owned 预留；作者使用被拒绝 | `parser.py:452-475` | `ReservationSet` 若公开，必须先修订该拒绝规则与 ACPY-RULE-014 |
 | `invariant` | 纯 payload invariant（`@ac.invariant`，编译期） | `_definitions.py:193` | 运行期不变量不能叫 invariant |
@@ -394,7 +394,7 @@ refinement metadata 用独立 config（YAML）而非混入 functional Python；
 
 **现状。** 已有 `ac.resource` 的 capacity/issue_width/II/latency/lifecycle/arbiter/classes
 （`include/acir/Dialect/ACIR/ACIROps.td:1400-1417`，验证 `lib/Dialect/ACIR/ACIRResources.cpp:478-535`），
-有 `ac-freeze-topology` 的确定性拓扑与 digest，但没有"同一语义对应多个实现变体"的目录结构。
+有 topology-closure 后的确定性结构，但没有内容身份，也没有“同一语义对应多个实现变体”的目录结构。
 
 **差距。** 缺 implementation catalog 与其选择规则。注意 `refine` 拼写已被 capture-only marker 占用
 （`markers.py:132`），因此该配置不能直接叫 `@ac.refine(...)`。
@@ -537,7 +537,7 @@ ACPy 实体 ID（`_acpy.py:254`）、MLIR `stable_id`。没有 typed identity �
 
 建议在现有 pipeline 上**增量插入**，不改变既有顺序语义。
 现有顺序为（`lib/Compiler/Driver.cpp:334-405`）：
-`verify-ac-file` → `addRuleLoweringPipeline` → `normalize-ac-file` → `ac-freeze-topology` → `ac-lower-to-acsim`。
+`verify-ac-file` → `addRuleLoweringPipeline` → `normalize-ac-file` → topology closure → ACC QueueGraph/PYC lowering。
 
 ```text
 Python
@@ -729,7 +729,7 @@ Architecture Intent -> Rule -> Effect -> Obligation -> Transaction
 
 **未决问题。**
 
-- recovery epoch 与 `ac.contract_epoch`/`gfsim::Epoch` 的命名空间如何划分？
+- recovery epoch 与 `gfsim::Epoch` 的命名空间如何划分？release identity 不进入该命名空间。
 - `ReservationSet` 公开化后，`parser.py:452-475` 对作者写 `reserve`/`commit` 的拒绝规则如何修订？
 - VersionedTable 的 `generation_bits` 与 spec 的 256-entry / 65536-bit 上界如何统一校验？
 - 运行期 obligation 在 Verilog 中默认开启还是默认关闭？

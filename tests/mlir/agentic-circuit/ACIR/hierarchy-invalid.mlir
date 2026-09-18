@@ -32,20 +32,20 @@
 // RUN: %not %acir_opt %t/unresolved-instrumentation.mlir 2>&1 | %FileCheck %s --check-prefix=INSTRUMENTATION-REF
 
 //--- no-selected.mlir
-builtin.module attributes {ac.contract_epoch = "0.5"} {
+builtin.module  {
   "ac.system"() <{sym_name = "s", root = @Top, root_name = "root", tick_epoch = 0 : i64, tick_unit = "cycle", seed_policy = {kind = "fixed", value = 0 : i64}, instrumentation = [], result_schema = {id = "default", format = "json"}, selected = false}> : () -> ()
   "ac.module"() <{sym_name = "Top", function_type = () -> (), static_params = {}}> ({ "ac.return"() : () -> () }) : () -> ()
 }
 // NO-SELECTED: ACIR file requires exactly one selected ac.system, found 0
 
 //--- bad-ref.mlir
-builtin.module attributes {ac.contract_epoch = "0.5"} {
+builtin.module  {
   "ac.system"() <{sym_name = "s", root = @Missing, root_name = "root", tick_epoch = 0 : i64, tick_unit = "cycle", seed_policy = {kind = "fixed", value = 0 : i64}, instrumentation = [], result_schema = {id = "default", format = "json"}, selected = true}> : () -> ()
 }
 // BAD-REF: selected root must resolve to a materialized ac.module
 
 //--- bad-call.mlir
-builtin.module attributes {ac.contract_epoch = "0.5"} {
+builtin.module  {
   "ac.module"() <{sym_name = "Leaf", function_type = (i32) -> i32, static_params = {}}> ({
   ^bb0(%x : i32):
     "ac.return"(%x) : (i32) -> ()
@@ -59,7 +59,7 @@ builtin.module attributes {ac.contract_epoch = "0.5"} {
 // BAD-CALL: operand types do not match module signature
 
 //--- bad-return.mlir
-builtin.module attributes {ac.contract_epoch = "0.5"} {
+builtin.module  {
   "ac.module"() <{sym_name = "Top", function_type = (i32) -> i64, static_params = {}}> ({
   ^bb0(%x : i32):
     "ac.return"(%x) : (i32) -> ()
@@ -68,7 +68,7 @@ builtin.module attributes {ac.contract_epoch = "0.5"} {
 // BAD-RETURN: operand types and count must exactly match module results
 
 //--- duplicate-path.mlir
-builtin.module attributes {ac.contract_epoch = "0.5"} {
+builtin.module  {
   "ac.system"() <{sym_name = "s", root = @Top, root_name = "root", tick_epoch = 0 : i64, tick_unit = "cycle", seed_policy = {kind = "fixed", value = 0 : i64}, instrumentation = [], result_schema = {id = "default", format = "json"}, selected = true}> : () -> ()
   "ac.module.extern"() <{sym_name = "Leaf", function_type = () -> (), static_params = {}, implementation = {registry = "cpp", name = "Leaf"}}> : () -> ()
   "ac.module"() <{sym_name = "Top", function_type = () -> (), static_params = {}}> ({
@@ -80,13 +80,13 @@ builtin.module attributes {ac.contract_epoch = "0.5"} {
 // DUP-PATH: duplicate local structural path 'same'
 
 //--- dynamic-param.mlir
-builtin.module attributes {ac.contract_epoch = "0.5"} {
+builtin.module  {
   "ac.module.extern"() <{sym_name = "Leaf", function_type = () -> (), static_params = {gain = 1.0 : f32}, implementation = {registry = "cpp", name = "Leaf"}}> : () -> ()
 }
 // DYNAMIC: static parameters must contain only concrete builtin static values
 
 //--- private-export.mlir
-builtin.module attributes {ac.contract_epoch = "0.5"} {
+builtin.module  {
   "ac.module"() <{sym_name = "Top", function_type = (!ac.resource_token<@owned>) -> !ac.resource_token<@owned>, static_params = {}}> ({
   ^bb0(%token : !ac.resource_token<@owned>):
     "ac.return"(%token) : (!ac.resource_token<@owned>) -> ()
@@ -95,7 +95,7 @@ builtin.module attributes {ac.contract_epoch = "0.5"} {
 // PRIVATE: private ownership handle cannot be exported from ac.module
 
 //--- missing-static-arg.mlir
-builtin.module attributes {ac.contract_epoch = "0.5"} {
+builtin.module  {
   "ac.module.extern"() <{sym_name = "Leaf", function_type = () -> (), static_params = {width = 8 : i64}, implementation = {registry = "cpp", name = "Leaf"}}> : () -> ()
   "ac.module"() <{sym_name = "Top", function_type = () -> (), static_params = {}}> ({
     "ac.instance"() <{definition = @Leaf, sym_name = "leaf", stable_id = "leaf", path = "leaf", static_args = {}}> : () -> ()
@@ -105,27 +105,27 @@ builtin.module attributes {ac.contract_epoch = "0.5"} {
 // STATIC-ARG: static argument names must exactly match definition parameters
 
 //--- unresolved-static-symbol.mlir
-builtin.module attributes {ac.contract_epoch = "0.5"} {
+builtin.module  {
   "ac.module.extern"() <{sym_name = "Leaf", function_type = () -> (), static_params = {target = @Missing}, implementation = {registry = "cpp", name = "Leaf"}}> : () -> ()
 }
 // STATIC-SYMBOL: unresolved static symbol reference '@Missing'
 
 //--- nonzero-epoch.mlir
-builtin.module attributes {ac.contract_epoch = "0.5"} {
+builtin.module  {
   "ac.module.extern"() <{sym_name = "Top", function_type = () -> (), static_params = {}, implementation = {registry = "cpp", name = "Top"}}> : () -> ()
   "ac.system"() <{sym_name = "s", root = @Top, root_name = "root", tick_epoch = 1 : i64, tick_unit = "cycle", seed_policy = {kind = "fixed", value = 0 : i64}, instrumentation = [], result_schema = {id = "default", format = "json"}, selected = true}> : () -> ()
 }
 // EPOCH: global tick epoch must be exactly 0
 
 //--- unresolved-workload.mlir
-builtin.module attributes {ac.contract_epoch = "0.5"} {
+builtin.module  {
   "ac.module"() <{sym_name = "Top", function_type = () -> (), static_params = {}}> ({ "ac.return"() : () -> () }) : () -> ()
   "ac.system"() <{sym_name = "s", root = @Top, root_name = "root", tick_epoch = 0 : i64, tick_unit = "cycle", primary_workload = @Top::@missing, seed_policy = {kind = "fixed", value = 0 : i64}, instrumentation = [], result_schema = {id = "default", format = "json"}, selected = true}> : () -> ()
 }
 // WORKLOAD: primary workload '@Top::@missing' is unresolved
 
 //--- direct-recursion.mlir
-builtin.module attributes {ac.contract_epoch = "0.5"} {
+builtin.module  {
   "ac.module"() <{sym_name = "Loop", function_type = () -> (), static_params = {}}> ({
     "ac.instance"() <{definition = @Loop, sym_name = "self", stable_id = "self", path = "self", static_args = {}}> : () -> ()
     "ac.return"() : () -> ()
@@ -134,7 +134,7 @@ builtin.module attributes {ac.contract_epoch = "0.5"} {
 // DIRECT-RECURSION: recursive module instantiation cycle: @Loop -> @Loop
 
 //--- mutual-recursion.mlir
-builtin.module attributes {ac.contract_epoch = "0.5"} {
+builtin.module  {
   "ac.module"() <{sym_name = "A", function_type = () -> (), static_params = {}}> ({
     "ac.instance"() <{definition = @B, sym_name = "b", stable_id = "b", path = "b", static_args = {}}> : () -> ()
     "ac.return"() : () -> ()
@@ -147,7 +147,7 @@ builtin.module attributes {ac.contract_epoch = "0.5"} {
 // MUTUAL-RECURSION: recursive module instantiation cycle: @A -> @B -> @A
 
 //--- absolute-local-path.mlir
-builtin.module attributes {ac.contract_epoch = "0.5"} {
+builtin.module  {
   "ac.module.extern"() <{sym_name = "Leaf", function_type = () -> (), static_params = {}, implementation = {registry = "cpp", name = "Leaf"}}> : () -> ()
   "ac.module"() <{sym_name = "Top", function_type = () -> (), static_params = {}}> ({
     "ac.instance"() <{definition = @Leaf, sym_name = "leaf", stable_id = "leaf", path = "root.leaf", static_args = {}}> : () -> ()
@@ -157,7 +157,7 @@ builtin.module attributes {ac.contract_epoch = "0.5"} {
 // LOCAL-PATH: path must be stable local segments
 
 //--- duplicate-id.mlir
-builtin.module attributes {ac.contract_epoch = "0.5"} {
+builtin.module  {
   "ac.system"() <{sym_name = "s", root = @Top, root_name = "root", tick_epoch = 0 : i64, tick_unit = "cycle", seed_policy = {kind = "fixed", value = 0 : i64}, instrumentation = [], result_schema = {id = "default", format = "json"}, selected = true}> : () -> ()
   "ac.module.extern"() <{sym_name = "Leaf", function_type = () -> (), static_params = {}, implementation = {registry = "cpp", name = "Leaf"}}> : () -> ()
   "ac.module"() <{sym_name = "Top", function_type = () -> (), static_params = {}}> ({
@@ -169,7 +169,7 @@ builtin.module attributes {ac.contract_epoch = "0.5"} {
 // DUP-ID: duplicate local structural stable id 'same'
 
 //--- static-arg-type.mlir
-builtin.module attributes {ac.contract_epoch = "0.5"} {
+builtin.module  {
   "ac.module.extern"() <{sym_name = "Leaf", function_type = () -> (), static_params = {width = 8 : i64}, implementation = {registry = "cpp", name = "Leaf"}}> : () -> ()
   "ac.module"() <{sym_name = "Top", function_type = () -> (), static_params = {}}> ({
     "ac.instance"() <{definition = @Leaf, sym_name = "leaf", stable_id = "leaf", path = "leaf", static_args = {width = 8 : i32}}> : () -> ()
@@ -179,14 +179,14 @@ builtin.module attributes {ac.contract_epoch = "0.5"} {
 // STATIC-TYPE: static argument 'width' must match parameter attribute type 'i64'
 
 //--- orphan-instance.mlir
-builtin.module attributes {ac.contract_epoch = "0.5"} {
+builtin.module  {
   "ac.module"() <{sym_name = "Leaf", function_type = () -> (), static_params = {}}> ({ "ac.return"() : () -> () }) : () -> ()
   "ac.instance"() <{definition = @Leaf, sym_name = "x", stable_id = "x", path = "x", static_args = {}}> : () -> ()
 }
 // ORPHAN: must be a direct child of the unique ac.module Graph block
 
 //--- nested-module.mlir
-builtin.module attributes {ac.contract_epoch = "0.5"} {
+builtin.module  {
   "ac.type_scope"() <{sym_name = "types"}> ({
     "ac.module"() <{sym_name = "Nested", function_type = () -> (), static_params = {}}> ({ "ac.return"() : () -> () }) : () -> ()
   }) : () -> ()
@@ -194,7 +194,7 @@ builtin.module attributes {ac.contract_epoch = "0.5"} {
 // NESTED-MODULE: must be a direct child of the outer builtin.module
 
 //--- two-selected.mlir
-builtin.module attributes {ac.contract_epoch = "0.5"} {
+builtin.module  {
   "ac.module"() <{sym_name = "Top", function_type = () -> (), static_params = {}}> ({ "ac.return"() : () -> () }) : () -> ()
   "ac.system"() <{sym_name = "a", root = @Top, root_name = "a", tick_epoch = 0 : i64, tick_unit = "cycle", seed_policy = {kind = "fixed", value = 0 : i64}, instrumentation = [], result_schema = {id = "a", format = "json"}, selected = true}> : () -> ()
   "ac.system"() <{sym_name = "b", root = @Top, root_name = "b", tick_epoch = 0 : i64, tick_unit = "cycle", seed_policy = {kind = "fixed", value = 0 : i64}, instrumentation = [], result_schema = {id = "b", format = "json"}, selected = true}> : () -> ()
@@ -202,60 +202,60 @@ builtin.module attributes {ac.contract_epoch = "0.5"} {
 // TWO-SELECTED: exactly one selected ac.system, found 2
 
 //--- unknown-provider.mlir
-builtin.module attributes {ac.contract_epoch = "0.5"} {
+builtin.module  {
   "ac.module.extern"() <{sym_name = "Ext", function_type = () -> (), static_params = {}, implementation = {registry = "cpp", name = "not_registered"}}> : () -> ()
 }
 // PROVIDER: structural provider 'cpp:not_registered' is not registered
 
 //--- extern-root.mlir
-builtin.module attributes {ac.contract_epoch = "0.5"} {
+builtin.module  {
   "ac.module.extern"() <{sym_name = "Ext", function_type = () -> (), static_params = {}, implementation = {registry = "cpp", name = "Ext"}}> : () -> ()
   "ac.system"() <{sym_name = "s", root = @Ext, root_name = "root", tick_epoch = 0 : i64, tick_unit = "cycle", seed_policy = {kind = "fixed", value = 0 : i64}, instrumentation = [], result_schema = {id = "x", format = "json"}, selected = true}> : () -> ()
 }
 // EXTERN-ROOT: selected root must resolve to a materialized ac.module
 
 //--- negative-seed.mlir
-builtin.module attributes {ac.contract_epoch = "0.5"} {
+builtin.module  {
   "ac.module"() <{sym_name = "Top", function_type = () -> (), static_params = {}}> ({ "ac.return"() : () -> () }) : () -> ()
   "ac.system"() <{sym_name = "s", root = @Top, root_name = "root", tick_epoch = 0 : i64, tick_unit = "cycle", seed_policy = {kind = "fixed", value = -1 : i64}, instrumentation = [], result_schema = {id = "x", format = "json"}, selected = true}> : () -> ()
 }
 // SEED: fixed seed value must be a non-negative signless i64
 
 //--- bad-result-schema.mlir
-builtin.module attributes {ac.contract_epoch = "0.5"} {
+builtin.module  {
   "ac.module"() <{sym_name = "Top", function_type = () -> (), static_params = {}}> ({ "ac.return"() : () -> () }) : () -> ()
   "ac.system"() <{sym_name = "s", root = @Top, root_name = "root", tick_epoch = 0 : i64, tick_unit = "cycle", seed_policy = {kind = "fixed", value = 0 : i64}, instrumentation = [], result_schema = {id = "", format = "text"}, selected = true}> : () -> ()
 }
 // RESULT-SCHEMA: result schema requires exact {id = non-empty string, format = "json"}
 
 //--- bad-instrumentation.mlir
-builtin.module attributes {ac.contract_epoch = "0.5"} {
+builtin.module  {
   "ac.module"() <{sym_name = "Top", function_type = () -> (), static_params = {}}> ({ "ac.return"() : () -> () }) : () -> ()
   "ac.system"() <{sym_name = "s", root = @Top, root_name = "root", tick_epoch = 0 : i64, tick_unit = "cycle", seed_policy = {kind = "fixed", value = 0 : i64}, instrumentation = ["trace"], result_schema = {id = "x", format = "json"}, selected = true}> : () -> ()
 }
 // INSTRUMENTATION: instrumentation entries must be symbol references
 
 //--- static-array.mlir
-builtin.module attributes {ac.contract_epoch = "0.5"} {
+builtin.module  {
   "ac.module"() <{sym_name = "Top", function_type = () -> (), static_params = {bad = [1 : i64]}}> ({ "ac.return"() : () -> () }) : () -> ()
 }
 // STATIC-ARRAY: static parameters must contain only concrete builtin static values
 
 //--- bad-unit.mlir
-builtin.module attributes {ac.contract_epoch = "0.5"} {
+builtin.module  {
   "ac.module"() <{sym_name = "Top", function_type = () -> (), static_params = {latency = {value = 1 : i64, unit = "ns", extra = true}}}> ({ "ac.return"() : () -> () }) : () -> ()
 }
 // BAD-UNIT: static parameters must contain only concrete builtin static values
 
 //--- bad-seed-type.mlir
-builtin.module attributes {ac.contract_epoch = "0.5"} {
+builtin.module  {
   "ac.module"() <{sym_name = "Top", function_type = () -> (), static_params = {}}> ({ "ac.return"() : () -> () }) : () -> ()
   "ac.system"() <{sym_name = "s", root = @Top, root_name = "root", tick_epoch = 0 : i64, tick_unit = "cycle", seed_policy = {kind = "fixed", value = 0 : ui32}, instrumentation = [], result_schema = {id = "x", format = "json"}, selected = true}> : () -> ()
 }
 // SEED-TYPE: seed policy requires exact {kind = "fixed", value = signless i64} schema
 
 //--- unresolved-instrumentation.mlir
-builtin.module attributes {ac.contract_epoch = "0.5"} {
+builtin.module  {
   "ac.module"() <{sym_name = "Top", function_type = () -> (), static_params = {}}> ({ "ac.return"() : () -> () }) : () -> ()
   "ac.system"() <{sym_name = "s", root = @Top, root_name = "root", tick_epoch = 0 : i64, tick_unit = "cycle", seed_policy = {kind = "fixed", value = 0 : i64}, instrumentation = [@Top::@missing::@trace], result_schema = {id = "x", format = "json"}, selected = true}> : () -> ()
 }

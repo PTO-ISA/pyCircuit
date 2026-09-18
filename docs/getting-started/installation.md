@@ -99,7 +99,7 @@ pycc --version
 ```
 
 The build wrapper detects LLVM, configures Ninja, builds PYC plus the integrated
-ACIR/ACSim/gfsim components, and stages the install tree under
+ACIR/ACC/gfsim components, and stages the install tree under
 `.pycircuit_out/toolchain/install/`.
 
 For manual configuration or constrained build hosts, see the
@@ -116,8 +116,8 @@ python -m pip install -e "python/agentic-circuit[test]"
 agentic-circuit --help
 ```
 
-The Python package provides authoring and CLI surfaces. Native compilation uses
-the ACIR/ACSim/gfsim tools built by the full source toolchain. Run the integrated
+The Python package provides authoring and `acc.py`. Native compilation uses
+the ACIR/ACC/gfsim tools built by the full source toolchain. Run the integrated
 gate once to validate the complete local environment:
 
 ```bash

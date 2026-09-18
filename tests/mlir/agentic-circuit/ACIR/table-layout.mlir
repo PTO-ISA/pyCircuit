@@ -1,6 +1,6 @@
 // RUN: %acir_opt %s -ac-verify-value-constraints | %FileCheck %s
 
-module attributes {ac.contract_epoch = "0.5"} {
+module  {
   ac.type_scope @types {
     ac.struct @Entry fields [{name = "valid", type = i1}, {name = "ready", type = i1}]
   } {dlti.dl_spec = #dlti.dl_spec<!ac.struct<@types::@Entry> = {abi_alignment = 1 : i64, endianness = "little", preferred_alignment = 1 : i64, size = 2 : i64}>}
@@ -9,22 +9,19 @@ module attributes {ac.contract_epoch = "0.5"} {
     axis_widths = array<i64: 1, 2>,
     layout = "row_major",
     layout_version = 1 : i64,
-    schema_id = "sha256:c62fc75ed67ce361c35684c21e695d036e8bae7ee6f525dfaf9b13940b86a4b0",
-    init_version = 1 : i64,
+        init_version = 1 : i64,
     init_image = [1 : i8, 2 : i8, 3 : i8, 4 : i8, 5 : i8, 6 : i8]
   }
   ac.table @records entry !ac.struct<@types::@Entry> entries 1 init 0
       owner "/" stable_id "table/records" {
     shape = array<i64: 1>, axis_widths = array<i64: 1>,
     layout = "row_major", layout_version = 1 : i64,
-    schema_id = "sha256:b04b647ff5d9a1b1ddb933cbc627b964b7a3a77fcd064e1c2d977e7e56d2d951",
-    init_version = 1 : i64,
+        init_version = 1 : i64,
     init_image = [{ready = false, valid = true}]
   }
   ac.table @cube entry i8 entries 6 init 0 owner "/" stable_id "table/cube" {
     shape = array<i64: 2, 1, 3>, axis_widths = array<i64: 1, 1, 2>,
-    layout = "row_major", layout_version = 1 : i64,
-    schema_id = "sha256:db0b157c15822ffc41e93052b303b9a1e9d4481b4f0027ff16bd1e38edaa82c1"
+    layout = "row_major", layout_version = 1 : i64
   }
   %row = ac.var.constant 1 : i1 as !ac.var<i1>
   %column = ac.var.constant 2 : i2 as !ac.var<i2>
@@ -72,7 +69,6 @@ module attributes {ac.contract_epoch = "0.5"} {
 // CHECK-SAME: init_version = 1 : i64
 // CHECK-SAME: layout = "row_major"
 // CHECK-SAME: layout_version = 1 : i64
-// CHECK-SAME: schema_id = "sha256:c62fc75ed67ce361c35684c21e695d036e8bae7ee6f525dfaf9b13940b86a4b0"
 // CHECK-SAME: shape = array<i64: 2, 3>
 // CHECK: ac.table @records entry !ac.struct<@types::@Entry> entries 1 init 0
 // CHECK-SAME: init_image = [{ready = false, valid = true}]

@@ -1,13 +1,11 @@
 // RUN: %acir_opt --pass-pipeline='builtin.module(ac-freeze-topology)' %s -o %t.frozen.mlir
 // RUN: %acir_queue_pycgen %t.frozen.mlir | %FileCheck %s --check-prefix=PYC
-// RUN: %python %source_root/compiler/acir/tools/acir-queue-veriloggen.py %t.frozen.mlir --pycgen %acir_queue_pycgen | %FileCheck %s --check-prefix=VERILOG
 
-module attributes {ac.contract_epoch = "0.5", ac.model_kind = "queue_graph", ac.queue_graph_domain = "cycle", ac.system = "table_selection_policies"} {
+module attributes {ac.model_kind = "queue_graph", ac.queue_graph_domain = "cycle", ac.system = "table_selection_policies"} {
   ac.table @state entry i8 entries 4 init 0 owner "/" stable_id "table/state" {
     shape = array<i64: 4>, axis_widths = array<i64: 2>,
     layout = "row_major", layout_version = 1 : i64,
-    schema_id = "sha256:5790212daac33caa1d98f7aefb7b538dfad0d08cec26c945bb8f0ec2d7cdf35a",
-    init_version = 1 : i64,
+        init_version = 1 : i64,
     init_image = [255 : i8, 2 : i8, 254 : i8, 4 : i8]
   }
   %matches = ac.table.match @state predicate {

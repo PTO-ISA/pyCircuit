@@ -7,7 +7,6 @@ from dataclasses import dataclass
 from enum import Enum, auto
 from pathlib import Path
 
-from ._canonical_json import canonical_json_bytes, sha256_bytes
 from ._diagnostics import DiagnosticError
 
 
@@ -19,13 +18,12 @@ class SourceClosureError(DiagnosticError):
 class SourceClosureEntry:
     path: str
     source_file: str
-    sha256: str
+    source: str
 
 
 @dataclass(frozen=True, slots=True)
 class SourceClosure:
     entries: tuple[SourceClosureEntry, ...]
-    sha256: str
 
 
 class _BindingKind(Enum):
@@ -39,9 +37,7 @@ class _BindingKind(Enum):
 _DYNAMIC_BUILTINS = frozenset({"__import__", "eval", "exec"})
 _NAMESPACE_REFLECTORS = frozenset({"globals", "locals", "vars"})
 _FORBIDDEN_DYNAMIC_MODULES = frozenset({"builtins", "importlib", "operator"})
-_ALLOWED_EXTERNAL_MODULES = frozenset(
-    {"__future__", "agentic_circuit", "enum"}
-)
+_ALLOWED_EXTERNAL_MODULES = frozenset({"__future__", "agentic_circuit", "enum"})
 _ALLOWED_ENUM_IMPORTS = frozenset({"Enum", "IntEnum", "auto", "unique"})
 _FORBIDDEN_REFLECTIVE_NAMES = frozenset(
     {
@@ -444,14 +440,9 @@ def capture_source_closure(entry: Path, workspace: Path) -> SourceClosure:
             SourceClosureEntry(
                 path=relative,
                 source_file=str(resolved),
-                sha256=sha256_bytes(raw),
+                source=text,
             )
         )
 
     ordered = tuple(sorted(entries, key=lambda item: item.path))
-    fingerprint = sha256_bytes(
-        canonical_json_bytes(
-            [{"path": item.path, "sha256": item.sha256} for item in ordered]
-        )
-    )
-    return SourceClosure(ordered, fingerprint)
+    return SourceClosure(ordered)

@@ -56,7 +56,7 @@ std::error_code publishDirectory(llvm::StringRef staged, llvm::StringRef root) {
 }
 
 llvm::cl::opt<std::string> inputFile(llvm::cl::Positional, llvm::cl::Required,
-                                     llvm::cl::desc("<frozen-acir>"));
+                                     llvm::cl::desc("<verified-acir>"));
 llvm::cl::opt<std::string>
     outputRoot("output-root", llvm::cl::desc("emit the fixed model v1 bundle"),
                llvm::cl::value_desc("directory"));
@@ -125,13 +125,13 @@ llvm::Error writeBundle(
 
 int main(int argc, char **argv) {
   llvm::cl::ParseCommandLineOptions(
-      argc, argv, "Generate typed Queue-wired gfsim C++ from frozen ACIR\n");
+      argc, argv, "Generate typed Queue-wired gfsim C++ from verified ACIR\n");
   mlir::DialectRegistry registry;
   acir::registerAllDialects(registry);
   mlir::MLIRContext context(registry);
   auto module = mlir::parseSourceFile<mlir::ModuleOp>(inputFile, &context);
   if (!module) {
-    llvm::errs() << "ACLOWER-QUEUE-CXX: frozen ACIR parsing failed\n";
+    llvm::errs() << "ACLOWER-QUEUE-CXX: verified ACIR parsing failed\n";
     return EXIT_FAILURE;
   }
   auto plan = acir::codegen::buildQueueGraphPlan(*module);

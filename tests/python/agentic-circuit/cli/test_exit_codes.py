@@ -2,30 +2,13 @@ from __future__ import annotations
 
 import json
 import os
-import shutil
 import subprocess
 import sys
 import tempfile
 import unittest
 from pathlib import Path
 
-from cli import cli_test_pythonpath
-
 REPOSITORY = Path(__file__).resolve().parents[4]
-FIXTURE = Path(__file__).parent / "fixtures" / "compile"
-
-
-def run_cli(*arguments: str, cwd: Path) -> subprocess.CompletedProcess[str]:
-    environment = os.environ.copy()
-    environment["PYTHONPATH"] = cli_test_pythonpath(REPOSITORY, environment)
-    return subprocess.run(
-        [sys.executable, "-m", "agentic_circuit._cli", *arguments],
-        cwd=cwd,
-        env=environment,
-        text=True,
-        capture_output=True,
-        check=False,
-    )
 
 
 class ExitCodeTest(unittest.TestCase):
@@ -54,29 +37,6 @@ class ExitCodeTest(unittest.TestCase):
                 if check["status"] == "failed"
             },
         )
-
-    def test_missing_cpp_compiler_is_four(self) -> None:
-        with tempfile.TemporaryDirectory() as temporary:
-            root = Path(temporary) / "project"
-            shutil.copytree(FIXTURE, root)
-            manifest = root / "agentic-circuit.toml"
-            manifest.write_text(
-                manifest.read_text().replace(
-                    'compiler = "c++"', 'compiler = "missing-agentic-cxx"'
-                )
-            )
-            result = run_cli(
-                "build",
-                "architecture.py",
-                "--output-dir",
-                "build/model",
-                "--json",
-                cwd=root,
-            )
-
-        self.assertEqual(4, result.returncode, result.stderr)
-        self.assertEqual("ACBUILD-COMPILER-001", json.loads(result.stdout)["code"])
-
 
 
 if __name__ == "__main__":

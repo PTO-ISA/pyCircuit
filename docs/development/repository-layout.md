@@ -10,7 +10,7 @@ release tooling independently understandable.
 | Root | Ownership |
 | --- | --- |
 | `python/` | The `pycircuit`, `agentic_circuit`, and shared semantic-core Python distributions |
-| `compiler/` | PYC and ACIR/ACSim dialects, passes, native tools, and code generators |
+| `compiler/` | PYC and ACIR dialects, passes, ACC, native tools, and code generators |
 | `library/` | Stable pyCircuit C++ runtime headers and qualified Verilog implementations |
 | `simulator/` | The gfsim architecture-modeling runtime |
 

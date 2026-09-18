@@ -11,7 +11,6 @@
 #include "llvm/Support/JSON.h"
 #include "llvm/Support/MemoryBuffer.h"
 #include "llvm/Support/Path.h"
-#include "llvm/Support/SHA256.h"
 
 #include <algorithm>
 #include <cstdlib>
@@ -27,7 +26,6 @@ namespace {
 
 struct RtlSource {
   std::string path;
-  std::string sha256;
   std::string license;
   bool modified = false;
 };
@@ -42,22 +40,14 @@ struct RtlCandidate {
   std::vector<RtlSource> sources;
 };
 
-static std::string fingerprint(llvm::StringRef bytes) {
-  llvm::SHA256 hasher;
-  hasher.update(bytes);
-  return "sha256:" + llvm::toHex(hasher.final(), true);
-}
-
-static FailureOr<std::vector<RtlCandidate>>
-loadCatalog(llvm::StringRef path, std::string &catalogSha256,
-            std::string &error) {
+static FailureOr<std::vector<RtlCandidate>> loadCatalog(llvm::StringRef path,
+                                                        std::string &error) {
   auto buffer = llvm::MemoryBuffer::getFile(path);
   if (!buffer) {
     error = "cannot read RTL primitive catalog '" + path.str() + "'";
     return failure();
   }
   llvm::StringRef bytes = buffer.get()->getBuffer();
-  catalogSha256 = fingerprint(bytes);
   auto parsed = llvm::json::parse(bytes);
   auto *root = parsed ? parsed->getAsObject() : nullptr;
   if (!root || root->getString("schema") != "pyc-rtl-catalog-v1") {
@@ -93,8 +83,6 @@ loadCatalog(llvm::StringRef path, std::string &catalogSha256,
     auto *outputPorts = ports ? ports->getArray("outputs") : nullptr;
     auto *bindings = entry ? entry->getObject("parameter_bindings") : nullptr;
     auto licenseFile = entry ? entry->getString("license_file") : std::nullopt;
-    auto licenseSha256 =
-        entry ? entry->getString("license_sha256") : std::nullopt;
     bool knownSemanticShape = false;
     if (semantic && inputPorts && outputPorts && bindings) {
       if (*semantic == "pyc.priority_encode.v1")
@@ -126,7 +114,7 @@ loadCatalog(llvm::StringRef path, std::string &catalogSha256,
         *maxWidth < *minWidth || *maxWidth > 65536 || !sources ||
         sources->empty() || qualificationStatus != "validated" ||
         !qualificationReport || qualificationReport->empty() ||
-        !knownSemanticShape || !licenseFile || !licenseSha256) {
+        !knownSemanticShape || !licenseFile) {
       error = "RTL primitive catalog has malformed implementation entry";
       return failure();
     }
@@ -149,9 +137,8 @@ loadCatalog(llvm::StringRef path, std::string &catalogSha256,
     llvm::sys::path::append(licensePath, *licenseFile);
     auto licenseBuffer = llvm::MemoryBuffer::getFile(licensePath);
     if (licenseFile->empty() || licenseFile->contains('\\') || licenseEscapes ||
-        !licenseBuffer ||
-        fingerprint(licenseBuffer.get()->getBuffer()) != *licenseSha256) {
-      error = "RTL primitive license file is missing or has a digest mismatch";
+        !licenseBuffer) {
+      error = "RTL primitive license file is missing";
       return failure();
     }
     RtlCandidate candidate;
@@ -164,10 +151,9 @@ loadCatalog(llvm::StringRef path, std::string &catalogSha256,
     for (const llvm::json::Value &rawSource : *sources) {
       auto *source = rawSource.getAsObject();
       auto sourcePath = source ? source->getString("path") : std::nullopt;
-      auto sourceSha = source ? source->getString("sha256") : std::nullopt;
       auto sourceLicense = source ? source->getString("license") : std::nullopt;
       auto modified = source ? source->getBoolean("modified") : std::nullopt;
-      if (!sourcePath || !sourceSha || !sourceLicense || !modified) {
+      if (!sourcePath || !sourceLicense || !modified) {
         error = "RTL primitive catalog source entry is incomplete";
         return failure();
       }
@@ -184,14 +170,13 @@ loadCatalog(llvm::StringRef path, std::string &catalogSha256,
       llvm::SmallString<256> sourceFile(llvm::sys::path::parent_path(path));
       llvm::sys::path::append(sourceFile, *sourcePath);
       auto sourceBuffer = llvm::MemoryBuffer::getFile(sourceFile);
-      if (!sourceBuffer ||
-          fingerprint(sourceBuffer.get()->getBuffer()) != *sourceSha) {
-        error = "RTL primitive source digest mismatch for '" +
-                sourcePath->str() + "'";
+      if (!sourceBuffer) {
+        error =
+            "RTL primitive source is missing for '" + sourcePath->str() + "'";
         return failure();
       }
-      candidate.sources.push_back({sourcePath->str(), sourceSha->str(),
-                                   sourceLicense->str(), *modified});
+      candidate.sources.push_back(
+          {sourcePath->str(), sourceLicense->str(), *modified});
     }
     result.push_back(std::move(candidate));
   }
@@ -261,9 +246,8 @@ struct SelectRtlPrimitivesPass
       return;
     }
 
-    std::string catalogSha256;
     std::string error;
-    auto loaded = loadCatalog(path, catalogSha256, error);
+    auto loaded = loadCatalog(path, error);
     if (failed(loaded)) {
       module.emitError(error);
       signalPassFailure();
@@ -310,8 +294,6 @@ struct SelectRtlPrimitivesPass
             builder.getNamedAttr("modified",
                                  builder.getBoolAttr(source.modified)),
             builder.getNamedAttr("path", builder.getStringAttr(source.path)),
-            builder.getNamedAttr("sha256",
-                                 builder.getStringAttr(source.sha256)),
         }));
       return sourceValues;
     };
@@ -349,8 +331,6 @@ struct SelectRtlPrimitivesPass
       state.addAttribute("output_ports",
                          builder.getStrArrayAttr({"index", "valid"}));
       state.addAttribute("sources", builder.getArrayAttr(sourceValues));
-      state.addAttribute("catalog_sha256",
-                         builder.getStringAttr(catalogSha256));
       Operation *selected = builder.create(state);
       semantic.getIndex().replaceAllUsesWith(selected->getResult(0));
       semantic.getValid().replaceAllUsesWith(selected->getResult(1));
@@ -388,8 +368,6 @@ struct SelectRtlPrimitivesPass
       state.addAttribute("input_ports", builder.getStrArrayAttr({"in_value"}));
       state.addAttribute("output_ports", builder.getStrArrayAttr({"count"}));
       state.addAttribute("sources", builder.getArrayAttr(sourceValues));
-      state.addAttribute("catalog_sha256",
-                         builder.getStringAttr(catalogSha256));
       Operation *selected = builder.create(state);
       semantic.getCount().replaceAllUsesWith(selected->getResult(0));
       semantic.erase();
@@ -430,8 +408,6 @@ struct SelectRtlPrimitivesPass
       state.addAttribute("input_ports", builder.getStrArrayAttr({"in_value"}));
       state.addAttribute("output_ports", builder.getStrArrayAttr({"count"}));
       state.addAttribute("sources", builder.getArrayAttr(sourceValues));
-      state.addAttribute("catalog_sha256",
-                         builder.getStringAttr(catalogSha256));
       Operation *selected = builder.create(state);
       semantic.getCount().replaceAllUsesWith(selected->getResult(0));
       semantic.erase();

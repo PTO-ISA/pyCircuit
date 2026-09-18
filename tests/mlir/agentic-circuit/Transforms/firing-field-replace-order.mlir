@@ -8,7 +8,7 @@
 // first, then every Replace on top of the field pass, so the replace writer wins.
 // A single block-order accumulator would apply the field writer last instead.
 
-module attributes {ac.contract_epoch = "0.5", ac.freeze_epoch = "0.5", ac.frozen_owners = [], ac.model_kind = "queue_graph", ac.queue_graph_domain = "cycle", ac.system = "two_rule", ac.topology_digest = "a7b13a9d7df5ee058b3fed6f9cc90289d8d2662b0ccfec7ac9526823a6bf8a10", ac.topology_frozen = true} {
+module attributes {ac.frozen_owners = [], ac.model_kind = "queue_graph", ac.queue_graph_domain = "cycle", ac.system = "two_rule", ac.topology_frozen = true} {
   ac.type_scope @types {
     ac.struct @Entry fields [{name = "admitted", type = i1}, {name = "src_ready", type = i1}, {name = "tag", type = i4}]
     ac.struct @Update fields [{name = "index", type = i2}]

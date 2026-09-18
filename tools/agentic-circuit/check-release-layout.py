@@ -175,7 +175,9 @@ def product_system_example_paths(root: Path) -> list[Path]:
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser()
-    parser.add_argument("--root", type=Path, default=Path(__file__).resolve().parents[2])
+    parser.add_argument(
+        "--root", type=Path, default=Path(__file__).resolve().parents[2]
+    )
     args = parser.parse_args(argv)
     root = args.root.resolve()
     errors = [

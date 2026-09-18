@@ -1,7 +1,6 @@
 {
   "schema_kind": "agentic-circuit-component",
   "schema_version": "0.1",
-  "contract_epoch": "0.5",
   "canonical_name": "ac.Broadcast",
   "family": "synchronization",
   "provider_namespace": "ac",
@@ -122,6 +121,5 @@
     ],
     "gauges": [],
     "histograms": []
-  },
-  "schema_fingerprint": "sha256:3c5863a825e27bc5d382fd31205f948b0268af5744414b47e4c592ee50b408a9"
+  }
 }

@@ -7,7 +7,6 @@ from dataclasses import dataclass
 from typing import Literal
 
 from ._canonical_json import JsonValue
-from ._contract import CONTRACT_EPOCH
 
 Severity = Literal["error", "warning", "note"]
 _CODE = re.compile(
@@ -95,17 +94,10 @@ class Diagnostic:
     fixits: tuple[FixIt, ...] = ()
     schema: str = "agentic-circuit-diagnostic"
     version: str = "0.1"
-    contract_epoch: str = CONTRACT_EPOCH
 
     def __post_init__(self) -> None:
-        if (
-            self.schema,
-            self.version,
-            self.contract_epoch,
-        ) != ("agentic-circuit-diagnostic", "0.1", CONTRACT_EPOCH):
-            raise ValueError(
-                f"diagnostic schema identity is fixed at epoch {CONTRACT_EPOCH}"
-            )
+        if (self.schema, self.version) != ("agentic-circuit-diagnostic", "0.1"):
+            raise ValueError("diagnostic schema identity is invalid")
         if not self.stage:
             raise ValueError("diagnostic stage must not be empty")
         if not _CODE.fullmatch(self.code):
@@ -131,7 +123,6 @@ class Diagnostic:
         return {
             "schema": self.schema,
             "version": self.version,
-            "contract_epoch": self.contract_epoch,
             "code": self.code,
             "stage": self.stage,
             "severity": self.severity,
@@ -159,7 +150,9 @@ class AgenticCircuitError(Exception):
         if message is None:
             candidate, separator, detail = code.partition(":")
             if not separator or not _CODE.fullmatch(candidate) or not detail.strip():
-                raise ValueError("string-only diagnostic exceptions require 'CODE: message'")
+                raise ValueError(
+                    "string-only diagnostic exceptions require 'CODE: message'"
+                )
             code = candidate
             message = detail.lstrip()
         if not _CODE.fullmatch(code):

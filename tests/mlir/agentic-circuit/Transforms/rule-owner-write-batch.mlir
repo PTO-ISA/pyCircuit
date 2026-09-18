@@ -6,7 +6,7 @@
 // RUN: %cxx -std=c++20 -I%source_root/simulator/gfsim/include -fsyntax-only %t.cpp
 // RUN: %acir_queue_pycgen %t.frozen.mlir | %FileCheck %s --check-prefix=PYC
 
-module attributes {ac.contract_epoch = "0.5", ac.model_kind = "queue_graph", ac.queue_graph_domain = "cycle", ac.system = "owner_write_batch"} {
+module attributes {ac.model_kind = "queue_graph", ac.queue_graph_domain = "cycle", ac.system = "owner_write_batch"} {
   ac.type_scope @types {
     ac.struct @Command fields [{name = "push", type = i1}, {name = "value", type = i8}]
   } {dlti.dl_spec = #dlti.dl_spec<!ac.struct<@types::@Command> = {abi_alignment = 1 : i64, endianness = "little", preferred_alignment = 1 : i64, size = 2 : i64}>}

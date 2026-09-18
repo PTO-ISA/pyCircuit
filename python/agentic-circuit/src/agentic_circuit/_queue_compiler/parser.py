@@ -15,7 +15,6 @@ from _pycircuit_semantics import (
     prove_within,
 )
 
-from .._contract import CONTRACT_EPOCH
 from .._source_map import (
     SourceNodeLocations,
     apply_source_node_locations,
@@ -140,7 +139,6 @@ def parse_queue_program(
     text: str,
     system: str,
     static_arguments: Mapping[str, StaticValue] | None = None,
-    specialization_fingerprint: str | None = None,
     *,
     entry_kind: str = "system",
     source_path: str | None = None,
@@ -466,7 +464,9 @@ def parse_queue_program(
             spelling = (
                 candidate.func.attr
                 if isinstance(candidate.func, ast.Attribute)
-                else candidate.func.id if isinstance(candidate.func, ast.Name) else None
+                else candidate.func.id
+                if isinstance(candidate.func, ast.Name)
+                else None
             )
             if spelling in forbidden_runtime_mechanics:
                 raise QueueFrontendError(
@@ -1974,17 +1974,6 @@ def parse_queue_program(
             f"ACPY-QUEUE-001: system {system!r} is missing or ambiguous"
         )
     function = candidates[0]
-    if specialization_fingerprint is not None:
-        prefix = "sha256:"
-        digest = specialization_fingerprint.removeprefix(prefix)
-        if (
-            not specialization_fingerprint.startswith(prefix)
-            or len(digest) != 64
-            or any(character not in "0123456789abcdef" for character in digest)
-        ):
-            raise QueueFrontendError(
-                "ACPY-QUEUE-022: specialization fingerprint is invalid"
-            )
     if function.args.vararg is not None or function.args.kwarg is not None:
         raise QueueFrontendError(
             "ACPY-QUEUE-001: a queue system cannot use variadic parameters"
@@ -2199,7 +2188,9 @@ def parse_queue_program(
         returned_values = (
             tuple(returned.elts)
             if isinstance(returned, (ast.Tuple, ast.List))
-            else (returned,) if returned is not None else ()
+            else (returned,)
+            if returned is not None
+            else ()
         )
         if len(returned_values) == len(result_payloads) and all(
             isinstance(value, ast.Name) for value in returned_values
@@ -2507,20 +2498,6 @@ def parse_queue_program(
 
         return ast.fix_missing_locations(StaticSelectionTupleRefs().visit(statement))
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
     def keyword_value(call: ast.Call, name: str) -> ast.expr:
         matches = [keyword.value for keyword in call.keywords if keyword.arg == name]
         if len(matches) != 1:
@@ -2685,8 +2662,6 @@ def parse_queue_program(
             lanes=lanes,
             source=source_frame(call),
         )
-
-
 
     def collection_binding(
         name: str,
@@ -3041,8 +3016,8 @@ def parse_queue_program(
                     and not call.keywords
                 ):
                     raise QueueFrontendError(
-                        "ACPY-RULE-005: ac.atomic() was removed in contract epoch "
-                        f"{CONTRACT_EPOCH}; express the transaction as @ac.rule"
+                        "ACPY-RULE-005: ac.atomic() was removed; express the "
+                        "transaction as @ac.rule"
                     )
             if (
                 isinstance(statement, ast.Assign)
@@ -3975,7 +3950,8 @@ def parse_queue_program(
                                     state_semantics.state_owner_kind(owner),
                                     owner.shape,
                                     "field" if field_fields is not None else "replace",
-                                    field_fields or state_semantics.state_write_fields(owner),
+                                    field_fields
+                                    or state_semantics.state_write_fields(owner),
                                 )
                             )
                         multi_state_writes = tuple(writes)
@@ -4289,8 +4265,8 @@ def parse_queue_program(
                     isinstance(call.func, ast.Attribute) and call.func.attr == "firing"
                 ):
                     raise QueueFrontendError(
-                        "ACPY-RULE-005: Queue.firing() was removed in contract "
-                        f"epoch {CONTRACT_EPOCH}; express the transaction as @ac.rule"
+                        "ACPY-RULE-005: Queue.firing() was removed; express the "
+                        "transaction as @ac.rule"
                     )
                 elif (
                     isinstance(call.func, ast.Attribute)
@@ -4343,9 +4319,7 @@ def parse_queue_program(
             ):
                 continue
             if (
-                handle_expect(
-                    parser_environment, parser_state, statement_context
-                )
+                handle_expect(parser_environment, parser_state, statement_context)
                 is HANDLED
             ):
                 continue
@@ -4471,7 +4445,8 @@ def parse_queue_program(
                                 state_semantics.state_owner_kind(owner),
                                 owner.shape,
                                 "field" if field_fields is not None else "replace",
-                                field_fields or state_semantics.state_write_fields(owner),
+                                field_fields
+                                or state_semantics.state_write_fields(owner),
                             )
                         )
                     reads: list[RuleStateReadBinding] = []
@@ -4739,23 +4714,17 @@ def parse_queue_program(
                 )
                 continue
             if (
-                handle_observe(
-                    parser_environment, parser_state, statement_context
-                )
+                handle_observe(parser_environment, parser_state, statement_context)
                 is HANDLED
             ):
                 continue
             if (
-                handle_sink(
-                    parser_environment, parser_state, statement_context
-                )
+                handle_sink(parser_environment, parser_state, statement_context)
                 is HANDLED
             ):
                 continue
             if (
-                handle_return(
-                    parser_environment, parser_state, statement_context
-                )
+                handle_return(parser_environment, parser_state, statement_context)
                 is HANDLED
             ):
                 continue
@@ -4883,7 +4852,7 @@ def parse_queue_program(
         ),
         static_type_checks=tuple((*interface_type_checks, *expression_type_checks)),
         static_config_bindings=static_config_bindings,
-        specialization_fingerprint=specialization_fingerprint,
         source_path=normalized_source_path,
+        system_source=source_frame(function),
         statement_sources=tuple(sorted(statement_sources.items())),
     )

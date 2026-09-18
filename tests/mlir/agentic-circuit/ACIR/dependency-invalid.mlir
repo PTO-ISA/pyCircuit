@@ -27,7 +27,7 @@
 // PROVIDER-TYPE: error: 'ac.dependency' op ac.schedule_provider must be a StringAttr
 
 //--- capacity.mlir
-builtin.module attributes {ac.contract_epoch = "0.5"} {
+builtin.module  {
   %input = ac.source depth 1 latency 1 : !ac.queue<i8>
   %bad = ac.dependency %input capacity 0 resources 1 no_dependency 255 depth 1 latency 1 key {
   ^key(%item: !ac.var<i8>): ac.dependency.yield %item : !ac.var<i8>
@@ -41,7 +41,7 @@ builtin.module attributes {ac.contract_epoch = "0.5"} {
 }
 
 //--- type.mlir
-builtin.module attributes {ac.contract_epoch = "0.5"} {
+builtin.module  {
   %input = ac.source depth 1 latency 1 : !ac.queue<i8>
   %bad = ac.dependency %input capacity 4 resources 1 no_dependency 255 depth 1 latency 1 key {
   ^key(%item: !ac.var<i8>): ac.dependency.yield %item : !ac.var<i8>
@@ -55,7 +55,7 @@ builtin.module attributes {ac.contract_epoch = "0.5"} {
 }
 
 //--- policy-type.mlir
-builtin.module attributes {ac.contract_epoch = "0.5"} {
+builtin.module  {
   %input = ac.source depth 1 latency 1 : !ac.queue<i8>
   %bad = ac.dependency %input capacity 4 resources 1 no_dependency 255 depth 1 latency 1 key {
   ^key(%item: !ac.var<i8>): ac.dependency.yield %item : !ac.var<i8>
@@ -71,7 +71,7 @@ builtin.module attributes {ac.contract_epoch = "0.5"} {
 }
 
 //--- no-dependency.mlir
-builtin.module attributes {ac.contract_epoch = "0.5"} {
+builtin.module  {
   %input = ac.source depth 1 latency 1 : !ac.queue<i4>
   %bad = ac.dependency %input capacity 4 resources 1 no_dependency 16 depth 1 latency 1 key {
   ^key(%item: !ac.var<i4>): ac.dependency.yield %item : !ac.var<i4>
@@ -85,7 +85,7 @@ builtin.module attributes {ac.contract_epoch = "0.5"} {
 }
 
 //--- cost.mlir
-builtin.module attributes {ac.contract_epoch = "0.5"} {
+builtin.module  {
   %input = ac.source depth 1 latency 1 : !ac.queue<i8>
   %bad = ac.dependency %input capacity 4 resources 1 no_dependency 255 depth 1 latency 1 key {
   ^key(%item: !ac.var<i8>): ac.dependency.yield %item : !ac.var<i8>
@@ -101,7 +101,7 @@ builtin.module attributes {ac.contract_epoch = "0.5"} {
 }
 
 //--- resources.mlir
-builtin.module attributes {ac.contract_epoch = "0.5"} {
+builtin.module  {
   %input = ac.source depth 1 latency 1 : !ac.queue<i8>
   %bad = ac.dependency %input capacity 4 resources 3 no_dependency 255 depth 1 latency 1 key {
   ^key(%item: !ac.var<i8>): ac.dependency.yield %item : !ac.var<i8>
@@ -117,7 +117,7 @@ builtin.module attributes {ac.contract_epoch = "0.5"} {
 }
 
 //--- effect.mlir
-builtin.module attributes {ac.contract_epoch = "0.5"} {
+builtin.module  {
   %input = ac.source depth 1 latency 1 : !ac.queue<i8>
   %bad = ac.dependency %input capacity 4 resources 1 no_dependency 255 depth 1 latency 1 key {
   ^key(%item: !ac.var<i8>):
@@ -134,7 +134,7 @@ builtin.module attributes {ac.contract_epoch = "0.5"} {
 }
 
 //--- provider.mlir
-builtin.module attributes {ac.contract_epoch = "0.5"} {
+builtin.module  {
   %input = ac.source depth 1 latency 1 : !ac.queue<i8>
   %bad = ac.dependency %input capacity 4 resources 1 no_dependency 255 depth 1 latency 1 key {
   ^key(%item: !ac.var<i8>): ac.dependency.yield %item : !ac.var<i8>
@@ -148,7 +148,7 @@ builtin.module attributes {ac.contract_epoch = "0.5"} {
 }
 
 //--- schedule-width.mlir
-builtin.module attributes {ac.contract_epoch = "0.5"} {
+builtin.module  {
   %input = ac.source depth 1 latency 1 : !ac.queue<i32>
   %bad = ac.dependency %input capacity 4 resources 1 no_dependency 4294967295 depth 1 latency 1 key {
   ^key(%item: !ac.var<i32>): ac.dependency.yield %item : !ac.var<i32>
@@ -162,7 +162,7 @@ builtin.module attributes {ac.contract_epoch = "0.5"} {
 }
 
 //--- schedule-sentinel.mlir
-builtin.module attributes {ac.contract_epoch = "0.5"} {
+builtin.module  {
   %input = ac.source depth 1 latency 1 : !ac.queue<i8>
   %bad = ac.dependency %input capacity 4 resources 1 no_dependency 127 depth 1 latency 1 key {
   ^key(%item: !ac.var<i8>): ac.dependency.yield %item : !ac.var<i8>
@@ -176,7 +176,7 @@ builtin.module attributes {ac.contract_epoch = "0.5"} {
 }
 
 //--- provider-alias.mlir
-builtin.module attributes {ac.contract_epoch = "0.5"} {
+builtin.module  {
   %input = ac.source depth 1 latency 1 : !ac.queue<i8>
   %bad = ac.dependency %input capacity 4 resources 1 no_dependency 255 depth 1 latency 1 key {
   ^key(%item: !ac.var<i8>): ac.dependency.yield %item : !ac.var<i8>
@@ -190,7 +190,7 @@ builtin.module attributes {ac.contract_epoch = "0.5"} {
 }
 
 //--- provider-type.mlir
-builtin.module attributes {ac.contract_epoch = "0.5"} {
+builtin.module  {
   %input = ac.source depth 1 latency 1 : !ac.queue<i8>
   %bad = ac.dependency %input capacity 4 resources 1 no_dependency 255 depth 1 latency 1 key {
   ^key(%item: !ac.var<i8>): ac.dependency.yield %item : !ac.var<i8>
@@ -204,7 +204,7 @@ builtin.module attributes {ac.contract_epoch = "0.5"} {
 }
 
 //--- provider-conflict.mlir
-builtin.module attributes {ac.contract_epoch = "0.5"} {
+builtin.module  {
   %input = ac.source depth 1 latency 1 : !ac.queue<i8>
   %bad = ac.dependency %input capacity 4 resources 1 no_dependency 255 depth 1 latency 1 key {
   ^key(%item: !ac.var<i8>): ac.dependency.yield %item : !ac.var<i8>

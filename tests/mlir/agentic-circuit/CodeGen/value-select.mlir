@@ -4,7 +4,7 @@
 // RUN: %FileCheck %s --check-prefix=GFSIM < %t.cpp
 // RUN: %cxx -std=c++20 -I%source_root/simulator/gfsim/include -c %t.cpp -o %t.o
 
-module attributes {ac.contract_epoch = "0.5", ac.model_kind = "queue_graph", ac.queue_graph_domain = "cycle", ac.system = "value_select"} {
+module attributes {ac.model_kind = "queue_graph", ac.queue_graph_domain = "cycle", ac.system = "value_select"} {
   %input = ac.source depth 1 latency 1 {ac.name = "input"} : !ac.queue<i8>
   %output = ac.transform %input depths [1] latencies [1] {
   ^transform(%item: !ac.var<i8>):

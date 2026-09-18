@@ -8,7 +8,7 @@
 >
 > **当前契约**：V6 以周期感知（Cycle-Aware）信号模型与层次化组合为正式语言设计，并统一类型化数据体系、Sidecar 测试调度、双编译路径以及存储 / FIFO / CDC 原语。Decision 0148 取代了早期移除全局周期感知模型的方向。
 >
-> **Agentic Circuit 边界**：Agentic Circuit 使用 epoch `0.5`，Python 以简单的 `@ac.rule` 作为唯一显式调度边界，MLIR pass 负责类型/effect 推导、检查、握手、调度与 marker 消除。Decision 0241 的有界 Table profile 已通过显式 `pyc.reg` bank 贯通 QueueGraph/gfsim、PYC C++ 与 Verilog；Decision 0262 允许 module/system 中声明的 `ac.slot` 作为 rule 前置资源参数或 nested capture，并以无参数 `slot.release()` 参与同一 GFSim 原子事务。Slot 仍不进入 PYC/RTL profile。超出 rank、entry、位宽、总容量或 writer 上限的状态仍在 backend admission 边界 fail closed。该迁移不改变 CycleAwareSignal 或 PYC 的语义。
+> **Agentic Circuit 边界**：Python 以简单的 `@ac.rule` 作为唯一显式调度边界，MLIR pass 负责类型/effect 推导、检查、握手、调度与 marker 消除。Decision 0241 的有界 Table profile 已通过显式 `pyc.reg` bank 贯通 QueueGraph/gfsim、PYC C++ 与 Verilog；Decision 0262 允许 module/system 中声明的 `ac.slot` 作为 rule 前置资源参数或 nested capture，并以无参数 `slot.release()` 参与同一 GFSim 原子事务。Slot 仍不进入 PYC/RTL profile。超出 rank、entry、位宽、总容量或 writer 上限的状态仍在 backend admission 边界 fail closed。release compatibility 由外部 package/Git revision 决定，不编码进 IR。
 
 ---
 
@@ -630,7 +630,7 @@ runtime width、bool/enum 隐式混用和超范围 literal 均拒绝。
 变化，声明为更宽返回类型的模块必须显式转换，否则以 `ACPY-MODULE-001` 拒绝。
 
 `ac.static_assert(condition, message=...)` 在 JIT `ac.const` 参数绑定后求值，
-只允许直接出现在 entry body，并在 Frozen ACIR 前消失；失败诊断保留相对源码位置。
+只允许直接出现在 entry body，并在 verified ACIR 前消失；失败诊断保留相对源码位置。
 
 Agentic Circuit 的声明式 bounded integer 使用 Python 半开区间：
 
@@ -653,7 +653,7 @@ verifier 证明安全的动态读取，以及返回新数组的
 replacement 的 integer/tuple/list literal 由目标元素 descriptor 提供上下文，但递归
 leaf 仍执行精确类型检查，`bool` 与 `ac.u1` 不互换。QueueGraph cost metadata 分别记录
 PYC DCE 前节点数、选择树深度与 `pyc-check-logic-depth` 的 unit-cost depth，并计入窄
-index zero-extension。Frozen ACIR 使用 inclusive
+index zero-extension。verified ACIR 使用 inclusive
 `!ac.range<lo, hi - 1>`，QueueGraph 独立复算转换、算术和索引证明后才在
 GFSim/PYC 中擦除 refinement。
 
@@ -662,7 +662,7 @@ GFSim/PYC 中擦除 refinement。
 调用一个单参数 lambda 或 exact typed pure helper，并返回同长度同质 array；callback
 的 deferred capture 在外层词法作用域 materialize，所有参数、分支与 aggregate leaf
 保持 exact descriptor。zip 只接受完全等长的一个或多个 array，返回按 operand 顺序组成
-tuple 的 array，不采用 Python 内置 `zip` 的最短截断语义。两者在 Frozen ACIR 前展开为
+tuple 的 array，不采用 Python 内置 `zip` 的最短截断语义。两者在 verified ACIR 前展开为
 现有 element/callback/tuple/array op，嵌套展开共享 4096-lane 上限。
 
 bool array 支持 `all()`、`any()` 和返回 `ac.range[0, N + 1]` 的 `count()`。
@@ -699,7 +699,7 @@ class Group:
 
 `CFG` 只存在于 elaboration；叶子必须在 config schema 中存在且类型精确为
 `int`。system/module 仍以 `cfg: ac.const[Config]` 绑定实际值。JIT 先验证根对象及
-嵌套 config 的 nominal 类型，再把 canonical schema、schema SHA-256、完整根值和
+嵌套 config 的 nominal 类型，再把 canonical schema、完整根值和
 `cfg.geometry.entries` 形式的语义路径写入 ACIR。ACIR 与 QueueGraph verifier 从根值
 重新投影并核对 leaf binding，后端仍只看到 concrete type。失败的
 `ac.static_assert` 同时报告结构化 source span、规范化表达式和引用到的闭合绑定值。
@@ -712,10 +712,10 @@ spread 和 Table projection 会把来源组织成有序 stack；CSE 或 constant
 等价值时保留多个独立 origin。生成 `.pyc`/`.mlir` 的 parser 位置和绝对 checkout
 路径不会进入这个来源合同。
 
-Frozen ACIR 的 `ac.source_provenance`、QueueGraph 的 `source_provenance`、PYC op 的
-MLIR location、module 上经过 verifier 检查的 `pyc.source_map`，以及 model bundle 的
-`share/generated/source-map.json` 表示同一组来源。manifest 同时记录 source map 的
-schema、路径与 SHA-256。生成 GFSim 对 primary frame 使用 `#line`，完整 inline stack
+verified ACIR 的 `ac.source_provenance`、QueueGraph 的 `source_provenance`、PYC op 的
+MLIR location、module 上经过 verifier 检查的 `pyc.source_map`，以及 ACC bundle 的
+`share/generated/source-map.json` 表示同一组来源。bundle inventory 记录 source map 的
+schema 与相对路径，不派生内容身份。生成 GFSim 对 primary frame 使用 `#line`，完整 inline stack
 和其他 origin 仍以 JSON source map 为准。来源元数据不参与 topology、definition 或
 specialization identity。
 
@@ -741,8 +741,8 @@ class Entry:
 leaf 同样保留 verifier provenance。module-local 类型按 instance 具体化，因此
 不同参数绑定即使得到相同位宽也不会共享 nominal identity；相同绑定跨 module
 interface 则保持同一 identity。直接作为 interface 的 dependent scalar 携带 concrete
-type check，specialized struct 的 identity manifest 还会验证完整 target 集合与 layout
-fingerprint。record 的 `**` spread
+type check，specialized struct identity 还会验证完整 target 集合与 layout。
+record 的 `**` spread
 只按精确字段名和递归类型完成
 构造或 immutable replacement；`@ac.encoding(width=N)` Enum 保留显式协议编码；
 `ac.onehot_encode(...)` 返回 `.index/.valid/.conflict`，并 lowering 为既有 scalar
@@ -756,7 +756,7 @@ nominal enum 的成员常量；`ac.checked(raw, EnumType, fallback=...)` 返回
 覆盖每个已声明 member，所有结果递归类型完全一致。`invalid=` 不能省略，因为 raw
 enum 输入的物理 bits 仍可能不是任何声明 encoding。Raw ACIR 的
 `ac.var.enum_match` verifier 复核 coverage 后，统一 lowering 为 enum equality、
-balanced OR 和 select；Frozen ACIR/PYC 不保留高层 match 或 `scf.*`。
+balanced OR 和 select；verified ACIR/PYC 不保留高层 match 或 `scf.*`。
 
 record subset 使用 `value.project(TargetStruct)` 显式构造。TargetStruct 必须是
 nominal `@ac.struct`，它的声明决定 exact-name 字段集合和顺序；所有递归 descriptor
@@ -770,7 +770,7 @@ canonicalization 可把字段需求穿透 record/with/select；通用跨 Queue p
 Transform→Transform Queue 做 field-liveness：单 producer/consumer、unit lane/rate、
 纯逻辑、非空真子集 direct field use。物理 carrier 是 exact tuple，逻辑 Struct 与
 Queue 名称、depth、latency、token 语义保持不变。ACIR 与 QueueGraph 分别重算 paired
-metadata、递归 fingerprint、字段顺序/类型和 whole-value escape；公开/trace/module/
+metadata、递归 descriptor、字段顺序/类型和 whole-value escape；公开/trace/module/
 owner/state/feedback/memory 边界一律不裁剪。JSON 同时报告 logical/carrier bits 和
 removed bits，不能把 storage 缩窄直接表述为性能提升。
 

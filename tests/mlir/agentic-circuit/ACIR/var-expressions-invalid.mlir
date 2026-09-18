@@ -58,67 +58,67 @@
 // SHR-WIDTH: error: 'ac.var.shr' op bit operation Var element must be a signless integer with width in [1, 64]
 
 //--- constant.mlir
-builtin.module attributes {ac.contract_epoch = "0.5"} {
+builtin.module  {
   %bad = ac.var.constant 1 : i16 as !ac.var<i32>
 }
 
 //--- popcount-width.mlir
-builtin.module attributes {ac.contract_epoch = "0.5"} {
+builtin.module  {
   %value = "builtin.unrealized_conversion_cast"() : () -> !ac.var<i8>
   %bad = ac.var.popcount %value : !ac.var<i8> -> !ac.var<i3>
 }
 
 //--- bit-width.mlir
-builtin.module attributes {ac.contract_epoch = "0.5"} {
+builtin.module  {
   %value = "builtin.unrealized_conversion_cast"() : () -> !ac.var<i128>
   %bad = ac.var.and %value, %value : !ac.var<i128>
 }
 
 //--- priority-index.mlir
-builtin.module attributes {ac.contract_epoch = "0.5"} {
+builtin.module  {
   %value = "builtin.unrealized_conversion_cast"() : () -> !ac.var<i13>
   %index, %valid = ac.var.priority_encode %value order "low" : !ac.var<i13> -> !ac.var<i3>, !ac.var<i1>
 }
 
 //--- priority-order.mlir
-builtin.module attributes {ac.contract_epoch = "0.5"} {
+builtin.module  {
   %value = "builtin.unrealized_conversion_cast"() : () -> !ac.var<i4>
   %index, %valid = ac.var.priority_encode %value order "middle" : !ac.var<i4> -> !ac.var<i2>, !ac.var<i1>
 }
 
 //--- popcount-input.mlir
-builtin.module attributes {ac.contract_epoch = "0.5"} {
+builtin.module  {
   %value = "builtin.unrealized_conversion_cast"() : () -> !ac.var<i128>
   %bad = ac.var.popcount %value : !ac.var<i128> -> !ac.var<i8>
 }
 
 //--- count-leading-zeros-width.mlir
-builtin.module attributes {ac.contract_epoch = "0.5"} {
+builtin.module  {
   %value = "builtin.unrealized_conversion_cast"() : () -> !ac.var<i8>
   %bad = ac.var.count_zeros %value direction "leading" : !ac.var<i8> -> !ac.var<i3>
 }
 
 //--- count-leading-zeros-input.mlir
-builtin.module attributes {ac.contract_epoch = "0.5"} {
+builtin.module  {
   %value = "builtin.unrealized_conversion_cast"() : () -> !ac.var<i128>
   %bad = ac.var.count_zeros %value direction "trailing" : !ac.var<i128> -> !ac.var<i8>
 }
 
 //--- count-zeros-direction.mlir
-builtin.module attributes {ac.contract_epoch = "0.5"} {
+builtin.module  {
   %value = "builtin.unrealized_conversion_cast"() : () -> !ac.var<i8>
   %bad = ac.var.count_zeros %value direction "middle" : !ac.var<i8> -> !ac.var<i4>
 }
 
 //--- cmp-predicate.mlir
-builtin.module attributes {ac.contract_epoch = "0.5"} {
+builtin.module  {
   %left = ac.var.constant 1 : i64 as !ac.var<i64>
   %right = ac.var.constant 2 : i64 as !ac.var<i64>
   %bad = ac.var.cmp "random" %left, %right : !ac.var<i64> -> !ac.var<i1>
 }
 
 //--- select-condition.mlir
-builtin.module attributes {ac.contract_epoch = "0.5"} {
+builtin.module  {
   %condition = ac.var.constant 1 : i8 as !ac.var<i8>
   %left = ac.var.constant 2 : i8 as !ac.var<i8>
   %right = ac.var.constant 3 : i8 as !ac.var<i8>
@@ -126,88 +126,88 @@ builtin.module attributes {ac.contract_epoch = "0.5"} {
 }
 
 //--- extract-range.mlir
-builtin.module attributes {ac.contract_epoch = "0.5"} {
+builtin.module  {
   %value = ac.var.constant 5 : i3 as !ac.var<i3>
   %bad = ac.var.extract %value from 2 width 2 : !ac.var<i3> -> !ac.var<i2>
 }
 
 //--- concat-result.mlir
-builtin.module attributes {ac.contract_epoch = "0.5"} {
+builtin.module  {
   %left = ac.var.constant 5 : i3 as !ac.var<i3>
   %right = ac.var.constant 17 : i5 as !ac.var<i5>
   %bad = ac.var.concat %left, %right : !ac.var<i3>, !ac.var<i5> -> !ac.var<i7>
 }
 
 //--- insert-range.mlir
-builtin.module attributes {ac.contract_epoch = "0.5"} {
+builtin.module  {
   %base = ac.var.constant 5 : i3 as !ac.var<i3>
   %value = ac.var.constant 3 : i2 as !ac.var<i2>
   %bad = ac.var.insert %base, %value at 2 : !ac.var<i3>, !ac.var<i2> -> !ac.var<i3>
 }
 
 //--- binary.mlir
-builtin.module attributes {ac.contract_epoch = "0.5"} {
+builtin.module  {
   %left = ac.var.constant 1 : i32 as !ac.var<i32>
   %right = ac.var.constant 1 : i16 as !ac.var<i16>
   %bad = ac.var.add %left, %right : !ac.var<i32>
 }
 
 //--- sub-nonnumeric.mlir
-builtin.module attributes {ac.contract_epoch = "0.5"} {
+builtin.module  {
   %value = "builtin.unrealized_conversion_cast"() : () -> !ac.var<tuple<i8>>
   %bad = ac.var.sub %value, %value : !ac.var<tuple<i8>>
 }
 
 //--- mul-nonnumeric.mlir
-builtin.module attributes {ac.contract_epoch = "0.5"} {
+builtin.module  {
   %value = "builtin.unrealized_conversion_cast"() : () -> !ac.var<tuple<i8>>
   %bad = ac.var.mul %value, %value : !ac.var<tuple<i8>>
 }
 
 //--- or-width.mlir
-builtin.module attributes {ac.contract_epoch = "0.5"} {
+builtin.module  {
   %value = "builtin.unrealized_conversion_cast"() : () -> !ac.var<i128>
   %bad = ac.var.or %value, %value : !ac.var<i128>
 }
 
 //--- udiv-nonnumeric.mlir
-builtin.module attributes {ac.contract_epoch = "0.5"} {
+builtin.module  {
   %value = "builtin.unrealized_conversion_cast"() : () -> !ac.var<tuple<i8>>
   %bad = ac.var.udiv %value, %value : !ac.var<tuple<i8>>
 }
 
 //--- urem-width.mlir
-builtin.module attributes {ac.contract_epoch = "0.5"} {
+builtin.module  {
   %value = "builtin.unrealized_conversion_cast"() : () -> !ac.var<i128>
   %bad = ac.var.urem %value, %value : !ac.var<i128>
 }
 
 //--- xor-width.mlir
-builtin.module attributes {ac.contract_epoch = "0.5"} {
+builtin.module  {
   %value = "builtin.unrealized_conversion_cast"() : () -> !ac.var<i128>
   %bad = ac.var.xor %value, %value : !ac.var<i128>
 }
 
 //--- not-width.mlir
-builtin.module attributes {ac.contract_epoch = "0.5"} {
+builtin.module  {
   %value = "builtin.unrealized_conversion_cast"() : () -> !ac.var<i128>
   %bad = ac.var.not %value : !ac.var<i128> -> !ac.var<i128>
 }
 
 //--- shl-width.mlir
-builtin.module attributes {ac.contract_epoch = "0.5"} {
+builtin.module  {
   %value = "builtin.unrealized_conversion_cast"() : () -> !ac.var<i128>
   %bad = ac.var.shl %value, %value : !ac.var<i128>
 }
 
 //--- shr-width.mlir
-builtin.module attributes {ac.contract_epoch = "0.5"} {
+builtin.module  {
   %value = "builtin.unrealized_conversion_cast"() : () -> !ac.var<i128>
   %bad = ac.var.shr %value, %value : !ac.var<i128>
 }
 
 //--- get-field.mlir
-builtin.module attributes {ac.contract_epoch = "0.5"} {
+builtin.module  {
   "ac.type_scope"() <{sym_name = "types"}> ({
     "ac.transaction"() <{sym_name = "Item", fields = [{name = "value", type = i64}]}> : () -> ()
   }) : () -> ()
@@ -216,7 +216,7 @@ builtin.module attributes {ac.contract_epoch = "0.5"} {
 }
 
 //--- get-result.mlir
-builtin.module attributes {ac.contract_epoch = "0.5"} {
+builtin.module  {
   "ac.type_scope"() <{sym_name = "types"}> ({
     "ac.transaction"() <{sym_name = "Item", fields = [{name = "value", type = i64}]}> : () -> ()
   }) : () -> ()
@@ -225,7 +225,7 @@ builtin.module attributes {ac.contract_epoch = "0.5"} {
 }
 
 //--- with-result.mlir
-builtin.module attributes {ac.contract_epoch = "0.5"} {
+builtin.module  {
   "ac.type_scope"() <{sym_name = "types"}> ({
     "ac.transaction"() <{sym_name = "A", fields = [{name = "value", type = i64}]}> : () -> ()
     "ac.transaction"() <{sym_name = "B", fields = [{name = "value", type = i64}]}> : () -> ()
@@ -236,7 +236,7 @@ builtin.module attributes {ac.contract_epoch = "0.5"} {
 }
 
 //--- with-value.mlir
-builtin.module attributes {ac.contract_epoch = "0.5"} {
+builtin.module  {
   "ac.type_scope"() <{sym_name = "types"}> ({
     "ac.transaction"() <{sym_name = "Item", fields = [{name = "value", type = i64}]}> : () -> ()
   }) : () -> ()

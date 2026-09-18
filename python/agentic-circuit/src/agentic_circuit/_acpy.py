@@ -7,7 +7,6 @@ from dataclasses import dataclass
 from typing import Literal, TypeAlias
 
 from ._canonical_json import JsonValue, canonical_json_bytes, utf16_sort_key
-from ._contract import CONTRACT_EPOCH
 from ._diagnostics import Diagnostic, SourceSpan
 from ._static_eval import FrozenMap, StaticValue
 
@@ -49,7 +48,6 @@ _ENTITY_KINDS = {
     "process",
     "rule",
 }
-_DIGEST = re.compile(r"^sha256:[0-9a-f]{64}$")
 _PROPERTY_NAME = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
 
 
@@ -76,19 +74,17 @@ def _static_json(value: StaticValue) -> JsonValue:
 @dataclass(frozen=True, slots=True)
 class SourceFile:
     path: str
-    sha256: str
 
     def to_json(self) -> dict[str, JsonValue]:
-        return {"path": self.path, "sha256": self.sha256}
+        return {"path": self.path}
 
 
 @dataclass(frozen=True, slots=True)
 class SchemaRef:
     identity: str
-    fingerprint: str
 
     def to_json(self) -> dict[str, JsonValue]:
-        return {"identity": self.identity, "fingerprint": self.fingerprint}
+        return {"identity": self.identity}
 
 
 @dataclass(frozen=True, slots=True)
@@ -137,13 +133,11 @@ class AcpyDocument:
     entities: tuple[Entity, ...]
     schema: str = "agentic-circuit-acpy"
     version: str = "0.1"
-    contract_epoch: str = CONTRACT_EPOCH
 
     def to_json(self) -> dict[str, JsonValue]:
         return {
             "schema": self.schema,
             "version": self.version,
-            "contract_epoch": self.contract_epoch,
             "entry": self.entry,
             "sources": [source.to_json() for source in self.sources],
             "entities": [entity.to_json() for entity in self.entities],
@@ -160,16 +154,8 @@ class AcpyDocument:
 
     def verify(self) -> tuple[Diagnostic, ...]:
         errors: list[Diagnostic] = []
-        if (self.schema, self.version, self.contract_epoch) != (
-            "agentic-circuit-acpy",
-            "0.1",
-            CONTRACT_EPOCH,
-        ):
-            errors.append(
-                self._diagnostic(
-                    f"ACPy schema identity must be epoch {CONTRACT_EPOCH}"
-                )
-            )
+        if (self.schema, self.version) != ("agentic-circuit-acpy", "0.1"):
+            errors.append(self._diagnostic("ACPy schema identity is invalid"))
 
         expected_ids = [f"e{index}" for index in range(len(self.entities))]
         actual_ids = [entity.id for entity in self.entities]
@@ -185,7 +171,7 @@ class AcpyDocument:
         ) != len(set(source_paths)):
             errors.append(self._diagnostic("ACPy sources must be unique and ordered"))
         for source in self.sources:
-            if not source.path or not _DIGEST.fullmatch(source.sha256):
+            if not source.path:
                 errors.append(self._diagnostic("ACPy source record is invalid"))
 
         for entity in self.entities:
@@ -230,10 +216,7 @@ class AcpyDocument:
                 errors.append(
                     self._diagnostic("ACPy property name is invalid", entity.source)
                 )
-            if entity.schema_ref is not None and (
-                not entity.schema_ref.identity
-                or not _DIGEST.fullmatch(entity.schema_ref.fingerprint)
-            ):
+            if entity.schema_ref is not None and not entity.schema_ref.identity:
                 errors.append(
                     self._diagnostic("ACPy schema reference is invalid", entity.source)
                 )

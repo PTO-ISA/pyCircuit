@@ -1,4 +1,4 @@
-"""Shared explicit-memory Queue frontend example for contract epoch 0.5."""
+"""Shared explicit-memory Queue frontend example."""
 
 import agentic_circuit as ac
 

@@ -47,7 +47,6 @@ struct QueueStaticConfigBindingPlan {
   std::string root;
   std::string type;
   std::string schema;
-  std::string schemaSha256;
   std::string value;
 };
 
@@ -60,7 +59,6 @@ struct QueueStaticTypeIdentityBindingPlan {
 struct QueueStaticTypeIdentityPlan {
   std::string source;
   std::string symbol;
-  std::string fingerprint;
   std::vector<QueueStaticTypeIdentityBindingPlan> bindings;
   std::vector<std::string> targets;
 };
@@ -155,7 +153,6 @@ struct QueuePayloadProjectionPlan {
   std::string logicalType;
   std::vector<std::string> keptFields;
   std::string carrierType;
-  std::string fingerprint;
   uint64_t logicalBits = 0;
   uint64_t carrierBits = 0;
   uint64_t removedBits = 0;
@@ -247,6 +244,8 @@ struct QueueBlockPlan {
   std::string selection;
   uint64_t selectionCount = 0;
   std::string displayRuleName;
+  std::vector<std::string> ndfIds;
+  std::vector<std::string> ndfRequires;
   std::string sourceFile;
   uint64_t sourceLine = 0;
   uint64_t sourceColumn = 0;
@@ -306,7 +305,6 @@ struct TablePlan {
   std::vector<uint64_t> axisWidths;
   std::string layout;
   uint64_t layoutVersion = 0;
-  std::string schemaId;
   uint64_t initVersion = 0;
   std::vector<TableInitValuePlan> initImage;
   bool hasTypedSchema = false;
@@ -393,7 +391,7 @@ struct QueueInterfacePlan {
 struct QueueModuleInstancePlan {
   std::string name;
   std::string definition;
-  std::string specializationFingerprint;
+  std::string specializationKey;
   std::string scope;
   std::vector<std::string> inputs;
   std::vector<std::string> outputs;
@@ -427,9 +425,13 @@ struct QueueActivationEdgePlan {
 struct QueueGraphPlan {
   std::string system;
   std::string definition;
-  std::string definitionFingerprint;
-  std::string specializationFingerprint;
-  std::string jitSpecializationFingerprint;
+  std::string specializationKey;
+  std::vector<std::pair<std::string, std::string>> specializationParameters;
+  std::vector<std::string> ndfIds;
+  std::vector<std::string> ndfRequires;
+  std::string sourceFile;
+  uint64_t sourceLine = 0;
+  uint64_t sourceColumn = 0;
   std::vector<QueueInterfacePlan> interfaceInputs;
   std::vector<QueueInterfacePlan> interfaceOutputs;
   std::vector<QueueModuleInstancePlan> moduleInstances;

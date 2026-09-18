@@ -6,7 +6,6 @@
 # or type must be reflected here in the same commit, and every entry must
 # have observable lit coverage.
 schema: acir-ir-inventory
-contract_epoch: "0.5"
 dialect: acir
 operations:
   - ac.system

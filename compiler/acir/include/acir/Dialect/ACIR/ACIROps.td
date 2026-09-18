@@ -43,10 +43,10 @@ def ACIR_StructOp : ACIR_RecordDeclarationOp<"struct">;
 
 def ACIR_BitfieldOp : ACIR_Op<"bitfield", [Symbol]> {
   let arguments = (ins SymbolNameAttr:$sym_name, I64Attr:$width,
-                       StrAttr:$fingerprint, ArrayAttr:$fields);
+                       ArrayAttr:$fields);
   let hasVerifier = 1;
   let assemblyFormat = [{
-    $sym_name `width` $width `fingerprint` $fingerprint `fields` $fields
+    $sym_name `width` $width `fields` $fields
     attr-dict
   }];
 }
@@ -846,7 +846,6 @@ def ACIR_TableOp : ACIR_Op<"table", [
                        OptionalAttr<DenseI64ArrayAttr>:$axis_widths,
                        OptionalAttr<StrAttr>:$layout,
                        OptionalAttr<I64Attr>:$layout_version,
-                       OptionalAttr<StrAttr>:$schema_id,
                        OptionalAttr<I64Attr>:$init_version,
                        OptionalAttr<ArrayAttr>:$init_image);
   let hasVerifier = 1;

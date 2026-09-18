@@ -1,7 +1,6 @@
 // RUN: %acir_opt --pass-pipeline='builtin.module(ac-lower-variable-state)' %s | %FileCheck %s
 
 builtin.module attributes {
-  ac.contract_epoch = "0.5",
   ac.model_kind = "queue_graph",
   ac.queue_graph_domain = "cycle"
 } {

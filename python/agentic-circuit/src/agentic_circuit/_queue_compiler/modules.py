@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import ast
 import copy
+import re
 from collections.abc import Mapping
 from dataclasses import dataclass
 
@@ -12,12 +13,7 @@ from _pycircuit_semantics import (
     ValueType,
 )
 
-from .._canonical_json import (
-    canonical_json_bytes,
-    canonical_mlir_string,
-    sha256_bytes,
-)
-from .._contract import CONTRACT_EPOCH
+from .._canonical_json import canonical_mlir_string
 from .._source_map import (
     SourceFrame,
     SourceNodeLocations,
@@ -46,7 +42,11 @@ from .errors import QueueFrontendError
 from .expressions import (
     _ExpressionEmitter,
 )
-from .lower_acir import _ModuleRenderSpec, lower_queue_program
+from .lower_acir import (
+    _ModuleRenderSpec,
+    _module_attribute_fields,
+    lower_queue_program,
+)
 from .model import (
     Payload,
     QueueProgram,
@@ -57,6 +57,7 @@ from .normalize import (
     _strip_static_assertions,
 )
 from .parser import parse_queue_program
+from .provenance import DefinitionNdfMetadata, NdfMetadata
 from .source import (
     _normalize_queue_source_path,
     _render_source_frame_location,
@@ -83,12 +84,17 @@ from .static_types import (
 from .syntax import _decorator_name
 
 
+def _readable_static_value(value: StaticValue) -> str:
+    rendered = str(static_json_value(value))
+    token = re.sub("[^A-Za-z0-9]+", "_", rendered).strip("_")
+    return token or "empty"
+
+
 def _lower_simple_module_source(
     text: str,
     system: str,
     *,
     static_arguments: Mapping[str, StaticValue] | None = None,
-    specialization_fingerprint: str | None = None,
     host_results: bool = False,
     source_path: str | None = None,
     definition_locations: Mapping[str, tuple[str, int, int]] | None = None,
@@ -96,7 +102,9 @@ def _lower_simple_module_source(
         Mapping[str, tuple[tuple[str, int, int], ...]] | None
     ) = None,
     source_node_locations: SourceNodeLocations | None = None,
+    definition_ndf: DefinitionNdfMetadata | None = None,
 ) -> str | None:
+    definition_ndf = definition_ndf or {}
     normalized_source_path = _normalize_queue_source_path(source_path)
     tree = ast.parse(text, filename=normalized_source_path, type_comments=True)
     apply_source_node_locations(
@@ -104,6 +112,29 @@ def _lower_simple_module_source(
         source_node_locations,
         normalized_source_path,
     )
+    definition_sources = dict(definition_locations or {})
+    if normalized_source_path.endswith(".py"):
+        for node in ast.walk(tree):
+            if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
+                definition_sources.setdefault(
+                    node.name,
+                    (normalized_source_path, node.lineno, node.col_offset + 1),
+                )
+
+    def module_metadata(name: str) -> tuple[str, ...]:
+        source = definition_sources.get(name)
+        return _module_attribute_fields(
+            _ModuleRenderSpec(
+                name,
+                (),
+                (),
+                ndf=definition_ndf.get(name, NdfMetadata()),
+                source_file="" if source is None else source[0],
+                source_line=0 if source is None else source[1],
+                source_column=0 if source is None else source[2],
+            )
+        )
+
     module_names = [
         node.name
         for node in tree.body
@@ -200,18 +231,6 @@ def _lower_simple_module_source(
         for name, function in modules.items()
         if name in reachable_modules
     }
-
-    if specialization_fingerprint is not None:
-        prefix = "sha256:"
-        digest = specialization_fingerprint.removeprefix(prefix)
-        if (
-            not specialization_fingerprint.startswith(prefix)
-            or len(digest) != 64
-            or any(character not in "0123456789abcdef" for character in digest)
-        ):
-            raise QueueFrontendError(
-                "ACPY-QUEUE-022: specialization fingerprint is invalid"
-            )
 
     def result_payloads(annotation: ast.expr | None) -> tuple[ValueType, ...]:
         if annotation is None:
@@ -642,21 +661,6 @@ def _lower_simple_module_source(
         definition_locations,
         static_assert_locations,
     )
-    if specialization_fingerprint is None and system_static_values:
-        specialization_fingerprint = sha256_bytes(
-            canonical_json_bytes(
-                {
-                    "schema": "agentic-circuit-structured-specialization",
-                    "version": "0.5",
-                    "system": system,
-                    "source": text,
-                    "arguments": {
-                        name: static_json_value(value)
-                        for name, value in sorted(system_static_values.items())
-                    },
-                }
-            )
-        )
     expected_results = result_payloads(function.returns)
     parameter_aliases = _static_parameter_aliases(tree)
     system_interface_checks: list[StaticTypeCheck] = []
@@ -818,28 +822,26 @@ def _lower_simple_module_source(
             _render_static_mlir_value(value)
             static_values.append((name, value))
         frozen = tuple(static_values)
-        specialization_fingerprint = (
-            sha256_bytes(
-                canonical_json_bytes(
-                    {name: static_json_value(value) for name, value in frozen}
-                )
+        readable_parameters = "__".join(
+            f"{name}_{_readable_static_value(value)}" for name, value in frozen
+        )
+        symbol = (
+            module_name
+            if not readable_parameters
+            else f"{module_name}__{readable_parameters}"
+        )
+        existing = rule_module_specializations.get(symbol)
+        if existing is not None and existing[2] != frozen:
+            raise QueueFrontendError(
+                "ACPY-MODULE-007: readable specialization name collision for "
+                f"{module_name!r}"
             )
-            if frozen
-            else None
-        )
-        digest = (
-            specialization_fingerprint.removeprefix("sha256:")[:12]
-            if specialization_fingerprint is not None
-            else ""
-        )
-        symbol = module_name if not digest else f"{module_name}__p{digest}"
         if symbol not in rule_module_specializations:
-            namespace = "" if not digest else f"{module_name}__p{digest}__"
+            namespace = "" if not readable_parameters else f"{symbol}__"
             program = parse_queue_program(
                 text,
                 module_name,
                 static_arguments=dict(frozen),
-                specialization_fingerprint=specialization_fingerprint,
                 entry_kind="module",
                 source_path=normalized_source_path,
                 static_type_namespace=namespace,
@@ -1130,8 +1132,7 @@ def _lower_simple_module_source(
     }
 
     lines = [
-        "builtin.module attributes {ac.contract_epoch = "
-        f"{canonical_mlir_string(CONTRACT_EPOCH)}, "
+        "builtin.module attributes {"
         'ac.model_kind = "queue_graph", ac.queue_graph_domain = "cycle"'
         + _render_static_type_attributes(
             tuple(sorted(all_static_bindings.items())),
@@ -1241,7 +1242,7 @@ def _lower_simple_module_source(
                     f"  ac.module @{name}(%input: "
                     f"!ac.queue<{_render_type(input_type)}>) -> "
                     f"!ac.queue<{_render_type(output_type)}> parameters {{}}"
-                    f"{_render_interface_display_attributes((argument,), ('result',))} "
+                    f"{_render_interface_display_attributes((argument,), ('result',), module_metadata(name))} "
                     "graph {",
                     f"    %output = ac.instance @result of @{child}(%input) "
                     'static {} id "result" path "result" '
@@ -1277,7 +1278,7 @@ def _lower_simple_module_source(
                     f"  ac.module @{name}(%input: "
                     f"!ac.queue<{_render_type(input_type)}>) -> "
                     f"!ac.queue<{_render_type(output_type)}> parameters {{}}"
-                    f"{_render_interface_display_attributes((argument,), ('result',))} "
+                    f"{_render_interface_display_attributes((argument,), ('result',), module_metadata(name))} "
                     "graph {",
                     "    %output = ac.scope @body(%input) {",
                     f"    ^bb0(%borrowed: !ac.queue<{_render_type(input_type)}>):",
@@ -1370,7 +1371,7 @@ def _lower_simple_module_source(
                 f"  ac.module @{name}(%input: "
                 f"!ac.queue<{_render_type(input_type)}>) -> "
                 f"!ac.queue<{_render_type(output_type)}> parameters {{}}"
-                f"{_render_interface_display_attributes((argument,), ('result',))} "
+                f"{_render_interface_display_attributes((argument,), ('result',), module_metadata(name))} "
                 "graph {",
                 "    %output = ac.scope @body(%input) {",
                 f"    ^bb0(%borrowed: !ac.queue<{_render_type(input_type)}>):",
@@ -1408,8 +1409,11 @@ def _lower_simple_module_source(
                     definition.inputs,
                     definition.outputs,
                     static_arguments,
+                    definition_ndf.get(program.system, NdfMetadata()),
+                    *(definition_sources.get(program.system, ("", 0, 0))),
                 ),
                 include_helpers=False,
+                definition_ndf=definition_ndf,
             )
             .rstrip()
             .splitlines()
@@ -1421,16 +1425,23 @@ def _lower_simple_module_source(
         root_result_types if len(expected_results) == 1 else f"({root_result_types})"
     )
     top_static_parameters = (
-        "{}"
-        if specialization_fingerprint is None
-        else "{jit_specialization = "
-        + canonical_mlir_string(specialization_fingerprint)
+        "{"
+        + ", ".join(
+            f"{name} = {_render_static_mlir_value(value)}"
+            for name, value in sorted(system_static_values.items())
+        )
         + "}"
     )
     lines.append(
         "  ac.module @Top()"
         + (f" -> {root_result_signature}" if host_results else "")
-        + f" parameters {top_static_parameters} graph {{"
+        + f" parameters {top_static_parameters}"
+        + _render_interface_display_attributes(
+            (),
+            (),
+            module_metadata(system),
+        )
+        + " graph {"
     )
     source_values = [f"%source_{index}" for index in range(len(external))]
     top_values: dict[str, str] = {}

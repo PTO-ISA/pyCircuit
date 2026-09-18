@@ -4,8 +4,6 @@
     "acpy_epoch": "0.5",
     "consumer_lock": "1",
     "generator_abi": "1",
-    "model_manifest": "1",
-    "model_plan": "1",
     "release_index": "1",
     "runtime_abi": "1",
     "sdk_manifest": "1"
@@ -14,11 +12,12 @@
     "cycle-aware-signal",
     "pyc-cpp",
     "pyc-verilog",
-    "agentic-model-plan",
-    "agentic-model-emit-cpp",
+    "acc-source-to-ac",
+    "acc-cpp",
+    "acc-cpp-bundle",
+    "acc-verilog",
     "gfsim-runtime-v1"
   ],
-  "contract_epoch": "0.5",
   "distributions": {
     "agentic-circuit": "0.1.0",
     "pycircuit-hisi": "6.1.0",
@@ -27,63 +26,43 @@
   "files": [
     {
       "kind": "tool",
-      "path": "bin/agentic-circuit",
-      "sha256": "sha256:e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
-      "size": 1
+      "path": "bin/agentic-circuit"
     },
     {
       "kind": "tool",
-      "path": "bin/acir-opt",
-      "sha256": "sha256:e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
-      "size": 1
+      "path": "bin/acc"
     },
     {
       "kind": "tool",
-      "path": "bin/acir-queue-plan",
-      "sha256": "sha256:e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
-      "size": 1
+      "path": "bin/pycc"
     },
     {
       "kind": "tool",
-      "path": "bin/acir-queue-cxxgen",
-      "sha256": "sha256:e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
-      "size": 1
+      "path": "bin/acir-opt"
     },
     {
       "kind": "header",
-      "path": "include/gfsim/model_api.h",
-      "sha256": "sha256:e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
-      "size": 1
+      "path": "include/gfsim/model_api.h"
     },
     {
       "kind": "library",
-      "path": "lib/libgfsim.a",
-      "sha256": "sha256:e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
-      "size": 1
+      "path": "lib/libgfsim.a"
     },
     {
       "kind": "cmake",
-      "path": "lib/cmake/AgenticCircuit/AgenticCircuitConfig.cmake",
-      "sha256": "sha256:e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
-      "size": 1
+      "path": "lib/cmake/AgenticCircuit/AgenticCircuitConfig.cmake"
     },
     {
       "kind": "wheel",
-      "path": "python/wheelhouse/agentic_circuit-0.1.0-py3-none-any.whl",
-      "sha256": "sha256:e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
-      "size": 1
+      "path": "python/wheelhouse/agentic_circuit-0.1.0-py3-none-any.whl"
     },
     {
       "kind": "schema",
-      "path": "share/pycircuit/schemas/model-plan.schema.json",
-      "sha256": "sha256:e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
-      "size": 1
+      "path": "share/pycircuit/schemas/acpy.schema.json"
     },
     {
       "kind": "license",
-      "path": "share/pycircuit/licenses/LICENSE",
-      "sha256": "sha256:e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
-      "size": 1
+      "path": "share/pycircuit/licenses/LICENSE"
     }
   ],
   "platform": {
@@ -104,7 +83,6 @@
     {
       "kind": "system",
       "name": "glibc",
-      "sha256": null,
       "version": "2.39"
     }
   ],

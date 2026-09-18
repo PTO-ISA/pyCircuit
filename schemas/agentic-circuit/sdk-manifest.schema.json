@@ -1,236 +1,169 @@
 {
   "$id": "https://pto-isa.org/schemas/agentic-circuit/sdk-manifest-v1.schema.json",
   "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "pyCircuit SDK platform inventory v1",
+  "type": "object",
   "additionalProperties": false,
+  "required": [
+    "schema",
+    "version",
+    "product_version",
+    "source_revision",
+    "platform",
+    "distributions",
+    "abi",
+    "capabilities",
+    "runtime_dependencies",
+    "self_path",
+    "files"
+  ],
   "properties": {
-    "abi": {
+    "schema": {
+      "const": "pycircuit-sdk-platform-manifest"
+    },
+    "version": {
+      "const": "1"
+    },
+    "product_version": {
+      "$ref": "#/$defs/version"
+    },
+    "source_revision": {
+      "$ref": "#/$defs/revision"
+    },
+    "platform": {
+      "type": "object",
       "additionalProperties": false,
-      "properties": {
-        "acir_contract": {
-          "const": "0.5"
-        },
-        "acpy_epoch": {
-          "const": "0.5"
-        },
-        "consumer_lock": {
-          "const": "1"
-        },
-        "generator_abi": {
-          "const": "1"
-        },
-        "model_manifest": {
-          "const": "1"
-        },
-        "model_plan": {
-          "const": "1"
-        },
-        "release_index": {
-          "const": "1"
-        },
-        "runtime_abi": {
-          "const": "1"
-        },
-        "sdk_manifest": {
-          "const": "1"
-        }
-      },
       "required": [
-        "acpy_epoch",
-        "acir_contract",
-        "sdk_manifest",
-        "release_index",
-        "model_plan",
-        "model_manifest",
-        "generator_abi",
-        "runtime_abi",
-        "consumer_lock"
+        "id",
+        "os",
+        "architecture",
+        "runner",
+        "host_triple",
+        "minimum_os",
+        "minimum_libc",
+        "python",
+        "cxx_standard",
+        "cxx_abi",
+        "cxx_compiler"
       ],
-      "type": "object"
+      "properties": {
+        "id": {
+          "enum": [
+            "linux-x86_64",
+            "macos-arm64",
+            "windows-x86_64"
+          ]
+        },
+        "os": {
+          "enum": [
+            "linux",
+            "macos",
+            "windows"
+          ]
+        },
+        "architecture": {
+          "enum": [
+            "x86_64",
+            "arm64"
+          ]
+        },
+        "runner": {
+          "type": "string",
+          "minLength": 1
+        },
+        "host_triple": {
+          "type": "string",
+          "minLength": 1
+        },
+        "minimum_os": {
+          "type": "string",
+          "minLength": 1
+        },
+        "minimum_libc": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "python": {
+          "const": "3.11"
+        },
+        "cxx_standard": {
+          "const": "20"
+        },
+        "cxx_abi": {
+          "type": "string",
+          "minLength": 1
+        },
+        "cxx_compiler": {
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    },
+    "distributions": {
+      "$ref": "#/$defs/distributions"
+    },
+    "abi": {
+      "$ref": "#/$defs/abi"
     },
     "capabilities": {
       "const": [
         "cycle-aware-signal",
         "pyc-cpp",
         "pyc-verilog",
-        "agentic-model-plan",
-        "agentic-model-emit-cpp",
+        "acc-source-to-ac",
+        "acc-cpp",
+        "acc-cpp-bundle",
+        "acc-verilog",
         "gfsim-runtime-v1"
       ]
     },
-    "contract_epoch": {
-      "const": "0.5"
-    },
-    "distributions": {
-      "additionalProperties": false,
-      "properties": {
-        "agentic-circuit": {
-          "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+(?:[.a-zA-Z0-9+-]*)?$",
-          "type": "string"
-        },
-        "pycircuit-hisi": {
-          "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+(?:[.a-zA-Z0-9+-]*)?$",
-          "type": "string"
-        },
-        "pycircuit-semantic-core": {
-          "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+(?:[.a-zA-Z0-9+-]*)?$",
-          "type": "string"
+    "runtime_dependencies": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "name",
+          "kind",
+          "version"
+        ],
+        "properties": {
+          "name": {
+            "type": "string",
+            "minLength": 1
+          },
+          "kind": {
+            "enum": [
+              "system",
+              "bundled"
+            ]
+          },
+          "version": {
+            "type": "string",
+            "minLength": 1
+          }
         }
-      },
-      "required": [
-        "pycircuit-hisi",
-        "pycircuit-semantic-core",
-        "agentic-circuit"
-      ],
-      "type": "object"
+      }
+    },
+    "self_path": {
+      "const": "share/pycircuit/sdk-manifest.json"
     },
     "files": {
-      "allOf": [
-        {
-          "contains": {
-            "properties": {
-              "path": {
-                "enum": [
-                  "bin/agentic-circuit",
-                  "bin/agentic-circuit.exe"
-                ]
-              }
-            },
-            "required": [
-              "path"
-            ],
-            "type": "object"
-          }
-        },
-        {
-          "contains": {
-            "properties": {
-              "path": {
-                "enum": [
-                  "bin/acir-opt",
-                  "bin/acir-opt.exe"
-                ]
-              }
-            },
-            "required": [
-              "path"
-            ],
-            "type": "object"
-          }
-        },
-        {
-          "contains": {
-            "properties": {
-              "path": {
-                "enum": [
-                  "bin/acir-queue-plan",
-                  "bin/acir-queue-plan.exe"
-                ]
-              }
-            },
-            "required": [
-              "path"
-            ],
-            "type": "object"
-          }
-        },
-        {
-          "contains": {
-            "properties": {
-              "path": {
-                "enum": [
-                  "bin/acir-queue-cxxgen",
-                  "bin/acir-queue-cxxgen.exe"
-                ]
-              }
-            },
-            "required": [
-              "path"
-            ],
-            "type": "object"
-          }
-        },
-        {
-          "contains": {
-            "properties": {
-              "path": {
-                "const": "include/gfsim/model_api.h"
-              }
-            },
-            "required": [
-              "path"
-            ],
-            "type": "object"
-          }
-        },
-        {
-          "contains": {
-            "properties": {
-              "kind": {
-                "const": "library"
-              }
-            },
-            "required": [
-              "kind"
-            ],
-            "type": "object"
-          }
-        },
-        {
-          "contains": {
-            "properties": {
-              "path": {
-                "const": "lib/cmake/AgenticCircuit/AgenticCircuitConfig.cmake"
-              }
-            },
-            "required": [
-              "path"
-            ],
-            "type": "object"
-          }
-        },
-        {
-          "contains": {
-            "properties": {
-              "kind": {
-                "const": "schema"
-              }
-            },
-            "required": [
-              "kind"
-            ],
-            "type": "object"
-          }
-        },
-        {
-          "contains": {
-            "properties": {
-              "kind": {
-                "const": "wheel"
-              }
-            },
-            "required": [
-              "kind"
-            ],
-            "type": "object"
-          }
-        },
-        {
-          "contains": {
-            "properties": {
-              "kind": {
-                "const": "license"
-              }
-            },
-            "required": [
-              "kind"
-            ],
-            "type": "object"
-          }
-        }
-      ],
+      "type": "array",
+      "minItems": 1,
       "items": {
+        "type": "object",
         "additionalProperties": false,
+        "required": [
+          "path",
+          "kind"
+        ],
         "properties": {
+          "path": {
+            "$ref": "#/$defs/path"
+          },
           "kind": {
             "enum": [
               "tool",
@@ -242,301 +175,80 @@
               "license",
               "metadata"
             ]
-          },
-          "path": {
-            "minLength": 1,
-            "pattern": "^(?!/)(?![A-Za-z]:)(?!.*\\\\)(?!.*(?:^|/)\\.\\.?(/|$))(?!.*//)[A-Za-z0-9._+@/-]+$",
-            "type": "string"
-          },
-          "sha256": {
-            "pattern": "^sha256:[0-9a-f]{64}$",
-            "type": "string"
-          },
-          "size": {
-            "minimum": 0,
-            "type": "integer"
           }
-        },
-        "required": [
-          "path",
-          "kind",
-          "sha256",
-          "size"
-        ],
-        "type": "object"
-      },
-      "minItems": 10,
-      "not": {
-        "contains": {
-          "properties": {
-            "path": {
-              "const": "share/pycircuit/sdk-manifest.json"
-            }
-          },
-          "required": [
-            "path"
-          ],
-          "type": "object"
         }
-      },
-      "type": "array"
-    },
-    "platform": {
-      "oneOf": [
-        {
-          "additionalProperties": false,
-          "properties": {
-            "architecture": {
-              "const": "x86_64"
-            },
-            "cxx_abi": {
-              "const": "libstdc++ CXX11 ABI"
-            },
-            "cxx_compiler": {
-              "minLength": 1,
-              "type": "string"
-            },
-            "cxx_standard": {
-              "const": "20"
-            },
-            "host_triple": {
-              "const": "x86_64-linux-gnu"
-            },
-            "id": {
-              "const": "linux-x86_64"
-            },
-            "minimum_libc": {
-              "const": "glibc 2.39"
-            },
-            "minimum_os": {
-              "const": "Ubuntu 24.04"
-            },
-            "os": {
-              "const": "linux"
-            },
-            "python": {
-              "const": "3.11"
-            },
-            "runner": {
-              "const": "ubuntu-24.04"
-            }
-          },
-          "required": [
-            "cxx_compiler",
-            "cxx_standard",
-            "python",
-            "id",
-            "os",
-            "architecture",
-            "runner",
-            "host_triple",
-            "minimum_os",
-            "minimum_libc",
-            "cxx_abi"
-          ],
-          "type": "object"
-        },
-        {
-          "additionalProperties": false,
-          "properties": {
-            "architecture": {
-              "const": "arm64"
-            },
-            "cxx_abi": {
-              "const": "Apple libc++"
-            },
-            "cxx_compiler": {
-              "minLength": 1,
-              "type": "string"
-            },
-            "cxx_standard": {
-              "const": "20"
-            },
-            "host_triple": {
-              "const": "arm64-apple-darwin"
-            },
-            "id": {
-              "const": "macos-arm64"
-            },
-            "minimum_libc": {
-              "type": "null"
-            },
-            "minimum_os": {
-              "const": "macOS 15"
-            },
-            "os": {
-              "const": "macos"
-            },
-            "python": {
-              "const": "3.11"
-            },
-            "runner": {
-              "const": "macos-15"
-            }
-          },
-          "required": [
-            "cxx_compiler",
-            "cxx_standard",
-            "python",
-            "id",
-            "os",
-            "architecture",
-            "runner",
-            "host_triple",
-            "minimum_os",
-            "minimum_libc",
-            "cxx_abi"
-          ],
-          "type": "object"
-        },
-        {
-          "additionalProperties": false,
-          "properties": {
-            "architecture": {
-              "const": "x86_64"
-            },
-            "cxx_abi": {
-              "const": "MSVC v143"
-            },
-            "cxx_compiler": {
-              "minLength": 1,
-              "type": "string"
-            },
-            "cxx_standard": {
-              "const": "20"
-            },
-            "host_triple": {
-              "const": "x86_64-pc-windows-msvc"
-            },
-            "id": {
-              "const": "windows-x86_64"
-            },
-            "minimum_libc": {
-              "type": "null"
-            },
-            "minimum_os": {
-              "const": "Windows Server 2022"
-            },
-            "os": {
-              "const": "windows"
-            },
-            "python": {
-              "const": "3.11"
-            },
-            "runner": {
-              "const": "windows-2022"
-            }
-          },
-          "required": [
-            "cxx_compiler",
-            "cxx_standard",
-            "python",
-            "id",
-            "os",
-            "architecture",
-            "runner",
-            "host_triple",
-            "minimum_os",
-            "minimum_libc",
-            "cxx_abi"
-          ],
-          "type": "object"
-        }
-      ]
-    },
-    "product_version": {
-      "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+(?:[.a-zA-Z0-9+-]*)?$",
-      "type": "string"
-    },
-    "runtime_dependencies": {
-      "items": {
-        "oneOf": [
-          {
-            "additionalProperties": false,
-            "properties": {
-              "kind": {
-                "const": "bundled"
-              },
-              "name": {
-                "minLength": 1,
-                "type": "string"
-              },
-              "sha256": {
-                "pattern": "^sha256:[0-9a-f]{64}$",
-                "type": "string"
-              },
-              "version": {
-                "minLength": 1,
-                "type": "string"
-              }
-            },
-            "required": [
-              "name",
-              "kind",
-              "version",
-              "sha256"
-            ],
-            "type": "object"
-          },
-          {
-            "additionalProperties": false,
-            "properties": {
-              "kind": {
-                "const": "system"
-              },
-              "name": {
-                "minLength": 1,
-                "type": "string"
-              },
-              "sha256": {
-                "type": "null"
-              },
-              "version": {
-                "minLength": 1,
-                "type": "string"
-              }
-            },
-            "required": [
-              "name",
-              "kind",
-              "version",
-              "sha256"
-            ],
-            "type": "object"
-          }
-        ]
-      },
-      "minItems": 1,
-      "type": "array"
-    },
-    "schema": {
-      "const": "pycircuit-sdk-platform-manifest"
-    },
-    "self_path": {
-      "const": "share/pycircuit/sdk-manifest.json"
-    },
-    "source_revision": {
-      "pattern": "^[0-9a-f]{40}$",
-      "type": "string"
-    },
-    "version": {
-      "const": "1"
+      }
     }
   },
-  "required": [
-    "schema",
-    "version",
-    "contract_epoch",
-    "product_version",
-    "source_revision",
-    "platform",
-    "distributions",
-    "abi",
-    "capabilities",
-    "runtime_dependencies",
-    "self_path",
-    "files"
-  ],
-  "title": "pyCircuit SDK platform manifest v1",
-  "type": "object"
+  "$defs": {
+    "version": {
+      "type": "string",
+      "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+(?:[.a-zA-Z0-9+-]*)?$"
+    },
+    "revision": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{40}$"
+    },
+    "path": {
+      "type": "string",
+      "minLength": 1,
+      "pattern": "^(?!/)(?![A-Za-z]:)(?!.*\\\\)(?!.*(?:^|/)\\.\\.?(/|$))(?!.*//)[A-Za-z0-9._+@/-]+$"
+    },
+    "distributions": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "pycircuit-hisi",
+        "pycircuit-semantic-core",
+        "agentic-circuit"
+      ],
+      "properties": {
+        "pycircuit-hisi": {
+          "$ref": "#/$defs/version"
+        },
+        "pycircuit-semantic-core": {
+          "$ref": "#/$defs/version"
+        },
+        "agentic-circuit": {
+          "$ref": "#/$defs/version"
+        }
+      }
+    },
+    "abi": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "acpy_epoch",
+        "acir_contract",
+        "sdk_manifest",
+        "release_index",
+        "generator_abi",
+        "runtime_abi",
+        "consumer_lock"
+      ],
+      "properties": {
+        "acpy_epoch": {
+          "const": "0.5"
+        },
+        "acir_contract": {
+          "const": "0.5"
+        },
+        "sdk_manifest": {
+          "const": "1"
+        },
+        "release_index": {
+          "const": "1"
+        },
+        "generator_abi": {
+          "const": "1"
+        },
+        "runtime_abi": {
+          "const": "1"
+        },
+        "consumer_lock": {
+          "const": "1"
+        }
+      }
+    }
+  }
 }

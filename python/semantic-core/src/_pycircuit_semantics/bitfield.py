@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-import hashlib
-import json
 from collections.abc import Iterable, Mapping
 from dataclasses import dataclass, field
 from types import MappingProxyType
@@ -28,7 +26,6 @@ class BitfieldLayout:
 
     width: int
     fields: Mapping[str, tuple[int, int]]
-    fingerprint: str
     _slices: Mapping[str, tuple[int, int]] = field(repr=False)
 
     def __init__(self, width: object, fields: Mapping[object, object]) -> None:
@@ -78,24 +75,9 @@ class BitfieldLayout:
             sorted(normalized.items(), key=lambda item: _name_sort_key(item[0]))
         )
         slices = {name: (lsb, msb - lsb + 1) for name, (msb, lsb) in ordered.items()}
-        fingerprint_preimage = {
-            "kind": "bitfield",
-            "version": 1,
-            "width": normalized_width,
-            "fields": [[name, msb, lsb] for name, (msb, lsb) in ordered.items()],
-        }
-        encoded = json.dumps(
-            fingerprint_preimage,
-            ensure_ascii=False,
-            separators=(",", ":"),
-        ).encode("utf-8")
-
         object.__setattr__(self, "width", normalized_width)
         object.__setattr__(self, "fields", MappingProxyType(ordered))
         object.__setattr__(self, "_slices", MappingProxyType(slices))
-        object.__setattr__(
-            self, "fingerprint", "sha256:" + hashlib.sha256(encoded).hexdigest()
-        )
 
     def field(self, name: str) -> tuple[int, int]:
         try:
@@ -106,7 +88,7 @@ class BitfieldLayout:
             ) from None
 
     def __hash__(self) -> int:
-        return hash(self.fingerprint)
+        return hash((self.width, tuple(self.fields.items())))
 
     def field_width(self, name: str) -> int:
         self.field(name)
@@ -140,7 +122,6 @@ class BitfieldLayout:
             "kind": "bitfield",
             "version": 1,
             "width": self.width,
-            "fingerprint": self.fingerprint,
             "fields": {
                 name: {"msb": msb, "lsb": lsb, "width": msb - lsb + 1}
                 for name, (msb, lsb) in self.fields.items()

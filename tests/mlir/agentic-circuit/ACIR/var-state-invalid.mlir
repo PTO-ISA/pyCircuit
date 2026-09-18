@@ -20,20 +20,20 @@
 // RUN: %not %acir_opt %t/choose-key-yield.mlir 2>&1 | %FileCheck %s --check-prefix=CHOOSE-KEY-YIELD
 
 //--- init.mlir
-module attributes {ac.contract_epoch = "0.5"} {
+module  {
   ac.var.decl @state type i8 init 0 : i16 owner "/" stable_id "var/state"
 }
 // INIT: 'ac.var.decl' op init must match value type or be the zero image for a struct
 
 //--- read.mlir
-module attributes {ac.contract_epoch = "0.5"} {
+module  {
   ac.var.decl @state type i8 init 0 : i8 owner "/" stable_id "var/state"
   %value = ac.var.read @state : !ac.var<i16>
 }
 // READ: 'ac.var.read' op result must match declared ac.var value type
 
 //--- assign.mlir
-module attributes {ac.contract_epoch = "0.5"} {
+module  {
   ac.var.decl @state type i8 init 0 : i8 owner "/" stable_id "var/state"
   %value = ac.var.constant 1 : i8 as !ac.var<i8>
   ac.var.assign @state = %value : !ac.var<i8>
@@ -41,7 +41,7 @@ module attributes {ac.contract_epoch = "0.5"} {
 // ASSIGN: 'ac.var.assign' op must be nested directly in ac.rule or ac.firing
 
 //--- assign-when.mlir
-module attributes {ac.contract_epoch = "0.5"} {
+module  {
   ac.var.decl @state type i8 init 0 : i8 owner "/" stable_id "var/state"
   %input = "builtin.unrealized_conversion_cast"() : () -> !ac.queue<i8>
   ac.rule %input depths [] latencies [] name "bad" stable_id "bad"
@@ -55,7 +55,7 @@ module attributes {ac.contract_epoch = "0.5"} {
 // ASSIGN-WHEN: 'ac.var.assign' op condition must be !ac.var<i1>
 
 //--- assign-element-parent.mlir
-module attributes {ac.contract_epoch = "0.5"} {
+module  {
   ac.var.decl @state type i8 init 0 : i8 owner "/" stable_id "var/state" shape [4]
   %index = ac.var.constant 0 : i2 as !ac.var<i2>
   %value = ac.var.constant 1 : i8 as !ac.var<i8>
@@ -64,20 +64,20 @@ module attributes {ac.contract_epoch = "0.5"} {
 // ASSIGN-ELEMENT-PARENT: 'ac.var.assign_element' op must be nested directly in ac.rule or ac.firing
 
 //--- shape.mlir
-module attributes {ac.contract_epoch = "0.5"} {
+module  {
   ac.var.decl @state type i8 init 0 : i8 owner "/" stable_id "var/state" shape [2, 0]
 }
 // SHAPE: 'ac.var.decl' op persistent ac.var shape must contain positive dimensions
 
 //--- scalar-shaped-read.mlir
-module attributes {ac.contract_epoch = "0.5"} {
+module  {
   ac.var.decl @state type i8 init 0 : i8 owner "/" stable_id "var/state" shape [4]
   %value = ac.var.read @state : !ac.var<i8>
 }
 // SHAPED-READ: 'ac.var.read' op shaped ac.var requires ac.var.read_element
 
 //--- index-domain.mlir
-module attributes {ac.contract_epoch = "0.5"} {
+module  {
   ac.var.decl @state type i8 init 0 : i8 owner "/" stable_id "var/state" shape [3]
   %three = ac.var.constant 3 : i2 as !ac.var<i2>
   %zero = ac.var.constant 0 : i2 as !ac.var<i2>
@@ -87,7 +87,7 @@ module attributes {ac.contract_epoch = "0.5"} {
 // INDEX-DOMAIN: 'ac.var.read_element' op cannot prove shaped ac.var index is within [0, 2]; inferred constant(3)
 
 //--- match-scalar.mlir
-module attributes {ac.contract_epoch = "0.5"} {
+module  {
   ac.var.decl @state type i8 init 0 : i8 owner "/" stable_id "var/state"
   %mask = ac.var.match @state predicate {
   ^bb0(%entry: !ac.var<i8>):
@@ -98,7 +98,7 @@ module attributes {ac.contract_epoch = "0.5"} {
 // MATCH-SCALAR: 'ac.var.match' op requires a shaped ac.var
 
 //--- match-domain.mlir
-module attributes {ac.contract_epoch = "0.5"} {
+module  {
   ac.var.decl @state type i8 init 0 : i8 owner "/" stable_id "var/state" shape [65]
   %mask = ac.var.match @state predicate {
   ^bb0(%entry: !ac.var<i8>):
@@ -109,7 +109,7 @@ module attributes {ac.contract_epoch = "0.5"} {
 // MATCH-DOMAIN: 'ac.var.match' op mask must exactly cover the ac.var domain in 64-bit words
 
 //--- match-result.mlir
-module attributes {ac.contract_epoch = "0.5"} {
+module  {
   ac.var.decl @state type i8 init 0 : i8 owner "/" stable_id "var/state" shape [4]
   %mask = ac.var.match @state predicate {
   ^bb0(%entry: !ac.var<i8>):
@@ -120,7 +120,7 @@ module attributes {ac.contract_epoch = "0.5"} {
 // MATCH-RESULT: 'ac.var.match' op mask must exactly cover the ac.var domain in 64-bit words
 
 //--- match-predicate.mlir
-module attributes {ac.contract_epoch = "0.5"} {
+module  {
   ac.var.decl @state type i8 init 0 : i8 owner "/" stable_id "var/state" shape [4]
   %mask = ac.var.match @state predicate {
   ^bb0(%entry: !ac.var<i16>):
@@ -131,7 +131,7 @@ module attributes {ac.contract_epoch = "0.5"} {
 // MATCH-PREDICATE: 'ac.var.match' op predicate argument must match the ac.var element
 
 //--- match-predicate-yield.mlir
-module attributes {ac.contract_epoch = "0.5"} {
+module  {
   ac.var.decl @state type i8 init 0 : i8 owner "/" stable_id "var/state" shape [4]
   %mask = ac.var.match @state predicate {
   ^bb0(%entry: !ac.var<i8>):
@@ -142,7 +142,7 @@ module attributes {ac.contract_epoch = "0.5"} {
 // MATCH-PREDICATE-YIELD: 'ac.var.match' op predicate must yield !ac.var<i1>
 
 //--- choose-mask.mlir
-module attributes {ac.contract_epoch = "0.5"} {
+module  {
   ac.var.decl @state type i8 init 0 : i8 owner "/" stable_id "var/state" shape [4]
   %mask = ac.var.constant 15 : i4 as !ac.var<i4>
   %index, %valid = ac.var.choose @state %mask : !ac.var<i4> count 1 policy "first" key {} -> !ac.var<i2>, !ac.var<i1>
@@ -150,7 +150,7 @@ module attributes {ac.contract_epoch = "0.5"} {
 // CHOOSE-MASK: 'ac.var.choose' op candidate mask must be produced directly by ac.var.match
 
 //--- choose-variable.mlir
-module attributes {ac.contract_epoch = "0.5"} {
+module  {
   ac.var.decl @left type i8 init 0 : i8 owner "/" stable_id "var/left" shape [4]
   ac.var.decl @right type i8 init 0 : i8 owner "/" stable_id "var/right" shape [4]
   %mask = ac.var.match @left predicate {
@@ -163,7 +163,7 @@ module attributes {ac.contract_epoch = "0.5"} {
 // CHOOSE-VARIABLE: 'ac.var.choose' op candidate mask must come from the same ac.var
 
 //--- choose-result.mlir
-module attributes {ac.contract_epoch = "0.5"} {
+module  {
   ac.var.decl @state type i8 init 0 : i8 owner "/" stable_id "var/state" shape [4]
   %mask = ac.var.match @state predicate {
   ^bb0(%entry: !ac.var<i8>):
@@ -175,7 +175,7 @@ module attributes {ac.contract_epoch = "0.5"} {
 // CHOOSE-RESULT: 'ac.var.choose' op index result width must address the ac.var domain
 
 //--- choose-valid.mlir
-module attributes {ac.contract_epoch = "0.5"} {
+module  {
   ac.var.decl @state type i8 init 0 : i8 owner "/" stable_id "var/state" shape [4]
   %mask = ac.var.match @state predicate {
   ^bb0(%entry: !ac.var<i8>):
@@ -187,7 +187,7 @@ module attributes {ac.contract_epoch = "0.5"} {
 // CHOOSE-VALID: 'ac.var.choose' op valid result must be !ac.var<i1>
 
 //--- choose-key.mlir
-module attributes {ac.contract_epoch = "0.5"} {
+module  {
   ac.var.decl @state type i8 init 0 : i8 owner "/" stable_id "var/state" shape [4]
   %mask = ac.var.match @state predicate {
   ^bb0(%entry: !ac.var<i8>):
@@ -202,7 +202,7 @@ module attributes {ac.contract_epoch = "0.5"} {
 // CHOOSE-KEY: 'ac.var.choose' op key argument must match the ac.var element
 
 //--- choose-key-yield.mlir
-module attributes {ac.contract_epoch = "0.5"} {
+module  {
   ac.var.decl @state type i8 init 0 : i8 owner "/" stable_id "var/state" shape [4]
   %mask = ac.var.match @state predicate {
   ^bb0(%entry: !ac.var<i8>):

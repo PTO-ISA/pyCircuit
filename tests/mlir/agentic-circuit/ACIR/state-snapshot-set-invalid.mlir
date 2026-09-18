@@ -5,7 +5,7 @@
 // RUN: %acir_opt %t/field-relation-capacity.mlir | %FileCheck %s --check-prefix=FIELD-WIDE
 
 //--- choose-valid-source.mlir
-module attributes {ac.contract_epoch = "0.5"} {
+module  {
   ac.table @entries entry i2 entries 4 init 0 owner "/" stable_id "table/entries"
   ac.table @priority entry i2 entries 4 init 0 owner "/" stable_id "table/priority"
   %output = ac.rule depths [1] latencies [1] name "issue" stable_id "issue"
@@ -35,7 +35,7 @@ module attributes {ac.contract_epoch = "0.5"} {
 // CHOOSE-VALID: source table.choose must use the owning rule/firing's index result
 
 //--- choose-missing-read.mlir
-module attributes {ac.contract_epoch = "0.5"} {
+module  {
   ac.table @entries entry i2 entries 4 init 0 owner "/" stable_id "table/entries"
   ac.table @priority entry i2 entries 4 init 0 owner "/" stable_id "table/priority"
   ac.table @other entry i2 entries 4 init 0 owner "/" stable_id "table/other"
@@ -69,7 +69,7 @@ module attributes {ac.contract_epoch = "0.5"} {
 // MISSING-READ: source evaluation must contain a region-local read of the target table
 
 //--- shared-choose-read.mlir
-module attributes {ac.contract_epoch = "0.5"} {
+module  {
   ac.table @entries entry i2 entries 4 init 0 owner "/" stable_id "table/entries"
   ac.table @priority entry i2 entries 4 init 0 owner "/" stable_id "table/priority"
   %mask = ac.table.match @entries predicate {
@@ -88,7 +88,7 @@ module attributes {ac.contract_epoch = "0.5"} {
 // SHARED-READ: key Table reads require transactional rule/firing ownership
 
 //--- field-relation-capacity.mlir
-module attributes {ac.contract_epoch = "0.5"} {
+module  {
   ac.type_scope @types {
     ac.struct @Pair fields [{name = "a", type = i8}, {name = "b", type = i8}]
   } {dlti.dl_spec = #dlti.dl_spec<!ac.struct<@types::@Pair> = {abi_alignment = 1 : i64, endianness = "little", preferred_alignment = 1 : i64, size = 2 : i64}>}

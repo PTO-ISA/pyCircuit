@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import hashlib
 import inspect
 import json
 import re
@@ -71,7 +70,7 @@ def _normalize_value_param_ty(ty: str) -> str:
 
 
 def _normalize_value_params_decl(
-    value_params: Mapping[str, str] | None
+    value_params: Mapping[str, str] | None,
 ) -> dict[str, str]:
     if not value_params:
         return {}
@@ -347,9 +346,36 @@ def _port_specs_json(port_specs: Mapping[str, Any] | None) -> str:
     return canonical_params_json(port_specs, path="port_specs")
 
 
-def _params_hash8(params_json: str) -> str:
-    h = hashlib.sha256(params_json.encode("utf-8")).hexdigest()
-    return h[:8]
+def readable_params_suffix(params_json: str) -> str:
+    """Encode canonical static parameters into a readable symbol suffix."""
+
+    def token(value: object) -> str:
+        if value is None:
+            return "none"
+        if value is True:
+            return "true"
+        if value is False:
+            return "false"
+        if type(value) is int:
+            return f"neg_{-value}" if value < 0 else str(value)
+        if type(value) is str:
+            cleaned = re.sub(r"[^A-Za-z0-9_]+", "_", value).strip("_")
+            return cleaned or "empty"
+        if isinstance(value, list):
+            return "list_" + "_".join(token(item) for item in value)
+        if isinstance(value, dict):
+            return "_".join(
+                f"{token(str(name))}_{token(item)}"
+                for name, item in sorted(value.items())
+            )
+        raise DesignError(
+            f"unsupported canonical specialization value: {type(value).__name__}"
+        )
+
+    value = json.loads(params_json)
+    if not value:
+        return ""
+    return token(value)
 
 
 def _base_name(fn: Any) -> str:
@@ -504,14 +530,10 @@ class Design:
                 for d in self._deps_for_module_mlir(func_mlir)
                 if d != sym and d in self._mods
             ]
-            params_hash = hashlib.sha256(cm.params_json.encode("utf-8")).hexdigest()[
-                :16
-            ]
             modules_out.append(
                 {
                     "name": sym,
                     "pyc": f"{module_dir_rel}/{sym}.pyc",
-                    "params_hash": params_hash,
                     "params_json": cm.params_json,
                     "base": _base_name(cm.fn),
                     "deps": deps,
@@ -546,7 +568,8 @@ class DesignContext:
         if module_name is not None:
             sym = str(module_name)
         else:
-            sym = f"{base}__p{_params_hash8(cache_sig_json)}"
+            suffix = readable_params_suffix(cache_sig_json)
+            sym = base if not suffix else f"{base}__{suffix}"
         if sym in self._used_sym_names:
             # Same fn+params should map to the same symbol; collisions here mean
             # a user-provided module_name conflict.
@@ -665,7 +688,11 @@ class DesignContext:
         sym_guess = (
             str(module_name)
             if module_name is not None
-            else f"{base}__p{_params_hash8(cache_sig_json)}"
+            else (
+                base
+                if not readable_params_suffix(cache_sig_json)
+                else f"{base}__{readable_params_suffix(cache_sig_json)}"
+            )
         )
         if sym_guess in self._used_sym_names:
             existing = self.design.lookup(sym_guess)

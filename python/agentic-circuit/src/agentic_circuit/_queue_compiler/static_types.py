@@ -21,7 +21,7 @@ from _pycircuit_semantics import (
     prove_within,
 )
 
-from .._canonical_json import canonical_json_bytes, sha256_bytes
+from .._canonical_json import canonical_json_bytes
 from .._static_eval import (
     FrozenMap,
     StaticEnvironment,
@@ -703,7 +703,6 @@ def _static_config_bindings_for_checks(
                 root=root,
                 type_name=binding.config_type,
                 schema=schema,
-                schema_sha256=sha256_bytes(schema.encode("utf-8")),
                 value=canonical_json_bytes(static_json_value(value)).decode("utf-8"),
             )
         )

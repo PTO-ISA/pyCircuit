@@ -6,15 +6,12 @@ import argparse
 from collections.abc import Callable, Sequence
 from pathlib import Path
 
-from ._commands import build as build_command
 from ._commands import check as check_command
-from ._commands import compile as compile_command
 from ._commands import doctor as doctor_command
 from ._commands import elaborate as elaborate_command
 from ._commands import explain as explain_command
 from ._commands import init as init_command
 from ._commands import inspect as inspect_command
-from ._commands import model as model_command
 from ._commands import schema as schema_command
 from ._diagnostics import Diagnostic
 from ._exit_codes import ExitCode
@@ -26,12 +23,9 @@ EXACT_COMMANDS = (
     "schema",
     "check",
     "elaborate",
-    "compile",
-    "build",
     "inspect",
     "explain",
     "doctor",
-    "model",
 )
 
 
@@ -153,38 +147,6 @@ def build_parser() -> argparse.ArgumentParser:
     _add_workspace_options(elaborate, output=True, jobs=True)
     _add_output_options(elaborate)
 
-    compile_parser = commands.add_parser("compile", allow_abbrev=False)
-    compile_parser.add_argument("architecture", nargs="?")
-    compile_parser.add_argument("--emit", action=_OnceValue)
-    compile_parser.add_argument(
-        "--profile",
-        choices=("fast", "validated", "custom"),
-        action=_OnceValue,
-    )
-    compile_parser.add_argument("--stop-after", action=_OnceValue)
-    compile_parser.add_argument("--dump-before", action="append", default=[])
-    compile_parser.add_argument("--dump-after", action="append", default=[])
-    compile_parser.add_argument("--dump-after-each", action=_OnceTrue)
-    compile_parser.add_argument("--verify-after-each", action=_OnceTrue)
-    compile_parser.add_argument("--pass-pipeline", action=_OnceValue)
-    _add_workspace_options(compile_parser, output=True, jobs=True)
-    _add_output_options(compile_parser)
-
-    build = commands.add_parser("build", allow_abbrev=False)
-    build.add_argument("architecture", nargs="?")
-    build.add_argument(
-        "-o", "--output", dest="output_dir", type=Path, action=_OnceValue
-    )
-    build.add_argument(
-        "--profile",
-        choices=("fast", "validated", "custom"),
-        action=_OnceValue,
-    )
-    build.add_argument("--verify-after-each", action=_OnceTrue)
-    build.add_argument("--pass-pipeline", action=_OnceValue)
-    _add_workspace_options(build, output=True, jobs=True)
-    _add_output_options(build)
-
     inspect = commands.add_parser("inspect", allow_abbrev=False)
     inspect.add_argument(
         "view",
@@ -196,7 +158,6 @@ def build_parser() -> argparse.ArgumentParser:
             "address-map",
             "protocols",
             "specialization",
-            "artifacts",
         ),
     )
     inspect.add_argument("--path", action=_OnceValue)
@@ -211,24 +172,6 @@ def build_parser() -> argparse.ArgumentParser:
     doctor = commands.add_parser("doctor", allow_abbrev=False)
     _add_output_options(doctor)
 
-    model = commands.add_parser("model", allow_abbrev=False)
-    model_commands = model.add_subparsers(dest="model_command", required=True)
-    model_plan = model_commands.add_parser("plan", allow_abbrev=False)
-    model_plan.add_argument("--sdk-root", type=Path, required=True, action=_OnceValue)
-    model_plan.add_argument(
-        "--source-root", type=Path, required=True, action=_OnceValue
-    )
-    model_plan.add_argument("--entry", required=True, action=_OnceValue)
-    model_plan.add_argument("--config", type=Path, required=True, action=_OnceValue)
-    model_plan.add_argument("--out-dir", type=Path, required=True, action=_OnceValue)
-    _add_output_options(model_plan)
-    model_emit = model_commands.add_parser("emit-cpp", allow_abbrev=False)
-    model_emit.add_argument("--sdk-root", type=Path, required=True, action=_OnceValue)
-    model_emit.add_argument("--plan", type=Path, required=True, action=_OnceValue)
-    model_emit.add_argument("--out-dir", type=Path, required=True, action=_OnceValue)
-    model_emit.add_argument("--manifest", type=Path, required=True, action=_OnceValue)
-    model_emit.add_argument("--depfile", type=Path, required=True, action=_OnceValue)
-    _add_output_options(model_emit)
     return parser
 
 
@@ -256,8 +199,6 @@ def main(argv: Sequence[str] | None = None) -> int:
             return explain_command.run(arguments, sink)
         if arguments.command == "doctor":
             return doctor_command.run(arguments, sink)
-        if arguments.command == "model":
-            return model_command.run(arguments, sink)
         workspace = (
             load_workspace(arguments.project)
             if arguments.project is not None
@@ -270,10 +211,6 @@ def main(argv: Sequence[str] | None = None) -> int:
             return check_command.run(arguments, workspace, sink)
         if arguments.command == "elaborate":
             return elaborate_command.run(arguments, workspace, sink)
-        if arguments.command == "compile":
-            return compile_command.run(arguments, workspace, sink)
-        if arguments.command == "build":
-            return build_command.run(arguments, workspace, sink)
         if arguments.command == "inspect":
             return inspect_command.run(arguments, workspace, sink)
         raise RuntimeError(f"unhandled command parser state: {arguments.command}")

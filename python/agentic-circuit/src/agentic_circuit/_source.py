@@ -7,7 +7,6 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import TypeAlias
 
-from ._canonical_json import sha256_bytes
 from ._diagnostics import SourceSpan
 
 
@@ -31,7 +30,6 @@ class DefinitionSite:
 @dataclass(frozen=True, slots=True)
 class SourceUnit:
     path: str
-    sha256: str
     text: str
     tree: ast.Module
     definitions: tuple[DefinitionSite, ...]
@@ -141,7 +139,6 @@ def load_source_unit(entry: Path, workspace: Path) -> SourceUnit:
     tree = ast.parse(text, filename=relative, type_comments=True)
     return SourceUnit(
         path=relative,
-        sha256=sha256_bytes(raw),
         text=text,
         tree=tree,
         definitions=index_definitions(tree, relative),

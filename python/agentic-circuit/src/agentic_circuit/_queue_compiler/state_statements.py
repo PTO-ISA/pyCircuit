@@ -77,7 +77,7 @@ def handle_masked_table_write(
         raise QueueFrontendError("ACPY-TABLE-009: allocation requires a scalar view")
     if call.args:
         raise QueueFrontendError(
-            "ACPY-TABLE-008: masked write/patch is state-driven " "and takes no Queue"
+            "ACPY-TABLE-008: masked write/patch is state-driven and takes no Queue"
         )
     enable_values = [
         keyword.value for keyword in call.keywords if keyword.arg == "enable"
@@ -97,7 +97,7 @@ def handle_masked_table_write(
             for keyword in call.keywords
         ):
             raise QueueFrontendError(
-                "ACPY-TABLE-008: masked write accepts only " "value and enable"
+                "ACPY-TABLE-008: masked write accepts only value and enable"
             )
         values = [keyword.value for keyword in call.keywords if keyword.arg == "value"]
         if len(values) != 1:
@@ -111,7 +111,7 @@ def handle_masked_table_write(
     else:
         if not isinstance(table.entry_type, StructType):
             raise QueueFrontendError(
-                "ACPY-TABLE-008: masked patch requires a struct " "Table Entry"
+                "ACPY-TABLE-008: masked patch requires a struct Table Entry"
             )
         field_types = {field.name: field.type for field in table.entry_type.fields}
         patches: list[tuple[str, ast.expr]] = []
@@ -149,7 +149,7 @@ def handle_masked_table_write(
             patches.append((keyword.arg, expression))
         if not patches:
             raise QueueFrontendError(
-                "ACPY-TABLE-008: masked patch requires at least " "one field"
+                "ACPY-TABLE-008: masked patch requires at least one field"
             )
         if len({name for name, _ in patches}) != len(patches):
             raise QueueFrontendError("ACPY-TABLE-008: masked patch field is repeated")
@@ -212,7 +212,7 @@ def handle_scalar_table_write(
             environment,
             enable_node,
             argument,
-            "ACPY-TABLE-004: selector and enable lambdas require " "one argument name",
+            "ACPY-TABLE-004: selector and enable lambdas require one argument name",
         )
     else:
         if isinstance(enable_node, ast.Lambda):
@@ -230,7 +230,7 @@ def handle_scalar_table_write(
             for keyword in call.keywords
         ):
             raise QueueFrontendError(
-                "ACPY-TABLE-004: write/allocation accepts only " "value and enable"
+                "ACPY-TABLE-004: write/allocation accepts only value and enable"
             )
         values = [keyword.value for keyword in call.keywords if keyword.arg == "value"]
         if len(values) != 1:
@@ -243,8 +243,7 @@ def handle_scalar_table_write(
                 environment,
                 values[0],
                 argument,
-                "ACPY-TABLE-004: selector and value lambdas require "
-                "one argument name",
+                "ACPY-TABLE-004: selector and value lambdas require one argument name",
             )
         else:
             if isinstance(values[0], ast.Lambda):
@@ -273,8 +272,7 @@ def handle_scalar_table_write(
                             environment,
                             keyword.value,
                             argument or "",
-                            "ACPY-TABLE-004: patch lambdas require "
-                            "one argument name",
+                            "ACPY-TABLE-004: patch lambdas require one argument name",
                         )
                         if queue_driven
                         else _constantize_expression(
@@ -708,7 +706,7 @@ def handle_state_statement(
                 or candidate.domain_offset != projected.domain_offset
             ):
                 raise QueueFrontendError(
-                    "ACPY-TABLE-007: CandidateSet belongs to a different " "Table view"
+                    "ACPY-TABLE-007: CandidateSet belongs to a different Table view"
                 )
             keywords = {keyword.arg: keyword.value for keyword in call.keywords}
             if None in keywords or set(keywords) - {
@@ -745,8 +743,7 @@ def handle_state_statement(
             if policy in {"first", "round_robin"}:
                 if key_node is not None:
                     raise QueueFrontendError(
-                        "ACPY-TABLE-007: first/round_robin policy does not "
-                        "accept key"
+                        "ACPY-TABLE-007: first/round_robin policy does not accept key"
                     )
             else:
                 if key_node is None:
@@ -760,7 +757,7 @@ def handle_state_statement(
             initial_cursor = _nonnegative_int(call, "initial_cursor", 0)
             if initial_cursor >= candidate.entries:
                 raise QueueFrontendError(
-                    "ACPY-TABLE-012: initial cursor is outside the " "candidate domain"
+                    "ACPY-TABLE-012: initial cursor is outside the candidate domain"
                 )
             if policy != "round_robin" and initial_cursor != 0:
                 raise QueueFrontendError(
@@ -888,8 +885,7 @@ def handle_state_statement(
             if call.args:
                 if argument is None:
                     raise QueueFrontendError(
-                        "ACPY-TABLE-003: Queue-driven read requires a "
-                        "selector lambda"
+                        "ACPY-TABLE-003: Queue-driven read requires a selector lambda"
                     )
                 input_name = _queue_reference(state, call.args[0], aliases)
             elif argument is not None:
@@ -912,8 +908,7 @@ def handle_state_statement(
             else:
                 if isinstance(when_node, ast.Lambda):
                     raise QueueFrontendError(
-                        "ACPY-TABLE-003: state-driven when is an "
-                        "EntryView expression"
+                        "ACPY-TABLE-003: state-driven when is an EntryView expression"
                     )
                 when = _constantize_expression(when_node, "", environment.static_values)
             depth = _positive_int(call, "depth", 1)

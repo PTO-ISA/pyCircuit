@@ -20,61 +20,61 @@
 // PACKET-WIDTH-MISSING: error: packet layout entry requires positive serialization_width
 
 //--- declaration-placement.mlir
-builtin.module attributes {ac.contract_epoch = "0.5"} {
+builtin.module  {
   "ac.struct"() <{sym_name = "S", fields = []}> : () -> ()
 }
 
 //--- function-field.mlir
-builtin.module attributes {ac.contract_epoch = "0.5"} {
+builtin.module  {
   "ac.type_scope"() <{sym_name = "types"}> ({
     "ac.struct"() <{sym_name = "S", fields = [{name = "bad", type = (i8) -> i8}]}> : () -> ()
   }) : () -> ()
 }
 
 //--- channel-field.mlir
-builtin.module attributes {ac.contract_epoch = "0.5"} {
+builtin.module  {
   "ac.type_scope"() <{sym_name = "types"}> ({
     "ac.struct"() <{sym_name = "S", fields = [{name = "bad", type = !ac.channel<i8, @p>}]}> : () -> ()
   }) : () -> ()
 }
 
 //--- capability-field.mlir
-builtin.module attributes {ac.contract_epoch = "0.5"} {
+builtin.module  {
   "ac.type_scope"() <{sym_name = "types"}> ({
     "ac.transaction"() <{sym_name = "T", fields = [{name = "bad", type = !ac.resource_token<@r>}]}> : () -> ()
   }) : () -> ()
 }
 
 //--- none-field.mlir
-builtin.module attributes {ac.contract_epoch = "0.5"} {
+builtin.module  {
   "ac.type_scope"() <{sym_name = "types"}> ({
     "ac.transaction"() <{sym_name = "T", fields = [{name = "bad", type = none}]}> : () -> ()
   }) : () -> ()
 }
 
 //--- list-bound-inconsistent.mlir
-builtin.module attributes {ac.contract_epoch = "0.5"} {
+builtin.module  {
   "ac.type_scope"() <{sym_name = "types"}> ({
     "ac.struct"() <{sym_name = "S", fields = [{name = "value", type = i8, max_length = 4 : i64}]}> : () -> ()
   }) : () -> ()
 }
 
 //--- layout-missing.mlir
-builtin.module attributes {ac.contract_epoch = "0.5"} {
+builtin.module  {
   "ac.type_scope"() <{sym_name = "types"}> ({
     "ac.struct"() <{sym_name = "S", fields = []}> : () -> ()
   }) {dlti.dl_spec = #dlti.dl_spec<>} : () -> ()
 }
 
 //--- layout-invalid.mlir
-builtin.module attributes {ac.contract_epoch = "0.5"} {
+builtin.module  {
   "ac.type_scope"() <{sym_name = "types"}> ({
     "ac.struct"() <{sym_name = "S", fields = []}> : () -> ()
   }) {dlti.dl_spec = #dlti.dl_spec<!ac.struct<@types::@S> = {abi_alignment = 0 : i64, endianness = "middle", preferred_alignment = 0 : i64, size = 0 : i64}>} : () -> ()
 }
 
 //--- packet-width-missing.mlir
-builtin.module attributes {ac.contract_epoch = "0.5"} {
+builtin.module  {
   "ac.type_scope"() <{sym_name = "types"}> ({
     "ac.packet"() <{sym_name = "P", fields = []}> : () -> ()
   }) {dlti.dl_spec = #dlti.dl_spec<!ac.packet<@types::@P> = {abi_alignment = 1 : i64, endianness = "little", preferred_alignment = 1 : i64, size = 8 : i64}>} : () -> ()

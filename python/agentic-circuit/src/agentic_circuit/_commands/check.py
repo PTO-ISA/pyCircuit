@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import sys
 import tempfile
 from pathlib import Path
@@ -11,7 +12,7 @@ from .._capture_worker import (
     CaptureWorkerResult,
     run_capture_worker,
 )
-from .._contract import CONTRACT_EPOCH
+from .._canonical_json import canonical_json_bytes
 from .._diagnostics import Diagnostic
 from .._exit_codes import ExitCode
 from .._native_api import NativeRequest, run_native_compiler
@@ -53,6 +54,50 @@ def _has_errors(diagnostics: tuple[Diagnostic, ...]) -> bool:
     return any(item.severity == "error" for item in diagnostics)
 
 
+def binding_registry(component_roots: tuple[Path, ...]) -> bytes:
+    candidates: list[object] = []
+    requests: list[object] = []
+    for root in sorted(component_roots):
+        for path in sorted(root.rglob("*.binding.json")):
+            try:
+                document = json.loads(path.read_text(encoding="utf-8"))
+            except (OSError, UnicodeError, json.JSONDecodeError) as error:
+                raise UserInputError(
+                    Diagnostic(
+                        stage="acir-core",
+                        code="ACLOWER-BINDING-OPTIONS",
+                        severity="error",
+                        message=f"cannot load {path}: {error}",
+                    )
+                ) from error
+            if type(document) is not dict or set(document) != {
+                "candidates",
+                "requests",
+            }:
+                raise UserInputError(
+                    Diagnostic(
+                        stage="acir-core",
+                        code="ACLOWER-BINDING-OPTIONS",
+                        severity="error",
+                        message=f"binding registry {path} is not closed",
+                    )
+                )
+            if not isinstance(document["candidates"], list) or not isinstance(
+                document["requests"], list
+            ):
+                raise UserInputError(
+                    Diagnostic(
+                        stage="acir-core",
+                        code="ACLOWER-BINDING-OPTIONS",
+                        severity="error",
+                        message=f"binding registry {path} arrays are invalid",
+                    )
+                )
+            candidates.extend(document["candidates"])
+            requests.extend(document["requests"])
+    return canonical_json_bytes({"candidates": candidates, "requests": requests})
+
+
 def run(arguments: object, workspace: WorkspaceConfig, sink: OutputSink) -> int:
     frontend = capture(arguments, workspace)
     if _has_errors(frontend.diagnostics):
@@ -72,15 +117,13 @@ def run(arguments: object, workspace: WorkspaceConfig, sink: OutputSink) -> int:
                 )
             )
             return ExitCode.USER_INPUT
-        from .build import _binding_registry
-
         native = run_native_compiler(
             NativeRequest(
                 acir=frontend.acir,
                 stop_after="acir-verify",
                 emits=(),
                 options=(
-                    ("binding_registry", _binding_registry(workspace.component_roots)),
+                    ("binding_registry", binding_registry(workspace.component_roots)),
                 ),
             )
         )
@@ -92,7 +135,6 @@ def run(arguments: object, workspace: WorkspaceConfig, sink: OutputSink) -> int:
         {
             "schema": "agentic-circuit-check-result",
             "version": "0.1",
-            "contract_epoch": CONTRACT_EPOCH,
             "project": workspace.project_name,
             "system": getattr(arguments, "system", None) or workspace.default_system,
             "frontend": frontend.frontend_kind,

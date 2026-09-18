@@ -8,7 +8,7 @@
 // RUN: %acir_opt --verify-each=false --pass-pipeline='builtin.module(ac-freeze-topology)' %t.frozen | %FileCheck %s --check-prefix=FROZEN
 // RUN: %not %acir_opt --verify-each=false --pass-pipeline='builtin.module(ac-freeze-topology)' %s 2>&1 | %FileCheck %s --check-prefix=UNRESOLVED
 
-module attributes {ac.contract_epoch = "0.5", ac.model_kind = "queue_graph", ac.queue_graph_domain = "cycle", ac.system = "rule_test"} {
+module attributes {ac.model_kind = "queue_graph", ac.queue_graph_domain = "cycle", ac.system = "rule_test"} {
   %input = "builtin.unrealized_conversion_cast"() : () -> !ac.queue<i32>
   ac.observe %input name "input_probe" : !ac.queue<i32>
   %output = ac.rule %input depths [2] latencies [1]
@@ -60,10 +60,8 @@ module attributes {ac.contract_epoch = "0.5", ac.model_kind = "queue_graph", ac.
 // LOWERED-SAME: ac.rule_time_domain = "cycle"
 
 // FROZEN: module attributes {
-// FROZEN-SAME: ac.freeze_epoch = "0.5"
 // FROZEN-SAME: ac.frozen_owners = []
-// FROZEN-SAME: ac.topology_digest = "{{[0-9a-f]+}}"
 // FROZEN-SAME: ac.topology_frozen = true
 // FROZEN: ac.rule_stable_id = "top/increment_0"
 
-// UNRESOLVED: unresolved transient rule or typed marker before Frozen ACIR
+// UNRESOLVED: unresolved transient rule or typed marker before verified ACIR

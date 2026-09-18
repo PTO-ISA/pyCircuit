@@ -9,7 +9,6 @@ from typing import Literal
 
 from .._canonical_json import canonical_json_bytes
 from .._capabilities import standard_library_catalog
-from .._contract import CONTRACT_EPOCH
 from .._exit_codes import ExitCode
 from .._native_api import capabilities
 from .._output import OutputSink
@@ -46,14 +45,10 @@ def _check(name: str, passed: bool, observed: str, required: str) -> DoctorCheck
 def run(arguments: object, sink: OutputSink) -> int:
     checks: list[DoctorCheck] = []
     python_version = (
-        f"{sys.version_info.major}.{sys.version_info.minor}."
-        f"{sys.version_info.micro}"
+        f"{sys.version_info.major}.{sys.version_info.minor}.{sys.version_info.micro}"
     )
     checks.append(
         _check("python", sys.version_info >= (3, 11), python_version, ">=3.11")
-    )
-    checks.append(
-        _check("contract_epoch", True, CONTRACT_EPOCH, CONTRACT_EPOCH)
     )
 
     try:
@@ -100,8 +95,8 @@ def run(arguments: object, sink: OutputSink) -> int:
             "ac@0.1",
         )
     )
-    canonical = canonical_json_bytes({"epoch": CONTRACT_EPOCH})
-    expected_canonical = f'{{"epoch":"{CONTRACT_EPOCH}"}}'
+    canonical = canonical_json_bytes({"value": "ok"})
+    expected_canonical = '{"value":"ok"}'
     checks.append(
         _check(
             "canonical_json",
@@ -114,7 +109,6 @@ def run(arguments: object, sink: OutputSink) -> int:
     document = {
         "schema": "agentic-circuit-doctor-result",
         "version": "0.1",
-        "contract_epoch": CONTRACT_EPOCH,
         "status": "passed" if passed else "failed",
         "checks": [check.to_json() for check in checks],
     }

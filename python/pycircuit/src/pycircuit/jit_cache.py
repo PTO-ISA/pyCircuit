@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import ast
-import hashlib
 import inspect
 import textwrap
 import weakref
@@ -43,7 +42,7 @@ class FunctionMeta:
 
 @dataclass(frozen=True)
 class RepeatedBodyCluster:
-    fingerprint: str
+    body_key: str
     count: int
     node_count: int
     hardware_calls: int
@@ -51,9 +50,8 @@ class RepeatedBodyCluster:
     state_calls: int
     loop_extent_hint: int
 
-    def to_dict(self) -> dict[str, int | str]:
+    def to_dict(self) -> dict[str, int]:
         return {
-            "fingerprint": self.fingerprint,
             "count": int(self.count),
             "node_count": int(self.node_count),
             "hardware_calls": int(self.hardware_calls),
@@ -159,8 +157,6 @@ def _call_attr_name(node: ast.Call) -> tuple[str, str] | None:
 def _loop_cluster_for(node: ast.For | ast.While) -> RepeatedBodyCluster:
     body_mod = ast.Module(body=list(node.body), type_ignores=[])
     body_dump = ast.dump(body_mod, include_attributes=False)
-    fingerprint = hashlib.sha256(body_dump.encode("utf-8")).hexdigest()[:16]
-
     hardware_calls = 0
     module_calls = 0
     state_calls = 0
@@ -180,7 +176,7 @@ def _loop_cluster_for(node: ast.For | ast.While) -> RepeatedBodyCluster:
             state_calls += 1
 
     return RepeatedBodyCluster(
-        fingerprint=fingerprint,
+        body_key=body_dump,
         count=1,
         node_count=sum(1 for _ in ast.walk(body_mod)),
         hardware_calls=hardware_calls,
@@ -222,12 +218,12 @@ def get_structural_metrics(fn: Any) -> StructuralMetrics:
         if isinstance(node, ast.For | ast.While):
             loop_count += 1
             cluster = _loop_cluster_for(node)
-            prev = cluster_accum.get(cluster.fingerprint)
+            prev = cluster_accum.get(cluster.body_key)
             if prev is None:
-                cluster_accum[cluster.fingerprint] = cluster
+                cluster_accum[cluster.body_key] = cluster
             else:
-                cluster_accum[cluster.fingerprint] = RepeatedBodyCluster(
-                    fingerprint=cluster.fingerprint,
+                cluster_accum[cluster.body_key] = RepeatedBodyCluster(
+                    body_key=cluster.body_key,
                     count=prev.count + 1,
                     node_count=max(prev.node_count, cluster.node_count),
                     hardware_calls=max(prev.hardware_calls, cluster.hardware_calls),
@@ -241,7 +237,7 @@ def get_structural_metrics(fn: Any) -> StructuralMetrics:
     repeated_body_clusters = tuple(
         sorted(
             cluster_accum.values(),
-            key=lambda c: (-c.count, -c.node_count, c.fingerprint),
+            key=lambda c: (-c.count, -c.node_count, c.body_key),
         )
     )
     ast_node_count = sum(1 for _ in ast.walk(meta.fdef))

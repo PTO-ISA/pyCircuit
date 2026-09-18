@@ -8,6 +8,15 @@ release.
 
 ### Added
 
+- `acc.py -c <module.py> -o <module.ac>` and native `acc` single-TU C++,
+    multi-TU C++, and Verilog emission, with source-named module files, stable
+  parameter-derived specialization names, NDF comments, and Python source traceability
+  (Decision 0266).
+
+- Removed the retired `compile`, `build`, and `model` commands, persistent JIT
+  caches, build inventories, and content-derived Python identities. Source
+  closure is now captured once in memory for each compilation.
+
 - Scalar lexical register reset images and write enables on `ac.var`, plus
   per-module `.ac.mlir` dumps, nominal gfsim type headers, and real out-of-line
   per-specialization `.h`/`.cpp` units compiled separately and linked from the

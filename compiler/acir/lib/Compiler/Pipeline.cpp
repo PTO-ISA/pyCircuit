@@ -20,11 +20,7 @@ selectPipeline(const CompilerRequest &request) {
 
   std::vector<CompilerStage> stages{
       CompilerStage::AcirParse,     CompilerStage::AcirVerify,
-      CompilerStage::AcirNormalize, CompilerStage::AcirFreeze,
-      CompilerStage::AcsimLower,    CompilerStage::AcsimVerify,
-      CompilerStage::CxxEmit,       CompilerStage::CxxContract,
-      CompilerStage::Compile,       CompilerStage::Link,
-      CompilerStage::Publish,
+      CompilerStage::AcirNormalize, CompilerStage::TopologyClosure,
   };
   if (!request.stopAfter)
     return stages;

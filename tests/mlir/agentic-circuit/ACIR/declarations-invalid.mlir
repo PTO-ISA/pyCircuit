@@ -16,7 +16,7 @@
 // ALIAS: error: {{.*}}unresolved named data type '@types::@Missing'
 
 //--- duplicate-symbol.mlir
-builtin.module attributes {ac.contract_epoch = "0.5"} {
+builtin.module  {
   "ac.type_scope"() <{sym_name = "types"}> ({
     "ac.transaction"() <{sym_name = "Item", fields = []}> : () -> ()
     "ac.transaction"() <{sym_name = "Item", fields = []}> : () -> ()
@@ -24,28 +24,28 @@ builtin.module attributes {ac.contract_epoch = "0.5"} {
 }
 
 //--- duplicate-field.mlir
-builtin.module attributes {ac.contract_epoch = "0.5"} {
+builtin.module  {
   "ac.type_scope"() <{sym_name = "types"}> ({
     "ac.transaction"() <{sym_name = "Pair", fields = [{name = "x", type = i8}, {name = "x", type = i16}]}> : () -> ()
   }) : () -> ()
 }
 
 //--- duplicate-enumerant.mlir
-builtin.module attributes {ac.contract_epoch = "0.5"} {
+builtin.module  {
   "ac.type_scope"() <{sym_name = "types"}> ({
     ac.enum @Mode enumerants ["read", "read"]
   }) : () -> ()
 }
 
 //--- unresolved-field.mlir
-builtin.module attributes {ac.contract_epoch = "0.5"} {
+builtin.module  {
   "ac.type_scope"() <{sym_name = "types"}> ({
     "ac.transaction"() <{sym_name = "Holder", fields = [{name = "item", type = !ac.struct<@types::@Missing>}]}> : () -> ()
   }) : () -> ()
 }
 
 //--- wrong-kind.mlir
-builtin.module attributes {ac.contract_epoch = "0.5"} {
+builtin.module  {
   "ac.type_scope"() <{sym_name = "types"}> ({
     ac.enum @Mode enumerants ["read"]
     "ac.transaction"() <{sym_name = "Holder", fields = [{name = "mode", type = !ac.struct<@types::@Mode>}]}> : () -> ()
@@ -53,14 +53,14 @@ builtin.module attributes {ac.contract_epoch = "0.5"} {
 }
 
 //--- recursive.mlir
-builtin.module attributes {ac.contract_epoch = "0.5"} {
+builtin.module  {
   "ac.type_scope"() <{sym_name = "types"}> ({
     "ac.transaction"() <{sym_name = "Node", fields = [{name = "next", type = !ac.transaction<@types::@Node>}]}> : () -> ()
   }) : () -> ()
 }
 
 //--- alias-target.mlir
-builtin.module attributes {ac.contract_epoch = "0.5"} {
+builtin.module  {
   "ac.type_scope"() <{sym_name = "types"}> ({
     "ac.type_alias"() <{sym_name = "MissingAlias", target = !ac.struct<@types::@Missing>}> : () -> ()
   }) : () -> ()

@@ -11,10 +11,10 @@ backend.
 | Distribution | `pycircuit-hisi` | `agentic-circuit` |
 | Python import | `pycircuit` | `agentic_circuit` |
 | Authoring focus | Signals, state, hierarchy, and logical cycles | Processes, queues, resources, scheduling, and architecture state |
-| Primary representation | Cycle-Aware Signal or structural modules | ACPy contract epoch 0.5 and ACIR |
-| Native simulation | pyc6 C++ cycle model | ACSim/gfsim |
-| Hardware generation | PYC → `pycc` → C++ / Verilog | Synthesizable ACIR → PYC → `pycc` → C++ / Verilog |
-| CLI | `pycircuit` | `agentic-circuit` |
+| Primary representation | Cycle-Aware Signal or structural modules | ACPy and verified ACIR |
+| Native simulation | pyc6 C++ cycle model | ACC-generated gfsim C++ |
+| Hardware generation | PYC → `pycc` → C++ / Verilog | verified ACIR → `acc` → C++ / bundle / Verilog |
+| CLI | `pycircuit` | `acc.py` and `acc` |
 
 ## Use pyCircuit 6 for hardware
 
@@ -67,8 +67,8 @@ Continue with the [Agentic Circuit and ACIR overview](../acir/index.md).
 ## How the flows meet
 
 ```text
-agentic_circuit -> ACPy 0.5 -> ACIR -> ACSim -> gfsim
-                                    `-> PYC -> pycc -> pyc6 C++ / Verilog
+agentic_circuit -> acc.py -> verified ACIR -> acc -> gfsim C++ / bundle
+                                             `-> PYC -> pycc -> Verilog
 
 pycircuit -> Cycle-Aware Signal / structural modules
                                     `-> PYC -> pycc -> pyc6 C++ / Verilog

@@ -21,5 +21,5 @@ ODS/inventory/ledger
 relationship.
 
 Python and canonical PYC may reference only semantic IDs.  Vendor module,
-parameter, port, source, digest, provenance, and license data enter IR only in
+parameter, port, source, provenance, and license data enter IR only in
 the Verilog-only `pyc-select-rtl-primitives` pass.

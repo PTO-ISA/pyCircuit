@@ -21,7 +21,7 @@ SOURCE_ROOTS = (
 )
 SOURCE_SUFFIXES = frozenset({".cpp", ".h", ".inc", ".py", ".td"})
 CODE = re.compile(
-    r"\bAC(?:PY|ELAB|IR-[A-Z]+|SIM|LOWER|BUILD|TRACE|RUN|SDK-[A-Z]+)"
+    r"\bAC(?:PY|ELAB|IR-[A-Z]+|LOWER|BUILD|TRACE|RUN|SDK-[A-Z]+)"
     r"-[A-Z0-9]+(?:-[A-Z0-9]+)*\b"
 )
 OWNERS = {
@@ -32,7 +32,6 @@ OWNERS = {
     "ACPY": "agentic-python",
     "ACRUN": "gfsim-runtime",
     "ACSDK": "sdk",
-    "ACSIM": "acsim",
     "ACTRACE": "agentic-trace",
 }
 
@@ -87,7 +86,7 @@ def load_registry() -> dict[str, object]:
 
 
 def catalog_from_registry(document: dict[str, object]) -> dict[str, object]:
-    if set(document) != {"schema", "version", "contract_epoch", "entries"}:
+    if set(document) != {"schema", "version", "entries"}:
         raise ValueError("diagnostic registry has unknown or missing fields")
     if document["schema"] != "agentic-circuit-diagnostic-registry":
         raise ValueError("diagnostic registry identity is invalid")
@@ -160,23 +159,27 @@ def catalog_from_registry(document: dict[str, object]) -> dict[str, object]:
         if sources != actual_sources:
             raise ValueError(f"diagnostic registry source coverage mismatch: {code}")
         if raw["status"] == "active" and not sources:
-            raise ValueError(f"active diagnostic code has no implementation use: {code}")
+            raise ValueError(
+                f"active diagnostic code has no implementation use: {code}"
+            )
         if raw["status"] != "active" and sources:
-            raise ValueError(f"inactive diagnostic code is used by implementation: {code}")
+            raise ValueError(
+                f"inactive diagnostic code is used by implementation: {code}"
+            )
         by_code[code] = {key: value for key, value in raw.items() if key != "sources"}
     missing = sorted(set(implementation) - set(by_code))
     if missing:
-        raise ValueError(f"implementation diagnostic code is unregistered: {missing[0]}")
+        raise ValueError(
+            f"implementation diagnostic code is unregistered: {missing[0]}"
+        )
     stdout_uses = native_stdout_code_uses()
     if stdout_uses:
         raise ValueError(
-            "diagnostic code is used on a native success-output path: "
-            + stdout_uses[0]
+            "diagnostic code is used on a native success-output path: " + stdout_uses[0]
         )
     return {
         "schema": "agentic-circuit-diagnostic-catalog",
         "version": document["version"],
-        "contract_epoch": document["contract_epoch"],
         "entries": [by_code[code] for code in sorted(by_code)],
     }
 
@@ -189,9 +192,6 @@ def rendered(document: dict[str, object]) -> str:
         "{",
         f'  "schema": {json.dumps(document["schema"], ensure_ascii=False)},',
         f'  "version": {json.dumps(document["version"], ensure_ascii=False)},',
-        "  \"contract_epoch\": "
-        + json.dumps(document["contract_epoch"], ensure_ascii=False)
-        + ",",
         '  "entries": [',
     ]
     for index, entry in enumerate(entries):
@@ -201,6 +201,28 @@ def rendered(document: dict[str, object]) -> str:
     return "\n".join(lines) + "\n"
 
 
+def synchronized_registry(document: dict[str, object]) -> dict[str, object]:
+    """Drop removed diagnostics and refresh source ownership deterministically."""
+
+    implementation = implementation_sites()
+    entries = document.get("entries")
+    if type(entries) is not list:
+        raise ValueError("diagnostic registry entries must be an array")
+    synchronized = []
+    for raw in entries:
+        if type(raw) is not dict or type(raw.get("code")) is not str:
+            raise ValueError("diagnostic registry entry is invalid")
+        code = raw["code"]
+        if code not in implementation:
+            continue
+        updated = dict(raw)
+        updated["status"] = "active"
+        updated["sources"] = sorted(implementation[code])
+        synchronized.append(updated)
+    synchronized.sort(key=lambda entry: str(entry["code"]))
+    return {**document, "entries": synchronized}
+
+
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--check", action="store_true")
@@ -208,7 +230,11 @@ def main() -> int:
 
     try:
         current = CATALOG.read_text(encoding="utf-8")
-        expected = rendered(catalog_from_registry(load_registry()))
+        registry = load_registry()
+        if not arguments.check:
+            registry = synchronized_registry(registry)
+            REGISTRY.write_text(rendered(registry), encoding="utf-8")
+        expected = rendered(catalog_from_registry(registry))
     except (OSError, UnicodeError, ValueError, json.JSONDecodeError) as error:
         print(f"error: cannot generate diagnostic catalog: {error}", file=sys.stderr)
         return 1

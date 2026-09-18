@@ -1,10 +1,7 @@
-#include "BindingOptions.h"
-#include "acir/CodeGen/EmitCxx.h"
 #include "acir/Dialect/ACIR/ACIRDialect.h"
 #include "acir/Dialect/ACIR/GraphRegion.h"
 #include "acir/InitAllDialects.h"
 #include "acir/InitAllPasses.h"
-#include "acir/Transforms/ResolveBindings.h"
 #include "mlir/AsmParser/AsmParser.h"
 #include "mlir/IR/BuiltinOps.h"
 #include "mlir/IR/Diagnostics.h"
@@ -78,7 +75,7 @@ CanonicalScanResult scanCanonicalAssembly(llvm::StringRef input) {
     if (!spelling)
       return CanonicalScanResult::MalformedEscape;
     llvm::StringRef value = spelling.getValue();
-    if (value.starts_with("ac.") || value.starts_with("acsim."))
+    if (value.starts_with("ac."))
       return CanonicalScanResult::GenericOperation;
   }
   return CanonicalScanResult::Canonical;
@@ -145,26 +142,12 @@ int runDriver(int argc, char **argv) {
 
   auto [inputFilename, outputFilename] = mlir::registerAndParseCLIOptions(
       argc, argv, "Agentic Circuit optimizer driver\n", registry);
-  auto bindingOptions = acir::opt::loadBindingCommandLineOptions();
-  if (!bindingOptions) {
-    llvm::errs() << "error: " << llvm::toString(bindingOptions.takeError())
-                 << '\n';
-    return EXIT_FAILURE;
-  }
-  auto loweringOptions = acir::opt::loadLoweringCommandLineOptions();
-  if (!loweringOptions) {
-    llvm::errs() << "error: " << llvm::toString(loweringOptions.takeError())
-                 << '\n';
-    return EXIT_FAILURE;
-  }
   mlir::MlirOptMainConfig config =
       mlir::MlirOptMainConfig::createFromCLOptions();
   mlir::MlirOptMainConfig commandLineConfig = config;
   config.allowUnregisteredDialects(false)
       .useExplicitModule(true)
-      .setPassPipelineSetupFn([commandLineConfig,
-                               bindingOptions = std::move(*bindingOptions),
-                               loweringOptions = std::move(*loweringOptions)](
+      .setPassPipelineSetupFn([commandLineConfig](
                                   mlir::PassManager &passManager) {
 #ifdef ACIR_INTERNAL_TEST_TOOL
         if (testPassTrace)
@@ -176,44 +159,6 @@ int runDriver(int argc, char **argv) {
         passManager.addPass(acir::createVerifyACIRFilePass());
         if (mlir::failed(commandLineConfig.setupPassPipeline(passManager)))
           return mlir::failure();
-        if (bindingOptions)
-          passManager.addPass(acir::createResolveBindingsPass(*bindingOptions));
-        auto emitOptions = []() {
-          acir::codegen::EmitCxxOptions options;
-          options.outputDir = acir::codegen::emitCxxOutputDir();
-          options.profile = acir::opt::selectedBindingProfile();
-          options.toolchainTarget = acir::opt::selectedBindingTarget();
-          if (options.profile.empty())
-            options.profile = "fast";
-          if (options.toolchainTarget.empty())
-            options.toolchainTarget = "unspecified";
-          return options;
-        };
-        if (loweringOptions) {
-          // Atomic whole-model lowering publishes canonical ACSim, so the
-          // trailing ACIR whole-model gate does not apply to its output.
-          passManager.addPass(acir::createACIRToACSimPass(*loweringOptions));
-          if (acir::codegen::emitCxxRequested())
-            passManager.addPass(
-                acir::codegen::createEmitCxxPass(emitOptions()));
-          if (acir::codegen::checkCxxContractRequested())
-            passManager.addPass(acir::codegen::createCheckCxxContractPass());
-          return mlir::success();
-        }
-        // --acsim-check-cxx-contract without --ac-lower-to-acsim is check-only:
-        // it reads DIR from --acsim-output-dir and must not try to emit from
-        // frozen ACIR (or any non-ACSim input).
-        if (acir::codegen::checkCxxContractRequested()) {
-          passManager.addPass(acir::codegen::createCheckCxxContractPass());
-          return mlir::success();
-        }
-        if (acir::codegen::emitCxxRequested()) {
-          passManager.addPass(acir::codegen::createEmitCxxPass(emitOptions()));
-          return mlir::success();
-        }
-        // The final whole-model gate makes a persisted freeze digest effective
-        // across every user-supplied pipeline: any topology mutation after
-        // ac-freeze-topology is diagnosed before output is committed.
         passManager.addPass(acir::createVerifyModelPass());
         return mlir::success();
       });

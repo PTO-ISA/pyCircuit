@@ -30,8 +30,7 @@ class OrderedQueueLaneFrontendTest(unittest.TestCase):
 
         source = LANE_SOURCE.replace(
             "@ac.system",
-            "@ac.struct\nclass Packet:\n    values: ac.array[3, ac.u8]\n\n"
-            "@ac.system",
+            "@ac.struct\nclass Packet:\n    values: ac.array[3, ac.u8]\n\n@ac.system",
         ).replace("ac.source(ac.u8", "ac.source(Packet")
         lowered = lower_queue_source(source, "pipeline")
         self.assertIn(

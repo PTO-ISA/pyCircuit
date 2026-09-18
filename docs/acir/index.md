@@ -15,12 +15,12 @@ pyCircuit 6.
   multidimensional initialization, selection, field/masked/replace writes,
   and explicit-register-bank PYC C++/Verilog lowering. Out-of-profile state
   remains fail closed.
-- ACPy schema `agentic-circuit-acpy` version `0.1`, contract epoch `0.5`, is the
-  stable frontend interchange contract.
+- ACPy schema `agentic-circuit-acpy` version `0.1` is the stable frontend
+  interchange shape. Release compatibility is external to IR and JSON payloads.
 - ACIR (`ac`) is an upper-level MLIR dialect. It remains separate from the PYC
   hardware dialect.
-- ACSim is the canonical simulator-oriented lowering of ACIR.
-- gfsim executes generated ACSim C++ models and remains independent of
+- ACC is the only public backend entrypoint for verified ACIR.
+- gfsim executes ACC-generated C++ models and remains independent of
   `libpyc6_runtime`.
 - The synthesizable ACIR subset lowers through PYC and the normal pyCircuit 6
   `pycc` flow to C++ simulation and Verilog.
@@ -34,7 +34,7 @@ Agentic Circuit is integrated into the repository by responsibility:
 | Path | Responsibility |
 | --- | --- |
 | `python/agentic-circuit/` | Python frontend, ACPy, CLI, workspace and JIT APIs |
-| `compiler/acir/` | ACIR/ACSim dialects, analysis, transformations and code generation |
+| `compiler/acir/` | ACIR dialect, analysis, transformations, ACC and code generation |
 | `simulator/gfsim/` | Architecture simulator library |
 | `schemas/agentic-circuit/` | Machine-readable public contracts and schemas |
 | `tools/agentic-circuit/` | Repository maintenance and contract tools |

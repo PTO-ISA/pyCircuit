@@ -10,28 +10,28 @@
 // WRONG-BOUND: error: {{.*}}field 'value' cannot declare removed max_length
 
 //--- malformed-field.mlir
-builtin.module attributes {ac.contract_epoch = "0.5"} {
+builtin.module  {
   "ac.type_scope"() <{sym_name = "types"}> ({
     "ac.transaction"() <{sym_name = "T", fields = ["oops"]}> : () -> ()
   }) : () -> ()
 }
 
 //--- missing-name.mlir
-builtin.module attributes {ac.contract_epoch = "0.5"} {
+builtin.module  {
   "ac.type_scope"() <{sym_name = "types"}> ({
     "ac.transaction"() <{sym_name = "T", fields = [{type = i8}]}> : () -> ()
   }) : () -> ()
 }
 
 //--- missing-type.mlir
-builtin.module attributes {ac.contract_epoch = "0.5"} {
+builtin.module  {
   "ac.type_scope"() <{sym_name = "types"}> ({
     "ac.transaction"() <{sym_name = "T", fields = [{name = "value"}]}> : () -> ()
   }) : () -> ()
 }
 
 //--- wrong-typed-non-list-bound.mlir
-builtin.module attributes {ac.contract_epoch = "0.5"} {
+builtin.module  {
   "ac.type_scope"() <{sym_name = "types"}> ({
     "ac.transaction"() <{sym_name = "T", fields = [{name = "value", type = i8, max_length = "oops"}]}> : () -> ()
   }) : () -> ()

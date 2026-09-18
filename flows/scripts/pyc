@@ -21,7 +21,7 @@ Env:
   LLVM_DIR, MLIR_DIR        Optional. If unset, flows/scripts/pyc infers them via llvm-config-22.
   PYC_BUILD_DIR             Optional build directory override.
   PYC_INSTALL_PREFIX        Optional install prefix override.
-  PYC_BUILD_AGENTIC_CIRCUIT Build/install ACIR, ACSim, gfsim, and AC tools (default: ON).
+  PYC_BUILD_AGENTIC_CIRCUIT Build/install ACIR, ACC, gfsim, and AC tools (default: ON).
   PYC_BUILD_AGENTIC_CIRCUIT_TESTS Build the integrated ACIR test targets (default: OFF).
   PYC_PYTHON_EXECUTABLE   Optional exact Python interpreter for installed SDK packages.
   PYCC                      Path to pycc (overrides auto-detect).
@@ -133,7 +133,7 @@ case "${cmd}" in
     pyc_log "build pycc + runtime (${build_dir})"
     ninja -C "${build_dir}" pycc pyc6_runtime
     if [[ "${PYC_BUILD_AGENTIC_CIRCUIT:-ON}" == "ON" ]]; then
-      pyc_log "build integrated ACIR/ACSim/gfsim toolchain"
+      pyc_log "build integrated ACIR/ACC/gfsim toolchain"
       ninja -C "${build_dir}" all
     fi
     ninja -C "${build_dir}" pyc-opt 2>/dev/null || true

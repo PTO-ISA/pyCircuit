@@ -96,7 +96,6 @@ class FrontendCommandTest(unittest.TestCase):
 
         self.assertEqual(0, result.returncode, result.stderr)
         self.assertIn("ac.system @main", contents)
-        self.assertEqual("sha256:", json.loads(result.stdout)["sha256"][:7])
 
 
 if __name__ == "__main__":

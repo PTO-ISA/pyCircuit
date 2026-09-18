@@ -13,6 +13,7 @@ test = ["jsonschema>=4.18", "lit>=18,<19", "pytest>=7.0.0", "pyyaml>=6.0"]
 
 [project.scripts]
 agentic-circuit = "agentic_circuit._cli:main"
+"acc.py" = "agentic_circuit._acc_py:main"
 
 [tool.setuptools]
 package-dir = { "" = "src" }
@@ -28,5 +29,4 @@ Repository = "https://github.com/PTO-ISA/pyCircuit"
 Issues = "https://github.com/PTO-ISA/pyCircuit/issues"
 
 [tool.agentic-circuit]
-contract-epoch = "0.5"
 llvm-release = "22.1.8"

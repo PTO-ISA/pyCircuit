@@ -1,8 +1,8 @@
-set(ACIR_OPT_SOURCES acir-opt.cpp BindingOptions.cpp)
+set(ACIR_OPT_SOURCES acir-opt.cpp)
 add_executable(acir-opt ${ACIR_OPT_SOURCES})
 set(ACIR_OPT_LIBRARIES
-    AgenticCircuit::ProjectOptions ACIRAnalysis ACIRTransforms ACIRToACSim
-    ACIRCodeGen ACIRDialect ACSimDialect MLIRFuncDialect MLIRIndexDialect
+    AgenticCircuit::ProjectOptions ACIRAnalysis ACIRTransforms
+    ACIRCodeGen ACIRDialect MLIRFuncDialect MLIRIndexDialect
     MLIRSCFDialect MLIRTransforms MLIROptLib)
 target_link_libraries(acir-opt PRIVATE ${ACIR_OPT_LIBRARIES})
 

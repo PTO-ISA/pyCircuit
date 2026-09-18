@@ -1,7 +1,7 @@
 // RUN: %acir_opt --pass-pipeline='builtin.module(ac-lower-rules)' %s | %FileCheck %s --check-prefix=LOWERED
 // RUN: %acir_opt --verify-each=false --pass-pipeline='builtin.module(ac-lower-rules,canonicalize,cse,ac-verify-rule-closure,ac-freeze-topology)' %s | %FileCheck %s --check-prefix=FROZEN
 
-module attributes {ac.contract_epoch = "0.5", ac.model_kind = "queue_graph", ac.queue_graph_domain = "cycle", ac.system = "eight_output"} {
+module attributes {ac.model_kind = "queue_graph", ac.queue_graph_domain = "cycle", ac.system = "eight_output"} {
   %input = ac.source depth 1 latency 1 {ac.name = "input"} : !ac.queue<i8>
   %o0, %o1, %o2, %o3, %o4, %o5, %o6, %o7 = ac.rule %input
       depths [1, 2, 3, 4, 5, 6, 7, 8] latencies [1, 1, 1, 1, 2, 2, 2, 2]

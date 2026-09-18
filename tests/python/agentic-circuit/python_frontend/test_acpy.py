@@ -11,7 +11,6 @@ from jsonschema import Draft202012Validator
 REPOSITORY = Path(__file__).resolve().parents[4]
 FIXTURES = Path(__file__).resolve().parent / "fixtures"
 GOLDENS = REPOSITORY / "tests" / "goldens" / "agentic-circuit" / "frontend"
-ZERO_DIGEST = "sha256:" + "0" * 64
 
 
 def minimal_document():
@@ -20,7 +19,7 @@ def minimal_document():
 
     return AcpyDocument(
         entry="e0",
-        sources=(SourceFile("architecture.py", ZERO_DIGEST),),
+        sources=(SourceFile("architecture.py"),),
         entities=(
             Entity(
                 id="e0",
@@ -63,7 +62,7 @@ class AcpyContractTest(unittest.TestCase):
         )
         document = AcpyDocument(
             entry=root.id,
-            sources=(SourceFile("architecture.py", ZERO_DIGEST),),
+            sources=(SourceFile("architecture.py"),),
             entities=allocator.freeze(),
         )
 
@@ -92,7 +91,9 @@ class AcpyContractTest(unittest.TestCase):
             canonical_json_bytes({"דּ": "hebrew", "😀": "emoji", "€": "euro"}),
         )
 
-    def test_mlir_strings_use_canonical_byte_escaping_after_ijson_validation(self) -> None:
+    def test_mlir_strings_use_canonical_byte_escaping_after_ijson_validation(
+        self,
+    ) -> None:
         from agentic_circuit._canonical_json import (
             canonical_json_bytes,
             canonical_mlir_string,
@@ -114,18 +115,13 @@ class AcpyContractTest(unittest.TestCase):
 
     def test_canonical_mlir_string_round_trips_through_native_parser(self) -> None:
         from agentic_circuit._canonical_json import canonical_mlir_string
-        from agentic_circuit._contract import CONTRACT_EPOCH
 
         acir_opt = REPOSITORY / ".pycircuit_out/acir/dev-llvm22/bin/acir-opt"
         if not acir_opt.is_file():
             self.skipTest("acir-opt is not built")
         value = 'quote" slash\\ backspace\b formfeed\f return\r euro€ emoji😀'
         source = (
-            "module attributes {ac.contract_epoch = "
-            + canonical_mlir_string(CONTRACT_EPOCH)
-            + ", ac.test = "
-            + canonical_mlir_string(value)
-            + "} {}\n"
+            "module attributes {ac.test = " + canonical_mlir_string(value) + "} {}\n"
         )
         with tempfile.TemporaryDirectory() as temporary:
             input_path = Path(temporary) / "input.mlir"

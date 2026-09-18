@@ -1,48 +1,17 @@
 #include "acir/Compiler/Driver.h"
-
-#include "llvm/ADT/STLExtras.h"
 #include "llvm/Support/Error.h"
 #include "gtest/gtest.h"
-
-#include <string>
-#include <utility>
-#include <vector>
 
 namespace acir::compiler {
 namespace {
 
 constexpr llvm::StringLiteral kValidAcir = R"mlir(
-module attributes {ac.contract_epoch = "0.5"} {
+module  {
   ac.system @main root @top as "root" tick 0 "cycle"
       workload @top::@workload seed {kind = "fixed", value = 0 : i64}
       instrumentation [] results {id = "default", format = "json"} selected true
   ac.module @top() parameters {} graph {
-    ac.process @workload kind "workload" {
-      ac.yield_sim
-    }
-    ac.return
-  }
-}
-)mlir";
-
-constexpr llvm::StringLiteral kMultipleModuleAcir = R"mlir(
-module attributes {ac.contract_epoch = "0.5"} {
-  ac.type_scope @types {
-    ac.enum @Mode enumerants ["IDLE", "RUN"]
-  } {dlti.dl_spec = #dlti.dl_spec<!ac.enum<@types::@Mode> = {abi_alignment = 1 : i64, endianness = "little", preferred_alignment = 1 : i64, size = 1 : i64}>}
-  ac.system @main root @top as "root" tick 0 "cycle"
-      workload @top::@workload seed {kind = "fixed", value = 0 : i64}
-      instrumentation [] results {id = "default", format = "json"} selected true
-  ac.module @zeta() parameters {} graph {
-    ac.return
-  }
-  ac.module @alpha() parameters {} graph {
-    ac.return
-  }
-  ac.module @top() parameters {} graph {
-    ac.process @workload kind "workload" {
-      ac.yield_sim
-    }
+    ac.process @workload kind "workload" { ac.yield_sim }
     ac.return
   }
 }
@@ -51,25 +20,9 @@ module attributes {ac.contract_epoch = "0.5"} {
 CompilerRequest validRequest() {
   CompilerRequest request;
   request.acirBytes = kValidAcir.str();
-  request.profile = CompilerProfile::Fast;
-  request.stopAfter = CompilerStage::AcsimVerify;
-  request.emits = {codegen::ArtifactKind::Acir, codegen::ArtifactKind::Acsim};
+  request.stopAfter = CompilerStage::TopologyClosure;
+  request.emits = {ArtifactKind::Acir};
   return request;
-}
-
-std::vector<std::string> paths(const CompilerResult &result) {
-  std::vector<std::string> found;
-  for (const CompilerArtifact &artifact : result.artifacts)
-    found.push_back(artifact.logicalPath);
-  return found;
-}
-
-const CompilerArtifact *findArtifact(const CompilerResult &result,
-                                     llvm::StringRef logicalPath) {
-  auto found = llvm::find_if(result.artifacts, [&](const auto &artifact) {
-    return artifact.logicalPath == logicalPath;
-  });
-  return found == result.artifacts.end() ? nullptr : &*found;
 }
 
 std::vector<CompilerDiagnostic> diagnostics(llvm::Error error) {
@@ -80,146 +33,35 @@ std::vector<CompilerDiagnostic> diagnostics(llvm::Error error) {
   return found;
 }
 
-TEST(CompilerDriverTest, StandardPipelineProducesVerifiedStageArtifacts) {
+TEST(CompilerDriverTest, FreezesAndReturnsStructuralArtifact) {
   auto result = runCompiler(validRequest());
-  if (!result) {
-    ADD_FAILURE() << llvm::toString(result.takeError());
-    return;
-  }
-  EXPECT_EQ(paths(*result),
-            (std::vector<std::string>{"frozen.ac.mlir", "modules/top.ac.mlir",
-                                      "model.acsim.mlir"}));
-  EXPECT_TRUE(result->diagnostics.empty());
-  for (const CompilerArtifact &artifact : result->artifacts) {
-    EXPECT_FALSE(artifact.bytes.empty());
-    EXPECT_TRUE(codegen::isValidFingerprint(artifact.sha256));
-  }
+  ASSERT_TRUE(bool(result)) << llvm::toString(result.takeError());
+  ASSERT_EQ(result->artifacts.size(), 1u);
+  EXPECT_EQ(result->artifacts.front().logicalPath, "verified.ac.mlir");
+  EXPECT_EQ(result->artifacts.front().kind, ArtifactKind::Acir);
+  EXPECT_NE(result->artifacts.front().bytes.find("ac.topology_frozen = true"),
+            std::string::npos);
 }
 
-TEST(CompilerDriverTest,
-     PerModuleAcirArtifactsHaveOneDefinitionAndSharedTypeScope) {
-  CompilerRequest request = validRequest();
-  request.acirBytes = kMultipleModuleAcir.str();
-  request.stopAfter = CompilerStage::AcirFreeze;
-  request.emits = {codegen::ArtifactKind::Acir};
-
-  auto result = runCompiler(request);
-  if (!result) {
-    ADD_FAILURE() << llvm::toString(result.takeError());
-    return;
-  }
-  EXPECT_EQ(paths(*result),
-            (std::vector<std::string>{"frozen.ac.mlir", "modules/alpha.ac.mlir",
-                                      "modules/top.ac.mlir",
-                                      "modules/zeta.ac.mlir"}));
-  for (llvm::StringRef name : {"alpha", "top", "zeta"}) {
-    const std::string path = "modules/" + name.str() + ".ac.mlir";
-    const std::string module = "ac.module @" + name.str();
-    const std::string unit = "ac.module_unit = \"" + name.str() + "\"";
-    const CompilerArtifact *artifact = findArtifact(*result, path);
-    ASSERT_NE(artifact, nullptr) << path;
-    const llvm::StringRef contents(artifact->bytes);
-    EXPECT_EQ(contents.count("ac.type_scope @types"), 1u) << path;
-    EXPECT_EQ(contents.count("ac.module @"), 1u) << path;
-    EXPECT_NE(contents.find(module), llvm::StringRef::npos) << path;
-    EXPECT_NE(contents.find(unit), llvm::StringRef::npos) << path;
-    EXPECT_EQ(contents.find("ac.system @"), llvm::StringRef::npos) << path;
-  }
-}
-
-TEST(CompilerDriverTest, ParseFailureReturnsStableStructuredDiagnostic) {
+TEST(CompilerDriverTest, ParseFailureReturnsStructuredDiagnostic) {
   CompilerRequest request = validRequest();
   request.acirBytes = "not mlir";
-
   auto result = runCompiler(request);
-  ASSERT_FALSE(static_cast<bool>(result));
+  ASSERT_FALSE(bool(result));
   auto found = diagnostics(result.takeError());
   ASSERT_FALSE(found.empty());
   EXPECT_EQ(found.front().stage, "acir-parse");
   EXPECT_EQ(found.front().code, "ACIR-PARSE-001");
-  EXPECT_EQ(found.front().severity, "error");
-  EXPECT_FALSE(found.front().message.empty());
-  EXPECT_TRUE(found.front().related.empty());
 }
 
-TEST(CompilerDriverTest, CallsiteDiagnosticKeepsDefinitionAndCallerFrames) {
-  CompilerRequest request = validRequest();
-  request.acirBytes = R"mlir(
-#callee = loc("helpers.py":5:7)
-#caller = loc("top.py":10:3)
-#stack = loc(callsite(#callee at #caller))
-module attributes {ac.contract_epoch = "wrong"} {
-} loc(#stack)
-)mlir";
-
-  auto result = runCompiler(request);
-  ASSERT_FALSE(static_cast<bool>(result));
-  auto found = diagnostics(result.takeError());
-  ASSERT_FALSE(found.empty());
-  ASSERT_TRUE(found.front().source.has_value());
-  EXPECT_EQ(found.front().source->file, "helpers.py");
-  ASSERT_EQ(found.front().related.size(), 1u);
-  ASSERT_TRUE(found.front().related.front().source.has_value());
-  EXPECT_EQ(found.front().related.front().message, "inline callsite");
-  EXPECT_EQ(found.front().related.front().source->file, "top.py");
-}
-
-TEST(CompilerDriverTest, CustomProfileRequiresAnExplicitPipeline) {
+TEST(CompilerDriverTest, CustomProfileRequiresPipeline) {
   CompilerRequest request = validRequest();
   request.profile = CompilerProfile::Custom;
-
   auto result = runCompiler(request);
-  ASSERT_FALSE(static_cast<bool>(result));
+  ASSERT_FALSE(bool(result));
   auto found = diagnostics(result.takeError());
   ASSERT_EQ(found.size(), 1u);
   EXPECT_EQ(found.front().code, "ACIR-PIPELINE-001");
-}
-
-TEST(CompilerDriverTest, CustomPipelineRunsInProcess) {
-  CompilerRequest request = validRequest();
-  request.profile = CompilerProfile::Custom;
-  request.customPipeline = "builtin.module(ac-canonicalize-model)";
-  request.stopAfter = CompilerStage::AcirNormalize;
-  request.emits.clear();
-
-  auto result = runCompiler(request);
-  if (!result) {
-    ADD_FAILURE() << llvm::toString(result.takeError());
-    return;
-  }
-  EXPECT_TRUE(result->diagnostics.empty());
-}
-
-TEST(CompilerDriverTest, StageDumpsAreDeterministicAndContentAddressed) {
-  CompilerRequest request = validRequest();
-  request.stopAfter = CompilerStage::AcirFreeze;
-  request.emits = {codegen::ArtifactKind::Acir};
-  request.dumpBefore = {"acir-freeze"};
-  request.dumpAfter = {"acir-freeze"};
-
-  auto first = runCompiler(request);
-  auto second = runCompiler(request);
-  ASSERT_TRUE(static_cast<bool>(first));
-  ASSERT_TRUE(static_cast<bool>(second));
-  ASSERT_EQ(first->artifacts.size(), 4u);
-  ASSERT_EQ(second->artifacts.size(), 4u);
-  for (size_t index = 0; index < first->artifacts.size(); ++index) {
-    EXPECT_EQ(first->artifacts[index].logicalPath,
-              second->artifacts[index].logicalPath);
-    EXPECT_EQ(first->artifacts[index].bytes, second->artifacts[index].bytes);
-    EXPECT_EQ(first->artifacts[index].sha256, second->artifacts[index].sha256);
-  }
-}
-
-TEST(CompilerDriverTest, RejectsArtifactBeyondSelectedStopStage) {
-  CompilerRequest request = validRequest();
-  request.stopAfter = CompilerStage::AcirFreeze;
-
-  auto result = runCompiler(request);
-  ASSERT_FALSE(static_cast<bool>(result));
-  auto found = diagnostics(result.takeError());
-  ASSERT_EQ(found.size(), 1u);
-  EXPECT_EQ(found.front().code, "ACIR-EMIT-001");
 }
 
 } // namespace

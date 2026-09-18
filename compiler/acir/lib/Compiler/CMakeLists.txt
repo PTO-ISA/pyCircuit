@@ -3,11 +3,9 @@ add_acir_library(ACIRCompiler SOURCES
   Pipeline.cpp
 )
 target_link_libraries(ACIRCompiler PUBLIC
-  ACIRCodeGen
-  ACIRToACSim
   ACIRTransforms
   ACIRDialect
-  ACSimDialect
+  MLIRIndexDialect
   MLIRParser
   MLIRPass
   MLIRTransforms

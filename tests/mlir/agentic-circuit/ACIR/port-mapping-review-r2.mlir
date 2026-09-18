@@ -12,7 +12,7 @@
 // CARDINALITY: interface and mapped protocol roles must have matching cardinality
 
 //--- missing.mlir
-builtin.module attributes {ac.contract_epoch = "0.5"} {
+builtin.module  {
   "ac.protocol"() <{sym_name = "p"}> ({
     "ac.role"() <{sym_name = "a", dual = @b, cardinality = "exclusive"}> : () -> ()
     "ac.role"() <{sym_name = "b", dual = @a, cardinality = "exclusive"}> : () -> ()
@@ -27,7 +27,7 @@ builtin.module attributes {ac.contract_epoch = "0.5"} {
 }
 
 //--- missing-to.mlir
-builtin.module attributes {ac.contract_epoch = "0.5"} {
+builtin.module  {
   "ac.protocol"() <{sym_name = "p"}> ({
     "ac.role"() <{sym_name = "a", dual = @b, cardinality = "exclusive"}> : () -> ()
     "ac.role"() <{sym_name = "b", dual = @a, cardinality = "exclusive"}> : () -> ()
@@ -42,7 +42,7 @@ builtin.module attributes {ac.contract_epoch = "0.5"} {
 }
 
 //--- unresolved.mlir
-builtin.module attributes {ac.contract_epoch = "0.5"} {
+builtin.module  {
   "ac.protocol"() <{sym_name = "p"}> ({
     "ac.role"() <{sym_name = "a", dual = @b, cardinality = "exclusive"}> : () -> ()
     "ac.role"() <{sym_name = "b", dual = @a, cardinality = "exclusive"}> : () -> ()
@@ -57,7 +57,7 @@ builtin.module attributes {ac.contract_epoch = "0.5"} {
 }
 
 //--- nondual.mlir
-builtin.module attributes {ac.contract_epoch = "0.5"} {
+builtin.module  {
   "ac.protocol"() <{sym_name = "p"}> ({
     "ac.role"() <{sym_name = "a", dual = @b, cardinality = "exclusive"}> : () -> ()
     "ac.role"() <{sym_name = "b", dual = @a, cardinality = "exclusive"}> : () -> ()
@@ -74,7 +74,7 @@ builtin.module attributes {ac.contract_epoch = "0.5"} {
 }
 
 //--- cardinality.mlir
-builtin.module attributes {ac.contract_epoch = "0.5"} {
+builtin.module  {
   "ac.protocol"() <{sym_name = "p"}> ({
     "ac.role"() <{sym_name = "a", dual = @b, cardinality = "exclusive"}> : () -> ()
     "ac.role"() <{sym_name = "b", dual = @a, cardinality = "exclusive"}> : () -> ()

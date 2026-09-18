@@ -22,7 +22,6 @@ KINDS = (
     "address-map",
     "protocols",
     "specialization",
-    "artifacts",
 )
 
 
@@ -93,34 +92,6 @@ class InspectCommandTest(unittest.TestCase):
         self.assertTrue(first_dot.stdout.startswith("digraph agentic_circuit {\n"))
         self.assertNotIn(str(first_root), first_dot.stdout)
         self.assertNotIn(str(second_root), first_dot.stdout)
-
-    def test_artifacts_use_the_verified_current_build_when_present(self) -> None:
-        with tempfile.TemporaryDirectory() as temporary:
-            root = workspace(temporary)
-            built = run_cli("build", "architecture.py", "-o", "build/main", cwd=root)
-            root.joinpath("architecture.py").unlink()
-            inspected = run_cli("inspect", "artifacts", "--json", cwd=root)
-            records = json.loads(inspected.stdout)["records"]
-            pointer = json.loads(root.joinpath("build/main/current.json").read_text())
-            build_directory = root / "build/main" / pointer["path"]
-            manifest = json.loads(
-                build_directory.joinpath("build-manifest.json").read_text()
-            )
-            executable_path = next(
-                artifact["path"]
-                for artifact in manifest["artifacts"]
-                if artifact["kind"] == "executable"
-            )
-            executable = build_directory / executable_path
-            executable.write_bytes(executable.read_bytes() + b"tampered")
-            corrupted = run_cli("inspect", "artifacts", "--json", cwd=root)
-
-        self.assertEqual(0, built.returncode, built.stderr)
-        self.assertEqual(0, inspected.returncode, inspected.stderr)
-        self.assertIn("build_manifest", {record["kind"] for record in records})
-        self.assertIn("executable", {record["kind"] for record in records})
-        self.assertEqual(2, corrupted.returncode)
-        self.assertEqual("ACPY-INSPECT-001", json.loads(corrupted.stdout)["code"])
 
 
 if __name__ == "__main__":

@@ -4,7 +4,7 @@
 // RUN: %FileCheck %s --check-prefix=GFSIM < %t.cpp
 // RUN: %cxx -std=c++20 -I%source_root/simulator/gfsim/include -c %t.cpp -o %t.o
 
-module attributes {ac.contract_epoch = "0.5", ac.model_kind = "queue_graph", ac.queue_graph_domain = "cycle", ac.system = "rule_table_multi_input"} {
+module attributes {ac.model_kind = "queue_graph", ac.queue_graph_domain = "cycle", ac.system = "rule_table_multi_input"} {
   ac.type_scope @types {
     ac.struct @Entry fields [{name = "index", type = i1}, {name = "value", type = i7}]
     ac.struct @Delta fields [{name = "amount", type = i7}]

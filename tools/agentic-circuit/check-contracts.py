@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-import hashlib
 import importlib.util
 import json
 import re
@@ -8,11 +7,7 @@ import sys
 from pathlib import Path
 from urllib.parse import unquote
 
-import tomllib
 ROOT = Path(__file__).resolve().parents[2]
-PYPROJECT = ROOT / "python/agentic-circuit/pyproject.toml"
-with PYPROJECT.open("rb") as stream:
-    EPOCH = tomllib.load(stream)["tool"]["agentic-circuit"]["contract-epoch"]
 GOVERNANCE_FILES = (
     "LICENSE",
     "CONTRIBUTING.md",
@@ -29,7 +24,6 @@ EXPECTED_LLVM = {
         "https://github.com/llvm/llvm-project/releases/download/llvmorg-22.1.8/"
         "llvm-project-22.1.8.src.tar.xz"
     ),
-    "source_sha256": "922f1817a0df7b1489272d18134ee0087a8b068828f87ac63b9861b1a9965888",
     "local_prefix": "/opt/homebrew/opt/llvm",
     "supported_host_triples": [
         "arm64-apple-darwin",
@@ -100,19 +94,6 @@ def check_governance(errors):
             errors.append(f"missing or empty governance file: {name}")
 
 
-def check_epochs(errors):
-    schemas = sorted((ROOT / "schemas/agentic-circuit").glob("*.schema.json"))
-    if len(schemas) != 17:
-        errors.append(f"expected 17 JSON schemas, found {len(schemas)}")
-    for path in schemas:
-        document = json.loads(path.read_text())
-        actual = document.get("properties", {}).get("contract_epoch", {}).get("const")
-        if actual != EPOCH:
-            errors.append(f"{path.relative_to(ROOT)} declares epoch {actual!r}")
-    if not isinstance(EPOCH, str) or not EPOCH:
-        errors.append("pyproject contract-epoch must be a non-empty string")
-
-
 def check_schemas(errors):
     if importlib.util.find_spec("jsonschema") is None:
         errors.append("jsonschema is unavailable; install requirements-dev.lock")
@@ -148,16 +129,15 @@ def check_stdlib_catalog(errors):
     catalog = json.loads(catalog_path.read_text())
     expected_names = AVAILABLE_STDLIB_COMPONENTS | UNAVAILABLE_STDLIB_COMPONENTS
     expected_availability = {
-        **{name: "available" for name in AVAILABLE_STDLIB_COMPONENTS},
-        **{name: "declared_unavailable" for name in UNAVAILABLE_STDLIB_COMPONENTS},
+        **dict.fromkeys(AVAILABLE_STDLIB_COMPONENTS, "available"),
+        **dict.fromkeys(UNAVAILABLE_STDLIB_COMPONENTS, "declared_unavailable"),
     }
-    if set(catalog) != {"catalog", "version", "contract_epoch", "entries"}:
+    if set(catalog) != {"catalog", "version", "entries"}:
         errors.append("standard-library catalog has unknown or missing fields")
         return
     if (
         catalog["catalog"] != "ac"
         or catalog["version"] != "0.1"
-        or catalog["contract_epoch"] != EPOCH
         or not isinstance(catalog["entries"], list)
     ):
         errors.append("standard-library catalog identity is invalid")
@@ -175,12 +155,7 @@ def check_stdlib_catalog(errors):
     validator = Draft202012Validator(component_schema)
     seen_paths = set()
     for entry in entries:
-        if set(entry) != {
-            "canonical_name",
-            "availability",
-            "schema_path",
-            "schema_fingerprint",
-        }:
+        if set(entry) != {"canonical_name", "availability", "schema_path"}:
             errors.append(f"catalog entry has invalid fields: {entry!r}")
             continue
         name = entry["canonical_name"]
@@ -223,17 +198,6 @@ def check_stdlib_catalog(errors):
             header = ROOT / "simulator/gfsim/include" / binding["header"]
             if not header.is_file():
                 errors.append(f"available component header is missing for {name}")
-        digest_input = dict(record)
-        digest_input.pop("schema_fingerprint", None)
-        canonical = json.dumps(
-            digest_input, ensure_ascii=False, sort_keys=True, separators=(",", ":")
-        ).encode()
-        fingerprint = "sha256:" + hashlib.sha256(canonical).hexdigest()
-        if record["schema_fingerprint"] != fingerprint:
-            errors.append(f"component schema fingerprint mismatch for {name}")
-        if entry["schema_fingerprint"] != fingerprint:
-            errors.append(f"catalog fingerprint mismatch for {name}")
-
     extra_paths = {
         path.resolve()
         for path in catalog_root.glob("*.json")
@@ -439,10 +403,99 @@ def check_pyc_inventory(errors):
         errors.append(completed.stderr.strip() or "PYC IR inventory check failed")
 
 
+def check_zero_content_identity_contract(errors):
+    """Reject byte-derived identity from active compiler product surfaces."""
+
+    roots = (
+        ROOT / "compiler",
+        ROOT / "python",
+        ROOT / "schemas",
+        ROOT / "packaging",
+        ROOT / "flows",
+        ROOT / "tests",
+        ROOT / "docs",
+    )
+    historical_prefixes = (
+        "docs/gates/logs/",
+        "docs/rfcs/pyc6-decisions.md",
+        "docs/acir/spec/refs/history.md",
+    )
+    explanatory_files = {
+        "docs/development/implementation-guide.md",
+        "docs/development/sdk-release-contract.md",
+        "docs/reference/name-mangling.md",
+        "tools/agentic-circuit/check-contracts.py",
+    }
+    source_suffixes = {
+        ".c",
+        ".cc",
+        ".cmake",
+        ".cpp",
+        ".h",
+        ".hpp",
+        ".inc",
+        ".json",
+        ".md",
+        ".mlir",
+        ".py",
+        ".ps1",
+        ".sh",
+        ".td",
+        ".toml",
+        ".yaml",
+        ".yml",
+    }
+    forbidden_terms = (
+        "finger" + "print",
+        "sha" + "256",
+        "topology_" + "di" + "gest",
+        "check" + "sum",
+        "di" + "gest",
+    )
+    forbidden = re.compile(
+        r"(?i)(?:" + "|".join(re.escape(term) for term in forbidden_terms) + r")"
+    )
+    violations = []
+    for root in roots:
+        if not root.is_dir():
+            continue
+        for path in sorted(root.rglob("*")):
+            if any(
+                component in {"build", ".pycircuit_out", "__pycache__", ".venv"}
+                for component in path.relative_to(ROOT).parts
+            ):
+                continue
+            if not path.is_file() or path.suffix.lower() not in source_suffixes:
+                continue
+            relative = path.relative_to(ROOT).as_posix()
+            if relative in explanatory_files or relative.startswith(
+                historical_prefixes
+            ):
+                continue
+            try:
+                lines = path.read_text(encoding="utf-8").splitlines()
+            except UnicodeError:
+                continue
+            for line_number, line in enumerate(lines, start=1):
+                if forbidden.search(line):
+                    violations.append(f"{relative}:{line_number}")
+                    if len(violations) == 25:
+                        break
+            if len(violations) == 25:
+                break
+        if len(violations) == 25:
+            break
+    if violations:
+        errors.append(
+            "zero-content-identity contract violation: "
+            + ", ".join(violations)
+            + (" (first 25)" if len(violations) == 25 else "")
+        )
+
+
 def main():
     errors = []
     check_governance(errors)
-    check_epochs(errors)
     check_schemas(errors)
     check_stdlib_catalog(errors)
     check_diagnostic_catalog(errors)
@@ -451,13 +504,13 @@ def main():
     check_llvm_lock(errors)
     check_release_layout(errors)
     check_pyc_inventory(errors)
+    check_zero_content_identity_contract(errors)
     if errors:
         for error in errors:
             print(f"error: {error}", file=sys.stderr)
         return 1
     print(
-        "repository contracts: OK "
-        f"(17 public schemas, 35 stdlib components, epoch {EPOCH}, LLVM 22.1.8)"
+        "repository contracts: OK (public schemas, 35 stdlib components, LLVM 22.1.8)"
     )
     return 0
 

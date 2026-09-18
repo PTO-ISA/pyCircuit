@@ -43,23 +43,21 @@ python -m pycircuit.cli emit \
 
 ## Try Agentic Circuit
 
-Install the second frontend and generate frozen ACIR, a QueueGraph plan, and
-gfsim C++ for the routed dependency example:
+Install the second frontend and generate verified ACIR plus gfsim C++ for the
+routed dependency example:
 
 ```bash
 python -m pip install -e "python/agentic-circuit[test]"
 mkdir -p .pycircuit_out/quickstart/agentic
 
 PYTHONPATH=python/semantic-core/src:python/agentic-circuit/src \
-python compiler/acir/tools/ac-queue-cxxgen.py \
-  examples/agentic-circuit/pipelines/routed_dependency_pipeline.py \
-  --system routed_dependency_pipeline \
-  --acir-output .pycircuit_out/quickstart/agentic/routed_dependency.ac.mlir \
-  --plan-output .pycircuit_out/quickstart/agentic/routed_dependency.plan.json \
-  --acir-opt "$PYC_TOOLCHAIN_ROOT/bin/acir-opt" \
-  --queue-plan-tool "$PYC_TOOLCHAIN_ROOT/bin/acir-queue-plan" \
-  --queue-cxxgen-tool "$PYC_TOOLCHAIN_ROOT/bin/acir-queue-cxxgen" \
-  --output .pycircuit_out/quickstart/agentic/routed_dependency.cpp
+acc.py --project examples/agentic-circuit/agentic-circuit.toml \
+  -c "$PWD/examples/agentic-circuit/pipelines/routed_dependency_pipeline.py" \
+  -o .pycircuit_out/quickstart/agentic/routed_dependency.ac
+
+acc -c .pycircuit_out/quickstart/agentic/routed_dependency.ac \
+  -emit-cpp \
+  -o .pycircuit_out/quickstart/agentic/routed_dependency.cpp
 ```
 
 Run `bash flows/scripts/run_agentic_circuit.sh` for the complete installed

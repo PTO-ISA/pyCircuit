@@ -88,8 +88,6 @@ def test_closure_scripts_are_composable_and_partition_simulation_coverage() -> N
 
     assert "tools/agentic-circuit/check-contracts.py" in agentic
     assert "tests/python/agentic-circuit/contracts" in agentic
-    assert '"${ac_python}/setup.py"' in agentic
-    assert "gate_environment_fingerprint" in agentic
     assert "--target check-acir" in agentic
     assert "ctest --test-dir" in agentic
 
@@ -153,14 +151,10 @@ def test_release_and_evidence_windows_lanes_pin_the_same_clang_cl_driver() -> No
 
     for workflow in (release, evidence):
         version = _workflow_env(workflow, "CLANG_PACKAGE_VERSION")
-        digest = _workflow_env(workflow, "CLANG_SOURCE_SHA256")
         url = _workflow_env(workflow, "CLANG_SOURCE_URL")
 
-        assert re.fullmatch(r"[0-9a-f]{64}", digest), digest
         assert version in url
         assert "x86_64-pc-windows-msvc" in url
-        # The downloaded driver is verified before it is used.
-        assert "Get-FileHash -Algorithm SHA256" in workflow
         # clang-cl is the Windows compiler. cl.exe cannot build the ACIR
         # codegen: its front end aborts with C1001 on the recursive generic
         # lambdas that clang accepts.
@@ -181,9 +175,6 @@ def test_release_and_evidence_windows_lanes_pin_the_same_clang_cl_driver() -> No
     # The evidence lane must reproduce the release lane exactly.
     assert _workflow_env(release, "CLANG_PACKAGE_VERSION") == _workflow_env(
         evidence, "CLANG_PACKAGE_VERSION"
-    )
-    assert _workflow_env(release, "CLANG_SOURCE_SHA256") == _workflow_env(
-        evidence, "CLANG_SOURCE_SHA256"
     )
     assert _workflow_env(release, "CLANG_SOURCE_URL") == _workflow_env(
         evidence, "CLANG_SOURCE_URL"

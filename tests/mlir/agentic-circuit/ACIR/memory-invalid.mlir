@@ -5,7 +5,7 @@
 // RUN: %not %acir_opt %t/write.mlir 2>&1 | %FileCheck %s --check-prefix=WRITE
 // RUN: %not %acir_opt %t/sibling.mlir 2>&1 | %FileCheck %s --check-prefix=OUTSIDE
 // RUN: %not %acir_opt %t/prefix.mlir 2>&1 | %FileCheck %s --check-prefix=OUTSIDE
-// RUN: %not %acir_opt %t/parent.mlir 2>&1 | %FileCheck %s --check-prefix=OUTSIDE
+// RUN: %not %acir_opt %t/parent.mlir 2>&1 | %FileCheck %s --check-prefix=PARENT
 // RUN: %not %acir_opt %t/shadowed-instance.mlir 2>&1 | %FileCheck %s --check-prefix=SHADOWED
 
 // ENTRIES: error: 'ac.memory.instance' op entries and latency must be positive
@@ -13,25 +13,26 @@
 // INIT: error: 'ac.memory.instance' op memory init must be zero
 // WRITE: error: 'ac.memory.request' op write must yield !ac.var<i1>
 // OUTSIDE: error: 'ac.memory.request' op memory instance is outside the request scope ancestry
+// PARENT: error: 'ac.memory.request' op memory instance is outside the request scope ancestry
 // SHADOWED: error: 'ac.memory.instance' op must have at least one memory.request endpoint
 
 //--- entries.mlir
-builtin.module attributes {ac.contract_epoch = "0.5"} {
+builtin.module  {
   ac.memory.instance @bad data i16 entries 0 init 0 latency 1 owner "/" stable_id "memory/bad"
 }
 
 //--- latency.mlir
-builtin.module attributes {ac.contract_epoch = "0.5"} {
+builtin.module  {
   ac.memory.instance @bad data i16 entries 16 init 0 latency 0 owner "/" stable_id "memory/bad"
 }
 
 //--- init.mlir
-builtin.module attributes {ac.contract_epoch = "0.5"} {
+builtin.module  {
   ac.memory.instance @bad data i16 entries 16 init 1 latency 1 owner "/" stable_id "memory/bad"
 }
 
 //--- write.mlir
-builtin.module attributes {ac.contract_epoch = "0.5"} {
+builtin.module  {
   ac.type_scope @types {
     ac.struct @Request fields [{name = "address", type = i8}, {name = "write", type = i1}, {name = "data", type = i16}]
   } {dlti.dl_spec = #dlti.dl_spec<!ac.struct<@types::@Request> = {abi_alignment = 2 : i64, endianness = "little", preferred_alignment = 2 : i64, size = 4 : i64}>}
@@ -53,7 +54,7 @@ builtin.module attributes {ac.contract_epoch = "0.5"} {
 }
 
 //--- sibling.mlir
-builtin.module attributes {ac.contract_epoch = "0.5"} {
+builtin.module  {
   ac.type_scope @types {
     ac.struct @Request fields [{name = "address", type = i8}, {name = "write", type = i1}, {name = "data", type = i16}]
   } {dlti.dl_spec = #dlti.dl_spec<!ac.struct<@types::@Request> = {abi_alignment = 2 : i64, endianness = "little", preferred_alignment = 2 : i64, size = 4 : i64}>}
@@ -80,7 +81,7 @@ builtin.module attributes {ac.contract_epoch = "0.5"} {
 }
 
 //--- prefix.mlir
-builtin.module attributes {ac.contract_epoch = "0.5"} {
+builtin.module  {
   ac.type_scope @types {
     ac.struct @Request fields [{name = "address", type = i8}, {name = "write", type = i1}, {name = "data", type = i16}]
   } {dlti.dl_spec = #dlti.dl_spec<!ac.struct<@types::@Request> = {abi_alignment = 2 : i64, endianness = "little", preferred_alignment = 2 : i64, size = 4 : i64}>}
@@ -107,7 +108,7 @@ builtin.module attributes {ac.contract_epoch = "0.5"} {
 }
 
 //--- parent.mlir
-builtin.module attributes {ac.contract_epoch = "0.5"} {
+builtin.module  {
   ac.type_scope @types {
     ac.struct @Request fields [{name = "address", type = i8}, {name = "write", type = i1}, {name = "data", type = i16}]
   } {dlti.dl_spec = #dlti.dl_spec<!ac.struct<@types::@Request> = {abi_alignment = 2 : i64, endianness = "little", preferred_alignment = 2 : i64, size = 4 : i64}>}
@@ -131,9 +132,9 @@ builtin.module attributes {ac.contract_epoch = "0.5"} {
 }
 
 //--- shadowed-instance.mlir
-builtin.module attributes {ac.contract_epoch = "0.5"} {
+builtin.module  {
   ac.memory.instance @sram data i16 entries 16 init 0 latency 1 owner "/" stable_id "memory/sram"
-  builtin.module @nested attributes {ac.contract_epoch = "0.5"} {
+  builtin.module @nested  {
     ac.type_scope @types {
       ac.struct @Request fields [{name = "address", type = i8}, {name = "write", type = i1}, {name = "data", type = i16}]
     } {dlti.dl_spec = #dlti.dl_spec<!ac.struct<@types::@Request> = {abi_alignment = 2 : i64, endianness = "little", preferred_alignment = 2 : i64, size = 4 : i64}>}

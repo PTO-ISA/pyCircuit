@@ -8,14 +8,13 @@ compile_cycle_aware() instead of @module + compile().
 from __future__ import annotations
 
 import ast
-import hashlib
 import inspect
 import textwrap
 from typing import Any, Generic, TypeVar, Union, overload
 from collections.abc import Callable, Iterable
 
 from .data import DT, Bits
-from .design import Design, canonical_params_json
+from .design import Design, canonical_params_json, readable_params_suffix
 from .diagnostics import (
     PyCircuitError,
     PyCircuitKeyError,
@@ -331,11 +330,8 @@ class CycleAwareDomain:
         prefix = kwargs.get("prefix", base_name)
         specialization_params = {k: v for k, v in kwargs.items() if k != "prefix"}
         params_json = canonical_params_json(specialization_params)
-        sub_name = (
-            base_name
-            if not specialization_params
-            else f"{base_name}__p{hashlib.sha256(params_json.encode('utf-8')).hexdigest()[:8]}"
-        )
+        suffix = readable_params_suffix(params_json)
+        sub_name = base_name if not suffix else f"{base_name}__{suffix}"
 
         cache_key = (id(fn), params_json)
         if cache_key not in self._sub_cache:

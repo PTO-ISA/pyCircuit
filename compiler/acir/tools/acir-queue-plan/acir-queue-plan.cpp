@@ -13,19 +13,19 @@
 namespace {
 
 llvm::cl::opt<std::string> inputFile(llvm::cl::Positional, llvm::cl::Required,
-                                     llvm::cl::desc("<frozen-acir>"));
+                                     llvm::cl::desc("<verified-acir>"));
 
 } // namespace
 
 int main(int argc, char **argv) {
   llvm::cl::ParseCommandLineOptions(
-      argc, argv, "Extract canonical QueueGraph plan from frozen ACIR\n");
+      argc, argv, "Extract canonical QueueGraph plan from verified ACIR\n");
   mlir::DialectRegistry registry;
   acir::registerAllDialects(registry);
   mlir::MLIRContext context(registry);
   auto module = mlir::parseSourceFile<mlir::ModuleOp>(inputFile, &context);
   if (!module) {
-    llvm::errs() << "ACLOWER-QUEUE-PLAN: frozen ACIR parsing failed\n";
+    llvm::errs() << "ACLOWER-QUEUE-PLAN: verified ACIR parsing failed\n";
     return EXIT_FAILURE;
   }
   auto plan = acir::codegen::buildQueueGraphPlan(*module);

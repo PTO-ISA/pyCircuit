@@ -2,7 +2,7 @@
 // RUN: %acir_opt --emit-bytecode -o %t.bc %s
 // RUN: %acir_opt %t.bc | %FileCheck %s
 
-builtin.module attributes {ac.contract_epoch = "0.5"} {
+builtin.module  {
   %input = ac.var.constant 165 : i8 as !ac.var<i8>
   %matched = ac.var.matches %input mask 240 value 160 : !ac.var<i8> -> !ac.var<i1>
   %wildcard = ac.var.matches %input mask 0 value 0 : !ac.var<i8> -> !ac.var<i1>

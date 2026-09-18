@@ -1,13 +1,11 @@
 #!/usr/bin/env python3
-"""Verify a relocated SDK, its exact manifest closure, and external model use."""
+"""Verify a relocated SDK inventory and external model use."""
 
 from __future__ import annotations
 
 import argparse
-import hashlib
 import json
 import os
-import platform
 import shutil
 import subprocess
 import sys
@@ -18,8 +16,6 @@ from pathlib import Path
 from typing import Any
 
 ROOT = Path(__file__).resolve().parents[2]
-MODEL_CONSUMER = ROOT / "tests/integration/agentic-circuit/model-install-consumer"
-
 # Windows API-set prefixes and operating-system DLL names (plus the MSVC v143
 # C/C++ runtime declared by the platform profile).  Kept in step with
 # create_platform_manifest.py so generator and verifier classify imports alike.
@@ -83,14 +79,6 @@ WINDOWS_SYSTEM_DLLS = frozenset(
         "wtsapi32.dll",
     }
 )
-
-
-def sha256(path: Path) -> str:
-    digest = hashlib.sha256()
-    with path.open("rb") as stream:
-        for chunk in iter(lambda: stream.read(1024 * 1024), b""):
-            digest.update(chunk)
-    return "sha256:" + digest.hexdigest()
 
 
 def load(path: Path) -> dict[str, Any]:
@@ -311,7 +299,7 @@ def validate_tree(
         raise ValueError("embedded and external SDK manifests differ")
     expected = {str(record["path"]) for record in manifest["files"]}
     if self_path in expected:
-        raise ValueError("embedded manifest must not hash itself")
+        raise ValueError("embedded SDK inventory must not list itself")
     actual = {
         path.relative_to(root).as_posix() for path in root.rglob("*") if path.is_file()
     }
@@ -326,8 +314,6 @@ def validate_tree(
     )
     for record in manifest["files"]:
         path = root / record["path"]
-        if path.stat().st_size != record["size"] or sha256(path) != record["sha256"]:
-            raise ValueError(f"SDK manifest checksum mismatch: {record['path']}")
         data = path.read_bytes()
         if any(value in data for value in encoded_forbidden):
             raise ValueError(f"SDK contains a producer absolute path: {record['path']}")
@@ -341,35 +327,47 @@ def validate_tree(
 
 
 def write_model_source(source: Path) -> None:
-    package = source / "model"
-    package.mkdir(parents=True)
-    (package / "__init__.py").write_text("", encoding="utf-8")
-    (package / "contracts.py").write_text(
+    source.mkdir(parents=True)
+    (source / "architecture.py").write_text(
         "import agentic_circuit as ac\n\n"
         "@ac.struct\n"
         "class Entry:\n"
         "    sequence: ac.u4\n"
         "    value: ac.u16\n"
-        "    done: bool\n",
-        encoding="utf-8",
-    )
-    (package / "top.py").write_text(
-        "import agentic_circuit as ac\n"
-        "from .contracts import Entry\n\n"
+        "    done: bool\n\n"
         "@ac.rule\n"
         "def complete(entry):\n"
         "    return entry.with_fields(done=True)\n\n"
         "@ac.system\n"
-        "def pipeline(entries: ac.const[int]) -> None:\n"
+        "def pipeline() -> None:\n"
         "    source = ac.source(Entry, depth=4, latency=1)\n"
         "    completed = complete(source)\n"
-        "    ordered = ac.reorder(completed, by=Entry.sequence, "
-        "entries=entries, start=0)\n"
+        "    ordered = ac.reorder(completed, by=Entry.sequence, entries=8, start=0)\n"
         "    ac.sink(ordered)\n",
         encoding="utf-8",
     )
-    (source / "model.toml").write_text(
-        'version = "1"\n\n[static]\nentries = 8\n', encoding="utf-8"
+    (source / "agentic-circuit.toml").write_text(
+        "[project]\n"
+        'name = "sdk-acc-smoke"\n'
+        'version = "0.1.0"\n'
+        'architecture = "architecture.py"\n'
+        'system = "pipeline"\n\n'
+        "[providers]\n"
+        'standard_library = ["ac"]\n\n'
+        "[build]\n"
+        'profile = "fast"\n'
+        'compiler = "c++"\n'
+        'standard_library = "libc++"\n'
+        "component_roots = []\n"
+        "protocol_roots = []\n"
+        'build_root = "build"\n'
+        "instrumentation_layers = []\n\n"
+        "[run]\n"
+        "trace_roots = []\n"
+        "inputs = {}\n\n"
+        "[diagnostics]\n"
+        'format = "text"\n',
+        encoding="utf-8",
     )
 
 
@@ -445,9 +443,9 @@ def verify_only_export(plugin: Path) -> None:
         raise ValueError("generated model must export only agentic_model_query_v1")
 
 
-def tree_hashes(root: Path) -> tuple[tuple[str, str], ...]:
+def tree_snapshot(root: Path) -> tuple[tuple[str, bytes], ...]:
     return tuple(
-        (path.relative_to(root).as_posix(), sha256(path))
+        (path.relative_to(root).as_posix(), path.read_bytes())
         for path in sorted(
             (item for item in root.rglob("*") if item.is_file()),
             key=lambda path: path.relative_to(root).as_posix(),
@@ -460,10 +458,8 @@ def installed_smoke(sdk_root: Path, wheels: list[Path], workspace: Path) -> None
     suffix = ".exe" if windows else ""
     environment = workspace / "venv"
     venv.EnvBuilder(with_pip=True).create(environment)
-    python = environment / (
-        "Scripts/python.exe" if sys.platform == "win32" else "bin/python"
-    )
-    commands = environment / ("Scripts" if sys.platform == "win32" else "bin")
+    python = environment / ("Scripts/python.exe" if windows else "bin/python")
+    commands = environment / ("Scripts" if windows else "bin")
     run(
         [python, "-m", "pip", "install", "--no-index", "--no-deps", *wheels],
         cwd=workspace,
@@ -473,194 +469,121 @@ def installed_smoke(sdk_root: Path, wheels: list[Path], workspace: Path) -> None
         cwd=workspace,
     )
     run([commands / f"pycircuit{suffix}", "--help"], cwd=workspace)
-    # The Agentic Circuit CLI is a relocatable Python launcher script rather
-    # than a native tool, so it keeps the extensionless name the install layout
-    # documents on every platform; only the compiled tools gain the .exe
-    # suffix. Windows cannot execute a file without a known extension, so the
-    # launcher is invoked through the interpreter there.
+    acc_py = commands / f"acc.py{suffix}"
+    run([acc_py, "--help"], cwd=workspace)
+
+    # Python launchers remain extensionless in the SDK root on every platform;
+    # compiled tools use the platform suffix.
     cli = sdk_root / "bin/agentic-circuit"
-    launcher = [os.fspath(python), os.fspath(cli)] if windows else [os.fspath(cli)]
+    launcher = [python, cli] if windows else [cli]
+    acc = sdk_root / f"bin/acc{suffix}"
     for required in (
         cli,
+        acc,
+        sdk_root / f"bin/pycc{suffix}",
         sdk_root / f"bin/acir-opt{suffix}",
         sdk_root / "lib/cmake/AgenticCircuit/AgenticCircuitConfig.cmake",
     ):
         if not required.is_file():
             raise ValueError(f"relocated SDK is missing required file: {required}")
+    run([*launcher, "--help"], cwd=workspace)
+    run([acc, "--help"], cwd=workspace)
 
     source = workspace / "source"
-    plan = workspace / "plan"
     generated = workspace / "generated"
     build = workspace / "consumer-build"
     write_model_source(source)
+    generated.mkdir()
+    architecture = source / "architecture.py"
+    project = source / "agentic-circuit.toml"
+    acir = generated / "pipeline.ac"
+    cpp = generated / "pipeline.cpp"
+    cpp_second = generated / "pipeline-second.cpp"
+    bundle = generated / "pipeline"
+    verilog = generated / "pipeline.v"
+
     clean_environment = os.environ.copy()
     clean_environment.pop("PYTHONPATH", None)
     tool_directories = {
         os.fspath(Path(tool).resolve().parent)
-        for name in ("cmake", "ninja", "nm", "c++")
+        for name in ("cmake", "ninja", "c++")
         if (tool := shutil.which(name)) is not None
     }
-    if windows:
-        path_tail = clean_environment.get("PATH", "").split(os.pathsep)
-    else:
-        path_tail = ["/usr/bin", "/bin", "/usr/sbin", "/sbin"]
+    path_tail = (
+        clean_environment.get("PATH", "").split(os.pathsep)
+        if windows
+        else ["/usr/bin", "/bin", "/usr/sbin", "/sbin"]
+    )
     clean_environment["PATH"] = os.pathsep.join(
-        [
-            os.fspath(commands),
-            *sorted(tool_directories),
-            *path_tail,
-        ]
+        [os.fspath(commands), *sorted(tool_directories), *path_tail]
     )
-    plan_command = [
-        *launcher,
-        "model",
-        "plan",
-        "--sdk-root",
-        sdk_root,
-        "--source-root",
-        source,
-        "--entry",
-        "model.top:pipeline",
-        "--config",
-        source / "model.toml",
-        "--out-dir",
-        plan,
-        "--json",
-    ]
-    emit_command = [
-        *launcher,
-        "model",
-        "emit-cpp",
-        "--sdk-root",
-        sdk_root,
-        "--plan",
-        plan / "model-plan.json",
-        "--out-dir",
-        generated,
-        "--manifest",
-        generated / "model-manifest.json",
-        "--depfile",
-        generated / "model.d",
-        "--json",
-    ]
-    run(plan_command, cwd=source, env=clean_environment)
-    first_plan = tree_hashes(plan)
-    run(plan_command, cwd=source, env=clean_environment)
-    if tree_hashes(plan) != first_plan:
-        raise ValueError("incremental model plan is not byte-identical")
 
-    run(emit_command, cwd=plan, env=clean_environment)
-    first_generated = tree_hashes(generated)
-    run(emit_command, cwd=plan, env=clean_environment)
-    if tree_hashes(generated) != first_generated:
-        raise ValueError("incremental model emission is not byte-identical")
-
-    parallel = [
-        subprocess.Popen(
-            [os.fspath(item) for item in emit_command],
-            cwd=plan,
-            env=clean_environment,
-            text=True,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-        )
-        for _ in range(2)
+    compile_command = [
+        acc_py,
+        "--project",
+        project,
+        "-c",
+        architecture,
+        "-o",
+        acir,
+        "--quiet",
     ]
-    parallel_results = [process.communicate() for process in parallel]
-    for process, (stdout, stderr) in zip(parallel, parallel_results, strict=True):
-        if process.returncode:
-            raise ValueError("parallel same-root emission failed: " + stdout + stderr)
-    if tree_hashes(generated) != first_generated:
-        raise ValueError("parallel same-root emission changed accepted output")
+    run(compile_command, cwd=source, env=clean_environment)
+    acir_bytes = acir.read_bytes()
+    run(compile_command, cwd=source, env=clean_environment)
+    if acir.read_bytes() != acir_bytes:
+        raise ValueError("ACC Python regeneration is not byte-identical")
 
-    rejected_plan = workspace / "mismatched-model-plan.json"
-    mismatched = load(plan / "model-plan.json")
-    mismatched["sdk"]["source_revision"] = "0" * 40
-    rejected_plan.write_text(
-        json.dumps(mismatched, indent=2, sort_keys=True) + "\n",
-        encoding="utf-8",
-    )
-    rejected_root = workspace / "rejected-generated"
-    rejected_command = list(emit_command)
-    rejected_command[rejected_command.index(plan / "model-plan.json")] = rejected_plan
-    rejected_command[rejected_command.index(generated)] = rejected_root
-    rejected_command[rejected_command.index(generated / "model-manifest.json")] = (
-        rejected_root / "model-manifest.json"
-    )
-    rejected_command[rejected_command.index(generated / "model.d")] = (
-        rejected_root / "model.d"
-    )
-    rejected = subprocess.run(
-        [os.fspath(item) for item in rejected_command],
-        cwd=plan,
+    run([acc, "-c", acir, "-emit-cpp", "-o", cpp], cwd=workspace)
+    run([acc, "-c", acir, "-emit-cpp", "-o", cpp_second], cwd=workspace)
+    if cpp.read_bytes() != cpp_second.read_bytes():
+        raise ValueError("ACC C++ regeneration is not byte-identical")
+    run([acc, "-c", acir, "-emit-cpp-bundle", "-o", bundle], cwd=workspace)
+    if not (bundle / "include/generated/model.h").is_file():
+        raise ValueError("ACC bundle is missing its public model header")
+    run([acc, "-c", acir, "-emit-verilog", "-o", verilog], cwd=workspace)
+
+    before = cpp.read_bytes()
+    refused = subprocess.run(
+        [os.fspath(acc), "-c", os.fspath(acir), "-emit-cpp", "-o", os.fspath(cpp)],
+        cwd=workspace,
         env=clean_environment,
         text=True,
         capture_output=True,
         check=False,
     )
-    if rejected.returncode == 0 or rejected_root.exists():
-        raise ValueError("mismatched SDK identity did not fail before publication")
-    if tree_hashes(generated) != first_generated:
-        raise ValueError("failed emission did not preserve the prior bundle")
+    if refused.returncode == 0 or cpp.read_bytes() != before:
+        raise ValueError("ACC replaced an existing generated C++ output")
 
-    unsupported_source = source / "model/unsupported.py"
-    unsupported_source.write_text(
-        "import agentic_circuit as ac\n\n"
-        "@ac.system\n"
-        "def unsupported(entries: int) -> None:\n"
-        "    source = ac.source(int, depth=entries)\n"
-        "    ac.sink(source)\n",
+    consumer = workspace / "consumer"
+    consumer.mkdir()
+    (consumer / "main.cpp").write_text(
+        '#include "pipeline.cpp"\n'
+        "int main() {\n"
+        "  ac_generated::Pipeline dut;\n"
+        "  dut.reset();\n"
+        "  return 0;\n"
+        "}\n",
         encoding="utf-8",
     )
-    unsupported_plan = workspace / "unsupported-plan"
-    unsupported_command = list(plan_command)
-    unsupported_command[unsupported_command.index("model.top:pipeline")] = (
-        "model.unsupported:unsupported"
-    )
-    unsupported_command[unsupported_command.index(plan)] = unsupported_plan
-    unsupported = subprocess.run(
-        [os.fspath(item) for item in unsupported_command],
-        cwd=source,
-        env=clean_environment,
-        text=True,
-        capture_output=True,
-        check=False,
-    )
-    if unsupported.returncode == 0 or unsupported_plan.exists():
-        raise ValueError("unsupported runtime-bound model escaped plan validation")
-
-    top = source / "model/top.py"
-    original_top = top.read_text(encoding="utf-8")
-    top.write_text(
-        original_top.replace(
-            "    completed = complete(source)\n",
-            "    completed_once = complete(source)\n"
-            "    completed = complete(completed_once)\n",
-        ),
+    (consumer / "CMakeLists.txt").write_text(
+        "cmake_minimum_required(VERSION 3.20)\n"
+        "project(AccGeneratedDut LANGUAGES CXX)\n"
+        "add_executable(acc-generated-dut main.cpp)\n"
+        "target_compile_features(acc-generated-dut PRIVATE cxx_std_20)\n"
+        "target_include_directories(acc-generated-dut PRIVATE "
+        '"${ACC_GENERATED_ROOT}" "${PYC_SDK_ROOT}/include")\n',
         encoding="utf-8",
     )
-    run(plan_command, cwd=source, env=clean_environment)
-    if tree_hashes(plan) == first_plan:
-        raise ValueError("topology change did not change the model plan")
-    run(emit_command, cwd=plan, env=clean_environment)
-    if tree_hashes(generated) == first_generated:
-        raise ValueError("topology change did not replace generated bytes")
     run(
         [
             "cmake",
             "-S",
-            MODEL_CONSUMER,
+            consumer,
             "-B",
             build,
-            f"-DCMAKE_PREFIX_PATH={sdk_root}",
-            f"-DAGENTIC_MODEL_ROOT={generated}",
-            "-DCMAKE_DISABLE_FIND_PACKAGE_LLVM=TRUE",
-            "-DCMAKE_DISABLE_FIND_PACKAGE_MLIR=TRUE",
-            # The SDK ships Release binaries. A Visual Studio generator defaults
-            # to Debug, and MSVC refuses to mix the two: LNK2038 reports
-            # _ITERATOR_DEBUG_LEVEL and RuntimeLibrary mismatches against
-            # gfsim.lib. Pin the configuration for single- and multi-config
-            # generators alike.
+            f"-DACC_GENERATED_ROOT={generated}",
+            f"-DPYC_SDK_ROOT={sdk_root}",
             "-DCMAKE_BUILD_TYPE=Release",
         ],
         cwd=workspace,
@@ -671,14 +594,8 @@ def installed_smoke(sdk_root: Path, wheels: list[Path], workspace: Path) -> None
         cwd=workspace,
         env=clean_environment,
     )
-    plugin_names = (
-        ("model-plugin.dll",)
-        if windows
-        else ("libmodel-plugin.so", "libmodel-plugin.dylib")
-    )
-    verify_only_export(find_build_artifact(build, plugin_names))
     run(
-        [find_build_artifact(build, (f"model-consumer{suffix}",))],
+        [find_build_artifact(build, (f"acc-generated-dut{suffix}",))],
         cwd=workspace,
         env=clean_environment,
     )
@@ -713,10 +630,6 @@ def main() -> int:
             path.name for path in second_wheels
         ]:
             raise ValueError("relocated SDK wheel closures differ")
-        if [sha256(path) for path in first_wheels] != [
-            sha256(path) for path in second_wheels
-        ]:
-            raise ValueError("relocated SDK trees do not preserve wheel bytes")
         if not args.skip_install:
             installed_smoke(second, second_wheels, workspace)
     if args.attestation is not None:
@@ -730,16 +643,13 @@ def main() -> int:
                     "platform": external_manifest["platform"]["id"],
                     "candidate_tag": args.candidate_tag,
                     "release_url": args.release_url,
-                    "archive_sha256": sha256(args.archive),
-                    "manifest_sha256": sha256(args.manifest),
-                    "exact_manifest_closure": True,
+                    "exact_inventory_closure": True,
                     "native_dependency_closure": True,
-                    "relocated_model_consumer": not args.skip_install,
-                    "incremental_determinism": not args.skip_install,
-                    "topology_change": not args.skip_install,
-                    "parallel_same_root": not args.skip_install,
-                    "mismatch_rejection": not args.skip_install,
-                    "unsupported_boundary_rejection": not args.skip_install,
+                    "relocated_acc_dut": not args.skip_install,
+                    "deterministic_regeneration": not args.skip_install,
+                    "transactional_publication": not args.skip_install,
+                    "cpp_execution": not args.skip_install,
+                    "verilog_emission": not args.skip_install,
                     "verified": not args.skip_install,
                 },
                 indent=2,
@@ -750,7 +660,7 @@ def main() -> int:
         )
     checks = "exact closure and native dependency relocation"
     if not args.skip_install:
-        checks += ", model plan/emit/build/run and adversarial generation"
+        checks += ", ACC compile/C++/bundle/Verilog and generated DUT execution"
     sys.stdout.write(f"platform SDK candidate: OK ({checks})\n")
     return 0
 

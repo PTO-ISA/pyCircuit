@@ -27,12 +27,11 @@ a product trace or compare against a processor reference model.
 
 ## PYC and Verilog slice
 
-`pyc_queue_pipeline.py` exercises the initial scalar hardware lowering. Generate
-frozen ACIR first, then run `acir-queue-pycgen` or the bundled
-`compiler/acir/tools/ac-queue-pyc-build.py` command. The bundle command
-validates the pinned toolchain lock, invokes external `pycc` for C++ and
-Verilog, compiles the C++ source, runs Verilator lint, and writes a canonical
-hash manifest.
+`pyc_queue_pipeline.py` exercises the initial scalar hardware lowering. Compile
+the Python model with `acc.py -c ... -o ...ac`, then invoke native `acc` for a
+single C++ file, a reusable C++ bundle, or Verilog. `acc -emit-verilog` invokes
+the sibling `pycc` from the same installed revision and publishes the result
+transactionally.
 
 The repo-local pyCircuit 6 toolchain contract is recorded in
 `toolchains/agentic-circuit/pyc.lock.json`. Build it with the repository's
@@ -73,7 +72,7 @@ register-bank and handshake semantics in typed gfsim, PYC C++, and Verilog.
 `pyc_dependency_pipeline.py` verifies predecessor wakeup, execution countdown,
 out-of-order completion, and PYC C++/Verilator cycle equivalence.
 `persistent_schedule.py` verifies that high-level `ac.schedule` keeps its provider
-identity through Frozen ACIR and QueueGraph, retains bounded completion after a
+identity through verified ACIR and QueueGraph, retains bounded completion after a
 producer leaves the output window, and generates the gfsim v2 specialization.
 `pyc_barrier_pipeline.py` verifies heterogeneous positional payloads and an
 all-input/all-output atomic synchronization firing shared by typed gfsim, PYC

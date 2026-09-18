@@ -7,8 +7,7 @@ from dataclasses import dataclass
 from types import MappingProxyType
 from typing import Literal, Mapping, TypeAlias
 
-from ._canonical_json import JsonValue, canonical_json_bytes, sha256_bytes
-from ._contract import CONTRACT_EPOCH
+from ._canonical_json import JsonValue, canonical_json_bytes
 
 InspectionKind: TypeAlias = Literal[
     "graph",
@@ -18,7 +17,6 @@ InspectionKind: TypeAlias = Literal[
     "address-map",
     "protocols",
     "specialization",
-    "artifacts",
 ]
 InspectionFormat: TypeAlias = Literal["json", "dot", "text"]
 
@@ -42,7 +40,6 @@ class InspectionResult:
         return {
             "schema": "agentic-circuit-inspection",
             "version": "0.1",
-            "contract_epoch": CONTRACT_EPOCH,
             "kind": self.kind,
             "system": self.system,
             "path": self.path,
@@ -92,7 +89,6 @@ def _entities(acpy: dict[str, object]) -> tuple[dict[str, object], ...]:
     if (
         acpy.get("schema") != "agentic-circuit-acpy"
         or acpy.get("version") != "0.1"
-        or acpy.get("contract_epoch") != CONTRACT_EPOCH
         or type(acpy.get("entities")) is not list
     ):
         raise InspectionError("ACPy has an invalid envelope")
@@ -281,56 +277,7 @@ def _specialization_records(
                 path=paths[identifier],
                 kind=str(entity["kind"]),
                 schema=(schema.get("identity") if type(schema) is dict else None),
-                schema_fingerprint=(
-                    schema.get("fingerprint") if type(schema) is dict else None
-                ),
                 properties=_properties(entity),
-            )
-        )
-    return tuple(sorted(records, key=lambda item: str(item["path"])))
-
-
-def _artifact_records(
-    acpy: dict[str, object], acir: bytes, build_manifest: dict[str, object] | None
-) -> tuple[Mapping[str, JsonValue], ...]:
-    if build_manifest is not None:
-        artifacts = build_manifest.get("artifacts")
-        if type(artifacts) is not list:
-            raise InspectionError("build manifest artifacts are invalid")
-        records = [
-            _record(
-                path="build-manifest.json",
-                kind="build_manifest",
-                build_fingerprint=str(build_manifest.get("build_fingerprint")),
-            )
-        ]
-        for artifact in artifacts:
-            if type(artifact) is not dict or set(artifact) != {
-                "path",
-                "kind",
-                "sha256",
-            }:
-                raise InspectionError("build manifest artifact is invalid")
-            records.append(
-                _record(
-                    path=str(artifact["path"]),
-                    kind=str(artifact["kind"]),
-                    sha256=str(artifact["sha256"]),
-                )
-            )
-        return tuple(sorted(records, key=lambda item: str(item["path"])))
-    sources = acpy.get("sources")
-    if type(sources) is not list:
-        raise InspectionError("ACPy sources are invalid")
-    records = [_record(path="model.ac.mlir", kind="acir", sha256=sha256_bytes(acir))]
-    for source in sources:
-        if type(source) is not dict or set(source) != {"path", "sha256"}:
-            raise InspectionError("ACPy source artifact is invalid")
-        records.append(
-            _record(
-                path=str(source["path"]),
-                kind="source",
-                sha256=str(source["sha256"]),
             )
         )
     return tuple(sorted(records, key=lambda item: str(item["path"])))
@@ -340,8 +287,6 @@ def inspect_model(
     acpy_bytes: bytes,
     acir_bytes: bytes,
     request: InspectionRequest,
-    *,
-    build_manifest: dict[str, object] | None = None,
 ) -> InspectionResult:
     acpy = _document(acpy_bytes, "ACPy")
     entities = _entities(acpy)
@@ -369,21 +314,8 @@ def inspect_model(
     elif request.kind == "specialization":
         records = _specialization_records(entities, paths, request.path)
     else:
-        records = _artifact_records(acpy, acir_bytes, build_manifest)
+        raise InspectionError(f"unsupported inspection kind {request.kind!r}")
     return InspectionResult(request.kind, request.system, request.path, records)
-
-
-def inspect_build(
-    build_manifest: dict[str, object], request: InspectionRequest
-) -> InspectionResult:
-    if request.kind != "artifacts" or request.path is not None:
-        raise InspectionError("build inspection requires the unscoped artifacts view")
-    return InspectionResult(
-        request.kind,
-        request.system,
-        None,
-        _artifact_records({}, b"", build_manifest),
-    )
 
 
 def render_json(result: InspectionResult) -> bytes:

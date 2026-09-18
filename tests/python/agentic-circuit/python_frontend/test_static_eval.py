@@ -171,7 +171,7 @@ class ValidationTest(unittest.TestCase):
         item = matches[0]
         self.assertIsNotNone(item.source)
         assert item.source is not None
-        self.assertEqual((8, 7), (item.source.start_line, item.source.start_column))
+        self.assertEqual((10, 8), (item.source.start_line, item.source.start_column))
 
 
 if __name__ == "__main__":

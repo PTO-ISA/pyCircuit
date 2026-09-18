@@ -41,29 +41,25 @@ def test_two_distributions_use_distinct_namespaces_and_bsd_license() -> None:
     assert pycircuit.module is not agentic_circuit.module
 
 
-def test_acpy_contract_epoch_is_0_5_across_active_surfaces() -> None:
+def test_acpy_identity_uses_schema_versions_and_external_release_revision() -> None:
+    removed_identity = "contract" + "_epoch"
     metadata = tomllib.loads((AC_ROOT / "pyproject.toml").read_text(encoding="utf-8"))
-    assert metadata["tool"]["agentic-circuit"]["contract-epoch"] == "0.5"
+    assert removed_identity.replace("_", "-") not in metadata["tool"]["agentic-circuit"]
 
     source = (AC_ROOT / "src" / "agentic_circuit" / "_acpy.py").read_text(
         encoding="utf-8"
     )
     assert 'schema: str = "agentic-circuit-acpy"' in source
     assert 'version: str = "0.1"' in source
-    assert "from ._contract import CONTRACT_EPOCH" in source
-    assert "contract_epoch: str = CONTRACT_EPOCH" in source
-    contract = (AC_ROOT / "src" / "agentic_circuit" / "_contract.py").read_text(
-        encoding="utf-8"
-    )
-    assert 'CONTRACT_EPOCH = "0.5"' in contract
+    assert removed_identity not in source
+    assert not (AC_ROOT / "src" / "agentic_circuit" / "_contract.py").exists()
 
-    readme = (REPOSITORY / "README.md").read_text(encoding="utf-8")
-    assert "agentic_circuit frontend -> ACPy 0.5 -> ACIR" in readme
-
-    gate_script = (
-        REPOSITORY / "flows" / "scripts" / "run_agentic_circuit.sh"
+    release_source = (
+        REPOSITORY / "packaging" / "sdk" / "release_candidate.py"
     ).read_text(encoding="utf-8")
-    assert '"contract_epoch": "0.5"' in gate_script
+    assert '"source_revision": source_revision' in release_source
+    assert '"product_version": product' in release_source
+    assert removed_identity not in release_source
 
 
 def test_agentic_test_extra_contains_its_pytest_runner() -> None:

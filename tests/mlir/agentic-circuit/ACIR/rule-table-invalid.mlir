@@ -8,7 +8,7 @@
 // RUN: %acir_opt --pass-pipeline='builtin.module(ac-infer-rule-types,ac-infer-rule-effects,ac-materialize-rule-checks,ac-materialize-rule-handshake,ac-discharge-rule-obligations,ac-resolve-rule-schedule)' %t/write-conflict.mlir | %FileCheck %s --check-prefix=SHARED-SCHEDULE
 
 //--- outside.mlir
-module attributes {ac.contract_epoch = "0.5"} {
+module  {
   ac.table @table entry i8 entries 1 init 0 owner "/" stable_id "table/table"
   %zero = ac.var.constant 0 : i1 as !ac.var<i1>
   %value = ac.var.constant 0 : i8 as !ac.var<i8>
@@ -18,7 +18,7 @@ module attributes {ac.contract_epoch = "0.5"} {
 // OUTSIDE: 'ac.table.propose' op must be nested directly in ac.rule or ac.firing
 
 //--- dynamic-bounds.mlir
-module attributes {ac.contract_epoch = "0.5", ac.model_kind = "queue_graph", ac.queue_graph_domain = "cycle", ac.system = "dynamic_bounds"} {
+module attributes {ac.model_kind = "queue_graph", ac.queue_graph_domain = "cycle", ac.system = "dynamic_bounds"} {
   ac.type_scope @types {
     ac.struct @Entry fields [{name = "index", type = i2}, {name = "value", type = i7}]
   } {dlti.dl_spec = #dlti.dl_spec<!ac.struct<@types::@Entry> = {abi_alignment = 1 : i64, endianness = "little", preferred_alignment = 1 : i64, size = 8 : i64}>}
@@ -40,7 +40,7 @@ module attributes {ac.contract_epoch = "0.5", ac.model_kind = "queue_graph", ac.
 // BOUNDS: 'ac.table.propose' op cannot prove Table index is within [0, 2]; inferred interval[0,3]
 
 //--- field-mode.mlir
-module attributes {ac.contract_epoch = "0.5", ac.model_kind = "queue_graph", ac.queue_graph_domain = "cycle", ac.system = "field_mode"} {
+module attributes {ac.model_kind = "queue_graph", ac.queue_graph_domain = "cycle", ac.system = "field_mode"} {
   ac.type_scope @types {
     ac.struct @Entry fields [{name = "index", type = i1}, {name = "value", type = i7}]
   } {dlti.dl_spec = #dlti.dl_spec<!ac.struct<@types::@Entry> = {abi_alignment = 1 : i64, endianness = "little", preferred_alignment = 1 : i64, size = 8 : i64}>}
@@ -62,7 +62,7 @@ module attributes {ac.contract_epoch = "0.5", ac.model_kind = "queue_graph", ac.
 // MODE: ac.table.propose @table
 
 //--- write-conflict.mlir
-module attributes {ac.contract_epoch = "0.5", ac.model_kind = "queue_graph", ac.queue_graph_domain = "cycle", ac.system = "write_conflict"} {
+module attributes {ac.model_kind = "queue_graph", ac.queue_graph_domain = "cycle", ac.system = "write_conflict"} {
   ac.type_scope @types {
     ac.struct @Entry fields [{name = "index", type = i1}, {name = "value", type = i7}]
   } {dlti.dl_spec = #dlti.dl_spec<!ac.struct<@types::@Entry> = {abi_alignment = 1 : i64, endianness = "little", preferred_alignment = 1 : i64, size = 8 : i64}>}
@@ -102,7 +102,7 @@ module attributes {ac.contract_epoch = "0.5", ac.model_kind = "queue_graph", ac.
 // SHARED-SCHEDULE-SAME: ac.rule.schedule_kind = #ac<rule_schedule_kind lexical_priority>
 
 //--- type-mismatch.mlir
-module attributes {ac.contract_epoch = "0.5", ac.model_kind = "queue_graph", ac.queue_graph_domain = "cycle", ac.system = "type_mismatch"} {
+module attributes {ac.model_kind = "queue_graph", ac.queue_graph_domain = "cycle", ac.system = "type_mismatch"} {
   ac.table @table entry i8 entries 1 init 0 owner "/" stable_id "table/table"
   %input = ac.source depth 1 latency 1 : !ac.queue<i16>
   %output = ac.rule %input depths [1] latencies [1]
@@ -123,7 +123,7 @@ module attributes {ac.contract_epoch = "0.5", ac.model_kind = "queue_graph", ac.
 // HETERO: ac.rule.return %{{.*}} : !ac.var<i16>
 
 //--- unsafe-read.mlir
-module attributes {ac.contract_epoch = "0.5", ac.model_kind = "queue_graph", ac.queue_graph_domain = "cycle", ac.system = "unsafe_read"} {
+module attributes {ac.model_kind = "queue_graph", ac.queue_graph_domain = "cycle", ac.system = "unsafe_read"} {
   ac.type_scope @types {
     ac.struct @Entry fields [{name = "write_index", type = i1}, {name = "read_index", type = i2}, {name = "value", type = i7}]
   } {dlti.dl_spec = #dlti.dl_spec<!ac.struct<@types::@Entry> = {abi_alignment = 1 : i64, endianness = "little", preferred_alignment = 1 : i64, size = 8 : i64}>}
@@ -147,7 +147,7 @@ module attributes {ac.contract_epoch = "0.5", ac.model_kind = "queue_graph", ac.
 // READ-BOUNDS: 'ac.table.get' op cannot prove Table index is within [0, 1]; inferred interval[0,3]
 
 //--- forged-pure-firing.mlir
-module attributes {ac.contract_epoch = "0.5", ac.model_kind = "queue_graph", ac.queue_graph_domain = "cycle", ac.system = "forged_pure"} {
+module attributes {ac.model_kind = "queue_graph", ac.queue_graph_domain = "cycle", ac.system = "forged_pure"} {
   ac.table @table entry i8 entries 1 init 0 owner "/" stable_id "table/table"
   %input = ac.source depth 1 latency 1 : !ac.queue<i8>
   %output = ac.firing %input depths [1] latencies [1]

@@ -4,80 +4,247 @@
   "title": "Agentic Circuit ACPy 0.1",
   "type": "object",
   "additionalProperties": false,
-  "required": ["schema", "version", "contract_epoch", "entry", "sources", "entities"],
+  "required": [
+    "schema",
+    "version",
+    "entry",
+    "sources",
+    "entities"
+  ],
   "properties": {
-    "schema": {"const": "agentic-circuit-acpy"},
-    "version": {"const": "0.1"},
-    "contract_epoch": {"const": "0.5"},
-    "entry": {"$ref": "#/$defs/entityId"},
-    "sources": {"type": "array", "items": {"$ref": "#/$defs/sourceFile"}},
-    "entities": {"type": "array", "items": {"$ref": "#/$defs/entity"}}
+    "schema": {
+      "const": "agentic-circuit-acpy"
+    },
+    "version": {
+      "const": "0.1"
+    },
+    "entry": {
+      "$ref": "#/$defs/entityId"
+    },
+    "sources": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/sourceFile"
+      }
+    },
+    "entities": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/entity"
+      }
+    }
   },
   "$defs": {
-    "sha256": {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$"},
-    "entityId": {"type": "string", "pattern": "^e[0-9]+$"},
+    "entityId": {
+      "type": "string",
+      "pattern": "^e[0-9]+$"
+    },
     "sourceFile": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["path", "sha256"],
+      "required": [
+        "path"
+      ],
       "properties": {
-        "path": {"type": "string", "minLength": 1},
-        "sha256": {"$ref": "#/$defs/sha256"}
+        "path": {
+          "type": "string",
+          "minLength": 1
+        }
       }
     },
     "sourceSpan": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["file", "start_line", "start_column", "end_line", "end_column"],
+      "required": [
+        "file",
+        "start_line",
+        "start_column",
+        "end_line",
+        "end_column"
+      ],
       "properties": {
-        "file": {"type": "string", "minLength": 1},
-        "start_line": {"type": "integer", "minimum": 1},
-        "start_column": {"type": "integer", "minimum": 1},
-        "end_line": {"type": "integer", "minimum": 1},
-        "end_column": {"type": "integer", "minimum": 1}
+        "file": {
+          "type": "string",
+          "minLength": 1
+        },
+        "start_line": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "start_column": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "end_line": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "end_column": {
+          "type": "integer",
+          "minimum": 1
+        }
       }
     },
     "schemaRef": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["identity", "fingerprint"],
+      "required": [
+        "identity"
+      ],
       "properties": {
-        "identity": {"type": "string", "minLength": 1},
-        "fingerprint": {"$ref": "#/$defs/sha256"}
+        "identity": {
+          "type": "string",
+          "minLength": 1
+        }
       }
     },
     "property": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["name", "value"],
+      "required": [
+        "name",
+        "value"
+      ],
       "properties": {
-        "name": {"type": "string", "pattern": "^[A-Za-z_][A-Za-z0-9_]*$"},
-        "value": {"$ref": "#/$defs/jsonValue"}
+        "name": {
+          "type": "string",
+          "pattern": "^[A-Za-z_][A-Za-z0-9_]*$"
+        },
+        "value": {
+          "$ref": "#/$defs/jsonValue"
+        }
       }
     },
     "entity": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["id", "kind", "source", "parent", "scope", "type", "definition", "uses", "schema_ref", "properties"],
+      "required": [
+        "id",
+        "kind",
+        "source",
+        "parent",
+        "scope",
+        "type",
+        "definition",
+        "uses",
+        "schema_ref",
+        "properties"
+      ],
       "properties": {
-        "id": {"$ref": "#/$defs/entityId"},
-        "kind": {"enum": ["system", "module", "scope", "arg", "call", "result", "get_result", "bind", "static_if", "static_for", "collection", "get_static", "return", "capture", "escape", "process", "rule"]},
-        "source": {"oneOf": [{"type": "null"}, {"$ref": "#/$defs/sourceSpan"}]},
-        "parent": {"oneOf": [{"type": "null"}, {"$ref": "#/$defs/entityId"}]},
-        "scope": {"type": "string", "minLength": 1},
-        "type": {"type": ["string", "null"]},
-        "definition": {"oneOf": [{"type": "null"}, {"$ref": "#/$defs/entityId"}]},
-        "uses": {"type": "array", "items": {"$ref": "#/$defs/entityId"}, "uniqueItems": true},
-        "schema_ref": {"oneOf": [{"type": "null"}, {"$ref": "#/$defs/schemaRef"}]},
-        "properties": {"type": "array", "items": {"$ref": "#/$defs/property"}}
+        "id": {
+          "$ref": "#/$defs/entityId"
+        },
+        "kind": {
+          "enum": [
+            "system",
+            "module",
+            "scope",
+            "arg",
+            "call",
+            "result",
+            "get_result",
+            "bind",
+            "static_if",
+            "static_for",
+            "collection",
+            "get_static",
+            "return",
+            "capture",
+            "escape",
+            "process",
+            "rule"
+          ]
+        },
+        "source": {
+          "oneOf": [
+            {
+              "type": "null"
+            },
+            {
+              "$ref": "#/$defs/sourceSpan"
+            }
+          ]
+        },
+        "parent": {
+          "oneOf": [
+            {
+              "type": "null"
+            },
+            {
+              "$ref": "#/$defs/entityId"
+            }
+          ]
+        },
+        "scope": {
+          "type": "string",
+          "minLength": 1
+        },
+        "type": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "definition": {
+          "oneOf": [
+            {
+              "type": "null"
+            },
+            {
+              "$ref": "#/$defs/entityId"
+            }
+          ]
+        },
+        "uses": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/entityId"
+          },
+          "uniqueItems": true
+        },
+        "schema_ref": {
+          "oneOf": [
+            {
+              "type": "null"
+            },
+            {
+              "$ref": "#/$defs/schemaRef"
+            }
+          ]
+        },
+        "properties": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/property"
+          }
+        }
       }
     },
-    "jsonScalar": {"type": ["string", "number", "boolean", "null"]},
+    "jsonScalar": {
+      "type": [
+        "string",
+        "number",
+        "boolean",
+        "null"
+      ]
+    },
     "jsonValue": {
       "oneOf": [
-        {"$ref": "#/$defs/jsonScalar"},
-        {"type": "array", "items": {"$ref": "#/$defs/jsonValue"}},
-        {"type": "object", "additionalProperties": {"$ref": "#/$defs/jsonValue"}}
+        {
+          "$ref": "#/$defs/jsonScalar"
+        },
+        {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/jsonValue"
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": {
+            "$ref": "#/$defs/jsonValue"
+          }
+        }
       ]
     }
   }

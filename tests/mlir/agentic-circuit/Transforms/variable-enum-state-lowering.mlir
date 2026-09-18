@@ -4,7 +4,7 @@
 // RUN: %acir_queue_cxxgen %t.frozen.mlir > %t.cpp
 // RUN: %cxx -std=c++20 -I%source_root/simulator/gfsim/include -c %t.cpp -o %t.o
 
-module attributes {ac.contract_epoch = "0.5", ac.model_kind = "queue_graph", ac.queue_graph_domain = "cycle", ac.system = "enum_state"} {
+module attributes {ac.model_kind = "queue_graph", ac.queue_graph_domain = "cycle", ac.system = "enum_state"} {
   ac.type_scope @types {
     ac.enum @Mode enumerants ["IDLE", "RUN"]
   } {dlti.dl_spec = #dlti.dl_spec<!ac.enum<@types::@Mode> = {abi_alignment = 1 : i64, endianness = "little", preferred_alignment = 1 : i64, size = 1 : i64}>}

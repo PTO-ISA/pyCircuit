@@ -22,7 +22,6 @@ LOWER_ACIR = (
     ROOT / "python/agentic-circuit/src/agentic_circuit/_queue_compiler/lower_acir.py"
 )
 MODEL = ROOT / "python/agentic-circuit/src/agentic_circuit/_queue_compiler/model.py"
-CODEGEN = ROOT / "python/agentic-circuit/src/agentic_circuit/_queue_codegen.py"
 
 
 class _MlirCallVisitor(ast.NodeVisitor):
@@ -71,9 +70,6 @@ class QueueTypeHygieneTest(unittest.TestCase):
         )
         cls.model_tree = ast.parse(
             MODEL.read_text(encoding="utf-8"), filename=str(MODEL)
-        )
-        cls.codegen_tree = ast.parse(
-            CODEGEN.read_text(encoding="utf-8"), filename=str(CODEGEN)
         )
 
     def test_only_acir_type_renderer_calls_value_type_mlir(self) -> None:
@@ -162,10 +158,7 @@ class QueueTypeHygieneTest(unittest.TestCase):
                     self.assertEqual(annotation, annotations.get(field))
 
     def test_type_strings_are_not_recovered_from_rendered_spelling(self) -> None:
-        allowed = {
-            ("specialization_fingerprint", "startswith"),
-            ("specialization_fingerprint", "removeprefix"),
-        }
+        allowed: set[tuple[str, str]] = set()
         found: set[tuple[str, str]] = set()
         for tree in (
             self.tree,
@@ -173,7 +166,6 @@ class QueueTypeHygieneTest(unittest.TestCase):
             self.modules_tree,
             self.expressions_tree,
             self.lower_acir_tree,
-            self.codegen_tree,
         ):
             for node in ast.walk(tree):
                 if (
@@ -227,30 +219,6 @@ class QueueTypeHygieneTest(unittest.TestCase):
             "table_domains",
         ):
             self.assertIn("ValueType", initializer_parameters[name])
-
-    def test_python_codegen_adapter_keeps_type_identity_structured(self) -> None:
-        fanout = next(
-            node
-            for node in ast.walk(self.codegen_tree)
-            if isinstance(node, ast.ClassDef) and node.name == "_Fanout"
-        )
-        annotations = {
-            statement.target.id: ast.unparse(statement.annotation)
-            for statement in fanout.body
-            if isinstance(statement, ast.AnnAssign)
-            and isinstance(statement.target, ast.Name)
-        }
-        self.assertEqual("ValueType", annotations["payload"])
-
-        cpp_type = next(
-            node
-            for node in ast.walk(self.codegen_tree)
-            if isinstance(node, ast.FunctionDef) and node.name == "_cpp_type"
-        )
-        value_type = next(
-            argument for argument in cpp_type.args.args if argument.arg == "value_type"
-        )
-        self.assertEqual("ValueType", ast.unparse(value_type.annotation))
 
 
 if __name__ == "__main__":

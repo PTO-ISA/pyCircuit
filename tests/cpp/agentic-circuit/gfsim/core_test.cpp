@@ -78,9 +78,6 @@ template <> struct PacketTraits<TestPacket> {
 
 namespace {
 
-constexpr std::string_view kHarnessFingerprint =
-    "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
-
 class DomainClockObject : public SimObject {
 public:
   DomainClockObject(ObjectId id, SimSystem &system)

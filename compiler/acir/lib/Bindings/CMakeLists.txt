@@ -1,6 +1,5 @@
 add_acir_library(ACIRBindings SOURCES
   Binding.cpp
-  Registry.cpp
 )
 target_link_libraries(ACIRBindings PUBLIC LLVMSupport)
 target_include_directories(ACIRBindings PUBLIC

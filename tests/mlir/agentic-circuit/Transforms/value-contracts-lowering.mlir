@@ -2,7 +2,7 @@
 // RUN: %not %acir_opt --pass-pipeline='builtin.module(ac-verify-rule-closure)' %s 2>&1 | %FileCheck %s --check-prefix=RESIDUAL
 // RUN: %not %acir_opt --pass-pipeline='builtin.module(ac-freeze-topology)' %s 2>&1 | %FileCheck %s --check-prefix=RESIDUAL
 
-module attributes {ac.contract_epoch = "0.5"} {
+module  {
   ac.type_scope @types {
     ac.enum @Mode enumerants ["idle", "run"]
     ac.struct @Inner fields [{name = "mode", type = !ac.enum<@types::@Mode>}, {name = "wide", type = i64}]
@@ -50,4 +50,4 @@ module attributes {ac.contract_epoch = "0.5"} {
 // CHECK: ac.var.range_cmp "eq"
 // CHECK: ac.var.get %{{.*}} field "tail"
 
-// RESIDUAL: unresolved aggregate comparison before Frozen ACIR
+// RESIDUAL: unresolved aggregate comparison before verified ACIR

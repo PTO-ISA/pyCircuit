@@ -6,7 +6,6 @@ from pathlib import Path
 
 
 WORKSPACE = Path(__file__).resolve().parent / "fixtures" / "scopes"
-ZERO_DIGEST = "sha256:" + "0" * 64
 
 
 def schema(identity: str, ports, results, *, static=()):
@@ -19,7 +18,6 @@ def schema(identity: str, ports, results, *, static=()):
 
     return ComponentSchema(
         identity=identity,
-        fingerprint=ZERO_DIGEST,
         ports=tuple(
             PortSchema(name, kind, type_key, "in", role, 1)
             for name, kind, type_key, role in ports

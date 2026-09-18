@@ -7,7 +7,7 @@
 // RUN: %not %acir_opt --verify-each=false --pass-pipeline='builtin.module(ac-verify-value-constraints)' %t/duplicate.mlir 2>&1 | %FileCheck %s --check-prefix=DUPLICATE
 
 //--- count.mlir
-module attributes {ac.contract_epoch = "0.5", ac.model_kind = "queue_graph", ac.queue_graph_domain = "cycle", ac.system = "bad_count"} {
+module attributes {ac.model_kind = "queue_graph", ac.queue_graph_domain = "cycle", ac.system = "bad_count"} {
   ac.table @state entry i8 entries 1 init 0 owner "/" stable_id "table/state"
   %input = ac.source depth 1 latency 1 : !ac.queue<i8>
   %output = ac.firing %input depths [1] latencies [1] stable_id "bad" domain "cycle" {
@@ -23,7 +23,7 @@ module attributes {ac.contract_epoch = "0.5", ac.model_kind = "queue_graph", ac.
 // COUNT: inferred footprint count must match state operations
 
 //--- resource.mlir
-module attributes {ac.contract_epoch = "0.5", ac.model_kind = "queue_graph", ac.queue_graph_domain = "cycle", ac.system = "bad_resource"} {
+module attributes {ac.model_kind = "queue_graph", ac.queue_graph_domain = "cycle", ac.system = "bad_resource"} {
   ac.table @state entry i8 entries 1 init 0 owner "/" stable_id "table/state"
   %input = ac.source depth 1 latency 1 : !ac.queue<i8>
   %output = ac.firing %input depths [1] latencies [1] stable_id "bad" domain "cycle" {
@@ -39,7 +39,7 @@ module attributes {ac.contract_epoch = "0.5", ac.model_kind = "queue_graph", ac.
 // EXACT: inferred footprint must exactly match its state operation
 
 //--- access.mlir
-module attributes {ac.contract_epoch = "0.5", ac.model_kind = "queue_graph", ac.queue_graph_domain = "cycle", ac.system = "bad_access"} {
+module attributes {ac.model_kind = "queue_graph", ac.queue_graph_domain = "cycle", ac.system = "bad_access"} {
   ac.table @state entry i8 entries 1 init 0 owner "/" stable_id "table/state"
   %input = ac.source depth 1 latency 1 : !ac.queue<i8>
   %output = ac.firing %input depths [1] latencies [1] stable_id "bad" domain "cycle" {
@@ -54,7 +54,7 @@ module attributes {ac.contract_epoch = "0.5", ac.model_kind = "queue_graph", ac.
 }
 
 //--- index.mlir
-module attributes {ac.contract_epoch = "0.5", ac.model_kind = "queue_graph", ac.queue_graph_domain = "cycle", ac.system = "bad_index"} {
+module attributes {ac.model_kind = "queue_graph", ac.queue_graph_domain = "cycle", ac.system = "bad_index"} {
   ac.table @state entry i8 entries 1 init 0 owner "/" stable_id "table/state"
   %input = ac.source depth 1 latency 1 : !ac.queue<i8>
   %output = ac.firing %input depths [1] latencies [1] stable_id "bad" domain "cycle" {
@@ -69,7 +69,7 @@ module attributes {ac.contract_epoch = "0.5", ac.model_kind = "queue_graph", ac.
 }
 
 //--- fields.mlir
-module attributes {ac.contract_epoch = "0.5", ac.model_kind = "queue_graph", ac.queue_graph_domain = "cycle", ac.system = "bad_fields"} {
+module attributes {ac.model_kind = "queue_graph", ac.queue_graph_domain = "cycle", ac.system = "bad_fields"} {
   ac.table @state entry i8 entries 1 init 0 owner "/" stable_id "table/state"
   %input = ac.source depth 1 latency 1 : !ac.queue<i8>
   %output = ac.firing %input depths [1] latencies [1] stable_id "bad" domain "cycle" {
@@ -84,7 +84,7 @@ module attributes {ac.contract_epoch = "0.5", ac.model_kind = "queue_graph", ac.
 }
 
 //--- duplicate.mlir
-module attributes {ac.contract_epoch = "0.5", ac.model_kind = "queue_graph", ac.queue_graph_domain = "cycle", ac.system = "duplicate"} {
+module attributes {ac.model_kind = "queue_graph", ac.queue_graph_domain = "cycle", ac.system = "duplicate"} {
   ac.table @state entry i8 entries 1 init 0 owner "/" stable_id "table/state"
   %input = ac.source depth 1 latency 1 : !ac.queue<i8>
   ac.rule %input depths [] latencies [] name "bad" stable_id "bad" domain "cycle" type exact {

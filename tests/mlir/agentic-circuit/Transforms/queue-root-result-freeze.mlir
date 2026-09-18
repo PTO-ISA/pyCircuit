@@ -5,7 +5,6 @@
 // RUN: %cxx -std=c++20 -I%source_root/simulator/gfsim/include -fsyntax-only %t.cpp
 
 builtin.module attributes {
-  ac.contract_epoch = "0.5",
   ac.model_kind = "queue_graph",
   ac.queue_graph_domain = "cycle"
 } {

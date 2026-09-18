@@ -19,10 +19,7 @@ def cli_test_ledger() -> dict[str, CommandCoverage]:
     parser = f"{module_prefix}test_cli_parser.CliParserTest"
     discovery = f"{module_prefix}test_discovery_commands.DiscoveryCommandTest"
     frontend = f"{module_prefix}test_frontend_commands.FrontendCommandTest"
-    compile_command = f"{module_prefix}test_compile_command.CompileCommandTest"
-    build = f"{module_prefix}test_build_command.BuildCommandTest"
     inspect = f"{module_prefix}test_inspect_command.InspectCommandTest"
-    model = f"{module_prefix}test_model_plan_command.ModelPlanCommandTest"
     exits = f"{module_prefix}test_exit_codes.ExitCodeTest"
     return {
         "init": CommandCoverage(
@@ -47,25 +44,11 @@ def cli_test_ledger() -> dict[str, CommandCoverage]:
             (
                 f"{frontend}.test_elaborate_is_deterministic_and_captures_project_output",
             ),
-            (f"{compile_command}.test_invalid_options_fail_before_publishing",),
+            (f"{parser}.test_unknown_toml_key_is_exit_two",),
             (
                 f"{frontend}.test_elaborate_is_deterministic_and_captures_project_output",
             ),
             (f"{frontend}.test_elaborate_acir_is_verified_and_atomically_replaced",),
-        ),
-        "compile": CommandCoverage(
-            (f"{compile_command}.test_all_exact_emits_are_published_in_fixed_order",),
-            (f"{compile_command}.test_invalid_options_fail_before_publishing",),
-            (
-                f"{compile_command}.test_dump_after_each_uses_every_selected_logical_stage",
-            ),
-            (f"{compile_command}.test_all_exact_emits_are_published_in_fixed_order",),
-        ),
-        "build": CommandCoverage(
-            (f"{build}.test_manifest_records_frontend_and_exact_profile",),
-            (f"{exits}.test_missing_cpp_compiler_is_four",),
-            (f"{build}.test_identical_build_reports_cache_hit",),
-            (f"{build}.test_identical_build_reports_cache_hit",),
         ),
         "inspect": CommandCoverage(
             (f"{inspect}.test_every_exact_view_is_machine_readable_and_read_only",),
@@ -86,12 +69,6 @@ def cli_test_ledger() -> dict[str, CommandCoverage]:
             (f"{exits}.test_source_checkout_doctor_reports_missing_native_tools",),
             (f"{discovery}.test_explain_and_doctor_are_read_only",),
             (f"{discovery}.test_explain_and_doctor_are_read_only",),
-        ),
-        "model": CommandCoverage(
-            (f"{model}.test_installed_plan_is_schema_valid_and_root_independent",),
-            (f"{model}.test_plan_failures_publish_nothing_and_preserve_stale_output",),
-            (f"{model}.test_installed_plan_is_schema_valid_and_root_independent",),
-            (f"{model}.test_installed_plan_is_schema_valid_and_root_independent",),
         ),
     }
 

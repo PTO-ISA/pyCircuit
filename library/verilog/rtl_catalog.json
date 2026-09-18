@@ -20,19 +20,22 @@
         "WIDTH": "input_width"
       },
       "ports": {
-        "inputs": ["in_value"],
-        "outputs": ["index", "valid"]
+        "inputs": [
+          "in_value"
+        ],
+        "outputs": [
+          "index",
+          "valid"
+        ]
       },
       "sources": [
         {
           "path": "pyc_priority_encode.v",
-          "sha256": "sha256:54d01766a023f77e8a91eef527fba4e9b997e58c241ca63c11c0ec7e865045fe",
           "license": "BSD-3-Clause",
           "modified": false
         }
       ],
       "license_file": "licenses/BSD-3-Clause.txt",
-      "license_sha256": "sha256:321940059773d631ad73832bfa870431aa6cba545b38d4055641ce21275bb22c",
       "provenance": {
         "origin": "PTO-ISA/pyCircuit",
         "design_input": "PTO-ISA/pyCircuit#29",
@@ -56,19 +59,21 @@
         "WIDTH": "input_width"
       },
       "ports": {
-        "inputs": ["in_value"],
-        "outputs": ["count"]
+        "inputs": [
+          "in_value"
+        ],
+        "outputs": [
+          "count"
+        ]
       },
       "sources": [
         {
           "path": "pyc_popcount_primitive.v",
-          "sha256": "sha256:e5ab6d5c1f5657d4b43f121ee05738f42160c66c7d997059fd2893fdb75ebce4",
           "license": "BSD-3-Clause",
           "modified": false
         }
       ],
       "license_file": "licenses/BSD-3-Clause.txt",
-      "license_sha256": "sha256:321940059773d631ad73832bfa870431aa6cba545b38d4055641ce21275bb22c",
       "provenance": {
         "origin": "PTO-ISA/pyCircuit",
         "design_input": "PTO-ISA/pyCircuit#29",
@@ -99,19 +104,21 @@
         "WIDTH": "input_width"
       },
       "ports": {
-        "inputs": ["in_value"],
-        "outputs": ["count"]
+        "inputs": [
+          "in_value"
+        ],
+        "outputs": [
+          "count"
+        ]
       },
       "sources": [
         {
           "path": "pyc_count_zeros_primitive.v",
-          "sha256": "sha256:e76e61a22471572be163658f17b76efb1691cb242fdee0771d50384a811cc644",
           "license": "BSD-3-Clause",
           "modified": false
         }
       ],
       "license_file": "licenses/BSD-3-Clause.txt",
-      "license_sha256": "sha256:321940059773d631ad73832bfa870431aa6cba545b38d4055641ce21275bb22c",
       "provenance": {
         "origin": "PTO-ISA/pyCircuit",
         "design_input": "PTO-ISA/pyCircuit#29",

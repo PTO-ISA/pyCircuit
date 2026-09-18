@@ -3,8 +3,8 @@
 | Field | Value |
 | --- | --- |
 | Specification | Serial Python, Queue/Var ACIR, typed gfsim, and PYC refinement |
-| Target contract epoch | `0.5` |
-| Status | Current implementation contract; serialized epoch `0.5` is active on `main` |
+| Release authority | External package release and exact Git source revision |
+| Status | Current implementation contract; IR carries no release identity |
 | Public namespaces | runtime authoring API as `ac`; capture-only syntax in `agentic_circuit.markers` |
 | Audience | Frontend, compiler, simulator, and RTL contributors |
 | Design background | [NDF block-model decision](../../rfcs/acir/D-BLOCK-MODEL-001.md) |
@@ -15,7 +15,7 @@
 Agentic Circuit lets an author describe a static circuit as serial-looking
 Python. The author names values and lexical scopes; the compiler infers queue
 connections, scope boundaries, typed payloads, and common hardware building
-blocks. The same frozen ACIR graph can generate:
+blocks. The same verified ACIR graph can generate:
 
 - a deterministic typed gfsim C++ model built around `SimQueue<T>`; and
 - canonical PYC IR that external pinned `pycc` lowers to PYC C++ and Verilog.
@@ -36,9 +36,9 @@ The editable diagram source is
 The words **MUST**, **MUST NOT**, **SHOULD**, **SHOULD NOT**, and **MAY** are
 normative requirements for the current contract.
 
-Producers emit exact serialized epoch `0.5`; consumers reject other epochs
-before interpreting the artifact. The toolchain provides no compatibility
-alias or best-effort conversion.
+IR and frontend JSON describe semantics only. Release selection, compatibility,
+and provenance are established by the external package release and exact Git
+source revision before an artifact is interpreted.
 
 When this manual and implementation disagree, use the following authority
 order:
@@ -242,7 +242,7 @@ The source file is compiled through AST capture. The queue primitives inside
 the system body are syntax markers; ordinary Python execution of the body is
 not the compilation path. `ac.jit` binds only `ac.const` parameters. Runtime
 payload arguments remain unbound and do not enter specialization identity. An
-optional `workspace=` captures and hashes the transitive local source closure;
+optional `workspace=` captures the transitive local source closure;
 local dependencies use explicit `from module import Symbol` imports. Local
 module-qualified imports, renamed imports, and conflicting definitions across
 files are rejected before lowering until namespace-preserving bundling is
@@ -328,7 +328,7 @@ bounded state requires a future typed-reset-image extension and fails closed.
 Bounded addition and subtraction produce their mathematical result range
 rather than wrapping. Addition or subtraction that leaves the unsigned u64
 domain is rejected. Comparisons are unsigned numeric comparisons and may use
-different bounded domains. Frozen ACIR represents the Python range as the
+different bounded domains. verified ACIR represents the Python range as the
 inclusive `!ac.range<lower, upper - 1>` type and retains `range_wrap`,
 `range_saturate`, `range_checked`, `range_refine`, bounded arithmetic, and
 bounded comparison operations until QueueGraph verification. GFSim and PYC
@@ -401,26 +401,25 @@ config class and recursively validates nested config and scalar field types
 before freezing the value.
 
 ACIR records the canonical semantic root (`cfg`), complete nested schema,
-schema SHA-256, canonical closed root value, projected leaf bindings, and the
+canonical closed root value, projected leaf bindings, and the
 existing postfix type-check programs. `verify-ac-file` and QueueGraph parse the
 root value, traverse every field path, and independently compare the projected
 integer with the type binding. Python alias spelling does not enter semantic
 identity. Config projections and successful `ac.static_assert` calls never
 become runtime operations.
-Frozen ACIR and every backend contain concrete types only; the specialization
-fingerprint includes the bound constants. Checks retain recursive paths through
+verified ACIR and every backend contain concrete types only; the specialization
+identity includes the typed bound constants. Checks retain recursive paths through
 tuple elements and value-array elements, so nested widths and lengths are
 recomputed by both the ACIR and QueueGraph verifiers. A dependent scalar used
 directly at a typed system/module interface carries the same check with an exact
-concrete type. Specialized structs also carry a canonical identity manifest that
-binds their source name, semantic parameter names, concrete field layout,
-fingerprint, and complete check-target set. Verifiers reject a missing target,
-stale symbol hash, or forged field layout.
+concrete type. Specialized structs also carry their source name, semantic
+parameter names, concrete field layout, and complete check-target set.
+Verifiers reject a missing target or forged field layout.
 
 `ac.static_assert(condition, message=...)` is a direct entry-body statement.
 It is evaluated after the entry's `ac.const` values are bound, requires a
 closed boolean expression and static string message, and is erased before
-Frozen ACIR. A failed or runtime-dependent assertion reports its normalized
+verified ACIR. A failed or runtime-dependent assertion reports its normalized
 source path and location, normalized expression, and closed referenced
 bindings. Power-of-two, divisibility, capacity, and derived width/length checks
 use ordinary closed Python integer expressions.
@@ -455,7 +454,7 @@ updated = INSTRUCTION.update(word, rd=replacement)
 
 Named and multi-field reads lower to `ac.var.extract` and MSB-first
 `ac.var.concat`; updates lower to immutable `ac.var.insert`. `ac.bitfield`
-retains canonical width/range metadata and a stable SHA-256 in ACIR. Verifiers
+retains canonical width/range metadata in ACIR. Verifiers
 resolve every field-qualified operation back to that declaration before
 topology freeze. The Python frontend contains no ready/full/Queue transaction
 logic for these values.
@@ -465,7 +464,7 @@ logic for these values.
 The compiler uses a small deterministic abstract domain with four facts:
 `Constant`, `FiniteSet`, `ClosedInterval`, and `Unknown`. Constraints are
 separate from `ValueType`: they do not change type identity or specialization
-fingerprints. A declared `ac.index`/`ac.range` is instead a verifier-visible
+keys. A declared `ac.index`/`ac.range` is instead a verifier-visible
 payload type with canonical bounds. Analysis may derive a narrower fact for
 that value, but losing the fact does not lose or weaken the declared type.
 Widths, bounds, fixed shapes, aggregate indices, slice/insert bounds, and
@@ -484,7 +483,7 @@ and QueueGraph planning. MLIR's generic `DataFlowSolver` remains private to the
 analyzer implementation. For example, a `u2` index is safe for five entries,
 while an unconstrained `u3` index is rejected unless preceding operations
 produce a narrower proven fact. QueueGraph independently recomputes the same
-obligations so forged Frozen ACIR cannot bypass the verifier.
+obligations so forged verified ACIR cannot bypass the verifier.
 
 This slice is intentionally path-insensitive. Dynamic aggregate extract/insert,
 guard-derived refinement, runtime-loop termination proofs, and general enum
@@ -613,8 +612,8 @@ QueueGraph C++ uses the corresponding typed gfsim helper.
 source for these three semantic IDs, parameter enums, the admitted input range
 `1 <= N <= 64`, and output-width formulas. The build validates its closed
 formula vocabulary and generates the semantic table consumed by the
-Verilog-only selection pass. Implementation IDs, module/port bindings, source
-digests, and licenses remain exclusively in `library/verilog/rtl_catalog.json`
+Verilog-only selection pass. Implementation IDs, module/port bindings, relative
+sources, and licenses remain exclusively in `library/verilog/rtl_catalog.json`
 as required by Decision 0161. PYC, ACIR, and gfsim each use one local width
 helper; exhaustive contract tests compare every width 1 through 64 and reject
 65 through 130 so no backend silently widens the admitted profile.
@@ -804,7 +803,7 @@ The output Queue applies ordinary capacity and latency rules.
 
 `source(..., lanes=N, rate=R)` creates one logical ordered Queue with static
 positive lane count and `1 <= R <= N`. One-to-one compute and pipeline blocks
-inherit the exact lane/rate contract. Frozen ACIR spells the type as
+inherit the exact lane/rate contract. verified ACIR spells the type as
 `!ac.queue<T, lanes=N, rate=R>`; lane-one/rate-one keeps the compact
 `!ac.queue<T>` spelling. Payload aggregate shape is independent of lane count.
 
@@ -857,7 +856,7 @@ all-ones value and must be supplied explicitly. The gfsim provider keeps one
 bounded completion bitmap for the entire key domain and rejects key reuse until
 reset. A producer may therefore
 leave the resident/output window without losing readiness for a later accepted
-dependent. Frozen ACIR records `ac.schedule_provider = "v2"`; the
+dependent. verified ACIR records `ac.schedule_provider = "v2"`; the
 `ac.dependency` verifier rejects unknown providers, wider or mismatched keys,
 and a non-all-ones sentinel before codegen. QueueGraph keeps and defensively
 rechecks that identity and emits `gfsim::Schedule`, while plain `depend`
@@ -1073,9 +1072,9 @@ A nonzero initializer is a closed typed image with exact keys `version`,
 `entry`, and `values`. Version 1 contains exactly the flattened entry count;
 every scalar, enum, struct, tuple, or value-array element must match the Entry
 descriptor recursively. Field order and serialized bytes are canonical and do
-not contain a producer path. Frozen ACIR records `shape`, `axis_widths`,
+not contain a producer path. verified ACIR records `shape`, `axis_widths`,
 `layout`, `layout_version`, `schema_id`, `init_version`, and `init_image`.
-Malformed rank, extent, product, layout, digest, version, count, or value type
+Malformed rank, extent, product, layout, version, count, or value type
 fails before a runtime Table is created.
 
 `read` always returns `Queue<Entry>`. Queue-driven read with `when=false`
@@ -1176,7 +1175,7 @@ proposals first and applies allocation last, so allocation wins when both target
 the same Entry and unrelated Entries remain independent.
 
 Each authored `match` and `choose` is a shared value, not endpoint-local sugar.
-Frozen ACIR emits one dominating `ac.table.match` or `ac.table.choose`, and
+verified ACIR emits one dominating `ac.table.match` or `ac.table.choose`, and
 every read/write policy captures that SSA result. The QueueGraph and typed
 gfsim implementations preserve the sharing: evaluation is lazy and cached by
 the complete Epoch, so multiple consumers cause one Table scan per Epoch.
@@ -1205,7 +1204,7 @@ its own candidate mask and downstream selection. Different captures, Table
 identity, unavailable captures, nested Table/Slot observations, and snapshot
 effects retain independent scans.
 
-`EntryView` is elaboration-only. `patch` lowers before Frozen ACIR to
+`EntryView` is elaboration-only. `patch` lowers before verified ACIR to
 `ac.table.get`, immutable `ac.var.with` updates, and `ac.table.write` or
 `ac.table.masked_write`; there is no `ac.table.patch` operation. Both Frozen
 write operations carry required, normalized, non-empty `write_fields` and a
@@ -1396,25 +1395,21 @@ column coordinates. Inline expansion uses MLIR call-site locations, and CSE or
 folding fuses every replaced origin into the retained value. A generated `.pyc`,
 `.mlir`, or absolute checkout path MUST NOT be presented as Python provenance.
 
-Frozen ACIR materializes canonical `ac.source_provenance`. QueueGraph preserves
+verified ACIR materializes canonical `ac.source_provenance`. QueueGraph preserves
 the same stacks on blocks, expressions, helpers, shared Table match/selection
 definitions, state owners, and module instances. Queue topology statements
 own their generated FIFO/backpressure logic; state declarations own initial
 register banks, while update logic combines the owner and writing-rule origins.
 Canonical PYC binds generated operations to
 those stacks with MLIR locations and carries a verified `pyc.source_map` JSON
-attribute. The model bundle publishes the same canonical map as
-`share/generated/source-map.json`; the model manifest records its schema, path,
-and SHA-256. Generated GFSim emits `#line` directives for the primary Python
+attribute. An ACC bundle may publish the same canonical map as
+`share/generated/source-map.json`. Generated GFSim emits `#line` directives for the primary Python
 frame while the source map retains alternate origins and the complete inline
-stack. Source metadata is excluded from topology, definition, and
-specialization identity, but it remains content-addressed as a generated
-artifact so stale maps cannot be silently reused.
+stack. Source metadata is excluded from topology and specialization identity.
 
 Display metadata is not identity. `ac.name`, stable IDs, scheduler object IDs,
-specialization fingerprints, cache keys, and tuple ordering retain their
-existing semantic roles. The compiler removes `ac.display_name` from
-fingerprint input, legalizes C++ identifiers centrally, and uses deterministic
+structural specialization keys, and tuple ordering retain their semantic roles.
+The compiler legalizes C++ identifiers centrally and uses deterministic
 numeric suffixes only for real collisions. A missing source name falls back to
 a stable temporary identifier; an absolute build-host path is never emitted.
 
@@ -1425,7 +1420,7 @@ backend does not reverse already-lowered field comparisons into aggregate
 equality. Width, overflow, access checks, evaluation order, ownership,
 backpressure, reservation, arbitration, and atomic commit remain unchanged.
 
-The epoch 0.5 pure-rule frontend accepts one or more Queue inputs and one total
+The pure-rule frontend accepts one or more Queue inputs and one total
 return path. Every argument is the immutable committed head payload of its
 corresponding Queue. It emits transient variadic `ac.rule` IR and one typed
 pending output-handshake obligation. MLIR passes infer all input-consume and
@@ -1810,8 +1805,8 @@ Valid examples:
 
 Before MLIR rendering, the frontend represents values with immutable recursive
 descriptors: logical bool, exact bits, nominal enum/struct, structural tuple,
-and fixed value array. Each descriptor has canonical identity, stable SHA-256,
-and recursive bit width. `BoolType()` and `BitsType(1)` are deliberately
+and fixed value array. Each descriptor has canonical structure and recursive
+bit width. `BoolType()` and `BitsType(1)` are deliberately
 different compiler facts even though both currently render as `i1`. Persistent
 Python lists are state containers and are not `ArrayType` values. Fixed payload
 arrays render as `!ac.value_array<N x T>`; `!ac.array` remains a static
@@ -1877,7 +1872,7 @@ callback parameter shadowing cannot rebind a captured `checked` result or
 struct. Zip requires equal positive lengths and returns an array of structural
 tuples without truncation, padding, broadcasting, or conversion. Both forms
 expand to existing static element, tuple/record, callback, and array operations
-before Frozen ACIR. Nested expansions share a 4096-lane budget and create no
+before verified ACIR. Nested expansions share a 4096-lane budget and create no
 runtime iterator, container, or PYC vector type.
 
 Logical arrays provide `all`, `any`, and bounded `count`. Fixed arrays provide
@@ -1964,7 +1959,7 @@ uses a non-empty strict subset of top-level Struct fields. A stateless pure
 rule-origin Transform is eligible after its existing rule proof is verified.
 The physical tuple carrier preserves exact field types and Queue timing while
 paired ACIR metadata records the complete logical descriptor and mapping.
-Freeze and QueueGraph independently revalidate the edge, fingerprint, ordered
+Freeze and QueueGraph independently revalidate the edge, descriptor, ordered
 fields, tuple shape, element-only uses and protected-boundary exclusions.
 Public, observed, module, state, feedback, memory and whole-value edges are not
 rewritten. QueueGraph JSON reports logical/carrier widths; a narrower payload is
@@ -2047,7 +2042,7 @@ exclude an invalid physical code. Raw ACIR therefore retains
 `ac.var.enum_match` long enough for independent coverage, duplicate,
 unknown/unreachable, and result-type verification. The value-contract lowering
 pass then expands it to enum constants, equality, balanced OR, and selects; it
-does not survive Frozen ACIR or create Python control flow.
+does not survive verified ACIR or create Python control flow.
 
 ### Recursive equality and named payload invariants
 
@@ -2105,7 +2100,7 @@ inlines leaf callees before callers and recursively lowers aggregate
 `ac.var.cmp` into descriptor-order
 `ac.var.get`/`ac.var.element`, scalar or enum equality leaves, and a balanced
 boolean AND tree. `ne` negates the complete equality result. No aggregate
-comparison or invariant operation may remain in Frozen ACIR or QueueGraph.
+comparison or invariant operation may remain in verified ACIR or QueueGraph.
 
 Invalid examples:
 
@@ -2295,7 +2290,7 @@ lowers to one `ac.route`, one ordinary memory instance and request per bank,
 and one response `ac.merge`. The route key selects exactly one bank. Banks have
 independent outstanding state, so responses from different banks may be
 reordered; callers that require request order retain a tag and use `reorder`.
-Memory arrays are one-dimensional in epoch 0.5 and require identical data type,
+Memory arrays are one-dimensional and require identical data type,
 entry count, and initialization across all banks.
 
 ### Internal firing example
@@ -2337,50 +2332,33 @@ internal firing operation.
 
 The stable identity, exact domain, typed summaries, SSA presence, footprints,
 and activation/transaction resources form the complete contract. No transient
-rule marker or removed string summary may survive into Frozen ACIR. Pure
+rule marker or removed string summary may survive into verified ACIR. Pure
 firings may become `ac.transform` only after canonicalization proves that this
 contract is preserved.
 
-### Frozen logical identity
+### Verified structural identity
 
 Every QueueGraph representation carries `ac.model_kind = "queue_graph"` and
 the exact singleton-domain declaration `ac.queue_graph_domain = "cycle"`.
 Every rule domain must equal that declaration. QueueGraph planning
-and generation accept only verified epoch 0.5 frozen input with a matching
-owner manifest and topology digest. Raw or forged models are rejected rather
-than frozen implicitly by a backend.
+and generation accept only verifier-closed input with a matching owner
+structure. Raw models are rejected rather than normalized implicitly by a backend.
 
 The flat representation additionally carries the string attribute
 `ac.system`; it contains no structured `ac.system` or `ac.module*`
-declarations and freezes with an empty owner manifest. The module-preserving
+declarations and freezes with an empty owner set. The module-preserving
 representation instead uses one selected `ac.system`, materialized
 `ac.module` definitions, `ac.instance` placements, and module-local
-`ac.scope` Queue graphs. The freeze pass computes, inserts, and verifies:
-
-- one `ac.definition_fingerprint` for each reusable module definition;
-- one `ac.specialization` fingerprint for the root and for every instance,
-  derived from the definition fingerprint plus canonical static arguments;
-- identical specialization identities for repeated instances of the same
-  definition and argument set; and
-- the selected system and elaborated instance-owner manifest in the global
-  topology seal.
+`ac.scope` Queue graphs. The freeze pass verifies the selected system, the
+elaborated instance-owner relation, and every typed static-argument dictionary.
 
 Backends must key generated implementation classes by specialization and bind
 instances to independently owned ports and state. They must not flatten a
 repeated module merely because its placements have different hierarchy paths.
-Full specialization fingerprints remain canonical IR, manifest, provider, and
-cache identity. Routine generated C++ names expose readable semantic identity
-instead: ACSim thunks use
-`acsim_generated::module_<Module>::process_<Process>::<entry>`, structured
-source bundles use `Module_<Module>` and `Process_<Module>_<Process>`, and
-QueueGraph specializations use `Module_<Definition>`. Generated process helper
-and scalar-storage names use their closed role and type. A fingerprint fragment
-may be appended only inside an actual readable-name collision group; the first
-16 hexadecimal digits are the local disambiguator, and a remaining collision
-fails closed. The complete fingerprint never becomes the routine namespace,
-class, file, or function spelling.
-Build manifests associate each readable `Module::Process` identity with its
-complete process specialization fingerprint.
+The definition symbol plus ordered typed static arguments is the complete
+specialization identity. Generated C++ uses the readable definition and, when
+needed, readable parameter-name/value suffixes. It never adds a `Module_`
+prefix or content-derived suffix. A remaining legalization collision fails closed.
 For a stateful specialization, the implementation class owns the Table and
 transition member layout, while each constructed instance owns a distinct
 runtime Table object and dense object IDs. Reusing a specialization therefore
@@ -2416,7 +2394,7 @@ or shared between repeated parent instances.
 
 Python authors declare reusable behavior as an ordinary typed `@ac.module`
 function and invoke it with ordinary calls from `@ac.system`. The frontend does
-not expose Queue ports, instance objects, specialization fingerprints, source,
+not expose Queue ports, instance objects, specialization keys, source,
 sink, readiness, or backpressure. The first lowering slice accepts a pure 1x1
 module whose expression return becomes a module-local transform; typed system
 parameters and results become internal boundaries, and calls become
@@ -2695,7 +2673,7 @@ or MLIR libraries.
 
 ## PYC and Verilog lowering
 
-Agentic Circuit owns `frozen ACIR -> canonical PYC IR`. A pinned external
+Agentic Circuit owns `verified ACIR -> canonical PYC IR`. A pinned external
 `pycc` owns PYC verification, C++ emission, and Verilog emission. The pin is
 recorded in `pyc.lock.json`.
 
@@ -2829,7 +2807,7 @@ trace -> frontend transform -> four-way route
                              round-robin merge -> retire -> sink
 ```
 
-### Generate canonical ACIR, QueueGraph JSON, and gfsim C++
+### Compile verified ACIR and emit backends
 
 Configure and build the native tools first:
 
@@ -2839,19 +2817,29 @@ tools/agentic-circuit/bootstrap-dev.sh
 cmake --build .pycircuit_out/acir/dev-llvm22
 ```
 
-Generate all canonical Queue artifacts:
+Compile the Python architecture to verified ACIR, then invoke the single native
+ACC backend entrypoint:
 
 ```sh
 PYTHONPATH=python/semantic-core/src:python/agentic-circuit/src \
-  .venv/bin/python compiler/acir/tools/ac-queue-cxxgen.py \
-  examples/agentic-circuit/pipelines/routed_dependency_pipeline.py \
-  --system routed_dependency_pipeline \
-  --acir-output .pycircuit_out/examples/routed_dependency_pipeline.ac.mlir \
-  --plan-output .pycircuit_out/examples/routed_dependency_pipeline.queue-plan.json \
-  --acir-opt .pycircuit_out/acir/dev-llvm22/bin/acir-opt \
-  --queue-plan-tool .pycircuit_out/acir/dev-llvm22/bin/acir-queue-plan \
-  --queue-cxxgen-tool .pycircuit_out/acir/dev-llvm22/bin/acir-queue-cxxgen \
-  --output .pycircuit_out/examples/routed_dependency_pipeline.cpp
+  .venv/bin/python -m agentic_circuit._acc_py \
+  -c examples/agentic-circuit/pipelines/routed_dependency_pipeline.py \
+  -o .pycircuit_out/examples/routed_dependency_pipeline.ac
+
+.pycircuit_out/acir/dev-llvm22/bin/acc \
+  -c .pycircuit_out/examples/routed_dependency_pipeline.ac \
+  -emit-cpp \
+  -o .pycircuit_out/examples/routed_dependency_pipeline.cpp
+
+.pycircuit_out/acir/dev-llvm22/bin/acc \
+  -c .pycircuit_out/examples/routed_dependency_pipeline.ac \
+  -emit-cpp-bundle \
+  -o .pycircuit_out/examples/routed_dependency_pipeline
+
+.pycircuit_out/toolchain/install/bin/acc \
+  -c .pycircuit_out/examples/routed_dependency_pipeline.ac \
+  -emit-verilog \
+  -o .pycircuit_out/examples/routed_dependency_pipeline.v
 ```
 
 Check that the generated C++ is valid for the local compiler:
@@ -2861,32 +2849,9 @@ c++ -std=c++20 -Isimulator/gfsim/include -fsyntax-only \
   .pycircuit_out/examples/routed_dependency_pipeline.cpp
 ```
 
-### Generate PYC, PYC C++, and Verilog
-
-Use the exact pyCircuit commit and LLVM version in the toolchain lock. Given a
-matching local pyCircuit installation, run the canonical bundle command:
-
-```sh
-PYC_TOOLCHAIN_ROOT=/path/to/pycircuit/toolchain/install
-
-.venv/bin/python compiler/acir/tools/ac-queue-pyc-build.py \
-  .pycircuit_out/examples/routed_dependency_pipeline.ac.mlir \
-  --pycgen-tool .pycircuit_out/toolchain/build/bin/acir-queue-pycgen \
-  --pycc "$PYC_TOOLCHAIN_ROOT/bin/pycc" \
-  --toolchain-lock toolchains/agentic-circuit/pyc.lock.json \
-  --toolchain-metadata \
-    "$PYC_TOOLCHAIN_ROOT/share/pycircuit/toolchain-metadata.json" \
-  --cxx "$(command -v c++)" \
-  --verilator "$(command -v verilator)" \
-  --pyc-output .pycircuit_out/examples/routed_dependency_pipeline.pyc \
-  --cpp-output-dir .pycircuit_out/examples/routed_dependency_pipeline-pyc-cpp \
-  --verilog-output-dir .pycircuit_out/examples/routed_dependency_pipeline-verilog \
-  --manifest .pycircuit_out/examples/routed_dependency_pipeline-pyc-manifest.json
-```
-
-The command validates the toolchain lock, emits PYC C++ and Verilog, runs C++
-syntax checking and Verilator lint, and records deterministic artifact hashes.
-Output paths MUST not already exist.
+The native compiler requires a new output file or directory for each emission;
+it never merges with or replaces an existing bundle. The installed `acc` and
+its sibling `pycc` come from the same exact pyCircuit revision.
 
 ## Rejected examples
 
@@ -3009,9 +2974,7 @@ observations MUST NOT depend on:
 Canonical ordering uses source occurrence, static collection order, frozen
 logical identity, and declared arbitration policy.
 
-Agentic Python has one strict I-JSON validator and one product
-`CONTRACT_EPOCH`. The `contract-epoch` value in package metadata is a checked
-mirror, not an independent runtime definition. JSON hashing uses RFC 8785
+Agentic Python has one strict I-JSON validator. Canonical JSON uses RFC 8785
 spelling, while MLIR emission uses a distinct validated byte escaper: quotes,
 backslashes, control bytes, and UTF-8 bytes are encoded using MLIR-compatible
 escapes rather than reusing JSON-only escapes such as `\b` or `\f`.
@@ -3066,7 +3029,7 @@ affected layers:
 - PYC lowering or an explicit backend rejection;
 - positive, negative, determinism, and round-trip tests;
 - this manual and the relevant machine-readable schema;
-- exact contract epoch and capability declarations when public syntax changes.
+- external release notes and capability declarations when public syntax changes.
 
 Do not document a backend-specific behavior as shared ACIR semantics. Do not
 add a compatibility alias for removed public source surfaces. Git history,

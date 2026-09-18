@@ -282,7 +282,7 @@ def test_build_cycle_aware_names_hierarchical_specializations_by_params() -> Non
         m.output("second", pycircuit.wire_of(second["result"]))
 
     mlir = pycircuit.build_cycle_aware(top, hierarchical=True).emit_mlir()
-    specializations = set(re.findall(r"func\.func @(child__p[0-9a-f]{8})", mlir))
+    specializations = set(re.findall(r"func\.func @(child__increment_[12])", mlir))
 
     assert len(specializations) == 2
     for specialization in specializations:

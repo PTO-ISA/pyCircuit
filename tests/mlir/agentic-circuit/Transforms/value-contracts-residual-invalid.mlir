@@ -3,15 +3,15 @@
 // RUN: %not %acir_opt --pass-pipeline='builtin.module(ac-freeze-topology)' %t/invariant.mlir 2>&1 | %FileCheck %s --check-prefix=INVARIANT
 
 //--- aggregate.mlir
-module attributes {ac.contract_epoch = "0.5"} {
+module  {
   %lhs = "builtin.unrealized_conversion_cast"() : () -> !ac.var<tuple<i8, i8>>
   %rhs = "builtin.unrealized_conversion_cast"() : () -> !ac.var<tuple<i8, i8>>
   %same = ac.var.cmp "eq" %lhs, %rhs : !ac.var<tuple<i8, i8>> -> !ac.var<i1>
 }
-// AGGREGATE: unresolved aggregate comparison before Frozen ACIR
+// AGGREGATE: unresolved aggregate comparison before verified ACIR
 
 //--- invariant.mlir
-module attributes {ac.contract_epoch = "0.5"} {
+module  {
   ac.type_scope @types {
     ac.struct @S fields [{name = "value", type = i8}]
   } {dlti.dl_spec = #dlti.dl_spec<!ac.struct<@types::@S> = {abi_alignment = 1 : i64, endianness = "little", preferred_alignment = 1 : i64, size = 1 : i64}>}
@@ -22,4 +22,4 @@ module attributes {ac.contract_epoch = "0.5"} {
     ac.var.invariant.yield %true : !ac.var<i1>
   } : !ac.var<!ac.struct<@types::@S>> -> !ac.var<i1>
 }
-// INVARIANT: unresolved value invariant before Frozen ACIR
+// INVARIANT: unresolved value invariant before verified ACIR

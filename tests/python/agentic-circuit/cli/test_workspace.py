@@ -63,16 +63,9 @@ class WorkspaceTest(unittest.TestCase):
 
             self.assertEqual("ACPY-CONFIG-003", caught.exception.diagnostic.code)
 
-    def test_epoch_and_duplicate_ownership_are_rejected(self) -> None:
+    def test_duplicate_ownership_is_rejected(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             manifest = Path(temporary) / "agentic-circuit.toml"
-            contents = FIXTURE.read_text().replace(
-                'contract_epoch = "0.5"', 'contract_epoch = "0.1"'
-            )
-            manifest.write_text(contents)
-            with self.assertRaises(UserInputError):
-                load_workspace(manifest)
-
             contents = FIXTURE.read_text().replace(
                 'protocol_roots = ["protocols"]', 'protocol_roots = ["components"]'
             )

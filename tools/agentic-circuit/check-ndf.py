@@ -44,9 +44,7 @@ def _targets(value: str) -> list[str]:
 def _load(roots: list[Path]) -> tuple[list[Clause], list[str]]:
     clauses: list[Clause] = []
     errors: list[str] = []
-    documents = sorted(
-        document for root in roots for document in root.rglob("*.md")
-    )
+    documents = sorted(document for root in roots for document in root.rglob("*.md"))
     for document in documents:
         current: Clause | None = None
         for line_number, line in enumerate(

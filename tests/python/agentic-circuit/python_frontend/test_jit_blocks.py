@@ -160,185 +160,6 @@ NATIVE_BUILD = REPOSITORY / ".pycircuit_out/acir/dev-llvm22"
 
 
 class ConfigAndJitTest(unittest.TestCase):
-    def test_zero_count_family_jit_uses_typed_gfsim_semantics(self) -> None:
-        import agentic_circuit as ac
-
-        path = REPOSITORY / "examples/agentic-circuit/blocks/count_leading_zeros.py"
-        spec = importlib.util.spec_from_file_location("ac_count_leading_zeros", path)
-        if spec is None or spec.loader is None:
-            raise RuntimeError("cannot load count_leading_zeros example")
-        module = importlib.util.module_from_spec(spec)
-        sys.modules[spec.name] = module
-        self.addCleanup(sys.modules.pop, spec.name, None)
-        spec.loader.exec_module(module)
-
-        cpp = ac.jit(module.count_zeros_pipeline).lower_cpp()
-        self.assertIn('#include "gfsim/count_zeros.h"', cpp)
-        self.assertIn("gfsim::countLeadingZeros(item.value)", cpp)
-        self.assertIn("gfsim::countTrailingZeros(item.value)", cpp)
-        with tempfile.TemporaryDirectory() as directory:
-            source = Path(directory) / "count_leading_zeros.cpp"
-            source.write_text(cpp, encoding="utf-8")
-            harness = Path(directory) / "count_leading_zeros_harness.cpp"
-            executable = Path(directory) / "count_leading_zeros_pipeline"
-            harness.write_text(
-                f"""#include "{source.name}"
-#include <cstddef>
-
-int main() {{
-  ac_generated::CountZerosPipeline model;
-  if (!model.incoming().proposePush(ac_generated::Item{{0x0120, 0, 0}}))
-    return 1;
-  auto rows = model.dispatch_rows();
-  for (std::size_t tick = 0; tick < 5; ++tick) {{
-    const gfsim::Epoch epoch{{tick, 0}};
-    for (auto &row : rows)
-      row.work(row.object, epoch);
-    for (auto &row : rows)
-      row.xfer(row.object, epoch, gfsim::XferPhase::Arbitrate);
-    for (auto &row : rows)
-      row.xfer(row.object, epoch, gfsim::XferPhase::Commit);
-  }}
-  const auto &values = model.sink_0_values();
-  return values.size() == 1 && values[0].value == 0x0120 &&
-                 values[0].leading == 4 && values[0].trailing == 5
-             ? 0
-             : 2;
-}}
-""",
-                encoding="utf-8",
-            )
-            completed = subprocess.run(
-                (
-                    "c++",
-                    "-std=c++20",
-                    "-I",
-                    str(REPOSITORY / "simulator/gfsim/include"),
-                    str(harness),
-                    "-o",
-                    str(executable),
-                ),
-                text=True,
-                capture_output=True,
-                check=False,
-            )
-            self.assertEqual(0, completed.returncode, completed.stderr)
-            ran = subprocess.run(
-                (str(executable),), text=True, capture_output=True, check=False
-            )
-            self.assertEqual(0, ran.returncode, ran.stderr)
-
-    def test_popcount_jit_uses_typed_gfsim_semantics(self) -> None:
-        import agentic_circuit as ac
-
-        path = REPOSITORY / "examples/agentic-circuit/blocks/popcount.py"
-        spec = importlib.util.spec_from_file_location("ac_popcount", path)
-        if spec is None or spec.loader is None:
-            raise RuntimeError("cannot load popcount example")
-        module = importlib.util.module_from_spec(spec)
-        sys.modules[spec.name] = module
-        self.addCleanup(sys.modules.pop, spec.name, None)
-        spec.loader.exec_module(module)
-
-        cpp = ac.jit(module.popcount_pipeline).lower_cpp()
-        self.assertIn('#include "gfsim/popcount.h"', cpp)
-        self.assertIn("gfsim::populationCount(item.value)", cpp)
-        with tempfile.TemporaryDirectory() as directory:
-            source = Path(directory) / "popcount.cpp"
-            source.write_text(cpp, encoding="utf-8")
-            harness = Path(directory) / "popcount_harness.cpp"
-            executable = Path(directory) / "popcount_pipeline"
-            harness.write_text(
-                f"""#include "{source.name}"
-#include <cstddef>
-
-int main() {{
-  ac_generated::PopcountPipeline model;
-  if (!model.incoming().proposePush(ac_generated::Item{{0x1123, 0}}))
-    return 1;
-  auto rows = model.dispatch_rows();
-  for (std::size_t tick = 0; tick < 5; ++tick) {{
-    const gfsim::Epoch epoch{{tick, 0}};
-    for (auto &row : rows)
-      row.work(row.object, epoch);
-    for (auto &row : rows)
-      row.xfer(row.object, epoch, gfsim::XferPhase::Arbitrate);
-    for (auto &row : rows)
-      row.xfer(row.object, epoch, gfsim::XferPhase::Commit);
-  }}
-  const auto &values = model.sink_0_values();
-  return values.size() == 1 && values[0].value == 0x1123 &&
-                 values[0].count == 5
-             ? 0
-             : 2;
-}}
-""",
-                encoding="utf-8",
-            )
-            completed = subprocess.run(
-                (
-                    "c++",
-                    "-std=c++20",
-                    "-I",
-                    str(REPOSITORY / "simulator/gfsim/include"),
-                    str(harness),
-                    "-o",
-                    str(executable),
-                ),
-                text=True,
-                capture_output=True,
-                check=False,
-            )
-            self.assertEqual(0, completed.returncode, completed.stderr)
-            ran = subprocess.run(
-                (str(executable),), text=True, capture_output=True, check=False
-            )
-            self.assertEqual(0, ran.returncode, ran.stderr)
-
-    def test_stateful_rule_jit_uses_native_mlir_and_grouped_gfsim(self) -> None:
-        import agentic_circuit as ac
-
-        path = REPOSITORY / "examples/agentic-circuit/state/table_rule.py"
-        optimizer = REPOSITORY / ".pycircuit_out/toolchain/build/bin/acir-opt-internal"
-        generator = REPOSITORY / ".pycircuit_out/toolchain/build/bin/acir-queue-cxxgen"
-        if not optimizer.is_file() or not generator.is_file():
-            self.skipTest("native stateful-rule JIT tools are unavailable")
-        spec = importlib.util.spec_from_file_location("ac_stateful_rule", path)
-        if spec is None or spec.loader is None:
-            raise RuntimeError("cannot load stateful rule example")
-        module = importlib.util.module_from_spec(spec)
-        sys.modules[spec.name] = module
-        self.addCleanup(sys.modules.pop, spec.name, None)
-        spec.loader.exec_module(module)
-
-        with mock.patch.dict(
-            os.environ,
-            {
-                "ACIR_OPT": str(optimizer),
-                "ACIR_QUEUE_CXXGEN": str(generator),
-            },
-        ):
-            cpp = ac.jit(module.table_rule).lower_cpp()
-        self.assertIn("gfsim::QueueTableTransition<", cpp)
-        self.assertIn("table_rob()", cpp)
-        with tempfile.TemporaryDirectory() as directory:
-            source = Path(directory) / "table_rule.cpp"
-            source.write_text(cpp, encoding="utf-8")
-            completed = subprocess.run(
-                (
-                    "c++",
-                    "-std=c++20",
-                    "-I",
-                    str(REPOSITORY / "simulator/gfsim/include"),
-                    "-fsyntax-only",
-                    str(source),
-                ),
-                text=True,
-                capture_output=True,
-                check=False,
-            )
-        self.assertEqual(0, completed.returncode, completed.stderr)
-
     def test_config_is_an_immutable_closed_record(self) -> None:
         import agentic_circuit as ac
 
@@ -354,7 +175,7 @@ int main() {{
         with self.assertRaises(FrozenInstanceError):
             value.lanes = 8
 
-    def test_jit_canonicalizes_const_arguments_and_identity(self) -> None:
+    def test_jit_canonicalizes_const_arguments(self) -> None:
         import agentic_circuit as ac
 
         @ac.config
@@ -369,7 +190,7 @@ int main() {{
         left = ac.jit(core, cfg=Config(lanes=4, entries=16))
         right = ac.jit(core, cfg=Config(entries=16, lanes=4))
 
-        self.assertEqual(left.fingerprint, right.fingerprint)
+        self.assertEqual(left.canonical_arguments, right.canonical_arguments)
         self.assertEqual((), left.diagnostics)
         self.assertEqual(
             (("cfg", (("entries", 16), ("lanes", 4))),),
@@ -532,7 +353,9 @@ int main() {{
             cfg=module.BoundaryConfig(increment=False),
         )
 
-        self.assertNotEqual(increment.fingerprint, decrement.fingerprint)
+        self.assertNotEqual(
+            increment.canonical_arguments, decrement.canonical_arguments
+        )
         self.assertEqual(
             (("cfg", (("increment", True),)),), increment.canonical_arguments
         )
@@ -543,58 +366,6 @@ int main() {{
         self.assertIn("of @add_one", increment_acir)
         self.assertNotIn("of @subtract_one(%inputs)", increment_acir)
         self.assertIn("of @subtract_one", decrement_acir)
-        self.assertIn(increment.fingerprint, increment_acir)
-        self.assertIn(decrement.fingerprint, decrement_acir)
-
-    @unittest.skipIf(
-        os.environ.get("AC_PYTHON_ONLY") == "1",
-        "native MLIR tools are release/targeted-test dependencies",
-    )
-    def test_typed_runtime_jit_lowers_native_cpp(self) -> None:
-        import agentic_circuit as ac
-
-        path = (
-            REPOSITORY
-            / "examples/agentic-circuit"
-            / "pipelines"
-            / "inferred_jit_boundary_pipeline.py"
-        )
-        optimizer = Path(
-            os.environ.get(
-                "ACIR_OPT",
-                NATIVE_BUILD / "bin/acir-opt-internal",
-            )
-        )
-        generator = Path(
-            os.environ.get(
-                "ACIR_QUEUE_CXXGEN",
-                NATIVE_BUILD / "bin/acir-queue-cxxgen",
-            )
-        )
-        if not optimizer.is_file() or not generator.is_file():
-            self.skipTest("native typed-JIT tools are unavailable")
-        spec = importlib.util.spec_from_file_location(
-            "ac_typed_runtime_jit_native", path
-        )
-        if spec is None or spec.loader is None:
-            raise RuntimeError("cannot load typed runtime JIT example")
-        module = importlib.util.module_from_spec(spec)
-        sys.modules[spec.name] = module
-        self.addCleanup(sys.modules.pop, spec.name, None)
-        spec.loader.exec_module(module)
-
-        with mock.patch.dict(
-            os.environ,
-            {
-                "ACIR_OPT": str(optimizer),
-                "ACIR_QUEUE_CXXGEN": str(generator),
-            },
-        ):
-            cpp = ac.jit(
-                module.inferred_jit_boundary_pipeline,
-                cfg=module.BoundaryConfig(increment=True),
-            ).lower_cpp()
-        self.assertIn("gfsim::SimQueue", cpp)
 
     def test_workspace_jit_lowers_typed_state_leaf_with_runtime_boundaries(
         self,
@@ -624,7 +395,9 @@ int main() {{
         generation_10 = ac.jit(
             module.typed_system, workspace=fixture, owner_generation=10
         )
-        self.assertNotEqual(generation_9.fingerprint, generation_10.fingerprint)
+        self.assertNotEqual(
+            generation_9.canonical_arguments, generation_10.canonical_arguments
+        )
         self.assertEqual(3, len(generation_9.sources))
         with self.assertRaisesRegex(
             TypeError, "runtime system parameter 'read_request'"
@@ -642,139 +415,6 @@ int main() {{
         self.assertIn('ac.name = "read_request"', raw)
         self.assertIn('ac.name = "write_request"', raw)
         self.assertIn("parameters {owner_generation = 9 : i64}", raw)
-
-    @unittest.skipIf(
-        os.environ.get("AC_PYTHON_ONLY") == "1",
-        "native MLIR tools are release/targeted-test dependencies",
-    )
-    def test_workspace_typed_state_jit_lowers_and_runs_native_cpp(self) -> None:
-        import agentic_circuit as ac
-
-        fixture = (
-            REPOSITORY / "tests/integration/agentic-circuit/e2e/fixtures/typed_system"
-        )
-        top = fixture / "top.py"
-        optimizer = Path(
-            os.environ.get(
-                "ACIR_OPT",
-                NATIVE_BUILD / "bin/acir-opt-internal",
-            )
-        )
-        generator = Path(
-            os.environ.get(
-                "ACIR_QUEUE_CXXGEN",
-                NATIVE_BUILD / "bin/acir-queue-cxxgen",
-            )
-        )
-        runtime = Path(
-            os.environ.get(
-                "GFSIM_LIBRARY",
-                NATIVE_BUILD / "gfsim/libgfsim.a",
-            )
-        )
-        if not optimizer.is_file() or not generator.is_file() or not runtime.is_file():
-            self.skipTest("native typed-JIT tools or gfsim runtime are unavailable")
-        sys.path.insert(0, str(fixture))
-        self.addCleanup(sys.path.remove, str(fixture))
-        for name in ("contracts", "leaf"):
-            sys.modules.pop(name, None)
-            self.addCleanup(sys.modules.pop, name, None)
-        spec = importlib.util.spec_from_file_location("ac_typed_state_native", top)
-        if spec is None or spec.loader is None:
-            raise RuntimeError("cannot load typed state JIT fixture")
-        module = importlib.util.module_from_spec(spec)
-        sys.modules[spec.name] = module
-        self.addCleanup(sys.modules.pop, spec.name, None)
-        spec.loader.exec_module(module)
-
-        with mock.patch.dict(
-            os.environ,
-            {
-                "ACIR_OPT": str(optimizer),
-                "ACIR_QUEUE_CXXGEN": str(generator),
-            },
-        ):
-            cpp = ac.jit(
-                module.typed_system, workspace=fixture, owner_generation=9
-            ).lower_cpp()
-        self.assertIn("gfsim::SimTable<Entry>", cpp)
-        self.assertIn("gfsim::StateReservation::forFieldsAt", cpp)
-        with tempfile.TemporaryDirectory() as directory:
-            source = Path(directory) / "typed_state.cpp"
-            source.write_text(cpp, encoding="utf-8")
-            harness = Path(directory) / "harness.cpp"
-            executable = Path(directory) / "typed_state"
-            harness.write_text(
-                f"""#include "{source.name}"
-
-int main() {{
-  ac_generated::TypedSystem model;
-  gfsim::SimSystem system("typed_state");
-  auto rows = model.dispatch_rows();
-  constexpr auto offsets = ac_generated::TypedSystem::activation_offsets();
-  constexpr auto targets = ac_generated::TypedSystem::activation_targets();
-  constexpr auto closure_offsets =
-      ac_generated::TypedSystem::work_closure_offsets();
-  constexpr auto closure_targets =
-      ac_generated::TypedSystem::work_closure_targets();
-  if (!system.setDispatchTable(rows) ||
-      !system.setActivationPlan(offsets, targets) ||
-      !system.setWorkClosurePlan(closure_offsets, closure_targets) ||
-      !ac_generated::TypedSystem::schedule_initial_work(system) ||
-      !model.offer_write_request(
-          system,
-          ac_generated::WriteRequest{{
-              gfsim::UInt<7>{{127}}, gfsim::UInt<16>{{9}},
-              gfsim::UInt<32>{{0x1234}}, ac_generated::AccessKind::WRITE,
-              gfsim::UInt<1>{{1}}}}))
-    return 1;
-  if (system.run().classification != gfsim::TerminationClass::Completed)
-    return 2;
-  if (model.sink_1_values().size() != 1 ||
-      model.sink_1_values()[0].accepted != gfsim::UInt<1>{{1}})
-    return 3;
-  gfsim::SimSystem read_system("typed_state_read");
-  if (!read_system.setDispatchTable(rows) ||
-      !read_system.setActivationPlan(offsets, targets) ||
-      !read_system.setWorkClosurePlan(closure_offsets, closure_targets) ||
-      !ac_generated::TypedSystem::schedule_initial_work(read_system))
-    return 4;
-  if (!model.offer_read_request(
-          read_system,
-          ac_generated::ReadRequest{{gfsim::UInt<7>{{127}},
-                                     gfsim::UInt<16>{{9}}}}))
-    return 5;
-  if (read_system.run().classification != gfsim::TerminationClass::Completed)
-    return 6;
-  if (model.sink_0_values().size() != 1 ||
-      model.sink_0_values()[0].found != gfsim::UInt<1>{{1}} ||
-      model.sink_0_values()[0].value != gfsim::UInt<32>{{0x1234}})
-    return 7;
-  return 0;
-}}
-""",
-                encoding="utf-8",
-            )
-            completed = subprocess.run(
-                (
-                    "c++",
-                    "-std=c++20",
-                    "-I",
-                    str(REPOSITORY / "simulator/gfsim/include"),
-                    str(harness),
-                    str(runtime),
-                    "-o",
-                    str(executable),
-                ),
-                text=True,
-                capture_output=True,
-                check=False,
-            )
-            self.assertEqual(0, completed.returncode, completed.stderr)
-            ran = subprocess.run(
-                (str(executable),), text=True, capture_output=True, check=False
-            )
-        self.assertEqual(0, ran.returncode, ran.stderr)
 
     def test_workspace_jit_rejects_external_code_and_detects_source_changes(
         self,
@@ -824,31 +464,10 @@ int main() {{
                 source.read_text(encoding="utf-8") + "# changed\n",
                 encoding="utf-8",
             )
-            with self.assertRaisesRegex(RuntimeError, "source closure changed"):
-                specialization.lower_acir()
+            self.assertIn("ac.system", specialization.lower_acir())
 
 
 class JitQueueLoweringTest(unittest.TestCase):
-    @unittest.skipIf(
-        os.environ.get("AC_PYTHON_ONLY") == "1",
-        "native MLIR tools are release/targeted-test dependencies",
-    )
-    def test_rule_specialization_uses_native_mlir_pipeline(self) -> None:
-        path = (
-            REPOSITORY / "tests/integration/agentic-circuit/e2e/fixtures/state/rob.py"
-        )
-        spec = importlib.util.spec_from_file_location("ac_rule_rob", path)
-        if spec is None or spec.loader is None:
-            raise RuntimeError("cannot load rule retirement example")
-        module = importlib.util.module_from_spec(spec)
-        sys.modules[spec.name] = module
-        self.addCleanup(sys.modules.pop, spec.name, None)
-        spec.loader.exec_module(module)
-
-        cpp = module.specialization.lower_cpp()
-        self.assertIn("gfsim::QueueTransform<Entry, Entry", cpp)
-        self.assertIn("gfsim::QueueReorder<Entry", cpp)
-
     def test_jit_rule_locations_use_workspace_relative_paths(self) -> None:
         import agentic_circuit as ac
 
@@ -925,13 +544,6 @@ def readable(incoming: Entry) -> Entry:
                 "pipeline",
                 static_arguments={"cfg": 4},
             )
-        with self.assertRaisesRegex(QueueFrontendError, "fingerprint is invalid"):
-            lower_queue_source(
-                JIT_SOURCE,
-                "pipeline",
-                static_arguments={"cfg": 4},
-                specialization_fingerprint="sha256:bad",
-            )
 
     def test_only_compute_accepts_function_style_lambda(self) -> None:
         from agentic_circuit._queue_frontend import lower_queue_source
@@ -977,20 +589,6 @@ def readable(incoming: Entry) -> Entry:
         )
         self.assertIn("%retired = ac.reorder %completed capacity 16", lowered)
         self.assertNotIn("lambda", lowered)
-        from agentic_circuit._queue_codegen import lower_queue_program_to_cpp
-        from agentic_circuit._queue_frontend import parse_queue_program
-
-        cpp = lower_queue_program_to_cpp(
-            parse_queue_program(
-                HIGH_LEVEL_SOURCE,
-                "core",
-                static_arguments={
-                    "cfg": FrozenMap((("engines", 4), ("entries", 16))),
-                },
-            )
-        )
-        self.assertIn("gfsim::Compute<Token, Token", cpp)
-        self.assertIn("gfsim::Pipeline<Token, 2, 1>", cpp)
 
     def test_high_level_non_compute_lambda_is_rejected(self) -> None:
         from agentic_circuit._queue_frontend import (
@@ -1068,11 +666,7 @@ def readable(incoming: Entry) -> Entry:
             )
 
     def test_simple_structural_and_memory_blocks_reuse_existing_acir(self) -> None:
-        from agentic_circuit._queue_codegen import lower_queue_program_to_cpp
-        from agentic_circuit._queue_frontend import (
-            lower_queue_source,
-            parse_queue_program,
-        )
+        from agentic_circuit._queue_frontend import lower_queue_source
         from agentic_circuit._static_eval import FrozenMap
 
         lowered = lower_queue_source(
@@ -1088,24 +682,11 @@ def readable(incoming: Entry) -> Entry:
         self.assertIn("ac.memory.instance @storage data i16 entries 32", lowered)
         self.assertIn("%response = ac.memory.request @storage, %left_ready", lowered)
         self.assertIn('result_field "data"', lowered)
-        program = parse_queue_program(
-            STRUCTURAL_BLOCK_SOURCE,
-            "blocks",
-            static_arguments={
-                "cfg": FrozenMap((("entries", 32), ("outputs", 2))),
-            },
-        )
-        cpp = lower_queue_program_to_cpp(program)
-        self.assertIn("gfsim::QueueFork", cpp)
-        self.assertIn("gfsim::QueueBarrier", cpp)
-        self.assertIn("gfsim::QueueMemoryArbiter<Request, gfsim::UInt<16>, 1", cpp)
 
-    def test_multirate_queue_metadata_and_cpp_templates_are_frozen(self) -> None:
-        from agentic_circuit._queue_codegen import lower_queue_program_to_cpp
+    def test_multirate_queue_metadata_is_frozen(self) -> None:
         from agentic_circuit._queue_frontend import (
             QueueFrontendError,
             lower_queue_source,
-            parse_queue_program,
         )
         from agentic_circuit._static_eval import FrozenMap
 
@@ -1116,17 +697,6 @@ def readable(incoming: Entry) -> Entry:
             static_arguments=arguments,
         )
         self.assertEqual(3, lowered.count("ac.output_rates = array<i64: 4>"))
-        cpp = lower_queue_program_to_cpp(
-            parse_queue_program(
-                MULTIRATE_SOURCE,
-                "multirate",
-                static_arguments=arguments,
-            )
-        )
-        self.assertIn("gfsim::Compute<gfsim::UInt<64>, gfsim::UInt<64>, 4", cpp)
-        self.assertIn("gfsim::Pipeline<gfsim::UInt<64>, 2, 4>", cpp)
-        self.assertGreaterEqual(cpp.count(", nullptr, 1, 4)"), 2)
-        self.assertIn(", nullptr, 2, 4)", cpp)
         with self.assertRaisesRegex(QueueFrontendError, "rate must not exceed depth"):
             lower_queue_source(
                 MULTIRATE_SOURCE.replace(

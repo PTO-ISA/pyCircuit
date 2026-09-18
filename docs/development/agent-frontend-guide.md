@@ -204,7 +204,7 @@ Follow these rules:
   tuples, and admitted fixed state shapes. Do not rely on implicit width
   conversion or a runtime-computed width. A dependent `ac.bits[...]` width or
   `ac.array[...]` length must use a declared `ac.param[int]` bound by a matching
-  JIT `ac.const`; Frozen ACIR still contains concrete types only.
+  JIT `ac.const`; verified ACIR still contains concrete types only.
   The expression grammar is limited to literals, declared parameters, closed
   integer constants, `+`, `-`, `*`, `index_width`, and `count_width`.
   Module-local dependent types specialize per instance, not once per source file.
@@ -274,7 +274,7 @@ Follow these rules:
   external boundaries. Explicit `ac.source()` and `ac.sink()` remain
   transitional capture forms.
 - Use `ac.scope()` and meaningful Python names. They become display provenance
-  without changing stable identities or semantic fingerprints.
+  without changing structural specialization identity.
 - Remember that capture-only markers are frontend syntax. Calling them as
   ordinary runtime functions must fail; they are valid inside captured
   `@ac.system`, `@ac.module`, and `@ac.rule` source.
@@ -336,7 +336,7 @@ Use this order regardless of frontend:
    For Agentic lexical state, `total: ac.u8 = 5` is the reset image on
    `ac.var.decl`; a Python `if` around the assignment is the write enable.
    Each `@ac.module` dumps to `modules/<Name>.ac.mlir`; these are inspectable
-   units while `frozen.ac.mlir` remains the verified whole-program authority.
+   units while the emitted `.ac` remains the verified whole-program authority.
    Gfsim emits nominal type headers and one declaration/out-of-line `.h`/`.cpp`
    pair per concrete module specialization. The sources compile separately to
    objects and link through the root `queuegraph.cpp` composition unit.

@@ -6,11 +6,11 @@
 // RESOURCE-REF: topology type '!ac.resource_ref<@Resource, @role>' cannot be nested inside '!ac.event<!ac.resource_ref<@Resource, @role>>'
 
 //--- event-token-result.mlir
-builtin.module attributes {ac.contract_epoch = "0.5"} {
+builtin.module  {
   %x = "builtin.unrealized_conversion_cast"() : () -> !ac.event<!ac.resource_token<@Resource>>
 }
 
 //--- event-resource-ref.mlir
-builtin.module attributes {ac.contract_epoch = "0.5"} {
+builtin.module  {
   %x = "builtin.unrealized_conversion_cast"() : () -> !ac.event<!ac.resource_ref<@Resource, @role>>
 }

@@ -5,7 +5,6 @@
 // RUN: %not %acir_opt %t/axis-width.mlir 2>&1 | %FileCheck %s --check-prefix=AXIS-WIDTH
 // RUN: %not %acir_opt %t/layout.mlir 2>&1 | %FileCheck %s --check-prefix=LAYOUT
 // RUN: %not %acir_opt %t/entries.mlir 2>&1 | %FileCheck %s --check-prefix=ENTRIES
-// RUN: %not %acir_opt %t/schema-id.mlir 2>&1 | %FileCheck %s --check-prefix=SCHEMA-ID
 // RUN: %not %acir_opt %t/image-count.mlir 2>&1 | %FileCheck %s --check-prefix=IMAGE-COUNT
 // RUN: %not %acir_opt %t/image-type.mlir 2>&1 | %FileCheck %s --check-prefix=IMAGE-TYPE
 // RUN: %not %acir_opt %t/index-rank.mlir 2>&1 | %FileCheck %s --check-prefix=INDEX-RANK
@@ -20,13 +19,11 @@
 // RUN: %not %acir_opt %t/domain-offset.mlir 2>&1 | %FileCheck %s --check-prefix=DOMAIN-OFFSET
 // RUN: %not %acir_opt %t/domain-mask.mlir 2>&1 | %FileCheck %s --check-prefix=DOMAIN-MASK
 
-// PARTIAL: typed Table schema requires shape, axis_widths, layout, layout_version, and schema_id
 // SHAPE: shape must be a non-empty tuple of positive extents
 // OVERFLOW: shape product overflows the canonical Table domain
 // AXIS-WIDTH: axis_widths must be the canonical unsigned widths for shape
 // LAYOUT: Table layout must be row_major version 1
 // ENTRIES: entries must equal the flattened shape product
-// SCHEMA-ID: schema_id does not match canonical Table schema
 // IMAGE-COUNT: typed init_image count must equal the flattened entry count
 // IMAGE-TYPE: typed init_image element does not match the Table Entry type
 // INDEX-RANK: coordinate rank must match the Table shape rank
@@ -42,90 +39,75 @@
 // DOMAIN-MASK: mask must exactly cover the projected Table domain in 64-bit words
 
 //--- partial-schema.mlir
-module attributes {ac.contract_epoch = "0.5"} {
+module  {
   ac.table @bad entry i8 entries 6 init 0 owner "/" stable_id "table/bad"
       {shape = array<i64: 2, 3>}
 }
 
 //--- empty-shape.mlir
-module attributes {ac.contract_epoch = "0.5"} {
+module  {
   ac.table @bad entry i8 entries 1 init 0 owner "/" stable_id "table/bad" {
     shape = array<i64>, axis_widths = array<i64>, layout = "row_major",
-    layout_version = 1 : i64, schema_id = "sha256:bad"
+    layout_version = 1 : i64
   }
 }
 
 //--- shape-overflow.mlir
-module attributes {ac.contract_epoch = "0.5"} {
+module  {
   ac.table @bad entry i8 entries 1 init 0 owner "/" stable_id "table/bad" {
     shape = array<i64: 9223372036854775807, 2>,
     axis_widths = array<i64: 63, 1>, layout = "row_major",
-    layout_version = 1 : i64, schema_id = "sha256:bad"
+    layout_version = 1 : i64
   }
 }
 
 //--- axis-width.mlir
-module attributes {ac.contract_epoch = "0.5"} {
+module  {
   ac.table @bad entry i8 entries 6 init 0 owner "/" stable_id "table/bad" {
     shape = array<i64: 2, 3>, axis_widths = array<i64: 2, 2>,
-    layout = "row_major", layout_version = 1 : i64,
-    schema_id = "sha256:c62fc75ed67ce361c35684c21e695d036e8bae7ee6f525dfaf9b13940b86a4b0"
-  }
-}
-
-//--- schema-id.mlir
-module attributes {ac.contract_epoch = "0.5"} {
-  ac.table @bad entry i8 entries 6 init 0 owner "/" stable_id "table/bad" {
-    shape = array<i64: 2, 3>, axis_widths = array<i64: 1, 2>,
-    layout = "row_major", layout_version = 1 : i64,
-    schema_id = "sha256:0000000000000000000000000000000000000000000000000000000000000000"
+    layout = "row_major", layout_version = 1 : i64
   }
 }
 
 //--- layout.mlir
-module attributes {ac.contract_epoch = "0.5"} {
+module  {
   ac.table @bad entry i8 entries 6 init 0 owner "/" stable_id "table/bad" {
     shape = array<i64: 2, 3>, axis_widths = array<i64: 1, 2>,
-    layout = "column_major", layout_version = 1 : i64,
-    schema_id = "sha256:c62fc75ed67ce361c35684c21e695d036e8bae7ee6f525dfaf9b13940b86a4b0"
+    layout = "column_major", layout_version = 1 : i64
   }
 }
 
 //--- entries.mlir
-module attributes {ac.contract_epoch = "0.5"} {
+module  {
   ac.table @bad entry i8 entries 5 init 0 owner "/" stable_id "table/bad" {
     shape = array<i64: 2, 3>, axis_widths = array<i64: 1, 2>,
-    layout = "row_major", layout_version = 1 : i64,
-    schema_id = "sha256:c62fc75ed67ce361c35684c21e695d036e8bae7ee6f525dfaf9b13940b86a4b0"
+    layout = "row_major", layout_version = 1 : i64
   }
 }
 
 //--- image-count.mlir
-module attributes {ac.contract_epoch = "0.5"} {
+module  {
   ac.table @bad entry i8 entries 6 init 0 owner "/" stable_id "table/bad" {
     shape = array<i64: 2, 3>, axis_widths = array<i64: 1, 2>,
     layout = "row_major", layout_version = 1 : i64,
-    schema_id = "sha256:c62fc75ed67ce361c35684c21e695d036e8bae7ee6f525dfaf9b13940b86a4b0",
-    init_version = 1 : i64, init_image = [0 : i8]
+        init_version = 1 : i64, init_image = [0 : i8]
   }
 }
 
 //--- image-type.mlir
-module attributes {ac.contract_epoch = "0.5"} {
+module  {
   ac.table @bad entry i8 entries 1 init 0 owner "/" stable_id "table/bad" {
     shape = array<i64: 1>, axis_widths = array<i64: 1>,
     layout = "row_major", layout_version = 1 : i64,
-    schema_id = "sha256:c83a7d9fbab05126201a5144d21cd41b0ca73326fe7d0d28a3107fc918900795",
-    init_version = 1 : i64, init_image = [0 : i16]
+        init_version = 1 : i64, init_image = [0 : i16]
   }
 }
 
 //--- index-rank.mlir
-module attributes {ac.contract_epoch = "0.5"} {
+module  {
   ac.table @bad entry i8 entries 6 init 0 owner "/" stable_id "table/bad" {
     shape = array<i64: 2, 3>, axis_widths = array<i64: 1, 2>,
-    layout = "row_major", layout_version = 1 : i64,
-    schema_id = "sha256:c62fc75ed67ce361c35684c21e695d036e8bae7ee6f525dfaf9b13940b86a4b0"
+    layout = "row_major", layout_version = 1 : i64
   }
   %row = ac.var.constant 0 : i1 as !ac.var<i1>
   %index = ac.table.index @bad [%row] : !ac.var<i1> -> !ac.var<i3>
@@ -133,11 +115,10 @@ module attributes {ac.contract_epoch = "0.5"} {
 }
 
 //--- index-width.mlir
-module attributes {ac.contract_epoch = "0.5"} {
+module  {
   ac.table @bad entry i8 entries 6 init 0 owner "/" stable_id "table/bad" {
     shape = array<i64: 2, 3>, axis_widths = array<i64: 1, 2>,
-    layout = "row_major", layout_version = 1 : i64,
-    schema_id = "sha256:c62fc75ed67ce361c35684c21e695d036e8bae7ee6f525dfaf9b13940b86a4b0"
+    layout = "row_major", layout_version = 1 : i64
   }
   %row = ac.var.constant 0 : i2 as !ac.var<i2>
   %column = ac.var.constant 0 : i2 as !ac.var<i2>
@@ -147,11 +128,10 @@ module attributes {ac.contract_epoch = "0.5"} {
 }
 
 //--- index-static-oob.mlir
-module attributes {ac.contract_epoch = "0.5"} {
+module  {
   ac.table @bad entry i8 entries 6 init 0 owner "/" stable_id "table/bad" {
     shape = array<i64: 2, 3>, axis_widths = array<i64: 1, 2>,
-    layout = "row_major", layout_version = 1 : i64,
-    schema_id = "sha256:c62fc75ed67ce361c35684c21e695d036e8bae7ee6f525dfaf9b13940b86a4b0"
+    layout = "row_major", layout_version = 1 : i64
   }
   %row = ac.var.constant 0 : i1 as !ac.var<i1>
   %column = ac.var.constant 3 : i2 as !ac.var<i2>
@@ -161,11 +141,10 @@ module attributes {ac.contract_epoch = "0.5"} {
 }
 
 //--- index-dynamic-oob.mlir
-module attributes {ac.contract_epoch = "0.5"} {
+module  {
   ac.table @bad entry i8 entries 6 init 0 owner "/" stable_id "table/bad" {
     shape = array<i64: 2, 3>, axis_widths = array<i64: 1, 2>,
-    layout = "row_major", layout_version = 1 : i64,
-    schema_id = "sha256:c62fc75ed67ce361c35684c21e695d036e8bae7ee6f525dfaf9b13940b86a4b0"
+    layout = "row_major", layout_version = 1 : i64
   }
   %input = ac.source depth 1 latency 1 : !ac.queue<i2>
   ac.rule %input depths [] latencies [] name "read" stable_id "read"
@@ -184,27 +163,24 @@ module attributes {ac.contract_epoch = "0.5"} {
 }
 
 //--- direct-flat-index.mlir
-module attributes {ac.contract_epoch = "0.5"} {
+module  {
   ac.table @bad entry i8 entries 6 init 0 owner "/" stable_id "table/bad" {
     shape = array<i64: 2, 3>, axis_widths = array<i64: 1, 2>,
-    layout = "row_major", layout_version = 1 : i64,
-    schema_id = "sha256:c62fc75ed67ce361c35684c21e695d036e8bae7ee6f525dfaf9b13940b86a4b0"
+    layout = "row_major", layout_version = 1 : i64
   }
   %index = ac.var.constant 0 : i3 as !ac.var<i3>
   %value = ac.table.get @bad[%index] : !ac.var<i3> -> !ac.var<i8>
 }
 
 //--- cross-table-choice-index.mlir
-module attributes {ac.contract_epoch = "0.5"} {
+module  {
   ac.table @left entry i8 entries 6 init 0 owner "/" stable_id "table/left" {
     shape = array<i64: 2, 3>, axis_widths = array<i64: 1, 2>,
-    layout = "row_major", layout_version = 1 : i64,
-    schema_id = "sha256:c62fc75ed67ce361c35684c21e695d036e8bae7ee6f525dfaf9b13940b86a4b0"
+    layout = "row_major", layout_version = 1 : i64
   }
   ac.table @right entry i8 entries 6 init 0 owner "/" stable_id "table/right" {
     shape = array<i64: 2, 3>, axis_widths = array<i64: 1, 2>,
-    layout = "row_major", layout_version = 1 : i64,
-    schema_id = "sha256:c62fc75ed67ce361c35684c21e695d036e8bae7ee6f525dfaf9b13940b86a4b0"
+    layout = "row_major", layout_version = 1 : i64
   }
   %mask = ac.table.match @left predicate {
   ^predicate(%entry: !ac.var<i8>):
@@ -219,11 +195,10 @@ module attributes {ac.contract_epoch = "0.5"} {
 }
 
 //--- wrong-width-choice-index.mlir
-module attributes {ac.contract_epoch = "0.5"} {
+module  {
   ac.table @bad entry i8 entries 6 init 0 owner "/" stable_id "table/bad" {
     shape = array<i64: 2, 3>, axis_widths = array<i64: 1, 2>,
-    layout = "row_major", layout_version = 1 : i64,
-    schema_id = "sha256:c62fc75ed67ce361c35684c21e695d036e8bae7ee6f525dfaf9b13940b86a4b0"
+    layout = "row_major", layout_version = 1 : i64
   }
   %mask = ac.table.match @bad predicate {
   ^predicate(%entry: !ac.var<i8>):
@@ -237,11 +212,10 @@ module attributes {ac.contract_epoch = "0.5"} {
 }
 
 //--- domain-partial.mlir
-module attributes {ac.contract_epoch = "0.5"} {
+module  {
   ac.table @bad entry i8 entries 6 init 0 owner "/" stable_id "table/bad" {
     shape = array<i64: 2, 3>, axis_widths = array<i64: 1, 2>,
-    layout = "row_major", layout_version = 1 : i64,
-    schema_id = "sha256:c62fc75ed67ce361c35684c21e695d036e8bae7ee6f525dfaf9b13940b86a4b0"
+    layout = "row_major", layout_version = 1 : i64
   }
   %mask = ac.table.match @bad predicate {
   ^predicate(%entry: !ac.var<i8>):
@@ -251,11 +225,10 @@ module attributes {ac.contract_epoch = "0.5"} {
 }
 
 //--- domain-stride.mlir
-module attributes {ac.contract_epoch = "0.5"} {
+module  {
   ac.table @bad entry i8 entries 6 init 0 owner "/" stable_id "table/bad" {
     shape = array<i64: 2, 3>, axis_widths = array<i64: 1, 2>,
-    layout = "row_major", layout_version = 1 : i64,
-    schema_id = "sha256:c62fc75ed67ce361c35684c21e695d036e8bae7ee6f525dfaf9b13940b86a4b0"
+    layout = "row_major", layout_version = 1 : i64
   }
   %mask = ac.table.match @bad predicate {
   ^predicate(%entry: !ac.var<i8>):
@@ -266,11 +239,10 @@ module attributes {ac.contract_epoch = "0.5"} {
 }
 
 //--- domain-offset.mlir
-module attributes {ac.contract_epoch = "0.5"} {
+module  {
   ac.table @bad entry i8 entries 6 init 0 owner "/" stable_id "table/bad" {
     shape = array<i64: 2, 3>, axis_widths = array<i64: 1, 2>,
-    layout = "row_major", layout_version = 1 : i64,
-    schema_id = "sha256:c62fc75ed67ce361c35684c21e695d036e8bae7ee6f525dfaf9b13940b86a4b0"
+    layout = "row_major", layout_version = 1 : i64
   }
   %mask = ac.table.match @bad predicate {
   ^predicate(%entry: !ac.var<i8>):
@@ -281,11 +253,10 @@ module attributes {ac.contract_epoch = "0.5"} {
 }
 
 //--- domain-mask.mlir
-module attributes {ac.contract_epoch = "0.5"} {
+module  {
   ac.table @bad entry i8 entries 6 init 0 owner "/" stable_id "table/bad" {
     shape = array<i64: 2, 3>, axis_widths = array<i64: 1, 2>,
-    layout = "row_major", layout_version = 1 : i64,
-    schema_id = "sha256:c62fc75ed67ce361c35684c21e695d036e8bae7ee6f525dfaf9b13940b86a4b0"
+    layout = "row_major", layout_version = 1 : i64
   }
   %mask = ac.table.match @bad predicate {
   ^predicate(%entry: !ac.var<i8>):
@@ -294,3 +265,4 @@ module attributes {ac.contract_epoch = "0.5"} {
   } {domain_axes = array<i64: 1>, domain_shape = array<i64: 3>,
      domain_strides = array<i64: 1>, domain_offset = 3 : i64} -> !ac.var<i2>
 }
+// PARTIAL: typed Table schema requires shape, axis_widths, layout, and layout_version

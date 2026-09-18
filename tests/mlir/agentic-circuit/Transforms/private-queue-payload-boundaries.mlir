@@ -1,6 +1,6 @@
 // RUN: %acir_opt %s -ac-prune-internal-payloads | %FileCheck %s
 
-builtin.module attributes {ac.contract_epoch = "0.5", ac.model_kind = "queue_graph", ac.queue_graph_domain = "cycle", ac.system = "nested_boundary"} {
+builtin.module attributes {ac.model_kind = "queue_graph", ac.queue_graph_domain = "cycle", ac.system = "nested_boundary"} {
   ac.type_scope @types {
     ac.struct @Packet fields [{name = "tag", type = i8}, {name = "payload", type = i64}]
   } {dlti.dl_spec = #dlti.dl_spec<!ac.struct<@types::@Packet> = {abi_alignment = 8 : i64, endianness = "little", preferred_alignment = 8 : i64, size = 16 : i64}>}

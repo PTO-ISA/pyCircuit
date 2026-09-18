@@ -138,7 +138,7 @@ def test_onboarding_uses_current_paths_and_product_language() -> None:
     readme = (ROOT / "README.md").read_text(encoding="utf-8")
     # Six status badges plus the repository logo.
     assert readme.count("<img src=") == 7
-    assert "agentic_circuit frontend -> ACPy 0.5 -> ACIR" in readme
+    assert "agentic_circuit frontend -> acc.py -> verified ACIR -> acc" in readme
     assert "docs/development/repository-layout.md" in readme
 
 

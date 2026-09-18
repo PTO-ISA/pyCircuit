@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import copy
-import hashlib
 import json
 import math
 import shutil
@@ -14,7 +13,7 @@ import pytest
 pytestmark = pytest.mark.unit
 
 
-def test_implementation_catalog_is_bsd_and_digest_closed() -> None:
+def test_implementation_catalog_is_bsd_and_source_closed() -> None:
     root = Path(__file__).resolve().parents[2]
     catalog_path = root / "library" / "verilog" / "rtl_catalog.json"
     catalog = json.loads(catalog_path.read_text(encoding="utf-8"))
@@ -32,15 +31,11 @@ def test_implementation_catalog_is_bsd_and_digest_closed() -> None:
         assert implementation["license_file"] == "licenses/BSD-3-Clause.txt"
         license_path = catalog_path.parent / implementation["license_file"]
         assert license_path.is_file()
-        assert implementation["license_sha256"] == (
-            "sha256:" + hashlib.sha256(license_path.read_bytes()).hexdigest()
-        )
         assert "basejump" not in implementation["implementation_id"].lower()
         for source in implementation["sources"]:
             assert source["license"] == "BSD-3-Clause"
             path = catalog_path.parent / source["path"]
-            digest = "sha256:" + hashlib.sha256(path.read_bytes()).hexdigest()
-            assert source["sha256"] == digest
+            assert path.is_file()
 
 
 def test_semantic_registry_contains_no_implementation_names() -> None:

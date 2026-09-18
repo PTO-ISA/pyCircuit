@@ -1,8 +1,8 @@
 // RUN: %acir_opt --pass-pipeline='builtin.module(ac-verify-value-constraints,ac-freeze-topology)' %s -o %t.frozen.mlir
 // RUN: %acir_queue_pycgen %t.frozen.mlir | %FileCheck %s --check-prefix=PYC
-// RUN: %python %source_root/compiler/acir/tools/acir-queue-veriloggen.py %t.frozen.mlir --pycgen %acir_queue_pycgen | %FileCheck %s --check-prefix=VERILOG
+// RUN: rm -f %t.sv && %acc -c %t.frozen.mlir -emit-verilog -o %t.sv && %FileCheck %s --check-prefix=VERILOG < %t.sv
 
-module attributes {ac.contract_epoch = "0.5", ac.model_kind = "queue_graph", ac.queue_graph_domain = "cycle", ac.system = "writer_arbitration"} {
+module attributes {ac.model_kind = "queue_graph", ac.queue_graph_domain = "cycle", ac.system = "writer_arbitration"} {
   ac.table @state entry i8 entries 1 init 0 owner "/" stable_id "table/state"
   %left = ac.source depth 1 latency 1 {ac.name = "left"} : !ac.queue<i8>
   %right = ac.source depth 1 latency 1 {ac.name = "right"} : !ac.queue<i8>

@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-import hashlib
-import json
 from dataclasses import dataclass
 from typing import TypeAlias
 
@@ -31,16 +29,6 @@ class ValueType:
 
     def bit_width(self) -> int:
         raise NotImplementedError
-
-    @property
-    def fingerprint(self) -> str:
-        encoded = json.dumps(
-            self.canonical(),
-            ensure_ascii=False,
-            sort_keys=True,
-            separators=(",", ":"),
-        ).encode("utf-8")
-        return "sha256:" + hashlib.sha256(encoded).hexdigest()
 
 
 @dataclass(frozen=True, slots=True)
@@ -262,28 +250,8 @@ class StructType(ValueType):
         return result
 
     @property
-    def specialization_fingerprint(self) -> str:
-        """Return a verifier-reproducible identity for the concrete layout."""
-
-        digest = hashlib.sha256()
-
-        def append(value: str) -> None:
-            digest.update(value.encode("utf-8"))
-            digest.update(b"\0")
-
-        append("ac.struct-specialization-v1")
-        append(self.name)
-        for field in self.fields:
-            append(field.name)
-            append(field.type.mlir())
-        for name, value in self.static_bindings:
-            append(name)
-            append(str(value))
-        return "sha256:" + digest.hexdigest()
-
-    @property
     def symbol(self) -> str:
-        """Return the stable ACIR symbol for this nominal specialization."""
+        """Return the readable ACIR symbol for this concrete layout."""
 
         def contains_specialization(value_type: ValueType) -> bool:
             if isinstance(value_type, StructType):
@@ -302,7 +270,21 @@ class StructType(ValueType):
             contains_specialization(field.type) for field in self.fields
         ):
             return self.name
-        return f"{self.name}__p{self.specialization_fingerprint[7:19]}"
+        parts = [self.name]
+        for name, value in self.static_bindings:
+            parts.append(f"{name}_{'neg_' if value < 0 else ''}{abs(value)}")
+        for field in self.fields:
+            if contains_specialization(field.type):
+                nested = (
+                    field.type.symbol
+                    if isinstance(field.type, StructType)
+                    else field.type.mlir()
+                    .replace("!", "")
+                    .replace("<", "_")
+                    .replace(">", "")
+                )
+                parts.append(f"{field.name}_{nested}")
+        return "__".join(parts)
 
     def mlir(self, *, scope: str = "types") -> str:
         return f"!ac.struct<@{_name(scope, 'type scope')}::@{self.symbol}>"

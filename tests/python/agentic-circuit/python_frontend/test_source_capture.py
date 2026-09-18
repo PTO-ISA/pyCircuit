@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import hashlib
 import json
 import tempfile
 import unittest
@@ -74,16 +73,13 @@ class SourceCaptureTest(unittest.TestCase):
         self.assertEqual("module {}\n", acir)
         self.assertEqual((diagnostic,), diagnostics)
 
-    def test_identity_is_workspace_relative_and_hashed(self) -> None:
+    def test_identity_is_workspace_relative(self) -> None:
         from agentic_circuit._source import load_source_unit
 
         entry = WORKSPACE / "basic.py"
         unit = load_source_unit(entry, WORKSPACE)
 
         self.assertEqual("basic.py", unit.path)
-        self.assertEqual(
-            "sha256:" + hashlib.sha256(entry.read_bytes()).hexdigest(), unit.sha256
-        )
         self.assertEqual(
             ["Worker", "Architecture"],
             [site.qualified_name for site in unit.definitions],
@@ -135,7 +131,7 @@ class SourceCaptureTest(unittest.TestCase):
             workspace = Path(temporary)
             entry = workspace / "nested.py"
             entry.write_text(
-                "def outer():\n" "    @module\n" "    def inner():\n" "        pass\n",
+                "def outer():\n    @module\n    def inner():\n        pass\n",
                 encoding="utf-8",
             )
 

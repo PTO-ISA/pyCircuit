@@ -5,7 +5,6 @@
 // RUN: %cxx -std=c++20 -I%source_root/simulator/gfsim/include -fsyntax-only %t.cpp
 
 builtin.module attributes {
-  ac.contract_epoch = "0.5",
   ac.model_kind = "queue_graph",
   ac.queue_graph_domain = "cycle"
 } {
@@ -73,8 +72,8 @@ builtin.module attributes {
 // PLAN-SAME: "kind":"transform"
 // PLAN-SAME: "definition":"Increment"
 
-// CXX-COUNT-1: class [[LEAF:Module_Increment]] final : public gfsim::Module
-// CXX-COUNT-1: class [[WRAPPER:Module_Wrapper]] final : public gfsim::Module
+// CXX-COUNT-1: class [[LEAF:Increment]] final : public gfsim::Module
+// CXX-COUNT-1: class [[WRAPPER:Wrapper]] final : public gfsim::Module
 // CXX: [[LEAF]] child_0_;
 // CXX: class NestedReuse final : public gfsim::Module
 // CXX-COUNT-2: [[WRAPPER]] instance_

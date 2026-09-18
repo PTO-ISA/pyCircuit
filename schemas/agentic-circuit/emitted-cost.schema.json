@@ -3,34 +3,90 @@
     "frame": {
       "additionalProperties": false,
       "properties": {
-        "column": {"minimum": 1, "type": "integer"},
-        "file": {"minLength": 1, "type": "string"},
-        "kind": {"minLength": 1, "type": "string"},
-        "line": {"minimum": 1, "type": "integer"},
-        "symbol": {"minLength": 1, "type": "string"}
+        "column": {
+          "minimum": 1,
+          "type": "integer"
+        },
+        "file": {
+          "minLength": 1,
+          "type": "string"
+        },
+        "kind": {
+          "minLength": 1,
+          "type": "string"
+        },
+        "line": {
+          "minimum": 1,
+          "type": "integer"
+        },
+        "symbol": {
+          "minLength": 1,
+          "type": "string"
+        }
       },
-      "required": ["column", "file", "kind", "line"],
+      "required": [
+        "column",
+        "file",
+        "kind",
+        "line"
+      ],
       "type": "object"
     },
     "metric": {
       "additionalProperties": false,
       "allOf": [
         {
-          "if": {"properties": {"status": {"const": "not_modeled"}}},
-          "then": {"required": ["reason"]},
-          "else": {"required": ["value"]}
+          "if": {
+            "properties": {
+              "status": {
+                "const": "not_modeled"
+              }
+            }
+          },
+          "then": {
+            "required": [
+              "reason"
+            ]
+          },
+          "else": {
+            "required": [
+              "value"
+            ]
+          }
         }
       ],
       "properties": {
-        "reason": {"minLength": 1, "type": "string"},
-        "stage": {"minLength": 1, "type": "string"},
-        "status": {
-          "enum": ["exact", "static_upper_bound", "measured", "not_applicable", "not_modeled"]
+        "reason": {
+          "minLength": 1,
+          "type": "string"
         },
-        "unit": {"minLength": 1, "type": "string"},
-        "value": {"minimum": 0, "type": "integer"}
+        "stage": {
+          "minLength": 1,
+          "type": "string"
+        },
+        "status": {
+          "enum": [
+            "exact",
+            "static_upper_bound",
+            "measured",
+            "not_applicable",
+            "not_modeled"
+          ]
+        },
+        "unit": {
+          "minLength": 1,
+          "type": "string"
+        },
+        "value": {
+          "minimum": 0,
+          "type": "integer"
+        }
       },
-      "required": ["stage", "status", "unit"],
+      "required": [
+        "stage",
+        "status",
+        "unit"
+      ],
       "type": "object"
     },
     "provenance": {
@@ -41,92 +97,238 @@
             "additionalProperties": false,
             "properties": {
               "frames": {
-                "items": {"$ref": "#/$defs/frame"},
+                "items": {
+                  "$ref": "#/$defs/frame"
+                },
                 "minItems": 1,
                 "type": "array"
               }
             },
-            "required": ["frames"],
+            "required": [
+              "frames"
+            ],
             "type": "object"
           },
           "minItems": 1,
           "type": "array"
         }
       },
-      "required": ["origins"],
+      "required": [
+        "origins"
+      ],
       "type": "object"
     },
     "queue": {
       "additionalProperties": false,
       "properties": {
-        "carrier_bits": {"minimum": 1, "type": "integer"},
-        "depth": {"minimum": 1, "type": "integer"},
-        "lanes": {"minimum": 1, "type": "integer"},
-        "logical_bits": {"minimum": 1, "type": "integer"},
-        "name": {"minLength": 1, "type": "string"},
-        "packed_bytes": {"minimum": 1, "type": "integer"},
-        "projection_profile": {"minLength": 1, "type": "string"},
-        "rate": {"minimum": 1, "type": "integer"},
-        "scope": {"minLength": 1, "type": "string"}
+        "carrier_bits": {
+          "minimum": 1,
+          "type": "integer"
+        },
+        "depth": {
+          "minimum": 1,
+          "type": "integer"
+        },
+        "lanes": {
+          "minimum": 1,
+          "type": "integer"
+        },
+        "logical_bits": {
+          "minimum": 1,
+          "type": "integer"
+        },
+        "name": {
+          "minLength": 1,
+          "type": "string"
+        },
+        "packed_bytes": {
+          "minimum": 1,
+          "type": "integer"
+        },
+        "projection_profile": {
+          "minLength": 1,
+          "type": "string"
+        },
+        "rate": {
+          "minimum": 1,
+          "type": "integer"
+        },
+        "scope": {
+          "minLength": 1,
+          "type": "string"
+        }
       },
-      "required": ["carrier_bits", "depth", "lanes", "logical_bits", "name", "packed_bytes", "rate", "scope"],
+      "required": [
+        "carrier_bits",
+        "depth",
+        "lanes",
+        "logical_bits",
+        "name",
+        "packed_bytes",
+        "rate",
+        "scope"
+      ],
       "type": "object"
     },
     "rule": {
       "additionalProperties": false,
       "properties": {
-        "display_rule_name": {"type": "string"},
-        "identity": {"minLength": 1, "type": "string"},
-        "inputs": {"items": {"$ref": "#/$defs/queue"}, "type": "array"},
-        "kind": {"minLength": 1, "type": "string"},
+        "display_rule_name": {
+          "type": "string"
+        },
+        "identity": {
+          "minLength": 1,
+          "type": "string"
+        },
+        "inputs": {
+          "items": {
+            "$ref": "#/$defs/queue"
+          },
+          "type": "array"
+        },
+        "kind": {
+          "minLength": 1,
+          "type": "string"
+        },
         "metrics": {
           "additionalProperties": false,
           "properties": {
-            "dynamic_array_expansion_factor": {"$ref": "#/$defs/metric"},
-            "explicit_copy_sites": {"$ref": "#/$defs/metric"},
-            "fixed_array_expansion_bound": {"$ref": "#/$defs/metric"},
-            "logic_depth": {"$ref": "#/$defs/metric"},
-            "output_materialization_sites": {"$ref": "#/$defs/metric"},
-            "output_move_sites": {"$ref": "#/$defs/metric"},
-            "queuegraph_nodes": {"$ref": "#/$defs/metric"},
-            "runtime_vector_construction_sites": {"$ref": "#/$defs/metric"},
-            "table_scan_bound": {"$ref": "#/$defs/metric"}
+            "dynamic_array_expansion_factor": {
+              "$ref": "#/$defs/metric"
+            },
+            "explicit_copy_sites": {
+              "$ref": "#/$defs/metric"
+            },
+            "fixed_array_expansion_bound": {
+              "$ref": "#/$defs/metric"
+            },
+            "logic_depth": {
+              "$ref": "#/$defs/metric"
+            },
+            "output_materialization_sites": {
+              "$ref": "#/$defs/metric"
+            },
+            "output_move_sites": {
+              "$ref": "#/$defs/metric"
+            },
+            "queuegraph_nodes": {
+              "$ref": "#/$defs/metric"
+            },
+            "runtime_vector_construction_sites": {
+              "$ref": "#/$defs/metric"
+            },
+            "table_scan_bound": {
+              "$ref": "#/$defs/metric"
+            }
           },
-          "required": ["dynamic_array_expansion_factor", "explicit_copy_sites", "fixed_array_expansion_bound", "logic_depth", "output_materialization_sites", "output_move_sites", "queuegraph_nodes", "runtime_vector_construction_sites", "table_scan_bound"],
+          "required": [
+            "dynamic_array_expansion_factor",
+            "explicit_copy_sites",
+            "fixed_array_expansion_bound",
+            "logic_depth",
+            "output_materialization_sites",
+            "output_move_sites",
+            "queuegraph_nodes",
+            "runtime_vector_construction_sites",
+            "table_scan_bound"
+          ],
           "type": "object"
         },
-        "name": {"minLength": 1, "type": "string"},
-        "outputs": {"items": {"$ref": "#/$defs/queue"}, "type": "array"},
-        "scope": {"minLength": 1, "type": "string"},
-        "source_provenance": {"$ref": "#/$defs/provenance"}
+        "name": {
+          "minLength": 1,
+          "type": "string"
+        },
+        "outputs": {
+          "items": {
+            "$ref": "#/$defs/queue"
+          },
+          "type": "array"
+        },
+        "scope": {
+          "minLength": 1,
+          "type": "string"
+        },
+        "source_provenance": {
+          "$ref": "#/$defs/provenance"
+        }
       },
-      "required": ["display_rule_name", "identity", "inputs", "kind", "metrics", "name", "outputs", "scope"],
+      "required": [
+        "display_rule_name",
+        "identity",
+        "inputs",
+        "kind",
+        "metrics",
+        "name",
+        "outputs",
+        "scope"
+      ],
       "type": "object"
     },
     "shared_cost": {
       "additionalProperties": false,
       "properties": {
-        "identity": {"minLength": 1, "type": "string"},
-        "kind": {"const": "table_match"},
-        "name": {"minLength": 1, "type": "string"},
-        "scan_bound": {"$ref": "#/$defs/metric"},
-        "scope": {"minLength": 1, "type": "string"},
-        "source_provenance": {"$ref": "#/$defs/provenance"},
-        "table": {"minLength": 1, "type": "string"}
+        "identity": {
+          "minLength": 1,
+          "type": "string"
+        },
+        "kind": {
+          "const": "table_match"
+        },
+        "name": {
+          "minLength": 1,
+          "type": "string"
+        },
+        "scan_bound": {
+          "$ref": "#/$defs/metric"
+        },
+        "scope": {
+          "minLength": 1,
+          "type": "string"
+        },
+        "source_provenance": {
+          "$ref": "#/$defs/provenance"
+        },
+        "table": {
+          "minLength": 1,
+          "type": "string"
+        }
       },
-      "required": ["identity", "kind", "name", "scan_bound", "scope", "table"],
+      "required": [
+        "identity",
+        "kind",
+        "name",
+        "scan_bound",
+        "scope",
+        "table"
+      ],
       "type": "object"
     },
     "totals": {
       "additionalProperties": false,
       "properties": {
-        "carrier_queue_bits": {"$ref": "#/$defs/metric"},
-        "logical_queue_bits": {"$ref": "#/$defs/metric"},
-        "logic_depth": {"$ref": "#/$defs/metric"},
-        "queue_storage_packed_bytes": {"$ref": "#/$defs/metric"},
-        "queuegraph_nodes": {"$ref": "#/$defs/metric"}
+        "carrier_queue_bits": {
+          "$ref": "#/$defs/metric"
+        },
+        "logical_queue_bits": {
+          "$ref": "#/$defs/metric"
+        },
+        "logic_depth": {
+          "$ref": "#/$defs/metric"
+        },
+        "queue_storage_packed_bytes": {
+          "$ref": "#/$defs/metric"
+        },
+        "queuegraph_nodes": {
+          "$ref": "#/$defs/metric"
+        }
       },
-      "required": ["carrier_queue_bits", "logical_queue_bits", "logic_depth", "queue_storage_packed_bytes", "queuegraph_nodes"],
+      "required": [
+        "carrier_queue_bits",
+        "logical_queue_bits",
+        "logic_depth",
+        "queue_storage_packed_bytes",
+        "queuegraph_nodes"
+      ],
       "type": "object"
     }
   },
@@ -134,64 +336,157 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "additionalProperties": false,
   "properties": {
-    "contract_epoch": {"const": "0.5"},
     "coverage": {
       "additionalProperties": false,
       "properties": {
-        "logic_depth_modeled_rules": {"minimum": 0, "type": "integer"},
-        "rules": {"minimum": 0, "type": "integer"},
-        "runtime_heap_allocations": {"const": "not_modeled"},
-        "sizeof_payload_types": {"const": "not_modeled"}
+        "logic_depth_modeled_rules": {
+          "minimum": 0,
+          "type": "integer"
+        },
+        "rules": {
+          "minimum": 0,
+          "type": "integer"
+        },
+        "runtime_heap_allocations": {
+          "const": "not_modeled"
+        },
+        "sizeof_payload_types": {
+          "const": "not_modeled"
+        }
       },
-      "required": ["logic_depth_modeled_rules", "rules", "runtime_heap_allocations", "sizeof_payload_types"],
+      "required": [
+        "logic_depth_modeled_rules",
+        "rules",
+        "runtime_heap_allocations",
+        "sizeof_payload_types"
+      ],
       "type": "object"
     },
     "identity": {
       "additionalProperties": false,
       "properties": {
-        "product_version": {"pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+(?:[.a-zA-Z0-9+-]*)?$", "type": "string"},
-        "queuegraph_sha256": {"pattern": "^sha256:[0-9a-f]{64}$", "type": "string"},
-        "source_map_sha256": {"pattern": "^sha256:[0-9a-f]{64}$", "type": "string"},
-        "specialization": {"anyOf": [{"pattern": "^sha256:[0-9a-f]{64}$", "type": "string"}, {"type": "null"}]},
-        "system": {"minLength": 1, "type": "string"},
-        "toolchain_revision": {"pattern": "^[0-9a-f]{40}$", "type": "string"}
+        "product_version": {
+          "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+(?:[.a-zA-Z0-9+-]*)?$",
+          "type": "string"
+        },
+        "static_arguments": {
+          "type": "object"
+        },
+        "system": {
+          "minLength": 1,
+          "type": "string"
+        },
+        "toolchain_revision": {
+          "pattern": "^[0-9a-f]{40}$",
+          "type": "string"
+        }
       },
-      "required": ["product_version", "queuegraph_sha256", "source_map_sha256", "specialization", "system", "toolchain_revision"],
+      "required": [
+        "product_version",
+        "static_arguments",
+        "system",
+        "toolchain_revision"
+      ],
       "type": "object"
     },
     "models": {
       "additionalProperties": false,
       "properties": {
-        "logic_depth": {"const": "pyc_check_logic_depth_unit_cost"},
-        "runtime": {"const": "gfsim_generated_static_v1"}
+        "logic_depth": {
+          "const": "pyc_check_logic_depth_unit_cost"
+        },
+        "runtime": {
+          "const": "gfsim_generated_static_v1"
+        }
       },
-      "required": ["logic_depth", "runtime"],
+      "required": [
+        "logic_depth",
+        "runtime"
+      ],
       "type": "object"
     },
     "modules": {
       "items": {
         "additionalProperties": false,
         "properties": {
-          "definition": {"anyOf": [{"minLength": 1, "type": "string"}, {"type": "null"}]},
-          "instance_path": {"minLength": 1, "type": "string"},
-          "queues": {"items": {"$ref": "#/$defs/queue"}, "type": "array"},
-          "rules": {"items": {"$ref": "#/$defs/rule"}, "type": "array"},
-          "shared_costs": {"items": {"$ref": "#/$defs/shared_cost"}, "type": "array"},
-          "specialization": {"anyOf": [{"pattern": "^sha256:[0-9a-f]{64}$", "type": "string"}, {"type": "null"}]},
-          "system": {"minLength": 1, "type": "string"},
-          "totals": {"$ref": "#/$defs/totals"}
+          "definition": {
+            "anyOf": [
+              {
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "instance_path": {
+            "minLength": 1,
+            "type": "string"
+          },
+          "queues": {
+            "items": {
+              "$ref": "#/$defs/queue"
+            },
+            "type": "array"
+          },
+          "rules": {
+            "items": {
+              "$ref": "#/$defs/rule"
+            },
+            "type": "array"
+          },
+          "shared_costs": {
+            "items": {
+              "$ref": "#/$defs/shared_cost"
+            },
+            "type": "array"
+          },
+          "static_arguments": {
+            "type": "object"
+          },
+          "system": {
+            "minLength": 1,
+            "type": "string"
+          },
+          "totals": {
+            "$ref": "#/$defs/totals"
+          }
         },
-        "required": ["definition", "instance_path", "queues", "rules", "shared_costs", "specialization", "system", "totals"],
+        "required": [
+          "definition",
+          "instance_path",
+          "queues",
+          "rules",
+          "shared_costs",
+          "static_arguments",
+          "system",
+          "totals"
+        ],
         "type": "object"
       },
       "minItems": 1,
       "type": "array"
     },
-    "schema": {"const": "agentic-circuit-emitted-cost"},
-    "totals": {"$ref": "#/$defs/totals"},
-    "version": {"const": "1"}
+    "schema": {
+      "const": "agentic-circuit-emitted-cost"
+    },
+    "totals": {
+      "$ref": "#/$defs/totals"
+    },
+    "version": {
+      "const": "1"
+    }
   },
-  "required": ["schema", "version", "contract_epoch", "identity", "models", "modules", "totals", "coverage"],
+  "required": [
+    "schema",
+    "version",
+    "identity",
+    "models",
+    "modules",
+    "totals",
+    "coverage"
+  ],
   "title": "Agentic Circuit emitted static cost report v1",
   "type": "object"
 }

@@ -12,8 +12,7 @@ from ._acpy import (
     SchemaRef,
     SourceFile,
 )
-from ._canonical_json import canonical_mlir_string, sha256_bytes, utf16_sort_key
-from ._contract import CONTRACT_EPOCH
+from ._canonical_json import canonical_mlir_string, utf16_sort_key
 from ._diagnostics import DiagnosticError, SourceSpan
 from ._frontend import CapturedProgram
 from ._normalize import NormalizedProgram
@@ -27,7 +26,6 @@ _SYMBOL = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
 @dataclass(frozen=True, slots=True)
 class AcirArtifact:
     text: str
-    sha256: str
     source_map: tuple[tuple[str, SourceSpan], ...]
 
 
@@ -90,7 +88,7 @@ def build_verified_acpy(
             source=call.source,
             parent=module.id,
             uses=uses,
-            schema_ref=SchemaRef(call.schema.identity, call.schema.fingerprint),
+            schema_ref=SchemaRef(call.schema.identity),
             properties=_properties(instance_name=call.instance_name),
         )
         for binding in call.results:
@@ -139,7 +137,7 @@ def build_verified_acpy(
     )
     document = AcpyDocument(
         entry=system.id,
-        sources=(SourceFile(captured.source.path, captured.source.sha256),),
+        sources=(SourceFile(captured.source.path),),
         entities=allocator.freeze(),
     )
     errors = document.verify()
@@ -250,9 +248,13 @@ def _component_declarations(program: NormalizedProgram) -> list[str]:
 
 def _emit_process(process: ProcessProgram, kind: str) -> list[str]:
     if process.captures:
-        raise DiagnosticError("ACPY-VERIFY-001: captured process lowering is not closed yet")
+        raise DiagnosticError(
+            "ACPY-VERIFY-001: captured process lowering is not closed yet"
+        )
     if len(process.blocks) != 1:
-        raise DiagnosticError("ACPY-VERIFY-001: multi-block process requires CFG lowering")
+        raise DiagnosticError(
+            "ACPY-VERIFY-001: multi-block process requires CFG lowering"
+        )
     block = process.blocks[0]
     if (
         block.actions
@@ -279,11 +281,7 @@ def lower_to_acir(
         raise DiagnosticError("ACPY-VERIFY-001: lowering requires verified ACPy")
     types = _argument_types(program)
     root = _symbol(program.definition)
-    lines = [
-        "module attributes {ac.contract_epoch = "
-        + canonical_mlir_string(CONTRACT_EPOCH)
-        + "} {"
-    ]
+    lines = ["module {"]
     workload = next(
         (process.name for process, kind in processes if kind == "workload"), None
     )
@@ -356,6 +354,5 @@ def lower_to_acir(
     text = "\n".join(lines) + "\n"
     return AcirArtifact(
         text=text,
-        sha256=sha256_bytes(text.encode("utf-8")),
         source_map=tuple(source_map),
     )

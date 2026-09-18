@@ -3,7 +3,6 @@
 #include "acir/Analysis/ModelAnalysis.h"
 #include "acir/Analysis/VariableAnalysis.h"
 #include "acir/Bindings/Binding.h"
-#include "acir/CodeGen/Manifest.h"
 #include "acir/Dialect/ACIR/ACIROps.h"
 #include "acir/Dialect/ACIR/ACIRTypes.h"
 #include "acir/Support/PrimitiveWidths.h"
@@ -25,7 +24,6 @@
 #include "llvm/Support/JSON.h"
 #include "llvm/Support/MathExtras.h"
 #include "llvm/Support/Path.h"
-#include "llvm/Support/SHA256.h"
 #include "llvm/Support/raw_ostream.h"
 
 #include <array>
@@ -96,6 +94,80 @@ llvm::Error planError(const llvm::Twine &message) {
   return llvm::createStringError(
       std::make_error_code(std::errc::invalid_argument),
       "ACLOWER-QUEUE-PLAN: " + message);
+}
+
+llvm::Expected<std::string> readableSpecializationValue(mlir::Attribute value) {
+  if (auto boolean = mlir::dyn_cast<mlir::BoolAttr>(value))
+    return boolean.getValue() ? "true" : "false";
+  if (auto integer = mlir::dyn_cast<mlir::IntegerAttr>(value)) {
+    llvm::SmallString<32> text;
+    integer.getValue().toString(text, 10, integer.getType().isSignedInteger());
+    std::string result = text.str().str();
+    if (llvm::StringRef(result).consume_front("-"))
+      return "neg_" + result.substr(1);
+    return result;
+  }
+  if (auto string = mlir::dyn_cast<mlir::StringAttr>(value)) {
+    std::string result = legalizeQueueGraphIdentifier(string.getValue());
+    return result.empty() ? std::string("empty") : result;
+  }
+  if (auto array = mlir::dyn_cast<mlir::ArrayAttr>(value)) {
+    std::string result = "array";
+    for (mlir::Attribute element : array) {
+      auto readable = readableSpecializationValue(element);
+      if (!readable)
+        return readable.takeError();
+      result.append("_").append(*readable);
+    }
+    return result;
+  }
+  if (auto dictionary = mlir::dyn_cast<mlir::DictionaryAttr>(value)) {
+    std::string result = "config";
+    for (mlir::NamedAttribute field : dictionary) {
+      auto readable = readableSpecializationValue(field.getValue());
+      if (!readable)
+        return readable.takeError();
+      result.append("_")
+          .append(legalizeQueueGraphIdentifier(field.getName().strref()))
+          .append("_")
+          .append(*readable);
+    }
+    return result;
+  }
+  if (auto type = mlir::dyn_cast<mlir::TypeAttr>(value)) {
+    std::string printed;
+    llvm::raw_string_ostream stream(printed);
+    stream << type.getValue();
+    return "type_" + legalizeQueueGraphIdentifier(printed);
+  }
+  return planError(
+      "specialization parameter is not readable in the C++ naming contract");
+}
+
+std::string specializationKey(llvm::StringRef definition,
+                              mlir::DictionaryAttr arguments) {
+  std::string result;
+  llvm::raw_string_ostream stream(result);
+  stream << '@' << definition << arguments;
+  return result;
+}
+
+llvm::Expected<std::vector<std::pair<std::string, std::string>>>
+readableSpecializationParameters(mlir::DictionaryAttr arguments) {
+  std::vector<std::pair<std::string, std::string>> result;
+  if (!arguments)
+    return result;
+  for (mlir::NamedAttribute argument : arguments) {
+    if (argument.getName() == "jit_specialization")
+      continue;
+    auto value = readableSpecializationValue(argument.getValue());
+    if (!value)
+      return value.takeError();
+    result.emplace_back(
+        legalizeQueueGraphIdentifier(argument.getName().strref()),
+        std::move(*value));
+  }
+  return result;
 }
 
 llvm::Expected<uint64_t> addBitWidths(uint64_t left, uint64_t right) {
@@ -315,8 +387,7 @@ mlirValueBitWidth(mlir::Operation *from, mlir::Type type,
   return finish(planError("QueueGraph value type has no bit-width model"));
 }
 
-std::optional<std::pair<uint64_t, uint64_t>>
-rangeBounds(llvm::StringRef type) {
+std::optional<std::pair<uint64_t, uint64_t>> rangeBounds(llvm::StringRef type) {
   constexpr llvm::StringLiteral prefix = "!ac.range<";
   if (!type.starts_with(prefix) || !type.ends_with('>'))
     return std::nullopt;
@@ -595,8 +666,7 @@ inferPlanConstraint(const QueueExpressionPlan &expression,
       return ValueConstraint::closedInterval(0, right.values.front() & mask);
   }
   if (expression.kind == "urem" &&
-      right.kind == ValueConstraintKind::Constant &&
-      right.values.front() != 0)
+      right.kind == ValueConstraintKind::Constant && right.values.front() != 0)
     return ValueConstraint::closedInterval(0, right.values.front() - 1);
   if (expression.kind == "not" && left.kind == ValueConstraintKind::Constant)
     return ValueConstraint::constant((~left.values.front()) & mask);
@@ -736,23 +806,23 @@ extractSourceProvenance(mlir::Operation *operation) {
     return planError("source provenance must be a non-empty origin array");
   for (mlir::Attribute rawOrigin : origins) {
     auto origin = mlir::dyn_cast<mlir::DictionaryAttr>(rawOrigin);
-    auto frames = origin ? origin.getAs<mlir::ArrayAttr>("frames")
-                         : mlir::ArrayAttr();
+    auto frames =
+        origin ? origin.getAs<mlir::ArrayAttr>("frames") : mlir::ArrayAttr();
     if (!origin || origin.size() != 1 || !frames || frames.empty())
       return planError("source provenance origin is malformed");
     QueueSourceOriginPlan plannedOrigin;
     for (mlir::Attribute rawFrame : frames) {
       auto frame = mlir::dyn_cast<mlir::DictionaryAttr>(rawFrame);
-      auto file = frame ? frame.getAs<mlir::StringAttr>("file")
-                        : mlir::StringAttr();
-      auto kind = frame ? frame.getAs<mlir::StringAttr>("kind")
-                        : mlir::StringAttr();
-      auto line = frame ? frame.getAs<mlir::IntegerAttr>("line")
-                        : mlir::IntegerAttr();
+      auto file =
+          frame ? frame.getAs<mlir::StringAttr>("file") : mlir::StringAttr();
+      auto kind =
+          frame ? frame.getAs<mlir::StringAttr>("kind") : mlir::StringAttr();
+      auto line =
+          frame ? frame.getAs<mlir::IntegerAttr>("line") : mlir::IntegerAttr();
       auto column = frame ? frame.getAs<mlir::IntegerAttr>("column")
                           : mlir::IntegerAttr();
-      auto symbol = frame ? frame.getAs<mlir::StringAttr>("symbol")
-                          : mlir::StringAttr();
+      auto symbol =
+          frame ? frame.getAs<mlir::StringAttr>("symbol") : mlir::StringAttr();
       if (!frame || (frame.size() != 4 && frame.size() != 5) || !file ||
           !kind || !line || !column ||
           (frame.size() == 5) != static_cast<bool>(symbol))
@@ -764,8 +834,7 @@ extractSourceProvenance(mlir::Operation *operation) {
       if ((rawKind != "statement" && rawKind != "definition" &&
            rawKind != "inline_callsite" && rawKind != "instance" &&
            rawKind != "specialization") ||
-          !isValidPythonSourcePath(rawFile) ||
-          rawLine <= 0 || rawColumn <= 0)
+          !isValidPythonSourcePath(rawFile) || rawLine <= 0 || rawColumn <= 0)
         return planError("source provenance frame is malformed");
       plannedOrigin.push_back(
           {rawKind.str(), rawFile.str(), static_cast<uint64_t>(rawLine),
@@ -777,8 +846,54 @@ extractSourceProvenance(mlir::Operation *operation) {
   return result;
 }
 
+llvm::Error extractNdfMetadata(mlir::Operation *operation, llvm::StringRef name,
+                               std::vector<std::string> &target) {
+  auto values = operation->getAttrOfType<mlir::ArrayAttr>(name);
+  if (!values)
+    return operation->hasAttr(name)
+               ? planError(name + " must be an array of NDF identifiers")
+               : llvm::Error::success();
+  llvm::StringSet<> unique;
+  for (mlir::Attribute value : values) {
+    auto identifier = mlir::dyn_cast<mlir::StringAttr>(value);
+    if (!identifier || identifier.getValue().empty() ||
+        !identifier.getValue().contains('-') ||
+        !llvm::all_of(identifier.getValue(),
+                      [](char character) {
+                        return (character >= 'A' && character <= 'Z') ||
+                               (character >= '0' && character <= '9') ||
+                               character == '-';
+                      }) ||
+        !unique.insert(identifier.getValue()).second)
+      return planError(name + " contains an invalid NDF identifier");
+    target.push_back(identifier.getValue().str());
+  }
+  return llvm::Error::success();
+}
+
+llvm::Error extractDefinitionSource(mlir::Operation *operation,
+                                    QueueGraphPlan &plan) {
+  auto file = operation->getAttrOfType<mlir::StringAttr>("ac.source_file");
+  auto line = operation->getAttrOfType<mlir::IntegerAttr>("ac.source_line");
+  auto column = operation->getAttrOfType<mlir::IntegerAttr>("ac.source_column");
+  if (!file && !line && !column)
+    return llvm::Error::success();
+  if (!file || !line || !column || !isValidPythonSourcePath(file.getValue()) ||
+      line.getInt() <= 0 || column.getInt() <= 0)
+    return planError("module Python source metadata is malformed");
+  plan.sourceFile = file.getValue().str();
+  plan.sourceLine = static_cast<uint64_t>(line.getInt());
+  plan.sourceColumn = static_cast<uint64_t>(column.getInt());
+  return llvm::Error::success();
+}
+
 llvm::Error extractDisplayProvenance(mlir::Operation *operation,
                                      QueueBlockPlan &plan) {
+  if (auto error = extractNdfMetadata(operation, "ac.ndf_ids", plan.ndfIds))
+    return error;
+  if (auto error =
+          extractNdfMetadata(operation, "ac.ndf_requires", plan.ndfRequires))
+    return error;
   if (auto name =
           operation->getAttrOfType<mlir::StringAttr>("ac.rule_definition"))
     plan.displayRuleName = name.getValue().str();
@@ -897,11 +1012,15 @@ extractExpressions(mlir::Region &region, QueueBlockPlan &plan,
     std::string result = resultIdentity(
         operation, prefix.str() + std::to_string(plan.expressions.size()));
     values[operation.getResult(0)] = result;
-    QueueExpressionPlan expression{
-        std::move(result), kind.str(), printType(resultType.getElementType()),
-        std::move(*operands), field.str(), predicate.str(), literal.str()};
-    if (auto target = operation.getAttrOfType<mlir::StringAttr>(
-            "ac.static_type_target"))
+    QueueExpressionPlan expression{std::move(result),
+                                   kind.str(),
+                                   printType(resultType.getElementType()),
+                                   std::move(*operands),
+                                   field.str(),
+                                   predicate.str(),
+                                   literal.str()};
+    if (auto target =
+            operation.getAttrOfType<mlir::StringAttr>("ac.static_type_target"))
       expression.staticTypeTarget = target.getValue().str();
     expression.sourceProvenance = currentExpressionProvenance;
     plan.expressions.push_back(std::move(expression));
@@ -949,7 +1068,8 @@ extractExpressions(mlir::Region &region, QueueBlockPlan &plan,
     }
     if (auto constant = mlir::dyn_cast<ac::VarConstantOp>(operation)) {
       std::string literal = printAttribute(constant.getValueAttr());
-      if (auto integer = mlir::dyn_cast<mlir::IntegerAttr>(constant.getValueAttr());
+      if (auto integer =
+              mlir::dyn_cast<mlir::IntegerAttr>(constant.getValueAttr());
           integer &&
           mlir::cast<mlir::IntegerType>(integer.getType()).getWidth() > 1 &&
           mlir::cast<mlir::IntegerType>(integer.getType()).getWidth() <= 64)
@@ -1097,8 +1217,7 @@ extractExpressions(mlir::Region &region, QueueBlockPlan &plan,
       active.clear();
       auto indexWidth = mlirValueBitWidth(
           update,
-          mlir::cast<ac::VarType>(update.getIndex().getType())
-              .getElementType(),
+          mlir::cast<ac::VarType>(update.getIndex().getType()).getElementType(),
           active);
       if (!indexWidth)
         return indexWidth.takeError();
@@ -1189,10 +1308,13 @@ extractExpressions(mlir::Region &region, QueueBlockPlan &plan,
         std::string result =
             prefix.str() + std::to_string(plan.expressions.size());
         values[resultValue] = result;
-        QueueExpressionPlan expression{
-            std::move(result), kind.str(),
-            printType(resultType.getElementType()), *operands, {},
-            priority.getOrder().str(), {}};
+        QueueExpressionPlan expression{std::move(result),
+                                       kind.str(),
+                                       printType(resultType.getElementType()),
+                                       *operands,
+                                       {},
+                                       priority.getOrder().str(),
+                                       {}};
         expression.sourceProvenance = currentExpressionProvenance;
         plan.expressions.push_back(std::move(expression));
       }
@@ -1245,9 +1367,8 @@ extractExpressions(mlir::Region &region, QueueBlockPlan &plan,
       auto operands = operandNames(checked->getOperands());
       if (!operands)
         return operands.takeError();
-      const std::string group =
-          prefix.str() + "range_checked_" +
-          std::to_string(plan.expressions.size());
+      const std::string group = prefix.str() + "range_checked_" +
+                                std::to_string(plan.expressions.size());
       const std::array<std::pair<mlir::Value, llvm::StringRef>, 2> results = {{
           {checked.getValue(), "range_checked_value"},
           {checked.getValid(), "range_checked_valid"},
@@ -1257,9 +1378,9 @@ extractExpressions(mlir::Region &region, QueueBlockPlan &plan,
         std::string result =
             prefix.str() + std::to_string(plan.expressions.size());
         values[resultValue] = result;
-        QueueExpressionPlan expression{
-            result, kind.str(), printType(resultType.getElementType()),
-            *operands};
+        QueueExpressionPlan expression{result, kind.str(),
+                                       printType(resultType.getElementType()),
+                                       *operands};
         expression.field =
             printType(mlir::cast<ac::VarType>(checked.getValue().getType())
                           .getElementType());
@@ -1293,8 +1414,8 @@ extractExpressions(mlir::Region &region, QueueBlockPlan &plan,
       continue;
     }
     if (auto compare = mlir::dyn_cast<ac::VarRangeCmpOp>(operation)) {
-      if (auto error = append(operation, "range_cmp", {},
-                              compare.getPredicate()))
+      if (auto error =
+              append(operation, "range_cmp", {}, compare.getPredicate()))
         return error;
       continue;
     }
@@ -1346,13 +1467,11 @@ extractExpressions(mlir::Region &region, QueueBlockPlan &plan,
       }
       continue;
     }
-    if (auto release =
-            mlir::dyn_cast<ac::SlotProposeReleaseOp>(operation)) {
+    if (auto release = mlir::dyn_cast<ac::SlotProposeReleaseOp>(operation)) {
       auto when = values.find(release.getWhen());
       if (when == values.end())
         return planError("slot release guard is not a known firing value");
-      plan.slotReleases.push_back(
-          {release.getSlot().str(), when->second});
+      plan.slotReleases.push_back({release.getSlot().str(), when->second});
       continue;
     }
     if (auto match = mlir::dyn_cast<ac::TableMatchOp>(operation)) {
@@ -2189,8 +2308,8 @@ void materializeCaptureOnlySlots(QueueGraphPlan &plan) {
           return block.kind == "slot" && block.slot == slot.name;
         }))
       continue;
-    QueueBlockPlan capture{"slot", slot.name + "__capture", slot.scope,
-                           {slot.input}, {}};
+    QueueBlockPlan capture{
+        "slot", slot.name + "__capture", slot.scope, {slot.input}, {}};
     capture.lexicalOrder = plan.blocks.size() + plan.moduleInstances.size();
     capture.slot = slot.name;
     capture.yields = {"release_disabled"};
@@ -2209,9 +2328,6 @@ public:
   llvm::Expected<QueueGraphPlan> run() {
     if (mlir::failed(mlir::verify(module)))
       return planError("QueueGraph input failed operation verification");
-    auto epoch = module->getAttrOfType<mlir::StringAttr>("ac.contract_epoch");
-    if (!epoch || epoch.getValue() != "0.5")
-      return planError("module requires ac.contract_epoch exactly '0.5'");
     auto modelKind = module->getAttrOfType<mlir::StringAttr>("ac.model_kind");
     if (!modelKind || modelKind.getValue() != "queue_graph")
       return planError("module requires ac.model_kind exactly 'queue_graph'");
@@ -2248,17 +2364,18 @@ public:
       return planError("lowered-rule proof verification failed");
     if (mlir::failed(acir::verifyFrozenFlatQueueGraph(module)))
       return planError(
-          "QueueGraph requires verified epoch 0.5 topology freeze");
+          "QueueGraph requires verified topology closure");
     auto system = module->getAttrOfType<mlir::StringAttr>("ac.system");
     if (!system || system.getValue().empty())
       return planError("module requires non-empty ac.system");
     plan.system = system.getValue().str();
-    if (auto specialization =
-            module->getAttrOfType<mlir::StringAttr>("ac.specialization")) {
-      if (!isValidFingerprint(specialization.getValue()))
-        return planError("module ac.specialization fingerprint is invalid");
-      plan.specializationFingerprint = specialization.getValue().str();
-    }
+    if (auto error = extractDefinitionSource(module, plan))
+      return std::move(error);
+    if (auto error = extractNdfMetadata(module, "ac.ndf_ids", plan.ndfIds))
+      return std::move(error);
+    if (auto error =
+            extractNdfMetadata(module, "ac.ndf_requires", plan.ndfRequires))
+      return std::move(error);
     if (auto error = extractBlock(*module.getBody(), {}))
       return std::move(error);
     if (auto error = extractHelperPlans(module, plan))
@@ -2335,18 +2452,14 @@ private:
                            : mlir::StringAttr();
         auto schema = config ? config.getAs<mlir::StringAttr>("schema")
                              : mlir::StringAttr();
-        auto schemaSha = config
-                             ? config.getAs<mlir::StringAttr>("schema_sha256")
-                             : mlir::StringAttr();
         auto value = config ? config.getAs<mlir::StringAttr>("value")
                             : mlir::StringAttr();
-        if (!config || config.size() != 5 || !root || !type || !schema ||
-            !schemaSha || !value)
+        if (!config || config.size() != 4 || !root || !type || !schema ||
+            !value)
           return planError("static config binding metadata is malformed");
         plan.staticConfigBindings.push_back(
             {root.getValue().str(), type.getValue().str(),
-             schema.getValue().str(), schemaSha.getValue().str(),
-             value.getValue().str()});
+             schema.getValue().str(), value.getValue().str()});
       }
     }
     if (identities) {
@@ -2356,21 +2469,17 @@ private:
                                : mlir::StringAttr();
         auto symbol = identity ? identity.getAs<mlir::StringAttr>("symbol")
                                : mlir::StringAttr();
-        auto fingerprint = identity
-                               ? identity.getAs<mlir::StringAttr>("fingerprint")
-                               : mlir::StringAttr();
         auto identityBindings =
             identity ? identity.getAs<mlir::ArrayAttr>("bindings")
                      : mlir::ArrayAttr();
         auto targets = identity ? identity.getAs<mlir::ArrayAttr>("targets")
                                 : mlir::ArrayAttr();
-        if (!identity || identity.size() != 5 || !source || !symbol ||
-            !fingerprint || !identityBindings || !targets)
+        if (!identity || identity.size() != 4 || !source || !symbol ||
+            !identityBindings || !targets)
           return planError("static type identity metadata is malformed");
         QueueStaticTypeIdentityPlan item;
         item.source = source.getValue().str();
         item.symbol = symbol.getValue().str();
-        item.fingerprint = fingerprint.getValue().str();
         for (mlir::Attribute rawBinding : identityBindings) {
           auto binding = mlir::dyn_cast<mlir::DictionaryAttr>(rawBinding);
           auto name = binding ? binding.getAs<mlir::StringAttr>("name")
@@ -2399,17 +2508,25 @@ private:
 
   llvm::Expected<QueueGraphPlan> extractDefinition(
       ac::ModuleOp definition, llvm::StringRef specialization,
-      llvm::StringRef system,
+      mlir::DictionaryAttr specializationArguments, llvm::StringRef system,
       const llvm::StringMap<const QueueGraphPlan *> *available = nullptr) {
     Extractor nested(module);
     nested.plan.system = system.str();
     nested.plan.definition = definition.getSymName().str();
-    auto definitionFingerprint = definition->getAttrOfType<mlir::StringAttr>(
-        "ac.definition_fingerprint");
-    if (!definitionFingerprint)
-      return planError("module definition fingerprint is missing");
-    nested.plan.definitionFingerprint = definitionFingerprint.getValue().str();
-    nested.plan.specializationFingerprint = specialization.str();
+    if (auto error = extractDefinitionSource(definition, nested.plan))
+      return std::move(error);
+    if (auto error =
+            extractNdfMetadata(definition, "ac.ndf_ids", nested.plan.ndfIds))
+      return std::move(error);
+    if (auto error = extractNdfMetadata(definition, "ac.ndf_requires",
+                                        nested.plan.ndfRequires))
+      return std::move(error);
+    nested.plan.specializationKey = specialization.str();
+    auto readableParameters =
+        readableSpecializationParameters(specializationArguments);
+    if (!readableParameters)
+      return readableParameters.takeError();
+    nested.plan.specializationParameters = std::move(*readableParameters);
     nested.plan.payloads = plan.payloads;
     nested.plan.enums = plan.enums;
     nested.plan.aggregates = plan.aggregates;
@@ -2497,7 +2614,7 @@ private:
   llvm::Expected<QueueGraphPlan> runStructured() {
     if (mlir::failed(acir::verifyFrozenStructuredQueueGraph(module)))
       return planError(
-          "QueueGraph requires verified structured epoch 0.5 topology freeze");
+          "QueueGraph requires verified structured topology closure");
     ac::SystemOp selected;
     for (ac::SystemOp system : module.getOps<ac::SystemOp>())
       if (system.getSelected()) {
@@ -2519,17 +2636,29 @@ private:
     llvm::StringMap<ac::ModuleOp> definitions;
     for (ac::ModuleOp definition : module.getOps<ac::ModuleOp>())
       definitions[definition.getSymName()] = definition;
-    llvm::StringMap<std::pair<ac::ModuleOp, std::string>> requested;
+    struct SpecializationRequest {
+      ac::ModuleOp definition;
+      std::string key;
+      mlir::DictionaryAttr arguments;
+    };
+    llvm::StringMap<SpecializationRequest> requested;
     for (ac::ModuleOp definition : module.getOps<ac::ModuleOp>())
       for (ac::InstanceOp instance :
            definition.getBody().front().getOps<ac::InstanceOp>()) {
-        auto fingerprint =
-            instance->getAttrOfType<mlir::StringAttr>("ac.specialization");
         auto target = definitions.find(instance.getDefinition());
-        if (!fingerprint || target == definitions.end())
+        if (target == definitions.end())
           return planError("structured instance specialization is incomplete");
-        requested.try_emplace(fingerprint.getValue(), target->getValue(),
-                              fingerprint.getValue().str());
+        std::string key = specializationKey(instance.getDefinition(),
+                                            instance.getStaticArgs());
+        auto [entry, inserted] = requested.try_emplace(
+            key, SpecializationRequest{target->getValue(), key,
+                                  instance.getStaticArgs()});
+        if (!inserted &&
+            (entry->getValue().definition != target->getValue() ||
+             entry->getValue().arguments != instance.getStaticArgs()))
+          return planError(
+              "one specialization key maps to inconsistent readable "
+              "parameters");
       }
 
     llvm::StringMap<std::vector<std::string>> dependencies;
@@ -2537,16 +2666,16 @@ private:
     llvm::StringMap<size_t> pendingDependencies;
     for (const auto &entry : requested) {
       llvm::StringSet<> unique;
-      ac::ModuleOp definition = entry.getValue().first;
+      ac::ModuleOp definition = entry.getValue().definition;
       for (ac::InstanceOp instance :
            definition.getBody().front().getOps<ac::InstanceOp>()) {
-        auto fingerprint =
-            instance->getAttrOfType<mlir::StringAttr>("ac.specialization");
-        if (!fingerprint || !requested.contains(fingerprint.getValue()))
+        std::string key = specializationKey(instance.getDefinition(),
+                                            instance.getStaticArgs());
+        if (!requested.contains(key))
           return planError(
               "nested module references an unavailable specialization");
-        if (unique.insert(fingerprint.getValue()).second)
-          dependencies[entry.getKey()].push_back(fingerprint.getValue().str());
+        if (unique.insert(key).second)
+          dependencies[entry.getKey()].push_back(std::move(key));
       }
       llvm::sort(dependencies[entry.getKey()]);
       pendingDependencies[entry.getKey()] = dependencies[entry.getKey()].size();
@@ -2562,14 +2691,14 @@ private:
         ready.insert(entry.getKey().str());
     llvm::StringMap<std::shared_ptr<QueueGraphPlan>> built;
     while (!ready.empty()) {
-      std::string fingerprint = *ready.begin();
+      std::string key = *ready.begin();
       ready.erase(ready.begin());
-      auto request = requested.find(fingerprint);
+      auto request = requested.find(key);
       if (request == requested.end())
         return planError("specialization worklist identity is unresolved");
       llvm::StringMap<const QueueGraphPlan *> children;
       std::vector<std::shared_ptr<QueueGraphPlan>> childPlans;
-      for (const std::string &child : dependencies[fingerprint]) {
+      for (const std::string &child : dependencies[key]) {
         auto found = built.find(child);
         if (found == built.end())
           return planError("nested specialization dependency is not built");
@@ -2577,7 +2706,8 @@ private:
         childPlans.push_back(found->getValue());
       }
       auto extracted = extractDefinition(
-          request->getValue().first, fingerprint, selected.getSymName(),
+          request->getValue().definition, key,
+          request->getValue().arguments, selected.getSymName(),
           children.empty() ? nullptr : &children);
       if (!extracted)
         return extracted.takeError();
@@ -2585,8 +2715,8 @@ private:
       if (auto error = verifyQueueGraphPlan(*extracted))
         return std::move(error);
       auto stored = std::make_shared<QueueGraphPlan>(std::move(*extracted));
-      built[fingerprint] = stored;
-      for (const std::string &parent : parents[fingerprint]) {
+      built[key] = stored;
+      for (const std::string &parent : parents[key]) {
         size_t &pending = pendingDependencies[parent];
         if (pending == 0)
           return planError("nested specialization dependency underflow");
@@ -2602,34 +2732,26 @@ private:
     llvm::StringSet<> rootDependencies;
     for (ac::InstanceOp instance :
          root.getBody().front().getOps<ac::InstanceOp>()) {
-      auto fingerprint =
-          instance->getAttrOfType<mlir::StringAttr>("ac.specialization");
-      auto found =
-          fingerprint ? built.find(fingerprint.getValue()) : built.end();
-      if (!fingerprint || found == built.end())
+      std::string key = specializationKey(instance.getDefinition(),
+                                          instance.getStaticArgs());
+      auto found = built.find(key);
+      if (found == built.end())
         return planError("root instance specialization is unavailable");
-      available[fingerprint.getValue()] = found->getValue().get();
-      if (rootDependencies.insert(fingerprint.getValue()).second)
+      available[key] = found->getValue().get();
+      if (rootDependencies.insert(key).second)
         specializations.push_back(found->getValue());
     }
     llvm::sort(specializations, [](const auto &left, const auto &right) {
-      return left->specializationFingerprint < right->specializationFingerprint;
+      return left->specializationKey < right->specializationKey;
     });
 
-    auto rootSpecialization =
-        root->getAttrOfType<mlir::StringAttr>("ac.specialization");
-    if (!rootSpecialization)
-      return planError("root specialization fingerprint is missing");
-    auto extractedRoot = extractDefinition(root, rootSpecialization.getValue(),
+    std::string rootSpecialization =
+        specializationKey(root.getSymName(), root.getStaticParams());
+    auto extractedRoot = extractDefinition(root, rootSpecialization,
+                                           root.getStaticParams(),
                                            selected.getSymName(), &available);
     if (!extractedRoot)
       return extractedRoot.takeError();
-    if (auto jit = root.getStaticParams().getAs<mlir::StringAttr>(
-            "jit_specialization")) {
-      if (!isValidFingerprint(jit.getValue()))
-        return planError("root JIT specialization fingerprint is invalid");
-      extractedRoot->jitSpecializationFingerprint = jit.getValue().str();
-    }
     extractedRoot->moduleSpecializations = std::move(specializations);
     if (auto error = materializeActivation(*extractedRoot))
       return std::move(error);
@@ -2817,8 +2939,7 @@ private:
           auto profile = record.getAs<mlir::StringAttr>("profile");
           auto logical = record.getAs<mlir::TypeAttr>("logical_type");
           auto fields = record.getAs<mlir::ArrayAttr>("kept_fields");
-          auto fingerprint = record.getAs<mlir::StringAttr>("fingerprint");
-          if (!version || !profile || !logical || !fields || !fingerprint)
+          if (!version || !profile || !logical || !fields)
             return planError("payload projection evidence is malformed");
           QueuePayloadProjectionPlan projection;
           projection.version = version.getValue().getZExtValue();
@@ -2827,7 +2948,6 @@ private:
           projection.carrierType =
               printType(mlir::cast<ac::QueueType>(outputs[index].getType())
                             .getElementType());
-          projection.fingerprint = fingerprint.getValue().str();
           for (mlir::Attribute field : fields) {
             auto name = mlir::dyn_cast<mlir::StringAttr>(field);
             if (!name)
@@ -2917,8 +3037,6 @@ private:
             table.getLayoutVersion()
                 ? static_cast<uint64_t>(*table.getLayoutVersion())
                 : uint64_t{1};
-        if (auto schemaId = table.getSchemaId())
-          tablePlan.schemaId = schemaId->str();
         if (auto initVersion = table.getInitVersion())
           tablePlan.initVersion = static_cast<uint64_t>(*initVersion);
         if (auto initImage = table.getInitImage()) {
@@ -2945,7 +3063,9 @@ private:
             slot.getSymName().str(),
             printType(mlir::cast<ac::QueueType>(slot.getInput().getType())
                           .getElementType()),
-            *input, scopePath(scope), slot.getStableId().str(),
+            *input,
+            scopePath(scope),
+            slot.getStableId().str(),
             slot.getOwner().str()};
         slotPlan.sourceProvenance = currentSourceProvenance;
         plan.slots.push_back(std::move(slotPlan));
@@ -3581,12 +3701,10 @@ private:
         continue;
       }
       if (auto instance = mlir::dyn_cast<ac::InstanceOp>(operation)) {
-        auto fingerprint =
-            instance->getAttrOfType<mlir::StringAttr>("ac.specialization");
-        auto specialization =
-            fingerprint ? availableSpecializations.find(fingerprint.getValue())
-                        : availableSpecializations.end();
-        if (!fingerprint || specialization == availableSpecializations.end())
+        std::string key = specializationKey(instance.getDefinition(),
+                                            instance.getStaticArgs());
+        auto specialization = availableSpecializations.find(key);
+        if (specialization == availableSpecializations.end())
           return planError(
               "module instance references an unavailable specialization");
         const QueueGraphPlan *target = specialization->getValue();
@@ -3625,10 +3743,13 @@ private:
             return error;
           outputs.push_back(std::move(name));
         }
-        QueueModuleInstancePlan plannedInstance{
-            instance.getSymName().str(), instance.getDefinition().str(),
-            fingerprint.getValue().str(), scopePath(scope), std::move(*inputs),
-            std::move(outputs), nextLexicalOrder++};
+        QueueModuleInstancePlan plannedInstance{instance.getSymName().str(),
+                                                instance.getDefinition().str(),
+                                                std::move(key),
+                                                scopePath(scope),
+                                                std::move(*inputs),
+                                                std::move(outputs),
+                                                nextLexicalOrder++};
         auto provenance = extractSourceProvenance(instance);
         if (!provenance)
           return provenance.takeError();
@@ -3742,35 +3863,6 @@ std::optional<llvm::StringRef> enumTypeName(llvm::StringRef type) {
   if (type.starts_with(prefix) && type.ends_with('>'))
     return type.drop_front(prefix.size()).drop_back();
   return std::nullopt;
-}
-
-void appendStaticTypeFingerprintPart(llvm::SHA256 &sha, llvm::StringRef value) {
-  sha.update(value);
-  const uint8_t zero = 0;
-  sha.update(llvm::ArrayRef<uint8_t>(&zero, 1));
-}
-
-std::string
-staticStructFingerprint(const QueuePayloadPlan &payload,
-                        const QueueStaticTypeIdentityPlan &identity) {
-  llvm::SHA256 sha;
-  appendStaticTypeFingerprintPart(sha, "ac.struct-specialization-v1");
-  appendStaticTypeFingerprintPart(sha, identity.source);
-  for (const QueuePayloadFieldPlan &field : payload.fields) {
-    appendStaticTypeFingerprintPart(sha, field.name);
-    appendStaticTypeFingerprintPart(sha, field.type);
-  }
-  for (const QueueStaticTypeIdentityBindingPlan &binding : identity.bindings) {
-    appendStaticTypeFingerprintPart(sha, binding.name);
-    appendStaticTypeFingerprintPart(sha, std::to_string(binding.value));
-  }
-  return "sha256:" + llvm::toHex(sha.final(), /*LowerCase=*/true);
-}
-
-std::string staticConfigSha256(llvm::StringRef value) {
-  llvm::SHA256 sha;
-  sha.update(value);
-  return "sha256:" + llvm::toHex(sha.final(), /*LowerCase=*/true);
 }
 
 bool verifyStaticConfigValue(const llvm::json::Value &schema,
@@ -3890,8 +3982,7 @@ llvm::Error verifyStaticTypeMetadata(const QueueGraphPlan &plan) {
   llvm::StringMap<unsigned> configProjectionMatches;
   for (const QueueStaticConfigBindingPlan &config : plan.staticConfigBindings) {
     if (config.root.empty() || config.type.empty() || config.schema.empty() ||
-        config.value.empty() || !configRoots.insert(config.root).second ||
-        config.schemaSha256 != staticConfigSha256(config.schema))
+        config.value.empty() || !configRoots.insert(config.root).second)
       return planError("static config binding metadata is malformed");
     auto canonicalSchema = bindings::canonicalizeJsonText(config.schema);
     auto canonicalValue = bindings::canonicalizeJsonText(config.value);
@@ -3903,7 +3994,8 @@ llvm::Error verifyStaticTypeMetadata(const QueueGraphPlan &plan) {
       return planError("static config schema or value is invalid");
     }
     if (*canonicalSchema != config.schema || *canonicalValue != config.value)
-      return planError("static config schema and value must use canonical JSON");
+      return planError(
+          "static config schema and value must use canonical JSON");
     auto schema = llvm::json::parse(*canonicalSchema);
     auto value = llvm::json::parse(*canonicalValue);
     if (!schema || !value || !verifyStaticConfigValue(*schema, *value))
@@ -3918,7 +4010,8 @@ llvm::Error verifyStaticTypeMetadata(const QueueGraphPlan &plan) {
       ++configProjectionMatches[name];
       auto projected = projectStaticConfigInteger(*schema, *value, path);
       if (!projected || *projected != bindingValue)
-        return planError("static config projection disagrees with its root binding");
+        return planError(
+            "static config projection disagrees with its root binding");
       usedConfigRoots.insert(config.root);
     }
   }
@@ -3967,10 +4060,13 @@ llvm::Error verifyStaticTypeMetadata(const QueueGraphPlan &plan) {
         return {true, std::nullopt};
       if (!plan.interfaceOutputs.empty())
         return ordinal < plan.interfaceOutputs.size()
-                   ? std::pair<bool, std::optional<std::string>>{
-                         true, plan.interfaceOutputs[ordinal].payloadType}
-                   : std::pair<bool, std::optional<std::string>>{
-                         true, std::nullopt};
+                   ? std::pair<bool,
+                               std::optional<std::string>>{true,
+                                                           plan.interfaceOutputs
+                                                               [ordinal]
+                                                                   .payloadType}
+                   : std::pair<bool, std::optional<std::string>>{true,
+                                                                 std::nullopt};
       llvm::SmallVector<std::string> outputs;
       for (const QueueBlockPlan &block : plan.blocks)
         if (block.kind == "sink" && block.inputs.size() == 1)
@@ -4016,8 +4112,8 @@ llvm::Error verifyStaticTypeMetadata(const QueueGraphPlan &plan) {
       return {true, std::nullopt};
     return {true, ports[ordinal].payloadType};
   };
-  auto resolveExpressionType = [&](llvm::StringRef path)
-      -> std::optional<std::string> {
+  auto resolveExpressionType =
+      [&](llvm::StringRef path) -> std::optional<std::string> {
     std::optional<std::string> resolved;
     bool conflict = false;
     auto visit = [&](auto &&self, const auto &expressions) -> void {
@@ -4026,8 +4122,7 @@ llvm::Error verifyStaticTypeMetadata(const QueueGraphPlan &plan) {
           llvm::StringRef candidate = expression.type;
           if (expression.kind == "range_checked_valid")
             candidate = expression.field;
-          if (!rangeBounds(candidate) ||
-              (resolved && *resolved != candidate))
+          if (!rangeBounds(candidate) || (resolved && *resolved != candidate))
             conflict = true;
           else
             resolved = candidate.str();
@@ -4104,10 +4199,10 @@ llvm::Error verifyStaticTypeMetadata(const QueueGraphPlan &plan) {
     std::string ownedResolvedType = check.concreteType;
     llvm::StringRef resolvedType = ownedResolvedType;
     if (!check.concreteType.empty()) {
-      auto [applicable, actual] = path.starts_with("expression.")
-                                      ? std::pair{true,
-                                                  resolveExpressionType(path)}
-                                      : resolveInterfaceType(path);
+      auto [applicable, actual] =
+          path.starts_with("expression.")
+              ? std::pair{true, resolveExpressionType(path)}
+              : resolveInterfaceType(path);
       if (applicable && (!actual || *actual != check.concreteType))
         return planError(
             "static interface type check disagrees with the actual endpoint '" +
@@ -4169,11 +4264,11 @@ llvm::Error verifyStaticTypeMetadata(const QueueGraphPlan &plan) {
       auto bounds = rangeBounds(resolvedType);
       uint64_t expected = 0;
       if (bounds)
-        expected = kind == "range_lower"
-                       ? bounds->first
-                       : bounds->second +
-                             (bounds->second !=
-                              std::numeric_limits<uint64_t>::max());
+        expected =
+            kind == "range_lower"
+                ? bounds->first
+                : bounds->second +
+                      (bounds->second != std::numeric_limits<uint64_t>::max());
       if (!bounds || check.result < 0 ||
           static_cast<uint64_t>(check.result) != expected)
         return planError("static bounded range is inconsistent");
@@ -4203,8 +4298,8 @@ llvm::Error verifyStaticTypeMetadata(const QueueGraphPlan &plan) {
     return llvm::Error::success();
   };
   for (const QueueBlockPlan &block : plan.blocks)
-    if (auto error = verifyExpressionTargets(verifyExpressionTargets,
-                                             block.expressions))
+    if (auto error =
+            verifyExpressionTargets(verifyExpressionTargets, block.expressions))
       return error;
   for (const QueueHelperPlan &helper : plan.helpers)
     if (auto error = verifyExpressionTargets(verifyExpressionTargets,
@@ -4216,7 +4311,6 @@ llvm::Error verifyStaticTypeMetadata(const QueueGraphPlan &plan) {
   for (const QueueStaticTypeIdentityPlan &identity :
        plan.staticTypeIdentities) {
     if (identity.source.empty() || identity.symbol.empty() ||
-        identity.fingerprint.empty() ||
         !identitySymbols.insert(identity.symbol).second)
       return planError("static type identity metadata is malformed");
     auto payload = payloads.find(identity.symbol);
@@ -4239,11 +4333,6 @@ llvm::Error verifyStaticTypeMetadata(const QueueGraphPlan &plan) {
       if (!targets.contains(target) || !identityTargets.insert(target).second ||
           !llvm::StringRef(target).starts_with(prefix))
         return planError("static type identity targets are inconsistent");
-    const std::string expected =
-        staticStructFingerprint(*payload->getValue(), identity);
-    if (identity.fingerprint != expected ||
-        identity.symbol != identity.source + "__p" + expected.substr(7, 12))
-      return planError("static type identity fingerprint is inconsistent");
   }
   for (const QueuePayloadPlan &payload : plan.payloads)
     if (llvm::StringRef(payload.name).contains("__p") &&
@@ -4512,8 +4601,8 @@ bool isEffectFreeTableMatchExpression(const QueueExpressionPlan &expression) {
       .Cases({"range_wrap", "range_saturate", "range_refine", "range_bits",
               "range_add", "range_sub", "range_cmp"},
              true)
-      .Cases({"range_checked_value", "range_checked_valid",
-              "array_get_dynamic", "array_update_dynamic"},
+      .Cases({"range_checked_value", "range_checked_valid", "array_get_dynamic",
+              "array_update_dynamic"},
              true)
       .Default(false);
 }
@@ -4631,24 +4720,6 @@ bool appendProjectionDescriptor(const QueueGraphPlan &plan,
   return true;
 }
 
-std::optional<std::string>
-projectionFingerprint(const QueueGraphPlan &plan,
-                      const QueuePayloadProjectionPlan &projection) {
-  std::string preimage;
-  llvm::raw_string_ostream stream(preimage);
-  stream << "version=1\nprofile=private_transform_tuple_v1\nlogical=";
-  llvm::StringSet<> active;
-  if (!appendProjectionDescriptor(plan, stream, projection.logicalType, active))
-    return std::nullopt;
-  stream << "\nfields=";
-  for (const std::string &field : projection.keptFields)
-    stream << field.size() << ':' << field << ';';
-  stream << "\ncarrier=" << projection.carrierType;
-  llvm::SHA256 sha;
-  sha.update(stream.str());
-  return "sha256:" + llvm::toHex(sha.final(), /*LowerCase=*/true);
-}
-
 llvm::Error verifyQueueGraphPlan(const QueueGraphPlan &plan) {
   auto verifyExpressions = [&](auto &&self,
                                const auto &expressions) -> llvm::Error {
@@ -4699,12 +4770,20 @@ llvm::Error verifyQueueGraphPlan(const QueueGraphPlan &plan) {
   if (plan.system.empty() || plan.queues.empty() ||
       (plan.blocks.empty() && plan.moduleInstances.empty()))
     return planError("QueueGraph plan is incomplete");
-  if (!plan.specializationFingerprint.empty() &&
-      !isValidFingerprint(plan.specializationFingerprint))
-    return planError("QueueGraph specialization fingerprint is invalid");
-  if (!plan.jitSpecializationFingerprint.empty() &&
-      !isValidFingerprint(plan.jitSpecializationFingerprint))
-    return planError("QueueGraph JIT specialization fingerprint is invalid");
+  if (!plan.definition.empty() && plan.specializationKey.empty())
+    return planError("QueueGraph specialization key is missing");
+  llvm::StringSet<> specializationParameterNames;
+  for (const auto &[name, value] : plan.specializationParameters)
+    if (name.empty() || value.empty() ||
+        !specializationParameterNames.insert(name).second ||
+        legalizeQueueGraphIdentifier(name) != name ||
+        !llvm::all_of(value, [](unsigned char character) {
+          return (character >= 'a' && character <= 'z') ||
+                 (character >= 'A' && character <= 'Z') ||
+                 (character >= '0' && character <= '9') || character == '_';
+        }))
+      return planError(
+          "QueueGraph readable specialization parameters are malformed");
   if (auto error = verifyPayloadGraph(plan))
     return error;
   llvm::StringMap<const QueueEnumPlan *> enums;
@@ -4747,8 +4826,7 @@ llvm::Error verifyQueueGraphPlan(const QueueGraphPlan &plan) {
     if (projection.version != 1 ||
         projection.profile != "private_transform_tuple_v1" ||
         projection.carrierType != queue.payloadType ||
-        projection.keptFields.empty() ||
-        !isValidFingerprint(projection.fingerprint))
+        projection.keptFields.empty())
       return planError("Queue payload projection metadata is malformed");
     std::optional<llvm::StringRef> logicalName =
         payloadTypeName(projection.logicalType);
@@ -4793,10 +4871,6 @@ llvm::Error verifyQueueGraphPlan(const QueueGraphPlan &plan) {
     }
     if (retainedBits != carrier->width)
       return planError("Queue payload projection tuple width is inconsistent");
-    std::optional<std::string> expectedFingerprint =
-        projectionFingerprint(plan, projection);
-    if (!expectedFingerprint || projection.fingerprint != *expectedFingerprint)
-      return planError("Queue payload projection fingerprint mismatch");
     size_t producers = 0;
     size_t consumers = 0;
     const QueueBlockPlan *producerBlock = nullptr;
@@ -4868,12 +4942,10 @@ llvm::Error verifyQueueGraphPlan(const QueueGraphPlan &plan) {
       }))
     return planError(
         "private Queue payload projections are forbidden in structured plans");
-  if (structured && (plan.definitionFingerprint.empty() ||
-                     !isValidFingerprint(plan.definitionFingerprint) ||
-                     plan.specializationFingerprint.empty()))
+  if (structured && plan.specializationKey.empty())
     return planError("QueueGraph module specialization metadata is incomplete");
   if (!structured &&
-      (!plan.definitionFingerprint.empty() || !plan.interfaceInputs.empty() ||
+      (!plan.interfaceInputs.empty() ||
        !plan.interfaceOutputs.empty() || !plan.moduleInstances.empty() ||
        !plan.moduleSpecializations.empty()))
     return planError("flat QueueGraph cannot carry structured module metadata");
@@ -4881,9 +4953,9 @@ llvm::Error verifyQueueGraphPlan(const QueueGraphPlan &plan) {
   for (const std::shared_ptr<QueueGraphPlan> &specialization :
        plan.moduleSpecializations) {
     if (!specialization || specialization->definition.empty() ||
-        specialization->specializationFingerprint.empty() ||
+        specialization->specializationKey.empty() ||
         !specializations
-             .try_emplace(specialization->specializationFingerprint,
+             .try_emplace(specialization->specializationKey,
                           specialization.get())
              .second)
       return planError(
@@ -4946,20 +5018,20 @@ llvm::Error verifyQueueGraphPlan(const QueueGraphPlan &plan) {
       return false;
     bool supported = false;
     if (auto name = payloadTypeName(type)) {
-      auto payload = llvm::find_if(
-          plan.payloads, [&](const QueuePayloadPlan &candidate) {
+      auto payload =
+          llvm::find_if(plan.payloads, [&](const QueuePayloadPlan &candidate) {
             return candidate.name == *name;
           });
-      supported =
-          payload != plan.payloads.end() &&
-          llvm::all_of(payload->fields, [&](const QueuePayloadFieldPlan &field) {
-            return self(self, field.type, active);
-          });
+      supported = payload != plan.payloads.end() &&
+                  llvm::all_of(payload->fields,
+                               [&](const QueuePayloadFieldPlan &field) {
+                                 return self(self, field.type, active);
+                               });
     } else {
-      auto aggregate = llvm::find_if(
-          plan.aggregates, [&](const QueueAggregatePlan &candidate) {
-            return candidate.type == type;
-          });
+      auto aggregate = llvm::find_if(plan.aggregates,
+                                     [&](const QueueAggregatePlan &candidate) {
+                                       return candidate.type == type;
+                                     });
       supported =
           aggregate != plan.aggregates.end() &&
           llvm::all_of(aggregate->elements, [&](llvm::StringRef element) {
@@ -4977,8 +5049,8 @@ llvm::Error verifyQueueGraphPlan(const QueueGraphPlan &plan) {
       return false;
     bool found = false;
     if (auto name = payloadTypeName(type)) {
-      auto payload = llvm::find_if(
-          plan.payloads, [&](const QueuePayloadPlan &candidate) {
+      auto payload =
+          llvm::find_if(plan.payloads, [&](const QueuePayloadPlan &candidate) {
             return candidate.name == *name;
           });
       found = payload != plan.payloads.end() &&
@@ -4987,15 +5059,14 @@ llvm::Error verifyQueueGraphPlan(const QueueGraphPlan &plan) {
                              return self(self, field.type, active);
                            });
     } else {
-      auto aggregate = llvm::find_if(
-          plan.aggregates, [&](const QueueAggregatePlan &candidate) {
-            return candidate.type == type;
-          });
+      auto aggregate = llvm::find_if(plan.aggregates,
+                                     [&](const QueueAggregatePlan &candidate) {
+                                       return candidate.type == type;
+                                     });
       found = aggregate != plan.aggregates.end() &&
-              llvm::any_of(aggregate->elements,
-                           [&](llvm::StringRef element) {
-                             return self(self, element, active);
-                           });
+              llvm::any_of(aggregate->elements, [&](llvm::StringRef element) {
+                return self(self, element, active);
+              });
     }
     active.erase(type);
     return found;
@@ -5021,7 +5092,7 @@ llvm::Error verifyQueueGraphPlan(const QueueGraphPlan &plan) {
                                 rangeActive)))
       return planError("bounded Table initializer contract is unsupported");
     const bool legacyShape =
-        !table.hasTypedSchema && table.schemaId.empty() &&
+        !table.hasTypedSchema &&
         table.initVersion == 0 && table.initImage.empty() &&
         (table.shape.empty() ||
          (table.shape.size() == 1 && table.shape.front() == table.entries));
@@ -5037,25 +5108,6 @@ llvm::Error verifyQueueGraphPlan(const QueueGraphPlan &plan) {
          (table.axisWidths.size() != table.shape.size() ||
           table.layout != "row_major" || table.layoutVersion != 1)))
       return planError("table shape/layout metadata is incomplete");
-    if (!legacyShape) {
-      std::string preimage;
-      llvm::raw_string_ostream stream(preimage);
-      stream << R"({"entry":)" << llvm::json::Value(table.entryType)
-             << R"(,"layout":"row_major","layout_version":1,"shape":[)";
-      for (auto [index, extent] : llvm::enumerate(table.shape)) {
-        if (index)
-          stream << ',';
-        stream << extent;
-      }
-      stream << "]}";
-      llvm::SHA256 sha;
-      sha.update(stream.str());
-      const std::string expected =
-          "sha256:" + llvm::toHex(sha.final(), /*LowerCase=*/true);
-      if (table.schemaId != expected)
-        return planError("table schema_id is not canonical; expected " +
-                         expected);
-    }
     uint64_t flattened = 1;
     for (auto [extent, width] : llvm::zip_equal(shape, axisWidths)) {
       if (extent == 0 ||
@@ -5493,8 +5545,8 @@ llvm::Error verifyQueueGraphPlan(const QueueGraphPlan &plan) {
       return false;
     bool found = false;
     if (std::optional<llvm::StringRef> name = payloadTypeName(type)) {
-      auto payload = llvm::find_if(
-          plan.payloads, [&](const QueuePayloadPlan &candidate) {
+      auto payload =
+          llvm::find_if(plan.payloads, [&](const QueuePayloadPlan &candidate) {
             return candidate.name == *name;
           });
       if (payload != plan.payloads.end())
@@ -5502,10 +5554,10 @@ llvm::Error verifyQueueGraphPlan(const QueueGraphPlan &plan) {
           return self(self, field.type, active);
         });
     } else {
-      auto aggregate = llvm::find_if(
-          plan.aggregates, [&](const QueueAggregatePlan &candidate) {
-            return candidate.type == type;
-          });
+      auto aggregate = llvm::find_if(plan.aggregates,
+                                     [&](const QueueAggregatePlan &candidate) {
+                                       return candidate.type == type;
+                                     });
       if (aggregate != plan.aggregates.end())
         found = llvm::any_of(aggregate->elements, [&](llvm::StringRef element) {
           return self(self, element, active);
@@ -5518,7 +5570,7 @@ llvm::Error verifyQueueGraphPlan(const QueueGraphPlan &plan) {
   llvm::StringSet<> instanceNames;
   for (const QueueModuleInstancePlan &instance : plan.moduleInstances) {
     const QueueGraphPlan *target =
-        specializations.lookup(instance.specializationFingerprint);
+        specializations.lookup(instance.specializationKey);
     if (instance.name.empty() || !instanceNames.insert(instance.name).second ||
         instance.definition.empty() || !target ||
         target->definition != instance.definition || instance.scope.empty() ||
@@ -5677,8 +5729,8 @@ llvm::Error verifyQueueGraphPlan(const QueueGraphPlan &plan) {
               rangeBounds(operand->getValue()).has_value() &&
               rangeBounds(operand->getValue())->second < extent;
           if (operand == valueTypes.end() ||
-              (!bounded && operand->getValue() !=
-                               "i" + std::to_string(expectedWidth)))
+              (!bounded &&
+               operand->getValue() != "i" + std::to_string(expectedWidth)))
             return planError("Table coordinate type is inconsistent");
         }
         const std::string expectedType =
@@ -5824,12 +5876,12 @@ llvm::Error verifyQueueGraphPlan(const QueueGraphPlan &plan) {
         auto name = source == valueTypes.end()
                         ? std::optional<llvm::StringRef>()
                         : payloadTypeName(source->getValue());
-        auto payload = name ? llvm::find_if(
-                                  plan.payloads,
-                                  [&](const QueuePayloadPlan &candidate) {
-                                    return candidate.name == *name;
-                                  })
-                            : plan.payloads.end();
+        auto payload =
+            name ? llvm::find_if(plan.payloads,
+                                 [&](const QueuePayloadPlan &candidate) {
+                                   return candidate.name == *name;
+                                 })
+                 : plan.payloads.end();
         const QueuePayloadFieldPlan *field = nullptr;
         if (payload != plan.payloads.end()) {
           auto found = llvm::find_if(payload->fields, [&](const auto &item) {
@@ -5850,12 +5902,12 @@ llvm::Error verifyQueueGraphPlan(const QueueGraphPlan &plan) {
         auto name = base == valueTypes.end()
                         ? std::optional<llvm::StringRef>()
                         : payloadTypeName(base->getValue());
-        auto payload = name ? llvm::find_if(
-                                  plan.payloads,
-                                  [&](const QueuePayloadPlan &candidate) {
-                                    return candidate.name == *name;
-                                  })
-                            : plan.payloads.end();
+        auto payload =
+            name ? llvm::find_if(plan.payloads,
+                                 [&](const QueuePayloadPlan &candidate) {
+                                   return candidate.name == *name;
+                                 })
+                 : plan.payloads.end();
         const QueuePayloadFieldPlan *field = nullptr;
         if (payload != plan.payloads.end()) {
           auto found = llvm::find_if(payload->fields, [&](const auto &item) {
@@ -5879,11 +5931,9 @@ llvm::Error verifyQueueGraphPlan(const QueueGraphPlan &plan) {
           return candidate.name == expression.slot;
         });
         const llvm::StringRef expected =
-            expression.kind == "slot_get_valid"
-                ? llvm::StringRef("i1")
-                : slot == plan.slots.end()
-                      ? llvm::StringRef()
-                      : llvm::StringRef(slot->payloadType);
+            expression.kind == "slot_get_valid" ? llvm::StringRef("i1")
+            : slot == plan.slots.end()          ? llvm::StringRef()
+                                       : llvm::StringRef(slot->payloadType);
         if (!expression.operands.empty() || slot == plan.slots.end() ||
             expression.type != expected)
           return planError("slot get expression type is inconsistent");
@@ -5907,8 +5957,8 @@ llvm::Error verifyQueueGraphPlan(const QueueGraphPlan &plan) {
         if (aggregate == plan.aggregates.end() || aggregate->kind != "array" ||
             aggregate->length != expression.selectionCount ||
             aggregate->elements.size() != 1 ||
-            aggregate->elements.front() != expression.type ||
-            !elementWidth || expression.width != *elementWidth || !indexWidth ||
+            aggregate->elements.front() != expression.type || !elementWidth ||
+            expression.width != *elementWidth || !indexWidth ||
             *indexWidth > 64 || expression.indexWidth != *indexWidth)
           return planError("dynamic value_array access types are inconsistent");
       } else if (expression.kind == "array_update_dynamic") {
@@ -5996,8 +6046,8 @@ llvm::Error verifyQueueGraphPlan(const QueueGraphPlan &plan) {
         if (!width || *width > 64 || left == valueTypes.end() ||
             right == valueTypes.end() || left->getValue() != expression.type ||
             right->getValue() != expression.type)
-          return planError(
-              "bits arithmetic operands and result must share one i1..i64 type");
+          return planError("bits arithmetic operands and result must share one "
+                           "i1..i64 type");
       } else if (expression.kind == "not") {
         auto operand = expression.operands.size() == 1
                            ? valueTypes.find(expression.operands.front())
@@ -6044,8 +6094,7 @@ llvm::Error verifyQueueGraphPlan(const QueueGraphPlan &plan) {
               "comparisons before QueueGraph planning");
       } else if (expression.kind == "udiv" || expression.kind == "urem") {
         if (expression.operands.size() != 2)
-          return planError(
-              "unsigned div/rem expression contract is malformed");
+          return planError("unsigned div/rem expression contract is malformed");
         auto left = valueTypes.find(expression.operands[0]);
         auto right = valueTypes.find(expression.operands[1]);
         auto resultWidth = bitsWidth(expression.type);
@@ -6053,8 +6102,8 @@ llvm::Error verifyQueueGraphPlan(const QueueGraphPlan &plan) {
             left->getValue() != expression.type ||
             right->getValue() != expression.type || !resultWidth ||
             !acir::isPrimitiveInputWidth(*resultWidth))
-          return planError(
-              "unsigned div/rem operands and result must share one i1..i64 type");
+          return planError("unsigned div/rem operands and result must share "
+                           "one i1..i64 type");
       } else if (expression.kind == "masked_match") {
         if (expression.operands.size() != 1 || expression.type != "i1")
           return planError("masked_match expression contract is malformed");
@@ -6226,18 +6275,15 @@ llvm::Error verifyQueueGraphPlan(const QueueGraphPlan &plan) {
         uint64_t upper = 0;
         bool valid = leftBounds && rightBounds && resultBounds;
         if (valid && expression.kind == "range_add") {
-          valid = rightBounds->first <=
-                      std::numeric_limits<uint64_t>::max() -
-                          leftBounds->first &&
+          valid = rightBounds->first <= std::numeric_limits<uint64_t>::max() -
+                                            leftBounds->first &&
                   rightBounds->second <=
-                      std::numeric_limits<uint64_t>::max() -
-                          leftBounds->second;
+                      std::numeric_limits<uint64_t>::max() - leftBounds->second;
           if (valid) {
             lower = leftBounds->first + rightBounds->first;
             upper = leftBounds->second + rightBounds->second;
           }
-        }
-        else if (valid) {
+        } else if (valid) {
           valid = leftBounds->first >= rightBounds->second;
           if (valid) {
             lower = leftBounds->first - rightBounds->second;
@@ -6256,10 +6302,10 @@ llvm::Error verifyQueueGraphPlan(const QueueGraphPlan &plan) {
         if (left == valueTypes.end() || right == valueTypes.end() ||
             !rangeBounds(left->getValue()) || !rangeBounds(right->getValue()) ||
             expression.type != "i1" ||
-            !llvm::is_contained(
-                llvm::ArrayRef<llvm::StringRef>{"eq", "ne", "ult", "ule",
-                                                 "ugt", "uge"},
-                expression.predicate))
+            !llvm::is_contained(llvm::ArrayRef<llvm::StringRef>{"eq", "ne",
+                                                                "ult", "ule",
+                                                                "ugt", "uge"},
+                                expression.predicate))
           return planError("bounded comparison contract is malformed");
       } else if (expression.kind == "range_wrap" ||
                  expression.kind == "range_saturate") {
@@ -6354,9 +6400,8 @@ llvm::Error verifyQueueGraphPlan(const QueueGraphPlan &plan) {
           return planError("bit_insert expression contract is malformed");
         auto base = valueTypes.find(expression.operands[0]);
         auto value = valueTypes.find(expression.operands[1]);
-        auto baseWidth = base == valueTypes.end()
-                             ? std::optional<unsigned>()
-                             : bitsWidth(base->getValue());
+        auto baseWidth = base == valueTypes.end() ? std::optional<unsigned>()
+                                                  : bitsWidth(base->getValue());
         auto valueWidth = value == valueTypes.end()
                               ? std::optional<unsigned>()
                               : bitsWidth(value->getValue());
@@ -6366,7 +6411,8 @@ llvm::Error verifyQueueGraphPlan(const QueueGraphPlan &plan) {
             *resultWidth != *baseWidth)
           return planError("bit_insert expression widths are inconsistent");
       } else if (expression.kind == "snapshot_set") {
-        if (!expression.operands.empty() || expression.type != "state_reservation" ||
+        if (!expression.operands.empty() ||
+            expression.type != "state_reservation" ||
             expression.field.empty() || !tables.contains(expression.table) ||
             (expression.predicate != "complete" &&
              expression.predicate != "fields"))
@@ -6402,8 +6448,7 @@ llvm::Error verifyQueueGraphPlan(const QueueGraphPlan &plan) {
       const auto *value = pair.value;
       const auto *valid = pair.valid;
       if (pair.valueCount != 1 || pair.validCount != 1 || !value || !valid ||
-          value->field != valid->field ||
-          value->operands != valid->operands ||
+          value->field != valid->field || value->operands != valid->operands ||
           value->staticTypeTarget != valid->staticTypeTarget)
         return planError(
             "checked range conversion requires one value/valid pair");
@@ -6463,8 +6508,7 @@ llvm::Error verifyQueueGraphPlan(const QueueGraphPlan &plan) {
                          ? constraints.find(expression.operands[1])
                          : constraints.end();
         if (index == constraints.end() || expression.selectionCount == 0 ||
-            !index->getValue().provesWithin(
-                0, expression.selectionCount - 1))
+            !index->getValue().provesWithin(0, expression.selectionCount - 1))
           return planError("value_array index is not statically safe");
       }
       if (expression.kind == "array_update_dynamic") {
@@ -6472,8 +6516,7 @@ llvm::Error verifyQueueGraphPlan(const QueueGraphPlan &plan) {
                          ? constraints.find(expression.operands[1])
                          : constraints.end();
         if (index == constraints.end() || expression.selectionCount == 0 ||
-            !index->getValue().provesWithin(
-                0, expression.selectionCount - 1))
+            !index->getValue().provesWithin(0, expression.selectionCount - 1))
           return planError("value_array update index is not statically safe");
       }
       if (expression.kind == "range_refine") {
@@ -6542,8 +6585,8 @@ llvm::Error verifyQueueGraphPlan(const QueueGraphPlan &plan) {
     if (block.kind == "source" &&
         llvm::any_of(block.outputs, [&](llvm::StringRef output) {
           llvm::StringSet<> active;
-          return containsDeclaredRange(
-              containsDeclaredRange, queueTypes.lookup(output), active);
+          return containsDeclaredRange(containsDeclaredRange,
+                                       queueTypes.lookup(output), active);
         }))
       return planError(
           "external source cannot carry an undecoded bounded range");
@@ -6588,15 +6631,13 @@ llvm::Error verifyQueueGraphPlan(const QueueGraphPlan &plan) {
       auto predecessor = identities.find(block.yields[1]);
       auto resource = identities.find(block.yields[2]);
       auto cost = identities.find(block.yields[3]);
-      std::optional<unsigned> keyWidth = key == identities.end()
-                                             ? std::nullopt
-                                             : bitsWidth(key->getValue());
+      std::optional<unsigned> keyWidth =
+          key == identities.end() ? std::nullopt : bitsWidth(key->getValue());
       std::optional<unsigned> resourceWidth =
           resource == identities.end() ? std::nullopt
                                        : bitsWidth(resource->getValue());
-      std::optional<unsigned> costWidth = cost == identities.end()
-                                              ? std::nullopt
-                                              : bitsWidth(cost->getValue());
+      std::optional<unsigned> costWidth =
+          cost == identities.end() ? std::nullopt : bitsWidth(cost->getValue());
       if (!keyWidth || *keyWidth == 0 || *keyWidth > 16 ||
           predecessor == identities.end() ||
           predecessor->getValue() != key->getValue() || !resourceWidth ||
@@ -6689,8 +6730,9 @@ llvm::Error verifyQueueGraphPlan(const QueueGraphPlan &plan) {
           return false;
         return llvm::StringSwitch<bool>(expression.kind)
             .Cases({"constant", "enum_constant", "get", "value_select"}, true)
-            .Cases({"add", "sub", "mul", "udiv", "urem", "and", "or",
-                    "xor", "not"}, true)
+            .Cases({"add", "sub", "mul", "udiv", "urem", "and", "or", "xor",
+                    "not"},
+                   true)
             .Cases({"shl", "shr", "extract", "insert", "concat"}, true)
             .Cases({"popcount", "count_zeros", "cmp", "masked_match"}, true)
             .Cases({"range_wrap", "range_saturate", "range_refine",
@@ -6746,8 +6788,7 @@ llvm::Error verifyQueueGraphPlan(const QueueGraphPlan &plan) {
           if (expression.kind == "mul" || expression.kind == "and" ||
               expression.kind == "or" || expression.kind == "xor" ||
               (expression.kind == "cmp" &&
-               (expression.predicate == "eq" ||
-                expression.predicate == "ne")))
+               (expression.predicate == "eq" || expression.predicate == "ne")))
             llvm::sort(operands);
           std::string key;
           llvm::raw_string_ostream stream(key);
@@ -6800,8 +6841,7 @@ llvm::Error verifyQueueGraphPlan(const QueueGraphPlan &plan) {
               auto [identity, negated] = std::move(pending.back());
               pending.pop_back();
               const uint64_t atom = canonicalExpression(identity);
-              if (!visited.insert({atom, static_cast<uint8_t>(negated)})
-                       .second)
+              if (!visited.insert({atom, static_cast<uint8_t>(negated)}).second)
                 continue;
               size_t index = block.expressions.size();
               for (size_t candidate = 0; candidate < block.expressions.size();
@@ -6816,8 +6856,10 @@ llvm::Error verifyQueueGraphPlan(const QueueGraphPlan &plan) {
                    block.expressions[index].kind == "and") &&
                   block.expressions[index].operands.size() == 2) {
                 literals.push_back({atom, false});
-                pending.push_back({block.expressions[index].operands[1], false});
-                pending.push_back({block.expressions[index].operands[0], false});
+                pending.push_back(
+                    {block.expressions[index].operands[1], false});
+                pending.push_back(
+                    {block.expressions[index].operands[0], false});
                 continue;
               }
               if (found && block.expressions[index].kind == "cmp" &&
@@ -6868,11 +6910,10 @@ llvm::Error verifyQueueGraphPlan(const QueueGraphPlan &plan) {
             const bool disjointFields =
                 writes[left]->mode == "field" &&
                 writes[right]->mode == "field" &&
-                llvm::none_of(writes[left]->fields,
-                              [&](const std::string &field) {
-                                return llvm::is_contained(
-                                    writes[right]->fields, field);
-                              });
+                llvm::none_of(
+                    writes[left]->fields, [&](const std::string &field) {
+                      return llvm::is_contained(writes[right]->fields, field);
+                    });
             if (!disjoint && !exclusive && !disjointFields)
               return planError(
                   "same-owner firing writes have an unresolved index/field "
@@ -7080,8 +7121,7 @@ llvm::Expected<std::string> QueueGraphPlan::canonicalJson() const {
           value["symbol"] = frame.symbol;
         frames.push_back(std::move(value));
       }
-      origins.push_back(
-          llvm::json::Object{{"frames", std::move(frames)}});
+      origins.push_back(llvm::json::Object{{"frames", std::move(frames)}});
     }
     return llvm::json::Object{{"origins", std::move(origins)}};
   };
@@ -7184,8 +7224,7 @@ llvm::Expected<std::string> QueueGraphPlan::canonicalJson() const {
       result["initial_cursor"] = expression.initialCursor;
     }
     if (!expression.sourceProvenance.origins.empty())
-      result["source_provenance"] =
-          provenanceJson(expression.sourceProvenance);
+      result["source_provenance"] = provenanceJson(expression.sourceProvenance);
     return result;
   };
   auto initValueJson =
@@ -7276,14 +7315,11 @@ llvm::Expected<std::string> QueueGraphPlan::canonicalJson() const {
     llvm::json::Array laneOrdinals;
     for (uint64_t lane : queue.laneOrdinals)
       laneOrdinals.push_back(lane);
-    llvm::json::Object value{{"depth", queue.depth},
-                             {"lane_ordinals", std::move(laneOrdinals)},
-                             {"lanes", queue.lanes},
-                             {"latency", queue.latency},
-                             {"name", queue.name},
-                             {"payload_type", queue.payloadType},
-                             {"rate", queue.rate},
-                             {"scope", queue.scope}};
+    llvm::json::Object value{
+        {"depth", queue.depth}, {"lane_ordinals", std::move(laneOrdinals)},
+        {"lanes", queue.lanes}, {"latency", queue.latency},
+        {"name", queue.name},   {"payload_type", queue.payloadType},
+        {"rate", queue.rate},   {"scope", queue.scope}};
     if (queue.payloadProjection) {
       llvm::json::Array fields;
       for (const std::string &field : queue.payloadProjection->keptFields)
@@ -7291,7 +7327,6 @@ llvm::Expected<std::string> QueueGraphPlan::canonicalJson() const {
       value["payload_projection"] = llvm::json::Object{
           {"carrier_bits", queue.payloadProjection->carrierBits},
           {"carrier_type", queue.payloadProjection->carrierType},
-          {"fingerprint", queue.payloadProjection->fingerprint},
           {"kept_fields", std::move(fields)},
           {"logical_type", queue.payloadProjection->logicalType},
           {"logical_bits", queue.payloadProjection->logicalBits},
@@ -7371,8 +7406,8 @@ llvm::Expected<std::string> QueueGraphPlan::canonicalJson() const {
     }
     llvm::json::Array slotReleases;
     for (const SlotReleaseEffectPlan &release : block.slotReleases)
-      slotReleases.push_back(llvm::json::Object{{"slot", release.slot},
-                                                {"when", release.when}});
+      slotReleases.push_back(
+          llvm::json::Object{{"slot", release.slot}, {"when", release.when}});
     llvm::json::Array outputPresence;
     for (const OutputPresencePlan &output : block.outputPresence)
       outputPresence.push_back(llvm::json::Object{{"ordinal", output.ordinal},
@@ -7428,23 +7463,31 @@ llvm::Expected<std::string> QueueGraphPlan::canonicalJson() const {
         {"init", block.init},
         {"write_fields", std::move(writeFields)},
         {"yields", std::move(yields)}};
+    if (!block.ndfIds.empty()) {
+      llvm::json::Array values;
+      for (const std::string &identifier : block.ndfIds)
+        values.push_back(identifier);
+      blockValue["ndf_ids"] = std::move(values);
+    }
+    if (!block.ndfRequires.empty()) {
+      llvm::json::Array values;
+      for (const std::string &identifier : block.ndfRequires)
+        values.push_back(identifier);
+      blockValue["ndf_requires"] = std::move(values);
+    }
     if (!block.sourceProvenance.origins.empty())
-      blockValue["source_provenance"] =
-          provenanceJson(block.sourceProvenance);
+      blockValue["source_provenance"] = provenanceJson(block.sourceProvenance);
     blockValues.push_back(std::move(blockValue));
   }
   llvm::json::Array memoryInstanceValues;
   for (const MemoryInstancePlan &instance : memoryInstances) {
-    llvm::json::Object value{{"data_type", instance.dataType},
-                             {"entries", instance.entries},
-                             {"init", instance.init},
-                             {"latency", instance.latency},
-                             {"name", instance.name},
-                             {"owner_path", instance.ownerPath},
-                             {"stable_id", instance.stableId}};
+    llvm::json::Object value{
+        {"data_type", instance.dataType}, {"entries", instance.entries},
+        {"init", instance.init},          {"latency", instance.latency},
+        {"name", instance.name},          {"owner_path", instance.ownerPath},
+        {"stable_id", instance.stableId}};
     if (!instance.sourceProvenance.origins.empty())
-      value["source_provenance"] =
-          provenanceJson(instance.sourceProvenance);
+      value["source_provenance"] = provenanceJson(instance.sourceProvenance);
     memoryInstanceValues.push_back(std::move(value));
   }
   llvm::json::Array memoryRequestValues;
@@ -7470,19 +7513,18 @@ llvm::Expected<std::string> QueueGraphPlan::canonicalJson() const {
     for (const TableInitValuePlan &value : table.initImage)
       initImage.push_back(initValueJson(initValueJson, value));
     llvm::json::Object value{{"axis_widths", std::move(axisWidths)},
-                           {"entries", table.entries},
-                           {"entry_type", table.entryType},
-                           {"init", table.init},
-                           {"init_image", std::move(initImage)},
-                           {"init_version", table.initVersion},
-                           {"has_typed_schema", table.hasTypedSchema},
-                           {"layout", table.layout},
-                           {"layout_version", table.layoutVersion},
-                           {"name", table.name},
-                           {"owner_path", table.ownerPath},
-                           {"schema_id", table.schemaId},
-                           {"shape", std::move(shape)},
-                           {"stable_id", table.stableId}};
+                             {"entries", table.entries},
+                             {"entry_type", table.entryType},
+                             {"init", table.init},
+                             {"init_image", std::move(initImage)},
+                             {"init_version", table.initVersion},
+                             {"has_typed_schema", table.hasTypedSchema},
+                             {"layout", table.layout},
+                             {"layout_version", table.layoutVersion},
+                             {"name", table.name},
+                             {"owner_path", table.ownerPath},
+                             {"shape", std::move(shape)},
+                             {"stable_id", table.stableId}};
     if (!table.sourceProvenance.origins.empty())
       value["source_provenance"] = provenanceJson(table.sourceProvenance);
     tableValues.push_back(std::move(value));
@@ -7520,8 +7562,7 @@ llvm::Expected<std::string> QueueGraphPlan::canonicalJson() const {
       matchValue["scan_bound"] = scanBound;
     }
     if (!match.sourceProvenance.origins.empty())
-      matchValue["source_provenance"] =
-          provenanceJson(match.sourceProvenance);
+      matchValue["source_provenance"] = provenanceJson(match.sourceProvenance);
     tableMatchValues.push_back(std::move(matchValue));
   }
   llvm::json::Array tableSelectionValues;
@@ -7583,12 +7624,10 @@ llvm::Expected<std::string> QueueGraphPlan::canonicalJson() const {
   }
   llvm::json::Array slotValues;
   for (const SlotPlan &slot : slots) {
-    llvm::json::Object value{{"input", slot.input},
-                                            {"name", slot.name},
-                                            {"owner_path", slot.ownerPath},
-                                            {"payload_type", slot.payloadType},
-                                            {"scope", slot.scope},
-                                            {"stable_id", slot.stableId}};
+    llvm::json::Object value{
+        {"input", slot.input},          {"name", slot.name},
+        {"owner_path", slot.ownerPath}, {"payload_type", slot.payloadType},
+        {"scope", slot.scope},          {"stable_id", slot.stableId}};
     if (!slot.sourceProvenance.origins.empty())
       value["source_provenance"] = provenanceJson(slot.sourceProvenance);
     slotValues.push_back(std::move(value));
@@ -7624,7 +7663,7 @@ llvm::Expected<std::string> QueueGraphPlan::canonicalJson() const {
         {"name", instance.name},
         {"outputs", std::move(outputs)},
         {"scope", instance.scope},
-        {"specialization", instance.specializationFingerprint}};
+        {"specialization", instance.specializationKey}};
     if (!instance.sourceProvenance.origins.empty())
       instanceValue["source_provenance"] =
           provenanceJson(instance.sourceProvenance);
@@ -7687,7 +7726,6 @@ llvm::Expected<std::string> QueueGraphPlan::canonicalJson() const {
       targets.push_back(target);
     staticTypeIdentityValues.push_back(
         llvm::json::Object{{"bindings", std::move(bindings)},
-                           {"fingerprint", identity.fingerprint},
                            {"source", identity.source},
                            {"symbol", identity.symbol},
                            {"targets", std::move(targets)}});
@@ -7697,27 +7735,21 @@ llvm::Expected<std::string> QueueGraphPlan::canonicalJson() const {
     staticConfigBindingValues.push_back(
         llvm::json::Object{{"root", binding.root},
                            {"schema", binding.schema},
-                           {"schema_sha256", binding.schemaSha256},
                            {"type", binding.type},
                            {"value", binding.value}});
+  llvm::json::Array specializationParameterValues;
+  for (const auto &[name, value] : specializationParameters)
+    specializationParameterValues.push_back(
+        llvm::json::Object{{"name", name}, {"value", value}});
   llvm::json::Object root{
       {"activation_edges", std::move(activationEdgeValues)},
       {"aggregates", std::move(aggregateValues)},
       {"blocks", std::move(blockValues)},
-      {"contract_epoch", "0.5"},
       {"definition", definition.empty() ? llvm::json::Value(nullptr)
                                         : llvm::json::Value(definition)},
-      {"definition_fingerprint",
-       definitionFingerprint.empty()
-           ? llvm::json::Value(nullptr)
-           : llvm::json::Value(definitionFingerprint)},
       {"enums", std::move(enumValues)},
       {"interface_inputs", std::move(interfaceInputValues)},
       {"interface_outputs", std::move(interfaceOutputValues)},
-      {"jit_specialization",
-       jitSpecializationFingerprint.empty()
-           ? llvm::json::Value(nullptr)
-           : llvm::json::Value(jitSpecializationFingerprint)},
       {"helpers", std::move(helperValues)},
       {"initial_activation", std::move(initialActivationValues)},
       {"memory_instances", std::move(memoryInstanceValues)},
@@ -7729,9 +7761,10 @@ llvm::Expected<std::string> QueueGraphPlan::canonicalJson() const {
       {"schema", "agentic-circuit-queue-graph-plan"},
       {"scopes", std::move(scopeValues)},
       {"slots", std::move(slotValues)},
-      {"specialization", specializationFingerprint.empty()
+      {"specialization", specializationKey.empty()
                              ? llvm::json::Value(nullptr)
-                             : llvm::json::Value(specializationFingerprint)},
+                             : llvm::json::Value(specializationKey)},
+      {"specialization_parameters", std::move(specializationParameterValues)},
       {"table_reads", std::move(tableReadValues)},
       {"table_matches", std::move(tableMatchValues)},
       {"table_masked_writes", std::move(tableMaskedWriteValues)},
@@ -7748,6 +7781,23 @@ llvm::Expected<std::string> QueueGraphPlan::canonicalJson() const {
     root["static_type_identities"] = std::move(staticTypeIdentityValues);
   if (!staticConfigBindings.empty())
     root["static_config_bindings"] = std::move(staticConfigBindingValues);
+  if (!ndfIds.empty()) {
+    llvm::json::Array values;
+    for (const std::string &identifier : ndfIds)
+      values.push_back(identifier);
+    root["ndf_ids"] = std::move(values);
+  }
+  if (!ndfRequires.empty()) {
+    llvm::json::Array values;
+    for (const std::string &identifier : ndfRequires)
+      values.push_back(identifier);
+    root["ndf_requires"] = std::move(values);
+  }
+  if (!sourceFile.empty()) {
+    root["source_file"] = sourceFile;
+    root["source_line"] = sourceLine;
+    root["source_column"] = sourceColumn;
+  }
   root["work_closure_edges"] = std::move(workClosureEdgeValues);
   return bindings::canonicalizeJson(llvm::json::Value(std::move(root)));
 }
@@ -7766,14 +7816,13 @@ llvm::Expected<std::string> QueueGraphPlan::sourceMapJson() const {
           value["symbol"] = frame.symbol;
         frames.push_back(std::move(value));
       }
-      origins.push_back(
-          llvm::json::Object{{"frames", std::move(frames)}});
+      origins.push_back(llvm::json::Object{{"frames", std::move(frames)}});
     }
     return llvm::json::Object{{"origins", std::move(origins)}};
   };
-  auto expressionJson = [&](auto &&self,
-                            const QueueExpressionPlan &expression)
-      -> llvm::json::Object {
+  auto expressionJson =
+      [&](auto &&self,
+          const QueueExpressionPlan &expression) -> llvm::json::Object {
     llvm::json::Array nested;
     for (const QueueExpressionPlan &child : expression.nestedExpressions)
       nested.push_back(self(self, child));
@@ -7817,7 +7866,7 @@ llvm::Expected<std::string> QueueGraphPlan::sourceMapJson() const {
         {"name", instance.name},
         {"scope", instance.scope},
         {"source_provenance", provenanceJson(instance.sourceProvenance)},
-        {"specialization", instance.specializationFingerprint},
+        {"specialization", instance.specializationKey},
     });
   llvm::json::Array tableMatchValues;
   for (const TableMatchPlan &match : tableMatches) {
@@ -7877,17 +7926,23 @@ llvm::Expected<std::string> QueueGraphPlan::sourceMapJson() const {
   }
   llvm::json::Object root{
       {"blocks", std::move(blockValues)},
-      {"contract_epoch", "0.5"},
       {"definition", definition.empty() ? llvm::json::Value(nullptr)
-                                         : llvm::json::Value(definition)},
+                                        : llvm::json::Value(definition)},
       {"helpers", std::move(helperValues)},
       {"module_instances", std::move(instanceValues)},
       {"module_specializations", std::move(specializationValues)},
       {"schema", "agentic-circuit-source-map"},
-      {"specialization",
-       specializationFingerprint.empty()
-           ? llvm::json::Value(nullptr)
-           : llvm::json::Value(specializationFingerprint)},
+      {"specialization", specializationKey.empty()
+                             ? llvm::json::Value(nullptr)
+                             : llvm::json::Value(specializationKey)},
+      {"specialization_parameters",
+       [&]() {
+         llvm::json::Array values;
+         for (const auto &[name, value] : specializationParameters)
+           values.push_back(
+               llvm::json::Object{{"name", name}, {"value", value}});
+         return llvm::json::Value(std::move(values));
+       }()},
       {"state_owners", std::move(stateOwnerValues)},
       {"system", system},
       {"table_matches", std::move(tableMatchValues)},

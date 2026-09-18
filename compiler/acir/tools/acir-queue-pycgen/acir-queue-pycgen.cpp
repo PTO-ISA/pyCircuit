@@ -14,7 +14,7 @@
 namespace {
 
 llvm::cl::opt<std::string> inputFile(llvm::cl::Positional, llvm::cl::Required,
-                                     llvm::cl::desc("<frozen-acir>"));
+                                     llvm::cl::desc("<verified-acir>"));
 
 } // namespace
 
@@ -26,7 +26,7 @@ int main(int argc, char **argv) {
   mlir::MLIRContext context(registry);
   auto module = mlir::parseSourceFile<mlir::ModuleOp>(inputFile, &context);
   if (!module) {
-    llvm::errs() << "ACLOWER-PYC: frozen ACIR parsing failed\n";
+    llvm::errs() << "ACLOWER-PYC: verified ACIR parsing failed\n";
     return EXIT_FAILURE;
   }
   auto plan = acir::codegen::buildQueueGraphPlan(*module);

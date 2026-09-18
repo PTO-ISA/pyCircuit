@@ -1,16 +1,15 @@
 // RUN: %acir_opt --pass-pipeline='builtin.module(ac-verify-value-constraints,ac-freeze-topology)' %s -o %t.frozen.mlir
 // RUN: %acir_queue_pycgen %t.frozen.mlir | %FileCheck %s --check-prefix=PYC
-// RUN: %python %source_root/compiler/acir/tools/acir-queue-veriloggen.py %t.frozen.mlir --pycgen %acir_queue_pycgen | %FileCheck %s --check-prefix=VERILOG
+// RUN: rm -f %t.sv && %acc -c %t.frozen.mlir -emit-verilog -o %t.sv && %FileCheck %s --check-prefix=VERILOG < %t.sv
 
-module attributes {ac.contract_epoch = "0.5", ac.model_kind = "queue_graph", ac.queue_graph_domain = "cycle", ac.system = "field_replace_order"} {
+module attributes {ac.model_kind = "queue_graph", ac.queue_graph_domain = "cycle", ac.system = "field_replace_order"} {
   ac.type_scope @types {
     ac.struct @Entry fields [{name = "value", type = i7}, {name = "valid", type = i1}]
   } {dlti.dl_spec = #dlti.dl_spec<!ac.struct<@types::@Entry> = {abi_alignment = 1 : i64, endianness = "little", preferred_alignment = 1 : i64, size = 8 : i64}>}
   ac.table @state entry !ac.struct<@types::@Entry> entries 1 init 0 owner "/" stable_id "table/state" {
     shape = array<i64: 1>, axis_widths = array<i64: 1>,
     layout = "row_major", layout_version = 1 : i64,
-    schema_id = "sha256:b04b647ff5d9a1b1ddb933cbc627b964b7a3a77fcd064e1c2d977e7e56d2d951",
-    init_version = 1 : i64,
+        init_version = 1 : i64,
     init_image = [{valid = false, value = 1 : i7}]
   }
   %field = ac.source depth 1 latency 1 {ac.name = "field"} : !ac.queue<i1>

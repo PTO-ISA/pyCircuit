@@ -2,7 +2,7 @@
 
 | 字段 | 内容 |
 | --- | --- |
-| 目标版本 | Explicit Memory contract epoch `0.5` |
+| Release authority | 外部 package release 与精确 Git source revision |
 | 状态 | 已在 `main` 实现；本文是团队阅读入口 |
 | 适用读者 | Python 前端、ACIR、gfsim、PYC/Verilog 和模型验证开发者 |
 | 规范主文档 | [Agentic Circuit Specification Manual](agentic-circuit.md) |
@@ -53,7 +53,7 @@ Decision 0232 现冻结四 wheel release map；Decision 0234 将仓库内可验�
 
 `source(..., lanes=N, rate=R)` 创建一个 logical ordered Queue；lane count 为静态正整数，
 且 `1 <= R <= N`。one-to-one compute/pipeline 继承完全相同的 lane/rate contract。
-Frozen ACIR 使用 `!ac.queue<T, lanes=N, rate=R>`；lane-one/rate-one 仍打印为旧的
+verified ACIR 使用 `!ac.queue<T, lanes=N, rate=R>`；lane-one/rate-one 仍打印为旧的
 `!ac.queue<T>`。payload aggregate shape 与 lane count 相互独立。
 
 可用 token 形成不超过 `rate` 的连续 valid prefix。整个 prefix 在同一 commit group 中
@@ -259,7 +259,7 @@ def pipeline() -> None:
 ```
 
 `ac.jit` 只绑定 `ac.const`；普通 typed runtime 参数保持未绑定，不进入
-specialization fingerprint。Python 不增加 Queue/Input/Output wrapper，也不表达
+specialization key。Python 不增加 Queue/Input/Output wrapper，也不表达
 ready/full/pop/push。可选 `workspace=` 会确定性捕获本地传递 import closure；
 本地依赖使用明确的 `from module import Symbol`。在支持保留模块命名空间的打包之前，
 本地模块限定访问、重命名导入及跨文件定义重名都会在 lowering 前被拒绝。
@@ -288,12 +288,12 @@ class Group:
 `max(1, ceil(log2(N + 1)))`。封闭语法只包含整数 literal、已声明参数、封闭整数
 常量、`+`、`-`、`*`、`index_width` 和 `count_width`；其他 Python 运算符不会
 回退到通用 static evaluator。未绑定、运行时派生、非正、溢出或产生超过
-64 bit 标量的表达式都在 ACIR 发布前失败。Frozen ACIR 和后端只保留具体类型，
-specialization fingerprint 包含绑定常量。tuple element 与 value-array element 的
+64 bit 标量的表达式都在 ACIR 发布前失败。verified ACIR 和后端只保留具体类型，
+specialization identity 包含 typed 绑定常量。tuple element 与 value-array element 的
 递归路径也会写入 provenance，由 ACIR 和 QueueGraph verifier 分别复算。直接作为
 system/module typed interface 的 dependent scalar 也携带 exact concrete type check。
-specialized struct 额外记录 source name、语义参数名、具体 field layout、fingerprint
-和完整 check target 集合；缺失 target、过期 symbol hash 或伪造 layout 都会被拒绝。
+specialized struct 额外记录 source name、语义参数名、具体 field layout
+和完整 check target 集合；缺失 target 或伪造 layout 都会被拒绝。
 
 一个嵌套 `@ac.config` 也可以作为 dependent integer field 的 typed root：
 
@@ -323,7 +323,7 @@ class Group:
 `cfg: ac.const[Config]`。JIT 在冻结前要求 exact nominal config class，并递归验证
 嵌套 config 与 scalar field 类型。
 
-ACIR 保存语义 root（`cfg`）、完整嵌套 schema、schema SHA-256、canonical closed
+ACIR 保存语义 root（`cfg`）、完整嵌套 schema、canonical closed
 root value、投影 leaf binding 与已有 postfix type-check program。`verify-ac-file` 和
 QueueGraph 从 root value 沿 field path 重新取值，并独立核对 projected integer 与
 type binding。Python alias 拼写不进入语义 identity；config projection 与成功的
@@ -338,7 +338,7 @@ verifier record namespace 不进入类型语义。完整例子见
 
 `ac.static_assert(condition, message=...)` 只能作为 entry body 的直接语句。
 它在 `ac.const` 绑定后求值，condition 必须是封闭 bool、message 必须是静态字符串，
-并在 Frozen ACIR 前消除。失败或依赖 runtime 值时，诊断保留规范化相对路径、行列、
+并在 verified ACIR 前消除。失败或依赖 runtime 值时，诊断保留规范化相对路径、行列、
 规范化表达式和引用到的闭合 binding。power-of-two、整除、容量与派生 width/length
 检查使用普通的封闭 Python integer expression。
 
@@ -374,13 +374,13 @@ record/tuple/value-array leaf 不能直接声明为 bounded，必须先以 bits 
 state 需要后续 typed reset image 扩展，现阶段 fail closed。
 
 bounded 加减产生数学结果域，不执行 bits 的模运算；负结果或超出 u64 时拒绝。
-不同 bounded domain 可以按 unsigned 数值比较。Python 的 `[lo, hi)` 在 Frozen ACIR
+不同 bounded domain 可以按 unsigned 数值比较。Python 的 `[lo, hi)` 在 verified ACIR
 中写成 inclusive `!ac.range<lo, hi - 1>`，QueueGraph 复算转换、算术与 proof 后，
 GFSim/PYC 才擦除 refinement。
 
 进入 MLIR printer 之前，前端使用不可变递归 descriptor 表示 logical bool、精确位宽
 bits、nominal enum/struct、structural tuple 和固定 value array。每个 descriptor 都有
-规范化身份、稳定 SHA-256 和递归 bit width。`BoolType()` 与 `BitsType(1)` 是两个
+规范化结构与递归 bit width。`BoolType()` 与 `BitsType(1)` 是两个
 不同的编译器事实，虽然当前都渲染为 `i1`。持久 Python `list` 是 state container，
 不是 `ArrayType` value。固定 payload array 渲染为 `!ac.value_array<N x T>`；
 `!ac.array` 继续只表示静态 Queue/Var topology collection。tuple/value-array 的每个
@@ -427,7 +427,7 @@ enum 和 nominal struct 元素会在 aggregate 构造前递归 pack、在选取�
 同质固定 array。每个 lane 使用独立的 exact-descriptor callback scope；free deferred
 capture 先在外层词法作用域 materialize，所以 callback 参数 shadow 不会重绑定已捕获的
 `checked` 结果或 struct。zip 要求所有正长度 array 完全等长，返回 structural tuple 的
-array，不截断、填充、广播或转换。两者都在 Frozen ACIR 前展开为现有 static element、
+array，不截断、填充、广播或转换。两者都在 verified ACIR 前展开为现有 static element、
 tuple/record、callback 与 array operation；嵌套展开共享 4096-lane budget，不生成 runtime
 iterator、container 或 PYC vector type。
 
@@ -503,7 +503,7 @@ select 穿透只用于 single-use aggregate result，避免在 CSE 前展开 sha
 只读取 nominal Struct 的非空真子集顶层字段。通过既有 rule proof 的无状态纯
 rule-origin Transform 也可参与。物理 tuple carrier 保留字段精确类型和 Queue 时序；
 配对 ACIR metadata 保存完整逻辑 descriptor 与映射。Freeze 和 QueueGraph 会独立
-重验 edge、fingerprint、字段顺序、tuple shape、element-only use 以及受保护边界排除。
+重验 edge、descriptor、字段顺序、tuple shape、element-only use 以及受保护边界排除。
 公开、观察、module、state、feedback、memory 和 whole-value edge 不改写。QueueGraph
 JSON 分别报告 logical/carrier width；位宽变小本身不代表吞吐提升。
 
@@ -575,7 +575,7 @@ raw enum ingress 不会因为 nominal annotation 就被假定为合法 member：
 和声明 encoding，但不能排除非法物理编码。Raw ACIR 保留 `ac.var.enum_match`，由
 verifier 独立检查 coverage、duplicate、unknown/unreachable 和结果类型；随后
 value-contract lowering 把它展开为 enum constant、equality、balanced OR 和 select，
-Frozen ACIR 中不再保留该 op，也不会生成 Python 控制流。
+verified ACIR 中不再保留该 op，也不会生成 Python 控制流。
 
 ### 递归相等性与命名 payload invariant
 
@@ -625,7 +625,7 @@ boolean value；组合调用保持为具有 hygienic SSA、无隐式 capture 的
 region。它不是 assertion、隐式输入前提或 refined runtime type。rule 必须明确把结果用于
 guard 或分类。`ac-lower-value-contracts` 先内联 leaf callee，再内联 caller，并按 descriptor
 顺序把 aggregate `ac.var.cmp` 递归展开为 `ac.var.get`/`ac.var.element`、scalar/enum 相等
-leaf 和平衡 boolean AND tree；`ne` 对完整 equality result 取反。Frozen ACIR 与
+leaf 和平衡 boolean AND tree；`ne` 对完整 equality result 取反。verified ACIR 与
 QueueGraph 中禁止残留 aggregate comparison 或 invariant op。
 
 ### 静态 bits 与命名 bitfield view
@@ -656,7 +656,7 @@ updated = INSTRUCTION.update(word, rd=replacement)
 
 命名单字段和多字段读取分别降到 `ac.var.extract` 与 MSB-first
 `ac.var.concat`，更新降到不可变 `ac.var.insert`。ACIR 的 `ac.bitfield` 保存
-规范化 width/range metadata 和稳定 SHA-256；verifier 在 topology freeze 前把每个
+规范化 width/range metadata；verifier 在 topology freeze 前把每个
 field-qualified operation 解析回声明并复核范围。Python 前端不需要表达任何
 ready/full/Queue transaction 逻辑。
 
@@ -664,7 +664,7 @@ ready/full/Queue transaction 逻辑。
 
 编译器使用一个小型确定性抽象域：`Constant`、`FiniteSet`、`ClosedInterval` 和
 `Unknown`。Constraint 与 `ValueType` 分离，不参与 type identity 或 specialization
-fingerprint。声明的 `ac.index`/`ac.range` 则是 verifier-visible payload type；分析可以
+key。声明的 `ac.index`/`ac.range` 则是 verifier-visible payload type；分析可以
 为它推导更窄的事实，但事实丢失不会改变声明类型。位宽、range bound、固定 shape、
 aggregate index、slice/insert bound 和 topology loop count 在 ACIR 发射前仍必须收敛
 为具体静态整数。
@@ -679,7 +679,7 @@ fail closed。
 之前证明每个动态 Table index 都位于 `[0, entries - 1]`。MLIR 通用
 `DataFlowSolver` 只存在于 analyzer 的私有实现中。例如 `u2` index 对 5-entry state
 天然安全；未收窄的 `u3` index 会被拒绝。QueueGraph 还会独立重算同一 obligation，
-防止伪造 Frozen ACIR 绕过 verifier。
+防止伪造 verified ACIR 绕过 verifier。
 
 当前切片刻意保持 path-insensitive。动态 aggregate extract/insert、由 guard 反向收窄、
 runtime loop termination proof 和通用 enum branch exhaustiveness 是后续独立扩展。
@@ -970,7 +970,7 @@ Python 前端允许用同构 `ac.array` 静态声明 memory banks，并以
 冻结 ACIR 包含一个 `ac.route`、每个 bank 各一个普通 memory instance/request，以及
 一个 response `ac.merge`，不会引入新的 primitive。各 bank 的 outstanding 状态独立，
 因此跨 bank response 可能乱序；需要保序时应在 payload 中保留 tag 并显式接
-`reorder`。epoch 0.5 仅支持一维、data type、entries、init 和 latency 完全相同的 memory
+`reorder`。当前只支持一维、data type、entries、init 和 latency 完全相同的 memory
 array。
 
 可执行示例：
@@ -1005,7 +1005,7 @@ valid、candidate 与 release reservation。PYC/RTL 继续明确拒绝 provision
 
 ### Stateful Table 原型
 
-epoch `0.5` 将本地状态 Table 与 request/response memory 分离。Table shape 可以是
+本地状态 Table 与 request/response memory 是独立语义。Table shape 可以是
 rank-one extent，也可以是由正静态 extent 组成的非空 tuple：
 
 ```python
@@ -1058,9 +1058,9 @@ zero shorthand。
 非零初始化使用 closed typed image，键必须精确为 `version`、`entry` 和 `values`。
 version 1 必须包含恰好 flattened entry count 个元素；每个 scalar、enum、struct、tuple 或
 value-array 元素都必须递归匹配 Entry descriptor。字段顺序和 serialized bytes 是 canonical
-的，并且不能包含 producer path。Frozen ACIR 保存 `shape`、`axis_widths`、`layout`、
+的，并且不能包含 producer path。verified ACIR 保存 `shape`、`axis_widths`、`layout`、
 `layout_version`、`schema_id`、`init_version` 和 `init_image`。rank、extent、product、
-layout、digest、version、count 或 value type 不合法时，必须在创建 runtime Table 前拒绝。
+layout、version、count 或 value type 不合法时，必须在创建 runtime Table 前拒绝。
 
 `read()` 总是返回 `Queue<Entry>`；Queue-driven read 的 `when=false` 不消费输入，
 disabled write 消费输入但不提出写 proposal。同 tick 读写返回 old committed Entry，
@@ -1138,7 +1138,7 @@ writer 共存。它在调用方提供的 index 安装完整 Entry，不搜索空
 Entry 上 allocation 覆盖普通更新，不同 Entry 仍独立更新。
 
 每次作者写出的 `match` 和 `choose` 都是共享值，不是 endpoint-local 语法糖。
-Frozen ACIR 只生成一个支配所有使用点的 `ac.table.match` 或 `ac.table.choose`，read/write
+verified ACIR 只生成一个支配所有使用点的 `ac.table.match` 或 `ac.table.choose`，read/write
 policy region 捕获其 SSA result。QueueGraph 与 typed gfsim 保留这种共享关系：结果按完整
 Epoch 惰性求值并缓存，同一 Epoch 的多个 consumer 只触发一次 Table scan；Epoch 前进或
 模型 reset 后重新计算。choose 的 mask 必须来自同 Table 的 match。`policy="first"`
@@ -1160,7 +1160,7 @@ snapshot-set reservation 时，生成的 gfsim C++ 才能把它们融合成一�
 保留独立 candidate mask 和后续 selection。不同 capture/Table、首个 match 前不可用的
 capture、嵌套 Table/Slot observation 或 snapshot effect 都保留独立扫描。
 
-`EntryView` 只存在于 elaboration。`patch` 在 Frozen ACIR 前展开成
+`EntryView` 只存在于 elaboration。`patch` 在 verified ACIR 前展开成
 `ac.table.get -> ac.var.with -> ac.table.write` 或 `ac.table.masked_write`，不存在
 `ac.table.patch`。两种 Frozen write op 都必须携带规范化、非空、无重复的
 `write_fields` 与必需的 `mode`：普通 write 使用 `mode "field"`，scalar allocation
@@ -1228,7 +1228,7 @@ opcode。
 高层 `ac.schedule(...)` 选择 `v2` provider：key/waits-for 最多 16 bit，
 `no_dependency` 必须显式提供并且是该类型的全 1 值。gfsim 为整个 key domain 保留 bounded completion
 bitmap，producer 离开 resident/output window 后，后到的 dependent 仍能看到 completion；
-同一 key 在 reset 前不得复用。Frozen ACIR 保存 `ac.schedule_provider = "v2"`；
+同一 key 在 reset 前不得复用。verified ACIR 保存 `ac.schedule_provider = "v2"`；
 `ac.dependency` verifier 在 codegen 前拒绝未知 provider、过宽或不匹配的 key，以及非全 1
 sentinel。QueueGraph 保留并再次核验该 identity，据此生成 `gfsim::Schedule`；普通 `depend`
 仍保持 resident-only `QueueDependency` 语义。
@@ -1425,20 +1425,18 @@ Python 源码 provenance 与展示名称彼此独立。一个操作可以保留�
 origin 融合到保留值。生成的 `.pyc`、`.mlir` 或 checkout 绝对路径不能冒充 Python
 源码来源。
 
-Frozen ACIR 物化规范的 `ac.source_provenance`。QueueGraph 在 block、expression、helper、
+verified ACIR 物化规范的 `ac.source_provenance`。QueueGraph 在 block、expression、helper、
 共享 Table match/selection 定义、state owner 和 module instance 上保留相同来源栈。
 Queue topology 语句拥有对应的 FIFO/backpressure 生成逻辑；state 声明拥有初始化 register
 bank，更新逻辑则融合 owner 与写入 rule 的来源。规范 PYC 用 MLIR
 location 把生成操作绑定到这些来源，并携带经过 verifier 校验的 `pyc.source_map` JSON
-属性。model bundle 同时发布 `share/generated/source-map.json`，model manifest 记录其
-schema、路径与 SHA-256。生成 GFSim 对 primary Python frame 发出 `#line`，完整 inline
+属性。ACC bundle 可以同时发布 `share/generated/source-map.json`。生成 GFSim 对 primary Python frame 发出 `#line`，完整 inline
 栈和其他 origin 继续保存在 source map 中。源码元数据不参与 topology、definition 或
-specialization identity，但作为生成 artifact 单独进行 content addressing，避免复用过期
-source map。
+specialization identity。
 
-展示元数据不承担身份语义。`ac.name`、stable ID、scheduler object ID、specialization
-fingerprint、cache key 和 tuple 顺序继续保持原有含义。编译器从 fingerprint 输入中删除
-`ac.display_name`，统一合法化 C++ 标识符，并只在真实冲突时添加确定性的短编号。没有
+展示元数据不承担身份语义。`ac.name`、stable ID、scheduler object ID、structural
+specialization key 和 tuple 顺序继续保持原有含义。编译器统一合法化 C++ 标识符，
+并只在真实冲突时添加确定性的短编号。没有
 源码名称的值退化为稳定临时名；生成结果绝不写入构建主机的绝对路径。
 
 这种可读构造不是新的运行时 API。transition plan 仍按完全相同的类型化 tuple 顺序承载
@@ -1446,7 +1444,7 @@ writes、outputs 与 reservations。局部 record 更新不等同于字段级状
 lower 的字段比较猜测并恢复为整体相等。位宽、溢出、访问检查、求值顺序、ownership、
 backpressure、reservation、arbitration 与原子提交行为均保持不变。
 
-epoch 0.5 的 pure rule 支持一个或多个 Queue 输入、一个输出和一条完整返回路径。
+pure rule 支持一个或多个 Queue 输入、一个输出和一条完整返回路径。
 每个参数都是对应 Queue 的 committed head payload。前端只生成 variadic transient
 `ac.rule` 与 typed output-handshake obligation；MLIR pass 推导全部输入消费和输出生产
 effect，建立空检查契约，生成 `ready_valid_Nx1` 握手，解析调度并降到 marker-free
@@ -1660,19 +1658,29 @@ source .venv/bin/activate
 cmake --build .pycircuit_out/acir/dev-llvm22
 ```
 
-生成 frozen ACIR、QueueGraph plan 和 typed gfsim C++：
+先把 Python 架构编译成 verified ACIR，再通过唯一的 native ACC 后端入口生成 C++、
+可复用 bundle 和 Verilog：
 
 ```bash
 PYTHONPATH=python/semantic-core/src:python/agentic-circuit/src \
-  .venv/bin/python compiler/acir/tools/ac-queue-cxxgen.py \
-  examples/agentic-circuit/pipelines/routed_dependency_pipeline.py \
-  --system routed_dependency_pipeline \
-  --acir-output .pycircuit_out/examples/routed_dependency_pipeline.ac.mlir \
-  --plan-output .pycircuit_out/examples/routed_dependency_pipeline.queue-plan.json \
-  --acir-opt .pycircuit_out/acir/dev-llvm22/bin/acir-opt \
-  --queue-plan-tool .pycircuit_out/acir/dev-llvm22/bin/acir-queue-plan \
-  --queue-cxxgen-tool .pycircuit_out/acir/dev-llvm22/bin/acir-queue-cxxgen \
-  --output .pycircuit_out/examples/routed_dependency_pipeline.cpp
+  .venv/bin/python -m agentic_circuit._acc_py \
+  -c examples/agentic-circuit/pipelines/routed_dependency_pipeline.py \
+  -o .pycircuit_out/examples/routed_dependency_pipeline.ac
+
+.pycircuit_out/acir/dev-llvm22/bin/acc \
+  -c .pycircuit_out/examples/routed_dependency_pipeline.ac \
+  -emit-cpp \
+  -o .pycircuit_out/examples/routed_dependency_pipeline.cpp
+
+.pycircuit_out/acir/dev-llvm22/bin/acc \
+  -c .pycircuit_out/examples/routed_dependency_pipeline.ac \
+  -emit-cpp-bundle \
+  -o .pycircuit_out/examples/routed_dependency_pipeline
+
+.pycircuit_out/toolchain/install/bin/acc \
+  -c .pycircuit_out/examples/routed_dependency_pipeline.ac \
+  -emit-verilog \
+  -o .pycircuit_out/examples/routed_dependency_pipeline.v
 ```
 
 验证生成 C++：
@@ -1682,29 +1690,8 @@ c++ -std=c++20 -Isimulator/gfsim/include -fsyntax-only \
   .pycircuit_out/examples/routed_dependency_pipeline.cpp
 ```
 
-使用锁定的 pyCircuit toolchain 生成 PYC C++ 与 Verilog：
-
-```bash
-PYC_TOOLCHAIN_ROOT=/path/to/pycircuit/toolchain/install
-
-.venv/bin/python compiler/acir/tools/ac-queue-pyc-build.py \
-  .pycircuit_out/examples/routed_dependency_pipeline.ac.mlir \
-  --pycgen-tool .pycircuit_out/toolchain/build/bin/acir-queue-pycgen \
-  --pycc "$PYC_TOOLCHAIN_ROOT/bin/pycc" \
-  --toolchain-lock toolchains/agentic-circuit/pyc.lock.json \
-  --toolchain-metadata \
-    "$PYC_TOOLCHAIN_ROOT/share/pycircuit/toolchain-metadata.json" \
-  --cxx "$(command -v c++)" \
-  --verilator "$(command -v verilator)" \
-  --pyc-output .pycircuit_out/examples/routed_dependency_pipeline.pyc \
-  --cpp-output-dir .pycircuit_out/examples/routed_dependency_pipeline-pyc-cpp \
-  --verilog-output-dir .pycircuit_out/examples/routed_dependency_pipeline-verilog \
-  --manifest .pycircuit_out/examples/routed_dependency_pipeline-pyc-manifest.json
-```
-
-命令会检查 `pyc.lock.json`，执行 PYC
-verification、C++ syntax check、Verilator lint，并记录确定性 artifact hash。目标输出
-路径必须不存在，防止覆盖旧证据。
+每次 emission 的目标文件或目录必须尚不存在；ACC 不合并也不覆盖已有 bundle。
+安装目录中的 `acc` 与相邻的 `pycc` 必须来自同一个精确 pyCircuit revision。
 
 ## 明确禁止的写法
 
@@ -1744,9 +1731,8 @@ ac.register_opcode("my.dispatch", cpp_provider=..., verilog=...)
 QueueGraph、gfsim、PYC、测试和 opcode catalog。
 
 QueueGraph 可以保留结构化模块层次。此时 IR 使用唯一选中的 `ac.system`、可复用的
-`ac.module` 定义、`ac.instance` 实例和模块局部 `ac.scope`；freeze pass 自动插入并
-校验 definition fingerprint 与由 definition 加静态参数导出的 specialization
-fingerprint。同一定义和同一组参数的多个实例必须共享 specialization 身份，后端按
+`ac.module` 定义、`ac.instance` 实例和模块局部 `ac.scope`；freeze pass 校验
+definition symbol 与 ordered typed static arguments。同一定义和同一组参数的多个实例必须共享 specialization 身份，后端按
 specialization 生成一次实现类，只为每个实例绑定独立端口和状态，不能按层次路径把
 模块摊开。旧的 flat QueueGraph 仍作为过渡输入保留，但不再是模块化设计的目标形式。
 对于 stateful specialization，实现类共享 Table/transition 的成员布局，但每个实例必须
@@ -1770,7 +1756,7 @@ parent specialization 可以拥有连接 local block 与 child instance 的内�
 绑定 parent interface。内部存储不能提升到 root，也不能在重复 parent 实例之间共享。
 
 Python 用户用普通 typed `@ac.module` 函数声明可复用行为，并在 `@ac.system` 中以普通调用
-使用它。前端不暴露 Queue port、instance object、specialization fingerprint、source、
+使用它。前端不暴露 Queue port、instance object、specialization key、source、
 sink、ready 或 backpressure。第一阶段支持纯 1x1 module：表达式 return 降为模块局部
 transform，typed system 参数/结果生成内部边界，普通调用生成 `ac.instance`。
 module 的表达式 return 可以直接调用另一个 typed module。前端生成包含 child
@@ -1809,16 +1795,9 @@ direct interface-to-rule graph。无状态 rule-backed module 也可以具有多
 直接使用的 rule。不可达 sibling definition 仍参与 JIT source identity，但不会作为 active
 hardware 生成或验证。任意内部 Queue graph 与 module 内 repeated-input fanout 仍是后续工作。
 
-完整 specialization fingerprint 继续作为 canonical IR、manifest、provider 和 cache
-identity。日常生成 C++ 名称只暴露可读语义身份：ACSim thunk 使用
-`acsim_generated::module_<Module>::process_<Process>::<entry>`，结构化 source bundle
-使用 `Module_<Module>` 与 `Process_<Module>_<Process>`，QueueGraph specialization
-使用 `Module_<Definition>`；process helper 和标量存储类型使用封闭的 role/type 名称。
-只有同一作用域的可读名称实际冲突时，才附加 fingerprint 前 16 个十六进制字符作为
-局部消歧；消歧后仍冲突则拒绝。完整 fingerprint 不得成为常规 namespace、class、文件
-或函数拼写。
-build manifest 以 `Module::Process` 记录每个可读 process 身份及其完整
-specialization fingerprint 的对应关系。
+definition symbol 与 ordered typed static arguments 是完整 specialization identity。
+生成 C++ 使用可读 definition，并在需要时添加参数名和值；不添加 `Module_` 前缀或
+任何内容派生后缀。合法化后仍冲突则拒绝。
 
 host-integrated simulation 可使用编译选项 `--host-results`，把 typed system return 保留为
 Top module Queue result，而不是插入自动 sink。生成的 `result_N()` 暴露 committed
@@ -1869,14 +1848,14 @@ match/choose index set 的通用推导及 multiple selected output 仍不属于�
 
 ## 共享契约来源
 
-Agentic Python 只保留一个严格 I-JSON validator 和一个产品
-`CONTRACT_EPOCH`；包元数据中的 `contract-epoch` 是受测试约束的镜像。JSON hash 使用
-RFC 8785 规范形式，而 MLIR 字符串使用独立的字节转义器，确保引号、反斜杠、控制字符和
+Agentic Python 只保留一个严格 I-JSON validator。release 选择与兼容性由外部 package
+release 和精确 Git source revision 决定，不写入 IR 或 frontend JSON。JSON 使用
+封闭的 I-JSON 表示，而 MLIR 字符串使用独立的字节转义器，确保引号、反斜杠、控制字符和
 UTF-8 字节都能被 MLIR parser 往返读取。
 
 `schemas/primitives/semantic_registry.json` 是三个 semantic primitive 的实现无关契约源，
 记录 semantic ID、参数枚举、`1 <= N <= 64` 和结果位宽公式。构建会验证该封闭公式集合并
-生成 selector 消费的语义表；implementation ID、端口绑定、digest 和 license 仍只属于
+生成 selector 消费的语义表；implementation ID、端口绑定、relative source 和 license 仍只属于
 `library/verilog/rtl_catalog.json`（Decision 0161）。PYC、ACIR 与 gfsim 各自只保留一个
 位宽 helper，并由 1..64 全枚举与 65..130 拒绝测试锁定一致性。
 
@@ -1903,7 +1882,7 @@ Queue 拓扑错误使用 `ACPY-QUEUE-*`，标量 value primitive 的调用、类
 | loop 被拒绝 | 不是受支持的单 Queue 有界 feedback 形状 | 简化为一次 Queue update，或显式组合 route/merge/feedback |
 | PYC 拒绝 `ac.expect` | verification leaf 不能进入 design | 把 assertion 放入 PYC testbench boundary |
 | 后端结果内部 cycle 不同 | gfsim 与 RTL IR 不同 | 比较声明的 transaction/state/refinement projection |
-| artifact epoch 不匹配 | serialized epoch 是 hard break | 重新生成 exact epoch `0.5` artifact，不使用兼容 shim |
+| release 不匹配 | 使用了错误的 package/source revision | 切换到要求的外部 release 并重新生成 artifact |
 
 ## 修改公共契约的完成条件
 

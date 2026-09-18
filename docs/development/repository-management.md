@@ -109,7 +109,7 @@ identify the language as pyCircuit 6.
 
 ## Agentic Circuit retirement
 
-Agentic Circuit source, ACIR/ACSim, gfsim, tests, schemas and frontend are owned
+Agentic Circuit source, ACIR/ACC, gfsim, tests, schemas and frontend are owned
 by the pyCircuit repository under the module roots defined by Decision 0157.
 Do not land new source changes in the standalone repository after the migration
 freeze.

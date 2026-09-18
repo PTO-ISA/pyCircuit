@@ -219,8 +219,7 @@ void expectModelBundleObjectsRun(
     if (relativePath.starts_with("src/generated/modules/")) {
       const std::string className = llvm::sys::path::stem(relativePath).str();
       moduleClasses.push_back(className);
-      EXPECT_NE(llvm::StringRef(file.content).find(className + "::"),
-                llvm::StringRef::npos)
+      EXPECT_NE(llvm::StringRef(file.content).find("::"), llvm::StringRef::npos)
           << file.relativePath
           << " must own an out-of-line module implementation";
     }
@@ -444,7 +443,7 @@ int main() {
 }
 
 constexpr llvm::StringLiteral kQueueGraph = R"mlir(
-module attributes {ac.contract_epoch = "0.5", ac.model_kind = "queue_graph", ac.queue_graph_domain = "cycle", ac.system = "pipeline"} {
+module attributes {ac.model_kind = "queue_graph", ac.queue_graph_domain = "cycle", ac.system = "pipeline"} {
   %input = ac.source depth 4 latency 1 {ac.name = "input"} : !ac.queue<i64>
   %left, %right = ac.route %input depths [2, 2] latencies [1, 1] {
   ^selector(%item: !ac.var<i64>):
@@ -458,7 +457,7 @@ module attributes {ac.contract_epoch = "0.5", ac.model_kind = "queue_graph", ac.
 )mlir";
 
 constexpr llvm::StringLiteral kStructuredTransform = R"mlir(
-module attributes {ac.contract_epoch = "0.5", ac.model_kind = "queue_graph", ac.queue_graph_domain = "cycle", ac.system = "structured"} {
+module attributes {ac.model_kind = "queue_graph", ac.queue_graph_domain = "cycle", ac.system = "structured"} {
   ac.type_scope @types {
     ac.struct @Item fields [{name = "value", type = i64}]
   } {dlti.dl_spec = #dlti.dl_spec<!ac.struct<@types::@Item> = {abi_alignment = 8 : i64, endianness = "little", preferred_alignment = 8 : i64, size = 8 : i64}>}
@@ -476,7 +475,7 @@ module attributes {ac.contract_epoch = "0.5", ac.model_kind = "queue_graph", ac.
 )mlir";
 
 constexpr llvm::StringLiteral kMultipleConsumers = R"mlir(
-module attributes {ac.contract_epoch = "0.5", ac.model_kind = "queue_graph", ac.queue_graph_domain = "cycle", ac.system = "bad"} {
+module attributes {ac.model_kind = "queue_graph", ac.queue_graph_domain = "cycle", ac.system = "bad"} {
   %input = ac.source depth 2 latency 1 {ac.name = "input"} : !ac.queue<i64>
   ac.sink %input {ac.name = "left"} : !ac.queue<i64>
   ac.sink %input {ac.name = "right"} : !ac.queue<i64>
@@ -484,7 +483,7 @@ module attributes {ac.contract_epoch = "0.5", ac.model_kind = "queue_graph", ac.
 )mlir";
 
 constexpr llvm::StringLiteral kObservationUse = R"mlir(
-module attributes {ac.contract_epoch = "0.5", ac.model_kind = "queue_graph", ac.queue_graph_domain = "cycle", ac.system = "observed"} {
+module attributes {ac.model_kind = "queue_graph", ac.queue_graph_domain = "cycle", ac.system = "observed"} {
   %input = ac.source depth 2 latency 1 {ac.name = "input"} : !ac.queue<i64>
   ac.observe %input name "head" : !ac.queue<i64>
   ac.sink %input {ac.name = "sink_0"} : !ac.queue<i64>
@@ -492,7 +491,7 @@ module attributes {ac.contract_epoch = "0.5", ac.model_kind = "queue_graph", ac.
 )mlir";
 
 constexpr llvm::StringLiteral kStatefulFiring = R"mlir(
-module attributes {ac.contract_epoch = "0.5", ac.model_kind = "queue_graph", ac.queue_graph_domain = "cycle", ac.system = "stateful"} {
+module attributes {ac.model_kind = "queue_graph", ac.queue_graph_domain = "cycle", ac.system = "stateful"} {
   ac.table @table entry i8 entries 2 init 0 owner "/" stable_id "table/table"
   %input = ac.source depth 1 latency 1 {ac.name = "input"} : !ac.queue<i8>
   %output = ac.firing %input depths [1] latencies [1]
@@ -944,7 +943,7 @@ TEST(QueueGraphPlanTest, RejectsRawUnfrozenQueueGraph) {
   auto plan = buildQueueGraphPlan(*module);
   ASSERT_FALSE(bool(plan));
   EXPECT_NE(llvm::toString(plan.takeError())
-                .find("QueueGraph requires verified epoch 0.5 topology freeze"),
+                .find("QueueGraph requires verified topology closure"),
             std::string::npos);
 }
 
@@ -961,46 +960,10 @@ TEST(QueueGraphPlanTest, CanonicalJsonIsByteIdenticalAndClosed) {
   auto second = plan->canonicalJson();
   ASSERT_TRUE(bool(second)) << llvm::toString(second.takeError());
   EXPECT_EQ(*first, *second);
-  EXPECT_NE(first->find("\"contract_epoch\":\"0.5\""), std::string::npos);
   EXPECT_NE(first->find("\"schema\":\"agentic-circuit-queue-graph-plan\""),
             std::string::npos);
   EXPECT_NE(first->find("\"version\":\"0.5\""), std::string::npos);
   EXPECT_NE(first->find("\"name\":\"merged\""), std::string::npos);
-}
-
-TEST(QueueGraphPlanTest, PreservesJitSpecializationIdentity) {
-  mlir::MLIRContext context;
-  context.loadDialect<ac::ACIRDialect, mlir::DLTIDialect>();
-  constexpr llvm::StringLiteral fingerprint =
-      "sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef";
-  std::string specialized = kQueueGraph.str();
-  size_t system = specialized.find("ac.system = \"pipeline\"");
-  ASSERT_NE(system, std::string::npos);
-  specialized.insert(system,
-                     ("ac.specialization = \"" + fingerprint + "\", ").str());
-  auto module = mlir::parseSourceString<mlir::ModuleOp>(specialized, &context);
-  ASSERT_TRUE(module);
-  ASSERT_TRUE(freezeQueueGraph(*module));
-  auto plan = buildQueueGraphPlan(*module);
-  ASSERT_TRUE(bool(plan)) << llvm::toString(plan.takeError());
-  EXPECT_EQ(plan->specializationFingerprint, fingerprint);
-  auto json = plan->canonicalJson();
-  ASSERT_TRUE(bool(json)) << llvm::toString(json.takeError());
-  EXPECT_NE(json->find(fingerprint), std::string::npos);
-  auto cpp = generateQueueGraphCpp(*plan);
-  ASSERT_TRUE(bool(cpp)) << llvm::toString(cpp.takeError());
-  EXPECT_NE(cpp->find(("// Specialization: " + fingerprint).str()),
-            std::string::npos);
-
-  specialized.replace(specialized.find(fingerprint), fingerprint.size(),
-                      "sha256:bad");
-  module = mlir::parseSourceString<mlir::ModuleOp>(specialized, &context);
-  ASSERT_TRUE(module);
-  ASSERT_TRUE(freezeQueueGraph(*module));
-  plan = buildQueueGraphPlan(*module);
-  ASSERT_FALSE(bool(plan));
-  EXPECT_NE(llvm::toString(plan.takeError()).find("fingerprint is invalid"),
-            std::string::npos);
 }
 
 TEST(QueueGraphPlanTest, RejectsRecursiveNestedPayloadDefinitions) {
@@ -1162,7 +1125,6 @@ TEST(QueueGraphPlanTest, RecomputesNestedConfigProjectionMetadata) {
       "cfg",
       "Config",
       kSchema.str(),
-      "sha256:8d50b171414319202ddc53539c063d17b2a5bb762254463f741967108429e99e",
       R"({"entries":5})",
   }};
 
@@ -1179,13 +1141,6 @@ TEST(QueueGraphPlanTest, RecomputesNestedConfigProjectionMetadata) {
             std::string::npos);
 
   plan.staticConfigBindings.front().value = R"({"entries":5})";
-  plan.staticConfigBindings.front().schemaSha256 = "sha256:forged";
-  auto forgedSchema = verifyQueueGraphPlan(plan);
-  ASSERT_TRUE(bool(forgedSchema));
-  EXPECT_NE(
-      llvm::toString(std::move(forgedSchema)).find("metadata is malformed"),
-      std::string::npos);
-
   plan.staticConfigBindings.clear();
   auto missingRoot = verifyQueueGraphPlan(plan);
   ASSERT_TRUE(bool(missingRoot));
@@ -1299,8 +1254,6 @@ TEST(QueueGraphPlanTest, AcceptsCanonicalConfigFloatNumbers) {
         "cfg",
         "Config",
         kSchema.str(),
-        "sha256:"
-        "82f1f38e2a02cf290f8627ded9a192489d6c2060e73347b64d3b604c8cbf18f2",
         value.str(),
     }};
     auto verification = verifyQueueGraphPlan(plan);
@@ -1336,7 +1289,6 @@ TEST(QueueGraphPlanTest, VerifiesScalarAndNominalStaticTypeIdentity) {
   nominal.staticTypeIdentities = {{
       "Entry",
       "Entry__p435bcab52046",
-      "sha256:435bcab5204689d904ed5c8b819738da32e8f7399aa0d0b2c027b7da04417318",
       {{"N", "N", 4}},
       {"Entry__p435bcab52046.a:bits", "Entry__p435bcab52046.b:bits"},
   }};
@@ -2083,6 +2035,17 @@ TEST(QueueGraphPlanTest,
       "/tests/mlir/agentic-circuit/Transforms/queue-module-freeze.mlir",
       &context);
   ASSERT_TRUE(module);
+  mlir::SymbolTable symbols(*module);
+  auto definition = symbols.lookup<ac::ModuleOp>("Increment");
+  ASSERT_TRUE(definition);
+  mlir::Builder builder(&context);
+  definition->setAttr(
+      "ac.ndf_ids",
+      builder.getArrayAttr({builder.getStringAttr("DAV-CODEGEN-MODULE-0001")}));
+  definition->setAttr("ac.source_file",
+                      builder.getStringAttr("modules/increment.py"));
+  definition->setAttr("ac.source_line", builder.getI64IntegerAttr(12));
+  definition->setAttr("ac.source_column", builder.getI64IntegerAttr(1));
   ASSERT_TRUE(freezeQueueGraph(*module));
   auto plan = buildQueueGraphPlan(*module);
   ASSERT_TRUE(bool(plan)) << llvm::toString(plan.takeError());
@@ -2090,10 +2053,10 @@ TEST(QueueGraphPlanTest,
   ASSERT_EQ(plan->moduleSpecializations.size(), 1u);
   ASSERT_EQ(plan->moduleInstances.size(), 2u);
   EXPECT_EQ(plan->moduleSpecializations.front()->definition, "Increment");
-  EXPECT_EQ(plan->moduleInstances[0].specializationFingerprint,
-            plan->moduleInstances[1].specializationFingerprint);
-  EXPECT_EQ(plan->moduleInstances[0].specializationFingerprint,
-            plan->moduleSpecializations.front()->specializationFingerprint);
+  EXPECT_EQ(plan->moduleInstances[0].specializationKey,
+            plan->moduleInstances[1].specializationKey);
+  EXPECT_EQ(plan->moduleInstances[0].specializationKey,
+            plan->moduleSpecializations.front()->specializationKey);
   EXPECT_EQ(plan->moduleInstances[0].lexicalOrder, 2u);
   EXPECT_EQ(plan->moduleInstances[1].lexicalOrder, 3u);
   auto sourceMap = plan->sourceMapJson();
@@ -2124,7 +2087,7 @@ TEST(QueueGraphPlanTest,
   llvm::StringRef source(*generated);
   EXPECT_NE(source.find("#include \"gfsim/priority_encode.h\""),
             llvm::StringRef::npos);
-  size_t classBegin = source.find("class Module_Increment final");
+  size_t classBegin = source.find("class Increment final");
   ASSERT_NE(classBegin, llvm::StringRef::npos);
   size_t classEnd = source.find(" final", classBegin);
   ASSERT_NE(classEnd, llvm::StringRef::npos);
@@ -2172,8 +2135,7 @@ int main() {
   expectCppRuns(executableSource);
 }
 
-TEST(QueueGraphPlanTest,
-     ReadableSpecializationClassesUseLocalSuffixOnlyForCollisions) {
+TEST(QueueGraphPlanTest, CppIdentityUsesReadableModuleNames) {
   mlir::MLIRContext context;
   context.loadDialect<ac::ACIRDialect, mlir::DLTIDialect>();
   auto module = mlir::parseSourceFile<mlir::ModuleOp>(
@@ -2181,37 +2143,49 @@ TEST(QueueGraphPlanTest,
       "/tests/mlir/agentic-circuit/Transforms/queue-module-freeze.mlir",
       &context);
   ASSERT_TRUE(module);
+  mlir::SymbolTable symbols(*module);
+  auto definition = symbols.lookup<ac::ModuleOp>("Increment");
+  ASSERT_TRUE(definition);
+  mlir::Builder builder(&context);
+  definition->setAttr(
+      "ac.ndf_ids",
+      builder.getArrayAttr({builder.getStringAttr("DAV-CODEGEN-MODULE-0001")}));
+  definition->setAttr("ac.source_file",
+                      builder.getStringAttr("modules/increment.py"));
+  definition->setAttr("ac.source_line", builder.getI64IntegerAttr(12));
+  definition->setAttr("ac.source_column", builder.getI64IntegerAttr(1));
   ASSERT_TRUE(freezeQueueGraph(*module));
   auto plan = buildQueueGraphPlan(*module);
   ASSERT_TRUE(bool(plan)) << llvm::toString(plan.takeError());
   ASSERT_EQ(plan->moduleSpecializations.size(), 1u);
 
-  QueueGraphPlan colliding = *plan;
-  auto second = std::make_shared<QueueGraphPlan>(
-      *colliding.moduleSpecializations.front());
-  second->specializationFingerprint =
-      "sha256:1111111111111111111111111111111111111111111111111111111111111111";
-  colliding.moduleSpecializations.push_back(second);
-  auto generated = generateQueueGraphCpp(colliding);
-  ASSERT_TRUE(bool(generated)) << llvm::toString(generated.takeError());
-  llvm::StringRef firstFingerprint =
-      colliding.moduleSpecializations.front()->specializationFingerprint;
-  ASSERT_TRUE(firstFingerprint.consume_front("sha256:"));
-  EXPECT_NE(generated->find("class Module_Increment_s" +
-                            firstFingerprint.take_front(16).str()),
+  const std::string firstClass = "Increment";
+  auto single = generateQueueGraphCpp(*plan);
+  ASSERT_TRUE(bool(single)) << llvm::toString(single.takeError());
+  EXPECT_NE(single->find("class " + firstClass), std::string::npos);
+  auto singleBundle = generateQueueGraphModelBundle(
+      *plan, {.sdkProductVersion = "6.1.0",
+              .sdkSourceRevision = std::string(40, 'a')});
+  ASSERT_TRUE(bool(singleBundle)) << llvm::toString(singleBundle.takeError());
+  const std::string firstHeaderPath = "include/generated/modules/Increment.h";
+  const std::string firstSourcePath = "src/generated/modules/Increment.cpp";
+  const QueueGraphGeneratedFile *singleHeader =
+      findBundleFile(*singleBundle, firstHeaderPath);
+  const QueueGraphGeneratedFile *singleSource =
+      findBundleFile(*singleBundle, firstSourcePath);
+  ASSERT_NE(singleHeader, nullptr);
+  ASSERT_NE(singleSource, nullptr);
+  EXPECT_NE(singleHeader->content.find("// ndf: DAV-CODEGEN-MODULE-0001"),
             std::string::npos);
-  EXPECT_NE(generated->find("class Module_Increment_s1111111111111111"),
+  EXPECT_EQ(singleHeader->content.find("// specialization:"),
+            std::string::npos);
+  EXPECT_NE(singleSource->content.find("// ndf: DAV-CODEGEN-MODULE-0001"),
+            std::string::npos);
+  EXPECT_NE(singleSource->content.find("// source: modules/increment.py:12:1"),
+            std::string::npos);
+  EXPECT_EQ(singleSource->content.find("// specialization:"),
             std::string::npos);
 
-  second->specializationFingerprint =
-      colliding.moduleSpecializations.front()->specializationFingerprint;
-  second->specializationFingerprint.back() =
-      second->specializationFingerprint.back() == '0' ? '1' : '0';
-  auto ambiguous = generateQueueGraphCpp(colliding);
-  ASSERT_FALSE(bool(ambiguous));
-  EXPECT_NE(llvm::toString(ambiguous.takeError())
-                .find("collide after local fingerprint disambiguation"),
-            std::string::npos);
 }
 
 TEST(QueueGraphPlanTest,
@@ -2223,27 +2197,16 @@ TEST(QueueGraphPlanTest,
                            "queue-stateful-module-freeze.mlir",
       &context);
   ASSERT_TRUE(module);
-  constexpr llvm::StringLiteral jitFingerprint =
-      "sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef";
   auto definitions = module->getOps<ac::ModuleOp>();
   auto root = llvm::find_if(
       definitions, [](ac::ModuleOp op) { return op.getSymName() == "Top"; });
   ASSERT_NE(root, definitions.end());
   ac::ModuleOp rootModule = *root;
-  mlir::Builder builder(&context);
-  rootModule->setAttr(
-      "static_params",
-      builder.getDictionaryAttr({builder.getNamedAttr(
-          "jit_specialization", builder.getStringAttr(jitFingerprint))}));
   ASSERT_TRUE(freezeQueueGraph(*module));
   auto plan = buildQueueGraphPlan(*module);
   ASSERT_TRUE(bool(plan)) << llvm::toString(plan.takeError());
-  EXPECT_EQ(plan->jitSpecializationFingerprint, jitFingerprint);
   auto planJson = plan->canonicalJson();
   ASSERT_TRUE(bool(planJson)) << llvm::toString(planJson.takeError());
-  EXPECT_NE(planJson->find(
-                ("\"jit_specialization\":\"" + jitFingerprint + "\"").str()),
-            std::string::npos);
   ASSERT_EQ(plan->moduleSpecializations.size(), 1u);
   ASSERT_EQ(plan->moduleInstances.size(), 2u);
   const QueueGraphPlan &specialization = *plan->moduleSpecializations.front();
@@ -2259,7 +2222,7 @@ TEST(QueueGraphPlanTest,
   auto generated = generateQueueGraphCpp(*plan);
   ASSERT_TRUE(bool(generated)) << llvm::toString(generated.takeError());
   llvm::StringRef source(*generated);
-  size_t classBegin = source.find("class Module_Accumulator final");
+  size_t classBegin = source.find("class Accumulator final");
   ASSERT_NE(classBegin, llvm::StringRef::npos);
   size_t classEnd = source.find(" final", classBegin);
   ASSERT_NE(classEnd, llvm::StringRef::npos);
@@ -2353,9 +2316,12 @@ int main() {
   for (const QueueGraphGeneratedFile &file : *bundle)
     inventory.push_back(file.relativePath);
   llvm::sort(inventory);
+  const std::string moduleHeaderPath =
+      "include/generated/modules/Accumulator.h";
+  const std::string moduleSourcePath = "src/generated/modules/Accumulator.cpp";
   EXPECT_EQ(inventory, (std::vector<std::string>{
                            "include/generated/model.h",
-                           "include/generated/modules/Module_Accumulator.h",
+                           moduleHeaderPath,
                            "include/generated/modules/queuegraph_helpers.h",
                            "include/generated/modules/queuegraph_types.h",
                            "include/generated/types/Mode.h",
@@ -2363,7 +2329,7 @@ int main() {
                            "share/generated/source-map.json",
                            "src/generated/helpers/queuegraph_helpers.cpp",
                            "src/generated/model.cpp",
-                           "src/generated/modules/Module_Accumulator.cpp",
+                           moduleSourcePath,
                            "src/generated/queuegraph.cpp",
                        }));
   const QueueGraphGeneratedFile *types =
@@ -2387,16 +2353,16 @@ int main() {
       llvm::StringRef(helpersSource->content).find("namespace ac_generated"),
       llvm::StringRef::npos);
   const QueueGraphGeneratedFile *moduleHeader =
-      findBundleFile(*bundle, "include/generated/modules/Module_Accumulator.h");
+      findBundleFile(*bundle, moduleHeaderPath);
   ASSERT_NE(moduleHeader, nullptr);
   EXPECT_NE(llvm::StringRef(moduleHeader->content)
-                .find("class Module_Accumulator final"),
+                .find(("class " + implementation + " final").str()),
             llvm::StringRef::npos);
   const QueueGraphGeneratedFile *moduleSource =
-      findBundleFile(*bundle, "src/generated/modules/Module_Accumulator.cpp");
+      findBundleFile(*bundle, moduleSourcePath);
   ASSERT_NE(moduleSource, nullptr);
   EXPECT_NE(llvm::StringRef(moduleSource->content)
-                .find("Module_Accumulator::Module_Accumulator"),
+                .find((implementation + "::" + implementation).str()),
             llvm::StringRef::npos);
   expectModelBundleObjectsRun(*bundle, kHarness);
 }
@@ -2444,7 +2410,7 @@ TEST(QueueGraphPlanTest,
   auto generated = generateQueueGraphCpp(*plan);
   ASSERT_TRUE(bool(generated)) << llvm::toString(generated.takeError());
   llvm::StringRef source(*generated);
-  size_t classBegin = source.find("class Module_DualAccumulator");
+  size_t classBegin = source.find("class DualAccumulator");
   ASSERT_NE(classBegin, llvm::StringRef::npos);
   size_t classEnd = source.find(" final", classBegin);
   ASSERT_NE(classEnd, llvm::StringRef::npos);
@@ -2588,7 +2554,7 @@ TEST(QueueGraphPlanTest,
   auto generated = generateQueueGraphCpp(*plan);
   ASSERT_TRUE(bool(generated)) << llvm::toString(generated.takeError());
   llvm::StringRef source(*generated);
-  size_t classBegin = source.find("class Module_StatePair");
+  size_t classBegin = source.find("class StatePair");
   ASSERT_NE(classBegin, llvm::StringRef::npos);
   size_t classEnd = source.find(" final", classBegin);
   ASSERT_NE(classEnd, llvm::StringRef::npos);
@@ -2750,7 +2716,7 @@ TEST(QueueGraphPlanTest,
   auto generated = generateQueueGraphCpp(*plan);
   ASSERT_TRUE(bool(generated)) << llvm::toString(generated.takeError());
   llvm::StringRef source(*generated);
-  size_t classBegin = source.find("class Module_DualState");
+  size_t classBegin = source.find("class DualState");
   ASSERT_NE(classBegin, llvm::StringRef::npos);
   size_t classEnd = source.find(" final", classBegin);
   ASSERT_NE(classEnd, llvm::StringRef::npos);
@@ -2817,7 +2783,7 @@ TEST(QueueGraphPlanTest,
   auto generated = generateQueueGraphCpp(*plan);
   ASSERT_TRUE(bool(generated)) << llvm::toString(generated.takeError());
   llvm::StringRef source(*generated);
-  const size_t classBegin = source.find("class Module_Fanout");
+  const size_t classBegin = source.find("class Fanout");
   ASSERT_NE(classBegin, llvm::StringRef::npos);
   const size_t classEnd = source.find(" final", classBegin);
   ASSERT_NE(classEnd, llvm::StringRef::npos);
@@ -2922,12 +2888,11 @@ TEST(QueueGraphPlanTest,
   ASSERT_EQ(wrapper.moduleSpecializations.size(), 1u);
   ASSERT_EQ(wrapper.moduleInstances.size(), 1u);
   EXPECT_EQ(wrapper.moduleSpecializations.front()->definition, "Increment");
-  EXPECT_EQ(wrapper.moduleInstances.front().specializationFingerprint,
-            wrapper.moduleSpecializations.front()->specializationFingerprint);
+  EXPECT_EQ(wrapper.moduleInstances.front().specializationKey,
+            wrapper.moduleSpecializations.front()->specializationKey);
 
-  const std::string hash = "sha256:" + std::string(64, 'a');
   auto costReport = generateQueueGraphCostReport(
-      *plan, "6.1.0", std::string(40, 'b'), hash, hash);
+      *plan, "6.1.0", std::string(40, 'b'));
   ASSERT_TRUE(bool(costReport)) << llvm::toString(costReport.takeError());
   auto parsedCostReport = llvm::json::parse(*costReport);
   ASSERT_TRUE(bool(parsedCostReport));
@@ -2955,6 +2920,8 @@ TEST(QueueGraphPlanTest,
   const QueueGraphGeneratedFile *runtimeSource =
       findBundleFile(*runtimeBundle, "src/generated/queuegraph.cpp");
   ASSERT_NE(runtimeSource, nullptr);
+  const std::string wrapperFile = "Wrapper";
+  const std::string childFile = "Increment";
   EXPECT_NE(llvm::StringRef(runtimeSource->content)
                 .find("configure_activation_scheduler"),
             llvm::StringRef::npos);
@@ -2965,22 +2932,22 @@ TEST(QueueGraphPlanTest,
                 .find("std::vector<gfsim::DispatchRow> rows"),
             llvm::StringRef::npos);
   EXPECT_NE(llvm::StringRef(runtimeSource->content)
-                .find("#include \"generated/modules/Module_Increment.h\""),
+                .find("#include \"generated/modules/" + childFile + ".h\""),
             llvm::StringRef::npos);
   EXPECT_NE(llvm::StringRef(runtimeSource->content)
-                .find("#include \"generated/modules/Module_Wrapper.h\""),
+                .find("#include \"generated/modules/" + wrapperFile + ".h\""),
             llvm::StringRef::npos);
   ASSERT_NE(findBundleFile(*runtimeBundle,
-                           "include/generated/modules/Module_Increment.h"),
+                           "include/generated/modules/" + childFile + ".h"),
             nullptr);
   ASSERT_NE(findBundleFile(*runtimeBundle,
-                           "include/generated/modules/Module_Wrapper.h"),
+                           "include/generated/modules/" + wrapperFile + ".h"),
             nullptr);
   ASSERT_NE(findBundleFile(*runtimeBundle,
-                           "src/generated/modules/Module_Increment.cpp"),
+                           "src/generated/modules/" + childFile + ".cpp"),
             nullptr);
   ASSERT_NE(findBundleFile(*runtimeBundle,
-                           "src/generated/modules/Module_Wrapper.cpp"),
+                           "src/generated/modules/" + wrapperFile + ".cpp"),
             nullptr);
   ASSERT_NE(findBundleFile(*runtimeBundle,
                            "include/generated/modules/queuegraph_types.h"),
@@ -2989,8 +2956,8 @@ TEST(QueueGraphPlanTest,
   auto generated = generateQueueGraphCpp(*plan);
   ASSERT_TRUE(bool(generated)) << llvm::toString(generated.takeError());
   llvm::StringRef source(*generated);
-  EXPECT_EQ(source.count("class Module_Increment"), 1u);
-  EXPECT_EQ(source.count("class Module_Wrapper"), 1u);
+  EXPECT_EQ(source.count("class Increment"), 1u);
+  EXPECT_EQ(source.count("class Wrapper"), 1u);
   EXPECT_EQ(source.count(" child_0_;"), 1u);
 
   std::string executableSource = *generated;
@@ -3048,8 +3015,8 @@ TEST(QueueGraphPlanTest,
   auto generated = generateQueueGraphCpp(*plan);
   ASSERT_TRUE(bool(generated)) << llvm::toString(generated.takeError());
   llvm::StringRef source(*generated);
-  EXPECT_EQ(source.count("class Module_Increment"), 1u);
-  EXPECT_EQ(source.count("class Module_PrepareAndIncrement"), 1u);
+  EXPECT_EQ(source.count("class Increment"), 1u);
+  EXPECT_EQ(source.count("class PrepareAndIncrement"), 1u);
   EXPECT_EQ(source.count("gfsim::SimQueue<gfsim::UInt<8>> queue_0_;"), 1u);
   EXPECT_NE(source.find("activation_complete() { return true; }"),
             llvm::StringRef::npos);
@@ -3114,23 +3081,6 @@ TEST(QueueGraphPlanTest, PreservesQueueRateAndRejectsUnspecializedPycLanes) {
   auto pyc = generateQueueGraphPyc(*plan);
   ASSERT_FALSE(bool(pyc));
   EXPECT_FALSE(llvm::toString(pyc.takeError()).empty());
-}
-
-TEST(QueueGraphPlanTest, RejectsLegacyContractEpochBeforePlanning) {
-  mlir::MLIRContext context;
-  context.loadDialect<ac::ACIRDialect, mlir::DLTIDialect>();
-  std::string legacy = kQueueGraph.str();
-  size_t epoch = legacy.find("ac.contract_epoch = \"0.5\"");
-  ASSERT_NE(epoch, std::string::npos);
-  legacy.replace(epoch, std::string("ac.contract_epoch = \"0.5\"").size(),
-                 "ac.contract_epoch = \"0.4\"");
-  auto module = mlir::parseSourceString<mlir::ModuleOp>(legacy, &context);
-  ASSERT_TRUE(module);
-  auto plan = buildQueueGraphPlan(*module);
-  ASSERT_FALSE(bool(plan));
-  EXPECT_NE(llvm::toString(plan.takeError())
-                .find("module requires ac.contract_epoch exactly '0.5'"),
-            std::string::npos);
 }
 
 TEST(QueueGraphPlanTest, ExtractsPayloadAndImmutableVarDag) {
@@ -3240,10 +3190,9 @@ TEST(QueueGraphPlanTest, EmitsClosedOpaqueRuntimeAbiBundle) {
 }
 
 TEST(QueueGraphPlanTest, EmittedCostReportRecomputesArrayAndTableBounds) {
-  const std::string hash = "sha256:" + std::string(64, 'a');
   QueueGraphPlan array = boundedArrayPlan(65);
   auto arrayReport = generateQueueGraphCostReport(
-      array, "6.1.0", std::string(40, 'b'), hash, hash);
+      array, "6.1.0", std::string(40, 'b'));
   ASSERT_TRUE(bool(arrayReport)) << llvm::toString(arrayReport.takeError());
   EXPECT_NE(arrayReport->find("\"dynamic_array_expansion_factor\":{"
                               "\"stage\":\"verified_queuegraph\","
@@ -3262,7 +3211,7 @@ TEST(QueueGraphPlanTest, EmittedCostReportRecomputesArrayAndTableBounds) {
 
   QueueGraphPlan table = inlineFirstChoicePlan(16, 4);
   auto tableReport = generateQueueGraphCostReport(
-      table, "6.1.0", std::string(40, 'b'), hash, hash);
+      table, "6.1.0", std::string(40, 'b'));
   ASSERT_TRUE(bool(tableReport)) << llvm::toString(tableReport.takeError());
   EXPECT_NE(tableReport->find("\"table_scan_bound\":{"
                               "\"stage\":\"verified_queuegraph\","
@@ -3276,16 +3225,10 @@ TEST(QueueGraphPlanTest, EmittedCostReportRecomputesArrayAndTableBounds) {
                               "\"value\":0}"),
             std::string::npos);
   auto repeated = generateQueueGraphCostReport(
-      table, "6.1.0", std::string(40, 'b'), hash, hash);
+      table, "6.1.0", std::string(40, 'b'));
   ASSERT_TRUE(bool(repeated)) << llvm::toString(repeated.takeError());
   EXPECT_EQ(*tableReport, *repeated);
 
-  auto invalidHash = generateQueueGraphCostReport(
-      table, "6.1.0", std::string(40, 'b'), "sha256:bad", hash);
-  ASSERT_FALSE(bool(invalidHash));
-  EXPECT_NE(llvm::toString(invalidHash.takeError())
-                .find("canonical SHA-256 fingerprints"),
-            std::string::npos);
 }
 
 TEST(QueueGraphPlanTest, ModelBundleRequiresExplicitSdkIdentity) {
@@ -4439,7 +4382,7 @@ TEST(QueueGraphPlanTest, GeneratedRoundRobinSelectionAdvancesOnAcceptedFiring) {
 
 TEST(QueueGraphPlanTest, MultiSelectionTableReadsBecomeOnePrefixTransaction) {
   constexpr llvm::StringLiteral source = R"mlir(
-module attributes {ac.contract_epoch = "0.5", ac.model_kind = "queue_graph", ac.queue_graph_domain = "cycle", ac.system = "multi_read"} {
+module attributes {ac.model_kind = "queue_graph", ac.queue_graph_domain = "cycle", ac.system = "multi_read"} {
   ac.table @entries entry i8 entries 4 init 0 owner "/" stable_id "table/entries"
   %mask = ac.table.match @entries predicate {
   ^predicate(%entry: !ac.var<i8>):
@@ -4786,8 +4729,6 @@ TEST(QueueGraphPlanTest,
   table.axisWidths = {1, 1};
   table.layout = "row_major";
   table.layoutVersion = 1;
-  table.schemaId =
-      "sha256:4a70f7d8db73203752e325ee25c9904cdc9b1e136078b0955f7b8642c05d560b";
   table.initVersion = 1;
   table.hasTypedSchema = true;
   table.initImage = {{"integer", "i1", "0", {}, {}},
@@ -4815,13 +4756,6 @@ TEST(QueueGraphPlanTest,
                             "gfsim::UInt<1>{0}}"),
             std::string::npos);
   EXPECT_NE(generated->find("TableDomainProjection(4, "), std::string::npos);
-
-  QueueGraphPlan forged = plan;
-  forged.tables.front().schemaId = "sha256:forged";
-  llvm::Error schemaError = verifyQueueGraphPlan(forged);
-  ASSERT_TRUE(bool(schemaError));
-  EXPECT_NE(llvm::toString(std::move(schemaError)).find("schema_id"),
-            std::string::npos);
 
   std::string executable = *generated;
   executable.append(R"cpp(
@@ -4867,8 +4801,6 @@ TEST(QueueGraphPlanTest,
   table.axisWidths = {2, 2};
   table.layout = "row_major";
   table.layoutVersion = 1;
-  table.schemaId =
-      "sha256:22bb8d275465bb30a9965bf37bbe078618fd2c44a53a157eb8634f1dd3b5181a";
   table.initVersion = 1;
   table.hasTypedSchema = true;
   table.initImage.assign(16, {"integer", "i1", "1", {}, {}});
@@ -4963,8 +4895,6 @@ TEST(QueueGraphPlanTest,
   table.axisWidths = {1, 3};
   table.layout = "row_major";
   table.layoutVersion = 1;
-  table.schemaId =
-      "sha256:f463610aee6b6eee51dd35c20fe85d789a9a616536b9c37eab9d54b5ce40f3aa";
   table.hasTypedSchema = true;
   plan.tables.push_back(std::move(table));
   QueueBlockPlan writer{"table_write", "writer", "/", {"input"}, {}};
@@ -5021,8 +4951,6 @@ TEST(QueueGraphPlanTest, TypedAggregateTableImageEmitsAndResetRestoresIt) {
   table.axisWidths = {1};
   table.layout = "row_major";
   table.layoutVersion = 1;
-  table.schemaId =
-      "sha256:449a42ef009910a4ff74ed0d4f267848682de3a97b81df9045daf2ca9a674d52";
   table.initVersion = 1;
   table.hasTypedSchema = true;
   table.initImage = {
@@ -5740,7 +5668,7 @@ TEST(QueueGraphPlanTest, PreservesReadableRuleSourceAndLocalNames) {
   expectCppCompiles(*cpp);
 }
 
-TEST(QueueGraphPlanTest, DisplayNamesDoNotChangeStructuredFingerprints) {
+TEST(QueueGraphPlanTest, DisplayNamesDoNotChangeStructuralIdentity) {
   mlir::MLIRContext context;
   context.loadDialect<ac::ACIRDialect, mlir::DLTIDialect>();
   auto parse = [&]() {
@@ -5791,8 +5719,6 @@ TEST(QueueGraphPlanTest, DisplayNamesDoNotChangeStructuredFingerprints) {
   auto displayedDefinition = displayedSymbols.lookup<ac::ModuleOp>("Increment");
   ASSERT_TRUE(baselineDefinition);
   ASSERT_TRUE(displayedDefinition);
-  EXPECT_EQ(baselineDefinition->getAttr("ac.definition_fingerprint"),
-            displayedDefinition->getAttr("ac.definition_fingerprint"));
   ac::InstanceOp baselineInstance;
   ac::InstanceOp displayedInstance;
   baseline->walk([&](ac::InstanceOp operation) {
@@ -5805,8 +5731,8 @@ TEST(QueueGraphPlanTest, DisplayNamesDoNotChangeStructuredFingerprints) {
   });
   ASSERT_TRUE(baselineInstance);
   ASSERT_TRUE(displayedInstance);
-  EXPECT_EQ(baselineInstance->getAttr("ac.specialization"),
-            displayedInstance->getAttr("ac.specialization"));
+  EXPECT_EQ(baselineInstance.getDefinition(), displayedInstance.getDefinition());
+  EXPECT_EQ(baselineInstance.getStaticArgs(), displayedInstance.getStaticArgs());
 }
 
 TEST(QueueGraphPlanTest, RejectsMalformedModuleInterfaceDisplayNames) {
@@ -5874,19 +5800,6 @@ TEST(QueueGraphPlanTest, RevalidatesPrivatePayloadProjectionPlans) {
   ASSERT_TRUE(bool(carrierError));
   EXPECT_NE(llvm::toString(std::move(carrierError)).find("malformed"),
             std::string::npos);
-
-  QueueGraphPlan forgedFingerprint = *extracted;
-  auto fingerprintQueue =
-      llvm::find_if(forgedFingerprint.queues, [](const QueuePlan &candidate) {
-        return candidate.payloadProjection.has_value();
-      });
-  fingerprintQueue->payloadProjection->fingerprint =
-      "sha256:0000000000000000000000000000000000000000000000000000000000000000";
-  auto fingerprintError = verifyQueueGraphPlan(forgedFingerprint);
-  ASSERT_TRUE(bool(fingerprintError));
-  EXPECT_NE(
-      llvm::toString(std::move(fingerprintError)).find("fingerprint mismatch"),
-      std::string::npos);
 
   QueueGraphPlan escaped = *extracted;
   for (QueueBlockPlan &block : escaped.blocks)

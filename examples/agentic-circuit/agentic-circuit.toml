@@ -1,0 +1,25 @@
+
+[project]
+name = "agentic-circuit-examples"
+version = "0.1.0"
+architecture = "pipelines/routed_dependency_pipeline.py"
+system = "routed_dependency_pipeline"
+
+[providers]
+standard_library = ["ac"]
+
+[build]
+profile = "fast"
+compiler = "c++"
+standard_library = "libc++"
+component_roots = []
+protocol_roots = []
+build_root = "../../.pycircuit_out/examples/agentic-circuit"
+instrumentation_layers = []
+
+[run]
+trace_roots = []
+inputs = {}
+
+[diagnostics]
+format = "text"

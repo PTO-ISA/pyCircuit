@@ -4,7 +4,7 @@ pyCircuit 6 development is decision-driven and gate-first. CycleAwareSignal and
 automatic cycle balancing are current product contracts, not compatibility
 surfaces.
 
-The same repository also owns Agentic Circuit, ACIR/ACSim, and gfsim. Changes
+The same repository also owns Agentic Circuit, ACIR/ACC, and gfsim. Changes
 under the AC module roots defined by Decision 0157 follow the AC G0/G1/G2
 matrix and keep the separate frontend and IR boundaries defined by Decision
 0150.

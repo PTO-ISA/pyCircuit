@@ -1,6 +1,6 @@
 // RUN: %acir_opt %s -verify-diagnostics
 
-module attributes {ac.contract_epoch = "0.5"} {
+module  {
   func.func private @bad_conversions(
       %raw: !ac.var<i8>, %range: !ac.var<!ac.range<0, 4>>,
       %array: !ac.var<!ac.value_array<5 x i8>>) {

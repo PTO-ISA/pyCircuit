@@ -5,7 +5,7 @@
 // RUN: %not %acir_opt --verify-each=false --ac-inline-pure-helpers %t/state.mlir 2>&1 | %FileCheck %s --check-prefix=STATE
 
 //--- external.mlir
-module attributes {ac.contract_epoch = "0.5", ac.model_kind = "queue_graph", ac.queue_graph_domain = "cycle", ac.system = "external"} {
+module attributes {ac.model_kind = "queue_graph", ac.queue_graph_domain = "cycle", ac.system = "external"} {
   func.func private @external(%arg0: !ac.var<i8>) -> !ac.var<i8>
   %input = ac.source depth 1 latency 1 {ac.name = "input"} : !ac.queue<i8>
   %output = ac.transform %input depths [1] latencies [1] {
@@ -18,7 +18,7 @@ module attributes {ac.contract_epoch = "0.5", ac.model_kind = "queue_graph", ac.
 // EXTERNAL: Queue/rule func.call callee '@external' has no body and cannot be proven effect-free
 
 //--- recursive.mlir
-module attributes {ac.contract_epoch = "0.5", ac.model_kind = "queue_graph", ac.queue_graph_domain = "cycle", ac.system = "recursive"} {
+module attributes {ac.model_kind = "queue_graph", ac.queue_graph_domain = "cycle", ac.system = "recursive"} {
   func.func private @recursive(%arg0: !ac.var<i8>) -> !ac.var<i8>
       attributes {ac.inline = true} {
     %result = func.call @recursive(%arg0) : (!ac.var<i8>) -> !ac.var<i8>
@@ -35,7 +35,7 @@ module attributes {ac.contract_epoch = "0.5", ac.model_kind = "queue_graph", ac.
 // RECURSIVE: recursive func.call purity cycle: @recursive -> @recursive
 
 //--- loop.mlir
-module attributes {ac.contract_epoch = "0.5", ac.model_kind = "queue_graph", ac.queue_graph_domain = "cycle", ac.system = "loop"} {
+module attributes {ac.model_kind = "queue_graph", ac.queue_graph_domain = "cycle", ac.system = "loop"} {
   func.func private @loop(%arg0: !ac.var<i8>) -> !ac.var<i8>
       attributes {ac.inline = true} {
     %c0 = arith.constant 0 : index
@@ -55,7 +55,7 @@ module attributes {ac.contract_epoch = "0.5", ac.model_kind = "queue_graph", ac.
 // LOOP: is not legal in a pure Queue/rule helper
 
 //--- state.mlir
-module attributes {ac.contract_epoch = "0.5", ac.model_kind = "queue_graph", ac.queue_graph_domain = "cycle", ac.system = "state"} {
+module attributes {ac.model_kind = "queue_graph", ac.queue_graph_domain = "cycle", ac.system = "state"} {
   ac.var.decl @state type i8 init 0 : i8 owner "/" stable_id "var/state"
   func.func private @read_state(%arg0: !ac.var<i8>) -> !ac.var<i8>
       attributes {ac.inline = true} {

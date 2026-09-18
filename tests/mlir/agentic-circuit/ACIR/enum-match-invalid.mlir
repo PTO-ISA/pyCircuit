@@ -14,7 +14,7 @@
 // SELECTOR: error: 'ac.var.enum_match' op selector must carry a nominal enum type
 
 //--- missing.mlir
-builtin.module attributes {ac.contract_epoch = "0.5"} {
+builtin.module  {
   ac.type_scope @types {
     ac.enum @Mode enumerants ["idle", "run", "wait"]
   } {dlti.dl_spec = #dlti.dl_spec<!ac.enum<@types::@Mode> = {abi_alignment = 1 : i64, endianness = "little", preferred_alignment = 1 : i64, size = 1 : i64}>}
@@ -24,7 +24,7 @@ builtin.module attributes {ac.contract_epoch = "0.5"} {
 }
 
 //--- duplicate.mlir
-builtin.module attributes {ac.contract_epoch = "0.5"} {
+builtin.module  {
   ac.type_scope @types {
     ac.enum @Mode enumerants ["idle", "run"]
   } {dlti.dl_spec = #dlti.dl_spec<!ac.enum<@types::@Mode> = {abi_alignment = 1 : i64, endianness = "little", preferred_alignment = 1 : i64, size = 1 : i64}>}
@@ -34,7 +34,7 @@ builtin.module attributes {ac.contract_epoch = "0.5"} {
 }
 
 //--- unknown.mlir
-builtin.module attributes {ac.contract_epoch = "0.5"} {
+builtin.module  {
   ac.type_scope @types {
     ac.enum @Mode enumerants ["idle", "run"]
   } {dlti.dl_spec = #dlti.dl_spec<!ac.enum<@types::@Mode> = {abi_alignment = 1 : i64, endianness = "little", preferred_alignment = 1 : i64, size = 1 : i64}>}
@@ -44,7 +44,7 @@ builtin.module attributes {ac.contract_epoch = "0.5"} {
 }
 
 //--- type.mlir
-builtin.module attributes {ac.contract_epoch = "0.5"} {
+builtin.module  {
   ac.type_scope @types {
     ac.enum @Mode enumerants ["idle"]
   } {dlti.dl_spec = #dlti.dl_spec<!ac.enum<@types::@Mode> = {abi_alignment = 1 : i64, endianness = "little", preferred_alignment = 1 : i64, size = 1 : i64}>}
@@ -55,7 +55,7 @@ builtin.module attributes {ac.contract_epoch = "0.5"} {
 }
 
 //--- count.mlir
-builtin.module attributes {ac.contract_epoch = "0.5"} {
+builtin.module  {
   ac.type_scope @types {
     ac.enum @Mode enumerants ["idle", "run"]
   } {dlti.dl_spec = #dlti.dl_spec<!ac.enum<@types::@Mode> = {abi_alignment = 1 : i64, endianness = "little", preferred_alignment = 1 : i64, size = 1 : i64}>}
@@ -65,7 +65,7 @@ builtin.module attributes {ac.contract_epoch = "0.5"} {
 }
 
 //--- selector.mlir
-builtin.module attributes {ac.contract_epoch = "0.5"} {
+builtin.module  {
   %selector = ac.var.constant 0 : i2 as !ac.var<i2>
   %value = ac.var.constant 0 : i8 as !ac.var<i8>
   %result = ac.var.enum_match %selector, %value, %value cases ["idle"] : !ac.var<i2>, !ac.var<i8>, !ac.var<i8> -> !ac.var<i8>

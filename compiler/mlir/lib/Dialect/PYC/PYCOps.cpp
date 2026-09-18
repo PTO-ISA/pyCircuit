@@ -721,8 +721,7 @@ LogicalResult CountZerosOp::verify() {
   auto countType = dyn_cast<IntegerType>(getCount().getType());
   if (!inputType || !countType)
     return emitOpError("input and count result must be integer types");
-  const auto *contract =
-      generated::findSemanticPrimitive("pyc.count_zeros.v1");
+  const auto *contract = generated::findSemanticPrimitive("pyc.count_zeros.v1");
   if (!contract)
     return emitOpError("semantic primitive is missing from the registry");
   if (!generated::supportsInputWidth(*contract, inputType.getWidth()))
@@ -746,13 +745,6 @@ static bool isRtlIdentifier(llvm::StringRef value) {
   });
 }
 
-static bool isSha256Fingerprint(llvm::StringRef value) {
-  if (!value.consume_front("sha256:") || value.size() != 64)
-    return false;
-  return llvm::all_of(
-      value, [](char c) { return llvm::isDigit(c) || (c >= 'a' && c <= 'f'); });
-}
-
 LogicalResult RtlCombOp::verify() {
   if (getInputs().empty() || getOutputs().empty())
     return emitOpError(
@@ -764,7 +756,6 @@ LogicalResult RtlCombOp::verify() {
   auto inputPorts = (*this)->getAttrOfType<ArrayAttr>("input_ports");
   auto outputPorts = (*this)->getAttrOfType<ArrayAttr>("output_ports");
   auto sources = (*this)->getAttrOfType<ArrayAttr>("sources");
-  auto catalog = (*this)->getAttrOfType<StringAttr>("catalog_sha256");
   if (!semantic || !semantic.getValue().starts_with("pyc.") ||
       semantic.getValue().size() <= 4)
     return emitOpError("semantic_id must be a non-empty pyc.* identifier");
@@ -772,9 +763,6 @@ LogicalResult RtlCombOp::verify() {
     return emitOpError("implementation_id must be non-empty");
   if (!module || !isRtlIdentifier(module.getValue()))
     return emitOpError("module must be a Verilog identifier");
-  if (!catalog || !isSha256Fingerprint(catalog.getValue()))
-    return emitOpError(
-        "catalog_sha256 must be sha256: followed by 64 lowercase hex digits");
   if (!parameters)
     return emitOpError("parameters must be present");
   for (NamedAttribute parameter : parameters) {
@@ -819,11 +807,9 @@ LogicalResult RtlCombOp::verify() {
   for (Attribute raw : sources) {
     auto source = dyn_cast<DictionaryAttr>(raw);
     auto path = source ? source.getAs<StringAttr>("path") : StringAttr();
-    auto digest = source ? source.getAs<StringAttr>("sha256") : StringAttr();
     auto license = source ? source.getAs<StringAttr>("license") : StringAttr();
-    if (!path || !digest || !license || license.getValue().empty())
-      return emitOpError(
-          "each source requires path, sha256, and license strings");
+    if (!path || !license || license.getValue().empty())
+      return emitOpError("each source requires path and license strings");
     llvm::StringRef value = path.getValue();
     bool escapes = false;
     for (auto part = llvm::sys::path::begin(value),
@@ -835,9 +821,6 @@ LogicalResult RtlCombOp::verify() {
       return emitOpError("source paths must be normalized relative paths");
     if (!sourcePaths.insert(value).second)
       return emitOpError("source paths must be unique");
-    if (!isSha256Fingerprint(digest.getValue()))
-      return emitOpError(
-          "source sha256 must use lowercase sha256:<64-hex> format");
   }
   return success();
 }

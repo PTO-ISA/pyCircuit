@@ -20,8 +20,6 @@ fi
 ac_native_opt="${ac_build}/bin/acir-opt-internal"
 ac_native_cxxgen="${ac_build}/bin/acir-queue-cxxgen"
 ac_tests="${PYC_ROOT_DIR}/tests"
-ac_tools="${PYC_ROOT_DIR}/compiler/acir/tools"
-ac_lock="${PYC_ROOT_DIR}/toolchains/agentic-circuit/pyc.lock.json"
 venv="$(pyc_out_root)/agentic-circuit/venv"
 mkdir -p "${docs_gate_dir}" "${gate_out_dir}" "$(dirname "${venv}")"
 
@@ -65,58 +63,18 @@ recorded_toolchain="${AC_GATE_TOOLCHAIN_ROOT:-${gate_out_dir}/toolchain/install}
     echo "PYC_BUILD_AGENTIC_CIRCUIT=ON bash flows/scripts/pyc build"
   fi
   echo "${recorded_toolchain}/bin/acir-opt --pass-pipeline='builtin.module(ac-freeze-topology)' <raw-queue-graph>"
-  echo "compiler/acir/tools/ac-queue-pyc-build.py <ACIR> ..."
-  echo "python3 tests/integration/agentic-circuit/e2e/test_pyc_backend.py <selected-cases> -v"
-  echo "python3 tests/integration/agentic-circuit/e2e/test_bit_primitive_parity.py -v"
-  echo "python3 tests/integration/agentic-circuit/e2e/test_typed_integer_runtime.py -v"
-  echo "python3 tests/integration/agentic-circuit/e2e/test_bounded_range_runtime.py -v"
-  echo "python3 tests/integration/agentic-circuit/e2e/test_array_combinator_runtime.py -v"
-  echo "python3 tests/integration/agentic-circuit/e2e/test_enum_helper_runtime.py -v"
-  echo "python3 tests/integration/agentic-circuit/e2e/test_record_projection_runtime.py -v"
-  echo "python3 tests/integration/agentic-circuit/e2e/test_private_queue_payload_runtime.py -v"
-  echo "python3 tests/integration/agentic-circuit/e2e/test_typed_system_transactions.py -v"
-  echo "python3 tests/integration/agentic-circuit/e2e/test_typed_record_pyc.py -v"
-  echo "python3 tests/integration/agentic-circuit/e2e/test_multi_output_atomic.py -v"
-  echo "python3 tests/integration/agentic-circuit/e2e/test_aggregate_equality_invariant.py -v"
-  echo "python3 tests/integration/agentic-circuit/e2e/test_table_pyc_parity.py -v"
-  echo "python3 tests/integration/agentic-circuit/e2e/test_table_backend.py -v"
+  echo "${recorded_toolchain}/bin/acc -c <frozen.ac> -emit-cpp -o <model.cpp>"
+  echo "${recorded_toolchain}/bin/acc -c <frozen.ac> -emit-cpp-bundle -o <bundle>"
+  echo "${recorded_toolchain}/bin/acc -c <frozen.ac> -emit-verilog -o <model.v>"
+  echo "c++ -std=c++20 -Isimulator/gfsim/include -fsyntax-only <model.cpp>"
+  echo "verilator --lint-only <model.v>"
 } > "${docs_gate_dir}/agentic_circuit_commands.txt"
 
 if [[ ! -x "${venv}/bin/python" ]]; then
   python3 -m venv "${venv}"
 fi
-gate_environment_fingerprint="$("${venv}/bin/python" - \
-  "${PYC_ROOT_DIR}/python/semantic-core/pyproject.toml" \
-  "${ac_python}/pyproject.toml" \
-  "${ac_python}/setup.py" <<'PY'
-import hashlib
-import sys
-from pathlib import Path
-
-digest = hashlib.sha256()
-digest.update(sys.version.encode("utf-8"))
-for argument in sys.argv[1:]:
-    path = Path(argument).resolve()
-    digest.update(path.as_posix().encode("utf-8"))
-    digest.update(path.read_bytes())
-print(digest.hexdigest())
-PY
-)"
-gate_environment_stamp="${venv}/.pycircuit-gate-environment"
-installed_fingerprint=""
-if [[ -f "${gate_environment_stamp}" ]]; then
-  installed_fingerprint="$(<"${gate_environment_stamp}")"
-fi
-if [[ "${installed_fingerprint}" == "${gate_environment_fingerprint}" ]] && \
-  "${venv}/bin/python" -c \
-    'import agentic_circuit, jsonschema, pytest, yaml; import _pycircuit_semantics' \
-    >/dev/null 2>&1; then
-  pyc_log "reusing Agentic Circuit gate environment ${venv}"
-else
-  "${venv}/bin/python" -m pip install -e "${PYC_ROOT_DIR}/python/semantic-core"
-  "${venv}/bin/python" -m pip install -e "${ac_python}[test]"
-  printf '%s\n' "${gate_environment_fingerprint}" > "${gate_environment_stamp}"
-fi
+"${venv}/bin/python" -m pip install -e "${PYC_ROOT_DIR}/python/semantic-core"
+"${venv}/bin/python" -m pip install -e "${ac_python}[test]"
 
 if [[ "${resume_from}" == "g0" ]]; then
   if [[ -n "${AC_GATE_BUILD_ROOT:-}" ]]; then
@@ -209,26 +167,16 @@ else
     bash "${PYC_ROOT_DIR}/flows/scripts/pyc" build
   toolchain="${gate_toolchain}/install"
 fi
-pycgen="${toolchain}/bin/acir-queue-pycgen"
 acir_opt="${toolchain}/bin/acir-opt"
-acir_plan="${toolchain}/bin/acir-queue-plan"
-acir_cxxgen="${toolchain}/bin/acir-queue-cxxgen"
+acc="${toolchain}/bin/acc"
 pycc="${toolchain}/bin/pycc"
-metadata="${toolchain}/share/pycircuit/toolchain-metadata.json"
-runtime="${toolchain}/lib/libpyc6_runtime.a"
-runtime_include="${toolchain}/include"
 cxx="$(command -v c++ || true)"
 verilator="$(command -v verilator || true)"
-for required in \
-  "${pycgen}" "${acir_opt}" "${acir_plan}" "${acir_cxxgen}" \
-  "${pycc}" "${metadata}" "${runtime}"; do
+for required in "${acir_opt}" "${acc}" "${pycc}"; do
   [[ -f "${required}" ]] || pyc_die "missing integrated toolchain artifact: ${required}"
 done
 [[ -n "${cxx}" ]] || pyc_die "C++ compiler is required for AC G2"
 [[ -n "${verilator}" ]] || pyc_die "Verilator is required for AC G2"
-
-[[ -d "${runtime_include}" ]] || \
-  pyc_die "missing integrated toolchain include directory: ${runtime_include}"
 
 for case_name in arbiter atomic-transform bit-widths masked-match popcount; do
   case_dir="${gate_out_dir}/${case_name}"
@@ -239,157 +187,25 @@ for case_name in arbiter atomic-transform bit-widths masked-match popcount; do
   "${acir_opt}" \
     --pass-pipeline='builtin.module(ac-freeze-topology)' \
     "${ac_tests}/mlir/agentic-circuit/CodeGen/${case_name}.mlir" \
-    -o "${case_dir}/model.frozen.ac.mlir"
-  "${ac_tools}/ac-queue-pyc-build.py" \
-    "${case_dir}/model.frozen.ac.mlir" \
-    --pycgen-tool "${pycgen}" \
-    --pycc "${pycc}" \
-    --toolchain-lock "${ac_lock}" \
-    --toolchain-metadata "${metadata}" \
-    --cxx "${cxx}" \
-    --verilator "${verilator}" \
-    --pyc-output "${case_dir}/model.pyc" \
-    --cpp-output-dir "${case_dir}/cpp" \
-    --verilog-output-dir "${case_dir}/verilog" \
-    --manifest "${case_dir}/manifest.json"
+    -o "${case_dir}/${case_name}.ac"
+  "${acc}" -c "${case_dir}/${case_name}.ac" \
+    -emit-cpp -o "${case_dir}/${case_name}.cpp"
+  "${acc}" -c "${case_dir}/${case_name}.ac" \
+    -emit-cpp-bundle -o "${case_dir}/${case_name}"
+  "${acc}" -c "${case_dir}/${case_name}.ac" \
+    -emit-verilog -o "${case_dir}/${case_name}.v"
+  top_name="$(sed -n 's/^module \([A-Za-z_][A-Za-z0-9_$]*\).*/\1/p' \
+    "${case_dir}/${case_name}.v" | head -n 1)"
+  [[ -n "${top_name}" ]] || \
+    pyc_die "ACC Verilog output has no top module: ${case_name}"
+  "${cxx}" -std=c++20 -I"${PYC_ROOT_DIR}/simulator/gfsim/include" \
+    -fsyntax-only "${case_dir}/${case_name}.cpp"
+  "${verilator}" --lint-only -Wno-fatal --top-module "${top_name}" \
+    -I"${toolchain}/include/verilog" \
+    "${case_dir}/${case_name}.v"
+  [[ -s "${case_dir}/${case_name}/include/generated/model.h" ]] || \
+    pyc_die "ACC bundle is missing its public model header: ${case_name}"
 done
-
-PYC_TOOLCHAIN_ROOT="${toolchain}" \
-ACIR_OPT="${acir_opt}" \
-ACIR_QUEUE_PLAN="${acir_plan}" \
-ACIR_QUEUE_CXXGEN="${acir_cxxgen}" \
-ACIR_QUEUE_PYCGEN="${pycgen}" \
-PYTHONPATH="${PYC_ROOT_DIR}/python/semantic-core/src:${ac_python}/src:${ac_python_build}" \
-  "${venv}/bin/python" \
-  "${PYC_ROOT_DIR}/tests/integration/agentic-circuit/e2e/test_pyc_backend.py" \
-  PycBackendTest.test_rule_retirement_builds_pyc_and_verilog \
-  PycBackendTest.test_bitfield_scalar_is_cycle_equivalent_in_pyc_cpp_and_verilog \
-  PycBackendTest.test_masked_decode_is_cycle_equivalent_in_pyc_cpp_and_verilog \
-  PycBackendTest.test_nested_payload_is_cycle_equivalent_in_pyc_cpp_and_verilog \
-  PycBackendTest.test_nominal_enum_is_cycle_equivalent_in_pyc_cpp_and_verilog \
-  PycBackendTest.test_aggregate_payload_is_cycle_equivalent_in_pyc_cpp_and_verilog \
-  PycBackendTest.test_recursive_aggregate_payload_is_cycle_equivalent_in_pyc_cpp_and_verilog \
-  -v
-
-PYC_TOOLCHAIN_ROOT="${toolchain}" \
-ACIR_BIN="$(dirname "${acir_opt}")" \
-PYCC="${pycc}" \
-PYTHONPATH="${PYC_ROOT_DIR}/python/semantic-core/src:${ac_python}/src:${ac_python_build}" \
-  "${venv}/bin/python" \
-  "${PYC_ROOT_DIR}/tests/integration/agentic-circuit/e2e/test_bit_primitive_parity.py" \
-  -v
-
-PYC_TOOLCHAIN_ROOT="${toolchain}" \
-ACIR_BIN="$(dirname "${acir_opt}")" \
-PYCC="${pycc}" \
-PYTHONPATH="${PYC_ROOT_DIR}/python/semantic-core/src:${ac_python}/src:${ac_python_build}" \
-  "${venv}/bin/python" \
-  "${PYC_ROOT_DIR}/tests/integration/agentic-circuit/e2e/test_typed_integer_runtime.py" \
-  -v
-
-PYC_TOOLCHAIN_ROOT="${toolchain}" \
-ACIR_BIN="$(dirname "${acir_opt}")" \
-PYCC="${pycc}" \
-PYTHONPATH="${PYC_ROOT_DIR}/python/semantic-core/src:${ac_python}/src:${ac_python_build}" \
-  "${venv}/bin/python" \
-  "${PYC_ROOT_DIR}/tests/integration/agentic-circuit/e2e/test_bounded_range_runtime.py" \
-  -v
-
-PYC_TOOLCHAIN_ROOT="${toolchain}" \
-ACIR_BIN="$(dirname "${acir_opt}")" \
-PYCC="${pycc}" \
-PYTHONPATH="${PYC_ROOT_DIR}/python/semantic-core/src:${ac_python}/src:${ac_python_build}" \
-  "${venv}/bin/python" \
-  "${PYC_ROOT_DIR}/tests/integration/agentic-circuit/e2e/test_array_combinator_runtime.py" \
-  -v
-
-PYC_TOOLCHAIN_ROOT="${toolchain}" \
-ACIR_BIN="$(dirname "${acir_opt}")" \
-PYCC="${pycc}" \
-PYTHONPATH="${PYC_ROOT_DIR}/python/semantic-core/src:${ac_python}/src:${ac_python_build}" \
-  "${venv}/bin/python" \
-  "${PYC_ROOT_DIR}/tests/integration/agentic-circuit/e2e/test_enum_helper_runtime.py" \
-  -v
-
-PYC_TOOLCHAIN_ROOT="${toolchain}" \
-ACIR_BIN="$(dirname "${acir_opt}")" \
-PYCC="${pycc}" \
-PYTHONPATH="${PYC_ROOT_DIR}/python/semantic-core/src:${ac_python}/src:${ac_python_build}" \
-  "${venv}/bin/python" \
-  "${PYC_ROOT_DIR}/tests/integration/agentic-circuit/e2e/test_record_projection_runtime.py" \
-  -v
-
-PYC_TOOLCHAIN_ROOT="${toolchain}" \
-ACIR_BIN="$(dirname "${acir_opt}")" \
-PYCC="${pycc}" \
-PYTHONPATH="${PYC_ROOT_DIR}/python/semantic-core/src:${ac_python}/src:${ac_python_build}" \
-  "${venv}/bin/python" \
-  "${PYC_ROOT_DIR}/tests/integration/agentic-circuit/e2e/test_private_queue_payload_runtime.py" \
-  -v
-
-PYC_TOOLCHAIN_ROOT="${toolchain}" \
-ACIR_OPT="${acir_opt}" \
-ACIR_QUEUE_PLAN="${acir_plan}" \
-ACIR_QUEUE_CXXGEN="${acir_cxxgen}" \
-PYTHONPATH="${PYC_ROOT_DIR}/python/semantic-core/src:${ac_python}/src:${ac_python_build}" \
-  "${venv}/bin/python" \
-  "${PYC_ROOT_DIR}/tests/integration/agentic-circuit/e2e/test_typed_system_transactions.py" \
-  -v
-
-PYC_TOOLCHAIN_ROOT="${toolchain}" \
-ACIR_OPT="${acir_opt}" \
-ACIR_QUEUE_PYCGEN="${pycgen}" \
-PYCC="${pycc}" \
-PYC_RUNTIME_LIB="${runtime}" \
-PYC_RUNTIME_INCLUDE="${runtime_include}" \
-PYTHONPATH="${PYC_ROOT_DIR}/python/semantic-core/src:${ac_python}/src:${ac_python_build}" \
-  "${venv}/bin/python" \
-  "${PYC_ROOT_DIR}/tests/integration/agentic-circuit/e2e/test_typed_record_pyc.py" \
-  -v
-
-PYC_TOOLCHAIN_ROOT="${toolchain}" \
-ACIR_OPT="${acir_opt}" \
-ACIR_QUEUE_PLAN="${acir_plan}" \
-ACIR_QUEUE_CXXGEN="${acir_cxxgen}" \
-ACIR_QUEUE_PYCGEN="${pycgen}" \
-PYCC="${pycc}" \
-PYC_RUNTIME_LIB="${runtime}" \
-PYC_RUNTIME_INCLUDE="${runtime_include}" \
-PYTHONPATH="${PYC_ROOT_DIR}/python/semantic-core/src:${ac_python}/src:${ac_python_build}" \
-  "${venv}/bin/python" \
-  "${PYC_ROOT_DIR}/tests/integration/agentic-circuit/e2e/test_multi_output_atomic.py" \
-  -v
-
-PYC_TOOLCHAIN_ROOT="${toolchain}" \
-ACIR_TOOLCHAIN_ROOT="${toolchain}" \
-ACIR_OPT="${acir_opt}" \
-ACIR_QUEUE_PLAN="${acir_plan}" \
-ACIR_QUEUE_CXXGEN="${acir_cxxgen}" \
-ACIR_QUEUE_PYCGEN="${pycgen}" \
-PYCC="${pycc}" \
-PYTHONPATH="${PYC_ROOT_DIR}/python/semantic-core/src:${ac_python}/src:${ac_python_build}" \
-  "${venv}/bin/python" \
-  "${PYC_ROOT_DIR}/tests/integration/agentic-circuit/e2e/test_aggregate_equality_invariant.py" \
-  -v
-
-PYC_TOOLCHAIN_ROOT="${toolchain}" \
-ACIR_OPT="${acir_opt}" \
-ACIR_QUEUE_PYCGEN="${pycgen}" \
-PYCC="${pycc}" \
-PYTHONPATH="${PYC_ROOT_DIR}/python/semantic-core/src:${ac_python}/src:${ac_python_build}" \
-  "${venv}/bin/python" \
-  "${PYC_ROOT_DIR}/tests/integration/agentic-circuit/e2e/test_table_pyc_parity.py" \
-  -v
-
-PYC_TOOLCHAIN_ROOT="${toolchain}" \
-ACIR_OPT="${acir_opt}" \
-ACIR_QUEUE_PLAN="${acir_plan}" \
-ACIR_QUEUE_CXXGEN="${acir_cxxgen}" \
-ACIR_QUEUE_PYCGEN="${pycgen}" \
-PYTHONPATH="${PYC_ROOT_DIR}/python/semantic-core/src:${ac_python}/src:${ac_python_build}" \
-  "${venv}/bin/python" \
-  "${PYC_ROOT_DIR}/tests/integration/agentic-circuit/e2e/test_table_backend.py" \
-  -v
 
 cat > "${docs_gate_dir}/agentic_circuit_summary.json" <<EOF
 {
@@ -398,9 +214,8 @@ cat > "${docs_gate_dir}/agentic_circuit_summary.json" <<EOF
   "status": "pass",
   "lanes": ${completed_lanes},
   "resume_from": "${resume_from}",
-  "contract_epoch": "0.5",
   "pyc_interface": "pyc6",
-  "cases": ["arbiter", "atomic-transform", "bit-widths", "masked-match", "popcount", "typed-integer-runtime", "bounded-range-runtime", "array-combinator-runtime", "enum-helper-runtime", "enum-stress-runtime", "record-projection-runtime", "private-queue-payload-runtime", "multi-output-atomic", "rule-retirement", "bitfield", "masked-decode", "nested-payload", "enum-payload", "aggregate-payload", "recursive-aggregate-payload", "typed-system-transactions", "typed-record-pyc", "multi-output-state-gfsim", "multi-output-pyc-parity", "aggregate-equality-invariant-gfsim", "aggregate-equality-invariant-pyc-parity", "table-round-robin-pyc-parity", "table-writer-arbitration-pyc-parity", "table-field-replace-order-pyc-parity", "table-direct-native-gfsim"]
+  "cases": ["arbiter", "atomic-transform", "bit-widths", "masked-match", "popcount", "acc-python-dut"]
 }
 EOF
 

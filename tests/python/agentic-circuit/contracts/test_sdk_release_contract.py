@@ -25,8 +25,6 @@ SCHEMAS = {
     "pycircuit-sdk-version-map": "sdk-version-map.schema.json",
     "pycircuit-sdk-platform-manifest": "sdk-manifest.schema.json",
     "pycircuit-sdk-release-index": "release-index.schema.json",
-    "agentic-circuit-model-plan": "model-plan.schema.json",
-    "agentic-circuit-model-manifest": "model-manifest.schema.json",
     "agentic-circuit-emitted-cost": "emitted-cost.schema.json",
     "pycircuit-sdk-lock": "consumer-lock.schema.json",
 }
@@ -38,9 +36,13 @@ def project_version(path: Path) -> str:
 
 
 class SdkReleaseContractTest(unittest.TestCase):
-    def test_platform_dependency_probes_ignore_static_status_and_resign_macos(self) -> None:
+    def test_platform_dependency_probes_ignore_static_status_and_resign_macos(
+        self,
+    ) -> None:
         generator_path = ROOT / "packaging/sdk/create_platform_manifest.py"
-        spec = importlib.util.spec_from_file_location("platform_generator", generator_path)
+        spec = importlib.util.spec_from_file_location(
+            "platform_generator", generator_path
+        )
         if spec is None or spec.loader is None:
             self.fail("cannot load platform SDK generator")
         generator = importlib.util.module_from_spec(spec)
@@ -116,10 +118,13 @@ class SdkReleaseContractTest(unittest.TestCase):
             all(platform["python"] == "3.11" for platform in version_map["platforms"])
         )
         self.assertTrue(
-            all(platform["cxx_standard"] == "20" for platform in version_map["platforms"])
+            all(
+                platform["cxx_standard"] == "20"
+                for platform in version_map["platforms"]
+            )
         )
 
-    def test_public_v1_schemas_are_closed_and_epoch_bound(self) -> None:
+    def test_public_v1_schemas_are_closed_and_versioned(self) -> None:
         for identity, name in SCHEMAS.items():
             with self.subTest(schema=identity):
                 schema = json.loads(
@@ -130,16 +135,17 @@ class SdkReleaseContractTest(unittest.TestCase):
                     schema["$schema"],
                 )
                 self.assertFalse(schema["additionalProperties"])
-                self.assertEqual(
-                    "0.5", schema["properties"]["contract_epoch"]["const"]
-                )
                 self.assertEqual(identity, schema["properties"]["schema"]["const"])
                 self.assertEqual("1", schema["properties"]["version"]["const"])
 
     def test_document_freezes_installed_commands_and_opaque_abi(self) -> None:
         contract = CONTRACT.read_text()
-        self.assertIn("agentic-circuit model plan", contract)
-        self.assertIn("agentic-circuit model emit-cpp", contract)
+        self.assertIn("acc.py -c <module.py> -o <module.ac>", contract)
+        self.assertIn("acc -c <module.ac> -emit-cpp -o <module.cpp>", contract)
+        self.assertIn(
+            "acc -c <module.ac> -emit-cpp-bundle -o <generated-dir>", contract
+        )
+        self.assertIn("acc -c <module.ac> -emit-verilog -o <module.v>", contract)
         self.assertIn("COMPONENTS Runtime", contract)
         self.assertIn("COMPONENTS CompilerDev", contract)
         self.assertIn("agentic_model_query_v1", contract)
@@ -162,9 +168,11 @@ class SdkReleaseContractTest(unittest.TestCase):
             check=False,
         )
         self.assertEqual(0, result.returncode, result.stdout + result.stderr)
-        self.assertIn("7 schemas, 7 documents", result.stdout)
+        self.assertIn("5 schemas, 5 documents", result.stdout)
 
-    def test_release_workflow_is_manual_sha_pinned_and_accepts_before_tagging(self) -> None:
+    def test_release_workflow_is_manual_sha_pinned_and_accepts_before_tagging(
+        self,
+    ) -> None:
         workflow = (ROOT / ".github/workflows/release.yml").read_text()
         self.assertIn("workflow_dispatch:", workflow)
         self.assertNotRegex(workflow, r"(?m)^\s+push:\s*$")
@@ -187,12 +195,12 @@ class SdkReleaseContractTest(unittest.TestCase):
         self.assertIn("needs: [verify-published-bytes]", workflow)
         self.assertIn("release-attestation:", workflow)
         self.assertIn("packaging/sdk/verify_platform_candidate.py", workflow)
-        self.assertIn("--forbidden-path \"$GITHUB_WORKSPACE\"", workflow)
-        self.assertIn("--wheel \"$(find universal", workflow)
+        self.assertIn('--forbidden-path "$GITHUB_WORKSPACE"', workflow)
+        self.assertIn('--wheel "$(find universal', workflow)
         self.assertIn("--attestation evidence/ACCEPTANCE.json", workflow)
         self.assertIn("sudo apt-get install -y", workflow)
         self.assertIn("patchelf", workflow)
-        self.assertIn("--candidate-tag \"v${{ inputs.version }}\"", workflow)
+        self.assertIn('--candidate-tag "v${{ inputs.version }}"', workflow)
         self.assertIn("platform attestation is not bound to this release", workflow)
         self.assertIn("gh issue comment 61", workflow)
         self.assertIn(
@@ -203,20 +211,24 @@ class SdkReleaseContractTest(unittest.TestCase):
             'gh release edit "v${{ inputs.version }}" --repo "${{ github.repository }}"',
             workflow,
         )
-        self.assertIn(
-            'gh issue comment 61 --repo "${{ github.repository }}"', workflow
-        )
+        self.assertIn('gh issue comment 61 --repo "${{ github.repository }}"', workflow)
         self.assertIn("ASSET_URL_PREFIX:", workflow)
         self.assertIn('asset_url_prefix = os.environ["ASSET_URL_PREFIX"]', workflow)
-        self.assertIn('startswith(asset_url_prefix)', workflow)
+        self.assertIn("startswith(asset_url_prefix)", workflow)
         self.assertNotIn("--attestation candidate/ACCEPTANCE.json", workflow)
         self.assertNotIn("gh release upload", workflow)
         self.assertNotIn("startsWith(github.ref, 'refs/tags/v')", workflow)
-        self.assertLess(workflow.index("accept-candidate:"), workflow.index("create-tag:"))
-        self.assertLess(workflow.index("create-tag:"), workflow.index("publish-release:"))
+        self.assertLess(
+            workflow.index("accept-candidate:"), workflow.index("create-tag:")
+        )
+        self.assertLess(
+            workflow.index("create-tag:"), workflow.index("publish-release:")
+        )
 
         validator_path = ROOT / ".github/scripts/validate_repo_management.py"
-        spec = importlib.util.spec_from_file_location("release_validator", validator_path)
+        spec = importlib.util.spec_from_file_location(
+            "release_validator", validator_path
+        )
         if spec is None or spec.loader is None:
             self.fail("cannot load repository validator")
         validator = importlib.util.module_from_spec(spec)
@@ -311,7 +323,9 @@ class SdkReleaseContractTest(unittest.TestCase):
                     check=False,
                 )
                 self.assertEqual(0, result.returncode, result.stdout + result.stderr)
-                outputs.append((out / f"pycircuit-sdk-{version}-release-index.json").read_bytes())
+                outputs.append(
+                    (out / f"pycircuit-sdk-{version}-release-index.json").read_bytes()
+                )
             self.assertEqual(outputs[0], outputs[1])
             index = json.loads(outputs[0])
             self.assertEqual(
@@ -326,9 +340,7 @@ class SdkReleaseContractTest(unittest.TestCase):
             )
             lock = json.loads(
                 (
-                    root
-                    / "one"
-                    / f"pycircuit-sdk-{version}-linux-x86_64.lock.json"
+                    root / "one" / f"pycircuit-sdk-{version}-linux-x86_64.lock.json"
                 ).read_text()
             )
             self.assertTrue(
@@ -349,7 +361,9 @@ class SdkReleaseContractTest(unittest.TestCase):
                     check=False,
                 )
                 self.assertEqual(
-                    0, checked_lock.returncode, checked_lock.stdout + checked_lock.stderr
+                    0,
+                    checked_lock.returncode,
+                    checked_lock.stdout + checked_lock.stderr,
                 )
 
             accepted_attestation = root / "accepted-attestation.json"
@@ -393,9 +407,11 @@ class SdkReleaseContractTest(unittest.TestCase):
                 check=False,
             )
             self.assertNotEqual(0, rejected_bytes.returncode)
-            self.assertIn("accepted asset bytes changed", rejected_bytes.stderr)
+            self.assertIn("accepted asset size changed", rejected_bytes.stderr)
 
-            (candidates / "agentic_circuit-0.1.0-py2-none-any.whl").write_bytes(b"duplicate")
+            (candidates / "agentic_circuit-0.1.0-py2-none-any.whl").write_bytes(
+                b"duplicate"
+            )
             rejected = subprocess.run(
                 [
                     sys.executable,
@@ -416,15 +432,17 @@ class SdkReleaseContractTest(unittest.TestCase):
             self.assertNotEqual(0, rejected.returncode)
             self.assertIn("unexpected candidate asset", rejected.stderr)
 
-    def test_platform_generator_embeds_three_wheels_and_schema_valid_manifest(self) -> None:
+    def test_platform_generator_embeds_three_wheels_and_schema_valid_manifest(
+        self,
+    ) -> None:
         with tempfile.TemporaryDirectory() as raw:
             root = Path(raw)
             install = root / "install"
             required = (
                 "bin/agentic-circuit",
+                "bin/acc",
+                "bin/pycc",
                 "bin/acir-opt",
-                "bin/acir-queue-plan",
-                "bin/acir-queue-cxxgen",
                 "include/gfsim/model_api.h",
                 "lib/libgfsim.a",
                 "lib/cmake/AgenticCircuit/AgenticCircuitConfig.cmake",
@@ -458,16 +476,33 @@ class SdkReleaseContractTest(unittest.TestCase):
             ]
             for wheel in wheels:
                 command.extend(("--wheel", wheel))
-            generated = subprocess.run(command, cwd=ROOT, text=True, capture_output=True)
-            self.assertEqual(0, generated.returncode, generated.stdout + generated.stderr)
-            manifest = out / f"pycircuit-sdk-{PRODUCT_VERSION}-linux-x86_64.manifest.json"
+            generated = subprocess.run(
+                command, cwd=ROOT, text=True, capture_output=True
+            )
+            self.assertEqual(
+                0, generated.returncode, generated.stdout + generated.stderr
+            )
+            manifest = (
+                out / f"pycircuit-sdk-{PRODUCT_VERSION}-linux-x86_64.manifest.json"
+            )
             manifest_value = json.loads(manifest.read_text())
+            self.assertIn(
+                "bin/acc",
+                {record["path"] for record in manifest_value["files"]},
+            )
             actual_compiler = subprocess.run(
                 ["c++", "--version"], text=True, capture_output=True, check=True
             ).stdout.splitlines()[0]
-            self.assertEqual(actual_compiler, manifest_value["platform"]["cxx_compiler"])
+            self.assertEqual(
+                actual_compiler, manifest_value["platform"]["cxx_compiler"]
+            )
             checked = subprocess.run(
-                [sys.executable, ROOT / "tools/agentic-circuit/check-sdk-contract.py", "--document", manifest],
+                [
+                    sys.executable,
+                    ROOT / "tools/agentic-circuit/check-sdk-contract.py",
+                    "--document",
+                    manifest,
+                ],
                 cwd=ROOT,
                 text=True,
                 capture_output=True,
@@ -499,8 +534,11 @@ class SdkReleaseContractTest(unittest.TestCase):
             attested = json.loads(attestation.read_text())
             self.assertEqual(CANDIDATE_TAG, attested["candidate_tag"])
             self.assertFalse(attested["verified"])
-            self.assertFalse(attested["relocated_model_consumer"])
-            self.assertFalse(attested["incremental_determinism"])
+            self.assertFalse(attested["relocated_acc_dut"])
+            self.assertFalse(attested["deterministic_regeneration"])
+            self.assertFalse(attested["transactional_publication"])
+            self.assertFalse(attested["cpp_execution"])
+            self.assertFalse(attested["verilog_emission"])
             with tarfile.open(archive, "r:gz") as bundle:
                 archive_names = set(bundle.getnames())
                 self.assertNotIn(
@@ -508,14 +546,14 @@ class SdkReleaseContractTest(unittest.TestCase):
                     archive_names,
                 )
                 embedded = sorted(
-                    name for name in archive_names if name.startswith("python/wheelhouse/")
+                    name
+                    for name in archive_names
+                    if name.startswith("python/wheelhouse/")
                 )
             self.assertTrue(
                 {
                     "share/pycircuit/schemas/consumer-lock.schema.json",
                     "share/pycircuit/schemas/emitted-cost.schema.json",
-                    "share/pycircuit/schemas/model-manifest.schema.json",
-                    "share/pycircuit/schemas/model-plan.schema.json",
                     "share/pycircuit/schemas/release-index.schema.json",
                     "share/pycircuit/schemas/sdk-manifest.schema.json",
                     "share/pycircuit/schemas/sdk-version-map.schema.json",
@@ -525,6 +563,20 @@ class SdkReleaseContractTest(unittest.TestCase):
             self.assertEqual(
                 sorted(f"python/wheelhouse/{wheel.name}" for wheel in wheels), embedded
             )
+
+            verifier = (ROOT / "packaging/sdk/verify_platform_candidate.py").read_text(
+                encoding="utf-8"
+            )
+            self.assertIn('commands / f"acc.py{suffix}"', verifier)
+            self.assertIn('sdk_root / f"bin/acc{suffix}"', verifier)
+            self.assertIn('"-emit-cpp-bundle"', verifier)
+            self.assertIn('"-emit-verilog"', verifier)
+            for removed in (
+                "model-" + "plan.json",
+                "model-" + "manifest.json",
+                '"model", "plan"',
+            ):
+                self.assertNotIn(removed, verifier)
 
             poisoned = root / "poisoned.tar.gz"
             with (
@@ -555,7 +607,6 @@ class SdkReleaseContractTest(unittest.TestCase):
             self.assertNotEqual(0, rejected_tree.returncode)
             self.assertIn("unlisted-backdoor", rejected_tree.stderr)
 
-
     def test_windows_system_dependency_allowlists_agree_on_the_python_runtime(
         self,
     ) -> None:
@@ -577,8 +628,12 @@ class SdkReleaseContractTest(unittest.TestCase):
             spec.loader.exec_module(module)
             return module
 
-        generator = load("generator_allowlist", "packaging/sdk/create_platform_manifest.py")
-        verifier = load("verifier_allowlist", "packaging/sdk/verify_platform_candidate.py")
+        generator = load(
+            "generator_allowlist", "packaging/sdk/create_platform_manifest.py"
+        )
+        verifier = load(
+            "verifier_allowlist", "packaging/sdk/verify_platform_candidate.py"
+        )
 
         self.assertEqual(
             generator.WINDOWS_SYSTEM_DLLS,

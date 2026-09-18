@@ -21,7 +21,6 @@ except ModuleNotFoundError:
 
 from ._canonical_json import JsonValue, canonical_json_bytes
 from ._capabilities import schema_root
-from ._contract import CONTRACT_EPOCH
 from ._definitions import Definition
 from ._diagnostics import (
     Diagnostic,
@@ -130,7 +129,6 @@ def _request_json(request: CaptureWorkerRequest, output: Path) -> dict[str, Json
     return {
         "schema": "agentic-circuit-capture-request",
         "version": "0.1",
-        "contract_epoch": CONTRACT_EPOCH,
         "workspace": request.workspace.resolve().as_posix(),
         "entry": request.entry.resolve().as_posix(),
         "system": request.system,
@@ -206,7 +204,6 @@ def run_capture_worker(request: CaptureWorkerRequest) -> CaptureWorkerResult:
             if set(response) != {
                 "schema",
                 "version",
-                "contract_epoch",
                 "has_acpy",
                 "has_acir",
                 "diagnostics",
@@ -305,20 +302,32 @@ def _capture_queue_rule(
     """Capture Queue/rule artifacts and preserve frontend diagnostics."""
 
     from ._queue_frontend import (
+        QueueFrontendError,
         build_queue_acpy,
-        lower_queue_program,
+        lower_queue_source,
         parse_queue_program,
     )
 
-    program = parse_queue_program(
+    lowered = lower_queue_source(
         text,
         system,
         static_arguments=static_arguments,
+        source_path=source_path,
     )
+    try:
+        diagnostics = parse_queue_program(
+            text,
+            system,
+            static_arguments=static_arguments,
+            source_path=source_path,
+        ).diagnostics
+    except QueueFrontendError:
+        diagnostics = ()
+
     return (
         build_queue_acpy(text, system, source_path),
-        lower_queue_program(program),
-        program.diagnostics,
+        lowered,
+        diagnostics,
     )
 
 
@@ -401,7 +410,6 @@ def _worker_main(request_path: Path) -> int:
     response = {
         "schema": "agentic-circuit-capture-result",
         "version": "0.1",
-        "contract_epoch": CONTRACT_EPOCH,
         "has_acpy": document is not None,
         "has_acir": acir is not None,
         "diagnostics": [item.to_json() for item in diagnostics],

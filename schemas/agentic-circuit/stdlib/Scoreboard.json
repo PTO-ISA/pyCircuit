@@ -1,7 +1,6 @@
 {
   "schema_kind": "agentic-circuit-component",
   "schema_version": "0.1",
-  "contract_epoch": "0.5",
   "canonical_name": "ac.Scoreboard",
   "family": "control",
   "provider_namespace": "ac",
@@ -144,6 +143,5 @@
       "queue_occupancy"
     ],
     "histograms": []
-  },
-  "schema_fingerprint": "sha256:5b86b15aad2ae8fcfa20f8009a317bcdd574e497578ad2d943f986d46c303e66"
+  }
 }

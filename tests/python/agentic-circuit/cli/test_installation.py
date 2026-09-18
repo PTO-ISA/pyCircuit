@@ -68,8 +68,7 @@ class InstallationTest(unittest.TestCase):
             installed = install_to(prefix)
             self.assertEqual(0, installed.returncode, installed.stderr)
             runtime_targets = (
-                prefix
-                / "lib/cmake/AgenticCircuit/AgenticCircuitRuntimeTargets.cmake"
+                prefix / "lib/cmake/AgenticCircuit/AgenticCircuitRuntimeTargets.cmake"
             ).read_text()
             for forbidden in ("LLVM", "MLIR", "ACIRBindings", "GfsimTooling"):
                 self.assertNotIn(forbidden, runtime_targets)
@@ -223,17 +222,6 @@ class InstallationTest(unittest.TestCase):
             initialized = run_installed(
                 prefix, "init", str(root / "initialized"), "--json", cwd=unrelated
             )
-            built = run_installed(
-                prefix,
-                "build",
-                "architecture.py",
-                "--project",
-                str(project / "agentic-circuit.toml"),
-                "--output-dir",
-                str(project / "build/main"),
-                "--json",
-                cwd=unrelated,
-            )
 
         self.assertEqual(0, doctor.returncode, doctor.stderr)
         self.assertEqual(0, capabilities.returncode, capabilities.stderr)
@@ -246,7 +234,6 @@ class InstallationTest(unittest.TestCase):
         self.assertEqual(0, checked.returncode, checked.stderr)
         self.assertEqual("passed", json.loads(checked.stdout)["status"])
         self.assertEqual(0, initialized.returncode, initialized.stderr)
-        self.assertEqual(0, built.returncode, built.stderr)
         self.assertNotIn("pack-perfetto-trace.py", installed_bins)
 
 

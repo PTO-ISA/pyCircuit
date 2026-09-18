@@ -4,7 +4,6 @@
 #include "acir/Bindings/Binding.h"
 #include "acir/Dialect/ACIR/ACIROps.h"
 #include "acir/Dialect/ACIR/ACIRResources.h"
-#include "acir/Dialect/ACSim/ACSimOps.h"
 #include "mlir/IR/SymbolTable.h"
 #include "llvm/ADT/DenseMap.h"
 #include "llvm/ADT/STLExtras.h"
@@ -14,7 +13,6 @@
 #include "llvm/Support/MathExtras.h"
 #include "llvm/Support/Path.h"
 #include "llvm/Support/JSON.h"
-#include "llvm/Support/SHA256.h"
 #include "llvm/Support/raw_ostream.h"
 
 #include <limits>
@@ -40,23 +38,11 @@ bool isValidPythonSourcePath(llvm::StringRef path) {
   return true;
 }
 
-void appendFingerprintPart(llvm::SHA256 &sha, llvm::StringRef value) {
-  sha.update(value);
-  const uint8_t zero = 0;
-  sha.update(llvm::ArrayRef<uint8_t>(&zero, 1));
-}
-
 std::string printType(mlir::Type type) {
   std::string result;
   llvm::raw_string_ostream stream(result);
   type.print(stream);
   return stream.str();
-}
-
-std::string sha256String(llvm::StringRef value) {
-  llvm::SHA256 sha;
-  sha.update(value);
-  return "sha256:" + llvm::toHex(sha.final(), /*LowerCase=*/true);
 }
 
 struct StaticConfigRoot {
@@ -145,30 +131,6 @@ projectStaticConfigInteger(const StaticConfigRoot &config,
       leafSchema->getString("name") != "int")
     return std::nullopt;
   return value->getAsInteger();
-}
-
-std::string staticStructFingerprint(ac::StructOp structure,
-                                    llvm::StringRef source,
-                                    mlir::ArrayAttr identityBindings) {
-  llvm::SHA256 sha;
-  appendFingerprintPart(sha, "ac.struct-specialization-v1");
-  appendFingerprintPart(sha, source);
-  for (mlir::Attribute rawField : structure.getFields()) {
-    auto field = mlir::cast<mlir::DictionaryAttr>(rawField);
-    appendFingerprintPart(sha,
-                          field.getAs<mlir::StringAttr>("name").getValue());
-    appendFingerprintPart(
-        sha, printType(field.getAs<mlir::TypeAttr>("type").getValue()));
-  }
-  for (mlir::Attribute rawBinding : identityBindings) {
-    auto binding = mlir::cast<mlir::DictionaryAttr>(rawBinding);
-    appendFingerprintPart(sha,
-                          binding.getAs<mlir::StringAttr>("name").getValue());
-    appendFingerprintPart(
-        sha,
-        std::to_string(binding.getAs<mlir::IntegerAttr>("value").getInt()));
-  }
-  return "sha256:" + llvm::toHex(sha.final(), /*LowerCase=*/true);
 }
 
 mlir::LogicalResult verifySourceProvenance(mlir::ModuleOp module) {
@@ -294,16 +256,12 @@ mlir::LogicalResult verifyStaticTypeMetadataImpl(mlir::ModuleOp module) {
                          : mlir::StringAttr();
       auto schema = config ? config.getAs<mlir::StringAttr>("schema")
                            : mlir::StringAttr();
-      auto schemaSha = config
-                           ? config.getAs<mlir::StringAttr>("schema_sha256")
-                           : mlir::StringAttr();
       auto value = config ? config.getAs<mlir::StringAttr>("value")
                           : mlir::StringAttr();
-      if (!config || config.size() != 5 || !root || !type || !schema ||
-          !schemaSha || !value || root.getValue().empty() ||
+      if (!config || config.size() != 4 || !root || !type || !schema ||
+          !value || root.getValue().empty() ||
           type.getValue().empty() ||
-          !configRoots.insert(root.getValue()).second ||
-          schemaSha.getValue() != sha256String(schema.getValue()))
+          !configRoots.insert(root.getValue()).second)
         return module.emitError("static config binding metadata is malformed");
       auto canonicalSchema =
           bindings::canonicalizeJsonText(schema.getValue());
@@ -682,17 +640,14 @@ mlir::LogicalResult verifyStaticTypeMetadataImpl(mlir::ModuleOp module) {
                              : mlir::StringAttr();
       auto symbol = identity ? identity.getAs<mlir::StringAttr>("symbol")
                              : mlir::StringAttr();
-      auto fingerprint = identity
-                             ? identity.getAs<mlir::StringAttr>("fingerprint")
-                             : mlir::StringAttr();
       auto identityBindings = identity
                                   ? identity.getAs<mlir::ArrayAttr>("bindings")
                                   : mlir::ArrayAttr();
       auto identityCheckTargets =
           identity ? identity.getAs<mlir::ArrayAttr>("targets")
                    : mlir::ArrayAttr();
-      if (!identity || identity.size() != 5 || !source || !symbol ||
-          !fingerprint || !identityBindings || !identityCheckTargets ||
+      if (!identity || identity.size() != 4 || !source || !symbol ||
+          !identityBindings || !identityCheckTargets ||
           source.getValue().empty() || symbol.getValue().empty() ||
           !identitySymbols.insert(symbol.getValue()).second)
         return module.emitError("static type identity metadata is malformed");
@@ -734,15 +689,6 @@ mlir::LogicalResult verifyStaticTypeMetadataImpl(mlir::ModuleOp module) {
               "static type identity targets must exactly reference checks");
       }
 
-      const std::string expected = staticStructFingerprint(
-          structure, source.getValue(), identityBindings);
-      if (fingerprint.getValue() != expected)
-        return module.emitError(
-            "static type identity fingerprint is inconsistent");
-      const std::string expectedSymbol =
-          source.getValue().str() + "__p" + expected.substr(7, 12);
-      if (symbol.getValue() != expectedSymbol)
-        return module.emitError("static type identity symbol is inconsistent");
     }
   }
 
@@ -779,20 +725,12 @@ public:
 
   llvm::StringRef getArgument() const override { return "verify-ac-file"; }
   llvm::StringRef getDescription() const override {
-    return "Verify the Agentic Circuit epoch and whole-file legality";
+    return "Verify Agentic Circuit whole-file legality";
   }
 
   void runOnOperation() override {
     mlir::ModuleOp module = getOperation();
     if (mlir::failed(ac::preflightRawModelStructure(module))) {
-      signalPassFailure();
-      return;
-    }
-    auto epoch = module->getAttrOfType<mlir::StringAttr>("ac.contract_epoch");
-    if (!epoch || epoch.getValue() != "0.5") {
-      module.emitError(
-          "expected top-level 'ac.contract_epoch' string attribute equal to "
-          "\"0.5\"");
       signalPassFailure();
       return;
     }
@@ -804,11 +742,6 @@ public:
       signalPassFailure();
       return;
     }
-    if (mlir::failed(acsim::verifyCanonicalACSimFile(module))) {
-      signalPassFailure();
-      return;
-    }
-
     mlir::WalkResult result = module.walk([&](mlir::Operation *operation) {
       if (mlir::failed(ac::verifyTopologyTypeUses(operation)))
         return mlir::WalkResult::interrupt();

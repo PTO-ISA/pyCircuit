@@ -186,10 +186,6 @@ class BitfieldSpec:
         object.__setattr__(self, "fields", layout.fields)
         object.__setattr__(self, "_layout", layout)
 
-    @property
-    def fingerprint(self) -> str:
-        return self._layout.fingerprint
-
     def _field(self, name: str) -> tuple[int, int]:
         return self._layout.field(name)
 
@@ -301,7 +297,6 @@ class BitfieldSpec:
         return {
             "kind": "bitfield",
             "width": self.width,
-            "fingerprint": self.fingerprint,
             "fields": {n: [msb, lsb] for n, (msb, lsb) in self.fields.items()},
         }
 

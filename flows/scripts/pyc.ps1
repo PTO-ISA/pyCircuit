@@ -76,7 +76,7 @@ Env:
   LLVM_CONFIG               Optional explicit llvm-config executable.
   PYC_BUILD_DIR             Optional build directory override.
   PYC_INSTALL_PREFIX        Optional install prefix override.
-  PYC_BUILD_AGENTIC_CIRCUIT Build/install ACIR, ACSim, gfsim, AC tools (ON).
+  PYC_BUILD_AGENTIC_CIRCUIT Build/install ACIR, ACC, gfsim, AC tools (ON).
   PYC_BUILD_AGENTIC_CIRCUIT_TESTS Build integrated ACIR tests (OFF).
   PYC_PYTHON_EXECUTABLE     Optional exact Python interpreter for the SDK.
   PYCC                      Path to pycc (overrides auto-detect).
@@ -322,7 +322,7 @@ function Invoke-BuildCommand {
     }
 
     if ($agenticCircuit -eq "ON") {
-        Write-PycLog "build integrated ACIR/ACSim/gfsim toolchain"
+        Write-PycLog "build integrated ACIR/ACC/gfsim toolchain"
         Invoke-Expression ("ninja -C " + (Quote-NativeValue $buildDir) + " all")
         if ($LASTEXITCODE -ne 0) {
             Exit-PycDie "ninja failed for the integrated toolchain"

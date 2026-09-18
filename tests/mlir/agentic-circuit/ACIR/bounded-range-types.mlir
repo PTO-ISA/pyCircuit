@@ -41,7 +41,7 @@
 // BAD-ARRAY-UPDATE-RECEIVER: aggregate must be a value_array
 
 //--- valid.mlir
-module attributes {ac.contract_epoch = "0.5", ac.model_kind = "queue_graph", ac.queue_graph_domain = "cycle", ac.system = "range_types"} {
+module attributes {ac.model_kind = "queue_graph", ac.queue_graph_domain = "cycle", ac.system = "range_types"} {
   func.func private @constants(%raw: !ac.var<i8>) -> (!ac.var<!ac.range<0, 4>>, !ac.var<!ac.range<4, 8>>) {
     %index = ac.var.constant 4 : i3 as !ac.var<!ac.range<0, 4>>
     %window = ac.var.constant 8 : i4 as !ac.var<!ac.range<4, 8>>
@@ -64,7 +64,7 @@ module attributes {ac.contract_epoch = "0.5", ac.model_kind = "queue_graph", ac.
 }
 
 //--- bad-bounds.mlir
-module attributes {ac.contract_epoch = "0.5", ac.model_kind = "queue_graph", ac.queue_graph_domain = "cycle", ac.system = "range_types"} {
+module attributes {ac.model_kind = "queue_graph", ac.queue_graph_domain = "cycle", ac.system = "range_types"} {
   func.func private @bad() -> !ac.var<!ac.range<5, 4>> {
     %value = ac.var.constant 4 : i3 as !ac.var<!ac.range<5, 4>>
     return %value : !ac.var<!ac.range<5, 4>>
@@ -72,7 +72,7 @@ module attributes {ac.contract_epoch = "0.5", ac.model_kind = "queue_graph", ac.
 }
 
 //--- bad-constant.mlir
-module attributes {ac.contract_epoch = "0.5", ac.model_kind = "queue_graph", ac.queue_graph_domain = "cycle", ac.system = "range_types"} {
+module attributes {ac.model_kind = "queue_graph", ac.queue_graph_domain = "cycle", ac.system = "range_types"} {
   func.func private @bad() -> !ac.var<!ac.range<0, 4>> {
     %value = ac.var.constant 5 : i3 as !ac.var<!ac.range<0, 4>>
     return %value : !ac.var<!ac.range<0, 4>>
@@ -80,7 +80,7 @@ module attributes {ac.contract_epoch = "0.5", ac.model_kind = "queue_graph", ac.
 }
 
 //--- bad-ingress.mlir
-module attributes {ac.contract_epoch = "0.5", ac.model_kind = "queue_graph", ac.queue_graph_domain = "cycle", ac.system = "range_types"} {
+module attributes {ac.model_kind = "queue_graph", ac.queue_graph_domain = "cycle", ac.system = "range_types"} {
   ac.type_scope @types {
     ac.struct @Nested fields [{name = "values", type = !ac.value_array<2 x tuple<i8, !ac.range<0, 4>>>}]
   } {dlti.dl_spec = #dlti.dl_spec<!ac.struct<@types::@Nested> = {abi_alignment = 1 : i64, endianness = "little", preferred_alignment = 1 : i64, size = 3 : i64}>}
@@ -89,7 +89,7 @@ module attributes {ac.contract_epoch = "0.5", ac.model_kind = "queue_graph", ac.
 }
 
 //--- bad-checked.mlir
-module attributes {ac.contract_epoch = "0.5"} {
+module  {
   func.func private @bad(%raw: !ac.var<i8>) {
     %value, %valid = ac.var.range_checked %raw : !ac.var<i8> -> !ac.var<!ac.range<0, 4>>, !ac.var<i2>
     return
@@ -97,7 +97,7 @@ module attributes {ac.contract_epoch = "0.5"} {
 }
 
 //--- bad-add.mlir
-module attributes {ac.contract_epoch = "0.5"} {
+module  {
   func.func private @bad(%left: !ac.var<!ac.range<0, 4>>, %right: !ac.var<!ac.range<1, 1>>) {
     %value = ac.var.range_add %left, %right : !ac.var<!ac.range<0, 4>>, !ac.var<!ac.range<1, 1>> -> !ac.var<!ac.range<0, 4>>
     return
@@ -105,7 +105,7 @@ module attributes {ac.contract_epoch = "0.5"} {
 }
 
 //--- bad-sub.mlir
-module attributes {ac.contract_epoch = "0.5"} {
+module  {
   func.func private @bad(%left: !ac.var<!ac.range<0, 4>>, %right: !ac.var<!ac.range<1, 1>>) {
     %value = ac.var.range_sub %left, %right : !ac.var<!ac.range<0, 4>>, !ac.var<!ac.range<1, 1>> -> !ac.var<!ac.range<0, 3>>
     return
@@ -113,7 +113,7 @@ module attributes {ac.contract_epoch = "0.5"} {
 }
 
 //--- add-overflow.mlir
-module attributes {ac.contract_epoch = "0.5"} {
+module  {
   func.func private @bad(%left: !ac.var<!ac.range<18446744073709551614, 18446744073709551615>>, %right: !ac.var<!ac.range<1, 1>>) {
     %value = ac.var.range_add %left, %right : !ac.var<!ac.range<18446744073709551614, 18446744073709551615>>, !ac.var<!ac.range<1, 1>> -> !ac.var<!ac.range<0, 0>>
     return
@@ -121,7 +121,7 @@ module attributes {ac.contract_epoch = "0.5"} {
 }
 
 //--- bad-range-bits.mlir
-module attributes {ac.contract_epoch = "0.5"} {
+module  {
   func.func private @bad(%value: !ac.var<!ac.range<4, 8>>) {
     %bits = ac.var.range_bits %value : !ac.var<!ac.range<4, 8>> -> !ac.var<i3>
     return
@@ -129,7 +129,7 @@ module attributes {ac.contract_epoch = "0.5"} {
 }
 
 //--- bad-dynamic-array-bound.mlir
-module attributes {ac.contract_epoch = "0.5"} {
+module  {
   func.func private @bad(%array: !ac.var<!ac.value_array<5 x i8>>, %index: !ac.var<!ac.range<0, 5>>) {
     %value = ac.var.dynamic_element %array at %index : !ac.var<!ac.value_array<5 x i8>>, !ac.var<!ac.range<0, 5>> -> !ac.var<i8>
     return
@@ -137,7 +137,7 @@ module attributes {ac.contract_epoch = "0.5"} {
 }
 
 //--- unproven-dynamic-array.mlir
-module attributes {ac.contract_epoch = "0.5", ac.model_kind = "queue_graph", ac.queue_graph_domain = "cycle", ac.system = "unsafe_array"} {
+module attributes {ac.model_kind = "queue_graph", ac.queue_graph_domain = "cycle", ac.system = "unsafe_array"} {
   %input = ac.source depth 1 latency 1 : !ac.queue<i3>
   %output = ac.transform %input depths [1] latencies [1] {
   ^body(%index: !ac.var<i3>):
@@ -151,7 +151,7 @@ module attributes {ac.contract_epoch = "0.5", ac.model_kind = "queue_graph", ac.
 }
 
 //--- private-safe-dynamic-array.mlir
-module attributes {ac.contract_epoch = "0.5"} {
+module  {
   func.func private @safe(%array: !ac.var<!ac.value_array<2 x i8>>, %index: !ac.var<i1>) {
     %value = ac.var.dynamic_element %array at %index : !ac.var<!ac.value_array<2 x i8>>, !ac.var<i1> -> !ac.var<i8>
     return
@@ -159,14 +159,14 @@ module attributes {ac.contract_epoch = "0.5"} {
 }
 
 //--- bad-table-bound.mlir
-module attributes {ac.contract_epoch = "0.5", ac.model_kind = "queue_graph", ac.queue_graph_domain = "cycle", ac.system = "bad_table"} {
+module attributes {ac.model_kind = "queue_graph", ac.queue_graph_domain = "cycle", ac.system = "bad_table"} {
   ac.table @state entry i8 entries 5 init 0 owner "/" stable_id "table/state"
   %index = ac.var.constant 0 : i3 as !ac.var<!ac.range<0, 5>>
   %value = ac.table.get @state[%index] : !ac.var<!ac.range<0, 5>> -> !ac.var<i8>
 }
 
 //--- range-refine-proof.mlir
-module attributes {ac.contract_epoch = "0.5", ac.model_kind = "queue_graph", ac.queue_graph_domain = "cycle", ac.system = "refine"} {
+module attributes {ac.model_kind = "queue_graph", ac.queue_graph_domain = "cycle", ac.system = "refine"} {
   %safe = ac.source depth 1 latency 1 : !ac.queue<i2>
   %safe_output = ac.transform %safe depths [1] latencies [1] {
   ^body(%raw: !ac.var<i2>):
@@ -186,7 +186,7 @@ module attributes {ac.contract_epoch = "0.5", ac.model_kind = "queue_graph", ac.
 }
 
 //--- bad-nested-zero.mlir
-module attributes {ac.contract_epoch = "0.5"} {
+module  {
   ac.type_scope @types {
     ac.struct @State fields [{name = "window", type = !ac.range<4, 8>}]
   } {dlti.dl_spec = #dlti.dl_spec<!ac.struct<@types::@State> = {abi_alignment = 1 : i64, endianness = "little", preferred_alignment = 1 : i64, size = 1 : i64}>}
@@ -194,12 +194,12 @@ module attributes {ac.contract_epoch = "0.5"} {
 }
 
 //--- bad-table-zero.mlir
-module attributes {ac.contract_epoch = "0.5", ac.model_kind = "queue_graph", ac.queue_graph_domain = "cycle", ac.system = "bad_table_zero"} {
+module attributes {ac.model_kind = "queue_graph", ac.queue_graph_domain = "cycle", ac.system = "bad_table_zero"} {
   ac.table @state entry !ac.range<4, 8> entries 5 init 0 owner "/" stable_id "table/state"
 }
 
 //--- bad-array-update-type.mlir
-module attributes {ac.contract_epoch = "0.5"} {
+module  {
   func.func private @bad(%array: !ac.var<!ac.value_array<5 x i8>>, %index: !ac.var<!ac.range<0, 4>>, %value: !ac.var<i7>) {
     %updated = ac.var.with_element %array at %index value %value : !ac.var<!ac.value_array<5 x i8>>, !ac.var<!ac.range<0, 4>>, !ac.var<i7> -> !ac.var<!ac.value_array<5 x i8>>
     return
@@ -207,7 +207,7 @@ module attributes {ac.contract_epoch = "0.5"} {
 }
 
 //--- unproven-array-update.mlir
-module attributes {ac.contract_epoch = "0.5", ac.model_kind = "queue_graph", ac.queue_graph_domain = "cycle", ac.system = "unsafe_update"} {
+module attributes {ac.model_kind = "queue_graph", ac.queue_graph_domain = "cycle", ac.system = "unsafe_update"} {
   %input = ac.source depth 1 latency 1 : !ac.queue<i3>
   %output = ac.transform %input depths [1] latencies [1] {
   ^body(%index: !ac.var<i3>):
@@ -221,7 +221,7 @@ module attributes {ac.contract_epoch = "0.5", ac.model_kind = "queue_graph", ac.
 }
 
 //--- bad-array-update-result.mlir
-module attributes {ac.contract_epoch = "0.5"} {
+module  {
   func.func private @bad(%array: !ac.var<!ac.value_array<5 x i8>>, %index: !ac.var<!ac.range<0, 4>>, %value: !ac.var<i8>) {
     %updated = ac.var.with_element %array at %index value %value : !ac.var<!ac.value_array<5 x i8>>, !ac.var<!ac.range<0, 4>>, !ac.var<i8> -> !ac.var<!ac.value_array<4 x i8>>
     return
@@ -229,7 +229,7 @@ module attributes {ac.contract_epoch = "0.5"} {
 }
 
 //--- bad-array-update-receiver.mlir
-module attributes {ac.contract_epoch = "0.5"} {
+module  {
   func.func private @bad(%scalar: !ac.var<i8>, %index: !ac.var<i2>, %value: !ac.var<i8>) {
     %updated = ac.var.with_element %scalar at %index value %value : !ac.var<i8>, !ac.var<i2>, !ac.var<i8> -> !ac.var<i8>
     return
@@ -237,7 +237,7 @@ module attributes {ac.contract_epoch = "0.5"} {
 }
 
 //--- helper-static-array-update.mlir
-module attributes {ac.contract_epoch = "0.5"} {
+module  {
   func.func private @replace_first(%array: !ac.var<!ac.value_array<3 x i8>>, %value: !ac.var<i8>) -> !ac.var<!ac.value_array<3 x i8>> {
     %index = ac.var.constant 0 : i2 as !ac.var<i2>
     %updated = ac.var.with_element %array at %index value %value : !ac.var<!ac.value_array<3 x i8>>, !ac.var<i2>, !ac.var<i8> -> !ac.var<!ac.value_array<3 x i8>>
@@ -246,7 +246,7 @@ module attributes {ac.contract_epoch = "0.5"} {
 }
 
 //--- helper-static-array-update-oob.mlir
-module attributes {ac.contract_epoch = "0.5"} {
+module  {
   func.func private @replace_oob(%array: !ac.var<!ac.value_array<3 x i8>>, %value: !ac.var<i8>) -> !ac.var<!ac.value_array<3 x i8>> {
     %index = ac.var.constant 3 : i2 as !ac.var<i2>
     // expected-error @+1 {{constant value_array update index is out of range}}

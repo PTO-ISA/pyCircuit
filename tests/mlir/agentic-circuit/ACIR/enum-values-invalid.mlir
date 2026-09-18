@@ -14,7 +14,7 @@
 // VALUE-OVERFLOW: error: 'ac.enum' op explicit enum values must be nonnegative and fit encoding width
 
 //--- unknown.mlir
-builtin.module attributes {ac.contract_epoch = "0.5"} {
+builtin.module  {
   ac.type_scope @types {
     ac.enum @Mode enumerants ["idle", "run"]
   } {dlti.dl_spec = #dlti.dl_spec<!ac.enum<@types::@Mode> = {abi_alignment = 1 : i64, endianness = "little", preferred_alignment = 1 : i64, size = 1 : i64}>}
@@ -22,28 +22,28 @@ builtin.module attributes {ac.contract_epoch = "0.5"} {
 }
 
 //--- missing-width.mlir
-builtin.module attributes {ac.contract_epoch = "0.5"} {
+builtin.module  {
   ac.type_scope @types {
     ac.enum @Mode enumerants ["idle", "run"] values [0 : i64, 1 : i64]
   } {dlti.dl_spec = #dlti.dl_spec<!ac.enum<@types::@Mode> = {abi_alignment = 1 : i64, endianness = "little", preferred_alignment = 1 : i64, size = 1 : i64}>}
 }
 
 //--- duplicate-value.mlir
-builtin.module attributes {ac.contract_epoch = "0.5"} {
+builtin.module  {
   ac.type_scope @types {
     ac.enum @Mode enumerants ["idle", "run"] values [0 : i64, 0 : i64] width 1
   } {dlti.dl_spec = #dlti.dl_spec<!ac.enum<@types::@Mode> = {abi_alignment = 1 : i64, endianness = "little", preferred_alignment = 1 : i64, size = 1 : i64}>}
 }
 
 //--- value-overflow.mlir
-builtin.module attributes {ac.contract_epoch = "0.5"} {
+builtin.module  {
   ac.type_scope @types {
     ac.enum @Mode enumerants ["idle", "run"] values [0 : i64, 4 : i64] width 2
   } {dlti.dl_spec = #dlti.dl_spec<!ac.enum<@types::@Mode> = {abi_alignment = 1 : i64, endianness = "little", preferred_alignment = 1 : i64, size = 1 : i64}>}
 }
 
 //--- result.mlir
-builtin.module attributes {ac.contract_epoch = "0.5"} {
+builtin.module  {
   ac.type_scope @types {
     ac.enum @Mode enumerants ["idle", "run"]
   } {dlti.dl_spec = #dlti.dl_spec<!ac.enum<@types::@Mode> = {abi_alignment = 1 : i64, endianness = "little", preferred_alignment = 1 : i64, size = 1 : i64}>}
@@ -51,7 +51,7 @@ builtin.module attributes {ac.contract_epoch = "0.5"} {
 }
 
 //--- ordered.mlir
-builtin.module attributes {ac.contract_epoch = "0.5"} {
+builtin.module  {
   ac.type_scope @types {
     ac.enum @Mode enumerants ["idle", "run"]
   } {dlti.dl_spec = #dlti.dl_spec<!ac.enum<@types::@Mode> = {abi_alignment = 1 : i64, endianness = "little", preferred_alignment = 1 : i64, size = 1 : i64}>}

@@ -14,7 +14,7 @@
 // RUN: %acir_opt %t/lower-rule.mlir --pass-pipeline='builtin.module(ac-infer-rule-types,ac-infer-rule-effects,ac-infer-rule-activation,ac-materialize-rule-checks,ac-materialize-rule-handshake,ac-discharge-rule-obligations,ac-resolve-rule-schedule,ac-lower-rules-to-firing)' | %FileCheck %s --check-prefix=LOWER
 
 //--- priority.mlir
-module attributes {ac.contract_epoch = "0.5"} {
+module  {
   ac.table @state entry i8 entries 2 init 0 owner "/" stable_id "table/state"
   ac.table.write @state mode "field" write_fields ["$entry"] address {
     %index = ac.var.constant 0 : i1 as !ac.var<i1>
@@ -41,7 +41,7 @@ module attributes {ac.contract_epoch = "0.5"} {
 // PRIORITY: ac.arbitration = #ac.writer_priority<0>
 
 //--- static-disjoint.mlir
-module attributes {ac.contract_epoch = "0.5"} {
+module  {
   ac.table @state entry i8 entries 2 init 0 owner "/" stable_id "table/state"
   ac.table.write @state mode "field" write_fields ["$entry"] address {
     %index = ac.var.constant 0 : i1 as !ac.var<i1>
@@ -67,7 +67,7 @@ module attributes {ac.contract_epoch = "0.5"} {
 // DISJOINT: ac.table.write
 
 //--- guarded-disjoint.mlir
-module attributes {ac.contract_epoch = "0.5"} {
+module  {
   ac.table @state entry i8 entries 1 init 0 owner "/" stable_id "table/state"
   %input = ac.source depth 1 latency 1 : !ac.queue<i1>
   ac.rule %input depths [] latencies [] name "guarded" stable_id "guarded"
@@ -90,7 +90,7 @@ module attributes {ac.contract_epoch = "0.5"} {
 // GUARDED: ac.table.propose
 
 //--- unresolved.mlir
-module attributes {ac.contract_epoch = "0.5"} {
+module  {
   ac.table @state entry i8 entries 1 init 0 owner "/" stable_id "table/state"
   ac.table.write @state mode "field" write_fields ["$entry"] address {
     %index = ac.var.constant 0 : i1 as !ac.var<i1>
@@ -116,7 +116,7 @@ module attributes {ac.contract_epoch = "0.5"} {
 // UNRESOLVED: same-field overlap on owner @state requires explicit priority on every writer endpoint
 
 //--- duplicate-rank.mlir
-module attributes {ac.contract_epoch = "0.5"} {
+module  {
   ac.table @state entry i8 entries 2 init 0 owner "/" stable_id "table/state"
   ac.table.write @state mode "field" write_fields ["$entry"] address {
     %index = ac.var.constant 0 : i1 as !ac.var<i1>
@@ -142,7 +142,7 @@ module attributes {ac.contract_epoch = "0.5"} {
 // DUPLICATE: duplicate writer priority rank 0 for owner @state
 
 //--- duplicate-identity.mlir
-module attributes {ac.contract_epoch = "0.5"} {
+module  {
   ac.table @state entry i8 entries 1 init 0 owner "/" stable_id "table/state"
   ac.table.write @state mode "field" write_fields ["$entry"] address {
     %index = ac.var.constant 0 : i1 as !ac.var<i1>
@@ -168,7 +168,7 @@ module attributes {ac.contract_epoch = "0.5"} {
 // DUPLICATE-IDENTITY: duplicate stable writer endpoint identity 'table-writer/same' for owner @state
 
 //--- missing-identity.mlir
-module attributes {ac.contract_epoch = "0.5"} {
+module  {
   ac.table @state entry i8 entries 1 init 0 owner "/" stable_id "table/state"
   ac.table.write @state mode "field" write_fields ["$entry"] address {
     %index = ac.var.constant 0 : i1 as !ac.var<i1>
@@ -184,7 +184,7 @@ module attributes {ac.contract_epoch = "0.5"} {
 // MISSING-IDENTITY: arbitrated writer requires stable ac.endpoint_id
 
 //--- malformed-priority.mlir
-module attributes {ac.contract_epoch = "0.5"} {
+module  {
   ac.table @state entry i8 entries 1 init 0 owner "/" stable_id "table/state"
   ac.table.write @state mode "field" write_fields ["$entry"] address {
     %index = ac.var.constant 0 : i1 as !ac.var<i1>
@@ -200,7 +200,7 @@ module attributes {ac.contract_epoch = "0.5"} {
 // MALFORMED: ac.arbitration requires typed #ac.writer_priority<rank>
 
 //--- safety-bypass.mlir
-module attributes {ac.contract_epoch = "0.5"} {
+module  {
   ac.table @state entry i8 entries 1 init 0 owner "/" stable_id "table/state"
   ac.table.write @state mode "field" write_fields ["$entry"] address {
     %index = ac.var.constant 0 : i1 as !ac.var<i1>
@@ -216,7 +216,7 @@ module attributes {ac.contract_epoch = "0.5"} {
 // SAFETY: user safety assertions cannot bypass writer proof
 
 //--- cross-owner-cycle.mlir
-module attributes {ac.contract_epoch = "0.5"} {
+module  {
   ac.table @left entry i8 entries 1 init 0 owner "/" stable_id "table/left"
   ac.table @right entry i8 entries 1 init 0 owner "/" stable_id "table/right"
   %first_input = ac.source depth 1 latency 1 : !ac.queue<i8>
@@ -249,7 +249,7 @@ module attributes {ac.contract_epoch = "0.5"} {
 // CYCLE: writer arbitration precedence contains a cross-owner cycle
 
 //--- allocation-firing-conflict.mlir
-module attributes {ac.contract_epoch = "0.5"} {
+module  {
   ac.table @state entry i8 entries 1 init 0 owner "/" stable_id "table/state"
   %input = ac.source depth 1 latency 1 : !ac.queue<i8>
   ac.rule %input depths [] latencies [] name "field" stable_id "field"
@@ -275,7 +275,7 @@ module attributes {ac.contract_epoch = "0.5"} {
 // ALLOCATION-FIRING: same-field overlap on owner @state requires explicit priority on every writer endpoint
 
 //--- allocation-firing-priority.mlir
-module attributes {ac.contract_epoch = "0.5"} {
+module  {
   ac.table @state entry i8 entries 1 init 0 owner "/" stable_id "table/state"
   %input = ac.source depth 1 latency 1 : !ac.queue<i8>
   ac.rule %input depths [] latencies [] name "field" stable_id "field"
@@ -302,7 +302,7 @@ module attributes {ac.contract_epoch = "0.5"} {
 // ALLOCATION-PRIORITY: ac.table.write
 
 //--- lower-rule.mlir
-module attributes {ac.contract_epoch = "0.5", ac.model_kind = "queue_graph", ac.queue_graph_domain = "cycle"} {
+module attributes {ac.model_kind = "queue_graph", ac.queue_graph_domain = "cycle"} {
   ac.table @state entry i8 entries 1 init 0 owner "/" stable_id "table/state"
   %input = ac.source depth 1 latency 1 : !ac.queue<i8>
   ac.rule %input depths [] latencies [] name "writer" stable_id "writer-z"

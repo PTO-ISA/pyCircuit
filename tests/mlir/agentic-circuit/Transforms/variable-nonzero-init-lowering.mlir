@@ -5,7 +5,7 @@
 // RUN: %FileCheck %s --check-prefix=GFSIM < %t.cpp
 // RUN: %cxx -std=c++20 -I%source_root/simulator/gfsim/include -c %t.cpp -o %t.o
 
-module attributes {ac.contract_epoch = "0.5", ac.model_kind = "queue_graph", ac.queue_graph_domain = "cycle", ac.system = "variable_state"} {
+module attributes {ac.model_kind = "queue_graph", ac.queue_graph_domain = "cycle", ac.system = "variable_state"} {
   ac.var.decl @count type i8 init 5 : i8 owner "/" stable_id "var/count"
   ac.var.decl @wide type i64 init -1 : i64 owner "/" stable_id "var/wide"
   %input = ac.source depth 2 latency 1 {ac.name = "input"} : !ac.queue<i8>

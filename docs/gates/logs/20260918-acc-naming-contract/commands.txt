@@ -1,0 +1,27 @@
+git pull --ff-only origin main
+cmake --build .pycircuit_out/build-llvm22 -j4 --target CodeGenTests acc
+.pycircuit_out/build-llvm22/bin/CodeGenTests
+.pycircuit_out/per-module-py/bin/lit -sv .pycircuit_out/build-llvm22/compiler/acir/tests/mlir --filter='acc-(driver|python-driver)'
+PYTHONPATH="$PWD/python/semantic-core/src:$PWD/python/agentic-circuit/src:$PWD/tests/python/agentic-circuit:$PWD/.pycircuit_out/build-llvm22/compiler/acir/python" .pycircuit_out/ac-venv/bin/python -m pytest tests/python/agentic-circuit/python_frontend/test_queue_frontend.py tests/python/agentic-circuit/python_frontend/test_jit_source_closure.py tests/python/agentic-circuit/cli/test_acc_command.py tests/python/agentic-circuit/cli/test_compile_command.py tests/python/agentic-circuit/cli/test_model_plan_command.py::ModelArtifactInventoryTest -q
+PYTHONPATH="$PWD/python/semantic-core/src:$PWD/python/agentic-circuit/src:$PWD/tests/python/agentic-circuit:$PWD" .pycircuit_out/per-module-py/bin/python -m pytest tests/unit -m unit -q
+PYTHONPATH="$PWD/python/pycircuit/src:$PWD/python/semantic-core/src:$PWD/python/agentic-circuit/src" .pycircuit_out/ac-venv/bin/python -m pytest tests/system/test_primitive_selection.py -q
+.pycircuit_out/venv-release-test/bin/python -m pytest -q tests/python/agentic-circuit/contracts/test_sdk_release_contract.py
+.pycircuit_out/ac-venv/bin/python tools/agentic-circuit/check-contracts.py
+python3 tools/agentic-circuit/generate-diagnostic-catalog.py --check
+python3 flows/tools/check_api_hygiene.py python/pycircuit/src/pycircuit examples/pycircuit docs README.md
+python3 -m mkdocs build --strict --site-dir .pycircuit_out/acc-naming-docs
+clang-format --dry-run --Werror compiler/acir/lib/CodeGen/QueueGraphGenerator.cpp compiler/acir/tools/acc/acc.cpp tests/cpp/agentic-circuit/CodeGen/QueueGraphPlanTest.cpp
+python3 -m py_compile python/agentic-circuit/src/agentic_circuit/_acc_py.py tests/python/agentic-circuit/cli/test_acc_command.py
+repo_root=$PWD
+task_tmp=$(mktemp -d)
+cp -R tests/python/agentic-circuit/cli/fixtures/rule "$task_tmp/project"
+cd "$task_tmp/project"
+PYTHONPATH="$repo_root/python/semantic-core/src:$repo_root/python/agentic-circuit/src:$repo_root/.pycircuit_out/build-llvm22/compiler/acir/python" python3 -m agentic_circuit._acc_py -c architecture.py -o model.ac --quiet
+"$repo_root/.pycircuit_out/build-llvm22/bin/acc" -c model.ac -emit-cpp -o model.cpp
+"$repo_root/.pycircuit_out/build-llvm22/bin/acc" -c model.ac -emit-cpp-bundle -o generated
+"$repo_root/.pycircuit_out/build-llvm22/bin/acc" -c model.ac -emit-verilog -o model.v
+c++ -std=c++20 -I"$repo_root/simulator/gfsim/include" -fsyntax-only model.cpp
+verilator --lint-only --Wno-fatal --top-module rob -I"$repo_root/library/verilog" model.v
+cd "$repo_root"
+PYTHONPATH="$PWD/python/semantic-core/src:$PWD/python/agentic-circuit/src" python3 -c 'from pathlib import Path; from agentic_circuit._queue_compiler.provenance import extract_definition_ndf_metadata; print(extract_definition_ndf_metadata(Path("/Users/zhoubot/Documents/SuperScalarModel/model/pyc/davincioo/spe/iex/alu.py").read_text())["alu_pipeline"])'
+git diff --check

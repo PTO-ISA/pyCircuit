@@ -6,7 +6,7 @@ automatic pipeline balancing to explicit `pyc` MLIR, and emits C++ and Verilog
 from the same verified design.
 
 The repository also hosts the separate `agentic_circuit` architecture-modeling
-frontend, ACIR/ACSim dialects, and gfsim runtime. Synthesizable ACIR models join
+frontend, ACIR dialect, ACC compiler, and gfsim runtime. Synthesizable ACIR models join
 the pyCircuit 6 flow at verified PYC; the Python and MLIR frontend namespaces do
 not collapse into one API.
 

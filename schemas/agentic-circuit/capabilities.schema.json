@@ -4,44 +4,98 @@
   "title": "Agentic Circuit Capabilities 0.1",
   "type": "object",
   "additionalProperties": false,
-  "required": ["schema", "version", "contract_epoch", "contract_identities", "items", "compiler_build_id", "runtime_build_id"],
+  "required": [
+    "schema",
+    "version",
+    "contract_identities",
+    "items"
+  ],
   "properties": {
-    "schema": {"const": "agentic-circuit-capabilities"},
-    "version": {"const": "0.1"},
-    "contract_epoch": {"const": "0.5"},
+    "schema": {
+      "const": "agentic-circuit-capabilities"
+    },
+    "version": {
+      "const": "0.1"
+    },
     "contract_identities": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["acpy", "acir", "acsim", "cli", "component_schema", "opcode_catalog", "block_spec", "cxx_source_contract", "diagnostic", "build_manifest"],
+      "required": [
+        "acpy",
+        "acir",
+        "cli",
+        "component_schema",
+        "opcode_catalog",
+        "block_spec",
+        "cxx_source_contract",
+        "diagnostic"
+      ],
       "properties": {
-        "acpy": {"const": "acpy@0.1"},
-        "acir": {"const": "acir@0.1"},
-        "acsim": {"const": "acsim@0.1"},
-        "cli": {"const": "agentic-circuit-cli@0.1"},
-        "component_schema": {"const": "agentic-circuit-component@0.1"},
-        "opcode_catalog": {"const": "agentic-circuit-opcode-catalog@0.5"},
-        "block_spec": {"const": "agentic-circuit-block-spec@0.5"},
-        "cxx_source_contract": {"const": "gfsim-cxx20@0.1"},
-        "diagnostic": {"const": "agentic-circuit-diagnostic@0.1"},
-        "build_manifest": {"const": "agentic-circuit-build-manifest@0.1"}
+        "acpy": {
+          "const": "acpy@0.1"
+        },
+        "acir": {
+          "const": "acir@0.1"
+        },
+        "cli": {
+          "const": "agentic-circuit-cli@0.1"
+        },
+        "component_schema": {
+          "const": "agentic-circuit-component@0.1"
+        },
+        "opcode_catalog": {
+          "const": "agentic-circuit-opcode-catalog@0.5"
+        },
+        "block_spec": {
+          "const": "agentic-circuit-block-spec@0.5"
+        },
+        "cxx_source_contract": {
+          "const": "gfsim-cxx20@0.1"
+        },
+        "diagnostic": {
+          "const": "agentic-circuit-diagnostic@0.1"
+        }
       }
     },
-    "items": {"type": "array", "items": {"$ref": "#/$defs/item"}},
-    "compiler_build_id": {"type": "string", "minLength": 1},
-    "runtime_build_id": {"type": "string", "minLength": 1}
+    "items": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/item"
+      }
+    }
   },
   "$defs": {
-    "sha256": {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$"},
     "item": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["kind", "name", "availability", "schema_fingerprint", "implementation_fingerprint"],
+      "required": [
+        "kind",
+        "name",
+        "availability"
+      ],
       "properties": {
-        "kind": {"enum": ["provider", "component", "block", "opcode", "policy", "interface", "protocol", "output_format"]},
-        "name": {"type": "string", "minLength": 1},
-        "availability": {"enum": ["available", "declared_unavailable"]},
-        "schema_fingerprint": {"$ref": "#/$defs/sha256"},
-        "implementation_fingerprint": {"oneOf": [{"type": "null"}, {"$ref": "#/$defs/sha256"}]}
+        "kind": {
+          "enum": [
+            "provider",
+            "component",
+            "block",
+            "opcode",
+            "policy",
+            "interface",
+            "protocol",
+            "output_format"
+          ]
+        },
+        "name": {
+          "type": "string",
+          "minLength": 1
+        },
+        "availability": {
+          "enum": [
+            "available",
+            "declared_unavailable"
+          ]
+        }
       }
     }
   }

@@ -3,10 +3,8 @@ add_acir_library(ACIRTransforms SOURCES
   VerifyValueConstraints.cpp
   FreezeTopology.cpp
   CanonicalizeModel.cpp
-  ResolveBindings.cpp
   NormalizeACIRFile.cpp
   VerifyACIRFile.cpp
-  LowerProcessState.cpp
   LowerRules.cpp
   LowerValueContracts.cpp
   PruneInternalPayloads.cpp

@@ -2,20 +2,13 @@
 """Generate the frozen ac v0.1 component catalog deterministically."""
 
 import argparse
-import hashlib
 import json
 import sys
 from pathlib import Path
 
-import tomllib
 
 ROOT = Path(__file__).resolve().parents[2]
 OUTPUT = ROOT / "schemas/agentic-circuit" / "stdlib"
-with (ROOT / "python/agentic-circuit/pyproject.toml").open("rb") as stream:
-    CONTRACT_EPOCH = tomllib.load(stream)["tool"]["agentic-circuit"][
-        "contract-epoch"
-    ]
-
 AVAILABLE = {
     "Queue": ("transport", "duplex", "gfsim/queue.h"),
     "Scheduler": ("control", "duplex", "gfsim/components.h"),
@@ -294,7 +287,6 @@ def component_record(name, family, shape, header):
     record = {
         "schema_kind": "agentic-circuit-component",
         "schema_version": "0.1",
-        "contract_epoch": CONTRACT_EPOCH,
         "canonical_name": f"ac.{name}",
         "family": family,
         "provider_namespace": "ac",
@@ -336,10 +328,6 @@ def component_record(name, family, shape, header):
         },
         "observation": observation,
     }
-    canonical = json.dumps(
-        record, ensure_ascii=False, sort_keys=True, separators=(",", ":")
-    ).encode()
-    record["schema_fingerprint"] = "sha256:" + hashlib.sha256(canonical).hexdigest()
     return record
 
 
@@ -365,14 +353,12 @@ def rendered_files():
                     "available" if name in AVAILABLE else "declared_unavailable"
                 ),
                 "schema_path": f"schemas/agentic-circuit/stdlib/{name}.json",
-                "schema_fingerprint": record["schema_fingerprint"],
             }
         )
     catalog_entries.sort(key=lambda entry: entry["canonical_name"])
     catalog = {
         "catalog": "ac",
         "version": "0.1",
-        "contract_epoch": CONTRACT_EPOCH,
         "entries": catalog_entries,
     }
     records[OUTPUT / "catalog.json"] = (

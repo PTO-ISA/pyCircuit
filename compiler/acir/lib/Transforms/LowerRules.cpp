@@ -872,8 +872,9 @@ LogicalResult lowerRulesToFiring(ModuleOp model) {
     state.addAttribute("ac.arbitration_membership",
                        rule->getAttr("ac.rule.arbitration_membership"));
     state.addAttribute("ac.rule_definition", rule.getNameAttr());
-    for (StringRef name : {"ac.name", "ac.output_names", "ac.source_file",
-                           "ac.source_line", "ac.source_column"})
+    for (StringRef name :
+         {"ac.name", "ac.output_names", "ac.source_file", "ac.source_line",
+          "ac.source_column", "ac.ndf_ids", "ac.ndf_requires"})
       if (Attribute attribute = rule->getAttr(name))
         state.addAttribute(name, attribute);
     state.addRegion();
@@ -941,8 +942,9 @@ LogicalResult canonicalizePureFirings(ModuleOp model) {
     state.addTypes(firing.getResultTypes());
     state.addAttribute("output_depths", firing.getOutputDepthsAttr());
     state.addAttribute("output_latencies", firing.getOutputLatenciesAttr());
-    for (StringRef name : {"ac.name", "ac.rule_definition", "ac.source_file",
-                           "ac.source_line", "ac.source_column"})
+    for (StringRef name :
+         {"ac.name", "ac.rule_definition", "ac.source_file", "ac.source_line",
+          "ac.source_column", "ac.ndf_ids", "ac.ndf_requires"})
       if (Attribute attribute = firing->getAttr(name))
         state.addAttribute(name, attribute);
     state.addAttribute("ac.rule_stable_id", firing.getStableIdAttr());
@@ -1037,7 +1039,7 @@ LogicalResult verifyRuleClosure(ModuleOp model) {
   model.walk([&](Operation *operation) {
     if (isa<ac::VarInvariantOp>(operation)) {
       result = operation->emitError(
-          "unresolved value invariant before Frozen ACIR");
+          "unresolved value invariant before verified ACIR");
       return WalkResult::interrupt();
     }
     if (auto comparison = dyn_cast<ac::VarCmpOp>(operation)) {
@@ -1045,7 +1047,7 @@ LogicalResult verifyRuleClosure(ModuleOp model) {
                          .getElementType();
       if (isa<ac::StructType, TupleType, ac::ValueArrayType>(payload)) {
         result = operation->emitError(
-            "unresolved aggregate comparison before Frozen ACIR");
+            "unresolved aggregate comparison before verified ACIR");
         return WalkResult::interrupt();
       }
     }
@@ -1064,7 +1066,7 @@ LogicalResult verifyRuleClosure(ModuleOp model) {
             ac::VarAssignOp, ac::VarReadElementOp, ac::VarAssignElementOp,
             ac::RuleConditionOp>(operation)) {
       result = operation->emitError(
-          "unresolved transient rule or typed marker before Frozen ACIR");
+          "unresolved transient rule or typed marker before verified ACIR");
       return;
     }
     StringAttr identity;

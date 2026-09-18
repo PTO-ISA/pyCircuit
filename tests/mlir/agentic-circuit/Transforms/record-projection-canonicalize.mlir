@@ -1,7 +1,7 @@
 // RUN: %acir_opt %s -canonicalize | %FileCheck %s
 // RUN: %acir_opt %s -canonicalize --mlir-print-debuginfo | %FileCheck %s --check-prefix=SOURCE
 
-builtin.module attributes {ac.contract_epoch = "0.5"} {
+builtin.module  {
   ac.type_scope @types {
     ac.struct @Pair fields [{name = "left", type = i8}, {name = "right", type = i8}]
   } {dlti.dl_spec = #dlti.dl_spec<!ac.struct<@types::@Pair> = {abi_alignment = 1 : i64, endianness = "little", preferred_alignment = 1 : i64, size = 2 : i64}>}

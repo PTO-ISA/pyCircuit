@@ -4,7 +4,7 @@
 // RUN: %cxx -std=c++20 -I%source_root/simulator/gfsim/include -c %t.cpp -o %t.o
 // RUN: %acir_queue_pycgen %t.frozen.mlir | %FileCheck %s --check-prefix=PYC
 
-module attributes {ac.contract_epoch = "0.5", ac.model_kind = "queue_graph", ac.queue_graph_domain = "cycle", ac.system = "bit_widths"} {
+module attributes {ac.model_kind = "queue_graph", ac.queue_graph_domain = "cycle", ac.system = "bit_widths"} {
   ac.type_scope @types {
     ac.struct @Bits fields [{name = "left", type = i3}, {name = "right", type = i3}, {name = "result", type = i3}, {name = "priority_index", type = i2}, {name = "priority_valid", type = i1}]
   } {dlti.dl_spec = #dlti.dl_spec<!ac.struct<@types::@Bits> = {abi_alignment = 1 : i64, endianness = "little", preferred_alignment = 1 : i64, size = 5 : i64}>}

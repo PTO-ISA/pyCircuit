@@ -2132,7 +2132,6 @@ class _ExpressionEmitter:
         self.lines.append(
             f"    %{name} = ac.var.extract %{base} from {lsb} width {width} "
             f"{{ac.bitfield_field = {canonical_mlir_string(field_name)}, "
-            f"ac.bitfield_fingerprint = {canonical_mlir_string(layout.fingerprint)}, "
             f"ac.bitfield_schema = @types::@{schema_name}}} : "
             f"!ac.var<{_render_type(base_type)}> -> "
             f"!ac.var<{_render_type(result_type)}>"
@@ -2514,8 +2513,6 @@ class _ExpressionEmitter:
                     + "["
                     + ", ".join(canonical_mlir_string(item) for item in field_names)
                     + "]"
-                    + ", ac.bitfield_fingerprint = "
-                    + canonical_mlir_string(layout.fingerprint)
                     + ", ac.bitfield_schema = @types::@"
                     + schema_name
                     + "} : "
@@ -2630,7 +2627,6 @@ class _ExpressionEmitter:
                 self.lines.append(
                     f"    %{name} = ac.var.insert %{current}, %{value} at {lsb} "
                     f"{{ac.bitfield_field = {canonical_mlir_string(field_name)}, "
-                    f"ac.bitfield_fingerprint = {canonical_mlir_string(layout.fingerprint)}, "
                     f"ac.bitfield_schema = @types::@{schema_name}}} : "
                     f"!ac.var<{_render_type(base_type)}>, "
                     f"!ac.var<{_render_type(value_type)}> -> "

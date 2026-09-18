@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import hashlib
 import json
 from collections.abc import Callable, Iterable, Mapping, Sequence
 from dataclasses import dataclass, field
@@ -81,12 +80,11 @@ def _canonical_layout_payload(
 
 
 def _layout_id(kind: str, fields: Sequence[tuple[str, int, bool, str]]) -> str:
-    text = _canonical_layout_payload(kind, fields)
-    return hashlib.sha256(text.encode("utf-8")).hexdigest()[:16]
+    return _canonical_layout_payload(kind, fields)
 
 
 def _field_slices(
-    fields: Sequence[tuple[str, int, bool, str]]
+    fields: Sequence[tuple[str, int, bool, str]],
 ) -> dict[str, tuple[int, int]]:
     out: dict[str, tuple[int, int]] = {}
     lsb = 0
@@ -883,7 +881,7 @@ class DecodeRule:
 
 
 def _normalize_family_params(
-    v: ParamSet | Mapping[str, bool | int | str] | None
+    v: ParamSet | Mapping[str, bool | int | str] | None,
 ) -> ParamSet | None:
     if v is None:
         return None

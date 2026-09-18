@@ -7,7 +7,6 @@
   "required": [
     "schema_kind",
     "schema_version",
-    "contract_epoch",
     "canonical_name",
     "family",
     "provider_namespace",
@@ -21,66 +20,125 @@
     "protocol_contracts",
     "effect",
     "activation",
-    "observation",
-    "schema_fingerprint"
+    "observation"
   ],
   "properties": {
-    "schema_kind": {"const": "agentic-circuit-component"},
-    "schema_version": {"const": "0.1"},
-    "contract_epoch": {"const": "0.5"},
-    "canonical_name": {"$ref": "#/$defs/qualifiedName"},
-    "family": {"$ref": "#/$defs/name"},
-    "provider_namespace": {"$ref": "#/$defs/namespaceName"},
-    "stability": {"enum": ["experimental", "provisional", "stable"]},
+    "schema_kind": {
+      "const": "agentic-circuit-component"
+    },
+    "schema_version": {
+      "const": "0.1"
+    },
+    "canonical_name": {
+      "$ref": "#/$defs/qualifiedName"
+    },
+    "family": {
+      "$ref": "#/$defs/name"
+    },
+    "provider_namespace": {
+      "$ref": "#/$defs/namespaceName"
+    },
+    "stability": {
+      "enum": [
+        "experimental",
+        "provisional",
+        "stable"
+      ]
+    },
     "cpp_binding": {
       "oneOf": [
-        {"type": "null"},
-        {"$ref": "#/$defs/cppBinding"}
+        {
+          "type": "null"
+        },
+        {
+          "$ref": "#/$defs/cppBinding"
+        }
       ]
     },
     "static_parameters": {
       "type": "array",
-      "items": {"$ref": "#/$defs/staticParameter"}
+      "items": {
+        "$ref": "#/$defs/staticParameter"
+      }
     },
     "bindings": {
       "type": "array",
-      "items": {"$ref": "#/$defs/binding"}
+      "items": {
+        "$ref": "#/$defs/binding"
+      }
     },
     "results": {
       "type": "array",
-      "items": {"$ref": "#/$defs/result"}
+      "items": {
+        "$ref": "#/$defs/result"
+      }
     },
     "resources": {
       "type": "array",
-      "items": {"$ref": "#/$defs/resource"}
+      "items": {
+        "$ref": "#/$defs/resource"
+      }
     },
     "address_behavior": {
       "oneOf": [
-        {"type": "null"},
-        {"$ref": "#/$defs/addressBehavior"}
+        {
+          "type": "null"
+        },
+        {
+          "$ref": "#/$defs/addressBehavior"
+        }
       ]
     },
     "protocol_contracts": {
       "type": "array",
-      "items": {"$ref": "#/$defs/protocolContract"}
+      "items": {
+        "$ref": "#/$defs/protocolContract"
+      }
     },
-    "effect": {"$ref": "#/$defs/effect"},
+    "effect": {
+      "$ref": "#/$defs/effect"
+    },
     "activation": {
       "oneOf": [
-        {"type": "null"},
-        {"$ref": "#/$defs/activation"}
+        {
+          "type": "null"
+        },
+        {
+          "$ref": "#/$defs/activation"
+        }
       ]
     },
-    "observation": {"$ref": "#/$defs/observation"},
-    "schema_fingerprint": {"$ref": "#/$defs/sha256"}
+    "observation": {
+      "$ref": "#/$defs/observation"
+    }
   },
   "allOf": [
     {
       "if": {
-        "properties": {"effect": {"properties": {"kind": {"const": "pure"}}}}
+        "properties": {
+          "effect": {
+            "properties": {
+              "kind": {
+                "const": "pure"
+              }
+            }
+          }
+        }
       },
-      "then": {"properties": {"activation": {"type": "null"}}},
-      "else": {"properties": {"activation": {"$ref": "#/$defs/activation"}}}
+      "then": {
+        "properties": {
+          "activation": {
+            "type": "null"
+          }
+        }
+      },
+      "else": {
+        "properties": {
+          "activation": {
+            "$ref": "#/$defs/activation"
+          }
+        }
+      }
     }
   ],
   "$defs": {
@@ -96,64 +154,173 @@
       "type": "string",
       "pattern": "^[A-Za-z_][A-Za-z0-9_]*(\\.[A-Za-z_][A-Za-z0-9_]*)*$"
     },
-    "sha256": {
-      "type": "string",
-      "pattern": "^sha256:[0-9a-f]{64}$"
-    },
     "stringList": {
       "type": "array",
-      "items": {"type": "string"},
+      "items": {
+        "type": "string"
+      },
       "uniqueItems": true
     },
     "cppBinding": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["header", "symbol", "language", "concept", "toolchain_target", "functional_policy"],
+      "required": [
+        "header",
+        "symbol",
+        "language",
+        "concept",
+        "toolchain_target",
+        "functional_policy"
+      ],
       "properties": {
-        "header": {"type": "string", "minLength": 1},
-        "symbol": {"type": "string", "minLength": 1},
-        "language": {"const": "c++20"},
-        "concept": {"type": "string", "minLength": 1},
-        "toolchain_target": {"type": "string", "minLength": 1},
-        "functional_policy": {"enum": ["required", "optional", "none"]}
+        "header": {
+          "type": "string",
+          "minLength": 1
+        },
+        "symbol": {
+          "type": "string",
+          "minLength": 1
+        },
+        "language": {
+          "const": "c++20"
+        },
+        "concept": {
+          "type": "string",
+          "minLength": 1
+        },
+        "toolchain_target": {
+          "type": "string",
+          "minLength": 1
+        },
+        "functional_policy": {
+          "enum": [
+            "required",
+            "optional",
+            "none"
+          ]
+        }
       }
     },
     "staticParameter": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["name", "acir_type", "required", "default", "constraint", "cpp_mapping"],
+      "required": [
+        "name",
+        "acir_type",
+        "required",
+        "default",
+        "constraint",
+        "cpp_mapping"
+      ],
       "properties": {
-        "name": {"$ref": "#/$defs/name"},
-        "acir_type": {"type": "string", "minLength": 1},
-        "required": {"type": "boolean"},
+        "name": {
+          "$ref": "#/$defs/name"
+        },
+        "acir_type": {
+          "type": "string",
+          "minLength": 1
+        },
+        "required": {
+          "type": "boolean"
+        },
         "default": true,
-        "constraint": {"type": ["string", "null"]},
-        "cpp_mapping": {"enum": ["template_argument", "constexpr_argument", "constructor_constant"]}
+        "constraint": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "cpp_mapping": {
+          "enum": [
+            "template_argument",
+            "constexpr_argument",
+            "constructor_constant"
+          ]
+        }
       }
     },
     "binding": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["name", "binding_kind", "acir_type", "direction", "role", "cardinality", "linearity", "ownership", "delegation", "result_mapping"],
+      "required": [
+        "name",
+        "binding_kind",
+        "acir_type",
+        "direction",
+        "role",
+        "cardinality",
+        "linearity",
+        "ownership",
+        "delegation",
+        "result_mapping"
+      ],
       "properties": {
-        "name": {"$ref": "#/$defs/name"},
-        "binding_kind": {"enum": ["flow", "endpoint", "resource_ref"]},
-        "acir_type": {"type": "string", "minLength": 1},
-        "direction": {"enum": ["in", "out", "inout"]},
-        "role": {"type": "string", "minLength": 1},
-        "cardinality": {
-          "oneOf": [
-            {"type": "integer", "minimum": 0},
-            {"type": "string", "minLength": 1}
+        "name": {
+          "$ref": "#/$defs/name"
+        },
+        "binding_kind": {
+          "enum": [
+            "flow",
+            "endpoint",
+            "resource_ref"
           ]
         },
-        "linearity": {"enum": ["linear", "affine", "unrestricted"]},
-        "ownership": {"enum": ["owned", "borrowed", "shared"]},
-        "delegation": {"enum": ["forbidden", "allowed", "required"]},
+        "acir_type": {
+          "type": "string",
+          "minLength": 1
+        },
+        "direction": {
+          "enum": [
+            "in",
+            "out",
+            "inout"
+          ]
+        },
+        "role": {
+          "type": "string",
+          "minLength": 1
+        },
+        "cardinality": {
+          "oneOf": [
+            {
+              "type": "integer",
+              "minimum": 0
+            },
+            {
+              "type": "string",
+              "minLength": 1
+            }
+          ]
+        },
+        "linearity": {
+          "enum": [
+            "linear",
+            "affine",
+            "unrestricted"
+          ]
+        },
+        "ownership": {
+          "enum": [
+            "owned",
+            "borrowed",
+            "shared"
+          ]
+        },
+        "delegation": {
+          "enum": [
+            "forbidden",
+            "allowed",
+            "required"
+          ]
+        },
         "result_mapping": {
           "oneOf": [
-            {"type": "null"},
-            {"$ref": "#/$defs/name"}
+            {
+              "type": "null"
+            },
+            {
+              "$ref": "#/$defs/name"
+            }
           ]
         }
       }
@@ -161,96 +328,268 @@
     "result": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["name", "acir_type", "source_binding", "linearity", "ownership"],
+      "required": [
+        "name",
+        "acir_type",
+        "source_binding",
+        "linearity",
+        "ownership"
+      ],
       "properties": {
-        "name": {"$ref": "#/$defs/name"},
-        "acir_type": {"type": "string", "minLength": 1},
+        "name": {
+          "$ref": "#/$defs/name"
+        },
+        "acir_type": {
+          "type": "string",
+          "minLength": 1
+        },
         "source_binding": {
           "oneOf": [
-            {"type": "null"},
-            {"$ref": "#/$defs/name"}
+            {
+              "type": "null"
+            },
+            {
+              "$ref": "#/$defs/name"
+            }
           ]
         },
-        "linearity": {"enum": ["linear", "affine", "unrestricted"]},
-        "ownership": {"enum": ["owned", "borrowed", "shared"]}
+        "linearity": {
+          "enum": [
+            "linear",
+            "affine",
+            "unrestricted"
+          ]
+        },
+        "ownership": {
+          "enum": [
+            "owned",
+            "borrowed",
+            "shared"
+          ]
+        }
       }
     },
     "resource": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["name", "class", "capacity", "lanes", "issue_width", "initiation_interval", "latency_policy", "reservation_owner", "transaction_classes", "statistics"],
+      "required": [
+        "name",
+        "class",
+        "capacity",
+        "lanes",
+        "issue_width",
+        "initiation_interval",
+        "latency_policy",
+        "reservation_owner",
+        "transaction_classes",
+        "statistics"
+      ],
       "properties": {
-        "name": {"$ref": "#/$defs/name"},
-        "class": {"type": "string", "minLength": 1},
-        "capacity": {"oneOf": [{"type": "integer", "minimum": 0}, {"type": "string", "minLength": 1}]},
-        "lanes": {"type": "integer", "minimum": 1},
-        "issue_width": {"type": "integer", "minimum": 1},
-        "initiation_interval": {"type": "integer", "minimum": 1},
-        "latency_policy": {"type": "string", "minLength": 1},
-        "reservation_owner": {"type": "string", "minLength": 1},
-        "transaction_classes": {"$ref": "#/$defs/stringList"},
-        "statistics": {"$ref": "#/$defs/stringList"}
+        "name": {
+          "$ref": "#/$defs/name"
+        },
+        "class": {
+          "type": "string",
+          "minLength": 1
+        },
+        "capacity": {
+          "oneOf": [
+            {
+              "type": "integer",
+              "minimum": 0
+            },
+            {
+              "type": "string",
+              "minLength": 1
+            }
+          ]
+        },
+        "lanes": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "issue_width": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "initiation_interval": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "latency_policy": {
+          "type": "string",
+          "minLength": 1
+        },
+        "reservation_owner": {
+          "type": "string",
+          "minLength": 1
+        },
+        "transaction_classes": {
+          "$ref": "#/$defs/stringList"
+        },
+        "statistics": {
+          "$ref": "#/$defs/stringList"
+        }
       }
     },
     "addressBehavior": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["consumes", "produces", "ranges", "translation", "routing", "unmapped"],
+      "required": [
+        "consumes",
+        "produces",
+        "ranges",
+        "translation",
+        "routing",
+        "unmapped"
+      ],
       "properties": {
-        "consumes": {"$ref": "#/$defs/stringList"},
-        "produces": {"$ref": "#/$defs/stringList"},
-        "ranges": {"$ref": "#/$defs/stringList"},
-        "translation": {"type": "string", "minLength": 1},
-        "routing": {"type": "string", "minLength": 1},
-        "unmapped": {"type": "string", "minLength": 1}
+        "consumes": {
+          "$ref": "#/$defs/stringList"
+        },
+        "produces": {
+          "$ref": "#/$defs/stringList"
+        },
+        "ranges": {
+          "$ref": "#/$defs/stringList"
+        },
+        "translation": {
+          "type": "string",
+          "minLength": 1
+        },
+        "routing": {
+          "type": "string",
+          "minLength": 1
+        },
+        "unmapped": {
+          "type": "string",
+          "minLength": 1
+        }
       }
     },
     "protocolContract": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["protocol", "role", "ordering", "delivery", "correlation", "completion", "failure"],
+      "required": [
+        "protocol",
+        "role",
+        "ordering",
+        "delivery",
+        "correlation",
+        "completion",
+        "failure"
+      ],
       "properties": {
-        "protocol": {"type": "string", "minLength": 1},
-        "role": {"type": "string", "minLength": 1},
-        "ordering": {"type": "string", "minLength": 1},
-        "delivery": {"type": "string", "minLength": 1},
-        "correlation": {"type": "string", "minLength": 1},
-        "completion": {"type": "string", "minLength": 1},
-        "failure": {"type": "string", "minLength": 1}
+        "protocol": {
+          "type": "string",
+          "minLength": 1
+        },
+        "role": {
+          "type": "string",
+          "minLength": 1
+        },
+        "ordering": {
+          "type": "string",
+          "minLength": 1
+        },
+        "delivery": {
+          "type": "string",
+          "minLength": 1
+        },
+        "correlation": {
+          "type": "string",
+          "minLength": 1
+        },
+        "completion": {
+          "type": "string",
+          "minLength": 1
+        },
+        "failure": {
+          "type": "string",
+          "minLength": 1
+        }
       }
     },
     "effect": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["kind", "requirements", "guarantees", "observable_effects", "failure_behavior"],
+      "required": [
+        "kind",
+        "requirements",
+        "guarantees",
+        "observable_effects",
+        "failure_behavior"
+      ],
       "properties": {
-        "kind": {"enum": ["pure", "stateful"]},
-        "requirements": {"$ref": "#/$defs/stringList"},
-        "guarantees": {"$ref": "#/$defs/stringList"},
-        "observable_effects": {"$ref": "#/$defs/stringList"},
-        "failure_behavior": {"type": "string", "minLength": 1}
+        "kind": {
+          "enum": [
+            "pure",
+            "stateful"
+          ]
+        },
+        "requirements": {
+          "$ref": "#/$defs/stringList"
+        },
+        "guarantees": {
+          "$ref": "#/$defs/stringList"
+        },
+        "observable_effects": {
+          "$ref": "#/$defs/stringList"
+        },
+        "failure_behavior": {
+          "type": "string",
+          "minLength": 1
+        }
       }
     },
     "activation": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["sources", "predicate", "wakeup_contract", "quiescence"],
+      "required": [
+        "sources",
+        "predicate",
+        "wakeup_contract",
+        "quiescence"
+      ],
       "properties": {
-        "sources": {"$ref": "#/$defs/stringList"},
-        "predicate": {"type": "string", "minLength": 1},
-        "wakeup_contract": {"$ref": "#/$defs/stringList"},
-        "quiescence": {"type": "string", "minLength": 1}
+        "sources": {
+          "$ref": "#/$defs/stringList"
+        },
+        "predicate": {
+          "type": "string",
+          "minLength": 1
+        },
+        "wakeup_contract": {
+          "$ref": "#/$defs/stringList"
+        },
+        "quiescence": {
+          "type": "string",
+          "minLength": 1
+        }
       }
     },
     "observation": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["probes", "counters", "gauges", "histograms"],
+      "required": [
+        "probes",
+        "counters",
+        "gauges",
+        "histograms"
+      ],
       "properties": {
-        "probes": {"$ref": "#/$defs/stringList"},
-        "counters": {"$ref": "#/$defs/stringList"},
-        "gauges": {"$ref": "#/$defs/stringList"},
-        "histograms": {"$ref": "#/$defs/stringList"}
+        "probes": {
+          "$ref": "#/$defs/stringList"
+        },
+        "counters": {
+          "$ref": "#/$defs/stringList"
+        },
+        "gauges": {
+          "$ref": "#/$defs/stringList"
+        },
+        "histograms": {
+          "$ref": "#/$defs/stringList"
+        }
       }
     }
   }

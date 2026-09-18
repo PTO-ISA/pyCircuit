@@ -3,7 +3,6 @@ from __future__ import annotations
 import builtins
 from contextlib import contextmanager
 from dataclasses import dataclass
-import hashlib
 import inspect
 import json
 from typing import (
@@ -824,10 +823,9 @@ class Circuit(Module):
 
     @staticmethod
     def _struct_identity(payload: Any) -> str:
-        text = json.dumps(
+        return json.dumps(
             payload, sort_keys=True, separators=(",", ":"), ensure_ascii=False
         )
-        return hashlib.sha256(text.encode("utf-8")).hexdigest()[:16]
 
     def _record_struct_instance(self) -> None:
         self._struct_instance_count += 1

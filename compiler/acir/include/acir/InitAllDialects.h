@@ -2,7 +2,6 @@
 #define ACIR_INITALLDIALECTS_H
 
 #include "acir/Dialect/ACIR/ACIRDialect.h"
-#include "acir/Dialect/ACSim/ACSimDialect.h"
 #include "mlir/Dialect/Arith/IR/Arith.h"
 #include "mlir/Dialect/ControlFlow/IR/ControlFlow.h"
 #include "mlir/Dialect/DLTI/DLTI.h"
@@ -15,7 +14,7 @@
 namespace acir {
 
 inline void registerAllDialects(mlir::DialectRegistry &registry) {
-  registry.insert<ac::ACIRDialect, acsim::ACSimDialect, mlir::BuiltinDialect,
+  registry.insert<ac::ACIRDialect, mlir::BuiltinDialect,
                   mlir::DLTIDialect, mlir::arith::ArithDialect,
                   mlir::func::FuncDialect, mlir::index::IndexDialect,
                   mlir::scf::SCFDialect, mlir::cf::ControlFlowDialect>();

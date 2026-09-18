@@ -54,10 +54,10 @@ The compiler lowers a rule through explicit, verifier-owned stages:
 8. Lower every schedulable rule, after its selection policy and predicate are
    explicit, to an internal `ac.firing` transaction with grouped proposals and
    one commit decision.
-9. Eliminate every remaining semantic marker and verify marker-free Frozen
-   ACIR before topology freeze, hashing, or serialization.
-10. Lower the verified transaction independently to ACSim/gfsim or to verified
-    PYC and the pyCircuit 6 backends.
+9. Eliminate every remaining semantic marker and verify marker-free ACIR before
+   topology closure and serialization.
+10. Lower the verified transaction through ACC to gfsim C++ or to verified PYC
+    and the pyCircuit 6 backends.
 
 When a pass cannot finish an inference but later stages can, it represents the
 incomplete knowledge on the affected SSA variable with a dialect-owned
@@ -96,8 +96,8 @@ Marker handling is monotonic and fail-closed:
 - every lowering boundary declares which markers it accepts and which pass
   must resolve them; and
 - the pre-freeze verifier rejects every unresolved marker. Frozen ACIR,
-  topology digests, caches, canonical ACSim, ACSim execution, generated C++,
-  gfsim execution, PYC, Verilog, and release artifacts are marker-free.
+  structural freeze records, generated C++, gfsim execution, PYC, Verilog, and
+  release artifacts are marker-free.
 
 Static facts that violate a contract are compile-time errors. Conditions that
 remain legitimately dynamic lower to explicit checked IR with stable
@@ -207,7 +207,7 @@ implemented.
 surface and removed spellings; MLIR verifier tests for marker creation,
 propagation, refinement, conflict, and final elimination; pass-boundary tests
 for generated checks and handshake; deterministic scheduling and grouped
-commit tests; and ACSim/gfsim versus PYC/C++/Verilog refinement evidence for
+commit tests; and ACC/gfsim versus PYC/C++/Verilog refinement evidence for
 the supported synthesizable subset.
 
 Coverage includes CFG joins for all marker classes; disabled, input-invalid,

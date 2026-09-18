@@ -17,7 +17,7 @@
 // DUPLICATE-ID: Table selection stable_id must be unique within the module
 
 //--- count-zero.mlir
-module attributes {ac.contract_epoch = "0.5"} {
+module  {
   ac.table @entries entry i8 entries 4 init 0 owner "/" stable_id "table/entries"
   %mask = ac.table.match @entries predicate {
   ^bb0(%entry: !ac.var<i8>):
@@ -30,7 +30,7 @@ module attributes {ac.contract_epoch = "0.5"} {
 }
 
 //--- count-large.mlir
-module attributes {ac.contract_epoch = "0.5"} {
+module  {
   ac.table @entries entry i8 entries 4 init 0 owner "/" stable_id "table/entries"
   %mask = ac.table.match @entries predicate {
   ^bb0(%entry: !ac.var<i8>):
@@ -45,7 +45,7 @@ module attributes {ac.contract_epoch = "0.5"} {
 }
 
 //--- result-arity.mlir
-module attributes {ac.contract_epoch = "0.5"} {
+module  {
   ac.table @entries entry i8 entries 4 init 0 owner "/" stable_id "table/entries"
   %mask = ac.table.match @entries predicate {
   ^bb0(%entry: !ac.var<i8>):
@@ -58,7 +58,7 @@ module attributes {ac.contract_epoch = "0.5"} {
 }
 
 //--- result-segment.mlir
-module attributes {ac.contract_epoch = "0.5"} {
+module  {
   ac.table @entries entry i8 entries 4 init 0 owner "/" stable_id "table/entries"
   %mask = ac.table.match @entries predicate {
   ^bb0(%entry: !ac.var<i8>):
@@ -71,7 +71,7 @@ module attributes {ac.contract_epoch = "0.5"} {
 }
 
 //--- min-order.mlir
-module attributes {ac.contract_epoch = "0.5"} {
+module  {
   ac.table @entries entry i8 entries 4 init 0 owner "/" stable_id "table/entries"
   %mask = ac.table.match @entries predicate {
   ^bb0(%entry: !ac.var<i8>):
@@ -86,7 +86,7 @@ module attributes {ac.contract_epoch = "0.5"} {
 }
 
 //--- first-order.mlir
-module attributes {ac.contract_epoch = "0.5"} {
+module  {
   ac.table @entries entry i8 entries 4 init 0 owner "/" stable_id "table/entries"
   %mask = ac.table.match @entries predicate {
   ^bb0(%entry: !ac.var<i8>):
@@ -100,7 +100,7 @@ module attributes {ac.contract_epoch = "0.5"} {
 }
 
 //--- rr-cursor.mlir
-module attributes {ac.contract_epoch = "0.5"} {
+module  {
   ac.table @entries entry i8 entries 4 init 0 owner "/" stable_id "table/entries"
   %mask = ac.table.match @entries predicate {
   ^bb0(%entry: !ac.var<i8>):
@@ -113,7 +113,7 @@ module attributes {ac.contract_epoch = "0.5"} {
 }
 
 //--- duplicate-id.mlir
-module attributes {ac.contract_epoch = "0.5"} {
+module  {
   ac.table @entries entry i8 entries 4 init 0 owner "/" stable_id "table/entries"
   %mask = ac.table.match @entries predicate {
   ^bb0(%entry: !ac.var<i8>):

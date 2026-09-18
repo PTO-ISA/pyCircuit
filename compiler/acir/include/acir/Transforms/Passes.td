@@ -34,16 +34,7 @@ def FreezeTopologyPass : Pass<"ac-freeze-topology", "::mlir::ModuleOp"> {
   let summary = "Freeze deterministic Agentic Circuit topology";
   let description = [{
     Verifies the selected static architecture, proves freeze-phase contracts,
-    binds elaborated owner paths and stable IDs, and persists an integrity
-    digest that makes later topology mutation a hard error.
-  }];
-}
-
-def LowerProcessStatePass : Pass<"ac-lower-process-state", "::mlir::ModuleOp"> {
-  let summary = "Plan ACSim process state from frozen ACIR";
-  let description = [{
-    Analyzes a selected topology-frozen model without mutation and produces
-    an immutable ProcessStatePlanSet.
+    binds elaborated owner paths and stable IDs.
   }];
 }
 

@@ -57,10 +57,6 @@ bool hasTopologyFreezeEvidence(mlir::ModuleOp model);
 mlir::FailureOr<mlir::ArrayAttr> buildFrozenOwnerManifest(mlir::ModuleOp model);
 mlir::FailureOr<mlir::ArrayAttr>
 buildFrozenProcessSkeleton(ac::ProcessOp process);
-std::string computeTopologyDigest(mlir::ModuleOp model);
-std::string computeQueueGraphDefinitionFingerprint(ac::ModuleOp definition);
-std::string computeQueueGraphSpecializationFingerprint(
-    ac::ModuleOp definition, mlir::DictionaryAttr staticArguments);
 
 } // namespace acir::detail
 

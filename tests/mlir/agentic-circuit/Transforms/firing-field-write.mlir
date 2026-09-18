@@ -8,7 +8,7 @@
 // mode, gfsim selects its field-merge write mode, and PYC merges exactly the
 // named fields into the committed image and leaves the untouched field alone.
 
-module attributes {ac.contract_epoch = "0.5", ac.freeze_epoch = "0.5", ac.frozen_owners = [], ac.model_kind = "queue_graph", ac.queue_graph_domain = "cycle", ac.system = "two_rule", ac.topology_digest = "8196d76127c0a7a16fac909ce2730825cb2707825266c81150222d5950ca0c73", ac.topology_frozen = true} {
+module attributes {ac.frozen_owners = [], ac.model_kind = "queue_graph", ac.queue_graph_domain = "cycle", ac.system = "two_rule", ac.topology_frozen = true} {
   ac.type_scope @types {
     ac.struct @Entry fields [{name = "admitted", type = i1}, {name = "src_ready", type = i1}, {name = "tag", type = i4}]
     ac.struct @Update fields [{name = "index", type = i2}]

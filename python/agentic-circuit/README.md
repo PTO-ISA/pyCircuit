@@ -6,8 +6,8 @@ It also emits canonical PYC IR for downstream C++ and Verilog generation.
 
 The source tree is intentionally release-neutral: product versions belong to
 Git tags and GitHub Releases, not directory names, filenames, symbols, or test
-names. Serialized artifacts still carry an exact contract epoch because that
-field is part of their wire-format compatibility contract.
+names. Serialized artifacts use their own schema versions; releases retain an
+external Git source revision and product version.
 
 ## Development baseline
 
@@ -30,7 +30,7 @@ semantics shared with the pyCircuit frontend; neither public namespace imports
 the other.
 
 Use `release-llvm22` for a release configuration. The exact upstream release,
-commit, archive digest, supported host triples, and version policy are recorded
+commit, archive provenance, supported host triples, and version policy are recorded
 in [`toolchains/agentic-circuit/llvm.lock.json`](../../toolchains/agentic-circuit/llvm.lock.json).
 
 ## Documentation
@@ -48,10 +48,7 @@ Canonical machine-readable schemas:
 - [ComponentSchema](../../schemas/agentic-circuit/component.schema.json)
 - [Official opcode catalog schema](../../schemas/agentic-circuit/opcode-catalog.schema.json)
 - [Official Queue building-block catalog](../../schemas/agentic-circuit/opcodes.json)
-- [Build manifest](../../schemas/agentic-circuit/build-manifest.schema.json)
 - [Diagnostic](../../schemas/agentic-circuit/diagnostic.schema.json)
-- [ACSim binding](../../schemas/agentic-circuit/acsim-binding.schema.json)
-- [ACIR process-state plan](../../schemas/agentic-circuit/acir-process-state-plan.schema.json)
 
 The repository uses a hard-break layout. Removed implementation-phase and
 product-version paths have no aliases or compatibility symlinks. Historical

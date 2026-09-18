@@ -1,6 +1,6 @@
 // RUN: %acir_opt %s -ac-verify-value-constraints | %FileCheck %s
 
-builtin.module attributes {ac.contract_epoch = "0.5", ac.model_kind = "queue_graph", ac.queue_graph_domain = "cycle", ac.system = "constraints"} {
+builtin.module attributes {ac.model_kind = "queue_graph", ac.queue_graph_domain = "cycle", ac.system = "constraints"} {
   ac.type_scope @types {
     ac.enum @Mode enumerants ["idle", "run"]
   } {dlti.dl_spec = #dlti.dl_spec<!ac.enum<@types::@Mode> = {abi_alignment = 1 : i64, endianness = "little", preferred_alignment = 1 : i64, size = 1 : i64}>}

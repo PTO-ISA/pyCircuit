@@ -1,6 +1,6 @@
 // RUN: %acir_opt %s | %FileCheck %s
 
-module attributes {ac.contract_epoch = "0.5"} {
+module  {
   ac.var.decl @state type i8 init 0 : i8 owner "/" stable_id "var/state"
   %input = "builtin.unrealized_conversion_cast"() : () -> !ac.queue<i8>
   ac.rule %input depths [] latencies [] name "consume" stable_id "consume"

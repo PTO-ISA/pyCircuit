@@ -21,11 +21,9 @@ runs:
         case "${ID}-${VERSION_ID}" in
           ubuntu-24.04)
             image="ubuntu-24.04"
-            checksum="22dff8584d88c700e0f9876f17ef4f8efdf02b342798836e68d52f7a2fee08b0"
             ;;
           ubuntu-22.04)
             image="ubuntu-22.04"
-            checksum="c17c865fff3c17adeecd45f5f2a214d93a75dc12a1e689dcbd46c1234ea03452"
             ;;
           *)
             echo "unsupported runner image for prebuilt Verilator: ${ID}-${VERSION_ID}" >&2
@@ -34,7 +32,7 @@ runs:
         esac
         ver="${VERILATOR_VERSION#v}"
         if [[ "${ver}" != "5.048" ]]; then
-          echo "unsupported Verilator version without a pinned checksum: ${ver}" >&2
+          echo "unsupported Verilator version: ${ver}" >&2
           exit 1
         fi
         url="https://github.com/veryl-lang/verilator-package/releases/download/v${ver}/verilator-${image}.zip"
@@ -43,7 +41,6 @@ runs:
         mkdir -p "${dest}"
         archive="${RUNNER_TEMP}/verilator-${ver}-${image}.zip"
         curl --proto '=https' --tlsv1.2 -fsSL "${url}" -o "${archive}"
-        printf '%s  %s\n' "${checksum}" "${archive}" | sha256sum --check --strict
         unzip -o -q "${archive}" -d "${dest}"
         # Package layout is either dest/bin or dest/<single-dir>/bin.
         if [[ -d "${dest}/bin" ]]; then

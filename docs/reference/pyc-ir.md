@@ -82,13 +82,13 @@ These operations are vendor-neutral canonical PYC. Their inputs are limited to
 
 The canonical operations remain in C++ reference simulation. The Verilog-only
 selection pass may replace them with a qualified implementation from the
-digest-verified RTL catalog.
+closed RTL catalog.
 
 ### `pyc.rtl.comb` (backend-owned implementation)
 
 `pyc.rtl.comb` is internal backend IR emitted only by
 `pyc-select-rtl-primitives`. It records a selected implementation, typed port
-names, parameters, source digests, license identity, and catalog fingerprint.
+names, parameters, relative sources, license identity, and catalog provenance.
 Frontend or persisted canonical PYC containing this operation is rejected.
 
 ### `pyc.alias` (debug naming)

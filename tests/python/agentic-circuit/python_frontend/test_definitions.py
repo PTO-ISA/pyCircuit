@@ -110,8 +110,7 @@ class DefinitionCaptureTest(unittest.TestCase):
 
 
 class SchemaCallableTest(unittest.TestCase):
-    def test_recomputed_fingerprint_cannot_hide_invalid_closed_field(self) -> None:
-        from agentic_circuit._canonical_json import canonical_json_bytes, sha256_bytes
+    def test_invalid_closed_field_is_rejected(self) -> None:
         from agentic_circuit._schemas import SchemaError, SchemaRegistry
 
         record = json.loads(
@@ -120,19 +119,14 @@ class SchemaCallableTest(unittest.TestCase):
             ).read_text()
         )
         record["effect"]["kind"] = "ambient"
-        digest_record = dict(record)
-        digest_record.pop("schema_fingerprint")
-        record["schema_fingerprint"] = sha256_bytes(canonical_json_bytes(digest_record))
         catalog = {
             "catalog": "ac",
             "version": "0.1",
-            "contract_epoch": "0.5",
             "entries": [
                 {
                     "canonical_name": "ac.Queue",
                     "availability": "available",
                     "schema_path": "schemas/agentic-circuit/stdlib/Queue.json",
-                    "schema_fingerprint": record["schema_fingerprint"],
                 }
             ],
         }

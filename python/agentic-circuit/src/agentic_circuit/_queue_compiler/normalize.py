@@ -533,7 +533,7 @@ def _strip_static_assertions(
     """Evaluate direct ``ac.static_assert`` statements and erase them.
 
     The assertion is an elaboration contract: it is checked only after the
-    entry's ``ac.const`` bindings are closed and never reaches Frozen ACIR.
+    entry's ``ac.const`` bindings are closed and never reaches verified ACIR.
     """
 
     definition_location = (definition_locations or {}).get(function.name)

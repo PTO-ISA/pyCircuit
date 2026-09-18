@@ -79,6 +79,7 @@ nav:
   - Language and API:
       - Reference Overview: reference/index.md
       - Language Specification: reference/language.md
+      - Naming and Mangling: reference/name-mangling.md
       - Frontend API: reference/frontend-api.md
       - Testbench API: reference/testbench.md
       - Primitives: reference/primitives.md

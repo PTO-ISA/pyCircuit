@@ -1,6 +1,6 @@
 // RUN: %acir_opt %s -ac-lower-value-contracts | %FileCheck %s
 
-builtin.module attributes {ac.contract_epoch = "0.5"} {
+builtin.module  {
   ac.type_scope @types {
     ac.enum @Mode enumerants ["idle", "run", "wait"] values [1 : i64, 3 : i64, 7 : i64] width 3
   } {dlti.dl_spec = #dlti.dl_spec<!ac.enum<@types::@Mode> = {abi_alignment = 1 : i64, endianness = "little", preferred_alignment = 1 : i64, size = 1 : i64}>}

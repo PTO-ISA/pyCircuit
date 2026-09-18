@@ -1,19 +1,9 @@
 add_acir_library(ACIRCodeGen SOURCES
-  Build.cpp
-  CompilePlan.cpp
-  EmitCxx.cpp
-  Manifest.cpp
-  Emitter.cpp
-  Generator.cpp
-  ModelPlan.cpp
-  ModelPlanDetails.cpp
-  ProcessGenerator.cpp
   QueueBlockContract.cpp
   QueueGraphCost.cpp
   QueueGraphPlan.cpp
   QueueGraphGenerator.cpp
   QueueGraphPyc.cpp
-  Staging.cpp
 )
 string(JOIN "|" ACIR_CODEGEN_LLVM_INCLUDE_DIRS ${LLVM_INCLUDE_DIRS})
 target_compile_definitions(ACIRCodeGen PRIVATE
@@ -23,7 +13,6 @@ target_link_libraries(ACIRCodeGen PUBLIC
   ACIRAnalysis
   ACIRBindings
   ACIRDialect
-  ACSimDialect
   MLIRArithDialect
   MLIRControlFlowDialect
   MLIRIndexDialect

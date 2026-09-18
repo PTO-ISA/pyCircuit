@@ -15,43 +15,43 @@
 // UNSAFE: error: source provenance frame is malformed
 
 //--- valid.mlir
-module attributes {ac.contract_epoch = "0.5", ac.model_kind = "queue_graph", ac.queue_graph_domain = "cycle", ac.system = "source_map"} {
+module attributes {ac.model_kind = "queue_graph", ac.queue_graph_domain = "cycle", ac.system = "source_map"} {
   %input = ac.source depth 1 latency 1 {ac.name = "input", ac.source_provenance = [{frames = [{column = 5 : i64, file = "src/model.py", kind = "statement", line = 7 : i64}]}]} : !ac.queue<i8>
   ac.sink %input {ac.name = "sink"} : !ac.queue<i8>
 }
 
 //--- absolute.mlir
-module attributes {ac.contract_epoch = "0.5", ac.model_kind = "queue_graph", ac.queue_graph_domain = "cycle", ac.system = "source_map"} {
+module attributes {ac.model_kind = "queue_graph", ac.queue_graph_domain = "cycle", ac.system = "source_map"} {
   %input = ac.source depth 1 latency 1 {ac.name = "input", ac.source_provenance = [{frames = [{column = 5 : i64, file = "/tmp/model.py", kind = "statement", line = 7 : i64}]}]} : !ac.queue<i8>
   ac.sink %input {ac.name = "sink"} : !ac.queue<i8>
 }
 
 //--- empty.mlir
-module attributes {ac.contract_epoch = "0.5", ac.model_kind = "queue_graph", ac.queue_graph_domain = "cycle", ac.system = "source_map"} {
+module attributes {ac.model_kind = "queue_graph", ac.queue_graph_domain = "cycle", ac.system = "source_map"} {
   %input = ac.source depth 1 latency 1 {ac.name = "input", ac.source_provenance = []} : !ac.queue<i8>
   ac.sink %input {ac.name = "sink"} : !ac.queue<i8>
 }
 
 //--- wrong-type.mlir
-module attributes {ac.contract_epoch = "0.5", ac.model_kind = "queue_graph", ac.queue_graph_domain = "cycle", ac.system = "source_map"} {
+module attributes {ac.model_kind = "queue_graph", ac.queue_graph_domain = "cycle", ac.system = "source_map"} {
   %input = ac.source depth 1 latency 1 {ac.name = "input", ac.source_provenance = "forged"} : !ac.queue<i8>
   ac.sink %input {ac.name = "sink"} : !ac.queue<i8>
 }
 
 //--- duplicate.mlir
-module attributes {ac.contract_epoch = "0.5", ac.model_kind = "queue_graph", ac.queue_graph_domain = "cycle", ac.system = "source_map"} {
+module attributes {ac.model_kind = "queue_graph", ac.queue_graph_domain = "cycle", ac.system = "source_map"} {
   %input = ac.source depth 1 latency 1 {ac.name = "input", ac.source_provenance = [{frames = [{column = 5 : i64, file = "src/model.py", kind = "statement", line = 7 : i64}]}, {frames = [{column = 5 : i64, file = "src/model.py", kind = "statement", line = 7 : i64}]}]} : !ac.queue<i8>
   ac.sink %input {ac.name = "sink"} : !ac.queue<i8>
 }
 
 //--- unsafe-path.mlir
-module attributes {ac.contract_epoch = "0.5", ac.model_kind = "queue_graph", ac.queue_graph_domain = "cycle", ac.system = "source_map"} {
+module attributes {ac.model_kind = "queue_graph", ac.queue_graph_domain = "cycle", ac.system = "source_map"} {
   %input = ac.source depth 1 latency 1 {ac.name = "input", ac.source_provenance = [{frames = [{column = 5 : i64, file = "./src/model.py", kind = "statement", line = 7 : i64}]}]} : !ac.queue<i8>
   ac.sink %input {ac.name = "sink"} : !ac.queue<i8>
 }
 
 //--- reversed-stack.mlir
-module attributes {ac.contract_epoch = "0.5", ac.model_kind = "queue_graph", ac.queue_graph_domain = "cycle", ac.system = "source_map"} {
+module attributes {ac.model_kind = "queue_graph", ac.queue_graph_domain = "cycle", ac.system = "source_map"} {
   %input = ac.source depth 1 latency 1 {ac.name = "input", ac.source_provenance = [{frames = [{column = 5 : i64, file = "src/helper.py", kind = "inline_callsite", line = 7 : i64}, {column = 3 : i64, file = "src/model.py", kind = "statement", line = 9 : i64}]}]} : !ac.queue<i8>
   ac.sink %input {ac.name = "sink"} : !ac.queue<i8>
 }

@@ -5,16 +5,15 @@ if(NOT LLVM_ENABLE_RTTI)
   add_compile_options($<$<COMPILE_LANGUAGE:CXX>:-fno-rtti>)
 endif()
 
-add_subdirectory(acir-cxxgen)
-add_subdirectory(acir-build)
+add_subdirectory(acc)
 add_subdirectory(acir-opcode-catalog)
 add_subdirectory(acir-queue-cxxgen)
 add_subdirectory(acir-queue-plan)
 add_subdirectory(acir-queue-pycgen)
 add_subdirectory(acir-opt)
 
-set(ACIR_INSTALLED_TOOLS
-  acir-cxxgen
+set(ACIR_NATIVE_TOOLS
+  acc
   acir-opcode-catalog
   acir-opt
   acir-queue-cxxgen
@@ -26,10 +25,10 @@ if(APPLE)
 else()
   set(ACIR_TOOL_INSTALL_RPATH "\$ORIGIN/../${CMAKE_INSTALL_LIBDIR}")
 endif()
-set_target_properties(${ACIR_INSTALLED_TOOLS} PROPERTIES
+set_target_properties(${ACIR_NATIVE_TOOLS} PROPERTIES
   INSTALL_RPATH "${ACIR_TOOL_INSTALL_RPATH}")
 
-install(TARGETS ${ACIR_INSTALLED_TOOLS}
+install(TARGETS acc acir-opcode-catalog acir-opt
   RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR}
 )
 
@@ -47,12 +46,3 @@ else()
   message(STATUS
     "Standalone Agentic Circuit build: ACIR-to-PYC toolchain target is disabled")
 endif()
-
-# The PYC-compatible Verilog bridge is intentionally a Python entrypoint: it
-# invokes the in-tree ACIR→PYC generator and lowers the canonical textual PYC
-# contract to a self-contained RTL artifact.
-install(PROGRAMS
-  "${CMAKE_CURRENT_SOURCE_DIR}/ac-queue-pyc-build.py"
-  "${CMAKE_CURRENT_SOURCE_DIR}/acir-queue-veriloggen.py"
-  DESTINATION bin
-)

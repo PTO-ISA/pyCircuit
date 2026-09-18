@@ -52,7 +52,7 @@ implementations.
 | You want to describe | Install | Import | Primary flow |
 | --- | --- | --- | --- |
 | Ports, signals, registers, memories, pipelines, and synthesizable hardware | `pycircuit-hisi` | `pycircuit` | Python → PYC → `pycc` → C++ / Verilog |
-| Processes, queues, resources, scheduling, and architecture state | `agentic-circuit` | `agentic_circuit` | Python → ACPy 0.5 → ACIR → ACSim/gfsim or PYC |
+| Processes, queues, resources, scheduling, and architecture state | `agentic-circuit` | `agentic_circuit` | Python → `acc.py` → verified ACIR → `acc` → C++ / bundle / Verilog |
 
 Read [Choose a Frontend](docs/getting-started/choose-a-frontend.md) for the
 supported authoring boundaries and examples.
@@ -185,16 +185,16 @@ Runnable state examples, including explicit `ac.source()` and `ac.sink()`
 capture forms, multi-rule ROB scheduling, and slot ownership, live in
 [`examples/agentic-circuit/state`](examples/agentic-circuit/state). The
 [Agentic Circuit and ACIR](docs/acir/index.md) documentation covers ACPy,
-ACIR/ACSim, QueueGraph, and gfsim, and the
+verified ACIR, ACC, QueueGraph, and gfsim, and the
 [Agent Frontend Guide](docs/development/agent-frontend-guide.md) states the
 authoring rules this example follows.
 
 ## How the toolchain fits together
 
 ```text
-agentic_circuit frontend -> ACPy 0.5 -> ACIR
-                                         |-> ACSim -> gfsim
-                                         `-> PYC -> pycc -> pyc6 C++ / Verilog
+agentic_circuit frontend -> acc.py -> verified ACIR -> acc
+                                                   |-> gfsim C++ / bundle
+                                                   `-> PYC -> pycc -> Verilog
 
 pycircuit frontend -> Cycle-Aware Signal -> PYC -> pycc -> pyc6 C++ / Verilog
 ```
@@ -212,7 +212,7 @@ and are not compatibility aliases.
 | [pyCircuit 6 Tutorial](docs/getting-started/tutorial.md) | Learn cycle-aware authoring and testbenches |
 | [Language and API Reference](docs/reference/index.md) | Look up syntax, APIs, diagnostics, primitives, and PYC IR |
 | [Architecture](docs/architecture/overview.md) | Understand frontends, compiler stages, runtimes, and backends |
-| [Agentic Circuit and ACIR](docs/acir/index.md) | Learn ACPy, ACIR/ACSim, QueueGraph, and gfsim |
+| [Agentic Circuit and ACIR](docs/acir/index.md) | Learn ACPy, verified ACIR, ACC, QueueGraph, and gfsim |
 | [Development Guide](docs/development/index.md) | Build, test, contribute, and prepare pull requests |
 | [Agent Frontend Guide](docs/development/agent-frontend-guide.md) | Choose and apply a Pythonic authoring model for complex circuits |
 
@@ -222,7 +222,7 @@ The tree is organized by responsibility:
 
 ```text
 python/       Python distributions and shared semantics
-compiler/     PYC and ACIR/ACSim dialects, passes, and generators
+compiler/     PYC and ACIR dialects, passes, ACC, and generators
 library/      Stable pyCircuit C++ runtime and Verilog implementations
 simulator/    gfsim architecture-modeling runtime
 docs/         User, architecture, reference, and contributor documentation

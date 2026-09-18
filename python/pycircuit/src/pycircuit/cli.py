@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import argparse
 import ast
-import hashlib
 import importlib
 import importlib.util
 import inspect
@@ -315,7 +314,12 @@ def _detect_pycc() -> Path:
             if toolchain_root_env
             else None
         ),
-        root / ".pycircuit_out" / "toolchain" / "install" / "bin" / f"pycc{tool_suffix}",
+        root
+        / ".pycircuit_out"
+        / "toolchain"
+        / "install"
+        / "bin"
+        / f"pycc{tool_suffix}",
         root / "dist" / "pycircuit" / "bin" / f"pycc{tool_suffix}",
         root / "build-top" / "bin" / f"pycc{tool_suffix}",
         root / "build" / "bin" / f"pycc{tool_suffix}",
@@ -2198,49 +2202,6 @@ def _gather_cpp_headers(cpp_root: Path) -> list[Path]:
     return out
 
 
-def _module_hash(path: Path) -> str:
-    return hashlib.sha256(path.read_bytes()).hexdigest()
-
-
-def _deps_hash(entry: Path, *, project_root: Path) -> str:
-    root = project_root.resolve()
-    files = collect_local_python_graph(entry.resolve(), project_root=root)
-    h = hashlib.sha256()
-    for p in files:
-        try:
-            rel = str(p.relative_to(root))
-        except ValueError:
-            rel = str(p)
-        h.update(rel.encode("utf-8"))
-        h.update(b"\0")
-        h.update(hashlib.sha256(p.read_bytes()).digest())
-        h.update(b"\0")
-    return h.hexdigest()
-
-
-def _frontend_compiler_hash() -> str:
-    """Hash frontend sources so JIT caches cannot outlive compiler changes."""
-
-    package_root = Path(__file__).resolve().parent
-    h = hashlib.sha256()
-    for source_path in sorted(package_root.rglob("*.py")):
-        if not source_path.is_file():
-            continue
-        relative_path = str(source_path.relative_to(package_root))
-        h.update(relative_path.encode("utf-8"))
-        h.update(b"\0")
-        h.update(hashlib.sha256(source_path.read_bytes()).digest())
-        h.update(b"\0")
-    return h.hexdigest()
-
-
-def _canonical_hash(payload: dict[str, Any]) -> str:
-    blob = json.dumps(
-        payload, sort_keys=True, separators=(",", ":"), ensure_ascii=False
-    ).encode("utf-8")
-    return hashlib.sha256(blob).hexdigest()
-
-
 def _load_json(path: Path) -> dict[str, Any]:
     return json.loads(path.read_text(encoding="utf-8"))
 
@@ -2261,7 +2222,6 @@ def _merge_verilog_primitive_bundles(
     source_licenses: dict[str, str] = {}
     implementations: dict[str, dict[str, Any]] = {}
     bindings: dict[str, dict[str, dict[str, Any]]] = {}
-    source_digests: dict[str, str] = {}
     source_order: list[str] = []
 
     for primitive in sorted(primitive_files):
@@ -2301,7 +2261,7 @@ def _merge_verilog_primitive_bundles(
             if not implementation_id:
                 raise SystemExit("build(verilator): missing implementation_id")
             prior = implementations.setdefault(implementation_id, raw)
-            if _canonical_hash(prior) != _canonical_hash(raw):
+            if prior != raw:
                 raise SystemExit(
                     "build(verilator): implementation metadata is inconsistent"
                 )
@@ -2313,7 +2273,6 @@ def _merge_verilog_primitive_bundles(
                     raise SystemExit("build(verilator): malformed RTL source")
                 source_path = str(source.get("path", ""))
                 bundle_path = str(source.get("bundle_path", ""))
-                digest = str(source.get("sha256", ""))
                 license_id = str(source.get("license", ""))
                 bundled = (primitive.parent / bundle_path).resolve()
                 try:
@@ -2325,28 +2284,17 @@ def _merge_verilog_primitive_bundles(
                 if (
                     not source_path
                     or not bundle_path
-                    or not digest
                     or not license_id
                     or not bundled.is_file()
                 ):
                     raise SystemExit("build(verilator): incomplete RTL source")
                 content = bundled.read_bytes()
-                actual_digest = "sha256:" + hashlib.sha256(content).hexdigest()
-                if actual_digest != digest:
-                    raise SystemExit(
-                        f"build(verilator): selected RTL digest mismatch: {source_path}"
-                    )
                 try:
                     source_text = content.decode("utf-8")
                 except UnicodeDecodeError as error:
                     raise SystemExit(
                         f"build(verilator): selected RTL is not UTF-8: {source_path}"
                     ) from error
-                previous_digest = source_digests.setdefault(source_path, digest)
-                if previous_digest != digest:
-                    raise SystemExit(
-                        f"build(verilator): source digest conflict: {source_path}"
-                    )
                 previous_content = source_contents.setdefault(source_path, source_text)
                 if previous_content != source_text:
                     raise SystemExit(
@@ -2371,9 +2319,10 @@ def _merge_verilog_primitive_bundles(
                 parameters, dict
             ):
                 raise SystemExit("build(verilator): incomplete RTL binding")
-            bindings.setdefault(implementation_id, {})[
-                _canonical_hash(binding)
-            ] = binding
+            binding_key = json.dumps(
+                binding, sort_keys=True, separators=(",", ":"), ensure_ascii=False
+            )
+            bindings.setdefault(implementation_id, {})[binding_key] = binding
 
     if base is None:
         raise SystemExit("build(verilator): no primitive bundle was generated")
@@ -2542,10 +2491,9 @@ def _resolve_probe_outputs(
 def _cmd_build(args: argparse.Namespace) -> int:
     src = Path(args.python_file).resolve()
     out_dir = Path(args.out_dir).resolve()
+    if out_dir.exists() and any(out_dir.iterdir()):
+        raise SystemExit("build output directory must be empty")
     out_dir.mkdir(parents=True, exist_ok=True)
-
-    cache_path = out_dir / ".build_cache.json"
-    cache = _load_json(cache_path) if cache_path.is_file() else {"module_hashes": {}}
 
     project_root = _project_root(src, project_root_override=args.project_root)
     _scan_api_contract(src, project_root_override=str(project_root))
@@ -2560,58 +2508,12 @@ def _cmd_build(args: argparse.Namespace) -> int:
     )
     top_name = _top_name_for_build(src, build)
 
-    from .design import canonical_params_json
-
-    try:
-        jit_params_json = canonical_params_json(jit_params, path="jit_params")
-    except DesignError as e:
-        raise SystemExit(f"JIT param canonicalization failed: {e}") from e
-    jit_inputs = {
-        "version": 1,
-        "entry_hash": _module_hash(src),
-        "deps_hash": _deps_hash(src, project_root=project_root),
-        "frontend_hash": _frontend_compiler_hash(),
-        "jit_params_json": jit_params_json,
-        "top_name": top_name,
-        "frontend_contract": FRONTEND_CONTRACT,
-    }
-    jit_key = _canonical_hash(jit_inputs)
-
     manifest_path = out_dir / "project_manifest.json"
-    design: Design | None = None
-    manifest: dict[str, Any]
-    module_paths: dict[str, Path]
-    design_pyc_path: Path
-    iface: _TopIface
-
-    cached_key = str(cache.get("jit_cache_key", "")).strip()
-    cache_hit = cached_key == jit_key and manifest_path.is_file()
-    if cache_hit:
-        try:
-            manifest = _load_json(manifest_path)
-            module_paths = _module_paths_from_manifest(manifest, out_dir=out_dir)
-            if not all(p.is_file() for p in module_paths.values()):
-                raise FileNotFoundError("missing cached .pyc modules")
-            design_pyc_rel = str(manifest.get("design_pyc", "")).strip()
-            design_pyc_path = (
-                (out_dir / design_pyc_rel)
-                if design_pyc_rel
-                else (out_dir / "device" / "design.pyc")
-            )
-            if not design_pyc_path.is_file():
-                raise FileNotFoundError("missing cached design.pyc")
-            iface = _top_iface_from_manifest(manifest)
-            print("jit-cache: hit")
-        except Exception:
-            cache_hit = False
-
-    if not cache_hit:
-        design = _compile_to_design(build, top_name=top_name, jit_params=jit_params)
-        iface = _top_iface(design)
-        manifest_path, manifest, module_paths, design_pyc_path = (
-            _emit_multi_pyc_artifacts(design, out_dir=out_dir)
-        )
-        print("jit-cache: miss")
+    design = _compile_to_design(build, top_name=top_name, jit_params=jit_params)
+    iface = _top_iface(design)
+    manifest_path, manifest, module_paths, design_pyc_path = _emit_multi_pyc_artifacts(
+        design, out_dir=out_dir
+    )
 
     pycc = _detect_pycc()
     jobs = max(1, int(args.jobs))
@@ -2634,44 +2536,22 @@ def _cmd_build(args: argparse.Namespace) -> int:
         "--hierarchy-policy=strict",
     ]
 
-    build_flags = {
-        "pycc": str(pycc.resolve()),
-        "logic_depth": logic_depth,
-        "profile": str(args.profile),
-        "pycc_build_profile": pycc_build_profile,
-        "inline_policy": "off",
-        "hierarchy_policy": "strict",
-        "target": target,
-        "tb_schedule_mode": str(args.tb_schedule_mode),
-        "frontend_contract": FRONTEND_CONTRACT,
-    }
-    build_flags_hash = _canonical_hash(build_flags)
-    same_flags = str(cache.get("build_flags_hash", "")) == build_flags_hash
-
-    design_key = "__design_pyc"
-    old_hashes = dict(cache.get("module_hashes", {}))
-    module_hashes: dict[str, str] = {}
-    design_hash = _module_hash(design_pyc_path)
-    module_hashes[design_key] = design_hash
     probe_catalog_path = out_dir / "device" / "probe_catalog.json"
-    probe_catalog_ready = probe_catalog_path.is_file()
-    probe_unchanged = same_flags and old_hashes.get(design_key) == design_hash
     pycc_jobs: list[tuple[str, list[str]]] = []
-    if not (probe_unchanged and probe_catalog_ready):
-        pycc_jobs.append(
-            (
-                "probe-catalog",
-                [
-                    str(pycc),
-                    str(design_pyc_path),
-                    "--emit=none",
-                    *pycc_hard_hierarchy_flags,
-                    "--probe-manifest",
-                    str(probe_catalog_path),
-                    f"--logic-depth={logic_depth}",
-                ],
-            )
+    pycc_jobs.append(
+        (
+            "probe-catalog",
+            [
+                str(pycc),
+                str(design_pyc_path),
+                "--emit=none",
+                *pycc_hard_hierarchy_flags,
+                "--probe-manifest",
+                str(probe_catalog_path),
+                f"--logic-depth={logic_depth}",
+            ],
         )
+    )
     if pycc_jobs:
         with ProcessPoolExecutor(max_workers=jobs) as pool:
             futs = {pool.submit(_run_backend_job, j): j[0] for j in pycc_jobs}
@@ -2734,17 +2614,9 @@ def _cmd_build(args: argparse.Namespace) -> int:
     tb_sv_out = out_dir / "tb" / f"{tb_name}.sv"
     for sym in sorted(module_paths.keys()):
         mp = module_paths[sym]
-        h = _module_hash(mp)
-        module_hashes[sym] = h
-        unchanged = same_flags and old_hashes.get(sym) == h
 
         cpp_out_dir = device_cpp_root / sym
-        cpp_ready = (
-            cpp_out_dir.is_dir()
-            and any(cpp_out_dir.glob("*.cpp"))
-            and any(cpp_out_dir.glob("*.hpp"))
-        )
-        if do_cpp and not (unchanged and cpp_ready):
+        if do_cpp:
             cpp_out_dir.mkdir(parents=True, exist_ok=True)
             pycc_jobs.append(
                 (
@@ -2765,8 +2637,7 @@ def _cmd_build(args: argparse.Namespace) -> int:
             )
 
         verilog_out_dir = device_v_root / sym
-        verilog_ready = verilog_out_dir.is_dir() and any(verilog_out_dir.glob("*.v"))
-        if do_v and not (unchanged and verilog_ready):
+        if do_v:
             verilog_out_dir.mkdir(parents=True, exist_ok=True)
             pycc_jobs.append(
                 (
@@ -2784,41 +2655,31 @@ def _cmd_build(args: argparse.Namespace) -> int:
             )
 
     if do_cpp:
-        tb_key = f"tb:{tb_name}"
-        tb_hash = _module_hash(tb_pyc_path)
-        module_hashes[tb_key] = tb_hash
-        tb_unchanged = same_flags and old_hashes.get(tb_key) == tb_hash
-        if not (tb_unchanged and tb_cpp_out.is_file()):
-            pycc_jobs.append(
-                (
-                    f"tb-cpp:{tb_name}",
-                    [
-                        str(pycc),
-                        str(tb_pyc_path),
-                        *pycc_hard_hierarchy_flags,
-                        "-cpp",
-                        str(tb_cpp_out),
-                    ],
-                )
+        pycc_jobs.append(
+            (
+                f"tb-cpp:{tb_name}",
+                [
+                    str(pycc),
+                    str(tb_pyc_path),
+                    *pycc_hard_hierarchy_flags,
+                    "-cpp",
+                    str(tb_cpp_out),
+                ],
             )
+        )
     if do_v:
-        tb_key = f"tb:{tb_name}"
-        tb_hash = module_hashes.get(tb_key) or _module_hash(tb_pyc_path)
-        module_hashes[tb_key] = tb_hash
-        tb_unchanged = same_flags and old_hashes.get(tb_key) == tb_hash
-        if not (tb_unchanged and tb_sv_out.is_file()):
-            pycc_jobs.append(
-                (
-                    f"tb-sv:{tb_name}",
-                    [
-                        str(pycc),
-                        str(tb_pyc_path),
-                        *pycc_hard_hierarchy_flags,
-                        "-verilog",
-                        str(tb_sv_out),
-                    ],
-                )
+        pycc_jobs.append(
+            (
+                f"tb-sv:{tb_name}",
+                [
+                    str(pycc),
+                    str(tb_pyc_path),
+                    *pycc_hard_hierarchy_flags,
+                    "-verilog",
+                    str(tb_sv_out),
+                ],
             )
+        )
 
     if pycc_jobs:
         with ProcessPoolExecutor(max_workers=jobs) as pool:
@@ -3013,19 +2874,6 @@ def _cmd_build(args: argparse.Namespace) -> int:
             run_args = list(getattr(args, "run_arg", []) or [])
             subprocess.run([str(vbin), *run_args], cwd=str(out_dir), check=True)
 
-    cache_out = dict(cache)
-    cache_out.update(
-        {
-            "module_hashes": module_hashes,
-            "pycc": str(pycc),
-            "build_flags": build_flags,
-            "build_flags_hash": build_flags_hash,
-            "jit_cache_key": jit_key,
-            "jit_cache_inputs": jit_inputs,
-            "last_pycc_jobs": int(len(pycc_jobs)),
-        }
-    )
-    _save_json(cache_path, cache_out)
     _save_json(manifest_path, manifest)
     print(str(manifest_path))
     return 0

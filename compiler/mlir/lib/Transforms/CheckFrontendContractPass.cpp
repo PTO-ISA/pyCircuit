@@ -15,15 +15,17 @@
 #include "llvm/Support/Path.h"
 #include "llvm/Support/raw_ostream.h"
 
-#include <string>
 #include <iterator>
+#include <string>
 
 using namespace mlir;
 
 namespace pyc {
 namespace {
 
-static bool isAlpha(char c) { return (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z'); }
+static bool isAlpha(char c) {
+  return (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z');
+}
 
 static bool isDigit(char c) { return (c >= '0' && c <= '9'); }
 
@@ -102,8 +104,7 @@ static bool isValidFieldPath(llvm::StringRef path) {
 
 static bool jsonIntFieldNonNegative(Operation *op,
                                     const llvm::json::Object &obj,
-                                    llvm::StringRef field,
-                                    llvm::StringRef code,
+                                    llvm::StringRef field, llvm::StringRef code,
                                     bool &ok) {
   auto it = obj.find(field);
   if (it == obj.end()) {
@@ -113,7 +114,8 @@ static bool jsonIntFieldNonNegative(Operation *op,
   }
   auto iv = it->second.getAsInteger();
   if (!iv || *iv < 0) {
-    pyc::emitError(op, code) << "JSON field `" << field << "` must be a non-negative integer";
+    pyc::emitError(op, code)
+        << "JSON field `" << field << "` must be a non-negative integer";
     ok = false;
     return false;
   }
@@ -139,24 +141,14 @@ static bool isValidPythonSourcePath(llvm::StringRef path) {
   return true;
 }
 
-static bool isValidSha256Fingerprint(llvm::StringRef value) {
-  if (!value.consume_front("sha256:") || value.size() != 64)
-    return false;
-  return llvm::all_of(value, [](char character) {
-    return (character >= '0' && character <= '9') ||
-           (character >= 'a' && character <= 'f');
-  });
-}
-
 static std::string sourceFrameKey(llvm::StringRef file, uint64_t line,
                                   uint64_t column) {
-  return (file + "\n" + llvm::Twine(line) + "\n" + llvm::Twine(column))
-      .str();
+  return (file + "\n" + llvm::Twine(line) + "\n" + llvm::Twine(column)).str();
 }
 
-static void collectLocationFrames(
-    Location location,
-    llvm::function_ref<void(FileLineColLoc)> collect) {
+static void
+collectLocationFrames(Location location,
+                      llvm::function_ref<void(FileLineColLoc)> collect) {
   if (auto file = dyn_cast<FileLineColLoc>(location)) {
     collect(file);
     return;
@@ -177,8 +169,7 @@ static void collectLocationFrames(
 
 using SourceLocationOrigin = llvm::SmallVector<std::string>;
 
-static std::string sourceLocationOriginKey(
-    llvm::ArrayRef<std::string> frames) {
+static std::string sourceLocationOriginKey(llvm::ArrayRef<std::string> frames) {
   std::string key;
   for (const std::string &frame : frames) {
     key.append(frame);
@@ -244,9 +235,9 @@ static void collectSourceMapOriginKeys(const llvm::json::Value &value,
           auto line = frame ? frame->getInteger("line") : std::nullopt;
           auto column = frame ? frame->getInteger("column") : std::nullopt;
           if (file && line && column)
-            frameKeys.push_back(sourceFrameKey(
-                *file, static_cast<uint64_t>(*line),
-                static_cast<uint64_t>(*column)));
+            frameKeys.push_back(sourceFrameKey(*file,
+                                               static_cast<uint64_t>(*line),
+                                               static_cast<uint64_t>(*column)));
         }
         if (!frameKeys.empty())
           knownOrigins.insert(sourceLocationOriginKey(frameKeys));
@@ -261,9 +252,9 @@ static void collectSourceMapOriginKeys(const llvm::json::Value &value,
   }
 }
 
-static bool sourceLocationOriginIsMapped(
-    llvm::ArrayRef<std::string> frames,
-    const llvm::StringSet<> &knownOrigins) {
+static bool
+sourceLocationOriginIsMapped(llvm::ArrayRef<std::string> frames,
+                             const llvm::StringSet<> &knownOrigins) {
   llvm::SmallVector<bool> reachable(frames.size() + 1, false);
   reachable[0] = true;
   for (size_t begin = 0; begin < frames.size(); ++begin) {
@@ -279,9 +270,9 @@ static bool sourceLocationOriginIsMapped(
   return reachable.back();
 }
 
-static bool validateSourceProvenance(
-    Operation *anchor, const llvm::json::Object &provenance,
-    llvm::StringSet<> &knownFrames) {
+static bool validateSourceProvenance(Operation *anchor,
+                                     const llvm::json::Object &provenance,
+                                     llvm::StringSet<> &knownFrames) {
   const llvm::json::Array *origins = provenance.getArray("origins");
   if (!origins || provenance.size() != 1) {
     pyc::emitError(anchor, "PYC985")
@@ -311,11 +302,11 @@ static bool validateSourceProvenance(
           kind && (*kind == "statement" || *kind == "definition" ||
                    *kind == "inline_callsite" || *kind == "instance" ||
                    *kind == "specialization");
-      unsigned kindRank =
-          !kind || *kind == "statement" || *kind == "definition" ? 0
-          : *kind == "inline_callsite"                              ? 1
-          : *kind == "instance"                                     ? 2
-                                                                    : 3;
+      unsigned kindRank = !kind || *kind == "statement" || *kind == "definition"
+                              ? 0
+                          : *kind == "inline_callsite" ? 1
+                          : *kind == "instance"        ? 2
+                                                       : 3;
       if (!frame || (frame->size() != 4 && frame->size() != 5) || !file ||
           !kindValid || !line || *line <= 0 || !column || *column <= 0 ||
           !isValidPythonSourcePath(*file) ||
@@ -354,9 +345,10 @@ static bool hasExactKeys(const llvm::json::Object &object,
                       [&](llvm::StringRef key) { return object.get(key); });
 }
 
-static bool validateSourceMapExpression(
-    Operation *anchor, const llvm::json::Value &value,
-    llvm::StringSet<> &knownFrames, unsigned depth) {
+static bool validateSourceMapExpression(Operation *anchor,
+                                        const llvm::json::Value &value,
+                                        llvm::StringSet<> &knownFrames,
+                                        unsigned depth) {
   const auto *expression = value.getAsObject();
   const auto *nested = expression ? expression->getArray("nested") : nullptr;
   const auto *provenanceValue =
@@ -378,9 +370,10 @@ static bool validateSourceMapExpression(
   return true;
 }
 
-static bool validateSourceMapExpressions(
-    Operation *anchor, const llvm::json::Array &expressions,
-    llvm::StringSet<> &knownFrames, unsigned depth) {
+static bool validateSourceMapExpressions(Operation *anchor,
+                                         const llvm::json::Array &expressions,
+                                         llvm::StringSet<> &knownFrames,
+                                         unsigned depth) {
   for (const llvm::json::Value &expression : expressions)
     if (!validateSourceMapExpression(anchor, expression, knownFrames, depth))
       return false;
@@ -392,21 +385,23 @@ static bool validateSourceMapRoot(Operation *anchor,
                                   llvm::StringSet<> &knownFrames,
                                   unsigned depth) {
   if (depth > 64 ||
-      !hasExactKeys(root,
-                    {"blocks", "contract_epoch", "definition", "helpers",
-                     "module_instances", "module_specializations", "schema",
-                     "specialization", "state_owners", "system", "table_matches",
-                     "table_selections", "version"}) ||
+      !hasExactKeys(
+          root, {"blocks", "definition", "helpers",
+                 "module_instances", "module_specializations", "schema",
+                 "specialization", "specialization_parameters", "state_owners",
+                 "system", "table_matches", "table_selections", "version"}) ||
       root.getString("schema") != "agentic-circuit-source-map" ||
-      root.getString("version") != "0.1" ||
-      root.getString("contract_epoch") != "0.5" ||
-      !root.getString("system") || root.getString("system")->empty())
+      root.getString("version") != "0.1" || !root.getString("system") ||
+      root.getString("system")->empty())
     return false;
   const llvm::json::Value *definition = root.get("definition");
   const llvm::json::Value *specialization = root.get("specialization");
+  const auto *specializationParameters =
+      root.getArray("specialization_parameters");
   if (!definition || (!definition->getAsNull() && !definition->getAsString()) ||
       !specialization ||
-      (!specialization->getAsNull() && !specialization->getAsString()))
+      (!specialization->getAsNull() && !specialization->getAsString()) ||
+      !specializationParameters)
     return false;
   const auto *blocks = root.getArray("blocks");
   const auto *helpers = root.getArray("helpers");
@@ -430,9 +425,8 @@ static bool validateSourceMapRoot(Operation *anchor,
     auto name = block ? block->getString("name") : std::nullopt;
     auto stableId = block ? block->getString("stable_id") : std::nullopt;
     if (!block ||
-        !hasExactKeys(*block,
-                      {"expressions", "index", "kind", "name",
-                       "source_provenance", "stable_id"}) ||
+        !hasExactKeys(*block, {"expressions", "index", "kind", "name",
+                               "source_provenance", "stable_id"}) ||
         !expressions || !index || *index < 0 || !kind || kind->empty() ||
         !name || name->empty() || !stableId || !provenance ||
         !validateSourceProvenance(anchor, *provenance, knownFrames) ||
@@ -442,7 +436,8 @@ static bool validateSourceMapRoot(Operation *anchor,
   }
   for (const llvm::json::Value &value : *helpers) {
     const auto *helper = value.getAsObject();
-    const auto *expressions = helper ? helper->getArray("expressions") : nullptr;
+    const auto *expressions =
+        helper ? helper->getArray("expressions") : nullptr;
     const auto *provenanceValue =
         helper ? helper->get("source_provenance") : nullptr;
     const auto *provenance =
@@ -463,16 +458,14 @@ static bool validateSourceMapRoot(Operation *anchor,
     const auto *provenance =
         provenanceValue ? provenanceValue->getAsObject() : nullptr;
     if (!instance ||
-        !hasExactKeys(*instance,
-                      {"definition", "name", "scope", "source_provenance",
-                       "specialization"}) ||
+        !hasExactKeys(*instance, {"definition", "name", "scope",
+                                  "source_provenance", "specialization"}) ||
         !instance->getString("definition") ||
         instance->getString("definition")->empty() ||
         !instance->getString("name") || instance->getString("name")->empty() ||
         !instance->getString("scope") ||
         !instance->getString("specialization") ||
-        !isValidSha256Fingerprint(*instance->getString("specialization")) ||
-        !provenance ||
+        instance->getString("specialization")->empty() || !provenance ||
         !validateSourceProvenance(anchor, *provenance, knownFrames))
       return false;
   }
@@ -485,35 +478,34 @@ static bool validateSourceMapRoot(Operation *anchor,
     auto kind = owner ? owner->getString("kind") : std::nullopt;
     auto name = owner ? owner->getString("name") : std::nullopt;
     if (!owner ||
-        !hasExactKeys(*owner, {"kind", "name", "source_provenance"}) ||
-        !kind || (*kind != "memory" && *kind != "slot" && *kind != "table") ||
-        !name || name->empty() || !provenance ||
+        !hasExactKeys(*owner, {"kind", "name", "source_provenance"}) || !kind ||
+        (*kind != "memory" && *kind != "slot" && *kind != "table") || !name ||
+        name->empty() || !provenance ||
         !validateSourceProvenance(anchor, *provenance, knownFrames))
       return false;
   }
-  auto validateTableDefinitions =
-      [&](const llvm::json::Array &definitions,
-          llvm::StringRef expressionField) {
-        for (const llvm::json::Value &value : definitions) {
-          const auto *definition = value.getAsObject();
-          const auto *expressions =
-              definition ? definition->getArray(expressionField) : nullptr;
-          const auto *provenanceValue =
-              definition ? definition->get("source_provenance") : nullptr;
-          const auto *provenance =
-              provenanceValue ? provenanceValue->getAsObject() : nullptr;
-          if (!definition || definition->size() != 4 || !expressions ||
-              !definition->getString("name") ||
-              definition->getString("name")->empty() ||
-              !definition->getString("table") ||
-              definition->getString("table")->empty() || !provenance ||
-              !validateSourceProvenance(anchor, *provenance, knownFrames) ||
-              !validateSourceMapExpressions(anchor, *expressions, knownFrames,
-                                            depth + 1))
-            return false;
-        }
-        return true;
-      };
+  auto validateTableDefinitions = [&](const llvm::json::Array &definitions,
+                                      llvm::StringRef expressionField) {
+    for (const llvm::json::Value &value : definitions) {
+      const auto *definition = value.getAsObject();
+      const auto *expressions =
+          definition ? definition->getArray(expressionField) : nullptr;
+      const auto *provenanceValue =
+          definition ? definition->get("source_provenance") : nullptr;
+      const auto *provenance =
+          provenanceValue ? provenanceValue->getAsObject() : nullptr;
+      if (!definition || definition->size() != 4 || !expressions ||
+          !definition->getString("name") ||
+          definition->getString("name")->empty() ||
+          !definition->getString("table") ||
+          definition->getString("table")->empty() || !provenance ||
+          !validateSourceProvenance(anchor, *provenance, knownFrames) ||
+          !validateSourceMapExpressions(anchor, *expressions, knownFrames,
+                                        depth + 1))
+        return false;
+    }
+    return true;
+  };
   if (!validateTableDefinitions(*matches, "expressions") ||
       !validateTableDefinitions(*selections, "key_expressions"))
     return false;
@@ -561,8 +553,8 @@ static bool validatePycSourceMap(ModuleOp module, StringAttr sourceMap) {
       llvm::StringRef filename = location.getFilename().getValue();
       if (!filename.ends_with(".py"))
         return;
-      const std::string key = sourceFrameKey(
-          filename, location.getLine(), location.getColumn());
+      const std::string key =
+          sourceFrameKey(filename, location.getLine(), location.getColumn());
       if (!isValidPythonSourcePath(filename) || !knownFrames.contains(key))
         operationLocationValid = false;
     });
@@ -579,20 +571,25 @@ static bool validatePycSourceMap(ModuleOp module, StringAttr sourceMap) {
   return locationsValid;
 }
 
-class CheckFrontendContractPass : public PassWrapper<CheckFrontendContractPass, OperationPass<ModuleOp>> {
+class CheckFrontendContractPass
+    : public PassWrapper<CheckFrontendContractPass, OperationPass<ModuleOp>> {
 public:
   MLIR_DEFINE_EXPLICIT_INTERNAL_INLINE_TYPE_ID(CheckFrontendContractPass)
 
-  StringRef getArgument() const override { return "pyc-check-frontend-contract"; }
+  StringRef getArgument() const override {
+    return "pyc-check-frontend-contract";
+  }
   StringRef getDescription() const override {
-    return "Verify required frontend contract attrs are present and match the supported contract";
+    return "Verify required frontend contract attrs are present and match the "
+           "supported contract";
   }
 
   void runOnOperation() override {
     ModuleOp module = getOperation();
     bool ok = true;
 
-    auto emitModule = [&](llvm::StringRef code, llvm::StringRef msg, llvm::StringRef hint) {
+    auto emitModule = [&](llvm::StringRef code, llvm::StringRef msg,
+                          llvm::StringRef hint) {
       auto d = pyc::emitError(module, code);
       d << msg;
       if (!hint.empty())
@@ -600,15 +597,19 @@ public:
     };
 
     static constexpr const char *kRequiredContract = "pycircuit";
-    auto modContract = module->getAttrOfType<StringAttr>("pyc.frontend.contract");
+    auto modContract =
+        module->getAttrOfType<StringAttr>("pyc.frontend.contract");
     if (!modContract) {
-      emitModule("PYC901", "missing required module attr `pyc.frontend.contract`",
-                 "regenerate .pyc with the current pyCircuit frontend and keep module attrs intact");
+      emitModule("PYC901",
+                 "missing required module attr `pyc.frontend.contract`",
+                 "regenerate .pyc with the current pyCircuit frontend and keep "
+                 "module attrs intact");
       ok = false;
     } else if (modContract.getValue() != kRequiredContract) {
       auto d = pyc::emitError(module, "PYC902");
-      d << "frontend contract mismatch: expected `" << kRequiredContract << "`, got `"
-        << modContract.getValue() << "` (hint: regenerate .pyc with matching toolchain)";
+      d << "frontend contract mismatch: expected `" << kRequiredContract
+        << "`, got `" << modContract.getValue()
+        << "` (hint: regenerate .pyc with matching toolchain)";
       ok = false;
     }
 
@@ -624,12 +625,14 @@ public:
     }
 
     module.walk([&](pyc::RtlCombOp selected) {
-      pyc::emitError(selected, "PYC932") << "pyc.rtl.comb is backend-owned and forbidden in frontend input";
+      pyc::emitError(selected, "PYC932")
+          << "pyc.rtl.comb is backend-owned and forbidden in frontend input";
       ok = false;
     });
 
     module.walk([&](func::FuncOp f) {
-      auto checkStrAttr = [&](StringRef name, llvm::StringRef code, llvm::StringRef hint) -> StringAttr {
+      auto checkStrAttr = [&](StringRef name, llvm::StringRef code,
+                              llvm::StringRef hint) -> StringAttr {
         auto attr = f->getAttrOfType<StringAttr>(name);
         if (!attr) {
           auto d = pyc::emitError(f, code);
@@ -641,7 +644,8 @@ public:
         return attr;
       };
 
-      auto checkArrAttr = [&](StringRef name, llvm::StringRef code, llvm::StringRef hint) -> ArrayAttr {
+      auto checkArrAttr = [&](StringRef name, llvm::StringRef code,
+                              llvm::StringRef hint) -> ArrayAttr {
         auto attr = f->getAttrOfType<ArrayAttr>(name);
         if (!attr) {
           auto d = pyc::emitError(f, code);
@@ -653,34 +657,31 @@ public:
         return attr;
       };
 
-      auto checkBoolAttr = [&](StringRef name, llvm::StringRef code, llvm::StringRef hint) -> BoolAttr {
-        auto attr = f->getAttrOfType<BoolAttr>(name);
-        if (!attr) {
-          auto d = pyc::emitError(f, code);
-          d << "missing required func attr `" << name << "`";
-          if (!hint.empty())
-            d << " (hint: " << hint << ")";
-          ok = false;
-        }
-        return attr;
-      };
-
-      auto kind = checkStrAttr("pyc.kind", "PYC903", "frontend must stamp symbol kind metadata");
-      auto inl = checkStrAttr("pyc.inline", "PYC904", "frontend must stamp inline metadata");
-      (void)checkStrAttr("pyc.params", "PYC905", "frontend must stamp canonical specialization params");
-      (void)checkStrAttr("pyc.base", "PYC906", "frontend must stamp canonical base symbol name");
-      auto argNames = checkArrAttr("arg_names", "PYC907", "frontend must stamp canonical port names");
-      auto resultNames = checkArrAttr("result_names", "PYC908", "frontend must stamp canonical port names");
+      auto kind = checkStrAttr("pyc.kind", "PYC903",
+                               "frontend must stamp symbol kind metadata");
+      auto inl = checkStrAttr("pyc.inline", "PYC904",
+                              "frontend must stamp inline metadata");
+      (void)checkStrAttr("pyc.params", "PYC905",
+                         "frontend must stamp canonical specialization params");
+      (void)checkStrAttr("pyc.base", "PYC906",
+                         "frontend must stamp canonical base symbol name");
+      auto argNames = checkArrAttr("arg_names", "PYC907",
+                                   "frontend must stamp canonical port names");
+      auto resultNames = checkArrAttr(
+          "result_names", "PYC908", "frontend must stamp canonical port names");
       auto structMetrics =
-          checkStrAttr("pyc.struct.metrics", "PYC951", "frontend must stamp structural summary metadata");
+          checkStrAttr("pyc.struct.metrics", "PYC951",
+                       "frontend must stamp structural summary metadata");
       auto structCollections =
-          checkStrAttr("pyc.struct.collections", "PYC952", "frontend must stamp structural collection metadata");
+          checkStrAttr("pyc.struct.collections", "PYC952",
+                       "frontend must stamp structural collection metadata");
 
       if (kind) {
         auto k = kind.getValue();
         if (k != "module" && k != "function" && k != "template") {
-          pyc::emitError(f, "PYC909") << "invalid `pyc.kind` value: " << k
-                        << " (hint: allowed values are module/function/template)";
+          pyc::emitError(f, "PYC909")
+              << "invalid `pyc.kind` value: " << k
+              << " (hint: allowed values are module/function/template)";
           ok = false;
         }
       }
@@ -688,43 +689,52 @@ public:
       if (inl) {
         auto v = inl.getValue();
         if (v != "true" && v != "false") {
-          pyc::emitError(f, "PYC910") << "invalid `pyc.inline` value: " << v
-                        << " (hint: allowed values are true|false)";
+          pyc::emitError(f, "PYC910")
+              << "invalid `pyc.inline` value: " << v
+              << " (hint: allowed values are true|false)";
           ok = false;
         }
       }
 
       if (argNames && argNames.size() != f.getNumArguments()) {
-        pyc::emitError(f, "PYC911") << "`arg_names` arity mismatch: attr size=" << argNames.size()
-                      << " but func has " << f.getNumArguments() << " arguments";
+        pyc::emitError(f, "PYC911")
+            << "`arg_names` arity mismatch: attr size=" << argNames.size()
+            << " but func has " << f.getNumArguments() << " arguments";
         ok = false;
       }
       if (resultNames && resultNames.size() != f.getNumResults()) {
-        pyc::emitError(f, "PYC912") << "`result_names` arity mismatch: attr size=" << resultNames.size()
-                      << " but func has " << f.getNumResults() << " results";
+        pyc::emitError(f, "PYC912")
+            << "`result_names` arity mismatch: attr size=" << resultNames.size()
+            << " but func has " << f.getNumResults() << " results";
         ok = false;
       }
 
-      auto checkPortNames = [&](ArrayAttr arr, llvm::StringRef attrName, llvm::StringRef codeBase) {
+      auto checkPortNames = [&](ArrayAttr arr, llvm::StringRef attrName,
+                                llvm::StringRef codeBase) {
         if (!arr)
           return;
         llvm::StringSet<> used;
-        for (unsigned idx = 0, e = static_cast<unsigned>(arr.size()); idx < e; ++idx) {
+        for (unsigned idx = 0, e = static_cast<unsigned>(arr.size()); idx < e;
+             ++idx) {
           auto s = dyn_cast<StringAttr>(arr[idx]);
           if (!s) {
-            pyc::emitError(f, (codeBase + "1").str()) << "`" << attrName << "` entry #" << idx << " must be a string";
+            pyc::emitError(f, (codeBase + "1").str())
+                << "`" << attrName << "` entry #" << idx << " must be a string";
             ok = false;
             continue;
           }
           llvm::StringRef v = s.getValue();
           if (!isValidFieldPath(v)) {
-            pyc::emitError(f, (codeBase + "2").str()) << "invalid canonical port path in `" << attrName << "` entry #"
-                          << idx << ": `" << v << "` (expected segments like foo.bar[3]; `:` is reserved)";
+            pyc::emitError(f, (codeBase + "2").str())
+                << "invalid canonical port path in `" << attrName << "` entry #"
+                << idx << ": `" << v
+                << "` (expected segments like foo.bar[3]; `:` is reserved)";
             ok = false;
           }
           if (!used.insert(v).second) {
-            pyc::emitError(f, (codeBase + "3").str()) << "duplicate canonical port path in `" << attrName << "`: `" << v
-                          << "`";
+            pyc::emitError(f, (codeBase + "3").str())
+                << "duplicate canonical port path in `" << attrName << "`: `"
+                << v << "`";
             ok = false;
           }
         }
@@ -751,8 +761,10 @@ public:
           std::string san = sanitizeIdForBackend(v);
           auto [it, inserted] = sanitizedToRaw.try_emplace(san, v);
           if (!inserted && it->second != v) {
-            pyc::emitError(f, "PYC925") << "backend port id collision after sanitization: `" << san << "` from `"
-                          << it->second << "` and `" << v << "` (hint: rename ports to avoid ambiguous Verilog ids)";
+            pyc::emitError(f, "PYC925")
+                << "backend port id collision after sanitization: `" << san
+                << "` from `" << it->second << "` and `" << v
+                << "` (hint: rename ports to avoid ambiguous Verilog ids)";
             ok = false;
           }
         }
@@ -763,35 +775,43 @@ public:
             continue;
           llvm::StringRef v = s.getValue();
           if (inUsed.count(v) != 0) {
-            pyc::emitError(f, "PYC924") << "duplicate canonical port path across `arg_names` and `result_names`: `" << v
-                          << "`";
+            pyc::emitError(f, "PYC924")
+                << "duplicate canonical port path across `arg_names` and "
+                   "`result_names`: `"
+                << v << "`";
             ok = false;
           }
           std::string san = sanitizeIdForBackend(v);
           auto [it, inserted] = sanitizedToRaw.try_emplace(san, v);
           if (!inserted && it->second != v) {
-            pyc::emitError(f, "PYC925") << "backend port id collision after sanitization: `" << san << "` from `"
-                          << it->second << "` and `" << v << "` (hint: rename ports to avoid ambiguous Verilog ids)";
+            pyc::emitError(f, "PYC925")
+                << "backend port id collision after sanitization: `" << san
+                << "` from `" << it->second << "` and `" << v
+                << "` (hint: rename ports to avoid ambiguous Verilog ids)";
             ok = false;
           }
         }
       }
 
-      // Decision 0025: instance `name` must be a strict identifier (no escaping).
-      // Decision 0017: optional `short_name` is preferred for path segments.
+      // Decision 0025: instance `name` must be a strict identifier (no
+      // escaping). Decision 0017: optional `short_name` is preferred for path
+      // segments.
       llvm::StringSet<> segUsed;
       f.walk([&](pyc::InstanceOp inst) {
         auto nameAttr = inst->getAttrOfType<StringAttr>("name");
         if (!nameAttr) {
-          pyc::emitError(inst, "PYC941") << "missing required instance name "
-                           << "(hint: frontend must always stamp InstanceOp `name` for stable canonical paths)";
+          pyc::emitError(inst, "PYC941")
+              << "missing required instance name "
+              << "(hint: frontend must always stamp InstanceOp `name` for "
+                 "stable canonical paths)";
           ok = false;
           return;
         }
         llvm::StringRef v = nameAttr.getValue();
         if (!isValidIdent(v)) {
-          pyc::emitError(inst, "PYC940") << "invalid instance name `" << v
-                           << "` (expected [A-Za-z_][A-Za-z0-9_]*; no escaping supported)";
+          pyc::emitError(inst, "PYC940")
+              << "invalid instance name `" << v
+              << "` (expected [A-Za-z_][A-Za-z0-9_]*; no escaping supported)";
           ok = false;
         }
 
@@ -799,8 +819,9 @@ public:
         if (auto shortAttr = inst->getAttrOfType<StringAttr>("short_name")) {
           llvm::StringRef sv = shortAttr.getValue();
           if (!isValidIdent(sv)) {
-            pyc::emitError(inst, "PYC946") << "invalid instance short_name `" << sv
-                             << "` (expected [A-Za-z_][A-Za-z0-9_]*; no escaping supported)";
+            pyc::emitError(inst, "PYC946")
+                << "invalid instance short_name `" << sv
+                << "` (expected [A-Za-z_][A-Za-z0-9_]*; no escaping supported)";
             ok = false;
           } else {
             seg = sv;
@@ -808,9 +829,11 @@ public:
         }
 
         if (!segUsed.insert(seg).second) {
-          pyc::emitError(inst, "PYC947") << "duplicate instance path segment `" << seg
-                           << "` within module (hint: instance name/short_name must be unique per parent for stable "
-                              "canonical paths)";
+          pyc::emitError(inst, "PYC947")
+              << "duplicate instance path segment `" << seg
+              << "` within module (hint: instance name/short_name must be "
+                 "unique per parent for stable "
+                 "canonical paths)";
           ok = false;
         }
       });
@@ -844,41 +867,51 @@ public:
 
           auto nameAttr = op->getAttrOfType<StringAttr>("name");
           if (!nameAttr) {
-            pyc::emitError(op, "PYC942") << "missing required `name` attribute for pyc." << opKind
-                            << " (hint: pass name=... in the frontend memory API for stable DFX paths)";
+            pyc::emitError(op, "PYC942")
+                << "missing required `name` attribute for pyc." << opKind
+                << " (hint: pass name=... in the frontend memory API for "
+                   "stable DFX paths)";
             ok = false;
             return;
           }
           llvm::StringRef name = nameAttr.getValue();
           if (!isValidIdent(name)) {
-            pyc::emitError(op, "PYC943") << "invalid `name` for pyc." << opKind << ": `" << name
-                            << "` (expected [A-Za-z_][A-Za-z0-9_]*; no escaping supported)";
+            pyc::emitError(op, "PYC943")
+                << "invalid `name` for pyc." << opKind << ": `" << name
+                << "` (expected [A-Za-z_][A-Za-z0-9_]*; no escaping supported)";
             ok = false;
           }
           if (!memNames.insert(name).second) {
-            pyc::emitError(op, "PYC944") << "duplicate memory name in module: `" << name
-                            << "` (hint: use unique memory names within a module instance)";
+            pyc::emitError(op, "PYC944")
+                << "duplicate memory name in module: `" << name
+                << "` (hint: use unique memory names within a module instance)";
             ok = false;
           }
           if (portPaths.count(name) != 0) {
-            pyc::emitError(op, "PYC945") << "memory name collides with port field path: `" << name
-                            << "` (hint: rename memory or port to avoid ProbeRegistry canonical_path collision)";
+            pyc::emitError(op, "PYC945")
+                << "memory name collides with port field path: `" << name
+                << "` (hint: rename memory or port to avoid ProbeRegistry "
+                   "canonical_path collision)";
             ok = false;
           }
         });
       }
 
       auto valueParamNames = f->getAttrOfType<ArrayAttr>("pyc.value_params");
-      auto valueParamTypes = f->getAttrOfType<ArrayAttr>("pyc.value_param_types");
+      auto valueParamTypes =
+          f->getAttrOfType<ArrayAttr>("pyc.value_param_types");
       if (bool(valueParamNames) != bool(valueParamTypes)) {
-        pyc::emitError(f, "PYC913") << "value-param metadata mismatch: both `pyc.value_params` and "
-                         "`pyc.value_param_types` must be present together";
+        pyc::emitError(f, "PYC913")
+            << "value-param metadata mismatch: both `pyc.value_params` and "
+               "`pyc.value_param_types` must be present together";
         ok = false;
       } else if (valueParamNames && valueParamTypes) {
         if (valueParamNames.size() != valueParamTypes.size()) {
-          pyc::emitError(f, "PYC914") << "value-param metadata arity mismatch: `pyc.value_params` has "
-                        << valueParamNames.size() << " entries but `pyc.value_param_types` has "
-                        << valueParamTypes.size();
+          pyc::emitError(f, "PYC914")
+              << "value-param metadata arity mismatch: `pyc.value_params` has "
+              << valueParamNames.size()
+              << " entries but `pyc.value_param_types` has "
+              << valueParamTypes.size();
           ok = false;
         }
 
@@ -899,82 +932,102 @@ public:
           return !ty.drop_front().getAsInteger(10, w) && w > 0;
         };
 
-        for (unsigned idx = 0, e = static_cast<unsigned>(valueParamNames.size()); idx < e; ++idx) {
+        for (unsigned idx = 0,
+                      e = static_cast<unsigned>(valueParamNames.size());
+             idx < e; ++idx) {
           auto nameAttr = dyn_cast<StringAttr>(valueParamNames[idx]);
           auto typeAttr = dyn_cast<StringAttr>(valueParamTypes[idx]);
           if (!nameAttr) {
-            pyc::emitError(f, "PYC915") << "`pyc.value_params` entry #" << idx << " must be a string";
+            pyc::emitError(f, "PYC915")
+                << "`pyc.value_params` entry #" << idx << " must be a string";
             ok = false;
             continue;
           }
           if (!typeAttr) {
-            pyc::emitError(f, "PYC916") << "`pyc.value_param_types` entry #" << idx << " must be a string";
+            pyc::emitError(f, "PYC916") << "`pyc.value_param_types` entry #"
+                                        << idx << " must be a string";
             ok = false;
             continue;
           }
           if (!argNameSet.contains(nameAttr.getValue())) {
-            pyc::emitError(f, "PYC917") << "value-param `" << nameAttr.getValue()
-                          << "` is not present in `arg_names`";
+            pyc::emitError(f, "PYC917")
+                << "value-param `" << nameAttr.getValue()
+                << "` is not present in `arg_names`";
             ok = false;
           }
           if (!validValueType(typeAttr.getValue())) {
-            pyc::emitError(f, "PYC918") << "invalid value-param type `" << typeAttr.getValue()
-                          << "` for `" << nameAttr.getValue() << "` (expected iN/!pyc.clock/!pyc.reset)";
+            pyc::emitError(f, "PYC918")
+                << "invalid value-param type `" << typeAttr.getValue()
+                << "` for `" << nameAttr.getValue()
+                << "` (expected iN/!pyc.clock/!pyc.reset)";
             ok = false;
           }
         }
       }
 
       if (structMetrics) {
-        llvm::Expected<llvm::json::Value> parsed = llvm::json::parse(structMetrics.getValue());
+        llvm::Expected<llvm::json::Value> parsed =
+            llvm::json::parse(structMetrics.getValue());
         if (!parsed) {
           pyc::emitError(f, "PYC953") << "invalid JSON in `pyc.struct.metrics`";
           ok = false;
         } else {
           auto *obj = parsed->getAsObject();
           if (!obj) {
-            pyc::emitError(f, "PYC954") << "`pyc.struct.metrics` must encode a JSON object";
+            pyc::emitError(f, "PYC954")
+                << "`pyc.struct.metrics` must encode a JSON object";
             ok = false;
           } else {
             (void)jsonIntFieldNonNegative(f, *obj, "source_loc", "PYC955", ok);
-            (void)jsonIntFieldNonNegative(f, *obj, "ast_node_count", "PYC956", ok);
-            (void)jsonIntFieldNonNegative(f, *obj, "hardware_call_count", "PYC957", ok);
+            (void)jsonIntFieldNonNegative(f, *obj, "ast_node_count", "PYC956",
+                                          ok);
+            (void)jsonIntFieldNonNegative(f, *obj, "hardware_call_count",
+                                          "PYC957", ok);
             (void)jsonIntFieldNonNegative(f, *obj, "loop_count", "PYC958", ok);
-            (void)jsonIntFieldNonNegative(f, *obj, "module_call_count", "PYC959", ok);
-            (void)jsonIntFieldNonNegative(f, *obj, "state_call_count", "PYC960", ok);
-            (void)jsonIntFieldNonNegative(f, *obj, "estimated_inline_cost", "PYC961", ok);
-            (void)jsonIntFieldNonNegative(f, *obj, "instance_count", "PYC962", ok);
-            (void)jsonIntFieldNonNegative(f, *obj, "state_alloc_count", "PYC963", ok);
-            (void)jsonIntFieldNonNegative(f, *obj, "collection_count", "PYC964", ok);
-            (void)jsonIntFieldNonNegative(f, *obj, "collection_instance_count", "PYC965", ok);
-            (void)jsonIntFieldNonNegative(f, *obj, "module_family_collection_count", "PYC966", ok);
+            (void)jsonIntFieldNonNegative(f, *obj, "module_call_count",
+                                          "PYC959", ok);
+            (void)jsonIntFieldNonNegative(f, *obj, "state_call_count", "PYC960",
+                                          ok);
+            (void)jsonIntFieldNonNegative(f, *obj, "estimated_inline_cost",
+                                          "PYC961", ok);
+            (void)jsonIntFieldNonNegative(f, *obj, "instance_count", "PYC962",
+                                          ok);
+            (void)jsonIntFieldNonNegative(f, *obj, "state_alloc_count",
+                                          "PYC963", ok);
+            (void)jsonIntFieldNonNegative(f, *obj, "collection_count", "PYC964",
+                                          ok);
+            (void)jsonIntFieldNonNegative(f, *obj, "collection_instance_count",
+                                          "PYC965", ok);
+            (void)jsonIntFieldNonNegative(
+                f, *obj, "module_family_collection_count", "PYC966", ok);
 
             auto clusterIt = obj->find("repeated_body_clusters");
             if (clusterIt == obj->end() || !clusterIt->second.getAsArray()) {
-              pyc::emitError(f, "PYC967") << "`pyc.struct.metrics` missing `repeated_body_clusters` array";
+              pyc::emitError(f, "PYC967") << "`pyc.struct.metrics` missing "
+                                             "`repeated_body_clusters` array";
               ok = false;
             } else {
               auto *arr = clusterIt->second.getAsArray();
               for (std::size_t idx = 0; idx < arr->size(); ++idx) {
                 auto *entry = (*arr)[idx].getAsObject();
                 if (!entry) {
-                  pyc::emitError(f, "PYC968") << "`pyc.struct.metrics.repeated_body_clusters[" << idx
-                                << "]` must be an object";
+                  pyc::emitError(f, "PYC968")
+                      << "`pyc.struct.metrics.repeated_body_clusters[" << idx
+                      << "]` must be an object";
                   ok = false;
                   continue;
                 }
-                auto fp = entry->getString("fingerprint");
-                if (!fp || fp->empty()) {
-                  pyc::emitError(f, "PYC969") << "repeated-body cluster #" << idx
-                                << " must provide a non-empty `fingerprint`";
-                  ok = false;
-                }
                 (void)jsonIntFieldNonNegative(f, *entry, "count", "PYC970", ok);
-                (void)jsonIntFieldNonNegative(f, *entry, "node_count", "PYC971", ok);
-                (void)jsonIntFieldNonNegative(f, *entry, "hardware_calls", "PYC972", ok);
-                (void)jsonIntFieldNonNegative(f, *entry, "module_calls", "PYC973", ok);
-                (void)jsonIntFieldNonNegative(f, *entry, "state_calls", "PYC974", ok);
-                (void)jsonIntFieldNonNegative(f, *entry, "loop_extent_hint", "PYC975", ok);
+                (void)jsonIntFieldNonNegative(f, *entry, "node_count", "PYC971",
+                                              ok);
+                (void)jsonIntFieldNonNegative(f, *entry, "hardware_calls",
+                                              "PYC972", ok);
+                (void)jsonIntFieldNonNegative(f, *entry, "module_calls",
+                                              "PYC973", ok);
+                (void)jsonIntFieldNonNegative(f, *entry, "state_calls",
+                                              "PYC974", ok);
+                (void)jsonIntFieldNonNegative(f, *entry, "loop_extent_hint",
+                                              "PYC975", ok);
               }
             }
           }
@@ -982,34 +1035,41 @@ public:
       }
 
       if (structCollections) {
-        llvm::Expected<llvm::json::Value> parsed = llvm::json::parse(structCollections.getValue());
+        llvm::Expected<llvm::json::Value> parsed =
+            llvm::json::parse(structCollections.getValue());
         if (!parsed) {
-          pyc::emitError(f, "PYC976") << "invalid JSON in `pyc.struct.collections`";
+          pyc::emitError(f, "PYC976")
+              << "invalid JSON in `pyc.struct.collections`";
           ok = false;
         } else {
           auto *arr = parsed->getAsArray();
           if (!arr) {
-            pyc::emitError(f, "PYC977") << "`pyc.struct.collections` must encode a JSON array";
+            pyc::emitError(f, "PYC977")
+                << "`pyc.struct.collections` must encode a JSON array";
             ok = false;
           } else {
             for (std::size_t idx = 0; idx < arr->size(); ++idx) {
               auto *entry = (*arr)[idx].getAsObject();
               if (!entry) {
-                pyc::emitError(f, "PYC978") << "`pyc.struct.collections[" << idx << "]` must be an object";
+                pyc::emitError(f, "PYC978") << "`pyc.struct.collections[" << idx
+                                            << "]` must be an object";
                 ok = false;
                 continue;
               }
               auto kindStr = entry->getString("collection_kind");
               if (!kindStr || kindStr->empty()) {
-                pyc::emitError(f, "PYC979") << "structural collection #" << idx
-                              << " must provide `collection_kind`";
+                pyc::emitError(f, "PYC979")
+                    << "structural collection #" << idx
+                    << " must provide `collection_kind`";
                 ok = false;
               }
-              (void)jsonIntFieldNonNegative(f, *entry, "key_count", "PYC980", ok);
+              (void)jsonIntFieldNonNegative(f, *entry, "key_count", "PYC980",
+                                            ok);
               auto familyFlag = entry->getBoolean("from_module_family");
               if (!familyFlag.has_value()) {
-                pyc::emitError(f, "PYC981") << "structural collection #" << idx
-                              << " must provide boolean `from_module_family`";
+                pyc::emitError(f, "PYC981")
+                    << "structural collection #" << idx
+                    << " must provide boolean `from_module_family`";
                 ok = false;
               }
             }

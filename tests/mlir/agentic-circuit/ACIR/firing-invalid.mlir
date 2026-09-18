@@ -13,7 +13,7 @@
 // RUN: %not %acir_opt --verify-each=false --pass-pipeline='builtin.module(ac-verify-rule-closure,ac-freeze-topology)' %t/forged-contract.mlir 2>&1 | %FileCheck %s --check-prefix=FORGED
 
 //--- duplicate-output-presence.mlir
-module attributes {ac.contract_epoch = "0.5"} {
+module  {
   %input = "builtin.unrealized_conversion_cast"() : () -> !ac.queue<i32>
   %a, %b = ac.firing %input depths [1, 1] latencies [1, 1]
       stable_id "bad" domain "cycle" {
@@ -28,7 +28,7 @@ module attributes {ac.contract_epoch = "0.5"} {
 // DUPLICATE-OUTPUT: 'ac.firing.output' op output presence must uniquely name one firing result
 
 //--- effectless.mlir
-module attributes {ac.contract_epoch = "0.5"} {
+module  {
   %input = "builtin.unrealized_conversion_cast"() : () -> !ac.queue<i32>
   %output = ac.firing %input depths [1] latencies [1]
       stable_id "bad" domain "cycle" {
@@ -41,7 +41,7 @@ module attributes {ac.contract_epoch = "0.5"} {
 // EFFECTLESS: requires complete typed rule summary evidence
 
 //--- payload.mlir
-module attributes {ac.contract_epoch = "0.5"} {
+module  {
   %input = "builtin.unrealized_conversion_cast"() : () -> !ac.queue<i32>
   %output = ac.firing %input depths [1] latencies [1]
       stable_id "bad" domain "cycle" {
@@ -53,7 +53,7 @@ module attributes {ac.contract_epoch = "0.5"} {
 // PAYLOAD: yielded values must match output Queue payloads
 
 //--- yield-arity.mlir
-module attributes {ac.contract_epoch = "0.5"} {
+module  {
   %input = "builtin.unrealized_conversion_cast"() : () -> !ac.queue<i32>
   %output = ac.firing %input depths [1] latencies [1]
       stable_id "bad" domain "cycle" {
@@ -64,7 +64,7 @@ module attributes {ac.contract_epoch = "0.5"} {
 // YIELD-ARITY: body must yield one payload per output Queue
 
 //--- domain.mlir
-module attributes {ac.contract_epoch = "0.5"} {
+module  {
   %input = "builtin.unrealized_conversion_cast"() : () -> !ac.queue<i32>
   %output = ac.firing %input depths [1] latencies [1]
       stable_id "bad" domain "bogus" {
@@ -75,7 +75,7 @@ module attributes {ac.contract_epoch = "0.5"} {
 // DOMAIN: firing requires exact time domain 'cycle'
 
 //--- output-presence.mlir
-module attributes {ac.contract_epoch = "0.5"} {
+module  {
   %input = "builtin.unrealized_conversion_cast"() : () -> !ac.queue<i32>
   %output = ac.firing %input depths [1] latencies [1]
       stable_id "bad" domain "cycle" {
@@ -89,7 +89,7 @@ module attributes {ac.contract_epoch = "0.5"} {
 // OUTPUT-PRESENCE: 'ac.firing.output' op ordinal must name one firing output
 
 //--- optional-output-candidate.mlir
-module attributes {ac.contract_epoch = "0.5"} {
+module  {
   %input = "builtin.unrealized_conversion_cast"() : () -> !ac.queue<i32>
   %output = ac.firing %input depths [1] latencies [1]
       stable_id "bad" domain "cycle" {
@@ -105,7 +105,7 @@ module attributes {ac.contract_epoch = "0.5"} {
 // OPTIONAL-OUTPUT: optional output presence requires a true candidate
 
 //--- presence-does-not-imply.mlir
-module attributes {ac.contract_epoch = "0.5"} {
+module  {
   ac.table @state entry i8 entries 1 init 0 owner "/" stable_id "table/state"
   %input = "builtin.unrealized_conversion_cast"() : () -> !ac.queue<i8>
   ac.firing %input depths [] latencies [] stable_id "bad" domain "cycle" {
@@ -122,7 +122,7 @@ module attributes {ac.contract_epoch = "0.5"} {
 // IMPLIES: state proposal presence must imply the firing condition
 
 //--- zero-input-divergence.mlir
-module attributes {ac.contract_epoch = "0.5"} {
+module  {
   ac.table @state entry i8 entries 1 init 0 owner "/" stable_id "table/state"
   ac.firing depths [] latencies [] stable_id "bad" domain "cycle" {
   ^body:
@@ -139,7 +139,7 @@ module attributes {ac.contract_epoch = "0.5"} {
 // DIVERGENCE: requires complete typed rule summary evidence
 
 //--- forged-contract.mlir
-module attributes {ac.contract_epoch = "0.5", ac.model_kind = "queue_graph", ac.queue_graph_domain = "cycle", ac.system = "forged"} {
+module attributes {ac.model_kind = "queue_graph", ac.queue_graph_domain = "cycle", ac.system = "forged"} {
   %input = "builtin.unrealized_conversion_cast"() : () -> !ac.queue<i32>
   %output = ac.firing %input depths [1] latencies [1]
       stable_id "forged" domain "cycle" {
@@ -153,7 +153,7 @@ module attributes {ac.contract_epoch = "0.5", ac.model_kind = "queue_graph", ac.
 // FORGED: removed firing summary attribute 'functional_guard' is not part of canonical ACIR
 
 //--- missing-snapshot.mlir
-module attributes {ac.contract_epoch = "0.5"} {
+module  {
   ac.table @state entry i8 entries 1 init 0 owner "/" stable_id "table/state"
   %input = "builtin.unrealized_conversion_cast"() : () -> !ac.queue<i8>
   ac.firing %input depths [] latencies [] stable_id "missing_snapshot"
@@ -172,7 +172,7 @@ module attributes {ac.contract_epoch = "0.5"} {
 // SNAPSHOT: state snapshot evidence must exactly match predicate reads
 
 //--- extra-snapshot.mlir
-module attributes {ac.contract_epoch = "0.5"} {
+module  {
   ac.table @state entry i8 entries 1 init 0 owner "/" stable_id "table/state"
   %input = "builtin.unrealized_conversion_cast"() : () -> !ac.queue<i8>
   ac.firing %input depths [] latencies [] stable_id "extra_snapshot"

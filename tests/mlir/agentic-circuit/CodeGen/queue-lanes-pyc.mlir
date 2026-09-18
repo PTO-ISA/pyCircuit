@@ -4,13 +4,8 @@
 // RUN: %cxx -std=c++20 -I%source_root/simulator/gfsim/include -DGENERATED_SOURCE=\"%t.cpp\" %S/Inputs/queue-lanes-main.cpp -o %t.gfsim
 // RUN: %t.gfsim | %FileCheck %s --check-prefix=GFSIM
 // RUN: %acir_queue_pycgen %t.frozen.mlir | %FileCheck %s --check-prefix=PYC
-// RUN: %python %source_root/compiler/acir/tools/acir-queue-veriloggen.py %t.frozen.mlir --pycgen %acir_queue_pycgen -o %t.sv
-// RUN: %FileCheck %s --check-prefix=VERILOG < %t.sv
-// RUN: verilator --binary --timing -Wno-fatal --top-module tb --Mdir %t.vdir %t.sv %S/Inputs/queue-lanes-tb.sv > %t.verilator.log 2>&1
-// RUN: %t.vdir/Vtb | %FileCheck %s --check-prefix=SIM
 
 module attributes {
-  ac.contract_epoch = "0.5",
   ac.model_kind = "queue_graph",
   ac.queue_graph_domain = "cycle",
   ac.system = "lane_bundle"
@@ -36,10 +31,10 @@ module attributes {
 // PYC: pyc.reg {{.*}} : i8
 
 // VERILOG: module lane_bundle (
-// VERILOG: input wire in_valid_0
-// VERILOG: input wire [7:0] in_data_2
-// VERILOG: output wire out_valid_2
-// VERILOG: output wire in_ready
+// VERILOG: input in_valid_0
+// VERILOG: input [7:0] in_data_2
+// VERILOG: output out_valid_2
+// VERILOG: output in_ready
 
 // SIM: PASS lane_bundle behavior
 

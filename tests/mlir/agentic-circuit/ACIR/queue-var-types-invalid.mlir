@@ -20,46 +20,46 @@
 // TUPLE-RUNTIME: error: var payload must be an immutable ACIR value type
 
 //--- queue-of-var.mlir
-builtin.module attributes {ac.contract_epoch = "0.5"} {
+builtin.module  {
   "builtin.unrealized_conversion_cast"() : () -> !ac.queue<!ac.var<i32>>
 }
 
 //--- var-of-queue.mlir
-builtin.module attributes {ac.contract_epoch = "0.5"} {
+builtin.module  {
   "builtin.unrealized_conversion_cast"() : () -> !ac.var<!ac.queue<i32>>
 }
 
 //--- queue-of-function.mlir
-builtin.module attributes {ac.contract_epoch = "0.5"} {
+builtin.module  {
   "builtin.unrealized_conversion_cast"() : () -> !ac.queue<(i32) -> i32>
 }
 
 //--- var-of-function.mlir
-builtin.module attributes {ac.contract_epoch = "0.5"} {
+builtin.module  {
   "builtin.unrealized_conversion_cast"() : () -> !ac.var<(i32) -> i32>
 }
 
 //--- array-zero.mlir
-builtin.module attributes {ac.contract_epoch = "0.5"} {
+builtin.module  {
   "builtin.unrealized_conversion_cast"() : () -> !ac.array<0 x !ac.queue<i32>>
 }
 
 //--- array-payload.mlir
-builtin.module attributes {ac.contract_epoch = "0.5"} {
+builtin.module  {
   "builtin.unrealized_conversion_cast"() : () -> !ac.array<2 x i32>
 }
 
 //--- value-array-zero.mlir
-builtin.module attributes {ac.contract_epoch = "0.5"} {
+builtin.module  {
   "builtin.unrealized_conversion_cast"() : () -> !ac.value_array<0 x i8>
 }
 
 //--- value-array-runtime.mlir
-builtin.module attributes {ac.contract_epoch = "0.5"} {
+builtin.module  {
   "builtin.unrealized_conversion_cast"() : () -> !ac.value_array<2 x !ac.queue<i8>>
 }
 
 //--- tuple-runtime.mlir
-builtin.module attributes {ac.contract_epoch = "0.5"} {
+builtin.module  {
   "builtin.unrealized_conversion_cast"() : () -> !ac.var<tuple<i8, !ac.queue<i8>>>
 }\n

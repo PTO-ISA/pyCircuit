@@ -7,7 +7,6 @@ from pathlib import Path
 
 REPOSITORY = Path(__file__).resolve().parents[4]
 WORKSPACE = Path(__file__).resolve().parent / "fixtures" / "normalize"
-ZERO_DIGEST = "sha256:" + "0" * 64
 
 
 def load_fixture(name: str):
@@ -36,7 +35,6 @@ def component_schema(
 
     return ComponentSchema(
         identity=identity,
-        fingerprint=ZERO_DIGEST,
         ports=tuple(
             PortSchema(name, "flow", f"!test.flow<{name}>", "in", "consumer", 1)
             for name in ports

@@ -2805,7 +2805,6 @@ def pipeline() -> None:
         from agentic_circuit._queue_frontend import lower_queue_source
 
         lowered = lower_queue_source(TABLE_SOURCE, "pipeline")
-        self.assertIn('ac.contract_epoch = "0.5"', lowered)
         self.assertIn(
             "ac.table @state entry !ac.struct<@types::@Entry> entries 16 init 0",
             lowered,
@@ -3325,7 +3324,7 @@ def pipeline() -> None:
         from agentic_circuit._queue_frontend import lower_queue_source
 
         self.assertEqual(
-            """module attributes {ac.contract_epoch = "0.5", ac.model_kind = "queue_graph", ac.queue_graph_domain = "cycle", ac.system = "pipeline"} {
+            """module attributes {ac.model_kind = "queue_graph", ac.queue_graph_domain = "cycle", ac.system = "pipeline"} {
   %input_queue = ac.source depth 4 latency 1 {ac.name = "input_queue"} : !ac.queue<i64>
   %output_queue = ac.transform %input_queue depths [8] latencies [2] {
   ^transform(%item: !ac.var<i64>):
@@ -3788,9 +3787,7 @@ def clear_system(value: ac.u16) -> ac.u16:
                 ),
                 "conversions",
             )
-        with self.assertRaisesRegex(
-            QueueFrontendError, "must be a bits value"
-        ):
+        with self.assertRaisesRegex(QueueFrontendError, "must be a bits value"):
             lower_queue_source(
                 TYPED_CONVERSION_SOURCE.replace(
                     "value: ac.u3", "value: bool", 2
@@ -3845,9 +3842,7 @@ def widening(pair: SignedPair) -> ac.s32:
         # The target is a positional concrete type, not a width keyword.
         with self.assertRaisesRegex(QueueFrontendError, "positional arguments only"):
             lower_queue_source(
-                source.replace(
-                    "ac.sext(pair.a, ac.s32)", "ac.sext(pair.a, width=32)"
-                ),
+                source.replace("ac.sext(pair.a, ac.s32)", "ac.sext(pair.a, width=32)"),
                 "widening",
             )
 
@@ -3928,20 +3923,17 @@ def widening(pair: SignedPair) -> ac.s32:
         self.assertIn('{name = "count", type = i8}', wide)
         self.assertRegex(
             wide,
-            r"type = !ac\.value_array<4 x !ac\.struct<@types::@Entry__p[0-9a-f]{12}>>",
+            r"type = !ac\.value_array<4 x !ac\.struct<@types::@Entry__ROB_ENTRIES_128>>",
         )
         self.assertIn('{name = "index", type = i4}', narrow)
         self.assertIn('{name = "count", type = i5}', narrow)
         self.assertRegex(
             narrow,
-            r"type = !ac\.value_array<2 x !ac\.struct<@types::@Entry__p[0-9a-f]{12}>>",
+            r"type = !ac\.value_array<2 x !ac\.struct<@types::@Entry__ROB_ENTRIES_16>>",
         )
         self.assertNotEqual(wide, narrow)
         self.assertIn("ac.static_type_identities", wide)
-        self.assertRegex(
-            wide,
-            r'fingerprint = "sha256:[0-9a-f]{64}".*source = "Entry"',
-        )
+        self.assertIn('source = "Entry", symbol = "Entry__ROB_ENTRIES_128"', wide)
 
     def test_nested_config_fields_concretize_types_with_path_provenance(self) -> None:
         from agentic_circuit._queue_frontend import lower_queue_source
@@ -3970,12 +3962,11 @@ def widening(pair: SignedPair) -> ac.s32:
         self.assertIn("ac.static_config_bindings", lowered)
         self.assertIn('root = "cfg"', lowered)
         self.assertIn('type = "Config"', lowered)
-        self.assertRegex(lowered, r'schema_sha256 = "sha256:[0-9a-f]{64}"')
         self.assertIn(r"\22name\22:\22Geometry\22", lowered)
         self.assertIn('{name = "index", type = i7}', lowered)
         self.assertRegex(
             lowered,
-            r"type = !ac\.value_array<4 x !ac\.struct<@types::@Entry__p[0-9a-f]{12}>>",
+            r"type = !ac\.value_array<4 x !ac\.struct<@types::@Entry__cfg\.geometry\.entries_128>>",
         )
         self.assertNotIn("static_assert", lowered)
 
@@ -4143,15 +4134,15 @@ def design(value: Pair, *, left: ac.const[Config], right: ac.const[Config]) -> P
 
         self.assertRegex(
             lowered,
-            r'target = "Group__p[0-9a-f]{12}\.lanes:array_length"',
+            r'target = "Group__FETCH_WIDTH_4__ROB_ENTRIES_7\.lanes:array_length"',
         )
         self.assertRegex(
             lowered,
-            r'target = "Group__p[0-9a-f]{12}\.lanes\.array_element\.tuple_0:bits"',
+            r'target = "Group__FETCH_WIDTH_4__ROB_ENTRIES_7\.lanes\.array_element\.tuple_0:bits"',
         )
         self.assertRegex(
             lowered,
-            r'target = "Group__p[0-9a-f]{12}\.lanes\.array_element\.tuple_1\.array_element:bits"',
+            r'target = "Group__FETCH_WIDTH_4__ROB_ENTRIES_7\.lanes\.array_element\.tuple_1\.array_element:bits"',
         )
         self.assertIn(
             '"param:ROB_ENTRIES", "index_width", "literal:1", "add"',
@@ -4228,11 +4219,8 @@ def scalar(value: ac.bits[WIDTH], *, width: ac.const[int]) -> ac.bits[WIDTH]:
             "same_specialization",
             static_arguments={"width": 4},
         )
-        symbols = {
-            match.group(0) for match in re.finditer(r"Entry__p[0-9a-f]{12}", lowered)
-        }
-        self.assertEqual(1, len(symbols))
-        self.assertIn("ac.module @stage__p", lowered)
+        self.assertIn("Entry__WIDTH_4", lowered)
+        self.assertIn("ac.module @stage__width_4", lowered)
 
     def test_module_specialization_ignores_unrelated_dependent_payload(self) -> None:
         from agentic_circuit._queue_frontend import lower_queue_source
@@ -4367,7 +4355,6 @@ def design(index: ac.u2, *, entries: ac.const[int]) -> ac.u2:
         self.assertEqual(3, first_entry.field("index").type.bit_width())
         self.assertEqual(3, second_entry.field("index").type.bit_width())
         self.assertNotEqual(first_entry, second_entry)
-        self.assertNotEqual(first_entry.fingerprint, second_entry.fingerprint)
 
         lowered = lower_queue_source(
             MULTI_SPECIALIZATION_TYPE_SOURCE, "multi_specialization"
@@ -4375,10 +4362,10 @@ def design(index: ac.u2, *, entries: ac.const[int]) -> ac.u2:
         entry_declarations = [
             line.strip()
             for line in lowered.splitlines()
-            if line.strip().startswith("ac.struct @Entry__p")
+            if line.strip().startswith("ac.struct @Entry__")
         ]
         self.assertEqual(2, len(entry_declarations))
-        self.assertEqual(2, lowered.count("ac.module @stage__p"))
+        self.assertEqual(2, lowered.count("ac.module @stage__"))
         self.assertEqual(2, lowered.count("ac.instance @"))
 
     def test_module_instances_specialize_from_distinct_typed_configs(self) -> None:
@@ -4405,9 +4392,9 @@ def design(index: ac.u2, *, entries: ac.const[int]) -> ac.u2:
             static_arguments=static_arguments,
         )
 
-        self.assertEqual(2, lowered.count("ac.module @stage__p"))
+        self.assertEqual(2, lowered.count("ac.module @stage__"))
         self.assertEqual(2, lowered.count('type = "Config"'))
-        self.assertEqual(2, lowered.count('root = "stage__p'))
+        self.assertEqual(2, lowered.count('root = "stage__'))
         self.assertIn('cfg = "{\\22entries\\22:5}"', lowered)
         self.assertIn('cfg = "{\\22entries\\22:6}"', lowered)
 
@@ -4512,7 +4499,6 @@ def design(index: ac.u2, *, entries: ac.const[int]) -> ac.u2:
         self.assertIsInstance(first_payload, StructType)
         self.assertEqual(first_payload, second_payload)
         self.assertIsNot(first_payload, second_payload)
-        self.assertEqual(first_payload.fingerprint, second_payload.fingerprint)
         self.assertTrue(
             all(isinstance(queue.payload, ValueType) for queue in first.queues)
         )
@@ -4562,17 +4548,10 @@ def design(index: ac.u2, *, entries: ac.const[int]) -> ac.u2:
         self.assertEqual(1, lowered.count('ac.var.cmp "eq"'))
 
     def test_epoch_05_bool_u1_compatibility_remains_backend_consistent(self) -> None:
-        from agentic_circuit._queue_codegen import lower_queue_program_to_cpp
-        from agentic_circuit._queue_frontend import (
-            lower_queue_source,
-            parse_queue_program,
-        )
+        from agentic_circuit._queue_frontend import lower_queue_source
 
-        program = parse_queue_program(BOOL_U1_COMPARISON_SOURCE, "bool_u1_compare")
         lowered = lower_queue_source(BOOL_U1_COMPARISON_SOURCE, "bool_u1_compare")
-        generated = lower_queue_program_to_cpp(program)
         self.assertIn('ac.var.cmp "eq"', lowered)
-        self.assertIn("item.bit == item.logical", generated)
 
         modules = lower_queue_source(BOOL_U1_MODULE_SOURCE, "bool_u1_modules")
         self.assertIn("ac.module @bit_identity", modules)
@@ -5949,7 +5928,6 @@ def invariant_module(value: Payload) -> Payload:
         lowered = lower_queue_source(BITFIELD_SOURCE, "bitfield_pipeline")
 
         self.assertIn("ac.bitfield @INSTR width 32", lowered)
-        self.assertRegex(lowered, r'fingerprint "sha256:[0-9a-f]{64}"')
         self.assertIn("from 26 width 6", lowered)
         self.assertIn("from 21 width 5", lowered)
         self.assertIn("from 4 width 17", lowered)
@@ -6589,6 +6567,65 @@ def pipeline(left_input: Event, right_input: Event) -> None:
         )
         self.assertIn('name "update" stable_id "result"', lowered)
         self.assertIn('ac.name = "result"', lowered)
+
+    def test_adjacent_ndf_comments_lower_as_nonsemantic_rule_metadata(self) -> None:
+        from agentic_circuit._queue_frontend import (
+            QueueFrontendError,
+            lower_queue_source,
+        )
+
+        source = """import agentic_circuit as ac
+
+# ndf: DAV-TEST-SYSTEM-0001
+@ac.system
+def traced() -> None:
+    incoming = ac.source(ac.u8, depth=1, latency=1)
+    completed = update(incoming)
+    ac.sink(completed)
+
+# ndf: DAV-TEST-RULE-0001
+# ndf:requires DAV-TEST-CONTRACT-0001
+@ac.rule
+def update(value):
+    return value + 1
+"""
+        lowered = lower_queue_source(source, "traced", source_path="model/traced.py")
+
+        self.assertIn('ac.ndf_ids = ["DAV-TEST-SYSTEM-0001"]', lowered)
+        self.assertIn('ac.ndf_ids = ["DAV-TEST-RULE-0001"]', lowered)
+        self.assertIn('ac.ndf_requires = ["DAV-TEST-CONTRACT-0001"]', lowered)
+
+        structured = """import agentic_circuit as ac
+
+# ndf: DAV-TEST-MODULE-0001
+@ac.module
+def increment(value: ac.u8) -> ac.u8:
+    return value + 1
+
+# ndf: DAV-TEST-STRUCTURED-0001
+@ac.system
+def pipeline(value: ac.u8) -> ac.u8:
+    result = increment(value)
+    return result
+"""
+        structured_lowered = lower_queue_source(structured, "pipeline")
+        self.assertRegex(
+            structured_lowered,
+            r"ac\.module @increment.*ac\.ndf_ids = "
+            r'\["DAV-TEST-MODULE-0001"\]',
+        )
+        self.assertRegex(
+            structured_lowered,
+            r"ac\.module @Top.*ac\.ndf_ids = "
+            r'\["DAV-TEST-STRUCTURED-0001"\]',
+        )
+        with self.assertRaisesRegex(QueueFrontendError, "invalid NDF comment"):
+            lower_queue_source(
+                source.replace(
+                    "DAV-TEST-RULE-0001", "DAV-TEST-RULE-0001 trailing-junk"
+                ),
+                "traced",
+            )
 
     def test_queue_topology_statements_preserve_python_locations(self) -> None:
         from agentic_circuit._queue_frontend import lower_queue_source

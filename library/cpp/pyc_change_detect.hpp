@@ -14,8 +14,7 @@ namespace pyc::cpp {
 // snapshot taken at the previous observation point.
 // ---------------------------------------------------------------------------
 
-template <unsigned Width>
-class ChangeDetector {
+template <unsigned Width> class ChangeDetector {
 public:
   explicit ChangeDetector(const Wire<Width> &target) : target_(target) {
     snapshot_ = target;
@@ -37,12 +36,13 @@ private:
 };
 
 // ---------------------------------------------------------------------------
-// InputFingerprint — tracks whether *any* of a set of primary inputs changed
+// InputChangeTracker — tracks whether any primary input changed
 // since the last capture.  Uses a simple XOR-fold hash over raw words for
 // O(1) fast-path rejection, with a full comparison fallback.
 //
 // Usage (in a CAPI wrapper or testbench):
-//   InputFingerprint<80, 5, 40, 320> fp(dut.raddr_bus, dut.wen_bus, ...);
+//   InputChangeTracker<80, 5, 40, 320> tracker(dut.raddr_bus, dut.wen_bus,
+//   ...);
 //   ...
 //   if (fp.check_and_capture()) { dut.eval(); }
 // ---------------------------------------------------------------------------
@@ -55,19 +55,17 @@ inline void xor_fold(const Wire<Width> &w, std::uint64_t &acc) {
     acc ^= w.word(i) * (0x9E3779B97F4A7C15ULL + i);
 }
 
-template <unsigned Width>
-inline std::size_t wire_bytes() {
+template <unsigned Width> inline std::size_t wire_bytes() {
   return Wire<Width>::kWords * sizeof(std::uint64_t);
 }
 
 } // namespace detail
 
-template <unsigned... Widths>
-class InputFingerprint {
+template <unsigned... Widths> class InputChangeTracker {
 public:
   static constexpr std::size_t kTotalWords = ((Wire<Widths>::kWords + ... + 0));
 
-  explicit InputFingerprint(const Wire<Widths> &...wires)
+  explicit InputChangeTracker(const Wire<Widths> &...wires)
       : ptrs_{wires.data()...}, sizes_{Wire<Widths>::kWords...} {
     do_capture();
   }
@@ -136,14 +134,13 @@ private:
 //   guard.eval();   // only calls eval_comb_0 if raddr_bus or wen_bus changed
 // ---------------------------------------------------------------------------
 
-template <typename Fn, unsigned... InputWidths>
-class EvalGuard {
+template <typename Fn, unsigned... InputWidths> class EvalGuard {
 public:
   explicit EvalGuard(Fn fn, const Wire<InputWidths> &...inputs)
-      : fn_(fn), fp_(inputs...) {}
+      : fn_(fn), tracker_(inputs...) {}
 
   bool eval() {
-    if (fp_.check_and_capture()) {
+    if (tracker_.check_and_capture()) {
       fn_();
       return true;
     }
@@ -151,13 +148,13 @@ public:
   }
 
   void force_eval() {
-    fp_.capture();
+    tracker_.capture();
     fn_();
   }
 
 private:
   Fn fn_;
-  InputFingerprint<InputWidths...> fp_;
+  InputChangeTracker<InputWidths...> tracker_;
 };
 
 template <typename Fn, unsigned... Ws>

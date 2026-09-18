@@ -1,6 +1,6 @@
 // RUN: %acir_opt %s | %FileCheck %s
 
-module attributes {ac.contract_epoch = "0.5"} {
+module  {
   ac.table @entries entry i8 entries 4 init 0 owner "/" stable_id "table/entries"
   %mask = ac.table.match @entries predicate {
   ^predicate(%entry: !ac.var<i8>):

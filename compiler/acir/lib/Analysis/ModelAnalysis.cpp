@@ -15,7 +15,6 @@
 #include "llvm/ADT/SmallSet.h"
 #include "llvm/ADT/StringExtras.h"
 #include "llvm/ADT/StringMap.h"
-#include "llvm/Support/SHA256.h"
 #include "llvm/Support/raw_ostream.h"
 
 #include <algorithm>
@@ -30,7 +29,10 @@ namespace acir {
 namespace {
 
 bool isNonSemanticMetadataAttribute(StringRef name) {
-  return name == "ac.topology_digest" || name == "ac.source_provenance";
+  return name == "ac.source_provenance" ||
+         name == "ac.source_file" || name == "ac.source_line" ||
+         name == "ac.source_column" || name == "ac.ndf_ids" ||
+         name == "ac.ndf_requires";
 }
 
 std::string attributeToken(Attribute attribute) {
@@ -738,8 +740,8 @@ bool detail::hasTopologyFreezeEvidence(ModuleOp model) {
   model.walk([&](Operation *operation) {
     for (NamedAttribute attribute : operation->getAttrs()) {
       StringRef name = attribute.getName().getValue();
-      if (name == "ac.freeze_epoch" || name == "ac.freeze_proven" ||
-          name.starts_with("ac.frozen_") || name.starts_with("ac.topology_")) {
+      if (name == "ac.freeze_proven" || name.starts_with("ac.frozen_") ||
+          name.starts_with("ac.topology_")) {
         evidence = true;
         return WalkResult::interrupt();
       }
@@ -1034,81 +1036,14 @@ FailureOr<ArrayAttr> detail::buildFrozenOwnerManifest(ModuleOp model) {
   return builder.getArrayAttr(manifest);
 }
 
-std::string detail::computeTopologyDigest(ModuleOp model) {
-  std::string serialized;
-  llvm::raw_string_ostream stream(serialized);
-  serializeTopology(model, stream);
-  stream.flush();
-  llvm::SHA256 sha;
-  sha.update(serialized);
-  return llvm::toHex(sha.final(), /*LowerCase=*/true);
-}
-
-namespace {
-
-std::string sha256Fingerprint(StringRef value) {
-  llvm::SHA256 sha;
-  sha.update(value);
-  return "sha256:" + llvm::toHex(sha.final(), /*LowerCase=*/true);
-}
-
-bool isSha256Fingerprint(StringRef value) {
-  if (!value.consume_front("sha256:") || value.size() != 64)
-    return false;
-  return llvm::all_of(value, [](char character) {
-    return std::isxdigit(static_cast<unsigned char>(character)) &&
-           !std::isupper(static_cast<unsigned char>(character));
-  });
-}
-
-std::string printWithoutQueueGraphFingerprints(ac::ModuleOp definition) {
-  Operation *copy = definition->clone();
-  copy->walk([](Operation *operation) {
-    operation->removeAttr("ac.definition_fingerprint");
-    operation->removeAttr("ac.specialization");
-    operation->removeAttr("ac.display_name");
-    operation->removeAttr("ac.input_display_names");
-    operation->removeAttr("ac.output_display_names");
-    operation->removeAttr("ac.source_file");
-    operation->removeAttr("ac.source_line");
-    operation->removeAttr("ac.source_column");
-    operation->removeAttr("ac.source_provenance");
-  });
-  std::string serialized;
-  llvm::raw_string_ostream stream(serialized);
-  copy->print(stream);
-  stream.flush();
-  copy->destroy();
-  return serialized;
-}
-
-} // namespace
-
-std::string
-detail::computeQueueGraphDefinitionFingerprint(ac::ModuleOp definition) {
-  return sha256Fingerprint(printWithoutQueueGraphFingerprints(definition));
-}
-
-std::string detail::computeQueueGraphSpecializationFingerprint(
-    ac::ModuleOp definition, DictionaryAttr staticArguments) {
-  std::string serialized = computeQueueGraphDefinitionFingerprint(definition);
-  serialized.append("\nstatic_args=");
-  llvm::raw_string_ostream stream(serialized);
-  stream << staticArguments;
-  stream.flush();
-  return sha256Fingerprint(serialized);
-}
-
 LogicalResult verifyFrozenFlatQueueGraph(ModuleOp model) {
-  auto contractEpoch = model->getAttrOfType<StringAttr>("ac.contract_epoch");
   auto modelKind = model->getAttrOfType<StringAttr>("ac.model_kind");
   auto system = model->getAttrOfType<StringAttr>("ac.system");
   auto domain = model->getAttrOfType<StringAttr>("ac.queue_graph_domain");
-  if (!contractEpoch || contractEpoch.getValue() != "0.5" || !modelKind ||
-      modelKind.getValue() != "queue_graph" || !system ||
+  if (!modelKind || modelKind.getValue() != "queue_graph" || !system ||
       system.getValue().empty() || !domain || domain.getValue() != "cycle")
     return model.emitError(
-        "frozen flat QueueGraph requires epoch 0.5, model kind queue_graph, "
+        "closed flat QueueGraph requires model kind queue_graph, "
         "a non-empty system identity, and exact cycle domain");
   for (Operation &operation : model.getBody()->getOperations()) {
     if (isa<ac::SystemOp, ac::ModuleOp, ac::ModuleExternOp>(operation))
@@ -1116,26 +1051,19 @@ LogicalResult verifyFrozenFlatQueueGraph(ModuleOp model) {
           "is not legal at the top level of a flat QueueGraph model");
   }
   auto frozen = model->getAttrOfType<BoolAttr>("ac.topology_frozen");
-  auto epoch = model->getAttrOfType<StringAttr>("ac.freeze_epoch");
   auto owners = model->getAttrOfType<ArrayAttr>("ac.frozen_owners");
-  auto digest = model->getAttrOfType<StringAttr>("ac.topology_digest");
-  if (!frozen || !frozen.getValue() || !epoch || epoch.getValue() != "0.5" ||
-      !owners || !owners.empty() || !digest || digest.getValue().size() != 64)
-    return model.emitError("malformed flat QueueGraph freeze evidence");
-  if (digest.getValue() != detail::computeTopologyDigest(model))
-    return model.emitError("frozen flat QueueGraph digest mismatch");
+  if (!frozen || !frozen.getValue() || !owners || !owners.empty())
+    return model.emitError("malformed flat QueueGraph closure evidence");
   return success();
 }
 
 LogicalResult verifyFrozenStructuredQueueGraph(ModuleOp model) {
-  auto contractEpoch = model->getAttrOfType<StringAttr>("ac.contract_epoch");
   auto modelKind = model->getAttrOfType<StringAttr>("ac.model_kind");
   auto domain = model->getAttrOfType<StringAttr>("ac.queue_graph_domain");
-  if (!contractEpoch || contractEpoch.getValue() != "0.5" || !modelKind ||
-      modelKind.getValue() != "queue_graph" || !domain ||
+  if (!modelKind || modelKind.getValue() != "queue_graph" || !domain ||
       domain.getValue() != "cycle")
     return model.emitError(
-        "frozen structured QueueGraph requires epoch 0.5, model kind "
+        "closed structured QueueGraph requires model kind "
         "queue_graph, and exact cycle domain");
   if (model.getOps<ac::SystemOp>().empty() ||
       model.getOps<ac::ModuleOp>().empty())
@@ -1182,28 +1110,6 @@ LogicalResult verifyFrozenStructuredQueueGraph(ModuleOp model) {
       if (!isa<ac::QueueType>(type))
         return definition.emitOpError(
             "structured QueueGraph module results must be ac.queue values");
-    auto definitionFingerprint =
-        definition->getAttrOfType<StringAttr>("ac.definition_fingerprint");
-    auto rootSpecialization =
-        definition->getAttrOfType<StringAttr>("ac.specialization");
-    if (!definitionFingerprint ||
-        !isSha256Fingerprint(definitionFingerprint.getValue()) ||
-        definitionFingerprint.getValue() !=
-            detail::computeQueueGraphDefinitionFingerprint(definition))
-      return definition.emitOpError(
-          "QueueGraph definition fingerprint is missing or stale");
-    if (definition == root) {
-      if (!rootSpecialization ||
-          rootSpecialization.getValue() !=
-              detail::computeQueueGraphSpecializationFingerprint(
-                  definition, definition.getStaticParams()))
-        return definition.emitOpError(
-            "QueueGraph root specialization fingerprint is missing or stale");
-    } else if (rootSpecialization) {
-      return definition.emitOpError(
-          "non-root QueueGraph definition cannot carry one global "
-          "specialization fingerprint");
-    }
     for (Operation &child : definition.getBody().front()) {
       if (!isa<ac::ScopeOp, ac::InstanceOp, ac::ReturnOp>(child))
         return child.emitOpError(
@@ -1214,31 +1120,20 @@ LogicalResult verifyFrozenStructuredQueueGraph(ModuleOp model) {
         continue;
       auto target = dyn_cast_or_null<ac::ModuleOp>(
           symbols.lookup(instance.getDefinitionAttr().getValue()));
-      auto specialization =
-          instance->getAttrOfType<StringAttr>("ac.specialization");
-      if (!target || !specialization ||
-          !isSha256Fingerprint(specialization.getValue()) ||
-          specialization.getValue() !=
-              detail::computeQueueGraphSpecializationFingerprint(
-                  target, instance.getStaticArgs()))
+      if (!target)
         return instance.emitOpError(
-            "QueueGraph specialization fingerprint is missing or stale");
+            "QueueGraph instance definition is unresolved");
     }
   }
 
   auto frozen = model->getAttrOfType<BoolAttr>("ac.topology_frozen");
-  auto epoch = model->getAttrOfType<StringAttr>("ac.freeze_epoch");
   auto owners = model->getAttrOfType<ArrayAttr>("ac.frozen_owners");
-  auto digest = model->getAttrOfType<StringAttr>("ac.topology_digest");
-  if (!frozen || !frozen.getValue() || !epoch || epoch.getValue() != "0.5" ||
-      !owners || !digest || digest.getValue().size() != 64)
-    return model.emitError("malformed structured QueueGraph freeze evidence");
+  if (!frozen || !frozen.getValue() || !owners)
+    return model.emitError("malformed structured QueueGraph closure evidence");
   FailureOr<ArrayAttr> expectedOwners = detail::buildFrozenOwnerManifest(model);
   if (failed(expectedOwners) || owners != *expectedOwners)
     return model.emitError(
         "structured QueueGraph frozen owner manifest mismatch");
-  if (digest.getValue() != detail::computeTopologyDigest(model))
-    return model.emitError("frozen structured QueueGraph digest mismatch");
   return success();
 }
 
@@ -1246,14 +1141,10 @@ LogicalResult ModelAnalysis::verifyFrozenIntegrity() {
   if (!detail::hasTopologyFreezeEvidence(model))
     return success();
   auto marker = model->getAttrOfType<BoolAttr>("ac.topology_frozen");
-  auto epoch = model->getAttrOfType<StringAttr>("ac.freeze_epoch");
-  auto digest = model->getAttrOfType<StringAttr>("ac.topology_digest");
   auto owners = model->getAttrOfType<ArrayAttr>("ac.frozen_owners");
-  if (!marker || !marker.getValue() || !epoch || epoch.getValue() != "0.5" ||
-      !digest || digest.getValue().size() != 64 || !owners)
+  if (!marker || !marker.getValue() || !owners)
     return model.emitError(
-        "malformed topology freeze marker; expected epoch 0.5, owner manifest, "
-        "and SHA-256 digest");
+        "malformed topology closure marker; expected owner manifest");
   LogicalResult skeletonResult = success();
   model.walk([&](ac::ProcessOp process) {
     if (failed(skeletonResult))
@@ -1274,11 +1165,6 @@ LogicalResult ModelAnalysis::verifyFrozenIntegrity() {
   });
   if (failed(skeletonResult))
     return failure();
-  std::string actual = detail::computeTopologyDigest(model);
-  if (digest.getValue() != actual)
-    return model.emitError(
-        "frozen topology digest mismatch; topology was mutated after "
-        "ac-freeze-topology");
   FailureOr<ArrayAttr> expectedOwners = detail::buildFrozenOwnerManifest(model);
   if (failed(expectedOwners))
     return failure();
@@ -1292,12 +1178,6 @@ LogicalResult ModelAnalysis::verifyFrozenIntegrity() {
 LogicalResult ModelAnalysis::verify() {
   if (failed(detail::preflightModelStructure(model)))
     return failure();
-
-  auto epoch = model->getAttrOfType<StringAttr>("ac.contract_epoch");
-  if (!epoch || epoch.getValue() != "0.5")
-    return model.emitError(
-        "expected top-level 'ac.contract_epoch' string attribute equal to "
-        "\"0.5\"");
 
   if (failed(verifyPureProcessCalls()))
     return failure();

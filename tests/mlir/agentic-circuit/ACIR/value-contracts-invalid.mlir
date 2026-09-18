@@ -15,7 +15,7 @@
 // RUN: %not %acir_opt %t/recursive-descriptor.mlir 2>&1 | %FileCheck %s --check-prefix=RECURSIVE
 
 //--- nominal-mismatch.mlir
-module attributes {ac.contract_epoch = "0.5"} {
+module  {
   ac.type_scope @types {
     ac.struct @A fields [{name = "value", type = i8}]
     ac.struct @B fields [{name = "value", type = i8}]
@@ -30,7 +30,7 @@ module attributes {ac.contract_epoch = "0.5"} {
 // NOMINAL: use of value '%rhs' expects different type than prior uses
 
 //--- ordered-aggregate.mlir
-module attributes {ac.contract_epoch = "0.5"} {
+module  {
   ac.type_scope @types {
     ac.struct @S fields [{name = "value", type = i8}]
   } {dlti.dl_spec = #dlti.dl_spec<!ac.struct<@types::@S> = {abi_alignment = 1 : i64, endianness = "little", preferred_alignment = 1 : i64, size = 1 : i64}>}
@@ -41,7 +41,7 @@ module attributes {ac.contract_epoch = "0.5"} {
 // ORDERED: aggregate comparison supports only eq or ne
 
 //--- bad-result.mlir
-module attributes {ac.contract_epoch = "0.5"} {
+module  {
   %lhs = "builtin.unrealized_conversion_cast"() : () -> !ac.var<tuple<i8, i8>>
   %rhs = "builtin.unrealized_conversion_cast"() : () -> !ac.var<tuple<i8, i8>>
   %bad = ac.var.cmp "eq" %lhs, %rhs : !ac.var<tuple<i8, i8>> -> !ac.var<i8>
@@ -49,7 +49,7 @@ module attributes {ac.contract_epoch = "0.5"} {
 // RESULT: result must be !ac.var<i1>
 
 //--- invariant-input.mlir
-module attributes {ac.contract_epoch = "0.5"} {
+module  {
   %input = ac.var.constant 0 : i8 as !ac.var<i8>
   %bad = ac.var.invariant %input name "Scalar.bad" {
   ^bb0(%value: !ac.var<i8>):
@@ -60,7 +60,7 @@ module attributes {ac.contract_epoch = "0.5"} {
 // INPUT: invariant 'Scalar.bad' for {{.*}}: input must carry a resolved nominal ac.struct payload
 
 //--- invariant-argument.mlir
-module attributes {ac.contract_epoch = "0.5"} {
+module  {
   ac.type_scope @types {
     ac.struct @S fields [{name = "value", type = i8}]
   } {dlti.dl_spec = #dlti.dl_spec<!ac.struct<@types::@S> = {abi_alignment = 1 : i64, endianness = "little", preferred_alignment = 1 : i64, size = 1 : i64}>}
@@ -74,7 +74,7 @@ module attributes {ac.contract_epoch = "0.5"} {
 // ARGUMENT: invariant 'S.bad_argument' for {{.*}}: predicate must take exactly one argument matching the input
 
 //--- invariant-yield.mlir
-module attributes {ac.contract_epoch = "0.5"} {
+module  {
   ac.type_scope @types {
     ac.struct @S fields [{name = "value", type = i8}]
   } {dlti.dl_spec = #dlti.dl_spec<!ac.struct<@types::@S> = {abi_alignment = 1 : i64, endianness = "little", preferred_alignment = 1 : i64, size = 1 : i64}>}
@@ -88,7 +88,7 @@ module attributes {ac.contract_epoch = "0.5"} {
 // YIELD: invariant 'S.bad_yield' for {{.*}}: predicate must yield !ac.var<i1>
 
 //--- invariant-effect.mlir
-module attributes {ac.contract_epoch = "0.5"} {
+module  {
   ac.type_scope @types {
     ac.struct @S fields [{name = "value", type = i8}]
   } {dlti.dl_spec = #dlti.dl_spec<!ac.struct<@types::@S> = {abi_alignment = 1 : i64, endianness = "little", preferred_alignment = 1 : i64, size = 1 : i64}>}
@@ -105,7 +105,7 @@ module attributes {ac.contract_epoch = "0.5"} {
 // EFFECT: invariant 'S.effect' for {{.*}}: unsupported effectful predicate operation 'ac.table.get'
 
 //--- invariant-name.mlir
-module attributes {ac.contract_epoch = "0.5"} {
+module  {
   ac.type_scope @types {
     ac.struct @S fields [{name = "value", type = i8}]
   } {dlti.dl_spec = #dlti.dl_spec<!ac.struct<@types::@S> = {abi_alignment = 1 : i64, endianness = "little", preferred_alignment = 1 : i64, size = 1 : i64}>}
@@ -119,7 +119,7 @@ module attributes {ac.contract_epoch = "0.5"} {
 // NAME: invariant 'Other.bad' for {{.*}}: name must have exact '<Payload>.<function>' form
 
 //--- invariant-recursive.mlir
-module attributes {ac.contract_epoch = "0.5"} {
+module  {
   ac.type_scope @types {
     ac.struct @S fields [{name = "value", type = i8}]
   } {dlti.dl_spec = #dlti.dl_spec<!ac.struct<@types::@S> = {abi_alignment = 1 : i64, endianness = "little", preferred_alignment = 1 : i64, size = 1 : i64}>}
@@ -137,7 +137,7 @@ module attributes {ac.contract_epoch = "0.5"} {
 // INVARIANT-RECURSIVE: invariant 'S.same' for {{.*}}: recursive invariant call repeats an ancestor name
 
 //--- invariant-indirect-recursive.mlir
-module attributes {ac.contract_epoch = "0.5"} {
+module  {
   ac.type_scope @types {
     ac.struct @S fields [{name = "value", type = i8}]
   } {dlti.dl_spec = #dlti.dl_spec<!ac.struct<@types::@S> = {abi_alignment = 1 : i64, endianness = "little", preferred_alignment = 1 : i64, size = 1 : i64}>}
@@ -159,7 +159,7 @@ module attributes {ac.contract_epoch = "0.5"} {
 // INVARIANT-INDIRECT: invariant 'S.first' for {{.*}}: recursive invariant call repeats an ancestor name
 
 //--- invariant-nested-capture.mlir
-module attributes {ac.contract_epoch = "0.5"} {
+module  {
   ac.type_scope @types {
     ac.struct @S fields [{name = "value", type = i8}]
   } {dlti.dl_spec = #dlti.dl_spec<!ac.struct<@types::@S> = {abi_alignment = 1 : i64, endianness = "little", preferred_alignment = 1 : i64, size = 1 : i64}>}
@@ -179,7 +179,7 @@ module attributes {ac.contract_epoch = "0.5"} {
 // NESTED-CAPTURE: invariant 'S.inner' for {{.*}}: predicate captures a value outside its input region
 
 //--- invariant-yield-capture.mlir
-module attributes {ac.contract_epoch = "0.5"} {
+module  {
   ac.type_scope @types {
     ac.struct @S fields [{name = "value", type = i8}]
   } {dlti.dl_spec = #dlti.dl_spec<!ac.struct<@types::@S> = {abi_alignment = 1 : i64, endianness = "little", preferred_alignment = 1 : i64, size = 1 : i64}>}
@@ -193,7 +193,7 @@ module attributes {ac.contract_epoch = "0.5"} {
 // YIELD-CAPTURE: invariant 'S.external_yield' for {{.*}}: predicate yield captures a value outside its input region
 
 //--- invariant-nested-yield-capture.mlir
-module attributes {ac.contract_epoch = "0.5"} {
+module  {
   ac.type_scope @types {
     ac.struct @S fields [{name = "value", type = i8}]
   } {dlti.dl_spec = #dlti.dl_spec<!ac.struct<@types::@S> = {abi_alignment = 1 : i64, endianness = "little", preferred_alignment = 1 : i64, size = 1 : i64}>}
@@ -211,7 +211,7 @@ module attributes {ac.contract_epoch = "0.5"} {
 // NESTED-YIELD-CAPTURE: invariant 'S.inner' for {{.*}}: predicate yield captures a value outside its input region
 
 //--- recursive-descriptor.mlir
-module attributes {ac.contract_epoch = "0.5"} {
+module  {
   ac.type_scope @types {
     ac.struct @Recursive fields [{name = "self", type = !ac.struct<@types::@Recursive>}]
   } {dlti.dl_spec = #dlti.dl_spec<!ac.struct<@types::@Recursive> = {abi_alignment = 1 : i64, endianness = "little", preferred_alignment = 1 : i64, size = 1 : i64}>}

@@ -10,8 +10,7 @@
       ],
       "cpp_emitter": "compiler/mlir/lib/Emit/CppEmitter.cpp",
       "e2e": [
-        "tests/integration/agentic-circuit/e2e/test_array_combinator_runtime.py",
-        "tests/integration/agentic-circuit/e2e/test_pyc_backend.py"
+        "tests/integration/agentic-circuit/e2e/test_array_combinator_runtime.py"
       ],
       "examples": [
         "examples/agentic-circuit/blocks/array_combinators.py"
@@ -41,7 +40,6 @@
       "tests": [
         "tests/cpp/agentic-circuit/CodeGen/QueueGraphPlanTest.cpp",
         "tests/integration/agentic-circuit/e2e/test_array_combinator_runtime.py",
-        "tests/integration/agentic-circuit/e2e/test_pyc_backend.py",
         "tests/mlir/agentic-circuit/ACIR/static-type-metadata.mlir",
         "tests/mlir/agentic-circuit/CodeGen/atomic-transform.mlir",
         "tests/mlir/agentic-circuit/CodeGen/pure-helpers.mlir",
@@ -50,8 +48,6 @@
         "tests/mlir/agentic-circuit/CodeGen/table-runtime-row-pyc.mlir",
         "tests/mlir/agentic-circuit/PYC/source-provenance-cse.mlir",
         "tests/mlir/agentic-circuit/Transforms/rule-multi-input-lowering.mlir",
-        "tests/python/agentic-circuit/contracts/test_contracts.py",
-        "tests/python/agentic-circuit/python_frontend/test_jit_source_closure.py",
         "tests/python/agentic-circuit/python_frontend/test_queue_frontend.py",
         "tests/unit/test_pyc6_surface.py",
         "tests/unit/test_pyc_ir_inventory.py",
@@ -108,9 +104,7 @@
         "compiler/mlir/lib/Transforms/FuseCombPass.cpp"
       ],
       "cpp_emitter": "compiler/mlir/lib/Emit/CppEmitter.cpp",
-      "e2e": [
-        "tests/integration/agentic-circuit/e2e/test_pyc_backend.py"
-      ],
+      "e2e": [],
       "examples": [],
       "folder": "compiler/mlir/lib/Dialect/PYC/PYCOps.cpp",
       "kind": "operation",
@@ -132,7 +126,6 @@
       "symbol": "PYC_AndOp",
       "tests": [
         "tests/cpp/agentic-circuit/CodeGen/QueueGraphPlanTest.cpp",
-        "tests/integration/agentic-circuit/e2e/test_pyc_backend.py",
         "tests/mlir/agentic-circuit/CodeGen/bit-widths.mlir",
         "tests/mlir/agentic-circuit/CodeGen/masked-match.mlir",
         "tests/mlir/agentic-circuit/CodeGen/table-writer-arbitration-pyc.mlir",
@@ -205,7 +198,6 @@
         "tests/cpp/agentic-circuit/Dialect/ACIR/OpsTest.cpp",
         "tests/mlir/agentic-circuit/CodeGen/queue-lanes-pyc.mlir",
         "tests/mlir/agentic-circuit/CodeGen/table-multidimensional-pyc.mlir",
-        "tests/python/agentic-circuit/tools/test_pyc_verilog_backend.py",
         "tests/test_assert_fits.py"
       ],
       "verifier": "compiler/mlir/lib/Dialect/PYC/PYCOps.cpp",
@@ -223,9 +215,7 @@
         "compiler/mlir/lib/Transforms/EliminateWiresPass.cpp"
       ],
       "cpp_emitter": "compiler/mlir/lib/Emit/CppEmitter.cpp",
-      "e2e": [
-        "tests/integration/agentic-circuit/e2e/test_table_backend.py"
-      ],
+      "e2e": [],
       "examples": [],
       "folder": null,
       "kind": "operation",
@@ -251,7 +241,6 @@
       "symbol": "PYC_AssignOp",
       "tests": [
         "tests/cpp/agentic-circuit/CodeGen/QueueGraphPlanTest.cpp",
-        "tests/integration/agentic-circuit/e2e/test_table_backend.py",
         "tests/mlir/agentic-circuit/CodeGen/atomic-transform.mlir",
         "tests/mlir/agentic-circuit/CodeGen/pure-helpers.mlir",
         "tests/mlir/agentic-circuit/CodeGen/table-multi-selection-pyc.mlir",
@@ -362,9 +351,7 @@
         "compiler/mlir/lib/Transforms/FuseCombPass.cpp"
       ],
       "cpp_emitter": "compiler/mlir/lib/Emit/CppEmitter.cpp",
-      "e2e": [
-        "tests/integration/agentic-circuit/e2e/test_pyc_backend.py"
-      ],
+      "e2e": [],
       "examples": [],
       "folder": "compiler/mlir/lib/Dialect/PYC/PYCOps.cpp",
       "kind": "operation",
@@ -387,12 +374,10 @@
       "symbol": "PYC_CmpOp",
       "tests": [
         "tests/cpp/agentic-circuit/CodeGen/QueueGraphPlanTest.cpp",
-        "tests/integration/agentic-circuit/e2e/test_pyc_backend.py",
         "tests/mlir/agentic-circuit/CodeGen/masked-match.mlir",
         "tests/mlir/agentic-circuit/CodeGen/table-runtime-row-pyc.mlir",
         "tests/mlir/pyc/canonical-cmp-invalid.mlir",
         "tests/mlir/pyc/canonical-ops-valid.mlir",
-        "tests/python/agentic-circuit/tools/test_pyc_verilog_backend.py",
         "tests/test_assert_fits.py",
         "tests/test_bitmask_match.py",
         "tests/test_pyc_canonical_ops.py",
@@ -441,7 +426,6 @@
       ],
       "cpp_emitter": "compiler/mlir/lib/Emit/CppEmitter.cpp",
       "e2e": [
-        "tests/integration/agentic-circuit/e2e/test_pyc_backend.py",
         "tests/integration/agentic-circuit/e2e/test_typed_record_pyc.py"
       ],
       "examples": [],
@@ -471,7 +455,6 @@
       "tests": [
         "tests/cpp/agentic-circuit/CodeGen/QueueGraphPlanTest.cpp",
         "tests/cpp/agentic-circuit/Dialect/ACIR/OpsTest.cpp",
-        "tests/integration/agentic-circuit/e2e/test_pyc_backend.py",
         "tests/integration/agentic-circuit/e2e/test_typed_record_pyc.py",
         "tests/mlir/agentic-circuit/ACIR/collections-invalid.mlir",
         "tests/mlir/agentic-circuit/ACIR/collections-valid.mlir",
@@ -499,9 +482,7 @@
         "compiler/mlir/lib/Transforms/LowerSCFToPYCStaticPass.cpp"
       ],
       "cpp_emitter": "compiler/mlir/lib/Emit/CppEmitter.cpp",
-      "e2e": [
-        "tests/integration/agentic-circuit/e2e/test_pyc_backend.py"
-      ],
+      "e2e": [],
       "examples": [],
       "folder": "compiler/mlir/lib/Dialect/PYC/PYCOps.cpp",
       "kind": "operation",
@@ -526,7 +507,6 @@
       "symbol": "PYC_ConstantOp",
       "tests": [
         "tests/cpp/agentic-circuit/CodeGen/QueueGraphPlanTest.cpp",
-        "tests/integration/agentic-circuit/e2e/test_pyc_backend.py",
         "tests/mlir/agentic-circuit/CodeGen/masked-match.mlir",
         "tests/mlir/agentic-circuit/CodeGen/table-masked-write-pyc.mlir",
         "tests/mlir/agentic-circuit/CodeGen/table-selection-write-pyc.mlir",
@@ -534,7 +514,6 @@
         "tests/mlir/agentic-circuit/PYC/source-provenance-cse.mlir",
         "tests/mlir/agentic-circuit/PYC/source-provenance-eliminate-wire.mlir",
         "tests/mlir/agentic-circuit/PYC/source-provenance.mlir",
-        "tests/python/agentic-circuit/contracts/test_contracts.py",
         "tests/test_pyc_canonical_ops.py",
         "tests/test_pyc_enum.py"
       ],
@@ -581,7 +560,6 @@
         "tests/cpp/agentic-circuit/CodeGen/QueueGraphPlanTest.cpp",
         "tests/mlir/agentic-circuit/CodeGen/count-leading-zeros.mlir",
         "tests/mlir/pyc/count-leading-zeros-primitive.mlir",
-        "tests/python/agentic-circuit/tools/test_pyc_verilog_backend.py",
         "tests/system/test_primitive_selection.py",
         "tests/unit/test_pyc6_surface.py",
         "tests/unit/test_pyc_ir_inventory.py"
@@ -599,7 +577,6 @@
       ],
       "cpp_emitter": "compiler/mlir/lib/Emit/CppEmitter.cpp",
       "e2e": [
-        "tests/integration/agentic-circuit/e2e/test_pyc_backend.py",
         "tests/integration/agentic-circuit/e2e/test_typed_record_pyc.py"
       ],
       "examples": [],
@@ -624,7 +601,6 @@
       "symbol": "PYC_ExtractOp",
       "tests": [
         "tests/cpp/agentic-circuit/CodeGen/QueueGraphPlanTest.cpp",
-        "tests/integration/agentic-circuit/e2e/test_pyc_backend.py",
         "tests/integration/agentic-circuit/e2e/test_typed_record_pyc.py",
         "tests/mlir/agentic-circuit/CodeGen/bit-operations.mlir",
         "tests/mlir/agentic-circuit/CodeGen/table-field-replace-order-pyc.mlir",
@@ -649,9 +625,7 @@
         "compiler/mlir/lib/Transforms/EliminateDeadStatePass.cpp"
       ],
       "cpp_emitter": "compiler/mlir/lib/Emit/CppEmitter.cpp",
-      "e2e": [
-        "tests/integration/agentic-circuit/e2e/test_pyc_backend.py"
-      ],
+      "e2e": [],
       "examples": [],
       "folder": null,
       "kind": "operation",
@@ -682,11 +656,9 @@
       "symbol": "PYC_FifoOp",
       "tests": [
         "tests/cpp/agentic-circuit/Analysis/ModelAnalysisTest.cpp",
-        "tests/cpp/agentic-circuit/CodeGen/ModelPlanTest.cpp",
         "tests/cpp/agentic-circuit/CodeGen/QueueGraphPlanTest.cpp",
         "tests/cpp/agentic-circuit/Dialect/ACIR/OpsTest.cpp",
         "tests/cpp/agentic-circuit/gfsim/core_test.cpp",
-        "tests/integration/agentic-circuit/e2e/test_pyc_backend.py",
         "tests/mlir/agentic-circuit/ACIR/contracts-valid.mlir",
         "tests/mlir/agentic-circuit/ACIR/interfaces-valid.mlir",
         "tests/mlir/agentic-circuit/ACIR/process-valid.mlir",
@@ -735,7 +707,6 @@
       "status": "normative",
       "symbol": "PYC_InstanceOp",
       "tests": [
-        "tests/cpp/agentic-circuit/Dialect/ACSim/OpsTest.cpp",
         "tests/unit/test_pyc6_surface.py"
       ],
       "verifier": "compiler/mlir/lib/Dialect/PYC/PYCOps.cpp",
@@ -821,9 +792,7 @@
         "compiler/mlir/lib/Transforms/FuseCombPass.cpp"
       ],
       "cpp_emitter": "compiler/mlir/lib/Emit/CppEmitter.cpp",
-      "e2e": [
-        "tests/integration/agentic-circuit/e2e/test_pyc_backend.py"
-      ],
+      "e2e": [],
       "examples": [],
       "folder": "compiler/mlir/lib/Dialect/PYC/PYCOps.cpp",
       "kind": "operation",
@@ -846,7 +815,6 @@
       "symbol": "PYC_NotOp",
       "tests": [
         "tests/cpp/agentic-circuit/CodeGen/QueueGraphPlanTest.cpp",
-        "tests/integration/agentic-circuit/e2e/test_pyc_backend.py",
         "tests/mlir/agentic-circuit/CodeGen/bit-widths.mlir",
         "tests/mlir/agentic-circuit/CodeGen/table-writer-arbitration-pyc.mlir",
         "tests/mlir/agentic-circuit/PYC/source-provenance-eliminate-wire.mlir",
@@ -865,9 +833,7 @@
         "compiler/mlir/lib/Transforms/FuseCombPass.cpp"
       ],
       "cpp_emitter": "compiler/mlir/lib/Emit/CppEmitter.cpp",
-      "e2e": [
-        "tests/integration/agentic-circuit/e2e/test_pyc_backend.py"
-      ],
+      "e2e": [],
       "examples": [],
       "folder": "compiler/mlir/lib/Dialect/PYC/PYCOps.cpp",
       "kind": "operation",
@@ -887,7 +853,6 @@
       "symbol": "PYC_OrOp",
       "tests": [
         "tests/cpp/agentic-circuit/CodeGen/QueueGraphPlanTest.cpp",
-        "tests/integration/agentic-circuit/e2e/test_pyc_backend.py",
         "tests/mlir/agentic-circuit/CodeGen/bit-widths.mlir",
         "tests/python/agentic-circuit/python_frontend/test_queue_frontend.py"
       ],
@@ -938,7 +903,6 @@
         "tests/mlir/pyc/popcount-primitive.mlir",
         "tests/python/agentic-circuit/python_frontend/test_public_api.py",
         "tests/python/agentic-circuit/python_frontend/test_queue_frontend.py",
-        "tests/python/agentic-circuit/tools/test_pyc_verilog_backend.py",
         "tests/system/test_primitive_selection.py",
         "tests/unit/test_pyc6_surface.py",
         "tests/unit/test_pyc_ir_inventory.py"
@@ -988,7 +952,6 @@
         "tests/mlir/pyc/priority-primitive.mlir",
         "tests/python/agentic-circuit/python_frontend/test_determinism.py",
         "tests/python/agentic-circuit/python_frontend/test_public_api.py",
-        "tests/python/agentic-circuit/tools/test_pyc_verilog_backend.py",
         "tests/system/test_primitive_selection.py",
         "tests/unit/test_primitive_catalog.py",
         "tests/unit/test_pyc6_surface.py",
@@ -1011,11 +974,7 @@
         "compiler/mlir/lib/Transforms/PackI1RegsPass.cpp"
       ],
       "cpp_emitter": "compiler/mlir/lib/Emit/CppEmitter.cpp",
-      "e2e": [
-        "tests/integration/agentic-circuit/e2e/test_credit_backend.py",
-        "tests/integration/agentic-circuit/e2e/test_pyc_backend.py",
-        "tests/integration/agentic-circuit/e2e/test_table_backend.py"
-      ],
+      "e2e": [],
       "examples": [],
       "folder": null,
       "kind": "operation",
@@ -1055,9 +1014,6 @@
       "symbol": "PYC_RegOp",
       "tests": [
         "tests/cpp/agentic-circuit/CodeGen/QueueGraphPlanTest.cpp",
-        "tests/integration/agentic-circuit/e2e/test_credit_backend.py",
-        "tests/integration/agentic-circuit/e2e/test_pyc_backend.py",
-        "tests/integration/agentic-circuit/e2e/test_table_backend.py",
         "tests/mlir/agentic-circuit/CodeGen/queue-lanes-pyc.mlir",
         "tests/mlir/agentic-circuit/CodeGen/queue-lanes-transform-pyc.mlir",
         "tests/mlir/agentic-circuit/CodeGen/queue-lanes4-pyc.mlir",
@@ -1195,9 +1151,7 @@
       ],
       "cpp_emitter": "compiler/mlir/lib/Emit/CppEmitter.cpp",
       "e2e": [
-        "tests/integration/agentic-circuit/e2e/test_array_combinator_runtime.py",
-        "tests/integration/agentic-circuit/e2e/test_pyc_backend.py",
-        "tests/integration/agentic-circuit/e2e/test_queue_codegen.py"
+        "tests/integration/agentic-circuit/e2e/test_array_combinator_runtime.py"
       ],
       "examples": [],
       "folder": "compiler/mlir/lib/Dialect/PYC/PYCOps.cpp",
@@ -1230,8 +1184,6 @@
         "tests/cpp/agentic-circuit/CodeGen/QueueGraphPlanTest.cpp",
         "tests/cpp/agentic-circuit/gfsim/QueueBlocksTest.cpp",
         "tests/integration/agentic-circuit/e2e/test_array_combinator_runtime.py",
-        "tests/integration/agentic-circuit/e2e/test_pyc_backend.py",
-        "tests/integration/agentic-circuit/e2e/test_queue_codegen.py",
         "tests/mlir/agentic-circuit/ACIR/collections-invalid.mlir",
         "tests/mlir/agentic-circuit/ACIR/collections-valid.mlir",
         "tests/mlir/agentic-circuit/CodeGen/table-read-pyc.mlir",
@@ -1351,9 +1303,7 @@
         "compiler/mlir/lib/Transforms/FuseCombPass.cpp"
       ],
       "cpp_emitter": "compiler/mlir/lib/Emit/CppEmitter.cpp",
-      "e2e": [
-        "tests/integration/agentic-circuit/e2e/test_pyc_backend.py"
-      ],
+      "e2e": [],
       "examples": [],
       "folder": "compiler/mlir/lib/Dialect/PYC/PYCOps.cpp",
       "kind": "operation",
@@ -1371,7 +1321,6 @@
       "symbol": "PYC_SubOp",
       "tests": [
         "tests/cpp/agentic-circuit/CodeGen/QueueGraphPlanTest.cpp",
-        "tests/integration/agentic-circuit/e2e/test_pyc_backend.py",
         "tests/python/agentic-circuit/python_frontend/test_queue_frontend.py",
         "tests/unit/test_pyc6_surface.py",
         "tests/unit/test_semantic_core.py"
@@ -1393,10 +1342,7 @@
         "compiler/mlir/lib/Transforms/EliminateDeadStatePass.cpp"
       ],
       "cpp_emitter": "compiler/mlir/lib/Emit/CppEmitter.cpp",
-      "e2e": [
-        "tests/integration/agentic-circuit/e2e/test_pyc_backend.py",
-        "tests/integration/agentic-circuit/e2e/test_table_backend.py"
-      ],
+      "e2e": [],
       "examples": [],
       "folder": null,
       "kind": "operation",
@@ -1413,9 +1359,7 @@
       "status": "normative",
       "symbol": "PYC_SyncMemOp",
       "tests": [
-        "tests/cpp/agentic-circuit/CodeGen/QueueGraphPlanTest.cpp",
-        "tests/integration/agentic-circuit/e2e/test_pyc_backend.py",
-        "tests/integration/agentic-circuit/e2e/test_table_backend.py"
+        "tests/cpp/agentic-circuit/CodeGen/QueueGraphPlanTest.cpp"
       ],
       "verifier": "compiler/mlir/lib/Dialect/PYC/PYCOps.cpp",
       "verilog_emitter": "compiler/mlir/lib/Emit/VerilogEmitter.cpp"

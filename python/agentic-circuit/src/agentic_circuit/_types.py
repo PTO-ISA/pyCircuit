@@ -217,10 +217,6 @@ class BitfieldSpec:
     def fields(self) -> Mapping[str, tuple[int, int]]:
         return self._layout.fields
 
-    @property
-    def fingerprint(self) -> str:
-        return self._layout.fingerprint
-
     def field(self, name: str) -> tuple[int, int]:
         return self._layout.field(name)
 

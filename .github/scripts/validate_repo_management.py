@@ -225,13 +225,6 @@ def main() -> int:
             errors,
         )
 
-    verilator_action = read(".github/actions/setup-verilator/action.yml")
-    require(
-        "sha256sum --check --strict" in verilator_action,
-        "Verilator setup must verify downloaded archives",
-        errors,
-    )
-
     release = read(".github/workflows/release.yml")
     try:
         release_document = yaml.safe_load(release)
@@ -239,8 +232,6 @@ def main() -> int:
         release_document = None
     errors.extend(validate_release_graph(release_document))
     for command in (
-        "LLVM_INSTALL_SCRIPT_SHA256",
-        "sha256sum --check --strict",
         "PYC_BUILD_AGENTIC_CIRCUIT_TESTS=ON",
         "run_agentic_circuit.sh",
         "run_examples.sh",

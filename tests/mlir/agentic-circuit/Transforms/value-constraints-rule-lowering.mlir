@@ -1,7 +1,7 @@
 // RUN: %acir_opt %s -ac-lower-rules | %FileCheck %s
 // RUN: %acir_opt %s --pass-pipeline='builtin.module(ac-lower-rules,ac-freeze-topology)' -o /dev/null
 
-builtin.module attributes {ac.contract_epoch = "0.5", ac.model_kind = "queue_graph", ac.queue_graph_domain = "cycle", ac.system = "bounded_table"} {
+builtin.module attributes {ac.model_kind = "queue_graph", ac.queue_graph_domain = "cycle", ac.system = "bounded_table"} {
   ac.table @entries entry i2 entries 5 init 0 owner "/" stable_id "table/entries"
   %input = ac.source depth 1 latency 1 {ac.name = "input"} : !ac.queue<i2>
   %output = ac.rule %input depths [1] latencies [1]

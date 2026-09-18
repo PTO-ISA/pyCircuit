@@ -4,15 +4,24 @@
   "title": "Agentic Circuit High-Level BlockSpec 0.5",
   "type": "object",
   "additionalProperties": false,
-  "required": ["schema", "version", "contract_epoch", "blocks"],
+  "required": [
+    "schema",
+    "version",
+    "blocks"
+  ],
   "properties": {
-    "schema": {"const": "agentic-circuit-block-spec"},
-    "version": {"const": "0.5"},
-    "contract_epoch": {"const": "0.5"},
+    "schema": {
+      "const": "agentic-circuit-block-spec"
+    },
+    "version": {
+      "const": "0.5"
+    },
     "blocks": {
       "type": "array",
       "minItems": 1,
-      "items": {"$ref": "#/$defs/block"}
+      "items": {
+        "$ref": "#/$defs/block"
+      }
     }
   },
   "$defs": {
@@ -27,13 +36,24 @@
     "arity": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["min", "max"],
+      "required": [
+        "min",
+        "max"
+      ],
       "properties": {
-        "min": {"type": "integer", "minimum": 0},
+        "min": {
+          "type": "integer",
+          "minimum": 0
+        },
         "max": {
           "oneOf": [
-            {"type": "integer", "minimum": 0},
-            {"type": "null"}
+            {
+              "type": "integer",
+              "minimum": 0
+            },
+            {
+              "type": "null"
+            }
           ]
         }
       }
@@ -41,11 +61,26 @@
     "portGroup": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["name", "direction", "arity", "payload", "ownership"],
+      "required": [
+        "name",
+        "direction",
+        "arity",
+        "payload",
+        "ownership"
+      ],
       "properties": {
-        "name": {"$ref": "#/$defs/name"},
-        "direction": {"enum": ["in", "out"]},
-        "arity": {"$ref": "#/$defs/arity"},
+        "name": {
+          "$ref": "#/$defs/name"
+        },
+        "direction": {
+          "enum": [
+            "in",
+            "out"
+          ]
+        },
+        "arity": {
+          "$ref": "#/$defs/arity"
+        },
         "payload": {
           "enum": [
             "input",
@@ -54,7 +89,9 @@
             "region_yield"
           ]
         },
-        "ownership": {"const": "borrowed_simqueue"}
+        "ownership": {
+          "const": "borrowed_simqueue"
+        }
       }
     },
     "parameter": {
@@ -69,11 +106,21 @@
         "verilog_mapping"
       ],
       "properties": {
-        "name": {"$ref": "#/$defs/name"},
-        "kind": {
-          "enum": ["type", "structural", "policy", "instance", "field"]
+        "name": {
+          "$ref": "#/$defs/name"
         },
-        "required": {"type": "boolean"},
+        "kind": {
+          "enum": [
+            "type",
+            "structural",
+            "policy",
+            "instance",
+            "field"
+          ]
+        },
+        "required": {
+          "type": "boolean"
+        },
         "default": true,
         "cpp_mapping": {
           "enum": [
@@ -99,31 +146,62 @@
     "cppProvider": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["header", "symbol", "optimized"],
+      "required": [
+        "header",
+        "symbol",
+        "optimized"
+      ],
       "properties": {
-        "available": {"type": "boolean"},
-        "header": {"type": "string", "minLength": 1},
-        "symbol": {"type": "string", "minLength": 1},
-        "optimized": {"type": "boolean"}
+        "available": {
+          "type": "boolean"
+        },
+        "header": {
+          "type": "string",
+          "minLength": 1
+        },
+        "symbol": {
+          "type": "string",
+          "minLength": 1
+        },
+        "optimized": {
+          "type": "boolean"
+        }
       }
     },
     "verilogProvider": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["realization", "optimized"],
+      "required": [
+        "realization",
+        "optimized"
+      ],
       "properties": {
-        "available": {"type": "boolean"},
-        "realization": {"type": "string", "minLength": 1},
-        "optimized": {"type": "boolean"}
+        "available": {
+          "type": "boolean"
+        },
+        "realization": {
+          "type": "string",
+          "minLength": 1
+        },
+        "optimized": {
+          "type": "boolean"
+        }
       }
     },
     "providers": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["cpp", "verilog"],
+      "required": [
+        "cpp",
+        "verilog"
+      ],
       "properties": {
-        "cpp": {"$ref": "#/$defs/cppProvider"},
-        "verilog": {"$ref": "#/$defs/verilogProvider"}
+        "cpp": {
+          "$ref": "#/$defs/cppProvider"
+        },
+        "verilog": {
+          "$ref": "#/$defs/verilogProvider"
+        }
       }
     },
     "block": {
@@ -141,37 +219,63 @@
         "refinement_observations"
       ],
       "properties": {
-        "name": {"$ref": "#/$defs/name"},
-        "operation": {"$ref": "#/$defs/operation"},
+        "name": {
+          "$ref": "#/$defs/name"
+        },
+        "operation": {
+          "$ref": "#/$defs/operation"
+        },
         "lowers_to": {
           "oneOf": [
-            {"$ref": "#/$defs/operation"},
+            {
+              "$ref": "#/$defs/operation"
+            },
             {
               "type": "array",
               "minItems": 1,
-              "items": {"$ref": "#/$defs/operation"},
+              "items": {
+                "$ref": "#/$defs/operation"
+              },
               "uniqueItems": true
             }
           ]
         },
         "category": {
-          "enum": ["compute", "transport", "scheduling", "execution", "storage"]
+          "enum": [
+            "compute",
+            "transport",
+            "scheduling",
+            "execution",
+            "storage"
+          ]
         },
-        "lambda_regions": {"type": "integer", "minimum": 0, "maximum": 3},
+        "lambda_regions": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 3
+        },
         "ports": {
           "type": "array",
           "minItems": 0,
-          "items": {"$ref": "#/$defs/portGroup"}
+          "items": {
+            "$ref": "#/$defs/portGroup"
+          }
         },
         "parameters": {
           "type": "array",
-          "items": {"$ref": "#/$defs/parameter"}
+          "items": {
+            "$ref": "#/$defs/parameter"
+          }
         },
-        "providers": {"$ref": "#/$defs/providers"},
+        "providers": {
+          "$ref": "#/$defs/providers"
+        },
         "refinement_observations": {
           "type": "array",
           "minItems": 1,
-          "items": {"$ref": "#/$defs/name"},
+          "items": {
+            "$ref": "#/$defs/name"
+          },
           "uniqueItems": true
         }
       }

@@ -11,7 +11,7 @@ from types import ModuleType
 from typing import Mapping
 
 from ._canonical_json import JsonValue, validate_ijson_value
-from ._diagnostics import Diagnostic, FixIt, RelatedLocation, SourceSpan
+from ._diagnostics import Diagnostic, SourceSpan
 
 
 @dataclass(frozen=True, slots=True)
@@ -62,17 +62,12 @@ class NativeArtifact:
     path: str
     kind: str
     data: bytes
-    sha256: str
 
 
 @dataclass(frozen=True, slots=True)
 class NativeResult:
     artifacts: tuple[NativeArtifact, ...]
     diagnostics: tuple[Diagnostic, ...]
-    build_directory: str | None
-    executable: str | None
-    build_fingerprint: str | None
-    cache_hit: bool | None
 
 
 @dataclass(frozen=True, slots=True)
@@ -131,12 +126,6 @@ def _closed_dict(value: object, keys: frozenset[str], label: str) -> dict[str, o
     return result
 
 
-def _optional_string(value: object, label: str) -> str | None:
-    if value is not None and type(value) is not str:
-        raise TypeError(f"native {label} must be a string or None")
-    return value
-
-
 def _source(value: object) -> SourceSpan | None:
     if value is None:
         return None
@@ -159,45 +148,10 @@ def _diagnostic(value: object) -> Diagnostic:
                 "severity",
                 "message",
                 "source",
-                "object_path",
-                "expected",
-                "actual",
-                "related",
-                "fixits",
             }
         ),
         "diagnostic",
     )
-    related_value = item["related"]
-    fixits_value = item["fixits"]
-    if type(related_value) is not tuple or type(fixits_value) is not tuple:
-        raise TypeError("native diagnostic collections must be tuples")
-    related: list[RelatedLocation] = []
-    for value in related_value:
-        entry = _closed_dict(
-            value,
-            frozenset({"message", "source", "object_path"}),
-            "related location",
-        )
-        if type(entry["message"]) is not str:
-            raise TypeError("native related message must be a string")
-        related.append(
-            RelatedLocation(
-                message=entry["message"],
-                source=_source(entry["source"]),
-                object_path=_optional_string(entry["object_path"], "object path"),
-            )
-        )
-    fixits: list[FixIt] = []
-    for value in fixits_value:
-        entry = _closed_dict(value, frozenset({"message"}), "fix-it")
-        if type(entry["message"]) is not str:
-            raise TypeError("native fix-it message must be a string")
-        fixits.append(FixIt(entry["message"]))
-    expected = item["expected"]
-    actual = item["actual"]
-    validate_ijson_value(expected)  # type: ignore[arg-type]
-    validate_ijson_value(actual)  # type: ignore[arg-type]
     for name in ("stage", "code", "severity", "message"):
         if type(item[name]) is not str:
             raise TypeError(f"native diagnostic {name} must be a string")
@@ -208,11 +162,6 @@ def _diagnostic(value: object) -> Diagnostic:
         severity=severity,  # type: ignore[arg-type]
         message=item["message"],
         source=_source(item["source"]),
-        object_path=_optional_string(item["object_path"], "object path"),
-        expected=expected,  # type: ignore[arg-type]
-        actual=actual,  # type: ignore[arg-type]
-        related=tuple(related),
-        fixits=tuple(fixits),
     )
 
 
@@ -223,10 +172,6 @@ def _result(value: object) -> NativeResult:
             {
                 "artifacts",
                 "diagnostics",
-                "build_directory",
-                "executable",
-                "build_fingerprint",
-                "cache_hit",
             }
         ),
         "compiler result",
@@ -237,32 +182,20 @@ def _result(value: object) -> NativeResult:
         raise TypeError("native result collections must be tuples")
     artifacts: list[NativeArtifact] = []
     for value in artifact_values:
-        artifact = _closed_dict(
-            value, frozenset({"path", "kind", "data", "sha256"}), "artifact"
-        )
+        artifact = _closed_dict(value, frozenset({"path", "kind", "data"}), "artifact")
         if not (
             type(artifact["path"]) is str
             and type(artifact["kind"]) is str
             and type(artifact["data"]) is bytes
-            and type(artifact["sha256"]) is str
         ):
             raise TypeError("native artifact fields have invalid types")
         artifacts.append(NativeArtifact(**artifact))  # type: ignore[arg-type]
     diagnostics = tuple(
         sorted(map(_diagnostic, diagnostic_values), key=Diagnostic.sort_key)
     )
-    cache_hit = item["cache_hit"]
-    if cache_hit is not None and type(cache_hit) is not bool:
-        raise TypeError("native cache hit must be a boolean or None")
     return NativeResult(
         artifacts=tuple(artifacts),
         diagnostics=diagnostics,
-        build_directory=_optional_string(item["build_directory"], "build directory"),
-        executable=_optional_string(item["executable"], "executable"),
-        build_fingerprint=_optional_string(
-            item["build_fingerprint"], "build fingerprint"
-        ),
-        cache_hit=cache_hit,
     )
 
 

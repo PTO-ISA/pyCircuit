@@ -1,13 +1,12 @@
 // RUN: %acir_opt --pass-pipeline='builtin.module(ac-freeze-topology)' %s -o %t.frozen.mlir
 // RUN: %acir_queue_pycgen %t.frozen.mlir | %FileCheck %s --check-prefix=PYC
-// RUN: %python %source_root/compiler/acir/tools/acir-queue-veriloggen.py %t.frozen.mlir --pycgen %acir_queue_pycgen | %FileCheck %s --check-prefix=VERILOG
+// RUN: rm -f %t.sv && %acc -c %t.frozen.mlir -emit-verilog -o %t.sv && %FileCheck %s --check-prefix=VERILOG < %t.sv
 
-module attributes {ac.contract_epoch = "0.5", ac.model_kind = "queue_graph", ac.queue_graph_domain = "cycle", ac.system = "multidimensional_table"} {
+module attributes {ac.model_kind = "queue_graph", ac.queue_graph_domain = "cycle", ac.system = "multidimensional_table"} {
   ac.table @state entry i8 entries 6 init 0 owner "/" stable_id "table/state" {
     shape = array<i64: 2, 3>, axis_widths = array<i64: 1, 2>,
     layout = "row_major", layout_version = 1 : i64,
-    schema_id = "sha256:c62fc75ed67ce361c35684c21e695d036e8bae7ee6f525dfaf9b13940b86a4b0",
-    init_version = 1 : i64,
+        init_version = 1 : i64,
     init_image = [1 : i8, 2 : i8, 3 : i8, 4 : i8, 5 : i8, 6 : i8]
   }
   %row = ac.source depth 1 latency 1 {ac.name = "row"} : !ac.queue<i1>

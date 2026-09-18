@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-import hashlib
-import json
 import operator
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, TypeAlias
@@ -39,16 +37,6 @@ class _ConstraintBase:
 
     def canonical(self) -> dict[str, object]:
         raise NotImplementedError
-
-    @property
-    def fingerprint(self) -> str:
-        encoded = json.dumps(
-            self.canonical(),
-            ensure_ascii=False,
-            sort_keys=True,
-            separators=(",", ":"),
-        ).encode("utf-8")
-        return "sha256:" + hashlib.sha256(encoded).hexdigest()
 
 
 @dataclass(frozen=True, slots=True, eq=False)
@@ -165,8 +153,7 @@ class ValueConstraint(_ConstraintBase):
                 raise ConstraintError("bits constraint interval exceeds its type")
         elif isinstance(self.type, RangeType):
             if values is not None and any(
-                type(value) is not int
-                or not self.type.lower <= value < self.type.upper
+                type(value) is not int or not self.type.lower <= value < self.type.upper
                 for value in values
             ):
                 raise ConstraintError("range constraint contains an invalid value")

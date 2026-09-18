@@ -4,7 +4,7 @@
 // RUN: %cxx -std=c++20 -I%source_root/simulator/gfsim/include -c %t.cpp -o %t.o
 // RUN: %acir_queue_pycgen %t.frozen.mlir | %FileCheck %s --check-prefix=PYC
 
-module attributes {ac.contract_epoch = "0.5", ac.model_kind = "queue_graph", ac.queue_graph_domain = "cycle", ac.system = "atomic_sum"} {
+module attributes {ac.model_kind = "queue_graph", ac.queue_graph_domain = "cycle", ac.system = "atomic_sum"} {
   %left = ac.source depth 2 latency 1 {ac.name = "left"} : !ac.queue<i64>
   %right = ac.source depth 2 latency 1 {ac.name = "right"} : !ac.queue<i64>
   %sum = ac.transform %left, %right depths [2] latencies [1] {

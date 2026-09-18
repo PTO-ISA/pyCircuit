@@ -5,7 +5,7 @@
 // RUN: %FileCheck %s --check-prefix=CXX < %t.cpp
 // RUN: %cxx -std=c++20 -I%source_root/simulator/gfsim/include -fsyntax-only %t.cpp
 
-module attributes {ac.contract_epoch = "0.5", ac.model_kind = "queue_graph", ac.queue_graph_domain = "cycle", ac.system = "pure_optional"} {
+module attributes {ac.model_kind = "queue_graph", ac.queue_graph_domain = "cycle", ac.system = "pure_optional"} {
   %input = ac.source depth 1 latency 1 {ac.name = "input"} : !ac.queue<i1>
   %output = ac.rule %input depths [1] latencies [1] name "filter" stable_id "output" domain "cycle" type exact {
   ^body(%item: !ac.var<i1>):

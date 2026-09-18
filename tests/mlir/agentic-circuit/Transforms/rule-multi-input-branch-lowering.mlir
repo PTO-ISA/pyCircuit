@@ -5,7 +5,7 @@
 // RUN: %FileCheck %s --check-prefix=GFSIM < %t.cpp
 // RUN: %cxx -std=c++20 -I%source_root/simulator/gfsim/include -c %t.cpp -o %t.o
 
-module attributes {ac.contract_epoch = "0.5", ac.model_kind = "queue_graph", ac.queue_graph_domain = "cycle", ac.system = "multi_input_branch"} {
+module attributes {ac.model_kind = "queue_graph", ac.queue_graph_domain = "cycle", ac.system = "multi_input_branch"} {
   %select = ac.source depth 1 latency 1 {ac.name = "select"} : !ac.queue<i1>
   %payload = ac.source depth 1 latency 1 {ac.name = "payload"} : !ac.queue<i8>
   %selected, %rejected = ac.rule %select, %payload depths [1, 1] latencies [1, 1]

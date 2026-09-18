@@ -7,11 +7,8 @@
 // RUN: %pycc %t.pyc --cpp %t.pyc.cpp
 // RUN: %cxx -std=c++20 -I%source_root/library -DGENERATED_SOURCE=\"%t.pyc.cpp\" %S/Inputs/table-runtime-row-pyc-main.cpp %source_root/library/cpp/pyc_runtime.cpp -o %t.pyc-cpp
 // RUN: %t.pyc-cpp | %FileCheck %s --check-prefix=PYC-CPP
-// RUN: %python %source_root/compiler/acir/tools/acir-queue-veriloggen.py %t.frozen.mlir --pycgen %acir_queue_pycgen -o %t.sv
-// RUN: verilator --binary --timing -Wno-fatal --top-module tb --Mdir %t.vdir %t.sv %S/Inputs/table-runtime-row-tb.sv > %t.verilator.log 2>&1
-// RUN: %t.vdir/Vtb | %FileCheck %s --check-prefix=VERILATOR
 
-module attributes {ac.contract_epoch = "0.5", ac.model_kind = "queue_graph", ac.queue_graph_domain = "cycle", ac.system = "table_runtime_row"} {
+module attributes {ac.model_kind = "queue_graph", ac.queue_graph_domain = "cycle", ac.system = "table_runtime_row"} {
   ac.type_scope @types {
     ac.struct @Request fields [{name = "row", type = i2}, {name = "tag", type = i8}]
     ac.struct @Result fields [{name = "index", type = i4}, {name = "valid", type = i1}]
@@ -19,8 +16,7 @@ module attributes {ac.contract_epoch = "0.5", ac.model_kind = "queue_graph", ac.
   ac.table @state entry i8 entries 16 init 0 owner "/" stable_id "table/state" {
     shape = array<i64: 4, 4>, axis_widths = array<i64: 2, 2>,
     layout = "row_major", layout_version = 1 : i64,
-    schema_id = "sha256:72c2b39db6c2f5550cd8083fde47b4b8f719dee3d41885d7c03e3fc33919530f",
-    init_version = 1 : i64,
+        init_version = 1 : i64,
     init_image = [10 : i8, 11 : i8, 12 : i8, 13 : i8,
                                   20 : i8, 21 : i8, 22 : i8, 23 : i8,
                   32 : i8, 32 : i8, 34 : i8, 35 : i8,

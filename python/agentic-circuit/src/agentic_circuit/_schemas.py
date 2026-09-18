@@ -10,13 +10,7 @@ from pathlib import Path
 from types import MappingProxyType
 from typing import Literal
 
-from ._canonical_json import (
-    JsonValue,
-    canonical_json_bytes,
-    sha256_bytes,
-    validate_ijson_value,
-)
-from ._contract import CONTRACT_EPOCH
+from ._canonical_json import JsonValue, validate_ijson_value
 from ._static_eval import static_json_value
 from ._types import SymbolicValue
 
@@ -24,7 +18,6 @@ Availability = Literal["available", "declared_unavailable"]
 _TOP_LEVEL_KEYS = {
     "schema_kind",
     "schema_version",
-    "contract_epoch",
     "canonical_name",
     "family",
     "provider_namespace",
@@ -39,7 +32,6 @@ _TOP_LEVEL_KEYS = {
     "effect",
     "activation",
     "observation",
-    "schema_fingerprint",
 }
 _NESTED_KEYS = {
     "cpp_binding": {
@@ -402,7 +394,6 @@ class ParameterSchema:
 @dataclass(frozen=True, slots=True)
 class ComponentSchema:
     identity: str
-    fingerprint: str
     ports: tuple[PortSchema, ...]
     results: tuple[ResultSchema, ...]
     parameters: tuple[ParameterSchema, ...]
@@ -428,7 +419,6 @@ def _component_schema(
     if (
         record["schema_kind"] != "agentic-circuit-component"
         or record["schema_version"] != "0.1"
-        or record["contract_epoch"] != CONTRACT_EPOCH
         or record["canonical_name"] != expected_name
     ):
         raise SchemaError(f"component identity mismatch for {expected_name}")
@@ -477,19 +467,6 @@ def _component_schema(
         _NESTED_KEYS["observation"],
         f"{expected_name}.observation",
     )
-
-    digest_record = dict(record)
-    fingerprint = digest_record.pop("schema_fingerprint")
-    if type(fingerprint) is not str:
-        raise SchemaError(f"component fingerprint is invalid for {expected_name}")
-    try:
-        computed = sha256_bytes(canonical_json_bytes(digest_record))
-    except ValueError as error:
-        raise SchemaError(
-            f"component contains invalid JSON for {expected_name}"
-        ) from error
-    if fingerprint != computed:
-        raise SchemaError(f"component fingerprint mismatch for {expected_name}")
 
     parameters: list[ParameterSchema] = []
     for parameter in parameter_records:
@@ -551,7 +528,6 @@ def _component_schema(
         raise SchemaError(f"component signature names collide for {expected_name}")
     return ComponentSchema(
         identity=expected_name,
-        fingerprint=fingerprint,
         ports=tuple(ports),
         results=tuple(results),
         parameters=tuple(parameters),
@@ -604,9 +580,7 @@ class ComponentCallable:
                 )
         for parameter in self.schema.parameters:
             try:
-                validate_ijson_value(
-                    static_json_value(bound.arguments[parameter.name])
-                )
+                validate_ijson_value(static_json_value(bound.arguments[parameter.name]))
             except ValueError as error:
                 raise TypeError(
                     f"ACPY-CALL-003: parameter {parameter.name!r} is not static"
@@ -630,18 +604,14 @@ class SchemaRegistry:
         catalog = _load_json(catalog_root / "catalog.json")
         _exact_keys(
             catalog,
-            {"catalog", "version", "contract_epoch", "entries"},
+            {"catalog", "version", "entries"},
             "stdlib catalog",
         )
-        if (
-            catalog["catalog"] != "ac"
-            or catalog["version"] != "0.1"
-            or catalog["contract_epoch"] != CONTRACT_EPOCH
-        ):
+        if catalog["catalog"] != "ac" or catalog["version"] != "0.1":
             raise SchemaError("stdlib catalog identity must be ac@0.1")
         entries = _record_list(
             catalog["entries"],
-            {"canonical_name", "availability", "schema_path", "schema_fingerprint"},
+            {"canonical_name", "availability", "schema_path"},
             "stdlib catalog entries",
         )
         names = [entry["canonical_name"] for entry in entries]
@@ -669,8 +639,6 @@ class SchemaRegistry:
                     f"component schema escapes stdlib root for {name}"
                 ) from error
             schema = _component_schema(_load_json(path), availability, name)
-            if entry["schema_fingerprint"] != schema.fingerprint:
-                raise SchemaError(f"catalog fingerprint mismatch for {name}")
             schemas[name] = schema
         return cls(schemas)
 

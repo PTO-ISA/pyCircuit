@@ -8,14 +8,14 @@
 // TOPOLOGY: multi-lane PYC requires one source and one sink boundary
 
 //--- latency.mlir
-module attributes {ac.contract_epoch = "0.5", ac.model_kind = "queue_graph", ac.queue_graph_domain = "cycle", ac.system = "bad_latency"} {
+module attributes {ac.model_kind = "queue_graph", ac.queue_graph_domain = "cycle", ac.system = "bad_latency"} {
   %bundle = ac.source depth 4 latency 2 {ac.name = "bundle"}
       : !ac.queue<i8, lanes=3, rate=2>
   ac.sink %bundle {ac.name = "sink"} : !ac.queue<i8, lanes=3, rate=2>
 }
 
 //--- topology.mlir
-module attributes {ac.contract_epoch = "0.5", ac.model_kind = "queue_graph", ac.queue_graph_domain = "cycle", ac.system = "bad_topology"} {
+module attributes {ac.model_kind = "queue_graph", ac.queue_graph_domain = "cycle", ac.system = "bad_topology"} {
   %input = ac.source depth 4 latency 1 {ac.name = "input"}
       : !ac.queue<i8, lanes=3, rate=2>
   %left, %right = ac.fork %input depths [4, 4] latencies [1, 1]

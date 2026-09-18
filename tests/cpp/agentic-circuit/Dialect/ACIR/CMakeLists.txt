@@ -16,7 +16,6 @@ target_include_directories(ACIROpsTests PRIVATE
 target_link_libraries(ACIROpsTests PRIVATE
   ACIRDialect
   ACIRTransforms
-  ACSimDialect
   MLIRAsmParser
   MLIRIndexDialect
   MLIRFuncDialect

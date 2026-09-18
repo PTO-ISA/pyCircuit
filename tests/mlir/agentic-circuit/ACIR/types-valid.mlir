@@ -4,7 +4,7 @@
 // RUN: %acir_opt %t.bc | %FileCheck %s
 
 // This file covers the SSA-legal ACIR public value/topology types.
-builtin.module attributes {ac.contract_epoch = "0.5"} {
+builtin.module  {
   "ac.protocol"() <{sym_name = "test_protocol"}> ({
     "ac.role"() <{sym_name = "producer", dual = @consumer, cardinality = "exclusive"}> : () -> ()
     "ac.role"() <{sym_name = "consumer", dual = @producer, cardinality = "exclusive"}> : () -> ()

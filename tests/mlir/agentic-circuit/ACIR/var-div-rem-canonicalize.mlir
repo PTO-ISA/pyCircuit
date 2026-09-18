@@ -1,6 +1,6 @@
 // RUN: %acir_opt --canonicalize %s | %FileCheck %s
 
-builtin.module attributes {ac.contract_epoch = "0.5"} {
+builtin.module  {
   func.func @test(%value: !ac.var<i8>) -> (!ac.var<i8>, !ac.var<i8>, !ac.var<i8>, !ac.var<i8>) {
     %eight = ac.var.constant 8 : i8 as !ac.var<i8>
     %zero = ac.var.constant 0 : i8 as !ac.var<i8>

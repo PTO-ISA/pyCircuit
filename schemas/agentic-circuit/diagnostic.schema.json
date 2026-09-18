@@ -4,49 +4,143 @@
   "title": "Agentic Circuit Diagnostic 0.1",
   "type": "object",
   "additionalProperties": false,
-  "required": ["schema", "version", "contract_epoch", "code", "stage", "severity", "source", "object_path", "message", "expected", "actual", "related", "fixits"],
+  "required": [
+    "schema",
+    "version",
+    "code",
+    "stage",
+    "severity",
+    "source",
+    "object_path",
+    "message",
+    "expected",
+    "actual",
+    "related",
+    "fixits"
+  ],
   "properties": {
-    "schema": {"const": "agentic-circuit-diagnostic"},
-    "version": {"const": "0.1"},
-    "contract_epoch": {"const": "0.5"},
-    "code": {"pattern": "^AC(PY|ELAB|IR-[A-Z]+|SIM|LOWER|BUILD|TRACE|RUN|SDK-[A-Z]+)-[A-Z0-9-]+$", "type": "string"},
-    "stage": {"type": "string", "minLength": 1},
-    "severity": {"enum": ["note", "warning", "error"]},
-    "source": {"oneOf": [{"type": "null"}, {"$ref": "#/$defs/source"}]},
-    "object_path": {"type": ["string", "null"]},
-    "message": {"type": "string", "minLength": 1},
+    "schema": {
+      "const": "agentic-circuit-diagnostic"
+    },
+    "version": {
+      "const": "0.1"
+    },
+    "code": {
+      "pattern": "^AC(PY|ELAB|IR-[A-Z]+|SIM|LOWER|BUILD|TRACE|RUN|SDK-[A-Z]+)-[A-Z0-9-]+$",
+      "type": "string"
+    },
+    "stage": {
+      "type": "string",
+      "minLength": 1
+    },
+    "severity": {
+      "enum": [
+        "note",
+        "warning",
+        "error"
+      ]
+    },
+    "source": {
+      "oneOf": [
+        {
+          "type": "null"
+        },
+        {
+          "$ref": "#/$defs/source"
+        }
+      ]
+    },
+    "object_path": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "message": {
+      "type": "string",
+      "minLength": 1
+    },
     "expected": true,
     "actual": true,
-    "related": {"type": "array", "items": {"$ref": "#/$defs/related"}},
-    "fixits": {"type": "array", "items": {"$ref": "#/$defs/fixit"}}
+    "related": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/related"
+      }
+    },
+    "fixits": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/fixit"
+      }
+    }
   },
   "$defs": {
     "source": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["file", "line", "column"],
+      "required": [
+        "file",
+        "line",
+        "column"
+      ],
       "properties": {
-        "file": {"type": "string", "minLength": 1},
-        "line": {"type": "integer", "minimum": 1},
-        "column": {"type": "integer", "minimum": 1}
+        "file": {
+          "type": "string",
+          "minLength": 1
+        },
+        "line": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "column": {
+          "type": "integer",
+          "minimum": 1
+        }
       }
     },
     "related": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["message", "source", "object_path"],
+      "required": [
+        "message",
+        "source",
+        "object_path"
+      ],
       "properties": {
-        "message": {"type": "string", "minLength": 1},
-        "source": {"oneOf": [{"type": "null"}, {"$ref": "#/$defs/source"}]},
-        "object_path": {"type": ["string", "null"]}
+        "message": {
+          "type": "string",
+          "minLength": 1
+        },
+        "source": {
+          "oneOf": [
+            {
+              "type": "null"
+            },
+            {
+              "$ref": "#/$defs/source"
+            }
+          ]
+        },
+        "object_path": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
       }
     },
     "fixit": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["message"],
+      "required": [
+        "message"
+      ],
       "properties": {
-        "message": {"type": "string", "minLength": 1}
+        "message": {
+          "type": "string",
+          "minLength": 1
+        }
       }
     }
   }

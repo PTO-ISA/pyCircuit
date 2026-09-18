@@ -40,7 +40,7 @@ python -m pycircuit.cli emit \
   -o .pycircuit_out/quickstart/counter.pyc
 ```
 
-Build the native toolchain when you need C++ simulation, Verilog, ACIR/ACSim,
+Build the native toolchain when you need C++ simulation, Verilog, ACIR/ACC,
 or gfsim:
 
 ```bash

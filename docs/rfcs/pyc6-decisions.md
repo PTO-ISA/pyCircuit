@@ -10342,3 +10342,187 @@ stay in force.
   user chose the clang-cl driver over rewriting those lambdas. The same
   direction corrected the MLIR provisioning clause above, which described the
   published LLVM Windows archive that carries no MLIR.
+
+## Decision 0266: source names and NDF descend to ACIR while generated module files stay readable
+
+**Status:** Superseded by Decision 0267
+
+**Refines:** Decisions 0141, 0147, 0228, 0244, and 0264.
+
+**Context / Goal**
+Python architecture names must remain recognizable through MLIR and generated
+C++, while specialization identity must remain strong enough for deterministic
+reuse and object caching. Decision 0228 made generated classes readable but
+added `_s<16-hex>` only when a collision existed in the current system. Adding
+a second specialization could therefore rename the first class and file,
+invalidating downstream objects for a non-local reason.
+
+**Decision (strong constraint)**
+- Python system, module, rule, interface, result-assignment, and local display
+  names remain the source-facing semantic spellings in ACIR symbols, display
+  attributes, stable paths, or source provenance as defined by
+  `docs/reference/name-mangling.md`. Compiler-owned wrappers and temporaries use
+  explicitly reserved spellings and do not replace source identity.
+- Complete definition and specialization SHA-256 values remain the only
+  semantic equality, cache, plan, manifest, and validation identities.
+- Every structured QueueGraph module class uses `<ReadableDefinition>` with no
+  `Module_` prefix or fingerprint suffix. Generated file names likewise use
+  `<SourceDefinition>.h/.cpp`; the file stem preserves the legalized
+  Python/ACIR definition spelling.
+- Distinct definitions that legalize to the same readable file stem fail
+  closed. Adding a same-definition specialization changes that grouped file's
+  content but not its path; adding an unrelated definition leaves it unchanged.
+- Specialization fingerprints remain canonical lowercase SHA-256 strings in
+  Frozen ACIR, plans, manifests, and cache keys, but never appear in C++ names
+  or comments. Until readable specialization aliases are specified, multiple
+  distinct specializations of one Python definition fail closed; repeated
+  instances of one specialization continue to share one implementation.
+- Selected-system model classes remain readable projections of the Python
+  system name. Nominal payload/type spellings and their existing dependent-type
+  specialization suffixes do not change in this decision.
+- Local C++ identifiers use the documented deterministic legalizer and local
+  collision suffixes. They are implementation details, while QueueGraph and
+  source-map artifacts retain semantic and display names.
+- Adjacent Python `# ndf:` and `# ndf:requires` comments become verified,
+  non-semantic ACIR/QueueGraph metadata. Generated C++ prints them beside the
+  existing Python source path/line provenance, and fingerprint construction
+  explicitly excludes them.
+- The V1 `.ac` input to `acc` is complete selected-system Frozen ACIR. Per-module
+  ACIR dumps do not become independently linkable through this decision. The
+  concise artifact carries no producer SDK manifest identity; exact installed
+  SDK interchange continues to require `model plan` and `model emit-cpp`.
+- `acc -emit-verilog` lowers Frozen ACIR through canonical PYC and `pycc` with
+  strict hierarchy; it does not introduce a direct ACIR semantic emitter.
+  Module-preserving QueueGraph input remains an explicit rejection until the
+  shared PYC lowering supports that hierarchy.
+
+**Required verification**
+- Frontend tests prove Python system, module, instance, rule, and interface
+  spellings remain represented in raw and Frozen ACIR.
+- QueueGraph tests prove class names remain stable, file paths are readable and
+  hash-free, same-definition specializations share one file pair, and unrelated
+  definitions do not change existing file bytes.
+- Malformed fingerprints, readable-name collisions, and unnamed multiple
+  specializations fail before source publication.
+- Concatenated and multi-TU C++ compile and execute with the same behavior and
+  independent per-instance state as before.
+- `acc.py` emits Frozen ACIR through the canonical frontend/compiler path;
+  native `acc` consumes that artifact for executable C++ DUT, model-bundle C++,
+  or canonical-PYC-backed Verilog output.
+- Single-file and multi-file frontend tests prove NDF IDs survive Python comment
+  loss boundaries and appear with Python source provenance in generated C++.
+
+**Source**
+- User direction (2026-09-18): define strict name mangling, carry Python names
+  into MLIR, give generated C++ deterministic rules, and begin the two-stage
+  compiler implementation.
+- An external Linx RTL naming review reinforced source readability, explicit
+  endpoint/direction/lane spelling, and stable generated artifacts; pyCircuit
+  keeps those principles consumer-neutral.
+- User direction (2026-09-18): remove hashes and the `Module_` prefix from C++
+  identity, keep file names equal to the source module definition, emit NDF comments
+  with Python traceability, execute the `ac.system` C++ DUT, and add Verilog
+  emission.
+
+## Decision 0267: ACC is fingerprint-free and specialization identity is structural
+
+**Status:** Accepted; implementation in progress
+
+**Supersedes:** Decisions 0141, 0147, 0228, 0232 model-plan/model-manifest
+clauses, 0244, 0264 publication-manifest clauses, and 0266 fingerprint clauses.
+
+**Context / Goal**
+Definition and specialization digests accumulated unrelated duties: semantic
+identity, cache keys, C++ suffixes, stale-input detection, build directories,
+artifact ownership, and SDK publication checks. That coupling made source-level
+refactoring change downstream identities and preserved two competing compiler
+flows. The product now requires a clean hard break before the scalable module
+architecture is extended.
+
+**Decision (strong constraint)**
+- Agentic Circuit has one compiler flow: `acc.py` emits verified ACIR;
+  native `acc` emits C++, a multi-translation-unit C++ bundle, or Verilog.
+  Legacy ACSim build, `model plan`, and `model emit-cpp` surfaces are removed,
+  not deprecated or aliased.
+- No content fingerprint, checksum, digest, truncated digest, or embedded
+  executable identity participates in ACIR, QueueGraph, specialization,
+  generated code, source maps, cost reports, manifests, SDK records, or JIT.
+  The full Git `source_revision` remains a release/toolchain pin and is not a
+  language identity.
+- Specialization identity is the structural pair of the MLIR definition symbol
+  and its ordered typed static-argument dictionary. Equality, deduplication,
+  sorting, and reuse compare that structure directly.
+- Generated C++ files use the legalized Python/MLIR definition name with no
+  `Module_` prefix and no hash. A non-default specialization class adds readable
+  parameter-name/value suffixes chosen by MLIR codegen. Collisions after
+  legalization fail closed.
+- The frontend snapshots source inputs for one compilation transaction. The
+  compiler does not publish or consult a persistent content-addressed JIT cache.
+- C++ bundle output requires a new or empty destination and is published in one
+  transaction. It has no model manifest, ownership manifest, incremental stale-
+  file cleanup, or in-place update contract.
+- SDK and release JSON are path/version/source-revision inventories only.
+  Transport signing and hosting integrity are outside the compiler contract;
+  file/archive/wheel checksums are not reintroduced as semantic identities.
+- RTL implementation catalogs retain closed relative source paths, license IDs,
+  provenance, qualification, and parameter/port bindings, but no source or
+  license digests. The selector verifies schema, ownership, existence, and
+  legality rather than content hashes.
+
+**Required verification**
+- Repository scans find no active fingerprint/checksum/digest fields in ACIR,
+  QueueGraph, compiler/JIT code, generated artifacts, SDK schemas/examples, or
+  RTL catalogs. Historical decision text and gate logs are evidence only.
+- Two instances with equal definition symbols and typed arguments reuse one C++
+  class; distinct argument dictionaries produce deterministic readable class
+  names and no hash-bearing names or comments.
+- `acc.py -> .ac -> acc -emit-cpp-bundle` succeeds into a new directory,
+  compiles every translation unit, links, and executes the DUT. A non-empty
+  output directory fails without mutation.
+- `acc -emit-verilog` continues through canonical PYC and `pycc`.
+- Contract, schema, SDK inventory, primitive-selection, unit, and documentation
+  gates pass after the removed legacy schemas and commands are absent.
+
+**Source**
+- User direction (2026-09-18): completely remove SHA, manifests, fingerprints,
+  and legacy flows; clean the architecture first, then rebuild specialization
+  naming from explicit parameters in MLIR codegen.
+
+## Decision 0268: release identity is external and ACIR carries no contract epoch
+
+**Status:** Accepted; implementation in progress
+
+**Supersedes:** All active ACIR/ACPy `contract_epoch`, `ac.contract_epoch`, and
+`ac.freeze_epoch` clauses. Refines Decision 0267.
+
+**Context / Goal**
+Embedding a product epoch in IR and frontend JSON duplicated the actual release
+authority and incorrectly made a compiler normalization stage look like an IR
+release opcode. Consumers already select a concrete toolchain through the
+package release and exact Git source revision.
+
+**Decision (strong constraint)**
+- ACIR, ACPy, diagnostics, capabilities, generated inventories, cost reports,
+  project configuration, and SDK JSON carry no contract epoch or freeze epoch.
+- External package release metadata and the exact Git `source_revision` select
+  the compiler contract before IR is parsed. IR never authenticates or chooses
+  its own release.
+- `.ac` means selected-system verified ACIR. `acc.py` publishes it and native
+  `acc` reparses and verifies it before code generation.
+- Topology closure remains a compiler transformation and verifier invariant.
+  It is not an opcode, release number, compatibility tag, or semantic identity.
+- Schema-local `version` fields may describe a JSON shape. They are not release
+  compatibility identities and do not enter specialization reuse.
+
+**Required verification**
+- Active source, schema, examples, generated artifacts, and current docs contain
+  no `contract_epoch`, `ac.contract_epoch`, or `ac.freeze_epoch` fields.
+- `acc.py -> .ac -> acc` succeeds without an IR release attribute, while malformed
+  topology and unsupported operations still fail closed through structural
+  verification.
+- SDK/release checks bind the external product version, platform, ABI, and exact
+  Git source revision without copying a release epoch into IR or frontend JSON.
+
+**Source**
+- User direction (2026-09-19): remove contract epoch and freeze-opcode language;
+  releases must be external rather than defined by IR.

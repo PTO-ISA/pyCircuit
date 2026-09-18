@@ -7,8 +7,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Mapping
 
-from ._canonical_json import JsonValue, canonical_json_bytes, sha256_bytes
-from ._contract import CONTRACT_EPOCH
+from ._canonical_json import JsonValue
 from ._native_api import NativeCapabilities
 from ._native_api import capabilities as native_capabilities
 from ._package_data import resource_directory
@@ -16,14 +15,12 @@ from ._package_data import resource_directory
 EXACT_CONTRACT_IDENTITIES: dict[str, str] = {
     "acpy": "acpy@0.1",
     "acir": "acir@0.1",
-    "acsim": "acsim@0.1",
     "cli": "agentic-circuit-cli@0.1",
     "component_schema": "agentic-circuit-component@0.1",
     "opcode_catalog": "agentic-circuit-opcode-catalog@0.5",
     "block_spec": "agentic-circuit-block-spec@0.5",
     "cxx_source_contract": "gfsim-cxx20@0.1",
     "diagnostic": "agentic-circuit-diagnostic@0.1",
-    "build_manifest": "agentic-circuit-build-manifest@0.1",
 }
 
 
@@ -62,23 +59,14 @@ def diagnostic_catalog() -> dict[str, JsonValue]:
 class CapabilityDocument:
     contract_identities: Mapping[str, str]
     items: tuple[Mapping[str, JsonValue], ...]
-    compiler_build_id: str
-    runtime_build_id: str
 
     def to_json(self) -> dict[str, JsonValue]:
         return {
             "schema": "agentic-circuit-capabilities",
             "version": "0.1",
-            "contract_epoch": CONTRACT_EPOCH,
             "contract_identities": dict(self.contract_identities),
             "items": [dict(item) for item in self.items],
-            "compiler_build_id": self.compiler_build_id,
-            "runtime_build_id": self.runtime_build_id,
         }
-
-
-def _synthetic_fingerprint(kind: str, name: str) -> str:
-    return sha256_bytes(f"{kind}:{name}@0.1".encode("utf-8"))
 
 
 def _base_items(
@@ -95,8 +83,7 @@ def _base_items(
             raise ValueError("standard-library catalog entry is invalid")
         name = raw.get("canonical_name")
         availability = raw.get("availability")
-        fingerprint = raw.get("schema_fingerprint")
-        if not all(type(value) is str for value in (name, availability, fingerprint)):
+        if not all(type(value) is str for value in (name, availability)):
             raise ValueError("standard-library catalog entry fields are invalid")
         schema_path = str(raw["schema_path"]).removeprefix("schemas/")
         schema = load_json(schema_root().parent / schema_path)
@@ -106,18 +93,13 @@ def _base_items(
                 "kind": kind,
                 "name": name,
                 "availability": availability,
-                "schema_fingerprint": fingerprint,
-                "implementation_fingerprint": None,
             }
         )
-    catalog_fingerprint = sha256_bytes(canonical_json_bytes(catalog))
     items.append(
         {
             "kind": "provider",
             "name": "ac",
             "availability": "available",
-            "schema_fingerprint": catalog_fingerprint,
-            "implementation_fingerprint": None,
         }
     )
     opcode_entries = opcodes.get("entries")
@@ -131,8 +113,6 @@ def _base_items(
                 "kind": "opcode",
                 "name": entry["operation"],
                 "availability": "available",
-                "schema_fingerprint": sha256_bytes(canonical_json_bytes(entry)),
-                "implementation_fingerprint": None,
             }
         )
     block_entries = blocks.get("blocks")
@@ -146,8 +126,6 @@ def _base_items(
                 "kind": "block",
                 "name": entry["operation"],
                 "availability": "available",
-                "schema_fingerprint": sha256_bytes(canonical_json_bytes(entry)),
-                "implementation_fingerprint": None,
             }
         )
     for profile in ("custom", "fast", "validated"):
@@ -156,8 +134,6 @@ def _base_items(
                 "kind": "policy",
                 "name": profile,
                 "availability": "available",
-                "schema_fingerprint": _synthetic_fingerprint("policy", profile),
-                "implementation_fingerprint": None,
             }
         )
     items.append(
@@ -165,8 +141,6 @@ def _base_items(
             "kind": "interface",
             "name": "ac.Stream",
             "availability": "available",
-            "schema_fingerprint": _synthetic_fingerprint("interface", "ac.Stream"),
-            "implementation_fingerprint": None,
         }
     )
     for output_format in ("dot", "json", "jsonl", "text"):
@@ -175,10 +149,6 @@ def _base_items(
                 "kind": "output_format",
                 "name": output_format,
                 "availability": "available",
-                "schema_fingerprint": _synthetic_fingerprint(
-                    "output_format", output_format
-                ),
-                "implementation_fingerprint": None,
             }
         )
     return items
@@ -201,32 +171,8 @@ def capability_document(
                 "declared_unavailable",
             ):
                 item["availability"] = override["availability"]
-            if override.get("implementation_fingerprint") is not None:
-                item["implementation_fingerprint"] = override[
-                    "implementation_fingerprint"
-                ]
-        if (
-            item["availability"] == "available"
-            and item["implementation_fingerprint"] is None
-        ):
-            build_id = (
-                native.compiler_build_id
-                if item["kind"] in ("policy", "output_format")
-                else native.runtime_build_id
-            )
-            identity = {
-                "kind": item["kind"],
-                "name": item["name"],
-                "schema_fingerprint": item["schema_fingerprint"],
-                "build_id": build_id,
-            }
-            item["implementation_fingerprint"] = sha256_bytes(
-                canonical_json_bytes(identity)
-            )
     items.sort(key=lambda item: (str(item["kind"]), str(item["name"])))
     return CapabilityDocument(
         contract_identities=EXACT_CONTRACT_IDENTITIES,
         items=tuple(items),
-        compiler_build_id=native.compiler_build_id,
-        runtime_build_id=native.runtime_build_id,
     )

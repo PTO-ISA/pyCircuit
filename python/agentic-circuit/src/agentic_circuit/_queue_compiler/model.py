@@ -26,7 +26,6 @@ class StaticConfigBinding:
     root: str
     type_name: str
     schema: str
-    schema_sha256: str
     value: str
 
 
@@ -736,7 +735,7 @@ class QueueProgram:
     static_type_bindings: tuple[tuple[str, int], ...] = ()
     static_type_checks: tuple[StaticTypeCheck, ...] = ()
     static_config_bindings: tuple[StaticConfigBinding, ...] = ()
-    specialization_fingerprint: str | None = None
     diagnostics: tuple[Diagnostic, ...] = ()
     source_path: str = _DEFAULT_QUEUE_SOURCE_PATH
+    system_source: SourceFrame | None = None
     statement_sources: tuple[tuple[int, SourceFrame], ...] = ()

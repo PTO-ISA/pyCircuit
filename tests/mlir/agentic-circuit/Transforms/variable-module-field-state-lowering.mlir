@@ -3,7 +3,7 @@
 // Module-local explicit Tables use shaped ac.var before storage selection.
 // A same-owner, same-index ac.var.with chain narrows to the same canonical
 // field proposal emitted directly for a system-root Table.
-module attributes {ac.contract_epoch = "0.5", ac.model_kind = "queue_graph", ac.queue_graph_domain = "cycle"} {
+module attributes {ac.model_kind = "queue_graph", ac.queue_graph_domain = "cycle"} {
   ac.type_scope @types {
     ac.struct @Entry fields [{name = "value", type = i8}, {name = "valid", type = i1}]
   } {dlti.dl_spec = #dlti.dl_spec<!ac.struct<@types::@Entry> = {abi_alignment = 1 : i64, endianness = "little", preferred_alignment = 1 : i64, size = 2 : i64}>}

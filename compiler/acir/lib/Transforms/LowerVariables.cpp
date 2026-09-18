@@ -8,7 +8,6 @@
 #include "llvm/ADT/StringExtras.h"
 #include "llvm/ADT/SmallPtrSet.h"
 #include "llvm/ADT/StringSet.h"
-#include "llvm/Support/SHA256.h"
 #include "llvm/Support/raw_ostream.h"
 
 #include <functional>
@@ -42,23 +41,6 @@ FailureOr<uint64_t> flattenedEntries(ArrayRef<int64_t> shape) {
     result *= static_cast<uint64_t>(extent);
   }
   return result;
-}
-
-std::string canonicalTableSchemaId(Type entryType, ArrayRef<int64_t> shape) {
-  std::string printedType;
-  llvm::raw_string_ostream typeStream(printedType);
-  entryType.print(typeStream);
-  typeStream.flush();
-  std::string preimage;
-  llvm::raw_string_ostream stream(preimage);
-  stream << R"({"entry":")" << printedType
-         << R"(","layout":"row_major","layout_version":1,"shape":[)";
-  llvm::interleave(shape, stream, ",");
-  stream << "]}";
-  stream.flush();
-  llvm::SHA256 sha;
-  sha.update(preimage);
-  return "sha256:" + llvm::toHex(sha.final(), /*LowerCase=*/true);
 }
 
 ac::VarDeclOp resolveVariable(Operation *operation,
@@ -448,9 +430,6 @@ LogicalResult lowerVariableState(ModuleOp model) {
                          builder.getDenseI64ArrayAttr(axisWidths));
       state.addAttribute("layout", builder.getStringAttr("row_major"));
       state.addAttribute("layout_version", builder.getI64IntegerAttr(1));
-      state.addAttribute("schema_id",
-                         builder.getStringAttr(canonicalTableSchemaId(
-                             declaration.getValueType(), typedShape)));
     }
     builder.create(state);
     declaration.erase();

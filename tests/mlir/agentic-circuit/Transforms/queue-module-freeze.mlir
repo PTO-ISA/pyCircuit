@@ -5,11 +5,8 @@
 // RUN: %acir_queue_cxxgen %t.frozen.mlir > %t.cpp
 // RUN: %FileCheck %s --check-prefix=CXX < %t.cpp
 // RUN: %cxx -std=c++20 -I%source_root/simulator/gfsim/include -fsyntax-only %t.cpp
-// RUN: %acir_opt --ac-freeze-topology %s | %python -c "import sys; text=sys.stdin.read(); start=text.index('ac.instance @left'); pos=text.index('sha256:', start); sys.stdout.write(text[:pos] + 'sha256:' + '0' * 64 + text[pos + 71:])" > %t.tampered.mlir
-// RUN: %not %acir_opt --ac-freeze-topology %t.tampered.mlir 2>&1 | %FileCheck %s --check-prefix=TAMPERED
 
 builtin.module attributes {
-  ac.contract_epoch = "0.5",
   ac.model_kind = "queue_graph",
   ac.queue_graph_domain = "cycle"
 } {
@@ -67,30 +64,22 @@ builtin.module attributes {
 // CHECK-SAME: ac.frozen_system = @reused_pipeline
 // CHECK-SAME: ac.topology_frozen = true
 // CHECK: ac.module @Increment
-// CHECK-SAME: ac.definition_fingerprint = "[[DEFINITION:sha256:[0-9a-f]{64}]]"
-// CHECK-NOT: ac.specialization
 // CHECK: ac.module @Top
-// CHECK-SAME: ac.definition_fingerprint = "[[ROOT_DEFINITION:sha256:[0-9a-f]{64}]]"
-// CHECK-SAME: ac.specialization = "[[ROOT_SPECIALIZATION:sha256:[0-9a-f]{64}]]"
 // CHECK: ac.instance @left of @Increment
-// CHECK-SAME: ac.specialization = "[[LEAF_SPECIALIZATION:sha256:[0-9a-f]{64}]]"
 // CHECK: ac.instance @right of @Increment
-// CHECK-SAME: ac.specialization = "[[LEAF_SPECIALIZATION]]"
 
-// TAMPERED: QueueGraph specialization fingerprint is missing or stale
 
 // PLAN: "definition":"Top"
 // PLAN-SAME: "module_instances":[{"definition":"Increment"
 // PLAN-SAME: "name":"left"
-// PLAN-SAME: "specialization":"[[PLAN_SPECIALIZATION:sha256:[0-9a-f]{64}]]"
 // PLAN-SAME: {"definition":"Increment"
 // PLAN-SAME: "name":"right"
-// PLAN-SAME: "specialization":"[[PLAN_SPECIALIZATION]]"
+// PLAN-SAME: "specialization":"@Increment{}"
 // PLAN-SAME: "module_specializations":[{
 // PLAN-SAME: "definition":"Increment"
 // PLAN-SAME: "interface_inputs":[{"display_name":"input_0","lanes":1,"name":"input_0","payload_type":"i8","rate":1}]
 // PLAN-SAME: "interface_outputs":[{"display_name":"output_0","lanes":1,"name":"module_output","payload_type":"i8","rate":1}]
 
-// CXX-COUNT-1: class [[IMPLEMENTATION:Module_Increment]] final : public gfsim::Module
+// CXX-COUNT-1: class [[IMPLEMENTATION:Increment]] final : public gfsim::Module
 // CXX: class ReusedPipeline final : public gfsim::Module
 // CXX-COUNT-2: [[IMPLEMENTATION]] instance_

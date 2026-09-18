@@ -2,7 +2,7 @@
 // RUN: %acir_opt %s -ac-lower-rules -verify-diagnostics
 // RUN: %acir_opt %s -ac-freeze-topology -verify-diagnostics
 
-builtin.module attributes {ac.contract_epoch = "0.5", ac.model_kind = "queue_graph", ac.queue_graph_domain = "cycle", ac.system = "unsafe"} {
+builtin.module attributes {ac.model_kind = "queue_graph", ac.queue_graph_domain = "cycle", ac.system = "unsafe"} {
   ac.var.decl @state type i8 init 0 : i8 owner "/" stable_id "var/state" shape [5]
   %input = ac.source depth 1 latency 1 : !ac.queue<i3>
   %output = ac.transform %input depths [1] latencies [1] {

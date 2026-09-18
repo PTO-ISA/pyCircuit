@@ -1,6 +1,6 @@
 // RUN: %acir_opt --pass-pipeline='builtin.module(ac-lower-rules)' %s | %FileCheck %s
 
-module attributes {ac.contract_epoch = "0.5", ac.model_kind = "queue_graph", ac.queue_graph_domain = "cycle", ac.system = "lexical_priority"} {
+module attributes {ac.model_kind = "queue_graph", ac.queue_graph_domain = "cycle", ac.system = "lexical_priority"} {
   ac.table @first_state entry i8 entries 1 init 0 owner "/" stable_id "table/first_state"
   ac.table @second_state entry i8 entries 1 init 0 owner "/" stable_id "table/second_state"
   %first_input = ac.source depth 1 latency 1 {ac.name = "first_input"} : !ac.queue<i8>

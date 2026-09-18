@@ -10,8 +10,6 @@
 #include "llvm/ADT/SmallPtrSet.h"
 #include "llvm/ADT/SmallVector.h"
 #include "llvm/ADT/StringExtras.h"
-#include "llvm/Support/SHA256.h"
-#include "llvm/Support/raw_ostream.h"
 
 #include <optional>
 
@@ -30,7 +28,6 @@ struct ProjectionPlan {
   SmallVector<Type> fieldTypes;
   SmallVector<ac::VarGetOp> reads;
   TupleType carrierType;
-  std::string fingerprint;
 };
 
 bool isOrdinaryTransform(ac::TransformOp transform) {
@@ -56,89 +53,6 @@ FailureOr<ArrayAttr> structFields(Operation *anchor, ac::StructType type) {
   if (!structure)
     return failure();
   return structure.getFields();
-}
-
-LogicalResult appendDescriptor(llvm::raw_ostream &stream, Operation *anchor,
-                               Type type,
-                               llvm::SmallPtrSetImpl<Operation *> &active) {
-  if (auto structure = dyn_cast<ac::StructType>(type)) {
-    Operation *declaration =
-        SymbolTable::lookupNearestSymbolFrom(anchor, structure.getName());
-    auto record = dyn_cast_or_null<ac::StructOp>(declaration);
-    if (!record || !active.insert(record).second)
-      return failure();
-    stream << "struct(" << structure.getName() << "){";
-    for (Attribute raw : record.getFields()) {
-      auto field = cast<DictionaryAttr>(raw);
-      StringRef name = field.getAs<StringAttr>("name").getValue();
-      stream << name.size() << ':' << name << '=';
-      if (failed(appendDescriptor(stream, anchor,
-                                  field.getAs<TypeAttr>("type").getValue(),
-                                  active)))
-        return failure();
-      stream << ';';
-    }
-    stream << '}';
-    active.erase(record);
-    return success();
-  }
-  if (auto enumeration = dyn_cast<ac::EnumType>(type)) {
-    Operation *declaration =
-        SymbolTable::lookupNearestSymbolFrom(anchor, enumeration.getName());
-    auto record = dyn_cast_or_null<ac::EnumOp>(declaration);
-    if (!record)
-      return failure();
-    stream << "enum(" << enumeration.getName() << ")";
-    for (Attribute item : record.getEnumerants())
-      stream << cast<StringAttr>(item).getValue() << ';';
-    if (record.getValuesAttr())
-      for (Attribute item : record.getValuesAttr())
-        stream << cast<IntegerAttr>(item).getValue().getZExtValue() << ';';
-    stream << "width="
-           << (record.getEncodingWidthAttr()
-                   ? record.getEncodingWidthAttr().getInt()
-                   : -1);
-    return success();
-  }
-  if (auto tuple = dyn_cast<TupleType>(type)) {
-    stream << "tuple(";
-    for (Type element : tuple.getTypes()) {
-      if (failed(appendDescriptor(stream, anchor, element, active)))
-        return failure();
-      stream << ';';
-    }
-    stream << ')';
-    return success();
-  }
-  if (auto array = dyn_cast<ac::ValueArrayType>(type)) {
-    stream << "array(" << array.getLength() << ',';
-    if (failed(
-            appendDescriptor(stream, anchor, array.getElementType(), active)))
-      return failure();
-    stream << ')';
-    return success();
-  }
-  stream << type;
-  return success();
-}
-
-std::string projectionFingerprint(Operation *anchor, ac::StructType logicalType,
-                                  ArrayRef<StringAttr> fields,
-                                  TupleType carrierType) {
-  std::string text;
-  llvm::raw_string_ostream stream(text);
-  stream << "version=1\nprofile=" << kProfile << "\nlogical=";
-  llvm::SmallPtrSet<Operation *, 8> active;
-  if (failed(appendDescriptor(stream, anchor, logicalType, active)))
-    return {};
-  stream << "\nfields=";
-  for (StringAttr field : fields)
-    stream << field.getValue().size() << ':' << field.getValue() << ';';
-  stream << "\ncarrier=";
-  stream << Type(carrierType);
-  llvm::SHA256 sha;
-  sha.update(stream.str());
-  return "sha256:" + llvm::toHex(sha.final(), /*LowerCase=*/true);
 }
 
 FailureOr<ProjectionPlan> planProjection(ac::TransformOp producer) {
@@ -193,10 +107,6 @@ FailureOr<ProjectionPlan> planProjection(ac::TransformOp producer) {
       return failure();
   plan.reads = std::move(reads);
   plan.carrierType = TupleType::get(producer.getContext(), plan.fieldTypes);
-  plan.fingerprint = projectionFingerprint(producer, logicalType, plan.fields,
-                                           plan.carrierType);
-  if (plan.fingerprint.empty())
-    return failure();
   return plan;
 }
 
@@ -209,8 +119,6 @@ DictionaryAttr projectionEvidence(OpBuilder &builder,
       builder.getNamedAttr("profile", builder.getStringAttr(kProfile)),
       builder.getNamedAttr("logical_type", TypeAttr::get(plan.logicalType)),
       builder.getNamedAttr("kept_fields", builder.getArrayAttr(fields)),
-      builder.getNamedAttr("fingerprint",
-                           builder.getStringAttr(plan.fingerprint)),
   });
 }
 
@@ -296,12 +204,10 @@ verifyProjectionEvidence(ac::TransformOp producer,
       evidence ? evidence.getAs<TypeAttr>("logical_type") : TypeAttr();
   auto fields =
       evidence ? evidence.getAs<ArrayAttr>("kept_fields") : ArrayAttr();
-  auto fingerprint =
-      evidence ? evidence.getAs<StringAttr>("fingerprint") : StringAttr();
-  if (!evidence || evidence.size() != 6 || !ordinal || ordinal.getInt() != 0 ||
+  if (!evidence || evidence.size() != 5 || !ordinal || ordinal.getInt() != 0 ||
       !version || version.getInt() != 1 || !profile ||
       profile.getValue() != kProfile || !logical || !fields || fields.empty() ||
-      !fingerprint)
+      fields.empty())
     return producer.emitOpError(
         "private payload projection evidence is malformed");
   auto logicalType = dyn_cast<ac::StructType>(logical.getValue());
@@ -338,11 +244,6 @@ verifyProjectionEvidence(ac::TransformOp producer,
     if (actual != expected)
       return producer.emitOpError(
           "carrier elements must exactly match retained field types");
-  if (fingerprint.getValue() !=
-      projectionFingerprint(producer, logicalType, kept, carrier))
-    return producer.emitOpError(
-        "private payload projection fingerprint mismatch");
-
   Value edge = producer.getOutputs()[0];
   if (!edge.hasOneUse())
     return producer.emitOpError(

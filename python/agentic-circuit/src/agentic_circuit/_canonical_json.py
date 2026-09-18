@@ -1,20 +1,13 @@
-"""Shared JSON value types and content digest spelling."""
+"""Shared canonical I-JSON and MLIR string utilities."""
 
 from __future__ import annotations
 
-import hashlib
 import json
 import math
 from typing import TypeAlias
 
 JsonScalar: TypeAlias = None | bool | int | float | str
 JsonValue: TypeAlias = JsonScalar | list["JsonValue"] | dict[str, "JsonValue"]
-
-
-def sha256_bytes(data: bytes) -> str:
-    """Return a SHA-256 digest using the repository's public spelling."""
-
-    return "sha256:" + hashlib.sha256(data).hexdigest()
 
 
 def _validate_string(value: str) -> None:

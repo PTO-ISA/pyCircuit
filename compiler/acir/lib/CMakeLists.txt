@@ -8,7 +8,6 @@ add_subdirectory(Dialect)
 add_subdirectory(Analysis)
 add_subdirectory(Bindings)
 add_subdirectory(Transforms)
-add_subdirectory(Conversion)
 add_subdirectory(CodeGen)
 add_subdirectory(Compiler)
 
@@ -16,11 +15,9 @@ add_subdirectory(Compiler)
 install(
   TARGETS
     ACIRDialect
-    ACSimDialect
     ACIRBindings
     ACIRAnalysis
     ACIRTransforms
-    ACIRToACSim
     ACIRCodeGen
     ACIRCompiler
   EXPORT AgenticCircuitCompilerDevTargets

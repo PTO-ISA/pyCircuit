@@ -3,32 +3,67 @@
     "expression": {
       "additionalProperties": false,
       "properties": {
-        "kind": {"minLength": 1, "type": "string"},
+        "kind": {
+          "minLength": 1,
+          "type": "string"
+        },
         "nested": {
-          "items": {"$ref": "#/$defs/expression"},
+          "items": {
+            "$ref": "#/$defs/expression"
+          },
           "type": "array"
         },
-        "result": {"minLength": 1, "type": "string"},
-        "source_provenance": {"$ref": "#/$defs/provenance"}
+        "result": {
+          "minLength": 1,
+          "type": "string"
+        },
+        "source_provenance": {
+          "$ref": "#/$defs/provenance"
+        }
       },
-      "required": ["kind", "nested", "result", "source_provenance"],
+      "required": [
+        "kind",
+        "nested",
+        "result",
+        "source_provenance"
+      ],
       "type": "object"
     },
     "frame": {
       "additionalProperties": false,
       "properties": {
-        "column": {"minimum": 1, "type": "integer"},
+        "column": {
+          "minimum": 1,
+          "type": "integer"
+        },
         "file": {
           "pattern": "^(?!/)(?![A-Za-z]:)(?!.*\\\\)(?!.*(?:^|/)\\.\\.?(/|$))(?!.*//)[A-Za-z0-9._+@/-]+\\.py$",
           "type": "string"
         },
         "kind": {
-          "enum": ["statement", "definition", "inline_callsite", "instance", "specialization"]
+          "enum": [
+            "statement",
+            "definition",
+            "inline_callsite",
+            "instance",
+            "specialization"
+          ]
         },
-        "line": {"minimum": 1, "type": "integer"},
-        "symbol": {"minLength": 1, "type": "string"}
+        "line": {
+          "minimum": 1,
+          "type": "integer"
+        },
+        "symbol": {
+          "minLength": 1,
+          "type": "string"
+        }
       },
-      "required": ["column", "file", "kind", "line"],
+      "required": [
+        "column",
+        "file",
+        "kind",
+        "line"
+      ],
       "type": "object"
     },
     "provenance": {
@@ -39,18 +74,24 @@
             "additionalProperties": false,
             "properties": {
               "frames": {
-                "items": {"$ref": "#/$defs/frame"},
+                "items": {
+                  "$ref": "#/$defs/frame"
+                },
                 "minItems": 1,
                 "type": "array"
               }
             },
-            "required": ["frames"],
+            "required": [
+              "frames"
+            ],
             "type": "object"
           },
           "type": "array"
         }
       },
-      "required": ["origins"],
+      "required": [
+        "origins"
+      ],
       "type": "object"
     }
   },
@@ -63,34 +104,71 @@
         "additionalProperties": false,
         "properties": {
           "expressions": {
-            "items": {"$ref": "#/$defs/expression"},
+            "items": {
+              "$ref": "#/$defs/expression"
+            },
             "type": "array"
           },
-          "index": {"minimum": 0, "type": "integer"},
-          "kind": {"minLength": 1, "type": "string"},
-          "name": {"minLength": 1, "type": "string"},
-          "source_provenance": {"$ref": "#/$defs/provenance"},
-          "stable_id": {"type": "string"}
+          "index": {
+            "minimum": 0,
+            "type": "integer"
+          },
+          "kind": {
+            "minLength": 1,
+            "type": "string"
+          },
+          "name": {
+            "minLength": 1,
+            "type": "string"
+          },
+          "source_provenance": {
+            "$ref": "#/$defs/provenance"
+          },
+          "stable_id": {
+            "type": "string"
+          }
         },
-        "required": ["expressions", "index", "kind", "name", "source_provenance", "stable_id"],
+        "required": [
+          "expressions",
+          "index",
+          "kind",
+          "name",
+          "source_provenance",
+          "stable_id"
+        ],
         "type": "object"
       },
       "type": "array"
     },
-    "contract_epoch": {"const": "0.5"},
-    "definition": {"type": ["string", "null"]},
+    "definition": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
     "helpers": {
       "items": {
         "additionalProperties": false,
         "properties": {
           "expressions": {
-            "items": {"$ref": "#/$defs/expression"},
+            "items": {
+              "$ref": "#/$defs/expression"
+            },
             "type": "array"
           },
-          "name": {"minLength": 1, "type": "string"},
-          "source_provenance": {"$ref": "#/$defs/provenance"}
+          "name": {
+            "minLength": 1,
+            "type": "string"
+          },
+          "source_provenance": {
+            "$ref": "#/$defs/provenance"
+          }
         },
-        "required": ["expressions", "name", "source_provenance"],
+        "required": [
+          "expressions",
+          "name",
+          "source_provenance"
+        ],
         "type": "object"
       },
       "type": "array"
@@ -99,50 +177,107 @@
       "items": {
         "additionalProperties": false,
         "properties": {
-          "definition": {"minLength": 1, "type": "string"},
-          "name": {"minLength": 1, "type": "string"},
-          "scope": {"type": "string"},
-          "source_provenance": {"$ref": "#/$defs/provenance"},
-          "specialization": {"pattern": "^sha256:[0-9a-f]{64}$", "type": "string"}
+          "definition": {
+            "minLength": 1,
+            "type": "string"
+          },
+          "name": {
+            "minLength": 1,
+            "type": "string"
+          },
+          "scope": {
+            "type": "string"
+          },
+          "source_provenance": {
+            "$ref": "#/$defs/provenance"
+          },
+          "static_arguments": {
+            "type": "object"
+          }
         },
-        "required": ["definition", "name", "scope", "source_provenance", "specialization"],
+        "required": [
+          "definition",
+          "name",
+          "scope",
+          "source_provenance",
+          "static_arguments"
+        ],
         "type": "object"
       },
       "type": "array"
     },
     "module_specializations": {
-      "items": {"$ref": "#"},
+      "items": {
+        "$ref": "#"
+      },
       "type": "array"
     },
-    "schema": {"const": "agentic-circuit-source-map"},
-    "specialization": {"type": ["string", "null"]},
+    "schema": {
+      "const": "agentic-circuit-source-map"
+    },
+    "static_arguments": {
+      "type": "object"
+    },
     "state_owners": {
       "items": {
         "additionalProperties": false,
         "properties": {
-          "kind": {"enum": ["memory", "slot", "table"]},
-          "name": {"minLength": 1, "type": "string"},
-          "source_provenance": {"$ref": "#/$defs/provenance"}
+          "kind": {
+            "enum": [
+              "memory",
+              "slot",
+              "table"
+            ]
+          },
+          "name": {
+            "minLength": 1,
+            "type": "string"
+          },
+          "source_provenance": {
+            "$ref": "#/$defs/provenance"
+          }
         },
-        "required": ["kind", "name", "source_provenance"],
+        "required": [
+          "kind",
+          "name",
+          "source_provenance"
+        ],
         "type": "object"
       },
       "type": "array"
     },
-    "system": {"minLength": 1, "type": "string"},
+    "system": {
+      "minLength": 1,
+      "type": "string"
+    },
     "table_matches": {
       "items": {
         "additionalProperties": false,
         "properties": {
           "expressions": {
-            "items": {"$ref": "#/$defs/expression"},
+            "items": {
+              "$ref": "#/$defs/expression"
+            },
             "type": "array"
           },
-          "name": {"minLength": 1, "type": "string"},
-          "source_provenance": {"$ref": "#/$defs/provenance"},
-          "table": {"minLength": 1, "type": "string"}
+          "name": {
+            "minLength": 1,
+            "type": "string"
+          },
+          "source_provenance": {
+            "$ref": "#/$defs/provenance"
+          },
+          "table": {
+            "minLength": 1,
+            "type": "string"
+          }
         },
-        "required": ["expressions", "name", "source_provenance", "table"],
+        "required": [
+          "expressions",
+          "name",
+          "source_provenance",
+          "table"
+        ],
         "type": "object"
       },
       "type": "array"
@@ -152,20 +287,50 @@
         "additionalProperties": false,
         "properties": {
           "key_expressions": {
-            "items": {"$ref": "#/$defs/expression"},
+            "items": {
+              "$ref": "#/$defs/expression"
+            },
             "type": "array"
           },
-          "name": {"minLength": 1, "type": "string"},
-          "source_provenance": {"$ref": "#/$defs/provenance"},
-          "table": {"minLength": 1, "type": "string"}
+          "name": {
+            "minLength": 1,
+            "type": "string"
+          },
+          "source_provenance": {
+            "$ref": "#/$defs/provenance"
+          },
+          "table": {
+            "minLength": 1,
+            "type": "string"
+          }
         },
-        "required": ["key_expressions", "name", "source_provenance", "table"],
+        "required": [
+          "key_expressions",
+          "name",
+          "source_provenance",
+          "table"
+        ],
         "type": "object"
       },
       "type": "array"
     },
-    "version": {"const": "0.1"}
+    "version": {
+      "const": "0.1"
+    }
   },
-  "required": ["blocks", "contract_epoch", "definition", "helpers", "module_instances", "module_specializations", "schema", "specialization", "state_owners", "system", "table_matches", "table_selections", "version"],
+  "required": [
+    "blocks",
+    "definition",
+    "helpers",
+    "module_instances",
+    "module_specializations",
+    "schema",
+    "static_arguments",
+    "state_owners",
+    "system",
+    "table_matches",
+    "table_selections",
+    "version"
+  ],
   "type": "object"
 }

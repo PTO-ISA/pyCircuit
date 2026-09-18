@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import re
+
 from _pycircuit_semantics import (
     ArrayType,
     BitsType,
@@ -12,7 +14,7 @@ from _pycircuit_semantics import (
     ValueType,
 )
 
-from .._canonical_json import canonical_json_bytes, canonical_mlir_string, sha256_bytes
+from .._canonical_json import canonical_json_bytes, canonical_mlir_string
 from .._static_eval import FrozenMap, StaticValue, static_json_value
 from .errors import QueueFrontendError
 from .model import (
@@ -40,16 +42,9 @@ def _render_dense_i64(values: tuple[int, ...]) -> str:
 
 
 def _table_schema_id(entry_type: ValueType, shape: tuple[int, ...]) -> str:
-    return sha256_bytes(
-        canonical_json_bytes(
-            {
-                "entry": _render_type(entry_type),
-                "layout": "row_major",
-                "layout_version": 1,
-                "shape": list(shape),
-            }
-        )
-    )
+    entry = re.sub("[^A-Za-z0-9]+", "_", _render_type(entry_type)).strip("_")
+    dimensions = "x".join(map(str, shape))
+    return f"row_major__{entry}__{dimensions}"
 
 
 def _render_table_init_value(value: object, descriptor: ValueType) -> str:
@@ -120,9 +115,11 @@ def _render_static_mlir_dictionary(
 
 
 def _render_interface_display_attributes(
-    inputs: tuple[str, ...], outputs: tuple[str, ...]
+    inputs: tuple[str, ...],
+    outputs: tuple[str, ...],
+    extra_fields: tuple[str, ...] = (),
 ) -> str:
-    fields = []
+    fields = list(extra_fields)
     if inputs:
         fields.append(
             "ac.input_display_names = ["
@@ -157,7 +154,7 @@ def _render_bitfield(binding: BitfieldBinding, indent: str) -> str:
     )
     return (
         f"{indent}ac.bitfield @{binding.name} width {binding.layout.width} "
-        f"fingerprint {canonical_mlir_string(binding.layout.fingerprint)} fields [{fields}]"
+        f"fields [{fields}]"
     )
 
 
@@ -224,8 +221,6 @@ def _render_static_type_attributes(
                 + canonical_mlir_string(binding.root)
                 + ", schema = "
                 + canonical_mlir_string(binding.schema)
-                + ", schema_sha256 = "
-                + canonical_mlir_string(binding.schema_sha256)
                 + ", type = "
                 + canonical_mlir_string(binding.type_name)
                 + ", value = "
@@ -300,9 +295,7 @@ def _render_static_type_attributes(
             rendered_identities.append(
                 "{bindings = ["
                 + ", ".join(rendered_bindings)
-                + "], fingerprint = "
-                + canonical_mlir_string(descriptor.specialization_fingerprint)
-                + ", source = "
+                + "], source = "
                 + canonical_mlir_string(descriptor.name)
                 + ", symbol = "
                 + canonical_mlir_string(descriptor.symbol)

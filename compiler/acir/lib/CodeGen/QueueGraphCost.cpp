@@ -32,11 +32,6 @@ bool isLowerHex(llvm::StringRef value) {
   });
 }
 
-bool isSha256(llvm::StringRef value) {
-  return value.consume_front("sha256:") && value.size() == 64 &&
-         isLowerHex(value);
-}
-
 bool isRevision(llvm::StringRef value) {
   return value.size() == 40 && isLowerHex(value);
 }
@@ -558,9 +553,9 @@ moduleCost(const QueueGraphPlan &plan, llvm::StringRef instancePath,
       {"rules", std::move(rules)},
       {"shared_costs", std::move(sharedCosts)},
       {"specialization",
-       plan.specializationFingerprint.empty()
+       plan.specializationKey.empty()
            ? llvm::json::Value(nullptr)
-           : llvm::json::Value(plan.specializationFingerprint)},
+           : llvm::json::Value(plan.specializationKey)},
       {"system", plan.system},
       {"totals", std::move(totals)}};
 }
@@ -569,16 +564,13 @@ moduleCost(const QueueGraphPlan &plan, llvm::StringRef instancePath,
 
 llvm::Expected<std::string> generateQueueGraphCostReport(
     const QueueGraphPlan &plan, llvm::StringRef sdkProductVersion,
-    llvm::StringRef sdkSourceRevision, llvm::StringRef queueGraphSha256,
-    llvm::StringRef sourceMapSha256) {
+    llvm::StringRef sdkSourceRevision) {
   if (auto error = verifyQueueGraphPlan(plan))
     return std::move(error);
   if (sdkProductVersion.empty())
     return costError("SDK product version is required");
   if (!isRevision(sdkSourceRevision))
     return costError("SDK source revision must be 40 lowercase hex digits");
-  if (!isSha256(queueGraphSha256) || !isSha256(sourceMapSha256))
-    return costError("report identity requires canonical SHA-256 fingerprints");
 
   uint64_t totalLogicalBits = 0;
   uint64_t totalCarrierBits = 0;
@@ -601,8 +593,8 @@ llvm::Expected<std::string> generateQueueGraphCostReport(
           parent.moduleSpecializations,
           [&](const std::shared_ptr<QueueGraphPlan> &candidate) {
             return candidate && candidate->definition == instance.definition &&
-                   candidate->specializationFingerprint ==
-                       instance.specializationFingerprint;
+                   candidate->specializationKey ==
+                       instance.specializationKey;
           });
       if (found == parent.moduleSpecializations.end())
         return costError("module instance specialization is unresolved");
@@ -638,12 +630,10 @@ llvm::Expected<std::string> generateQueueGraphCostReport(
       {"sizeof_payload_types", "not_modeled"}};
   llvm::json::Object identity{
       {"product_version", sdkProductVersion},
-      {"queuegraph_sha256", queueGraphSha256},
-      {"source_map_sha256", sourceMapSha256},
       {"specialization",
-       plan.specializationFingerprint.empty()
+       plan.specializationKey.empty()
            ? llvm::json::Value(nullptr)
-           : llvm::json::Value(plan.specializationFingerprint)},
+           : llvm::json::Value(plan.specializationKey)},
       {"system", plan.system},
       {"toolchain_revision", sdkSourceRevision}};
   llvm::json::Object models{
@@ -667,8 +657,7 @@ llvm::Expected<std::string> generateQueueGraphCostReport(
               totalStorageBytes)},
       {"queuegraph_nodes",
        metric("exact", "verified_queuegraph", "nodes", totalNodes)}};
-  llvm::json::Object document{{"contract_epoch", "0.5"},
-                              {"coverage", std::move(coverage)},
+  llvm::json::Object document{{"coverage", std::move(coverage)},
                               {"identity", std::move(identity)},
                               {"models", std::move(models)},
                               {"modules", std::move(modules)},

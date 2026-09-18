@@ -166,7 +166,9 @@ class _Normalizer:
             return evaluate_static(expression, StaticEnvironment(self._static_values))
         return expression
 
-    def _bound_candidate(self, node: ast.Call, schema: ComponentSchema) -> tuple[
+    def _bound_candidate(
+        self, node: ast.Call, schema: ComponentSchema
+    ) -> tuple[
         tuple[tuple[str, ValueVersion], ...],
         tuple[tuple[str, StaticValue], ...],
         str | None,

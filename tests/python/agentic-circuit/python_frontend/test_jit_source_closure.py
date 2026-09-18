@@ -1,9 +1,6 @@
 from __future__ import annotations
 
 import importlib.util
-import json
-import os
-import subprocess
 import sys
 import tempfile
 import unittest
@@ -233,9 +230,11 @@ class JitSourceClosureTest(unittest.TestCase):
                 "from __future__ import annotations\n"
                 "import agentic_circuit as ac\n"
                 "from param_contracts import Group\n\n"
+                "# ndf: DAV-JIT-RULE-0001\n"
                 "@ac.rule\n"
                 "def keep(value: Group) -> Group:\n"
                 "    return value\n\n"
+                "# ndf: DAV-JIT-SYSTEM-0001\n"
                 "@ac.system\n"
                 "def parameterized(value: Group, *, entries: ac.const[int], "
                 "lanes: ac.const[int]) -> Group:\n"
@@ -268,8 +267,10 @@ class JitSourceClosureTest(unittest.TestCase):
         self.assertIn('{name = "count", type = i8}', lowered)
         self.assertRegex(
             lowered,
-            r"!ac\.value_array<4 x !ac\.struct<@types::@Entry__p[0-9a-f]{12}>>",
+            r"!ac\.value_array<4 x !ac\.struct<@types::@Entry__ENTRIES_128>>",
         )
+        self.assertIn('ac.ndf_ids = ["DAV-JIT-RULE-0001"]', lowered)
+        self.assertIn('ac.ndf_ids = ["DAV-JIT-SYSTEM-0001"]', lowered)
 
     def test_imported_rule_preserves_its_original_source_location(self) -> None:
         import agentic_circuit as ac
@@ -517,93 +518,6 @@ class JitSourceClosureTest(unittest.TestCase):
         self.assertIn('loc("source_helpers.py":5:12)', raw)
         self.assertIn('loc("source_top.py":10:13)', raw)
         self.assertIn('loc("source_top.py":11:14)', raw)
-
-    def test_inline_helper_source_stack_reaches_queue_graph(self) -> None:
-        import agentic_circuit as ac
-        from agentic_circuit._jit import _lower_queue_acir
-
-        repository = Path(__file__).resolve().parents[4]
-        optimizer = Path(
-            os.environ.get(
-                "ACIR_OPT",
-                repository / ".pycircuit_out/toolchain/build/bin/acir-opt-internal",
-            )
-        )
-        planner = Path(
-            os.environ.get(
-                "ACIR_QUEUE_PLAN",
-                repository / ".pycircuit_out/toolchain/build/bin/acir-queue-plan",
-            )
-        )
-        if not optimizer.is_file() or not planner.is_file():
-            self.skipTest("native source-stack tools are unavailable")
-
-        with tempfile.TemporaryDirectory() as directory:
-            root = Path(directory)
-            (root / "inline_helpers.py").write_text(
-                "import agentic_circuit as ac\n\n"
-                "@ac.inline\n"
-                "def add_one(value: ac.u8) -> ac.u8:\n"
-                "    return value + 1\n",
-                encoding="utf-8",
-            )
-            top = root / "inline_top.py"
-            top.write_text(
-                "import agentic_circuit as ac\n"
-                "from inline_helpers import add_one\n\n"
-                "@ac.system\n"
-                "def pipeline() -> None:\n"
-                "    incoming = ac.source(ac.u8)\n"
-                "    outgoing = incoming.apply(lambda item: add_one(item))\n"
-                "    ac.sink(outgoing)\n",
-                encoding="utf-8",
-            )
-
-            sys.path.insert(0, str(root))
-            self.addCleanup(sys.path.remove, str(root))
-            for name in ("inline_helpers", "inline_top"):
-                sys.modules.pop(name, None)
-                self.addCleanup(sys.modules.pop, name, None)
-            spec = importlib.util.spec_from_file_location("inline_top", top)
-            if spec is None or spec.loader is None:
-                raise RuntimeError("cannot load inline source-stack fixture")
-            module = importlib.util.module_from_spec(spec)
-            sys.modules[spec.name] = module
-            spec.loader.exec_module(module)
-
-            frozen = root / "inline.frozen.mlir"
-            frozen.write_text(
-                _lower_queue_acir(
-                    ac.jit(module.pipeline, workspace=root).lower_acir(),
-                    optimizer=optimizer,
-                ),
-                encoding="utf-8",
-            )
-            completed = subprocess.run(
-                (str(planner), str(frozen)),
-                text=True,
-                capture_output=True,
-                check=False,
-            )
-            self.assertEqual(0, completed.returncode, completed.stderr)
-            plan = json.loads(completed.stdout)
-
-        transform = next(
-            block for block in plan["blocks"] if block["kind"] == "transform"
-        )
-        add = next(
-            expression
-            for expression in transform["expressions"]
-            if expression["kind"] == "add"
-        )
-        frames = add["source_provenance"]["origins"][0]["frames"]
-        self.assertEqual(
-            [
-                ("statement", "inline_helpers.py", 5),
-                ("inline_callsite", "inline_top.py", 7),
-            ],
-            [(frame["kind"], frame["file"], frame["line"]) for frame in frames],
-        )
 
 
 if __name__ == "__main__":

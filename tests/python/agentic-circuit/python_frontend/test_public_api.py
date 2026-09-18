@@ -250,7 +250,7 @@ class PublicApiTest(unittest.TestCase):
             fields={"imm26": (25, 0), "rd": (25, 21), "opcode": (31, 26)},
         )
 
-        self.assertEqual(first.fingerprint, reordered.fingerprint)
+        self.assertEqual(first.fields, reordered.fields)
         self.assertEqual((26, 6), first.field_slices()["opcode"])
         self.assertEqual(26, first.field_width("imm26"))
         with self.assertRaises(TypeError):

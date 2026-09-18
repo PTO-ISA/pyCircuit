@@ -1,0 +1,16 @@
+cmake --build .pycircuit_out/build-llvm22 -j4 --target acc agentic_circuit_native CodeGenTests CompilerTests ACIRModelAnalysisTests pycc acir-opt-internal acir-queue-cxxgen acir-queue-plan acir-queue-pycgen
+.pycircuit_out/build-llvm22/bin/CodeGenTests
+.pycircuit_out/build-llvm22/bin/CompilerTests
+.pycircuit_out/build-llvm22/bin/ACIRModelAnalysisTests
+.pycircuit_out/per-module-py/bin/lit -sv .pycircuit_out/build-llvm22/compiler/acir/tests/mlir
+PYTHONPATH="$PWD/python/semantic-core/src:$PWD/python/agentic-circuit/src:$PWD/tests/python/agentic-circuit:$PWD/.pycircuit_out/build-llvm22/compiler/acir/python" .pycircuit_out/ac-venv/bin/python -m pytest tests/python/agentic-circuit/python_frontend tests/python/agentic-circuit/cli tests/python/agentic-circuit/contracts -q
+PYTHONPATH="$PWD/python/pycircuit/src:$PWD/python/semantic-core/src:$PWD/python/agentic-circuit/src" .pycircuit_out/per-module-py/bin/python -m pytest tests/unit -m unit -q
+PYTHONPATH="$PWD/python/pycircuit/src:$PWD/python/semantic-core/src:$PWD/python/agentic-circuit/src" .pycircuit_out/ac-venv/bin/python -m pytest tests/system/test_primitive_selection.py -q
+.pycircuit_out/ac-venv/bin/python tools/agentic-circuit/check-contracts.py
+python3 tools/agentic-circuit/check-sdk-contract.py
+python3 tools/agentic-circuit/generate-diagnostic-catalog.py --check
+python3 tools/pycircuit/check-pyc-inventory.py
+python3 flows/tools/check_api_hygiene.py python/pycircuit/src/pycircuit examples/pycircuit docs README.md
+python3 flows/tools/check_decision_status.py --status docs/gates/decision_status_v6.md --out .pycircuit_out/gates/20260919-zero-content-identity/decision-status.json --require-no-deferred --require-concrete-evidence --require-existing-evidence
+python3 -m mkdocs build --strict --site-dir .pycircuit_out/zero-content-docs
+git diff --check

@@ -160,15 +160,15 @@ usage; consumer repositories own complete block documentation and sign-off.
 | Order | Artifact | Typical location | Tied to step |
 |-------|----------|------------------|--------------|
 | 1 | **Regenerate digests** when vendor **.docx / .pdf / .xlsx** change | Script under block `docs/` or repo `scripts/`; output `docs/converted/` + `converted/README.md` | After **Design specification conversion** |
-| 2 | **Source inventory** with **digest paths** | `REQUIREMENT_SOURCES.md` (or equivalent): each SRC / file → **binary path** + **Markdown path** | **Step 2** |
+| 2 | **Source inventory** with **converted-document paths** | `REQUIREMENT_SOURCES.md` (or equivalent): each SRC / file → **binary path** + **Markdown path** | **Step 2** |
 | 3 | **Assumptions & conflicts** | `ASSUMPTIONS.md`: inferred port directions, CDC, spreadsheet vs prose conflicts | **Step 2–3** |
-| 4 | **Port / bus contract** | `PORT_LIST.md`: widths from XLSX-derived `.md` rows; directions from prose digest + assumptions | **Step 3** |
+| 4 | **Port / bus contract** | `PORT_LIST.md`: widths from XLSX-derived `.md` rows; directions from converted prose + assumptions | **Step 3** |
 | 5 | **Feature list** | `FEATURE_LIST.md`: see §2 below | **Step 3** |
-| 6 | **Sequential + pipelined pseudocode** | `function_list.md`, `step4.md` / `ALGORITHM_*.md` — map digest **chapters** to functions | **Steps 4–5** |
-| 7 | **Cycle-aware pseudocode / RTL notes** | `step6.md`, implementation — **Spec trace** comments point at digest headings (and opcode tables in `.md`) | **Step 6** |
+| 6 | **Sequential + pipelined pseudocode** | `function_list.md`, `step4.md` / `ALGORITHM_*.md` — map converted-document **chapters** to functions | **Steps 4–5** |
+| 7 | **Cycle-aware pseudocode / RTL notes** | `step6.md`, implementation — **Spec trace** comments point at converted-document headings (and opcode tables in `.md`) | **Step 6** |
 | 8 | **Traceability matrices** | `TRACEABILITY.md`: port → F-xxx; F-xxx → code region → **T-xxx** or **TBD** + gap | **Step 7** |
 | 9 | **Test plan** | `TEST_LIST.md` / `TEST_PLAN.md`: T-xxx ↔ F-xxx; SYS scenarios ↔ multi-feature; golden vectors from converted tables | **Step 8** |
-| 10 | **Increments & log** | `incremental_plan.md`, `IMPLEMENTATION_LOG.md` — tag **F-xxx** per PR; rerun digest script when specs change | **Step 9** |
+| 10 | **Increments & log** | `incremental_plan.md`, `IMPLEMENTATION_LOG.md` — tag **F-xxx** per PR; refresh the converted-document index when specs change | **Step 9** |
 | 11 | **System test & sign-off** | `system_test_spec.md`, README — P0 **F-xxx** complete or waived | **Step 10** |
 | — | **Optional:** `workflow_substeps.md` | Splits a single Step into **2a, 3b, …** for large blocks | Any step |
 | — | **Optional:** `cycle_budget.md` | `domain.next()` count, occurrence stages, golden **`pyc.reg`** / MLIR checks | **Steps 5–6**, **9** |
@@ -177,7 +177,7 @@ usage; consumer repositories own complete block documentation and sign-off.
 
 1. **Legend** — priority (P0/P1/P2), column meanings.
 2. **Numbered features F-001…** — each row: name, priority, **Spec trace** = pointer into **converted** `.md` (heading text or stable section id), trigger, observable effect, dependencies.
-3. **Digest index (coarse)** — table: each major spec chapter (`# …` in the primary digest) → **range of F-ids** (or list).
+3. **Converted-document index (coarse)** — table: each major spec chapter (`# …`) → **range of F-ids** (or list).
 4. **Heading checklist (full)** — for the **primary** architecture/spec Markdown export, enumerate **every** `#`, `##`, and `###` heading line; each row assigns **one or more F-ids** or **—** (TOC, cover, non-RTL meta only).
    - **Maintenance rule:** if Pandoc/export adds or renames headings, **update this table** or add **F-xxx** / **gap** entries in `TRACEABILITY.md`.
 5. **Feature → test summary** — which **T-xxx** / SYS cover which **F-xxx** (use **TBD** only with a dated gap).
@@ -213,9 +213,9 @@ For complex blocks, mirror this repository's **10-step** narrative in **block-lo
 0. **Confirm** Markdown digests exist (or are waived in writing) for every **`.docx` / `.pdf` / `.xlsx`** the block treats as authoritative—see **Design specification conversion** above. Use the **`.md`** files as the primary text for extraction and agent review.
 1. Enumerate all files in the block's `docs/` folder (spreadsheets, Word, PDF, markdown—including converted `.md` companions).
 2. Extract **clock/reset**, **protocol**, **ordering**, **credit/flow control**, **addressing**, **data widths**, **modes**, **error behavior**.
-3. Build a **source table**: requirement → document → section/sheet/cell (as traceable as possible), with **both** the original binary path (if retained) **and** the Markdown digest path.
+3. Build a **source table**: requirement → document → section/sheet/cell (as traceable as possible), with **both** the original binary path (if retained) **and** the converted Markdown path.
 
-4. **Parity check:** walk the **heading checklist** in `FEATURE_LIST.md` (see **From converted Markdown to feature list, step docs, and test plan** §2) against the primary spec digest; every heading row must resolve to **F-xxx** or **—**; unresolved items → gap register in `TRACEABILITY.md`.
+4. **Parity check:** walk the **heading checklist** in `FEATURE_LIST.md` (see **From converted Markdown to feature list, step docs, and test plan** §2) against the converted specification; every heading row must resolve to **F-xxx** or **—**; unresolved items → gap register in `TRACEABILITY.md`.
 
 **Deliverable:** `REQUIREMENT_SOURCES.md` or equivalent table in block `README.md`.
 
@@ -233,7 +233,7 @@ For complex blocks, mirror this repository's **10-step** narrative in **block-lo
      Document the `prefix` and `key` for each port.
 2. **Buses:** Group related pins into **logical buses** (e.g. CHI request channel, response channel). Document packing if the RTL bundles vectors.
 3. **Top-level functionality:** One concise paragraph describing the block's role.
-4. **Feature list:** Every **function** or **behavior** described in the spec becomes a **numbered feature** (F-001, F-002, …) with: description, triggering condition, expected observable effect on ports, dependency on other features. For blocks using **converted** specs, follow **From converted Markdown to feature list, step docs, and test plan** §2: include **digest index**, **full heading checklist**, and **Spec trace** paths into `converted/*.md`.
+4. **Feature list:** Every **function** or **behavior** described in the spec becomes a **numbered feature** (F-001, F-002, …) with: description, triggering condition, expected observable effect on ports, dependency on other features. For blocks using **converted** specs, follow **From converted Markdown to feature list, step docs, and test plan** §2: include the **converted-document index**, **full heading checklist**, and **Spec trace** paths into `converted/*.md`.
 5. **Submodule decomposition:** Identify which logical functions become
    separate module functions, their `inputs` and output keys, and the intended
    `domain.call()` chain.

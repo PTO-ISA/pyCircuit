@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import hashlib
 import json
 from pathlib import Path
 
@@ -71,7 +70,6 @@ def test_verilog_primitive_merge_keeps_later_module_closure(tmp_path) -> None:
     )
     selected_wide.write_text(selected.read_text(encoding="utf-8"), encoding="utf-8")
     source_text = "module selected; endmodule\n"
-    source_digest = "sha256:" + hashlib.sha256(source_text.encode()).hexdigest()
     for directory in (selected.parent, selected_wide.parent):
         bundled_source = directory / "rtl" / "selected.v"
         bundled_source.parent.mkdir()
@@ -88,7 +86,6 @@ def test_verilog_primitive_merge_keeps_later_module_closure(tmp_path) -> None:
             {
                 "path": "selected.v",
                 "bundle_path": "rtl/selected.v",
-                "sha256": source_digest,
                 "license": "BSD-3-Clause",
             }
         ],
@@ -142,11 +139,3 @@ def test_verilog_primitive_merge_keeps_later_module_closure(tmp_path) -> None:
         4,
         13,
     }
-
-    (selected_wide.parent / "rtl" / "selected.v").write_text(
-        "module tampered; endmodule\n", encoding="utf-8"
-    )
-    with pytest.raises(SystemExit, match="digest mismatch"):
-        _merge_verilog_primitive_bundles(
-            [plain, selected, selected_wide], tmp_path / "tampered.v"
-        )

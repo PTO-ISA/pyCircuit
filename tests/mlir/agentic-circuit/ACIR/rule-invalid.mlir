@@ -12,7 +12,7 @@
 // RUN: %not %acir_opt %t/return-type.mlir 2>&1 | %FileCheck %s --check-prefix=RETURN-TYPE
 
 //--- missing-output-presence.mlir
-module attributes {ac.contract_epoch = "0.5"} {
+module  {
   %input = "builtin.unrealized_conversion_cast"() : () -> !ac.queue<i32>
   %a, %b = ac.rule %input depths [1, 1] latencies [1, 1]
       name "bad" stable_id "bad" domain "cycle"
@@ -27,13 +27,13 @@ module attributes {ac.contract_epoch = "0.5"} {
 // MISSING-OUTPUT: 'ac.rule' op requires one SSA presence record per output
 
 //--- return-parent.mlir
-module attributes {ac.contract_epoch = "0.5"} {
+module  {
   ac.rule.return
 }
 // RETURN: 'ac.rule.return' op expects parent op 'ac.rule'
 
 //--- type-marker.mlir
-module attributes {ac.contract_epoch = "0.5"} {
+module  {
   %input = "builtin.unrealized_conversion_cast"() : () -> !ac.queue<i32>
   %output = ac.rule %input depths [1] latencies [1]
       name "bad" stable_id "bad" domain "cycle"
@@ -49,7 +49,7 @@ module attributes {ac.contract_epoch = "0.5"} {
 // TYPE: 'ac.marker.type' op exact facts must not remain marker-wrapped
 
 //--- value-marker.mlir
-module attributes {ac.contract_epoch = "0.5"} {
+module  {
   %input = "builtin.unrealized_conversion_cast"() : () -> !ac.queue<i32>
   %output = ac.rule %input depths [1] latencies [1]
       name "bad" stable_id "bad" domain "cycle"
@@ -65,7 +65,7 @@ module attributes {ac.contract_epoch = "0.5"} {
 // VALUE: 'ac.marker.value' op requires non-empty identity and path predicate
 
 //--- obligation-marker.mlir
-module attributes {ac.contract_epoch = "0.5"} {
+module  {
   %input = "builtin.unrealized_conversion_cast"() : () -> !ac.queue<i32>
   %output = ac.rule %input depths [1] latencies [1]
       name "bad" stable_id "bad" domain "cycle"
@@ -79,7 +79,7 @@ module attributes {ac.contract_epoch = "0.5"} {
 // OBLIGATION: 'ac.marker.obligation' op requires non-empty origin and path predicate
 
 //--- domain.mlir
-module attributes {ac.contract_epoch = "0.5"} {
+module  {
   %input = "builtin.unrealized_conversion_cast"() : () -> !ac.queue<i32>
   %output = ac.rule %input depths [1] latencies [1]
       name "bad" stable_id "bad" domain "bogus"
@@ -93,7 +93,7 @@ module attributes {ac.contract_epoch = "0.5"} {
 // DOMAIN: 'ac.rule' op rule requires exact time domain 'cycle'
 
 //--- output-ordinal.mlir
-module attributes {ac.contract_epoch = "0.5"} {
+module  {
   %input = "builtin.unrealized_conversion_cast"() : () -> !ac.queue<i32>
   %output = ac.rule %input depths [1] latencies [1]
       name "bad" stable_id "bad" domain "cycle"
@@ -108,7 +108,7 @@ module attributes {ac.contract_epoch = "0.5"} {
 // OUTPUT-ORDINAL: 'ac.rule.output' op ordinal must name one rule output
 
 //--- output-payload.mlir
-module attributes {ac.contract_epoch = "0.5"} {
+module  {
   %input = "builtin.unrealized_conversion_cast"() : () -> !ac.queue<i32>
   %a, %b = ac.rule %input depths [1, 1] latencies [1, 1]
       name "bad" stable_id "bad" domain "cycle" type exact {
@@ -124,7 +124,7 @@ module attributes {ac.contract_epoch = "0.5"} {
 // OUTPUT-PAYLOAD: 'ac.rule.output' op value must match the selected rule output payload
 
 //--- output-presence-type.mlir
-module attributes {ac.contract_epoch = "0.5"} {
+module  {
   %input = "builtin.unrealized_conversion_cast"() : () -> !ac.queue<i32>
   %output = ac.rule %input depths [1] latencies [1]
       name "bad" stable_id "bad" domain "cycle" type exact {
@@ -138,7 +138,7 @@ module attributes {ac.contract_epoch = "0.5"} {
 // OUTPUT-PRESENCE-TYPE: 'ac.rule.output' op condition must be !ac.var<i1>
 
 //--- return-arity.mlir
-module attributes {ac.contract_epoch = "0.5"} {
+module  {
   %input = "builtin.unrealized_conversion_cast"() : () -> !ac.queue<i32>
   %output = ac.rule %input depths [1] latencies [1]
       name "bad" stable_id "bad" domain "cycle" type exact {
@@ -149,7 +149,7 @@ module attributes {ac.contract_epoch = "0.5"} {
 // RETURN-ARITY: 'ac.rule' op body return count must match output Queue count
 
 //--- return-type.mlir
-module attributes {ac.contract_epoch = "0.5"} {
+module  {
   %input = "builtin.unrealized_conversion_cast"() : () -> !ac.queue<i32>
   %output = ac.rule %input depths [1] latencies [1]
       name "bad" stable_id "bad" domain "cycle" type exact {

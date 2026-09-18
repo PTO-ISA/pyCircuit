@@ -248,8 +248,7 @@ def PYC_RtlCombOp : PYC_Op<"rtl.comb", [Pure]> {
                        DictionaryAttr:$parameters,
                        StrArrayAttr:$input_ports,
                        StrArrayAttr:$output_ports,
-                       ArrayAttr:$sources,
-                       StrAttr:$catalog_sha256);
+                       ArrayAttr:$sources);
   let results = (outs Variadic<AnyInteger>:$outputs);
   let hasVerifier = 1;
   let assemblyFormat = "$inputs attr-dict `:` `(` type($inputs) `)` `->` `(` type($outputs) `)`";

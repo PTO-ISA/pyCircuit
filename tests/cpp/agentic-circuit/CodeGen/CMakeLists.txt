@@ -12,12 +12,6 @@ if(NOT LLVM_ENABLE_RTTI)
   set(ACIR_TEST_RTTI_FLAG "-fno-rtti")
 endif()
 add_executable(CodeGenTests
-  BuildTest.cpp
-  CodeGenTest.cpp
-  GeneratedModelCompileTest.cpp
-  GeneratedModelRuntimeTest.cpp
-  GeneratorTest.cpp
-  ModelPlanTest.cpp
   QueueGraphPlanTest.cpp
 )
 target_include_directories(CodeGenTests PRIVATE
@@ -33,8 +27,6 @@ target_link_libraries(CodeGenTests PRIVATE
   GTest::gtest_main
 )
 target_compile_definitions(CodeGenTests PRIVATE
-  ACSIM_VALID_TEST_FILE="${ACIR_REPO_ROOT}/tests/mlir/agentic-circuit/ACSim/ops-valid.mlir"
-  ACSIM_PROCESS_CONTROL_FLOW_TEST_FILE="${ACIR_REPO_ROOT}/tests/mlir/agentic-circuit/CodeGen/process-control-flow.mlir"
   ACIR_TEST_BINARY_DIR="${ACIR_BINARY_DIR}"
   ACIR_TEST_CXX_COMPILER="${CMAKE_CXX_COMPILER}"
   ACIR_TEST_LLVM_INCLUDE_DIRS="${ACIR_TEST_LLVM_INCLUDE_DIRS}"

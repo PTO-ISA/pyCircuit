@@ -57,11 +57,7 @@ class MultidimensionalTableFrontendTest(unittest.TestCase):
         self.assertIn("axis_widths = array<i64: 1, 2>", first)
         self.assertIn('layout = "row_major"', first)
         self.assertIn("layout_version = 1 : i64", first)
-        self.assertIn(
-            'schema_id = "sha256:c62fc75ed67ce361c35684c21e695d03'
-            '6e8bae7ee6f525dfaf9b13940b86a4b0"',
-            first,
-        )
+        self.assertIn('schema_id = "row_major__i8__2x3"', first)
         self.assertIn("init_version = 1 : i64", first)
         self.assertIn(
             "init_image = [1 : i8, 2 : i8, 3 : i8, 4 : i8, 5 : i8, 6 : i8]",
@@ -82,8 +78,7 @@ class MultidimensionalTableFrontendTest(unittest.TestCase):
         source = (
             SOURCE.replace("[(2, 3), ac.u8]", "[6, ac.u8]")
             .replace(
-                'init={"version": 1, "entry": ac.u8, '
-                '"values": [1, 2, 3, 4, 5, 6]}',
+                'init={"version": 1, "entry": ac.u8, "values": [1, 2, 3, 4, 5, 6]}',
                 "init=0",
             )
             .replace("state.view((1, 2))", "state.view(5)")
@@ -103,12 +98,13 @@ class MultidimensionalTableFrontendTest(unittest.TestCase):
     def test_rank_three_extent_one_and_non_power_of_two_shape(self) -> None:
         from agentic_circuit._queue_frontend import lower_queue_source
 
-        source = SOURCE.replace("(2, 3)", "(1, 3, 5)", 1).replace(
-            "state.view((1, 2))", "state.view((0, 2, 4))"
-        ).replace(
-            'init={"version": 1, "entry": ac.u8, '
-            '"values": [1, 2, 3, 4, 5, 6]}',
-            "init=0",
+        source = (
+            SOURCE.replace("(2, 3)", "(1, 3, 5)", 1)
+            .replace("state.view((1, 2))", "state.view((0, 2, 4))")
+            .replace(
+                'init={"version": 1, "entry": ac.u8, "values": [1, 2, 3, 4, 5, 6]}',
+                "init=0",
+            )
         )
         lowered = lower_queue_source(source, "pipeline")
         self.assertIn("shape = array<i64: 1, 3, 5>", lowered)
@@ -156,8 +152,7 @@ class MultidimensionalTableFrontendTest(unittest.TestCase):
         from agentic_circuit._queue_frontend import lower_queue_source
 
         source = SOURCE.replace(
-            'init={"version": 1, "entry": ac.u8, '
-            '"values": [1, 2, 3, 4, 5, 6]}',
+            'init={"version": 1, "entry": ac.u8, "values": [1, 2, 3, 4, 5, 6]}',
             "init=0",
         ).replace(
             "snapshots = state.view((1, 2)).read()",
@@ -174,15 +169,17 @@ class MultidimensionalTableFrontendTest(unittest.TestCase):
     def test_projected_view_has_explicit_row_major_mask_domain(self) -> None:
         from agentic_circuit._queue_frontend import lower_queue_source
 
-        source = SOURCE.replace(
-            "snapshots = state.view((1, 2)).read()",
-            "row = state.view(1)\n"
-            "    snapshots = row.view(2).read()",
-        ).replace("matches = state.match", "matches = row.match").replace(
-            "selected = state.choose", "selected = row.choose"
-        ).replace(
-            "selected_snapshot = state.view(selected.index)",
-            "selected_snapshot = row.view(selected.index)",
+        source = (
+            SOURCE.replace(
+                "snapshots = state.view((1, 2)).read()",
+                "row = state.view(1)\n    snapshots = row.view(2).read()",
+            )
+            .replace("matches = state.match", "matches = row.match")
+            .replace("selected = state.choose", "selected = row.choose")
+            .replace(
+                "selected_snapshot = state.view(selected.index)",
+                "selected_snapshot = row.view(selected.index)",
+            )
         )
         lowered = lower_queue_source(source, "pipeline")
         self.assertIn("domain_axes = array<i64: 1>", lowered)

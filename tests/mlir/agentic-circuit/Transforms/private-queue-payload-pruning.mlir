@@ -1,7 +1,7 @@
 // RUN: %acir_opt %s -ac-prune-internal-payloads | %FileCheck %s
 // RUN: %acir_opt %s -ac-prune-internal-payloads -ac-prune-internal-payloads | %FileCheck %s
 
-builtin.module attributes {ac.contract_epoch = "0.5", ac.model_kind = "queue_graph", ac.queue_graph_domain = "cycle", ac.system = "private_projection"} {
+builtin.module attributes {ac.model_kind = "queue_graph", ac.queue_graph_domain = "cycle", ac.system = "private_projection"} {
   ac.type_scope @types {
     ac.enum @Mode enumerants ["low", "high", "max"] values [0 : i64, 9223372036854775808 : i64, 18446744073709551615 : i64] width 64
     ac.struct @Packet fields [{name = "tag", type = i8}, {name = "mode", type = !ac.enum<@types::@Mode>}, {name = "payload", type = i64}, {name = "valid", type = i1}]
@@ -25,8 +25,7 @@ builtin.module attributes {ac.contract_epoch = "0.5", ac.model_kind = "queue_gra
 // CHECK: ac.var.get %{{.*}} field "tag"
 // CHECK: ac.var.get %{{.*}} field "valid"
 // CHECK: ac.var.tuple
-// CHECK: ac.payload_projections_out = [{fingerprint = "sha256:
-// CHECK-SAME: kept_fields = ["tag", "valid"]
+// CHECK: ac.payload_projections_out = [{kept_fields = ["tag", "valid"]
 // CHECK-SAME: logical_type = !ac.struct<@types::@Packet>
 // CHECK-SAME: profile = "private_transform_tuple_v1"
 // CHECK-SAME: version = 1 : i64
@@ -36,5 +35,4 @@ builtin.module attributes {ac.contract_epoch = "0.5", ac.model_kind = "queue_gra
 // CHECK: ac.var.element %{{.*}} at 0
 // CHECK-SAME: ac.source_provenance = [{frames = [{column = 7 : i64, file = "src/projection.py"
 // CHECK: ac.var.element %{{.*}} at 1
-// CHECK: ac.payload_projections_in = [{fingerprint = "sha256:
 // CHECK: (!ac.queue<tuple<i8, i1>>) -> !ac.queue<i9>

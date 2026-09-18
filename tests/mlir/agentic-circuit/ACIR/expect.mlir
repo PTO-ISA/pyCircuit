@@ -1,7 +1,7 @@
 // RUN: %acir_opt %s | %FileCheck %s
 // RUN: %acir_opt %s | %acir_opt | %FileCheck %s
 
-builtin.module attributes {ac.contract_epoch = "0.5"} {
+builtin.module  {
   %input = ac.source depth 1 latency 1 : !ac.queue<i8>
   ac.expect %input message "positive" {
   ^predicate(%item: !ac.var<i8>):

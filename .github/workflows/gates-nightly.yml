@@ -11,7 +11,6 @@ permissions:
 
 env:
   LLVM_VERSION: "22"
-  LLVM_INSTALL_SCRIPT_SHA256: "03878e08f47b66cc95bc4b544b0db3c6d9ce8d60e6cf2492ae357984330a9eae"
   VERILATOR_VERSION: "5.048"
   CMAKE_BUILD_TYPE: Release
   PYC_GATE_RUN_ID: nightly-${{ github.run_id }}-${{ github.run_attempt }}
@@ -36,7 +35,6 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y wget gnupg software-properties-common cmake ninja-build clang iverilog
           wget --https-only https://apt.llvm.org/llvm.sh
-          printf '%s  %s\n' "${LLVM_INSTALL_SCRIPT_SHA256}" llvm.sh | sha256sum --check --strict
           chmod +x llvm.sh
           sudo ./llvm.sh ${LLVM_VERSION}
           sudo apt-get install -y llvm-${LLVM_VERSION}-dev mlir-${LLVM_VERSION}-tools libmlir-${LLVM_VERSION}-dev

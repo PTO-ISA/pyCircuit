@@ -1,7 +1,7 @@
 // RUN: %acir_opt --pass-pipeline='builtin.module(canonicalize,cse)' %s | %FileCheck %s
 // RUN: %acir_opt --pass-pipeline='builtin.module(ac-lower-rules)' %s | %FileCheck %s
 
-builtin.module attributes {ac.contract_epoch = "0.5"} {
+builtin.module  {
   ac.module @Leaf() parameters {} graph {
     ac.return
   }

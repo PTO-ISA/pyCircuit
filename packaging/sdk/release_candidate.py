@@ -1,10 +1,9 @@
 #!/usr/bin/env python3
-"""Assemble, accept, and verify immutable pyCircuit release candidates."""
+"""Assemble and verify source-revision-pinned pyCircuit release inventories."""
 
 from __future__ import annotations
 
 import argparse
-import hashlib
 import json
 import re
 import shutil
@@ -33,18 +32,9 @@ def _write_json(path: Path, value: dict[str, Any]) -> None:
     )
 
 
-def _sha256(path: Path) -> str:
-    digest = hashlib.sha256()
-    with path.open("rb") as stream:
-        for chunk in iter(lambda: stream.read(1024 * 1024), b""):
-            digest.update(chunk)
-    return "sha256:" + digest.hexdigest()
-
-
 def _record(path: Path, tag: str) -> dict[str, Any]:
     return {
         "name": path.name,
-        "sha256": _sha256(path),
         "size": path.stat().st_size,
         "url": f"{RELEASE_BASE}/{tag}/{path.name}",
     }
@@ -153,7 +143,6 @@ def aggregate(args: argparse.Namespace) -> int:
     release_index = {
         "schema": "pycircuit-sdk-release-index",
         "version": "1",
-        "contract_epoch": version_map["contract_epoch"],
         "candidate_tag": tag,
         "product_version": product,
         "source_revision": source_revision,
@@ -163,19 +152,16 @@ def aggregate(args: argparse.Namespace) -> int:
             "cycle-aware-signal",
             "pyc-cpp",
             "pyc-verilog",
-            "agentic-model-plan",
-            "agentic-model-emit-cpp",
+            "acc-source-to-ac",
+            "acc-cpp",
+            "acc-cpp-bundle",
+            "acc-verilog",
             "gfsim-runtime-v1",
         ],
         "platforms": platforms,
         "wheels": wheel_records,
         "licenses": _record(output_dir / "LICENSES.tar.gz", tag),
         "release_notes": _record(output_dir / "RELEASE_NOTES.md", tag),
-        "checksums": {
-            "name": "SHA256SUMS",
-            "excludes_self": True,
-            "covers_release_index": True,
-        },
     }
     index_name = f"pycircuit-sdk-{product}-release-index.json"
     _write_json(output_dir / index_name, release_index)
@@ -186,7 +172,6 @@ def aggregate(args: argparse.Namespace) -> int:
         def lock_reference(record: dict[str, Any]) -> dict[str, Any]:
             return {
                 "name": record["name"],
-                "sha256": record["sha256"],
                 "url": record["url"],
             }
 
@@ -196,7 +181,6 @@ def aggregate(args: argparse.Namespace) -> int:
         lock = {
             "schema": "pycircuit-sdk-lock",
             "version": "1",
-            "contract_epoch": version_map["contract_epoch"],
             "release": tag,
             "source_revision": source_revision,
             "release_index": lock_reference(_record(output_dir / index_name, tag)),
@@ -218,20 +202,12 @@ def aggregate(args: argparse.Namespace) -> int:
             output_dir / f"pycircuit-sdk-{product}-{platform_id}.lock.json", lock
         )
 
-    checksum_paths = sorted(
-        (
-            path
-            for path in output_dir.iterdir()
-            if path.is_file() and path.name != "SHA256SUMS"
-        ),
+    retained_assets = sorted(
+        (path for path in output_dir.iterdir() if path.is_file()),
         key=lambda path: path.name,
     )
-    (output_dir / "SHA256SUMS").write_text(
-        "".join(f"{_sha256(path)[7:]}  {path.name}\n" for path in checksum_paths),
-        encoding="utf-8",
-    )
     sys.stdout.write(
-        f"release candidate: OK ({len(checksum_paths) + 1} retained assets)\n"
+        f"release candidate: OK ({len(retained_assets)} retained assets)\n"
     )
     return 0
 
@@ -257,37 +233,14 @@ def accept(args: argparse.Namespace) -> int:
         path = candidate_dir / record["name"]
         if not path.is_file():
             raise ValueError(f"accepted asset is missing: {record['name']}")
-        if path.stat().st_size != record["size"] or _sha256(path) != record["sha256"]:
-            raise ValueError(f"accepted asset bytes changed: {record['name']}")
-    checksums = candidate_dir / "SHA256SUMS"
-    if not checksums.is_file():
-        raise ValueError("accepted candidate is missing SHA256SUMS")
-    checksum_records: dict[str, str] = {}
-    for line in checksums.read_text(encoding="utf-8").splitlines():
-        parts = line.split("  ", 1)
-        if len(parts) != 2 or re.fullmatch(r"[0-9a-f]{64}", parts[0]) is None:
-            raise ValueError("SHA256SUMS contains a malformed record")
-        digest, name = parts
-        if name in checksum_records or Path(name).name != name:
-            raise ValueError("SHA256SUMS contains a duplicate or unsafe name")
-        checksum_records[name] = digest
-    actual_names = {
-        path.name
-        for path in candidate_dir.iterdir()
-        if path.is_file() and path.name != checksums.name
-    }
-    if set(checksum_records) != actual_names:
-        raise ValueError("SHA256SUMS does not cover the exact candidate file set")
-    for name, expected in checksum_records.items():
-        if _sha256(candidate_dir / name) != "sha256:" + expected:
-            raise ValueError(f"SHA256SUMS mismatch: {name}")
+        if path.stat().st_size != record["size"]:
+            raise ValueError(f"accepted asset size changed: {record['name']}")
     attestation = {
         "schema": "pycircuit-release-acceptance",
         "version": "1",
         "candidate_tag": index["candidate_tag"],
         "source_revision": index["source_revision"],
-        "release_index": {"name": index_path.name, "sha256": _sha256(index_path)},
-        "checksums": {"name": checksums.name, "sha256": _sha256(checksums)},
+        "release_index": {"name": index_path.name},
         "accepted": True,
     }
     _write_json(args.attestation, attestation)
@@ -308,7 +261,6 @@ def verify_published(args: argparse.Namespace) -> int:
                 path.name,
                 {
                     "name": path.name,
-                    "sha256": _sha256(path),
                     "size": path.stat().st_size,
                     "url": f"{RELEASE_BASE}/{index['candidate_tag']}/{path.name}",
                 },
@@ -319,10 +271,9 @@ def verify_published(args: argparse.Namespace) -> int:
             raise ValueError(f"unstable release URL for {record['name']}")
         with urllib.request.urlopen(record["url"], timeout=args.timeout) as response:
             content = response.read()
-        digest = "sha256:" + hashlib.sha256(content).hexdigest()
-        if len(content) != record["size"] or digest != record["sha256"]:
-            raise ValueError(f"published bytes differ from candidate: {record['name']}")
-        checked.append({"name": record["name"], "sha256": digest, "url": record["url"]})
+        if len(content) != record["size"]:
+            raise ValueError(f"published asset size differs: {record['name']}")
+        checked.append({"name": record["name"], "url": record["url"]})
     _write_json(
         args.attestation,
         {

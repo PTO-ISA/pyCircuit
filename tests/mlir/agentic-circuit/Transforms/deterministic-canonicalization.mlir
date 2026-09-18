@@ -2,21 +2,15 @@
 // RUN: %acir_opt --verify-each=false --pass-pipeline='builtin.module(ac-canonicalize-model,ac-freeze-topology)' --emit-bytecode -o %t/a.mlirbc %t/a.mlir
 // RUN: %acir_opt --verify-each=false --pass-pipeline='builtin.module(ac-canonicalize-model,ac-freeze-topology)' --emit-bytecode -o %t/b.mlirbc %t/b.mlir
 // RUN: cmp %t/a.mlirbc %t/b.mlirbc
-// RUN: sha256sum %t/a.mlirbc | cut -d ' ' -f 1 > %t/a.sha256
-// RUN: sha256sum %t/b.mlirbc | cut -d ' ' -f 1 > %t/b.sha256
-// RUN: cmp %t/a.sha256 %t/b.sha256
 // RUN: %acir_opt %t/a.mlirbc | %FileCheck %s --check-prefix=CANONICAL
 // RUN: %acir_opt --verify-each=false --pass-pipeline='builtin.module(ac-canonicalize-model,ac-freeze-topology)' --emit-bytecode -o %t/nested-a.mlirbc %t/nested-a.mlir
 // RUN: %acir_opt --verify-each=false --pass-pipeline='builtin.module(ac-canonicalize-model,ac-freeze-topology)' --emit-bytecode -o %t/nested-b.mlirbc %t/nested-b.mlir
 // RUN: cmp %t/nested-a.mlirbc %t/nested-b.mlirbc
-// RUN: sha256sum %t/nested-a.mlirbc | cut -d ' ' -f 1 > %t/nested-a.sha256
-// RUN: sha256sum %t/nested-b.mlirbc | cut -d ' ' -f 1 > %t/nested-b.sha256
-// RUN: cmp %t/nested-a.sha256 %t/nested-b.sha256
 // RUN: %acir_opt --verify-each=false --pass-pipeline='builtin.module(ac-freeze-topology)' --emit-bytecode %t/nested-a.mlirbc -o %t/nested-refrozen.mlirbc
 // RUN: cmp %t/nested-a.mlirbc %t/nested-refrozen.mlirbc
 
 //--- a.mlir
-builtin.module attributes {ac.contract_epoch = "0.5"} {
+builtin.module  {
   ac.module @Z() parameters {} graph { ac.return }
   ac.module @Top() parameters {} graph {
     ac.instance @z of @Z() static {} id "z" path "z" : () -> ()
@@ -32,7 +26,7 @@ builtin.module attributes {ac.contract_epoch = "0.5"} {
 }
 
 //--- b.mlir
-builtin.module attributes {ac.contract_epoch = "0.5"} {
+builtin.module  {
   ac.module @A() parameters {} graph { ac.return }
   ac.system @soc root @Top as "root" tick 0 "cycle"
       workload @Top::@workload seed {kind = "fixed", value = 7 : i64}
@@ -57,7 +51,7 @@ builtin.module attributes {ac.contract_epoch = "0.5"} {
 // CANONICAL: ac.module @Z
 
 //--- nested-a.mlir
-builtin.module attributes {ac.contract_epoch = "0.5"} {
+builtin.module  {
   "ac.type_scope"() <{sym_name = "types"}> ({
     "ac.struct"() <{sym_name = "Z", fields = [{name = "z", type = i8}]}> : () -> ()
     "ac.struct"() <{sym_name = "A", fields = [{name = "a", type = i8}]}> : () -> ()
@@ -97,7 +91,7 @@ builtin.module attributes {ac.contract_epoch = "0.5"} {
 }
 
 //--- nested-b.mlir
-builtin.module attributes {ac.contract_epoch = "0.5"} {
+builtin.module  {
   ac.interface @I {
     ac.port @a : !ac.channel<i8, @p> from @source to @sink protocol_roles @sender to @receiver
     ac.role @sink dual @source cardinality "exclusive"

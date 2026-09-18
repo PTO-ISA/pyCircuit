@@ -10,7 +10,7 @@ pyCircuit is a programming, compiler, runtime, and backend framework. It owns:
 
 - the `pycircuit` and `agentic_circuit` authoring surfaces;
 - semantic types and primitives;
-- PYC, ACIR, and ACSim dialects, verifiers, and passes;
+- PYC and ACIR dialects, verifiers, and passes;
 - generic C++/Verilog/gfsim backends;
 - vendor-neutral examples and regression fixtures; and
 - compiler/runtime packaging and release gates.
@@ -66,10 +66,10 @@ closed; remaining release work is repository/platform evidence and publication.
 
 ### Publish a consumer-neutral SDK
 
-- Provide installed `model plan` and `model emit-cpp` commands using the shared
-  frontend, verifier, and QueueGraph path.
-- Keep model plans, manifests, source hashes, generated-source lists, and
-  depfiles deterministic and root-independent.
+- Provide installed `acc.py` and `acc` commands using the shared frontend,
+  verifier, and QueueGraph path.
+- Keep generated-source inventories deterministic and root-independent without
+  publishing byte-derived identity.
 - Split Runtime and CompilerDev package dependencies so ordinary generated
   models do not require LLVM/MLIR development packages.
 - Keep the public runtime lifecycle limited to create, configure, reset, step,
@@ -111,7 +111,7 @@ Use the minimum applicable lanes from
 | Cycle-aware frontend or inference | unit tests, API hygiene, examples, semantic regressions |
 | MLIR semantics or legality | focused lit/CTest plus strict decision status |
 | C++ or Verilog behavior | focused backend execution and applicable equivalence evidence |
-| ACIR or Agentic Circuit | frontend contracts, ACIR/ACSim tests, QueueGraph/gfsim, applicable PYC parity |
+| ACIR or Agentic Circuit | frontend contracts, ACIR/ACC tests, QueueGraph/gfsim, applicable PYC parity |
 | Packaging or installed SDK | schema/contract checks and relocated external consumer smoke |
 
 Use one `PYC_GATE_RUN_ID` for related semantic lanes. Record skipped gates and

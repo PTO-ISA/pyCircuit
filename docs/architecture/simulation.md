@@ -8,9 +8,8 @@
 调度器。
 
 `gfsim::TimeDomainRuntime` 的 `period`、`phase` 与 `tickScale` 不是孤立的
-C++ 字段。它们分别来自已验证的 `ac.time_domain` 和 `acsim.type`
-`period`/`phase`/`tick_scale` 元数据；ACIR/ACSim ODS 与
-`schemas/agentic-circuit/contracts/acsim.yaml` 共同定义公开 inventory。
+C++ 字段。它们来自经过 ACIR verifier 检查的 `ac.time_domain`
+`period`/`phase`/`tick_scale` 元数据，并由 ACC QueueGraph lowering 消费。
 
 pyCircuit 的 C++ 仿真引擎采用 **静态编译-直接执行 (Compiled-Code Simulation)** 模型，
 而非传统 Verilog/VHDL 仿真器常用的 **事件驱动 (Event-Driven Simulation)** 模型。
@@ -152,7 +151,7 @@ void tick() {
 |---|---|---|
 | **调度模型** | 无事件队列；支持可选变化检测 | 全局事件队列 + 敏感列表 |
 | **Delta 周期** | PYC 模型无 delta；拓扑排序保证单遍收敛 | 需要 delta 迭代直到稳定 |
-| **信号变化检测** | 可选 InputFingerprint 跳过 eval | 仅重新评估受影响的进程 |
+| **信号变化检测** | 可选 InputChangeTracker 跳过 eval | 仅重新评估受影响的进程 |
 | **时间模型** | 周期精确 (cycle-accurate) | 支持精细时间步 (time-step) |
 | **代码生成** | 单一 C++ 结构体 + 内联函数 | 多线程调度器 + 进程模型 |
 | **延迟建模** | 不支持门级延迟 | 支持 inertial/transport delay |
@@ -297,11 +296,11 @@ SIMD 向量化更有效。SIMD 的价值体现在宽数据路径密集的设计�
 
 #### 核心组件
 
-**`InputFingerprint<Widths...>`** — 跟踪一组输入信号的变化状态。
+**`InputChangeTracker<Widths...>`** — 跟踪一组输入信号的变化状态。
 使用 XOR-fold 哈希做快速拒绝，memcmp 做精确比较：
 
 ```cpp
-InputFingerprint<80, 5, 40, 320> fp(dut.raddr_bus, dut.wen_bus,
+InputChangeTracker<80, 5, 40, 320> tracker(dut.raddr_bus, dut.wen_bus,
                                      dut.waddr_bus, dut.wdata_bus);
 // 每周期:
 if (fp.check_and_capture()) {
@@ -332,7 +331,7 @@ negedge 路径仅更新 clkPrev 标记，避免 256 次无效的 tick_compute �
 
 **结论**: 对活动率 50% 的设计（典型 CPU 流水线 stall 场景），
 变化检测可提升 27%。对活动率 10% 的设计（外设/总线控制器），
-可提升 63%。100% 活动时无额外开销（fingerprint 检查被内联后极轻量）。
+可提升 63%。100% 活动时无额外开销（变化检查被内联后极轻量）。
 
 ### 自动化 PGO 构建 (pycircuit pgo-build)
 
@@ -515,7 +514,7 @@ PGO 让编译器基于实际运行 profile 优化代码布局：
 2. **NEON SIMD**: `Wire<N>` 多 word 位操作向量化
 3. **pyc_reg 优化**: `__builtin_expect` 分支提示 + posedge/negedge 分离
 4. **`-Os` 编译标志**: 作为非 PGO 场景的推荐默认
-5. ✅ **信号变化检测**: `InputFingerprint` / `ChangeDetector` / `EvalGuard`
+5. ✅ **信号变化检测**: `InputChangeTracker` / `ChangeDetector` / `EvalGuard`
    基础设施，跳过输入未变化周期的 `eval()` 调用。
    实测：10% 活动率时 +63%，50% 活动率时 +27%
 6. ✅ **自动化 PGO 构建**: `pycircuit pgo-build` CLI 子命令，

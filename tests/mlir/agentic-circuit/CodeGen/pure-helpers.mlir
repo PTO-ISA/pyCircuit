@@ -8,7 +8,7 @@
 // RUN: %acir_queue_pycgen %t.frozen.mlir > %t.pyc
 // RUN: %pycc %t.pyc --emit=none
 
-module attributes {ac.contract_epoch = "0.5", ac.model_kind = "queue_graph", ac.queue_graph_domain = "cycle", ac.system = "pure_helpers"} {
+module attributes {ac.model_kind = "queue_graph", ac.queue_graph_domain = "cycle", ac.system = "pure_helpers"} {
   func.func private @plus_one(%arg0: !ac.var<i8>) -> !ac.var<i8> {
     %one = ac.var.constant 1 : i8 as !ac.var<i8> loc("helpers.py":4:11)
     %sum = ac.var.add %arg0, %one : !ac.var<i8> loc("helpers.py":5:12)

@@ -24,7 +24,7 @@
 // DIFFERENT: block_0_release_policy{&slot_0_state_, &state_first_, &state_second_}
 
 //--- same-type.mlir
-module attributes {ac.contract_epoch = "0.5", ac.model_kind = "queue_graph", ac.queue_graph_domain = "cycle", ac.system = "same_type"} {
+module attributes {ac.model_kind = "queue_graph", ac.queue_graph_domain = "cycle", ac.system = "same_type"} {
   ac.table @first entry i16 entries 4 init 0 owner "/" stable_id "table/first"
   ac.table @second entry i16 entries 4 init 0 owner "/" stable_id "table/second"
   %input = ac.source depth 1 latency 1 {ac.name = "input"} : !ac.queue<i8>
@@ -55,7 +55,7 @@ module attributes {ac.contract_epoch = "0.5", ac.model_kind = "queue_graph", ac.
 }
 
 //--- different-type.mlir
-module attributes {ac.contract_epoch = "0.5", ac.model_kind = "queue_graph", ac.queue_graph_domain = "cycle", ac.system = "different_type"} {
+module attributes {ac.model_kind = "queue_graph", ac.queue_graph_domain = "cycle", ac.system = "different_type"} {
   ac.table @first entry i8 entries 4 init 0 owner "/" stable_id "table/first"
   ac.table @second entry i16 entries 4 init 0 owner "/" stable_id "table/second"
   %input = ac.source depth 1 latency 1 {ac.name = "input"} : !ac.queue<i8>

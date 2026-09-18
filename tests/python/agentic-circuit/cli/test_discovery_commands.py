@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import hashlib
 import json
 import os
 import subprocess
@@ -28,11 +27,11 @@ def run_cli(*arguments: str, cwd: Path) -> subprocess.CompletedProcess[str]:
     )
 
 
-def snapshot_tree(root: Path) -> tuple[tuple[str, str], ...]:
+def snapshot_tree(root: Path) -> tuple[tuple[str, bytes], ...]:
     return tuple(
         (
             path.relative_to(root).as_posix(),
-            hashlib.sha256(path.read_bytes()).hexdigest(),
+            path.read_bytes(),
         )
         for path in sorted(root.rglob("*"))
         if path.is_file()
@@ -59,6 +58,15 @@ class DiscoveryCommandTest(unittest.TestCase):
             self.assertEqual(0, result.returncode, result.stderr)
             self.assertFalse(hostile.joinpath("imported.marker").exists())
             self.assertEqual(
+                {
+                    "schema",
+                    "version",
+                    "contract_identities",
+                    "items",
+                },
+                set(document),
+            )
+            self.assertEqual(
                 sorted((item["kind"], item["name"]) for item in document["items"]),
                 [(item["kind"], item["name"]) for item in document["items"]],
             )
@@ -67,10 +75,7 @@ class DiscoveryCommandTest(unittest.TestCase):
                 {item["availability"] for item in document["items"]},
             )
             for item in document["items"]:
-                if item["availability"] == "available":
-                    self.assertIsNotNone(item["implementation_fingerprint"])
-                else:
-                    self.assertIsNone(item["implementation_fingerprint"])
+                self.assertEqual({"kind", "name", "availability"}, set(item))
 
     def test_component_protocol_and_list_queries_are_exact(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
@@ -124,7 +129,7 @@ class DiscoveryCommandTest(unittest.TestCase):
             workspace.joinpath("sentinel.txt").write_text("unchanged\n")
             before = snapshot_tree(workspace)
 
-            explained = run_cli("explain", "ACIR-PROTOCOL-004", "--json", cwd=workspace)
+            explained = run_cli("explain", "ACIR-VERIFY-001", "--json", cwd=workspace)
             frontend_explained = run_cli(
                 "explain", "ACPY-RULE-014", "--json", cwd=workspace
             )
@@ -136,7 +141,7 @@ class DiscoveryCommandTest(unittest.TestCase):
             self.assertEqual(before, snapshot_tree(workspace))
 
         self.assertEqual(0, explained.returncode, explained.stderr)
-        self.assertEqual("ACIR-PROTOCOL-004", json.loads(explained.stdout)["code"])
+        self.assertEqual("ACIR-VERIFY-001", json.loads(explained.stdout)["code"])
         self.assertEqual(0, frontend_explained.returncode, frontend_explained.stderr)
         self.assertEqual("ACPY-RULE-014", json.loads(frontend_explained.stdout)["code"])
         self.assertEqual(0, lowering_explained.returncode, lowering_explained.stderr)

@@ -4,28 +4,48 @@
   "title": "Agentic Circuit Official Opcode Catalog 0.5",
   "type": "object",
   "additionalProperties": false,
-  "required": ["schema", "version", "contract_epoch", "entries"],
+  "required": [
+    "schema",
+    "version",
+    "entries"
+  ],
   "properties": {
-    "schema": {"const": "agentic-circuit-opcode-catalog"},
-    "version": {"const": "0.5"},
-    "contract_epoch": {"const": "0.5"},
+    "schema": {
+      "const": "agentic-circuit-opcode-catalog"
+    },
+    "version": {
+      "const": "0.5"
+    },
     "entries": {
       "type": "array",
       "minItems": 1,
-      "items": {"$ref": "#/$defs/entry"}
+      "items": {
+        "$ref": "#/$defs/entry"
+      }
     }
   },
   "$defs": {
     "arity": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["min", "max"],
+      "required": [
+        "min",
+        "max"
+      ],
       "properties": {
-        "min": {"type": "integer", "minimum": 0},
+        "min": {
+          "type": "integer",
+          "minimum": 0
+        },
         "max": {
           "oneOf": [
-            {"type": "integer", "minimum": 0},
-            {"type": "null"}
+            {
+              "type": "integer",
+              "minimum": 0
+            },
+            {
+              "type": "null"
+            }
           ]
         }
       }
@@ -33,10 +53,18 @@
     "backend": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["available", "realization"],
+      "required": [
+        "available",
+        "realization"
+      ],
       "properties": {
-        "available": {"type": "boolean"},
-        "realization": {"type": "string", "minLength": 1}
+        "available": {
+          "type": "boolean"
+        },
+        "realization": {
+          "type": "string",
+          "minLength": 1
+        }
       }
     },
     "nameList": {
@@ -66,14 +94,34 @@
       ],
       "properties": {
         "category": {
-          "enum": ["boundary", "combinational", "scheduling", "state", "structural", "transport"]
+          "enum": [
+            "boundary",
+            "combinational",
+            "scheduling",
+            "state",
+            "structural",
+            "transport"
+          ]
         },
-        "constants": {"$ref": "#/$defs/nameList"},
+        "constants": {
+          "$ref": "#/$defs/nameList"
+        },
         "effect": {
-          "enum": ["atomic", "combinational", "observation", "stateful", "structural", "verification"]
+          "enum": [
+            "atomic",
+            "combinational",
+            "observation",
+            "stateful",
+            "structural",
+            "verification"
+          ]
         },
-        "gfsim": {"$ref": "#/$defs/backend"},
-        "inputs": {"$ref": "#/$defs/arity"},
+        "gfsim": {
+          "$ref": "#/$defs/backend"
+        },
+        "inputs": {
+          "$ref": "#/$defs/arity"
+        },
         "kind": {
           "type": "string",
           "pattern": "^[a-z][a-z0-9_]*$"
@@ -82,7 +130,9 @@
           "type": "string",
           "pattern": "^ac\\.[a-z][a-z0-9_]*(?:\\.[a-z][a-z0-9_]*)*$"
         },
-        "outputs": {"$ref": "#/$defs/arity"},
+        "outputs": {
+          "$ref": "#/$defs/arity"
+        },
         "payload_relation": {
           "enum": [
             "all_payloads_equal",
@@ -106,9 +156,19 @@
             "value_payload_matches_table_entry"
           ]
         },
-        "pyc": {"$ref": "#/$defs/backend"},
-        "refinement_observations": {"$ref": "#/$defs/nameList"},
-        "role": {"enum": ["design", "observation", "verification"]}
+        "pyc": {
+          "$ref": "#/$defs/backend"
+        },
+        "refinement_observations": {
+          "$ref": "#/$defs/nameList"
+        },
+        "role": {
+          "enum": [
+            "design",
+            "observation",
+            "verification"
+          ]
+        }
       }
     }
   }

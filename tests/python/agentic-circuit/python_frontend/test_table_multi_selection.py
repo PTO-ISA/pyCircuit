@@ -66,10 +66,14 @@ class TableMultiSelectionFrontendTest(unittest.TestCase):
     def test_static_tuple_unpack_is_supported(self) -> None:
         from agentic_circuit._queue_frontend import lower_queue_source
 
-        source = MULTI_SOURCE.replace(
-            "choices = state.choose(matches, count=2)",
-            "choice0, choice1 = state.choose(matches, count=2)",
-        ).replace("choices[0]", "choice0").replace("choices[1]", "choice1")
+        source = (
+            MULTI_SOURCE.replace(
+                "choices = state.choose(matches, count=2)",
+                "choice0, choice1 = state.choose(matches, count=2)",
+            )
+            .replace("choices[0]", "choice0")
+            .replace("choices[1]", "choice1")
+        )
         lowered = lower_queue_source(source, "pipeline")
         self.assertEqual(1, lowered.count("ac.table.choose @state"))
         self.assertIn("count 2", lowered)
@@ -82,8 +86,16 @@ class TableMultiSelectionFrontendTest(unittest.TestCase):
 
         cases = (
             ("choices[0]", "choices[index]", "index must be static"),
-            ("first = state.view", "ac.sink(choices)\n    first = state.view", "cannot be iterated"),
-            ("first = state.view", "stored = [choices]\n    first = state.view", "cannot be iterated"),
+            (
+                "first = state.view",
+                "ac.sink(choices)\n    first = state.view",
+                "cannot be iterated",
+            ),
+            (
+                "first = state.view",
+                "stored = [choices]\n    first = state.view",
+                "cannot be iterated",
+            ),
         )
         for old, new, diagnostic in cases:
             with (
@@ -111,22 +123,26 @@ class TableMultiSelectionFrontendTest(unittest.TestCase):
     def test_signed_key_and_round_robin_policy_are_typed(self) -> None:
         from agentic_circuit._queue_frontend import lower_queue_source
 
-        signed = MULTI_SOURCE.replace(
-            "@ac.system",
-            "@ac.struct\nclass Entry:\n    score: ac.s8\n\n@ac.system",
-        ).replace("ac.table[4, ac.u8]", "ac.table[4, Entry]").replace(
-            "state.choose(matches, count=2)",
-            'state.choose(matches, count=2, policy="min", '
-            "key=lambda entry: entry.score)",
-        ).replace("entry != 0", "entry.score != 0")
+        signed = (
+            MULTI_SOURCE.replace(
+                "@ac.system",
+                "@ac.struct\nclass Entry:\n    score: ac.s8\n\n@ac.system",
+            )
+            .replace("ac.table[4, ac.u8]", "ac.table[4, Entry]")
+            .replace(
+                "state.choose(matches, count=2)",
+                'state.choose(matches, count=2, policy="min", '
+                "key=lambda entry: entry.score)",
+            )
+            .replace("entry != 0", "entry.score != 0")
+        )
         signed_ir = lower_queue_source(signed, "pipeline")
         self.assertIn("policy #ac<table_selection_policy min>", signed_ir)
         self.assertIn("key_order #ac<table_key_ordering signed>", signed_ir)
 
         round_robin = MULTI_SOURCE.replace(
             "state.choose(matches, count=2)",
-            'state.choose(matches, count=2, policy="round_robin", '
-            "initial_cursor=1)",
+            'state.choose(matches, count=2, policy="round_robin", initial_cursor=1)',
         )
         rr_ir = lower_queue_source(round_robin, "pipeline")
         self.assertIn("policy #ac<table_selection_policy round_robin>", rr_ir)

@@ -1,7 +1,7 @@
 // RUN: %acir_opt %s | %FileCheck %s
 // RUN: %acir_opt %s | %acir_opt | %FileCheck %s
 
-builtin.module attributes {ac.contract_epoch = "0.5"} {
+builtin.module  {
   "ac.type_scope"() <{sym_name = "types"}> ({
     "ac.struct"() <{sym_name = "S", fields = [{name = "value", type = i32}]}> : () -> ()
     ac.enum @E enumerants ["a", "b"]

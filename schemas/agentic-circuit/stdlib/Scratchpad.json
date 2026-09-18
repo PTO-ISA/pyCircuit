@@ -1,7 +1,6 @@
 {
   "schema_kind": "agentic-circuit-component",
   "schema_version": "0.1",
-  "contract_epoch": "0.5",
   "canonical_name": "ac.Scratchpad",
   "family": "storage",
   "provider_namespace": "ac",
@@ -148,6 +147,5 @@
       "queue_occupancy"
     ],
     "histograms": []
-  },
-  "schema_fingerprint": "sha256:345b435b7dc348c7ef08d24d7cac155801809f7f0bb13ccebf95e45fd8a7ee4d"
+  }
 }

@@ -16,37 +16,37 @@
 // RECORD-TYPE: error: 'ac.var.record' op record operand types must match declaration order
 
 //--- tuple-type.mlir
-builtin.module attributes {ac.contract_epoch = "0.5"} {
+builtin.module  {
   %a = ac.var.constant 5 : i3 as !ac.var<i3>
   %bad = ac.var.tuple %a : !ac.var<i3> -> !ac.var<tuple<i5>>
 }
 
 //--- array-length.mlir
-builtin.module attributes {ac.contract_epoch = "0.5"} {
+builtin.module  {
   %a = ac.var.constant 5 : i3 as !ac.var<i3>
   %bad = ac.var.array %a : !ac.var<i3> -> !ac.var<!ac.value_array<2 x i3>>
 }
 
 //--- array-type.mlir
-builtin.module attributes {ac.contract_epoch = "0.5"} {
+builtin.module  {
   %a = ac.var.constant 5 : i3 as !ac.var<i3>
   %bad = ac.var.array %a, %a : !ac.var<i3>, !ac.var<i3> -> !ac.var<!ac.value_array<2 x i5>>
 }
 
 //--- element-index.mlir
-builtin.module attributes {ac.contract_epoch = "0.5"} {
+builtin.module  {
   %value = "builtin.unrealized_conversion_cast"() : () -> !ac.var<tuple<i3, i5>>
   %bad = ac.var.element %value at 2 : !ac.var<tuple<i3, i5>> -> !ac.var<i3>
 }
 
 //--- element-result.mlir
-builtin.module attributes {ac.contract_epoch = "0.5"} {
+builtin.module  {
   %value = "builtin.unrealized_conversion_cast"() : () -> !ac.var<!ac.value_array<2 x i3>>
   %bad = ac.var.element %value at 0 : !ac.var<!ac.value_array<2 x i3>> -> !ac.var<i5>
 }
 
 //--- record-arity.mlir
-builtin.module attributes {ac.contract_epoch = "0.5"} {
+builtin.module  {
   ac.type_scope @types {
     ac.struct @Pair fields [{name = "small", type = i3}, {name = "large", type = i5}]
   } {dlti.dl_spec = #dlti.dl_spec<!ac.struct<@types::@Pair> = {abi_alignment = 1 : i64, endianness = "little", preferred_alignment = 1 : i64, size = 1 : i64}>}
@@ -55,7 +55,7 @@ builtin.module attributes {ac.contract_epoch = "0.5"} {
 }
 
 //--- record-type.mlir
-builtin.module attributes {ac.contract_epoch = "0.5"} {
+builtin.module  {
   ac.type_scope @types {
     ac.struct @Pair fields [{name = "small", type = i3}, {name = "large", type = i5}]
   } {dlti.dl_spec = #dlti.dl_spec<!ac.struct<@types::@Pair> = {abi_alignment = 1 : i64, endianness = "little", preferred_alignment = 1 : i64, size = 1 : i64}>}

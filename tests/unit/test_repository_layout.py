@@ -90,37 +90,6 @@ def test_completed_migration_pages_are_not_active_documents() -> None:
     assert "archived" in history
 
 
-def test_current_generated_dispatch_abi_is_not_named_legacy() -> None:
-    current_sources = (
-        ROOT / "compiler/acir/lib/CodeGen/EmitCxx.cpp",
-        ROOT / "simulator/gfsim/include/gfsim/dispatch.h",
-        ROOT / "simulator/gfsim/include/gfsim/object.h",
-        ROOT / "simulator/gfsim/system.cpp",
-    )
-    forbidden = (
-        "LegacyDispatch",
-        "LegacyActivation",
-        "setLegacyDispatch",
-        "runLegacy",
-    )
-
-    for path in current_sources:
-        source = path.read_text(encoding="utf-8")
-        for token in forbidden:
-            assert token not in source, f"{path.relative_to(ROOT)}: {token}"
-
-
-def test_acsim_device_kind_never_depends_on_queue_symbol_names() -> None:
-    lowering = (
-        ROOT / "compiler/acir/lib/Conversion/ACIRToACSim/ACIRToACSim.cpp"
-    ).read_text(encoding="utf-8")
-
-    for implicit_name in ('name == "pc"', 'name == "busy"', 'name == "rf"'):
-        assert implicit_name not in lowering
-    assert 'kind.getValue() == "register"' in lowering
-    assert 'kind.getValue() == "regfile"' in lowering
-
-
 def test_wheel_staging_tool_sources_exist() -> None:
     tree = ast.parse(
         (ROOT / "packaging/wheel/create_wheel.py").read_text(encoding="utf-8")
@@ -248,11 +217,8 @@ def _platform_guarded(node: object, parents: dict[object, object]) -> bool:
 def test_product_python_imports_posix_only_modules_conditionally() -> None:
     """The product Python has to import on Windows.
 
-    ``fcntl`` is POSIX-only and used to be a bare top-level import in the
-    model-plan command, which made the relocated Windows CLI fail its smoke
-    test with ModuleNotFoundError. A POSIX-only import is allowed only inside
-    a platform check, which is how the publish lock selects ``msvcrt`` on
-    Windows.
+    A POSIX-only import is allowed only inside a platform check, which is how
+    transactional publication selects ``msvcrt`` on Windows.
     """
     offenders: list[str] = []
     for root in PRODUCT_PYTHON_ROOTS:
@@ -276,13 +242,9 @@ def test_product_python_imports_posix_only_modules_conditionally() -> None:
 
 COMPILED_TOOL_NAMES = frozenset(
     {
-        "acir-build",
-        "acir-cxxgen",
+        "acc",
         "acir-opcode-catalog",
         "acir-opt",
-        "acir-queue-cxxgen",
-        "acir-queue-plan",
-        "acir-queue-pycgen",
         "pyc-opt",
         "pycc",
     }
@@ -292,11 +254,8 @@ COMPILED_TOOL_NAMES = frozenset(
 def test_product_python_spells_compiled_tools_with_a_platform_suffix() -> None:
     """Compiled tools are ``<name>.exe`` on Windows, so a bare name is a bug.
 
-    The model-plan command looked up ``bin/acir-queue-plan`` in the SDK manifest
-    and the native tool resolver searched ``<root>/bin/acir-opt``; on Windows
-    the manifest and the install tree spell both ``.exe``, so the lookup failed
-    with ACSDK-PLAN-MANIFEST-002. The packaged-toolchain resolver already tries
-    the suffix, and every other site must do the same.
+    The manifest and install tree spell native tools with ``.exe`` on Windows;
+    every product lookup must use the platform suffix.
     """
     offenders: list[str] = []
     for root in PRODUCT_PYTHON_ROOTS:

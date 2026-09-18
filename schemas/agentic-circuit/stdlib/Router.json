@@ -1,7 +1,6 @@
 {
   "schema_kind": "agentic-circuit-component",
   "schema_version": "0.1",
-  "contract_epoch": "0.5",
   "canonical_name": "ac.Router",
   "family": "interconnect",
   "provider_namespace": "ac",
@@ -114,6 +113,5 @@
     ],
     "gauges": [],
     "histograms": []
-  },
-  "schema_fingerprint": "sha256:78479fb30486c6c7c4c7a0aa75a4fe7e6a25f6ee4b313ac5ee6c1379f2a90a57"
+  }
 }

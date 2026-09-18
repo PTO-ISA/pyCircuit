@@ -98,7 +98,7 @@ def test_bitfield_layout_is_order_independent_and_immutable() -> None:
         {"imm26": (25, 0), "rd": (25, 21), "opcode": (31, 26)},
     )
 
-    assert first.fingerprint == second.fingerprint
+    assert first == second
     assert hash(first) == hash(second)
     assert first.field_slices() == {
         "imm26": (0, 26),
@@ -133,7 +133,8 @@ def test_pycircuit_and_agentic_wrappers_share_exact_schema_identity() -> None:
     agentic = AgenticBitfieldSpec(width=32, fields=fields)
     pycircuit = PyCircuitBitfieldSpec(width=32, fields=fields)
 
-    assert agentic.fingerprint == pycircuit.fingerprint
+    assert agentic.width == pycircuit.width
+    assert agentic.fields == pycircuit.fields
     assert agentic.field_slices() == pycircuit.field_slices()
 
 
@@ -164,8 +165,8 @@ def test_recursive_value_types_have_stable_nominal_and_structural_identity() -> 
     assert lanes.mlir() == "!ac.value_array<4 x !ac.struct<@types::@Lane>>"
     assert packet.mlir() == "!ac.struct<@types::@Packet>"
     assert packet == StructType("Packet", packet.fields)
-    assert packet.fingerprint == StructType("Packet", packet.fields).fingerprint
-    assert packet.fingerprint != StructType("OtherPacket", packet.fields).fingerprint
+    assert packet == StructType("Packet", packet.fields)
+    assert packet != StructType("OtherPacket", packet.fields)
 
 
 def test_explicit_enum_encoding_preserves_sparse_values_and_width() -> None:
@@ -186,7 +187,6 @@ def test_bool_and_u1_are_distinct_descriptors_with_current_i1_lowering() -> None
     bit = BitsType(1)
 
     assert logical != bit
-    assert logical.fingerprint != bit.fingerprint
     assert logical.mlir() == bit.mlir() == "i1"
 
 
@@ -217,7 +217,6 @@ def test_value_type_identity_is_independent_of_mlir_symbol_scope() -> None:
         assert descriptor == duplicate
         assert hash(descriptor) == hash(duplicate)
         assert descriptor.canonical() == duplicate.canonical()
-        assert descriptor.fingerprint == duplicate.fingerprint
         assert "left" not in repr(descriptor.canonical())
         assert "right" not in repr(descriptor.canonical())
 
@@ -242,10 +241,9 @@ def test_bounded_constraints_have_canonical_identity_and_typed_atoms() -> None:
 
     assert values.values == (True, 1, 3, "RUN")
     assert values == FiniteSet(("RUN", True, 3, 1))
-    assert values.fingerprint == FiniteSet((1, 3, "RUN", True)).fingerprint
+    assert values == FiniteSet((1, 3, "RUN", True))
     assert Constant(True) != Constant(1)
     assert FiniteSet((True,)) != FiniteSet((1,))
-    assert Constant(True).fingerprint != Constant(1).fingerprint
     assert Unknown().canonical() == {"kind": "unknown", "version": 1}
     with pytest.raises(ConstraintError, match="cardinality"):
         FiniteSet(tuple(range(65)))
@@ -323,12 +321,8 @@ def test_typed_bitvector_transfer_preserves_wrap_and_overshift_semantics() -> No
     assert transfer_bits(
         "urem", ClosedInterval(0, 255), Constant(3), width=8, finite_limit=2
     ) == ClosedInterval(0, 2)
-    assert transfer_bits("udiv", Constant(255), Constant(0), width=8) == Constant(
-        0
-    )
-    assert transfer_bits("urem", Constant(255), Constant(0), width=8) == Constant(
-        0
-    )
+    assert transfer_bits("udiv", Constant(255), Constant(0), width=8) == Constant(0)
+    assert transfer_bits("urem", Constant(255), Constant(0), width=8) == Constant(0)
     with pytest.raises(ConstraintError, match=r"\[1, 64\]"):
         transfer_bits("add", Constant(0), Constant(0), width=0)
 
@@ -347,10 +341,7 @@ def test_value_type_constraints_cover_bits_bool_and_enum_exhaustiveness() -> Non
     assert finite_values(ClosedInterval(0, 100)) is None
     fact = ValueConstraint(BitsType(3), ClosedInterval(0, 7))
     assert fact.canonical()["type"] == BitsType(3).canonical()
-    assert (
-        fact.fingerprint
-        == ValueConstraint(BitsType(3), ClosedInterval(0, 7)).fingerprint
-    )
+    assert fact == ValueConstraint(BitsType(3), ClosedInterval(0, 7))
     with pytest.raises(ConstraintError, match="bits constraint"):
         ValueConstraint(BitsType(3), Constant(8))
     with pytest.raises(ConstraintError, match="range constraint"):

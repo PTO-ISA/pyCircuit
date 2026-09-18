@@ -14,8 +14,6 @@
     "acpy_epoch": "0.5",
     "acir_contract": "0.5",
     "sdk_manifest": "1",
-    "model_plan": "1",
-    "model_manifest": "1",
     "generator_abi": "1",
     "runtime_abi": "1",
     "consumer_lock": "1",
@@ -55,6 +53,5 @@
       "python": "3.11",
       "runner": "windows-2022"
     }
-  ],
-  "contract_epoch": "0.5"
+  ]
 }

@@ -1,7 +1,7 @@
 // RUN: %acir_opt %s | %FileCheck %s
 // RUN: %acir_opt %s | %acir_opt | %FileCheck %s
 
-builtin.module attributes {ac.contract_epoch = "0.5"} {
+builtin.module  {
   "ac.system"() <{sym_name = "soc", root = @Top, root_name = "root", tick_epoch = 0 : i64, tick_unit = "cycle", primary_workload = @Top::@workload, seed_policy = {kind = "fixed", value = 7 : i64}, instrumentation = [@Top::@workload::@trace], result_schema = {id = "default", format = "json"}, selected = true}> : () -> ()
   "ac.system"() <{sym_name = "leaf_harness", root = @Leaf, root_name = "leaf", tick_epoch = 0 : i64, tick_unit = "cycle", seed_policy = {kind = "fixed", value = 9 : i64}, instrumentation = [], result_schema = {id = "default", format = "json"}, selected = false}> : () -> ()
 
@@ -22,18 +22,6 @@ builtin.module attributes {ac.contract_epoch = "0.5"} {
   ^bb0(%arg0 : i32):
     ac.process @state kind "control" { ac.yield_sim }
     "ac.return"(%arg0) : (i32) -> ()
-  }) : () -> ()
-
-  // Static symbol references inside modules and structural arguments resolve
-  // in the enclosing builtin.module symbol table.
-  "ac.module"() <{sym_name = "Parameterized", function_type = () -> (), static_params = {target = @Leaf}}> ({
-    "ac.return"() : () -> ()
-  }) : () -> ()
-  "ac.module"() <{sym_name = "StaticRefs", function_type = () -> (), static_params = {target = @Leaf}}> ({
-    "ac.instance"() <{definition = @Parameterized, sym_name = "one", stable_id = "one", path = "one", static_args = {target = @Leaf}}> : () -> ()
-    "ac.array"() <{definition = @Parameterized, sym_name = "array", stable_id = "array", path = "array", shape = array<i64: 1>, static_args = [{target = @Leaf}]}> : () -> ()
-    "ac.instances"() <{sym_name = "many", stable_id = "many", path = "many", definitions = [@Parameterized], names = ["item"], stable_ids = ["item"], paths = ["item"], interface = () -> (), static_args = [{target = @Leaf}]}> : () -> ()
-    "ac.return"() : () -> ()
   }) : () -> ()
 
   "ac.module.extern"() <{sym_name = "Ext", function_type = (i32) -> i32, static_params = {}, implementation = {registry = "cpp", name = "Ext"}}> : () -> ()

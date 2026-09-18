@@ -11,7 +11,6 @@ from pathlib import Path
 REPOSITORY = Path(__file__).resolve().parents[4]
 FIXTURES = Path(__file__).resolve().parent / "fixtures" / "lowering"
 GOLDENS = REPOSITORY / "tests" / "goldens" / "agentic-circuit" / "frontend"
-ZERO_DIGEST = "sha256:" + "0" * 64
 
 
 def load_fixture(path: Path):
@@ -33,7 +32,6 @@ def registry(*, source_binding: str | None = "input"):
 
     refine = ComponentSchema(
         identity="test.Refine",
-        fingerprint=ZERO_DIGEST,
         ports=(PortSchema("input", "flow", "i32", "in", "consumer", 1),),
         results=(ResultSchema("output", "i32", source_binding),),
         parameters=(),

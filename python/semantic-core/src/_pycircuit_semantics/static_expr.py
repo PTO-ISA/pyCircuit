@@ -126,9 +126,11 @@ class StaticIntExpression:
             return _checked_i64(value, f"parameter {self.name!r}")
 
         values = tuple(
-            _checked_i64(operand, "literal")
-            if type(operand) is int
-            else operand.evaluate(bindings)
+            (
+                _checked_i64(operand, "literal")
+                if type(operand) is int
+                else operand.evaluate(bindings)
+            )
             for operand in self.operands
         )
         if self.operation == "add":

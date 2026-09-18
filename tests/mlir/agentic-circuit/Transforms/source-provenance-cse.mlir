@@ -1,6 +1,6 @@
 // RUN: %acir_opt --pass-pipeline='builtin.module(ac-inline-pure-helpers,cse,ac-freeze-topology)' %s | %FileCheck %s
 
-module attributes {ac.contract_epoch = "0.5", ac.model_kind = "queue_graph", ac.queue_graph_domain = "cycle", ac.system = "source_cse"} {
+module attributes {ac.model_kind = "queue_graph", ac.queue_graph_domain = "cycle", ac.system = "source_cse"} {
   %input = ac.source depth 1 latency 1 {ac.name = "input"} : !ac.queue<i8>
   %output = ac.transform %input depths [1] latencies [1] {
   ^body(%item: !ac.var<i8>):

@@ -1,7 +1,6 @@
 {
   "schema_kind": "agentic-circuit-component",
   "schema_version": "0.1",
-  "contract_epoch": "0.5",
   "canonical_name": "ac.Memory",
   "family": "storage",
   "provider_namespace": "ac",
@@ -141,6 +140,5 @@
     ],
     "gauges": [],
     "histograms": []
-  },
-  "schema_fingerprint": "sha256:7ddbfed924719e53b3e126a7f741ce55fadfb7283c2fc2fb69da1e356a2e4b26"
+  }
 }

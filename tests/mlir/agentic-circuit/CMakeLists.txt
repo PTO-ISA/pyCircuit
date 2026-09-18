@@ -18,8 +18,7 @@ configure_lit_site_cfg(
 )
 
 set(ACIR_LIT_DEPENDENCIES
-    acir-build
-    acir-cxxgen
+    acc
     acir-opcode-catalog
     acir-opt
     acir-opt-internal

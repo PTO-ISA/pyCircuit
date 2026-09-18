@@ -20,12 +20,11 @@
 // MAXIMUM-NOT: ac.table
 
 //--- rank.mlir
-module attributes {ac.contract_epoch = "0.5", ac.model_kind = "queue_graph", ac.queue_graph_domain = "cycle", ac.system = "rank"} {
+module attributes {ac.model_kind = "queue_graph", ac.queue_graph_domain = "cycle", ac.system = "rank"} {
   ac.table @state entry i1 entries 1 init 0 owner "/" stable_id "table/state" {
     shape = array<i64: 1, 1, 1, 1, 1>,
     axis_widths = array<i64: 1, 1, 1, 1, 1>,
-    layout = "row_major", layout_version = 1 : i64,
-    schema_id = "sha256:394b63000fb4d1710562f1710e02cbee5ac11aab0ec6f57be3c3255457ef0876"
+    layout = "row_major", layout_version = 1 : i64
   }
   %output = ac.table.read @state depth 1 latency 1 address {
   ^address:
@@ -47,7 +46,7 @@ module attributes {ac.contract_epoch = "0.5", ac.model_kind = "queue_graph", ac.
 }
 
 //--- entries.mlir
-module attributes {ac.contract_epoch = "0.5", ac.model_kind = "queue_graph", ac.queue_graph_domain = "cycle", ac.system = "entries"} {
+module attributes {ac.model_kind = "queue_graph", ac.queue_graph_domain = "cycle", ac.system = "entries"} {
   ac.table @state entry i1 entries 257 init 0 owner "/" stable_id "table/state"
   %output = ac.table.read @state depth 1 latency 1 address {
   ^address:
@@ -62,7 +61,7 @@ module attributes {ac.contract_epoch = "0.5", ac.model_kind = "queue_graph", ac.
 }
 
 //--- entry-width.mlir
-module attributes {ac.contract_epoch = "0.5", ac.model_kind = "queue_graph", ac.queue_graph_domain = "cycle", ac.system = "entry_width"} {
+module attributes {ac.model_kind = "queue_graph", ac.queue_graph_domain = "cycle", ac.system = "entry_width"} {
   ac.type_scope @types {
     ac.struct @Wide fields [{name = "a", type = i64}, {name = "b", type = i64}, {name = "c", type = i64}, {name = "d", type = i64}, {name = "e", type = i1}]
   } {dlti.dl_spec = #dlti.dl_spec<!ac.struct<@types::@Wide> = {abi_alignment = 1 : i64, endianness = "little", preferred_alignment = 1 : i64, size = 257 : i64}>}
@@ -80,7 +79,7 @@ module attributes {ac.contract_epoch = "0.5", ac.model_kind = "queue_graph", ac.
 }
 
 //--- total-width.mlir
-module attributes {ac.contract_epoch = "0.5", ac.model_kind = "queue_graph", ac.queue_graph_domain = "cycle", ac.system = "total_width"} {
+module attributes {ac.model_kind = "queue_graph", ac.queue_graph_domain = "cycle", ac.system = "total_width"} {
   ac.type_scope @types {
     ac.struct @Wide fields [{name = "a", type = i64}, {name = "b", type = i64}, {name = "c", type = i64}, {name = "d", type = i64}]
   } {dlti.dl_spec = #dlti.dl_spec<!ac.struct<@types::@Wide> = {abi_alignment = 1 : i64, endianness = "little", preferred_alignment = 1 : i64, size = 256 : i64}>}
@@ -98,14 +97,13 @@ module attributes {ac.contract_epoch = "0.5", ac.model_kind = "queue_graph", ac.
 }
 
 //--- maximum.mlir
-module attributes {ac.contract_epoch = "0.5", ac.model_kind = "queue_graph", ac.queue_graph_domain = "cycle", ac.system = "maximum"} {
+module attributes {ac.model_kind = "queue_graph", ac.queue_graph_domain = "cycle", ac.system = "maximum"} {
   ac.type_scope @types {
     ac.struct @Wide fields [{name = "a", type = i64}, {name = "b", type = i64}, {name = "c", type = i64}, {name = "d", type = i64}]
   } {dlti.dl_spec = #dlti.dl_spec<!ac.struct<@types::@Wide> = {abi_alignment = 1 : i64, endianness = "little", preferred_alignment = 1 : i64, size = 256 : i64}>}
   ac.table @state entry !ac.struct<@types::@Wide> entries 256 init 0 owner "/" stable_id "table/state" {
     shape = array<i64: 4, 4, 4, 4>, axis_widths = array<i64: 2, 2, 2, 2>,
-    layout = "row_major", layout_version = 1 : i64,
-    schema_id = "sha256:d3b8f4d2a4f5636ef0305424e78bf5626c78e22c0e820274396385ab4cb8cfd9"
+    layout = "row_major", layout_version = 1 : i64
   }
   %output = ac.table.read @state depth 1 latency 1 address {
   ^address:
@@ -126,7 +124,7 @@ module attributes {ac.contract_epoch = "0.5", ac.model_kind = "queue_graph", ac.
 }
 
 //--- overflow.mlir
-module attributes {ac.contract_epoch = "0.5", ac.model_kind = "queue_graph", ac.queue_graph_domain = "cycle", ac.system = "overflow"} {
+module attributes {ac.model_kind = "queue_graph", ac.queue_graph_domain = "cycle", ac.system = "overflow"} {
   ac.table @state entry i64 entries 9223372036854775807 init 0 owner "/" stable_id "table/state"
   %output = ac.table.read @state depth 1 latency 1 address {
   ^address:
@@ -141,7 +139,7 @@ module attributes {ac.contract_epoch = "0.5", ac.model_kind = "queue_graph", ac.
 }
 
 //--- writers.mlir
-module attributes {ac.contract_epoch = "0.5", ac.model_kind = "queue_graph", ac.queue_graph_domain = "cycle", ac.system = "writers"} {
+module attributes {ac.model_kind = "queue_graph", ac.queue_graph_domain = "cycle", ac.system = "writers"} {
   ac.type_scope @types {
     ac.struct @Five fields [{name = "a", type = i1}, {name = "b", type = i1}, {name = "c", type = i1}, {name = "d", type = i1}, {name = "e", type = i1}]
   } {dlti.dl_spec = #dlti.dl_spec<!ac.struct<@types::@Five> = {abi_alignment = 1 : i64, endianness = "little", preferred_alignment = 1 : i64, size = 5 : i64}>}

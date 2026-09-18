@@ -6,7 +6,7 @@
 // rejected. The write endpoint in the same rule already follows the canonical
 // order, so the snapshot is the only violation.
 
-module attributes {ac.contract_epoch = "0.5"} {
+module  {
   ac.type_scope @types {
     ac.struct @Entry fields [{name = "right", type = i8}, {name = "left", type = i8}]
   } {dlti.dl_spec = #dlti.dl_spec<!ac.struct<@types::@Entry> = {abi_alignment = 1 : i64, endianness = "little", preferred_alignment = 1 : i64, size = 2 : i64}>}

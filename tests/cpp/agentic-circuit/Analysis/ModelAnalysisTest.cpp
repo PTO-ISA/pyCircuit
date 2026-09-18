@@ -30,10 +30,6 @@ using namespace mlir;
 using namespace acir::ac;
 
 template <typename Analysis>
-concept ExposesTopologyDigest =
-    requires(Analysis &analysis) { analysis.computeTopologyDigest(); };
-
-template <typename Analysis>
 concept ExposesOwnerManifest =
     requires(Analysis &analysis) { analysis.buildFrozenOwnerManifest(); };
 
@@ -45,13 +41,12 @@ template <typename Process>
 concept ExposesProcessSkeleton =
     requires(Process process) { buildFrozenProcessSkeleton(process); };
 
-static_assert(!ExposesTopologyDigest<ModelAnalysis>);
 static_assert(!ExposesOwnerManifest<ModelAnalysis>);
 static_assert(!ExposesOwnerWork<ModelAnalysis>);
 static_assert(!ExposesProcessSkeleton<ProcessOp>);
 
 constexpr llvm::StringLiteral kProcessModel = R"mlir(
-  builtin.module attributes {ac.contract_epoch = "0.5"} {
+  builtin.module  {
     ac.protocol @p32 {
       ac.role @sender dual @receiver cardinality "exclusive"
       ac.role @receiver dual @sender cardinality "exclusive"
@@ -222,7 +217,6 @@ OwningOpRef<mlir::ModuleOp> makeFlatAddressModel(MLIRContext &context,
   OpBuilder builder(&context);
   Location loc = builder.getUnknownLoc();
   auto model = mlir::ModuleOp::create(loc);
-  model->setAttr("ac.contract_epoch", builder.getStringAttr("0.5"));
   builder.setInsertionPointToStart(model.getBody());
   auto top =
       ac::ModuleOp::create(builder, loc, "Top", builder.getFunctionType({}, {}),
@@ -267,7 +261,7 @@ OwningOpRef<mlir::ModuleOp> makeDeepProcessModel(MLIRContext &context,
                                                  uint64_t depth) {
   context.loadDialect<arith::ArithDialect>();
   auto model = parseSourceString<mlir::ModuleOp>(R"mlir(
-    builtin.module attributes {ac.contract_epoch = "0.5"} {
+    builtin.module  {
       ac.system @soc root @Top as "root" tick 0 "cycle"
           workload @Top::@workload seed {kind = "fixed", value = 0 : i64}
           instrumentation [] results {id = "default", format = "json"}
@@ -298,7 +292,7 @@ OwningOpRef<mlir::ModuleOp> makeNestedScfModel(MLIRContext &context,
                                                uint64_t scfDepth) {
   context.loadDialect<arith::ArithDialect, scf::SCFDialect>();
   auto model = parseSourceString<mlir::ModuleOp>(R"mlir(
-    builtin.module attributes {ac.contract_epoch = "0.5"} {
+    builtin.module  {
       ac.system @soc root @Top as "root" tick 0 "cycle"
           workload @Top::@workload seed {kind = "fixed", value = 0 : i64}
           instrumentation [] results {id = "default", format = "json"}
@@ -333,7 +327,6 @@ public:
       : model(mlir::ModuleOp::create(UnknownLoc::get(&context))) {
     context.allowUnregisteredDialects();
     OpBuilder builder(&context);
-    (*model)->setAttr("ac.contract_epoch", builder.getStringAttr("0.5"));
     Block *block = model->getBody();
     for (uint64_t index = 0; index < depth; ++index) {
       OperationState state(UnknownLoc::get(&context), "test.nested");
@@ -536,26 +529,20 @@ TEST(ModelAnalysisTest, FrozenMutationCannotBeResealedThroughPublicRoutes) {
   retarget(*missingMarker);
   (*missingMarker)->removeAttr("ac.topology_frozen");
   EXPECT_NE(runFreeze(context, *missingMarker)
-                .find("malformed topology freeze marker"),
+                .find("malformed topology closure marker"),
             std::string::npos);
 
   OwningOpRef<mlir::ModuleOp> nestedEvidenceOnly = cloneFrozen();
   retarget(*nestedEvidenceOnly);
   for (StringRef name :
-       {"ac.freeze_epoch", "ac.frozen_system", "ac.frozen_owners",
+       {"ac.frozen_system", "ac.frozen_owners",
         "ac.frozen_primary_workload", "ac.frozen_instrumentation",
-        "ac.topology_frozen", "ac.topology_digest"})
+        "ac.topology_frozen", "ac.topology_frozen"})
     (*nestedEvidenceOnly)->removeAttr(name);
   EXPECT_NE(runFreeze(context, *nestedEvidenceOnly)
-                .find("malformed topology freeze marker"),
+                .find("malformed topology closure marker"),
             std::string::npos);
 
-  auto partial = parseSourceString<mlir::ModuleOp>(kProcessModel, &context);
-  ASSERT_TRUE(partial);
-  (*partial)->setAttr("ac.freeze_epoch", StringAttr::get(&context, "0.5"));
-  EXPECT_NE(
-      runFreeze(context, *partial).find("malformed topology freeze marker"),
-      std::string::npos);
 }
 
 TEST(ModelAnalysisTest,
@@ -577,8 +564,6 @@ TEST(ModelAnalysisTest,
     Full,
     MissingMarker,
     NestedOnly,
-    PartialEpoch,
-    PartialDigest,
   };
   struct Case {
     const char *name;
@@ -590,47 +575,27 @@ TEST(ModelAnalysisTest,
       {"full retarget", Evidence::Full, true,
        "frozen process skeleton mismatch"},
       {"marker removed", Evidence::MissingMarker, false,
-       "malformed topology freeze marker"},
+       "malformed topology closure marker"},
       {"marker removed retarget", Evidence::MissingMarker, true,
-       "malformed topology freeze marker"},
+       "malformed topology closure marker"},
       {"nested evidence only", Evidence::NestedOnly, false,
-       "malformed topology freeze marker"},
+       "malformed topology closure marker"},
       {"nested evidence only retarget", Evidence::NestedOnly, true,
-       "malformed topology freeze marker"},
-      {"partial epoch", Evidence::PartialEpoch, false,
-       "malformed topology freeze marker"},
-      {"partial epoch retarget", Evidence::PartialEpoch, true,
-       "malformed topology freeze marker"},
-      {"partial digest", Evidence::PartialDigest, false,
-       "malformed topology freeze marker"},
-      {"partial digest retarget", Evidence::PartialDigest, true,
-       "malformed topology freeze marker"},
+       "malformed topology closure marker"},
   };
 
   auto buildCase = [&](const Case &testCase) {
     OwningOpRef<mlir::ModuleOp> model;
-    if (testCase.evidence == Evidence::PartialEpoch ||
-        testCase.evidence == Evidence::PartialDigest) {
-      model = parseSourceString<mlir::ModuleOp>(kProcessModel, &context);
-      if (!model)
-        return model;
-      if (testCase.evidence == Evidence::PartialEpoch)
-        (*model)->setAttr("ac.freeze_epoch", StringAttr::get(&context, "0.5"));
-      else
-        (*model)->setAttr("ac.topology_digest",
-                          StringAttr::get(&context, std::string(64, '0')));
-    } else {
-      model =
-          OwningOpRef<mlir::ModuleOp>(cast<mlir::ModuleOp>(frozen->clone()));
-      if (testCase.evidence == Evidence::MissingMarker)
-        (*model)->removeAttr("ac.topology_frozen");
-      if (testCase.evidence == Evidence::NestedOnly)
-        for (StringRef name :
-             {"ac.freeze_epoch", "ac.frozen_system", "ac.frozen_owners",
-              "ac.frozen_primary_workload", "ac.frozen_instrumentation",
-              "ac.topology_frozen", "ac.topology_digest"})
-          (*model)->removeAttr(name);
-    }
+    model =
+        OwningOpRef<mlir::ModuleOp>(cast<mlir::ModuleOp>(frozen->clone()));
+    if (testCase.evidence == Evidence::MissingMarker)
+      (*model)->removeAttr("ac.topology_frozen");
+    if (testCase.evidence == Evidence::NestedOnly)
+      for (StringRef name :
+           {"ac.frozen_system", "ac.frozen_owners",
+            "ac.frozen_primary_workload", "ac.frozen_instrumentation",
+            "ac.topology_frozen"})
+        (*model)->removeAttr(name);
     if (testCase.retarget)
       one<TrySendOp>(*model).setQueueAttr(
           FlatSymbolRefAttr::get(&context, "q1"));
@@ -665,61 +630,12 @@ TEST(ModelAnalysisTest, UnfrozenCanonicalizationRemainsDeterministic) {
   EXPECT_EQ(moduleText(*model), first);
 }
 
-TEST(ModelAnalysisTest, FrozenDigestCommitsNestedGuardParentage) {
-  DialectRegistry registry;
-  registerAllDialects(registry);
-  MLIRContext context(registry);
-  OwningOpRef<mlir::ModuleOp> model = parseAndFreeze(context, R"mlir(
-    builtin.module attributes {ac.contract_epoch = "0.5"} {
-      ac.protocol @p {
-        ac.role @a dual @b cardinality "exclusive"
-        ac.role @b dual @a cardinality "exclusive"
-        ac.state @idle initial true terminal false
-        ac.event @x from @a to @b payload i1 action "notify"
-        ac.event @y from @a to @b payload i1 action "notify"
-        ac.transition from @idle to @idle on @x transfer false retain false guard {
-          %x = arith.constant true
-        }
-        ac.transition from @idle to @idle on @y transfer false retain false guard {
-          %y = arith.constant false
-        }
-      }
-      ac.system @soc root @Top as "root" tick 0 "cycle"
-          workload @Top::@workload seed {kind = "fixed", value = 0 : i64}
-          instrumentation [] results {id = "default", format = "json"}
-          selected true
-      ac.module @Top() parameters {} graph {
-        ac.process @workload kind "workload" { ac.yield_sim }
-        ac.return
-      }
-    }
-  )mlir");
-  ASSERT_TRUE(model);
-  SmallVector<TransitionOp> transitions;
-  model->walk(
-      [&](TransitionOp transition) { transitions.push_back(transition); });
-  ASSERT_EQ(transitions.size(), 2u);
-  Operation *first = &transitions[0].getGuard().front().front();
-  Operation *second = &transitions[1].getGuard().front().front();
-  first->moveBefore(second);
-  second->moveBefore(&transitions[0].getGuard().front(),
-                     transitions[0].getGuard().front().end());
-  std::string diagnostic;
-  ScopedDiagnosticHandler handler(&context, [&](Diagnostic &value) {
-    llvm::raw_string_ostream(diagnostic) << value;
-    return success();
-  });
-  EXPECT_TRUE(failed(verifyModel(*model)));
-  EXPECT_NE(diagnostic.find("frozen topology digest mismatch"),
-            std::string::npos);
-}
-
 TEST(ModelAnalysisTest, AddressSpacesFreezeAsAbsoluteStateOwners) {
   DialectRegistry registry;
   registerAllDialects(registry);
   MLIRContext context(registry);
   OwningOpRef<mlir::ModuleOp> model = parseAndFreeze(context, R"mlir(
-    builtin.module attributes {ac.contract_epoch = "0.5"} {
+    builtin.module  {
       ac.system @soc root @Top as "root" tick 0 "cycle"
           workload @Top::@workload seed {kind = "fixed", value = 0 : i64}
           instrumentation [] results {id = "default", format = "json"}
@@ -777,10 +693,6 @@ TEST(ModelAnalysisTest, AddressSpacesFreezeAsAbsoluteStateOwners) {
     EXPECT_EQ(parameters.getAs<ArrayAttr>("owners"), owners);
   }
 
-  memory->removeAttr("ac.frozen_owners");
-  ScopedDiagnosticHandler handler(&context,
-                                  [&](Diagnostic &) { return success(); });
-  EXPECT_TRUE(failed(verifyModel(*model)));
 }
 
 TEST(ModelAnalysisTest, AddressSpacesParticipateInSaturatedOwnerBudget) {
@@ -1006,7 +918,7 @@ TEST(ModelAnalysisTest, ProcessSkeletonIncludesNestedControlParents) {
   registerAllDialects(registry);
   MLIRContext context(registry);
   OwningOpRef<mlir::ModuleOp> model = parseAndFreeze(context, R"mlir(
-    builtin.module attributes {ac.contract_epoch = "0.5"} {
+    builtin.module  {
       ac.system @soc root @Top as "root" tick 0 "cycle"
           workload @Top::@workload seed {kind = "fixed", value = 0 : i64}
           instrumentation [] results {id = "default", format = "json"}
@@ -1049,7 +961,7 @@ TEST(ACDataFlowAnalyzerTest, InfersValueLifetimeAndLexicalStateOwnership) {
   MLIRContext context(registry);
   OwningOpRef<mlir::ModuleOp> model =
       parseSourceString<mlir::ModuleOp>(R"mlir(
-    builtin.module attributes {ac.contract_epoch = "0.5", ac.model_kind = "queue_graph", ac.queue_graph_domain = "cycle", ac.system = "variables"} {
+    builtin.module attributes {ac.model_kind = "queue_graph", ac.queue_graph_domain = "cycle", ac.system = "variables"} {
       ac.var.decl @counter type i8 init 0 : i8 owner "/" stable_id "var/counter"
       ac.table @state entry i32 entries 2 init 0 owner "/" stable_id "table/state"
       %state_view = ac.table.read @state depth 1 latency 1 address {
@@ -1151,7 +1063,7 @@ TEST(ACDataFlowAnalyzerTest, ProvesDisjointIndicesAndStructuralPathExclusion) {
   MLIRContext context(registry);
   OwningOpRef<mlir::ModuleOp> model =
       parseSourceString<mlir::ModuleOp>(R"mlir(
-    builtin.module attributes {ac.contract_epoch = "0.5"} {
+    builtin.module  {
       ac.var.decl @entries type i8 init 0 : i8 owner "/" stable_id "var/entries" shape [100]
       %mask = ac.var.match @entries predicate {
       ^match(%entry: !ac.var<i8>):
@@ -1213,7 +1125,7 @@ TEST(ACDataFlowAnalyzerTest,
   MLIRContext context(registry);
   OwningOpRef<mlir::ModuleOp> model =
       parseSourceString<mlir::ModuleOp>(R"mlir(
-    builtin.module attributes {ac.contract_epoch = "0.5"} {
+    builtin.module  {
       ac.var.decl @entries type i1 init 0 : i1 owner "/" stable_id "var/entries" shape [1]
       %left_mask = ac.var.match @entries predicate {
       ^match(%entry: !ac.var<i1>):
@@ -1254,7 +1166,7 @@ TEST(ACDataFlowAnalyzerTest, StructuralPathProofUsesBoundedKeysForSharedDags) {
   registerAllDialects(registry);
   MLIRContext context(registry);
   std::string source = R"mlir(
-    builtin.module attributes {ac.contract_epoch = "0.5"} {
+    builtin.module  {
       %input = "builtin.unrealized_conversion_cast"() : () -> !ac.queue<i1>
       %output = ac.transform %input depths [1] latencies [1] {
       ^body(%item: !ac.var<i1>):
@@ -1297,7 +1209,7 @@ TEST(ACDataFlowAnalyzerTest, ProvesMutuallyExclusiveSurvivesDeepSharedChains) {
   registerAllDialects(registry);
   MLIRContext context(registry);
   std::string source = R"mlir(
-    builtin.module attributes {ac.contract_epoch = "0.5"} {
+    builtin.module  {
       %input = "builtin.unrealized_conversion_cast"() : () -> !ac.queue<i1>
       %output = ac.transform %input depths [1] latencies [1] {
       ^body(%item: !ac.var<i1>):
@@ -1336,7 +1248,7 @@ TEST(ACDataFlowAnalyzerTest, InfersBoundedUnsignedValueConstraints) {
   MLIRContext context(registry);
   OwningOpRef<mlir::ModuleOp> model =
       parseSourceString<mlir::ModuleOp>(R"mlir(
-    builtin.module attributes {ac.contract_epoch = "0.5", ac.model_kind = "queue_graph", ac.queue_graph_domain = "cycle", ac.system = "constraints"} {
+    builtin.module attributes {ac.model_kind = "queue_graph", ac.queue_graph_domain = "cycle", ac.system = "constraints"} {
       ac.type_scope @types {
         ac.enum @Mode enumerants ["idle", "run", "wait"]
       } {dlti.dl_spec = #dlti.dl_spec<!ac.enum<@types::@Mode> = {abi_alignment = 1 : i64, endianness = "little", preferred_alignment = 1 : i64, size = 1 : i64}>}
@@ -1441,7 +1353,7 @@ TEST(ACDataFlowAnalyzerTest, InfersOrderedStateAccessFootprints) {
   MLIRContext context(registry);
   OwningOpRef<mlir::ModuleOp> model =
       parseSourceString<mlir::ModuleOp>(R"mlir(
-    builtin.module attributes {ac.contract_epoch = "0.5", ac.model_kind = "queue_graph", ac.queue_graph_domain = "cycle", ac.system = "footprints"} {
+    builtin.module attributes {ac.model_kind = "queue_graph", ac.queue_graph_domain = "cycle", ac.system = "footprints"} {
       ac.type_scope @types {
         ac.struct @Entry fields [{name = "index", type = i1}, {name = "value", type = i7}]
       } {dlti.dl_spec = #dlti.dl_spec<!ac.struct<@types::@Entry> = {abi_alignment = 1 : i64, endianness = "little", preferred_alignment = 1 : i64, size = 1 : i64}>}
@@ -1490,7 +1402,7 @@ TEST(ACDataFlowAnalyzerTest, InfersConditionalEffectSnapshotReadSet) {
   MLIRContext context(registry);
   OwningOpRef<mlir::ModuleOp> model =
       parseSourceString<mlir::ModuleOp>(R"mlir(
-    builtin.module attributes {ac.contract_epoch = "0.5"} {
+    builtin.module  {
       ac.table @epoch entry i8 entries 1 init 0 owner "/" stable_id "table/epoch"
       ac.table @entries entry i8 entries 2 init 0 owner "/" stable_id "table/entries"
       %input = ac.source depth 1 latency 1 : !ac.queue<i8>
@@ -1538,7 +1450,7 @@ TEST(ACDataFlowAnalyzerTest, InfersConditionalEffectSnapshotReadSet) {
 TEST(ACDataFlowAnalyzerTest, SnapshotTraversalMemoizesSharedDiamondContexts) {
   constexpr unsigned depth = 24;
   std::string source = R"mlir(
-    builtin.module attributes {ac.contract_epoch = "0.5"} {
+    builtin.module  {
       ac.table @state entry i32 entries 1 init 0 owner "/" stable_id "table/state"
       %output = ac.rule depths [1] latencies [1] name "diamond"
           stable_id "diamond" domain "cycle" type exact {
@@ -1596,7 +1508,7 @@ TEST(ACDataFlowAnalyzerTest, SnapshotMemoPreservesDistinctFieldDemands) {
   MLIRContext context(registry);
   OwningOpRef<mlir::ModuleOp> model =
       parseSourceString<mlir::ModuleOp>(R"mlir(
-    builtin.module attributes {ac.contract_epoch = "0.5"} {
+    builtin.module  {
       ac.type_scope @types {
         ac.struct @Entry fields [{name = "left", type = i8}, {name = "right", type = i8}]
       } {dlti.dl_spec = #dlti.dl_spec<!ac.struct<@types::@Entry> = {abi_alignment = 1 : i64, endianness = "little", preferred_alignment = 1 : i64, size = 2 : i64}>}
@@ -1644,7 +1556,7 @@ TEST(ACDataFlowAnalyzerTest, SnapshotFieldsFollowDeclarationOrder) {
   MLIRContext context(registry);
   OwningOpRef<mlir::ModuleOp> model =
       parseSourceString<mlir::ModuleOp>(R"mlir(
-    builtin.module attributes {ac.contract_epoch = "0.5"} {
+    builtin.module  {
       ac.type_scope @types {
         ac.struct @Entry fields [{name = "right", type = i8}, {name = "left", type = i8}]
       } {dlti.dl_spec = #dlti.dl_spec<!ac.struct<@types::@Entry> = {abi_alignment = 1 : i64, endianness = "little", preferred_alignment = 1 : i64, size = 2 : i64}>}
@@ -1687,7 +1599,7 @@ TEST(ACDataFlowAnalyzerTest, SnapshotFieldsFollowDeclarationOrder) {
 // nodes but O(2^depth) distinct paths without memoization.
 static std::string buildSharedDiamondSource(unsigned depth) {
   std::string source = R"mlir(
-    builtin.module attributes {ac.contract_epoch = "0.5"} {
+    builtin.module  {
       ac.table @state entry i32 entries 1 init 0 owner "/" stable_id "table/state"
       %output = ac.rule depths [1] latencies [1] name "diamond"
           stable_id "diamond" domain "cycle" type exact {
@@ -1812,7 +1724,7 @@ TEST(ACDataFlowAnalyzerTest,
 TEST(ACDataFlowAnalyzerTest, SnapshotTraversalHandlesWideSharedFanout) {
   constexpr unsigned width = 64;
   std::string source = R"mlir(
-    builtin.module attributes {ac.contract_epoch = "0.5"} {
+    builtin.module  {
       ac.table @state entry i32 entries 1 init 0 owner "/" stable_id "table/state"
       %output = ac.rule depths [1] latencies [1] name "wide_fanout"
           stable_id "wide_fanout" domain "cycle" type exact {
@@ -1868,7 +1780,7 @@ TEST(ACDataFlowAnalyzerTest, SnapshotTraversalHandlesWideSharedFanout) {
 TEST(ACDataFlowAnalyzerTest, SnapshotTraversalSkipsStatelessSharedDag) {
   constexpr unsigned depth = 64;
   std::string source = R"mlir(
-    builtin.module attributes {ac.contract_epoch = "0.5"} {
+    builtin.module  {
       %output = ac.rule depths [1] latencies [1] name "stateless_dag"
           stable_id "stateless_dag" domain "cycle" type exact {
       ^body:
@@ -1925,7 +1837,7 @@ TEST(ACDataFlowAnalyzerTest, InfersMatchAndChooseSnapshotSets) {
   MLIRContext context(registry);
   OwningOpRef<mlir::ModuleOp> model =
       parseSourceString<mlir::ModuleOp>(R"mlir(
-    builtin.module attributes {ac.contract_epoch = "0.5"} {
+    builtin.module  {
       ac.table @entries entry i2 entries 4 init 0 owner "/" stable_id "table/entries"
       ac.table @ready entry i1 entries 4 init 0 owner "/" stable_id "table/ready"
       ac.table @priority entry i2 entries 4 init 0 owner "/" stable_id "table/priority"

@@ -1,11 +1,10 @@
 #!/usr/bin/env python3
-"""Create a deterministic platform SDK archive and its external manifest."""
+"""Create a deterministic platform SDK archive and its inventory."""
 
 from __future__ import annotations
 
 import argparse
 import gzip
-import hashlib
 import json
 import os
 import platform
@@ -23,8 +22,6 @@ ROOT = Path(__file__).resolve().parents[2]
 SDK_SCHEMA_NAMES = (
     "consumer-lock.schema.json",
     "emitted-cost.schema.json",
-    "model-manifest.schema.json",
-    "model-plan.schema.json",
     "release-index.schema.json",
     "sdk-manifest.schema.json",
     "sdk-version-map.schema.json",
@@ -102,10 +99,6 @@ WINDOWS_SYSTEM_DLLS = frozenset(
         "wtsapi32.dll",
     }
 )
-
-
-def digest(path: Path) -> str:
-    return "sha256:" + hashlib.sha256(path.read_bytes()).hexdigest()
 
 
 def kind(path: str) -> str:
@@ -428,7 +421,6 @@ def runtime_dependencies(stage: Path, identity: str) -> list[dict[str, Any]]:
                 "name": name,
                 "kind": "system",
                 "version": "system ABI",
-                "sha256": None,
             }
         ]
     if identity == "linux-x86_64":
@@ -459,14 +451,12 @@ def runtime_dependencies(stage: Path, identity: str) -> list[dict[str, Any]]:
                         "name": name,
                         "kind": "bundled",
                         "version": "bundled",
-                        "sha256": digest(Path(resolved)),
                     }
                 else:
                     record = {
                         "name": name,
                         "kind": "system",
                         "version": release,
-                        "sha256": None,
                     }
                 observed[(record["kind"], name)] = record
     elif identity == "windows-x86_64":
@@ -480,7 +470,6 @@ def runtime_dependencies(stage: Path, identity: str) -> list[dict[str, Any]]:
                         "name": dependency,
                         "kind": "system",
                         "version": release,
-                        "sha256": None,
                     }
                 else:
                     target = bundled.get(dependency.lower())
@@ -492,7 +481,6 @@ def runtime_dependencies(stage: Path, identity: str) -> list[dict[str, Any]]:
                         "name": dependency,
                         "kind": "bundled",
                         "version": "bundled",
-                        "sha256": digest(target),
                     }
                 observed[(record["kind"], dependency)] = record
     else:
@@ -516,7 +504,6 @@ def runtime_dependencies(stage: Path, identity: str) -> list[dict[str, Any]]:
                     "name": name,
                     "kind": "system" if system else "bundled",
                     "version": release or "system ABI",
-                    "sha256": None,
                 }
                 if not system:
                     matches = list(stage.rglob(name))
@@ -526,7 +513,6 @@ def runtime_dependencies(stage: Path, identity: str) -> list[dict[str, Any]]:
                             + dependency
                         )
                     record["version"] = "bundled"
-                    record["sha256"] = digest(matches[0])
                 observed[(record["kind"], name)] = record
     return [observed[key] for key in sorted(observed)]
 
@@ -614,14 +600,11 @@ def main() -> int:
                 {
                     "path": relative,
                     "kind": kind(relative),
-                    "sha256": digest(path),
-                    "size": path.stat().st_size,
                 }
             )
         manifest = {
             "schema": "pycircuit-sdk-platform-manifest",
             "version": "1",
-            "contract_epoch": version_map["contract_epoch"],
             "product_version": product,
             "source_revision": args.source_revision,
             "platform": platform_record(args.platform, args.cxx_compiler),
@@ -631,8 +614,10 @@ def main() -> int:
                 "cycle-aware-signal",
                 "pyc-cpp",
                 "pyc-verilog",
-                "agentic-model-plan",
-                "agentic-model-emit-cpp",
+                "acc-source-to-ac",
+                "acc-cpp",
+                "acc-cpp-bundle",
+                "acc-verilog",
                 "gfsim-runtime-v1",
             ],
             "runtime_dependencies": runtime_dependencies(stage, args.platform),

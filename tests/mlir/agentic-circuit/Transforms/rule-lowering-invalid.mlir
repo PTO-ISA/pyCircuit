@@ -8,7 +8,7 @@
 // RUN: %not %acir_opt --verify-each=false --pass-pipeline='builtin.module(ac-verify-rule-closure)' %t/forged-proof.mlir 2>&1 | %FileCheck %s --check-prefix=FORGED-PROOF
 
 //--- order.mlir
-module attributes {ac.contract_epoch = "0.5", ac.model_kind = "queue_graph", ac.queue_graph_domain = "cycle", ac.system = "bad_order"} {
+module attributes {ac.model_kind = "queue_graph", ac.queue_graph_domain = "cycle", ac.system = "bad_order"} {
   %input = "builtin.unrealized_conversion_cast"() : () -> !ac.queue<i32>
   %output = ac.rule %input depths [1] latencies [1]
       name "identity" stable_id "identity_0" domain "cycle"
@@ -23,7 +23,7 @@ module attributes {ac.contract_epoch = "0.5", ac.model_kind = "queue_graph", ac.
 // ORDER: requires 'ac.rule.checks_typed' before handshake materialization
 
 //--- dead-handshake.mlir
-module attributes {ac.contract_epoch = "0.5", ac.model_kind = "queue_graph", ac.queue_graph_domain = "cycle", ac.system = "dead_handshake"} {
+module attributes {ac.model_kind = "queue_graph", ac.queue_graph_domain = "cycle", ac.system = "dead_handshake"} {
   %input = "builtin.unrealized_conversion_cast"() : () -> !ac.queue<i32>
   %output = ac.rule %input depths [1] latencies [1]
       name "identity" stable_id "identity_0" domain "cycle"
@@ -38,7 +38,7 @@ module attributes {ac.contract_epoch = "0.5", ac.model_kind = "queue_graph", ac.
 // DEAD: handshake obligation must wrap the value returned by ac.rule.return
 
 //--- pending.mlir
-module attributes {ac.contract_epoch = "0.5", ac.model_kind = "queue_graph", ac.queue_graph_domain = "cycle", ac.system = "pending"} {
+module attributes {ac.model_kind = "queue_graph", ac.queue_graph_domain = "cycle", ac.system = "pending"} {
   %input = "builtin.unrealized_conversion_cast"() : () -> !ac.queue<i32>
   %output = ac.rule %input depths [1] latencies [1]
       name "identity" stable_id "identity_0" domain "cycle"
@@ -53,7 +53,7 @@ module attributes {ac.contract_epoch = "0.5", ac.model_kind = "queue_graph", ac.
 // PENDING: must be materialized by its named resolver before discharge
 
 //--- duplicate.mlir
-module attributes {ac.contract_epoch = "0.5", ac.model_kind = "queue_graph", ac.queue_graph_domain = "cycle", ac.system = "duplicate"} {
+module attributes {ac.model_kind = "queue_graph", ac.queue_graph_domain = "cycle", ac.system = "duplicate"} {
   %left = "builtin.unrealized_conversion_cast"() : () -> !ac.queue<i32>
   %right = "builtin.unrealized_conversion_cast"() : () -> !ac.queue<i32>
   %left_out = ac.rule %left depths [1] latencies [1]
@@ -78,7 +78,7 @@ module attributes {ac.contract_epoch = "0.5", ac.model_kind = "queue_graph", ac.
 // DUPLICATE: duplicate stable rule identity 'same'
 
 //--- unrelated-type-marker.mlir
-module attributes {ac.contract_epoch = "0.5", ac.model_kind = "queue_graph", ac.queue_graph_domain = "cycle", ac.system = "bad_type_marker"} {
+module attributes {ac.model_kind = "queue_graph", ac.queue_graph_domain = "cycle", ac.system = "bad_type_marker"} {
   %input = "builtin.unrealized_conversion_cast"() : () -> !ac.queue<i32>
   %output = ac.rule %input depths [1] latencies [1]
       name "identity" stable_id "identity_0" domain "cycle"
@@ -96,7 +96,7 @@ module attributes {ac.contract_epoch = "0.5", ac.model_kind = "queue_graph", ac.
 // TYPE-ORIGIN: Queue payload inference must refine a rule input
 
 //--- bad-value-identity.mlir
-module attributes {ac.contract_epoch = "0.5", ac.model_kind = "queue_graph", ac.queue_graph_domain = "cycle", ac.system = "bad_value_identity"} {
+module attributes {ac.model_kind = "queue_graph", ac.queue_graph_domain = "cycle", ac.system = "bad_value_identity"} {
   %input = "builtin.unrealized_conversion_cast"() : () -> !ac.queue<i32>
   %output = ac.rule %input depths [1] latencies [1]
       name "identity" stable_id "identity_0" domain "cycle"
@@ -113,7 +113,7 @@ module attributes {ac.contract_epoch = "0.5", ac.model_kind = "queue_graph", ac.
 // VALUE-IDENTITY: committed input 0 requires identity 'input'
 
 //--- forged-proof.mlir
-module attributes {ac.contract_epoch = "0.5", ac.model_kind = "queue_graph", ac.queue_graph_domain = "cycle", ac.system = "forged"} {
+module attributes {ac.model_kind = "queue_graph", ac.queue_graph_domain = "cycle", ac.system = "forged"} {
   %input = "builtin.unrealized_conversion_cast"() : () -> !ac.queue<i32>
   %output = ac.transform %input depths [1] latencies [1] {
   ^body(%item: !ac.var<i32>):

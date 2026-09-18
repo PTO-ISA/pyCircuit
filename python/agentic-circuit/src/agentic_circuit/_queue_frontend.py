@@ -104,6 +104,10 @@ from ._queue_compiler.normalize import (
 )
 from ._queue_compiler.parser import RULE_LOWERING_PIPELINE, parse_queue_program
 from ._queue_compiler.provenance import build_queue_acpy
+from ._queue_compiler.provenance import (
+    DefinitionNdfMetadata,
+    extract_definition_ndf_metadata,
+)
 from ._queue_compiler.source import (
     _DEFAULT_QUEUE_SOURCE_PATH,
     _normalize_queue_source_path,
@@ -159,7 +163,6 @@ def lower_queue_source(
     text: str,
     system: str,
     static_arguments: Mapping[str, StaticValue] | None = None,
-    specialization_fingerprint: str | None = None,
     *,
     host_results: bool = False,
     source_path: str | None = None,
@@ -168,17 +171,19 @@ def lower_queue_source(
         Mapping[str, tuple[tuple[str, int, int], ...]] | None
     ) = None,
     source_node_locations: SourceNodeLocations | None = None,
+    definition_ndf: DefinitionNdfMetadata | None = None,
 ) -> str:
+    definition_ndf = definition_ndf or extract_definition_ndf_metadata(text)
     if lowered := _lower_simple_module_source(
         text,
         system,
         static_arguments=static_arguments,
-        specialization_fingerprint=specialization_fingerprint,
         host_results=host_results,
         source_path=source_path,
         definition_locations=definition_locations,
         static_assert_locations=static_assert_locations,
         source_node_locations=source_node_locations,
+        definition_ndf=definition_ndf,
     ):
         return lowered
     if host_results:
@@ -190,10 +195,10 @@ def lower_queue_source(
             text,
             system,
             static_arguments=static_arguments,
-            specialization_fingerprint=specialization_fingerprint,
             source_path=source_path,
             definition_locations=definition_locations,
             static_assert_locations=static_assert_locations,
             source_node_locations=source_node_locations,
-        )
+        ),
+        definition_ndf=definition_ndf,
     )

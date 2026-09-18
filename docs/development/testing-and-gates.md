@@ -37,7 +37,7 @@ demands it.
 | Owner | Coverage | Intentionally excluded |
 | --- | --- | --- |
 | `.github/workflows/ci.yml` | Repository policy, changed-file formatting/lint, unit tests, docs, packaging helpers, API hygiene, Python-only AC checks | LLVM builds, CTest, Verilator, full examples and simulations |
-| `run_agentic_circuit.sh` | AC contracts, frontend/CLI, ACIR/ACSim/gfsim native tests, AC-to-PYC integration | Root pyCircuit unit/API/docs/decision checks |
+| `run_agentic_circuit.sh` | AC contracts, frontend/CLI, ACIR/ACC/gfsim native tests, ACC C++/bundle/Verilog integration | Root pyCircuit unit/API/docs/decision checks |
 | `run_examples.sh` | Every public example through emit/C++ compile plus focused project-build and artifact contracts | API hygiene, decision status, simulation and semantic lanes |
 | `run_sims.sh` | Normal-tier C++/Verilator execution plus `issq` and `regfile` fixtures | Heavy examples, the heavy `bypass_unit` fixture, and the three dedicated semantic cases |
 | `run_sims_nightly.sh` | Heavy-tier C++/Verilator execution plus the compile-intensive `bypass_unit` fixture | Normal examples and fast fixtures |
@@ -84,7 +84,7 @@ author evidence, not additional always-on CI jobs.
 | Agentic Circuit Python frontend, ACPy, schemas or CLI | Required Agentic Python check plus the changed focused test |
 | Shared I-JSON, epoch, MLIR escaping, or semantic primitive contracts | Agentic contract/frontend tests plus exhaustive primitive registry/PYC/ACIR/gfsim width checks |
 | Diagnostic codes, exception payloads, or native diagnostic adapters | Catalog generation check plus the smallest Python or native code-propagation test |
-| ACIR/ACSim dialect, verifier, transformation or gfsim | Focused ACIR/ACSim lit or C++ test |
+| ACIR dialect, verifier, transformation, ACC or gfsim | Focused ACIR/ACC lit or C++ test |
 | ACIR-to-PYC, pyc6 runtime integration or synthesizable AC semantics | Focused AC G2 case proving the changed lowering/backend path |
 | Repository retirement or release-management changes | Repository-governance checks and workflow validation |
 
@@ -93,7 +93,7 @@ author evidence, not additional always-on CI jobs.
 Every release runs all of the following once before package jobs may start:
 
 - one integrated LLVM/MLIR toolchain build, reused by AC native tests and G2;
-- AC contracts, frontend/CLI, ACIR/ACSim/gfsim native tests, and G0/G1/G2;
+- AC contracts, frontend/CLI, ACIR/ACC/gfsim native tests, and G0/G1/G2;
 - every example compile contract, the normal simulation partition, the heavy
   simulation partition, and dedicated V6 semantic regressions;
 - strict decision status, API hygiene, unit tests, pre-commit, repository
@@ -109,25 +109,25 @@ source.
 ### AC G0: frontend and contracts
 
 - install/import the `agentic-circuit` distribution from the current worktree;
-- validate ACPy epoch `0.5` golden serialization under
+- validate ACPy golden serialization under
   `tests/goldens/agentic-circuit/frontend/`;
 - run the contract checker plus Python contract, frontend, schema, and CLI
   tests; and
 - verify that `agentic_circuit` remains separate from `pycircuit` exports.
 
-### AC G1: ACIR, ACSim and gfsim
+### AC G1: ACIR, ACC and gfsim
 
-- build `acir-opt`, ACIR/ACSim libraries and gfsim from the current worktree;
-- run ACIR/ACSim parser, printer, verifier and lit suites;
+- build `acir-opt`, `acc`, ACIR libraries and gfsim from the current worktree;
+- run ACIR parser, printer, verifier and ACC lit suites;
 - run the AC C++ unit suites; and
-- run at least one ACIR-to-ACSim-to-gfsim end-to-end case.
+- run at least one `acc.py -> verified ACIR -> acc -> C++ DUT` end-to-end case.
 
 ### AC G2: pyCircuit 6 hardware integration
 
-- run the synthesizable ACIR subset through ACIR-to-PYC-to-`pycc`;
-- execute C++ simulation linked against `libpyc6_runtime`;
-- generate and validate Verilog for the same canonical cases;
-- compare applicable gfsim, pyc6 C++ and Verilator observations; and
+- run the synthesizable ACIR subset through `acc -emit-verilog` and sibling
+  `pycc`;
+- compile and execute ACC-generated gfsim C++ DUTs;
+- generate and lint Verilog for the same canonical cases; and
 - prove unsupported ACIR constructs fail at the intended verifier boundary.
 - compare ACPy-derived scalar bit primitives in typed gfsim and PYC C++ on the
   same boundary-value sequence.
