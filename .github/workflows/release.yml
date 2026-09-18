@@ -200,20 +200,29 @@ jobs:
             }
             $started = Get-Date
             $sevenZip = (Get-Command 7z.exe -ErrorAction SilentlyContinue).Source
+            if (-not $sevenZip -and (Test-Path "C:\Program Files\7-Zip\7z.exe")) {
+              $sevenZip = "C:\Program Files\7-Zip\7z.exe"
+            }
             if ($sevenZip) {
               # 7-Zip decodes xz considerably faster than the bundled bsdtar.
               & $sevenZip x -y "-o$root" "$download" | Out-Null
-              if ($LASTEXITCODE -ne 0) { throw "7z failed on $archive" }
+              if ($LASTEXITCODE -ne 0) { throw "7z failed on $archive with exit code $LASTEXITCODE" }
               $inner = Join-Path $root ([IO.Path]::GetFileNameWithoutExtension($archive))
               if (Test-Path $inner) {
                 & $sevenZip x -y "-o$root" "$inner" | Out-Null
-                if ($LASTEXITCODE -ne 0) { throw "7z failed on $inner" }
+                if ($LASTEXITCODE -ne 0) { throw "7z failed on $inner with exit code $LASTEXITCODE" }
                 Remove-Item $inner -Force
               }
             } else {
-              tar -xf $download -C $root
+              # The bundled bsdtar does not decode .tar.xz reliably on the
+              # Windows images, and a silent failure used to surface only as a
+              # misleading layout error. Python's tarfile owns the xz support.
+              python3 -c "import sys, tarfile; tarfile.open(sys.argv[1]).extractall(sys.argv[2])" "$download" "$root"
+              if ($LASTEXITCODE -ne 0) { throw "python tarfile extraction failed with exit code $LASTEXITCODE" }
             }
             if (-not (Test-Path "$llvmRoot\lib\cmake\llvm") -or -not (Test-Path "$llvmRoot\lib\cmake\mlir")) {
+              Write-Host "extracted top level:"
+              Get-ChildItem $root | Select-Object -First 10 | ForEach-Object { Write-Host "  $($_.Name)" }
               throw "LLVM $version Windows archive layout is unexpected: $llvmRoot"
             }
             Write-Host "extracted in $([int]((Get-Date) - $started).TotalSeconds)s"
