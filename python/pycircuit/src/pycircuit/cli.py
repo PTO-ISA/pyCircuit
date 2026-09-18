@@ -304,15 +304,23 @@ def _detect_pycc() -> Path:
 
     root = Path(__file__).resolve().parents[4]
     toolchain_root_env = os.environ.get("PYC_TOOLCHAIN_ROOT")
+    # tool_executable already tries the Windows .exe suffix; these development
+    # and repository roots must spell it too, or a Windows source build cannot
+    # find its own pycc.
+    tool_suffix = ".exe" if os.name == "nt" else ""
     candidates = [
         tool_executable("pycc"),
-        Path(toolchain_root_env) / "bin" / "pycc" if toolchain_root_env else None,
-        root / ".pycircuit_out" / "toolchain" / "install" / "bin" / "pycc",
-        root / "dist" / "pycircuit" / "bin" / "pycc",
-        root / "build-top" / "bin" / "pycc",
-        root / "build" / "bin" / "pycc",
-        root / "compiler" / "mlir" / "build2" / "bin" / "pycc",
-        root / "compiler" / "mlir" / "build" / "bin" / "pycc",
+        (
+            Path(toolchain_root_env) / "bin" / f"pycc{tool_suffix}"
+            if toolchain_root_env
+            else None
+        ),
+        root / ".pycircuit_out" / "toolchain" / "install" / "bin" / f"pycc{tool_suffix}",
+        root / "dist" / "pycircuit" / "bin" / f"pycc{tool_suffix}",
+        root / "build-top" / "bin" / f"pycc{tool_suffix}",
+        root / "build" / "bin" / f"pycc{tool_suffix}",
+        root / "compiler" / "mlir" / "build2" / "bin" / f"pycc{tool_suffix}",
+        root / "compiler" / "mlir" / "build" / "bin" / f"pycc{tool_suffix}",
     ]
     for c in candidates:
         if c is None:

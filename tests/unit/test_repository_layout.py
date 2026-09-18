@@ -272,3 +272,56 @@ def test_product_python_imports_posix_only_modules_conditionally() -> None:
                     if not _platform_guarded(node, parents):
                         offenders.append(f"{path.relative_to(ROOT)}:{node.lineno}")
     assert offenders == []
+
+
+COMPILED_TOOL_NAMES = frozenset(
+    {
+        "acir-build",
+        "acir-cxxgen",
+        "acir-opcode-catalog",
+        "acir-opt",
+        "acir-queue-cxxgen",
+        "acir-queue-plan",
+        "acir-queue-pycgen",
+        "pyc-opt",
+        "pycc",
+    }
+)
+
+
+def test_product_python_spells_compiled_tools_with_a_platform_suffix() -> None:
+    """Compiled tools are ``<name>.exe`` on Windows, so a bare name is a bug.
+
+    The model-plan command looked up ``bin/acir-queue-plan`` in the SDK manifest
+    and the native tool resolver searched ``<root>/bin/acir-opt``; on Windows
+    the manifest and the install tree spell both ``.exe``, so the lookup failed
+    with ACSDK-PLAN-MANIFEST-002. The packaged-toolchain resolver already tries
+    the suffix, and every other site must do the same.
+    """
+    offenders: list[str] = []
+    for root in PRODUCT_PYTHON_ROOTS:
+        for path in sorted((ROOT / root).rglob("*.py")):
+            tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+            parents: dict[object, object] = {}
+            for parent in ast.walk(tree):
+                for child in ast.iter_child_nodes(parent):
+                    parents[child] = parent
+            for node in ast.walk(tree):
+                # A literal fragment of an f-string carries the suffix in a
+                # sibling FormattedValue, so only whole literals count.
+                if (
+                    isinstance(node, ast.Constant)
+                    and isinstance(node.value, str)
+                    and not isinstance(parents.get(node), ast.JoinedStr)
+                ):
+                    head, _, tail = node.value.partition("/")
+                    if head == "bin" and tail in COMPILED_TOOL_NAMES:
+                        offenders.append(f"{path.relative_to(ROOT)}:{node.lineno}")
+                if (
+                    isinstance(node, ast.BinOp)
+                    and isinstance(node.op, ast.Div)
+                    and isinstance(node.right, ast.Constant)
+                    and node.right.value in COMPILED_TOOL_NAMES
+                ):
+                    offenders.append(f"{path.relative_to(ROOT)}:{node.lineno}")
+    assert offenders == []
