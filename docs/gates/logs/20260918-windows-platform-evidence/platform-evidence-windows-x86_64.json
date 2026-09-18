@@ -1,0 +1,19 @@
+{
+  "archive_sha256": "sha256:a23a0e78cbe1d08d7b869255df7fa93b7b2db0268f7ca52a929612c20d006dee",
+  "candidate_tag": null,
+  "exact_manifest_closure": true,
+  "incremental_determinism": true,
+  "manifest_sha256": "sha256:6e67335527c8cbb1a0349bbf1d79822eb0ba00011621ce8cce4cb61e14741623",
+  "mismatch_rejection": true,
+  "native_dependency_closure": true,
+  "parallel_same_root": true,
+  "platform": "windows-x86_64",
+  "release_url": null,
+  "relocated_model_consumer": true,
+  "schema": "pycircuit-platform-verification",
+  "source_revision": "dccb53016cf01c5cccafcb87369fd226cc6e77e4",
+  "topology_change": true,
+  "unsupported_boundary_rejection": true,
+  "verified": true,
+  "version": "1"
+}
