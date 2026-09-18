@@ -52,7 +52,10 @@ def _record(path: Path, tag: str) -> dict[str, Any]:
 
 def _candidate_files(root: Path) -> dict[str, Path]:
     files: dict[str, Path] = {}
-    for path in sorted(item for item in root.rglob("*") if item.is_file()):
+    for path in sorted(
+        (item for item in root.rglob("*") if item.is_file()),
+        key=lambda path: path.relative_to(root).as_posix(),
+    ):
         if path.name in files:
             raise ValueError(f"duplicate candidate asset name: {path.name}")
         files[path.name] = path
@@ -216,9 +219,12 @@ def aggregate(args: argparse.Namespace) -> int:
         )
 
     checksum_paths = sorted(
-        path
-        for path in output_dir.iterdir()
-        if path.is_file() and path.name != "SHA256SUMS"
+        (
+            path
+            for path in output_dir.iterdir()
+            if path.is_file() and path.name != "SHA256SUMS"
+        ),
+        key=lambda path: path.name,
     )
     (output_dir / "SHA256SUMS").write_text(
         "".join(f"{_sha256(path)[7:]}  {path.name}\n" for path in checksum_paths),
@@ -295,7 +301,8 @@ def verify_published(args: argparse.Namespace) -> int:
     records = {record["name"]: record for record in _index_records(index)}
     if args.candidate_dir is not None:
         for path in sorted(
-            item for item in args.candidate_dir.iterdir() if item.is_file()
+            (item for item in args.candidate_dir.iterdir() if item.is_file()),
+            key=lambda item: item.name,
         ):
             records.setdefault(
                 path.name,

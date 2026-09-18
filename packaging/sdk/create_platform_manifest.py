@@ -15,6 +15,7 @@ import stat
 import subprocess
 import tarfile
 import tempfile
+from collections.abc import Iterable
 from pathlib import Path
 from typing import Any
 
@@ -210,11 +211,23 @@ def write_json(path: Path, value: dict[str, Any]) -> None:
     )
 
 
+def posix_sorted(root: Path, paths: Iterable[Path]) -> list[Path]:
+    """Return ``paths`` ordered by their POSIX relative form.
+
+    The consumer validates the manifest's ``files`` order as a plain string
+    sort of those paths, while pathlib compares path components (and folds case
+    on Windows), so sorting Path objects directly yields an order the consumer
+    rejects. Archive member order uses the same canonical order so the two
+    agree.
+    """
+    return sorted(paths, key=lambda path: path.relative_to(root).as_posix())
+
+
 def deterministic_tar(source: Path, destination: Path) -> None:
     with destination.open("wb") as raw:
         with gzip.GzipFile(filename="", mode="wb", fileobj=raw, mtime=0) as compressed:
             with tarfile.open(fileobj=compressed, mode="w") as archive:
-                for path in sorted(source.rglob("*")):
+                for path in posix_sorted(source, source.rglob("*")):
                     relative = path.relative_to(source).as_posix()
                     info = archive.gettarinfo(str(path), arcname=relative)
                     info.uid = info.gid = 0
@@ -233,7 +246,9 @@ def deterministic_tar(source: Path, destination: Path) -> None:
 
 def native_files(stage: Path) -> list[Path]:
     result: list[Path] = []
-    for path in sorted(item for item in stage.rglob("*") if item.is_file()):
+    for path in posix_sorted(
+        stage, (item for item in stage.rglob("*") if item.is_file())
+    ):
         if path.suffix == ".a":
             continue
         identified = subprocess.run(
@@ -249,10 +264,13 @@ def native_files(stage: Path) -> list[Path]:
 def windows_native_files(stage: Path) -> list[Path]:
     """Enumerate Windows PE images without relying on the Unix ``file`` tool."""
     suffixes = {".exe", ".dll", ".pyd"}
-    return sorted(
-        path
-        for path in stage.rglob("*")
-        if path.is_file() and path.suffix.lower() in suffixes
+    return posix_sorted(
+        stage,
+        (
+            path
+            for path in stage.rglob("*")
+            if path.is_file() and path.suffix.lower() in suffixes
+        ),
     )
 
 
@@ -576,7 +594,9 @@ def main() -> int:
             os.fspath(args.install_dir.resolve()).encode(),
             os.fspath(ROOT.resolve()).encode(),
         }
-        for path in sorted(item for item in stage.rglob("*") if item.is_file()):
+        for path in posix_sorted(
+            stage, (item for item in stage.rglob("*") if item.is_file())
+        ):
             data = path.read_bytes()
             if any(value in data for value in forbidden):
                 raise ValueError(
@@ -586,7 +606,9 @@ def main() -> int:
         relocate_native_dependencies(stage, args.platform)
         self_path = "share/pycircuit/sdk-manifest.json"
         files = []
-        for path in sorted(item for item in stage.rglob("*") if item.is_file()):
+        for path in posix_sorted(
+            stage, (item for item in stage.rglob("*") if item.is_file())
+        ):
             relative = path.relative_to(stage).as_posix()
             files.append(
                 {

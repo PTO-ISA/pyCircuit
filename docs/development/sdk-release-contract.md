@@ -141,6 +141,12 @@ tool, so it keeps that extensionless name on every platform; Windows gives the
 `.exe` suffix only to the native tools, and the launcher is invoked through the
 interpreter there.
 
+The platform manifest's `files` list MUST be ordered by the POSIX relative path
+as plain strings. `pathlib` path comparison is not that order: on POSIX it
+compares path components, so `a/b` precedes `a.b` although `.` precedes `/`,
+and on Windows it also folds case and uses backslash separators. Consumers
+reject any other order with `ACSDK-PLAN-MANIFEST-001`.
+
 ## CMake components
 
 The installed package exposes two explicit components.

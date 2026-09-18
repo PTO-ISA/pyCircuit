@@ -331,7 +331,9 @@ def validate_tree(
         data = path.read_bytes()
         if any(value in data for value in encoded_forbidden):
             raise ValueError(f"SDK contains a producer absolute path: {record['path']}")
-    wheels = sorted((root / "python/wheelhouse").glob("*.whl"))
+    wheels = sorted(
+        (root / "python/wheelhouse").glob("*.whl"), key=lambda path: path.name
+    )
     if len(wheels) != 3:
         raise ValueError(f"SDK wheelhouse must contain exactly three wheels: {wheels}")
     verify_native_closure(root, manifest)
@@ -423,7 +425,10 @@ def verify_only_export(plugin: Path) -> None:
 def tree_hashes(root: Path) -> tuple[tuple[str, str], ...]:
     return tuple(
         (path.relative_to(root).as_posix(), sha256(path))
-        for path in sorted(item for item in root.rglob("*") if item.is_file())
+        for path in sorted(
+            (item for item in root.rglob("*") if item.is_file()),
+            key=lambda path: path.relative_to(root).as_posix(),
+        )
     )
 
 
