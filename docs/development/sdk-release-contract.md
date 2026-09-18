@@ -76,6 +76,14 @@ record them and MUST compile the external consumer with compatible settings.
 The Runtime component may depend on documented system C/C++ libraries. Every
 other native dependency is bundled and resolved relative to the installed SDK.
 
+On `windows-x86_64` the documented system dependencies are the MSVC v143 C/C++
+runtime, matching the profile's declared ABI, and the Python 3.11 runtime
+(`python311.dll`, or the stable-ABI forwarder `python3.dll`). A Windows Python
+extension has to link an import library, so `_native.pyd` imports the host
+interpreter DLL rather than resolving it at load time the way an ELF or Mach-O
+extension does. Both names are accepted because the stable-ABI import library
+imports `python3.dll` and the version-specific one imports `python311.dll`.
+
 ## Artifact set and install layout
 
 Each platform publishes one archive named:

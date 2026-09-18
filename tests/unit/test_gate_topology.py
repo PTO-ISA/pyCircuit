@@ -209,3 +209,24 @@ def test_windows_platform_record_probes_the_compiler_version_and_keeps_msvc_abi(
     assert record["host_triple"] == "x86_64-pc-windows-msvc"
     assert record["cxx_abi"] == "MSVC v143"
     assert record["cxx_compiler"].startswith("Python ")
+
+
+def test_windows_manifest_steps_check_native_exit_codes() -> None:
+    """PowerShell masks failing native commands unless they are checked.
+
+    $ErrorActionPreference does not apply to native commands, so a failing
+    create_platform_manifest.py run let the lane upload a candidate with only
+    the wheel in it; the loss surfaced much later as a missing manifest in the
+    verify job. Every native packaging step must check $LASTEXITCODE.
+    """
+    for name in (
+        ".github/workflows/release.yml",
+        ".github/workflows/platform-evidence.yml",
+    ):
+        workflow = _read(name)
+        assert 'if ($LASTEXITCODE -ne 0) { throw "wheel creation failed' in workflow
+        assert (
+            'if ($LASTEXITCODE -ne 0) { throw "platform manifest and archive creation failed'
+            in workflow
+        )
+        assert 'if ($LASTEXITCODE -ne 0) { throw "twine check failed' in workflow

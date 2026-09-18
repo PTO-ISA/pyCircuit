@@ -555,5 +555,38 @@ class SdkReleaseContractTest(unittest.TestCase):
             self.assertIn("unlisted-backdoor", rejected_tree.stderr)
 
 
+    def test_windows_system_dependency_allowlists_agree_on_the_python_runtime(
+        self,
+    ) -> None:
+        """The generator and the verifier must classify PE imports alike.
+
+        A Windows Python extension has to link an import library, so
+        _native.pyd imports the host interpreter DLL. The profile declares
+        Python 3.11, so that runtime is a documented system dependency, and
+        both allowlists have to accept it or the SDK builds and then fails
+        verification with "non-system dependency is not bundled".
+        """
+
+        def load(name: str, relative: str):
+            path = ROOT / relative
+            spec = importlib.util.spec_from_file_location(name, path)
+            if spec is None or spec.loader is None:
+                self.fail(f"cannot load {relative}")
+            module = importlib.util.module_from_spec(spec)
+            spec.loader.exec_module(module)
+            return module
+
+        generator = load("generator_allowlist", "packaging/sdk/create_platform_manifest.py")
+        verifier = load("verifier_allowlist", "packaging/sdk/verify_platform_candidate.py")
+
+        self.assertEqual(
+            generator.WINDOWS_SYSTEM_DLLS,
+            verifier.WINDOWS_SYSTEM_DLLS,
+            "generator and verifier Windows allowlists diverged",
+        )
+        for runtime_dll in ("python3.dll", "python311.dll"):
+            self.assertIn(runtime_dll, generator.WINDOWS_SYSTEM_DLLS)
+
+
 if __name__ == "__main__":
     unittest.main()
