@@ -49,6 +49,13 @@ The first release supports exactly these build and consumption profiles:
 | `macos-arm64` | `macos-15`, arm64 | macOS 15 | 3.11 | C++20, Apple libc++ |
 | `windows-x86_64` | `windows-2022`, x86_64 | Windows Server 2022 | 3.11 | C++20, MSVC v143 |
 
+The `windows-x86_64` lane provisions LLVM/MLIR by building the source revision
+pinned in `toolchains/agentic-circuit/llvm.lock.json` with MSVC and caching the
+install prefix, keyed by the source digest and the recorded option set. It does
+not use the published LLVM Windows binary assets: they carry `llvm`, `clang`,
+and `lld` CMake packages but no MLIR, and this project requires `MLIR_DIR`
+exactly at the pinned version.
+
 The release job MUST fail when the runner OS or architecture differs from its
 profile. The manifest records the actual compiler identity. A package built on
 one profile does not claim support for another Linux distribution, older libc,
