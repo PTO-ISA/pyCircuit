@@ -178,3 +178,32 @@ def test_host_sources_avoid_unprotected_int128() -> None:
                 if "__int128" in code and "__SIZEOF_INT128__" not in code:
                     offenders.append(f"{path.relative_to(ROOT)}:{number}")
     assert offenders == []
+
+
+def test_python_binding_links_the_windows_import_library_by_name() -> None:
+    """The Windows extension must resolve CPython's auto-link directive.
+
+    CPython's PC/pyconfig.h records a pragma-based auto-link directive for an
+    import library: ``python3.lib`` under Py_LIMITED_API, otherwise
+    ``python<major><minor>.lib``. Up to Python 3.13 that directive is
+    unconditional and Python3::Module deliberately links no library, so the
+    bindings have to supply the directory and the versioned import library
+    themselves. Without it the Windows link fails with
+    ``could not open 'python3.lib'``.
+    """
+    cmake = (ROOT / "compiler/acir/bindings/python/CMakeLists.txt").read_text(
+        encoding="utf-8"
+    )
+
+    assert "if(WIN32)" in cmake
+    assert "python${Python3_VERSION_MAJOR}${Python3_VERSION_MINOR}.lib" in cmake
+    assert (
+        'target_link_directories(agentic_circuit_native PRIVATE "${_acir_python_libs}")'
+        in cmake
+    )
+    # The limited-API name is staged when the interpreter does not ship it,
+    # because PC/pyconfig.h asks for python3.lib unconditionally.
+    assert 'configure_file("${_acir_python_import_lib}"' in cmake
+    assert '"${_acir_python_abi_dir}/python3.lib" COPYONLY)' in cmake
+    # A missing import library must fail at configure time, not at link time.
+    assert "Python import library for ${Python3_VERSION} is missing" in cmake
