@@ -150,3 +150,31 @@ def test_wheel_staging_tool_sources_exist() -> None:
     ]
     for relative in relative_paths:
         assert (ROOT / relative).is_file(), relative
+
+
+def test_host_sources_avoid_unprotected_int128() -> None:
+    """MSVC has no __int128, so host sources must stay portable.
+
+    Multi-word runtime arithmetic and the saturating statistics helpers used to
+    rely on it, which broke the Windows SDK build with C4235. A guarded use that
+    checks __SIZEOF_INT128__ first remains acceptable.
+    """
+    offenders: list[str] = []
+    for directory in (
+        "library/cpp",
+        "compiler/mlir",
+        "compiler/acir",
+        "simulator/gfsim",
+        "tests/cpp",
+    ):
+        for path in sorted((ROOT / directory).rglob("*")):
+            if path.suffix not in {".hpp", ".h", ".cpp", ".cc"} or not path.is_file():
+                continue
+            for number, line in enumerate(
+                path.read_text(encoding="utf-8", errors="ignore").splitlines(),
+                start=1,
+            ):
+                code = line.split("//", 1)[0]
+                if "__int128" in code and "__SIZEOF_INT128__" not in code:
+                    offenders.append(f"{path.relative_to(ROOT)}:{number}")
+    assert offenders == []
