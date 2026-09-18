@@ -217,12 +217,21 @@ jobs:
               $sevenZip = "C:\Program Files\7-Zip\7z.exe"
             }
             if ($sevenZip) {
+              # 7-Zip exits 2 after refusing the LLVM test-input symlinks that
+              # point outside the tree ("Dangerous link path was ignored").
+              # Those paths are clang/lldb test fixtures the build never reads,
+              # so warn instead of failing and let the layout check below prove
+              # the extracted tree is usable.
               & $sevenZip x -y "-o$source" "$archive" | Out-Null
-              if ($LASTEXITCODE -ne 0) { throw "7z failed on the LLVM source archive with exit code $LASTEXITCODE" }
+              if ($LASTEXITCODE -ne 0) {
+                Write-Host "7z reported exit code $LASTEXITCODE on the source archive; verifying the extracted tree instead"
+              }
               $inner = "$source\llvm-project-$env:LLVM_PACKAGE_VERSION.src.tar"
               if (Test-Path $inner) {
                 & $sevenZip x -y "-o$source" "$inner" | Out-Null
-                if ($LASTEXITCODE -ne 0) { throw "7z failed on the LLVM source tar with exit code $LASTEXITCODE" }
+                if ($LASTEXITCODE -ne 0) {
+                  Write-Host "7z reported exit code $LASTEXITCODE on the source tar; verifying the extracted tree instead"
+                }
                 Remove-Item $inner -Force
               }
             } else {
