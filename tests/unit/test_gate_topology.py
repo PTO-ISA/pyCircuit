@@ -167,6 +167,9 @@ def test_release_and_evidence_windows_lanes_pin_the_same_clang_cl_driver() -> No
         assert '$env:CC = "clang-cl.exe"' in workflow
         assert '$env:CXX = "clang-cl.exe"' in workflow
         assert '$env:CC = "cl.exe"' not in workflow
+        # PowerShell's -notmatch returns the NON-matching elements when it is
+        # handed an array, so the banner must be joined before it is negated.
+        assert "$clangInfo = (& clang-cl.exe --version) -join" in workflow
         # clang-cl still reads INCLUDE, LIB, and link.exe from the MSVC
         # developer environment.
         assert "ilammy/msvc-dev-cmd@" in workflow

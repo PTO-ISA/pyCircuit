@@ -388,7 +388,9 @@ jobs:
           if (-not (Get-Command clang-cl.exe -ErrorAction SilentlyContinue)) {
             throw "clang-cl.exe is not on PATH; the pinned driver was not provisioned"
           }
-          $clangInfo = & clang-cl.exe --version
+          # PowerShell's -notmatch returns the elements that do NOT match when
+          # it is handed an array, so join the banner into one string first.
+          $clangInfo = (& clang-cl.exe --version) -join "`n"
           if ($LASTEXITCODE -ne 0) { throw "clang-cl.exe --version failed with exit code $LASTEXITCODE" }
           if ($clangInfo -notmatch [regex]::Escape("clang version $env:CLANG_PACKAGE_VERSION")) {
             throw "the Windows lane requires the pinned clang $env:CLANG_PACKAGE_VERSION; observed: $($clangInfo -join ' | ')"
