@@ -106,7 +106,7 @@ Download the wheel for your platform from
 install the local file:
 
 ```bash
-python3 -m pip install /path/to/pycircuit_hisi-6.0.0-*.whl
+python3 -m pip install /path/to/pycircuit_hisi-6.1.0-*.whl
 pycc --version
 python3 -m pycircuit.cli --help
 ```

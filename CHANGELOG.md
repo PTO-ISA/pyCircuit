@@ -6,6 +6,8 @@ published through the repository's release workflow.
 
 ## Unreleased
 
+## 6.1.0 - 2026-09-18
+
 - Map Agentic lexical register reset onto `ac.var.decl init` and write enable
   onto `ac.var.assign when`, copy non-zero scalar images through storage
   selection and `SimTable` restore, dump one `.ac.mlir` per `ac.module`, and

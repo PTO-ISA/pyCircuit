@@ -21,8 +21,8 @@
   "contract_epoch": "0.5",
   "distributions": {
     "agentic-circuit": "0.1.0",
-    "pycircuit-hisi": "6.0.0",
-    "pycircuit-semantic-core": "6.0.0"
+    "pycircuit-hisi": "6.1.0",
+    "pycircuit-semantic-core": "6.1.0"
   },
   "files": [
     {
@@ -99,7 +99,7 @@
     "python": "3.11",
     "runner": "ubuntu-24.04"
   },
-  "product_version": "6.0.0",
+  "product_version": "6.1.0",
   "runtime_dependencies": [
     {
       "kind": "system",

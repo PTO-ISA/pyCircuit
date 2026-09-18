@@ -4,7 +4,7 @@ This document defines the first installable pyCircuit SDK contract for generic
 external model consumers. It is the source of truth for issue #61.
 
 The contract is accepted before implementation so each implementation PR has a
-fixed boundary. A `v6.0.0` release remains blocked until every required command,
+fixed boundary. A `v6.1.0` release remains blocked until every required command,
 artifact, ABI, relocation check, and post-publish check in this document passes.
 
 ## Identity and compatibility
@@ -14,10 +14,10 @@ The candidate release tuple is stored in
 
 | Identity | Required value |
 | --- | --- |
-| Product and SDK | `6.0.0` |
-| Candidate tag | `v6.0.0` |
-| `pycircuit-hisi` | `6.0.0` |
-| `pycircuit-semantic-core` | `6.0.0` |
+| Product and SDK | `6.1.0` |
+| Candidate tag | `v6.1.0` |
+| `pycircuit-hisi` | `6.1.0` |
+| `pycircuit-semantic-core` | `6.1.0` |
 | `agentic-circuit` | `0.1.0` |
 | ACPy and ACIR contract epoch | `0.5` |
 | SDK manifest schema | `1` |
@@ -63,13 +63,13 @@ other native dependency is bundled and resolved relative to the installed SDK.
 Each platform publishes one archive named:
 
 ```text
-pycircuit-sdk-6.0.0-<platform-id>.tar.gz
+pycircuit-sdk-6.1.0-<platform-id>.tar.gz
 ```
 
 Each archive embeds one platform manifest at
 `share/pycircuit/sdk-manifest.json`. The same bytes are attached with the unique
-name `pycircuit-sdk-6.0.0-<platform-id>.manifest.json`. A separate
-`pycircuit-sdk-6.0.0-release-index.json` names both archives, both platform
+name `pycircuit-sdk-6.1.0-<platform-id>.manifest.json`. A separate
+`pycircuit-sdk-6.1.0-release-index.json` names both archives, both platform
 manifests, the exact four-wheel set, license material, and release notes. The
 set contains one `pycircuit-hisi` wheel for each supported platform plus the
 universal `pycircuit-semantic-core` and `agentic-circuit` wheels.

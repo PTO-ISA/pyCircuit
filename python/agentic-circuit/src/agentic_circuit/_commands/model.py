@@ -65,11 +65,11 @@ _MODULE_SUPPORT_HEADERS = frozenset(
         "include/generated/modules/queuegraph_types.h",
     }
 )
-_PRODUCT_VERSION = "6.0.0"
+_PRODUCT_VERSION = "6.1.0"
 _DISTRIBUTIONS = {
     "agentic-circuit": "0.1.0",
-    "pycircuit-hisi": "6.0.0",
-    "pycircuit-semantic-core": "6.0.0",
+    "pycircuit-hisi": "6.1.0",
+    "pycircuit-semantic-core": "6.1.0",
 }
 _ABI = {
     "acpy_epoch": CONTRACT_EPOCH,

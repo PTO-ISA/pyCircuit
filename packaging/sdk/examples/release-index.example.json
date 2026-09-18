@@ -10,7 +10,7 @@
     "runtime_abi": "1",
     "sdk_manifest": "1"
   },
-  "candidate_tag": "v6.0.0",
+  "candidate_tag": "v6.1.0",
   "capabilities": [
     "cycle-aware-signal",
     "pyc-cpp",
@@ -27,51 +27,51 @@
   "contract_epoch": "0.5",
   "distributions": {
     "agentic-circuit": "0.1.0",
-    "pycircuit-hisi": "6.0.0",
-    "pycircuit-semantic-core": "6.0.0"
+    "pycircuit-hisi": "6.1.0",
+    "pycircuit-semantic-core": "6.1.0"
   },
   "licenses": {
     "name": "LICENSES.tar.gz",
     "sha256": "sha256:e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
     "size": 1,
-    "url": "https://github.com/PTO-ISA/pyCircuit/releases/download/v6.0.0/LICENSES.tar.gz"
+    "url": "https://github.com/PTO-ISA/pyCircuit/releases/download/v6.1.0/LICENSES.tar.gz"
   },
   "platforms": {
     "linux-x86_64": {
       "archive": {
-        "name": "pycircuit-sdk-6.0.0-linux-x86_64.tar.gz",
+        "name": "pycircuit-sdk-6.1.0-linux-x86_64.tar.gz",
         "sha256": "sha256:e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
         "size": 1,
-        "url": "https://github.com/PTO-ISA/pyCircuit/releases/download/v6.0.0/pycircuit-sdk-6.0.0-linux-x86_64.tar.gz"
+        "url": "https://github.com/PTO-ISA/pyCircuit/releases/download/v6.1.0/pycircuit-sdk-6.1.0-linux-x86_64.tar.gz"
       },
       "manifest": {
-        "name": "pycircuit-sdk-6.0.0-linux-x86_64.manifest.json",
+        "name": "pycircuit-sdk-6.1.0-linux-x86_64.manifest.json",
         "sha256": "sha256:e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
         "size": 1,
-        "url": "https://github.com/PTO-ISA/pyCircuit/releases/download/v6.0.0/pycircuit-sdk-6.0.0-linux-x86_64.manifest.json"
+        "url": "https://github.com/PTO-ISA/pyCircuit/releases/download/v6.1.0/pycircuit-sdk-6.1.0-linux-x86_64.manifest.json"
       }
     },
     "macos-arm64": {
       "archive": {
-        "name": "pycircuit-sdk-6.0.0-macos-arm64.tar.gz",
+        "name": "pycircuit-sdk-6.1.0-macos-arm64.tar.gz",
         "sha256": "sha256:e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
         "size": 1,
-        "url": "https://github.com/PTO-ISA/pyCircuit/releases/download/v6.0.0/pycircuit-sdk-6.0.0-macos-arm64.tar.gz"
+        "url": "https://github.com/PTO-ISA/pyCircuit/releases/download/v6.1.0/pycircuit-sdk-6.1.0-macos-arm64.tar.gz"
       },
       "manifest": {
-        "name": "pycircuit-sdk-6.0.0-macos-arm64.manifest.json",
+        "name": "pycircuit-sdk-6.1.0-macos-arm64.manifest.json",
         "sha256": "sha256:e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
         "size": 1,
-        "url": "https://github.com/PTO-ISA/pyCircuit/releases/download/v6.0.0/pycircuit-sdk-6.0.0-macos-arm64.manifest.json"
+        "url": "https://github.com/PTO-ISA/pyCircuit/releases/download/v6.1.0/pycircuit-sdk-6.1.0-macos-arm64.manifest.json"
       }
     }
   },
-  "product_version": "6.0.0",
+  "product_version": "6.1.0",
   "release_notes": {
     "name": "RELEASE_NOTES.md",
     "sha256": "sha256:e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
     "size": 1,
-    "url": "https://github.com/PTO-ISA/pyCircuit/releases/download/v6.0.0/RELEASE_NOTES.md"
+    "url": "https://github.com/PTO-ISA/pyCircuit/releases/download/v6.1.0/RELEASE_NOTES.md"
   },
   "schema": "pycircuit-sdk-release-index",
   "source_revision": "e4485192727e27ac4d1de62bfdb6438fd878cdff",
@@ -81,25 +81,25 @@
       "name": "agentic_circuit-0.1.0-py3-none-any.whl",
       "sha256": "sha256:e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
       "size": 1,
-      "url": "https://github.com/PTO-ISA/pyCircuit/releases/download/v6.0.0/agentic_circuit-0.1.0-py3-none-any.whl"
+      "url": "https://github.com/PTO-ISA/pyCircuit/releases/download/v6.1.0/agentic_circuit-0.1.0-py3-none-any.whl"
     },
     "pycircuit-hisi-linux-x86_64": {
-      "name": "pycircuit_hisi-6.0.0-py3-none-linux_x86_64.whl",
+      "name": "pycircuit_hisi-6.1.0-py3-none-linux_x86_64.whl",
       "sha256": "sha256:e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
       "size": 1,
-      "url": "https://github.com/PTO-ISA/pyCircuit/releases/download/v6.0.0/pycircuit_hisi-6.0.0-py3-none-linux_x86_64.whl"
+      "url": "https://github.com/PTO-ISA/pyCircuit/releases/download/v6.1.0/pycircuit_hisi-6.1.0-py3-none-linux_x86_64.whl"
     },
     "pycircuit-hisi-macos-arm64": {
-      "name": "pycircuit_hisi-6.0.0-py3-none-macosx_15_0_arm64.whl",
+      "name": "pycircuit_hisi-6.1.0-py3-none-macosx_15_0_arm64.whl",
       "sha256": "sha256:e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
       "size": 1,
-      "url": "https://github.com/PTO-ISA/pyCircuit/releases/download/v6.0.0/pycircuit_hisi-6.0.0-py3-none-macosx_15_0_arm64.whl"
+      "url": "https://github.com/PTO-ISA/pyCircuit/releases/download/v6.1.0/pycircuit_hisi-6.1.0-py3-none-macosx_15_0_arm64.whl"
     },
     "pycircuit-semantic-core": {
-      "name": "pycircuit_semantic_core-6.0.0-py3-none-any.whl",
+      "name": "pycircuit_semantic_core-6.1.0-py3-none-any.whl",
       "sha256": "sha256:e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
       "size": 1,
-      "url": "https://github.com/PTO-ISA/pyCircuit/releases/download/v6.0.0/pycircuit_semantic_core-6.0.0-py3-none-any.whl"
+      "url": "https://github.com/PTO-ISA/pyCircuit/releases/download/v6.1.0/pycircuit_semantic_core-6.1.0-py3-none-any.whl"
     }
   }
 }

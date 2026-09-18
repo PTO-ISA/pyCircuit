@@ -1,13 +1,13 @@
 {
   "schema": "pycircuit-sdk-version-map",
   "version": "1",
-  "candidate_tag": "v6.0.0",
-  "product_version": "6.0.0",
+  "candidate_tag": "v6.1.0",
+  "product_version": "6.1.0",
   "source_revision_policy": "annotated_tag_peeled_commit",
   "compatibility": "exact_identity_tuple",
   "distributions": {
-    "pycircuit-hisi": "6.0.0",
-    "pycircuit-semantic-core": "6.0.0",
+    "pycircuit-hisi": "6.1.0",
+    "pycircuit-semantic-core": "6.1.0",
     "agentic-circuit": "0.1.0"
   },
   "contracts": {

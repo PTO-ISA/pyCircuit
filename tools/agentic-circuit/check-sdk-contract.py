@@ -359,6 +359,8 @@ def validate_header() -> None:
 def adversarial_checks(version_map: dict[str, Any]) -> None:
     import copy
 
+    candidate_tag = version_map["candidate_tag"]
+
     for field, value in (
         ("runner", "ubuntu-latest"),
         ("minimum_libc", "glibc 1"),
@@ -452,14 +454,16 @@ def adversarial_checks(version_map: dict[str, Any]) -> None:
         "pycircuit-sdk-9.9.9-linux-x86_64.tar.gz"
     )
     wrong_asset_name["platforms"]["linux-x86_64"]["archive"]["url"] = (
-        "https://github.com/PTO-ISA/pyCircuit/releases/download/v6.0.0/"
+        f"https://github.com/PTO-ISA/pyCircuit/releases/download/{candidate_tag}/"
         "pycircuit-sdk-9.9.9-linux-x86_64.tar.gz"
     )
     negatives.append(("wrong product version in asset name", wrong_asset_name))
     wrong_url_tag = copy.deepcopy(release_index)
     wrong_url_tag["platforms"]["linux-x86_64"]["archive"]["url"] = wrong_url_tag[
         "platforms"
-    ]["linux-x86_64"]["archive"]["url"].replace("/v6.0.0/", "/v9.9.9/")
+    ]["linux-x86_64"]["archive"]["url"].replace(
+        f"/{candidate_tag}/", "/v9.9.9/"
+    )
     negatives.append(("wrong release tag in URL", wrong_url_tag))
     missing_platform_wheel = copy.deepcopy(release_index)
     del missing_platform_wheel["wheels"]["pycircuit-hisi-macos-arm64"]
@@ -469,7 +473,7 @@ def adversarial_checks(version_map: dict[str, Any]) -> None:
         "agentic_circuit-0.1.0-py3-none-linux_x86_64.whl"
     )
     universal_with_platform_tag["wheels"]["agentic-circuit"]["url"] = (
-        "https://github.com/PTO-ISA/pyCircuit/releases/download/v6.0.0/"
+        f"https://github.com/PTO-ISA/pyCircuit/releases/download/{candidate_tag}/"
         "agentic_circuit-0.1.0-py3-none-linux_x86_64.whl"
     )
     negatives.append(("non-universal Python wheel", universal_with_platform_tag))
