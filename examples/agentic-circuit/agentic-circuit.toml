@@ -14,7 +14,7 @@ compiler = "c++"
 standard_library = "libc++"
 component_roots = []
 protocol_roots = []
-build_root = "../../.pycircuit_out/examples/agentic-circuit"
+build_root = "build"
 instrumentation_layers = []
 
 [run]

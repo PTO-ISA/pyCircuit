@@ -154,6 +154,65 @@ class AccCommandTest(unittest.TestCase):
         self.assertEqual(0, result)
         self.assertEqual(output.resolve().as_posix(), payload["output"])
 
+    def test_static_json_reaches_capture_as_canonical_arguments(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            architecture = root / "architecture.py"
+            architecture.write_text("# fixture\n", encoding="utf-8")
+            bindings = root / "bindings.json"
+            bindings.write_text(
+                '{"width":8,"cfg":{"lanes":4,"entries":16}}\n',
+                encoding="utf-8",
+            )
+            output = root / "model.ac"
+            workspace = SimpleNamespace(component_roots=())
+
+            def captured(arguments, _workspace):
+                self.assertEqual(
+                    (
+                        ("cfg", {"entries": 16, "lanes": 4}),
+                        ("width", 8),
+                    ),
+                    arguments.static_arguments,
+                )
+                return frontend()
+
+            with (
+                patch.object(_acc_py, "discover_workspace", return_value=workspace),
+                patch.object(_acc_py, "capture", side_effect=captured),
+                patch.object(_acc_py, "run_native_compiler", return_value=native()),
+            ):
+                result = _acc_py.main(
+                    [
+                        "-c",
+                        str(architecture),
+                        "-o",
+                        str(output),
+                        "--static-json",
+                        str(bindings),
+                    ]
+                )
+        self.assertEqual(0, result)
+
+    def test_static_json_requires_a_closed_object(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            architecture = root / "architecture.py"
+            architecture.write_text("# fixture\n", encoding="utf-8")
+            bindings = root / "bindings.json"
+            bindings.write_text("[]\n", encoding="utf-8")
+            with self.assertRaises(SystemExit):
+                _acc_py.main(
+                    [
+                        "-c",
+                        str(architecture),
+                        "-o",
+                        str(root / "model.ac"),
+                        "--static-json",
+                        str(bindings),
+                    ]
+                )
+
 
 if __name__ == "__main__":
     unittest.main()

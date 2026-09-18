@@ -359,13 +359,24 @@ def _worker_main(request_path: Path) -> int:
                 key: _static_value(value)
                 for key, value in request["static_arguments"].items()
             }
-            if request["jit_source_closure"]:
-                from ._jit import jit
+            from ._jit import JitSpecialization, jit
 
+            selected = namespace.get(request["system"])
+            if isinstance(selected, JitSpecialization):
                 frontend_kind = "queue_rule"
-                definition = namespace.get(request["system"])
+                if static_arguments:
+                    raise ValueError(
+                        "an exported JIT specialization cannot accept additional "
+                        "static arguments"
+                    )
+                acir = selected.lower_acir()
+                diagnostics = selected.diagnostics
+            elif request["jit_source_closure"]:
+                frontend_kind = "queue_rule"
                 specialization = jit(
-                    definition, workspace=workspace, **static_arguments
+                    selected,
+                    workspace=workspace,
+                    **static_arguments,
                 )
                 acir = specialization.lower_acir()
                 diagnostics = specialization.diagnostics

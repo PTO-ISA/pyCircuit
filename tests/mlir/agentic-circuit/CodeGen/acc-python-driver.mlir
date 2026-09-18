@@ -8,6 +8,8 @@
 // RUN: %FileCheck %s --check-prefix=VERILOG < %t/model.v
 // RUN: %cxx -std=c++20 -I%source_root/simulator/gfsim/include %t/harness.cpp -o %t/model
 // RUN: %t/model | %FileCheck %s --check-prefix=EXEC
+// RUN: env PYTHONPATH=%source_root/python/semantic-core/src:%source_root/python/agentic-circuit/src:%binary_root/python %python -m agentic_circuit._acc_py --project %t/specialized.toml -c %t/architecture.py -o %t/specialized.ac --quiet
+// RUN: %FileCheck %s --check-prefix=AC < %t/specialized.ac
 // RUN: env PYTHONPATH=%source_root/python/semantic-core/src:%source_root/python/agentic-circuit/src:%binary_root/python %python -m agentic_circuit._acc_py --project %t/structured.toml -c %t/structured.py -o %t/structured.ac --quiet
 // RUN: %not %acc -c %t/structured.ac -emit-verilog -o %t/structured.v 2>&1 | %FileCheck %s --check-prefix=STRUCTURED-VERILOG-ERROR
 // RUN: test ! -e %t/structured.v
@@ -53,6 +55,9 @@ def rob() -> None:
     completed = complete(issued)
     retired = ac.reorder(completed, by=Entry.sequence, entries=8, start=0)
     ac.sink(retired)
+
+
+specialization = ac.jit(rob)
 
 //--- harness.cpp
 #include "model.cpp"
@@ -127,6 +132,32 @@ standard_library = "libc++"
 component_roots = []
 protocol_roots = []
 build_root = "build"
+instrumentation_layers = []
+
+[run]
+trace_roots = []
+inputs = {}
+
+[diagnostics]
+format = "text"
+
+//--- specialized.toml
+[project]
+name = "acc-exported-specialization-smoke"
+version = "0.1.0"
+architecture = "architecture.py"
+system = "specialization"
+
+[providers]
+standard_library = ["ac"]
+
+[build]
+profile = "fast"
+compiler = "c++"
+standard_library = "libc++"
+component_roots = []
+protocol_roots = []
+build_root = "build-specialized"
 instrumentation_layers = []
 
 [run]

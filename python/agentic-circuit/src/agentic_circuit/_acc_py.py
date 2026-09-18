@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import json
 import os
 import sys
 import tempfile
@@ -10,6 +11,7 @@ from collections.abc import Sequence
 from pathlib import Path
 
 from ._canonical_json import canonical_json_bytes
+from ._canonical_json import validate_ijson_value
 from ._commands.check import _has_errors, binding_registry, capture
 from ._exit_codes import ExitCode
 from ._native_api import NativeRequest, run_native_compiler
@@ -30,6 +32,12 @@ def build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument("--project", type=Path)
     parser.add_argument("--system")
+    parser.add_argument(
+        "--static-json",
+        type=Path,
+        metavar="BINDINGS.json",
+        help="closed JSON object of typed static argument bindings",
+    )
     parser.add_argument("--quiet", action="store_true")
     parser.add_argument("--json", action="store_true")
     return parser
@@ -82,6 +90,19 @@ def main(argv: Sequence[str] | None = None) -> int:
         parser.error("-c requires a .py architecture")
     if arguments.output.suffix != ".ac":
         parser.error("-o requires a .ac output")
+    static_arguments: tuple[tuple[str, object], ...] = ()
+    if arguments.static_json is not None:
+        try:
+            document = json.loads(arguments.static_json.read_text(encoding="utf-8"))
+            validate_ijson_value(document)
+        except (OSError, UnicodeError, json.JSONDecodeError, ValueError) as error:
+            parser.error(f"--static-json is invalid: {error}")
+        if type(document) is not dict or any(
+            type(name) is not str or not name for name in document
+        ):
+            parser.error("--static-json requires an object with non-empty string keys")
+        static_arguments = tuple(sorted(document.items()))
+    arguments.static_arguments = static_arguments
 
     try:
         workspace = (

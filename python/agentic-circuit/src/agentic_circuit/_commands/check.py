@@ -43,7 +43,9 @@ def capture(arguments: object, workspace: WorkspaceConfig) -> CaptureWorkerResul
                 workspace=workspace.root,
                 entry=_entry(arguments, workspace),
                 system=getattr(arguments, "system", None) or workspace.default_system,
-                static_arguments=(),
+                static_arguments=tuple(
+                    getattr(arguments, "static_arguments", ())
+                ),
                 component_roots=workspace.component_roots,
                 private_output=Path(temporary) / "capture",
             )
