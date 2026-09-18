@@ -173,9 +173,10 @@ def test_release_and_evidence_windows_lanes_pin_the_same_clang_cl_driver() -> No
         # clang-cl still reads INCLUDE, LIB, and link.exe from the MSVC
         # developer environment.
         assert "ilammy/msvc-dev-cmd@" in workflow
-        # -ffile-prefix-map replaces cl.exe's /pathmap:, which cl.exe silently
-        # ignores without /experimental:deterministic.
-        assert 'CFLAGS = "-ffile-prefix-map=' in workflow
+        # clang-cl has no -ffile-prefix-map spelling of its own and ignores
+        # it, so the mapping must go through the /clang: driver escape.
+        assert "/clang:-ffile-prefix-map=" in workflow
+        assert 'CFLAGS = "-ffile-prefix-map=' not in workflow
 
     # The evidence lane must reproduce the release lane exactly.
     assert _workflow_env(release, "CLANG_PACKAGE_VERSION") == _workflow_env(
