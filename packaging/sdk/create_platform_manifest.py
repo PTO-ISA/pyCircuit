@@ -117,8 +117,13 @@ def kind(path: str) -> str:
     return "metadata"
 
 
-def _msvc_compiler_version(compiler: str) -> str:
-    """Probe the MSVC banner; cl.exe does not implement ``--version``."""
+def _windows_compiler_version(compiler: str) -> str:
+    """Probe the Windows compiler version.
+
+    clang-cl, the driver this profile builds with, implements ``--version``.
+    cl.exe does not and only prints a banner when invoked without input, so
+    fall back to that banner's first line.
+    """
     version = subprocess.run(
         [compiler, "--version"], text=True, capture_output=True, check=False
     )
@@ -137,7 +142,7 @@ def _msvc_compiler_version(compiler: str) -> str:
 
 def platform_record(identity: str, compiler: str) -> dict[str, Any]:
     if identity == "windows-x86_64":
-        compiler_version = _msvc_compiler_version(compiler)
+        compiler_version = _windows_compiler_version(compiler)
     else:
         version = subprocess.run(
             [compiler, "--version"], text=True, capture_output=True, check=False
