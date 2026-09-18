@@ -50,11 +50,20 @@ The first release supports exactly these build and consumption profiles:
 | `windows-x86_64` | `windows-2022`, x86_64 | Windows Server 2022 | 3.11 | C++20, MSVC v143 |
 
 The `windows-x86_64` lane provisions LLVM/MLIR by building the source revision
-pinned in `toolchains/agentic-circuit/llvm.lock.json` with MSVC and caching the
-install prefix, keyed by the source digest and the recorded option set. It does
-not use the published LLVM Windows binary assets: they carry `llvm`, `clang`,
+pinned in `toolchains/agentic-circuit/llvm.lock.json` and caching the install
+prefix, keyed by the source digest and the recorded option set. It does not use
+the published LLVM Windows binary assets for MLIR: they carry `llvm`, `clang`,
 and `lld` CMake packages but no MLIR, and this project requires `MLIR_DIR`
 exactly at the pinned version.
+
+The Windows lane compiles with the pinned `clang-cl` driver from the official
+LLVM 22.1.8 Windows release binary, over the MSVC v143 headers, libraries, and
+linker. The MSVC front end (`cl.exe`) aborts with an internal compiler error
+(C1001) on the ACIR codegen's recursive generic lambdas, while the same sources
+build under clang; the driver therefore differs from the ABI named in the table
+above. The MLIR source build itself still uses the MSVC toolchain. The manifest
+records the actual compiler identity, so a Windows candidate names its clang-cl
+version.
 
 The release job MUST fail when the runner OS or architecture differs from its
 profile. The manifest records the actual compiler identity. A package built on
