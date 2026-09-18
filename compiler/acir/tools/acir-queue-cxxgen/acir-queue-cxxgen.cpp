@@ -33,20 +33,11 @@ namespace {
 /// does not exist.
 std::error_code publishDirectory(llvm::StringRef staged, llvm::StringRef root) {
 #if defined(_WIN32)
-  auto widen = [](llvm::StringRef value,
-                  llvm::SmallVectorImpl<wchar_t> &out) -> std::error_code {
-    llvm::SmallVector<char, 0> utf16;
-    if (std::error_code error = llvm::sys::UTF8ToUTF16(value, utf16))
-      return error;
-    const auto *begin = reinterpret_cast<const wchar_t *>(utf16.data());
-    out.assign(begin, begin + utf16.size() / sizeof(wchar_t));
-    return std::error_code();
-  };
   llvm::SmallVector<wchar_t, 0> source;
   llvm::SmallVector<wchar_t, 0> target;
-  if (std::error_code error = widen(staged, source))
+  if (std::error_code error = llvm::sys::windows::UTF8ToUTF16(staged, source))
     return error;
-  if (std::error_code error = widen(root, target))
+  if (std::error_code error = llvm::sys::windows::UTF8ToUTF16(root, target))
     return error;
   source.push_back(L'\0');
   target.push_back(L'\0');
