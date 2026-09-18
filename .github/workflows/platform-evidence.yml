@@ -53,6 +53,30 @@ env:
   LLVM_WINDOWS_ARCHIVE_SHA256: "d96c2cc1736f4eb7fa43cb9bbdf56d93551a9ae0a9aadb9c99c3c3b2b712a234"
 
 jobs:
+  plan:
+    name: "Evidence: select platforms"
+    if: github.repository == 'PTO-ISA/pyCircuit'
+    runs-on: ubuntu-24.04
+    outputs:
+      matrix: ${{ steps.select.outputs.matrix }}
+    steps:
+      - name: Select the requested platform subset
+        id: select
+        shell: bash
+        run: |
+          set -euo pipefail
+          linux='{"os":"ubuntu-24.04","platform":"linux-x86_64","runner_os":"Linux"}'
+          macos='{"os":"macos-15","platform":"macos-arm64","runner_os":"macOS"}'
+          windows='{"os":"windows-2022","platform":"windows-x86_64","runner_os":"Windows"}'
+          case "${{ inputs.platform }}" in
+            all) include="[${linux},${macos},${windows}]" ;;
+            linux-x86_64) include="[${linux}]" ;;
+            macos-arm64) include="[${macos}]" ;;
+            windows-x86_64) include="[${windows}]" ;;
+            *) echo "unknown platform: ${{ inputs.platform }}" >&2; exit 1 ;;
+          esac
+          echo "matrix={\"include\":${include}}" >> "$GITHUB_OUTPUT"
+
   universal-wheels:
     name: "Evidence: universal wheels"
     if: github.repository == 'PTO-ISA/pyCircuit'
@@ -85,23 +109,11 @@ jobs:
 
   platform-candidate:
     name: "Evidence: build ${{ matrix.platform }}"
-    needs: [universal-wheels]
-    if: >
-      github.repository == 'PTO-ISA/pyCircuit' &&
-      (inputs.platform == 'all' || inputs.platform == matrix.platform)
+    needs: [plan, universal-wheels]
+    if: github.repository == 'PTO-ISA/pyCircuit'
     strategy:
       fail-fast: false
-      matrix:
-        include:
-          - os: ubuntu-24.04
-            platform: linux-x86_64
-            runner_os: Linux
-          - os: macos-15
-            platform: macos-arm64
-            runner_os: macOS
-          - os: windows-2022
-            platform: windows-x86_64
-            runner_os: Windows
+      matrix: ${{ fromJSON(needs.plan.outputs.matrix) }}
     runs-on: ${{ matrix.os }}
     timeout-minutes: 180
     steps:
@@ -252,23 +264,11 @@ jobs:
 
   platform-verify:
     name: "Evidence: verify ${{ matrix.platform }}"
-    needs: [platform-candidate]
-    if: >
-      github.repository == 'PTO-ISA/pyCircuit' &&
-      (inputs.platform == 'all' || inputs.platform == matrix.platform)
+    needs: [plan, platform-candidate]
+    if: github.repository == 'PTO-ISA/pyCircuit'
     strategy:
       fail-fast: false
-      matrix:
-        include:
-          - os: ubuntu-24.04
-            platform: linux-x86_64
-            runner_os: Linux
-          - os: macos-15
-            platform: macos-arm64
-            runner_os: macOS
-          - os: windows-2022
-            platform: windows-x86_64
-            runner_os: Windows
+      matrix: ${{ fromJSON(needs.plan.outputs.matrix) }}
     runs-on: ${{ matrix.os }}
     timeout-minutes: 120
     steps:
