@@ -373,6 +373,29 @@ def write_model_source(source: Path) -> None:
     )
 
 
+def find_build_artifact(root: Path, names: tuple[str, ...]) -> Path:
+    """Locate exactly one built artifact under ``root``.
+
+    A single-configuration generator writes to the build root, while a
+    multi-configuration one (Visual Studio, Xcode) writes to a configuration
+    subdirectory such as ``Release/``. Searching recursively covers both, and
+    Debug symbol bundles are skipped because they contain a copy of the binary
+    under ``*.dSYM/Contents/Resources/DWARF/``.
+    """
+    found = sorted(
+        (
+            path
+            for name in names
+            for path in root.rglob(name)
+            if path.is_file() and not any(part.endswith(".dSYM") for part in path.parts)
+        ),
+        key=lambda path: path.relative_to(root).as_posix(),
+    )
+    if len(found) != 1:
+        raise ValueError(f"expected one {names[0]}, found {found}")
+    return found[0]
+
+
 def verify_only_export(plugin: Path) -> None:
     if sys.platform == "win32":
         dumpbin = shutil.which("dumpbin")
@@ -648,13 +671,14 @@ def installed_smoke(sdk_root: Path, wheels: list[Path], workspace: Path) -> None
         cwd=workspace,
         env=clean_environment,
     )
-    plugin_patterns = ("model-plugin.*",) if windows else ("libmodel-plugin.*",)
-    plugins = [path for pattern in plugin_patterns for path in build.glob(pattern)]
-    if len(plugins) != 1:
-        raise ValueError(f"expected one generated model plugin, found {plugins}")
-    verify_only_export(plugins[0])
+    plugin_names = (
+        ("model-plugin.dll",)
+        if windows
+        else ("libmodel-plugin.so", "libmodel-plugin.dylib")
+    )
+    verify_only_export(find_build_artifact(build, plugin_names))
     run(
-        [build / f"model-consumer{suffix}"],
+        [find_build_artifact(build, (f"model-consumer{suffix}",))],
         cwd=workspace,
         env=clean_environment,
     )
