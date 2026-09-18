@@ -72,7 +72,11 @@ macOS x86_64, Windows on another architecture or an older Windows release, or
 another Python minor.
 
 RTTI and exceptions are build properties of each exported target. The SDK MUST
-record them and MUST compile the external consumer with compatible settings.
+record them and MUST compile the external consumer with compatible settings. On
+Windows that covers the MSVC runtime configuration as well: the SDK ships
+Release binaries, so a Debug consumer fails with LNK2038
+`_ITERATOR_DEBUG_LEVEL` and `RuntimeLibrary` mismatches. Pin the consumer
+configuration to Release.
 The Runtime component may depend on documented system C/C++ libraries. Every
 other native dependency is bundled and resolved relative to the installed SDK.
 

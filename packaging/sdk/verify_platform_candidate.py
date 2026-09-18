@@ -633,11 +633,21 @@ def installed_smoke(sdk_root: Path, wheels: list[Path], workspace: Path) -> None
             f"-DAGENTIC_MODEL_ROOT={generated}",
             "-DCMAKE_DISABLE_FIND_PACKAGE_LLVM=TRUE",
             "-DCMAKE_DISABLE_FIND_PACKAGE_MLIR=TRUE",
+            # The SDK ships Release binaries. A Visual Studio generator defaults
+            # to Debug, and MSVC refuses to mix the two: LNK2038 reports
+            # _ITERATOR_DEBUG_LEVEL and RuntimeLibrary mismatches against
+            # gfsim.lib. Pin the configuration for single- and multi-config
+            # generators alike.
+            "-DCMAKE_BUILD_TYPE=Release",
         ],
         cwd=workspace,
         env=clean_environment,
     )
-    run(["cmake", "--build", build], cwd=workspace, env=clean_environment)
+    run(
+        ["cmake", "--build", build, "--config", "Release"],
+        cwd=workspace,
+        env=clean_environment,
+    )
     plugin_patterns = ("model-plugin.*",) if windows else ("libmodel-plugin.*",)
     plugins = [path for pattern in plugin_patterns for path in build.glob(pattern)]
     if len(plugins) != 1:
