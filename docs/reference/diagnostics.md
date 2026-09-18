@@ -31,6 +31,14 @@ All frontend-emitted `.pyc` files are stamped with a required module attribute:
 
 If the backend sees a missing/mismatched contract marker, `pycc` fails early.
 
+## Queue frontend integer conversion
+
+| Code | Trigger |
+| --- | --- |
+| `ACPY-CAST-001` | `ac.zext` / `ac.sext` / `ac.truncate` called with a keyword argument, without a concrete `ac.uN` / `ac.sN` / `ac.bits[N]` target type, with a target that is not strictly wider (`zext`, `sext`) or strictly narrower (`truncate`), or on a source that is not a bits value. |
+| `ACPY-RANGE-001` | A bounded-range target cannot represent the requested constant or conversion. |
+| `ACPY-MODULE-001` | Module boundary shape mismatch, including a result payload whose type does not match the declared return type. A same-width product returned as a wider type belongs here; convert explicitly with `ac.sext` / `ac.zext`. |
+
 ## Useful commands
 
 Run hygiene scan (from repository root):

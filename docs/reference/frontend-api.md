@@ -38,6 +38,13 @@ provenance to reject those spellings only on raw Wire or unknown receivers.
 Width-changing calls use keyword-only `width=...`. Named `.eq()` and `.lt()`
 methods are rejected on every receiver; use `==` and `<` operators.
 
+The Agentic Circuit Queue frontend expresses the same conversions as intrinsics
+that take the destination type positionally: `ac.zext(value, ac.uN)`,
+`ac.sext(value, ac.sN)`, and `ac.truncate(value, ac.uN)`. Integer widths never
+change implicitly there, so extend or truncate before arithmetic that needs a
+different width. See
+[the agent frontend guide](../development/agent-frontend-guide.md#convert-integer-widths-explicitly).
+
 `pycircuit.probe` and `pycircuit.testbench` are modules. Import the decorators
 from `pycircuit.design`, as shown above. `priority_encode(...)` and the matching
 Signal/Wire/CAS methods all return `PriorityEncodeResult[T]` with `.index` and
