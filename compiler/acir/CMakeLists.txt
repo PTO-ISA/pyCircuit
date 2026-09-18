@@ -52,10 +52,25 @@ function(acir_collect_llvm_link_target target)
   foreach(_dependency IN LISTS _dependencies)
     if(_dependency MATCHES "^\\$<LINK_ONLY:([^>]+)>$")
       set(_dependency "${CMAKE_MATCH_1}")
+    elseif(_dependency MATCHES "^\\$<\\$<NOT:\\$<LINK_LANGUAGE:Swift>>:([^>]+)>?$")
+      # LLVM exports its Windows delay-load import library behind this Swift
+      # guard, without a closing angle bracket. ACIR_LLVM_LINK_FLAGS is joined
+      # into a C++ string macro that the tooling consumes at runtime, so the
+      # payload has to stay a plain flag rather than a generator expression.
+      set(_dependency "${CMAKE_MATCH_1}")
+      if(MSVC)
+        acir_append_llvm_link_flag("${_dependency}")
+      else()
+        acir_append_llvm_link_flag("-l${_dependency}")
+      endif()
+      continue()
     elseif(_dependency MATCHES "^\\$<")
-      message(FATAL_ERROR
-        "unsupported LLVM link dependency expression: ${_dependency}"
+      # Unresolvable generator expression: skipping keeps the configure alive,
+      # but say so because it may drop a library the link needs.
+      message(WARNING
+        "skipping unsupported LLVM link dependency expression: ${_dependency}"
       )
+      continue()
     endif()
     if(TARGET "${_dependency}")
       acir_collect_llvm_link_target("${_dependency}")
