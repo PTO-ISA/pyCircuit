@@ -483,10 +483,16 @@ def _validate_static_config_roots(
             *function.args.kwonlyargs,
         )
     }
-    for binding in aliases.values():
-        if binding.config_type is None:
-            continue
-        if binding_namespace + binding.external_name not in used_roots:
+    for alias, binding in aliases.items():
+        roots = (
+            binding_namespace + alias,
+            binding_namespace + binding.external_name,
+        )
+        if not any(
+            used == root or used.startswith(root + ".")
+            for used in used_roots
+            for root in roots
+        ):
             continue
         parameter = parameters.get(binding.external_name)
         annotation = None if parameter is None else parameter.annotation
@@ -496,11 +502,12 @@ def _validate_static_config_roots(
             and _decorator_name(annotation.value).rsplit(".", 1)[-1] == "const"
             else ""
         )
-        if actual_type != binding.config_type:
+        expected_type = "int" if binding.config_type is None else binding.config_type
+        if actual_type != expected_type:
             raise QueueFrontendError(
-                "ACPY-TYPE-008: typed config root "
+                "ACPY-TYPE-008: typed static root "
                 f"{binding.external_name!r} requires matching "
-                f"ac.const[{binding.config_type}] entry parameter"
+                f"ac.const[{expected_type}] entry parameter"
             )
 
 
@@ -1388,5 +1395,6 @@ def _payload(
     if isinstance(node, ast.Name) and enums is not None and node.id in enums:
         return enums[node.id]
     raise QueueFrontendError(
-        "ACPY-QUEUE-002: source payload must be a compile-time supported type"
+        "ACPY-QUEUE-002: source payload must be a compile-time supported type: "
+        f"{ast.unparse(node)} at line {getattr(node, 'lineno', 0)}"
     )

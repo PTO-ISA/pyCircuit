@@ -12,8 +12,6 @@
     },
     "contracts": {
       "const": {
-        "acir_contract": "0.5",
-        "acpy_epoch": "0.5",
         "consumer_lock": "1",
         "generator_abi": "1",
         "release_index": "1",

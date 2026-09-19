@@ -44,6 +44,13 @@ reserved spellings are compiler-owned. They do not claim to be Python source
 names. The selected `ac.system`, interface display arrays, instance identity,
 and source map provide the source-facing mapping for that wrapper.
 
+The complete `__ac_` prefix is compiler-owned for generated definition, scope,
+and temporary names. Python systems and modules must not declare names with
+that prefix. Record-field adapters use readable definitions of the form
+`__ac_project_<StructSpecialization>__<field-path>`; equal input type and field
+path reuse one adapter class, while each callsite retains its own Python source
+location and instance identity.
+
 Static-argument fragments are emitted from parameter names and canonical typed
 values in declaration order. The MLIR symbol and explicit static-argument
 dictionary together are the specialization identity; no hidden key

@@ -4806,7 +4806,12 @@ def parse_queue_program(
     _validate_static_config_roots(
         function,
         parameter_aliases,
-        {binding.root for binding in static_config_bindings},
+        {
+            token[6:]
+            for check in all_static_checks
+            for token in check.program
+            if token.startswith("param:")
+        },
         binding_namespace=static_type_namespace,
     )
     return QueueProgram(

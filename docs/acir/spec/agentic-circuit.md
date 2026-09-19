@@ -456,7 +456,7 @@ Named and multi-field reads lower to `ac.var.extract` and MSB-first
 `ac.var.concat`; updates lower to immutable `ac.var.insert`. `ac.bitfield`
 retains canonical width/range metadata in ACIR. Verifiers
 resolve every field-qualified operation back to that declaration before
-topology freeze. The Python frontend contains no ready/full/Queue transaction
+topology closure. The Python frontend contains no ready/full/Queue transaction
 logic for these values.
 
 ### Declared ranges and inferred value constraints
@@ -478,7 +478,7 @@ analysis widens conservatively and proof sites fail closed.
 
 `ACDataFlowAnalyzer` is the public compiler analysis. It recomputes constraints
 from ACIR SSA through MLIR dataflow and proves every dynamic Table index is
-within `[0, entries - 1]` before rule lowering, topology freeze,
+within `[0, entries - 1]` before rule lowering, topology closure,
 and QueueGraph planning. MLIR's generic `DataFlowSolver` remains private to the
 analyzer implementation. For example, a `u2` index is safe for five entries,
 while an unconstrained `u3` index is rejected unless preceding operations
@@ -2161,7 +2161,7 @@ out-of-profile state retains an explicit backend admission error.
 | `ac.feedback` | design | one to one | `depth`, `latency`, `max_iterations` | bounded stateful loop |
 | `ac.scope` | design | variadic to variadic | symbol name | hierarchy boundary; PYC elaboration flattens it |
 
-`ac.rule` and the three typed marker operations are transient pre-freeze IR.
+`ac.rule` and the three typed marker operations are transient pre-closure IR.
 Marker-free `ac.firing` is the internal transaction contract. These operations
 are not independent QueueGraph building blocks; a proven pure firing becomes
 `ac.transform` before QueueGraph extraction. The epoch 0.4

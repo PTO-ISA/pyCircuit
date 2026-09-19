@@ -45,6 +45,30 @@ def pipeline(left: ac.u8, right: ac.u8) -> tuple[ac.u8, ac.u8]:
     return left_result, right_result
 """
 
+INFERRED_MODULE_PROJECTION_SOURCE = """
+import agentic_circuit as ac
+
+@ac.struct
+class Inner:
+    left: ac.u8
+    right: ac.u8
+
+@ac.struct
+class Envelope:
+    inner: Inner
+    tag: ac.u4
+
+@ac.module
+def identity(value: ac.u8) -> ac.u8:
+    return value
+
+@ac.system
+def pipeline(packet: Envelope) -> tuple[ac.u8, ac.u8, Envelope]:
+    left = identity(packet.inner.left)
+    right = identity(packet.inner.right)
+    return left, right, packet
+"""
+
 INFERRED_STATEFUL_MODULE_SOURCE = """
 import agentic_circuit as ac
 
@@ -8738,6 +8762,133 @@ def two_accumulators(left: ac.u8, right: ac.u8) -> tuple[ac.u8, ac.u8]:
         )
         self.assertIn("ac.instance @result of @increment", lowered)
         self.assertEqual(2, lowered.count(" of @wrapper"))
+
+    def test_module_arguments_lower_nested_field_projections_and_fanout(self) -> None:
+        from agentic_circuit._queue_frontend import lower_queue_source
+
+        lowered = lower_queue_source(INFERRED_MODULE_PROJECTION_SOURCE, "pipeline")
+        self.assertIn(
+            "%packet__fanout0__local, %packet__fanout1__local, "
+            "%packet__fanout2__local = ac.broadcast %borrowed depths [1, 1, 1] "
+            "latencies [1, 1, 1]",
+            lowered,
+        )
+        self.assertIn("ac.scope @__ac_fanout_packet(%inputs)", lowered)
+        self.assertIn('ac.name = "value.inner.left"', lowered)
+        self.assertIn('ac.name = "value.inner.right"', lowered)
+        self.assertEqual(4, lowered.count("ac.var.get"))
+        self.assertIn("of @identity(%__ac_projection_0_packet_0)", lowered)
+        self.assertIn("of @identity(%__ac_projection_1_packet_0)", lowered)
+        self.assertIn("ac.sink %result_2", lowered)
+
+    def test_generated_module_namespace_is_reserved_and_collision_free(self) -> None:
+        from agentic_circuit._queue_frontend import (
+            QueueFrontendError,
+            lower_queue_source,
+        )
+
+        authored_projection_name = INFERRED_MODULE_PROJECTION_SOURCE.replace(
+            "def identity(value: ac.u8)",
+            "def project_Envelope__inner__left(value: ac.u8)",
+        ).replace("identity(packet.", "project_Envelope__inner__left(packet.")
+        lowered = lower_queue_source(authored_projection_name, "pipeline")
+        self.assertEqual(
+            1, lowered.count("ac.module @project_Envelope__inner__left(")
+        )
+        self.assertEqual(
+            1, lowered.count("ac.module @__ac_project_Envelope__inner__left(")
+        )
+
+        reserved_definition = INFERRED_MODULE_PROJECTION_SOURCE.replace(
+            "def identity(value: ac.u8)",
+            "def __ac_project_Envelope__inner__left(value: ac.u8)",
+        )
+        with self.assertRaisesRegex(QueueFrontendError, "compiler-owned"):
+            lower_queue_source(reserved_definition, "pipeline")
+
+        reserved_value = INFERRED_MODULE_PROJECTION_SOURCE.replace(
+            "left = identity", "__ac_fanout_packet = identity"
+        )
+        with self.assertRaisesRegex(QueueFrontendError, "compiler-owned"):
+            lower_queue_source(reserved_value, "pipeline")
+
+    def test_module_field_projection_reports_invalid_field_and_type(self) -> None:
+        from agentic_circuit._queue_frontend import (
+            QueueFrontendError,
+            lower_queue_source,
+        )
+
+        with self.assertRaisesRegex(QueueFrontendError, "unknown field 'missing'"):
+            lower_queue_source(
+                INFERRED_MODULE_PROJECTION_SOURCE.replace(
+                    "packet.inner.left", "packet.inner.missing"
+                ),
+                "pipeline",
+            )
+        with self.assertRaisesRegex(
+            QueueFrontendError, "module input payload type mismatch.*packet.tag"
+        ):
+            lower_queue_source(
+                INFERRED_MODULE_PROJECTION_SOURCE.replace(
+                    "packet.inner.left", "packet.tag"
+                ),
+                "pipeline",
+            )
+
+    def test_module_identity_cannot_capture_outer_static_type_roots(self) -> None:
+        from agentic_circuit._queue_frontend import (
+            QueueFrontendError,
+            lower_queue_source,
+        )
+        from agentic_circuit._static_eval import FrozenMap
+
+        config_source = """
+import agentic_circuit as ac
+
+@ac.config
+class Config:
+    entries: int
+
+CFG = ac.param[Config]("cfg")
+
+@ac.struct
+class Entry:
+    value: ac.bits[CFG.entries]
+
+@ac.module
+def stage(value: Entry) -> Entry:
+    return value
+
+@ac.system
+def pipeline(value: Entry, *, cfg: ac.const[Config]) -> Entry:
+    result = stage(value)
+    return result
+"""
+        with self.assertRaisesRegex(
+            QueueFrontendError,
+            r"typed static root 'cfg' requires matching ac\.const\[Config\]",
+        ):
+            lower_queue_source(
+                config_source,
+                "pipeline",
+                static_arguments={"cfg": FrozenMap((("entries", 8),))},
+            )
+
+        integer_source = config_source.replace(
+            "@ac.config\nclass Config:\n    entries: int\n\nCFG = ac.param[Config](\"cfg\")",
+            'WIDTH = ac.param[int]("width")',
+        ).replace("CFG.entries", "WIDTH").replace(
+            "*, cfg: ac.const[Config]", "*, width: ac.const[int]"
+        )
+        with self.assertRaisesRegex(
+            QueueFrontendError,
+            r"typed static root 'width' requires matching ac\.const\[int\]",
+        ):
+            lower_queue_source(
+                integer_source,
+                "pipeline",
+                static_arguments={"width": 8},
+            )
 
     def test_stateful_module_uses_only_lexical_ac_var_ir(self) -> None:
         from agentic_circuit._queue_frontend import lower_queue_source

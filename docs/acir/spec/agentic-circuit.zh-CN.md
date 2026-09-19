@@ -656,7 +656,7 @@ updated = INSTRUCTION.update(word, rd=replacement)
 
 命名单字段和多字段读取分别降到 `ac.var.extract` 与 MSB-first
 `ac.var.concat`，更新降到不可变 `ac.var.insert`。ACIR 的 `ac.bitfield` 保存
-规范化 width/range metadata；verifier 在 topology freeze 前把每个
+规范化 width/range metadata；verifier 在 topology closure 前把每个
 field-qualified operation 解析回声明并复核范围。Python 前端不需要表达任何
 ready/full/Queue transaction 逻辑。
 
@@ -675,7 +675,7 @@ typed bit transfer 严格遵循 `ac.var` 语义：算术按 (2^N) 取模，逻�
 fail closed。
 
 编译器公开分析接口统一为 `ACDataFlowAnalyzer`。它基于 MLIR dataflow 从 ACIR SSA
-重新推导 constraint，并在 rule lowering、topology freeze 和 QueueGraph planning
+重新推导 constraint，并在 rule lowering、topology closure 和 QueueGraph planning
 之前证明每个动态 Table index 都位于 `[0, entries - 1]`。MLIR 通用
 `DataFlowSolver` 只存在于 analyzer 的私有实现中。例如 `u2` index 对 5-entry state
 天然安全；未收窄的 `u3` index 会被拒绝。QueueGraph 还会独立重算同一 obligation，

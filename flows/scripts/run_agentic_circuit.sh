@@ -62,10 +62,10 @@ recorded_toolchain="${AC_GATE_TOOLCHAIN_ROOT:-${gate_out_dir}/toolchain/install}
   else
     echo "PYC_BUILD_AGENTIC_CIRCUIT=ON bash flows/scripts/pyc build"
   fi
-  echo "${recorded_toolchain}/bin/acir-opt --pass-pipeline='builtin.module(ac-freeze-topology)' <raw-queue-graph>"
-  echo "${recorded_toolchain}/bin/acc -c <frozen.ac> -emit-cpp -o <model.cpp>"
-  echo "${recorded_toolchain}/bin/acc -c <frozen.ac> -emit-cpp-bundle -o <bundle>"
-  echo "${recorded_toolchain}/bin/acc -c <frozen.ac> -emit-verilog -o <model.v>"
+  echo "${recorded_toolchain}/bin/acir-opt --pass-pipeline='builtin.module(ac-freeze-topology)' <raw-queue-graph> # topology closure"
+  echo "${recorded_toolchain}/bin/acc -c <verified.ac> -emit-cpp -o <model.cpp>"
+  echo "${recorded_toolchain}/bin/acc -c <verified.ac> -emit-cpp-bundle -o <bundle>"
+  echo "${recorded_toolchain}/bin/acc -c <verified.ac> -emit-verilog -o <model.v>"
   echo "c++ -std=c++20 -Isimulator/gfsim/include -fsyntax-only <model.cpp>"
   echo "verilator --lint-only <model.v>"
 } > "${docs_gate_dir}/agentic_circuit_commands.txt"

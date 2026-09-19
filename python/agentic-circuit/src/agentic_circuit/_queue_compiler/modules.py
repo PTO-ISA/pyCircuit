@@ -10,6 +10,7 @@ from dataclasses import dataclass
 
 from _pycircuit_semantics import (
     RangeType,
+    StructType,
     ValueType,
 )
 
@@ -135,6 +136,21 @@ def _lower_simple_module_source(
             )
         )
 
+    def projection_module_metadata(
+        name: str, frame: SourceFrame | None
+    ) -> tuple[str, ...]:
+        return _module_attribute_fields(
+            _ModuleRenderSpec(
+                name,
+                (),
+                (),
+                ndf=definition_ndf.get(system, NdfMetadata()),
+                source_file="" if frame is None else frame.file,
+                source_line=0 if frame is None else frame.line,
+                source_column=0 if frame is None else frame.column,
+            )
+        )
+
     module_names = [
         node.name
         for node in tree.body
@@ -148,6 +164,7 @@ def _lower_simple_module_source(
         tree = _desugar_nested_rule_captures(tree, module_name, "module")
     module_static_values = _module_static_values(tree)
     type_static_values = _type_static_values(tree, static_arguments)
+    parameter_aliases = _static_parameter_aliases(tree)
     enum_bindings = _enums(tree)
     enum_map = {item.name: item.descriptor for item in enum_bindings}
     payloads = _payloads(
@@ -197,6 +214,34 @@ def _lower_simple_module_source(
     if len(systems) != 1:
         raise QueueFrontendError(
             f"ACPY-MODULE-001: system {system!r} is missing or ambiguous"
+        )
+    reserved_definitions = sorted(
+        name for name in modules if name.startswith("__ac_")
+    )
+    reserved_values = sorted(
+        {
+            systems[0].name,
+            *(
+                parameter.arg
+                for parameter in (
+                    *systems[0].args.posonlyargs,
+                    *systems[0].args.args,
+                    *systems[0].args.kwonlyargs,
+                )
+            ),
+            *(
+                node.id
+                for node in ast.walk(systems[0])
+                if isinstance(node, ast.Name) and isinstance(node.ctx, ast.Store)
+            ),
+        }
+    )
+    reserved_values = [name for name in reserved_values if name.startswith("__ac_")]
+    if reserved_definitions or reserved_values:
+        reserved = (reserved_definitions + reserved_values)[0]
+        raise QueueFrontendError(
+            "ACPY-MODULE-008: names beginning with '__ac_' are compiler-owned: "
+            f"{reserved!r}"
         )
     if not any(
         isinstance(node, ast.Call)
@@ -413,6 +458,75 @@ def _lower_simple_module_source(
                 ),
             )
             continue
+        pure_module_checks: list[StaticTypeCheck] = []
+        for parameter in function.args.args:
+            check = _scalar_annotation_static_check(
+                f"interface.module.{name}.input.{parameter.arg}",
+                parameter.annotation,
+                parameter_aliases,
+                type_static_values,
+            )
+            if check is not None:
+                pure_module_checks.append(check)
+            pure_module_checks.extend(
+                _bounded_annotation_static_checks(
+                    f"interface.module.{name}.input.{parameter.arg}",
+                    parameter.annotation,
+                    parameter_aliases,
+                    type_static_values,
+                )
+            )
+            parameter_type = _payload(
+                parameter.annotation,
+                payload_map,
+                enum_map,
+                static_values=type_static_values,
+            )
+            pure_module_checks.extend(
+                check
+                for payload in payloads
+                if payload.descriptor == parameter_type
+                for check in payload.static_type_checks
+            )
+        for index, annotation in enumerate(result_annotations(function.returns)):
+            check = _scalar_annotation_static_check(
+                f"interface.module.{name}.output.{index}",
+                annotation,
+                parameter_aliases,
+                type_static_values,
+            )
+            if check is not None:
+                pure_module_checks.append(check)
+            pure_module_checks.extend(
+                _bounded_annotation_static_checks(
+                    f"interface.module.{name}.output.{index}",
+                    annotation,
+                    parameter_aliases,
+                    type_static_values,
+                )
+            )
+            result_type = _payload(
+                annotation,
+                payload_map,
+                enum_map,
+                static_values=type_static_values,
+            )
+            pure_module_checks.extend(
+                check
+                for payload in payloads
+                if payload.descriptor == result_type
+                for check in payload.static_type_checks
+            )
+        _validate_static_config_roots(
+            function,
+            parameter_aliases,
+            {
+                token[6:]
+                for check in pure_module_checks
+                for token in check.program
+                if token.startswith("param:")
+            },
+        )
         if (
             len(function.args.args) != 1
             or function.args.posonlyargs
@@ -662,7 +776,6 @@ def _lower_simple_module_source(
         static_assert_locations,
     )
     expected_results = result_payloads(function.returns)
-    parameter_aliases = _static_parameter_aliases(tree)
     system_interface_checks: list[StaticTypeCheck] = []
     for parameter in parameters:
         if (
@@ -706,6 +819,20 @@ def _lower_simple_module_source(
         )
     values = dict(external)
     uses = {name: 0 for name, _ in external}
+    projections: list[
+        tuple[
+            str,
+            str,
+            str,
+            ast.Attribute,
+            ValueType,
+            SourceFrame | None,
+        ]
+    ] = []
+    projection_definitions: dict[
+        str,
+        tuple[str, ValueType, ast.Attribute, ValueType, SourceFrame | None],
+    ] = {}
     instances: list[
         tuple[
             tuple[str, ...],
@@ -716,6 +843,7 @@ def _lower_simple_module_source(
             SourceFrame | None,
         ]
     ] = []
+    operation_order: list[tuple[str, int]] = []
     rule_module_specializations: dict[
         str,
         tuple[
@@ -838,18 +966,27 @@ def _lower_simple_module_source(
             )
         if symbol not in rule_module_specializations:
             namespace = "" if not readable_parameters else f"{symbol}__"
-            program = parse_queue_program(
-                text,
-                module_name,
-                static_arguments=dict(frozen),
-                entry_kind="module",
-                source_path=normalized_source_path,
-                static_type_namespace=namespace,
-                definition_locations=definition_locations,
-                static_assert_locations=static_assert_locations,
-                source_node_locations=source_node_locations,
-            )
-            specialized_payloads = {item.name: item for item in program.payloads}
+            try:
+                program = parse_queue_program(
+                    text,
+                    module_name,
+                    static_arguments=dict(frozen),
+                    entry_kind="module",
+                    source_path=normalized_source_path,
+                    static_type_namespace=namespace,
+                    definition_locations=definition_locations,
+                    static_assert_locations=static_assert_locations,
+                    source_node_locations=source_node_locations,
+                )
+            except QueueFrontendError as error:
+                raise QueueFrontendError(
+                    f"ACPY-MODULE-002: rule-backed module {module_name!r} "
+                    f"could not specialize: {error}"
+                ) from error
+            specialized_payloads = {
+                **payload_map,
+                **{item.name: item for item in program.payloads},
+            }
             specialized_values = _type_static_values(tree, dict(frozen))
             inputs = tuple(
                 (
@@ -948,7 +1085,6 @@ def _lower_simple_module_source(
             and isinstance(statement.value, ast.Call)
             and isinstance(statement.value.func, ast.Name)
             and statement.value.func.id in modules
-            and all(isinstance(argument, ast.Name) for argument in statement.value.args)
         ):
             target = statement.targets[0]
             results = (
@@ -976,34 +1112,123 @@ def _lower_simple_module_source(
                 ) = specialize_rule_module(module_name, statement.value)
             else:
                 input_signature, output_signature = module_signature(module_name)
-            sources = tuple(
-                argument.id
-                for argument in statement.value.args
-                if isinstance(argument, ast.Name)
-            )
-            if len(sources) != len(input_signature) or len(results) != len(
+            if len(statement.value.args) != len(input_signature) or len(results) != len(
                 output_signature
             ):
                 raise QueueFrontendError(
                     "ACPY-MODULE-002: module call arity does not match its signature"
                 )
-            if any(result in values for result in results) or any(
-                source not in values for source in sources
-            ):
+            if any(result in values for result in results):
                 raise QueueFrontendError(
                     "ACPY-MODULE-002: module call values must be defined once"
                 )
-            if any(
-                not _types_equal_in_epoch_05(values[source], expected_type)
-                for source, (_, expected_type) in zip(
-                    sources, input_signature, strict=True
-                )
+            sources: list[str] = []
+            for argument_index, (argument, (_, expected_type)) in enumerate(
+                zip(statement.value.args, input_signature, strict=True)
             ):
-                raise QueueFrontendError(
-                    "ACPY-MODULE-002: module input payload type mismatch"
-                )
-            for source in sources:
+                root = argument
+                while isinstance(root, ast.Attribute):
+                    root = root.value
+                if not isinstance(root, ast.Name):
+                    raise QueueFrontendError(
+                        "ACPY-MODULE-002: module inputs require named values or "
+                        f"field projections at line {getattr(argument, 'lineno', 0)}: "
+                        f"{ast.unparse(argument)}"
+                    )
+                if root.id not in values:
+                    raise QueueFrontendError(
+                        "ACPY-MODULE-002: module call values must be defined once"
+                    )
+                if isinstance(argument, ast.Name):
+                    source = argument.id
+                    actual_type = values[source]
+                else:
+                    emitter = _ExpressionEmitter(
+                        payload_map,
+                        root.id,
+                        values[root.id],
+                        enum_types=enum_map,
+                        bitfields=bitfield_map,
+                        invariants=invariants,
+                        helpers=helpers,
+                    )
+                    _, actual_type = emitter.emit(argument, expected_type)
+                    root_type = values[root.id]
+                    if not isinstance(root_type, StructType):
+                        raise QueueFrontendError(
+                            "ACPY-MODULE-002: module field projection requires "
+                            f"a struct root at line {getattr(argument, 'lineno', 0)}"
+                        )
+                    fields: list[str] = []
+                    field_cursor: ast.expr = argument
+                    while isinstance(field_cursor, ast.Attribute):
+                        fields.append(field_cursor.attr)
+                        field_cursor = field_cursor.value
+                    fields.reverse()
+                    projection_module = (
+                        f"__ac_project_{root_type.symbol}__{'__'.join(fields)}"
+                    )
+                    projection_expression: ast.expr = ast.copy_location(
+                        ast.Name(id="value", ctx=ast.Load()), argument
+                    )
+                    for field in fields:
+                        projection_expression = ast.copy_location(
+                            ast.Attribute(
+                                value=projection_expression,
+                                attr=field,
+                                ctx=ast.Load(),
+                            ),
+                            argument,
+                        )
+                    projection_expression = ast.fix_missing_locations(
+                        projection_expression
+                    )
+                    definition = (
+                        "value",
+                        root_type,
+                        projection_expression,
+                        actual_type,
+                        source_frame(argument),
+                    )
+                    existing_projection = projection_definitions.get(projection_module)
+                    if existing_projection is not None and (
+                        existing_projection[1] != definition[1]
+                        or ast.dump(existing_projection[2]) != ast.dump(definition[2])
+                        or existing_projection[3] != definition[3]
+                    ):
+                        raise QueueFrontendError(
+                            "ACPY-MODULE-002: readable projection module name "
+                            f"collision for {projection_module!r}"
+                        )
+                    projection_definitions.setdefault(projection_module, definition)
+                    projection_name = (
+                        f"__ac_projection_{len(projections)}_{root.id}_{argument_index}"
+                    )
+                    while projection_name in values:
+                        projection_name += "_"
+                    values[projection_name] = actual_type
+                    uses[projection_name] = 0
+                    projections.append(
+                        (
+                            projection_name,
+                            root.id,
+                            projection_module,
+                            argument,
+                            actual_type,
+                            source_frame(argument),
+                        )
+                    )
+                    operation_order.append(("projection", len(projections) - 1))
+                    uses[root.id] = uses.get(root.id, 0) + 1
+                    source = projection_name
+                if not _types_equal_in_epoch_05(actual_type, expected_type):
+                    raise QueueFrontendError(
+                        "ACPY-MODULE-002: module input payload type mismatch at "
+                        f"line {getattr(argument, 'lineno', 0)}: "
+                        f"{ast.unparse(argument)}"
+                    )
                 uses[source] = uses.get(source, 0) + 1
+                sources.append(source)
             output_types = tuple(payload for _, payload in output_signature)
             for result, output_type in zip(results, output_types, strict=True):
                 values[result] = output_type
@@ -1016,12 +1241,13 @@ def _lower_simple_module_source(
                 (
                     results,
                     instance_module_name,
-                    sources,
+                    tuple(sources),
                     output_types,
                     instance_static_arguments,
                     source_frame(statement.value),
                 )
             )
+            operation_order.append(("instance", len(instances) - 1))
             continue
         if isinstance(statement, ast.Return) and statement.value is not None:
             returned = (
@@ -1057,9 +1283,9 @@ def _lower_simple_module_source(
         raise QueueFrontendError(
             "ACPY-MODULE-002: module system return type or arity mismatch"
         )
-    if any(count != 1 for count in uses.values()):
+    if any(count < 1 for count in uses.values()):
         raise QueueFrontendError(
-            "ACPY-MODULE-002: every module Queue value requires one consumer"
+            "ACPY-MODULE-002: every module Queue value requires a consumer"
         )
 
     all_payloads_by_symbol: dict[str, Payload] = {
@@ -1085,7 +1311,12 @@ def _lower_simple_module_source(
     _validate_static_config_roots(
         function,
         parameter_aliases,
-        {binding.root for binding in top_static_configs},
+        {
+            token[6:]
+            for check in top_static_checks
+            for token in check.program
+            if token.startswith("param:")
+        },
     )
     candidate_static_configs = {binding.root: binding for binding in top_static_configs}
     all_interface_checks = list(system_interface_checks)
@@ -1397,6 +1628,61 @@ def _lower_simple_module_source(
                 "  }",
             ]
         )
+    for projection_name, (
+        argument,
+        input_type,
+        expression,
+        output_type,
+        projection_source,
+    ) in projection_definitions.items():
+        emitter = _ExpressionEmitter(
+            payload_map,
+            argument,
+            input_type,
+            enum_types=enum_map,
+            bitfields=bitfield_map,
+            invariants=invariants,
+            helpers=helpers,
+            prefix=f"{projection_name}_",
+        )
+        value, observed_type = emitter.emit(expression, output_type)
+        if not _types_equal_in_epoch_05(observed_type, output_type):
+            raise AssertionError("module projection type changed during rendering")
+        lines.extend(
+            [
+                f"  ac.module @{projection_name}(%input: "
+                f"!ac.queue<{_render_type(input_type)}>) -> "
+                f"!ac.queue<{_render_type(output_type)}> parameters {{}}"
+                + _render_interface_display_attributes(
+                    (ast.unparse(expression),),
+                    ("result",),
+                    projection_module_metadata(projection_name, projection_source),
+                )
+                + " graph {",
+                "    %output = ac.scope @body(%input) {",
+                f"    ^bb0(%borrowed: !ac.queue<{_render_type(input_type)}>):",
+                "      %projected = ac.transform %borrowed depths [1] "
+                "latencies [1] {",
+                f"      ^transform(%item: !ac.var<{_render_type(input_type)}>):",
+            ]
+        )
+        lines.extend("    " + line for line in emitter.lines)
+        lines.extend(
+            [
+                f"        ac.transform.yield %{value} : "
+                f"!ac.var<{_render_type(output_type)}>",
+                "      } {ac.name = "
+                + canonical_mlir_string(ast.unparse(expression))
+                + f"}} : (!ac.queue<{_render_type(input_type)}>) -> "
+                f"!ac.queue<{_render_type(output_type)}>",
+                f"      ac.scope.yield %projected : "
+                f"!ac.queue<{_render_type(output_type)}>",
+                f"    }} : (!ac.queue<{_render_type(input_type)}>) -> "
+                f"!ac.queue<{_render_type(output_type)}>",
+                f"    ac.return %output : !ac.queue<{_render_type(output_type)}>",
+                "  }" + _render_source_frame_location(projection_source),
+            ]
+        )
     for name, (
         definition,
         program,
@@ -1445,7 +1731,58 @@ def _lower_simple_module_source(
         + " graph {"
     )
     source_values = [f"%source_{index}" for index in range(len(external))]
-    top_values: dict[str, str] = {}
+    top_values: dict[str, list[str]] = {}
+
+    def bind_top_value(name: str, ssa: str) -> None:
+        use_count = uses[name]
+        if use_count == 1:
+            top_values[name] = [ssa]
+            return
+        outputs = [f"{name}__fanout{index}" for index in range(use_count)]
+        payload = values[name]
+        rendered_type = _render_type(payload)
+        rendered_outputs = ", ".join(f"%{output}" for output in outputs)
+        rendered_local_outputs = ", ".join(
+            f"%{output}__local" for output in outputs
+        )
+        depths = ", ".join("1" for _ in outputs)
+        output_types = ", ".join(
+            f"!ac.queue<{rendered_type}>" for _ in outputs
+        )
+        output_names = "[" + ", ".join(
+            canonical_mlir_string(f"{output}__local") for output in outputs
+        ) + "]"
+        lines.append(
+            f"    {rendered_outputs} = ac.scope @__ac_fanout_{name}(%{ssa}) {{"
+        )
+        lines.append(
+            f"    ^bb0(%borrowed: !ac.queue<{rendered_type}>):"
+        )
+        lines.append(
+            f"      {rendered_local_outputs} = ac.broadcast %borrowed "
+            f"depths [{depths}] "
+            f"latencies [{depths}] "
+            f"{{ac.output_names = {output_names}}} : "
+            f"!ac.queue<{rendered_type}> -> "
+            f"({output_types})"
+        )
+        lines.append(
+            "      ac.scope.yield "
+            + ", ".join(f"%{output}__local" for output in outputs)
+            + " : "
+            + output_types
+        )
+        lines.append(
+            f"    }} : (!ac.queue<{rendered_type}>) -> ({output_types})"
+        )
+        top_values[name] = outputs
+
+    def take_top_value(name: str) -> str:
+        available = top_values.get(name)
+        if not available:
+            raise AssertionError(f"module Queue value {name!r} is unavailable")
+        return available.pop(0)
+
     if external:
         result_name = "%inputs"
         suffix = f":{len(external)}" if len(external) > 1 else ""
@@ -1472,18 +1809,44 @@ def _lower_simple_module_source(
             + ")"
         )
         for index, (name, _) in enumerate(external):
-            top_values[name] = f"%inputs#{index}" if len(external) > 1 else "%inputs"
-    for (
-        results,
-        module_name,
-        sources,
-        output_types,
-        static_arguments,
-        instance_source,
-    ) in instances:
+            bind_top_value(
+                name,
+                f"inputs#{index}" if len(external) > 1 else "inputs",
+            )
+    for operation_kind, operation_index in operation_order:
+        if operation_kind == "projection":
+            (
+                result,
+                source,
+                projection_module,
+                expression,
+                output_type,
+                projection_source,
+            ) = projections[operation_index]
+            input_type = values[source]
+            operand = take_top_value(source)
+            lines.append(
+                f"    %{result} = ac.instance @{result} of @{projection_module}"
+                f"(%{operand}) static {{}} id \"{result}\" path \"{result}\" "
+                f": (!ac.queue<{_render_type(input_type)}>) -> "
+                f"!ac.queue<{_render_type(output_type)}>"
+                + _render_source_frame_location(projection_source)
+            )
+            bind_top_value(result, result)
+            continue
+        if operation_kind != "instance":
+            raise AssertionError(f"unknown module operation {operation_kind!r}")
+        (
+            results,
+            module_name,
+            sources,
+            output_types,
+            static_arguments,
+            instance_source,
+        ) = instances[operation_index]
         input_types = tuple(values[source] for source in sources)
         lhs = ", ".join(f"%{result}" for result in results)
-        operands = ", ".join(top_values[source] for source in sources)
+        operands = ", ".join(f"%{take_top_value(source)}" for source in sources)
         input_signature = ", ".join(
             f"!ac.queue<{_render_type(payload)}>" for payload in input_types
         )
@@ -1503,8 +1866,8 @@ def _lower_simple_module_source(
             + _render_source_frame_location(instance_source)
         )
         for result in results:
-            top_values[result] = f"%{result}"
-    returned_operands = [top_values[name] for name in returned_names]
+            bind_top_value(result, result)
+    returned_operands = [f"%{take_top_value(name)}" for name in returned_names]
     if host_results:
         lines.append(
             "    ac.return " + ", ".join(returned_operands) + " : " + root_result_types

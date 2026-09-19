@@ -95,9 +95,9 @@ Marker handling is monotonic and fail-closed:
   checked/handshake/schedule IR or a verifier-consumable discharge record;
 - every lowering boundary declares which markers it accepts and which pass
   must resolve them; and
-- the pre-freeze verifier rejects every unresolved marker. Frozen ACIR,
-  structural freeze records, generated C++, gfsim execution, PYC, Verilog, and
-  release artifacts are marker-free.
+- the topology-closure verifier rejects every unresolved marker. Verified ACIR,
+  generated C++, gfsim execution, PYC, Verilog, and release artifacts are
+  marker-free.
 
 Static facts that violate a contract are compile-time errors. Conditions that
 remain legitimately dynamic lower to explicit checked IR with stable
@@ -136,7 +136,7 @@ not the implementation model. Specialized operations such as `ac.transform`,
 `ac.broadcast`, or an identity Queue transfer may remain canonical lower-level
 forms when they preserve the same transaction contract.
 
-Every rule resolves to one exact time domain before freeze. Its Queue, Table,
+Every rule resolves to one exact time domain before topology closure. Its Queue, Table,
 and Reg effects belong to that domain; cross-domain communication uses an
 explicit bridge primitive. An unknown domain never defaults to a global or
 `default` domain. Rule evaluation is combinational proposal work within one
@@ -145,9 +145,9 @@ cycle. New state comes only from explicit Queue latency, Table, Reg, bridge, or
 arbiter primitives. In the synthesizable path, one accepted firing maps to one
 commit edge of the resolved pyCircuit 6 domain.
 
-The target pre-freeze `ac.rule` is a transient high-level operation with Queue
+The pre-closure `ac.rule` is a transient high-level operation with Queue
 operands, immutable payload block arguments, ordinary typed state operations,
-candidate returns, and source CFG. The target Frozen `ac.firing` has a fixed
+candidate returns, and source CFG. The verified `ac.firing` has a fixed
 list of input Queue operands, output Queue results, immutable input payload
 arguments, one normalized guard, fixed yielded output payloads, explicit state
 proposals/effect summary, stable rule identity, and exact time domain. It also
@@ -156,8 +156,8 @@ path-qualified dynamic checks, handshake requirements, scheduler selection or
 arbiter predicate, and the functional guard. Verifiers forbid folding any of
 these into another because diagnostics, backpressure, scheduling loss, and
 functional disable have different semantics. It does not contain user-authored
-`peek`, `pop`, `push`, or checks. The current epoch `0.4` queue-effect
-`ac.firing` is replaced rather than extended in place.
+`peek`, `pop`, `push`, or checks. The historical queue-effect `ac.firing` is
+replaced rather than extended in place.
 
 **Compatibility.** Current source-captured `ac.atomic()` and `.firing()` are
 transitional implementation surfaces, not the target authoring contract. Their
@@ -168,15 +168,14 @@ transaction IR produced after inference, checking, handshake construction, and
 scheduling. This decision does not change CycleAwareSignal, PYC, or pyCircuit 6
 timing semantics.
 
-The implementation hard break increments the Agentic Circuit serialized
-contract epoch from `0.4` to `0.5`. Epoch `0.4` producers continue to describe
-only the historical prototype. The implementation change updates ACPy,
-raw/Frozen ACIR, schemas, tools, examples, and consumers in one closure; epoch
-`0.5` consumers do not accept the old queue-effect
-`ac.firing`, and epoch `0.4` consumers do not accept the new rule contract.
+The implementation is a hard break across ACPy, verified ACIR, schemas, tools,
+examples, and consumers. Toolchain selection happens before IR parsing through
+the external package release and exact Git source revision. The IR carries no
+release identity and no compatibility switch; unsupported historical
+queue-effect `ac.firing` input fails structural verification.
 
-**Implementation status.** Epoch `0.5` and the first vertical slice are
-implemented. The Python surface exports `@ac.rule` and rejects `ac.atomic()`
+**Implementation status.** The first vertical slice is implemented. The Python
+surface exports `@ac.rule` and rejects `ac.atomic()`
 and `Queue.firing()`. The supported phase-one subset is one type-preserving
 Queue input, one output, one total return path, exact `cycle` domain, and a pure
 payload computation. Typed marker operations and staged passes refine the
@@ -214,8 +213,9 @@ Coverage includes CFG joins for all marker classes; disabled, input-invalid,
 backpressured, resource-blocked, scheduler-rejected, dynamically invalid, and
 successfully committed rules; static disjointness, mutual exclusion, explicit
 arbitration, and rejected ambiguous conflicts; marker-preserving and rejected
-CSE/inlining cases; pre-freeze marker rejection; time-domain mismatch and
-explicit bridges; and exact epoch `0.4`/`0.5` rejection in both directions.
+CSE/inlining cases; topology-closure marker rejection; time-domain mismatch,
+explicit bridges, and rejection of unsupported operations by the selected
+external toolchain release.
 It includes zero-input/zero-output state rules, one-input/zero-output consumer
 rules, terminal fallthrough, explicit `return ()`, disabling bare `return`, and
 rejection of an effectless zero-input/zero-output rule.

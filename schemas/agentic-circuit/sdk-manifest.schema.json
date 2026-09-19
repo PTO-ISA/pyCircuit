@@ -218,8 +218,6 @@
       "type": "object",
       "additionalProperties": false,
       "required": [
-        "acpy_epoch",
-        "acir_contract",
         "sdk_manifest",
         "release_index",
         "generator_abi",
@@ -227,12 +225,6 @@
         "consumer_lock"
       ],
       "properties": {
-        "acpy_epoch": {
-          "const": "0.5"
-        },
-        "acir_contract": {
-          "const": "0.5"
-        },
         "sdk_manifest": {
           "const": "1"
         },

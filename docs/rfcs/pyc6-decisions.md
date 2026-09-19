@@ -3451,9 +3451,9 @@ create a second timing model that competes with pyCircuit 6.
   spellings but are excluded from wildcard imports. Ordinary Python execution
   of a marker fails explicitly as capture-time only and never returns a fake
   runtime value.
-- The Agentic Circuit frontend continues to emit ACPy and ACIR. Existing ACPy
-  contract epochs and schemas may change only through an explicit contract
-  decision and matching compatibility evidence.
+- The Agentic Circuit frontend continues to emit ACPy and ACIR. The external
+  package release and exact Git source revision select the compiler contract;
+  schema changes require an explicit contract decision and matching evidence.
 - ACSim and gfsim remain the architecture-simulation lowering and runtime path.
   They are not aliases for, or implementations inside, `libpyc6_runtime`.
 - Synthesizable ACIR lowers into verified PYC IR. ACIR-to-PYC integration must
@@ -3504,7 +3504,7 @@ create a second timing model that competes with pyCircuit 6.
   Python namespaces; migrate existing PRs; test AC and PYC before retiring the
   old private repository.
 
-## Decision 0151: Agentic Circuit epoch 0.4 introduces the provisional state Table
+## Decision 0151: Agentic Circuit introduces the provisional state Table
 
 **Status:** Accepted
 
@@ -3516,9 +3516,8 @@ updated without disguising it as a request/response memory service. The former
 semantics.
 
 **Decision (strong constraint)**
-- Agentic Circuit uses contract epoch `0.4`. Producers emit only `0.4`, and
-  active consumers reject `0.3` and every other epoch. No compatibility mode is
-  retained.
+- The Table surface is a hard break. The selected external toolchain release
+  accepts its current verified form and retains no compatibility mode.
 - `ac.table[entries, Entry](init=0)` declares a one-dimensional Table. `Entry`
   is a boolean, a fixed-width integer, or a flat struct containing only those
   scalar fields. Only an all-zero initial image is supported.
@@ -3531,7 +3530,7 @@ semantics.
   capture one Entry each tick when its output has capacity.
 - Queue-driven `write` and `patch` consume a disabled update without proposing
   state. Each Table has at most one write-or-patch endpoint. `patch` is frontend
-  sugar and must disappear before Frozen ACIR as `ac.table.get`, ordinary
+  sugar and must disappear before verified ACIR as `ac.table.get`, ordinary
   immutable field updates, and `ac.table.write`.
 - Reads observe the old committed Entry when a write is proposed in the same
   tick. The proposal becomes visible at tick commit. An Entry already captured
@@ -3539,11 +3538,11 @@ semantics.
 - Static out-of-range indices are verifier errors. Dynamic out-of-range reads
   and writes report the stable runtime diagnostic
   `table_index_out_of_range`.
-- Frozen ACIR defines `ac.table`, `ac.table.get`, `ac.table.read`,
+- verified ACIR defines `ac.table`, `ac.table.get`, `ac.table.read`,
   `ac.table.write`, and `ac.table.yield`. Table identity, owner visibility,
   endpoint regions, Entry types, endpoint completeness, and the single-writer
   rule are verifier obligations.
-- The epoch `0.4` prototype is implemented by QueueGraph and typed gfsim C++.
+- The provisional Table prototype is implemented by QueueGraph and typed gfsim C++.
   PYC lowering must stop at a stable `unsupported provisional Table`
   diagnostic. This explicit provisional boundary does not authorize partial
   semantics in a future PYC implementation.
@@ -3566,13 +3565,13 @@ semantics.
 - gfsim coverage includes zero reset, disabled-write consumption, old-data
   reads, next-tick visibility, repeated state reads, and output backpressure.
 - Frontend and generated-C++ coverage proves the
-  `ACPy -> Frozen ACIR -> QueueGraph -> typed gfsim C++` vertical path and the
+  `ACPy -> verified ACIR -> QueueGraph -> typed gfsim C++` vertical path and the
   stable PYC rejection boundary.
 
 **Source**
 - Stateful Table prototype direction (2026-09-01).
 
-## Decision 0152: epoch 0.4 Table adds committed slots, match/choose, and state-driven updates
+## Decision 0152: Table adds committed slots, match/choose, and state-driven updates
 
 **Status:** Accepted
 
@@ -3580,8 +3579,8 @@ semantics.
 The initial Decision 0151 Table can store a scoreboard, but an issue-style
 model still cannot retain a backpressured request, scan committed entries,
 choose one candidate, and update state without consuming a second Queue token.
-This decision extends the provisional epoch `0.4` surface without changing the
-global contract epoch or claiming a PYC/RTL realization.
+This decision extends the provisional Table surface without claiming a PYC/RTL
+realization or defining release identity inside IR.
 
 **Decision (strong constraint)**
 - `EntryView.write(value=..., enable=...)` and `EntryView.patch(enable=...,
@@ -3605,7 +3604,7 @@ global contract epoch or claiming a PYC/RTL realization.
   input. `valid` and `value` are read-only. The unique `release(when=...)`
   endpoint clears only valid and retains payload. A full slot that releases
   does not refill in the same tick.
-- Frozen ACIR adds `ac.table.match`, `ac.table.match.yield`,
+- verified ACIR adds `ac.table.match`, `ac.table.match.yield`,
   `ac.table.choose`, `ac.table.choose.yield`, `ac.slot`, `ac.slot.get`,
   `ac.slot.release`, and `ac.slot.yield`. Verifiers own domain, type,
   visibility, purity, key-policy, result-width, unique-release, and
@@ -3637,7 +3636,7 @@ global contract epoch or claiming a PYC/RTL realization.
 **Source**
 - Agentic Circuit Table prototype extension direction (2026-09-02).
 
-## Decision 0153: epoch 0.4 Table supports uniform masked state updates
+## Decision 0153: Table supports uniform masked state updates
 
 **Status:** Accepted
 
@@ -3668,7 +3667,7 @@ surface.
 - A masked endpoint is one logical writer. It cannot coexist with another
   scalar or masked write/patch endpoint on the same public Table. This decision
   does not add source-order priority, arbitration, or mutual-exclusion proof.
-- Frozen ACIR adds `ac.table.masked_write`. Its mask is `!ac.var<iN>`, where
+- verified ACIR adds `ac.table.masked_write`. Its mask is `!ac.var<iN>`, where
   `N` equals the Table entry count, and must be the same-Table result of
   `ac.table.match`. The enable region has no arguments; the value region takes
   one old Entry and returns one complete Entry. Verifiers enforce ownership,
@@ -3677,8 +3676,8 @@ surface.
   and typed gfsim stage the full selected update set before commit. Runtime
   validation happens before any Entry is modified, preserving all-or-nothing
   commit.
-- Contract epoch remains `0.4`. PYC/RTL continues to reject the provisional
-  Table family with `unsupported provisional Table`.
+- PYC/RTL continues to reject the provisional Table family with `unsupported
+  provisional Table`.
 
 **Deferred work**
 - arbitrary integer or Queue-carried masks, CandidateSet algebra, masked reads,
@@ -3698,7 +3697,7 @@ surface.
 **Source**
 - Agentic Circuit masked Table update direction (2026-09-02).
 
-## Decision 0154: epoch 0.4 Table permits disjoint-field writer endpoints
+## Decision 0154: Table permits disjoint-field writer endpoints
 
 **Status:** Accepted
 
@@ -3731,7 +3730,7 @@ unrelated allocation priority, firing, or cross-object transaction semantics.
 - gfsim identifies pending proposals by stable writer object ID. Cancellation
   removes only that endpoint's proposal and cannot discard another writer's
   proposal.
-- In epoch 0.5 rule IR, a firing-local proposal participates in the same
+- In verified rule IR, a firing-local proposal participates in the same
   normalized field-footprint relation. The Python frontend may emit a field
   proposal only for a same-owner, same-index committed-read `with_fields`
   chain; disjoint rule proposals merge atomically from one tick-start image.
@@ -3744,8 +3743,8 @@ unrelated allocation priority, firing, or cross-object transaction semantics.
   identity interning and conjunct collection over pure, regionless expressions
   are iterative, so a deep pure chain must not consume one C++ stack frame per
   level and cannot be bounded by the ambient thread stack.
-- Contract epoch remains `0.4`. PYC/RTL continues to reject every provisional
-  Table with `unsupported provisional Table`.
+- PYC/RTL continues to reject every provisional Table with `unsupported
+  provisional Table`.
 
 **Deferred work**
 - same-field dynamic mutual-exclusion proofs, explicit priority, and allocation
@@ -3770,7 +3769,7 @@ unrelated allocation priority, firing, or cross-object transaction semantics.
 **Source**
 - Agentic Circuit field-level multi-writer Table direction (2026-09-03).
 
-## Decision 0155: epoch 0.4 Table match and choose are shared once per Epoch
+## Decision 0155: Table match and choose are shared once per simulation Epoch
 
 **Status:** Accepted
 
@@ -3798,8 +3797,7 @@ evaluation order observable in simulator cost.
   Sharing does not add `ac.firing`, priority, backpressure atomicity, or any
   same-field writer exception.
 - `policy="first"` uses an empty key region; min/max require one typed key
-  region. Contract epoch remains `0.4`, and PYC/RTL keeps rejecting the
-  provisional Table family.
+  region. PYC/RTL keeps rejecting the provisional Table family.
 - Generated gfsim C++ and the once-per-Epoch shared Table selection cache
   implement an effect-free `first` selection over a scalar 1..64-entry
   candidate mask with a low-first bit scan. A key region, choose-key snapshot
@@ -3841,7 +3839,7 @@ evaluation order observable in simulator cost.
 **Source**
 - Agentic Circuit shared Table selection evaluation direction (2026-09-03).
 
-## Decision 0156: epoch 0.4 Table adds one scalar allocation endpoint
+## Decision 0156: Table adds one scalar allocation endpoint
 
 **Status:** Accepted
 
@@ -3857,7 +3855,7 @@ assigning source-order priority would make the result scheduling-dependent.
   and requires one complete Entry value. Queue-driven and CandidateSet-masked
   allocation are illegal. The caller supplies the index; the primitive neither
   searches for a free Entry nor checks occupancy or changes `valid` implicitly.
-- Frozen ACIR does not add an allocation primitive. `ac.table.write` requires
+- verified ACIR does not add an allocation primitive. `ac.table.write` requires
   `mode "field"` or `mode "replace"`; allocation lowers to `replace`, while
   existing write/patch lowers to `field`. `ac.table.masked_write` requires
   `mode "field"`. Replace declares every struct field in declaration order, or
@@ -3873,8 +3871,8 @@ assigning source-order priority would make the result scheduling-dependent.
   native C++ generators emit the same mode. Test-only initial state uses
   `initializeEntry()` only when no proposals are pending rather than disguising
   whole-Entry initialization as a field proposal.
-- Contract epoch remains `0.4`. PYC/RTL continues to reject the provisional
-  Table family with `unsupported provisional Table`.
+- PYC/RTL continues to reject the provisional Table family with `unsupported
+  provisional Table`.
 
 **Deferred work**
 - multiple allocations, allocation arbitration, automatic free-slot search,
@@ -3968,7 +3966,8 @@ compatibility aliases.
 
 ## Decision 0158: consumer designs and integration tooling are out of tree
 
-**Status:** Accepted and implemented
+**Status:** Accepted and implemented; publication-flow clauses superseded by
+Decisions 0267 and 0268
 
 **Scoped update:** Decision 0235 removes the former Decision 0222 placement
 exception. All consumer designs and integration assets are out of tree.
@@ -4217,7 +4216,7 @@ is not an acceptable circuit execution model.
   only for disjoint fields; two prepared replaces conflict only where their
   index sets overlap.  The existing deterministic rule that replace is applied
   after field merges remains the defined result for mixed replace/merge
-  overlap.  Independent provisional epoch 0.4 Table endpoints keep Decision
+  overlap. Independent provisional Table endpoints keep Decision
   0154's stricter static field-set and whole-replace conflict rule; this runtime
   API does not silently promote them into independently schedulable rules.
 - The internal transition constructor requires an explicit Table write mode;
@@ -4292,7 +4291,7 @@ effect discovery, resource handshake, scheduling, and grouped lowering.
 - A dynamic `ac.uN` index is accepted only when the Table contains exactly
   `2^N` entries, which statically discharges bounds. A constant index must be
   in range. Other dynamic shapes remain pending on executable checked IR and
-  fail before Frozen ACIR.
+  fail before verified ACIR.
 - Raw ACIR represents state intent with firing-local `ac.table.propose`. Its
   verifier requires direct `ac.rule`/`ac.firing` ownership, one resolved and
   visible Table, complete replace fields, matching Entry type, and a statically
@@ -4326,7 +4325,7 @@ effect discovery, resource handshake, scheduling, and grouped lowering.
   proposal, absent implementation vocabulary, payload/Entry matching, and
   fail-closed non-power-of-two dynamic indexing.
 - ACIR tests cover proposal parsing/verifiers, staged effects/handshake/schedule,
-  marker-free stateful firing, topology freeze, generated C++ compilation, and
+  marker-free stateful firing, topology closure, generated C++ compilation, and
   stable PYC rejection.
 - The end-to-end example writes one Table location twice and observes zero then
   the first committed value while the final Table contains the second value.
@@ -4530,7 +4529,7 @@ materializes the transaction boundary.
   lower to one variadic rule without public handshake or atomic operations and
   reject invocation arity or duplicate Queue arguments.
 - ACIR verifier and lowering tests prove `ready_valid_2x1`, marker discharge,
-  variadic transform canonicalization, topology freeze, typed gfsim generation,
+  variadic transform canonicalization, topology closure, typed gfsim generation,
   and C++ compilation.
 - Existing rule, Table-rule, atomic-transform, and complete ACIR lit suites
   remain green.
@@ -4852,7 +4851,7 @@ the model and its performance.
   functional condition is true.
 - The first frontend CFG slice accepts one `if` without `else` around the
   indexed state assignment and optional return. It emits
-  `ac.rule.condition`; lowering retains `ac.firing.condition` in Frozen ACIR.
+  `ac.rule.condition`; lowering retains `ac.firing.condition` in verified ACIR.
 - Rules without an authored condition receive an explicit compiler-inserted
   true condition. Pure rules prove that condition and erase it only when
   canonicalizing to `ac.transform`.
@@ -4979,7 +4978,7 @@ modes that motivated compiler-inferred Queue checks and atomic state effects.
   reuses slot zero with a new generation, consumes an old completion as a no-op,
   flushes an uncompleted entry, rejects its old-epoch completion, and retires a
   new-epoch allocation.
-- Frozen ACIR contains four stateful firings and generated C++ uses shared
+- verified ACIR contains four stateful firings and generated C++ uses shared
   `QueueStateTransition`/`QueueTableTransition` templates with touched-entry
   Table commits.
 
@@ -5421,7 +5420,7 @@ transaction mechanics merely because a local value persists across firings.
 - `inferred_stateful_module.py` defines only a typed `total` local, ordinary
   assignment, and return; the raw ACIR contains only `ac.var` state operations.
 - The focused MLIR regression proves lexical symbol resolution, storage
-  selection, rule lowering, topology freeze, specialization planning, and C++
+  selection, rule lowering, topology closure, specialization planning, and C++
   compilation.
 - The frontend suite passes 74/74 tests. Native integration emits one reused
   accumulator class and two independent instances: left inputs `1,2` produce
@@ -5526,7 +5525,7 @@ and MLIR semantics diverge before the ROB could become reusable.
   general CFG joins, and incremental activation remain follow-up work.
 
 **Verification**
-- Frozen ACIR contains one `rob` definition with four firings and two instance
+- verified ACIR contains one `rob` definition with four firings and two instance
   placements. Its canonical specialization plan records 3 inputs, 2 outputs,
   5 Tables, and 4 firing blocks.
 - A consumer-neutral one-input/four-output stateless module retains four
@@ -6090,7 +6089,7 @@ ready/full, pop/push, or sink syntax to Python.
 - Rule and Firing verifiers independently require exactly one condition whenever
   SSA path evidence exists, exactly one proof per output ordinal, returned-value
   identity, and proposal/output presence equal to that condition. Existing or
-  forged disagreement is rejected before topology freeze.
+  forged disagreement is rejected before topology closure.
 - Rule-to-Firing lowering preserves the proof operations. Pure Firing
   canonicalization removes them only after proving the condition/output
   relationship needed by `ac.transform`.
@@ -6234,7 +6233,7 @@ reader as though both were writers.
   and effect presence are fixed. `ac-verify-rule-closure` runs a fresh
   `ACDataFlowAnalyzer`, independently recomputes the expected set, and rejects
   missing, extra, reordered, or forged resource/index/predicate evidence before
-  topology freeze.
+  topology closure.
 - QueueGraph carries ordered `state_reservations` separately from
   `state_writes`. Every snapshot owner must be an activation source. A
   reservation-only owner must not appear in transaction resources or the Table
@@ -6314,7 +6313,7 @@ candidate.
   same lexical ancestry, contain at most 64 entries, and be read inside the
   owning rule/firing's source match. Closure verification reruns
   `ACDataFlowAnalyzer` and compares resource, source mask, predicate, order, and
-  set kind exactly before topology freeze.
+  set kind exactly before topology closure.
 - QueueGraph carries the record as `index_kind = "set"` with explicit source
   SSA identity. Its verifier requires that source to be the corresponding
   `table_match` expression and confirms the nested expression reads the target
@@ -6807,8 +6806,8 @@ also collapse distribution boundaries.
   read-modify-write. Width zero, dynamic width, and widths above 64 fail closed
   until every runtime/backend has a wide-bitvector representation.
 - Logical Python `bool` and `ac.u1` continue to lower to `i1` in this additive
-  slice. They are not implicitly separated under contract epoch `0.5`; doing
-  so requires a later hard-break decision and coordinated epoch transition.
+  slice. Separating them requires a later hard-break decision and coordinated
+  external release.
 - Signedness remains an explicit interpretation. Existing `s8/s16/s32/s64`
   aliases carry storage width only and do not claim signed comparisons or
   implicit signed conversion.
@@ -6825,15 +6824,14 @@ also collapse distribution boundaries.
   validates width, canonical field order, unique names, bounds, and SHA-256.
   Bitfield-derived extract/concat/insert operations retain schema, fingerprint,
   and selected-field provenance; their verifiers resolve the declaration and
-  reject stale or forged field ranges before topology freeze.
+  reject stale or forged field ranges before topology closure.
 - Existing flat structs remain nominal. The target recursive descriptor uses
   nominal identity for named struct/enum declarations and structural identity
   for tuples/fixed arrays, with stable layout fingerprints. That descriptor
   migration is a follow-up slice and does not change aggregate identity here.
-- Contract epoch remains `0.5`: this is an additive declaration/provenance
-  capability and lowers to bit operations already admitted by epoch `0.5`.
-  Compilers without the capability reject the new op instead of silently
-  accepting different semantics.
+- This additive declaration/provenance capability lowers to already admitted
+  bit operations. Compilers without the capability reject the new op instead
+  of silently accepting different semantics.
 
 **Verification**
 - Shared-core and existing pyCircuit bitfield tests prove one immutable layout,
@@ -6874,7 +6872,7 @@ aggregate lowering is admitted.
   descriptor provides canonical JSON-compatible identity, stable SHA-256,
   recursive bit width, and an explicit MLIR rendering boundary.
 - `BoolType()` and `BitsType(1)` are distinct compiler identities even though
-  Decision 0211 keeps both serialized as `i1` in epoch `0.5`. This preserves
+  Decision 0211 keeps both serialized as `i1`. This preserves
   the information needed for a future explicit bool/u1 hard break without
   changing current backend semantics.
 - Named enums and structs are nominal and include their declaration name in
@@ -6898,8 +6896,8 @@ aggregate lowering is admitted.
   QueueGraph-to-PYC. Tests compile all generated translation units rather than
   assuming a monolithic C++ file. Framework tests derive the DavinciOO-shaped
   workload from tracked framework goldens and do not read consumer trace trees.
-- Contract epoch remains `0.5` because this slice changes internal type
-  representation and test orchestration, not serialized value semantics.
+- This slice changes internal type representation and test orchestration, not
+  serialized value semantics.
 
 **Verification**
 - Recursive descriptor tests cover nested nominal structs/enums, structural
@@ -6950,9 +6948,8 @@ metadata without flattening every field into the Python API.
   reads and replacements lower to the same vendor-neutral `pyc.extract` and
   `pyc.concat` semantics used by flat structs. Generated C++ and Verilog must
   agree on cycle, packed value, and backpressure.
-- Contract epoch remains `0.5`: nested structs were already immutable nominal
-  ACIR types; this slice completes frontend and backend support without
-  changing existing flat payload semantics.
+- Nested structs were already immutable nominal ACIR types; this slice completes
+  frontend and backend support without changing existing flat payload semantics.
 
 **Verification**
 - Frontend tests resolve an outer struct declared before its nested dependency,
@@ -7003,10 +7000,9 @@ and make the frontend less Pythonic.
   frontend emits a verifier-visible zero image, storage selection preserves the
   nominal enum as the committed Table entry type, and assignments use ordinary
   enum members. Raw integer initializers and nonzero initial members fail closed.
-- Contract epoch remains `0.5`: the new declaration/value operations are an
-  additive capability and existing integer/struct semantics do not change.
-  Older compilers reject the unknown operation rather than accepting another
-  encoding.
+- The new declaration/value operations are additive and existing integer/struct
+  semantics do not change. Older compilers reject the unknown operation rather
+  than accepting another encoding.
 
 **Verification**
 - Frontend tests retain a standard Python enum inside a nested descriptor,
@@ -7051,7 +7047,7 @@ not acceptable authoring requirements or simulation costs.
 - ACIR uses pure typed `ac.var.tuple`, `ac.var.array`, and `ac.var.element`.
   Their verifiers require exact operand element types, exact arity, a static
   in-range index, and a result matching the selected element. Unsupported
-  dynamic shape or index fails before Frozen ACIR.
+  dynamic shape or index fails before verified ACIR.
 - QueueGraph records one canonical aggregate entry containing structural type
   identity, kind, ordered element identities, logical length, and recursive
   packed width. Payload fields carry their proven width. Verification rejects
@@ -7072,9 +7068,8 @@ not acceptable authoring requirements or simulation costs.
 - Qualified enum/struct references used while computing recursive aggregate
   widths resolve through the enclosing `ac.type_scope`; declaration-order-
   independent nested structs and nominal enums therefore remain valid.
-- Contract epoch remains `0.5`: these operations add a previously rejected
-  immutable aggregate capability without changing existing scalar, enum, or
-  nested-struct encodings.
+- These operations add a previously rejected immutable aggregate capability
+  without changing existing scalar, enum, or nested-struct encodings.
 
 **Verification**
 - Frontend tests retain tuple/array descriptors, lower literal construction
@@ -7140,9 +7135,8 @@ constraint domain from attaching facts to one stable value-type identity.
 - Descriptor canonical identity and fingerprint are independent of the MLIR
   symbol scope selected by the printer. No QueueProgram JSON/pickle format is
   introduced.
-- Contract epoch remains `0.5`: emitted ACIR and accepted behavior are
-  unchanged; the earlier string representation was private Python compiler
-  state.
+- Emitted ACIR and accepted behavior are unchanged; the earlier string
+  representation was private Python compiler state.
 
 **Verification**
 - Frontend tests inspect Queue, Memory, Table, Slot, Var, and rule-owner records
@@ -7196,11 +7190,11 @@ boundary.
 - The public compiler analysis is `ACDataFlowAnalyzer`. MLIR's generic
   `DataFlowSolver` is contained only in its private implementation. The
   analyzer propagates value constraints across ACIR SSA and verifies dynamic
-  `ac.var` and Table indices before rule lowering and topology freeze.
+  `ac.var` and Table indices before rule lowering and topology closure.
 - Local operation verifiers retain structural/type and direct-constant checks.
   Whole-model `ac-verify-value-constraints` owns dynamic proof obligations.
   Freeze invokes the same verification, and QueueGraph independently
-  recomputes constraints from its expression plan so mutated Frozen ACIR fails
+  recomputes constraints from its expression plan so mutated verified ACIR fails
   closed.
 - A `u2` index is valid for five entries because `[0, 3]` is contained in
   `[0, 4]`. An unconstrained `u3` index is rejected for five entries, while a
@@ -7277,8 +7271,8 @@ decode requirement.
   only existing vendor-neutral `pyc.constant`, `pyc.and`, and
   `pyc.cmp {predicate = "eq"}`; no new
   backend-only PYC or RTL semantic primitive is introduced.
-- Contract epoch remains `0.5`: this is an additive pure-value capability for
-  syntax and ACIR operations that were previously rejected.
+- This is an additive pure-value capability for syntax and ACIR operations that
+  were previously rejected.
 
 **Verification**
 - Semantic-core tests preserve the existing pyCircuit extended grammar while
@@ -7352,8 +7346,8 @@ work early.
   issue but are inventoried as pending removal under issue #42. #41 does not
   remove `AnyVectorOfAnyRank`, vector emitters/runtime, `pyc.v_*`, or vector
   tests. #42 must hard-break and scalarize them before canonical PYC.
-- Contract epoch remains `0.5` for Agentic ACIR. PYC is hard-break-only and
-  intentionally provides no parser aliases for deleted or renamed operations.
+- PYC is hard-break-only and intentionally provides no parser aliases for
+  deleted or renamed operations.
 
 **Required ordering**
 1. Remove dormant ACIR surface and synchronize its exact inventory.
@@ -8051,8 +8045,8 @@ instead of stopping at an unstructured field error. `PYC6TRC3` is a different
 binary simulator-event format and does not satisfy this workload comparison.
 
 **Decision (strong constraint)**
-- Each side normalizes to schema `agentic-circuit-pto-trace-result` version 0.1
-  at contract epoch 0.5. It contains the canonical trace content hash, explicit
+- Each side normalizes to schema `agentic-circuit-pto-trace-result` version 0.1.
+  It contains the canonical trace content hash, explicit
   model revision/specialization, dense sequence-ordered records, opcode,
   architectural value, completion and retirement ordinals, per-record declared
   stage timestamps, and declared run timestamps. Checkout and output paths,
@@ -8122,7 +8116,7 @@ scalar packed PYC. They did not instantiate one PTO-specific schema or allow a
 realistic multi-Tile payload to cross the former 64-bit gfsim aggregate bound.
 
 **Decision (strong constraint)**
-- Schema `agentic-circuit-pto-payload-abi` version 0.1 at contract epoch 0.5
+- Schema `agentic-circuit-pto-payload-abi` version 0.1
   defines one 1258-bit `PTOExecutionPayload`. It contains numeric opcode ID,
   engine enum, 16-bit sequence/block identity, four input-Tile slots, four
   scalar-input slots, and two output-Tile slots. Tile slots contain presence,
@@ -8151,7 +8145,7 @@ realistic multi-Tile payload to cross the former 64-bit gfsim aggregate bound.
   cross-word extract/concat/insert. Arithmetic, ordering, shifts, signed view,
   and scalar `value()` remain available only for `N <= 64`; no low-word fallback
   is legal.
-- Frozen ACIR retains the nominal recursive descriptor. QueueGraph verifies
+- verified ACIR retains the nominal recursive descriptor. QueueGraph verifies
   checked finite widths and generates the wide gfsim value; QueueGraph-to-PYC
   produces one `i1258` packed scalar. Generated PYC C++ and Verilog must consume
   and produce the same word/slice mapping. No PYC vector type or packet
@@ -8166,7 +8160,7 @@ realistic multi-Tile payload to cross the former 64-bit gfsim aggregate bound.
 - gfsim tests cover a 130-bit value across three words, cross-word extraction,
   concatenation and insertion, full-width bitwise operations, signed integral
   construction, packet size, and compile-time absence of wide arithmetic.
-- A 144-bit generic nested-array model runs through frontend, Frozen ACIR,
+- A 144-bit generic nested-array model runs through frontend, verified ACIR,
   QueueGraph plan, generated gfsim C++, compilation, and execution. The public
   PTO payload separately generates 616/276-bit aggregate fields, publishes the
   same 79 leaf offsets and enum ordinals as its ABI descriptor, executes in
@@ -8253,7 +8247,7 @@ not form a bounded reusable schedule-v2 provider.
 **Required verification**
 - Generic Schedule reproduces producer completion/output while an independent
   resource blocks its dependent, then issues that dependent after the resource
-  frees. Frontend rejects a non-all-ones sentinel, Frozen ACIR/QueueGraph keep
+  frees. Frontend rejects a non-all-ones sentinel, verified ACIR/QueueGraph keep
   the v2 provider, generated gfsim executes the scenario, and PYC fails at the
   documented #21 boundary.
 - PTO tests cover same-epoch producer/consumer and overwrite/consumer rename,
@@ -8289,7 +8283,8 @@ agentic-circuit wheel, checksums, and platform contract.
 **Decision (strong constraint)**
 - The first candidate is product/SDK `6.0.0` and tag `v6.0.0`.
   `pycircuit-hisi` and `pycircuit-semantic-core` use `6.0.0`;
-  `agentic-circuit` uses `0.1.0`; ACPy/ACIR remain epoch `0.5`.
+  `agentic-circuit` uses `0.1.0`; ACPy/ACIR compatibility is selected by the
+  external package release and exact source revision.
 - SDK platform manifest, release index, model plan, model manifest,
   generator/runtime ABI, and consumer lock use version `1`. Compatibility
   requires the exact complete identity tuple and final peeled tag commit. No
@@ -8360,7 +8355,7 @@ second semantic lowering path.
   fallback may select a different SDK.
 - Plan captures a bounded external source/import/contract/config closure,
   lowers through the shared frontend, dialect verifiers and QueueGraph planner,
-  and publishes canonical Frozen ACIR, QueueGraph, source hashes, SDK/ABI
+  and publishes canonical verified ACIR, QueueGraph, source hashes, SDK/ABI
   identity, deterministic output list, hashed CMake source fragment, and the
   depfile's logical path.
 - The version-1 model config contains exactly `version = "1"` and a `[static]`
@@ -8766,7 +8761,7 @@ count, Queue rate, and payload shape need separate verified meanings.
 - Lane count is a positive static parameter independent of Queue depth, rate,
   producer/consumer port arity, and recursive payload shape. Unsupported
   combinations fail in a verifier before QueueGraph or PYC lowering.
-- Frozen ACIR and QueueGraph preserve one logical Queue identity with explicit
+- verified ACIR and QueueGraph preserve one logical Queue identity with explicit
   lane ordinals. Lowering cannot replace the ordered bundle with unrelated
   scalar Queue identities or runtime Queue pointers.
 - Available lanes form a contiguous valid prefix in accepted token order. A
@@ -9106,7 +9101,7 @@ to distinguish zero, one-hot, and malformed multi-hot flag bundles.
 - Raw ACIR records canonical bindings and postfix type-expression checks.
   `verify-ac-file` independently recomputes every result and compares it with
   the concrete integer width or value-array length. QueueGraph preserves and
-  independently verifies the same metadata. Frozen ACIR and backend IR never
+  independently verifies the same metadata. verified ACIR and backend IR never
   contain a runtime-variable width or shape.
 - Direct dependent scalar interfaces retain an exact concrete type in their
   checks. Specialized structs retain a canonical identity manifest containing
@@ -9185,7 +9180,7 @@ call site.
   and concat operations rather than backend-only casts.
 - `ac.static_assert` is a direct entry-body elaboration statement. It executes
   after closed `ac.const` binding, accepts only a static boolean and static
-  message, reports normalized source provenance, and leaves no Frozen ACIR op.
+  message, reports normalized source provenance, and leaves no verified ACIR op.
 - Agentic `//` and `%` are exact-width unsigned `ac.var.udiv` and
   `ac.var.urem`. Both are total and return zero for a zero divisor, matching
   existing PYC and GFSim semantics. Nonzero configuration requirements use
@@ -9288,7 +9283,7 @@ the value.
   the entry root plus field path, for example `cfg.cache.sets`. Module-local
   paths retain the existing specialization namespace so distinct instance
   bindings cannot collide.
-- Frozen ACIR records `ac.static_config_bindings`: the canonical root, nominal
+- verified ACIR records `ac.static_config_bindings`: the canonical root, nominal
   type name, complete recursive schema as canonical JSON, schema SHA-256, and
   complete canonical root value. Existing `ac.static_type_bindings`, postfix
   programs, concrete checks, and struct identity manifests reference projected
@@ -9303,7 +9298,7 @@ the value.
   Failure diagnostics now retain a structured source span plus the normalized
   expression and closed referenced bindings. Power-of-two, divisibility,
   capacity, and derived width/length assertions use the existing closed static
-  evaluator and leave no Frozen ACIR operation.
+  evaluator and leave no verified ACIR operation.
 
 **Required verification**
 - Public and frontend tests cover a two-level config, dependent bits and array
@@ -9345,7 +9340,7 @@ equivalent expression that is replaced by an earlier value.
 - Canonicalization and CSE merge locations at the actual MLIR replacement,
   including replacements that become equivalent only after an earlier fold.
   Location metadata does not participate in operation equivalence.
-- Frozen ACIR materializes canonical `ac.source_provenance`. QueueGraph
+- verified ACIR materializes canonical `ac.source_provenance`. QueueGraph
   independently validates and preserves it on blocks, every outer and nested
   expression result, helper definitions, shared Table match/selection
   definitions, and module instances. Source metadata is excluded from topology
@@ -9428,7 +9423,7 @@ range evidence.
   domain contained in the relevant extent. A bounded numeric proof never
   replaces same-owner Table index/selection provenance. Unknown inputs use an
   explicit checked result or fail closed.
-- Frozen ACIR retains bounded types and conversion operations. QueueGraph
+- verified ACIR retains bounded types and conversion operations. QueueGraph
   independently validates bounds, conversion result types, analysis transfer,
   array capacity, and Table owner/index provenance. Dependent bounds used only
   in executable conversion targets retain a stable `ac.static_type_target`
@@ -9553,7 +9548,7 @@ shortest-length `zip` behavior.
 - Map lowers to static `ac.var.element` operations, one verified callback per
   lane, and one `ac.var.array`. Zip lowers to static element reads, per-lane
   `ac.var.tuple`, and one `ac.var.array`. No map/zip operation survives to
-  Frozen ACIR, QueueGraph, GFSim, or PYC, and no PYC vector type is introduced.
+  verified ACIR, QueueGraph, GFSim, or PYC, and no PYC vector type is introduced.
 - Nested combinators share a limit of 4096 expanded lane operands per rule
   expression emitter. Overflow or a larger expansion fails before ACIR
   publication. Source locations on callback operations retain the lambda/helper
@@ -9569,7 +9564,7 @@ shortest-length `zip` behavior.
 - Reject non-array receivers, malformed callbacks, exact helper/result
   mismatches, recursive bool/u1 ambiguity, implicit bool arithmetic, unequal
   zip lengths, effects, and expansion-budget overflow.
-- Frozen ACIR and QueueGraph contain only existing exact operations. A
+- verified ACIR and QueueGraph contain only existing exact operations. A
   design-neutral runtime fixture must agree across GFSim, PYC C++, and Verilog
   for mapped, zipped, nested, aggregate-result, and checked callback values.
 
@@ -9619,7 +9614,7 @@ user-written serial mux chains or an unverified associativity assertion.
   map/zip/first/argmin/scan helper bodies that could hide multiplicative
   expansion from the caller's budget.
 - These forms expand in the Python frontend to existing verifier-visible ACIR
-  primitives before Frozen ACIR. No runtime iterator, PYC vector, backend-only
+  primitives before verified ACIR. No runtime iterator, PYC vector, backend-only
   reduction, or high-level operation remains. Grouped cost attribution and
   automatic timing repair remain G04/L08 work. Argmin combines the one-valid
   cases and the both-valid comparison through one selector per balanced tree
@@ -9704,7 +9699,7 @@ selection and exhaustiveness from the verifier.
 - ACIR lit tests independently forge every enum-match verifier failure and
   prove balanced lowering. A design-neutral runtime fixture must agree across
   GFSim, PYC C++, and Verilog under backpressure and preserve invalid selector
-  behavior. Frozen ACIR and PYC contain no residual high-level match, `scf.*`,
+  behavior. verified ACIR and PYC contain no residual high-level match, `scf.*`,
   or vector value.
 
 **Source**
@@ -10051,7 +10046,7 @@ ordering was cost without contract.
 - Snapshot analysis normalizes each snapshot's fields before comparison, merge,
   and emission, so coalescing is set-sound and the emitted list stays canonical
   when several demands merge into one snapshot.
-- Frozen ACIR rejects a non-normalized list for read and write endpoints alike.
+- verified ACIR rejects a non-normalized list for read and write endpoints alike.
   Hand-written IR cannot smuggle traversal order into the canonical form.
 - Snapshot list order, snapshot identity, and state semantics are unchanged.
   This decision constrains field-set representation, not scheduling, reservation,
@@ -10225,11 +10220,9 @@ root that includes those headers and owns the instances.
 - Write enable is not a new Python API. A Python `if` around a state assignment
   (or an explicit `when` on `ac.var.assign`) is the enable. Unconditional
   assignment writes every firing.
-- Frozen ACIR remains the verified whole-program input. Emitting `frozen-acir`
-  also dumps `modules/<Name>.ac.mlir` for each `ac.module`, cloning the shared
-  `ac.type_scope`. Those files are inspectable module units; they are not
-  independently runnable or linkable ACIR until a future import/signature and
-  module-link contract is accepted.
+- Verified ACIR remains the verified whole-program input. ACC bundle generation
+  preserves each `ac.module` as a reviewable generated C++ unit while the
+  selected system remains the executable root.
 - QueueGraph `generateQueueGraphCpp` stays concatenated for FileCheck. The
   model-bundle `multi-tu-v1` path emits one header per nominal enum/payload,
   a declaration-only helper header with an optional helper implementation TU,
@@ -10240,29 +10233,26 @@ root that includes those headers and owns the instances.
   CMake fragment compile each source to its own object and link the complete
   object set with the gfsim runtime. Module instances remain independent while
   equal concrete specializations reuse one generated class/object definition.
-- Model plan runs the manifest-bound generator to freeze the exact sorted
-  generated inventory. Emit must reproduce that inventory exactly; the CMake
-  fragment, depfile, and model manifest derive from the same list. A byte-for-
-  byte unchanged emit preserves the published directory and file mtimes.
-- Source/JIT specialization identity and structural QueueGraph specialization
-  identity remain separate structured fingerprints. Emit validates the former
-  from the selected root plan and the latter from rebuilt QueueGraph JSON; raw
-  ACIR text search is not provenance evidence.
+- `acc -emit-cpp-bundle` publishes a new deterministic directory containing the
+  sorted source inventory. It does not use model plans, manifests, persistent
+  caches, or content identities.
+- Specialization identity is the definition symbol plus its ordered typed
+  static arguments, as required by Decision 0267.
 
 **Required verification**
 - `total: ac.u8 = 5` emits `ac.var.decl init 5`; out-of-range init is rejected.
 - A Python `if` around a state assignment emits `ac.var.assign ... when`.
 - Storage selection copies non-zero scalar init onto `ac.table init` and gfsim
   `std::vector<T>(N, T{init})`.
-- `frozen-acir` emission includes `modules/<Name>.ac.mlir` alongside
-  `frozen.ac.mlir`.
+- `acc.py` emits selected-system verified ACIR, and native `acc` reparses and
+  verifies it before backend generation.
 - Structured model bundles include per-type headers, real out-of-line
   per-class sources, helper implementation when required, and the root glue.
 - Compile every generated `.cpp` separately, link the resulting objects, and
   execute nested, reused, and stateful module models with results matching the
   concatenated QueueGraph C++ baseline.
-- Plan/emit inventories, CMake sources, depfile targets, and manifest file
-  hashes agree exactly; a no-op repeat emit preserves mtimes.
+- Bundle source inventories and CMake sources agree exactly, and publication to
+  a non-empty destination fails without mutation.
 
 **Source**
 - User direction (2026-09-16): register reset enable/init on `ac.var`, then
@@ -10373,7 +10363,7 @@ invalidating downstream objects for a non-local reason.
   closed. Adding a same-definition specialization changes that grouped file's
   content but not its path; adding an unrelated definition leaves it unchanged.
 - Specialization fingerprints remain canonical lowercase SHA-256 strings in
-  Frozen ACIR, plans, manifests, and cache keys, but never appear in C++ names
+  verified ACIR, plans, manifests, and cache keys, but never appear in C++ names
   or comments. Until readable specialization aliases are specified, multiple
   distinct specializations of one Python definition fail closed; repeated
   instances of one specialization continue to share one implementation.
@@ -10387,18 +10377,18 @@ invalidating downstream objects for a non-local reason.
   non-semantic ACIR/QueueGraph metadata. Generated C++ prints them beside the
   existing Python source path/line provenance, and fingerprint construction
   explicitly excludes them.
-- The V1 `.ac` input to `acc` is complete selected-system Frozen ACIR. Per-module
+- The V1 `.ac` input to `acc` is complete selected-system verified ACIR. Per-module
   ACIR dumps do not become independently linkable through this decision. The
   concise artifact carries no producer SDK manifest identity; exact installed
   SDK interchange continues to require `model plan` and `model emit-cpp`.
-- `acc -emit-verilog` lowers Frozen ACIR through canonical PYC and `pycc` with
+- `acc -emit-verilog` lowers verified ACIR through canonical PYC and `pycc` with
   strict hierarchy; it does not introduce a direct ACIR semantic emitter.
   Module-preserving QueueGraph input remains an explicit rejection until the
   shared PYC lowering supports that hierarchy.
 
 **Required verification**
 - Frontend tests prove Python system, module, instance, rule, and interface
-  spellings remain represented in raw and Frozen ACIR.
+  spellings remain represented in raw and verified ACIR.
 - QueueGraph tests prove class names remain stable, file paths are readable and
   hash-free, same-definition specializations share one file pair, and unrelated
   definitions do not change existing file bytes.
@@ -10406,7 +10396,7 @@ invalidating downstream objects for a non-local reason.
   specializations fail before source publication.
 - Concatenated and multi-TU C++ compile and execute with the same behavior and
   independent per-instance state as before.
-- `acc.py` emits Frozen ACIR through the canonical frontend/compiler path;
+- `acc.py` emits verified ACIR through the canonical frontend/compiler path;
   native `acc` consumes that artifact for executable C++ DUT, model-bundle C++,
   or canonical-PYC-backed Verilog output.
 - Single-file and multi-file frontend tests prove NDF IDs survive Python comment
@@ -10488,41 +10478,41 @@ architecture is extended.
   and legacy flows; clean the architecture first, then rebuild specialization
   naming from explicit parameters in MLIR codegen.
 
-## Decision 0268: release identity is external and ACIR carries no contract epoch
+## Decision 0268: release identity is external to ACIR
 
-**Status:** Accepted; implementation in progress
+**Status:** Accepted and implemented
 
-**Supersedes:** All active ACIR/ACPy `contract_epoch`, `ac.contract_epoch`, and
-`ac.freeze_epoch` clauses. Refines Decision 0267.
+**Supersedes:** All clauses that embed release identity in ACIR or ACPy.
+Refines Decision 0267.
 
 **Context / Goal**
-Embedding a product epoch in IR and frontend JSON duplicated the actual release
-authority and incorrectly made a compiler normalization stage look like an IR
-release opcode. Consumers already select a concrete toolchain through the
-package release and exact Git source revision.
+Embedding product release identity in IR or frontend JSON duplicates the actual
+release authority and confuses a compiler normalization stage with release
+selection. Consumers select a concrete toolchain through the package release
+and exact Git source revision.
 
 **Decision (strong constraint)**
 - ACIR, ACPy, diagnostics, capabilities, generated inventories, cost reports,
-  project configuration, and SDK JSON carry no contract epoch or freeze epoch.
+  project configuration, and SDK JSON carry no embedded release identity.
 - External package release metadata and the exact Git `source_revision` select
   the compiler contract before IR is parsed. IR never authenticates or chooses
   its own release.
 - `.ac` means selected-system verified ACIR. `acc.py` publishes it and native
   `acc` reparses and verifies it before code generation.
-- Topology closure remains a compiler transformation and verifier invariant.
-  It is not an opcode, release number, compatibility tag, or semantic identity.
+- Topology closure remains a compiler transformation and verifier invariant. It
+  does not select a release and does not participate in specialization identity.
 - Schema-local `version` fields may describe a JSON shape. They are not release
   compatibility identities and do not enter specialization reuse.
 
 **Required verification**
 - Active source, schema, examples, generated artifacts, and current docs contain
-  no `contract_epoch`, `ac.contract_epoch`, or `ac.freeze_epoch` fields.
+  no embedded IR or frontend release-selection field.
 - `acc.py -> .ac -> acc` succeeds without an IR release attribute, while malformed
   topology and unsupported operations still fail closed through structural
   verification.
 - SDK/release checks bind the external product version, platform, ABI, and exact
-  Git source revision without copying a release epoch into IR or frontend JSON.
+  Git source revision without copying release identity into IR or frontend JSON.
 
 **Source**
-- User direction (2026-09-19): remove contract epoch and freeze-opcode language;
-  releases must be external rather than defined by IR.
+- User direction (2026-09-19): releases must be external rather than defined by
+  IR or compiler-normalization markers.
