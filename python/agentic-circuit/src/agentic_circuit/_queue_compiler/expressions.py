@@ -46,13 +46,13 @@ from .model import (
 from .source import _render_source_frame_location, source_frame
 from .static_types import (
     _constant_integer,
-    _epoch_05_integer_width,
-    _is_epoch_05_bool_compatible,
+    _integer_width,
+    _is_bool_like,
     _primitive_integer_width,
     _proven_integer_in,
     _scalar_type_descriptor,
     _table_axis_width,
-    _types_equal_in_epoch_05,
+    _types_compatible,
 )
 from .syntax import _decorator_name
 
@@ -252,7 +252,7 @@ class _ExpressionEmitter:
         return (
             left == right
             if self.strict_descriptors
-            else _types_equal_in_epoch_05(left, right)
+            else _types_compatible(left, right)
         )
 
     def _runtime_binding_names(self) -> set[str]:
@@ -1994,7 +1994,7 @@ class _ExpressionEmitter:
                 "ACPY-TYPE-006: with_element receiver must be a value-array"
             )
         index, index_type = self.emit(node.args[0])
-        if _epoch_05_integer_width(index_type) is None:
+        if _integer_width(index_type) is None:
             raise QueueFrontendError(
                 "ACPY-TYPE-006: with_element index must be unsigned"
             )
@@ -2070,7 +2070,7 @@ class _ExpressionEmitter:
         self, value: str, value_type: ValueType, expected: ValueType | None
     ) -> tuple[str, ValueType]:
         if self.strict_descriptors or not (
-            _is_epoch_05_bool_compatible(value_type)
+            _is_bool_like(value_type)
             and isinstance(expected, BitsType)
             and expected.width > 1
         ):
@@ -2364,7 +2364,7 @@ class _ExpressionEmitter:
                 predicate, predicate_type = predicate_emitter.emit(
                     invariant.expression, BoolType()
                 )
-                if not _is_epoch_05_bool_compatible(predicate_type):
+                if not _is_bool_like(predicate_type):
                     raise QueueFrontendError(
                         f"ACPY-INVARIANT-002: invariant "
                         f"{invariant.qualified_name} predicate must produce bool"
@@ -2389,7 +2389,7 @@ class _ExpressionEmitter:
                 return self._remember(result, BoolType())
         if isinstance(node, ast.IfExp):
             condition, condition_type = self.emit(node.test, BoolType())
-            if not _is_epoch_05_bool_compatible(condition_type):
+            if not _is_bool_like(condition_type):
                 raise QueueFrontendError(
                     "ACPY-QUEUE-003: conditional expression requires bool"
                 )
@@ -2652,7 +2652,7 @@ class _ExpressionEmitter:
                 index, index_type = self.emit_table_index(variable, node.slice)
             else:
                 index, index_type = self.emit(node.slice)
-            index_width = _epoch_05_integer_width(index_type)
+            index_width = _integer_width(index_type)
             if index_width is None:
                 raise QueueFrontendError(
                     "ACPY-RULE-009: persistent find capture index must be integer"
@@ -2683,7 +2683,7 @@ class _ExpressionEmitter:
                     )
                 if index is None and isinstance(aggregate, ArrayType):
                     dynamic_index, dynamic_type = self.emit(node.slice)
-                    if _epoch_05_integer_width(dynamic_type) is None:
+                    if _integer_width(dynamic_type) is None:
                         raise QueueFrontendError(
                             "ACPY-TYPE-006: value-array index must be unsigned"
                         )
@@ -2723,7 +2723,7 @@ class _ExpressionEmitter:
                     f"!ac.var<{_render_type(result_type)}>"
                 )
                 return name, result_type
-            source_width = _epoch_05_integer_width(value_type)
+            source_width = _integer_width(value_type)
             if source_width is None:
                 raise QueueFrontendError(
                     "ACPY-BITS-001: bit extraction requires a bits value"
@@ -2797,7 +2797,7 @@ class _ExpressionEmitter:
             predicate, predicate_type = predicate_emitter.emit(
                 candidate.predicate, BoolType()
             )
-            if not _is_epoch_05_bool_compatible(predicate_type):
+            if not _is_bool_like(predicate_type):
                 raise QueueFrontendError(
                     "ACPY-TABLE-006: match predicate must lower to i1"
                 )
@@ -2929,7 +2929,7 @@ class _ExpressionEmitter:
             predicate, predicate_type = predicate_emitter.emit(
                 candidate.predicate, BoolType()
             )
-            if not _is_epoch_05_bool_compatible(predicate_type):
+            if not _is_bool_like(predicate_type):
                 raise QueueFrontendError(
                     "ACPY-TABLE-006: match predicate must lower to i1"
                 )
@@ -2966,7 +2966,7 @@ class _ExpressionEmitter:
                     invariants=self.invariants,
                 )
                 key, key_type = key_emitter.emit(selection.key)
-                if _epoch_05_integer_width(key_type) is None:
+                if _integer_width(key_type) is None:
                     raise QueueFrontendError(
                         "ACPY-TABLE-007: choose key must lower to an integer"
                     )
@@ -3365,7 +3365,7 @@ class _ExpressionEmitter:
                 f"    %{name} = ac.var.{opcode} %{left}, %{right} : "
                 f"!ac.var<{_render_type(left_type)}>"
             )
-            width = _epoch_05_integer_width(left_type)
+            width = _integer_width(left_type)
             constraint = (
                 transfer_bits(
                     opcode,
@@ -3379,7 +3379,7 @@ class _ExpressionEmitter:
             return self._remember(name, left_type, constraint)
         if isinstance(node, ast.UnaryOp) and isinstance(node.op, ast.Invert):
             value, value_type = self.emit(node.operand)
-            if _epoch_05_integer_width(value_type) is None:
+            if _integer_width(value_type) is None:
                 raise QueueFrontendError(
                     "ACPY-QUEUE-003: bitwise not requires an integer payload"
                 )
@@ -3397,11 +3397,11 @@ class _ExpressionEmitter:
                     f"ACPY-QUEUE-003: boolean {operator} requires two operands"
                 )
             current, current_type = self.emit(node.values[0], BoolType())
-            if not _is_epoch_05_bool_compatible(current_type):
+            if not _is_bool_like(current_type):
                 raise QueueFrontendError("ACPY-QUEUE-003: boolean operands must be i1")
             for operand in node.values[1:]:
                 value, value_type = self.emit(operand, BoolType())
-                if not _is_epoch_05_bool_compatible(value_type):
+                if not _is_bool_like(value_type):
                     raise QueueFrontendError(
                         "ACPY-QUEUE-003: boolean operands must be i1"
                     )
@@ -3415,7 +3415,7 @@ class _ExpressionEmitter:
             return current, BoolType()
         if isinstance(node, ast.UnaryOp) and isinstance(node.op, ast.Not):
             value, value_type = self.emit(node.operand, BoolType())
-            if not _is_epoch_05_bool_compatible(value_type):
+            if not _is_bool_like(value_type):
                 raise QueueFrontendError("ACPY-QUEUE-003: boolean not requires i1")
             false_value = self._new()
             self.lines.append(
@@ -3569,7 +3569,7 @@ class _ExpressionEmitter:
             result_width = 0
             for argument in node.args:
                 operand, operand_type = self.emit(argument)
-                operand_width = _epoch_05_integer_width(operand_type)
+                operand_width = _integer_width(operand_type)
                 if operand_width is None:
                     raise QueueFrontendError(
                         "ACPY-BITS-002: concat operands must be bits values"
@@ -3608,8 +3608,8 @@ class _ExpressionEmitter:
                 )
             base, base_type = self.emit(node.args[0])
             field, field_type = self.emit(node.args[1])
-            base_width = _epoch_05_integer_width(base_type)
-            field_width = _epoch_05_integer_width(field_type)
+            base_width = _integer_width(base_type)
+            field_width = _integer_width(field_type)
             if base_width is None or field_width is None:
                 raise QueueFrontendError(
                     "ACPY-BITS-003: insert operands must be bits values"

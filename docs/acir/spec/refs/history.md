@@ -34,7 +34,7 @@ repository-development workflow and source-tree paths were retired.
 Commit `5514f886f9967d3f06551f030b74d1fcaccd383e` is the final tree before
 the release-layout hard break. It contains the complete dated implementation
 plans, superseded design proposals, phase audits, and their original paths.
-This includes the epoch 0.4 Table-abstraction prototype formerly published as
+This includes the historical Table-abstraction prototype formerly published as
 an active design page; current Table semantics are defined by the specification
 and Decisions 0237 through 0241.
 

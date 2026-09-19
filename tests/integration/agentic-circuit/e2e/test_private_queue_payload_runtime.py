@@ -171,10 +171,6 @@ class PrivateQueuePayloadRuntimeTest(unittest.TestCase):
                     frozen,
                     "--output-root",
                     bundle,
-                    "--sdk-product-version",
-                    "6.0.0",
-                    "--sdk-source-revision",
-                    "a" * 40,
                 ),
                 cwd=ROOT,
             )

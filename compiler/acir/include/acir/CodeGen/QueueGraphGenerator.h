@@ -15,13 +15,7 @@ llvm::Expected<std::string> generateQueueGraphCpp(const QueueGraphPlan &plan);
 /// QueueGraph model. The report carries structural names and source provenance
 /// without deriving content identity.
 llvm::Expected<std::string> generateQueueGraphCostReport(
-    const QueueGraphPlan &plan, llvm::StringRef sdkProductVersion,
-    llvm::StringRef sdkSourceRevision);
-
-struct QueueGraphBundleOptions {
-  std::string sdkProductVersion;
-  std::string sdkSourceRevision;
-};
+    const QueueGraphPlan &plan);
 
 struct QueueGraphGeneratedFile {
   std::string relativePath;
@@ -31,8 +25,7 @@ struct QueueGraphGeneratedFile {
 /// Generate the closed runtime-consumer source set from a verified QueueGraph
 /// plan. This API never imports or evaluates frontend Python.
 llvm::Expected<std::vector<QueueGraphGeneratedFile>>
-generateQueueGraphModelBundle(const QueueGraphPlan &plan,
-                              const QueueGraphBundleOptions &options);
+generateQueueGraphModelBundle(const QueueGraphPlan &plan);
 
 } // namespace acir::codegen
 

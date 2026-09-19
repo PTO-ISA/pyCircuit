@@ -68,7 +68,7 @@ from .static_types import (
     _bounded_annotation_static_checks,
     _config_type_names,
     _enums,
-    _epoch_05_integer_width,
+    _integer_width,
     _module_static_values,
     _payload,
     _payloads,
@@ -79,7 +79,7 @@ from .static_types import (
     _static_parameter_aliases,
     _static_type_bindings_for_checks,
     _type_static_values,
-    _types_equal_in_epoch_05,
+    _types_compatible,
     _validate_static_config_roots,
 )
 from .syntax import _decorator_name
@@ -137,7 +137,9 @@ def _lower_simple_module_source(
         )
 
     def projection_module_metadata(
-        name: str, frame: SourceFrame | None
+        name: str,
+        definition_name: str,
+        frame: SourceFrame | None,
     ) -> tuple[str, ...]:
         return _module_attribute_fields(
             _ModuleRenderSpec(
@@ -148,6 +150,7 @@ def _lower_simple_module_source(
                 source_file="" if frame is None else frame.file,
                 source_line=0 if frame is None else frame.line,
                 source_column=0 if frame is None else frame.column,
+                definition_name=definition_name,
             )
         )
 
@@ -190,12 +193,53 @@ def _lower_simple_module_source(
         defer_unbound_unreachable=True,
     )
     helpers = {definition.name: definition for definition in helper_definitions}
+    module_declarations: dict[str, str] = {}
+    for node in tree.body:
+        if not isinstance(node, ast.FunctionDef):
+            continue
+        declarations = [
+            decorator
+            for decorator in node.decorator_list
+            if _decorator_name(decorator).rsplit(".", 1)[-1] == "module_decl"
+        ]
+        if not declarations:
+            continue
+        decorator = declarations[0]
+        if (
+            len(declarations) != 1
+            or not isinstance(decorator, ast.Call)
+            or decorator.args
+            or len(decorator.keywords) != 1
+            or decorator.keywords[0].arg != "source"
+            or not isinstance(decorator.keywords[0].value, ast.Constant)
+            or type(decorator.keywords[0].value.value) is not str
+            or not decorator.keywords[0].value.value
+        ):
+            raise QueueFrontendError(
+                "ACPY-MODULE-009: module declaration requires exactly "
+                "@ac.module_decl(source=\"relative/source.py\")"
+            )
+        implementation_source = decorator.keywords[0].value.value
+        path = implementation_source.split("/")
+        if (
+            implementation_source.startswith("/")
+            or "\\" in implementation_source
+            or implementation_source[-3:] != ".py"
+            or any(not component or component in {".", ".."} for component in path)
+        ):
+            raise QueueFrontendError(
+                "ACPY-MODULE-009: module declaration source must be a safe "
+                "relative POSIX .py path"
+            )
+        module_declarations[node.name] = implementation_source
+
     modules = {
         node.name: node
         for node in tree.body
         if isinstance(node, ast.FunctionDef)
         and any(
-            _decorator_name(decorator).rsplit(".", 1)[-1] == "module"
+            _decorator_name(decorator).rsplit(".", 1)[-1]
+            in {"module", "module_decl"}
             for decorator in node.decorator_list
         )
     }
@@ -216,7 +260,7 @@ def _lower_simple_module_source(
             f"ACPY-MODULE-001: system {system!r} is missing or ambiguous"
         )
     reserved_definitions = sorted(
-        name for name in modules if name.startswith("__ac_")
+        name for name in modules if name[:5] == "__ac_"
     )
     reserved_values = sorted(
         {
@@ -236,7 +280,7 @@ def _lower_simple_module_source(
             ),
         }
     )
-    reserved_values = [name for name in reserved_values if name.startswith("__ac_")]
+    reserved_values = [name for name in reserved_values if name[:5] == "__ac_"]
     if reserved_definitions or reserved_values:
         reserved = (reserved_definitions + reserved_values)[0]
         raise QueueFrontendError(
@@ -278,10 +322,10 @@ def _lower_simple_module_source(
     }
 
     def result_payloads(annotation: ast.expr | None) -> tuple[ValueType, ...]:
-        if annotation is None:
-            raise QueueFrontendError(
-                "ACPY-MODULE-001: module systems require typed returns"
-            )
+        if annotation is None or (
+            isinstance(annotation, ast.Constant) and annotation.value is None
+        ):
+            return ()
         if isinstance(annotation, ast.Subscript) and _decorator_name(
             annotation.value
         ).rsplit(".", 1)[-1] in {"tuple", "Tuple"}:
@@ -309,10 +353,10 @@ def _lower_simple_module_source(
         )
 
     def result_annotations(annotation: ast.expr | None) -> tuple[ast.expr, ...]:
-        if annotation is None:
-            raise QueueFrontendError(
-                "ACPY-MODULE-001: module systems require typed returns"
-            )
+        if annotation is None or (
+            isinstance(annotation, ast.Constant) and annotation.value is None
+        ):
+            return ()
         if isinstance(annotation, ast.Subscript) and _decorator_name(
             annotation.value
         ).rsplit(".", 1)[-1] in {"tuple", "Tuple"}:
@@ -360,6 +404,10 @@ def _lower_simple_module_source(
         static_parameter_types: tuple[tuple[str, str], ...]
 
     module_types: dict[str, ModuleDefinition] = {}
+    empty_modules: set[str] = set()
+    empty_module_children: dict[
+        str, tuple[tuple[str, SourceFrame | None], ...]
+    ] = {}
     rule_modules: dict[str, RuleModuleTemplate] = {}
     rule_names = {
         node.name
@@ -371,6 +419,110 @@ def _lower_simple_module_source(
         )
     }
     for name, function in modules.items():
+        if name in module_declarations:
+            body = list(function.body)
+            if (
+                body
+                and isinstance(body[0], ast.Expr)
+                and isinstance(body[0].value, ast.Constant)
+                and isinstance(body[0].value.value, str)
+            ):
+                body.pop(0)
+            if (
+                len(body) != 1
+                or not isinstance(body[0], ast.Expr)
+                or not isinstance(body[0].value, ast.Constant)
+                or body[0].value.value is not Ellipsis
+                or function.args.posonlyargs
+                or function.args.vararg is not None
+                or function.args.kwarg is not None
+                or function.args.defaults
+                or any(
+                    not isinstance(parameter.annotation, ast.Subscript)
+                    or _decorator_name(parameter.annotation.value).rsplit(".", 1)[-1]
+                    != "const"
+                    for parameter in function.args.kwonlyargs
+                )
+            ):
+                raise QueueFrontendError(
+                    "ACPY-MODULE-009: module declaration requires typed runtime "
+                    "parameters, optional keyword-only ac.const parameters, and "
+                    "an ellipsis body"
+                )
+            output_annotations = result_annotations(function.returns)
+            rule_modules[name] = RuleModuleTemplate(
+                tuple(
+                    (parameter.arg, copy.deepcopy(parameter.annotation))
+                    for parameter in function.args.args
+                ),
+                tuple(
+                    "result" if len(output_annotations) == 1 else f"result{index}"
+                    for index in range(len(output_annotations))
+                ),
+                output_annotations,
+                tuple(parameter.arg for parameter in function.args.kwonlyargs),
+                tuple(
+                    (parameter.arg, default)
+                    for parameter, default in zip(
+                        function.args.kwonlyargs,
+                        function.args.kw_defaults,
+                        strict=True,
+                    )
+                    if default is not None
+                ),
+                tuple(
+                    (
+                        parameter.arg,
+                        _decorator_name(parameter.annotation.slice).rsplit(".", 1)[-1],
+                    )
+                    for parameter in function.args.kwonlyargs
+                ),
+            )
+            continue
+        empty_body = list(function.body)
+        if (
+            empty_body
+            and isinstance(empty_body[0], ast.Expr)
+            and isinstance(empty_body[0].value, ast.Constant)
+            and isinstance(empty_body[0].value.value, str)
+        ):
+            empty_body.pop(0)
+        if empty_body and (
+            isinstance(empty_body[-1], ast.Pass)
+            or isinstance(empty_body[-1], ast.Return)
+            and (
+                empty_body[-1].value is None
+                or isinstance(empty_body[-1].value, ast.Constant)
+                and empty_body[-1].value.value is None
+            )
+        ):
+            empty_body.pop()
+        children: list[tuple[str, SourceFrame | None]] = []
+        for statement in empty_body:
+            if not (
+                isinstance(statement, ast.Expr)
+                and isinstance(statement.value, ast.Call)
+                and isinstance(statement.value.func, ast.Name)
+                and statement.value.func.id in module_declarations
+                and not statement.value.args
+                and not statement.value.keywords
+            ):
+                children = []
+                break
+            children.append((statement.value.func.id, source_frame(statement.value)))
+        is_empty_body = not empty_body or bool(children)
+        if (
+            is_empty_body
+            and not function.args.posonlyargs
+            and not function.args.args
+            and not function.args.kwonlyargs
+            and function.args.vararg is None
+            and function.args.kwarg is None
+            and not result_annotations(function.returns)
+        ):
+            empty_modules.add(name)
+            empty_module_children[name] = tuple(children)
+            continue
         contains_rule_call = any(
             isinstance(node, ast.Call)
             and isinstance(node.func, ast.Name)
@@ -524,7 +676,7 @@ def _lower_simple_module_source(
                 token[6:]
                 for check in pure_module_checks
                 for token in check.program
-                if token.startswith("param:")
+                if token[:6] == "param:"
             },
         )
         if (
@@ -616,7 +768,7 @@ def _lower_simple_module_source(
                     raise QueueFrontendError(
                         "ACPY-MODULE-004: module bits state requires integer init"
                     )
-                if _epoch_05_integer_width(state_type) is None:
+                if _integer_width(state_type) is None:
                     raise QueueFrontendError(
                         "ACPY-MODULE-004: first module state slice requires scalars"
                     )
@@ -669,6 +821,8 @@ def _lower_simple_module_source(
     def module_signature(
         name: str,
     ) -> tuple[tuple[tuple[str, ValueType], ...], tuple[tuple[str, ValueType], ...]]:
+        if name in empty_modules:
+            return (), ()
         definition = module_types[name]
         return (
             ((definition.argument, definition.input_type),),
@@ -824,6 +978,7 @@ def _lower_simple_module_source(
             str,
             str,
             str,
+            tuple[tuple[str, StaticValue], ...],
             ast.Attribute,
             ValueType,
             SourceFrame | None,
@@ -831,7 +986,15 @@ def _lower_simple_module_source(
     ] = []
     projection_definitions: dict[
         str,
-        tuple[str, ValueType, ast.Attribute, ValueType, SourceFrame | None],
+        tuple[
+            str,
+            str,
+            tuple[tuple[str, StaticValue], ...],
+            ValueType,
+            ast.Attribute,
+            ValueType,
+            SourceFrame | None,
+        ],
     ] = {}
     instances: list[
         tuple[
@@ -848,10 +1011,11 @@ def _lower_simple_module_source(
         str,
         tuple[
             RuleModuleDefinition,
-            QueueProgram,
+            QueueProgram | None,
             tuple[tuple[str, StaticValue], ...],
         ],
     ] = {}
+    declaration_specialization_sources: dict[str, str] = {}
     returned_names: tuple[str, ...] | None = None
 
     def specialize_system_statements(
@@ -966,27 +1130,30 @@ def _lower_simple_module_source(
             )
         if symbol not in rule_module_specializations:
             namespace = "" if not readable_parameters else f"{symbol}__"
-            try:
-                program = parse_queue_program(
-                    text,
-                    module_name,
-                    static_arguments=dict(frozen),
-                    entry_kind="module",
-                    source_path=normalized_source_path,
-                    static_type_namespace=namespace,
-                    definition_locations=definition_locations,
-                    static_assert_locations=static_assert_locations,
-                    source_node_locations=source_node_locations,
-                )
-            except QueueFrontendError as error:
-                raise QueueFrontendError(
-                    f"ACPY-MODULE-002: rule-backed module {module_name!r} "
-                    f"could not specialize: {error}"
-                ) from error
-            specialized_payloads = {
-                **payload_map,
-                **{item.name: item for item in program.payloads},
-            }
+            program: QueueProgram | None = None
+            specialized_payloads = payload_map
+            if module_name not in module_declarations:
+                try:
+                    program = parse_queue_program(
+                        text,
+                        module_name,
+                        static_arguments=dict(frozen),
+                        entry_kind="module",
+                        source_path=normalized_source_path,
+                        static_type_namespace=namespace,
+                        definition_locations=definition_locations,
+                        static_assert_locations=static_assert_locations,
+                        source_node_locations=source_node_locations,
+                    )
+                except QueueFrontendError as error:
+                    raise QueueFrontendError(
+                        f"ACPY-MODULE-002: rule-backed module {module_name!r} "
+                        f"could not specialize: {error}"
+                    ) from error
+                specialized_payloads = {
+                    **payload_map,
+                    **{item.name: item for item in program.payloads},
+                }
             specialized_values = _type_static_values(tree, dict(frozen))
             inputs = tuple(
                 (
@@ -1027,8 +1194,23 @@ def _lower_simple_module_source(
                 program,
                 frozen,
             )
+            if module_name in module_declarations:
+                declaration_specialization_sources[symbol] = (
+                    module_declarations[module_name]
+                )
         definition, _, _ = rule_module_specializations[symbol]
         return symbol, frozen, definition.inputs, definition.outputs
+
+    for children in empty_module_children.values():
+        for child, _ in children:
+            specialize_rule_module(
+                child,
+                ast.Call(
+                    func=ast.Name(id=child, ctx=ast.Load()),
+                    args=[],
+                    keywords=[],
+                ),
+            )
 
     specialized_statements = specialize_system_statements(function.body)
     normalized_statements: list[ast.stmt] = []
@@ -1077,6 +1259,45 @@ def _lower_simple_module_source(
             and isinstance(statement.value, ast.Constant)
             and isinstance(statement.value.value, str)
         ):
+            continue
+        if (
+            isinstance(statement, ast.Expr)
+            and isinstance(statement.value, ast.Call)
+            and isinstance(statement.value.func, ast.Name)
+            and statement.value.func.id in modules
+        ):
+            module_name = statement.value.func.id
+            instance_static_arguments: tuple[tuple[str, StaticValue], ...] = ()
+            instance_module_name = module_name
+            if module_name in rule_modules:
+                (
+                    instance_module_name,
+                    instance_static_arguments,
+                    input_signature,
+                    output_signature,
+                ) = specialize_rule_module(module_name, statement.value)
+            else:
+                input_signature, output_signature = module_signature(module_name)
+            if statement.value.args or input_signature or output_signature:
+                raise QueueFrontendError(
+                    "ACPY-MODULE-002: expression module calls require a "
+                    "zero-input zero-output signature"
+                )
+            if module_name not in rule_modules and statement.value.keywords:
+                raise QueueFrontendError(
+                    "ACPY-MODULE-007: pure module static parameters are not implemented"
+                )
+            instances.append(
+                (
+                    (),
+                    instance_module_name,
+                    (),
+                    (),
+                    instance_static_arguments,
+                    source_frame(statement.value),
+                )
+            )
+            operation_order.append(("instance", len(instances) - 1))
             continue
         if (
             isinstance(statement, ast.Assign)
@@ -1165,8 +1386,18 @@ def _lower_simple_module_source(
                         fields.append(field_cursor.attr)
                         field_cursor = field_cursor.value
                     fields.reverse()
+                    projection_definition = (
+                        f"__ac_project_{root_type.name}__{'__'.join(fields)}"
+                    )
+                    projection_static_arguments = tuple(
+                        root_type.specialization_bindings
+                    )
+                    readable_projection_parameters = "".join(
+                        f"__{name}_{'neg_' if value < 0 else ''}{abs(value)}"
+                        for name, value in projection_static_arguments
+                    )
                     projection_module = (
-                        f"__ac_project_{root_type.symbol}__{'__'.join(fields)}"
+                        projection_definition + readable_projection_parameters
                     )
                     projection_expression: ast.expr = ast.copy_location(
                         ast.Name(id="value", ctx=ast.Load()), argument
@@ -1185,6 +1416,8 @@ def _lower_simple_module_source(
                     )
                     definition = (
                         "value",
+                        projection_definition,
+                        projection_static_arguments,
                         root_type,
                         projection_expression,
                         actual_type,
@@ -1193,8 +1426,10 @@ def _lower_simple_module_source(
                     existing_projection = projection_definitions.get(projection_module)
                     if existing_projection is not None and (
                         existing_projection[1] != definition[1]
-                        or ast.dump(existing_projection[2]) != ast.dump(definition[2])
+                        or existing_projection[2] != definition[2]
                         or existing_projection[3] != definition[3]
+                        or ast.dump(existing_projection[4]) != ast.dump(definition[4])
+                        or existing_projection[5] != definition[5]
                     ):
                         raise QueueFrontendError(
                             "ACPY-MODULE-002: readable projection module name "
@@ -1213,6 +1448,7 @@ def _lower_simple_module_source(
                             projection_name,
                             root.id,
                             projection_module,
+                            projection_static_arguments,
                             argument,
                             actual_type,
                             source_frame(argument),
@@ -1221,7 +1457,7 @@ def _lower_simple_module_source(
                     operation_order.append(("projection", len(projections) - 1))
                     uses[root.id] = uses.get(root.id, 0) + 1
                     source = projection_name
-                if not _types_equal_in_epoch_05(actual_type, expected_type):
+                if not _types_compatible(actual_type, expected_type):
                     raise QueueFrontendError(
                         "ACPY-MODULE-002: module input payload type mismatch at "
                         f"line {getattr(argument, 'lineno', 0)}: "
@@ -1249,7 +1485,13 @@ def _lower_simple_module_source(
             )
             operation_order.append(("instance", len(instances) - 1))
             continue
+        if isinstance(statement, ast.Return) and statement.value is None:
+            returned_names = ()
+            continue
         if isinstance(statement, ast.Return) and statement.value is not None:
+            if isinstance(statement.value, ast.Constant) and statement.value.value is None:
+                returned_names = ()
+                continue
             returned = (
                 tuple(statement.value.elts)
                 if isinstance(statement.value, (ast.Tuple, ast.List))
@@ -1272,11 +1514,13 @@ def _lower_simple_module_source(
             f"{type(statement).__name__} at line "
             f"{getattr(statement, 'lineno', 0)}: {ast.unparse(statement)}"
         )
+    if returned_names is None and not expected_results:
+        returned_names = ()
     if (
         returned_names is None
         or len(returned_names) != len(expected_results)
         or any(
-            not _types_equal_in_epoch_05(values[name], expected)
+            not _types_compatible(values[name], expected)
             for name, expected in zip(returned_names, expected_results, strict=True)
         )
     ):
@@ -1315,12 +1559,14 @@ def _lower_simple_module_source(
             token[6:]
             for check in top_static_checks
             for token in check.program
-            if token.startswith("param:")
+            if token[:6] == "param:"
         },
     )
     candidate_static_configs = {binding.root: binding for binding in top_static_configs}
     all_interface_checks = list(system_interface_checks)
     for _, program, _ in rule_module_specializations.values():
+        if program is None:
+            continue
         for payload in program.payloads:
             existing = all_payloads_by_symbol.get(payload.descriptor.symbol)
             if existing is not None and existing.descriptor != payload.descriptor:
@@ -1347,10 +1593,33 @@ def _lower_simple_module_source(
             candidate_static_configs[binding.root] = binding
         all_interface_checks.extend(program.static_type_checks)
     all_payloads = tuple(all_payloads_by_symbol.values())
-    all_checks = [
+    candidate_checks = [
         *(check for payload in all_payloads for check in payload.static_type_checks),
         *all_interface_checks,
     ]
+    unique_checks: dict[str, StaticTypeCheck] = {}
+    for check in candidate_checks:
+        existing_check = unique_checks.get(check.target)
+        if existing_check is None:
+            unique_checks[check.target] = check
+            continue
+        if (
+            existing_check.result != check.result
+            or existing_check.concrete_type != check.concrete_type
+        ):
+            raise QueueFrontendError(
+                "ACPY-TYPE-008: static type check target collision for "
+                f"{check.target!r}"
+            )
+    all_checks = list(unique_checks.values())
+    payload_check_targets = {
+        check.target
+        for payload in all_payloads
+        for check in payload.static_type_checks
+    }
+    rendered_extra_checks = tuple(
+        check for check in all_checks if check.target not in payload_check_targets
+    )
     used_static_parameters = {
         token[6:]
         for check in all_checks
@@ -1362,6 +1631,14 @@ def _lower_simple_module_source(
         for name, value in candidate_static_bindings.items()
         if name in used_static_parameters
     }
+    used_static_configs = {
+        root: binding
+        for root, binding in candidate_static_configs.items()
+        if any(
+            parameter[: len(root) + 1] == root + "."
+            for parameter in used_static_parameters
+        )
+    }
 
     lines = [
         "builtin.module attributes {"
@@ -1369,10 +1646,10 @@ def _lower_simple_module_source(
         + _render_static_type_attributes(
             tuple(sorted(all_static_bindings.items())),
             all_payloads,
-            tuple(all_interface_checks),
+            rendered_extra_checks,
             tuple(
-                candidate_static_configs[root]
-                for root in sorted(candidate_static_configs)
+                used_static_configs[root]
+                for root in sorted(used_static_configs)
             ),
         )
         + "} {"
@@ -1380,14 +1657,30 @@ def _lower_simple_module_source(
     if all_payloads or enum_bindings or bitfield_bindings:
         lines.append("  ac.type_scope @types {")
         for enumeration in enum_bindings:
-            lines.append(_render_enum(enumeration, "    "))
+            rendered = _render_enum(enumeration, "    ")
+            location = (definition_locations or {}).get(enumeration.name)
+            if location is not None:
+                rendered += (
+                    " {ac.source_file = "
+                    + canonical_mlir_string(location[0])
+                    + "}"
+                )
+            lines.append(rendered)
         for payload in all_payloads:
             fields = ", ".join(
                 f'{{name = "{field}", type = {typ}}}' for field, typ in payload.fields
             )
-            lines.append(
+            rendered = (
                 f"    ac.struct @{payload.descriptor.symbol} fields [{fields}]"
             )
+            location = (definition_locations or {}).get(payload.name)
+            if location is not None:
+                rendered += (
+                    " {ac.source_file = "
+                    + canonical_mlir_string(location[0])
+                    + "}"
+                )
+            lines.append(rendered)
         for bitfield in bitfield_bindings:
             lines.append(_render_bitfield(bitfield, "    "))
         layouts = [
@@ -1400,12 +1693,24 @@ def _lower_simple_module_source(
             )
         else:
             lines.append("  }")
+    emitted_helpers = {helper.name: helper for helper in helper_definitions}
     for helper in helper_definitions:
         arguments = ", ".join(
             f"%{name}: !ac.var<{_render_type(value_type)}>"
             for name, value_type in helper.arguments
         )
-        attributes = " attributes {ac.inline = true}" if helper.inline else ""
+        attribute_fields = []
+        if helper.inline:
+            attribute_fields.append("ac.inline = true")
+        if helper.source is not None:
+            attribute_fields.append(
+                "ac.source_file = " + canonical_mlir_string(helper.source.file)
+            )
+        attributes = (
+            " attributes {" + ", ".join(attribute_fields) + "}"
+            if attribute_fields
+            else ""
+        )
         lines.append(
             f"  func.func private @{helper.name}({arguments}) -> "
             f"!ac.var<{_render_type(helper.result)}>{attributes} {{"
@@ -1438,11 +1743,74 @@ def _lower_simple_module_source(
         'seed {kind = "fixed", value = 0 : i64} instrumentation [] '
         'results {id = "default", format = "json"} selected true'
     )
+    for name in sorted(empty_modules):
+        lines.append(
+            f"  ac.module @{name}() parameters {{}}"
+            + _render_interface_display_attributes(
+                (), (), module_metadata(name)
+            )
+            + " graph {"
+        )
+        for index, (child, child_source) in enumerate(
+            empty_module_children.get(name, ())
+        ):
+            instance = f"{child}_{index}"
+            lines.append(
+                f"    ac.instance @{instance} of @{child}() static {{}} "
+                f'id "{instance}" path "{instance}" : () -> ()'
+                + _render_source_frame_location(child_source)
+            )
+        lines.extend(["    ac.return", "  }"])
     for name, definition in module_types.items():
         argument = definition.argument
         input_type = definition.input_type
         output_type = definition.output_type
         expression = definition.expression
+        if (
+            not definition.states
+            and isinstance(expression, ast.Call)
+            and isinstance(expression.func, ast.Name)
+            and expression.func.id in module_declarations
+        ):
+            if (
+                len(expression.args) != 1
+                or not isinstance(expression.args[0], ast.Name)
+                or expression.args[0].id != argument
+            ):
+                raise QueueFrontendError(
+                    "ACPY-MODULE-003: imported nested module call requires the "
+                    "module parameter as its sole runtime argument"
+                )
+            child, static_arguments, inputs, outputs = specialize_rule_module(
+                expression.func.id, expression
+            )
+            if (
+                len(inputs) != 1
+                or len(outputs) != 1
+                or not _types_compatible(inputs[0][1], input_type)
+                or not _types_compatible(outputs[0][1], output_type)
+            ):
+                raise QueueFrontendError(
+                    "ACPY-MODULE-003: imported nested module call signature mismatch"
+                )
+            lines.extend(
+                [
+                    f"  ac.module @{name}(%input: "
+                    f"!ac.queue<{_render_type(input_type)}>) -> "
+                    f"!ac.queue<{_render_type(output_type)}> parameters {{}}"
+                    f"{_render_interface_display_attributes((argument,), ('result',), module_metadata(name))} "
+                    "graph {",
+                    f"    %output = ac.instance @result of @{child}(%input) "
+                    f"static {_render_static_mlir_dictionary(static_arguments)} "
+                    'id "result" path "result" '
+                    f": (!ac.queue<{_render_type(input_type)}>) -> "
+                    f"!ac.queue<{_render_type(output_type)}>"
+                    + _render_source_frame_location(source_frame(expression)),
+                    f"    ac.return %output : !ac.queue<{_render_type(output_type)}>",
+                    "  }",
+                ]
+            )
+            continue
         if (
             not definition.states
             and isinstance(expression, ast.Call)
@@ -1463,9 +1831,9 @@ def _lower_simple_module_source(
             child_definition = module_types[child]
             child_input = child_definition.input_type
             child_output = child_definition.output_type
-            if not _types_equal_in_epoch_05(
+            if not _types_compatible(
                 child_input, input_type
-            ) or not _types_equal_in_epoch_05(child_output, output_type):
+            ) or not _types_compatible(child_output, output_type):
                 raise QueueFrontendError(
                     "ACPY-MODULE-003: nested module call signature mismatch"
                 )
@@ -1547,7 +1915,7 @@ def _lower_simple_module_source(
             for assignment in definition.assignments:
                 state_type = state_types[assignment.state]
                 value, value_type = emitter.emit(assignment.expression, state_type)
-                if not _types_equal_in_epoch_05(value_type, state_type):
+                if not _types_compatible(value_type, state_type):
                     raise QueueFrontendError(
                         "ACPY-MODULE-004: assigned module state type mismatch"
                     )
@@ -1559,7 +1927,7 @@ def _lower_simple_module_source(
                 )
                 emitter.root_values[assignment.state] = (value, state_type)
             value, value_type = emitter.emit(expression, output_type)
-            if not _types_equal_in_epoch_05(value_type, output_type):
+            if not _types_compatible(value_type, output_type):
                 raise QueueFrontendError(
                     "ACPY-MODULE-004: stateful module result type mismatch"
                 )
@@ -1594,7 +1962,7 @@ def _lower_simple_module_source(
             helpers=helpers,
         )
         value, value_type = emitter.emit(expression, output_type)
-        if not _types_equal_in_epoch_05(value_type, output_type):
+        if not _types_compatible(value_type, output_type):
             raise QueueFrontendError(
                 "ACPY-MODULE-001: module result payload type mismatch"
             )
@@ -1630,6 +1998,8 @@ def _lower_simple_module_source(
         )
     for projection_name, (
         argument,
+        projection_definition,
+        projection_static_arguments,
         input_type,
         expression,
         output_type,
@@ -1646,17 +2016,22 @@ def _lower_simple_module_source(
             prefix=f"{projection_name}_",
         )
         value, observed_type = emitter.emit(expression, output_type)
-        if not _types_equal_in_epoch_05(observed_type, output_type):
+        if not _types_compatible(observed_type, output_type):
             raise AssertionError("module projection type changed during rendering")
         lines.extend(
             [
                 f"  ac.module @{projection_name}(%input: "
                 f"!ac.queue<{_render_type(input_type)}>) -> "
-                f"!ac.queue<{_render_type(output_type)}> parameters {{}}"
+                f"!ac.queue<{_render_type(output_type)}> parameters "
+                f"{_render_static_mlir_dictionary(projection_static_arguments)}"
                 + _render_interface_display_attributes(
                     (ast.unparse(expression),),
                     ("result",),
-                    projection_module_metadata(projection_name, projection_source),
+                    projection_module_metadata(
+                        projection_name,
+                        projection_definition,
+                        projection_source,
+                    ),
                 )
                 + " graph {",
                 "    %output = ac.scope @body(%input) {",
@@ -1688,6 +2063,43 @@ def _lower_simple_module_source(
         program,
         static_arguments,
     ) in rule_module_specializations.items():
+        if program is None:
+            argument_types = ", ".join(
+                f"!ac.queue<{_render_type(payload)}>"
+                for _, payload in definition.inputs
+            )
+            result_types = ", ".join(
+                f"!ac.queue<{_render_type(payload)}>"
+                for _, payload in definition.outputs
+            )
+            function_type = f"({argument_types}) -> " + (
+                result_types if len(definition.outputs) == 1 else f"({result_types})"
+            )
+            source = declaration_specialization_sources[name]
+            lines.append(
+                f"  ac.module.import @{name} : {function_type} parameters "
+                f"{_render_static_mlir_dictionary(static_arguments)} from "
+                "{source = " + canonical_mlir_string(source) + "}"
+            )
+            continue
+        helper_names_to_emit: set[str] = set()
+        for helper in program.helpers:
+            existing_helper = emitted_helpers.get(helper.name)
+            if existing_helper is None:
+                emitted_helpers[helper.name] = helper
+                helper_names_to_emit.add(helper.name)
+                continue
+            if (
+                existing_helper.arguments != helper.arguments
+                or existing_helper.result != helper.result
+                or existing_helper.inline != helper.inline
+                or ast.dump(existing_helper.expression)
+                != ast.dump(helper.expression)
+            ):
+                raise QueueFrontendError(
+                    "ACPY-HELPER-002: concrete helper symbol collision for "
+                    f"{helper.name!r}; make its typed specialization explicit"
+                )
         lines.extend(
             lower_queue_program(
                 program,
@@ -1698,8 +2110,11 @@ def _lower_simple_module_source(
                     static_arguments,
                     definition_ndf.get(program.system, NdfMetadata()),
                     *(definition_sources.get(program.system, ("", 0, 0))),
+                    definition_name=program.system,
                 ),
-                include_helpers=False,
+                include_helpers=True,
+                helper_names_to_emit=frozenset(helper_names_to_emit),
+                definition_locations=dict(definition_locations or {}),
                 definition_ndf=definition_ndf,
             )
             .rstrip()
@@ -1819,6 +2234,7 @@ def _lower_simple_module_source(
                 result,
                 source,
                 projection_module,
+                projection_static_arguments,
                 expression,
                 output_type,
                 projection_source,
@@ -1827,7 +2243,9 @@ def _lower_simple_module_source(
             operand = take_top_value(source)
             lines.append(
                 f"    %{result} = ac.instance @{result} of @{projection_module}"
-                f"(%{operand}) static {{}} id \"{result}\" path \"{result}\" "
+                f"(%{operand}) static "
+                f"{_render_static_mlir_dictionary(projection_static_arguments)} "
+                f"id \"{result}\" path \"{result}\" "
                 f": (!ac.queue<{_render_type(input_type)}>) -> "
                 f"!ac.queue<{_render_type(output_type)}>"
                 + _render_source_frame_location(projection_source)
@@ -1856,9 +2274,10 @@ def _lower_simple_module_source(
         result_type = (
             output_signature if len(output_types) == 1 else f"({output_signature})"
         )
-        instance_name = "__".join(results)
+        instance_name = "__".join(results) or f"{module_name}_{operation_index}"
+        assignment = f"{lhs} = " if lhs else ""
         lines.append(
-            f"    {lhs} = ac.instance @{instance_name} of @{module_name}"
+            f"    {assignment}ac.instance @{instance_name} of @{module_name}"
             f"({operands}) static "
             f"{_render_static_mlir_dictionary(static_arguments)} "
             f'id "{instance_name}" path "{instance_name}" '
@@ -1868,7 +2287,9 @@ def _lower_simple_module_source(
         for result in results:
             bind_top_value(result, result)
     returned_operands = [f"%{take_top_value(name)}" for name in returned_names]
-    if host_results:
+    if not expected_results:
+        lines.append("    ac.return")
+    elif host_results:
         lines.append(
             "    ac.return " + ", ".join(returned_operands) + " : " + root_result_types
         )

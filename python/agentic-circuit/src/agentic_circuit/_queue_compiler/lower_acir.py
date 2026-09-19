@@ -73,11 +73,11 @@ from .source import (
 )
 from .static_types import (
     _candidate_mask_type,
-    _epoch_05_integer_width,
-    _is_epoch_05_bool_compatible,
+    _integer_width,
+    _is_bool_like,
     _product,
     _table_axis_width,
-    _types_equal_in_epoch_05,
+    _types_compatible,
 )
 from .syntax import _decorator_name
 
@@ -92,6 +92,7 @@ class _ModuleRenderSpec:
     source_file: str = ""
     source_line: int = 0
     source_column: int = 0
+    definition_name: str = ""
 
 
 def _ndf_attribute_fields(metadata: NdfMetadata) -> tuple[str, ...]:
@@ -112,7 +113,11 @@ def _ndf_attribute_fields(metadata: NdfMetadata) -> tuple[str, ...]:
 
 
 def _module_attribute_fields(module: _ModuleRenderSpec) -> tuple[str, ...]:
-    fields = list(_ndf_attribute_fields(module.ndf))
+    fields = [
+        "ac.definition_name = "
+        + canonical_mlir_string(module.definition_name or module.name)
+    ]
+    fields.extend(_ndf_attribute_fields(module.ndf))
     if module.source_file:
         fields.extend(
             (
@@ -129,6 +134,8 @@ def lower_queue_program(
     *,
     module: _ModuleRenderSpec | None = None,
     include_helpers: bool = True,
+    helper_names_to_emit: frozenset[str] | None = None,
+    definition_locations: dict[str, tuple[str, int, int]] | None = None,
     definition_ndf: DefinitionNdfMetadata | None = None,
 ) -> str:
     definition_ndf = definition_ndf or {}
@@ -148,6 +155,8 @@ def lower_queue_program(
             if (
                 "= ac.var." not in line and "= ac.table.get " not in line
             ) or " : " not in line:
+                return
+            if "{ac.query =" in line:
                 return
             attribute = "ac.display_name = " + canonical_mlir_string(display_name)
             if "= ac.var.constant " in line:
@@ -258,14 +267,30 @@ def lower_queue_program(
     if (program.payloads or program.enums or program.bitfields) and module is None:
         lines.append("  ac.type_scope @types {")
         for enumeration in program.enums:
-            lines.append(_render_enum(enumeration, "    "))
+            rendered = _render_enum(enumeration, "    ")
+            location = (definition_locations or {}).get(enumeration.name)
+            if location is not None:
+                rendered += (
+                    " {ac.source_file = "
+                    + canonical_mlir_string(location[0])
+                    + "}"
+                )
+            lines.append(rendered)
         for payload in program.payloads:
             fields = ", ".join(
                 f'{{name = "{name}", type = {typ}}}' for name, typ in payload.fields
             )
-            lines.append(
+            rendered = (
                 f"    ac.struct @{payload.descriptor.symbol} fields [{fields}]"
             )
+            location = (definition_locations or {}).get(payload.name)
+            if location is not None:
+                rendered += (
+                    " {ac.source_file = "
+                    + canonical_mlir_string(location[0])
+                    + "}"
+                )
+            lines.append(rendered)
         for bitfield in program.bitfields:
             lines.append(_render_bitfield(bitfield, "    "))
         layouts = [
@@ -280,11 +305,27 @@ def lower_queue_program(
             lines.append("  }")
     helper_start = len(lines)
     for helper in program.helpers if include_helpers else ():
+        if (
+            helper_names_to_emit is not None
+            and helper.name not in helper_names_to_emit
+        ):
+            continue
         arguments = ", ".join(
             f"%{name}: !ac.var<{_render_type(value_type)}>"
             for name, value_type in helper.arguments
         )
-        attributes = " attributes {ac.inline = true}" if helper.inline else ""
+        attribute_fields = []
+        if helper.inline:
+            attribute_fields.append("ac.inline = true")
+        if helper.source is not None:
+            attribute_fields.append(
+                "ac.source_file = " + canonical_mlir_string(helper.source.file)
+            )
+        attributes = (
+            " attributes {" + ", ".join(attribute_fields) + "}"
+            if attribute_fields
+            else ""
+        )
         lines.append(
             f"  func.func private @{helper.name}({arguments}) -> "
             f"!ac.var<{_render_type(helper.result)}>{attributes} {{"
@@ -770,7 +811,7 @@ def lower_queue_program(
                     )
                 else:
                     read_index, read_index_type = emitter.emit(state_read_binding.index)
-                read_index_width = _epoch_05_integer_width(read_index_type)
+                read_index_width = _integer_width(read_index_type)
                 if read_index_width is None:
                     raise QueueFrontendError(
                         "ACPY-RULE-008: persistent list read index must be an "
@@ -838,7 +879,7 @@ def lower_queue_program(
                         row_value, actual_row_type = emitter.emit(find.row, row_type)
                     finally:
                         emitter.deferred_values = previous_deferred
-                    if not _types_equal_in_epoch_05(actual_row_type, row_type):
+                    if not _types_compatible(actual_row_type, row_type):
                         raise QueueFrontendError(
                             "ACPY-RULE-009: row view index requires the canonical "
                             "first-axis width"
@@ -877,12 +918,13 @@ def lower_queue_program(
                     bitfields=bitfields,
                     invariants=invariants,
                     helpers=helpers,
+                    inline_pure_helpers=True,
                 )
                 predicate_emitter.deferred_values.update(find_local_values)
                 predicate, predicate_type = predicate_emitter.emit(
                     find.predicate, BoolType()
                 )
-                if not _is_epoch_05_bool_compatible(predicate_type):
+                if not _is_bool_like(predicate_type):
                     raise QueueFrontendError(
                         "ACPY-RULE-009: find where predicate must lower to bool"
                     )
@@ -995,7 +1037,7 @@ def lower_queue_program(
                     )
                     key_emitter.deferred_values.update(find_local_values)
                     key, key_type = key_emitter.emit(find.key)
-                    if _epoch_05_integer_width(key_type) is None:
+                    if _integer_width(key_type) is None:
                         raise QueueFrontendError(
                             "ACPY-RULE-009: find key must lower to an integer"
                         )
@@ -1105,7 +1147,7 @@ def lower_queue_program(
                 )
                 if previous is not None:
                     _, previous_type = previous
-                    if not _types_equal_in_epoch_05(local_type, previous_type):
+                    if not _types_compatible(local_type, previous_type):
                         raise QueueFrontendError(
                             "ACPY-RULE-011: local reassignments must preserve "
                             "one exact type"
@@ -1118,7 +1160,7 @@ def lower_queue_program(
                             op=ast.Not(), operand=copy.deepcopy(local.guard)
                         )
                     guard, guard_type = emitter.emit(guard_expression, BoolType())
-                    if not _is_epoch_05_bool_compatible(guard_type):
+                    if not _is_bool_like(guard_type):
                         raise QueueFrontendError(
                             "ACPY-RULE-011: branch-local assignment guard "
                             "must lower to bool"
@@ -1152,7 +1194,7 @@ def lower_queue_program(
                     read_index, read_index_type = emitter.emit(
                         queue.rule_var_read_index
                     )
-                    if _epoch_05_integer_width(read_index_type) is None:
+                    if _integer_width(read_index_type) is None:
                         raise QueueFrontendError(
                             "ACPY-RULE-004: persistent list index must be an "
                             "exact-width integer"
@@ -1174,7 +1216,7 @@ def lower_queue_program(
             guard_result: str | None = None
             if queue.rule_guard is not None:
                 guard_result, guard_type = emitter.emit(queue.rule_guard, BoolType())
-                if not _is_epoch_05_bool_compatible(guard_type):
+                if not _is_bool_like(guard_type):
                     raise QueueFrontendError(
                         "ACPY-RULE-007: rule condition must lower to bool"
                     )
@@ -1183,7 +1225,7 @@ def lower_queue_program(
                 effect_guard_result, effect_guard_type = emitter.emit(
                     queue.rule_effect_guard, BoolType()
                 )
-                if not _is_epoch_05_bool_compatible(effect_guard_type):
+                if not _is_bool_like(effect_guard_type):
                     raise QueueFrontendError(
                         "ACPY-RULE-010: conditional effect must lower to bool"
                     )
@@ -1192,14 +1234,14 @@ def lower_queue_program(
                 output_guard_result, output_guard_type = emitter.emit(
                     queue.rule_output_guard, BoolType()
                 )
-                if not _is_epoch_05_bool_compatible(output_guard_type):
+                if not _is_bool_like(output_guard_type):
                     raise QueueFrontendError(
                         "ACPY-RULE-012: optional output condition must lower to bool"
                     )
             multi_output_guard_results: list[str] = []
             for output_guard in queue.rule_output_guards:
                 presence, presence_type = emitter.emit(output_guard, BoolType())
-                if not _is_epoch_05_bool_compatible(presence_type):
+                if not _is_bool_like(presence_type):
                     raise QueueFrontendError(
                         "ACPY-RULE-014: output presence must lower to bool"
                     )
@@ -1236,7 +1278,7 @@ def lower_queue_program(
                 index_result, index_type = emitter.emit_table_index(
                     queue.rule_table, queue.rule_table_index
                 )
-                index_width = _epoch_05_integer_width(index_type)
+                index_width = _integer_width(index_type)
                 if index_width is None:
                     raise QueueFrontendError(
                         "ACPY-RULE-004: stateful rule Table index must be an "
@@ -1250,7 +1292,7 @@ def lower_queue_program(
                     "ACPY-RULE-004: stateful rule Table index is out of range",
                 )
                 write_result, write_type = emitter.emit(queue.rule_table_value)
-                if not _types_equal_in_epoch_05(write_type, queue.payload):
+                if not _types_compatible(write_type, queue.payload):
                     raise QueueFrontendError(
                         "ACPY-RULE-004: stateful rule assignment must write "
                         "one complete Table Entry"
@@ -1265,7 +1307,7 @@ def lower_queue_program(
                     var_index_result, var_index_type = emitter.emit(
                         queue.rule_var_index
                     )
-                    var_index_width = _epoch_05_integer_width(var_index_type)
+                    var_index_width = _integer_width(var_index_type)
                     if var_index_width is None:
                         raise QueueFrontendError(
                             "ACPY-RULE-004: persistent list index must be an "
@@ -1280,7 +1322,7 @@ def lower_queue_program(
                     )
                 variable_type, _ = variable_domains[queue.rule_var]
                 var_write_result, var_write_type = emitter.emit(queue.rule_var_value)
-                if not _types_equal_in_epoch_05(var_write_type, variable_type):
+                if not _types_compatible(var_write_type, variable_type):
                     raise QueueFrontendError(
                         "ACPY-RULE-004: persistent variable assignment must "
                         "preserve its declared type"
@@ -1314,7 +1356,7 @@ def lower_queue_program(
                 base_result = branch_guard_results.get(base_key)
                 if base_result is None:
                     base_result, base_type = emitter.emit(guarded.guard, BoolType())
-                    if not _is_epoch_05_bool_compatible(base_type):
+                    if not _is_bool_like(base_type):
                         raise QueueFrontendError(
                             "ACPY-RULE-011: branch condition must lower to bool"
                         )
@@ -1340,7 +1382,7 @@ def lower_queue_program(
                 value, value_type = emitter.emit(
                     state_write.value, state_write.value_type
                 )
-                if not _types_equal_in_epoch_05(value_type, state_write.value_type):
+                if not _types_compatible(value_type, state_write.value_type):
                     raise QueueFrontendError(
                         "ACPY-RULE-008: persistent state assignment must "
                         "preserve its declared type"
@@ -1363,7 +1405,7 @@ def lower_queue_program(
                     index, index_type = emitter.emit(
                         state_write.index, expected_index_type
                     )
-                index_width = _epoch_05_integer_width(index_type)
+                index_width = _integer_width(index_type)
                 if index_width is None:
                     raise QueueFrontendError(
                         "ACPY-RULE-008: persistent list index must be an "
@@ -1438,7 +1480,7 @@ def lower_queue_program(
                     assert condition is not None
                     true_index, true_index_type = emit_state_index(true_write)
                     false_index, false_index_type = emit_state_index(false_write)
-                    if not _types_equal_in_epoch_05(true_index_type, false_index_type):
+                    if not _types_compatible(true_index_type, false_index_type):
                         raise QueueFrontendError(
                             "ACPY-RULE-011: same-owner branch indices must have "
                             "one exact type"
@@ -1519,7 +1561,7 @@ def lower_queue_program(
                         candidate_value,
                     ) in rendered[1:]:
                         assert guard is not None
-                        if not _types_equal_in_epoch_05(
+                        if not _types_compatible(
                             selected_index_type, candidate_index_type
                         ):
                             raise QueueFrontendError(
@@ -1599,7 +1641,7 @@ def lower_queue_program(
                         )
                     ):
                         output_value, output_type = emitter.emit(expression, payload)
-                        if not _types_equal_in_epoch_05(output_type, payload):
+                        if not _types_compatible(output_type, payload):
                             raise QueueFrontendError(
                                 "ACPY-RULE-014: rule output ordinal "
                                 f"{ordinal} does not match its annotated type"
@@ -1609,7 +1651,7 @@ def lower_queue_program(
                 else:
                     assert queue.expression is not None
                     result, result_type = emitter.emit(queue.expression)
-                    if not _types_equal_in_epoch_05(result_type, queue.payload):
+                    if not _types_compatible(result_type, queue.payload):
                         raise QueueFrontendError(
                             "ACPY-RULE-004: rule result must preserve Queue payload type"
                         )
@@ -1877,7 +1919,7 @@ def lower_queue_program(
             inline_pure_helpers=module is not None,
         )
         result, result_type = emitter.emit(queue.expression)
-        if not _types_equal_in_epoch_05(result_type, queue.payload):
+        if not _types_compatible(result_type, queue.payload):
             raise QueueFrontendError(
                 "ACPY-QUEUE-003: lambda result must preserve Queue payload type"
             )
@@ -2083,7 +2125,7 @@ def lower_queue_program(
                 predicate, predicate_type = emitter.emit(
                     candidate.predicate, BoolType()
                 )
-                if not _is_epoch_05_bool_compatible(predicate_type):
+                if not _is_bool_like(predicate_type):
                     raise QueueFrontendError(
                         "ACPY-TABLE-006: match predicate must lower to i1"
                     )
@@ -2140,7 +2182,7 @@ def lower_queue_program(
                         helpers=helpers,
                     )
                     key, key_type = emitter.emit(selection.key)
-                    if _epoch_05_integer_width(key_type) is None:
+                    if _integer_width(key_type) is None:
                         raise QueueFrontendError(
                             "ACPY-TABLE-007: choose key must lower to an integer"
                         )
@@ -2255,7 +2297,7 @@ def lower_queue_program(
                     helpers=helpers,
                 )
                 selector, selector_type = emitter.emit(select.selector)
-                if _epoch_05_integer_width(selector_type) is None:
+                if _integer_width(selector_type) is None:
                     raise QueueFrontendError(
                         "ACPY-QUEUE-018: select key must lower to an integer"
                     )
@@ -2298,7 +2340,7 @@ def lower_queue_program(
                     helpers=helpers,
                 )
                 selector, selector_type = emitter.emit(route.selector)
-                if route.boolean_selector and not _is_epoch_05_bool_compatible(
+                if route.boolean_selector and not _is_bool_like(
                     selector_type
                 ):
                     raise QueueFrontendError(
@@ -2374,9 +2416,9 @@ def lower_queue_program(
                 )
                 condition, condition_type = emitter.emit(feedback.condition)
                 update, update_type = emitter.emit(feedback.update)
-                if not _is_epoch_05_bool_compatible(
+                if not _is_bool_like(
                     condition_type
-                ) or not _types_equal_in_epoch_05(update_type, incoming.payload):
+                ) or not _types_compatible(update_type, incoming.payload):
                     raise QueueFrontendError(
                         "ACPY-QUEUE-007: while condition must be bool and update "
                         "must preserve Queue payload"
@@ -2418,7 +2460,7 @@ def lower_queue_program(
                     helpers=helpers,
                 )
                 key, key_type = emitter.emit(reorder.key)
-                if _epoch_05_integer_width(key_type) is None:
+                if _integer_width(key_type) is None:
                     raise QueueFrontendError(
                         "ACPY-QUEUE-013: reorder key must lower to an integer"
                     )
@@ -2466,16 +2508,16 @@ def lower_queue_program(
                         helpers=helpers,
                     )
                     value, value_type = emitter.emit(expression)
-                    if _epoch_05_integer_width(value_type) is None:
+                    if _integer_width(value_type) is None:
                         raise QueueFrontendError(
                             "ACPY-QUEUE-014: dependency policies must lower to integers"
                         )
                     emitted.append((value, value_type, emitter.lines))
-                if not _types_equal_in_epoch_05(emitted[0][1], emitted[1][1]):
+                if not _types_compatible(emitted[0][1], emitted[1][1]):
                     raise QueueFrontendError(
                         "ACPY-QUEUE-014: key and waits_for types must match"
                     )
-                key_width = _epoch_05_integer_width(emitted[0][1])
+                key_width = _integer_width(emitted[0][1])
                 if dependency.provider == "schedule" and (
                     not isinstance(emitted[0][1], BitsType)
                     or not isinstance(emitted[1][1], BitsType)
@@ -2541,7 +2583,7 @@ def lower_queue_program(
                     helpers=helpers,
                 )
                 cost, cost_type = emitter.emit(credit.cost)
-                if _epoch_05_integer_width(cost_type) is None:
+                if _integer_width(cost_type) is None:
                     raise QueueFrontendError(
                         "ACPY-QUEUE-016: credit cost must lower to an integer"
                     )
@@ -2593,15 +2635,15 @@ def lower_queue_program(
                     )
                     value, value_type = emitter.emit(expression)
                     emitted.append((value, value_type, emitter.lines))
-                if _epoch_05_integer_width(emitted[0][1]) is None:
+                if _integer_width(emitted[0][1]) is None:
                     raise QueueFrontendError(
                         "ACPY-QUEUE-015: memory address must lower to an integer"
                     )
-                if not _is_epoch_05_bool_compatible(emitted[1][1]):
+                if not _is_bool_like(emitted[1][1]):
                     raise QueueFrontendError(
                         "ACPY-QUEUE-015: memory write must lower to bool"
                     )
-                if not _types_equal_in_epoch_05(emitted[2][1], instance.data_type):
+                if not _types_compatible(emitted[2][1], instance.data_type):
                     raise QueueFrontendError(
                         "ACPY-QUEUE-015: memory data must match result_field"
                     )
@@ -2694,7 +2736,7 @@ def lower_queue_program(
                 condition, condition_type = when_emitter.emit(read.when, BoolType())
                 if not isinstance(
                     address_type, BitsType
-                ) or not _is_epoch_05_bool_compatible(condition_type):
+                ) or not _is_bool_like(condition_type):
                     raise QueueFrontendError(
                         "ACPY-TABLE-003: read address/when type mismatch"
                     )
@@ -2811,9 +2853,9 @@ def lower_queue_program(
                     )
                     value, value_type = value_emitter.emit(patch_call, table.entry_type)
                 if (
-                    _epoch_05_integer_width(address_type) is None
-                    or not _is_epoch_05_bool_compatible(enable_type)
-                    or not _types_equal_in_epoch_05(value_type, table.entry_type)
+                    _integer_width(address_type) is None
+                    or not _is_bool_like(enable_type)
+                    or not _types_compatible(value_type, table.entry_type)
                 ):
                     raise QueueFrontendError(
                         "ACPY-TABLE-004: write address/enable/value type mismatch"
@@ -2955,8 +2997,8 @@ def lower_queue_program(
                     value, value_type = value_emitter.emit(patch_call, table.entry_type)
                 if (
                     mask_type != BitsType(candidate.entries)
-                    or not _is_epoch_05_bool_compatible(enable_type)
-                    or not _types_equal_in_epoch_05(value_type, table.entry_type)
+                    or not _is_bool_like(enable_type)
+                    or not _types_compatible(value_type, table.entry_type)
                 ):
                     raise QueueFrontendError(
                         "ACPY-TABLE-008: masked write mask/enable/value type mismatch"
@@ -3032,7 +3074,7 @@ def lower_queue_program(
                     helpers=helpers,
                 )
                 condition, condition_type = emitter.emit(release.when, BoolType())
-                if not _is_epoch_05_bool_compatible(condition_type):
+                if not _is_bool_like(condition_type):
                     raise QueueFrontendError(
                         "ACPY-SLOT-002: slot release condition must lower to i1"
                     )
@@ -3085,7 +3127,7 @@ def lower_queue_program(
                     helpers=helpers,
                 )
                 condition, condition_type = emitter.emit(expectation.predicate)
-                if not _is_epoch_05_bool_compatible(condition_type):
+                if not _is_bool_like(condition_type):
                     raise QueueFrontendError(
                         "ACPY-QUEUE-021: expect predicate must lower to bool"
                     )

@@ -2,12 +2,16 @@
 #include "acir/CodeGen/QueueGraphPlan.h"
 #include "acir/CodeGen/QueueGraphPyc.h"
 #include "acir/InitAllDialects.h"
+#include "acir/Transforms/Passes.h"
 
 #include "mlir/IR/DialectRegistry.h"
 #include "mlir/IR/MLIRContext.h"
+#include "mlir/IR/Verifier.h"
+#include "mlir/Pass/PassManager.h"
 #include "mlir/Parser/Parser.h"
 #include "llvm/ADT/SmallString.h"
 #include "llvm/ADT/SmallVector.h"
+#include "llvm/ADT/STLExtras.h"
 #include "llvm/ADT/StringRef.h"
 #include "llvm/ADT/Twine.h"
 #include "llvm/Support/Error.h"
@@ -17,13 +21,17 @@
 #include "llvm/Support/raw_ostream.h"
 
 #include <cstdlib>
+#include <algorithm>
+#include <map>
+#include <optional>
+#include <set>
 #include <string>
 #include <system_error>
 #include <vector>
 
 namespace {
 
-enum class EmitMode { None, Cpp, CppBundle, Verilog };
+enum class EmitMode { None, Verify, Cpp, CppBundle, Verilog };
 
 struct Options {
   std::string input;
@@ -46,7 +54,9 @@ void printHelp(llvm::StringRef program) {
   llvm::outs() << "usage: " << program
                << " -c INPUT.ac EMIT_MODE -o OUTPUT\n"
                   "\n"
-                  "  -c INPUT.ac          verified ACIR input\n"
+                  "  -c INPUT.ac          linked AC package directory; a single\n"
+                  "                       non-hierarchical AC unit is also accepted\n"
+                  "  -verify              verify and link without backend output\n"
                   "  -emit-cpp            emit one concatenated C++ file\n"
                   "  -emit-cpp-bundle     emit the deterministic model bundle\n"
                   "  -emit-verilog        emit one Verilog file through pycc\n"
@@ -74,10 +84,13 @@ llvm::Expected<Options> parseOptions(int argc, char **argv) {
       destination = value.str();
       continue;
     }
-    if (argument == "-emit-cpp" || argument == "-emit-cpp-bundle" ||
+    if (argument == "-verify" || argument == "-emit-cpp" ||
+        argument == "-emit-cpp-bundle" ||
         argument == "-emit-verilog") {
       EmitMode requested = EmitMode::Verilog;
-      if (argument == "-emit-cpp")
+      if (argument == "-verify")
+        requested = EmitMode::Verify;
+      else if (argument == "-emit-cpp")
         requested = EmitMode::Cpp;
       else if (argument == "-emit-cpp-bundle")
         requested = EmitMode::CppBundle;
@@ -91,8 +104,10 @@ llvm::Expected<Options> parseOptions(int argc, char **argv) {
 
   if (options.input.empty())
     return accError("-c INPUT.ac is required");
-  if (options.output.empty())
+  if (options.mode != EmitMode::Verify && options.output.empty())
     return accError("-o OUTPUT is required");
+  if (options.mode == EmitMode::Verify && !options.output.empty())
+    return accError("-verify does not accept -o");
   if (options.mode == EmitMode::None)
     return accError("exactly one emit mode is required");
   return options;
@@ -115,6 +130,279 @@ llvm::Error requireAbsent(llvm::StringRef output) {
     return llvm::createStringError(
         std::make_error_code(std::errc::file_exists),
         "output already exists; refusing a partial replacement");
+  return llvm::Error::success();
+}
+
+llvm::Expected<mlir::OwningOpRef<mlir::ModuleOp>>
+parseSingleUnit(llvm::StringRef path, mlir::MLIRContext &context,
+                bool verifyAfterParse) {
+  mlir::ParserConfig config(&context, verifyAfterParse);
+  auto module = mlir::parseSourceFile<mlir::ModuleOp>(path, config);
+  if (!module)
+    return accError(llvm::Twine("AC unit parsing failed: ") + path);
+  return module;
+}
+
+llvm::Expected<mlir::OwningOpRef<mlir::ModuleOp>>
+loadAcInput(llvm::StringRef input, mlir::MLIRContext &context) {
+  if (!llvm::sys::fs::is_directory(input)) {
+    auto module = parseSingleUnit(input, context, true);
+    if (!module)
+      return module.takeError();
+    unsigned definitions = 0;
+    bool hasSystem = false;
+    std::optional<std::string> sourceFile;
+    bool mixedSources = false;
+    (*module)->walk([&](mlir::Operation *operation) {
+      llvm::StringRef name = operation->getName().getStringRef();
+      hasSystem |= name == "ac.system";
+      if (name != "ac.module")
+        return;
+      ++definitions;
+      auto source = operation->getAttrOfType<mlir::StringAttr>("ac.source_file");
+      if (!source || source.getValue().empty()) {
+        mixedSources = true;
+        return;
+      }
+      if (!sourceFile)
+        sourceFile = source.getValue().str();
+      else if (*sourceFile != source.getValue())
+        mixedSources = true;
+    });
+    if (definitions > 1 && (hasSystem || mixedSources))
+      return accError(
+          "structured input requires a directory-backed AC package; "
+          "a standalone AC source unit may contain multiple definitions only "
+          "when they share one ac.source_file");
+    return module;
+  }
+
+  std::error_code error;
+  llvm::SmallVector<std::string> files;
+  for (llvm::sys::fs::recursive_directory_iterator iterator(input, error), end;
+       iterator != end && !error; iterator.increment(error)) {
+    llvm::StringRef path = iterator->path();
+    llvm::sys::fs::file_status status;
+    if (std::error_code statusError = llvm::sys::fs::status(path, status, false))
+      return llvm::createStringError(statusError,
+                                     "cannot inspect AC package unit");
+    if (llvm::sys::fs::is_symlink_file(status))
+      return accError("AC package must not contain symlinks");
+    if (llvm::sys::fs::is_directory(status))
+      continue;
+    if (!llvm::sys::fs::is_regular_file(status) ||
+        llvm::sys::path::extension(path) != ".ac")
+      return accError("AC package may contain only .ac files and directories");
+    files.push_back(path.str());
+  }
+  if (error)
+    return llvm::createStringError(error, "cannot enumerate AC package");
+  llvm::sort(files);
+
+  llvm::SmallString<256> legacyRootPath(input);
+  llvm::sys::path::append(legacyRootPath, "root.ac");
+  llvm::SmallString<256> legacySharedPath(input);
+  llvm::sys::path::append(legacySharedPath, "shared", "types.ac");
+  if (llvm::is_contained(files, legacyRootPath.str().str()) ||
+      llvm::is_contained(files, legacySharedPath.str().str()))
+    return accError(
+        "legacy root.ac/shared AC units are forbidden; use core.ac and "
+        "interface/types.ac");
+
+  llvm::SmallString<256> corePath(input);
+  llvm::sys::path::append(corePath, "core.ac");
+  if (!llvm::is_contained(files, corePath.str().str()))
+    return accError("AC package requires core.ac");
+
+  auto core = parseSingleUnit(corePath, context, false);
+  if (!core)
+    return core.takeError();
+  auto coreKind = (*core)->getOperation()->getAttrOfType<mlir::StringAttr>(
+      "ac.unit_kind");
+  if (!coreKind || coreKind.getValue() != "core")
+    return accError("core.ac requires ac.unit_kind = \"core\"");
+  std::set<std::string> sourceOwners;
+  std::set<std::string> interfaceOwners;
+  struct ModuleHeader {
+    mlir::FunctionType functionType;
+    mlir::DictionaryAttr staticParams;
+    std::string source;
+  };
+  std::map<std::string, ModuleHeader> moduleHeaders;
+  std::set<std::string> sourceDefinitions;
+  acir::ac::TypeScopeOp linkedTypeScope;
+  for (const std::string &path : files) {
+    if (path == corePath)
+      continue;
+    auto unit = parseSingleUnit(path, context, false);
+    if (!unit)
+      return unit.takeError();
+    auto kind = (*unit)->getOperation()->getAttrOfType<mlir::StringAttr>(
+        "ac.unit_kind");
+    if (!kind)
+      return accError("non-core AC unit requires ac.unit_kind");
+    if (kind.getValue() == "interface") {
+      auto owner = (*unit)->getOperation()->getAttrOfType<mlir::StringAttr>(
+          "ac.unit_source");
+      if (!owner || owner.getValue().empty())
+        return accError("interface AC unit requires ac.unit_source");
+      auto interfaceKind =
+          (*unit)->getOperation()->getAttrOfType<mlir::StringAttr>(
+              "ac.interface_kind");
+      if (!interfaceKind || interfaceKind.getValue().empty())
+        return accError("interface AC unit requires ac.interface_kind");
+      std::string interfaceIdentity =
+          (interfaceKind.getValue() + ":" + owner.getValue()).str();
+      if (!interfaceOwners.insert(interfaceIdentity).second)
+        return accError(
+            "Python interface source is published by more than one AC unit");
+      if (interfaceKind.getValue() == "types" ||
+          interfaceKind.getValue() == "layouts") {
+        acir::ac::TypeScopeOp sourceTypeScope;
+        for (mlir::Operation &operation : (*unit)->getBody()->getOperations()) {
+          auto candidate = mlir::dyn_cast<acir::ac::TypeScopeOp>(operation);
+          if (!candidate || sourceTypeScope)
+            return accError(
+                "type interface AC unit requires exactly one ac.type_scope");
+          sourceTypeScope = candidate;
+        }
+        for (mlir::Operation &definition : sourceTypeScope.getBody().front()) {
+          auto source = definition.getAttrOfType<mlir::StringAttr>(
+              "ac.source_file");
+          if (interfaceKind.getValue() != "layouts" &&
+              (!source || source != owner))
+            return accError(
+                "interface AC unit contains a type owned by another Python file");
+        }
+        if (!linkedTypeScope) {
+          (*core)->getBody()->getOperations().splice(
+              (*core)->getBody()->begin(), (*unit)->getBody()->getOperations(),
+              sourceTypeScope->getIterator());
+          linkedTypeScope = sourceTypeScope;
+        } else {
+          if (auto layout = sourceTypeScope->getAttr("dlti.dl_spec"))
+            linkedTypeScope->setAttr("dlti.dl_spec", layout);
+          linkedTypeScope.getBody().front().getOperations().splice(
+              linkedTypeScope.getBody().front().end(),
+              sourceTypeScope.getBody().front().getOperations());
+        }
+      } else if (interfaceKind.getValue() == "modules") {
+        for (mlir::Operation &operation : (*unit)->getBody()->getOperations()) {
+          auto import = mlir::dyn_cast<acir::ac::ModuleImportOp>(operation);
+          if (!import)
+            return accError(
+                "module interface AC unit may contain only module imports");
+          auto source = import.getBinding().getAs<mlir::StringAttr>("source");
+          if (!source || source.getValue().empty() || source != owner)
+            return accError(
+                "module interface source must match its ac.unit_source");
+          ModuleHeader header{import.getFunctionType(), import.getStaticParams(),
+                              source.getValue().str()};
+          if (!moduleHeaders
+                   .emplace(import.getSymName().str(), std::move(header))
+                   .second)
+            return accError("module definition is published by more than one "
+                            "interface header");
+        }
+        (*core)->getBody()->getOperations().splice(
+            (*core)->getBody()->begin(), (*unit)->getBody()->getOperations());
+      } else {
+        return accError("interface AC unit has unknown ac.interface_kind");
+      }
+      continue;
+    } else if (kind.getValue() == "source") {
+      auto owner = (*unit)->getOperation()->getAttrOfType<mlir::StringAttr>(
+          "ac.unit_source");
+      if (!owner || owner.getValue().empty())
+        return accError("source AC unit requires ac.unit_source");
+      if (!sourceOwners.insert(owner.getValue().str()).second)
+        return accError("Python source is published by more than one AC unit");
+      unsigned definitions = 0;
+      for (mlir::Operation &operation : (*unit)->getBody()->getOperations()) {
+        llvm::StringRef operationName = operation.getName().getStringRef();
+        if (operationName != "ac.module" && operationName != "func.func")
+          return accError(
+              "source AC unit may contain only modules and pure helpers");
+        if (operationName == "ac.module") {
+          ++definitions;
+          auto definition = mlir::cast<acir::ac::ModuleOp>(operation);
+          if (!sourceDefinitions.insert(definition.getSymName().str()).second)
+            return accError("module definition is published by more than one "
+                            "source AC unit");
+        }
+        auto source = operation.getAttrOfType<mlir::StringAttr>(
+            "ac.source_file");
+        if (!source || source != owner)
+          return accError(
+              "source AC unit contains a definition owned by another Python file");
+      }
+      if (!definitions)
+        return accError("source AC unit must contain at least one definition");
+    } else {
+      return accError("non-core AC unit has unknown ac.unit_kind");
+    }
+    (*core)->getBody()->getOperations().splice(
+        (*core)->getBody()->begin(), (*unit)->getBody()->getOperations());
+  }
+  std::map<std::string, acir::ac::ModuleOp> linkedDefinitions;
+  for (acir::ac::ModuleOp definition : (*core)->getOps<acir::ac::ModuleOp>())
+    linkedDefinitions.emplace(definition.getSymName().str(), definition);
+  for (const std::string &symbol : sourceDefinitions) {
+    auto definition = linkedDefinitions.find(symbol);
+    if (definition == linkedDefinitions.end())
+      return accError("source AC unit definition disappeared before linking");
+    auto header = moduleHeaders.find(symbol);
+    if (header == moduleHeaders.end())
+      return accError("source AC unit requires one matching module interface "
+                      "header for '" +
+                      symbol + "'");
+    auto actualSource = definition->second->getAttrOfType<mlir::StringAttr>(
+        "ac.source_file");
+    if (header->second.functionType != definition->second.getFunctionType() ||
+        header->second.staticParams != definition->second.getStaticParams())
+      return accError("module interface header signature mismatch for '" +
+                      symbol + "'");
+    if (!actualSource || actualSource.getValue() != header->second.source)
+      return accError("module interface header source mismatch for '" + symbol +
+                      "'");
+  }
+  for (const auto &[symbol, header] : moduleHeaders)
+    if (!sourceDefinitions.contains(symbol))
+      return accError("module interface header has no matching source "
+                      "definition for '" +
+                      symbol + "'");
+  for (acir::ac::ModuleImportOp import : llvm::make_early_inc_range(
+           (*core)->getOps<acir::ac::ModuleImportOp>())) {
+    auto found = linkedDefinitions.find(import.getSymName().str());
+    if (found == linkedDefinitions.end())
+      return accError("unresolved module import '" + import.getSymName() + "'");
+    acir::ac::ModuleOp definition = found->second;
+    if (import.getFunctionType() != definition.getFunctionType() ||
+        import.getStaticParams() != definition.getStaticParams())
+      return accError("module import signature mismatch for '" +
+                      import.getSymName() + "'");
+    auto expectedSource = import.getBinding().getAs<mlir::StringAttr>("source");
+    auto actualSource =
+        definition->getAttrOfType<mlir::StringAttr>("ac.source_file");
+    if (!expectedSource || expectedSource != actualSource)
+      return accError("module import source mismatch for '" +
+                      import.getSymName() + "'");
+    import.erase();
+  }
+  if (mlir::failed(mlir::verify(**core)))
+    return accError("linked AC package verification failed");
+  return core;
+}
+
+llvm::Error lowerLinkedPackage(mlir::ModuleOp module) {
+  mlir::PassManager manager(module.getContext());
+  acir::addRuleLoweringPipeline(manager);
+  manager.addPass(acir::createNormalizeACIRFilePass());
+  manager.addPass(acir::createFreezeTopologyPass());
+  if (mlir::failed(manager.run(module)))
+    return accError("linked High ACIR lowering failed");
+  if (mlir::failed(mlir::verify(module)))
+    return accError("lowered AC package verification failed");
   return llvm::Error::success();
 }
 
@@ -312,11 +600,15 @@ int main(int argc, char **argv) {
   mlir::DialectRegistry registry;
   acir::registerAllDialects(registry);
   mlir::MLIRContext context(registry);
-  auto module = mlir::parseSourceFile<mlir::ModuleOp>(options->input, &context);
+  auto module = loadAcInput(options->input, context);
   if (!module)
-    return fail(accError("verified ACIR parsing failed"));
+    return fail(module.takeError());
+  if (auto error = lowerLinkedPackage(**module))
+    return fail(std::move(error));
+  if (options->mode == EmitMode::Verify)
+    return EXIT_SUCCESS;
 
-  auto plan = acir::codegen::buildQueueGraphPlan(*module);
+  auto plan = acir::codegen::buildQueueGraphPlan(**module);
   if (!plan)
     return fail(plan.takeError());
 
@@ -338,9 +630,7 @@ int main(int argc, char **argv) {
     return EXIT_SUCCESS;
   }
 
-  auto bundle = acir::codegen::generateQueueGraphModelBundle(
-      *plan, {.sdkProductVersion = ACC_SDK_PRODUCT_VERSION,
-              .sdkSourceRevision = ACC_SDK_SOURCE_REVISION});
+  auto bundle = acir::codegen::generateQueueGraphModelBundle(*plan);
   if (!bundle)
     return fail(bundle.takeError());
   if (auto error = writeBundleAtomically(options->output, *bundle))

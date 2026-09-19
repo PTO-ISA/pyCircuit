@@ -130,6 +130,38 @@ def pipeline(left: ac.u8, right: ac.u8) -> tuple[ac.u8, ac.u8]:
         self.assertGreaterEqual(text.count("func.call @add_one"), 2)
         self.assertIn("func.call @forced", text)
 
+    def test_rule_backed_modules_emit_reused_helper_definition_once(self) -> None:
+        source = """
+import agentic_circuit as ac
+
+def add_one(value: ac.u8) -> ac.u8:
+    return value + 1
+
+@ac.rule
+def transform(value):
+    return add_one(value)
+
+@ac.module
+def left_stage(value: ac.u8) -> ac.u8:
+    result = transform(value)
+    return result
+
+@ac.module
+def right_stage(value: ac.u8) -> ac.u8:
+    result = transform(value)
+    return result
+
+@ac.system
+def pipeline(left: ac.u8, right: ac.u8) -> tuple[ac.u8, ac.u8]:
+    left_result = left_stage(left)
+    right_result = right_stage(right)
+    return left_result, right_result
+"""
+        text = lower_queue_source(source, "pipeline")
+        self.assertEqual(1, text.count("func.func private @add_one"))
+        self.assertNotIn("func.call @add_one", text)
+        self.assertGreaterEqual(text.count("ac.var.add"), 2)
+
     def test_helper_rejects_undefined_branch_local_and_wrong_result(self) -> None:
         undefined = """
 import agentic_circuit as ac

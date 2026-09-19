@@ -31,7 +31,7 @@ from .statement_common import (
     _queue_reference,
 )
 from .static_types import (
-    _epoch_05_integer_width,
+    _integer_width,
     _nonnegative_int_value,
     _payload,
     _positive_int_value,
@@ -166,7 +166,7 @@ def _memory_instance_binding(
         environment.enum_map,
         static_values=environment.type_static_values,
     )
-    if _epoch_05_integer_width(data_type) is None:
+    if _integer_width(data_type) is None:
         raise QueueFrontendError("ACPY-QUEUE-015: memory data type must be an integer")
     values = environment.static_values if static_values is None else static_values
     entries = _positive_int_value(call, "entries", 16, values)

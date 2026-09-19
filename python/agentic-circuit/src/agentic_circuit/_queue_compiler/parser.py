@@ -109,7 +109,7 @@ from .static_types import (
     _contains_declared_range,
     _dependent_static_type_expression,
     _enums,
-    _is_epoch_05_bool_compatible,
+    _is_bool_like,
     _module_static_values,
     _nonnegative_int_value,
     _payload,
@@ -2905,7 +2905,7 @@ def parse_queue_program(
                     enum_types=enum_map,
                     bitfields=bitfield_map,
                 ).emit(condition)
-                if not _is_epoch_05_bool_compatible(condition_type):
+                if not _is_bool_like(condition_type):
                     raise QueueFrontendError(
                         "ACPY-QUEUE-011: runtime if condition must lower to bool"
                     )
@@ -4810,7 +4810,7 @@ def parse_queue_program(
             token[6:]
             for check in all_static_checks
             for token in check.program
-            if token.startswith("param:")
+            if token[:6] == "param:"
         },
         binding_namespace=static_type_namespace,
     )

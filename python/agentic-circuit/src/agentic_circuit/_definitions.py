@@ -10,6 +10,7 @@ from typing import Callable, Literal, TypeAlias, TypeVar, overload
 DefinitionKind: TypeAlias = Literal[
     "system",
     "module",
+    "module_decl",
     "extern_module",
     "struct",
     "packet",
@@ -130,9 +131,10 @@ def _decorate(
     return apply(function) if function is not None else apply
 
 
-def system(function: F | None = None, **options: object):
+def _visible_annotation_types() -> tuple[tuple[str, type[object]], ...]:
     frame = inspect.currentframe()
-    caller = None if frame is None else frame.f_back
+    decorator = None if frame is None else frame.f_back
+    caller = None if decorator is None else decorator.f_back
     visible: dict[str, object] = {}
     if caller is not None:
         visible.update(caller.f_globals)
@@ -143,17 +145,38 @@ def system(function: F | None = None, **options: object):
         )
     )
     del frame
+    del decorator
     del caller
+    return annotation_types
+
+
+def system(function: F | None = None, **options: object):
     return _decorate(
         "system",
         function,
-        _annotation_types=annotation_types,
+        _annotation_types=_visible_annotation_types(),
         **options,
     )
 
 
 def module(function: F | None = None, **options: object):
-    return _decorate("module", function, **options)
+    return _decorate(
+        "module",
+        function,
+        _annotation_types=_visible_annotation_types(),
+        **options,
+    )
+
+
+def module_decl(function: F | None = None, **options: object):
+    """Declare a separately compiled module without providing its body."""
+
+    return _decorate(
+        "module_decl",
+        function,
+        _annotation_types=_visible_annotation_types(),
+        **options,
+    )
 
 
 def extern_module(function: F | None = None, **options: object):

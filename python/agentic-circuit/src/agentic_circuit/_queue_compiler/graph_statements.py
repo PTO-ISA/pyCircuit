@@ -34,7 +34,7 @@ from .statement_common import (
     _positive_int,
     _queue_reference,
 )
-from .static_types import _types_equal_in_epoch_05
+from .static_types import _types_compatible
 
 
 def _handle_merge(
@@ -64,7 +64,7 @@ def _handle_merge(
             )
         payload = state.by_name[inputs[0]].payload
         if any(
-            not _types_equal_in_epoch_05(state.by_name[input_name].payload, payload)
+            not _types_compatible(state.by_name[input_name].payload, payload)
             for input_name in inputs
         ):
             raise QueueFrontendError("ACPY-QUEUE-008: merge Queue payloads must match")
@@ -305,7 +305,7 @@ def _handle_select(
             )
         payload = state.by_name[inputs[0]].payload
         if any(
-            not _types_equal_in_epoch_05(state.by_name[input_name].payload, payload)
+            not _types_compatible(state.by_name[input_name].payload, payload)
             for input_name in inputs
         ):
             raise QueueFrontendError(

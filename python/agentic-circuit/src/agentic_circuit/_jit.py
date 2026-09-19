@@ -393,9 +393,14 @@ class JitSpecialization:
     def lower_acir(self) -> str:
         """Materialize the specialization as Queue/Var ACIR text."""
 
-        from ._queue_frontend import lower_queue_source
+        from ._queue_frontend import lower_module_source, lower_queue_source
 
-        return lower_queue_source(
+        lower = (
+            lower_module_source
+            if self.definition.kind == "module"
+            else lower_queue_source
+        )
+        return lower(
             self._source(),
             self.definition.__name__,
             static_arguments=dict(self.arguments),
@@ -405,6 +410,60 @@ class JitSpecialization:
             source_node_locations=self._source_node_locations(),
             definition_ndf=self._definition_ndf_metadata(),
         )
+
+
+def lower_source_unit(
+    specializations: tuple[JitSpecialization, ...],
+) -> str:
+    """Lower one source-owned set of module specializations in one session."""
+
+    if not specializations:
+        raise DiagnosticTypeError("ACPY-JIT-003: source unit requires specializations")
+    first = specializations[0]
+    if first.definition.kind != "module" or first.definition.source_file is None:
+        raise DiagnosticTypeError(
+            "ACPY-JIT-003: source unit entries must be authored @ac.module definitions"
+        )
+    source_file = Path(first.definition.source_file).resolve()
+    definition_name = first.definition.__name__
+    identities: set[tuple[str, tuple[tuple[str, StaticValue], ...]]] = set()
+    for specialization in specializations:
+        definition = specialization.definition
+        if (
+            definition.kind != "module"
+            or definition.source_file is None
+            or Path(definition.source_file).resolve() != source_file
+            or definition.__name__ != definition_name
+        ):
+            raise DiagnosticTypeError(
+                "ACPY-JIT-003: a source unit contains specializations of exactly "
+                "one public module"
+            )
+        if specialization.workspace != first.workspace or specialization.sources != first.sources:
+            raise DiagnosticTypeError(
+                "ACPY-JIT-003: source-unit entries must share one captured closure"
+            )
+        identity = (definition.__name__, specialization.arguments)
+        if identity in identities:
+            raise DiagnosticTypeError(
+                "ACPY-JIT-003: source-unit specialization is duplicated"
+            )
+        identities.add(identity)
+
+    from ._queue_frontend import lower_source_unit as lower
+
+    return lower(
+        first._source(),
+        tuple(
+            (item.definition.__name__, item.arguments)
+            for item in specializations
+        ),
+        source_path=first._display_source_path(),
+        definition_locations=first._definition_locations(),
+        static_assert_locations=first._static_assert_locations(),
+        source_node_locations=first._source_node_locations(),
+        definition_ndf=first._definition_ndf_metadata(),
+    )
 
 
 def jit(
@@ -422,8 +481,10 @@ def jit(
     boundaries are inferred by downstream lowering.
     """
 
-    if not isinstance(system, Definition) or system.kind != "system":
-        raise DiagnosticTypeError("ACPY-JIT-001: jit requires an @ac.system definition")
+    if not isinstance(system, Definition) or system.kind not in {"system", "module"}:
+        raise DiagnosticTypeError(
+            "ACPY-JIT-001: jit requires an @ac.system or @ac.module definition"
+        )
     signature = inspect.signature(system.function)
     if "workspace" in signature.parameters:
         raise DiagnosticTypeError(

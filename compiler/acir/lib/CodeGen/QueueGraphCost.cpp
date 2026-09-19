@@ -25,17 +25,6 @@ llvm::Error costError(const llvm::Twine &message) {
       "ACLOWER-QUEUE-COST: " + message);
 }
 
-bool isLowerHex(llvm::StringRef value) {
-  return llvm::all_of(value, [](char character) {
-    return (character >= '0' && character <= '9') ||
-           (character >= 'a' && character <= 'f');
-  });
-}
-
-bool isRevision(llvm::StringRef value) {
-  return value.size() == 40 && isLowerHex(value);
-}
-
 std::optional<uint64_t> integerWidth(llvm::StringRef type) {
   if (!type.consume_front("i"))
     return std::nullopt;
@@ -562,15 +551,10 @@ moduleCost(const QueueGraphPlan &plan, llvm::StringRef instancePath,
 
 } // namespace
 
-llvm::Expected<std::string> generateQueueGraphCostReport(
-    const QueueGraphPlan &plan, llvm::StringRef sdkProductVersion,
-    llvm::StringRef sdkSourceRevision) {
+llvm::Expected<std::string>
+generateQueueGraphCostReport(const QueueGraphPlan &plan) {
   if (auto error = verifyQueueGraphPlan(plan))
     return std::move(error);
-  if (sdkProductVersion.empty())
-    return costError("SDK product version is required");
-  if (!isRevision(sdkSourceRevision))
-    return costError("SDK source revision must be 40 lowercase hex digits");
 
   uint64_t totalLogicalBits = 0;
   uint64_t totalCarrierBits = 0;
@@ -629,13 +613,11 @@ llvm::Expected<std::string> generateQueueGraphCostReport(
       {"runtime_heap_allocations", "not_modeled"},
       {"sizeof_payload_types", "not_modeled"}};
   llvm::json::Object identity{
-      {"product_version", sdkProductVersion},
       {"specialization",
        plan.specializationKey.empty()
            ? llvm::json::Value(nullptr)
            : llvm::json::Value(plan.specializationKey)},
-      {"system", plan.system},
-      {"toolchain_revision", sdkSourceRevision}};
+      {"system", plan.system}};
   llvm::json::Object models{
       {"logic_depth", "pyc_check_logic_depth_unit_cost"},
       {"runtime", "gfsim_generated_static_v1"}};

@@ -51,6 +51,7 @@ CAPTURE_ONLY = {
 RUNTIME = {
     "system",
     "module",
+    "module_decl",
     "extern_module",
     "struct",
     "packet",

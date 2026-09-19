@@ -246,7 +246,7 @@ def _proven_integer_in(value: int, lower: int, upper: int) -> bool:
     return prove_within(Constant(value), lower, upper)
 
 
-def _is_epoch_05_bool_compatible(value_type: ValueType) -> bool:
+def _is_bool_like(value_type: ValueType) -> bool:
     """Preserve the accepted current-contract i1 condition boundary.
 
     Bool and u1 retain distinct descriptor identities; this predicate exists
@@ -258,15 +258,15 @@ def _is_epoch_05_bool_compatible(value_type: ValueType) -> bool:
     )
 
 
-def _types_equal_in_epoch_05(left: ValueType, right: ValueType) -> bool:
+def _types_compatible(left: ValueType, right: ValueType) -> bool:
     """Compare semantic types at the current ACIR rendering boundary."""
 
     return left == right or (
-        _is_epoch_05_bool_compatible(left) and _is_epoch_05_bool_compatible(right)
+        _is_bool_like(left) and _is_bool_like(right)
     )
 
 
-def _epoch_05_integer_width(value_type: ValueType) -> int | None:
+def _integer_width(value_type: ValueType) -> int | None:
     """Return the width accepted by the current integer boundary."""
 
     from _pycircuit_semantics import RangeType
@@ -295,7 +295,7 @@ def _scalar_reset_init(value_type: ValueType, init: object, *, code: str) -> int
                 f"{code}: range state init is outside declared bounds"
             )
         return init
-    width = _epoch_05_integer_width(value_type)
+    width = _integer_width(value_type)
     if width is None:
         raise QueueFrontendError(f"{code}: persistent scalar init requires bits")
     if init < 0 or init >= (1 << width):
@@ -489,7 +489,7 @@ def _validate_static_config_roots(
             binding_namespace + binding.external_name,
         )
         if not any(
-            used == root or used.startswith(root + ".")
+            used == root or used[: len(root) + 1] == root + "."
             for used in used_roots
             for root in roots
         ):
@@ -743,7 +743,7 @@ def _type_static_values(
 def _primitive_integer_width(operation: str, value_type: ValueType) -> int:
     """Apply the shared exact-width contract for scalar value primitives."""
 
-    width = _epoch_05_integer_width(value_type)
+    width = _integer_width(value_type)
     if width is None:
         raise QueueFrontendError(
             "ACPY-VAR-003", f"{operation} operand must be an integer payload"

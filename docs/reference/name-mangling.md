@@ -68,7 +68,7 @@ Generated C++ module classes use the existing Pascal-style conversion:
 3. preserve the remaining alphanumeric characters;
 4. prefix `_` when the result is empty or starts with a digit.
 
-The selected system `davincioo_core` therefore becomes `DavinciooCore`.
+The selected system `davo_core` therefore becomes `DavoCore`.
 
 ### Module class and source-named file
 
@@ -116,9 +116,9 @@ and source-map artifacts.
 ## Examples
 
 ```text
-Python system:        davincioo_core
-ACIR system:          @davincioo_core
-C++ model class:      DavinciooCore
+Python system:        davo_core
+ACIR system:          @davo_core
+C++ model class:      DavoCore
 
 Python module:        alu_pipeline
 ACIR definition:      @alu_pipeline
@@ -145,11 +145,13 @@ using a generated symbol as semantic authority.
 
 ## `.ac` package boundary
 
-For structured systems, the two-stage compiler publishes a directory-backed
-`.ac` package. `root.ac` contains selected-system composition and explicit unit
-links; shared type/helper units are separate; every implemented H1/H2/H3 module
-owns one readable `.ac` file before backend codegen. Multiple typed
-specializations of one definition share that definition's unit.
+For structured systems, CMake invokes `acc.py` independently on every executable
+Python source. Each invocation publishes one source-named `.ac`; a separate core
+invocation compiles selected-system composition and explicit unit links.
+All definitions authored in one Python file share that source unit. Multiple
+typed specializations of a definition remain separate MLIR symbols inside it.
+The compiler never creates source units by splitting one previously compiled
+whole-system IR.
 
 Native `acc -c <package>.ac` links the units in memory, rejects missing or
 duplicate definitions and interface mismatches, then emits C++, a multi-TU C++
@@ -158,7 +160,9 @@ substitute for module linking. The package does not embed producer release
 identity; consumers pin the package release and exact Git `source_revision`
 out of band.
 
-Generated module source groups preserve AC ownership one-to-one and use the
-same readable stem. Root/shared glue is separate. Verilog follows the canonical
+Generated source groups preserve AC ownership one-to-one and use the same
+readable Python stem. `include/generated/dut.h` exposes the typed selected root
+for consumer-owned runners, while `model.h` keeps the generic lifecycle ABI.
+Both are hash-free and carry no embedded release identity. Core/interface glue is separate. Verilog follows the canonical
 linked ACIR -> PYC -> `pycc` path and remains fail-closed when hierarchy support
 is incomplete; flattening is not a compatibility workaround.

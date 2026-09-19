@@ -447,7 +447,7 @@ state effect 和 reusable module signature 中都保留 descriptor。expression 
 返回 `(SSA name, ValueType)`，所有 identity、width、enum、aggregate 和 field 检查
 直接使用 descriptor；只有 ACIR text renderer 才生成 MLIR spelling。C++ QueueGraph
 在解析并验证该 ACIR 边界之后才建立自己的字符串表示。`BoolType()` 与
-`BitsType(1)` 在前端保持不同身份；一组范围明确的 epoch-0.5 compatibility helper
+`BitsType(1)` 在前端保持不同身份；一组范围明确的 boundary-normalization helper
 仅用于保留已接受的 `i1` equality 与 integer-width 边界，真正的 bool/u1 hard
 break 仍需独立 decision。
 
@@ -1693,6 +1693,12 @@ c++ -std=c++20 -Isimulator/gfsim/include -fsyntax-only \
 每次 emission 的目标文件或目录必须尚不存在；ACC 不合并也不覆盖已有 bundle。
 安装目录中的 `acc` 与相邻的 `pycc` 必须来自同一个精确 pyCircuit revision。
 
+结构化 C++ bundle 用 `include/generated/dut.h` 暴露 typed root model，
+`include/generated/model.h` 只保留 opaque lifecycle ABI。生成的 CMake target
+必须把 generated include 与 gfsim public include 一并传播给 consumer。两个 header、
+生成 C++、source map 与 emitted-cost report 均不嵌入产品版本或 Git revision；release
+选择属于 IR 与 generated model 之外的外部流程。
+
 ## 明确禁止的写法
 
 ### 显式系统端口
@@ -1762,6 +1768,19 @@ transform，typed system 参数/结果生成内部边界，普通调用生成 `a
 module 的表达式 return 可以直接调用另一个 typed module。前端生成包含 child
 `ac.instance` 的 parent `ac.module`，既有 planning/codegen 保持 child-before-parent
 复用；Python 函数仍只返回普通值，不命名任何 hierarchy object。
+
+独立编译的 parent 只 import typed declaration。声明保持与实现完全一致的 runtime/static
+签名，显式绑定实现 source，并且没有实现正文：
+
+```python
+@ac.module_decl(source="pipeline/accumulator.py")
+def accumulator(value: ac.u8, *, width: ac.const[int] = 8) -> ac.u8:
+    ...
+```
+
+声明调用降为引用 `ac.module.import` 的 `ac.instance`。runtime 参数产生独立 instance；
+只有 typed `ac.const` 参数选择 specialization。child implementation 在自己的 source unit
+内独立编译和优化，并由同一次编译同时发布 implementation AC 与对应 interface header。
 
 stateful module 链支持一个或多个零初始化 scalar lexical variable，每个变量按 Python
 源码顺序赋值一次，并返回一个 typed expression：

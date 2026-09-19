@@ -31,7 +31,7 @@ from .model import (
 )
 from .static_types import (
     _constant_integer,
-    _is_epoch_05_bool_compatible,
+    _is_bool_like,
     _payload,
 )
 from .syntax import _decorator_name
@@ -228,7 +228,7 @@ def _invariant_definitions(
                 f"ACPY-INVARIANT-002: invariant {definition.qualified_name} "
                 f"for payload {definition.payload.name}: {error}"
             ) from error
-        if not _is_epoch_05_bool_compatible(result_type):
+        if not _is_bool_like(result_type):
             raise QueueFrontendError(
                 f"ACPY-INVARIANT-002: invariant {definition.qualified_name} "
                 f"for payload {definition.payload.name} must produce bool"
@@ -283,7 +283,15 @@ def _pure_helper_definitions(
 ) -> tuple[PureHelperDefinition, ...]:
     """Capture typed, state-free helpers as closed SSA-like expressions."""
 
-    architecture = {"system", "module", "extern_module", "process", "rule", "invariant"}
+    architecture = {
+        "system",
+        "module",
+        "module_decl",
+        "extern_module",
+        "process",
+        "rule",
+        "invariant",
+    }
     architecture_nodes = {
         node.name: node
         for node in tree.body

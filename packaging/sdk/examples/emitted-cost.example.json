@@ -6,10 +6,8 @@
     "sizeof_payload_types": "not_modeled"
   },
   "identity": {
-    "product_version": "6.1.0",
-    "static_arguments": {},
-    "system": "main",
-    "toolchain_revision": "e4485192727e27ac4d1de62bfdb6438fd878cdff"
+    "specialization": null,
+    "system": "main"
   },
   "models": {
     "logic_depth": "pyc_check_logic_depth_unit_cost",

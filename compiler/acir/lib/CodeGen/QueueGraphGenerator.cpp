@@ -2500,6 +2500,14 @@ generateStructuredQueueGraphCpp(const QueueGraphPlan &plan) {
         specialization->blocks.front().stateWrites.empty() &&
         specialization->blocks.front().stateReservations.empty() &&
         specialization->blocks.front().yields.size() == 1;
+    const bool emptyModule =
+        specialization && specialization->queues.empty() &&
+        specialization->interfaceInputs.empty() &&
+        specialization->interfaceOutputs.empty() &&
+        specialization->blocks.empty() && specialization->tables.empty() &&
+        specialization->memoryInstances.empty() &&
+        specialization->moduleInstances.empty() &&
+        specialization->scopes.empty();
     const bool nestedWrapper = specialization &&
                                specialization->blocks.empty() &&
                                specialization->tables.empty() &&
@@ -2513,7 +2521,7 @@ generateStructuredQueueGraphCpp(const QueueGraphPlan &plan) {
         specialization->scopes.size() == 1 &&
         specialization->blocks.front().scope == specialization->scopes.front();
     const bool localShape =
-        nestedWrapper || mixedNested ||
+        emptyModule || nestedWrapper || mixedNested ||
         (specialization && specialization->moduleInstances.empty() &&
          specialization->scopes.size() == 1 &&
          llvm::none_of(specialization->blocks,
@@ -2521,7 +2529,7 @@ generateStructuredQueueGraphCpp(const QueueGraphPlan &plan) {
                          return block.scope != specialization->scopes.front();
                        }));
     if (!specialization ||
-        (!pureTransform && !conditionalTransform && !firingModule &&
+        (!emptyModule && !pureTransform && !conditionalTransform && !firingModule &&
          !nestedWrapper && !mixedNested) ||
         !localShape || !specialization->memoryInstances.empty())
       return generatorError(
@@ -2560,7 +2568,7 @@ generateStructuredQueueGraphCpp(const QueueGraphPlan &plan) {
   llvm::StringMap<std::string> specializationClassNames;
   llvm::StringSet<> resolvedClassNames;
   for (const QueueGraphPlan *specialization : emissionOrder) {
-    std::string resolved = className(specialization->definition);
+    std::string resolved = className(specialization->sourceDefinition);
     for (const auto &[name, value] : specialization->specializationParameters)
       resolved.append("_")
           .append(legalizeQueueGraphIdentifier(name))
@@ -2582,14 +2590,14 @@ generateStructuredQueueGraphCpp(const QueueGraphPlan &plan) {
   llvm::StringMap<std::string> portableFileDefinitions;
   for (const QueueGraphPlan *specialization : emissionOrder) {
     const std::string fileStem =
-        legalizeQueueGraphIdentifier(specialization->definition);
+        legalizeQueueGraphIdentifier(specialization->sourceDefinition);
     std::string portableKey = fileStem;
     for (char &character : portableKey)
       if (character >= 'A' && character <= 'Z')
         character = static_cast<char>(character - 'A' + 'a');
     auto [entry, inserted] = portableFileDefinitions.try_emplace(
-        portableKey, specialization->definition);
-    if (!inserted && entry->getValue() != specialization->definition)
+        portableKey, specialization->sourceDefinition);
+    if (!inserted && entry->getValue() != specialization->sourceDefinition)
       return generatorError(
           "portable readable module file names collide; rename one Python "
           "definition");
@@ -3893,6 +3901,19 @@ generateStructuredQueueGraphCpp(const QueueGraphPlan &plan) {
                        : emitMixedNested(*specialization, implementation);
       if (error)
         return std::move(error);
+      if (auto error = recordModule())
+        return std::move(error);
+      continue;
+    }
+    if (specialization->blocks.empty()) {
+      output << "class " << implementation
+             << " final : public gfsim::Module {\npublic:\n  "
+             << implementation
+             << "(std::string name, gfsim::SimObject *parent)\n"
+                "      : gfsim::Module(std::move(name), "
+                "gfsim::kInvalidObjectId, parent) {}\n\n"
+                "  gfsim::DispatchRow dispatch_row(size_t) { return {}; }\n"
+                "};\n\n";
       if (auto error = recordModule())
         return std::move(error);
       continue;
@@ -6694,13 +6715,7 @@ llvm::Expected<std::string> generateQueueGraphCpp(const QueueGraphPlan &plan) {
 }
 
 llvm::Expected<std::vector<QueueGraphGeneratedFile>>
-generateQueueGraphModelBundle(const QueueGraphPlan &plan,
-                              const QueueGraphBundleOptions &options) {
-  if (options.sdkProductVersion.empty())
-    return generatorError("SDK product version is required");
-  if (options.sdkSourceRevision.empty())
-    return generatorError("SDK source revision is required");
-
+generateQueueGraphModelBundle(const QueueGraphPlan &plan) {
   std::optional<StructuredQueueGraphCpp> structured;
   std::string concatenated;
   if (!plan.definition.empty()) {
@@ -6719,15 +6734,7 @@ generateQueueGraphModelBundle(const QueueGraphPlan &plan,
   const std::string modelClass = className(plan.system);
   std::ostringstream queueGraphSource;
   if (structured && !structured->modules.empty()) {
-    queueGraphSource << "#include \"generated/modules/queuegraph_types.h\"\n";
-    llvm::StringSet<> included;
-    for (const auto &unit : structured->modules)
-      if (included.insert(unit.fileStem).second)
-        queueGraphSource << "#include \"generated/modules/" << unit.fileStem
-                         << ".h\"\n";
-    queueGraphSource << "\nnamespace ac_generated {\n\n"
-                     << structured->rootClass
-                     << "} // namespace ac_generated\n";
+    queueGraphSource << "#include \"generated/dut.h\"\n";
   } else {
     queueGraphSource << concatenated;
   }
@@ -7112,9 +7119,6 @@ AgenticModelStatusV1 lastError(AgenticModelV1 *model,
 
 const AgenticModelApiV1 api = {
     sizeof(AgenticModelApiV1), AGENTIC_MODEL_ABI_V1,
-)cpp";
-  modelSource << "    " << cppStringLiteral(options.sdkProductVersion) << ", "
-              << cppStringLiteral(options.sdkSourceRevision) << R"cpp(,
     createModel, destroyModel, configure, resetModel, stepModel, statistics,
     lastError};
 
@@ -7135,8 +7139,7 @@ agentic_model_query_v1(void) {
     return sourceMap.takeError();
   const std::string queueGraphBytes = *canonicalQueueGraph + "\n";
   const std::string sourceMapBytes = *sourceMap + "\n";
-  auto costReport = generateQueueGraphCostReport(
-      plan, options.sdkProductVersion, options.sdkSourceRevision);
+  auto costReport = generateQueueGraphCostReport(plan);
   if (!costReport)
     return costReport.takeError();
   result.push_back({"include/generated/model.h", modelHeader});
@@ -7227,11 +7230,43 @@ agentic_model_query_v1(void) {
       result.push_back(
           {"src/generated/modules/" + group.fileStem + ".cpp", source.str()});
     }
+    std::ostringstream dutHeader;
+    dutHeader << "#pragma once\n\n"
+                 "#include \"generated/modules/queuegraph_types.h\"\n";
+    llvm::StringSet<> includedDutModules;
+    for (const auto &unit : structured->modules)
+      if (includedDutModules.insert(unit.fileStem).second)
+        dutHeader << "#include \"generated/modules/" << unit.fileStem
+                  << ".h\"\n";
+    dutHeader << "\nnamespace ac_generated {\n\n"
+              << structured->rootClass << "} // namespace ac_generated\n";
+    result.push_back({"include/generated/dut.h", dutHeader.str()});
   }
   result.push_back({"share/generated/cost-report.json", *costReport + "\n"});
   result.push_back({"share/generated/source-map.json", sourceMapBytes});
   result.push_back({"src/generated/model.cpp", modelSource.str()});
   result.push_back({"src/generated/queuegraph.cpp", queueGraphSource.str()});
+  std::vector<std::string> generatedSources;
+  for (const QueueGraphGeneratedFile &file : result)
+    if (llvm::StringRef(file.relativePath).ends_with(".cpp"))
+      generatedSources.push_back(file.relativePath);
+  llvm::sort(generatedSources);
+  std::ostringstream cmake;
+  cmake << "cmake_minimum_required(VERSION 3.20)\n"
+           "project(ac_generated_model LANGUAGES CXX)\n\n"
+           "add_library(ac_generated_model STATIC\n";
+  for (const std::string &source : generatedSources)
+    cmake << "  " << source << "\n";
+  cmake << ")\n"
+           "target_compile_features(ac_generated_model PUBLIC cxx_std_20)\n"
+           "target_include_directories(ac_generated_model PUBLIC\n"
+           "  ${CMAKE_CURRENT_SOURCE_DIR}/include\n"
+           ")\n"
+           "find_path(AC_GFSIM_INCLUDE_DIR gfsim/core.h REQUIRED)\n"
+           "target_include_directories(ac_generated_model PUBLIC\n"
+           "  ${AC_GFSIM_INCLUDE_DIR}\n"
+           ")\n";
+  result.push_back({"CMakeLists.txt", cmake.str()});
   return result;
 }
 

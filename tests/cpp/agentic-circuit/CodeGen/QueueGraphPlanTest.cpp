@@ -209,8 +209,6 @@ void expectModelBundleObjectsRun(
     llvm::raw_fd_ostream output(path, error);
     ASSERT_FALSE(error);
     output << file.content;
-    if (file.relativePath == "src/generated/queuegraph.cpp")
-      output << queueGraphHarness;
     output.close();
     if (!llvm::StringRef(file.relativePath).ends_with(".cpp"))
       continue;
@@ -226,6 +224,16 @@ void expectModelBundleObjectsRun(
   }
   ASSERT_FALSE(sources.empty());
   ASSERT_FALSE(moduleClasses.empty());
+
+  llvm::SmallString<256> harness(directory);
+  llvm::sys::path::append(harness, "typed-dut-harness.cpp");
+  std::error_code harnessError;
+  llvm::raw_fd_ostream harnessOutput(harness, harnessError);
+  ASSERT_FALSE(harnessError);
+  harnessOutput << "#include \"generated/dut.h\"\n\n"
+                << queueGraphHarness;
+  harnessOutput.close();
+  sources.push_back(harness.str().str());
 
   std::vector<std::string> objects;
   for (auto [index, source] : llvm::enumerate(sources)) {
@@ -315,8 +323,7 @@ void expectModelBundleRuns(const std::vector<QueueGraphGeneratedFile> &bundle) {
 #include <string_view>
 int main() {
   const AgenticModelApiV1 *api = agentic_model_query_v1();
-  if (!api || api->struct_size != sizeof(*api) || api->abi_version != 1 ||
-      std::strcmp(api->sdk_product_version, "6.0.0") != 0)
+  if (!api || api->struct_size != sizeof(*api) || api->abi_version != 1)
     return 1;
   AgenticModelV1 *model = nullptr;
   if (api->create(&model) != AGENTIC_MODEL_STATUS_V1_OK || !model)
@@ -2163,9 +2170,7 @@ TEST(QueueGraphPlanTest, CppIdentityUsesReadableModuleNames) {
   auto single = generateQueueGraphCpp(*plan);
   ASSERT_TRUE(bool(single)) << llvm::toString(single.takeError());
   EXPECT_NE(single->find("class " + firstClass), std::string::npos);
-  auto singleBundle = generateQueueGraphModelBundle(
-      *plan, {.sdkProductVersion = "6.1.0",
-              .sdkSourceRevision = std::string(40, 'a')});
+  auto singleBundle = generateQueueGraphModelBundle(*plan);
   ASSERT_TRUE(bool(singleBundle)) << llvm::toString(singleBundle.takeError());
   const std::string firstHeaderPath = "include/generated/modules/Increment.h";
   const std::string firstSourcePath = "src/generated/modules/Increment.cpp";
@@ -2297,13 +2302,9 @@ int main() {
   executableSource.append(kHarness);
   expectCppRuns(executableSource);
 
-  auto bundle = generateQueueGraphModelBundle(
-      *plan, {.sdkProductVersion = "6.0.0",
-              .sdkSourceRevision = std::string(40, 'a')});
+  auto bundle = generateQueueGraphModelBundle(*plan);
   ASSERT_TRUE(bool(bundle)) << llvm::toString(bundle.takeError());
-  auto repeatedBundle = generateQueueGraphModelBundle(
-      *plan, {.sdkProductVersion = "6.0.0",
-              .sdkSourceRevision = std::string(40, 'a')});
+  auto repeatedBundle = generateQueueGraphModelBundle(*plan);
   ASSERT_TRUE(bool(repeatedBundle))
       << llvm::toString(repeatedBundle.takeError());
   ASSERT_EQ(bundle->size(), repeatedBundle->size());
@@ -2320,6 +2321,8 @@ int main() {
       "include/generated/modules/Accumulator.h";
   const std::string moduleSourcePath = "src/generated/modules/Accumulator.cpp";
   EXPECT_EQ(inventory, (std::vector<std::string>{
+                           "CMakeLists.txt",
+                           "include/generated/dut.h",
                            "include/generated/model.h",
                            moduleHeaderPath,
                            "include/generated/modules/queuegraph_helpers.h",
@@ -2332,6 +2335,28 @@ int main() {
                            moduleSourcePath,
                            "src/generated/queuegraph.cpp",
                        }));
+  const QueueGraphGeneratedFile *cmake =
+      findBundleFile(*bundle, "CMakeLists.txt");
+  ASSERT_NE(cmake, nullptr);
+  EXPECT_NE(llvm::StringRef(cmake->content)
+                .find("src/generated/modules/Accumulator.cpp"),
+            llvm::StringRef::npos);
+  EXPECT_NE(llvm::StringRef(cmake->content)
+                .find("add_library(ac_generated_model STATIC"),
+            llvm::StringRef::npos);
+  EXPECT_NE(llvm::StringRef(cmake->content)
+                .find("target_include_directories(ac_generated_model PUBLIC\n"
+                      "  ${AC_GFSIM_INCLUDE_DIR}"),
+            llvm::StringRef::npos);
+  const QueueGraphGeneratedFile *dut =
+      findBundleFile(*bundle, "include/generated/dut.h");
+  ASSERT_NE(dut, nullptr);
+  EXPECT_NE(llvm::StringRef(dut->content)
+                .find("class StatefulReuse final"),
+            llvm::StringRef::npos);
+  EXPECT_NE(llvm::StringRef(dut->content)
+                .find("#include \"generated/modules/Accumulator.h\""),
+            llvm::StringRef::npos);
   const QueueGraphGeneratedFile *types =
       findBundleFile(*bundle, "include/generated/types/Mode.h");
   ASSERT_NE(types, nullptr);
@@ -2891,8 +2916,7 @@ TEST(QueueGraphPlanTest,
   EXPECT_EQ(wrapper.moduleInstances.front().specializationKey,
             wrapper.moduleSpecializations.front()->specializationKey);
 
-  auto costReport = generateQueueGraphCostReport(
-      *plan, "6.1.0", std::string(40, 'b'));
+  auto costReport = generateQueueGraphCostReport(*plan);
   ASSERT_TRUE(bool(costReport)) << llvm::toString(costReport.takeError());
   auto parsedCostReport = llvm::json::parse(*costReport);
   ASSERT_TRUE(bool(parsedCostReport));
@@ -2913,13 +2937,14 @@ TEST(QueueGraphPlanTest,
   EXPECT_EQ(coverage->getInteger("rules"), 6);
   EXPECT_EQ(coverage->getInteger("logic_depth_modeled_rules"), 6);
 
-  auto runtimeBundle = generateQueueGraphModelBundle(
-      *plan, {.sdkProductVersion = "6.1.0",
-              .sdkSourceRevision = std::string(40, 'b')});
+  auto runtimeBundle = generateQueueGraphModelBundle(*plan);
   ASSERT_TRUE(bool(runtimeBundle)) << llvm::toString(runtimeBundle.takeError());
   const QueueGraphGeneratedFile *runtimeSource =
       findBundleFile(*runtimeBundle, "src/generated/queuegraph.cpp");
   ASSERT_NE(runtimeSource, nullptr);
+  const QueueGraphGeneratedFile *dutHeader =
+      findBundleFile(*runtimeBundle, "include/generated/dut.h");
+  ASSERT_NE(dutHeader, nullptr);
   const std::string wrapperFile = "Wrapper";
   const std::string childFile = "Increment";
   EXPECT_NE(llvm::StringRef(runtimeSource->content)
@@ -2931,10 +2956,10 @@ TEST(QueueGraphPlanTest,
   EXPECT_EQ(llvm::StringRef(runtimeSource->content)
                 .find("std::vector<gfsim::DispatchRow> rows"),
             llvm::StringRef::npos);
-  EXPECT_NE(llvm::StringRef(runtimeSource->content)
+  EXPECT_NE(llvm::StringRef(dutHeader->content)
                 .find("#include \"generated/modules/" + childFile + ".h\""),
             llvm::StringRef::npos);
-  EXPECT_NE(llvm::StringRef(runtimeSource->content)
+  EXPECT_NE(llvm::StringRef(dutHeader->content)
                 .find("#include \"generated/modules/" + wrapperFile + ".h\""),
             llvm::StringRef::npos);
   ASSERT_NE(findBundleFile(*runtimeBundle,
@@ -3134,16 +3159,15 @@ TEST(QueueGraphPlanTest, EmitsClosedOpaqueRuntimeAbiBundle) {
   auto plan = buildQueueGraphPlan(*module);
   ASSERT_TRUE(bool(plan)) << llvm::toString(plan.takeError());
 
-  auto bundle = generateQueueGraphModelBundle(
-      *plan, {.sdkProductVersion = "6.0.0",
-              .sdkSourceRevision = "c053fe2a00000000000000000000000000000000"});
+  auto bundle = generateQueueGraphModelBundle(*plan);
   ASSERT_TRUE(bool(bundle)) << llvm::toString(bundle.takeError());
-  ASSERT_EQ(bundle->size(), 5u);
+  ASSERT_EQ(bundle->size(), 6u);
   EXPECT_EQ((*bundle)[0].relativePath, "include/generated/model.h");
   EXPECT_EQ((*bundle)[1].relativePath, "share/generated/cost-report.json");
   EXPECT_EQ((*bundle)[2].relativePath, "share/generated/source-map.json");
   EXPECT_EQ((*bundle)[3].relativePath, "src/generated/model.cpp");
   EXPECT_EQ((*bundle)[4].relativePath, "src/generated/queuegraph.cpp");
+  EXPECT_EQ((*bundle)[5].relativePath, "CMakeLists.txt");
 
   const llvm::StringRef header((*bundle)[0].content);
   EXPECT_NE(header.find("gfsim/model_api.h"), llvm::StringRef::npos);
@@ -3167,7 +3191,8 @@ TEST(QueueGraphPlanTest, EmitsClosedOpaqueRuntimeAbiBundle) {
   const llvm::StringRef model((*bundle)[3].content);
   EXPECT_EQ(model.count("agentic_model_query_v1"), 1u);
   EXPECT_NE(model.find("AgenticModelApiV1 api"), llvm::StringRef::npos);
-  EXPECT_NE(model.find("\"6.0.0\""), llvm::StringRef::npos);
+  EXPECT_EQ(model.find("sdk_product_version"), llvm::StringRef::npos);
+  EXPECT_EQ(model.find("sdk_source_revision"), llvm::StringRef::npos);
   EXPECT_NE(model.find("createModel, destroyModel"), llvm::StringRef::npos);
   EXPECT_EQ(model.find("gfsim::SimSystem"), llvm::StringRef::npos);
   EXPECT_EQ(model.find("load_trace_json"), llvm::StringRef::npos);
@@ -3191,8 +3216,7 @@ TEST(QueueGraphPlanTest, EmitsClosedOpaqueRuntimeAbiBundle) {
 
 TEST(QueueGraphPlanTest, EmittedCostReportRecomputesArrayAndTableBounds) {
   QueueGraphPlan array = boundedArrayPlan(65);
-  auto arrayReport = generateQueueGraphCostReport(
-      array, "6.1.0", std::string(40, 'b'));
+  auto arrayReport = generateQueueGraphCostReport(array);
   ASSERT_TRUE(bool(arrayReport)) << llvm::toString(arrayReport.takeError());
   EXPECT_NE(arrayReport->find("\"dynamic_array_expansion_factor\":{"
                               "\"stage\":\"verified_queuegraph\","
@@ -3210,8 +3234,7 @@ TEST(QueueGraphPlanTest, EmittedCostReportRecomputesArrayAndTableBounds) {
             std::string::npos);
 
   QueueGraphPlan table = inlineFirstChoicePlan(16, 4);
-  auto tableReport = generateQueueGraphCostReport(
-      table, "6.1.0", std::string(40, 'b'));
+  auto tableReport = generateQueueGraphCostReport(table);
   ASSERT_TRUE(bool(tableReport)) << llvm::toString(tableReport.takeError());
   EXPECT_NE(tableReport->find("\"table_scan_bound\":{"
                               "\"stage\":\"verified_queuegraph\","
@@ -3224,28 +3247,10 @@ TEST(QueueGraphPlanTest, EmittedCostReportRecomputesArrayAndTableBounds) {
                               "\"status\":\"exact\",\"unit\":\"sites\","
                               "\"value\":0}"),
             std::string::npos);
-  auto repeated = generateQueueGraphCostReport(
-      table, "6.1.0", std::string(40, 'b'));
+  auto repeated = generateQueueGraphCostReport(table);
   ASSERT_TRUE(bool(repeated)) << llvm::toString(repeated.takeError());
   EXPECT_EQ(*tableReport, *repeated);
 
-}
-
-TEST(QueueGraphPlanTest, ModelBundleRequiresExplicitSdkIdentity) {
-  QueueGraphPlan plan;
-  auto missingProduct = generateQueueGraphModelBundle(
-      plan, {.sdkSourceRevision = "c053fe2a00000000000000000000000000000000"});
-  ASSERT_FALSE(bool(missingProduct));
-  EXPECT_NE(llvm::toString(missingProduct.takeError())
-                .find("SDK product version is required"),
-            std::string::npos);
-
-  auto missingRevision =
-      generateQueueGraphModelBundle(plan, {.sdkProductVersion = "6.0.0"});
-  ASSERT_FALSE(bool(missingRevision));
-  EXPECT_NE(llvm::toString(missingRevision.takeError())
-                .find("SDK source revision is required"),
-            std::string::npos);
 }
 
 TEST(QueueGraphPlanTest, EmitsCanonicalScalarQueuePyc) {

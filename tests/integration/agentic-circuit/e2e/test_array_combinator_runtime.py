@@ -198,10 +198,6 @@ def pipeline(request: Request) -> ac.index[65]:
                     frozen,
                     "--output-root",
                     bundle,
-                    "--sdk-product-version",
-                    "6.1.0",
-                    "--sdk-source-revision",
-                    "a" * 40,
                 ),
                 cwd=ROOT,
             )

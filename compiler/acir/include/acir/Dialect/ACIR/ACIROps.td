@@ -1293,6 +1293,13 @@ def ACIR_ModuleExternOp : ACIR_ModuleDeclarationOp<"module.extern"> {
   }];
 }
 
+def ACIR_ModuleImportOp : ACIR_ModuleDeclarationOp<"module.import"> {
+  let assemblyFormat = [{
+    $sym_name `:` $function_type `parameters` $static_params
+    `from` $binding attr-dict
+  }];
+}
+
 
 def ACIR_InstanceOp : ACIR_Op<"instance"> {
   let arguments = (ins Variadic<AnyType>:$inputs,

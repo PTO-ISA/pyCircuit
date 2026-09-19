@@ -14,6 +14,7 @@ from ._definitions import (
     inline,
     invariant,
     module,
+    module_decl,
     packet,
     process,
     protocol,
@@ -100,6 +101,7 @@ CAPTURE_ONLY_API = markers.CAPTURE_ONLY_API
 RUNTIME_API = (
     "system",
     "module",
+    "module_decl",
     "extern_module",
     "struct",
     "packet",

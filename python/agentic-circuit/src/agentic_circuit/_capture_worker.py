@@ -5,6 +5,7 @@ from __future__ import annotations
 import argparse
 import contextlib
 import importlib.util
+import inspect
 import io
 import json
 import os
@@ -48,6 +49,10 @@ class CaptureWorkerRequest:
     timeout: float = 30.0
     jit_source_closure: bool = False
     module_name: str | None = None
+    entry_kind: str = "system"
+    source_specializations: tuple[
+        tuple[str, tuple[tuple[str, JsonValue], ...]], ...
+    ] = ()
 
 
 @dataclass(frozen=True, slots=True)
@@ -139,6 +144,11 @@ def _request_json(request: CaptureWorkerRequest, output: Path) -> dict[str, Json
         ],
         "jit_source_closure": request.jit_source_closure,
         "module_name": request.module_name,
+        "entry_kind": request.entry_kind,
+        "source_specializations": [
+            {"module": module, "static": dict(static)}
+            for module, static in request.source_specializations
+        ],
         "output": output.resolve().as_posix(),
     }
 
@@ -147,14 +157,16 @@ def run_capture_worker(request: CaptureWorkerRequest) -> CaptureWorkerResult:
     # Namespace-package path order is the import authority chosen by the
     # parent process. Preserve it so the isolated worker cannot prefer a stale
     # build/install copy merely because its path sorts before the source tree.
-    import_roots = [
+    agentic_roots = [
         str(Path(location).resolve().parent)
         for location in sys.modules["agentic_circuit"].__path__
     ]
+    import_roots = list(agentic_roots[:1])
     if _pycircuit_semantics is not None:
         import_roots.append(
             str(Path(_pycircuit_semantics.__file__).resolve().parent.parent)
         )
+    import_roots.extend(agentic_roots[1:])
     package_parents = os.pathsep.join(dict.fromkeys(import_roots))
     bootstrap = (
         "import os,runpy,sys;"
@@ -279,6 +291,62 @@ def _static_value(value: JsonValue) -> StaticValue:
     raise TypeError("capture static argument is not an I-JSON value")
 
 
+def _materialize_config(value: StaticValue, config_type: type[object]) -> object:
+    """Rebuild a typed ``@ac.config`` value from closed JSON transport."""
+
+    from ._types import _config_field_types
+
+    if not isinstance(value, FrozenMap):
+        return value
+    values = dict(value.entries)
+    field_types = dict(_config_field_types(config_type))
+    if set(values) != set(field_types):
+        missing = sorted(set(field_types) - set(values))
+        unknown = sorted(set(values) - set(field_types))
+        detail = []
+        if missing:
+            detail.append("missing " + ", ".join(missing))
+        if unknown:
+            detail.append("unknown " + ", ".join(unknown))
+        raise ValueError(
+            f"config {config_type.__name__!r} has " + "; ".join(detail)
+        )
+    arguments: dict[str, object] = {}
+    for name, field_type in field_types.items():
+        field_value = values[name]
+        if isinstance(field_type, type) and getattr(
+            field_type, "__ac_config__", False
+        ):
+            field_value = _materialize_config(field_value, field_type)
+        arguments[name] = field_value
+    return config_type(**arguments)
+
+
+def _jit_static_arguments(
+    definition: Definition,
+    static_arguments: dict[str, StaticValue],
+) -> dict[str, object]:
+    """Restore config arguments while leaving scalar static values closed."""
+
+    from ._jit import _const_annotation_target
+
+    result: dict[str, object] = dict(static_arguments)
+    annotation_types = dict(definition.annotation_types)
+    for parameter in inspect.signature(definition.function).parameters.values():
+        if parameter.name not in result:
+            continue
+        target = _const_annotation_target(parameter.annotation)
+        if isinstance(target, str):
+            target = annotation_types.get(target) or annotation_types.get(
+                target.rsplit(".", 1)[-1]
+            )
+        if isinstance(target, type) and getattr(target, "__ac_config__", False):
+            result[parameter.name] = _materialize_config(
+                result[parameter.name], target
+            )
+    return result
+
+
 def _contains_registered_rule(namespace: dict[str, object]) -> bool:
     def is_rule(value: object) -> bool:
         return isinstance(value, Definition) and value.kind == "rule"
@@ -288,6 +356,23 @@ def _contains_registered_rule(namespace: dict[str, object]) -> bool:
             return True
         if isinstance(value, (type, ModuleType)) and any(
             is_rule(item) for item in vars(value).values()
+        ):
+            return True
+    return False
+
+
+def _contains_registered_module(namespace: dict[str, object]) -> bool:
+    def is_module(value: object) -> bool:
+        return isinstance(value, Definition) and value.kind in {
+            "module",
+            "module_decl",
+        }
+
+    for value in namespace.values():
+        if is_module(value):
+            return True
+        if isinstance(value, (type, ModuleType)) and any(
+            is_module(item) for item in vars(value).values()
         ):
             return True
     return False
@@ -359,10 +444,82 @@ def _worker_main(request_path: Path) -> int:
                 key: _static_value(value)
                 for key, value in request["static_arguments"].items()
             }
-            from ._jit import JitSpecialization, jit
+            from ._jit import (
+                JitSpecialization,
+                _is_const_annotation,
+                jit,
+                lower_source_unit,
+            )
 
             selected = namespace.get(request["system"])
-            if isinstance(selected, JitSpecialization):
+            modern_module_system = (
+                isinstance(selected, Definition)
+                and selected.kind == "system"
+                and not dict(selected.explicit_options).get("root")
+                and _contains_registered_module(namespace)
+            )
+            if request.get("entry_kind", "system") == "source_unit":
+                frontend_kind = "queue_rule"
+                captured: list[JitSpecialization] = []
+                for item in request.get("source_specializations", ()):
+                    module_name = item.get("module")
+                    selected_module = namespace.get(module_name)
+                    if (
+                        not isinstance(selected_module, Definition)
+                        or selected_module.kind != "module"
+                        or selected_module.source_file is None
+                        or Path(selected_module.source_file).resolve() != entry
+                    ):
+                        raise ValueError(
+                            f"source-unit module {module_name!r} is not owned by "
+                            f"{entry.name!r}"
+                        )
+                    source_static = {
+                        key: _static_value(value)
+                        for key, value in item.get("static", {}).items()
+                    }
+                    captured.append(
+                        jit(
+                            selected_module,
+                            workspace=workspace,
+                            **_jit_static_arguments(
+                                selected_module, source_static
+                            ),
+                        )
+                    )
+                acir = lower_source_unit(tuple(captured))
+                diagnostics = tuple(
+                    diagnostic
+                    for specialization in captured
+                    for diagnostic in specialization.diagnostics
+                )
+            elif request.get("entry_kind", "system") == "module":
+                frontend_kind = "queue_rule"
+                if not isinstance(selected, Definition) or selected.kind != "module":
+                    raise ValueError(
+                        f"module {request['system']!r} was not found"
+                    )
+                signature = inspect.signature(selected.function)
+                accepted_static = {
+                    parameter.name
+                    for parameter in signature.parameters.values()
+                    if _is_const_annotation(parameter.annotation)
+                }
+                specialization = jit(
+                    selected,
+                    workspace=workspace,
+                    **_jit_static_arguments(
+                        selected,
+                        {
+                            name: value
+                            for name, value in static_arguments.items()
+                            if name in accepted_static
+                        },
+                    ),
+                )
+                acir = specialization.lower_acir()
+                diagnostics = specialization.diagnostics
+            elif isinstance(selected, JitSpecialization):
                 frontend_kind = "queue_rule"
                 if static_arguments:
                     raise ValueError(
@@ -376,11 +533,11 @@ def _worker_main(request_path: Path) -> int:
                 specialization = jit(
                     selected,
                     workspace=workspace,
-                    **static_arguments,
+                    **_jit_static_arguments(selected, static_arguments),
                 )
                 acir = specialization.lower_acir()
                 diagnostics = specialization.diagnostics
-            elif has_rule:
+            elif has_rule or modern_module_system:
                 frontend_kind = "queue_rule"
                 document, acir, diagnostics = _capture_queue_rule(
                     text,

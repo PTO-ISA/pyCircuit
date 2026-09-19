@@ -18,6 +18,7 @@ FIXTURES = Path(__file__).resolve().parent / "fixtures" / "lowering"
 EXACT_PUBLIC_API = {
     "system",
     "module",
+    "module_decl",
     "extern_module",
     "struct",
     "packet",
@@ -140,6 +141,7 @@ def frontend_test_ledger() -> dict[str, CoverageRow]:
     return {
         "system": decorator_row,
         "module": decorator_row,
+        "module_decl": decorator_row,
         "extern_module": decorator_row,
         "struct": decorator_row,
         "packet": decorator_row,

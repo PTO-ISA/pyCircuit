@@ -7,12 +7,12 @@ import sys
 import tempfile
 from pathlib import Path
 
+from .._canonical_json import canonical_json_bytes
 from .._capture_worker import (
     CaptureWorkerRequest,
     CaptureWorkerResult,
     run_capture_worker,
 )
-from .._canonical_json import canonical_json_bytes
 from .._diagnostics import Diagnostic
 from .._exit_codes import ExitCode
 from .._native_api import NativeRequest, run_native_compiler
@@ -36,19 +36,44 @@ def _entry(arguments: object, workspace: WorkspaceConfig) -> Path:
 
 
 def capture(arguments: object, workspace: WorkspaceConfig) -> CaptureWorkerResult:
+    selected_module = getattr(arguments, "module", None)
+    source_specializations = tuple(
+        getattr(arguments, "source_specializations", ())
+    )
+    entry_kind = (
+        "source_unit"
+        if source_specializations
+        else "module"
+        if selected_module
+        else "system"
+    )
     with tempfile.TemporaryDirectory(prefix="agentic-capture-") as temporary:
         return run_capture_worker(
             CaptureWorkerRequest(
                 python=sys.executable,
                 workspace=workspace.root,
                 entry=_entry(arguments, workspace),
-                system=getattr(arguments, "system", None) or workspace.default_system,
+                system=(
+                    selected_module
+                    or (
+                        source_specializations[0][0]
+                        if source_specializations
+                        else None
+                    )
+                    or getattr(arguments, "system", None)
+                    or workspace.default_system
+                ),
                 static_arguments=tuple(
                     getattr(arguments, "static_arguments", ())
                 ),
                 component_roots=workspace.component_roots,
                 private_output=Path(temporary) / "capture",
                 timeout=float(getattr(arguments, "timeout", 30.0)),
+                jit_source_closure=bool(
+                    getattr(arguments, "jit_source_closure", False)
+                ),
+                entry_kind=entry_kind,
+                source_specializations=source_specializations,
             )
         )
 

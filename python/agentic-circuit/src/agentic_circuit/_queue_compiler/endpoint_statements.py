@@ -24,7 +24,7 @@ from .statement_common import (
     _lambda,
     _queue_reference,
 )
-from .static_types import _types_equal_in_epoch_05
+from .static_types import _types_compatible
 
 
 def handle_expect(
@@ -154,7 +154,7 @@ def handle_return(
         for index, (queue_name, expected_payload) in enumerate(
             zip(returned, environment.result_payloads, strict=True)
         ):
-            if not _types_equal_in_epoch_05(
+            if not _types_compatible(
                 state.by_name[queue_name].payload, expected_payload
             ):
                 raise QueueFrontendError(

@@ -5,7 +5,7 @@
 // RUN: %FileCheck %s --check-prefix=CXX < %t.cpp
 // RUN: %cxx -std=c++20 -I%source_root/simulator/gfsim/include -fsyntax-only %t.cpp
 // RUN: rm -rf %t.bundle
-// RUN: %acir_queue_cxxgen %t.frozen.mlir --output-root=%t.bundle --sdk-product-version=6.0.0 --sdk-source-revision=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+// RUN: %acir_queue_cxxgen %t.frozen.mlir --output-root=%t.bundle
 // RUN: %FileCheck %s --check-prefix=BUNDLE-H < %t.bundle/include/generated/modules/Accumulator.h
 // RUN: %FileCheck %s --check-prefix=BUNDLE-CPP < %t.bundle/src/generated/modules/Accumulator.cpp
 // RUN: %FileCheck %s --check-prefix=BUNDLE-ROOT < %t.bundle/src/generated/queuegraph.cpp

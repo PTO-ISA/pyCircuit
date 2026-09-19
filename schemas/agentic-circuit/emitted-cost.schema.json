@@ -365,27 +365,20 @@
     "identity": {
       "additionalProperties": false,
       "properties": {
-        "product_version": {
-          "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+(?:[.a-zA-Z0-9+-]*)?$",
-          "type": "string"
-        },
-        "static_arguments": {
-          "type": "object"
+        "specialization": {
+          "type": [
+            "null",
+            "string"
+          ]
         },
         "system": {
           "minLength": 1,
           "type": "string"
-        },
-        "toolchain_revision": {
-          "pattern": "^[0-9a-f]{40}$",
-          "type": "string"
         }
       },
       "required": [
-        "product_version",
-        "static_arguments",
-        "system",
-        "toolchain_revision"
+        "specialization",
+        "system"
       ],
       "type": "object"
     },

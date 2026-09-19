@@ -44,8 +44,6 @@ typedef struct AgenticModelStepResultV1 {
 typedef struct AgenticModelApiV1 {
   uint32_t struct_size;
   uint32_t abi_version;
-  const char *sdk_product_version;
-  const char *sdk_source_revision;
 
   AgenticModelStatusV1 (*create)(AgenticModelV1 **model);
   void (*destroy)(AgenticModelV1 *model);
@@ -67,14 +65,14 @@ typedef struct AgenticModelApiV1 {
 #endif
 
 #if defined(__cplusplus)
-static_assert(sizeof(AgenticModelApiV1) == 80,
+static_assert(sizeof(AgenticModelApiV1) == 64,
               "AgenticModelApiV1 layout changed");
 static_assert(sizeof(AgenticModelBufferV1) == 16,
               "AgenticModelBufferV1 layout changed");
 static_assert(sizeof(AgenticModelStepResultV1) == 24,
               "AgenticModelStepResultV1 layout changed");
 #elif defined(__STDC_VERSION__) && __STDC_VERSION__ >= 201112L
-_Static_assert(sizeof(AgenticModelApiV1) == 80,
+_Static_assert(sizeof(AgenticModelApiV1) == 64,
                "AgenticModelApiV1 layout changed");
 _Static_assert(sizeof(AgenticModelBufferV1) == 16,
                "AgenticModelBufferV1 layout changed");

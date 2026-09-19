@@ -7564,7 +7564,7 @@ terminology also needs separation from NDF architectural refinement.
   concrete identities. Cache names L1D/L2C and frozen source paths retain their
   separate meanings. Authored NDF migration must review traceability rather
   than mechanically rewriting clause levels.
-- `designs/davincioo/` owns the new contributor implementation program, shared
+- `designs/davo/` owns the new contributor implementation program, shared
   design contracts, per-module documentation and tests, and design-local
   integration/reference harnesses. DavinciOO's external architecture/NDF
   sources remain explicitly versioned references; this change does not bulk
@@ -7587,7 +7587,7 @@ terminology also needs separation from NDF architectural refinement.
   explicitly promoted gates rather than implicit framework release blockers.
 
 **Verification**
-- `designs/davincioo/tools/check_catalog.py` checks the exact frozen 240-ID set,
+- `designs/davo/tools/check_catalog.py` checks the exact frozen 240-ID set,
   H1/H2/H3 vs NDF axis separation, 278 candidate/assembly cards, input/output
   evidence metadata, source hashes/line bounds and local links without an
   external checkout. This check makes no runtime or RTL claim.
@@ -7595,7 +7595,7 @@ terminology also needs separation from NDF architectural refinement.
   against typed source and interface tables; payload types are shown without
   public Queue wrappers. Remaining ports retain proposal/unresolved status.
 - Evidence is archived under
-  `docs/gates/logs/20260907-davincioo-hierarchy-checklist/`.
+  `docs/gates/logs/20260907-davo-hierarchy-checklist/`.
 
 **Source**
 - User direction (2026-09-07): implement the 200+ DavinciOO work items under
@@ -7852,7 +7852,7 @@ shared lowering.
 **Source**
 - PTO-ISA/pyCircuit issue #63 OPT-01.
 - The in-tree DavinciOO I1/I2 operand contract at
-  `designs/davincioo/contracts/spe.py`.
+  `designs/davo/contracts/spe.py`.
 
 ## Decision 0226: nested rules capture typed module state through canonical owner arguments
 
@@ -7911,7 +7911,7 @@ the existing explicit ownership, conflict, snapshot, or transaction model.
 **Source**
 - PTO-ISA/pyCircuit issue #63 OPT-02.
 - PTO-ISA/pyCircuit issue #105.
-- In-tree DavinciOO I2 at `designs/davincioo/spe/iex/i2.py`.
+- In-tree DavinciOO I2 at `designs/davo/spe/iex/i2.py`.
 
 ## Decision 0227: static Queue collections elaborate supported operator families
 
@@ -10517,7 +10517,7 @@ and exact Git source revision.
 - User direction (2026-09-19): releases must be external rather than defined by
   IR or compiler-normalization markers.
 
-## Decision 0269: structured compilation publishes independently linked AC module units
+## Decision 0269: structured compilation publishes independently linked AC source units
 
 **Status:** Accepted; implementation required
 
@@ -10531,22 +10531,28 @@ after that boundary does not provide independently reusable modules, does not
 prove H1/H2/H3 ownership, and cannot support scalable compile/link scheduling.
 
 **Decision (strong constraint)**
-- `acc.py -o <name>.ac` publishes a directory-backed AC package. It contains a
-  root composition unit, shared type/helper units, and one readable module unit
-  for every implemented H1/H2/H3 definition. A module unit may contain the
-  ordered typed specializations of that one source definition.
-- The root unit contains the selected `ac.system`, root ports, H1 instances,
-  and explicit unit links. It contains no child definition bodies. H1 units
-  instantiate H2; H2 units instantiate H3; H3 units own state and rules.
-- Native `acc -c <name>.ac` links all units before whole-system verification and
+- CMake invokes `acc.py -c <source>.py -o <source>.ac` exactly once for every
+  executable Python source file. One source unit contains every reachable
+  `@ac.module` definition authored by that file and all ordered typed
+  specializations requested by the call graph. Specialization names come from
+  MLIR typed arguments; they never create additional AC files.
+- `core.ac` contains the selected `ac.system`, core ports, H1 instances,
+  explicit unit links, and only helper/module definitions authored in the same
+  core Python source. It contains no definition body owned by another source.
+  H1 units instantiate H2; H2 units instantiate H3; H3 units own state and rules.
+- `interface/types.ac` owns the shared type/interface declarations required by
+  independently compiled H1/H2/H3 units. There is no `shared` AC unit.
+- Native `acc -c <package-directory>` requires `core.ac` and links all units
+  before whole-system verification and
   codegen. Missing imports, duplicate exports, incompatible signatures,
   unresolved instances, cycles outside the admitted module graph, or path/name
   collisions fail before publishing backend files.
-- Unit and file identity is the readable source definition plus ordered typed
+- Unit and file identity is the normalized readable Python source path. The
+  definitions inside it retain readable definition names plus ordered typed
   arguments already carried by MLIR. No hash, digest, fingerprint, manifest,
   cache key, or whole-core fallback participates in linking.
-- C++ preserves the package boundary: one module source group per module AC
-  unit, plus explicit root/shared glue. CMake/Ninja compiles module sources as
+- C++ preserves the package boundary: one generated source group per Python
+  source AC unit, plus explicit core/interface glue. CMake/Ninja compiles them as
   independent translation units in parallel and links the selected DUT.
 - NDF inventory candidates that are not implemented definitions do not create
   empty AC files. Consumer hierarchy metadata determines the required H1/H2/H3
@@ -10554,16 +10560,21 @@ prove H1/H2/H3 ownership, and cannot support scalable compile/link scheduling.
 - This is a hard break. A single `.ac` file containing all module bodies is not
   accepted for structured product compilation, even when later bundle output
   happens to contain multiple `.cpp` files.
+- Post-closure splitting is also rejected: multiple `.ac` files extracted from
+  one whole-core compile are not independent modules. Legacy whole-core Python
+  build wrappers are deleted; CMake is the only compile/link orchestrator.
 
 **Required verification**
-- A nested H1 -> H2 -> H3 fixture emits distinct root/shared/H1/H2/H3 `.ac`
-  files. Each module definition has exactly one owning unit, equal
-  specializations reuse it, and instance counts survive linking.
+- A nested H1 -> H2 -> H3 fixture emits distinct core/interface/H1/H2/H3 `.ac`
+  files from distinct CMake `acc.py` custom commands. A source containing two
+  definitions, with two typed specializations of one definition, emits one AC
+  file containing three concrete bodies. Equal requests deduplicate, each
+  definition has exactly one source owner, and instance counts survive linking.
 - The root-no-child-body rule, missing/duplicate unit, signature mismatch,
   unresolved instance, illegal cycle, unsafe path, and whole-core fallback all
   have negative tests.
-- `acc -c <package>.ac -emit-cpp-bundle` produces one module `.cpp` source group
-  per module `.ac`; generated CMake lists those sources once, builds them in
+- `acc -c <package>.ac -emit-cpp-bundle` produces one `.cpp` source group per
+  Python source `.ac`; generated CMake lists those sources once, builds them in
   parallel, links, and executes the DUT.
 - A consumer gate compares the accepted H1/H2/H3 NDF inventory, AC tree, linked
   definition/instance graph, C++ tree, CMake graph, and executable result.
@@ -10571,3 +10582,61 @@ prove H1/H2/H3 ownership, and cannot support scalable compile/link scheduling.
 **Source**
 - User direction (2026-09-19): every H1/H2/H3 module must have its own AC file;
   whole-core AC followed by backend-only C++ splitting is architecturally wrong.
+- User clarification (2026-09-19): the owning boundary is one Python file per
+  AC file; specialization happens while that Python source lowers into its AC.
+
+## Decision 0270: AC packages use module headers and publish High ACIR
+
+**Status:** Accepted; implementation in progress
+
+**Supersedes:** Decision 0269 clauses that allow several public module
+definitions in one Python implementation source or publish post-materialization
+`ac.firing` as the package IR. Refines the source-unit and external-release
+contracts without introducing consumer-specific hierarchy knowledge.
+
+**Decision (strong constraint)**
+- One executable Python implementation file defines exactly one public
+  `@ac.module`; documentation is sibling `<name>.md`, while consumer tests
+  mirror the source hierarchy under `tests/` as `<name>.test.py`. Private pure
+  helpers may remain implementation-local.
+- Each concrete module implementation lowers to one `<name>.ac`. Runtime inputs
+  create instances, not specializations. Compile-time typed arguments may create
+  several concrete implementation symbols inside that one AC unit.
+- Module declarations use `@ac.module_decl(source="relative/module.py")` in
+  Python interface sources and lower to `ac.module.import`. The declaration has
+  the exact runtime/static signature and an ellipsis body. Parent modules import
+  and compile against this declaration and never consume a child module body.
+  Each implementation compile publishes its own source AC and module header in
+  the same command. The package linker resolves each import to exactly one
+  matching definition and rejects source, signature, or static-parameter
+  mismatch.
+- Nominal types are emitted once, grouped by their owning Python interface
+  source. A separate layout interface carries the combined DLTI contract.
+  Executable units import these headers; they do not copy type declarations.
+- Published `.ac` is High ACIR. It retains `ac.module`, `ac.rule`, typed state,
+  Table operations, atomic effects, source/NDF provenance, and module imports.
+  Rule materialization to `ac.firing`, scheduling closure, and backend-oriented
+  lowering occur only after package link inside native `acc`.
+- `ac.var.*` is not the final public expression design. Existing typed Var
+  operations remain temporarily legal inside High ACIR rule regions while a
+  typed record/predicate expression layer replaces their serialized expansion.
+- pyCircuit implements only generic source, declaration, import, definition,
+  and link contracts. H1/H2/H3 naming and interface placement belong to the
+  consumer build.
+
+**Required verification**
+- A parent compiles from a child header while the child body is unavailable.
+- Repeated instances of one declaration accept different runtime inputs without
+  duplicating implementation IR.
+- Missing definition, duplicate definition, mismatched signature/static
+  parameters, wrong source owner, and duplicate nominal types fail at link.
+- Published source units contain `ac.rule` and no `ac.firing`; linked lowering
+  produces marker-free `ac.firing` before QueueGraph/codegen.
+- Interface shards preserve exact nominal identity and collectively reproduce
+  the monolithic type/layout closure without duplicate declarations.
+
+**Source**
+- User direction (2026-09-19): follow a traditional frontend/IR/compiler flow;
+  module declarations behave like shared headers, parents do not consume child
+  implementations, each SSM Python file owns one module, and H3 tests live in a
+  mirrored `tests/` hierarchy as `<name>.test.py`.

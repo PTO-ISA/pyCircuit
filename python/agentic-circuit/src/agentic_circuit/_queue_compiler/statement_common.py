@@ -14,7 +14,7 @@ from .parser_context import _Aliases, _ParserEnvironment, _ParserState
 from .static_types import (
     _nonnegative_int_value,
     _positive_int_value,
-    _types_equal_in_epoch_05,
+    _types_compatible,
 )
 from .syntax import _decorator_name
 
@@ -191,7 +191,7 @@ def _memory_request_parameters(
     field_types = dict(payload.field_descriptors) if payload is not None else {}
     if result_field not in field_types:
         raise QueueFrontendError("ACPY-QUEUE-015: memory result_field is unknown")
-    if not _types_equal_in_epoch_05(field_types[result_field], data_type):
+    if not _types_compatible(field_types[result_field], data_type):
         raise QueueFrontendError(
             "ACPY-QUEUE-015: memory result_field must match instance data type"
         )

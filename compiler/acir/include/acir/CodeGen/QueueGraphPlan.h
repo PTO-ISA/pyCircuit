@@ -425,6 +425,7 @@ struct QueueActivationEdgePlan {
 struct QueueGraphPlan {
   std::string system;
   std::string definition;
+  std::string sourceDefinition;
   std::string specializationKey;
   std::vector<std::pair<std::string, std::string>> specializationParameters;
   std::vector<std::string> ndfIds;

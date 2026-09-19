@@ -1010,7 +1010,7 @@ their explicit provisional-Slot rejection.
 
 ### Stateful Table
 
-Epoch `0.5` separates locally owned state from request/response memory. A
+The current memory contract separates locally owned state from request/response memory. A
 Table may use a rank-one extent or a non-empty tuple of positive static
 extents:
 
@@ -1894,9 +1894,9 @@ signatures. Expression lowering returns `(SSA name, ValueType)` and performs
 identity, width, enum, aggregate, and field checks on descriptors. MLIR spelling
 is produced only by the ACIR text renderer; the C++ QueueGraph begins its own
 string representation only after parsing that verified ACIR boundary.
-`BoolType()` and `BitsType(1)` remain distinct inside the frontend while two
-explicit epoch-0.5 boundary-normalization helpers preserve the accepted `i1`
-equality and integer-width rules.
+`BoolType()` and `BitsType(1)` remain distinct inside the frontend while
+explicit boundary-normalization helpers preserve the accepted `i1` equality
+and integer-width rules.
 
 One nominal struct may now contain another nominal struct. Declarations may
 appear in either source order; cycles are rejected. Nested access and update
@@ -2164,7 +2164,7 @@ out-of-profile state retains an explicit backend admission error.
 `ac.rule` and the three typed marker operations are transient pre-closure IR.
 Marker-free `ac.firing` is the internal transaction contract. These operations
 are not independent QueueGraph building blocks; a proven pure firing becomes
-`ac.transform` before QueueGraph extraction. The epoch 0.4
+`ac.transform` before QueueGraph extraction. The historical
 `ac.queue.peek/pop/push` operations are removed.
 
 The closed inventory will grow with other common hardware blocks. New
@@ -2399,6 +2399,22 @@ sink, readiness, or backpressure. The first lowering slice accepts a pure 1x1
 module whose expression return becomes a module-local transform; typed system
 parameters and results become internal boundaries, and calls become
 `ac.instance` placements.
+
+A separately compiled parent imports only a typed declaration. The declaration
+uses the same callable surface, names the implementation source explicitly, and
+contains no body:
+
+```python
+@ac.module_decl(source="pipeline/accumulator.py")
+def accumulator(value: ac.u8, *, width: ac.const[int] = 8) -> ac.u8:
+    ...
+```
+
+Calls to the declaration lower to `ac.instance` against an `ac.module.import`.
+Runtime arguments create independent instances; only typed `ac.const` bindings
+select a specialization. The child implementation is compiled and optimized in
+its own source unit, which publishes both its implementation AC and matching
+interface header.
 A module expression return may directly call another typed module. The frontend
 emits a parent `ac.module` containing a child `ac.instance`; existing
 specialization planning and codegen preserve child-before-parent reuse. The
@@ -2853,6 +2869,13 @@ The native compiler requires a new output file or directory for each emission;
 it never merges with or replaces an existing bundle. The installed `acc` and
 its sibling `pycc` come from the same exact pyCircuit revision.
 
+A structured C++ bundle publishes `include/generated/dut.h` as the typed root
+model interface and `include/generated/model.h` as the opaque lifecycle ABI.
+The generated CMake target propagates both the generated include directory and
+the gfsim public include directory to consumers. Neither header, generated C++,
+source map, nor emitted-cost report embeds product-version or Git-revision
+identity; release selection remains external to IR and generated model state.
+
 ## Rejected examples
 
 ### Explicit system ports
@@ -2945,7 +2968,7 @@ violated static rule, and repair. Important current codes include:
 
 Rule diagnostics use `ACPY-RULE-001` through `ACPY-RULE-005` for invalid rule
 definitions, unsupported control flow, invalid Queue invocation, result-type
-mismatch, and removed epoch 0.4 `atomic`/`.firing()` spellings respectively.
+mismatch, and removed `atomic`/`.firing()` spellings respectively.
 
 Native QueueGraph/backend diagnostics use the `ACLOWER-QUEUE-*` family and
 MUST reject an invalid graph before emitting partial backend artifacts.

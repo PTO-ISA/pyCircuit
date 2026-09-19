@@ -221,6 +221,32 @@ def test_value_type_identity_is_independent_of_mlir_symbol_scope() -> None:
         assert "right" not in repr(descriptor.canonical())
 
 
+def test_nested_specialization_symbols_flatten_readable_static_bindings() -> None:
+    member = StructType(
+        "Member",
+        (ValueField("value", BitsType(8)),),
+        (("WIDTH", 2),),
+    )
+    batch = StructType(
+        "Batch",
+        (
+            ValueField("members", ArrayType(2, member)),
+            ValueField("pair", TupleType((member, BitsType(3)))),
+            ValueField("cursor", RangeType(0, 8)),
+        ),
+    )
+
+    assert batch.symbol == "Batch__WIDTH_2"
+    assert all(character not in batch.symbol for character in " @,:<>")
+
+    configured = StructType(
+        "Configured",
+        (ValueField("value", BitsType(8)),),
+        (("mem_cfg.entries", 4),),
+    )
+    assert configured.symbol == "Configured__mem_cfg_dot_entries_4"
+
+
 @pytest.mark.parametrize(
     "factory",
     [

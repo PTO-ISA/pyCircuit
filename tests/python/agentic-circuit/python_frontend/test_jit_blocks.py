@@ -160,6 +160,40 @@ NATIVE_BUILD = REPOSITORY / ".pycircuit_out/acir/dev-llvm22"
 
 
 class ConfigAndJitTest(unittest.TestCase):
+    def test_capture_materializes_typed_config_from_closed_json(self) -> None:
+        import agentic_circuit as ac
+        from agentic_circuit._capture_worker import _jit_static_arguments
+        from agentic_circuit._static_eval import FrozenMap
+
+        @ac.config
+        class Geometry:
+            entries: int
+
+        @ac.config
+        class Config:
+            geometry: Geometry
+            lanes: int
+
+        @ac.system
+        def core(*, cfg: ac.const[Config]) -> None:
+            pass
+
+        closed = FrozenMap(
+            (
+                (
+                    "geometry",
+                    FrozenMap((("entries", 16),)),
+                ),
+                ("lanes", 4),
+            )
+        )
+        restored = _jit_static_arguments(core, {"cfg": closed})["cfg"]
+
+        self.assertIs(type(restored), Config)
+        self.assertIs(type(restored.geometry), Geometry)
+        self.assertEqual(16, restored.geometry.entries)
+        self.assertEqual(4, restored.lanes)
+
     def test_config_is_an_immutable_closed_record(self) -> None:
         import agentic_circuit as ac
 
@@ -197,6 +231,21 @@ class ConfigAndJitTest(unittest.TestCase):
             left.canonical_arguments,
         )
         self.assertIn("core", repr(left))
+
+    def test_module_jit_resolves_imported_typed_config(self) -> None:
+        import agentic_circuit as ac
+
+        @ac.config
+        class Config:
+            entries: int
+
+        @ac.module
+        def stage(*, cfg: ac.const[Config]) -> None:
+            pass
+
+        specialized = ac.jit(stage, cfg=Config(entries=8))
+
+        self.assertEqual((("cfg", (("entries", 8),)),), specialized.canonical_arguments)
 
     def test_jit_rejects_wrong_nominal_or_nested_config_types(self) -> None:
         import agentic_circuit as ac
@@ -682,6 +731,95 @@ def readable(incoming: Entry) -> Entry:
         self.assertIn("ac.memory.instance @storage data i16 entries 32", lowered)
         self.assertIn("%response = ac.memory.request @storage, %left_ready", lowered)
         self.assertIn('result_field "data"', lowered)
+
+    def test_parent_lowers_against_module_declaration_without_child_body(self) -> None:
+        from agentic_circuit._queue_frontend import lower_queue_source
+
+        lowered = lower_queue_source(
+            """
+import agentic_circuit as ac
+
+@ac.struct
+class Token:
+    value: ac.u8
+
+@ac.module_decl(source="pkg/child.py")
+def child(value: Token, *, width: ac.const[int] = 8) -> Token:
+    ...
+
+@ac.system
+def parent(value: Token) -> Token:
+    return child(value, width=8)
+""",
+            "parent",
+        )
+
+        self.assertIn(
+            "ac.module.import @child__width_8", lowered
+        )
+        self.assertIn('from {source = "pkg/child.py"}', lowered)
+        self.assertIn("ac.instance @", lowered)
+        self.assertNotIn("ac.module @child__width_8", lowered)
+
+    def test_module_body_may_instance_imported_module_declaration(self) -> None:
+        from agentic_circuit._queue_frontend import lower_queue_source
+
+        lowered = lower_queue_source(
+            """
+import agentic_circuit as ac
+
+@ac.module_decl(source="pkg/child.py")
+def child(value: ac.u8) -> ac.u8:
+    ...
+
+@ac.module
+def parent(value: ac.u8) -> ac.u8:
+    return child(value)
+
+@ac.system
+def top(value: ac.u8) -> ac.u8:
+    return parent(value)
+""",
+            "top",
+        )
+
+        self.assertIn("ac.module.import @child", lowered)
+        self.assertIn("ac.module @parent", lowered)
+        self.assertIn("ac.instance @result of @child", lowered)
+
+    def test_zero_port_parent_may_compose_imported_declarations(self) -> None:
+        from agentic_circuit._queue_frontend import lower_queue_source
+
+        lowered = lower_queue_source(
+            """
+import agentic_circuit as ac
+
+@ac.module_decl(source="pkg/ifu.py")
+def ifu() -> None:
+    ...
+
+@ac.module_decl(source="pkg/ooo.py")
+def ooo() -> None:
+    ...
+
+@ac.module
+def spe() -> None:
+    ifu()
+    ooo()
+
+@ac.system
+def core() -> None:
+    spe()
+""",
+            "core",
+        )
+
+        self.assertIn("ac.module.import @ifu : () -> ()", lowered)
+        self.assertIn("ac.module.import @ooo : () -> ()", lowered)
+        self.assertIn("ac.module @spe()", lowered)
+        self.assertIn("ac.instance @ifu_0 of @ifu()", lowered)
+        self.assertIn("ac.instance @ooo_1 of @ooo()", lowered)
+        self.assertIn("ac.instance @spe_0 of @spe()", lowered)
 
     def test_multirate_queue_metadata_is_frozen(self) -> None:
         from agentic_circuit._queue_frontend import (

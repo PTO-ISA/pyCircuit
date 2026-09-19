@@ -4571,7 +4571,7 @@ def design(index: ac.u2, *, entries: ac.const[int]) -> ac.u2:
         self.assertEqual(1, lowered.count("ac.var.not"))
         self.assertEqual(1, lowered.count('ac.var.cmp "eq"'))
 
-    def test_epoch_05_bool_u1_compatibility_remains_backend_consistent(self) -> None:
+    def test_bool_u1_compatibility_remains_backend_consistent(self) -> None:
         from agentic_circuit._queue_frontend import lower_queue_source
 
         lowered = lower_queue_source(BOOL_U1_COMPARISON_SOURCE, "bool_u1_compare")
@@ -8725,7 +8725,8 @@ def two_accumulators(left: ac.u8, right: ac.u8) -> tuple[ac.u8, ac.u8]:
         self.assertIn("ac.system @pipeline root @Top", lowered)
         self.assertIn(
             "ac.module @increment(%input: !ac.queue<i8>) -> !ac.queue<i8> parameters {}"
-            ' attributes {ac.input_display_names = ["value"], '
+            ' attributes {ac.definition_name = "increment", '
+            'ac.input_display_names = ["value"], '
             'ac.output_display_names = ["result"]} graph {',
             lowered,
         )
@@ -8756,7 +8757,8 @@ def two_accumulators(left: ac.u8, right: ac.u8) -> tuple[ac.u8, ac.u8]:
         self.assertIn("ac.module @increment", lowered)
         self.assertIn(
             "ac.module @wrapper(%input: !ac.queue<i8>) -> !ac.queue<i8> parameters {}"
-            ' attributes {ac.input_display_names = ["value"], '
+            ' attributes {ac.definition_name = "wrapper", '
+            'ac.input_display_names = ["value"], '
             'ac.output_display_names = ["result"]} graph {',
             lowered,
         )
@@ -8896,7 +8898,8 @@ def pipeline(value: Entry, *, cfg: ac.const[Config]) -> Entry:
         lowered = lower_queue_source(INFERRED_STATEFUL_MODULE_SOURCE, "pipeline")
         self.assertIn(
             "ac.module @accumulator(%input: !ac.queue<i8>) -> !ac.queue<i8> "
-            'parameters {} attributes {ac.input_display_names = ["value"], '
+            'parameters {} attributes {ac.definition_name = "accumulator", '
+            'ac.input_display_names = ["value"], '
             'ac.output_display_names = ["result"]} graph {',
             lowered,
         )

@@ -2513,6 +2513,12 @@ private:
     Extractor nested(module);
     nested.plan.system = system.str();
     nested.plan.definition = definition.getSymName().str();
+    auto sourceDefinition =
+        definition->getAttrOfType<mlir::StringAttr>("ac.definition_name");
+    nested.plan.sourceDefinition =
+        sourceDefinition && !sourceDefinition.getValue().empty()
+            ? sourceDefinition.getValue().str()
+            : definition.getSymName().str();
     if (auto error = extractDefinitionSource(definition, nested.plan))
       return std::move(error);
     if (auto error =
@@ -4767,8 +4773,10 @@ llvm::Error verifyQueueGraphPlan(const QueueGraphPlan &plan) {
     else if (auto error =
                  verifyExpressions(verifyExpressions, selection.keyExpressions))
       return error;
-  if (plan.system.empty() || plan.queues.empty() ||
-      (plan.blocks.empty() && plan.moduleInstances.empty()))
+  const bool hasStructure = !plan.definition.empty() || !plan.queues.empty() ||
+                            !plan.blocks.empty() ||
+                            !plan.moduleInstances.empty();
+  if (plan.system.empty() || !hasStructure)
     return planError("QueueGraph plan is incomplete");
   if (!plan.definition.empty() && plan.specializationKey.empty())
     return planError("QueueGraph specialization key is missing");

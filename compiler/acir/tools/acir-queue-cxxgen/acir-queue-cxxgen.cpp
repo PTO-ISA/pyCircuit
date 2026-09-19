@@ -60,12 +60,6 @@ llvm::cl::opt<std::string> inputFile(llvm::cl::Positional, llvm::cl::Required,
 llvm::cl::opt<std::string>
     outputRoot("output-root", llvm::cl::desc("emit the fixed model v1 bundle"),
                llvm::cl::value_desc("directory"));
-llvm::cl::opt<std::string> sdkProductVersion(
-    "sdk-product-version", llvm::cl::desc("generated ABI product identity"),
-    llvm::cl::value_desc("version"));
-llvm::cl::opt<std::string> sdkSourceRevision(
-    "sdk-source-revision", llvm::cl::desc("generated ABI source identity"),
-    llvm::cl::value_desc("revision"));
 
 llvm::Error writeBundle(
     llvm::StringRef root,
@@ -140,11 +134,6 @@ int main(int argc, char **argv) {
     return EXIT_FAILURE;
   }
   if (outputRoot.empty()) {
-    if (!sdkProductVersion.empty() || !sdkSourceRevision.empty()) {
-      llvm::errs() << "ACLOWER-QUEUE-CXX: SDK identity options require "
-                      "--output-root\n";
-      return EXIT_FAILURE;
-    }
     auto source = acir::codegen::generateQueueGraphCpp(*plan);
     if (!source) {
       llvm::errs() << llvm::toString(source.takeError()) << '\n';
@@ -154,9 +143,7 @@ int main(int argc, char **argv) {
     return EXIT_SUCCESS;
   }
 
-  auto bundle = acir::codegen::generateQueueGraphModelBundle(
-      *plan, {.sdkProductVersion = sdkProductVersion,
-              .sdkSourceRevision = sdkSourceRevision});
+  auto bundle = acir::codegen::generateQueueGraphModelBundle(*plan);
   if (!bundle) {
     llvm::errs() << llvm::toString(bundle.takeError()) << '\n';
     return EXIT_FAILURE;

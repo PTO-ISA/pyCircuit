@@ -16,6 +16,23 @@ def _name(value: object, kind: str) -> str:
     return value.strip()
 
 
+def _readable_binding_name(value: str) -> str:
+    if all(
+        character.isascii() and (character.isalnum() or character == "_")
+        for character in value
+    ):
+        return value
+    fragments: list[str] = []
+    for character in value:
+        if character.isascii() and (character.isalnum() or character == "_"):
+            fragments.append(character)
+        elif character == ".":
+            fragments.append("_dot_")
+        else:
+            fragments.append(f"_u{ord(character):04x}_")
+    return "".join(fragments)
+
+
 class ValueType:
     """Base contract for immutable recursive types."""
 
@@ -250,40 +267,39 @@ class StructType(ValueType):
         return result
 
     @property
+    def specialization_bindings(self) -> tuple[tuple[str, int], ...]:
+        """Return flattened typed bindings that select this concrete layout."""
+        def collect_bindings(
+            value_type: ValueType,
+            bindings: set[tuple[str, int]],
+        ) -> None:
+            if isinstance(value_type, StructType):
+                bindings.update(value_type.static_bindings)
+                for field in value_type.fields:
+                    collect_bindings(field.type, bindings)
+            elif isinstance(value_type, TupleType):
+                for element in value_type.elements:
+                    collect_bindings(element, bindings)
+            elif isinstance(value_type, ArrayType):
+                collect_bindings(value_type.element, bindings)
+
+        bindings: set[tuple[str, int]] = set()
+        collect_bindings(self, bindings)
+        return tuple(sorted(bindings))
+
+    @property
     def symbol(self) -> str:
         """Return the readable ACIR symbol for this concrete layout."""
 
-        def contains_specialization(value_type: ValueType) -> bool:
-            if isinstance(value_type, StructType):
-                return bool(value_type.static_bindings) or any(
-                    contains_specialization(field.type) for field in value_type.fields
-                )
-            if isinstance(value_type, TupleType):
-                return any(
-                    contains_specialization(item) for item in value_type.elements
-                )
-            if isinstance(value_type, ArrayType):
-                return contains_specialization(value_type.element)
-            return False
-
-        if not self.static_bindings and not any(
-            contains_specialization(field.type) for field in self.fields
-        ):
+        bindings = self.specialization_bindings
+        if not bindings:
             return self.name
         parts = [self.name]
-        for name, value in self.static_bindings:
-            parts.append(f"{name}_{'neg_' if value < 0 else ''}{abs(value)}")
-        for field in self.fields:
-            if contains_specialization(field.type):
-                nested = (
-                    field.type.symbol
-                    if isinstance(field.type, StructType)
-                    else field.type.mlir()
-                    .replace("!", "")
-                    .replace("<", "_")
-                    .replace(">", "")
-                )
-                parts.append(f"{field.name}_{nested}")
+        for name, value in bindings:
+            parts.append(
+                f"{_readable_binding_name(name)}_"
+                f"{'neg_' if value < 0 else ''}{abs(value)}"
+            )
         return "__".join(parts)
 
     def mlir(self, *, scope: str = "types") -> str:

@@ -3912,7 +3912,8 @@ LogicalResult TableOp::verify() {
         ++endpoints;
     }
     if (auto choose = dyn_cast<TableChooseOp>(operation)) {
-      if (!choose.getStableId().empty() &&
+      if (choose->getParentOfType<ModuleOp>() == owningModule &&
+          !choose.getStableId().empty() &&
           !selectionStableIds.insert(choose.getStableId()).second)
         duplicateSelectionStableId = true;
       if (resolveTable(choose, choose.getTableAttr()) == *this)
@@ -5712,11 +5713,23 @@ LogicalResult ModuleExternOp::verify() {
   return success();
 }
 
+LogicalResult ModuleImportOp::verify() {
+  if (failed(verifyOuterPlacement(*this)))
+    return failure();
+  if (failed(verifyConcreteDictionary(*this, getStaticParams(),
+                                      "static parameters")))
+    return failure();
+  auto source = getBinding().getAs<StringAttr>("source");
+  if (!source || source.getValue().empty())
+    return emitOpError("module import requires non-empty source binding");
+  return success();
+}
+
 LogicalResult InstanceOp::verify() {
   if (failed(verifyStructuralPlacement(*this)))
     return failure();
   Operation *definition = lookupGraphSymbol(*this, getDefinitionAttr());
-  if (!isa_and_nonnull<ModuleOp, ModuleExternOp>(definition))
+  if (!isa_and_nonnull<ModuleOp, ModuleExternOp, ModuleImportOp>(definition))
     return emitOpError() << "unresolved module definition '"
                          << getDefinitionAttr() << "'";
   if (!isStableHierarchySegment(getSymName()) ||
@@ -5734,7 +5747,7 @@ LogicalResult ArrayOp::verify() {
   if (failed(verifyStructuralPlacement(*this)))
     return failure();
   Operation *definition = lookupGraphSymbol(*this, getDefinitionAttr());
-  if (!isa_and_nonnull<ModuleOp, ModuleExternOp>(definition))
+  if (!isa_and_nonnull<ModuleOp, ModuleExternOp, ModuleImportOp>(definition))
     return emitOpError() << "unresolved array element definition '"
                          << getDefinitionAttr() << "'";
   if (!isStableHierarchySegment(getSymName()) ||
@@ -5813,7 +5826,7 @@ LogicalResult InstancesOp::verify() {
     if (!definition)
       return emitOpError("definitions must contain flat module symbols");
     Operation *target = lookupGraphSymbol(*this, definition);
-    if (!isa_and_nonnull<ModuleOp, ModuleExternOp>(target))
+    if (!isa_and_nonnull<ModuleOp, ModuleExternOp, ModuleImportOp>(target))
       return emitOpError() << "unresolved collection definition '" << definition
                            << "'";
     if (graphSignature(target) != getInterface())
