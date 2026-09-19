@@ -79,6 +79,13 @@ bool freezeQueueGraph(mlir::ModuleOp module) {
   return mlir::succeeded(manager.run(module));
 }
 
+bool lowerRulesAndFreezeQueueGraph(mlir::ModuleOp module) {
+  mlir::PassManager manager(module.getContext());
+  acir::addRuleLoweringPipeline(manager);
+  manager.addPass(acir::createFreezeTopologyPass());
+  return mlir::succeeded(manager.run(module));
+}
+
 bool pruneAndFreezeQueueGraph(mlir::ModuleOp module) {
   mlir::PassManager manager(module.getContext());
   manager.addPass(acir::createPruneInternalPayloadsPass());
@@ -499,22 +506,24 @@ module attributes {ac.model_kind = "queue_graph", ac.queue_graph_domain = "cycle
 }
 )mlir";
 
-constexpr llvm::StringLiteral kStatefulFiring = R"mlir(
+constexpr llvm::StringLiteral kStatefulRule = R"mlir(
 module attributes {ac.model_kind = "queue_graph", ac.queue_graph_domain = "cycle", ac.system = "stateful"} {
   ac.table @table entry i8 entries 2 init 0 owner "/" stable_id "table/table"
   %input = ac.source depth 1 latency 1 {ac.name = "input"} : !ac.queue<i8>
-  %output = ac.firing %input depths [1] latencies [1]
-      stable_id "install" domain "cycle" {
+  %output = ac.rule %input depths [1] latencies [1]
+      name "install" stable_id "install" domain "cycle" type exact {
   ^body(%item: !ac.var<i8>):
     %index = ac.var.constant 1 : i2 as !ac.var<i2>
     %enabled = ac.var.constant true as !ac.var<i1>
-    ac.firing.condition %enabled : !ac.var<i1>
+    ac.rule.condition %enabled : !ac.var<i1>
     ac.table.propose @table [%index] = %item when %enabled : !ac.var<i1>
         mode "replace"
         write_fields ["$entry"] : !ac.var<i2>, !ac.var<i8>
-    ac.firing.output %item when %enabled ordinal 0 : !ac.var<i8>, !ac.var<i1>
-    ac.firing.yield %item : !ac.var<i8>
-  } {ac.activation_sources = [{kind = #ac<activation_resource_kind input_queue>, ordinal = 0 : i64}, {kind = #ac<activation_resource_kind output_queue>, ordinal = 0 : i64}, {kind = #ac<activation_resource_kind state>, resource = @table}], ac.arbitration_membership = [], ac.checks_typed = [{guard_kind = #ac<rule_guard_kind always>, kind = #ac<rule_check_kind input_available>, ordinal = 0 : i64}, {guard_kind = #ac<rule_guard_kind always>, kind = #ac<rule_check_kind output_capacity>, ordinal = 0 : i64}], ac.effects_typed = [{guard_kind = #ac<rule_guard_kind always>, kind = #ac<rule_effect_kind input_consume>, ordinal = 0 : i64}, {guard_kind = #ac<rule_guard_kind always>, kind = #ac<rule_effect_kind output_produce>, ordinal = 0 : i64}, {guard_kind = #ac<rule_guard_kind always>, kind = #ac<rule_effect_kind state_write>, resource = @table}], ac.guard_kind = #ac<rule_guard_kind always>, ac.initially_active = false, ac.name = "output", ac.output_presence = [{ordinal = 0 : i64, presence_kind = #ac<rule_output_presence_kind always>}], ac.rule_definition = "install", ac.rule_footprints = [{access = "replace", fields = ["$entry"], guard_kind = #ac<rule_guard_kind always>, index_kind = "static", resource = @table}], ac.rule_priority = 0 : i64, ac.schedule_kind = #ac<rule_schedule_kind lexical_priority>, ac.state_accesses = [{fields = ["$entry"], guard_kind = #ac<rule_guard_kind always>, index_kind = #ac<rule_index_kind static>, kind = #ac<rule_state_access_kind replace>, resource = @table}], ac.transaction_resources = [{kind = #ac<activation_resource_kind input_queue>, ordinal = 0 : i64}, {kind = #ac<activation_resource_kind output_queue>, ordinal = 0 : i64}, {kind = #ac<activation_resource_kind state>, resource = @table}]} : (!ac.queue<i8>) -> !ac.queue<i8>
+    ac.rule.output %item when %enabled ordinal 0 : !ac.var<i8>, !ac.var<i1>
+    %ready = ac.marker.obligation %item state pending resolver handshake
+        origin "install:return" path "true" : !ac.var<i8>
+    ac.rule.return %ready : !ac.var<i8>
+  } {ac.name = "output"} : (!ac.queue<i8>) -> !ac.queue<i8>
   ac.sink %output {ac.name = "sink"} : !ac.queue<i8>
 }
 )mlir";
@@ -1205,9 +1214,9 @@ TEST(QueueGraphPlanTest,
   context.loadDialect<ac::ACIRDialect, mlir::DLTIDialect>();
   auto parse = [&]() {
     auto module =
-        mlir::parseSourceString<mlir::ModuleOp>(kStatefulFiring, &context);
+        mlir::parseSourceString<mlir::ModuleOp>(kStatefulRule, &context);
     EXPECT_TRUE(module);
-    EXPECT_TRUE(freezeQueueGraph(*module));
+    EXPECT_TRUE(lowerRulesAndFreezeQueueGraph(*module));
     return module;
   };
   auto setProvenance = [&](ac::FiringOp firing, llvm::StringRef file,
@@ -3804,9 +3813,9 @@ TEST(QueueGraphPlanTest, FlatGeneratorPreservesOrderedRepeatedWritesPerOwner) {
   mlir::MLIRContext context;
   context.loadDialect<ac::ACIRDialect, mlir::DLTIDialect>();
   auto module =
-      mlir::parseSourceString<mlir::ModuleOp>(kStatefulFiring, &context);
+      mlir::parseSourceString<mlir::ModuleOp>(kStatefulRule, &context);
   ASSERT_TRUE(module);
-  ASSERT_TRUE(freezeQueueGraph(*module));
+  ASSERT_TRUE(lowerRulesAndFreezeQueueGraph(*module));
   auto plan = buildQueueGraphPlan(*module);
   ASSERT_TRUE(bool(plan)) << llvm::toString(plan.takeError());
   QueueBlockPlan &firing =
@@ -3854,9 +3863,9 @@ TEST(QueueGraphPlanTest,
   mlir::MLIRContext context;
   context.loadDialect<ac::ACIRDialect, mlir::DLTIDialect>();
   auto module =
-      mlir::parseSourceString<mlir::ModuleOp>(kStatefulFiring, &context);
+      mlir::parseSourceString<mlir::ModuleOp>(kStatefulRule, &context);
   ASSERT_TRUE(module);
-  ASSERT_TRUE(freezeQueueGraph(*module));
+  ASSERT_TRUE(lowerRulesAndFreezeQueueGraph(*module));
   auto extracted = buildQueueGraphPlan(*module);
   ASSERT_TRUE(bool(extracted)) << llvm::toString(extracted.takeError());
   QueueGraphPlan plan = aggregateTableBorrowPlan(std::move(*extracted));
@@ -3998,9 +4007,9 @@ TEST(QueueGraphPlanTest, OwnerWriteExclusionProofUsesBoundedSharedDagKeys) {
   mlir::MLIRContext context;
   context.loadDialect<ac::ACIRDialect, mlir::DLTIDialect>();
   auto module =
-      mlir::parseSourceString<mlir::ModuleOp>(kStatefulFiring, &context);
+      mlir::parseSourceString<mlir::ModuleOp>(kStatefulRule, &context);
   ASSERT_TRUE(module);
-  ASSERT_TRUE(freezeQueueGraph(*module));
+  ASSERT_TRUE(lowerRulesAndFreezeQueueGraph(*module));
   auto plan = buildQueueGraphPlan(*module);
   ASSERT_TRUE(bool(plan)) << llvm::toString(plan.takeError());
   QueueBlockPlan &firing =
@@ -4033,9 +4042,9 @@ TEST(QueueGraphPlanTest, RejectsOutOfRangeConstantTableFiringPlan) {
   mlir::MLIRContext context;
   context.loadDialect<ac::ACIRDialect, mlir::DLTIDialect>();
   auto module =
-      mlir::parseSourceString<mlir::ModuleOp>(kStatefulFiring, &context);
+      mlir::parseSourceString<mlir::ModuleOp>(kStatefulRule, &context);
   ASSERT_TRUE(module);
-  ASSERT_TRUE(freezeQueueGraph(*module));
+  ASSERT_TRUE(lowerRulesAndFreezeQueueGraph(*module));
   auto plan = buildQueueGraphPlan(*module);
   ASSERT_TRUE(bool(plan)) << llvm::toString(plan.takeError());
   auto firing = llvm::find_if(plan->blocks, [](const QueueBlockPlan &block) {
@@ -4059,9 +4068,9 @@ TEST(QueueGraphPlanTest, RecomputesBoundedFiringIndexConstraints) {
   mlir::MLIRContext context;
   context.loadDialect<ac::ACIRDialect, mlir::DLTIDialect>();
   auto module =
-      mlir::parseSourceString<mlir::ModuleOp>(kStatefulFiring, &context);
+      mlir::parseSourceString<mlir::ModuleOp>(kStatefulRule, &context);
   ASSERT_TRUE(module);
-  ASSERT_TRUE(freezeQueueGraph(*module));
+  ASSERT_TRUE(lowerRulesAndFreezeQueueGraph(*module));
   auto extracted = buildQueueGraphPlan(*module);
   ASSERT_TRUE(bool(extracted)) << llvm::toString(extracted.takeError());
 
@@ -4181,9 +4190,9 @@ TEST(QueueGraphPlanTest, RejectsTableFiringPlanTypeAndOwnershipBypasses) {
   mlir::MLIRContext context;
   context.loadDialect<ac::ACIRDialect, mlir::DLTIDialect>();
   auto module =
-      mlir::parseSourceString<mlir::ModuleOp>(kStatefulFiring, &context);
+      mlir::parseSourceString<mlir::ModuleOp>(kStatefulRule, &context);
   ASSERT_TRUE(module);
-  ASSERT_TRUE(freezeQueueGraph(*module));
+  ASSERT_TRUE(lowerRulesAndFreezeQueueGraph(*module));
   auto plan = buildQueueGraphPlan(*module);
   ASSERT_TRUE(bool(plan)) << llvm::toString(plan.takeError());
 
@@ -4212,9 +4221,9 @@ TEST(QueueGraphPlanTest, RejectsForgedFrozenFiringBeforePlanExtraction) {
   mlir::MLIRContext context;
   context.loadDialect<ac::ACIRDialect, mlir::DLTIDialect>();
   auto module =
-      mlir::parseSourceString<mlir::ModuleOp>(kStatefulFiring, &context);
+      mlir::parseSourceString<mlir::ModuleOp>(kStatefulRule, &context);
   ASSERT_TRUE(module);
-  ASSERT_TRUE(freezeQueueGraph(*module));
+  ASSERT_TRUE(lowerRulesAndFreezeQueueGraph(*module));
   ac::FiringOp firing;
   module->walk([&](ac::FiringOp candidate) { firing = candidate; });
   ASSERT_TRUE(firing);
@@ -6058,13 +6067,13 @@ TEST(QueueGraphPlanTest, PreservesReadableRuleSourceAndLocalNames) {
   mlir::MLIRContext context;
   context.loadDialect<ac::ACIRDialect, mlir::DLTIDialect>();
   auto module =
-      mlir::parseSourceString<mlir::ModuleOp>(kStatefulFiring, &context);
+      mlir::parseSourceString<mlir::ModuleOp>(kStatefulRule, &context);
   ASSERT_TRUE(module);
-  ac::FiringOp firing;
-  module->walk([&](ac::FiringOp candidate) { firing = candidate; });
-  ASSERT_TRUE(firing);
+  ac::RuleOp rule;
+  module->walk([&](ac::RuleOp candidate) { rule = candidate; });
+  ASSERT_TRUE(rule);
   unsigned named = 0;
-  firing.getBody().walk([&](mlir::Operation *operation) {
+  rule.getBody().walk([&](mlir::Operation *operation) {
     if (named == 2 || operation->getNumResults() != 1 ||
         !mlir::isa<ac::VarType>(operation->getResult(0).getType()))
       return;
@@ -6074,9 +6083,9 @@ TEST(QueueGraphPlanTest, PreservesReadableRuleSourceAndLocalNames) {
         &context, "examples/agentic/readable.py", 121 + named, 7));
     ++named;
   });
-  firing->setLoc(mlir::FileLineColLoc::get(
+  rule->setLoc(mlir::FileLineColLoc::get(
       &context, "examples/agentic/readable.py", 120, 5));
-  ASSERT_TRUE(freezeQueueGraph(*module));
+  ASSERT_TRUE(lowerRulesAndFreezeQueueGraph(*module));
   auto plan = buildQueueGraphPlan(*module);
   ASSERT_TRUE(bool(plan)) << llvm::toString(plan.takeError());
   const QueueBlockPlan &block =
