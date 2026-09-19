@@ -1,4 +1,7 @@
-// RUN: %acir_opt --pass-pipeline='builtin.module(ac-lower-rules)' %s | %FileCheck %s
+// RUN: %acir_opt --pass-pipeline='builtin.module(ac-lower-rules)' %s -o %t.lowered
+// RUN: %FileCheck %s < %t.lowered
+// RUN: %acir_opt "-ac-build-rule-effect-graph=json-output=%t.json dot-output=%t.dot" %t.lowered -o /dev/null
+// RUN: %FileCheck %s --check-prefix=GRAPH < %t.json
 
 module attributes {ac.model_kind = "queue_graph", ac.queue_graph_domain = "cycle", ac.system = "owner_scope"} {
   ac.type_scope @left_types {
@@ -86,3 +89,9 @@ module attributes {ac.model_kind = "queue_graph", ac.queue_graph_domain = "cycle
 // CHECK-SAME: endpoint = "ac.table.match", fields = []
 // CHECK-SAME: owner_stable_id = "table/capture_state"
 // CHECK-SAME: whole_entry = true
+// GRAPH-DAG: "id": "state_owner:table/left/state"
+// GRAPH-DAG: "id": "state_owner:table/right/state"
+// GRAPH-DAG: "id": "resource:slot:slot/left/mailbox"
+// GRAPH-DAG: "id": "resource:slot:slot/right/mailbox"
+// GRAPH-DAG: "owner_path=/left;owner_stable_id=table/left/state
+// GRAPH-DAG: "owner_path=/right;owner_stable_id=table/right/state

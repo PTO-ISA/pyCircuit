@@ -1204,6 +1204,41 @@ its own candidate mask and downstream selection. Different captures, Table
 identity, unavailable captures, nested Table/Slot observations, and snapshot
 effects retain independent scans.
 
+### Whole-design rule effect graph
+
+`ac-build-rule-effect-graph` is a read-only analysis pass over transient
+`ac.rule` or lowered `ac.firing` operations. It independently verifies each
+Decision 0271 exact expression DAG and footprint before constructing rule,
+state-owner, footprint, Queue/Slot resource, conflict, priority-ordering, and
+arbitration-domain nodes and edges. Undeclared recovery is explicitly absent.
+Obligation linkage is an explicitly absent reserved slot for later Architecture
+Obligation IR; this pass does not infer, discharge, or relax an obligation.
+
+The pass calls the same writer-arbitration analysis as
+`ac-verify-value-constraints`. Proof records distinguish declaration-disjoint
+fields, disjoint indices, mutually exclusive predicates, explicit priority,
+unresolved/rejected overlap, and cross-owner priority cycles. Source or
+traversal order never supplies an arbitration tie-break.
+
+Interaction nodes are keyed by canonical owner stable identity plus both exact
+footprint identities, including compact canonical index/predicate DAG ranks,
+accesses, and fields. Ranks intern closed structural tuples bottom-up from
+opcode, type, closed attributes, and operand ranks; they are deterministic
+local debug references and do not recursively expand the DAG. Read/read and
+read/write overlap explicitly records the committed-old-state observation;
+disjoint read/write pairs retain the same shared field/index/predicate proof
+provenance as writer arbitration. Bare local symbols are labels only and never
+graph identity.
+
+The optional `json-output` and `dot-output` pass options write deterministic
+debug/evidence views. Those files are not identity, cache, package, or release
+formats and contain no opaque identity fields. Omitting both options performs
+the analysis without changing IR or normal code generation. JSON and DOT paths
+must normalize to distinct files. The pass prepares every requested artifact
+before transactionally renaming either output, so a preparation/publication
+failure does not leave a partial pair or overwrite a prior artifact. DOT
+escaping covers quotes, backslashes, and every ASCII control byte.
+
 `EntryView` is elaboration-only. `patch` lowers before verified ACIR to
 `ac.table.get`, immutable `ac.var.with` updates, and `ac.table.write` or
 `ac.table.masked_write`; there is no `ac.table.patch` operation. Both Frozen

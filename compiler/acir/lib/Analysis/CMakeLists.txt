@@ -1,6 +1,8 @@
 add_acir_library(ACIRAnalysis SOURCES
   ModelAnalysis.cpp
+  RuleEffectGraph.cpp
   VariableAnalysis.cpp
+  WriterArbitrationAnalysis.cpp
 )
 target_link_libraries(ACIRAnalysis PUBLIC
   ACIRDialect

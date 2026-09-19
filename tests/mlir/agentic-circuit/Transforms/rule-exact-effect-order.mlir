@@ -7,6 +7,19 @@
 // RUN: %acir_opt %t/cba.lowered.mlir -o %t/cba.reparsed.mlir
 // RUN: diff %t/cba.lowered.mlir %t/cba.reparsed.mlir
 // RUN: %FileCheck %s --check-prefix=CBA < %t/cba.lowered.mlir
+// RUN: %acir_opt "-ac-build-rule-effect-graph=json-output=%t/abc.json dot-output=%t/abc.dot" %t/abc.lowered.mlir -o /dev/null
+// RUN: %acir_opt "-ac-build-rule-effect-graph=json-output=%t/cba.json dot-output=%t/cba.dot" %t/cba.lowered.mlir -o /dev/null
+// RUN: diff %t/abc.json %t/cba.json
+// RUN: diff %t/abc.dot %t/cba.dot
+// RUN: %FileCheck %s --check-prefix=GRAPH < %t/abc.json
+// RUN: %FileCheck %s --check-prefix=DOT < %t/abc.dot
+// RUN: sed -e 's/ac.expression_dag/ac.expression_dag_missing/g' -e 's/ac.footprints_exact/ac.footprints_exact_missing/g' %t/abc.lowered.mlir > %t/missing.mlir
+// RUN: %not %acir_opt -ac-build-rule-effect-graph %t/missing.mlir -o /dev/null 2>&1 | %FileCheck %s --check-prefix=MISSING
+// RUN: %not %acir_opt "-ac-build-rule-effect-graph=json-output=%t/same.out dot-output=%t/dir/../same.out" %t/abc.lowered.mlir -o /dev/null 2>&1 | %FileCheck %s --check-prefix=SAME-PATH
+// RUN: test ! -e %t/same.out
+// RUN: echo sentinel > %t/atomic.json
+// RUN: %not %acir_opt "-ac-build-rule-effect-graph=json-output=%t/atomic.json dot-output=%t/missing-dir/graph.dot" %t/abc.lowered.mlir -o /dev/null 2>&1 | %FileCheck %s --check-prefix=ATOMIC
+// RUN: %FileCheck %s --check-prefix=SENTINEL < %t/atomic.json
 
 // A/B write declaration-disjoint fields. A/C write the same field and carry
 // explicit owner-local priority. Reversing source order changes only canonical
@@ -61,6 +74,25 @@
 // CBA-SAME: predicate = 1 : i64
 // CBA: ac.ndf_ids = ["NDF-F1-A"]
 // CBA-SAME: ac.ndf_requires = ["NDF-F1-EXACT"]
+
+// GRAPH-DAG: "format": "ac-rule-effect-graph-debug-v1"
+// GRAPH-DAG: "identity_format": false
+// GRAPH-DAG: "proof": "field_disjoint"
+// GRAPH-DAG: "result": "coexist"
+// GRAPH-DAG: "to": "interaction:table/entries:{{.*}}rule=A{{.*}}rule=B{{.*}}"
+// GRAPH-DAG: "proof": "explicit_priority"
+// GRAPH-DAG: "result": "ordered"
+// GRAPH-DAG: "to": "interaction:table/entries:{{.*}}rule=A{{.*}}rule=C{{.*}}"
+// GRAPH-DAG: "kind": "obligation_linkage"
+// GRAPH-DAG: "kind": "recovery_domain"
+// GRAPH-DAG: "kind": "queue_consume"
+// DOT: Debug/evidence view only; not an identity or release format.
+// DOT: [label="interaction:coexist\nfield_disjoint"]
+// DOT: [label="interaction:ordered\nexplicit_priority"]
+// MISSING: rule effect graph requires verified exact rule summary
+// SAME-PATH: rule effect graph JSON and DOT outputs resolve to the same path
+// ATOMIC: cannot prepare rule effect graph artifact
+// SENTINEL: sentinel
 
 //--- abc.mlir
 module attributes {ac.model_kind = "queue_graph", ac.queue_graph_domain = "cycle", ac.system = "abc"} {
