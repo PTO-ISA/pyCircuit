@@ -23,8 +23,10 @@ from agentic_circuit._commands.model import (
 )
 from jsonschema import Draft202012Validator
 
+from cli import gate_build_root
+
 REPOSITORY = Path(__file__).resolve().parents[4]
-BUILD = REPOSITORY / ".pycircuit_out/acir/dev-llvm22"
+BUILD = gate_build_root(REPOSITORY, os.environ)
 MODEL_PLAN_SCHEMA = REPOSITORY / "schemas/agentic-circuit/model-plan.schema.json"
 MODEL_MANIFEST_SCHEMA = (
     REPOSITORY / "schemas/agentic-circuit/model-manifest.schema.json"

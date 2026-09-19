@@ -33,8 +33,11 @@ class NativeApiTest(unittest.TestCase):
         )
 
         self.assertEqual((), result.diagnostics)
+        # Artifacts are reported in pipeline order: the frozen ACIR and its
+        # per-module units are produced by the ACIR stage, and the ACSim module
+        # only after the ACIS-to-ACSim conversion has run.
         self.assertEqual(
-            ("frozen.ac.mlir", "model.acsim.mlir", "modules/top.ac.mlir"),
+            ("frozen.ac.mlir", "modules/top.ac.mlir", "model.acsim.mlir"),
             tuple(item.path for item in result.artifacts),
         )
         self.assertTrue(
