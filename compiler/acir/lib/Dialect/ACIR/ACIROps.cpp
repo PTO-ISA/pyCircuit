@@ -41,6 +41,24 @@ bool isPureExpressionOperation(Operation *operation) {
   return isMemoryEffectFree(operation) || isa<func::CallOp>(operation);
 }
 
+Operation *lookupGraphSymbol(Operation *from, FlatSymbolRefAttr name) {
+  auto file = from->getParentOfType<mlir::ModuleOp>();
+  return file ? SymbolTable::lookupSymbolIn(file, name) : nullptr;
+}
+
+/// Resolve a possibly nested static symbol reference in the enclosing graph
+/// file.
+///
+/// `ac.module` carries both the Symbol and the SymbolTable trait, so MLIR's
+/// lookupNearestSymbolFrom() searches inside the referencing module instead of
+/// the builtin.module around it. Static references, nested form included,
+/// resolve against the enclosing file like every other graph reference.
+Operation *lookupGraphSymbolReference(Operation *from,
+                                      SymbolRefAttr reference) {
+  auto file = from->getParentOfType<mlir::ModuleOp>();
+  return file ? SymbolTable::lookupSymbolIn(file, reference) : nullptr;
+}
+
 } // namespace
 
 LogicalResult
@@ -3373,9 +3391,11 @@ LogicalResult MemoryInstanceOp::verify() {
     return emitOpError("stable_id must be unique");
   unsigned requests = 0;
   root->walk([&](MemoryRequestOp request) {
-    auto resolved =
-        dyn_cast_or_null<MemoryInstanceOp>(SymbolTable::lookupNearestSymbolFrom(
-            request, request.getInstanceAttr()));
+    // Resolve in the graph file rather than through the nearest symbol table:
+    // an enclosing ac.scope is itself a symbol table, so the nearest-table
+    // lookup cannot see an instance declared beside the request's scope.
+    auto resolved = dyn_cast_or_null<MemoryInstanceOp>(
+        lookupGraphSymbol(request, request.getInstanceAttr()));
     if (resolved == *this)
       ++requests;
   });
@@ -3390,8 +3410,11 @@ LogicalResult MemoryRequestOp::verify() {
   if (getOrdinal() < 0 || getDepth() <= 0)
     return emitOpError("ordinal must be non-negative and depth positive");
 
+  // Resolve in the graph file: an enclosing ac.scope is itself a symbol
+  // table, so the nearest-table lookup cannot see an instance declared beside
+  // the request's scope.
   auto instance = dyn_cast_or_null<MemoryInstanceOp>(
-      SymbolTable::lookupNearestSymbolFrom(*this, getInstanceAttr()));
+      lookupGraphSymbol(*this, getInstanceAttr()));
   if (!instance)
     return emitOpError() << "unresolved memory instance " << getInstance();
   const std::string requestScope = queueScopePath(*this);
@@ -5209,11 +5232,6 @@ FunctionType graphSignature(Operation *op) {
   return type ? dyn_cast<FunctionType>(type.getValue()) : FunctionType();
 }
 
-Operation *lookupGraphSymbol(Operation *from, FlatSymbolRefAttr name) {
-  auto file = from->getParentOfType<mlir::ModuleOp>();
-  return file ? SymbolTable::lookupSymbolIn(file, name) : nullptr;
-}
-
 LogicalResult verifyConcreteDictionary(Operation *op, DictionaryAttr values,
                                        StringRef subject) {
   for (NamedAttribute value : values)
@@ -5223,7 +5241,7 @@ LogicalResult verifyConcreteDictionary(Operation *op, DictionaryAttr values,
                                   "values";
   LogicalResult result = success();
   values.walk([&](SymbolRefAttr reference) {
-    if (SymbolTable::lookupNearestSymbolFrom(op, reference))
+    if (lookupGraphSymbolReference(op, reference))
       return WalkResult::advance();
     op->emitOpError() << "unresolved static symbol reference '" << reference
                       << "'";

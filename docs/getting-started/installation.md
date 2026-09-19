@@ -6,7 +6,7 @@ Choose the smallest installation profile that matches the work you need to do.
 
 | Component | Frontend only | Full toolchain |
 | --- | --- | --- |
-| Operating system | Linux or macOS | Linux or macOS |
+| Operating system | Linux, macOS, or Windows | Linux, macOS, or Windows |
 | Python | 3.10+ | 3.11+ recommended |
 | CMake and Ninja | Not required | Required |
 | LLVM/MLIR 22.1.8 | Not required | Required |
@@ -18,6 +18,32 @@ On macOS, install the native dependencies with Homebrew:
 brew install cmake ninja python@3 llvm@22 verilator
 export PATH="$(brew --prefix llvm@22)/bin:$PATH"
 ```
+
+On Windows, compile with the clang-cl driver from the official LLVM 22.1.8
+Windows release archive, using the Visual Studio 2022 build tools for the MSVC
+v143 headers, libraries, and linker. `cl.exe` cannot build this tree: its front
+end aborts with an internal compiler error on the recursive generic lambdas in
+the ACIR codegen. Verilator is not generally available on Windows, so Verilog
+simulation belongs to the Linux or macOS hosts:
+
+```powershell
+winget install --id Kitware.CMake
+winget install --id Ninja-build.Ninja
+winget install --id Python.Python.3.11
+# Install Visual Studio 2022 with the "Desktop development with C++" workload,
+# then extract clang+llvm-22.1.8-x86_64-pc-windows-msvc.tar.xz and put its bin
+# directory on PATH. Point LLVM_ROOT at an install that also provides
+# lib\cmake\mlir: the LLVM release archive ships no MLIR, so MLIR must be built
+# from the pinned LLVM 22.1.8 source. Run from a Developer Command Prompt so
+# clang-cl finds INCLUDE, LIB, and link.exe.
+$env:CC = "clang-cl.exe"
+$env:CXX = "clang-cl.exe"
+pwsh -NoProfile -File flows/scripts/pyc.ps1 build --llvm-config "$env:LLVM_ROOT\bin\llvm-config.exe" --build-dir "$PWD\.pycircuit_out\toolchain\build" --install-prefix "$PWD\.pycircuit_out\toolchain\install"
+```
+
+Windows consumption is limited to the `windows-x86_64` SDK profile; the exact
+supported tuple is recorded in
+[the SDK release contract](../development/sdk-release-contract.md).
 
 On Ubuntu or Debian, install CMake, Ninja, Python, a C++ compiler, and the LLVM
 22 development packages from the
@@ -106,7 +132,7 @@ Download the wheel for your platform from
 install the local file:
 
 ```bash
-python3 -m pip install /path/to/pycircuit_hisi-6.0.0-*.whl
+python3 -m pip install /path/to/pycircuit_hisi-6.1.0-*.whl
 pycc --version
 python3 -m pycircuit.cli --help
 ```

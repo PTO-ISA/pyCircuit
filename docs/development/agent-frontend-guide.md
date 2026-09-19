@@ -287,6 +287,49 @@ The synthesizable Table profile is bounded. Rank, entries, packed width, total
 state, and writer counts outside Decision 0241 must fail at verification rather
 than receive a backend workaround.
 
+## Convert integer widths explicitly
+
+Agentic Circuit never changes an integer width implicitly. `a * b` on two
+`ac.s16` values is an `s16` product, so returning it from a module that declares
+`ac.s32` fails with `ACPY-MODULE-001: module result payload type mismatch`.
+Extend or truncate first, with the intrinsic whose second argument is the
+concrete destination type:
+
+| Call | Effect |
+| --- | --- |
+| `ac.zext(value, ac.uN)` | zero-extend to a strictly wider target |
+| `ac.sext(value, ac.sN)` | sign-extend to a strictly wider target |
+| `ac.truncate(value, ac.uN)` | keep the low `N` bits of a strictly narrower target |
+
+The target is a positional concrete `ac.uN` / `ac.sN` / `ac.bits[N]` type, not a
+`width=` keyword: that form belongs to the CycleAwareSignal methods described in
+[the frontend API reference](../reference/frontend-api.md). `zext` and `sext`
+require a wider target, `truncate` requires a narrower one, and every other
+shape fails with `ACPY-CAST-001`.
+
+Use `ac.sext` whenever the following arithmetic is signed. `ac.zext` of a
+negative value zero-fills the extension bits and silently changes the value.
+
+```python
+@ac.struct
+class SignedPair:
+    a: ac.s16
+    b: ac.s16
+
+@ac.module
+def widen(pair: SignedPair) -> ac.s32:
+    return ac.sext(pair.a, ac.s32) * ac.sext(pair.b, ac.s32)
+```
+
+Both operands are sign-extended (the sign bit is replicated through the
+extension bits) before the multiply, so the product is a real 32-bit signed
+multiply: `(-32768) * (-32768) = 1073741824`, `(-32768) * 32767 = -1073709056`,
+and `(-1) * 1 = -1`.
+`tests/integration/agentic-circuit/e2e/test_signed_widening_runtime.py` pins
+those products on the gfsim runtime, and
+`tests/python/agentic-circuit/python_frontend/test_queue_frontend.py` pins the
+emitted extension and the rejection diagnostics.
+
 ## Decompose a complex design
 
 Use this order regardless of frontend:

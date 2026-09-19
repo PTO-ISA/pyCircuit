@@ -1,7 +1,10 @@
 from __future__ import annotations
 
+import importlib.util
 import json
+import re
 import subprocess
+import sys
 from pathlib import Path
 
 import pytest
@@ -136,3 +139,94 @@ def test_closure_scripts_are_composable_and_partition_simulation_coverage() -> N
     assert normal.isdisjoint(semantic_cases)
     assert heavy.isdisjoint(semantic_cases)
     assert normal | heavy | semantic_cases == all_examples
+
+
+def _workflow_env(text: str, name: str) -> str:
+    match = re.search(rf'^\s*{name}:\s*"([^"]*)"\s*$', text, re.MULTILINE)
+    assert match is not None, f"{name} is not pinned in the workflow"
+    return match.group(1)
+
+
+def test_release_and_evidence_windows_lanes_pin_the_same_clang_cl_driver() -> None:
+    release = _read(".github/workflows/release.yml")
+    evidence = _read(".github/workflows/platform-evidence.yml")
+
+    for workflow in (release, evidence):
+        version = _workflow_env(workflow, "CLANG_PACKAGE_VERSION")
+        digest = _workflow_env(workflow, "CLANG_SOURCE_SHA256")
+        url = _workflow_env(workflow, "CLANG_SOURCE_URL")
+
+        assert re.fullmatch(r"[0-9a-f]{64}", digest), digest
+        assert version in url
+        assert "x86_64-pc-windows-msvc" in url
+        # The downloaded driver is verified before it is used.
+        assert "Get-FileHash -Algorithm SHA256" in workflow
+        # clang-cl is the Windows compiler. cl.exe cannot build the ACIR
+        # codegen: its front end aborts with C1001 on the recursive generic
+        # lambdas that clang accepts.
+        assert '$env:CC = "clang-cl.exe"' in workflow
+        assert '$env:CXX = "clang-cl.exe"' in workflow
+        assert '$env:CC = "cl.exe"' not in workflow
+        # PowerShell's -notmatch returns the NON-matching elements when it is
+        # handed an array, so the banner must be joined before it is negated.
+        assert "$clangInfo = (& clang-cl.exe --version) -join" in workflow
+        # clang-cl still reads INCLUDE, LIB, and link.exe from the MSVC
+        # developer environment.
+        assert "ilammy/msvc-dev-cmd@" in workflow
+        # clang-cl has no -ffile-prefix-map spelling of its own and ignores
+        # it, so the mapping must go through the /clang: driver escape.
+        assert "/clang:-ffile-prefix-map=" in workflow
+        assert 'CFLAGS = "-ffile-prefix-map=' not in workflow
+
+    # The evidence lane must reproduce the release lane exactly.
+    assert _workflow_env(release, "CLANG_PACKAGE_VERSION") == _workflow_env(
+        evidence, "CLANG_PACKAGE_VERSION"
+    )
+    assert _workflow_env(release, "CLANG_SOURCE_SHA256") == _workflow_env(
+        evidence, "CLANG_SOURCE_SHA256"
+    )
+    assert _workflow_env(release, "CLANG_SOURCE_URL") == _workflow_env(
+        evidence, "CLANG_SOURCE_URL"
+    )
+
+
+def test_windows_platform_record_probes_the_compiler_version_and_keeps_msvc_abi() -> (
+    None
+):
+    spec = importlib.util.spec_from_file_location(
+        "create_platform_manifest",
+        ROOT / "packaging/sdk/create_platform_manifest.py",
+    )
+    assert spec is not None and spec.loader is not None
+    generator = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(generator)
+
+    # clang-cl answers --version, so the probe must use that path rather than
+    # the cl.exe banner fallback. Any interpreter exercises the same branch.
+    record = generator.platform_record("windows-x86_64", sys.executable)
+
+    assert record["id"] == "windows-x86_64"
+    assert record["host_triple"] == "x86_64-pc-windows-msvc"
+    assert record["cxx_abi"] == "MSVC v143"
+    assert record["cxx_compiler"].startswith("Python ")
+
+
+def test_windows_manifest_steps_check_native_exit_codes() -> None:
+    """PowerShell masks failing native commands unless they are checked.
+
+    $ErrorActionPreference does not apply to native commands, so a failing
+    create_platform_manifest.py run let the lane upload a candidate with only
+    the wheel in it; the loss surfaced much later as a missing manifest in the
+    verify job. Every native packaging step must check $LASTEXITCODE.
+    """
+    for name in (
+        ".github/workflows/release.yml",
+        ".github/workflows/platform-evidence.yml",
+    ):
+        workflow = _read(name)
+        assert 'if ($LASTEXITCODE -ne 0) { throw "wheel creation failed' in workflow
+        assert (
+            'if ($LASTEXITCODE -ne 0) { throw "platform manifest and archive creation failed'
+            in workflow
+        )
+        assert 'if ($LASTEXITCODE -ne 0) { throw "twine check failed' in workflow

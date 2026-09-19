@@ -844,8 +844,7 @@ void buildSelectorKeys(ArrayRef<unsigned> permissions,
 }
 
 llvm::DynamicAPInt asDynamicInt(WideAddress value) {
-  uint64_t words[] = {static_cast<uint64_t>(value),
-                      static_cast<uint64_t>(value >> 64)};
+  uint64_t words[] = {value.low(), value.high()};
   return llvm::DynamicAPInt(llvm::APInt(128, words));
 }
 

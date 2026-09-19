@@ -3903,13 +3903,66 @@ def clear_system(value: ac.u16) -> ac.u16:
                 "conversions",
             )
         with self.assertRaisesRegex(
-            QueueFrontendError, "must be an unsigned bits value"
+            QueueFrontendError, "must be a bits value"
         ):
             lower_queue_source(
                 TYPED_CONVERSION_SOURCE.replace(
                     "value: ac.u3", "value: bool", 2
                 ).replace("ac.u3) -> Converted", "bool) -> Converted"),
                 "conversions",
+            )
+
+    def test_signed_widening_multiplication_needs_explicit_extension(self) -> None:
+        from agentic_circuit._queue_frontend import (
+            QueueFrontendError,
+            lower_queue_source,
+        )
+
+        source = """
+import agentic_circuit as ac
+
+@ac.struct
+class SignedPair:
+    a: ac.s16
+    b: ac.s16
+
+@ac.module
+def widen(pair: SignedPair) -> ac.s32:
+    return ac.sext(pair.a, ac.s32) * ac.sext(pair.b, ac.s32)
+
+@ac.system
+def widening(pair: SignedPair) -> ac.s32:
+    return widen(pair)
+"""
+        lowered = lower_queue_source(source, "widening")
+        # Explicit extension before the multiply: the sign bit is replicated
+        # into the 16 extension bits and the product is a 32-bit multiply, not
+        # a 16-bit product widened afterwards.
+        self.assertRegex(lowered, r"ac\.var\.extract %\w+ from 15 width 1")
+        self.assertRegex(
+            lowered, r"ac\.var\.concat %\w+(, %\w+){16} : .*-> !ac\.var<i32>"
+        )
+        self.assertRegex(lowered, r"ac\.var\.mul %\w+, %\w+ : !ac\.var<i32>")
+
+        # Widening the result type without extending the operands stays
+        # rejected: the module result payload must match the declared type.
+        with self.assertRaisesRegex(
+            QueueFrontendError, "ACPY-MODULE-001: module result payload type mismatch"
+        ):
+            lower_queue_source(
+                source.replace(
+                    "ac.sext(pair.a, ac.s32) * ac.sext(pair.b, ac.s32)",
+                    "pair.a * pair.b",
+                ),
+                "widening",
+            )
+        # The target is a positional concrete type, not a width keyword.
+        with self.assertRaisesRegex(QueueFrontendError, "positional arguments only"):
+            lower_queue_source(
+                source.replace(
+                    "ac.sext(pair.a, ac.s32)", "ac.sext(pair.a, width=32)"
+                ),
+                "widening",
             )
 
     def test_static_assert_evaluates_after_const_binding_and_leaves_no_ir(self) -> None:

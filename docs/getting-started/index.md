@@ -14,7 +14,7 @@ design through the current pyCircuit 6 toolchain.
 
 ## Requirements
 
-- Linux or macOS
+- Linux, macOS, or Windows
 - Python 3.10 or later for `pycircuit`
 - Python 3.11 or later for the integrated Agentic Circuit toolchain
 - CMake and Ninja for native builds
@@ -47,6 +47,9 @@ or gfsim:
 bash flows/scripts/pyc build
 export PYC_TOOLCHAIN_ROOT="$PWD/.pycircuit_out/toolchain/install"
 ```
+
+On Windows, use the PowerShell entry point for the same build:
+`pwsh -NoProfile -File flows/scripts/pyc.ps1 build --llvm-config "$env:LLVM_ROOT\bin\llvm-config.exe"`.
 
 ## Documentation map
 

@@ -7,11 +7,16 @@ find_package(AgenticCircuit 0.1.0 EXACT CONFIG REQUIRED COMPONENTS Runtime)
 if(NOT IS_ABSOLUTE "${AGENTIC_MODEL_ROOT}")
   message(FATAL_ERROR "AGENTIC_MODEL_ROOT must be absolute")
 endif()
-include("${AGENTIC_MODEL_ROOT}/model-sources.cmake")
+# Normalize a native root before joining it with the fragment's relative paths.
+# A Windows root such as C:\dir keeps backslashes through variable expansion,
+# and CMake then reads the joined "\d" (or "\U") as an escape sequence and
+# fails with "Invalid character escape". TO_CMAKE_PATH yields forward slashes.
+file(TO_CMAKE_PATH "${AGENTIC_MODEL_ROOT}" _agentic_model_root)
+include("${_agentic_model_root}/model-sources.cmake")
 
 set(_agentic_model_sources "")
 foreach(_source IN LISTS AGENTIC_MODEL_GENERATED_SOURCES)
-  list(APPEND _agentic_model_sources "${AGENTIC_MODEL_ROOT}/${_source}")
+  list(APPEND _agentic_model_sources "${_agentic_model_root}/${_source}")
 endforeach()
 
 add_library(model-plugin SHARED ${_agentic_model_sources})
@@ -21,7 +26,7 @@ set_target_properties(model-plugin PROPERTIES
   CXX_VISIBILITY_PRESET hidden
 )
 target_include_directories(model-plugin PRIVATE
-  "${AGENTIC_MODEL_ROOT}/include")
+  "${_agentic_model_root}/include")
 get_target_property(_agentic_runtime_includes
   ${AGENTIC_MODEL_RUNTIME_TARGET} INTERFACE_INCLUDE_DIRECTORIES)
 target_include_directories(model-plugin PUBLIC ${_agentic_runtime_includes})

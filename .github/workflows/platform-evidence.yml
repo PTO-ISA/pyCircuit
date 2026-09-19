@@ -1,0 +1,518 @@
+name: Platform evidence (no publish)
+
+# Evidence-only lane for Decision 0265.
+#
+# Decision 0265 records windows-x86_64 as a supported SDK profile but keeps it
+# `implemented-unverified` until a real Windows runner proves the platform. The
+# release workflow cannot produce that proof: its platform lanes are
+# `needs: [full-validation]`, and full-validation runs
+# `check_decision_status.py --require-all-verified`, which fails while 0265 is
+# still unverified. That is a deliberate ordering rule, not a bug, so the
+# evidence is produced here instead.
+#
+# This workflow builds and verifies one platform candidate with exactly the
+# commands the release lanes use, and uploads the retained bytes plus the
+# verification attestation. It never tags, never publishes, never touches the
+# release environment, and never writes to the repository. After a successful
+# run, commit the attestation and a short summary under
+# `docs/gates/logs/<run-id>/`, point the Decision 0265 status row at those
+# paths, and mark it `implemented-verified`; only then can a release candidate
+# that contains the Windows profile be accepted.
+#
+# Keep the build and verify commands below aligned with
+# `.github/workflows/release.yml`.
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: Version matching repository metadata (for example 6.1.0)
+        required: true
+        type: string
+      commit_sha:
+        description: Full commit SHA to build and verify
+        required: true
+        type: string
+      platform:
+        description: Platform profile to build and verify
+        required: true
+        type: choice
+        options:
+          - windows-x86_64
+          - linux-x86_64
+          - macos-arm64
+          - all
+
+permissions:
+  contents: read
+
+env:
+  LLVM_VERSION: "22"
+  LLVM_PACKAGE_VERSION: "22.1.8"
+  LLVM_INSTALL_SCRIPT_SHA256: "03878e08f47b66cc95bc4b544b0db3c6d9ce8d60e6cf2492ae357984330a9eae"
+  # The official LLVM Windows release archive ships llvm/clang/lld CMake
+  # packages but no MLIR at all (verified against the published 22.1.8 asset),
+  # and pyCircuit needs MLIR_DIR for pyc-opt/pycc. Windows therefore builds the
+  # pinned LLVM+MLIR source once and caches the install prefix. The option set
+  # mirrors the RTTI/EH configuration of the known-good macOS lane, and
+  # LLVM_WINDOWS_BUILD_ID salts the cache key so an option change starts a
+  # fresh build instead of reusing an incompatible prefix.
+  LLVM_SOURCE_URL: "https://github.com/llvm/llvm-project/releases/download/llvmorg-22.1.8/llvm-project-22.1.8.src.tar.xz"
+  LLVM_SOURCE_SHA256: "922f1817a0df7b1489272d18134ee0087a8b068828f87ac63b9861b1a9965888"
+  LLVM_WINDOWS_BUILD_ID: "source-v1"
+  LLVM_WINDOWS_CMAKE_OPTIONS: "-DLLVM_ENABLE_PROJECTS=mlir -DLLVM_TARGETS_TO_BUILD=X86 -DLLVM_ENABLE_ASSERTIONS=OFF -DLLVM_INCLUDE_TESTS=OFF -DLLVM_INCLUDE_EXAMPLES=OFF -DLLVM_INCLUDE_BENCHMARKS=OFF -DLLVM_INCLUDE_DOCS=OFF -DLLVM_BUILD_LLVM_DYLIB=OFF -DLLVM_LINK_LLVM_DYLIB=OFF -DLLVM_ENABLE_RTTI=ON -DLLVM_ENABLE_EH=OFF -DLLVM_ENABLE_TERMINFO=OFF -DLLVM_ENABLE_LIBXML2=OFF -DLLVM_ENABLE_ZLIB=OFF -DLLVM_ENABLE_ZSTD=OFF -DMLIR_ENABLE_BINDINGS_PYTHON=OFF"
+  # The Windows lane compiles with clang-cl rather than cl.exe. The MSVC front
+  # end aborts with an internal compiler error (C1001, msc1.cpp) on the ACIR
+  # codegen's recursive generic lambdas, while the same sources build under
+  # clang. The driver comes from the official clang+llvm 22.1.8 Windows
+  # release -- the same release tag as the pinned MLIR source below -- so the
+  # compiler is checksum-pinned and matches the LLVM/MLIR it links. clang-cl
+  # keeps the MSVC v143 ABI, runtime, and win_amd64 wheel identity; only the
+  # driver changes, and the MSVC developer environment stays mandatory because
+  # clang-cl reads INCLUDE/LIB from it. See Decision 0265.
+  CLANG_PACKAGE_VERSION: "22.1.8"
+  CLANG_RESOURCE_VERSION: "22"
+  CLANG_SOURCE_URL: "https://github.com/llvm/llvm-project/releases/download/llvmorg-22.1.8/clang+llvm-22.1.8-x86_64-pc-windows-msvc.tar.xz"
+  CLANG_SOURCE_SHA256: "d96c2cc1736f4eb7fa43cb9bbdf56d93551a9ae0a9aadb9c99c3c3b2b712a234"
+
+jobs:
+  plan:
+    name: "Evidence: select platforms"
+    if: github.repository == 'PTO-ISA/pyCircuit'
+    runs-on: ubuntu-24.04
+    outputs:
+      matrix: ${{ steps.select.outputs.matrix }}
+    steps:
+      - name: Select the requested platform subset
+        id: select
+        shell: bash
+        run: |
+          set -euo pipefail
+          linux='{"os":"ubuntu-24.04","platform":"linux-x86_64","runner_os":"Linux"}'
+          macos='{"os":"macos-15","platform":"macos-arm64","runner_os":"macOS"}'
+          windows='{"os":"windows-2022","platform":"windows-x86_64","runner_os":"Windows"}'
+          case "${{ inputs.platform }}" in
+            all) include="[${linux},${macos},${windows}]" ;;
+            linux-x86_64) include="[${linux}]" ;;
+            macos-arm64) include="[${macos}]" ;;
+            windows-x86_64) include="[${windows}]" ;;
+            *) echo "unknown platform: ${{ inputs.platform }}" >&2; exit 1 ;;
+          esac
+          echo "matrix={\"include\":${include}}" >> "$GITHUB_OUTPUT"
+
+  universal-wheels:
+    name: "Evidence: universal wheels"
+    if: github.repository == 'PTO-ISA/pyCircuit'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    steps:
+      - name: Checkout exact candidate SHA
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          ref: ${{ inputs.commit_sha }}
+      - name: Set up Python
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7
+        with:
+          python-version: "3.11"
+      - name: Build universal wheels
+        run: |
+          set -euxo pipefail
+          python3 -m pip install build twine
+          mkdir -p universal
+          python3 -m build --wheel --outdir universal python/semantic-core
+          python3 -m build --wheel --outdir universal python/agentic-circuit
+          python3 -m twine check universal/*.whl
+      - name: Upload universal wheels
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: platform-evidence-universal
+          path: universal/
+          if-no-files-found: error
+          retention-days: 14
+
+  platform-candidate:
+    name: "Evidence: build ${{ matrix.platform }}"
+    needs: [plan, universal-wheels]
+    if: github.repository == 'PTO-ISA/pyCircuit'
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJSON(needs.plan.outputs.matrix) }}
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 360
+    steps:
+      - name: Checkout exact candidate SHA
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          ref: ${{ inputs.commit_sha }}
+      - name: Set up Python
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7
+        with:
+          python-version: "3.11"
+      - name: Enforce runner OS and architecture match the platform profile
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          $expectedOs = "${{ matrix.runner_os }}"
+          if ($env:RUNNER_OS -ne $expectedOs) {
+            throw "platform ${{ matrix.platform }} requires a $expectedOs runner, observed $env:RUNNER_OS"
+          }
+          Write-Host "runner profile verified: $env:RUNNER_OS $env:RUNNER_ARCH"
+      - name: Download universal wheels
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+        with:
+          name: platform-evidence-universal
+          path: universal
+      - name: Install platform dependencies
+        if: matrix.runner_os != 'Windows'
+        run: |
+          set -euxo pipefail
+          if [[ "${RUNNER_OS}" == "Linux" ]]; then
+            sudo apt-get update
+            sudo apt-get install -y wget gnupg software-properties-common cmake ninja-build clang patchelf
+            command -v patchelf
+            wget --https-only https://apt.llvm.org/llvm.sh
+            printf '%s  %s\n' "${LLVM_INSTALL_SCRIPT_SHA256}" llvm.sh | sha256sum --check --strict
+            chmod +x llvm.sh && sudo ./llvm.sh "${LLVM_VERSION}"
+            sudo apt-get install -y "llvm-${LLVM_VERSION}-dev" "mlir-${LLVM_VERSION}-tools" "libmlir-${LLVM_VERSION}-dev"
+            echo "/usr/lib/llvm-${LLVM_VERSION}/bin" >> "$GITHUB_PATH"
+          else
+            brew install ninja cmake "llvm@${LLVM_VERSION}"
+            echo "$(brew --prefix "llvm@${LLVM_VERSION}")/bin" >> "$GITHUB_PATH"
+          fi
+          python3 -m pip install setuptools wheel twine
+      - name: Configure MSVC developer environment
+        if: matrix.runner_os == 'Windows'
+        uses: ilammy/msvc-dev-cmd@0b201ec74fa43914dc39ae48a89fd1d8cb592756 # v1.13.0
+        with:
+          arch: x64
+          toolset: "14.4"
+      - name: Restore the Windows LLVM/MLIR build
+        if: matrix.runner_os == 'Windows'
+        id: llvm-cache
+        # restore/save are split so a successful LLVM build is cached even when
+        # a later step of the same job fails; a plain actions/cache only saves
+        # at job end, which would rebuild LLVM on every failing iteration.
+        uses: actions/cache/restore@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
+        with:
+          path: ${{ runner.temp }}\llvm-mlir
+          key: llvm-mlir-${{ env.LLVM_PACKAGE_VERSION }}-${{ env.LLVM_WINDOWS_BUILD_ID }}-${{ env.LLVM_SOURCE_SHA256 }}
+      - name: Build LLVM/MLIR from the pinned source (Windows)
+        if: matrix.runner_os == 'Windows' && steps.llvm-cache.outputs.cache-hit != 'true'
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          $ProgressPreference = "SilentlyContinue"
+          $prefix = "$env:RUNNER_TEMP\llvm-mlir"
+          $source = "$env:RUNNER_TEMP\llvm-source"
+          New-Item -ItemType Directory -Force -Path $source | Out-Null
+          $archive = "$source\llvm-project-$env:LLVM_PACKAGE_VERSION.src.tar.xz"
+          Write-Host "free space before fetch: $([math]::Round((Get-PSDrive C).Free / 1GB, 1)) GiB"
+          if (-not (Test-Path $archive)) {
+            $started = Get-Date
+            # curl.exe is present on the runner images and fails loudly instead
+            # of stalling the way Invoke-WebRequest can.
+            curl.exe --fail --location --retry 3 --retry-delay 5 --max-time 3600 --output "$archive" "$env:LLVM_SOURCE_URL"
+            if ($LASTEXITCODE -ne 0) { throw "LLVM source download failed with exit code $LASTEXITCODE" }
+            Write-Host "downloaded in $([int]((Get-Date) - $started).TotalSeconds)s"
+          }
+          $actual = (Get-FileHash -Algorithm SHA256 -Path $archive).Hash.ToLowerInvariant()
+          if ($actual -ne $env:LLVM_SOURCE_SHA256) {
+            throw "LLVM source SHA256 mismatch: $actual"
+          }
+          $srcRoot = "$source\llvm-project-$env:LLVM_PACKAGE_VERSION.src"
+          if (-not (Test-Path "$srcRoot\llvm\CMakeLists.txt")) {
+            $sevenZip = (Get-Command 7z.exe -ErrorAction SilentlyContinue).Source
+            if (-not $sevenZip -and (Test-Path "C:\Program Files\7-Zip\7z.exe")) {
+              $sevenZip = "C:\Program Files\7-Zip\7z.exe"
+            }
+            if ($sevenZip) {
+              # 7-Zip exits 2 after refusing the LLVM test-input symlinks that
+              # point outside the tree ("Dangerous link path was ignored").
+              # Those paths are clang/lldb test fixtures the build never reads,
+              # so warn instead of failing and let the layout check below prove
+              # the extracted tree is usable.
+              & $sevenZip x -y "-o$source" "$archive" | Out-Null
+              if ($LASTEXITCODE -ne 0) {
+                Write-Host "7z reported exit code $LASTEXITCODE on the source archive; verifying the extracted tree instead"
+              }
+              $inner = "$source\llvm-project-$env:LLVM_PACKAGE_VERSION.src.tar"
+              if (Test-Path $inner) {
+                & $sevenZip x -y "-o$source" "$inner" | Out-Null
+                if ($LASTEXITCODE -ne 0) {
+                  Write-Host "7z reported exit code $LASTEXITCODE on the source tar; verifying the extracted tree instead"
+                }
+                Remove-Item $inner -Force
+              }
+            } else {
+              # The bundled bsdtar does not decode .tar.xz reliably here.
+              python3 -c "import sys, tarfile; tarfile.open(sys.argv[1]).extractall(sys.argv[2])" "$archive" "$source"
+              if ($LASTEXITCODE -ne 0) { throw "python tarfile extraction failed with exit code $LASTEXITCODE" }
+            }
+          }
+          if (-not (Test-Path "$srcRoot\llvm\CMakeLists.txt")) {
+            Write-Host "extracted top level:"
+            Get-ChildItem $source | Select-Object -First 5 | ForEach-Object { Write-Host "  $($_.Name)" }
+            throw "LLVM source layout is unexpected: $srcRoot"
+          }
+          $started = Get-Date
+          cmake -G Ninja -S "$srcRoot\llvm" -B "$source\build" -DCMAKE_BUILD_TYPE=Release -DCMAKE_INSTALL_PREFIX="$prefix" $env:LLVM_WINDOWS_CMAKE_OPTIONS.Split(" ")
+          if ($LASTEXITCODE -ne 0) { throw "LLVM/MLIR configure failed with exit code $LASTEXITCODE" }
+          cmake --build "$source\build" --target install --parallel
+          if ($LASTEXITCODE -ne 0) { throw "LLVM/MLIR build failed with exit code $LASTEXITCODE" }
+          Write-Host "LLVM/MLIR installed in $([int]((Get-Date) - $started).TotalSeconds)s"
+      - name: Cache the Windows LLVM/MLIR build
+        if: matrix.runner_os == 'Windows' && steps.llvm-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
+        with:
+          path: ${{ runner.temp }}\llvm-mlir
+          key: ${{ steps.llvm-cache.outputs.cache-primary-key }}
+      - name: Expose the Windows LLVM/MLIR install
+        if: matrix.runner_os == 'Windows'
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          $prefix = "$env:RUNNER_TEMP\llvm-mlir"
+          foreach ($needed in @("$prefix\lib\cmake\llvm", "$prefix\lib\cmake\mlir", "$prefix\bin\llvm-config.exe")) {
+            if (-not (Test-Path $needed)) {
+              Write-Host "install top level:"
+              Get-ChildItem $prefix | Select-Object -First 10 | ForEach-Object { Write-Host "  $($_.Name)" }
+              throw "Windows LLVM/MLIR provisioning is incomplete: missing $needed"
+            }
+          }
+          "LLVM_ROOT=$prefix" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          "LLVM_DIR=$prefix\lib\cmake\llvm" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          "MLIR_DIR=$prefix\lib\cmake\mlir" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          "$prefix\bin" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
+          python3 -m pip install --upgrade cmake ninja setuptools wheel twine
+      - name: Restore the pinned clang-cl driver (Windows)
+        if: matrix.runner_os == 'Windows'
+        id: clang-cache
+        # Split restore/save for the same reason as the LLVM/MLIR cache: a
+        # successful provision must survive a later step failing.
+        uses: actions/cache/restore@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
+        with:
+          path: ${{ runner.temp }}\clang-cl
+          key: clang-cl-${{ env.CLANG_PACKAGE_VERSION }}-${{ env.CLANG_SOURCE_SHA256 }}
+      - name: Provision the pinned clang-cl driver (Windows)
+        if: matrix.runner_os == 'Windows' && steps.clang-cache.outputs.cache-hit != 'true'
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          $ProgressPreference = "SilentlyContinue"
+          $root = "$env:RUNNER_TEMP\clang-cl"
+          $archive = "$env:RUNNER_TEMP\clang+llvm-$env:CLANG_PACKAGE_VERSION-x86_64-pc-windows-msvc.tar.xz"
+          if (-not (Test-Path $archive)) {
+            $started = Get-Date
+            curl.exe --fail --location --retry 3 --retry-delay 5 --max-time 3600 --output "$archive" "$env:CLANG_SOURCE_URL"
+            if ($LASTEXITCODE -ne 0) { throw "clang-cl download failed with exit code $LASTEXITCODE" }
+            Write-Host "downloaded in $([int]((Get-Date) - $started).TotalSeconds)s"
+          }
+          $actual = (Get-FileHash -Algorithm SHA256 -Path $archive).Hash.ToLowerInvariant()
+          if ($actual -ne $env:CLANG_SOURCE_SHA256) {
+            throw "clang-cl archive SHA256 mismatch: $actual"
+          }
+          # Only the driver and its resource directory are needed, so the cache
+          # stays small instead of carrying the whole multi-gigabyte release.
+          # The bundled bsdtar does not decode .tar.xz here; Python does.
+          python3 -c "import sys, tarfile; a, d, p = sys.argv[1], sys.argv[2], sys.argv[3]; t = tarfile.open(a); m = [x for x in t.getmembers() if x.name in (p + '/bin/clang-cl.exe', p + '/bin/clang.exe') or x.name.startswith(p + '/lib/clang/')]; t.extractall(d, members=m); print('extracted', len(m), 'members')" "$archive" "$root" "clang+llvm-$env:CLANG_PACKAGE_VERSION-x86_64-pc-windows-msvc"
+          if ($LASTEXITCODE -ne 0) { throw "clang-cl extraction failed with exit code $LASTEXITCODE" }
+      - name: Cache the pinned clang-cl driver (Windows)
+        if: matrix.runner_os == 'Windows' && steps.clang-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
+        with:
+          path: ${{ runner.temp }}\clang-cl
+          key: ${{ steps.clang-cache.outputs.cache-primary-key }}
+      - name: Expose the pinned clang-cl driver (Windows)
+        if: matrix.runner_os == 'Windows'
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          $root = "$env:RUNNER_TEMP\clang-cl\clang+llvm-$env:CLANG_PACKAGE_VERSION-x86_64-pc-windows-msvc"
+          foreach ($needed in @("$root\bin\clang-cl.exe", "$root\lib\clang\$env:CLANG_RESOURCE_VERSION\include\stddef.h", "$root\lib\clang\$env:CLANG_RESOURCE_VERSION\lib\windows\clang_rt.builtins-x86_64.lib")) {
+            if (-not (Test-Path $needed)) {
+              throw "clang-cl provisioning is incomplete: missing $needed"
+            }
+          }
+          "CLANG_CL_ROOT=$root" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          "$root\bin" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
+      - name: Build platform bytes
+        if: matrix.runner_os != 'Windows'
+        run: |
+          set -euxo pipefail
+          if [[ "${RUNNER_OS}" == "Linux" ]]; then
+            llvm_config="/usr/lib/llvm-${LLVM_VERSION}/bin/llvm-config"
+            export CC="/usr/bin/clang-${LLVM_VERSION}"
+            export CXX="/usr/bin/clang++-${LLVM_VERSION}"
+            [[ "$(${CXX} -dumpmachine)" == x86_64*-linux-* ]]
+          else
+            llvm_root="$(brew --prefix "llvm@${LLVM_VERSION}")"
+            llvm_config="${llvm_root}/bin/llvm-config"
+            export CC="/usr/bin/clang"
+            export CXX="/usr/bin/clang++"
+            export MACOSX_DEPLOYMENT_TARGET=15.0
+            [[ "$(${CXX} -dumpmachine)" == arm64-apple-* ]]
+          fi
+          export CFLAGS="-ffile-prefix-map=$GITHUB_WORKSPACE=. -fdebug-prefix-map=$GITHUB_WORKSPACE=."
+          export CXXFLAGS="$CFLAGS"
+          export PYC_PYTHON_EXECUTABLE="$(command -v python3)"
+          bash flows/scripts/pyc build --llvm-config "${llvm_config}" --build-dir "$PWD/.pycircuit_out/toolchain/build" --install-prefix "$PWD/.pycircuit_out/toolchain/install"
+          mkdir -p candidate
+          python3 packaging/wheel/create_wheel.py --install-dir "$PWD/.pycircuit_out/toolchain/install" --out-dir candidate --wheel-version "${{ inputs.version }}"
+          wheel="$(find candidate -maxdepth 1 -name 'pycircuit_hisi-*.whl' -print -quit)"
+          python3 packaging/sdk/create_platform_manifest.py \
+            --install-dir "$PWD/.pycircuit_out/toolchain/install" \
+            --wheel "${wheel}" \
+            --wheel "$(find universal -name 'pycircuit_semantic_core-*.whl' -print -quit)" \
+            --wheel "$(find universal -name 'agentic_circuit-*.whl' -print -quit)" \
+            --platform "${{ matrix.platform }}" \
+            --source-revision "${{ inputs.commit_sha }}" \
+            --cxx-compiler "${CXX}" \
+            --out-dir candidate
+          python3 -m twine check candidate/*.whl
+      - name: Build platform bytes (Windows)
+        if: matrix.runner_os == 'Windows'
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          # -ffile-prefix-map keeps producer absolute paths out of the retained
+          # bytes. clang-cl implements it for __FILE__ and debug info alike;
+          # cl.exe's /pathmap: is silently ignored without
+          # /experimental:deterministic.
+          $llvmConfig = "$env:LLVM_ROOT\bin\llvm-config.exe"
+          $env:CC = "clang-cl.exe"
+          $env:CXX = "clang-cl.exe"
+          # clang-cl never prints the MSVC banner cl.exe does, but it does
+          # report its own version and the target triple it will emit. Assert
+          # both, plus the Visual Studio developer environment that supplies
+          # INCLUDE/LIB and link.exe.
+          if (-not (Get-Command clang-cl.exe -ErrorAction SilentlyContinue)) {
+            throw "clang-cl.exe is not on PATH; the pinned driver was not provisioned"
+          }
+          # PowerShell's -notmatch returns the elements that do NOT match when
+          # it is handed an array, so join the banner into one string first.
+          $clangInfo = (& clang-cl.exe --version) -join "`n"
+          if ($LASTEXITCODE -ne 0) { throw "clang-cl.exe --version failed with exit code $LASTEXITCODE" }
+          if ($clangInfo -notmatch [regex]::Escape("clang version $env:CLANG_PACKAGE_VERSION")) {
+            throw "the Windows lane requires the pinned clang $env:CLANG_PACKAGE_VERSION; observed: $($clangInfo -join ' | ')"
+          }
+          if ($clangInfo -notmatch "Target:\s*x86_64-pc-windows-msvc") {
+            throw "clang-cl must emit x86_64-pc-windows-msvc; observed: $($clangInfo -join ' | ')"
+          }
+          if ($env:VSCMD_ARG_HOST_ARCH -ne "x64" -or $env:VSCMD_ARG_TGT_ARCH -ne "x64") {
+            throw "windows-x86_64 requires an x64 host and target; observed host=$env:VSCMD_ARG_HOST_ARCH target=$env:VSCMD_ARG_TGT_ARCH"
+          }
+          $hostTarget = "$(& $llvmConfig --host-target)"
+          if ($hostTarget -notmatch "x86_64-pc-windows-msvc") {
+            throw "the provisioned LLVM/MLIR targets $hostTarget, not x86_64-pc-windows-msvc"
+          }
+          # clang-cl has no -ffile-prefix-map spelling of its own: it treats
+          # the flag as an unknown argument and ignores it, so the mapping
+          # goes through the /clang: escape to the clang driver. Both separator
+          # spellings are mapped because CMake emits Windows source paths with
+          # backslashes while clang may normalise some to forward slashes, and
+          # the verification lane rejects any retained producer path under the
+          # workspace.
+          $workspace = $env:GITHUB_WORKSPACE
+          $prefixMaps = "/clang:-ffile-prefix-map=$workspace=. /clang:-ffile-prefix-map=$($workspace.Replace('\', '/'))=."
+          $env:CFLAGS = $prefixMaps
+          $env:CXXFLAGS = $prefixMaps
+          $env:PYC_PYTHON_EXECUTABLE = (Get-Command python3).Source
+          pwsh -NoProfile -File flows/scripts/pyc.ps1 build --llvm-config "$llvmConfig" --build-dir "$PWD/.pycircuit_out/toolchain/build" --install-prefix "$PWD/.pycircuit_out/toolchain/install"
+          if ($LASTEXITCODE -ne 0) { throw "the platform SDK build failed with exit code $LASTEXITCODE" }
+          New-Item -ItemType Directory -Force -Path candidate | Out-Null
+          python3 packaging/wheel/create_wheel.py --install-dir "$PWD/.pycircuit_out/toolchain/install" --out-dir candidate --wheel-version "${{ inputs.version }}"
+          if ($LASTEXITCODE -ne 0) { throw "wheel creation failed with exit code $LASTEXITCODE" }
+          $wheel = (Get-ChildItem candidate -Filter "pycircuit_hisi-*.whl" | Select-Object -First 1).FullName
+          $semanticWheel = (Get-ChildItem universal -Filter "pycircuit_semantic_core-*.whl" | Select-Object -First 1).FullName
+          $agenticWheel = (Get-ChildItem universal -Filter "agentic_circuit-*.whl" | Select-Object -First 1).FullName
+          if (-not $wheel -or -not $semanticWheel -or -not $agenticWheel) {
+            throw "the platform wheel or a universal wheel is missing"
+          }
+          python3 packaging/sdk/create_platform_manifest.py --install-dir "$PWD/.pycircuit_out/toolchain/install" --wheel "$wheel" --wheel "$semanticWheel" --wheel "$agenticWheel" --platform "${{ matrix.platform }}" --source-revision "${{ inputs.commit_sha }}" --cxx-compiler "$env:CXX" --out-dir candidate
+          # $ErrorActionPreference does not make a failing native command fatal,
+          # so this exit code must be checked explicitly. Without it a failed
+          # manifest or archive step is masked and the lane uploads a partial
+          # candidate, which only surfaces later as a missing file in verify.
+          if ($LASTEXITCODE -ne 0) { throw "platform manifest and archive creation failed with exit code $LASTEXITCODE" }
+          $wheels = @(Get-ChildItem candidate -Filter "*.whl")
+          if ($wheels.Count -eq 0) {
+            throw "no candidate wheels were produced"
+          }
+          python3 -m twine check @($wheels | ForEach-Object { $_.FullName })
+          if ($LASTEXITCODE -ne 0) { throw "twine check failed with exit code $LASTEXITCODE" }
+      - name: Upload platform bytes
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: platform-evidence-bytes-${{ matrix.platform }}
+          path: candidate/
+          if-no-files-found: error
+          retention-days: 14
+
+  platform-verify:
+    name: "Evidence: verify ${{ matrix.platform }}"
+    needs: [plan, platform-candidate]
+    if: github.repository == 'PTO-ISA/pyCircuit'
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJSON(needs.plan.outputs.matrix) }}
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 120
+    steps:
+      - name: Checkout exact candidate SHA
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          ref: ${{ inputs.commit_sha }}
+      - name: Set up Python
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7
+        with:
+          python-version: "3.11"
+      - name: Enforce runner OS and architecture match the platform profile
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          $expectedOs = "${{ matrix.runner_os }}"
+          if ($env:RUNNER_OS -ne $expectedOs) {
+            throw "platform ${{ matrix.platform }} requires a $expectedOs runner, observed $env:RUNNER_OS"
+          }
+          Write-Host "runner profile verified: $env:RUNNER_OS $env:RUNNER_ARCH"
+      - name: Configure MSVC developer environment
+        # verify_platform_candidate.py needs dumpbin for the PE closure.
+        if: matrix.runner_os == 'Windows'
+        uses: ilammy/msvc-dev-cmd@0b201ec74fa43914dc39ae48a89fd1d8cb592756 # v1.13.0
+        with:
+          arch: x64
+          toolset: "14.4"
+      - name: Download platform bytes
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+        with:
+          name: platform-evidence-bytes-${{ matrix.platform }}
+          path: candidate
+      - name: Verify relocation, manifest, wheels, and installed smoke
+        if: matrix.runner_os != 'Windows'
+        run: |
+          set -euxo pipefail
+          python3 -m pip install jsonschema
+          python3 tools/agentic-circuit/check-sdk-contract.py --document "candidate/pycircuit-sdk-${{ inputs.version }}-${{ matrix.platform }}.manifest.json"
+          python3 packaging/sdk/verify_platform_candidate.py \
+            --archive "candidate/pycircuit-sdk-${{ inputs.version }}-${{ matrix.platform }}.tar.gz" \
+            --manifest "candidate/pycircuit-sdk-${{ inputs.version }}-${{ matrix.platform }}.manifest.json" \
+            --forbidden-path "$GITHUB_WORKSPACE" \
+            --attestation "platform-evidence-${{ matrix.platform }}.json"
+      - name: Verify relocation, manifest, wheels, and installed smoke (Windows)
+        if: matrix.runner_os == 'Windows'
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          python3 -m pip install jsonschema
+          python3 tools/agentic-circuit/check-sdk-contract.py --document "candidate/pycircuit-sdk-${{ inputs.version }}-${{ matrix.platform }}.manifest.json"
+          python3 packaging/sdk/verify_platform_candidate.py --archive "candidate/pycircuit-sdk-${{ inputs.version }}-${{ matrix.platform }}.tar.gz" --manifest "candidate/pycircuit-sdk-${{ inputs.version }}-${{ matrix.platform }}.manifest.json" --forbidden-path "$env:GITHUB_WORKSPACE" --attestation "platform-evidence-${{ matrix.platform }}.json"
+      - name: Show the attestation
+        shell: bash
+        run: cat "platform-evidence-${{ matrix.platform }}.json"
+      - name: Upload platform evidence
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: platform-evidence-attestation-${{ matrix.platform }}
+          path: platform-evidence-${{ matrix.platform }}.json
+          if-no-files-found: error
+          retention-days: 90

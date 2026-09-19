@@ -84,7 +84,23 @@ _Static_assert(sizeof(AgenticModelStepResultV1) == 24,
 
 typedef const AgenticModelApiV1 *(*AgenticModelQueryV1)(void);
 
-const AgenticModelApiV1 *agentic_model_query_v1(void);
+/* A model bundle defines AGENTIC_MODEL_BUILD before including this header so the
+   entry point declaration carries the export attribute the shared library needs.
+   A declaration and its definition have to agree on that attribute: MSVC reports
+   C2375 "redefinition; different linkage" for a dllexport definition whose
+   earlier declaration lacks it. Consumers that only call the entry point leave
+   the macro undefined and see a plain declaration. */
+#if !defined(AGENTIC_MODEL_EXPORT)
+#if defined(AGENTIC_MODEL_BUILD) && defined(_WIN32)
+#define AGENTIC_MODEL_EXPORT __declspec(dllexport)
+#elif defined(AGENTIC_MODEL_BUILD) && (defined(__GNUC__) || defined(__clang__))
+#define AGENTIC_MODEL_EXPORT __attribute__((visibility("default")))
+#else
+#define AGENTIC_MODEL_EXPORT
+#endif
+#endif
+
+AGENTIC_MODEL_EXPORT const AgenticModelApiV1 *agentic_model_query_v1(void);
 
 #ifdef __cplusplus
 }

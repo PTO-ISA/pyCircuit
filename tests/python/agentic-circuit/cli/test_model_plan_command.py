@@ -23,8 +23,10 @@ from agentic_circuit._commands.model import (
 )
 from jsonschema import Draft202012Validator
 
+from cli import gate_build_root
+
 REPOSITORY = Path(__file__).resolve().parents[4]
-BUILD = REPOSITORY / ".pycircuit_out/acir/dev-llvm22"
+BUILD = gate_build_root(REPOSITORY, os.environ)
 MODEL_PLAN_SCHEMA = REPOSITORY / "schemas/agentic-circuit/model-plan.schema.json"
 MODEL_MANIFEST_SCHEMA = (
     REPOSITORY / "schemas/agentic-circuit/model-manifest.schema.json"
@@ -157,13 +159,13 @@ def install_sdk(prefix: Path) -> None:
         "schema": "pycircuit-sdk-platform-manifest",
         "version": "1",
         "contract_epoch": "0.5",
-        "product_version": "6.0.0",
+        "product_version": "6.1.0",
         "source_revision": FIXTURE_SOURCE_REVISION,
         "platform": platform_value,
         "distributions": {
             "agentic-circuit": "0.1.0",
-            "pycircuit-hisi": "6.0.0",
-            "pycircuit-semantic-core": "6.0.0",
+            "pycircuit-hisi": "6.1.0",
+            "pycircuit-semantic-core": "6.1.0",
         },
         "abi": {
             "acpy_epoch": "0.5",

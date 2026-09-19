@@ -20,6 +20,70 @@ from typing import Any
 ROOT = Path(__file__).resolve().parents[2]
 MODEL_CONSUMER = ROOT / "tests/integration/agentic-circuit/model-install-consumer"
 
+# Windows API-set prefixes and operating-system DLL names (plus the MSVC v143
+# C/C++ runtime declared by the platform profile).  Kept in step with
+# create_platform_manifest.py so generator and verifier classify imports alike.
+WINDOWS_SYSTEM_DLL_PREFIXES = ("api-ms-win-", "ext-ms-win-")
+WINDOWS_SYSTEM_DLLS = frozenset(
+    {
+        "advapi32.dll",
+        "bcrypt.dll",
+        "bcryptprimitives.dll",
+        "cfgmgr32.dll",
+        "combase.dll",
+        "comctl32.dll",
+        "comdlg32.dll",
+        "concrt140.dll",
+        "crypt32.dll",
+        "cryptbase.dll",
+        "dbghelp.dll",
+        "dnsapi.dll",
+        "dsound.dll",
+        "dwmapi.dll",
+        "gdi32.dll",
+        "gdi32full.dll",
+        "imm32.dll",
+        "iphlpapi.dll",
+        "kernel32.dll",
+        "kernelbase.dll",
+        "mf.dll",
+        "mfplat.dll",
+        "mpr.dll",
+        "msvcp140.dll",
+        "msvcp140_1.dll",
+        "msvcp140_2.dll",
+        "msvcp140_atomic_wait.dll",
+        "msvcp140_codecvt_ids.dll",
+        "msvcp_win.dll",
+        "msvcrt.dll",
+        "netapi32.dll",
+        "normaliz.dll",
+        "ntdll.dll",
+        "ole32.dll",
+        "oleaut32.dll",
+        "opengl32.dll",
+        "powrprof.dll",
+        "psapi.dll",
+        "python3.dll",
+        "python311.dll",
+        "rpcrt4.dll",
+        "sechost.dll",
+        "secur32.dll",
+        "setupapi.dll",
+        "shell32.dll",
+        "shlwapi.dll",
+        "ucrtbase.dll",
+        "user32.dll",
+        "userenv.dll",
+        "vcruntime140.dll",
+        "vcruntime140_1.dll",
+        "version.dll",
+        "winmm.dll",
+        "ws2_32.dll",
+        "wtsapi32.dll",
+    }
+)
+
 
 def sha256(path: Path) -> str:
     digest = hashlib.sha256()
@@ -75,11 +139,22 @@ def extract(archive: Path, destination: Path) -> None:
         bundle.extractall(destination, filter="data")
 
 
+def _windows_system_dependency(name: str) -> bool:
+    lowered = name.lower()
+    if lowered.startswith(WINDOWS_SYSTEM_DLL_PREFIXES):
+        return True
+    return lowered in WINDOWS_SYSTEM_DLLS
+
+
 def _native_files(root: Path, manifest: dict[str, Any]) -> list[Path]:
     result: list[Path] = []
     for record in manifest["files"]:
         path = root / record["path"]
         if record["kind"] not in {"tool", "library"} or path.suffix == ".a":
+            continue
+        if sys.platform == "win32":
+            if path.suffix.lower() in {".exe", ".dll", ".pyd"}:
+                result.append(path)
             continue
         identified = subprocess.run(
             ["file", "-b", path], text=True, capture_output=True, check=False
@@ -94,8 +169,52 @@ def _native_files(root: Path, manifest: dict[str, Any]) -> list[Path]:
 def verify_native_closure(root: Path, manifest: dict[str, Any]) -> None:
     root_text = os.fspath(root.resolve())
     bundled_names = {path.name for path in root.rglob("*") if path.is_file()}
+    bundled_names_lower = {name.lower() for name in bundled_names}
     observed_dependencies: set[tuple[str, str]] = set()
-    for path in _native_files(root, manifest):
+    native = _native_files(root, manifest)
+    if sys.platform == "win32":
+        declared_native = [
+            record["path"]
+            for record in manifest["files"]
+            if record["kind"] in {"tool", "library"}
+        ]
+        if declared_native and not native:
+            raise ValueError(
+                "no Windows PE binaries were found among the declared SDK tools "
+                "and libraries; refusing to accept an unverified native closure"
+            )
+    for path in native:
+        if sys.platform == "win32":
+            dumpbin = shutil.which("dumpbin")
+            if dumpbin is None:
+                raise ValueError(
+                    "dumpbin is required to verify Windows native dependencies; "
+                    "run from a Visual Studio developer environment"
+                )
+            linked = subprocess.run(
+                [dumpbin, "/nologo", "/dependents", path],
+                text=True,
+                capture_output=True,
+                check=False,
+            )
+            if linked.returncode:
+                raise ValueError(f"dumpbin failed for {path}: {linked.stderr}")
+            in_block = False
+            for raw in linked.stdout.splitlines():
+                line = raw.strip()
+                if line.lower().startswith("image has the following"):
+                    in_block = True
+                    continue
+                if not in_block or not line.lower().endswith(".dll"):
+                    continue
+                dependency = Path(line).name
+                if _windows_system_dependency(dependency):
+                    observed_dependencies.add(("system", dependency))
+                elif dependency.lower() in bundled_names_lower:
+                    observed_dependencies.add(("bundled", dependency))
+                else:
+                    raise ValueError(f"undeclared non-system dependency: {dependency}")
+            continue
         if sys.platform == "darwin":
             linked = subprocess.run(
                 ["otool", "-L", path], text=True, capture_output=True, check=False
@@ -212,7 +331,9 @@ def validate_tree(
         data = path.read_bytes()
         if any(value in data for value in encoded_forbidden):
             raise ValueError(f"SDK contains a producer absolute path: {record['path']}")
-    wheels = sorted((root / "python/wheelhouse").glob("*.whl"))
+    wheels = sorted(
+        (root / "python/wheelhouse").glob("*.whl"), key=lambda path: path.name
+    )
     if len(wheels) != 3:
         raise ValueError(f"SDK wheelhouse must contain exactly three wheels: {wheels}")
     verify_native_closure(root, manifest)
@@ -252,7 +373,63 @@ def write_model_source(source: Path) -> None:
     )
 
 
+def find_build_artifact(root: Path, names: tuple[str, ...]) -> Path:
+    """Locate exactly one built artifact under ``root``.
+
+    A single-configuration generator writes to the build root, while a
+    multi-configuration one (Visual Studio, Xcode) writes to a configuration
+    subdirectory such as ``Release/``. Searching recursively covers both, and
+    Debug symbol bundles are skipped because they contain a copy of the binary
+    under ``*.dSYM/Contents/Resources/DWARF/``.
+    """
+    found = sorted(
+        (
+            path
+            for name in names
+            for path in root.rglob(name)
+            if path.is_file() and not any(part.endswith(".dSYM") for part in path.parts)
+        ),
+        key=lambda path: path.relative_to(root).as_posix(),
+    )
+    if len(found) != 1:
+        raise ValueError(f"expected one {names[0]}, found {found}")
+    return found[0]
+
+
 def verify_only_export(plugin: Path) -> None:
+    if sys.platform == "win32":
+        dumpbin = shutil.which("dumpbin")
+        if dumpbin is None:
+            raise ValueError(
+                "dumpbin is required to inspect generated Windows model exports"
+            )
+        completed = subprocess.run(
+            [dumpbin, "/nologo", "/exports", plugin],
+            text=True,
+            capture_output=True,
+            check=False,
+        )
+        if completed.returncode:
+            raise ValueError(f"dumpbin failed for {plugin}: {completed.stderr}")
+        exported: list[str] = []
+        in_table = False
+        for raw in completed.stdout.splitlines():
+            line = raw.strip()
+            if not line:
+                continue
+            fields = line.split()
+            if fields[0].lower() == "ordinal" and "name" in line.lower():
+                in_table = True
+                continue
+            if not in_table:
+                continue
+            if fields[0].lower() == "summary":
+                break
+            if fields[0].isdigit():
+                exported.append(fields[-1])
+        if len(exported) != 1 or not exported[0].endswith("agentic_model_query_v1"):
+            raise ValueError("generated model must export only agentic_model_query_v1")
+        return
     command = (
         ["nm", "-gU", plugin]
         if platform.system() == "Darwin"
@@ -271,11 +448,16 @@ def verify_only_export(plugin: Path) -> None:
 def tree_hashes(root: Path) -> tuple[tuple[str, str], ...]:
     return tuple(
         (path.relative_to(root).as_posix(), sha256(path))
-        for path in sorted(item for item in root.rglob("*") if item.is_file())
+        for path in sorted(
+            (item for item in root.rglob("*") if item.is_file()),
+            key=lambda path: path.relative_to(root).as_posix(),
+        )
     )
 
 
 def installed_smoke(sdk_root: Path, wheels: list[Path], workspace: Path) -> None:
+    windows = sys.platform == "win32"
+    suffix = ".exe" if windows else ""
     environment = workspace / "venv"
     venv.EnvBuilder(with_pip=True).create(environment)
     python = environment / (
@@ -290,11 +472,17 @@ def installed_smoke(sdk_root: Path, wheels: list[Path], workspace: Path) -> None
         [python, "-c", "import _pycircuit_semantics, agentic_circuit, pycircuit"],
         cwd=workspace,
     )
-    run([commands / "pycircuit", "--help"], cwd=workspace)
+    run([commands / f"pycircuit{suffix}", "--help"], cwd=workspace)
+    # The Agentic Circuit CLI is a relocatable Python launcher script rather
+    # than a native tool, so it keeps the extensionless name the install layout
+    # documents on every platform; only the compiled tools gain the .exe
+    # suffix. Windows cannot execute a file without a known extension, so the
+    # launcher is invoked through the interpreter there.
     cli = sdk_root / "bin/agentic-circuit"
+    launcher = [os.fspath(python), os.fspath(cli)] if windows else [os.fspath(cli)]
     for required in (
         cli,
-        sdk_root / "bin/acir-opt",
+        sdk_root / f"bin/acir-opt{suffix}",
         sdk_root / "lib/cmake/AgenticCircuit/AgenticCircuitConfig.cmake",
     ):
         if not required.is_file():
@@ -312,18 +500,19 @@ def installed_smoke(sdk_root: Path, wheels: list[Path], workspace: Path) -> None
         for name in ("cmake", "ninja", "nm", "c++")
         if (tool := shutil.which(name)) is not None
     }
+    if windows:
+        path_tail = clean_environment.get("PATH", "").split(os.pathsep)
+    else:
+        path_tail = ["/usr/bin", "/bin", "/usr/sbin", "/sbin"]
     clean_environment["PATH"] = os.pathsep.join(
         [
             os.fspath(commands),
             *sorted(tool_directories),
-            "/usr/bin",
-            "/bin",
-            "/usr/sbin",
-            "/sbin",
+            *path_tail,
         ]
     )
     plan_command = [
-        cli,
+        *launcher,
         "model",
         "plan",
         "--sdk-root",
@@ -339,7 +528,7 @@ def installed_smoke(sdk_root: Path, wheels: list[Path], workspace: Path) -> None
         "--json",
     ]
     emit_command = [
-        cli,
+        *launcher,
         "model",
         "emit-cpp",
         "--sdk-root",
@@ -467,16 +656,32 @@ def installed_smoke(sdk_root: Path, wheels: list[Path], workspace: Path) -> None
             f"-DAGENTIC_MODEL_ROOT={generated}",
             "-DCMAKE_DISABLE_FIND_PACKAGE_LLVM=TRUE",
             "-DCMAKE_DISABLE_FIND_PACKAGE_MLIR=TRUE",
+            # The SDK ships Release binaries. A Visual Studio generator defaults
+            # to Debug, and MSVC refuses to mix the two: LNK2038 reports
+            # _ITERATOR_DEBUG_LEVEL and RuntimeLibrary mismatches against
+            # gfsim.lib. Pin the configuration for single- and multi-config
+            # generators alike.
+            "-DCMAKE_BUILD_TYPE=Release",
         ],
         cwd=workspace,
         env=clean_environment,
     )
-    run(["cmake", "--build", build], cwd=workspace, env=clean_environment)
-    plugins = list(build.glob("libmodel-plugin.*"))
-    if len(plugins) != 1:
-        raise ValueError(f"expected one generated model plugin, found {plugins}")
-    verify_only_export(plugins[0])
-    run([build / "model-consumer"], cwd=workspace, env=clean_environment)
+    run(
+        ["cmake", "--build", build, "--config", "Release"],
+        cwd=workspace,
+        env=clean_environment,
+    )
+    plugin_names = (
+        ("model-plugin.dll",)
+        if windows
+        else ("libmodel-plugin.so", "libmodel-plugin.dylib")
+    )
+    verify_only_export(find_build_artifact(build, plugin_names))
+    run(
+        [find_build_artifact(build, (f"model-consumer{suffix}",))],
+        cwd=workspace,
+        env=clean_environment,
+    )
 
 
 def main() -> int:

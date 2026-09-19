@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import ast
 import copy
 import importlib.util
 import io
@@ -17,6 +18,9 @@ import tomllib
 ROOT = Path(__file__).resolve().parents[4]
 VERSION_MAP = ROOT / "packaging/sdk/version-map.json"
 CONTRACT = ROOT / "docs/development/sdk-release-contract.md"
+VERSION_MAP_DOCUMENT = json.loads(VERSION_MAP.read_text(encoding="utf-8"))
+PRODUCT_VERSION = VERSION_MAP_DOCUMENT["product_version"]
+CANDIDATE_TAG = VERSION_MAP_DOCUMENT["candidate_tag"]
 SCHEMAS = {
     "pycircuit-sdk-version-map": "sdk-version-map.schema.json",
     "pycircuit-sdk-platform-manifest": "sdk-manifest.schema.json",
@@ -90,7 +94,7 @@ class SdkReleaseContractTest(unittest.TestCase):
         version_map = json.loads(VERSION_MAP.read_text())
         self.assertEqual("pycircuit-sdk-version-map", version_map["schema"])
         self.assertEqual("1", version_map["version"])
-        self.assertEqual("v6.0.0", version_map["candidate_tag"])
+        self.assertEqual("v6.1.0", version_map["candidate_tag"])
         self.assertEqual("exact_identity_tuple", version_map["compatibility"])
         self.assertEqual(
             {
@@ -105,7 +109,7 @@ class SdkReleaseContractTest(unittest.TestCase):
             version_map["distributions"],
         )
         self.assertEqual(
-            ["linux-x86_64", "macos-arm64"],
+            ["linux-x86_64", "macos-arm64", "windows-x86_64"],
             [platform["id"] for platform in version_map["platforms"]],
         )
         self.assertTrue(
@@ -246,24 +250,43 @@ class SdkReleaseContractTest(unittest.TestCase):
             candidates = root / "candidates"
             candidates.mkdir()
             source = "a" * 40
-            version = "6.0.0"
+            version = PRODUCT_VERSION
             artifacts = (
                 f"pycircuit_hisi-{version}-py3-none-linux_x86_64.whl",
                 f"pycircuit_hisi-{version}-py3-none-macosx_15_0_arm64.whl",
+                f"pycircuit_hisi-{version}-py3-none-win_amd64.whl",
                 f"pycircuit_semantic_core-{version}-py3-none-any.whl",
                 "agentic_circuit-0.1.0-py3-none-any.whl",
                 f"pycircuit-sdk-{version}-linux-x86_64.tar.gz",
                 f"pycircuit-sdk-{version}-macos-arm64.tar.gz",
+                f"pycircuit-sdk-{version}-windows-x86_64.tar.gz",
                 f"pycircuit-sdk-{version}-linux-x86_64.manifest.json",
                 f"pycircuit-sdk-{version}-macos-arm64.manifest.json",
+                f"pycircuit-sdk-{version}-windows-x86_64.manifest.json",
                 "LICENSES.tar.gz",
                 "RELEASE_NOTES.md",
             )
             for index, name in enumerate(reversed(artifacts)):
                 path = candidates / name
                 if name.endswith(".manifest.json"):
-                    platform = "linux-x86_64" if "linux" in name else "macos-arm64"
-                    path.write_text(json.dumps({"source_revision": source, "platform": {"id": platform}}))
+                    path.write_text(
+                        json.dumps(
+                            {
+                                "source_revision": source,
+                                "platform": {
+                                    "id": next(
+                                        platform_id
+                                        for platform_id in (
+                                            "linux-x86_64",
+                                            "macos-arm64",
+                                            "windows-x86_64",
+                                        )
+                                        if platform_id in name
+                                    )
+                                },
+                            }
+                        )
+                    )
                 else:
                     path.write_bytes(f"artifact-{index}".encode())
 
@@ -296,6 +319,7 @@ class SdkReleaseContractTest(unittest.TestCase):
                     "agentic-circuit",
                     "pycircuit-hisi-linux-x86_64",
                     "pycircuit-hisi-macos-arm64",
+                    "pycircuit-hisi-windows-x86_64",
                     "pycircuit-semantic-core",
                 ],
                 list(index["wheels"]),
@@ -311,7 +335,7 @@ class SdkReleaseContractTest(unittest.TestCase):
                 all("size" not in wheel for wheel in lock["wheels"].values())
             )
             self.assertNotIn("size", lock["release_index"])
-            for platform in ("linux-x86_64", "macos-arm64"):
+            for platform in ("linux-x86_64", "macos-arm64", "windows-x86_64"):
                 checked_lock = subprocess.run(
                     [
                         sys.executable,
@@ -413,8 +437,8 @@ class SdkReleaseContractTest(unittest.TestCase):
             cached.parent.mkdir(parents=True)
             cached.write_bytes(str(ROOT).encode())
             wheels = (
-                root / "pycircuit_hisi-6.0.0-py3-none-linux_x86_64.whl",
-                root / "pycircuit_semantic_core-6.0.0-py3-none-any.whl",
+                root / f"pycircuit_hisi-{PRODUCT_VERSION}-py3-none-linux_x86_64.whl",
+                root / f"pycircuit_semantic_core-{PRODUCT_VERSION}-py3-none-any.whl",
                 root / "agentic_circuit-0.1.0-py3-none-any.whl",
             )
             for wheel in wheels:
@@ -436,7 +460,7 @@ class SdkReleaseContractTest(unittest.TestCase):
                 command.extend(("--wheel", wheel))
             generated = subprocess.run(command, cwd=ROOT, text=True, capture_output=True)
             self.assertEqual(0, generated.returncode, generated.stdout + generated.stderr)
-            manifest = out / "pycircuit-sdk-6.0.0-linux-x86_64.manifest.json"
+            manifest = out / f"pycircuit-sdk-{PRODUCT_VERSION}-linux-x86_64.manifest.json"
             manifest_value = json.loads(manifest.read_text())
             actual_compiler = subprocess.run(
                 ["c++", "--version"], text=True, capture_output=True, check=True
@@ -449,7 +473,7 @@ class SdkReleaseContractTest(unittest.TestCase):
                 capture_output=True,
             )
             self.assertEqual(0, checked.returncode, checked.stdout + checked.stderr)
-            archive = out / "pycircuit-sdk-6.0.0-linux-x86_64.tar.gz"
+            archive = out / f"pycircuit-sdk-{PRODUCT_VERSION}-linux-x86_64.tar.gz"
             attestation = out / "platform-attestation.json"
             verified = subprocess.run(
                 [
@@ -462,9 +486,9 @@ class SdkReleaseContractTest(unittest.TestCase):
                     "--attestation",
                     attestation,
                     "--candidate-tag",
-                    "v6.0.0",
+                    CANDIDATE_TAG,
                     "--release-url",
-                    "https://github.com/PTO-ISA/pyCircuit/releases/tag/v6.0.0",
+                    f"https://github.com/PTO-ISA/pyCircuit/releases/tag/{CANDIDATE_TAG}",
                     "--skip-install",
                 ],
                 cwd=ROOT,
@@ -473,7 +497,7 @@ class SdkReleaseContractTest(unittest.TestCase):
             )
             self.assertEqual(0, verified.returncode, verified.stdout + verified.stderr)
             attested = json.loads(attestation.read_text())
-            self.assertEqual("v6.0.0", attested["candidate_tag"])
+            self.assertEqual(CANDIDATE_TAG, attested["candidate_tag"])
             self.assertFalse(attested["verified"])
             self.assertFalse(attested["relocated_model_consumer"])
             self.assertFalse(attested["incremental_determinism"])
@@ -530,6 +554,99 @@ class SdkReleaseContractTest(unittest.TestCase):
             )
             self.assertNotEqual(0, rejected_tree.returncode)
             self.assertIn("unlisted-backdoor", rejected_tree.stderr)
+
+
+    def test_windows_system_dependency_allowlists_agree_on_the_python_runtime(
+        self,
+    ) -> None:
+        """The generator and the verifier must classify PE imports alike.
+
+        A Windows Python extension has to link an import library, so
+        _native.pyd imports the host interpreter DLL. The profile declares
+        Python 3.11, so that runtime is a documented system dependency, and
+        both allowlists have to accept it or the SDK builds and then fails
+        verification with "non-system dependency is not bundled".
+        """
+
+        def load(name: str, relative: str):
+            path = ROOT / relative
+            spec = importlib.util.spec_from_file_location(name, path)
+            if spec is None or spec.loader is None:
+                self.fail(f"cannot load {relative}")
+            module = importlib.util.module_from_spec(spec)
+            spec.loader.exec_module(module)
+            return module
+
+        generator = load("generator_allowlist", "packaging/sdk/create_platform_manifest.py")
+        verifier = load("verifier_allowlist", "packaging/sdk/verify_platform_candidate.py")
+
+        self.assertEqual(
+            generator.WINDOWS_SYSTEM_DLLS,
+            verifier.WINDOWS_SYSTEM_DLLS,
+            "generator and verifier Windows allowlists diverged",
+        )
+        for runtime_dll in ("python3.dll", "python311.dll"):
+            self.assertIn(runtime_dll, generator.WINDOWS_SYSTEM_DLLS)
+
+
+    def test_platform_manifest_files_use_posix_string_order(self) -> None:
+        """Consumers require ``files`` in plain POSIX-string order.
+
+        pathlib compares path components, so on POSIX ``a/b`` precedes
+        ``a.b`` even though ``.`` precedes ``/``, and on Windows it folds case
+        and uses backslash separators. Emitting anything but the string order
+        makes the installed CLI reject its own manifest with
+        ACSDK-PLAN-MANIFEST-001, which is what happened on Windows.
+        """
+        generator_path = ROOT / "packaging/sdk/create_platform_manifest.py"
+        spec = importlib.util.spec_from_file_location("platform_order", generator_path)
+        if spec is None or spec.loader is None:
+            self.fail("cannot load platform SDK generator")
+        generator = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(generator)
+
+        with tempfile.TemporaryDirectory() as raw:
+            root = Path(raw)
+            for relative in ("aB", "a/b", "a.b", "a-c", "a/c/d"):
+                target = root / relative
+                target.parent.mkdir(parents=True, exist_ok=True)
+                target.write_text("x", encoding="utf-8")
+            files = [path for path in root.rglob("*") if path.is_file()]
+            names = [path.relative_to(root).as_posix() for path in files]
+
+            ordered = [
+                path.relative_to(root).as_posix()
+                for path in generator.posix_sorted(root, files)
+            ]
+            self.assertEqual(ordered, sorted(names))
+            # The guard is not vacuous: a bare Path sort disagrees here.
+            self.assertNotEqual(
+                [path.relative_to(root).as_posix() for path in sorted(files)],
+                sorted(names),
+            )
+
+    def test_packaging_path_sorts_pass_an_explicit_key(self) -> None:
+        """Every path listing must state its order explicitly.
+
+        A bare sorted() over rglob/iterdir/glob silently follows pathlib's
+        comparison, which is exactly the platform-dependent order the manifest
+        contract cannot use.
+        """
+        offenders: list[str] = []
+        for path in sorted((ROOT / "packaging").rglob("*.py")):
+            tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+            for node in ast.walk(tree):
+                if not (
+                    isinstance(node, ast.Call)
+                    and isinstance(node.func, ast.Name)
+                    and node.func.id == "sorted"
+                ):
+                    continue
+                dumped = ast.dump(node)
+                if any(token in dumped for token in ("rglob", "iterdir", "glob")):
+                    if not any(keyword.arg == "key" for keyword in node.keywords):
+                        offenders.append(f"{path.relative_to(ROOT)}:{node.lineno}")
+        self.assertEqual(offenders, [])
 
 
 if __name__ == "__main__":

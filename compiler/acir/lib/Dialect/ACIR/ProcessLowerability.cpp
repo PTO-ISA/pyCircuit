@@ -206,15 +206,18 @@ FailureOr<StaticForTripCount> analyzeStaticFor(scf::ForOp op) {
     op.emitOpError("static scf.for step must be positive");
     return failure();
   }
-  unsigned __int128 distance =
+  // `upper - lower` is exact in 64-bit modular arithmetic: both bounds are
+  // int64_t, so the mathematical distance is at most 2^64-1 and fits a
+  // uint64_t. MSVC has no 128-bit integer, and the ceiling division below
+  // avoids the overflow of (distance + step - 1).
+  const uint64_t distance =
       *upper <= *lower
           ? 0
-          : static_cast<unsigned __int128>(static_cast<__int128>(*upper) -
-                                           static_cast<__int128>(*lower));
-  unsigned __int128 trips = (distance + static_cast<uint64_t>(*step) - 1) /
-                            static_cast<uint64_t>(*step);
-  if (trips > kMaxStaticForTrips ||
-      trips > std::numeric_limits<uint64_t>::max()) {
+          : static_cast<uint64_t>(*upper) - static_cast<uint64_t>(*lower);
+  const uint64_t divisor = static_cast<uint64_t>(*step);
+  const uint64_t trips =
+      distance / divisor + ((distance % divisor == 0) ? 0 : 1);
+  if (trips > kMaxStaticForTrips) {
     op.emitOpError()
         << "static scf.for trip count exceeds ACIR capability limit "
         << kMaxStaticForTrips;

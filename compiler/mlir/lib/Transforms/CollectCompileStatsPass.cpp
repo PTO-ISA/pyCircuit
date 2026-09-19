@@ -28,10 +28,15 @@ static int64_t depthAttr(Operation *op) {
 static int64_t satAddMul(int64_t acc, int64_t a, int64_t b) {
   if (a <= 0 || b <= 0)
     return acc;
-  __int128 v = static_cast<__int128>(acc) + static_cast<__int128>(a) * static_cast<__int128>(b);
-  if (v > std::numeric_limits<int64_t>::max())
-    return std::numeric_limits<int64_t>::max();
-  return static_cast<int64_t>(v);
+  // 64-bit overflow detection instead of __int128, which MSVC does not
+  // implement. Bit-identical to the previous 128-bit computation.
+  const int64_t kMax = std::numeric_limits<int64_t>::max();
+  if (a > kMax / b)
+    return kMax;
+  const int64_t product = a * b;
+  if (acc > kMax - product)
+    return kMax;
+  return acc + product;
 }
 
 class CollectCompileStatsPass : public PassWrapper<CollectCompileStatsPass, OperationPass<func::FuncOp>> {

@@ -58,7 +58,20 @@
 #include <unordered_map>
 #include <utility>
 #include <vector>
+
+#if defined(_WIN32)
+// MSVC has no sys/resource.h. The Windows equivalent reports the peak working
+// set for the same diagnostic field.
+#define WIN32_LEAN_AND_MEAN
+#define NOMINMAX
+#include <windows.h>
+#include <psapi.h>
+#if defined(_MSC_VER)
+#pragma comment(lib, "psapi.lib")
+#endif
+#else
 #include <sys/resource.h>
+#endif
 
 #if defined(__APPLE__)
 #include <mach/mach.h>
@@ -1405,6 +1418,13 @@ static size_t countLines(llvm::StringRef s) {
 }
 
 static uint64_t getPeakRssBytes() {
+#if defined(_WIN32)
+  PROCESS_MEMORY_COUNTERS counters {};
+  if (::GetProcessMemoryInfo(::GetCurrentProcess(), &counters,
+                             sizeof(counters)) == 0)
+    return 0;
+  return static_cast<uint64_t>(counters.PeakWorkingSetSize);
+#else
   struct rusage ru {};
   if (::getrusage(RUSAGE_SELF, &ru) != 0)
     return 0;
@@ -1412,6 +1432,7 @@ static uint64_t getPeakRssBytes() {
   return static_cast<uint64_t>(ru.ru_maxrss);
 #else
   return static_cast<uint64_t>(ru.ru_maxrss) * 1024ull;
+#endif
 #endif
 }
 
@@ -1432,6 +1453,12 @@ static uint64_t getCurrentRssBytes() {
   if (pageSize <= 0)
     return 0;
   return static_cast<uint64_t>(rssPages) * static_cast<uint64_t>(pageSize);
+#elif defined(_WIN32)
+  PROCESS_MEMORY_COUNTERS counters {};
+  if (::GetProcessMemoryInfo(::GetCurrentProcess(), &counters,
+                             sizeof(counters)) == 0)
+    return 0;
+  return static_cast<uint64_t>(counters.WorkingSetSize);
 #else
   return getPeakRssBytes();
 #endif
@@ -2099,12 +2126,15 @@ static int64_t getI64Attr(Operation *op, llvm::StringRef name, int64_t fallback 
 }
 
 static int64_t satAdd(int64_t a, int64_t b) {
-  __int128 v = static_cast<__int128>(a) + static_cast<__int128>(b);
-  if (v > std::numeric_limits<int64_t>::max())
-    return std::numeric_limits<int64_t>::max();
-  if (v < std::numeric_limits<int64_t>::min())
-    return std::numeric_limits<int64_t>::min();
-  return static_cast<int64_t>(v);
+  // 64-bit overflow detection instead of __int128, which MSVC does not
+  // implement. Bit-identical to the previous 128-bit computation.
+  const int64_t kMax = std::numeric_limits<int64_t>::max();
+  const int64_t kMin = std::numeric_limits<int64_t>::min();
+  if (b > 0 && a > kMax - b)
+    return kMax;
+  if (b < 0 && a < kMin - b)
+    return kMin;
+  return a + b;
 }
 
 static CompileStatsSummary collectCompileStats(ModuleOp module, int64_t depthLimit) {

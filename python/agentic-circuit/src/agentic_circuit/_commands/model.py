@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import ast
-import fcntl
 import json
 import os
 import platform
@@ -38,6 +37,36 @@ from .._source_closure import (
 from .._staging import ArtifactStage
 from .._workspace import UserInputError
 
+if os.name == "nt":  # pragma: no cover - exercised by the Windows evidence lane
+    import msvcrt
+
+    def _lock_exclusive(handle: object) -> None:
+        """Take an exclusive lock on ``handle``, blocking until it is free.
+
+        ``msvcrt.locking`` locks a byte range starting at the current position
+        and gives up after about ten seconds, so retry until the lock is held.
+        Closing the handle releases it, exactly as ``flock`` does.
+        """
+        handle.seek(0)
+        while True:
+            try:
+                msvcrt.locking(handle.fileno(), msvcrt.LK_LOCK, 1)
+            except OSError:
+                continue
+            return
+
+else:
+    import fcntl
+
+    def _lock_exclusive(handle: object) -> None:
+        """Take an exclusive ``flock`` on ``handle``."""
+        fcntl.flock(handle, fcntl.LOCK_EX)
+
+
+# The compiled tools carry a platform suffix, exactly as the packaged toolchain
+# resolver in pycircuit does; the Agentic Circuit launcher stays extensionless.
+_TOOL_SUFFIX = ".exe" if os.name == "nt" else ""
+
 _ENTRY = re.compile(
     r"^(?P<module>[A-Za-z_][A-Za-z0-9_]*(?:\.[A-Za-z_][A-Za-z0-9_]*)*):"
     r"(?P<symbol>[A-Za-z_][A-Za-z0-9_]*)$"
@@ -65,11 +94,11 @@ _MODULE_SUPPORT_HEADERS = frozenset(
         "include/generated/modules/queuegraph_types.h",
     }
 )
-_PRODUCT_VERSION = "6.0.0"
+_PRODUCT_VERSION = "6.1.0"
 _DISTRIBUTIONS = {
     "agentic-circuit": "0.1.0",
-    "pycircuit-hisi": "6.0.0",
-    "pycircuit-semantic-core": "6.0.0",
+    "pycircuit-hisi": "6.1.0",
+    "pycircuit-semantic-core": "6.1.0",
 }
 _ABI = {
     "acpy_epoch": CONTRACT_EPOCH,
@@ -206,6 +235,8 @@ def _host_platform_id() -> str:
         return "macos-arm64"
     if system == "linux" and machine in {"x86_64", "amd64"}:
         return "linux-x86_64"
+    if system == "windows" and machine in {"x86_64", "amd64"}:
+        return "windows-x86_64"
     _fail(
         "ACSDK-PLAN-PLATFORM-001", f"unsupported SDK host platform: {system}-{machine}"
     )
@@ -227,8 +258,9 @@ def _validate_platform(value: object) -> None:
     }
     if type(value) is not dict or set(value) != common:
         _fail("ACSDK-PLAN-MANIFEST-001", "SDK platform record is not closed")
+    platform_id = _host_platform_id()
     expected: dict[str, object]
-    if _host_platform_id() == "macos-arm64":
+    if platform_id == "macos-arm64":
         expected = {
             "cxx_standard": "20",
             "python": "3.11",
@@ -241,7 +273,7 @@ def _validate_platform(value: object) -> None:
             "minimum_libc": None,
             "cxx_abi": "Apple libc++",
         }
-    else:
+    elif platform_id == "linux-x86_64":
         expected = {
             "cxx_standard": "20",
             "python": "3.11",
@@ -253,6 +285,19 @@ def _validate_platform(value: object) -> None:
             "minimum_os": "Ubuntu 24.04",
             "minimum_libc": "glibc 2.39",
             "cxx_abi": "libstdc++ CXX11 ABI",
+        }
+    else:
+        expected = {
+            "cxx_standard": "20",
+            "python": "3.11",
+            "id": "windows-x86_64",
+            "os": "windows",
+            "architecture": "x86_64",
+            "runner": "windows-2022",
+            "host_triple": "x86_64-pc-windows-msvc",
+            "minimum_os": "Windows Server 2022",
+            "minimum_libc": None,
+            "cxx_abi": "MSVC v143",
         }
     compiler = value.get("cxx_compiler")
     if (
@@ -383,9 +428,13 @@ def _sdk_identity(value: object) -> SdkIdentity:
         )
     if launcher != running_launcher:
         _fail("ACSDK-PLAN-ROOT-002", "--sdk-root does not own the running CLI")
-    queue_plan = _manifest_file(root, entries, "bin/acir-queue-plan", kind="tool")
-    queue_cxxgen = _manifest_file(root, entries, "bin/acir-queue-cxxgen", kind="tool")
-    queue_cxxgen_entry = entries["bin/acir-queue-cxxgen"]
+    queue_plan = _manifest_file(
+        root, entries, f"bin/acir-queue-plan{_TOOL_SUFFIX}", kind="tool"
+    )
+    queue_cxxgen = _manifest_file(
+        root, entries, f"bin/acir-queue-cxxgen{_TOOL_SUFFIX}", kind="tool"
+    )
+    queue_cxxgen_entry = entries[f"bin/acir-queue-cxxgen{_TOOL_SUFFIX}"]
     model_plan_schema = _manifest_file(
         root,
         entries,
@@ -715,7 +764,7 @@ def _publish(output: Path, artifacts: dict[str, bytes]) -> tuple[str, ...]:
     output.parent.mkdir(parents=True, exist_ok=True)
     lock_path = output.parent / f".{output.name}.lock"
     with lock_path.open("a+b") as lock:
-        fcntl.flock(lock, fcntl.LOCK_EX)
+        _lock_exclusive(lock)
         if output.is_symlink() or (output.exists() and not output.is_dir()):
             _fail(
                 "ACSDK-PLAN-OUTPUT-001",
@@ -1303,7 +1352,7 @@ def _publish_model(output: Path, artifacts: dict[str, bytes]) -> tuple[str, ...]
     output.parent.mkdir(parents=True, exist_ok=True)
     lock_path = output.parent / f".{output.name}.lock"
     with lock_path.open("a+b") as lock:
-        fcntl.flock(lock, fcntl.LOCK_EX)
+        _lock_exclusive(lock)
         existing = _existing_model_files(output)
         if existing == frozenset(expected):
             try:

@@ -3,6 +3,22 @@
 #include "pyc_bits.hpp"
 #include "pyc_clock.hpp"
 
+// The branch hint is a pure optimization, so it collapses to the plain
+// expression wherever the builtin is unavailable. Probing the builtin instead
+// of the compiler vendor keeps the hint under clang-cl, which defines _MSC_VER
+// but still provides __builtin_expect.
+#if defined(__has_builtin)
+#if __has_builtin(__builtin_expect)
+#define PYC_LIKELY(expression) __builtin_expect(!!(expression), 1)
+#define PYC_UNLIKELY(expression) __builtin_expect(!!(expression), 0)
+#endif
+#endif
+
+#ifndef PYC_LIKELY
+#define PYC_LIKELY(expression) (expression)
+#define PYC_UNLIKELY(expression) (expression)
+#endif
+
 namespace pyc::cpp {
 
 template <unsigned InputWidth, unsigned IndexWidth>
@@ -114,7 +130,7 @@ public:
     bool clkNow = clk.toBool();
     bool posedge = (!clkPrev) & clkNow;
     clkPrev = clkNow;
-    if (__builtin_expect(!posedge, 1)) {
+    if (PYC_LIKELY(!posedge)) {
       pending = false;
       return;
     }
@@ -136,7 +152,7 @@ public:
   }
 
   inline void tick_commit() {
-    if (__builtin_expect(pending, 0)) {
+    if (PYC_UNLIKELY(pending)) {
       q = qNext;
       pending = false;
     }

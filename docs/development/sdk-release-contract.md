@@ -4,7 +4,7 @@ This document defines the first installable pyCircuit SDK contract for generic
 external model consumers. It is the source of truth for issue #61.
 
 The contract is accepted before implementation so each implementation PR has a
-fixed boundary. A `v6.0.0` release remains blocked until every required command,
+fixed boundary. A `v6.1.0` release remains blocked until every required command,
 artifact, ABI, relocation check, and post-publish check in this document passes.
 
 ## Identity and compatibility
@@ -14,10 +14,10 @@ The candidate release tuple is stored in
 
 | Identity | Required value |
 | --- | --- |
-| Product and SDK | `6.0.0` |
-| Candidate tag | `v6.0.0` |
-| `pycircuit-hisi` | `6.0.0` |
-| `pycircuit-semantic-core` | `6.0.0` |
+| Product and SDK | `6.1.0` |
+| Candidate tag | `v6.1.0` |
+| `pycircuit-hisi` | `6.1.0` |
+| `pycircuit-semantic-core` | `6.1.0` |
 | `agentic-circuit` | `0.1.0` |
 | ACPy and ACIR contract epoch | `0.5` |
 | SDK manifest schema | `1` |
@@ -47,32 +47,62 @@ The first release supports exactly these build and consumption profiles:
 | --- | --- | --- | --- | --- |
 | `linux-x86_64` | `ubuntu-24.04`, x86_64 | Ubuntu 24.04, glibc 2.39 | 3.11 | C++20, libstdc++ CXX11 ABI |
 | `macos-arm64` | `macos-15`, arm64 | macOS 15 | 3.11 | C++20, Apple libc++ |
+| `windows-x86_64` | `windows-2022`, x86_64 | Windows Server 2022 | 3.11 | C++20, MSVC v143 |
+
+The `windows-x86_64` lane provisions LLVM/MLIR by building the source revision
+pinned in `toolchains/agentic-circuit/llvm.lock.json` and caching the install
+prefix, keyed by the source digest and the recorded option set. It does not use
+the published LLVM Windows binary assets for MLIR: they carry `llvm`, `clang`,
+and `lld` CMake packages but no MLIR, and this project requires `MLIR_DIR`
+exactly at the pinned version.
+
+The Windows lane compiles with the pinned `clang-cl` driver from the official
+LLVM 22.1.8 Windows release binary, over the MSVC v143 headers, libraries, and
+linker. The MSVC front end (`cl.exe`) aborts with an internal compiler error
+(C1001) on the ACIR codegen's recursive generic lambdas, while the same sources
+build under clang; the driver therefore differs from the ABI named in the table
+above. The MLIR source build itself still uses the MSVC toolchain. The manifest
+records the actual compiler identity, so a Windows candidate names its clang-cl
+version.
 
 The release job MUST fail when the runner OS or architecture differs from its
 profile. The manifest records the actual compiler identity. A package built on
 one profile does not claim support for another Linux distribution, older libc,
-macOS x86_64, Windows, or another Python minor.
+macOS x86_64, Windows on another architecture or an older Windows release, or
+another Python minor.
 
 RTTI and exceptions are build properties of each exported target. The SDK MUST
-record them and MUST compile the external consumer with compatible settings.
+record them and MUST compile the external consumer with compatible settings. On
+Windows that covers the MSVC runtime configuration as well: the SDK ships
+Release binaries, so a Debug consumer fails with LNK2038
+`_ITERATOR_DEBUG_LEVEL` and `RuntimeLibrary` mismatches. Pin the consumer
+configuration to Release.
 The Runtime component may depend on documented system C/C++ libraries. Every
 other native dependency is bundled and resolved relative to the installed SDK.
+
+On `windows-x86_64` the documented system dependencies are the MSVC v143 C/C++
+runtime, matching the profile's declared ABI, and the Python 3.11 runtime
+(`python311.dll`, or the stable-ABI forwarder `python3.dll`). A Windows Python
+extension has to link an import library, so `_native.pyd` imports the host
+interpreter DLL rather than resolving it at load time the way an ELF or Mach-O
+extension does. Both names are accepted because the stable-ABI import library
+imports `python3.dll` and the version-specific one imports `python311.dll`.
 
 ## Artifact set and install layout
 
 Each platform publishes one archive named:
 
 ```text
-pycircuit-sdk-6.0.0-<platform-id>.tar.gz
+pycircuit-sdk-6.1.0-<platform-id>.tar.gz
 ```
 
 Each archive embeds one platform manifest at
 `share/pycircuit/sdk-manifest.json`. The same bytes are attached with the unique
-name `pycircuit-sdk-6.0.0-<platform-id>.manifest.json`. A separate
-`pycircuit-sdk-6.0.0-release-index.json` names both archives, both platform
-manifests, the exact four-wheel set, license material, and release notes. The
-set contains one `pycircuit-hisi` wheel for each supported platform plus the
-universal `pycircuit-semantic-core` and `agentic-circuit` wheels.
+name `pycircuit-sdk-6.1.0-<platform-id>.manifest.json`. A separate
+`pycircuit-sdk-6.1.0-release-index.json` names every platform archive, every
+platform manifest, the exact platform wheel set, license material, and release
+notes. The set contains one `pycircuit-hisi` wheel for each supported platform
+plus the universal `pycircuit-semantic-core` and `agentic-circuit` wheels.
 
 `SHA256SUMS` covers every attached file including the release index, but does
 not contain a checksum for itself. A platform manifest lists and hashes the
@@ -109,6 +139,17 @@ share/pycircuit/
 Additional files are allowed only when the SDK manifest classifies them. The
 archive MUST NOT contain an absolute producer source path, build path, Homebrew
 path, runner tool-cache path, or unresolved symlink outside the archive.
+
+`bin/agentic-circuit` is a relocatable Python launcher script, not a compiled
+tool, so it keeps that extensionless name on every platform; Windows gives the
+`.exe` suffix only to the native tools, and the launcher is invoked through the
+interpreter there.
+
+The platform manifest's `files` list MUST be ordered by the POSIX relative path
+as plain strings. `pathlib` path comparison is not that order: on POSIX it
+compares path components, so `a/b` precedes `a.b` although `.` precedes `/`,
+and on Windows it also folds case and uses backslash separators. Consumers
+reject any other order with `ACSDK-PLAN-MANIFEST-001`.
 
 ## CMake components
 
@@ -282,13 +323,24 @@ before invoking the installed C++ generator.
 
 The fragment contains no command, target, generator expression, absolute path,
 SDK lookup, or consumer-specific option. The consumer prepends its generated
-root and owns the target definition.
+root and owns the target definition. A consumer MUST normalize that root before
+prepending it: a native Windows root keeps its backslashes through variable
+expansion, and CMake then reads the joined path's `\U` or `\d` as an escape
+sequence and fails with `Invalid character escape`. `file(TO_CMAKE_PATH ...)`
+yields the forward-slash form on every platform.
 
 The consumer builds those sources as a hidden-visibility shared library. Its
 dynamic export list contains only `AGENTIC_MODEL_QUERY_SYMBOL`: use a GNU-style
 version script plus `--exclude-libs,ALL` on Linux, or `-exported_symbol` on
 macOS. Static Gfsim implementation symbols do not enter the plugin's public
 dynamic symbol table.
+
+On Windows the bundle carries the export itself: it defines
+`AGENTIC_MODEL_BUILD` before including `gfsim/model_api.h`, so the header
+attaches `__declspec(dllexport)` to the entry point declaration and the
+definition matches it. A `dllexport` definition whose earlier declaration lacks
+the attribute is rejected by MSVC with C2375 "redefinition; different linkage".
+The same macro attaches the default-visibility attribute on GCC and Clang.
 
 One process holds an exclusive lock for an output root. Emission stages a closed
 file set, validates it, then atomically publishes it. A failure keeps the prior
@@ -377,12 +429,12 @@ consumer MUST reject a missing symbol or ABI mismatch before creating a model.
 The public schemas are:
 
 - `sdk-version-map.schema.json`: candidate product/distribution mapping,
-  contract versions, and the two exact platform profiles;
+  contract versions, and the exact platform profiles;
 - `sdk-manifest.schema.json`: one installed platform, source, ABI,
   capabilities, dependencies, and installed file inventory without an
   enclosing-archive or self hash;
-- `release-index.schema.json`: both archive/manifests, exact four-wheel map,
-  supporting artifacts, hashes, sizes, and final URLs;
+- `release-index.schema.json`: every archive/manifest, the exact platform
+  wheel map, supporting artifacts, hashes, sizes, and final URLs;
 - `model-plan.schema.json`: verified source closure, config, IR identities,
   deterministic output plan, and required runtime;
 - `model-manifest.schema.json`: plan identity, generated closed file set,

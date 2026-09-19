@@ -13,17 +13,17 @@ from _pycircuit_semantics import (
     parse_bitmask_checked,
 )
 
-from ._queue_frontend import (
+from ._queue_compiler.errors import QueueFrontendError
+from ._queue_compiler.model import (
     CollectionBinding,
     Payload,
     QueueBinding,
-    QueueFrontendError,
     QueueProgram,
     StaticQueueCollection,
     TableBinding,
-    _decorator_name,
-    parse_queue_program,
 )
+from ._queue_compiler.parser import parse_queue_program
+from ._queue_compiler.syntax import _decorator_name
 
 
 def _cpp_type(value_type: ValueType) -> str:

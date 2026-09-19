@@ -2,6 +2,6 @@
 
 namespace pyc::cpp {
 
-const char *runtimeVersion() { return "pyc6_runtime_v6.0.0"; }
+const char *runtimeVersion() { return "pyc6_runtime_v6.1.0"; }
 
 } // namespace pyc::cpp

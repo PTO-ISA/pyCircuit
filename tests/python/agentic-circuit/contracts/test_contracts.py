@@ -20,7 +20,11 @@ LLVM_LOCK = {
     ),
     "source_sha256": "922f1817a0df7b1489272d18134ee0087a8b068828f87ac63b9861b1a9965888",
     "local_prefix": "/opt/homebrew/opt/llvm",
-    "supported_host_triples": ["arm64-apple-darwin", "x86_64-linux-gnu"],
+    "supported_host_triples": [
+        "arm64-apple-darwin",
+        "x86_64-linux-gnu",
+        "x86_64-pc-windows-msvc",
+    ],
     "package_version_policy": "exact",
 }
 GOVERNANCE_FILES = {
@@ -454,14 +458,19 @@ class RepositoryContractsTest(unittest.TestCase):
                 self.assertNotIn('["contract_epoch"] != "0.5"', source, path)
                 self.assertNotIn('"contract_epoch": "0.5"', source, path)
 
-        for name in ("_lower_acir.py", "_queue_frontend.py"):
+        for name in (
+            "_lower_acir.py",
+            "_queue_frontend.py",
+            "_queue_compiler/modules.py",
+            "_queue_compiler/parser.py",
+        ):
             source = (source_root / name).read_text()
             self.assertNotIn("json.dumps", source, name)
 
         allowed_format_versions = {
             "_commands/model.py": 2,
             "_jit.py": 5,
-            "_queue_frontend.py": 1,
+            "_queue_compiler/modules.py": 1,
             "_contract.py": 1,
         }
         actual_literals = {
@@ -1032,6 +1041,7 @@ class RepositoryContractsTest(unittest.TestCase):
                 validator.validate(mutation)
 
     def test_markdown_local_links_resolve(self):
+        checker = load_contract_checker()
         broken = []
         link_pattern = re.compile(r"(?<!!)\[[^\]]+\]\(([^)]+)\)")
         markdown_files = [
@@ -1039,7 +1049,11 @@ class RepositoryContractsTest(unittest.TestCase):
             *sorted((ROOT / "docs/acir/spec").glob("*.md")),
         ]
         for path in markdown_files:
-            for target in link_pattern.findall(path.read_text()):
+            # Scan prose only, matching check_contracts.check_links. Published
+            # Python examples contain code such as `ac.table[4, Entry](init=0)`
+            # whose subscript and call are not a Markdown link.
+            prose = "\n".join(checker.markdown_prose_lines(path))
+            for target in link_pattern.findall(prose):
                 destination = target.split("#", 1)[0]
                 if not destination or re.match(r"^[a-z][a-z0-9+.-]*:", destination):
                     continue

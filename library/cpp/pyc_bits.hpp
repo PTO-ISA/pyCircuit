@@ -171,14 +171,19 @@ public:
     return out;
   }
 
+  // MSVC has no unsigned __int128, so every multi-word operation below is
+  // expressed with 64-bit wraparound arithmetic. The carry and borrow results
+  // are identical to the previous 128-bit formulation.
   friend constexpr Bits operator+(Bits a, Bits b) {
     Bits out;
     word_type carry = 0;
     for (unsigned i = 0; i < kWords; i++) {
-      unsigned __int128 sum = static_cast<unsigned __int128>(a.words_[i]) + static_cast<unsigned __int128>(b.words_[i]) +
-                              static_cast<unsigned __int128>(carry);
-      out.words_[i] = static_cast<word_type>(sum);
-      carry = static_cast<word_type>(sum >> 64);
+      word_type sum = static_cast<word_type>(a.words_[i] + b.words_[i]);
+      word_type carryLow = (sum < a.words_[i]) ? word_type{1} : word_type{0};
+      word_type withCarry = static_cast<word_type>(sum + carry);
+      word_type carryHigh = (withCarry < sum) ? word_type{1} : word_type{0};
+      out.words_[i] = withCarry;
+      carry = static_cast<word_type>(carryLow | carryHigh);
     }
     out.maskTop();
     return out;
@@ -188,28 +193,54 @@ public:
     Bits out;
     word_type borrow = 0;
     for (unsigned i = 0; i < kWords; i++) {
-      unsigned __int128 ai = static_cast<unsigned __int128>(a.words_[i]);
-      unsigned __int128 bi = static_cast<unsigned __int128>(b.words_[i]);
-      unsigned __int128 diff = ai - bi - static_cast<unsigned __int128>(borrow);
-      out.words_[i] = static_cast<word_type>(diff);
-      borrow = (ai < (bi + borrow)) ? 1u : 0u;
+      word_type diff = static_cast<word_type>(a.words_[i] - b.words_[i]);
+      word_type borrowLow =
+          (a.words_[i] < b.words_[i]) ? word_type{1} : word_type{0};
+      word_type withBorrow = static_cast<word_type>(diff - borrow);
+      word_type borrowHigh = (diff < borrow) ? word_type{1} : word_type{0};
+      out.words_[i] = withBorrow;
+      borrow = static_cast<word_type>(borrowLow | borrowHigh);
     }
     out.maskTop();
     return out;
+  }
+
+  // Portable 64x64 -> 128 product built from 32-bit limbs.
+  static constexpr void mulWord(word_type a, word_type b, word_type &hi,
+                                word_type &lo) {
+    const word_type aLow = static_cast<word_type>(a & 0xFFFFFFFFu);
+    const word_type aHigh = static_cast<word_type>(a >> 32);
+    const word_type bLow = static_cast<word_type>(b & 0xFFFFFFFFu);
+    const word_type bHigh = static_cast<word_type>(b >> 32);
+    const word_type lowLow = static_cast<word_type>(aLow * bLow);
+    const word_type lowHigh = static_cast<word_type>(aLow * bHigh);
+    const word_type highLow = static_cast<word_type>(aHigh * bLow);
+    const word_type highHigh = static_cast<word_type>(aHigh * bHigh);
+    const word_type mid = static_cast<word_type>(
+        (lowLow >> 32) + (lowHigh & 0xFFFFFFFFu) + (highLow & 0xFFFFFFFFu));
+    lo = static_cast<word_type>((lowLow & 0xFFFFFFFFu) | (mid << 32));
+    hi = static_cast<word_type>(highHigh + (lowHigh >> 32) + (highLow >> 32) +
+                                (mid >> 32));
   }
 
   friend inline Bits operator*(Bits a, Bits b) {
     Bits out;
     out.words_.fill(0);
     for (unsigned i = 0; i < kWords; i++) {
-      unsigned __int128 carry = 0;
+      word_type carry = 0;
       for (unsigned j = 0; j + i < kWords; j++) {
         unsigned idx = i + j;
-        unsigned __int128 cur = static_cast<unsigned __int128>(out.words_[idx]);
-        unsigned __int128 prod = static_cast<unsigned __int128>(a.words_[i]) * static_cast<unsigned __int128>(b.words_[j]);
-        unsigned __int128 sum = cur + prod + carry;
-        out.words_[idx] = static_cast<word_type>(sum);
-        carry = sum >> 64;
+        word_type hi = 0;
+        word_type lo = 0;
+        mulWord(a.words_[i], b.words_[j], hi, lo);
+        word_type cur = out.words_[idx];
+        word_type sum = static_cast<word_type>(cur + lo);
+        word_type carryLow = (sum < cur) ? word_type{1} : word_type{0};
+        word_type withCarry = static_cast<word_type>(sum + carry);
+        word_type carryHigh =
+            (withCarry < sum) ? word_type{1} : word_type{0};
+        out.words_[idx] = withCarry;
+        carry = static_cast<word_type>(hi + carryLow + carryHigh);
       }
     }
     out.maskTop();

@@ -26,10 +26,13 @@ from ._static_eval import FrozenMap, StaticValue, static_json_value
 from ._types import Static
 
 if TYPE_CHECKING:
-    from ._queue_frontend import QueueProgram
+    from ._queue_compiler.model import QueueProgram
 
 
 def _native_queue_tool(name: str, environment: str) -> Path:
+    # Windows names the compiled tools with an .exe suffix; shutil.which below
+    # already honours PATHEXT, but the explicit candidate directories do not.
+    suffix = ".exe" if os.name == "nt" else ""
     candidates: list[Path] = []
     configured = os.environ.get(environment)
     if configured:
@@ -39,13 +42,13 @@ def _native_queue_tool(name: str, environment: str) -> Path:
     except FileNotFoundError:
         repository = None
     if repository is not None:
-        candidates.append(repository / ".pycircuit_out/acir/dev-llvm22/bin" / name)
-    candidates.append(Path(sys.prefix) / "bin" / name)
+        candidates.append(repository / ".pycircuit_out/acir/dev-llvm22/bin" / f"{name}{suffix}")
+    candidates.append(Path(sys.prefix) / "bin" / f"{name}{suffix}")
     try:
         from ._native_api import native_extension_path
 
         for root in native_extension_path().parents:
-            candidates.append(root / "bin" / name)
+            candidates.append(root / "bin" / f"{name}{suffix}")
     except (ImportError, RuntimeError):
         pass
     discovered = shutil.which(name)

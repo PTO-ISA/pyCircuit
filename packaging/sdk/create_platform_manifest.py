@@ -8,12 +8,14 @@ import gzip
 import hashlib
 import json
 import os
+import platform
 import re
 import shutil
 import stat
 import subprocess
 import tarfile
 import tempfile
+from collections.abc import Iterable
 from pathlib import Path
 from typing import Any
 
@@ -28,17 +30,90 @@ SDK_SCHEMA_NAMES = (
     "sdk-version-map.schema.json",
 )
 
+# Windows dependencies whose DLL name ends in one of these prefixes are shipped
+# with the operating system (API sets) and are never bundled in the SDK.
+WINDOWS_SYSTEM_DLL_PREFIXES = ("api-ms-win-", "ext-ms-win-")
+# Windows operating-system DLLs plus the runtimes the platform profile declares
+# as system dependencies: the MSVC v143 C/C++ runtime (the Windows analogue of
+# glibc/libstdc++ on Linux and libc++ on macOS) and the Python 3.11 runtime that
+# loads the extension modules.  A Windows Python extension has to link an import
+# library, so _native.pyd imports the interpreter DLL, just as an extension on
+# any platform expects its host interpreter to be present.  The stable-ABI
+# import library is named python3.lib and imports python3.dll, while the
+# version-specific one imports python311.dll; which appears depends on the
+# interpreter layout.  Any other DLL import must be present inside the SDK or
+# relocation fails closed.
+WINDOWS_SYSTEM_DLLS = frozenset(
+    {
+        "advapi32.dll",
+        "bcrypt.dll",
+        "bcryptprimitives.dll",
+        "cfgmgr32.dll",
+        "combase.dll",
+        "comctl32.dll",
+        "comdlg32.dll",
+        "concrt140.dll",
+        "crypt32.dll",
+        "cryptbase.dll",
+        "dbghelp.dll",
+        "dnsapi.dll",
+        "dsound.dll",
+        "dwmapi.dll",
+        "gdi32.dll",
+        "gdi32full.dll",
+        "imm32.dll",
+        "iphlpapi.dll",
+        "kernel32.dll",
+        "kernelbase.dll",
+        "mf.dll",
+        "mfplat.dll",
+        "mpr.dll",
+        "msvcp140.dll",
+        "msvcp140_1.dll",
+        "msvcp140_2.dll",
+        "msvcp140_atomic_wait.dll",
+        "msvcp140_codecvt_ids.dll",
+        "msvcp_win.dll",
+        "msvcrt.dll",
+        "netapi32.dll",
+        "normaliz.dll",
+        "ntdll.dll",
+        "ole32.dll",
+        "oleaut32.dll",
+        "opengl32.dll",
+        "powrprof.dll",
+        "psapi.dll",
+        "python3.dll",
+        "python311.dll",
+        "rpcrt4.dll",
+        "sechost.dll",
+        "secur32.dll",
+        "setupapi.dll",
+        "shell32.dll",
+        "shlwapi.dll",
+        "ucrtbase.dll",
+        "user32.dll",
+        "userenv.dll",
+        "vcruntime140.dll",
+        "vcruntime140_1.dll",
+        "version.dll",
+        "winmm.dll",
+        "ws2_32.dll",
+        "wtsapi32.dll",
+    }
+)
+
 
 def digest(path: Path) -> str:
     return "sha256:" + hashlib.sha256(path.read_bytes()).hexdigest()
 
 
 def kind(path: str) -> str:
-    if path.startswith("bin/"):
+    if path.startswith("bin/") or path.endswith(".exe"):
         return "tool"
     if path.startswith("include/"):
         return "header"
-    if path.endswith((".a", ".so", ".dylib")):
+    if path.endswith((".a", ".so", ".dylib", ".dll", ".lib", ".pyd")):
         return "library"
     if "/cmake/" in path or path.endswith(".cmake"):
         return "cmake"
@@ -51,13 +126,39 @@ def kind(path: str) -> str:
     return "metadata"
 
 
-def platform_record(identity: str, compiler: str) -> dict[str, Any]:
+def _windows_compiler_version(compiler: str) -> str:
+    """Probe the Windows compiler version.
+
+    clang-cl, the driver this profile builds with, implements ``--version``.
+    cl.exe does not and only prints a banner when invoked without input, so
+    fall back to that banner's first line.
+    """
     version = subprocess.run(
         [compiler, "--version"], text=True, capture_output=True, check=False
     )
-    if version.returncode:
+    if version.returncode == 0 and version.stdout.strip():
+        return version.stdout.splitlines()[0].strip()
+    probed = subprocess.run([compiler], text=True, capture_output=True, check=False)
+    lines = [
+        line.strip()
+        for line in (probed.stdout + probed.stderr).splitlines()
+        if line.strip()
+    ]
+    if not lines:
         raise ValueError(f"unable to probe C++ compiler {compiler!r}")
-    compiler_version = version.stdout.splitlines()[0].strip()
+    return lines[0]
+
+
+def platform_record(identity: str, compiler: str) -> dict[str, Any]:
+    if identity == "windows-x86_64":
+        compiler_version = _windows_compiler_version(compiler)
+    else:
+        version = subprocess.run(
+            [compiler, "--version"], text=True, capture_output=True, check=False
+        )
+        if version.returncode:
+            raise ValueError(f"unable to probe C++ compiler {compiler!r}")
+        compiler_version = version.stdout.splitlines()[0].strip()
     if identity == "linux-x86_64":
         return {
             "id": identity,
@@ -86,6 +187,20 @@ def platform_record(identity: str, compiler: str) -> dict[str, Any]:
             "cxx_abi": "Apple libc++",
             "cxx_compiler": compiler_version,
         }
+    if identity == "windows-x86_64":
+        return {
+            "id": identity,
+            "os": "windows",
+            "architecture": "x86_64",
+            "runner": "windows-2022",
+            "host_triple": "x86_64-pc-windows-msvc",
+            "minimum_os": "Windows Server 2022",
+            "minimum_libc": None,
+            "python": "3.11",
+            "cxx_standard": "20",
+            "cxx_abi": "MSVC v143",
+            "cxx_compiler": compiler_version,
+        }
     raise ValueError(f"unsupported SDK platform: {identity}")
 
 
@@ -96,11 +211,23 @@ def write_json(path: Path, value: dict[str, Any]) -> None:
     )
 
 
+def posix_sorted(root: Path, paths: Iterable[Path]) -> list[Path]:
+    """Return ``paths`` ordered by their POSIX relative form.
+
+    The consumer validates the manifest's ``files`` order as a plain string
+    sort of those paths, while pathlib compares path components (and folds case
+    on Windows), so sorting Path objects directly yields an order the consumer
+    rejects. Archive member order uses the same canonical order so the two
+    agree.
+    """
+    return sorted(paths, key=lambda path: path.relative_to(root).as_posix())
+
+
 def deterministic_tar(source: Path, destination: Path) -> None:
     with destination.open("wb") as raw:
         with gzip.GzipFile(filename="", mode="wb", fileobj=raw, mtime=0) as compressed:
             with tarfile.open(fileobj=compressed, mode="w") as archive:
-                for path in sorted(source.rglob("*")):
+                for path in posix_sorted(source, source.rglob("*")):
                     relative = path.relative_to(source).as_posix()
                     info = archive.gettarinfo(str(path), arcname=relative)
                     info.uid = info.gid = 0
@@ -119,7 +246,9 @@ def deterministic_tar(source: Path, destination: Path) -> None:
 
 def native_files(stage: Path) -> list[Path]:
     result: list[Path] = []
-    for path in sorted(item for item in stage.rglob("*") if item.is_file()):
+    for path in posix_sorted(
+        stage, (item for item in stage.rglob("*") if item.is_file())
+    ):
         if path.suffix == ".a":
             continue
         identified = subprocess.run(
@@ -132,13 +261,85 @@ def native_files(stage: Path) -> list[Path]:
     return result
 
 
+def windows_native_files(stage: Path) -> list[Path]:
+    """Enumerate Windows PE images without relying on the Unix ``file`` tool."""
+    suffixes = {".exe", ".dll", ".pyd"}
+    return posix_sorted(
+        stage,
+        (
+            path
+            for path in stage.rglob("*")
+            if path.is_file() and path.suffix.lower() in suffixes
+        ),
+    )
+
+
+def windows_system_dependency(name: str) -> bool:
+    lowered = name.lower()
+    if lowered.startswith(WINDOWS_SYSTEM_DLL_PREFIXES):
+        return True
+    return lowered in WINDOWS_SYSTEM_DLLS
+
+
+def dumpbin_dependents(dumpbin: str, path: Path) -> list[str]:
+    completed = subprocess.run(
+        [dumpbin, "/nologo", "/dependents", path],
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+    if completed.returncode:
+        raise ValueError(f"dumpbin failed for {path}: {completed.stderr}")
+    dependencies: list[str] = []
+    in_block = False
+    for raw in completed.stdout.splitlines():
+        line = raw.strip()
+        if line.lower().startswith("image has the following"):
+            in_block = True
+            continue
+        if in_block and line.lower().endswith(".dll"):
+            dependencies.append(Path(line).name)
+    return list(dict.fromkeys(dependencies))
+
+
+def require_dumpbin() -> str:
+    dumpbin = shutil.which("dumpbin")
+    if dumpbin is None:
+        raise ValueError(
+            "dumpbin is required to verify Windows SDK binary dependencies; "
+            "run from a Visual Studio developer environment (vcvars64) or install "
+            "the MSVC toolchain"
+        )
+    return dumpbin
+
+
 def relocate_native_dependencies(stage: Path, identity: str) -> None:
-    binaries = native_files(stage)
+    binaries = (
+        windows_native_files(stage)
+        if identity == "windows-x86_64"
+        else native_files(stage)
+    )
     bundled: dict[str, Path] = {}
     for path in binaries:
         current = bundled.get(path.name)
         if current is None or len(path.parts) < len(current.parts):
             bundled[path.name] = path
+    if identity == "windows-x86_64":
+        # Windows PE imports are resolved by name from the executable directory
+        # or PATH: there is no RPATH to rewrite and no codesign/patchelf step.
+        # Relocation therefore fails closed unless every non-system import is
+        # already bundled inside the SDK.
+        dumpbin = require_dumpbin()
+        bundled_names = {name.lower() for name in bundled}
+        for path in binaries:
+            for dependency in dumpbin_dependents(dumpbin, path):
+                if windows_system_dependency(dependency):
+                    continue
+                if dependency.lower() not in bundled_names:
+                    raise ValueError(
+                        f"non-system dependency is not bundled: {dependency}"
+                    )
+        return
     if identity == "macos-arm64":
         for path in binaries:
             linked = subprocess.run(
@@ -212,9 +413,16 @@ def relocate_native_dependencies(stage: Path, identity: str) -> None:
 
 def runtime_dependencies(stage: Path, identity: str) -> list[dict[str, Any]]:
     observed: dict[tuple[str, str], dict[str, Any]] = {}
-    binaries = native_files(stage)
+    binaries = (
+        windows_native_files(stage)
+        if identity == "windows-x86_64"
+        else native_files(stage)
+    )
     if not binaries:
-        name = "glibc" if identity == "linux-x86_64" else "libc++"
+        name = {
+            "linux-x86_64": "glibc",
+            "windows-x86_64": "MSVC v143 runtime",
+        }.get(identity, "libc++")
         return [
             {
                 "name": name,
@@ -261,6 +469,32 @@ def runtime_dependencies(stage: Path, identity: str) -> list[dict[str, Any]]:
                         "sha256": None,
                     }
                 observed[(record["kind"], name)] = record
+    elif identity == "windows-x86_64":
+        dumpbin = require_dumpbin()
+        release = platform.version() or "system ABI"
+        bundled = {path.name.lower(): path for path in binaries}
+        for path in binaries:
+            for dependency in dumpbin_dependents(dumpbin, path):
+                if windows_system_dependency(dependency):
+                    record = {
+                        "name": dependency,
+                        "kind": "system",
+                        "version": release,
+                        "sha256": None,
+                    }
+                else:
+                    target = bundled.get(dependency.lower())
+                    if target is None:
+                        raise ValueError(
+                            f"non-system dependency is not bundled: {dependency}"
+                        )
+                    record = {
+                        "name": dependency,
+                        "kind": "bundled",
+                        "version": "bundled",
+                        "sha256": digest(target),
+                    }
+                observed[(record["kind"], dependency)] = record
     else:
         release = subprocess.run(
             ["sw_vers", "-productVersion"],
@@ -309,12 +543,18 @@ def main() -> int:
     version_map = json.loads((ROOT / "packaging/sdk/version-map.json").read_text())
     product = version_map["product_version"]
     agentic = version_map["distributions"]["agentic-circuit"]
-    wheel_patterns = {
-        "pycircuit-hisi": (
+    if args.platform == "linux-x86_64":
+        hisi_wheel_pattern = (
             rf"^pycircuit_hisi-{re.escape(product)}-py3-none-linux_x86_64\.whl$"
-            if args.platform == "linux-x86_64"
-            else rf"^pycircuit_hisi-{re.escape(product)}-py3-none-macosx_[0-9]+_[0-9]+_arm64\.whl$"
-        ),
+        )
+    elif args.platform == "windows-x86_64":
+        hisi_wheel_pattern = (
+            rf"^pycircuit_hisi-{re.escape(product)}-py3-none-win_amd64\.whl$"
+        )
+    else:
+        hisi_wheel_pattern = rf"^pycircuit_hisi-{re.escape(product)}-py3-none-macosx_[0-9]+_[0-9]+_arm64\.whl$"
+    wheel_patterns = {
+        "pycircuit-hisi": hisi_wheel_pattern,
         "pycircuit-semantic-core": rf"^pycircuit_semantic_core-{re.escape(product)}-py3-none-any\.whl$",
         "agentic-circuit": rf"^agentic_circuit-{re.escape(agentic)}-py3-none-any\.whl$",
     }
@@ -354,7 +594,9 @@ def main() -> int:
             os.fspath(args.install_dir.resolve()).encode(),
             os.fspath(ROOT.resolve()).encode(),
         }
-        for path in sorted(item for item in stage.rglob("*") if item.is_file()):
+        for path in posix_sorted(
+            stage, (item for item in stage.rglob("*") if item.is_file())
+        ):
             data = path.read_bytes()
             if any(value in data for value in forbidden):
                 raise ValueError(
@@ -364,7 +606,9 @@ def main() -> int:
         relocate_native_dependencies(stage, args.platform)
         self_path = "share/pycircuit/sdk-manifest.json"
         files = []
-        for path in sorted(item for item in stage.rglob("*") if item.is_file()):
+        for path in posix_sorted(
+            stage, (item for item in stage.rglob("*") if item.is_file())
+        ):
             relative = path.relative_to(stage).as_posix()
             files.append(
                 {

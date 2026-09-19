@@ -623,6 +623,12 @@ shift/mask。使用 `ac.zext`、`ac.sext`、`ac.truncate` 显式改变位宽，�
 `ac.literal(value, ac.uN)` / `ac.zero(ac.uN)` 构造精确类型常量。错误方向、
 runtime width、bool/enum 隐式混用和超范围 literal 均拒绝。
 
+位宽转换的第二个参数是**位置参数**的具体目标类型（`ac.uN` / `ac.sN` /
+`ac.bits[N]`），不是 `width=` 关键字；`ac.zext`/`ac.sext` 要求目标严格更宽，
+`ac.truncate` 要求目标严格更窄，其余形状以 `ACPY-CAST-001` 拒绝。有符号
+运算前必须用 `ac.sext` 扩展：`ac.zext` 对负值补零会改变数值。位宽不会隐式
+变化，声明为更宽返回类型的模块必须显式转换，否则以 `ACPY-MODULE-001` 拒绝。
+
 `ac.static_assert(condition, message=...)` 在 JIT `ac.const` 参数绑定后求值，
 只允许直接出现在 entry body，并在 Frozen ACIR 前消失；失败诊断保留相对源码位置。
 

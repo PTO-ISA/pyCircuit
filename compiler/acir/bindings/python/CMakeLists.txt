@@ -67,6 +67,42 @@ target_link_libraries(agentic_circuit_native PRIVATE
   ACIRCompiler
   Python3::Module
 )
+
+if(WIN32)
+  # CPython's PC/pyconfig.h records a pragma-based auto-link directive for the
+  # import library an extension must resolve. Under Py_LIMITED_API it names the
+  # stable-ABI library "python3.lib"; without it, "python<major><minor>.lib".
+  # The directive is unconditional up to Python 3.13 (Py_NO_LINK_LIB only
+  # arrived in 3.14), and Python3::Module deliberately links no library at all,
+  # so nothing puts the interpreter's libs directory on the link line. Link the
+  # versioned import library explicitly and make sure the directory holding it
+  # is searched, which is what the directive needs.
+  get_filename_component(_acir_python_root "${Python3_EXECUTABLE}" DIRECTORY)
+  set(_acir_python_libs "${_acir_python_root}/libs")
+  set(_acir_python_import_lib
+    "${_acir_python_libs}/python${Python3_VERSION_MAJOR}${Python3_VERSION_MINOR}.lib")
+  if(NOT EXISTS "${_acir_python_import_lib}" AND Python3_LIBRARY)
+    get_filename_component(_acir_python_libs "${Python3_LIBRARY}" DIRECTORY)
+    set(_acir_python_import_lib "${Python3_LIBRARY}")
+  endif()
+  if(NOT EXISTS "${_acir_python_import_lib}")
+    message(FATAL_ERROR
+      "Python import library for ${Python3_VERSION} is missing; looked for "
+      "${_acir_python_libs}/python${Python3_VERSION_MAJOR}${Python3_VERSION_MINOR}.lib")
+  endif()
+  target_link_directories(agentic_circuit_native PRIVATE "${_acir_python_libs}")
+  target_link_libraries(agentic_circuit_native PRIVATE "${_acir_python_import_lib}")
+  # The hosted python-versions builds ship only the versioned import library, so
+  # stage a copy under the name the limited-API directive uses. Both libraries
+  # export the stable ABI, and Py_LIMITED_API keeps the extension inside it.
+  if(NOT EXISTS "${_acir_python_libs}/python3.lib")
+    set(_acir_python_abi_dir "${ACIR_BINARY_DIR}/python-stable-abi")
+    file(MAKE_DIRECTORY "${_acir_python_abi_dir}")
+    configure_file("${_acir_python_import_lib}"
+      "${_acir_python_abi_dir}/python3.lib" COPYONLY)
+    target_link_directories(agentic_circuit_native PRIVATE "${_acir_python_abi_dir}")
+  endif()
+endif()
 if(APPLE)
   set(ACIR_PYTHON_INSTALL_RPATH "@loader_path/../../..")
 else()
