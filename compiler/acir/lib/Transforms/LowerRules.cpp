@@ -904,6 +904,20 @@ LogicalResult canonicalizePureFirings(ModuleOp model) {
   SmallVector<ac::FiringOp> firings;
   model.walk([&](ac::FiringOp firing) { firings.push_back(firing); });
   for (ac::FiringOp firing : firings) {
+    ac::ModuleOp owner = firing->getParentOfType<ac::ModuleOp>();
+    bool monitored = owner && llvm::any_of(
+                                  owner.getOps<ac::ArchitectureObligationOp>(),
+                                  [&](ac::ArchitectureObligationOp obligation) {
+                                    return llvm::any_of(
+                                        obligation.getSourceRules(),
+                                        [&](Attribute raw) {
+                                          auto source = dyn_cast<StringAttr>(raw);
+                                          return source && source.getValue() ==
+                                                               firing.getStableId();
+                                        });
+                                  });
+    if (monitored)
+      continue;
     bool hasStateAccess = false;
     firing.getBody().walk([&](Operation *operation) {
       hasStateAccess |=
@@ -1052,6 +1066,8 @@ struct VerifyRuleClosurePass
 } // namespace
 
 LogicalResult verifyRuleClosure(ModuleOp model) {
+  if (failed(verifyArchitectureObligations(model, /*requireClosed=*/true)))
+    return failure();
   LogicalResult result = success();
   llvm::StringSet<> stableIds;
   model.walk([&](Operation *operation) {
@@ -1216,6 +1232,9 @@ void addRuleLoweringPipeline(mlir::OpPassManager &manager) {
   manager.addPass(createSourceAwareCSEPass());
   manager.addPass(std::make_unique<InferRuleEffectsPass>());
   manager.addPass(std::make_unique<InferRuleActivationPass>());
+  manager.addPass(createInferArchitectureObligationsPass());
+  manager.addPass(createProveArchitectureObligationsPass());
+  manager.addPass(createMaterializeArchitectureObligationsPass());
   manager.addPass(std::make_unique<MaterializeRuleChecksPass>());
   manager.addPass(std::make_unique<MaterializeRuleHandshakePass>());
   manager.addPass(std::make_unique<DischargeRuleObligationsPass>());

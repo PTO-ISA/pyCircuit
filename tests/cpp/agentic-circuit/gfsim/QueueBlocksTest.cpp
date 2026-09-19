@@ -60,6 +60,32 @@ struct RoutePairAtomically {
   }
 };
 
+struct RejectOver127 {
+  using Plan = StateTransitionPlan<std::tuple<>, std::tuple<uint8_t>>;
+  std::optional<Plan> operator()(Epoch, std::tuple<>,
+                                 const uint8_t &value) const {
+    if (value > 127)
+      throw ArchitectureObligationViolation{"range:bounded", "error",
+                                            "fixture.py:7:3", "Bounded"};
+    Plan plan;
+    std::get<0>(plan.outputs) = value;
+    return plan;
+  }
+};
+
+struct FatalRejectOver127 {
+  using Plan = StateTransitionPlan<std::tuple<>, std::tuple<uint8_t>>;
+  std::optional<Plan> operator()(Epoch, std::tuple<>,
+                                 const uint8_t &value) const {
+    if (value > 127)
+      throw ArchitectureObligationViolation{"range:fatal", "fatal",
+                                            "fatal.py:9:5", "FatalBounded"};
+    Plan plan;
+    std::get<0>(plan.outputs) = value;
+    return plan;
+  }
+};
+
 struct EchoWithoutTableWrite {
   using Plan = TableTransitionPlan<int, int>;
 
@@ -1808,6 +1834,79 @@ TEST(QueueBlocksTest,
   ASSERT_NE(selected.peek(), nullptr);
   EXPECT_EQ(*selected.peek(), 42);
   EXPECT_TRUE(rejected.isEmpty());
+}
+
+TEST(QueueBlocksTest, ObligationFailureIsAtomicAndNamesStableId) {
+  SimQueue<uint8_t> input("input", 201, nullptr, 1);
+  SimQueue<uint8_t> output("output", 202, nullptr, 1);
+  QueueStateTransition<RejectOver127, std::tuple<>, std::tuple<uint8_t>,
+                       std::tuple<uint8_t>, std::tuple<>>
+      transition("bounded", 203, nullptr, {}, {&input}, {&output}, {});
+  ASSERT_TRUE(input.proposePush(200));
+  input.doXfer({0, 0});
+  transition.doWork({1, 0});
+  transition.doArbitrate({1, 0});
+  EXPECT_EQ(transition.runtimeFailureCode(), "range:bounded");
+  ASSERT_TRUE(transition.runtimeFailure());
+  EXPECT_EQ(transition.runtimeFailure()->severity, "error");
+  EXPECT_EQ(transition.runtimeFailure()->source, "fixture.py:7:3");
+  EXPECT_EQ(transition.runtimeFailure()->module, "Bounded");
+  EXPECT_EQ(input.committedSize(), 1u);
+  EXPECT_TRUE(output.isEmpty());
+  EXPECT_FALSE(input.hasPrepared(transition.id()));
+  EXPECT_FALSE(output.hasPrepared(transition.id()));
+  EXPECT_FALSE(transition.hasPendingCommit());
+}
+
+TEST(QueueBlocksTest, ObligationSeverityControlsBoundedSystemFailure) {
+  auto run = []<typename Policy>(std::string_view path) {
+    SimSystem system("obligation_system");
+    SimQueue<uint8_t> input("input", 2, nullptr, 1);
+    SimQueue<uint8_t> output("output", 3, nullptr, 1);
+    QueueStateTransition<Policy, std::tuple<>, std::tuple<uint8_t>,
+                         std::tuple<uint8_t>, std::tuple<>>
+        transition("bounded", 0, nullptr, {}, {&input}, {&output}, {});
+    WakeCounter later(1);
+    transition.setPath(std::string(path));
+    EXPECT_TRUE(input.proposePush(200));
+    input.doXfer({0, 0});
+    std::array rows = {makeDispatchRow(&transition), makeDispatchRow(&later),
+                       makeDispatchRow(&input), makeDispatchRow(&output)};
+    constexpr std::array<uint32_t, 5> closureOffsets{0, 2, 2, 2, 2};
+    constexpr std::array<ObjectId, 2> closureTargets{2, 3};
+    EXPECT_TRUE(system.setDispatchTable(rows));
+    EXPECT_TRUE(system.setWorkClosurePlan(closureOffsets, closureTargets));
+    EXPECT_TRUE(system.scheduleWork(0, {0, 0}));
+    EXPECT_TRUE(system.scheduleWork(1, {0, 0}));
+    EXPECT_FALSE(system.step());
+    const TerminationResult result = system.terminationResult();
+    EXPECT_EQ(result.classification, TerminationClass::Failed);
+    EXPECT_TRUE(result.runtimeFailure);
+    if (result.runtimeFailure) {
+      EXPECT_EQ(result.diagnosticCode, result.runtimeFailure->id);
+      EXPECT_EQ(result.runtimeFailure->instancePath, path);
+      if constexpr (std::same_as<Policy, FatalRejectOver127>) {
+        EXPECT_EQ(result.runtimeFailure->id, "range:fatal");
+        EXPECT_EQ(result.runtimeFailure->severity, "fatal");
+        EXPECT_EQ(result.runtimeFailure->source, "fatal.py:9:5");
+        EXPECT_EQ(result.runtimeFailure->module, "FatalBounded");
+      } else {
+        EXPECT_EQ(result.runtimeFailure->id, "range:bounded");
+        EXPECT_EQ(result.runtimeFailure->severity, "error");
+        EXPECT_EQ(result.runtimeFailure->source, "fixture.py:7:3");
+        EXPECT_EQ(result.runtimeFailure->module, "Bounded");
+      }
+    }
+    EXPECT_EQ(input.committedSize(), 1u);
+    EXPECT_TRUE(output.isEmpty());
+    EXPECT_FALSE(input.hasPrepared(transition.id()));
+    EXPECT_FALSE(output.hasPrepared(transition.id()));
+    return later.workCount;
+  };
+
+  EXPECT_EQ(run.template operator()<RejectOver127>("/top/error/bounded"), 1u);
+  EXPECT_EQ(run.template operator()<FatalRejectOver127>("/top/fatal/bounded"),
+            0u);
 }
 
 TEST(QueueBlocksTest, WholeEntryTransitionUsesExplicitReplaceMode) {

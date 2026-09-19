@@ -583,7 +583,7 @@ namespace {
 ArrayAttr declarationFields(Operation *op);
 Operation *recordDecl(Operation *from, Type type);
 
-struct RuleExpressionNormalizer {
+struct TypedExpressionNormalizer {
   Operation *scope;
   Builder builder;
   DenseMap<Value, int64_t> handles;
@@ -591,7 +591,7 @@ struct RuleExpressionNormalizer {
   DenseMap<Operation *, int64_t> producerHandles;
   SmallVector<Attribute> nodes;
 
-  explicit RuleExpressionNormalizer(Operation *scope)
+  explicit TypedExpressionNormalizer(Operation *scope)
       : scope(scope), builder(scope->getContext()) {}
 
   FailureOr<int64_t> addSyntheticTrue() {
@@ -1249,7 +1249,7 @@ buildExactRuleEffectSummary(Operation *scope,
     scope->emitOpError("exact rule summary requires one rule/firing body");
     return failure();
   }
-  RuleExpressionNormalizer normalizer(scope);
+  TypedExpressionNormalizer normalizer(scope);
   Builder builder(scope->getContext());
   SmallVector<Attribute> persisted;
   for (const ExactRuleFootprintInput &input : footprints) {
@@ -1258,7 +1258,7 @@ buildExactRuleEffectSummary(Operation *scope,
       return failure();
     }
     auto resource = FlatSymbolRefAttr::get(scope->getContext(), input.resource);
-    FailureOr<RuleExpressionNormalizer::OwnerIdentity> identity =
+    FailureOr<TypedExpressionNormalizer::OwnerIdentity> identity =
         normalizer.ownerIdentity(input.endpoint, resource);
     if (failed(identity))
       return failure();
@@ -1312,6 +1312,28 @@ buildExactRuleEffectSummary(Operation *scope,
   }
   return ExactRuleEffectSummary{builder.getArrayAttr(normalizer.nodes),
                                 builder.getArrayAttr(persisted)};
+}
+
+FailureOr<NormalizedRuleExpressions>
+normalizeRuleExpressions(Operation *scope, ArrayRef<Value> roots) {
+  if (!isa<RuleOp, FiringOp>(scope) || scope->getNumRegions() != 1 ||
+      !scope->getRegion(0).hasOneBlock()) {
+    scope->emitOpError(
+        "typed expression normalization requires one rule/firing body");
+    return failure();
+  }
+  TypedExpressionNormalizer normalizer(scope);
+  SmallVector<int64_t> normalizedRoots;
+  normalizedRoots.reserve(roots.size());
+  for (Value root : roots) {
+    FailureOr<int64_t> handle = normalizer.normalize(root);
+    if (failed(handle))
+      return failure();
+    normalizedRoots.push_back(*handle);
+  }
+  return NormalizedRuleExpressions{
+      Builder(scope->getContext()).getArrayAttr(normalizer.nodes),
+      std::move(normalizedRoots)};
 }
 
 FailureOr<ExactRuleEffectSummary>
@@ -1650,6 +1672,252 @@ LogicalResult ValueFactMarkerOp::verify() {
 LogicalResult PendingObligationMarkerOp::verify() {
   if (getOrigin().empty() || getPathPredicate().empty())
     return emitOpError("requires non-empty origin and path predicate");
+  return success();
+}
+
+namespace {
+
+LogicalResult verifyArchitectureExpressionRef(Operation *owner,
+                                              DictionaryAttr reference,
+                                              StringRef label) {
+  auto table = reference.getAs<StringAttr>("table");
+  auto rule = reference.getAs<StringAttr>("rule");
+  auto node = reference.getAs<IntegerAttr>("node");
+  if (reference.size() != 3 || !table ||
+      table.getValue() != "ac.arch_expression_table" || !rule ||
+      rule.getValue().empty() || !node || node.getInt() < 0)
+    return owner->emitOpError() << label
+                                << " must be an exact (table, rule, node) "
+                                   "architecture-expression reference";
+  auto module = owner->getParentOfType<ModuleOp>();
+  auto expressionTable =
+      module ? module->getAttrOfType<ArrayAttr>("ac.arch_expression_table")
+             : ArrayAttr();
+  if (!expressionTable)
+    return owner->emitOpError("requires module-owned ac.arch_expression_table");
+  llvm::StringSet<> expressionScopes;
+  for (Attribute rawScope : expressionTable) {
+    auto scope = dyn_cast<DictionaryAttr>(rawScope);
+    auto scopeRule = scope ? scope.getAs<StringAttr>("rule") : StringAttr();
+    if (!scopeRule || scopeRule.getValue().empty() ||
+        !expressionScopes.insert(scopeRule.getValue()).second)
+      return owner->emitOpError(
+          "module architecture-expression rule scopes must be non-empty and "
+          "unique");
+  }
+  for (Attribute rawScope : expressionTable) {
+    auto scope = dyn_cast<DictionaryAttr>(rawScope);
+    auto scopeRule = scope ? scope.getAs<StringAttr>("rule") : StringAttr();
+    auto nodes = scope ? scope.getAs<ArrayAttr>("nodes") : ArrayAttr();
+    auto ownerRule = scope ? scope.getAs<StringAttr>("owner_rule") : StringAttr();
+    if (!scope || (scope.size() != 2 && scope.size() != 3) || !scopeRule ||
+        !nodes || (scope.size() == 3 &&
+                   (!ownerRule || ownerRule.getValue().empty())))
+      return owner->emitOpError(
+          "module architecture-expression table is malformed");
+    if (scopeRule != rule)
+      continue;
+    for (auto [ordinal, rawNode] : llvm::enumerate(nodes)) {
+      auto candidate = dyn_cast<DictionaryAttr>(rawNode);
+      auto opcode = candidate
+                        ? candidate.getAs<RuleExpressionOpcodeAttr>("opcode")
+                        : RuleExpressionOpcodeAttr();
+      auto candidateType =
+          candidate ? candidate.getAs<TypeAttr>("result_type") : TypeAttr();
+      auto operands = candidate ? candidate.getAs<DenseI64ArrayAttr>("operands")
+                                : DenseI64ArrayAttr();
+      auto attributes = candidate
+                            ? candidate.getAs<DictionaryAttr>("attributes")
+                            : DictionaryAttr();
+      if (!candidate || candidate.size() != 4 || !opcode || !candidateType ||
+          !operands || !attributes)
+        return owner->emitOpError(
+            "module architecture-expression table has a malformed node");
+      for (int64_t operand : operands.asArrayRef())
+        if (operand < 0 || operand >= static_cast<int64_t>(ordinal))
+          return owner->emitOpError(
+              "module architecture-expression table has a dangling or "
+              "cyclic operand");
+    }
+    if (node.getInt() >= static_cast<int64_t>(nodes.size()))
+      return owner->emitOpError() << label << " has a dangling expression node";
+    auto expression = dyn_cast<DictionaryAttr>(nodes[node.getInt()]);
+    auto type =
+        expression ? expression.getAs<TypeAttr>("result_type") : TypeAttr();
+    if (!type)
+      return owner->emitOpError()
+             << label << " references an untyped expression node";
+    auto variable = dyn_cast<VarType>(type.getValue());
+    if (!variable || !variable.getElementType().isInteger(1))
+      return owner->emitOpError()
+             << label << " must reference an exact !ac.var<i1> node";
+    return success();
+  }
+  return owner->emitOpError() << label << " references unknown rule scope '"
+                              << rule.getValue() << "'";
+}
+
+} // namespace
+
+LogicalResult ArchitectureObligationOp::verify() {
+  if (!isa_and_nonnull<ModuleOp>((*this)->getParentOp()))
+    return emitOpError("must be owned directly by one ac.module");
+  if (getId().empty() || getId() != getSymName())
+    return emitOpError(
+        "requires one explicit non-empty stable ID equal to its symbol name");
+  for (char character : getId())
+    if (!(llvm::isAlnum(character) || character == '_' || character == '.' ||
+          character == '-' || character == ':' || character == '/'))
+      return emitOpError(
+          "stable ID must use declared structural-name characters only");
+  for (ArchitectureObligationOp sibling :
+       (*this)->getParentOfType<ModuleOp>().getOps<ArchitectureObligationOp>())
+    if (sibling != *this && sibling.getId() == getId())
+      return emitOpError("duplicates an architecture-obligation stable ID");
+
+  if (failed(
+          verifyArchitectureExpressionRef(*this, getCondition(), "condition")))
+    return failure();
+  if (getSourceRules().empty())
+    return emitOpError("requires at least one typed source-rule reference");
+  llvm::StringSet<> sourceRules;
+  for (Attribute raw : getSourceRules()) {
+    auto rule = dyn_cast<StringAttr>(raw);
+    if (!rule || rule.getValue().empty() ||
+        !sourceRules.insert(rule.getValue()).second)
+      return emitOpError("source-rule references must be non-empty and unique");
+  }
+  if (getStateOwners().empty())
+    return emitOpError("requires at least one typed state-owner reference");
+  llvm::StringSet<> owners;
+  for (Attribute raw : getStateOwners()) {
+    auto owner = dyn_cast<DictionaryAttr>(raw);
+    auto resource = owner ? owner.getAs<SymbolRefAttr>("resource")
+                          : SymbolRefAttr();
+    auto path = owner ? owner.getAs<StringAttr>("owner_path") : StringAttr();
+    auto stable = owner ? owner.getAs<StringAttr>("owner_stable_id")
+                        : StringAttr();
+    auto module = (*this)->getParentOfType<ModuleOp>();
+    Operation *resolved = resource
+                              ? SymbolTable::lookupNearestSymbolFrom(
+                                    getOperation(), resource)
+                              : nullptr;
+    bool ownerMatches = false;
+    if (module && resolved && path && stable) {
+      auto symbol = SymbolTable::getSymbolName(resolved);
+      auto candidatePath = resolved->getAttrOfType<StringAttr>("owner");
+      auto candidateStable = resolved->getAttrOfType<StringAttr>("stable_id");
+      if (candidatePath && candidateStable)
+        ownerMatches = candidatePath == path && candidateStable == stable;
+      else if (symbol) {
+        const std::string structuralPath =
+            ("/" + module.getSymName() + "/" + symbol.getValue()).str();
+        ownerMatches = path.getValue() == structuralPath &&
+                       stable.getValue() == symbol.getValue();
+      }
+    }
+    if (!owner || owner.size() != 3 || !resource || !path ||
+        path.getValue().empty() || !stable || stable.getValue().empty() ||
+        !ownerMatches ||
+        !owners.insert((path.getValue() + "\x1f" + stable.getValue()).str())
+             .second)
+      return emitOpError(
+          "state-owner records must carry unique typed resource, canonical "
+          "owner path, and stable ID");
+  }
+
+  llvm::SmallSet<ArchitectureRuntimeTarget, 3> targets;
+  for (Attribute raw : getRuntimeTargets()) {
+    auto target = dyn_cast<ArchitectureRuntimeTargetAttr>(raw);
+    if (!target || !targets.insert(target.getValue()).second)
+      return emitOpError("runtime targets must be typed and unique");
+  }
+  if (targets.contains(ArchitectureRuntimeTarget::Cpp) ||
+      targets.contains(ArchitectureRuntimeTarget::Sva))
+    return emitOpError(
+        "cpp and sva architecture-obligation targets are not implemented in "
+        "the F3 gfsim slice");
+
+  DictionaryAttr sampling = getSampling();
+  auto samplingKind = sampling.getAs<ArchitectureSamplingKindAttr>("kind");
+  auto edge = sampling.getAs<ArchitectureSamplingEdgeAttr>("edge");
+  auto anchor = sampling.getAs<StringAttr>("sample_anchor");
+  auto active = sampling.getAs<DictionaryAttr>("active_predicate");
+  auto disable = sampling.getAs<DictionaryAttr>("reset_recovery_disable");
+  auto latency = sampling.getAs<IntegerAttr>("capture_latency");
+  auto monitorOnly = sampling.getAs<BoolAttr>("monitor_only");
+  for (NamedAttribute field : sampling)
+    if (!llvm::is_contained(
+            {StringRef("kind"), StringRef("edge"), StringRef("sample_anchor"),
+             StringRef("active_predicate"), StringRef("reset_recovery_disable"),
+             StringRef("capture_latency"), StringRef("monitor_only")},
+            field.getName().strref()))
+      return emitOpError("sampling contract contains an unknown union field");
+  if (!samplingKind || !edge || !monitorOnly)
+    return emitOpError("sampling contract is missing its typed union fields");
+  const bool producer =
+      samplingKind.getValue() == ArchitectureSamplingKind::ProducerEvent;
+  const bool prePublish =
+      samplingKind.getValue() == ArchitectureSamplingKind::PrePublish;
+  const bool observation =
+      samplingKind.getValue() == ArchitectureSamplingKind::TickObservation ||
+      samplingKind.getValue() == ArchitectureSamplingKind::XferObservation;
+  if ((observation && anchor) ||
+      ((producer || prePublish) && (!anchor || anchor.getValue().empty())))
+    return emitOpError("sampling anchor does not match the union arm");
+  if ((!producer && edge.getValue() != ArchitectureSamplingEdge::None) ||
+      (producer && edge.getValue() == ArchitectureSamplingEdge::None))
+    return emitOpError("sampling edge does not match the union arm");
+  if (latency && (latency.getInt() < 0 || !producer || !monitorOnly.getValue()))
+    return emitOpError(
+        "capture latency is legal only for monitor-only producer events");
+  if (active && failed(verifyArchitectureExpressionRef(*this, active,
+                                                       "active predicate")))
+    return failure();
+  if (disable && failed(verifyArchitectureExpressionRef(
+                     *this, disable, "reset/recovery disable")))
+    return failure();
+  if (prePublish && anchor && !sourceRules.contains(anchor.getValue()))
+    return emitOpError(
+        "pre_publish sample anchor must name a source rule/firing");
+
+  if (getMessage().empty() || getSourceProvenance().empty())
+    return emitOpError("requires diagnostic text and source provenance");
+  if (getStatus() == ArchitectureObligationStatus::Pending ||
+      getStatus() == ArchitectureObligationStatus::Rejected)
+    return success(); // Legal intermediate IR; closure rejects both.
+  if (getStatus() == ArchitectureObligationStatus::Proved) {
+    if (!getProofCertificate() || !getRuntimeTargets().empty() ||
+        !getMaterializations().empty())
+      return emitOpError(
+          "proved obligation requires one certificate and no runtime state");
+    return success();
+  }
+  if (getStatus() != ArchitectureObligationStatus::RuntimeChecked)
+    return emitOpError("has an unknown architecture-obligation status");
+  if (getKind() != ArchitectureObligationKind::Range || !prePublish ||
+      !targets.contains(ArchitectureRuntimeTarget::Gfsim) ||
+      targets.size() != 1 || getMaterializations().size() != 1)
+    return emitOpError(
+        "F3 runtime checks admit only one gfsim pre_publish range monitor");
+  auto materialization = dyn_cast<DictionaryAttr>(getMaterializations()[0]);
+  auto target =
+      materialization
+          ? materialization.getAs<ArchitectureRuntimeTargetAttr>("target")
+          : ArchitectureRuntimeTargetAttr();
+  auto firing = materialization ? materialization.getAs<StringAttr>("firing")
+                                : StringAttr();
+  auto maximum = materialization ? materialization.getAs<IntegerAttr>("maximum")
+                                 : IntegerAttr();
+  auto inputOrdinal = materialization
+                          ? materialization.getAs<IntegerAttr>("input_ordinal")
+                          : IntegerAttr();
+  if (!materialization || materialization.size() < 4 || !target ||
+      target.getValue() != ArchitectureRuntimeTarget::Gfsim || !firing ||
+      firing.getValue() != anchor.getValue() || !maximum ||
+      maximum.getInt() < 0 || !inputOrdinal || inputOrdinal.getInt() < 0)
+    return emitOpError(
+        "runtime materialization must be one exact gfsim firing/range record");
   return success();
 }
 
@@ -6084,7 +6352,8 @@ bool isStructuralGraphChild(Operation &child) {
       kind && kind.getValue() == "queue_graph" && isa<ScopeOp>(child);
   return isa<InstanceOp, ArrayOp, InstancesOp, ViewOp, QueueOp, EventQueueOp,
              ResourceOp, AddressSpaceOp, AddressMapOp, TimeDomainOp, ProcessOp,
-             RequireOp, EnsureOp, StatOp, ReturnOp>(child) ||
+             RequireOp, EnsureOp, StatOp, ArchitectureObligationOp, ReturnOp>(
+             child) ||
          queueGraphChild || child.getName().getStringRef() == "arith.constant";
 }
 

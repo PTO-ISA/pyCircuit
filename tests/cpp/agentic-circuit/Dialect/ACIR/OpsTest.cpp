@@ -20,6 +20,7 @@
 #include "mlir/Interfaces/SideEffectInterfaces.h"
 #include "mlir/Parser/Parser.h"
 #include "mlir/Pass/PassManager.h"
+#include "llvm/Support/Path.h"
 #include "llvm/Support/raw_ostream.h"
 #include "gtest/gtest.h"
 
@@ -249,6 +250,7 @@ TEST(ACIROpsTest, RegistryContainsExactQueueVarOperations) {
       "ac.array",
       "ac.address_map",
       "ac.address_space",
+      "ac.arch_obligation",
       "ac.assert",
       "ac.barrier",
       "ac.bitfield",
@@ -277,6 +279,7 @@ TEST(ACIROpsTest, RegistryContainsExactQueueVarOperations) {
       "ac.instrumentation",
       "ac.module",
       "ac.module.extern",
+      "ac.module.import",
       "ac.merge",
       "ac.memory.instance",
       "ac.memory.request",
@@ -831,7 +834,7 @@ TEST(ACIROpsTest, RuntimeAndQueueVarRegistryIsExact) {
   for (llvm::StringLiteral name : queueVarNames)
     EXPECT_TRUE(mlir::OperationName(name, &context).isRegistered())
         << name.str();
-  EXPECT_EQ(context.getRegisteredOperationsByDialect("ac").size(), 152u);
+  EXPECT_EQ(context.getRegisteredOperationsByDialect("ac").size(), 154u);
 }
 
 
@@ -2438,6 +2441,49 @@ TEST(ACIRFreezeEffectsTest, FrozenEffectsUseElaboratedAbsoluteOwnerSets) {
   checkAbsoluteOwners(&process.getBody().front().back(), "root.workload");
   checkAbsoluteOwners(stat, "root.requests");
 
+}
+
+TEST(ACIROpsTest, ArchitectureClosureRecomputesEveryWriterConflictPair) {
+  mlir::DialectRegistry registry;
+  acir::registerAllDialects(registry);
+  mlir::MLIRContext context(registry);
+  llvm::SmallString<256> fixture(__FILE__);
+  llvm::sys::path::remove_filename(fixture);
+  llvm::sys::path::append(
+      fixture, "../../../../mlir/agentic-circuit/Transforms/"
+               "architecture-obligation-inference.mlir");
+  llvm::sys::path::remove_dots(fixture, /*remove_dot_dot=*/true);
+  auto build = [&]() {
+    auto file =
+        mlir::parseSourceFile<mlir::ModuleOp>(fixture.str(), &context);
+    EXPECT_TRUE(file);
+    mlir::PassManager manager(&context);
+    manager.addPass(acir::createInferArchitectureObligationsPass());
+    manager.addPass(acir::createProveArchitectureObligationsPass());
+    EXPECT_TRUE(mlir::succeeded(manager.run(*file)));
+    return file;
+  };
+
+  auto removed = build();
+  llvm::SmallVector<ArchitectureObligationOp> obligations;
+  removed->walk(
+      [&](ArchitectureObligationOp obligation) { obligations.push_back(obligation); });
+  ASSERT_EQ(obligations.size(), 3u);
+  obligations.front().erase();
+  EXPECT_TRUE(mlir::failed(
+      acir::verifyArchitectureObligations(*removed, /*requireClosed=*/false)));
+
+  auto tampered = build();
+  ArchitectureObligationOp obligation;
+  tampered->walk([&](ArchitectureObligationOp candidate) {
+    if (!obligation)
+      obligation = candidate;
+  });
+  ASSERT_TRUE(obligation);
+  obligation->setAttr("proof_certificate",
+                      mlir::DictionaryAttr::get(&context));
+  EXPECT_TRUE(mlir::failed(
+      acir::verifyArchitectureObligations(*tampered, /*requireClosed=*/false)));
 }
 
 } // namespace

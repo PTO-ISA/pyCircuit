@@ -609,6 +609,33 @@ def ACIR_PendingObligationMarkerOp : ACIR_Op<"marker.obligation", [
   }];
 }
 
+// First-class, module-owned Decision 0272 safety record.  The dictionary
+// fields are closed and verified in ACIROps.cpp; keeping the condition,
+// certificate, materialization and sampling records separate prevents any
+// accidental reuse of transient marker state or debug serialization.
+def ACIR_ArchitectureObligationOp : ACIR_Op<"arch_obligation", [Symbol]> {
+  let arguments = (ins SymbolNameAttr:$sym_name, StrAttr:$id,
+                       ACIR_ArchitectureObligationKindAttr:$kind,
+                       ACIR_ArchitectureObligationSeverityAttr:$severity,
+                       ACIR_ArchitectureObligationStatusAttr:$status,
+                       DictionaryAttr:$condition,
+                       ArrayAttr:$source_rules, ArrayAttr:$state_owners,
+                       OptionalAttr<DictionaryAttr>:$proof_certificate,
+                       ArrayAttr:$runtime_targets,
+                       ArrayAttr:$materializations,
+                       DictionaryAttr:$sampling,
+                       StrAttr:$message, ArrayAttr:$source_provenance,
+                       StrArrayAttr:$ndf_ids);
+  let hasVerifier = 1;
+  let assemblyFormat = [{
+    $sym_name `id` $id `kind` $kind `severity` $severity `status` $status
+    `condition` $condition `rules` $source_rules `owners` $state_owners
+    (`proof` $proof_certificate^)? `targets` $runtime_targets
+    `materializations` $materializations `sampling` $sampling
+    `message` $message `source` $source_provenance `ndf` $ndf_ids attr-dict
+  }];
+}
+
 def ACIR_SourceOp : ACIR_Op<"source", [
     DeclareOpInterfaceMethods<MemoryEffectsOpInterface>
   ]> {
