@@ -3372,9 +3372,11 @@ LogicalResult MemoryInstanceOp::verify() {
     return emitOpError("stable_id must be unique");
   unsigned requests = 0;
   root->walk([&](MemoryRequestOp request) {
-    auto resolved =
-        dyn_cast_or_null<MemoryInstanceOp>(SymbolTable::lookupNearestSymbolFrom(
-            request, request.getInstanceAttr()));
+    // Resolve in the graph file rather than through the nearest symbol table:
+    // an enclosing ac.scope is itself a symbol table, so the nearest-table
+    // lookup cannot see an instance declared beside the request's scope.
+    auto resolved = dyn_cast_or_null<MemoryInstanceOp>(
+        lookupGraphSymbol(request, request.getInstanceAttr()));
     if (resolved == *this)
       ++requests;
   });
