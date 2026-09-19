@@ -15,7 +15,7 @@ The Architecture Rule Compiler RFC owns the product direction and generic
 requirements. This document is its executable implementation and backend
 verification supplement; it does not define a parallel architecture.
 
-## 1. Required outcome
+## Required outcome
 
 pyCircuit must compile architecture intent, not merely translate Python syntax
 to local RTL. A source-linked rule must become one closed chain of evidence:
@@ -56,7 +56,7 @@ Architecture Rule Compiler proposal into bounded work packages for later
 agents. It does not make a complete CPU, NPU, ROB, IQ, rename unit, or LSU part
 of pyCircuit.
 
-## 2. Normative interpretation of the source material
+## Normative interpretation of the source material
 
 Later rules supersede earlier exploratory examples when they conflict.
 In particular:
@@ -75,7 +75,7 @@ In particular:
 - full consumer designs remain in their owning repositories. pyCircuit keeps
   only vendor-neutral reduced fixtures.
 
-## 3. Evidence-backed baseline and gap analysis
+## Evidence-backed baseline and gap analysis
 
 The labels in this section are deliberate:
 
@@ -100,9 +100,9 @@ The labels in this section are deliberate:
 | X/Z | Trace contracts preserve value/known/Z masks and semantic gates cover selected X/Z behavior. The normal generated C++ `Bits` runtime is two-state. | **Decision 0273:** comparison requires exact known/Z-mask parity plus equal value on commonly known bits; the affected C++ path must preserve all three masks. |
 | Verification gates | The repository has focused MLIR/native tests, AC G0/G1/G2, C++/Verilator simulation lanes, semantic regressions, evidence directories, and decision-status closure. | **Inference:** extend these existing lanes with obligation, zero-loss, rule coverage, why-not-fire, deterministic rebuild, and representative RTL-diff artifacts; do not create a parallel release system. |
 
-## 4. Scope and hard boundaries
+## Scope and hard boundaries
 
-### 4.1 In scope
+### In scope
 
 - whole-design rule effect, conflict, ordering, ownership, and recovery analysis;
 - stable Architecture Obligation IR and proof/runtime/reject lifecycle;
@@ -115,7 +115,7 @@ The labels in this section are deliberate:
 - rule/blocker/obligation coverage and deterministic evidence indexes; and
 - reduced generic fixtures that prove framework behavior.
 
-### 4.2 Out of scope
+### Out of scope
 
 - public `ac.rob`, `ac.iq`, `ac.rename`, `ac.lsu`, or other product-specific
   primitives;
@@ -127,9 +127,9 @@ The labels in this section are deliberate:
   content-derived tokens or a frozen content ledger; and
 - accepting a whole-core AC artifact and splitting it after compilation.
 
-## 5. Target compiler architecture
+## Target compiler architecture
 
-### 5.1 Normalized rule effect model
+### Normalized rule effect model
 
 Introduce one backend-neutral `RuleEffectSummary` for every executable rule.
 It must contain typed references, not human-readable strings that a backend
@@ -175,7 +175,7 @@ and admitted lane identities. Serialization ordinals are local handles, not
 semantic IDs. Verification independently normalizes the live body; it does not
 validate a summary by round-tripping the summary itself.
 
-### 5.2 Whole-design Rule Effect Graph
+### Whole-design Rule Effect Graph
 
 Add a `BuildRuleEffectGraphPass` after local rule normalization and before
 schedule/arbitration resolution.
@@ -203,7 +203,7 @@ Required outputs:
   and
 - no opaque content-derived identity.
 
-### 5.3 Architecture Obligation IR
+### Architecture Obligation IR
 
 The current `ac.marker.obligation` remains only a transient rule-handshake
 lowering marker and is eliminated before backend emission. It is not reused,
@@ -307,7 +307,7 @@ Sampling-union rules are exact:
 - arms are mutually exclusive; active-edge-only values without a producer
   anchor reject.
 
-### 5.4 Recovery and identity
+### Recovery and identity
 
 Start as internal compiler objects. Public Python APIs are admitted only after
 their semantics have focused negative tests.
@@ -335,7 +335,7 @@ Old/new state rule:
   old-state snapshot;
 - Python statement order never defines forwarding or writer precedence.
 
-### 5.5 Multi-lane transaction and resource algebra
+### Multi-lane transaction and resource algebra
 
 Add an internal `TransactionGroup<N>` with:
 
@@ -361,7 +361,7 @@ Add generic internal objects:
 The first implementation must support one fixed-width 4-lane reduced fixture.
 Eight- and ten-lane support are later scale gates, not phase-one API promises.
 
-### 5.6 Memory ordering and refinement
+### Memory ordering and refinement
 
 Add a backend-neutral `MemoryOrderingGraph` only after identity/recovery and
 multi-lane resource semantics are closed.
@@ -400,7 +400,7 @@ validated PYC/RTL implementation
 Selection is fail closed and deterministic. A selected implementation must
 preserve the semantic primitive's cycle and transaction contract.
 
-## 6. Required pass pipeline
+## Required pass pipeline
 
 The exact pass names may change during review, but the dependency order is
 normative:
@@ -441,9 +441,9 @@ Pass invariants:
 - every lowering either preserves obligation IDs or records an explicit
   proved-elision reason.
 
-## 7. QueueGraph and C++ codegen extensions
+## QueueGraph and C++ codegen extensions
 
-### 7.1 QueueGraphPlan
+### QueueGraphPlan
 
 Extend the plan with typed records for:
 
@@ -459,7 +459,7 @@ Extend the plan with typed records for:
 The JSON form is a deterministic review/debug artifact. It is not a frozen
 contract, cache key, identity source, or release authority.
 
-### 7.2 Generated C++
+### Generated C++
 
 Generated C++ must:
 
@@ -486,7 +486,7 @@ compiler rejects that target.
 Runtime assertions also cannot legalize overlapping writers or a one-hot
 optimization, and an assertion used for runtime admission cannot be disabled.
 
-### 7.3 Why-not-fire contract
+### Why-not-fire contract
 
 Each firing condition is decomposed into stable blocker terms:
 
@@ -502,9 +502,9 @@ Blocker evaluation must be side-effect free. Enabling explanation or coverage
 must not change rule order, arbitration, Queue reservations, or performance
 semantics.
 
-## 8. PYC and Verilog emission contract
+## PYC and Verilog emission contract
 
-### 8.1 PYC remains the semantic hardware boundary
+### PYC remains the semantic hardware boundary
 
 Architecture extensions must lower to ordinary verified PYC plus explicit
 obligation/refinement metadata. Public Python and canonical PYC remain
@@ -525,7 +525,7 @@ Before emission, verify:
   with typed static parameters and admitted generate branches; unsupported
   family shapes reject before emission.
 
-### 8.2 Verilog text and structure
+### Verilog text and structure
 
 The emitter and post-emit gate must enforce:
 
@@ -546,7 +546,7 @@ The current named connections and explicit-width literal helpers are retained.
 The missing rules become emitter invariants or a fail-closed structural audit,
 not a formatting convention that can be ignored.
 
-### 8.3 Selection and width rules
+### Selection and width rules
 
 - Emit a priority mux only for a semantic priority relation.
 - Emit a balanced AND-OR mux only for statically proved one-hot/onehot0
@@ -561,7 +561,7 @@ not a formatting convention that can be ignored.
 - Apply verified strength reduction for constant multiply/divide/remainder.
 - Reject accidental expensive dynamic arithmetic in control/address logic.
 
-### 8.4 Ready/valid and pipeline rules
+### Ready/valid and pipeline rules
 
 - `ready && valid` is the only transfer event unless a typed protocol says
   otherwise.
@@ -578,7 +578,7 @@ not a formatting convention that can be ignored.
 - An output whose invalid value is architecturally zero/none must be explicitly
   cleared or masked; it may not expose a stale previously valid payload.
 
-### 8.5 SRAM and stateful primitive rules
+### SRAM and stateful primitive rules
 
 Treat each SRAM read result as a resource with provenance and lifetime:
 
@@ -623,7 +623,7 @@ Synthesizable primitives remain technology independent. Aggressive X behavior
 is isolated under simulation/formal guards and selected by a documented test
 profile.
 
-### 8.6 Obligation-to-SVA lowering
+### Obligation-to-SVA lowering
 
 Add an emitter stage that consumes verified obligation records and emits:
 
@@ -642,9 +642,9 @@ Negative-edge sampling is a supported sampling contract, not a universal
 default. A value that is valid only in the positive-edge active region must
 declare that lifetime and use a race-free monitor strategy.
 
-## 9. Verification methodology
+## Verification methodology
 
-### 9.1 Verification pyramid
+### Verification pyramid
 
 Every semantic feature uses the smallest applicable layers, in order:
 
@@ -660,7 +660,7 @@ Every semantic feature uses the smallest applicable layers, in order:
 
 A broad simulation run does not replace a missing verifier negative test.
 
-### 9.2 Transaction-first checking
+### Transaction-first checking
 
 Ready/valid tests compare accepted transactions, not just signal pulses.
 Each test records:
@@ -682,7 +682,7 @@ Required end conditions:
 - no unexpected in-flight transaction; and
 - expected ordering preserved.
 
-### 9.3 Directed matrix
+### Directed matrix
 
 Every changed rule/codegen path includes applicable cases for:
 
@@ -703,7 +703,7 @@ Every changed rule/codegen path includes applicable cases for:
 - stale output invalidation; and
 - terminal completion after split effects.
 
-### 9.4 Stress and continuous invariants
+### Stress and continuous invariants
 
 Stress uses deterministic seeds and records the seed in evidence. It mixes:
 
@@ -730,7 +730,7 @@ Check invariants every cycle, not only at test end:
 - no repeated non-idempotent access while stalled; and
 - C++/RTL observation equivalence where values are defined.
 
-### 9.5 X/Z and parity policy
+### X/Z and parity policy
 
 Decision 0273 selects one exact contract: each observation carries equal-width
 `value`, `known`, and `z` masks; C++ and RTL must have identical known and Z
@@ -739,7 +739,7 @@ bits under X or Z are ignored only after mask equality succeeds, and every
 observation satisfies `(known & z) == 0`. Treating C++
 zero as equal to RTL X/Z is forbidden.
 
-### 9.6 Testbench timing
+### Testbench timing
 
 - Drive inputs early enough to avoid active-region races.
 - Separate drive and sample phases explicitly, using a clocking block or a
@@ -750,7 +750,7 @@ zero as equal to RTL X/Z is forbidden.
 - Isolate tests: reset architectural state and temporary queues, and explicitly
   initialize any state intentionally retained across reset.
 
-### 9.7 Evidence package
+### Evidence package
 
 Every semantic/codegen change archives, under one gate run ID:
 
@@ -770,7 +770,7 @@ Every semantic/codegen change archives, under one gate run ID:
 The evidence index contains paths and explicit semantic IDs. It does not define
 identity and does not contain opaque content-derived tokens.
 
-## 10. Implementation work packages
+## Implementation work packages
 
 ### P0 - Decision and schema freeze
 
@@ -1047,7 +1047,7 @@ It must generate:
 Long random runs belong in nightly/release lanes. Full SSM validation remains in
 the SSM repository against a pinned pyCircuit revision.
 
-## 11. Suggested agent order and ownership
+## Suggested agent order and ownership
 
 Later agents should work in this dependency order and must not skip an exit
 criterion:
@@ -1070,7 +1070,7 @@ An agent may implement a reduced vertical slice across several layers only
 after the owning IR/schema is accepted. No C++ or Verilog agent may invent a
 missing semantic rule locally.
 
-## 12. Accepted F0 decisions and deferred questions
+## Accepted F0 decisions and deferred questions
 
 F0 closes exact effect DAGs, the module-owned `ac.arch_obligation` symbol plus
 module-owned typed expression table, sampling/runtime admission, four-state and
@@ -1089,7 +1089,7 @@ These deferred questions do not reopen Decisions 0271–0274 and do not block
 implementing their accepted safety contracts. Each requires a new decision
 before its later phase may choose semantics.
 
-## 13. Definition of done
+## Definition of done
 
 The extension is complete only when all applicable statements are true:
 

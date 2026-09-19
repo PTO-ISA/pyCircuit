@@ -7,7 +7,7 @@
 **Implementation checklist:**
 [AC rule and SimQueue atomic lowering checklist](ac-rule-simqueue-atomic-lowering-checklist.md)
 
-## 1. Outcome
+## Outcome
 
 Structured Agentic Circuit C++ generation uses the same ownership tree as the
 verified AC package:
@@ -26,7 +26,7 @@ verified AC package:
 
 This is a generated-source contract, not a stable cross-release C++ ABI.
 
-## 2. Motivation
+## Motivation
 
 The current generator already emits one header and one source for every
 concrete module specialization, but a composite class embeds internal children
@@ -50,7 +50,7 @@ That representation executes, but it hides three architectural facts:
 The new representation makes these facts explicit while keeping identity
 structural, ownership local, and the framework consumer-neutral.
 
-## 3. Scope
+## Scope
 
 This design covers:
 
@@ -72,7 +72,7 @@ It does not change:
 - external Git/release pinning;
 - specialization equality.
 
-## 4. Artifact ownership
+## Artifact ownership
 
 The package linker resolves a declaration, its implementation owner, and the
 closed set of concrete specializations before C++ emission.
@@ -102,7 +102,7 @@ One implementation source with several typed specializations still owns one
 `.hpp`/`.cpp` pair. The pair declares and defines every concrete specialization
 from that source unit.
 
-## 5. Generated module header
+## Generated module header
 
 The module declaration determines the public class surface. The linked
 implementation contributes the private member layout after declaration and
@@ -169,7 +169,7 @@ compiler revision, and a full private layout keeps hierarchy and ownership
 visible to reviewers while avoiding an extra allocation for every module
 implementation object.
 
-## 6. Parent ownership model
+## Parent ownership model
 
 Ownership follows lexical AC structure.
 
@@ -185,7 +185,7 @@ Pipeline instance
 └── commit_ref_       : InstanceRecord -> commit_.get() [non-owning]
 ```
 
-### 6.1 Queue storage
+### Queue storage
 
 The module that declares an inter-child Queue owns its storage as a direct
 member value:
@@ -208,7 +208,7 @@ The ownership rules are:
   scope in which fanout was introduced;
 - a Queue is never owned by an instance record or by a port object.
 
-### 6.2 Persistent state
+### Persistent state
 
 “The parent owns variables” means lexical ownership, not forced hoisting:
 
@@ -218,7 +218,7 @@ The ownership rules are:
 - a parent cannot access or duplicate a child's private state;
 - a child sees parent-owned communication storage only through Queue pointers.
 
-## 7. Child allocation
+## Child allocation
 
 Structural children use `std::unique_ptr`. Generated hierarchy does not use
 `std::shared_ptr` for module ownership. `shared_ptr` is reserved for wide,
@@ -276,7 +276,7 @@ least common parent, uniquely owned there, and connected through Queue
 pointers. Wide payload sharing does not change this rule because a payload is
 data, not a structural module instance.
 
-## 8. Instance record
+## Instance record
 
 An instance record is a non-owning runtime description of one allocation:
 
@@ -306,7 +306,7 @@ Scheduler configuration, reset traversal, statistics, source mapping, and
 debug hierarchy consume instance records or their stable module pointers. They
 do not infer children from C++ member offsets.
 
-## 9. Port contract
+## Port contract
 
 Each module header contains one generated `Ports` aggregate. Field order
 follows the verified AC declaration order.
@@ -335,7 +335,7 @@ References are not used because instance construction and records need an
 explicit nullable-before-validation representation. Smart pointers are not
 used for ports because ports do not own Queue storage.
 
-## 10. Nominal payload classes and wide Queue storage
+## Nominal payload classes and wide Queue storage
 
 Each source-owned interface shard emits one `.hpp` containing the readable
 `final class` declarations for every nominal `ac.struct` that source owns. No
@@ -379,7 +379,7 @@ using QueueStorage = std::conditional_t<
 The generator normally prints the resolved type directly rather than exposing
 this alias in user-facing generated code.
 
-### 10.1 Allocation and push
+### Allocation and push
 
 A new payload wider than 64 bits is allocated only after the Queue has reserved
 capacity for the push. A blocked push performs no allocation.
@@ -395,7 +395,7 @@ Forwarding an unchanged wide payload reuses the existing shared pointer. It
 does not allocate or deep-copy another payload object. A rule that changes a
 field creates a new immutable payload object, matching AC SSA semantics.
 
-### 10.2 Pop and release
+### Pop and release
 
 A prepared pop retains the Queue's reference until the Xfer commit. On a
 successful pop commit, the Queue removes its entry and releases its reference.
@@ -410,7 +410,7 @@ Cancelled pushes, cancelled pops, recovery pruning, reset, and Queue
 destruction release every reference they own. A proposal that does not commit
 cannot leak a reference into committed state.
 
-### 10.3 Fanout and immutability
+### Fanout and immutability
 
 Compiler-generated fanout copies only `shared_ptr`, so every branch observes
 the same immutable payload object. No branch may mutate the object after
@@ -424,7 +424,7 @@ Payloads with a concrete packed width of 64 bits or less remain value Queue
 elements. Nominal structs still generate C++ classes at those widths; only the
 Queue storage representation changes.
 
-## 11. Specialization and reuse
+## Specialization and reuse
 
 Specialization equality remains:
 
@@ -462,7 +462,7 @@ module family per source definition, with typed static parameters and admitted
 generate branches. Unsupported parameter/family shapes reject before RTL
 emission; they do not produce per-specialization module names or suffixes.
 
-## 12. Names and traceability
+## Names and traceability
 
 Names follow `docs/reference/name-mangling.md`:
 
@@ -504,7 +504,7 @@ Generated `.hpp` and `.cpp` files contain adjacent comments for:
 
 Comments provide traceability only. They are not identities.
 
-## 13. Build flow
+## Build flow
 
 The frontend flow remains independently compiled:
 
@@ -541,7 +541,7 @@ target_link_libraries(gfsim-pyc PRIVATE
 A later measured optimization may add per-unit backend emission, but it cannot
 introduce persistent link metadata or weaken package verification.
 
-## 14. Construction and destruction invariants
+## Construction and destruction invariants
 
 1. Parent Queue values are constructed first.
 2. Required external Queue pointers are validated.
@@ -555,9 +555,9 @@ introduce persistent link metadata or weaken package verification.
 Construction failure publishes no partial instance record or scheduler entry.
 Normal runtime never reallocates a parent module, child module, or owned Queue.
 
-## 15. Verification
+## Verification
 
-### 15.1 Generated-source shape
+### Generated-source shape
 
 - every resolved module declaration has exactly one `.hpp`;
 - every nominal payload class appears exactly once in its source-owned
@@ -574,7 +574,7 @@ Normal runtime never reallocates a parent module, child module, or owned Queue.
 - internal and waveform-visible signal names are lower-snake, bounded in
   length, and contain no double underscore.
 
-### 15.2 Ownership and lifetime
+### Ownership and lifetime
 
 - producer and consumer observe the exact same Queue address;
 - forwarding and fanout of a wide payload preserve the payload address;
@@ -588,7 +588,7 @@ Normal runtime never reallocates a parent module, child module, or owned Queue.
 - null required ports fail before hierarchy publication;
 - failed child construction leaves no instance record or registered object.
 
-### 15.3 Behavioral parity
+### Behavioral parity
 
 - by-value baseline and pointer-owned implementation produce identical
   TICK-OBS and XFER-OBS traces;
@@ -598,7 +598,7 @@ Normal runtime never reallocates a parent module, child module, or owned Queue.
 - nested H1→H2→H3, repeated instances, fanout, multi-input, multi-output,
   stateful modules, and backpressure execute through the normal scheduler.
 
-### 15.4 Build graph
+### Build graph
 
 - every `.cpp` compiles as an independent object;
 - touching one implementation `.ac` regenerates its `.cpp` and affected parent
@@ -606,7 +606,7 @@ Normal runtime never reallocates a parent module, child module, or owned Queue.
 - CMake and emitted source inventories agree exactly;
 - the final DUT links and runs without a whole-core source fallback.
 
-## 16. One-stage hard-break migration
+## One-stage hard-break migration
 
 Implementation may be developed on non-published branches, but the accepted
 repository state changes in one coherent stage. That stage must:
@@ -627,7 +627,7 @@ compatibility typedef, duplicate `.h` output, reference-port mode, by-value
 child fallback, whole-core fallback, specialization alias/suffix, `__` name,
 opaque suffix, shim, or compatibility flag remains at the cutover.
 
-## 17. Accepted F0 choices
+## Accepted F0 choices
 
 Decision 0274 accepts these choices:
 

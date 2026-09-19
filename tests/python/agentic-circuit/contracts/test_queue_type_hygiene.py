@@ -158,7 +158,8 @@ class QueueTypeHygieneTest(unittest.TestCase):
                     self.assertEqual(annotation, annotations.get(field))
 
     def test_type_strings_are_not_recovered_from_rendered_spelling(self) -> None:
-        allowed: set[tuple[str, str]] = set()
+        # This check validates a declared source path, not a rendered ACIR type.
+        allowed = {("implementation_source", "startswith")}
         found: set[tuple[str, str]] = set()
         for tree in (
             self.tree,

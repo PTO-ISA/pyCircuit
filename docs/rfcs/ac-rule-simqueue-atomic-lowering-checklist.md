@@ -12,7 +12,7 @@ graphs, obligation IR, SVA generation, SRAM/X methodology, recovery identity,
 multi-lane resource algebra, and verification evidence are owned by the
 architecture extension checklist above.
 
-## 1. Required outcome
+## Required outcome
 
 An authored `ac.rule` becomes one compiler-generated atomic Queue transaction.
 The author writes functional rule logic; compiler passes derive and insert all
@@ -36,9 +36,9 @@ commit at Xfer
 If any check or preparation fails, no input is popped, no output is pushed, no
 state changes, and no wide payload allocation becomes committed.
 
-## 2. Compiler/runtime contract
+## Compiler/runtime contract
 
-### 2.1 Logical SimQueue operations
+### Logical SimQueue operations
 
 Generated code must have explicit equivalents for:
 
@@ -60,7 +60,7 @@ first version. Generated-source tests must still prove the logical operations
 above are present in the emitted transaction. Do not add a direct destructive
 `pop()` path that bypasses prepare/publish/Xfer.
 
-### 2.2 Atomicity
+### Atomicity
 
 - One rule firing uses one non-invalid `CommitGroupId`.
 - Every required input, every present output, and every state/Table/Slot write
@@ -73,7 +73,7 @@ above are present in the emitted transaction. Do not add a direct destructive
 - `front()` returns a committed immutable snapshot that stays valid through
   the firing prepare/publish sequence.
 
-### 2.3 Optional outputs
+### Optional outputs
 
 Output capacity is required only when that output's `when` predicate is true.
 Because the predicate may depend on input values, lowering must check inputs
@@ -82,7 +82,7 @@ and borrow their fronts before deciding the active output set.
 An absent output is neither checked for capacity nor pushed. Its Queue remains
 unchanged.
 
-## 3. Work breakdown
+## Work breakdown
 
 ### M0 — Freeze the rule transaction contract
 
@@ -565,7 +565,7 @@ limits remain green.
 **Exit criteria:** framework gates are green, evidence is reviewable, and the
 consumer needs only a pin update plus its own compatibility tests.
 
-## 4. Definition of done
+## Definition of done
 
 The work is complete only when all statements below are true:
 
@@ -590,7 +590,7 @@ The work is complete only when all statements below are true:
 - [ ] No compatibility path restores author-written Queue plumbing or the old
       by-value wide-payload behavior.
 
-## 5. Suggested agent assignment order
+## Suggested agent assignment order
 
 Agents should take the work in this dependency order:
 
