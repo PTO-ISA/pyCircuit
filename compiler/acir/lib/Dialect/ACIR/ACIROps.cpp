@@ -41,6 +41,24 @@ bool isPureExpressionOperation(Operation *operation) {
   return isMemoryEffectFree(operation) || isa<func::CallOp>(operation);
 }
 
+Operation *lookupGraphSymbol(Operation *from, FlatSymbolRefAttr name) {
+  auto file = from->getParentOfType<mlir::ModuleOp>();
+  return file ? SymbolTable::lookupSymbolIn(file, name) : nullptr;
+}
+
+/// Resolve a possibly nested static symbol reference in the enclosing graph
+/// file.
+///
+/// `ac.module` carries both the Symbol and the SymbolTable trait, so MLIR's
+/// lookupNearestSymbolFrom() searches inside the referencing module instead of
+/// the builtin.module around it. Static references, nested form included,
+/// resolve against the enclosing file like every other graph reference.
+Operation *lookupGraphSymbolReference(Operation *from,
+                                      SymbolRefAttr reference) {
+  auto file = from->getParentOfType<mlir::ModuleOp>();
+  return file ? SymbolTable::lookupSymbolIn(file, reference) : nullptr;
+}
+
 } // namespace
 
 LogicalResult
@@ -5208,24 +5226,6 @@ FunctionType graphSignature(Operation *op) {
     return {};
   auto type = op->getAttrOfType<TypeAttr>("function_type");
   return type ? dyn_cast<FunctionType>(type.getValue()) : FunctionType();
-}
-
-Operation *lookupGraphSymbol(Operation *from, FlatSymbolRefAttr name) {
-  auto file = from->getParentOfType<mlir::ModuleOp>();
-  return file ? SymbolTable::lookupSymbolIn(file, name) : nullptr;
-}
-
-/// Resolve a possibly nested static symbol reference in the enclosing graph
-/// file.
-///
-/// `ac.module` carries both the Symbol and the SymbolTable trait, so MLIR's
-/// lookupNearestSymbolFrom() searches inside the referencing module instead of
-/// the builtin.module around it. Static references, nested form included,
-/// resolve against the enclosing file like every other graph reference.
-Operation *lookupGraphSymbolReference(Operation *from,
-                                      SymbolRefAttr reference) {
-  auto file = from->getParentOfType<mlir::ModuleOp>();
-  return file ? SymbolTable::lookupSymbolIn(file, reference) : nullptr;
 }
 
 LogicalResult verifyConcreteDictionary(Operation *op, DictionaryAttr values,
