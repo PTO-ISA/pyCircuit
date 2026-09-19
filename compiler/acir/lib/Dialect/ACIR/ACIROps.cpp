@@ -3473,13 +3473,17 @@ LogicalResult MemoryRequestOp::verify() {
   if (*data != dataType)
     return emitOpError("data must match result_field type");
 
+  Operation *root = getOperation();
+  while (root->getParentOp())
+    root = root->getParentOp();
   DenseSet<int64_t> ordinals;
   StringSet<> endpointPaths;
   Type payloadType;
   uint64_t maximumOrdinal = 0;
   unsigned endpointCount = 0;
   WalkResult endpointResult = root->walk([&](MemoryRequestOp request) {
-    auto resolved = resolveMemoryInstance(root, request.getInstanceAttr());
+    auto resolved = dyn_cast_or_null<MemoryInstanceOp>(
+        lookupGraphSymbol(request, request.getInstanceAttr()));
     if (resolved != instance)
       return WalkResult::advance();
     ++endpointCount;
