@@ -436,6 +436,7 @@ LogicalResult verifyLoweredRuleTransformContract(TransformOp transform) {
       "ac.rule_checks_typed",   "ac.rule_output_presence",
       "ac.rule_state_accesses", "ac.rule_guard_kind",
       "ac.rule_schedule_kind",  "ac.rule_arbitration_membership",
+      "ac.rule_expression_dag", "ac.rule_footprints_exact",
   };
   bool hasRuleProof = false;
   for (NamedAttribute attribute : transform->getAttrs()) {
@@ -464,13 +465,18 @@ LogicalResult verifyLoweredRuleTransformContract(TransformOp transform) {
   FailureOr<StringAttr> domain = requireString("ac.rule_time_domain");
   auto priority = transform->getAttrOfType<IntegerAttr>("ac.rule_priority");
   auto footprints = transform->getAttrOfType<ArrayAttr>("ac.rule_footprints");
+  auto exactDAG =
+      transform->getAttrOfType<ArrayAttr>("ac.rule_expression_dag");
+  auto exactFootprints =
+      transform->getAttrOfType<ArrayAttr>("ac.rule_footprints_exact");
   if (failed(definition) || failed(stableId) || failed(domain) || !priority ||
-      priority.getInt() < 0 || !footprints)
+      priority.getInt() < 0 || !footprints || !exactDAG || !exactFootprints)
     return failure();
   if (transform.getInputs().empty() || transform.getOutputs().size() != 1)
     return transform.emitOpError("lowered rule requires at least one input and "
                                  "exactly one output Queue");
-  if ((*domain).getValue() != "cycle" || !footprints.empty())
+  if ((*domain).getValue() != "cycle" || !footprints.empty() ||
+      !exactDAG.empty() || !exactFootprints.empty())
     return transform.emitOpError(
         "has invalid lowered-rule domain/footprint proof");
   auto model = transform->getParentOfType<mlir::ModuleOp>();
@@ -561,6 +567,7 @@ LogicalResult TransformOp::verify() {
 }
 
 static TableOp resolveTable(Operation *operation, FlatSymbolRefAttr reference);
+static SlotOp resolveSlot(Operation *operation, FlatSymbolRefAttr reference);
 static bool tableVisibleFrom(Operation *operation, TableOp table);
 static LogicalResult verifyStaticallySafeRuleTableIndex(Operation *operation,
                                                         TableOp table,
@@ -571,6 +578,771 @@ static FailureOr<uint64_t> tableEntryFieldCount(Operation *endpoint,
                                                 TableOp table);
 static bool tableWriteFieldsAreComplete(Operation *endpoint, TableOp table,
                                         ArrayAttr writeFields);
+
+namespace {
+
+ArrayAttr declarationFields(Operation *op);
+Operation *recordDecl(Operation *from, Type type);
+
+struct RuleExpressionNormalizer {
+  Operation *scope;
+  Builder builder;
+  DenseMap<Value, int64_t> handles;
+  DenseSet<Value> active;
+  DenseMap<Operation *, int64_t> producerHandles;
+  SmallVector<Attribute> nodes;
+
+  explicit RuleExpressionNormalizer(Operation *scope)
+      : scope(scope), builder(scope->getContext()) {}
+
+  FailureOr<int64_t> addSyntheticTrue() {
+    Type valueType =
+        VarType::get(scope->getContext(), builder.getI1Type());
+    for (auto [ordinal, raw] : llvm::enumerate(nodes)) {
+      auto node = dyn_cast<DictionaryAttr>(raw);
+      auto opcode = node ? node.getAs<RuleExpressionOpcodeAttr>("opcode")
+                         : RuleExpressionOpcodeAttr();
+      auto type = node ? node.getAs<TypeAttr>("result_type") : TypeAttr();
+      auto attributes =
+          node ? node.getAs<DictionaryAttr>("attributes") : DictionaryAttr();
+      auto value = attributes ? attributes.getAs<IntegerAttr>("value")
+                              : IntegerAttr();
+      if (opcode && opcode.getValue() == RuleExpressionOpcode::Constant &&
+          type && type.getValue() == valueType && value &&
+          value.getType().isInteger(1) && value.getValue().isOne())
+        return static_cast<int64_t>(ordinal);
+    }
+    NamedAttrList attributes;
+    attributes.set("value", builder.getIntegerAttr(builder.getI1Type(), 1));
+    return append(RuleExpressionOpcode::Constant, valueType, {},
+                  builder.getDictionaryAttr(attributes));
+  }
+
+  int64_t append(RuleExpressionOpcode opcode, Type resultType,
+                 ArrayRef<int64_t> operands, DictionaryAttr attributes) {
+    NamedAttrList node;
+    node.set("opcode",
+             RuleExpressionOpcodeAttr::get(scope->getContext(), opcode));
+    node.set("result_type", TypeAttr::get(resultType));
+    node.set("operands", builder.getDenseI64ArrayAttr(operands));
+    node.set("attributes", attributes);
+    nodes.push_back(builder.getDictionaryAttr(node));
+    return static_cast<int64_t>(nodes.size() - 1);
+  }
+
+  struct OwnerIdentity {
+    Attribute owner;
+    Attribute stableId;
+    Type valueType;
+  };
+
+  FailureOr<OwnerIdentity> ownerIdentity(Operation *endpoint,
+                                         FlatSymbolRefAttr resource) {
+    OwnerIdentity identity;
+    const bool slotEndpoint = isa<SlotGetOp, SlotProposeReleaseOp>(endpoint);
+    if (slotEndpoint) {
+      if (SlotOp slot = resolveSlot(endpoint, resource))
+        identity = {
+            slot.getOwnerAttr(), slot.getStableIdAttr(),
+            VarType::get(scope->getContext(),
+                         cast<QueueType>(slot.getInput().getType())
+                             .getElementType())};
+    } else if (TableOp table = resolveTable(endpoint, resource)) {
+      identity = {table.getOwnerAttr(), table.getStableIdAttr(),
+                  VarType::get(scope->getContext(), table.getEntryType())};
+    }
+    if (!identity.owner || !identity.stableId || !identity.valueType) {
+      endpoint->emitOpError("cannot resolve exact committed owner identity");
+      return failure();
+    }
+    return identity;
+  }
+
+  FailureOr<int64_t> ensureProducerAnchor(Operation *producer,
+                                          FlatSymbolRefAttr resource,
+                                          Type,
+                                          StringRef endpointKind) {
+    if (auto found = producerHandles.find(producer);
+        found != producerHandles.end())
+      return found->second;
+    FailureOr<OwnerIdentity> identity = ownerIdentity(producer, resource);
+    if (failed(identity))
+      return failure();
+    NamedAttrList attributes;
+    attributes.set("resource", resource);
+    attributes.set("owner", identity->owner);
+    attributes.set("stable_id", identity->stableId);
+    attributes.set("endpoint", builder.getStringAttr(endpointKind));
+    attributes.set("producer", builder.getBoolAttr(true));
+    int64_t handle = append(RuleExpressionOpcode::CommittedState,
+                            identity->valueType, {},
+                            builder.getDictionaryAttr(attributes));
+    producerHandles.try_emplace(producer, handle);
+    return handle;
+  }
+
+  static bool isClosedOperationName(StringRef name) {
+    return llvm::StringSwitch<bool>(name)
+        .Cases({"ac.var.enum", "ac.var.enum_match", "ac.var.tuple"}, true)
+        .Cases({"ac.var.array", "ac.var.record", "ac.var.element"}, true)
+        .Cases({"ac.var.dynamic_element", "ac.var.with_element"}, true)
+        .Cases({"ac.var.add", "ac.var.sub", "ac.var.mul"}, true)
+        .Cases({"ac.var.udiv", "ac.var.urem", "ac.var.and"}, true)
+        .Cases({"ac.var.or", "ac.var.xor", "ac.var.shl"}, true)
+        .Cases({"ac.var.shr", "ac.var.matches", "ac.var.not"}, true)
+        .Cases({"ac.var.popcount", "ac.var.count_zeros"}, true)
+        .Cases({"ac.var.priority_encode", "ac.var.cmp"}, true)
+        .Cases({"ac.var.select", "ac.var.extract", "ac.var.concat"}, true)
+        .Cases({"ac.var.range_wrap", "ac.var.range_saturate"}, true)
+        .Cases({"ac.var.range_checked", "ac.var.range_refine"}, true)
+        .Cases({"ac.var.range_bits", "ac.var.range_add"}, true)
+        .Cases({"ac.var.range_sub", "ac.var.range_cmp"}, true)
+        .Cases({"ac.var.insert", "ac.var.get", "ac.var.with"}, true)
+        .Case("ac.table.index", true)
+        .Default(false);
+  }
+
+  static bool isClosedOperationAttribute(StringRef operation,
+                                         StringRef attribute) {
+    if (attribute == "ac.source_provenance")
+      return true;
+    if (operation == "ac.var.enum" || operation == "ac.var.enum_match")
+      return attribute == "declaration" || attribute == "enumerant" ||
+             attribute == "enumerants";
+    if (operation == "ac.var.element")
+      return attribute == "index";
+    if (operation == "ac.var.matches")
+      return attribute == "mask" || attribute == "value";
+    if (operation == "ac.var.count_zeros")
+      return attribute == "direction";
+    if (operation == "ac.var.priority_encode")
+      return attribute == "order";
+    if (operation == "ac.var.cmp" || operation == "ac.var.range_cmp")
+      return attribute == "predicate";
+    if (operation == "ac.var.extract")
+      return attribute == "lsb" || attribute == "width";
+    if (operation == "ac.var.insert")
+      return attribute == "lsb";
+    if (operation == "ac.var.get" || operation == "ac.var.with")
+      return attribute == "field";
+    if (operation == "ac.table.index")
+      return attribute == "table";
+    return false;
+  }
+
+  FailureOr<SmallVector<Value>> dependencies(Value value) {
+    if (auto argument = dyn_cast<BlockArgument>(value)) {
+      if (argument.getOwner() != &scope->getRegion(0).front()) {
+        Operation *owner = argument.getOwner()->getParentOp();
+        if (auto match = dyn_cast_or_null<TableMatchOp>(owner)) {
+          if (failed(ensureProducerAnchor(owner, match.getTableAttr(),
+                                          value.getType(), "table_match")))
+            return failure();
+        } else if (auto choose = dyn_cast_or_null<TableChooseOp>(owner)) {
+          if (failed(ensureProducerAnchor(owner, choose.getTableAttr(),
+                                          value.getType(), "table_choose")))
+            return failure();
+        }
+      }
+      return SmallVector<Value>{};
+    }
+    if (value.getDefiningOp<VarConstantOp>() ||
+        value.getDefiningOp<SlotGetOp>())
+      return SmallVector<Value>{};
+    Operation *definition = value.getDefiningOp();
+    if (!definition || !scope->isAncestor(definition)) {
+      scope->emitOpError(
+          "rule expression leaf is mutable, external, or unrepresentable");
+      return failure();
+    }
+    if (auto read = dyn_cast<TableGetOp>(definition))
+      return SmallVector<Value>{read.getIndex()};
+    if (auto match = dyn_cast<TableMatchOp>(definition)) {
+      Block &predicate = match.getPredicate().front();
+      auto yielded = dyn_cast<TableMatchYieldOp>(predicate.getTerminator());
+      if (!yielded)
+        return match.emitOpError("requires exact predicate yield"), failure();
+      if (failed(ensureProducerAnchor(definition, match.getTableAttr(),
+                                      predicate.getArgument(0).getType(),
+                                      "table_match")))
+        return failure();
+      SmallVector<Value> result;
+      if (match.getDomainBase())
+        result.push_back(match.getDomainBase());
+      result.push_back(yielded.getValue());
+      return result;
+    }
+    if (auto choose = dyn_cast<TableChooseOp>(definition)) {
+      if (failed(ensureProducerAnchor(definition, choose.getTableAttr(),
+                                      value.getType(), "table_choose")))
+        return failure();
+      SmallVector<Value> result{choose.getMask()};
+      if (!choose.getKey().empty()) {
+        auto yielded = dyn_cast<TableChooseYieldOp>(
+            choose.getKey().front().getTerminator());
+        if (!yielded)
+          return choose.emitOpError("requires exact key yield"), failure();
+        result.push_back(yielded.getValue());
+      }
+      return result;
+    }
+    if (!isClosedOperationName(definition->getName().getStringRef())) {
+      definition->emitOpError(
+          "is not admitted in persisted rule-expression DAGs");
+      return failure();
+    }
+    return SmallVector<Value>(definition->operand_begin(),
+                              definition->operand_end());
+  }
+
+  FailureOr<int64_t> materialize(Value value) {
+    auto finish = [&](int64_t handle) -> FailureOr<int64_t> {
+      active.erase(value);
+      handles.try_emplace(value, handle);
+      return handle;
+    };
+    if (auto argument = dyn_cast<BlockArgument>(value)) {
+      NamedAttrList attributes;
+      attributes.set("ordinal",
+                     builder.getI64IntegerAttr(argument.getArgNumber()));
+      if (argument.getOwner() == &scope->getRegion(0).front())
+        return finish(append(RuleExpressionOpcode::RuleInput, value.getType(),
+                             {}, builder.getDictionaryAttr(attributes)));
+      Operation *owner = argument.getOwner()->getParentOp();
+      FlatSymbolRefAttr resource;
+      StringRef endpoint;
+      if (auto match = dyn_cast_or_null<TableMatchOp>(owner)) {
+        resource = match.getTableAttr();
+        endpoint = "table_match";
+      } else if (auto choose = dyn_cast_or_null<TableChooseOp>(owner)) {
+        resource = choose.getTableAttr();
+        endpoint = "table_choose";
+      } else {
+        scope->emitOpError(
+            "rule expression block argument is outside an admitted lane scope");
+        return failure();
+      }
+      auto producer = producerHandles.find(owner);
+      if (producer == producerHandles.end())
+        return failure();
+      attributes.set("resource", resource);
+      attributes.set("endpoint", builder.getStringAttr(endpoint));
+      return finish(append(RuleExpressionOpcode::Lane, value.getType(),
+                           {producer->second},
+                           builder.getDictionaryAttr(attributes)));
+    }
+    Operation *definition = value.getDefiningOp();
+    if (auto constant = dyn_cast<VarConstantOp>(definition)) {
+      NamedAttrList attributes;
+      attributes.set("value", constant.getValue());
+      return finish(append(RuleExpressionOpcode::Constant, value.getType(), {},
+                           builder.getDictionaryAttr(attributes)));
+    }
+    auto appendCommitted = [&](FlatSymbolRefAttr resource,
+                               ArrayRef<Value> identityOperands,
+                               StringRef endpoint) -> FailureOr<int64_t> {
+      auto identity = ownerIdentity(definition, resource);
+      if (failed(identity))
+        return failure();
+      SmallVector<int64_t> operands;
+      for (Value operand : identityOperands)
+        operands.push_back(handles.lookup(operand));
+      NamedAttrList attributes;
+      attributes.set("resource", resource);
+      attributes.set("owner", identity->owner);
+      attributes.set("stable_id", identity->stableId);
+      attributes.set("endpoint", builder.getStringAttr(endpoint));
+      attributes.set("result_ordinal", builder.getI64IntegerAttr(
+                                           cast<OpResult>(value).getResultNumber()));
+      return finish(append(RuleExpressionOpcode::CommittedState,
+                           value.getType(), operands,
+                           builder.getDictionaryAttr(attributes)));
+    };
+    if (auto read = dyn_cast<TableGetOp>(definition))
+      return appendCommitted(read.getTableAttr(), {read.getIndex()},
+                             "table_get");
+    if (auto get = dyn_cast<SlotGetOp>(definition))
+      return appendCommitted(get.getSlotAttr(), {}, "slot_get");
+    if (auto match = dyn_cast<TableMatchOp>(definition)) {
+      auto identity = ownerIdentity(definition, match.getTableAttr());
+      auto yielded = cast<TableMatchYieldOp>(
+          match.getPredicate().front().getTerminator());
+      if (failed(identity))
+        return failure();
+      SmallVector<int64_t> operands{producerHandles.lookup(definition)};
+      if (match.getDomainBase())
+        operands.push_back(handles.lookup(match.getDomainBase()));
+      operands.push_back(handles.lookup(yielded.getValue()));
+      NamedAttrList attributes;
+      attributes.set("resource", match.getTableAttr());
+      attributes.set("owner", identity->owner);
+      attributes.set("stable_id", identity->stableId);
+      attributes.set("endpoint", builder.getStringAttr("table_match"));
+      for (StringRef name : {"domain_axes", "domain_shape", "domain_strides",
+                             "domain_offset"})
+        if (Attribute attribute = match->getAttr(name))
+          attributes.set(name, attribute);
+      attributes.set("result_ordinal", builder.getI64IntegerAttr(0));
+      return finish(append(RuleExpressionOpcode::Operation, value.getType(),
+                           operands, builder.getDictionaryAttr(attributes)));
+    }
+    if (auto choose = dyn_cast<TableChooseOp>(definition)) {
+      auto identity = ownerIdentity(definition, choose.getTableAttr());
+      if (failed(identity))
+        return failure();
+      SmallVector<int64_t> operands{producerHandles.lookup(definition),
+                                    handles.lookup(choose.getMask())};
+      if (!choose.getKey().empty())
+        operands.push_back(handles.lookup(
+            cast<TableChooseYieldOp>(choose.getKey().front().getTerminator())
+                .getValue()));
+      NamedAttrList attributes;
+      attributes.set("resource", choose.getTableAttr());
+      attributes.set("owner", identity->owner);
+      attributes.set("stable_id", identity->stableId);
+      attributes.set("selection_stable_id", choose.getStableIdAttr());
+      attributes.set("count", choose.getCountAttr());
+      attributes.set("policy", choose.getPolicyAttr());
+      if (choose.getKeyOrderingAttr())
+        attributes.set("key_ordering", choose.getKeyOrderingAttr());
+      attributes.set("initial_cursor", choose.getInitialCursorAttr());
+      attributes.set("endpoint", builder.getStringAttr("table_choose"));
+      attributes.set("result_ordinal", builder.getI64IntegerAttr(
+                                           cast<OpResult>(value).getResultNumber()));
+      return finish(append(RuleExpressionOpcode::Operation, value.getType(),
+                           operands, builder.getDictionaryAttr(attributes)));
+    }
+    StringRef name = definition->getName().getStringRef();
+    SmallVector<int64_t> operands;
+    for (Value operand : definition->getOperands())
+      operands.push_back(handles.lookup(operand));
+    NamedAttrList attributes;
+    attributes.set("operation", builder.getStringAttr(name));
+    attributes.set("result_ordinal", builder.getI64IntegerAttr(
+                                         cast<OpResult>(value).getResultNumber()));
+    for (NamedAttribute attribute : definition->getAttrs()) {
+      StringRef attrName = attribute.getName().getValue();
+      if (!isClosedOperationAttribute(name, attrName)) {
+        definition->emitOpError()
+            << "has unrepresentable rule-expression attribute '" << attrName
+            << "'";
+        return failure();
+      }
+      if (attrName != "ac.source_provenance")
+        attributes.set(attrName, attribute.getValue());
+    }
+    return finish(append(RuleExpressionOpcode::Operation, value.getType(),
+                         operands, builder.getDictionaryAttr(attributes)));
+  }
+
+  FailureOr<int64_t> normalize(Value root) {
+    if (!root) {
+      scope->emitOpError("cannot persist a null rule expression");
+      return failure();
+    }
+    struct WorkItem {
+      Value value;
+      bool expanded;
+    };
+    SmallVector<WorkItem> work{{root, false}};
+    while (!work.empty()) {
+      WorkItem item = work.pop_back_val();
+      if (handles.contains(item.value))
+        continue;
+      if (item.expanded) {
+        if (failed(materialize(item.value)))
+          return failure();
+        continue;
+      }
+      if (!active.insert(item.value).second) {
+        scope->emitOpError("live rule expression contains a cycle");
+        return failure();
+      }
+      FailureOr<SmallVector<Value>> deps = dependencies(item.value);
+      if (failed(deps))
+        return failure();
+      work.push_back({item.value, true});
+      for (Value dependency : llvm::reverse(*deps)) {
+        if (handles.contains(dependency))
+          continue;
+        if (active.contains(dependency)) {
+          scope->emitOpError("live rule expression contains a cycle");
+          return failure();
+        }
+        work.push_back({dependency, false});
+      }
+    }
+    return handles.lookup(root);
+  }
+};
+
+static FailureOr<Attribute> exactFootprintProvenance(Operation *endpoint) {
+  Builder builder(endpoint->getContext());
+  if (Attribute raw = endpoint->getAttr("ac.source_provenance")) {
+    auto origins = dyn_cast<ArrayAttr>(raw);
+    if (!origins || origins.empty()) {
+      endpoint->emitOpError(
+          "exact footprint source provenance must be a non-empty origin array");
+      return failure();
+    }
+    for (Attribute rawOrigin : origins) {
+      auto origin = dyn_cast<DictionaryAttr>(rawOrigin);
+      auto frames = origin ? origin.getAs<ArrayAttr>("frames") : ArrayAttr();
+      if (!origin || origin.size() != 1 || !frames || frames.empty()) {
+        endpoint->emitOpError("exact footprint source provenance is malformed");
+        return failure();
+      }
+      for (Attribute rawFrame : frames) {
+        auto frame = dyn_cast<DictionaryAttr>(rawFrame);
+        auto file = frame ? frame.getAs<StringAttr>("file") : StringAttr();
+        auto kind = frame ? frame.getAs<StringAttr>("kind") : StringAttr();
+        auto line = frame ? frame.getAs<IntegerAttr>("line") : IntegerAttr();
+        auto column =
+            frame ? frame.getAs<IntegerAttr>("column") : IntegerAttr();
+        if (!frame || !file || file.getValue().empty() || !kind ||
+            (kind.getValue() != "statement" &&
+             kind.getValue() != "definition" &&
+             kind.getValue() != "inline_callsite") ||
+            !line || line.getInt() <= 0 || !column || column.getInt() <= 0) {
+          endpoint->emitOpError(
+              "exact footprint source provenance frame is malformed");
+          return failure();
+        }
+      }
+    }
+    if (auto location = dyn_cast<FileLineColLoc>(endpoint->getLoc());
+        location && location.getFilename().getValue().ends_with(".py")) {
+      auto origin = cast<DictionaryAttr>(origins[0]);
+      auto frame = cast<DictionaryAttr>(
+          origin.getAs<ArrayAttr>("frames")[0]);
+      if (frame.getAs<StringAttr>("file").getValue() !=
+              location.getFilename().getValue() ||
+          frame.getAs<IntegerAttr>("line").getInt() != location.getLine() ||
+          frame.getAs<IntegerAttr>("column").getInt() !=
+              location.getColumn()) {
+        endpoint->emitOpError(
+            "endpoint source provenance disagrees with source location");
+        return failure();
+      }
+    }
+    return raw;
+  }
+  if (auto file = dyn_cast<FileLineColLoc>(endpoint->getLoc())) {
+    StringRef filename = file.getFilename().getValue();
+    if (filename.empty() || file.getLine() == 0 ||
+        file.getColumn() == 0) {
+      endpoint->emitOpError("exact footprint file location is malformed");
+      return failure();
+    }
+    // Parser-owned .mlir/.ac locations are transport locations and are not
+    // stable across print/parse. Source-language FileLineColLocs are semantic
+    // provenance and are preferred over rule-level fallback metadata.
+    if (filename.ends_with(".py")) {
+      NamedAttrList source;
+      source.set("file", file.getFilename());
+      source.set("line", builder.getI64IntegerAttr(file.getLine()));
+      source.set("column", builder.getI64IntegerAttr(file.getColumn()));
+      return builder.getDictionaryAttr(source);
+    }
+  }
+  Operation *scope = endpoint->getParentOfType<RuleOp>();
+  if (!scope)
+    scope = endpoint->getParentOfType<FiringOp>();
+  auto sourceFile = scope ? scope->getAttrOfType<StringAttr>("ac.source_file")
+                          : StringAttr();
+  auto sourceLine = scope ? scope->getAttrOfType<IntegerAttr>("ac.source_line")
+                          : IntegerAttr();
+  auto sourceColumn =
+      scope ? scope->getAttrOfType<IntegerAttr>("ac.source_column")
+            : IntegerAttr();
+  if (sourceFile || sourceLine || sourceColumn) {
+    if (!sourceFile || sourceFile.getValue().empty() || !sourceLine ||
+        sourceLine.getInt() <= 0 || !sourceColumn ||
+        sourceColumn.getInt() <= 0) {
+      scope->emitOpError("rule source metadata is malformed");
+      return failure();
+    }
+    NamedAttrList source;
+    source.set("file", sourceFile);
+    source.set("line", sourceLine);
+    source.set("column", sourceColumn);
+    return builder.getDictionaryAttr(source);
+  }
+  return builder.getDictionaryAttr({});
+}
+
+static std::vector<std::string> projectedLaneFields(Operation *endpoint) {
+  Region *region = nullptr;
+  if (auto match = dyn_cast<TableMatchOp>(endpoint))
+    region = &match.getPredicate();
+  else if (auto choose = dyn_cast<TableChooseOp>(endpoint))
+    region = &choose.getKey();
+  if (!region || region->empty())
+    return {};
+  BlockArgument lane = region->front().getArgument(0);
+  auto descendsFromLane = [&](Value root) {
+    SmallVector<Value> work{root};
+    DenseSet<Value> seen;
+    while (!work.empty()) {
+      Value current = work.pop_back_val();
+      if (current == lane)
+        return true;
+      if (!seen.insert(current).second || isa<BlockArgument>(current))
+        continue;
+      Operation *definition = current.getDefiningOp();
+      if (!definition || isa<TableGetOp, TableMatchOp, TableChooseOp, SlotGetOp>(
+                             definition))
+        continue;
+      llvm::append_range(work, definition->getOperands());
+    }
+    return false;
+  };
+  llvm::StringSet<> names;
+  region->walk([&](VarGetOp get) {
+    if (descendsFromLane(get.getRecord()))
+      names.insert(get.getField());
+  });
+  std::vector<std::string> fields;
+  FlatSymbolRefAttr resource;
+  if (auto match = dyn_cast<TableMatchOp>(endpoint))
+    resource = match.getTableAttr();
+  else
+    resource = cast<TableChooseOp>(endpoint).getTableAttr();
+  TableOp table = resolveTable(endpoint, resource);
+  Operation *declaration = table ? recordDecl(endpoint, table.getEntryType())
+                                 : nullptr;
+  if (declaration)
+    for (Attribute rawField : declarationFields(declaration)) {
+      auto field = cast<DictionaryAttr>(rawField).getAs<StringAttr>("name");
+      if (field && names.contains(field.getValue()))
+        fields.push_back(field.getValue().str());
+    }
+  else {
+    for (const auto &name : names)
+      fields.push_back(name.getKey().str());
+    llvm::sort(fields);
+  }
+  return fields;
+}
+
+static SmallVector<ExactRuleFootprintInput>
+collectLiveExactFootprints(Operation *scope) {
+  Value candidate;
+  scope->getRegion(0).walk([&](Operation *nested) {
+    if (auto condition = dyn_cast<RuleConditionOp>(nested))
+      candidate = condition.getCondition();
+    else if (auto condition = dyn_cast<FiringConditionOp>(nested))
+      candidate = condition.getCondition();
+  });
+  SmallVector<ExactRuleFootprintInput> footprints;
+  scope->getRegion(0).walk([&](Operation *nested) {
+    if (auto read = dyn_cast<TableGetOp>(nested)) {
+      ExactRuleFootprintInput input;
+      input.endpoint = nested;
+      input.resource = read.getTable().str();
+      input.access = "read";
+      input.index = read.getIndex();
+      input.wholeEntry = true;
+      footprints.push_back(std::move(input));
+    } else if (auto match = dyn_cast<TableMatchOp>(nested)) {
+      ExactRuleFootprintInput input;
+      input.endpoint = nested;
+      input.resource = match.getTable().str();
+      input.access = "read";
+      input.fields = projectedLaneFields(nested);
+      input.wholeEntry = input.fields.empty();
+      footprints.push_back(std::move(input));
+    } else if (auto choose = dyn_cast<TableChooseOp>(nested)) {
+      ExactRuleFootprintInput input;
+      input.endpoint = nested;
+      input.resource = choose.getTable().str();
+      input.access = "read";
+      input.fields = projectedLaneFields(nested);
+      input.wholeEntry = input.fields.empty();
+      footprints.push_back(std::move(input));
+    } else if (auto proposal = dyn_cast<TableProposeOp>(nested)) {
+      SmallVector<std::string> fields;
+      for (Attribute raw : proposal.getWriteFields())
+        fields.push_back(cast<StringAttr>(raw).getValue().str());
+      ExactRuleFootprintInput input;
+      input.endpoint = nested;
+      input.resource = proposal.getTable();
+      input.access = proposal.getMode();
+      input.index = proposal.getIndex();
+      input.fields.assign(std::make_move_iterator(fields.begin()),
+                          std::make_move_iterator(fields.end()));
+      input.wholeEntry = llvm::is_contained(input.fields, "$entry");
+      if (input.wholeEntry)
+        input.fields.clear();
+      input.predicate = proposal.getWhen() ? proposal.getWhen() : candidate;
+      footprints.push_back(std::move(input));
+    } else if (auto get = dyn_cast<SlotGetOp>(nested)) {
+      ExactRuleFootprintInput input;
+      input.endpoint = nested;
+      input.resource = get.getSlot().str();
+      input.access = "read";
+      input.wholeEntry = true;
+      footprints.push_back(std::move(input));
+    } else if (auto release = dyn_cast<SlotProposeReleaseOp>(nested)) {
+      ExactRuleFootprintInput input;
+      input.endpoint = nested;
+      input.resource = release.getSlot().str();
+      input.access = "release";
+      input.wholeEntry = true;
+      input.predicate = release.getWhen();
+      footprints.push_back(std::move(input));
+    }
+  });
+  return footprints;
+}
+
+static LogicalResult validatePersistedExactSummary(Operation *scope,
+                                                   ArrayAttr dag,
+                                                   ArrayAttr footprints) {
+  for (auto [ordinal, raw] : llvm::enumerate(dag)) {
+    auto node = dyn_cast<DictionaryAttr>(raw);
+    auto opcode = node ? node.getAs<RuleExpressionOpcodeAttr>("opcode")
+                       : RuleExpressionOpcodeAttr();
+    auto type = node ? node.getAs<TypeAttr>("result_type") : TypeAttr();
+    auto operands =
+        node ? node.getAs<DenseI64ArrayAttr>("operands")
+             : DenseI64ArrayAttr();
+    auto attributes =
+        node ? node.getAs<DictionaryAttr>("attributes") : DictionaryAttr();
+    if (!opcode || !type || !operands || !attributes)
+      return scope->emitOpError("has malformed exact expression-DAG node");
+    for (int64_t operand : operands.asArrayRef())
+      if (operand < 0 || operand >= static_cast<int64_t>(ordinal))
+        return scope->emitOpError(
+            "exact expression-DAG operand is dangling or cyclic");
+  }
+  for (Attribute raw : footprints) {
+    auto footprint = dyn_cast<DictionaryAttr>(raw);
+    auto index = footprint ? footprint.getAs<IntegerAttr>("index")
+                           : IntegerAttr();
+    auto allEntries =
+        footprint ? footprint.getAs<BoolAttr>("all_entries") : BoolAttr();
+    auto predicate = footprint ? footprint.getAs<IntegerAttr>("predicate")
+                               : IntegerAttr();
+    auto wholeEntry =
+        footprint ? footprint.getAs<BoolAttr>("whole_entry") : BoolAttr();
+    auto fields = footprint ? footprint.getAs<ArrayAttr>("fields") : ArrayAttr();
+    if (!footprint || !allEntries || !predicate ||
+        (allEntries.getValue() == static_cast<bool>(index)))
+      return scope->emitOpError("has malformed exact state footprint roots");
+    if (!wholeEntry || !fields ||
+        (wholeEntry.getValue() == !fields.empty()))
+      return scope->emitOpError(
+          "exact state footprint must choose whole entry or explicit fields");
+    if ((index && (index.getInt() < 0 ||
+                   index.getInt() >= static_cast<int64_t>(dag.size()))) ||
+        predicate.getInt() < 0 ||
+        predicate.getInt() >= static_cast<int64_t>(dag.size()))
+      return scope->emitOpError("exact state footprint has a dangling root");
+  }
+  return success();
+}
+
+} // namespace
+
+FailureOr<ExactRuleEffectSummary> buildExactRuleEffectSummary(
+    Operation *scope, ArrayRef<ExactRuleFootprintInput> footprints) {
+  if (!isa<RuleOp, FiringOp>(scope) || scope->getNumRegions() != 1 ||
+      !scope->getRegion(0).hasOneBlock()) {
+    scope->emitOpError("exact rule summary requires one rule/firing body");
+    return failure();
+  }
+  RuleExpressionNormalizer normalizer(scope);
+  Builder builder(scope->getContext());
+  SmallVector<Attribute> persisted;
+  for (const ExactRuleFootprintInput &input : footprints) {
+    if (!input.endpoint || !scope->isAncestor(input.endpoint)) {
+      scope->emitOpError("exact footprint endpoint is outside the rule scope");
+      return failure();
+    }
+    auto resource = FlatSymbolRefAttr::get(scope->getContext(), input.resource);
+    FailureOr<RuleExpressionNormalizer::OwnerIdentity> identity =
+        normalizer.ownerIdentity(input.endpoint, resource);
+    if (failed(identity))
+      return failure();
+    FailureOr<int64_t> predicate = input.predicate
+                                       ? normalizer.normalize(input.predicate)
+                                       : normalizer.addSyntheticTrue();
+    if (failed(predicate))
+      return failure();
+    FailureOr<int64_t> index = failure();
+    if (input.index) {
+      index = normalizer.normalize(input.index);
+      if (failed(index))
+        return failure();
+    }
+    SmallVector<StringRef> fieldNames;
+    for (const std::string &field : input.fields)
+      fieldNames.push_back(field);
+    ArrayAttr fields = builder.getStrArrayAttr(fieldNames);
+    NamedAttrList footprint;
+    footprint.set("access", builder.getStringAttr(input.access));
+    footprint.set("resource", resource);
+    footprint.set("owner", identity->owner);
+    footprint.set("owner_stable_id", identity->stableId);
+    footprint.set("fields", fields);
+    footprint.set("whole_entry", builder.getBoolAttr(input.wholeEntry));
+    footprint.set("all_entries", builder.getBoolAttr(!input.index));
+    if (input.index)
+      footprint.set("index", builder.getI64IntegerAttr(*index));
+    footprint.set("predicate", builder.getI64IntegerAttr(*predicate));
+    footprint.set("index_kind", RuleIndexKindAttr::get(
+                                    scope->getContext(),
+                                    !input.index
+                                        ? RuleIndexKind::All
+                                        : (input.index
+                                                   .getDefiningOp<VarConstantOp>()
+                                               ? RuleIndexKind::Static
+                                               : RuleIndexKind::Dynamic)));
+    footprint.set("guard_kind", RuleGuardKindAttr::get(
+                                    scope->getContext(),
+                                    !input.predicate ||
+                                            constantVarBool(input.predicate) ==
+                                                true
+                                        ? RuleGuardKind::Always
+                                        : RuleGuardKind::Predicate));
+    footprint.set("endpoint",
+                  builder.getStringAttr(input.endpoint->getName().getStringRef()));
+    FailureOr<Attribute> provenance = exactFootprintProvenance(input.endpoint);
+    if (failed(provenance))
+      return failure();
+    footprint.set("source_provenance", *provenance);
+    persisted.push_back(builder.getDictionaryAttr(footprint));
+  }
+  return ExactRuleEffectSummary{builder.getArrayAttr(normalizer.nodes),
+                                builder.getArrayAttr(persisted)};
+}
+
+FailureOr<ExactRuleEffectSummary>
+buildExactRuleEffectSummary(Operation *scope) {
+  SmallVector<ExactRuleFootprintInput> live =
+      collectLiveExactFootprints(scope);
+  return buildExactRuleEffectSummary(scope, live);
+}
+
+LogicalResult verifyExactRuleEffectSummary(Operation *scope,
+                                           ArrayAttr persistedDAG,
+                                           ArrayAttr persistedFootprints) {
+  if (!persistedDAG || !persistedFootprints)
+    return scope->emitOpError("requires exact rule-expression DAG and footprints");
+  if (failed(validatePersistedExactSummary(scope, persistedDAG,
+                                           persistedFootprints)))
+    return failure();
+  FailureOr<ExactRuleEffectSummary> expected =
+      buildExactRuleEffectSummary(scope);
+  if (failed(expected))
+    return failure();
+  if (persistedDAG != expected->expressionDAG ||
+      persistedFootprints != expected->footprints)
+    return scope->emitOpError(
+        "exact rule effect summary does not match the live body");
+  return success();
+}
 
 LogicalResult RuleOp::verify() {
   // Zero-output rules are consume-only state transitions; zero-input rules
@@ -713,6 +1485,15 @@ LogicalResult RuleOp::verify() {
     if (value.getType() != expectedOutput)
       return emitOpError("returned payload must match output Queue type");
   }
+  auto exactDAG = (*this)->getAttrOfType<ArrayAttr>("ac.rule.expression_dag");
+  auto exactFootprints =
+      (*this)->getAttrOfType<ArrayAttr>("ac.rule.footprints_exact");
+  if (static_cast<bool>(exactDAG) != static_cast<bool>(exactFootprints))
+    return emitOpError(
+        "exact rule-expression DAG and footprints must appear together");
+  if (exactDAG && failed(verifyExactRuleEffectSummary(
+                      getOperation(), exactDAG, exactFootprints)))
+    return failure();
   return success();
 }
 
@@ -1375,13 +2156,17 @@ LogicalResult FiringOp::verify() {
   }
   auto priority = (*this)->getAttrOfType<IntegerAttr>("ac.rule_priority");
   auto footprints = (*this)->getAttrOfType<ArrayAttr>("ac.rule_footprints");
+  auto exactDAG = (*this)->getAttrOfType<ArrayAttr>("ac.expression_dag");
+  auto exactFootprints =
+      (*this)->getAttrOfType<ArrayAttr>("ac.footprints_exact");
   const bool requiresInferredSchedule =
       modelKind && modelKind.getValue() == "queue_graph";
   if ((requiresInferredSchedule && (!priority || !footprints)) ||
       static_cast<bool>(priority) != static_cast<bool>(footprints) ||
+      static_cast<bool>(exactDAG) != static_cast<bool>(exactFootprints) ||
       (priority && priority.getInt() < 0))
     return emitOpError(
-        "requires inferred non-negative priority and typed footprints");
+        "requires inferred non-negative priority and exact typed footprints");
   if (footprints) {
     SmallVector<Operation *> stateOperations;
     getBody().walk([&](Operation *operation) {
@@ -1488,6 +2273,9 @@ LogicalResult FiringOp::verify() {
   }
   if (failed(verifyTypedRuleSummary(getOperation(), getInputs(), getOutputs(),
                                     getBody(), footprints, priority, "ac.")))
+    return failure();
+  if (exactDAG && failed(verifyExactRuleEffectSummary(
+                      getOperation(), exactDAG, exactFootprints)))
     return failure();
   return verifyActivationEvidence(getOperation(), getInputs(), getOutputs(),
                                   getBody(), true);

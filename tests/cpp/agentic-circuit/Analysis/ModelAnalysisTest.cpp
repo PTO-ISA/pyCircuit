@@ -1396,6 +1396,271 @@ TEST(ACDataFlowAnalyzerTest, InfersOrderedStateAccessFootprints) {
   EXPECT_EQ((std::vector<std::string>{"index", "value"}), footprints[1].fields);
 }
 
+TEST(ACDataFlowAnalyzerTest, ExactRuleEffectSummaryRejectsCategoryPreservingTampering) {
+  DialectRegistry registry;
+  registerAllDialects(registry);
+  MLIRContext context(registry);
+  OwningOpRef<mlir::ModuleOp> model =
+      parseSourceString<mlir::ModuleOp>(R"mlir(
+    builtin.module {
+      ac.type_scope @types {
+        ac.struct @Request fields [{name = "i", type = i3}, {name = "j", type = i3}, {name = "p", type = i1}, {name = "q", type = i1}]
+      } {dlti.dl_spec = #dlti.dl_spec<!ac.struct<@types::@Request> = {abi_alignment = 1 : i64, endianness = "little", preferred_alignment = 1 : i64, size = 1 : i64}>}
+      ac.table @entries entry i8 entries 8 init 0 owner "/" stable_id "table/entries"
+      %input = ac.source depth 1 latency 1 : !ac.queue<!ac.struct<@types::@Request>>
+      ac.rule %input depths [] latencies [] name "write" stable_id "write"
+          domain "cycle" type exact {
+      ^body(%request: !ac.var<!ac.struct<@types::@Request>>):
+        %i = ac.var.get %request field "i" : !ac.var<!ac.struct<@types::@Request>> -> !ac.var<i3>
+        %j = ac.var.get %request field "j" : !ac.var<!ac.struct<@types::@Request>> -> !ac.var<i3>
+        %p = ac.var.get %request field "p" : !ac.var<!ac.struct<@types::@Request>> -> !ac.var<i1>
+        %q = ac.var.get %request field "q" : !ac.var<!ac.struct<@types::@Request>> -> !ac.var<i1>
+        %three = ac.var.constant 3 : i3 as !ac.var<i3>
+        %four = ac.var.constant 4 : i3 as !ac.var<i3>
+        %index = ac.var.add %i, %three : !ac.var<i3>
+        %other_index = ac.var.add %j, %four : !ac.var<i3>
+        %value = ac.var.constant 7 : i8 as !ac.var<i8>
+        ac.rule.condition %p : !ac.var<i1>
+        ac.table.propose @entries[%index] = %value when %p : !ac.var<i1>
+            mode "replace" write_fields ["$entry"] : !ac.var<i3>, !ac.var<i8>
+        ac.rule.return
+      } {ac.source_file = "model.py", ac.source_line = 7 : i64,
+         ac.source_column = 3 : i64}
+        : (!ac.queue<!ac.struct<@types::@Request>>) -> ()
+    }
+  )mlir",
+                                        &context);
+  ASSERT_TRUE(model);
+  ac::RuleOp rule;
+  ac::TableProposeOp proposal;
+  llvm::StringMap<Value> fields;
+  llvm::SmallVector<ac::VarConstantOp> constants;
+  model->walk([&](ac::RuleOp op) { rule = op; });
+  rule.getBody().walk([&](ac::TableProposeOp op) { proposal = op; });
+  rule.getBody().walk([&](ac::VarGetOp op) { fields[op.getField()] = op; });
+  rule.getBody().walk(
+      [&](ac::VarConstantOp op) { constants.push_back(op); });
+  ASSERT_TRUE(rule && proposal);
+  Builder builder(&context);
+
+  ACDataFlowAnalyzer analysis(model->getOperation());
+  ASSERT_TRUE(succeeded(analysis.run()));
+  FailureOr<ac::ExactRuleEffectSummary> summary =
+      ac::buildExactRuleEffectSummary(rule.getOperation());
+  ASSERT_TRUE(succeeded(summary));
+  EXPECT_TRUE(succeeded(ac::verifyExactRuleEffectSummary(
+      rule.getOperation(), summary->expressionDAG, summary->footprints)));
+
+  auto provenance = [&](StringRef file, int64_t line, int64_t column) {
+    NamedAttrList frame;
+    frame.set("file", builder.getStringAttr(file));
+    frame.set("kind", builder.getStringAttr("statement"));
+    frame.set("line", builder.getI64IntegerAttr(line));
+    frame.set("column", builder.getI64IntegerAttr(column));
+    NamedAttrList origin;
+    origin.set("frames",
+               builder.getArrayAttr({builder.getDictionaryAttr(frame)}));
+    return builder.getArrayAttr({builder.getDictionaryAttr(origin)});
+  };
+  Location originalLocation = proposal.getLoc();
+  proposal->setLoc(FileLineColLoc::get(&context, "endpoint.py", 11, 7));
+  proposal->setAttr("ac.source_provenance",
+                    provenance("endpoint.py", 11, 7));
+  FailureOr<ac::ExactRuleEffectSummary> endpointSummary =
+      ac::buildExactRuleEffectSummary(rule.getOperation());
+  ASSERT_TRUE(succeeded(endpointSummary));
+  EXPECT_NE(endpointSummary->footprints, summary->footprints);
+  EXPECT_TRUE(succeeded(ac::verifyExactRuleEffectSummary(
+      rule.getOperation(), endpointSummary->expressionDAG,
+      endpointSummary->footprints)));
+  proposal->setLoc(FileLineColLoc::get(&context, "endpoint.py", 12, 9));
+  proposal->setAttr("ac.source_provenance",
+                    provenance("endpoint.py", 12, 9));
+  FailureOr<ac::ExactRuleEffectSummary> secondEndpointSummary =
+      ac::buildExactRuleEffectSummary(rule.getOperation());
+  ASSERT_TRUE(succeeded(secondEndpointSummary));
+  EXPECT_NE(secondEndpointSummary->footprints, endpointSummary->footprints);
+  proposal->removeAttr("ac.source_provenance");
+  proposal->setLoc(originalLocation);
+
+  Value originalIndex = proposal.getIndex();
+  proposal->setOperand(0, fields.lookup("j"));
+  EXPECT_TRUE(failed(ac::verifyExactRuleEffectSummary(
+      rule.getOperation(), summary->expressionDAG, summary->footprints)));
+  proposal->setOperand(0, originalIndex);
+
+  auto indexAdd = originalIndex.getDefiningOp<ac::VarAddOp>();
+  ASSERT_TRUE(indexAdd);
+  Value originalConstant = indexAdd.getRhs();
+  Value four;
+  for (ac::VarConstantOp constant : constants)
+    if (auto value = dyn_cast<IntegerAttr>(constant.getValue());
+        value && value.getValue().getZExtValue() == 4)
+      four = constant;
+  ASSERT_TRUE(four);
+  indexAdd->setOperand(1, four);
+  EXPECT_TRUE(failed(ac::verifyExactRuleEffectSummary(
+      rule.getOperation(), summary->expressionDAG, summary->footprints)));
+  indexAdd->setOperand(1, originalConstant);
+
+  Value originalPredicate = proposal.getWhen();
+  proposal->setOperand(2, fields.lookup("q"));
+  EXPECT_TRUE(failed(ac::verifyExactRuleEffectSummary(
+      rule.getOperation(), summary->expressionDAG, summary->footprints)));
+  proposal->setOperand(2, originalPredicate);
+
+  SmallVector<Attribute> cyclic(summary->expressionDAG.begin(),
+                                summary->expressionDAG.end());
+  auto last = cast<DictionaryAttr>(cyclic.back());
+  NamedAttrList cycleNode(last);
+  cycleNode.set("operands", builder.getDenseI64ArrayAttr(
+                                {static_cast<int64_t>(cyclic.size() - 1)}));
+  cyclic.back() = builder.getDictionaryAttr(cycleNode);
+  EXPECT_TRUE(failed(ac::verifyExactRuleEffectSummary(
+      rule.getOperation(), builder.getArrayAttr(cyclic),
+      summary->footprints)));
+
+  SmallVector<Attribute> wrongWidth(summary->expressionDAG.begin(),
+                                    summary->expressionDAG.end());
+  NamedAttrList wrongWidthNode(cast<DictionaryAttr>(wrongWidth.front()));
+  wrongWidthNode.set("result_type",
+                     TypeAttr::get(ac::VarType::get(&context,
+                                                    builder.getI2Type())));
+  wrongWidth.front() = builder.getDictionaryAttr(wrongWidthNode);
+  EXPECT_TRUE(failed(ac::verifyExactRuleEffectSummary(
+      rule.getOperation(), builder.getArrayAttr(wrongWidth),
+      summary->footprints)));
+
+  SmallVector<Attribute> forged(summary->footprints.begin(),
+                                summary->footprints.end());
+  NamedAttrList forgedFootprint(cast<DictionaryAttr>(forged.front()));
+  forgedFootprint.set("all_entries", builder.getBoolAttr(true));
+  forged.front() = builder.getDictionaryAttr(forgedFootprint);
+  EXPECT_TRUE(failed(ac::verifyExactRuleEffectSummary(
+      rule.getOperation(), summary->expressionDAG,
+      builder.getArrayAttr(forged))));
+
+  forged.assign(summary->footprints.begin(), summary->footprints.end());
+  forgedFootprint = NamedAttrList(cast<DictionaryAttr>(forged.front()));
+  NamedAttrList forgedSource;
+  forgedSource.set("file", builder.getStringAttr("forged.py"));
+  forgedSource.set("line", builder.getI64IntegerAttr(99));
+  forgedSource.set("column", builder.getI64IntegerAttr(1));
+  forgedFootprint.set("source_provenance",
+                      builder.getDictionaryAttr(forgedSource));
+  forged.front() = builder.getDictionaryAttr(forgedFootprint);
+  NamedAttrList forgedFrame;
+  forgedFrame.set("file", builder.getStringAttr("forged.py"));
+  forgedFrame.set("kind", builder.getStringAttr("statement"));
+  forgedFrame.set("line", builder.getI64IntegerAttr(99));
+  forgedFrame.set("column", builder.getI64IntegerAttr(1));
+  NamedAttrList forgedOrigin;
+  forgedOrigin.set(
+      "frames",
+      builder.getArrayAttr({builder.getDictionaryAttr(forgedFrame)}));
+  proposal->setLoc(FileLineColLoc::get(&context, "endpoint.py", 11, 7));
+  proposal->setAttr(
+      "ac.source_provenance",
+      builder.getArrayAttr({builder.getDictionaryAttr(forgedOrigin)}));
+  EXPECT_TRUE(failed(ac::verifyExactRuleEffectSummary(
+      rule.getOperation(), summary->expressionDAG,
+      builder.getArrayAttr(forged))));
+  proposal->removeAttr("ac.source_provenance");
+  proposal->setLoc(originalLocation);
+
+  forged.assign(summary->footprints.begin(), summary->footprints.end());
+  forgedFootprint = NamedAttrList(cast<DictionaryAttr>(forged.front()));
+  forgedFootprint.set("owner", FlatSymbolRefAttr::get(&context, "forged"));
+  forged.front() = builder.getDictionaryAttr(forgedFootprint);
+  EXPECT_TRUE(failed(ac::verifyExactRuleEffectSummary(
+      rule.getOperation(), summary->expressionDAG,
+      builder.getArrayAttr(forged))));
+
+  forged.assign(summary->footprints.begin(), summary->footprints.end());
+  forgedFootprint = NamedAttrList(cast<DictionaryAttr>(forged.front()));
+  forgedFootprint.set("predicate", builder.getI64IntegerAttr(999));
+  forged.front() = builder.getDictionaryAttr(forgedFootprint);
+  EXPECT_TRUE(failed(ac::verifyExactRuleEffectSummary(
+      rule.getOperation(), summary->expressionDAG,
+      builder.getArrayAttr(forged))));
+
+  forged.assign(summary->footprints.begin(), summary->footprints.end());
+  forgedFootprint = NamedAttrList(cast<DictionaryAttr>(forged.front()));
+  forgedFootprint.set("fields", builder.getStrArrayAttr({"forged"}));
+  forgedFootprint.set("endpoint", builder.getStringAttr("ac.table.get"));
+  forged.front() = builder.getDictionaryAttr(forgedFootprint);
+  EXPECT_TRUE(failed(ac::verifyExactRuleEffectSummary(
+      rule.getOperation(), summary->expressionDAG,
+      builder.getArrayAttr(forged))));
+
+  StringAttr sourceFile = rule->getAttrOfType<StringAttr>("ac.source_file");
+  IntegerAttr sourceLine =
+      rule->getAttrOfType<IntegerAttr>("ac.source_line");
+  IntegerAttr sourceColumn =
+      rule->getAttrOfType<IntegerAttr>("ac.source_column");
+  rule->setAttr("ac.source_file", builder.getStringAttr(""));
+  EXPECT_TRUE(failed(ac::buildExactRuleEffectSummary(rule.getOperation())));
+  rule->setAttr("ac.source_file", sourceFile);
+  rule->setAttr("ac.source_line", builder.getI64IntegerAttr(0));
+  EXPECT_TRUE(failed(ac::buildExactRuleEffectSummary(rule.getOperation())));
+  rule->setAttr("ac.source_line", sourceLine);
+  rule->setAttr("ac.source_column", builder.getI64IntegerAttr(0));
+  EXPECT_TRUE(failed(ac::buildExactRuleEffectSummary(rule.getOperation())));
+  rule->setAttr("ac.source_column", sourceColumn);
+
+  OpBuilder externalBuilder(rule);
+  OperationState externalState(rule.getLoc(),
+                               ac::VarConstantOp::getOperationName());
+  externalState.addTypes(originalIndex.getType());
+  externalState.addAttribute("value", builder.getIntegerAttr(
+                                          IntegerType::get(&context, 3), 2));
+  Value externalIndex = externalBuilder.create(externalState)->getResult(0);
+  proposal->setOperand(0, externalIndex);
+  EXPECT_TRUE(failed(ac::verifyExactRuleEffectSummary(
+      rule.getOperation(), summary->expressionDAG, summary->footprints)));
+  proposal->setOperand(0, originalIndex);
+}
+
+TEST(ACDataFlowAnalyzerTest, ExactRuleEffectSummaryUsesIterativeDeepNormalization) {
+  DialectRegistry registry;
+  registerAllDialects(registry);
+  MLIRContext context(registry);
+  std::string source = R"mlir(
+    builtin.module {
+      ac.table @state entry i1 entries 1 init 0 owner "/" stable_id "table/state"
+      %input = ac.source depth 1 latency 1 : !ac.queue<i1>
+      ac.rule %input depths [] latencies [] name "deep" stable_id "deep"
+          domain "cycle" type exact {
+      ^body(%item: !ac.var<i1>):
+        %index = ac.var.constant false as !ac.var<i1>
+)mlir";
+  for (unsigned index = 0; index < 2048; ++index) {
+    std::string input = index == 0 ? "%item" : "%v" + std::to_string(index - 1);
+    source += "        %v" + std::to_string(index) + " = ac.var.not " + input +
+              " : !ac.var<i1> -> !ac.var<i1>\n";
+  }
+  source += R"mlir(
+        ac.rule.condition %v2047 : !ac.var<i1>
+        ac.table.propose @state[%index] = %v2047 when %v2047 : !ac.var<i1>
+            mode "replace" write_fields ["$entry"] : !ac.var<i1>, !ac.var<i1>
+        ac.rule.return
+      } : (!ac.queue<i1>) -> ()
+    }
+  )mlir";
+  OwningOpRef<mlir::ModuleOp> model =
+      parseSourceString<mlir::ModuleOp>(source, &context);
+  ASSERT_TRUE(model);
+  ac::RuleOp rule;
+  model->walk([&](ac::RuleOp op) { rule = op; });
+  ASSERT_TRUE(rule);
+  FailureOr<ac::ExactRuleEffectSummary> summary =
+      ac::buildExactRuleEffectSummary(rule.getOperation());
+  ASSERT_TRUE(succeeded(summary));
+  EXPECT_GT(summary->expressionDAG.size(), 2048u);
+  EXPECT_TRUE(succeeded(ac::verifyExactRuleEffectSummary(
+      rule.getOperation(), summary->expressionDAG, summary->footprints)));
+}
+
 TEST(ACDataFlowAnalyzerTest, InfersConditionalEffectSnapshotReadSet) {
   DialectRegistry registry;
   registerAllDialects(registry);
