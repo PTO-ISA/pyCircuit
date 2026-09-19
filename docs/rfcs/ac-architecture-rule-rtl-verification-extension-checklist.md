@@ -891,18 +891,37 @@ arbitration or an obligation.
 - `LowerRules.cpp` and `verifyRuleClosure`
 - QueueGraphPlan schema
 
-- [ ] Add stable explicit obligation IDs.
-- [ ] Add phase-one kind/severity/status/runtime-target enums.
-- [ ] Infer obligations from the effect graph.
-- [ ] Record compiler proofs as typed evidence.
-- [ ] Materialize executable runtime checks when admitted.
-- [ ] Reject unsupported or pending obligations before backend lowering.
+- [x] Add stable explicit obligation IDs.
+- [x] Add phase-one kind/severity/status/runtime-target enums.
+- [x] Infer predicate-exclusive same-field writer obligations from the shared
+      exact-footprint and writer-arbitration analysis.
+- [x] Record predicate-exclusive writer proofs as typed evidence and
+      independently recompute their exact endpoints, roots, and assumptions.
+- [x] Convert closed proved records to non-executable QueueGraph elisions;
+      direct proved plans and opaque certificate strings cannot authorize
+      backend behavior.
+- [x] Materialize the bounded F3 executable subset: scalar two-state `i1`
+      range conditions, `pre_publish`, selected target `gfsim`.
+- [x] Reject unsupported or pending obligations before QueueGraph/backend
+      extraction, including custom/direct QueueGraph plan validation.
+- [x] Verify the bounded gfsim P3 exit: proved obligations become
+      non-executable typed elisions, admitted range monitors execute before
+      publication, and unsupported runtime kinds/targets fail closed.
+- [x] Complete independent F3 code review: **PASS**.
+- [x] Complete independent F3 verification review: **PASS**.
 - [ ] Preserve one ID through QueueGraph, C++, Verilog, trace, coverage, and
       diagnostics.
 - [ ] Remove any fallback that silently discharges a dynamic check.
 
-**Exit:** one mutual-exclusion obligation is statically proved, one lowers to
-C++ + SVA, and one unsupported obligation is rejected with stable diagnostics.
+**Bounded F3 status (2026-09-20):** one predicate-exclusive same-field writer
+obligation is statically proved; one explicit scalar range monitor carries its
+ID through ACIR, the deterministic obligation report in QueueGraphPlan,
+generated gfsim code, and the structured failure diagnostic; unsupported
+target/sampling/pending cases reject. Field-disjoint writers remain coexistence
+and never become mutual-exclusion evidence. C++ and SVA pairing, trace and
+coverage linkage, and the original full cross-backend P3 exit remain F5 work,
+so Decision 0272 stays `implemented-unverified` despite the independently
+verified bounded gfsim slice.
 
 ### P4 - C++ checks, why-not-fire, and coverage
 

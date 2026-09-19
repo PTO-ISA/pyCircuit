@@ -38,6 +38,18 @@ struct ExactRuleEffectSummary {
   mlir::ArrayAttr footprints;
 };
 
+struct NormalizedRuleExpressions {
+  mlir::ArrayAttr expressionDAG;
+  llvm::SmallVector<int64_t> roots;
+};
+
+/// Shared Decision 0271 expression normalizer. Architecture obligations use
+/// the same closed live-SSA traversal as exact footprints; callers persist the
+/// returned roots as scope-qualified (table, rule, node) references.
+mlir::FailureOr<NormalizedRuleExpressions>
+normalizeRuleExpressions(mlir::Operation *scope,
+                         llvm::ArrayRef<mlir::Value> roots);
+
 /// Normalize live rule/firing SSA into Decision 0271's deterministic typed
 /// expression DAG and exact state footprints. The supplied footprints must be
 /// in source order and point at endpoints nested in `scope`.

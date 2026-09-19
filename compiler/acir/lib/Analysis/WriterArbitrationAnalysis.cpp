@@ -80,7 +80,9 @@ WriterEndpoint tableWriterEndpoint(Operation *operation, ac::TableOp table) {
       operation->getAttrOfType<ac::WriterPriorityAttr>("ac.arbitration");
   if (auto proposal = dyn_cast<ac::TableProposeOp>(operation)) {
     endpoint.scope = proposal->getParentOp();
-    endpoint.endpointStableId = writerStableId(endpoint.scope).str();
+    auto stable = proposal->getAttrOfType<StringAttr>("ac.endpoint_id");
+    endpoint.endpointStableId =
+        stable ? stable.getValue().str() : writerStableId(endpoint.scope).str();
     endpoint.index = proposal.getIndex();
     endpoint.presence = proposal.getWhen();
     endpoint.fields = proposal.getWriteFieldsAttr();

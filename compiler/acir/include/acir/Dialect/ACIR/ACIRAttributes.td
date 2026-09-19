@@ -77,6 +77,158 @@ def ACIR_ObligationResolver
 def ACIR_ObligationResolverAttr
     : EnumAttr<ACIR_Dialect, ACIR_ObligationResolver, "obligation_resolver">;
 
+// Decision 0272 architecture obligations are deliberately separate from the
+// transient rule-handshake ObligationState/ObligationResolver vocabulary.
+def ACIR_ArchitectureObligationKind_MutualExclusion
+    : I32EnumAttrCase<"MutualExclusion", 0, "mutual_exclusion">;
+def ACIR_ArchitectureObligationKind_SingleWriter
+    : I32EnumAttrCase<"SingleWriter", 1, "single_writer">;
+def ACIR_ArchitectureObligationKind_ResourceCapacity
+    : I32EnumAttrCase<"ResourceCapacity", 2, "resource_capacity">;
+def ACIR_ArchitectureObligationKind_ReadyValidIntegrity
+    : I32EnumAttrCase<"ReadyValidIntegrity", 3, "ready_valid_integrity">;
+def ACIR_ArchitectureObligationKind_TransactionAtomicity
+    : I32EnumAttrCase<"TransactionAtomicity", 4, "transaction_atomicity">;
+def ACIR_ArchitectureObligationKind_GenerationMatch
+    : I32EnumAttrCase<"GenerationMatch", 5, "generation_match">;
+def ACIR_ArchitectureObligationKind_EpochMatch
+    : I32EnumAttrCase<"EpochMatch", 6, "epoch_match">;
+def ACIR_ArchitectureObligationKind_Ordering
+    : I32EnumAttrCase<"Ordering", 7, "ordering">;
+def ACIR_ArchitectureObligationKind_Range
+    : I32EnumAttrCase<"Range", 8, "range">;
+def ACIR_ArchitectureObligationKind_Onehot0
+    : I32EnumAttrCase<"Onehot0", 9, "onehot0">;
+def ACIR_ArchitectureObligationKind_NoPartialCommit
+    : I32EnumAttrCase<"NoPartialCommit", 10, "no_partial_commit">;
+def ACIR_ArchitectureObligationKind_NoStaleUpdate
+    : I32EnumAttrCase<"NoStaleUpdate", 11, "no_stale_update">;
+def ACIR_ArchitectureObligationKind_CreditBalance
+    : I32EnumAttrCase<"CreditBalance", 12, "credit_balance">;
+def ACIR_ArchitectureObligationKind_PipelineAlignment
+    : I32EnumAttrCase<"PipelineAlignment", 13, "pipeline_alignment">;
+def ACIR_ArchitectureObligationKind
+    : I32EnumAttr<"ArchitectureObligationKind",
+                  "closed Decision 0272 phase-one safety kind",
+                  [ACIR_ArchitectureObligationKind_MutualExclusion,
+                   ACIR_ArchitectureObligationKind_SingleWriter,
+                   ACIR_ArchitectureObligationKind_ResourceCapacity,
+                   ACIR_ArchitectureObligationKind_ReadyValidIntegrity,
+                   ACIR_ArchitectureObligationKind_TransactionAtomicity,
+                   ACIR_ArchitectureObligationKind_GenerationMatch,
+                   ACIR_ArchitectureObligationKind_EpochMatch,
+                   ACIR_ArchitectureObligationKind_Ordering,
+                   ACIR_ArchitectureObligationKind_Range,
+                   ACIR_ArchitectureObligationKind_Onehot0,
+                   ACIR_ArchitectureObligationKind_NoPartialCommit,
+                   ACIR_ArchitectureObligationKind_NoStaleUpdate,
+                   ACIR_ArchitectureObligationKind_CreditBalance,
+                   ACIR_ArchitectureObligationKind_PipelineAlignment]> {
+  let genSpecializedAttr = 0;
+  let cppNamespace = "::acir::ac";
+}
+def ACIR_ArchitectureObligationKindAttr
+    : EnumAttr<ACIR_Dialect, ACIR_ArchitectureObligationKind,
+               "architecture_obligation_kind">;
+
+def ACIR_ArchitectureObligationSeverity_Error
+    : I32EnumAttrCase<"Error", 0, "error">;
+def ACIR_ArchitectureObligationSeverity_Fatal
+    : I32EnumAttrCase<"Fatal", 1, "fatal">;
+def ACIR_ArchitectureObligationSeverity
+    : I32EnumAttr<"ArchitectureObligationSeverity",
+                  "closed architecture-obligation severity",
+                  [ACIR_ArchitectureObligationSeverity_Error,
+                   ACIR_ArchitectureObligationSeverity_Fatal]> {
+  let genSpecializedAttr = 0;
+  let cppNamespace = "::acir::ac";
+}
+def ACIR_ArchitectureObligationSeverityAttr
+    : EnumAttr<ACIR_Dialect, ACIR_ArchitectureObligationSeverity,
+               "architecture_obligation_severity">;
+
+def ACIR_ArchitectureObligationStatus_Pending
+    : I32EnumAttrCase<"Pending", 0, "pending">;
+def ACIR_ArchitectureObligationStatus_Proved
+    : I32EnumAttrCase<"Proved", 1, "proved">;
+def ACIR_ArchitectureObligationStatus_RuntimeChecked
+    : I32EnumAttrCase<"RuntimeChecked", 2, "runtime_checked">;
+def ACIR_ArchitectureObligationStatus_Rejected
+    : I32EnumAttrCase<"Rejected", 3, "rejected">;
+def ACIR_ArchitectureObligationStatus
+    : I32EnumAttr<"ArchitectureObligationStatus",
+                  "architecture-obligation proof/admission status",
+                  [ACIR_ArchitectureObligationStatus_Pending,
+                   ACIR_ArchitectureObligationStatus_Proved,
+                   ACIR_ArchitectureObligationStatus_RuntimeChecked,
+                   ACIR_ArchitectureObligationStatus_Rejected]> {
+  let genSpecializedAttr = 0;
+  let cppNamespace = "::acir::ac";
+}
+def ACIR_ArchitectureObligationStatusAttr
+    : EnumAttr<ACIR_Dialect, ACIR_ArchitectureObligationStatus,
+               "architecture_obligation_status">;
+
+def ACIR_ArchitectureRuntimeTarget_Cpp
+    : I32EnumAttrCase<"Cpp", 0, "cpp">;
+def ACIR_ArchitectureRuntimeTarget_Gfsim
+    : I32EnumAttrCase<"Gfsim", 1, "gfsim">;
+def ACIR_ArchitectureRuntimeTarget_Sva
+    : I32EnumAttrCase<"Sva", 2, "sva">;
+def ACIR_ArchitectureRuntimeTarget
+    : I32EnumAttr<"ArchitectureRuntimeTarget",
+                  "closed architecture-obligation runtime target",
+                  [ACIR_ArchitectureRuntimeTarget_Cpp,
+                   ACIR_ArchitectureRuntimeTarget_Gfsim,
+                   ACIR_ArchitectureRuntimeTarget_Sva]> {
+  let genSpecializedAttr = 0;
+  let cppNamespace = "::acir::ac";
+}
+def ACIR_ArchitectureRuntimeTargetAttr
+    : EnumAttr<ACIR_Dialect, ACIR_ArchitectureRuntimeTarget,
+               "architecture_runtime_target">;
+
+def ACIR_ArchitectureSamplingKind_TickObservation
+    : I32EnumAttrCase<"TickObservation", 0, "tick_observation">;
+def ACIR_ArchitectureSamplingKind_XferObservation
+    : I32EnumAttrCase<"XferObservation", 1, "xfer_observation">;
+def ACIR_ArchitectureSamplingKind_PrePublish
+    : I32EnumAttrCase<"PrePublish", 2, "pre_publish">;
+def ACIR_ArchitectureSamplingKind_ProducerEvent
+    : I32EnumAttrCase<"ProducerEvent", 3, "producer_event">;
+def ACIR_ArchitectureSamplingKind
+    : I32EnumAttr<"ArchitectureSamplingKind",
+                  "closed architecture-obligation sampling union tag",
+                  [ACIR_ArchitectureSamplingKind_TickObservation,
+                   ACIR_ArchitectureSamplingKind_XferObservation,
+                   ACIR_ArchitectureSamplingKind_PrePublish,
+                   ACIR_ArchitectureSamplingKind_ProducerEvent]> {
+  let genSpecializedAttr = 0;
+  let cppNamespace = "::acir::ac";
+}
+def ACIR_ArchitectureSamplingKindAttr
+    : EnumAttr<ACIR_Dialect, ACIR_ArchitectureSamplingKind,
+               "architecture_sampling_kind">;
+
+def ACIR_ArchitectureSamplingEdge_None
+    : I32EnumAttrCase<"None", 0, "none">;
+def ACIR_ArchitectureSamplingEdge_Posedge
+    : I32EnumAttrCase<"Posedge", 1, "posedge">;
+def ACIR_ArchitectureSamplingEdge_Negedge
+    : I32EnumAttrCase<"Negedge", 2, "negedge">;
+def ACIR_ArchitectureSamplingEdge
+    : I32EnumAttr<"ArchitectureSamplingEdge",
+                  "closed architecture-obligation sampling edge",
+                  [ACIR_ArchitectureSamplingEdge_None,
+                   ACIR_ArchitectureSamplingEdge_Posedge,
+                   ACIR_ArchitectureSamplingEdge_Negedge]> {
+  let genSpecializedAttr = 0;
+  let cppNamespace = "::acir::ac";
+}
+def ACIR_ArchitectureSamplingEdgeAttr
+    : EnumAttr<ACIR_Dialect, ACIR_ArchitectureSamplingEdge,
+               "architecture_sampling_edge">;
+
 def ACIR_ActivationResourceKind_InputQueue
     : I32EnumAttrCase<"InputQueue", 0, "input_queue">;
 def ACIR_ActivationResourceKind_OutputQueue

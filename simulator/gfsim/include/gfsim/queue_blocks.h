@@ -2477,12 +2477,19 @@ public:
       return;
     const auto inputValues =
         peekInputPointers(std::index_sequence_for<Inputs...>{});
-    auto plan = std::apply(
-        [&](const auto *...values) {
-          return invokeTablePolicy(std::as_const(policy_), epoch,
-                                   std::as_const(table_), *values...);
-        },
-        inputValues);
+    std::optional<Plan> plan;
+    try {
+      plan = std::apply(
+          [&](const auto *...values) {
+            return invokeTablePolicy(std::as_const(policy_), epoch,
+                                     std::as_const(table_), *values...);
+          },
+          inputValues);
+    } catch (const ArchitectureObligationViolation &violation) {
+      setArchitectureObligationFailure(violation);
+      cancelPrepared(id());
+      return;
+    }
     if (!plan)
       return;
 
@@ -2796,12 +2803,19 @@ public:
         peekInputPointers(std::index_sequence_for<Inputs...>{});
     const auto tableViews =
         constTableViews(std::index_sequence_for<Entries...>{});
-    auto plan = std::apply(
-        [&](const auto *...values) {
-          return std::invoke(std::as_const(policy_), epoch, tableViews,
-                             *values...);
-        },
-        inputValues);
+    std::optional<Plan> plan;
+    try {
+      plan = std::apply(
+          [&](const auto *...values) {
+            return std::invoke(std::as_const(policy_), epoch, tableViews,
+                               *values...);
+          },
+          inputValues);
+    } catch (const ArchitectureObligationViolation &violation) {
+      setArchitectureObligationFailure(violation);
+      cancelPrepared(id());
+      return;
+    }
     static_assert(std::same_as<decltype(plan), std::optional<Plan>>);
     if (!plan)
       return;

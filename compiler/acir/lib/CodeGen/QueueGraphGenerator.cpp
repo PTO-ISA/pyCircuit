@@ -155,6 +155,82 @@ void emitRuleProvenance(std::ostringstream &output,
            << " (field masks name reserved owner fields)\n";
 }
 
+llvm::Error emitArchitectureObligationChecks(std::ostringstream &output,
+                                             const QueueGraphPlan &plan,
+                                             const QueueBlockPlan &firing,
+                                             llvm::StringRef indent) {
+  for (const QueueArchitectureObligationPlan &obligation :
+       plan.architectureObligations) {
+    if (obligation.status != "runtime_checked" ||
+        obligation.firing != firing.stableId)
+      continue;
+    auto scope = llvm::find_if(
+        plan.architectureExpressionScopes, [&](const auto &candidate) {
+          return candidate.rule == obligation.conditionRule;
+        });
+    auto render = [&](auto &&self, const QueueArchitectureExpressionScopePlan &s,
+                      uint64_t root) -> llvm::Expected<std::string> {
+      const auto &node = s.nodes[root];
+      if (node.opcode == "rule_input")
+        return node.inputOrdinal == 0
+                   ? std::string("item")
+                   : "item" + std::to_string(node.inputOrdinal);
+      if (node.opcode == "constant")
+        return std::to_string(node.literal);
+      std::vector<std::string> operands;
+      for (uint64_t operand : node.operands) {
+        auto rendered = self(self, s, operand);
+        if (!rendered)
+          return rendered.takeError();
+        operands.push_back(std::move(*rendered));
+      }
+      if (node.operation == "ac.var.not" && operands.size() == 1)
+        return "!(" + operands[0] + ")";
+      if (node.operation == "ac.var.and" && operands.size() == 2)
+        return "(" + operands[0] + " && " + operands[1] + ")";
+      if (node.operation == "ac.var.cmp" && node.predicate == "ule" &&
+          operands.size() == 2)
+        return "(" + operands[0] + " <= " + operands[1] + ")";
+      return generatorError("unsupported reachable architecture expression");
+    };
+    auto renderRef = [&](const std::string &rule,
+                         std::optional<uint64_t> root,
+                         llvm::StringRef fallback) -> llvm::Expected<std::string> {
+      if (!root)
+        return fallback.str();
+      auto found = llvm::find_if(
+          plan.architectureExpressionScopes,
+          [&](const auto &candidate) { return candidate.rule == rule; });
+      return render(render, *found, *root);
+    };
+    auto condition = render(render, *scope, obligation.conditionRoot);
+    if (!condition)
+      return condition.takeError();
+    auto active =
+        renderRef(obligation.activeRule, obligation.activeRoot, "true");
+    auto disabled =
+        renderRef(obligation.disableRule, obligation.disableRoot, "false");
+    if (!active)
+      return active.takeError();
+    if (!disabled)
+      return disabled.takeError();
+    std::string source = "unknown";
+    if (!obligation.sourceProvenance.origins.empty() &&
+        !obligation.sourceProvenance.origins.front().empty()) {
+      const auto &frame = obligation.sourceProvenance.origins.front().front();
+      source = frame.file + ":" + std::to_string(frame.line) + ":" +
+               std::to_string(frame.column);
+    }
+    output << indent.str() << "if ((" << *active << ") && !(" << *disabled
+           << ") && !(" << *condition << "))\n"
+           << indent.str()
+           << "  throw gfsim::ArchitectureObligationViolation{\""
+           << obligation.id << "\", \"" << obligation.severity << "\", \""
+           << source << "\", \"" << obligation.module << "\"};\n";
+  }
+  return llvm::Error::success();
+}
+
 void emitExpressionSourceDirective(std::ostringstream &output,
                                    const QueueExpressionPlan &expression) {
   if (expression.sourceProvenance.origins.empty() ||
@@ -3398,6 +3474,9 @@ generateStructuredQueueGraphCpp(const QueueGraphPlan &plan) {
       output << ", rule_condition] = [&]() {\n"
              << *body << "    }();\n"
              << "    if (!rule_condition)\n      return std::nullopt;\n";
+      if (auto error = emitArchitectureObligationChecks(
+              output, specialization, firing, "    "))
+        return error;
       for (auto [ownerIndex, tableIndex] : llvm::enumerate(tables))
         emitStateWriteBatch(
             output, firing, specialization.tables[tableIndex].name,
@@ -5297,6 +5376,9 @@ llvm::Expected<std::string> generateQueueGraphCpp(const QueueGraphPlan &plan) {
                << *evaluationBody << "    }();\n"
                << "    if (!rule_condition)\n"
                << "      return std::nullopt;\n";
+        if (auto error =
+                emitArchitectureObligationChecks(output, plan, *block, "    "))
+          return error;
         for (auto [ownerIndex, table] : llvm::enumerate(ownerTables))
           emitStateWriteBatch(output, *block, table->name, plan,
                               tableTypes[ownerIndex], ownerIndex, "    ");
@@ -5561,6 +5643,9 @@ llvm::Expected<std::string> generateQueueGraphCpp(const QueueGraphPlan &plan) {
              << *evaluationBody << "    }();\n"
              << "    if (!rule_condition)\n"
              << "      return std::nullopt;\n";
+      if (auto error =
+              emitArchitectureObligationChecks(output, plan, *block, "    "))
+        return error;
       emitStateWriteBatch(output, *block, table->name, plan, *entryType, 0,
                           "    ");
       output << "    return " << planType << "{std::move("

@@ -22,6 +22,9 @@ std::unique_ptr<mlir::Pass> createPruneInternalPayloadsPass();
 #define GEN_PASS_DECL_VERIFYMODELPASS
 #define GEN_PASS_DECL_VERIFYVALUECONSTRAINTSPASS
 #define GEN_PASS_DECL_BUILDRULEEFFECTGRAPHPASS
+#define GEN_PASS_DECL_INFERARCHITECTUREOBLIGATIONSPASS
+#define GEN_PASS_DECL_PROVEARCHITECTUREOBLIGATIONSPASS
+#define GEN_PASS_DECL_MATERIALIZEARCHITECTUREOBLIGATIONSPASS
 #define GEN_PASS_DECL_LOWERPROCESSSTATEPASS
 #define GEN_PASS_DECL_LOWERVARIABLESTATEPASS
 #define GEN_PASS_DECL_LOWERVALUECONTRACTSPASS
@@ -55,6 +58,14 @@ mlir::LogicalResult verifyValueConstraints(mlir::ModuleOp model);
 
 /// Build Decision 0271's read-only graph and optionally emit debug artifacts.
 std::unique_ptr<mlir::Pass> createBuildRuleEffectGraphPass();
+std::unique_ptr<mlir::Pass> createInferArchitectureObligationsPass();
+std::unique_ptr<mlir::Pass> createProveArchitectureObligationsPass();
+std::unique_ptr<mlir::Pass> createMaterializeArchitectureObligationsPass();
+
+/// Recompute inferred proof/materialization closure. `requireClosed` rejects
+/// pending/rejected records and is mandatory at backend/extraction entries.
+mlir::LogicalResult verifyArchitectureObligations(mlir::ModuleOp model,
+                                                  bool requireClosed);
 
 /// Recompute dependent type metadata and expression-target closure before any
 /// transform may erase or merge verifier-visible evidence.

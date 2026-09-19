@@ -399,6 +399,79 @@ struct QueueModuleInstancePlan {
   QueueSourceProvenancePlan sourceProvenance;
 };
 
+struct QueueArchitectureObligationPlan {
+  std::string module;
+  std::string symbol;
+  std::string id;
+  std::string kind;
+  std::string severity;
+  std::string status;
+  std::string firing;
+  std::string conditionRule;
+  std::string conditionTable;
+  uint64_t conditionRoot = 0;
+  std::string activeRule;
+  std::optional<uint64_t> activeRoot;
+  std::string disableRule;
+  std::optional<uint64_t> disableRoot;
+  std::string samplingKind;
+  std::string samplingEdge;
+  std::string sampleAnchor;
+  bool monitorOnly = false;
+  std::optional<uint64_t> captureLatency;
+  uint64_t inputOrdinal = 0;
+  uint64_t maximum = 0;
+  std::vector<std::string> targets;
+  std::string message;
+  std::vector<std::string> sourceRules;
+  std::vector<std::string> stateOwners;
+  std::vector<std::string> ndfIds;
+  std::string proofCertificate;
+  std::vector<std::string> materializations;
+  std::string sampling;
+  QueueSourceProvenancePlan sourceProvenance;
+
+  bool operator==(const QueueArchitectureObligationPlan &) const = default;
+};
+
+struct QueueProvedObligationElisionPlan {
+  std::string module;
+  std::string id;
+  std::string kind;
+  std::string reason;
+  std::string leftEndpoint;
+  std::string rightEndpoint;
+  std::string ownerPath;
+  std::string ownerStableId;
+  std::string sourceProvenance;
+  uint64_t propertyRoot = 0;
+
+  bool operator==(const QueueProvedObligationElisionPlan &) const = default;
+};
+
+llvm::Expected<QueueProvedObligationElisionPlan>
+buildProvedObligationElision(mlir::Operation *obligation,
+                             llvm::StringRef module);
+
+struct QueueArchitectureExpressionNodePlan {
+  std::string opcode;
+  std::string type;
+  std::vector<uint64_t> operands;
+  std::string operation;
+  std::string predicate;
+  uint64_t inputOrdinal = 0;
+  uint64_t literal = 0;
+  bool hasInputOrdinal = false;
+  bool hasLiteral = false;
+  std::string attributes;
+};
+
+struct QueueArchitectureExpressionScopePlan {
+  std::string rule;
+  std::string ownerRule;
+  std::vector<QueueArchitectureExpressionNodePlan> nodes;
+};
+
 enum class QueueActivationNodeKind {
   InterfaceInput,
   InterfaceOutput,
@@ -436,6 +509,10 @@ struct QueueGraphPlan {
   std::vector<QueueInterfacePlan> interfaceInputs;
   std::vector<QueueInterfacePlan> interfaceOutputs;
   std::vector<QueueModuleInstancePlan> moduleInstances;
+  std::vector<QueueArchitectureExpressionScopePlan>
+      architectureExpressionScopes;
+  std::vector<QueueArchitectureObligationPlan> architectureObligations;
+  std::vector<QueueProvedObligationElisionPlan> provedObligationElisions;
   std::vector<std::shared_ptr<QueueGraphPlan>> moduleSpecializations;
   std::vector<QueueActivationEdgePlan> activationEdges;
   std::vector<QueueActivationEdgePlan> workClosureEdges;

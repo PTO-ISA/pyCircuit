@@ -6,6 +6,7 @@
 #include "acir/Dialect/ACIR/ACIROps.h"
 #include "acir/Dialect/ACIR/ACIRTypes.h"
 #include "acir/Support/PrimitiveWidths.h"
+#include "acir/Transforms/Passes.h"
 
 #include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/IR/Operation.h"
@@ -84,6 +85,45 @@ std::string legalizeQueueGraphIdentifier(llvm::StringRef value) {
   if (llvm::is_contained(keywords, llvm::StringRef(result)))
     result.push_back('_');
   return result;
+}
+
+llvm::Expected<QueueProvedObligationElisionPlan>
+buildProvedObligationElision(mlir::Operation *operation,
+                             llvm::StringRef module) {
+  auto obligation = mlir::dyn_cast_or_null<ac::ArchitectureObligationOp>(operation);
+  if (!obligation || module.empty() ||
+      obligation.getStatus() != ac::ArchitectureObligationStatus::Proved ||
+      obligation.getKind() != ac::ArchitectureObligationKind::SingleWriter ||
+      !obligation.getProofCertificate())
+    return llvm::createStringError(
+        std::errc::invalid_argument,
+        "proved obligation elision requires a closed single-writer record");
+  auto certificate = *obligation.getProofCertificate();
+  QueueProvedObligationElisionPlan elision;
+  elision.module = module.str();
+  elision.id = obligation.getId().str();
+  elision.kind =
+      ac::stringifyArchitectureObligationKind(obligation.getKind()).str();
+  elision.reason =
+      certificate.getAs<mlir::StringAttr>("kind").getValue().str();
+  elision.leftEndpoint = certificate.getAs<mlir::StringAttr>("left_endpoint")
+                             .getValue()
+                             .str();
+  elision.rightEndpoint =
+      certificate.getAs<mlir::StringAttr>("right_endpoint").getValue().str();
+  elision.ownerPath =
+      certificate.getAs<mlir::StringAttr>("owner_path").getValue().str();
+  elision.ownerStableId = certificate
+                              .getAs<mlir::StringAttr>("owner_stable_id")
+                              .getValue()
+                              .str();
+  {
+    llvm::raw_string_ostream stream(elision.sourceProvenance);
+    stream << obligation.getSourceProvenance();
+  }
+  elision.propertyRoot = static_cast<uint64_t>(
+      certificate.getAs<mlir::IntegerAttr>("property_root").getInt());
+  return elision;
 }
 
 namespace {
@@ -678,6 +718,27 @@ std::string printAttribute(mlir::Attribute attribute) {
   llvm::raw_string_ostream stream(result);
   stream << attribute;
   return result;
+}
+
+std::string runtimeMaterializationSignature(
+    const QueueArchitectureObligationPlan &obligation) {
+  auto predicate = [](const std::string &rule,
+                      std::optional<uint64_t> root) {
+    return root ? rule + ":" + std::to_string(*root) : std::string("-");
+  };
+  return "module=" + obligation.module + ";target=" +
+         (obligation.targets.empty() ? std::string("-")
+                                     : obligation.targets.front()) +
+         ";firing=" + obligation.firing +
+         ";input=" + std::to_string(obligation.inputOrdinal) +
+         ";maximum=" + std::to_string(obligation.maximum) +
+         ";sampling=" + obligation.sampling + ";condition=" +
+         obligation.conditionTable + ":" + obligation.conditionRule + ":" +
+         std::to_string(obligation.conditionRoot) +
+         ";severity=" + obligation.severity +
+         ";active=" + predicate(obligation.activeRule, obligation.activeRoot) +
+         ";disable=" +
+         predicate(obligation.disableRule, obligation.disableRoot);
 }
 
 std::string printRegion(mlir::Region &region) {
@@ -2363,8 +2424,7 @@ public:
     if (mlir::failed(loweredRuleProof))
       return planError("lowered-rule proof verification failed");
     if (mlir::failed(acir::verifyFrozenFlatQueueGraph(module)))
-      return planError(
-          "QueueGraph requires verified topology closure");
+      return planError("QueueGraph requires verified topology closure");
     auto system = module->getAttrOfType<mlir::StringAttr>("ac.system");
     if (!system || system.getValue().empty())
       return planError("module requires non-empty ac.system");
@@ -2584,6 +2644,149 @@ private:
     }
     if (auto error = nested.extractBlock(body, {}))
       return std::move(error);
+    if (auto table =
+            definition->getAttrOfType<mlir::ArrayAttr>("ac.arch_expression_table")) {
+      for (mlir::Attribute rawScope : table) {
+        auto scope = mlir::cast<mlir::DictionaryAttr>(rawScope);
+        QueueArchitectureExpressionScopePlan plannedScope;
+        plannedScope.rule =
+            scope.getAs<mlir::StringAttr>("rule").getValue().str();
+        if (auto ownerRule = scope.getAs<mlir::StringAttr>("owner_rule"))
+          plannedScope.ownerRule = ownerRule.getValue().str();
+        for (mlir::Attribute rawNode : scope.getAs<mlir::ArrayAttr>("nodes")) {
+          auto node = mlir::cast<mlir::DictionaryAttr>(rawNode);
+          auto attributes = node.getAs<mlir::DictionaryAttr>("attributes");
+          QueueArchitectureExpressionNodePlan plannedNode;
+          plannedNode.opcode =
+              ac::stringifyRuleExpressionOpcode(
+                  node.getAs<ac::RuleExpressionOpcodeAttr>("opcode").getValue())
+                  .str();
+          plannedNode.type =
+              printType(node.getAs<mlir::TypeAttr>("result_type").getValue());
+          for (int64_t operand :
+               node.getAs<mlir::DenseI64ArrayAttr>("operands").asArrayRef())
+            plannedNode.operands.push_back(static_cast<uint64_t>(operand));
+          if (auto value = attributes.getAs<mlir::IntegerAttr>("ordinal")) {
+            plannedNode.inputOrdinal = value.getValue().getZExtValue();
+            plannedNode.hasInputOrdinal = true;
+          }
+          if (auto value = attributes.getAs<mlir::IntegerAttr>("value")) {
+            plannedNode.literal = value.getValue().getZExtValue();
+            plannedNode.hasLiteral = true;
+          }
+          if (auto value = attributes.getAs<mlir::StringAttr>("operation"))
+            plannedNode.operation = value.getValue().str();
+          if (auto value = attributes.getAs<mlir::StringAttr>("predicate"))
+            plannedNode.predicate = value.getValue().str();
+          plannedNode.attributes = printAttribute(attributes);
+          plannedScope.nodes.push_back(std::move(plannedNode));
+        }
+        nested.plan.architectureExpressionScopes.push_back(
+            std::move(plannedScope));
+      }
+    }
+    for (ac::ArchitectureObligationOp obligation :
+         body.getOps<ac::ArchitectureObligationOp>()) {
+      if (obligation.getStatus() ==
+          ac::ArchitectureObligationStatus::Proved) {
+        auto elision = buildProvedObligationElision(
+            obligation, definition.getSymName());
+        if (!elision)
+          return elision.takeError();
+        nested.plan.provedObligationElisions.push_back(std::move(*elision));
+        continue;
+      }
+      QueueArchitectureObligationPlan item;
+      item.module = definition.getSymName().str();
+      item.symbol = obligation.getSymName().str();
+      item.id = obligation.getId().str();
+      item.kind =
+          ac::stringifyArchitectureObligationKind(obligation.getKind()).str();
+      item.severity =
+          ac::stringifyArchitectureObligationSeverity(obligation.getSeverity())
+              .str();
+      item.status =
+          ac::stringifyArchitectureObligationStatus(obligation.getStatus())
+              .str();
+      item.message = obligation.getMessage().str();
+      auto obligationProvenance = extractSourceProvenance(obligation);
+      if (!obligationProvenance)
+        return obligationProvenance.takeError();
+      item.sourceProvenance = std::move(*obligationProvenance);
+      item.conditionRule =
+          obligation.getCondition().getAs<mlir::StringAttr>("rule").getValue().str();
+      item.conditionTable = obligation.getCondition()
+                                .getAs<mlir::StringAttr>("table")
+                                .getValue()
+                                .str();
+      item.conditionRoot = static_cast<uint64_t>(
+          obligation.getCondition().getAs<mlir::IntegerAttr>("node").getInt());
+      auto sampling = obligation.getSampling();
+      item.sampling = printAttribute(sampling);
+      item.samplingKind = ac::stringifyArchitectureSamplingKind(
+                              sampling.getAs<ac::ArchitectureSamplingKindAttr>("kind")
+                                  .getValue())
+                              .str();
+      item.samplingEdge = ac::stringifyArchitectureSamplingEdge(
+                              sampling.getAs<ac::ArchitectureSamplingEdgeAttr>("edge")
+                                  .getValue())
+                              .str();
+      if (auto anchor = sampling.getAs<mlir::StringAttr>("sample_anchor"))
+        item.sampleAnchor = anchor.getValue().str();
+      item.monitorOnly = sampling.getAs<mlir::BoolAttr>("monitor_only").getValue();
+      if (auto latency = sampling.getAs<mlir::IntegerAttr>("capture_latency"))
+        item.captureLatency = latency.getValue().getZExtValue();
+      auto readRef = [&](llvm::StringRef name, std::string &rule,
+                         std::optional<uint64_t> &root) {
+        if (auto ref = sampling.getAs<mlir::DictionaryAttr>(name)) {
+          rule = ref.getAs<mlir::StringAttr>("rule").getValue().str();
+          root = static_cast<uint64_t>(
+              ref.getAs<mlir::IntegerAttr>("node").getInt());
+        }
+      };
+      readRef("active_predicate", item.activeRule, item.activeRoot);
+      readRef("reset_recovery_disable", item.disableRule, item.disableRoot);
+      for (mlir::Attribute source : obligation.getSourceRules())
+        item.sourceRules.push_back(
+            mlir::cast<mlir::StringAttr>(source).getValue().str());
+      for (mlir::Attribute stateOwner : obligation.getStateOwners()) {
+        std::string text;
+        llvm::raw_string_ostream stream(text);
+        stateOwner.print(stream);
+        item.stateOwners.push_back(std::move(text));
+      }
+      for (mlir::Attribute ndf : obligation.getNdfIds())
+        item.ndfIds.push_back(mlir::cast<mlir::StringAttr>(ndf).getValue().str());
+      if (obligation.getProofCertificate())
+        item.proofCertificate =
+            printAttribute(*obligation.getProofCertificate());
+      for (mlir::Attribute rawTarget : obligation.getRuntimeTargets())
+        item.targets.push_back(
+            ac::stringifyArchitectureRuntimeTarget(
+                mlir::cast<ac::ArchitectureRuntimeTargetAttr>(rawTarget)
+                    .getValue())
+                .str());
+      if (obligation.getStatus() ==
+          ac::ArchitectureObligationStatus::RuntimeChecked) {
+        auto materialization = mlir::cast<mlir::DictionaryAttr>(
+            obligation.getMaterializations()[0]);
+        item.firing =
+            materialization.getAs<mlir::StringAttr>("firing").getValue().str();
+        item.inputOrdinal = static_cast<uint64_t>(
+            materialization.getAs<mlir::IntegerAttr>("input_ordinal").getInt());
+        item.maximum = static_cast<uint64_t>(
+            materialization.getAs<mlir::IntegerAttr>("maximum").getInt());
+        item.materializations = {runtimeMaterializationSignature(item)};
+      }
+      nested.plan.architectureObligations.push_back(std::move(item));
+    }
+    llvm::sort(
+        nested.plan.architectureObligations,
+        [](const auto &left, const auto &right) { return left.id < right.id; });
+    llvm::sort(nested.plan.provedObligationElisions,
+               [](const auto &left, const auto &right) {
+                 return left.id < right.id;
+               });
     if (auto error = extractHelperPlans(module, nested.plan))
       return std::move(error);
     if (auto error = groupMultiSelectionReads(nested.plan))
@@ -2658,7 +2861,7 @@ private:
                                             instance.getStaticArgs());
         auto [entry, inserted] = requested.try_emplace(
             key, SpecializationRequest{target->getValue(), key,
-                                  instance.getStaticArgs()});
+                                       instance.getStaticArgs()});
         if (!inserted &&
             (entry->getValue().definition != target->getValue() ||
              entry->getValue().arguments != instance.getStaticArgs()))
@@ -2712,9 +2915,8 @@ private:
         childPlans.push_back(found->getValue());
       }
       auto extracted = extractDefinition(
-          request->getValue().definition, key,
-          request->getValue().arguments, selected.getSymName(),
-          children.empty() ? nullptr : &children);
+          request->getValue().definition, key, request->getValue().arguments,
+          selected.getSymName(), children.empty() ? nullptr : &children);
       if (!extracted)
         return extracted.takeError();
       extracted->moduleSpecializations = std::move(childPlans);
@@ -2738,8 +2940,8 @@ private:
     llvm::StringSet<> rootDependencies;
     for (ac::InstanceOp instance :
          root.getBody().front().getOps<ac::InstanceOp>()) {
-      std::string key = specializationKey(instance.getDefinition(),
-                                          instance.getStaticArgs());
+      std::string key =
+          specializationKey(instance.getDefinition(), instance.getStaticArgs());
       auto found = built.find(key);
       if (found == built.end())
         return planError("root instance specialization is unavailable");
@@ -2753,9 +2955,9 @@ private:
 
     std::string rootSpecialization =
         specializationKey(root.getSymName(), root.getStaticParams());
-    auto extractedRoot = extractDefinition(root, rootSpecialization,
-                                           root.getStaticParams(),
-                                           selected.getSymName(), &available);
+    auto extractedRoot =
+        extractDefinition(root, rootSpecialization, root.getStaticParams(),
+                          selected.getSymName(), &available);
     if (!extractedRoot)
       return extractedRoot.takeError();
     extractedRoot->moduleSpecializations = std::move(specializations);
@@ -3005,6 +3207,8 @@ private:
       if (!provenance)
         return provenance.takeError();
       currentSourceProvenance = std::move(*provenance);
+      if (mlir::isa<ac::ArchitectureObligationOp>(operation))
+        continue;
       if (auto typeScope = mlir::dyn_cast<ac::TypeScopeOp>(operation)) {
         if (auto error = extractTypeScope(typeScope))
           return error;
@@ -4614,6 +4818,10 @@ bool isEffectFreeTableMatchExpression(const QueueExpressionPlan &expression) {
 }
 
 llvm::Expected<QueueGraphPlan> buildQueueGraphPlan(mlir::ModuleOp module) {
+  if (mlir::failed(verifyArchitectureObligations(module,
+                                                 /*requireClosed=*/true)))
+    return planError(
+        "architecture-obligation closure failed before QueueGraph extraction");
   return Extractor(module).run();
 }
 
@@ -4727,6 +4935,190 @@ bool appendProjectionDescriptor(const QueueGraphPlan &plan,
 }
 
 llvm::Error verifyQueueGraphPlan(const QueueGraphPlan &plan) {
+  llvm::StringMap<const QueueArchitectureExpressionScopePlan *> archScopes;
+  for (const auto &scope : plan.architectureExpressionScopes) {
+    if (scope.rule.empty() || !archScopes.try_emplace(scope.rule, &scope).second)
+      return planError(
+          "architecture expression scopes must be non-empty and unique");
+    for (auto [ordinal, node] : llvm::enumerate(scope.nodes)) {
+      for (uint64_t operand : node.operands)
+        if (operand >= ordinal)
+          return planError(
+              "architecture expression operand is dangling or cyclic");
+      if (node.type.empty() ||
+          (node.opcode != "rule_input" && node.opcode != "constant" &&
+           node.opcode != "operation"))
+        return planError("architecture expression node is malformed");
+    }
+  }
+  auto expression = [&](llvm::StringRef rule, uint64_t root)
+      -> const QueueArchitectureExpressionNodePlan * {
+    auto scope = archScopes.find(rule);
+    if (scope == archScopes.end() || root >= scope->getValue()->nodes.size())
+      return nullptr;
+    return &scope->getValue()->nodes[root];
+  };
+  llvm::StringSet<> obligationIds;
+  const llvm::StringRef expectedObligationModule =
+      plan.definition.empty() ? llvm::StringRef(plan.system)
+                              : llvm::StringRef(plan.definition);
+  for (const QueueProvedObligationElisionPlan &elision :
+       plan.provedObligationElisions) {
+    if (expectedObligationModule.empty() ||
+        elision.module != expectedObligationModule || elision.id.empty() ||
+        !obligationIds.insert(elision.id).second ||
+        elision.kind != "single_writer" ||
+        elision.reason != "predicate_exclusive" ||
+        elision.leftEndpoint.empty() || elision.rightEndpoint.empty() ||
+        elision.ownerPath.empty() || elision.ownerStableId.empty() ||
+        elision.sourceProvenance.empty())
+      return planError("proved obligation elision record is incomplete");
+  }
+  for (const QueueArchitectureObligationPlan &obligation :
+       plan.architectureObligations) {
+    if (expectedObligationModule.empty() ||
+        obligation.module != expectedObligationModule ||
+        obligation.symbol != obligation.id || obligation.id.empty() ||
+        !obligationIds.insert(obligation.id).second)
+      return planError("architecture obligation ID is empty or duplicated");
+    const auto *condition =
+        expression(obligation.conditionRule, obligation.conditionRoot);
+    const auto conditionScope = archScopes.find(obligation.conditionRule);
+    auto uniqueStrings = [](const std::vector<std::string> &values) {
+      llvm::StringSet<> seen;
+      return llvm::all_of(values, [&](const std::string &value) {
+        return !value.empty() && seen.insert(value).second;
+      });
+    };
+    if (obligation.conditionTable != "ac.arch_expression_table" || !condition ||
+        condition->type != "!ac.var<i1>" || obligation.sampling.empty() ||
+        (obligation.severity != "error" && obligation.severity != "fatal") ||
+        obligation.sourceRules.empty() || obligation.stateOwners.empty() ||
+        obligation.sourceProvenance.origins.empty() ||
+        !uniqueStrings(obligation.sourceRules) ||
+        !uniqueStrings(obligation.stateOwners) ||
+        !uniqueStrings(obligation.targets) ||
+        !uniqueStrings(obligation.ndfIds) ||
+        conditionScope == archScopes.end() ||
+        (!conditionScope->getValue()->ownerRule.empty() &&
+         !llvm::is_contained(obligation.sourceRules,
+                             conditionScope->getValue()->ownerRule)))
+      return planError("architecture obligation typed record is incomplete");
+    if (auto error = verifySourceProvenancePlan(obligation.sourceProvenance))
+      return error;
+    if (obligation.status == "pending" || obligation.status == "rejected")
+      return planError(
+          "pending or rejected architecture obligation reached QueueGraph");
+    if (obligation.status == "proved")
+      return planError(
+          "proved obligations must be extracted as closed elision records");
+    if (obligation.status != "runtime_checked" || obligation.kind != "range" ||
+        !obligation.proofCertificate.empty() ||
+        obligation.materializations.size() != 1 ||
+        obligation.targets.size() != 1 ||
+        obligation.targets.front() != "gfsim" || obligation.firing.empty())
+      return planError(
+          "QueueGraph admits only complete gfsim runtime range obligations");
+    if (obligation.materializations.front() !=
+        runtimeMaterializationSignature(obligation))
+      return planError(
+          "runtime obligation materialization signature is inconsistent");
+    auto firing = llvm::find_if(plan.blocks, [&](const QueueBlockPlan &block) {
+      return block.kind == "firing" && block.stableId == obligation.firing;
+    });
+    if (firing == plan.blocks.end() ||
+        obligation.inputOrdinal >= firing->inputs.size())
+      return planError("runtime obligation references a missing firing input");
+    auto firingInputType = [&](uint64_t ordinal) -> std::optional<std::string> {
+      if (ordinal >= firing->inputs.size())
+        return std::nullopt;
+      const std::string &name = firing->inputs[ordinal];
+      auto queue = llvm::find_if(plan.queues, [&](const QueuePlan &candidate) {
+        return candidate.name == name;
+      });
+      if (queue != plan.queues.end())
+        return "!ac.var<" + queue->payloadType + ">";
+      auto interface = llvm::find_if(
+          plan.interfaceInputs, [&](const QueueInterfacePlan &candidate) {
+            return candidate.name == name;
+          });
+      if (interface != plan.interfaceInputs.end())
+        return "!ac.var<" + interface->payloadType + ">";
+      return std::nullopt;
+    };
+    auto verifyReachableReference = [&](const std::string &rule,
+                                        std::optional<uint64_t> root,
+                                        llvm::StringRef label) -> llvm::Error {
+      if (!root)
+        return llvm::Error::success();
+      auto scope = archScopes.find(rule);
+      if (scope == archScopes.end() ||
+          scope->getValue()->ownerRule != obligation.firing)
+        return planError(label.str() +
+                         " expression scope is not owned by its firing");
+      llvm::SmallDenseSet<uint64_t> visited;
+      std::function<llvm::Error(uint64_t)> visit =
+          [&](uint64_t ordinal) -> llvm::Error {
+        if (ordinal >= scope->getValue()->nodes.size())
+          return planError(label.str() + " expression root is dangling");
+        if (!visited.insert(ordinal).second)
+          return llvm::Error::success();
+        const auto &node = scope->getValue()->nodes[ordinal];
+        if (node.opcode == "rule_input") {
+          auto expected = node.hasInputOrdinal
+                              ? firingInputType(node.inputOrdinal)
+                              : std::optional<std::string>();
+          if (!expected || node.type != *expected)
+            return planError(label.str() +
+                             " rule_input does not match firing interface");
+        }
+        for (uint64_t operand : node.operands)
+          if (auto error = visit(operand))
+            return error;
+        return llvm::Error::success();
+      };
+      return visit(*root);
+    };
+    if (auto error = verifyReachableReference(
+            obligation.conditionRule, obligation.conditionRoot, "condition"))
+      return error;
+    if (auto error = verifyReachableReference(
+            obligation.activeRule, obligation.activeRoot, "active predicate"))
+      return error;
+    if (auto error = verifyReachableReference(
+            obligation.disableRule, obligation.disableRoot,
+            "reset/recovery disable"))
+      return error;
+    if (!llvm::is_contained(obligation.sourceRules, obligation.firing))
+      return planError("runtime obligation source-rule linkage is incomplete");
+    if (obligation.samplingKind != "pre_publish" ||
+        obligation.samplingEdge != "none" ||
+        obligation.sampleAnchor != obligation.firing ||
+        obligation.captureLatency)
+      return planError("runtime obligation sampling is inconsistent");
+    auto predicateRefValid = [&](const std::string &rule,
+                                 std::optional<uint64_t> root) {
+      if (!root)
+        return rule.empty();
+      const auto *node = expression(rule, *root);
+      return node && node->type == "!ac.var<i1>";
+    };
+    if (!predicateRefValid(obligation.activeRule, obligation.activeRoot) ||
+        !predicateRefValid(obligation.disableRule, obligation.disableRoot))
+      return planError("runtime obligation predicate reference is invalid");
+    if (condition->operation != "ac.var.cmp" ||
+        condition->predicate != "ule" || condition->operands.size() != 2)
+      return planError("runtime range condition is not exact ule");
+    const auto *input =
+        expression(obligation.conditionRule, condition->operands[0]);
+    const auto *maximum =
+        expression(obligation.conditionRule, condition->operands[1]);
+    if (!input || !maximum || !input->hasInputOrdinal ||
+        input->inputOrdinal != obligation.inputOrdinal ||
+        !maximum->hasLiteral || maximum->literal != obligation.maximum)
+      return planError(
+          "runtime range materialization differs from typed condition");
+  }
   auto verifyExpressions = [&](auto &&self,
                                const auto &expressions) -> llvm::Error {
     for (const QueueExpressionPlan &expression : expressions) {
@@ -4953,9 +5345,8 @@ llvm::Error verifyQueueGraphPlan(const QueueGraphPlan &plan) {
   if (structured && plan.specializationKey.empty())
     return planError("QueueGraph module specialization metadata is incomplete");
   if (!structured &&
-      (!plan.interfaceInputs.empty() ||
-       !plan.interfaceOutputs.empty() || !plan.moduleInstances.empty() ||
-       !plan.moduleSpecializations.empty()))
+      (!plan.interfaceInputs.empty() || !plan.interfaceOutputs.empty() ||
+       !plan.moduleInstances.empty() || !plan.moduleSpecializations.empty()))
     return planError("flat QueueGraph cannot carry structured module metadata");
   llvm::StringMap<const QueueGraphPlan *> specializations;
   for (const std::shared_ptr<QueueGraphPlan> &specialization :
@@ -5100,8 +5491,8 @@ llvm::Error verifyQueueGraphPlan(const QueueGraphPlan &plan) {
                                 rangeActive)))
       return planError("bounded Table initializer contract is unsupported");
     const bool legacyShape =
-        !table.hasTypedSchema &&
-        table.initVersion == 0 && table.initImage.empty() &&
+        !table.hasTypedSchema && table.initVersion == 0 &&
+        table.initImage.empty() &&
         (table.shape.empty() ||
          (table.shape.size() == 1 && table.shape.front() == table.entries));
     const llvm::ArrayRef<uint64_t> shape =
@@ -7749,9 +8140,125 @@ llvm::Expected<std::string> QueueGraphPlan::canonicalJson() const {
   for (const auto &[name, value] : specializationParameters)
     specializationParameterValues.push_back(
         llvm::json::Object{{"name", name}, {"value", value}});
+  llvm::json::Array obligationValues;
+  std::vector<const QueueArchitectureObligationPlan *> sortedObligations;
+  for (const QueueArchitectureObligationPlan &obligation : architectureObligations)
+    sortedObligations.push_back(&obligation);
+  llvm::sort(sortedObligations, [](const auto *left, const auto *right) {
+    return std::tie(left->module, left->id) < std::tie(right->module, right->id);
+  });
+  for (const QueueArchitectureObligationPlan *obligationPointer :
+       sortedObligations) {
+    const QueueArchitectureObligationPlan &obligation = *obligationPointer;
+    llvm::json::Array targets;
+    for (const std::string &target : obligation.targets)
+      targets.push_back(target);
+    llvm::json::Array sourceRules;
+    for (const std::string &rule : obligation.sourceRules)
+      sourceRules.push_back(rule);
+    llvm::json::Array stateOwners;
+    for (const std::string &owner : obligation.stateOwners)
+      stateOwners.push_back(owner);
+    llvm::json::Array ndfIds;
+    for (const std::string &identifier : obligation.ndfIds)
+      ndfIds.push_back(identifier);
+    llvm::json::Array materializations;
+    for (const std::string &materialization : obligation.materializations)
+      materializations.push_back(materialization);
+    obligationValues.push_back(
+        llvm::json::Object{{"active_root", obligation.activeRoot
+                                               ? llvm::json::Value(*obligation.activeRoot)
+                                               : llvm::json::Value(nullptr)},
+                           {"condition_root", obligation.conditionRoot},
+                           {"condition_rule", obligation.conditionRule},
+                           {"condition_table", obligation.conditionTable},
+                           {"disable_root", obligation.disableRoot
+                                                ? llvm::json::Value(*obligation.disableRoot)
+                                                : llvm::json::Value(nullptr)},
+                           {"firing", obligation.firing},
+                           {"id", obligation.id},
+                           {"input_ordinal", obligation.inputOrdinal},
+                           {"kind", obligation.kind},
+                           {"maximum", obligation.maximum},
+                           {"message", obligation.message},
+                           {"module", obligation.module},
+                           {"symbol", obligation.symbol},
+                           {"monitor_only", obligation.monitorOnly},
+                           {"capture_latency", obligation.captureLatency
+                                                   ? llvm::json::Value(*obligation.captureLatency)
+                                                   : llvm::json::Value(nullptr)},
+                           {"active_rule", obligation.activeRule},
+                           {"disable_rule", obligation.disableRule},
+                           {"ndf_ids", std::move(ndfIds)},
+                           {"proof_certificate", obligation.proofCertificate},
+                           {"materializations", std::move(materializations)},
+                           {"sampling", obligation.sampling},
+                           {"source_provenance",
+                            provenanceJson(obligation.sourceProvenance)},
+                           {"sample_anchor", obligation.sampleAnchor},
+                           {"sampling_edge", obligation.samplingEdge},
+                           {"sampling_kind", obligation.samplingKind},
+                           {"severity", obligation.severity},
+                           {"source_rules", std::move(sourceRules)},
+                           {"status", obligation.status},
+                           {"state_owners", std::move(stateOwners)},
+                           {"targets", std::move(targets)}});
+  }
+  llvm::json::Array architectureExpressionValues;
+  std::vector<const QueueArchitectureExpressionScopePlan *> sortedScopes;
+  for (const auto &scope : architectureExpressionScopes)
+    sortedScopes.push_back(&scope);
+  llvm::sort(sortedScopes, [](const auto *left, const auto *right) {
+    return left->rule < right->rule;
+  });
+  for (const auto *scopePointer : sortedScopes) {
+    const auto &scope = *scopePointer;
+    llvm::json::Array nodes;
+    for (const auto &node : scope.nodes) {
+      llvm::json::Array operands;
+      for (uint64_t operand : node.operands)
+        operands.push_back(operand);
+      nodes.push_back(llvm::json::Object{{"input_ordinal", node.inputOrdinal},
+                                         {"literal", node.literal},
+                                         {"opcode", node.opcode},
+                                         {"operands", std::move(operands)},
+                                         {"operation", node.operation},
+                                         {"predicate", node.predicate},
+                                         {"attributes", node.attributes},
+                                         {"type", node.type}});
+    }
+    architectureExpressionValues.push_back(
+        llvm::json::Object{{"nodes", std::move(nodes)},
+                           {"owner_rule", scope.ownerRule},
+                           {"rule", scope.rule}});
+  }
+  llvm::json::Array provedElisionValues;
+  std::vector<const QueueProvedObligationElisionPlan *> sortedElisions;
+  for (const auto &elision : provedObligationElisions)
+    sortedElisions.push_back(&elision);
+  llvm::sort(sortedElisions, [](const auto *left, const auto *right) {
+    return std::tie(left->module, left->id) <
+           std::tie(right->module, right->id);
+  });
+  for (const auto *elision : sortedElisions)
+    provedElisionValues.push_back(llvm::json::Object{
+        {"id", elision->id},
+        {"kind", elision->kind},
+        {"left_endpoint", elision->leftEndpoint},
+        {"module", elision->module},
+        {"owner_path", elision->ownerPath},
+        {"owner_stable_id", elision->ownerStableId},
+        {"property_root", elision->propertyRoot},
+        {"reason", elision->reason},
+        {"right_endpoint", elision->rightEndpoint},
+        {"source_provenance", elision->sourceProvenance}});
   llvm::json::Object root{
       {"activation_edges", std::move(activationEdgeValues)},
       {"aggregates", std::move(aggregateValues)},
+      {"architecture_obligations", std::move(obligationValues)},
+      {"architecture_expression_scopes",
+       std::move(architectureExpressionValues)},
+      {"proved_obligation_elisions", std::move(provedElisionValues)},
       {"blocks", std::move(blockValues)},
       {"definition", definition.empty() ? llvm::json::Value(nullptr)
                                         : llvm::json::Value(definition)},
