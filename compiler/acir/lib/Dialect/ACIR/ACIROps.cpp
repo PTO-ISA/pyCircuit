@@ -5213,6 +5213,19 @@ Operation *lookupGraphSymbol(Operation *from, FlatSymbolRefAttr name) {
   return file ? SymbolTable::lookupSymbolIn(file, name) : nullptr;
 }
 
+/// Resolve a possibly nested static symbol reference in the enclosing graph
+/// file.
+///
+/// `ac.module` carries both the Symbol and the SymbolTable trait, so MLIR's
+/// lookupNearestSymbolFrom() searches inside the referencing module instead of
+/// the builtin.module around it. Static references, nested form included,
+/// resolve against the enclosing file like every other graph reference.
+Operation *lookupGraphSymbolReference(Operation *from,
+                                      SymbolRefAttr reference) {
+  auto file = from->getParentOfType<mlir::ModuleOp>();
+  return file ? SymbolTable::lookupSymbolIn(file, reference) : nullptr;
+}
+
 LogicalResult verifyConcreteDictionary(Operation *op, DictionaryAttr values,
                                        StringRef subject) {
   for (NamedAttribute value : values)
@@ -5222,7 +5235,7 @@ LogicalResult verifyConcreteDictionary(Operation *op, DictionaryAttr values,
                                   "values";
   LogicalResult result = success();
   values.walk([&](SymbolRefAttr reference) {
-    if (SymbolTable::lookupNearestSymbolFrom(op, reference))
+    if (lookupGraphSymbolReference(op, reference))
       return WalkResult::advance();
     op->emitOpError() << "unresolved static symbol reference '" << reference
                       << "'";
