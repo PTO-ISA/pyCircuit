@@ -143,17 +143,22 @@ Generated C++ prints the NDF identifiers beside the existing rule/module and
 policy or module class to its NDF contract and original Python location without
 using a generated symbol as semantic authority.
 
-## `.ac` artifact boundary
+## `.ac` package boundary
 
-For the two-stage compiler, a `.ac` file is complete selected-system verified
-ACIR. It is accepted by the native `acc` driver for concatenated C++, multi-TU
-C++, or Verilog generation. Verilog follows the canonical verified ACIR -> PYC ->
-`pycc` path with strict hierarchy. The artifact does not embed or authenticate a
-producer SDK inventory. Portable consumers pin the producing Git
-`source_revision` out of band and invoke the same `acc` pipeline.
-Module-preserving QueueGraph Verilog remains fail-closed until the canonical PYC
-lowering supports that hierarchy; `acc` never flattens reusable modules as a
-backend workaround.
-The per-module files emitted under `modules/` remain reviewable inspection units
-and are not independent link inputs. A future import, signature, and ACIR link
-contract requires a separate decision.
+For structured systems, the two-stage compiler publishes a directory-backed
+`.ac` package. `root.ac` contains selected-system composition and explicit unit
+links; shared type/helper units are separate; every implemented H1/H2/H3 module
+owns one readable `.ac` file before backend codegen. Multiple typed
+specializations of one definition share that definition's unit.
+
+Native `acc -c <package>.ac` links the units in memory, rejects missing or
+duplicate definitions and interface mismatches, then emits C++, a multi-TU C++
+bundle, or Verilog. It never accepts a hidden whole-core definition file as a
+substitute for module linking. The package does not embed producer release
+identity; consumers pin the package release and exact Git `source_revision`
+out of band.
+
+Generated module source groups preserve AC ownership one-to-one and use the
+same readable stem. Root/shared glue is separate. Verilog follows the canonical
+linked ACIR -> PYC -> `pycc` path and remains fail-closed when hierarchy support
+is incomplete; flattening is not a compatibility workaround.

@@ -31,6 +31,10 @@ demands it.
 - If a gate is skipped, say why in the PR.
 - Keep gate scripts composable: a product-specific script must not recursively
   invoke repository-wide checks or another closure lane.
+- Structured hierarchy gates operate before and after the backend: every
+  implemented H1/H2/H3 module must own one `.ac` unit, the root unit must carry
+  no child definition bodies, and the generated C++/CMake graph must preserve
+  the same module ownership. A whole-core-only AC input is a hard failure.
 
 ## Gate ownership
 
@@ -85,6 +89,7 @@ author evidence, not additional always-on CI jobs.
 | Shared I-JSON, epoch, MLIR escaping, or semantic primitive contracts | Agentic contract/frontend tests plus exhaustive primitive registry/PYC/ACIR/gfsim width checks |
 | Diagnostic codes, exception payloads, or native diagnostic adapters | Catalog generation check plus the smallest Python or native code-propagation test |
 | ACIR dialect, verifier, transformation, ACC or gfsim | Focused ACIR/ACC lit or C++ test |
+| AC package linking, hierarchy, or module codegen | Per-unit AC inventory/link test, root-no-child-definition negative, one-module-one-C++ map, parallel CMake compile/link, and executable DUT smoke |
 | ACIR-to-PYC, pyc6 runtime integration or synthesizable AC semantics | Focused AC G2 case proving the changed lowering/backend path |
 | Repository retirement or release-management changes | Repository-governance checks and workflow validation |
 
@@ -121,6 +126,9 @@ source.
 - run ACIR parser, printer, verifier and ACC lit suites;
 - run the AC C++ unit suites; and
 - run at least one `acc.py -> verified ACIR -> acc -> C++ DUT` end-to-end case.
+- for structured designs, emit a directory-backed AC package and prove each
+  module unit parses, the linked package resolves every instance exactly once,
+  and no whole-core fallback `.ac` is consumed by ACC.
 
 ### AC G2: pyCircuit 6 hardware integration
 
@@ -129,6 +137,9 @@ source.
 - compile and execute ACC-generated gfsim C++ DUTs;
 - generate and lint Verilog for the same canonical cases; and
 - prove unsupported ACIR constructs fail at the intended verifier boundary.
+- compile module C++ sources as independent translation units with parallel
+  CMake/Ninja and link the selected root DUT; backend-only source splitting is
+  not accepted as AC package evidence.
 - compare ACPy-derived scalar bit primitives in typed gfsim and PYC C++ on the
   same boundary-value sequence.
 

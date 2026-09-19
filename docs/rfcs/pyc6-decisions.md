@@ -7128,7 +7128,7 @@ constraint domain from attaching facts to one stable value-type identity.
   only after the verified ACIR parser boundary; Python descriptors do not cross
   that language/process boundary.
 - `BoolType()` and `BitsType(1)` remain distinct descriptor identities and
-  fingerprints. Named epoch-0.5 compatibility helpers preserve every existing
+  fingerprints. Named boundary-normalization helpers preserve every existing
   `i1` equality, integer-width, condition, field, state, and module boundary,
   so this internal migration neither performs nor prevents the separately
   decided bool/u1 hard break.
@@ -10516,3 +10516,58 @@ and exact Git source revision.
 **Source**
 - User direction (2026-09-19): releases must be external rather than defined by
   IR or compiler-normalization markers.
+
+## Decision 0269: structured compilation publishes independently linked AC module units
+
+**Status:** Accepted; implementation required
+
+**Supersedes:** Decision 0264 inspection-only per-module dump clauses and every
+whole-program-only `.ac` publication clause. Refines Decisions 0267 and 0268.
+
+**Context / Goal**
+A whole-system verified ACIR file can preserve `ac.module` operations internally
+yet still make ACC consume and own one monolithic artifact. Splitting C++ only
+after that boundary does not provide independently reusable modules, does not
+prove H1/H2/H3 ownership, and cannot support scalable compile/link scheduling.
+
+**Decision (strong constraint)**
+- `acc.py -o <name>.ac` publishes a directory-backed AC package. It contains a
+  root composition unit, shared type/helper units, and one readable module unit
+  for every implemented H1/H2/H3 definition. A module unit may contain the
+  ordered typed specializations of that one source definition.
+- The root unit contains the selected `ac.system`, root ports, H1 instances,
+  and explicit unit links. It contains no child definition bodies. H1 units
+  instantiate H2; H2 units instantiate H3; H3 units own state and rules.
+- Native `acc -c <name>.ac` links all units before whole-system verification and
+  codegen. Missing imports, duplicate exports, incompatible signatures,
+  unresolved instances, cycles outside the admitted module graph, or path/name
+  collisions fail before publishing backend files.
+- Unit and file identity is the readable source definition plus ordered typed
+  arguments already carried by MLIR. No hash, digest, fingerprint, manifest,
+  cache key, or whole-core fallback participates in linking.
+- C++ preserves the package boundary: one module source group per module AC
+  unit, plus explicit root/shared glue. CMake/Ninja compiles module sources as
+  independent translation units in parallel and links the selected DUT.
+- NDF inventory candidates that are not implemented definitions do not create
+  empty AC files. Consumer hierarchy metadata determines the required H1/H2/H3
+  artifact set; pyCircuit remains product-neutral.
+- This is a hard break. A single `.ac` file containing all module bodies is not
+  accepted for structured product compilation, even when later bundle output
+  happens to contain multiple `.cpp` files.
+
+**Required verification**
+- A nested H1 -> H2 -> H3 fixture emits distinct root/shared/H1/H2/H3 `.ac`
+  files. Each module definition has exactly one owning unit, equal
+  specializations reuse it, and instance counts survive linking.
+- The root-no-child-body rule, missing/duplicate unit, signature mismatch,
+  unresolved instance, illegal cycle, unsafe path, and whole-core fallback all
+  have negative tests.
+- `acc -c <package>.ac -emit-cpp-bundle` produces one module `.cpp` source group
+  per module `.ac`; generated CMake lists those sources once, builds them in
+  parallel, links, and executes the DUT.
+- A consumer gate compares the accepted H1/H2/H3 NDF inventory, AC tree, linked
+  definition/instance graph, C++ tree, CMake graph, and executable result.
+
+**Source**
+- User direction (2026-09-19): every H1/H2/H3 module must have its own AC file;
+  whole-core AC followed by backend-only C++ splitting is architecturally wrong.

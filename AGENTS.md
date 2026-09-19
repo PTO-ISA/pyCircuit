@@ -55,6 +55,16 @@ of truth.
   evidence under `docs/gates/logs/<run-id>/`.
 - Keep the repository hard-break only. Do not restore removed compatibility
   modes or label the current CycleAwareSignal API with a prior product version.
+- Structured Agentic Circuit output is a module-linked AC package. Every
+  implemented H1/H2/H3 module must be emitted as its own readable `.ac` unit
+  before backend codegen; the root unit contains only selected-system
+  composition and explicit links. A whole-core `.ac` containing every module
+  body is forbidden, even when C++ bundle emission later splits translation
+  units.
+- Preserve the AC unit boundary through C++: one module source group per module
+  `.ac`, plus root/shared glue, compiled independently and linked by parallel
+  CMake/Ninja. Gate the AC tree, definition-to-file map, instance links, C++
+  tree, build graph, and executable DUT together.
 - Keep the active runtime and semantic-gate names on the pyCircuit 6 contract:
   `libpyc6_runtime` and `run_semantic_regressions_v6.sh`. Serialized trace
   formats are tooling artifacts, not public model or runtime ABIs.
