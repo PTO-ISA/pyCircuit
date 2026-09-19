@@ -44,3 +44,21 @@ class GatePythonpathTest(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class GateBuildRootTest(unittest.TestCase):
+    def test_prefers_the_integrated_build_root(self) -> None:
+        from cli import gate_build_root
+
+        self.assertEqual(
+            gate_build_root(Path("/repo"), {"AC_GATE_BUILD_ROOT": "/build"}),
+            Path("/build"),
+        )
+
+    def test_falls_back_to_the_dev_preset(self) -> None:
+        from cli import gate_build_root
+
+        self.assertEqual(
+            gate_build_root(Path("/repo"), {}),
+            Path("/repo/.pycircuit_out/acir/dev-llvm22"),
+        )

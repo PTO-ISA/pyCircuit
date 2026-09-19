@@ -29,3 +29,17 @@ def cli_test_pythonpath(repository: Path, environment: dict[str, str]) -> str:
             / "site-packages"
         )
     return os.pathsep.join((source.resolve().as_posix(), native.resolve().as_posix()))
+
+
+def gate_build_root(repository: Path, environment: dict[str, str]) -> Path:
+    """Return the Agentic Circuit build tree the gate asked for.
+
+    run_agentic_circuit.sh builds either the standalone dev-llvm22 preset or the
+    integrated toolchain tree named by AC_GATE_BUILD_ROOT. Tests that install or
+    inspect that build have to follow the same choice.
+    """
+
+    build_root = environment.get("AC_GATE_BUILD_ROOT")
+    if build_root is not None:
+        return Path(build_root)
+    return repository / ".pycircuit_out/acir/dev-llvm22"

@@ -8,8 +8,10 @@ import tempfile
 import unittest
 from pathlib import Path
 
+from cli import gate_build_root
+
 REPOSITORY = Path(__file__).resolve().parents[4]
-BUILD = REPOSITORY / ".pycircuit_out" / "acir" / "dev-llvm22"
+BUILD = gate_build_root(REPOSITORY, os.environ)
 FIXTURE = Path(__file__).parent / "fixtures" / "inspect"
 RUNTIME_CONSUMER = (
     REPOSITORY / "tests/integration/agentic-circuit/runtime-install-consumer"
