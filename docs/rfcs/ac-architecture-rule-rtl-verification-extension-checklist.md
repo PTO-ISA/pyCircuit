@@ -857,15 +857,27 @@ conclusions.
 - `compiler/acir/include/acir/Transforms/Passes.td`
 - existing writer/value-constraint analysis shared by the new pass
 
-- [ ] Build rule/resource/state/conflict/ordering/arbitration edges.
-- [ ] Reuse disjoint-index, mutually-exclusive-predicate, and field-disjoint
+- [x] Build rule/resource/state/conflict/ordering/arbitration edges.
+- [x] Reuse disjoint-index, mutually-exclusive-predicate, and field-disjoint
       proofs.
-- [ ] Reuse the existing writer-arbitration and value-constraint proof
+- [x] Reuse the existing writer-arbitration and value-constraint proof
       implementations rather than cloning their algorithms.
-- [ ] Preserve current cross-owner arbitration-cycle rejection.
-- [ ] Emit deterministic JSON and DOT debug forms.
-- [ ] Add `acir-opt` dump options without changing normal codegen output.
-- [ ] Add negative tests for unresolved overlap and ordering cycles.
+- [x] Preserve current cross-owner arbitration-cycle rejection.
+- [x] Emit deterministic JSON and DOT debug forms.
+- [x] Add `acir-opt` dump options without changing normal codegen output.
+- [x] Add negative tests for unresolved overlap and ordering cycles.
+
+F2 implementation evidence is archived under
+`docs/gates/logs/20260920-arch-rule-f2/summary.md`. Recovery remains explicitly
+absent until F7, and obligation linkage is a reserved absent graph slot until
+F3; neither is inferred by F2.
+
+- [x] Complete independent F2 code review: **PASS**.
+- [x] Complete independent F2 verification review: **PASS**.
+- [x] Verify the P2 exit condition: exact A/B coexistence and A/C
+      proof/priority/rejection are explained without source-order semantics.
+
+Decision 0271 and P2 are implemented and verified. F3 remains separate.
 
 **Exit:** graph output explains why A+B may coexist and why A+C requires
 arbitration or an obligation.

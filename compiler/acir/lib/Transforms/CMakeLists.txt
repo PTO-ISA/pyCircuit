@@ -1,6 +1,7 @@
 add_acir_library(ACIRTransforms SOURCES
   VerifyModel.cpp
   VerifyValueConstraints.cpp
+  BuildRuleEffectGraph.cpp
   FreezeTopology.cpp
   CanonicalizeModel.cpp
   NormalizeACIRFile.cpp

@@ -2,6 +2,8 @@
 // RUN: %acir_opt --pass-pipeline='builtin.module(ac-lower-rules)' %s -o %t.lowered
 // RUN: sed 's/access = "release"/access = "read"/' %t.lowered | %not %acir_opt 2>&1 | %FileCheck %s --check-prefix=EXACT-TAMPER
 // RUN: sed 's/fields = \[\]/fields = ["forged"]/' %t.lowered | %not %acir_opt 2>&1 | %FileCheck %s --check-prefix=FIELD-TAMPER
+// RUN: %acir_opt "-ac-build-rule-effect-graph=json-output=%t.json dot-output=%t.dot" %t.lowered -o /dev/null
+// RUN: %FileCheck %s --check-prefix=GRAPH < %t.json
 
 module attributes {ac.model_kind = "queue_graph", ac.queue_graph_domain = "cycle", ac.system = "slot_rule"} {
   %input = ac.source depth 1 latency 1 {ac.name = "input"} : !ac.queue<i8>
@@ -39,6 +41,11 @@ module attributes {ac.model_kind = "queue_graph", ac.queue_graph_domain = "cycle
 // CHECK-SAME: whole_entry = true
 // EXACT-TAMPER: exact rule effect summary does not match the live body
 // FIELD-TAMPER: exact state footprint must choose whole entry or explicit fields
+// GRAPH-DAG: "kind": "slot"
+// GRAPH-DAG: "kind": "state_release"
+// GRAPH-DAG: "kind": "queue_produce"
+// GRAPH-DAG: "kind": "slot_resource"
+// GRAPH-DAG: "proof": "Decision0271.exact_summary"
 // CHECK: ac.transaction_resources = [
 // CHECK-SAME: output_queue>, ordinal = 0
 // CHECK-SAME: slot>, resource = @mailbox

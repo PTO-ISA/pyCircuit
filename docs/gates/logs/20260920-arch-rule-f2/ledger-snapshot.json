@@ -1,0 +1,12 @@
+{
+  "active_ledger": ".omx/ultragoal/checklist-ledger.jsonl",
+  "captured_at": "2026-09-20",
+  "entry": {
+    "id": "PC-F2-001",
+    "status": "verified",
+    "evidence_path": "docs/gates/logs/20260920-arch-rule-f2/summary.md",
+    "dependencies": ["PC-F1-001"],
+    "review_verdict": "independent code-reviewer PASS; independent verifier PASS; P2 exit verified"
+  },
+  "historical_ledgers_modified": false
+}
