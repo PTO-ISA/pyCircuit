@@ -1,0 +1,9 @@
+cmake --build .pycircuit_out/build-llvm22 --target CodeGenTests CompilerTests GfsimTests ACIRModelAnalysisTests ACIROpsTests acir-opt-internal acc pycc agentic_circuit_native acir-queue-pycgen acir-queue-cxxgen -j4
+ctest --test-dir .pycircuit_out/build-llvm22 --output-on-failure -R '^(CodeGenTests|CompilerTests|GfsimTests|ACIRModelAnalysisTests|ACIROpsTests)$'
+.pycircuit_out/build-llvm22/bin/CodeGenTests --gtest_color=no --gtest_brief=1
+.pycircuit_out/ac-venv/bin/lit -sv .pycircuit_out/build-llvm22/compiler/acir/tests/mlir --filter='(rule-(exact-effect-order|cse-footprints)|rule-effect-graph-(interactions|effect-order)|architecture-obligation(|-inference|-invalid|-closure|-forged|-missing-rule))\.mlir$'
+.pycircuit_out/ac-venv/bin/lit -sv .pycircuit_out/build-llvm22/compiler/acir/tests/mlir --filter='(rule-exact-effect-order|rule-cse-footprints|acc-composite-package|acc-composite-fanout-package|rule-table-lowering)\.mlir$'
+python3 flows/tools/check_api_hygiene.py python/pycircuit/src/pycircuit examples/pycircuit docs README.md
+python3 tools/agentic-circuit/check-contracts.py
+ninja -C .pycircuit_out/build-llvm22 -t commands check-acir
+git diff --check
