@@ -3409,8 +3409,11 @@ LogicalResult MemoryRequestOp::verify() {
   if (getOrdinal() < 0 || getDepth() <= 0)
     return emitOpError("ordinal must be non-negative and depth positive");
 
+  // Resolve in the graph file: an enclosing ac.scope is itself a symbol
+  // table, so the nearest-table lookup cannot see an instance declared beside
+  // the request's scope.
   auto instance = dyn_cast_or_null<MemoryInstanceOp>(
-      SymbolTable::lookupNearestSymbolFrom(*this, getInstanceAttr()));
+      lookupGraphSymbol(*this, getInstanceAttr()));
   if (!instance)
     return emitOpError() << "unresolved memory instance " << getInstance();
   const std::string requestScope = queueScopePath(*this);
