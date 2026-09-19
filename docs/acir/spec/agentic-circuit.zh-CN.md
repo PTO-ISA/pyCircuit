@@ -1763,11 +1763,16 @@ parent specialization 可以拥有连接 local block 与 child instance 的内�
 
 Python 用户用普通 typed `@ac.module` 函数声明可复用行为，并在 `@ac.system` 中以普通调用
 使用它。前端不暴露 Queue port、instance object、specialization key、source、
-sink、ready 或 backpressure。第一阶段支持纯 1x1 module：表达式 return 降为模块局部
-transform，typed system 参数/结果生成内部边界，普通调用生成 `ac.instance`。
-module 的表达式 return 可以直接调用另一个 typed module。前端生成包含 child
-`ac.instance` 的 parent `ac.module`，既有 planning/codegen 保持 child-before-parent
-复用；Python 函数仍只返回普通值，不命名任何 hierarchy object。
+sink、ready 或 backpressure。module 可以有零个或多个异构 typed runtime 输入与输出；
+typed system 参数/结果形成 Queue 边界，普通调用生成 `ac.instance`。
+
+module body 可以调用多个 declaration，把 child 输出保存在具名 SSA value 中，再传给
+后续 child，并返回零个、一个或多个具名结果。重复调用产生相互独立的 instance；一个
+parent input 或 child output 有多个消费者时，编译器插入原子的 `ac.broadcast`。Python
+函数仍只返回普通值，不命名 Queue 或 hierarchy object。Composite control flow 只允许
+依赖 typed `ac.const` 闭合值的 `if`，每个产生的 Queue value 必须有 consumer。前端生成
+parent-owned internal Queue 和 child `ac.instance`，planning/codegen 保持
+child-before-parent 复用。
 
 独立编译的 parent 只 import typed declaration。声明保持与实现完全一致的 runtime/static
 签名，显式绑定实现 source，并且没有实现正文：
@@ -1812,7 +1817,10 @@ direct interface-to-rule graph。无状态 rule-backed module 也可以具有多
 生成 GFSim 使用一个 `QueueAtomicTransform`，保证全部输入消费和全部输出发布属于同一事务。
 结构化 lowering 只包含从选定 system 递归可达的 module，并只解析每个 rule-backed module
 直接使用的 rule。不可达 sibling definition 仍参与 JIT source identity，但不会作为 active
-hardware 生成或验证。任意内部 Queue graph 与 module 内 repeated-input fanout 仍是后续工作。
+hardware 生成或验证。Composite child graph 支持无环的 child-to-child Queue 连线与推导
+fanout；跨 child 的通信环当前尚未接纳。既有 `ac.feedback` 继续表示 bounded single-block
+iteration，不能替代 requester/responder module protocol；前端不会从 Python statement
+顺序猜测隐式环。
 
 definition symbol 与 ordered typed static arguments 是完整 specialization identity。
 生成 C++ 使用可读 definition，并在需要时添加参数名和值；不添加 `Module_` 前缀或

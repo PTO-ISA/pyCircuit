@@ -785,7 +785,7 @@ def top(value: ac.u8) -> ac.u8:
 
         self.assertIn("ac.module.import @child", lowered)
         self.assertIn("ac.module @parent", lowered)
-        self.assertIn("ac.instance @result of @child", lowered)
+        self.assertIn("ac.instance @child_0 of @child", lowered)
 
     def test_zero_port_parent_may_compose_imported_declarations(self) -> None:
         from agentic_circuit._queue_frontend import lower_queue_source
@@ -820,6 +820,262 @@ def core() -> None:
         self.assertIn("ac.instance @ifu_0 of @ifu()", lowered)
         self.assertIn("ac.instance @ooo_1 of @ooo()", lowered)
         self.assertIn("ac.instance @spe_0 of @spe()", lowered)
+
+    def test_parent_module_composes_imported_children_through_internal_queue(self) -> None:
+        from agentic_circuit._queue_frontend import lower_queue_source
+
+        lowered = lower_queue_source(
+            """
+import agentic_circuit as ac
+
+@ac.module_decl(source="pkg/decode.py")
+def decode(value: ac.u8) -> ac.u16:
+    ...
+
+@ac.module_decl(source="pkg/execute.py")
+def execute(value: ac.u16) -> ac.u32:
+    ...
+
+@ac.module
+def pipeline(value: ac.u8) -> ac.u32:
+    decoded = decode(value)
+    result = execute(decoded)
+    return result
+
+@ac.system
+def top(value: ac.u8) -> ac.u32:
+    return pipeline(value)
+""",
+            "top",
+        )
+
+        self.assertIn("ac.module @pipeline", lowered)
+        self.assertIn("ac.instance @decode_0 of @decode", lowered)
+        self.assertIn("ac.instance @execute_1 of @execute", lowered)
+        self.assertIn("ac.return %result : !ac.queue<i32>", lowered)
+
+    def test_parent_module_supports_heterogeneous_ports_and_fanout(self) -> None:
+        from agentic_circuit._queue_frontend import lower_queue_source
+
+        lowered = lower_queue_source(
+            """
+import agentic_circuit as ac
+
+@ac.module_decl(source="pkg/widen.py")
+def widen(value: ac.u8) -> ac.u16:
+    ...
+
+@ac.module_decl(source="pkg/join.py")
+def join(left: ac.u16, right: ac.u16) -> tuple[ac.u32, ac.u1]:
+    ...
+
+@ac.module
+def assembly(value: ac.u8) -> tuple[ac.u32, ac.u1]:
+    left = widen(value)
+    right = widen(value)
+    result, accepted = join(left, right)
+    return result, accepted
+
+@ac.system
+def top(value: ac.u8) -> tuple[ac.u32, ac.u1]:
+    return assembly(value)
+""",
+            "top",
+        )
+
+        self.assertIn("ac.module @assembly", lowered)
+        self.assertIn("ac.broadcast", lowered)
+        self.assertEqual(2, lowered.count("of @widen"))
+        self.assertIn("of @join", lowered)
+        self.assertIn("ac.return %result, %accepted", lowered)
+
+    def test_composite_module_forwards_typed_static_arguments(self) -> None:
+        from agentic_circuit._queue_frontend import lower_queue_source
+
+        lowered = lower_queue_source(
+            """
+import agentic_circuit as ac
+
+@ac.module_decl(source="pkg/stage.py")
+def stage(value: ac.u8, *, width: ac.const[int]) -> ac.u8:
+    ...
+
+@ac.module
+def pipeline(
+    value: ac.u8,
+    *,
+    width: ac.const[int],
+) -> ac.u8:
+    result = stage(value, width=width)
+    return result
+
+@ac.system
+def top(value: ac.u8, *, width: ac.const[int] = 8) -> ac.u8:
+    return pipeline(value, width=width)
+""",
+            "top",
+        )
+
+        self.assertIn("ac.module @pipeline__width_8", lowered)
+        self.assertIn("ac.module.import @stage__width_8", lowered)
+        self.assertIn("of @stage__width_8", lowered)
+        self.assertNotIn("sha", lowered.lower())
+
+    def test_composite_module_rejects_forward_reference_as_implicit_cycle(self) -> None:
+        from agentic_circuit._queue_frontend import (
+            QueueFrontendError,
+            lower_queue_source,
+        )
+
+        source = """
+import agentic_circuit as ac
+
+@ac.module_decl(source="pkg/requester.py")
+def requester(command: ac.u8, response: ac.u8) -> ac.u8:
+    ...
+
+@ac.module_decl(source="pkg/responder.py")
+def responder(request: ac.u8) -> ac.u8:
+    ...
+
+@ac.module
+def assembly(command: ac.u8) -> ac.u8:
+    request = requester(command, response)
+    response = responder(request)
+    return response
+
+@ac.system
+def top(command: ac.u8) -> ac.u8:
+    return assembly(command)
+"""
+        with self.assertRaisesRegex(
+            QueueFrontendError,
+            "parent or prior-child Queue values",
+        ):
+            lower_queue_source(source, "top")
+
+    def test_composite_module_rejects_unconsumed_child_output(self) -> None:
+        from agentic_circuit._queue_frontend import (
+            QueueFrontendError,
+            lower_queue_source,
+        )
+
+        source = """
+import agentic_circuit as ac
+
+@ac.module_decl(source="pkg/copy.py")
+def copy_value(value: ac.u8) -> ac.u8:
+    ...
+
+@ac.module
+def assembly(value: ac.u8) -> ac.u8:
+    result = copy_value(value)
+    unused = copy_value(value)
+    return result
+
+@ac.system
+def top(value: ac.u8) -> ac.u8:
+    return assembly(value)
+"""
+        with self.assertRaisesRegex(
+            QueueFrontendError,
+            "every composite Queue value requires a consumer",
+        ):
+            lower_queue_source(source, "top")
+
+    def test_composite_instance_names_are_injective(self) -> None:
+        from agentic_circuit._queue_frontend import lower_queue_source
+
+        lowered = lower_queue_source(
+            """
+import agentic_circuit as ac
+
+@ac.module_decl(source="pkg/one.py")
+def one(value: ac.u8) -> ac.u8:
+    ...
+
+@ac.module_decl(source="pkg/pair.py")
+def pair(value: ac.u8) -> tuple[ac.u8, ac.u8]:
+    ...
+
+@ac.module_decl(source="pkg/join.py")
+def join(left: ac.u8, middle: ac.u8, right: ac.u8) -> ac.u8:
+    ...
+
+@ac.module
+def assembly(value: ac.u8) -> ac.u8:
+    a__b = one(value)
+    a, b = pair(value)
+    result = join(a__b, a, b)
+    return result
+
+@ac.system
+def top(value: ac.u8) -> ac.u8:
+    return assembly(value)
+""",
+            "top",
+        )
+
+        self.assertIn("ac.instance @one_0 of @one", lowered)
+        self.assertIn("ac.instance @pair_1 of @pair", lowered)
+        self.assertEqual(1, lowered.count('id "one_0"'))
+        self.assertEqual(1, lowered.count('id "pair_1"'))
+
+    def test_composite_rejects_duplicate_destructuring_targets(self) -> None:
+        from agentic_circuit._queue_frontend import (
+            QueueFrontendError,
+            lower_queue_source,
+        )
+
+        source = """
+import agentic_circuit as ac
+
+@ac.module_decl(source="pkg/pair.py")
+def pair(value: ac.u8) -> tuple[ac.u8, ac.u8]:
+    ...
+
+@ac.module
+def assembly(value: ac.u8) -> ac.u8:
+    result, result = pair(value)
+    return result
+
+@ac.system
+def top(value: ac.u8) -> ac.u8:
+    return assembly(value)
+"""
+        with self.assertRaisesRegex(
+            QueueFrontendError,
+            "composite results require unique names",
+        ):
+            lower_queue_source(source, "top")
+
+    def test_composite_rejects_compiler_reserved_local_name(self) -> None:
+        from agentic_circuit._queue_frontend import (
+            QueueFrontendError,
+            lower_queue_source,
+        )
+
+        source = """
+import agentic_circuit as ac
+
+@ac.module_decl(source="pkg/copy.py")
+def copy_value(value: ac.u8) -> ac.u8:
+    ...
+
+@ac.module
+def assembly(value: ac.u8) -> ac.u8:
+    __ac_instance_copy = copy_value(value)
+    return __ac_instance_copy
+
+@ac.system
+def top(value: ac.u8) -> ac.u8:
+    return assembly(value)
+"""
+        with self.assertRaisesRegex(
+            QueueFrontendError,
+            "names beginning with '__ac_' are compiler-owned",
+        ):
+            lower_queue_source(source, "top")
 
     def test_multirate_queue_metadata_is_frozen(self) -> None:
         from agentic_circuit._queue_frontend import (

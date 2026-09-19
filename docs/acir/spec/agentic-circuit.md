@@ -2395,10 +2395,9 @@ or shared between repeated parent instances.
 Python authors declare reusable behavior as an ordinary typed `@ac.module`
 function and invoke it with ordinary calls from `@ac.system`. The frontend does
 not expose Queue ports, instance objects, specialization keys, source,
-sink, readiness, or backpressure. The first lowering slice accepts a pure 1x1
-module whose expression return becomes a module-local transform; typed system
-parameters and results become internal boundaries, and calls become
-`ac.instance` placements.
+sink, readiness, or backpressure. A module may have zero or more heterogeneous
+typed runtime inputs and outputs. Typed system parameters and results become
+Queue boundaries, and ordinary calls become `ac.instance` placements.
 
 A separately compiled parent imports only a typed declaration. The declaration
 uses the same callable surface, names the implementation source explicitly, and
@@ -2415,10 +2414,16 @@ Runtime arguments create independent instances; only typed `ac.const` bindings
 select a specialization. The child implementation is compiled and optimized in
 its own source unit, which publishes both its implementation AC and matching
 interface header.
-A module expression return may directly call another typed module. The frontend
-emits a parent `ac.module` containing a child `ac.instance`; existing
-specialization planning and codegen preserve child-before-parent reuse. The
-Python function still returns an ordinary value and names no hierarchy object.
+A module body may call several declared children, retain their outputs in named
+SSA values, pass those values to later children, and return zero, one, or several
+named results. Repeated calls create independent instances. When one parent
+input or child output has several consumers, the compiler inserts an atomic
+`ac.broadcast`; the Python function still returns ordinary values and names no
+Queue or hierarchy object. Composite control flow is limited to `if` conditions
+closed over typed `ac.const` values, and every produced Queue value requires a
+consumer. The frontend emits the parent-owned internal Queues and child
+`ac.instance` operations; specialization planning and codegen preserve
+child-before-parent reuse.
 The stateful module slice accepts one or more zero-initialized scalar lexical
 variables, one serial assignment per variable, and a typed result expression:
 
@@ -2460,8 +2465,11 @@ are not emitted or validated as active hardware. Child specialization resolves
 only pure helpers referenced by that child and its reachable rules; the root
 source pass still validates the complete typed helper set with root JIT
 bindings, including the static index checks required by Decision 0254.
-Arbitrary internal Queue graphs and repeated-input fanout inside one module
-remain follow-up work.
+Composite child graphs support acyclic child-to-child Queue wiring and inferred
+fanout. Cross-child communication cycles are not yet admitted. The existing
+`ac.feedback` keeps its bounded single-block iteration semantics and is not a
+substitute for a requester/responder module protocol; an implicit Python
+dataflow cycle is rejected rather than guessed from statement order.
 
 For host-integrated simulation, compiler option `--host-results` preserves
 typed system returns as Top module Queue results instead of inserting automatic

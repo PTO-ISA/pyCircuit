@@ -131,6 +131,10 @@ source.
   Python source unit parses, contains all of that file's requested definitions
   and typed specializations, and the linked package resolves every instance exactly once,
   and no whole-core fallback `.ac` is consumed by ACC.
+- exercise a separately compiled composite package with heterogeneous ports,
+  repeated child instances, child-to-child Queues, inferred fanout, a
+  multi-output child, parallel multi-TU CMake/Ninja compilation, and a typed DUT
+  runtime result. Python lowering alone is not composite backend evidence.
 
 ### AC G2: pyCircuit 6 hardware integration
 

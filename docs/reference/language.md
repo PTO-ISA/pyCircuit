@@ -704,6 +704,40 @@ class Group:
 重新投影并核对 leaf binding，后端仍只看到 concrete type。失败的
 `ac.static_assert` 同时报告结构化 source span、规范化表达式和引用到的闭合绑定值。
 
+### Agentic module 组合
+
+每个可执行 Python implementation source 只定义一个 public `@ac.module`。父模块通过
+source-owned `@ac.module_decl(source="relative/child.py")` header 编译，不读取 child
+implementation body：
+
+```python
+@ac.module_decl(source="pipeline/decode.py")
+def decode(value: ac.u8) -> ac.u16:
+    ...
+
+@ac.module_decl(source="pipeline/execute.py")
+def execute(value: ac.u16) -> tuple[ac.u32, ac.u1]:
+    ...
+
+@ac.module
+def pipeline(value: ac.u8) -> tuple[ac.u32, ac.u1]:
+    decoded = decode(value)
+    result, accepted = execute(decoded)
+    return result, accepted
+```
+
+Composite module 支持零个或多个异构 runtime input/output、多个 child、重复 instance、
+child-to-child internal Queue、typed `ac.const` specialization 参数以及同一 value 多消费者
+时的 compiler-owned atomic fanout。所有运行时 value 必须使用具名 SSA local，产生的每个
+Queue value 必须被 child 或 parent return 消费；动态 control flow 和隐式 feedback cycle
+拒绝。跨 child 的 requester/responder 通信环尚未接纳；既有 `ac.feedback` 只表示有界
+single-block iteration，不能作为跨 module 协议回边。
+
+一次 `acc.py -c child.py -o child.ac --header-output .../module.ac` 同时发布 child
+implementation AC 与声明 header。runtime 调用只增加 instance；只有 ordered typed
+`ac.const` 参数创建具名 specialization symbol，同一 Python source 的所有 specialization
+仍留在同一个 `.ac` 中。
+
 ### Agentic source map
 
 Agentic frontend 在 closure flattening 前记录每个 Python AST 节点的工程相对 `.py`

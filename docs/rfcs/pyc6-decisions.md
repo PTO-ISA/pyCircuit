@@ -10610,6 +10610,18 @@ contracts without introducing consumer-specific hierarchy knowledge.
   the same command. The package linker resolves each import to exactly one
   matching definition and rejects source, signature, or static-parameter
   mismatch.
+- A parent `@ac.module` may instantiate multiple imported declarations using
+  named typed SSA Queue values. Child calls support zero or more heterogeneous
+  runtime inputs and outputs, repeated instances, ordered `ac.const`
+  specialization arguments, internal child-to-child queues, and compiler-owned
+  fanout when one value has several consumers. The parent owns those queues;
+  children never consume a sibling implementation body or mutate sibling state.
+- Structured C++ preserves the same parent graph. Nested wrapper classes own
+  internal queues and broadcast blocks, reuse one child class per structural
+  specialization, and keep every instance independent. Compiler-reserved
+  runtime instance path segments cannot collide with parent-owned Queue names;
+  nested physical activation/work-closure bindings drive the normal
+  `configure_activation_scheduler()` path.
 - Nominal types are emitted once, grouped by their owning Python interface
   source. A separate layout interface carries the combined DLTI contract.
   Executable units import these headers; they do not copy type declarations.
@@ -10628,6 +10640,11 @@ contracts without introducing consumer-specific hierarchy knowledge.
 - A parent compiles from a child header while the child body is unavailable.
 - Repeated instances of one declaration accept different runtime inputs without
   duplicating implementation IR.
+- A three-source parent-to-child chain and a fanout-plus-multi-input join package
+  independently compile, link, build every generated translation unit, and run
+  through the public typed DUT header. The latter includes a multi-output child
+  and runs the generated activation scheduler rather than manually visiting all
+  dispatch rows.
 - Missing definition, duplicate definition, mismatched signature/static
   parameters, wrong source owner, and duplicate nominal types fail at link.
 - Published source units contain `ac.rule` and no `ac.firing`; linked lowering

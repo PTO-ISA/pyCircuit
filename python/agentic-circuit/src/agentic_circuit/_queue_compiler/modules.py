@@ -154,6 +154,24 @@ def _lower_simple_module_source(
             )
         )
 
+    def composite_module_metadata(
+        symbol: str,
+        definition_name: str,
+    ) -> tuple[str, ...]:
+        source = definition_sources.get(definition_name)
+        return _module_attribute_fields(
+            _ModuleRenderSpec(
+                symbol,
+                (),
+                (),
+                ndf=definition_ndf.get(definition_name, NdfMetadata()),
+                source_file="" if source is None else source[0],
+                source_line=0 if source is None else source[1],
+                source_column=0 if source is None else source[2],
+                definition_name=definition_name,
+            )
+        )
+
     module_names = [
         node.name
         for node in tree.body
@@ -264,20 +282,25 @@ def _lower_simple_module_source(
     )
     reserved_values = sorted(
         {
-            systems[0].name,
-            *(
-                parameter.arg
-                for parameter in (
-                    *systems[0].args.posonlyargs,
-                    *systems[0].args.args,
-                    *systems[0].args.kwonlyargs,
-                )
-            ),
-            *(
-                node.id
-                for node in ast.walk(systems[0])
-                if isinstance(node, ast.Name) and isinstance(node.ctx, ast.Store)
-            ),
+            name
+            for function in (systems[0], *modules.values())
+            for name in (
+                function.name,
+                *(
+                    parameter.arg
+                    for parameter in (
+                        *function.args.posonlyargs,
+                        *function.args.args,
+                        *function.args.kwonlyargs,
+                    )
+                ),
+                *(
+                    node.id
+                    for node in ast.walk(function)
+                    if isinstance(node, ast.Name)
+                    and isinstance(node.ctx, ast.Store)
+                ),
+            )
         }
     )
     reserved_values = [name for name in reserved_values if name[:5] == "__ac_"]
@@ -408,6 +431,7 @@ def _lower_simple_module_source(
     empty_module_children: dict[
         str, tuple[tuple[str, SourceFrame | None], ...]
     ] = {}
+    composite_modules: dict[str, ast.FunctionDef] = {}
     rule_modules: dict[str, RuleModuleTemplate] = {}
     rule_names = {
         node.name
@@ -529,6 +553,60 @@ def _lower_simple_module_source(
             and node.func.id in rule_names
             for node in ast.walk(function)
         )
+        contains_module_call = any(
+            isinstance(node, ast.Call)
+            and isinstance(node.func, ast.Name)
+            and node.func.id in modules
+            for node in ast.walk(function)
+        )
+        if contains_module_call and not contains_rule_call:
+            if (
+                function.args.posonlyargs
+                or function.args.vararg is not None
+                or function.args.kwarg is not None
+                or function.args.defaults
+                or any(
+                    not isinstance(parameter.annotation, ast.Subscript)
+                    or _decorator_name(parameter.annotation.value).rsplit(".", 1)[-1]
+                    != "const"
+                    for parameter in function.args.kwonlyargs
+                )
+            ):
+                raise QueueFrontendError(
+                    "ACPY-MODULE-010: composite modules require positional "
+                    "typed runtime inputs and optional keyword-only ac.const parameters"
+                )
+            output_annotations = result_annotations(function.returns)
+            rule_modules[name] = RuleModuleTemplate(
+                tuple(
+                    (parameter.arg, copy.deepcopy(parameter.annotation))
+                    for parameter in function.args.args
+                ),
+                tuple(
+                    "result" if len(output_annotations) == 1 else f"result{index}"
+                    for index in range(len(output_annotations))
+                ),
+                output_annotations,
+                tuple(parameter.arg for parameter in function.args.kwonlyargs),
+                tuple(
+                    (parameter.arg, default)
+                    for parameter, default in zip(
+                        function.args.kwonlyargs,
+                        function.args.kw_defaults,
+                        strict=True,
+                    )
+                    if default is not None
+                ),
+                tuple(
+                    (
+                        parameter.arg,
+                        _decorator_name(parameter.annotation.slice).rsplit(".", 1)[-1],
+                    )
+                    for parameter in function.args.kwonlyargs
+                ),
+            )
+            composite_modules[name] = function
+            continue
         if contains_rule_call:
             if (
                 not function.args.args
@@ -1016,6 +1094,9 @@ def _lower_simple_module_source(
         ],
     ] = {}
     declaration_specialization_sources: dict[str, str] = {}
+    composite_specialization_functions: dict[
+        str, tuple[ast.FunctionDef, tuple[tuple[str, StaticValue], ...]]
+    ] = {}
     returned_names: tuple[str, ...] | None = None
 
     def specialize_system_statements(
@@ -1044,7 +1125,11 @@ def _lower_simple_module_source(
         return specialized
 
     def specialize_rule_module(
-        module_name: str, call: ast.Call
+        module_name: str,
+        call: ast.Call,
+        *,
+        context_static_values: Mapping[str, StaticValue] | None = None,
+        context_static_types: Mapping[str, str] | None = None,
     ) -> tuple[
         str,
         tuple[tuple[str, StaticValue], ...],
@@ -1052,6 +1137,16 @@ def _lower_simple_module_source(
         tuple[tuple[str, ValueType], ...],
     ]:
         template = rule_modules[module_name]
+        active_static_values = (
+            system_static_values
+            if context_static_values is None
+            else context_static_values
+        )
+        active_static_types = (
+            system_static_types
+            if context_static_types is None
+            else context_static_types
+        )
         supplied_keywords: dict[str, ast.expr] = {}
         for keyword in call.keywords:
             if keyword.arg is None or keyword.arg in supplied_keywords:
@@ -1076,7 +1171,7 @@ def _lower_simple_module_source(
             expected_type = expected_types.get(name)
             actual_type = _static_config_expression_type(
                 expression,
-                system_static_types,
+                active_static_types,
                 tree,
             )
             if expected_type in _config_type_names(tree):
@@ -1105,7 +1200,7 @@ def _lower_simple_module_source(
                 )
             try:
                 value = evaluate_static(
-                    expression, StaticEnvironment(system_static_values)
+                    expression, StaticEnvironment(active_static_values)
                 )
             except ValueError as error:
                 raise QueueFrontendError(
@@ -1132,7 +1227,10 @@ def _lower_simple_module_source(
             namespace = "" if not readable_parameters else f"{symbol}__"
             program: QueueProgram | None = None
             specialized_payloads = payload_map
-            if module_name not in module_declarations:
+            if (
+                module_name not in module_declarations
+                and module_name not in composite_modules
+            ):
                 try:
                     program = parse_queue_program(
                         text,
@@ -1194,12 +1292,321 @@ def _lower_simple_module_source(
                 program,
                 frozen,
             )
+            if module_name in composite_modules:
+                composite_specialization_functions[symbol] = (
+                    composite_modules[module_name],
+                    frozen,
+                )
             if module_name in module_declarations:
                 declaration_specialization_sources[symbol] = (
                     module_declarations[module_name]
                 )
         definition, _, _ = rule_module_specializations[symbol]
         return symbol, frozen, definition.inputs, definition.outputs
+
+    @dataclass(frozen=True, slots=True)
+    class CompositeInstance:
+        results: tuple[str, ...]
+        module_name: str
+        sources: tuple[str, ...]
+        output_types: tuple[ValueType, ...]
+        static_arguments: tuple[tuple[str, StaticValue], ...]
+        source: SourceFrame | None
+
+    @dataclass(slots=True)
+    class CompositePlan:
+        inputs: tuple[tuple[str, ValueType], ...]
+        outputs: tuple[tuple[str, ValueType], ...]
+        values: dict[str, ValueType]
+        uses: dict[str, int]
+        instances: list[CompositeInstance]
+        returned_names: tuple[str, ...]
+
+    composite_plans: dict[str, CompositePlan] = {}
+
+    def parse_composite_plan(
+        symbol: str,
+        function: ast.FunctionDef,
+        frozen: tuple[tuple[str, StaticValue], ...],
+    ) -> CompositePlan:
+        definition, _, _ = rule_module_specializations[symbol]
+        active_static_values: Mapping[str, StaticValue] = {
+            **module_static_values,
+            **dict(frozen),
+        }
+        active_static_types = dict(
+            rule_modules[function.name].static_parameter_types
+        )
+        specialized_function = copy.deepcopy(function)
+        _strip_static_assertions(
+            specialized_function,
+            active_static_values,
+            normalized_source_path,
+            definition_locations,
+            static_assert_locations,
+        )
+
+        def specialize_statements(statements: list[ast.stmt]) -> list[ast.stmt]:
+            specialized: list[ast.stmt] = []
+            for statement in statements:
+                if not isinstance(statement, ast.If):
+                    specialized.append(statement)
+                    continue
+                try:
+                    condition = evaluate_static(
+                        statement.test,
+                        StaticEnvironment(active_static_values),
+                    )
+                except ValueError as error:
+                    raise QueueFrontendError(
+                        "ACPY-MODULE-010: composite control flow must depend "
+                        "only on ac.const values"
+                    ) from error
+                if type(condition) is not bool:
+                    raise QueueFrontendError(
+                        "ACPY-MODULE-010: composite static condition must be bool"
+                    )
+                specialized.extend(
+                    specialize_statements(
+                        statement.body if condition else statement.orelse
+                    )
+                )
+            return specialized
+
+        statements = specialize_statements(specialized_function.body)
+        normalized: list[ast.stmt] = []
+        for statement in statements:
+            if (
+                isinstance(statement, ast.Return)
+                and isinstance(statement.value, ast.Call)
+                and isinstance(statement.value.func, ast.Name)
+                and statement.value.func.id in modules
+            ):
+                module_name = statement.value.func.id
+                if module_name in rule_modules:
+                    _, _, _, child_outputs = specialize_rule_module(
+                        module_name,
+                        statement.value,
+                        context_static_values=active_static_values,
+                        context_static_types=active_static_types,
+                    )
+                else:
+                    _, child_outputs = module_signature(module_name)
+                names = tuple(
+                    name for name, _ in definition.outputs
+                )
+                if len(names) != len(child_outputs):
+                    names = tuple(
+                        f"__return_{index}"
+                        for index in range(len(child_outputs))
+                    )
+                target: ast.expr = (
+                    ast.Name(id=names[0], ctx=ast.Store())
+                    if len(names) == 1
+                    else ast.Tuple(
+                        elts=[
+                            ast.Name(id=name, ctx=ast.Store()) for name in names
+                        ],
+                        ctx=ast.Store(),
+                    )
+                )
+                returned: ast.expr = (
+                    ast.Name(id=names[0], ctx=ast.Load())
+                    if len(names) == 1
+                    else ast.Tuple(
+                        elts=[ast.Name(id=name, ctx=ast.Load()) for name in names],
+                        ctx=ast.Load(),
+                    )
+                )
+                normalized.extend(
+                    [
+                        ast.Assign(targets=[target], value=statement.value),
+                        ast.Return(value=returned),
+                    ]
+                )
+                continue
+            normalized.append(statement)
+
+        values = dict(definition.inputs)
+        uses = {name: 0 for name, _ in definition.inputs}
+        instances: list[CompositeInstance] = []
+        returned_names: tuple[str, ...] | None = None
+
+        def resolve_child(call: ast.Call) -> tuple[
+            str,
+            tuple[tuple[str, StaticValue], ...],
+            tuple[tuple[str, ValueType], ...],
+            tuple[tuple[str, ValueType], ...],
+        ]:
+            assert isinstance(call.func, ast.Name)
+            module_name = call.func.id
+            if module_name in rule_modules:
+                return specialize_rule_module(
+                    module_name,
+                    call,
+                    context_static_values=active_static_values,
+                    context_static_types=active_static_types,
+                )
+            inputs, outputs = module_signature(module_name)
+            if call.keywords:
+                raise QueueFrontendError(
+                    "ACPY-MODULE-007: pure module static parameters are not implemented"
+                )
+            return module_name, (), inputs, outputs
+
+        def append_instance(
+            call: ast.Call,
+            results: tuple[str, ...],
+        ) -> None:
+            child, static_arguments, input_signature, output_signature = (
+                resolve_child(call)
+            )
+            if len(call.args) != len(input_signature) or len(results) != len(
+                output_signature
+            ):
+                raise QueueFrontendError(
+                    "ACPY-MODULE-010: composite child call arity does not "
+                    "match its declaration"
+                )
+            if len(set(results)) != len(results):
+                raise QueueFrontendError(
+                    "ACPY-MODULE-010: composite results require unique names"
+                )
+            if any(result in values for result in results):
+                raise QueueFrontendError(
+                    "ACPY-MODULE-010: composite results require fresh names"
+                )
+            sources: list[str] = []
+            for argument, (_, expected_type) in zip(
+                call.args, input_signature, strict=True
+            ):
+                if not isinstance(argument, ast.Name) or argument.id not in values:
+                    raise QueueFrontendError(
+                        "ACPY-MODULE-010: composite child inputs must be named "
+                        "parent or prior-child Queue values"
+                    )
+                actual_type = values[argument.id]
+                if not _types_compatible(actual_type, expected_type):
+                    raise QueueFrontendError(
+                        "ACPY-MODULE-010: composite child input type mismatch"
+                    )
+                uses[argument.id] += 1
+                sources.append(argument.id)
+            output_types = tuple(payload for _, payload in output_signature)
+            for result, output_type in zip(results, output_types, strict=True):
+                values[result] = output_type
+                uses[result] = 0
+            instances.append(
+                CompositeInstance(
+                    results,
+                    child,
+                    tuple(sources),
+                    output_types,
+                    static_arguments,
+                    source_frame(call),
+                )
+            )
+
+        for statement in normalized:
+            if (
+                isinstance(statement, ast.Expr)
+                and isinstance(statement.value, ast.Constant)
+                and isinstance(statement.value.value, str)
+            ):
+                continue
+            if (
+                isinstance(statement, ast.Expr)
+                and isinstance(statement.value, ast.Call)
+                and isinstance(statement.value.func, ast.Name)
+                and statement.value.func.id in modules
+            ):
+                append_instance(statement.value, ())
+                continue
+            if (
+                isinstance(statement, ast.Assign)
+                and len(statement.targets) == 1
+                and isinstance(statement.targets[0], (ast.Name, ast.Tuple, ast.List))
+                and isinstance(statement.value, ast.Call)
+                and isinstance(statement.value.func, ast.Name)
+                and statement.value.func.id in modules
+            ):
+                target = statement.targets[0]
+                results = (
+                    (target.id,)
+                    if isinstance(target, ast.Name)
+                    else tuple(
+                        item.id for item in target.elts if isinstance(item, ast.Name)
+                    )
+                )
+                if not results or (
+                    not isinstance(target, ast.Name)
+                    and len(results) != len(target.elts)
+                ):
+                    raise QueueFrontendError(
+                        "ACPY-MODULE-010: composite results require named values"
+                    )
+                append_instance(statement.value, results)
+                continue
+            if isinstance(statement, ast.Return):
+                if statement.value is None or (
+                    isinstance(statement.value, ast.Constant)
+                    and statement.value.value is None
+                ):
+                    returned_names = ()
+                    continue
+                returned = (
+                    tuple(statement.value.elts)
+                    if isinstance(statement.value, (ast.Tuple, ast.List))
+                    else (statement.value,)
+                )
+                if not all(isinstance(item, ast.Name) for item in returned):
+                    raise QueueFrontendError(
+                        "ACPY-MODULE-010: composite returns require named Queue values"
+                    )
+                returned_names = tuple(
+                    item.id for item in returned if isinstance(item, ast.Name)
+                )
+                for returned_name in returned_names:
+                    if returned_name not in values:
+                        raise QueueFrontendError(
+                            "ACPY-MODULE-010: composite returned value is undefined"
+                        )
+                    uses[returned_name] += 1
+                continue
+            raise QueueFrontendError(
+                "ACPY-MODULE-010: unsupported composite module statement "
+                f"{type(statement).__name__} at line "
+                f"{getattr(statement, 'lineno', 0)}"
+            )
+        if returned_names is None and not definition.outputs:
+            returned_names = ()
+        if (
+            returned_names is None
+            or len(returned_names) != len(definition.outputs)
+            or any(
+                not _types_compatible(values[name], expected)
+                for name, (_, expected) in zip(
+                    returned_names, definition.outputs, strict=True
+                )
+            )
+        ):
+            raise QueueFrontendError(
+                "ACPY-MODULE-010: composite return type or arity mismatch"
+            )
+        unused = sorted(name for name, count in uses.items() if count < 1)
+        if unused:
+            raise QueueFrontendError(
+                "ACPY-MODULE-010: every composite Queue value requires a "
+                f"consumer: {unused[0]!r}"
+            )
+        return CompositePlan(
+            definition.inputs,
+            definition.outputs,
+            values,
+            uses,
+            instances,
+            returned_names,
+        )
 
     for children in empty_module_children.values():
         for child, _ in children:
@@ -1531,6 +1938,23 @@ def _lower_simple_module_source(
         raise QueueFrontendError(
             "ACPY-MODULE-002: every module Queue value requires a consumer"
         )
+
+    pending_composites = list(composite_specialization_functions)
+    composite_cursor = 0
+    while composite_cursor < len(pending_composites):
+        symbol = pending_composites[composite_cursor]
+        composite_cursor += 1
+        if symbol in composite_plans:
+            continue
+        composite_function, composite_frozen = (
+            composite_specialization_functions[symbol]
+        )
+        composite_plans[symbol] = parse_composite_plan(
+            symbol, composite_function, composite_frozen
+        )
+        for candidate in composite_specialization_functions:
+            if candidate not in pending_composites:
+                pending_composites.append(candidate)
 
     all_payloads_by_symbol: dict[str, Payload] = {
         payload.descriptor.symbol: payload for payload in payloads
@@ -2058,12 +2482,142 @@ def _lower_simple_module_source(
                 "  }" + _render_source_frame_location(projection_source),
             ]
         )
+
+    def render_composite_module(
+        symbol: str,
+        definition: RuleModuleDefinition,
+        static_arguments: tuple[tuple[str, StaticValue], ...],
+        plan: CompositePlan,
+        function: ast.FunctionDef,
+    ) -> None:
+        argument_types = ", ".join(
+            f"%arg{index}: !ac.queue<{_render_type(payload)}>"
+            for index, (_, payload) in enumerate(definition.inputs)
+        )
+        result_types = ", ".join(
+            f"!ac.queue<{_render_type(payload)}>"
+            for _, payload in definition.outputs
+        )
+        result_signature = (
+            result_types if len(definition.outputs) == 1 else f"({result_types})"
+        )
+        lines.append(
+            f"  ac.module @{symbol}({argument_types})"
+            + (f" -> {result_signature}" if definition.outputs else "")
+            + " parameters "
+            + _render_static_mlir_dictionary(static_arguments)
+            + _render_interface_display_attributes(
+                tuple(name for name, _ in definition.inputs),
+                tuple(name for name, _ in definition.outputs),
+                composite_module_metadata(symbol, function.name),
+            )
+            + " graph {"
+        )
+        available: dict[str, list[str]] = {}
+
+        def bind_value(name: str, ssa: str) -> None:
+            use_count = plan.uses[name]
+            if use_count == 1:
+                available[name] = [ssa]
+                return
+            outputs = [f"{name}__fanout{index}" for index in range(use_count)]
+            payload = plan.values[name]
+            rendered_type = _render_type(payload)
+            rendered_outputs = ", ".join(f"%{item}" for item in outputs)
+            local_outputs = ", ".join(f"%{item}__local" for item in outputs)
+            output_types = ", ".join(
+                f"!ac.queue<{rendered_type}>" for _ in outputs
+            )
+            depths = ", ".join("1" for _ in outputs)
+            output_names = "[" + ", ".join(
+                canonical_mlir_string(f"{item}__local") for item in outputs
+            ) + "]"
+            lines.extend(
+                [
+                    f"    {rendered_outputs} = ac.scope "
+                    f"@__ac_fanout_{name}(%{ssa}) {{",
+                    f"    ^bb0(%borrowed: !ac.queue<{rendered_type}>):",
+                    f"      {local_outputs} = ac.broadcast %borrowed "
+                    f"depths [{depths}] latencies [{depths}] "
+                    f"{{ac.output_names = {output_names}}} : "
+                    f"!ac.queue<{rendered_type}> -> ({output_types})",
+                    "      ac.scope.yield "
+                    + ", ".join(f"%{item}__local" for item in outputs)
+                    + " : "
+                    + output_types,
+                    f"    }} : (!ac.queue<{rendered_type}>) -> "
+                    f"({output_types})",
+                ]
+            )
+            available[name] = outputs
+
+        def take_value(name: str) -> str:
+            values_for_name = available.get(name)
+            if not values_for_name:
+                raise AssertionError(
+                    f"composite Queue value {name!r} is unavailable"
+                )
+            return values_for_name.pop(0)
+
+        for index, (name, _) in enumerate(definition.inputs):
+            bind_value(name, f"arg{index}")
+        for index, instance in enumerate(plan.instances):
+            operands = ", ".join(
+                f"%{take_value(source)}" for source in instance.sources
+            )
+            input_signature = ", ".join(
+                f"!ac.queue<{_render_type(plan.values[source])}>"
+                for source in instance.sources
+            )
+            output_signature = ", ".join(
+                f"!ac.queue<{_render_type(payload)}>"
+                for payload in instance.output_types
+            )
+            result_type = (
+                output_signature
+                if len(instance.output_types) == 1
+                else f"({output_signature})"
+            )
+            lhs = ", ".join(f"%{result}" for result in instance.results)
+            assignment = f"{lhs} = " if lhs else ""
+            instance_name = f"{instance.module_name}_{index}"
+            lines.append(
+                f"    {assignment}ac.instance @{instance_name} of "
+                f"@{instance.module_name}({operands}) static "
+                f"{_render_static_mlir_dictionary(instance.static_arguments)} "
+                f'id "{instance_name}" path "{instance_name}" '
+                f": ({input_signature}) -> {result_type}"
+                + _render_source_frame_location(instance.source)
+            )
+            for result in instance.results:
+                bind_value(result, result)
+        if definition.outputs:
+            returned = [
+                f"%{take_value(name)}" for name in plan.returned_names
+            ]
+            lines.append(
+                "    ac.return " + ", ".join(returned) + " : " + result_types
+            )
+        else:
+            lines.append("    ac.return")
+        lines.append("  }")
+
     for name, (
         definition,
         program,
         static_arguments,
     ) in rule_module_specializations.items():
         if program is None:
+            if name in composite_plans:
+                composite_function, _ = composite_specialization_functions[name]
+                render_composite_module(
+                    name,
+                    definition,
+                    static_arguments,
+                    composite_plans[name],
+                    composite_function,
+                )
+                continue
             argument_types = ", ".join(
                 f"!ac.queue<{_render_type(payload)}>"
                 for _, payload in definition.inputs
