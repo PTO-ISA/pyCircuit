@@ -270,6 +270,34 @@ def ACIR_RuleIndexKind
 def ACIR_RuleIndexKindAttr
     : EnumAttr<ACIR_Dialect, ACIR_RuleIndexKind, "rule_index_kind">;
 
+// Closed node vocabulary for Decision 0271's persisted rule-expression DAG.
+// Node ordinals are serialization-local handles only; semantic equality is the
+// recursively typed structure represented by these opcodes and attributes.
+def ACIR_RuleExpressionOpcode_RuleInput
+    : I32EnumAttrCase<"RuleInput", 0, "rule_input">;
+def ACIR_RuleExpressionOpcode_Constant
+    : I32EnumAttrCase<"Constant", 1, "constant">;
+def ACIR_RuleExpressionOpcode_CommittedState
+    : I32EnumAttrCase<"CommittedState", 2, "committed_state">;
+def ACIR_RuleExpressionOpcode_Operation
+    : I32EnumAttrCase<"Operation", 3, "operation">;
+def ACIR_RuleExpressionOpcode_Lane
+    : I32EnumAttrCase<"Lane", 4, "lane">;
+def ACIR_RuleExpressionOpcode
+    : I32EnumAttr<"RuleExpressionOpcode",
+                  "closed persisted rule-expression node opcode",
+                  [ACIR_RuleExpressionOpcode_RuleInput,
+                   ACIR_RuleExpressionOpcode_Constant,
+                   ACIR_RuleExpressionOpcode_CommittedState,
+                   ACIR_RuleExpressionOpcode_Operation,
+                   ACIR_RuleExpressionOpcode_Lane]> {
+  let genSpecializedAttr = 0;
+  let cppNamespace = "::acir::ac";
+}
+def ACIR_RuleExpressionOpcodeAttr
+    : EnumAttr<ACIR_Dialect, ACIR_RuleExpressionOpcode,
+               "rule_expression_opcode">;
+
 def ACIR_WriterPriorityAttr : AttrDef<ACIR_Dialect, "WriterPriority"> {
   let mnemonic = "writer_priority";
   let summary = "explicit owner-local Table writer priority";
