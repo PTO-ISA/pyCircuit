@@ -162,6 +162,39 @@ def pipeline(left: ac.u8, right: ac.u8) -> tuple[ac.u8, ac.u8]:
         self.assertNotIn("func.call @add_one", text)
         self.assertGreaterEqual(text.count("ac.var.add"), 2)
 
+    def test_inline_helper_propagates_into_fixed_array_callback(self) -> None:
+        source = """
+import agentic_circuit as ac
+
+@ac.struct
+class Batch:
+    values: ac.array[2, ac.u8]
+
+@ac.inline
+def widen(value: ac.u8) -> ac.u16:
+    return ac.zext(value, ac.u16)
+
+@ac.struct
+class WideBatch:
+    values: ac.array[2, ac.u16]
+
+@ac.rule
+def transform(batch):
+    return WideBatch(values=batch.values.map(lambda value: widen(value)))
+
+@ac.module
+def stage(batch: Batch) -> WideBatch:
+    result = transform(batch)
+    return result
+
+@ac.system
+def pipeline(batch: Batch) -> WideBatch:
+    return stage(batch)
+"""
+        text = lower_queue_source(source, "pipeline")
+        self.assertNotIn("func.call @widen", text)
+        self.assertGreaterEqual(text.count("ac.var.concat"), 2)
+
     def test_helper_rejects_undefined_branch_local_and_wrong_result(self) -> None:
         undefined = """
 import agentic_circuit as ac

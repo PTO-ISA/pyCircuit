@@ -27,7 +27,7 @@ Decision: 0270
 
 ## Evidence
 
-- Focused pure-helper/frontend/source-unit/ACC CLI: 57 passed.
+- Focused pure-helper/frontend/source-unit/ACC CLI: 58 passed.
 - Composite AC package lit: 2 passed. Both independently compile source ACs,
   link and verify the package, emit a multi-TU C++ bundle, build with
   CMake/Ninja, link a typed external consumer, and execute it through the

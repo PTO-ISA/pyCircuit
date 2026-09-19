@@ -122,6 +122,7 @@ class _ExpressionEmitter:
         helpers: Mapping[str, PureHelperDefinition] | None = None,
         inline_pure_helpers: bool = False,
         inline_explicit_helpers: bool = False,
+        active_inline_helpers: set[str] | None = None,
         strict_descriptors: bool = False,
         array_expansion: list[int] | None = None,
     ) -> None:
@@ -166,7 +167,11 @@ class _ExpressionEmitter:
         self.helpers = dict(helpers or {})
         self.inline_pure_helpers = inline_pure_helpers
         self.inline_explicit_helpers = inline_explicit_helpers
-        self.active_inline_helpers: set[str] = set()
+        self.active_inline_helpers = (
+            active_inline_helpers
+            if active_inline_helpers is not None
+            else set()
+        )
         self.strict_descriptors = strict_descriptors
         self.array_expansion = array_expansion if array_expansion is not None else [0]
         self.array_callback_captures: dict[
@@ -1297,6 +1302,9 @@ class _ExpressionEmitter:
             bitfields=self.bitfields,
             invariants=self.invariants,
             helpers=self.helpers,
+            inline_pure_helpers=self.inline_pure_helpers,
+            inline_explicit_helpers=self.inline_explicit_helpers,
+            active_inline_helpers=self.active_inline_helpers,
             strict_descriptors=True,
             array_expansion=self.array_expansion,
         )
@@ -2364,6 +2372,9 @@ class _ExpressionEmitter:
                     bitfields=self.bitfields,
                     invariants=self.invariants,
                     helpers=self.helpers,
+                    inline_pure_helpers=self.inline_pure_helpers,
+                    inline_explicit_helpers=self.inline_explicit_helpers,
+                    active_inline_helpers=self.active_inline_helpers,
                 )
                 predicate, predicate_type = predicate_emitter.emit(
                     invariant.expression, BoolType()
@@ -2797,6 +2808,9 @@ class _ExpressionEmitter:
                 bitfields=self.bitfields,
                 invariants=self.invariants,
                 helpers=self.helpers,
+                inline_pure_helpers=self.inline_pure_helpers,
+                inline_explicit_helpers=self.inline_explicit_helpers,
+                active_inline_helpers=self.active_inline_helpers,
             )
             predicate, predicate_type = predicate_emitter.emit(
                 candidate.predicate, BoolType()
@@ -2929,6 +2943,9 @@ class _ExpressionEmitter:
                 bitfields=self.bitfields,
                 invariants=self.invariants,
                 helpers=self.helpers,
+                inline_pure_helpers=self.inline_pure_helpers,
+                inline_explicit_helpers=self.inline_explicit_helpers,
+                active_inline_helpers=self.active_inline_helpers,
             )
             predicate, predicate_type = predicate_emitter.emit(
                 candidate.predicate, BoolType()
@@ -2968,6 +2985,10 @@ class _ExpressionEmitter:
                     enum_types=self.enum_types,
                     bitfields=self.bitfields,
                     invariants=self.invariants,
+                    helpers=self.helpers,
+                    inline_pure_helpers=self.inline_pure_helpers,
+                    inline_explicit_helpers=self.inline_explicit_helpers,
+                    active_inline_helpers=self.active_inline_helpers,
                 )
                 key, key_type = key_emitter.emit(selection.key)
                 if _integer_width(key_type) is None:
