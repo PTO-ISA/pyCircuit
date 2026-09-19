@@ -10627,6 +10627,8 @@ contracts without introducing consumer-specific hierarchy knowledge.
   Executable units import these headers; they do not copy type declarations.
 - Published `.ac` is High ACIR. It retains `ac.module`, `ac.rule`, typed state,
   Table operations, atomic effects, source/NDF provenance, and module imports.
+  Verified imported pure helpers are expanded before source-unit isolation so
+  one unit never retains an unresolved call to a helper owned by another source.
   Rule materialization to `ac.firing`, scheduling closure, and backend-oriented
   lowering occur only after package link inside native `acc`.
 - `ac.var.*` is not the final public expression design. Existing typed Var

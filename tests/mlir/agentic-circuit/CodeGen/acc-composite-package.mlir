@@ -2,6 +2,7 @@
 // RUN: %split_file %s %t
 // RUN: env PYTHONPATH=%source_root/python/semantic-core/src:%source_root/python/agentic-circuit/src:%binary_root/python %python -m agentic_circuit._acc_py --project %t/agentic-circuit.toml -c %t/pkg/core.py --unit core -o %t/package/core.ac --quiet
 // RUN: env PYTHONPATH=%source_root/python/semantic-core/src:%source_root/python/agentic-circuit/src:%binary_root/python %python -m agentic_circuit._acc_py --project %t/agentic-circuit.toml -c %t/pkg/decode.py --specializations-json %t/decode.json --header-output %t/package/interfaces/pkg/decode/module.ac -o %t/package/h3/decode/decode.ac --quiet
+// RUN: %FileCheck %s --check-prefix=SOURCE < %t/package/h3/decode/decode.ac
 // RUN: env PYTHONPATH=%source_root/python/semantic-core/src:%source_root/python/agentic-circuit/src:%binary_root/python %python -m agentic_circuit._acc_py --project %t/agentic-circuit.toml -c %t/pkg/execute.py --specializations-json %t/execute.json --header-output %t/package/interfaces/pkg/execute/module.ac -o %t/package/h3/execute/execute.ac --quiet
 // RUN: env PYTHONPATH=%source_root/python/semantic-core/src:%source_root/python/agentic-circuit/src:%binary_root/python %python -m agentic_circuit._acc_py --project %t/agentic-circuit.toml -c %t/pkg/pipeline.py --specializations-json %t/pipeline.json --header-output %t/package/interfaces/pkg/pipeline/module.ac -o %t/package/h2/pipeline/pipeline.ac --quiet
 // RUN: %acc -c %t/package -verify
@@ -10,6 +11,10 @@
 // RUN: cmake --build %t/bundle-build --parallel 4
 // RUN: %cxx -std=c++20 -I%t/bundle/include -I%source_root/simulator/gfsim/include %t/harness.cpp %t/bundle-build/libac_generated_model.a %binary_root/gfsim/libgfsim.a -o %t/composite
 // RUN: %t/composite
+
+// SOURCE: ac.module @decode
+// SOURCE-NOT: func.call @widen
+// SOURCE-NOT: func.func private @widen
 
 //--- pkg/__init__.py
 
@@ -38,9 +43,19 @@ def pipeline(value: ac.u8) -> ac.u32:
 //--- pkg/decode.py
 import agentic_circuit as ac
 
+from pkg.helpers import widen
+
 
 @ac.module
 def decode(value: ac.u8) -> ac.u16:
+    return widen(value)
+
+//--- pkg/helpers.py
+import agentic_circuit as ac
+
+
+@ac.inline
+def widen(value: ac.u8) -> ac.u16:
     return ac.zext(value, ac.u16)
 
 //--- pkg/execute.py

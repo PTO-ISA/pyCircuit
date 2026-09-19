@@ -128,7 +128,7 @@ def pipeline(left: ac.u8, right: ac.u8) -> tuple[ac.u8, ac.u8]:
         self.assertEqual(1, text.count("func.func private @forced"))
         self.assertIn("attributes {ac.inline = true}", text)
         self.assertGreaterEqual(text.count("func.call @add_one"), 2)
-        self.assertIn("func.call @forced", text)
+        self.assertNotIn("func.call @forced", text)
 
     def test_rule_backed_modules_emit_reused_helper_definition_once(self) -> None:
         source = """

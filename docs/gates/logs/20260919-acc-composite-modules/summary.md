@@ -19,12 +19,15 @@ Decision: 0270
 - Composite package DUTs run through `configure_activation_scheduler()` and the
   public typed header. The gate no longer hides nested activation defects by
   manually visiting every dispatch row.
+- Imported typed `@ac.inline` helpers are expanded inside the consuming module
+  before source-unit isolation; source AC cannot retain an unresolved helper
+  call owned by another Python file.
 - The diagnostic registry includes the composite frontend codes, complete
   implementation-source coverage, and the AC package ownership/path failure.
 
 ## Evidence
 
-- Focused frontend/source-unit/ACC CLI: 49 passed.
+- Focused pure-helper/frontend/source-unit/ACC CLI: 57 passed.
 - Composite AC package lit: 2 passed. Both independently compile source ACs,
   link and verify the package, emit a multi-TU C++ bundle, build with
   CMake/Ninja, link a typed external consumer, and execute it through the

@@ -2414,6 +2414,9 @@ Runtime arguments create independent instances; only typed `ac.const` bindings
 select a specialization. The child implementation is compiled and optimized in
 its own source unit, which publishes both its implementation AC and matching
 interface header.
+An imported typed helper marked `@ac.inline` is expanded inside the consuming
+module graph before source-unit isolation. The emitted source AC therefore
+cannot retain a `func.call` whose helper body belongs to another Python file.
 A module body may call several declared children, retain their outputs in named
 SSA values, pass those values to later children, and return zero, one, or several
 named results. Repeated calls create independent instances. When one parent

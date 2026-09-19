@@ -1786,6 +1786,8 @@ def accumulator(value: ac.u8, *, width: ac.const[int] = 8) -> ac.u8:
 声明调用降为引用 `ac.module.import` 的 `ac.instance`。runtime 参数产生独立 instance；
 只有 typed `ac.const` 参数选择 specialization。child implementation 在自己的 source unit
 内独立编译和优化，并由同一次编译同时发布 implementation AC 与对应 interface header。
+module graph 使用的 imported typed `@ac.inline` helper 在 source-unit 隔离前展开；发布的
+source AC 不得保留 helper body 属于另一 Python 文件的 `func.call`。
 
 stateful module 链支持一个或多个零初始化 scalar lexical variable，每个变量按 Python
 源码顺序赋值一次，并返回一个 typed expression：

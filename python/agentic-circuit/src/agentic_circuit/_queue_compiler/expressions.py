@@ -121,6 +121,7 @@ class _ExpressionEmitter:
         invariants: Mapping[str, InvariantDefinition] | None = None,
         helpers: Mapping[str, PureHelperDefinition] | None = None,
         inline_pure_helpers: bool = False,
+        inline_explicit_helpers: bool = False,
         strict_descriptors: bool = False,
         array_expansion: list[int] | None = None,
     ) -> None:
@@ -164,6 +165,7 @@ class _ExpressionEmitter:
         self.invariants = dict(invariants or {})
         self.helpers = dict(helpers or {})
         self.inline_pure_helpers = inline_pure_helpers
+        self.inline_explicit_helpers = inline_explicit_helpers
         self.active_inline_helpers: set[str] = set()
         self.strict_descriptors = strict_descriptors
         self.array_expansion = array_expansion if array_expansion is not None else [0]
@@ -2285,7 +2287,9 @@ class _ExpressionEmitter:
                         )
                     operands.append(operand)
                     operand_types.append(operand_type)
-                if self.inline_pure_helpers:
+                if self.inline_pure_helpers or (
+                    self.inline_explicit_helpers and helper.inline
+                ):
                     if helper.name in self.active_inline_helpers:
                         raise QueueFrontendError(
                             f"ACPY-HELPER-002: helper {helper.name!r} is recursive"

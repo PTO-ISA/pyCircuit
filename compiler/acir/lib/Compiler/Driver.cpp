@@ -36,21 +36,29 @@ struct DriverState {
 
 std::string severityName(mlir::DiagnosticSeverity severity) {
   switch (severity) {
-  case mlir::DiagnosticSeverity::Error: return "error";
-  case mlir::DiagnosticSeverity::Warning: return "warning";
-  case mlir::DiagnosticSeverity::Remark: return "remark";
-  case mlir::DiagnosticSeverity::Note: return "note";
+  case mlir::DiagnosticSeverity::Error:
+    return "error";
+  case mlir::DiagnosticSeverity::Warning:
+    return "warning";
+  case mlir::DiagnosticSeverity::Remark:
+    return "remark";
+  case mlir::DiagnosticSeverity::Note:
+    return "note";
   }
   return "error";
 }
 
-struct DiagnosticSourceFrame { std::string message; SourceLocation source; };
+struct DiagnosticSourceFrame {
+  std::string message;
+  SourceLocation source;
+};
 
 std::vector<DiagnosticSourceFrame>
 sourceLocations(mlir::Location location,
                 llvm::StringRef message = "source definition") {
   if (auto file = mlir::dyn_cast<mlir::FileLineColLoc>(location))
-    return {{message.str(), {file.getFilename().str(), file.getLine(), file.getColumn()}}};
+    return {{message.str(),
+             {file.getFilename().str(), file.getLine(), file.getColumn()}}};
   if (auto named = mlir::dyn_cast<mlir::NameLoc>(location))
     return sourceLocations(named.getChildLoc(), named.getName().getValue());
   if (auto call = mlir::dyn_cast<mlir::CallSiteLoc>(location)) {
@@ -74,18 +82,24 @@ sourceLocations(mlir::Location location,
 
 std::string defaultDiagnosticCode(CompilerStage stage) {
   switch (stage) {
-  case CompilerStage::AcirParse: return "ACIR-PARSE-001";
-  case CompilerStage::AcirVerify: return "ACIR-VERIFY-001";
-  case CompilerStage::AcirNormalize: return "ACIR-NORMALIZE-001";
-  case CompilerStage::TopologyClosure: return "ACIR-CLOSURE-001";
+  case CompilerStage::AcirParse:
+    return "ACIR-PARSE-001";
+  case CompilerStage::AcirVerify:
+    return "ACIR-VERIFY-001";
+  case CompilerStage::AcirNormalize:
+    return "ACIR-NORMALIZE-001";
+  case CompilerStage::TopologyClosure:
+    return "ACIR-CLOSURE-001";
   }
   return "ACIR-COMPILER-001";
 }
 
 CompilerDiagnostic makeDiagnostic(CompilerStage stage, llvm::StringRef code,
                                   llvm::StringRef message) {
-  return {.stage = compilerStageName(stage).str(), .code = code.str(),
-          .severity = "error", .message = message.str()};
+  return {.stage = compilerStageName(stage).str(),
+          .code = code.str(),
+          .severity = "error",
+          .message = message.str()};
 }
 
 llvm::Error compilerFailure(CompilerStage stage, llvm::StringRef code,
@@ -101,15 +115,16 @@ public:
           auto sources = sourceLocations(diagnostic.getLocation());
           CompilerDiagnostic captured{
               .stage = compilerStageName(stage_).str(),
-              .code = detail::diagnosticCodeFromMetadata(diagnostic).value_or(
-                  defaultDiagnosticCode(stage_)),
+              .code = detail::diagnosticCodeFromMetadata(diagnostic)
+                          .value_or(defaultDiagnosticCode(stage_)),
               .severity = severityName(diagnostic.getSeverity()),
               .message = diagnostic.str(),
-              .source = sources.empty() ? std::nullopt
-                                        : std::optional(sources.front().source)};
+              .source = sources.empty()
+                            ? std::nullopt
+                            : std::optional(sources.front().source)};
           for (const auto &frame : llvm::ArrayRef(sources).drop_front())
-            captured.related.push_back({.message = frame.message,
-                                        .source = frame.source});
+            captured.related.push_back(
+                {.message = frame.message, .source = frame.source});
           diagnostics_.push_back(std::move(captured));
           return mlir::success();
         }) {}
@@ -123,6 +138,7 @@ public:
   std::vector<CompilerDiagnostic> takeDiagnostics() {
     return std::move(diagnostics_);
   }
+
 private:
   CompilerStage stage_ = CompilerStage::AcirParse;
   std::vector<CompilerDiagnostic> diagnostics_;
@@ -224,8 +240,7 @@ llvm::Expected<std::string> sourceUnitPath(ac::ModuleOp definition) {
         "module source '%s' must end in .py", value.str().c_str());
   llvm::SmallString<256> path("sources");
   llvm::sys::path::append(path, llvm::sys::path::Style::posix, value);
-  llvm::sys::path::replace_extension(path, "ac",
-                                     llvm::sys::path::Style::posix);
+  llvm::sys::path::replace_extension(path, "ac", llvm::sys::path::Style::posix);
   return path.str().str();
 }
 
@@ -255,8 +270,7 @@ llvm::Expected<std::string> interfaceUnitPath(llvm::StringRef value) {
         "interface source '%s' must end in .py", value.str().c_str());
   llvm::SmallString<256> path("interfaces");
   llvm::sys::path::append(path, llvm::sys::path::Style::posix, value);
-  llvm::sys::path::replace_extension(path, "ac",
-                                     llvm::sys::path::Style::posix);
+  llvm::sys::path::replace_extension(path, "ac", llvm::sys::path::Style::posix);
   return path.str().str();
 }
 
@@ -275,9 +289,10 @@ std::string printTypeUnit(mlir::ModuleOp source, ac::TypeScopeOp typeScope,
   cloned->removeAttr("dlti.dl_spec");
   std::set<llvm::StringRef> ownedSymbols;
   for (mlir::Operation *definition : definitions)
-    ownedSymbols.insert(
-        definition->getAttrOfType<mlir::StringAttr>(
-            mlir::SymbolTable::getSymbolAttrName()).getValue());
+    ownedSymbols.insert(definition
+                            ->getAttrOfType<mlir::StringAttr>(
+                                mlir::SymbolTable::getSymbolAttrName())
+                            .getValue());
   for (mlir::Operation &operation :
        llvm::make_early_inc_range(cloned.getBody().front())) {
     auto symbol = operation.getAttrOfType<mlir::StringAttr>(
@@ -306,9 +321,9 @@ std::string printLayoutUnit(mlir::ModuleOp source, ac::TypeScopeOp typeScope) {
   return printModule(*unit, /*assumeVerified=*/true);
 }
 
-std::string printModuleInterfaceUnit(
-    mlir::ModuleOp source, llvm::StringRef owner,
-    llvm::ArrayRef<mlir::Operation *> definitions) {
+std::string
+printModuleInterfaceUnit(mlir::ModuleOp source, llvm::StringRef owner,
+                         llvm::ArrayRef<mlir::Operation *> definitions) {
   mlir::OwningOpRef<mlir::ModuleOp> unit(
       mlir::ModuleOp::create(source.getLoc()));
   mlir::Builder builder(source.getContext());
@@ -317,7 +332,8 @@ std::string printModuleInterfaceUnit(
   unit->getOperation()->setAttr(
       "ac.unit_source", mlir::StringAttr::get(source.getContext(), owner));
   unit->getOperation()->setAttr(
-      "ac.interface_kind", mlir::StringAttr::get(source.getContext(), "modules"));
+      "ac.interface_kind",
+      mlir::StringAttr::get(source.getContext(), "modules"));
   for (mlir::Operation *definition : definitions) {
     if (!mlir::isa<ac::ModuleOp>(definition))
       continue;
@@ -421,9 +437,10 @@ llvm::Error emitAcirPackage(mlir::ModuleOp module, CompilerResult &result) {
                            llvm::toString(rootDefinitionName.takeError()));
   bool sourceUnitCompile =
       llvm::StringRef(*rootDefinitionName).starts_with("_acc_source_unit_root");
-  auto rootSource = rootDefinition->getAttrOfType<mlir::StringAttr>("ac.source_file");
+  auto rootSource =
+      rootDefinition->getAttrOfType<mlir::StringAttr>("ac.source_file");
   std::set<mlir::Operation *> coreOwned{selectedSystem.getOperation(),
-                                       rootDefinition.getOperation()};
+                                        rootDefinition.getOperation()};
   for (ac::ModuleOp definition : module.getOps<ac::ModuleOp>()) {
     if (definition == rootDefinition)
       continue;
@@ -466,9 +483,13 @@ llvm::Error emitAcirPackage(mlir::ModuleOp module, CompilerResult &result) {
 
   if (!sourceUnitCompile)
     addArtifact(result, "core.ac", ArtifactKind::Acir,
-                printUnit(module, true, [&](mlir::Operation &operation) {
-                  return coreOwned.contains(&operation);
-                }, "core", rootSource ? rootSource.getValue() : llvm::StringRef()));
+                printUnit(
+                    module, true,
+                    [&](mlir::Operation &operation) {
+                      return coreOwned.contains(&operation);
+                    },
+                    "core",
+                    rootSource ? rootSource.getValue() : llvm::StringRef()));
   if (auto error = emitInterfaceUnits(module, result))
     return error;
   for (auto &[logicalPath, definitions] : sourceGroups) {
@@ -478,15 +499,17 @@ llvm::Error emitAcirPackage(mlir::ModuleOp module, CompilerResult &result) {
       auto rightSymbol = right->getAttrOfType<mlir::StringAttr>(
           mlir::SymbolTable::getSymbolAttrName());
       return std::make_pair(left->getName().getStringRef(),
-                            leftSymbol ? leftSymbol.getValue() : llvm::StringRef()) <
+                            leftSymbol ? leftSymbol.getValue()
+                                       : llvm::StringRef()) <
              std::make_pair(right->getName().getStringRef(),
-                            rightSymbol ? rightSymbol.getValue() : llvm::StringRef());
+                            rightSymbol ? rightSymbol.getValue()
+                                        : llvm::StringRef());
     });
     std::set<mlir::Operation *> owned;
     for (mlir::Operation *definition : definitions)
       owned.insert(definition);
-    auto source = definitions.front()->getAttrOfType<mlir::StringAttr>(
-        "ac.source_file");
+    auto source =
+        definitions.front()->getAttrOfType<mlir::StringAttr>("ac.source_file");
     llvm::SmallString<256> interfacePath("interfaces/modules");
     llvm::StringRef sourcePath = source.getValue();
     llvm::sys::path::append(interfacePath, llvm::sys::path::Style::posix,
@@ -495,11 +518,13 @@ llvm::Error emitAcirPackage(mlir::ModuleOp module, CompilerResult &result) {
                                        llvm::sys::path::Style::posix);
     addArtifact(result, interfacePath.str().str(), ArtifactKind::Acir,
                 printModuleInterfaceUnit(module, sourcePath, definitions));
-    addArtifact(
-        result, logicalPath, ArtifactKind::Acir,
-        printUnit(module, false, [&](mlir::Operation &operation) {
-          return owned.contains(&operation);
-        }, "source", source.getValue()));
+    addArtifact(result, logicalPath, ArtifactKind::Acir,
+                printUnit(
+                    module, false,
+                    [&](mlir::Operation &operation) {
+                      return owned.contains(&operation);
+                    },
+                    "source", source.getValue()));
   }
   return llvm::Error::success();
 }
@@ -555,15 +580,22 @@ llvm::Error runStage(CompilerStage stage, const CompilerRequest &request,
     if (mlir::failed(runPass(state, createVerifyACIRFilePass())))
       return capture.takeFailure(stage);
     if (requested(request, ArtifactKind::Acir) &&
-        request.stopAfter == CompilerStage::AcirVerify)
+        request.stopAfter == CompilerStage::AcirVerify) {
+      // A source-owned AC unit must not retain a call to a helper definition
+      // that will be published under another source path. Expand verified pure
+      // helpers before package isolation while preserving rules and High ACIR.
+      if (mlir::failed(runPass(state, createInlinePureHelpersPass())) ||
+          mlir::failed(runPass(state, createVerifyACIRFilePass())))
+        return capture.takeFailure(stage);
       return emitAcirPackage(*state.module, result);
+    }
     return llvm::Error::success();
   case CompilerStage::AcirNormalize: {
     mlir::PassManager manager(&state.context);
     if (request.profile == CompilerProfile::Custom) {
       llvm::raw_null_ostream errors;
-      if (mlir::failed(mlir::parsePassPipeline(*request.customPipeline,
-                                               manager, errors)))
+      if (mlir::failed(mlir::parsePassPipeline(*request.customPipeline, manager,
+                                               errors)))
         return compilerFailure(stage, "ACIR-PIPELINE-001",
                                "custom pipeline is invalid");
     } else {
@@ -571,7 +603,8 @@ llvm::Error runStage(CompilerStage stage, const CompilerRequest &request,
       manager.addPass(createNormalizeACIRFilePass());
     }
     return mlir::succeeded(manager.run(state.module.get()))
-               ? llvm::Error::success() : capture.takeFailure(stage);
+               ? llvm::Error::success()
+               : capture.takeFailure(stage);
   }
   case CompilerStage::TopologyClosure:
     if (mlir::failed(runPass(state, createFreezeTopologyPass())))
@@ -590,18 +623,22 @@ CompilerError::CompilerError(std::vector<CompilerDiagnostic> diagnostics)
     : diagnostics_(std::move(diagnostics)) {}
 void CompilerError::log(llvm::raw_ostream &output) const {
   output << (diagnostics_.empty() ? "compiler failed without a diagnostic"
-                                 : diagnostics_.front().code + ": " +
-                                       diagnostics_.front().message);
+                                  : diagnostics_.front().code + ": " +
+                                        diagnostics_.front().message);
 }
 std::error_code CompilerError::convertToErrorCode() const {
   return llvm::inconvertibleErrorCode();
 }
 llvm::StringRef compilerStageName(CompilerStage stage) {
   switch (stage) {
-  case CompilerStage::AcirParse: return "acir-parse";
-  case CompilerStage::AcirVerify: return "acir-verify";
-  case CompilerStage::AcirNormalize: return "acir-normalize";
-  case CompilerStage::TopologyClosure: return "topology-closure";
+  case CompilerStage::AcirParse:
+    return "acir-parse";
+  case CompilerStage::AcirVerify:
+    return "acir-verify";
+  case CompilerStage::AcirNormalize:
+    return "acir-normalize";
+  case CompilerStage::TopologyClosure:
+    return "topology-closure";
   }
   llvm_unreachable("closed CompilerStage is exhaustive");
 }
@@ -609,9 +646,11 @@ llvm::StringRef compilerStageName(CompilerStage stage) {
 std::optional<std::string>
 detail::diagnosticCodeFromMetadata(mlir::Diagnostic &diagnostic) {
   for (mlir::DiagnosticArgument &argument : diagnostic.getMetadata()) {
-    if (argument.getKind() != mlir::DiagnosticArgument::DiagnosticArgumentKind::Attribute)
+    if (argument.getKind() !=
+        mlir::DiagnosticArgument::DiagnosticArgumentKind::Attribute)
       continue;
-    auto fields = mlir::dyn_cast<mlir::DictionaryAttr>(argument.getAsAttribute());
+    auto fields =
+        mlir::dyn_cast<mlir::DictionaryAttr>(argument.getAsAttribute());
     if (fields)
       if (auto code = fields.getAs<mlir::StringAttr>("diagnostic.code");
           code && !code.getValue().empty())
@@ -627,7 +666,8 @@ llvm::Expected<CompilerResult> runCompiler(const CompilerRequest &request) {
   if (!pipeline)
     return compilerFailure(CompilerStage::AcirParse, "ACIR-PIPELINE-001",
                            llvm::toString(pipeline.takeError()));
-  if (auto error = validateRequest(request, *pipeline)) return std::move(error);
+  if (auto error = validateRequest(request, *pipeline))
+    return std::move(error);
   mlir::DialectRegistry registry;
   registerAllDialects(registry);
   DriverState state;
@@ -637,15 +677,18 @@ llvm::Expected<CompilerResult> runCompiler(const CompilerRequest &request) {
   CompilerResult result;
   for (CompilerStage stage : *pipeline) {
     if (state.module && namesStage(request.dumpBefore, stage))
-      addArtifact(result, "dumps/" + compilerStageName(stage).str() + "-before.mlir",
+      addArtifact(result,
+                  "dumps/" + compilerStageName(stage).str() + "-before.mlir",
                   ArtifactKind::Report, printModule(*state.module));
     if (auto error = runStage(stage, request, state, result, capture))
       return std::move(error);
     if (request.verifyAfterEach && state.module &&
         mlir::failed(mlir::verify(state.module.get())))
       return capture.takeFailure(stage);
-    if (state.module && (request.dumpAfterEach || namesStage(request.dumpAfter, stage)))
-      addArtifact(result, "dumps/" + compilerStageName(stage).str() + "-after.mlir",
+    if (state.module &&
+        (request.dumpAfterEach || namesStage(request.dumpAfter, stage)))
+      addArtifact(result,
+                  "dumps/" + compilerStageName(stage).str() + "-after.mlir",
                   ArtifactKind::Report, printModule(*state.module));
   }
   result.diagnostics = capture.takeDiagnostics();

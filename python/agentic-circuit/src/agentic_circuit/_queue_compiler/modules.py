@@ -1779,6 +1779,7 @@ def _lower_simple_module_source(
                         bitfields=bitfield_map,
                         invariants=invariants,
                         helpers=helpers,
+                        inline_explicit_helpers=True,
                     )
                     _, actual_type = emitter.emit(argument, expected_type)
                     root_type = values[root.id]
@@ -2296,6 +2297,7 @@ def _lower_simple_module_source(
                 bitfields=bitfield_map,
                 invariants=invariants,
                 helpers=helpers,
+                inline_explicit_helpers=True,
             )
             lines.extend(
                 [
@@ -2384,6 +2386,7 @@ def _lower_simple_module_source(
             bitfields=bitfield_map,
             invariants=invariants,
             helpers=helpers,
+            inline_explicit_helpers=True,
         )
         value, value_type = emitter.emit(expression, output_type)
         if not _types_compatible(value_type, output_type):
@@ -2438,6 +2441,7 @@ def _lower_simple_module_source(
             invariants=invariants,
             helpers=helpers,
             prefix=f"{projection_name}_",
+            inline_explicit_helpers=True,
         )
         value, observed_type = emitter.emit(expression, output_type)
         if not _types_compatible(observed_type, output_type):
