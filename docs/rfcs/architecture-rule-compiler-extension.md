@@ -3,7 +3,7 @@
 <!-- markdownlint-disable MD032 MD036 -->
 
 **Status:** Proposed
-**Baseline:** pyCircuit 6.1.0（决策登记截至 0268；release identity 位于 IR 外部）
+**Baseline:** pyCircuit 6.1.0（决策登记截至 0274；release identity 位于 IR 外部）
 **Target repository:** `PTO-ISA/pyCircuit`
 **Primary validation workload:** large concurrent architecture 的 reduced generic fixture（完整设计留在 consumer repository）
 **Scope:** Agentic Circuit / ACIR / 编译器分析 / codegen / 验证 / CBB refinement
@@ -13,6 +13,8 @@
 - `docs/development/agent-frontend-guide.md`（agent 授权模型与硬规则）
 - `docs/architecture/overview.md`、`docs/architecture/simulation.md`
 - `docs/development/testing-and-gates.md`（gate 分层与证据约定）
+- `docs/rfcs/ac-architecture-rule-rtl-verification-extension-checklist.md`
+  （实现顺序、RTL/SRAM/X 约束、验证方法学与逐阶段退出条件）
 
 ---
 
@@ -31,9 +33,10 @@ assertion、coverage obligation 与 implementation refinement。
 本文同时给出**现状基线（gap analysis）**：逐条把需求映射到当前 ACIR/agentic_circuit 实现，
 标明「已有 / 部分已有 / 完全缺失 / 命名冲突」。结论与直觉相反：
 
-- 需求 A（Rule Effect Graph）所需的**单 rule 效果摘要与 Table writer 冲突仲裁已经存在**，
-  而且对应的验收判据在一维 field writer 范围内**已经满足**；
-- 需求 B（Obligation IR）所需的**生命周期骨架已经存在**，缺的是 `checks` resolver 的实现；
+- 需求 A（Rule Effect Graph）已有本地分析事实与 Table writer 冲突证明，但**当前序列化摘要
+  不完整**：它丢失规范化 index/predicate 表达式，F1 可以更改摘要表示并必须重新验证 live body；
+- 需求 B（Obligation IR）没有可复用的架构生命周期；现有 `ac.marker.obligation` 仅是
+  transient handshake lowering marker，架构 obligation 必须是独立的一等对象；
 - 真正的缺口集中在**恢复语义（C/S/J）、多事务代数（D/E/F/G/H）、内存序（I）与
   可观测性（M/N/O）**，这些在当前源码中检索到的命中数为 0。
 
@@ -89,22 +92,22 @@ writer arbitration、deterministic codegen 与 C++/Verilog backend parity。这�
 
 ## 现状基线（gap analysis）
 
-以下结论全部来自当前 `main`（`6805e62`）源码，并附 `file:line` 证据。仓库根相对路径省略
+以下结论来自撰写和最近一次检查时的当前源码，并附 `file:line` 证据。仓库根相对路径省略
 `compiler/acir/` 前缀时以 `lib/`、`include/` 标注。
 
 ### 已经存在的能力
 
 | 能力 | 证据 |
 | --- | --- |
-| 单 rule 效果摘要（consume / produce / state read / state write） | `include/acir/Dialect/ACIR/ACIRAttributes.td:204-222`（`RuleEffectKind`）、`lib/Transforms/LowerRules.cpp:165-314`（`inferRuleEffects`） |
+| 单 rule 效果摘要骨架（consume / produce / state read / state write） | `include/acir/Dialect/ACIR/ACIRAttributes.td:204-222`（`RuleEffectKind`）、`lib/Transforms/LowerRules.cpp:165-314`（`inferRuleEffects`）；当前序列化表示不完整，不能作为 exact footprint |
 | state 访问粒度到 field | `ACIRAttributes.td:239-255`（`RuleStateAccessKind` = read/replace/field_write） |
 | state 访问索引粒度 | `ACIRAttributes.td:257-271`（`RuleIndexKind` = static/dynamic/all） |
-| 摘要与函数体**逐字段精确一致**的验证 | `lib/Dialect/ACIR/ACIROps.cpp:203-411`（`verifyTypedRuleSummary`） |
+| 当前摘要字段与函数体的验证 | `lib/Dialect/ACIR/ACIROps.cpp:203-411`（`verifyTypedRuleSummary`）；它不能验证未被序列化的 normalized index/predicate DAG，F1 必须补齐表示和交叉检查 |
 | 跨 rule Table writer 冲突检测与仲裁 | `lib/Transforms/VerifyValueConstraints.cpp:192-354`（`verifyWriterArbitration`） |
 | 仲裁优先级与跨 owner 环检测 | `VerifyValueConstraints.cpp:233-309`；`ACIRAttributes.td:127-152`（`WriterArbitrationPolicy/Resolution`） |
 | rule 激活与事务资源分类 | `ACIRAttributes.td:80-98`（`ActivationResourceKind` = input_queue/output_queue/state/slot）、`LowerRules.cpp:345-409` |
 | rule guard / schedule 分类 | `ACIRAttributes.td:100-125`（`RuleGuardKind`、`RuleScheduleKind`） |
-| obligation 生命周期骨架 | `ACIRAttributes.td:48-78`（`ObligationState` = pending/materialized/discharged；`ObligationResolver` = handshake/checks/schedule） |
+| transient handshake marker 生命周期 | `ACIRAttributes.td:48-78`（`ObligationState` = pending/materialized/discharged；`ObligationResolver` = handshake/checks/schedule）；不得作为 Architecture Obligation IR |
 | 动态索引值域证明 | `lib/Transforms/VerifyValueConstraints.cpp:369-501`；`:55-113` |
 | Table 选择策略 | `ACIRAttributes.td:154-173`（`TableSelectionPolicy` = first/min/max/round_robin） |
 | 多 lane Queue 类型 | `include/acir/Dialect/ACIR/ACIRTypes.td:60-68`；`lib/Dialect/ACIR/ACIRTypes.cpp:198-205` |
@@ -113,7 +116,7 @@ writer arbitration、deterministic codegen 与 C++/Verilog backend parity。这�
 | IR/op 覆盖门禁与 ledger | `tools/agentic-circuit/check-ir-coverage.py`；`docs/development/acir/verification/ir-coverage.md` |
 | C++/Verilog backend closure | `tests/mlir/agentic-circuit/CodeGen/acc-driver.mlir` 与 `acc-python-driver.mlir` |
 
-**关键结论：需求 A 的验收判据在一维 field writer 范围内已经实现。**
+**关键结论：现有证明可复用，但需求 A 尚未实现。**
 `verifyWriterArbitration` 对同一 owner 的每一对重叠 writer 依次检查：
 field 不相交则放行（`fieldsAreDisjoint`，`VerifyValueConstraints.cpp:128-142`）、
 索引可证不相交则放行（`:317-318`）、presence 可证互斥则放行（`:319-320`）、
@@ -122,9 +125,10 @@ field 不相交则放行（`fieldsAreDisjoint`，`VerifyValueConstraints.cpp:128
 其余情况要求每个 writer 显式声明 `#ac.writer_priority`
 （`"same-field overlap on owner @... requires explicit priority on every writer endpoint"`，`:347-350`）。
 
-也就是说「A 写 `Table[i].field0`、B 写 `Table[i].field1` ⇒ 允许合并」与
-「A、C 同写 `Table[i].field0` ⇒ 需要证明或仲裁」**当前已经成立，且与代码出现顺序无关**
-（`VerifyValueConstraints.cpp:311-352` 是全体 endpoint 的两两判定）。
+也就是说现有 analyzer 已能证明「A 写 `Table[i].field0`、B 写
+`Table[i].field1` ⇒ 允许合并」并要求「A、C 同写 `Table[i].field0` ⇒ 证明或仲裁」，
+且与代码出现顺序无关。不过当前 persisted summary 不携带 exact normalized
+index/predicate DAG，不能据此声称 whole-design effect graph 或 portable exact footprint 已完成。
 
 ### 部分存在的能力
 
@@ -171,7 +175,7 @@ field 不相交则放行（`fieldsAreDisjoint`，`VerifyValueConstraints.cpp:128
 
 | 拼写 | 现有语义 | 证据 | 建议 |
 | --- | --- | --- | --- |
-| `obligation` | rule 输出握手凭证的 pending/materialized/discharged 生命周期 | `ACIRAttributes.td:48-78`；`LowerRules.cpp:479-561` | **扩展** 该 enum 与 resolver，不要另建 `ac.obligation` 方言层 |
+| `obligation` | rule 输出握手凭证的 pending/materialized/discharged 生命周期 | `ACIRAttributes.td:48-78`；`LowerRules.cpp:479-561` | 保留为 transient lowering marker；架构级 obligation 使用独立的一等 operation/symbol，禁止把两种生命周期塞进同一 enum/resolver |
 | `epoch` | `gfsim::Epoch` 仿真时钟；release 不编码进 IR | `simulator/gfsim/include/gfsim/core.h`；Decision 0268 | recovery epoch 必须显式命名，禁止裸 `epoch` |
 | `generation` | compiler/code generation 通用术语 | compiler codegen | 事务 generation 用 `slot_generation` 或在 `TransactionRef` 内命名空间化 |
 | `allocator` | `EntityAllocator`/`StableNameAllocator`，编译器内部命名与实体 ID 分配 | `_acpy.py:254`；`_naming.py` | 硬件分配器另立名字，或限定在 `ac.allocator(...)` 且文档明确区分 |
@@ -189,7 +193,7 @@ field 不相交则放行（`fieldsAreDisjoint`，`VerifyValueConstraints.cpp:128
 `RuleEffectSummary`，并把 state footprint 精确到 owner / index / field / predicate。
 提供 `BuildRuleEffectGraphPass` 与 `--dump-rule-effect-graph` 的 `.dot`/`.json` 输出。
 
-**现状。** 单 rule 摘要已经存在且被精确验证（见「已经存在的能力」前四行）。
+**现状。** 单 rule 摘要骨架已经存在，当前字段会被验证，但序列化摘要仍不完整。
 `RuleEffectSummary` 的字段中，`consumed_transactions`、`produced_transactions`、
 `state_reads`、`state_writes`、`resources`、`arbitration_domains` 均有对应属性；
 `activation_sources` 与 `transaction_resources` 已由 `ac-infer-rule-activation` 产出并精确校验
@@ -204,9 +208,13 @@ field 不相交则放行（`fieldsAreDisjoint`，`VerifyValueConstraints.cpp:128
 4. 缺 dump 接口与 `.dot`/`.json` 呈现。
 5. 冲突判定只覆盖 Table writer endpoint，queue/slot 效果不参与。
 
-**阶段。** Phase 1。具体做法：新增 `BuildRuleEffectGraphPass` 作为**只读分析 pass**，
-消费已有 `ac.rule.*` 摘要（不重新推导），输出 rule→{state, resource, conflict, ordering} 边；
-先只加 dump，不加新语义约束，避免与既有 `verifyWriterArbitration` 重复判定。
+**阶段。** Phase 1。先允许调整摘要表示，持久化 exact typed index/predicate expression
+DAG。每个节点使用 closed opcode、exact result type、ordered operands 与 typed attributes；
+leaf 仅允许 rule input ordinal、committed owner/field/index、typed constant/static parameter
+和 admitted lane identity。序列化 ordinal 只是 handle，不是 semantic ID。verifier 必须独立
+normalize live rule body 后交叉检查；随后新增 `BuildRuleEffectGraphPass`，消费完整摘要并输出
+rule→{state, resource, conflict, ordering, arbitration, obligation} 边。F2 必须复用现有
+`verifyWriterArbitration` 与 value-constraint 证明，不得重新实现较弱的 overlap 判定。
 
 **验收。** 构造三个 rule：A 写 `Table[i].field0`、B 写 `Table[i].field1`、C 写 `Table[i].field0`。
 编译器必须允许 A+B 合并，并对 A+C 要求证明或仲裁，且结论与源码顺序无关。
@@ -217,9 +225,10 @@ field 不相交则放行（`fieldsAreDisjoint`，`VerifyValueConstraints.cpp:128
 **需求。** 把静态检查扩展为三态：`PROVED` / `RUNTIME_CHECKED` / `REJECTED`，
 并支持 mutual_exclusion、single_writer、resource_capacity、ready_valid_integrity、
 transaction_atomicity、generation_match、epoch_match、ordering、range、onehot、
-no_partial_commit、no_stale_update、progress、eventual_completion、credit_balance 等 obligation 类型，
+no_partial_commit、no_stale_update、credit_balance 等 phase-one safety obligation 类型，
 按 backend 降低为 SVA / C++ assertion / gfsim invariant，三者共用 obligation ID。
-compiler IR 内部命名为 Runtime Obligation，而不是绑定到某一种后端证明手段。
+compiler IR 统一命名为 Architecture Obligation。`progress` 与
+`eventual_completion` 是明确拒绝的 future liveness kinds，不得伪装成 safety check。
 
 **现状。** 骨架已存在但是**不同语义**：`ac.marker.obligation` 是 rule 输出握手凭证，
 生命周期 pending → materialized → discharged，由 `ac-materialize-rule-handshake` 与
@@ -231,7 +240,7 @@ compiler IR 内部命名为 Runtime Obligation，而不是绑定到某一种后�
 1. `checks` resolver 被显式拒绝：`"dynamic checks are not executable in the supported pure rule
    subset"`（`LowerRules.cpp:427-436`）与 `"dynamic check obligations are not supported by typed
    summaries"`（`:546-555`）；测试 `tests/mlir/agentic-circuit/Transforms/rule-checks.mlir:1-18` 钉住了该拒绝。
-   **这正是本需求需要打开的缺口。**
+   该 resolver 仍属于 transient marker，不能通过“打开”它来实现架构 obligation。
 2. `schedule` resolver 无实现（`LowerRules.cpp:600-603`）。
 3. 缺 obligation ID、kind、severity、condition、proof_status、runtime_policy、message 字段。
 4. 缺按 backend 的运行期降低：C++ 目前对 `pyc.assert` 直接内联 `std::cerr` + `std::abort()`
@@ -241,9 +250,23 @@ compiler IR 内部命名为 Runtime Obligation，而不是绑定到某一种后�
 5. SVA 能力目前只存在于 Python 生成的 SV testbench（`python/pycircuit/src/pycircuit/cli.py:1996-2035`），
    DUT codegen 不产出 SVA。
 
-**阶段。** Phase 2。命名上必须**扩展现有 `ObligationState`/`ObligationResolver`**，
-而不是并行引入 `ac.obligation`；proved/runtime/rejected 应作为 resolver 的处置结果，
-与 pending/materialized/discharged 生命周期正交。
+**阶段。** Phase 2。`ac.marker.obligation` 保持 transient rule-output lowering
+凭证，最终由 rule lowering 消除。架构级 obligation 必须使用 module-owned
+`ac.arch_obligation` symbol operation，其 condition 引用 module-owned typed expression table，
+并拥有自己的 stable ID、kind、proof status、typed sampling contract 与 runtime targets。
+禁止扩展现有 marker enum/resolver 去承载第二套不相同的生命周期。
+Stable ID 只能来自 declared structural name，不得来自 content、source line、traversal
+counter 或 process-local counter。sampling contract 是 exact tagged union：
+`tick_observation`→TICK-OBS、`xfer_observation`→XFER-OBS、rule/firing anchored
+`pre_publish`、explicit event anchored `producer_event`。edge enum 为
+`posedge|negedge|none`：前两者与 pre-publish 必须 `none`，只有 producer-event
+可选物理 edge；tick/xfer 禁止 anchor，另两者要求 matching anchor。active/disable
+predicate 在同一 event sampling，disable 是 synchronous sampled skip 而非 implicit async
+`disable iff`。capture latency 以 cycle 计，仅允许 monitor-only producer-event capture，
+不能参与 admission/mutation；union arms 互斥，active-only value 无 producer anchor 必须拒绝。
+Mandatory release C++/gfsim checks 必须在 `NDEBUG` 下保留，并在受保护 mutation/publication
+之前执行；任何 condition-changing transform 都必须 invalidate 并重新计算 proof 与 runtime
+materialization。
 
 ## Requirement C：Recovery Domain
 
@@ -445,19 +468,20 @@ recovery、stale transaction rejection、atomic failure。
 
 **阶段。** Phase 2 起步，Phase 6 收口。
 
-## Requirement O：Rule Manifest
+## Requirement O：Rule Evidence Index
 
-**需求。** 每个 rule 有 machine-readable manifest（id / name / intent / owners / inputs / effects /
-recovery_domain / requirements / obligations），compiler 自动生成人类可读文档。
-Markdown 不得成为 semantic authority，Python rule 才是。
+**需求。** 每个 rule 有 machine-readable evidence index（id / name / intent / owners / inputs /
+effects / recovery_domain / requirements / obligations），compiler 自动生成人类可读文档。
+该 index 只引用显式 semantic ID 与产物路径，不参与身份计算或 release 判定。
+Markdown 不得成为 semantic authority，Python rule 与 verified IR 才是。
 
 **现状。** 仓库已有 NDF 体系，但它是**文档 profile**：clause ID、metadata、typed edge，
 由 `tools/agentic-circuit/check-ndf.py` 在 `docs/acir/spec` 与 `docs/rfcs/acir` 两个 root 上校验，
 要求每个 clause 具备 `kind/level/layer/status`，且 `kind=req level=must layer=L1` 必须有 `kind=verif` 覆盖。
 
-**差距。** NDF 目前是**规范来源**，而本需求需要的是**rule 级 manifest**。
+**差距。** NDF 目前是**规范来源**，而本需求需要的是**rule 级 evidence index**。
 两者不能混用同一套名字，否则会破坏 `check-ndf.py` 的 fail-closed 语义。
-建议：rule manifest 使用独立命名空间与独立校验工具。
+建议：rule evidence index 使用独立命名空间与独立校验工具。
 
 **阶段。** Phase 1 起骨架，随各阶段扩展。
 
@@ -553,7 +577,7 @@ ACPy Capture -> ACIR
   +-- [新增] Infer Ordering Edges           (Requirement A/I)
   +-- [新增] Infer Obligations              (Requirement B)
   +-- [新增] Prove Obligations              (Requirement B)
-  +-- [新增] Materialize Runtime Obligations(Requirement B)
+  +-- [新增] Materialize Architecture Obligations(Requirement B)
   +-- [新增] Resolve Multi-Lane Transactions(Requirement D)
   +-- [已有] ac-resolve-rule-schedule / ac-lower-rules-to-firing
   +-- [新增] Resource Refinement / CBB Selection (Requirement K/L)
@@ -562,9 +586,9 @@ ACPy Capture -> ACIR
 Refined ACIR -> PYC -> C++ / Verilog
 ```
 
-关键约束：新增 pass 在 Phase 1 必须是**只读分析**，不改变 `ac.rule` 的既有摘要属性，
-以保持 `verifyTypedRuleSummary` 的精确一致性契约
-（`lib/Dialect/ACIR/ACIROps.cpp:203-411`）。
+关键约束：F1 可以替换当前不完整的摘要表示；其 verifier 必须从 live body 独立
+normalize 后验证 exact DAG。F2 的 graph pass 是只读分析，消费完成验证的 F1 摘要，
+并复用现有 value-constraint/writer-arbitration proof。
 
 ## 实施阶段
 
@@ -579,9 +603,13 @@ Refined ACIR -> PYC -> C++ / Verilog
 
 ### Phase 2：Obligation and Verification
 
-- 打开 `checks` resolver，引入 proved/runtime/rejected 三态。
+- 新增 module-owned `ac.arch_obligation` symbol operation 和 module-owned typed
+  expression table，引入 proved/runtime_checked/rejected 处置；
+  不复用 `ac.marker.obligation` 的 resolver 或生命周期。
 - onehot、single-writer、atomic transaction、ready/valid integrity、stale update check。
-- C++ 统一断言入口（带 obligation ID 与可关闭开关）、Verilog DUT 侧 SVA 生成、gfsim invariant 设施。
+- C++/gfsim 与 Verilog SVA 使用同一 typed condition、obligation ID 和 sampling contract。
+  若 admission 依赖 runtime check，该检查不可关闭；runtime assertion 不能授权 overlap、
+  onehot optimization 或 synthesis/deployment legality。
 - Why-not-fire 的 blocker 分类与 trace 扩展。
 - 完成标志：一条 Python rule 的 invariant 能自动出现在 C++ model 与生成的 Verilog SVA 中，且共用同一 obligation ID。
 
@@ -713,14 +741,12 @@ Architecture Intent -> Rule -> Effect -> Obligation -> Transaction
 
 ## 落地流程与未决问题
 
-**Status 为 Proposed。** 本文不是已接受的 decision。要进入实施，按仓库流程需要：
+**Status 为 Proposed implementation RFC。** Decisions 0271–0274 已接受本文中 F0
+收敛的 contract；本文其余 recovery、transaction、memory-order 与 refinement 内容仍需按阶段决策。
 
-1. 为 Phase 1 的契约注册编号 decision（当前最高为 0265，`docs/rfcs/pyc6-decisions.md:10271`），
-   并在 `docs/gates/decision_status_v6.md` 增加对应状态行。
-   注意该表不允许保留 `gap-in-scope`，且 release 门禁使用
-   `--require-no-deferred --require-all-verified`（`flows/tools/check_decision_status.py`）；
-   未实现的扩展只能登记为 `implemented-unverified` 或 `deferred`，
-   后者会与 release 严格模式冲突，因此**建议按阶段分别登记**，而不是一次性登记全部六个阶段。
+1. Decisions 0271–0274 在 `docs/gates/decision_status_v6.md` 中保持 `gap-in-scope`，直到
+   各自实现与验证证据完整。严格 release closure 因这些行而 fail-closed 是预期行为，
+   不得用虚假的 `implemented-unverified` 绕过门禁。
 2. 若要把通用契约写成规范性条款，放入 `docs/rfcs/acir/` 或 `docs/acir/spec/` 时必须满足 NDF 约束
    （clause 级 `kind/level/layer/status`、边引用必须可解析、
    `kind=req level=must layer=L1` 必须有 `kind=verif` 覆盖）。
@@ -732,6 +758,6 @@ Architecture Intent -> Rule -> Effect -> Obligation -> Transaction
 - recovery epoch 与 `gfsim::Epoch` 的命名空间如何划分？release identity 不进入该命名空间。
 - `ReservationSet` 公开化后，`parser.py:452-475` 对作者写 `reserve`/`commit` 的拒绝规则如何修订？
 - VersionedTable 的 `generation_bits` 与 spec 的 256-entry / 65536-bit 上界如何统一校验？
-- 运行期 obligation 在 Verilog 中默认开启还是默认关闭？
-  DUT 侧 SVA 与现有 `ifndef SYNTHESIS` + `$fatal` 路径的关系需要明确。
-- rule manifest 与 NDF 的关系如何在文档中避免语义重叠？
+- 验证构建如何选择附加 runtime/SVA 诊断而不改变 admission 语义？依赖 runtime check 的
+  obligation 不可关闭，synthesis/deployment profile 必须提供静态 proof。
+- rule evidence index 与 NDF 的关系如何在文档中避免语义重叠？

@@ -126,6 +126,9 @@ nav:
       - Evolution Plan: pyc6-plan.md
       - Tier Annotation RFC: rfcs/tier_annotation.md
       - Architecture Rule Compiler Extension: rfcs/architecture-rule-compiler-extension.md
+      - Architecture Rule RTL and Verification Checklist: rfcs/ac-architecture-rule-rtl-verification-extension-checklist.md
+      - AC Rule and SimQueue Atomic Lowering Checklist: rfcs/ac-rule-simqueue-atomic-lowering-checklist.md
+      - AC C++ Pointer-Owned Module Composition: rfcs/ac-cpp-pointer-owned-module-composition.md
       - ACIR Block Model: rfcs/acir/D-BLOCK-MODEL-001.md
       - ACIR Release Layout: rfcs/acir/D-RELEASE-LAYOUT-001.md
       - ACIR Rule Lowering: rfcs/acir/D-RULE-LOWERING-001.md

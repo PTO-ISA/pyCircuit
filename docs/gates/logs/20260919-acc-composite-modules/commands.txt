@@ -1,5 +1,5 @@
 cmake --build .pycircuit_out/acc-clean-build --target acc CodeGenTests --parallel 8
-PYTHONPATH=python/semantic-core/src:python/agentic-circuit/src:.pycircuit_out/acc-clean-build/compiler/acir/python .pycircuit_out/ac-venv/bin/python -m pytest -q tests/python/agentic-circuit/python_frontend/test_jit_blocks.py tests/python/agentic-circuit/python_frontend/test_source_unit.py tests/python/agentic-circuit/cli/test_acc_command.py
+PYTHONPATH=python/semantic-core/src:python/agentic-circuit/src:.pycircuit_out/acc-clean-build/compiler/acir/python .pycircuit_out/ac-venv/bin/python -m pytest -q tests/python/agentic-circuit/python_frontend/test_jit_blocks.py tests/python/agentic-circuit/python_frontend/test_pure_helpers.py tests/python/agentic-circuit/python_frontend/test_source_unit.py tests/python/agentic-circuit/cli/test_acc_command.py
 .pycircuit_out/ac-venv/bin/lit -sv --filter='acc-composite-(package|fanout-package)' .pycircuit_out/acc-clean-build/compiler/acir/tests/mlir
 .pycircuit_out/acc-clean-build/bin/CodeGenTests
 .pycircuit_out/acc-clean-build/bin/CompilerTests

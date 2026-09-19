@@ -13,6 +13,7 @@ operations:
   - ac.type_alias
   - ac.module
   - ac.module.extern
+  - ac.module.import
   - ac.instance
   - ac.array
   - ac.instances

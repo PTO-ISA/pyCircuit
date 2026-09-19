@@ -154,14 +154,17 @@ LEGACY_FRONTEND_DEFINITIONS = frozenset(
 
 
 class QueueFrontendStructureTest(unittest.TestCase):
-    def test_facade_only_owns_source_orchestration(self) -> None:
+    def test_facade_only_owns_source_unit_orchestration(self) -> None:
         source = FACADE.read_text(encoding="utf-8")
         tree = ast.parse(source, filename=str(FACADE))
         functions = [
             node.name for node in tree.body if isinstance(node, ast.FunctionDef)
         ]
-        self.assertEqual(["lower_queue_source"], functions)
-        self.assertLessEqual(len(source.splitlines()), 300)
+        self.assertEqual(
+            ["lower_queue_source", "lower_module_source", "lower_source_unit"],
+            functions,
+        )
+        self.assertLessEqual(len(source.splitlines()), 550)
 
     def test_compiler_does_not_import_facade(self) -> None:
         for path in COMPILER.glob("*.py"):
