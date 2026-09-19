@@ -5,12 +5,29 @@ artifacts. Names have two distinct roles: source-readable semantic names and
 target-language spellings. A backend name
 must never replace or become the source of semantic identity.
 
+## Accepted Decision 0274 target and current implementation gap
+
+Decision 0274 is the target naming authority. At the F4/F5 hard cutover, one
+implementation Python/AC source stem owns one `.hpp`/`.cpp` pair, source-owned
+interface shards own nominal declarations, and one parameterized source
+definition emits one readable C++ and RTL module family. Typed static
+parameters and admitted generate branches carry specialization; generated
+identifiers contain no specialization suffix, `__`, repeated enclosing-module
+prefix, or opaque suffix.
+
+The sections below document the currently implemented baseline until that
+cutover: it still uses `.h`, concrete-symbol/specialization spellings, and some
+double-underscore compiler names. Those spellings are implementation gaps, not
+permission to weaken Decision 0274. The emitter, package consumers, tests, and
+this baseline section must update atomically in one hard break. No dual naming
+mode, alias, fallback, or compatibility flag is admitted.
+
 ## Design principles
 
 - Preserve a meaningful author name for debugging, hierarchy review, interface
   documentation, and generated-source inspection.
 - Keep direction, endpoint, lane, and stage information when the author encodes
-  those facts in a name. For example, `ifu_ooo_valid_0` remains that exact
+  those facts in a name. For example, `input_select_valid_0` remains that exact
   semantic spelling through ACIR display metadata; the compiler does not reorder
   it or infer a different endpoint convention.
 - Use the MLIR symbol plus the typed, ordered static-argument dictionary for
@@ -68,7 +85,7 @@ Generated C++ module classes use the existing Pascal-style conversion:
 3. preserve the remaining alphanumeric characters;
 4. prefix `_` when the result is empty or starts with a digit.
 
-The selected system `davo_core` therefore becomes `DavoCore`.
+The selected system `demo_system` therefore becomes `DemoSystem`.
 
 ### Module class and source-named file
 
@@ -116,9 +133,9 @@ and source-map artifacts.
 ## Examples
 
 ```text
-Python system:        davo_core
-ACIR system:          @davo_core
-C++ model class:      DavoCore
+Python system:        demo_system
+ACIR system:          @demo_system
+C++ model class:      DemoSystem
 
 Python module:        alu_pipeline
 ACIR definition:      @alu_pipeline
@@ -126,9 +143,9 @@ specialization:       lanes=4, width=32
 C++ class:            AluPipeline_lanes_4_width_32
 C++ file stem:        alu_pipeline
 
-Python interface:     ifu_ooo_valid_0
-ACIR display name:    ifu_ooo_valid_0
-C++ local identifier: ifu_ooo_valid_0
+Python interface:     input_select_valid_0
+ACIR display name:    input_select_valid_0
+C++ local identifier: input_select_valid_0
 ```
 
 ## NDF traceability

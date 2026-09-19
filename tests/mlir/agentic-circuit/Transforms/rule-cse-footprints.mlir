@@ -1,4 +1,7 @@
 // RUN: %acir_opt --pass-pipeline='builtin.module(ac-lower-rules,canonicalize,cse,ac-verify-rule-closure,ac-freeze-topology)' %s | %FileCheck %s
+// RUN: %acir_opt --pass-pipeline='builtin.module(ac-lower-rules,canonicalize,cse,ac-verify-rule-closure,ac-freeze-topology)' %s -o %t.first
+// RUN: %acir_opt --pass-pipeline='builtin.module(ac-lower-rules,canonicalize,cse,ac-verify-rule-closure,ac-freeze-topology)' %s -o %t.second
+// RUN: diff %t.first %t.second
 
 module attributes {ac.model_kind = "queue_graph", ac.queue_graph_domain = "cycle", ac.system = "multi_state"} {
   ac.type_scope @types {
@@ -27,6 +30,23 @@ module attributes {ac.model_kind = "queue_graph", ac.queue_graph_domain = "cycle
 
 // CHECK-LABEL: = ac.firing
 // CHECK-COUNT-1: ac.table.get @tail
+// CHECK: ac.expression_dag = [
+// CHECK-SAME: opcode = #ac<rule_expression_opcode constant>
+// CHECK-SAME: result_type = !ac.var<i1>
+// CHECK-SAME: owner = "/"
+// CHECK-SAME: resource = @tail
+// CHECK-SAME: stable_id = "table/tail"
+// CHECK-SAME: opcode = #ac<rule_expression_opcode committed_state>
+// CHECK-SAME: operands = array<i64: 1>
+// CHECK: ac.footprints_exact = [
+// CHECK-SAME: access = "read"
+// CHECK-SAME: all_entries = false
+// CHECK-SAME: endpoint = "ac.table.get"
+// CHECK-SAME: owner = "/"
+// CHECK-SAME: owner_stable_id = "table/tail"
+// CHECK-SAME: predicate = 0 : i64
+// CHECK-SAME: source_provenance = {
+// CHECK-SAME: whole_entry = true
 // CHECK: ac.rule_footprints = [
 // CHECK-SAME: access = "read"
 // CHECK-SAME: resource = @tail

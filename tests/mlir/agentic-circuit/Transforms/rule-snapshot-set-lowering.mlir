@@ -4,6 +4,14 @@
 // RUN: %acir_queue_cxxgen %t.frozen.mlir > %t.cpp
 // RUN: %FileCheck %s --check-prefix=GFSIM < %t.cpp
 // RUN: %cxx -std=c++20 -I%source_root/simulator/gfsim/include -c %t.cpp -o %t.o
+// RUN: %acir_opt --pass-pipeline='builtin.module(ac-lower-rules)' %s -o %t.lowered.mlir
+// RUN: sed '1,/ac.table.match.yield/s/ac.table.match.yield %9/ac.table.match.yield %6/' %t.lowered.mlir | %not %acir_opt 2>&1 | %FileCheck %s --check-prefix=EXACT-TAMPER
+// RUN: sed '1,/ac.var.and/s/ac.var.and/ac.var.or/' %t.lowered.mlir | %not %acir_opt 2>&1 | %FileCheck %s --check-prefix=EXACT-TAMPER
+// RUN: sed '1,/ac.table.choose.yield/s/ac.table.choose.yield %7/ac.table.choose.yield %6/' %t.lowered.mlir | %not %acir_opt 2>&1 | %FileCheck %s --check-prefix=EXACT-TAMPER
+// RUN: sed '1,/policy  min/s/policy  min/policy  max/' %t.lowered.mlir | %not %acir_opt 2>&1 | %FileCheck %s --check-prefix=EXACT-TAMPER
+// RUN: sed '1,/stable_id "table\/choose\/min"/s/table\/choose\/min/table\/choose\/forged/' %t.lowered.mlir | %not %acir_opt 2>&1 | %FileCheck %s --check-prefix=EXACT-TAMPER
+// RUN: sed 's/operands = array<i64: 1>/operands = array<i64: 0>/' %t.lowered.mlir | %not %acir_opt 2>&1 | %FileCheck %s --check-prefix=EXACT-TAMPER
+// RUN: sed 's/fields = \["tag", "valid"\]/fields = ["tag"]/' %t.lowered.mlir | %not %acir_opt 2>&1 | %FileCheck %s --check-prefix=EXACT-TAMPER
 
 module attributes {ac.model_kind = "queue_graph", ac.queue_graph_domain = "cycle", ac.system = "snapshot_set"} {
   ac.type_scope @types {
@@ -49,6 +57,13 @@ module attributes {ac.model_kind = "queue_graph", ac.queue_graph_domain = "cycle
 // LOWERED: ac.state.snapshot @entries for %[[CHOICE]]#1 : !ac.var<i1> kind all read_fields ["tag", "valid"]
 // LOWERED: ac.state.snapshot_set @ready from %[[MASK]] : !ac.var<i4> for %[[CHOICE]]#1 : !ac.var<i1> read_fields ["$entry"]
 // LOWERED: ac.state.snapshot_set @priority from %[[CHOICE]]#0 : !ac.var<i2> for %[[CHOICE]]#1 : !ac.var<i1> read_fields ["$entry"]
+// LOWERED: opcode = #ac<rule_expression_opcode lane>, operands = array<i64: 1>
+// LOWERED: endpoint = "table_match"
+// LOWERED-SAME: operands = array<i64: 1, {{[0-9]+}}>
+// LOWERED: policy = #ac<table_selection_policy min>
+// LOWERED-SAME: selection_stable_id = "table/choose/min"
+// LOWERED-SAME: operands = array<i64: 4, {{[0-9]+}}, {{[0-9]+}}>
+// EXACT-TAMPER: exact rule effect summary does not match the live body
 
 // PLAN: "state_reservations":[{"fields":["tag","valid"],"index":"","index_kind":"all","predicate":"v{{[0-9]+}}","source":"","table":"entries"},{"fields":["$entry"],"index":"","index_kind":"set","predicate":"v{{[0-9]+}}","source":"v{{[0-9]+}}","table":"ready"},{"fields":["$entry"],"index":"","index_kind":"set","predicate":"v{{[0-9]+}}","source":"v{{[0-9]+}}","table":"priority"}]
 

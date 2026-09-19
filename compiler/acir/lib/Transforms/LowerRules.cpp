@@ -780,6 +780,15 @@ LogicalResult resolveRuleSchedule(ModuleOp model) {
     }
     rule->setAttr("ac.rule.arbitration_membership",
                   builder.getArrayAttr(arbitration));
+
+    FailureOr<ac::ExactRuleEffectSummary> exact =
+        ac::buildExactRuleEffectSummary(rule.getOperation());
+    if (failed(exact)) {
+      result = failure();
+      return;
+    }
+    rule->setAttr("ac.rule.expression_dag", exact->expressionDAG);
+    rule->setAttr("ac.rule.footprints_exact", exact->footprints);
   });
   return result;
 }
@@ -794,6 +803,7 @@ LogicalResult lowerRulesToFiring(ModuleOp model) {
           "ac.rule.transaction_resources", "ac.rule.initially_active",
           "ac.rule.effects_typed", "ac.rule.checks_typed",
           "ac.rule.output_presence", "ac.rule.state_accesses",
+          "ac.rule.expression_dag", "ac.rule.footprints_exact",
           "ac.rule.guard_kind", "ac.rule.schedule_kind",
           "ac.rule.arbitration_membership"})
       if (failed(requireRuleAttribute(rule, attribute, "rule lowering")))
@@ -866,6 +876,10 @@ LogicalResult lowerRulesToFiring(ModuleOp model) {
                        rule->getAttr("ac.rule.output_presence"));
     state.addAttribute("ac.state_accesses",
                        rule->getAttr("ac.rule.state_accesses"));
+    state.addAttribute("ac.expression_dag",
+                       rule->getAttr("ac.rule.expression_dag"));
+    state.addAttribute("ac.footprints_exact",
+                       rule->getAttr("ac.rule.footprints_exact"));
     state.addAttribute("ac.guard_kind", rule->getAttr("ac.rule.guard_kind"));
     state.addAttribute("ac.schedule_kind",
                        rule->getAttr("ac.rule.schedule_kind"));
@@ -952,6 +966,10 @@ LogicalResult canonicalizePureFirings(ModuleOp model) {
     state.addAttribute("ac.rule_priority", firing->getAttr("ac.rule_priority"));
     state.addAttribute("ac.rule_footprints",
                        firing->getAttr("ac.rule_footprints"));
+    state.addAttribute("ac.rule_expression_dag",
+                       firing->getAttr("ac.expression_dag"));
+    state.addAttribute("ac.rule_footprints_exact",
+                       firing->getAttr("ac.footprints_exact"));
     state.addAttribute("ac.activation_sources",
                        firing->getAttr("ac.activation_sources"));
     state.addAttribute("ac.transaction_resources",
@@ -1123,6 +1141,20 @@ LogicalResult verifyRuleClosure(ModuleOp model) {
               "state snapshot evidence does not match predicate dataflow");
           return;
         }
+      }
+      auto exactDAG =
+          firing->getAttrOfType<ArrayAttr>("ac.expression_dag");
+      auto exactFootprints =
+          firing->getAttrOfType<ArrayAttr>("ac.footprints_exact");
+      if (!exactDAG || !exactFootprints ||
+          failed(ac::verifyExactRuleEffectSummary(
+              firing.getOperation(), exactDAG, exactFootprints))) {
+        if (!exactDAG || !exactFootprints)
+          result = firing.emitOpError(
+              "verified firing requires exact typed rule footprints");
+        else
+          result = failure();
+        return;
       }
       identity = firing.getStableIdAttr();
     } else if (auto transform = dyn_cast<ac::TransformOp>(operation)) {
