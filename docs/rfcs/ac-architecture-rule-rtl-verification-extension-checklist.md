@@ -822,18 +822,32 @@ phase closes.
 - `compiler/acir/lib/Transforms/LowerRules.cpp`
 - `compiler/acir/lib/Dialect/ACIR/ACIROps.cpp`
 
-- [ ] Define typed `RuleEffectSummary` storage.
-- [ ] Replace or extend the current incomplete serialized representation as
+- [x] Define typed `RuleEffectSummary` storage.
+- [x] Replace or extend the current incomplete serialized representation as
       needed; do not preserve it as a compatibility format.
-- [ ] Preserve normalized index and path-predicate references.
-- [ ] Preserve exact field/whole-entry access.
-- [ ] Preserve source/NDF provenance.
-- [ ] Verify summary equals the live rule body.
-- [ ] Reject unrepresentable or mutable footprint expressions.
-- [ ] Add deterministic print/parse/golden tests.
+- [x] Preserve normalized index and path-predicate references.
+- [x] Preserve exact field/whole-entry access.
+- [x] Preserve footprint endpoint source provenance while retaining
+      `ac.ndf_ids`/`ac.ndf_requires` as the rule-level NDF authority through
+      rule-to-firing print/parse; do not duplicate NDF IDs into every footprint.
+- [x] Verify summary equals the live rule body.
+- [x] Reject unrepresentable or mutable footprint expressions.
+- [x] Add deterministic print/parse/golden tests.
+- [x] Complete independent F1 re-review after the exact match/choose, Slot,
+      owner/field, provenance, and deep-normalization review fixes land;
+      code-reviewer and verifier verdicts are PASS.
+
+F1 evidence is archived under
+`docs/gates/logs/20260920-arch-rule-f1/summary.md`. Decision 0271 remains
+`gap-in-scope` because P2 whole-design graph construction is a separate,
+unfinished requirement of the same decision.
 
 **Exit:** a three-rule Table fixture serializes exact A/B field-disjoint and A/C
 overlapping footprints without relying on source order.
+
+Covered by `rule-exact-effect-order.mlir`, which lowers and reparses both A/B/C
+and C/B/A permutations with identical exact roots and owner/field/arbitration
+conclusions.
 
 ### P2 - Whole-design effect graph
 
