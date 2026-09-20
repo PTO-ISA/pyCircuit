@@ -16,6 +16,25 @@
 
 namespace gfsim {
 
+class ArchitectureObligationViolation final {
+public:
+  ArchitectureObligationViolation(std::string_view id,
+                                  std::string_view severity,
+                                  std::string_view source,
+                                  std::string_view module)
+      : id_(id), severity_(severity), source_(source), module_(module) {}
+  std::string_view id() const { return id_; }
+  std::string_view severity() const { return severity_; }
+  std::string_view source() const { return source_; }
+  std::string_view module() const { return module_; }
+
+private:
+  std::string id_;
+  std::string severity_;
+  std::string source_;
+  std::string module_;
+};
+
 class Module;
 class SimSystem;
 
@@ -40,6 +59,9 @@ public:
   std::string_view path() const { return path_; }
   SimObject *parent() const { return parent_; }
   std::string_view runtimeFailureCode() const { return runtimeFailureCode_; }
+  const std::optional<RuntimeFailureDetail> &runtimeFailure() const {
+    return runtimeFailure_;
+  }
 
   /// Set the canonical hierarchy path (called during construction).
   virtual void setPath(std::string path) { path_ = std::move(path); }
@@ -115,9 +137,24 @@ protected:
     return false;
   }
   void setRuntimeFailureCode(std::string_view code) {
+    runtimeFailure_.reset();
+    runtimeFailureStorage_.clear();
     runtimeFailureCode_ = code;
   }
-  void clearRuntimeFailureCode() { runtimeFailureCode_ = {}; }
+  void setArchitectureObligationFailure(
+      const ArchitectureObligationViolation &violation) {
+    runtimeFailureStorage_ = std::string(violation.id());
+    runtimeFailureCode_ = runtimeFailureStorage_;
+    runtimeFailure_ = RuntimeFailureDetail{
+        std::string(violation.id()), std::string(violation.severity()),
+        std::string(violation.source()), std::string(violation.module()),
+        std::string(path())};
+  }
+  void clearRuntimeFailureCode() {
+    runtimeFailureCode_ = {};
+    runtimeFailureStorage_.clear();
+    runtimeFailure_.reset();
+  }
 
   ObjectKind kind_;
   std::string name_;
@@ -126,6 +163,8 @@ protected:
   SimObject *parent_ = nullptr;
   ObservationSink *observationSink_ = nullptr;
   std::string_view runtimeFailureCode_;
+  std::string runtimeFailureStorage_;
+  std::optional<RuntimeFailureDetail> runtimeFailure_;
 };
 
 // ── Module ────────────────────────────────────────────────────────────

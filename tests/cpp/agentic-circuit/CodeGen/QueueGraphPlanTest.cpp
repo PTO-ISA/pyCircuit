@@ -1,6 +1,7 @@
 #include "acir/CodeGen/QueueGraphPlan.h"
 #include "acir/CodeGen/QueueGraphGenerator.h"
 #include "acir/CodeGen/QueueGraphPyc.h"
+#include "acir/InitAllDialects.h"
 #include "acir/Transforms/Passes.h"
 
 #include "acir/Dialect/ACIR/ACIRDialect.h"
@@ -74,6 +75,13 @@ SelectionTreeShape selectionTreeShape(llvm::StringRef pyc,
 
 bool freezeQueueGraph(mlir::ModuleOp module) {
   mlir::PassManager manager(module.getContext());
+  manager.addPass(acir::createFreezeTopologyPass());
+  return mlir::succeeded(manager.run(module));
+}
+
+bool lowerRulesAndFreezeQueueGraph(mlir::ModuleOp module) {
+  mlir::PassManager manager(module.getContext());
+  acir::addRuleLoweringPipeline(manager);
   manager.addPass(acir::createFreezeTopologyPass());
   return mlir::succeeded(manager.run(module));
 }
@@ -153,9 +161,10 @@ void expectCppRuns(llvm::StringRef source) {
   llvm::sys::path::append(executable, "model");
   llvm::SmallString<256> log(directory);
   llvm::sys::path::append(log, "run.log");
-  const std::array<std::string, 6> ownedArguments = {
+  const std::array<std::string, 7> ownedArguments = {
       ACIR_TEST_CXX_COMPILER,
       "-std=c++20",
+      "-DNDEBUG",
       "-I" ACIR_TEST_SOURCE_DIR "/simulator/gfsim/include",
       input.str().str(),
       "-o",
@@ -497,22 +506,24 @@ module attributes {ac.model_kind = "queue_graph", ac.queue_graph_domain = "cycle
 }
 )mlir";
 
-constexpr llvm::StringLiteral kStatefulFiring = R"mlir(
+constexpr llvm::StringLiteral kStatefulRule = R"mlir(
 module attributes {ac.model_kind = "queue_graph", ac.queue_graph_domain = "cycle", ac.system = "stateful"} {
   ac.table @table entry i8 entries 2 init 0 owner "/" stable_id "table/table"
   %input = ac.source depth 1 latency 1 {ac.name = "input"} : !ac.queue<i8>
-  %output = ac.firing %input depths [1] latencies [1]
-      stable_id "install" domain "cycle" {
+  %output = ac.rule %input depths [1] latencies [1]
+      name "install" stable_id "install" domain "cycle" type exact {
   ^body(%item: !ac.var<i8>):
     %index = ac.var.constant 1 : i2 as !ac.var<i2>
     %enabled = ac.var.constant true as !ac.var<i1>
-    ac.firing.condition %enabled : !ac.var<i1>
+    ac.rule.condition %enabled : !ac.var<i1>
     ac.table.propose @table [%index] = %item when %enabled : !ac.var<i1>
         mode "replace"
         write_fields ["$entry"] : !ac.var<i2>, !ac.var<i8>
-    ac.firing.output %item when %enabled ordinal 0 : !ac.var<i8>, !ac.var<i1>
-    ac.firing.yield %item : !ac.var<i8>
-  } {ac.activation_sources = [{kind = #ac<activation_resource_kind input_queue>, ordinal = 0 : i64}, {kind = #ac<activation_resource_kind output_queue>, ordinal = 0 : i64}, {kind = #ac<activation_resource_kind state>, resource = @table}], ac.arbitration_membership = [], ac.checks_typed = [{guard_kind = #ac<rule_guard_kind always>, kind = #ac<rule_check_kind input_available>, ordinal = 0 : i64}, {guard_kind = #ac<rule_guard_kind always>, kind = #ac<rule_check_kind output_capacity>, ordinal = 0 : i64}], ac.effects_typed = [{guard_kind = #ac<rule_guard_kind always>, kind = #ac<rule_effect_kind input_consume>, ordinal = 0 : i64}, {guard_kind = #ac<rule_guard_kind always>, kind = #ac<rule_effect_kind output_produce>, ordinal = 0 : i64}, {guard_kind = #ac<rule_guard_kind always>, kind = #ac<rule_effect_kind state_write>, resource = @table}], ac.guard_kind = #ac<rule_guard_kind always>, ac.initially_active = false, ac.name = "output", ac.output_presence = [{ordinal = 0 : i64, presence_kind = #ac<rule_output_presence_kind always>}], ac.rule_definition = "install", ac.rule_footprints = [{access = "replace", fields = ["$entry"], guard_kind = #ac<rule_guard_kind always>, index_kind = "static", resource = @table}], ac.rule_priority = 0 : i64, ac.schedule_kind = #ac<rule_schedule_kind lexical_priority>, ac.state_accesses = [{fields = ["$entry"], guard_kind = #ac<rule_guard_kind always>, index_kind = #ac<rule_index_kind static>, kind = #ac<rule_state_access_kind replace>, resource = @table}], ac.transaction_resources = [{kind = #ac<activation_resource_kind input_queue>, ordinal = 0 : i64}, {kind = #ac<activation_resource_kind output_queue>, ordinal = 0 : i64}, {kind = #ac<activation_resource_kind state>, resource = @table}]} : (!ac.queue<i8>) -> !ac.queue<i8>
+    ac.rule.output %item when %enabled ordinal 0 : !ac.var<i8>, !ac.var<i1>
+    %ready = ac.marker.obligation %item state pending resolver handshake
+        origin "install:return" path "true" : !ac.var<i8>
+    ac.rule.return %ready : !ac.var<i8>
+  } {ac.name = "output"} : (!ac.queue<i8>) -> !ac.queue<i8>
   ac.sink %output {ac.name = "sink"} : !ac.queue<i8>
 }
 )mlir";
@@ -1203,9 +1214,9 @@ TEST(QueueGraphPlanTest,
   context.loadDialect<ac::ACIRDialect, mlir::DLTIDialect>();
   auto parse = [&]() {
     auto module =
-        mlir::parseSourceString<mlir::ModuleOp>(kStatefulFiring, &context);
+        mlir::parseSourceString<mlir::ModuleOp>(kStatefulRule, &context);
     EXPECT_TRUE(module);
-    EXPECT_TRUE(freezeQueueGraph(*module));
+    EXPECT_TRUE(lowerRulesAndFreezeQueueGraph(*module));
     return module;
   };
   auto setProvenance = [&](ac::FiringOp firing, llvm::StringRef file,
@@ -3802,9 +3813,9 @@ TEST(QueueGraphPlanTest, FlatGeneratorPreservesOrderedRepeatedWritesPerOwner) {
   mlir::MLIRContext context;
   context.loadDialect<ac::ACIRDialect, mlir::DLTIDialect>();
   auto module =
-      mlir::parseSourceString<mlir::ModuleOp>(kStatefulFiring, &context);
+      mlir::parseSourceString<mlir::ModuleOp>(kStatefulRule, &context);
   ASSERT_TRUE(module);
-  ASSERT_TRUE(freezeQueueGraph(*module));
+  ASSERT_TRUE(lowerRulesAndFreezeQueueGraph(*module));
   auto plan = buildQueueGraphPlan(*module);
   ASSERT_TRUE(bool(plan)) << llvm::toString(plan.takeError());
   QueueBlockPlan &firing =
@@ -3852,9 +3863,9 @@ TEST(QueueGraphPlanTest,
   mlir::MLIRContext context;
   context.loadDialect<ac::ACIRDialect, mlir::DLTIDialect>();
   auto module =
-      mlir::parseSourceString<mlir::ModuleOp>(kStatefulFiring, &context);
+      mlir::parseSourceString<mlir::ModuleOp>(kStatefulRule, &context);
   ASSERT_TRUE(module);
-  ASSERT_TRUE(freezeQueueGraph(*module));
+  ASSERT_TRUE(lowerRulesAndFreezeQueueGraph(*module));
   auto extracted = buildQueueGraphPlan(*module);
   ASSERT_TRUE(bool(extracted)) << llvm::toString(extracted.takeError());
   QueueGraphPlan plan = aggregateTableBorrowPlan(std::move(*extracted));
@@ -3996,9 +4007,9 @@ TEST(QueueGraphPlanTest, OwnerWriteExclusionProofUsesBoundedSharedDagKeys) {
   mlir::MLIRContext context;
   context.loadDialect<ac::ACIRDialect, mlir::DLTIDialect>();
   auto module =
-      mlir::parseSourceString<mlir::ModuleOp>(kStatefulFiring, &context);
+      mlir::parseSourceString<mlir::ModuleOp>(kStatefulRule, &context);
   ASSERT_TRUE(module);
-  ASSERT_TRUE(freezeQueueGraph(*module));
+  ASSERT_TRUE(lowerRulesAndFreezeQueueGraph(*module));
   auto plan = buildQueueGraphPlan(*module);
   ASSERT_TRUE(bool(plan)) << llvm::toString(plan.takeError());
   QueueBlockPlan &firing =
@@ -4031,9 +4042,9 @@ TEST(QueueGraphPlanTest, RejectsOutOfRangeConstantTableFiringPlan) {
   mlir::MLIRContext context;
   context.loadDialect<ac::ACIRDialect, mlir::DLTIDialect>();
   auto module =
-      mlir::parseSourceString<mlir::ModuleOp>(kStatefulFiring, &context);
+      mlir::parseSourceString<mlir::ModuleOp>(kStatefulRule, &context);
   ASSERT_TRUE(module);
-  ASSERT_TRUE(freezeQueueGraph(*module));
+  ASSERT_TRUE(lowerRulesAndFreezeQueueGraph(*module));
   auto plan = buildQueueGraphPlan(*module);
   ASSERT_TRUE(bool(plan)) << llvm::toString(plan.takeError());
   auto firing = llvm::find_if(plan->blocks, [](const QueueBlockPlan &block) {
@@ -4057,9 +4068,9 @@ TEST(QueueGraphPlanTest, RecomputesBoundedFiringIndexConstraints) {
   mlir::MLIRContext context;
   context.loadDialect<ac::ACIRDialect, mlir::DLTIDialect>();
   auto module =
-      mlir::parseSourceString<mlir::ModuleOp>(kStatefulFiring, &context);
+      mlir::parseSourceString<mlir::ModuleOp>(kStatefulRule, &context);
   ASSERT_TRUE(module);
-  ASSERT_TRUE(freezeQueueGraph(*module));
+  ASSERT_TRUE(lowerRulesAndFreezeQueueGraph(*module));
   auto extracted = buildQueueGraphPlan(*module);
   ASSERT_TRUE(bool(extracted)) << llvm::toString(extracted.takeError());
 
@@ -4179,9 +4190,9 @@ TEST(QueueGraphPlanTest, RejectsTableFiringPlanTypeAndOwnershipBypasses) {
   mlir::MLIRContext context;
   context.loadDialect<ac::ACIRDialect, mlir::DLTIDialect>();
   auto module =
-      mlir::parseSourceString<mlir::ModuleOp>(kStatefulFiring, &context);
+      mlir::parseSourceString<mlir::ModuleOp>(kStatefulRule, &context);
   ASSERT_TRUE(module);
-  ASSERT_TRUE(freezeQueueGraph(*module));
+  ASSERT_TRUE(lowerRulesAndFreezeQueueGraph(*module));
   auto plan = buildQueueGraphPlan(*module);
   ASSERT_TRUE(bool(plan)) << llvm::toString(plan.takeError());
 
@@ -4210,9 +4221,9 @@ TEST(QueueGraphPlanTest, RejectsForgedFrozenFiringBeforePlanExtraction) {
   mlir::MLIRContext context;
   context.loadDialect<ac::ACIRDialect, mlir::DLTIDialect>();
   auto module =
-      mlir::parseSourceString<mlir::ModuleOp>(kStatefulFiring, &context);
+      mlir::parseSourceString<mlir::ModuleOp>(kStatefulRule, &context);
   ASSERT_TRUE(module);
-  ASSERT_TRUE(freezeQueueGraph(*module));
+  ASSERT_TRUE(lowerRulesAndFreezeQueueGraph(*module));
   ac::FiringOp firing;
   module->walk([&](ac::FiringOp candidate) { firing = candidate; });
   ASSERT_TRUE(firing);
@@ -4945,6 +4956,445 @@ int main() {
   expectCppRuns(executable);
 }
 
+TEST(QueueGraphPlanTest, RuntimeObligationPlanIsExactAndGenerated) {
+  QueueGraphPlan plan = statelessOptionalMultiOutputPlan();
+  QueueBlockPlan &firing = plan.blocks[1];
+  firing.stableId = "bounded";
+  firing.outputPresence = {{0, "item", "enabled"},
+                           {1, "wide_value", "disabled"}};
+  firing.expressions.push_back(
+      {"state_index", "constant", "i1", {}, "", "", "0 : i1"});
+  firing.stateWrites = {
+      {"state", "state_index", "item", "enabled", "replace", {"$entry"}}};
+  firing.stateReservations = {
+      {"state", "state_index", "", "enabled", "static", {"$entry"}}};
+  plan.tables = {{"state", "i8", 1, 0, "table/state", "/"}};
+  firing.table = "state";
+  firing.tableIndex = "state_index";
+  firing.tableValue = "item";
+  firing.writeMode = "replace";
+  firing.writeFields = {"$entry"};
+  plan.activationEdges.clear();
+  plan.workClosureEdges.clear();
+  QueueArchitectureExpressionScopePlan scope;
+  scope.rule = "bounded";
+  scope.ownerRule = "bounded";
+  scope.nodes = {{"rule_input", "!ac.var<i8>", {}, "", "", 0, 0, true,
+                  false},
+                 {"constant", "!ac.var<i8>", {}, "", "", 0, 127, false,
+                  true},
+                 {"operation", "!ac.var<i1>", {0, 1}, "ac.var.cmp", "ule"},
+                 {"constant", "!ac.var<i1>", {}, "", "", 0, 0, false,
+                  true},
+                 {"constant", "!ac.var<i1>", {}, "", "", 0, 1, false,
+                  true}};
+  plan.architectureExpressionScopes.push_back(std::move(scope));
+  QueueArchitectureObligationPlan obligation;
+  obligation.module = plan.system;
+  obligation.symbol = "range:bounded";
+  obligation.id = "range:bounded";
+  obligation.kind = "range";
+  obligation.severity = "error";
+  obligation.status = "runtime_checked";
+  obligation.firing = "bounded";
+  obligation.conditionRule = "bounded";
+  obligation.conditionTable = "ac.arch_expression_table";
+  obligation.conditionRoot = 2;
+  obligation.samplingKind = "pre_publish";
+  obligation.samplingEdge = "none";
+  obligation.sampleAnchor = "bounded";
+  obligation.inputOrdinal = 0;
+  obligation.maximum = 127;
+  obligation.targets = {"gfsim"};
+  obligation.sampling = "{kind = pre_publish}";
+  obligation.sourceRules = {"bounded"};
+  obligation.stateOwners = {"@state"};
+  obligation.sourceProvenance.origins = {
+      {{"statement", "fixture.py", 7, 3, ""}}};
+  obligation.materializations = {
+      "module=stateless_optional_multi_output;target=gfsim;firing=bounded;"
+      "input=0;maximum=127;sampling={kind = pre_publish};condition=ac.arch_"
+      "expression_table:bounded:2;severity=error;active=-;disable=-"};
+  plan.architectureObligations.push_back(obligation);
+
+  EXPECT_FALSE(bool(verifyQueueGraphPlan(plan)));
+  auto canonical = plan.canonicalJson();
+  ASSERT_TRUE(bool(canonical)) << llvm::toString(canonical.takeError());
+  EXPECT_NE(canonical->find("\"monitor_only\":false"), std::string::npos);
+  EXPECT_NE(canonical->find("\"materializations\":[\"module="),
+            std::string::npos);
+  EXPECT_NE(canonical->find("\"source_provenance\""), std::string::npos);
+  auto generated = generateQueueGraphCpp(plan);
+  ASSERT_TRUE(bool(generated)) << llvm::toString(generated.takeError());
+  EXPECT_NE(generated->find("ArchitectureObligationViolation"),
+            std::string::npos);
+  std::string executable = *generated;
+  executable.append(R"cpp(
+int main() {
+  using gfsim::UInt;
+  ac_generated::StatelessOptionalMultiOutput model;
+  if (!model.input().proposePush(UInt<8>{200})) return 1;
+  model.input().doXfer({0, 0});
+  auto rows = model.dispatch_rows();
+  for (auto &row : rows) row.work(row.object, {1, 0});
+  for (auto &row : rows)
+    row.xfer(row.object, {1, 0}, gfsim::XferPhase::Arbitrate);
+  gfsim::SimObject *firing = nullptr;
+  for (auto &row : rows) {
+    auto *object = static_cast<gfsim::SimObject *>(row.object);
+    if (object->runtimeFailureCode() == "range:bounded") firing = object;
+  }
+  if (!firing) return 2;
+  if (model.input().committedSize() != 1) return 3;
+  if (model.input().hasPrepared(firing->id())) return 4;
+  if (!model.sink_0_values().empty() || !model.sink_1_values().empty()) return 5;
+  if (model.table_state().at(0) != UInt<8>{0}) return 6;
+  return 0;
+}
+)cpp");
+  expectCppRuns(executable);
+
+  std::string boundaryExecutable = *generated;
+  boundaryExecutable.append(R"cpp(
+int main() {
+  using gfsim::UInt;
+  ac_generated::StatelessOptionalMultiOutput model;
+  if (!model.input().proposePush(UInt<8>{127})) return 1;
+  model.input().doXfer({0, 0});
+  auto rows = model.dispatch_rows();
+  for (unsigned tick = 1; tick != 3; ++tick) {
+    const gfsim::Epoch epoch{tick, 0};
+    for (auto &row : rows) row.work(row.object, epoch);
+    for (auto &row : rows)
+      row.xfer(row.object, epoch, gfsim::XferPhase::Arbitrate);
+    for (auto &row : rows)
+      row.xfer(row.object, epoch, gfsim::XferPhase::Commit);
+  }
+  return model.input().committedSize() == 0 &&
+                 model.sink_0_values().size() == 1 &&
+                 model.sink_0_values()[0] == UInt<8>{127} &&
+                 model.sink_1_values().empty() &&
+                 model.table_state().at(0) == UInt<8>{127}
+             ? 0
+             : 2;
+}
+)cpp");
+  expectCppRuns(boundaryExecutable);
+  QueueGraphPlan inactive = plan;
+  inactive.architectureObligations.front().activeRule = "bounded";
+  inactive.architectureObligations.front().activeRoot = 3;
+  inactive.architectureObligations.front().materializations.front() =
+      "module=stateless_optional_multi_output;target=gfsim;firing=bounded;"
+      "input=0;maximum=127;sampling={kind = pre_publish};condition=ac.arch_"
+      "expression_table:bounded:2;severity=error;active=bounded:3;disable=-";
+  auto inactiveCpp = generateQueueGraphCpp(inactive);
+  ASSERT_TRUE(bool(inactiveCpp)) << llvm::toString(inactiveCpp.takeError());
+  std::string inactiveExecutable = *inactiveCpp;
+  inactiveExecutable.append(R"cpp(
+int main() {
+  using gfsim::UInt;
+  ac_generated::StatelessOptionalMultiOutput model;
+  if (!model.input().proposePush(UInt<8>{200})) return 1;
+  model.input().doXfer({0, 0});
+  auto rows = model.dispatch_rows();
+  for (unsigned tick = 1; tick != 3; ++tick) {
+    const gfsim::Epoch epoch{tick, 0};
+    for (auto &row : rows) row.work(row.object, epoch);
+    for (auto &row : rows)
+      row.xfer(row.object, epoch, gfsim::XferPhase::Arbitrate);
+    for (auto &row : rows)
+      row.xfer(row.object, epoch, gfsim::XferPhase::Commit);
+  }
+  return model.input().committedSize() == 0 &&
+                 model.sink_0_values().size() == 1 &&
+                 model.sink_0_values()[0] == UInt<8>{200} &&
+                 model.table_state().at(0) == UInt<8>{200}
+             ? 0
+             : 2;
+}
+)cpp");
+  expectCppRuns(inactiveExecutable);
+  QueueGraphPlan disabled = plan;
+  disabled.architectureObligations.front().activeRule = "bounded";
+  disabled.architectureObligations.front().activeRoot = 4;
+  disabled.architectureObligations.front().disableRule = "bounded";
+  disabled.architectureObligations.front().disableRoot = 4;
+  disabled.architectureObligations.front().materializations.front() =
+      "module=stateless_optional_multi_output;target=gfsim;firing=bounded;"
+      "input=0;maximum=127;sampling={kind = pre_publish};condition=ac.arch_"
+      "expression_table:bounded:2;severity=error;active=bounded:4;"
+      "disable=bounded:4";
+  auto disabledCpp = generateQueueGraphCpp(disabled);
+  ASSERT_TRUE(bool(disabledCpp)) << llvm::toString(disabledCpp.takeError());
+  EXPECT_NE(disabledCpp->find("if ((1) && !(1)"), std::string::npos);
+  std::string disabledExecutable = *disabledCpp;
+  disabledExecutable.append(R"cpp(
+int main() {
+  using gfsim::UInt;
+  ac_generated::StatelessOptionalMultiOutput model;
+  if (!model.input().proposePush(UInt<8>{200})) return 1;
+  model.input().doXfer({0, 0});
+  auto rows = model.dispatch_rows();
+  for (unsigned tick = 1; tick != 3; ++tick) {
+    const gfsim::Epoch epoch{tick, 0};
+    for (auto &row : rows) row.work(row.object, epoch);
+    for (auto &row : rows)
+      row.xfer(row.object, epoch, gfsim::XferPhase::Arbitrate);
+    for (auto &row : rows)
+      row.xfer(row.object, epoch, gfsim::XferPhase::Commit);
+  }
+  return model.input().committedSize() == 0 &&
+                 model.sink_0_values().size() == 1 &&
+                 model.sink_0_values()[0] == UInt<8>{200} &&
+                 model.table_state().at(0) == UInt<8>{200}
+             ? 0
+             : 2;
+}
+)cpp");
+  expectCppRuns(disabledExecutable);
+  QueueGraphPlan forged = plan;
+  forged.architectureObligations.front().maximum = 126;
+  EXPECT_TRUE(bool(verifyQueueGraphPlan(forged)));
+  forged = plan;
+  forged.architectureObligations.front().inputOrdinal = 1;
+  EXPECT_TRUE(bool(verifyQueueGraphPlan(forged)));
+  forged = plan;
+  forged.architectureObligations.front().targets = {"cpp"};
+  EXPECT_TRUE(bool(verifyQueueGraphPlan(forged)));
+  forged = plan;
+  forged.architectureObligations.front().firing = "missing";
+  EXPECT_TRUE(bool(verifyQueueGraphPlan(forged)));
+  forged = plan;
+  forged.architectureObligations.front().samplingEdge = "posedge";
+  EXPECT_TRUE(bool(verifyQueueGraphPlan(forged)));
+  forged = plan;
+  forged.architectureObligations.front().activeRule = "bounded";
+  forged.architectureObligations.front().activeRoot = 99;
+  EXPECT_TRUE(bool(verifyQueueGraphPlan(forged)));
+  forged = plan;
+  forged.architectureObligations.front().severity = "warning";
+  EXPECT_TRUE(bool(verifyQueueGraphPlan(forged)));
+  forged = plan;
+  forged.architectureObligations.front().symbol = "other";
+  EXPECT_TRUE(bool(verifyQueueGraphPlan(forged)));
+  forged = plan;
+  forged.architectureObligations.front().module = "other";
+  EXPECT_TRUE(bool(verifyQueueGraphPlan(forged)));
+  forged = plan;
+  forged.architectureObligations.front().conditionTable = "other";
+  EXPECT_TRUE(bool(verifyQueueGraphPlan(forged)));
+  forged = plan;
+  forged.architectureObligations.front().materializations.clear();
+  EXPECT_TRUE(bool(verifyQueueGraphPlan(forged)));
+  forged = plan;
+  forged.architectureObligations.front().materializations.front() += ";tamper";
+  EXPECT_TRUE(bool(verifyQueueGraphPlan(forged)));
+  forged = plan;
+  forged.architectureObligations.front().proofCertificate = "{}";
+  EXPECT_TRUE(bool(verifyQueueGraphPlan(forged)));
+  forged = plan;
+  forged.architectureObligations.front().sampling.clear();
+  EXPECT_TRUE(bool(verifyQueueGraphPlan(forged)));
+  forged = plan;
+  forged.architectureObligations.front().sourceRules.clear();
+  EXPECT_TRUE(bool(verifyQueueGraphPlan(forged)));
+  forged = plan;
+  forged.architectureObligations.front().stateOwners.clear();
+  EXPECT_TRUE(bool(verifyQueueGraphPlan(forged)));
+  forged = plan;
+  forged.architectureObligations.front().sourceProvenance.origins.front()
+      .front()
+      .file = "/absolute.py";
+  EXPECT_TRUE(bool(verifyQueueGraphPlan(forged)));
+  forged = plan;
+  QueueArchitectureExpressionScopePlan foreign =
+      forged.architectureExpressionScopes.front();
+  foreign.rule = "foreign";
+  foreign.ownerRule = "other_firing";
+  forged.architectureExpressionScopes.push_back(std::move(foreign));
+  forged.architectureObligations.front().conditionRule = "foreign";
+  forged.architectureObligations.front().materializations.front() =
+      "module=stateless_optional_multi_output;target=gfsim;firing=bounded;"
+      "input=0;maximum=127;sampling={kind = pre_publish};condition=ac.arch_"
+      "expression_table:foreign:2;severity=error;active=-;disable=-";
+  EXPECT_TRUE(bool(verifyQueueGraphPlan(forged)));
+  forged = plan;
+  foreign = forged.architectureExpressionScopes.front();
+  foreign.rule = "foreign";
+  foreign.ownerRule = "other_firing";
+  forged.architectureExpressionScopes.push_back(std::move(foreign));
+  forged.architectureObligations.front().activeRule = "foreign";
+  forged.architectureObligations.front().activeRoot = 3;
+  forged.architectureObligations.front().materializations.front() =
+      "module=stateless_optional_multi_output;target=gfsim;firing=bounded;"
+      "input=0;maximum=127;sampling={kind = pre_publish};condition=ac.arch_"
+      "expression_table:bounded:2;severity=error;active=foreign:3;disable=-";
+  EXPECT_TRUE(bool(verifyQueueGraphPlan(forged)));
+  forged = plan;
+  foreign = forged.architectureExpressionScopes.front();
+  foreign.rule = "foreign";
+  foreign.ownerRule = "other_firing";
+  forged.architectureExpressionScopes.push_back(std::move(foreign));
+  forged.architectureObligations.front().disableRule = "foreign";
+  forged.architectureObligations.front().disableRoot = 3;
+  forged.architectureObligations.front().materializations.front() =
+      "module=stateless_optional_multi_output;target=gfsim;firing=bounded;"
+      "input=0;maximum=127;sampling={kind = pre_publish};condition=ac.arch_"
+      "expression_table:bounded:2;severity=error;active=-;disable=foreign:3";
+  EXPECT_TRUE(bool(verifyQueueGraphPlan(forged)));
+  forged = plan;
+  forged.architectureExpressionScopes.front().nodes[0].inputOrdinal = 1;
+  EXPECT_TRUE(bool(verifyQueueGraphPlan(forged)));
+  forged = plan;
+  forged.architectureExpressionScopes.front().nodes[0].type = "!ac.var<i16>";
+  EXPECT_TRUE(bool(verifyQueueGraphPlan(forged)));
+  QueueGraphPlan proved = plan;
+  auto &provedObligation = proved.architectureObligations.front();
+  provedObligation.status = "proved";
+  provedObligation.targets.clear();
+  provedObligation.firing.clear();
+  provedObligation.materializations.clear();
+  EXPECT_TRUE(bool(verifyQueueGraphPlan(proved)));
+  provedObligation.proofCertificate = "{kind = predicate_exclusive}";
+  EXPECT_TRUE(bool(verifyQueueGraphPlan(proved)));
+  provedObligation.kind = "onehot0";
+  EXPECT_TRUE(bool(verifyQueueGraphPlan(proved)));
+  provedObligation.kind = "single_writer";
+  EXPECT_TRUE(bool(verifyQueueGraphPlan(proved)));
+  QueueGraphPlan elided = plan;
+  elided.architectureObligations.clear();
+  elided.provedObligationElisions.push_back(
+      {elided.system, "single_writer:state:a:b", "single_writer",
+       "predicate_exclusive", "writer/a", "writer/b", "/", "table/state",
+       "[{frames = [{file = \"fixture.py\"}]}]", 2});
+  EXPECT_FALSE(bool(verifyQueueGraphPlan(elided)));
+  auto elidedJson = elided.canonicalJson();
+  ASSERT_TRUE(bool(elidedJson)) << llvm::toString(elidedJson.takeError());
+  EXPECT_NE(elidedJson->find("\"proved_obligation_elisions\""),
+            std::string::npos);
+  EXPECT_NE(elidedJson->find("single_writer:state:a:b"), std::string::npos);
+  QueueGraphPlan unsupported = plan;
+  unsupported.architectureExpressionScopes.front().nodes.push_back(
+      {"operation", "!ac.var<i1>", {3, 4}, "ac.var.xor", ""});
+  unsupported.architectureObligations.front().activeRule = "bounded";
+  unsupported.architectureObligations.front().activeRoot = 5;
+  unsupported.architectureObligations.front().materializations.front() =
+      "module=stateless_optional_multi_output;target=gfsim;firing=bounded;"
+      "input=0;maximum=127;sampling={kind = pre_publish};condition=ac.arch_"
+      "expression_table:bounded:2;severity=error;active=bounded:5;disable=-";
+  auto unsupportedCpp = generateQueueGraphCpp(unsupported);
+  ASSERT_FALSE(bool(unsupportedCpp));
+  EXPECT_NE(llvm::toString(unsupportedCpp.takeError())
+                .find("unsupported reachable architecture expression"),
+            std::string::npos);
+}
+
+TEST(QueueGraphPlanTest,
+     WriterProofOrientationIsIndependentOfDeclarationOrder) {
+  mlir::DialectRegistry registry;
+  acir::registerAllDialects(registry);
+  mlir::MLIRContext context(registry);
+  auto build = [&](bool reversed) {
+    const llvm::StringRef first =
+        reversed
+            ? "ac.table.propose @state[%index] = %two when %not_guard : "
+              "!ac.var<i1> mode \"field\" write_fields [\"$entry\"] "
+              "{ac.endpoint_id = \"writer/b\", ac.source_provenance = "
+              "[{frames = [{kind = \"statement\", file = \"b.py\", line = "
+              "2 : i64, column = 1 : i64}]}]} : !ac.var<i1>, !ac.var<i8>"
+            : "ac.table.propose @state[%index] = %one when %guard : "
+              "!ac.var<i1> mode \"field\" write_fields [\"$entry\"] "
+              "{ac.endpoint_id = \"writer/a\", ac.source_provenance = "
+              "[{frames = [{kind = \"statement\", file = \"a.py\", line = "
+              "1 : i64, column = 1 : i64}]}]} : !ac.var<i1>, !ac.var<i8>";
+    const llvm::StringRef second =
+        reversed
+            ? "ac.table.propose @state[%index] = %one when %guard : "
+              "!ac.var<i1> mode \"field\" write_fields [\"$entry\"] "
+              "{ac.endpoint_id = \"writer/a\", ac.source_provenance = "
+              "[{frames = [{kind = \"statement\", file = \"a.py\", line = "
+              "1 : i64, column = 1 : i64}]}]} : !ac.var<i1>, !ac.var<i8>"
+            : "ac.table.propose @state[%index] = %two when %not_guard : "
+              "!ac.var<i1> mode \"field\" write_fields [\"$entry\"] "
+              "{ac.endpoint_id = \"writer/b\", ac.source_provenance = "
+              "[{frames = [{kind = \"statement\", file = \"b.py\", line = "
+              "2 : i64, column = 1 : i64}]}]} : !ac.var<i1>, !ac.var<i8>";
+    std::string source;
+    llvm::raw_string_ostream stream(source);
+    stream << R"mlir(
+builtin.module attributes {ac.model_kind = "queue_graph", ac.queue_graph_domain = "cycle", ac.system = "proof_order"} {
+  ac.module @M() parameters {} graph {
+    ac.scope @logic() {
+      ac.table @state entry i8 entries 1 init 0 owner "/logic" stable_id "table/logic/state"
+      %input = ac.source depth 1 latency 1 : !ac.queue<i1>
+      ac.rule %input depths [] latencies [] name "guarded" stable_id "guarded" domain "cycle" type exact {
+      ^body(%guard: !ac.var<i1>):
+        %index = ac.var.constant 0 : i1 as !ac.var<i1>
+        %one = ac.var.constant 1 : i8 as !ac.var<i8>
+        %two = ac.var.constant 2 : i8 as !ac.var<i8>
+        %yes = ac.var.constant true as !ac.var<i1>
+        %no = ac.var.constant false as !ac.var<i1>
+        %not_guard = ac.var.cmp "eq" %guard, %no : !ac.var<i1> -> !ac.var<i1>
+        ac.rule.condition %yes : !ac.var<i1>
+)mlir"
+           << "        " << first << "\n"
+           << "        " << second << R"mlir(
+        ac.rule.return
+      } : (!ac.queue<i1>) -> ()
+      ac.scope.yield
+    } : () -> ()
+    ac.return
+  }
+}
+)mlir";
+    auto file = mlir::parseSourceString<mlir::ModuleOp>(source, &context);
+    EXPECT_TRUE(file);
+    if (!file)
+      return mlir::OwningOpRef<mlir::ModuleOp>();
+    mlir::PassManager manager(&context);
+    manager.addPass(acir::createInferArchitectureObligationsPass());
+    manager.addPass(acir::createProveArchitectureObligationsPass());
+    EXPECT_TRUE(mlir::succeeded(manager.run(*file)));
+    EXPECT_TRUE(mlir::succeeded(
+        acir::verifyArchitectureObligations(*file, /*requireClosed=*/true)));
+    return file;
+  };
+
+  auto artifacts = [&](mlir::ModuleOp file) {
+    std::string obligationIr;
+    QueueGraphPlan plan;
+    plan.system = "M";
+    file.walk([&](ac::ArchitectureObligationOp obligation) {
+      llvm::raw_string_ostream stream(obligationIr);
+      obligation.print(stream);
+      stream << '\n';
+      auto elision = buildProvedObligationElision(obligation, "M");
+      ASSERT_TRUE(bool(elision)) << llvm::toString(elision.takeError());
+      plan.provedObligationElisions.push_back(std::move(*elision));
+    });
+    auto json = plan.canonicalJson();
+    EXPECT_TRUE(bool(json));
+    return std::pair{obligationIr,
+                     json ? std::move(*json) : std::string()};
+  };
+
+  auto forwardFile = build(false);
+  auto reversedFile = build(true);
+  ASSERT_TRUE(forwardFile && reversedFile);
+  auto forward = artifacts(*forwardFile);
+  auto reversed = artifacts(*reversedFile);
+  EXPECT_EQ(forward.first, reversed.first);
+  EXPECT_EQ(forward.second, reversed.second);
+  EXPECT_NE(forward.first.find("left_endpoint = \"writer/a\""),
+            std::string::npos);
+  EXPECT_NE(forward.first.find("right_endpoint = \"writer/b\""),
+            std::string::npos);
+  EXPECT_NE(forward.first.find("file = \"a.py\""), std::string::npos);
+  EXPECT_EQ(forward.first.find("file = \"b.py\""), std::string::npos);
+  EXPECT_NE(forward.second.find("a.py"), std::string::npos);
+  EXPECT_EQ(forward.second.find("b.py"), std::string::npos);
+}
+
 TEST(QueueGraphPlanTest, TypedAggregateTableImageEmitsAndResetRestoresIt) {
   QueueGraphPlan plan = inlineFirstChoicePlan(2, 1);
   plan.system = "typed_aggregate_init";
@@ -5617,13 +6067,13 @@ TEST(QueueGraphPlanTest, PreservesReadableRuleSourceAndLocalNames) {
   mlir::MLIRContext context;
   context.loadDialect<ac::ACIRDialect, mlir::DLTIDialect>();
   auto module =
-      mlir::parseSourceString<mlir::ModuleOp>(kStatefulFiring, &context);
+      mlir::parseSourceString<mlir::ModuleOp>(kStatefulRule, &context);
   ASSERT_TRUE(module);
-  ac::FiringOp firing;
-  module->walk([&](ac::FiringOp candidate) { firing = candidate; });
-  ASSERT_TRUE(firing);
+  ac::RuleOp rule;
+  module->walk([&](ac::RuleOp candidate) { rule = candidate; });
+  ASSERT_TRUE(rule);
   unsigned named = 0;
-  firing.getBody().walk([&](mlir::Operation *operation) {
+  rule.getBody().walk([&](mlir::Operation *operation) {
     if (named == 2 || operation->getNumResults() != 1 ||
         !mlir::isa<ac::VarType>(operation->getResult(0).getType()))
       return;
@@ -5633,9 +6083,9 @@ TEST(QueueGraphPlanTest, PreservesReadableRuleSourceAndLocalNames) {
         &context, "examples/agentic/readable.py", 121 + named, 7));
     ++named;
   });
-  firing->setLoc(mlir::FileLineColLoc::get(
+  rule->setLoc(mlir::FileLineColLoc::get(
       &context, "examples/agentic/readable.py", 120, 5));
-  ASSERT_TRUE(freezeQueueGraph(*module));
+  ASSERT_TRUE(lowerRulesAndFreezeQueueGraph(*module));
   auto plan = buildQueueGraphPlan(*module);
   ASSERT_TRUE(bool(plan)) << llvm::toString(plan.takeError());
   const QueueBlockPlan &block =

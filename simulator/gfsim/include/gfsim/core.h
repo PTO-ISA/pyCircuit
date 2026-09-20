@@ -115,6 +115,16 @@ struct CommitEvent {
   bool operator==(const CommitEvent &) const = default;
 };
 
+struct RuntimeFailureDetail {
+  std::string id;
+  std::string severity;
+  std::string source;
+  std::string module;
+  std::string instancePath;
+
+  bool operator==(const RuntimeFailureDetail &) const = default;
+};
+
 struct TerminationResult {
   TerminationClass classification = TerminationClass::Incomplete;
   Epoch finalEpoch;
@@ -123,6 +133,7 @@ struct TerminationResult {
   std::map<std::string, uint64_t> domainCycles;
   std::string diagnosticCode;
   std::optional<std::string> message;
+  std::optional<RuntimeFailureDetail> runtimeFailure;
   std::vector<StatSnapshot> stats;
 };
 

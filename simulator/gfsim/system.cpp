@@ -844,6 +844,7 @@ bool SimSystem::step() {
       }
 
   impl_->executingEpoch = true;
+  SimObject *deferredRuntimeFailure = nullptr;
   for (ObjectId id : currentWork) {
     ++impl_->workInvocations;
     impl_->activeProposalOwner = id;
@@ -860,6 +861,21 @@ bool SimSystem::step() {
     impl_->activeProposalOwner.reset();
     if (terminated_)
       return false;
+    SimObject *worked = lookup(id);
+    if (worked && worked->runtimeFailure()) {
+      if (worked->runtimeFailure()->severity == "fatal") {
+        result_.runtimeFailure = worked->runtimeFailure();
+        return fail(result_.runtimeFailure->id,
+                    "fatal architecture obligation failed before publish");
+      }
+      if (!deferredRuntimeFailure)
+        deferredRuntimeFailure = worked;
+    }
+  }
+  if (deferredRuntimeFailure) {
+    result_.runtimeFailure = deferredRuntimeFailure->runtimeFailure();
+    return fail(result_.runtimeFailure->id,
+                "architecture obligation failed before publish");
   }
 
   auto arbitrate = [&](ObjectId id) {
@@ -950,6 +966,11 @@ bool SimSystem::step() {
     }
     if (terminated_)
       return false;
+    if (object && object->runtimeFailure()) {
+      result_.runtimeFailure = object->runtimeFailure();
+      return fail(result_.runtimeFailure->id,
+                  "architecture obligation failed during commit");
+    }
     if (object && !object->runtimeFailureCode().empty())
       return fail(std::string(object->runtimeFailureCode()),
                   "runtime object reported a committed failure");

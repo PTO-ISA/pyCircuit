@@ -1,0 +1,8 @@
+{
+  "id": "PC-F4-001",
+  "status": "partial",
+  "prerequisite": "codegen_exact_summary_baseline",
+  "prerequisite_status": "verified",
+  "evidence_path": "docs/gates/logs/20260920-f4-codegen-baseline/summary.md",
+  "review_verdict": "CodeGen baseline prerequisite is repaired through canonical live-SSA rule inference; full F4 atomic runtime, wide-payload lifetime, sanitizer, and composition acceptance remain open"
+}

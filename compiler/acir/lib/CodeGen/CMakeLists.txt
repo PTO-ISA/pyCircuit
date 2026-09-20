@@ -13,6 +13,7 @@ target_link_libraries(ACIRCodeGen PUBLIC
   ACIRAnalysis
   ACIRBindings
   ACIRDialect
+  ACIRTransforms
   MLIRArithDialect
   MLIRControlFlowDialect
   MLIRIndexDialect

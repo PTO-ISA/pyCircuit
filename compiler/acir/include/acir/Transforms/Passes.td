@@ -38,6 +38,21 @@ def BuildRuleEffectGraphPass
   ];
 }
 
+def InferArchitectureObligationsPass
+    : Pass<"ac-infer-architecture-obligations", "::mlir::ModuleOp"> {
+  let summary = "Infer Decision 0272 safety obligations from exact rule effects";
+}
+
+def ProveArchitectureObligationsPass
+    : Pass<"ac-prove-architecture-obligations", "::mlir::ModuleOp"> {
+  let summary = "Independently prove inferred architecture obligations";
+}
+
+def MaterializeArchitectureObligationsPass
+    : Pass<"ac-materialize-architecture-obligations", "::mlir::ModuleOp"> {
+  let summary = "Materialize the admitted gfsim architecture checks";
+}
+
 def CanonicalizeModelPass : Pass<"ac-canonicalize-model", "::mlir::ModuleOp"> {
   let summary = "Canonicalize Agentic Circuit model topology";
   let description = [{

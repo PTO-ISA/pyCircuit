@@ -39,6 +39,7 @@ operations:
   - ac.transition
   - ac.guarantee
   - ac.process
+  - ac.arch_obligation
   - ac.var.constant
   - ac.var.enum
   - ac.var.enum_match
