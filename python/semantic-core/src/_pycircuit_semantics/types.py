@@ -269,6 +269,7 @@ class StructType(ValueType):
     @property
     def resolved_static_bindings(self) -> tuple[tuple[str, int], ...]:
         """Return flattened typed bindings that select this concrete layout."""
+
         def collect_bindings(
             value_type: ValueType,
             bindings: set[tuple[str, int]],

@@ -1,3 +1,5 @@
+# ruff: noqa: F821
+
 import os
 import sys
 
@@ -6,7 +8,9 @@ import lit.formats
 config.name = "PyCircuitMLIR"
 config.test_format = lit.formats.ShTest(execute_external=True)
 config.suffixes = [".mlir"]
-config.test_source_root = getattr(config, "pyc_test_source_root", None) or os.path.dirname(__file__)
+config.test_source_root = getattr(
+    config, "pyc_test_source_root", None
+) or os.path.dirname(__file__)
 
 configured_paths = {
     "ACIR_TEST_EXEC_ROOT": getattr(config, "acir_test_exec_root", None)
@@ -39,10 +43,18 @@ config.substitutions.append(("%acir_opt_public", os.path.join(tools_dir, "acir-o
 config.substitutions.append(("%pycc", os.path.join(tools_dir, "pycc")))
 config.substitutions.append(("%pyc_opt", os.path.join(tools_dir, "pyc-opt")))
 config.substitutions.append(("%acir_opt", os.path.join(tools_dir, "acir-opt-internal")))
-config.substitutions.append(("%acir_opcode_catalog", os.path.join(tools_dir, "acir-opcode-catalog")))
-config.substitutions.append(("%acir_queue_cxxgen", os.path.join(tools_dir, "acir-queue-cxxgen")))
-config.substitutions.append(("%acir_queue_plan", os.path.join(tools_dir, "acir-queue-plan")))
-config.substitutions.append(("%acir_queue_pycgen", os.path.join(tools_dir, "acir-queue-pycgen")))
+config.substitutions.append(
+    ("%acir_opcode_catalog", os.path.join(tools_dir, "acir-opcode-catalog"))
+)
+config.substitutions.append(
+    ("%acir_queue_cxxgen", os.path.join(tools_dir, "acir-queue-cxxgen"))
+)
+config.substitutions.append(
+    ("%acir_queue_plan", os.path.join(tools_dir, "acir-queue-plan"))
+)
+config.substitutions.append(
+    ("%acir_queue_pycgen", os.path.join(tools_dir, "acir-queue-pycgen"))
+)
 config.substitutions.append(("%FileCheck", os.path.join(llvm_tools_dir, "FileCheck")))
 config.substitutions.append(("%split_file", os.path.join(llvm_tools_dir, "split-file")))
 config.substitutions.append(("%not", os.path.join(llvm_tools_dir, "not")))

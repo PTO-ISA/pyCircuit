@@ -847,10 +847,10 @@ class Module:
             f"#pyc.module_port_mapping<{controls}, [{', '.join(logical_mappings)}], "
             f"[{', '.join(physical_inputs)}], [{', '.join(physical_results)}]>"
         )
-        physical = f"({', '.join(str(sig.ty) for _, sig in physical_args)}) -> {res_sig}"
-        signature = (
-            f"#pyc.module_case_signature<{dependent_args}, {interface}, {physical}, {mapping}>"
+        physical = (
+            f"({', '.join(str(sig.ty) for _, sig in physical_args)}) -> {res_sig}"
         )
+        signature = f"#pyc.module_case_signature<{dependent_args}, {interface}, {physical}, {mapping}>"
         header = (
             f"pyc.module @{self.name} source {owner} schema {schema} {{\n"
             f"  pyc.module.case signature {signature} source {prov} {{\n"
@@ -863,9 +863,11 @@ class Module:
         }
         attr_dict = ""
         if family_attrs:
-            attr_dict = " {" + ", ".join(
-                f"{key} = {value}" for key, value in family_attrs.items()
-            ) + "}"
+            attr_dict = (
+                " {"
+                + ", ".join(f"{key} = {value}" for key, value in family_attrs.items())
+                + "}"
+            )
         if outs:
             tail = f"\n    pyc.return {outs} : {ret_ty}\n  }}\n}}{attr_dict}\n"
         else:

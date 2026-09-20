@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import importlib.util
 import inspect
-import re
 import subprocess
 import types
 from pathlib import Path
@@ -10,7 +9,6 @@ from pathlib import Path
 import pycircuit
 import pycircuit.v6 as pyc6
 import pytest
-from pycircuit.design import Design
 
 pytestmark = pytest.mark.unit
 
