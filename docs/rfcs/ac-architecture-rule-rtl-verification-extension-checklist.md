@@ -776,17 +776,20 @@ identity and does not contain opaque content-derived tokens.
 
 **Goal:** accept the semantic model before implementation branches diverge.
 
-- [x] Add Decisions 0271-0274 for exact effects, Architecture Obligation IR,
-      old/new state, four-state/SRAM, and pointer/naming contracts.
+- [x] Add Decisions 0271-0275 for exact effects, Architecture Obligation IR,
+      old/new state, four-state/SRAM, pointer/naming contracts, and the closed
+      static-parameter family schema.
 - [x] Freeze the closed F0 enums and product semantics; JSON/DOT remain
       deterministic debug/evidence views, not product identity or release ABI.
 - [x] Define product contracts versus debug/evidence artifacts.
 - [x] State explicitly that full consumer models remain outside pyCircuit.
-- [x] Add this checklist and Decisions 0271-0274 to contributor routing.
+- [x] Add this checklist and Decisions 0271-0275 to contributor routing.
 - [ ] Implement the frozen expression/obligation schemas and verifiers (P1-P3).
 - [ ] Implement deterministic graph/obligation debug serialization (P2-P3).
 
-Recovery identity is not an F0 blocker. Its public/internal object decisions and
+Static family emission remains blocked until Decision 0275's ordered typed
+declarations, constraints, source-owned finite cases, typed QueueGraph plans,
+and acceptance/negative matrix are implemented. Recovery identity is not an F0 blocker. Its public/internal object decisions and
 implementation belong to P8 and require a later decision.
 
 **Exit:** accepted decisions resolve every item in Section 12 that blocks P1-P3.
@@ -1119,7 +1122,8 @@ missing semantic rule locally.
 
 F0 closes exact effect DAGs, the module-owned `ac.arch_obligation` symbol plus
 module-owned typed expression table, sampling/runtime admission, four-state and
-SRAM live-window policy, and pointer/naming hard break. The remaining genuine
+SRAM live-window policy, pointer/naming hard break, and Decision 0275's closed
+static-family schema. The remaining genuine
 questions are deferred to their owning later decisions:
 
 1. Which recovery/identity objects become public Python APIs after internal
@@ -1130,7 +1134,8 @@ questions are deferred to their owning later decisions:
 4. Which structural PPA estimates are stable enough to gate, rather than only
    report.
 
-These deferred questions do not reopen Decisions 0271–0274 and do not block
+Open parameter domains and richer static-family constraints are additionally
+deferred by Decision 0275. These deferred questions do not reopen Decisions 0271–0275 and do not block
 implementing their accepted safety contracts. Each requires a new decision
 before its later phase may choose semantics.
 

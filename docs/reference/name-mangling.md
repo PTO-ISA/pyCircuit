@@ -5,9 +5,9 @@ artifacts. Names have two distinct roles: source-readable semantic names and
 target-language spellings. A backend name
 must never replace or become the source of semantic identity.
 
-## Accepted Decision 0274 target and current implementation gap
+## Accepted Decisions 0274-0275 target and current implementation gap
 
-Decision 0274 is the target naming authority. At the F4/F5 hard cutover, one
+Decisions 0274 and 0275 are the target naming and static-family authorities. At the F4/F5 hard cutover, one
 implementation Python/AC source stem owns one `.hpp`/`.cpp` pair, source-owned
 interface shards own nominal declarations, and one parameterized source
 definition emits one readable C++ and RTL module family. Typed static
@@ -20,7 +20,10 @@ cutover: it still uses `.h`, concrete-symbol/specialization spellings, and some
 double-underscore compiler names. Those spellings are implementation gaps, not
 permission to weaken Decision 0274. The emitter, package consumers, tests, and
 this baseline section must update atomically in one hard break. No dual naming
-mode, alias, fallback, or compatibility flag is admitted.
+mode, alias, fallback, or compatibility flag is admitted. Family emission is
+also blocked until the source-owned ordered `StaticParameterDecl` and explicit
+finite-case schema reaches typed QueueGraph plan records; the current concrete
+symbols and caller observations are not a family declaration.
 
 ## Design principles
 

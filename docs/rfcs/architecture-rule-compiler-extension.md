@@ -3,7 +3,7 @@
 <!-- markdownlint-disable MD032 MD036 -->
 
 **Status:** Proposed
-**Baseline:** pyCircuit 6.1.0（决策登记截至 0274；release identity 位于 IR 外部）
+**Baseline:** pyCircuit 6.1.0（决策登记截至 0275；release identity 位于 IR 外部）
 **Target repository:** `PTO-ISA/pyCircuit`
 **Primary validation workload:** large concurrent architecture 的 reduced generic fixture（完整设计留在 consumer repository）
 **Scope:** Agentic Circuit / ACIR / 编译器分析 / codegen / 验证 / CBB refinement
@@ -741,11 +741,11 @@ Architecture Intent -> Rule -> Effect -> Obligation -> Transaction
 
 ## 落地流程与未决问题
 
-**Status 为 Proposed implementation RFC。** Decisions 0271–0274 已接受本文中 F0
+**Status 为 Proposed implementation RFC。** Decisions 0271–0275 已接受本文中 F0
 收敛的 contract；本文其余 recovery、transaction、memory-order 与 refinement 内容仍需按阶段决策。
 
-1. Decisions 0271–0274 在 `docs/gates/decision_status_v6.md` 中保持 `gap-in-scope`，直到
-   各自实现与验证证据完整。严格 release closure 因这些行而 fail-closed 是预期行为，
+1. Decisions 0273–0275 在 `docs/gates/decision_status_v6.md` 中保持 `gap-in-scope`；
+   Decision 0272 保持 `implemented-unverified`，直到各自实现与验证证据完整。严格 release closure 因这些行而 fail-closed 是预期行为，
    不得用虚假的 `implemented-unverified` 绕过门禁。
 2. 若要把通用契约写成规范性条款，放入 `docs/rfcs/acir/` 或 `docs/acir/spec/` 时必须满足 NDF 约束
    （clause 级 `kind/level/layer/status`、边引用必须可解析、

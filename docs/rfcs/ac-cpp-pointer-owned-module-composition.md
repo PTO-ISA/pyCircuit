@@ -1,8 +1,8 @@
 # AC C++ pointer-owned module composition
 
-**Status:** Accepted architecture contract; implementation tracked by Decision 0274
+**Status:** Accepted architecture contract; implementation tracked by Decisions 0274 and 0275
 
-**Related decisions:** 0264, 0267, 0269, 0270
+**Related decisions:** 0264, 0267, 0269, 0270, 0274, 0275
 
 **Implementation checklist:**
 [AC rule and SimQueue atomic lowering checklist](ac-rule-simqueue-atomic-lowering-checklist.md)
@@ -426,6 +426,14 @@ Queue storage representation changes.
 
 ## Specialization and reuse
 
+Decision 0275 is the normative static-family schema. Family emission is blocked
+until the frontend, ACIR/link verifier, and QueueGraph represent its ordered
+`StaticParameterDecl` records, closed parameter types, required/default state,
+`one_of`/`integer_range` constraints, source-declared `finite_cases`, and closed
+dependent expressions as typed records. Observed callers, concrete symbol
+spellings, dictionaries, and identifier suffixes cannot supply missing family
+information.
+
 Specialization equality remains:
 
 ```text
@@ -461,6 +469,14 @@ The RTL projection follows the same grouping: one readable parameterized RTL
 module family per source definition, with typed static parameters and admitted
 generate branches. Unsupported parameter/family shapes reject before RTL
 emission; they do not produce per-specialization module names or suffixes.
+
+For F4, every admitted case is declared by the source independently of callers.
+The C++ template family explicitly instantiates those cases, RTL covers exactly
+those cases through typed parameters/generate branches, and Queue storage is
+selected after per-case dependent-type concretization. Open-domain families,
+richer cross-parameter constraints, and family emission from the current
+concrete-symbol baseline remain rejected until a later decision or the Decision
+0275 implementation is verified.
 
 ## Names and traceability
 

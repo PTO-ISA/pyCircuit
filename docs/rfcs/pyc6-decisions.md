@@ -10865,3 +10865,127 @@ source-owned interface behavior rather than superseding that architecture.
   independent objects and state; explicit typed parameters never enter names.
 - C++/RTL parity, negative repository scans, and consumer-neutral nested module
   fixtures prove the one-stage hard break without consumer-specific examples.
+
+## Decision 0275: static parameter families use one closed typed declaration and case schema
+
+**Status:** Accepted; implementation required
+
+**Refines:** Decisions 0270 and 0274. Decision 0267 specialization equality
+remains unchanged.
+
+**Context / Goal**
+Decision 0274 requires one readable C++ and RTL family per parameterized source
+definition, but it does not freeze the declaration schema that makes such a
+family finite, typed, and backend-independent. Inferring a family from observed
+callers, concrete symbols, dictionaries, or generated-name suffixes would make
+the emitted contract depend on build reachability and would recreate a second
+identity system. F4 therefore admits one deliberately closed static-parameter
+family model before any family emitter is implemented.
+
+**Decision (strong constraint)**
+- A parameterized public module owns one ordered list of
+  `StaticParameterDecl` records. Each record has a source name, one closed
+  parameter type, required/default state, zero or more admitted constraints,
+  and source provenance. Declaration order is semantic for argument binding;
+  maps or dictionaries are never the declaration form.
+- The closed parameter-type domain is `bool`; fixed-width `int` with explicit
+  positive width and signedness; a nominal closed enum; or a nominal nested
+  immutable configuration whose fields recursively use this same domain.
+  Unbounded host integers, strings, floats, runtime values, structural types,
+  and open records are not static-family parameter types.
+- A declaration is either required or has one exact typed default. A default is
+  checked against the declared type and constraints exactly as an explicit
+  argument. The only F4 constraint forms are typed `one_of` and inclusive
+  `integer_range(min, max)`; `integer_range` applies only to integer parameters
+  and must fit their width and signedness. Empty sets, inverted ranges,
+  duplicate canonical values, and constraints on an incompatible type reject.
+- Each source definition declares a non-empty ordered `finite_cases` list. A
+  case binds every declaration after defaults, contains no unknown or duplicate
+  name, satisfies every type and constraint, and is unique by its ordered typed
+  argument tuple. `finite_cases` is the only F4 admission mechanism. A
+  parametric or open-domain family, including a source with no explicit finite
+  case list, rejects before AC publication or backend emission.
+- The source declaration owns the complete admitted case set independently of
+  callers. Call sites select an already-declared case; observed call graphs do
+  not add, remove, infer, or reorder family cases. Unused declared cases remain
+  part of the family contract, and a caller requesting an undeclared case
+  rejects.
+- Family identity is the source-owned module definition symbol. Case equality,
+  selection, deduplication, and Decision 0267 specialization equality use the
+  structural pair `(family symbol, ordered typed static arguments)`. Concrete
+  cases are typed records, not additional source, module, class, file, or RTL
+  symbols.
+- The source owner remains authoritative for the module declaration header,
+  nominal interface/type shards, implementation body, and complete family
+  schema. Imports carry and verify that typed schema; parents and callers do not
+  synthesize headers, interfaces, bodies, or cases from observations.
+- Dependent type/layout expressions use one closed typed expression grammar:
+  integer literals, declared parameter references, nominal nested-config field
+  projections, `+`, `-`, `*`, `index_width`, and `count_width`. Expressions are
+  total, side-effect free, statically typed, and evaluated separately for each
+  admitted case. Host callbacks, arbitrary Python evaluation, string lookup,
+  dictionary lookup, runtime values, division, conditionals, and unlisted
+  operators reject.
+- Verified QueueGraph carries typed family, declaration, constraint, case, and
+  ordered-argument plan records. Backends consume those records directly;
+  flattened strings, suffix parsing, generic dictionaries, or reconstruction
+  from concrete module symbols are forbidden.
+- C++ emits one readable template family per source definition and explicitly
+  instantiates its admitted cases. RTL emits one readable parameterized module
+  family with typed parameters and generate branches sufficient for exactly
+  those cases. Neither backend emits a per-case class/module/file name or a
+  convenience alias containing parameter values.
+- Queue payload storage is selected after dependent types are concretized for
+  each case. A concrete packed width greater than 64 bits uses the immutable
+  `std::shared_ptr<const T>` policy from Decision 0274; width at or below 64
+  bits remains value storage. Family-wide worst-case width does not override a
+  case's concrete storage choice.
+- There is one family mode. Specialization suffixes, string-derived identity,
+  observed-caller inference, dictionary-as-declaration, concrete symbols as
+  case identity, and dual legacy/family emission modes are forbidden.
+
+**Acceptance matrix**
+
+| Input | Required result |
+| --- | --- |
+| ordered required `bool`, fixed-width integer, nominal enum, and nested-config declarations with complete unique cases | one verified family schema; ordered typed cases reach QueueGraph, C++, and RTL unchanged |
+| omitted optional argument with a valid typed default | canonical case contains the checked default in declaration order |
+| two callers select the same declared case | one case implementation/instantiation is reused; runtime instances remain independent |
+| a declared case is not observed in the selected caller graph | the case remains admitted and is emitted as part of the source-owned family |
+| dependent payload is 64 bits in one case and 65 bits in another | value storage for the first case and immutable shared storage for the second |
+| clean repeat emission with callers reordered | identical declaration/case order, readable family names, and backend inventories |
+
+**Negative matrix**
+
+| Input | Required rejection |
+| --- | --- |
+| missing `finite_cases`, wildcard/open range, or a request to instantiate an undeclared case | parametric/open family is unsupported in F4 |
+| unordered/dictionary declaration, duplicate declaration/case binding, missing required value, or unknown value | malformed static-family schema |
+| unbounded integer, missing width/signedness, structural/anonymous enum, open config, string, float, or runtime value | unsupported parameter type |
+| invalid default, empty/duplicate `one_of`, inverted/out-of-width `integer_range`, or incompatible constraint | invalid typed constraint/default |
+| host callback, arbitrary Python expression, dictionary/string lookup, runtime dependency, conditional, division, or another unlisted dependent operator | unsupported dependent expression |
+| family/case reconstructed from observed callers, concrete symbol names, suffixes, or flattened strings | non-source-owned or stringly family plan |
+| per-case C++/RTL symbol or file, parameter-bearing alias, `__`, opaque suffix, or selectable legacy/family mode | forbidden family naming/emission path |
+
+**Required verification**
+- Frontend and ACIR verifier tests cover every admitted parameter type,
+  required/default binding, both constraint forms, nested configuration,
+  deterministic finite-case ordering, and every rejection class above.
+- Package-link tests prove imports match the source-owned declaration and full
+  family schema even when child bodies or selected callers are unavailable.
+- QueueGraph tests prove typed plan records preserve declaration and case order
+  without dictionaries, suffix parsing, or observed-call inference.
+- Generated-source tests prove one readable C++ template family, one readable
+  RTL parameter/generate family, exact admitted-case coverage, deterministic
+  output, and per-case wide-payload storage.
+- Repository scans and negative tests prove absence of per-case symbols/files,
+  parameter suffixes, string identity, dictionary declarations, inferred case
+  sets, and dual-mode emission.
+
+**Deferred explicitly**
+- Open or symbolic parameter domains, caller-driven monomorphization, and
+  unbounded/range-generated case sets require a later decision.
+- Relational constraints across declarations, richer predicates, conditional
+  defaults, algebraic/config collection types, and a broader dependent
+  expression grammar require a later decision. Implementers must reject these
+  forms rather than choosing local semantics.

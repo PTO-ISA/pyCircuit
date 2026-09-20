@@ -7,6 +7,9 @@
 **Architecture extension:**
 [AC architecture-rule, RTL codegen, and verification extension checklist](ac-architecture-rule-rtl-verification-extension-checklist.md)
 
+**Static family authority:** Decision 0275 in
+[pyCircuit 6 decisions](pyc6-decisions.md)
+
 This document owns the atomic Queue/state execution slice. Whole-design effect
 graphs, obligation IR, SVA generation, SRAM/X methodology, recovery identity,
 multi-lane resource algebra, and verification evidence are owned by the
@@ -401,18 +404,28 @@ effect or vice versa.
 
 **Goal:** connect atomic rule code to the pointer-owned C++ module design.
 
+Family generation is fail-closed until Decision 0275 is implemented. The
+frontend/ACIR/link path must first publish the ordered typed declarations,
+defaults, constraints, complete source-owned finite cases, and dependent
+expressions; QueueGraph must carry typed plan records rather than dictionaries,
+suffixes, or inferred concrete symbols.
+
 - [ ] Generate one `.hpp` from every resolved module declaration.
 - [ ] Generate one `.cpp` from every implementation `.ac` source unit.
 - [ ] Generate a C++ class for every nominal `ac.struct`.
 - [ ] Generate `<Module>Ports` with `SimQueue<StorageT> *` fields.
 - [ ] Select `StorageT` after static type concretization.
+- [ ] Select `StorageT` per admitted case; concrete widths above 64 bits use
+      immutable shared ownership without forcing narrow cases to use it.
 - [ ] Parent classes own internal `SimQueue<StorageT>` values.
 - [ ] Child modules receive only pointers to parent-owned Queues.
 - [ ] Child modules remain `unique_ptr`; wide payloads alone use `shared_ptr`.
 - [ ] Instance records store the allocated module pointer, not Queue ownership.
 
 **Exit criteria:** nested H1→H2→H3 generated headers/sources compile
-independently and preserve pointer/Queue ownership.
+independently and preserve pointer/Queue ownership. Parameterized-family exit
+also requires the Decision 0275 positive/negative matrix; until then family
+emission rejects rather than using the concrete-symbol baseline.
 
 ### M8A — Generate short readable names for C++ and Verilator waveforms
 

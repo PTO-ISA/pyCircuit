@@ -28,7 +28,8 @@ architecture state.
 
 For exact rule effects, whole-design conflict/order analysis, architecture
 obligations, four-state/SRAM verification, atomic Queue lowering, or
-pointer-owned composition, read Decisions 0271-0274 and these documents before
+pointer-owned composition, or static parameter families, read Decisions
+0271-0275 and these documents before
 editing implementation:
 
 - `docs/rfcs/architecture-rule-compiler-extension.md` for product direction;
@@ -42,6 +43,13 @@ editing implementation:
 F1+ implementation checkboxes remain open. Do not infer backend semantics from
 the checklist, reuse `ac.marker.obligation` as Architecture Obligation IR, or
 place consumer-specific models in pyCircuit.
+
+For a parameterized family, Decision 0275 requires ordered typed declarations,
+an explicit source-owned finite case list independent of callers, and only the
+closed default/constraint/dependent-expression forms it admits. Until those
+records reach verified ACIR and typed QueueGraph plans, do not emit a C++ or RTL
+family and do not recover cases from dictionaries, concrete symbols, suffixes,
+or observed call sites.
 
 Do not mix the `pycircuit` and `agentic_circuit` namespaces inside one
 authoring function. They meet through verified PYC after the Agentic compiler
