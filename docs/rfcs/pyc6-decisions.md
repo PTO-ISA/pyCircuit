@@ -10519,7 +10519,7 @@ and exact Git source revision.
 
 ## Decision 0269: structured compilation publishes independently linked AC source units
 
-**Status:** Accepted; implementation required
+**Status:** Accepted; implemented-verified historical closure, superseded and refined by Decision 0270
 
 **Supersedes:** Decision 0264 inspection-only per-module dump clauses and every
 whole-program-only `.ac` publication clause. Refines Decisions 0267 and 0268.
@@ -10587,7 +10587,7 @@ prove H1/H2/H3 ownership, and cannot support scalable compile/link scheduling.
 
 ## Decision 0270: AC packages use module headers and publish High ACIR
 
-**Status:** Accepted; implementation in progress
+**Status:** Accepted; implemented-verified
 
 **Supersedes:** Decision 0269 clauses that allow several public module
 definitions in one Python implementation source or publish post-materialization
@@ -10659,3 +10659,209 @@ contracts without introducing consumer-specific hierarchy knowledge.
   module declarations behave like shared headers, parents do not consume child
   implementations, each SSM Python file owns one module, and H3 tests live in a
   mirrored `tests/` hierarchy as `<name>.test.py`.
+
+## Decision 0271: persisted rule footprints are exact typed expression DAGs and feed one shared whole-design effect graph
+
+**Status:** Accepted; implementation required
+
+**Refines:** Decisions 0237, 0263, and 0270.
+
+**Decision (strong constraint)**
+- Every executable rule persists an exact typed effect summary. Each state
+  footprint preserves owner, access kind, exact field set or whole-entry marker,
+  source provenance, and references to normalized index and path-predicate
+  expression DAGs. An index-kind or guard-kind classification alone is not an
+  exact summary.
+- Every persisted expression-DAG node has a closed opcode, exact result type,
+  ordered operand references, and closed typed attributes. Leaves are limited
+  to exact rule-input ordinals, committed owner/field/index identities, typed
+  constants or static parameters, and admitted lane identities. Serialization
+  ordinals are local handles only; they are not semantic IDs.
+- The persisted typed DAG representation may change while F1 is implemented;
+  the current serialized summary is explicitly incomplete and is not a frozen
+  compatibility format. The verifier independently normalizes the live rule
+  body, cross-checks that result against the persisted summary, and rejects
+  loss, mutation, unrepresentable expressions, or summaries that merely echo
+  their own serialized form.
+- One whole-design effect graph consumes these summaries and represents
+  rule-to-state, resource, conflict, ordering, recovery, arbitration, and
+  obligation edges. Deterministic JSON and optional DOT are debug views, not
+  identity or release formats.
+- The graph reuses the existing value-constraint and writer-arbitration proofs,
+  including disjoint fields, disjoint indices, mutually exclusive predicates,
+  explicit priority, and cycle rejection. A second weaker overlap algorithm is
+  forbidden.
+- Same-cycle persistent-state reads retain the established committed old-state
+  observation. Forwarding requires a separately accepted explicit typed
+  relation; the graph must not infer it from source order.
+
+**Required verification**
+- A three-rule fixture persists exact A/B field-disjoint and A/C overlapping
+  footprints, including normalized index and predicate DAGs, independently of
+  source order.
+- Positive and negative verifier tests prove the persisted summary equals the
+  live body, and deterministic JSON/DOT explain reused proof results.
+- Existing writer-arbitration proof and cross-owner cycle tests remain green.
+
+## Decision 0272: architecture obligations are first-class safety records with typed sampling and fail-closed admission
+
+**Status:** Accepted; implementation required
+
+**Refines:** Decision 0271.
+
+**Decision (strong constraint)**
+- Architecture obligations use exactly one module-owned symbol operation named
+  `ac.arch_obligation`. Its typed condition references nodes in a module-owned
+  typed expression table. They are distinct from
+  `ac.marker.obligation`, whose pending/materialized/discharged lifecycle
+  remains only a transient rule-handshake lowering marker and is eliminated
+  before backend emission.
+- Every architecture obligation has an explicit stable semantic ID that is
+  author- or compiler-assigned from declared structural names. It must not be
+  derived from content, source line, traversal order, or a process-local
+  counter. Each obligation also has a closed
+  kind and severity, typed condition, source-rule and state-owner references,
+  proof status (`pending`, `proved`, `runtime_checked`, or `rejected`), runtime
+  targets, source provenance, and a typed sampling contract.
+- Phase-one `kind` is the closed safety enum `mutual_exclusion |
+  single_writer | resource_capacity | ready_valid_integrity |
+  transaction_atomicity | generation_match | epoch_match | ordering | range |
+  onehot0 | no_partial_commit | no_stale_update | credit_balance |
+  pipeline_alignment`. Runtime targets are the closed enum `cpp | gfsim | sva`.
+  Phase-one `severity` is exactly `error | fatal`; `warning` and `info` do not
+  exist. Both severities make the run and its gate unsuccessful and never relax
+  admission. `fatal` emits the structured obligation ID/source diagnostic and
+  terminates immediately before the guarded mutation or publication. `error`
+  emits the same structured diagnostic, suppresses that mutation/publication,
+  marks the run failed, and may continue only for bounded diagnostic
+  collection; it can never later declare pass.
+- The sampling contract is a tagged union with exactly four kinds:
+  `tick_observation` maps to TICK-OBS, `xfer_observation` maps to XFER-OBS,
+  `pre_publish` is anchored to a rule/firing immediately before publication,
+  and `producer_event` names an explicit producer event. The edge enum is
+  `posedge | negedge | none`: `tick_observation` and `xfer_observation` require
+  `none`, `pre_publish` inherits its firing clock and requires `none`, and only
+  `producer_event` may select `posedge` or `negedge`. `sample_anchor` is
+  forbidden for tick/xfer, is the rule/firing ID for pre-publish, and is the
+  explicit event ID for producer-event. `active_predicate` and
+  `reset_recovery_disable` are sampled at that same event. Disable means a
+  synchronous sampled skip, never an implicit asynchronous `disable iff`.
+  Optional capture latency is an integer number of cycles and is legal only for
+  monitor-only producer-event capture; it cannot affect admission or mutation.
+  Union arms are mutually exclusive. An active-edge-only value without a
+  producer-event anchor is rejected.
+- Phase one admits safety properties only. Liveness/eventuality is rejected
+  until temporal semantics are separately accepted. Closure and runtime
+  admission are fail-closed: pending, unsupported, target-incomplete, or
+  sampling-incomplete obligations block backend emission.
+- Runtime checks may discharge only obligations whose exact condition and
+  sampling contract are executable by every selected target. They cannot
+  legalize unresolved writer overlap, authorize one-hot AND-OR optimization,
+  replace required static proof, or be disableable when admission depends on
+  them. Synthesis/deployment legality requires static proof; verification-only
+  runtime assertions do not constitute that proof.
+- Mandatory release C++/gfsim checks survive `NDEBUG` and execute before the
+  mutation or publication whose admission they guard. Any transform that
+  changes an obligation condition invalidates its proof and must recompute the
+  condition, proof, sampling contract, and selected runtime materialization.
+
+**Required verification**
+- One safety obligation is proved, one is admitted with matched C++/gfsim and
+  SVA conditions and ID, and pending, liveness, incomplete-sampling, and
+  synthesis-without-proof cases are rejected.
+- Closure proves no `ac.arch_obligation` silently disappears and no transient
+  marker reaches QueueGraph or a backend.
+
+## Decision 0273: four-state parity compares exact value, known, and Z masks and aggressive SRAM Q lives for one enabled-read cycle
+
+**Status:** Accepted; implementation required
+
+**Refines:** Decision 0272 and the existing pyc6 four-state trace contract.
+
+**Decision (strong constraint)**
+- C++/RTL four-state comparison carries equal-width `value`, `known`, and `z`
+  masks. Parity requires identical known and Z masks and equal value bits where
+  the common known mask is one; value bits under unknown or Z are ignored.
+  Every value satisfies `(known & z) == 0`.
+  Treating C++ zero as RTL X/Z, or comparing values without exact masks, is
+  forbidden.
+- The aggressive SRAM verification profile uses a mandatory static live-window
+  parameter `N=1` for every admitted synchronous SRAM shape; `N` is not memory
+  depth. Q starts unknown. An enabled read makes Q live after its capture edge
+  for exactly one live-use cycle; the
+  next edge invalidates Q unless another enabled read establishes a new live
+  value. Delayed use must consume an always-capture register with an explicit
+  NBA-safe live-versus-registered selection.
+- Unknown control or an active assertion condition is an immediate failure;
+  enabled address, write data, and write strobes must be known. An inactive
+  path may contain X only when its applicability predicate is known false.
+  Unsupported four-state operations reject instead of coercing to two-state.
+  Read-during-write behavior and inactive-unit gating are explicit.
+  Simulation/formal X behavior stays isolated from the technology-independent
+  synthesizable primitive. Bounded `Table` capacity/rank remains a separate
+  state contract and does not define SRAM live-window `N`.
+- Every generated assertion uses the typed sampling fields from Decision 0272.
+
+**Required verification**
+- C++ and RTL parity tests cover known, X, and Z observations and fail on known
+  mask or Z-mask mismatch even when value bits happen to match.
+- SRAM tests cover static live-window `N=1`, stale-Q use after the one-live-cycle window, back-to-
+  back enabled reads, disabled reads, NBA capture visibility, read-during-write,
+  known enabled controls, and inactive-unit gating.
+
+## Decision 0274: source-owned pointer composition and readable names cut over as one hard break
+
+**Status:** Accepted; implementation required
+
+**Supersedes:** Decision 0264 clauses that require per-type generated headers,
+`.h` module headers, one source group per concrete specialization, or by-value
+composite ownership; Decision 0267 clauses that encode static specialization
+values in generated identifiers; and only Decision 0270 concrete-symbol naming
+clauses incompatible with one readable parameterized family. Decision 0264
+scalar reset/write-enable semantics and Decision 0267 structural specialization
+equality remain unchanged. This decision refines Decision 0270 source-unit and
+source-owned interface behavior rather than superseding that architecture.
+
+**Decision (strong constraint)**
+- One source-owned interface shard is the nominal type and module declaration
+  header authority. One implementation Python/AC source stem owns one matching
+  `.hpp`/`.cpp` pair; nominal type headers remain source-owned interface shards,
+  not a monolithic generated type unit.
+- A lexical parent owns internal `SimQueue<T>` objects as concrete values and
+  structural children as `std::unique_ptr<Child>`. Child ports are non-owning,
+  typed raw `SimQueue<T> *` pointers. Queue payloads whose concrete packed width
+  is greater than 64 bits use `std::shared_ptr<const T>`; payload allocation
+  happens only after successful capacity reservation and final-reference
+  release defines deallocation.
+- Specialization identity remains exactly the structural pair of definition
+  symbol and ordered typed static arguments. Generated classes, files, aliases,
+  locals, and waveform-visible names carry no specialization suffix, no `__`,
+  and no opaque suffix. Static parameters are explicit typed template arguments
+  or typed parameter objects; generated convenience aliases that encode values
+  in names are forbidden.
+- The RTL naming family follows the same source-owned, readable lower-snake
+  rule: local names omit repeated enclosing-module prefixes, cross-module names
+  identify endpoints once, and overlength/colliding names fail rather than
+  truncate or acquire opaque tokens.
+- Each parameterized source definition emits one readable RTL module family.
+  Typed static parameters and admitted generate branches carry specialization;
+  parameter values never enter the module name. A family shape that cannot be
+  represented with the admitted typed parameters/branches rejects before RTL
+  emission rather than creating per-specialization modules or suffixes.
+- Pointer ownership, `.hpp` naming, parameter spelling, and RTL name families
+  cut over in one coherent stage. There is no dual emitter, `.h` duplicate,
+  reference-port mode, by-value child fallback, whole-core fallback, shim,
+  alias, or compatibility flag.
+- Arbitration chooses the winning complete firing before any Queue/state
+  preparation. Losing candidates prepare, reserve, allocate, publish, and
+  consume nothing.
+
+**Required verification**
+- Generated-source and build-graph tests prove exact `.hpp`/`.cpp` source
+  ownership, source-owned nominal headers, parent Queue addresses shared by
+  child ports, unique child lifetime, wide immutable payload lifetime, and no
+  legacy ownership or naming path.
+- Equal specializations reuse one C++ type while repeated instances retain
+  independent objects and state; explicit typed parameters never enter names.
+- C++/RTL parity, negative repository scans, and consumer-neutral nested module
+  fixtures prove the one-stage hard break without consumer-specific examples.

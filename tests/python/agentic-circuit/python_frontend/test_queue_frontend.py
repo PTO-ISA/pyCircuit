@@ -3988,9 +3988,10 @@ def widening(pair: SignedPair) -> ac.s32:
         self.assertIn('type = "Config"', lowered)
         self.assertIn(r"\22name\22:\22Geometry\22", lowered)
         self.assertIn('{name = "index", type = i7}', lowered)
-        self.assertRegex(
+        self.assertIn(
+            "type = !ac.value_array<4 x "
+            "!ac.struct<@types::@Entry__cfg_dot_geometry_dot_entries_128>>",
             lowered,
-            r"type = !ac\.value_array<4 x !ac\.struct<@types::@Entry__cfg\.geometry\.entries_128>>",
         )
         self.assertNotIn("static_assert", lowered)
 
@@ -8756,13 +8757,15 @@ def two_accumulators(left: ac.u8, right: ac.u8) -> tuple[ac.u8, ac.u8]:
         lowered = lower_queue_source(INFERRED_NESTED_MODULE_SOURCE, "pipeline")
         self.assertIn("ac.module @increment", lowered)
         self.assertIn(
-            "ac.module @wrapper(%input: !ac.queue<i8>) -> !ac.queue<i8> parameters {}"
+            "ac.module @wrapper(%arg0: !ac.queue<i8>) -> !ac.queue<i8> parameters {}"
             ' attributes {ac.definition_name = "wrapper", '
             'ac.input_display_names = ["value"], '
             'ac.output_display_names = ["result"]} graph {',
             lowered,
         )
-        self.assertIn("ac.instance @result of @increment", lowered)
+        self.assertIn(
+            "%result = ac.instance @increment_0 of @increment(%arg0)", lowered
+        )
         self.assertEqual(2, lowered.count(" of @wrapper"))
 
     def test_module_arguments_lower_nested_field_projections_and_fanout(self) -> None:

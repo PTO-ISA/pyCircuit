@@ -24,6 +24,25 @@ libraries; it does not introduce a second timing model. Use Agentic Circuit
 when the primary nouns are transactions, queues, rules, resources, or committed
 architecture state.
 
+## Architecture-rule compiler routing
+
+For exact rule effects, whole-design conflict/order analysis, architecture
+obligations, four-state/SRAM verification, atomic Queue lowering, or
+pointer-owned composition, read Decisions 0271-0274 and these documents before
+editing implementation:
+
+- `docs/rfcs/architecture-rule-compiler-extension.md` for product direction;
+- `docs/rfcs/ac-architecture-rule-rtl-verification-extension-checklist.md` for
+  phase ownership, accepted F0 contracts, and verification;
+- `docs/rfcs/ac-rule-simqueue-atomic-lowering-checklist.md` for atomic
+  Queue/state execution; and
+- `docs/rfcs/ac-cpp-pointer-owned-module-composition.md` for source-owned C++
+  ownership and the Decision 0274 hard-break target.
+
+F1+ implementation checkboxes remain open. Do not infer backend semantics from
+the checklist, reuse `ac.marker.obligation` as Architecture Obligation IR, or
+place consumer-specific models in pyCircuit.
+
 Do not mix the `pycircuit` and `agentic_circuit` namespaces inside one
 authoring function. They meet through verified PYC after the Agentic compiler
 has discharged its queue, scheduling, and state contracts.
