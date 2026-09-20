@@ -7,7 +7,7 @@
 **Architecture extension:**
 [AC architecture-rule, RTL codegen, and verification extension checklist](ac-architecture-rule-rtl-verification-extension-checklist.md)
 
-**Static family authority:** Decision 0275 in
+**Static family authority:** Decisions 0275 and 0276 in
 [pyCircuit 6 decisions](pyc6-decisions.md)
 
 This document owns the atomic Queue/state execution slice. Whole-design effect
@@ -404,14 +404,20 @@ effect or vice versa.
 
 **Goal:** connect atomic rule code to the pointer-owned C++ module design.
 
-Family generation is fail-closed until Decision 0275 is implemented. The
-frontend/ACIR/link path must first publish the ordered typed declarations,
-defaults, constraints, complete source-owned finite cases, and dependent
-expressions; QueueGraph must carry typed plan records rather than dictionaries,
-suffixes, or inferred concrete symbols.
+Family generation is fail-closed until Decisions 0275 and 0276 are implemented.
+The frontend/ACIR/link path must first publish the ordered typed declarations,
+defaults, constraints, complete source-owned finite cases, dependent interface
+skeleton, and ordered non-symbol concrete High ACIR case regions. QueueGraph
+must carry typed `ModuleFamilyPlan` and `ModuleCasePlan` records, and PYC must
+verify the family/case carrier before RTL, rather than using dictionaries,
+suffixes, inferred concrete symbols, or sidecar specialization manifests.
 
 - [ ] Generate one `.hpp` from every resolved module declaration.
 - [ ] Generate one `.cpp` from every implementation `.ac` source unit.
+- [ ] Normalize every unparameterized module to one empty-argument case.
+- [ ] Verify complete header/import/link case coverage and concrete signatures.
+- [ ] Preserve case-local state, proofs, obligations, and provenance through
+      `ModuleCasePlan` and the verified PYC family/case carrier.
 - [ ] Generate a C++ class for every nominal `ac.struct`.
 - [ ] Generate `<Module>Ports` with `SimQueue<StorageT> *` fields.
 - [ ] Select `StorageT` after static type concretization.
@@ -424,7 +430,7 @@ suffixes, or inferred concrete symbols.
 
 **Exit criteria:** nested H1→H2→H3 generated headers/sources compile
 independently and preserve pointer/Queue ownership. Parameterized-family exit
-also requires the Decision 0275 positive/negative matrix; until then family
+also requires the Decisions 0275 and 0276 positive/negative matrices; until then family
 emission rejects rather than using the concrete-symbol baseline.
 
 ### M8A — Generate short readable names for C++ and Verilator waveforms

@@ -10989,3 +10989,147 @@ family model before any family emitter is implemented.
   defaults, algebraic/config collection types, and a broader dependent
   expression grammar require a later decision. Implementers must reject these
   forms rather than choosing local semantics.
+
+## Decision 0276: finite module families own ordered concrete High ACIR case regions
+
+**Status:** Accepted; implementation required
+
+**Refines:** Decisions 0274 and 0275. Decision 0267 structural specialization
+equality and Decision 0270 source-unit ownership remain unchanged.
+
+**Context / Goal**
+Decision 0275 freezes the declarations and admitted argument tuples of a static
+module family, but does not freeze where the executable High ACIR bodies live,
+how dependent interfaces are checked, or what typed records cross package,
+QueueGraph, PYC, C++, and RTL boundaries. Treating each case as a new
+`ac.module` symbol, suffix-derived definition, dictionary entry, or sidecar
+specialization manifest would recreate the identity and ownership paths
+forbidden by Decisions 0267, 0274, and 0275. F4 therefore requires one family
+carrier whose cases are concrete, ordered, non-symbol regions.
+
+**Decision (strong constraint)**
+- One source definition publishes exactly one `ac.module` family symbol. The
+  operation owns the ordered `StaticParameterDecl` list from Decision 0275 and
+  a non-empty ordered list of non-symbol `ac.module.case` regions. Each case
+  carries its complete ordered typed argument tuple and one concrete High ACIR
+  body. A case is not a symbol, source unit, module definition, file, or second
+  lookup namespace.
+- An unparameterized module is normalized to the same representation: zero
+  static declarations and exactly one `ac.module.case` with an empty typed
+  argument tuple. There is no separate non-family body form after the hard
+  break.
+- `StaticParameterDecl` and case arguments are first-class typed records.
+  Every occurrence of a static parameter inside a case body is already bound
+  to that case's canonical typed value. Dependent nominal type applications
+  carry the family plus ordered typed arguments explicitly; neither names nor
+  dictionaries encode the application.
+- Every case region owns its local module state, Queues, Tables, Slots, rules,
+  exact effect summaries, proof facts, architecture obligations, source
+  provenance, and generated-body coverage. Facts or obligations from one case
+  cannot discharge, weaken, or alias those of another case. Family-level
+  verification requires every declared case to be individually closed.
+- The source-owned declaration header carries a dependent interface skeleton:
+  ordered static declarations, nominal input/output declarations, and closed
+  dependent type/layout expressions. Each case materializes one concrete
+  signature by applying its typed arguments. The verifier proves every
+  materialized signature is well typed, matches the skeleton, and agrees with
+  the corresponding body ports and nominal type applications.
+- Calls identify the family symbol and provide the complete ordered typed
+  static argument tuple. Resolution selects exactly one declared case, then
+  verifies the concrete call signature. A call cannot name an `ac.module.case`,
+  a concrete suffix symbol, an ordinal, or a backend specialization.
+- Imports carry the family symbol, ordered `StaticParameterDecl` records,
+  dependent interface skeleton, full ordered case argument inventory, and all
+  nominal declarations required to type every materialized signature. Package
+  header/link verification compares this complete contract even when no caller
+  selects a case and the implementation body is unavailable. Link closure
+  additionally proves one and only one body region for every declared case and
+  rejects an extra, missing, reordered, or signature-incompatible case.
+- Verified QueueGraph contains typed `ModuleFamilyPlan` and ordered
+  `ModuleCasePlan` records. The family plan owns the definition, declarations,
+  interface skeleton, and source ownership. Each case plan owns its typed
+  arguments, concrete signature, state/resources, rules, proofs, obligations,
+  and body provenance. Generic maps, flattened strings, suffix parsing, caller
+  observation, and reconstruction from concrete symbols are forbidden.
+- ACIR-to-PYC lowering must preserve a verified typed family/case carrier. PYC
+  verification checks family completeness, ordered case uniqueness, concrete
+  signatures, call selection, and case-local ownership before any C++ or RTL
+  backend runs. Flattening the family to unrelated concrete PYC modules before
+  that verification is not an admitted implementation strategy.
+- Python authoring uses `static_parameter(...)` declarations and the closed
+  `static_int(width=..., signed=...)`, `one_of(...)`, and
+  `integer_range(min, max)` constructors. `case(...)` creates an ordered case
+  binding. `module_decl(...)` publishes the dependent interface skeleton, and
+  `@module(declaration=...)` supplies the implementation and its complete case
+  bodies. The frontend canonicalizes these forms directly into the records
+  above; host dictionaries, decorators that synthesize per-case modules, and
+  inferred specializations are not alternate APIs.
+- C++ emits one readable template/class family identifier and explicitly
+  materializes every admitted case as a template specialization or explicit
+  instantiation using that same identifier. A specialization does not gain a
+  class alias, source file, suffix, or opaque token. RTL emits one readable
+  parameterized module family; typed parameters and checked generate branches
+  cover exactly the admitted cases. A per-case RTL module is forbidden.
+- Complete case coverage is mandatory at each boundary: source declaration,
+  implementation family, import/header, package link, QueueGraph, PYC, C++
+  materialization, and RTL parameter/generate admission must describe the same
+  ordered case set. A backend may not drop an unused case or add a
+  caller-observed case.
+- The cutover removes concrete specialization symbols, specialization suffixes,
+  dictionary-shaped static arguments or declarations, and any
+  `specializations.json` or equivalent sidecar manifest. There is no reader,
+  writer, migration shim, fallback, alias, or dual-mode flag for those forms.
+
+**Acceptance matrix**
+
+| Input | Required result |
+| --- | --- |
+| unparameterized source module | one family symbol, zero declarations, and one ordered empty-argument `ac.module.case` |
+| two declared typed cases with different dependent port widths | one family with two concrete High ACIR case regions and two verified concrete signatures |
+| case-local Queue/state/rule/proof/obligation content | content remains owned and verified by that case through `ModuleCasePlan` and the PYC carrier |
+| parent calls the same case twice | both calls select the same family plus typed arguments; generated implementation is reused while runtime instances remain independent |
+| imported family has one case unused by all callers | header/link, QueueGraph, PYC, C++, and RTL still retain and verify that case |
+| C++ and RTL materialization | one C++ family identifier with explicit case materializations and one RTL family identifier with exact parameter/generate coverage |
+| clean repeat with reordered callers | identical family symbol, declaration order, case order, signatures, plans, and backend inventories |
+
+**Negative matrix**
+
+| Input | Required rejection |
+| --- | --- |
+| one `ac.module` symbol per case, symbol-bearing `ac.module.case`, or a case ordinal used as identity | forbidden second module/case identity |
+| missing, extra, duplicate, reordered, or incompatible implementation/header/link case | incomplete or inconsistent family coverage |
+| call/import names a concrete specialization or omits/reorders/mistypes static arguments | invalid typed family reference |
+| case body signature differs from its dependent interface materialization | invalid concrete case signature |
+| proof, obligation, state, resource, or body provenance is shared across cases without an explicit family-independent declaration | invalid cross-case ownership |
+| QueueGraph or PYC uses dictionaries, flattened strings, concrete symbols, suffix parsing, or caller observations to recover cases | untyped or reconstructed family carrier |
+| C++ alias/file/class suffix, per-case RTL module, opaque identifier, or backend-only case not present in the family | forbidden case materialization |
+| `specializations.json`, equivalent sidecar inventory, legacy reader/writer, or dual family/concrete mode | forbidden specialization manifest or compatibility path |
+| open/symbolic body, wildcard case, caller-generated case, or runtime-selected static argument | unsupported open parametric domain |
+
+**Required verification**
+- Python frontend tests cover the admitted authoring syntax, unparameterized
+  normalization, ordered case construction, dependent interface declarations,
+  and rejection of dictionaries or synthesized per-case modules.
+- ACIR verifier tests cover family/case structure, non-symbol case regions,
+  typed arguments and nominal applications, concrete signature agreement,
+  complete case-local state/proof/obligation ownership, and every malformed
+  coverage class above.
+- Package tests prove complete header/import/link coverage independently of
+  caller reachability and reject every missing, extra, reordered, duplicate,
+  or signature-incompatible case.
+- QueueGraph and PYC tests prove typed `ModuleFamilyPlan`/`ModuleCasePlan`
+  preservation and verified family/case carriage before backend emission.
+- Generated-source and RTL tests prove one readable family identifier, exact
+  explicit C++ case materializations, exact RTL parameter/generate coverage,
+  deterministic output, and independent repeated-instance state.
+- Repository absence gates prove removal of specialization suffixes,
+  dictionary family schemas, concrete per-case symbols, and
+  `specializations.json`-style sidecars and compatibility paths.
+
+**Deferred explicitly**
+- Open or symbolic parametric bodies, wildcard or generated case sets,
+  caller-driven monomorphization, and runtime selection of static arguments
+  require a later decision.
+- Shared parametric body IR, proof generalization across cases, richer
+  dependent types, and relational case generation require a later decision.
+  Implementers must use the finite concrete case-region model or reject.

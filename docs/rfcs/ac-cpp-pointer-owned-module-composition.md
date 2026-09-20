@@ -1,8 +1,8 @@
 # AC C++ pointer-owned module composition
 
-**Status:** Accepted architecture contract; implementation tracked by Decisions 0274 and 0275
+**Status:** Accepted architecture contract; implementation tracked by Decisions 0274-0276
 
-**Related decisions:** 0264, 0267, 0269, 0270, 0274, 0275
+**Related decisions:** 0264, 0267, 0269, 0270, 0274, 0275, 0276
 
 **Implementation checklist:**
 [AC rule and SimQueue atomic lowering checklist](ac-rule-simqueue-atomic-lowering-checklist.md)
@@ -75,7 +75,9 @@ It does not change:
 ## Artifact ownership
 
 The package linker resolves a declaration, its implementation owner, and the
-closed set of concrete specializations before C++ emission.
+complete ordered set of concrete case regions before C++ emission. Decision
+0276 requires one family symbol, with each case remaining a non-symbol body
+selected by ordered typed arguments.
 
 | AC artifact | Generated artifact | Content authority |
 | --- | --- | --- |
@@ -98,9 +100,10 @@ The header and source therefore share the readable implementation stem `decode`.
 The class name still comes from the AC module definition, such as
 `DecodeStage`.
 
-One implementation source with several typed specializations still owns one
-`.hpp`/`.cpp` pair. The pair declares and defines every concrete specialization
-from that source unit.
+One implementation source with several typed cases still owns one
+`.hpp`/`.cpp` pair. The pair declares one family identifier and explicitly
+materializes every declared case from that source unit. An unparameterized
+module uses the same path with one empty-argument case.
 
 ## Generated module header
 
@@ -426,13 +429,15 @@ Queue storage representation changes.
 
 ## Specialization and reuse
 
-Decision 0275 is the normative static-family schema. Family emission is blocked
-until the frontend, ACIR/link verifier, and QueueGraph represent its ordered
+Decisions 0275 and 0276 are the normative finite-family schema. Family emission
+is blocked until the frontend, ACIR/link verifier, QueueGraph, and PYC represent its ordered
 `StaticParameterDecl` records, closed parameter types, required/default state,
 `one_of`/`integer_range` constraints, source-declared `finite_cases`, and closed
-dependent expressions as typed records. Observed callers, concrete symbol
-spellings, dictionaries, and identifier suffixes cannot supply missing family
-information.
+dependent expressions as typed records. One `ac.module` family symbol owns
+ordered non-symbol `ac.module.case` concrete High ACIR regions, including one
+empty-argument case for an unparameterized module. Observed callers, concrete
+symbol spellings, dictionaries, sidecar specialization manifests, and
+identifier suffixes cannot supply missing family information.
 
 Specialization equality remains:
 
@@ -471,12 +476,17 @@ generate branches. Unsupported parameter/family shapes reject before RTL
 emission; they do not produce per-specialization module names or suffixes.
 
 For F4, every admitted case is declared by the source independently of callers.
-The C++ template family explicitly instantiates those cases, RTL covers exactly
-those cases through typed parameters/generate branches, and Queue storage is
-selected after per-case dependent-type concretization. Open-domain families,
-richer cross-parameter constraints, and family emission from the current
-concrete-symbol baseline remain rejected until a later decision or the Decision
-0275 implementation is verified.
+The dependent interface skeleton is materialized and checked against each
+case's body signature. Header/import/link verification covers every case,
+including unused cases. Typed `ModuleFamilyPlan` and `ModuleCasePlan` records
+preserve case-local state, resources, proofs, obligations, and provenance into
+a verified PYC family/case carrier. The C++ template family explicitly
+materializes those cases under the same identifier, RTL covers exactly those
+cases through typed parameters/generate branches, and Queue storage is selected
+after per-case dependent-type concretization. Open-domain families, richer
+cross-parameter constraints, and family emission from the current
+concrete-symbol baseline remain rejected until a later decision or Decisions
+0275 and 0276 are implemented and verified.
 
 ## Names and traceability
 
@@ -533,8 +543,8 @@ core.py   --acc.py--> core.ac
 Native ACC then:
 
 1. links the package and resolves every declaration to exactly one definition;
-2. verifies signatures, specialization arguments, hierarchy, Queue types, and
-   source ownership;
+2. verifies the complete ordered family/case inventory, dependent signatures,
+   typed arguments, hierarchy, Queue types, and source ownership;
 3. emits one `.hpp` for every resolved module declaration;
 4. emits one `.cpp` for every implementation `.ac` source unit;
 5. emits root/runtime glue;
@@ -587,6 +597,9 @@ Normal runtime never reallocates a parent module, child module, or owned Queue.
 - every wide Queue payload uses `shared_ptr<const PayloadClass>`;
 - class and file names contain only readable source spellings;
 - specialization data appears only as explicit parameters;
+- every family has complete ordered case coverage from header/link through
+  QueueGraph and the verified PYC carrier;
+- every case has one explicit C++ materialization under the family identifier;
 - internal and waveform-visible signal names are lower-snake, bounded in
   length, and contain no double underscore.
 
@@ -641,7 +654,8 @@ repository state changes in one coherent stage. That stage must:
 No intermediate dual emitter or published mixed state is admitted. No
 compatibility typedef, duplicate `.h` output, reference-port mode, by-value
 child fallback, whole-core fallback, specialization alias/suffix, `__` name,
-opaque suffix, shim, or compatibility flag remains at the cutover.
+opaque suffix, specialization dictionary/JSON sidecar, shim, or compatibility
+flag remains at the cutover.
 
 ## Accepted F0 choices
 

@@ -776,20 +776,22 @@ identity and does not contain opaque content-derived tokens.
 
 **Goal:** accept the semantic model before implementation branches diverge.
 
-- [x] Add Decisions 0271-0275 for exact effects, Architecture Obligation IR,
+- [x] Add Decisions 0271-0276 for exact effects, Architecture Obligation IR,
       old/new state, four-state/SRAM, pointer/naming contracts, and the closed
-      static-parameter family schema.
+      finite module-family declaration and concrete case-body schema.
 - [x] Freeze the closed F0 enums and product semantics; JSON/DOT remain
       deterministic debug/evidence views, not product identity or release ABI.
 - [x] Define product contracts versus debug/evidence artifacts.
 - [x] State explicitly that full consumer models remain outside pyCircuit.
-- [x] Add this checklist and Decisions 0271-0275 to contributor routing.
+- [x] Add this checklist and Decisions 0271-0276 to contributor routing.
 - [ ] Implement the frozen expression/obligation schemas and verifiers (P1-P3).
 - [ ] Implement deterministic graph/obligation debug serialization (P2-P3).
 
-Static family emission remains blocked until Decision 0275's ordered typed
-declarations, constraints, source-owned finite cases, typed QueueGraph plans,
-and acceptance/negative matrix are implemented. Recovery identity is not an F0 blocker. Its public/internal object decisions and
+Static family emission remains blocked until Decisions 0275 and 0276's ordered
+typed declarations, constraints, source-owned finite cases, concrete High ACIR
+case regions, dependent signatures, complete header/link coverage, typed
+`ModuleFamilyPlan`/`ModuleCasePlan`, verified PYC carrier, and
+acceptance/negative matrices are implemented. Recovery identity is not an F0 blocker. Its public/internal object decisions and
 implementation belong to P8 and require a later decision.
 
 **Exit:** accepted decisions resolve every item in Section 12 that blocks P1-P3.
@@ -809,6 +811,7 @@ implementation belong to P8 and require a later decision.
 | flat interface and parallel `interface/modules/` trees | consumer repository | consumer layout gate |
 | generic `assembly.py` implementation names | consumer repository | one-source/one-module naming gate |
 | legacy module/package prefixes and opaque/specialization suffixes | pyCircuit | naming scan plus collision rejection diagnostics |
+| dictionary family schemas and `specializations.json`-style sidecars | pyCircuit | API/repository absence scan plus typed family/case carrier negatives |
 | content identity, contract epoch, or freeze-as-release-identity | pyCircuit | zero-identity scan; structural topology closure remains required and malformed topology still rejects |
 
 The consumer-specific whole-core artifact deletion is recorded in the F0
@@ -1122,8 +1125,8 @@ missing semantic rule locally.
 
 F0 closes exact effect DAGs, the module-owned `ac.arch_obligation` symbol plus
 module-owned typed expression table, sampling/runtime admission, four-state and
-SRAM live-window policy, pointer/naming hard break, and Decision 0275's closed
-static-family schema. The remaining genuine
+SRAM live-window policy, pointer/naming hard break, and Decisions 0275-0276's
+closed finite-family declaration and concrete case-body schema. The remaining genuine
 questions are deferred to their owning later decisions:
 
 1. Which recovery/identity objects become public Python APIs after internal
@@ -1134,8 +1137,9 @@ questions are deferred to their owning later decisions:
 4. Which structural PPA estimates are stable enough to gate, rather than only
    report.
 
-Open parameter domains and richer static-family constraints are additionally
-deferred by Decision 0275. These deferred questions do not reopen Decisions 0271–0275 and do not block
+Open parameter domains, parametric bodies, and richer static-family constraints
+are additionally deferred by Decisions 0275 and 0276. These deferred questions
+do not reopen Decisions 0271–0276 and do not block
 implementing their accepted safety contracts. Each requires a new decision
 before its later phase may choose semantics.
 

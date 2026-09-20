@@ -5,13 +5,14 @@ artifacts. Names have two distinct roles: source-readable semantic names and
 target-language spellings. A backend name
 must never replace or become the source of semantic identity.
 
-## Accepted Decisions 0274-0275 target and current implementation gap
+## Accepted Decisions 0274-0276 target and current implementation gap
 
-Decisions 0274 and 0275 are the target naming and static-family authorities. At the F4/F5 hard cutover, one
+Decisions 0274-0276 are the target naming and finite-family authorities. At the F4/F5 hard cutover, one
 implementation Python/AC source stem owns one `.hpp`/`.cpp` pair, source-owned
 interface shards own nominal declarations, and one parameterized source
-definition emits one readable C++ and RTL module family. Typed static
-parameters and admitted generate branches carry specialization; generated
+definition publishes one `ac.module` family symbol with ordered non-symbol
+concrete `ac.module.case` regions and emits one readable C++ and RTL module
+family. Typed static parameters and admitted generate branches carry cases; generated
 identifiers contain no specialization suffix, `__`, repeated enclosing-module
 prefix, or opaque suffix.
 
@@ -21,9 +22,11 @@ double-underscore compiler names. Those spellings are implementation gaps, not
 permission to weaken Decision 0274. The emitter, package consumers, tests, and
 this baseline section must update atomically in one hard break. No dual naming
 mode, alias, fallback, or compatibility flag is admitted. Family emission is
-also blocked until the source-owned ordered `StaticParameterDecl` and explicit
-finite-case schema reaches typed QueueGraph plan records; the current concrete
-symbols and caller observations are not a family declaration.
+also blocked until the source-owned ordered `StaticParameterDecl`, explicit
+finite cases, dependent interface signatures, typed `ModuleFamilyPlan` and
+`ModuleCasePlan`, and verified PYC family/case carrier exist. The current
+concrete symbols, static-argument dictionaries, caller observations, and
+specialization sidecars are not a family declaration or case identity.
 
 ## Design principles
 
@@ -33,8 +36,9 @@ symbols and caller observations are not a family declaration.
   those facts in a name. For example, `input_select_valid_0` remains that exact
   semantic spelling through ACIR display metadata; the compiler does not reorder
   it or infer a different endpoint convention.
-- Use the MLIR symbol plus the typed, ordered static-argument dictionary for
-  specialization equality. Content summaries are not language identities.
+- Use the family MLIR symbol plus ordered typed static arguments for case and
+  specialization equality. A dictionary, case symbol, ordinal, content
+  summary, or generated name is not language identity.
 - A name must not change merely because an unrelated definition or another
   specialization is added to the system.
 - Code reuse and state ownership are separate. Equal specialization identities
@@ -71,10 +75,12 @@ that prefix. Record-field adapters use readable definitions of the form
 path reuse one adapter class, while each callsite retains its own Python source
 location and instance identity.
 
-Static-argument fragments are emitted from parameter names and canonical typed
-values in declaration order. The MLIR symbol and explicit static-argument
-dictionary together are the specialization identity; no hidden key
-participates in equality.
+The implemented baseline emits static-argument fragments from parameter names
+and canonical typed values in declaration order and still carries an explicit
+static-argument dictionary. Decision 0276 removes both mechanisms at the hard
+break. The target preserves one family symbol and ordered typed argument
+records; its `ac.module.case` regions are non-symbol bodies and generated C++
+and RTL retain the family identifier unchanged.
 
 ## ACIR to C++
 
