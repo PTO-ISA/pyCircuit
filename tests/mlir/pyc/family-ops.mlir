@@ -25,6 +25,8 @@ builtin.module {
   pyc.module @family source #owner schema #schema {
     pyc.module.case signature #signature source #prov {
     ^bb0(%clock_arg: !pyc.clock, %reset_arg: !pyc.reset):
+      %true = pyc.constant 1 : i1
+      pyc.assert %true {msg = "value must be bounded", obligation_id = "range:bounded", obligation_kind = "range", severity = "error", sampling_kind = "pre_publish", sampling_edge = "none", sample_anchor = "bounded", source = "fixture.py:7:3", ndf_ids = []}
       pyc.instance %clock_arg, %reset_arg {
         callee = @family,
         name = "child",
@@ -77,6 +79,8 @@ builtin.module {
 
 // CHECK: pyc.module @family
 // CHECK: pyc.module.case signature #pyc.module_case_signature<
+// CHECK: pyc.assert
+// CHECK-SAME: obligation_id = "range:bounded"
 // CHECK: pyc.instance
 // CHECK-SAME: static_args = #ac.dependent_arguments<[]>
 // CHECK: pyc.return

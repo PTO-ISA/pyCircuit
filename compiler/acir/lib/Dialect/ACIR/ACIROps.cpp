@@ -24,6 +24,7 @@
 #include "llvm/Support/JSON.h"
 #include "llvm/Support/MathExtras.h"
 
+#include <array>
 #include <limits>
 #include <optional>
 #include <set>
@@ -2287,11 +2288,18 @@ LogicalResult ArchitectureObligationOp::verify() {
     if (!target || !targets.insert(target.getValue()).second)
       return emitOpError("runtime targets must be typed and unique");
   }
-  if (targets.contains(ArchitectureRuntimeTarget::Cpp) ||
-      targets.contains(ArchitectureRuntimeTarget::Sva))
-    return emitOpError(
-        "cpp and sva architecture-obligation targets are not implemented in "
-        "the F3 gfsim slice");
+  constexpr std::array<ArchitectureRuntimeTarget, 3> phaseOneTargets = {
+      ArchitectureRuntimeTarget::Cpp,
+      ArchitectureRuntimeTarget::Gfsim,
+      ArchitectureRuntimeTarget::Sva,
+  };
+  const bool hasExactPhaseOneTargets =
+      getRuntimeTargets().size() == phaseOneTargets.size() &&
+      llvm::all_of(llvm::enumerate(phaseOneTargets), [&](auto indexed) {
+        auto target = dyn_cast<ArchitectureRuntimeTargetAttr>(
+            getRuntimeTargets()[indexed.index()]);
+        return target && target.getValue() == indexed.value();
+      });
 
   DictionaryAttr sampling = getSampling();
   auto samplingKind = sampling.getAs<ArchitectureSamplingKindAttr>("kind");
@@ -2351,28 +2359,34 @@ LogicalResult ArchitectureObligationOp::verify() {
   if (getStatus() != ArchitectureObligationStatus::RuntimeChecked)
     return emitOpError("has an unknown architecture-obligation status");
   if (getKind() != ArchitectureObligationKind::Range || !prePublish ||
-      !targets.contains(ArchitectureRuntimeTarget::Gfsim) ||
-      targets.size() != 1 || getMaterializations().size() != 1)
+      !hasExactPhaseOneTargets ||
+      getMaterializations().size() != phaseOneTargets.size())
     return emitOpError(
-        "F3 runtime checks admit only one gfsim pre_publish range monitor");
-  auto materialization = dyn_cast<DictionaryAttr>(getMaterializations()[0]);
-  auto target =
-      materialization
-          ? materialization.getAs<ArchitectureRuntimeTargetAttr>("target")
-          : ArchitectureRuntimeTargetAttr();
-  auto firing = materialization ? materialization.getAs<StringAttr>("firing")
-                                : StringAttr();
-  auto maximum = materialization ? materialization.getAs<IntegerAttr>("maximum")
-                                 : IntegerAttr();
-  auto inputOrdinal = materialization
-                          ? materialization.getAs<IntegerAttr>("input_ordinal")
-                          : IntegerAttr();
-  if (!materialization || materialization.size() < 4 || !target ||
-      target.getValue() != ArchitectureRuntimeTarget::Gfsim || !firing ||
-      firing.getValue() != anchor.getValue() || !maximum ||
-      maximum.getInt() < 0 || !inputOrdinal || inputOrdinal.getInt() < 0)
-    return emitOpError(
-        "runtime materialization must be one exact gfsim firing/range record");
+        "runtime range checks require canonical cpp, gfsim, and sva targets "
+        "with one matched materialization each");
+  for (auto [index, raw] : llvm::enumerate(getMaterializations())) {
+    auto materialization = dyn_cast<DictionaryAttr>(raw);
+    auto target =
+        materialization
+            ? materialization.getAs<ArchitectureRuntimeTargetAttr>("target")
+            : ArchitectureRuntimeTargetAttr();
+    auto firing =
+        materialization ? materialization.getAs<StringAttr>("firing")
+                        : StringAttr();
+    auto maximum =
+        materialization ? materialization.getAs<IntegerAttr>("maximum")
+                        : IntegerAttr();
+    auto inputOrdinal =
+        materialization ? materialization.getAs<IntegerAttr>("input_ordinal")
+                        : IntegerAttr();
+    if (!materialization || materialization.size() < 4 || !target ||
+        target.getValue() != phaseOneTargets[index] || !firing ||
+        firing.getValue() != anchor.getValue() || !maximum ||
+        maximum.getInt() < 0 || !inputOrdinal || inputOrdinal.getInt() < 0)
+      return emitOpError(
+          "runtime materializations must preserve canonical target order and "
+          "one exact firing/range program");
+  }
   return success();
 }
 

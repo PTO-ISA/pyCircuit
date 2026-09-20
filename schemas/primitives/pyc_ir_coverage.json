@@ -173,10 +173,15 @@
       "folder": null,
       "kind": "operation",
       "name": "pyc.assert",
-      "negative_mlir": [],
+      "negative_mlir": [
+        "tests/mlir/pyc/architecture-assert-invalid.mlir"
+      ],
       "positive_mlir": [
+        "tests/mlir/agentic-circuit/CodeGen/architecture-obligation-backends.mlir",
+        "tests/mlir/agentic-circuit/CodeGen/architecture-obligation-lowering.mlir",
         "tests/mlir/agentic-circuit/CodeGen/queue-lanes-pyc.mlir",
-        "tests/mlir/agentic-circuit/CodeGen/table-multidimensional-pyc.mlir"
+        "tests/mlir/agentic-circuit/CodeGen/table-multidimensional-pyc.mlir",
+        "tests/mlir/pyc/family-ops.mlir"
       ],
       "python_producer": [
         "python/pycircuit/src/pycircuit/dsl.py",
@@ -189,9 +194,14 @@
       "status": "normative",
       "symbol": "PYC_AssertOp",
       "tests": [
+        "tests/cpp/agentic-circuit/CodeGen/QueueGraphPlanTest.cpp",
         "tests/cpp/agentic-circuit/Dialect/ACIR/OpsTest.cpp",
+        "tests/mlir/agentic-circuit/CodeGen/architecture-obligation-backends.mlir",
+        "tests/mlir/agentic-circuit/CodeGen/architecture-obligation-lowering.mlir",
         "tests/mlir/agentic-circuit/CodeGen/queue-lanes-pyc.mlir",
         "tests/mlir/agentic-circuit/CodeGen/table-multidimensional-pyc.mlir",
+        "tests/mlir/pyc/architecture-assert-invalid.mlir",
+        "tests/mlir/pyc/family-ops.mlir",
         "tests/test_assert_fits.py"
       ],
       "verifier": "compiler/mlir/lib/Dialect/PYC/PYCOps.cpp",
@@ -354,6 +364,7 @@
         "tests/mlir/pyc/canonical-cmp-invalid.mlir"
       ],
       "positive_mlir": [
+        "tests/mlir/agentic-circuit/CodeGen/architecture-obligation-backends.mlir",
         "tests/mlir/agentic-circuit/CodeGen/masked-match.mlir",
         "tests/mlir/agentic-circuit/CodeGen/table-runtime-row-pyc.mlir",
         "tests/mlir/pyc/canonical-ops-valid.mlir"
@@ -368,6 +379,7 @@
       "symbol": "PYC_CmpOp",
       "tests": [
         "tests/cpp/agentic-circuit/CodeGen/QueueGraphPlanTest.cpp",
+        "tests/mlir/agentic-circuit/CodeGen/architecture-obligation-backends.mlir",
         "tests/mlir/agentic-circuit/CodeGen/masked-match.mlir",
         "tests/mlir/agentic-circuit/CodeGen/table-runtime-row-pyc.mlir",
         "tests/mlir/pyc/canonical-cmp-invalid.mlir",
@@ -480,13 +492,15 @@
       "name": "pyc.constant",
       "negative_mlir": [],
       "positive_mlir": [
+        "tests/mlir/agentic-circuit/CodeGen/architecture-obligation-backends.mlir",
         "tests/mlir/agentic-circuit/CodeGen/masked-match.mlir",
         "tests/mlir/agentic-circuit/CodeGen/table-masked-write-pyc.mlir",
         "tests/mlir/agentic-circuit/CodeGen/table-selection-write-pyc.mlir",
         "tests/mlir/agentic-circuit/CodeGen/table-typed-init-pyc.mlir",
         "tests/mlir/agentic-circuit/PYC/source-provenance-cse.mlir",
         "tests/mlir/agentic-circuit/PYC/source-provenance-eliminate-wire.mlir",
-        "tests/mlir/agentic-circuit/PYC/source-provenance.mlir"
+        "tests/mlir/agentic-circuit/PYC/source-provenance.mlir",
+        "tests/mlir/pyc/family-ops.mlir"
       ],
       "python_producer": [
         "python/pycircuit/src/pycircuit/dsl.py"
@@ -498,6 +512,7 @@
       "symbol": "PYC_ConstantOp",
       "tests": [
         "tests/cpp/agentic-circuit/CodeGen/QueueGraphPlanTest.cpp",
+        "tests/mlir/agentic-circuit/CodeGen/architecture-obligation-backends.mlir",
         "tests/mlir/agentic-circuit/CodeGen/masked-match.mlir",
         "tests/mlir/agentic-circuit/CodeGen/table-masked-write-pyc.mlir",
         "tests/mlir/agentic-circuit/CodeGen/table-selection-write-pyc.mlir",
@@ -505,6 +520,7 @@
         "tests/mlir/agentic-circuit/PYC/source-provenance-cse.mlir",
         "tests/mlir/agentic-circuit/PYC/source-provenance-eliminate-wire.mlir",
         "tests/mlir/agentic-circuit/PYC/source-provenance.mlir",
+        "tests/mlir/pyc/family-ops.mlir",
         "tests/test_pyc_canonical_ops.py",
         "tests/test_pyc_enum.py"
       ],
@@ -757,10 +773,13 @@
       "kind": "operation",
       "name": "pyc.module",
       "negative_mlir": [
+        "tests/mlir/agentic-circuit/CodeGen/rtl-naming-invalid.mlir",
         "tests/mlir/pyc/family-mapping-attributes-invalid.mlir"
       ],
       "positive_mlir": [
+        "tests/mlir/agentic-circuit/CodeGen/architecture-obligation-backends.mlir",
         "tests/mlir/agentic-circuit/CodeGen/family-config-backends.mlir",
+        "tests/mlir/agentic-circuit/CodeGen/priority-rtl-structure.mlir",
         "tests/mlir/agentic-circuit/CodeGen/pycircuit-hierarchical-family.mlir",
         "tests/mlir/agentic-circuit/PYC/source-provenance.mlir",
         "tests/mlir/pyc/count-leading-zeros-primitive.mlir",
@@ -785,8 +804,11 @@
       "symbol": "PYC_FamilyOp",
       "tests": [
         "tests/cpp/agentic-circuit/Dialect/ACIR/OpsTest.cpp",
+        "tests/mlir/agentic-circuit/CodeGen/architecture-obligation-backends.mlir",
         "tests/mlir/agentic-circuit/CodeGen/family-config-backends.mlir",
+        "tests/mlir/agentic-circuit/CodeGen/priority-rtl-structure.mlir",
         "tests/mlir/agentic-circuit/CodeGen/pycircuit-hierarchical-family.mlir",
+        "tests/mlir/agentic-circuit/CodeGen/rtl-naming-invalid.mlir",
         "tests/mlir/agentic-circuit/PYC/source-provenance.mlir",
         "tests/mlir/pyc/count-leading-zeros-primitive.mlir",
         "tests/mlir/pyc/family-mapping-attributes-invalid.mlir",
@@ -919,6 +941,7 @@
       "name": "pyc.not",
       "negative_mlir": [],
       "positive_mlir": [
+        "tests/mlir/agentic-circuit/CodeGen/architecture-obligation-backends.mlir",
         "tests/mlir/agentic-circuit/CodeGen/bit-widths.mlir",
         "tests/mlir/agentic-circuit/CodeGen/table-writer-arbitration-pyc.mlir",
         "tests/mlir/agentic-circuit/PYC/source-provenance-eliminate-wire.mlir",
@@ -935,6 +958,7 @@
       "symbol": "PYC_NotOp",
       "tests": [
         "tests/cpp/agentic-circuit/CodeGen/QueueGraphPlanTest.cpp",
+        "tests/mlir/agentic-circuit/CodeGen/architecture-obligation-backends.mlir",
         "tests/mlir/agentic-circuit/CodeGen/bit-widths.mlir",
         "tests/mlir/agentic-circuit/CodeGen/table-writer-arbitration-pyc.mlir",
         "tests/mlir/agentic-circuit/PYC/source-provenance-eliminate-wire.mlir",
@@ -1047,6 +1071,7 @@
       "negative_mlir": [],
       "positive_mlir": [
         "tests/mlir/agentic-circuit/CodeGen/bit-widths.mlir",
+        "tests/mlir/agentic-circuit/CodeGen/priority-rtl-structure.mlir",
         "tests/mlir/pyc/priority-primitive.mlir"
       ],
       "python_producer": [
@@ -1069,6 +1094,7 @@
       "symbol": "PYC_PriorityEncodeOp",
       "tests": [
         "tests/mlir/agentic-circuit/CodeGen/bit-widths.mlir",
+        "tests/mlir/agentic-circuit/CodeGen/priority-rtl-structure.mlir",
         "tests/mlir/pyc/priority-primitive.mlir",
         "tests/python/agentic-circuit/python_frontend/test_public_api.py",
         "tests/system/test_primitive_selection.py",
@@ -1804,6 +1830,7 @@
         "tests/mlir/pyc/family-mapping-attributes-invalid.mlir"
       ],
       "positive_mlir": [
+        "tests/mlir/agentic-circuit/CodeGen/architecture-obligation-backends.mlir",
         "tests/mlir/agentic-circuit/PYC/source-provenance-pack-i1.mlir",
         "tests/mlir/pyc/family-mapping-attributes.mlir",
         "tests/mlir/pyc/family-ops.mlir"
@@ -1827,6 +1854,7 @@
       "status": "normative",
       "symbol": "PYC_ClockType",
       "tests": [
+        "tests/mlir/agentic-circuit/CodeGen/architecture-obligation-backends.mlir",
         "tests/mlir/agentic-circuit/PYC/source-provenance-pack-i1.mlir",
         "tests/mlir/pyc/family-mapping-attributes-invalid.mlir",
         "tests/mlir/pyc/family-mapping-attributes.mlir",
@@ -1850,6 +1878,7 @@
         "tests/mlir/pyc/family-mapping-attributes-invalid.mlir"
       ],
       "positive_mlir": [
+        "tests/mlir/agentic-circuit/CodeGen/architecture-obligation-backends.mlir",
         "tests/mlir/agentic-circuit/PYC/source-provenance-pack-i1.mlir",
         "tests/mlir/pyc/family-mapping-attributes.mlir",
         "tests/mlir/pyc/family-ops.mlir"
@@ -1873,6 +1902,7 @@
       "status": "normative",
       "symbol": "PYC_ResetType",
       "tests": [
+        "tests/mlir/agentic-circuit/CodeGen/architecture-obligation-backends.mlir",
         "tests/mlir/agentic-circuit/PYC/source-provenance-pack-i1.mlir",
         "tests/mlir/pyc/family-mapping-attributes-invalid.mlir",
         "tests/mlir/pyc/family-mapping-attributes.mlir",

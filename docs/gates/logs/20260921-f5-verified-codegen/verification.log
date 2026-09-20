@@ -1,0 +1,49 @@
+LLVM/MLIR: 22.1.8
+check-acir: PASS 231/231
+check-pyc: PASS 4/4
+CodeGenTests: PASS 110/110
+ACIROpsTests: PASS 1843/1843
+ACIRModelAnalysisTests: PASS 36/36
+GfsimTests: PASS 268/268
+repository unit suite: PASS 163/163
+Agentic Python contracts/CLI/frontend: PASS 381/381
+Agentic integration e2e: PASS 1/1
+primitive selection: PASS 18/18
+repository contracts: PASS
+API hygiene: PASS
+PYC inventory: PASS 45 operations, 2 types, exact ODS/ledger match
+MkDocs strict: PASS
+targeted Ruff: PASS
+pre-commit changed-file checks: PASS
+decision status report: expected nonzero; only in-scope gap is Decision 0273 (F6)
+git diff --check: PASS
+
+COMMAND: cmake --build .pycircuit_out/build-llvm22 --target check-acir check-pyc -j 8
+OUTPUT: check-acir 231/231; check-pyc 4/4
+
+COMMAND: .pycircuit_out/build-llvm22/bin/CodeGenTests
+OUTPUT: 110 passed
+COMMAND: .pycircuit_out/build-llvm22/bin/ACIROpsTests
+OUTPUT: 1843 passed
+COMMAND: .pycircuit_out/build-llvm22/bin/ACIRModelAnalysisTests
+OUTPUT: 36 passed
+COMMAND: .pycircuit_out/build-llvm22/bin/GfsimTests
+OUTPUT: 268 passed
+
+COMMAND: PYTHONPATH=python/pycircuit/src:python/semantic-core/src:python/agentic-circuit/src .pycircuit_out/venv-llvm22/bin/python -m pytest -q tests/unit -m unit
+OUTPUT: 163 passed
+
+COMMAND: PYTHONPATH=.pycircuit_out/build-llvm22/compiler/acir/python:python/agentic-circuit/src:python/semantic-core/src .pycircuit_out/ac-venv/bin/python -m pytest -q tests/python/agentic-circuit/contracts tests/python/agentic-circuit/cli tests/python/agentic-circuit/python_frontend
+OUTPUT: 381 passed
+
+COMMAND: PYTHONPATH=python/pycircuit/src:python/semantic-core/src .pycircuit_out/venv-llvm22/bin/python -m pytest -q tests/system/test_primitive_selection.py
+OUTPUT: 18 passed
+
+COMMAND: architecture-obligation-backends.mlir RUN lines
+OUTPUT: generated C++ and Verilator pass value 127 and fail value 128 with the same range:bounded ID, condition, source, sampling contract, and NDF ID; C++ and RTL are byte-identical across two emissions; Verilator lint passes.
+
+COMMAND: python3 flows/tools/check_generated_rtl.py <first.sv> --compare <second.sv> --json-out docs/gates/logs/20260921-f5-verified-codegen/rtl-audit.json --html-out docs/gates/logs/20260921-f5-verified-codegen/rtl-determinism.html
+OUTPUT: PASS; ASCII=true; assertions=6; coverage=6; dead_internal_nets=[]; multiply=0; divide=0; modulo=0; byte_identical=true; synthesis_admissible=false.
+
+COMMAND: python3 flows/tools/check_decision_status.py --status docs/gates/decision_status_v6.md --out docs/gates/logs/20260921-f5-verified-codegen/decision_status_report.json
+OUTPUT: expected failure: unresolved in-scope decision gap 0273; Decision 0272 is implemented-verified.

@@ -134,9 +134,20 @@ Typed parameters and checked generate branches cover the complete declared
 finite case set. Parameter values never enter the module name, and the emitter
 never creates one RTL module per case.
 
+The Verilog emitter deterministically converts case-preserving PYC symbols to
+lower snake case before emitting definitions or instance callees. It sorts
+module definitions by that emitted name and rejects collisions such as
+`FooBar` versus `foo_bar`; it never appends a numeric or opaque disambiguator.
+
 Local RTL names omit repeated family prefixes. A cross-module signal names its
 endpoints once. Collisions and overlength names reject before emission; the
 emitter does not truncate a name or append a hash.
+
+`flows/tools/check_generated_rtl.py` is the post-emit naming and structure
+gate. It rejects non-ASCII text, double underscores, non-lower-snake modules,
+unstable declaration/instance/assertion order, expressions in named port
+connections, unsized assignment literals, dead internal nets, and mismatched
+obligation assertion/coverage labels.
 
 ## Example
 

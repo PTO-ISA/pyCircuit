@@ -76,6 +76,44 @@ static std::string cppStringLiteral(llvm::StringRef s) {
   return out;
 }
 
+static std::string assertionDiagnostic(pyc::AssertOp assertion) {
+  std::string message = "pyc.assert failed";
+  if (auto attr = assertion.getMsgAttr())
+    message = attr.getValue().str();
+  auto id = assertion.getObligationIdAttr();
+  if (!id)
+    return message;
+  auto kind = assertion.getObligationKindAttr();
+  auto severity = assertion.getSeverityAttr();
+  auto samplingKind = assertion.getSamplingKindAttr();
+  auto samplingEdge = assertion.getSamplingEdgeAttr();
+  auto anchor = assertion.getSampleAnchorAttr();
+  auto source = assertion.getSourceAttr();
+  std::string diagnostic =
+      "architecture_obligation id=" + id.getValue().str() + " kind=" +
+      kind.getValue().str() + " severity=" + severity.getValue().str() +
+      " sampling=" + samplingKind.getValue().str() + "/" +
+      samplingEdge.getValue().str() + "@" + anchor.getValue().str() +
+      " source=" + source.getValue().str();
+  if (auto identifiers = assertion.getNdfIdsAttr(); identifiers && !identifiers.empty()) {
+    diagnostic += " ndf=[";
+    for (auto [index, raw] : llvm::enumerate(identifiers)) {
+      if (index)
+        diagnostic += ',';
+      diagnostic += cast<StringAttr>(raw).getValue();
+    }
+    diagnostic += ']';
+  }
+  return diagnostic + ": " + message;
+}
+
+static std::string obligationCounterBase(llvm::StringRef id) {
+  std::string name = "obligation_" + sanitizeId(id);
+  while (name.find("__") != std::string::npos)
+    name.replace(name.find("__"), 2, "_");
+  return name;
+}
+
 static std::string cppType(Type ty) {
   if (isa<pyc::ClockType>(ty) || isa<pyc::ResetType>(ty))
     return "pyc::cpp::Wire<1>";
@@ -897,6 +935,29 @@ static LogicalResult emitBlockStruct(
   std::sort(decls.begin(), decls.end(), [](const Decl &a, const Decl &b) { return a.name < b.name; });
   for (const Decl &d : decls)
     os << "  " << cppType(d.ty) << " " << d.name << "{};\n";
+  llvm::SmallVector<pyc::AssertOp> architectureAssertions;
+  llvm::StringSet<> obligationCounters;
+  for (Operation &operation : top)
+    if (auto assertion = dyn_cast<pyc::AssertOp>(operation))
+      if (auto id = assertion.getObligationIdAttr()) {
+        const std::string counter = obligationCounterBase(id.getValue());
+        if (!obligationCounters.insert(counter).second)
+          return assertion.emitError(
+              "architecture obligation IDs collide after C++ counter name "
+              "normalization");
+        architectureAssertions.push_back(assertion);
+      }
+  llvm::sort(architectureAssertions,
+             [](pyc::AssertOp left, pyc::AssertOp right) {
+               return left.getObligationIdAttr().getValue() <
+                      right.getObligationIdAttr().getValue();
+             });
+  for (pyc::AssertOp assertion : architectureAssertions) {
+    const std::string base =
+        obligationCounterBase(assertion.getObligationIdAttr().getValue());
+    os << "  std::uint64_t " << base << "_checks = 0;\n";
+    os << "  std::uint64_t " << base << "_failures = 0;\n";
+  }
   os << "\n";
 
   // Sequential primitive instances.
@@ -1134,6 +1195,13 @@ static LogicalResult emitBlockStruct(
 	    os << "    trace_port(" << inNames[i] << ", " << cppStringLiteral(inCanon[i]) << ");\n";
 	  for (unsigned i = 0; i < outNames.size(); ++i)
 	    os << "    trace_port(" << outNames[i] << ", " << cppStringLiteral(outCanon[i]) << ");\n";
+	  for (pyc::AssertOp assertion : architectureAssertions)
+	    os << "    trace_port(" << nt.get(assertion.getCond()) << ", "
+	       << cppStringLiteral(
+	              "obligation/" +
+	              assertion.getObligationIdAttr().getValue().str() +
+	              "/condition")
+	       << ");\n";
 	  if (!instInfos.empty()) {
 	    os << "    auto trace_child = [&](auto &child, const char *seg) {\n";
 	    os << "      std::string full = prefix;\n";
@@ -1224,6 +1292,13 @@ static LogicalResult emitBlockStruct(
 		      emitWireProbes(os, functionType.getResult(i), w, outCanon[i], outNames[i]);
 		    }
 		  }
+      for (pyc::AssertOp assertion : architectureAssertions)
+        emitWireProbes(
+            os, assertion.getCond().getType(), 1,
+            "obligation/" +
+                assertion.getObligationIdAttr().getValue().str() +
+                "/condition",
+            nt.get(assertion.getCond()));
       for (const auto &named : namedProbes) {
         if (named.isReg) {
           os << "    reg.addReg<" << named.width << ">(reg_path(" << cppStringLiteral(named.fieldPath) << "), &"
@@ -1614,6 +1689,23 @@ static LogicalResult emitBlockStruct(
   for (auto [i, comb] : llvm::enumerate(combs))
     combIndex.try_emplace(comb.getOperation(), static_cast<unsigned>(i));
 
+  auto emitAssertion = [&](pyc::AssertOp assertion,
+                           llvm::StringRef indent) {
+    std::string msg = assertionDiagnostic(assertion);
+    auto id = assertion.getObligationIdAttr();
+    std::string base;
+    if (id) {
+      base = obligationCounterBase(id.getValue());
+      os << indent << "++" << base << "_checks;\n";
+    }
+    os << indent << "if (!" << nt.get(assertion.getCond())
+       << ".toBool()) { ";
+    if (id)
+      os << "++" << base << "_failures; ";
+    os << "std::cerr << " << cppStringLiteral(msg)
+       << " << \"\\n\"; std::abort(); }\n";
+  };
+
   auto topoOrder = [&](bool includePrims, llvm::SmallVector<Operation *> &ordered) -> bool {
     ordered.clear();
 
@@ -1760,11 +1852,7 @@ static LogicalResult emitBlockStruct(
       continue;
     }
     if (auto a = dyn_cast<pyc::AssertOp>(*op)) {
-      std::string msg = "pyc.assert failed";
-      if (auto m = a.getMsgAttr())
-        msg = m.getValue().str();
-      os << "    if (!" << nt.get(a.getCond()) << ".toBool()) { std::cerr << " << cppStringLiteral(msg)
-         << " << \"\\n\"; std::abort(); }\n";
+      emitAssertion(a, "    ");
       continue;
     }
     if (isa<pyc::ConstantOp, pyc::AddOp, pyc::SubOp, pyc::MulOp, pyc::UdivOp,
@@ -2144,11 +2232,7 @@ static LogicalResult emitBlockStruct(
       return success();
     }
     if (auto a = dyn_cast<pyc::AssertOp>(*op)) {
-      std::string msg = "pyc.assert failed";
-      if (auto m = a.getMsgAttr())
-        msg = m.getValue().str();
-      os << indent << "if (!" << nt.get(a.getCond()) << ".toBool()) { std::cerr << " << cppStringLiteral(msg)
-         << " << \"\\n\"; std::abort(); }\n";
+      emitAssertion(a, indent);
       return success();
     }
     if (auto a = dyn_cast<pyc::AssignOp>(*op)) {

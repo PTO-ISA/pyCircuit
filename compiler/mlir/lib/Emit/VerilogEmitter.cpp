@@ -19,8 +19,9 @@
 #include "llvm/ADT/StringSet.h"
 
 #include <algorithm>
-#include <optional>
+#include <cctype>
 #include <functional>
+#include <optional>
 #include <vector>
 
 using namespace mlir;
@@ -157,6 +158,112 @@ static std::string sanitizeId(llvm::StringRef s) {
   if (out.empty() || isDigit(out.front()))
     out.insert(out.begin(), '_');
   return out;
+}
+
+static std::string lowerSnakeModuleName(llvm::StringRef source) {
+  std::string result;
+  bool separator = false;
+  bool priorLowerOrDigit = false;
+  for (char character : source) {
+    const unsigned byte = static_cast<unsigned char>(character);
+    if (std::isupper(byte)) {
+      if ((!result.empty() && priorLowerOrDigit) || separator)
+        if (result.back() != '_')
+          result.push_back('_');
+      result.push_back(static_cast<char>(std::tolower(byte)));
+      separator = false;
+      priorLowerOrDigit = false;
+    } else if (std::islower(byte) || std::isdigit(byte)) {
+      if (separator && !result.empty() && result.back() != '_')
+        result.push_back('_');
+      result.push_back(character);
+      separator = false;
+      priorLowerOrDigit = true;
+    } else {
+      separator = true;
+      priorLowerOrDigit = false;
+    }
+  }
+  while (!result.empty() && result.back() == '_')
+    result.pop_back();
+  if (result.empty())
+    return {};
+  if (std::isdigit(static_cast<unsigned char>(result.front())))
+    result.insert(0, "module_");
+  return result;
+}
+
+static LogicalResult buildRtlModuleNames(
+    ModuleOp module, llvm::StringMap<std::string> &rtlNames) {
+  llvm::StringMap<std::string> sourceByRtlName;
+  auto add = [&](Operation *operation,
+                 llvm::StringRef source) -> LogicalResult {
+    std::string rtl = lowerSnakeModuleName(source);
+    if (rtl.empty())
+      return operation->emitError(
+          "RTL module name has no readable lower-snake spelling");
+    auto prior = sourceByRtlName.find(rtl);
+    if (prior != sourceByRtlName.end() && prior->getValue() != source)
+      return operation->emitError()
+             << "RTL module name '" << rtl << "' collides between '"
+             << prior->getValue() << "' and '" << source << "'";
+    sourceByRtlName[rtl] = source.str();
+    rtlNames[source] = std::move(rtl);
+    return success();
+  };
+  for (func::FuncOp function : module.getOps<func::FuncOp>())
+    if (failed(add(function, function.getSymName())))
+      return failure();
+  for (pyc::FamilyOp family : module.getOps<pyc::FamilyOp>())
+    if (failed(add(family, family.getSymName())))
+      return failure();
+  return success();
+}
+
+static std::string obligationAssertionLabel(llvm::StringRef id) {
+  std::string label = "obligation";
+  bool separator = true;
+  for (char character : id) {
+    const char lowered = static_cast<char>(
+        std::tolower(static_cast<unsigned char>(character)));
+    if ((lowered >= 'a' && lowered <= 'z') ||
+        (lowered >= '0' && lowered <= '9')) {
+      if (separator && label.back() != '_')
+        label.push_back('_');
+      label.push_back(lowered);
+      separator = false;
+    } else {
+      separator = true;
+    }
+  }
+  return label;
+}
+
+static std::string assertionDiagnostic(pyc::AssertOp assertion) {
+  std::string message = "pyc.assert failed";
+  if (auto attr = assertion.getMsgAttr())
+    message = attr.getValue().str();
+  auto id = assertion.getObligationIdAttr();
+  if (!id)
+    return message;
+  std::string diagnostic =
+      "architecture_obligation id=" + id.getValue().str() + " kind=" +
+      assertion.getObligationKindAttr().getValue().str() + " severity=" +
+      assertion.getSeverityAttr().getValue().str() + " sampling=" +
+      assertion.getSamplingKindAttr().getValue().str() + "/" +
+      assertion.getSamplingEdgeAttr().getValue().str() + "@" +
+      assertion.getSampleAnchorAttr().getValue().str() + " source=" +
+      assertion.getSourceAttr().getValue().str();
+  if (auto identifiers = assertion.getNdfIdsAttr(); identifiers && !identifiers.empty()) {
+    diagnostic += " ndf=[";
+    for (auto [index, raw] : llvm::enumerate(identifiers)) {
+      if (index)
+        diagnostic += ',';
+      diagnostic += cast<StringAttr>(raw).getValue();
+    }
+    diagnostic += ']';
+  }
+  return diagnostic + ": " + message;
 }
 
 struct NameTable {
@@ -770,6 +877,13 @@ struct NetDecl {
 };
 
 static std::string opSortKey(Operation *op, NameTable &nt) {
+  if (auto assertion = dyn_cast<pyc::AssertOp>(op)) {
+    if (auto id = assertion.getObligationIdAttr())
+      return "assert:" + id.getValue().str();
+    if (auto message = assertion.getMsgAttr())
+      return "assert:" + message.getValue().str();
+    return "assert";
+  }
   if (auto a = dyn_cast<pyc::AssignOp>(op))
     return nt.get(a.getDst());
   if (auto mem = dyn_cast<pyc::ByteMemOp>(op)) {
@@ -897,6 +1011,7 @@ static LogicalResult emitBlockModule(
     ArrayRef<std::string> inputPortNames,
     ArrayRef<std::string> outputPortNames, ValueRange returnValues,
     raw_ostream &os, const VerilogEmitterOptions &opts,
+    const llvm::StringMap<std::string> &rtlModuleNames,
     StringRef parameterClause = {}, ArrayRef<std::string> inputRanges = {},
     ArrayRef<std::string> outputRanges = {}, StringRef bodyPrefix = {},
     StringRef bodySuffix = {}, bool emitHeader = true, bool emitFooter = true) {
@@ -1022,12 +1137,19 @@ static LogicalResult emitBlockModule(
     combAssignOps.assign(orderedComb.begin(), orderedComb.end());
 
   if (!combAssignOps.empty()) {
+    std::optional<std::string> assertionClock;
+    for (BlockArgument argument : top.getArguments())
+      if (isa<pyc::ClockType>(argument.getType())) {
+        if (assertionClock)
+          return owner->emitError(
+              "architecture SVA requires one unambiguous module clock");
+        assertionClock = nt.get(argument);
+      }
+    llvm::StringSet<> assertionLabels;
     os << "// --- Combinational (netlist)\n";
     for (Operation *op : combAssignOps) {
       if (auto a = dyn_cast<pyc::AssertOp>(op)) {
-        std::string msg = "pyc.assert failed";
-        if (auto m = a.getMsgAttr())
-          msg = m.getValue().str();
+        std::string msg = assertionDiagnostic(a);
         std::string esc;
         esc.reserve(msg.size());
         for (char c : msg) {
@@ -1036,9 +1158,26 @@ static LogicalResult emitBlockModule(
           esc.push_back(c);
         }
         os << "`ifndef SYNTHESIS\n";
-        os << "always @(*) begin\n";
-        os << "  if (!(" << nt.get(a.getCond()) << ")) $fatal(1, \"" << esc << "\");\n";
-        os << "end\n";
+        if (auto id = a.getObligationIdAttr()) {
+          if (!assertionClock)
+            return a.emitError(
+                "architecture obligation SVA requires a module clock");
+          std::string label = obligationAssertionLabel(id.getValue());
+          if (!assertionLabels.insert(label).second)
+            return a.emitError(
+                "architecture obligation IDs collide after readable SVA "
+                "label normalization");
+          os << label << ": assert property (@(posedge " << *assertionClock
+             << ") (" << nt.get(a.getCond()) << "))\n"
+             << "  else $fatal(1, \"" << esc << "\");\n";
+          os << label << "_coverage: cover property (@(posedge "
+             << *assertionClock << ") (" << nt.get(a.getCond()) << "));\n";
+        } else {
+          os << "always @(*) begin\n";
+          os << "  if (!(" << nt.get(a.getCond()) << ")) $fatal(1, \"" << esc
+             << "\");\n";
+          os << "end\n";
+        }
         os << "`endif\n";
         continue;
       }
@@ -1076,7 +1215,7 @@ static LogicalResult emitBlockModule(
       std::string calleeParameters;
       if (auto callee = mod.lookupSymbol<func::FuncOp>(calleeAttr.getValue())) {
         computeUniquePortNames(callee, inPorts, outPorts);
-        calleeName = callee.getSymName().str();
+        calleeName = rtlModuleNames.lookup(callee.getSymName());
       } else if (auto family =
                      mod.lookupSymbol<pyc::FamilyOp>(calleeAttr.getValue())) {
         pyc::ModuleCaseOp selected;
@@ -1090,7 +1229,7 @@ static LogicalResult emitBlockModule(
           return inst.emitError("static arguments do not select a family case");
         if (failed(computeCasePortNames(selected, inPorts, outPorts)))
           return failure();
-        calleeName = family.getSymName().str();
+        calleeName = rtlModuleNames.lookup(family.getSymName());
         if (!family.getSchema().getParameters().getParameters().empty()) {
           auto concreteArguments = pyc::staticArgumentsFromDependent(
               inst.getStaticArgs());
@@ -1330,8 +1469,10 @@ static LogicalResult emitBlockModule(
   return success();
 }
 
-static LogicalResult emitFunc(func::FuncOp f, raw_ostream &os,
-                              const VerilogEmitterOptions &opts) {
+static LogicalResult emitFunc(
+    func::FuncOp f, llvm::StringRef rtlName, raw_ostream &os,
+    const VerilogEmitterOptions &opts,
+    const llvm::StringMap<std::string> &rtlModuleNames) {
   if (!llvm::hasSingleElement(f.getBody()))
     return f.emitError("verilog emitter currently supports single-block functions only");
   std::vector<std::string> inputNames;
@@ -1340,13 +1481,15 @@ static LogicalResult emitFunc(func::FuncOp f, raw_ostream &os,
   auto ret = dyn_cast_or_null<func::ReturnOp>(f.getBody().front().getTerminator());
   if (!ret)
     return f.emitError("missing return");
-  return emitBlockModule(f, f.getSymName(), f.getBody().front(),
+  return emitBlockModule(f, rtlName, f.getBody().front(),
                          f.getFunctionType(), inputNames, outputNames,
-                         ret.getOperands(), os, opts);
+                         ret.getOperands(), os, opts, rtlModuleNames);
 }
 
-static LogicalResult emitFamily(pyc::FamilyOp family, raw_ostream &os,
-                                const VerilogEmitterOptions &opts) {
+static LogicalResult emitFamily(
+    pyc::FamilyOp family, llvm::StringRef rtlName, raw_ostream &os,
+    const VerilogEmitterOptions &opts,
+    const llvm::StringMap<std::string> &rtlModuleNames) {
   auto cases = family.getBody().front().getOps<pyc::ModuleCaseOp>();
   auto parameters = family.getSchema().getParameters().getParameters();
   if (parameters.empty()) {
@@ -1363,9 +1506,10 @@ static LogicalResult emitFamily(pyc::FamilyOp family, raw_ostream &os,
         moduleCase.getBody().front().getTerminator());
     if (!ret)
       return moduleCase.emitError("missing pyc.return");
-    return emitBlockModule(moduleCase, family.getSymName(),
+    return emitBlockModule(moduleCase, rtlName,
                            moduleCase.getBody().front(), functionType,
-                           inputNames, outputNames, ret.getValues(), os, opts);
+                           inputNames, outputNames, ret.getValues(), os, opts,
+                           rtlModuleNames);
   }
 
   llvm::SmallVector<pyc::ModuleCaseOp> orderedCases(cases.begin(), cases.end());
@@ -1488,8 +1632,9 @@ static LogicalResult emitFamily(pyc::FamilyOp family, raw_ostream &os,
                 "    initial $fatal(1, \"unadmitted static family arguments\");\n"
                 "  end\nendgenerate\n";
     if (failed(emitBlockModule(
-            moduleCase, family.getSymName(), moduleCase.getBody().front(),
+            moduleCase, rtlName, moduleCase.getBody().front(),
             functionType, inputNames, outputNames, ret.getValues(), os, opts,
+            rtlModuleNames,
             parameterClause, *inputRanges, *outputRanges, prefix, suffix,
             /*emitHeader=*/caseIndex == 0, /*emitFooter=*/last)))
       return failure();
@@ -1500,6 +1645,9 @@ static LogicalResult emitFamily(pyc::FamilyOp family, raw_ostream &os,
 } // namespace
 
 LogicalResult emitVerilog(ModuleOp module, llvm::raw_ostream &os, const VerilogEmitterOptions &opts) {
+  llvm::StringMap<std::string> rtlModuleNames;
+  if (failed(buildRtlModuleNames(module, rtlModuleNames)))
+    return failure();
   if (opts.targetFpga) {
     os << "`define PYC_TARGET_FPGA 1\n\n";
   }
@@ -1530,19 +1678,34 @@ LogicalResult emitVerilog(ModuleOp module, llvm::raw_ostream &os, const VerilogE
   if (failed(emitVerilogNominalDeclarations(module, os)))
     return failure();
 
-  for (auto f : module.getOps<func::FuncOp>()) {
-    if (failed(emitFunc(f, os, opts)))
+  llvm::SmallVector<func::FuncOp> functions(module.getOps<func::FuncOp>());
+  llvm::sort(functions, [&](func::FuncOp left, func::FuncOp right) {
+    return rtlModuleNames.lookup(left.getSymName()) <
+           rtlModuleNames.lookup(right.getSymName());
+  });
+  for (func::FuncOp f : functions) {
+    if (failed(emitFunc(f, rtlModuleNames.lookup(f.getSymName()), os, opts,
+                        rtlModuleNames)))
       return failure();
   }
-  for (auto family : module.getOps<pyc::FamilyOp>())
-    if (failed(emitFamily(family, os, opts)))
+  llvm::SmallVector<pyc::FamilyOp> families(module.getOps<pyc::FamilyOp>());
+  llvm::sort(families, [&](pyc::FamilyOp left, pyc::FamilyOp right) {
+    return rtlModuleNames.lookup(left.getSymName()) <
+           rtlModuleNames.lookup(right.getSymName());
+  });
+  for (pyc::FamilyOp family : families)
+    if (failed(emitFamily(family, rtlModuleNames.lookup(family.getSymName()),
+                          os, opts, rtlModuleNames)))
       return failure();
   return success();
 }
 
 LogicalResult emitVerilogFunc(ModuleOp module, func::FuncOp f, llvm::raw_ostream &os, const VerilogEmitterOptions &opts) {
-  (void)module;
-  return emitFunc(f, os, opts);
+  llvm::StringMap<std::string> rtlModuleNames;
+  if (failed(buildRtlModuleNames(module, rtlModuleNames)))
+    return failure();
+  return emitFunc(f, rtlModuleNames.lookup(f.getSymName()), os, opts,
+                  rtlModuleNames);
 }
 
 } // namespace pyc

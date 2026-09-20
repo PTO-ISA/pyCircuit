@@ -141,7 +141,10 @@ source.
 - run the synthesizable ACIR subset through `acc -emit-verilog` and sibling
   `pycc`;
 - compile and execute ACC-generated gfsim C++ DUTs;
-- generate and lint Verilog for the same canonical cases; and
+- generate and lint Verilog for the same canonical cases;
+- run `flows/tools/check_generated_rtl.py` on representative generated RTL,
+  including a two-clean-build byte comparison, JSON structural/expensive-op
+  audit, and colored HTML diff evidence; and
 - prove unsupported ACIR constructs fail at the intended verifier boundary.
 - compile module C++ sources as independent translation units with parallel
   CMake/Ninja and link the selected root DUT; backend-only source splitting is

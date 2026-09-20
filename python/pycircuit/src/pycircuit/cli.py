@@ -52,6 +52,36 @@ def _default_top_name(src: Path) -> str:
     return "".join(p[:1].upper() + p[1:] for p in parts)
 
 
+def _rtl_module_name(source: str) -> str:
+    result: list[str] = []
+    separator = False
+    prior_lower_or_digit = False
+    for character in str(source):
+        if character.isascii() and character.isupper():
+            if (result and prior_lower_or_digit) or separator:
+                if result[-1] != "_":
+                    result.append("_")
+            result.append(character.lower())
+            separator = False
+            prior_lower_or_digit = False
+        elif character.isascii() and (character.islower() or character.isdigit()):
+            if separator and result and result[-1] != "_":
+                result.append("_")
+            result.append(character)
+            separator = False
+            prior_lower_or_digit = True
+        else:
+            separator = True
+            prior_lower_or_digit = False
+    while result and result[-1] == "_":
+        result.pop()
+    if not result:
+        raise SystemExit("RTL module name has no readable lower-snake spelling")
+    if result[0].isdigit():
+        result[:0] = list("module_")
+    return "".join(result)
+
+
 def _tool_script(name: str) -> Path:
     candidates = [
         Path(__file__).resolve().parent / "_tools" / name,
@@ -1631,7 +1661,7 @@ def _render_tb_sv(
         raise SystemExit("tb() with reset requires at least one clock via t.clock(...)")
 
     top = str(iface.sym)
-    mod_name = top  # func sym name is already a valid Verilog identifier in this repo.
+    mod_name = _rtl_module_name(top)
 
     def sv_lit(width: int, v: int | bool) -> str:
         if isinstance(v, bool):

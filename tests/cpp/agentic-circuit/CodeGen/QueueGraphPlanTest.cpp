@@ -5078,6 +5078,19 @@ TEST(QueueGraphPlanTest, RuntimeObligationPlanIsExactAndGenerated) {
                  {"constant", "!ac.var<i1>", {}, "", "", 0, 1, false,
                   true}};
   plan.architectureExpressionScopes.push_back(std::move(scope));
+  auto materializations = [&](llvm::StringRef conditionRule,
+                              llvm::StringRef active,
+                              llvm::StringRef disable) {
+    std::vector<std::string> result;
+    for (llvm::StringRef target : {"cpp", "gfsim", "sva"})
+      result.push_back(
+          "module=stateless_optional_multi_output;target=" + target.str() +
+          ";firing=bounded;input=0;maximum=127;sampling={kind = "
+          "pre_publish};condition=ac.arch_expression_table:" +
+          conditionRule.str() + ";severity=error;active=" + active.str() +
+          ";disable=" + disable.str());
+    return result;
+  };
   QueueArchitectureObligationPlan obligation;
   obligation.module = plan.system;
   obligation.symbol = "range:bounded";
@@ -5094,16 +5107,13 @@ TEST(QueueGraphPlanTest, RuntimeObligationPlanIsExactAndGenerated) {
   obligation.sampleAnchor = "bounded";
   obligation.inputOrdinal = 0;
   obligation.maximum = 127;
-  obligation.targets = {"gfsim"};
+  obligation.targets = {"cpp", "gfsim", "sva"};
   obligation.sampling = "{kind = pre_publish}";
   obligation.sourceRules = {"bounded"};
   obligation.stateOwners = {"@state"};
   obligation.sourceProvenance.origins = {
       {{"statement", "fixture.py", 7, 3, ""}}};
-  obligation.materializations = {
-      "module=stateless_optional_multi_output;target=gfsim;firing=bounded;"
-      "input=0;maximum=127;sampling={kind = pre_publish};condition=ac.arch_"
-      "expression_table:bounded:2;severity=error;active=-;disable=-"};
+  obligation.materializations = materializations("bounded:2", "-", "-");
   plan.architectureObligations.push_back(obligation);
 
   EXPECT_FALSE(bool(verifyQueueGraphPlan(plan)));
@@ -5116,6 +5126,13 @@ TEST(QueueGraphPlanTest, RuntimeObligationPlanIsExactAndGenerated) {
   auto generated = generateQueueGraphCpp(plan);
   ASSERT_TRUE(bool(generated)) << llvm::toString(generated.takeError());
   EXPECT_NE(generated->find("ArchitectureObligationViolation"),
+            std::string::npos);
+  auto pyc = generateQueueGraphPyc(plan);
+  ASSERT_TRUE(bool(pyc)) << llvm::toString(pyc.takeError());
+  EXPECT_NE(pyc->find("pyc.assert"), std::string::npos);
+  EXPECT_NE(pyc->find("obligation_id = \"range:bounded\""),
+            std::string::npos);
+  EXPECT_NE(pyc->find("sampling_kind = \"pre_publish\""),
             std::string::npos);
   std::string executable = *generated;
   executable.append(R"cpp(
@@ -5172,10 +5189,8 @@ int main() {
   QueueGraphPlan inactive = plan;
   inactive.architectureObligations.front().activeRule = "bounded";
   inactive.architectureObligations.front().activeRoot = 3;
-  inactive.architectureObligations.front().materializations.front() =
-      "module=stateless_optional_multi_output;target=gfsim;firing=bounded;"
-      "input=0;maximum=127;sampling={kind = pre_publish};condition=ac.arch_"
-      "expression_table:bounded:2;severity=error;active=bounded:3;disable=-";
+  inactive.architectureObligations.front().materializations =
+      materializations("bounded:2", "bounded:3", "-");
   auto inactiveCpp = generateQueueGraphCpp(inactive);
   ASSERT_TRUE(bool(inactiveCpp)) << llvm::toString(inactiveCpp.takeError());
   std::string inactiveExecutable = *inactiveCpp;
@@ -5208,11 +5223,8 @@ int main() {
   disabled.architectureObligations.front().activeRoot = 4;
   disabled.architectureObligations.front().disableRule = "bounded";
   disabled.architectureObligations.front().disableRoot = 4;
-  disabled.architectureObligations.front().materializations.front() =
-      "module=stateless_optional_multi_output;target=gfsim;firing=bounded;"
-      "input=0;maximum=127;sampling={kind = pre_publish};condition=ac.arch_"
-      "expression_table:bounded:2;severity=error;active=bounded:4;"
-      "disable=bounded:4";
+  disabled.architectureObligations.front().materializations =
+      materializations("bounded:2", "bounded:4", "bounded:4");
   auto disabledCpp = generateQueueGraphCpp(disabled);
   ASSERT_TRUE(bool(disabledCpp)) << llvm::toString(disabledCpp.takeError());
   EXPECT_NE(disabledCpp->find("if ((1) && !(1)"), std::string::npos);
@@ -5302,10 +5314,8 @@ int main() {
   foreign.ownerRule = "other_firing";
   forged.architectureExpressionScopes.push_back(std::move(foreign));
   forged.architectureObligations.front().conditionRule = "foreign";
-  forged.architectureObligations.front().materializations.front() =
-      "module=stateless_optional_multi_output;target=gfsim;firing=bounded;"
-      "input=0;maximum=127;sampling={kind = pre_publish};condition=ac.arch_"
-      "expression_table:foreign:2;severity=error;active=-;disable=-";
+  forged.architectureObligations.front().materializations =
+      materializations("foreign:2", "-", "-");
   EXPECT_TRUE(bool(verifyQueueGraphPlan(forged)));
   forged = plan;
   foreign = forged.architectureExpressionScopes.front();
@@ -5314,10 +5324,8 @@ int main() {
   forged.architectureExpressionScopes.push_back(std::move(foreign));
   forged.architectureObligations.front().activeRule = "foreign";
   forged.architectureObligations.front().activeRoot = 3;
-  forged.architectureObligations.front().materializations.front() =
-      "module=stateless_optional_multi_output;target=gfsim;firing=bounded;"
-      "input=0;maximum=127;sampling={kind = pre_publish};condition=ac.arch_"
-      "expression_table:bounded:2;severity=error;active=foreign:3;disable=-";
+  forged.architectureObligations.front().materializations =
+      materializations("bounded:2", "foreign:3", "-");
   EXPECT_TRUE(bool(verifyQueueGraphPlan(forged)));
   forged = plan;
   foreign = forged.architectureExpressionScopes.front();
@@ -5326,10 +5334,8 @@ int main() {
   forged.architectureExpressionScopes.push_back(std::move(foreign));
   forged.architectureObligations.front().disableRule = "foreign";
   forged.architectureObligations.front().disableRoot = 3;
-  forged.architectureObligations.front().materializations.front() =
-      "module=stateless_optional_multi_output;target=gfsim;firing=bounded;"
-      "input=0;maximum=127;sampling={kind = pre_publish};condition=ac.arch_"
-      "expression_table:bounded:2;severity=error;active=-;disable=foreign:3";
+  forged.architectureObligations.front().materializations =
+      materializations("bounded:2", "-", "foreign:3");
   EXPECT_TRUE(bool(verifyQueueGraphPlan(forged)));
   forged = plan;
   forged.architectureExpressionScopes.front().nodes[0].inputOrdinal = 1;
@@ -5367,10 +5373,8 @@ int main() {
       {"operation", "!ac.var<i1>", {3, 4}, "ac.var.xor", ""});
   unsupported.architectureObligations.front().activeRule = "bounded";
   unsupported.architectureObligations.front().activeRoot = 5;
-  unsupported.architectureObligations.front().materializations.front() =
-      "module=stateless_optional_multi_output;target=gfsim;firing=bounded;"
-      "input=0;maximum=127;sampling={kind = pre_publish};condition=ac.arch_"
-      "expression_table:bounded:2;severity=error;active=bounded:5;disable=-";
+  unsupported.architectureObligations.front().materializations =
+      materializations("bounded:2", "bounded:5", "-");
   auto unsupportedCpp = generateQueueGraphCpp(unsupported);
   ASSERT_FALSE(bool(unsupportedCpp));
   EXPECT_NE(llvm::toString(unsupportedCpp.takeError())

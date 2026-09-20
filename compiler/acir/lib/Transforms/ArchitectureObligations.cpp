@@ -9,6 +9,7 @@
 #include "llvm/Support/FormatVariadic.h"
 
 #include <algorithm>
+#include <array>
 
 using namespace mlir;
 
@@ -357,15 +358,28 @@ struct RangeProgram {
   int64_t maximum;
 };
 
-DictionaryAttr expectedRangeMaterialization(ac::ArchitectureObligationOp op,
-                                            const RangeProgram &program) {
+constexpr std::array<ac::ArchitectureRuntimeTarget, 3> kPhaseOneTargets = {
+    ac::ArchitectureRuntimeTarget::Cpp,
+    ac::ArchitectureRuntimeTarget::Gfsim,
+    ac::ArchitectureRuntimeTarget::Sva,
+};
+
+ArrayAttr expectedRuntimeTargets(MLIRContext *context) {
+  SmallVector<Attribute> targets;
+  for (ac::ArchitectureRuntimeTarget target : kPhaseOneTargets)
+    targets.push_back(ac::ArchitectureRuntimeTargetAttr::get(context, target));
+  return Builder(context).getArrayAttr(targets);
+}
+
+DictionaryAttr expectedRangeMaterialization(
+    ac::ArchitectureObligationOp op, const RangeProgram &program,
+    ac::ArchitectureRuntimeTarget target) {
   Builder builder(op.getContext());
   auto module = op->getParentOfType<ac::ModuleOp>();
   NamedAttrList expected;
   expected.set("module", FlatSymbolRefAttr::get(module.getSymNameAttr()));
-  expected.set("target", ac::ArchitectureRuntimeTargetAttr::get(
-                             op.getContext(),
-                             ac::ArchitectureRuntimeTarget::Gfsim));
+  expected.set("target",
+               ac::ArchitectureRuntimeTargetAttr::get(op.getContext(), target));
   expected.set("firing",
                op.getSampling().getAs<StringAttr>("sample_anchor"));
   expected.set("input_ordinal",
@@ -383,6 +397,15 @@ DictionaryAttr expectedRangeMaterialization(ac::ArchitectureObligationOp op,
                    ? op.getSampling().get("reset_recovery_disable")
                    : builder.getUnitAttr());
   return builder.getDictionaryAttr(expected);
+}
+
+ArrayAttr expectedRangeMaterializations(ac::ArchitectureObligationOp op,
+                                        const RangeProgram &program) {
+  SmallVector<Attribute> materializations;
+  for (ac::ArchitectureRuntimeTarget target : kPhaseOneTargets)
+    materializations.push_back(
+        expectedRangeMaterialization(op, program, target));
+  return Builder(op.getContext()).getArrayAttr(materializations);
 }
 
 FailureOr<RangeProgram> decodeRangeProgram(ac::ArchitectureObligationOp op) {
@@ -451,12 +474,8 @@ LogicalResult materializeArchitectureObligations(ModuleOp model) {
         obligation.getStatus() != ac::ArchitectureObligationStatus::Pending)
       return;
     if (obligation.getKind() != ac::ArchitectureObligationKind::Range ||
-        obligation.getRuntimeTargets().size() != 1 ||
-        !isa<ac::ArchitectureRuntimeTargetAttr>(
-            obligation.getRuntimeTargets()[0]) ||
-        cast<ac::ArchitectureRuntimeTargetAttr>(
-            obligation.getRuntimeTargets()[0])
-                .getValue() != ac::ArchitectureRuntimeTarget::Gfsim) {
+        obligation.getRuntimeTargets() !=
+            expectedRuntimeTargets(model.getContext())) {
       obligation->setAttr(
           "status",
           ac::ArchitectureObligationStatusAttr::get(
@@ -472,10 +491,8 @@ LogicalResult materializeArchitectureObligations(ModuleOp model) {
               model.getContext(), ac::ArchitectureObligationStatus::Rejected));
       return;
     }
-    obligation->setAttr(
-        "materializations",
-        builder.getArrayAttr(
-            {expectedRangeMaterialization(obligation, *program)}));
+    obligation->setAttr("materializations",
+                        expectedRangeMaterializations(obligation, *program));
     obligation->setAttr("status",
                         ac::ArchitectureObligationStatusAttr::get(
                             model.getContext(),
@@ -604,9 +621,11 @@ LogicalResult verifyArchitectureObligations(ModuleOp model,
     if (obligation.getStatus() ==
         ac::ArchitectureObligationStatus::RuntimeChecked) {
       FailureOr<RangeProgram> program = decodeRangeProgram(obligation);
-      if (failed(program) || obligation.getMaterializations().size() != 1 ||
-          obligation.getMaterializations()[0] !=
-              expectedRangeMaterialization(obligation, *program))
+      if (failed(program) ||
+          obligation.getRuntimeTargets() !=
+              expectedRuntimeTargets(model.getContext()) ||
+          obligation.getMaterializations() !=
+              expectedRangeMaterializations(obligation, *program))
         result = obligation.emitOpError(
             "runtime materialization does not exactly match condition, "
             "module, firing, input, maximum, target, sampling, predicates, "
