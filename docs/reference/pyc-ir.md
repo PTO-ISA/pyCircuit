@@ -183,6 +183,33 @@ Runtime-checked obligations are verification evidence, not synthesis proof.
 `flows/tools/check_generated_rtl.py --require-synthesis-admissible` rejects RTL
 that still contains them.
 
+An architecture assertion may also carry an optional `cover` condition. The
+assertion condition remains the safety property; the cover condition is the
+event whose occurrence must be observed. Generated C++ gives it a distinct
+`_coverage` counter and RTL uses it as the SVA cover-property expression.
+Decision 0279 uses this split so `no_stale_update` asserts that stale and
+published cannot coincide while coverage observes the stale request itself.
+
+### Recovery and versioned identity lowering
+
+Decision 0279 keeps recovery semantics in ACIR and lowers one verified form to
+PYC. Recovery domains, explicit transaction references, execution attempts,
+checkpoint/retained-result declarations, and complete VersionedTable metadata
+are compiler-owned. `ac.recovery.event` and the closed
+`epoch_mismatch_or_younger` KillSet become ordinary PYC comparisons. A
+qualified update or invalidation becomes a write enable conjoined with the
+committed entry's valid, generation, recovery-epoch, and optional attempt
+fields. `ac.versioned_table.lookup` produces payload plus the same qualified
+valid predicate. A retained-result `retain` instead conjoins `!valid`, so an
+unconsumed result cannot be overwritten; `consume` uses the exact identity
+qualification before clearing valid.
+
+The PYC state remains an explicit deterministic register bank; no backend
+reconstructs identity metadata. Each qualified write emits one stable
+`no_stale_update:<table>:<firing>:slotN` assertion with the exact stale event as
+its optional cover condition. Plain `ac.table.propose`, partial identity, and
+unqualified versioned writes are rejected before PYC emission.
+
 ### `pyc.sync_mem` / `pyc.sync_mem_dp` verification profile
 
 Every synchronous memory carries `live_window = 1`. The value is a static

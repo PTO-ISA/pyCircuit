@@ -87,6 +87,16 @@ WriterEndpoint tableWriterEndpoint(Operation *operation, ac::TableOp table) {
     endpoint.presence = proposal.getWhen();
     endpoint.fields = proposal.getWriteFieldsAttr();
     endpoint.mode = proposal.getMode();
+  } else if (auto proposal =
+                 dyn_cast<ac::VersionedTableProposeOp>(operation)) {
+    endpoint.scope = proposal->getParentOp();
+    auto stable = proposal->getAttrOfType<StringAttr>("ac.endpoint_id");
+    endpoint.endpointStableId =
+        stable ? stable.getValue().str() : writerStableId(endpoint.scope).str();
+    endpoint.index = proposal.getIndex();
+    endpoint.presence = proposal.getWhen();
+    endpoint.fields = proposal.getWriteFieldsAttr();
+    endpoint.mode = proposal.getMode();
   } else if (auto write = dyn_cast<ac::TableWriteOp>(operation)) {
     endpoint.scope = operation;
     auto stable = write->getAttrOfType<StringAttr>("ac.endpoint_id");
@@ -198,6 +208,9 @@ LogicalResult analyzeWriterArbitration(ModuleOp model,
       return;
     FlatSymbolRefAttr reference;
     if (auto proposal = dyn_cast<ac::TableProposeOp>(operation))
+      reference = proposal.getTableAttr();
+    else if (auto proposal =
+                 dyn_cast<ac::VersionedTableProposeOp>(operation))
       reference = proposal.getTableAttr();
     else if (auto write = dyn_cast<ac::TableWriteOp>(operation))
       reference = write.getTableAttr();

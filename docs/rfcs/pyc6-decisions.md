@@ -11651,3 +11651,88 @@ signature metadata in one change. There is no reader, upgrader, alias,
 fallback, optional metadata mode, or dual schema. Until this exact micro-schema
 and its positive/negative matrix are implemented and verified, dependent
 family publication and C++/RTL family emission remain blocked.
+
+## Decision 0279: recovery and stale-response safety use explicit versioned identity
+
+**Status:** Accepted and implemented-verified for the internal bounded profile
+
+**Context / Goal**
+Slot reuse, recovery, and replay make a physical slot insufficient as an
+architectural identity. An old completion must be consumed without mutating a
+new occupant, and the same rule must hold in QueueGraph/gfsim, generated C++,
+PYC, and RTL. Checkpoint and retained-result state use the same identity
+contract rather than private backend predicates.
+
+**Decision (strong constraint)**
+- `!ac.transaction_ref<slot_bits, generation_bits, epoch_bits>` is the exact
+  transaction reference. `!ac.execution_attempt<transaction_ref,
+  attempt_bits>` adds a replay/attempt number. Every component is explicit,
+  positive-width, and at most 64 bits; no hash, content fingerprint, source
+  position, or process-local ordinal participates in identity.
+- `ac.recovery_domain` is a stable symbol with one finite recovery-epoch width
+  and initial value. `ac.typed_identity` is a nominal identity symbol with an
+  optional nominal parent. Parentage is symbolic, not inferred from layout.
+- A Table becomes a VersionedTable only through one complete closed contract:
+  recovery domain, identity, generation/epoch widths, optional attempt width,
+  and distinct valid/generation/epoch/attempt/payload fields in a nominal
+  entry struct. Partial metadata and ordinary `ac.table.propose` writes reject.
+- `ac.versioned_table.propose` is the only write endpoint. `allocate` replaces
+  one complete entry. `qualified_update` may update only the declared payload
+  field. `invalidate` may update only the declared valid field. Update and
+  invalidate carry exact generation, epoch, and optional attempt references;
+  the compiler conjoins `valid && generation_match && epoch_match &&
+  attempt_match` before publication. A mismatch consumes the input transaction
+  but publishes no state write.
+- `ac.versioned_table.lookup` returns `(payload, qualified_valid)` and always
+  performs the same valid/generation/epoch/attempt comparison.
+- `ac.recovery.event` preserves explicit valid, next epoch, checkpoint,
+  boundary, domain, and cause data. `ac.kill_set` uses the closed
+  `epoch_mismatch_or_younger` predicate: an active event kills a transaction
+  whose epoch differs from the event epoch or whose slot is younger than the
+  recovery boundary. QueueGraph, C++, and PYC lower the same predicate.
+- `ac.checkpoint` and `ac.retained_result` are compiler-owned stable
+  declarations bound to the same VersionedTable contract. Checkpoint
+  capture/restore/release use allocate/qualified lookup/invalidate;
+  retained-result accept/hold/consume uses `retain`, qualified lookup, and
+  `consume`. `retain` publishes only when the committed entry is invalid, so a
+  second response cannot overwrite an unconsumed result; `consume` requires an
+  exact generation/epoch/attempt match. Bindings must match the table's domain,
+  entries, identity, attempt width, and payload exactly.
+- Qualified write lowering creates a stable
+  `no_stale_update:<table>:<firing>:slotN` obligation. Generated C++ counts the
+  exact stale predicate, RTL covers that predicate, and the assertion proves a
+  stale request and a published write cannot coincide.
+- Reads observe committed state at tick start and accepted proposals publish
+  at the transaction boundary. Recovery does not create source-order
+  forwarding.
+- The profile is internal. No Python API is admitted until source-level
+  negative tests and a consumer-neutral authoring design are accepted.
+
+**Bounds**
+- VersionedTable has at most 256 entries. Generation, recovery epoch, and
+  attempt are finite tags in `[1, 64]` bits. The environment must not retain a
+  response across a complete wrap of any tag component.
+- The first KillSet policy is exactly `epoch_mismatch_or_younger`. Additional
+  policies require a new closed case and parity evidence.
+
+**Verification**
+- ACIR positive and negative tests cover closed types, declarations, complete
+  VersionedTable metadata, field widths, plain/versioned write separation,
+  action-specific fields, ref widths, and invalid type widths.
+- The reduced two-entry fixture lowers recovery event, KillSet, versioned
+  allocation/update/invalidation, qualified lookup, checkpoint, retained
+  result, and execution attempt through deterministic QueueGraph JSON.
+- Generated gfsim C++ and PYC C++ compile. The executable PYC fixture allocates
+  `slot0/gen0/epoch4`, reuses it as `slot0/gen1/epoch5`, consumes the old
+  completion without mutation, accepts the fresh completion, advances through
+  recovery to epoch 6, rejects the pre-recovery response, and preserves the
+  new entry.
+- The stale path increments generated C++ coverage. RTL carries matched
+  no-stale assertions and stale-predicate cover properties for both slots and
+  passes Verilator structural lint.
+
+**Hard break**
+There is no unqualified write to a versioned Table, slot-only reference,
+generation-only reference, naked recovery Boolean, manual consumer predicate,
+compatibility alias, fallback lowering, dual path, or generated-code semantic
+patch. Unsupported or partial identity metadata rejects before backend emit.

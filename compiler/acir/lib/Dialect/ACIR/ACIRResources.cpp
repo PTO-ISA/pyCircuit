@@ -306,6 +306,11 @@ void TableGetOp::getEffects(
   effects.emplace_back(MemoryEffects::Read::get(), StorageStateResource::get());
 }
 
+void VersionedTableLookupOp::getEffects(
+    SmallVectorImpl<MemoryEffects::EffectInstance> &effects) {
+  effects.emplace_back(MemoryEffects::Read::get(), StorageStateResource::get());
+}
+
 void TableReadOp::getEffects(
     SmallVectorImpl<MemoryEffects::EffectInstance> &effects) {
   effects.emplace_back(MemoryEffects::Read::get(), StorageStateResource::get());

@@ -1458,6 +1458,71 @@ emitExpressionBody(const QueueGraphPlan &plan, const QueueBlockPlan &block,
     auto first = operand(0);
     if (!first)
       return first.takeError();
+    if (expression.kind == "recovery_event") {
+      if (expression.operands.size() != 4)
+        return generatorError("recovery_event expression arity mismatch");
+      output << padding << "auto " << expression.result << " = "
+             << first->str() << ";\n";
+      continue;
+    }
+    if (expression.kind == "kill_set") {
+      if (expression.operands.size() != 5 ||
+          expression.predicate != "epoch_mismatch_or_younger")
+        return generatorError("kill_set expression contract is malformed");
+      auto transactionEpoch = operand(1);
+      auto nextEpoch = operand(2);
+      auto transactionSlot = operand(3);
+      auto boundary = operand(4);
+      if (!transactionEpoch || !nextEpoch || !transactionSlot || !boundary)
+        return generatorError("kill_set operand is unavailable");
+      output << padding << "auto " << expression.result
+             << " = static_cast<bool>(" << first->str() << ") && (("
+             << transactionEpoch->str() << " != " << nextEpoch->str()
+             << ") || (" << boundary->str() << " < "
+             << transactionSlot->str() << "));\n";
+      continue;
+    }
+    if (expression.kind == "versioned_lookup_payload" ||
+        expression.kind == "versioned_lookup_valid") {
+      const TablePlan *tablePlan = findTable(plan, expression.table);
+      if (!tablePlan || !tablePlan->versioned ||
+          (expression.operands.size() != 3 &&
+           expression.operands.size() != 4))
+        return generatorError("versioned lookup contract is malformed");
+      const std::string table =
+          qualifyTables ? "table_" + identifier(expression.table) : "table";
+      const std::string entry = expression.result + "_entry";
+      output << padding << "const auto &" << entry << " = " << table
+             << (checkedTableAccess ? "->checkedAt(static_cast<size_t>("
+                                    : "->at(static_cast<size_t>(")
+             << first->str() << "));\n";
+      if (expression.kind == "versioned_lookup_payload") {
+        output << padding << "auto " << expression.result << " = " << entry
+               << "." << identifier(tablePlan->payloadField) << ";\n";
+      } else {
+        auto refGeneration = operand(1);
+        auto refEpoch = operand(2);
+        if (!refGeneration || !refEpoch)
+          return generatorError("versioned lookup refs are unavailable");
+        output << padding << "auto " << expression.result
+               << " = static_cast<bool>(" << entry << "."
+               << identifier(tablePlan->validField) << ") && (" << entry
+               << "." << identifier(tablePlan->generationField) << " == "
+               << refGeneration->str() << ") && (" << entry << "."
+               << identifier(tablePlan->epochField) << " == "
+               << refEpoch->str() << ")";
+        if (expression.operands.size() == 4) {
+          auto refAttempt = operand(3);
+          if (!refAttempt)
+            return generatorError("versioned lookup attempt is unavailable");
+          output << " && (" << entry << "."
+                 << identifier(tablePlan->attemptField) << " == "
+                 << refAttempt->str() << ")";
+        }
+        output << ";\n";
+      }
+      continue;
+    }
     if (expression.kind == "masked_match") {
       output << padding << "auto " << expression.result << " = ("
              << first->str() << " & std::uint64_t{" << expression.mask
@@ -2180,6 +2245,21 @@ std::string stateWritePresentName(const QueueBlockPlan &block,
   return stateWriteStem(block, writeIndex) + "_write_present";
 }
 
+std::string stateWriteRefGenerationName(const QueueBlockPlan &block,
+                                        size_t writeIndex) {
+  return stateWriteStem(block, writeIndex) + "_ref_generation";
+}
+
+std::string stateWriteRefEpochName(const QueueBlockPlan &block,
+                                   size_t writeIndex) {
+  return stateWriteStem(block, writeIndex) + "_ref_epoch";
+}
+
+std::string stateWriteRefAttemptName(const QueueBlockPlan &block,
+                                     size_t writeIndex) {
+  return stateWriteStem(block, writeIndex) + "_ref_attempt";
+}
+
 std::string stateWriteBatchName(llvm::StringRef table) {
   return "state_" + identifier(table) + "_writes";
 }
@@ -2240,6 +2320,54 @@ void emitStateWriteBatch(std::ostringstream &output,
            << (write.mode == "replace" ? "gfsim::TableWriteMode::Replace"
                                        : "gfsim::TableWriteMode::FieldMerge")
            << ", std::uint64_t{" << fieldMask << "}});\n";
+  }
+}
+
+void emitVersionedWriteQualification(std::ostringstream &output,
+                                     const QueueBlockPlan &block,
+                                     const QueueGraphPlan &plan,
+                                     llvm::StringRef padding) {
+  for (auto [writeIndex, write] : llvm::enumerate(block.stateWrites)) {
+    if (write.versionedAction.empty() ||
+        write.versionedAction == "allocate")
+      continue;
+    auto table = llvm::find_if(plan.tables, [&](const TablePlan &candidate) {
+      return candidate.name == write.table;
+    });
+    if (table == plan.tables.end())
+      continue;
+    const std::string stem = stateWriteStem(block, writeIndex);
+    output << padding.str() << "const auto &" << stem << "_committed = table_"
+           << identifier(table->name) << "->at(static_cast<size_t>("
+           << stateWriteIndexName(block, writeIndex) << "));\n"
+           << padding.str() << "const bool " << stem << "_requested = "
+           << "static_cast<bool>(" << stateWritePresentName(block, writeIndex)
+           << ");\n"
+           << padding.str() << "const bool " << stem
+           << "_identity_match = ";
+    if (write.versionedAction == "retain") {
+      output << "!static_cast<bool>(" << stem << "_committed."
+             << table->validField << ")";
+    } else {
+      output << "static_cast<bool>(" << stem << "_committed."
+             << table->validField << ") && (" << stem << "_committed."
+             << table->generationField << " == "
+             << stateWriteRefGenerationName(block, writeIndex) << ") && ("
+             << stem << "_committed." << table->epochField << " == "
+             << stateWriteRefEpochName(block, writeIndex) << ")";
+      if (!write.refAttempt.empty())
+        output << " && (" << stem << "_committed." << table->attemptField
+               << " == " << stateWriteRefAttemptName(block, writeIndex)
+               << ")";
+    }
+    output << ";\n"
+           << padding.str() << "const bool " << stem << "_stale = " << stem
+           << "_requested && !" << stem << "_identity_match;\n"
+           << padding.str() << stateWritePresentName(block, writeIndex)
+           << " = " << stem << "_requested && " << stem
+           << "_identity_match;\n"
+           << padding.str() << "(void)" << stem << "_stale; // "
+           << write.staleObligationId << "\n";
   }
 }
 
@@ -3453,6 +3581,17 @@ generateStructuredQueueGraphCpp(const QueueGraphPlan &plan) {
         additional.push_back(write.index);
         additional.push_back(write.value);
         additional.push_back(write.present);
+        if (!write.versionedAction.empty()) {
+          tupleResult.append(", ").append(write.refGeneration)
+              .append(", ")
+              .append(write.refEpoch);
+          additional.push_back(write.refGeneration);
+          additional.push_back(write.refEpoch);
+          if (!write.refAttempt.empty()) {
+            tupleResult.append(", ").append(write.refAttempt);
+            additional.push_back(write.refAttempt);
+          }
+        }
       }
       for (auto [outputIndex, yield] : llvm::enumerate(firing.yields)) {
         const std::string &present = firing.outputPresence[outputIndex].present;
@@ -3580,6 +3719,13 @@ generateStructuredQueueGraphCpp(const QueueGraphPlan &plan) {
         output << stateWriteIndexName(firing, writeIndex) << ", "
                << stateWriteValueName(firing, writeIndex) << ", "
                << stateWritePresentName(firing, writeIndex);
+        const StateWritePlan &write = firing.stateWrites[writeIndex];
+        if (!write.versionedAction.empty()) {
+          output << ", " << stateWriteRefGenerationName(firing, writeIndex)
+                 << ", " << stateWriteRefEpochName(firing, writeIndex);
+          if (!write.refAttempt.empty())
+            output << ", " << stateWriteRefAttemptName(firing, writeIndex);
+        }
         bindingHasValue = true;
       }
       for (size_t outputIndex = 0; outputIndex < outputTypes.size();
@@ -3616,6 +3762,7 @@ generateStructuredQueueGraphCpp(const QueueGraphPlan &plan) {
       output << ", rule_condition] = [&]() {\n"
              << *body << "    }();\n"
              << "    if (!rule_condition)\n      return std::nullopt;\n";
+      emitVersionedWriteQualification(output, firing, specialization, "    ");
       if (auto error = emitArchitectureObligationChecks(
               output, specialization, firing, "    "))
         return error;
@@ -5081,11 +5228,11 @@ llvm::Expected<std::string> generateQueueGraphCpp(const QueueGraphPlan &plan) {
          block.writeMode != "field"))
       return generatorError("masked table write contract is unsupported");
     if (block.kind == "firing") {
-      const bool hasState =
-          !block.stateWrites.empty() || !block.stateReservations.empty();
+      const bool hasStateWrites = !block.stateWrites.empty();
       if (block.yields.size() != block.outputs.size() || block.guard.empty() ||
-          (hasState && (block.table.empty() || block.tableIndex.empty() ||
-                        block.tableValue.empty() || block.writeFields.empty())))
+          (hasStateWrites &&
+           (block.table.empty() || block.tableIndex.empty() ||
+            block.tableValue.empty() || block.writeFields.empty())))
         return generatorError("table firing contract is unsupported");
     }
     if (block.kind == "slot" &&
@@ -5358,7 +5505,8 @@ llvm::Expected<std::string> generateQueueGraphCpp(const QueueGraphPlan &plan) {
     if (block->kind == "firing") {
       const std::vector<const TablePlan *> ownerTables =
           stateOwnerTables(plan, *block);
-      if (ownerTables.size() != 1 || !block->slotReleases.empty()) {
+      if (ownerTables.size() != 1 || block->stateWrites.empty() ||
+          !block->slotReleases.empty()) {
         const std::vector<const TablePlan *> readTables =
             readOnlyTables(plan, *block);
         std::vector<std::string> tableTypes;
@@ -5408,6 +5556,16 @@ llvm::Expected<std::string> generateQueueGraphCpp(const QueueGraphPlan &plan) {
           additional.push_back(write.index);
           additional.push_back(write.value);
           additional.push_back(write.present);
+          if (!write.versionedAction.empty()) {
+            appendTupleValue(write.refGeneration);
+            appendTupleValue(write.refEpoch);
+            additional.push_back(write.refGeneration);
+            additional.push_back(write.refEpoch);
+            if (!write.refAttempt.empty()) {
+              appendTupleValue(write.refAttempt);
+              additional.push_back(write.refAttempt);
+            }
+          }
         }
         for (auto [outputIndex, yield] : llvm::enumerate(block->yields)) {
           const std::string &present =
@@ -5534,6 +5692,15 @@ llvm::Expected<std::string> generateQueueGraphCpp(const QueueGraphPlan &plan) {
           output << stateWriteIndexName(*block, writeIndex) << ", "
                  << stateWriteValueName(*block, writeIndex) << ", "
                  << stateWritePresentName(*block, writeIndex);
+          const StateWritePlan &write = block->stateWrites[writeIndex];
+          if (!write.versionedAction.empty()) {
+            output << ", "
+                   << stateWriteRefGenerationName(*block, writeIndex) << ", "
+                   << stateWriteRefEpochName(*block, writeIndex);
+            if (!write.refAttempt.empty())
+              output << ", "
+                     << stateWriteRefAttemptName(*block, writeIndex);
+          }
           bindingHasValue = true;
         }
         for (size_t outputIndex = 0; outputIndex < outputTypes.size();
@@ -5572,6 +5739,7 @@ llvm::Expected<std::string> generateQueueGraphCpp(const QueueGraphPlan &plan) {
                << *evaluationBody << "    }();\n"
                << "    if (!rule_condition)\n"
                << "      return std::nullopt;\n";
+        emitVersionedWriteQualification(output, *block, plan, "    ");
         if (auto error =
                 emitArchitectureObligationChecks(output, plan, *block, "    "))
           return error;
@@ -5714,6 +5882,17 @@ llvm::Expected<std::string> generateQueueGraphCpp(const QueueGraphPlan &plan) {
         additional.push_back(write.index);
         additional.push_back(write.value);
         additional.push_back(write.present);
+        if (!write.versionedAction.empty()) {
+          tupleResult.append(", ").append(write.refGeneration)
+              .append(", ")
+              .append(write.refEpoch);
+          additional.push_back(write.refGeneration);
+          additional.push_back(write.refEpoch);
+          if (!write.refAttempt.empty()) {
+            tupleResult.append(", ").append(write.refAttempt);
+            additional.push_back(write.refAttempt);
+          }
+        }
       }
       for (auto [outputIndex, yield] : llvm::enumerate(block->yields)) {
         const std::string &present = block->outputPresence[outputIndex].present;
@@ -5812,6 +5991,14 @@ llvm::Expected<std::string> generateQueueGraphCpp(const QueueGraphPlan &plan) {
         output << stateWriteIndexName(*block, writeIndex) << ", "
                << stateWriteValueName(*block, writeIndex) << ", "
                << stateWritePresentName(*block, writeIndex);
+        const StateWritePlan &write = block->stateWrites[writeIndex];
+        if (!write.versionedAction.empty()) {
+          output << ", "
+                 << stateWriteRefGenerationName(*block, writeIndex) << ", "
+                 << stateWriteRefEpochName(*block, writeIndex);
+          if (!write.refAttempt.empty())
+            output << ", " << stateWriteRefAttemptName(*block, writeIndex);
+        }
         bindingHasValue = true;
       }
       for (size_t outputIndex = 0; outputIndex < outputTypes.size();
@@ -5839,6 +6026,7 @@ llvm::Expected<std::string> generateQueueGraphCpp(const QueueGraphPlan &plan) {
              << *evaluationBody << "    }();\n"
              << "    if (!rule_condition)\n"
              << "      return std::nullopt;\n";
+      emitVersionedWriteQualification(output, *block, plan, "    ");
       if (auto error =
               emitArchitectureObligationChecks(output, plan, *block, "    "))
         return error;
@@ -6396,7 +6584,8 @@ llvm::Expected<std::string> generateQueueGraphCpp(const QueueGraphPlan &plan) {
       policy.push_back('}');
       const std::vector<const TablePlan *> ownerTables =
           stateOwnerTables(plan, *block);
-      if (ownerTables.size() != 1 || !block->slotReleases.empty()) {
+      if (ownerTables.size() != 1 || block->stateWrites.empty() ||
+          !block->slotReleases.empty()) {
         std::string tables;
         std::string modes;
         std::string merges;
@@ -6935,7 +7124,8 @@ llvm::Expected<std::string> generateQueueGraphCpp(const QueueGraphPlan &plan) {
     if (block->kind == "firing") {
       const std::vector<const TablePlan *> ownerTables =
           stateOwnerTables(plan, *block);
-      if (ownerTables.size() != 1 || !block->slotReleases.empty()) {
+      if (ownerTables.size() != 1 || block->stateWrites.empty() ||
+          !block->slotReleases.empty()) {
         output << "  gfsim::QueueStateTransition<" << blockSymbol(index)
                << "_policy, std::tuple<";
         for (auto [ownerIndex, table] : llvm::enumerate(ownerTables)) {

@@ -76,20 +76,36 @@ struct ExpectedWriterCondition {
   int64_t conditionRoot;
 };
 
+Value writerPresence(Operation *operation) {
+  if (auto proposal = dyn_cast<ac::TableProposeOp>(operation))
+    return proposal.getWhen();
+  if (auto proposal = dyn_cast<ac::VersionedTableProposeOp>(operation))
+    return proposal.getWhen();
+  return {};
+}
+
+FlatSymbolRefAttr writerTable(Operation *operation) {
+  if (auto proposal = dyn_cast<ac::TableProposeOp>(operation))
+    return proposal.getTableAttr();
+  if (auto proposal = dyn_cast<ac::VersionedTableProposeOp>(operation))
+    return proposal.getTableAttr();
+  return {};
+}
+
 FailureOr<ExpectedWriterCondition>
 writerCondition(const WriterConflictProof &proof) {
-  auto left = dyn_cast<ac::TableProposeOp>(proof.leftOperation);
-  auto right = dyn_cast<ac::TableProposeOp>(proof.rightOperation);
-  if (!left || !right || proof.leftRule != proof.rightRule || !left.getWhen() ||
-      !right.getWhen())
+  Value leftPresence = writerPresence(proof.leftOperation);
+  Value rightPresence = writerPresence(proof.rightOperation);
+  if (!leftPresence || !rightPresence ||
+      proof.leftRule != proof.rightRule)
     return failure();
-  Operation *scope = left->getParentOfType<ac::RuleOp>();
+  Operation *scope = proof.leftOperation->getParentOfType<ac::RuleOp>();
   if (!scope)
-    scope = left->getParentOfType<ac::FiringOp>();
-  if (!scope || !scope->isAncestor(right))
+    scope = proof.leftOperation->getParentOfType<ac::FiringOp>();
+  if (!scope || !scope->isAncestor(proof.rightOperation))
     return failure();
   FailureOr<ac::NormalizedRuleExpressions> normalized =
-      ac::normalizeRuleExpressions(scope, {left.getWhen(), right.getWhen()});
+      ac::normalizeRuleExpressions(scope, {leftPresence, rightPresence});
   if (failed(normalized))
     return failure();
   Builder builder(scope->getContext());
@@ -150,9 +166,9 @@ DictionaryAttr proofCertificate(Builder &builder,
 
 ArrayAttr expectedWriterOwners(Builder &builder,
                                const WriterConflictProof &proof) {
-  auto proposal = cast<ac::TableProposeOp>(proof.leftOperation);
   FailureOr<SymbolRefAttr> resource =
-      moduleOwnedReference(proposal, proposal.getTableAttr());
+      moduleOwnedReference(proof.leftOperation,
+                           writerTable(proof.leftOperation));
   assert(succeeded(resource) && "writer proof must resolve its typed owner");
   NamedAttrList owner;
   owner.set("resource", *resource);
@@ -277,8 +293,7 @@ LogicalResult inferArchitectureObligations(ModuleOp model) {
     });
     owner->setAttr("ac.arch_expression_table", builder.getArrayAttr(scopes));
 
-    auto proposal = dyn_cast<ac::TableProposeOp>(proof.leftOperation);
-    if (!proposal)
+    if (!writerTable(proof.leftOperation))
       return proof.leftOperation->emitError(
           "predicate-exclusive obligation requires a typed Table endpoint");
     auto ownerCase = proof.leftOperation->getParentOfType<ac::ModuleCaseOp>();

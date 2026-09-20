@@ -371,6 +371,7 @@
         "tests/mlir/agentic-circuit/CodeGen/architecture-obligation-backends.mlir",
         "tests/mlir/agentic-circuit/CodeGen/masked-match.mlir",
         "tests/mlir/agentic-circuit/CodeGen/table-runtime-row-pyc.mlir",
+        "tests/mlir/agentic-circuit/CodeGen/versioned-table-recovery.mlir",
         "tests/mlir/pyc/canonical-ops-valid.mlir"
       ],
       "python_producer": [
@@ -386,6 +387,7 @@
         "tests/mlir/agentic-circuit/CodeGen/architecture-obligation-backends.mlir",
         "tests/mlir/agentic-circuit/CodeGen/masked-match.mlir",
         "tests/mlir/agentic-circuit/CodeGen/table-runtime-row-pyc.mlir",
+        "tests/mlir/agentic-circuit/CodeGen/versioned-table-recovery.mlir",
         "tests/mlir/pyc/canonical-cmp-invalid.mlir",
         "tests/mlir/pyc/canonical-ops-valid.mlir",
         "tests/test_assert_fits.py",

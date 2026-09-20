@@ -41,6 +41,12 @@ operations:
   - ac.guarantee
   - ac.process
   - ac.arch_obligation
+  - ac.recovery_domain
+  - ac.typed_identity
+  - ac.checkpoint
+  - ac.retained_result
+  - ac.recovery.event
+  - ac.kill_set
   - ac.var.constant
   - ac.var.enum
   - ac.var.enum_match
@@ -125,7 +131,9 @@ operations:
   - ac.table
   - ac.table.index
   - ac.table.get
+  - ac.versioned_table.lookup
   - ac.table.propose
+  - ac.versioned_table.propose
   - ac.table.match
   - ac.table.match.yield
   - ac.table.choose
@@ -179,3 +187,5 @@ types:
   - channel
   - event
   - resource_token
+  - transaction_ref
+  - execution_attempt

@@ -1091,6 +1091,19 @@ extractExpressions(mlir::Region &region, QueueBlockPlan &plan,
         return error;
       continue;
     }
+    if (mlir::isa<ac::RecoveryEventOp>(operation)) {
+      if (auto error = append(operation, "recovery_event"))
+        return error;
+      auto event = mlir::cast<ac::RecoveryEventOp>(operation);
+      plan.expressions.back().field = event.getDomain().str();
+      plan.expressions.back().predicate = event.getCause().str();
+      continue;
+    }
+    if (auto kill = mlir::dyn_cast<ac::KillSetOp>(operation)) {
+      if (auto error = append(operation, "kill_set", {}, kill.getPolicy()))
+        return error;
+      continue;
+    }
     if (auto tuple = mlir::dyn_cast<ac::VarTupleOp>(operation)) {
       if (auto error = append(operation, "tuple_create"))
         return error;
@@ -1564,6 +1577,28 @@ extractExpressions(mlir::Region &region, QueueBlockPlan &plan,
       }
       continue;
     }
+    if (auto lookup =
+            mlir::dyn_cast<ac::VersionedTableLookupOp>(operation)) {
+      auto operands = operandNames(lookup->getOperands());
+      if (!operands)
+        return operands.takeError();
+      for (auto [resultIndex, resultValue] :
+           llvm::enumerate(lookup->getResults())) {
+        auto resultType = mlir::cast<ac::VarType>(resultValue.getType());
+        std::string result = resultIdentity(
+            operation, prefix.str() + std::to_string(plan.expressions.size()));
+        values[resultValue] = result;
+        QueueExpressionPlan expression{
+            result,
+            resultIndex == 0 ? "versioned_lookup_payload"
+                             : "versioned_lookup_valid",
+            printType(resultType.getElementType()), *operands};
+        expression.table = lookup.getTable().str();
+        expression.sourceProvenance = currentExpressionProvenance;
+        plan.expressions.push_back(std::move(expression));
+      }
+      continue;
+    }
     if (auto proposal = mlir::dyn_cast<ac::TableProposeOp>(operation)) {
       auto operands = operandNames(proposal->getOperands());
       if (!operands)
@@ -1580,6 +1615,50 @@ extractExpressions(mlir::Region &region, QueueBlockPlan &plan,
       for (mlir::Attribute field : proposal.getWriteFields())
         write.fields.push_back(
             mlir::cast<mlir::StringAttr>(field).getValue().str());
+      plan.stateWrites.push_back(std::move(write));
+      if (plan.table.empty()) {
+        const StateWritePlan &primary = plan.stateWrites.front();
+        plan.table = primary.table;
+        plan.tableIndex = primary.index;
+        plan.tableValue = primary.value;
+        plan.writeMode = primary.mode;
+        plan.writeFields = primary.fields;
+      }
+      continue;
+    }
+    if (auto proposal =
+            mlir::dyn_cast<ac::VersionedTableProposeOp>(operation)) {
+      auto operands = operandNames(proposal->getOperands());
+      if (!operands)
+        return operands.takeError();
+      if (operands->size() != (proposal.getRefAttempt() ? 6U : 5U))
+        return planError("versioned state proposal identity is malformed");
+      StateWritePlan write{proposal.getTable().str(),
+                           (*operands)[0],
+                           (*operands)[1],
+                           (*operands)[2],
+                           proposal.getMode().str(),
+                           {}};
+      for (mlir::Attribute field : proposal.getWriteFields())
+        write.fields.push_back(
+            mlir::cast<mlir::StringAttr>(field).getValue().str());
+      write.versionedAction = proposal.getAction().str();
+      write.refGeneration = (*operands)[3];
+      write.refEpoch = (*operands)[4];
+      if (proposal.getRefAttempt())
+        write.refAttempt = (*operands)[5];
+      auto scope = proposal->getParentOfType<ac::FiringOp>();
+      if (!scope) {
+        auto rule = proposal->getParentOfType<ac::RuleOp>();
+        if (rule)
+          write.staleObligationId =
+              "no_stale_update:" + proposal.getTable().str() + ":" +
+              rule.getStableId().str();
+      } else {
+        write.staleObligationId =
+            "no_stale_update:" + proposal.getTable().str() + ":" +
+            scope.getStableId().str();
+      }
       plan.stateWrites.push_back(std::move(write));
       if (plan.table.empty()) {
         const StateWritePlan &primary = plan.stateWrites.front();
@@ -3117,6 +3196,9 @@ private:
       currentSourceProvenance = std::move(*provenance);
       if (mlir::isa<ac::ArchitectureObligationOp>(operation))
         continue;
+      if (mlir::isa<ac::RecoveryDomainOp, ac::TypedIdentityOp,
+                    ac::CheckpointOp, ac::RetainedResultOp>(operation))
+        continue;
       if (auto typeScope = mlir::dyn_cast<ac::TypeScopeOp>(operation)) {
         if (auto error = extractTypeScope(typeScope))
           return error;
@@ -3169,6 +3251,29 @@ private:
         tablePlan.hasTypedSchema = table.getShapeAttr() != nullptr;
         tablePlan.stableId = table.getStableId().str();
         tablePlan.ownerPath = table.getOwner().str();
+        if (auto domain = table.getRecoveryDomainAttr()) {
+          tablePlan.versioned = true;
+          tablePlan.recoveryDomain = domain.getValue().str();
+          tablePlan.identity = table.getIdentityAttr().getValue().str();
+          if (auto checkpoint = table.getCheckpointAttr())
+            tablePlan.checkpoint = checkpoint.getValue().str();
+          if (auto retained = table.getRetainedResultAttr())
+            tablePlan.retainedResult = retained.getValue().str();
+          tablePlan.generationBits =
+              static_cast<uint64_t>(table.getGenerationBitsAttr().getInt());
+          tablePlan.epochBits =
+              static_cast<uint64_t>(table.getEpochBitsAttr().getInt());
+          if (auto bits = table.getAttemptBitsAttr())
+            tablePlan.attemptBits = static_cast<uint64_t>(bits.getInt());
+          tablePlan.validField = table.getValidFieldAttr().getValue().str();
+          tablePlan.generationField =
+              table.getGenerationFieldAttr().getValue().str();
+          tablePlan.epochField = table.getEpochFieldAttr().getValue().str();
+          if (auto field = table.getAttemptFieldAttr())
+            tablePlan.attemptField = field.getValue().str();
+          tablePlan.payloadField =
+              table.getPayloadFieldAttr().getValue().str();
+        }
         tablePlan.sourceProvenance = currentSourceProvenance;
         plan.tables.push_back(std::move(tablePlan));
         continue;
@@ -5113,6 +5218,46 @@ llvm::Error verifyQueueGraphPlan(const QueueGraphPlan &plan) {
                                  : table.initVersion != 1 ||
                                        table.initImage.size() != table.entries))
       return planError("table flattened shape or typed init image is invalid");
+    if (table.versioned) {
+      if (table.entries > 256 || table.recoveryDomain.empty() ||
+          table.identity.empty() || table.generationBits == 0 ||
+          table.generationBits > 64 || table.epochBits == 0 ||
+          table.epochBits > 64 || table.validField.empty() ||
+          table.generationField.empty() || table.epochField.empty() ||
+          table.payloadField.empty() ||
+          ((table.attemptBits == 0) != table.attemptField.empty()))
+        return planError("versioned Table metadata is incomplete");
+      auto payloadName = payloadTypeName(table.entryType);
+      auto payload = llvm::find_if(
+          plan.payloads, [&](const QueuePayloadPlan &candidate) {
+            return payloadName && candidate.name == *payloadName;
+          });
+      if (!payloadName || payload == plan.payloads.end())
+        return planError("versioned Table entry payload is unresolved");
+      auto fieldWidth = [&](llvm::StringRef name) -> std::optional<uint64_t> {
+        auto field = llvm::find_if(
+            payload->fields, [&](const QueuePayloadFieldPlan &candidate) {
+              return candidate.name == name;
+            });
+        return field == payload->fields.end()
+                   ? std::nullopt
+                   : std::optional<uint64_t>(field->width);
+      };
+      if (fieldWidth(table.validField) != 1 ||
+          fieldWidth(table.generationField) != table.generationBits ||
+          fieldWidth(table.epochField) != table.epochBits ||
+          !fieldWidth(table.payloadField) ||
+          (table.attemptBits != 0 &&
+           fieldWidth(table.attemptField) != table.attemptBits))
+        return planError("versioned Table field layout is inconsistent");
+    } else if (!table.recoveryDomain.empty() || !table.identity.empty() ||
+               !table.checkpoint.empty() || !table.retainedResult.empty() ||
+               table.generationBits != 0 || table.epochBits != 0 ||
+               table.attemptBits != 0 || !table.validField.empty() ||
+               !table.generationField.empty() || !table.epochField.empty() ||
+               !table.attemptField.empty() || !table.payloadField.empty()) {
+      return planError("plain Table carries partial versioned metadata");
+    }
   }
   auto projectionSize = [](const auto &domain,
                            const TablePlan &table) -> std::optional<uint64_t> {
@@ -5448,6 +5593,32 @@ llvm::Error verifyQueueGraphPlan(const QueueGraphPlan &plan) {
         return planError(
             "state firing output presence ordinals must cover each output "
             "exactly once");
+    }
+    for (const StateWritePlan &write : block.stateWrites) {
+      auto table = tables.find(write.table);
+      if (table == tables.end())
+        return planError("state write references unknown Table");
+      const bool versioned = table->getValue()->versioned;
+      if (write.versionedAction.empty()) {
+        if (versioned)
+          return planError(
+              "versioned Table write lacks transaction qualification");
+        if (!write.refGeneration.empty() || !write.refEpoch.empty() ||
+            !write.refAttempt.empty() || !write.staleObligationId.empty())
+          return planError("plain Table write carries versioned metadata");
+        continue;
+      }
+      if (!versioned ||
+          (write.versionedAction != "allocate" &&
+           write.versionedAction != "qualified_update" &&
+           write.versionedAction != "invalidate" &&
+           write.versionedAction != "retain" &&
+           write.versionedAction != "consume") ||
+          write.refGeneration.empty() || write.refEpoch.empty() ||
+          write.staleObligationId.empty() ||
+          ((table->getValue()->attemptBits == 0) !=
+           write.refAttempt.empty()))
+        return planError("versioned state write metadata is malformed");
     }
     llvm::StringSet<> ownerWrites;
     for (const StateWritePlan &write : block.stateWrites) {
@@ -6409,6 +6580,25 @@ llvm::Error verifyQueueGraphPlan(const QueueGraphPlan &plan) {
             expression.lsb + *valueWidth > *baseWidth ||
             *resultWidth != *baseWidth)
           return planError("bit_insert expression widths are inconsistent");
+      } else if (expression.kind == "recovery_event") {
+        if (expression.operands.size() != 4 || expression.type != "i1" ||
+            expression.field.empty() || expression.predicate.empty())
+          return planError("recovery-event expression contract is malformed");
+      } else if (expression.kind == "kill_set") {
+        if (expression.operands.size() != 5 || expression.type != "i1" ||
+            expression.predicate != "epoch_mismatch_or_younger")
+          return planError("kill-set expression contract is malformed");
+      } else if (expression.kind == "versioned_lookup_payload" ||
+                 expression.kind == "versioned_lookup_valid") {
+        const TablePlan *table = tables.lookup(expression.table);
+        if (!table || !table->versioned ||
+            (expression.operands.size() != 3 &&
+             expression.operands.size() != 4) ||
+            (table->attemptBits == 0) !=
+                (expression.operands.size() == 3) ||
+            (expression.kind == "versioned_lookup_valid" &&
+             expression.type != "i1"))
+          return planError("versioned lookup expression contract is malformed");
       } else if (expression.kind == "snapshot_set") {
         if (!expression.operands.empty() ||
             expression.type != "state_reservation" ||
@@ -6677,7 +6867,13 @@ llvm::Error verifyQueueGraphPlan(const QueueGraphPlan &plan) {
                          return !identities.contains(write.index) ||
                                 !identities.contains(write.value) ||
                                 (!write.present.empty() &&
-                                 !identities.contains(write.present));
+                                 !identities.contains(write.present)) ||
+                                (!write.refGeneration.empty() &&
+                                 !identities.contains(write.refGeneration)) ||
+                                (!write.refEpoch.empty() &&
+                                 !identities.contains(write.refEpoch)) ||
+                                (!write.refAttempt.empty() &&
+                                 !identities.contains(write.refAttempt));
                        }) ||
           llvm::any_of(block.outputPresence,
                        [&](const OutputPresencePlan &output) {
@@ -7383,12 +7579,20 @@ llvm::Expected<std::string> QueueGraphPlan::canonicalJson() const {
       llvm::json::Array fields;
       for (const std::string &field : write.fields)
         fields.push_back(field);
-      stateWrites.push_back(llvm::json::Object{{"fields", std::move(fields)},
-                                               {"index", write.index},
-                                               {"mode", write.mode},
-                                               {"present", write.present},
-                                               {"table", write.table},
-                                               {"value", write.value}});
+      llvm::json::Object writeValue{{"fields", std::move(fields)},
+                                    {"index", write.index},
+                                    {"mode", write.mode},
+                                    {"present", write.present},
+                                    {"table", write.table},
+                                    {"value", write.value}};
+      if (!write.versionedAction.empty()) {
+        writeValue["ref_attempt"] = write.refAttempt;
+        writeValue["ref_epoch"] = write.refEpoch;
+        writeValue["ref_generation"] = write.refGeneration;
+        writeValue["stale_obligation_id"] = write.staleObligationId;
+        writeValue["versioned_action"] = write.versionedAction;
+      }
+      stateWrites.push_back(std::move(writeValue));
     }
     llvm::json::Array stateReservations;
     for (const StateReservationPlan &reservation : block.stateReservations) {
@@ -7524,6 +7728,21 @@ llvm::Expected<std::string> QueueGraphPlan::canonicalJson() const {
                              {"owner_path", table.ownerPath},
                              {"shape", std::move(shape)},
                              {"stable_id", table.stableId}};
+    if (table.versioned) {
+      value["attempt_bits"] = table.attemptBits;
+      value["attempt_field"] = table.attemptField;
+      value["checkpoint"] = table.checkpoint;
+      value["epoch_bits"] = table.epochBits;
+      value["epoch_field"] = table.epochField;
+      value["generation_bits"] = table.generationBits;
+      value["generation_field"] = table.generationField;
+      value["identity"] = table.identity;
+      value["payload_field"] = table.payloadField;
+      value["recovery_domain"] = table.recoveryDomain;
+      value["retained_result"] = table.retainedResult;
+      value["valid_field"] = table.validField;
+      value["versioned"] = true;
+    }
     if (!table.sourceProvenance.origins.empty())
       value["source_provenance"] = provenanceJson(table.sourceProvenance);
     tableValues.push_back(std::move(value));

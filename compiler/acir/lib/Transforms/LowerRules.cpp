@@ -211,8 +211,12 @@ LogicalResult inferRuleEffects(ModuleOp model) {
     const ac::RuleGuardKind candidateGuard =
         inferredGuardKind(rule.getOperation());
     SmallVector<ac::TableProposeOp> proposals;
+    SmallVector<ac::VersionedTableProposeOp> versionedProposals;
     rule.getBody().walk(
         [&](ac::TableProposeOp proposal) { proposals.push_back(proposal); });
+    rule.getBody().walk([&](ac::VersionedTableProposeOp proposal) {
+      versionedProposals.push_back(proposal);
+    });
     SmallVector<Attribute> typedEffects;
     SmallVector<Value> outputPresences(rule.getOutputs().size());
     rule.getBody().walk([&](ac::RuleOutputOp output) {
@@ -389,6 +393,11 @@ LogicalResult inferRuleActivation(ModuleOp model) {
     });
     llvm::StringSet<> transactionState;
     rule.getBody().walk([&](ac::TableProposeOp proposal) {
+      if (transactionState.insert(proposal.getTable()).second)
+        transaction.push_back(
+            stateActivationResource(builder, proposal.getTable()));
+    });
+    rule.getBody().walk([&](ac::VersionedTableProposeOp proposal) {
       if (transactionState.insert(proposal.getTable()).second)
         transaction.push_back(
             stateActivationResource(builder, proposal.getTable()));
@@ -618,8 +627,12 @@ LogicalResult resolveRuleSchedule(ModuleOp model) {
       }
     }
     SmallVector<ac::TableProposeOp> proposals;
+    SmallVector<ac::VersionedTableProposeOp> versionedProposals;
     rule.getBody().walk(
         [&](ac::TableProposeOp proposal) { proposals.push_back(proposal); });
+    rule.getBody().walk([&](ac::VersionedTableProposeOp proposal) {
+      versionedProposals.push_back(proposal);
+    });
     SmallVector<ac::RuleConditionOp> conditions;
     rule.getBody().walk([&](ac::RuleConditionOp condition) {
       conditions.push_back(condition);
@@ -671,6 +684,18 @@ LogicalResult resolveRuleSchedule(ModuleOp model) {
         }
       } else {
         proposal->insertOperands(2, presence);
+      }
+    }
+    for (ac::VersionedTableProposeOp proposal : versionedProposals) {
+      if (!presenceImpliesCandidate(proposal.getWhen(), presence)) {
+        result = proposal.emitOpError(
+            "versioned proposal presence must imply the rule condition");
+        return;
+      }
+      if (proposal.getWhen() != presence && !always) {
+        result = proposal.emitOpError(
+            "conditional-effect presence requires a true candidate");
+        return;
       }
     }
     SmallVector<ac::RuleOutputOp> existingOutputs;
@@ -763,7 +788,7 @@ LogicalResult resolveRuleSchedule(ModuleOp model) {
     rule->setAttr(
         "ac.rule.schedule_kind",
         ac::RuleScheduleKindAttr::get(
-            model.getContext(), proposals.empty()
+            model.getContext(), proposals.empty() && versionedProposals.empty()
                                     ? ac::RuleScheduleKind::Independent
                                     : ac::RuleScheduleKind::LexicalPriority));
     SmallVector<Attribute> arbitration;
@@ -774,6 +799,14 @@ LogicalResult resolveRuleSchedule(ModuleOp model) {
       if (!request)
         continue;
       if (!arbitrated.insert(proposal.getTable()).second)
+        continue;
+      arbitration.push_back(writerArbitrationMembership(
+          builder, proposal.getTable(), rule.getStableId(), request));
+    }
+    for (ac::VersionedTableProposeOp proposal : versionedProposals) {
+      auto request = proposal->getAttrOfType<ac::WriterPriorityAttr>(
+          "ac.arbitration");
+      if (!request || !arbitrated.insert(proposal.getTable()).second)
         continue;
       arbitration.push_back(writerArbitrationMembership(
           builder, proposal.getTable(), rule.getStableId(), request));
@@ -921,7 +954,9 @@ LogicalResult canonicalizePureFirings(ModuleOp model) {
     bool hasStateAccess = false;
     firing.getBody().walk([&](Operation *operation) {
       hasStateAccess |=
-          isa<ac::TableGetOp, ac::TableProposeOp, ac::StateSnapshotOp,
+          isa<ac::TableGetOp, ac::VersionedTableLookupOp,
+              ac::TableProposeOp,
+              ac::VersionedTableProposeOp, ac::StateSnapshotOp,
               ac::StateSnapshotSetOp, ac::SlotGetOp,
               ac::SlotProposeReleaseOp>(operation);
     });

@@ -427,7 +427,7 @@ def PYC_InstanceOp : PYC_Op<"instance", []> {
 
 def PYC_AssertOp : PYC_Op<"assert", [MemoryEffects<[MemWrite]>]> {
   let summary = "Verified assertion with optional architecture-obligation identity";
-  let arguments = (ins I1:$cond,
+  let arguments = (ins I1:$cond, Optional<I1>:$coverage_cond,
                        OptionalAttr<StrAttr>:$msg,
                        OptionalAttr<StrAttr>:$obligation_id,
                        OptionalAttr<StrAttr>:$obligation_kind,
@@ -438,7 +438,7 @@ def PYC_AssertOp : PYC_Op<"assert", [MemoryEffects<[MemWrite]>]> {
                        OptionalAttr<StrAttr>:$source,
                        OptionalAttr<ArrayAttr>:$ndf_ids);
   let hasVerifier = 1;
-  let assemblyFormat = "$cond attr-dict";
+  let assemblyFormat = "$cond (`cover` $coverage_cond^)? attr-dict";
 }
 
 // Fused combinational region.

@@ -1135,6 +1135,25 @@ static LogicalResult emitBlockModule(
     std::sort(combAssignOps.begin(), combAssignOps.end(), cmp);
   else
     combAssignOps.assign(orderedComb.begin(), orderedComb.end());
+  std::stable_sort(combAssignOps.begin(), combAssignOps.end(),
+                   [&](Operation *left, Operation *right) {
+                     auto leftAssert = dyn_cast<pyc::AssertOp>(left);
+                     auto rightAssert = dyn_cast<pyc::AssertOp>(right);
+                     if (static_cast<bool>(leftAssert) !=
+                         static_cast<bool>(rightAssert))
+                       return !leftAssert;
+                     if (!leftAssert)
+                       return false;
+                     auto leftId = leftAssert.getObligationIdAttr();
+                     auto rightId = rightAssert.getObligationIdAttr();
+                     const std::string leftKey =
+                         leftId ? obligationAssertionLabel(leftId.getValue())
+                                : opSortKey(left, nt);
+                     const std::string rightKey =
+                         rightId ? obligationAssertionLabel(rightId.getValue())
+                                 : opSortKey(right, nt);
+                     return leftKey < rightKey;
+                   });
 
   if (!combAssignOps.empty()) {
     std::optional<std::string> assertionClock;
@@ -1171,7 +1190,10 @@ static LogicalResult emitBlockModule(
              << ") (" << nt.get(a.getCond()) << "))\n"
              << "  else $fatal(1, \"" << esc << "\");\n";
           os << label << "_coverage: cover property (@(posedge "
-             << *assertionClock << ") (" << nt.get(a.getCond()) << "));\n";
+             << *assertionClock << ") ("
+             << nt.get(a.getCoverageCond() ? a.getCoverageCond()
+                                           : a.getCond())
+             << "));\n";
         } else {
           os << "always @(*) begin\n";
           os << "  if (!(" << nt.get(a.getCond()) << ")) $fatal(1, \"" << esc

@@ -129,7 +129,8 @@ bool containsQueueOrVarType(Type type) {
 
 bool isImmutablePayloadType(Type type) {
   if (isa<IntegerType, FloatType, IndexType, RangeType, StructType, PacketType,
-          TransactionType, EnumType>(type))
+          TransactionType, EnumType, TransactionRefType,
+          ExecutionAttemptType>(type))
     return true;
   if (auto array = dyn_cast<ValueArrayType>(type))
     return isImmutablePayloadType(array.getElementType());
@@ -144,6 +145,29 @@ LogicalResult RangeType::verify(function_ref<InFlightDiagnostic()> emitError,
                                 uint64_t lower, uint64_t upper) {
   if (lower > upper)
     return emitError() << "range lower bound must not exceed upper bound";
+  return success();
+}
+
+LogicalResult TransactionRefType::verify(
+    function_ref<InFlightDiagnostic()> emitError, uint64_t slotWidth,
+    uint64_t generationWidth, uint64_t epochWidth) {
+  if (slotWidth == 0 || generationWidth == 0 || epochWidth == 0)
+    return emitError()
+           << "transaction_ref slot/generation/epoch widths must be positive";
+  if (slotWidth > 64 || generationWidth > 64 || epochWidth > 64 ||
+      slotWidth + generationWidth + epochWidth > 192)
+    return emitError()
+           << "transaction_ref components must be <=64 bits and <=192 bits total";
+  return success();
+}
+
+LogicalResult ExecutionAttemptType::verify(
+    function_ref<InFlightDiagnostic()> emitError,
+    Type transaction, uint64_t attemptWidth) {
+  if (!isa<TransactionRefType>(transaction))
+    return emitError() << "execution_attempt requires a transaction_ref";
+  if (attemptWidth == 0 || attemptWidth > 64)
+    return emitError() << "execution_attempt width must be in [1, 64]";
   return success();
 }
 

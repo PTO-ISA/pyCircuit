@@ -1,0 +1,31 @@
+F7 RECOVERY AND VERSIONED IDENTITY VERIFICATION
+
+Decision 0279: implemented-verified
+
+ACIR lit: PASS 235/235
+PYC lit: PASS 6/6
+CompilerTests: PASS 10/10
+CodeGenTests: PASS 110/110
+ACIROpsTests: PASS 1843/1843
+ACIRModelAnalysisTests: PASS 36/36
+GfsimTests: PASS 272/272
+GfsimTests ASAN halt_on_error=1: PASS 272/272
+repository unit suite: PASS 164/164
+Agentic Python contracts/CLI/frontend: PASS 381/381
+Agentic integration e2e: PASS 1/1
+primitive selection: PASS 18/18
+
+Generated QueueGraph plan: PASS
+Generated gfsim C++ syntax: PASS
+Generated PYC C++ syntax: PASS
+Generated PYC C++ recovery executable: PASS
+Generated RTL Icarus recovery executable: PASS
+Generated RTL Verilator lint: PASS
+Matched no-stale assertion IDs and stale-event cover conditions: PASS
+
+ACIR coverage inventory: PASS
+PYC inventory: PASS
+Decision status coverage: PASS 279 rows, 0 deferred
+Repository contracts/API hygiene/MkDocs: PASS
+pre-commit changed-file checks: PASS
+git diff --check: PASS
