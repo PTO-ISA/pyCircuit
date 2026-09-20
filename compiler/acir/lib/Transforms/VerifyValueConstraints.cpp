@@ -235,6 +235,13 @@ LogicalResult verifyValueConstraints(ModuleOp model) {
       if (table)
         result = verifyTableAccessIndex(analysis, proposal, proposal.getIndex(),
                                         table, "Table");
+    } else if (auto proposal =
+                   dyn_cast<ac::VersionedTableProposeOp>(operation)) {
+      auto table = resolveFlatDeclaration<ac::TableOp>(proposal,
+                                                       proposal.getTableAttr());
+      if (table)
+        result = verifyTableAccessIndex(analysis, proposal, proposal.getIndex(),
+                                        table, "versioned Table");
     } else if (auto snapshot = dyn_cast<ac::StateSnapshotOp>(operation)) {
       if (!snapshot.getIndex())
         return WalkResult::advance();

@@ -1034,16 +1034,24 @@ shape passes, and C++/RTL comparison follows the accepted X contract.
 **Primary ownership:** ACIR types/ops, analyses, QueueGraph/PYC lowering, reduced
 generic fixtures.
 
-- [ ] Add internal RecoveryDomain and TransactionRef.
-- [ ] Add generation/epoch-qualified VersionedTable lookup.
-- [ ] Add RecoveryEvent and KillSet lowering.
-- [ ] Add Checkpoint semantics.
-- [ ] Add retained result and execution-attempt qualification.
-- [ ] Generate stale-update obligations automatically.
-- [ ] Test slot reuse across epoch change and old response return.
+- [x] Add internal RecoveryDomain and TransactionRef.
+- [x] Add generation/epoch-qualified VersionedTable lookup.
+- [x] Add RecoveryEvent and KillSet lowering.
+- [x] Add Checkpoint semantics.
+- [x] Add retained result and execution-attempt qualification.
+- [x] Generate stale-update obligations automatically.
+- [x] Test slot reuse across epoch change and old response return.
 
 **Exit:** an old completion cannot mutate a newly allocated slot in C++ or RTL,
 and the stale path is observed in coverage.
+
+Decision 0279 closes this bounded internal profile. Checkpoint and retained
+result declarations bind to the same complete VersionedTable contract;
+capture/restore/release use allocate, qualified lookup, and invalidation;
+accept/hold/consume use accept-once `retain`, qualified lookup, and matched
+`consume`. The reduced fixture covers slot
+reuse, epoch advance, old completion return, exact C++ coverage counters, and
+RTL stale-predicate cover properties. No Python surface is admitted in P8.
 
 ### P9 - Multi-lane transaction and resources
 

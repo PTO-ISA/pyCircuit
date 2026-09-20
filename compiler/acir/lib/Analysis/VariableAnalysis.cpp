@@ -916,6 +916,11 @@ ACDataFlowAnalyzer::stateFootprints(Operation *scope) const {
       index = read.getIndex();
       footprint.resource = read.getTable().str();
       footprint.access = "read";
+    } else if (auto read =
+                   dyn_cast<ac::VersionedTableLookupOp>(operation)) {
+      index = read.getIndex();
+      footprint.resource = read.getTable().str();
+      footprint.access = "read";
     } else if (auto match = dyn_cast<ac::TableMatchOp>(operation)) {
       footprint.resource = match.getTable().str();
       footprint.access = "read";
@@ -925,6 +930,14 @@ ACDataFlowAnalyzer::stateFootprints(Operation *scope) const {
       footprint.access = "read";
       footprint.indexKind = "all";
     } else if (auto write = dyn_cast<ac::TableProposeOp>(operation)) {
+      index = write.getIndex();
+      footprint.resource = write.getTable().str();
+      footprint.access = write.getMode().str();
+      footprint.present = write.getWhen();
+      for (Attribute rawField : write.getWriteFields())
+        footprint.fields.push_back(cast<StringAttr>(rawField).getValue().str());
+    } else if (auto write =
+                   dyn_cast<ac::VersionedTableProposeOp>(operation)) {
       index = write.getIndex();
       footprint.resource = write.getTable().str();
       footprint.access = write.getMode().str();
@@ -973,6 +986,9 @@ ACDataFlowAnalyzer::stateSnapshots(Operation *scope) const {
   scope->walk([&](Operation *operation) {
     Value predicate;
     if (auto proposal = dyn_cast<ac::TableProposeOp>(operation))
+      predicate = proposal.getWhen();
+    else if (auto proposal =
+                 dyn_cast<ac::VersionedTableProposeOp>(operation))
       predicate = proposal.getWhen();
     else if (auto output = dyn_cast<ac::RuleOutputOp>(operation))
       predicate = output.getWhen();
@@ -1129,6 +1145,17 @@ ACDataFlowAnalyzer::stateSnapshots(Operation *scope) const {
                       classifyIndex(read.getIndex()), predicate,
                       std::move(fields));
         }
+      } else if (auto read =
+                     dyn_cast<ac::VersionedTableLookupOp>(definition)) {
+        auto table = SymbolTable::lookupNearestSymbolFrom<ac::TableOp>(
+            read, read.getTableAttr());
+        if (!table)
+          continue;
+        llvm::SmallVector<std::string> fields{
+            table.getPayloadFieldAttr().getValue().str()};
+        addSnapshot(read.getTable(), read.getIndex(), {},
+                    classifyIndex(read.getIndex()), predicate,
+                    std::move(fields));
         children.push_back({read.getIndex(), setSource, {}});
         flushChildren();
         continue;

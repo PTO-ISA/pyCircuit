@@ -104,6 +104,11 @@ struct StateWritePlan {
   std::string present;
   std::string mode;
   std::vector<std::string> fields;
+  std::string versionedAction;
+  std::string refGeneration;
+  std::string refEpoch;
+  std::string refAttempt;
+  std::string staleObligationId;
 };
 
 struct OutputPresencePlan {
@@ -283,6 +288,19 @@ struct TablePlan {
   std::vector<TableInitValuePlan> initImage;
   bool hasTypedSchema = false;
   QueueSourceProvenancePlan sourceProvenance;
+  bool versioned = false;
+  std::string recoveryDomain;
+  std::string identity;
+  std::string checkpoint;
+  std::string retainedResult;
+  uint64_t generationBits = 0;
+  uint64_t epochBits = 0;
+  uint64_t attemptBits = 0;
+  std::string validField;
+  std::string generationField;
+  std::string epochField;
+  std::string attemptField;
+  std::string payloadField;
 };
 
 struct TableMatchPlan {

@@ -8,7 +8,7 @@
 >
 > **当前契约**：V6 以周期感知（Cycle-Aware）信号模型与层次化组合为正式语言设计，并统一类型化数据体系、Sidecar 测试调度、双编译路径以及存储 / FIFO / CDC 原语。Decision 0148 取代了早期移除全局周期感知模型的方向。
 >
-> **Agentic Circuit 边界**：Python 以简单的 `@ac.rule` 作为唯一显式调度边界，MLIR pass 负责类型/effect 推导、检查、握手、调度与 marker 消除。Decision 0241 的有界 Table profile 已通过显式 `pyc.reg` bank 贯通 QueueGraph/gfsim、PYC C++ 与 Verilog；Decision 0262 允许 module/system 中声明的 `ac.slot` 作为 rule 前置资源参数或 nested capture，并以无参数 `slot.release()` 参与同一 GFSim 原子事务。Slot 仍不进入 PYC/RTL profile。超出 rank、entry、位宽、总容量或 writer 上限的状态仍在 backend admission 边界 fail closed。release compatibility 由外部 package/Git revision 决定，不编码进 IR。
+> **Agentic Circuit 边界**：Python 以简单的 `@ac.rule` 作为唯一显式调度边界，MLIR pass 负责类型/effect 推导、检查、握手、调度与 marker 消除。Decision 0241 的有界 Table profile 已通过显式 `pyc.reg` bank 贯通 QueueGraph/gfsim、PYC C++ 与 Verilog；Decision 0262 允许 module/system 中声明的 `ac.slot` 作为 rule 前置资源参数或 nested capture，并以无参数 `slot.release()` 参与同一 GFSim 原子事务。Decision 0279 的 recovery、versioned identity、checkpoint 与 retained-result profile 仍是 compiler-owned internal contract：Python 不公开 slot/generation/epoch/attempt 或手写 stale predicate API。Slot 仍不进入 PYC/RTL profile。超出 rank、entry、位宽、总容量或 writer 上限的状态仍在 backend admission 边界 fail closed。release compatibility 由外部 package/Git revision 决定，不编码进 IR。
 
 ---
 

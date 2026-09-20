@@ -34,6 +34,25 @@ def ACIR_EnumType : ACIR_LayoutNamedType<"Enum", "enum">;
 def ACIR_ResourceTokenType
     : ACIR_NamedType<"ResourceToken", "resource_token">;
 
+// Compiler-owned speculative identity.  These are deliberately nominally
+// distinct from ordinary packed integers even though lowering may choose a
+// packed physical representation.
+def ACIR_TransactionRefType : ACIR_Type<"TransactionRef", "transaction_ref"> {
+  let parameters = (ins "uint64_t":$slotWidth,
+                        "uint64_t":$generationWidth,
+                        "uint64_t":$epochWidth);
+  let assemblyFormat = "`<` $slotWidth `,` $generationWidth `,` $epochWidth `>`";
+  let genVerifyDecl = 1;
+}
+
+def ACIR_ExecutionAttemptType
+    : ACIR_Type<"ExecutionAttempt", "execution_attempt"> {
+  let parameters = (ins "::mlir::Type":$transaction,
+                        "uint64_t":$attemptWidth);
+  let assemblyFormat = "`<` qualified($transaction) `,` $attemptWidth `>`";
+  let genVerifyDecl = 1;
+}
+
 // A proof-carrying unsigned closed range.  The Python surface is half-open;
 // `ac.range[lo, hi]` lowers to `!ac.range<lo, hi - 1>` so the full u64 domain
 // remains representable without a 2**64 type parameter.

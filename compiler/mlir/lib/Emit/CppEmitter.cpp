@@ -957,6 +957,8 @@ static LogicalResult emitBlockStruct(
         obligationCounterBase(assertion.getObligationIdAttr().getValue());
     os << "  std::uint64_t " << base << "_checks = 0;\n";
     os << "  std::uint64_t " << base << "_failures = 0;\n";
+    if (assertion.getCoverageCond())
+      os << "  std::uint64_t " << base << "_coverage = 0;\n";
   }
   os << "\n";
 
@@ -1717,6 +1719,9 @@ static LogicalResult emitBlockStruct(
     if (id) {
       base = obligationCounterBase(id.getValue());
       os << indent << "++" << base << "_checks;\n";
+      if (assertion.getCoverageCond())
+        os << indent << "if (" << nt.get(assertion.getCoverageCond())
+           << ".toBool()) ++" << base << "_coverage;\n";
     }
     os << indent << "if (!" << nt.get(assertion.getCond())
        << ".toBool()) { ";

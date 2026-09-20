@@ -639,6 +639,73 @@ def ACIR_ArchitectureObligationOp : ACIR_Op<"arch_obligation", [Symbol]> {
   }];
 }
 
+// Internal Decision 0279 recovery/identity declarations.  They are not a
+// Python-facing API; their symbols provide stable, non-content-derived
+// identity for versioned resources and backend obligations.
+def ACIR_RecoveryDomainOp : ACIR_Op<"recovery_domain", [Symbol]> {
+  let arguments = (ins SymbolNameAttr:$sym_name, I64Attr:$epoch_bits,
+                       I64Attr:$initial_epoch);
+  let hasVerifier = 1;
+  let assemblyFormat = "$sym_name `epoch_bits` $epoch_bits `initial` $initial_epoch attr-dict";
+}
+
+def ACIR_TypedIdentityOp : ACIR_Op<"typed_identity", [Symbol]> {
+  let arguments = (ins SymbolNameAttr:$sym_name, I64Attr:$width,
+                       OptionalAttr<FlatSymbolRefAttr>:$parent);
+  let hasVerifier = 1;
+  let assemblyFormat = "$sym_name `width` $width (`parent` $parent^)? attr-dict";
+}
+
+def ACIR_CheckpointOp : ACIR_Op<"checkpoint", [Symbol]> {
+  let arguments = (ins SymbolNameAttr:$sym_name,
+                       FlatSymbolRefAttr:$recovery_domain,
+                       I64Attr:$entries, TypeAttr:$payload_type);
+  let hasVerifier = 1;
+  let assemblyFormat = "$sym_name `domain` $recovery_domain `entries` $entries `payload` $payload_type attr-dict";
+}
+
+def ACIR_RetainedResultOp : ACIR_Op<"retained_result", [Symbol]> {
+  let arguments = (ins SymbolNameAttr:$sym_name,
+                       FlatSymbolRefAttr:$recovery_domain,
+                       FlatSymbolRefAttr:$identity,
+                       I64Attr:$attempt_bits, TypeAttr:$payload_type);
+  let hasVerifier = 1;
+  let assemblyFormat = "$sym_name `domain` $recovery_domain `identity` $identity `attempt_bits` $attempt_bits `payload` $payload_type attr-dict";
+}
+
+def ACIR_RecoveryEventOp : ACIR_Op<"recovery.event", [Pure]> {
+  let arguments = (ins ACIR_VarType:$valid, ACIR_VarType:$next_epoch,
+                       ACIR_VarType:$checkpoint, ACIR_VarType:$boundary,
+                       FlatSymbolRefAttr:$domain, StrAttr:$cause);
+  let results = (outs ACIR_VarType:$event_valid);
+  let hasVerifier = 1;
+  let assemblyFormat = [{
+    $valid `epoch` $next_epoch `checkpoint` $checkpoint `boundary` $boundary
+    `domain` $domain `cause` $cause attr-dict `:` qualified(type($valid)) `,`
+    qualified(type($next_epoch)) `,` qualified(type($checkpoint)) `,`
+    qualified(type($boundary)) `->` qualified(type($event_valid))
+  }];
+}
+
+def ACIR_KillSetOp : ACIR_Op<"kill_set", [Pure]> {
+  let arguments = (ins ACIR_VarType:$event_valid,
+                       ACIR_VarType:$transaction_epoch,
+                       ACIR_VarType:$next_epoch,
+                       ACIR_VarType:$transaction_slot,
+                       ACIR_VarType:$boundary,
+                       StrAttr:$policy);
+  let results = (outs ACIR_VarType:$killed);
+  let hasVerifier = 1;
+  let assemblyFormat = [{
+    $event_valid `transaction_epoch` $transaction_epoch `next_epoch`
+    $next_epoch `transaction_slot` $transaction_slot `boundary` $boundary
+    `policy` $policy attr-dict `:` qualified(type($event_valid)) `,`
+    qualified(type($transaction_epoch)) `,` qualified(type($next_epoch)) `,`
+    qualified(type($transaction_slot)) `,` qualified(type($boundary)) `->`
+    qualified(type($killed))
+  }];
+}
+
 def ACIR_SourceOp : ACIR_Op<"source", [
     DeclareOpInterfaceMethods<MemoryEffectsOpInterface>
   ]> {
@@ -877,7 +944,19 @@ def ACIR_TableOp : ACIR_Op<"table", [
                        OptionalAttr<StrAttr>:$layout,
                        OptionalAttr<I64Attr>:$layout_version,
                        OptionalAttr<I64Attr>:$init_version,
-                       OptionalAttr<ArrayAttr>:$init_image);
+                       OptionalAttr<ArrayAttr>:$init_image,
+                       OptionalAttr<FlatSymbolRefAttr>:$recovery_domain,
+                       OptionalAttr<FlatSymbolRefAttr>:$identity,
+                       OptionalAttr<FlatSymbolRefAttr>:$checkpoint,
+                       OptionalAttr<FlatSymbolRefAttr>:$retained_result,
+                       OptionalAttr<I64Attr>:$generation_bits,
+                       OptionalAttr<I64Attr>:$epoch_bits,
+                       OptionalAttr<I64Attr>:$attempt_bits,
+                       OptionalAttr<StrAttr>:$valid_field,
+                       OptionalAttr<StrAttr>:$generation_field,
+                       OptionalAttr<StrAttr>:$epoch_field,
+                       OptionalAttr<StrAttr>:$attempt_field,
+                       OptionalAttr<StrAttr>:$payload_field);
   let hasVerifier = 1;
   let assemblyFormat = [{
     $sym_name `entry` $entry_type `entries` $entries `init` $init
@@ -910,6 +989,24 @@ def ACIR_TableGetOp : ACIR_Op<"table.get", [
   }];
 }
 
+def ACIR_VersionedTableLookupOp : ACIR_Op<"versioned_table.lookup", [
+    DeclareOpInterfaceMethods<MemoryEffectsOpInterface>
+  ]> {
+  let arguments = (ins FlatSymbolRefAttr:$table, ACIR_VarType:$index,
+                       ACIR_VarType:$ref_generation,
+                       ACIR_VarType:$ref_epoch,
+                       Optional<ACIR_VarType>:$ref_attempt);
+  let results = (outs ACIR_VarType:$payload, ACIR_VarType:$valid);
+  let hasVerifier = 1;
+  let assemblyFormat = [{
+    $table `[` $index `]` `ref` $ref_generation `,` $ref_epoch `:`
+    qualified(type($ref_generation)) `,` qualified(type($ref_epoch))
+    (`attempt` $ref_attempt^ `:` qualified(type($ref_attempt)))? attr-dict `:`
+    qualified(type($index)) `->` qualified(type($payload)) `,`
+    qualified(type($valid))
+  }];
+}
+
 // A firing-local Table next-state proposal. It is legal only inside transient
 // ac.rule or closed ac.firing and does not commit independently.
 def ACIR_TableProposeOp : ACIR_Op<"table.propose"> {
@@ -923,6 +1020,30 @@ def ACIR_TableProposeOp : ACIR_Op<"table.propose"> {
     (`when` $when^ `:` qualified(type($when)))? `mode` $mode
     `write_fields` $write_fields attr-dict `:` qualified(type($index)) `,`
     qualified(type($value))
+  }];
+}
+
+// A version-qualified Table proposal.  The explicit transaction identity is
+// compiler-owned and is lowered into the write predicate before either gfsim
+// or PYC backend emission.  `when` is mandatory so stale consume-only behavior
+// remains distinct from candidate admission.
+def ACIR_VersionedTableProposeOp
+    : ACIR_Op<"versioned_table.propose"> {
+  let arguments = (ins FlatSymbolRefAttr:$table, ACIR_VarType:$index,
+                       ACIR_VarType:$value, ACIR_VarType:$when,
+                       ACIR_VarType:$ref_generation,
+                       ACIR_VarType:$ref_epoch,
+                       Optional<ACIR_VarType>:$ref_attempt,
+                       StrAttr:$action, StrAttr:$mode,
+                       StrArrayAttr:$write_fields);
+  let hasVerifier = 1;
+  let assemblyFormat = [{
+    $table `[` $index `]` `=` $value `when` $when `:` qualified(type($when))
+    `ref` $ref_generation `,` $ref_epoch `:` qualified(type($ref_generation))
+    `,` qualified(type($ref_epoch))
+    (`attempt` $ref_attempt^ `:` qualified(type($ref_attempt)))?
+    `action` $action `mode` $mode `write_fields` $write_fields attr-dict `:`
+    qualified(type($index)) `,` qualified(type($value))
   }];
 }
 

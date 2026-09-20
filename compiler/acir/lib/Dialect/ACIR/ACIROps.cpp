@@ -641,11 +641,18 @@ static LogicalResult verifyActivationEvidence(Operation *operation,
     FlatSymbolRefAttr resource;
     if (auto read = dyn_cast<TableGetOp>(nested))
       resource = read.getTableAttr();
+    else if (auto read = dyn_cast<VersionedTableLookupOp>(nested))
+      resource = read.getTableAttr();
     else if (auto match = dyn_cast<TableMatchOp>(nested))
       resource = match.getTableAttr();
     else if (auto choose = dyn_cast<TableChooseOp>(nested))
       resource = choose.getTableAttr();
     else if (auto proposal = dyn_cast<TableProposeOp>(nested)) {
+      resource = proposal.getTableAttr();
+      if (transactionState.insert(resource.getValue()).second)
+        expectedTransaction.push_back(activationStateResource(
+            operation->getContext(), resource.getValue()));
+    } else if (auto proposal = dyn_cast<VersionedTableProposeOp>(nested)) {
       resource = proposal.getTableAttr();
       if (transactionState.insert(resource.getValue()).second)
         expectedTransaction.push_back(activationStateResource(
@@ -703,10 +710,15 @@ verifyTypedRuleSummary(Operation *operation, ValueRange inputs,
   const RuleGuardKind expectedGuard =
       predicate ? RuleGuardKind::Predicate : RuleGuardKind::Always;
   SmallVector<TableProposeOp> proposals;
+  SmallVector<VersionedTableProposeOp> versionedProposals;
   body.walk([&](TableProposeOp proposal) { proposals.push_back(proposal); });
+  body.walk([&](VersionedTableProposeOp proposal) {
+    versionedProposals.push_back(proposal);
+  });
   const RuleScheduleKind expectedSchedule =
-      proposals.empty() ? RuleScheduleKind::Independent
-                        : RuleScheduleKind::LexicalPriority;
+      proposals.empty() && versionedProposals.empty()
+          ? RuleScheduleKind::Independent
+          : RuleScheduleKind::LexicalPriority;
   if (guard.getValue() != expectedGuard ||
       schedule.getValue() != expectedSchedule)
     return operation->emitOpError(
@@ -793,7 +805,8 @@ verifyTypedRuleSummary(Operation *operation, ValueRange inputs,
   SmallVector<Attribute> expectedConflicts;
   SmallVector<Operation *> summaryStateOperations;
   body.walk([&](Operation *nested) {
-    if (isa<TableGetOp, TableMatchOp, TableChooseOp, TableProposeOp>(nested))
+    if (isa<TableGetOp, VersionedTableLookupOp, TableMatchOp, TableChooseOp,
+            TableProposeOp, VersionedTableProposeOp>(nested))
       summaryStateOperations.push_back(nested);
   });
   if (summaryStateOperations.size() != footprints.size())
@@ -826,11 +839,8 @@ verifyTypedRuleSummary(Operation *operation, ValueRange inputs,
     effect.set("guard_kind",
                RuleGuardKindAttr::get(operation->getContext(), stateGuard));
     if (!read) {
-      auto proposal = dyn_cast<TableProposeOp>(stateOperation);
       auto request =
-          proposal
-              ? proposal->getAttrOfType<WriterPriorityAttr>("ac.arbitration")
-              : WriterPriorityAttr();
+          stateOperation->getAttrOfType<WriterPriorityAttr>("ac.arbitration");
       if (request)
         addWriterArbitrationFields(effect, operation, resource.getValue(),
                                    request);
@@ -867,6 +877,15 @@ verifyTypedRuleSummary(Operation *operation, ValueRange inputs,
     if (!request)
       continue;
     if (!seenResources.insert(proposal.getTable()).second)
+      continue;
+    NamedAttrList record;
+    addWriterArbitrationFields(record, operation, proposal.getTable(), request);
+    expectedArbitration.push_back(builder.getDictionaryAttr(record));
+  }
+  for (VersionedTableProposeOp proposal : versionedProposals) {
+    auto request =
+        proposal->getAttrOfType<WriterPriorityAttr>("ac.arbitration");
+    if (!request || !seenResources.insert(proposal.getTable()).second)
       continue;
     NamedAttrList record;
     addWriterArbitrationFields(record, operation, proposal.getTable(), request);
@@ -1151,7 +1170,8 @@ struct TypedExpressionNormalizer {
         .Cases({"ac.var.range_bits", "ac.var.range_add"}, true)
         .Cases({"ac.var.range_sub", "ac.var.range_cmp"}, true)
         .Cases({"ac.var.insert", "ac.var.get", "ac.var.with"}, true)
-        .Case("ac.table.index", true)
+        .Cases({"ac.table.index", "ac.recovery.event", "ac.kill_set",
+                "ac.versioned_table.lookup"}, true)
         .Default(false);
   }
 
@@ -1179,6 +1199,12 @@ struct TypedExpressionNormalizer {
     if (operation == "ac.var.get" || operation == "ac.var.with")
       return attribute == "field";
     if (operation == "ac.table.index")
+      return attribute == "table";
+    if (operation == "ac.recovery.event")
+      return attribute == "domain" || attribute == "cause";
+    if (operation == "ac.kill_set")
+      return attribute == "policy";
+    if (operation == "ac.versioned_table.lookup")
       return attribute == "table";
     return false;
   }
@@ -1210,6 +1236,8 @@ struct TypedExpressionNormalizer {
     }
     if (auto read = dyn_cast<TableGetOp>(definition))
       return SmallVector<Value>{read.getIndex()};
+    if (auto read = dyn_cast<VersionedTableLookupOp>(definition))
+      return SmallVector<Value>(read->operand_begin(), read->operand_end());
     if (auto match = dyn_cast<TableMatchOp>(definition)) {
       Block &predicate = match.getPredicate().front();
       auto yielded = dyn_cast<TableMatchYieldOp>(predicate.getTerminator());
@@ -1597,6 +1625,14 @@ collectLiveExactFootprints(Operation *scope) {
       input.index = read.getIndex();
       input.wholeEntry = true;
       footprints.push_back(std::move(input));
+    } else if (auto read = dyn_cast<VersionedTableLookupOp>(nested)) {
+      ExactRuleFootprintInput input;
+      input.endpoint = nested;
+      input.resource = read.getTable().str();
+      input.access = "read";
+      input.index = read.getIndex();
+      input.wholeEntry = true;
+      footprints.push_back(std::move(input));
     } else if (auto match = dyn_cast<TableMatchOp>(nested)) {
       ExactRuleFootprintInput input;
       input.endpoint = nested;
@@ -1628,6 +1664,22 @@ collectLiveExactFootprints(Operation *scope) {
       if (input.wholeEntry)
         input.fields.clear();
       input.predicate = proposal.getWhen() ? proposal.getWhen() : candidate;
+      footprints.push_back(std::move(input));
+    } else if (auto proposal = dyn_cast<VersionedTableProposeOp>(nested)) {
+      SmallVector<std::string> fields;
+      for (Attribute raw : proposal.getWriteFields())
+        fields.push_back(cast<StringAttr>(raw).getValue().str());
+      ExactRuleFootprintInput input;
+      input.endpoint = nested;
+      input.resource = proposal.getTable();
+      input.access = proposal.getMode();
+      input.index = proposal.getIndex();
+      input.fields.assign(std::make_move_iterator(fields.begin()),
+                          std::make_move_iterator(fields.end()));
+      input.wholeEntry = llvm::is_contained(input.fields, "$entry");
+      if (input.wholeEntry)
+        input.fields.clear();
+      input.predicate = proposal.getWhen();
       footprints.push_back(std::move(input));
     } else if (auto get = dyn_cast<SlotGetOp>(nested)) {
       ExactRuleFootprintInput input;
@@ -1871,18 +1923,24 @@ LogicalResult RuleOp::verify() {
       return emitOpError("body arguments must match input Queue payloads");
   }
   SmallVector<TableProposeOp> proposals;
+  SmallVector<VersionedTableProposeOp> versionedProposals;
   SmallVector<SlotProposeReleaseOp> slotReleases;
   SmallVector<TableGetOp> tableReads;
+  SmallVector<VersionedTableLookupOp> versionedReads;
   bool hasVariableWrite = false;
   unsigned conditions = 0;
   Value conditionValue;
   for (Operation &operation : block.without_terminator())
     if (auto proposal = dyn_cast<TableProposeOp>(operation)) {
       proposals.push_back(proposal);
+    } else if (auto proposal = dyn_cast<VersionedTableProposeOp>(operation)) {
+      versionedProposals.push_back(proposal);
     } else if (auto release = dyn_cast<SlotProposeReleaseOp>(operation)) {
       slotReleases.push_back(release);
     } else if (auto get = dyn_cast<TableGetOp>(operation)) {
       tableReads.push_back(get);
+    } else if (auto get = dyn_cast<VersionedTableLookupOp>(operation)) {
+      versionedReads.push_back(get);
     } else if (isa<VarAssignOp, VarAssignElementOp>(operation)) {
       hasVariableWrite = true;
     } else if (auto condition = dyn_cast<RuleConditionOp>(operation)) {
@@ -1896,7 +1954,9 @@ LogicalResult RuleOp::verify() {
                    operation) &&
                !isa<RuleOutputOp, StateSnapshotOp, StateSnapshotSetOp>(
                    operation) &&
-               !isa<SlotGetOp, SlotProposeReleaseOp>(operation))
+               !isa<SlotGetOp, SlotProposeReleaseOp,
+                    VersionedTableLookupOp,
+                    VersionedTableProposeOp>(operation))
       return emitOpError() << "body operation '" << operation.getName()
                            << "' must be pure in the supported rule subset";
   if (conditions > 1)
@@ -1908,6 +1968,7 @@ LogicalResult RuleOp::verify() {
       llvm::any_of(
           proposals,
           [](TableProposeOp op) { return static_cast<bool>(op.getWhen()); }) ||
+      !versionedProposals.empty() ||
       !slotReleases.empty();
   if (hasPathEvidence) {
     if (conditions != 1)
@@ -1936,6 +1997,15 @@ LogicalResult RuleOp::verify() {
               "conditional-effect presence requires a true candidate");
       }
     }
+    for (VersionedTableProposeOp proposal : versionedProposals) {
+      if (!presenceImpliesCandidate(proposal.getWhen(), conditionValue))
+        return proposal.emitOpError(
+            "versioned state proposal presence must imply the rule condition");
+      if (proposal.getWhen() != conditionValue &&
+          constantVarBool(conditionValue) != true)
+        return proposal.emitOpError(
+            "conditional-effect presence requires a true candidate");
+    }
     for (SlotProposeReleaseOp release : slotReleases)
       if (!presenceImpliesCandidate(release.getWhen(), conditionValue))
         return release.emitOpError(
@@ -1948,10 +2018,10 @@ LogicalResult RuleOp::verify() {
       return failure();
     }
   if (getInputs().empty() && getOutputs().empty() && proposals.empty() &&
-      slotReleases.empty() && !hasVariableWrite)
+      versionedProposals.empty() && slotReleases.empty() && !hasVariableWrite)
     return emitOpError("rule without Queue endpoints must update state");
-  if (getOutputs().empty() && proposals.empty() && slotReleases.empty() &&
-      !hasVariableWrite)
+  if (getOutputs().empty() && proposals.empty() &&
+      versionedProposals.empty() && slotReleases.empty() && !hasVariableWrite)
     return emitOpError("outputless rule must update state");
   auto yield = dyn_cast<RuleReturnOp>(block.getTerminator());
   if (!yield || yield.getValues().size() != getOutputs().size())
@@ -2825,14 +2895,22 @@ LogicalResult FiringOp::verify() {
           "firing domain must match the exact QueueGraph domain");
   }
   SmallVector<TableProposeOp> proposals;
+  SmallVector<VersionedTableProposeOp> versionedProposals;
   SmallVector<SlotProposeReleaseOp> slotReleases;
   SmallVector<TableGetOp> tableReads;
+  SmallVector<VersionedTableLookupOp> versionedReads;
   SmallVector<FiringConditionOp> conditions;
   getBody().walk(
       [&](TableProposeOp proposal) { proposals.push_back(proposal); });
+  getBody().walk([&](VersionedTableProposeOp proposal) {
+    versionedProposals.push_back(proposal);
+  });
   getBody().walk(
       [&](SlotProposeReleaseOp release) { slotReleases.push_back(release); });
   getBody().walk([&](TableGetOp read) { tableReads.push_back(read); });
+  getBody().walk([&](VersionedTableLookupOp read) {
+    versionedReads.push_back(read);
+  });
   getBody().walk(
       [&](FiringConditionOp condition) { conditions.push_back(condition); });
   for (TableGetOp read : tableReads)
@@ -2842,9 +2920,11 @@ LogicalResult FiringOp::verify() {
       return failure();
     }
   if (getInputs().empty() && getOutputs().empty() && proposals.empty() &&
+      versionedProposals.empty() &&
       slotReleases.empty())
     return emitOpError("firing without Queue endpoints must update state");
-  if (getOutputs().empty() && proposals.empty() && slotReleases.empty())
+  if (getOutputs().empty() && proposals.empty() &&
+      versionedProposals.empty() && slotReleases.empty())
     return emitOpError("outputless firing must update state");
   if (conditions.size() > 1)
     return emitOpError("permits at most one functional condition");
@@ -2859,6 +2939,7 @@ LogicalResult FiringOp::verify() {
       llvm::any_of(
           proposals,
           [](TableProposeOp op) { return static_cast<bool>(op.getWhen()); }) ||
+      !versionedProposals.empty() ||
       !slotReleases.empty();
   if (hasPathEvidence) {
     if (conditions.size() != 1)
@@ -2887,6 +2968,15 @@ LogicalResult FiringOp::verify() {
               "conditional-effect presence requires a true candidate");
       }
     }
+    for (VersionedTableProposeOp proposal : versionedProposals) {
+      if (!presenceImpliesCandidate(proposal.getWhen(), condition))
+        return proposal.emitOpError(
+            "versioned state proposal presence must imply the firing condition");
+      if (proposal.getWhen() != condition &&
+          constantVarBool(condition) != true)
+        return proposal.emitOpError(
+            "conditional-effect presence requires a true candidate");
+    }
     for (SlotProposeReleaseOp release : slotReleases)
       if (!presenceImpliesCandidate(release.getWhen(), condition))
         return release.emitOpError(
@@ -2908,8 +2998,8 @@ LogicalResult FiringOp::verify() {
   if (footprints) {
     SmallVector<Operation *> stateOperations;
     getBody().walk([&](Operation *operation) {
-      if (isa<TableGetOp, TableMatchOp, TableChooseOp, TableProposeOp>(
-              operation))
+      if (isa<TableGetOp, VersionedTableLookupOp, TableMatchOp, TableChooseOp,
+              TableProposeOp, VersionedTableProposeOp>(operation))
         stateOperations.push_back(operation);
     });
     if (footprints.size() != stateOperations.size())
@@ -2942,14 +3032,17 @@ LogicalResult FiringOp::verify() {
         index = read.getIndex();
         expectedAccess = "read";
         expectedResource = read.getTableAttr();
+      } else if (auto read = dyn_cast<VersionedTableLookupOp>(operation)) {
+        index = read.getIndex();
+        expectedAccess = "read";
+        expectedResource = read.getTableAttr();
       } else if (auto match = dyn_cast<TableMatchOp>(operation)) {
         expectedAccess = "read";
         expectedResource = match.getTableAttr();
       } else if (auto choose = dyn_cast<TableChooseOp>(operation)) {
         expectedAccess = "read";
         expectedResource = choose.getTableAttr();
-      } else {
-        auto proposal = cast<TableProposeOp>(operation);
+      } else if (auto proposal = dyn_cast<TableProposeOp>(operation)) {
         index = proposal.getIndex();
         expectedAccess = proposal.getMode();
         expectedResource = proposal.getTableAttr();
@@ -2960,6 +3053,13 @@ LogicalResult FiringOp::verify() {
                 : (conditions.empty()
                        ? RuleGuardKind::Always
                        : guardKindFor(conditions.front().getCondition()));
+      } else {
+        auto versioned = cast<VersionedTableProposeOp>(operation);
+        index = versioned.getIndex();
+        expectedAccess = versioned.getMode();
+        expectedResource = versioned.getTableAttr();
+        expectedFields = versioned.getWriteFieldsAttr();
+        expectedFootprintGuard = guardKindFor(versioned.getWhen());
       }
       StringRef expectedIndexKind =
           !index
@@ -2975,7 +3075,8 @@ LogicalResult FiringOp::verify() {
     }
   }
   const bool validArity = !getInputs().empty() || !getOutputs().empty() ||
-                          !proposals.empty() || !slotReleases.empty();
+                          !proposals.empty() || !versionedProposals.empty() ||
+                          !slotReleases.empty();
   if (conditions.empty() && requiresInferredSchedule) {
     return emitOpError("requires one typed functional condition");
   }
@@ -2994,7 +3095,9 @@ LogicalResult FiringOp::verify() {
   }
   for (Operation &operation : block.without_terminator())
     if (!isPureExpressionOperation(&operation) &&
-        !isa<TableGetOp, TableProposeOp, TableMatchOp, TableChooseOp,
+        !isa<TableGetOp, VersionedTableLookupOp, TableProposeOp,
+             VersionedTableProposeOp,
+             TableMatchOp, TableChooseOp,
              VarAssignOp, FiringConditionOp, FiringOutputOp, StateSnapshotOp,
              StateSnapshotSetOp, SlotGetOp, SlotProposeReleaseOp>(operation))
       return emitOpError() << "body operation '" << operation.getName()
@@ -5321,6 +5424,204 @@ static LogicalResult verifyTableInitValue(Operation *anchor, Type type,
   return failure();
 }
 
+LogicalResult RecoveryDomainOp::verify() {
+  const int64_t bits = getEpochBits();
+  if (bits <= 0 || bits > 64)
+    return emitOpError("epoch_bits must be in [1, 64]");
+  const uint64_t initial = static_cast<uint64_t>(getInitialEpoch());
+  if (bits < 64 && initial >= (uint64_t{1} << bits))
+    return emitOpError("initial recovery epoch does not fit epoch_bits");
+  return success();
+}
+
+LogicalResult TypedIdentityOp::verify() {
+  if (getWidth() <= 0 || getWidth() > 64)
+    return emitOpError("identity width must be in [1, 64]");
+  if (!getParentAttr())
+    return success();
+  if (getParent() == getSymName())
+    return emitOpError("typed identity cannot parent itself");
+  auto parent = dyn_cast_or_null<TypedIdentityOp>(
+      lookupGraphSymbol(*this, getParentAttr()));
+  if (!parent)
+    return emitOpError("parent must resolve to ac.typed_identity");
+  return success();
+}
+
+LogicalResult CheckpointOp::verify() {
+  if (!isa_and_nonnull<RecoveryDomainOp>(
+          lookupGraphSymbol(*this, getRecoveryDomainAttr())))
+    return emitOpError("recovery_domain must resolve to ac.recovery_domain");
+  if (getEntries() <= 0 || getEntries() > 256)
+    return emitOpError("checkpoint entries must be in [1, 256]");
+  if (!isImmutablePayloadType(getPayloadType()))
+    return emitOpError("checkpoint payload must be immutable");
+  return success();
+}
+
+LogicalResult RetainedResultOp::verify() {
+  if (!isa_and_nonnull<RecoveryDomainOp>(
+          lookupGraphSymbol(*this, getRecoveryDomainAttr())))
+    return emitOpError("recovery_domain must resolve to ac.recovery_domain");
+  if (!isa_and_nonnull<TypedIdentityOp>(
+          lookupGraphSymbol(*this, getIdentityAttr())))
+    return emitOpError("identity must resolve to ac.typed_identity");
+  if (getAttemptBits() <= 0 || getAttemptBits() > 64)
+    return emitOpError("attempt_bits must be in [1, 64]");
+  if (!isImmutablePayloadType(getPayloadType()))
+    return emitOpError("retained-result payload must be immutable");
+  return success();
+}
+
+static IntegerType integerVarType(Value value) {
+  auto variable = dyn_cast<VarType>(value.getType());
+  return variable ? dyn_cast<IntegerType>(variable.getElementType())
+                  : IntegerType();
+}
+
+LogicalResult RecoveryEventOp::verify() {
+  auto domain = dyn_cast_or_null<RecoveryDomainOp>(
+      lookupGraphSymbol(*this, getDomainAttr()));
+  if (!domain)
+    return emitOpError("domain must resolve to ac.recovery_domain");
+  if (!integerVarType(getValid()).isInteger(1) ||
+      !integerVarType(getEventValid()).isInteger(1))
+    return emitOpError("event valid input/result must be !ac.var<i1>");
+  auto epoch = integerVarType(getNextEpoch());
+  if (!epoch || epoch.getWidth() != static_cast<unsigned>(domain.getEpochBits()))
+    return emitOpError("next epoch must match the recovery domain width");
+  for (Value value : {getCheckpoint(), getBoundary()}) {
+    auto integer = integerVarType(value);
+    if (!integer || integer.getWidth() == 0 || integer.getWidth() > 64)
+      return emitOpError(
+          "checkpoint and boundary must be 1..64-bit integer Vars");
+  }
+  if (getCause().empty())
+    return emitOpError("recovery cause must be non-empty");
+  return success();
+}
+
+LogicalResult KillSetOp::verify() {
+  if (!integerVarType(getEventValid()).isInteger(1) ||
+      !integerVarType(getKilled()).isInteger(1))
+    return emitOpError("kill-set event/result must be !ac.var<i1>");
+  if (getTransactionEpoch().getType() != getNextEpoch().getType())
+    return emitOpError("transaction and next epoch types must match");
+  if (getTransactionSlot().getType() != getBoundary().getType())
+    return emitOpError("transaction slot and boundary types must match");
+  if (getPolicy() != "epoch_mismatch_or_younger")
+    return emitOpError(
+        "kill-set policy must be epoch_mismatch_or_younger");
+  return success();
+}
+
+static LogicalResult verifyVersionedTableContract(TableOp table) {
+  Operation *operation = table.getOperation();
+  auto domain = operation->getAttrOfType<FlatSymbolRefAttr>("recovery_domain");
+  auto identity = operation->getAttrOfType<FlatSymbolRefAttr>("identity");
+  auto checkpoint = operation->getAttrOfType<FlatSymbolRefAttr>("checkpoint");
+  auto retainedResult =
+      operation->getAttrOfType<FlatSymbolRefAttr>("retained_result");
+  auto generationBits = operation->getAttrOfType<IntegerAttr>("generation_bits");
+  auto epochBits = operation->getAttrOfType<IntegerAttr>("epoch_bits");
+  auto attemptBits = operation->getAttrOfType<IntegerAttr>("attempt_bits");
+  auto validField = operation->getAttrOfType<StringAttr>("valid_field");
+  auto generationField =
+      operation->getAttrOfType<StringAttr>("generation_field");
+  auto epochField = operation->getAttrOfType<StringAttr>("epoch_field");
+  auto attemptField = operation->getAttrOfType<StringAttr>("attempt_field");
+  auto payloadField = operation->getAttrOfType<StringAttr>("payload_field");
+  const bool any = domain || identity || checkpoint || retainedResult ||
+                   generationBits || epochBits || attemptBits || validField ||
+                   generationField || epochField || attemptField ||
+                   payloadField;
+  if (!any)
+    return success();
+  if (!domain || !identity || !generationBits || !epochBits || !validField ||
+      !generationField || !epochField || !payloadField ||
+      static_cast<bool>(attemptBits) != static_cast<bool>(attemptField))
+    return table.emitOpError(
+        "versioned Table requires domain, identity, generation/epoch bits, "
+        "valid/generation/epoch/payload fields, and paired attempt metadata");
+  auto domainOp = dyn_cast_or_null<RecoveryDomainOp>(
+      lookupGraphSymbol(table, domain));
+  if (!domainOp)
+    return table.emitOpError(
+        "versioned Table recovery_domain must resolve to ac.recovery_domain");
+  if (!isa_and_nonnull<TypedIdentityOp>(lookupGraphSymbol(table, identity)))
+    return table.emitOpError(
+        "versioned Table identity must resolve to ac.typed_identity");
+  if (generationBits.getInt() <= 0 || generationBits.getInt() > 64 ||
+      epochBits.getInt() <= 0 || epochBits.getInt() > 64 ||
+      epochBits.getInt() != domainOp.getEpochBits() ||
+      (attemptBits &&
+       (attemptBits.getInt() <= 0 || attemptBits.getInt() > 64)))
+    return table.emitOpError(
+        "versioned Table tag widths must be in [1, 64] and epoch_bits must "
+        "match its recovery domain");
+  Operation *declaration = recordDecl(table, table.getEntryType());
+  if (!declaration)
+    return table.emitOpError(
+        "versioned Table entry must be a nominal struct");
+  llvm::StringSet<> names;
+  for (StringAttr field : {validField, generationField, epochField,
+                           payloadField})
+    if (field.getValue().empty() || !names.insert(field.getValue()).second)
+      return table.emitOpError(
+          "versioned Table field names must be non-empty and distinct");
+  if (attemptField &&
+      (attemptField.getValue().empty() ||
+       !names.insert(attemptField.getValue()).second))
+    return table.emitOpError(
+        "versioned Table attempt_field must be non-empty and distinct");
+  auto requireIntegerField = [&](StringAttr name, int64_t width,
+                                 StringRef role) -> LogicalResult {
+    auto index = findField(declaration, name.getValue());
+    auto type = index ? dyn_cast<IntegerType>(fieldType(declaration, *index))
+                      : IntegerType();
+    if (!type || type.getWidth() != static_cast<unsigned>(width))
+      return table.emitOpError()
+             << role << " field must exist with exact i" << width << " type";
+    return success();
+  };
+  if (failed(requireIntegerField(validField, 1, "valid")) ||
+      failed(requireIntegerField(generationField, generationBits.getInt(),
+                                 "generation")) ||
+      failed(requireIntegerField(epochField, epochBits.getInt(), "epoch")) ||
+      (attemptField &&
+       failed(requireIntegerField(attemptField, attemptBits.getInt(),
+                                  "attempt"))))
+    return failure();
+  auto payloadIndex = findField(declaration, payloadField.getValue());
+  if (!payloadIndex)
+    return table.emitOpError("payload field must exist in the entry struct");
+  Type payloadType = fieldType(declaration, *payloadIndex);
+  if (checkpoint) {
+    auto declaration = dyn_cast_or_null<CheckpointOp>(
+        lookupGraphSymbol(table, checkpoint));
+    if (!declaration ||
+        declaration.getRecoveryDomainAttr() != domain ||
+        declaration.getEntries() != table.getEntries() ||
+        declaration.getPayloadType() != payloadType)
+      return table.emitOpError(
+          "checkpoint binding must match domain, entries, and payload");
+  }
+  if (retainedResult) {
+    auto declaration = dyn_cast_or_null<RetainedResultOp>(
+        lookupGraphSymbol(table, retainedResult));
+    if (!declaration ||
+        declaration.getRecoveryDomainAttr() != domain ||
+        declaration.getIdentityAttr() != identity ||
+        !attemptBits || declaration.getAttemptBits() != attemptBits.getInt() ||
+        declaration.getPayloadType() != payloadType)
+      return table.emitOpError(
+          "retained-result binding must match domain, identity, attempt, and payload");
+  }
+  if (table.getEntries() > 256)
+    return table.emitOpError("versioned Table entries must not exceed 256");
+  return success();
+}
+
 LogicalResult TableOp::verify() {
   if (!isTableEntryType(*this, getEntryType()))
     return emitOpError(
@@ -5392,6 +5693,8 @@ LogicalResult TableOp::verify() {
         return emitOpError(
             "typed init_image element does not match the Table Entry type");
   }
+  if (failed(verifyVersionedTableContract(*this)))
+    return failure();
   if (getOwner().empty() || !getOwner().starts_with('/') ||
       (getOwner().size() > 1 && getOwner().ends_with('/')))
     return emitOpError("owner must be a canonical absolute scope path");
@@ -5434,6 +5737,10 @@ LogicalResult TableOp::verify() {
         ++endpoints;
     }
     if (auto read = dyn_cast<TableGetOp>(operation)) {
+      if (resolveTable(read, read.getTableAttr()) == *this)
+        ++endpoints;
+    }
+    if (auto read = dyn_cast<VersionedTableLookupOp>(operation)) {
       if (resolveTable(read, read.getTableAttr()) == *this)
         ++endpoints;
     }
@@ -5487,6 +5794,15 @@ LogicalResult TableOp::verify() {
         // Firing-local proposals are checked as normalized whole-model
         // footprints by ac-verify-value-constraints.  A declaration-local
         // source-order check cannot prove dynamic disjointness or arbitration.
+      }
+    }
+    if (auto proposal = dyn_cast<VersionedTableProposeOp>(operation)) {
+      if (resolveTable(proposal, proposal.getTableAttr()) == *this) {
+        ++endpoints;
+        if (proposal.getMode() == "replace") {
+          ++proposalReplaceWriters;
+          return;
+        }
       }
     }
     if (auto match = dyn_cast<TableMatchOp>(operation))
@@ -5559,6 +5875,44 @@ LogicalResult TableGetOp::verify() {
   return verifyTableIndex(*this, table, getIndex());
 }
 
+LogicalResult VersionedTableLookupOp::verify() {
+  TableOp table = resolveTable(*this, getTableAttr());
+  if (!table)
+    return emitOpError() << "unresolved table " << getTable();
+  if (!tableVisibleFrom(*this, table))
+    return emitOpError("table is outside the access scope ancestry");
+  if (!table.getRecoveryDomainAttr())
+    return emitOpError("lookup requires a versioned Table");
+  if (failed(verifyTableIndex(*this, table, getIndex())))
+    return failure();
+  Operation *declaration = recordDecl(*this, table.getEntryType());
+  auto payloadIndex = declaration
+                          ? findField(declaration,
+                                      table.getPayloadFieldAttr().getValue())
+                          : std::optional<unsigned>();
+  if (!payloadIndex ||
+      getPayload().getType() !=
+          VarType::get(getContext(), fieldType(declaration, *payloadIndex)))
+    return emitOpError("payload result must match the declared payload field");
+  if (!integerVarType(getValid()).isInteger(1))
+    return emitOpError("valid result must be !ac.var<i1>");
+  auto exactTag = [&](Value value, IntegerAttr width) {
+    auto integer = integerVarType(value);
+    return integer &&
+           integer.getWidth() == static_cast<unsigned>(width.getInt());
+  };
+  if (!exactTag(getRefGeneration(), table.getGenerationBitsAttr()) ||
+      !exactTag(getRefEpoch(), table.getEpochBitsAttr()))
+    return emitOpError("lookup generation/epoch refs have wrong widths");
+  if (auto bits = table.getAttemptBitsAttr()) {
+    if (!getRefAttempt() || !exactTag(getRefAttempt(), bits))
+      return emitOpError("lookup requires an exact attempt ref");
+  } else if (getRefAttempt()) {
+    return emitOpError("lookup cannot carry an undeclared attempt ref");
+  }
+  return success();
+}
+
 static LogicalResult verifyTableWriterArbitration(Operation *operation) {
   for (NamedAttribute attribute : operation->getAttrs()) {
     StringRef name = attribute.getName().getValue();
@@ -5573,7 +5927,7 @@ static LogicalResult verifyTableWriterArbitration(Operation *operation) {
     if (!isa<WriterPriorityAttr>(arbitration))
       return operation->emitOpError(
           "ac.arbitration requires typed #ac.writer_priority<rank>");
-    if (!isa<TableProposeOp>(operation)) {
+    if (!isa<TableProposeOp, VersionedTableProposeOp>(operation)) {
       auto endpoint = operation->getAttrOfType<StringAttr>("ac.endpoint_id");
       if (!endpoint || endpoint.getValue().empty())
         return operation->emitOpError(
@@ -5599,6 +5953,88 @@ LogicalResult TableProposeOp::verify() {
     return emitOpError("proposal value must match the Table Entry Var type");
   if (getWhen() && failed(verifyI1VarCondition(*this, getWhen())))
     return failure();
+  if (table->getAttr("recovery_domain"))
+    return emitOpError(
+        "versioned Table writes require ac.versioned_table.propose");
+  if (failed(verifyStaticallySafeRuleTableIndex(*this, table, getIndex())))
+    return failure();
+  return verifyTableWriterArbitration(*this);
+}
+
+LogicalResult VersionedTableProposeOp::verify() {
+  Operation *parent = (*this)->getParentOp();
+  if (!isa_and_nonnull<RuleOp, FiringOp>(parent))
+    return emitOpError("must be nested directly in ac.rule or ac.firing");
+  TableOp table = resolveTable(*this, getTableAttr());
+  if (!table)
+    return emitOpError() << "unresolved table " << getTable();
+  if (!tableVisibleFrom(*this, table))
+    return emitOpError("table is outside the proposal scope ancestry");
+  if (!table->getAttr("recovery_domain"))
+    return emitOpError(
+        "ac.versioned_table.propose requires a versioned Table");
+  if (failed(verifyTableWriteFields(*this, table, getWriteFields())) ||
+      failed(verifyTableWriteMode(*this, table, getMode(), getWriteFields())))
+    return failure();
+  if (getValue().getType() != VarType::get(getContext(), table.getEntryType()))
+    return emitOpError("proposal value must match the Table Entry Var type");
+  if (failed(verifyI1VarCondition(*this, getWhen())))
+    return failure();
+  if (getAction() != "allocate" && getAction() != "qualified_update" &&
+      getAction() != "invalidate" && getAction() != "retain" &&
+      getAction() != "consume")
+    return emitOpError(
+        "action must be allocate, qualified_update, invalidate, retain, or consume");
+  auto exactFields = [&](StringRef expected) {
+    return getWriteFields().size() == 1 &&
+           cast<StringAttr>(getWriteFields()[0]).getValue() == expected;
+  };
+  if (getAction() == "allocate" && getMode() != "replace")
+    return emitOpError("allocate must replace the complete versioned entry");
+  if (getAction() == "qualified_update" &&
+      (getMode() != "field" ||
+       !exactFields(table.getPayloadFieldAttr().getValue())))
+    return emitOpError(
+        "qualified_update may write only the declared payload field");
+  if (getAction() == "invalidate" &&
+      (getMode() != "field" ||
+       !exactFields(table.getValidFieldAttr().getValue())))
+    return emitOpError(
+        "invalidate may write only the declared valid field");
+  if ((getAction() == "retain" || getAction() == "consume") &&
+      !table.getRetainedResultAttr())
+    return emitOpError(
+        "retain/consume requires a retained-result Table binding");
+  if (getAction() == "retain" && getMode() != "replace")
+    return emitOpError("retain must replace one complete free entry");
+  if (getAction() == "consume" &&
+      (getMode() != "field" ||
+       !exactFields(table.getValidFieldAttr().getValue())))
+    return emitOpError(
+        "consume may write only the declared valid field");
+  auto generationBits = table->getAttrOfType<IntegerAttr>("generation_bits");
+  auto epochBits = table->getAttrOfType<IntegerAttr>("epoch_bits");
+  auto attemptBits = table->getAttrOfType<IntegerAttr>("attempt_bits");
+  auto exactIntegerVar = [&](Value value, IntegerAttr width) {
+    auto variable = dyn_cast<VarType>(value.getType());
+    auto integer = variable
+                       ? dyn_cast<IntegerType>(variable.getElementType())
+                       : IntegerType();
+    return integer &&
+           integer.getWidth() == static_cast<unsigned>(width.getInt());
+  };
+  if (!exactIntegerVar(getRefGeneration(), generationBits))
+    return emitOpError("generation ref must match generation_bits");
+  if (!exactIntegerVar(getRefEpoch(), epochBits))
+    return emitOpError("epoch ref must match epoch_bits");
+  if (attemptBits) {
+    if (!getRefAttempt() || !exactIntegerVar(getRefAttempt(), attemptBits))
+      return emitOpError(
+          "attempt-qualified Table requires an exact attempt ref");
+  } else if (getRefAttempt()) {
+    return emitOpError(
+        "Table without attempt metadata cannot carry an attempt ref");
+  }
   if (failed(verifyStaticallySafeRuleTableIndex(*this, table, getIndex())))
     return failure();
   return verifyTableWriterArbitration(*this);

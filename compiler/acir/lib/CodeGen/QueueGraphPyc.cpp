@@ -1992,6 +1992,123 @@ emitTransform(const QueueGraphPlan &plan, const QueueBlockPlan &block,
                << *resultType << "\n";
           result = std::move(sum);
         }
+      } else if (expression.kind == "recovery_event") {
+        if (expression.operands.size() != 4)
+          return pycError("recovery_event expression arity mismatch");
+        result = newValue();
+        body << "    " << result << " = pyc.alias " << *first
+             << " : i1\n";
+      } else if (expression.kind == "kill_set") {
+        if (expression.operands.size() != 5 ||
+            expression.predicate != "epoch_mismatch_or_younger")
+          return pycError("kill_set expression contract is malformed");
+        auto transactionEpoch = value(expression.operands[1]);
+        auto nextEpoch = value(expression.operands[2]);
+        auto transactionSlot = value(expression.operands[3]);
+        auto boundary = value(expression.operands[4]);
+        auto epochType = valueType(expression.operands[1]);
+        auto slotType = valueType(expression.operands[3]);
+        if (!transactionEpoch || !nextEpoch || !transactionSlot || !boundary)
+          return pycError("kill_set operands are unavailable");
+        if (!epochType || !slotType)
+          return pycError("kill_set operand types are unavailable");
+        auto epochPycType = pycType(plan, *epochType);
+        auto slotPycType = pycType(plan, *slotType);
+        if (!epochPycType)
+          return epochPycType.takeError();
+        if (!slotPycType)
+          return slotPycType.takeError();
+        std::string sameEpoch = emitPycBinary(
+            "eq", *transactionEpoch, *nextEpoch, *epochPycType);
+        std::string epochMismatch = emitPycNot(sameEpoch);
+        std::string younger = emitPycBinary(
+            "ult", *boundary, *transactionSlot, *slotPycType);
+        result = emitPycBinary(
+            "and", *first,
+            emitPycBinary("or", epochMismatch, younger, "i1"), "i1");
+      } else if (expression.kind == "versioned_lookup_payload" ||
+                 expression.kind == "versioned_lookup_valid") {
+        if (!tableValues ||
+            (expression.operands.size() != 3 &&
+             expression.operands.size() != 4))
+          return pycError("versioned lookup has no PYC register bank");
+        auto table = tableValues->find(expression.table);
+        const TablePlan *tablePlan = nullptr;
+        for (const TablePlan &candidate : plan.tables)
+          if (candidate.name == expression.table) {
+            tablePlan = &candidate;
+            break;
+          }
+        if (table == tableValues->end() || !tablePlan || !tablePlan->versioned)
+          return pycError("versioned lookup references unknown Table bank");
+        auto indexType = valueType(expression.operands.front());
+        auto indexPycType =
+            indexType ? pycType(plan, *indexType)
+                      : llvm::Expected<std::string>(indexType.takeError());
+        auto entryPycType = pycType(plan, tablePlan->entryType);
+        if (!indexPycType)
+          return indexPycType.takeError();
+        if (!entryPycType)
+          return entryPycType.takeError();
+        std::string selectedEntry = table->getValue().back();
+        for (size_t index = tablePlan->entries; index-- > 0;) {
+          if (!pycIntegerCanRepresent(index, *indexPycType))
+            continue;
+          std::string indexValue = emitPycConstant(index, *indexPycType);
+          std::string selected = emitPycBinary(
+              "eq", *first, indexValue, *indexPycType);
+          selectedEntry = emitPycSelect(selected, table->getValue()[index],
+                                        selectedEntry, *entryPycType);
+        }
+        auto extractField = [&](llvm::StringRef field)
+            -> llvm::Expected<std::pair<std::string, std::string>> {
+          auto layout = fieldLayout(plan, tablePlan->entryType, field);
+          if (!layout)
+            return layout.takeError();
+          auto type = pycType(plan, layout->type);
+          if (!type)
+            return type.takeError();
+          std::string extracted = newValue();
+          body << "    " << extracted << " = pyc.extract " << selectedEntry
+               << " {lsb = " << layout->lsb << "} : " << *entryPycType
+               << " -> " << *type << "\n";
+          return std::pair{std::move(extracted), std::move(*type)};
+        };
+        if (expression.kind == "versioned_lookup_payload") {
+          auto payload = extractField(tablePlan->payloadField);
+          if (!payload)
+            return payload.takeError();
+          result = std::move(payload->first);
+        } else {
+          auto valid = extractField(tablePlan->validField);
+          auto generation = extractField(tablePlan->generationField);
+          auto epoch = extractField(tablePlan->epochField);
+          auto refGeneration = value(expression.operands[1]);
+          auto refEpoch = value(expression.operands[2]);
+          if (!valid || !generation || !epoch || !refGeneration || !refEpoch)
+            return pycError("versioned lookup identity is unavailable");
+          result = valid->first;
+          result = emitPycBinary(
+              "and", result,
+              emitPycBinary("eq", generation->first, *refGeneration,
+                            generation->second),
+              "i1");
+          result = emitPycBinary(
+              "and", result,
+              emitPycBinary("eq", epoch->first, *refEpoch, epoch->second),
+              "i1");
+          if (expression.operands.size() == 4) {
+            auto attempt = extractField(tablePlan->attemptField);
+            auto refAttempt = value(expression.operands[3]);
+            if (!attempt || !refAttempt)
+              return pycError("versioned lookup attempt is unavailable");
+            result = emitPycBinary(
+                "and", result,
+                emitPycBinary("eq", attempt->first, *refAttempt,
+                              attempt->second),
+                "i1");
+          }
+        }
       } else if (expression.kind == "table_get") {
         if (!tableValues || expression.operands.size() != 1)
           return pycError("table_get expression has no PYC register bank");
@@ -5671,6 +5788,97 @@ emitQueueGraphPycBody(
           std::string selected =
               emitBinary("and", accepted->getValue(), *present, "i1");
           selected = emitBinary("and", selected, atSlot, "i1");
+          if (!write.versionedAction.empty() &&
+              write.versionedAction != "allocate") {
+            auto emitEntryField = [&](llvm::StringRef field)
+                -> llvm::Expected<std::pair<std::string, std::string>> {
+              auto layout = fieldLayout(plan, table.entryType, field);
+              if (!layout)
+                return layout.takeError();
+              auto type = pycType(plan, layout->type);
+              if (!type)
+                return type.takeError();
+              std::string result = newValue();
+              body << "    " << result << " = pyc.extract "
+                   << state->getValue().value[slot] << " {lsb = "
+                   << layout->lsb << "} : " << state->getValue().type
+                   << " -> " << *type << "\n";
+              return std::pair{std::move(result), std::move(*type)};
+            };
+            auto valid = emitEntryField(table.validField);
+            auto generation = emitEntryField(table.generationField);
+            auto epoch = emitEntryField(table.epochField);
+            auto refGeneration = lookup(write.refGeneration);
+            auto refEpoch = lookup(write.refEpoch);
+            if (!valid)
+              return valid.takeError();
+            if (!generation)
+              return generation.takeError();
+            if (!epoch)
+              return epoch.takeError();
+            if (!refGeneration)
+              return refGeneration.takeError();
+            if (!refEpoch)
+              return refEpoch.takeError();
+            std::string qualified;
+            if (write.versionedAction == "retain") {
+              qualified = emitNot(valid->first);
+            } else {
+              qualified = valid->first;
+              qualified = emitBinary(
+                  "and", qualified,
+                  emitBinary("eq", generation->first, *refGeneration,
+                             generation->second),
+                  "i1");
+              qualified =
+                  emitBinary("and", qualified,
+                             emitBinary("eq", epoch->first, *refEpoch,
+                                        epoch->second),
+                             "i1");
+            }
+            if (write.versionedAction != "retain" &&
+                !write.refAttempt.empty()) {
+              auto attempt = emitEntryField(table.attemptField);
+              auto refAttempt = lookup(write.refAttempt);
+              if (!attempt)
+                return attempt.takeError();
+              if (!refAttempt)
+                return refAttempt.takeError();
+              qualified = emitBinary(
+                  "and", qualified,
+                  emitBinary("eq", attempt->first, *refAttempt,
+                             attempt->second),
+                  "i1");
+            }
+            std::string requested = selected;
+            std::string stale =
+                emitBinary("and", requested, emitNot(qualified), "i1");
+            selected = emitBinary("and", requested, qualified, "i1");
+            std::string noStaleMutation = emitNot(
+                emitBinary("and", stale, selected, "i1"));
+            const std::string obligationId =
+                write.staleObligationId + ":slot" + std::to_string(slot);
+            const std::string source =
+                block.sourceFile.empty()
+                    ? (plan.sourceFile.empty() ? std::string("generated")
+                                               : plan.sourceFile + ":" +
+                                                     std::to_string(plan.sourceLine) +
+                                                     ":" +
+                                                     std::to_string(plan.sourceColumn))
+                    : block.sourceFile + ":" +
+                          std::to_string(block.sourceLine) + ":" +
+                          std::to_string(block.sourceColumn);
+            body << "    pyc.assert " << noStaleMutation << " cover " << stale
+                 << " {msg = \"stale transaction cannot mutate versioned "
+                    "state\", obligation_id = "
+                 << mlirStringLiteral(obligationId)
+                 << ", obligation_kind = \"no_stale_update\", severity = "
+                    "\"error\", sampling_kind = \"pre_publish\", "
+                    "sampling_edge = \"none\", sample_anchor = "
+                 << mlirStringLiteral(block.stableId)
+                 << ", source = " << mlirStringLiteral(source)
+                 << ", ndf_ids = []}\n";
+          }
           if (write.mode == "field") {
             // A field-level firing write commits only its named fields, which
             // is what lets independent rules update disjoint fields of one

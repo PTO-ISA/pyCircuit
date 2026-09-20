@@ -336,6 +336,7 @@ TEST(ACIROpsTest, RegistryContainsExactQueueVarOperations) {
       "ac.barrier",
       "ac.bitfield",
       "ac.broadcast",
+      "ac.checkpoint",
       "ac.credit",
       "ac.credit.yield",
       "ac.dependency",
@@ -358,6 +359,7 @@ TEST(ACIROpsTest, RegistryContainsExactQueueVarOperations) {
       "ac.instance",
       "ac.instances",
       "ac.instrumentation",
+      "ac.kill_set",
       "ac.module",
       "ac.module.case",
       "ac.module.extern",
@@ -395,6 +397,9 @@ TEST(ACIROpsTest, RegistryContainsExactQueueVarOperations) {
       "ac.process",
       "ac.protocol",
       "ac.queue",
+      "ac.recovery.event",
+      "ac.recovery_domain",
+      "ac.retained_result",
       "ac.var.add",
       "ac.var.and",
       "ac.var.array",
@@ -477,6 +482,9 @@ TEST(ACIROpsTest, RegistryContainsExactQueueVarOperations) {
       "ac.try_send",
       "ac.type_alias",
       "ac.type_scope",
+      "ac.typed_identity",
+      "ac.versioned_table.lookup",
+      "ac.versioned_table.propose",
       "ac.view",
       "ac.await_event",
       "ac.schedule",
@@ -808,7 +816,7 @@ TEST(ACIROpsTest, RuntimeAndQueueVarRegistryIsExact) {
         << name.str();
   EXPECT_FALSE(mlir::OperationName("ac.try_issue", &context).isRegistered());
   EXPECT_FALSE(mlir::OperationName("ac.connect", &context).isRegistered());
-  const std::array<llvm::StringLiteral, 109> queueVarNames = {
+  const std::array<llvm::StringLiteral, 117> queueVarNames = {
       "ac.transform",
       "ac.transform.yield",
       "ac.rule",
@@ -893,6 +901,7 @@ TEST(ACIROpsTest, RuntimeAndQueueVarRegistryIsExact) {
       "ac.memory.yield",
       "ac.table",
       "ac.table.get",
+      "ac.versioned_table.lookup",
       "ac.table.index",
       "ac.table.match",
       "ac.table.match.yield",
@@ -900,6 +909,7 @@ TEST(ACIROpsTest, RuntimeAndQueueVarRegistryIsExact) {
       "ac.table.choose.yield",
       "ac.table.read",
       "ac.table.propose",
+      "ac.versioned_table.propose",
       "ac.table.write",
       "ac.table.masked_write",
       "ac.table.yield",
@@ -918,11 +928,17 @@ TEST(ACIROpsTest, RuntimeAndQueueVarRegistryIsExact) {
       "ac.var.cmp",
       "ac.state.snapshot",
       "ac.state.snapshot_set",
+      "ac.recovery_domain",
+      "ac.typed_identity",
+      "ac.checkpoint",
+      "ac.retained_result",
+      "ac.recovery.event",
+      "ac.kill_set",
   };
   for (llvm::StringLiteral name : queueVarNames)
     EXPECT_TRUE(mlir::OperationName(name, &context).isRegistered())
         << name.str();
-  EXPECT_EQ(context.getRegisteredOperationsByDialect("ac").size(), 155u);
+  EXPECT_EQ(context.getRegisteredOperationsByDialect("ac").size(), 163u);
 }
 
 

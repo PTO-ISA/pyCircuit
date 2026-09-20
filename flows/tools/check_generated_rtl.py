@@ -121,7 +121,7 @@ def audit(path: Path) -> tuple[list[str], dict[str, object]]:
                 r"\b[A-Za-z_][A-Za-z0-9_$]*\b",
                 "\n".join(
                     match.group(0)
-                    for match in re.finditer(r"assert\s+property[^;]+", body)
+                    for match in re.finditer(r"(?:assert|cover)\s+property[^;]+", body)
                 ),
             )
         )
