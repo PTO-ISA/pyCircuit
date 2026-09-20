@@ -24,7 +24,7 @@ def native(core: bytes = b"module { ac.system @core }\n") -> SimpleNamespace:
     artifacts = (
         SimpleNamespace(path="core.ac", kind="verified-acir", data=core),
         SimpleNamespace(
-            path="interfaces/pkg/types.ac",
+            path="interfaces/pkg/token.ac",
             kind="verified-acir",
             data=b'module attributes {ac.unit_kind = "interface"} {}\n',
         ),
@@ -32,20 +32,15 @@ def native(core: bytes = b"module { ac.system @core }\n") -> SimpleNamespace:
             path="sources/bank.ac",
             kind="verified-acir",
             data=(
-                b"module {\n"
-                b"  ac.module @bank__index_0() parameters {index = 0 : i64} "
-                b"graph { ac.return }\n"
-                b"  ac.module @bank__index_1() parameters {index = 1 : i64} "
-                b"graph { ac.return }\n"
-                b"}\n"
+                b"module attributes {ac.unit_kind = \"source\"} {}\n"
             ),
         ),
         SimpleNamespace(
-            path="interfaces/modules/bank.ac",
+            path="interfaces/bank.ac",
             kind="verified-acir",
             data=(
-                b"module { ac.module.import @bank__index_0 : () -> () "
-                b"parameters {index = 0 : i64} from {source = \"bank.py\"} }\n"
+                b"module attributes {ac.unit_kind = \"interface\", "
+                b"ac.interface_kind = \"source\"} {}\n"
             ),
         ),
     )
@@ -141,6 +136,34 @@ class AccCommandTest(unittest.TestCase):
             self.assertFalse(output.exists())
             self.assertIn("produced no unique 'core.ac' AC unit", stderr.getvalue())
 
+    def test_second_file_publication_failure_rolls_back_both_outputs(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            implementation = root / "stage.ac"
+            interface = root / "interfaces/stage.ac"
+            real_rename = _acc_py.os.rename
+            calls = 0
+
+            def fail_second(source: object, destination: object) -> None:
+                nonlocal calls
+                calls += 1
+                if calls == 2:
+                    raise OSError("injected second publication failure")
+                real_rename(source, destination)
+
+            with patch.object(_acc_py.os, "rename", side_effect=fail_second):
+                with self.assertRaisesRegex(OSError, "injected"):
+                    _acc_py._publish_files(
+                        (
+                            (implementation, b"implementation"),
+                            (interface, b"interface"),
+                        )
+                    )
+
+            self.assertFalse(implementation.exists())
+            self.assertFalse(interface.exists())
+            self.assertEqual((), tuple(root.rglob("*.tmp")))
+
     def test_interface_mode_publishes_interface_source_tree(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
@@ -166,7 +189,7 @@ class AccCommandTest(unittest.TestCase):
             self.assertEqual(0, result)
             self.assertEqual(
                 b'module attributes {ac.unit_kind = "interface"} {}\n',
-                (output / "pkg/types.ac").read_bytes(),
+                (output / "pkg/token.ac").read_bytes(),
             )
 
     def test_interface_mode_publishes_empty_tree_for_zero_type_closure(self) -> None:
@@ -221,71 +244,6 @@ class AccCommandTest(unittest.TestCase):
                     ]
                 )
 
-    def test_source_unit_groups_definitions_and_specializations(self) -> None:
-        with tempfile.TemporaryDirectory() as temporary:
-            root = Path(temporary)
-            architecture = root / "bank.py"
-            architecture.write_text(
-                """import agentic_circuit as ac
-
-@ac.module
-def bank(value: ac.u8, *, index: ac.const[int]) -> ac.u8:
-    return value
-""",
-                encoding="utf-8",
-            )
-            source_unit = root / "source-unit.json"
-            source_unit.write_text(
-                json.dumps(
-                    {
-                        "schema": "agentic-circuit-specializations",
-                        "version": "0.1",
-                        "specializations": [
-                            {"module": "bank", "static": {"index": 0}},
-                            {"module": "bank", "static": {"index": 1}},
-                        ],
-                    }
-                ),
-                encoding="utf-8",
-            )
-            output = root / "bank.ac"
-            header = root / "interfaces" / "modules" / "bank.ac"
-            workspace = SimpleNamespace(component_roots=(), root=root)
-
-            def captured(arguments, _workspace):
-                self.assertIsNone(arguments.module)
-                self.assertEqual(
-                    ("bank", "bank"),
-                    tuple(name for name, _ in arguments.source_specializations),
-                )
-                return frontend()
-
-            with (
-                patch.object(_acc_py, "discover_workspace", return_value=workspace),
-                patch.object(_acc_py, "capture", side_effect=captured),
-                patch.object(
-                    _acc_py,
-                    "run_native_compiler",
-                    return_value=native(),
-                ),
-            ):
-                result = _acc_py.main(
-                    [
-                        "-c",
-                        str(architecture),
-                        "--specializations-json",
-                        str(source_unit),
-                        "--header-output",
-                        str(header),
-                        "-o",
-                        str(output),
-                    ]
-                )
-            self.assertEqual(0, result)
-            rendered = output.read_bytes()
-            self.assertEqual(1, rendered.count(b"ac.module @bank__index_0"))
-            self.assertEqual(1, rendered.count(b"ac.module @bank__index_1"))
-            self.assertIn(b"ac.module.import @bank__index_0", header.read_bytes())
 
     def test_definition_level_module_mode_is_removed(self) -> None:
         with self.assertRaises(SystemExit):
@@ -340,65 +298,7 @@ def bank(value: ac.u8, *, index: ac.const[int]) -> ac.u8:
         self.assertEqual(0, result)
         self.assertEqual(output.resolve().as_posix(), payload["output"])
 
-    def test_static_json_reaches_capture_as_canonical_arguments(self) -> None:
-        with tempfile.TemporaryDirectory() as temporary:
-            root = Path(temporary)
-            architecture = root / "architecture.py"
-            architecture.write_text("# fixture\n", encoding="utf-8")
-            bindings = root / "bindings.json"
-            bindings.write_text(
-                '{"width":8,"cfg":{"lanes":4,"entries":16}}\n',
-                encoding="utf-8",
-            )
-            output = root / "model.ac"
-            workspace = SimpleNamespace(component_roots=())
 
-            def captured(arguments, _workspace):
-                self.assertTrue(arguments.jit_source_closure)
-                self.assertEqual(
-                    (
-                        ("cfg", {"entries": 16, "lanes": 4}),
-                        ("width", 8),
-                    ),
-                    arguments.static_arguments,
-                )
-                return frontend()
-
-            with (
-                patch.object(_acc_py, "discover_workspace", return_value=workspace),
-                patch.object(_acc_py, "capture", side_effect=captured),
-                patch.object(_acc_py, "run_native_compiler", return_value=native()),
-            ):
-                result = _acc_py.main(
-                    [
-                        "-c",
-                        str(architecture),
-                        "-o",
-                        str(output),
-                        "--static-json",
-                        str(bindings),
-                    ]
-                )
-        self.assertEqual(0, result)
-
-    def test_static_json_requires_a_closed_object(self) -> None:
-        with tempfile.TemporaryDirectory() as temporary:
-            root = Path(temporary)
-            architecture = root / "architecture.py"
-            architecture.write_text("# fixture\n", encoding="utf-8")
-            bindings = root / "bindings.json"
-            bindings.write_text("[]\n", encoding="utf-8")
-            with self.assertRaises(SystemExit):
-                _acc_py.main(
-                    [
-                        "-c",
-                        str(architecture),
-                        "-o",
-                        str(root / "model.ac"),
-                        "--static-json",
-                        str(bindings),
-                    ]
-                )
 
     def test_timeout_must_be_positive(self) -> None:
         with self.assertRaises(SystemExit):

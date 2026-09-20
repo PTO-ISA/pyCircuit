@@ -5,7 +5,13 @@ from __future__ import annotations
 import agentic_circuit as ac
 
 
-@ac.module
+@ac.module_decl(source="examples/agentic-circuit/state/inferred_stateful_module.py")
+def accumulator(value: ac.u8) -> ac.u8:
+    ...
+
+accumulator_decl = accumulator
+
+@ac.module(declaration=accumulator_decl)
 def accumulator(value: ac.u8) -> ac.u8:
     total: ac.u8 = 0
     total = total + value

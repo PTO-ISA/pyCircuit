@@ -358,9 +358,9 @@ _INSTANCE_NAME_RE = re.compile(r'\bname\s*=\s*"((?:\\.|[^"\\])*)"')
 _INSTANCE_SHORT_NAME_RE = re.compile(r'\bshort_name\s*=\s*"((?:\\.|[^"\\])*)"')
 
 
-def _instance_ops_in_func_mlir(func_mlir: str) -> list[tuple[str, str]]:
+def _instance_ops_in_family_mlir(family_mlir: str) -> list[tuple[str, str]]:
     out: list[tuple[str, str]] = []
-    for line in func_mlir.splitlines():
+    for line in family_mlir.splitlines():
         if "pyc.instance" not in line:
             continue
         m_callee = _INSTANCE_CALLEE_RE.search(line)
@@ -403,11 +403,11 @@ _HARDENED_ATTR_RE = re.compile(r'\bpyc\.hardened\s*=\s*"((?:\\.|[^"\\])*)"')
 def _probe_table_from_pyc_text(sym: str, pyc_text: str) -> dict[str, dict[str, Any]]:
     # Extract the `pyc.hardened` JSON payload for a specific module symbol.
     #
-    # The attribute lives on the `func.func @<sym>` header line and contains a
+    # The attribute lives on the `pyc.module @<sym>` carrier and contains a
     # JSON string, which itself encodes the hardened payload object.
     sym = str(sym)
     for line in pyc_text.splitlines():
-        if f"func.func @{sym}" not in line:
+        if f"pyc.module @{sym}" not in line:
             continue
         m = _HARDENED_ATTR_RE.search(line)
         if not m:
@@ -489,10 +489,10 @@ def compute_trace_plan_from_artifacts(
         if not isinstance(pyc_path, Path) or not pyc_path.is_file():
             return
         try:
-            func_mlir = pyc_path.read_text(encoding="utf-8")
+            family_mlir = pyc_path.read_text(encoding="utf-8")
         except OSError:
             return
-        children = _instance_ops_in_func_mlir(func_mlir)
+        children = _instance_ops_in_family_mlir(family_mlir)
         for raw_name, callee in sorted(
             children, key=lambda x: (_sanitize_id(x[0]), x[1])
         ):
@@ -621,7 +621,7 @@ def compute_trace_plan(*, design: Design, config: TraceConfig) -> TracePlan:
             return
         if sym in stack:
             return
-        children = _instance_ops_in_func_mlir(cm.mod.emit_func_mlir())
+        children = _instance_ops_in_family_mlir(cm.mod.emit_family_mlir())
         # Deterministic order independent of frontend call order.
         for raw_name, callee in sorted(
             children, key=lambda x: (_sanitize_id(x[0]), x[1])

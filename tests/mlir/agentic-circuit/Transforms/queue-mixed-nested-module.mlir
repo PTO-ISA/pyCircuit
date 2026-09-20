@@ -19,9 +19,9 @@ builtin.module attributes {
     result_schema = {id = "default", format = "json"},
     selected = true
   }> : () -> ()
-
-  ac.module @Increment(%input: !ac.queue<i8>) -> (!ac.queue<i8>)
-      parameters {} graph {
+ac.module @Increment source #ac.source_owner<"tests/native_family.py", "tests/native_family.py"> schema #ac.module_family_schema<#ac.static_parameters<[]>, #ac.static_cases<[#ac.static_arguments<[]>]>, #ac.module_interface<[#ac.interface_port<"input_0", "input", #ac.type_expr<#ac.type_expr_concrete<!ac.queue<i8>>>, #ac.source_provenance<"tests/native_family.py", 1, 1, 1, 1>>, #ac.interface_port<"output_0", "output", #ac.type_expr<#ac.type_expr_concrete<!ac.queue<i8>>>, #ac.source_provenance<"tests/native_family.py", 1, 1, 1, 1>>]>, #ac.source_owner<"tests/native_family.py", "tests/native_family.py">, []> {
+    ac.module.case arguments #ac.static_arguments<[]> type (!ac.queue<i8>) -> (!ac.queue<i8>) source #ac.source_provenance<"tests/native_family.py", 1, 1, 1, 1> graph {
+    ^bb0(%input: !ac.queue<i8>):
     %output = ac.scope @logic(%input) {
     ^bb0(%borrowed: !ac.queue<i8>):
       %incremented = ac.transform %borrowed depths [2] latencies [1] {
@@ -33,10 +33,12 @@ builtin.module attributes {
       ac.scope.yield %incremented : !ac.queue<i8>
     } : (!ac.queue<i8>) -> !ac.queue<i8>
     ac.return %output : !ac.queue<i8>
-  }
 
-  ac.module @PrepareAndIncrement(%input: !ac.queue<i8>) -> (!ac.queue<i8>)
-      parameters {} graph {
+    }
+  }
+  ac.module @PrepareAndIncrement source #ac.source_owner<"tests/native_family.py", "tests/native_family.py"> schema #ac.module_family_schema<#ac.static_parameters<[]>, #ac.static_cases<[#ac.static_arguments<[]>]>, #ac.module_interface<[#ac.interface_port<"input_0", "input", #ac.type_expr<#ac.type_expr_concrete<!ac.queue<i8>>>, #ac.source_provenance<"tests/native_family.py", 1, 1, 1, 1>>, #ac.interface_port<"output_0", "output", #ac.type_expr<#ac.type_expr_concrete<!ac.queue<i8>>>, #ac.source_provenance<"tests/native_family.py", 1, 1, 1, 1>>]>, #ac.source_owner<"tests/native_family.py", "tests/native_family.py">, []> {
+    ac.module.case arguments #ac.static_arguments<[]> type (!ac.queue<i8>) -> (!ac.queue<i8>) source #ac.source_provenance<"tests/native_family.py", 1, 1, 1, 1> graph {
+    ^bb0(%input: !ac.queue<i8>):
     %prepared = ac.scope @prepare(%input) {
     ^bb0(%borrowed: !ac.queue<i8>):
       %local = ac.transform %borrowed depths [2] latencies [1] {
@@ -47,12 +49,14 @@ builtin.module attributes {
       } {ac.name = "prepared"} : (!ac.queue<i8>) -> !ac.queue<i8>
       ac.scope.yield %local : !ac.queue<i8>
     } : (!ac.queue<i8>) -> !ac.queue<i8>
-    %output = ac.instance @child of @Increment(%prepared) static {}
+    %output = ac.instance @child of @Increment(%prepared) static #ac.static_arguments<[]>
         id "child" path "child" : (!ac.queue<i8>) -> !ac.queue<i8>
     ac.return %output : !ac.queue<i8>
-  }
 
-  ac.module @Top() parameters {} graph {
+    }
+  }
+  ac.module @Top source #ac.source_owner<"tests/native_family.py", "tests/native_family.py"> schema #ac.module_family_schema<#ac.static_parameters<[]>, #ac.static_cases<[#ac.static_arguments<[]>]>, #ac.module_interface<[]>, #ac.source_owner<"tests/native_family.py", "tests/native_family.py">, []> {
+    ac.module.case arguments #ac.static_arguments<[]> type () -> () source #ac.source_provenance<"tests/native_family.py", 1, 1, 1, 1> graph {
     %left_input, %right_input = ac.scope @inputs() {
       %left = ac.source depth 2 latency 1 {ac.name = "left_input"}
           : !ac.queue<i8>
@@ -60,9 +64,9 @@ builtin.module attributes {
           : !ac.queue<i8>
       ac.scope.yield %left, %right : !ac.queue<i8>, !ac.queue<i8>
     } : () -> (!ac.queue<i8>, !ac.queue<i8>)
-    %left_output = ac.instance @left of @PrepareAndIncrement(%left_input) static {}
+    %left_output = ac.instance @left of @PrepareAndIncrement(%left_input) static #ac.static_arguments<[]>
         id "left" path "left" : (!ac.queue<i8>) -> !ac.queue<i8>
-    %right_output = ac.instance @right of @PrepareAndIncrement(%right_input) static {}
+    %right_output = ac.instance @right of @PrepareAndIncrement(%right_input) static #ac.static_arguments<[]>
         id "right" path "right" : (!ac.queue<i8>) -> !ac.queue<i8>
     ac.scope @outputs(%left_output, %right_output) {
     ^bb0(%left: !ac.queue<i8>, %right: !ac.queue<i8>):
@@ -71,21 +75,19 @@ builtin.module attributes {
       ac.scope.yield
     } : (!ac.queue<i8>, !ac.queue<i8>) -> ()
     ac.return
+
+    }
   }
 }
 
-// PLAN: "definition":"PrepareAndIncrement"
-// PLAN-SAME: "kind":"transform"
-// PLAN-SAME: "name":"prepared"
-// PLAN-SAME: "module_instances":[{"definition":"Increment"
-// PLAN-SAME: "inputs":["prepared"]
-// PLAN-SAME: "module_specializations":[{
-// PLAN-SAME: "definition":"Increment"
+// PLAN: "definition":"Top"
+// PLAN-SAME: "module_instances":[{"definition":"PrepareAndIncrement","inputs":["left_input"]
+// PLAN-SAME: {"definition":"PrepareAndIncrement","inputs":["right_input"]
 
 // CXX-COUNT-1: class [[LEAF:Increment]] final : public gfsim::Module
 // CXX-COUNT-1: class [[PARENT:PrepareAndIncrement]] final : public gfsim::Module
 // CXX: gfsim::SimQueue<gfsim::UInt<8>> queue_0_;
 // CXX: gfsim::QueueTransform<gfsim::UInt<8>, gfsim::UInt<8>, [[PARENT]]_local_policy
-// CXX: [[LEAF]] child_0_;
+// CXX: std::unique_ptr<[[LEAF]]> child_0_;
 // CXX: class MixedNestedReuse final : public gfsim::Module
-// CXX-COUNT-2: [[PARENT]] instance_
+// CXX-COUNT-2: std::unique_ptr<[[PARENT]]> instance_

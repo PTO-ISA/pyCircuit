@@ -13,7 +13,8 @@ from pycircuit import (
 from pycircuit.design import probe
 
 
-def build(m: CycleAwareCircuit, domain: CycleAwareDomain, width: int = 8) -> None:
+def build(m: CycleAwareCircuit, domain: CycleAwareDomain) -> None:
+    width = 8
     en = cas(domain, m.input("en", width=1), cycle=0)
 
     q = domain.signal(width=width, reset_value=0, name="q")
@@ -42,8 +43,4 @@ def reset_probe(p: ProbeBuilder, dut: ProbeView, width: int = 8) -> None:
 
 
 if __name__ == "__main__":
-    print(
-        build_cycle_aware(
-            build, name="reset_invalidate_order_smoke", width=8
-        ).emit_mlir()
-    )
+    print(build_cycle_aware(build, name="reset_invalidate_order_smoke").emit_mlir())

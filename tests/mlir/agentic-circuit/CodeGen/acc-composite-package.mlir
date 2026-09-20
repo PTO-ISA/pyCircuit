@@ -1,10 +1,10 @@
 // RUN: rm -rf %t
 // RUN: %split_file %s %t
 // RUN: env PYTHONPATH=%source_root/python/semantic-core/src:%source_root/python/agentic-circuit/src:%binary_root/python %python -m agentic_circuit._acc_py --project %t/agentic-circuit.toml -c %t/pkg/core.py --unit core -o %t/package/core.ac --quiet
-// RUN: env PYTHONPATH=%source_root/python/semantic-core/src:%source_root/python/agentic-circuit/src:%binary_root/python %python -m agentic_circuit._acc_py --project %t/agentic-circuit.toml -c %t/pkg/decode.py --specializations-json %t/decode.json --header-output %t/package/interfaces/pkg/decode/module.ac -o %t/package/h3/decode/decode.ac --quiet
+// RUN: env PYTHONPATH=%source_root/python/semantic-core/src:%source_root/python/agentic-circuit/src:%binary_root/python %python -m agentic_circuit._acc_py --project %t/agentic-circuit.toml -c %t/pkg/decode.py --header-output %t/package/interfaces/pkg/decode.ac -o %t/package/h3/decode/decode.ac --quiet
 // RUN: %FileCheck %s --check-prefix=SOURCE < %t/package/h3/decode/decode.ac
-// RUN: env PYTHONPATH=%source_root/python/semantic-core/src:%source_root/python/agentic-circuit/src:%binary_root/python %python -m agentic_circuit._acc_py --project %t/agentic-circuit.toml -c %t/pkg/execute.py --specializations-json %t/execute.json --header-output %t/package/interfaces/pkg/execute/module.ac -o %t/package/h3/execute/execute.ac --quiet
-// RUN: env PYTHONPATH=%source_root/python/semantic-core/src:%source_root/python/agentic-circuit/src:%binary_root/python %python -m agentic_circuit._acc_py --project %t/agentic-circuit.toml -c %t/pkg/pipeline.py --specializations-json %t/pipeline.json --header-output %t/package/interfaces/pkg/pipeline/module.ac -o %t/package/h2/pipeline/pipeline.ac --quiet
+// RUN: env PYTHONPATH=%source_root/python/semantic-core/src:%source_root/python/agentic-circuit/src:%binary_root/python %python -m agentic_circuit._acc_py --project %t/agentic-circuit.toml -c %t/pkg/execute.py --header-output %t/package/interfaces/pkg/execute.ac -o %t/package/h3/execute/execute.ac --quiet
+// RUN: env PYTHONPATH=%source_root/python/semantic-core/src:%source_root/python/agentic-circuit/src:%binary_root/python %python -m agentic_circuit._acc_py --project %t/agentic-circuit.toml -c %t/pkg/pipeline.py --header-output %t/package/interfaces/pkg/pipeline.ac -o %t/package/h2/pipeline/pipeline.ac --quiet
 // RUN: %acc -c %t/package -verify
 // RUN: %acc -c %t/package -emit-cpp-bundle -o %t/bundle
 // RUN: cmake -S %t/bundle -B %t/bundle-build -G Ninja -DAC_GFSIM_INCLUDE_DIR=%source_root/simulator/gfsim/include
@@ -16,7 +16,7 @@
 // SOURCE-NOT: func.call @widen
 // SOURCE-NOT: func.func private @widen
 
-//--- pkg/__init__.py
+//--- pkg/_init__.py
 
 //--- pkg/decode_module.py
 import agentic_circuit as ac
@@ -43,10 +43,15 @@ def pipeline(value: ac.u8) -> ac.u32:
 //--- pkg/decode.py
 import agentic_circuit as ac
 
-from pkg.helpers import widen
+from pkg.decode_module import decode
 
 
-@ac.module
+@ac.inline
+def widen(value: ac.u8) -> ac.u16:
+    return ac.zext(value, ac.u16)
+
+
+@ac.module(declaration=decode)
 def decode(value: ac.u8) -> ac.u16:
     return widen(value)
 
@@ -60,9 +65,10 @@ def widen(value: ac.u8) -> ac.u16:
 
 //--- pkg/execute.py
 import agentic_circuit as ac
+from pkg.execute_module import execute
 
 
-@ac.module
+@ac.module(declaration=execute)
 def execute(value: ac.u16) -> ac.u32:
     return ac.zext(value, ac.u32)
 
@@ -71,9 +77,10 @@ import agentic_circuit as ac
 
 from pkg.decode_module import decode
 from pkg.execute_module import execute
+from pkg.pipeline_module import pipeline
 
 
-@ac.module
+@ac.module(declaration=pipeline)
 def pipeline(value: ac.u8) -> ac.u32:
     decoded = decode(value)
     result = execute(decoded)
@@ -89,14 +96,8 @@ from pkg.pipeline_module import pipeline
 def core(value: ac.u8) -> ac.u32:
     return pipeline(value)
 
-//--- decode.json
-{"schema":"agentic-circuit-specializations","version":"0.1","specializations":[{"module":"decode","static":{}}]}
 
-//--- execute.json
-{"schema":"agentic-circuit-specializations","version":"0.1","specializations":[{"module":"execute","static":{}}]}
 
-//--- pipeline.json
-{"schema":"agentic-circuit-specializations","version":"0.1","specializations":[{"module":"pipeline","static":{}}]}
 
 //--- harness.cpp
 #include "generated/dut.h"
@@ -115,9 +116,13 @@ int main() {
       !model.configure_activation_scheduler(system) ||
       !model.offer_value(system, gfsim::UInt<8>{7}))
     return 1;
+  std::optional<gfsim::UInt<32>> value;
+  while (!value && system.step())
+    value = model.try_take_result_0(system);
+  if (!value)
+    return 2;
   while (system.step()) {}
-  const auto &values = model.sink_0_values();
-  return values.size() == 1 && values[0].value() == 7 ? 0 : 2;
+  return value->value() == 7 ? 0 : 3;
 }
 
 //--- agentic-circuit.toml

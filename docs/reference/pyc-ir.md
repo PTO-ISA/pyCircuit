@@ -20,8 +20,9 @@ ACIR/QueueGraph manifests.
 
 ## Operations
 
-All examples below live inside a standard MLIR `module { ... }` and use
-`func.func` as the top-level hardware-module container.
+All examples below live inside a standard MLIR `module { ... }`. Hardware
+definitions use a source-owned `pyc.module` family containing ordered
+`pyc.module.case` regions; executable cases terminate with `pyc.return`.
 
 ### `pyc.constant`
 
@@ -104,28 +105,34 @@ ops that legitimately use a `name` attribute (e.g. memory instances).
 
 ### `pyc.instance` (hierarchical instantiation)
 
-`pyc.instance` instantiates another `func.func` hardware module while preserving
-module boundaries (for big designs / readable codegen):
+`pyc.instance` instantiates a case of another `pyc.module` family while
+preserving module boundaries (for big designs / readable codegen). An
+unparameterized family has one empty case and every instance carries the
+complete empty dependent-argument tuple:
 
 ```mlir
 %out_valid, %out_data = pyc.instance %clk, %rst, %in_valid, %in_data, %out_ready
-  {callee = @Core__pdeadbeef, name = "core0"} : (!pyc.clock, !pyc.reset, i1, i32, i1) -> (i1, i32)
+  {callee = @Core, name = "core0", static_args = #ac.dependent_arguments<[]>}
+  : (!pyc.clock, !pyc.reset, i1, i32, i1) -> (i1, i32)
 ```
 
 Attributes:
 
-- `callee`: `FlatSymbolRefAttr` (required) referencing a `func.func`
-- `name`: `StringAttr` (optional) instance name for codegen
+- `callee`: `FlatSymbolRefAttr` (required) referencing a `pyc.module`
+- `name`: non-empty `StringAttr` (required) readable instance name
+- `static_args`: complete typed `DependentArgumentsAttr` (required)
 
 Verifier contract:
 
-- Operand count/types **must** match the callee’s function type inputs.
-- Result count/types **must** match the callee’s function type results.
+- `static_args` must select exactly one declared case.
+- Operand count/types **must** match that case's physical inputs.
+- Result count/types **must** match that case's physical results.
 
-Backends emit named port connections using the callee’s `arg_names` /
-`result_names` attributes.
+The case signature carries the logical interface, physical function type,
+control origins, and complete logical-to-physical mappings consumed by both
+backends. Clock and reset are mandatory implicit physical inputs 0 and 1.
 
-Boundary-dynamic value params:
+Boundary-dynamic value parameters remain logical runtime ports:
 
 - Frontend may stamp:
   - `pyc.value_params = ["name0", ...]`
@@ -133,6 +140,12 @@ Boundary-dynamic value params:
 - These names are a subset of `arg_names`.
 - Value params are runtime boundary ports only; they must not participate in
   compile-time specialization identity.
+
+Static build kwargs and caller-observed specialization are not a finite family
+declaration and therefore fail closed. A parameterized family must declare its
+ordered typed parameters and complete finite case inventory at its source;
+symbols, suffixes, string `pyc.params`, and observed call sites carry no family
+identity.
 
 Hierarchy preservation policy:
 

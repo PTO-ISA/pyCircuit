@@ -45,7 +45,13 @@ def issue(entries, ready_tags):
         return selected.value
 
 
-@ac.module
+@ac.module_decl(source="examples/agentic-circuit/state/reusable_oldest_ready_isq.py")
+def isq(request: IssueEntry, readiness: Readiness) -> IssueEntry:
+    ...
+
+isq_decl = isq
+
+@ac.module(declaration=isq_decl)
 def isq(request: IssueEntry, readiness: Readiness) -> IssueEntry:
     entries = ac.table[4, IssueEntry](init=0)
     ready_tags = ac.table[64, bool](init=0)

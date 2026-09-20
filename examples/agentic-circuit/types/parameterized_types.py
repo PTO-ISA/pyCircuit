@@ -36,10 +36,3 @@ def parameterized_types(
 ) -> IssueGroup:
     result = keep(value)
     return result
-
-
-specialization = ac.jit(
-    parameterized_types,
-    rob_entries=128,
-    issue_width=4,
-)

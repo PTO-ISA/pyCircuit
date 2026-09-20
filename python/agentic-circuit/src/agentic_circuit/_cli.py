@@ -6,12 +6,9 @@ import argparse
 from collections.abc import Callable, Sequence
 from pathlib import Path
 
-from ._commands import check as check_command
 from ._commands import doctor as doctor_command
-from ._commands import elaborate as elaborate_command
 from ._commands import explain as explain_command
 from ._commands import init as init_command
-from ._commands import inspect as inspect_command
 from ._commands import schema as schema_command
 from ._diagnostics import Diagnostic
 from ._exit_codes import ExitCode
@@ -21,9 +18,6 @@ from ._workspace import UserInputError, discover_workspace, load_workspace
 EXACT_COMMANDS = (
     "init",
     "schema",
-    "check",
-    "elaborate",
-    "inspect",
     "explain",
     "doctor",
 )
@@ -132,39 +126,6 @@ def build_parser() -> argparse.ArgumentParser:
     schema.add_argument("name", nargs="?")
     _add_output_options(schema)
 
-    check = commands.add_parser("check", allow_abbrev=False)
-    check.add_argument("architecture", nargs="?")
-    check.add_argument("--stop-after", choices=("acpy-verify",), action=_OnceValue)
-    _add_workspace_options(check, jobs=True)
-    _add_output_options(check)
-
-    elaborate = commands.add_parser("elaborate", allow_abbrev=False)
-    elaborate.add_argument("architecture", nargs="?")
-    elaborate.add_argument(
-        "--emit", choices=("acpy", "acir"), default="acir", action=_OnceValue
-    )
-    elaborate.add_argument("-o", "--output", type=Path, action=_OnceValue)
-    _add_workspace_options(elaborate, output=True, jobs=True)
-    _add_output_options(elaborate)
-
-    inspect = commands.add_parser("inspect", allow_abbrev=False)
-    inspect.add_argument(
-        "view",
-        choices=(
-            "graph",
-            "hierarchy",
-            "ports",
-            "resources",
-            "address-map",
-            "protocols",
-            "specialization",
-        ),
-    )
-    inspect.add_argument("--path", action=_OnceValue)
-    inspect.add_argument("--format", choices=("json", "dot", "text"), action=_OnceValue)
-    _add_workspace_options(inspect)
-    _add_output_options(inspect)
-
     explain = commands.add_parser("explain", allow_abbrev=False)
     explain.add_argument("code")
     _add_output_options(explain)
@@ -207,12 +168,6 @@ def main(argv: Sequence[str] | None = None) -> int:
         sink = OutputSink.from_arguments(
             arguments, workspace_format=workspace.diagnostic_format
         )
-        if arguments.command == "check":
-            return check_command.run(arguments, workspace, sink)
-        if arguments.command == "elaborate":
-            return elaborate_command.run(arguments, workspace, sink)
-        if arguments.command == "inspect":
-            return inspect_command.run(arguments, workspace, sink)
         raise RuntimeError(f"unhandled command parser state: {arguments.command}")
     except UserInputError as error:
         sink.diagnostics((error.diagnostic,))

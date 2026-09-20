@@ -33,7 +33,12 @@ Operation *lookupDefinition(SymbolTable &symbols, FlatSymbolRefAttr reference) {
 SmallVector<Operation *> instantiatedDefinitions(ModuleOp module,
                                                  SymbolTable &symbols) {
   SmallVector<Operation *> definitions;
-  for (Operation &child : module.getBody().front()) {
+  if (module.getBody().empty() || module.getBody().front().empty())
+    return definitions;
+  auto moduleCase = dyn_cast<ModuleCaseOp>(module.getBody().front().front());
+  if (!moduleCase || moduleCase.getBody().empty())
+    return definitions;
+  for (Operation &child : moduleCase.getBody().front()) {
     if (auto instance = dyn_cast<InstanceOp>(child)) {
       definitions.push_back(
           lookupDefinition(symbols, instance.getDefinitionAttr()));
@@ -180,11 +185,16 @@ static LogicalResult verifyGraphStructureImpl(
         auto module = cast<ModuleOp>(root);
         StringRef processName =
             workload.getNestedReferences().front().getValue();
-        for (ProcessOp process : module.getBody().front().getOps<ProcessOp>())
-          if (process.getSymName() == processName) {
-            target = process;
-            break;
-          }
+        if (!module.getBody().empty() && !module.getBody().front().empty())
+          if (auto moduleCase =
+                  dyn_cast<ModuleCaseOp>(module.getBody().front().front());
+              moduleCase && !moduleCase.getBody().empty())
+            for (ProcessOp process :
+                 moduleCase.getBody().front().getOps<ProcessOp>())
+              if (process.getSymName() == processName) {
+                target = process;
+                break;
+              }
       }
       if (!target)
         return system.emitOpError()
@@ -227,7 +237,12 @@ static LogicalResult verifyGraphStructureImpl(
     auto [module, incomingDepth] = depthWorklist.pop_back_val();
     if (greatestIncomingDepth.lookup(module) != incomingDepth)
       continue;
-    for (Operation &child : module.getBody().front()) {
+    if (module.getBody().empty() || module.getBody().front().empty())
+      continue;
+    auto moduleCase = dyn_cast<ModuleCaseOp>(module.getBody().front().front());
+    if (!moduleCase || moduleCase.getBody().empty())
+      continue;
+    for (Operation &child : moduleCase.getBody().front()) {
       auto enqueue = [&](Operation *definition,
                          uint64_t depth) -> LogicalResult {
         if (depth > maxHierarchyDepth)
@@ -299,7 +314,16 @@ static LogicalResult verifyGraphStructureImpl(
   llvm::DenseMap<Operation *, ExpansionStats> expansionMemo;
   for (ModuleOp module : postorder) {
     ExpansionStats stats;
-    for (Operation &child : module.getBody().front()) {
+    if (module.getBody().empty() || module.getBody().front().empty()) {
+      expansionMemo[module] = stats;
+      continue;
+    }
+    auto moduleCase = dyn_cast<ModuleCaseOp>(module.getBody().front().front());
+    if (!moduleCase || moduleCase.getBody().empty()) {
+      expansionMemo[module] = stats;
+      continue;
+    }
+    for (Operation &child : moduleCase.getBody().front()) {
       ExpansionStats childStats;
       uint64_t localOwners = 0;
       uint64_t localDepth = 0;
@@ -383,7 +407,12 @@ static LogicalResult verifyGraphStructureImpl(
     auto module = dyn_cast<ModuleOp>(definition);
     if (!module)
       return success();
-    for (Operation &child : module.getBody().front()) {
+    if (module.getBody().empty() || module.getBody().front().empty())
+      return success();
+    auto moduleCase = dyn_cast<ModuleCaseOp>(module.getBody().front().front());
+    if (!moduleCase || moduleCase.getBody().empty())
+      return success();
+    for (Operation &child : moduleCase.getBody().front()) {
       if (auto instance = dyn_cast<InstanceOp>(child)) {
         std::string path = (parentPath + "." + instance.getPath()).str();
         std::string id = (parentId + "/" + instance.getStableId()).str();

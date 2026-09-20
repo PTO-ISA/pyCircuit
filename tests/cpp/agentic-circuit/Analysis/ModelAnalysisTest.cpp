@@ -59,6 +59,9 @@ TEST(RuleEffectGraphTest, DotEscapesEveryControlByte) {
 }
 
 constexpr llvm::StringLiteral kProcessModel = R"mlir(
+  #owner = #ac.source_owner<"tests/model_analysis.py", "tests/model_analysis.py">
+  #prov = #ac.source_provenance<"tests/model_analysis.py", 1, 1, 1, 1>
+  #schema = #ac.module_family_schema<#ac.static_parameters<[]>, #ac.static_cases<[#ac.static_arguments<[]>]>, #ac.module_interface<[]>, #owner, []>
   builtin.module  {
     ac.protocol @p32 {
       ac.role @sender dual @receiver cardinality "exclusive"
@@ -78,7 +81,8 @@ constexpr llvm::StringLiteral kProcessModel = R"mlir(
         workload @Top::@workload seed {kind = "fixed", value = 0 : i64}
         instrumentation [] results {id = "default", format = "json"}
         selected true
-    ac.module @Top() parameters {} graph {
+    ac.module @Top source #owner schema #schema {
+      ac.module.case arguments #ac.static_arguments<[]> type () -> () source #prov graph {
       %graph_i32 = arith.constant 7 : i32
       %graph_i64 = arith.constant 9 : i64
       ac.time_domain @clock period 1 phase 0 scale 1
@@ -128,6 +132,7 @@ constexpr llvm::StringLiteral kProcessModel = R"mlir(
         ac.yield_sim
       }
       ac.return
+      }
     }
   }
 )mlir";
@@ -225,16 +230,46 @@ template <typename OpTy> OpTy named(mlir::ModuleOp model, StringRef name) {
   return result;
 }
 
+struct TestFamily {
+  ac::ModuleOp module;
+  ac::ModuleCaseOp moduleCase;
+};
+
+TestFamily createEmptyFamily(OpBuilder &builder, Location loc, StringRef name) {
+  OpBuilder::InsertionGuard guard(builder);
+  auto arguments = ac::StaticArgumentsAttr::get(
+      builder.getContext(), builder.getArrayAttr({}));
+  auto source = ac::SourceOwnerAttr::get(
+      builder.getContext(), builder.getStringAttr("tests/model_analysis.py"),
+      builder.getStringAttr("tests/model_analysis.py"));
+  auto schema = ac::ModuleFamilySchemaAttr::get(
+      builder.getContext(),
+      ac::StaticParametersAttr::get(builder.getContext(),
+                                    builder.getArrayAttr({})),
+      ac::StaticCasesAttr::get(builder.getContext(),
+                              builder.getArrayAttr({arguments})),
+      ac::ModuleInterfaceAttr::get(builder.getContext(),
+                                   builder.getArrayAttr({})),
+      source, builder.getArrayAttr({}));
+  auto module = ac::ModuleOp::create(builder, loc, name, source, schema);
+  builder.setInsertionPointToStart(&module.getBody().emplaceBlock());
+  auto provenance = ac::SourceProvenanceAttr::get(
+      builder.getContext(), builder.getStringAttr("tests/model_analysis.py"),
+      1, 1, 1, 1);
+  auto moduleCase = ac::ModuleCaseOp::create(
+      builder, loc, arguments, builder.getFunctionType({}, {}), provenance);
+  moduleCase.getBody().emplaceBlock();
+  return {module, moduleCase};
+}
+
 OwningOpRef<mlir::ModuleOp> makeFlatAddressModel(MLIRContext &context,
                                                  uint64_t ownerCount) {
   OpBuilder builder(&context);
   Location loc = builder.getUnknownLoc();
   auto model = mlir::ModuleOp::create(loc);
   builder.setInsertionPointToStart(model.getBody());
-  auto top =
-      ac::ModuleOp::create(builder, loc, "Top", builder.getFunctionType({}, {}),
-                           builder.getDictionaryAttr({}));
-  builder.setInsertionPointToStart(top.addEntryBlock());
+  auto top = createEmptyFamily(builder, loc, "Top");
+  builder.setInsertionPointToStart(&top.moduleCase.getBody().front());
   for (uint64_t index = 0; index < ownerCount; ++index) {
     std::string name = ("mem" + Twine(index)).str();
     AddressSpaceOp::create(builder, loc, name, name, name, 32, "byte",
@@ -246,7 +281,7 @@ OwningOpRef<mlir::ModuleOp> makeFlatAddressModel(MLIRContext &context,
   auto instrumentation = InstrumentationOp::create(builder, loc, "trace");
   instrumentation.getBody().emplaceBlock();
   YieldSimOp::create(builder, loc);
-  builder.setInsertionPointToEnd(&top.getBody().front());
+  builder.setInsertionPointToEnd(&top.moduleCase.getBody().front());
   ReturnOp::create(builder, loc, ValueRange{});
   builder.setInsertionPointToEnd(model.getBody());
   auto workloadRef = SymbolRefAttr::get(
@@ -274,14 +309,19 @@ OwningOpRef<mlir::ModuleOp> makeDeepProcessModel(MLIRContext &context,
                                                  uint64_t depth) {
   context.loadDialect<arith::ArithDialect>();
   auto model = parseSourceString<mlir::ModuleOp>(R"mlir(
+    #owner = #ac.source_owner<"tests/model_analysis.py", "tests/model_analysis.py">
+    #prov = #ac.source_provenance<"tests/model_analysis.py", 1, 1, 1, 1>
+    #schema = #ac.module_family_schema<#ac.static_parameters<[]>, #ac.static_cases<[#ac.static_arguments<[]>]>, #ac.module_interface<[]>, #owner, []>
     builtin.module  {
       ac.system @soc root @Top as "root" tick 0 "cycle"
           workload @Top::@workload seed {kind = "fixed", value = 0 : i64}
           instrumentation [] results {id = "default", format = "json"}
           selected true
-      ac.module @Top() parameters {} graph {
+      ac.module @Top source #owner schema #schema {
+        ac.module.case arguments #ac.static_arguments<[]> type () -> () source #prov graph {
         ac.process @workload kind "workload" { ac.yield_sim }
         ac.return
+        }
       }
     }
   )mlir",
@@ -305,14 +345,19 @@ OwningOpRef<mlir::ModuleOp> makeNestedScfModel(MLIRContext &context,
                                                uint64_t scfDepth) {
   context.loadDialect<arith::ArithDialect, scf::SCFDialect>();
   auto model = parseSourceString<mlir::ModuleOp>(R"mlir(
+    #owner = #ac.source_owner<"tests/model_analysis.py", "tests/model_analysis.py">
+    #prov = #ac.source_provenance<"tests/model_analysis.py", 1, 1, 1, 1>
+    #schema = #ac.module_family_schema<#ac.static_parameters<[]>, #ac.static_cases<[#ac.static_arguments<[]>]>, #ac.module_interface<[]>, #owner, []>
     builtin.module  {
       ac.system @soc root @Top as "root" tick 0 "cycle"
           workload @Top::@workload seed {kind = "fixed", value = 0 : i64}
           instrumentation [] results {id = "default", format = "json"}
           selected true
-      ac.module @Top() parameters {} graph {
+      ac.module @Top source #owner schema #schema {
+        ac.module.case arguments #ac.static_arguments<[]> type () -> () source #prov graph {
         ac.process @workload kind "workload" { ac.yield_sim }
         ac.return
+        }
       }
     }
   )mlir",
@@ -645,12 +690,17 @@ TEST(ModelAnalysisTest, AddressSpacesFreezeAsAbsoluteStateOwners) {
   registerAllDialects(registry);
   MLIRContext context(registry);
   OwningOpRef<mlir::ModuleOp> model = parseAndFreeze(context, R"mlir(
+    #owner = #ac.source_owner<"tests/model_analysis.py", "tests/model_analysis.py">
+    #prov = #ac.source_provenance<"tests/model_analysis.py", 1, 1, 1, 1>
+    #args = #ac.static_arguments<[]>
+    #schema = #ac.module_family_schema<#ac.static_parameters<[]>, #ac.static_cases<[#args]>, #ac.module_interface<[]>, #owner, []>
     builtin.module  {
       ac.system @soc root @Top as "root" tick 0 "cycle"
           workload @Top::@workload seed {kind = "fixed", value = 0 : i64}
           instrumentation [] results {id = "default", format = "json"}
           selected true
-      ac.module @Leaf() parameters {} graph {
+      ac.module @Leaf source #owner schema #schema {
+        ac.module.case arguments #args type () -> () source #prov graph {
         ac.address_space @mem width 32 unit "byte" id "mem" path "mem"
         ac.address_space @other width 32 unit "byte" id "other" path "other"
         ac.process @observer kind "monitor" {
@@ -658,15 +708,18 @@ TEST(ModelAnalysisTest, AddressSpacesFreezeAsAbsoluteStateOwners) {
           ac.yield_sim
         }
         ac.return
+        }
       }
-      "ac.module"() <{sym_name = "Top", function_type = () -> (), static_params = {}}> ({
-        "ac.instance"() <{definition = @Leaf, sym_name = "left", stable_id = "left", path = "left", static_args = {}}> : () -> ()
-        "ac.array"() <{definition = @Leaf, sym_name = "banks", stable_id = "banks", path = "banks", shape = array<i64: 2>, static_args = [{}, {}]}> : () -> ()
-        "ac.instances"() <{sym_name = "mix", stable_id = "mix", path = "mix", definitions = [@Leaf, @Leaf], names = ["x", "y"], stable_ids = ["x", "y"], paths = ["x", "y"], interface = () -> (), static_args = [{}, {}]}> : () -> ()
+      ac.module @Top source #owner schema #schema {
+        ac.module.case arguments #args type () -> () source #prov graph {
+        "ac.instance"() <{definition = @Leaf, sym_name = "left", stable_id = "left", path = "left", static_args = #args}> : () -> ()
+        "ac.array"() <{definition = @Leaf, sym_name = "banks", stable_id = "banks", path = "banks", shape = array<i64: 2>, static_args = [#args, #args]}> : () -> ()
+        "ac.instances"() <{sym_name = "mix", stable_id = "mix", path = "mix", definitions = [@Leaf, @Leaf], names = ["x", "y"], stable_ids = ["x", "y"], paths = ["x", "y"], interface = () -> (), static_args = [#args, #args]}> : () -> ()
         ac.address_space @root_mem width 32 unit "byte" id "root_mem" path "root_mem"
         ac.process @workload kind "workload" { ac.yield_sim }
-        "ac.return"() : () -> ()
-      }) : () -> ()
+        ac.return
+        }
+      }
     }
   )mlir");
   ASSERT_TRUE(model);
@@ -709,13 +762,10 @@ TEST(ModelAnalysisTest, AddressSpacesParticipateInSaturatedOwnerBudget) {
   context.loadDialect<ACIRDialect>();
   OpBuilder builder(&context);
   auto loc = builder.getUnknownLoc();
-  auto emptyType = builder.getFunctionType({}, {});
-  auto emptyDictionary = builder.getDictionaryAttr({});
   auto model = mlir::ModuleOp::create(loc);
   builder.setInsertionPointToStart(model.getBody());
-  auto leaf =
-      ac::ModuleOp::create(builder, loc, "Leaf", emptyType, emptyDictionary);
-  builder.setInsertionPointToStart(leaf.addEntryBlock());
+  auto leaf = createEmptyFamily(builder, loc, "Leaf");
+  builder.setInsertionPointToStart(&leaf.moduleCase.getBody().front());
   auto addAddress = [&](StringRef name) {
     return AddressSpaceOp::create(builder, loc, name, name, name, 32, "byte",
                                   Attribute(), FlatSymbolRefAttr(),
@@ -725,20 +775,20 @@ TEST(ModelAnalysisTest, AddressSpacesParticipateInSaturatedOwnerBudget) {
   addAddress("mem1");
   ReturnOp::create(builder, loc, ValueRange{});
 
-  SmallVector<Attribute> staticArgs(512, Attribute(emptyDictionary));
+  auto emptyArguments = ac::StaticArgumentsAttr::get(
+      builder.getContext(), builder.getArrayAttr({}));
+  SmallVector<Attribute> staticArgs(512, Attribute(emptyArguments));
   builder.setInsertionPointToEnd(model.getBody());
-  auto middle =
-      ac::ModuleOp::create(builder, loc, "Middle", emptyType, emptyDictionary);
-  builder.setInsertionPointToStart(middle.addEntryBlock());
+  auto middle = createEmptyFamily(builder, loc, "Middle");
+  builder.setInsertionPointToStart(&middle.moduleCase.getBody().front());
   ArrayOp::create(builder, loc, TypeRange{}, ValueRange{}, "Leaf", "leaves",
                   "leaves", "leaves", builder.getDenseI64ArrayAttr({512}),
                   builder.getArrayAttr(staticArgs));
   ReturnOp::create(builder, loc, ValueRange{});
 
   builder.setInsertionPointToEnd(model.getBody());
-  auto top =
-      ac::ModuleOp::create(builder, loc, "Top", emptyType, emptyDictionary);
-  builder.setInsertionPointToStart(top.addEntryBlock());
+  auto top = createEmptyFamily(builder, loc, "Top");
+  builder.setInsertionPointToStart(&top.moduleCase.getBody().front());
   ArrayOp::create(builder, loc, TypeRange{}, ValueRange{}, "Middle", "middles",
                   "middles", "middles", builder.getDenseI64ArrayAttr({512}),
                   builder.getArrayAttr(staticArgs));
@@ -760,7 +810,9 @@ TEST(ModelAnalysisTest, AddressSpacesParticipateInSaturatedOwnerBudget) {
 
   auto overBudget = cast<mlir::ModuleOp>(model->clone());
   auto overBudgetLeaf = *overBudget.getOps<ac::ModuleOp>().begin();
-  builder.setInsertionPoint(&overBudgetLeaf.getBody().front().back());
+  auto overBudgetCase =
+      cast<ac::ModuleCaseOp>(overBudgetLeaf.getBody().front().front());
+  builder.setInsertionPoint(&overBudgetCase.getBody().front().back());
   addAddress("mem2");
   std::string diagnostic;
   ScopedDiagnosticHandler handler(&context, [&](Diagnostic &value) {
@@ -818,7 +870,7 @@ TEST(ModelAnalysisTest, ModelEntryPathsAcceptExactRegionNestingLimit) {
   DialectRegistry registry;
   registerAllDialects(registry);
   MLIRContext context(registry);
-  constexpr uint64_t scfDepthAtLimit = 509;
+  constexpr uint64_t scfDepthAtLimit = 508;
   for (ModelEntryPath path :
        {ModelEntryPath::Verify, ModelEntryPath::Canonicalize,
         ModelEntryPath::Freeze}) {
@@ -840,7 +892,7 @@ TEST(ModelAnalysisTest,
   DialectRegistry registry;
   registerAllDialects(registry);
   MLIRContext context(registry);
-  constexpr uint64_t scfDepthOverLimit = 510;
+  constexpr uint64_t scfDepthOverLimit = 509;
   constexpr StringLiteral expected =
       "whole-model region nesting exceeds ACIR capability limit 512";
   std::string firstDiagnostic;
@@ -927,12 +979,16 @@ TEST(ModelAnalysisTest, ProcessSkeletonIncludesNestedControlParents) {
   registerAllDialects(registry);
   MLIRContext context(registry);
   OwningOpRef<mlir::ModuleOp> model = parseAndFreeze(context, R"mlir(
+    #owner = #ac.source_owner<"tests/model_analysis.py", "tests/model_analysis.py">
+    #prov = #ac.source_provenance<"tests/model_analysis.py", 1, 1, 1, 1>
+    #schema = #ac.module_family_schema<#ac.static_parameters<[]>, #ac.static_cases<[#ac.static_arguments<[]>]>, #ac.module_interface<[]>, #owner, []>
     builtin.module  {
       ac.system @soc root @Top as "root" tick 0 "cycle"
           workload @Top::@workload seed {kind = "fixed", value = 0 : i64}
           instrumentation [] results {id = "default", format = "json"}
           selected true
-      ac.module @Top() parameters {} graph {
+      ac.module @Top source #owner schema #schema {
+        ac.module.case arguments #ac.static_arguments<[]> type () -> () source #prov graph {
         ac.stat @count kind "counter"
         ac.process @workload kind "workload" {
           %condition = arith.constant true
@@ -943,6 +999,7 @@ TEST(ModelAnalysisTest, ProcessSkeletonIncludesNestedControlParents) {
           ac.yield_sim
         }
         ac.return
+        }
       }
     }
   )mlir");

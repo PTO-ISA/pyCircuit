@@ -1,4 +1,7 @@
 #include "pyc/Dialect/PYC/PYCOps.h"
+#include "pyc/Dialect/PYC/PYCAttributes.h"
+#include "acir/Dialect/ACIR/ACIROps.h"
+#include "acir/Dialect/ACIR/ACIRTypes.h"
 
 #include "pyc/Dialect/PYC/PYCDialect.h"
 #include "pyc/Dialect/PYC/PYCTypes.h"
@@ -14,8 +17,10 @@
 #include "mlir/Support/LogicalResult.h"
 #include "llvm/ADT/STLExtras.h"
 #include "llvm/ADT/SmallString.h"
+#include "llvm/ADT/SmallSet.h"
 #include "llvm/ADT/StringExtras.h"
 #include "llvm/ADT/StringSet.h"
+#include "llvm/Support/MathExtras.h"
 #include "llvm/Support/Path.h"
 #include "llvm/Support/raw_ostream.h"
 
@@ -23,6 +28,564 @@
 
 using namespace mlir;
 using namespace pyc;
+
+acir::ac::DependentArgumentsAttr
+pyc::dependentArgumentsFromStatic(acir::ac::StaticArgumentsAttr arguments) {
+  MLIRContext *context = arguments.getContext();
+  SmallVector<Attribute> converted;
+  converted.reserve(arguments.getArguments().size());
+  for (auto argument :
+       arguments.getArguments().getAsRange<acir::ac::StaticArgumentAttr>()) {
+    auto literal = acir::ac::DependentStaticLiteralAttr::get(
+        context, argument.getValue());
+    auto value = acir::ac::DependentValueAttr::get(context, literal);
+    converted.push_back(acir::ac::DependentArgumentAttr::get(
+        context, argument.getName(), value));
+  }
+  return acir::ac::DependentArgumentsAttr::get(
+      context, ArrayAttr::get(context, converted));
+}
+
+FailureOr<acir::ac::StaticArgumentsAttr>
+pyc::staticArgumentsFromDependent(
+    acir::ac::DependentArgumentsAttr arguments) {
+  MLIRContext *context = arguments.getContext();
+  SmallVector<Attribute> converted;
+  converted.reserve(arguments.getArguments().size());
+  for (auto argument : arguments.getArguments().getAsRange<
+           acir::ac::DependentArgumentAttr>()) {
+    auto literal = dyn_cast<acir::ac::DependentStaticLiteralAttr>(
+        argument.getValue().getValue());
+    if (!literal)
+      return failure();
+    converted.push_back(acir::ac::StaticArgumentAttr::get(
+        context, argument.getName(), literal.getValue()));
+  }
+  return acir::ac::StaticArgumentsAttr::get(
+      context, ArrayAttr::get(context, converted));
+}
+
+template <typename Element>
+static LogicalResult verifyTypedArray(
+    llvm::function_ref<InFlightDiagnostic()> emitError, ArrayAttr values,
+    StringRef name, bool nonEmpty = false) {
+  if (!values || (nonEmpty && values.empty()))
+    return emitError() << name << " must be a typed ordered array";
+  for (Attribute value : values)
+    if (!isa<Element>(value))
+      return emitError() << name << " contains an invalid element";
+  return success();
+}
+
+LogicalResult ProjectionStepAttr::verify(
+    llvm::function_ref<InFlightDiagnostic()> emitError, Attribute value) {
+  return isa<ProjectionFieldAttr, ProjectionTupleElementAttr,
+             ProjectionArrayElementAttr>(value)
+             ? success()
+             : emitError() << "projection step has an unsupported record";
+}
+LogicalResult ProjectionFieldAttr::verify(
+    llvm::function_ref<InFlightDiagnostic()> emitError, StringAttr name) {
+  return name && !name.empty() ? success()
+                               : emitError() << "projection field requires a name";
+}
+LogicalResult ProjectionPathAttr::verify(
+    llvm::function_ref<InFlightDiagnostic()> emitError, ArrayAttr steps) {
+  return verifyTypedArray<ProjectionStepAttr>(emitError, steps,
+                                               "projection path");
+}
+LogicalResult PackedLeafAttr::verify(
+    llvm::function_ref<InFlightDiagnostic()> emitError, ProjectionPathAttr path,
+    acir::ac::TypeExprAttr logicalType, llvm::APInt lsb, llvm::APInt width) {
+  if (!path || !logicalType || lsb.isNegative() || width.isNegative() ||
+      width.isZero())
+    return emitError() << "packed leaf interval is invalid";
+  return success();
+}
+LogicalResult LayoutAttr::verify(
+    llvm::function_ref<InFlightDiagnostic()> emitError, llvm::APInt width,
+    ArrayAttr leaves) {
+  if (width.isNegative() || width.isZero() ||
+      failed(verifyTypedArray<PackedLeafAttr>(
+                        emitError, leaves, "layout leaves", true)))
+    return failure();
+  llvm::APInt next(width.getBitWidth(), 0);
+  llvm::SmallDenseSet<Attribute> paths;
+  for (auto leaf : leaves.getAsRange<PackedLeafAttr>()) {
+    unsigned bits = std::max({width.getBitWidth(), next.getBitWidth(),
+                              leaf.getLsb().getBitWidth(),
+                              leaf.getWidth().getBitWidth()});
+    llvm::APInt total = width.zextOrTrunc(bits);
+    llvm::APInt offset = next.zextOrTrunc(bits);
+    llvm::APInt leafOffset = leaf.getLsb().zextOrTrunc(bits);
+    llvm::APInt leafWidth = leaf.getWidth().zextOrTrunc(bits);
+    if (leaf.getLsb().isNegative() || leaf.getWidth().isNegative() ||
+        leafOffset != offset || leafWidth.ugt(total - offset) ||
+        !paths.insert(leaf.getPath()).second)
+      return emitError() << "layout leaves must uniquely cover the packed width";
+    next = offset + leafWidth;
+  }
+  unsigned bits = std::max(next.getBitWidth(), width.getBitWidth());
+  return next.zextOrTrunc(bits) == width.zextOrTrunc(bits) ? success()
+                       : emitError() << "layout leaves do not cover the width";
+}
+LogicalResult PhysicalPortAttr::verify(
+    llvm::function_ref<InFlightDiagnostic()> emitError, StringAttr direction,
+    uint64_t, TypeAttr type, StringAttr role, IntegerAttr lane,
+    LayoutAttr layout) {
+  if (!direction || !type || !role ||
+      (direction.getValue() != "input" && direction.getValue() != "result"))
+    return emitError() << "physical port direction/type is invalid";
+  bool laneRole = role.getValue() == "queue_valid" ||
+                  role.getValue() == "queue_data";
+  bool layoutRole = role.getValue() == "value" ||
+                    role.getValue() == "queue_data";
+  if ((!laneRole && role.getValue() != "value" &&
+       role.getValue() != "queue_ready") ||
+      static_cast<bool>(lane) != laneRole ||
+      static_cast<bool>(layout) != layoutRole)
+    return emitError() << "physical port lane/layout disagrees with its role";
+  if (lane && lane.getValue().isNegative())
+    return emitError() << "physical port lane must be non-negative";
+  return success();
+}
+LogicalResult LogicalPortMappingAttr::verify(
+    llvm::function_ref<InFlightDiagnostic()> emitError, StringAttr direction,
+    uint64_t, StringAttr name, acir::ac::TypeExprAttr logicalType,
+    ArrayAttr carriers, acir::ac::SourceProvenanceAttr provenance) {
+  if (!direction || !name || name.empty() || !logicalType || !provenance ||
+      (direction.getValue() != "input" && direction.getValue() != "output") ||
+      failed(verifyTypedArray<PhysicalPortAttr>(emitError, carriers,
+                                                "logical carriers", true)))
+    return failure();
+  return success();
+}
+LogicalResult ImplicitControlOriginAttr::verify(
+    llvm::function_ref<InFlightDiagnostic()> emitError, StringAttr kind,
+    StringAttr source, acir::ac::SourceProvenanceAttr provenance) {
+  if (!kind || !source || !provenance || source.getValue() != "implicit" ||
+      (kind.getValue() != "clock" && kind.getValue() != "reset"))
+    return emitError() << "control origin must be implicit clock/reset";
+  return success();
+}
+LogicalResult ControlPortMappingAttr::verify(
+    llvm::function_ref<InFlightDiagnostic()> emitError, StringAttr kind,
+    uint64_t index, TypeAttr type, ImplicitControlOriginAttr origin) {
+  bool clock = kind && kind.getValue() == "clock";
+  bool reset = kind && kind.getValue() == "reset";
+  if ((!clock && !reset) || !type || !origin || origin.getKind() != kind ||
+      (clock ? index != 0 || !isa<ClockType>(type.getValue())
+             : index != 1 || !isa<ResetType>(type.getValue())))
+    return emitError() << "control mapping must use !pyc.clock/!pyc.reset at inputs 0/1";
+  return success();
+}
+LogicalResult ModulePortMappingAttr::verify(
+    llvm::function_ref<InFlightDiagnostic()> emitError, ArrayAttr controls,
+    ArrayAttr logicalPorts, ArrayAttr physicalInputs, ArrayAttr physicalResults) {
+  if (failed(verifyTypedArray<ControlPortMappingAttr>(
+          emitError, controls, "control mappings", true)) ||
+      controls.size() != 2 ||
+      failed(verifyTypedArray<LogicalPortMappingAttr>(
+          emitError, logicalPorts, "logical mappings")) ||
+      failed(verifyTypedArray<PhysicalPortAttr>(
+          emitError, physicalInputs, "physical inputs")) ||
+      failed(verifyTypedArray<PhysicalPortAttr>(
+          emitError, physicalResults, "physical results")))
+    return failure();
+  return success();
+}
+LogicalResult ModuleCaseSignatureAttr::verify(
+    llvm::function_ref<InFlightDiagnostic()> emitError,
+    acir::ac::DependentArgumentsAttr arguments,
+    acir::ac::ModuleInterfaceAttr logical, TypeAttr physical,
+    ModulePortMappingAttr mapping) {
+  if (!arguments || !logical || !physical ||
+      !isa<FunctionType>(physical.getValue()) || !mapping)
+    return emitError() << "PYC module case signature is incomplete";
+  auto functionType = cast<FunctionType>(physical.getValue());
+  auto controls = mapping.getControls().getAsRange<ControlPortMappingAttr>();
+  if (mapping.getControls().size() != 2)
+    return emitError() << "controls must be ordered clock then reset";
+  auto controlIt = controls.begin();
+  ControlPortMappingAttr clock = *controlIt++;
+  ControlPortMappingAttr reset = *controlIt;
+  if (clock.getKind().getValue() != "clock" ||
+      reset.getKind().getValue() != "reset")
+    return emitError() << "controls must be ordered clock then reset";
+  if (functionType.getNumInputs() != mapping.getPhysicalInputs().size() + 2 ||
+      functionType.getNumResults() != mapping.getPhysicalResults().size())
+    return emitError() << "physical mapping arity does not match FunctionType";
+
+  llvm::SmallDenseSet<Attribute> inputCarriers;
+  llvm::SmallDenseSet<Attribute> resultCarriers;
+  uint64_t expectedInput = 2;
+  for (auto port : mapping.getPhysicalInputs().getAsRange<PhysicalPortAttr>()) {
+    if (port.getDirection().getValue() != "input")
+      return emitError() << "physical input carrier has non-input direction";
+    if (port.getIndex() != expectedInput)
+      return emitError() << "physical input carriers must be contiguous after controls";
+    if (port.getType().getValue() != functionType.getInput(expectedInput))
+      return emitError() << "physical input carrier type does not match FunctionType";
+    if (!inputCarriers.insert(port).second)
+      return emitError() << "physical input carriers must be unique";
+    ++expectedInput;
+  }
+  uint64_t expectedResult = 0;
+  for (auto port : mapping.getPhysicalResults().getAsRange<PhysicalPortAttr>()) {
+    if (port.getDirection().getValue() != "result")
+      return emitError() << "physical result carrier has non-result direction";
+    if (port.getIndex() != expectedResult)
+      return emitError() << "physical result carriers must be contiguous from zero";
+    if (port.getType().getValue() != functionType.getResult(expectedResult))
+      return emitError() << "physical result carrier " << expectedResult
+                         << " type " << port.getType().getValue()
+                         << " does not match FunctionType result "
+                         << functionType.getResult(expectedResult);
+    if (!resultCarriers.insert(port).second)
+      return emitError() << "physical result carriers must be unique";
+    ++expectedResult;
+  }
+
+  llvm::SmallDenseSet<Attribute> usedInputs;
+  llvm::SmallDenseSet<Attribute> usedResults;
+  llvm::StringMap<uint64_t> nextLogicalIndex;
+  auto useCarrier = [&](PhysicalPortAttr carrier) -> LogicalResult {
+    auto &available = carrier.getDirection().getValue() == "input"
+                          ? inputCarriers
+                          : resultCarriers;
+    auto &used = carrier.getDirection().getValue() == "input" ? usedInputs
+                                                                : usedResults;
+    if (!available.contains(carrier) || !used.insert(carrier).second)
+      return emitError() << "logical mapping reuses or invents a physical carrier";
+    return success();
+  };
+  auto logicalPorts = logical.getPorts().getAsRange<acir::ac::InterfacePortAttr>();
+  auto mappingPorts =
+      mapping.getLogicalPorts().getAsRange<LogicalPortMappingAttr>();
+  if (mapping.getLogicalPorts().size() != logical.getPorts().size())
+    return emitError() << "mapping must cover every logical port exactly once";
+  for (auto [expectedPort, mappingPort] :
+       llvm::zip_equal(logicalPorts, mappingPorts)) {
+    if (mappingPort.getIndex() != nextLogicalIndex[mappingPort.getDirection()]++ ||
+        mappingPort.getDirection() != expectedPort.getDirection() ||
+        mappingPort.getName() != expectedPort.getName() ||
+        mappingPort.getLogicalType() != expectedPort.getLogicalType() ||
+        mappingPort.getProvenance() != expectedPort.getProvenance())
+      return emitError() << "logical mapping does not match interface declaration order";
+    auto concrete = dyn_cast<acir::ac::TypeExprConcreteAttr>(
+        mappingPort.getLogicalType().getValue());
+    auto queue = concrete
+                     ? dyn_cast<acir::ac::QueueType>(
+                           concrete.getType().getValue())
+                     : acir::ac::QueueType();
+    const bool input = mappingPort.getDirection().getValue() == "input";
+    if (!queue) {
+      if (!concrete || mappingPort.getCarriers().size() != 1)
+        return emitError()
+               << "materialized logical value requires one physical carrier";
+      auto carrier = cast<PhysicalPortAttr>(mappingPort.getCarriers()[0]);
+      if (failed(useCarrier(carrier)))
+        return failure();
+      auto integer = dyn_cast<IntegerType>(carrier.getType().getValue());
+      if (carrier.getRole().getValue() != "value" || carrier.getLane() ||
+          !carrier.getLayout() ||
+          carrier.getDirection().getValue() != (input ? "input" : "result") ||
+          !integer || carrier.getLayout().getWidth().isNegative() ||
+          carrier.getLayout().getWidth().getActiveBits() > 64 ||
+          integer.getWidth() != carrier.getLayout().getWidth().getZExtValue())
+        return emitError()
+               << "logical value carrier must have exact direction and layout";
+      continue;
+    }
+    uint64_t lane = 0;
+    unsigned readyCount = 0;
+    bool expectValid = true;
+    bool sawReady = false;
+    for (auto carrier :
+         mappingPort.getCarriers().getAsRange<PhysicalPortAttr>()) {
+      if (failed(useCarrier(carrier)))
+        return failure();
+      StringRef role = carrier.getRole().getValue();
+      if (role == "queue_ready") {
+        if (!expectValid || lane != static_cast<uint64_t>(queue.getLanes()) ||
+            ++readyCount != 1 || carrier.getLane() || carrier.getLayout() ||
+            carrier.getDirection().getValue() != (input ? "result" : "input"))
+          return emitError() << "Queue requires one trailing shared opposite-direction ready carrier";
+        sawReady = true;
+        continue;
+      }
+      if (sawReady ||
+          carrier.getDirection().getValue() != (input ? "input" : "result") ||
+          !carrier.getLane() || carrier.getLane().getValue().isNegative() ||
+          carrier.getLane().getValue().getZExtValue() != lane)
+        return emitError() << "Queue lane carriers have wrong direction or order";
+      if (expectValid) {
+        if (role != "queue_valid" || carrier.getLayout() ||
+            !carrier.getType().getValue().isInteger(1))
+          return emitError() << "Queue lane must begin with one-bit valid";
+        expectValid = false;
+      } else {
+        if (role != "queue_data" || !carrier.getLayout())
+          return emitError() << "Queue valid must be followed by packed data";
+        auto integer = dyn_cast<IntegerType>(carrier.getType().getValue());
+        if (!integer || carrier.getLayout().getWidth().isNegative() ||
+            carrier.getLayout().getWidth().getActiveBits() > 64 ||
+            integer.getWidth() !=
+                carrier.getLayout().getWidth().getZExtValue())
+          return emitError() << "Queue data layout must exactly match carrier width";
+        expectValid = true;
+        ++lane;
+      }
+    }
+    if (!expectValid || lane != static_cast<uint64_t>(queue.getLanes()) ||
+        readyCount != 1 || queue.getRate() <= 0 ||
+        queue.getRate() > queue.getLanes())
+      return emitError() << "Queue carrier inventory does not match lanes/rate";
+  }
+  if (usedInputs.size() != inputCarriers.size() ||
+      usedResults.size() != resultCarriers.size())
+    return emitError() << "mapping must cover every logical and physical port exactly once";
+  return success();
+}
+
+static LogicalResult verifyNominalDefinitions(
+    Operation *owner, acir::ac::ModuleFamilySchemaAttr schema) {
+  auto module = owner->getParentOfType<ModuleOp>();
+  if (!module)
+    return owner->emitError("family carrier must be contained in a module");
+  for (Attribute raw : schema.getNominalDeclarations()) {
+    auto reference = cast<FlatSymbolRefAttr>(raw);
+    unsigned matches = 0;
+    for (acir::ac::TypeScopeOp scope :
+         module.getOps<acir::ac::TypeScopeOp>()) {
+      for (acir::ac::EnumOp declaration :
+           scope.getBody().front().getOps<acir::ac::EnumOp>())
+        matches += declaration.getSymName() == reference.getValue();
+      for (acir::ac::StructOp declaration :
+           scope.getBody().front().getOps<acir::ac::StructOp>())
+        matches += declaration.getSymName() == reference.getValue();
+    }
+    if (matches != 1)
+      return owner->emitError(
+                 "nominal declaration must resolve to one source-owned typed definition: ")
+             << reference.getValue();
+  }
+  return success();
+}
+
+static FailureOr<uint64_t>
+verifyPackedLayout(Operation *anchor, Type type, LayoutAttr layout) {
+  auto module = anchor->getParentOfType<ModuleOp>();
+  if (!module || !layout)
+    return failure();
+  SmallVector<PackedLeafAttr> expected;
+  llvm::SmallDenseSet<Type> active;
+  std::function<FailureOr<uint64_t>(Type, SmallVector<Attribute>)> collect =
+      [&](Type current, SmallVector<Attribute> steps) -> FailureOr<uint64_t> {
+    if (!active.insert(current).second)
+      return failure();
+    auto finish = [&](FailureOr<uint64_t> result) {
+      active.erase(current);
+      return result;
+    };
+    if (auto structure = dyn_cast<acir::ac::StructType>(current)) {
+      acir::ac::StructOp declaration;
+      for (acir::ac::TypeScopeOp scope :
+           module.getOps<acir::ac::TypeScopeOp>())
+        for (acir::ac::StructOp candidate :
+             scope.getBody().front().getOps<acir::ac::StructOp>())
+          if (candidate.getSymName() ==
+              structure.getName().getLeafReference().getValue())
+            declaration = candidate;
+      if (!declaration)
+        return finish(failure());
+      uint64_t total = 0;
+      for (Attribute rawField : declaration.getFields()) {
+        auto field = dyn_cast<DictionaryAttr>(rawField);
+        auto name = field ? field.getAs<StringAttr>("name") : StringAttr();
+        auto fieldType = field ? field.getAs<TypeAttr>("type") : TypeAttr();
+        if (!name || !fieldType)
+          return finish(failure());
+        auto nested = steps;
+        nested.push_back(ProjectionStepAttr::get(
+            current.getContext(), ProjectionFieldAttr::get(
+                                      current.getContext(), name)));
+        auto width = collect(fieldType.getValue(), std::move(nested));
+        if (failed(width) || total > UINT64_MAX - *width)
+          return finish(failure());
+        total += *width;
+      }
+      return finish(total);
+    }
+    if (auto tuple = dyn_cast<TupleType>(current)) {
+      uint64_t total = 0;
+      for (auto [index, element] : llvm::enumerate(tuple.getTypes())) {
+        auto nested = steps;
+        nested.push_back(ProjectionStepAttr::get(
+            current.getContext(), ProjectionTupleElementAttr::get(
+                                      current.getContext(), index)));
+        auto width = collect(element, std::move(nested));
+        if (failed(width) || total > UINT64_MAX - *width)
+          return finish(failure());
+        total += *width;
+      }
+      return finish(total);
+    }
+    if (auto array = dyn_cast<acir::ac::ValueArrayType>(current)) {
+      uint64_t total = 0;
+      for (int64_t index = 0; index < array.getLength(); ++index) {
+        auto nested = steps;
+        nested.push_back(ProjectionStepAttr::get(
+            current.getContext(), ProjectionArrayElementAttr::get(
+                                      current.getContext(), index)));
+        auto width = collect(array.getElementType(), std::move(nested));
+        if (failed(width) || total > UINT64_MAX - *width)
+          return finish(failure());
+        total += *width;
+      }
+      return finish(total);
+    }
+    uint64_t width = 0;
+    if (auto integer = dyn_cast<IntegerType>(current))
+      width = integer.getWidth();
+    else if (auto range = dyn_cast<acir::ac::RangeType>(current))
+      width = std::max<uint64_t>(1, llvm::Log2_64_Ceil(range.getUpper() + 1));
+    else if (auto enumeration = dyn_cast<acir::ac::EnumType>(current)) {
+      acir::ac::EnumOp declaration;
+      for (acir::ac::TypeScopeOp scope :
+           module.getOps<acir::ac::TypeScopeOp>())
+        for (acir::ac::EnumOp candidate :
+             scope.getBody().front().getOps<acir::ac::EnumOp>())
+          if (candidate.getSymName() ==
+              enumeration.getName().getLeafReference().getValue())
+            declaration = candidate;
+      if (!declaration)
+        return finish(failure());
+      width = declaration.getEncodingWidthAttr()
+                  ? *declaration.getEncodingWidth()
+                  : std::max<uint64_t>(
+                        1, llvm::Log2_64_Ceil(
+                               declaration.getEnumerants().size()));
+    } else {
+      return finish(failure());
+    }
+    auto path = ProjectionPathAttr::get(
+        current.getContext(), ArrayAttr::get(current.getContext(), steps));
+    auto logical = acir::ac::TypeExprAttr::get(
+        current.getContext(), acir::ac::TypeExprConcreteAttr::get(
+                                  current.getContext(), TypeAttr::get(current)));
+    uint64_t lsb = 0;
+    for (PackedLeafAttr leaf : expected)
+      lsb += leaf.getWidth().getZExtValue();
+    expected.push_back(PackedLeafAttr::get(
+        current.getContext(), path, logical, APInt(64, lsb), APInt(64, width)));
+    return finish(width);
+  };
+  auto width = collect(type, {});
+  if (failed(width) || layout.getWidth().isNegative() ||
+      layout.getWidth().getActiveBits() > 64 ||
+      *width != layout.getWidth().getZExtValue() ||
+      expected.size() != layout.getLeaves().size())
+    return failure();
+  for (auto [actual, wanted] : llvm::zip_equal(
+           layout.getLeaves().getAsRange<PackedLeafAttr>(), expected))
+    if (actual.getPath() != wanted.getPath() ||
+        actual.getLogicalType() != wanted.getLogicalType() ||
+        actual.getLsb().getActiveBits() > 64 ||
+        actual.getWidth().getActiveBits() > 64 ||
+        actual.getLsb().getZExtValue() != wanted.getLsb().getZExtValue() ||
+        actual.getWidth().getZExtValue() != wanted.getWidth().getZExtValue())
+      return failure();
+  return *width;
+}
+
+LogicalResult pyc::FamilyOp::verify() {
+  if (!getSource() || !getSchema() || getSource() != getSchema().getSource())
+    return emitOpError("source owner must match the complete family schema");
+  if (failed(verifyNominalDefinitions(*this, getSchema())))
+    return failure();
+  if (getBody().empty())
+    return emitOpError("requires one family body block");
+  auto declared = getSchema().getCases().getCases();
+  if (getBody().front().getOperations().size() != declared.size())
+    return emitOpError("body count must exactly match the declared finite cases");
+  for (Operation &operation : getBody().front())
+    if (!isa<pyc::ModuleCaseOp>(operation))
+      return operation.emitOpError(
+          "PYC family body may contain only pyc.module.case operations");
+  return success();
+}
+
+LogicalResult pyc::ModuleImportOp::verify() {
+  if (!getSource() || !getSchema() || getSource() != getSchema().getSource())
+    return emitOpError("source owner must match the complete family schema");
+  if (failed(verifyNominalDefinitions(*this, getSchema())))
+    return failure();
+  auto file = getOperation()->getParentOfType<ModuleOp>();
+  for (Attribute rawCase : getSchema().getCases().getCases()) {
+    auto materialized = acir::ac::materializeModuleInterface(
+        getSchema().getInterface(),
+        cast<acir::ac::StaticArgumentsAttr>(rawCase), {}, file);
+    if (!materialized)
+      return emitOpError()
+             << "import case interface is not concretely materializable: "
+             << llvm::toString(materialized.takeError());
+  }
+  return success();
+}
+
+LogicalResult pyc::ModuleCaseOp::verify() {
+  auto family = dyn_cast_or_null<pyc::FamilyOp>((*this)->getParentOp());
+  if (!family)
+    return emitOpError("must be a direct child of one pyc.module family");
+  if (!getSignature() || !getSourceProvenance() || getBody().empty())
+    return emitOpError("requires a typed signature, provenance, and body block");
+  bool declared = llvm::any_of(
+      family.getSchema().getCases().getCases(), [&](Attribute candidate) {
+        return dependentArgumentsFromStatic(
+                   cast<acir::ac::StaticArgumentsAttr>(candidate)) ==
+               getSignature().getArguments();
+      });
+  if (!declared)
+    return emitOpError(
+        "dependent arguments do not select one declared family case");
+  auto physical = cast<FunctionType>(getSignature().getPhysical().getValue());
+  Block &entry = getBody().front();
+  if (!llvm::equal(entry.getArgumentTypes(), physical.getInputs()))
+    return emitOpError("body arguments must match the physical case inputs");
+  if (entry.empty() || !isa<pyc::ReturnOp>(entry.back()))
+    return emitOpError("body must end with pyc.return");
+  for (LogicalPortMappingAttr logical : getSignature()
+                                             .getMapping()
+                                             .getLogicalPorts()
+                                             .getAsRange<LogicalPortMappingAttr>()) {
+    auto concrete = dyn_cast<acir::ac::TypeExprConcreteAttr>(
+        logical.getLogicalType().getValue());
+    if (!concrete)
+      return emitOpError("logical mapping must be materialized before PYC");
+    Type layoutType = concrete.getType().getValue();
+    if (auto queue = dyn_cast<acir::ac::QueueType>(layoutType))
+      layoutType = queue.getElementType();
+    for (PhysicalPortAttr carrier :
+         logical.getCarriers().getAsRange<PhysicalPortAttr>())
+      if (carrier.getLayout() &&
+          failed(verifyPackedLayout(*this, layoutType, carrier.getLayout())))
+        return emitOpError(
+            "packed layout does not recursively match the logical type");
+  }
+  return success();
+}
+
+LogicalResult pyc::ReturnOp::verify() {
+  auto moduleCase = dyn_cast_or_null<pyc::ModuleCaseOp>((*this)->getParentOp());
+  if (!moduleCase)
+    return emitOpError("must directly terminate one pyc.module.case");
+  auto physical =
+      cast<FunctionType>(moduleCase.getSignature().getPhysical().getValue());
+  if (!llvm::equal(getValues().getTypes(), physical.getResults()))
+    return emitOpError("return values must match the physical case results");
+  return success();
+}
 
 ParseResult ConstantOp::parse(OpAsmParser &parser, OperationState &result) {
   // Parse: `pyc.constant <integer> : <type>`
@@ -1014,11 +1577,22 @@ LogicalResult InstanceOp::verify() {
     return emitOpError("must be contained in an MLIR module");
 
   Operation *sym = SymbolTable::lookupSymbolIn(module, calleeAttr);
-  auto callee = dyn_cast_or_null<func::FuncOp>(sym);
-  if (!callee)
-    return emitOpError("callee must reference a func.func");
+  auto family = dyn_cast_or_null<pyc::FamilyOp>(sym);
+  if (!family)
+    return emitOpError("callee must reference a pyc.module family");
+  pyc::ModuleCaseOp selected;
+  for (pyc::ModuleCaseOp candidate :
+       family.getBody().front().getOps<pyc::ModuleCaseOp>())
+    if (candidate.getSignature().getArguments() == getStaticArgs()) {
+      selected = candidate;
+      break;
+    }
+  if (!selected)
+    return emitOpError(
+        "static arguments do not select one declared family case");
 
-  FunctionType ft = callee.getFunctionType();
+  FunctionType ft = cast<FunctionType>(
+      selected.getSignature().getPhysical().getValue());
   if (ft.getNumInputs() != getNumOperands())
     return emitOpError("operand count does not match callee signature");
   if (ft.getNumResults() != getNumResults())
@@ -1045,10 +1619,8 @@ LogicalResult InstanceOp::verify() {
                            << getResult(i).getType() << " expected " << ty;
   }
 
-  if (auto n = getNameAttr()) {
-    if (n.getValue().empty())
-      return emitOpError("name must be non-empty when provided");
-  }
+  if (getName().empty())
+    return emitOpError("name must be non-empty");
 
   return success();
 }

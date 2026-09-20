@@ -7,7 +7,8 @@
 
 //--- a.mlir
 builtin.module  {
-  ac.module @M() parameters {} graph {
+  ac.module @M source #ac.source_owner<"tests/native_family.py", "tests/native_family.py"> schema #ac.module_family_schema<#ac.static_parameters<[]>, #ac.static_cases<[#ac.static_arguments<[]>]>, #ac.module_interface<[]>, #ac.source_owner<"tests/native_family.py", "tests/native_family.py">, []> {
+    ac.module.case arguments #ac.static_arguments<[]> type () -> () source #ac.source_provenance<"tests/native_family.py", 1, 1, 1, 1> graph {
     ac.address_space @source width 8 unit "byte" id "source" path "source"
     ac.address_space @target_a width 8 unit "byte" id "target_a" path "target_a"
     ac.address_space @target_b width 8 unit "byte" id "target_b" path "target_b"
@@ -20,12 +21,15 @@ builtin.module  {
        interleave = {granularity = 1 : i64, banks = 2 : i64, bank = 0 : i64}}
     ] default {kind = "unmapped"}
     ac.return
+
+    }
   }
 }
 
 //--- b.mlir
 builtin.module  {
-  ac.module @M() parameters {} graph {
+  ac.module @M source #ac.source_owner<"tests/native_family.py", "tests/native_family.py"> schema #ac.module_family_schema<#ac.static_parameters<[]>, #ac.static_cases<[#ac.static_arguments<[]>]>, #ac.module_interface<[]>, #ac.source_owner<"tests/native_family.py", "tests/native_family.py">, []> {
+    ac.module.case arguments #ac.static_arguments<[]> type () -> () source #ac.source_provenance<"tests/native_family.py", 1, 1, 1, 1> graph {
     ac.address_space @source width 8 unit "byte" id "source" path "source"
     ac.address_space @target_a width 8 unit "byte" id "target_a" path "target_a"
     ac.address_space @target_b width 8 unit "byte" id "target_b" path "target_b"
@@ -38,5 +42,7 @@ builtin.module  {
        interleave = {granularity = 1 : i64, banks = 2 : i64, bank = 1 : i64}}
     ] default {kind = "unmapped"}
     ac.return
+
+    }
   }
 }

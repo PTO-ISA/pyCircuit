@@ -21,6 +21,3 @@ def bit_widths() -> None:
         )
     )
     ac.sink(transformed)
-
-
-specialization = ac.jit(bit_widths)

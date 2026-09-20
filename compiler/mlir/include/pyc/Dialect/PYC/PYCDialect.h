@@ -14,6 +14,11 @@ public:
 
   void initialize();
 
+  ::mlir::Attribute parseAttribute(::mlir::DialectAsmParser &parser,
+                                   ::mlir::Type type) const override;
+  void printAttribute(::mlir::Attribute attribute,
+                      ::mlir::DialectAsmPrinter &printer) const override;
+
   ::mlir::Type parseType(::mlir::DialectAsmParser &parser) const override;
   void printType(::mlir::Type type, ::mlir::DialectAsmPrinter &printer) const override;
 

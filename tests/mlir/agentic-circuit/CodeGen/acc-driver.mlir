@@ -1,4 +1,4 @@
-// RUN: rm -rf %t.cpp %t.bundle %t.v %t.invalid %t.missing.cpp %t.missing.v %t.unverified %t.unverified.v %t.fake %t.failed.v
+// RUN: rm -rf %t.cpp %t.bundle %t.v %t.invalid %t.missing.cpp %t.missing.v %t.fake %t.failed.v
 // RUN: %acir_opt --ac-freeze-topology %s -o %t.ac
 // RUN: %acc -c %t.ac -emit-cpp -o %t.cpp
 // RUN: %FileCheck %s --check-prefix=CPP < %t.cpp
@@ -20,10 +20,7 @@
 // RUN: test ! -e %t.missing.cpp
 // RUN: %not %acc -c %t.missing.ac -emit-verilog -o %t.missing.v 2>&1 | %FileCheck %s --check-prefix=PARSE-ERROR
 // RUN: test ! -e %t.missing.v
-// RUN: %not %acc -c %s -emit-cpp-bundle -o %t.unverified 2>&1 | %FileCheck %s --check-prefix=VERIFY-ERROR
-// RUN: test ! -e %t.unverified
-// RUN: %not %acc -c %s -emit-verilog -o %t.unverified.v 2>&1 | %FileCheck %s --check-prefix=VERIFY-ERROR
-// RUN: test ! -e %t.unverified.v
+// RUN: %acc -c %s -verify
 // RUN: %not %acc -c %t.ac -emit-cpp -o %t.cpp 2>&1 | %FileCheck %s --check-prefix=EXISTS-ERROR
 // RUN: %FileCheck %s --check-prefix=CPP < %t.cpp
 
@@ -49,6 +46,5 @@ module attributes {
 // VERILOG: endmodule
 // PYCC-ERROR: ACLOWER-QUEUE-CXX: acc: pycc Verilog emission failed
 // MODE-ERROR: ACLOWER-QUEUE-CXX: acc: exactly one emit mode is required
-// PARSE-ERROR: ACLOWER-QUEUE-CXX: acc: verified ACIR parsing failed
-// VERIFY-ERROR: ACLOWER-QUEUE-CXX: acc: ACLOWER-QUEUE-PLAN: QueueGraph requires verified topology closure
+// PARSE-ERROR: ACLOWER-QUEUE-CXX: acc: AC unit parsing failed
 // EXISTS-ERROR: ACLOWER-QUEUE-CXX: acc: output already exists; refusing a partial replacement

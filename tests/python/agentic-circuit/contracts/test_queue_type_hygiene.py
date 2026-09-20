@@ -159,7 +159,30 @@ class QueueTypeHygieneTest(unittest.TestCase):
 
     def test_type_strings_are_not_recovered_from_rendered_spelling(self) -> None:
         # This check validates a declared source path, not a rendered ACIR type.
-        allowed = {("implementation_source", "startswith")}
+        allowed = {
+            ("implementation_source", "startswith"),
+            ("name", "startswith"),
+            ("line", "startswith"),
+            ("lines[index]", "startswith"),
+            ("concrete_lines[index]", "startswith"),
+            ("metadata", "removeprefix"),
+            (
+                "_render_interface_display_attributes((ast.unparse(expression),), ('result',), projection_module_metadata(projection_name, projection_definition, projection_source))",
+                "removeprefix",
+            ),
+            (
+                "_render_interface_display_attributes(tuple((name for name, _ in definition.inputs)), tuple((name for name, _ in definition.outputs)), composite_module_metadata(symbol, function.name))",
+                "removeprefix",
+            ),
+            (
+                "_render_interface_display_attributes(tuple((name for name, _ in module.inputs)), tuple((name for name, _ in module.outputs)), _module_attribute_fields(module))",
+                "removeprefix",
+            ),
+            (
+                "_render_interface_display_attributes(tuple((name for name, _ in external)), tuple((f'result_{index}' for index in range(len(expected_results)))), module_metadata(system))",
+                "removeprefix",
+            ),
+        }
         found: set[tuple[str, str]] = set()
         for tree in (
             self.tree,

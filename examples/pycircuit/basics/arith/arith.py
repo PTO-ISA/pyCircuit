@@ -38,9 +38,9 @@ def _lane_mask(m: Circuit, *, width: int) -> int:
     return ct.bitmask(w)
 
 
-def build(
-    m: CycleAwareCircuit, domain: CycleAwareDomain, lanes: int = 8, lane_width: int = 16
-) -> None:
+def build(m: CycleAwareCircuit, domain: CycleAwareDomain) -> None:
+    lanes = 8
+    lane_width = 16
     cfg = _derive_cfg(m, lanes=lanes, lane_width=lane_width)
     acc_w = _acc_width(m, cfg)
     lane_mask = _lane_mask(m, width=int(cfg.lane_width))
@@ -57,4 +57,4 @@ build.__pycircuit_name__ = "arith"
 
 
 if __name__ == "__main__":
-    print(build_cycle_aware(build, name="arith", lanes=8, lane_width=16).emit_mlir())
+    print(build_cycle_aware(build, name="arith").emit_mlir())

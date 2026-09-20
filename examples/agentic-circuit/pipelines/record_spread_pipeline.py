@@ -48,6 +48,3 @@ def record_spread_pipeline(
     composed = compose(base, header, payload)
     updated = apply_patch(composed, patch)
     return updated
-
-
-specialization = ac.jit(record_spread_pipeline)

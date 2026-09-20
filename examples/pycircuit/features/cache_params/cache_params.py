@@ -36,15 +36,12 @@ def _cache_cfg(
     return (ways_i, sets_i, line_b, off_bits, idx_bits, tag_bits, line_words)
 
 
-def build(
-    m: CycleAwareCircuit,
-    domain: CycleAwareDomain,
-    ways: int = 4,
-    sets: int = 64,
-    line_bytes: int = 64,
-    addr_width: int = 40,
-    data_width: int = 64,
-) -> None:
+def build(m: CycleAwareCircuit, domain: CycleAwareDomain) -> None:
+    ways = 4
+    sets = 64
+    line_bytes = 64
+    addr_width = 40
+    data_width = 64
     _ = domain
     ways_cfg, sets_cfg, line_bytes_cfg, off_bits, idx_bits, tag_bits, line_words = (
         _cache_cfg(
@@ -70,14 +67,4 @@ build.__pycircuit_name__ = "cache_params"
 
 
 if __name__ == "__main__":
-    print(
-        build_cycle_aware(
-            build,
-            name="cache_params",
-            ways=4,
-            sets=64,
-            line_bytes=64,
-            addr_width=40,
-            data_width=64,
-        ).emit_mlir()
-    )
+    print(build_cycle_aware(build, name="cache_params").emit_mlir())

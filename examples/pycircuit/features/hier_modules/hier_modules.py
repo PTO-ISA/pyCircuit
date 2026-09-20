@@ -11,9 +11,9 @@ def _incrementer(m, x, *, width: int = 8):
     return (x + 1)[0:width]
 
 
-def build(
-    m: CycleAwareCircuit, domain: CycleAwareDomain, width: int = 8, stages: int = 3
-) -> None:
+def build(m: CycleAwareCircuit, domain: CycleAwareDomain) -> None:
+    width = 8
+    stages = 3
     x = m.input("x", width=width)
     v_conn = x
     for _i in range(stages):
@@ -25,4 +25,4 @@ build.__pycircuit_name__ = "hier_modules"
 
 
 if __name__ == "__main__":
-    print(build_cycle_aware(build, name="hier_modules", width=8, stages=3).emit_mlir())
+    print(build_cycle_aware(build, name="hier_modules").emit_mlir())

@@ -5,8 +5,10 @@
 #include "pyc/Support/Diagnostics.h"
 #include "pyc/Transforms/Passes.h"
 #include "pyc/Transforms/SourceProvenance.h"
+#include "acir/Dialect/ACIR/ACIRDialect.h"
 
 #include "mlir/Dialect/Arith/IR/Arith.h"
+#include "mlir/Dialect/DLTI/DLTI.h"
 #include "mlir/Dialect/Func/Extensions/InlinerExtension.h"
 #include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/Dialect/SCF/IR/SCF.h"
@@ -2354,7 +2356,8 @@ int main(int argc, char **argv) {
       profilePassTiming || !profileJsonPathResolved.empty();
 
   DialectRegistry registry;
-  registry.insert<pyc::PYCDialect, mlir::arith::ArithDialect,
+  registry.insert<acir::ac::ACIRDialect, pyc::PYCDialect, mlir::DLTIDialect,
+                  mlir::arith::ArithDialect,
                   mlir::func::FuncDialect, mlir::scf::SCFDialect>();
   mlir::func::registerInlinerExtension(registry);
 

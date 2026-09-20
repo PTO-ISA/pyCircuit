@@ -39,9 +39,9 @@ pointer-owned composition, or static parameter families, read Decisions
 - `docs/rfcs/ac-cpp-pointer-owned-module-composition.md` for source-owned C++
   ownership and the Decision 0274 hard-break target.
 
-F1+ implementation checkboxes remain open. Do not infer backend semantics from
-the checklist, reuse `ac.marker.obligation` as Architecture Obligation IR, or
-place consumer-specific models in pyCircuit.
+Do not infer backend semantics from checklist prose, reuse
+`ac.marker.obligation` as Architecture Obligation IR, or place
+consumer-specific models in pyCircuit.
 
 For a finite module family, Decisions 0275-0278 require ordered typed
 declarations, an explicit source-owned finite case list independent of callers,
@@ -239,17 +239,21 @@ Follow these rules:
 - Use exact types such as `ac.u1` through `ac.u64`, `@ac.struct`, enums, fixed
   tuples, and admitted fixed state shapes. Do not rely on implicit width
   conversion or a runtime-computed width. A dependent `ac.bits[...]` width or
-  `ac.array[...]` length must use a declared `ac.param[int]` bound by a matching
-  JIT `ac.const`; verified ACIR still contains concrete types only.
-  The expression grammar is limited to literals, declared parameters, closed
-  integer constants, `+`, `-`, `*`, `index_width`, and `count_width`.
-  Module-local dependent types specialize per instance, not once per source file.
-- When several dependent leaves come from one nested configuration, declare one
-  typed `CoreConfig` root named `CFG` for the const parameter `cfg`, then project
-  exact integer fields (`CFG.cache.sets`). Do not encode dotted paths in stringly
-  `ac.param[int]` declarations. Keep the entry parameter typed as
-  `cfg: ac.const[CoreConfig]`; JIT and both metadata verifiers check the nominal
-  schema, root value, field path, and projected integer before backends run.
+  `ac.array[...]` length must refer to a `static_parameter(...)` declared by the
+  source-owned `module_decl(...)`. The expression grammar is limited to integer
+  literals, declared static parameters, nominal static-config field projections,
+  `+`, `-`, `*`, `index_width`, and `count_width`.
+- Declare every parameterized module as one finite typed family. Keep
+  `parameters`, `constraints`, `finite_cases`, and each `case(...)` binding as
+  source-ordered tuples. Implement the family with
+  `@ac.module(declaration=decl)` and select a child case with
+  `static=ac.case(("name", value), ...)`. Do not use dictionaries, computed case
+  collections, caller-observed cases, concrete case symbols, or value-bearing
+  names.
+- Use `@ac.config` with `static_config(ConfigType)` when several dependent
+  leaves share one nested nominal configuration. A field projection retains
+  its root parameter and ordered field path; never encode it as a dotted
+  string or recover it with dictionary lookup.
 - Use `bool` for logical facts, standard `Enum` for closed categories, and
   `@ac.encoding(width=N)` only when an external protocol requires fixed or
   sparse values. Keep independent flags independent. Use `is_one_of` for
@@ -310,7 +314,7 @@ Follow these rules:
   external boundaries. Explicit `ac.source()` and `ac.sink()` remain
   transitional capture forms.
 - Use `ac.scope()` and meaningful Python names. They become display provenance
-  without changing structural specialization identity.
+  without changing family, case, or instance identity.
 - Remember that capture-only markers are frontend syntax. Calling them as
   ordinary runtime functions must fail; they are valid inside captured
   `@ac.system`, `@ac.module`, and `@ac.rule` source.
@@ -348,7 +352,13 @@ class SignedPair:
     a: ac.s16
     b: ac.s16
 
-@ac.module
+@ac.module_decl(source="examples/module.py")
+def widen(pair: SignedPair) -> ac.s32:
+    ...
+
+widen_decl = widen
+
+@ac.module(declaration=widen_decl)
 def widen(pair: SignedPair) -> ac.s32:
     return ac.sext(pair.a, ac.s32) * ac.sext(pair.b, ac.s32)
 ```
@@ -371,11 +381,12 @@ Use this order regardless of frontend:
 3. Name each persistent state owner and document its reset or initial value.
    For Agentic lexical state, `total: ac.u8 = 5` is the reset image on
    `ac.var.decl`; a Python `if` around the assignment is the write enable.
-   Each `@ac.module` dumps to `modules/<Name>.ac.mlir`; these are inspectable
-   units while the emitted `.ac` remains the verified whole-program authority.
-   Gfsim emits nominal type headers and one declaration/out-of-line `.h`/`.cpp`
-   pair per concrete module specialization. The sources compile separately to
-   objects and link through the root `queuegraph.cpp` composition unit.
+   Each executable implementation source owns one public module family, one
+   source-named `.ac`, one source-owned interface shard, and one matching
+   `.hpp`/`.cpp` generated source group. These source groups compile separately
+   and link with the selected-system composition unit. No whole-program
+   artifact, post-compile split, `.h` duplicate, or per-case file is an
+   authority.
 4. Mark timing boundaries with `domain.next()` or transaction boundaries with
    `@ac.rule`; do not mix the two mental models.
 5. Add hierarchy only where it improves reuse, review, or independent testing.
@@ -418,9 +429,7 @@ consumer design.
 | Structural specs and bundle state | `examples/pycircuit/features/struct_transform/` |
 | Queue scopes, dependency tracking, route and merge | `examples/agentic-circuit/pipelines/routed_dependency_pipeline.py` |
 | Typed pure helpers and mandatory inline | `tests/integration/agentic-circuit/e2e/fixtures/pure_helpers/` |
-| JIT-dependent widths and fixed shapes | `examples/agentic-circuit/types/parameterized_types.py` |
-| JIT-dependent scalar system boundary | `examples/agentic-circuit/types/scalar_parameterized_types.py` |
-| Two module instances with distinct dependent state types | `examples/agentic-circuit/types/multi_specialization_types.py` |
+| Finite typed module families and dependent interfaces | `tests/python/agentic-circuit/python_frontend/test_finite_families.py` |
 | Name-based record construction and replacement | `examples/agentic-circuit/pipelines/record_spread_pipeline.py` |
 | Explicit nominal record projection and patch-back | `examples/agentic-circuit/pipelines/record_projection.py` |
 | Fixed-width sparse enum encoding | `examples/agentic-circuit/pipelines/encoded_enum_pipeline.py` |

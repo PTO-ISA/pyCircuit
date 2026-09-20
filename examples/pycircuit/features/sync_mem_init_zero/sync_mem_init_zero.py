@@ -9,13 +9,10 @@ from pycircuit import (
 )
 
 
-def build(
-    m: CycleAwareCircuit,
-    domain: CycleAwareDomain,
-    depth: int = 4,
-    data_width: int = 32,
-    addr_width: int = 2,
-) -> None:
+def build(m: CycleAwareCircuit, domain: CycleAwareDomain) -> None:
+    depth = 4
+    data_width = 32
+    addr_width = 2
     cd = domain.clock_domain
     clk = cd.clk
     rst = cd.rst
@@ -47,12 +44,4 @@ build.__pycircuit_name__ = "sync_mem_init_zero"
 
 
 if __name__ == "__main__":
-    print(
-        build_cycle_aware(
-            build,
-            name="sync_mem_init_zero",
-            depth=4,
-            data_width=32,
-            addr_width=2,
-        ).emit_mlir()
-    )
+    print(build_cycle_aware(build, name="sync_mem_init_zero").emit_mlir())

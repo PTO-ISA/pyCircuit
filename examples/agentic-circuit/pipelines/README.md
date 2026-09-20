@@ -51,7 +51,7 @@ input-availability, output-backpressure, and commit-group mechanics.
 and returns are enough for MLIR to create the source/sink boundaries.
 `inferred_module_pipeline.py` defines a pure typed `@ac.module` and invokes it
 twice with ordinary Python calls; MLIR creates the structured instances and
-gfsim emits one reusable specialization class.
+gfsim emits one reusable family class.
 `inferred_nested_module_pipeline.py` returns one module call from another module
 and proves the child and wrapper classes are each emitted once.
 `pyc_rule_pipeline.py` verifies that the simple `@ac.rule` surface lowers
@@ -73,7 +73,7 @@ register-bank and handshake semantics in typed gfsim, PYC C++, and Verilog.
 out-of-order completion, and PYC C++/Verilator cycle equivalence.
 `persistent_schedule.py` verifies that high-level `ac.schedule` keeps its provider
 identity through verified ACIR and QueueGraph, retains bounded completion after a
-producer leaves the output window, and generates the gfsim v2 specialization.
+producer leaves the output window, and generates the gfsim v2 family body.
 `pyc_barrier_pipeline.py` verifies heterogeneous positional payloads and an
 all-input/all-output atomic synchronization firing shared by typed gfsim, PYC
 C++, and Verilog.

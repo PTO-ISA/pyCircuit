@@ -11,34 +11,52 @@
 
 //--- a.mlir
 builtin.module  {
-  ac.module @Z() parameters {} graph { ac.return }
-  ac.module @Top() parameters {} graph {
-    ac.instance @z of @Z() static {} id "z" path "z" : () -> ()
-    ac.instance @a of @A() static {} id "a" path "a" : () -> ()
+ac.module @Z source #ac.source_owner<"tests/native_family.py", "tests/native_family.py"> schema #ac.module_family_schema<#ac.static_parameters<[]>, #ac.static_cases<[#ac.static_arguments<[]>]>, #ac.module_interface<[]>, #ac.source_owner<"tests/native_family.py", "tests/native_family.py">, []> {
+    ac.module.case arguments #ac.static_arguments<[]> type () -> () source #ac.source_provenance<"tests/native_family.py", 1, 1, 1, 1> graph { ac.return
+    }
+  }
+  ac.module @Top source #ac.source_owner<"tests/native_family.py", "tests/native_family.py"> schema #ac.module_family_schema<#ac.static_parameters<[]>, #ac.static_cases<[#ac.static_arguments<[]>]>, #ac.module_interface<[]>, #ac.source_owner<"tests/native_family.py", "tests/native_family.py">, []> {
+    ac.module.case arguments #ac.static_arguments<[]> type () -> () source #ac.source_provenance<"tests/native_family.py", 1, 1, 1, 1> graph {
+    ac.instance @z of @Z() static #ac.static_arguments<[]> id "z" path "z" : () -> ()
+    ac.instance @a of @A() static #ac.static_arguments<[]> id "a" path "a" : () -> ()
     ac.stat @requests kind "counter"
     ac.process @workload kind "workload" { ac.yield_sim }
     ac.return
+
+    }
   }
   ac.system @soc root @Top as "root" tick 0 "cycle"
       workload @Top::@workload seed {kind = "fixed", value = 7 : i64}
       instrumentation [] results {id = "default", format = "json"} selected true
-  ac.module @A() parameters {} graph { ac.return }
+ac.module @A source #ac.source_owner<"tests/native_family.py", "tests/native_family.py"> schema #ac.module_family_schema<#ac.static_parameters<[]>, #ac.static_cases<[#ac.static_arguments<[]>]>, #ac.module_interface<[]>, #ac.source_owner<"tests/native_family.py", "tests/native_family.py">, []> {
+    ac.module.case arguments #ac.static_arguments<[]> type () -> () source #ac.source_provenance<"tests/native_family.py", 1, 1, 1, 1> graph { ac.return
+    }
+  }
 }
 
 //--- b.mlir
 builtin.module  {
-  ac.module @A() parameters {} graph { ac.return }
+ac.module @A source #ac.source_owner<"tests/native_family.py", "tests/native_family.py"> schema #ac.module_family_schema<#ac.static_parameters<[]>, #ac.static_cases<[#ac.static_arguments<[]>]>, #ac.module_interface<[]>, #ac.source_owner<"tests/native_family.py", "tests/native_family.py">, []> {
+    ac.module.case arguments #ac.static_arguments<[]> type () -> () source #ac.source_provenance<"tests/native_family.py", 1, 1, 1, 1> graph { ac.return
+    }
+  }
   ac.system @soc root @Top as "root" tick 0 "cycle"
       workload @Top::@workload seed {kind = "fixed", value = 7 : i64}
       instrumentation [] results {id = "default", format = "json"} selected true
-  ac.module @Top() parameters {} graph {
+ac.module @Top source #ac.source_owner<"tests/native_family.py", "tests/native_family.py"> schema #ac.module_family_schema<#ac.static_parameters<[]>, #ac.static_cases<[#ac.static_arguments<[]>]>, #ac.module_interface<[]>, #ac.source_owner<"tests/native_family.py", "tests/native_family.py">, []> {
+    ac.module.case arguments #ac.static_arguments<[]> type () -> () source #ac.source_provenance<"tests/native_family.py", 1, 1, 1, 1> graph {
     ac.process @workload kind "workload" { ac.yield_sim }
     ac.stat @requests kind "counter"
-    ac.instance @a of @A() static {} id "a" path "a" : () -> ()
-    ac.instance @z of @Z() static {} id "z" path "z" : () -> ()
+    ac.instance @a of @A() static #ac.static_arguments<[]> id "a" path "a" : () -> ()
+    ac.instance @z of @Z() static #ac.static_arguments<[]> id "z" path "z" : () -> ()
     ac.return
+
+    }
   }
-  ac.module @Z() parameters {} graph { ac.return }
+  ac.module @Z source #ac.source_owner<"tests/native_family.py", "tests/native_family.py"> schema #ac.module_family_schema<#ac.static_parameters<[]>, #ac.static_cases<[#ac.static_arguments<[]>]>, #ac.module_interface<[]>, #ac.source_owner<"tests/native_family.py", "tests/native_family.py">, []> {
+    ac.module.case arguments #ac.static_arguments<[]> type () -> () source #ac.source_provenance<"tests/native_family.py", 1, 1, 1, 1> graph { ac.return
+    }
+  }
 }
 
 // CANONICAL: ac.system @soc
@@ -77,16 +95,22 @@ builtin.module  {
   ac.system @soc root @Top as "root" tick 0 "cycle"
       workload @Top::@workload seed {kind = "fixed", value = 7 : i64}
       instrumentation [] results {id = "default", format = "json"} selected true
-  "ac.module"() <{sym_name = "Node", function_type = (i32) -> i32, static_params = {}}> ({
+  ac.module @Node source #ac.source_owner<"tests/native_family.py", "tests/native_family.py"> schema #ac.module_family_schema<#ac.static_parameters<[]>, #ac.static_cases<[#ac.static_arguments<[]>]>, #ac.module_interface<[#ac.interface_port<"input_0", "input", #ac.type_expr<#ac.type_expr_concrete<i32>>, #ac.source_provenance<"tests/native_family.py", 1, 1, 1, 1>>, #ac.interface_port<"output_0", "output", #ac.type_expr<#ac.type_expr_concrete<i32>>, #ac.source_provenance<"tests/native_family.py", 1, 1, 1, 1>>]>, #ac.source_owner<"tests/native_family.py", "tests/native_family.py">, []> {
+  ac.module.case arguments #ac.static_arguments<[]> type (i32) -> i32 source #ac.source_provenance<"tests/native_family.py", 1, 1, 1, 1> graph {
   ^bb0(%arg0 : i32):
     ac.process @state kind "control" { ac.yield_sim }
     "ac.return"(%arg0) : (i32) -> ()
-  }) : () -> ()
-  ac.module @Top() parameters {} graph {
-    %left = "ac.instance"(%right) <{definition = @Node, sym_name = "left", stable_id = "left", path = "left", static_args = {}}> : (i32) -> i32
-    %right = "ac.instance"(%left) <{definition = @Node, sym_name = "right", stable_id = "right", path = "right", static_args = {}}> : (i32) -> i32
+
+  }
+}
+ac.module @Top source #ac.source_owner<"tests/native_family.py", "tests/native_family.py"> schema #ac.module_family_schema<#ac.static_parameters<[]>, #ac.static_cases<[#ac.static_arguments<[]>]>, #ac.module_interface<[]>, #ac.source_owner<"tests/native_family.py", "tests/native_family.py">, []> {
+    ac.module.case arguments #ac.static_arguments<[]> type () -> () source #ac.source_provenance<"tests/native_family.py", 1, 1, 1, 1> graph {
+    %left = "ac.instance"(%right) <{definition = @Node, sym_name = "left", stable_id = "left", path = "left", static_args = #ac.static_arguments<[]>}> : (i32) -> i32
+    %right = "ac.instance"(%left) <{definition = @Node, sym_name = "right", stable_id = "right", path = "right", static_args = #ac.static_arguments<[]>}> : (i32) -> i32
     ac.process @workload kind "workload" { ac.yield_sim }
     ac.return
+
+    }
   }
 }
 
@@ -110,16 +134,22 @@ builtin.module  {
     ac.transition from @idle to @idle on @z transfer false retain false guard {}
     ac.transition from @idle to @idle on @a transfer false retain false guard {}
   }
-  "ac.module"() <{sym_name = "Node", function_type = (i32) -> i32, static_params = {}}> ({
+  ac.module @Node source #ac.source_owner<"tests/native_family.py", "tests/native_family.py"> schema #ac.module_family_schema<#ac.static_parameters<[]>, #ac.static_cases<[#ac.static_arguments<[]>]>, #ac.module_interface<[#ac.interface_port<"input_0", "input", #ac.type_expr<#ac.type_expr_concrete<i32>>, #ac.source_provenance<"tests/native_family.py", 1, 1, 1, 1>>, #ac.interface_port<"output_0", "output", #ac.type_expr<#ac.type_expr_concrete<i32>>, #ac.source_provenance<"tests/native_family.py", 1, 1, 1, 1>>]>, #ac.source_owner<"tests/native_family.py", "tests/native_family.py">, []> {
+  ac.module.case arguments #ac.static_arguments<[]> type (i32) -> i32 source #ac.source_provenance<"tests/native_family.py", 1, 1, 1, 1> graph {
   ^bb0(%arg0 : i32):
     ac.process @state kind "control" { ac.yield_sim }
     "ac.return"(%arg0) : (i32) -> ()
-  }) : () -> ()
-  ac.module @Top() parameters {} graph {
-    %right = "ac.instance"(%left) <{definition = @Node, sym_name = "right", stable_id = "right", path = "right", static_args = {}}> : (i32) -> i32
-    %left = "ac.instance"(%right) <{definition = @Node, sym_name = "left", stable_id = "left", path = "left", static_args = {}}> : (i32) -> i32
+
+  }
+}
+ac.module @Top source #ac.source_owner<"tests/native_family.py", "tests/native_family.py"> schema #ac.module_family_schema<#ac.static_parameters<[]>, #ac.static_cases<[#ac.static_arguments<[]>]>, #ac.module_interface<[]>, #ac.source_owner<"tests/native_family.py", "tests/native_family.py">, []> {
+    ac.module.case arguments #ac.static_arguments<[]> type () -> () source #ac.source_provenance<"tests/native_family.py", 1, 1, 1, 1> graph {
+    %right = "ac.instance"(%left) <{definition = @Node, sym_name = "right", stable_id = "right", path = "right", static_args = #ac.static_arguments<[]>}> : (i32) -> i32
+    %left = "ac.instance"(%right) <{definition = @Node, sym_name = "left", stable_id = "left", path = "left", static_args = #ac.static_arguments<[]>}> : (i32) -> i32
     ac.process @workload kind "workload" { ac.yield_sim }
     ac.return
+
+    }
   }
   "ac.type_scope"() <{sym_name = "types"}> ({
     "ac.struct"() <{sym_name = "A", fields = [{name = "a", type = i8}]}> : () -> ()

@@ -3,7 +3,13 @@
 import agentic_circuit as ac
 
 
-@ac.module
+@ac.module_decl(source="examples/agentic-circuit/state/inferred_nested_rule.py")
+def accumulator(incoming: ac.u8) -> ac.u8:
+    ...
+
+accumulator_decl = accumulator
+
+@ac.module(declaration=accumulator_decl)
 def accumulator(incoming: ac.u8) -> ac.u8:
     total: ac.u8 = 0
 

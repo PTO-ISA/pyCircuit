@@ -2419,6 +2419,7 @@ def compile_module(
     if module_name is None:
         module_name = name
     m = Circuit(module_name or fn.__name__, design_ctx=design_ctx)
+    m.set_source_location(meta.source_file, meta.start_line)
     c = _Compiler(
         m,
         params=dict(bound_params),

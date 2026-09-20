@@ -222,12 +222,24 @@ class WorkItem:
 
 
 # 推荐边界：普通 nominal payload 参数/返回，Queue 由编译器推导。
-@ac.module
+@ac.module_decl(source="examples/module.py")
+def keep(value: WorkItem) -> WorkItem:
+    ...
+
+keep_decl = keep
+
+@ac.module(declaration=keep_decl)
 def keep(value: WorkItem) -> WorkItem:
     return value
 
 
-@ac.module
+@ac.module_decl(source="examples/module.py")
+def increment(value: WorkItem) -> WorkItem:
+    ...
+
+increment_decl = increment
+
+@ac.module(declaration=increment_decl)
 def increment(value: WorkItem) -> WorkItem:
     return value.with_fields(value=value.value + 1)
 
@@ -243,7 +255,6 @@ def typed_pipeline(
     return result
 
 
-specialization = ac.jit(typed_pipeline, increment_value=True)
 
 
 @ac.system
@@ -258,7 +269,7 @@ def pipeline() -> None:
     ac.sink(updated)
 ```
 
-`ac.jit` 只绑定 `ac.const`；普通 typed runtime 参数保持未绑定，不进入
+typed finite-family case 只绑定声明的静态参数；普通 typed runtime 参数保持未绑定，不进入
 specialization key。Python 不增加 Queue/Input/Output wrapper，也不表达
 ready/full/pop/push。可选 `workspace=` 会确定性捕获本地传递 import closure；
 本地依赖使用明确的 `from module import Symbol`。在支持保留模块命名空间的打包之前，
@@ -283,7 +294,7 @@ class Group:
     count: ac.bits[ac.count_width(ROB_ENTRIES)]
 ```
 
-参数只属于 elaboration；匹配的 `ac.const[int]` 由 `ac.jit` 绑定。
+参数只属于 elaboration；匹配的静态参数由 typed finite-family case 绑定。
 `index_width(N)` 等于 `max(1, ceil(log2(N)))`，`count_width(N)` 等于
 `max(1, ceil(log2(N + 1)))`。封闭语法只包含整数 literal、已声明参数、封闭整数
 常量、`+`、`-`、`*`、`index_width` 和 `count_width`；其他 Python 运算符不会
@@ -1391,7 +1402,13 @@ Python `source(...)`/`sink(...)` 仅作为过渡兼容路径保留。
 module 直接 typed state 的静态引用推导每个捕获的 owner：
 
 ```python
-@ac.module
+@ac.module_decl(source="examples/module.py")
+def accumulator(incoming: ac.u8) -> ac.u8:
+    ...
+
+accumulator_decl = accumulator
+
+@ac.module(declaration=accumulator_decl)
 def accumulator(incoming: ac.u8) -> ac.u8:
     total: ac.u8 = 0
 
@@ -1793,7 +1810,13 @@ stateful module 链支持一个或多个零初始化 scalar lexical variable，�
 源码顺序赋值一次，并返回一个 typed expression：
 
 ```python
-@ac.module
+@ac.module_decl(source="examples/module.py")
+def accumulator(value: ac.u8) -> ac.u8:
+    ...
+
+accumulator_decl = accumulator
+
+@ac.module(declaration=accumulator_decl)
 def accumulator(value: ac.u8) -> ac.u8:
     total: ac.u8 = 0
     total = total + value

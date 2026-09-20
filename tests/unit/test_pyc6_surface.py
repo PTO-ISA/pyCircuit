@@ -174,16 +174,12 @@ def test_cycle_aware_compile_entrypoints_have_stable_modes_and_types() -> None:
         value = pycircuit.cas(domain, m.input("value", width=8), cycle=0)
         m.output("result", pycircuit.wire_of(value + offset))
 
-    compiled = pycircuit.compile_cycle_aware(build, name="compiled", offset=3)
-    elaborated = pycircuit.build_cycle_aware(build, name="elaborated", offset=3)
-
-    assert isinstance(compiled, Design)
-    assert isinstance(elaborated, pycircuit.CycleAwareCircuit)
-    for mlir in (compiled.emit_mlir(), elaborated.emit_mlir()):
-        assert 'pyc.frontend.contract = "pycircuit"' in mlir
-        assert 'pyc.kind = "module"' in mlir
-        assert '\\"offset\\":3' in mlir
-        assert "pyc.add" in mlir
+    for compile_fn in (pycircuit.compile_cycle_aware, pycircuit.build_cycle_aware):
+        with pytest.raises(
+            TypeError,
+            match="explicit source-owned finite-family declaration",
+        ):
+            compile_fn(build, offset=3)
 
 
 @pytest.mark.parametrize("blank_name", ["", "   "])
@@ -256,12 +252,17 @@ def test_build_cycle_aware_emits_hardened_hierarchy() -> None:
     circuit = pycircuit.build_cycle_aware(top, hierarchical=True)
     mlir = circuit.emit_mlir()
 
-    assert mlir.count("func.func @") == 2
+    assert mlir.count("pyc.module @") == 2
+    assert mlir.count("pyc.module.case signature") == 2
+    assert "pyc.return" in mlir
     assert "pyc.instance " in mlir and "callee = @child" in mlir
+    assert "static_args = #ac.dependent_arguments<[]>" in mlir
+    assert 'name = "u_child"' in mlir
+    assert "func.func" not in mlir
     assert 'pyc.frontend.contract = "pycircuit"' in mlir
 
 
-def test_build_cycle_aware_names_hierarchical_specializations_by_params() -> None:
+def test_build_cycle_aware_rejects_caller_inferred_hierarchical_cases() -> None:
     def child(m, domain, *, inputs, prefix="child", increment=1):
         value = pycircuit.submodule_input(
             inputs, "value", m, domain, prefix=prefix, width=8
@@ -281,12 +282,11 @@ def test_build_cycle_aware_names_hierarchical_specializations_by_params() -> Non
         m.output("first", pycircuit.wire_of(first["result"]))
         m.output("second", pycircuit.wire_of(second["result"]))
 
-    mlir = pycircuit.build_cycle_aware(top, hierarchical=True).emit_mlir()
-    specializations = set(re.findall(r"func\.func @(child__increment_[12])", mlir))
-
-    assert len(specializations) == 2
-    for specialization in specializations:
-        assert f"callee = @{specialization}" in mlir
+    with pytest.raises(
+        TypeError,
+        match="explicit source-owned finite-family declaration",
+    ):
+        pycircuit.build_cycle_aware(top, hierarchical=True)
 
 
 def test_cycle_aware_bitwise_or_rejects_description_strings() -> None:

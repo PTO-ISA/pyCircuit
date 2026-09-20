@@ -386,31 +386,23 @@ static bool validateSourceMapRoot(Operation *anchor,
                                   unsigned depth) {
   if (depth > 64 ||
       !hasExactKeys(
-          root, {"blocks", "definition", "helpers",
-                 "module_instances", "module_specializations", "schema",
-                 "specialization", "specialization_parameters", "state_owners",
+          root, {"blocks", "definition", "helpers", "module_instances",
+                 "schema", "state_owners",
                  "system", "table_matches", "table_selections", "version"}) ||
       root.getString("schema") != "agentic-circuit-source-map" ||
       root.getString("version") != "0.1" || !root.getString("system") ||
       root.getString("system")->empty())
     return false;
   const llvm::json::Value *definition = root.get("definition");
-  const llvm::json::Value *specialization = root.get("specialization");
-  const auto *specializationParameters =
-      root.getArray("specialization_parameters");
-  if (!definition || (!definition->getAsNull() && !definition->getAsString()) ||
-      !specialization ||
-      (!specialization->getAsNull() && !specialization->getAsString()) ||
-      !specializationParameters)
+  if (!definition || (!definition->getAsNull() && !definition->getAsString()))
     return false;
   const auto *blocks = root.getArray("blocks");
   const auto *helpers = root.getArray("helpers");
   const auto *instances = root.getArray("module_instances");
-  const auto *specializations = root.getArray("module_specializations");
   const auto *stateOwners = root.getArray("state_owners");
   const auto *matches = root.getArray("table_matches");
   const auto *selections = root.getArray("table_selections");
-  if (!blocks || !helpers || !instances || !specializations || !stateOwners ||
+  if (!blocks || !helpers || !instances || !stateOwners ||
       !matches || !selections)
     return false;
   for (const llvm::json::Value &value : *blocks) {
@@ -458,14 +450,12 @@ static bool validateSourceMapRoot(Operation *anchor,
     const auto *provenance =
         provenanceValue ? provenanceValue->getAsObject() : nullptr;
     if (!instance ||
-        !hasExactKeys(*instance, {"definition", "name", "scope",
-                                  "source_provenance", "specialization"}) ||
+        !hasExactKeys(*instance,
+                      {"definition", "name", "scope", "source_provenance"}) ||
         !instance->getString("definition") ||
         instance->getString("definition")->empty() ||
         !instance->getString("name") || instance->getString("name")->empty() ||
-        !instance->getString("scope") ||
-        !instance->getString("specialization") ||
-        instance->getString("specialization")->empty() || !provenance ||
+        !instance->getString("scope") || !provenance ||
         !validateSourceProvenance(anchor, *provenance, knownFrames))
       return false;
   }
@@ -509,12 +499,6 @@ static bool validateSourceMapRoot(Operation *anchor,
   if (!validateTableDefinitions(*matches, "expressions") ||
       !validateTableDefinitions(*selections, "key_expressions"))
     return false;
-  for (const llvm::json::Value &value : *specializations) {
-    const auto *specialization = value.getAsObject();
-    if (!specialization ||
-        !validateSourceMapRoot(anchor, *specialization, knownFrames, depth + 1))
-      return false;
-  }
   return true;
 }
 

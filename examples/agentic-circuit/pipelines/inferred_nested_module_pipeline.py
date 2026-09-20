@@ -1,16 +1,28 @@
-"""Ordinary nested module calls preserve reusable specialization hierarchy."""
+"""Ordinary nested module calls preserve reusable typed-family hierarchy."""
 
 from __future__ import annotations
 
 import agentic_circuit as ac
 
 
-@ac.module
+@ac.module_decl(source="examples/agentic-circuit/pipelines/inferred_nested_module_pipeline.py")
+def increment(value: ac.u8) -> ac.u8:
+    ...
+
+increment_decl = increment
+
+@ac.module(declaration=increment_decl)
 def increment(value: ac.u8) -> ac.u8:
     return value + 1
 
 
-@ac.module
+@ac.module_decl(source="examples/agentic-circuit/pipelines/inferred_nested_module_pipeline.py")
+def wrapper(value: ac.u8) -> ac.u8:
+    ...
+
+wrapper_decl = wrapper
+
+@ac.module(declaration=wrapper_decl)
 def wrapper(value: ac.u8) -> ac.u8:
     return increment(value)
 

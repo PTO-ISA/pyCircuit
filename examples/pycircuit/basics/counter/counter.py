@@ -10,7 +10,8 @@ from pycircuit import (
 )
 
 
-def build(m: CycleAwareCircuit, domain: CycleAwareDomain, width: int = 8) -> None:
+def build(m: CycleAwareCircuit, domain: CycleAwareDomain) -> None:
+    width = 8
     enable = cas(domain, m.input("enable", width=1), cycle=0)
     count = domain.signal(width=width, reset_value=0, name="count")
 
@@ -27,4 +28,4 @@ build.__pycircuit_name__ = "counter"
 
 
 if __name__ == "__main__":
-    print(build_cycle_aware(build, name="counter", width=8).emit_mlir())
+    print(build_cycle_aware(build, name="counter").emit_mlir())

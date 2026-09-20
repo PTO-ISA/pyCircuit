@@ -29,15 +29,19 @@ The terminal emulator renders a simple 7-seg view and can load multiple stimulus
 | `ns_yellow` | out | 1 | North/South yellow (blink) |
 | `ns_green` | out | 1 | North/South green |
 
-## JIT parameters
+## Source-owned configuration
 
-| Parameter | Default | Description |
+This example is one zero-parameter module family. Its demonstration constants
+are fixed in `traffic_lights_ce_pyc.py`; callers cannot create implicit
+specializations through CLI parameters or environment variables.
+
+| Constant | Value | Description |
 |-----------|---------|-------------|
-| `CLK_FREQ` | 50_000_000 | System clock frequency (Hz) |
-| `EW_GREEN_S` | 45 | East/West green time (seconds) |
-| `EW_YELLOW_S` | 5 | East/West yellow time (seconds) |
-| `NS_GREEN_S` | 30 | North/South green time (seconds) |
-| `NS_YELLOW_S` | 5 | North/South yellow time (seconds) |
+| `CLK_FREQ` | 4 | Demonstration clock frequency |
+| `EW_GREEN_S` | 3 | East/West green interval |
+| `EW_YELLOW_S` | 1 | East/West yellow interval |
+| `NS_GREEN_S` | 2 | North/South green interval |
+| `NS_YELLOW_S` | 1 | North/South yellow interval |
 
 Derived durations:
 
@@ -46,12 +50,12 @@ Derived durations:
 
 ## Build and Run
 
-The emulator assumes `CLK_FREQ=1000` for fast visualization. Set it via
-`PYC_TL_CLK_FREQ=1000` when emitting the design. The following sequence is
-verified end-to-end (including all stimuli):
+The source-owned demonstration timing is intentionally short for fast
+visualization. The following sequence is verified end-to-end (including all
+stimuli):
 
 ```bash
-PYC_TL_CLK_FREQ=1000 PYTHONPATH=python python3 -m pycircuit.cli emit \
+PYTHONPATH=python python3 -m pycircuit.cli emit \
   examples/pycircuit/applications/traffic_lights_ce_pyc/traffic_lights_ce_pyc.py \
   -o /tmp/traffic_lights_ce_pyc.pyc
 

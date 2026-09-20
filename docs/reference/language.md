@@ -629,8 +629,9 @@ runtime width、bool/enum 隐式混用和超范围 literal 均拒绝。
 运算前必须用 `ac.sext` 扩展：`ac.zext` 对负值补零会改变数值。位宽不会隐式
 变化，声明为更宽返回类型的模块必须显式转换，否则以 `ACPY-MODULE-001` 拒绝。
 
-`ac.static_assert(condition, message=...)` 在 JIT `ac.const` 参数绑定后求值，
-只允许直接出现在 entry body，并在 verified ACIR 前消失；失败诊断保留相对源码位置。
+`ac.static_assert(condition, message=...)` 在 finite-family case 的 typed static
+arguments 绑定后求值，只允许直接出现在 case body，并在 verified ACIR 前消失；
+失败诊断保留相对源码位置。
 
 Agentic Circuit 的声明式 bounded integer 使用 Python 半开区间：
 
@@ -674,35 +675,13 @@ bool array 支持 `all()`、`any()` 和返回 `ac.range[0, N + 1]` 的 `count()`
 当前 persistent/module state 的 bounded scalar 必须包含零并以零初始化；非零下界
 state 在 typed reset image 扩展前 fail closed。
 
-嵌套 `@ac.config` 可以作为 dependent type 的 typed root：
-
-```python
-@ac.config
-class Geometry:
-    entries: int
-    lanes: int
-
-@ac.config
-class Config:
-    geometry: Geometry
-
-CFG = ac.param[Config]("cfg")
-
-@ac.struct
-class Entry:
-    index: ac.bits[ac.index_width(CFG.geometry.entries)]
-
-@ac.struct
-class Group:
-    lanes: ac.array[CFG.geometry.lanes, Entry]
-```
-
-`CFG` 只存在于 elaboration；叶子必须在 config schema 中存在且类型精确为
-`int`。system/module 仍以 `cfg: ac.const[Config]` 绑定实际值。JIT 先验证根对象及
-嵌套 config 的 nominal 类型，再把 canonical schema、完整根值和
-`cfg.geometry.entries` 形式的语义路径写入 ACIR。ACIR 与 QueueGraph verifier 从根值
-重新投影并核对 leaf binding，后端仍只看到 concrete type。失败的
-`ac.static_assert` 同时报告结构化 source span、规范化表达式和引用到的闭合绑定值。
+嵌套 `@ac.config` 可以通过 `static_config(ConfigType)` 作为 dependent type 的
+typed root。每个 config 都是 source-owned、nominal、immutable、无继承的闭合记录；
+字段顺序属于 schema。dependent field record 显式保存 root static parameter 与有序
+field path，例如参数 `cfg` 的 `geometry.entries` 保存为 root `cfg` 和 path
+`["geometry", "entries"]`，不能退化为 dotted string、Python object identity 或
+dictionary lookup。每个 declared case 都携带完整 typed config value；verifier 逐字段
+核对 nominal type、顺序、值和 dependent projection 后才 materialize concrete type。
 
 ### Agentic module 组合
 
@@ -719,7 +698,13 @@ def decode(value: ac.u8) -> ac.u16:
 def execute(value: ac.u16) -> tuple[ac.u32, ac.u1]:
     ...
 
-@ac.module
+@ac.module_decl(source="examples/module.py")
+def pipeline(value: ac.u8) -> tuple[ac.u32, ac.u1]:
+    ...
+
+pipeline_decl = pipeline
+
+@ac.module(declaration=pipeline_decl)
 def pipeline(value: ac.u8) -> tuple[ac.u32, ac.u1]:
     decoded = decode(value)
     result, accepted = execute(decoded)
@@ -727,21 +712,73 @@ def pipeline(value: ac.u8) -> tuple[ac.u32, ac.u1]:
 ```
 
 Composite module 支持零个或多个异构 runtime input/output、多个 child、重复 instance、
-child-to-child internal Queue、typed `ac.const` specialization 参数以及同一 value 多消费者
-时的 compiler-owned atomic fanout。所有运行时 value 必须使用具名 SSA local，产生的每个
+child-to-child internal Queue、typed finite-family case 以及同一 value 多消费者时的
+compiler-owned atomic fanout。所有运行时 value 必须使用具名 SSA local，产生的每个
 Queue value 必须被 child 或 parent return 消费；动态 control flow 和隐式 feedback cycle
 拒绝。跨 child 的 requester/responder 通信环尚未接纳；既有 `ac.feedback` 只表示有界
 single-block iteration，不能作为跨 module 协议回边。
 
-一次 `acc.py -c child.py -o child.ac --header-output .../module.ac` 同时发布 child
-implementation AC 与声明 header。runtime 调用只增加 instance；只有 ordered typed
-`ac.const` 参数创建具名 specialization symbol，同一 Python source 的所有 specialization
-仍留在同一个 `.ac` 中。
+参数化 module 使用唯一的 finite-family authoring surface：
+
+```python
+@ac.module_decl(
+    source="pipeline/stage.py",
+    parameters=(
+        ac.static_parameter("width", ac.static_int(width=8, signed=False)),
+    ),
+    finite_cases=(
+        ac.case(("width", 8)),
+        ac.case(("width", 9)),
+    ),
+)
+def stage(value: ac.bits[width]) -> ac.bits[width]:
+    ...
+
+stage_decl = stage
+
+@ac.module(declaration=stage_decl)
+def stage(value: ac.bits[width]) -> ac.bits[width]:
+    return value
+
+@ac.system
+def core(value: ac.u8) -> ac.u8:
+    return stage(value, static=ac.case(("width", 8)))
+```
+
+`parameters`、`constraints`、`finite_cases` 和每个 `case(...)` binding 都必须是
+源码顺序的 tuple literal。参数化 child call 必须通过 `static=ac.case(...)` 提供完整
+有序 typed arguments；dictionary、computed collection、普通 keyword argument、
+caller-observed case 和 runtime static selection 均拒绝。零参数 module 规范化为零个
+static declarations 和唯一的 `case()`。
+
+每个 implementation source 发布一个 source-named `.ac`、一个 source-owned interface
+shard，以及一个 `ac.module` family symbol。family 按声明顺序包含 non-symbol
+`ac.module.case` regions；case 不是 symbol、source unit、文件或第二 lookup namespace。
+parent 只消费 interface shard，不读取 child implementation body。package linker 核对完整
+family schema、所有 case 和 materialized signature，包括未被 caller 使用的 case。
+
+High ACIR 的 `ac.module` 只是 family container：它没有 function type、block arguments、
+直接 executable operations 或直接 `ac.return`。每个 `ac.module.case` 拥有完整 ordered
+typed arguments、concrete function type、case-local state/resource/rule/proof/obligation 和
+唯一 `ac.return`。`ac.module.import` 携带完整 family schema，`ac.instance` 携带完整 ordered
+typed arguments；两者都引用 family symbol，不引用 concrete case 名称或 ordinal。
+
+PYC 保留同样的 `pyc.module` / `pyc.module.case` carrier，而不是先 flatten 为无关的
+`pyc.func`。每个 case 的 typed mapping 显式连接 logical interface 与 physical carriers：
+aggregate port 的 projection/layout 必须完整且无重叠；Queue 的每个 lane 按序映射一组
+`queue_valid`/`queue_data`，所有 lane 共用一个位于反方向的 `queue_ready`；physical input
+index 0/1 分别是带 explicit `implicit` origin 的 clock/reset。C++ 与 RTL backend 只消费
+这个 verified carrier，不从宽度、string、suffix 或 `pyc.params` 重建语义。
+
+生成文件保持 source ownership：一个 implementation source 对应一个 readable
+`<source_stem>.hpp`/`<source_stem>.cpp` group 和一个
+`<source_stem>_interface.hpp` shard。不存在 `.h` duplicate、per-case class/file/RTL module、
+parameter-bearing alias、whole-core authority、post-split flow 或 fallback path。
 
 ### Agentic source map
 
 Agentic frontend 在 closure flattening 前记录每个 Python AST 节点的工程相对 `.py`
-文件、从 1 开始的行列。helper inline、module instance、nested specialization、record
+文件、从 1 开始的行列。helper inline、module instance、family case、record
 spread 和 Table projection 会把来源组织成有序 stack；CSE 或 constant folding 合并
 等价值时保留多个独立 origin。生成 `.pyc`/`.mlir` 的 parser 位置和绝对 checkout
 路径不会进入这个来源合同。
@@ -750,8 +787,8 @@ verified ACIR 的 `ac.source_provenance`、QueueGraph 的 `source_provenance`、
 MLIR location、module 上经过 verifier 检查的 `pyc.source_map`，以及 ACC bundle 的
 `share/generated/source-map.json` 表示同一组来源。bundle inventory 记录 source map 的
 schema 与相对路径，不派生内容身份。生成 GFSim 对 primary frame 使用 `#line`，完整 inline stack
-和其他 origin 仍以 JSON source map 为准。来源元数据不参与 topology、definition 或
-specialization identity。
+和其他 origin 仍以 JSON source map 为准。来源元数据不参与 topology、family、case 或
+instance identity。
 
 ### Aggregate lowering boundary
 
@@ -759,23 +796,28 @@ ACIR `!ac.struct`、`!ac.enum`、builtin tuple 与 `!ac.value_array` 在
 QueueGraph-to-PYC 中按稳定 MSB-first layout 变成 scalar integer。
 canonical/backend PYC 中出现 builtin vector type 或 `pyc.v_*` 是硬错误。
 
-Agentic Circuit 的 JIT-dependent type 仍遵守这个边界：
+Agentic Circuit 的 finite-family dependent type 仍遵守这个边界：
 
 ```python
-ENTRIES = ac.param[int]("entries")
-
-@ac.struct
-class Entry:
-    index: ac.bits[ac.index_width(ENTRIES)]
+@ac.module_decl(
+    source="entry.py",
+    parameters=(
+        ac.static_parameter("entries", ac.static_int(width=16, signed=False)),
+    ),
+    finite_cases=(ac.case(("entries", 128)),),
+)
+def select(index: ac.bits[ac.index_width(entries)]) -> ac.u16:
+    ...
 ```
 
-`ac.jit(..., entries=128)` 在 ACIR 生成前把该字段具体化为 `i7`。固定 array
-长度可使用同一参数机制。表达式仅允许整数 literal、参数、封闭整数常量、
+显式的 typed finite-family case 将该 interface leaf materialize 为 `i7`。固定 array
+长度使用同一参数机制。表达式仅允许任意精度整数 literal、参数、nominal config field、
 `+`、`-`、`*`、`index_width` 与 `count_width`；array/tuple 内部的 dependent
-leaf 同样保留 verifier provenance。module-local 类型按 instance 具体化，因此
-不同参数绑定即使得到相同位宽也不会共享 nominal identity；相同绑定跨 module
-interface 则保持同一 identity。直接作为 interface 的 dependent scalar 携带 concrete
-type check，specialized struct identity 还会验证完整 target 集合与 layout。
+leaf 同样保留 verifier provenance。nominal application 显式携带 declaration symbol 和
+完整有序 typed arguments。不同 typed arguments 即使得到相同位宽也不会共享 nominal
+identity；相同 application 跨 module interface 保持同一 identity。直接作为 interface
+的 dependent scalar 携带 concrete type check；aggregate 还会验证完整 projection、layout
+和 physical carrier mapping。
 record 的 `**` spread
 只按精确字段名和递归类型完成
 构造或 immutable replacement；`@ac.encoding(width=N)` Enum 保留显式协议编码；

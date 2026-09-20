@@ -8,7 +8,8 @@ from pycircuit import (
 )
 
 
-def build(m: CycleAwareCircuit, domain: CycleAwareDomain, width: int = 8) -> None:
+def build(m: CycleAwareCircuit, domain: CycleAwareDomain) -> None:
+    width = 8
     x = cas(domain, m.input("x", width=width), cycle=0)
     y = x + 1
 

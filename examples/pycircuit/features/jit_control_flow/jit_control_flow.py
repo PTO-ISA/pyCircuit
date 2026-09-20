@@ -11,7 +11,8 @@ from pycircuit import (
 )
 
 
-def build(m: CycleAwareCircuit, domain: CycleAwareDomain, rounds: int = 4) -> None:
+def build(m: CycleAwareCircuit, domain: CycleAwareDomain) -> None:
+    rounds = 4
     a = cas(domain, m.input("a", width=8), cycle=0)
     b = cas(domain, m.input("b", width=8), cycle=0)
     op = cas(domain, m.input("op", width=2), cycle=0)
@@ -32,4 +33,4 @@ build.__pycircuit_name__ = "jit_control_flow"
 
 
 if __name__ == "__main__":
-    print(build_cycle_aware(build, name="jit_control_flow", rounds=4).emit_mlir())
+    print(build_cycle_aware(build, name="jit_control_flow").emit_mlir())

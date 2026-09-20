@@ -4,10 +4,13 @@
 
 //--- queue-before-protocol.mlir
 builtin.module  {
-  ac.module @Top() parameters {} graph {
+  ac.module @Top source #ac.source_owner<"tests/native_family.py", "tests/native_family.py"> schema #ac.module_family_schema<#ac.static_parameters<[]>, #ac.static_cases<[#ac.static_arguments<[]>]>, #ac.module_interface<[]>, #ac.source_owner<"tests/native_family.py", "tests/native_family.py">, []> {
+    ac.module.case arguments #ac.static_arguments<[]> type () -> () source #ac.source_provenance<"tests/native_family.py", 1, 1, 1, 1> graph {
     ac.queue @ready payload i32 entries 8 ordering "fifo" protocol @p
         ownership "exclusive" id "ready" path "ready"
     ac.return
+
+    }
   }
   ac.protocol @p {
     ac.role @sender dual @receiver cardinality "exclusive"
@@ -43,10 +46,13 @@ builtin.module  {
     ac.guarantee "stable_pending" = true
     ac.guarantee "max_inflight" = 1 : i64
   }
-  ac.module @Top() parameters {} graph {
+  ac.module @Top source #ac.source_owner<"tests/native_family.py", "tests/native_family.py"> schema #ac.module_family_schema<#ac.static_parameters<[]>, #ac.static_cases<[#ac.static_arguments<[]>]>, #ac.module_interface<[]>, #ac.source_owner<"tests/native_family.py", "tests/native_family.py">, []> {
+    ac.module.case arguments #ac.static_arguments<[]> type () -> () source #ac.source_provenance<"tests/native_family.py", 1, 1, 1, 1> graph {
     ac.queue @ready payload i32 entries 8 ordering "per_key" protocol @p
         ownership "exclusive" id "ready" path "ready"
     ac.return
+
+    }
   }
 }
 // CORRELATION: protocol correlation guarantee must be a non-empty string

@@ -21,7 +21,8 @@ def _sum3(a, b, c, *, width: int):
     return (a + b + c)[0:width]
 
 
-def build(m: CycleAwareCircuit, domain: CycleAwareDomain, *, width: int = 32):
+def build(m: CycleAwareCircuit, domain: CycleAwareDomain):
+    width = 32
     seed = cas(domain, m.input("seed", width=width), cycle=0)
 
     g0 = u(width, 1)
@@ -46,4 +47,4 @@ def build(m: CycleAwareCircuit, domain: CycleAwareDomain, *, width: int = 32):
 build.__pycircuit_name__ = "boundary_value_ports"
 
 if __name__ == "__main__":
-    print(compile_cycle_aware(build, name="boundary_value_ports", width=32).emit_mlir())
+    print(compile_cycle_aware(build, name="boundary_value_ports").emit_mlir())

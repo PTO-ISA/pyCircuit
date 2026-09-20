@@ -11,86 +11,119 @@
 
 //--- zero-chain.mlir
 builtin.module  {
-  "ac.module"() <{sym_name = "Empty", function_type = () -> (), static_params = {}}> ({
+  ac.module @Empty source #ac.source_owner<"tests/native_family.py", "tests/native_family.py"> schema #ac.module_family_schema<#ac.static_parameters<[]>, #ac.static_cases<[#ac.static_arguments<[]>]>, #ac.module_interface<[]>, #ac.source_owner<"tests/native_family.py", "tests/native_family.py">, []> {
+  ac.module.case arguments #ac.static_arguments<[]> type () -> () source #ac.source_provenance<"tests/native_family.py", 1, 1, 1, 1> graph {
     "ac.return"() : () -> ()
-  }) : () -> ()
-  "ac.module"() <{sym_name = "Top", function_type = () -> (), static_params = {}}> ({
-    "ac.instance"() <{definition = @Empty, sym_name = "unrelated", stable_id = "unrelated", path = "unrelated", static_args = {}}> : () -> ()
-    "ac.instance"() <{definition = @Empty, sym_name = "source", stable_id = "source", path = "source", static_args = {}}> : () -> ()
+
+  }
+}
+  ac.module @Top source #ac.source_owner<"tests/native_family.py", "tests/native_family.py"> schema #ac.module_family_schema<#ac.static_parameters<[]>, #ac.static_cases<[#ac.static_arguments<[]>]>, #ac.module_interface<[]>, #ac.source_owner<"tests/native_family.py", "tests/native_family.py">, []> {
+  ac.module.case arguments #ac.static_arguments<[]> type () -> () source #ac.source_provenance<"tests/native_family.py", 1, 1, 1, 1> graph {
+    "ac.instance"() <{definition = @Empty, sym_name = "unrelated", stable_id = "unrelated", path = "unrelated", static_args = #ac.static_arguments<[]>}> : () -> ()
+    "ac.instance"() <{definition = @Empty, sym_name = "source", stable_id = "source", path = "source", static_args = #ac.static_arguments<[]>}> : () -> ()
     "ac.view"() <{sym_name = "first", kind = "permutation", source_producers = [@source], source_shapes = [array<i64: 0>], indices = array<i64>, shape = array<i64: 0>}> : () -> ()
     "ac.view"() <{sym_name = "second", kind = "permutation", source_producers = [@first], source_shapes = [array<i64: 0>], indices = array<i64>, shape = array<i64: 0>}> : () -> ()
     "ac.return"() : () -> ()
-  }) : () -> ()
+
+  }
+}
 }
 // ZERO: ac.view @first
 // ZERO: ac.view @second
 
 //--- unresolved-source.mlir
 builtin.module  {
-  "ac.module"() <{sym_name = "Top", function_type = () -> (), static_params = {}}> ({
+  ac.module @Top source #ac.source_owner<"tests/native_family.py", "tests/native_family.py"> schema #ac.module_family_schema<#ac.static_parameters<[]>, #ac.static_cases<[#ac.static_arguments<[]>]>, #ac.module_interface<[]>, #ac.source_owner<"tests/native_family.py", "tests/native_family.py">, []> {
+  ac.module.case arguments #ac.static_arguments<[]> type () -> () source #ac.source_provenance<"tests/native_family.py", 1, 1, 1, 1> graph {
     "ac.view"() <{sym_name = "view", kind = "permutation", source_producers = [@missing], source_shapes = [array<i64: 0>], indices = array<i64>, shape = array<i64: 0>}> : () -> ()
     "ac.return"() : () -> ()
-  }) : () -> ()
+
+  }
+}
 }
 // UNRESOLVED: source producer '@missing' is unresolved
 
 //--- repeated-source.mlir
 builtin.module  {
-  "ac.module"() <{sym_name = "Empty", function_type = () -> (), static_params = {}}> ({ "ac.return"() : () -> () }) : () -> ()
-  "ac.module"() <{sym_name = "Top", function_type = () -> (), static_params = {}}> ({
-    "ac.instance"() <{definition = @Empty, sym_name = "source", stable_id = "source", path = "source", static_args = {}}> : () -> ()
+  ac.module @Empty source #ac.source_owner<"tests/native_family.py", "tests/native_family.py"> schema #ac.module_family_schema<#ac.static_parameters<[]>, #ac.static_cases<[#ac.static_arguments<[]>]>, #ac.module_interface<[]>, #ac.source_owner<"tests/native_family.py", "tests/native_family.py">, []> {
+  ac.module.case arguments #ac.static_arguments<[]> type () -> () source #ac.source_provenance<"tests/native_family.py", 1, 1, 1, 1> graph { "ac.return"() : () -> ()
+  }
+}
+  ac.module @Top source #ac.source_owner<"tests/native_family.py", "tests/native_family.py"> schema #ac.module_family_schema<#ac.static_parameters<[]>, #ac.static_cases<[#ac.static_arguments<[]>]>, #ac.module_interface<[]>, #ac.source_owner<"tests/native_family.py", "tests/native_family.py">, []> {
+  ac.module.case arguments #ac.static_arguments<[]> type () -> () source #ac.source_provenance<"tests/native_family.py", 1, 1, 1, 1> graph {
+    "ac.instance"() <{definition = @Empty, sym_name = "source", stable_id = "source", path = "source", static_args = #ac.static_arguments<[]>}> : () -> ()
     "ac.view"() <{sym_name = "view", kind = "concat", source_producers = [@source, @source], source_shapes = [array<i64: 0>, array<i64: 0>], axis = 0 : i64, indices = array<i64>, shape = array<i64: 0>}> : () -> ()
     "ac.return"() : () -> ()
-  }) : () -> ()
+
+  }
+}
 }
 // REPEATED: source producers must not repeat
 
 //--- dotted-view-name.mlir
 builtin.module  {
-  "ac.module"() <{sym_name = "Top", function_type = () -> (), static_params = {}}> ({
+  ac.module @Top source #ac.source_owner<"tests/native_family.py", "tests/native_family.py"> schema #ac.module_family_schema<#ac.static_parameters<[]>, #ac.static_cases<[#ac.static_arguments<[]>]>, #ac.module_interface<[]>, #ac.source_owner<"tests/native_family.py", "tests/native_family.py">, []> {
+  ac.module.case arguments #ac.static_arguments<[]> type () -> () source #ac.source_provenance<"tests/native_family.py", 1, 1, 1, 1> graph {
     "ac.view"() <{sym_name = "bad.name", kind = "permutation", source_producers = [@missing], source_shapes = [array<i64: 0>], indices = array<i64>, shape = array<i64: 0>}> : () -> ()
     "ac.return"() : () -> ()
-  }) : () -> ()
+
+  }
+}
 }
 
 //--- empty-view-name.mlir
 builtin.module  {
-  "ac.module"() <{sym_name = "Top", function_type = () -> (), static_params = {}}> ({
+  ac.module @Top source #ac.source_owner<"tests/native_family.py", "tests/native_family.py"> schema #ac.module_family_schema<#ac.static_parameters<[]>, #ac.static_cases<[#ac.static_arguments<[]>]>, #ac.module_interface<[]>, #ac.source_owner<"tests/native_family.py", "tests/native_family.py">, []> {
+  ac.module.case arguments #ac.static_arguments<[]> type () -> () source #ac.source_provenance<"tests/native_family.py", 1, 1, 1, 1> graph {
     "ac.view"() <{sym_name = "", kind = "permutation", source_producers = [@missing], source_shapes = [array<i64: 0>], indices = array<i64>, shape = array<i64: 0>}> : () -> ()
     "ac.return"() : () -> ()
-  }) : () -> ()
+
+  }
+}
 }
 
 //--- slashed-view-name.mlir
 builtin.module  {
-  "ac.module"() <{sym_name = "Top", function_type = () -> (), static_params = {}}> ({
+  ac.module @Top source #ac.source_owner<"tests/native_family.py", "tests/native_family.py"> schema #ac.module_family_schema<#ac.static_parameters<[]>, #ac.static_cases<[#ac.static_arguments<[]>]>, #ac.module_interface<[]>, #ac.source_owner<"tests/native_family.py", "tests/native_family.py">, []> {
+  ac.module.case arguments #ac.static_arguments<[]> type () -> () source #ac.source_provenance<"tests/native_family.py", 1, 1, 1, 1> graph {
     "ac.view"() <{sym_name = "bad/name", kind = "permutation", source_producers = [@missing], source_shapes = [array<i64: 0>], indices = array<i64>, shape = array<i64: 0>}> : () -> ()
     "ac.return"() : () -> ()
-  }) : () -> ()
+
+  }
+}
 }
 // VIEW-NAME: view name must be a stable local segment
 
 //--- dotted-producer-id.mlir
 builtin.module  {
-  "ac.module"() <{sym_name = "Top", function_type = () -> (), static_params = {}}> ({
+  ac.module @Top source #ac.source_owner<"tests/native_family.py", "tests/native_family.py"> schema #ac.module_family_schema<#ac.static_parameters<[]>, #ac.static_cases<[#ac.static_arguments<[]>]>, #ac.module_interface<[]>, #ac.source_owner<"tests/native_family.py", "tests/native_family.py">, []> {
+  ac.module.case arguments #ac.static_arguments<[]> type () -> () source #ac.source_provenance<"tests/native_family.py", 1, 1, 1, 1> graph {
     "ac.view"() <{sym_name = "view", kind = "permutation", source_producers = [@"bad.name"], source_shapes = [array<i64: 0>], indices = array<i64>, shape = array<i64: 0>}> : () -> ()
     "ac.return"() : () -> ()
-  }) : () -> ()
+
+  }
+}
 }
 
 //--- empty-producer-id.mlir
 builtin.module  {
-  "ac.module"() <{sym_name = "Top", function_type = () -> (), static_params = {}}> ({
+  ac.module @Top source #ac.source_owner<"tests/native_family.py", "tests/native_family.py"> schema #ac.module_family_schema<#ac.static_parameters<[]>, #ac.static_cases<[#ac.static_arguments<[]>]>, #ac.module_interface<[]>, #ac.source_owner<"tests/native_family.py", "tests/native_family.py">, []> {
+  ac.module.case arguments #ac.static_arguments<[]> type () -> () source #ac.source_provenance<"tests/native_family.py", 1, 1, 1, 1> graph {
     "ac.view"() <{sym_name = "view", kind = "permutation", source_producers = [@""], source_shapes = [array<i64: 0>], indices = array<i64>, shape = array<i64: 0>}> : () -> ()
     "ac.return"() : () -> ()
-  }) : () -> ()
+
+  }
+}
 }
 
 //--- slashed-producer-id.mlir
 builtin.module  {
-  "ac.module"() <{sym_name = "Top", function_type = () -> (), static_params = {}}> ({
+  ac.module @Top source #ac.source_owner<"tests/native_family.py", "tests/native_family.py"> schema #ac.module_family_schema<#ac.static_parameters<[]>, #ac.static_cases<[#ac.static_arguments<[]>]>, #ac.module_interface<[]>, #ac.source_owner<"tests/native_family.py", "tests/native_family.py">, []> {
+  ac.module.case arguments #ac.static_arguments<[]> type () -> () source #ac.source_provenance<"tests/native_family.py", 1, 1, 1, 1> graph {
     "ac.view"() <{sym_name = "view", kind = "permutation", source_producers = [@"bad/name"], source_shapes = [array<i64: 0>], indices = array<i64>, shape = array<i64: 0>}> : () -> ()
     "ac.return"() : () -> ()
-  }) : () -> ()
+
+  }
+}
 }
 // PRODUCER-ID: source producer IDs must be stable local segments

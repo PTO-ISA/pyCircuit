@@ -7468,7 +7468,7 @@ dynamic indices wider than the original 64-entry snapshot mask.
   compiler infers their Queue boundaries; Python does not annotate them with a
   Queue/Input/Output wrapper and does not express ready, full, pop, push, sink,
   reservation, or commit mechanics.
-- `ac.jit(system, workspace=..., **constants)` binds only parameters annotated
+- The source-owned typed finite-family schema binds only declared static parameters
   with `ac.const`. Supplying a runtime parameter is an error. Runtime values do
   not participate in the specialization fingerprint.
 - An explicit workspace captures the deterministic transitive local import

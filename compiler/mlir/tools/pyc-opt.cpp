@@ -1,7 +1,9 @@
 #include "pyc/Dialect/PYC/PYCDialect.h"
+#include "acir/Dialect/ACIR/ACIRDialect.h"
 #include "pyc/Transforms/Passes.h"
 
 #include "mlir/Dialect/Arith/IR/Arith.h"
+#include "mlir/Dialect/DLTI/DLTI.h"
 #include "mlir/Dialect/Func/Extensions/InlinerExtension.h"
 #include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/Dialect/SCF/IR/SCF.h"
@@ -24,7 +26,8 @@ namespace {
 
 int runDriver(int argc, char **argv) {
   DialectRegistry registry;
-  registry.insert<pyc::PYCDialect, mlir::arith::ArithDialect,
+  registry.insert<pyc::PYCDialect, acir::ac::ACIRDialect, mlir::DLTIDialect,
+                  mlir::arith::ArithDialect,
                   mlir::func::FuncDialect, mlir::scf::SCFDialect>();
   mlir::func::registerInlinerExtension(registry);
   registerAllPasses();

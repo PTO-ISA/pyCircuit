@@ -1,12 +1,6 @@
 from __future__ import annotations
 
-DEFAULT_PARAMS = {
-    "CLK_FREQ": 4,
-    "EW_GREEN_S": 3,
-    "EW_YELLOW_S": 1,
-    "NS_GREEN_S": 2,
-    "NS_YELLOW_S": 1,
-}
+DEFAULT_PARAMS = {}
 
 TB_PRESETS = {
     "smoke": {"timeout": 32, "finish": 4},

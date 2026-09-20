@@ -146,7 +146,7 @@ LogicalResult canonicalizeModel(ModuleOp model) {
     return failure();
   for (ac::ModuleOp module : model.getOps<ac::ModuleOp>())
     if (!module.getBody().empty() &&
-        failed(sortBlock(module.getBody().front(), frozen, graphRank)))
+        failed(sortBlock(cast<ac::ModuleCaseOp>(module.getBody().front().front()).getBody().front(), frozen, graphRank)))
       return failure();
   for (ac::TypeScopeOp scope : model.getOps<ac::TypeScopeOp>())
     if (!scope.getBody().empty() &&

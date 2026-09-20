@@ -18,8 +18,6 @@ def cli_test_ledger() -> dict[str, CommandCoverage]:
     module_prefix = f"{__package__}." if __package__ else ""
     parser = f"{module_prefix}test_cli_parser.CliParserTest"
     discovery = f"{module_prefix}test_discovery_commands.DiscoveryCommandTest"
-    frontend = f"{module_prefix}test_frontend_commands.FrontendCommandTest"
-    inspect = f"{module_prefix}test_inspect_command.InspectCommandTest"
     exits = f"{module_prefix}test_exit_codes.ExitCodeTest"
     return {
         "init": CommandCoverage(
@@ -33,30 +31,6 @@ def cli_test_ledger() -> dict[str, CommandCoverage]:
             (f"{discovery}.test_unknown_schema_name_is_a_structured_user_error",),
             (f"{discovery}.test_capabilities_match_schema_without_importing_project",),
             (f"{discovery}.test_component_protocol_and_list_queries_are_exact",),
-        ),
-        "check": CommandCoverage(
-            (f"{frontend}.test_check_is_fast_machine_readable_and_writes_no_build",),
-            (f"{parser}.test_unknown_toml_key_is_exit_two",),
-            (f"{frontend}.test_check_can_stop_after_verified_acpy",),
-            (f"{frontend}.test_check_is_fast_machine_readable_and_writes_no_build",),
-        ),
-        "elaborate": CommandCoverage(
-            (
-                f"{frontend}.test_elaborate_is_deterministic_and_captures_project_output",
-            ),
-            (f"{parser}.test_unknown_toml_key_is_exit_two",),
-            (
-                f"{frontend}.test_elaborate_is_deterministic_and_captures_project_output",
-            ),
-            (f"{frontend}.test_elaborate_acir_is_verified_and_atomically_replaced",),
-        ),
-        "inspect": CommandCoverage(
-            (f"{inspect}.test_every_exact_view_is_machine_readable_and_read_only",),
-            (
-                f"{inspect}.test_hierarchy_path_is_canonical_and_unknown_path_is_diagnostic",
-            ),
-            (f"{inspect}.test_graphviz_output_is_deterministic_and_host_independent",),
-            (f"{inspect}.test_every_exact_view_is_machine_readable_and_read_only",),
         ),
         "explain": CommandCoverage(
             (f"{discovery}.test_explain_and_doctor_are_read_only",),

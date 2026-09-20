@@ -136,80 +136,6 @@ llvm::Error planError(const llvm::Twine &message) {
       "ACLOWER-QUEUE-PLAN: " + message);
 }
 
-llvm::Expected<std::string> readableSpecializationValue(mlir::Attribute value) {
-  if (auto boolean = mlir::dyn_cast<mlir::BoolAttr>(value))
-    return boolean.getValue() ? "true" : "false";
-  if (auto integer = mlir::dyn_cast<mlir::IntegerAttr>(value)) {
-    llvm::SmallString<32> text;
-    integer.getValue().toString(text, 10, integer.getType().isSignedInteger());
-    std::string result = text.str().str();
-    if (llvm::StringRef(result).consume_front("-"))
-      return "neg_" + result.substr(1);
-    return result;
-  }
-  if (auto string = mlir::dyn_cast<mlir::StringAttr>(value)) {
-    std::string result = legalizeQueueGraphIdentifier(string.getValue());
-    return result.empty() ? std::string("empty") : result;
-  }
-  if (auto array = mlir::dyn_cast<mlir::ArrayAttr>(value)) {
-    std::string result = "array";
-    for (mlir::Attribute element : array) {
-      auto readable = readableSpecializationValue(element);
-      if (!readable)
-        return readable.takeError();
-      result.append("_").append(*readable);
-    }
-    return result;
-  }
-  if (auto dictionary = mlir::dyn_cast<mlir::DictionaryAttr>(value)) {
-    std::string result = "config";
-    for (mlir::NamedAttribute field : dictionary) {
-      auto readable = readableSpecializationValue(field.getValue());
-      if (!readable)
-        return readable.takeError();
-      result.append("_")
-          .append(legalizeQueueGraphIdentifier(field.getName().strref()))
-          .append("_")
-          .append(*readable);
-    }
-    return result;
-  }
-  if (auto type = mlir::dyn_cast<mlir::TypeAttr>(value)) {
-    std::string printed;
-    llvm::raw_string_ostream stream(printed);
-    stream << type.getValue();
-    return "type_" + legalizeQueueGraphIdentifier(printed);
-  }
-  return planError(
-      "specialization parameter is not readable in the C++ naming contract");
-}
-
-std::string specializationKey(llvm::StringRef definition,
-                              mlir::DictionaryAttr arguments) {
-  std::string result;
-  llvm::raw_string_ostream stream(result);
-  stream << '@' << definition << arguments;
-  return result;
-}
-
-llvm::Expected<std::vector<std::pair<std::string, std::string>>>
-readableSpecializationParameters(mlir::DictionaryAttr arguments) {
-  std::vector<std::pair<std::string, std::string>> result;
-  if (!arguments)
-    return result;
-  for (mlir::NamedAttribute argument : arguments) {
-    if (argument.getName() == "jit_specialization")
-      continue;
-    auto value = readableSpecializationValue(argument.getValue());
-    if (!value)
-      return value.takeError();
-    result.emplace_back(
-        legalizeQueueGraphIdentifier(argument.getName().strref()),
-        std::move(*value));
-  }
-  return result;
-}
-
 llvm::Expected<uint64_t> addBitWidths(uint64_t left, uint64_t right) {
   if (right > std::numeric_limits<uint64_t>::max() - left)
     return planError("value bit width overflows uint64_t");
@@ -893,8 +819,7 @@ extractSourceProvenance(mlir::Operation *operation) {
       const int64_t rawLine = line.getInt();
       const int64_t rawColumn = column.getInt();
       if ((rawKind != "statement" && rawKind != "definition" &&
-           rawKind != "inline_callsite" && rawKind != "instance" &&
-           rawKind != "specialization") ||
+           rawKind != "inline_callsite" && rawKind != "instance") ||
           !isValidPythonSourcePath(rawFile) || rawLine <= 0 || rawColumn <= 0)
         return planError("source provenance frame is malformed");
       plannedOrigin.push_back(
@@ -2370,7 +2295,7 @@ void materializeCaptureOnlySlots(QueueGraphPlan &plan) {
         }))
       continue;
     QueueBlockPlan capture{
-        "slot", slot.name + "__capture", slot.scope, {slot.input}, {}};
+        "slot", slot.name + "_capture", slot.scope, {slot.input}, {}};
     capture.lexicalOrder = plan.blocks.size() + plan.moduleInstances.size();
     capture.slot = slot.name;
     capture.yields = {"release_disabled"};
@@ -2382,9 +2307,105 @@ void materializeCaptureOnlySlots(QueueGraphPlan &plan) {
   }
 }
 
+
+struct AvailableCasePlan {
+  std::string definition;
+  ac::StaticArgumentsAttr arguments;
+  const QueueGraphPlan *body = nullptr;
+};
+
 class Extractor {
 public:
   explicit Extractor(mlir::ModuleOp module) : module(module) {}
+
+  llvm::Error extractModuleFamilies() {
+    plan.moduleFamilies.clear();
+    for (ac::ModuleOp definition : module.getOps<ac::ModuleOp>()) {
+      ModuleFamilyPlan family;
+      family.definition = definition.getSymName().str();
+      family.source = definition.getSource();
+      family.parameters = definition.getSchema().getParameters();
+      family.declaredCases = definition.getSchema().getCases();
+      family.interface = definition.getSchema().getInterface();
+      family.nominalDeclarations =
+          definition.getSchema().getNominalDeclarations();
+      for (mlir::Attribute rawNominal : family.nominalDeclarations) {
+        auto nominal = mlir::cast<mlir::FlatSymbolRefAttr>(rawNominal);
+        bool found = false;
+        for (ac::TypeScopeOp scope : module.getOps<ac::TypeScopeOp>()) {
+          for (ac::EnumOp declaration :
+               scope.getBody().front().getOps<ac::EnumOp>()) {
+            if (declaration.getSymName() != nominal.getValue())
+              continue;
+            family.nominalDefinitions.push_back(
+                {NominalDefinitionPlan::Kind::Enum,
+                 scope.getSymName().str(), declaration.getSymName().str(),
+                 scope->getAttr("dlti.dl_spec"),
+                 declaration->getAttrOfType<ac::StaticParametersAttr>(
+                     "parameters"),
+                 declaration.getEnumerantsAttr(), declaration.getValuesAttr(),
+                 declaration.getEncodingWidthAttr()});
+            found = true;
+          }
+          for (ac::StructOp declaration :
+               scope.getBody().front().getOps<ac::StructOp>()) {
+            if (declaration.getSymName() != nominal.getValue())
+              continue;
+            family.nominalDefinitions.push_back(
+                {NominalDefinitionPlan::Kind::Struct,
+                 scope.getSymName().str(), declaration.getSymName().str(),
+                 scope->getAttr("dlti.dl_spec"),
+                 declaration->getAttrOfType<ac::StaticParametersAttr>(
+                     "parameters"),
+                 declaration.getFieldsAttr(), {}, {}});
+            found = true;
+          }
+        }
+        if (!found)
+          return planError("nominal family declaration is not defined in a typed scope");
+      }
+      for (ac::ModuleCaseOp moduleCase :
+           definition.getBody().front().getOps<ac::ModuleCaseOp>()) {
+        ModuleCasePlan item;
+        item.arguments = moduleCase.getArguments();
+        item.concreteSignature = moduleCase.getFunctionType();
+        item.sourceProvenance = moduleCase.getSourceProvenance();
+        auto materialized = ac::materializeModuleInterface(
+            family.interface, item.arguments, item.concreteSignature, module);
+        if (!materialized)
+          return materialized.takeError();
+        item.materializedInterface = *materialized;
+        auto recordName = [](mlir::Operation *operation,
+                             std::vector<std::string> &target) {
+          if (auto symbol = mlir::SymbolTable::getSymbolName(operation))
+            target.push_back(symbol.getValue().str());
+          else if (auto name =
+                       operation->getAttrOfType<mlir::StringAttr>("ac.name"))
+            target.push_back(name.getValue().str());
+        };
+        moduleCase.getBody().walk([&](mlir::Operation *operation) {
+          if (mlir::isa<ac::QueueOp>(operation))
+            recordName(operation, item.queues);
+          else if (mlir::isa<ac::TableOp>(operation))
+            recordName(operation, item.tables);
+          else if (mlir::isa<ac::SlotOp>(operation))
+            recordName(operation, item.slots);
+          else if (mlir::isa<ac::RuleOp>(operation))
+            recordName(operation, item.rules);
+          else if (mlir::isa<ac::RequireOp, ac::EnsureOp>(operation))
+            recordName(operation, item.proofs);
+          else if (mlir::isa<ac::ArchitectureObligationOp>(operation))
+            recordName(operation, item.obligations);
+          if (mlir::isa<ac::StateOp, ac::QueueOp, ac::TableOp, ac::SlotOp>(
+                  operation))
+            recordName(operation, item.stateOwners);
+        });
+        family.cases.push_back(std::move(item));
+      }
+      plan.moduleFamilies.push_back(std::move(family));
+    }
+    return llvm::Error::success();
+  }
 
   llvm::Expected<QueueGraphPlan> run() {
     if (mlir::failed(mlir::verify(module)))
@@ -2394,7 +2415,7 @@ public:
       return planError("module requires ac.model_kind exactly 'queue_graph'");
     if (auto error = extractAggregateTypes())
       return std::move(error);
-    if (auto error = extractStaticTypeMetadata())
+    if (auto error = extractModuleFamilies())
       return std::move(error);
     if (!module.getOps<ac::SystemOp>().empty())
       return runStructured();
@@ -2453,123 +2474,10 @@ public:
   }
 
 private:
-  llvm::Error extractStaticTypeMetadata() {
-    auto bindings =
-        module->getAttrOfType<mlir::DictionaryAttr>("ac.static_type_bindings");
-    auto checks =
-        module->getAttrOfType<mlir::ArrayAttr>("ac.static_type_checks");
-    auto identities =
-        module->getAttrOfType<mlir::ArrayAttr>("ac.static_type_identities");
-    mlir::Attribute rawConfigs = module->getAttr("ac.static_config_bindings");
-    auto configs = mlir::dyn_cast_or_null<mlir::ArrayAttr>(rawConfigs);
-    if (rawConfigs && !configs)
-      return planError("static config bindings must be an array");
-    if (!bindings && !checks && !identities && !configs)
-      return llvm::Error::success();
-    if (!bindings || !checks)
-      return planError(
-          "static type bindings and checks must be provided together");
-    for (mlir::NamedAttribute binding : bindings) {
-      auto value = mlir::dyn_cast<mlir::IntegerAttr>(binding.getValue());
-      if (!value || !value.getType().isSignlessInteger(64))
-        return planError("static type binding must be an i64 integer");
-      plan.staticTypeBindings.emplace_back(binding.getName().str(),
-                                           value.getInt());
-    }
-    for (mlir::Attribute rawCheck : checks) {
-      auto check = mlir::dyn_cast<mlir::DictionaryAttr>(rawCheck);
-      auto program =
-          check ? check.getAs<mlir::ArrayAttr>("program") : mlir::ArrayAttr();
-      auto result = check ? check.getAs<mlir::IntegerAttr>("result")
-                          : mlir::IntegerAttr();
-      auto target =
-          check ? check.getAs<mlir::StringAttr>("target") : mlir::StringAttr();
-      auto concreteType =
-          check ? check.getAs<mlir::TypeAttr>("type") : mlir::TypeAttr();
-      if (!check || (check.size() != 3 && check.size() != 4) || !program ||
-          !result || !target ||
-          (check.size() == 4) != static_cast<bool>(concreteType))
-        return planError("static type check metadata is malformed");
-      QueueStaticTypeCheckPlan item;
-      item.target = target.getValue().str();
-      item.result = result.getInt();
-      if (concreteType)
-        item.concreteType = printType(concreteType.getValue());
-      for (mlir::Attribute rawToken : program) {
-        auto token = mlir::dyn_cast<mlir::StringAttr>(rawToken);
-        if (!token)
-          return planError("static type check token must be a string");
-        item.program.push_back(token.getValue().str());
-      }
-      plan.staticTypeChecks.push_back(std::move(item));
-    }
-    if (configs) {
-      for (mlir::Attribute rawConfig : configs) {
-        auto config = mlir::dyn_cast<mlir::DictionaryAttr>(rawConfig);
-        auto root = config ? config.getAs<mlir::StringAttr>("root")
-                           : mlir::StringAttr();
-        auto type = config ? config.getAs<mlir::StringAttr>("type")
-                           : mlir::StringAttr();
-        auto schema = config ? config.getAs<mlir::StringAttr>("schema")
-                             : mlir::StringAttr();
-        auto value = config ? config.getAs<mlir::StringAttr>("value")
-                            : mlir::StringAttr();
-        if (!config || config.size() != 4 || !root || !type || !schema ||
-            !value)
-          return planError("static config binding metadata is malformed");
-        plan.staticConfigBindings.push_back(
-            {root.getValue().str(), type.getValue().str(),
-             schema.getValue().str(), value.getValue().str()});
-      }
-    }
-    if (identities) {
-      for (mlir::Attribute rawIdentity : identities) {
-        auto identity = mlir::dyn_cast<mlir::DictionaryAttr>(rawIdentity);
-        auto source = identity ? identity.getAs<mlir::StringAttr>("source")
-                               : mlir::StringAttr();
-        auto symbol = identity ? identity.getAs<mlir::StringAttr>("symbol")
-                               : mlir::StringAttr();
-        auto identityBindings =
-            identity ? identity.getAs<mlir::ArrayAttr>("bindings")
-                     : mlir::ArrayAttr();
-        auto targets = identity ? identity.getAs<mlir::ArrayAttr>("targets")
-                                : mlir::ArrayAttr();
-        if (!identity || identity.size() != 4 || !source || !symbol ||
-            !identityBindings || !targets)
-          return planError("static type identity metadata is malformed");
-        QueueStaticTypeIdentityPlan item;
-        item.source = source.getValue().str();
-        item.symbol = symbol.getValue().str();
-        for (mlir::Attribute rawBinding : identityBindings) {
-          auto binding = mlir::dyn_cast<mlir::DictionaryAttr>(rawBinding);
-          auto name = binding ? binding.getAs<mlir::StringAttr>("name")
-                              : mlir::StringAttr();
-          auto parameter = binding
-                               ? binding.getAs<mlir::StringAttr>("parameter")
-                               : mlir::StringAttr();
-          auto value = binding ? binding.getAs<mlir::IntegerAttr>("value")
-                               : mlir::IntegerAttr();
-          if (!binding || binding.size() != 3 || !name || !parameter || !value)
-            return planError("static type identity binding is malformed");
-          item.bindings.push_back({name.getValue().str(),
-                                   parameter.getValue().str(), value.getInt()});
-        }
-        for (mlir::Attribute rawTarget : targets) {
-          auto target = mlir::dyn_cast<mlir::StringAttr>(rawTarget);
-          if (!target)
-            return planError("static type identity target is malformed");
-          item.targets.push_back(target.getValue().str());
-        }
-        plan.staticTypeIdentities.push_back(std::move(item));
-      }
-    }
-    return llvm::Error::success();
-  }
-
   llvm::Expected<QueueGraphPlan> extractDefinition(
-      ac::ModuleOp definition, llvm::StringRef specialization,
-      mlir::DictionaryAttr specializationArguments, llvm::StringRef system,
-      const llvm::StringMap<const QueueGraphPlan *> *available = nullptr) {
+      ac::ModuleOp definition,
+      ac::StaticArgumentsAttr caseArguments, llvm::StringRef system,
+      llvm::ArrayRef<AvailableCasePlan> available = {}) {
     Extractor nested(module);
     nested.plan.system = system.str();
     nested.plan.definition = definition.getSymName().str();
@@ -2587,28 +2495,30 @@ private:
     if (auto error = extractNdfMetadata(definition, "ac.ndf_requires",
                                         nested.plan.ndfRequires))
       return std::move(error);
-    nested.plan.specializationKey = specialization.str();
-    auto readableParameters =
-        readableSpecializationParameters(specializationArguments);
-    if (!readableParameters)
-      return readableParameters.takeError();
-    nested.plan.specializationParameters = std::move(*readableParameters);
     nested.plan.payloads = plan.payloads;
     nested.plan.enums = plan.enums;
     nested.plan.aggregates = plan.aggregates;
-    nested.plan.staticTypeBindings = plan.staticTypeBindings;
-    nested.plan.staticTypeChecks = plan.staticTypeChecks;
-    nested.plan.staticTypeIdentities = plan.staticTypeIdentities;
-    nested.plan.staticConfigBindings = plan.staticConfigBindings;
-    if (available)
-      nested.availableSpecializations = *available;
+    if (auto error = nested.extractModuleFamilies())
+      return std::move(error);
+    nested.availableCases.assign(available.begin(), available.end());
 
-    mlir::Block &body = definition.getBody().front();
+    ac::ModuleCaseOp selectedCase;
+    for (ac::ModuleCaseOp candidate :
+         definition.getBody().front().getOps<ac::ModuleCaseOp>())
+      if (candidate.getArguments() == caseArguments) {
+        selectedCase = candidate;
+        break;
+      }
+    if (!selectedCase)
+      return planError("requested family case body is missing");
+    mlir::Block &body = selectedCase.getBody().front();
     auto displayNames = [&](llvm::StringRef attribute, size_t count,
                             llvm::StringRef fallbackPrefix)
         -> llvm::Expected<std::vector<std::string>> {
       std::vector<std::string> result;
       auto values = definition->getAttrOfType<mlir::ArrayAttr>(attribute);
+      if (!values)
+        values = selectedCase->getAttrOfType<mlir::ArrayAttr>(attribute);
       if (!values) {
         if (definition->hasAttr(attribute))
           return planError(attribute + " must be an array of strings");
@@ -2637,10 +2547,18 @@ private:
       std::string name = "input_" + std::to_string(index);
       nested.names[argument] = name;
       nested.plan.interfaceInputs.push_back(
-          {std::move(name), printType(queue.getElementType()),
+          {name, printType(queue.getElementType()),
            static_cast<uint64_t>(queue.getLanes()),
            static_cast<uint64_t>(queue.getRate()),
            (*inputDisplayNames)[index]});
+      nested.plan.queues.push_back(
+          {name, printType(queue.getElementType()), "/",
+           static_cast<uint64_t>(queue.getRate()), 1,
+           static_cast<uint64_t>(queue.getRate()),
+           static_cast<uint64_t>(queue.getLanes())});
+      for (uint64_t lane = 0;
+           lane < static_cast<uint64_t>(queue.getLanes()); ++lane)
+        nested.plan.queues.back().laneOrdinals.push_back(lane);
     }
     if (auto error = nested.extractBlock(body, {}))
       return std::move(error);
@@ -2814,7 +2732,7 @@ private:
     }
     if (auto error = materializeActivation(nested.plan))
       return std::move(error);
-    if (!available)
+    if (available.empty())
       if (auto error = verifyQueueGraphPlan(nested.plan))
         return std::move(error);
     return std::move(nested.plan);
@@ -2842,125 +2760,112 @@ private:
       if (auto error = extractTypeScope(typeScope))
         return std::move(error);
 
-    llvm::StringMap<ac::ModuleOp> definitions;
-    for (ac::ModuleOp definition : module.getOps<ac::ModuleOp>())
-      definitions[definition.getSymName()] = definition;
-    struct SpecializationRequest {
+    struct CaseBuild {
       ac::ModuleOp definition;
-      std::string key;
-      mlir::DictionaryAttr arguments;
+      ac::StaticArgumentsAttr arguments;
+      enum class State { Pending, Visiting, Complete } state = State::Pending;
+      std::shared_ptr<QueueGraphPlan> body;
     };
-    llvm::StringMap<SpecializationRequest> requested;
-    for (ac::ModuleOp definition : module.getOps<ac::ModuleOp>())
-      for (ac::InstanceOp instance :
-           definition.getBody().front().getOps<ac::InstanceOp>()) {
-        auto target = definitions.find(instance.getDefinition());
-        if (target == definitions.end())
-          return planError("structured instance specialization is incomplete");
-        std::string key = specializationKey(instance.getDefinition(),
-                                            instance.getStaticArgs());
-        auto [entry, inserted] = requested.try_emplace(
-            key, SpecializationRequest{target->getValue(), key,
-                                       instance.getStaticArgs()});
-        if (!inserted &&
-            (entry->getValue().definition != target->getValue() ||
-             entry->getValue().arguments != instance.getStaticArgs()))
-          return planError(
-              "one specialization key maps to inconsistent readable "
-              "parameters");
-      }
-
-    llvm::StringMap<std::vector<std::string>> dependencies;
-    llvm::StringMap<std::vector<std::string>> parents;
-    llvm::StringMap<size_t> pendingDependencies;
-    for (const auto &entry : requested) {
-      llvm::StringSet<> unique;
-      ac::ModuleOp definition = entry.getValue().definition;
-      for (ac::InstanceOp instance :
-           definition.getBody().front().getOps<ac::InstanceOp>()) {
-        std::string key = specializationKey(instance.getDefinition(),
-                                            instance.getStaticArgs());
-        if (!requested.contains(key))
-          return planError(
-              "nested module references an unavailable specialization");
-        if (unique.insert(key).second)
-          dependencies[entry.getKey()].push_back(std::move(key));
-      }
-      llvm::sort(dependencies[entry.getKey()]);
-      pendingDependencies[entry.getKey()] = dependencies[entry.getKey()].size();
-      for (const std::string &child : dependencies[entry.getKey()])
-        parents[child].push_back(entry.getKey().str());
+    std::vector<CaseBuild> cases;
+    for (ac::ModuleOp definition : module.getOps<ac::ModuleOp>()) {
+      if (definition == root)
+        continue;
+      for (ac::ModuleCaseOp moduleCase :
+           definition.getBody().front().getOps<ac::ModuleCaseOp>())
+        cases.push_back({definition, moduleCase.getArguments()});
     }
-    for (auto &entry : parents)
-      llvm::sort(entry.getValue());
-
-    std::set<std::string> ready;
-    for (const auto &entry : requested)
-      if (pendingDependencies[entry.getKey()] == 0)
-        ready.insert(entry.getKey().str());
-    llvm::StringMap<std::shared_ptr<QueueGraphPlan>> built;
-    while (!ready.empty()) {
-      std::string key = *ready.begin();
-      ready.erase(ready.begin());
-      auto request = requested.find(key);
-      if (request == requested.end())
-        return planError("specialization worklist identity is unresolved");
-      llvm::StringMap<const QueueGraphPlan *> children;
-      std::vector<std::shared_ptr<QueueGraphPlan>> childPlans;
-      for (const std::string &child : dependencies[key]) {
-        auto found = built.find(child);
-        if (found == built.end())
-          return planError("nested specialization dependency is not built");
-        children[child] = found->getValue().get();
-        childPlans.push_back(found->getValue());
-      }
-      auto extracted = extractDefinition(
-          request->getValue().definition, key, request->getValue().arguments,
-          selected.getSymName(), children.empty() ? nullptr : &children);
+    auto findCase = [&](llvm::StringRef definition,
+                        ac::StaticArgumentsAttr arguments) -> CaseBuild * {
+      auto found = llvm::find_if(cases, [&](const CaseBuild &candidate) {
+        return candidate.definition->getAttrOfType<mlir::StringAttr>(
+                   mlir::SymbolTable::getSymbolAttrName()).getValue() ==
+                   definition &&
+               candidate.arguments == arguments;
+      });
+      return found == cases.end() ? nullptr : &*found;
+    };
+    std::function<llvm::Error(CaseBuild &)> buildCase =
+        [&](CaseBuild &item) -> llvm::Error {
+      if (item.state == CaseBuild::State::Complete)
+        return llvm::Error::success();
+      if (item.state == CaseBuild::State::Visiting)
+        return planError("typed module family dependency graph is cyclic");
+      item.state = CaseBuild::State::Visiting;
+      ac::ModuleCaseOp selectedCase;
+      for (ac::ModuleCaseOp candidate :
+           item.definition.getBody().front().getOps<ac::ModuleCaseOp>())
+        if (candidate.getArguments() == item.arguments) {
+          selectedCase = candidate;
+          break;
+        }
+      if (!selectedCase)
+        return planError("declared family case is missing its body");
+      llvm::Error dependencyError = llvm::Error::success();
+      selectedCase.walk([&](ac::InstanceOp instance) {
+        if (dependencyError)
+          return;
+        CaseBuild *child =
+            findCase(instance.getDefinition(), instance.getStaticArgs());
+        if (!child) {
+          dependencyError = planError(
+              "instance does not select one declared typed family case");
+          return;
+        }
+        dependencyError = buildCase(*child);
+      });
+      if (dependencyError)
+        return dependencyError;
+      std::vector<AvailableCasePlan> available;
+      for (const CaseBuild &candidate : cases)
+        if (candidate.state == CaseBuild::State::Complete)
+          available.push_back({candidate.definition->getAttrOfType<mlir::StringAttr>(
+                                   mlir::SymbolTable::getSymbolAttrName()).getValue().str(),
+                               candidate.arguments, candidate.body.get()});
+      auto extracted = extractDefinition(item.definition, item.arguments,
+                                         selected.getSymName(), available);
       if (!extracted)
         return extracted.takeError();
-      extracted->moduleSpecializations = std::move(childPlans);
-      if (auto error = verifyQueueGraphPlan(*extracted))
+      item.body =
+          std::make_shared<QueueGraphPlan>(std::move(*extracted));
+      item.state = CaseBuild::State::Complete;
+      return llvm::Error::success();
+    };
+    for (CaseBuild &item : cases)
+      if (auto error = buildCase(item))
         return std::move(error);
-      auto stored = std::make_shared<QueueGraphPlan>(std::move(*extracted));
-      built[key] = stored;
-      for (const std::string &parent : parents[key]) {
-        size_t &pending = pendingDependencies[parent];
-        if (pending == 0)
-          return planError("nested specialization dependency underflow");
-        if (--pending == 0)
-          ready.insert(parent);
-      }
-    }
-    if (built.size() != requested.size())
-      return planError("nested specialization graph is cyclic or incomplete");
 
-    llvm::StringMap<const QueueGraphPlan *> available;
-    std::vector<std::shared_ptr<QueueGraphPlan>> specializations;
-    llvm::StringSet<> rootDependencies;
-    for (ac::InstanceOp instance :
-         root.getBody().front().getOps<ac::InstanceOp>()) {
-      std::string key =
-          specializationKey(instance.getDefinition(), instance.getStaticArgs());
-      auto found = built.find(key);
-      if (found == built.end())
-        return planError("root instance specialization is unavailable");
-      available[key] = found->getValue().get();
-      if (rootDependencies.insert(key).second)
-        specializations.push_back(found->getValue());
-    }
-    llvm::sort(specializations, [](const auto &left, const auto &right) {
-      return left->specializationKey < right->specializationKey;
-    });
+    for (CaseBuild &item : cases)
+      for (ModuleFamilyPlan &family : item.body->moduleFamilies)
+        for (ModuleCasePlan &moduleCase : family.cases) {
+          CaseBuild *body = findCase(family.definition, moduleCase.arguments);
+          if (body && body->body != item.body)
+            moduleCase.bodyPlan = body->body;
+        }
 
-    std::string rootSpecialization =
-        specializationKey(root.getSymName(), root.getStaticParams());
-    auto extractedRoot =
-        extractDefinition(root, rootSpecialization, root.getStaticParams(),
-                          selected.getSymName(), &available);
+    std::vector<AvailableCasePlan> available;
+    for (const CaseBuild &item : cases)
+      available.push_back({item.definition->getAttrOfType<mlir::StringAttr>(
+                               mlir::SymbolTable::getSymbolAttrName()).getValue().str(), item.arguments,
+                           item.body.get()});
+
+    auto rootCases = root.getSchema().getCases().getCases();
+    if (rootCases.size() != 1)
+      return planError("selected root family requires exactly one concrete case");
+    auto rootArguments = mlir::cast<ac::StaticArgumentsAttr>(rootCases[0]);
+    auto extractedRoot = extractDefinition(root, rootArguments,
+                                           selected.getSymName(), available);
     if (!extractedRoot)
       return extractedRoot.takeError();
-    extractedRoot->moduleSpecializations = std::move(specializations);
+    for (ModuleFamilyPlan &family : extractedRoot->moduleFamilies) {
+      if (family.definition == root.getSymName())
+        continue;
+      for (ModuleCasePlan &moduleCase : family.cases) {
+        CaseBuild *body = findCase(family.definition, moduleCase.arguments);
+        if (!body)
+          return planError("declared family case body plan is missing");
+        moduleCase.bodyPlan = body->body;
+      }
+    }
     if (auto error = materializeActivation(*extractedRoot))
       return std::move(error);
     if (auto error = verifyQueueGraphPlan(*extractedRoot))
@@ -3911,16 +3816,18 @@ private:
         continue;
       }
       if (auto instance = mlir::dyn_cast<ac::InstanceOp>(operation)) {
-        std::string key = specializationKey(instance.getDefinition(),
-                                            instance.getStaticArgs());
-        auto specialization = availableSpecializations.find(key);
-        if (specialization == availableSpecializations.end())
+        auto selected = llvm::find_if(
+            availableCases, [&](const AvailableCasePlan &candidate) {
+              return candidate.definition == instance.getDefinition() &&
+                     candidate.arguments == instance.getStaticArgs();
+            });
+        if (selected == availableCases.end())
           return planError(
-              "module instance references an unavailable specialization");
-        const QueueGraphPlan *target = specialization->getValue();
+              "module instance references an unavailable typed family case");
+        const QueueGraphPlan *target = selected->body;
         if (!target || target->definition != instance.getDefinition())
           return planError(
-              "module instance specialization definition mismatch");
+              "module instance family definition mismatch");
         auto inputs = queueNames(instance.getInputs(), names);
         if (!inputs)
           return inputs.takeError();
@@ -3955,7 +3862,7 @@ private:
         }
         QueueModuleInstancePlan plannedInstance{instance.getSymName().str(),
                                                 instance.getDefinition().str(),
-                                                std::move(key),
+                                                instance.getStaticArgs(),
                                                 scopePath(scope),
                                                 std::move(*inputs),
                                                 std::move(outputs),
@@ -4056,7 +3963,7 @@ private:
   llvm::StringSet<> payloadIdentities;
   llvm::StringSet<> enumIdentities;
   llvm::StringSet<> aggregateIdentities;
-  llvm::StringMap<const QueueGraphPlan *> availableSpecializations;
+  std::vector<AvailableCasePlan> availableCases;
   QueueSourceProvenancePlan currentSourceProvenance;
   uint64_t nextLexicalOrder = 0;
 };
@@ -4066,6 +3973,19 @@ std::optional<llvm::StringRef> payloadTypeName(llvm::StringRef type) {
   if (type.starts_with(prefix) && type.ends_with('>'))
     return type.drop_front(prefix.size()).drop_back();
   return std::nullopt;
+}
+
+const QueueGraphPlan *findFamilyCaseBody(
+    const QueueGraphPlan &plan, llvm::StringRef definition,
+    ac::StaticArgumentsAttr arguments) {
+  for (const ModuleFamilyPlan &family : plan.moduleFamilies) {
+    if (family.definition != definition)
+      continue;
+    for (const ModuleCasePlan &moduleCase : family.cases)
+      if (moduleCase.arguments == arguments)
+        return moduleCase.bodyPlan.get();
+  }
+  return nullptr;
 }
 
 std::optional<llvm::StringRef> enumTypeName(llvm::StringRef type) {
@@ -4157,412 +4077,8 @@ projectStaticConfigInteger(const llvm::json::Value &schema,
   return currentValue->getAsInteger();
 }
 
-llvm::Error verifyStaticTypeMetadata(const QueueGraphPlan &plan) {
-  if (plan.staticTypeBindings.empty() && plan.staticTypeChecks.empty() &&
-      plan.staticTypeIdentities.empty() && plan.staticConfigBindings.empty()) {
-    bool hasExpressionTarget = false;
-    auto scan = [&](auto &&self, const auto &expressions) -> void {
-      for (const QueueExpressionPlan &expression : expressions) {
-        hasExpressionTarget |= !expression.staticTypeTarget.empty();
-        self(self, expression.nestedExpressions);
-      }
-    };
-    for (const QueueBlockPlan &block : plan.blocks)
-      scan(scan, block.expressions);
-    for (const QueueHelperPlan &helper : plan.helpers)
-      scan(scan, helper.expressions);
-    for (const TableMatchPlan &match : plan.tableMatches)
-      scan(scan, match.expressions);
-    for (const TableSelectionPlan &selection : plan.tableSelections)
-      scan(scan, selection.keyExpressions);
-    return hasExpressionTarget
-               ? planError(
-                     "static expression type target requires type metadata")
-               : llvm::Error::success();
-  }
-  if (plan.staticTypeBindings.empty() || plan.staticTypeChecks.empty())
-    return planError("static type bindings and checks must both be present");
-  llvm::StringMap<int64_t> bindings;
-  for (const auto &[name, value] : plan.staticTypeBindings)
-    if (name.empty() || !bindings.try_emplace(name, value).second)
-      return planError("static type bindings must be named and unique");
-
-  llvm::StringSet<> configRoots;
-  llvm::StringSet<> usedConfigRoots;
-  llvm::StringMap<unsigned> configProjectionMatches;
-  for (const QueueStaticConfigBindingPlan &config : plan.staticConfigBindings) {
-    if (config.root.empty() || config.type.empty() || config.schema.empty() ||
-        config.value.empty() || !configRoots.insert(config.root).second)
-      return planError("static config binding metadata is malformed");
-    auto canonicalSchema = bindings::canonicalizeJsonText(config.schema);
-    auto canonicalValue = bindings::canonicalizeJsonText(config.value);
-    if (!canonicalSchema || !canonicalValue) {
-      if (!canonicalSchema)
-        llvm::consumeError(canonicalSchema.takeError());
-      if (!canonicalValue)
-        llvm::consumeError(canonicalValue.takeError());
-      return planError("static config schema or value is invalid");
-    }
-    if (*canonicalSchema != config.schema || *canonicalValue != config.value)
-      return planError(
-          "static config schema and value must use canonical JSON");
-    auto schema = llvm::json::parse(*canonicalSchema);
-    auto value = llvm::json::parse(*canonicalValue);
-    if (!schema || !value || !verifyStaticConfigValue(*schema, *value))
-      return planError("static config schema or value is invalid");
-    const llvm::json::Object *schemaObject = schema->getAsObject();
-    if (!schemaObject || schemaObject->getString("name") != config.type)
-      return planError("static config type disagrees with its schema");
-    for (const auto &[name, bindingValue] : plan.staticTypeBindings) {
-      llvm::StringRef path = name;
-      if (!path.consume_front(config.root) || !path.consume_front("."))
-        continue;
-      ++configProjectionMatches[name];
-      auto projected = projectStaticConfigInteger(*schema, *value, path);
-      if (!projected || *projected != bindingValue)
-        return planError(
-            "static config projection disagrees with its root binding");
-      usedConfigRoots.insert(config.root);
-    }
-  }
-  for (const auto &[name, value] : plan.staticTypeBindings)
-    if (llvm::StringRef(name).contains('.') &&
-        configProjectionMatches.lookup(name) != 1)
-      return planError(
-          "static config projection must match exactly one config root");
-  for (llvm::StringRef root : configRoots.keys())
-    if (!usedConfigRoots.contains(root))
-      return planError("static config root has no dependent type projection");
-
-  llvm::StringMap<const QueuePayloadPlan *> payloads;
-  for (const QueuePayloadPlan &payload : plan.payloads)
-    payloads[payload.name] = &payload;
-
-  auto queueType = [](const QueueGraphPlan &owner,
-                      llvm::StringRef queueName) -> std::optional<std::string> {
-    auto queue = llvm::find_if(owner.queues, [&](const QueuePlan &candidate) {
-      return candidate.name == queueName;
-    });
-    return queue == owner.queues.end()
-               ? std::nullopt
-               : std::optional<std::string>(queue->payloadType);
-  };
-  auto resolveInterfaceType =
-      [&](llvm::StringRef path) -> std::pair<bool, std::optional<std::string>> {
-    llvm::SmallVector<llvm::StringRef> segments;
-    path.split(segments, '.');
-    if (segments.size() != 5 || segments[0] != "interface")
-      return {true, std::nullopt};
-    llvm::StringRef ownerKind = segments[1];
-    llvm::StringRef ownerName = segments[2];
-    llvm::StringRef direction = segments[3];
-    llvm::StringRef endpoint = segments[4];
-    const bool rootPlan = plan.definition.empty() || plan.definition == "Top";
-    if (ownerKind == "system") {
-      if (!rootPlan)
-        return {false, std::nullopt};
-      if (ownerName != plan.system)
-        return {true, std::nullopt};
-      if (direction == "input")
-        return {true, queueType(plan, endpoint)};
-      unsigned ordinal = 0;
-      if (direction != "output" || endpoint.getAsInteger(10, ordinal))
-        return {true, std::nullopt};
-      if (!plan.interfaceOutputs.empty())
-        return ordinal < plan.interfaceOutputs.size()
-                   ? std::pair<bool,
-                               std::optional<std::string>>{true,
-                                                           plan.interfaceOutputs
-                                                               [ordinal]
-                                                                   .payloadType}
-                   : std::pair<bool, std::optional<std::string>>{true,
-                                                                 std::nullopt};
-      llvm::SmallVector<std::string> outputs;
-      for (const QueueBlockPlan &block : plan.blocks)
-        if (block.kind == "sink" && block.inputs.size() == 1)
-          outputs.push_back(block.inputs.front());
-      return ordinal < outputs.size()
-                 ? std::pair<bool,
-                             std::optional<std::string>>{true,
-                                                         queueType(
-                                                             plan,
-                                                             outputs[ordinal])}
-                 : std::pair<bool, std::optional<std::string>>{true,
-                                                               std::nullopt};
-    }
-    if (ownerKind != "module")
-      return {true, std::nullopt};
-    const QueueGraphPlan *owner = nullptr;
-    if (plan.definition == ownerName)
-      owner = &plan;
-    else
-      for (const std::shared_ptr<QueueGraphPlan> &specialization :
-           plan.moduleSpecializations)
-        if (specialization && specialization->definition == ownerName) {
-          owner = specialization.get();
-          break;
-        }
-    if (!owner)
-      return {rootPlan, std::nullopt};
-    const auto &ports =
-        direction == "input" ? owner->interfaceInputs : owner->interfaceOutputs;
-    if (direction == "input") {
-      auto port = llvm::find_if(ports, [&](const QueueInterfacePlan &item) {
-        return item.displayName == endpoint;
-      });
-      return port == ports.end()
-                 ? std::pair<bool, std::optional<std::string>>{true,
-                                                               std::nullopt}
-                 : std::pair<bool, std::optional<std::string>>{
-                       true, port->payloadType};
-    }
-    unsigned ordinal = 0;
-    if (direction != "output" || endpoint.getAsInteger(10, ordinal) ||
-        ordinal >= ports.size())
-      return {true, std::nullopt};
-    return {true, ports[ordinal].payloadType};
-  };
-  auto resolveExpressionType =
-      [&](llvm::StringRef path) -> std::optional<std::string> {
-    std::optional<std::string> resolved;
-    bool conflict = false;
-    auto visit = [&](auto &&self, const auto &expressions) -> void {
-      for (const QueueExpressionPlan &expression : expressions) {
-        if (expression.staticTypeTarget == path) {
-          llvm::StringRef candidate = expression.type;
-          if (expression.kind == "range_checked_valid")
-            candidate = expression.field;
-          if (!rangeBounds(candidate) || (resolved && *resolved != candidate))
-            conflict = true;
-          else
-            resolved = candidate.str();
-        }
-        self(self, expression.nestedExpressions);
-      }
-    };
-    for (const QueueBlockPlan &block : plan.blocks)
-      visit(visit, block.expressions);
-    for (const QueueHelperPlan &helper : plan.helpers)
-      visit(visit, helper.expressions);
-    for (const TableMatchPlan &match : plan.tableMatches)
-      visit(visit, match.expressions);
-    for (const TableSelectionPlan &selection : plan.tableSelections)
-      visit(visit, selection.keyExpressions);
-    return conflict ? std::nullopt : resolved;
-  };
-
-  llvm::StringSet<> referencedBindings;
-  llvm::StringSet<> targets;
-  for (const QueueStaticTypeCheckPlan &check : plan.staticTypeChecks) {
-    if (check.target.empty() || check.program.empty() ||
-        !targets.insert(check.target).second)
-      return planError("static type check must be complete");
-    llvm::SmallVector<int64_t> stack;
-    for (llvm::StringRef rawToken : check.program) {
-      llvm::StringRef token = rawToken;
-      if (token.consume_front("param:")) {
-        auto binding = bindings.find(token);
-        if (binding == bindings.end())
-          return planError("static type check references an unknown binding");
-        referencedBindings.insert(token);
-        stack.push_back(binding->getValue());
-        continue;
-      }
-      if (token.consume_front("literal:")) {
-        int64_t value = 0;
-        if (token.getAsInteger(10, value))
-          return planError("static type check literal is malformed");
-        stack.push_back(value);
-        continue;
-      }
-      if (rawToken == "index_width" || rawToken == "count_width") {
-        if (stack.empty())
-          return planError("static type check stack underflow");
-        int64_t value = stack.pop_back_val();
-        if (value <= 0)
-          return planError("static type width helper input is invalid");
-        stack.push_back(rawToken == "count_width"
-                            ? llvm::Log2_64(static_cast<uint64_t>(value)) + 1
-                            : std::max<int64_t>(1, llvm::Log2_64_Ceil(value)));
-        continue;
-      }
-      if (rawToken != "add" && rawToken != "sub" && rawToken != "mul")
-        return planError("static type check operation is unsupported");
-      if (stack.size() < 2)
-        return planError("static type check stack underflow");
-      int64_t right = stack.pop_back_val();
-      int64_t left = stack.pop_back_val();
-      int64_t result = 0;
-      bool overflow = rawToken == "add" ? llvm::AddOverflow(left, right, result)
-                      : rawToken == "sub"
-                          ? llvm::SubOverflow(left, right, result)
-                          : llvm::MulOverflow(left, right, result);
-      if (overflow)
-        return planError("static type check arithmetic overflow");
-      stack.push_back(result);
-    }
-    if (stack.size() != 1 || stack.front() != check.result)
-      return planError("static type check result is inconsistent");
-
-    auto [path, kind] = llvm::StringRef(check.target).rsplit(':');
-    llvm::SmallVector<llvm::StringRef> segments;
-    std::string ownedResolvedType = check.concreteType;
-    llvm::StringRef resolvedType = ownedResolvedType;
-    if (!check.concreteType.empty()) {
-      auto [applicable, actual] =
-          path.starts_with("expression.")
-              ? std::pair{true, resolveExpressionType(path)}
-              : resolveInterfaceType(path);
-      if (applicable && (!actual || *actual != check.concreteType))
-        return planError(
-            "static interface type check disagrees with the actual endpoint '" +
-            check.target + "': expected " + check.concreteType + ", got " +
-            (actual ? *actual : std::string("<unresolved>")));
-    } else {
-      path.split(segments, '.');
-      if (segments.size() < 2)
-        return planError("static type check target is unresolved");
-      llvm::StringRef payloadName = segments[0];
-      llvm::StringRef fieldName = segments[1];
-      auto payload = payloads.find(payloadName);
-      if (payload == payloads.end() || fieldName.empty())
-        return planError("static type check target is unresolved");
-      auto field =
-          llvm::find_if(payload->getValue()->fields, [&](const auto &item) {
-            return item.name == fieldName;
-          });
-      if (field == payload->getValue()->fields.end())
-        return planError("static type check field is unresolved");
-      resolvedType = field->type;
-    }
-    for (llvm::StringRef segment :
-         check.concreteType.empty()
-             ? llvm::ArrayRef<llvm::StringRef>(segments).drop_front(2)
-             : llvm::ArrayRef<llvm::StringRef>()) {
-      auto aggregate = llvm::find_if(plan.aggregates,
-                                     [&](const QueueAggregatePlan &candidate) {
-                                       return candidate.type == resolvedType;
-                                     });
-      if (aggregate == plan.aggregates.end())
-        return planError("static type check aggregate path is unresolved");
-      if (segment == "array_element") {
-        if (aggregate->kind != "array" || aggregate->elements.size() != 1)
-          return planError(
-              "static type check array-element path is unresolved");
-        resolvedType = aggregate->elements.front();
-        continue;
-      }
-      llvm::StringRef ordinal = segment;
-      unsigned index = 0;
-      if (!ordinal.consume_front("tuple_") || ordinal.getAsInteger(10, index) ||
-          aggregate->kind != "tuple" || index >= aggregate->elements.size())
-        return planError("static type check tuple-element path is unresolved");
-      resolvedType = aggregate->elements[index];
-    }
-    if (kind == "bits") {
-      if (resolvedType != "i" + std::to_string(check.result))
-        return planError("static bits width is inconsistent");
-    } else if (kind == "array_length") {
-      auto aggregate = llvm::find_if(plan.aggregates,
-                                     [&](const QueueAggregatePlan &candidate) {
-                                       return candidate.type == resolvedType;
-                                     });
-      if (aggregate == plan.aggregates.end() || aggregate->kind != "array" ||
-          aggregate->length != static_cast<uint64_t>(check.result))
-        return planError("static value-array length is inconsistent");
-    } else if (kind == "range_lower" || kind == "range_upper") {
-      auto bounds = rangeBounds(resolvedType);
-      uint64_t expected = 0;
-      if (bounds)
-        expected =
-            kind == "range_lower"
-                ? bounds->first
-                : bounds->second +
-                      (bounds->second != std::numeric_limits<uint64_t>::max());
-      if (!bounds || check.result < 0 ||
-          static_cast<uint64_t>(check.result) != expected)
-        return planError("static bounded range is inconsistent");
-    } else {
-      return planError("static type check target kind is unsupported");
-    }
-  }
-  for (const auto &binding : bindings)
-    if (!referencedBindings.contains(binding.getKey()))
-      return planError(
-          "static type binding is not referenced by any type check");
-
-  auto verifyExpressionTargets = [&](auto &&self,
-                                     const auto &expressions) -> llvm::Error {
-    for (const QueueExpressionPlan &expression : expressions) {
-      if (!expression.staticTypeTarget.empty()) {
-        const std::string prefix = expression.staticTypeTarget + ":";
-        if (llvm::none_of(targets.keys(), [&](llvm::StringRef target) {
-              return target.starts_with(prefix);
-            }))
-          return planError(
-              "static expression type target has no matching type check");
-      }
-      if (auto error = self(self, expression.nestedExpressions))
-        return error;
-    }
-    return llvm::Error::success();
-  };
-  for (const QueueBlockPlan &block : plan.blocks)
-    if (auto error =
-            verifyExpressionTargets(verifyExpressionTargets, block.expressions))
-      return error;
-  for (const QueueHelperPlan &helper : plan.helpers)
-    if (auto error = verifyExpressionTargets(verifyExpressionTargets,
-                                             helper.expressions))
-      return error;
-
-  llvm::StringSet<> identitySymbols;
-  llvm::StringSet<> identityTargets;
-  for (const QueueStaticTypeIdentityPlan &identity :
-       plan.staticTypeIdentities) {
-    if (identity.source.empty() || identity.symbol.empty() ||
-        !identitySymbols.insert(identity.symbol).second)
-      return planError("static type identity metadata is malformed");
-    auto payload = payloads.find(identity.symbol);
-    if (payload == payloads.end())
-      return planError("static type identity payload is unresolved");
-    llvm::StringSet<> names;
-    llvm::StringRef previous;
-    for (const QueueStaticTypeIdentityBindingPlan &binding :
-         identity.bindings) {
-      auto global = bindings.find(binding.parameter);
-      if (binding.name.empty() || binding.parameter.empty() ||
-          !names.insert(binding.name).second ||
-          (!previous.empty() && previous >= binding.name) ||
-          global == bindings.end() || global->getValue() != binding.value)
-        return planError("static type identity bindings are inconsistent");
-      previous = binding.name;
-    }
-    const std::string prefix = identity.symbol + ".";
-    for (const std::string &target : identity.targets)
-      if (!targets.contains(target) || !identityTargets.insert(target).second ||
-          !llvm::StringRef(target).starts_with(prefix))
-        return planError("static type identity targets are inconsistent");
-  }
-  for (const QueuePayloadPlan &payload : plan.payloads)
-    if (llvm::StringRef(payload.name).contains("__p") &&
-        !identitySymbols.contains(payload.name))
-      return planError("specialized payload requires static type identity");
-  for (llvm::StringRef target : targets.keys()) {
-    auto [path, kind] = target.rsplit(':');
-    (void)kind;
-    auto [symbol, rest] = path.split('.');
-    if (!rest.empty() && payloads.contains(symbol) && symbol.contains("__p") &&
-        !identityTargets.contains(target))
-      return planError(
-          "specialized payload check is missing from static type identity");
-  }
-  return llvm::Error::success();
-}
 
 llvm::Error verifyPayloadGraph(const QueueGraphPlan &plan) {
-  if (auto error = verifyStaticTypeMetadata(plan))
-    return error;
   llvm::StringMap<const QueueEnumPlan *> enums;
   for (const QueueEnumPlan &enumeration : plan.enums) {
     if (enumeration.name.empty() || enumeration.enumerants.empty() ||
@@ -4849,8 +4365,7 @@ verifySourceProvenancePlan(const QueueSourceProvenancePlan &provenance) {
           : frame.kind == "instance"                              ? 2
                                                                   : 3;
       if ((frame.kind != "statement" && frame.kind != "definition" &&
-           frame.kind != "inline_callsite" && frame.kind != "instance" &&
-           frame.kind != "specialization") ||
+           frame.kind != "inline_callsite" && frame.kind != "instance") ||
           !isValidPythonSourcePath(frame.file) || frame.line == 0 ||
           frame.column == 0 || (!firstFrame && kindRank < previousKindRank))
         return planError("source provenance frame is malformed");
@@ -4935,6 +4450,92 @@ bool appendProjectionDescriptor(const QueueGraphPlan &plan,
 }
 
 llvm::Error verifyQueueGraphPlan(const QueueGraphPlan &plan) {
+  llvm::StringSet<> familyNames;
+  bool ownsDefinitionFamily = plan.definition.empty();
+  for (const ModuleFamilyPlan &family : plan.moduleFamilies) {
+    if (family.definition.empty() ||
+        family.definition.find("__") != std::string::npos ||
+        !familyNames.insert(family.definition).second || !family.source ||
+        !family.parameters || !family.declaredCases || !family.interface ||
+        !family.nominalDeclarations)
+      return planError("typed module family plan is incomplete or duplicated");
+    if (family.nominalDefinitions.size() !=
+        family.nominalDeclarations.size())
+      return planError(
+          "typed module family nominal definition coverage is incomplete");
+    for (auto [reference, definition] :
+         llvm::zip_equal(family.nominalDeclarations,
+                         family.nominalDefinitions)) {
+      auto symbol = mlir::cast<mlir::FlatSymbolRefAttr>(reference);
+      if (definition.scope.empty() || definition.name != symbol.getValue() ||
+          !definition.scopeLayout || !definition.members ||
+          (definition.kind == NominalDefinitionPlan::Kind::Struct &&
+           (definition.values || definition.encodingWidth)))
+        return planError(
+            "typed module family nominal definition is malformed or reordered");
+    }
+    if (family.definition == plan.definition)
+      ownsDefinitionFamily = true;
+    auto declared = family.declaredCases.getCases();
+    if (declared.size() != family.cases.size())
+      return planError(
+          "typed module family case coverage differs from the source schema");
+    llvm::SmallDenseSet<mlir::Attribute> argumentsSeen;
+    for (auto [index, moduleCase] : llvm::enumerate(family.cases)) {
+      if (!moduleCase.arguments || !moduleCase.concreteSignature ||
+          !moduleCase.sourceProvenance || !moduleCase.materializedInterface ||
+          moduleCase.arguments != declared[index] ||
+          !argumentsSeen.insert(moduleCase.arguments).second)
+        return planError(
+            "typed module cases must preserve exact declared order and identity");
+      size_t materializedInput = 0;
+      size_t materializedOutput = 0;
+      for (ac::InterfacePortAttr port : moduleCase.materializedInterface
+                                           .getPorts()
+                                           .getAsRange<ac::InterfacePortAttr>()) {
+        auto concrete = mlir::dyn_cast<ac::TypeExprConcreteAttr>(
+            port.getLogicalType().getValue());
+        if (!concrete)
+          return planError(
+              "typed module case retains an unmaterialized dependent interface");
+        mlir::Type expected;
+        if (port.getDirection().getValue() == "input") {
+          if (materializedInput >=
+              moduleCase.concreteSignature.getNumInputs())
+            return planError("typed module case materialized input is excess");
+          expected = moduleCase.concreteSignature.getInput(materializedInput++);
+        } else {
+          if (materializedOutput >=
+              moduleCase.concreteSignature.getNumResults())
+            return planError("typed module case materialized output is excess");
+          expected =
+              moduleCase.concreteSignature.getResult(materializedOutput++);
+        }
+        if (concrete.getType().getValue() != expected)
+          return planError(
+              "typed module case materialized interface was forged");
+      }
+      if (materializedInput != moduleCase.concreteSignature.getNumInputs() ||
+          materializedOutput != moduleCase.concreteSignature.getNumResults())
+        return planError("typed module case materialized interface is incomplete");
+      auto validInventory = [](const std::vector<std::string> &values) {
+        llvm::StringSet<> seen;
+        return llvm::all_of(values, [&](const std::string &value) {
+          return !value.empty() && seen.insert(value).second;
+        });
+      };
+      if (!validInventory(moduleCase.queues) ||
+          !validInventory(moduleCase.tables) ||
+          !validInventory(moduleCase.slots) ||
+          !validInventory(moduleCase.rules) ||
+          !validInventory(moduleCase.proofs) ||
+          !validInventory(moduleCase.obligations) ||
+          !validInventory(moduleCase.stateOwners))
+        return planError("typed module case local inventory is malformed");
+    }
+  }
+  if (!ownsDefinitionFamily)
+    return planError("QueueGraph family case lost its source-owned definition");
   llvm::StringMap<const QueueArchitectureExpressionScopePlan *> archScopes;
   for (const auto &scope : plan.architectureExpressionScopes) {
     if (scope.rule.empty() || !archScopes.try_emplace(scope.rule, &scope).second)
@@ -5170,20 +4771,6 @@ llvm::Error verifyQueueGraphPlan(const QueueGraphPlan &plan) {
                             !plan.moduleInstances.empty();
   if (plan.system.empty() || !hasStructure)
     return planError("QueueGraph plan is incomplete");
-  if (!plan.definition.empty() && plan.specializationKey.empty())
-    return planError("QueueGraph specialization key is missing");
-  llvm::StringSet<> specializationParameterNames;
-  for (const auto &[name, value] : plan.specializationParameters)
-    if (name.empty() || value.empty() ||
-        !specializationParameterNames.insert(name).second ||
-        legalizeQueueGraphIdentifier(name) != name ||
-        !llvm::all_of(value, [](unsigned char character) {
-          return (character >= 'a' && character <= 'z') ||
-                 (character >= 'A' && character <= 'Z') ||
-                 (character >= '0' && character <= '9') || character == '_';
-        }))
-      return planError(
-          "QueueGraph readable specialization parameters are malformed");
   if (auto error = verifyPayloadGraph(plan))
     return error;
   llvm::StringMap<const QueueEnumPlan *> enums;
@@ -5342,26 +4929,10 @@ llvm::Error verifyQueueGraphPlan(const QueueGraphPlan &plan) {
       }))
     return planError(
         "private Queue payload projections are forbidden in structured plans");
-  if (structured && plan.specializationKey.empty())
-    return planError("QueueGraph module specialization metadata is incomplete");
   if (!structured &&
       (!plan.interfaceInputs.empty() || !plan.interfaceOutputs.empty() ||
-       !plan.moduleInstances.empty() || !plan.moduleSpecializations.empty()))
+       !plan.moduleInstances.empty() || !plan.moduleFamilies.empty()))
     return planError("flat QueueGraph cannot carry structured module metadata");
-  llvm::StringMap<const QueueGraphPlan *> specializations;
-  for (const std::shared_ptr<QueueGraphPlan> &specialization :
-       plan.moduleSpecializations) {
-    if (!specialization || specialization->definition.empty() ||
-        specialization->specializationKey.empty() ||
-        !specializations
-             .try_emplace(specialization->specializationKey,
-                          specialization.get())
-             .second)
-      return planError(
-          "module specialization identities must be complete and unique");
-    if (auto error = verifyQueueGraphPlan(*specialization))
-      return error;
-  }
   if (structured) {
     llvm::DenseSet<uint64_t> lexicalOrders;
     for (const QueueBlockPlan &block : plan.blocks)
@@ -5908,8 +5479,15 @@ llvm::Error verifyQueueGraphPlan(const QueueGraphPlan &plan) {
     producers[input.name] = 1;
   }
   for (const QueuePlan &queue : plan.queues) {
-    if (queue.name.empty() || !queueNames.insert(queue.name).second)
+    const bool interfaceInput = queueTypes.contains(queue.name);
+    if (queue.name.empty() ||
+        (!queueNames.insert(queue.name).second && !interfaceInput))
       return planError("Queue logical identities must be non-empty and unique");
+    if (interfaceInput &&
+        (queueTypes.lookup(queue.name) != queue.payloadType ||
+         queueLanesAndRates.lookup(queue.name) !=
+             std::make_pair(queue.lanes, queue.rate)))
+      return planError("module input Queue storage disagrees with its interface");
     if (queue.payloadType.empty() || queue.depth == 0 || queue.latency == 0 ||
         queue.rate == 0 || queue.rate > queue.depth || queue.lanes == 0 ||
         (!queue.laneOrdinals.empty() &&
@@ -5968,8 +5546,8 @@ llvm::Error verifyQueueGraphPlan(const QueueGraphPlan &plan) {
 
   llvm::StringSet<> instanceNames;
   for (const QueueModuleInstancePlan &instance : plan.moduleInstances) {
-    const QueueGraphPlan *target =
-        specializations.lookup(instance.specializationKey);
+    const QueueGraphPlan *target = findFamilyCaseBody(
+        plan, instance.definition, instance.staticArguments);
     if (instance.name.empty() || !instanceNames.insert(instance.name).second ||
         instance.definition.empty() || !target ||
         target->definition != instance.definition || instance.scope.empty() ||
@@ -8061,25 +7639,11 @@ llvm::Expected<std::string> QueueGraphPlan::canonicalJson() const {
         {"lexical_order", instance.lexicalOrder},
         {"name", instance.name},
         {"outputs", std::move(outputs)},
-        {"scope", instance.scope},
-        {"specialization", instance.specializationKey}};
+        {"scope", instance.scope}};
     if (!instance.sourceProvenance.origins.empty())
       instanceValue["source_provenance"] =
           provenanceJson(instance.sourceProvenance);
     moduleInstanceValues.push_back(std::move(instanceValue));
-  }
-  llvm::json::Array moduleSpecializationValues;
-  for (const std::shared_ptr<QueueGraphPlan> &specialization :
-       moduleSpecializations) {
-    if (!specialization)
-      return planError("module specialization plan is null");
-    auto serialized = specialization->canonicalJson();
-    if (!serialized)
-      return serialized.takeError();
-    auto parsed = llvm::json::parse(*serialized);
-    if (!parsed)
-      return planError("module specialization canonical JSON is invalid");
-    moduleSpecializationValues.push_back(std::move(*parsed));
   }
   auto activationNodeJson = [](const QueueActivationNodePlan &node) {
     return llvm::json::Object{{"index", node.index},
@@ -8098,48 +7662,6 @@ llvm::Expected<std::string> QueueGraphPlan::canonicalJson() const {
   llvm::json::Array initialActivationValues;
   for (const QueueActivationNodePlan &node : initialActivation)
     initialActivationValues.push_back(activationNodeJson(node));
-  llvm::json::Object staticTypeBindingValues;
-  for (const auto &[name, value] : staticTypeBindings)
-    staticTypeBindingValues[name] = value;
-  llvm::json::Array staticTypeCheckValues;
-  for (const QueueStaticTypeCheckPlan &check : staticTypeChecks) {
-    llvm::json::Array program;
-    for (const std::string &token : check.program)
-      program.push_back(token);
-    llvm::json::Object value{{"program", std::move(program)},
-                             {"result", check.result},
-                             {"target", check.target}};
-    if (!check.concreteType.empty())
-      value["type"] = check.concreteType;
-    staticTypeCheckValues.push_back(std::move(value));
-  }
-  llvm::json::Array staticTypeIdentityValues;
-  for (const QueueStaticTypeIdentityPlan &identity : staticTypeIdentities) {
-    llvm::json::Array bindings;
-    for (const QueueStaticTypeIdentityBindingPlan &binding : identity.bindings)
-      bindings.push_back(llvm::json::Object{{"name", binding.name},
-                                            {"parameter", binding.parameter},
-                                            {"value", binding.value}});
-    llvm::json::Array targets;
-    for (const std::string &target : identity.targets)
-      targets.push_back(target);
-    staticTypeIdentityValues.push_back(
-        llvm::json::Object{{"bindings", std::move(bindings)},
-                           {"source", identity.source},
-                           {"symbol", identity.symbol},
-                           {"targets", std::move(targets)}});
-  }
-  llvm::json::Array staticConfigBindingValues;
-  for (const QueueStaticConfigBindingPlan &binding : staticConfigBindings)
-    staticConfigBindingValues.push_back(
-        llvm::json::Object{{"root", binding.root},
-                           {"schema", binding.schema},
-                           {"type", binding.type},
-                           {"value", binding.value}});
-  llvm::json::Array specializationParameterValues;
-  for (const auto &[name, value] : specializationParameters)
-    specializationParameterValues.push_back(
-        llvm::json::Object{{"name", name}, {"value", value}});
   llvm::json::Array obligationValues;
   std::vector<const QueueArchitectureObligationPlan *> sortedObligations;
   for (const QueueArchitectureObligationPlan &obligation : architectureObligations)
@@ -8270,16 +7792,11 @@ llvm::Expected<std::string> QueueGraphPlan::canonicalJson() const {
       {"memory_instances", std::move(memoryInstanceValues)},
       {"memory_requests", std::move(memoryRequestValues)},
       {"module_instances", std::move(moduleInstanceValues)},
-      {"module_specializations", std::move(moduleSpecializationValues)},
       {"payloads", std::move(payloadValues)},
       {"queues", std::move(queueValues)},
       {"schema", "agentic-circuit-queue-graph-plan"},
       {"scopes", std::move(scopeValues)},
       {"slots", std::move(slotValues)},
-      {"specialization", specializationKey.empty()
-                             ? llvm::json::Value(nullptr)
-                             : llvm::json::Value(specializationKey)},
-      {"specialization_parameters", std::move(specializationParameterValues)},
       {"table_reads", std::move(tableReadValues)},
       {"table_matches", std::move(tableMatchValues)},
       {"table_masked_writes", std::move(tableMaskedWriteValues)},
@@ -8288,14 +7805,6 @@ llvm::Expected<std::string> QueueGraphPlan::canonicalJson() const {
       {"tables", std::move(tableValues)},
       {"system", system},
       {"version", "0.5"}};
-  if (!staticTypeBindings.empty())
-    root["static_type_bindings"] = std::move(staticTypeBindingValues);
-  if (!staticTypeChecks.empty())
-    root["static_type_checks"] = std::move(staticTypeCheckValues);
-  if (!staticTypeIdentities.empty())
-    root["static_type_identities"] = std::move(staticTypeIdentityValues);
-  if (!staticConfigBindings.empty())
-    root["static_config_bindings"] = std::move(staticConfigBindingValues);
   if (!ndfIds.empty()) {
     llvm::json::Array values;
     for (const std::string &identifier : ndfIds)
@@ -8381,7 +7890,6 @@ llvm::Expected<std::string> QueueGraphPlan::sourceMapJson() const {
         {"name", instance.name},
         {"scope", instance.scope},
         {"source_provenance", provenanceJson(instance.sourceProvenance)},
-        {"specialization", instance.specializationKey},
     });
   llvm::json::Array tableMatchValues;
   for (const TableMatchPlan &match : tableMatches) {
@@ -8426,38 +7934,13 @@ llvm::Expected<std::string> QueueGraphPlan::sourceMapJson() const {
         {"name", slot.name},
         {"source_provenance", provenanceJson(slot.sourceProvenance)},
     });
-  llvm::json::Array specializationValues;
-  for (const std::shared_ptr<QueueGraphPlan> &specialization :
-       moduleSpecializations) {
-    if (!specialization)
-      return planError("source map module specialization is null");
-    auto serialized = specialization->sourceMapJson();
-    if (!serialized)
-      return serialized.takeError();
-    auto parsed = llvm::json::parse(*serialized);
-    if (!parsed)
-      return planError("module specialization source map is invalid");
-    specializationValues.push_back(std::move(*parsed));
-  }
   llvm::json::Object root{
       {"blocks", std::move(blockValues)},
       {"definition", definition.empty() ? llvm::json::Value(nullptr)
                                         : llvm::json::Value(definition)},
       {"helpers", std::move(helperValues)},
       {"module_instances", std::move(instanceValues)},
-      {"module_specializations", std::move(specializationValues)},
       {"schema", "agentic-circuit-source-map"},
-      {"specialization", specializationKey.empty()
-                             ? llvm::json::Value(nullptr)
-                             : llvm::json::Value(specializationKey)},
-      {"specialization_parameters",
-       [&]() {
-         llvm::json::Array values;
-         for (const auto &[name, value] : specializationParameters)
-           values.push_back(
-               llvm::json::Object{{"name", name}, {"value", value}});
-         return llvm::json::Value(std::move(values));
-       }()},
       {"state_owners", std::move(stateOwnerValues)},
       {"system", system},
       {"table_matches", std::move(tableMatchValues)},

@@ -1188,7 +1188,7 @@ class _ExpressionEmitter:
                 raise QueueFrontendError(
                     "ACPY-TYPE-006: array map helper requires one exact element parameter"
                 )
-            callback_name = f"__ac_array_map_item_{lane}"
+            callback_name = f"compiler_array_map_item_{lane}"
             callback_body = ast.copy_location(
                 ast.Call(
                     func=copy.deepcopy(callback),
@@ -1232,10 +1232,10 @@ class _ExpressionEmitter:
                         if cached is None:
                             value, captured_type = outer.emit(copy.deepcopy(node))
                             ordinal = len(outer.array_callback_captures)
-                            name = f"__ac_array_capture_{ordinal}"
+                            name = f"compiler_array_capture_{ordinal}"
                             while name in capture_reserved:
                                 ordinal += 1
-                                name = f"__ac_array_capture_{ordinal}"
+                                name = f"compiler_array_capture_{ordinal}"
                             cached = (name, value, captured_type)
                             outer.array_callback_captures[capture_key] = cached
                         name, value, captured_type = cached
@@ -1833,7 +1833,7 @@ class _ExpressionEmitter:
                 raise QueueFrontendError(
                     "ACPY-TYPE-006: array scan helper signature must be A, T -> A"
                 )
-            parameter_names = ("__ac_scan_accumulator", "__ac_scan_element")
+            parameter_names = ("compiler_scan_accumulator", "compiler_scan_element")
             callback_body = ast.copy_location(
                 ast.Call(
                     func=copy.deepcopy(callback),
@@ -1863,10 +1863,10 @@ class _ExpressionEmitter:
         reserved.update(self.deferred_values)
         reserved.update(parameter_names)
         ordinal = self.index
-        pair_name = f"__ac_array_scan_pair_{ordinal}"
+        pair_name = f"compiler_array_scan_pair_{ordinal}"
         while pair_name in reserved:
             ordinal += 1
-            pair_name = f"__ac_array_scan_pair_{ordinal}"
+            pair_name = f"compiler_array_scan_pair_{ordinal}"
 
         class BindScanParameters(ast.NodeTransformer):
             def __init__(self) -> None:

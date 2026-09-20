@@ -16,15 +16,11 @@ from pycircuit import (
 )
 
 
-def build(
-    m: CycleAwareCircuit,
-    domain: CycleAwareDomain,
-    *,
-    TAPS: int = 4,
-    DATA_W: int = 16,
-    COEFF_W: int = 16,
-    COEFFS: tuple = (1, 2, 3, 4),
-) -> None:
+def build(m: CycleAwareCircuit, domain: CycleAwareDomain) -> None:
+    TAPS = 4
+    DATA_W = 16
+    COEFF_W = 16
+    COEFFS = (1, 2, 3, 4)
     assert len(COEFFS) == TAPS, f"need {TAPS} coefficients, got {len(COEFFS)}"
 
     GUARD = (TAPS - 1).bit_length()
@@ -68,13 +64,4 @@ def build(
 build.__pycircuit_name__ = "digital_filter"
 
 if __name__ == "__main__":
-    print(
-        build_cycle_aware(
-            build,
-            name="digital_filter",
-            TAPS=4,
-            DATA_W=16,
-            COEFF_W=16,
-            COEFFS=(1, 2, 3, 4),
-        ).emit_mlir()
-    )
+    print(build_cycle_aware(build, name="digital_filter").emit_mlir())

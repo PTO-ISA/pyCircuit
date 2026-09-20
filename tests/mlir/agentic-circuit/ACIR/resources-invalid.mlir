@@ -34,233 +34,308 @@
 
 //--- queue-zero.mlir
 builtin.module  {
-  "ac.module"() <{sym_name = "M", function_type = () -> (), static_params = {}}> ({
+  ac.module @M source #ac.source_owner<"tests/native_family.py", "tests/native_family.py"> schema #ac.module_family_schema<#ac.static_parameters<[]>, #ac.static_cases<[#ac.static_arguments<[]>]>, #ac.module_interface<[]>, #ac.source_owner<"tests/native_family.py", "tests/native_family.py">, []> {
+  ac.module.case arguments #ac.static_arguments<[]> type () -> () source #ac.source_provenance<"tests/native_family.py", 1, 1, 1, 1> graph {
     "ac.queue"() <{sym_name = "q", stable_id = "q", path = "q", payload = i32, entry_capacity = 0 : i64, ordering = "fifo", protocol = @p, ownership = "exclusive", delay_ticks = 1 : i64}> : () -> ()
     "ac.return"() : () -> ()
-  }) : () -> ()
+
+  }
+}
 }
 // QUEUE-ZERO: entry capacity must be positive
 
 //--- queue-watermarks.mlir
 builtin.module  {
-  "ac.module"() <{sym_name = "M", function_type = () -> (), static_params = {}}> ({
+  ac.module @M source #ac.source_owner<"tests/native_family.py", "tests/native_family.py"> schema #ac.module_family_schema<#ac.static_parameters<[]>, #ac.static_cases<[#ac.static_arguments<[]>]>, #ac.module_interface<[]>, #ac.source_owner<"tests/native_family.py", "tests/native_family.py">, []> {
+  ac.module.case arguments #ac.static_arguments<[]> type () -> () source #ac.source_provenance<"tests/native_family.py", 1, 1, 1, 1> graph {
     "ac.queue"() <{sym_name = "q", stable_id = "q", path = "q", payload = i32, entry_capacity = 8 : i64, ordering = "fifo", protocol = @p, ownership = "exclusive", watermarks = {low = 7 : i64, high = 7 : i64}, delay_ticks = 1 : i64}> : () -> ()
     "ac.return"() : () -> ()
-  }) : () -> ()
+
+  }
+}
 }
 // WATERMARKS: watermarks require 0 <= low < high <= entry capacity
 
 //--- queue-protocol.mlir
 builtin.module  {
-  "ac.module"() <{sym_name = "M", function_type = () -> (), static_params = {}}> ({
+  ac.module @M source #ac.source_owner<"tests/native_family.py", "tests/native_family.py"> schema #ac.module_family_schema<#ac.static_parameters<[]>, #ac.static_cases<[#ac.static_arguments<[]>]>, #ac.module_interface<[]>, #ac.source_owner<"tests/native_family.py", "tests/native_family.py">, []> {
+  ac.module.case arguments #ac.static_arguments<[]> type () -> () source #ac.source_provenance<"tests/native_family.py", 1, 1, 1, 1> graph {
     "ac.queue"() <{sym_name = "q", stable_id = "q", path = "q", payload = i32, entry_capacity = 8 : i64, ordering = "fifo", protocol = @missing, ownership = "exclusive", delay_ticks = 1 : i64}> : () -> ()
     "ac.return"() : () -> ()
-  }) : () -> ()
+
+  }
+}
 }
 // PROTOCOL: endpoint protocol '@missing' is unresolved
 
 //--- event-unstable.mlir
 builtin.module  {
-  "ac.module"() <{sym_name = "M", function_type = () -> (), static_params = {}}> ({
+  ac.module @M source #ac.source_owner<"tests/native_family.py", "tests/native_family.py"> schema #ac.module_family_schema<#ac.static_parameters<[]>, #ac.static_cases<[#ac.static_arguments<[]>]>, #ac.module_interface<[]>, #ac.source_owner<"tests/native_family.py", "tests/native_family.py">, []> {
+  ac.module.case arguments #ac.static_arguments<[]> type () -> () source #ac.source_provenance<"tests/native_family.py", 1, 1, 1, 1> graph {
     "ac.event_queue"() <{sym_name = "e", stable_id = "e", path = "e", payload = !ac.event<i32>, capacity = 4 : i64, ordering = "time_only", time_domain = @clock, delay_ticks = 1 : i64}> : () -> ()
     "ac.return"() : () -> ()
-  }) : () -> ()
+
+  }
+}
 }
 // EVENT-ORDER: ordering must be exactly 'time_then_sequence'
 
 //--- event-domain.mlir
 builtin.module  {
-  "ac.module"() <{sym_name = "M", function_type = () -> (), static_params = {}}> ({
+  ac.module @M source #ac.source_owner<"tests/native_family.py", "tests/native_family.py"> schema #ac.module_family_schema<#ac.static_parameters<[]>, #ac.static_cases<[#ac.static_arguments<[]>]>, #ac.module_interface<[]>, #ac.source_owner<"tests/native_family.py", "tests/native_family.py">, []> {
+  ac.module.case arguments #ac.static_arguments<[]> type () -> () source #ac.source_provenance<"tests/native_family.py", 1, 1, 1, 1> graph {
     "ac.event_queue"() <{sym_name = "e", stable_id = "e", path = "e", payload = !ac.event<i32>, capacity = 4 : i64, ordering = "time_then_sequence", time_domain = @clock, delay_ticks = 1 : i64}> : () -> ()
     "ac.return"() : () -> ()
-  }) : () -> ()
+
+  }
+}
 }
 // DOMAIN: time domain '@clock' is unresolved
 
 //--- resource-width.mlir
 builtin.module  {
-  "ac.module"() <{sym_name = "M", function_type = () -> (), static_params = {}}> ({
+  ac.module @M source #ac.source_owner<"tests/native_family.py", "tests/native_family.py"> schema #ac.module_family_schema<#ac.static_parameters<[]>, #ac.static_cases<[#ac.static_arguments<[]>]>, #ac.module_interface<[]>, #ac.source_owner<"tests/native_family.py", "tests/native_family.py">, []> {
+  ac.module.case arguments #ac.static_arguments<[]> type () -> () source #ac.source_provenance<"tests/native_family.py", 1, 1, 1, 1> graph {
     "ac.resource"() <{sym_name = "r", stable_id = "r", path = "r", capacity = 2 : i64, issue_width = 3 : i64, initiation_interval = 1 : i64, latency_model = {kind = "fixed", ticks = 1 : i64}, lifecycle = {reservation = "propose_commit", release = "balanced", cancellation = "explicit"}, ownership = "exclusive", transaction_classes = [], delay_ticks = 1 : i64}> : () -> ()
     "ac.return"() : () -> ()
-  }) : () -> ()
+
+  }
+}
 }
 // ISSUE: issue width must be in [1, capacity]
 
 //--- resource-ii.mlir
 builtin.module  {
-  "ac.module"() <{sym_name = "M", function_type = () -> (), static_params = {}}> ({
+  ac.module @M source #ac.source_owner<"tests/native_family.py", "tests/native_family.py"> schema #ac.module_family_schema<#ac.static_parameters<[]>, #ac.static_cases<[#ac.static_arguments<[]>]>, #ac.module_interface<[]>, #ac.source_owner<"tests/native_family.py", "tests/native_family.py">, []> {
+  ac.module.case arguments #ac.static_arguments<[]> type () -> () source #ac.source_provenance<"tests/native_family.py", 1, 1, 1, 1> graph {
     "ac.resource"() <{sym_name = "r", stable_id = "r", path = "r", capacity = 2 : i64, issue_width = 1 : i64, initiation_interval = 0 : i64, latency_model = {kind = "fixed", ticks = 1 : i64}, lifecycle = {reservation = "propose_commit", release = "balanced", cancellation = "explicit"}, ownership = "exclusive", transaction_classes = [], delay_ticks = 1 : i64}> : () -> ()
     "ac.return"() : () -> ()
-  }) : () -> ()
+
+  }
+}
 }
 // II: initiation interval must be at least one global tick
 
 //--- resource-latency.mlir
 builtin.module  {
-  "ac.module"() <{sym_name = "M", function_type = () -> (), static_params = {}}> ({
+  ac.module @M source #ac.source_owner<"tests/native_family.py", "tests/native_family.py"> schema #ac.module_family_schema<#ac.static_parameters<[]>, #ac.static_cases<[#ac.static_arguments<[]>]>, #ac.module_interface<[]>, #ac.source_owner<"tests/native_family.py", "tests/native_family.py">, []> {
+  ac.module.case arguments #ac.static_arguments<[]> type () -> () source #ac.source_provenance<"tests/native_family.py", 1, 1, 1, 1> graph {
     "ac.resource"() <{sym_name = "r", stable_id = "r", path = "r", capacity = 2 : i64, issue_width = 1 : i64, initiation_interval = 1 : i64, latency_model = {kind = "fixed", ticks = 0 : i64}, lifecycle = {reservation = "propose_commit", release = "balanced", cancellation = "explicit"}, ownership = "exclusive", transaction_classes = [], delay_ticks = 1 : i64}> : () -> ()
     "ac.return"() : () -> ()
-  }) : () -> ()
+
+  }
+}
 }
 // LATENCY: fixed latency ticks must be positive
 
 //--- resource-lifecycle.mlir
 builtin.module  {
-  "ac.module"() <{sym_name = "M", function_type = () -> (), static_params = {}}> ({
+  ac.module @M source #ac.source_owner<"tests/native_family.py", "tests/native_family.py"> schema #ac.module_family_schema<#ac.static_parameters<[]>, #ac.static_cases<[#ac.static_arguments<[]>]>, #ac.module_interface<[]>, #ac.source_owner<"tests/native_family.py", "tests/native_family.py">, []> {
+  ac.module.case arguments #ac.static_arguments<[]> type () -> () source #ac.source_provenance<"tests/native_family.py", 1, 1, 1, 1> graph {
     "ac.resource"() <{sym_name = "r", stable_id = "r", path = "r", capacity = 2 : i64, issue_width = 1 : i64, initiation_interval = 1 : i64, latency_model = {kind = "fixed", ticks = 1 : i64}, lifecycle = {reservation = "eager", release = "balanced", cancellation = "explicit"}, ownership = "exclusive", transaction_classes = [], delay_ticks = 1 : i64}> : () -> ()
     "ac.return"() : () -> ()
-  }) : () -> ()
+
+  }
+}
 }
 // LIFECYCLE: lifecycle requires exact reservation/release/cancellation schema
 
 //--- resource-arbiter.mlir
 builtin.module  {
-  "ac.module"() <{sym_name = "M", function_type = () -> (), static_params = {}}> ({
+  ac.module @M source #ac.source_owner<"tests/native_family.py", "tests/native_family.py"> schema #ac.module_family_schema<#ac.static_parameters<[]>, #ac.static_cases<[#ac.static_arguments<[]>]>, #ac.module_interface<[]>, #ac.source_owner<"tests/native_family.py", "tests/native_family.py">, []> {
+  ac.module.case arguments #ac.static_arguments<[]> type () -> () source #ac.source_provenance<"tests/native_family.py", 1, 1, 1, 1> graph {
     "ac.resource"() <{sym_name = "r", stable_id = "r", path = "r", capacity = 2 : i64, issue_width = 1 : i64, initiation_interval = 1 : i64, latency_model = {kind = "fixed", ticks = 1 : i64}, lifecycle = {reservation = "propose_commit", release = "balanced", cancellation = "explicit"}, ownership = "shared", transaction_classes = [], delay_ticks = 1 : i64}> : () -> ()
     "ac.return"() : () -> ()
-  }) : () -> ()
+
+  }
+}
 }
 // ARBITER: shared or contested resource requires one arbitration owner
 
 //--- resource-class.mlir
 builtin.module  {
-  "ac.module"() <{sym_name = "M", function_type = () -> (), static_params = {}}> ({
+  ac.module @M source #ac.source_owner<"tests/native_family.py", "tests/native_family.py"> schema #ac.module_family_schema<#ac.static_parameters<[]>, #ac.static_cases<[#ac.static_arguments<[]>]>, #ac.module_interface<[]>, #ac.source_owner<"tests/native_family.py", "tests/native_family.py">, []> {
+  ac.module.case arguments #ac.static_arguments<[]> type () -> () source #ac.source_provenance<"tests/native_family.py", 1, 1, 1, 1> graph {
     "ac.resource"() <{sym_name = "r", stable_id = "r", path = "r", capacity = 2 : i64, issue_width = 1 : i64, initiation_interval = 1 : i64, latency_model = {kind = "fixed", ticks = 1 : i64}, lifecycle = {reservation = "propose_commit", release = "balanced", cancellation = "explicit"}, ownership = "exclusive", transaction_classes = [@missing], delay_ticks = 1 : i64}> : () -> ()
     "ac.return"() : () -> ()
-  }) : () -> ()
+
+  }
+}
 }
 // CLASS: transaction class '@missing' is unresolved
 
 //--- duplicate-owner.mlir
 builtin.module  {
-  "ac.module"() <{sym_name = "M", function_type = () -> (), static_params = {}}> ({
+  ac.module @M source #ac.source_owner<"tests/native_family.py", "tests/native_family.py"> schema #ac.module_family_schema<#ac.static_parameters<[]>, #ac.static_cases<[#ac.static_arguments<[]>]>, #ac.module_interface<[]>, #ac.source_owner<"tests/native_family.py", "tests/native_family.py">, []> {
+  ac.module.case arguments #ac.static_arguments<[]> type () -> () source #ac.source_provenance<"tests/native_family.py", 1, 1, 1, 1> graph {
     "ac.resource"() <{sym_name = "a", stable_id = "same", path = "a", capacity = 1 : i64, issue_width = 1 : i64, initiation_interval = 1 : i64, latency_model = {kind = "fixed", ticks = 1 : i64}, lifecycle = {reservation = "propose_commit", release = "balanced", cancellation = "explicit"}, ownership = "exclusive", transaction_classes = [], delay_ticks = 1 : i64}> : () -> ()
     "ac.resource"() <{sym_name = "b", stable_id = "same", path = "b", capacity = 1 : i64, issue_width = 1 : i64, initiation_interval = 1 : i64, latency_model = {kind = "fixed", ticks = 1 : i64}, lifecycle = {reservation = "propose_commit", release = "balanced", cancellation = "explicit"}, ownership = "exclusive", transaction_classes = [], delay_ticks = 1 : i64}> : () -> ()
     "ac.return"() : () -> ()
-  }) : () -> ()
+
+  }
 }
-// OWNER: duplicate local structural stable id 'same'
+}
+// OWNER: duplicate local structural stable id
 
 //--- orphan.mlir
 builtin.module  {
   "ac.queue"() <{sym_name = "q", stable_id = "q", path = "q", payload = i32, entry_capacity = 1 : i64, ordering = "fifo", protocol = @p, ownership = "exclusive", delay_ticks = 1 : i64}> : () -> ()
 }
-// PLACEMENT: must be a direct child of the unique ac.module Graph block
+// PLACEMENT: must be a direct child of an ac.module.case Graph block
 
 //--- queue-bytes.mlir
 builtin.module  {
-  "ac.module"() <{sym_name = "M", function_type = () -> (), static_params = {}}> ({
+  ac.module @M source #ac.source_owner<"tests/native_family.py", "tests/native_family.py"> schema #ac.module_family_schema<#ac.static_parameters<[]>, #ac.static_cases<[#ac.static_arguments<[]>]>, #ac.module_interface<[]>, #ac.source_owner<"tests/native_family.py", "tests/native_family.py">, []> {
+  ac.module.case arguments #ac.static_arguments<[]> type () -> () source #ac.source_provenance<"tests/native_family.py", 1, 1, 1, 1> graph {
     "ac.queue"() <{sym_name = "q", stable_id = "q", path = "q", payload = i32, entry_capacity = 1 : i64, byte_capacity = -1 : i64, ordering = "fifo", protocol = @p, ownership = "exclusive", delay_ticks = 1 : i64}> : () -> ()
     "ac.return"() : () -> ()
-  }) : () -> ()
+
+  }
+}
 }
 // BYTES: byte capacity must be positive when present
 
 //--- queue-order.mlir
 builtin.module  {
-  "ac.module"() <{sym_name = "M", function_type = () -> (), static_params = {}}> ({
+  ac.module @M source #ac.source_owner<"tests/native_family.py", "tests/native_family.py"> schema #ac.module_family_schema<#ac.static_parameters<[]>, #ac.static_cases<[#ac.static_arguments<[]>]>, #ac.module_interface<[]>, #ac.source_owner<"tests/native_family.py", "tests/native_family.py">, []> {
+  ac.module.case arguments #ac.static_arguments<[]> type () -> () source #ac.source_provenance<"tests/native_family.py", 1, 1, 1, 1> graph {
     "ac.queue"() <{sym_name = "q", stable_id = "q", path = "q", payload = i32, entry_capacity = 1 : i64, ordering = "unordered", protocol = @p, ownership = "exclusive", delay_ticks = 1 : i64}> : () -> ()
     "ac.return"() : () -> ()
-  }) : () -> ()
+
+  }
+}
 }
 // QUEUE-ORDER: ordering must be 'fifo' or 'per_key'
 
 //--- queue-owner.mlir
 builtin.module  {
-  "ac.module"() <{sym_name = "M", function_type = () -> (), static_params = {}}> ({
+  ac.module @M source #ac.source_owner<"tests/native_family.py", "tests/native_family.py"> schema #ac.module_family_schema<#ac.static_parameters<[]>, #ac.static_cases<[#ac.static_arguments<[]>]>, #ac.module_interface<[]>, #ac.source_owner<"tests/native_family.py", "tests/native_family.py">, []> {
+  ac.module.case arguments #ac.static_arguments<[]> type () -> () source #ac.source_provenance<"tests/native_family.py", 1, 1, 1, 1> graph {
     "ac.queue"() <{sym_name = "q", stable_id = "q", path = "q", payload = i32, entry_capacity = 1 : i64, ordering = "fifo", protocol = @p, ownership = "shared", delay_ticks = 1 : i64}> : () -> ()
     "ac.return"() : () -> ()
-  }) : () -> ()
+
+  }
+}
 }
 // QUEUE-OWNER: queue ownership must be exactly 'exclusive'
 
 //--- queue-payload.mlir
 builtin.module  {
-  "ac.module"() <{sym_name = "M", function_type = () -> (), static_params = {}}> ({
+  ac.module @M source #ac.source_owner<"tests/native_family.py", "tests/native_family.py"> schema #ac.module_family_schema<#ac.static_parameters<[]>, #ac.static_cases<[#ac.static_arguments<[]>]>, #ac.module_interface<[]>, #ac.source_owner<"tests/native_family.py", "tests/native_family.py">, []> {
+  ac.module.case arguments #ac.static_arguments<[]> type () -> () source #ac.source_provenance<"tests/native_family.py", 1, 1, 1, 1> graph {
     "ac.queue"() <{sym_name = "q", stable_id = "q", path = "q", payload = !ac.endpoint<@I, @r>, entry_capacity = 1 : i64, ordering = "fifo", protocol = @p, ownership = "exclusive", delay_ticks = 1 : i64}> : () -> ()
     "ac.return"() : () -> ()
-  }) : () -> ()
+
+  }
+}
 }
 // QUEUE-PAYLOAD: queue payload must be a normative ACIR value type
 
 //--- owner-segment.mlir
 builtin.module  {
-  "ac.module"() <{sym_name = "M", function_type = () -> (), static_params = {}}> ({
+  ac.module @M source #ac.source_owner<"tests/native_family.py", "tests/native_family.py"> schema #ac.module_family_schema<#ac.static_parameters<[]>, #ac.static_cases<[#ac.static_arguments<[]>]>, #ac.module_interface<[]>, #ac.source_owner<"tests/native_family.py", "tests/native_family.py">, []> {
+  ac.module.case arguments #ac.static_arguments<[]> type () -> () source #ac.source_provenance<"tests/native_family.py", 1, 1, 1, 1> graph {
     "ac.resource"() <{sym_name = "bad.name", stable_id = "r", path = "r", capacity = 1 : i64, issue_width = 1 : i64, initiation_interval = 1 : i64, latency_model = {kind = "fixed", ticks = 1 : i64}, lifecycle = {reservation = "propose_commit", release = "balanced", cancellation = "explicit"}, ownership = "exclusive", transaction_classes = [], delay_ticks = 1 : i64}> : () -> ()
     "ac.return"() : () -> ()
-  }) : () -> ()
+
+  }
+}
 }
 // OWNER-SEGMENT: owner name, stable id, and path must be stable local segments
 
 //--- delay.mlir
 builtin.module  {
-  "ac.module"() <{sym_name = "M", function_type = () -> (), static_params = {}}> ({
+  ac.module @M source #ac.source_owner<"tests/native_family.py", "tests/native_family.py"> schema #ac.module_family_schema<#ac.static_parameters<[]>, #ac.static_cases<[#ac.static_arguments<[]>]>, #ac.module_interface<[]>, #ac.source_owner<"tests/native_family.py", "tests/native_family.py">, []> {
+  ac.module.case arguments #ac.static_arguments<[]> type () -> () source #ac.source_provenance<"tests/native_family.py", 1, 1, 1, 1> graph {
     "ac.resource"() <{sym_name = "r", stable_id = "r", path = "r", capacity = 1 : i64, issue_width = 1 : i64, initiation_interval = 1 : i64, latency_model = {kind = "fixed", ticks = 1 : i64}, lifecycle = {reservation = "propose_commit", release = "balanced", cancellation = "explicit"}, ownership = "exclusive", transaction_classes = [], delay_ticks = 0 : i64}> : () -> ()
     "ac.return"() : () -> ()
-  }) : () -> ()
+
+  }
+}
 }
 // DELAY: stateful declaration delay_ticks must be exactly one positive tick
 
 //--- event-capacity.mlir
 builtin.module  {
-  "ac.module"() <{sym_name = "M", function_type = () -> (), static_params = {}}> ({
+  ac.module @M source #ac.source_owner<"tests/native_family.py", "tests/native_family.py"> schema #ac.module_family_schema<#ac.static_parameters<[]>, #ac.static_cases<[#ac.static_arguments<[]>]>, #ac.module_interface<[]>, #ac.source_owner<"tests/native_family.py", "tests/native_family.py">, []> {
+  ac.module.case arguments #ac.static_arguments<[]> type () -> () source #ac.source_provenance<"tests/native_family.py", 1, 1, 1, 1> graph {
     "ac.event_queue"() <{sym_name = "e", stable_id = "e", path = "e", payload = !ac.event<i32>, capacity = -1 : i64, ordering = "time_then_sequence", time_domain = @clock, delay_ticks = 1 : i64}> : () -> ()
     "ac.return"() : () -> ()
-  }) : () -> ()
+
+  }
+}
 }
 // EVENT-CAPACITY: event queue capacity must be positive
 
 //--- event-payload.mlir
 builtin.module  {
-  "ac.module"() <{sym_name = "M", function_type = () -> (), static_params = {}}> ({
+  ac.module @M source #ac.source_owner<"tests/native_family.py", "tests/native_family.py"> schema #ac.module_family_schema<#ac.static_parameters<[]>, #ac.static_cases<[#ac.static_arguments<[]>]>, #ac.module_interface<[]>, #ac.source_owner<"tests/native_family.py", "tests/native_family.py">, []> {
+  ac.module.case arguments #ac.static_arguments<[]> type () -> () source #ac.source_provenance<"tests/native_family.py", 1, 1, 1, 1> graph {
     "ac.event_queue"() <{sym_name = "e", stable_id = "e", path = "e", payload = i32, capacity = 1 : i64, ordering = "time_then_sequence", time_domain = @clock, delay_ticks = 1 : i64}> : () -> ()
     "ac.return"() : () -> ()
-  }) : () -> ()
+
+  }
+}
 }
 // EVENT-PAYLOAD: event queue payload must be an exact !ac.event type
 
 //--- resource-capacity.mlir
 builtin.module  {
-  "ac.module"() <{sym_name = "M", function_type = () -> (), static_params = {}}> ({
+  ac.module @M source #ac.source_owner<"tests/native_family.py", "tests/native_family.py"> schema #ac.module_family_schema<#ac.static_parameters<[]>, #ac.static_cases<[#ac.static_arguments<[]>]>, #ac.module_interface<[]>, #ac.source_owner<"tests/native_family.py", "tests/native_family.py">, []> {
+  ac.module.case arguments #ac.static_arguments<[]> type () -> () source #ac.source_provenance<"tests/native_family.py", 1, 1, 1, 1> graph {
     "ac.resource"() <{sym_name = "r", stable_id = "r", path = "r", capacity = -1 : i64, issue_width = 1 : i64, initiation_interval = 1 : i64, latency_model = {kind = "fixed", ticks = 1 : i64}, lifecycle = {reservation = "propose_commit", release = "balanced", cancellation = "explicit"}, ownership = "exclusive", transaction_classes = [], delay_ticks = 1 : i64}> : () -> ()
     "ac.return"() : () -> ()
-  }) : () -> ()
+
+  }
+}
 }
 // RESOURCE-CAPACITY: resource capacity must be positive
 
 //--- resource-kind.mlir
 builtin.module  {
-  "ac.module"() <{sym_name = "M", function_type = () -> (), static_params = {}}> ({
+  ac.module @M source #ac.source_owner<"tests/native_family.py", "tests/native_family.py"> schema #ac.module_family_schema<#ac.static_parameters<[]>, #ac.static_cases<[#ac.static_arguments<[]>]>, #ac.module_interface<[]>, #ac.source_owner<"tests/native_family.py", "tests/native_family.py">, []> {
+  ac.module.case arguments #ac.static_arguments<[]> type () -> () source #ac.source_provenance<"tests/native_family.py", 1, 1, 1, 1> graph {
     "ac.resource"() <{sym_name = "r", stable_id = "r", path = "r", capacity = 1 : i64, issue_width = 1 : i64, initiation_interval = 1 : i64, latency_model = {kind = "dynamic"}, lifecycle = {reservation = "propose_commit", release = "balanced", cancellation = "explicit"}, ownership = "exclusive", transaction_classes = [], delay_ticks = 1 : i64}> : () -> ()
     "ac.return"() : () -> ()
-  }) : () -> ()
+
+  }
+}
 }
 // RESOURCE-KIND: latency model kind must be 'fixed' or 'symbol'
 
 //--- resource-symbol-latency.mlir
 builtin.module  {
-  "ac.module"() <{sym_name = "M", function_type = () -> (), static_params = {}}> ({
+  ac.module @M source #ac.source_owner<"tests/native_family.py", "tests/native_family.py"> schema #ac.module_family_schema<#ac.static_parameters<[]>, #ac.static_cases<[#ac.static_arguments<[]>]>, #ac.module_interface<[]>, #ac.source_owner<"tests/native_family.py", "tests/native_family.py">, []> {
+  ac.module.case arguments #ac.static_arguments<[]> type () -> () source #ac.source_provenance<"tests/native_family.py", 1, 1, 1, 1> graph {
     "ac.resource"() <{sym_name = "r", stable_id = "r", path = "r", capacity = 1 : i64, issue_width = 1 : i64, initiation_interval = 1 : i64, latency_model = {kind = "symbol", ref = @missing}, lifecycle = {reservation = "propose_commit", release = "balanced", cancellation = "explicit"}, ownership = "exclusive", transaction_classes = [], delay_ticks = 1 : i64}> : () -> ()
     "ac.return"() : () -> ()
-  }) : () -> ()
+
+  }
+}
 }
 // SYMBOL-LATENCY: symbol latency model reference is unresolved
 
 //--- resource-ownership.mlir
 builtin.module  {
-  "ac.module"() <{sym_name = "M", function_type = () -> (), static_params = {}}> ({
+  ac.module @M source #ac.source_owner<"tests/native_family.py", "tests/native_family.py"> schema #ac.module_family_schema<#ac.static_parameters<[]>, #ac.static_cases<[#ac.static_arguments<[]>]>, #ac.module_interface<[]>, #ac.source_owner<"tests/native_family.py", "tests/native_family.py">, []> {
+  ac.module.case arguments #ac.static_arguments<[]> type () -> () source #ac.source_provenance<"tests/native_family.py", 1, 1, 1, 1> graph {
     "ac.resource"() <{sym_name = "r", stable_id = "r", path = "r", capacity = 1 : i64, issue_width = 1 : i64, initiation_interval = 1 : i64, latency_model = {kind = "fixed", ticks = 1 : i64}, lifecycle = {reservation = "propose_commit", release = "balanced", cancellation = "explicit"}, ownership = "public", transaction_classes = [], delay_ticks = 1 : i64}> : () -> ()
     "ac.return"() : () -> ()
-  }) : () -> ()
+
+  }
+}
 }
 // RESOURCE-OWNERSHIP: resource ownership must be exclusive, shared, or contested
 
 //--- exclusive-arbiter.mlir
 builtin.module  {
-  "ac.module"() <{sym_name = "M", function_type = () -> (), static_params = {}}> ({
+  ac.module @M source #ac.source_owner<"tests/native_family.py", "tests/native_family.py"> schema #ac.module_family_schema<#ac.static_parameters<[]>, #ac.static_cases<[#ac.static_arguments<[]>]>, #ac.module_interface<[]>, #ac.source_owner<"tests/native_family.py", "tests/native_family.py">, []> {
+  ac.module.case arguments #ac.static_arguments<[]> type () -> () source #ac.source_provenance<"tests/native_family.py", 1, 1, 1, 1> graph {
     "ac.resource"() <{sym_name = "r", stable_id = "r", path = "r", capacity = 1 : i64, issue_width = 1 : i64, initiation_interval = 1 : i64, latency_model = {kind = "fixed", ticks = 1 : i64}, lifecycle = {reservation = "propose_commit", release = "balanced", cancellation = "explicit"}, ownership = "exclusive", arbitration_owner = @x, transaction_classes = [], delay_ticks = 1 : i64}> : () -> ()
     "ac.return"() : () -> ()
-  }) : () -> ()
+
+  }
+}
 }
 // EXCLUSIVE-ARBITER: exclusive resource cannot declare an arbitration owner
 
@@ -269,10 +344,13 @@ builtin.module  {
   "ac.type_scope"() <{sym_name = "types"}> ({
     "ac.transaction"() <{sym_name = "T", fields = []}> : () -> ()
   }) : () -> ()
-  "ac.module"() <{sym_name = "M", function_type = () -> (), static_params = {}}> ({
+  ac.module @M source #ac.source_owner<"tests/native_family.py", "tests/native_family.py"> schema #ac.module_family_schema<#ac.static_parameters<[]>, #ac.static_cases<[#ac.static_arguments<[]>]>, #ac.module_interface<[]>, #ac.source_owner<"tests/native_family.py", "tests/native_family.py">, []> {
+  ac.module.case arguments #ac.static_arguments<[]> type () -> () source #ac.source_provenance<"tests/native_family.py", 1, 1, 1, 1> graph {
     "ac.resource"() <{sym_name = "r", stable_id = "r", path = "r", capacity = 1 : i64, issue_width = 1 : i64, initiation_interval = 1 : i64, latency_model = {kind = "fixed", ticks = 1 : i64}, lifecycle = {reservation = "propose_commit", release = "balanced", cancellation = "explicit"}, ownership = "exclusive", transaction_classes = [@types::@T, @types::@T], delay_ticks = 1 : i64}> : () -> ()
     "ac.return"() : () -> ()
-  }) : () -> ()
+
+  }
+}
 }
 // DUPLICATE-CLASS: duplicate transaction class
 
@@ -287,29 +365,38 @@ builtin.module  {
     "ac.transition"() <{source = @start, target = @done, event = @finish}> ({}) : () -> ()
     "ac.guarantee"() <{kind = "completion", value = "on_terminal_phase"}> : () -> ()
   }) : () -> ()
-  "ac.module"() <{sym_name = "M", function_type = () -> (), static_params = {}}> ({
+  ac.module @M source #ac.source_owner<"tests/native_family.py", "tests/native_family.py"> schema #ac.module_family_schema<#ac.static_parameters<[]>, #ac.static_cases<[#ac.static_arguments<[]>]>, #ac.module_interface<[]>, #ac.source_owner<"tests/native_family.py", "tests/native_family.py">, []> {
+  ac.module.case arguments #ac.static_arguments<[]> type () -> () source #ac.source_provenance<"tests/native_family.py", 1, 1, 1, 1> graph {
     "ac.queue"() <{sym_name = "q", stable_id = "q", path = "q", payload = i32, entry_capacity = 1 : i64, ordering = "fifo", protocol = @p, ownership = "exclusive", delay_ticks = 1 : i64}> : () -> ()
     "ac.return"() : () -> ()
-  }) : () -> ()
+
+  }
+}
 }
 // QUEUE-SCHEMA: queue payload does not match endpoint protocol schema
 
 //--- resource-latency-schema.mlir
 builtin.module  {
-  "ac.module"() <{sym_name = "M", function_type = () -> (), static_params = {}}> ({
+  ac.module @M source #ac.source_owner<"tests/native_family.py", "tests/native_family.py"> schema #ac.module_family_schema<#ac.static_parameters<[]>, #ac.static_cases<[#ac.static_arguments<[]>]>, #ac.module_interface<[]>, #ac.source_owner<"tests/native_family.py", "tests/native_family.py">, []> {
+  ac.module.case arguments #ac.static_arguments<[]> type () -> () source #ac.source_provenance<"tests/native_family.py", 1, 1, 1, 1> graph {
     "ac.resource"() <{sym_name = "r", stable_id = "r", path = "r", capacity = 1 : i64, issue_width = 1 : i64, initiation_interval = 1 : i64, latency_model = {kind = "fixed", ticks = 1 : i64, extra = true}, lifecycle = {reservation = "propose_commit", release = "balanced", cancellation = "explicit"}, ownership = "exclusive", transaction_classes = [], delay_ticks = 1 : i64}> : () -> ()
     "ac.return"() : () -> ()
-  }) : () -> ()
+
+  }
+}
 }
 // LATENCY-SCHEMA: fixed latency model requires exact kind/ticks schema
 
 //--- resource-arbiter-kind.mlir
 builtin.module  {
-  "ac.module"() <{sym_name = "M", function_type = () -> (), static_params = {}}> ({
+  ac.module @M source #ac.source_owner<"tests/native_family.py", "tests/native_family.py"> schema #ac.module_family_schema<#ac.static_parameters<[]>, #ac.static_cases<[#ac.static_arguments<[]>]>, #ac.module_interface<[]>, #ac.source_owner<"tests/native_family.py", "tests/native_family.py">, []> {
+  ac.module.case arguments #ac.static_arguments<[]> type () -> () source #ac.source_provenance<"tests/native_family.py", 1, 1, 1, 1> graph {
     "ac.time_domain"() <{sym_name = "clock", period = 1 : i64, phase = 0 : i64, tick_scale = 1 : i64}> : () -> ()
     "ac.resource"() <{sym_name = "r", stable_id = "r", path = "r", capacity = 1 : i64, issue_width = 1 : i64, initiation_interval = 1 : i64, latency_model = {kind = "fixed", ticks = 1 : i64}, lifecycle = {reservation = "propose_commit", release = "balanced", cancellation = "explicit"}, ownership = "shared", arbitration_owner = @clock, transaction_classes = [], delay_ticks = 1 : i64}> : () -> ()
     "ac.return"() : () -> ()
-  }) : () -> ()
+
+  }
+}
 }
 // ARBITER-KIND: arbitration owner '@clock' is unresolved
 
@@ -323,10 +410,13 @@ builtin.module  {
     "ac.transition"() <{source = @s, target = @s, event = @e}> ({}) : () -> ()
     "ac.guarantee"() <{kind = "ordering", value = "fifo"}> : () -> ()
   }) : () -> ()
-  "ac.module"() <{sym_name = "M", function_type = () -> (), static_params = {}}> ({
+  ac.module @M source #ac.source_owner<"tests/native_family.py", "tests/native_family.py"> schema #ac.module_family_schema<#ac.static_parameters<[]>, #ac.static_cases<[#ac.static_arguments<[]>]>, #ac.module_interface<[]>, #ac.source_owner<"tests/native_family.py", "tests/native_family.py">, []> {
+  ac.module.case arguments #ac.static_arguments<[]> type () -> () source #ac.source_provenance<"tests/native_family.py", 1, 1, 1, 1> graph {
     "ac.queue"() <{sym_name = "q", stable_id = "q", path = "q", payload = i32, entry_capacity = 1 : i64, ordering = "per_key", protocol = @p, ownership = "exclusive", delay_ticks = 1 : i64}> : () -> ()
     "ac.return"() : () -> ()
-  }) : () -> ()
+
+  }
+}
 }
 // FIFO-WEAKENED: queue ordering 'per_key' weakens protocol ordering 'fifo'
 
@@ -340,9 +430,12 @@ builtin.module  {
     "ac.transition"() <{source = @s, target = @s, event = @e}> ({}) : () -> ()
     "ac.guarantee"() <{kind = "ordering", value = "unordered"}> : () -> ()
   }) : () -> ()
-  "ac.module"() <{sym_name = "M", function_type = () -> (), static_params = {}}> ({
+  ac.module @M source #ac.source_owner<"tests/native_family.py", "tests/native_family.py"> schema #ac.module_family_schema<#ac.static_parameters<[]>, #ac.static_cases<[#ac.static_arguments<[]>]>, #ac.module_interface<[]>, #ac.source_owner<"tests/native_family.py", "tests/native_family.py">, []> {
+  ac.module.case arguments #ac.static_arguments<[]> type () -> () source #ac.source_provenance<"tests/native_family.py", 1, 1, 1, 1> graph {
     "ac.queue"() <{sym_name = "q", stable_id = "q", path = "q", payload = i32, entry_capacity = 1 : i64, ordering = "per_key", protocol = @p, ownership = "exclusive", delay_ticks = 1 : i64}> : () -> ()
     "ac.return"() : () -> ()
-  }) : () -> ()
+
+  }
+}
 }
 // PER-KEY-CORRELATION: per_key queue storage requires protocol correlation semantics

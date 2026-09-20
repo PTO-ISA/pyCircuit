@@ -280,7 +280,11 @@ LogicalResult inferArchitectureObligations(ModuleOp model) {
     if (!proposal)
       return proof.leftOperation->emitError(
           "predicate-exclusive obligation requires a typed Table endpoint");
-    OpBuilder insertion(owner.getBody().front().getTerminator());
+    auto ownerCase = proof.leftOperation->getParentOfType<ac::ModuleCaseOp>();
+    if (!ownerCase)
+      return proof.leftOperation->emitError(
+          "architecture obligation has no owning module case");
+    OpBuilder insertion(ownerCase.getBody().front().getTerminator());
     OperationState state(proof.leftOperation->getLoc(),
                          ac::ArchitectureObligationOp::getOperationName());
     state.addAttribute(SymbolTable::getSymbolAttrName(),

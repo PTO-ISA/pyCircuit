@@ -8,5 +8,6 @@ config.acir_cxx = "@CMAKE_CXX_COMPILER@"
 config.acir_llvm_linker_flags = "@ACIR_TEST_LLVM_LINKER_FLAGS@"
 config.acir_python = "@ACIR_TEST_PYTHON@"
 config.acir_source_root = "@ACIR_REPO_ROOT@"
+config.pyc_test_source_root = "@CMAKE_CURRENT_SOURCE_DIR@"
 
-lit_config.load_config(config, "@CMAKE_CURRENT_SOURCE_DIR@/lit.cfg.py")
+lit_config.load_config(config, "@CMAKE_CURRENT_SOURCE_DIR@/../lit.cfg.py")

@@ -11,7 +11,8 @@ from pycircuit import (
 from pycircuit.design import probe
 
 
-def build(m: CycleAwareCircuit, domain: CycleAwareDomain, width: int = 8) -> None:
+def build(m: CycleAwareCircuit, domain: CycleAwareDomain) -> None:
+    width = 8
     in_a = cas(domain, m.input("in_a", width=width), cycle=0)
 
     q = domain.signal(width=width, reset_value=0, name="q")

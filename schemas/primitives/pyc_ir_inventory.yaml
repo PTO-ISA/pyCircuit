@@ -39,6 +39,10 @@ operations:
   - {name: pyc.async_fifo, status: normative}
   - {name: pyc.cdc_sync, status: normative}
   - {name: pyc.instance, status: normative}
+  - {name: pyc.module, status: normative}
+  - {name: pyc.module.case, status: normative}
+  - {name: pyc.module.import, status: normative}
+  - {name: pyc.return, status: normative}
   - {name: pyc.assert, status: normative}
   - {name: pyc.comb, status: normative}
   - {name: pyc.yield, status: normative}

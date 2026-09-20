@@ -1,6 +1,5 @@
 // RUN: %split_file %s %t
-// RUN: %acir_opt %t/generic.mlir > /dev/null
-// RUN: %not %acir_opt_public %t/generic.mlir 2>&1 | %FileCheck %s --check-prefix=GENERIC
+// RUN: %not %acir_opt %t/generic.mlir 2>&1 | %FileCheck %s --check-prefix=GENERIC
 // RUN: %acir_opt_public %t/canonical.mlir | %FileCheck %s --check-prefix=CANONICAL
 // RUN: %acir_opt %t/canonical.mlir --emit-bytecode -o %t/canonical.mlirbc
 // RUN: %acir_opt_public %t/canonical.mlirbc > /dev/null
@@ -17,20 +16,24 @@ builtin.module  {
     "ac.return"() : () -> ()
   }) : () -> ()
 }
-// GENERIC: generic ACIR operation spelling is internal-only
+// GENERIC: requires attribute 'schema'
 
 //--- canonical.mlir
-module  {
-  // A quoted ACIR-like string is data, not a generic operation spelling.
-  ac.module @Top() parameters {label = "ac.fake"} graph {
-    ac.return
-  }
+module {
+  ac.module @Top
+      source #ac.source_owner<"tests/native_family.py", "tests/native_family.py">
+      schema #ac.module_family_schema<#ac.static_parameters<[]>, #ac.static_cases<[#ac.static_arguments<[]>]>, #ac.module_interface<[]>, #ac.source_owner<"tests/native_family.py", "tests/native_family.py">, []> {
+    ac.module.case arguments #ac.static_arguments<[]> type () -> ()
+        source #ac.source_provenance<"tests/native_family.py", 1, 1, 1, 1> graph {
+      ac.return
+    }
+  } {label = "ac.fake"}
 }
-// CANONICAL: ac.module @Top
+// CANONICAL: ac.module @Top source #ac.source_owner<"tests/native_family.py", "tests/native_family.py"> schema
 
 //--- internal-provider.mlir
 module  {
-  ac.module.extern @Leaf : () -> () parameters {}
+  ac.module.extern @Leaf source #ac.source_owner<"tests/native_family.py", "tests/native_family.py"> schema #ac.module_family_schema<#ac.static_parameters<[]>, #ac.static_cases<[#ac.static_arguments<[]>]>, #ac.module_interface<[]>, #ac.source_owner<"tests/native_family.py", "tests/native_family.py">, []>
       implementation {registry = "cpp", name = "Leaf"}
 }
 // PROVIDER: structural provider 'cpp:Leaf' is not registered

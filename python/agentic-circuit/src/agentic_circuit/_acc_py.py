@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import argparse
 import ast
-import json
 import os
 import shutil
 import sys
@@ -12,8 +11,8 @@ import tempfile
 from collections.abc import Sequence
 from pathlib import Path
 
-from ._canonical_json import canonical_json_bytes, validate_ijson_value
-from ._commands.check import _has_errors, binding_registry, capture
+from ._canonical_json import canonical_json_bytes
+from ._capture import binding_registry, capture, has_errors
 from ._exit_codes import ExitCode
 from ._native_api import NativeRequest, run_native_compiler
 from ._workspace import UserInputError, discover_workspace, load_workspace
@@ -36,21 +35,8 @@ def build_parser() -> argparse.ArgumentParser:
         help="publish the source-owned ac.module.import header",
     )
     parser.add_argument("--project", type=Path)
-    entry = parser.add_mutually_exclusive_group()
-    entry.add_argument("--system")
-    entry.add_argument(
-        "--specializations-json",
-        type=Path,
-        metavar="SPECIALIZATIONS.json",
-        help="closed specialization set for one Python source translation unit",
-    )
+    parser.add_argument("--system")
     parser.add_argument("--unit", choices=("core", "interfaces"), default="core")
-    parser.add_argument(
-        "--static-json",
-        type=Path,
-        metavar="BINDINGS.json",
-        help="closed JSON object of typed static argument bindings",
-    )
     parser.add_argument("--quiet", action="store_true")
     parser.add_argument("--json", action="store_true")
     parser.add_argument("--timeout", type=float, default=30.0, metavar="SECONDS")
@@ -80,7 +66,6 @@ def _select_interface_artifacts(native: object) -> tuple[tuple[str, bytes], ...]
             getattr(artifact, "kind", None) == "verified-acir"
             and type(path) is str
             and path.startswith("interfaces/")
-            and not path.startswith("interfaces/modules/")
             and type(data) is bytes
         ):
             result.append((path.removeprefix("interfaces/"), data))
@@ -116,56 +101,10 @@ def _single_declared_module(path: Path) -> str:
     return declared[0]
 
 
-def _source_specializations(
-    path: Path,
-) -> tuple[tuple[str, tuple[tuple[str, object], ...]], ...]:
-    try:
-        document = json.loads(path.read_text(encoding="utf-8"))
-        validate_ijson_value(document)
-    except (OSError, UnicodeError, json.JSONDecodeError, ValueError) as error:
-        raise ValueError(f"--specializations-json is invalid: {error}") from error
-    if type(document) is not dict or set(document) != {
-        "schema",
-        "version",
-        "specializations",
-    }:
-        raise ValueError("--specializations-json has unexpected fields")
-    if (
-        document["schema"] != "agentic-circuit-specializations"
-        or document["version"] != "0.1"
-        or type(document["specializations"]) is not list
-        or not document["specializations"]
-    ):
-        raise ValueError("--specializations-json has an unsupported schema")
-    result: list[tuple[str, tuple[tuple[str, object], ...]]] = []
-    identities: set[tuple[str, bytes]] = set()
-    for item in document["specializations"]:
-        if type(item) is not dict or set(item) != {"module", "static"}:
-            raise ValueError("source-unit specialization has unexpected fields")
-        module = item["module"]
-        static = item["static"]
-        if type(module) is not str or not module or type(static) is not dict:
-            raise ValueError("source-unit specialization fields are invalid")
-        canonical = canonical_json_bytes(static)
-        identity = (module, canonical)
-        if identity in identities:
-            raise ValueError("source-unit specialization is duplicated")
-        identities.add(identity)
-        result.append((module, tuple(sorted(static.items()))))
-    return tuple(
-        sorted(
-            result,
-            key=lambda item: (
-                item[0],
-                canonical_json_bytes(dict(item[1])),
-            ),
-        )
-    )
-
 
 def _compile(arguments: argparse.Namespace, workspace: object) -> object:
     frontend = capture(arguments, workspace)
-    if _has_errors(frontend.diagnostics):
+    if has_errors(frontend.diagnostics):
         raise UserInputError(frontend.diagnostics[0])
     if frontend.acir is None:
         raise RuntimeError("frontend produced no ACIR")
@@ -177,30 +116,53 @@ def _compile(arguments: argparse.Namespace, workspace: object) -> object:
             options=(("binding_registry", binding_registry(workspace.component_roots)),),
         )
     )
-    if _has_errors(native.diagnostics):
+    if has_errors(native.diagnostics):
         raise UserInputError(native.diagnostics[0])
     return native
 
 
 def _publish(destination: Path, data: bytes) -> None:
-    destination = destination.absolute()
-    if destination.is_symlink():
-        raise OSError("output must not be a symlink")
-    if destination.exists():
-        raise OSError("output AC unit must not already exist")
-    destination.parent.mkdir(parents=True, exist_ok=True)
-    descriptor, temporary_name = tempfile.mkstemp(
-        prefix=f".{destination.name}.", suffix=".tmp", dir=destination.parent
-    )
-    temporary = Path(temporary_name)
+    _publish_files(((destination, data),))
+
+
+def _publish_files(files: tuple[tuple[Path, bytes], ...]) -> None:
+    if not files:
+        return
+    destinations = tuple(destination.absolute() for destination, _ in files)
+    if len(set(destinations)) != len(destinations):
+        raise OSError("output destinations must be distinct")
+    for destination in destinations:
+        if destination.is_symlink():
+            raise OSError("output must not be a symlink")
+        if destination.exists():
+            raise OSError("output AC unit must not already exist")
+        destination.parent.mkdir(parents=True, exist_ok=True)
+
+    staged: list[tuple[Path, Path]] = []
+    committed: list[Path] = []
     try:
-        with os.fdopen(descriptor, "wb") as stream:
-            stream.write(data)
-            stream.flush()
-            os.fsync(stream.fileno())
-        os.rename(temporary, destination)
+        for destination, (_, data) in zip(destinations, files, strict=True):
+            descriptor, temporary_name = tempfile.mkstemp(
+                prefix=f".{destination.name}.",
+                suffix=".tmp",
+                dir=destination.parent,
+            )
+            temporary = Path(temporary_name)
+            staged.append((temporary, destination))
+            with os.fdopen(descriptor, "wb") as stream:
+                stream.write(data)
+                stream.flush()
+                os.fsync(stream.fileno())
+        for temporary, destination in staged:
+            os.rename(temporary, destination)
+            committed.append(destination)
+    except OSError:
+        for destination in reversed(committed):
+            destination.unlink(missing_ok=True)
+        raise
     finally:
-        temporary.unlink(missing_ok=True)
+        for temporary, _ in staged:
+            temporary.unlink(missing_ok=True)
 
 
 def _publish_tree(
@@ -255,52 +217,30 @@ def main(argv: Sequence[str] | None = None) -> int:
         parser.error("-o requires a .ac output")
     if arguments.unit == "interfaces" and arguments.output.suffix:
         parser.error("interface output must be a directory path")
-    if arguments.specializations_json is not None and arguments.static_json is not None:
-        parser.error("--static-json is valid only for system/core compilation")
-    if arguments.header_output is not None and arguments.specializations_json is None:
-        parser.error("--header-output requires --specializations-json")
     if arguments.header_output is not None and arguments.header_output.suffix != ".ac":
         parser.error("--header-output requires a .ac output")
-    if arguments.specializations_json is not None and arguments.unit != "core":
-        parser.error("--unit is valid only for system/core compilation")
     if arguments.timeout <= 0:
         parser.error("--timeout must be positive")
-    static_arguments: tuple[tuple[str, object], ...] = ()
-    if arguments.static_json is not None:
-        try:
-            document = json.loads(arguments.static_json.read_text(encoding="utf-8"))
-            validate_ijson_value(document)
-        except (OSError, UnicodeError, json.JSONDecodeError, ValueError) as error:
-            parser.error(f"--static-json is invalid: {error}")
-        if type(document) is not dict or any(
-            type(name) is not str or not name for name in document
-        ):
-            parser.error("--static-json requires an object with non-empty string keys")
-        static_arguments = tuple(sorted(document.items()))
-    source_specializations: tuple[
-        tuple[str, tuple[tuple[str, object], ...]], ...
-    ] = ()
-    if arguments.specializations_json is not None:
-        try:
-            source_specializations = _source_specializations(
-                arguments.specializations_json
-            )
-            declared = {_single_declared_module(arguments.architecture)}
-        except (OSError, UnicodeError, SyntaxError, ValueError) as error:
-            parser.error(str(error))
-        requested = {module for module, _ in source_specializations}
-        unknown = sorted(requested - declared)
-        if unknown:
-            parser.error(
-                f"source-unit module {unknown[0]!r} is not declared by -c"
-            )
-    arguments.static_arguments = static_arguments
-    arguments.source_specializations = source_specializations
+    try:
+        declared_modules = _declared_modules(arguments.architecture)
+    except (OSError, UnicodeError, SyntaxError) as error:
+        parser.error(str(error))
+    if len(declared_modules) > 1:
+        parser.error(
+            "a source translation unit must declare exactly one public "
+            f"@ac.module; found {len(declared_modules)}"
+        )
+    source_modules = declared_modules
+    if arguments.header_output is not None and not source_modules:
+        parser.error("--header-output requires one source-owned @ac.module")
+    if source_modules and arguments.unit != "core":
+        parser.error("--unit is valid only for system/core compilation")
+    arguments.source_modules = source_modules
     arguments.module = None
     # ACC compilation is a closed translation-unit operation.  The selected
     # system may use imported structs, rules, and modules, so capture the
     # source closure instead of treating the architecture file as standalone.
-    arguments.jit_source_closure = True
+    arguments.source_closure = True
 
     try:
         workspace = (
@@ -309,7 +249,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             else discover_workspace(arguments.architecture)
         )
         native = _compile(arguments, workspace)
-        if source_specializations:
+        if source_modules:
             architecture = arguments.architecture.resolve()
             try:
                 relative = architecture.relative_to(workspace.root.resolve())
@@ -322,7 +262,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             header_data = (
                 _select_artifact(
                     native,
-                    "interfaces/modules/"
+                    "interfaces/"
                     + relative.with_suffix(".ac").as_posix(),
                 )
                 if arguments.header_output is not None
@@ -347,10 +287,16 @@ def main(argv: Sequence[str] | None = None) -> int:
             _publish_tree(arguments.output, data)
         else:
             assert isinstance(data, bytes)
-            _publish(arguments.output, data)
             if arguments.header_output is not None:
                 assert isinstance(header_data, bytes)
-                _publish(arguments.header_output, header_data)
+                _publish_files(
+                    (
+                        (arguments.output, data),
+                        (arguments.header_output, header_data),
+                    )
+                )
+            else:
+                _publish(arguments.output, data)
     except OSError as error:
         print(f"error: unable to publish {arguments.output}: {error}", file=sys.stderr)
         return ExitCode.USER_INPUT

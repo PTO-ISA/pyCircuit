@@ -68,6 +68,461 @@ WriterPriorityAttr::verify(llvm::function_ref<InFlightDiagnostic()> emitError,
   return success();
 }
 
+LogicalResult StaticIntTypeAttr::verify(
+    llvm::function_ref<InFlightDiagnostic()> emitError, uint64_t width,
+    bool) {
+  if (width == 0)
+    return emitError() << "static integer width must be positive";
+  return success();
+}
+
+LogicalResult StaticIntValueAttr::verify(
+    llvm::function_ref<InFlightDiagnostic()> emitError, StaticIntTypeAttr type,
+    IntegerAttr value) {
+  if (!type || !value || value.getType().getIntOrFloatBitWidth() != type.getWidth())
+    return emitError() << "static integer value must have its exact declared width";
+  return success();
+}
+
+static bool isStaticParameterType(Attribute value);
+static bool isStaticParameterValue(Attribute value);
+
+LogicalResult StaticTypeAttr::verify(
+    llvm::function_ref<InFlightDiagnostic()> emitError, Attribute value) {
+  return isStaticParameterType(value)
+             ? success()
+             : emitError() << "static type wrapper contains an unsupported kind";
+}
+
+LogicalResult StaticValueAttr::verify(
+    llvm::function_ref<InFlightDiagnostic()> emitError, Attribute value) {
+  return isStaticParameterValue(value)
+             ? success()
+             : emitError() << "static value wrapper contains an unsupported kind";
+}
+
+LogicalResult StaticConstraintAttr::verify(
+    llvm::function_ref<InFlightDiagnostic()> emitError, Attribute value) {
+  return isa<OneOfConstraintAttr, IntegerRangeConstraintAttr>(value)
+             ? success()
+             : emitError() << "static constraint wrapper contains an unsupported kind";
+}
+
+static bool staticValueMatchesType(Attribute type, Attribute value) {
+  if (isa<StaticBoolTypeAttr>(type))
+    return isa<StaticBoolValueAttr>(value);
+  if (auto integerType = dyn_cast<StaticIntTypeAttr>(type)) {
+    auto integerValue = dyn_cast<StaticIntValueAttr>(value);
+    return integerValue && integerValue.getType() == integerType;
+  }
+  if (auto enumType = dyn_cast<StaticEnumTypeAttr>(type)) {
+    auto enumValue = dyn_cast<StaticEnumValueAttr>(value);
+    return enumValue &&
+           enumValue.getDeclaration() == enumType.getDeclaration();
+  }
+  auto configType = dyn_cast<StaticConfigTypeAttr>(type);
+  auto configValue = dyn_cast<StaticConfigValueAttr>(value);
+  if (!configType || !configValue ||
+      configValue.getDeclaration() != configType.getDeclaration())
+    return false;
+  ArrayAttr fields = configType.getFields().getFields();
+  ArrayAttr values = configValue.getFields().getFields();
+  if (fields.size() != values.size())
+    return false;
+  for (auto [field, item] : llvm::zip_equal(
+           fields.getAsRange<StaticConfigFieldAttr>(),
+           values.getAsRange<StaticConfigFieldValueAttr>()))
+    if (field.getName() != item.getName() ||
+        !staticValueMatchesType(field.getType(), item.getValue()))
+      return false;
+  return true;
+}
+
+static bool staticValueSatisfiesConstraint(Attribute value,
+                                           Attribute constraint) {
+  if (auto oneOf = dyn_cast<OneOfConstraintAttr>(constraint))
+    return llvm::any_of(oneOf.getValues(), [&](Attribute candidate) {
+      auto wrapped = dyn_cast<StaticValueAttr>(candidate);
+      return wrapped && wrapped.getValue() == value;
+    });
+  auto range = dyn_cast<IntegerRangeConstraintAttr>(constraint);
+  auto integer = dyn_cast<StaticIntValueAttr>(value);
+  if (!range || !integer || integer.getType() != range.getMinimum().getType())
+    return false;
+  const llvm::APInt candidate = integer.getValue().getValue();
+  const llvm::APInt minimum = range.getMinimum().getValue().getValue();
+  const llvm::APInt maximum = range.getMaximum().getValue().getValue();
+  if (integer.getType().getIsSigned())
+    return candidate.sge(minimum) && candidate.sle(maximum);
+  return candidate.uge(minimum) && candidate.ule(maximum);
+}
+
+LogicalResult StaticEnumTypeAttr::verify(
+    llvm::function_ref<InFlightDiagnostic()> emitError,
+    FlatSymbolRefAttr declaration) {
+  if (!declaration || declaration.getValue().empty())
+    return emitError() << "static enum type requires a nominal declaration";
+  return success();
+}
+
+LogicalResult StaticEnumValueAttr::verify(
+    llvm::function_ref<InFlightDiagnostic()> emitError,
+    FlatSymbolRefAttr declaration, StringAttr member) {
+  if (!declaration || declaration.getValue().empty() || !member ||
+      member.empty())
+    return emitError() << "static enum value requires a nominal declaration and member";
+  return success();
+}
+
+LogicalResult StaticConfigFieldAttr::verify(
+    llvm::function_ref<InFlightDiagnostic()> emitError, StringAttr name,
+    Attribute type) {
+  if (!name || name.empty() || !isStaticParameterType(type))
+    return emitError() << "static config field requires a name and closed static type";
+  return success();
+}
+
+LogicalResult StaticConfigFieldValueAttr::verify(
+    llvm::function_ref<InFlightDiagnostic()> emitError, StringAttr name,
+    Attribute value) {
+  if (!name || name.empty() || !isStaticParameterValue(value))
+    return emitError() << "static config field value requires a name and typed value";
+  return success();
+}
+
+LogicalResult StaticConfigTypeAttr::verify(
+    llvm::function_ref<InFlightDiagnostic()> emitError,
+    FlatSymbolRefAttr declaration, StaticConfigFieldsAttr fields) {
+  if (!declaration || declaration.getValue().empty() || !fields)
+    return emitError() << "static config type requires a nominal declaration and fields";
+  return success();
+}
+
+LogicalResult StaticConfigValueAttr::verify(
+    llvm::function_ref<InFlightDiagnostic()> emitError,
+    FlatSymbolRefAttr declaration, StaticConfigFieldValuesAttr fields) {
+  if (!declaration || declaration.getValue().empty() || !fields)
+    return emitError() << "static config value requires a nominal declaration and fields";
+  return success();
+}
+
+template <typename Element>
+static LogicalResult verifyAttributeArray(
+    llvm::function_ref<InFlightDiagnostic()> emitError, ArrayAttr values,
+    StringRef description, bool requireNonEmpty = false) {
+  if (!values || (requireNonEmpty && values.empty()))
+    return emitError() << description << " must be a non-empty ordered array";
+  for (Attribute value : values)
+    if (!isa<Element>(value))
+      return emitError() << description << " contains an invalid element";
+  return success();
+}
+
+LogicalResult StaticConfigFieldsAttr::verify(
+    llvm::function_ref<InFlightDiagnostic()> emitError, ArrayAttr fields) {
+  if (failed(verifyAttributeArray<StaticConfigFieldAttr>(emitError, fields,
+                                                         "static config fields")))
+    return failure();
+  llvm::StringSet<> names;
+  for (auto field : fields.getAsRange<StaticConfigFieldAttr>())
+    if (!names.insert(field.getName()).second)
+      return emitError() << "static config field names must be unique";
+  return success();
+}
+
+LogicalResult StaticConfigFieldValuesAttr::verify(
+    llvm::function_ref<InFlightDiagnostic()> emitError, ArrayAttr fields) {
+  if (failed(verifyAttributeArray<StaticConfigFieldValueAttr>(
+          emitError, fields, "static config field values")))
+    return failure();
+  llvm::StringSet<> names;
+  for (auto field : fields.getAsRange<StaticConfigFieldValueAttr>())
+    if (!names.insert(field.getName()).second)
+      return emitError() << "static config field value names must be unique";
+  return success();
+}
+
+LogicalResult OneOfConstraintAttr::verify(
+    llvm::function_ref<InFlightDiagnostic()> emitError, ArrayAttr values) {
+  if (!values || values.empty())
+    return emitError() << "one_of requires a non-empty ordered value list";
+  llvm::SmallDenseSet<Attribute> unique;
+  for (Attribute value : values)
+    if (!unique.insert(value).second)
+      return emitError() << "one_of values must be unique";
+  return success();
+}
+
+LogicalResult IntegerRangeConstraintAttr::verify(
+    llvm::function_ref<InFlightDiagnostic()> emitError,
+    StaticIntValueAttr minimum, StaticIntValueAttr maximum) {
+  if (!minimum || !maximum || minimum.getType() != maximum.getType())
+    return emitError() << "integer_range bounds must have one exact type";
+  const bool isSigned = minimum.getType().getIsSigned();
+  const llvm::APInt lower = minimum.getValue().getValue();
+  const llvm::APInt upper = maximum.getValue().getValue();
+  if (isSigned ? lower.sgt(upper) : lower.ugt(upper))
+    return emitError() << "integer_range bounds are inverted";
+  return success();
+}
+
+static bool isStaticParameterType(Attribute value) {
+  return isa<StaticBoolTypeAttr, StaticIntTypeAttr, StaticEnumTypeAttr,
+             StaticConfigTypeAttr>(value);
+}
+
+static bool isStaticParameterValue(Attribute value) {
+  return isa<StaticBoolValueAttr, StaticIntValueAttr, StaticEnumValueAttr,
+             StaticConfigValueAttr>(value);
+}
+
+LogicalResult StaticParameterAttr::verify(
+    llvm::function_ref<InFlightDiagnostic()> emitError, StringAttr name,
+    StaticTypeAttr type, bool required, StaticValueAttr defaultValue,
+    ArrayAttr constraints, SourceProvenanceAttr provenance) {
+  if (!name || name.empty() || !type ||
+      !isStaticParameterType(type.getValue()) || !constraints ||
+      !provenance)
+    return emitError() << "static parameter record is incomplete";
+  if (required && defaultValue)
+    return emitError() << "required static parameter cannot have a default";
+  if (!required && !defaultValue)
+    return emitError() << "optional static parameter requires a typed default";
+  if (defaultValue &&
+      !staticValueMatchesType(type.getValue(), defaultValue.getValue()))
+    return emitError() << "static parameter default must match its exact type";
+  for (Attribute rawConstraint : constraints) {
+    auto wrapped = dyn_cast<StaticConstraintAttr>(rawConstraint);
+    if (!wrapped)
+      return emitError() << "static parameter has an unsupported constraint";
+    Attribute constraint = wrapped.getValue();
+    if (auto oneOf = dyn_cast<OneOfConstraintAttr>(constraint)) {
+      for (Attribute value : oneOf.getValues())
+        if (!staticValueMatchesType(type.getValue(),
+                                    cast<StaticValueAttr>(value).getValue()))
+          return emitError() << "one_of value must match the parameter type";
+    } else if (!isa<StaticIntTypeAttr>(type.getValue())) {
+      return emitError() << "integer_range requires a static integer parameter";
+    }
+    if (defaultValue &&
+        !staticValueSatisfiesConstraint(defaultValue.getValue(), constraint))
+      return emitError() << "static parameter default violates a constraint";
+  }
+  return success();
+}
+
+LogicalResult StaticParametersAttr::verify(
+    llvm::function_ref<InFlightDiagnostic()> emitError,
+    ArrayAttr parameters) {
+  if (failed(verifyAttributeArray<StaticParameterAttr>(
+          emitError, parameters, "static parameters")))
+    return failure();
+  llvm::StringSet<> names;
+  for (auto parameter : parameters.getAsRange<StaticParameterAttr>())
+    if (!names.insert(parameter.getName()).second)
+      return emitError() << "static parameter names must be unique";
+  return success();
+}
+
+LogicalResult StaticArgumentsAttr::verify(
+    llvm::function_ref<InFlightDiagnostic()> emitError, ArrayAttr arguments) {
+  if (failed(verifyAttributeArray<StaticArgumentAttr>(
+          emitError, arguments, "static arguments")))
+    return failure();
+  llvm::StringSet<> names;
+  for (auto argument : arguments.getAsRange<StaticArgumentAttr>()) {
+    if (!names.insert(argument.getName()).second)
+      return emitError() << "static argument names must be unique";
+  }
+  return success();
+}
+
+LogicalResult StaticArgumentAttr::verify(
+    llvm::function_ref<InFlightDiagnostic()> emitError, StringAttr name,
+    StaticValueAttr value) {
+  if (!name || name.empty() || !value)
+    return emitError() << "static argument requires a name and exact typed value";
+  return success();
+}
+
+LogicalResult StaticCasesAttr::verify(
+    llvm::function_ref<InFlightDiagnostic()> emitError, ArrayAttr cases) {
+  if (failed(verifyAttributeArray<StaticArgumentsAttr>(
+          emitError, cases, "static cases", true)))
+    return failure();
+  llvm::SmallDenseSet<Attribute> unique;
+  for (Attribute item : cases)
+    if (!unique.insert(item).second)
+      return emitError() << "static cases must be unique";
+  return success();
+}
+
+LogicalResult SourceOwnerAttr::verify(
+    llvm::function_ref<InFlightDiagnostic()> emitError,
+    StringAttr implementation, StringAttr declaration) {
+  auto valid = [](StringRef value) {
+    return !value.empty() && !value.starts_with('/') && !value.contains('\\') &&
+           value.ends_with(".py") && !value.contains("/../") &&
+           !value.starts_with("../");
+  };
+  if (!implementation || !declaration || !valid(implementation) ||
+      !valid(declaration))
+    return emitError() << "source owner paths must be normalized relative .py paths";
+  return success();
+}
+
+LogicalResult SourceProvenanceAttr::verify(
+    llvm::function_ref<InFlightDiagnostic()> emitError, StringAttr path,
+    uint64_t line, uint64_t column, uint64_t endLine, uint64_t endColumn) {
+  if (!path || path.empty() || path.getValue().starts_with('/') ||
+      path.getValue().contains('\\') || path.getValue().contains("/../") ||
+      path.getValue().starts_with("../") || line == 0 || column == 0 ||
+      endLine == 0 || endColumn == 0 || endLine < line ||
+      (endLine == line && endColumn < column))
+    return emitError() << "source provenance requires a normalized path and ordered positive span";
+  return success();
+}
+
+static bool isDependentValueRecord(Attribute value) {
+  return isa<DependentIntegerLiteralAttr, DependentStaticLiteralAttr,
+             DependentParameterAttr, DependentFieldAttr, DependentAddAttr,
+             DependentSubAttr, DependentMulAttr, DependentIndexWidthAttr,
+             DependentCountWidthAttr>(value);
+}
+
+LogicalResult DependentValueAttr::verify(
+    llvm::function_ref<InFlightDiagnostic()> emitError, Attribute value) {
+  return isDependentValueRecord(value)
+             ? success()
+             : emitError() << "dependent value wrapper contains an unsupported record";
+}
+
+LogicalResult DependentParameterAttr::verify(
+    llvm::function_ref<InFlightDiagnostic()> emitError, StringAttr name) {
+  if (!name || name.empty())
+    return emitError() << "dependent parameter requires a source identifier";
+  return success();
+}
+
+LogicalResult DependentFieldAttr::verify(
+    llvm::function_ref<InFlightDiagnostic()> emitError,
+    DependentParameterAttr root, ArrayAttr path) {
+  if (!root || !path || path.empty() ||
+      llvm::any_of(path, [](Attribute item) {
+        auto name = dyn_cast<StringAttr>(item);
+        return !name || name.empty();
+      }))
+    return emitError() << "dependent field requires a root parameter and non-empty ordered identifier path";
+  return success();
+}
+
+LogicalResult DependentArgumentAttr::verify(
+    llvm::function_ref<InFlightDiagnostic()> emitError, StringAttr name,
+    DependentValueAttr value) {
+  if (!name || name.empty() || !value)
+    return emitError() << "dependent argument requires a name and typed value";
+  return success();
+}
+
+LogicalResult DependentArgumentsAttr::verify(
+    llvm::function_ref<InFlightDiagnostic()> emitError, ArrayAttr arguments) {
+  if (failed(verifyAttributeArray<DependentArgumentAttr>(
+          emitError, arguments, "dependent arguments")))
+    return failure();
+  llvm::StringSet<> names;
+  for (auto argument : arguments.getAsRange<DependentArgumentAttr>())
+    if (!names.insert(argument.getName()).second)
+      return emitError() << "dependent argument names must be unique";
+  return success();
+}
+
+static bool isTypeExprRecord(Attribute value) {
+  return isa<TypeExprConcreteAttr, TypeExprBitsAttr, TypeExprRangeAttr,
+             TypeExprValueArrayAttr, TypeExprTupleAttr, TypeExprNominalAttr,
+             TypeExprQueueAttr>(value);
+}
+
+LogicalResult TypeExprAttr::verify(
+    llvm::function_ref<InFlightDiagnostic()> emitError, Attribute value) {
+  return isTypeExprRecord(value)
+             ? success()
+             : emitError() << "type expression wrapper contains an unsupported record";
+}
+
+LogicalResult TypeExprTupleAttr::verify(
+    llvm::function_ref<InFlightDiagnostic()> emitError, ArrayAttr elements) {
+  return verifyAttributeArray<TypeExprAttr>(emitError, elements,
+                                             "tuple type expressions", true);
+}
+
+LogicalResult TypeExprNominalAttr::verify(
+    llvm::function_ref<InFlightDiagnostic()> emitError,
+    SymbolRefAttr declaration, DependentArgumentsAttr arguments) {
+  if (!declaration || declaration.getRootReference().empty() || !arguments)
+    return emitError() << "nominal type expression requires a declaration and complete arguments";
+  return success();
+}
+
+LogicalResult InterfacePortAttr::verify(
+    llvm::function_ref<InFlightDiagnostic()> emitError, StringAttr name,
+    StringAttr direction, TypeExprAttr logicalType,
+    SourceProvenanceAttr provenance) {
+  if (!name || name.empty() || !direction ||
+      (direction.getValue() != "input" && direction.getValue() != "output") ||
+      !logicalType || !provenance)
+    return emitError() << "module interface port record is malformed";
+  return success();
+}
+
+LogicalResult ModuleInterfaceAttr::verify(
+    llvm::function_ref<InFlightDiagnostic()> emitError, ArrayAttr ports) {
+  if (failed(verifyAttributeArray<InterfacePortAttr>(
+          emitError, ports, "module interface ports")))
+    return failure();
+  llvm::StringSet<> names;
+  for (InterfacePortAttr port : ports.getAsRange<InterfacePortAttr>())
+    if (!names.insert(port.getName()).second)
+      return emitError() << "module interface port names must be unique";
+  return success();
+}
+
+LogicalResult ModuleFamilySchemaAttr::verify(
+    llvm::function_ref<InFlightDiagnostic()> emitError,
+    StaticParametersAttr parameters, StaticCasesAttr cases,
+    ModuleInterfaceAttr interface, SourceOwnerAttr source,
+    ArrayAttr nominalDeclarations) {
+  if (!parameters || !cases || !interface || !source || !nominalDeclarations)
+    return emitError() << "module family schema is incomplete";
+  for (Attribute nominal : nominalDeclarations)
+    if (!isa<FlatSymbolRefAttr>(nominal))
+      return emitError() << "nominal declaration inventory must contain symbols";
+  llvm::SmallDenseSet<Attribute> uniqueNominals;
+  for (Attribute nominal : nominalDeclarations)
+    if (!uniqueNominals.insert(nominal).second)
+      return emitError() << "nominal declaration inventory must be unique";
+  ArrayAttr declarations = parameters.getParameters();
+  for (auto arguments : cases.getCases().getAsRange<StaticArgumentsAttr>()) {
+    ArrayAttr values = arguments.getArguments();
+    if (values.size() != declarations.size())
+      return emitError() << "each finite case must bind every static parameter";
+    for (auto [parameter, argument] : llvm::zip_equal(
+             declarations.getAsRange<StaticParameterAttr>(),
+             values.getAsRange<StaticArgumentAttr>())) {
+      if (parameter.getName() != argument.getName())
+        return emitError() << "finite case bindings must preserve declaration order";
+      if (!staticValueMatchesType(parameter.getType().getValue(),
+                                  argument.getValue().getValue()))
+        return emitError() << "finite case binding must match its exact parameter type";
+      for (auto constraint :
+           parameter.getConstraints().getAsRange<StaticConstraintAttr>())
+        if (!staticValueSatisfiesConstraint(argument.getValue().getValue(),
+                                            constraint.getValue()))
+          return emitError() << "finite case binding violates a parameter constraint";
+    }
+  }
+  return success();
+}
+
 static DictionaryAttr activationQueueResource(MLIRContext *context,
                                               ActivationResourceKind kind,
                                               size_t ordinal) {
@@ -1760,8 +2215,8 @@ LogicalResult verifyArchitectureExpressionRef(Operation *owner,
 } // namespace
 
 LogicalResult ArchitectureObligationOp::verify() {
-  if (!isa_and_nonnull<ModuleOp>((*this)->getParentOp()))
-    return emitOpError("must be owned directly by one ac.module");
+  if (!isa_and_nonnull<ModuleCaseOp>((*this)->getParentOp()))
+    return emitOpError("must be owned directly by one ac.module.case");
   if (getId().empty() || getId() != getSymName())
     return emitOpError(
         "requires one explicit non-empty stable ID equal to its symbol name");
@@ -6231,11 +6686,20 @@ LogicalResult PortOp::verify() {
 
 namespace {
 
-FunctionType graphSignature(Operation *op) {
-  if (!op)
+ModuleFamilySchemaAttr graphFamilySchema(Operation *op) {
+  return op ? op->getAttrOfType<ModuleFamilySchemaAttr>("schema")
+            : ModuleFamilySchemaAttr();
+}
+
+FunctionType graphCaseType(Operation *op, StaticArgumentsAttr arguments) {
+  auto module = dyn_cast_or_null<ModuleOp>(op);
+  if (!module || !arguments)
     return {};
-  auto type = op->getAttrOfType<TypeAttr>("function_type");
-  return type ? dyn_cast<FunctionType>(type.getValue()) : FunctionType();
+  for (ModuleCaseOp moduleCase :
+       module.getBody().front().getOps<ModuleCaseOp>())
+    if (moduleCase.getArguments() == arguments)
+      return moduleCase.getFunctionType();
+  return {};
 }
 
 LogicalResult verifyConcreteDictionary(Operation *op, DictionaryAttr values,
@@ -6269,12 +6733,12 @@ LogicalResult verifyOuterPlacement(Operation *op) {
 }
 
 LogicalResult verifyStructuralPlacement(Operation *op) {
-  auto module = dyn_cast_or_null<ModuleOp>(op->getParentOp());
-  if (module && !module.getBody().empty() &&
-      op->getBlock() == &module.getBody().front())
+  auto moduleCase = dyn_cast_or_null<ModuleCaseOp>(op->getParentOp());
+  if (moduleCase && !moduleCase.getBody().empty() &&
+      op->getBlock() == &moduleCase.getBody().front())
     return success();
   return op->emitOpError(
-      "must be a direct child of the unique ac.module Graph block");
+      "must be a direct child of one ac.module.case Graph block");
 }
 
 LogicalResult verifyExactBinding(Operation *op, DictionaryAttr binding,
@@ -6303,44 +6767,35 @@ LogicalResult verifyCallShape(Operation *op, FunctionType signature,
   return success();
 }
 
-LogicalResult verifyStaticArgumentSet(Operation *op, DictionaryAttr arguments,
+LogicalResult verifyStaticArgumentSet(Operation *op,
+                                      StaticArgumentsAttr arguments,
                                       Operation *definition = nullptr) {
-  if (failed(verifyConcreteDictionary(op, arguments, "static arguments")))
-    return failure();
+  if (!arguments)
+    return op->emitOpError("instance requires complete dependent arguments");
   if (!definition)
     return success();
-  auto parameters = definition->getAttrOfType<DictionaryAttr>("static_params");
-  if (!parameters || parameters.size() != arguments.size())
+  ModuleFamilySchemaAttr schema = graphFamilySchema(definition);
+  if (!schema)
+    return op->emitOpError("definition has no typed family schema");
+  auto parameters = schema.getParameters().getParameters();
+  auto values = arguments.getArguments();
+  if (parameters.size() != values.size())
     return op->emitOpError(
         "static argument names must exactly match definition parameters");
-  for (NamedAttribute parameter : parameters) {
-    Attribute argument = arguments.get(parameter.getName());
-    if (!argument)
+  for (auto [parameter, argument] :
+       llvm::zip_equal(parameters.getAsRange<StaticParameterAttr>(),
+                       values.getAsRange<DependentArgumentAttr>())) {
+    if (parameter.getName() != argument.getName())
       return op->emitOpError(
           "static argument names must exactly match definition parameters");
-    if (argument.getTypeID() != parameter.getValue().getTypeID())
+    if (!staticValueMatchesType(parameter.getType().getValue(),
+                                argument.getValue().getValue()))
       return op->emitOpError()
              << "static argument '" << parameter.getName().getValue()
-             << "' must match parameter attribute kind";
-    auto parameterInteger = dyn_cast<IntegerAttr>(parameter.getValue());
-    auto argumentInteger = dyn_cast<IntegerAttr>(argument);
-    if (parameterInteger &&
-        parameterInteger.getType() != argumentInteger.getType())
-      return op->emitOpError()
-             << "static argument '" << parameter.getName().getValue()
-             << "' must match parameter attribute type "
-             << parameterInteger.getType();
-    auto parameterUnit = dyn_cast<DictionaryAttr>(parameter.getValue());
-    if (parameterUnit) {
-      auto argumentUnit = cast<DictionaryAttr>(argument);
-      if (parameterUnit.getAs<StringAttr>("unit") !=
-          argumentUnit.getAs<StringAttr>("unit"))
-        return op->emitOpError()
-               << "static argument '" << parameter.getName().getValue()
-               << "' must preserve unit '"
-               << parameterUnit.getAs<StringAttr>("unit").getValue() << "'";
-    }
+             << "' must match its exact declared type";
   }
+  if (isa<ModuleOp>(definition) && !graphCaseType(definition, arguments))
+    return op->emitOpError("static arguments do not select one declared family case");
   return success();
 }
 
@@ -6402,7 +6857,8 @@ verifyRuntimeReferences(ModuleOp module,
     }
     return queue;
   };
-  for (ProcessOp process : module.getBody().front().getOps<ProcessOp>()) {
+  auto moduleCase = cast<ModuleCaseOp>(module.getBody().front().front());
+  for (ProcessOp process : moduleCase.getBody().front().getOps<ProcessOp>()) {
     WalkResult walk = process.getBody().walk([&](Operation *operation) {
       if (auto send = dyn_cast<TrySendOp>(operation)) {
         auto queue = lookupQueueRef(send, send.getQueue());
@@ -6478,7 +6934,8 @@ verifyRuntimeReferences(ModuleOp module,
 }
 
 LogicalResult verifyProcessOperations(ModuleOp module) {
-  for (ProcessOp process : module.getBody().front().getOps<ProcessOp>()) {
+  auto moduleCase = cast<ModuleCaseOp>(module.getBody().front().front());
+  for (ProcessOp process : moduleCase.getBody().front().getOps<ProcessOp>()) {
     if (failed(process.verify()))
       return failure();
     LogicalResult result = success();
@@ -6512,8 +6969,11 @@ Operation *resolveSystemMember(SystemOp system, SymbolRefAttr reference,
       SymbolTable::lookupSymbolIn(file, system.getRootAttr()));
   if (!module || module.getBody().empty())
     return nullptr;
+  auto moduleCase = dyn_cast<ModuleCaseOp>(module.getBody().front().front());
+  if (!moduleCase)
+    return nullptr;
   ProcessOp process;
-  for (ProcessOp candidate : module.getBody().front().getOps<ProcessOp>())
+  for (ProcessOp candidate : moduleCase.getBody().front().getOps<ProcessOp>())
     if (candidate.getSymName() == nested.front().getValue()) {
       process = candidate;
       break;
@@ -6534,6 +6994,415 @@ Operation *resolveSystemMember(SystemOp system, SymbolRefAttr reference,
 }
 
 } // namespace
+
+llvm::Expected<ModuleInterfaceAttr> materializeModuleInterface(
+    ModuleInterfaceAttr interface, StaticArgumentsAttr arguments,
+    FunctionType signature, mlir::ModuleOp file) {
+  auto error = [](llvm::Twine message) -> llvm::Error {
+    return llvm::createStringError(llvm::inconvertibleErrorCode(), message);
+  };
+  auto canonicalSigned = [](llvm::APInt value) {
+    return value.sextOrTrunc(std::max(1u, value.getSignificantBits()));
+  };
+  auto staticInteger = [&](StaticValueAttr wrapped)
+      -> llvm::Expected<llvm::APInt> {
+    auto value = wrapped ? dyn_cast<StaticIntValueAttr>(wrapped.getValue())
+                         : StaticIntValueAttr();
+    if (!value)
+      return error("dependent integer resolved to a non-integer static value");
+    llvm::APInt bits = value.getValue().getValue();
+    return value.getType().getIsSigned()
+               ? canonicalSigned(bits)
+               : canonicalSigned(bits.zext(bits.getBitWidth() + 1));
+  };
+  auto lookupArgument = [&](StringRef name)
+      -> llvm::Expected<StaticValueAttr> {
+    for (auto argument :
+         arguments.getArguments().getAsRange<StaticArgumentAttr>())
+      if (argument.getName().getValue() == name)
+        return argument.getValue();
+    return error("dependent parameter is absent from concrete arguments");
+  };
+  auto lookupField = [&](StaticValueAttr root, ArrayAttr path)
+      -> llvm::Expected<StaticValueAttr> {
+    StaticValueAttr current = root;
+    for (Attribute rawName : path) {
+      auto name = cast<StringAttr>(rawName);
+      auto config = dyn_cast<StaticConfigValueAttr>(current.getValue());
+      if (!config)
+        return error("dependent field traverses a non-config static value");
+      StaticValueAttr next;
+      for (auto field : config.getFields().getFields().getAsRange<
+               StaticConfigFieldValueAttr>())
+        if (field.getName() == name) {
+          next = StaticValueAttr::get(field.getContext(), field.getValue());
+          break;
+        }
+      if (!next)
+        return error("dependent field path is absent from static config");
+      current = next;
+    }
+    return current;
+  };
+  std::function<llvm::Expected<llvm::APInt>(DependentValueAttr)> evaluate =
+      [&](DependentValueAttr expression) -> llvm::Expected<llvm::APInt> {
+    Attribute value = expression.getValue();
+    if (auto literal = dyn_cast<DependentIntegerLiteralAttr>(value))
+      return canonicalSigned(literal.getValue());
+    if (auto literal = dyn_cast<DependentStaticLiteralAttr>(value))
+      return staticInteger(literal.getValue());
+    if (auto parameter = dyn_cast<DependentParameterAttr>(value)) {
+      auto resolved = lookupArgument(parameter.getName());
+      return resolved ? staticInteger(*resolved) : resolved.takeError();
+    }
+    if (auto field = dyn_cast<DependentFieldAttr>(value)) {
+      auto root = lookupArgument(field.getRoot().getName());
+      if (!root)
+        return root.takeError();
+      auto resolved = lookupField(*root, field.getPath());
+      return resolved ? staticInteger(*resolved) : resolved.takeError();
+    }
+    auto binary = [&](DependentValueAttr lhs, DependentValueAttr rhs,
+                      char operation) -> llvm::Expected<llvm::APInt> {
+      auto left = evaluate(lhs);
+      if (!left)
+        return left.takeError();
+      auto right = evaluate(rhs);
+      if (!right)
+        return right.takeError();
+      unsigned width = operation == '*'
+                           ? left->getBitWidth() + right->getBitWidth()
+                           : std::max(left->getBitWidth(), right->getBitWidth()) +
+                                 1;
+      llvm::APInt l = left->sext(width);
+      llvm::APInt r = right->sext(width);
+      return canonicalSigned(operation == '+' ? l + r
+                             : operation == '-' ? l - r
+                                                : l * r);
+    };
+    if (auto add = dyn_cast<DependentAddAttr>(value))
+      return binary(add.getLhs(), add.getRhs(), '+');
+    if (auto sub = dyn_cast<DependentSubAttr>(value))
+      return binary(sub.getLhs(), sub.getRhs(), '-');
+    if (auto mul = dyn_cast<DependentMulAttr>(value))
+      return binary(mul.getLhs(), mul.getRhs(), '*');
+    auto width = [&](DependentValueAttr capacity,
+                     bool count) -> llvm::Expected<llvm::APInt> {
+      auto evaluated = evaluate(capacity);
+      if (!evaluated)
+        return evaluated.takeError();
+      if (evaluated->isNegative() || (!count && evaluated->isZero()))
+        return error("dependent width capacity is outside its admitted domain");
+      llvm::APInt positive = evaluated->zext(evaluated->getBitWidth() + 1);
+      if (!count)
+        positive -= 1;
+      return llvm::APInt(64,
+                         std::max<uint64_t>(1, positive.getActiveBits()), true);
+    };
+    if (auto index = dyn_cast<DependentIndexWidthAttr>(value))
+      return width(index.getCapacity(), false);
+    if (auto count = dyn_cast<DependentCountWidthAttr>(value))
+      return width(count.getCapacity(), true);
+    return error("dependent integer expression contains an unsupported record");
+  };
+  auto positive = [&](DependentValueAttr expression)
+      -> llvm::Expected<uint64_t> {
+    auto value = evaluate(expression);
+    if (!value)
+      return value.takeError();
+    if (value->isNegative() || value->isZero() || value->getActiveBits() > 64)
+      return error("dependent cardinality must be a positive uint64 value");
+    return value->getZExtValue();
+  };
+  auto lookupNominalDeclaration = [&](SymbolRefAttr reference) -> Operation * {
+    if (!file)
+      return nullptr;
+    for (TypeScopeOp scope : file.getOps<TypeScopeOp>())
+      for (Operation &candidate : scope.getBody().front())
+        if (SymbolTable::getSymbolName(&candidate) &&
+            SymbolTable::getSymbolName(&candidate).getValue() ==
+                reference.getLeafReference().getValue())
+          return &candidate;
+    return nullptr;
+  };
+  auto resolveStaticValue = [&](DependentValueAttr expression,
+                                Attribute expectedType)
+      -> llvm::Expected<StaticValueAttr> {
+    Attribute value = expression.getValue();
+    StaticValueAttr resolved;
+    if (auto literal = dyn_cast<DependentStaticLiteralAttr>(value))
+      resolved = literal.getValue();
+    else if (auto parameter = dyn_cast<DependentParameterAttr>(value)) {
+      auto found = lookupArgument(parameter.getName());
+      if (!found)
+        return found.takeError();
+      resolved = *found;
+    } else if (auto field = dyn_cast<DependentFieldAttr>(value)) {
+      auto root = lookupArgument(field.getRoot().getName());
+      if (!root)
+        return root.takeError();
+      auto found = lookupField(*root, field.getPath());
+      if (!found)
+        return found.takeError();
+      resolved = *found;
+    } else if (auto integerType = dyn_cast<StaticIntTypeAttr>(expectedType)) {
+      auto integer = evaluate(expression);
+      if (!integer)
+        return integer.takeError();
+      unsigned width = integerType.getWidth();
+      bool fits = integerType.getIsSigned()
+                      ? integer->isSignedIntN(width)
+                      : !integer->isNegative() && integer->isIntN(width);
+      if (!fits)
+        return error("dependent nominal integer argument is out of range");
+      auto storageType = IntegerType::get(expression.getContext(), width);
+      auto storage = integerType.getIsSigned() ? integer->sextOrTrunc(width)
+                                               : integer->zextOrTrunc(width);
+      auto typed = StaticIntValueAttr::get(
+          expression.getContext(), integerType,
+          IntegerAttr::get(storageType, storage));
+      resolved = StaticValueAttr::get(expression.getContext(), typed);
+    } else {
+      return error("dependent nominal argument requires a typed static value");
+    }
+    if (!staticValueMatchesType(expectedType, resolved.getValue()))
+      return error("dependent nominal argument has the wrong static type");
+    return resolved;
+  };
+  auto resolveNominalArguments = [&](TypeExprNominalAttr nominal,
+                                     Operation *declaration)
+      -> llvm::Expected<DependentArgumentsAttr> {
+    auto parameters = declaration->getAttrOfType<StaticParametersAttr>(
+        "parameters");
+    Builder builder(nominal.getContext());
+    ArrayAttr declared = parameters ? parameters.getParameters()
+                                    : builder.getArrayAttr({});
+    ArrayAttr supplied = nominal.getArguments().getArguments();
+    if (declared.size() != supplied.size())
+      return error("nominal arguments must exactly match declaration parameters");
+    SmallVector<Attribute> resolved;
+    for (auto [rawParameter, rawArgument] : llvm::zip_equal(declared, supplied)) {
+      auto parameter = cast<StaticParameterAttr>(rawParameter);
+      auto argument = cast<DependentArgumentAttr>(rawArgument);
+      if (parameter.getName() != argument.getName())
+        return error(
+            "nominal argument order/names must match declaration parameters");
+      auto value = resolveStaticValue(argument.getValue(),
+                                      parameter.getType().getValue());
+      if (!value)
+        return value.takeError();
+      auto literal = DependentStaticLiteralAttr::get(nominal.getContext(), *value);
+      auto dependent = DependentValueAttr::get(nominal.getContext(), literal);
+      resolved.push_back(DependentArgumentAttr::get(
+          nominal.getContext(), argument.getName(), dependent));
+    }
+    return DependentArgumentsAttr::get(nominal.getContext(),
+                                       builder.getArrayAttr(resolved));
+  };
+  std::function<llvm::Expected<Type>(TypeExprAttr)> materialize =
+      [&](TypeExprAttr expression) -> llvm::Expected<Type> {
+    Attribute value = expression.getValue();
+    MLIRContext *context = expression.getContext();
+    if (auto concrete = dyn_cast<TypeExprConcreteAttr>(value))
+      return concrete.getType().getValue();
+    if (auto bits = dyn_cast<TypeExprBitsAttr>(value)) {
+      auto width = positive(bits.getWidth());
+      if (!width || *width > (1u << 16))
+        return width ? error("dependent bit width exceeds backend bound")
+                     : width.takeError();
+      return IntegerType::get(
+          context, *width,
+          bits.getIsSigned()
+              ? IntegerType::SignednessSemantics::Signed
+              : IntegerType::SignednessSemantics::Signless);
+    }
+    if (auto tuple = dyn_cast<TypeExprTupleAttr>(value)) {
+      SmallVector<Type> elements;
+      for (auto element : tuple.getElements().getAsRange<TypeExprAttr>()) {
+        auto type = materialize(element);
+        if (!type)
+          return type.takeError();
+        elements.push_back(*type);
+      }
+      return TupleType::get(context, elements);
+    }
+    if (auto array = dyn_cast<TypeExprValueArrayAttr>(value)) {
+      auto length = positive(array.getLength());
+      auto element = materialize(array.getElement());
+      if (!length || !element || *length > static_cast<uint64_t>(INT64_MAX))
+        return !length ? length.takeError()
+               : !element ? element.takeError()
+                          : error("dependent array length exceeds int64");
+      return ValueArrayType::get(context, static_cast<int64_t>(*length),
+                                 *element);
+    }
+    if (auto range = dyn_cast<TypeExprRangeAttr>(value)) {
+      auto lower = evaluate(range.getLowerInclusive());
+      auto upper = evaluate(range.getUpperExclusive());
+      if (!lower || !upper)
+        return lower ? upper.takeError() : lower.takeError();
+      llvm::APInt limit(65, 1);
+      limit <<= 64;
+      llvm::APInt lowerWide = lower->sextOrTrunc(65);
+      llvm::APInt upperWide = upper->sextOrTrunc(65);
+      if (lower->isNegative() || upper->isNegative() || lowerWide.uge(upperWide) ||
+          lowerWide.uge(limit) || upperWide.ugt(limit))
+        return error("dependent range bounds are invalid");
+      return RangeType::get(context, lowerWide.getZExtValue(),
+                            (upperWide - 1).trunc(64).getZExtValue());
+    }
+    if (auto queue = dyn_cast<TypeExprQueueAttr>(value)) {
+      auto payload = materialize(queue.getPayload());
+      auto lanes = positive(queue.getLanes());
+      auto rate = positive(queue.getRate());
+      if (!payload || !lanes || !rate)
+        return !payload ? payload.takeError()
+               : !lanes ? lanes.takeError()
+                        : rate.takeError();
+      if (*lanes > static_cast<uint64_t>(INT64_MAX) || *rate > *lanes)
+        return error("dependent Queue lanes/rate are invalid");
+      return QueueType::get(context, *payload, static_cast<int64_t>(*lanes),
+                            static_cast<int64_t>(*rate));
+    }
+    if (auto nominal = dyn_cast<TypeExprNominalAttr>(value)) {
+      Operation *declaration = lookupNominalDeclaration(nominal.getDeclaration());
+      if (!declaration)
+        return error("nominal type expression declaration is unresolved");
+      auto resolved = resolveNominalArguments(nominal, declaration);
+      if (!resolved)
+        return resolved.takeError();
+      if (isa_and_nonnull<StructOp>(declaration))
+        return StructType::get(context, nominal.getDeclaration());
+      if (isa_and_nonnull<PacketOp>(declaration))
+        return PacketType::get(context, nominal.getDeclaration());
+      if (isa_and_nonnull<TransactionOp>(declaration))
+        return TransactionType::get(context, nominal.getDeclaration());
+      if (isa_and_nonnull<EnumOp>(declaration))
+        return EnumType::get(context, nominal.getDeclaration());
+      return error("nominal type expression declaration is unresolved");
+    }
+    return error("logical type expression is unresolved or unsupported");
+  };
+  std::function<llvm::Expected<TypeExprAttr>(TypeExprAttr)> resolveLogical =
+      [&](TypeExprAttr expression) -> llvm::Expected<TypeExprAttr> {
+    Attribute value = expression.getValue();
+    MLIRContext *context = expression.getContext();
+    if (auto nominal = dyn_cast<TypeExprNominalAttr>(value)) {
+      Operation *declaration = lookupNominalDeclaration(nominal.getDeclaration());
+      if (!declaration)
+        return error("nominal type expression declaration is unresolved");
+      auto resolved = resolveNominalArguments(nominal, declaration);
+      if (!resolved)
+        return resolved.takeError();
+      return TypeExprAttr::get(
+          context, TypeExprNominalAttr::get(context, nominal.getDeclaration(),
+                                            *resolved));
+    }
+    if (auto queue = dyn_cast<TypeExprQueueAttr>(value)) {
+      auto payload = resolveLogical(queue.getPayload());
+      auto lanes = evaluate(queue.getLanes());
+      auto rate = evaluate(queue.getRate());
+      if (!payload || !lanes || !rate)
+        return !payload ? payload.takeError()
+               : !lanes ? lanes.takeError()
+                        : rate.takeError();
+      auto lanesValue = DependentValueAttr::get(
+          context, DependentIntegerLiteralAttr::get(context, *lanes));
+      auto rateValue = DependentValueAttr::get(
+          context, DependentIntegerLiteralAttr::get(context, *rate));
+      return TypeExprAttr::get(
+          context,
+          TypeExprQueueAttr::get(context, *payload, lanesValue, rateValue));
+    }
+    if (auto array = dyn_cast<TypeExprValueArrayAttr>(value)) {
+      auto length = evaluate(array.getLength());
+      auto element = resolveLogical(array.getElement());
+      if (!length || !element)
+        return length ? element.takeError() : length.takeError();
+      auto lengthValue = DependentValueAttr::get(
+          context, DependentIntegerLiteralAttr::get(context, *length));
+      return TypeExprAttr::get(
+          context,
+          TypeExprValueArrayAttr::get(context, lengthValue, *element));
+    }
+    if (auto tuple = dyn_cast<TypeExprTupleAttr>(value)) {
+      SmallVector<Attribute> elements;
+      for (TypeExprAttr element : tuple.getElements().getAsRange<TypeExprAttr>()) {
+        auto resolved = resolveLogical(element);
+        if (!resolved)
+          return resolved.takeError();
+        elements.push_back(*resolved);
+      }
+      Builder builder(context);
+      return TypeExprAttr::get(
+          context,
+          TypeExprTupleAttr::get(context, builder.getArrayAttr(elements)));
+    }
+    auto concrete = materialize(expression);
+    if (!concrete)
+      return concrete.takeError();
+    return TypeExprAttr::get(
+        context,
+        TypeExprConcreteAttr::get(context, TypeAttr::get(*concrete)));
+  };
+  Builder builder(interface.getContext());
+  SmallVector<Attribute> ports;
+  std::function<bool(TypeExprAttr)> containsNominal =
+      [&](TypeExprAttr expression) -> bool {
+    Attribute value = expression.getValue();
+    if (isa<TypeExprNominalAttr>(value))
+      return true;
+    if (auto queue = dyn_cast<TypeExprQueueAttr>(value))
+      return containsNominal(queue.getPayload());
+    if (auto array = dyn_cast<TypeExprValueArrayAttr>(value))
+      return containsNominal(array.getElement());
+    if (auto tuple = dyn_cast<TypeExprTupleAttr>(value))
+      return llvm::any_of(tuple.getElements().getAsRange<TypeExprAttr>(),
+                          containsNominal);
+    return false;
+  };
+  size_t input = 0;
+  size_t output = 0;
+  for (InterfacePortAttr port :
+       interface.getPorts().getAsRange<InterfacePortAttr>()) {
+    auto concrete = materialize(port.getLogicalType());
+    if (!concrete)
+      return concrete.takeError();
+    Type expected;
+    if (port.getDirection().getValue() == "input") {
+      if (signature && input >= signature.getNumInputs())
+        return error("materialized interface has excess inputs");
+      expected = signature ? signature.getInput(input) : *concrete;
+      ++input;
+    } else {
+      if (signature && output >= signature.getNumResults())
+        return error("materialized interface has excess outputs");
+      expected = signature ? signature.getResult(output) : *concrete;
+      ++output;
+    }
+    if (*concrete != expected)
+      return error(
+          "materialized logical interface disagrees with concrete case signature");
+    llvm::Expected<TypeExprAttr> expression =
+        containsNominal(port.getLogicalType())
+            ? resolveLogical(port.getLogicalType())
+            : llvm::Expected<TypeExprAttr>(TypeExprAttr::get(
+                  interface.getContext(),
+                  TypeExprConcreteAttr::get(interface.getContext(),
+                                            TypeAttr::get(expected))));
+    if (!expression)
+      return expression.takeError();
+    ports.push_back(InterfacePortAttr::get(
+        interface.getContext(), port.getName(), port.getDirection(), *expression,
+        port.getProvenance()));
+  }
+  if (signature &&
+      (input != signature.getNumInputs() ||
+       output != signature.getNumResults()))
+    return error("materialized interface arity is incomplete");
+  return ModuleInterfaceAttr::get(interface.getContext(),
+                                  builder.getArrayAttr(ports));
+}
 
 LogicalResult SystemOp::verify() {
   if (failed(verifyOuterPlacement(*this)))
@@ -6585,160 +7454,47 @@ LogicalResult SystemOp::verify() {
   return success();
 }
 
-ParseResult ModuleOp::parse(OpAsmParser &parser, OperationState &result) {
-  StringAttr name;
-  SmallVector<OpAsmParser::Argument> arguments;
-  SmallVector<Type> results;
-  SmallVector<DictionaryAttr> resultAttrs;
-  bool isVariadic = false;
-  if (parser.parseSymbolName(name, mlir::SymbolTable::getSymbolAttrName(),
-                             result.attributes) ||
-      function_interface_impl::parseFunctionSignatureWithArguments(
-          parser, /*allowVariadic=*/false, arguments, isVariadic, results,
-          resultAttrs))
-    return failure();
-
-  SmallVector<Attribute> argumentAttrs;
-  argumentAttrs.reserve(arguments.size());
-  bool hasArgumentAttrs = false;
-  for (const OpAsmParser::Argument &argument : arguments) {
-    DictionaryAttr attrs = argument.attrs;
-    hasArgumentAttrs |= static_cast<bool>(attrs) && !attrs.empty();
-    argumentAttrs.push_back(attrs ? attrs
-                                  : parser.getBuilder().getDictionaryAttr({}));
-  }
-  if (hasArgumentAttrs)
-    result.addAttribute("arg_attrs",
-                        parser.getBuilder().getArrayAttr(argumentAttrs));
-  if (llvm::any_of(resultAttrs, [](DictionaryAttr attrs) {
-        return attrs && !attrs.empty();
-      })) {
-    SmallVector<Attribute> normalizedResultAttrs;
-    normalizedResultAttrs.reserve(resultAttrs.size());
-    for (DictionaryAttr attrs : resultAttrs)
-      normalizedResultAttrs.push_back(
-          attrs ? attrs : parser.getBuilder().getDictionaryAttr({}));
-    result.addAttribute(
-        "res_attrs", parser.getBuilder().getArrayAttr(normalizedResultAttrs));
-  }
-
-  DictionaryAttr staticParameters;
-  if (succeeded(parser.parseOptionalKeyword("parameters"))) {
-    if (parser.parseAttribute(staticParameters))
-      return failure();
-  } else {
-    staticParameters = parser.getBuilder().getDictionaryAttr({});
-  }
-  result.addAttribute("static_params", staticParameters);
-  if (parser.parseOptionalAttrDictWithKeyword(result.attributes) ||
-      parser.parseKeyword("graph"))
-    return failure();
-
-  SmallVector<Type> inputs;
-  inputs.reserve(arguments.size());
-  for (const OpAsmParser::Argument &argument : arguments)
-    inputs.push_back(argument.type);
-  result.addAttribute(
-      "function_type",
-      TypeAttr::get(parser.getBuilder().getFunctionType(inputs, results)));
-  Region *body = result.addRegion();
-  return parser.parseRegion(*body, arguments, /*enableNameShadowing=*/false);
-}
-
-void ModuleOp::print(OpAsmPrinter &printer) {
-  printer << ' ';
-  printer.printSymbolName(getSymName());
-  function_interface_impl::printFunctionSignature(
-      printer, *this, getArgumentTypes(), /*isVariadic=*/false,
-      getResultTypes());
-  printer << " parameters " << getStaticParams();
-  printer.printOptionalAttrDictWithKeyword(
-      (*this)->getAttrs(),
-      {mlir::SymbolTable::getSymbolAttrName(), "function_type", "static_params",
-       "arg_attrs", "res_attrs"});
-  printer << " graph ";
-  printer.printRegion(getBody(), /*printEntryBlockArgs=*/false,
-                      /*printBlockTerminators=*/true,
-                      /*printEmptyBlock=*/true);
-}
-
-LogicalResult ModuleOp::verify() {
-  if (failed(verifyOuterPlacement(*this)))
-    return failure();
-  if (failed(verifyConcreteDictionary(*this, getStaticParams(),
-                                      "static parameters")))
-    return failure();
+LogicalResult ModuleCaseOp::verify() {
+  auto family = dyn_cast_or_null<ModuleOp>(getOperation()->getParentOp());
+  if (!family)
+    return emitOpError("must be a direct child of one ac.module family");
   if (getBody().empty())
-    return emitOpError("module requires one Graph body block");
+    return emitOpError("requires one concrete Graph body block");
+  auto file = getOperation()->getParentOfType<mlir::ModuleOp>();
+  auto materialized = materializeModuleInterface(
+      family.getSchema().getInterface(), getArguments(), getFunctionType(), file);
+  if (!materialized)
+    return emitOpError()
+           << "dependent interface does not materialize to the case signature: "
+           << llvm::toString(materialized.takeError());
   Block &entry = getBody().front();
   if (!llvm::equal(entry.getArgumentTypes(), getFunctionType().getInputs()))
-    return emitOpError("Graph region arguments must match module signature");
-  llvm::StringSet<> localNames;
+    return emitOpError("block arguments must match the concrete function type");
+  if (entry.empty() || !isa<ReturnOp>(entry.back()))
+    return emitOpError("concrete Graph body must end with ac.return");
+  for (Operation &operation : entry.without_terminator())
+    if (!isStructuralGraphChild(operation))
+      return operation.emitOpError(
+          "operation is not legal in an ac.module.case Graph region");
   llvm::StringMap<Operation *> producerIndex;
+  llvm::StringSet<> localNames;
   llvm::StringSet<> stableIds;
   llvm::StringSet<> paths;
-  for (Operation &child : entry) {
-    if (!isStructuralGraphChild(child))
-      return child.emitOpError(
-          "operation is not legal in an ac.module structural Graph region");
-    StringAttr localName;
-    StringAttr stableId;
-    StringAttr path;
-    if (auto instance = dyn_cast<InstanceOp>(child)) {
-      localName = instance.getSymNameAttr();
-      stableId = instance.getStableIdAttr();
-      path = instance.getPathAttr();
-    } else if (auto array = dyn_cast<ArrayOp>(child)) {
-      localName = array.getSymNameAttr();
-      stableId = array.getStableIdAttr();
-      path = array.getPathAttr();
-    } else if (auto instances = dyn_cast<InstancesOp>(child)) {
-      localName = instances.getSymNameAttr();
-      stableId = instances.getStableIdAttr();
-      path = instances.getPathAttr();
-    } else if (auto view = dyn_cast<ViewOp>(child)) {
-      localName = view.getSymNameAttr();
-    } else if (auto queue = dyn_cast<QueueOp>(child)) {
-      localName = queue.getSymNameAttr();
-      stableId = queue.getStableIdAttr();
-      path = queue.getPathAttr();
-    } else if (auto eventQueue = dyn_cast<EventQueueOp>(child)) {
-      localName = eventQueue.getSymNameAttr();
-      stableId = eventQueue.getStableIdAttr();
-      path = eventQueue.getPathAttr();
-    } else if (auto resource = dyn_cast<ResourceOp>(child)) {
-      localName = resource.getSymNameAttr();
-      stableId = resource.getStableIdAttr();
-      path = resource.getPathAttr();
-    } else if (auto addressSpace = dyn_cast<AddressSpaceOp>(child)) {
-      localName = addressSpace.getSymNameAttr();
-      stableId = addressSpace.getStableIdAttr();
-      path = addressSpace.getPathAttr();
-    } else if (auto addressMap = dyn_cast<AddressMapOp>(child)) {
-      localName = addressMap.getSymNameAttr();
-    } else if (auto timeDomain = dyn_cast<TimeDomainOp>(child)) {
-      localName = timeDomain.getSymNameAttr();
-    } else if (auto process = dyn_cast<ProcessOp>(child)) {
-      localName = process.getSymNameAttr();
-    } else if (auto stat = dyn_cast<StatOp>(child)) {
-      localName = stat.getSymNameAttr();
+  for (Operation &operation : entry.without_terminator()) {
+    if (auto name = mlir::SymbolTable::getSymbolName(&operation)) {
+      if (!localNames.insert(name.getValue()).second)
+        return operation.emitOpError("duplicate local structural name");
+      producerIndex[name.getValue()] = &operation;
     }
-    if (localName && !localNames.insert(localName.getValue()).second)
-      return child.emitOpError() << "duplicate local structural name '"
-                                 << localName.getValue() << "'";
-    if (localName)
-      producerIndex.try_emplace(localName.getValue(), &child);
-    if (stableId && !stableIds.insert(stableId.getValue()).second)
-      return child.emitOpError() << "duplicate local structural stable id '"
-                                 << stableId.getValue() << "'";
-    if (path && !paths.insert(path.getValue()).second)
-      return child.emitOpError()
-             << "duplicate local structural path '" << path.getValue() << "'";
+    if (auto stableId = operation.getAttrOfType<StringAttr>("stable_id");
+        stableId && !stableIds.insert(stableId.getValue()).second)
+      return operation.emitOpError("duplicate local structural stable id");
+    if (auto path = operation.getAttrOfType<StringAttr>("path");
+        path && !paths.insert(path.getValue()).second)
+      return operation.emitOpError("duplicate local structural path");
   }
-  if (entry.empty() || !isa<ReturnOp>(entry.back()))
-    return emitOpError("module Graph region must end with ac.return");
-  for (Operation &child : entry) {
-    LogicalResult local = TypeSwitch<Operation *, LogicalResult>(&child)
+  for (Operation &operation : entry.without_terminator()) {
+    LogicalResult local = TypeSwitch<Operation *, LogicalResult>(&operation)
                               .Case<QueueOp, EventQueueOp, ResourceOp,
                                     AddressSpaceOp, AddressMapOp, TimeDomainOp>(
                                   [](auto op) { return op.verify(); })
@@ -6746,11 +7502,9 @@ LogicalResult ModuleOp::verify() {
     if (failed(local))
       return failure();
   }
-  if (failed(verifyModuleResourceReferences(*this, producerIndex)))
-    return failure();
-  if (failed(verifyProcessOperations(*this)))
-    return failure();
-  if (failed(verifyRuntimeReferences(*this, producerIndex)))
+  if (failed(verifyModuleResourceReferences(family, producerIndex)) ||
+      failed(verifyProcessOperations(family)) ||
+      failed(verifyRuntimeReferences(family, producerIndex)))
     return failure();
   for (ViewOp view : entry.getOps<ViewOp>())
     if (failed(view.verify()) ||
@@ -6759,12 +7513,31 @@ LogicalResult ModuleOp::verify() {
   return success();
 }
 
+LogicalResult ModuleOp::verify() {
+  if (failed(verifyOuterPlacement(*this)))
+    return failure();
+  if (!getSource() || !getSchema() || getSource() != getSchema().getSource())
+    return emitOpError("module source owner must exactly match its family schema");
+  if (getBody().empty() || getBody().front().empty())
+    return emitOpError("module family requires one or more ordered cases");
+  Block &entry = getBody().front();
+  auto declared = getSchema().getCases().getCases();
+  if (entry.getOperations().size() != declared.size())
+    return emitOpError("module family body count must exactly match declared cases");
+  for (auto [operation, arguments] : llvm::zip_equal(entry, declared)) {
+    auto moduleCase = dyn_cast<ModuleCaseOp>(operation);
+    if (!moduleCase || moduleCase.getArguments() != arguments)
+      return operation.emitOpError(
+          "module body must contain only non-symbol cases in schema order");
+  }
+  return success();
+}
+
 LogicalResult ModuleExternOp::verify() {
   if (failed(verifyOuterPlacement(*this)))
     return failure();
-  if (failed(verifyConcreteDictionary(*this, getStaticParams(),
-                                      "static parameters")))
-    return failure();
+  if (!getSource() || !getSchema() || getSource() != getSchema().getSource())
+    return emitOpError("external module source owner must match its schema");
   if (failed(verifyExactBinding(*this, getImplementation(),
                                 "external module implementation", "cpp")))
     return failure();
@@ -6778,12 +7551,18 @@ LogicalResult ModuleExternOp::verify() {
 LogicalResult ModuleImportOp::verify() {
   if (failed(verifyOuterPlacement(*this)))
     return failure();
-  if (failed(verifyConcreteDictionary(*this, getStaticParams(),
-                                      "static parameters")))
-    return failure();
-  auto source = getBinding().getAs<StringAttr>("source");
-  if (!source || source.getValue().empty())
-    return emitOpError("module import requires non-empty source binding");
+  if (!getSource() || !getSchema() || getSource() != getSchema().getSource())
+    return emitOpError("module import source owner must match its complete schema");
+  auto file = getOperation()->getParentOfType<mlir::ModuleOp>();
+  for (Attribute rawCase : getSchema().getCases().getCases()) {
+    auto arguments = cast<StaticArgumentsAttr>(rawCase);
+    auto materialized = materializeModuleInterface(
+        getSchema().getInterface(), arguments, {}, file);
+    if (!materialized)
+      return emitOpError()
+             << "import case interface is not concretely materializable: "
+             << llvm::toString(materialized.takeError());
+  }
   return success();
 }
 
@@ -6801,7 +7580,11 @@ LogicalResult InstanceOp::verify() {
         "instance name, stable id, and path must be stable local segments");
   if (failed(verifyStaticArgumentSet(*this, getStaticArgs(), definition)))
     return failure();
-  return verifyCallShape(*this, graphSignature(definition),
+  FunctionType signature = graphCaseType(definition, getStaticArgs());
+  if (!signature && isa<ModuleExternOp, ModuleImportOp>(definition))
+    signature = FunctionType::get(getContext(), getInputs().getTypes(),
+                                  getOutputs().getTypes());
+  return verifyCallShape(*this, signature,
                          getInputs().getTypes(), getOutputs().getTypes());
 }
 
@@ -6832,18 +7615,23 @@ LogicalResult ArrayOp::verify() {
   if (count > maxStaticElements)
     return emitOpError(
         "array cardinality exceeds static elaboration bound 1048576");
-  FunctionType signature = graphSignature(definition);
-  if (!signature)
-    return emitOpError("array element definition has no signature");
   if (getStaticArgs().size() != count)
     return emitOpError("array requires one concrete static argument set per "
                        "lexicographically ordered element");
+  FunctionType signature;
   for (Attribute value : getStaticArgs()) {
-    auto arguments = dyn_cast<DictionaryAttr>(value);
+    auto arguments = dyn_cast<StaticArgumentsAttr>(value);
     if (!arguments ||
         failed(verifyStaticArgumentSet(*this, arguments, definition)))
       return emitOpError(
-          "array static arguments must be concrete dictionaries");
+          "array static arguments must be complete typed argument tuples");
+    auto physical = graphCaseType(definition, arguments);
+    if (!physical && isa<ModuleExternOp, ModuleImportOp>(definition) &&
+        getInputs().empty() && getOutputs().empty())
+      physical = FunctionType::get(getContext(), {}, {});
+    if (!physical || (signature && signature != physical))
+      return emitOpError("array cases must share one exact physical signature");
+    signature = physical;
   }
   auto matchesRepeatedSignature = [count](TypeRange actual,
                                           TypeRange elementTypes) {
@@ -6891,13 +7679,14 @@ LogicalResult InstancesOp::verify() {
     if (!isa_and_nonnull<ModuleOp, ModuleExternOp, ModuleImportOp>(target))
       return emitOpError() << "unresolved collection definition '" << definition
                            << "'";
-    if (graphSignature(target) != getInterface())
-      return emitOpError("collection element definition does not implement "
-                         "the exact declared common interface");
-    auto arguments = dyn_cast<DictionaryAttr>(getStaticArgs()[index]);
+    auto arguments = dyn_cast<StaticArgumentsAttr>(getStaticArgs()[index]);
     if (!arguments || failed(verifyStaticArgumentSet(*this, arguments, target)))
-      return emitOpError("collection static arguments must be concrete "
-                         "dictionaries");
+      return emitOpError("collection static arguments must be complete typed tuples");
+    auto signature = graphCaseType(target, arguments);
+    if (!signature && isa<ModuleExternOp, ModuleImportOp>(target))
+      signature = getInterface();
+    if (!signature || signature != getInterface())
+      return emitOpError("collection element case does not implement the exact common interface");
     StringRef name = cast<StringAttr>(getNames()[index]).getValue();
     StringRef id = cast<StringAttr>(getStableIds()[index]).getValue();
     StringRef path = cast<StringAttr>(getPaths()[index]).getValue();
@@ -6968,9 +7757,13 @@ LogicalResult ViewOp::verifyWithProducerIndex(
       producerShape.push_back(instance.getNumResults());
     else if (auto array = dyn_cast<ArrayOp>(producer)) {
       producerShape.append(array.getShape().begin(), array.getShape().end());
-      producerShape.push_back(
-          graphSignature(lookupGraphSymbol(array, array.getDefinitionAttr()))
-              .getNumResults());
+      auto arguments = array.getStaticArgs().empty()
+                           ? StaticArgumentsAttr()
+                           : dyn_cast<StaticArgumentsAttr>(
+                                 array.getStaticArgs()[0]);
+      auto signature = graphCaseType(
+          lookupGraphSymbol(array, array.getDefinitionAttr()), arguments);
+      producerShape.push_back(signature ? signature.getNumResults() : 0);
     } else if (auto instances = dyn_cast<InstancesOp>(producer)) {
       producerShape.push_back(instances.getDefinitions().size());
       producerShape.push_back(instances.getInterface().getNumResults());
@@ -7166,12 +7959,12 @@ LogicalResult ViewOp::verifyWithProducerIndex(
 }
 
 LogicalResult ReturnOp::verify() {
-  ModuleOp module = getOperation()->getParentOfType<ModuleOp>();
-  if (!module)
-    return emitOpError("must terminate an ac.module Graph region");
-  if (!llvm::equal(getOperandTypes(), module.getFunctionType().getResults()))
-    return emitOpError("operand types and count must exactly match module "
-                       "results");
+  auto moduleCase = dyn_cast_or_null<ModuleCaseOp>(getOperation()->getParentOp());
+  if (!moduleCase)
+    return emitOpError("must terminate an ac.module.case Graph region");
+  if (!llvm::equal(getOperandTypes(), moduleCase.getFunctionType().getResults()))
+    return emitOpError(
+        "operand types and count must exactly match module case results");
   if (llvm::any_of(getOperandTypes(),
                    [](Type type) { return isa<ResourceTokenType>(type); }))
     return emitOpError(
@@ -7293,10 +8086,10 @@ SymbolRefAttr qualifiedRuntimeOwner(Operation *operation, StringRef local) {
 }
 
 Operation *resolvedRuntimeTarget(Operation *operation, StringRef local) {
-  ModuleOp module = operation->getParentOfType<ModuleOp>();
-  if (!module || module.getBody().empty())
+  ModuleCaseOp moduleCase = operation->getParentOfType<ModuleCaseOp>();
+  if (!moduleCase || moduleCase.getBody().empty())
     return nullptr;
-  for (Operation &candidate : module.getBody().front()) {
+  for (Operation &candidate : moduleCase.getBody().front()) {
     auto name =
         candidate.getAttrOfType<StringAttr>(SymbolTable::getSymbolAttrName());
     if (name && name.getValue() == local)
@@ -7385,7 +8178,7 @@ StringRef processIdentity(Operation *operation) {
 void addContractEffect(SmallVectorImpl<MemoryEffects::EffectInstance> &effects,
                        Operation *operation) {
   if (!isa<AssertOp>(operation) &&
-      isa_and_nonnull<ModuleOp>(operation->getParentOp())) {
+      isa_and_nonnull<ModuleCaseOp>(operation->getParentOp())) {
     constexpr StringLiteral identity = "contracts";
     effects.emplace_back(
         MemoryEffects::Read::get(), qualifiedRuntimeOwner(operation, identity),
@@ -7742,8 +8535,8 @@ SideEffects::Resource *probeResource(StringRef kind) {
 } // namespace
 
 LogicalResult ProcessOp::verify() {
-  if (!isa_and_nonnull<ModuleOp>((*this)->getParentOp()))
-    return emitOpError("must be a direct child of ac.module");
+  if (!isa_and_nonnull<ModuleCaseOp>((*this)->getParentOp()))
+    return emitOpError("must be a direct child of ac.module.case");
   if (!isStableHierarchySegment(getSymName()))
     return emitOpError(
         "symbol name must be one stable hierarchy owner segment");
@@ -7820,8 +8613,24 @@ LogicalResult ScheduleOp::verify() {
 }
 
 LogicalResult WaitUntilOp::verify() { return requireProcess(*this); }
-LogicalResult WaitForOp::verify() { return requireProcess(*this); }
-LogicalResult AwaitEventOp::verify() { return requireProcess(*this); }
+LogicalResult WaitForOp::verify() {
+  if (failed(requireProcess(*this)))
+    return failure();
+  if (!isa_and_nonnull<ResourceOp>(
+          lookupRuntimeSymbol(*this, getResourceAttr())))
+    return emitOpError() << "unresolved runtime target '" << getResource()
+                         << "'";
+  return success();
+}
+LogicalResult AwaitEventOp::verify() {
+  if (failed(requireProcess(*this)))
+    return failure();
+  if (!isa_and_nonnull<EventQueueOp>(
+          lookupRuntimeSymbol(*this, getEventQueueAttr())))
+    return emitOpError() << "unresolved runtime target '" << getEventQueue()
+                         << "'";
+  return success();
+}
 
 LogicalResult YieldSimOp::verify() {
   ProcessOp process = enclosingProcess(*this);
@@ -7833,13 +8642,13 @@ LogicalResult YieldSimOp::verify() {
 }
 
 LogicalResult RequireOp::verify() {
-  if (isa_and_nonnull<ModuleOp>((*this)->getParentOp()))
+  if (isa_and_nonnull<ModuleCaseOp>((*this)->getParentOp()))
     return success();
   return requireProcess(*this);
 }
 
 LogicalResult EnsureOp::verify() {
-  if (isa_and_nonnull<ModuleOp>((*this)->getParentOp()))
+  if (isa_and_nonnull<ModuleCaseOp>((*this)->getParentOp()))
     return success();
   return requireProcess(*this);
 }
@@ -7861,8 +8670,8 @@ LogicalResult ProbeOp::verify() {
 }
 
 LogicalResult StatOp::verify() {
-  if (!isa_and_nonnull<ModuleOp>((*this)->getParentOp()))
-    return emitOpError("must be a direct child of ac.module");
+  if (!isa_and_nonnull<ModuleCaseOp>((*this)->getParentOp()))
+    return emitOpError("must be a direct child of ac.module.case");
   if (!isStableHierarchySegment(getSymName()))
     return emitOpError(
         "symbol name must be one stable hierarchy owner segment");
@@ -8039,7 +8848,10 @@ Operation *lookupRuntimeSymbol(Operation *from, SymbolRefAttr ref) {
     if (!targetModule)
       return nullptr;
     StringRef leaf = ref.getNestedReferences().front().getValue();
-    for (Operation &candidate : targetModule.getBody().front()) {
+    auto targetCase = dyn_cast<ModuleCaseOp>(targetModule.getBody().front().front());
+    if (!targetCase)
+      return nullptr;
+    for (Operation &candidate : targetCase.getBody().front()) {
       if (auto name = SymbolTable::getSymbolName(&candidate);
           name && name.getValue() == leaf)
         return &candidate;
@@ -8048,7 +8860,10 @@ Operation *lookupRuntimeSymbol(Operation *from, SymbolRefAttr ref) {
   }
   if (auto owner = from->getParentOfType<ModuleOp>()) {
     StringRef name = ref.getRootReference();
-    for (Operation &candidate : owner.getBody().front()) {
+    auto ownerCase = from->getParentOfType<ModuleCaseOp>();
+    if (!ownerCase)
+      return nullptr;
+    for (Operation &candidate : ownerCase.getBody().front()) {
       if (auto symbol = SymbolTable::getSymbolName(&candidate);
           symbol && symbol.getValue() == name)
         return &candidate;

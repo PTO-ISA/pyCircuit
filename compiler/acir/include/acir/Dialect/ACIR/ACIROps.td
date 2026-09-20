@@ -34,7 +34,8 @@ def ACIR_TypeAliasOp : ACIR_Op<"type_alias", [Symbol]> {
 
 class ACIR_RecordDeclarationOp<string mnemonic>
     : ACIR_Op<mnemonic, [Symbol, ACIR_RecordLike]> {
-  let arguments = (ins SymbolNameAttr:$sym_name, ArrayAttr:$fields);
+  let arguments = (ins SymbolNameAttr:$sym_name, ArrayAttr:$fields,
+                       OptionalAttr<ACIR_StaticParametersAttr>:$parameters);
   let hasVerifier = 1;
   let assemblyFormat = "$sym_name `fields` $fields attr-dict";
 }
@@ -54,7 +55,8 @@ def ACIR_BitfieldOp : ACIR_Op<"bitfield", [Symbol]> {
 def ACIR_EnumOp : ACIR_Op<"enum", [Symbol]> {
   let arguments = (ins SymbolNameAttr:$sym_name, StrArrayAttr:$enumerants,
                        OptionalAttr<ArrayAttr>:$values,
-                       OptionalAttr<I64Attr>:$encoding_width);
+                       OptionalAttr<I64Attr>:$encoding_width,
+                       OptionalAttr<ACIR_StaticParametersAttr>:$parameters);
   let hasVerifier = 1;
   let assemblyFormat = [{
     $sym_name `enumerants` $enumerants (`values` $values^)?
@@ -64,7 +66,8 @@ def ACIR_EnumOp : ACIR_Op<"enum", [Symbol]> {
 
 
 def ACIR_PacketOp : ACIR_Op<"packet", [Symbol, ACIR_RecordLike]> {
-  let arguments = (ins SymbolNameAttr:$sym_name, ArrayAttr:$fields);
+  let arguments = (ins SymbolNameAttr:$sym_name, ArrayAttr:$fields,
+                       OptionalAttr<ACIR_StaticParametersAttr>:$parameters);
   let hasVerifier = 1;
 }
 
@@ -1262,69 +1265,70 @@ def ACIR_SystemOp : ACIR_Op<"system", [Symbol]> {
   }];
 }
 
-def ACIR_ModuleOp : ACIR_Op<"module", [
-    Symbol, SymbolTable, FunctionOpInterface, IsolatedFromAbove, SingleBlock,
-    RegionKindInterface, HasOnlyGraphRegion
+def ACIR_ModuleCaseOp : ACIR_Op<"module.case", [
+    SymbolTable, IsolatedFromAbove, SingleBlock, RegionKindInterface,
+    HasOnlyGraphRegion
   ]> {
-  let arguments = (ins SymbolNameAttr:$sym_name,
+  let summary = "one ordered concrete body of a finite module family";
+  let arguments = (ins ACIR_StaticArgumentsAttr:$arguments,
                        TypeAttrOf<FunctionType>:$function_type,
-                       OptionalAttr<StrAttr>:$sym_visibility,
-                       OptionalAttr<DictArrayAttr>:$arg_attrs,
-                       OptionalAttr<DictArrayAttr>:$res_attrs,
-                       DictionaryAttr:$static_params);
+                       ACIR_SourceProvenanceAttr:$source_provenance);
   let regions = (region AnyRegion:$body);
-  let builders = [OpBuilder<(ins "::llvm::StringRef":$name,
+  let builders = [OpBuilder<(ins "::acir::ac::StaticArgumentsAttr":$arguments,
                                  "::mlir::FunctionType":$type,
-                                 CArg<"::mlir::DictionaryAttr", "{}">:$staticParams), [{
-    $_state.addAttribute(::mlir::SymbolTable::getSymbolAttrName(),
-                        $_builder.getStringAttr(name));
-    $_state.addAttribute(getFunctionTypeAttrName($_state.name),
-                        ::mlir::TypeAttr::get(type));
-    $_state.addAttribute("static_params",
-                        staticParams ? staticParams : $_builder.getDictionaryAttr({}));
+                                 "::acir::ac::SourceProvenanceAttr":$sourceProvenance), [{
+    $_state.addAttribute("arguments", arguments);
+    $_state.addAttribute("function_type", ::mlir::TypeAttr::get(type));
+    $_state.addAttribute("source_provenance", sourceProvenance);
     $_state.addRegion();
   }]>];
-  let extraClassDeclaration = [{
-    ::mlir::ArrayRef<::mlir::Type> getArgumentTypes() {
-      return getFunctionType().getInputs();
-    }
-    ::mlir::ArrayRef<::mlir::Type> getResultTypes() {
-      return getFunctionType().getResults();
-    }
-    ::mlir::Region *getCallableRegion() { return &getBody(); }
-    bool isDeclaration() { return false; }
-  }];
-  let hasCustomAssemblyFormat = 1;
+  let assemblyFormat = "`arguments` qualified($arguments) `type` $function_type attr-dict `source` qualified($source_provenance) `graph` $body";
   let hasVerifier = 1;
 }
 
-class ACIR_ModuleDeclarationOp<string mnemonic>
-    : ACIR_Op<mnemonic, [Symbol]> {
+def ACIR_ModuleOp : ACIR_Op<"module", [
+    Symbol, SymbolTable, IsolatedFromAbove, SingleBlock, NoTerminator
+  ]> {
   let arguments = (ins SymbolNameAttr:$sym_name,
-                       TypeAttrOf<FunctionType>:$function_type,
                        OptionalAttr<StrAttr>:$sym_visibility,
-                       DictionaryAttr:$static_params,
-                       DictionaryAttr:$binding);
+                       ACIR_SourceOwnerAttr:$source,
+                       ACIR_ModuleFamilySchemaAttr:$schema);
+  let regions = (region AnyRegion:$body);
+  let builders = [OpBuilder<(ins "::llvm::StringRef":$name,
+                                 "::acir::ac::SourceOwnerAttr":$source,
+                                 "::acir::ac::ModuleFamilySchemaAttr":$schema), [{
+    $_state.addAttribute(::mlir::SymbolTable::getSymbolAttrName(),
+                        $_builder.getStringAttr(name));
+    $_state.addAttribute("source", source);
+    $_state.addAttribute("schema", schema);
+    $_state.addRegion();
+  }]>];
+  let assemblyFormat = "$sym_name `source` qualified($source) `schema` qualified($schema) $body attr-dict";
   let hasVerifier = 1;
 }
 
-def ACIR_ModuleExternOp : ACIR_ModuleDeclarationOp<"module.extern"> {
+def ACIR_ModuleExternOp : ACIR_Op<"module.extern", [Symbol]> {
   let arguments = (ins SymbolNameAttr:$sym_name,
-                       TypeAttrOf<FunctionType>:$function_type,
                        OptionalAttr<StrAttr>:$sym_visibility,
-                       DictionaryAttr:$static_params,
+                       ACIR_SourceOwnerAttr:$source,
+                       ACIR_ModuleFamilySchemaAttr:$schema,
                        DictionaryAttr:$implementation);
   let assemblyFormat = [{
-    $sym_name `:` $function_type `parameters` $static_params
+    $sym_name `source` qualified($source) `schema` qualified($schema)
     `implementation` $implementation attr-dict
   }];
+  let hasVerifier = 1;
 }
 
-def ACIR_ModuleImportOp : ACIR_ModuleDeclarationOp<"module.import"> {
+def ACIR_ModuleImportOp : ACIR_Op<"module.import", [Symbol]> {
+  let arguments = (ins SymbolNameAttr:$sym_name,
+                       OptionalAttr<StrAttr>:$sym_visibility,
+                       ACIR_SourceOwnerAttr:$source,
+                       ACIR_ModuleFamilySchemaAttr:$schema);
   let assemblyFormat = [{
-    $sym_name `:` $function_type `parameters` $static_params
-    `from` $binding attr-dict
+    $sym_name `source` qualified($source) `schema` qualified($schema) attr-dict
   }];
+  let hasVerifier = 1;
 }
 
 
@@ -1332,11 +1336,11 @@ def ACIR_InstanceOp : ACIR_Op<"instance"> {
   let arguments = (ins Variadic<AnyType>:$inputs,
                        FlatSymbolRefAttr:$definition, SymbolNameAttr:$sym_name,
                        StrAttr:$stable_id, StrAttr:$path,
-                       DictionaryAttr:$static_args);
+                       ACIR_StaticArgumentsAttr:$static_args);
   let results = (outs Variadic<AnyType>:$outputs);
   let hasVerifier = 1;
   let assemblyFormat = [{
-    $sym_name `of` $definition `(` $inputs `)` `static` $static_args
+    $sym_name `of` $definition `(` $inputs `)` `static` qualified($static_args)
     `id` $stable_id `path` $path attr-dict `:` functional-type($inputs, $outputs)
   }];
 }
@@ -1621,7 +1625,7 @@ def ACIR_InstrumentationOp : ACIR_Op<"instrumentation", [
 }
 
 def ACIR_ReturnOp : ACIR_Op<"return", [Pure, Terminator, ReturnLike,
-                                        HasParent<"ModuleOp">]> {
+                                        HasParent<"ModuleCaseOp">]> {
   let arguments = (ins Variadic<AnyType>:$operands);
   let assemblyFormat = "attr-dict ($operands^ `:` type($operands))?";
   let hasVerifier = 1;

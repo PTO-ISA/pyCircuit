@@ -441,7 +441,7 @@ class Design:
         return self._mods.get(str(sym_name))
 
     def emit_mlir(self) -> str:
-        # Emit a single MLIR `module` containing all compiled `func.func`s.
+        # Emit one builtin module containing canonical PYC family carriers.
         #
         # `pyc.top` is a FlatSymbolRefAttr for tools to find the top module.
         parts: list[str] = []
@@ -449,7 +449,7 @@ class Design:
             f'module attributes {{pyc.top = @{self.top}, pyc.frontend.contract = "{FRONTEND_CONTRACT}"}} {{\n'
         )
         for cm in self._mods.values():
-            parts.append(cm.mod.emit_func_mlir())
+            parts.append(cm.mod.emit_family_mlir())
             parts.append("\n")
         parts.append("}\n")
         return "".join(parts)
@@ -459,7 +459,7 @@ class Design:
         out: dict[str, str] = {}
         for sym in sorted(self._mods.keys()):
             cm = self._mods[sym]
-            body = cm.mod.emit_func_mlir()
+            body = cm.mod.emit_family_mlir()
             deps = [
                 d
                 for d in self._deps_for_module_mlir(body)
@@ -484,38 +484,7 @@ class Design:
 
     @staticmethod
     def _emit_dep_decl_mlir(cm: CompiledModule) -> str:
-        args_sig = ", ".join(str(t) for t in cm.arg_types)
-        sig = f"({args_sig})"
-        if cm.result_types:
-            sig += f" -> ({', '.join(str(t) for t in cm.result_types)})"
-        kind = _kind_of(cm.fn)
-        inline = "true" if _inline_of(cm.fn) else "false"
-        base = _base_name(cm.fn)
-        params_esc = json.dumps(cm.params_json, ensure_ascii=False)
-        base_esc = json.dumps(base, ensure_ascii=False)
-        arg_names_esc = json.dumps(list(cm.arg_names), ensure_ascii=False)
-        result_names_esc = json.dumps(list(cm.result_names), ensure_ascii=False)
-        value_param_names_esc = json.dumps(
-            list(cm.value_param_names), ensure_ascii=False
-        )
-        value_param_types_esc = json.dumps(
-            list(cm.value_param_types), ensure_ascii=False
-        )
-        struct_metrics_esc = json.dumps(cm.struct_metrics_json, ensure_ascii=False)
-        struct_collections_esc = json.dumps(
-            cm.struct_collections_json, ensure_ascii=False
-        )
-        attrs = (
-            f"attributes {{arg_names = {arg_names_esc}, result_names = {result_names_esc}, "
-            f"pyc.value_params = {value_param_names_esc}, pyc.value_param_types = {value_param_types_esc}, "
-            f'pyc.kind = "{kind}", pyc.inline = "{inline}", pyc.params = {params_esc}, '
-            f"pyc.base = {base_esc}, pyc.struct.metrics = {struct_metrics_esc}, "
-            f"pyc.struct.collections = {struct_collections_esc}"
-        )
-        if _emit_structural_of(cm.fn):
-            attrs += ', pyc.emit.structural = "true"'
-        attrs += "}"
-        return f"  func.func private @{cm.sym_name}{sig} {attrs}\n"
+        return cm.mod.emit_family_import_mlir()
 
     def emit_project_manifest(
         self, *, module_dir_rel: str = "device/modules"
@@ -524,7 +493,7 @@ class Design:
         modules_out: list[dict[str, Any]] = []
         for sym in sorted(self._mods.keys()):
             cm = self._mods[sym]
-            func_mlir = cm.mod.emit_func_mlir()
+            func_mlir = cm.mod.emit_family_mlir()
             deps = [
                 d
                 for d in self._deps_for_module_mlir(func_mlir)
@@ -665,6 +634,12 @@ class DesignContext:
             port_names=set(port_specs_dict.keys()),
             value_param_names=value_param_names,
         )
+        if params_bound:
+            names = ", ".join(params_bound)
+            raise DesignError(
+                "static module parameters require an explicit source-owned finite-family "
+                f"declaration; caller-inferred specialization is forbidden: {names}"
+            )
         params_json = _params_json(params_bound)
         port_specs_json = _port_specs_json(port_specs_dict)
         value_params_json = json.dumps(

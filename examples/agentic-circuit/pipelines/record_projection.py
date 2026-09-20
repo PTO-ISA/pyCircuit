@@ -44,6 +44,3 @@ def record_projection(packet: Packet) -> HeaderView:
 def record_projection_update(packet: Packet) -> Packet:
     result = update(packet)
     return result
-
-
-specialization = ac.jit(record_projection)

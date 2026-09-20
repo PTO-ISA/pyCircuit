@@ -208,6 +208,12 @@ if(ACIR_BUILD_TESTING)
     "${ACIR_REPO_ROOT}/tests/mlir/agentic-circuit"
     "${ACIR_BINARY_DIR}/tests/mlir"
   )
+  if(TARGET pyc-opt AND TARGET pycc)
+    add_subdirectory(
+      "${ACIR_REPO_ROOT}/tests/mlir/pyc"
+      "${ACIR_BINARY_DIR}/tests/pyc"
+    )
+  endif()
   add_subdirectory(
     "${ACIR_REPO_ROOT}/tests/cpp/agentic-circuit"
     "${ACIR_BINARY_DIR}/tests/cpp"

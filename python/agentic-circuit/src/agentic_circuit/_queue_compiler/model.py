@@ -32,7 +32,7 @@ class StaticConfigBinding:
 @dataclass(frozen=True, slots=True)
 class Payload:
     descriptor: StructType
-    static_type_checks: tuple[StaticTypeCheck, ...] = ()
+    resolved_type_checks: tuple[StaticTypeCheck, ...] = ()
 
     @property
     def name(self) -> str:
@@ -732,9 +732,9 @@ class QueueProgram:
     observations: tuple[ObservationBinding, ...]
     expectations: tuple[ExpectBinding, ...]
     sinks: tuple[SinkBinding, ...]
-    static_type_bindings: tuple[tuple[str, int], ...] = ()
-    static_type_checks: tuple[StaticTypeCheck, ...] = ()
-    static_config_bindings: tuple[StaticConfigBinding, ...] = ()
+    resolved_type_bindings: tuple[tuple[str, int], ...] = ()
+    resolved_type_checks: tuple[StaticTypeCheck, ...] = ()
+    resolved_config_values: tuple[StaticConfigBinding, ...] = ()
     diagnostics: tuple[Diagnostic, ...] = ()
     source_path: str = _DEFAULT_QUEUE_SOURCE_PATH
     system_source: SourceFrame | None = None

@@ -5,7 +5,7 @@ import agentic_circuit as ac
 
 @ac.config
 class Config:
-    rate: int
+    rate: ac.static_int(width=64, signed=False)
 
 
 @ac.system
@@ -24,6 +24,3 @@ def multirate_compute(cfg: ac.const[Config]) -> None:
         rate=cfg.rate,
     )
     ac.sink(pipelined)
-
-
-specialization = ac.jit(multirate_compute, cfg=Config(rate=4))

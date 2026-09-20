@@ -15,7 +15,7 @@ module attributes {ac.frozen_owners = [], ac.model_kind = "queue_graph", ac.queu
   } {dlti.dl_spec = #dlti.dl_spec<!ac.struct<@types::@Entry> = {abi_alignment = 1 : i64, endianness = "little", preferred_alignment = 1 : i64, size = 3 : i64}, !ac.struct<@types::@Update> = {abi_alignment = 1 : i64, endianness = "little", preferred_alignment = 1 : i64, size = 1 : i64}>}
   ac.table @entries entry !ac.struct<@types::@Entry> entries 4 init 0 owner "/" stable_id "table/entries"
   %0 = ac.source depth 2 latency 1 {ac.name = "updates"} : !ac.queue<!ac.struct<@types::@Update>>
-  %1:2 = ac.broadcast %0 depths [1, 1] latencies [1, 1] {ac.output_names = ["updates__fanout0", "updates__fanout1"]} : !ac.queue<!ac.struct<@types::@Update>> -> (!ac.queue<!ac.struct<@types::@Update>>, !ac.queue<!ac.struct<@types::@Update>>)
+  %1:2 = ac.broadcast %0 depths [1, 1] latencies [1, 1] {ac.output_names = ["updatesfanout_0", "updatesfanout_1"]} : !ac.queue<!ac.struct<@types::@Update>> -> (!ac.queue<!ac.struct<@types::@Update>>, !ac.queue<!ac.struct<@types::@Update>>)
   %2 = ac.firing %1#0 depths [1] latencies [1] stable_id "first" domain "cycle" {
   ^bb0(%arg0: !ac.var<!ac.struct<@types::@Update>>):
     %4 = ac.var.constant true as !ac.var<i1>

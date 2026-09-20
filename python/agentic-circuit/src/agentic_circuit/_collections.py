@@ -45,12 +45,12 @@ def classify_collection(elements: Sequence[CollectionElement]) -> CollectionPlan
     shape, flat = _shape_and_flatten(elements)
     if not flat:
         return CollectionPlan("instances", shape, (), None)
-    specialization = (
+    selection = (
         flat[0].schema.identity,
         flat[0].static_arguments,
     )
     homogeneous = all(
-        (item.schema.identity, item.static_arguments) == specialization
+        (item.schema.identity, item.static_arguments) == selection
         for item in flat[1:]
     )
     return CollectionPlan(

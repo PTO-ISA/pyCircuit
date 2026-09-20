@@ -14,16 +14,12 @@ from _pycircuit_semantics import (
     ValueType,
 )
 
-from .._canonical_json import canonical_json_bytes, canonical_mlir_string
-from .._static_eval import FrozenMap, StaticValue, static_json_value
-from .errors import QueueFrontendError
+from .._canonical_json import canonical_mlir_string
 from .model import (
     BitfieldBinding,
     CandidateSetBinding,
     EnumBinding,
     Payload,
-    StaticConfigBinding,
-    StaticTypeCheck,
 )
 from .type_rendering import _render_type
 
@@ -44,7 +40,7 @@ def _render_dense_i64(values: tuple[int, ...]) -> str:
 def _table_schema_id(entry_type: ValueType, shape: tuple[int, ...]) -> str:
     entry = re.sub("[^A-Za-z0-9]+", "_", _render_type(entry_type)).strip("_")
     dimensions = "x".join(map(str, shape))
-    return f"row_major__{entry}__{dimensions}"
+    return f"row_major_{entry}_{dimensions}"
 
 
 def _render_table_init_value(value: object, descriptor: ValueType) -> str:
@@ -82,36 +78,6 @@ def _render_table_init_value(value: object, descriptor: ValueType) -> str:
             + "]"
         )
     raise AssertionError("validated Table initializer cannot be rendered")
-
-
-def _render_static_mlir_value(value: StaticValue) -> str:
-    if type(value) is bool:
-        return "true" if value else "false"
-    if type(value) is int:
-        return f"{value} : i64"
-    if type(value) is str:
-        return canonical_mlir_string(value)
-    if isinstance(value, FrozenMap):
-        return canonical_mlir_string(
-            canonical_json_bytes(static_json_value(value)).decode("utf-8")
-        )
-    raise QueueFrontendError(
-        "ACPY-MODULE-007: module ac.const arguments must lower to bool, int, "
-        "str, or canonical config attributes"
-    )
-
-
-def _render_static_mlir_dictionary(
-    values: tuple[tuple[str, StaticValue], ...],
-) -> str:
-    return (
-        "{"
-        + ", ".join(
-            f"{name} = {_render_static_mlir_value(value)}"
-            for name, value in sorted(values)
-        )
-        + "}"
-    )
 
 
 def _render_interface_display_attributes(
@@ -193,120 +159,6 @@ def _payload_layout_entry(payload: Payload) -> str:
         f'{{abi_alignment = {alignment} : i64, endianness = "little", '
         f"preferred_alignment = {alignment} : i64, size = {size} : i64}}"
     )
-
-
-def _render_static_type_attributes(
-    bindings: tuple[tuple[str, int], ...],
-    payloads: tuple[Payload, ...],
-    extra_checks: tuple[StaticTypeCheck, ...] = (),
-    config_bindings: tuple[StaticConfigBinding, ...] = (),
-) -> str:
-    checks = (
-        tuple(check for payload in payloads for check in payload.static_type_checks)
-        + extra_checks
-    )
-    identities = tuple(
-        payload
-        for payload in payloads
-        if payload.descriptor.symbol != payload.descriptor.name
-    )
-    if not bindings and not checks and not identities and not config_bindings:
-        return ""
-    attributes: list[str] = []
-    if config_bindings:
-        attributes.append(
-            "ac.static_config_bindings = ["
-            + ", ".join(
-                "{root = "
-                + canonical_mlir_string(binding.root)
-                + ", schema = "
-                + canonical_mlir_string(binding.schema)
-                + ", type = "
-                + canonical_mlir_string(binding.type_name)
-                + ", value = "
-                + canonical_mlir_string(binding.value)
-                + "}"
-                for binding in config_bindings
-            )
-            + "]"
-        )
-    if bindings:
-        attributes.append(
-            "ac.static_type_bindings = {"
-            + ", ".join(f"{name} = {value} : i64" for name, value in bindings)
-            + "}"
-        )
-    if checks:
-        rendered_checks = []
-        for check in checks:
-            program = (
-                "["
-                + ", ".join(canonical_mlir_string(token) for token in check.program)
-                + "]"
-            )
-            rendered_checks.append(
-                "{program = "
-                + program
-                + f", result = {check.result} : i64, target = "
-                + canonical_mlir_string(check.target)
-                + (
-                    ""
-                    if check.concrete_type is None
-                    else ", type = " + _render_type(check.concrete_type)
-                )
-                + "}"
-            )
-        attributes.append(
-            "ac.static_type_checks = [" + ", ".join(rendered_checks) + "]"
-        )
-    if identities:
-        rendered_identities: list[str] = []
-        checks_by_target = {check.target: check for check in checks}
-        for payload in identities:
-            descriptor = payload.descriptor
-            targets = sorted(
-                target
-                for target in checks_by_target
-                if target[: len(descriptor.symbol) + 1] == descriptor.symbol + "."
-            )
-            parameters_by_name: dict[str, str] = {}
-            for target in targets:
-                for token in checks_by_target[target].program:
-                    if token[:6] != "param:":
-                        continue
-                    parameter = token[6:]
-                    for name, _ in descriptor.static_bindings:
-                        if parameter == name or parameter.endswith("__" + name):
-                            parameters_by_name[name] = parameter
-            rendered_bindings = []
-            for name, value in descriptor.static_bindings:
-                parameter = parameters_by_name.get(name)
-                if parameter is None:
-                    raise QueueFrontendError(
-                        "ACPY-TYPE-008: specialized struct binding lacks a verifier program"
-                    )
-                rendered_bindings.append(
-                    "{name = "
-                    + canonical_mlir_string(name)
-                    + ", parameter = "
-                    + canonical_mlir_string(parameter)
-                    + f", value = {value} : i64}}"
-                )
-            rendered_identities.append(
-                "{bindings = ["
-                + ", ".join(rendered_bindings)
-                + "], source = "
-                + canonical_mlir_string(descriptor.name)
-                + ", symbol = "
-                + canonical_mlir_string(descriptor.symbol)
-                + ", targets = ["
-                + ", ".join(canonical_mlir_string(target) for target in targets)
-                + "]}"
-            )
-        attributes.append(
-            "ac.static_type_identities = [" + ", ".join(rendered_identities) + "]"
-        )
-    return ", " + ", ".join(attributes)
 
 
 def _enum_layout_entry(binding: EnumBinding) -> str:

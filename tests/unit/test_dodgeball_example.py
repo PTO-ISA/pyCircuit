@@ -20,7 +20,6 @@ def test_dodgeball_cycle_aware_example_emits_canonical_pyc() -> None:
     mlir = module.compile_cycle_aware(
         module.build,
         name="dodgeball_game",
-        MAIN_CLK_BIT=4,
     ).emit_mlir()
 
     assert mlir.count("pyc.reg") == 14

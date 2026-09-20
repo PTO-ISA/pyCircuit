@@ -68,6 +68,7 @@ RUNTIME = {
     "BitfieldSpec",
     "queue",
     "ResourceRef",
+    "Queue",
     "address_space",
     "address_map",
     "Static",
@@ -81,7 +82,14 @@ RUNTIME = {
     "range",
     "count_width",
     "encoding",
-    "jit",
+    "case",
+    "integer_range",
+    "one_of",
+    "static_bool",
+    "static_config",
+    "static_enum",
+    "static_int",
+    "static_parameter",
     "round_robin",
     "priority",
     *(f"u{width}" for width in range(1, 65)),
@@ -200,13 +208,13 @@ class PublicApiTest(unittest.TestCase):
 
         @api.config
         class Geometry:
-            entries: int
+            entries: api.static_int(width=64, signed=False)
 
         @api.config
         class Config:
             geometry: Geometry
-            name: int
-            value_type: int
+            name: api.static_int(width=64, signed=False)
+            value_type: api.static_int(width=64, signed=False)
 
         cfg = api.param[Config]("cfg")
         entries = cfg.geometry.entries
@@ -235,7 +243,7 @@ class PublicApiTest(unittest.TestCase):
             READ = 3
 
         self.assertIsInstance(Opcode.READ, Opcode)
-        self.assertEqual(4, Opcode.__ac_encoding_width__)
+        self.assertEqual(4, Opcode.compiler_encoding_width__)
         with self.assertRaisesRegex(ValueError, r"\[1, 64\]"):
             api.encoding(width=0)
 
@@ -311,25 +319,30 @@ class PublicApiTest(unittest.TestCase):
     def test_decorators_create_immutable_definition_metadata(self) -> None:
         api = importlib.import_module("agentic_circuit")
 
-        @api.module
+        @api.module_decl(source="tests/producer.py")
+        def producer() -> None:
+            ...
+
+        producer_decl = producer
+
+        @api.module(declaration=producer_decl)
         def producer() -> None:
             raise AssertionError("decorating a definition must not execute it")
 
         self.assertEqual("module", producer.kind)
         self.assertEqual(producer.function.__qualname__, producer.qualified_name)
         self.assertTrue(producer.qualified_name.endswith(".<locals>.producer"))
-        self.assertEqual((), producer.explicit_options)
+        self.assertEqual(
+            (("declaration", producer_decl),), producer.explicit_options
+        )
         with self.assertRaises(FrozenInstanceError):
             producer.kind = "system"
 
     def test_decorator_options_are_canonicalized(self) -> None:
         api = importlib.import_module("agentic_circuit")
 
-        @api.module(zeta=2, alpha=1)
-        def configured() -> None:
-            pass
-
-        self.assertEqual((("alpha", 1), ("zeta", 2)), configured.explicit_options)
+        with self.assertRaisesRegex(TypeError, "unexpected keyword"):
+            api.module(zeta=2, alpha=1)
 
     def test_generated_module_is_not_a_public_compatibility_alias(self) -> None:
         api = importlib.import_module("agentic_circuit")

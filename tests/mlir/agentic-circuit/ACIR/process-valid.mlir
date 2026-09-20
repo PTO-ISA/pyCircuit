@@ -11,7 +11,8 @@ builtin.module  {
     ac.event @push from @sender to @receiver payload i32 action "offer"
     ac.transition from @idle to @done on @push transfer true retain false guard {}
   }
-  ac.module @Top(i32) parameters {} graph {
+  ac.module @Top source #ac.source_owner<"tests/native_family.py", "tests/native_family.py"> schema #ac.module_family_schema<#ac.static_parameters<[]>, #ac.static_cases<[#ac.static_arguments<[]>]>, #ac.module_interface<[#ac.interface_port<"input_0", "input", #ac.type_expr<#ac.type_expr_concrete<i32>>, #ac.source_provenance<"tests/native_family.py", 1, 1, 1, 1>>]>, #ac.source_owner<"tests/native_family.py", "tests/native_family.py">, []> {
+    ac.module.case arguments #ac.static_arguments<[]> type (i32) -> () source #ac.source_provenance<"tests/native_family.py", 1, 1, 1, 1> graph {
   ^bb0(%arg0 : i32):
     ac.time_domain @core period 1 phase 0 scale 1
     ac.queue @ready payload i32 entries 8 ordering "fifo" protocol @fifo
@@ -44,6 +45,8 @@ builtin.module  {
       ac.yield_sim
     }
     ac.return
+
+    }
   }
 }
 

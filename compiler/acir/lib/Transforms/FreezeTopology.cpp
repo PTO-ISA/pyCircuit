@@ -195,7 +195,7 @@ public:
     for (ac::ModuleOp definition : model.getOps<ac::ModuleOp>()) {
       if (definition.getBody().empty())
         continue;
-      for (Operation &operation : definition.getBody().front()) {
+      for (Operation &operation : cast<ac::ModuleCaseOp>(definition.getBody().front().front()).getBody().front()) {
         auto name = operation.getAttrOfType<StringAttr>(
             SymbolTable::getSymbolAttrName());
         if (!name)
@@ -304,7 +304,7 @@ LogicalResult freezeStructuredQueueGraph(ModuleOp model) {
 }
 
 LogicalResult freezeTopology(ModuleOp model) {
-  if (failed(verifyStaticTypeMetadata(model)))
+  if (failed(verifyRemovedStaticMetadataAbsent(model)))
     return failure();
   // Frozen models and direct hand-written ACIR take the same fail-closed
   // dynamic-index proof path as rule lowering.
@@ -440,7 +440,7 @@ LogicalResult freezeTopology(ModuleOp model) {
   for (ac::ModuleOp module : model.getOps<ac::ModuleOp>()) {
     if (module.getBody().empty())
       continue;
-    for (Operation &operation : module.getBody().front())
+    for (Operation &operation : cast<ac::ModuleCaseOp>(module.getBody().front().front()).getBody().front())
       if (isa<ac::RequireOp, ac::EnsureOp>(operation))
         operation.setAttr("ac.freeze_proven", builder.getBoolAttr(true));
   }

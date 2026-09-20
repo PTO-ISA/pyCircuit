@@ -35,7 +35,13 @@ def issue(entries, ready_tags):
         return selected.value
 
 
-@ac.module
+@ac.module_decl(source="tests/integration/agentic-circuit/e2e/fixtures/state/list_find_capture.py")
+def find_module(wakeup: Wakeup) -> Entry:
+    ...
+
+find_module_decl = find_module
+
+@ac.module(declaration=find_module_decl)
 def find_module(wakeup: Wakeup) -> Entry:
     entries = ac.table[4, Entry](init=0)
     ready_tags = ac.table[64, bool](init=0)

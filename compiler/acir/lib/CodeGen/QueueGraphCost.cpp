@@ -19,6 +19,17 @@
 namespace acir::codegen {
 namespace {
 
+const QueueGraphPlan *findFamilyCaseBody(
+    const QueueGraphPlan &plan, llvm::StringRef definition,
+    acir::ac::StaticArgumentsAttr arguments) {
+  for (const ModuleFamilyPlan &family : plan.moduleFamilies)
+    if (family.definition == definition)
+      for (const ModuleCasePlan &moduleCase : family.cases)
+        if (moduleCase.arguments == arguments)
+          return moduleCase.bodyPlan.get();
+  return nullptr;
+}
+
 llvm::Error costError(const llvm::Twine &message) {
   return llvm::createStringError(
       std::make_error_code(std::errc::invalid_argument),
@@ -541,10 +552,6 @@ moduleCost(const QueueGraphPlan &plan, llvm::StringRef instancePath,
       {"queues", std::move(queueValues)},
       {"rules", std::move(rules)},
       {"shared_costs", std::move(sharedCosts)},
-      {"specialization",
-       plan.specializationKey.empty()
-           ? llvm::json::Value(nullptr)
-           : llvm::json::Value(plan.specializationKey)},
       {"system", plan.system},
       {"totals", std::move(totals)}};
 }
@@ -573,15 +580,10 @@ generateQueueGraphCostReport(const QueueGraphPlan &plan) {
   auto appendInstances = [&](auto &self, const QueueGraphPlan &parent,
                              llvm::StringRef parentPath) -> llvm::Error {
     for (const QueueModuleInstancePlan &instance : parent.moduleInstances) {
-      auto found = llvm::find_if(
-          parent.moduleSpecializations,
-          [&](const std::shared_ptr<QueueGraphPlan> &candidate) {
-            return candidate && candidate->definition == instance.definition &&
-                   candidate->specializationKey ==
-                       instance.specializationKey;
-          });
-      if (found == parent.moduleSpecializations.end())
-        return costError("module instance specialization is unresolved");
+      const QueueGraphPlan *body = findFamilyCaseBody(
+          parent, instance.definition, instance.staticArguments);
+      if (!body)
+        return costError("module instance family case is unresolved");
       llvm::StringRef relativeScope(instance.scope);
       while (relativeScope.consume_front("/")) {
       }
@@ -593,13 +595,13 @@ generateQueueGraphCostReport(const QueueGraphPlan &plan) {
       if (!relativeScope.empty())
         path.append(relativeScope.str()).push_back('/');
       path.append(instance.name);
-      auto child = moduleCost(**found, path, totalLogicalBits,
+      auto child = moduleCost(*body, path, totalLogicalBits,
                               totalCarrierBits, totalStorageBytes, totalNodes,
                               totalMaxDepth, modeledRules, totalRules);
       if (!child)
         return child.takeError();
       modules.push_back(std::move(*child));
-      if (auto error = self(self, **found, path))
+      if (auto error = self(self, *body, path))
         return error;
     }
     return llvm::Error::success();
@@ -612,12 +614,7 @@ generateQueueGraphCostReport(const QueueGraphPlan &plan) {
       {"rules", totalRules},
       {"runtime_heap_allocations", "not_modeled"},
       {"sizeof_payload_types", "not_modeled"}};
-  llvm::json::Object identity{
-      {"specialization",
-       plan.specializationKey.empty()
-           ? llvm::json::Value(nullptr)
-           : llvm::json::Value(plan.specializationKey)},
-      {"system", plan.system}};
+  llvm::json::Object identity{{"system", plan.system}};
   llvm::json::Object models{
       {"logic_depth", "pyc_check_logic_depth_unit_cost"},
       {"runtime", "gfsim_generated_static_v1"}};

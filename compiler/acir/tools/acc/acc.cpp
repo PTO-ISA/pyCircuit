@@ -149,6 +149,12 @@ loadAcInput(llvm::StringRef input, mlir::MLIRContext &context) {
     auto module = parseSingleUnit(input, context, true);
     if (!module)
       return module.takeError();
+    if (auto unitKind = (*module)->getOperation()->getAttrOfType<mlir::StringAttr>(
+            "ac.unit_kind");
+        unitKind && unitKind.getValue() == "source")
+      return accError(
+          "structured input requires a directory-backed AC package; "
+          "a standalone source-owned module is not a complete design");
     unsigned definitions = 0;
     bool hasSystem = false;
     std::optional<std::string> sourceFile;
@@ -199,16 +205,6 @@ loadAcInput(llvm::StringRef input, mlir::MLIRContext &context) {
     return llvm::createStringError(error, "cannot enumerate AC package");
   llvm::sort(files);
 
-  llvm::SmallString<256> legacyRootPath(input);
-  llvm::sys::path::append(legacyRootPath, "root.ac");
-  llvm::SmallString<256> legacySharedPath(input);
-  llvm::sys::path::append(legacySharedPath, "shared", "types.ac");
-  if (llvm::is_contained(files, legacyRootPath.str().str()) ||
-      llvm::is_contained(files, legacySharedPath.str().str()))
-    return accError(
-        "legacy root.ac/shared AC units are forbidden; use core.ac and "
-        "interface/types.ac");
-
   llvm::SmallString<256> corePath(input);
   llvm::sys::path::append(corePath, "core.ac");
   if (!llvm::is_contained(files, corePath.str().str()))
@@ -224,9 +220,8 @@ loadAcInput(llvm::StringRef input, mlir::MLIRContext &context) {
   std::set<std::string> sourceOwners;
   std::set<std::string> interfaceOwners;
   struct ModuleHeader {
-    mlir::FunctionType functionType;
-    mlir::DictionaryAttr staticParams;
-    std::string source;
+    acir::ac::ModuleFamilySchemaAttr schema;
+    acir::ac::SourceOwnerAttr source;
   };
   std::map<std::string, ModuleHeader> moduleHeaders;
   std::set<std::string> sourceDefinitions;
@@ -256,8 +251,57 @@ loadAcInput(llvm::StringRef input, mlir::MLIRContext &context) {
       if (!interfaceOwners.insert(interfaceIdentity).second)
         return accError(
             "Python interface source is published by more than one AC unit");
-      if (interfaceKind.getValue() == "types" ||
-          interfaceKind.getValue() == "layouts") {
+      if (interfaceKind.getValue() == "source") {
+        acir::ac::TypeScopeOp sourceTypeScope;
+        llvm::SmallVector<mlir::Operation *> imports;
+        for (mlir::Operation &operation : (*unit)->getBody()->getOperations()) {
+          if (auto candidate = mlir::dyn_cast<acir::ac::TypeScopeOp>(operation)) {
+            if (sourceTypeScope)
+              return accError(
+                  "source interface unit contains multiple type scopes");
+            sourceTypeScope = candidate;
+            for (mlir::Operation &definition : candidate.getBody().front()) {
+              auto source = definition.getAttrOfType<mlir::StringAttr>(
+                  "ac.source_file");
+              if (!source || source != owner)
+                return accError(
+                    "source interface type is owned by another Python file");
+            }
+            continue;
+          }
+          auto import = mlir::dyn_cast<acir::ac::ModuleImportOp>(operation);
+          if (!import)
+            return accError(
+                "source interface unit may contain only one type scope and module imports");
+          auto source = import.getSource();
+          if (!source || source.getImplementation() != owner)
+            return accError(
+                "source interface module is owned by another Python file");
+          ModuleHeader header{import.getSchema(), source};
+          if (!moduleHeaders
+                   .emplace(import.getSymName().str(), std::move(header))
+                   .second)
+            return accError("module definition is published by more than one "
+                            "interface header");
+          imports.push_back(&operation);
+        }
+        if (sourceTypeScope) {
+          if (!linkedTypeScope) {
+            (*core)->getBody()->getOperations().splice(
+                (*core)->getBody()->begin(), (*unit)->getBody()->getOperations(),
+                sourceTypeScope->getIterator());
+            linkedTypeScope = sourceTypeScope;
+          } else {
+            linkedTypeScope.getBody().front().getOperations().splice(
+                linkedTypeScope.getBody().front().end(),
+                sourceTypeScope.getBody().front().getOperations());
+          }
+        }
+        for (mlir::Operation *import : imports)
+          (*core)->getBody()->getOperations().splice(
+              (*core)->getBody()->begin(), (*unit)->getBody()->getOperations(),
+              import->getIterator());
+      } else if (interfaceKind.getValue() == "layouts") {
         acir::ac::TypeScopeOp sourceTypeScope;
         for (mlir::Operation &operation : (*unit)->getBody()->getOperations()) {
           auto candidate = mlir::dyn_cast<acir::ac::TypeScopeOp>(operation);
@@ -269,10 +313,6 @@ loadAcInput(llvm::StringRef input, mlir::MLIRContext &context) {
         for (mlir::Operation &definition : sourceTypeScope.getBody().front()) {
           auto source = definition.getAttrOfType<mlir::StringAttr>(
               "ac.source_file");
-          if (interfaceKind.getValue() != "layouts" &&
-              (!source || source != owner))
-            return accError(
-                "interface AC unit contains a type owned by another Python file");
         }
         if (!linkedTypeScope) {
           (*core)->getBody()->getOperations().splice(
@@ -286,26 +326,6 @@ loadAcInput(llvm::StringRef input, mlir::MLIRContext &context) {
               linkedTypeScope.getBody().front().end(),
               sourceTypeScope.getBody().front().getOperations());
         }
-      } else if (interfaceKind.getValue() == "modules") {
-        for (mlir::Operation &operation : (*unit)->getBody()->getOperations()) {
-          auto import = mlir::dyn_cast<acir::ac::ModuleImportOp>(operation);
-          if (!import)
-            return accError(
-                "module interface AC unit may contain only module imports");
-          auto source = import.getBinding().getAs<mlir::StringAttr>("source");
-          if (!source || source.getValue().empty() || source != owner)
-            return accError(
-                "module interface source must match its ac.unit_source");
-          ModuleHeader header{import.getFunctionType(), import.getStaticParams(),
-                              source.getValue().str()};
-          if (!moduleHeaders
-                   .emplace(import.getSymName().str(), std::move(header))
-                   .second)
-            return accError("module definition is published by more than one "
-                            "interface header");
-        }
-        (*core)->getBody()->getOperations().splice(
-            (*core)->getBody()->begin(), (*unit)->getBody()->getOperations());
       } else {
         return accError("interface AC unit has unknown ac.interface_kind");
       }
@@ -330,8 +350,12 @@ loadAcInput(llvm::StringRef input, mlir::MLIRContext &context) {
             return accError("module definition is published by more than one "
                             "source AC unit");
         }
-        auto source = operation.getAttrOfType<mlir::StringAttr>(
-            "ac.source_file");
+        auto source = mlir::dyn_cast<acir::ac::ModuleOp>(operation)
+                          ? mlir::cast<acir::ac::ModuleOp>(operation)
+                                .getSource()
+                                .getImplementation()
+                          : operation.getAttrOfType<mlir::StringAttr>(
+                                "ac.source_file");
         if (!source || source != owner)
           return accError(
               "source AC unit contains a definition owned by another Python file");
@@ -356,13 +380,11 @@ loadAcInput(llvm::StringRef input, mlir::MLIRContext &context) {
       return accError("source AC unit requires one matching module interface "
                       "header for '" +
                       symbol + "'");
-    auto actualSource = definition->second->getAttrOfType<mlir::StringAttr>(
-        "ac.source_file");
-    if (header->second.functionType != definition->second.getFunctionType() ||
-        header->second.staticParams != definition->second.getStaticParams())
+    auto actualSource = definition->second.getSource();
+    if (header->second.schema != definition->second.getSchema())
       return accError("module interface header signature mismatch for '" +
                       symbol + "'");
-    if (!actualSource || actualSource.getValue() != header->second.source)
+    if (!actualSource || actualSource != header->second.source)
       return accError("module interface header source mismatch for '" + symbol +
                       "'");
   }
@@ -377,13 +399,11 @@ loadAcInput(llvm::StringRef input, mlir::MLIRContext &context) {
     if (found == linkedDefinitions.end())
       return accError("unresolved module import '" + import.getSymName() + "'");
     acir::ac::ModuleOp definition = found->second;
-    if (import.getFunctionType() != definition.getFunctionType() ||
-        import.getStaticParams() != definition.getStaticParams())
+    if (import.getSchema() != definition.getSchema())
       return accError("module import signature mismatch for '" +
                       import.getSymName() + "'");
-    auto expectedSource = import.getBinding().getAs<mlir::StringAttr>("source");
-    auto actualSource =
-        definition->getAttrOfType<mlir::StringAttr>("ac.source_file");
+    auto expectedSource = import.getSource();
+    auto actualSource = definition.getSource();
     if (!expectedSource || expectedSource != actualSource)
       return accError("module import source mismatch for '" +
                       import.getSymName() + "'");

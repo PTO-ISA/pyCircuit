@@ -64,4 +64,4 @@ module attributes {ac.model_kind = "queue_graph", ac.queue_graph_domain = "cycle
 // FROZEN-SAME: ac.topology_frozen = true
 // FROZEN: ac.rule_stable_id = "top/increment_0"
 
-// UNRESOLVED: unresolved transient rule or typed marker before verified ACIR
+// UNRESOLVED: transient rule obligation marker reached architecture closure

@@ -1,203 +1,190 @@
-# Source, MLIR, and generated C++ naming
+# Source, MLIR, and generated-code naming
 
 This document defines the pyCircuit 6 naming contract for Agentic Circuit
-artifacts. Names have two distinct roles: source-readable semantic names and
-target-language spellings. A backend name
-must never replace or become the source of semantic identity.
+artifacts. Source-readable names identify declarations and instances. Typed
+records identify finite-family cases. Generated spellings never become a
+second semantic identity.
 
-## Accepted Decisions 0274-0278 target and current implementation gap
+## Family and case identity
 
-Decisions 0274-0278 are the target naming and finite-family authorities. At the F4/F5 hard cutover, one
-implementation Python/AC source stem owns one `.hpp`/`.cpp` pair, source-owned
-interface shards own nominal declarations, and one parameterized source
-definition publishes one `ac.module` family symbol with ordered non-symbol
-concrete `ac.module.case` regions and emits one readable C++ and RTL module
-family. Typed static parameters and admitted generate branches carry cases; generated
-identifiers contain no specialization suffix, `__`, repeated enclosing-module
-prefix, or opaque suffix.
+Decisions 0274-0278 define one identity model:
 
-The sections below document the currently implemented baseline until that
-cutover: it still uses `.h`, concrete-symbol/specialization spellings, and some
-double-underscore compiler names. Those spellings are implementation gaps, not
-permission to weaken Decision 0274. The emitter, package consumers, tests, and
-this baseline section must update atomically in one hard break. No dual naming
-mode, alias, fallback, or compatibility flag is admitted. Family emission is
-also blocked until the source-owned ordered `StaticParameterDecl`, explicit
-finite cases, dependent interface signatures, typed `ModuleFamilyPlan` and
-`ModuleCasePlan`, and verified `pyc.module`/`pyc.module.case` carrier with an
-explicit logical-to-physical interface mapping exists with Decision 0278's
-typed projection paths, layouts, physical roles and indices, one shared ready
-per Queue, and explicit implicit clock/reset origins. The current
-concrete symbols, static-argument dictionaries, caller observations, and
-specialization sidecars are not a family declaration or case identity. String
-`pyc.params`, legacy `DependentLiteralAttr`, postfix/path strings, concrete PYC
-function names, case ordinals, and physical carrier types likewise cannot
-become family or nominal identity.
+- a source-owned module family is identified by its `ac.module` symbol;
+- a case is selected structurally by the family symbol plus its complete
+  ordered typed static arguments; and
+- each runtime instance has its own instance path and owns independent state.
 
-## Design principles
+An `ac.module.case` is an ordered non-symbol region inside its family. It has no
+case symbol, ordinal identity, source file, generated alias, or backend name.
+Equal typed arguments reuse the same family case while repeated instances keep
+independent Queues, Tables, Slots, reservations, runtime IDs, and persistent
+state.
 
-- Preserve a meaningful author name for debugging, hierarchy review, interface
-  documentation, and generated-source inspection.
-- Keep direction, endpoint, lane, and stage information when the author encodes
-  those facts in a name. For example, `input_select_valid_0` remains that exact
-  semantic spelling through ACIR display metadata; the compiler does not reorder
-  it or infer a different endpoint convention.
-- Use the family MLIR symbol plus ordered typed static arguments for case and
-  specialization equality. A dictionary, case symbol, ordinal, content
-  summary, or generated name is not language identity.
-- A name must not change merely because an unrelated definition or another
-  specialization is added to the system.
-- Code reuse and state ownership are separate. Equal specialization identities
-  reuse one generated implementation; each instance still owns independent
-  Queues, Tables, reservations, runtime IDs, and persistent state.
+The following forms are never identity:
 
-These principles are compatible with Linx RTL conventions such as lower
-snake-case module names and `{driver}_{receiver}_{signal}_{lane}` interface
-names. pyCircuit remains consumer-neutral and does not impose a product prefix.
+- a dictionary, JSON object, or flattened parameter string;
+- a concrete or suffixed module symbol;
+- a generated class, module, file, local, or waveform name;
+- a case ordinal, caller-observed case set, content digest, or opaque token; or
+- a sidecar specialization inventory.
+
+## Naming rules
+
+- Preserve meaningful source names for hierarchy review, diagnostics, source
+  maps, interface documentation, and generated-source inspection.
+- Use one readable family name in ACIR, PYC, C++, and RTL. Static values never
+  enter that name.
+- Use lower snake case for generated RTL families and locals. Do not repeat an
+  enclosing module prefix on a local name.
+- Do not emit `__`, a parameter-value suffix, an opaque suffix, or a truncated
+  name. A collision or overlength name fails closed.
+- Keep direction, endpoint, lane, and stage information when the author puts
+  those facts in a name. For example, `input_select_valid_0` stays in that
+  order; the compiler does not invent a different endpoint convention.
+- Reserve the complete `compiler_` prefix for compiler-owned definitions,
+  scopes, adapters, and temporaries. Python systems and modules cannot declare
+  names with that prefix.
+
+Target-language legalization may replace unsupported characters, protect a
+reserved word, or prefix a digit-leading identifier. It must not add identity
+information. If two source names legalize to the same target name, compilation
+fails instead of appending a counter, hash, or opaque token.
 
 ## Python to ACIR
 
-The frontend preserves case-sensitive Python spelling as follows:
+The frontend preserves case-sensitive Python spelling:
 
 | Python entity | ACIR representation |
 | --- | --- |
-| `@ac.system def name` | `ac.system @name` |
-| `@ac.module def name` without static specialization | `ac.module @name` |
-| statically specialized module | `ac.module @name__<parameter-name>_<value>...` |
-| assignment receiving a module result | `ac.instance @<assignment>` |
-| multiple result assignments | names joined with `__` |
-| typed input/output names | `ac.input_display_names` / `ac.output_display_names` |
-| rule and local names | rule identity plus `ac.display_name` and source provenance |
+| `@ac.system def name` | selected `ac.system @name` |
+| source-owned `@ac.module_decl` plus `@ac.module` | one `ac.module @name` family |
+| one declared finite case | one non-symbol `ac.module.case` region with ordered typed arguments |
+| assignment receiving a module result | readable `ac.instance` name plus family reference and typed arguments |
+| typed input/output names | ordered `ModuleInterfaceAttr` ports with source provenance |
+| rule and local names | case-local key plus display name and source provenance |
 
-`@Top`, `%source_<N>`, `%result_<N>`, fanout names, and other documented
-reserved spellings are compiler-owned. They do not claim to be Python source
-names. The selected `ac.system`, interface display arrays, instance identity,
-and source map provide the source-facing mapping for that wrapper.
+`@Top`, `%source_<N>`, `%result_<N>`, and other documented reserved spellings
+are compiler-owned wrapper or SSA names. The selected system, source owner,
+family schema, interface records, instance path, and source map preserve the
+source-facing mapping.
 
-The complete `__ac_` prefix is compiler-owned for generated definition, scope,
-and temporary names. Python systems and modules must not declare names with
-that prefix. Record-field adapters use readable definitions of the form
-`__ac_project_<StructSpecialization>__<field-path>`; equal input type and field
-path reuse one adapter class, while each callsite retains its own Python source
-location and instance identity.
+Record-field adapters use readable compiler-owned names such as
+`compiler_project_packet_header_opcode`. Equal input type and projection path
+reuse one adapter implementation; each call site retains its own source
+provenance and instance identity.
 
-The implemented baseline emits static-argument fragments from parameter names
-and canonical typed values in declaration order and still carries an explicit
-static-argument dictionary. Decisions 0277 and 0278 remove both mechanisms at the hard
-break. The target preserves one family symbol and ordered
-`StaticArgumentsAttr` records; its `ac.module.case` regions are non-symbol
-bodies and generated C++ and RTL retain the family identifier unchanged. The
-full semantic key is `(family symbol, typed arguments, case-local key)`;
-repeated local rule or obligation spellings in different cases therefore do
-not require generated name suffixes.
+## ACIR and PYC family names
 
-## ACIR to C++
+One source definition publishes one `ac.module` family symbol containing its
+ordered `ac.module.case` regions. `ac.module.import` and `ac.instance` refer to
+that family symbol and carry the complete ordered typed schema or arguments
+required by their operation. They never refer to a concrete case name.
 
-### Readable base
+PYC preserves the same shape with one `pyc.module` family and ordered
+non-symbol `pyc.module.case` regions. The verified logical-to-physical mapping
+carries projection paths, packed layouts, physical roles and indices, Queue
+lanes and rate, the one shared Queue-ready carrier, and explicit implicit
+clock/reset origins. A backend consumes those records directly. It does not
+recover identity from a function name, physical width, path string, or
+`pyc.params` text.
 
-Generated C++ module classes use the existing Pascal-style conversion:
+## Generated C++ ownership and names
+
+Every executable implementation source owns exactly one public module family.
+Its normalized source stem owns one generated source group:
+
+```text
+include/generated/modules/<source_stem>.hpp
+src/generated/modules/<source_stem>.cpp
+```
+
+The same source owner publishes one nominal interface shard:
+
+```text
+include/generated/interfaces/<source_stem>_interface.hpp
+```
+
+All generated C++ headers use `.hpp`; no `.h` duplicate or compatibility name
+exists. Core composition and lifecycle glue also use readable `.hpp` names and
+remain separate from source-owned implementation groups.
+
+The C++ family identifier is the readable Pascal-style legalization of the
+source definition:
 
 1. treat every non-alphanumeric character as a word boundary;
 2. uppercase the first alphanumeric character and the first character after a
    boundary;
-3. preserve the remaining alphanumeric characters;
-4. prefix `_` when the result is empty or starts with a digit.
+3. preserve the remaining alphanumeric characters; and
+4. prefix `_` only when the result is empty or digit-leading.
 
-The selected system `demo_system` therefore becomes `DemoSystem`.
+For example, `alu_pipeline` becomes `AluPipeline`. Typed static parameters are
+template arguments or typed parameter objects. Admitted cases are explicit
+materializations of that one identifier. They do not gain a class alias,
+parameter-bearing class name, source file, or opaque token.
 
-### Module class and source-named file
+Parents own internal `SimQueue<T>` objects as concrete values and children as
+`std::unique_ptr<Child>`. Child ports are non-owning typed `SimQueue<T> *`
+pointers. These target-language types express ownership; they do not change
+family, case, or instance identity.
 
-Every structured QueueGraph module uses the readable definition spelling:
+## Generated RTL names
 
-```text
-<ReadableDefinition>
-```
+Each source family emits one readable lower-snake-case RTL module family.
+Typed parameters and checked generate branches cover the complete declared
+finite case set. Parameter values never enter the module name, and the emitter
+never creates one RTL module per case.
 
-Generated file names never contain a hash or a compiler-owned `Module_`
-prefix. Every specialization of the same Python definition is grouped into a
-pair whose stem preserves the Python/ACIR definition spelling after the
-portable C++ identifier legalizer:
+Local RTL names omit repeated family prefixes. A cross-module signal names its
+endpoints once. Collisions and overlength names reject before emission; the
+emitter does not truncate a name or append a hash.
 
-```text
-include/generated/modules/<SourceDefinition>.h
-src/generated/modules/<SourceDefinition>.cpp
-```
-
-The class and file expose only structural names. They remain directly checkable
-against verified ACIR through the `definition`, NDF, and Python source comments.
-Two different Python definitions that legalize to the same class or file stem
-fail closed and must be renamed; the compiler does not hide ambiguity behind a
-hash.
-
-Distinct specializations use readable parameter suffixes on the C++ class, for
-example `Queue_depth_16`. Repeated instances with the same definition and typed
-arguments reuse that class. A collision after legalization fails closed; the
-compiler never resolves it with a hash.
-
-### Other C++ identifiers
-
-For ports, members, and internal helpers, the generator:
-
-1. keeps ASCII letters, digits, and `_`;
-2. replaces other bytes with `_`;
-3. prefixes `_` when empty or digit-leading;
-4. appends `_` for a C++ keyword;
-5. appends `_2`, `_3`, and so on for a collision in deterministic plan order.
-
-These local spellings are generated-source implementation details. Source
-display names and complete semantic identities remain available in QueueGraph
-and source-map artifacts.
-
-## Examples
+## Example
 
 ```text
-Python system:        demo_system
-ACIR system:          @demo_system
-C++ model class:      DemoSystem
+Python declaration:    alu_pipeline
+ACIR family:           @alu_pipeline
+case arguments:        (lanes = 4, width = 32)
+PYC family:            @alu_pipeline
+C++ family:            AluPipeline
+C++ source stem:       alu_pipeline.hpp / alu_pipeline.cpp
+interface shard:       alu_pipeline_interface.hpp
+RTL family:            alu_pipeline
 
-Python module:        alu_pipeline
-ACIR definition:      @alu_pipeline
-specialization:       lanes=4, width=32
-C++ class:            AluPipeline_lanes_4_width_32
-C++ file stem:        alu_pipeline
-
-Python interface:     input_select_valid_0
-ACIR display name:    input_select_valid_0
-C++ local identifier: input_select_valid_0
+Python interface:      input_select_valid_0
+ACIR display name:     input_select_valid_0
+C++/RTL local:         input_select_valid_0
 ```
 
-## NDF traceability
+The case arguments select behavior and concrete types without changing any
+family, class, file, or RTL module name.
 
-Adjacent Python comments using `# ndf:` and `# ndf:requires` are captured from
-the original source closure before Python AST normalization removes comments.
-They become non-semantic `ac.ndf_ids` and `ac.ndf_requires` metadata. The
-metadata does not participate in specialization identity.
+## Source traceability
 
-Generated C++ prints the NDF identifiers beside the existing rule/module and
-`source: path:line:column` comments. A reviewer can therefore move from a C++
-policy or module class to its NDF contract and original Python location without
-using a generated symbol as semantic authority.
+Adjacent Python comments using `# ndf:` and `# ndf:requires` become
+non-semantic `ac.ndf_ids` and `ac.ndf_requires` metadata. Generated C++ prints
+the NDF identifiers beside module/rule and `source: path:line:column` comments.
+The complete inline stack remains in the source-map artifact.
 
-## `.ac` package boundary
+Source paths, provenance frames, display names, and NDF identifiers support
+review and diagnostics. They do not participate in family, case, topology, or
+release identity.
 
-For structured systems, CMake invokes `acc.py` independently on every executable
-Python source. Each invocation publishes one source-named `.ac`; a separate core
-invocation compiles selected-system composition and explicit unit links.
-All definitions authored in one Python file share that source unit. Multiple
-typed specializations of a definition remain separate MLIR symbols inside it.
-The compiler never creates source units by splitting one previously compiled
-whole-system IR.
+## Source-unit and package boundary
 
-Native `acc -c <package>.ac` links the units in memory, rejects missing or
-duplicate definitions and interface mismatches, then emits C++, a multi-TU C++
-bundle, or Verilog. It never accepts a hidden whole-core definition file as a
-substitute for module linking. The package does not embed producer release
-identity; consumers pin the package release and exact Git `source_revision`
-out of band.
+CMake invokes `acc.py` independently for every executable Python source. Each
+invocation publishes one source-named `.ac` containing that source's one module
+family and complete declared case set. A separate composition source compiles
+the selected system and explicit links. Source-owned interface shards let
+parents type-check children without consuming child implementation bodies.
 
-Generated source groups preserve AC ownership one-to-one and use the same
-readable Python stem. `include/generated/dut.h` exposes the typed selected root
-for consumer-owned runners, while `model.h` keeps the generic lifecycle ABI.
-Both are hash-free and carry no embedded release identity. Core/interface glue is separate. Verilog follows the canonical
-linked ACIR -> PYC -> `pycc` path and remains fail-closed when hierarchy support
-is incomplete; flattening is not a compatibility workaround.
+Native linking verifies the complete family schema, source owner, nominal
+declarations, ordered cases, and materialized signatures before backend
+emission. The linked design is not a replacement whole-program authority, and
+the compiler never obtains modular units by splitting a previously compiled
+whole-system artifact.
+
+The package has no `root.ac`, monolithic `types.ac`, `shared/` compatibility
+tree, specialization manifest, post-compile AC split, backend-only C++ split,
+or whole-core fallback. Generated C++ preserves the source boundary as one
+independently compiled `.hpp`/`.cpp` group per implementation source plus its
+one interface shard and separate core glue.

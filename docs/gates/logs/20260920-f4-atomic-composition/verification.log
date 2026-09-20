@@ -1,0 +1,74 @@
+LLVM/MLIR: 22.1.8
+CompilerTests: PASS 10/10
+ACIRModelAnalysisTests: PASS 36/36
+ACIROpsTests: PASS 1843/1843
+CodeGenTests: PASS 110/110
+GfsimTests: PASS 268/268
+GfsimTests ASAN halt_on_error=1: PASS 268/268
+check-acir: PASS 227/227
+check-pyc: PASS 3/3
+ACC package/driver focused lit: PASS 4/4
+static_config PYC/C++/Verilog/Verilator: PASS 1/1
+Python multi-lane source-unit/package/PYC/C++/Verilog/Verilator: PASS 1/1
+Python multi-lane executable C++/RTL observation parity: PASS 1/1
+Direct pyCircuit hierarchical family PYC/C++/Verilog/Verilator: PASS 1/1
+Agentic Python contracts/CLI/frontend: PASS 381/381
+Agentic integration e2e: PASS 1/1
+pyCircuit hierarchy/surface: PASS 67/67
+repository unit suite: PASS 154/154
+repository contracts: PASS
+API hygiene: PASS
+mkdocs --strict: PASS
+ruff targeted changed Python: PASS
+hard-break absence scan: PASS
+source-map schema JSON parse: PASS
+git diff --check: PASS
+
+COMMAND: cmake --build .pycircuit_out/build-llvm22 --target check-acir check-pyc -j 8
+OUTPUT: Total Discovered Tests: 227; Passed: 227 (100.00%)
+OUTPUT: Total Discovered Tests: 3; Passed: 3 (100.00%)
+
+COMMAND: .pycircuit_out/build-llvm22/bin/CompilerTests
+OUTPUT: [==========] 10 tests from 2 test suites ran; [ PASSED ] 10 tests.
+COMMAND: .pycircuit_out/build-llvm22/bin/ACIRModelAnalysisTests
+OUTPUT: [==========] 36 tests from 4 test suites ran; [ PASSED ] 36 tests.
+COMMAND: .pycircuit_out/build-llvm22/bin/ACIROpsTests
+OUTPUT: [==========] 1843 tests from 4 test suites ran; [ PASSED ] 1843 tests.
+COMMAND: .pycircuit_out/build-llvm22/bin/CodeGenTests
+OUTPUT: [==========] 110 tests from 1 test suite ran; [ PASSED ] 110 tests.
+COMMAND: .pycircuit_out/build-llvm22/bin/GfsimTests
+OUTPUT: [==========] 268 tests from 22 test suites ran; [ PASSED ] 268 tests.
+COMMAND: ASAN_OPTIONS=halt_on_error=1 .pycircuit_out/acir/asan-llvm22/bin/GfsimTests
+OUTPUT: [==========] 268 tests from 22 test suites ran; [ PASSED ] 268 tests.
+
+COMMAND: PYTHONPATH=.pycircuit_out/build-llvm22/compiler/acir/python:python/agentic-circuit/src:python/semantic-core/src .pycircuit_out/ac-venv/bin/python -m pytest -q tests/python/agentic-circuit/contracts tests/python/agentic-circuit/cli tests/python/agentic-circuit/python_frontend
+OUTPUT: 381 passed
+COMMAND: PYTHONPATH=.pycircuit_out/build-llvm22/compiler/acir/python:python/agentic-circuit/src:python/semantic-core/src .pycircuit_out/ac-venv/bin/python -m pytest -q tests/integration/agentic-circuit/e2e
+OUTPUT: 1 passed in 2.74s
+
+COMMAND: family-python-multilane-backends.mlir RUN lines (direct core/stage acc.py, package verify, raw source-unit freeze, PYC, pycc C++, pycc Verilog, Verilator lint)
+OUTPUT: PASS; generated C++ and Verilator execute the same two-lane/backpressure sequence with identical observations; pycc stats twice: regs=0, mems=0, max_depth=0/32, WNS=32, TNS=0; Verilator lint exit 0.
+
+COMMAND: pycircuit-hierarchical-family.mlir RUN lines (pyCircuit frontend, pyc-opt, C++ syntax, Verilog, Verilator)
+OUTPUT: PASS
+
+COMMAND: PYTHONPATH=python/pycircuit/src:python/semantic-core/src .pycircuit_out/venv-llvm22/bin/python -m pytest -q tests/unit/test_pyc6_surface.py tests/unit/test_v6_forward_signal.py tests/unit/test_example_layout.py
+OUTPUT: 67 passed
+
+COMMAND: PYTHONPATH=python/pycircuit/src:python/semantic-core/src:python/agentic-circuit/src .pycircuit_out/venv-llvm22/bin/python -m pytest -q tests/unit -m unit
+OUTPUT: 154 passed
+
+COMMAND: PYTHONPATH=python/agentic-circuit/src:python/semantic-core/src .pycircuit_out/ac-venv/bin/python tools/agentic-circuit/check-contracts.py
+OUTPUT: repository contracts: OK (public schemas, 35 stdlib components, LLVM 22.1.8)
+COMMAND: python3 flows/tools/check_api_hygiene.py python/pycircuit/src/pycircuit examples/pycircuit docs README.md
+OUTPUT: ok: API hygiene check passed
+COMMAND: .pycircuit_out/venv-llvm22/bin/mkdocs build --strict
+OUTPUT: Documentation built successfully.
+COMMAND: ruff check --select E9,F63,F7,F82 python/agentic-circuit/src/agentic_circuit python/semantic-core/src tests/python/agentic-circuit/python_frontend/test_finite_families.py tests/python/agentic-circuit/python_frontend/test_public_api.py
+OUTPUT: All checks passed!
+COMMAND: product-code hard-break rg absence scan
+OUTPUT: PASS (no removed JIT, sidecar, static dictionary, or compatibility symbol found).
+COMMAND: python3 -m json.tool on source-map, emitted-cost, diagnostic registry, and PYC coverage schemas
+OUTPUT: PASS
+COMMAND: git diff --check
+OUTPUT: PASS

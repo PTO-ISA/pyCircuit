@@ -23,16 +23,20 @@
 
 //--- bad-kind.mlir
 builtin.module  {
-  ac.module @M() parameters {} graph {
+  ac.module @M source #ac.source_owner<"tests/native_family.py", "tests/native_family.py"> schema #ac.module_family_schema<#ac.static_parameters<[]>, #ac.static_cases<[#ac.static_arguments<[]>]>, #ac.module_interface<[]>, #ac.source_owner<"tests/native_family.py", "tests/native_family.py">, []> {
+    ac.module.case arguments #ac.static_arguments<[]> type () -> () source #ac.source_provenance<"tests/native_family.py", 1, 1, 1, 1> graph {
     ac.process @p kind "thread" { ac.yield_sim }
     ac.return
+
+    }
   }
 }
 // KIND: kind must be 'control', 'workload', or 'monitor'
 
 //--- no-suspend.mlir
 builtin.module  {
-  ac.module @M() parameters {} graph {
+  ac.module @M source #ac.source_owner<"tests/native_family.py", "tests/native_family.py"> schema #ac.module_family_schema<#ac.static_parameters<[]>, #ac.static_cases<[#ac.static_arguments<[]>]>, #ac.module_interface<[]>, #ac.source_owner<"tests/native_family.py", "tests/native_family.py">, []> {
+    ac.module.case arguments #ac.static_arguments<[]> type () -> () source #ac.source_provenance<"tests/native_family.py", 1, 1, 1, 1> graph {
     ac.process @p kind "control" {
       %t = arith.constant true
       scf.while (%arg = %t) : (i1) -> i1 {
@@ -44,13 +48,16 @@ builtin.module  {
       ac.yield_sim
     }
     ac.return
+
+    }
   }
 }
 // PROGRESS: every scf.while backedge must suspend or prove bounded progress
 
 //--- linear-live.mlir
 builtin.module  {
-  ac.module @M(!ac.resource_token<@r>) parameters {} graph {
+  ac.module @M source #ac.source_owner<"tests/native_family.py", "tests/native_family.py"> schema #ac.module_family_schema<#ac.static_parameters<[]>, #ac.static_cases<[#ac.static_arguments<[]>]>, #ac.module_interface<[#ac.interface_port<"input_0", "input", #ac.type_expr<#ac.type_expr_concrete<!ac.resource_token<@r>>>, #ac.source_provenance<"tests/native_family.py", 1, 1, 1, 1>>]>, #ac.source_owner<"tests/native_family.py", "tests/native_family.py">, []> {
+    ac.module.case arguments #ac.static_arguments<[]> type (!ac.resource_token<@r>) -> () source #ac.source_provenance<"tests/native_family.py", 1, 1, 1, 1> graph {
   ^bb0(%token : !ac.resource_token<@r>):
     ac.process @p kind "control" captures(%token : !ac.resource_token<@r>) {
     ^bb0(%captured : !ac.resource_token<@r>):
@@ -60,47 +67,59 @@ builtin.module  {
       ac.yield_sim
     }
     ac.return
+
+    }
   }
 }
 // LIVE: cannot remain live across suspension
 
 //--- topology.mlir
 builtin.module  {
-  ac.module @M() parameters {} graph {
+  ac.module @M source #ac.source_owner<"tests/native_family.py", "tests/native_family.py"> schema #ac.module_family_schema<#ac.static_parameters<[]>, #ac.static_cases<[#ac.static_arguments<[]>]>, #ac.module_interface<[]>, #ac.source_owner<"tests/native_family.py", "tests/native_family.py">, []> {
+    ac.module.case arguments #ac.static_arguments<[]> type () -> () source #ac.source_provenance<"tests/native_family.py", 1, 1, 1, 1> graph {
     ac.process @p kind "control" {
-      ac.instance @illegal of @M() static {} id "illegal" path "illegal" : () -> ()
+      ac.instance @illegal of @M() static #ac.static_arguments<[]> id "illegal" path "illegal" : () -> ()
       ac.yield_sim
     }
     ac.return
+
+    }
   }
 }
 // TOPOLOGY: ac.process contains unsupported operation ac.instance
 
 //--- missing-termination.mlir
 builtin.module  {
-  ac.module @M() parameters {} graph {
+  ac.module @M source #ac.source_owner<"tests/native_family.py", "tests/native_family.py"> schema #ac.module_family_schema<#ac.static_parameters<[]>, #ac.static_cases<[#ac.static_arguments<[]>]>, #ac.module_interface<[]>, #ac.source_owner<"tests/native_family.py", "tests/native_family.py">, []> {
+    ac.module.case arguments #ac.static_arguments<[]> type () -> () source #ac.source_provenance<"tests/native_family.py", 1, 1, 1, 1> graph {
     ac.process @p kind "control" { %zero = arith.constant 0 : i64 }
     ac.return
+
+    }
   }
 }
 // TERMINATION: body must terminate with ac.yield_sim
 
 //--- capture-mismatch.mlir
 builtin.module  {
-  ac.module @M(i32) parameters {} graph {
+  ac.module @M source #ac.source_owner<"tests/native_family.py", "tests/native_family.py"> schema #ac.module_family_schema<#ac.static_parameters<[]>, #ac.static_cases<[#ac.static_arguments<[]>]>, #ac.module_interface<[#ac.interface_port<"input_0", "input", #ac.type_expr<#ac.type_expr_concrete<i32>>, #ac.source_provenance<"tests/native_family.py", 1, 1, 1, 1>>]>, #ac.source_owner<"tests/native_family.py", "tests/native_family.py">, []> {
+    ac.module.case arguments #ac.static_arguments<[]> type (i32) -> () source #ac.source_provenance<"tests/native_family.py", 1, 1, 1, 1> graph {
   ^bb0(%value : i32):
     ac.process @p kind "control" captures(%value : i32) {
     ^bb0(%wrong : i64):
       ac.yield_sim
     }
     ac.return
+
+    }
   }
 }
 // CAPTURE: body arguments must exactly match capture types
 
 //--- result-live.mlir
 builtin.module  {
-  ac.module @M() parameters {} graph {
+  ac.module @M source #ac.source_owner<"tests/native_family.py", "tests/native_family.py"> schema #ac.module_family_schema<#ac.static_parameters<[]>, #ac.static_cases<[#ac.static_arguments<[]>]>, #ac.module_interface<[]>, #ac.source_owner<"tests/native_family.py", "tests/native_family.py">, []> {
+    ac.module.case arguments #ac.static_arguments<[]> type () -> () source #ac.source_provenance<"tests/native_family.py", 1, 1, 1, 1> graph {
     ac.process @p kind "control" {
       %one = arith.constant 1 : i64
       %token, %received = ac.try_recv @tokens : !ac.resource_token<@r>
@@ -109,32 +128,41 @@ builtin.module  {
       ac.yield_sim
     }
     ac.return
+
+    }
   }
 }
 // RESULT-LIVE: cannot remain live across suspension
 
 //--- duplicate-owner-name.mlir
 builtin.module  {
-  ac.module @M() parameters {} graph {
+  ac.module @M source #ac.source_owner<"tests/native_family.py", "tests/native_family.py"> schema #ac.module_family_schema<#ac.static_parameters<[]>, #ac.static_cases<[#ac.static_arguments<[]>]>, #ac.module_interface<[]>, #ac.source_owner<"tests/native_family.py", "tests/native_family.py">, []> {
+    ac.module.case arguments #ac.static_arguments<[]> type () -> () source #ac.source_provenance<"tests/native_family.py", 1, 1, 1, 1> graph {
     ac.process @state kind "control" { ac.yield_sim }
     ac.stat @state kind "counter"
     ac.return
+
+    }
   }
 }
-// OWNER-NAME: duplicate local structural name 'state'
+// OWNER-NAME: duplicate local structural name
 
 //--- unstable-owner-segment.mlir
 builtin.module  {
-  ac.module @M() parameters {} graph {
+  ac.module @M source #ac.source_owner<"tests/native_family.py", "tests/native_family.py"> schema #ac.module_family_schema<#ac.static_parameters<[]>, #ac.static_cases<[#ac.static_arguments<[]>]>, #ac.module_interface<[]>, #ac.source_owner<"tests/native_family.py", "tests/native_family.py">, []> {
+    ac.module.case arguments #ac.static_arguments<[]> type () -> () source #ac.source_provenance<"tests/native_family.py", 1, 1, 1, 1> graph {
     ac.process @"bad.name" kind "control" { ac.yield_sim }
     ac.return
+
+    }
   }
 }
 // OWNER-SEGMENT: symbol name must be one stable hierarchy owner segment
 
 //--- unreachable-suspension.mlir
 builtin.module  {
-  ac.module @M() parameters {} graph {
+  ac.module @M source #ac.source_owner<"tests/native_family.py", "tests/native_family.py"> schema #ac.module_family_schema<#ac.static_parameters<[]>, #ac.static_cases<[#ac.static_arguments<[]>]>, #ac.module_interface<[]>, #ac.source_owner<"tests/native_family.py", "tests/native_family.py">, []> {
+    ac.module.case arguments #ac.static_arguments<[]> type () -> () source #ac.source_provenance<"tests/native_family.py", 1, 1, 1, 1> graph {
     ac.process @p kind "control" {
       %true = arith.constant true
       %false = arith.constant false
@@ -149,13 +177,16 @@ builtin.module  {
       ac.yield_sim
     }
     ac.return
+
+    }
   }
 }
 // BACKEDGE: every scf.while backedge must suspend or prove bounded progress
 
 //--- for-iter-arg-live.mlir
 builtin.module  {
-  ac.module @M(!ac.resource_token<@r>) parameters {} graph {
+  ac.module @M source #ac.source_owner<"tests/native_family.py", "tests/native_family.py"> schema #ac.module_family_schema<#ac.static_parameters<[]>, #ac.static_cases<[#ac.static_arguments<[]>]>, #ac.module_interface<[#ac.interface_port<"input_0", "input", #ac.type_expr<#ac.type_expr_concrete<!ac.resource_token<@r>>>, #ac.source_provenance<"tests/native_family.py", 1, 1, 1, 1>>]>, #ac.source_owner<"tests/native_family.py", "tests/native_family.py">, []> {
+    ac.module.case arguments #ac.static_arguments<[]> type (!ac.resource_token<@r>) -> () source #ac.source_provenance<"tests/native_family.py", 1, 1, 1, 1> graph {
   ^bb0(%token : !ac.resource_token<@r>):
     ac.process @p kind "control" captures(%token : !ac.resource_token<@r>) {
     ^bb0(%captured : !ac.resource_token<@r>):
@@ -171,14 +202,16 @@ builtin.module  {
       ac.yield_sim
     }
     ac.return
+
+    }
   }
 }
 // ITER-LIVE: cannot remain live across suspension
 
 //--- if-path-live.mlir
 builtin.module  {
-  ac.module @M(!ac.resource_token<@r>, !ac.resource_token<@r>, i1)
-      parameters {} graph {
+  ac.module @M source #ac.source_owner<"tests/native_family.py", "tests/native_family.py"> schema #ac.module_family_schema<#ac.static_parameters<[]>, #ac.static_cases<[#ac.static_arguments<[]>]>, #ac.module_interface<[#ac.interface_port<"input_0", "input", #ac.type_expr<#ac.type_expr_concrete<!ac.resource_token<@r>>>, #ac.source_provenance<"tests/native_family.py", 1, 1, 1, 1>>, #ac.interface_port<"input_1", "input", #ac.type_expr<#ac.type_expr_concrete<!ac.resource_token<@r>>>, #ac.source_provenance<"tests/native_family.py", 1, 1, 1, 1>>, #ac.interface_port<"input_2", "input", #ac.type_expr<#ac.type_expr_concrete<i1>>, #ac.source_provenance<"tests/native_family.py", 1, 1, 1, 1>>]>, #ac.source_owner<"tests/native_family.py", "tests/native_family.py">, []> {
+    ac.module.case arguments #ac.static_arguments<[]> type (!ac.resource_token<@r>, !ac.resource_token<@r>, i1) -> () source #ac.source_provenance<"tests/native_family.py", 1, 1, 1, 1> graph {
   ^bb0(%token : !ac.resource_token<@r>, %worker_token : !ac.resource_token<@r>,
        %condition : i1):
     ac.process @worker kind "workload"
@@ -197,13 +230,16 @@ builtin.module  {
       ac.yield_sim
     }
     ac.return
+
+    }
   }
 }
 // IF-LIVE: cannot remain live across suspension
 
 //--- while-iter-arg-live.mlir
 builtin.module  {
-  ac.module @M(!ac.resource_token<@r>, i1) parameters {} graph {
+  ac.module @M source #ac.source_owner<"tests/native_family.py", "tests/native_family.py"> schema #ac.module_family_schema<#ac.static_parameters<[]>, #ac.static_cases<[#ac.static_arguments<[]>]>, #ac.module_interface<[#ac.interface_port<"input_0", "input", #ac.type_expr<#ac.type_expr_concrete<!ac.resource_token<@r>>>, #ac.source_provenance<"tests/native_family.py", 1, 1, 1, 1>>, #ac.interface_port<"input_1", "input", #ac.type_expr<#ac.type_expr_concrete<i1>>, #ac.source_provenance<"tests/native_family.py", 1, 1, 1, 1>>]>, #ac.source_owner<"tests/native_family.py", "tests/native_family.py">, []> {
+    ac.module.case arguments #ac.static_arguments<[]> type (!ac.resource_token<@r>, i1) -> () source #ac.source_provenance<"tests/native_family.py", 1, 1, 1, 1> graph {
   ^bb0(%token : !ac.resource_token<@r>, %condition : i1):
     ac.process @p kind "control"
         captures(%token, %condition : !ac.resource_token<@r>, i1) {
@@ -219,13 +255,16 @@ builtin.module  {
       ac.yield_sim
     }
     ac.return
+
+    }
   }
 }
 // WHILE-LIVE: cannot remain live across suspension
 
 //--- malformed-scf.mlir
 builtin.module  {
-  "ac.module"() <{sym_name = "M", function_type = () -> (), static_params = {}}> ({
+  ac.module @M source #ac.source_owner<"tests/native_family.py", "tests/native_family.py"> schema #ac.module_family_schema<#ac.static_parameters<[]>, #ac.static_cases<[#ac.static_arguments<[]>]>, #ac.module_interface<[]>, #ac.source_owner<"tests/native_family.py", "tests/native_family.py">, []> {
+  ac.module.case arguments #ac.static_arguments<[]> type () -> () source #ac.source_provenance<"tests/native_family.py", 1, 1, 1, 1> graph {
     "ac.process"() <{kind = "control", sym_name = "p"}> ({
       %true = "arith.constant"() <{value = true}> : () -> i1
       "scf.if"(%true) ({
@@ -234,13 +273,16 @@ builtin.module  {
       "ac.yield_sim"() : () -> ()
     }) : () -> ()
     "ac.return"() : () -> ()
-  }) : () -> ()
+
+  }
+}
 }
 // MALFORMED: malformed scf.if region must terminate with scf.yield
 
 //--- malformed-if-arity.mlir
 builtin.module  {
-  "ac.module"() <{sym_name = "M", function_type = () -> (), static_params = {}}> ({
+  ac.module @M source #ac.source_owner<"tests/native_family.py", "tests/native_family.py"> schema #ac.module_family_schema<#ac.static_parameters<[]>, #ac.static_cases<[#ac.static_arguments<[]>]>, #ac.module_interface<[]>, #ac.source_owner<"tests/native_family.py", "tests/native_family.py">, []> {
+  ac.module.case arguments #ac.static_arguments<[]> type () -> () source #ac.source_provenance<"tests/native_family.py", 1, 1, 1, 1> graph {
     "ac.process"() <{kind = "control", sym_name = "p"}> ({
       %true = "arith.constant"() <{value = true}> : () -> i1
       %zero = "index.constant"() <{value = 0 : index}> : () -> index
@@ -252,13 +294,16 @@ builtin.module  {
       "ac.yield_sim"() : () -> ()
     }) : () -> ()
     "ac.return"() : () -> ()
-  }) : () -> ()
+
+  }
+}
 }
 // MALFORMED-IF-ARITY: malformed scf.if operand/result/block argument/yield arity or type mismatch
 
 //--- malformed-for-arity.mlir
 builtin.module  {
-  "ac.module"() <{sym_name = "M", function_type = () -> (), static_params = {}}> ({
+  ac.module @M source #ac.source_owner<"tests/native_family.py", "tests/native_family.py"> schema #ac.module_family_schema<#ac.static_parameters<[]>, #ac.static_cases<[#ac.static_arguments<[]>]>, #ac.module_interface<[]>, #ac.source_owner<"tests/native_family.py", "tests/native_family.py">, []> {
+  ac.module.case arguments #ac.static_arguments<[]> type () -> () source #ac.source_provenance<"tests/native_family.py", 1, 1, 1, 1> graph {
     "ac.process"() <{kind = "control", sym_name = "p"}> ({
       %lb = "index.constant"() <{value = 0 : index}> : () -> index
       %ub = "index.constant"() <{value = 4 : index}> : () -> index
@@ -271,13 +316,16 @@ builtin.module  {
       "ac.yield_sim"() : () -> ()
     }) : () -> ()
     "ac.return"() : () -> ()
-  }) : () -> ()
+
+  }
+}
 }
 // MALFORMED-FOR-ARITY: malformed scf.for operand/result/block argument/yield arity or type mismatch
 
 //--- malformed-while-arity.mlir
 builtin.module  {
-  "ac.module"() <{sym_name = "M", function_type = () -> (), static_params = {}}> ({
+  ac.module @M source #ac.source_owner<"tests/native_family.py", "tests/native_family.py"> schema #ac.module_family_schema<#ac.static_parameters<[]>, #ac.static_cases<[#ac.static_arguments<[]>]>, #ac.module_interface<[]>, #ac.source_owner<"tests/native_family.py", "tests/native_family.py">, []> {
+  ac.module.case arguments #ac.static_arguments<[]> type () -> () source #ac.source_provenance<"tests/native_family.py", 1, 1, 1, 1> graph {
     "ac.process"() <{kind = "control", sym_name = "p"}> ({
       %seed = "index.constant"() <{value = 7 : index}> : () -> index
       %result = "scf.while"(%seed) ({
@@ -291,13 +339,16 @@ builtin.module  {
       "ac.yield_sim"() : () -> ()
     }) : () -> ()
     "ac.return"() : () -> ()
-  }) : () -> ()
+
+  }
+}
 }
 // MALFORMED-WHILE-ARITY: malformed scf.while operand/result/block argument/yield arity or type mismatch
 
 //--- dynamic-for-no-suspend.mlir
 builtin.module  {
-  ac.module @M(index, index, index) parameters {} graph {
+  ac.module @M source #ac.source_owner<"tests/native_family.py", "tests/native_family.py"> schema #ac.module_family_schema<#ac.static_parameters<[]>, #ac.static_cases<[#ac.static_arguments<[]>]>, #ac.module_interface<[#ac.interface_port<"input_0", "input", #ac.type_expr<#ac.type_expr_concrete<index>>, #ac.source_provenance<"tests/native_family.py", 1, 1, 1, 1>>, #ac.interface_port<"input_1", "input", #ac.type_expr<#ac.type_expr_concrete<index>>, #ac.source_provenance<"tests/native_family.py", 1, 1, 1, 1>>, #ac.interface_port<"input_2", "input", #ac.type_expr<#ac.type_expr_concrete<index>>, #ac.source_provenance<"tests/native_family.py", 1, 1, 1, 1>>]>, #ac.source_owner<"tests/native_family.py", "tests/native_family.py">, []> {
+    ac.module.case arguments #ac.static_arguments<[]> type (index, index, index) -> () source #ac.source_provenance<"tests/native_family.py", 1, 1, 1, 1> graph {
   ^bb0(%lb : index, %ub : index, %step : index):
     ac.process @p kind "control"
         captures(%lb, %ub, %step : index, index, index) {
@@ -306,6 +357,8 @@ builtin.module  {
       ac.yield_sim
     }
     ac.return
+
+    }
   }
 }
 // DYNAMIC-FOR: dynamic scf.for requires every reachable backedge to suspend

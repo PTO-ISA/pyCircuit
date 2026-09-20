@@ -36,7 +36,8 @@ def _pipe_struct(m: Circuit, *, width: int):
     return spec.with_prefix("u_")
 
 
-def build(m: CycleAwareCircuit, domain: CycleAwareDomain, *, width: int = 32):
+def build(m: CycleAwareCircuit, domain: CycleAwareDomain):
+    width = 32
     cd = domain.clock_domain
 
     spec = _pipe_struct(m, width=width)
@@ -56,4 +57,4 @@ def build(m: CycleAwareCircuit, domain: CycleAwareDomain, *, width: int = 32):
 
 build.__pycircuit_name__ = "struct_transform"
 if __name__ == "__main__":
-    print(compile_cycle_aware(build, name="struct_transform", width=32).emit_mlir())
+    print(compile_cycle_aware(build, name="struct_transform").emit_mlir())

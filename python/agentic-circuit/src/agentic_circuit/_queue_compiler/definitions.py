@@ -712,7 +712,7 @@ def _extract_conditional_effect_guard(
         if not capture_conditions:
             conditions.append(condition)
             continue
-        name = f"__ac_effect_guard_{ordinal}"
+        name = f"compiler_effect_guard_{ordinal}"
         while name in used_names:
             name += "_"
         used_names.add(name)

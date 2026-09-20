@@ -267,7 +267,7 @@ class StructType(ValueType):
         return result
 
     @property
-    def specialization_bindings(self) -> tuple[tuple[str, int], ...]:
+    def resolved_static_bindings(self) -> tuple[tuple[str, int], ...]:
         """Return flattened typed bindings that select this concrete layout."""
         def collect_bindings(
             value_type: ValueType,
@@ -291,7 +291,7 @@ class StructType(ValueType):
     def symbol(self) -> str:
         """Return the readable ACIR symbol for this concrete layout."""
 
-        bindings = self.specialization_bindings
+        bindings = self.resolved_static_bindings
         if not bindings:
             return self.name
         parts = [self.name]

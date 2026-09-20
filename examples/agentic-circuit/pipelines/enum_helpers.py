@@ -64,6 +64,3 @@ def classify(command: Command) -> EnumResult:
 def enum_helpers(command: Command) -> EnumResult:
     result = classify(command)
     return result
-
-
-specialization = ac.jit(enum_helpers)
