@@ -424,6 +424,12 @@ circ = build_cycle_aware(top, name="top", hierarchical=True)
 | `m.cdc_sync(...)` | `pyc.cdc_sync` | 多级同步器（attr `stages`，默认 2） |
 | `m.rv_queue(...)` | 组合原语 | ready/valid 队列；`pop()` 返回 `Pop(valid, data, fire)` |
 
+同步 SRAM 固定使用 `live_window = 1` 的 aggressive verification profile：Q
+初始为未知，enabled read 后只在一个 live-use cycle 内有效，连续读刷新窗口，未继续
+读则在下一 edge 失效。`pycircuit.lib.sram.SRAM` 自动生成 always-capture register，
+并用当前 `ren` 在 live Q 与 captured Q 之间做 NBA-safe 选择。该 X/knownness 逻辑仅
+属于验证 profile；综合 primitive 仍保持技术无关。
+
 跨时钟域数据**必须**经 `cdc_sync` / `async_fifo`；`pyc-check-clock-domains` 强制检查。
 
 ---

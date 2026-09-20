@@ -4577,7 +4577,8 @@ emitQueueGraphPycBody(
     body << "    " << readData << " = pyc.sync_mem %clk, %rst, " << issue
          << ", " << selectedAddress << ", " << writeValid << ", "
          << selectedAddress << ", " << selectedWriteData << ", " << strobe
-         << " {depth = " << instance.entries << ", name = \"" << instance.name
+         << " {depth = " << instance.entries
+         << ", live_window = 1, name = \"" << instance.name
          << "\"} : " << addressType << ", " << *dataType << ", " << strobeType
          << "\n";
 

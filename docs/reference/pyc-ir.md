@@ -183,6 +183,25 @@ Runtime-checked obligations are verification evidence, not synthesis proof.
 `flows/tools/check_generated_rtl.py --require-synthesis-admissible` rejects RTL
 that still contains them.
 
+### `pyc.sync_mem` / `pyc.sync_mem_dp` verification profile
+
+Every synchronous memory carries `live_window = 1`. The value is a static
+verification contract, not memory depth: Q begins unknown, an enabled read
+makes Q live after its capture edge for one use cycle, a back-to-back read
+refreshes that window, and the next edge without a read invalidates Q.
+
+The C++ verification model exposes `FourState<W>` observations with exact
+`value`, `knownMask`, and `zMask`; parity requires equal masks and equal value
+bits only where known. `(known & z) == 0` is mandatory. The RTL primitive enables
+the same aggressive behavior only under `PYC_VERIFY_AGGRESSIVE_SRAM`, keeping
+the technology-independent synthesis body unchanged. Enabled reset/read/write
+controls, addresses, write data, and strobes must be known; inactive data paths
+may remain unknown.
+
+The public SRAM helper always captures raw Q and selects live Q in the capture
+cycle, then the captured register afterward. This explicit select preserves
+NBA visibility without extending the primitive Q lifetime.
+
 ### `pyc.wire` / `pyc.assign` (netlist backedges)
 
 PYC uses a netlist-style wire placeholder with an explicit driver:

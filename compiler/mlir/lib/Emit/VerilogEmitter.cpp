@@ -1364,13 +1364,18 @@ static LogicalResult emitBlockModule(
         if (!depthAttr)
           return mem.emitError("missing integer attribute `depth`");
         auto depth = depthAttr.getValue().getZExtValue();
+        auto liveWindowAttr = mem->getAttrOfType<IntegerAttr>("live_window");
+        if (!liveWindowAttr)
+          return mem.emitError("missing integer attribute `live_window`");
+        auto liveWindow = liveWindowAttr.getValue().getZExtValue();
 
         std::string inst = nt.get(mem.getRdata()) + "_inst";
         if (auto nameAttr = mem->getAttrOfType<StringAttr>("name"))
           inst = sanitizeId(nameAttr.getValue());
 
-        os << "pyc_sync_mem #(.ADDR_WIDTH(" << addrTy.getWidth() << "), .DATA_WIDTH(" << dataTy.getWidth()
-           << "), .DEPTH(" << depth << ")) " << inst << " (\n";
+        os << "pyc_sync_mem #(.ADDR_WIDTH(" << addrTy.getWidth()
+           << "), .DATA_WIDTH(" << dataTy.getWidth() << "), .DEPTH(" << depth
+           << "), .LIVE_WINDOW(" << liveWindow << ")) " << inst << " (\n";
         os << "  .clk(" << nt.get(mem.getClk()) << "),\n";
         os << "  .rst(" << nt.get(mem.getRst()) << "),\n";
         os << "  .ren(" << nt.get(mem.getRen()) << "),\n";
@@ -1393,13 +1398,18 @@ static LogicalResult emitBlockModule(
         if (!depthAttr)
           return mem.emitError("missing integer attribute `depth`");
         auto depth = depthAttr.getValue().getZExtValue();
+        auto liveWindowAttr = mem->getAttrOfType<IntegerAttr>("live_window");
+        if (!liveWindowAttr)
+          return mem.emitError("missing integer attribute `live_window`");
+        auto liveWindow = liveWindowAttr.getValue().getZExtValue();
 
         std::string inst = nt.get(mem.getRdata0()) + "_inst";
         if (auto nameAttr = mem->getAttrOfType<StringAttr>("name"))
           inst = sanitizeId(nameAttr.getValue());
 
-        os << "pyc_sync_mem_dp #(.ADDR_WIDTH(" << addrTy.getWidth() << "), .DATA_WIDTH(" << dataTy.getWidth()
-           << "), .DEPTH(" << depth << ")) " << inst << " (\n";
+        os << "pyc_sync_mem_dp #(.ADDR_WIDTH(" << addrTy.getWidth()
+           << "), .DATA_WIDTH(" << dataTy.getWidth() << "), .DEPTH(" << depth
+           << "), .LIVE_WINDOW(" << liveWindow << ")) " << inst << " (\n";
         os << "  .clk(" << nt.get(mem.getClk()) << "),\n";
         os << "  .rst(" << nt.get(mem.getRst()) << "),\n";
         os << "  .ren0(" << nt.get(mem.getRen0()) << "),\n";

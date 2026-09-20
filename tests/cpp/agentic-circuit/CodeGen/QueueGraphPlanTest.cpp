@@ -3779,7 +3779,8 @@ TEST(QueueGraphPlanTest, EmitsOldDataMemoryForBothBackends) {
   EXPECT_NE(pyc->find("pyc.sync_mem"), std::string::npos);
   EXPECT_EQ(pyc->find("pyc.sync_mem", pyc->find("pyc.sync_mem") + 1),
             std::string::npos);
-  EXPECT_NE(pyc->find("{depth = 15, name = \"sram\"}"), std::string::npos);
+  EXPECT_NE(pyc->find("{depth = 15, live_window = 1, name = \"sram\"}"),
+            std::string::npos);
   EXPECT_NE(pyc->find("pyc.concat"), std::string::npos);
   EXPECT_NE(pyc->find("memory_address_out_of_range"), std::string::npos);
 }

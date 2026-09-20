@@ -1016,15 +1016,15 @@ byte-identical, and generated source is human-auditable without opaque names.
 - `library/cpp/pyc_sync_mem.hpp`
 - `python/pycircuit/src/pycircuit/lib/sram.py`
 
-- [ ] Add a pass/verifier that rejects unnecessary stall recirculation.
-- [ ] Define SRAM read-result provenance and capture lifetime.
-- [ ] Add canonical always-capture plus NBA-safe live/registered lowering.
-- [ ] Add aggressive X simulation profile.
-- [ ] Cover static live-window `N=1` and the mandatory one-live-cycle edge-based Q lifetime.
-- [ ] Assert known enabled address/data/strobe.
-- [ ] Add inactive-unit gating and stale-output tests.
-- [ ] Implement the accepted C++/RTL X parity decision.
-- [ ] Preserve synthesis-safe technology-independent primitives.
+- [x] Add a pass/verifier that rejects unnecessary stall recirculation.
+- [x] Define SRAM read-result provenance and capture lifetime.
+- [x] Add canonical always-capture plus NBA-safe live/registered lowering.
+- [x] Add aggressive X simulation profile.
+- [x] Cover static live-window `N=1` and the mandatory one-live-cycle edge-based Q lifetime.
+- [x] Assert known enabled address/data/strobe.
+- [x] Add inactive-unit gating and stale-output tests.
+- [x] Implement the accepted C++/RTL X parity decision.
+- [x] Preserve synthesis-safe technology-independent primitives.
 
 **Exit:** a stale-Q reproducer fails under the old shape, the canonical capture
 shape passes, and C++/RTL comparison follows the accepted X contract.

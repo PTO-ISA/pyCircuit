@@ -10,7 +10,8 @@
 module pyc_sync_mem #(
   parameter ADDR_WIDTH = 64,
   parameter DATA_WIDTH = 64,
-  parameter DEPTH = 1024
+  parameter DEPTH = 1024,
+  parameter LIVE_WINDOW = 1
 ) (
   input                   clk,
   input                   rst,
@@ -30,7 +31,19 @@ module pyc_sync_mem #(
       $display("ERROR: pyc_sync_mem DEPTH must be > 0");
       $finish;
     end
+    if (LIVE_WINDOW != 1)
+      $fatal(1, "pyc_sync_mem aggressive verification requires LIVE_WINDOW=1");
   end
+  `endif
+
+  `ifndef SYNTHESIS
+  `ifdef PYC_VERIFY_AGGRESSIVE_SRAM
+  reg rdata_live;
+  initial begin
+    rdata = {DATA_WIDTH{1'bx}};
+    rdata_live = 1'b0;
+  end
+  `endif
   `endif
 
   localparam STRB_WIDTH = (DATA_WIDTH + 7) / 8;
@@ -63,9 +76,41 @@ module pyc_sync_mem #(
   wire [ADDR_BITS-1:0] wa = waddr[ADDR_BITS-1:0];
 
   always @(posedge clk) begin
+    `ifndef SYNTHESIS
+    `ifdef PYC_VERIFY_AGGRESSIVE_SRAM
+    if ($isunknown(rst))
+      $fatal(1, "pyc_sync_mem reset must be known at posedge");
+    if (!rst) begin
+      if ($isunknown(ren) || $isunknown(wvalid))
+        $fatal(1, "pyc_sync_mem enabled controls must be known at posedge");
+      if (ren && $isunknown(raddr))
+        $fatal(1, "pyc_sync_mem enabled read address must be known");
+      if (wvalid && ($isunknown(waddr) || $isunknown(wdata) ||
+                     $isunknown(wstrb)))
+        $fatal(1, "pyc_sync_mem enabled write address/data/strobe must be known");
+    end
+    `endif
+    `endif
     if (rst) begin
+      `ifndef SYNTHESIS
+      `ifdef PYC_VERIFY_AGGRESSIVE_SRAM
+      rdata <= {DATA_WIDTH{1'bx}};
+      rdata_live <= 1'b0;
+      `else
       rdata <= {DATA_WIDTH{1'b0}};
+      `endif
+      `else
+      rdata <= {DATA_WIDTH{1'b0}};
+      `endif
     end else begin
+      `ifndef SYNTHESIS
+      `ifdef PYC_VERIFY_AGGRESSIVE_SRAM
+      if (rdata_live && !ren) begin
+        rdata <= {DATA_WIDTH{1'bx}};
+        rdata_live <= 1'b0;
+      end
+      `endif
+      `endif
       // Write with per-lane strobes; last lane may be narrower than 8 bits.
       if (wvalid) begin
         `ifndef SYNTHESIS
@@ -89,6 +134,11 @@ module pyc_sync_mem #(
 
       // Registered read.
       if (ren) begin
+        `ifndef SYNTHESIS
+        `ifdef PYC_VERIFY_AGGRESSIVE_SRAM
+        rdata_live <= 1'b1;
+        `endif
+        `endif
         `ifndef SYNTHESIS
         if (ra < DEPTH) begin
           rd_word = mem[ra];

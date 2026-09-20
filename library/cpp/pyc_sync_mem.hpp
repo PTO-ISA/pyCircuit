@@ -4,11 +4,13 @@
 #include <cstddef>
 #include <cstdint>
 #include <iomanip>
+#include <optional>
 #include <ostream>
 #include <utility>
 #include <vector>
 
 #include "pyc_bits.hpp"
+#include "pyc_four_state.hpp"
 
 namespace pyc::cpp {
 
@@ -20,12 +22,16 @@ namespace pyc::cpp {
 // - Read-during-write to the same address returns the pre-write data (old-data).
 // - Addresses are low-bit indexed into host `size_t`; out-of-range indices read as 0
 //   and writes are dropped.
-template <unsigned AddrWidth, unsigned DataWidth, std::size_t DepthEntries>
+template <unsigned AddrWidth, unsigned DataWidth, std::size_t DepthEntries,
+          unsigned LiveWindow = 1>
 class pyc_sync_mem {
 public:
   static_assert(DataWidth > 0, "pyc_sync_mem requires DataWidth > 0");
   static_assert(DepthEntries > 0, "pyc_sync_mem DepthEntries must be > 0");
+  static_assert(LiveWindow == 1,
+                "pyc_sync_mem aggressive verification requires N=1");
   static constexpr unsigned StrbWidth = (DataWidth + 7) / 8;
+  using ReadState = FourState<DataWidth>;
 
   pyc_sync_mem(Wire<1> &clk,
                Wire<1> &rst,
@@ -38,6 +44,33 @@ public:
                Wire<StrbWidth> &wstrb)
       : clk(clk), rst(rst), ren(ren), raddr(raddr), rdata(rdata), wvalid(wvalid), waddr(waddr), wdata(wdata),
         wstrb(wstrb) {}
+
+  const ReadState &rdataState() const { return rdataState_; }
+  bool rdataLive() const { return rdataLive_; }
+
+  void setVerificationInputs(
+      FourState<1> rstState, FourState<1> renState,
+      FourState<AddrWidth> raddrState, FourState<1> wvalidState,
+      FourState<AddrWidth> waddrState, FourState<DataWidth> wdataState,
+      FourState<StrbWidth> wstrbState) {
+    verifyRst_ = std::move(rstState);
+    verifyRen_ = std::move(renState);
+    verifyRaddr_ = std::move(raddrState);
+    verifyWvalid_ = std::move(wvalidState);
+    verifyWaddr_ = std::move(waddrState);
+    verifyWdata_ = std::move(wdataState);
+    verifyWstrb_ = std::move(wstrbState);
+  }
+
+  void clearVerificationInputs() {
+    verifyRst_.reset();
+    verifyRen_.reset();
+    verifyRaddr_.reset();
+    verifyWvalid_.reset();
+    verifyWaddr_.reset();
+    verifyWdata_.reset();
+    verifyWstrb_.reset();
+  }
 
   struct MemWatchEvent {
     enum class Kind : std::uint8_t { Read = 0, Write = 1 };
@@ -121,29 +154,57 @@ public:
     clkPrev = clkNow;
     pendingWrite = false;
     pendingRead = false;
+    pendingInvalidate = false;
     if (!posedge)
       return;
 
-    if (rst.toBool()) {
-      pendingRead = true;
-      rdataNext = Wire<DataWidth>(0);
+    const FourState<1> rstState =
+        verifyRst_.value_or(FourState<1>::known(rst));
+    if (!rstState.isFullyKnown())
+      throw FourStateViolation("pyc_sync_mem reset must be known at posedge");
+    if (rstState.value().toBool()) {
+      pendingInvalidate = true;
       return;
     }
 
-    if (wvalid.toBool()) {
+    const FourState<1> renState =
+        verifyRen_.value_or(FourState<1>::known(ren));
+    const FourState<1> wvalidState =
+        verifyWvalid_.value_or(FourState<1>::known(wvalid));
+    if (!renState.isFullyKnown() || !wvalidState.isFullyKnown())
+      throw FourStateViolation(
+          "pyc_sync_mem enabled controls must be known at posedge");
+
+    if (wvalidState.value().toBool()) {
+      const auto waddrState = verifyWaddr_.value_or(
+          FourState<AddrWidth>::known(waddr));
+      const auto wdataState = verifyWdata_.value_or(
+          FourState<DataWidth>::known(wdata));
+      const auto wstrbState = verifyWstrb_.value_or(
+          FourState<StrbWidth>::known(wstrb));
+      if (!waddrState.isFullyKnown() || !wdataState.isFullyKnown() ||
+          !wstrbState.isFullyKnown())
+        throw FourStateViolation(
+            "pyc_sync_mem enabled write address/data/strobe must be known");
       pendingWrite = true;
       latchedWaddr = toIndex(waddr);
       latchedWdata = wdata;
       latchedWstrb = wstrb;
     }
 
-    if (ren.toBool()) {
+    if (renState.value().toBool()) {
+      const auto raddrState = verifyRaddr_.value_or(
+          FourState<AddrWidth>::known(raddr));
+      if (!raddrState.isFullyKnown())
+        throw FourStateViolation(
+            "pyc_sync_mem enabled read address must be known");
       pendingRead = true;
       latchedRaddr = toIndex(raddr);
       Wire<DataWidth> v = Wire<DataWidth>(0);
       if (latchedRaddr < DepthEntries)
         v = mem_[latchedRaddr];
       rdataNext = v;
+      rdataStateNext = ReadState::known(v);
       if (watch_enabled_ && latchedRaddr >= watch_lo_ && latchedRaddr <= watch_hi_) {
         MemWatchEvent ev;
         ev.kind = MemWatchEvent::Kind::Read;
@@ -153,6 +214,8 @@ public:
         ev.strb = Wire<StrbWidth>(0);
         watch_events_.push_back(ev);
       }
+    } else if (rdataLive_) {
+      pendingInvalidate = true;
     }
   }
 
@@ -170,10 +233,17 @@ public:
         watch_events_.push_back(ev);
       }
     }
-    if (pendingRead)
+    if (pendingRead) {
       rdata = rdataNext;
+      rdataState_ = rdataStateNext;
+      rdataLive_ = true;
+    } else if (pendingInvalidate) {
+      rdataState_ = ReadState::unknown(rdata);
+      rdataLive_ = false;
+    }
     pendingWrite = false;
     pendingRead = false;
+    pendingInvalidate = false;
   }
 
   // Convenience for testbenches.
@@ -203,11 +273,23 @@ public:
   bool clkPrev = false;
   bool pendingWrite = false;
   bool pendingRead = false;
+  bool pendingInvalidate = false;
+  bool rdataLive_ = false;
   std::size_t latchedWaddr = 0;
   std::size_t latchedRaddr = 0;
   Wire<DataWidth> latchedWdata{};
   Wire<StrbWidth> latchedWstrb{};
   Wire<DataWidth> rdataNext{};
+  ReadState rdataState_ = ReadState::unknown();
+  ReadState rdataStateNext = ReadState::unknown();
+
+  std::optional<FourState<1>> verifyRst_;
+  std::optional<FourState<1>> verifyRen_;
+  std::optional<FourState<AddrWidth>> verifyRaddr_;
+  std::optional<FourState<1>> verifyWvalid_;
+  std::optional<FourState<AddrWidth>> verifyWaddr_;
+  std::optional<FourState<DataWidth>> verifyWdata_;
+  std::optional<FourState<StrbWidth>> verifyWstrb_;
 
 private:
   static constexpr std::size_t toIndex(Wire<AddrWidth> addr) {
@@ -266,12 +348,16 @@ private:
 };
 
 // Synchronous 2R1W memory (dual read ports) with registered read outputs.
-template <unsigned AddrWidth, unsigned DataWidth, std::size_t DepthEntries>
+template <unsigned AddrWidth, unsigned DataWidth, std::size_t DepthEntries,
+          unsigned LiveWindow = 1>
 class pyc_sync_mem_dp {
 public:
   static_assert(DataWidth > 0, "pyc_sync_mem_dp requires DataWidth > 0");
   static_assert(DepthEntries > 0, "pyc_sync_mem_dp DepthEntries must be > 0");
+  static_assert(LiveWindow == 1,
+                "pyc_sync_mem_dp aggressive verification requires N=1");
   static constexpr unsigned StrbWidth = (DataWidth + 7) / 8;
+  using ReadState = FourState<DataWidth>;
 
   pyc_sync_mem_dp(Wire<1> &clk,
                   Wire<1> &rst,
@@ -287,6 +373,21 @@ public:
                   Wire<StrbWidth> &wstrb)
       : clk(clk), rst(rst), ren0(ren0), raddr0(raddr0), rdata0(rdata0), ren1(ren1), raddr1(raddr1), rdata1(rdata1),
         wvalid(wvalid), waddr(waddr), wdata(wdata), wstrb(wstrb) {}
+
+  const ReadState &rdataState(unsigned port) const {
+    if (port == 0)
+      return rdata0State_;
+    if (port == 1)
+      return rdata1State_;
+    throw std::out_of_range("pyc_sync_mem_dp read port must be 0 or 1");
+  }
+  bool rdataLive(unsigned port) const {
+    if (port == 0)
+      return rdata0Live_;
+    if (port == 1)
+      return rdata1Live_;
+    throw std::out_of_range("pyc_sync_mem_dp read port must be 0 or 1");
+  }
 
   struct MemWatchEvent {
     enum class Kind : std::uint8_t { Read = 0, Write = 1 };
@@ -364,14 +465,14 @@ public:
     pendingWrite = false;
     pendingRead0 = false;
     pendingRead1 = false;
+    pendingInvalidate0 = false;
+    pendingInvalidate1 = false;
     if (!posedge)
       return;
 
     if (rst.toBool()) {
-      pendingRead0 = true;
-      pendingRead1 = true;
-      rdata0Next = Wire<DataWidth>(0);
-      rdata1Next = Wire<DataWidth>(0);
+      pendingInvalidate0 = true;
+      pendingInvalidate1 = true;
       return;
     }
 
@@ -389,6 +490,7 @@ public:
       if (latchedRaddr0 < DepthEntries)
         v = mem_[latchedRaddr0];
       rdata0Next = v;
+      rdata0StateNext = ReadState::known(v);
       if (watch_enabled_ && latchedRaddr0 >= watch_lo_ && latchedRaddr0 <= watch_hi_) {
         MemWatchEvent ev;
         ev.kind = MemWatchEvent::Kind::Read;
@@ -398,6 +500,8 @@ public:
         ev.strb = Wire<StrbWidth>(0);
         watch_events_.push_back(ev);
       }
+    } else if (rdata0Live_) {
+      pendingInvalidate0 = true;
     }
 
     if (ren1.toBool()) {
@@ -407,6 +511,7 @@ public:
       if (latchedRaddr1 < DepthEntries)
         v = mem_[latchedRaddr1];
       rdata1Next = v;
+      rdata1StateNext = ReadState::known(v);
       if (watch_enabled_ && latchedRaddr1 >= watch_lo_ && latchedRaddr1 <= watch_hi_) {
         MemWatchEvent ev;
         ev.kind = MemWatchEvent::Kind::Read;
@@ -416,6 +521,8 @@ public:
         ev.strb = Wire<StrbWidth>(0);
         watch_events_.push_back(ev);
       }
+    } else if (rdata1Live_) {
+      pendingInvalidate1 = true;
     }
   }
 
@@ -433,13 +540,27 @@ public:
         watch_events_.push_back(ev);
       }
     }
-    if (pendingRead0)
+    if (pendingRead0) {
       rdata0 = rdata0Next;
-    if (pendingRead1)
+      rdata0State_ = rdata0StateNext;
+      rdata0Live_ = true;
+    } else if (pendingInvalidate0) {
+      rdata0State_ = ReadState::unknown(rdata0);
+      rdata0Live_ = false;
+    }
+    if (pendingRead1) {
       rdata1 = rdata1Next;
+      rdata1State_ = rdata1StateNext;
+      rdata1Live_ = true;
+    } else if (pendingInvalidate1) {
+      rdata1State_ = ReadState::unknown(rdata1);
+      rdata1Live_ = false;
+    }
     pendingWrite = false;
     pendingRead0 = false;
     pendingRead1 = false;
+    pendingInvalidate0 = false;
+    pendingInvalidate1 = false;
   }
 
   void pokeEntry(std::size_t addr, Wire<DataWidth> value) {
@@ -473,6 +594,10 @@ public:
   bool pendingWrite = false;
   bool pendingRead0 = false;
   bool pendingRead1 = false;
+  bool pendingInvalidate0 = false;
+  bool pendingInvalidate1 = false;
+  bool rdata0Live_ = false;
+  bool rdata1Live_ = false;
   std::size_t latchedWaddr = 0;
   std::size_t latchedRaddr0 = 0;
   std::size_t latchedRaddr1 = 0;
@@ -480,6 +605,10 @@ public:
   Wire<StrbWidth> latchedWstrb{};
   Wire<DataWidth> rdata0Next{};
   Wire<DataWidth> rdata1Next{};
+  ReadState rdata0State_ = ReadState::unknown();
+  ReadState rdata1State_ = ReadState::unknown();
+  ReadState rdata0StateNext = ReadState::unknown();
+  ReadState rdata1StateNext = ReadState::unknown();
 
 private:
   static constexpr std::size_t toIndex(Wire<AddrWidth> addr) {

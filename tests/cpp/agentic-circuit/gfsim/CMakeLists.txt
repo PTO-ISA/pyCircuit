@@ -1,12 +1,14 @@
 find_package(GTest CONFIG REQUIRED)
 add_executable(GfsimTests
   BitsTest.cpp
+  FourStateSramTest.cpp
   QueueBlocksTest.cpp
   ShowcaseTest.cpp
   core_test.cpp
 )
 target_include_directories(GfsimTests PRIVATE
   ${ACIR_GFSIM_SOURCE_DIR}/include
+  ${ACIR_REPO_ROOT}/library/cpp
 )
 target_compile_definitions(GfsimTests PRIVATE
   ACIR_TEST_SOURCE_DIR="${ACIR_REPO_ROOT}"
