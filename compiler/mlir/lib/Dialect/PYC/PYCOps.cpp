@@ -1630,6 +1630,75 @@ LogicalResult AssertOp::verify() {
     if (m.getValue().empty())
       return emitOpError("msg must be non-empty when provided");
   }
+  const bool architectureAssertion = getObligationIdAttr() ||
+                                     getObligationKindAttr() ||
+                                     getSeverityAttr() ||
+                                     getSamplingKindAttr() ||
+                                     getSamplingEdgeAttr() ||
+                                     getSampleAnchorAttr() || getSourceAttr() ||
+                                     getNdfIdsAttr();
+  if (!architectureAssertion)
+    return success();
+  auto message = getMsgAttr();
+  auto id = getObligationIdAttr();
+  auto kind = getObligationKindAttr();
+  auto severity = getSeverityAttr();
+  auto samplingKind = getSamplingKindAttr();
+  auto samplingEdge = getSamplingEdgeAttr();
+  auto anchor = getSampleAnchorAttr();
+  auto source = getSourceAttr();
+  auto ndfIds = getNdfIdsAttr();
+  if (!id || id.getValue().empty() || !kind || kind.getValue().empty() ||
+      !severity || !samplingKind || !samplingEdge || !anchor ||
+      anchor.getValue().empty() || !source || source.getValue().empty() ||
+      !message || !ndfIds)
+    return emitOpError(
+        "architecture assertion requires complete ID, kind, severity, "
+        "sampling, anchor, source, and message metadata");
+  auto isPrintableAscii = [](llvm::StringRef value) {
+    return llvm::all_of(value, [](char character) {
+      const unsigned byte = static_cast<unsigned char>(character);
+      return byte >= 0x20 && byte <= 0x7e;
+    });
+  };
+  for (llvm::StringRef value :
+       {message.getValue(), id.getValue(), kind.getValue(),
+        severity.getValue(), samplingKind.getValue(), samplingEdge.getValue(),
+        anchor.getValue(), source.getValue()})
+    if (!isPrintableAscii(value))
+      return emitOpError(
+          "architecture assertion metadata must be printable ASCII");
+  llvm::StringSet<> seenNdfIds;
+  for (Attribute raw : ndfIds) {
+    auto identifier = dyn_cast<StringAttr>(raw);
+    if (!identifier || identifier.getValue().empty() ||
+        !isPrintableAscii(identifier.getValue()) ||
+        !seenNdfIds.insert(identifier.getValue()).second)
+      return emitOpError(
+          "architecture assertion NDF IDs must be unique printable strings");
+  }
+  for (char character : id.getValue())
+    if (!(llvm::isAlnum(character) || character == '_' || character == '.' ||
+          character == '-' || character == ':' || character == '/'))
+      return emitOpError(
+          "architecture assertion ID uses invalid structural-name characters");
+  llvm::StringSet<> safetyKinds;
+  for (llvm::StringRef supported :
+       {"mutual_exclusion", "single_writer", "resource_capacity",
+        "ready_valid_integrity", "transaction_atomicity", "generation_match",
+        "epoch_match", "ordering", "range", "onehot0", "no_partial_commit",
+        "no_stale_update", "credit_balance", "pipeline_alignment"})
+    safetyKinds.insert(supported);
+  if (!safetyKinds.contains(kind.getValue()))
+    return emitOpError(
+        "architecture assertion kind must be a closed phase-one safety kind");
+  if (severity.getValue() != "error" && severity.getValue() != "fatal")
+    return emitOpError("architecture assertion severity must be error or fatal");
+  if (samplingKind.getValue() != "pre_publish" ||
+      samplingEdge.getValue() != "none")
+    return emitOpError(
+        "phase-one architecture assertions require pre_publish sampling with "
+        "the inherited firing clock");
   return success();
 }
 

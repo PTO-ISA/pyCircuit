@@ -32,6 +32,7 @@ FLOW_TOOLS = {
     "build_cpp_manifest.py",
     "check_api_hygiene.py",
     "check_decision_status.py",
+    "check_generated_rtl.py",
     "discover_examples.py",
     "gen_cmake_from_manifest.py",
     "summarize_gate_run.py",

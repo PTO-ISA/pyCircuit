@@ -50,7 +50,7 @@ def ProveArchitectureObligationsPass
 
 def MaterializeArchitectureObligationsPass
     : Pass<"ac-materialize-architecture-obligations", "::mlir::ModuleOp"> {
-  let summary = "Materialize the admitted gfsim architecture checks";
+  let summary = "Materialize matched gfsim, C++, and SVA architecture checks";
 }
 
 def CanonicalizeModelPass : Pass<"ac-canonicalize-model", "::mlir::ModuleOp"> {

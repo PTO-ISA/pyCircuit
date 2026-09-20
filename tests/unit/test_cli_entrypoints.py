@@ -9,6 +9,7 @@ from pycircuit.cli import (
     _collect_jit_params,
     _is_timed_domain_build,
     _merge_verilog_primitive_bundles,
+    _rtl_module_name,
 )
 
 pytestmark = pytest.mark.unit
@@ -42,6 +43,12 @@ def test_collect_jit_params_keeps_structural_defaults() -> None:
 def test_base_name_prefers_public_cycle_aware_symbol_override() -> None:
     assert _base_name_of(timed_build) == "timed_smoke"
     assert _base_name_of(structural_build) == "structural_build"
+
+
+def test_rtl_module_name_matches_backend_lower_snake_contract() -> None:
+    assert _rtl_module_name("PriorityMux") == "priority_mux"
+    assert _rtl_module_name("already_snake") == "already_snake"
+    assert _rtl_module_name("3StageALU") == "module_3_stage_alu"
 
 
 def test_make_smoke_stages_the_toolchain_before_using_install_paths() -> None:

@@ -154,11 +154,20 @@ Hierarchy preservation policy:
 - Default C++ out-dir flows use `--inline-policy=off` so `@module` callsites
   remain explicit instance boundaries.
 
-### `pyc.assert` (simulation-only assertion)
+### `pyc.assert` (verified assertion)
 
-`pyc.assert` is a simulation-only check that aborts when `cond` is false.
-Backends emit it under `ifndef SYNTHESIS` in Verilog, and as a runtime check in
-the C++ model.
+`pyc.assert` aborts when `cond` is false. An ordinary assertion may carry only
+`msg`. An architecture assertion carries the complete verified obligation
+record: stable ID, closed safety kind, severity, pre-publish sampling contract,
+anchor, source, and ordered NDF IDs. Partial metadata, liveness kinds,
+non-ASCII diagnostics, and unsupported sampling fail verification.
+
+C++ emits an unconditional runtime check, per-obligation check/failure
+counters, and a trace/probe condition path containing the stable ID. Verilog
+emits a named concurrent SVA assertion and matching coverage property under
+`ifndef SYNTHESIS`; synchronous applicability/disable semantics are already
+part of the shared Boolean condition, so the backend does not invent an
+asynchronous `disable iff`.
 
 ```mlir
 pyc.assert %ok {msg = "in_ready must not be asserted while full"}
@@ -167,6 +176,12 @@ pyc.assert %ok {msg = "in_ready must not be asserted while full"}
 Attributes:
 
 - `msg`: `StringAttr` (optional) human-readable message
+- architecture-only: `obligation_id`, `obligation_kind`, `severity`,
+  `sampling_kind`, `sampling_edge`, `sample_anchor`, `source`, and `ndf_ids`
+
+Runtime-checked obligations are verification evidence, not synthesis proof.
+`flows/tools/check_generated_rtl.py --require-synthesis-admissible` rejects RTL
+that still contains them.
 
 ### `pyc.wire` / `pyc.assign` (netlist backedges)
 
@@ -246,6 +261,14 @@ into a single region:
 
 `pycc` also runs `pyc-fuse-comb`, which enables emission of flattened
 Verilog `assign` statements for large purely-combinational regions.
+
+Generated RTL family names are readable lower-snake spellings of source family
+symbols. Module-name collisions fail before emission. The structural audit
+tool checks ASCII, explicit-width assignment literals, named port connections,
+dead internal nets, stable module/net/instance/assertion order, matched
+assertion/coverage IDs, and deterministic two-build output. Its JSON report
+also records expensive-operation counts; `--html-out` produces a reviewable
+colored comparison artifact.
 
 ## Structured control flow (frontend temporary IR)
 

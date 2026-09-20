@@ -1,0 +1,44 @@
+{
+  "ascii": true,
+  "comparison": {
+    "audit": {
+      "ascii": true,
+      "modules": [
+        {
+          "assertion_count": 6,
+          "coverage_count": 6,
+          "dead_internal_nets": [],
+          "expensive_operations": {
+            "divide": 0,
+            "modulo": 0,
+            "multiply": 0
+          },
+          "instance_count": 0,
+          "module": "obligation_top",
+          "wire_count": 6
+        }
+      ],
+      "path": ".pycircuit_out/build-llvm22/compiler/acir/tests/mlir/CodeGen/Output/architecture-obligation-backends.mlir.tmp/model.second.sv"
+    },
+    "byte_identical": true,
+    "path": ".pycircuit_out/build-llvm22/compiler/acir/tests/mlir/CodeGen/Output/architecture-obligation-backends.mlir.tmp/model.second.sv"
+  },
+  "issues": [],
+  "modules": [
+    {
+      "assertion_count": 6,
+      "coverage_count": 6,
+      "dead_internal_nets": [],
+      "expensive_operations": {
+        "divide": 0,
+        "modulo": 0,
+        "multiply": 0
+      },
+      "instance_count": 0,
+      "module": "obligation_top",
+      "wire_count": 6
+    }
+  ],
+  "path": ".pycircuit_out/build-llvm22/compiler/acir/tests/mlir/CodeGen/Output/architecture-obligation-backends.mlir.tmp/model.sv",
+  "synthesis_admissible": false
+}

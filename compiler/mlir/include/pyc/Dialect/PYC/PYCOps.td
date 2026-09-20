@@ -426,8 +426,17 @@ def PYC_InstanceOp : PYC_Op<"instance", []> {
 }
 
 def PYC_AssertOp : PYC_Op<"assert", [MemoryEffects<[MemWrite]>]> {
-  let summary = "Simulation-only assertion";
-  let arguments = (ins I1:$cond, OptionalAttr<StrAttr>:$msg);
+  let summary = "Verified assertion with optional architecture-obligation identity";
+  let arguments = (ins I1:$cond,
+                       OptionalAttr<StrAttr>:$msg,
+                       OptionalAttr<StrAttr>:$obligation_id,
+                       OptionalAttr<StrAttr>:$obligation_kind,
+                       OptionalAttr<StrAttr>:$severity,
+                       OptionalAttr<StrAttr>:$sampling_kind,
+                       OptionalAttr<StrAttr>:$sampling_edge,
+                       OptionalAttr<StrAttr>:$sample_anchor,
+                       OptionalAttr<StrAttr>:$source,
+                       OptionalAttr<ArrayAttr>:$ndf_ids);
   let hasVerifier = 1;
   let assemblyFormat = "$cond attr-dict";
 }

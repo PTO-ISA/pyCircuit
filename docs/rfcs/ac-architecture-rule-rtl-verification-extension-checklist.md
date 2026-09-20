@@ -943,13 +943,18 @@ verified bounded gfsim slice.
 - `compiler/acir/lib/CodeGen/QueueGraphGenerator.cpp`
 - `simulator/gfsim/`
 
-- [ ] Carry obligation and blocker records in QueueGraphPlan.
+- [x] Carry obligation records in QueueGraphPlan; blocker taxonomy remains a
+      later diagnostic extension.
 - [ ] Generate side-effect-free blocker evaluation.
-- [ ] Generate C++/gfsim runtime checks.
+- [x] Generate matched C++/gfsim runtime checks.
 - [ ] Add rule firing, blocker, conflict, recovery, and stale-rejection counters.
-- [ ] Emit structured failure events with rule/obligation/identity/resource.
-- [ ] Prove debug/coverage disabled versus enabled behavioral parity.
-- [ ] Compose with the atomic Queue/state transaction checklist.
+- [x] Emit structured failure records with stable obligation/source/module
+      identity before publication.
+- [x] Preserve functional behavior with obligation counters, trace probes, and
+      coverage output enabled; directed pass/fail stimuli differ only on the
+      admitted violation.
+- [x] Compose obligation checks with the atomic Queue/state transaction
+      checklist before publication.
 
 **Exit:** a blocked rule reports the exact blocker without changing its firing
 cycle, and the same runtime violation names the obligation later emitted as SVA.
@@ -963,15 +968,18 @@ cycle, and the same runtime violation names the obligation later emitted as SVA.
 - `compiler/mlir/lib/Emit/VerilogEmitter.cpp`
 - testbench/SVA generation only where it consumes the shared obligation record
 
-- [ ] Lower admitted obligation conditions to PYC.
-- [ ] Verify clock, reset/recovery, active-domain, and sampling metadata.
-- [ ] Emit obligation-linked SVA.
-- [ ] Emit one-hot AND-OR only with matching proof/obligation.
-- [ ] Reject synthesis/deployment admission based only on a runtime check.
-- [ ] Add ready/valid, no-partial-commit, no-stale-update, range, credit, and
+- [x] Lower admitted obligation conditions to PYC.
+- [x] Verify clock, reset/recovery, active-domain, and sampling metadata.
+- [x] Emit obligation-linked SVA and same-ID coverage properties.
+- [x] Emit one-hot AND-OR only with matching proof/obligation; the current
+      priority encoder remains priority structured and runtime onehot proof is
+      rejected.
+- [x] Reject synthesis/deployment admission based only on a runtime check.
+- [x] Add ready/valid, no-partial-commit, no-stale-update, range, credit, and
       alignment SVA fixtures.
-- [ ] Reject liveness kinds until temporal semantics are supported.
-- [ ] Prove C++ assertion and SVA share condition semantics and ID.
+- [x] Reject liveness kinds until temporal semantics are supported.
+- [x] Prove C++ assertion and SVA share condition semantics and ID with matched
+      passing and failing directed stimuli.
 
 **Exit:** one source rule produces inspectable C++ and SVA checks with the same
 ID and passes/fails on matched directed stimulus.
@@ -985,14 +993,14 @@ ID and passes/fails on matched directed stimulus.
   outside the emitter
 - primitive-selection and generated-RTL tests
 
-- [ ] Enforce ASCII, explicit widths, named intermediates, and named port
+- [x] Enforce ASCII, explicit widths, named intermediates, and named port
       connections.
-- [ ] Enforce deterministic module/net/instance/assertion order.
-- [ ] Reject expressions inside primitive/submodule port connections.
-- [ ] Add priority-versus-onehot structural checks.
-- [ ] Add dead dependency and bit-use audit hooks.
-- [ ] Add two-clean-build byte comparison.
-- [ ] Generate a representative colored HTML diff artifact in evidence lanes.
+- [x] Enforce deterministic module/net/instance/assertion order.
+- [x] Reject expressions inside primitive/submodule port connections.
+- [x] Add priority-versus-onehot structural checks.
+- [x] Add dead dependency, bit-use, and expensive-operation audit hooks.
+- [x] Add two-clean-build byte comparison.
+- [x] Generate a representative colored HTML diff artifact in evidence lanes.
 
 **Exit:** malformed emitter fixtures fail closed, clean fixtures are
 byte-identical, and generated source is human-auditable without opaque names.

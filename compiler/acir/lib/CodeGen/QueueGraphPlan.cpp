@@ -647,14 +647,13 @@ std::string printAttribute(mlir::Attribute attribute) {
 }
 
 std::string runtimeMaterializationSignature(
-    const QueueArchitectureObligationPlan &obligation) {
+    const QueueArchitectureObligationPlan &obligation,
+    llvm::StringRef target) {
   auto predicate = [](const std::string &rule,
                       std::optional<uint64_t> root) {
     return root ? rule + ":" + std::to_string(*root) : std::string("-");
   };
-  return "module=" + obligation.module + ";target=" +
-         (obligation.targets.empty() ? std::string("-")
-                                     : obligation.targets.front()) +
+  return "module=" + obligation.module + ";target=" + target.str() +
          ";firing=" + obligation.firing +
          ";input=" + std::to_string(obligation.inputOrdinal) +
          ";maximum=" + std::to_string(obligation.maximum) +
@@ -786,6 +785,8 @@ llvm::Expected<QueueSourceProvenancePlan>
 extractSourceProvenance(mlir::Operation *operation) {
   QueueSourceProvenancePlan result;
   mlir::Attribute raw = operation->getAttr("ac.source_provenance");
+  if (!raw && mlir::isa<ac::ArchitectureObligationOp>(operation))
+    raw = operation->getAttr("source_provenance");
   if (!raw)
     return result;
   auto origins = mlir::dyn_cast<mlir::ArrayAttr>(raw);
@@ -2694,7 +2695,9 @@ private:
             materialization.getAs<mlir::IntegerAttr>("input_ordinal").getInt());
         item.maximum = static_cast<uint64_t>(
             materialization.getAs<mlir::IntegerAttr>("maximum").getInt());
-        item.materializations = {runtimeMaterializationSignature(item)};
+        for (llvm::StringRef target : item.targets)
+          item.materializations.push_back(
+              runtimeMaterializationSignature(item, target));
       }
       nested.plan.architectureObligations.push_back(std::move(item));
     }
@@ -4592,19 +4595,34 @@ llvm::Error verifyQueueGraphPlan(const QueueGraphPlan &plan) {
       });
     };
     if (obligation.conditionTable != "ac.arch_expression_table" || !condition ||
-        condition->type != "!ac.var<i1>" || obligation.sampling.empty() ||
-        (obligation.severity != "error" && obligation.severity != "fatal") ||
-        obligation.sourceRules.empty() || obligation.stateOwners.empty() ||
-        obligation.sourceProvenance.origins.empty() ||
-        !uniqueStrings(obligation.sourceRules) ||
+        condition->type != "!ac.var<i1>")
+      return planError(
+          "architecture obligation condition is missing or not exact i1");
+    if (obligation.sampling.empty() ||
+        (obligation.severity != "error" && obligation.severity != "fatal"))
+      return planError(
+          "architecture obligation sampling or severity is incomplete");
+    if (obligation.sourceRules.empty() || obligation.stateOwners.empty() ||
+        obligation.sourceProvenance.origins.empty())
+      return planError(
+          "architecture obligation source or owner linkage is incomplete "
+          "(rules=" +
+          std::to_string(obligation.sourceRules.size()) + ", owners=" +
+          std::to_string(obligation.stateOwners.size()) + ", origins=" +
+          std::to_string(obligation.sourceProvenance.origins.size()) + ")");
+    if (!uniqueStrings(obligation.sourceRules) ||
         !uniqueStrings(obligation.stateOwners) ||
         !uniqueStrings(obligation.targets) ||
-        !uniqueStrings(obligation.ndfIds) ||
-        conditionScope == archScopes.end() ||
+        !uniqueStrings(obligation.ndfIds))
+      return planError(
+          "architecture obligation typed references are empty or duplicated");
+    if (conditionScope == archScopes.end() ||
         (!conditionScope->getValue()->ownerRule.empty() &&
          !llvm::is_contained(obligation.sourceRules,
                              conditionScope->getValue()->ownerRule)))
-      return planError("architecture obligation typed record is incomplete");
+      return planError(
+          "architecture obligation expression scope is not owned by a source "
+          "rule");
     if (auto error = verifySourceProvenancePlan(obligation.sourceProvenance))
       return error;
     if (obligation.status == "pending" || obligation.status == "rejected")
@@ -4615,15 +4633,19 @@ llvm::Error verifyQueueGraphPlan(const QueueGraphPlan &plan) {
           "proved obligations must be extracted as closed elision records");
     if (obligation.status != "runtime_checked" || obligation.kind != "range" ||
         !obligation.proofCertificate.empty() ||
-        obligation.materializations.size() != 1 ||
-        obligation.targets.size() != 1 ||
-        obligation.targets.front() != "gfsim" || obligation.firing.empty())
+        obligation.materializations.size() != 3 ||
+        obligation.targets !=
+            std::vector<std::string>({"cpp", "gfsim", "sva"}) ||
+        obligation.firing.empty())
       return planError(
-          "QueueGraph admits only complete gfsim runtime range obligations");
-    if (obligation.materializations.front() !=
-        runtimeMaterializationSignature(obligation))
-      return planError(
-          "runtime obligation materialization signature is inconsistent");
+          "QueueGraph admits only complete cpp/gfsim/sva runtime range "
+          "obligations");
+    for (auto [index, materialization] :
+         llvm::enumerate(obligation.materializations))
+      if (materialization != runtimeMaterializationSignature(
+                                 obligation, obligation.targets[index]))
+        return planError(
+            "runtime obligation materialization signature is inconsistent");
     auto firing = llvm::find_if(plan.blocks, [&](const QueueBlockPlan &block) {
       return block.kind == "firing" && block.stableId == obligation.firing;
     });

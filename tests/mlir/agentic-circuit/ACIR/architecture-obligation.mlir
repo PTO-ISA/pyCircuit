@@ -16,8 +16,12 @@ builtin.module {
       status #ac<architecture_obligation_status runtime_checked>
       condition {table = "ac.arch_expression_table", rule = "bounded", node = 2 : i64}
       rules ["bounded"] owners [{resource = @state, owner_path = "/M/state", owner_stable_id = "state"}]
-      targets [#ac<architecture_runtime_target gfsim>]
-      materializations [{target = #ac<architecture_runtime_target gfsim>, firing = "bounded", input_ordinal = 0 : i64, maximum = 127 : i64}]
+      targets [#ac<architecture_runtime_target cpp>, #ac<architecture_runtime_target gfsim>, #ac<architecture_runtime_target sva>]
+      materializations [
+        {target = #ac<architecture_runtime_target cpp>, firing = "bounded", input_ordinal = 0 : i64, maximum = 127 : i64},
+        {target = #ac<architecture_runtime_target gfsim>, firing = "bounded", input_ordinal = 0 : i64, maximum = 127 : i64},
+        {target = #ac<architecture_runtime_target sva>, firing = "bounded", input_ordinal = 0 : i64, maximum = 127 : i64}
+      ]
       sampling {kind = #ac<architecture_sampling_kind pre_publish>, edge = #ac<architecture_sampling_edge none>, sample_anchor = "bounded", monitor_only = false}
       message "value must be at most 127"
       source [{frames = [{kind = "statement", file = "fixture.py", line = 7 : i64, column = 3 : i64}]}]
@@ -35,4 +39,4 @@ builtin.module {
 // CHECK: ac.arch_obligation @"range:bounded"
 // CHECK-SAME: kind  range
 // CHECK-SAME: status  runtime_checked
-// CHECK-SAME: targets [#ac<architecture_runtime_target gfsim>]
+// CHECK-SAME: targets [#ac<architecture_runtime_target cpp>, #ac<architecture_runtime_target gfsim>, #ac<architecture_runtime_target sva>]

@@ -2996,6 +2996,68 @@ emitQueueGraphPycBody(
          << type.str() << ", " << type.str() << " -> " << type.str() << "\n";
     return result;
   };
+  struct ArchitectureValue {
+    std::string value;
+    std::string type;
+  };
+  auto emitArchitectureExpression =
+      [&](auto &&self, const QueueArchitectureExpressionScopePlan &scope,
+          const QueueBlockPlan &firing,
+          uint64_t root) -> llvm::Expected<ArchitectureValue> {
+    if (root >= scope.nodes.size())
+      return pycError("architecture expression root is out of range");
+    const QueueArchitectureExpressionNodePlan &node = scope.nodes[root];
+    if (node.opcode == "rule_input") {
+      if (!node.hasInputOrdinal || node.inputOrdinal >= firing.inputs.size())
+        return pycError(
+            "architecture expression references a missing firing input");
+      const std::string &queueName = firing.inputs[node.inputOrdinal];
+      auto value = outputData.find(queueName);
+      const QueuePlan *queue = findQueue(plan, queueName);
+      if (value == outputData.end() || !queue)
+        return pycError(
+            "architecture expression input is not available in PYC");
+      auto type = pycType(plan, queue->payloadType);
+      if (!type)
+        return type.takeError();
+      return ArchitectureValue{value->getValue(), std::move(*type)};
+    }
+    if (node.opcode == "constant") {
+      if (!node.hasLiteral)
+        return pycError("architecture constant has no literal");
+      llvm::StringRef logicalType = node.type;
+      if (logicalType.starts_with("!ac.var<") && logicalType.ends_with('>'))
+        logicalType = logicalType.drop_front(8).drop_back();
+      auto type = pycType(plan, logicalType);
+      if (!type)
+        return type.takeError();
+      return ArchitectureValue{emitConstant(node.literal, *type),
+                               std::move(*type)};
+    }
+    std::vector<ArchitectureValue> operands;
+    operands.reserve(node.operands.size());
+    for (uint64_t operand : node.operands) {
+      auto lowered = self(self, scope, firing, operand);
+      if (!lowered)
+        return lowered.takeError();
+      operands.push_back(std::move(*lowered));
+    }
+    if (node.operation == "ac.var.not" && operands.size() == 1 &&
+        operands[0].type == "i1")
+      return ArchitectureValue{emitNot(operands[0].value), "i1"};
+    if (node.operation == "ac.var.and" && operands.size() == 2 &&
+        operands[0].type == "i1" && operands[1].type == "i1")
+      return ArchitectureValue{
+          emitBinary("and", operands[0].value, operands[1].value, "i1"),
+          "i1"};
+    if (node.operation == "ac.var.cmp" && node.predicate == "ule" &&
+        operands.size() == 2 && operands[0].type == operands[1].type) {
+      std::string greater = emitBinary("ult", operands[1].value,
+                                       operands[0].value, operands[0].type);
+      return ArchitectureValue{emitNot(greater), "i1"};
+    }
+    return pycError("unsupported architecture expression in PYC lowering");
+  };
   auto emitExtract = [&](llvm::StringRef value, uint64_t lsb,
                          llvm::StringRef inputType,
                          llvm::StringRef resultType) {
@@ -4840,6 +4902,86 @@ emitQueueGraphPycBody(
           return pycError("firing input valid is missing");
         allInputsValid =
             emitBinary("and", allInputsValid, valid->getValue(), "i1");
+      }
+      for (const QueueArchitectureObligationPlan &obligation :
+           plan.architectureObligations) {
+        if (obligation.status != "runtime_checked" ||
+            obligation.firing != block.stableId ||
+            !llvm::is_contained(obligation.targets, "cpp") ||
+            !llvm::is_contained(obligation.targets, "sva"))
+          continue;
+        auto scope = llvm::find_if(
+            plan.architectureExpressionScopes, [&](const auto &candidate) {
+              return candidate.rule == obligation.conditionRule;
+            });
+        if (scope == plan.architectureExpressionScopes.end())
+          return pycError("architecture obligation condition scope is missing");
+        auto condition = emitArchitectureExpression(
+            emitArchitectureExpression, *scope, block,
+            obligation.conditionRoot);
+        if (!condition)
+          return condition.takeError();
+        if (condition->type != "i1")
+          return pycError("architecture obligation condition is not i1");
+
+        auto lowerPredicate =
+            [&](const std::string &rule, std::optional<uint64_t> root,
+                uint64_t fallback) -> llvm::Expected<ArchitectureValue> {
+          if (!root)
+            return ArchitectureValue{emitConstant(fallback, "i1"), "i1"};
+          auto predicateScope = llvm::find_if(
+              plan.architectureExpressionScopes,
+              [&](const auto &candidate) { return candidate.rule == rule; });
+          if (predicateScope == plan.architectureExpressionScopes.end())
+            return pycError(
+                "architecture obligation predicate scope is missing");
+          return emitArchitectureExpression(emitArchitectureExpression,
+                                            *predicateScope, block, *root);
+        };
+        auto active =
+            lowerPredicate(obligation.activeRule, obligation.activeRoot, 1);
+        auto disabled =
+            lowerPredicate(obligation.disableRule, obligation.disableRoot, 0);
+        if (!active)
+          return active.takeError();
+        if (!disabled)
+          return disabled.takeError();
+        if (active->type != "i1" || disabled->type != "i1")
+          return pycError("architecture obligation predicate is not i1");
+
+        std::string applicable =
+            emitBinary("and", allInputsValid, active->value, "i1");
+        applicable =
+            emitBinary("and", applicable, emitNot(disabled->value), "i1");
+        std::string safe = emitBinary("or", emitNot(applicable),
+                                      condition->value, "i1");
+        std::string source = "unknown";
+        if (!obligation.sourceProvenance.origins.empty() &&
+            !obligation.sourceProvenance.origins.front().empty()) {
+          const QueueSourceFramePlan &frame =
+              obligation.sourceProvenance.origins.front().front();
+          source = frame.file + ":" + std::to_string(frame.line) + ":" +
+                   std::to_string(frame.column);
+        }
+        body << "    pyc.assert " << safe << " {msg = "
+             << mlirStringLiteral(obligation.message)
+             << ", obligation_id = " << mlirStringLiteral(obligation.id)
+             << ", obligation_kind = " << mlirStringLiteral(obligation.kind)
+             << ", severity = " << mlirStringLiteral(obligation.severity)
+             << ", sampling_kind = "
+             << mlirStringLiteral(obligation.samplingKind)
+             << ", sampling_edge = "
+             << mlirStringLiteral(obligation.samplingEdge)
+             << ", sample_anchor = "
+             << mlirStringLiteral(obligation.sampleAnchor)
+             << ", source = " << mlirStringLiteral(source)
+             << ", ndf_ids = [";
+        for (auto [index, id] : llvm::enumerate(obligation.ndfIds)) {
+          if (index)
+            body << ", ";
+          body << mlirStringLiteral(id);
+        }
+        body << "]}\n";
       }
       firingAccepted[block.name] =
           emitBinary("and", allInputsValid, allSelectedReady, "i1");

@@ -1110,10 +1110,11 @@ LogicalResult verifyFrozenStructuredQueueGraph(ModuleOp model) {
           return definition.emitOpError(
               "structured QueueGraph module results must be ac.queue values");
       for (Operation &child : moduleCase.getBody().front()) {
-      if (!isa<ac::ScopeOp, ac::InstanceOp, ac::ReturnOp>(child))
+      if (!isa<ac::ScopeOp, ac::InstanceOp, ac::ArchitectureObligationOp,
+               ac::ReturnOp>(child))
         return child.emitOpError(
             "structured QueueGraph module body permits scopes, instances, "
-            "and ac.return only");
+            "architecture obligations, and ac.return only");
       auto instance = dyn_cast<ac::InstanceOp>(child);
       if (!instance)
         continue;
