@@ -5,9 +5,9 @@ artifacts. Names have two distinct roles: source-readable semantic names and
 target-language spellings. A backend name
 must never replace or become the source of semantic identity.
 
-## Accepted Decisions 0274-0277 target and current implementation gap
+## Accepted Decisions 0274-0278 target and current implementation gap
 
-Decisions 0274-0277 are the target naming and finite-family authorities. At the F4/F5 hard cutover, one
+Decisions 0274-0278 are the target naming and finite-family authorities. At the F4/F5 hard cutover, one
 implementation Python/AC source stem owns one `.hpp`/`.cpp` pair, source-owned
 interface shards own nominal declarations, and one parameterized source
 definition publishes one `ac.module` family symbol with ordered non-symbol
@@ -25,11 +25,14 @@ mode, alias, fallback, or compatibility flag is admitted. Family emission is
 also blocked until the source-owned ordered `StaticParameterDecl`, explicit
 finite cases, dependent interface signatures, typed `ModuleFamilyPlan` and
 `ModuleCasePlan`, and verified `pyc.module`/`pyc.module.case` carrier with an
-explicit logical-to-physical interface mapping exist. The current
+explicit logical-to-physical interface mapping exists with Decision 0278's
+typed projection paths, layouts, physical roles and indices, one shared ready
+per Queue, and explicit implicit clock/reset origins. The current
 concrete symbols, static-argument dictionaries, caller observations, and
 specialization sidecars are not a family declaration or case identity. String
-`pyc.params`, concrete PYC function names, case ordinals, and physical carrier
-types likewise cannot become family or nominal identity.
+`pyc.params`, legacy `DependentLiteralAttr`, postfix/path strings, concrete PYC
+function names, case ordinals, and physical carrier types likewise cannot
+become family or nominal identity.
 
 ## Design principles
 
@@ -80,7 +83,7 @@ location and instance identity.
 
 The implemented baseline emits static-argument fragments from parameter names
 and canonical typed values in declaration order and still carries an explicit
-static-argument dictionary. Decision 0277 removes both mechanisms at the hard
+static-argument dictionary. Decisions 0277 and 0278 remove both mechanisms at the hard
 break. The target preserves one family symbol and ordered
 `StaticArgumentsAttr` records; its `ac.module.case` regions are non-symbol
 bodies and generated C++ and RTL retain the family identifier unchanged. The

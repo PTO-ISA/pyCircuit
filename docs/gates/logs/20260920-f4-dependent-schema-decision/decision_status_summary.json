@@ -1,0 +1,13 @@
+{
+  "command_exit": 1,
+  "expected_fail_closed_reason": "gap-in-scope decisions remain",
+  "total_decisions": 278,
+  "rows": 278,
+  "missing_decisions": [],
+  "extra_decisions": [],
+  "invalid_status_decisions": [],
+  "gap_in_scope_decisions": ["0273", "0274", "0275", "0276", "0277", "0278"],
+  "placeholder_evidence_decisions": [],
+  "empty_evidence_decisions": [],
+  "missing_evidence_paths": {}
+}

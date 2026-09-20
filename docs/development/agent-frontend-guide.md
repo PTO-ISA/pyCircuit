@@ -27,10 +27,9 @@ architecture state.
 ## Architecture-rule compiler routing
 
 For exact rule effects, whole-design conflict/order analysis, architecture
-obligations, four-state/SRAM verification, atomic Queue lowering, or
+obligations, four-state/SRAM verification, atomic Queue lowering,
 pointer-owned composition, or static parameter families, read Decisions
-0271-0277 and these documents before
-editing implementation:
+0271-0278 and these documents before editing implementation:
 
 - `docs/rfcs/architecture-rule-compiler-extension.md` for product direction;
 - `docs/rfcs/ac-architecture-rule-rtl-verification-extension-checklist.md` for
@@ -44,17 +43,20 @@ F1+ implementation checkboxes remain open. Do not infer backend semantics from
 the checklist, reuse `ac.marker.obligation` as Architecture Obligation IR, or
 place consumer-specific models in pyCircuit.
 
-For a finite module family, Decisions 0275-0277 require ordered typed
+For a finite module family, Decisions 0275-0278 require ordered typed
 declarations, an explicit source-owned finite case list independent of callers,
 and one `ac.module` family symbol containing ordered non-symbol
 `ac.module.case` concrete High ACIR regions. Author these through
-the exact Decision 0277 signatures. Parameter, constraint, case, and binding
-collections are tuple literals; a child call uses
+the exact Decision 0277 signatures and Decision 0278 dependent-value,
+logical-type, source/provenance, and PYC mapping records. Parameter,
+constraint, case, and binding collections are tuple literals; a child call uses
 `child(runtime_args..., static=case(("name", value), ...))`. An
 unparameterized module normalizes to one empty case. Until complete typed
 header/link coverage, `ModuleFamilyPlan` and `ModuleCasePlan`, and the verified
-`pyc.module`/`pyc.module.case` logical-to-physical carrier exist, do not emit a
-C++ or RTL family. Never recover cases from dictionaries, concrete symbols,
+`pyc.module`/`pyc.module.case` logical-to-physical carrier exist with explicit
+projection paths, packed layouts, physical carrier roles, shared Queue ready,
+and implicit clock/reset origins, do not emit a C++ or RTL family. Never
+recover cases from dictionaries, concrete symbols,
 suffixes, string `pyc.params`, sidecar specialization manifests, or observed
 call sites.
 

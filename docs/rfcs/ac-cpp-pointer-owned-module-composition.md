@@ -1,8 +1,8 @@
 # AC C++ pointer-owned module composition
 
-**Status:** Accepted architecture contract; implementation tracked by Decisions 0274-0277
+**Status:** Accepted architecture contract; implementation tracked by Decisions 0274-0278
 
-**Related decisions:** 0264, 0267, 0269, 0270, 0274, 0275, 0276, 0277
+**Related decisions:** 0264, 0267, 0269, 0270, 0274, 0275, 0276, 0277, 0278
 
 **Implementation checklist:**
 [AC rule and SimQueue atomic lowering checklist](ac-rule-simqueue-atomic-lowering-checklist.md)
@@ -430,7 +430,7 @@ Queue storage representation changes.
 
 ## Specialization and reuse
 
-Decisions 0275-0277 are the normative finite-family schema. Family emission
+Decisions 0275-0278 are the normative finite-family schema. Family emission
 is blocked until the frontend, ACIR/link verifier, QueueGraph, and PYC represent its ordered
 `StaticParameterDecl` records, closed parameter types, required/default state,
 `one_of`/`integer_range` constraints, source-declared `finite_cases`, and closed
@@ -447,6 +447,12 @@ imports and instances; and a `pyc.module`/`pyc.module.case` carrier with an
 explicit logical-to-physical mapping. A backend cannot substitute concrete
 function names, string parameters, or physical-width inference for that
 carrier.
+
+Decision 0278 additionally freezes arbitrary-precision dependent values,
+half-open ranges, Queue lanes/rate, typed source provenance, and the complete
+PYC projection, packed-layout, physical/logical port, implicit clock/reset,
+shared-ready Queue, and case-signature records. Physical width or carrier order
+cannot supply omitted logical identity or metadata.
 
 Specialization equality remains:
 
@@ -496,7 +502,7 @@ cases through typed parameters/generate branches, and Queue storage is selected
 after per-case dependent-type concretization. Open-domain families, richer
 cross-parameter constraints, and family emission from the current
 concrete-symbol baseline remain rejected until a later decision or Decisions
-0275-0277 are implemented and verified.
+0275-0278 are implemented and verified.
 
 ## Names and traceability
 

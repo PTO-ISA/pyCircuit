@@ -7,7 +7,7 @@
 **Architecture extension:**
 [AC architecture-rule, RTL codegen, and verification extension checklist](ac-architecture-rule-rtl-verification-extension-checklist.md)
 
-**Static family authority:** Decisions 0275-0277 in
+**Static family authority:** Decisions 0275-0278 in
 [pyCircuit 6 decisions](pyc6-decisions.md)
 
 This document owns the atomic Queue/state execution slice. Whole-design effect
@@ -404,13 +404,15 @@ effect or vice versa.
 
 **Goal:** connect atomic rule code to the pointer-owned C++ module design.
 
-Family generation is fail-closed until Decisions 0275-0277 are implemented.
+Family generation is fail-closed until Decisions 0275-0278 are implemented.
 The frontend/ACIR/link path must first publish the ordered typed declarations,
 defaults, constraints, complete source-owned finite cases, dependent interface
 skeleton, and ordered non-symbol concrete High ACIR case regions. QueueGraph
 must carry typed `ModuleFamilyPlan` and `ModuleCasePlan` records, and PYC must
 verify `pyc.module`/`pyc.module.case`, typed instance arguments, case-local
-proof ownership, and the explicit logical-to-physical interface mapping before
+proof ownership, and Decision 0278's exact dependent values, logical types,
+projection paths, packed layouts, carrier roles and indices, shared-ready Queue
+mapping, implicit clock/reset origins, and complete case signature before
 RTL, rather than using dictionaries, suffixes, inferred concrete symbols,
 string `pyc.params`, or sidecar specialization manifests.
 
@@ -433,8 +435,8 @@ string `pyc.params`, or sidecar specialization manifests.
 
 **Exit criteria:** nested H1→H2→H3 generated headers/sources compile
 independently and preserve pointer/Queue ownership. Parameterized-family exit
-also requires the Decisions 0275-0277 positive/negative matrices; until then family
-emission rejects rather than using the concrete-symbol baseline.
+also requires the Decisions 0275-0278 positive/negative matrices; until then
+family emission rejects rather than using the concrete-symbol baseline.
 
 ### M8A — Generate short readable names for C++ and Verilator waveforms
 

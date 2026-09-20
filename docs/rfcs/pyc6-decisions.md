@@ -11404,3 +11404,250 @@ schema with one empty-argument case; they do not retain the old direct body.
   collections, proof generalization across cases, and backend-only family
   lowering are not admitted. Implementers must use this exact finite schema or
   reject before publication.
+
+## Decision 0278: dependent family values and PYC port mappings use one exact typed micro-schema
+
+**Status:** Accepted; implementation required
+
+**Refines:** Decisions 0275-0277. This decision supersedes only Decision 0277's
+under-specified dependent-expression, logical-type, provenance, and
+logical-to-physical mapping records. The Python family surface, family/case
+ownership, structural identity, finite-case requirement, and one-stage hard
+break remain unchanged.
+
+**Context / Goal**
+Decision 0277 names the records required at the frontend, ACIR, and PYC
+boundaries, but does not freeze all fields, unions, arithmetic, bounds, carrier
+ordering, Queue lane mapping, or implicit-control origins. Implementing those
+details independently would permit width-limited literals, postfix or string
+paths, inferred layouts, per-lane ready signals, or omitted clock/reset and
+provenance metadata to become accidental contracts. F4 therefore admits the
+following exact micro-schema before dependent family lowering or emission.
+
+**Dependent value records**
+
+`DependentValueAttr` is the closed union of the following records. Each field
+listed here is required; no record admits extra fields, a generic dictionary,
+or an alternate string form.
+
+| Record | Exact fields and meaning |
+| --- | --- |
+| `DependentIntegerLiteralAttr` | `value`: one arbitrary-precision signed mathematical integer, with no storage width or signedness attached |
+| `DependentStaticLiteralAttr` | `value`: one exact member of the closed typed `StaticValueAttr` union from Decision 0277 |
+| `DependentParameterAttr` | `name`: one declared static-parameter identifier |
+| `DependentFieldAttr` | `root`: one `DependentParameterAttr`; `path`: a non-empty ordered array of source identifiers |
+| `DependentAddAttr` | `lhs`, `rhs`: `DependentValueAttr` operands |
+| `DependentSubAttr` | `lhs`, `rhs`: `DependentValueAttr` operands |
+| `DependentMulAttr` | `lhs`, `rhs`: `DependentValueAttr` operands |
+| `DependentIndexWidthAttr` | `capacity`: one `DependentValueAttr` |
+| `DependentCountWidthAttr` | `capacity`: one `DependentValueAttr` |
+| `DependentArgumentAttr` | `name`: one declaration identifier; `value`: one `DependentValueAttr` |
+| `DependentArgumentsAttr` | `arguments`: an ordered array of unique `DependentArgumentAttr` records |
+
+`StaticValueAttr` is exactly the closed union of the typed Boolean, fixed-width
+integer, nominal enum, and nominal immutable-config values frozen by Decision
+0277. A `DependentIntegerLiteralAttr` is deliberately different: it is an
+unbounded mathematical integer used in dependent arithmetic and receives no
+implicit machine width. A `DependentStaticLiteralAttr` preserves an already
+typed static value. `DependentParameterAttr` and `DependentFieldAttr` resolve
+only against the enclosing ordered parameter schema; a field path walks the
+declared nominal config fields one identifier at a time. A dot-separated
+string, postfix expression, ordinal field, host attribute, or lookup callback
+is not an equivalent representation.
+
+The value union is statically typed. `add`, `sub`, `mul`, `index_width`, and
+`count_width` require integer operands. Evaluation uses mathematical integers:
+addition, subtraction, and multiplication are exact and never wrap, truncate,
+saturate, or acquire an implicit signedness. For integer `n`,
+`index_width(n) = max(1, ceil(log2(n)))` and requires `n > 0`;
+`count_width(n) = max(1, ceil(log2(n + 1)))` and requires `n >= 0`.
+Representability is checked only when the evaluated result enters a typed
+consumer. A fixed-width static integer must fit its declared width and
+signedness; a bit width, array length, Queue lane count, or other unsigned
+cardinality must be positive and fit its consumer's admitted bound. A negative,
+zero where positivity is required, out-of-bound, ill-typed, or unresolved
+result rejects before case publication. Host integer overflow or target C++
+integer overflow cannot define acceptance.
+
+Argument order is declaration order and is semantic. An argument tuple names
+every declaration exactly once after defaults, with no missing, extra,
+duplicate, or reordered name. Equality and canonical ordering recursively use
+the record tag, normalized field values, declaration order, and mathematical
+integer value. Printed decimal spelling, source token width, dictionary order,
+object identity, suffix, or hash never participates.
+
+**Logical type-expression records**
+
+`TypeExprAttr` is the closed union below. Every nested `DependentValueAttr`
+must evaluate for every admitted case before a concrete case signature is
+published.
+
+| Record | Exact fields and constraints |
+| --- | --- |
+| `TypeExprConcreteAttr` | `type`: one already concrete admitted logical MLIR type |
+| `TypeExprBitsAttr` | `width`: integer-valued `DependentValueAttr`; `signed`: Boolean literal; evaluated width is positive |
+| `TypeExprRangeAttr` | `lowerInclusive`, `upperExclusive`: integer-valued `DependentValueAttr`; materialized range is unsigned and satisfies `0 <= lowerInclusive < upperExclusive <= 2^64` |
+| `TypeExprValueArrayAttr` | `length`: integer-valued `DependentValueAttr`; `element`: one `TypeExprAttr`; evaluated length is positive |
+| `TypeExprTupleAttr` | `elements`: a non-empty ordered array of `TypeExprAttr` |
+| `TypeExprNominalAttr` | `declaration`: one nominal declaration `SymbolRefAttr`; `arguments`: complete ordered `DependentArgumentsAttr` |
+| `TypeExprQueueAttr` | `payload`: one `TypeExprAttr`; `lanes`, `rate`: integer-valued `DependentValueAttr`; after evaluation `lanes > 0` and `1 <= rate <= lanes` |
+
+`TypeExprRangeAttr` is half-open. It denotes exactly the unsigned values
+`lowerInclusive <= value < upperExclusive`; an inclusive upper bound, signed
+range, empty range, or endpoint above `2^64` rejects. Nominal identity is the
+declaration symbol plus ordered dependent arguments, never a string or
+postfixed concrete name. Queue `lanes` is the number of parallel payload
+carriers and `rate` is the maximum number of lanes admitted in one firing;
+neither may be omitted or inferred from physical ports.
+
+**Ownership, interface, and provenance records**
+
+The family schema uses typed source records rather than `DictionaryAttr`:
+
+| Record | Exact fields and constraints |
+| --- | --- |
+| `SourceProvenanceAttr` | `path`, `line`, `column`, `endLine`, `endColumn`; path is normalized, positions are positive, and the end is not before the start |
+| `SourceOwnerAttr` | `implementation`, `declaration`: normalized source paths, both present even when they name the same file |
+| `InterfacePortAttr` | `name`, `direction`, `logicalType`, `provenance`; direction is exactly `input` or `output`, logical type is `TypeExprAttr`, provenance is `SourceProvenanceAttr` |
+| `ModuleInterfaceAttr` | `ports`: ordered unique `InterfacePortAttr` records in declaration order |
+
+The source owner is family-level authority. Each interface port retains its own
+source provenance through header publication, import/link verification,
+materialization, QueueGraph, and PYC. A missing owner, dictionary provenance,
+path-only provenance, inferred line, or backend-created port is invalid.
+
+**Canonical PYC projection and signature records**
+
+PYC uses the following complete typed records. No layout, projection, carrier,
+control, or case field may be omitted and reconstructed by a backend.
+
+| Record | Exact fields and constraints |
+| --- | --- |
+| `ProjectionFieldAttr` | `name`: one nominal field identifier |
+| `ProjectionTupleElementAttr` | `index`: zero-based tuple element index |
+| `ProjectionArrayElementAttr` | `index`: zero-based value-array element index |
+| `ProjectionPathAttr` | `steps`: ordered array of the closed projection-step union above; the empty path denotes the logical root |
+| `PackedLeafAttr` | `path`, `logicalType`, `lsb`, `width`; path is `ProjectionPathAttr`, logical type is the exact leaf `TypeExprAttr`, and `lsb`/`width` are non-negative/positive mathematical integers |
+| `LayoutAttr` | `width`, `leaves`; width is a positive mathematical integer and leaves are ordered by increasing `lsb`, non-overlapping, in bounds, and exactly cover `[0, width)` |
+| `PhysicalPortAttr` | `direction`, `index`, `type`, `role`, optional `lane`, optional `layout`; direction is `input` or `result`; role is `value`, `queue_valid`, `queue_data`, or `queue_ready` |
+| `LogicalPortMappingAttr` | `direction`, `index`, `name`, `logicalType`, `carriers`, `provenance`; logical direction is `input` or `output`, index is declaration-order within that direction, carriers are ordered `PhysicalPortAttr` references |
+| `ImplicitControlOriginAttr` | `kind`, `source`, `provenance`; kind is `clock` or `reset`, source is exactly `implicit`, provenance is typed |
+| `ControlPortMappingAttr` | `kind`, `physicalInputIndex`, `type`, `origin`; clock uses `!pyc.clock`, reset uses `!pyc.reset`, and origin is `ImplicitControlOriginAttr` of the same kind |
+| `ModulePortMappingAttr` | `controls`, `logicalPorts`, `physicalInputs`, `physicalResults`; all are ordered typed arrays and together cover the physical signature exactly once |
+| `ModuleCaseSignatureAttr` | `arguments`, `logical`, `physical`, `mapping`; arguments are complete `DependentArgumentsAttr`, logical is the materialized `ModuleInterfaceAttr`, physical is one concrete `FunctionType`, and mapping is `ModulePortMappingAttr` |
+
+`PhysicalPortAttr.lane` is present exactly for `queue_valid` and `queue_data`
+and satisfies `0 <= lane < lanes`; it is absent for `value` and
+`queue_ready`. `layout` is present exactly for `value` and `queue_data` packed
+carriers and absent for one-bit valid/ready carriers. A layout's leaf paths are
+relative to the logical port root and are unique. Aggregate packing is
+little-offset: lower `lsb` values precede higher values; tuple/array declaration
+order and nominal field declaration order define recursive leaf order.
+
+Every case has implicit clock and reset physical inputs. Clock is physical
+input index 0 and reset is physical input index 1, with `!pyc.clock` and
+`!pyc.reset` types and explicit `implicit` origins. They are represented by
+the two `ControlPortMappingAttr` records, ordered clock then reset, and are not
+logical interface ports. Non-control physical-input indices start at 2.
+
+A scalar or packed non-Queue logical port maps to exactly one `value` carrier.
+A Queue maps each lane in ascending order to one `queue_valid` carrier and one
+`queue_data` carrier, followed by exactly one shared `queue_ready` carrier with
+no lane. A Queue input's valid/data carriers are physical inputs and its shared
+ready carrier is a physical result. A Queue output's valid/data carriers are
+physical results and its shared ready carrier is a physical input. Per-lane
+ready carriers, an inferred shared-ready position, missing lanes, or a carrier
+whose direction disagrees with the logical Queue direction reject.
+
+Within each physical direction, ordering is deterministic: implicit controls
+first for inputs; then logical ports in declaration order; within a Queue,
+lanes in ascending order with `queue_valid` immediately before `queue_data`;
+the single shared `queue_ready` follows all lane carriers in its direction.
+`PhysicalPortAttr.index` values are contiguous in that order. The mapping
+verifier proves that every physical input/result is referenced exactly once,
+every logical port is covered exactly once, packed layouts reconstruct the
+materialized logical type exactly, and `ModuleCaseSignatureAttr.physical`
+matches the ordered carrier types exactly.
+
+**Family, case, import, and instance verification**
+
+- A family verifies every dependent record against its own ordered static
+  declarations and nominal declarations before verifying cases. Every declared
+  case evaluates all expressions and produces exactly one
+  `ModuleCaseSignatureAttr`; canonical argument order is the `StaticCasesAttr`
+  order from the source owner.
+- Each case's materialized logical interface must equal the family skeleton
+  under that case's arguments. Its body block arguments, return operands,
+  physical `FunctionType`, mappings, layouts, controls, and provenance must
+  agree with that signature exactly.
+- An import carries the complete family schema plus the dependent/type records
+  needed to derive every case signature. Link verification recomputes and
+  compares the full canonical schema and every case signature, including
+  unused cases; it does not accept a digest, name, or partial inventory.
+- An instance carries complete ordered `DependentArgumentsAttr`, selects one
+  declared case structurally, and uses that case's exact logical and physical
+  signature. Missing, extra, reordered, ill-typed, unresolved, or runtime
+  arguments reject before backend admission.
+- Equality is structural and recursive. Family identity remains the family
+  symbol; case identity remains `(family symbol, ordered typed arguments)`.
+  Projection paths, layouts, port indices, carrier roles, Queue lanes,
+  controls, owner paths, and provenance remain metadata that must compare
+  exactly where their owning records are required; none creates a second
+  family or case identity.
+
+**Acceptance matrix**
+
+| Input | Required result |
+| --- | --- |
+| arbitrary-precision positive/negative integer literals and exact `+`, `-`, `*` within a representable consumer | mathematical result survives parse/print, evaluation, import/link, case materialization, and PYC unchanged |
+| typed Boolean/integer/enum/config static literal, parameter reference, and nested config field path | exact closed record tag, type, root, and ordered field path survive every carrier |
+| boundary `index_width`/`count_width` capacities | exact mathematical widths, including `index_width(1)=1`, `count_width(0)=1`, and no host-width dependence |
+| dependent bits, half-open range ending at `2^64`, value array, non-empty tuple, nominal application, and Queue with `rate <= lanes` | one exact materialized logical type per case |
+| aggregate value port | complete deterministic packed leaves exactly cover its physical carrier layout |
+| Queue input/output with multiple lanes | ascending valid/data lane carriers plus exactly one shared ready carrier in the opposite physical direction |
+| family case with no explicit clock/reset logical ports | physical inputs 0/1 are explicit implicit-origin clock/reset controls and all remaining mapping indices are stable |
+| complete source owner and per-port provenance across an unused imported case | byte-stable typed metadata and exact import/link agreement independent of caller order |
+
+**Negative matrix**
+
+| Input | Required rejection |
+| --- | --- |
+| width-limited `DependentLiteralAttr`, string/postfix expression, dot-separated field path, dictionary lookup, host callback, or unlisted expression tag | legacy or untyped dependent value carrier |
+| arithmetic on a non-integer, unresolved parameter/field, wrap/truncation, invalid width/cardinality, or result outside its typed consumer | invalid dependent evaluation or representability |
+| inclusive/signed/empty range, negative endpoint, or `upperExclusive > 2^64` | invalid `TypeExprRangeAttr` |
+| empty tuple, zero array length, zero Queue lanes, `rate == 0`, `rate > lanes`, missing lanes/rate, or inferred Queue shape | invalid logical type expression |
+| missing/extra/reordered dependent argument, string nominal name, or nominal application without complete dependent arguments | invalid nominal/case application |
+| dictionary/path-only/missing provenance, absent implementation/declaration owner, or synthesized backend metadata | incomplete source-owned interface |
+| missing/overlapping/out-of-order packed leaf, uncovered bit, duplicate projection path, width-inferred logical identity, or projection step outside its logical type | invalid layout/projection |
+| per-lane ready, missing shared ready, ready with a lane, invalid Queue carrier direction, duplicate/missing physical index, or carrier omitted from the function type | invalid Queue or physical mapping |
+| omitted/reordered/inferred clock or reset, non-implicit origin, wrong PYC control type, or non-control input occupying index 0/1 | invalid control mapping |
+| family/case/import/instance omits any required argument, logical type, physical type, mapping, layout, owner, or provenance field | incomplete typed family carrier |
+
+**Required verification**
+- AttrDef parse/print, canonicalization, equality, and verifier tests cover every
+  record and union member, arbitrary-precision arithmetic, width functions,
+  consumer representability, and all malformed combinations above.
+- Family/case tests cover full expression evaluation, exact materialized
+  signatures, case order, body agreement, and case-local closure.
+- Package tests recompute full source/import schemas and case signatures and
+  reject missing, extra, reordered, stale, or partially serialized metadata.
+- PYC positives cover scalar, aggregate, nominal, Queue, multi-lane,
+  shared-ready, and implicit-control mappings. Negatives cover every layout,
+  carrier, Queue direction, control-origin, and physical-signature mismatch.
+- Deterministic clean re-emission proves byte-identical argument, projection,
+  leaf, carrier, control, mapping, and case-signature order.
+- Repository/API absence gates reject `DependentLiteralAttr`, string or postfix
+  dependent expressions, string nominal applications, per-lane ready,
+  inferred layouts, omitted clock/reset origins, dictionary provenance, and
+  backend reconstruction of any required record.
+
+**One-stage hard break**
+
+Implementation replaces the old width-limited `DependentLiteralAttr`, string
+or postfix dependent expressions, path strings, string nominal types, omitted
+Queue lanes/rate, inferred/per-lane ready mapping, inferred packed layout,
+implicit-but-unrecorded clock/reset, dictionary provenance, and partial case
+signature metadata in one change. There is no reader, upgrader, alias,
+fallback, optional metadata mode, or dual schema. Until this exact micro-schema
+and its positive/negative matrix are implemented and verified, dependent
+family publication and C++/RTL family emission remain blocked.
