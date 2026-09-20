@@ -1,4 +1,6 @@
 #include "pyc/Dialect/PYC/PYCDialect.h"
+#include "pyc/Dialect/PYC/PYCAttributes.h"
+#include "llvm/ADT/TypeSwitch.h"
 
 #include "pyc/Dialect/PYC/PYCOps.h"
 #include "pyc/Dialect/PYC/PYCTypes.h"
@@ -6,6 +8,9 @@
 #include "mlir/IR/DialectImplementation.h"
 
 using namespace mlir;
+
+#define GET_ATTRDEF_CLASSES
+#include "pyc/Dialect/PYC/PYCAttributes.cpp.inc"
 using namespace pyc;
 
 PYCDialect::PYCDialect(MLIRContext *ctx) : Dialect(getDialectNamespace(), ctx, TypeID::get<PYCDialect>()) {
@@ -53,6 +58,10 @@ void PYCDialect::printType(Type type, DialectAsmPrinter &printer) const {
 }
 
 void PYCDialect::initialize() {
+  addAttributes<
+#define GET_ATTRDEF_LIST
+#include "pyc/Dialect/PYC/PYCAttributes.cpp.inc"
+      >();
   addTypes<
 #define GET_TYPEDEF_LIST
 #include "pyc/Dialect/PYC/PYCTypes.cpp.inc"

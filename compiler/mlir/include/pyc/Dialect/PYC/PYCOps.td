@@ -6,9 +6,11 @@
 
 include "mlir/IR/OpBase.td"
 include "mlir/IR/CommonAttrConstraints.td"
+include "mlir/IR/SymbolInterfaces.td"
 include "mlir/Interfaces/SideEffectInterfaces.td"
 include "mlir/Interfaces/InferTypeOpInterface.td"
 include "pyc/Dialect/PYC/PYCTypes.td"
+include "pyc/Dialect/PYC/PYCAttributes.td"
 
 class PYC_Op<string mnemonic, list<Trait> traits = []> :
     Op<PYCDialect, mnemonic, traits>;
@@ -372,9 +374,52 @@ def PYC_CdcSyncOp : PYC_Op<"cdc_sync", [MemoryEffects<[MemRead, MemWrite]>, AllT
   let assemblyFormat = "$clk `,` $rst `,` $in attr-dict `:` type($out)";
 }
 
+def PYC_FamilyOp : PYC_Op<"module", [
+    Symbol, SymbolTable, IsolatedFromAbove, SingleBlock, NoTerminator
+  ]> {
+  let summary = "one verified finite logical/physical module family";
+  let arguments = (ins SymbolNameAttr:$sym_name,
+                       OptionalAttr<StrAttr>:$sym_visibility,
+                       ACIR_SourceOwnerAttr:$source,
+                       ACIR_ModuleFamilySchemaAttr:$schema);
+  let regions = (region AnyRegion:$body);
+  let assemblyFormat = "$sym_name `source` qualified($source) `schema` qualified($schema) $body attr-dict";
+  let hasVerifier = 1;
+}
+
+def PYC_ModuleImportOp : PYC_Op<"module.import", [Symbol]> {
+  let summary = "source-owned finite module family import";
+  let arguments = (ins SymbolNameAttr:$sym_name,
+                       OptionalAttr<StrAttr>:$sym_visibility,
+                       ACIR_SourceOwnerAttr:$source,
+                       ACIR_ModuleFamilySchemaAttr:$schema);
+  let assemblyFormat = "$sym_name `source` qualified($source) `schema` qualified($schema) attr-dict";
+  let hasVerifier = 1;
+}
+
+def PYC_ModuleCaseOp : PYC_Op<"module.case", [
+    SymbolTable, IsolatedFromAbove, SingleBlock
+  ]> {
+  let summary = "one concrete physical case of a finite PYC family";
+  let arguments = (ins PYC_ModuleCaseSignatureAttr:$signature,
+                       ACIR_SourceProvenanceAttr:$source_provenance);
+  let regions = (region AnyRegion:$body);
+  let assemblyFormat = "`signature` qualified($signature) `source` qualified($source_provenance) $body attr-dict";
+  let hasVerifier = 1;
+}
+
+def PYC_ReturnOp : PYC_Op<"return", [Terminator, HasParent<"ModuleCaseOp">]> {
+  let summary = "return physical carriers from one PYC family case";
+  let arguments = (ins Variadic<AnyType>:$values);
+  let assemblyFormat = "$values attr-dict (`:` type($values)^)?";
+  let hasVerifier = 1;
+}
+
 def PYC_InstanceOp : PYC_Op<"instance", []> {
   let summary = "Instantiate a sub-module";
-  let arguments = (ins Variadic<AnyType>:$inputs, FlatSymbolRefAttr:$callee, OptionalAttr<StrAttr>:$name);
+  let arguments = (ins Variadic<AnyType>:$inputs, FlatSymbolRefAttr:$callee,
+                       SymbolNameAttr:$name,
+                       ACIR_DependentArgumentsAttr:$static_args);
   let results = (outs Variadic<AnyType>:$outputs);
   let hasVerifier = 1;
   let assemblyFormat = "$inputs attr-dict `:` functional-type($inputs, $outputs)";

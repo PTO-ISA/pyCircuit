@@ -20,7 +20,7 @@ Human-readable diagnostics generally look like:
 
 - `api-hygiene`: repository/static scan
 - `api-contract`: CLI pre-JIT scan of entry file + local imports
-- `jit`: frontend elaboration errors
+- `family`: typed finite-family declaration and lowering errors
 - MLIR pass errors from `pycc` (for example `pyc-check-frontend-contract`)
 
 ## Frontend contract marker

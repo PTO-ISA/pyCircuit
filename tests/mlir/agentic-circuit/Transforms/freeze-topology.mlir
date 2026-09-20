@@ -14,7 +14,8 @@ builtin.module  {
       workload @Top::@workload seed {kind = "fixed", value = 7 : i64}
       instrumentation [@Top::@workload::@trace]
       results {id = "default", format = "json"} selected true
-  ac.module @Top() parameters {} graph {
+ac.module @Top source #ac.source_owner<"tests/native_family.py", "tests/native_family.py"> schema #ac.module_family_schema<#ac.static_parameters<[]>, #ac.static_cases<[#ac.static_arguments<[]>]>, #ac.module_interface<[]>, #ac.source_owner<"tests/native_family.py", "tests/native_family.py">, []> {
+    ac.module.case arguments #ac.static_arguments<[]> type () -> () source #ac.source_provenance<"tests/native_family.py", 1, 1, 1, 1> graph {
     %true = arith.constant true
     ac.require %true, "topology is concrete"
     ac.ensure %true, "topology remains deterministic"
@@ -27,6 +28,8 @@ builtin.module  {
       ac.yield_sim
     }
     ac.return
+
+    }
   }
 }
 // FROZEN: module attributes {
@@ -47,10 +50,13 @@ builtin.module  {
   ac.system @soc root @Top as "root" tick 0 "cycle"
       seed {kind = "fixed", value = 0 : i64} instrumentation []
       results {id = "default", format = "json"} selected true
-  ac.module @Top() parameters {} graph {
+ac.module @Top source #ac.source_owner<"tests/native_family.py", "tests/native_family.py"> schema #ac.module_family_schema<#ac.static_parameters<[]>, #ac.static_cases<[#ac.static_arguments<[]>]>, #ac.module_interface<[]>, #ac.source_owner<"tests/native_family.py", "tests/native_family.py">, []> {
+    ac.module.case arguments #ac.static_arguments<[]> type () -> () source #ac.source_provenance<"tests/native_family.py", 1, 1, 1, 1> graph {
     %false = arith.constant false
     ac.require %false, "must hold"
     ac.return
+
+    }
   }
 }
 // FALSE-CONTRACT: topology-freeze contract failed: must hold
@@ -60,10 +66,13 @@ builtin.module  {
   ac.system @soc root @Top as "root" tick 0 "cycle"
       seed {kind = "fixed", value = 0 : i64} instrumentation []
       results {id = "default", format = "json"} selected true
-  ac.module @Top(i1) parameters {} graph {
+ac.module @Top source #ac.source_owner<"tests/native_family.py", "tests/native_family.py"> schema #ac.module_family_schema<#ac.static_parameters<[]>, #ac.static_cases<[#ac.static_arguments<[]>]>, #ac.module_interface<[#ac.interface_port<"input_0", "input", #ac.type_expr<#ac.type_expr_concrete<i1>>, #ac.source_provenance<"tests/native_family.py", 1, 1, 1, 1>>]>, #ac.source_owner<"tests/native_family.py", "tests/native_family.py">, []> {
+    ac.module.case arguments #ac.static_arguments<[]> type (i1) -> () source #ac.source_provenance<"tests/native_family.py", 1, 1, 1, 1> graph {
   ^bb0(%condition : i1):
     ac.ensure %condition, "must be statically proven"
     ac.return
+
+    }
   }
 }
 // UNPROVEN-CONTRACT: topology-freeze contract is not statically provable: must be statically proven
@@ -72,7 +81,10 @@ builtin.module  {
 builtin.module attributes {
   ac.system = "fake"
 } {
-  ac.module @Top() parameters {} graph { ac.return }
+ac.module @Top source #ac.source_owner<"tests/native_family.py", "tests/native_family.py"> schema #ac.module_family_schema<#ac.static_parameters<[]>, #ac.static_cases<[#ac.static_arguments<[]>]>, #ac.module_interface<[]>, #ac.source_owner<"tests/native_family.py", "tests/native_family.py">, []> {
+    ac.module.case arguments #ac.static_arguments<[]> type () -> () source #ac.source_provenance<"tests/native_family.py", 1, 1, 1, 1> graph { ac.return
+    }
+  }
 }
 // FORGED-FLAT: flat QueueGraph model requires ac.model_kind = "queue_graph"
 
@@ -82,7 +94,10 @@ builtin.module attributes {
   ac.queue_graph_domain = "cycle",
   ac.system = "fake"
 } {
-  ac.module @Top() parameters {} graph { ac.return }
+ac.module @Top source #ac.source_owner<"tests/native_family.py", "tests/native_family.py"> schema #ac.module_family_schema<#ac.static_parameters<[]>, #ac.static_cases<[#ac.static_arguments<[]>]>, #ac.module_interface<[]>, #ac.source_owner<"tests/native_family.py", "tests/native_family.py">, []> {
+    ac.module.case arguments #ac.static_arguments<[]> type () -> () source #ac.source_provenance<"tests/native_family.py", 1, 1, 1, 1> graph { ac.return
+    }
+  }
 }
 // MIXED-FLAT: 'ac.module' op is not legal at the top level of a flat QueueGraph model
 
@@ -94,6 +109,9 @@ builtin.module attributes {
   ac.system @soc root @Top as "root" tick 0 "cycle"
       seed {kind = "fixed", value = 0 : i64} instrumentation []
       results {id = "default", format = "json"} selected true
-  ac.module @Top() parameters {} graph { ac.return }
+ac.module @Top source #ac.source_owner<"tests/native_family.py", "tests/native_family.py"> schema #ac.module_family_schema<#ac.static_parameters<[]>, #ac.static_cases<[#ac.static_arguments<[]>]>, #ac.module_interface<[]>, #ac.source_owner<"tests/native_family.py", "tests/native_family.py">, []> {
+    ac.module.case arguments #ac.static_arguments<[]> type () -> () source #ac.source_provenance<"tests/native_family.py", 1, 1, 1, 1> graph { ac.return
+    }
+  }
 }
 // MUTATED: frozen owner manifest mismatch; topology ownership was mutated after ac-freeze-topology

@@ -12,6 +12,7 @@ operations:
   - ac.type_scope
   - ac.type_alias
   - ac.module
+  - ac.module.case
   - ac.module.extern
   - ac.module.import
   - ac.instance

@@ -10,7 +10,8 @@ module attributes {ac.model_kind = "queue_graph", ac.queue_graph_domain = "cycle
   ac.type_scope @right_types {
     ac.struct @Entry fields [{name = "tag", type = i7}, {name = "valid", type = i1}]
   } {dlti.dl_spec = #dlti.dl_spec<!ac.struct<@right_types::@Entry> = {abi_alignment = 1 : i64, endianness = "little", preferred_alignment = 1 : i64, size = 1 : i64}>}
-  ac.module @Left() parameters {} graph {
+ac.module @Left source #ac.source_owner<"tests/native_family.py", "tests/native_family.py"> schema #ac.module_family_schema<#ac.static_parameters<[]>, #ac.static_cases<[#ac.static_arguments<[]>]>, #ac.module_interface<[]>, #ac.source_owner<"tests/native_family.py", "tests/native_family.py">, []> {
+    ac.module.case arguments #ac.static_arguments<[]> type () -> () source #ac.source_provenance<"tests/native_family.py", 1, 1, 1, 1> graph {
     ac.scope @left() {
       %input = ac.source depth 1 latency 1 : !ac.queue<i8>
       ac.table @state entry !ac.struct<@left_types::@Entry> entries 1 init 0 owner "/left" stable_id "table/left/state"
@@ -27,8 +28,11 @@ module attributes {ac.model_kind = "queue_graph", ac.queue_graph_domain = "cycle
       ac.scope.yield
     } : () -> ()
     ac.return
+
+    }
   }
-  ac.module @Right() parameters {} graph {
+  ac.module @Right source #ac.source_owner<"tests/native_family.py", "tests/native_family.py"> schema #ac.module_family_schema<#ac.static_parameters<[]>, #ac.static_cases<[#ac.static_arguments<[]>]>, #ac.module_interface<[]>, #ac.source_owner<"tests/native_family.py", "tests/native_family.py">, []> {
+    ac.module.case arguments #ac.static_arguments<[]> type () -> () source #ac.source_provenance<"tests/native_family.py", 1, 1, 1, 1> graph {
     ac.scope @right() {
       %input = ac.source depth 1 latency 1 : !ac.queue<i8>
       ac.table @state entry !ac.struct<@right_types::@Entry> entries 1 init 0 owner "/right" stable_id "table/right/state"
@@ -52,6 +56,8 @@ module attributes {ac.model_kind = "queue_graph", ac.queue_graph_domain = "cycle
       ac.scope.yield
     } : () -> ()
     ac.return
+
+    }
   }
   ac.type_scope @capture_types {
     ac.struct @Entry fields [{name = "valid", type = i1}]

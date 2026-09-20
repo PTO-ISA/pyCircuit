@@ -33,6 +33,3 @@ def rob() -> None:
         latency=1,
     )
     ac.sink(retired)
-
-
-specialization = ac.jit(rob)

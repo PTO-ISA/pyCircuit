@@ -38,12 +38,12 @@ bool isStableSegment(StringRef value) {
 }
 
 LogicalResult verifyPlacement(Operation *op) {
-  auto module = dyn_cast_or_null<ModuleOp>(op->getParentOp());
-  if (module && !module.getBody().empty() &&
-      op->getBlock() == &module.getBody().front())
+  auto moduleCase = dyn_cast_or_null<ModuleCaseOp>(op->getParentOp());
+  if (moduleCase && !moduleCase.getBody().empty() &&
+      op->getBlock() == &moduleCase.getBody().front())
     return success();
   return op->emitOpError(
-      "must be a direct child of the unique ac.module Graph block");
+      "must be a direct child of an ac.module.case Graph block");
 }
 
 Operation *lookupOuter(Operation *from, SymbolRefAttr reference) {
@@ -104,7 +104,8 @@ LogicalResult
 verifyParentCycles(ModuleOp module, bool timeDomains,
                    const llvm::StringMap<Operation *> &producerIndex) {
   SmallVector<Operation *> nodes;
-  for (Operation &operation : module.getBody().front()) {
+  auto moduleCase = cast<ModuleCaseOp>(module.getBody().front().front());
+  for (Operation &operation : moduleCase.getBody().front()) {
     bool selected = timeDomains ? isa<TimeDomainOp>(operation)
                                 : isa<AddressSpaceOp>(operation);
     if (!selected)
@@ -1428,7 +1429,8 @@ LogicalResult verifyModuleResourceReferences(
   auto module = dyn_cast<ModuleOp>(operation);
   if (!module)
     return success();
-  for (Operation &child : module.getBody().front()) {
+  auto moduleCase = cast<ModuleCaseOp>(module.getBody().front().front());
+  for (Operation &child : moduleCase.getBody().front()) {
     if (auto eventQueue = dyn_cast<EventQueueOp>(child)) {
       if (!isa_and_nonnull<TimeDomainOp>(
               lookupIndexed(producerIndex, eventQueue.getTimeDomainAttr())))
@@ -1455,6 +1457,9 @@ LogicalResult verifyModuleResourceReferences(
         return domain.emitOpError()
                << "parent time domain '" << domain.getParentAttr()
                << "' is unresolved";
+      if (!domain.getBridgeAttr())
+        return domain.emitOpError(
+            "cross-domain parent relation requires explicit bridge metadata");
       FlatSymbolRefAttr owner =
           domain.getBridgeAttr().getAs<FlatSymbolRefAttr>("owner");
       if (!isa_and_nonnull<InstanceOp, ArrayOp, InstancesOp>(

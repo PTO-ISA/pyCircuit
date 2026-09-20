@@ -27,21 +27,27 @@ builtin.module  {
     ac.port @data : !ac.channel<i32, @fifo> from @source to @sink
         protocol_roles @sender to @receiver
   }
-  ac.module @Top() parameters {} graph {
+  ac.module @Top source #ac.source_owner<"tests/native_family.py", "tests/native_family.py"> schema #ac.module_family_schema<#ac.static_parameters<[]>, #ac.static_cases<[#ac.static_arguments<[]>]>, #ac.module_interface<[]>, #ac.source_owner<"tests/native_family.py", "tests/native_family.py">, []> {
+    ac.module.case arguments #ac.static_arguments<[]> type () -> () source #ac.source_provenance<"tests/native_family.py", 1, 1, 1, 1> graph {
     ac.time_domain @core period 2 phase 0 scale 1
     ac.queue @ready payload i32 entries 8 bytes 64 ordering "fifo" protocol @fifo
         ownership "exclusive" id "ready" path "ready" watermarks {low = 2 : i64, high = 6 : i64}
     ac.event_queue @done payload !ac.event<i32> capacity 16 ordering "time_then_sequence"
         domain @core id "done" path "done"
-    ac.instance @scheduler of @Arb() static {} id "scheduler" path "scheduler" : () -> ()
+    ac.instance @scheduler of @Arb() static #ac.static_arguments<[]> id "scheduler" path "scheduler" : () -> ()
     ac.resource @compute capacity 4 issue_width 2 ii 1
         latency {kind = "fixed", ticks = 3 : i64}
         lifecycle {reservation = "propose_commit", release = "balanced", cancellation = "explicit"}
         ownership "shared" arbiter @scheduler classes []
         id "compute" path "compute"
     ac.return
+
+    }
   }
-  ac.module @Arb() parameters {} graph { ac.return }
+  ac.module @Arb source #ac.source_owner<"tests/native_family.py", "tests/native_family.py"> schema #ac.module_family_schema<#ac.static_parameters<[]>, #ac.static_cases<[#ac.static_arguments<[]>]>, #ac.module_interface<[]>, #ac.source_owner<"tests/native_family.py", "tests/native_family.py">, []> {
+    ac.module.case arguments #ac.static_arguments<[]> type () -> () source #ac.source_provenance<"tests/native_family.py", 1, 1, 1, 1> graph { ac.return
+    }
+  }
 }
 
 // CHECK: ac.interface @QueueLink

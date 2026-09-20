@@ -2,9 +2,13 @@
 // RUN: %acir_opt_public %s | %acir_opt_public | %FileCheck %s
 
 builtin.module  {
-  ac.module @Bridge() parameters {} graph { ac.return }
-  ac.module @Top() parameters {} graph {
-    ac.instance @cdc of @Bridge() static {} id "cdc" path "cdc" : () -> ()
+  ac.module @Bridge source #ac.source_owner<"tests/native_family.py", "tests/native_family.py"> schema #ac.module_family_schema<#ac.static_parameters<[]>, #ac.static_cases<[#ac.static_arguments<[]>]>, #ac.module_interface<[]>, #ac.source_owner<"tests/native_family.py", "tests/native_family.py">, []> {
+    ac.module.case arguments #ac.static_arguments<[]> type () -> () source #ac.source_provenance<"tests/native_family.py", 1, 1, 1, 1> graph { ac.return
+    }
+  }
+  ac.module @Top source #ac.source_owner<"tests/native_family.py", "tests/native_family.py"> schema #ac.module_family_schema<#ac.static_parameters<[]>, #ac.static_cases<[#ac.static_arguments<[]>]>, #ac.module_interface<[]>, #ac.source_owner<"tests/native_family.py", "tests/native_family.py">, []> {
+    ac.module.case arguments #ac.static_arguments<[]> type () -> () source #ac.source_provenance<"tests/native_family.py", 1, 1, 1, 1> graph {
+    ac.instance @cdc of @Bridge() static #ac.static_arguments<[]> id "cdc" path "cdc" : () -> ()
     ac.time_domain @global period 1 phase 0 scale 1
     ac.time_domain @core period 2 phase 1 scale 2 parent @global
         bridge {kind = "explicit", owner = @cdc}
@@ -53,6 +57,8 @@ builtin.module  {
        interleave = {granularity = 1 : i64, banks = 4 : i64, bank = 1 : i64}}
     ] default {kind = "unmapped"}
     ac.return
+
+    }
   }
 }
 

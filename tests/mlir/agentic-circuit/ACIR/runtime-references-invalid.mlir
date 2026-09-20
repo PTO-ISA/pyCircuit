@@ -12,20 +12,24 @@
 
 //--- unresolved-send.mlir
 builtin.module  {
-  ac.module @M() parameters {} graph {
+  ac.module @M source #ac.source_owner<"tests/native_family.py", "tests/native_family.py"> schema #ac.module_family_schema<#ac.static_parameters<[]>, #ac.static_cases<[#ac.static_arguments<[]>]>, #ac.module_interface<[]>, #ac.source_owner<"tests/native_family.py", "tests/native_family.py">, []> {
+    ac.module.case arguments #ac.static_arguments<[]> type () -> () source #ac.source_provenance<"tests/native_family.py", 1, 1, 1, 1> graph {
     ac.process @p kind "control" {
       %v = arith.constant 1 : i32
       %ok = ac.try_send @missing %v : i32
       ac.yield_sim
     }
     ac.return
+
+    }
   }
 }
 // UNRESOLVED-SEND: unresolved runtime target '@missing'
 
 //--- wrong-send-kind.mlir
 builtin.module  {
-  ac.module @M() parameters {} graph {
+  ac.module @M source #ac.source_owner<"tests/native_family.py", "tests/native_family.py"> schema #ac.module_family_schema<#ac.static_parameters<[]>, #ac.static_cases<[#ac.static_arguments<[]>]>, #ac.module_interface<[]>, #ac.source_owner<"tests/native_family.py", "tests/native_family.py">, []> {
+    ac.module.case arguments #ac.static_arguments<[]> type () -> () source #ac.source_provenance<"tests/native_family.py", 1, 1, 1, 1> graph {
     ac.stat @not_a_queue kind "counter"
     ac.process @p kind "control" {
       %v = arith.constant 1 : i32
@@ -33,13 +37,16 @@ builtin.module  {
       ac.yield_sim
     }
     ac.return
+
+    }
   }
 }
 // SEND-KIND: runtime target '@not_a_queue' must resolve to ac.queue
 
 //--- unresolved-schedule.mlir
 builtin.module  {
-  ac.module @M() parameters {} graph {
+  ac.module @M source #ac.source_owner<"tests/native_family.py", "tests/native_family.py"> schema #ac.module_family_schema<#ac.static_parameters<[]>, #ac.static_cases<[#ac.static_arguments<[]>]>, #ac.module_interface<[]>, #ac.source_owner<"tests/native_family.py", "tests/native_family.py">, []> {
+    ac.module.case arguments #ac.static_arguments<[]> type () -> () source #ac.source_provenance<"tests/native_family.py", 1, 1, 1, 1> graph {
     ac.process @p kind "control" {
       %v = arith.constant 1 : i32
       %delay = arith.constant 1 : i64
@@ -47,62 +54,77 @@ builtin.module  {
       ac.yield_sim
     }
     ac.return
+
+    }
   }
 }
 // UNRESOLVED-SCHEDULE: unresolved runtime target '@missing'
 
 //--- unresolved-wait.mlir
 builtin.module  {
-  ac.module @M() parameters {} graph {
+  ac.module @M source #ac.source_owner<"tests/native_family.py", "tests/native_family.py"> schema #ac.module_family_schema<#ac.static_parameters<[]>, #ac.static_cases<[#ac.static_arguments<[]>]>, #ac.module_interface<[]>, #ac.source_owner<"tests/native_family.py", "tests/native_family.py">, []> {
+    ac.module.case arguments #ac.static_arguments<[]> type () -> () source #ac.source_provenance<"tests/native_family.py", 1, 1, 1, 1> graph {
     ac.process @p kind "control" {
       ac.wait_for @missing
       ac.yield_sim
     }
     ac.return
+
+    }
   }
 }
-// UNRESOLVED-WAIT: unresolved runtime target '@missing'
+// UNRESOLVED-WAIT: unresolved runtime target 'missing'
 
 //--- unresolved-event.mlir
 builtin.module  {
-  ac.module @M() parameters {} graph {
+  ac.module @M source #ac.source_owner<"tests/native_family.py", "tests/native_family.py"> schema #ac.module_family_schema<#ac.static_parameters<[]>, #ac.static_cases<[#ac.static_arguments<[]>]>, #ac.module_interface<[]>, #ac.source_owner<"tests/native_family.py", "tests/native_family.py">, []> {
+    ac.module.case arguments #ac.static_arguments<[]> type () -> () source #ac.source_provenance<"tests/native_family.py", 1, 1, 1, 1> graph {
     ac.process @p kind "control" {
       ac.await_event @missing
       ac.yield_sim
     }
     ac.return
+
+    }
   }
 }
-// UNRESOLVED-EVENT: unresolved runtime target '@missing'
+// UNRESOLVED-EVENT: unresolved runtime target 'missing'
 
 //--- unresolved-probe.mlir
 builtin.module  {
-  ac.module @M() parameters {} graph {
+  ac.module @M source #ac.source_owner<"tests/native_family.py", "tests/native_family.py"> schema #ac.module_family_schema<#ac.static_parameters<[]>, #ac.static_cases<[#ac.static_arguments<[]>]>, #ac.module_interface<[]>, #ac.source_owner<"tests/native_family.py", "tests/native_family.py">, []> {
+    ac.module.case arguments #ac.static_arguments<[]> type () -> () source #ac.source_provenance<"tests/native_family.py", 1, 1, 1, 1> graph {
     ac.process @p kind "monitor" {
       %v = ac.probe @missing kind "queue" : i64
       ac.yield_sim
     }
     ac.return
+
+    }
   }
 }
 // UNRESOLVED-PROBE: unresolved runtime target '@missing'
 
 //--- unresolved-stat.mlir
 builtin.module  {
-  ac.module @M() parameters {} graph {
+  ac.module @M source #ac.source_owner<"tests/native_family.py", "tests/native_family.py"> schema #ac.module_family_schema<#ac.static_parameters<[]>, #ac.static_cases<[#ac.static_arguments<[]>]>, #ac.module_interface<[]>, #ac.source_owner<"tests/native_family.py", "tests/native_family.py">, []> {
+    ac.module.case arguments #ac.static_arguments<[]> type () -> () source #ac.source_provenance<"tests/native_family.py", 1, 1, 1, 1> graph {
     ac.process @p kind "monitor" {
       %v = arith.constant 1 : i64
       ac.stat.add @missing %v : i64
       ac.yield_sim
     }
     ac.return
+
+    }
   }
 }
 // UNRESOLVED-STAT: unresolved runtime target '@missing'
 
 //--- schedule-type.mlir
 builtin.module  {
-  ac.module @M(i64) parameters {} graph {
+  ac.module @M source #ac.source_owner<"tests/native_family.py", "tests/native_family.py"> schema #ac.module_family_schema<#ac.static_parameters<[]>, #ac.static_cases<[#ac.static_arguments<[]>]>, #ac.module_interface<[#ac.interface_port<"input_0", "input", #ac.type_expr<#ac.type_expr_concrete<i64>>, #ac.source_provenance<"tests/native_family.py", 1, 1, 1, 1>>]>, #ac.source_owner<"tests/native_family.py", "tests/native_family.py">, []> {
+    ac.module.case arguments #ac.static_arguments<[]> type (i64) -> () source #ac.source_provenance<"tests/native_family.py", 1, 1, 1, 1> graph {
   ^bb0(%input : i64):
     ac.process @worker kind "workload" captures(%input : i64) {
     ^bb0(%value : i64):
@@ -115,26 +137,32 @@ builtin.module  {
       ac.yield_sim
     }
     ac.return
+
+    }
   }
 }
 // SCHEDULE-TYPE: must match the target process's single capture type
 
 //--- probe-kind.mlir
 builtin.module  {
-  ac.module @M() parameters {} graph {
+  ac.module @M source #ac.source_owner<"tests/native_family.py", "tests/native_family.py"> schema #ac.module_family_schema<#ac.static_parameters<[]>, #ac.static_cases<[#ac.static_arguments<[]>]>, #ac.module_interface<[]>, #ac.source_owner<"tests/native_family.py", "tests/native_family.py">, []> {
+    ac.module.case arguments #ac.static_arguments<[]> type () -> () source #ac.source_provenance<"tests/native_family.py", 1, 1, 1, 1> graph {
     ac.stat @state kind "counter"
     ac.process @p kind "monitor" {
       %v = ac.probe @state kind "queue" : i64
       ac.yield_sim
     }
     ac.return
+
+    }
   }
 }
 // PROBE-KIND: runtime target '@state' must resolve to ac.queue
 
 //--- stat-kind.mlir
 builtin.module  {
-  ac.module @M() parameters {} graph {
+  ac.module @M source #ac.source_owner<"tests/native_family.py", "tests/native_family.py"> schema #ac.module_family_schema<#ac.static_parameters<[]>, #ac.static_cases<[#ac.static_arguments<[]>]>, #ac.module_interface<[]>, #ac.source_owner<"tests/native_family.py", "tests/native_family.py">, []> {
+    ac.module.case arguments #ac.static_arguments<[]> type () -> () source #ac.source_provenance<"tests/native_family.py", 1, 1, 1, 1> graph {
     ac.process @target kind "monitor" { ac.yield_sim }
     ac.process @p kind "monitor" {
       %v = arith.constant 1 : i64
@@ -142,6 +170,8 @@ builtin.module  {
       ac.yield_sim
     }
     ac.return
+
+    }
   }
 }
 // STAT-KIND: runtime target '@target' must resolve to ac.stat

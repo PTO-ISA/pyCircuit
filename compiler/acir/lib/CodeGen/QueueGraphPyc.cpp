@@ -1,19 +1,23 @@
 #include "acir/CodeGen/QueueGraphPyc.h"
 #include "acir/CodeGen/QueueBlockContract.h"
+#include "acir/Dialect/ACIR/ACIRTypes.h"
 #include "acir/Support/PrimitiveWidths.h"
 
 #include "llvm/ADT/APInt.h"
 #include "llvm/ADT/ArrayRef.h"
+#include "llvm/ADT/DenseSet.h"
 #include "llvm/ADT/SmallString.h"
 #include "llvm/ADT/STLExtras.h"
 #include "llvm/ADT/StringMap.h"
 #include "llvm/ADT/StringRef.h"
 #include "llvm/ADT/StringSet.h"
 #include "llvm/Support/MathExtras.h"
+#include "llvm/Support/raw_ostream.h"
 
 #include <algorithm>
 #include <bit>
 #include <limits>
+#include <map>
 #include <memory>
 #include <sstream>
 #include <system_error>
@@ -45,6 +49,46 @@ std::string mlirStringLiteral(llvm::StringRef value) {
   result.push_back('"');
   return result;
 }
+
+std::string printMlirAttribute(mlir::Attribute attribute) {
+  std::string result;
+  llvm::raw_string_ostream stream(result);
+  attribute.print(stream);
+  return result;
+}
+
+std::string printMlirType(mlir::Type type) {
+  std::string result;
+  llvm::raw_string_ostream stream(result);
+  type.print(stream);
+  return result;
+}
+
+ac::DependentArgumentsAttr
+dependentArgumentsFromStatic(ac::StaticArgumentsAttr arguments) {
+  mlir::MLIRContext *context = arguments.getContext();
+  llvm::SmallVector<mlir::Attribute> converted;
+  converted.reserve(arguments.getArguments().size());
+  for (auto argument :
+       arguments.getArguments().getAsRange<ac::StaticArgumentAttr>()) {
+    auto literal =
+        ac::DependentStaticLiteralAttr::get(context, argument.getValue());
+    auto value = ac::DependentValueAttr::get(context, literal);
+    converted.push_back(ac::DependentArgumentAttr::get(
+        context, argument.getName(), value));
+  }
+  return ac::DependentArgumentsAttr::get(
+      context, mlir::ArrayAttr::get(context, converted));
+}
+
+struct PycBodyEmission {
+  std::vector<std::string> arguments;
+  std::vector<std::string> argumentNames;
+  std::vector<std::string> resultTypes;
+  std::vector<std::string> resultNames;
+  std::vector<std::string> returnValues;
+  std::string body;
+};
 
 QueueSourceProvenancePlan
 inlineSourceProvenance(const QueueSourceProvenancePlan &definition,
@@ -441,8 +485,8 @@ constexpr llvm::StringLiteral kStructMetrics =
     "\\\"source_loc\\\":0,\\\"state_alloc_count\\\":0,"
     "\\\"state_call_count\\\":0}";
 
-llvm::Expected<std::string>
-generateLaneQueuePyc(const QueueGraphPlan &plan,
+llvm::Expected<PycBodyEmission>
+emitLaneQueuePycBody(const QueueGraphPlan &plan,
                      llvm::ArrayRef<const QueueBlockPlan *> sources,
                      llvm::ArrayRef<const QueueBlockPlan *> sinks) {
   if (sources.size() != 1 || sinks.size() != 1 || plan.queues.empty() ||
@@ -458,6 +502,10 @@ generateLaneQueuePyc(const QueueGraphPlan &plan,
           "multi-lane PYC supports only a chain of 1x1 pure transforms");
     transformsByOutput[block.outputs.front()] = &block;
   }
+  llvm::StringMap<std::pair<size_t, size_t>> instanceByOutput;
+  for (auto [instanceIndex, instance] : llvm::enumerate(plan.moduleInstances))
+    for (auto [outputIndex, output] : llvm::enumerate(instance.outputs))
+      instanceByOutput[output] = {instanceIndex, outputIndex};
   const QueuePlan *boundaryQueue =
       findQueue(plan, sources.front()->outputs.front());
   const QueuePlan *sinkQueue = findQueue(plan, sinks.front()->inputs.front());
@@ -542,6 +590,136 @@ generateLaneQueuePyc(const QueueGraphPlan &plan,
     std::string producerReady;
   };
   llvm::StringMap<LaneQueueState> queueStates;
+  llvm::StringMap<std::string> instanceOutputReady;
+  for (const QueueModuleInstancePlan &instance : plan.moduleInstances)
+    for (const std::string &output : instance.outputs) {
+      std::string ready = newValue();
+      instanceOutputReady[output] = ready;
+      body << "    " << ready << " = pyc.wire : i1\n";
+    }
+  llvm::StringMap<std::vector<std::string>> instanceOutputValid;
+  llvm::StringMap<std::vector<std::string>> instanceOutputData;
+  llvm::DenseSet<size_t> emittedInstances;
+  auto emitLaneInstance = [&](size_t instanceIndex) -> llvm::Error {
+    if (!emittedInstances.insert(instanceIndex).second)
+      return llvm::Error::success();
+    const QueueModuleInstancePlan &instance =
+        plan.moduleInstances[instanceIndex];
+    auto family = llvm::find_if(
+        plan.moduleFamilies, [&](const ModuleFamilyPlan &candidate) {
+          return candidate.definition == instance.definition;
+        });
+    if (family == plan.moduleFamilies.end())
+      return pycError("multi-lane module instance family is absent");
+    auto moduleCase = llvm::find_if(
+        family->cases, [&](const ModuleCasePlan &candidate) {
+          return candidate.arguments == instance.staticArguments;
+        });
+    if (moduleCase == family->cases.end() || !moduleCase->bodyPlan)
+      return pycError("multi-lane module instance case body is absent");
+    const QueueGraphPlan &child = *moduleCase->bodyPlan;
+    if (child.interfaceInputs.size() != instance.inputs.size() ||
+        child.interfaceOutputs.size() != instance.outputs.size())
+      return pycError("multi-lane module instance interface arity differs");
+    std::vector<std::string> operands = {"%clk", "%rst"};
+    std::vector<std::string> operandTypes = {"!pyc.clock", "!pyc.reset"};
+    for (auto [inputIndex, inputName] : llvm::enumerate(instance.inputs)) {
+      auto state = queueStates.find(inputName);
+      const QueuePlan *queue = findQueue(plan, inputName);
+      const QueueInterfacePlan &port = child.interfaceInputs[inputIndex];
+      if (state == queueStates.end() || !queue ||
+          port.lanes != queue->lanes || port.rate != queue->rate)
+        return pycError(
+            "multi-lane module instance input is unavailable or mismatched");
+      auto type = pycType(plan, queue->payloadType);
+      if (!type)
+        return type.takeError();
+      for (uint64_t lane = 0; lane < queue->lanes; ++lane) {
+        operands.push_back(lane < queue->rate ? state->getValue().valid[lane]
+                                              : zeroI1);
+        operands.push_back(lane < queue->rate ? state->getValue().data[lane]
+                                              : zeroData);
+        operandTypes.push_back("i1");
+        operandTypes.push_back(*type);
+      }
+    }
+    for (auto [outputIndex, outputName] : llvm::enumerate(instance.outputs)) {
+      const QueuePlan *queue = findQueue(plan, outputName);
+      const QueueInterfacePlan &port = child.interfaceOutputs[outputIndex];
+      if (!queue || port.lanes != queue->lanes || port.rate != queue->rate ||
+          !instanceOutputReady.contains(outputName))
+        return pycError("multi-lane module instance output is mismatched");
+      operands.push_back(instanceOutputReady[outputName]);
+      operandTypes.push_back("i1");
+    }
+    std::vector<std::string> results;
+    std::vector<std::string> resultTypes;
+    for (const std::string &outputName : instance.outputs) {
+      const QueuePlan *queue = findQueue(plan, outputName);
+      auto type = queue ? pycType(plan, queue->payloadType)
+                        : llvm::Expected<std::string>(
+                              pycError("multi-lane instance output is missing"));
+      if (!type)
+        return type.takeError();
+      std::vector<std::string> valids;
+      std::vector<std::string> data;
+      for (uint64_t lane = 0; lane < queue->lanes; ++lane) {
+        valids.push_back(newValue());
+        data.push_back(newValue());
+        results.push_back(valids.back());
+        results.push_back(data.back());
+        resultTypes.push_back("i1");
+        resultTypes.push_back(*type);
+      }
+      instanceOutputValid[outputName] = std::move(valids);
+      instanceOutputData[outputName] = std::move(data);
+    }
+    std::vector<std::string> returnedReady;
+    for (const std::string &inputName : instance.inputs) {
+      returnedReady.push_back(newValue());
+      results.push_back(returnedReady.back());
+      resultTypes.push_back("i1");
+    }
+    body << "    ";
+    for (auto [index, result] : llvm::enumerate(results)) {
+      if (index)
+        body << ", ";
+      body << result;
+    }
+    if (!results.empty())
+      body << " = ";
+    body << "pyc.instance ";
+    for (auto [index, operand] : llvm::enumerate(operands)) {
+      if (index)
+        body << ", ";
+      body << operand;
+    }
+    body << " {callee = @" << instance.definition << ", name = "
+         << mlirStringLiteral(instance.name) << ", static_args = "
+         << printMlirAttribute(
+                dependentArgumentsFromStatic(instance.staticArguments))
+         << "} : (";
+    for (auto [index, type] : llvm::enumerate(operandTypes)) {
+      if (index)
+        body << ", ";
+      body << type;
+    }
+    body << ") -> (";
+    for (auto [index, type] : llvm::enumerate(resultTypes)) {
+      if (index)
+        body << ", ";
+      body << type;
+    }
+    body << ")\n";
+    for (auto [inputIndex, inputName] : llvm::enumerate(instance.inputs)) {
+      LaneQueueState &state = queueStates[inputName];
+      std::string consume =
+          emitBinary("and", state.valid.front(), returnedReady[inputIndex], "i1");
+      body << "    pyc.assign " << state.dequeue << ", " << consume
+           << " : i1\n";
+    }
+    return llvm::Error::success();
+  };
   std::string sourceReady;
   for (const QueuePlan &currentQueue : plan.queues) {
     if (currentQueue.name == sources.front()->outputs.front())
@@ -555,6 +733,17 @@ generateLaneQueuePyc(const QueueGraphPlan &plan,
     if (currentQueue.name == sources.front()->outputs.front()) {
       producerValids = inputValids;
       producerData = inputData;
+    } else if (auto instance = instanceByOutput.find(currentQueue.name);
+               instance != instanceByOutput.end()) {
+      if (auto error = emitLaneInstance(instance->getValue().first))
+        return std::move(error);
+      auto valids = instanceOutputValid.find(currentQueue.name);
+      auto data = instanceOutputData.find(currentQueue.name);
+      if (valids == instanceOutputValid.end() ||
+          data == instanceOutputData.end())
+        return pycError("multi-lane module instance output was not emitted");
+      producerValids = valids->getValue();
+      producerData = data->getValue();
     } else {
       auto found = transformsByOutput.find(currentQueue.name);
       if (found == transformsByOutput.end())
@@ -568,8 +757,10 @@ generateLaneQueuePyc(const QueueGraphPlan &plan,
       for (uint64_t lane = 0; lane < currentQueue.lanes; ++lane) {
         producerValids.push_back(
             lane < currentQueue.rate ? input->getValue().valid[lane] : zeroI1);
+        const std::string &laneData =
+            lane < currentQueue.rate ? input->getValue().data[lane] : zeroData;
         auto transformed = emitTransform(
-            plan, *transform, {input->getValue().data[lane]},
+            plan, *transform, {laneData},
             {currentQueue.payloadType}, 0, nextValue, body, nullptr, nullptr,
             nullptr, {}, nullptr, nullptr, nullptr, &sourceLocations);
         if (!transformed)
@@ -625,6 +816,9 @@ generateLaneQueuePyc(const QueueGraphPlan &plan,
     }
     std::string accepted =
         emitBinary("and", producerValids.front(), ready, "i1");
+    if (instanceOutputReady.contains(currentQueue.name))
+      body << "    pyc.assign " << instanceOutputReady[currentQueue.name]
+           << ", " << ready << " : i1\n";
     for (uint64_t lane = 0; lane < currentQueue.rate; ++lane) {
       const std::vector<std::string> beforeValid = nextValid;
       const std::vector<std::string> beforeData = nextData;
@@ -699,42 +893,10 @@ generateLaneQueuePyc(const QueueGraphPlan &plan,
   }
   arguments.push_back("%out_ready: i1");
   argumentNames.push_back("out_ready");
-  auto writeList =
-      [](std::ostringstream &stream, llvm::ArrayRef<std::string> values,
-         llvm::StringRef prefix = {}, llvm::StringRef suffix = {}) {
-        for (auto [index, value] : llvm::enumerate(values)) {
-          if (index)
-            stream << ", ";
-          stream << prefix.str() << value << suffix.str();
-        }
-      };
-  std::ostringstream output;
-  auto sourceMap = plan.sourceMapJson();
-  if (!sourceMap)
-    return sourceMap.takeError();
-  output << "module attributes {pyc.top = @" << plan.system
-         << ", pyc.frontend.contract = \"pycircuit\", pyc.source_map = "
-         << mlirStringLiteral(*sourceMap) << "} {\n  func.func @"
-         << plan.system << '(';
-  writeList(output, arguments);
-  output << ") -> (";
-  writeList(output, resultTypes);
-  output << ") attributes {arg_names = [";
-  writeList(output, argumentNames, "\"", "\"");
-  output << "], result_names = [";
-  writeList(output, resultNames, "\"", "\"");
-  output << "], pyc.value_params = [], pyc.value_param_types = [], "
-            "pyc.kind = \"module\", pyc.inline = \"false\", "
-            "pyc.params = \"{}\", pyc.base = \""
-         << plan.system << "\", pyc.struct.metrics = \"" << kStructMetrics.str()
-         << "\", pyc.struct.collections = \"[]\"} {\n"
-         << attachPycSourceLocations(body.str(), sourceLocations)
-         << "    func.return ";
-  writeList(output, returnValues);
-  output << " : ";
-  writeList(output, resultTypes);
-  output << "\n  }\n}\n";
-  return output.str();
+  return PycBodyEmission{std::move(arguments), std::move(argumentNames),
+                         std::move(resultTypes), std::move(resultNames),
+                         std::move(returnValues),
+                         attachPycSourceLocations(body.str(), sourceLocations)};
 }
 
 llvm::Expected<std::string>
@@ -2405,10 +2567,11 @@ emitTransform(const QueueGraphPlan &plan, const QueueBlockPlan &block,
 
 } // namespace
 
-llvm::Expected<std::string> generateQueueGraphPyc(const QueueGraphPlan &plan) {
-  if (!plan.definition.empty())
-    return pycError(
-        "module-preserving QueueGraph PYC lowering is not implemented");
+static llvm::Expected<PycBodyEmission>
+emitQueueGraphPycBody(
+    const QueueGraphPlan &plan,
+    const std::vector<ModuleFamilyPlan> *familyCatalog = nullptr,
+    bool validatePlan = true) {
   if (!plan.slots.empty())
     return pycError("Slot PYC lowering is not implemented");
   if (!plan.tables.empty()) {
@@ -2576,6 +2739,10 @@ llvm::Expected<std::string> generateQueueGraphPyc(const QueueGraphPlan &plan) {
   llvm::StringMap<const QueueBlockPlan *> reorderByOutput;
   llvm::StringMap<const QueueBlockPlan *> feedbackByOutput;
   llvm::StringMap<const QueueBlockPlan *> producerBlockByOutput;
+  llvm::StringMap<std::pair<size_t, size_t>> instanceByOutput;
+  for (auto [instanceIndex, instance] : llvm::enumerate(plan.moduleInstances))
+    for (auto [outputIndex, output] : llvm::enumerate(instance.outputs))
+      instanceByOutput[output] = {instanceIndex, outputIndex};
   for (const QueueBlockPlan &block : plan.blocks) {
     for (const std::string &output : block.outputs)
       producerBlockByOutput[output] = &block;
@@ -2694,14 +2861,15 @@ llvm::Expected<std::string> generateQueueGraphPyc(const QueueGraphPlan &plan) {
                       "observe/sink");
     }
   }
-  if (auto error = verifyQueueGraphPlan(plan))
-    return std::move(error);
+  if (validatePlan)
+    if (auto error = verifyQueueGraphPlan(plan))
+      return std::move(error);
   if (sources.empty() && sinks.empty())
     return pycError("PYC lowering requires at least one external boundary");
   if (llvm::any_of(plan.queues, [](const QueuePlan &queue) {
         return queue.lanes > 1 || queue.rate > 1;
       }))
-    return generateLaneQueuePyc(plan, sources, sinks);
+    return pycError("typed PYC body helper does not yet support Queue lanes");
   for (const QueuePlan &queue : plan.queues) {
     if (auto width = typeWidth(plan, queue.payloadType); !width)
       return width.takeError();
@@ -2714,9 +2882,14 @@ llvm::Expected<std::string> generateQueueGraphPyc(const QueueGraphPlan &plan) {
   std::vector<std::string> inputPortTypes;
   for (auto [index, source] : llvm::enumerate(sources)) {
     const QueuePlan *queue = findQueue(plan, source->outputs.front());
-    if (!queue)
+    auto interface = llvm::find_if(
+        plan.interfaceInputs, [&](const QueueInterfacePlan &candidate) {
+          return candidate.name == source->outputs.front();
+        });
+    if (!queue && interface == plan.interfaceInputs.end())
       return pycError("source Queue is missing");
-    auto type = pycType(plan, queue->payloadType);
+    auto type = pycType(plan,
+                        queue ? queue->payloadType : interface->payloadType);
     if (!type)
       return type.takeError();
     sourceBoundary[source->outputs.front()] = index;
@@ -2994,6 +3167,135 @@ llvm::Expected<std::string> generateQueueGraphPyc(const QueueGraphPlan &plan) {
     readyWires[queue.name] = ready;
     body << "    " << ready << " = pyc.wire : i1\n";
   }
+  for (const QueueInterfacePlan &input : plan.interfaceInputs) {
+    if (readyWires.contains(input.name))
+      continue;
+    std::string ready = newValue();
+    readyWires[input.name] = ready;
+    inputReady[input.name] = ready;
+    body << "    " << ready << " = pyc.wire : i1\n";
+    auto source = sourceBoundary.find(input.name);
+    if (source == sourceBoundary.end())
+      return pycError("interface input has no physical source boundary");
+    outputValid[input.name] = inputName(source->getValue(), "valid");
+    outputData[input.name] = inputName(source->getValue(), "data");
+  }
+  llvm::DenseSet<size_t> emittedInstances;
+  auto emitInstance = [&](size_t instanceIndex) -> llvm::Error {
+    if (!emittedInstances.insert(instanceIndex).second)
+      return llvm::Error::success();
+    const QueueModuleInstancePlan &instance =
+        plan.moduleInstances[instanceIndex];
+    const auto &families = familyCatalog ? *familyCatalog : plan.moduleFamilies;
+    auto family = llvm::find_if(
+        families, [&](const ModuleFamilyPlan &candidate) {
+          return candidate.definition == instance.definition;
+        });
+    if (family == families.end())
+      return pycError("module instance family is absent from the typed plan");
+    auto moduleCase = llvm::find_if(
+        family->cases, [&](const ModuleCasePlan &candidate) {
+          return candidate.arguments == instance.staticArguments;
+        });
+    if (moduleCase == family->cases.end() || !moduleCase->bodyPlan)
+      return pycError("module instance case body is absent from the typed plan");
+    const QueueGraphPlan &child = *moduleCase->bodyPlan;
+    if (child.interfaceInputs.size() != instance.inputs.size() ||
+        child.interfaceOutputs.size() != instance.outputs.size())
+      return pycError("module instance interface arity is inconsistent");
+    std::vector<std::string> operands = {"%clk", "%rst"};
+    std::vector<std::string> operandTypes = {"!pyc.clock", "!pyc.reset"};
+    for (auto [index, input] : llvm::enumerate(instance.inputs)) {
+      const QueueInterfacePlan &port = child.interfaceInputs[index];
+      if (port.lanes != 1 || port.rate != 1)
+        return pycError("module instance Queue lanes require lane carrier lowering");
+      auto valid = outputValid.find(input);
+      auto data = outputData.find(input);
+      const QueuePlan *queue = findQueue(plan, input);
+      if (valid == outputValid.end() || data == outputData.end() || !queue)
+        return pycError("module instance input is not topologically available");
+      auto type = pycType(plan, queue->payloadType);
+      if (!type)
+        return type.takeError();
+      operands.push_back(valid->getValue());
+      operands.push_back(data->getValue());
+      operandTypes.push_back("i1");
+      operandTypes.push_back(*type);
+    }
+    for (auto [index, output] : llvm::enumerate(instance.outputs)) {
+      const QueueInterfacePlan &port = child.interfaceOutputs[index];
+      if (port.lanes != 1 || port.rate != 1)
+        return pycError("module instance Queue lanes require lane carrier lowering");
+      auto ready = readyWires.find(output);
+      if (ready == readyWires.end())
+        return pycError("module instance output ready wire is missing");
+      operands.push_back(ready->getValue());
+      operandTypes.push_back("i1");
+    }
+    std::vector<std::string> resultValues;
+    std::vector<std::string> resultTypes;
+    for (const std::string &output : instance.outputs) {
+      const QueuePlan *queue = findQueue(plan, output);
+      auto type = queue ? pycType(plan, queue->payloadType)
+                        : llvm::Expected<std::string>(
+                              pycError("module instance output Queue is missing"));
+      if (!type)
+        return type.takeError();
+      std::string valid = newValue();
+      std::string data = newValue();
+      resultValues.push_back(valid);
+      resultValues.push_back(data);
+      resultTypes.push_back("i1");
+      resultTypes.push_back(*type);
+      outputValid[output] = valid;
+      outputData[output] = data;
+    }
+    std::vector<std::string> returnedReady;
+    for (const std::string &input : instance.inputs) {
+      returnedReady.push_back(newValue());
+      resultValues.push_back(returnedReady.back());
+      resultTypes.push_back("i1");
+    }
+    body << "    ";
+    for (auto [index, result] : llvm::enumerate(resultValues)) {
+      if (index)
+        body << ", ";
+      body << result;
+    }
+    if (!resultValues.empty())
+      body << " = ";
+    body << "pyc.instance ";
+    for (auto [index, operand] : llvm::enumerate(operands)) {
+      if (index)
+        body << ", ";
+      body << operand;
+    }
+    body << " {callee = @" << instance.definition << ", name = "
+         << mlirStringLiteral(instance.name) << ", static_args = "
+         << printMlirAttribute(
+                dependentArgumentsFromStatic(instance.staticArguments))
+         << "} : (";
+    for (auto [index, type] : llvm::enumerate(operandTypes)) {
+      if (index)
+        body << ", ";
+      body << type;
+    }
+    body << ") -> (";
+    for (auto [index, type] : llvm::enumerate(resultTypes)) {
+      if (index)
+        body << ", ";
+      body << type;
+    }
+    body << ")\n";
+    for (auto [index, input] : llvm::enumerate(instance.inputs)) {
+      auto ready = readyWires.find(input);
+      if (ready == readyWires.end())
+        return pycError("module instance input ready wire is missing");
+      body << "    pyc.assign " << ready->getValue() << ", "
+           << returnedReady[index] << " : i1\n";
+    }
+    return llvm::Error::success();
+  };
   for (const QueuePlan &queue : plan.queues) {
     if (const QueueBlockPlan *owner = producerBlockByOutput.lookup(queue.name))
       emitPycSourceMarker(body, owner->sourceProvenance);
@@ -3004,6 +3306,13 @@ llvm::Expected<std::string> generateQueueGraphPyc(const QueueGraphPlan &plan) {
       producerValid = inputName(source->getValue(), "valid");
       producerData = inputName(source->getValue(), "data");
     } else {
+      if (auto instance = instanceByOutput.find(queue.name);
+          instance != instanceByOutput.end()) {
+        if (auto error = emitInstance(instance->getValue().first))
+          return std::move(error);
+        producerValid = outputValid[queue.name];
+        producerData = outputData[queue.name];
+      }
       auto transformProducer = transformByOutput.find(queue.name);
       auto firingProducer = firingByOutput.find(queue.name);
       auto tableReadProducer = tableReadByOutput.find(queue.name);
@@ -3019,7 +3328,9 @@ llvm::Expected<std::string> generateQueueGraphPyc(const QueueGraphPlan &plan) {
       auto dependencyProducer = dependencyByOutput.find(queue.name);
       auto reorderProducer = reorderByOutput.find(queue.name);
       auto feedbackProducer = feedbackByOutput.find(queue.name);
-      if (transformProducer != transformByOutput.end()) {
+      if (!producerValid.empty()) {
+        // The typed child instance already produced this Queue's carriers.
+      } else if (transformProducer != transformByOutput.end()) {
         const TransformProducer &producer = transformProducer->getValue();
         const QueueBlockPlan &transform = *producer.block;
         std::vector<std::string> inputDataValues;
@@ -3186,7 +3497,7 @@ llvm::Expected<std::string> generateQueueGraphPyc(const QueueGraphPlan &plan) {
         if (state == tableReadGroupStates.end()) {
           QueueBlockPlan evaluation;
           QueueExpressionPlan mask;
-          mask.result = "__pyc_match_" + group.name;
+          mask.result = "pyc_match_" + group.name;
           mask.kind = "table_match";
           mask.type = match->resultType;
           mask.table = match->table;
@@ -3206,7 +3517,7 @@ llvm::Expected<std::string> generateQueueGraphPyc(const QueueGraphPlan &plan) {
           for (uint64_t lane = 0; lane < selection->count; ++lane) {
             QueueExpressionPlan index;
             index.result =
-                "__pyc_choice_index_" + std::to_string(lane) + "_" + group.name;
+                "pyc_choice_index_" + std::to_string(lane) + "_" + group.name;
             index.kind = "table_choose_index";
             index.type = selection->indexType;
             index.operands = {mask.result};
@@ -3226,7 +3537,7 @@ llvm::Expected<std::string> generateQueueGraphPyc(const QueueGraphPlan &plan) {
           for (uint64_t lane = 0; lane < selection->count; ++lane) {
             QueueExpressionPlan valid;
             valid.result =
-                "__pyc_choice_valid_" + std::to_string(lane) + "_" + group.name;
+                "pyc_choice_valid_" + std::to_string(lane) + "_" + group.name;
             valid.kind = "table_choose_valid";
             valid.type = "i1";
             valid.operands = {mask.result};
@@ -5427,40 +5738,502 @@ llvm::Expected<std::string> generateQueueGraphPyc(const QueueGraphPlan &plan) {
     resultNames.push_back(inputName(index, "ready").substr(1));
     returnValues.push_back(inputReady[source->outputs.front()]);
   }
-  auto writeList =
-      [](std::ostringstream &stream, const std::vector<std::string> &values,
-         llvm::StringRef prefix = {}, llvm::StringRef suffix = {}) {
-        for (auto [index, value] : llvm::enumerate(values)) {
-          if (index)
-            stream << ", ";
-          stream << prefix.str() << value << suffix.str();
-        }
-      };
+  return PycBodyEmission{std::move(arguments), std::move(argumentNames),
+                         std::move(resultTypes), std::move(resultNames),
+                         std::move(returnValues),
+                         attachPycSourceLocations(body.str(), sourceLocations)};
+}
+
+QueueGraphPlan prepareFamilyCaseBody(const QueueGraphPlan &bodyPlan) {
+  QueueGraphPlan result = bodyPlan;
+  const uint64_t sourceCount = result.interfaceInputs.size();
+  for (QueueBlockPlan &block : result.blocks)
+    block.lexicalOrder += sourceCount;
+  for (QueueModuleInstancePlan &instance : result.moduleInstances)
+    instance.lexicalOrder += sourceCount;
+  std::vector<QueueBlockPlan> boundaries;
+  for (auto [index, input] : llvm::enumerate(result.interfaceInputs)) {
+    if (!findQueue(result, input.name))
+      result.queues.push_back({input.name, input.payloadType, "/inputs", 1, 1,
+                              input.rate, input.lanes});
+    QueueBlockPlan source{"source", input.name, "/inputs", {}, {input.name},
+                          {1}, {1}};
+    source.lexicalOrder = index;
+    boundaries.push_back(std::move(source));
+  }
+  llvm::stable_sort(result.queues, [&](const QueuePlan &left,
+                                      const QueuePlan &right) {
+    auto rank = [&](llvm::StringRef name) {
+      auto found = llvm::find_if(
+          result.interfaceInputs, [&](const QueueInterfacePlan &input) {
+            return input.name == name;
+          });
+      return found == result.interfaceInputs.end()
+                 ? result.interfaceInputs.size()
+                 : static_cast<size_t>(found - result.interfaceInputs.begin());
+    };
+    return rank(left.name) < rank(right.name);
+  });
+  boundaries.insert(boundaries.end(), std::make_move_iterator(result.blocks.begin()),
+                    std::make_move_iterator(result.blocks.end()));
+  uint64_t lexicalOrder = boundaries.size() + result.moduleInstances.size();
+  for (const QueueInterfacePlan &output : result.interfaceOutputs) {
+    QueueBlockPlan sink{"sink", output.name + "_sink", "/outputs",
+                        {output.name}, {}};
+    sink.lexicalOrder = lexicalOrder++;
+    boundaries.push_back(std::move(sink));
+  }
+  result.blocks = std::move(boundaries);
+  if (!result.interfaceInputs.empty() &&
+      !llvm::is_contained(result.scopes, std::string("/inputs")))
+    result.scopes.push_back("/inputs");
+  if (!result.interfaceOutputs.empty() &&
+      !llvm::is_contained(result.scopes, std::string("/outputs")))
+    result.scopes.push_back("/outputs");
+  result.interfaceInputs.clear();
+  result.interfaceOutputs.clear();
+  return result;
+}
+
+llvm::Expected<PycBodyEmission>
+emitFamilyCaseBody(const QueueGraphPlan &bodyPlan) {
+  if (auto error = verifyQueueGraphPlan(bodyPlan))
+    return std::move(error);
+  QueueGraphPlan prepared = prepareFamilyCaseBody(bodyPlan);
+  if (llvm::any_of(prepared.queues, [](const QueuePlan &queue) {
+        return queue.lanes > 1 || queue.rate > 1;
+      })) {
+    std::vector<const QueueBlockPlan *> sources;
+    std::vector<const QueueBlockPlan *> sinks;
+    for (const QueueBlockPlan &block : prepared.blocks) {
+      if (block.kind == "source")
+        sources.push_back(&block);
+      else if (block.kind == "sink")
+        sinks.push_back(&block);
+    }
+    return emitLaneQueuePycBody(prepared, sources, sinks);
+  }
+  return emitQueueGraphPycBody(prepared, &bodyPlan.moduleFamilies,
+                               /*validatePlan=*/false);
+}
+
+void writePycList(std::ostringstream &stream,
+                  llvm::ArrayRef<std::string> values) {
+  for (auto [index, value] : llvm::enumerate(values)) {
+    if (index)
+      stream << ", ";
+    stream << value;
+  }
+}
+
+struct FamilyLayoutLeaf {
+  std::vector<std::string> steps;
+  mlir::Type type;
+  uint64_t lsb = 0;
+  uint64_t width = 0;
+};
+
+llvm::Expected<std::vector<FamilyLayoutLeaf>>
+familyLayoutLeaves(const QueueGraphPlan &plan, mlir::Type root) {
+  std::vector<FamilyLayoutLeaf> leaves;
+  llvm::SmallDenseSet<mlir::Type> active;
+  std::function<llvm::Error(mlir::Type, std::vector<std::string>, uint64_t &)>
+      collect = [&](mlir::Type type, std::vector<std::string> steps,
+                    uint64_t &offset) -> llvm::Error {
+    if (!active.insert(type).second)
+      return pycError("recursive family layout is unsupported");
+    auto finish = [&](llvm::Error error = llvm::Error::success()) {
+      active.erase(type);
+      return error;
+    };
+    if (auto structure = mlir::dyn_cast<ac::StructType>(type)) {
+      llvm::StringRef symbol = structure.getName().getLeafReference().getValue();
+      const NominalDefinitionPlan *definition = nullptr;
+      for (const ModuleFamilyPlan &family : plan.moduleFamilies)
+        for (const NominalDefinitionPlan &candidate : family.nominalDefinitions)
+          if (candidate.kind == NominalDefinitionPlan::Kind::Struct &&
+              candidate.name == symbol) {
+            definition = &candidate;
+            break;
+          }
+      if (!definition)
+        return finish(pycError("family struct layout definition is missing"));
+      for (mlir::Attribute rawField : definition->members) {
+        auto field = mlir::dyn_cast<mlir::DictionaryAttr>(rawField);
+        auto name = field ? field.getAs<mlir::StringAttr>("name")
+                          : mlir::StringAttr();
+        auto fieldType = field ? field.getAs<mlir::TypeAttr>("type")
+                               : mlir::TypeAttr();
+        if (!name || !fieldType)
+          return finish(pycError("family struct layout field is malformed"));
+        auto nested = steps;
+        nested.push_back("#pyc.projection_step<#pyc.projection_field<" +
+                         mlirStringLiteral(name.getValue()) + ">>");
+        if (auto error = collect(fieldType.getValue(), std::move(nested), offset))
+          return finish(std::move(error));
+      }
+      return finish();
+    }
+    if (auto tuple = mlir::dyn_cast<mlir::TupleType>(type)) {
+      for (auto [index, element] : llvm::enumerate(tuple.getTypes())) {
+        auto nested = steps;
+        nested.push_back(
+            "#pyc.projection_step<#pyc.projection_tuple_element<" +
+            std::to_string(index) + ">>");
+        if (auto error = collect(element, std::move(nested), offset))
+          return finish(std::move(error));
+      }
+      return finish();
+    }
+    if (auto array = mlir::dyn_cast<ac::ValueArrayType>(type)) {
+      for (int64_t index = 0; index < array.getLength(); ++index) {
+        auto nested = steps;
+        nested.push_back(
+            "#pyc.projection_step<#pyc.projection_array_element<" +
+            std::to_string(index) + ">>");
+        if (auto error = collect(array.getElementType(), std::move(nested), offset))
+          return finish(std::move(error));
+      }
+      return finish();
+    }
+    auto width = typeWidth(plan, printMlirType(type));
+    if (!width)
+      return finish(width.takeError());
+    leaves.push_back({std::move(steps), type, offset, *width});
+    offset += *width;
+    return finish();
+  };
+  uint64_t offset = 0;
+  if (auto error = collect(root, {}, offset))
+    return std::move(error);
+  return leaves;
+}
+
+llvm::Expected<std::string> familyLayout(const QueueGraphPlan &plan,
+                                         mlir::Type type) {
+  auto leaves = familyLayoutLeaves(plan, type);
+  auto width = typeWidth(plan, printMlirType(type));
+  if (!leaves)
+    return leaves.takeError();
+  if (!width)
+    return width.takeError();
+  std::vector<std::string> rendered;
+  for (const FamilyLayoutLeaf &leaf : *leaves) {
+    std::ostringstream steps;
+    writePycList(steps, leaf.steps);
+    auto logical = ac::TypeExprAttr::get(
+        type.getContext(), ac::TypeExprConcreteAttr::get(
+                               type.getContext(), mlir::TypeAttr::get(leaf.type)));
+    rendered.push_back(
+        "#pyc.packed_leaf<#pyc.projection_path<[" + steps.str() + "]>, " +
+        printMlirAttribute(logical) + ", " + std::to_string(leaf.lsb) + ", " +
+        std::to_string(leaf.width) + ">");
+  }
+  std::ostringstream leafText;
+  writePycList(leafText, rendered);
+  return "#pyc.layout<" + std::to_string(*width) + ", [" + leafText.str() +
+         "]>";
+}
+
+llvm::Expected<std::string>
+emitFamilyCaseMapping(const QueueGraphPlan &bodyPlan,
+                      const ModuleCasePlan &moduleCase,
+                      const PycBodyEmission &emission) {
+  std::string provenance = printMlirAttribute(moduleCase.sourceProvenance);
+  std::vector<std::string> controls = {
+      "#pyc.control_port_mapping<\"clock\", 0, !pyc.clock, "
+      "#pyc.implicit_control_origin<\"clock\", \"implicit\", " + provenance +
+          ">>",
+      "#pyc.control_port_mapping<\"reset\", 1, !pyc.reset, "
+      "#pyc.implicit_control_origin<\"reset\", \"implicit\", " + provenance +
+          ">>"};
+  uint64_t inputCarrierCount = 0;
+  uint64_t outputCarrierCount = 0;
+  uint64_t inputQueueCount = 0;
+  uint64_t outputQueueCount = 0;
+  for (ac::InterfacePortAttr port : moduleCase.materializedInterface
+                                       .getPorts()
+                                       .getAsRange<ac::InterfacePortAttr>()) {
+    auto concrete = mlir::cast<ac::TypeExprConcreteAttr>(
+        port.getLogicalType().getValue());
+    auto queue = mlir::dyn_cast<ac::QueueType>(concrete.getType().getValue());
+    if (port.getDirection().getValue() == "input") {
+      inputCarrierCount += queue ? 2 * queue.getLanes() : 1;
+      inputQueueCount += queue ? 1 : 0;
+    } else {
+      outputCarrierCount += queue ? 2 * queue.getLanes() : 1;
+      outputQueueCount += queue ? 1 : 0;
+    }
+  }
+  std::vector<std::string> inputs(inputCarrierCount + outputQueueCount);
+  std::vector<std::string> results(outputCarrierCount + inputQueueCount);
+  std::vector<std::string> logical;
+  uint64_t inputDataIndex = 2;
+  uint64_t outputReadyIndex = 2 + inputCarrierCount;
+  uint64_t outputDataIndex = 0;
+  uint64_t inputReadyIndex = outputCarrierCount;
+  uint64_t logicalInput = 0;
+  uint64_t logicalOutput = 0;
+  for (ac::InterfacePortAttr port : moduleCase.materializedInterface
+                                       .getPorts()
+                                       .getAsRange<ac::InterfacePortAttr>()) {
+    auto concrete = mlir::cast<ac::TypeExprConcreteAttr>(
+        port.getLogicalType().getValue());
+    mlir::Type logicalType = concrete.getType().getValue();
+    auto queue = mlir::dyn_cast<ac::QueueType>(logicalType);
+    const bool isInput = port.getDirection().getValue() == "input";
+    if (!queue) {
+      auto physicalType = pycType(bodyPlan, printMlirType(logicalType));
+      auto layout = familyLayout(bodyPlan, logicalType);
+      if (!physicalType)
+        return physicalType.takeError();
+      if (!layout)
+        return layout.takeError();
+      uint64_t index = isInput ? inputDataIndex++ : outputDataIndex++;
+      std::string carrier =
+          "#pyc.physical_port<\"" +
+          std::string(isInput ? "input" : "result") + "\", " +
+          std::to_string(index) + ", " + *physicalType +
+          ", \"value\" layout " + *layout + ">";
+      auto &physical = isInput ? inputs : results;
+      physical[isInput ? index - 2 : index] = carrier;
+      logical.push_back(
+          "#pyc.logical_port_mapping<\"" +
+          std::string(isInput ? "input" : "output") + "\", " +
+          std::to_string(isInput ? logicalInput++ : logicalOutput++) + ", " +
+          mlirStringLiteral(port.getName().getValue()) + ", " +
+          printMlirAttribute(port.getLogicalType()) + ", [" + carrier + "], " +
+          printMlirAttribute(port.getProvenance()) + ">");
+      continue;
+    }
+    std::string payload = printMlirType(queue.getElementType());
+    auto physicalType = pycType(bodyPlan, payload);
+    if (!physicalType)
+      return physicalType.takeError();
+    auto layout = familyLayout(bodyPlan, queue.getElementType());
+    if (!layout)
+      return layout.takeError();
+    std::vector<std::string> carriers;
+    for (int64_t lane = 0; lane < queue.getLanes(); ++lane) {
+      uint64_t validIndex = isInput ? inputDataIndex++ : outputDataIndex++;
+      uint64_t dataIndex = isInput ? inputDataIndex++ : outputDataIndex++;
+      std::string valid =
+          "#pyc.physical_port<\"" + std::string(isInput ? "input" : "result") +
+          "\", " + std::to_string(validIndex) +
+          ", i1, \"queue_valid\" lane " + std::to_string(lane) + " : i64>";
+      std::string data =
+          "#pyc.physical_port<\"" + std::string(isInput ? "input" : "result") +
+          "\", " + std::to_string(dataIndex) +
+          ", " + *physicalType + ", \"queue_data\" lane " +
+          std::to_string(lane) + " : i64 layout " + *layout + ">";
+      auto &physical = isInput ? inputs : results;
+      uint64_t physicalOffset = isInput ? validIndex - 2 : validIndex;
+      physical[physicalOffset] = valid;
+      physical[physicalOffset + 1] = data;
+      carriers.push_back(valid);
+      carriers.push_back(data);
+    }
+    uint64_t readyIndex = isInput ? inputReadyIndex++ : outputReadyIndex++;
+    std::string ready =
+        "#pyc.physical_port<\"" + std::string(isInput ? "result" : "input") +
+        "\", " + std::to_string(readyIndex) +
+        ", i1, \"queue_ready\">";
+    auto &readyPhysical = isInput ? results : inputs;
+    readyPhysical[isInput ? readyIndex : readyIndex - 2] = ready;
+    carriers.push_back(ready);
+    std::ostringstream carrierText;
+    writePycList(carrierText, carriers);
+    logical.push_back(
+        "#pyc.logical_port_mapping<\"" +
+        std::string(isInput ? "input" : "output") + "\", " +
+        std::to_string(isInput ? logicalInput++ : logicalOutput++) + ", " +
+        mlirStringLiteral(port.getName().getValue()) + ", " +
+        printMlirAttribute(port.getLogicalType()) + ", [" + carrierText.str() +
+        "], " + printMlirAttribute(port.getProvenance()) + ">" );
+  }
+  if (inputs.size() + controls.size() != emission.arguments.size() ||
+      results.size() != emission.resultTypes.size())
+    return pycError("family case mapping disagrees with emitted carrier arity: " +
+                    std::to_string(inputs.size()) + "/" +
+                    std::to_string(emission.arguments.size()) + " inputs, " +
+                    std::to_string(results.size()) + "/" +
+                    std::to_string(emission.resultTypes.size()) + " results");
+  std::ostringstream mapping;
+  mapping << "#pyc.module_port_mapping<[";
+  writePycList(mapping, controls);
+  mapping << "], [";
+  writePycList(mapping, logical);
+  mapping << "], [";
+  writePycList(mapping, inputs);
+  mapping << "], [";
+  writePycList(mapping, results);
+  mapping << "]>";
+  return mapping.str();
+}
+
+llvm::Expected<std::string> generateQueueGraphFamilyPyc(
+    const QueueGraphPlan &plan) {
   std::ostringstream output;
+  output << "module attributes {pyc.top = @" << plan.definition
+         << ", pyc.frontend.contract = \"pycircuit\"} {\n";
+  std::map<std::string, std::vector<const NominalDefinitionPlan *>>
+      nominalScopes;
+  std::map<std::pair<std::string, std::string>,
+           const NominalDefinitionPlan *>
+      nominalBySymbol;
+  for (const ModuleFamilyPlan &family : plan.moduleFamilies) {
+    for (const NominalDefinitionPlan &definition : family.nominalDefinitions) {
+      auto key = std::make_pair(definition.scope, definition.name);
+      auto [found, inserted] = nominalBySymbol.emplace(key, &definition);
+      if (!inserted) {
+        const NominalDefinitionPlan &previous = *found->second;
+        if (previous.kind != definition.kind ||
+            previous.scopeLayout != definition.scopeLayout ||
+            previous.parameters != definition.parameters ||
+            previous.members != definition.members ||
+            previous.values != definition.values ||
+            previous.encodingWidth != definition.encodingWidth)
+          return pycError(
+              "source-owned nominal declaration definitions disagree");
+        continue;
+      }
+      nominalScopes[definition.scope].push_back(&definition);
+    }
+  }
+  for (auto &[scope, definitions] : nominalScopes) {
+    output << "  ac.type_scope @" << scope << " {\n";
+    for (const NominalDefinitionPlan *definition : definitions) {
+      if (definition->kind == NominalDefinitionPlan::Kind::Enum) {
+        output << "    ac.enum @" << definition->name << " enumerants "
+               << printMlirAttribute(definition->members);
+        if (definition->values)
+          output << " values " << printMlirAttribute(definition->values);
+        if (definition->encodingWidth)
+          output << " width "
+                 << definition->encodingWidth.getValue().getZExtValue();
+        if (definition->parameters)
+          output << " {parameters = "
+                 << printMlirAttribute(definition->parameters) << "}";
+        output << "\n";
+      } else {
+        output << "    ac.struct @" << definition->name << " fields "
+               << printMlirAttribute(definition->members);
+        if (definition->parameters)
+          output << " {parameters = "
+                 << printMlirAttribute(definition->parameters) << "}";
+        output << "\n";
+      }
+    }
+    output << "  } {dlti.dl_spec = "
+           << printMlirAttribute(definitions.front()->scopeLayout) << "}\n";
+  }
+  for (const ModuleFamilyPlan &family : plan.moduleFamilies) {
+    auto schema = ac::ModuleFamilySchemaAttr::get(
+        family.source.getContext(), family.parameters, family.declaredCases,
+        family.interface, family.source, family.nominalDeclarations);
+    output << "  pyc.module @" << family.definition << " source "
+           << printMlirAttribute(family.source) << " schema "
+           << printMlirAttribute(schema) << " {\n";
+    for (const ModuleCasePlan &moduleCase : family.cases) {
+      const QueueGraphPlan *bodyPlan = moduleCase.bodyPlan.get();
+      if (!bodyPlan && family.definition == plan.definition)
+        bodyPlan = &plan;
+      if (!bodyPlan)
+        return pycError("family case has no typed executable body plan");
+      auto emission = emitFamilyCaseBody(*bodyPlan);
+      if (!emission)
+        return emission.takeError();
+      auto mapping = emitFamilyCaseMapping(*bodyPlan, moduleCase, *emission);
+      if (!mapping)
+        return mapping.takeError();
+      std::vector<std::string> physicalInputs;
+      for (llvm::StringRef argument : emission->arguments) {
+        size_t colon = argument.find(':');
+        if (colon == llvm::StringRef::npos)
+          return pycError("family case physical argument is malformed");
+        physicalInputs.push_back(argument.drop_front(colon + 1).trim().str());
+      }
+      output << "    pyc.module.case signature #pyc.module_case_signature<"
+             << printMlirAttribute(
+                    dependentArgumentsFromStatic(moduleCase.arguments))
+             << ", "
+             << printMlirAttribute(moduleCase.materializedInterface) << ", (";
+      writePycList(output, physicalInputs);
+      output << ") -> (";
+      writePycList(output, emission->resultTypes);
+      output << "), " << *mapping << "> source "
+             << printMlirAttribute(moduleCase.sourceProvenance) << " {\n"
+             << "    ^bb0(";
+      writePycList(output, emission->arguments);
+      output << "):\n" << emission->body << "    pyc.return ";
+      writePycList(output, emission->returnValues);
+      if (!emission->resultTypes.empty()) {
+        output << " : ";
+        writePycList(output, emission->resultTypes);
+      }
+      output << "\n    }\n";
+    }
+    output << "  }\n";
+  }
+  output << "}\n";
+  return output.str();
+}
+
+llvm::Expected<std::string> generateQueueGraphPyc(const QueueGraphPlan &plan) {
+  if (!plan.definition.empty())
+    return generateQueueGraphFamilyPyc(plan);
+  llvm::Expected<PycBodyEmission> emission = [&]() -> llvm::Expected<PycBodyEmission> {
+    if (llvm::any_of(plan.queues, [](const QueuePlan &queue) {
+        return queue.lanes > 1 || queue.rate > 1;
+      })) {
+      std::vector<const QueueBlockPlan *> sources;
+      std::vector<const QueueBlockPlan *> sinks;
+      for (const QueueBlockPlan &block : plan.blocks) {
+        if (block.kind == "source")
+          sources.push_back(&block);
+        else if (block.kind == "sink")
+          sinks.push_back(&block);
+      }
+      return emitLaneQueuePycBody(plan, sources, sinks);
+    }
+    return emitQueueGraphPycBody(plan);
+  }();
+  if (!emission)
+    return emission.takeError();
+  auto writeList = [](std::ostringstream &stream,
+                      const std::vector<std::string> &values,
+                      llvm::StringRef prefix = {},
+                      llvm::StringRef suffix = {}) {
+    for (auto [index, value] : llvm::enumerate(values)) {
+      if (index)
+        stream << ", ";
+      stream << prefix.str() << value << suffix.str();
+    }
+  };
   auto sourceMap = plan.sourceMapJson();
   if (!sourceMap)
     return sourceMap.takeError();
-  output << "module attributes {pyc.top = @" << top.str()
+  std::ostringstream output;
+  output << "module attributes {pyc.top = @" << plan.system
          << ", pyc.frontend.contract = \"pycircuit\", pyc.source_map = "
-         << mlirStringLiteral(*sourceMap) << "} {\n  func.func @"
-         << top.str() << '(';
-  writeList(output, arguments);
+         << mlirStringLiteral(*sourceMap) << "} {\n  func.func @" << plan.system
+         << '(';
+  writeList(output, emission->arguments);
   output << ") -> (";
-  writeList(output, resultTypes);
+  writeList(output, emission->resultTypes);
   output << ") attributes {arg_names = [";
-  writeList(output, argumentNames, "\"", "\"");
+  writeList(output, emission->argumentNames, "\"", "\"");
   output << "], result_names = [";
-  writeList(output, resultNames, "\"", "\"");
+  writeList(output, emission->resultNames, "\"", "\"");
   output << "], pyc.value_params = [], pyc.value_param_types = [], "
             "pyc.kind = \"module\", pyc.inline = \"false\", "
             "pyc.params = \"{}\", pyc.base = \""
-         << top.str() << "\", pyc.struct.metrics = \"" << kStructMetrics.str()
+         << plan.system << "\", pyc.struct.metrics = \"" << kStructMetrics.str()
          << "\", pyc.struct.collections = \"[]\"} {\n"
-         << attachPycSourceLocations(body.str(), sourceLocations)
-         << "    func.return ";
-  writeList(output, returnValues);
+         << emission->body << "    func.return ";
+  writeList(output, emission->returnValues);
   output << " : ";
-  writeList(output, resultTypes);
+  writeList(output, emission->resultTypes);
   output << "\n  }\n}\n";
   return output.str();
 }

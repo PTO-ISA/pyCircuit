@@ -27,8 +27,6 @@ from .acir_text import (
     _render_enum,
     _render_interface_display_attributes,
     _render_queue_type,
-    _render_static_mlir_dictionary,
-    _render_static_type_attributes,
     _render_table_domain_attributes,
     _render_table_init_value,
     _render_type,
@@ -145,7 +143,7 @@ def lower_queue_program(
     ) -> None:
         """Attach presentation-only metadata to the op defining ``result``."""
 
-        display_name = re.sub(r"^__ac_rule_local_[0-9]+_", "", logical_name)
+        display_name = re.sub(r"^compiler_rule_local_[0-9]+_", "", logical_name)
         for index in range(len(emitted_lines) - 1, -1, -1):
             line = emitted_lines[index]
             operation, separator, _ = line.partition("=")
@@ -185,12 +183,6 @@ def lower_queue_program(
         owner = "_".join((*write.scope, write.table))
         return f"{owner}_{kind}_{write.arbitration_rank}"
 
-    static_type_attributes = _render_static_type_attributes(
-        program.static_type_bindings,
-        program.payloads,
-        program.static_type_checks,
-        program.static_config_bindings,
-    )
     module_inputs = set() if module is None else {name for name, _ in module.inputs}
     module_outputs = set() if module is None else {name for name, _ in module.outputs}
     initial_mapping: dict[str, str] = {}
@@ -213,7 +205,7 @@ def lower_queue_program(
             f'ac.model_kind = "queue_graph", '
             f'ac.queue_graph_domain = "cycle", '
             f'ac.system = "{program.system}"{system_metadata_text}'
-            f"{static_type_attributes}}} {{"
+            "} {"
         ]
         content_indent = "  "
     else:
@@ -245,11 +237,54 @@ def lower_queue_program(
             f"%borrowed_{index}: !ac.queue<{_render_type(payload)}>"
             for index, (_, payload) in enumerate(module.inputs)
         )
+        source_owner = module.source_file or "generated/module.py"
+        owner = (
+            "#ac.source_owner<"
+            + canonical_mlir_string(source_owner)
+            + ", "
+            + canonical_mlir_string(source_owner)
+            + ">"
+        )
+        provenance = (
+            "#ac.source_provenance<"
+            + canonical_mlir_string(source_owner)
+            + f", {max(module.source_line, 1)}, {max(module.source_column, 1)}, "
+            + f"{max(module.source_line, 1)}, {max(module.source_column, 1)}>"
+        )
+        empty_arguments = "#ac.static_arguments<[]>"
+        interface_ports: list[str] = []
+        for name, payload in module.inputs:
+            queue_type = f"!ac.queue<{_render_type(payload)}>"
+            interface_ports.append(
+                "#ac.interface_port<"
+                f"{canonical_mlir_string(name)}, \"input\", "
+                f"#ac.type_expr<#ac.type_expr_concrete<{queue_type}>>, "
+                f"{provenance}>"
+            )
+        for name, payload in module.outputs:
+            queue_type = f"!ac.queue<{_render_type(payload)}>"
+            interface_ports.append(
+                "#ac.interface_port<"
+                f"{canonical_mlir_string(name)}, \"output\", "
+                f"#ac.type_expr<#ac.type_expr_concrete<{queue_type}>>, "
+                f"{provenance}>"
+            )
+        schema = (
+            "#ac.module_family_schema<#ac.static_parameters<[]>, "
+            "#ac.static_cases<[#ac.static_arguments<[]>]>, "
+            "#ac.module_interface<[" + ", ".join(interface_ports) + "]>, "
+            f"{owner}, []>"
+        )
+        physical_inputs = ", ".join(
+            f"!ac.queue<{_render_type(payload)}>" for _, payload in module.inputs
+        )
+        function_type = f"({physical_inputs}) -> {result_signature[4:] if result_signature else '()'}"
         lines = [
-            f"  ac.module @{module.name}({argument_types}){result_signature} "
-            f"parameters {_render_static_mlir_dictionary(module.static_arguments)} "
-            f"{_render_interface_display_attributes(tuple(name for name, _ in module.inputs), tuple(name for name, _ in module.outputs), _module_attribute_fields(module))} "
-            "graph {",
+            f"  ac.module @{module.name} source {owner} schema {schema} {{",
+            f"    ac.module.case arguments {empty_arguments} type {function_type} "
+            f"{_render_interface_display_attributes(tuple(name for name, _ in module.inputs), tuple(name for name, _ in module.outputs), _module_attribute_fields(module)).removeprefix(' attributes')} "
+            f"source {provenance} graph {{",
+            f"    ^bb0({argument_types}):" if argument_types else "    ^bb0:",
             f"    {scope_lhs}ac.scope @body({scope_operands}) {{",
             f"    ^bb0({scope_arguments}):" if scope_arguments else "    ^bb0:",
         ]
@@ -554,7 +589,7 @@ def lower_queue_program(
     effective_input: dict[tuple[str, int], str] = {}
     for source_name, (fanout_scope, group) in fanouts.items():
         for index, (consumer, input_index) in enumerate(group):
-            synthetic = f"{source_name}__fanout{index}"
+            synthetic = f"{source_name}_fanout_{index}"
             effective_input[(consumer.name, input_index)] = synthetic
             payload_by_queue[synthetic] = by_name[source_name].payload
             queue_scope[synthetic] = fanout_scope
@@ -1658,7 +1693,7 @@ def lower_queue_program(
                 assert output_ssa is not None
             output_ssas = (
                 tuple(
-                    name if not queue.scope else f"{name}__local"
+                    name if not queue.scope else f"{name}_local"
                     for name in queue.rule_output_names
                 )
                 if queue.rule_output_names
@@ -2100,7 +2135,7 @@ def lower_queue_program(
                 queue = item
                 assert isinstance(queue, QueueBinding)
                 output = (
-                    (queue.name if not path else f"{queue.name}__local")
+                    (queue.name if not path else f"{queue.name}_local")
                     if queue.rule_has_output
                     else None
                 )
@@ -2240,7 +2275,7 @@ def lower_queue_program(
                 source = item
                 assert isinstance(source, str)
                 _, group = fanouts[source]
-                outputs = [f"{source}__fanout{index}" for index in range(len(group))]
+                outputs = [f"{source}_fanout_{index}" for index in range(len(group))]
                 lhs = ", ".join(f"%{name}" for name in outputs)
                 depths = ", ".join("1" for _ in outputs)
                 payload = payload_by_queue[source]
@@ -2260,7 +2295,7 @@ def lower_queue_program(
                 barrier = item
                 assert isinstance(barrier, BarrierBinding)
                 output_names = [
-                    name if not path else f"{name}__local" for name in barrier.outputs
+                    name if not path else f"{name}_local" for name in barrier.outputs
                 ]
                 lhs = ", ".join(f"%{name}" for name in output_names)
                 operands = ", ".join(
@@ -2301,7 +2336,7 @@ def lower_queue_program(
                     raise QueueFrontendError(
                         "ACPY-QUEUE-018: select key must lower to an integer"
                     )
-                output = select.output if not path else f"{select.output}__local"
+                output = select.output if not path else f"{select.output}_local"
                 operands = ", ".join(
                     f"%{mapping[name]}" for name in (select.control, *select.inputs)
                 )
@@ -2353,7 +2388,7 @@ def lower_queue_program(
                         "ACPY-QUEUE-006: route key must lower to an integer"
                     )
                 output_names = [
-                    name if not path else f"{name}__local" for name in route.outputs
+                    name if not path else f"{name}_local" for name in route.outputs
                 ]
                 lhs = ", ".join(f"%{name}" for name in output_names)
                 depths = ", ".join(str(route.depth) for _ in output_names)
@@ -2386,7 +2421,7 @@ def lower_queue_program(
                 assert isinstance(fork, ForkBinding)
                 incoming = by_name[fork.input_name]
                 output_names = [
-                    name if not path else f"{name}__local" for name in fork.outputs
+                    name if not path else f"{name}_local" for name in fork.outputs
                 ]
                 lhs = ", ".join(f"%{name}" for name in output_names)
                 depths = ", ".join(str(fork.depth) for _ in output_names)
@@ -2426,7 +2461,7 @@ def lower_queue_program(
                 output = (
                     feedback.output_name
                     if not path
-                    else f"{feedback.output_name}__local"
+                    else f"{feedback.output_name}_local"
                 )
                 lines.append(
                     f"{indent}%{output} = ac.feedback %{mapping[feedback.input_name]} "
@@ -2465,7 +2500,7 @@ def lower_queue_program(
                         "ACPY-QUEUE-013: reorder key must lower to an integer"
                     )
                 output = (
-                    reorder.output_name if not path else f"{reorder.output_name}__local"
+                    reorder.output_name if not path else f"{reorder.output_name}_local"
                 )
                 lines.append(
                     f"{indent}%{output} = ac.reorder "
@@ -2534,7 +2569,7 @@ def lower_queue_program(
                 output = (
                     dependency.output_name
                     if not path
-                    else f"{dependency.output_name}__local"
+                    else f"{dependency.output_name}_local"
                 )
                 lines.append(
                     f"{indent}%{output} = ac.dependency "
@@ -2588,7 +2623,7 @@ def lower_queue_program(
                         "ACPY-QUEUE-016: credit cost must lower to an integer"
                     )
                 output = (
-                    credit.output_name if not path else f"{credit.output_name}__local"
+                    credit.output_name if not path else f"{credit.output_name}_local"
                 )
                 lines.append(
                     f"{indent}%{output} = ac.credit "
@@ -2648,7 +2683,7 @@ def lower_queue_program(
                         "ACPY-QUEUE-015: memory data must match result_field"
                     )
                 output = (
-                    memory.output_name if not path else f"{memory.output_name}__local"
+                    memory.output_name if not path else f"{memory.output_name}_local"
                 )
                 lines.append(
                     f"{indent}%{output} = ac.memory.request @{memory.instance}, "
@@ -2740,7 +2775,7 @@ def lower_queue_program(
                     raise QueueFrontendError(
                         "ACPY-TABLE-003: read address/when type mismatch"
                     )
-                output = read.output_name if not path else f"{read.output_name}__local"
+                output = read.output_name if not path else f"{read.output_name}_local"
                 operand = (
                     ""
                     if read.input_name is None
@@ -2822,7 +2857,7 @@ def lower_queue_program(
                     argument,
                     input_payload,
                     table_views={
-                        "__old": (write.table, write.address, table.entry_type)
+                        "compiler_old": (write.table, write.address, table.entry_type)
                     },
                     slot_views=slot_views,
                     candidates=candidate_views,
@@ -2841,7 +2876,7 @@ def lower_queue_program(
                 else:
                     patch_call = ast.Call(
                         func=ast.Attribute(
-                            value=ast.Name(id="__old", ctx=ast.Load()),
+                            value=ast.Name(id="compiler_old", ctx=ast.Load()),
                             attr="with_fields",
                             ctx=ast.Load(),
                         ),
@@ -2897,9 +2932,9 @@ def lower_queue_program(
                         f"!ac.var<{_render_type(policy_type)}>"
                     )
                 endpoint_base = (
-                    f"{write.table}__allocate"
+                    f"{write.table}_allocate"
                     if write.write_mode == "replace"
-                    else f"{write.table}__write"
+                    else f"{write.table}_write"
                 )
                 peer_writes = sum(
                     candidate.table == write.table
@@ -2963,7 +2998,7 @@ def lower_queue_program(
                 enabled, enable_type = enable_emitter.emit(write.enable, BoolType())
                 value_emitter = _ExpressionEmitter(
                     payloads,
-                    "__old",
+                    "compiler_old",
                     table.entry_type,
                     root_name="old",
                     prefix="value_",
@@ -2984,7 +3019,7 @@ def lower_queue_program(
                 else:
                     patch_call = ast.Call(
                         func=ast.Attribute(
-                            value=ast.Name(id="__old", ctx=ast.Load()),
+                            value=ast.Name(id="compiler_old", ctx=ast.Load()),
                             attr="with_fields",
                             ctx=ast.Load(),
                         ),
@@ -3027,7 +3062,7 @@ def lower_queue_program(
                     for candidate in program.masked_table_writes
                 )
                 endpoint_id = table_writer_identity(write)
-                endpoint_name = f"{write.table}__masked_write" + (
+                endpoint_name = f"{write.table}_masked_write" + (
                     "" if peer_writes == 1 else f"_{endpoint_id[:24]}"
                 )
                 arbitration = (
@@ -3082,7 +3117,7 @@ def lower_queue_program(
                 lines.append(f"{indent}^when:")
                 lines.extend(indent + line[2:] for line in emitter.lines)
                 lines.append(f"{indent}  ac.slot.yield %{condition} : !ac.var<i1>")
-                endpoint_name = f"{release.slot}__release"
+                endpoint_name = f"{release.slot}_release"
                 lines.append(
                     f'{indent}}} {{ac.endpoint_path = "'
                     f'{"/" + "/".join((*release.scope, endpoint_name))}", '
@@ -3091,7 +3126,7 @@ def lower_queue_program(
             elif kind == "merge":
                 merge = item
                 assert isinstance(merge, MergeBinding)
-                output = merge.output if not path else f"{merge.output}__local"
+                output = merge.output if not path else f"{merge.output}_local"
                 operands = ", ".join(f"%{mapping[name]}" for name in merge.inputs)
                 input_types = ", ".join(
                     _render_queue_type(
@@ -3193,7 +3228,7 @@ def lower_queue_program(
     ) -> None:
         inputs, outputs = scope_io(scope.path)
         result_names = [
-            name if len(scope.path) == 1 else f"{name}__inner" for name in outputs
+            name if len(scope.path) == 1 else f"{name}_inner" for name in outputs
         ]
         lhs = (
             ""
@@ -3211,12 +3246,12 @@ def lower_queue_program(
         local_mapping = dict(parent_mapping)
         if inputs:
             args = ", ".join(
-                f"%{name}__in: !ac.queue<{_render_type(payload_by_queue[name])}>"
+                f"%{name}_in: !ac.queue<{_render_type(payload_by_queue[name])}>"
                 for name in inputs
             )
             lines.append(f"{indent}^body({args}):")
             for name in inputs:
-                local_mapping[name] = f"{name}__in"
+                local_mapping[name] = f"{name}_in"
         else:
             lines.append(f"{indent}^body:")
         render_items(scope.path, local_mapping, indent + "  ")
@@ -3266,5 +3301,6 @@ def lower_queue_program(
             "    ac.return"
             + (f" {returned} : {output_types}" if module.outputs else "")
         )
+        lines.append("    }")
         lines.append("  }")
     return "\n".join(lines) + "\n"

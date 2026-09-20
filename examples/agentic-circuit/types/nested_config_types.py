@@ -7,15 +7,15 @@ import agentic_circuit as ac
 
 @ac.config
 class CacheConfig:
-    sets: int
-    ways: int
-    line_bytes: int
+    sets: ac.static_int(width=64, signed=False)
+    ways: ac.static_int(width=64, signed=False)
+    line_bytes: ac.static_int(width=64, signed=False)
 
 
 @ac.config
 class CoreConfig:
     cache: CacheConfig
-    lanes: int
+    lanes: ac.static_int(width=64, signed=False)
 
 
 CFG = ac.param[CoreConfig]("cfg")
@@ -41,12 +41,3 @@ def nested_config_types(value: Lookup, *, cfg: ac.const[CoreConfig]) -> Lookup:
         "cache sets must be divisible by lanes",
     )
     return value
-
-
-specialization = ac.jit(
-    nested_config_types,
-    cfg=CoreConfig(
-        cache=CacheConfig(sets=64, ways=4, line_bytes=64),
-        lanes=4,
-    ),
-)

@@ -14,19 +14,16 @@ def _total_engines(m: Circuit, n_fe: int | None, eng_per_lane: int) -> int:
     return max(1, int(eng_per_lane)) * ct.div_ceil(4, 1)
 
 
-def build(
-    m: CycleAwareCircuit,
-    domain: CycleAwareDomain,
-    N_FE: int | None = None,
-    ENG_PER_LANE: int = 1,
-    LANE_Q_DEPTH: int = 16,
-    ENG_Q_DEPTH: int = 4,
-    ROB_DEPTH: int = 16,
-    SEQ_W: int = 16,
-    HIST_DEPTH: int = 8,
-    STASH_WIN: int = 6,
-    BKPR_SLACK: int = 1,
-) -> None:
+def build(m: CycleAwareCircuit, domain: CycleAwareDomain) -> None:
+    N_FE = None
+    ENG_PER_LANE = 1
+    LANE_Q_DEPTH = 16
+    ENG_Q_DEPTH = 4
+    ROB_DEPTH = 16
+    SEQ_W = 16
+    HIST_DEPTH = 8
+    STASH_WIN = 6
+    BKPR_SLACK = 1
     _ = domain
     _ = (LANE_Q_DEPTH, ENG_Q_DEPTH, ROB_DEPTH, SEQ_W, HIST_DEPTH, STASH_WIN, BKPR_SLACK)
     total_eng = _total_engines(m, N_FE, ENG_PER_LANE)

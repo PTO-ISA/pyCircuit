@@ -24,9 +24,9 @@ builtin.module attributes {
   ac.type_scope @types {
     ac.enum @Mode enumerants ["IDLE", "RUN"]
   } {dlti.dl_spec = #dlti.dl_spec<!ac.enum<@types::@Mode> = {abi_alignment = 1 : i64, endianness = "little", preferred_alignment = 1 : i64, size = 1 : i64}>}
-
-  ac.module @Accumulator(%input: !ac.queue<i8>) -> (!ac.queue<i8>)
-      parameters {} graph {
+ac.module @Accumulator source #ac.source_owner<"tests/native_family.py", "tests/native_family.py"> schema #ac.module_family_schema<#ac.static_parameters<[]>, #ac.static_cases<[#ac.static_arguments<[]>]>, #ac.module_interface<[#ac.interface_port<"input_0", "input", #ac.type_expr<#ac.type_expr_concrete<!ac.queue<i8>>>, #ac.source_provenance<"tests/native_family.py", 1, 1, 1, 1>>, #ac.interface_port<"output_0", "output", #ac.type_expr<#ac.type_expr_concrete<!ac.queue<i8>>>, #ac.source_provenance<"tests/native_family.py", 1, 1, 1, 1>>]>, #ac.source_owner<"tests/native_family.py", "tests/native_family.py">, []> {
+    ac.module.case arguments #ac.static_arguments<[]> type (!ac.queue<i8>) -> (!ac.queue<i8>) source #ac.source_provenance<"tests/native_family.py", 1, 1, 1, 1> graph {
+    ^bb0(%input: !ac.queue<i8>):
     %output = ac.scope @logic(%input) {
     ^bb0(%borrowed: !ac.queue<i8>):
       ac.table @sum entry i8 entries 1 init 0 owner "/logic"
@@ -69,9 +69,11 @@ builtin.module attributes {
       ac.scope.yield %next : !ac.queue<i8>
     } : (!ac.queue<i8>) -> !ac.queue<i8>
     ac.return %output : !ac.queue<i8>
-  }
 
-  ac.module @Top() parameters {} graph {
+    }
+  }
+  ac.module @Top source #ac.source_owner<"tests/native_family.py", "tests/native_family.py"> schema #ac.module_family_schema<#ac.static_parameters<[]>, #ac.static_cases<[#ac.static_arguments<[]>]>, #ac.module_interface<[]>, #ac.source_owner<"tests/native_family.py", "tests/native_family.py">, []> {
+    ac.module.case arguments #ac.static_arguments<[]> type () -> () source #ac.source_provenance<"tests/native_family.py", 1, 1, 1, 1> graph {
     %left_input, %right_input = ac.scope @inputs() {
       %left = ac.source depth 2 latency 1 {ac.name = "left_input"}
           : !ac.queue<i8>
@@ -79,9 +81,9 @@ builtin.module attributes {
           : !ac.queue<i8>
       ac.scope.yield %left, %right : !ac.queue<i8>, !ac.queue<i8>
     } : () -> (!ac.queue<i8>, !ac.queue<i8>)
-    %left_output = ac.instance @left of @Accumulator(%left_input) static {}
+    %left_output = ac.instance @left of @Accumulator(%left_input) static #ac.static_arguments<[]>
         id "left" path "left" : (!ac.queue<i8>) -> !ac.queue<i8>
-    %right_output = ac.instance @right of @Accumulator(%right_input) static {}
+    %right_output = ac.instance @right of @Accumulator(%right_input) static #ac.static_arguments<[]>
         id "right" path "right" : (!ac.queue<i8>) -> !ac.queue<i8>
     ac.scope @outputs(%left_output, %right_output) {
     ^bb0(%left: !ac.queue<i8>, %right: !ac.queue<i8>):
@@ -90,6 +92,8 @@ builtin.module attributes {
       ac.scope.yield
     } : (!ac.queue<i8>, !ac.queue<i8>) -> ()
     ac.return
+
+    }
   }
 }
 
@@ -101,14 +105,6 @@ builtin.module attributes {
 // PLAN-SAME: "definition":"Top"
 // PLAN-SAME: "module_instances":[{"definition":"Accumulator"
 // PLAN-SAME: {"definition":"Accumulator"
-// PLAN-SAME: "specialization":"@Accumulator{}"
-// PLAN-SAME: "module_specializations":[{
-// PLAN-SAME: "activation_edges":[
-// PLAN-SAME: "kind":"enum_constant"
-// PLAN-SAME: "kind":"firing"
-// PLAN-SAME: "definition":"Accumulator"
-// PLAN-SAME: "tables":[{"axis_widths":[1],"entries":1
-// PLAN-SAME: "name":"sum"
 // PLAN: "work_closure_edges":[
 
 // CXX-COUNT-1: class [[IMPLEMENTATION:Accumulator]] final : public gfsim::Module
@@ -122,4 +118,4 @@ builtin.module attributes {
 // CXX: work_closure_targets()
 // CXX: initial_work_ids()
 // CXX: schedule_initial_work
-// CXX-COUNT-2: [[IMPLEMENTATION]] instance_
+// CXX-COUNT-2: std::unique_ptr<[[IMPLEMENTATION]]> instance_

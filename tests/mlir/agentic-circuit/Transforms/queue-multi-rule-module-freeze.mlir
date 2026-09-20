@@ -19,10 +19,9 @@ builtin.module attributes {
     result_schema = {id = "default", format = "json"},
     selected = true
   }> : () -> ()
-
-  ac.module @DualAccumulator(
-      %input_a: !ac.queue<i8>, %input_b: !ac.queue<i8>)
-      -> (!ac.queue<i8>, !ac.queue<i8>) parameters {} graph {
+ac.module @DualAccumulator source #ac.source_owner<"tests/native_family.py", "tests/native_family.py"> schema #ac.module_family_schema<#ac.static_parameters<[]>, #ac.static_cases<[#ac.static_arguments<[]>]>, #ac.module_interface<[#ac.interface_port<"input_0", "input", #ac.type_expr<#ac.type_expr_concrete<!ac.queue<i8>>>, #ac.source_provenance<"tests/native_family.py", 1, 1, 1, 1>>, #ac.interface_port<"input_1", "input", #ac.type_expr<#ac.type_expr_concrete<!ac.queue<i8>>>, #ac.source_provenance<"tests/native_family.py", 1, 1, 1, 1>>, #ac.interface_port<"output_0", "output", #ac.type_expr<#ac.type_expr_concrete<!ac.queue<i8>>>, #ac.source_provenance<"tests/native_family.py", 1, 1, 1, 1>>, #ac.interface_port<"output_1", "output", #ac.type_expr<#ac.type_expr_concrete<!ac.queue<i8>>>, #ac.source_provenance<"tests/native_family.py", 1, 1, 1, 1>>]>, #ac.source_owner<"tests/native_family.py", "tests/native_family.py">, []> {
+    ac.module.case arguments #ac.static_arguments<[]> type (!ac.queue<i8>, !ac.queue<i8>) -> (!ac.queue<i8>, !ac.queue<i8>) source #ac.source_provenance<"tests/native_family.py", 1, 1, 1, 1> graph {
+    ^bb0(%input_a: !ac.queue<i8>, %input_b: !ac.queue<i8>):
     %output_a, %output_b = ac.scope @logic(%input_a, %input_b) {
     ^bb0(%a: !ac.queue<i8>, %b: !ac.queue<i8>):
       ac.table @sum entry i8 entries 1 init 0 owner "/logic"
@@ -98,9 +97,11 @@ builtin.module attributes {
       ac.scope.yield %a_result, %b_result : !ac.queue<i8>, !ac.queue<i8>
     } : (!ac.queue<i8>, !ac.queue<i8>) -> (!ac.queue<i8>, !ac.queue<i8>)
     ac.return %output_a, %output_b : !ac.queue<i8>, !ac.queue<i8>
-  }
 
-  ac.module @Top() parameters {} graph {
+    }
+  }
+  ac.module @Top source #ac.source_owner<"tests/native_family.py", "tests/native_family.py"> schema #ac.module_family_schema<#ac.static_parameters<[]>, #ac.static_cases<[#ac.static_arguments<[]>]>, #ac.module_interface<[]>, #ac.source_owner<"tests/native_family.py", "tests/native_family.py">, []> {
+    ac.module.case arguments #ac.static_arguments<[]> type () -> () source #ac.source_provenance<"tests/native_family.py", 1, 1, 1, 1> graph {
     %left_a, %left_b, %right_a, %right_b = ac.scope @inputs() {
       %q0 = ac.source depth 2 latency 1 {ac.name = "left_a"} : !ac.queue<i8>
       %q1 = ac.source depth 2 latency 1 {ac.name = "left_b"} : !ac.queue<i8>
@@ -109,10 +110,10 @@ builtin.module attributes {
       ac.scope.yield %q0, %q1, %q2, %q3
           : !ac.queue<i8>, !ac.queue<i8>, !ac.queue<i8>, !ac.queue<i8>
     } : () -> (!ac.queue<i8>, !ac.queue<i8>, !ac.queue<i8>, !ac.queue<i8>)
-    %left:2 = ac.instance @left of @DualAccumulator(%left_a, %left_b) static {}
+    %left:2 = ac.instance @left of @DualAccumulator(%left_a, %left_b) static #ac.static_arguments<[]>
         id "left" path "left"
         : (!ac.queue<i8>, !ac.queue<i8>) -> (!ac.queue<i8>, !ac.queue<i8>)
-    %right:2 = ac.instance @right of @DualAccumulator(%right_a, %right_b) static {}
+    %right:2 = ac.instance @right of @DualAccumulator(%right_a, %right_b) static #ac.static_arguments<[]>
         id "right" path "right"
         : (!ac.queue<i8>, !ac.queue<i8>) -> (!ac.queue<i8>, !ac.queue<i8>)
     ac.scope @outputs(%left#0, %left#1, %right#0, %right#1) {
@@ -125,6 +126,8 @@ builtin.module attributes {
       ac.scope.yield
     } : (!ac.queue<i8>, !ac.queue<i8>, !ac.queue<i8>, !ac.queue<i8>) -> ()
     ac.return
+
+    }
   }
 }
 
@@ -134,17 +137,9 @@ builtin.module attributes {
 // PLAN-SAME: {"definition":"DualAccumulator"
 // PLAN-SAME: "inputs":["right_a","right_b"]
 // PLAN-SAME: "outputs":["right_0","right_1"]
-// PLAN-SAME: "module_specializations":[{
-// PLAN-SAME: "name":"output_b"
-// PLAN-SAME: "priority":0
-// PLAN-SAME: "name":"output_a"
-// PLAN-SAME: "priority":1
-// PLAN-SAME: "definition":"DualAccumulator"
-// PLAN-SAME: "interface_inputs":[{"display_name":"input_0","lanes":1,"name":"input_0","payload_type":"i8","rate":1},{"display_name":"input_1","lanes":1,"name":"input_1","payload_type":"i8","rate":1}]
-// PLAN-SAME: "interface_outputs":[{"display_name":"output_0","lanes":1,"name":"output_a","payload_type":"i8","rate":1},{"display_name":"output_1","lanes":1,"name":"output_b","payload_type":"i8","rate":1}]
 
 // CXX-COUNT-1: class [[IMPLEMENTATION:DualAccumulator]] final : public gfsim::Module
 // CXX: gfsim::QueueTableTransition<[[IMPLEMENTATION]]_rule_accumulate_b_policy
 // CXX: gfsim::QueueTableTransition<[[IMPLEMENTATION]]_rule_accumulate_a_policy
 // CXX: class MultiRuleReuse final : public gfsim::Module
-// CXX-COUNT-2: [[IMPLEMENTATION]] instance_
+// CXX-COUNT-2: std::unique_ptr<[[IMPLEMENTATION]]> instance_

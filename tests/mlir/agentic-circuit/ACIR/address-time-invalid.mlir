@@ -49,415 +49,551 @@
 
 //--- period-zero.mlir
 builtin.module  {
-  "ac.module"() <{sym_name = "M", function_type = () -> (), static_params = {}}> ({
+  ac.module @M source #ac.source_owner<"tests/native_family.py", "tests/native_family.py"> schema #ac.module_family_schema<#ac.static_parameters<[]>, #ac.static_cases<[#ac.static_arguments<[]>]>, #ac.module_interface<[]>, #ac.source_owner<"tests/native_family.py", "tests/native_family.py">, []> {
+  ac.module.case arguments #ac.static_arguments<[]> type () -> () source #ac.source_provenance<"tests/native_family.py", 1, 1, 1, 1> graph {
     "ac.time_domain"() <{sym_name = "t", period = 0 : i64, phase = 0 : i64, tick_scale = 1 : i64}> : () -> ()
     "ac.return"() : () -> ()
-  }) : () -> ()
+
+  }
+}
 }
 // PERIOD: period must be positive global ticks
 
 //--- phase-negative.mlir
 builtin.module  {
-  "ac.module"() <{sym_name = "M", function_type = () -> (), static_params = {}}> ({
+  ac.module @M source #ac.source_owner<"tests/native_family.py", "tests/native_family.py"> schema #ac.module_family_schema<#ac.static_parameters<[]>, #ac.static_cases<[#ac.static_arguments<[]>]>, #ac.module_interface<[]>, #ac.source_owner<"tests/native_family.py", "tests/native_family.py">, []> {
+  ac.module.case arguments #ac.static_arguments<[]> type () -> () source #ac.source_provenance<"tests/native_family.py", 1, 1, 1, 1> graph {
     "ac.time_domain"() <{sym_name = "t", period = 1 : i64, phase = -1 : i64, tick_scale = 1 : i64}> : () -> ()
     "ac.return"() : () -> ()
-  }) : () -> ()
+
+  }
+}
 }
 // PHASE: phase must be non-negative global ticks
 
 //--- tick-overflow.mlir
 builtin.module  {
-  "ac.module"() <{sym_name = "M", function_type = () -> (), static_params = {}}> ({
+  ac.module @M source #ac.source_owner<"tests/native_family.py", "tests/native_family.py"> schema #ac.module_family_schema<#ac.static_parameters<[]>, #ac.static_cases<[#ac.static_arguments<[]>]>, #ac.module_interface<[]>, #ac.source_owner<"tests/native_family.py", "tests/native_family.py">, []> {
+  ac.module.case arguments #ac.static_arguments<[]> type () -> () source #ac.source_provenance<"tests/native_family.py", 1, 1, 1, 1> graph {
     "ac.time_domain"() <{sym_name = "t", period = 9223372036854775807 : i64, phase = 1 : i64, tick_scale = 4294967297 : i64}> : () -> ()
     "ac.return"() : () -> ()
-  }) : () -> ()
+
+  }
+}
 }
 // TICK-OVERFLOW: tick scale exceeds implementation capability
 
 //--- domain-cycle.mlir
 builtin.module  {
-  "ac.module"() <{sym_name = "Bridge", function_type = () -> (), static_params = {}}> ({
+  ac.module @Bridge source #ac.source_owner<"tests/native_family.py", "tests/native_family.py"> schema #ac.module_family_schema<#ac.static_parameters<[]>, #ac.static_cases<[#ac.static_arguments<[]>]>, #ac.module_interface<[]>, #ac.source_owner<"tests/native_family.py", "tests/native_family.py">, []> {
+  ac.module.case arguments #ac.static_arguments<[]> type () -> () source #ac.source_provenance<"tests/native_family.py", 1, 1, 1, 1> graph {
     "ac.return"() : () -> ()
-  }) : () -> ()
-  "ac.module"() <{sym_name = "M", function_type = () -> (), static_params = {}}> ({
-    "ac.instance"() <{definition = @Bridge, sym_name = "x", stable_id = "x", path = "x", static_args = {}}> : () -> ()
+
+  }
+}
+  ac.module @M source #ac.source_owner<"tests/native_family.py", "tests/native_family.py"> schema #ac.module_family_schema<#ac.static_parameters<[]>, #ac.static_cases<[#ac.static_arguments<[]>]>, #ac.module_interface<[]>, #ac.source_owner<"tests/native_family.py", "tests/native_family.py">, []> {
+  ac.module.case arguments #ac.static_arguments<[]> type () -> () source #ac.source_provenance<"tests/native_family.py", 1, 1, 1, 1> graph {
+    "ac.instance"() <{definition = @Bridge, sym_name = "x", stable_id = "x", path = "x", static_args = #ac.static_arguments<[]>}> : () -> ()
     "ac.time_domain"() <{sym_name = "a", period = 1 : i64, phase = 0 : i64, tick_scale = 1 : i64, parent = @b, bridge = {kind = "explicit", owner = @x}}> : () -> ()
     "ac.time_domain"() <{sym_name = "b", period = 1 : i64, phase = 0 : i64, tick_scale = 1 : i64, parent = @a, bridge = {kind = "explicit", owner = @x}}> : () -> ()
     "ac.return"() : () -> ()
-  }) : () -> ()
+
+  }
+}
 }
 // DOMAIN-CYCLE: time-domain parent cycle
 
 //--- missing-bridge.mlir
 builtin.module  {
-  "ac.module"() <{sym_name = "M", function_type = () -> (), static_params = {}}> ({
+  ac.module @M source #ac.source_owner<"tests/native_family.py", "tests/native_family.py"> schema #ac.module_family_schema<#ac.static_parameters<[]>, #ac.static_cases<[#ac.static_arguments<[]>]>, #ac.module_interface<[]>, #ac.source_owner<"tests/native_family.py", "tests/native_family.py">, []> {
+  ac.module.case arguments #ac.static_arguments<[]> type () -> () source #ac.source_provenance<"tests/native_family.py", 1, 1, 1, 1> graph {
     "ac.time_domain"() <{sym_name = "a", period = 1 : i64, phase = 0 : i64, tick_scale = 1 : i64}> : () -> ()
     "ac.time_domain"() <{sym_name = "b", period = 2 : i64, phase = 0 : i64, tick_scale = 1 : i64, parent = @a}> : () -> ()
     "ac.return"() : () -> ()
-  }) : () -> ()
+
+  }
+}
 }
 // BRIDGE: cross-domain parent relation requires explicit bridge metadata
 
 //--- width.mlir
 builtin.module  {
-  "ac.module"() <{sym_name = "M", function_type = () -> (), static_params = {}}> ({
+  ac.module @M source #ac.source_owner<"tests/native_family.py", "tests/native_family.py"> schema #ac.module_family_schema<#ac.static_parameters<[]>, #ac.static_cases<[#ac.static_arguments<[]>]>, #ac.module_interface<[]>, #ac.source_owner<"tests/native_family.py", "tests/native_family.py">, []> {
+  ac.module.case arguments #ac.static_arguments<[]> type () -> () source #ac.source_provenance<"tests/native_family.py", 1, 1, 1, 1> graph {
     "ac.address_space"() <{sym_name = "a", stable_id = "a", path = "a", address_width = 65 : i64, address_unit = "byte"}> : () -> ()
     "ac.return"() : () -> ()
-  }) : () -> ()
+
+  }
+}
 }
 // WIDTH: address width must be in [1, 64]
 
 //--- address-cycle.mlir
 builtin.module  {
-  "ac.module"() <{sym_name = "M", function_type = () -> (), static_params = {}}> ({
+  ac.module @M source #ac.source_owner<"tests/native_family.py", "tests/native_family.py"> schema #ac.module_family_schema<#ac.static_parameters<[]>, #ac.static_cases<[#ac.static_arguments<[]>]>, #ac.module_interface<[]>, #ac.source_owner<"tests/native_family.py", "tests/native_family.py">, []> {
+  ac.module.case arguments #ac.static_arguments<[]> type () -> () source #ac.source_provenance<"tests/native_family.py", 1, 1, 1, 1> graph {
     "ac.address_space"() <{sym_name = "a", stable_id = "a", path = "a", address_width = 32 : i64, address_unit = "byte", parent = @b, translation = {numerator = 1 : i64, denominator = 1 : i64, offset = 0 : i64}}> : () -> ()
     "ac.address_space"() <{sym_name = "b", stable_id = "b", path = "b", address_width = 32 : i64, address_unit = "byte", parent = @a, translation = {numerator = 1 : i64, denominator = 1 : i64, offset = 0 : i64}}> : () -> ()
     "ac.return"() : () -> ()
-  }) : () -> ()
+
+  }
+}
 }
 // ADDRESS-CYCLE: address-space parent cycle
 
 //--- range-overflow.mlir
 builtin.module  {
-  "ac.module"() <{sym_name = "M", function_type = () -> (), static_params = {}}> ({
+  ac.module @M source #ac.source_owner<"tests/native_family.py", "tests/native_family.py"> schema #ac.module_family_schema<#ac.static_parameters<[]>, #ac.static_cases<[#ac.static_arguments<[]>]>, #ac.module_interface<[]>, #ac.source_owner<"tests/native_family.py", "tests/native_family.py">, []> {
+  ac.module.case arguments #ac.static_arguments<[]> type () -> () source #ac.source_provenance<"tests/native_family.py", 1, 1, 1, 1> graph {
     "ac.address_space"() <{sym_name = "a", stable_id = "a", path = "a", address_width = 64 : i64, address_unit = "byte"}> : () -> ()
     "ac.address_map"() <{sym_name = "m", source = @a, entries = [{base = -1 : i64, size = 2 : i64, target = @a, offset = 0 : i64, permissions = ["read"], classes = []}], default_behavior = {kind = "unmapped"}}> : () -> ()
     "ac.return"() : () -> ()
-  }) : () -> ()
+
+  }
+}
 }
 // RANGE: address interval exceeds source address width
 
 //--- overlap.mlir
 builtin.module  {
-  "ac.module"() <{sym_name = "M", function_type = () -> (), static_params = {}}> ({
+  ac.module @M source #ac.source_owner<"tests/native_family.py", "tests/native_family.py"> schema #ac.module_family_schema<#ac.static_parameters<[]>, #ac.static_cases<[#ac.static_arguments<[]>]>, #ac.module_interface<[]>, #ac.source_owner<"tests/native_family.py", "tests/native_family.py">, []> {
+  ac.module.case arguments #ac.static_arguments<[]> type () -> () source #ac.source_provenance<"tests/native_family.py", 1, 1, 1, 1> graph {
     "ac.address_space"() <{sym_name = "a", stable_id = "a", path = "a", address_width = 32 : i64, address_unit = "byte"}> : () -> ()
     "ac.address_map"() <{sym_name = "m", source = @a, entries = [{base = 0 : i64, size = 8 : i64, target = @a, offset = 0 : i64, permissions = ["read"], classes = []}, {base = 4 : i64, size = 8 : i64, target = @a, offset = 0 : i64, permissions = ["read"], classes = []}], default_behavior = {kind = "unmapped"}}> : () -> ()
     "ac.return"() : () -> ()
-  }) : () -> ()
+
+  }
+}
 }
 // OVERLAP: overlapping selector intersections require explicit distinct priorities
 
 //--- equal-priority.mlir
 builtin.module  {
-  "ac.module"() <{sym_name = "M", function_type = () -> (), static_params = {}}> ({
+  ac.module @M source #ac.source_owner<"tests/native_family.py", "tests/native_family.py"> schema #ac.module_family_schema<#ac.static_parameters<[]>, #ac.static_cases<[#ac.static_arguments<[]>]>, #ac.module_interface<[]>, #ac.source_owner<"tests/native_family.py", "tests/native_family.py">, []> {
+  ac.module.case arguments #ac.static_arguments<[]> type () -> () source #ac.source_provenance<"tests/native_family.py", 1, 1, 1, 1> graph {
     "ac.address_space"() <{sym_name = "a", stable_id = "a", path = "a", address_width = 32 : i64, address_unit = "byte"}> : () -> ()
     "ac.address_map"() <{sym_name = "m", source = @a, entries = [{base = 0 : i64, size = 8 : i64, target = @a, offset = 0 : i64, permissions = ["read"], classes = [], priority = 1 : i64}, {base = 4 : i64, size = 8 : i64, target = @a, offset = 0 : i64, permissions = ["read"], classes = [], priority = 1 : i64}], default_behavior = {kind = "unmapped"}}> : () -> ()
     "ac.return"() : () -> ()
-  }) : () -> ()
+
+  }
+}
 }
 // PRIORITY: overlapping selector intersections have equal priority
 
 //--- interleave.mlir
 builtin.module  {
-  "ac.module"() <{sym_name = "M", function_type = () -> (), static_params = {}}> ({
+  ac.module @M source #ac.source_owner<"tests/native_family.py", "tests/native_family.py"> schema #ac.module_family_schema<#ac.static_parameters<[]>, #ac.static_cases<[#ac.static_arguments<[]>]>, #ac.module_interface<[]>, #ac.source_owner<"tests/native_family.py", "tests/native_family.py">, []> {
+  ac.module.case arguments #ac.static_arguments<[]> type () -> () source #ac.source_provenance<"tests/native_family.py", 1, 1, 1, 1> graph {
     "ac.address_space"() <{sym_name = "a", stable_id = "a", path = "a", address_width = 32 : i64, address_unit = "byte"}> : () -> ()
     "ac.address_map"() <{sym_name = "m", source = @a, entries = [{base = 0 : i64, size = 256 : i64, target = @a, offset = 0 : i64, permissions = ["read"], classes = [], interleave = {granularity = 64 : i64, banks = 4 : i64, bank = 4 : i64}}], default_behavior = {kind = "unmapped"}}> : () -> ()
     "ac.return"() : () -> ()
-  }) : () -> ()
+
+  }
+}
 }
 // INTERLEAVE: interleave bank must be in [0, banks)
 
 //--- default.mlir
 builtin.module  {
-  "ac.module"() <{sym_name = "M", function_type = () -> (), static_params = {}}> ({
+  ac.module @M source #ac.source_owner<"tests/native_family.py", "tests/native_family.py"> schema #ac.module_family_schema<#ac.static_parameters<[]>, #ac.static_cases<[#ac.static_arguments<[]>]>, #ac.module_interface<[]>, #ac.source_owner<"tests/native_family.py", "tests/native_family.py">, []> {
+  ac.module.case arguments #ac.static_arguments<[]> type () -> () source #ac.source_provenance<"tests/native_family.py", 1, 1, 1, 1> graph {
     "ac.address_space"() <{sym_name = "a", stable_id = "a", path = "a", address_width = 32 : i64, address_unit = "byte"}> : () -> ()
     "ac.address_map"() <{sym_name = "m", source = @a, entries = [], default_behavior = {kind = "drop"}}> : () -> ()
     "ac.return"() : () -> ()
-  }) : () -> ()
+
+  }
+}
 }
 // DEFAULT: default behavior requires exact unmapped or target schema
 
 //--- address-segment.mlir
 builtin.module  {
-  "ac.module"() <{sym_name = "M", function_type = () -> (), static_params = {}}> ({
+  ac.module @M source #ac.source_owner<"tests/native_family.py", "tests/native_family.py"> schema #ac.module_family_schema<#ac.static_parameters<[]>, #ac.static_cases<[#ac.static_arguments<[]>]>, #ac.module_interface<[]>, #ac.source_owner<"tests/native_family.py", "tests/native_family.py">, []> {
+  ac.module.case arguments #ac.static_arguments<[]> type () -> () source #ac.source_provenance<"tests/native_family.py", 1, 1, 1, 1> graph {
     "ac.address_space"() <{sym_name = "a.b", stable_id = "a", path = "a", address_width = 32 : i64, address_unit = "byte"}> : () -> ()
     "ac.return"() : () -> ()
-  }) : () -> ()
+
+  }
+}
 }
 // ADDRESS-SEGMENT: address-space name, stable id, and path must be stable local segments
 
 //--- address-unit.mlir
 builtin.module  {
-  "ac.module"() <{sym_name = "M", function_type = () -> (), static_params = {}}> ({
+  ac.module @M source #ac.source_owner<"tests/native_family.py", "tests/native_family.py"> schema #ac.module_family_schema<#ac.static_parameters<[]>, #ac.static_cases<[#ac.static_arguments<[]>]>, #ac.module_interface<[]>, #ac.source_owner<"tests/native_family.py", "tests/native_family.py">, []> {
+  ac.module.case arguments #ac.static_arguments<[]> type () -> () source #ac.source_provenance<"tests/native_family.py", 1, 1, 1, 1> graph {
     "ac.address_space"() <{sym_name = "a", stable_id = "a", path = "a", address_width = 32 : i64, address_unit = "word"}> : () -> ()
     "ac.return"() : () -> ()
-  }) : () -> ()
+
+  }
+}
 }
 // ADDRESS-UNIT: address unit must be exactly 'byte' or 'bit'
 
 //--- address-layout.mlir
 builtin.module  {
-  "ac.module"() <{sym_name = "M", function_type = () -> (), static_params = {}}> ({
+  ac.module @M source #ac.source_owner<"tests/native_family.py", "tests/native_family.py"> schema #ac.module_family_schema<#ac.static_parameters<[]>, #ac.static_cases<[#ac.static_arguments<[]>]>, #ac.module_interface<[]>, #ac.source_owner<"tests/native_family.py", "tests/native_family.py">, []> {
+  ac.module.case arguments #ac.static_arguments<[]> type () -> () source #ac.source_provenance<"tests/native_family.py", 1, 1, 1, 1> graph {
     "ac.address_space"() <{sym_name = "a", stable_id = "a", path = "a", address_width = 32 : i64, address_unit = "byte", data_layout = 1 : i64}> : () -> ()
     "ac.return"() : () -> ()
-  }) : () -> ()
+
+  }
+}
 }
 // ADDRESS-LAYOUT: data layout hook must implement DataLayoutSpecInterface
 
 //--- address-parent-pair.mlir
 builtin.module  {
-  "ac.module"() <{sym_name = "M", function_type = () -> (), static_params = {}}> ({
+  ac.module @M source #ac.source_owner<"tests/native_family.py", "tests/native_family.py"> schema #ac.module_family_schema<#ac.static_parameters<[]>, #ac.static_cases<[#ac.static_arguments<[]>]>, #ac.module_interface<[]>, #ac.source_owner<"tests/native_family.py", "tests/native_family.py">, []> {
+  ac.module.case arguments #ac.static_arguments<[]> type () -> () source #ac.source_provenance<"tests/native_family.py", 1, 1, 1, 1> graph {
     "ac.address_space"() <{sym_name = "a", stable_id = "a", path = "a", address_width = 32 : i64, address_unit = "byte", parent = @b}> : () -> ()
     "ac.return"() : () -> ()
-  }) : () -> ()
+
+  }
+}
 }
 // PARENT-PAIR: parent address space and translation must appear together
 
 //--- address-parent.mlir
 builtin.module  {
-  "ac.module"() <{sym_name = "M", function_type = () -> (), static_params = {}}> ({
+  ac.module @M source #ac.source_owner<"tests/native_family.py", "tests/native_family.py"> schema #ac.module_family_schema<#ac.static_parameters<[]>, #ac.static_cases<[#ac.static_arguments<[]>]>, #ac.module_interface<[]>, #ac.source_owner<"tests/native_family.py", "tests/native_family.py">, []> {
+  ac.module.case arguments #ac.static_arguments<[]> type () -> () source #ac.source_provenance<"tests/native_family.py", 1, 1, 1, 1> graph {
     "ac.address_space"() <{sym_name = "a", stable_id = "a", path = "a", address_width = 32 : i64, address_unit = "byte", parent = @missing, translation = {numerator = 1 : i64, denominator = 1 : i64, offset = 0 : i64}}> : () -> ()
     "ac.return"() : () -> ()
-  }) : () -> ()
+
+  }
+}
 }
 // PARENT: parent address space '@missing' is unresolved
 
 //--- address-translation.mlir
 builtin.module  {
-  "ac.module"() <{sym_name = "M", function_type = () -> (), static_params = {}}> ({
+  ac.module @M source #ac.source_owner<"tests/native_family.py", "tests/native_family.py"> schema #ac.module_family_schema<#ac.static_parameters<[]>, #ac.static_cases<[#ac.static_arguments<[]>]>, #ac.module_interface<[]>, #ac.source_owner<"tests/native_family.py", "tests/native_family.py">, []> {
+  ac.module.case arguments #ac.static_arguments<[]> type () -> () source #ac.source_provenance<"tests/native_family.py", 1, 1, 1, 1> graph {
     "ac.address_space"() <{sym_name = "parent", stable_id = "parent", path = "parent", address_width = 32 : i64, address_unit = "byte"}> : () -> ()
     "ac.address_space"() <{sym_name = "child", stable_id = "child", path = "child", address_width = 16 : i64, address_unit = "byte", parent = @parent, translation = {numerator = 0 : i64, denominator = 1 : i64, offset = 0 : i64}}> : () -> ()
     "ac.return"() : () -> ()
-  }) : () -> ()
+
+  }
+}
 }
 // TRANSLATION: translation values must be unsigned signless i64 with positive ratio
 
 //--- address-width-translation.mlir
 builtin.module  {
-  "ac.module"() <{sym_name = "M", function_type = () -> (), static_params = {}}> ({
+  ac.module @M source #ac.source_owner<"tests/native_family.py", "tests/native_family.py"> schema #ac.module_family_schema<#ac.static_parameters<[]>, #ac.static_cases<[#ac.static_arguments<[]>]>, #ac.module_interface<[]>, #ac.source_owner<"tests/native_family.py", "tests/native_family.py">, []> {
+  ac.module.case arguments #ac.static_arguments<[]> type () -> () source #ac.source_provenance<"tests/native_family.py", 1, 1, 1, 1> graph {
     "ac.address_space"() <{sym_name = "parent", stable_id = "parent", path = "parent", address_width = 8 : i64, address_unit = "byte"}> : () -> ()
     "ac.address_space"() <{sym_name = "child", stable_id = "child", path = "child", address_width = 8 : i64, address_unit = "byte", parent = @parent, translation = {numerator = 2 : i64, denominator = 1 : i64, offset = 0 : i64}}> : () -> ()
     "ac.return"() : () -> ()
-  }) : () -> ()
+
+  }
+}
 }
 // TRANSLATED-WIDTH: translated child address range exceeds parent address width
 
 //--- map-name.mlir
 builtin.module  {
-  "ac.module"() <{sym_name = "M", function_type = () -> (), static_params = {}}> ({
+  ac.module @M source #ac.source_owner<"tests/native_family.py", "tests/native_family.py"> schema #ac.module_family_schema<#ac.static_parameters<[]>, #ac.static_cases<[#ac.static_arguments<[]>]>, #ac.module_interface<[]>, #ac.source_owner<"tests/native_family.py", "tests/native_family.py">, []> {
+  ac.module.case arguments #ac.static_arguments<[]> type () -> () source #ac.source_provenance<"tests/native_family.py", 1, 1, 1, 1> graph {
     "ac.address_map"() <{sym_name = "bad.name", source = @a, entries = [], default_behavior = {kind = "unmapped"}}> : () -> ()
     "ac.return"() : () -> ()
-  }) : () -> ()
+
+  }
+}
 }
 // MAP-NAME: address-map name must be one stable local segment
 
 //--- map-source.mlir
 builtin.module  {
-  "ac.module"() <{sym_name = "M", function_type = () -> (), static_params = {}}> ({
+  ac.module @M source #ac.source_owner<"tests/native_family.py", "tests/native_family.py"> schema #ac.module_family_schema<#ac.static_parameters<[]>, #ac.static_cases<[#ac.static_arguments<[]>]>, #ac.module_interface<[]>, #ac.source_owner<"tests/native_family.py", "tests/native_family.py">, []> {
+  ac.module.case arguments #ac.static_arguments<[]> type () -> () source #ac.source_provenance<"tests/native_family.py", 1, 1, 1, 1> graph {
     "ac.address_map"() <{sym_name = "m", source = @missing, entries = [], default_behavior = {kind = "unmapped"}}> : () -> ()
     "ac.return"() : () -> ()
-  }) : () -> ()
+
+  }
+}
 }
 // MAP-SOURCE: source address space '@missing' is unresolved
 
 //--- source-width.mlir
 builtin.module  {
-  "ac.module"() <{sym_name = "M", function_type = () -> (), static_params = {}}> ({
+  ac.module @M source #ac.source_owner<"tests/native_family.py", "tests/native_family.py"> schema #ac.module_family_schema<#ac.static_parameters<[]>, #ac.static_cases<[#ac.static_arguments<[]>]>, #ac.module_interface<[]>, #ac.source_owner<"tests/native_family.py", "tests/native_family.py">, []> {
+  ac.module.case arguments #ac.static_arguments<[]> type () -> () source #ac.source_provenance<"tests/native_family.py", 1, 1, 1, 1> graph {
     "ac.address_space"() <{sym_name = "a", stable_id = "a", path = "a", address_width = 4 : i64, address_unit = "byte"}> : () -> ()
     "ac.address_map"() <{sym_name = "m", source = @a, entries = [{base = 8 : i64, size = 9 : i64, target = @a, offset = 0 : i64, permissions = ["read"], classes = []}], default_behavior = {kind = "unmapped"}}> : () -> ()
     "ac.return"() : () -> ()
-  }) : () -> ()
+
+  }
+}
 }
 // SOURCE-WIDTH: address interval exceeds source address width
 
 //--- target-width.mlir
 builtin.module  {
-  "ac.module"() <{sym_name = "M", function_type = () -> (), static_params = {}}> ({
+  ac.module @M source #ac.source_owner<"tests/native_family.py", "tests/native_family.py"> schema #ac.module_family_schema<#ac.static_parameters<[]>, #ac.static_cases<[#ac.static_arguments<[]>]>, #ac.module_interface<[]>, #ac.source_owner<"tests/native_family.py", "tests/native_family.py">, []> {
+  ac.module.case arguments #ac.static_arguments<[]> type () -> () source #ac.source_provenance<"tests/native_family.py", 1, 1, 1, 1> graph {
     "ac.address_space"() <{sym_name = "source", stable_id = "source", path = "source", address_width = 8 : i64, address_unit = "byte"}> : () -> ()
     "ac.address_space"() <{sym_name = "target", stable_id = "target", path = "target", address_width = 4 : i64, address_unit = "byte"}> : () -> ()
     "ac.address_map"() <{sym_name = "m", source = @source, entries = [{base = 0 : i64, size = 2 : i64, target = @target, offset = 15 : i64, permissions = ["read"], classes = []}], default_behavior = {kind = "unmapped"}}> : () -> ()
     "ac.return"() : () -> ()
-  }) : () -> ()
+
+  }
+}
 }
 // TARGET-WIDTH: address target range exceeds target address width
 
 //--- permissions.mlir
 builtin.module  {
-  "ac.module"() <{sym_name = "M", function_type = () -> (), static_params = {}}> ({
+  ac.module @M source #ac.source_owner<"tests/native_family.py", "tests/native_family.py"> schema #ac.module_family_schema<#ac.static_parameters<[]>, #ac.static_cases<[#ac.static_arguments<[]>]>, #ac.module_interface<[]>, #ac.source_owner<"tests/native_family.py", "tests/native_family.py">, []> {
+  ac.module.case arguments #ac.static_arguments<[]> type () -> () source #ac.source_provenance<"tests/native_family.py", 1, 1, 1, 1> graph {
     "ac.address_space"() <{sym_name = "a", stable_id = "a", path = "a", address_width = 8 : i64, address_unit = "byte"}> : () -> ()
     "ac.address_map"() <{sym_name = "m", source = @a, entries = [{base = 0 : i64, size = 1 : i64, target = @a, offset = 0 : i64, permissions = ["write", "write"], classes = []}], default_behavior = {kind = "unmapped"}}> : () -> ()
     "ac.return"() : () -> ()
-  }) : () -> ()
+
+  }
+}
 }
 // PERMISSIONS: address-map permissions must be unique read/write/execute values
 
 //--- interleave-stripe.mlir
 builtin.module  {
-  "ac.module"() <{sym_name = "M", function_type = () -> (), static_params = {}}> ({
+  ac.module @M source #ac.source_owner<"tests/native_family.py", "tests/native_family.py"> schema #ac.module_family_schema<#ac.static_parameters<[]>, #ac.static_cases<[#ac.static_arguments<[]>]>, #ac.module_interface<[]>, #ac.source_owner<"tests/native_family.py", "tests/native_family.py">, []> {
+  ac.module.case arguments #ac.static_arguments<[]> type () -> () source #ac.source_provenance<"tests/native_family.py", 1, 1, 1, 1> graph {
     "ac.address_space"() <{sym_name = "a", stable_id = "a", path = "a", address_width = 16 : i64, address_unit = "byte"}> : () -> ()
     "ac.address_map"() <{sym_name = "m", source = @a, entries = [{base = 0 : i64, size = 255 : i64, target = @a, offset = 0 : i64, permissions = ["read"], classes = [], interleave = {granularity = 2 : i64, banks = -1 : i64, bank = 0 : i64}}], default_behavior = {kind = "unmapped"}}> : () -> ()
     "ac.return"() : () -> ()
-  }) : () -> ()
+
+  }
+}
 }
 // INTERLEAVE-STRIPE: interleave geometry exceeds unsigned i64
 
 //--- default-target.mlir
 builtin.module  {
-  "ac.module"() <{sym_name = "M", function_type = () -> (), static_params = {}}> ({
+  ac.module @M source #ac.source_owner<"tests/native_family.py", "tests/native_family.py"> schema #ac.module_family_schema<#ac.static_parameters<[]>, #ac.static_cases<[#ac.static_arguments<[]>]>, #ac.module_interface<[]>, #ac.source_owner<"tests/native_family.py", "tests/native_family.py">, []> {
+  ac.module.case arguments #ac.static_arguments<[]> type () -> () source #ac.source_provenance<"tests/native_family.py", 1, 1, 1, 1> graph {
     "ac.address_space"() <{sym_name = "a", stable_id = "a", path = "a", address_width = 8 : i64, address_unit = "byte"}> : () -> ()
     "ac.address_map"() <{sym_name = "m", source = @a, entries = [], default_behavior = {kind = "target", target = @missing}}> : () -> ()
     "ac.return"() : () -> ()
-  }) : () -> ()
+
+  }
+}
 }
 // DEFAULT-TARGET: default target behavior is unresolved
 
 //--- time-name.mlir
 builtin.module  {
-  "ac.module"() <{sym_name = "M", function_type = () -> (), static_params = {}}> ({
+  ac.module @M source #ac.source_owner<"tests/native_family.py", "tests/native_family.py"> schema #ac.module_family_schema<#ac.static_parameters<[]>, #ac.static_cases<[#ac.static_arguments<[]>]>, #ac.module_interface<[]>, #ac.source_owner<"tests/native_family.py", "tests/native_family.py">, []> {
+  ac.module.case arguments #ac.static_arguments<[]> type () -> () source #ac.source_provenance<"tests/native_family.py", 1, 1, 1, 1> graph {
     "ac.time_domain"() <{sym_name = "bad.name", period = 1 : i64, phase = 0 : i64, tick_scale = 1 : i64}> : () -> ()
     "ac.return"() : () -> ()
-  }) : () -> ()
+
+  }
+}
 }
 // TIME-NAME: time-domain name must be one stable local segment
 
 //--- time-parent.mlir
 builtin.module  {
-  "ac.module"() <{sym_name = "Bridge", function_type = () -> (), static_params = {}}> ({ "ac.return"() : () -> () }) : () -> ()
-  "ac.module"() <{sym_name = "M", function_type = () -> (), static_params = {}}> ({
-    "ac.instance"() <{definition = @Bridge, sym_name = "x", stable_id = "x", path = "x", static_args = {}}> : () -> ()
+  ac.module @Bridge source #ac.source_owner<"tests/native_family.py", "tests/native_family.py"> schema #ac.module_family_schema<#ac.static_parameters<[]>, #ac.static_cases<[#ac.static_arguments<[]>]>, #ac.module_interface<[]>, #ac.source_owner<"tests/native_family.py", "tests/native_family.py">, []> {
+  ac.module.case arguments #ac.static_arguments<[]> type () -> () source #ac.source_provenance<"tests/native_family.py", 1, 1, 1, 1> graph { "ac.return"() : () -> ()
+  }
+}
+  ac.module @M source #ac.source_owner<"tests/native_family.py", "tests/native_family.py"> schema #ac.module_family_schema<#ac.static_parameters<[]>, #ac.static_cases<[#ac.static_arguments<[]>]>, #ac.module_interface<[]>, #ac.source_owner<"tests/native_family.py", "tests/native_family.py">, []> {
+  ac.module.case arguments #ac.static_arguments<[]> type () -> () source #ac.source_provenance<"tests/native_family.py", 1, 1, 1, 1> graph {
+    "ac.instance"() <{definition = @Bridge, sym_name = "x", stable_id = "x", path = "x", static_args = #ac.static_arguments<[]>}> : () -> ()
     "ac.time_domain"() <{sym_name = "t", period = 1 : i64, phase = 0 : i64, tick_scale = 1 : i64, parent = @missing, bridge = {kind = "explicit", owner = @x}}> : () -> ()
     "ac.return"() : () -> ()
-  }) : () -> ()
+
+  }
+}
 }
 // TIME-PARENT: parent time domain '@missing' is unresolved
 
 //--- bridge-schema.mlir
 builtin.module  {
-  "ac.module"() <{sym_name = "Bridge", function_type = () -> (), static_params = {}}> ({ "ac.return"() : () -> () }) : () -> ()
-  "ac.module"() <{sym_name = "M", function_type = () -> (), static_params = {}}> ({
-    "ac.instance"() <{definition = @Bridge, sym_name = "x", stable_id = "x", path = "x", static_args = {}}> : () -> ()
+  ac.module @Bridge source #ac.source_owner<"tests/native_family.py", "tests/native_family.py"> schema #ac.module_family_schema<#ac.static_parameters<[]>, #ac.static_cases<[#ac.static_arguments<[]>]>, #ac.module_interface<[]>, #ac.source_owner<"tests/native_family.py", "tests/native_family.py">, []> {
+  ac.module.case arguments #ac.static_arguments<[]> type () -> () source #ac.source_provenance<"tests/native_family.py", 1, 1, 1, 1> graph { "ac.return"() : () -> ()
+  }
+}
+  ac.module @M source #ac.source_owner<"tests/native_family.py", "tests/native_family.py"> schema #ac.module_family_schema<#ac.static_parameters<[]>, #ac.static_cases<[#ac.static_arguments<[]>]>, #ac.module_interface<[]>, #ac.source_owner<"tests/native_family.py", "tests/native_family.py">, []> {
+  ac.module.case arguments #ac.static_arguments<[]> type () -> () source #ac.source_provenance<"tests/native_family.py", 1, 1, 1, 1> graph {
+    "ac.instance"() <{definition = @Bridge, sym_name = "x", stable_id = "x", path = "x", static_args = #ac.static_arguments<[]>}> : () -> ()
     "ac.time_domain"() <{sym_name = "parent", period = 1 : i64, phase = 0 : i64, tick_scale = 1 : i64}> : () -> ()
     "ac.time_domain"() <{sym_name = "child", period = 2 : i64, phase = 0 : i64, tick_scale = 1 : i64, parent = @parent, bridge = {kind = "implicit", owner = @x}}> : () -> ()
     "ac.return"() : () -> ()
-  }) : () -> ()
+
+  }
+}
 }
 // BRIDGE-SCHEMA: bridge requires exact {kind = "explicit", owner = local symbol} schema
 
 //--- address-self.mlir
 builtin.module  {
-  "ac.module"() <{sym_name = "M", function_type = () -> (), static_params = {}}> ({
+  ac.module @M source #ac.source_owner<"tests/native_family.py", "tests/native_family.py"> schema #ac.module_family_schema<#ac.static_parameters<[]>, #ac.static_cases<[#ac.static_arguments<[]>]>, #ac.module_interface<[]>, #ac.source_owner<"tests/native_family.py", "tests/native_family.py">, []> {
+  ac.module.case arguments #ac.static_arguments<[]> type () -> () source #ac.source_provenance<"tests/native_family.py", 1, 1, 1, 1> graph {
     "ac.address_space"() <{sym_name = "a", stable_id = "a", path = "a", address_width = 32 : i64, address_unit = "byte", parent = @a, translation = {numerator = 1 : i64, denominator = 1 : i64, offset = 0 : i64}}> : () -> ()
     "ac.return"() : () -> ()
-  }) : () -> ()
+
+  }
+}
 }
 // ADDRESS-SELF: address-space parent cycle: @a -> @a
 
 //--- map-target.mlir
 builtin.module  {
-  "ac.module"() <{sym_name = "M", function_type = () -> (), static_params = {}}> ({
+  ac.module @M source #ac.source_owner<"tests/native_family.py", "tests/native_family.py"> schema #ac.module_family_schema<#ac.static_parameters<[]>, #ac.static_cases<[#ac.static_arguments<[]>]>, #ac.module_interface<[]>, #ac.source_owner<"tests/native_family.py", "tests/native_family.py">, []> {
+  ac.module.case arguments #ac.static_arguments<[]> type () -> () source #ac.source_provenance<"tests/native_family.py", 1, 1, 1, 1> graph {
     "ac.address_space"() <{sym_name = "a", stable_id = "a", path = "a", address_width = 32 : i64, address_unit = "byte"}> : () -> ()
     "ac.address_map"() <{sym_name = "m", source = @a, entries = [{base = 0 : i64, size = 1 : i64, target = @missing, offset = 0 : i64, permissions = ["read"], classes = []}], default_behavior = {kind = "unmapped"}}> : () -> ()
     "ac.return"() : () -> ()
-  }) : () -> ()
+
+  }
+}
 }
 // MAP-TARGET: address-map target '@missing' is unresolved
 
 //--- map-key.mlir
 builtin.module  {
-  "ac.module"() <{sym_name = "M", function_type = () -> (), static_params = {}}> ({
+  ac.module @M source #ac.source_owner<"tests/native_family.py", "tests/native_family.py"> schema #ac.module_family_schema<#ac.static_parameters<[]>, #ac.static_cases<[#ac.static_arguments<[]>]>, #ac.module_interface<[]>, #ac.source_owner<"tests/native_family.py", "tests/native_family.py">, []> {
+  ac.module.case arguments #ac.static_arguments<[]> type () -> () source #ac.source_provenance<"tests/native_family.py", 1, 1, 1, 1> graph {
     "ac.address_space"() <{sym_name = "a", stable_id = "a", path = "a", address_width = 32 : i64, address_unit = "byte"}> : () -> ()
     "ac.address_map"() <{sym_name = "m", source = @a, entries = [{base = 0 : i64, size = 1 : i64, target = @a, offset = 0 : i64, permissions = ["read"]}], default_behavior = {kind = "unmapped"}}> : () -> ()
     "ac.return"() : () -> ()
-  }) : () -> ()
+
+  }
+}
 }
 // MAP-KEY: address-map entry is missing 'classes'
 
 //--- map-unknown-key.mlir
 builtin.module  {
-  "ac.module"() <{sym_name = "M", function_type = () -> (), static_params = {}}> ({
+  ac.module @M source #ac.source_owner<"tests/native_family.py", "tests/native_family.py"> schema #ac.module_family_schema<#ac.static_parameters<[]>, #ac.static_cases<[#ac.static_arguments<[]>]>, #ac.module_interface<[]>, #ac.source_owner<"tests/native_family.py", "tests/native_family.py">, []> {
+  ac.module.case arguments #ac.static_arguments<[]> type () -> () source #ac.source_provenance<"tests/native_family.py", 1, 1, 1, 1> graph {
     "ac.address_space"() <{sym_name = "a", stable_id = "a", path = "a", address_width = 32 : i64, address_unit = "byte"}> : () -> ()
     "ac.address_map"() <{sym_name = "m", source = @a, entries = [{base = 0 : i64, size = 1 : i64, target = @a, offset = 0 : i64, permissions = ["read"], classes = [], extra = true}], default_behavior = {kind = "unmapped"}}> : () -> ()
     "ac.return"() : () -> ()
-  }) : () -> ()
+
+  }
+}
 }
 // MAP-UNKNOWN-KEY: unknown address-map entry key 'extra'
 
 //--- map-class.mlir
 builtin.module  {
-  "ac.module"() <{sym_name = "M", function_type = () -> (), static_params = {}}> ({
+  ac.module @M source #ac.source_owner<"tests/native_family.py", "tests/native_family.py"> schema #ac.module_family_schema<#ac.static_parameters<[]>, #ac.static_cases<[#ac.static_arguments<[]>]>, #ac.module_interface<[]>, #ac.source_owner<"tests/native_family.py", "tests/native_family.py">, []> {
+  ac.module.case arguments #ac.static_arguments<[]> type () -> () source #ac.source_provenance<"tests/native_family.py", 1, 1, 1, 1> graph {
     "ac.address_space"() <{sym_name = "a", stable_id = "a", path = "a", address_width = 32 : i64, address_unit = "byte"}> : () -> ()
     "ac.address_map"() <{sym_name = "m", source = @a, entries = [{base = 0 : i64, size = 1 : i64, target = @a, offset = 0 : i64, permissions = ["read"], classes = [@missing]}], default_behavior = {kind = "unmapped"}}> : () -> ()
     "ac.return"() : () -> ()
-  }) : () -> ()
+
+  }
+}
 }
 // MAP-CLASS: address-map transaction class '@missing' is unresolved
 
 //--- target-overflow.mlir
 builtin.module  {
-  "ac.module"() <{sym_name = "M", function_type = () -> (), static_params = {}}> ({
+  ac.module @M source #ac.source_owner<"tests/native_family.py", "tests/native_family.py"> schema #ac.module_family_schema<#ac.static_parameters<[]>, #ac.static_cases<[#ac.static_arguments<[]>]>, #ac.module_interface<[]>, #ac.source_owner<"tests/native_family.py", "tests/native_family.py">, []> {
+  ac.module.case arguments #ac.static_arguments<[]> type () -> () source #ac.source_provenance<"tests/native_family.py", 1, 1, 1, 1> graph {
     "ac.address_space"() <{sym_name = "a", stable_id = "a", path = "a", address_width = 64 : i64, address_unit = "byte"}> : () -> ()
     "ac.address_map"() <{sym_name = "m", source = @a, entries = [{base = 0 : i64, size = 2 : i64, target = @a, offset = -1 : i64, permissions = ["read"], classes = []}], default_behavior = {kind = "unmapped"}}> : () -> ()
     "ac.return"() : () -> ()
-  }) : () -> ()
+
+  }
+}
 }
 // TARGET-OVERFLOW: address target range exceeds target address width
 
 //--- time-self.mlir
 builtin.module  {
-  "ac.module"() <{sym_name = "Bridge", function_type = () -> (), static_params = {}}> ({
+  ac.module @Bridge source #ac.source_owner<"tests/native_family.py", "tests/native_family.py"> schema #ac.module_family_schema<#ac.static_parameters<[]>, #ac.static_cases<[#ac.static_arguments<[]>]>, #ac.module_interface<[]>, #ac.source_owner<"tests/native_family.py", "tests/native_family.py">, []> {
+  ac.module.case arguments #ac.static_arguments<[]> type () -> () source #ac.source_provenance<"tests/native_family.py", 1, 1, 1, 1> graph {
     "ac.return"() : () -> ()
-  }) : () -> ()
-  "ac.module"() <{sym_name = "M", function_type = () -> (), static_params = {}}> ({
-    "ac.instance"() <{definition = @Bridge, sym_name = "x", stable_id = "x", path = "x", static_args = {}}> : () -> ()
+
+  }
+}
+  ac.module @M source #ac.source_owner<"tests/native_family.py", "tests/native_family.py"> schema #ac.module_family_schema<#ac.static_parameters<[]>, #ac.static_cases<[#ac.static_arguments<[]>]>, #ac.module_interface<[]>, #ac.source_owner<"tests/native_family.py", "tests/native_family.py">, []> {
+  ac.module.case arguments #ac.static_arguments<[]> type () -> () source #ac.source_provenance<"tests/native_family.py", 1, 1, 1, 1> graph {
+    "ac.instance"() <{definition = @Bridge, sym_name = "x", stable_id = "x", path = "x", static_args = #ac.static_arguments<[]>}> : () -> ()
     "ac.time_domain"() <{sym_name = "t", period = 1 : i64, phase = 0 : i64, tick_scale = 1 : i64, parent = @t, bridge = {kind = "explicit", owner = @x}}> : () -> ()
     "ac.return"() : () -> ()
-  }) : () -> ()
+
+  }
+}
 }
 // TIME-SELF: time-domain parent cycle: @t -> @t
 
 //--- noncanonical-rational.mlir
 builtin.module  {
-  "ac.module"() <{sym_name = "M", function_type = () -> (), static_params = {}}> ({
+  ac.module @M source #ac.source_owner<"tests/native_family.py", "tests/native_family.py"> schema #ac.module_family_schema<#ac.static_parameters<[]>, #ac.static_cases<[#ac.static_arguments<[]>]>, #ac.module_interface<[]>, #ac.source_owner<"tests/native_family.py", "tests/native_family.py">, []> {
+  ac.module.case arguments #ac.static_arguments<[]> type () -> () source #ac.source_provenance<"tests/native_family.py", 1, 1, 1, 1> graph {
     "ac.address_space"() <{sym_name = "parent", stable_id = "parent", path = "parent", address_width = 16 : i64, address_unit = "byte"}> : () -> ()
     "ac.address_space"() <{sym_name = "child", stable_id = "child", path = "child", address_width = 8 : i64, address_unit = "byte", parent = @parent, translation = {numerator = 2 : i64, denominator = 2 : i64, offset = 0 : i64}}> : () -> ()
     "ac.return"() : () -> ()
-  }) : () -> ()
+
+  }
+}
 }
 // RATIONAL: translation rational must be in canonical reduced form
 
 //--- fractional-no-alignment.mlir
 builtin.module  {
-  "ac.module"() <{sym_name = "M", function_type = () -> (), static_params = {}}> ({
+  ac.module @M source #ac.source_owner<"tests/native_family.py", "tests/native_family.py"> schema #ac.module_family_schema<#ac.static_parameters<[]>, #ac.static_cases<[#ac.static_arguments<[]>]>, #ac.module_interface<[]>, #ac.source_owner<"tests/native_family.py", "tests/native_family.py">, []> {
+  ac.module.case arguments #ac.static_arguments<[]> type () -> () source #ac.source_provenance<"tests/native_family.py", 1, 1, 1, 1> graph {
     "ac.address_space"() <{sym_name = "parent", stable_id = "parent", path = "parent", address_width = 8 : i64, address_unit = "byte"}> : () -> ()
     "ac.address_space"() <{sym_name = "child", stable_id = "child", path = "child", address_width = 8 : i64, address_unit = "byte", parent = @parent, translation = {numerator = 1 : i64, denominator = 2 : i64, offset = 0 : i64}}> : () -> ()
     "ac.return"() : () -> ()
-  }) : () -> ()
+
+  }
+}
 }
 // NO-ALIGNMENT: fractional translation requires exact positive alignment proving divisibility
 
 //--- fractional-bad-alignment.mlir
 builtin.module  {
-  "ac.module"() <{sym_name = "M", function_type = () -> (), static_params = {}}> ({
+  ac.module @M source #ac.source_owner<"tests/native_family.py", "tests/native_family.py"> schema #ac.module_family_schema<#ac.static_parameters<[]>, #ac.static_cases<[#ac.static_arguments<[]>]>, #ac.module_interface<[]>, #ac.source_owner<"tests/native_family.py", "tests/native_family.py">, []> {
+  ac.module.case arguments #ac.static_arguments<[]> type () -> () source #ac.source_provenance<"tests/native_family.py", 1, 1, 1, 1> graph {
     "ac.address_space"() <{sym_name = "parent", stable_id = "parent", path = "parent", address_width = 8 : i64, address_unit = "byte"}> : () -> ()
     "ac.address_space"() <{sym_name = "child", stable_id = "child", path = "child", address_width = 8 : i64, address_unit = "byte", parent = @parent, translation = {numerator = 1 : i64, denominator = 2 : i64, offset = 0 : i64, alignment = 1 : i64}}> : () -> ()
     "ac.return"() : () -> ()
-  }) : () -> ()
+
+  }
+}
 }
 // BAD-ALIGNMENT: fractional translation requires exact positive alignment proving divisibility
 
 //--- zero-size.mlir
 builtin.module  {
-  "ac.module"() <{sym_name = "M", function_type = () -> (), static_params = {}}> ({
+  ac.module @M source #ac.source_owner<"tests/native_family.py", "tests/native_family.py"> schema #ac.module_family_schema<#ac.static_parameters<[]>, #ac.static_cases<[#ac.static_arguments<[]>]>, #ac.module_interface<[]>, #ac.source_owner<"tests/native_family.py", "tests/native_family.py">, []> {
+  ac.module.case arguments #ac.static_arguments<[]> type () -> () source #ac.source_provenance<"tests/native_family.py", 1, 1, 1, 1> graph {
     "ac.address_space"() <{sym_name = "a", stable_id = "a", path = "a", address_width = 64 : i64, address_unit = "byte"}> : () -> ()
     "ac.address_map"() <{sym_name = "m", source = @a, entries = [{base = -1 : i64, size = 0 : i64, target = @a, offset = -1 : i64, permissions = ["read"], classes = []}], default_behavior = {kind = "unmapped"}}> : () -> ()
     "ac.return"() : () -> ()
-  }) : () -> ()
+
+  }
+}
 }
 // ZERO-SIZE: address-map entry size must be positive
 
 //--- interleave-alignment.mlir
 builtin.module  {
-  "ac.module"() <{sym_name = "M", function_type = () -> (), static_params = {}}> ({
+  ac.module @M source #ac.source_owner<"tests/native_family.py", "tests/native_family.py"> schema #ac.module_family_schema<#ac.static_parameters<[]>, #ac.static_cases<[#ac.static_arguments<[]>]>, #ac.module_interface<[]>, #ac.source_owner<"tests/native_family.py", "tests/native_family.py">, []> {
+  ac.module.case arguments #ac.static_arguments<[]> type () -> () source #ac.source_provenance<"tests/native_family.py", 1, 1, 1, 1> graph {
     "ac.address_space"() <{sym_name = "a", stable_id = "a", path = "a", address_width = 16 : i64, address_unit = "byte"}> : () -> ()
     "ac.address_map"() <{sym_name = "m", source = @a, entries = [{base = 1 : i64, size = 256 : i64, target = @a, offset = 1 : i64, permissions = ["read"], classes = [], interleave = {granularity = 64 : i64, banks = 4 : i64, bank = 0 : i64}}], default_behavior = {kind = "unmapped"}}> : () -> ()
     "ac.return"() : () -> ()
-  }) : () -> ()
+
+  }
+}
 }
 // INTERLEAVE-ALIGNMENT: interleave offset must be aligned to granularity
 
 //--- mixed-interleave-overlap.mlir
 builtin.module  {
-  "ac.module"() <{sym_name = "M", function_type = () -> (), static_params = {}}> ({
+  ac.module @M source #ac.source_owner<"tests/native_family.py", "tests/native_family.py"> schema #ac.module_family_schema<#ac.static_parameters<[]>, #ac.static_cases<[#ac.static_arguments<[]>]>, #ac.module_interface<[]>, #ac.source_owner<"tests/native_family.py", "tests/native_family.py">, []> {
+  ac.module.case arguments #ac.static_arguments<[]> type () -> () source #ac.source_provenance<"tests/native_family.py", 1, 1, 1, 1> graph {
     "ac.address_space"() <{sym_name = "space", stable_id = "space", path = "space", address_width = 8 : i64, address_unit = "byte"}> : () -> ()
     "ac.address_map"() <{sym_name = "m", source = @space, entries = [
       {base = 0 : i64, size = 16 : i64, target = @space, offset = 0 : i64,
@@ -468,13 +604,16 @@ builtin.module  {
        interleave = {granularity = 1 : i64, banks = 4 : i64, bank = 2 : i64}}
     ], default_behavior = {kind = "unmapped"}}> : () -> ()
     "ac.return"() : () -> ()
-  }) : () -> ()
+
+  }
+}
 }
 // MIXED-INTERLEAVE-OVERLAP: overlapping selector intersections require explicit distinct priorities
 
 //--- different-granularity-overlap.mlir
 builtin.module  {
-  "ac.module"() <{sym_name = "M", function_type = () -> (), static_params = {}}> ({
+  ac.module @M source #ac.source_owner<"tests/native_family.py", "tests/native_family.py"> schema #ac.module_family_schema<#ac.static_parameters<[]>, #ac.static_cases<[#ac.static_arguments<[]>]>, #ac.module_interface<[]>, #ac.source_owner<"tests/native_family.py", "tests/native_family.py">, []> {
+  ac.module.case arguments #ac.static_arguments<[]> type () -> () source #ac.source_provenance<"tests/native_family.py", 1, 1, 1, 1> graph {
     "ac.address_space"() <{sym_name = "space", stable_id = "space", path = "space", address_width = 8 : i64, address_unit = "byte"}> : () -> ()
     "ac.address_map"() <{sym_name = "m", source = @space, entries = [
       {base = 0 : i64, size = 16 : i64, target = @space, offset = 0 : i64,
@@ -485,13 +624,16 @@ builtin.module  {
        interleave = {granularity = 1 : i64, banks = 4 : i64, bank = 1 : i64}}
     ], default_behavior = {kind = "unmapped"}}> : () -> ()
     "ac.return"() : () -> ()
-  }) : () -> ()
+
+  }
+}
 }
 // DIFFERENT-GRANULARITY-OVERLAP: overlapping selector intersections require explicit distinct priorities
 
 //--- relation-limit.mlir
 builtin.module  {
-  "ac.module"() <{sym_name = "M", function_type = () -> (), static_params = {}}> ({
+  ac.module @M source #ac.source_owner<"tests/native_family.py", "tests/native_family.py"> schema #ac.module_family_schema<#ac.static_parameters<[]>, #ac.static_cases<[#ac.static_arguments<[]>]>, #ac.module_interface<[]>, #ac.source_owner<"tests/native_family.py", "tests/native_family.py">, []> {
+  ac.module.case arguments #ac.static_arguments<[]> type () -> () source #ac.source_provenance<"tests/native_family.py", 1, 1, 1, 1> graph {
     "ac.address_space"() <{sym_name = "space", stable_id = "space", path = "space", address_width = 8 : i64, address_unit = "byte"}> : () -> ()
     "ac.address_map"() <{sym_name = "m", source = @space, entries = [
       {base = 0 : i64, size = 16 : i64, target = @space, offset = 0 : i64,
@@ -595,6 +737,8 @@ builtin.module  {
        interleave = {granularity = 1 : i64, banks = 4 : i64, bank = 2 : i64}}
     ], default_behavior = {kind = "unmapped"}}> : () -> ()
     "ac.return"() : () -> ()
-  }) : () -> ()
+
+  }
+}
 }
 // RELATION-LIMIT: general mixed interleave analysis exceeds ACIR limit 256

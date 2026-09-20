@@ -18,9 +18,6 @@ from ._queue_compiler.acir_text import (
     _render_enum,
     _render_interface_display_attributes,
     _render_queue_type,
-    _render_static_mlir_dictionary,
-    _render_static_mlir_value,
-    _render_static_type_attributes,
     _render_table_domain_attributes,
     _render_table_init_value,
     _table_schema_id,
@@ -117,6 +114,11 @@ from ._queue_compiler.source import (
     _render_fused_source_locations,
     _render_source_frame_location,
 )
+from ._queue_compiler.source_unit import (
+    case_literal_bindings,
+    first_family_case,
+    specialize_annotation,
+)
 from ._queue_compiler.static_types import (
     MAX_PACKED_VALUE_WIDTH,
     StaticParameterAlias,
@@ -140,16 +142,16 @@ from ._queue_compiler.static_types import (
     _product,
     _project_static_config_value,
     _proven_integer_in,
+    _resolved_config_values_for_checks,
+    _resolved_type_bindings_for_checks,
     _scalar_annotation_static_check,
     _scalar_reset_init,
     _scalar_type_descriptor,
-    _static_config_bindings_for_checks,
     _static_config_expression_type,
     _static_constraint,
     _static_int_value,
     _static_parameter_aliases,
     _static_parameter_value,
-    _static_type_bindings_for_checks,
     _table_axis_width,
     _type_static_values,
     _types_compatible,
@@ -300,7 +302,7 @@ def lower_module_source(
 
 def lower_source_unit(
     text: str,
-    specializations: tuple[
+    module_requests: tuple[
         tuple[str, tuple[tuple[str, StaticValue], ...]], ...
     ],
     *,
@@ -312,9 +314,9 @@ def lower_source_unit(
     source_node_locations: SourceNodeLocations | None = None,
     definition_ndf: DefinitionNdfMetadata | None = None,
 ) -> str:
-    """Lower all requested specializations owned by one Python source unit."""
+    """Lower all requested module_requests owned by one Python source unit."""
 
-    if not specializations:
+    if not module_requests:
         raise QueueFrontendError("ACPY-MODULE-001: source unit is empty")
     tree = ast.parse(text, filename=source_path or _DEFAULT_QUEUE_SOURCE_PATH)
     modules = {
@@ -367,7 +369,7 @@ def lower_source_unit(
         return (annotation,)
 
     static_profiles: dict[str, list[tuple[StaticValue, str]]] = {}
-    for module_name, frozen in specializations:
+    for module_name, frozen in module_requests:
         target = modules.get(module_name)
         if target is None:
             continue
@@ -387,7 +389,17 @@ def lower_source_unit(
     }
     declared_wrapper_keywords: set[str] = set()
 
-    for index, (module_name, frozen) in enumerate(specializations):
+    declarations = {
+        node.name: node
+        for node in tree.body
+        if isinstance(node, ast.FunctionDef)
+        and any(
+            _decorator_name(decorator).rsplit(".", 1)[-1] == "module_decl"
+            for decorator in node.decorator_list
+        )
+    }
+
+    for index, (module_name, frozen) in enumerate(module_requests):
         target = modules.get(module_name)
         if target is None:
             raise QueueFrontendError(
@@ -398,12 +410,21 @@ def lower_source_unit(
                 "ACPY-MODULE-001: source-unit modules cannot use variadic arguments"
             )
         bindings = dict(frozen)
+        family_case = (
+            first_family_case(declarations, module_name) if not bindings else None
+        )
+        family_bindings = case_literal_bindings(family_case)
         call_arguments: list[ast.expr] = []
         call_keywords: list[ast.keyword] = []
         for argument in (*target.args.posonlyargs, *target.args.args):
-            name = f"__unit_{index}_{argument.arg}"
+            name = f"unit_{index}_{argument.arg}"
             wrapper_arguments.append(
-                ast.arg(arg=name, annotation=copy.deepcopy(argument.annotation))
+                ast.arg(
+                    arg=name,
+                    annotation=specialize_annotation(
+                        argument.annotation, family_bindings
+                    ),
+                )
             )
             call_arguments.append(ast.Name(id=name, ctx=ast.Load()))
         expected_static: set[str] = set()
@@ -412,17 +433,17 @@ def lower_source_unit(
                 expected_static.add(argument.arg)
                 if argument.arg not in bindings:
                     raise QueueFrontendError(
-                        "ACPY-MODULE-001: source-unit specialization for "
+                        "ACPY-MODULE-001: source-unit family request for "
                         f"{module_name!r} is missing {argument.arg!r}"
                     )
                 name = (
                     argument.arg
                     if argument.arg in shared_static_names
-                    else f"__unit_{index}_{argument.arg}"
+                    else f"unit_{index}_{argument.arg}"
                 )
                 wrapper_static[name] = bindings[argument.arg]
             else:
-                name = f"__unit_{index}_{argument.arg}"
+                name = f"unit_{index}_{argument.arg}"
             if name not in declared_wrapper_keywords:
                 wrapper_keywords.append(
                     ast.arg(
@@ -441,19 +462,26 @@ def lower_source_unit(
         unknown = sorted(set(bindings) - expected_static)
         if unknown:
             raise QueueFrontendError(
-                "ACPY-MODULE-001: source-unit specialization for "
+                "ACPY-MODULE-001: source-unit family request for "
                 f"{module_name!r} has unknown static argument {unknown[0]!r}"
             )
         call = ast.Call(
             func=ast.Name(id=module_name, ctx=ast.Load()),
             args=call_arguments,
-            keywords=call_keywords,
+            keywords=[
+                *call_keywords,
+                *(
+                    [ast.keyword(arg="static", value=family_case)]
+                    if family_case is not None
+                    else []
+                ),
+            ],
         )
         outputs = output_types(target.returns)
         if not outputs:
             body.append(ast.Expr(value=call))
             continue
-        names = [f"__unit_{index}_result_{item}" for item in range(len(outputs))]
+        names = [f"unit_{index}_result_{item}" for item in range(len(outputs))]
         assignment_target: ast.expr = (
             ast.Name(id=names[0], ctx=ast.Store())
             if len(names) == 1
@@ -464,7 +492,9 @@ def lower_source_unit(
         )
         body.append(ast.Assign(targets=[assignment_target], value=call))
         returned_values.extend(ast.Name(id=name, ctx=ast.Load()) for name in names)
-        returned_types.extend(copy.deepcopy(item) for item in outputs)
+        returned_types.extend(
+            specialize_annotation(item, family_bindings) for item in outputs
+        )
 
     if not returned_values:
         returned = ast.Constant(value=None)

@@ -35,7 +35,7 @@ module attributes {ac.model_kind = "queue_graph", ac.queue_graph_domain = "cycle
     %zero = ac.var.constant 0 : i16 as !ac.var<i16>
     %ready = ac.var.cmp "sgt" %entry, %zero : !ac.var<i16> -> !ac.var<i1>
     ac.slot.yield %ready : !ac.var<i1>
-  } {ac.endpoint_path = "/pending__release", ac.name = "pending__release"}
+  } {ac.endpoint_path = "/pending_release", ac.name = "pending_release"}
   %first_value = ac.table.read @first depth 1 latency 1 address {
     %index = ac.var.constant 0 : i64 as !ac.var<i64>
     ac.table.yield %index : !ac.var<i64>
@@ -70,7 +70,7 @@ module attributes {ac.model_kind = "queue_graph", ac.queue_graph_domain = "cycle
     %second_ready = ac.var.cmp "sgt" %second_entry, %second_zero : !ac.var<i16> -> !ac.var<i1>
     %ready = ac.var.mul %first_ready, %second_ready : !ac.var<i1>
     ac.slot.yield %ready : !ac.var<i1>
-  } {ac.endpoint_path = "/pending__release", ac.name = "pending__release"}
+  } {ac.endpoint_path = "/pending_release", ac.name = "pending_release"}
   %first_value = ac.table.read @first depth 1 latency 1 address {
     %index = ac.var.constant 0 : i64 as !ac.var<i64>
     ac.table.yield %index : !ac.var<i64>

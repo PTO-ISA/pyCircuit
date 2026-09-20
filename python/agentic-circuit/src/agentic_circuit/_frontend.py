@@ -7,13 +7,11 @@ from collections.abc import Mapping
 from dataclasses import dataclass
 from pathlib import Path
 
-from ._acpy import AcpyDocument
 from ._definitions import Definition
 from ._diagnostics import (
     Diagnostic,
     DiagnosticBag,
     SourceSpan,
-    diagnostic_from_exception,
 )
 from ._schemas import SchemaRegistry
 from ._source import DefinitionSite, SourceUnit, load_source_unit
@@ -26,13 +24,6 @@ class CaptureRequest:
     workspace: Path
     system: str
     static_arguments: tuple[tuple[str, StaticValue], ...] = ()
-
-
-@dataclass(frozen=True, slots=True)
-class FrontendResult:
-    document: AcpyDocument | None
-    acir: str | None
-    diagnostics: tuple[Diagnostic, ...]
 
 
 @dataclass(frozen=True, slots=True)
@@ -267,74 +258,3 @@ def construct_captured_process(
             ),
         )
     return construct_process(matches[0], effects)
-
-
-def elaborate_frontend(
-    request: CaptureRequest,
-    namespace: Mapping[str, object],
-    schemas: SchemaRegistry,
-) -> FrontendResult:
-    """Capture, normalize, verify, and lower one frontend architecture atomically."""
-
-    from ._lower_acir import build_verified_acpy, lower_to_acir
-    from ._normalize import normalize_program
-    from ._process import EffectDeclaration, EffectRegistry
-
-    captured = capture_definitions(request, namespace, schemas)
-    if captured.diagnostics:
-        return FrontendResult(None, None, captured.diagnostics)
-    assert captured.selected_system is not None
-    options = dict(captured.selected_system.explicit_options)
-    root = options.get("root")
-    if type(root) is not str or not root:
-        diagnostic = Diagnostic(
-            stage="frontend",
-            code="ACPY-SYMBOL-SYSTEM",
-            severity="error",
-            message="selected system requires a non-empty static root option",
-        )
-        return FrontendResult(None, None, (diagnostic,))
-    program = normalize_program(captured, definition=root)
-    if program.diagnostics:
-        return FrontendResult(None, None, program.diagnostics)
-
-    try:
-        effects = EffectRegistry(
-            (
-                EffectDeclaration("wait_until", "suspension", suspension=True),
-                EffectDeclaration("wait_for", "suspension", suspension=True),
-                EffectDeclaration("await_event", "suspension", suspension=True),
-                EffectDeclaration("yield_sim", "suspension", suspension=True),
-            )
-        )
-        process_records = []
-        process_programs = []
-        for definition in captured.definitions:
-            if definition.kind != "process":
-                continue
-            process = construct_captured_process(
-                captured, definition.qualified_name, effects
-            )
-            kind = dict(definition.explicit_options).get("kind", "control")
-            if kind not in {"control", "workload", "monitor"}:
-                raise ValueError(
-                    f"ACPY-PROCESS-003: process {definition.qualified_name!r} "
-                    "has invalid kind"
-                )
-            process_programs.append(process)
-            process_records.append((process, kind))
-        document = build_verified_acpy(captured, program, tuple(process_programs))
-        artifact = lower_to_acir(
-            program,
-            document,
-            system_name=captured.selected_system.__name__,
-            processes=tuple(process_records),
-        )
-    except ValueError as error:
-        diagnostic = diagnostic_from_exception(
-            error,
-            stage="acir-lowering",
-            default_code="ACPY-VERIFY-001",
-        )
-        return FrontendResult(None, None, (diagnostic,))
-    return FrontendResult(document, artifact.text, ())

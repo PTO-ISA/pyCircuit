@@ -157,7 +157,7 @@ def _desugar_nested_rule_captures(
 
     transformed: list[ast.FunctionDef] = []
     captures_by_rule: dict[str, tuple[str, ...]] = {}
-    qualified_names = {name: f"__ac_nested_{system}_{name}" for name in nested_rules}
+    qualified_names = {name: f"compiler_nested_{system}_{name}" for name in nested_rules}
     existing_names = {
         node.name
         for node in tree.body
@@ -344,7 +344,7 @@ def _normalize_rule_field_assignments(
     def fresh_index_name() -> str:
         nonlocal next_index
         while True:
-            name = f"__ac_field_index_{next_index}"
+            name = f"compiler_field_index_{next_index}"
             next_index += 1
             if name not in reserved_names:
                 reserved_names.add(name)

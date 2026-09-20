@@ -1,7 +1,8 @@
 // RUN: %acir_opt --pass-pipeline='builtin.module(ac-lower-rules)' %s | %FileCheck %s
 
 builtin.module attributes {ac.model_kind = "queue_graph", ac.queue_graph_domain = "cycle", ac.system = "obligation_inference"} {
-  ac.module @M() parameters {} graph {
+ac.module @M source #ac.source_owner<"tests/native_family.py", "tests/native_family.py"> schema #ac.module_family_schema<#ac.static_parameters<[]>, #ac.static_cases<[#ac.static_arguments<[]>]>, #ac.module_interface<[]>, #ac.source_owner<"tests/native_family.py", "tests/native_family.py">, []> {
+    ac.module.case arguments #ac.static_arguments<[]> type () -> () source #ac.source_provenance<"tests/native_family.py", 1, 1, 1, 1> graph {
     ac.scope @logic() {
       ac.table @left entry i8 entries 2 init 0 owner "/logic" stable_id "table/logic/left"
       ac.table @right entry i8 entries 1 init 0 owner "/logic" stable_id "table/logic/right"
@@ -27,11 +28,12 @@ builtin.module attributes {ac.model_kind = "queue_graph", ac.queue_graph_domain 
       ac.scope.yield
     } : () -> ()
     ac.return
+
+    }
   }
 }
 
-// CHECK: ac.module @M()
-// CHECK-SAME: ac.arch_expression_table = [
+// CHECK: ac.module @M source
 // CHECK-DAG: owner_rule = "guarded", rule = "guarded::single_writer:table/logic/left:guarded:guarded:left/one/a:left/one/b"
 // CHECK-DAG: owner_rule = "guarded", rule = "guarded::single_writer:table/logic/left:guarded:guarded:left/zero/a:left/zero/b"
 // CHECK-DAG: owner_rule = "guarded", rule = "guarded::single_writer:table/logic/right:guarded:guarded:right/a:right/b"

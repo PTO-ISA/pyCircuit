@@ -9,9 +9,7 @@
         "compiler/mlir/lib/Transforms/FuseCombPass.cpp"
       ],
       "cpp_emitter": "compiler/mlir/lib/Emit/CppEmitter.cpp",
-      "e2e": [
-        "tests/integration/agentic-circuit/e2e/test_array_combinator_runtime.py"
-      ],
+      "e2e": [],
       "examples": [
         "examples/agentic-circuit/blocks/array_combinators.py"
       ],
@@ -20,7 +18,6 @@
       "name": "pyc.add",
       "negative_mlir": [],
       "positive_mlir": [
-        "tests/mlir/agentic-circuit/ACIR/static-type-metadata.mlir",
         "tests/mlir/agentic-circuit/CodeGen/atomic-transform.mlir",
         "tests/mlir/agentic-circuit/CodeGen/pure-helpers.mlir",
         "tests/mlir/agentic-circuit/CodeGen/queue-lanes-transform-pyc.mlir",
@@ -39,8 +36,6 @@
       "symbol": "PYC_AddOp",
       "tests": [
         "tests/cpp/agentic-circuit/CodeGen/QueueGraphPlanTest.cpp",
-        "tests/integration/agentic-circuit/e2e/test_array_combinator_runtime.py",
-        "tests/mlir/agentic-circuit/ACIR/static-type-metadata.mlir",
         "tests/mlir/agentic-circuit/CodeGen/atomic-transform.mlir",
         "tests/mlir/agentic-circuit/CodeGen/pure-helpers.mlir",
         "tests/mlir/agentic-circuit/CodeGen/queue-lanes-transform-pyc.mlir",
@@ -49,7 +44,6 @@
         "tests/mlir/agentic-circuit/PYC/source-provenance-cse.mlir",
         "tests/mlir/agentic-circuit/Transforms/rule-multi-input-lowering.mlir",
         "tests/python/agentic-circuit/python_frontend/test_queue_frontend.py",
-        "tests/unit/test_pyc6_surface.py",
         "tests/unit/test_pyc_ir_inventory.py",
         "tests/unit/test_semantic_core.py"
       ],
@@ -425,9 +419,7 @@
         "compiler/mlir/lib/Transforms/PackI1RegsPass.cpp"
       ],
       "cpp_emitter": "compiler/mlir/lib/Emit/CppEmitter.cpp",
-      "e2e": [
-        "tests/integration/agentic-circuit/e2e/test_typed_record_pyc.py"
-      ],
+      "e2e": [],
       "examples": [],
       "folder": "compiler/mlir/lib/Dialect/PYC/PYCOps.cpp",
       "kind": "operation",
@@ -455,7 +447,6 @@
       "tests": [
         "tests/cpp/agentic-circuit/CodeGen/QueueGraphPlanTest.cpp",
         "tests/cpp/agentic-circuit/Dialect/ACIR/OpsTest.cpp",
-        "tests/integration/agentic-circuit/e2e/test_typed_record_pyc.py",
         "tests/mlir/agentic-circuit/ACIR/collections-invalid.mlir",
         "tests/mlir/agentic-circuit/ACIR/collections-valid.mlir",
         "tests/mlir/agentic-circuit/ACIR/view-provenance.mlir",
@@ -576,9 +567,7 @@
         "compiler/mlir/lib/Transforms/PackI1RegsPass.cpp"
       ],
       "cpp_emitter": "compiler/mlir/lib/Emit/CppEmitter.cpp",
-      "e2e": [
-        "tests/integration/agentic-circuit/e2e/test_typed_record_pyc.py"
-      ],
+      "e2e": [],
       "examples": [],
       "folder": "compiler/mlir/lib/Dialect/PYC/PYCOps.cpp",
       "kind": "operation",
@@ -601,7 +590,6 @@
       "symbol": "PYC_ExtractOp",
       "tests": [
         "tests/cpp/agentic-circuit/CodeGen/QueueGraphPlanTest.cpp",
-        "tests/integration/agentic-circuit/e2e/test_typed_record_pyc.py",
         "tests/mlir/agentic-circuit/CodeGen/bit-operations.mlir",
         "tests/mlir/agentic-circuit/CodeGen/table-field-replace-order-pyc.mlir",
         "tests/mlir/agentic-circuit/PYC/source-provenance-pack-i1.mlir",
@@ -674,7 +662,9 @@
       "verilog_emitter": "compiler/mlir/lib/Emit/VerilogEmitter.cpp"
     },
     {
-      "acir_producer": [],
+      "acir_producer": [
+        "compiler/acir/lib/CodeGen/QueueGraphPyc.cpp"
+      ],
       "canonicalization": [
         "compiler/mlir/lib/Transforms/CheckClockDomainsPass.cpp",
         "compiler/mlir/lib/Transforms/CheckCombCyclesPass.cpp",
@@ -692,7 +682,10 @@
       "kind": "operation",
       "name": "pyc.instance",
       "negative_mlir": [],
-      "positive_mlir": [],
+      "positive_mlir": [
+        "tests/mlir/agentic-circuit/CodeGen/pycircuit-hierarchical-family.mlir",
+        "tests/mlir/pyc/family-ops.mlir"
+      ],
       "python_producer": [
         "python/pycircuit/src/pycircuit/design.py",
         "python/pycircuit/src/pycircuit/dsl.py",
@@ -707,6 +700,8 @@
       "status": "normative",
       "symbol": "PYC_InstanceOp",
       "tests": [
+        "tests/mlir/agentic-circuit/CodeGen/pycircuit-hierarchical-family.mlir",
+        "tests/mlir/pyc/family-ops.mlir",
         "tests/unit/test_pyc6_surface.py"
       ],
       "verifier": "compiler/mlir/lib/Dialect/PYC/PYCOps.cpp",
@@ -746,6 +741,131 @@
       ],
       "verifier": "compiler/mlir/lib/Dialect/PYC/PYCOps.cpp",
       "verilog_emitter": "compiler/mlir/lib/Emit/VerilogEmitter.cpp"
+    },
+    {
+      "acir_producer": [
+        "compiler/acir/lib/CodeGen/QueueGraphPyc.cpp"
+      ],
+      "canonicalization": [],
+      "cpp_emitter": "compiler/mlir/lib/Emit/CppEmitter.cpp",
+      "e2e": [],
+      "examples": [
+        "examples/pycircuit/features/reset_invalidate_order_smoke/reset_invalidate_order_smoke.py",
+        "examples/pycircuit/features/xz_value_model_smoke/xz_value_model_smoke.py"
+      ],
+      "folder": null,
+      "kind": "operation",
+      "name": "pyc.module",
+      "negative_mlir": [
+        "tests/mlir/pyc/family-mapping-attributes-invalid.mlir"
+      ],
+      "positive_mlir": [
+        "tests/mlir/agentic-circuit/CodeGen/family-config-backends.mlir",
+        "tests/mlir/agentic-circuit/CodeGen/pycircuit-hierarchical-family.mlir",
+        "tests/mlir/agentic-circuit/PYC/source-provenance.mlir",
+        "tests/mlir/pyc/count-leading-zeros-primitive.mlir",
+        "tests/mlir/pyc/family-ops.mlir",
+        "tests/mlir/pyc/popcount-primitive.mlir",
+        "tests/mlir/pyc/priority-primitive.mlir"
+      ],
+      "python_producer": [
+        "python/pycircuit/src/pycircuit/__init__.py",
+        "python/pycircuit/src/pycircuit/design.py",
+        "python/pycircuit/src/pycircuit/dsl.py",
+        "python/pycircuit/src/pycircuit/jit.py",
+        "python/pycircuit/src/pycircuit/probe.py",
+        "python/pycircuit/src/pycircuit/spec/types.py",
+        "python/pycircuit/src/pycircuit/trace_dsl.py",
+        "python/pycircuit/src/pycircuit/v6.py"
+      ],
+      "replacement": null,
+      "rtl_selection": null,
+      "stage": "canonical-pyc",
+      "status": "normative",
+      "symbol": "PYC_FamilyOp",
+      "tests": [
+        "tests/cpp/agentic-circuit/Dialect/ACIR/OpsTest.cpp",
+        "tests/mlir/agentic-circuit/CodeGen/family-config-backends.mlir",
+        "tests/mlir/agentic-circuit/CodeGen/pycircuit-hierarchical-family.mlir",
+        "tests/mlir/agentic-circuit/PYC/source-provenance.mlir",
+        "tests/mlir/pyc/count-leading-zeros-primitive.mlir",
+        "tests/mlir/pyc/family-mapping-attributes-invalid.mlir",
+        "tests/mlir/pyc/family-ops.mlir",
+        "tests/mlir/pyc/popcount-primitive.mlir",
+        "tests/mlir/pyc/priority-primitive.mlir",
+        "tests/python/agentic-circuit/python_frontend/test_public_api.py",
+        "tests/unit/test_cli_entrypoints.py",
+        "tests/unit/test_documentation_layout.py",
+        "tests/unit/test_primitive_catalog.py",
+        "tests/unit/test_pyc6_surface.py"
+      ],
+      "verifier": "compiler/mlir/lib/Dialect/PYC/PYCOps.cpp",
+      "verilog_emitter": "compiler/mlir/lib/Emit/VerilogEmitter.cpp"
+    },
+    {
+      "acir_producer": [
+        "compiler/acir/lib/CodeGen/QueueGraphPyc.cpp"
+      ],
+      "canonicalization": [],
+      "cpp_emitter": "compiler/mlir/lib/Emit/CppEmitter.cpp",
+      "e2e": [],
+      "examples": [],
+      "folder": null,
+      "kind": "operation",
+      "name": "pyc.module.case",
+      "negative_mlir": [
+        "tests/mlir/pyc/family-mapping-attributes-invalid.mlir"
+      ],
+      "positive_mlir": [
+        "tests/mlir/agentic-circuit/CodeGen/family-config-backends.mlir",
+        "tests/mlir/agentic-circuit/CodeGen/pycircuit-hierarchical-family.mlir",
+        "tests/mlir/pyc/family-ops.mlir"
+      ],
+      "python_producer": [
+        "python/pycircuit/src/pycircuit/dsl.py"
+      ],
+      "replacement": null,
+      "rtl_selection": null,
+      "stage": "canonical-pyc",
+      "status": "normative",
+      "symbol": "PYC_ModuleCaseOp",
+      "tests": [
+        "tests/mlir/agentic-circuit/CodeGen/family-config-backends.mlir",
+        "tests/mlir/agentic-circuit/CodeGen/pycircuit-hierarchical-family.mlir",
+        "tests/mlir/pyc/family-mapping-attributes-invalid.mlir",
+        "tests/mlir/pyc/family-ops.mlir",
+        "tests/unit/test_documentation_layout.py",
+        "tests/unit/test_pyc6_surface.py"
+      ],
+      "verifier": "compiler/mlir/lib/Dialect/PYC/PYCOps.cpp",
+      "verilog_emitter": "compiler/mlir/lib/Emit/VerilogEmitter.cpp"
+    },
+    {
+      "acir_producer": [],
+      "canonicalization": [],
+      "cpp_emitter": null,
+      "e2e": [],
+      "examples": [],
+      "folder": null,
+      "kind": "operation",
+      "name": "pyc.module.import",
+      "negative_mlir": [],
+      "positive_mlir": [
+        "tests/mlir/pyc/family-ops.mlir"
+      ],
+      "python_producer": [
+        "python/pycircuit/src/pycircuit/dsl.py"
+      ],
+      "replacement": null,
+      "rtl_selection": null,
+      "stage": "canonical-pyc",
+      "status": "normative",
+      "symbol": "PYC_ModuleImportOp",
+      "tests": [
+        "tests/mlir/pyc/family-ops.mlir"
+      ],
+      "verifier": "compiler/mlir/lib/Dialect/PYC/PYCOps.cpp",
+      "verilog_emitter": null
     },
     {
       "acir_producer": [
@@ -802,7 +922,7 @@
         "tests/mlir/agentic-circuit/CodeGen/bit-widths.mlir",
         "tests/mlir/agentic-circuit/CodeGen/table-writer-arbitration-pyc.mlir",
         "tests/mlir/agentic-circuit/PYC/source-provenance-eliminate-wire.mlir",
-        "tests/mlir/agentic-circuit/lit.cfg.py"
+        "tests/mlir/lit.cfg.py"
       ],
       "python_producer": [
         "python/pycircuit/src/pycircuit/dsl.py",
@@ -818,7 +938,7 @@
         "tests/mlir/agentic-circuit/CodeGen/bit-widths.mlir",
         "tests/mlir/agentic-circuit/CodeGen/table-writer-arbitration-pyc.mlir",
         "tests/mlir/agentic-circuit/PYC/source-provenance-eliminate-wire.mlir",
-        "tests/mlir/agentic-circuit/lit.cfg.py",
+        "tests/mlir/lit.cfg.py",
         "tests/python/agentic-circuit/python_frontend/test_queue_frontend.py"
       ],
       "verifier": "compiler/mlir/lib/Dialect/PYC/PYCOps.cpp",
@@ -950,7 +1070,6 @@
       "tests": [
         "tests/mlir/agentic-circuit/CodeGen/bit-widths.mlir",
         "tests/mlir/pyc/priority-primitive.mlir",
-        "tests/python/agentic-circuit/python_frontend/test_determinism.py",
         "tests/python/agentic-circuit/python_frontend/test_public_api.py",
         "tests/system/test_primitive_selection.py",
         "tests/unit/test_primitive_catalog.py",
@@ -1073,6 +1192,41 @@
       "verilog_emitter": "compiler/mlir/lib/Emit/VerilogEmitter.cpp"
     },
     {
+      "acir_producer": [
+        "compiler/acir/lib/CodeGen/QueueGraphPyc.cpp"
+      ],
+      "canonicalization": [],
+      "cpp_emitter": "compiler/mlir/lib/Emit/CppEmitter.cpp",
+      "e2e": [],
+      "examples": [],
+      "folder": null,
+      "kind": "operation",
+      "name": "pyc.return",
+      "negative_mlir": [
+        "tests/mlir/pyc/family-mapping-attributes-invalid.mlir"
+      ],
+      "positive_mlir": [
+        "tests/mlir/pyc/family-ops.mlir"
+      ],
+      "python_producer": [
+        "python/pycircuit/src/pycircuit/dsl.py",
+        "python/pycircuit/src/pycircuit/jit.py"
+      ],
+      "replacement": null,
+      "rtl_selection": null,
+      "stage": "canonical-pyc",
+      "status": "normative",
+      "symbol": "PYC_ReturnOp",
+      "tests": [
+        "tests/mlir/pyc/family-mapping-attributes-invalid.mlir",
+        "tests/mlir/pyc/family-ops.mlir",
+        "tests/unit/test_documentation_layout.py",
+        "tests/unit/test_pyc6_surface.py"
+      ],
+      "verifier": "compiler/mlir/lib/Dialect/PYC/PYCOps.cpp",
+      "verilog_emitter": "compiler/mlir/lib/Emit/VerilogEmitter.cpp"
+    },
+    {
       "acir_producer": [],
       "canonicalization": [
         "compiler/mlir/lib/Transforms/CheckFrontendContractPass.cpp"
@@ -1150,9 +1304,7 @@
         "compiler/mlir/lib/Transforms/LowerSCFToPYCStaticPass.cpp"
       ],
       "cpp_emitter": "compiler/mlir/lib/Emit/CppEmitter.cpp",
-      "e2e": [
-        "tests/integration/agentic-circuit/e2e/test_array_combinator_runtime.py"
-      ],
+      "e2e": [],
       "examples": [],
       "folder": "compiler/mlir/lib/Dialect/PYC/PYCOps.cpp",
       "kind": "operation",
@@ -1183,7 +1335,6 @@
       "tests": [
         "tests/cpp/agentic-circuit/CodeGen/QueueGraphPlanTest.cpp",
         "tests/cpp/agentic-circuit/gfsim/QueueBlocksTest.cpp",
-        "tests/integration/agentic-circuit/e2e/test_array_combinator_runtime.py",
         "tests/mlir/agentic-circuit/ACIR/collections-invalid.mlir",
         "tests/mlir/agentic-circuit/ACIR/collections-valid.mlir",
         "tests/mlir/agentic-circuit/CodeGen/table-read-pyc.mlir",
@@ -1437,9 +1588,7 @@
         "compiler/mlir/lib/Transforms/FuseCombPass.cpp"
       ],
       "cpp_emitter": "compiler/mlir/lib/Emit/CppEmitter.cpp",
-      "e2e": [
-        "tests/integration/agentic-circuit/e2e/test_typed_integer_runtime.py"
-      ],
+      "e2e": [],
       "examples": [],
       "folder": "compiler/mlir/lib/Dialect/PYC/PYCOps.cpp",
       "kind": "operation",
@@ -1458,7 +1607,6 @@
       "symbol": "PYC_UdivOp",
       "tests": [
         "tests/cpp/agentic-circuit/CodeGen/QueueGraphPlanTest.cpp",
-        "tests/integration/agentic-circuit/e2e/test_typed_integer_runtime.py",
         "tests/mlir/agentic-circuit/CodeGen/bit-widths.mlir",
         "tests/unit/test_semantic_core.py"
       ],
@@ -1473,9 +1621,7 @@
         "compiler/mlir/lib/Transforms/FuseCombPass.cpp"
       ],
       "cpp_emitter": "compiler/mlir/lib/Emit/CppEmitter.cpp",
-      "e2e": [
-        "tests/integration/agentic-circuit/e2e/test_typed_integer_runtime.py"
-      ],
+      "e2e": [],
       "examples": [],
       "folder": "compiler/mlir/lib/Dialect/PYC/PYCOps.cpp",
       "kind": "operation",
@@ -1494,7 +1640,6 @@
       "symbol": "PYC_UremOp",
       "tests": [
         "tests/cpp/agentic-circuit/CodeGen/QueueGraphPlanTest.cpp",
-        "tests/integration/agentic-circuit/e2e/test_typed_integer_runtime.py",
         "tests/mlir/agentic-circuit/CodeGen/bit-widths.mlir",
         "tests/unit/test_semantic_core.py"
       ],
@@ -1655,9 +1800,13 @@
       "folder": null,
       "kind": "type",
       "name": "!pyc.clock",
-      "negative_mlir": [],
+      "negative_mlir": [
+        "tests/mlir/pyc/family-mapping-attributes-invalid.mlir"
+      ],
       "positive_mlir": [
-        "tests/mlir/agentic-circuit/PYC/source-provenance-pack-i1.mlir"
+        "tests/mlir/agentic-circuit/PYC/source-provenance-pack-i1.mlir",
+        "tests/mlir/pyc/family-mapping-attributes.mlir",
+        "tests/mlir/pyc/family-ops.mlir"
       ],
       "python_producer": [
         "python/pycircuit/src/pycircuit/cli.py",
@@ -1678,7 +1827,10 @@
       "status": "normative",
       "symbol": "PYC_ClockType",
       "tests": [
-        "tests/mlir/agentic-circuit/PYC/source-provenance-pack-i1.mlir"
+        "tests/mlir/agentic-circuit/PYC/source-provenance-pack-i1.mlir",
+        "tests/mlir/pyc/family-mapping-attributes-invalid.mlir",
+        "tests/mlir/pyc/family-mapping-attributes.mlir",
+        "tests/mlir/pyc/family-ops.mlir"
       ],
       "verifier": null,
       "verilog_emitter": null
@@ -1694,9 +1846,13 @@
       "folder": null,
       "kind": "type",
       "name": "!pyc.reset",
-      "negative_mlir": [],
+      "negative_mlir": [
+        "tests/mlir/pyc/family-mapping-attributes-invalid.mlir"
+      ],
       "positive_mlir": [
-        "tests/mlir/agentic-circuit/PYC/source-provenance-pack-i1.mlir"
+        "tests/mlir/agentic-circuit/PYC/source-provenance-pack-i1.mlir",
+        "tests/mlir/pyc/family-mapping-attributes.mlir",
+        "tests/mlir/pyc/family-ops.mlir"
       ],
       "python_producer": [
         "python/pycircuit/src/pycircuit/cli.py",
@@ -1717,7 +1873,10 @@
       "status": "normative",
       "symbol": "PYC_ResetType",
       "tests": [
-        "tests/mlir/agentic-circuit/PYC/source-provenance-pack-i1.mlir"
+        "tests/mlir/agentic-circuit/PYC/source-provenance-pack-i1.mlir",
+        "tests/mlir/pyc/family-mapping-attributes-invalid.mlir",
+        "tests/mlir/pyc/family-mapping-attributes.mlir",
+        "tests/mlir/pyc/family-ops.mlir"
       ],
       "verifier": null,
       "verilog_emitter": null

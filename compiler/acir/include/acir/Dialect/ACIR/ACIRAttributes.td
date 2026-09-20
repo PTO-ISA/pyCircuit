@@ -458,4 +458,353 @@ def ACIR_WriterPriorityAttr : AttrDef<ACIR_Dialect, "WriterPriority"> {
   let genVerifyDecl = 1;
 }
 
+// Decisions 0275-0277 finite static-family carrier.  The wrapper attributes
+// deliberately keep ordered collections as ArrayAttr storage; their C++
+// verifiers enforce the dedicated element classes and reject generic bags.
+def ACIR_StaticBoolTypeAttr : AttrDef<ACIR_Dialect, "StaticBoolType"> {
+  let mnemonic = "static_bool_type";
+  let assemblyFormat = "";
+}
+
+def ACIR_StaticBoolValueAttr : AttrDef<ACIR_Dialect, "StaticBoolValue"> {
+  let mnemonic = "static_bool_value";
+  let parameters = (ins "bool":$value);
+  let assemblyFormat = "`<` $value `>`";
+}
+
+def ACIR_StaticIntTypeAttr : AttrDef<ACIR_Dialect, "StaticIntType"> {
+  let mnemonic = "static_int_type";
+  let parameters = (ins "uint64_t":$width, "bool":$isSigned);
+  let assemblyFormat = "`<` $width `,` $isSigned `>`";
+  let genVerifyDecl = 1;
+}
+
+def ACIR_StaticIntValueAttr : AttrDef<ACIR_Dialect, "StaticIntValue"> {
+  let mnemonic = "static_int_value";
+  let parameters = (ins "::acir::ac::StaticIntTypeAttr":$type,
+                         "::mlir::IntegerAttr":$value);
+  let assemblyFormat = "`<` $type `,` $value `>`";
+  let genVerifyDecl = 1;
+}
+
+def ACIR_StaticEnumTypeAttr : AttrDef<ACIR_Dialect, "StaticEnumType"> {
+  let mnemonic = "static_enum_type";
+  let parameters = (ins "::mlir::FlatSymbolRefAttr":$declaration);
+  let assemblyFormat = "`<` $declaration `>`";
+  let genVerifyDecl = 1;
+}
+
+def ACIR_StaticEnumValueAttr : AttrDef<ACIR_Dialect, "StaticEnumValue"> {
+  let mnemonic = "static_enum_value";
+  let parameters = (ins "::mlir::FlatSymbolRefAttr":$declaration,
+                         "::mlir::StringAttr":$member);
+  let assemblyFormat = "`<` $declaration `,` $member `>`";
+  let genVerifyDecl = 1;
+}
+
+def ACIR_StaticConfigFieldAttr : AttrDef<ACIR_Dialect, "StaticConfigField"> {
+  let mnemonic = "static_config_field";
+  let parameters = (ins "::mlir::StringAttr":$name,
+                         "::mlir::Attribute":$type);
+  let assemblyFormat = "`<` $name `,` $type `>`";
+  let genVerifyDecl = 1;
+}
+
+def ACIR_StaticConfigFieldsAttr : AttrDef<ACIR_Dialect, "StaticConfigFields"> {
+  let mnemonic = "static_config_fields";
+  let parameters = (ins "::mlir::ArrayAttr":$fields);
+  let assemblyFormat = "`<` $fields `>`";
+  let genVerifyDecl = 1;
+}
+
+def ACIR_StaticConfigFieldValueAttr
+    : AttrDef<ACIR_Dialect, "StaticConfigFieldValue"> {
+  let mnemonic = "static_config_field_value";
+  let parameters = (ins "::mlir::StringAttr":$name,
+                         "::mlir::Attribute":$value);
+  let assemblyFormat = "`<` $name `,` $value `>`";
+  let genVerifyDecl = 1;
+}
+
+def ACIR_StaticConfigFieldValuesAttr
+    : AttrDef<ACIR_Dialect, "StaticConfigFieldValues"> {
+  let mnemonic = "static_config_field_values";
+  let parameters = (ins "::mlir::ArrayAttr":$fields);
+  let assemblyFormat = "`<` $fields `>`";
+  let genVerifyDecl = 1;
+}
+
+def ACIR_StaticConfigTypeAttr : AttrDef<ACIR_Dialect, "StaticConfigType"> {
+  let mnemonic = "static_config_type";
+  let parameters = (ins "::mlir::FlatSymbolRefAttr":$declaration,
+                         "::acir::ac::StaticConfigFieldsAttr":$fields);
+  let assemblyFormat = "`<` $declaration `,` $fields `>`";
+  let genVerifyDecl = 1;
+}
+
+def ACIR_StaticConfigValueAttr : AttrDef<ACIR_Dialect, "StaticConfigValue"> {
+  let mnemonic = "static_config_value";
+  let parameters = (ins "::mlir::FlatSymbolRefAttr":$declaration,
+                         "::acir::ac::StaticConfigFieldValuesAttr":$fields);
+  let assemblyFormat = "`<` $declaration `,` $fields `>`";
+  let genVerifyDecl = 1;
+}
+
+def ACIR_StaticTypeAttr : AttrDef<ACIR_Dialect, "StaticType"> {
+  let mnemonic = "static_type";
+  let parameters = (ins "::mlir::Attribute":$value);
+  let assemblyFormat = "`<` $value `>`";
+  let genVerifyDecl = 1;
+}
+
+def ACIR_StaticValueAttr : AttrDef<ACIR_Dialect, "StaticValue"> {
+  let mnemonic = "static_value";
+  let parameters = (ins "::mlir::Attribute":$value);
+  let assemblyFormat = "`<` $value `>`";
+  let genVerifyDecl = 1;
+}
+
+def ACIR_StaticConstraintAttr : AttrDef<ACIR_Dialect, "StaticConstraint"> {
+  let mnemonic = "static_constraint";
+  let parameters = (ins "::mlir::Attribute":$value);
+  let assemblyFormat = "`<` $value `>`";
+  let genVerifyDecl = 1;
+}
+
+def ACIR_OneOfConstraintAttr : AttrDef<ACIR_Dialect, "OneOfConstraint"> {
+  let mnemonic = "one_of";
+  let parameters = (ins "::mlir::ArrayAttr":$values);
+  let assemblyFormat = "`<` $values `>`";
+  let genVerifyDecl = 1;
+}
+
+def ACIR_IntegerRangeConstraintAttr
+    : AttrDef<ACIR_Dialect, "IntegerRangeConstraint"> {
+  let mnemonic = "integer_range";
+  let parameters = (ins "::acir::ac::StaticIntValueAttr":$minimum,
+                         "::acir::ac::StaticIntValueAttr":$maximum);
+  let assemblyFormat = "`<` $minimum `,` $maximum `>`";
+  let genVerifyDecl = 1;
+}
+
+def ACIR_StaticParameterAttr : AttrDef<ACIR_Dialect, "StaticParameter"> {
+  let mnemonic = "static_parameter";
+  let parameters = (ins "::mlir::StringAttr":$name,
+                         "::acir::ac::StaticTypeAttr":$type,
+                         "bool":$required,
+                         OptionalParameter<"::acir::ac::StaticValueAttr">:$defaultValue,
+                         "::mlir::ArrayAttr":$constraints,
+                         "::acir::ac::SourceProvenanceAttr":$provenance);
+  let assemblyFormat = "`<` $name `,` $type `,` $required (`default` $defaultValue^)? `,` $constraints `,` $provenance `>`";
+  let genVerifyDecl = 1;
+}
+
+def ACIR_StaticParametersAttr : AttrDef<ACIR_Dialect, "StaticParameters"> {
+  let mnemonic = "static_parameters";
+  let parameters = (ins "::mlir::ArrayAttr":$parameters);
+  let assemblyFormat = "`<` $parameters `>`";
+  let genVerifyDecl = 1;
+}
+
+def ACIR_StaticArgumentAttr : AttrDef<ACIR_Dialect, "StaticArgument"> {
+  let mnemonic = "static_argument";
+  let parameters = (ins "::mlir::StringAttr":$name,
+                         "::acir::ac::StaticValueAttr":$value);
+  let assemblyFormat = "`<` $name `,` $value `>`";
+  let genVerifyDecl = 1;
+}
+
+def ACIR_StaticArgumentsAttr : AttrDef<ACIR_Dialect, "StaticArguments"> {
+  let mnemonic = "static_arguments";
+  let parameters = (ins "::mlir::ArrayAttr":$arguments);
+  let assemblyFormat = "`<` $arguments `>`";
+  let genVerifyDecl = 1;
+}
+
+def ACIR_StaticCasesAttr : AttrDef<ACIR_Dialect, "StaticCases"> {
+  let mnemonic = "static_cases";
+  let parameters = (ins "::mlir::ArrayAttr":$cases);
+  let assemblyFormat = "`<` $cases `>`";
+  let genVerifyDecl = 1;
+}
+
+def ACIR_SourceOwnerAttr : AttrDef<ACIR_Dialect, "SourceOwner"> {
+  let mnemonic = "source_owner";
+  let parameters = (ins "::mlir::StringAttr":$implementation,
+                         "::mlir::StringAttr":$declaration);
+  let assemblyFormat = "`<` $implementation `,` $declaration `>`";
+  let genVerifyDecl = 1;
+}
+
+def ACIR_SourceProvenanceAttr : AttrDef<ACIR_Dialect, "SourceProvenance"> {
+  let mnemonic = "source_provenance";
+  let parameters = (ins "::mlir::StringAttr":$path,
+                         "uint64_t":$line,
+                         "uint64_t":$column,
+                         "uint64_t":$endLine,
+                         "uint64_t":$endColumn);
+  let assemblyFormat = "`<` $path `,` $line `,` $column `,` $endLine `,` $endColumn `>`";
+  let genVerifyDecl = 1;
+}
+
+def ACIR_DependentValueAttr : AttrDef<ACIR_Dialect, "DependentValue"> {
+  let mnemonic = "dependent_value";
+  let parameters = (ins "::mlir::Attribute":$value);
+  let assemblyFormat = "`<` $value `>`";
+  let genVerifyDecl = 1;
+}
+
+def ACIR_DependentIntegerLiteralAttr
+    : AttrDef<ACIR_Dialect, "DependentIntegerLiteral"> {
+  let mnemonic = "dependent_integer";
+  let parameters = (ins APIntParameter<"arbitrary-precision mathematical integer">:$value);
+  let assemblyFormat = "`<` $value `>`";
+}
+
+def ACIR_DependentStaticLiteralAttr
+    : AttrDef<ACIR_Dialect, "DependentStaticLiteral"> {
+  let mnemonic = "dependent_static";
+  let parameters = (ins "::acir::ac::StaticValueAttr":$value);
+  let assemblyFormat = "`<` $value `>`";
+}
+
+def ACIR_DependentParameterAttr : AttrDef<ACIR_Dialect, "DependentParameter"> {
+  let mnemonic = "dependent_parameter";
+  let parameters = (ins "::mlir::StringAttr":$name);
+  let assemblyFormat = "`<` $name `>`";
+  let genVerifyDecl = 1;
+}
+
+def ACIR_DependentFieldAttr : AttrDef<ACIR_Dialect, "DependentField"> {
+  let mnemonic = "dependent_field";
+  let parameters = (ins "::acir::ac::DependentParameterAttr":$root,
+                         "::mlir::ArrayAttr":$path);
+  let assemblyFormat = "`<` $root `,` $path `>`";
+  let genVerifyDecl = 1;
+}
+
+class ACIR_DependentBinaryAttr<string cppName, string mnemonicValue>
+    : AttrDef<ACIR_Dialect, cppName> {
+  let mnemonic = mnemonicValue;
+  let parameters = (ins "::acir::ac::DependentValueAttr":$lhs,
+                         "::acir::ac::DependentValueAttr":$rhs);
+  let assemblyFormat = "`<` $lhs `,` $rhs `>`";
+}
+
+def ACIR_DependentAddAttr : ACIR_DependentBinaryAttr<"DependentAdd", "dependent_add">;
+def ACIR_DependentSubAttr : ACIR_DependentBinaryAttr<"DependentSub", "dependent_sub">;
+def ACIR_DependentMulAttr : ACIR_DependentBinaryAttr<"DependentMul", "dependent_mul">;
+
+class ACIR_DependentWidthAttr<string cppName, string mnemonicValue>
+    : AttrDef<ACIR_Dialect, cppName> {
+  let mnemonic = mnemonicValue;
+  let parameters = (ins "::acir::ac::DependentValueAttr":$capacity);
+  let assemblyFormat = "`<` $capacity `>`";
+}
+
+def ACIR_DependentIndexWidthAttr
+    : ACIR_DependentWidthAttr<"DependentIndexWidth", "dependent_index_width">;
+def ACIR_DependentCountWidthAttr
+    : ACIR_DependentWidthAttr<"DependentCountWidth", "dependent_count_width">;
+
+def ACIR_DependentArgumentAttr : AttrDef<ACIR_Dialect, "DependentArgument"> {
+  let mnemonic = "dependent_argument";
+  let parameters = (ins "::mlir::StringAttr":$name,
+                         "::acir::ac::DependentValueAttr":$value);
+  let assemblyFormat = "`<` $name `,` $value `>`";
+  let genVerifyDecl = 1;
+}
+
+def ACIR_DependentArgumentsAttr : AttrDef<ACIR_Dialect, "DependentArguments"> {
+  let mnemonic = "dependent_arguments";
+  let parameters = (ins "::mlir::ArrayAttr":$arguments);
+  let assemblyFormat = "`<` $arguments `>`";
+  let genVerifyDecl = 1;
+}
+
+def ACIR_TypeExprAttr : AttrDef<ACIR_Dialect, "TypeExpr"> {
+  let mnemonic = "type_expr";
+  let parameters = (ins "::mlir::Attribute":$value);
+  let assemblyFormat = "`<` $value `>`";
+  let genVerifyDecl = 1;
+}
+
+def ACIR_TypeExprConcreteAttr : AttrDef<ACIR_Dialect, "TypeExprConcrete"> {
+  let mnemonic = "type_expr_concrete";
+  let parameters = (ins "::mlir::TypeAttr":$type);
+  let assemblyFormat = "`<` $type `>`";
+}
+
+def ACIR_TypeExprBitsAttr : AttrDef<ACIR_Dialect, "TypeExprBits"> {
+  let mnemonic = "type_expr_bits";
+  let parameters = (ins "::acir::ac::DependentValueAttr":$width,
+                         "bool":$isSigned);
+  let assemblyFormat = "`<` $width `,` $isSigned `>`";
+}
+
+def ACIR_TypeExprRangeAttr : AttrDef<ACIR_Dialect, "TypeExprRange"> {
+  let mnemonic = "type_expr_range";
+  let parameters = (ins "::acir::ac::DependentValueAttr":$lowerInclusive,
+                         "::acir::ac::DependentValueAttr":$upperExclusive);
+  let assemblyFormat = "`<` $lowerInclusive `,` $upperExclusive `>`";
+}
+
+def ACIR_TypeExprValueArrayAttr : AttrDef<ACIR_Dialect, "TypeExprValueArray"> {
+  let mnemonic = "type_expr_value_array";
+  let parameters = (ins "::acir::ac::DependentValueAttr":$length,
+                         "::acir::ac::TypeExprAttr":$element);
+  let assemblyFormat = "`<` $length `,` $element `>`";
+}
+
+def ACIR_TypeExprTupleAttr : AttrDef<ACIR_Dialect, "TypeExprTuple"> {
+  let mnemonic = "type_expr_tuple";
+  let parameters = (ins "::mlir::ArrayAttr":$elements);
+  let assemblyFormat = "`<` $elements `>`";
+  let genVerifyDecl = 1;
+}
+
+def ACIR_TypeExprNominalAttr : AttrDef<ACIR_Dialect, "TypeExprNominal"> {
+  let mnemonic = "type_expr_nominal";
+  let parameters = (ins "::mlir::SymbolRefAttr":$declaration,
+                         "::acir::ac::DependentArgumentsAttr":$arguments);
+  let assemblyFormat = "`<` $declaration `,` $arguments `>`";
+  let genVerifyDecl = 1;
+}
+
+def ACIR_TypeExprQueueAttr : AttrDef<ACIR_Dialect, "TypeExprQueue"> {
+  let mnemonic = "type_expr_queue";
+  let parameters = (ins "::acir::ac::TypeExprAttr":$payload,
+                         "::acir::ac::DependentValueAttr":$lanes,
+                         "::acir::ac::DependentValueAttr":$rate);
+  let assemblyFormat = "`<` $payload `,` $lanes `,` $rate `>`";
+}
+
+def ACIR_InterfacePortAttr : AttrDef<ACIR_Dialect, "InterfacePort"> {
+  let mnemonic = "interface_port";
+  let parameters = (ins "::mlir::StringAttr":$name,
+                         "::mlir::StringAttr":$direction,
+                         "::acir::ac::TypeExprAttr":$logicalType,
+                         "::acir::ac::SourceProvenanceAttr":$provenance);
+  let assemblyFormat = "`<` $name `,` $direction `,` $logicalType `,` $provenance `>`";
+  let genVerifyDecl = 1;
+}
+
+def ACIR_ModuleInterfaceAttr : AttrDef<ACIR_Dialect, "ModuleInterface"> {
+  let mnemonic = "module_interface";
+  let parameters = (ins "::mlir::ArrayAttr":$ports);
+  let assemblyFormat = "`<` $ports `>`";
+  let genVerifyDecl = 1;
+}
+
+def ACIR_ModuleFamilySchemaAttr : AttrDef<ACIR_Dialect, "ModuleFamilySchema"> {
+  let mnemonic = "module_family_schema";
+  let parameters = (ins "::acir::ac::StaticParametersAttr":$parameters,
+                         "::acir::ac::StaticCasesAttr":$cases,
+                         "::acir::ac::ModuleInterfaceAttr":$interface,
+                         "::acir::ac::SourceOwnerAttr":$source,
+                         "::mlir::ArrayAttr":$nominalDeclarations);
+  let assemblyFormat = "`<` $parameters `,` $cases `,` $interface `,` $source `,` $nominalDeclarations `>`";
+  let genVerifyDecl = 1;
+}
+
 #endif // ACIR_DIALECT_ACIR_ACIRATTRIBUTES_TD

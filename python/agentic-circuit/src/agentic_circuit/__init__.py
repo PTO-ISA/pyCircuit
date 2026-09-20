@@ -24,7 +24,17 @@ from ._definitions import (
     transaction,
     writer_priority,
 )
-from ._jit import config, jit
+from ._families import (
+    case,
+    config,
+    integer_range,
+    one_of,
+    static_bool,
+    static_config,
+    static_enum,
+    static_int,
+    static_parameter,
+)
 from ._resources import address_map, address_space, queue
 from ._types import (
     BitfieldSpec,
@@ -35,6 +45,7 @@ from ._types import (
     index,
     range,
     ResourceRef,
+    Queue,
     Static,
     array,
     bits,
@@ -118,6 +129,7 @@ RUNTIME_API = (
     "BitfieldSpec",
     "queue",
     "ResourceRef",
+    "Queue",
     "address_space",
     "address_map",
     "Static",
@@ -131,7 +143,14 @@ RUNTIME_API = (
     "index",
     "range",
     "count_width",
-    "jit",
+    "static_bool",
+    "static_int",
+    "static_enum",
+    "static_config",
+    "static_parameter",
+    "one_of",
+    "integer_range",
+    "case",
     "round_robin",
     "priority",
     *_UNSIGNED_NAMES,

@@ -19,7 +19,7 @@ builtin.module  {
   ^value(%item: !ac.var<i8>):
     %old = ac.table.get @values [%item] : !ac.var<i8> -> !ac.var<i16>
     ac.table.yield %old : !ac.var<i16>
-  } {ac.endpoint_path = "/values__write", ac.name = "values__write"}
+  } {ac.endpoint_path = "/values_write", ac.name = "values_write"}
   %output = ac.table.read @values depth 1 latency 1 address {
   ^address:
     %zero = ac.var.constant 0 : i64 as !ac.var<i64>
@@ -61,11 +61,11 @@ builtin.module  {
   } value {
   ^value(%entry: !ac.var<i16>):
     ac.table.yield %entry : !ac.var<i16>
-  } {ac.endpoint_path = "/candidates__masked_write", ac.name = "candidates__masked_write"}
+  } {ac.endpoint_path = "/candidates_masked_write", ac.name = "candidates_masked_write"}
   ac.slot.release @pending when {
     %slot_valid, %slot_value = ac.slot.get @pending : !ac.var<i1>, !ac.var<i8>
     ac.slot.yield %slot_valid : !ac.var<i1>
-  } {ac.endpoint_path = "/pending__release", ac.name = "pending__release"}
+  } {ac.endpoint_path = "/pending_release", ac.name = "pending_release"}
 
   ac.table @multi entry !ac.struct<@types::@Entry> entries 1 init 0 owner "/" stable_id "table/multi"
   ac.table.write @multi mode "field" write_fields ["valid"] address {

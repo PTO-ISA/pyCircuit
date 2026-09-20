@@ -11,6 +11,7 @@
 #include <set>
 #include <span>
 #include <stdexcept>
+#include <type_traits>
 #include <utility>
 #include <vector>
 
@@ -23,6 +24,8 @@ namespace gfsim {
 /// and occupancy/watermark statistics.
 template <typename T> class SimQueue : public SimObject {
 public:
+  static_assert(std::is_nothrow_move_constructible_v<T>,
+                "SimQueue payload publication must be no-fail after prepare");
   SimQueue(std::string name, ObjectId id, SimObject *parent,
            size_t entryCapacity, size_t byteCapacity = SIZE_MAX,
            ObservationSink *observations = nullptr, size_t latency = 1,
@@ -120,6 +123,8 @@ public:
   bool preparePush(CommitGroupId group) {
     if (group == kInvalidCommitGroupId || !canPrepareBatch(0, 1))
       return false;
+    if (!preparePushProposalStorage(1))
+      return false;
     preparedPush_ = PreparedPush{group, 1};
     return true;
   }
@@ -136,6 +141,8 @@ public:
     if (group == kInvalidCommitGroupId ||
         (popCount == 0 && pushCount == 0) ||
         !canPrepareBatch(popCount, pushCount))
+      return false;
+    if (pushCount != 0 && !preparePushProposalStorage(pushCount))
       return false;
     if (popCount != 0)
       preparedPop_ = PreparedPop{group, popCount};
@@ -353,7 +360,22 @@ public:
     clearRuntimeFailureCode();
   }
 
+protected:
+  /// Testable allocation boundary for proposal storage. Overrides may inject
+  /// allocation failure; prepared state is not installed until this returns.
+  virtual void beforePreparePushProposalStorage(size_t) {}
+
 private:
+  bool preparePushProposalStorage(size_t count) {
+    try {
+      beforePreparePushProposalStorage(count);
+      pushProposals_.reserve(pushProposals_.size() + count);
+      return true;
+    } catch (const std::bad_alloc &) {
+      return false;
+    }
+  }
+
   bool exceedsByteCapacity(size_t elementCount) const {
     if constexpr (PacketTraits<T>::serializedSize == 0)
       return false;

@@ -15,6 +15,7 @@
 #include <initializer_list>
 #include <limits>
 #include <map>
+#include <new>
 #include <optional>
 #include <span>
 #include <stdexcept>
@@ -211,8 +212,16 @@ public:
       cancelPrepared(group);
       return;
     }
-    auto results = invokePolicy(group, std::index_sequence_for<Inputs...>{});
-    if (!publishOutputs(group, results,
+    std::optional<std::tuple<Outputs...>> results;
+    try {
+      results.emplace(
+          invokePolicy(group, std::index_sequence_for<Inputs...>{}));
+    } catch (const std::bad_alloc &) {
+      cancelPrepared(group);
+      setRuntimeFailureCode("commit_group_payload_allocation_failed");
+      return;
+    }
+    if (!publishOutputs(group, *results,
                         std::index_sequence_for<Outputs...>{}) ||
         !publishInputs(group, std::index_sequence_for<Inputs...>{})) {
       setRuntimeFailureCode("commit_group_publish_failed");
@@ -261,10 +270,10 @@ private:
                        *std::get<Indices>(inputs_)->preparedPopValue(group)...);
   }
   template <size_t... Indices>
-  bool publishOutputs(CommitGroupId group, const std::tuple<Outputs...> &values,
+  bool publishOutputs(CommitGroupId group, std::tuple<Outputs...> &values,
                       std::index_sequence<Indices...>) {
     return (std::get<Indices>(outputs_)->publishPush(
-                group, std::get<Indices>(values)) &&
+                group, std::move(std::get<Indices>(values))) &&
             ...);
   }
   template <size_t... Indices>

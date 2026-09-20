@@ -19,6 +19,3 @@ def scalar_parameterized_types(
 ) -> ac.bits[WIDTH]:
     result = keep(value)
     return result
-
-
-specialization = ac.jit(scalar_parameterized_types, width=17)

@@ -26,9 +26,8 @@ LINE = 800
 SCREEN = 524
 
 
-def build(
-    m: CycleAwareCircuit, domain: CycleAwareDomain, *, MAIN_CLK_BIT: int = 20
-) -> None:
+def build(m: CycleAwareCircuit, domain: CycleAwareDomain) -> None:
+    MAIN_CLK_BIT = 4
     if MAIN_CLK_BIT < 0 or MAIN_CLK_BIT > 24:
         raise ValueError("MAIN_CLK_BIT must be in [0, 24]")
     cd = domain.clock_domain
@@ -275,6 +274,4 @@ def build(
 build.__pycircuit_name__ = "dodgeball_game"
 
 if __name__ == "__main__":
-    print(
-        compile_cycle_aware(build, name="dodgeball_game", MAIN_CLK_BIT=20).emit_mlir()
-    )
+    print(compile_cycle_aware(build, name="dodgeball_game").emit_mlir())

@@ -210,7 +210,11 @@ def test_cycle_aware_guide_recipe_has_aligned_data_and_valid_latency() -> None:
     ).emit_mlir()
     assert "_v6_bal" not in mlir
     assert mlir.count("pyc.reg") == 2
-    assert 'result_names = ["data", "valid"]' in mlir
+    assert "pyc.module @registered_increment" in mlir
+    assert "pyc.module.case signature" in mlir
+    assert '#pyc.logical_port_mapping<"output", 0, "data"' in mlir
+    assert '#pyc.logical_port_mapping<"output", 1, "valid"' in mlir
+    assert "pyc.return" in mlir
 
 
 def test_agentic_guide_recipe_uses_typed_system_boundaries() -> None:

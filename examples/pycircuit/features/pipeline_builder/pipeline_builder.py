@@ -30,7 +30,8 @@ def _pipe_struct(m: Circuit, *, width: int):
     )
 
 
-def build(m: CycleAwareCircuit, domain: CycleAwareDomain, *, width: int = 32):
+def build(m: CycleAwareCircuit, domain: CycleAwareDomain):
+    width = 32
     cd = domain.clock_domain
     clk = cd.clk
     rst = cd.rst
@@ -52,4 +53,4 @@ def build(m: CycleAwareCircuit, domain: CycleAwareDomain, *, width: int = 32):
 
 build.__pycircuit_name__ = "pipeline_builder"
 if __name__ == "__main__":
-    print(compile_cycle_aware(build, name="pipeline_builder", width=32).emit_mlir())
+    print(compile_cycle_aware(build, name="pipeline_builder").emit_mlir())

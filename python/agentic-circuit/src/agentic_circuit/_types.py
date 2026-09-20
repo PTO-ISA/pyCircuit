@@ -94,8 +94,44 @@ class ArrayAnnotation:
     element: object
 
 
+@dataclass(frozen=True, slots=True)
+class QueueAnnotation:
+    """Logical Queue port metadata with explicit lanes and firing rate."""
+
+    payload: object
+    lanes: object
+    rate: object
+
+
+class Queue:
+    """Declare an exact logical Queue port as ``Queue[payload, lanes, rate]``."""
+
+    def __class_getitem__(cls, parameters: object) -> QueueAnnotation:
+        if not isinstance(parameters, tuple) or len(parameters) != 3:
+            raise TypeError(
+                "ACPY-FAMILY-008: Queue requires payload, lanes, and rate"
+            )
+        payload, lanes, rate = parameters
+        for name, value in (("lanes", lanes), ("rate", rate)):
+            if type(value) is int:
+                if value <= 0:
+                    raise ValueError(
+                        f"ACPY-FAMILY-008: Queue {name} must be positive"
+                    )
+                continue
+            from _pycircuit_semantics import StaticIntExpression
+
+            if not isinstance(value, StaticIntExpression):
+                raise TypeError(
+                    f"ACPY-FAMILY-008: Queue {name} must be a dependent integer"
+                )
+        if type(lanes) is int and type(rate) is int and rate > lanes:
+            raise ValueError("ACPY-FAMILY-008: Queue rate must not exceed lanes")
+        return QueueAnnotation(payload, lanes, rate)
+
+
 def _config_field_types(value_type: type[object]) -> Mapping[str, object]:
-    captured = getattr(value_type, "__ac_config_field_types__", None)
+    captured = getattr(value_type, "compiler_config_field_types__", None)
     if isinstance(captured, Mapping):
         return captured
     return {field.name: field.type for field in dataclasses.fields(value_type)}
@@ -109,7 +145,7 @@ class _ConfigParameterReference:
     def __getattr__(self, field_name: str) -> object:
         value_type = self._value_type
         if not isinstance(value_type, type) or not getattr(
-            value_type, "__ac_config__", False
+            value_type, "compiler_config__", False
         ):
             raise TypeError(
                 "ACPY-TYPE-008: config projection must select an integer config leaf"
@@ -122,7 +158,9 @@ class _ConfigParameterReference:
             )
         field_type = fields[field_name]
         path = f"{self._path}.{field_name}"
-        if field_type is int or field_type == "int":
+        from ._families import StaticIntType
+
+        if isinstance(field_type, StaticIntType):
             from _pycircuit_semantics import StaticIntExpression
 
             return StaticIntExpression.parameter(path)
@@ -132,7 +170,7 @@ class _ConfigParameterReference:
 class ParameterDeclaration:
     def __init__(self, value_type: object) -> None:
         if value_type is not int and not (
-            isinstance(value_type, type) and getattr(value_type, "__ac_config__", False)
+            isinstance(value_type, type) and getattr(value_type, "compiler_config__", False)
         ):
             raise TypeError(
                 "ACPY-TYPE-008: only integer or @ac.config static parameters are supported"
@@ -184,7 +222,7 @@ def encoding(*, width: int):
     def decorate(enum_type: type[Enum]) -> type[Enum]:
         if not isinstance(enum_type, type) or not issubclass(enum_type, Enum):
             raise TypeError("ACPY-TYPE-005: encoding must decorate a Python Enum")
-        setattr(enum_type, "__ac_encoding_width__", width)
+        setattr(enum_type, "compiler_encoding_width__", width)
         return enum_type
 
     return decorate
@@ -310,11 +348,11 @@ range = RangeFactory()
 
 
 class Static(Generic[T]):
-    """Mark an elaboration-time specialization parameter."""
+    """Mark an elaboration-time static parameter."""
 
 
 # The Queue frontend uses the lower-case spelling to make the
-# specialization boundary read like a value category rather than a runtime
+# static boundary read like a value category rather than a runtime
 # container.  Keep ``Static`` available for the existing component frontend;
 # both annotations have the same runtime origin.
 const = Static

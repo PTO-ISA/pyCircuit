@@ -10,9 +10,14 @@ module  {
   ac.system @main root @top as "root" tick 0 "cycle"
       workload @top::@workload seed {kind = "fixed", value = 0 : i64}
       instrumentation [] results {id = "default", format = "json"} selected true
-  ac.module @top() parameters {} attributes {ac.definition_name = "top"} graph {
-    ac.process @workload kind "workload" { ac.yield_sim }
-    ac.return
+  ac.module @top source #ac.source_owner<"pkg/core.py", "pkg/core.py">
+      schema #ac.module_family_schema<#ac.static_parameters<[]>, #ac.static_cases<[#ac.static_arguments<[]>]>, #ac.module_interface<[]>, #ac.source_owner<"pkg/core.py", "pkg/core.py">, []> {
+    ac.module.case arguments #ac.static_arguments<[]> type () -> ()
+        {ac.definition_name = "top"}
+        source #ac.source_provenance<"pkg/core.py", 1, 1, 1, 1> graph {
+      ac.process @workload kind "workload" { ac.yield_sim }
+      ac.return
+    }
   }
 }
 )mlir";
@@ -24,40 +29,45 @@ module attributes {
 } {
   ac.type_scope @types {
     ac.struct @Token fields [{name = "value", type = i8}]
-        {ac.source_file = "pkg/types.py"}
+        {ac.source_file = "pkg/token.py"}
   } {dlti.dl_spec = #dlti.dl_spec<!ac.struct<@types::@Token> = {abi_alignment = 1 : i64, endianness = "little", preferred_alignment = 1 : i64, size = 1 : i64}>}
   ac.system @main root @Top as "root" tick 0 "cycle"
       seed {kind = "fixed", value = 0 : i64}
       instrumentation [] results {id = "default", format = "json"} selected true
-  ac.module @Leaf__width_16() parameters {width = 16 : i64}
-      attributes {ac.definition_name = "Leaf", ac.source_file = "pkg/pipeline.py"} graph {
-    ac.return
+  ac.module @Leaf source #ac.source_owner<"pkg/pipeline.py", "pkg/pipeline.py">
+      schema #ac.module_family_schema<
+        #ac.static_parameters<[#ac.static_parameter<"width", #ac.static_type<#ac.static_int_type<8, false>>, true, [], #ac.source_provenance<"pkg/pipeline.py", 1, 1, 1, 1>>]>,
+        #ac.static_cases<[
+          #ac.static_arguments<[#ac.static_argument<"width", #ac.static_value<#ac.static_int_value<#ac.static_int_type<8, false>, 8 : i8>>>]>,
+          #ac.static_arguments<[#ac.static_argument<"width", #ac.static_value<#ac.static_int_value<#ac.static_int_type<8, false>, 16 : i8>>>]>
+        ]>, #ac.module_interface<[]>, #ac.source_owner<"pkg/pipeline.py", "pkg/pipeline.py">, []> {
+    ac.module.case arguments #ac.static_arguments<[#ac.static_argument<"width", #ac.static_value<#ac.static_int_value<#ac.static_int_type<8, false>, 8 : i8>>>]> type () -> () {ac.definition_name = "Leaf"} source #ac.source_provenance<"pkg/pipeline.py", 1, 1, 1, 1> graph { ac.return }
+    ac.module.case arguments #ac.static_arguments<[#ac.static_argument<"width", #ac.static_value<#ac.static_int_value<#ac.static_int_type<8, false>, 16 : i8>>>]> type () -> () {ac.definition_name = "Leaf"} source #ac.source_provenance<"pkg/pipeline.py", 1, 1, 1, 1> graph { ac.return }
   }
-  ac.module @Leaf__width_8() parameters {width = 8 : i64}
-      attributes {ac.definition_name = "Leaf", ac.source_file = "pkg/pipeline.py"} graph {
-    ac.return
-  }
-  ac.module @Wrapper() parameters {}
-      attributes {ac.definition_name = "Wrapper", ac.source_file = "pkg/wrapper.py"} graph {
-    ac.instance @wide of @Leaf__width_16() static {width = 16 : i64}
+  ac.module @Wrapper source #ac.source_owner<"pkg/wrapper.py", "pkg/wrapper.py"> schema #ac.module_family_schema<#ac.static_parameters<[]>, #ac.static_cases<[#ac.static_arguments<[]>]>, #ac.module_interface<[]>, #ac.source_owner<"pkg/wrapper.py", "pkg/wrapper.py">, []> {
+    ac.module.case arguments #ac.static_arguments<[]> type () -> () {ac.definition_name = "Wrapper"} source #ac.source_provenance<"pkg/wrapper.py", 1, 1, 1, 1> graph {
+    ac.instance @wide of @Leaf() static #ac.static_arguments<[#ac.static_argument<"width", #ac.static_value<#ac.static_int_value<#ac.static_int_type<8, false>, 16 : i8>>>]>
         id "wide" path "wide" : () -> ()
-    ac.instance @narrow of @Leaf__width_8() static {width = 8 : i64}
+    ac.instance @narrow of @Leaf() static #ac.static_arguments<[#ac.static_argument<"width", #ac.static_value<#ac.static_int_value<#ac.static_int_type<8, false>, 8 : i8>>>]>
         id "narrow" path "narrow" : () -> ()
     ac.return
+    }
   }
-  ac.module @LeafAlias() parameters {}
-      attributes {ac.definition_name = "LeafAlias", ac.source_file = "pkg/pipeline.py"} graph {
-    ac.instance @leaf of @Leaf__width_8() static {width = 8 : i64}
+  ac.module @LeafAlias source #ac.source_owner<"pkg/pipeline.py", "pkg/pipeline.py"> schema #ac.module_family_schema<#ac.static_parameters<[]>, #ac.static_cases<[#ac.static_arguments<[]>]>, #ac.module_interface<[]>, #ac.source_owner<"pkg/pipeline.py", "pkg/pipeline.py">, []> {
+    ac.module.case arguments #ac.static_arguments<[]> type () -> () {ac.definition_name = "LeafAlias"} source #ac.source_provenance<"pkg/pipeline.py", 1, 1, 1, 1> graph {
+    ac.instance @leaf of @Leaf() static #ac.static_arguments<[#ac.static_argument<"width", #ac.static_value<#ac.static_int_value<#ac.static_int_type<8, false>, 8 : i8>>>]>
         id "leaf" path "leaf" : () -> ()
     ac.return
+    }
   }
-  ac.module @Top() parameters {}
-      attributes {ac.definition_name = "Top", ac.source_file = "pkg/core.py"} graph {
-    ac.instance @wrapper of @Wrapper() static {}
+  ac.module @Top source #ac.source_owner<"pkg/core.py", "pkg/core.py"> schema #ac.module_family_schema<#ac.static_parameters<[]>, #ac.static_cases<[#ac.static_arguments<[]>]>, #ac.module_interface<[]>, #ac.source_owner<"pkg/core.py", "pkg/core.py">, []> {
+    ac.module.case arguments #ac.static_arguments<[]> type () -> () {ac.definition_name = "Top"} source #ac.source_provenance<"pkg/core.py", 1, 1, 1, 1> graph {
+    ac.instance @wrapper of @Wrapper() static #ac.static_arguments<[]>
         id "wrapper" path "wrapper" : () -> ()
-    ac.instance @leaf_alias of @LeafAlias() static {}
+    ac.instance @leaf_alias of @LeafAlias() static #ac.static_arguments<[]>
         id "leaf_alias" path "leaf_alias" : () -> ()
     ac.return
+    }
   }
 }
 )mlir";
@@ -70,21 +80,46 @@ module attributes {
   ac.system @main root @Top as "root" tick 0 "cycle"
       seed {kind = "fixed", value = 0 : i64}
       instrumentation [] results {id = "default", format = "json"} selected true
-  ac.module @Foo() parameters {}
-      attributes {ac.definition_name = "Foo", ac.source_file = "pkg/Foo.py"} graph {
+  ac.type_scope @types {
+    ac.struct @Upper fields [{name = "value", type = i8}]
+        {ac.source_file = "pkg/Foo.py"}
+    ac.struct @Lower fields [{name = "value", type = i8}]
+        {ac.source_file = "pkg/foo.py"}
+  } {dlti.dl_spec = #dlti.dl_spec<!ac.struct<@types::@Upper> = {abi_alignment = 1 : i64, endianness = "little", preferred_alignment = 1 : i64, size = 1 : i64}, !ac.struct<@types::@Lower> = {abi_alignment = 1 : i64, endianness = "little", preferred_alignment = 1 : i64, size = 1 : i64}>}
+  ac.module @Top source #ac.source_owner<"pkg/core.py", "pkg/core.py"> schema #ac.module_family_schema<#ac.static_parameters<[]>, #ac.static_cases<[#ac.static_arguments<[]>]>, #ac.module_interface<[]>, #ac.source_owner<"pkg/core.py", "pkg/core.py">, []> {
+    ac.module.case arguments #ac.static_arguments<[]> type () -> () {ac.definition_name = "Top"} source #ac.source_provenance<"pkg/core.py", 1, 1, 1, 1> graph {
     ac.return
+    }
   }
-  ac.module @foo() parameters {}
-      attributes {ac.definition_name = "foo", ac.source_file = "pkg/foo.py"} graph {
-    ac.return
+}
+)mlir";
+
+constexpr llvm::StringLiteral kDirectSourceUnitAcir = R"mlir(
+module attributes {ac.model_kind = "queue_graph", ac.queue_graph_domain = "cycle"} {
+  ac.type_scope @types {
+    ac.struct @Token fields [{name = "value", type = i8}]
+        {ac.source_file = "pkg/pipeline.py"}
+  } {dlti.dl_spec = #dlti.dl_spec<!ac.struct<@types::@Token> = {abi_alignment = 1 : i64, endianness = "little", preferred_alignment = 1 : i64, size = 1 : i64}>}
+  ac.system @source_unit root @_acc_source_unit_root as "root" tick 0 "cycle"
+      seed {kind = "fixed", value = 0 : i64} instrumentation []
+      results {id = "default", format = "json"} selected true
+  ac.module @Leaf source #ac.source_owner<"pkg/pipeline.py", "pkg/pipeline.py">
+      schema #ac.module_family_schema<#ac.static_parameters<[]>, #ac.static_cases<[#ac.static_arguments<[]>]>, #ac.module_interface<[]>, #ac.source_owner<"pkg/pipeline.py", "pkg/pipeline.py">, [@Token]> {
+    ac.module.case arguments #ac.static_arguments<[]> type () -> ()
+        {ac.definition_name = "Leaf"}
+        source #ac.source_provenance<"pkg/pipeline.py", 1, 1, 1, 1> graph {
+      ac.return
+    }
   }
-  ac.module @Top() parameters {}
-      attributes {ac.definition_name = "Top", ac.source_file = "pkg/core.py"} graph {
-    ac.instance @upper of @Foo() static {}
-        id "upper" path "upper" : () -> ()
-    ac.instance @lower of @foo() static {}
-        id "lower" path "lower" : () -> ()
-    ac.return
+  ac.module @_acc_source_unit_root source #ac.source_owner<"pkg/pipeline.py", "pkg/pipeline.py">
+      schema #ac.module_family_schema<#ac.static_parameters<[]>, #ac.static_cases<[#ac.static_arguments<[]>]>, #ac.module_interface<[]>, #ac.source_owner<"pkg/pipeline.py", "pkg/pipeline.py">, []> {
+    ac.module.case arguments #ac.static_arguments<[]> type () -> ()
+        {ac.definition_name = "_acc_source_unit_root"}
+        source #ac.source_provenance<"pkg/pipeline.py", 1, 1, 1, 1> graph {
+      ac.instance @leaf of @Leaf() static #ac.static_arguments<[]>
+          id "leaf" path "leaf" : () -> ()
+      ac.return
+    }
   }
 }
 )mlir";
@@ -115,56 +150,38 @@ TEST(CompilerDriverTest, FreezesAndReturnsStructuralArtifact) {
             std::string::npos);
 }
 
-TEST(CompilerDriverTest, PublishesSourceOwnedAcPackageUnits) {
+TEST(CompilerDriverTest, RejectsWholeDesignPostCompileSplitting) {
   CompilerRequest request = validRequest();
   request.acirBytes = kReusableAcir.str();
   auto result = runCompiler(request);
+  ASSERT_FALSE(bool(result));
+  auto found = diagnostics(result.takeError());
+  ASSERT_EQ(found.size(), 1u);
+  EXPECT_EQ(found.front().stage, "topology-closure");
+  EXPECT_EQ(found.front().code, "ACIR-EMIT-002");
+  EXPECT_NE(found.front().message.find("invoke acc.py directly"),
+            std::string::npos);
+}
+
+TEST(CompilerDriverTest, PublishesOneDirectSourceOwnedUnitAndInterface) {
+  CompilerRequest request = validRequest();
+  request.acirBytes = kDirectSourceUnitAcir.str();
+  auto result = runCompiler(request);
   ASSERT_TRUE(bool(result)) << llvm::toString(result.takeError());
-  ASSERT_EQ(result->artifacts.size(), 7u);
-  EXPECT_EQ(result->artifacts[0].logicalPath, "core.ac");
-  EXPECT_EQ(result->artifacts[1].logicalPath,
+  ASSERT_EQ(result->artifacts.size(), 3u);
+  EXPECT_EQ(result->artifacts[0].logicalPath,
             "interfaces/_compiler/layouts.ac");
-  EXPECT_EQ(result->artifacts[2].logicalPath, "interfaces/pkg/types.ac");
-  EXPECT_EQ(result->artifacts[3].logicalPath,
-            "interfaces/modules/pkg/pipeline.ac");
-  EXPECT_EQ(result->artifacts[4].logicalPath, "sources/pkg/pipeline.ac");
-  EXPECT_EQ(result->artifacts[5].logicalPath,
-            "interfaces/modules/pkg/wrapper.ac");
-  EXPECT_EQ(result->artifacts[6].logicalPath, "sources/pkg/wrapper.ac");
-
-  const std::string &core = result->artifacts[0].bytes;
-  EXPECT_NE(core.find("ac.unit_kind = \"core\""), std::string::npos);
-  EXPECT_NE(core.find("ac.system @main"), std::string::npos) << core;
-  EXPECT_NE(core.find("ac.module @Top"), std::string::npos) << core;
-  EXPECT_EQ(core.find("ac.module @Leaf"), std::string::npos);
-  EXPECT_EQ(core.find("ac.module @Wrapper"), std::string::npos);
-
-  const std::string &interface = result->artifacts[2].bytes;
-  EXPECT_NE(interface.find("ac.unit_kind = \"interface\""), std::string::npos);
-  EXPECT_NE(interface.find("ac.struct @Token"), std::string::npos);
-  EXPECT_NE(interface.find("ac.type_scope @types"), std::string::npos);
-  EXPECT_EQ(interface.find("ac.module"), std::string::npos);
-
-  const std::string &pipelineHeader = result->artifacts[3].bytes;
-  EXPECT_NE(pipelineHeader.find("ac.module.import @Leaf__width_8"),
+  EXPECT_EQ(result->artifacts[1].logicalPath,
+            "interfaces/pkg/pipeline.ac");
+  EXPECT_EQ(result->artifacts[2].logicalPath, "sources/pkg/pipeline.ac");
+  EXPECT_NE(result->artifacts[1].bytes.find("ac.struct @Token"),
             std::string::npos);
-  EXPECT_NE(pipelineHeader.find("ac.module.import @LeafAlias"),
+  EXPECT_NE(result->artifacts[1].bytes.find("ac.module.import @Leaf"),
             std::string::npos);
-
-  const std::string &pipeline = result->artifacts[4].bytes;
-  EXPECT_NE(pipeline.find("ac.unit_kind = \"source\""), std::string::npos);
-  EXPECT_NE(pipeline.find("ac.unit_source = \"pkg/pipeline.py\""),
+  EXPECT_NE(result->artifacts[2].bytes.find("ac.module @Leaf"),
             std::string::npos);
-  EXPECT_NE(pipeline.find("ac.module @Leaf__width_8"), std::string::npos);
-  EXPECT_NE(pipeline.find("ac.module @Leaf__width_16"), std::string::npos);
-  EXPECT_NE(pipeline.find("ac.module @LeafAlias"), std::string::npos) << pipeline;
-  EXPECT_EQ(pipeline.find("ac.module @Wrapper"), std::string::npos);
-  EXPECT_EQ(pipeline.find("ac.module @Top"), std::string::npos);
-
-  const std::string &wrapper = result->artifacts[6].bytes;
-  EXPECT_NE(wrapper.find("ac.module @Wrapper"), std::string::npos) << wrapper;
-  EXPECT_EQ(wrapper.find("ac.module @Leaf"), std::string::npos);
-  EXPECT_EQ(wrapper.find("ac.module @Top"), std::string::npos);
+  EXPECT_EQ(result->artifacts[2].bytes.find("_acc_source_unit_root"),
+            std::string::npos);
 }
 
 TEST(CompilerDriverTest, RejectsPortableModulePathCollisions) {
@@ -174,16 +191,16 @@ TEST(CompilerDriverTest, RejectsPortableModulePathCollisions) {
   ASSERT_FALSE(bool(result));
   auto found = diagnostics(result.takeError());
   ASSERT_EQ(found.size(), 1u);
-  EXPECT_EQ(found.front().stage, "topology-closure");
+  EXPECT_EQ(found.front().stage, "acir-verify");
   EXPECT_EQ(found.front().code, "ACIR-EMIT-002");
   EXPECT_NE(found.front().message.find("collide as portable AC package paths"),
-            std::string::npos);
+            std::string::npos)
+      << found.front().message;
 }
 
 TEST(CompilerDriverTest, RejectsMissingDefinitionOwnershipMetadata) {
   CompilerRequest request = validRequest();
-  constexpr llvm::StringLiteral marker =
-      " attributes {ac.definition_name = \"top\"}";
+  constexpr llvm::StringLiteral marker = " {ac.definition_name = \"top\"}";
   size_t position = request.acirBytes.find(marker.str());
   ASSERT_NE(position, std::string::npos);
   request.acirBytes.erase(position, marker.size());

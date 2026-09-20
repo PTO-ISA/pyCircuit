@@ -365,19 +365,12 @@
     "identity": {
       "additionalProperties": false,
       "properties": {
-        "specialization": {
-          "type": [
-            "null",
-            "string"
-          ]
-        },
         "system": {
           "minLength": 1,
           "type": "string"
         }
       },
       "required": [
-        "specialization",
         "system"
       ],
       "type": "object"

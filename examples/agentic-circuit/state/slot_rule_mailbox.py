@@ -16,14 +16,26 @@ def consume(mailbox) -> Event:
         return event
 
 
-@ac.module
+@ac.module_decl(source="examples/agentic-circuit/state/slot_rule_mailbox.py")
+def explicit_mailbox(incoming: Event) -> Event:
+    ...
+
+explicit_mailbox_decl = explicit_mailbox
+
+@ac.module(declaration=explicit_mailbox_decl)
 def explicit_mailbox(incoming: Event) -> Event:
     mailbox = ac.slot(incoming)
     outgoing = consume(mailbox)
     return outgoing
 
 
-@ac.module
+@ac.module_decl(source="examples/agentic-circuit/state/slot_rule_mailbox.py")
+def nested_mailbox(incoming: Event) -> Event:
+    ...
+
+nested_mailbox_decl = nested_mailbox
+
+@ac.module(declaration=nested_mailbox_decl)
 def nested_mailbox(incoming: Event) -> Event:
     mailbox = ac.slot(incoming)
 

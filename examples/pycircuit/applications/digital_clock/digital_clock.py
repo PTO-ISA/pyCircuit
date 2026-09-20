@@ -24,9 +24,8 @@ def _to_bcd8(m: CycleAwareCircuit, domain: CycleAwareDomain, v, width: int):
     return cas(domain, m.cat(tens_w[0:4], ones_w[0:4]), cycle=v.cycle)
 
 
-def build(
-    m: CycleAwareCircuit, domain: CycleAwareDomain, clk_freq: int = 50_000_000
-) -> None:
+def build(m: CycleAwareCircuit, domain: CycleAwareDomain) -> None:
+    clk_freq = 50_000_000
     prescaler_w = max((int(clk_freq) - 1).bit_length(), 1)
 
     prescaler = domain.signal(width=prescaler_w, reset_value=0, name="prescaler")
@@ -124,6 +123,4 @@ build.__pycircuit_name__ = "digital_clock"
 
 
 if __name__ == "__main__":
-    print(
-        build_cycle_aware(build, name="digital_clock", clk_freq=50_000_000).emit_mlir()
-    )
+    print(build_cycle_aware(build, name="digital_clock").emit_mlir())

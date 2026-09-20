@@ -57,7 +57,16 @@ def retire(head, count, entries):
         return old
 
 
-@ac.module
+@ac.module_decl(source="examples/agentic-circuit/state/reusable_circular_rob.py")
+def rob_decl(
+    flush_request: RobEvent,
+    allocate_request: RobEvent,
+    completion: RobEvent,
+) -> tuple[RobEvent, RobEvent]:
+    ...
+
+
+@ac.module(declaration=rob_decl)
 def rob(
     flush_request: RobEvent,
     allocate_request: RobEvent,

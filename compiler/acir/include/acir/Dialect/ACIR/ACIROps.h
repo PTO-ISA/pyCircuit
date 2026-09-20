@@ -12,6 +12,7 @@
 #include "mlir/Interfaces/FunctionInterfaces.h"
 #include "mlir/Interfaces/SideEffectInterfaces.h"
 #include "llvm/ADT/StringMap.h"
+#include "llvm/Support/Error.h"
 
 #include <string>
 #include <vector>
@@ -75,6 +76,14 @@ verifyExactRuleEffectSummary(mlir::Operation *scope,
 /// Verify the complete lowered-rule proof carried by an ac.transform produced
 /// from ac.firing. Plain transforms without any ac.rule_* attributes succeed.
 mlir::LogicalResult verifyLoweredRuleTransformContract(TransformOp transform);
+
+/// Materialize one family interface for a concrete ordered case. This is the
+/// shared verifier/codegen authority for Decision 0278 dependent types.
+llvm::Expected<ModuleInterfaceAttr>
+materializeModuleInterface(ModuleInterfaceAttr interface,
+                           StaticArgumentsAttr arguments,
+                           mlir::FunctionType signature = {},
+                           mlir::ModuleOp file = {});
 
 /// Verifies symbol resolution and linear-use rules for ACIR topology types on
 /// an arbitrary operation. This is called by the whole-file ACIR verifier.

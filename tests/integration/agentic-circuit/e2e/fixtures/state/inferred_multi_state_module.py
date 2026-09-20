@@ -5,7 +5,13 @@ from __future__ import annotations
 import agentic_circuit as ac
 
 
-@ac.module
+@ac.module_decl(source="tests/integration/agentic-circuit/e2e/fixtures/state/inferred_multi_state_module.py")
+def tally(value: ac.u8) -> ac.u8:
+    ...
+
+tally_decl = tally
+
+@ac.module(declaration=tally_decl)
 def tally(value: ac.u8) -> ac.u8:
     count: ac.u8 = 0
     total: ac.u8 = 0

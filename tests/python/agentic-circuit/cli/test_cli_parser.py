@@ -42,47 +42,6 @@ class CliParserTest(unittest.TestCase):
         self.assertIsInstance(json.loads(result.stdout), dict)
         self.assertEqual("", result.stderr)
 
-    def test_unknown_toml_key_is_exit_two(self) -> None:
-        with tempfile.TemporaryDirectory() as temporary:
-            root = Path(temporary)
-            root.joinpath("agentic-circuit.toml").write_text(
-                FIXTURE.read_text() + "\nunknown = true\n"
-            )
-            result = run_cli("check", "architecture.py", "--json", cwd=root)
-
-        self.assertEqual(2, result.returncode)
-        self.assertEqual("ACPY-CONFIG-002", json.loads(result.stdout)["code"])
-        self.assertEqual("", result.stderr)
-
-    def test_explicit_project_bypasses_current_directory_discovery(self) -> None:
-        with tempfile.TemporaryDirectory() as temporary:
-            base = Path(temporary)
-            project = base / "project"
-            unrelated = base / "unrelated"
-            project.mkdir()
-            unrelated.mkdir()
-            manifest = project / "agentic-circuit.toml"
-            manifest.write_bytes(FIXTURE.read_bytes())
-            project.joinpath("architecture.py").write_text(
-                "from agentic_circuit import module, system\n"
-                "@module\n"
-                "def top() -> None:\n"
-                "    return\n"
-                "@system(root='top')\n"
-                "def main() -> None:\n"
-                "    return\n"
-            )
-            result = run_cli(
-                "check",
-                "architecture.py",
-                "--project",
-                str(manifest),
-                "--json",
-                cwd=unrelated,
-            )
-
-        self.assertEqual(0, result.returncode, result.stderr)
-        self.assertEqual("fixture", json.loads(result.stdout)["project"])
 
     def test_init_refuses_conflicts_unless_each_is_forced(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:

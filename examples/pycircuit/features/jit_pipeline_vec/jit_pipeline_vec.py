@@ -9,7 +9,8 @@ from pycircuit import (
 )
 
 
-def build(m: CycleAwareCircuit, domain: CycleAwareDomain, stages: int = 3) -> None:
+def build(m: CycleAwareCircuit, domain: CycleAwareDomain) -> None:
+    stages = 3
     a = cas(domain, m.input("a", width=16), cycle=0)
     b = cas(domain, m.input("b", width=16), cycle=0)
     sel = cas(domain, m.input("sel", width=1), cycle=0)

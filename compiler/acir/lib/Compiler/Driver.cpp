@@ -173,6 +173,10 @@ std::string printUnit(mlir::ModuleOp source, bool copyModuleAttributes,
     unit->getOperation()->setAttr(
         "ac.unit_source",
         mlir::StringAttr::get(source.getContext(), unitSource));
+  if (unitKind == "source")
+    unit->getOperation()->setAttr(
+        "ac.model_kind",
+        mlir::StringAttr::get(source.getContext(), "queue_graph"));
   for (mlir::Operation &operation : source.getBody()->getOperations())
     if (keep(operation))
       unit->getBody()->push_back(operation.clone());
@@ -199,6 +203,11 @@ std::string portablePathKey(llvm::StringRef name) {
 llvm::Expected<std::string> sourceDefinitionName(ac::ModuleOp definition) {
   auto sourceName =
       definition->getAttrOfType<mlir::StringAttr>("ac.definition_name");
+  if (!sourceName && !definition.getBody().front().empty())
+    if (auto moduleCase = mlir::dyn_cast<ac::ModuleCaseOp>(
+            definition.getBody().front().front()))
+      sourceName = moduleCase->getAttrOfType<mlir::StringAttr>(
+          "ac.definition_name");
   if (!sourceName || sourceName.getValue().empty())
     return llvm::createStringError(
         std::make_error_code(std::errc::invalid_argument),
@@ -208,7 +217,7 @@ llvm::Expected<std::string> sourceDefinitionName(ac::ModuleOp definition) {
 }
 
 llvm::Expected<std::string> sourceUnitPath(ac::ModuleOp definition) {
-  auto source = definition->getAttrOfType<mlir::StringAttr>("ac.source_file");
+  auto source = definition.getSource().getImplementation();
   if (!source || source.getValue().empty())
     return llvm::createStringError(
         std::make_error_code(std::errc::invalid_argument),
@@ -244,7 +253,7 @@ llvm::Expected<std::string> sourceUnitPath(ac::ModuleOp definition) {
   return path.str().str();
 }
 
-llvm::Expected<std::string> interfaceUnitPath(llvm::StringRef value) {
+llvm::Expected<std::string> sourceInterfaceUnitPath(llvm::StringRef value) {
   if (value.contains('\\') ||
       llvm::sys::path::is_absolute(value, llvm::sys::path::Style::posix))
     return llvm::createStringError(
@@ -274,9 +283,10 @@ llvm::Expected<std::string> interfaceUnitPath(llvm::StringRef value) {
   return path.str().str();
 }
 
-std::string printTypeUnit(mlir::ModuleOp source, ac::TypeScopeOp typeScope,
-                          llvm::StringRef owner,
-                          llvm::ArrayRef<mlir::Operation *> definitions) {
+std::string printSourceInterfaceUnit(
+    mlir::ModuleOp source, ac::TypeScopeOp typeScope, llvm::StringRef owner,
+    llvm::ArrayRef<mlir::Operation *> typeDefinitions,
+    llvm::ArrayRef<mlir::Operation *> moduleDefinitions) {
   mlir::OwningOpRef<mlir::ModuleOp> unit(
       mlir::ModuleOp::create(source.getLoc()));
   unit->getOperation()->setAttr(
@@ -284,23 +294,36 @@ std::string printTypeUnit(mlir::ModuleOp source, ac::TypeScopeOp typeScope,
   unit->getOperation()->setAttr(
       "ac.unit_source", mlir::StringAttr::get(source.getContext(), owner));
   unit->getOperation()->setAttr(
-      "ac.interface_kind", mlir::StringAttr::get(source.getContext(), "types"));
-  auto cloned = mlir::cast<ac::TypeScopeOp>(typeScope->clone());
-  cloned->removeAttr("dlti.dl_spec");
-  std::set<llvm::StringRef> ownedSymbols;
-  for (mlir::Operation *definition : definitions)
-    ownedSymbols.insert(definition
-                            ->getAttrOfType<mlir::StringAttr>(
-                                mlir::SymbolTable::getSymbolAttrName())
-                            .getValue());
-  for (mlir::Operation &operation :
-       llvm::make_early_inc_range(cloned.getBody().front())) {
-    auto symbol = operation.getAttrOfType<mlir::StringAttr>(
-        mlir::SymbolTable::getSymbolAttrName());
-    if (!symbol || !ownedSymbols.contains(symbol.getValue()))
-      operation.erase();
+      "ac.interface_kind", mlir::StringAttr::get(source.getContext(), "source"));
+  if (typeScope && !typeDefinitions.empty()) {
+    auto cloned = mlir::cast<ac::TypeScopeOp>(typeScope->clone());
+    cloned->removeAttr("dlti.dl_spec");
+    std::set<llvm::StringRef> ownedSymbols;
+    for (mlir::Operation *definition : typeDefinitions)
+      ownedSymbols.insert(definition
+                              ->getAttrOfType<mlir::StringAttr>(
+                                  mlir::SymbolTable::getSymbolAttrName())
+                              .getValue());
+    for (mlir::Operation &operation :
+         llvm::make_early_inc_range(cloned.getBody().front())) {
+      auto symbol = operation.getAttrOfType<mlir::StringAttr>(
+          mlir::SymbolTable::getSymbolAttrName());
+      if (!symbol || !ownedSymbols.contains(symbol.getValue()))
+        operation.erase();
+    }
+    unit->getBody()->push_back(cloned.getOperation());
   }
-  unit->getBody()->push_back(cloned.getOperation());
+  for (mlir::Operation *definition : moduleDefinitions) {
+    auto module = mlir::cast<ac::ModuleOp>(definition);
+    mlir::OperationState state(definition->getLoc(),
+                               ac::ModuleImportOp::getOperationName());
+    state.addAttribute(
+        mlir::SymbolTable::getSymbolAttrName(),
+        definition->getAttr(mlir::SymbolTable::getSymbolAttrName()));
+    state.addAttribute("source", module.getSource());
+    state.addAttribute("schema", module.getSchema());
+    unit->getBody()->push_back(mlir::Operation::create(state));
+  }
   return printModule(*unit, /*assumeVerified=*/true);
 }
 
@@ -321,38 +344,9 @@ std::string printLayoutUnit(mlir::ModuleOp source, ac::TypeScopeOp typeScope) {
   return printModule(*unit, /*assumeVerified=*/true);
 }
 
-std::string
-printModuleInterfaceUnit(mlir::ModuleOp source, llvm::StringRef owner,
-                         llvm::ArrayRef<mlir::Operation *> definitions) {
-  mlir::OwningOpRef<mlir::ModuleOp> unit(
-      mlir::ModuleOp::create(source.getLoc()));
-  mlir::Builder builder(source.getContext());
-  unit->getOperation()->setAttr(
-      "ac.unit_kind", mlir::StringAttr::get(source.getContext(), "interface"));
-  unit->getOperation()->setAttr(
-      "ac.unit_source", mlir::StringAttr::get(source.getContext(), owner));
-  unit->getOperation()->setAttr(
-      "ac.interface_kind",
-      mlir::StringAttr::get(source.getContext(), "modules"));
-  for (mlir::Operation *definition : definitions) {
-    if (!mlir::isa<ac::ModuleOp>(definition))
-      continue;
-    mlir::OperationState state(definition->getLoc(),
-                               ac::ModuleImportOp::getOperationName());
-    state.addAttribute(
-        mlir::SymbolTable::getSymbolAttrName(),
-        definition->getAttr(mlir::SymbolTable::getSymbolAttrName()));
-    state.addAttribute("function_type", definition->getAttr("function_type"));
-    state.addAttribute("static_params", definition->getAttr("static_params"));
-    mlir::NamedAttrList binding;
-    binding.set("source", builder.getStringAttr(owner));
-    state.addAttribute("binding", builder.getDictionaryAttr(binding));
-    unit->getBody()->push_back(mlir::Operation::create(state));
-  }
-  return printModule(*unit, /*assumeVerified=*/true);
-}
-
-llvm::Error emitInterfaceUnits(mlir::ModuleOp module, CompilerResult &result) {
+llvm::Error emitInterfaceUnits(
+    mlir::ModuleOp module, CompilerResult &result,
+    const std::map<std::string, std::vector<mlir::Operation *>> &moduleGroups = {}) {
   ac::TypeScopeOp typeScope;
   for (ac::TypeScopeOp candidate : module.getOps<ac::TypeScopeOp>()) {
     if (typeScope)
@@ -360,21 +354,28 @@ llvm::Error emitInterfaceUnits(mlir::ModuleOp module, CompilerResult &result) {
                              "AC package has multiple type scopes");
     typeScope = candidate;
   }
-  if (!typeScope)
-    return llvm::Error::success();
-  addArtifact(result, "interfaces/_compiler/layouts.ac", ArtifactKind::Acir,
-              printLayoutUnit(module, typeScope));
-  std::map<std::string, std::vector<mlir::Operation *>> groups;
-  for (mlir::Operation &definition : typeScope.getBody().front()) {
-    auto source = definition.getAttrOfType<mlir::StringAttr>("ac.source_file");
-    groups[source && !source.getValue().empty()
-               ? source.getValue().str()
-               : std::string("_compiler/common.py")]
-        .push_back(&definition);
+  if (typeScope)
+    addArtifact(result, "interfaces/_compiler/layouts.ac", ArtifactKind::Acir,
+                printLayoutUnit(module, typeScope));
+  std::map<std::string, std::vector<mlir::Operation *>> typeGroups;
+  if (typeScope) {
+    for (mlir::Operation &definition : typeScope.getBody().front()) {
+      auto source =
+          definition.getAttrOfType<mlir::StringAttr>("ac.source_file");
+      typeGroups[source && !source.getValue().empty()
+                     ? source.getValue().str()
+                     : std::string("_compiler/common.py")]
+          .push_back(&definition);
+    }
   }
+  std::set<std::string> owners;
+  for (const auto &[owner, _] : typeGroups)
+    owners.insert(owner);
+  for (const auto &[owner, _] : moduleGroups)
+    owners.insert(owner);
   std::map<std::string, std::string> portablePaths;
-  for (auto &[owner, definitions] : groups) {
-    auto logicalPath = interfaceUnitPath(owner);
+  for (const std::string &owner : owners) {
+    auto logicalPath = sourceInterfaceUnitPath(owner);
     if (!logicalPath)
       return compilerFailure(CompilerStage::AcirVerify, "ACIR-EMIT-002",
                              llvm::toString(logicalPath.takeError()));
@@ -385,8 +386,19 @@ llvm::Error emitInterfaceUnits(mlir::ModuleOp module, CompilerResult &result) {
                              "interface sources '" + path->second + "' and '" +
                                  *logicalPath +
                                  "' collide as portable AC package paths");
+    auto typeIt = typeGroups.find(owner);
+    auto moduleIt = moduleGroups.find(owner);
+    llvm::ArrayRef<mlir::Operation *> typeDefinitions =
+        typeIt == typeGroups.end()
+            ? llvm::ArrayRef<mlir::Operation *>()
+            : llvm::ArrayRef<mlir::Operation *>(typeIt->second);
+    llvm::ArrayRef<mlir::Operation *> moduleDefinitions =
+        moduleIt == moduleGroups.end()
+            ? llvm::ArrayRef<mlir::Operation *>()
+            : llvm::ArrayRef<mlir::Operation *>(moduleIt->second);
     addArtifact(result, *logicalPath, ArtifactKind::Acir,
-                printTypeUnit(module, typeScope, owner, definitions));
+                printSourceInterfaceUnit(module, typeScope, owner,
+                                         typeDefinitions, moduleDefinitions));
   }
   return llvm::Error::success();
 }
@@ -437,15 +449,19 @@ llvm::Error emitAcirPackage(mlir::ModuleOp module, CompilerResult &result) {
                            llvm::toString(rootDefinitionName.takeError()));
   bool sourceUnitCompile =
       llvm::StringRef(*rootDefinitionName).starts_with("_acc_source_unit_root");
-  auto rootSource =
-      rootDefinition->getAttrOfType<mlir::StringAttr>("ac.source_file");
+  auto rootSource = rootDefinition.getSource().getImplementation();
   std::set<mlir::Operation *> coreOwned{selectedSystem.getOperation(),
                                         rootDefinition.getOperation()};
   for (ac::ModuleOp definition : module.getOps<ac::ModuleOp>()) {
     if (definition == rootDefinition)
       continue;
-    auto source = definition->getAttrOfType<mlir::StringAttr>("ac.source_file");
-    if (!sourceUnitCompile && rootSource && source && source == rootSource) {
+    auto source = definition.getSource().getImplementation();
+    if (source != rootSource)
+      return compilerFailure(
+          CompilerStage::TopologyClosure, "ACIR-EMIT-002",
+          "compiled AC unit contains a module body owned by another Python "
+          "source; invoke acc.py directly for that implementation source");
+    if (!sourceUnitCompile) {
       coreOwned.insert(definition.getOperation());
       continue;
     }
@@ -467,18 +483,25 @@ llvm::Error emitAcirPackage(mlir::ModuleOp module, CompilerResult &result) {
     if (mlir::isa<ac::SystemOp, ac::ModuleOp, ac::TypeScopeOp>(operation))
       continue;
     auto source = operation.getAttrOfType<mlir::StringAttr>("ac.source_file");
-    if (!source || source.getValue().empty() ||
-        (rootSource && source == rootSource)) {
+    if (!source || source.getValue().empty()) {
       coreOwned.insert(&operation);
       continue;
     }
-    auto logicalPath = interfaceUnitPath(source.getValue());
-    if (!logicalPath)
-      return compilerFailure(CompilerStage::AcirVerify, "ACIR-EMIT-002",
-                             llvm::toString(logicalPath.takeError()));
-    std::string sourcePath = *logicalPath;
-    sourcePath.replace(0, llvm::StringRef("interfaces").size(), "sources");
-    sourceGroups[sourcePath].push_back(&operation);
+    if (source != rootSource)
+      return compilerFailure(
+          CompilerStage::TopologyClosure, "ACIR-EMIT-002",
+          "compiled AC unit contains helper/state body owned by another "
+          "Python source; invoke acc.py directly for that source");
+    if (!sourceUnitCompile) {
+      coreOwned.insert(&operation);
+      continue;
+    }
+    llvm::SmallString<256> logicalPath("sources");
+    llvm::sys::path::append(logicalPath, llvm::sys::path::Style::posix,
+                            source.getValue());
+    llvm::sys::path::replace_extension(logicalPath, "ac",
+                                       llvm::sys::path::Style::posix);
+    sourceGroups[logicalPath.str().str()].push_back(&operation);
   }
 
   if (!sourceUnitCompile)
@@ -489,8 +512,14 @@ llvm::Error emitAcirPackage(mlir::ModuleOp module, CompilerResult &result) {
                       return coreOwned.contains(&operation);
                     },
                     "core",
-                    rootSource ? rootSource.getValue() : llvm::StringRef()));
-  if (auto error = emitInterfaceUnits(module, result))
+                    rootSource));
+  std::map<std::string, std::vector<mlir::Operation *>> interfaceModuleGroups;
+  for (const auto &[_, definitions] : sourceGroups)
+    for (mlir::Operation *definition : definitions)
+      if (auto family = mlir::dyn_cast<ac::ModuleOp>(definition))
+        interfaceModuleGroups[family.getSource().getImplementation().str()]
+            .push_back(definition);
+  if (auto error = emitInterfaceUnits(module, result, interfaceModuleGroups))
     return error;
   for (auto &[logicalPath, definitions] : sourceGroups) {
     llvm::sort(definitions, [](mlir::Operation *left, mlir::Operation *right) {
@@ -508,16 +537,15 @@ llvm::Error emitAcirPackage(mlir::ModuleOp module, CompilerResult &result) {
     std::set<mlir::Operation *> owned;
     for (mlir::Operation *definition : definitions)
       owned.insert(definition);
-    auto source =
-        definitions.front()->getAttrOfType<mlir::StringAttr>("ac.source_file");
-    llvm::SmallString<256> interfacePath("interfaces/modules");
-    llvm::StringRef sourcePath = source.getValue();
-    llvm::sys::path::append(interfacePath, llvm::sys::path::Style::posix,
-                            sourcePath);
-    llvm::sys::path::replace_extension(interfacePath, "ac",
-                                       llvm::sys::path::Style::posix);
-    addArtifact(result, interfacePath.str().str(), ArtifactKind::Acir,
-                printModuleInterfaceUnit(module, sourcePath, definitions));
+    mlir::StringAttr source;
+    if (auto module = mlir::dyn_cast<ac::ModuleOp>(definitions.front()))
+      source = module.getSource().getImplementation();
+    else
+      source = definitions.front()->getAttrOfType<mlir::StringAttr>(
+          "ac.source_file");
+    if (!source)
+      return compilerFailure(CompilerStage::AcirVerify, "ACIR-EMIT-002",
+                             "source unit definition has no source owner");
     addArtifact(result, logicalPath, ArtifactKind::Acir,
                 printUnit(
                     module, false,

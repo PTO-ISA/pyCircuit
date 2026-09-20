@@ -190,33 +190,20 @@
           },
           "source_provenance": {
             "$ref": "#/$defs/provenance"
-          },
-          "static_arguments": {
-            "type": "object"
           }
         },
         "required": [
           "definition",
           "name",
           "scope",
-          "source_provenance",
-          "static_arguments"
+          "source_provenance"
         ],
         "type": "object"
       },
       "type": "array"
     },
-    "module_specializations": {
-      "items": {
-        "$ref": "#"
-      },
-      "type": "array"
-    },
     "schema": {
       "const": "agentic-circuit-source-map"
-    },
-    "static_arguments": {
-      "type": "object"
     },
     "state_owners": {
       "items": {
@@ -323,9 +310,7 @@
     "definition",
     "helpers",
     "module_instances",
-    "module_specializations",
     "schema",
-    "static_arguments",
     "state_owners",
     "system",
     "table_matches",

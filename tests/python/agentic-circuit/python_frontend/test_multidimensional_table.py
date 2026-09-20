@@ -57,7 +57,7 @@ class MultidimensionalTableFrontendTest(unittest.TestCase):
         self.assertIn("axis_widths = array<i64: 1, 2>", first)
         self.assertIn('layout = "row_major"', first)
         self.assertIn("layout_version = 1 : i64", first)
-        self.assertIn('schema_id = "row_major__i8__2x3"', first)
+        self.assertIn('schema_id = "row_major_i8_2x3"', first)
         self.assertIn("init_version = 1 : i64", first)
         self.assertIn(
             "init_image = [1 : i8, 2 : i8, 3 : i8, 4 : i8, 5 : i8, 6 : i8]",

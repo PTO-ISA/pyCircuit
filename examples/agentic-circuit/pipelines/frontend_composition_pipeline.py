@@ -63,6 +63,3 @@ def compose(item: Item) -> Item:
 def frontend_composition_pipeline(incoming: Item) -> Item:
     result = compose(incoming)
     return result
-
-
-specialization = ac.jit(frontend_composition_pipeline)

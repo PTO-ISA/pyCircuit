@@ -1,11 +1,17 @@
-"""Typed module calls lower to reusable QueueGraph specializations."""
+"""Typed module calls lower to reusable QueueGraph family bodies."""
 
 from __future__ import annotations
 
 import agentic_circuit as ac
 
 
-@ac.module
+@ac.module_decl(source="examples/agentic-circuit/pipelines/inferred_module_pipeline.py")
+def increment(value: ac.u8) -> ac.u8:
+    ...
+
+increment_decl = increment
+
+@ac.module(declaration=increment_decl)
 def increment(value: ac.u8) -> ac.u8:
     return value + 1
 

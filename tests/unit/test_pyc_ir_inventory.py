@@ -45,7 +45,7 @@ def test_pyc_inventory_contains_no_vector_operations() -> None:
         if entry["status"] == "pending-removal"
     }
     assert pending == set()
-    assert len(inventory["operations"]) == 41
+    assert len(inventory["operations"]) == 45
     assert all(
         not entry["name"].startswith("pyc.v_") for entry in inventory["operations"]
     )

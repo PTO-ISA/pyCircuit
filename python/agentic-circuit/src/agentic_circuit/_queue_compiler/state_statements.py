@@ -134,7 +134,7 @@ def handle_masked_table_write(
                         if node.id == self.name:
                             return ast.copy_location(
                                 ast.Name(
-                                    id="__old",
+                                    id="compiler_old",
                                     ctx=node.ctx,
                                 ),
                                 node,
@@ -527,7 +527,7 @@ def handle_state_statement(
             item.id for item in statement.targets[0].elts if isinstance(item, ast.Name)
         )
         statement.targets[0] = ast.copy_location(
-            ast.Name(id=f"__table_selection_{current_order}", ctx=ast.Store()),
+            ast.Name(id=f"compiler_table_selection_{current_order}", ctx=ast.Store()),
             statement.targets[0],
         )
     if (
@@ -773,7 +773,7 @@ def handle_state_statement(
             elif count == 1:
                 aliases = (name,)
             else:
-                aliases = tuple(f"{name}__lane{lane}" for lane in range(count))
+                aliases = tuple(f"{name}_lane_{lane}" for lane in range(count))
                 state.selection_tuple_aliases[name] = aliases
             stable_path = "/".join((*scope_path, name)) if scope_path else name
             binding = SelectionBinding(

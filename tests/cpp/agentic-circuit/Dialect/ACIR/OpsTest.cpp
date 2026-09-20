@@ -33,6 +33,87 @@
 namespace acir::ac {
 namespace {
 
+struct TestFamily {
+  ModuleOp module;
+  ModuleCaseOp moduleCase;
+  StaticArgumentsAttr arguments;
+};
+
+StaticArgumentsAttr emptyTestArguments(mlir::OpBuilder &builder) {
+  return StaticArgumentsAttr::get(builder.getContext(), builder.getArrayAttr({}));
+}
+
+TestFamily createTestFamily(mlir::OpBuilder &builder, mlir::Location location,
+                            llvm::StringRef name, mlir::FunctionType type) {
+  mlir::OpBuilder::InsertionGuard guard(builder);
+  auto arguments = emptyTestArguments(builder);
+  auto source = SourceOwnerAttr::get(
+      builder.getContext(), builder.getStringAttr("tests/native_family.py"),
+      builder.getStringAttr("tests/native_family.py"));
+  auto parameters = StaticParametersAttr::get(
+      builder.getContext(), builder.getArrayAttr({}));
+  auto cases = StaticCasesAttr::get(
+      builder.getContext(), builder.getArrayAttr({arguments}));
+  auto provenance = SourceProvenanceAttr::get(
+      builder.getContext(), builder.getStringAttr("tests/native_family.py"),
+      1, 1, 1, 1);
+  llvm::SmallVector<mlir::Attribute> ports;
+  for (auto [index, type] : llvm::enumerate(type.getInputs())) {
+    auto logical = TypeExprAttr::get(
+        builder.getContext(), TypeExprConcreteAttr::get(
+                                  builder.getContext(), mlir::TypeAttr::get(type)));
+    ports.push_back(InterfacePortAttr::get(
+        builder.getContext(),
+        builder.getStringAttr("input_" + std::to_string(index)),
+        builder.getStringAttr("input"), logical, provenance));
+  }
+  for (auto [index, type] : llvm::enumerate(type.getResults())) {
+    auto logical = TypeExprAttr::get(
+        builder.getContext(), TypeExprConcreteAttr::get(
+                                  builder.getContext(), mlir::TypeAttr::get(type)));
+    ports.push_back(InterfacePortAttr::get(
+        builder.getContext(),
+        builder.getStringAttr("output_" + std::to_string(index)),
+        builder.getStringAttr("output"), logical, provenance));
+  }
+  auto interface = ModuleInterfaceAttr::get(
+      builder.getContext(), builder.getArrayAttr(ports));
+  auto schema = ModuleFamilySchemaAttr::get(
+      builder.getContext(), parameters, cases, interface, source,
+      builder.getArrayAttr({}));
+  auto module = ModuleOp::create(builder, location, name, source, schema);
+  builder.setInsertionPointToStart(&module.getBody().emplaceBlock());
+  auto moduleCase =
+      ModuleCaseOp::create(builder, location, arguments, type, provenance);
+  mlir::Block &entry = moduleCase.getBody().emplaceBlock();
+  for (mlir::Type input : type.getInputs())
+    entry.addArgument(input, location);
+  return {module, moduleCase, arguments};
+}
+
+ModuleExternOp createTestExtern(mlir::OpBuilder &builder,
+                                mlir::Location location, llvm::StringRef name,
+                                mlir::DictionaryAttr implementation) {
+  auto source = SourceOwnerAttr::get(
+      builder.getContext(), builder.getStringAttr("tests/native_family.py"),
+      builder.getStringAttr("tests/native_family.py"));
+  auto arguments = emptyTestArguments(builder);
+  auto schema = ModuleFamilySchemaAttr::get(
+      builder.getContext(),
+      StaticParametersAttr::get(builder.getContext(), builder.getArrayAttr({})),
+      StaticCasesAttr::get(builder.getContext(), builder.getArrayAttr({arguments})),
+      ModuleInterfaceAttr::get(builder.getContext(), builder.getArrayAttr({})),
+      source, builder.getArrayAttr({}));
+  return ModuleExternOp::create(builder, location, name, mlir::StringAttr(),
+                                source, schema, implementation);
+}
+
+mlir::Block *testFamilyEntry(ModuleOp module) {
+  return &mlir::cast<ModuleCaseOp>(module.getBody().front().front())
+              .getBody()
+              .front();
+}
+
 TEST(ACIROpsTest, SemanticPrimitiveWidthsAcceptOneTo64AndReject65To130) {
   mlir::MLIRContext context;
   context.loadDialect<ACIRDialect>();
@@ -278,6 +359,7 @@ TEST(ACIROpsTest, RegistryContainsExactQueueVarOperations) {
       "ac.instances",
       "ac.instrumentation",
       "ac.module",
+      "ac.module.case",
       "ac.module.extern",
       "ac.module.import",
       "ac.merge",
@@ -421,20 +503,19 @@ TEST(ACIROpsTest, PublicBuildersConstructEveryTaskSixOperation) {
       builder.getNamedAttr("registry", builder.getStringAttr("cpp")),
       builder.getNamedAttr("name", builder.getStringAttr("Leaf")),
   });
-  auto leaf =
-      ModuleExternOp::create(builder, loc, "Leaf", emptyType,
-                             mlir::StringAttr(), emptyDictionary, binding);
+  auto leaf = createTestExtern(builder, loc, "Leaf", binding);
   EXPECT_TRUE(leaf);
 
-  auto top = ModuleOp::create(builder, loc, "Top", emptyType, emptyDictionary);
-  builder.setInsertionPointToStart(top.addEntryBlock());
+  auto top = createTestFamily(builder, loc, "Top", emptyType).module;
+  builder.setInsertionPointToStart(testFamilyEntry(top));
   auto instance =
       InstanceOp::create(builder, loc, mlir::TypeRange{}, mlir::ValueRange{},
-                         "Leaf", "child", "child", "child", emptyDictionary);
+                         "Leaf", "child", "child", "child", emptyTestArguments(builder));
   auto array = ArrayOp::create(
       builder, loc, mlir::TypeRange{}, mlir::ValueRange{}, "Leaf", "lanes",
       "lanes", "lanes", llvm::ArrayRef<int64_t>{2},
-      builder.getArrayAttr({emptyDictionary, emptyDictionary}));
+      builder.getArrayAttr(
+          {emptyTestArguments(builder), emptyTestArguments(builder)}));
   auto definitions = builder.getArrayAttr({
       mlir::FlatSymbolRefAttr::get(&context, "Leaf"),
       mlir::FlatSymbolRefAttr::get(&context, "Leaf"),
@@ -444,7 +525,8 @@ TEST(ACIROpsTest, PublicBuildersConstructEveryTaskSixOperation) {
       "mixed", definitions, builder.getStrArrayAttr({"a", "b"}),
       builder.getStrArrayAttr({"mix-a", "mix-b"}),
       builder.getStrArrayAttr({"mix_a", "mix_b"}), emptyType,
-      builder.getArrayAttr({emptyDictionary, emptyDictionary}));
+      builder.getArrayAttr(
+          {emptyTestArguments(builder), emptyTestArguments(builder)}));
   auto view = ViewOp::create(
       builder, loc, mlir::TypeRange{}, mlir::ValueRange{}, "view",
       "permutation",
@@ -472,8 +554,8 @@ TEST(ACIROpsTest, PublicBuildersConstructEveryTaskSixOperation) {
                                  mlir::FlatSymbolRefAttr(), seedPolicy,
                                  builder.getArrayAttr({}), resultSchema, true);
   EXPECT_TRUE(system);
-  EXPECT_TRUE(mlir::isa<mlir::FunctionOpInterface>(top.getOperation()));
-  EXPECT_TRUE(mlir::isa<mlir::RegionKindInterface>(top.getOperation()));
+  EXPECT_FALSE(mlir::isa<mlir::FunctionOpInterface>(top.getOperation()));
+  EXPECT_TRUE(mlir::isa<mlir::SymbolOpInterface>(top.getOperation()));
   EXPECT_TRUE(mlir::succeeded(mlir::verify(file)));
   EXPECT_TRUE(mlir::succeeded(verifyGraphStructure(file)));
 }
@@ -498,6 +580,10 @@ TEST(ACIROpsTest, PublicBuildersConstructEveryTaskEightOperation) {
   mlir::OpBuilder builder(&context);
   auto loc = builder.getUnknownLoc();
   auto file = mlir::parseSourceString<mlir::ModuleOp>(R"mlir(
+    #args = #ac.static_arguments<[]>
+    #owner = #ac.source_owner<"tests/m.py", "tests/m.py">
+    #prov = #ac.source_provenance<"tests/m.py", 1, 1, 1, 1>
+    #schema = #ac.module_family_schema<#ac.static_parameters<[]>, #ac.static_cases<[#ac.static_arguments<[]>]>, #ac.module_interface<[#ac.interface_port<"input", "input", #ac.type_expr<#ac.type_expr_concrete<i32>>, #prov>]>, #ac.source_owner<"tests/m.py", "tests/m.py">, []>
     builtin.module  {
       ac.protocol @fifo {
         ac.role @sender dual @receiver cardinality "exclusive"
@@ -507,8 +593,9 @@ TEST(ACIROpsTest, PublicBuildersConstructEveryTaskEightOperation) {
         ac.event @push from @sender to @receiver payload i32 action "offer"
         ac.transition from @idle to @done on @push transfer true retain false guard {}
       }
-      ac.module @M(i32) parameters {} graph {
-      ^bb0(%input : i32):
+      ac.module @M source #owner schema #schema {
+        ac.module.case arguments #args type (i32) -> () source #prov graph {
+        ^bb0(%input : i32):
         ac.time_domain @clock period 1 phase 0 scale 1
         ac.queue @q payload i32 entries 4 ordering "fifo" protocol @fifo
             ownership "exclusive" id "q" path "q"
@@ -525,14 +612,16 @@ TEST(ACIROpsTest, PublicBuildersConstructEveryTaskEightOperation) {
           ac.yield_sim
         }
         ac.return
+        }
       }
     }
   )mlir",
                                                       &context);
   ASSERT_TRUE(file);
   ModuleOp module = *file->getOps<ModuleOp>().begin();
-  builder.setInsertionPoint(&module.getBody().front().back());
-  StatOp stat = *module.getBody().front().getOps<StatOp>().begin();
+  mlir::Block *moduleBody = testFamilyEntry(module);
+  builder.setInsertionPoint(&moduleBody->back());
+  StatOp stat = *moduleBody->getOps<StatOp>().begin();
   auto process =
       ProcessOp::create(builder, loc, "p", "control", mlir::ValueRange{});
   auto *body = &process.getBody().emplaceBlock();
@@ -689,10 +778,9 @@ TEST(ACIROpsTest, UnresolvedRuntimeReferencesDoNotInventEffects) {
   auto loc = builder.getUnknownLoc();
   auto file = mlir::ModuleOp::create(loc);
   builder.setInsertionPointToStart(file.getBody());
-  auto module =
-      ModuleOp::create(builder, loc, "M", builder.getFunctionType({}, {}),
-                       builder.getDictionaryAttr({}));
-  builder.setInsertionPointToStart(module.addEntryBlock());
+  auto module = createTestFamily(builder, loc, "M",
+                                 builder.getFunctionType({}, {})).module;
+  builder.setInsertionPointToStart(testFamilyEntry(module));
   auto process =
       ProcessOp::create(builder, loc, "p", "control", mlir::ValueRange{});
   builder.setInsertionPointToStart(&process.getBody().emplaceBlock());
@@ -834,7 +922,7 @@ TEST(ACIROpsTest, RuntimeAndQueueVarRegistryIsExact) {
   for (llvm::StringLiteral name : queueVarNames)
     EXPECT_TRUE(mlir::OperationName(name, &context).isRegistered())
         << name.str();
-  EXPECT_EQ(context.getRegisteredOperationsByDialect("ac").size(), 154u);
+  EXPECT_EQ(context.getRegisteredOperationsByDialect("ac").size(), 155u);
 }
 
 
@@ -852,12 +940,12 @@ TEST(ACIROpsTest, LargeArrayVerificationIsDeterministic) {
       builder.getNamedAttr("registry", builder.getStringAttr("cpp")),
       builder.getNamedAttr("name", builder.getStringAttr("Leaf")),
   });
-  ModuleExternOp::create(builder, loc, "Leaf", emptyType, mlir::StringAttr(),
-                         emptyDictionary, binding);
-  auto top = ModuleOp::create(builder, loc, "Top", emptyType, emptyDictionary);
-  builder.setInsertionPointToStart(top.addEntryBlock());
+  createTestExtern(builder, loc, "Leaf", binding);
+  auto top = createTestFamily(builder, loc, "Top", emptyType).module;
+  builder.setInsertionPointToStart(testFamilyEntry(top));
   constexpr int64_t elementCount = 4096;
-  llvm::SmallVector<mlir::Attribute> arguments(elementCount, emptyDictionary);
+  llvm::SmallVector<mlir::Attribute> arguments(elementCount,
+                                                emptyTestArguments(builder));
   ArrayOp::create(builder, loc, mlir::TypeRange{}, mlir::ValueRange{}, "Leaf",
                   "large", "large", "large", llvm::ArrayRef<int64_t>{64, 64},
                   builder.getArrayAttr(arguments));
@@ -874,24 +962,33 @@ TEST(ACIROpsTest, ModulePortMetadataPrintsAndReparsesCanonically) {
   mlir::MLIRContext context;
   context.loadDialect<ACIRDialect>();
   constexpr llvm::StringLiteral source = R"mlir(
-    ac.module @M(%x : i32 {ac.port_name = "input"})
-        -> (i32 {ac.port_name = "output"}) parameters {}
-        attributes {ac.graph_label = "graph"} graph {
-      ac.return %x : i32
-    }
+    #args = #ac.static_arguments<[]>
+    #owner = #ac.source_owner<"tests/m.py", "tests/m.py">
+    #prov = #ac.source_provenance<"tests/m.py", 1, 1, 1, 8>
+    #i32 = #ac.type_expr<#ac.type_expr_concrete<i32>>
+    #iface = #ac.module_interface<[
+      #ac.interface_port<"input", "input", #i32, #prov>,
+      #ac.interface_port<"output", "output", #i32, #prov>
+    ]>
+    #schema = #ac.module_family_schema<#ac.static_parameters<[]>,
+      #ac.static_cases<[#ac.static_arguments<[]>]>, #iface, #owner, []>
+    ac.module @M source #owner schema #schema {
+      ac.module.case arguments #args type (i32) -> i32 source #prov graph {
+      ^bb0(%x: i32):
+        ac.return %x : i32
+      }
+    } {ac.graph_label = "graph"}
   )mlir";
   auto module = mlir::parseSourceString<mlir::ModuleOp>(source, &context);
   ASSERT_TRUE(module);
   auto operation = *module->getOps<ModuleOp>().begin();
-  ASSERT_TRUE(operation.getArgAttrsAttr());
-  ASSERT_TRUE(operation.getResAttrsAttr());
+  ASSERT_EQ(operation.getSchema().getInterface().getPorts().size(), 2u);
   std::string printed;
   llvm::raw_string_ostream(printed) << *module;
   auto reparsed = mlir::parseSourceString<mlir::ModuleOp>(printed, &context);
   ASSERT_TRUE(reparsed);
   auto reparsedOperation = *reparsed->getOps<ModuleOp>().begin();
-  EXPECT_EQ(operation.getArgAttrsAttr(), reparsedOperation.getArgAttrsAttr());
-  EXPECT_EQ(operation.getResAttrsAttr(), reparsedOperation.getResAttrsAttr());
+  EXPECT_EQ(operation.getSchema(), reparsedOperation.getSchema());
   EXPECT_EQ(operation->getAttr("ac.graph_label"),
             reparsedOperation->getAttr("ac.graph_label"));
 }
@@ -938,15 +1035,15 @@ TEST(ACIROpsTest, HierarchyDepthAndOwnerBudgetsRejectCompactGraphs) {
     for (unsigned index = 0; index != moduleCount; ++index) {
       std::string name = (prefix + std::to_string(index)).str();
       auto module =
-          ModuleOp::create(builder, loc, name, emptyType, emptyDictionary);
-      builder.setInsertionPointToStart(module.addEntryBlock());
+          createTestFamily(builder, loc, name, emptyType).module;
+      builder.setInsertionPointToStart(testFamilyEntry(module));
       if (index + 1 != moduleCount) {
         std::string target = (prefix + std::to_string(index + 1)).str();
         for (unsigned child = 0; child != fanout; ++child) {
           std::string segment = "child" + std::to_string(child);
           InstanceOp::create(builder, loc, mlir::TypeRange{},
                              mlir::ValueRange{}, target, segment, segment,
-                             segment, emptyDictionary);
+                             segment, emptyTestArguments(builder));
         }
       }
       ReturnOp::create(builder, loc, mlir::ValueRange{});
@@ -1010,8 +1107,8 @@ TEST(ACIROpsTest, NestedArraysCountTaskSevenOwnersBeforeElaboration) {
   builder.setInsertionPointToStart(file.getBody());
 
   auto leaf =
-      ModuleOp::create(builder, loc, "Leaf", emptyType, emptyDictionary);
-  builder.setInsertionPointToStart(leaf.addEntryBlock());
+      createTestFamily(builder, loc, "Leaf", emptyType).module;
+  builder.setInsertionPointToStart(testFamilyEntry(leaf));
   auto latency = builder.getDictionaryAttr({
       builder.getNamedAttr("kind", builder.getStringAttr("fixed")),
       builder.getNamedAttr("ticks", builder.getI64IntegerAttr(1)),
@@ -1043,11 +1140,11 @@ TEST(ACIROpsTest, NestedArraysCountTaskSevenOwnersBeforeElaboration) {
   ReturnOp::create(builder, loc, mlir::ValueRange{});
 
   llvm::SmallVector<mlir::Attribute> staticArgs(
-      512, mlir::Attribute(emptyDictionary));
+      512, mlir::Attribute(emptyTestArguments(builder)));
   builder.setInsertionPointToEnd(file.getBody());
   auto middle =
-      ModuleOp::create(builder, loc, "Middle", emptyType, emptyDictionary);
-  builder.setInsertionPointToStart(middle.addEntryBlock());
+      createTestFamily(builder, loc, "Middle", emptyType).module;
+  builder.setInsertionPointToStart(testFamilyEntry(middle));
   ArrayOp::create(builder, loc, mlir::TypeRange{}, mlir::ValueRange{}, "Leaf",
                   "leaves", "leaves", "leaves",
                   builder.getDenseI64ArrayAttr({512}),
@@ -1055,8 +1152,8 @@ TEST(ACIROpsTest, NestedArraysCountTaskSevenOwnersBeforeElaboration) {
   ReturnOp::create(builder, loc, mlir::ValueRange{});
 
   builder.setInsertionPointToEnd(file.getBody());
-  auto top = ModuleOp::create(builder, loc, "Top", emptyType, emptyDictionary);
-  builder.setInsertionPointToStart(top.addEntryBlock());
+  auto top = createTestFamily(builder, loc, "Top", emptyType).module;
+  builder.setInsertionPointToStart(testFamilyEntry(top));
   ArrayOp::create(builder, loc, mlir::TypeRange{}, mlir::ValueRange{}, "Middle",
                   "middles", "middles", "middles",
                   builder.getDenseI64ArrayAttr({512}),
@@ -1079,7 +1176,7 @@ TEST(ACIROpsTest, NestedArraysCountTaskSevenOwnersBeforeElaboration) {
   auto structureOnly = mlir::cast<mlir::ModuleOp>(file->clone());
   auto structureLeaf = *structureOnly.getOps<ModuleOp>().begin();
   for (mlir::Operation &operation :
-       llvm::make_early_inc_range(structureLeaf.getBody().front()))
+       llvm::make_early_inc_range(*testFamilyEntry(structureLeaf)))
     if (mlir::isa<QueueOp, EventQueueOp, ResourceOp>(operation))
       operation.erase();
   EXPECT_TRUE(mlir::succeeded(verifyGraphStructure(structureOnly)));
@@ -1106,8 +1203,8 @@ TEST(ACIROpsTest, TaskSevenOwnersRegisterAtDistinctAbsoluteInstancePaths) {
   auto file = mlir::ModuleOp::create(loc);
   builder.setInsertionPointToStart(file.getBody());
   auto leaf =
-      ModuleOp::create(builder, loc, "Leaf", emptyType, emptyDictionary);
-  builder.setInsertionPointToStart(leaf.addEntryBlock());
+      createTestFamily(builder, loc, "Leaf", emptyType).module;
+  builder.setInsertionPointToStart(testFamilyEntry(leaf));
   auto latency = builder.getDictionaryAttr({
       builder.getNamedAttr("kind", builder.getStringAttr("fixed")),
       builder.getNamedAttr("ticks", builder.getI64IntegerAttr(1)),
@@ -1138,12 +1235,12 @@ TEST(ACIROpsTest, TaskSevenOwnersRegisterAtDistinctAbsoluteInstancePaths) {
                      builder.getArrayAttr({}), 1);
   ReturnOp::create(builder, loc, mlir::ValueRange{});
   builder.setInsertionPointToEnd(file.getBody());
-  auto top = ModuleOp::create(builder, loc, "Top", emptyType, emptyDictionary);
-  builder.setInsertionPointToStart(top.addEntryBlock());
+  auto top = createTestFamily(builder, loc, "Top", emptyType).module;
+  builder.setInsertionPointToStart(testFamilyEntry(top));
   InstanceOp::create(builder, loc, mlir::TypeRange{}, mlir::ValueRange{},
-                     "Leaf", "left", "left", "left", emptyDictionary);
+                     "Leaf", "left", "left", "left", emptyTestArguments(builder));
   InstanceOp::create(builder, loc, mlir::TypeRange{}, mlir::ValueRange{},
-                     "Leaf", "right", "right", "right", emptyDictionary);
+                     "Leaf", "right", "right", "right", emptyTestArguments(builder));
   ReturnOp::create(builder, loc, mlir::ValueRange{});
   builder.setInsertionPointToEnd(file.getBody());
   auto seed = builder.getDictionaryAttr({
@@ -1184,23 +1281,23 @@ TEST(ACIROpsTest, TaskEightOwnersRegisterAtDistinctAbsoluteInstancePaths) {
   auto file = mlir::ModuleOp::create(loc);
   builder.setInsertionPointToStart(file.getBody());
   auto leaf =
-      ModuleOp::create(builder, loc, "Leaf", emptyType, emptyDictionary);
-  builder.setInsertionPointToStart(leaf.addEntryBlock());
+      createTestFamily(builder, loc, "Leaf", emptyType).module;
+  builder.setInsertionPointToStart(testFamilyEntry(leaf));
   auto process =
       ProcessOp::create(builder, loc, "worker", "workload", mlir::ValueRange{});
   builder.setInsertionPointToStart(&process.getBody().emplaceBlock());
   YieldSimOp::create(builder, loc);
-  builder.setInsertionPointToEnd(&leaf.getBody().front());
+  builder.setInsertionPointToEnd(testFamilyEntry(leaf));
   StatOp::create(builder, loc, "requests", "counter");
   ReturnOp::create(builder, loc, mlir::ValueRange{});
 
   builder.setInsertionPointToEnd(file.getBody());
-  auto top = ModuleOp::create(builder, loc, "Top", emptyType, emptyDictionary);
-  builder.setInsertionPointToStart(top.addEntryBlock());
+  auto top = createTestFamily(builder, loc, "Top", emptyType).module;
+  builder.setInsertionPointToStart(testFamilyEntry(top));
   InstanceOp::create(builder, loc, mlir::TypeRange{}, mlir::ValueRange{},
-                     "Leaf", "left", "left", "left", emptyDictionary);
+                     "Leaf", "left", "left", "left", emptyTestArguments(builder));
   InstanceOp::create(builder, loc, mlir::TypeRange{}, mlir::ValueRange{},
-                     "Leaf", "right", "right", "right", emptyDictionary);
+                     "Leaf", "right", "right", "right", emptyTestArguments(builder));
   ReturnOp::create(builder, loc, mlir::ValueRange{});
 
   builder.setInsertionPointToEnd(file.getBody());
@@ -1239,22 +1336,22 @@ TEST(ACIROpsTest, TaskEightOwnersParticipateInSaturatedArrayBudget) {
   auto file = mlir::ModuleOp::create(loc);
   builder.setInsertionPointToStart(file.getBody());
   auto leaf =
-      ModuleOp::create(builder, loc, "Leaf", emptyType, emptyDictionary);
-  builder.setInsertionPointToStart(leaf.addEntryBlock());
+      createTestFamily(builder, loc, "Leaf", emptyType).module;
+  builder.setInsertionPointToStart(testFamilyEntry(leaf));
   auto process =
       ProcessOp::create(builder, loc, "worker", "workload", mlir::ValueRange{});
   builder.setInsertionPointToStart(&process.getBody().emplaceBlock());
   YieldSimOp::create(builder, loc);
-  builder.setInsertionPointToEnd(&leaf.getBody().front());
+  builder.setInsertionPointToEnd(testFamilyEntry(leaf));
   StatOp::create(builder, loc, "requests", "counter");
   ReturnOp::create(builder, loc, mlir::ValueRange{});
 
   llvm::SmallVector<mlir::Attribute> staticArgs(
-      512, mlir::Attribute(emptyDictionary));
+      512, mlir::Attribute(emptyTestArguments(builder)));
   builder.setInsertionPointToEnd(file.getBody());
   auto middle =
-      ModuleOp::create(builder, loc, "Middle", emptyType, emptyDictionary);
-  builder.setInsertionPointToStart(middle.addEntryBlock());
+      createTestFamily(builder, loc, "Middle", emptyType).module;
+  builder.setInsertionPointToStart(testFamilyEntry(middle));
   ArrayOp::create(builder, loc, mlir::TypeRange{}, mlir::ValueRange{}, "Leaf",
                   "leaves", "leaves", "leaves",
                   builder.getDenseI64ArrayAttr({512}),
@@ -1262,8 +1359,8 @@ TEST(ACIROpsTest, TaskEightOwnersParticipateInSaturatedArrayBudget) {
   ReturnOp::create(builder, loc, mlir::ValueRange{});
 
   builder.setInsertionPointToEnd(file.getBody());
-  auto top = ModuleOp::create(builder, loc, "Top", emptyType, emptyDictionary);
-  builder.setInsertionPointToStart(top.addEntryBlock());
+  auto top = createTestFamily(builder, loc, "Top", emptyType).module;
+  builder.setInsertionPointToStart(testFamilyEntry(top));
   ArrayOp::create(builder, loc, mlir::TypeRange{}, mlir::ValueRange{}, "Middle",
                   "middles", "middles", "middles",
                   builder.getDenseI64ArrayAttr({512}),
@@ -1286,7 +1383,7 @@ TEST(ACIROpsTest, TaskEightOwnersParticipateInSaturatedArrayBudget) {
 
   auto overBudget = mlir::cast<mlir::ModuleOp>(file->clone());
   auto overBudgetLeaf = *overBudget.getOps<ModuleOp>().begin();
-  builder.setInsertionPoint(&overBudgetLeaf.getBody().front().back());
+  builder.setInsertionPoint(&testFamilyEntry(overBudgetLeaf)->back());
   StatOp::create(builder, loc, "latency", "counter");
   std::string diagnostic;
   mlir::ScopedDiagnosticHandler handler(&context, [&](mlir::Diagnostic &value) {
@@ -1303,12 +1400,18 @@ TEST(ACIROpsTest, StaticContractsUseFreezePhaseModuleEffects) {
   mlir::MLIRContext context;
   context.loadDialect<ACIRDialect>();
   auto file = mlir::parseSourceString<mlir::ModuleOp>(R"mlir(
+    #args = #ac.static_arguments<[]>
+    #owner = #ac.source_owner<"tests/m.py", "tests/m.py">
+    #prov = #ac.source_provenance<"tests/m.py", 1, 1, 1, 1>
+    #schema = #ac.module_family_schema<#ac.static_parameters<[]>, #ac.static_cases<[#ac.static_arguments<[]>]>, #ac.module_interface<[#ac.interface_port<"condition", "input", #ac.type_expr<#ac.type_expr_concrete<i1>>, #prov>]>, #ac.source_owner<"tests/m.py", "tests/m.py">, []>
     builtin.module  {
-      ac.module @M(i1) parameters {} graph {
-      ^bb0(%condition : i1):
+      ac.module @M source #owner schema #schema {
+        ac.module.case arguments #args type (i1) -> () source #prov graph {
+        ^bb0(%condition : i1):
         ac.require %condition, "capacity"
         ac.ensure %condition, "topology"
         ac.return
+        }
       }
     }
   )mlir",
@@ -1316,7 +1419,7 @@ TEST(ACIROpsTest, StaticContractsUseFreezePhaseModuleEffects) {
   ASSERT_TRUE(file);
   ASSERT_TRUE(mlir::succeeded(mlir::verify(file->getOperation())));
   auto module = *file->getOps<ModuleOp>().begin();
-  for (mlir::Operation &operation : module.getBody().front()) {
+  for (mlir::Operation &operation : *testFamilyEntry(module)) {
     if (!mlir::isa<RequireOp, EnsureOp>(operation))
       continue;
     llvm::SmallVector<mlir::MemoryEffects::EffectInstance> effects;
@@ -1344,18 +1447,16 @@ TEST(ACIROpsTest, ExplicitViewProvenanceScalesNearLinearly) {
   auto buildChain = [&](unsigned viewCount, llvm::StringRef prefix) {
     auto file = mlir::ModuleOp::create(loc);
     builder.setInsertionPointToStart(file.getBody());
-    auto leaf = ModuleOp::create(builder, loc, (prefix + "Leaf").str(),
-                                 emptyType, emptyDictionary);
-    builder.setInsertionPointToStart(leaf.addEntryBlock());
+    auto leaf = createTestFamily(builder, loc, (prefix + "Leaf").str(), emptyType).module;
+    builder.setInsertionPointToStart(testFamilyEntry(leaf));
     ReturnOp::create(builder, loc, mlir::ValueRange{});
     builder.setInsertionPointToEnd(file.getBody());
-    auto top = ModuleOp::create(builder, loc, (prefix + "Top").str(), emptyType,
-                                emptyDictionary);
-    builder.setInsertionPointToStart(top.addEntryBlock());
+    auto top = createTestFamily(builder, loc, (prefix + "Top").str(), emptyType).module;
+    builder.setInsertionPointToStart(testFamilyEntry(top));
     std::string previous = "source";
     InstanceOp::create(builder, loc, mlir::TypeRange{}, mlir::ValueRange{},
                        (prefix + "Leaf").str(), previous, previous, previous,
-                       emptyDictionary);
+                       emptyTestArguments(builder));
     for (unsigned index = 0; index != viewCount; ++index) {
       std::string name = "view" + std::to_string(index);
       ViewOp::create(builder, loc, mlir::TypeRange{}, mlir::ValueRange{}, name,
@@ -1375,13 +1476,13 @@ TEST(ACIROpsTest, ExplicitViewProvenanceScalesNearLinearly) {
     auto file = mlir::ModuleOp::create(loc);
     builder.setInsertionPointToStart(file.getBody());
     auto leaf =
-        ModuleOp::create(builder, loc, "WideLeaf", emptyType, emptyDictionary);
-    builder.setInsertionPointToStart(leaf.addEntryBlock());
+        createTestFamily(builder, loc, "WideLeaf", emptyType).module;
+    builder.setInsertionPointToStart(testFamilyEntry(leaf));
     ReturnOp::create(builder, loc, mlir::ValueRange{});
     builder.setInsertionPointToEnd(file.getBody());
     auto top =
-        ModuleOp::create(builder, loc, "WideTop", emptyType, emptyDictionary);
-    builder.setInsertionPointToStart(top.addEntryBlock());
+        createTestFamily(builder, loc, "WideTop", emptyType).module;
+    builder.setInsertionPointToStart(testFamilyEntry(top));
     llvm::SmallVector<mlir::Attribute> producerRefs;
     llvm::SmallVector<mlir::Attribute> sourceShapes;
     producerRefs.reserve(sourceCount);
@@ -1389,7 +1490,7 @@ TEST(ACIROpsTest, ExplicitViewProvenanceScalesNearLinearly) {
     for (unsigned index = 0; index != sourceCount; ++index) {
       std::string name = "source" + std::to_string(index);
       InstanceOp::create(builder, loc, mlir::TypeRange{}, mlir::ValueRange{},
-                         "WideLeaf", name, name, name, emptyDictionary);
+                         "WideLeaf", name, name, name, emptyTestArguments(builder));
       producerRefs.push_back(mlir::FlatSymbolRefAttr::get(&context, name));
       sourceShapes.push_back(zeroShape);
     }
@@ -1620,9 +1721,8 @@ TEST(ACIRResourcesTest, PublicBuildersAndTypedEffectsCoverAllSixOperations) {
   auto file = mlir::ModuleOp::create(location);
   builder.setInsertionPointToStart(file.getBody());
   auto module =
-      ModuleOp::create(builder, location, "M", builder.getFunctionType({}, {}),
-                       builder.getDictionaryAttr({}));
-  builder.setInsertionPointToStart(module.addEntryBlock());
+      createTestFamily(builder, location, "M", builder.getFunctionType({}, {})).module;
+  builder.setInsertionPointToStart(testFamilyEntry(module));
 
   auto i64 = [&](int64_t value) { return builder.getI64IntegerAttr(value); };
   auto string = [&](llvm::StringRef value) {
@@ -1718,10 +1818,8 @@ TEST(ACIRResourcesTest, EffectsUseDefinitionQualifiedPreFreezeIdentity) {
   auto file = mlir::ModuleOp::create(location);
   auto buildQueue = [&](llvm::StringRef definition) {
     builder.setInsertionPointToEnd(file.getBody());
-    auto module = ModuleOp::create(builder, location, definition,
-                                   builder.getFunctionType({}, {}),
-                                   builder.getDictionaryAttr({}));
-    builder.setInsertionPointToStart(module.addEntryBlock());
+    auto module = createTestFamily(builder, location, definition, builder.getFunctionType({}, {})).module;
+    builder.setInsertionPointToStart(testFamilyEntry(module));
     auto queue = QueueOp::create(
         builder, location, builder.getStringAttr("q"),
         builder.getStringAttr("q"), builder.getStringAttr("q"),
@@ -1768,9 +1866,9 @@ TEST(ACIRResourcesTest, LargeAddressMapAndParentGraphScaleNearLinearly) {
   auto emptyDictionary = builder.getDictionaryAttr({});
   auto file = mlir::ModuleOp::create(location);
   builder.setInsertionPointToStart(file.getBody());
-  auto module = ModuleOp::create(
-      builder, location, "M", builder.getFunctionType({}, {}), emptyDictionary);
-  builder.setInsertionPointToStart(module.addEntryBlock());
+  auto module = createTestFamily(
+      builder, location, "M", builder.getFunctionType({}, {})).module;
+  builder.setInsertionPointToStart(testFamilyEntry(module));
   AddressSpaceOp::create(
       builder, location, builder.getStringAttr("space"),
       builder.getStringAttr("space"), builder.getStringAttr("space"),
@@ -1816,17 +1914,16 @@ TEST(ACIRResourcesTest, LargeAddressMapAndParentGraphScaleNearLinearly) {
   auto graphFile = mlir::ModuleOp::create(location);
   builder.setInsertionPointToStart(graphFile.getBody());
   auto bridgeModule =
-      ModuleOp::create(builder, location, "Bridge",
-                       builder.getFunctionType({}, {}), emptyDictionary);
-  builder.setInsertionPointToStart(bridgeModule.addEntryBlock());
+      createTestFamily(builder, location, "Bridge", builder.getFunctionType({}, {})).module;
+  builder.setInsertionPointToStart(testFamilyEntry(bridgeModule));
   ReturnOp::create(builder, location, mlir::ValueRange{});
   builder.setInsertionPointToEnd(graphFile.getBody());
   auto graphModule =
-      ModuleOp::create(builder, location, "Graph",
-                       builder.getFunctionType({}, {}), emptyDictionary);
-  builder.setInsertionPointToStart(graphModule.addEntryBlock());
+      createTestFamily(builder, location, "Graph", builder.getFunctionType({}, {})).module;
+  builder.setInsertionPointToStart(testFamilyEntry(graphModule));
   InstanceOp::create(builder, location, mlir::TypeRange{}, mlir::ValueRange{},
-                     "Bridge", "bridge", "bridge", "bridge", emptyDictionary);
+                     "Bridge", "bridge", "bridge", "bridge",
+                     emptyTestArguments(builder));
   for (unsigned index = 0; index != domainCount; ++index) {
     std::string name = "d" + std::to_string(index);
     mlir::FlatSymbolRefAttr parent;
@@ -1862,10 +1959,8 @@ TEST(ACIRResourcesTest, MixedGeometryDistinctPrioritiesScaleNearLinearly) {
   auto buildMap = [&](unsigned entryCount) {
     auto file = mlir::ModuleOp::create(location);
     builder.setInsertionPointToStart(file.getBody());
-    auto module = ModuleOp::create(builder, location, "M",
-                                   builder.getFunctionType({}, {}),
-                                   builder.getDictionaryAttr({}));
-    builder.setInsertionPointToStart(module.addEntryBlock());
+    auto module = createTestFamily(builder, location, "M", builder.getFunctionType({}, {})).module;
+    builder.setInsertionPointToStart(testFamilyEntry(module));
     AddressSpaceOp::create(
         builder, location, builder.getStringAttr("space"),
         builder.getStringAttr("space"), builder.getStringAttr("space"),
@@ -1928,10 +2023,8 @@ TEST(ACIRResourcesTest, SingleSelectedStripeMixedGeometriesScaleNearLinearly) {
   auto measureWork = [&](unsigned entryCount) {
     auto file = mlir::ModuleOp::create(location);
     builder.setInsertionPointToStart(file.getBody());
-    auto module = ModuleOp::create(builder, location, "M",
-                                   builder.getFunctionType({}, {}),
-                                   builder.getDictionaryAttr({}));
-    builder.setInsertionPointToStart(module.addEntryBlock());
+    auto module = createTestFamily(builder, location, "M", builder.getFunctionType({}, {})).module;
+    builder.setInsertionPointToStart(testFamilyEntry(module));
     AddressSpaceOp::create(
         builder, location, builder.getStringAttr("space"),
         builder.getStringAttr("space"), builder.getStringAttr("space"),
@@ -2035,10 +2128,8 @@ TEST(ACIRResourcesTest,
   auto buildMap = [&](llvm::ArrayRef<mlir::Attribute> entries) {
     auto file = mlir::ModuleOp::create(location);
     builder.setInsertionPointToStart(file.getBody());
-    auto module = ModuleOp::create(builder, location, "M",
-                                   builder.getFunctionType({}, {}),
-                                   builder.getDictionaryAttr({}));
-    builder.setInsertionPointToStart(module.addEntryBlock());
+    auto module = createTestFamily(builder, location, "M", builder.getFunctionType({}, {})).module;
+    builder.setInsertionPointToStart(testFamilyEntry(module));
     AddressSpaceOp::create(
         builder, location, builder.getStringAttr("space"),
         builder.getStringAttr("space"), builder.getStringAttr("space"),
@@ -2097,10 +2188,8 @@ TEST(ACIRResourcesTest,
   auto buildMap = [&](uint64_t relationCount, bool reverse) {
     auto file = mlir::ModuleOp::create(location);
     builder.setInsertionPointToStart(file.getBody());
-    auto module = ModuleOp::create(builder, location, "M",
-                                   builder.getFunctionType({}, {}),
-                                   builder.getDictionaryAttr({}));
-    builder.setInsertionPointToStart(module.addEntryBlock());
+    auto module = createTestFamily(builder, location, "M", builder.getFunctionType({}, {})).module;
+    builder.setInsertionPointToStart(testFamilyEntry(module));
     AddressSpaceOp::create(
         builder, location, builder.getStringAttr("space"),
         builder.getStringAttr("space"), builder.getStringAttr("space"),
@@ -2182,9 +2271,8 @@ TEST(ACIRResourcesTest, SingleBankSelectionsDoNotConsumeGeneralMixedBudget) {
   auto file = mlir::ModuleOp::create(location);
   builder.setInsertionPointToStart(file.getBody());
   auto module =
-      ModuleOp::create(builder, location, "M", builder.getFunctionType({}, {}),
-                       builder.getDictionaryAttr({}));
-  builder.setInsertionPointToStart(module.addEntryBlock());
+      createTestFamily(builder, location, "M", builder.getFunctionType({}, {})).module;
+  builder.setInsertionPointToStart(testFamilyEntry(module));
   AddressSpaceOp::create(
       builder, location, builder.getStringAttr("space"),
       builder.getStringAttr("space"), builder.getStringAttr("space"),
@@ -2322,9 +2410,8 @@ TEST_P(SelectorOracleTest, MatchesManualSmallDomainEnumeration) {
   auto file = mlir::ModuleOp::create(location);
   builder.setInsertionPointToStart(file.getBody());
   auto module =
-      ModuleOp::create(builder, location, "M", builder.getFunctionType({}, {}),
-                       builder.getDictionaryAttr({}));
-  builder.setInsertionPointToStart(module.addEntryBlock());
+      createTestFamily(builder, location, "M", builder.getFunctionType({}, {})).module;
+  builder.setInsertionPointToStart(testFamilyEntry(module));
   AddressSpaceOp::create(
       builder, location, builder.getStringAttr("space"),
       builder.getStringAttr("space"), builder.getStringAttr("space"),
@@ -2396,15 +2483,21 @@ TEST(ACIRFreezeEffectsTest, FrozenEffectsUseElaboratedAbsoluteOwnerSets) {
   acir::registerAllDialects(registry);
   mlir::MLIRContext context(registry);
   auto file = mlir::parseSourceString<mlir::ModuleOp>(R"mlir(
+    #args = #ac.static_arguments<[]>
+    #owner = #ac.source_owner<"tests/m.py", "tests/m.py">
+    #prov = #ac.source_provenance<"tests/m.py", 1, 1, 1, 1>
+    #schema = #ac.module_family_schema<#ac.static_parameters<[]>, #ac.static_cases<[#ac.static_arguments<[]>]>, #ac.module_interface<[]>, #ac.source_owner<"tests/m.py", "tests/m.py">, []>
     builtin.module  {
       ac.system @soc root @Top as "root" tick 0 "cycle"
           workload @Top::@workload seed {kind = "fixed", value = 0 : i64}
           instrumentation [] results {id = "default", format = "json"}
           selected true
-      ac.module @Top() parameters {} graph {
+      ac.module @Top source #owner schema #schema {
+        ac.module.case arguments #args type () -> () source #prov graph {
         ac.process @workload kind "workload" { ac.yield_sim }
         ac.stat @requests kind "counter"
         ac.return
+        }
       }
     }
   )mlir",

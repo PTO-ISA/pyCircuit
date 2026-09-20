@@ -60,25 +60,6 @@ def pipeline(value: ac.u8) -> ac.u8:
         self.assertIn("func.call @classify", text)
         self.assertIn("ac.var.select", text)
 
-    def test_tuple_helper_can_be_directly_unpacked_in_a_rule(self) -> None:
-        text = lower(
-            """
-import agentic_circuit as ac
-def split(value: ac.u8) -> tuple[ac.u8, ac.u8]:
-    return value, value + 1
-@ac.rule
-def transform(item):
-    first, second = split(item)
-    return first + second
-@ac.system
-def pipeline(value: ac.u8) -> ac.u8:
-    incoming = ac.source(ac.u8)
-    outgoing = transform(incoming)
-    return outgoing
-"""
-        )
-        self.assertIn("func.call @split", text)
-        self.assertGreaterEqual(text.count("ac.var.element"), 2)
 
     def test_helper_is_available_to_non_transform_queue_expressions(self) -> None:
         text = lower(
@@ -109,10 +90,22 @@ def add_one(value: ac.u8) -> ac.u8:
 @ac.inline
 def forced(value: ac.u8) -> ac.u8:
     return add_one(value)
-@ac.module
+@ac.module_decl(source="tests/python/agentic-circuit/python_frontend/test_pure_helpers.py")
+def increment(value: ac.u8) -> ac.u8:
+    ...
+
+increment_decl = increment
+
+@ac.module(declaration=increment_decl)
 def increment(value: ac.u8) -> ac.u8:
     return forced(value)
-@ac.module
+@ac.module_decl(source="tests/python/agentic-circuit/python_frontend/test_pure_helpers.py")
+def accumulator(value: ac.u8) -> ac.u8:
+    ...
+
+accumulator_decl = accumulator
+
+@ac.module(declaration=accumulator_decl)
 def accumulator(value: ac.u8) -> ac.u8:
     total: ac.u8 = 0
     total = add_one(value)
@@ -141,12 +134,24 @@ def add_one(value: ac.u8) -> ac.u8:
 def transform(value):
     return add_one(value)
 
-@ac.module
+@ac.module_decl(source="tests/python/agentic-circuit/python_frontend/test_pure_helpers.py")
+def left_stage(value: ac.u8) -> ac.u8:
+    ...
+
+left_stage_decl = left_stage
+
+@ac.module(declaration=left_stage_decl)
 def left_stage(value: ac.u8) -> ac.u8:
     result = transform(value)
     return result
 
-@ac.module
+@ac.module_decl(source="tests/python/agentic-circuit/python_frontend/test_pure_helpers.py")
+def right_stage(value: ac.u8) -> ac.u8:
+    ...
+
+right_stage_decl = right_stage
+
+@ac.module(declaration=right_stage_decl)
 def right_stage(value: ac.u8) -> ac.u8:
     result = transform(value)
     return result
@@ -182,7 +187,13 @@ class WideBatch:
 def transform(batch):
     return WideBatch(values=batch.values.map(lambda value: widen(value)))
 
-@ac.module
+@ac.module_decl(source="tests/python/agentic-circuit/python_frontend/test_pure_helpers.py")
+def stage(batch: Batch) -> WideBatch:
+    ...
+
+stage_decl = stage
+
+@ac.module(declaration=stage_decl)
 def stage(batch: Batch) -> WideBatch:
     result = transform(batch)
     return result

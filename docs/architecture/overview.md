@@ -60,7 +60,7 @@ pyCircuit/
 │   │   ├── data.py                # Data 类型层级（Bits/Clock/Reset）
 │   │   ├── v6.py                  # CycleAware* 周期感知层（V6 主路径）
 │   │   ├── design.py              # @module/@function/@const/@testbench
-│   │   ├── jit.py                 # AST JIT 追踪编译
+│   │   ├── _families.py           # typed finite-family declarations
 │   │   ├── connectors.py          # Connector/Bundle 跨模块连接
 │   │   ├── schedule_ir.py         # 测试调度 JSON IR
 │   │   ├── sidecar_sections.py    # SIDECAAR 二进制容器编解码

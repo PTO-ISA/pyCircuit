@@ -116,10 +116,10 @@ from .static_types import (
     _payloads,
     _positive_int_value,
     _scalar_annotation_static_check,
-    _static_config_bindings_for_checks,
+    _resolved_config_values_for_checks,
     _static_int_value,
     _static_parameter_aliases,
-    _static_type_bindings_for_checks,
+    _resolved_type_bindings_for_checks,
     _type_static_values,
     _validate_static_config_roots,
 )
@@ -404,7 +404,7 @@ def parse_queue_program(
                 raise QueueFrontendError(
                     "ACPY-HELPER-002: helper tuple unpack arity must match its result"
                 )
-            temporary = f"__ac_helper_tuple_{self.next_index}"
+            temporary = f"compiler_helper_tuple_{self.next_index}"
             self.next_index += 1
             statements: list[ast.stmt] = [
                 ast.Assign(
@@ -623,7 +623,7 @@ def parse_queue_program(
         def allocate(name: str) -> tuple[str, str | None]:
             nonlocal next_version
             prior = versions.get(name)
-            version = f"__ac_rule_local_{next_version}_{name}"
+            version = f"compiler_rule_local_{next_version}_{name}"
             next_version += 1
             versions[name] = version
             return version, prior
@@ -795,7 +795,7 @@ def parse_queue_program(
                     assign(statement, guard)
                     continue
                 if isinstance(statement, ast.If):
-                    condition_name = f"__ac_multi_output_condition_{next_condition}"
+                    condition_name = f"compiler_multi_output_condition_{next_condition}"
                     next_condition += 1
                     condition_assign = ast.Assign(
                         targets=[ast.Name(id=condition_name, ctx=ast.Store())],
@@ -945,7 +945,7 @@ def parse_queue_program(
         body = _normalize_rule_field_assignments(body, reserved_names=reserved_names)
         if any(
             isinstance(candidate, ast.Name)
-            and candidate.id[:18] == "__ac_helper_tuple_"
+            and candidate.id[:18] == "compiler_helper_tuple_"
             for statement in body
             for candidate in ast.walk(statement)
         ):
@@ -1207,7 +1207,7 @@ def parse_queue_program(
                         "ACPY-RULE-011: branch-local effects require a non-empty body"
                     )
                 has_branch_effects = True
-                condition_name = f"__ac_branch_condition_{branch_condition_index}"
+                condition_name = f"compiler_branch_condition_{branch_condition_index}"
                 branch_condition_index += 1
                 while condition_name in branch_condition_names:
                     condition_name += "_"
@@ -1338,7 +1338,7 @@ def parse_queue_program(
             nonlocal next_local_version
             prior = local_versions.get(name)
             while True:
-                version = f"__ac_rule_local_{next_local_version}_{name}"
+                version = f"compiler_rule_local_{next_local_version}_{name}"
                 next_local_version += 1
                 if version not in parameter_names:
                     break
@@ -2115,7 +2115,7 @@ def parse_queue_program(
     result_payloads = system_result_payloads(function.returns)
     interface_owner = (
         "module." + static_type_namespace[:-2]
-        if static_type_namespace[-2:] == "__"
+        if static_type_namespace[-1:] == "_"
         else f"{entry_kind}.{system}"
     )
     interface_type_checks: list[StaticTypeCheck] = []
@@ -2690,7 +2690,7 @@ def parse_queue_program(
                     raise QueueFrontendError(
                         "ACPY-QUEUE-005: array generator must produce a Queue"
                     )
-                leaf = f"{name}__{index}"
+                leaf = f"{name}_element_{index}"
                 values = {**static_values, argument: index}
                 if call_name(body) == "source":
                     binding = source_binding(
@@ -2910,10 +2910,10 @@ def parse_queue_program(
                         "ACPY-QUEUE-011: runtime if condition must lower to bool"
                     )
                 conditional = len([route for route in routes if route.boolean_selector])
-                false_input = f"{name}__if_false{conditional}_in"
-                true_input = f"{name}__if_true{conditional}_in"
-                false_output = f"{name}__if_false{conditional}"
-                true_output = f"{name}__if_true{conditional}"
+                false_input = f"{name}_if_false_{conditional}_in"
+                true_input = f"{name}_if_true_{conditional}_in"
+                false_output = f"{name}_if_false_{conditional}"
+                true_output = f"{name}_if_true_{conditional}"
                 for route_name in (false_input, true_input):
                     binding = QueueBinding(
                         route_name,
@@ -3122,7 +3122,7 @@ def parse_queue_program(
                         canonicalizer = CanonicalizeQueueReferences()
                         members: list[tuple[int, str]] = []
                         for index in range(extent):
-                            member_name = f"{name}__{index}"
+                            member_name = f"{name}_element_{index}"
                             expanded = _constantize_expression(
                                 generator,
                                 "",
@@ -3320,7 +3320,7 @@ def parse_queue_program(
                             ),
                         ],
                     )
-                output_name = f"{variable}__feedback{len(feedbacks)}"
+                output_name = f"{variable}_feedback_{len(feedbacks)}"
                 depth = _positive_int(call, "depth", 1)
                 latency = _positive_int(call, "latency", 1)
                 output = QueueBinding(
@@ -3432,7 +3432,7 @@ def parse_queue_program(
                     previous = incoming
                     for index in range(extent):
                         output_name = (
-                            name if index + 1 == extent else f"{name}__rec{index}"
+                            name if index + 1 == extent else f"{name}_rec_{index}"
                         )
                         binding = QueueBinding(
                             output_name,
@@ -4500,7 +4500,7 @@ def parse_queue_program(
                     incoming_queues = tuple(by_name[item] for item in input_names)
                     effect_rules.append(
                         QueueBinding(
-                            f"{definition.name}__effect_{current_order}",
+                            f"{definition.name}_effect_{current_order}",
                             (
                                 writes[0].value_type
                                 if writes
@@ -4616,7 +4616,7 @@ def parse_queue_program(
                 )
                 effect_rules.append(
                     QueueBinding(
-                        f"{definition.name}__effect_{current_order}",
+                        f"{definition.name}_effect_{current_order}",
                         value_type,
                         1,
                         1,
@@ -4792,11 +4792,11 @@ def parse_queue_program(
             "consuming rule or result boundary"
         )
     all_static_checks = (
-        *(check for payload in payloads for check in payload.static_type_checks),
+        *(check for payload in payloads for check in payload.resolved_type_checks),
         *interface_type_checks,
         *expression_type_checks,
     )
-    static_config_bindings = _static_config_bindings_for_checks(
+    resolved_config_values = _resolved_config_values_for_checks(
         tree,
         all_static_checks,
         parameter_aliases,
@@ -4849,14 +4849,14 @@ def parse_queue_program(
         tuple(observations),
         tuple(expectations),
         tuple(sinks),
-        static_type_bindings=_static_type_bindings_for_checks(
+        resolved_type_bindings=_resolved_type_bindings_for_checks(
             all_static_checks,
             parameter_aliases,
             type_static_values,
             binding_namespace=static_type_namespace,
         ),
-        static_type_checks=tuple((*interface_type_checks, *expression_type_checks)),
-        static_config_bindings=static_config_bindings,
+        resolved_type_checks=tuple((*interface_type_checks, *expression_type_checks)),
+        resolved_config_values=resolved_config_values,
         source_path=normalized_source_path,
         system_source=source_frame(function),
         statement_sources=tuple(sorted(statement_sources.items())),

@@ -779,7 +779,7 @@ LogicalResult ModelAnalysis::verifyZeroDelayDependencies() {
     moduleStateful[module] = true;
     bool stateful = false;
     if (!module.getBody().empty())
-      for (Operation &child : module.getBody().front()) {
+      for (Operation &child : cast<ac::ModuleCaseOp>(module.getBody().front().front()).getBody().front()) {
         if (isDirectStateOwner(&child)) {
           stateful = true;
           break;
@@ -825,7 +825,7 @@ LogicalResult ModelAnalysis::verifyZeroDelayDependencies() {
       std::string label;
     };
     SmallVector<Node> nodes;
-    for (Operation &operation : module.getBody().front()) {
+    for (Operation &operation : cast<ac::ModuleCaseOp>(module.getBody().front().front()).getBody().front()) {
       if (operation.getNumResults() == 0)
         continue;
       const bool structuralInstance =
@@ -936,7 +936,7 @@ LogicalResult ModelAnalysis::verifyFreezeContracts() {
   for (ac::ModuleOp module : model.getOps<ac::ModuleOp>()) {
     if (module.getBody().empty())
       continue;
-    for (Operation &operation : module.getBody().front())
+    for (Operation &operation : cast<ac::ModuleCaseOp>(module.getBody().front().front()).getBody().front())
       if (isa<ac::RequireOp, ac::EnsureOp>(operation))
         contracts.push_back(&operation);
   }
@@ -1097,20 +1097,19 @@ LogicalResult verifyFrozenStructuredQueueGraph(ModuleOp model) {
   if (!root)
     return selected.emitOpError(
         "structured QueueGraph root must resolve to a materialized module");
-  if (!root.getFunctionType().getInputs().empty())
-    return root.emitOpError(
-        "structured QueueGraph root module cannot borrow input Queues");
-
   for (ac::ModuleOp definition : model.getOps<ac::ModuleOp>()) {
-    for (Type type : definition.getFunctionType().getInputs())
-      if (!isa<ac::QueueType>(type))
-        return definition.emitOpError(
-            "structured QueueGraph module inputs must be ac.queue values");
-    for (Type type : definition.getFunctionType().getResults())
-      if (!isa<ac::QueueType>(type))
-        return definition.emitOpError(
-            "structured QueueGraph module results must be ac.queue values");
-    for (Operation &child : definition.getBody().front()) {
+    for (ac::ModuleCaseOp moduleCase :
+         definition.getBody().front().getOps<ac::ModuleCaseOp>()) {
+      auto signature = moduleCase.getFunctionType();
+      for (Type type : signature.getInputs())
+        if (!isa<ac::QueueType>(type))
+          return definition.emitOpError(
+              "structured QueueGraph module inputs must be ac.queue values");
+      for (Type type : signature.getResults())
+        if (!isa<ac::QueueType>(type))
+          return definition.emitOpError(
+              "structured QueueGraph module results must be ac.queue values");
+      for (Operation &child : moduleCase.getBody().front()) {
       if (!isa<ac::ScopeOp, ac::InstanceOp, ac::ReturnOp>(child))
         return child.emitOpError(
             "structured QueueGraph module body permits scopes, instances, "
@@ -1123,6 +1122,7 @@ LogicalResult verifyFrozenStructuredQueueGraph(ModuleOp model) {
       if (!target)
         return instance.emitOpError(
             "QueueGraph instance definition is unresolved");
+      }
     }
   }
 

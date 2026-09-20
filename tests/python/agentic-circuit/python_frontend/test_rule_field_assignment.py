@@ -48,9 +48,9 @@ def state_update(command: Entry) -> Entry:
 
 STATE_EXPLICIT_SOURCE = STATE_SOURCE.replace(
     "    entries[command.index].valid = True\n",
-    "    __ac_field_index_0 = command.index\n"
-    "    entries[__ac_field_index_0] = "
-    "entries[__ac_field_index_0].with_fields(valid=True)\n",
+    "    compiler_field_index_0 = command.index\n"
+    "    entries[compiler_field_index_0] = "
+    "entries[compiler_field_index_0].with_fields(valid=True)\n",
 )
 
 LOCAL_SERIAL_SOURCE = LOCAL_SOURCE.replace(
@@ -112,9 +112,9 @@ BRANCH_STATE_SOURCE = STATE_SOURCE.replace(
 
 BRANCH_STATE_EXPLICIT_SOURCE = BRANCH_STATE_SOURCE.replace(
     "        entries[command.index].value = command.value\n",
-    "        __ac_field_index_0 = command.index\n"
-    "        entries[__ac_field_index_0] = "
-    "entries[__ac_field_index_0].with_fields(value=command.value)\n",
+    "        compiler_field_index_0 = command.index\n"
+    "        entries[compiler_field_index_0] = "
+    "entries[compiler_field_index_0].with_fields(value=command.value)\n",
 )
 
 WITH_FIELDS_SOURCE = STATE_SOURCE.replace(
@@ -222,7 +222,13 @@ class Entry:
     value: ac.u8
     valid: bool
 
-@ac.module
+@ac.module_decl(source="tests/python/agentic-circuit/python_frontend/test_rule_field_assignment.py")
+def stateful(command: Entry) -> Entry:
+    ...
+
+stateful_decl = stateful
+
+@ac.module(declaration=stateful_decl)
 def stateful(command: Entry) -> Entry:
     entries = ac.table[4, Entry](init=0)
 
@@ -260,10 +266,12 @@ INLINE_HELPER_WITH_FIELDS_SOURCE = HELPER_WITH_FIELDS_SOURCE.replace(
 )
 
 MODULE_HELPER_WITH_FIELDS_SOURCE = MODULE_LOCAL_SOURCE.replace(
-    "@ac.module\ndef stateful(command: Entry) -> Entry:\n",
+    "@ac.module(declaration=stateful_decl)\n"
+    "def stateful(command: Entry) -> Entry:\n",
     "def patch(entry: Entry) -> Entry:\n"
     "    return entry.with_fields(valid=True)\n\n"
-    "@ac.module\ndef stateful(command: Entry) -> Entry:\n",
+    "@ac.module(declaration=stateful_decl)\n"
+    "def stateful(command: Entry) -> Entry:\n",
 ).replace(
     "        entries[command.index].valid = True\n",
     "        old = entries[command.index]\n"
@@ -458,7 +466,7 @@ class RuleFieldAssignmentTest(unittest.TestCase):
         source = ast.unparse(ast.Module(body=normalized, type_ignores=[]))
 
         self.assertEqual(1, source.count("next_index()"))
-        self.assertEqual(3, source.count("__ac_field_index_0"))
+        self.assertEqual(3, source.count("compiler_field_index_0"))
 
         serial = ast.parse(
             "entries[next_index()].valid = True\nentries[next_index()].value = value"
@@ -476,12 +484,12 @@ class RuleFieldAssignmentTest(unittest.TestCase):
 
         normalized = _normalize_rule_field_assignments(
             ast.parse("entries[index].valid = True").body,
-            reserved_names={"__ac_field_index_0", "entries", "index"},
+            reserved_names={"compiler_field_index_0", "entries", "index"},
         )
         source = ast.unparse(ast.Module(body=normalized, type_ignores=[]))
 
-        self.assertNotIn("__ac_field_index_0 = index", source)
-        self.assertEqual(3, source.count("__ac_field_index_1"))
+        self.assertNotIn("compiler_field_index_0 = index", source)
+        self.assertEqual(3, source.count("compiler_field_index_1"))
 
     def test_nested_augmented_and_slice_field_updates_fail_closed(self) -> None:
         from agentic_circuit._queue_frontend import (

@@ -40,6 +40,3 @@ def classify(command: Command) -> Command:
 def encoded_enum_pipeline(command: Command) -> Command:
     result = classify(command)
     return result
-
-
-specialization = ac.jit(encoded_enum_pipeline)

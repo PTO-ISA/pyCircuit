@@ -9,7 +9,8 @@
 
 //--- probe-dataflow.mlir
 builtin.module  {
-  ac.module @M() parameters {} graph {
+  ac.module @M source #ac.source_owner<"tests/native_family.py", "tests/native_family.py"> schema #ac.module_family_schema<#ac.static_parameters<[]>, #ac.static_cases<[#ac.static_arguments<[]>]>, #ac.module_interface<[]>, #ac.source_owner<"tests/native_family.py", "tests/native_family.py">, []> {
+    ac.module.case arguments #ac.static_arguments<[]> type () -> () source #ac.source_provenance<"tests/native_family.py", 1, 1, 1, 1> graph {
     ac.process @p kind "control" {
       %one = arith.constant 1 : i64
       %v = ac.probe @queue kind "queue" : i32
@@ -17,13 +18,16 @@ builtin.module  {
       ac.yield_sim
     }
     ac.return
+
+    }
   }
 }
 // PROBE: probe result may only feed observation operations
 
 //--- instrumentation-result.mlir
 builtin.module  {
-  ac.module @M() parameters {} graph {
+  ac.module @M source #ac.source_owner<"tests/native_family.py", "tests/native_family.py"> schema #ac.module_family_schema<#ac.static_parameters<[]>, #ac.static_cases<[#ac.static_arguments<[]>]>, #ac.module_interface<[]>, #ac.source_owner<"tests/native_family.py", "tests/native_family.py">, []> {
+    ac.module.case arguments #ac.static_arguments<[]> type () -> () source #ac.source_provenance<"tests/native_family.py", 1, 1, 1, 1> graph {
     ac.process @p kind "control" {
       ac.instrumentation @bad {
         %value = arith.constant 1 : i64
@@ -32,22 +36,28 @@ builtin.module  {
       ac.yield_sim
     }
     ac.return
+
+    }
   }
 }
 // INSTRUMENT: instrumentation may contain only removable observation operations
 
 //--- bad-stat.mlir
 builtin.module  {
-  ac.module @M() parameters {} graph {
+  ac.module @M source #ac.source_owner<"tests/native_family.py", "tests/native_family.py"> schema #ac.module_family_schema<#ac.static_parameters<[]>, #ac.static_cases<[#ac.static_arguments<[]>]>, #ac.module_interface<[]>, #ac.source_owner<"tests/native_family.py", "tests/native_family.py">, []> {
+    ac.module.case arguments #ac.static_arguments<[]> type () -> () source #ac.source_provenance<"tests/native_family.py", 1, 1, 1, 1> graph {
     ac.stat @bad kind "average"
     ac.return
+
+    }
   }
 }
 // STAT: kind must be 'counter', 'gauge', 'histogram', or 'event_log'
 
 //--- monitor-effect.mlir
 builtin.module  {
-  ac.module @M(i32) parameters {} graph {
+  ac.module @M source #ac.source_owner<"tests/native_family.py", "tests/native_family.py"> schema #ac.module_family_schema<#ac.static_parameters<[]>, #ac.static_cases<[#ac.static_arguments<[]>]>, #ac.module_interface<[#ac.interface_port<"input_0", "input", #ac.type_expr<#ac.type_expr_concrete<i32>>, #ac.source_provenance<"tests/native_family.py", 1, 1, 1, 1>>]>, #ac.source_owner<"tests/native_family.py", "tests/native_family.py">, []> {
+    ac.module.case arguments #ac.static_arguments<[]> type (i32) -> () source #ac.source_provenance<"tests/native_family.py", 1, 1, 1, 1> graph {
   ^bb0(%v : i32):
     ac.process @p kind "monitor" captures(%v : i32) {
     ^bb0(%captured : i32):
@@ -55,36 +65,47 @@ builtin.module  {
       ac.yield_sim
     }
     ac.return
+
+    }
   }
 }
 // MONITOR: monitor process cannot perform functional state effects
 
 //--- static-assert.mlir
 builtin.module  {
-  ac.module @M(i1) parameters {} graph {
+  ac.module @M source #ac.source_owner<"tests/native_family.py", "tests/native_family.py"> schema #ac.module_family_schema<#ac.static_parameters<[]>, #ac.static_cases<[#ac.static_arguments<[]>]>, #ac.module_interface<[#ac.interface_port<"input_0", "input", #ac.type_expr<#ac.type_expr_concrete<i1>>, #ac.source_provenance<"tests/native_family.py", 1, 1, 1, 1>>]>, #ac.source_owner<"tests/native_family.py", "tests/native_family.py">, []> {
+    ac.module.case arguments #ac.static_arguments<[]> type (i1) -> () source #ac.source_provenance<"tests/native_family.py", 1, 1, 1, 1> graph {
   ^bb0(%condition : i1):
     ac.assert %condition, "runtime only"
     ac.return
+
+    }
   }
 }
-// STATIC-ASSERT: operation is not legal in an ac.module structural Graph region
+// STATIC-ASSERT: operation is not legal in an ac.module.case Graph region
 
 //--- require-non-boolean.mlir
 builtin.module  {
-  ac.module @M() parameters {} graph {
+  ac.module @M source #ac.source_owner<"tests/native_family.py", "tests/native_family.py"> schema #ac.module_family_schema<#ac.static_parameters<[]>, #ac.static_cases<[#ac.static_arguments<[]>]>, #ac.module_interface<[]>, #ac.source_owner<"tests/native_family.py", "tests/native_family.py">, []> {
+    ac.module.case arguments #ac.static_arguments<[]> type () -> () source #ac.source_provenance<"tests/native_family.py", 1, 1, 1, 1> graph {
     %bad = arith.constant 1 : i32
     ac.require %bad, "non-boolean require"
     ac.return
+
+    }
   }
 }
 // REQUIRE-TYPE: error: use of value '%bad' expects different type than prior uses: 'i1' vs 'i32'
 
 //--- ensure-non-boolean.mlir
 builtin.module  {
-  ac.module @M() parameters {} graph {
+  ac.module @M source #ac.source_owner<"tests/native_family.py", "tests/native_family.py"> schema #ac.module_family_schema<#ac.static_parameters<[]>, #ac.static_cases<[#ac.static_arguments<[]>]>, #ac.module_interface<[]>, #ac.source_owner<"tests/native_family.py", "tests/native_family.py">, []> {
+    ac.module.case arguments #ac.static_arguments<[]> type () -> () source #ac.source_provenance<"tests/native_family.py", 1, 1, 1, 1> graph {
     %bad = arith.constant 1 : i32
     ac.ensure %bad, "non-boolean ensure"
     ac.return
+
+    }
   }
 }
 // ENSURE-TYPE: error: use of value '%bad' expects different type than prior uses: 'i1' vs 'i32'

@@ -2,6 +2,7 @@
 #define ACIR_CODEGEN_QUEUEGRAPHPLAN_H
 
 #include "mlir/IR/BuiltinOps.h"
+#include "acir/Dialect/ACIR/ACIRAttributes.h"
 #include "llvm/ADT/StringRef.h"
 #include "llvm/Support/Error.h"
 
@@ -34,33 +35,6 @@ struct QueueEnumPlan {
   std::vector<std::string> enumerants;
   std::vector<uint64_t> values;
   uint64_t width = 0;
-};
-
-struct QueueStaticTypeCheckPlan {
-  std::string target;
-  std::vector<std::string> program;
-  int64_t result = 0;
-  std::string concreteType;
-};
-
-struct QueueStaticConfigBindingPlan {
-  std::string root;
-  std::string type;
-  std::string schema;
-  std::string value;
-};
-
-struct QueueStaticTypeIdentityBindingPlan {
-  std::string name;
-  std::string parameter;
-  int64_t value = 0;
-};
-
-struct QueueStaticTypeIdentityPlan {
-  std::string source;
-  std::string symbol;
-  std::vector<QueueStaticTypeIdentityBindingPlan> bindings;
-  std::vector<std::string> targets;
 };
 
 struct QueueAggregatePlan {
@@ -391,7 +365,7 @@ struct QueueInterfacePlan {
 struct QueueModuleInstancePlan {
   std::string name;
   std::string definition;
-  std::string specializationKey;
+  acir::ac::StaticArgumentsAttr staticArguments;
   std::string scope;
   std::vector<std::string> inputs;
   std::vector<std::string> outputs;
@@ -495,12 +469,50 @@ struct QueueActivationEdgePlan {
   bool operator==(const QueueActivationEdgePlan &) const = default;
 };
 
+struct QueueGraphPlan;
+
+struct ModuleCasePlan {
+  acir::ac::StaticArgumentsAttr arguments;
+  mlir::FunctionType concreteSignature;
+  acir::ac::SourceProvenanceAttr sourceProvenance;
+  acir::ac::ModuleInterfaceAttr materializedInterface;
+  std::vector<std::string> queues;
+  std::vector<std::string> tables;
+  std::vector<std::string> slots;
+  std::vector<std::string> rules;
+  std::vector<std::string> proofs;
+  std::vector<std::string> obligations;
+  std::vector<std::string> stateOwners;
+  std::shared_ptr<QueueGraphPlan> bodyPlan;
+};
+
+struct NominalDefinitionPlan {
+  enum class Kind { Enum, Struct };
+  Kind kind = Kind::Enum;
+  std::string scope;
+  std::string name;
+  mlir::Attribute scopeLayout;
+  acir::ac::StaticParametersAttr parameters;
+  mlir::ArrayAttr members;
+  mlir::ArrayAttr values;
+  mlir::IntegerAttr encodingWidth;
+};
+
+struct ModuleFamilyPlan {
+  std::string definition;
+  acir::ac::SourceOwnerAttr source;
+  acir::ac::StaticParametersAttr parameters;
+  acir::ac::StaticCasesAttr declaredCases;
+  acir::ac::ModuleInterfaceAttr interface;
+  mlir::ArrayAttr nominalDeclarations;
+  std::vector<NominalDefinitionPlan> nominalDefinitions;
+  std::vector<ModuleCasePlan> cases;
+};
+
 struct QueueGraphPlan {
   std::string system;
   std::string definition;
   std::string sourceDefinition;
-  std::string specializationKey;
-  std::vector<std::pair<std::string, std::string>> specializationParameters;
   std::vector<std::string> ndfIds;
   std::vector<std::string> ndfRequires;
   std::string sourceFile;
@@ -509,20 +521,16 @@ struct QueueGraphPlan {
   std::vector<QueueInterfacePlan> interfaceInputs;
   std::vector<QueueInterfacePlan> interfaceOutputs;
   std::vector<QueueModuleInstancePlan> moduleInstances;
+  std::vector<ModuleFamilyPlan> moduleFamilies;
   std::vector<QueueArchitectureExpressionScopePlan>
       architectureExpressionScopes;
   std::vector<QueueArchitectureObligationPlan> architectureObligations;
   std::vector<QueueProvedObligationElisionPlan> provedObligationElisions;
-  std::vector<std::shared_ptr<QueueGraphPlan>> moduleSpecializations;
   std::vector<QueueActivationEdgePlan> activationEdges;
   std::vector<QueueActivationEdgePlan> workClosureEdges;
   std::vector<QueueActivationNodePlan> initialActivation;
   std::vector<QueuePayloadPlan> payloads;
   std::vector<QueueEnumPlan> enums;
-  std::vector<std::pair<std::string, int64_t>> staticTypeBindings;
-  std::vector<QueueStaticTypeCheckPlan> staticTypeChecks;
-  std::vector<QueueStaticTypeIdentityPlan> staticTypeIdentities;
-  std::vector<QueueStaticConfigBindingPlan> staticConfigBindings;
   std::vector<QueueAggregatePlan> aggregates;
   std::vector<QueueHelperPlan> helpers;
   std::vector<std::string> scopes;

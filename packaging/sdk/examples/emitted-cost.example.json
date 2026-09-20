@@ -6,7 +6,6 @@
     "sizeof_payload_types": "not_modeled"
   },
   "identity": {
-    "specialization": null,
     "system": "main"
   },
   "models": {

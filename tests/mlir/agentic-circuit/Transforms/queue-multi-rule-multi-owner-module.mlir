@@ -19,9 +19,9 @@ builtin.module attributes {
     result_schema = {id = "default", format = "json"},
     selected = true
   }> : () -> ()
-
-  ac.module @DualState(%a: !ac.queue<i8>, %b: !ac.queue<i8>)
-      -> (!ac.queue<i8>, !ac.queue<i8>) parameters {} graph {
+ac.module @DualState source #ac.source_owner<"tests/native_family.py", "tests/native_family.py"> schema #ac.module_family_schema<#ac.static_parameters<[]>, #ac.static_cases<[#ac.static_arguments<[]>]>, #ac.module_interface<[#ac.interface_port<"input_0", "input", #ac.type_expr<#ac.type_expr_concrete<!ac.queue<i8>>>, #ac.source_provenance<"tests/native_family.py", 1, 1, 1, 1>>, #ac.interface_port<"input_1", "input", #ac.type_expr<#ac.type_expr_concrete<!ac.queue<i8>>>, #ac.source_provenance<"tests/native_family.py", 1, 1, 1, 1>>, #ac.interface_port<"output_0", "output", #ac.type_expr<#ac.type_expr_concrete<!ac.queue<i8>>>, #ac.source_provenance<"tests/native_family.py", 1, 1, 1, 1>>, #ac.interface_port<"output_1", "output", #ac.type_expr<#ac.type_expr_concrete<!ac.queue<i8>>>, #ac.source_provenance<"tests/native_family.py", 1, 1, 1, 1>>]>, #ac.source_owner<"tests/native_family.py", "tests/native_family.py">, []> {
+    ac.module.case arguments #ac.static_arguments<[]> type (!ac.queue<i8>, !ac.queue<i8>) -> (!ac.queue<i8>, !ac.queue<i8>) source #ac.source_provenance<"tests/native_family.py", 1, 1, 1, 1> graph {
+    ^bb0(%a: !ac.queue<i8>, %b: !ac.queue<i8>):
     %out_a, %out_b = ac.scope @logic(%a, %b) {
     ^bb0(%input_a: !ac.queue<i8>, %input_b: !ac.queue<i8>):
       ac.table @cursor entry i8 entries 1 init 0 owner "/logic"
@@ -117,9 +117,11 @@ builtin.module attributes {
       ac.scope.yield %result_a, %result_b : !ac.queue<i8>, !ac.queue<i8>
     } : (!ac.queue<i8>, !ac.queue<i8>) -> (!ac.queue<i8>, !ac.queue<i8>)
     ac.return %out_a, %out_b : !ac.queue<i8>, !ac.queue<i8>
-  }
 
-  ac.module @Top() parameters {} graph {
+    }
+  }
+  ac.module @Top source #ac.source_owner<"tests/native_family.py", "tests/native_family.py"> schema #ac.module_family_schema<#ac.static_parameters<[]>, #ac.static_cases<[#ac.static_arguments<[]>]>, #ac.module_interface<[]>, #ac.source_owner<"tests/native_family.py", "tests/native_family.py">, []> {
+    ac.module.case arguments #ac.static_arguments<[]> type () -> () source #ac.source_provenance<"tests/native_family.py", 1, 1, 1, 1> graph {
     %la, %lb, %ra, %rb = ac.scope @inputs() {
       %q0 = ac.source depth 2 latency 1 {ac.name = "left_a"} : !ac.queue<i8>
       %q1 = ac.source depth 2 latency 1 {ac.name = "left_b"} : !ac.queue<i8>
@@ -128,10 +130,10 @@ builtin.module attributes {
       ac.scope.yield %q0, %q1, %q2, %q3
           : !ac.queue<i8>, !ac.queue<i8>, !ac.queue<i8>, !ac.queue<i8>
     } : () -> (!ac.queue<i8>, !ac.queue<i8>, !ac.queue<i8>, !ac.queue<i8>)
-    %left:2 = ac.instance @left of @DualState(%la, %lb) static {}
+    %left:2 = ac.instance @left of @DualState(%la, %lb) static #ac.static_arguments<[]>
         id "left" path "left"
         : (!ac.queue<i8>, !ac.queue<i8>) -> (!ac.queue<i8>, !ac.queue<i8>)
-    %right:2 = ac.instance @right of @DualState(%ra, %rb) static {}
+    %right:2 = ac.instance @right of @DualState(%ra, %rb) static #ac.static_arguments<[]>
         id "right" path "right"
         : (!ac.queue<i8>, !ac.queue<i8>) -> (!ac.queue<i8>, !ac.queue<i8>)
     ac.scope @outputs(%left#0, %left#1, %right#0, %right#1) {
@@ -144,23 +146,17 @@ builtin.module attributes {
       ac.scope.yield
     } : (!ac.queue<i8>, !ac.queue<i8>, !ac.queue<i8>, !ac.queue<i8>) -> ()
     ac.return
+
+    }
   }
 }
 
-// PLAN: "module_specializations":[{
-// PLAN-SAME: "name":"output_a"
-// PLAN-SAME: "priority":0
-// PLAN-SAME: "state_writes":[{"fields":["$entry"]
-// PLAN-SAME: "table":"cursor"
-// PLAN-SAME: "table":"total"
-// PLAN-SAME: "name":"output_b"
-// PLAN-SAME: "priority":1
-// PLAN-SAME: "state_writes":[{"fields":["$entry"]
-// PLAN-SAME: "table":"cursor"
-// PLAN-SAME: "table":"total"
+// PLAN: "definition":"Top"
+// PLAN-SAME: "module_instances":[{"definition":"DualState","inputs":["left_a","left_b"]
+// PLAN-SAME: {"definition":"DualState","inputs":["right_a","right_b"]
 
 // CXX-COUNT-1: class [[IMPLEMENTATION:DualState]] final : public gfsim::Module
 // CXX: gfsim::QueueStateTransition<[[IMPLEMENTATION]]_rule_update_a_policy
 // CXX: gfsim::QueueStateTransition<[[IMPLEMENTATION]]_rule_update_b_policy
 // CXX: class CombinedReuse final : public gfsim::Module
-// CXX-COUNT-2: [[IMPLEMENTATION]] instance_
+// CXX-COUNT-2: std::unique_ptr<[[IMPLEMENTATION]]> instance_

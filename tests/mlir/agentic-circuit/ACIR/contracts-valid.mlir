@@ -11,7 +11,8 @@ builtin.module  {
     ac.event @push from @sender to @receiver payload i64 action "offer"
     ac.transition from @idle to @done on @push transfer true retain false guard {}
   }
-  ac.module @Observed(i1) parameters {} graph {
+  ac.module @Observed source #ac.source_owner<"tests/native_family.py", "tests/native_family.py"> schema #ac.module_family_schema<#ac.static_parameters<[]>, #ac.static_cases<[#ac.static_arguments<[]>]>, #ac.module_interface<[#ac.interface_port<"input_0", "input", #ac.type_expr<#ac.type_expr_concrete<i1>>, #ac.source_provenance<"tests/native_family.py", 1, 1, 1, 1>>]>, #ac.source_owner<"tests/native_family.py", "tests/native_family.py">, []> {
+    ac.module.case arguments #ac.static_arguments<[]> type (i1) -> () source #ac.source_provenance<"tests/native_family.py", 1, 1, 1, 1> graph {
   ^bb0(%static_condition : i1):
     ac.queue @queue payload i64 entries 8 ordering "fifo" protocol @fifo
         ownership "exclusive" id "queue" path "queue"
@@ -35,6 +36,8 @@ builtin.module  {
       ac.yield_sim
     }
     ac.return
+
+    }
   }
 }
 

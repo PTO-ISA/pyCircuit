@@ -4,6 +4,7 @@ import json
 import re
 from collections.abc import Callable
 from dataclasses import dataclass
+from pathlib import PurePath
 from typing import TYPE_CHECKING, Generic, TypeGuard, TypeVar
 
 from _pycircuit_semantics import (
@@ -84,6 +85,27 @@ class Module:
         # Extra `func.func` attributes emitted by `emit_func_mlir()`.
         # Values are stored as MLIR attribute literals (e.g. `"foo"`).
         self._func_attrs: dict[str, str] = {}
+        self._source_file = f"pycircuit/{name}.py"
+        self._source_line = 1
+
+    def set_source_location(self, source_file: str, line: int = 1) -> None:
+        """Attach the source owner used by the canonical PYC family carrier."""
+        if self._finalized:
+            raise RuntimeError("cannot set source location after emit_mlir()")
+        source = str(source_file).strip()
+        path = PurePath(source) if source else PurePath()
+        if (
+            not source
+            or source.startswith("<")
+            or path.is_absolute()
+            or path.suffix != ".py"
+            or ".." in path.parts
+        ):
+            source = f"pycircuit/{self.name}.py"
+        else:
+            source = path.as_posix()
+        self._source_file = source
+        self._source_line = max(1, int(line))
 
     def _set_func_attr_impl(self, key: str, value_literal: str) -> None:
         if self._finalized:
@@ -385,7 +407,7 @@ class Module:
     ) -> list[Signal]:
         """Instantiate a sub-module by symbol (pyc.instance).
 
-        `callee` is the referenced `func.func` symbol name.
+        `callee` is the referenced ``pyc.module`` family symbol name.
         """
         callee = str(callee).strip()
         if not callee:
@@ -404,17 +426,29 @@ class Module:
             else:
                 lhs = f"{', '.join(s.ref for s in out)} = "
 
-        ops = ", ".join(s.ref for s in inputs)
+        physical_inputs = list(inputs)
+        if not (
+            len(physical_inputs) >= 2
+            and isinstance(physical_inputs[0].ty, Clock)
+            and isinstance(physical_inputs[1].ty, Reset)
+        ):
+            clock, reset = self._control_signals()
+            physical_inputs[0:0] = [clock, reset]
+
+        ops = ", ".join(s.ref for s in physical_inputs)
         attrs = f"{{callee = @{callee}"
-        if name is not None:
-            attrs += f", name = {json.dumps(str(name), ensure_ascii=False)}"
+        instance_name = str(name).strip() if name is not None else ""
+        if not instance_name:
+            raise ValueError("instance_op name must be non-empty")
+        attrs += f", name = {json.dumps(instance_name, ensure_ascii=False)}"
+        attrs += ", static_args = #ac.dependent_arguments<[]>"
         if short_name is not None:
             attrs += f", short_name = {json.dumps(str(short_name), ensure_ascii=False)}"
         if keep:
             attrs += ", pyc.debug_keep = true"
         attrs += "}"
 
-        in_ty_sig = ", ".join(str(s.ty) for s in inputs)
+        in_ty_sig = ", ".join(str(s.ty) for s in physical_inputs)
         in_sig = f"({in_ty_sig})"
         if len(out) == 0:
             out_sig = "()"
@@ -710,42 +744,145 @@ class Module:
         self._indent_level -= 1
 
     # --- emission ---
-    def emit_func_mlir(self) -> str:
+    def _control_signals(self) -> tuple[Signal, Signal]:
+        if len(self._args) >= 2:
+            first = self._args[0][1]
+            second = self._args[1][1]
+            if isinstance(first.ty, Clock) and isinstance(second.ty, Reset):
+                return first, second
+        return Signal("%__pyc_clock", Clock()), Signal("%__pyc_reset", Reset())
+
+    @staticmethod
+    def _escape_attr(value: str) -> str:
+        return json.dumps(value, ensure_ascii=False)
+
+    def emit_family_mlir(self) -> str:
         if not self._finalized:
             self._finalized = True
             for fn in list(self._finalizers):
                 fn()
 
-        arg_sig = ", ".join(f"{sig.ref}: {sig.ty}" for _, sig in self._args)
+        clock, reset = self._control_signals()
+        has_explicit_controls = (
+            len(self._args) >= 2
+            and self._args[0][1] is clock
+            and self._args[1][1] is reset
+        )
+        logical_args = self._args[2:] if has_explicit_controls else self._args
+        physical_args = [("clock", clock), ("reset", reset), *logical_args]
+        arg_sig = ", ".join(f"{sig.ref}: {sig.ty}" for _, sig in physical_args)
         res_types = [v.ty for _, v in self._results]
         if len(res_types) == 0:
-            res_sig = "-> ()"
+            res_sig = "()"
             ret_ty = ""
         elif len(res_types) == 1:
-            res_sig = f"-> {res_types[0]}"
+            res_sig = str(res_types[0])
             ret_ty = res_types[0]
         else:
-            res_sig = f"-> ({', '.join(str(t) for t in res_types)})"
+            res_sig = f"({', '.join(str(t) for t in res_types)})"
             ret_ty = ", ".join(str(t) for t in res_types)
-        in_names = ", ".join(f'"{n}"' for n, _ in self._args)
-        out_names = ", ".join(f'"{n}"' for n, _ in self._results)
-        extra = ""
-        if self._func_attrs:
-            extra = ", " + ", ".join(f"{k} = {v}" for k, v in self._func_attrs.items())
+        source = self._escape_attr(self._source_file)
+        prov = f"#ac.source_provenance<{source}, {self._source_line}, 1, {self._source_line}, 1>"
+        owner = f"#ac.source_owner<{source}, {source}>"
+        empty_args = "#ac.static_arguments<[]>"
+        dependent_args = "#ac.dependent_arguments<[]>"
+
+        logical_ports: list[str] = []
+        logical_mappings: list[str] = []
+        physical_inputs: list[str] = []
+        physical_results: list[str] = []
+
+        def logical_type(ty: Data) -> str:
+            return f"#ac.type_expr<#ac.type_expr_concrete<{ty}>>"
+
+        def layout(ty: Data) -> str:
+            width = ty.width
+            return (
+                f"#pyc.layout<{width}, [#pyc.packed_leaf<"
+                f"#pyc.projection_path<[]>, {logical_type(ty)}, 0, {width}>]>"
+            )
+
+        for index, (name, sig) in enumerate(logical_args):
+            lty = logical_type(sig.ty)
+            carrier = (
+                f'#pyc.physical_port<"input", {index + 2}, {sig.ty}, "value" '
+                f"layout {layout(sig.ty)}>"
+            )
+            logical_ports.append(
+                f'#ac.interface_port<{self._escape_attr(name)}, "input", {lty}, {prov}>'
+            )
+            logical_mappings.append(
+                f'#pyc.logical_port_mapping<"input", {index}, {self._escape_attr(name)}, '
+                f"{lty}, [{carrier}], {prov}>"
+            )
+            physical_inputs.append(carrier)
+
+        for index, (name, sig) in enumerate(self._results):
+            lty = logical_type(sig.ty)
+            carrier = (
+                f'#pyc.physical_port<"result", {index}, {sig.ty}, "value" '
+                f"layout {layout(sig.ty)}>"
+            )
+            logical_ports.append(
+                f'#ac.interface_port<{self._escape_attr(name)}, "output", {lty}, {prov}>'
+            )
+            logical_mappings.append(
+                f'#pyc.logical_port_mapping<"output", {index}, {self._escape_attr(name)}, '
+                f"{lty}, [{carrier}], {prov}>"
+            )
+            physical_results.append(carrier)
+
+        interface = f"#ac.module_interface<[{', '.join(logical_ports)}]>"
+        schema = (
+            "#ac.module_family_schema<#ac.static_parameters<[]>, "
+            f"#ac.static_cases<[{empty_args}]>, {interface}, {owner}, []>"
+        )
+        clock_origin = f'#pyc.implicit_control_origin<"clock", "implicit", {prov}>'
+        reset_origin = f'#pyc.implicit_control_origin<"reset", "implicit", {prov}>'
+        controls = (
+            f'[#pyc.control_port_mapping<"clock", 0, !pyc.clock, {clock_origin}>, '
+            f'#pyc.control_port_mapping<"reset", 1, !pyc.reset, {reset_origin}>]'
+        )
+        mapping = (
+            f"#pyc.module_port_mapping<{controls}, [{', '.join(logical_mappings)}], "
+            f"[{', '.join(physical_inputs)}], [{', '.join(physical_results)}]>"
+        )
+        physical = (
+            f"({', '.join(str(sig.ty) for _, sig in physical_args)}) -> {res_sig}"
+        )
+        signature = f"#pyc.module_case_signature<{dependent_args}, {interface}, {physical}, {mapping}>"
         header = (
-            f"func.func @{self.name}({arg_sig}) {res_sig} "
-            f"attributes {{arg_names = [{in_names}], result_names = [{out_names}]{extra}}} {{\n"
+            f"pyc.module @{self.name} source {owner} schema {schema} {{\n"
+            f"  pyc.module.case signature {signature} source {prov} {{\n"
+            f"  ^bb0({arg_sig}):\n"
         )
         body = "\n".join(self._lines)
         outs = ", ".join(v.ref for _, v in self._results)
+        family_attrs = {
+            key: value for key, value in self._func_attrs.items() if key != "pyc.params"
+        }
+        attr_dict = ""
+        if family_attrs:
+            attr_dict = (
+                " {"
+                + ", ".join(f"{key} = {value}" for key, value in family_attrs.items())
+                + "}"
+            )
         if outs:
-            tail = f"\n  func.return {outs} : {ret_ty}\n}}\n"
+            tail = f"\n    pyc.return {outs} : {ret_ty}\n  }}\n}}{attr_dict}\n"
         else:
-            tail = "\n  func.return\n}\n"
+            tail = f"\n    pyc.return\n  }}\n}}{attr_dict}\n"
         return header + body + tail
 
     def emit_mlir(self) -> str:
-        return "module {\n" + self.emit_func_mlir() + "}\n"
+        return "module {\n" + self.emit_family_mlir() + "}\n"
+
+    def emit_family_import_mlir(self) -> str:
+        """Emit this zero-parameter family's source-owned declaration."""
+        header, separator, _ = self.emit_family_mlir().partition(" {\n")
+        if not separator:
+            raise RuntimeError("failed to form PYC family import")
+        return header.replace("pyc.module @", "pyc.module.import @", 1) + "\n"
 
     # --- finalizers ---
     def add_finalizer(self, fn: Callable[[], None]) -> None:

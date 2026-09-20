@@ -11,9 +11,9 @@ builtin.module attributes {
   ac.system @host_result root @Top as "root" tick 0 "cycle"
       seed {kind = "fixed", value = 0 : i64} instrumentation []
       results {id = "default", format = "json"} selected true
-
-  ac.module @Increment(%input: !ac.queue<i8>) -> !ac.queue<i8>
-      parameters {} graph {
+ac.module @Increment source #ac.source_owner<"tests/native_family.py", "tests/native_family.py"> schema #ac.module_family_schema<#ac.static_parameters<[]>, #ac.static_cases<[#ac.static_arguments<[]>]>, #ac.module_interface<[#ac.interface_port<"input_0", "input", #ac.type_expr<#ac.type_expr_concrete<!ac.queue<i8>>>, #ac.source_provenance<"tests/native_family.py", 1, 1, 1, 1>>, #ac.interface_port<"output_0", "output", #ac.type_expr<#ac.type_expr_concrete<!ac.queue<i8>>>, #ac.source_provenance<"tests/native_family.py", 1, 1, 1, 1>>]>, #ac.source_owner<"tests/native_family.py", "tests/native_family.py">, []> {
+    ac.module.case arguments #ac.static_arguments<[]> type (!ac.queue<i8>) -> !ac.queue<i8> source #ac.source_provenance<"tests/native_family.py", 1, 1, 1, 1> graph {
+    ^bb0(%input: !ac.queue<i8>):
     %output = ac.scope @body(%input) {
     ^bb0(%borrowed: !ac.queue<i8>):
       %next = ac.transform %borrowed depths [1] latencies [1] {
@@ -25,18 +25,22 @@ builtin.module attributes {
       ac.scope.yield %next : !ac.queue<i8>
     } : (!ac.queue<i8>) -> !ac.queue<i8>
     ac.return %output : !ac.queue<i8>
-  }
 
-  ac.module @Top() -> !ac.queue<i8> parameters {} graph {
+    }
+  }
+  ac.module @Top source #ac.source_owner<"tests/native_family.py", "tests/native_family.py"> schema #ac.module_family_schema<#ac.static_parameters<[]>, #ac.static_cases<[#ac.static_arguments<[]>]>, #ac.module_interface<[#ac.interface_port<"output_0", "output", #ac.type_expr<#ac.type_expr_concrete<!ac.queue<i8>>>, #ac.source_provenance<"tests/native_family.py", 1, 1, 1, 1>>]>, #ac.source_owner<"tests/native_family.py", "tests/native_family.py">, []> {
+    ac.module.case arguments #ac.static_arguments<[]> type () -> !ac.queue<i8> source #ac.source_provenance<"tests/native_family.py", 1, 1, 1, 1> graph {
     %input = ac.scope @inputs() {
       %source = ac.source depth 1 latency 1 {ac.name = "input"}
           : !ac.queue<i8>
       ac.scope.yield %source : !ac.queue<i8>
     } : () -> !ac.queue<i8>
-    %output = ac.instance @increment of @Increment(%input) static {}
+    %output = ac.instance @increment of @Increment(%input) static #ac.static_arguments<[]>
         id "increment" path "increment"
         : (!ac.queue<i8>) -> !ac.queue<i8>
     ac.return %output : !ac.queue<i8>
+
+    }
   }
 }
 

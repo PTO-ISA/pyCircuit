@@ -581,7 +581,7 @@ def _static_parameter_value(
     )
 
 
-def _static_type_bindings_for_checks(
+def _resolved_type_bindings_for_checks(
     checks: Collection[StaticTypeCheck],
     aliases: Mapping[str, StaticParameterAlias],
     values: Mapping[str, StaticValue],
@@ -628,6 +628,19 @@ def _config_schema_document(
         raise QueueFrontendError(
             f"ACPY-TYPE-008: recursive config schema is unsupported: {cycle}"
         )
+    if node.bases or node.keywords:
+        raise QueueFrontendError(
+            "ACPY-TYPE-008: config inheritance is not supported"
+        )
+    enum_names = {
+        candidate.name
+        for candidate in tree.body
+        if isinstance(candidate, ast.ClassDef)
+        and any(
+            isinstance(base, ast.Name) and base.id in {"Enum", "IntEnum"}
+            for base in candidate.bases
+        )
+    }
     fields: list[dict[str, object]] = []
     for statement in node.body:
         if (
@@ -642,6 +655,10 @@ def _config_schema_document(
             raise QueueFrontendError(
                 "ACPY-TYPE-008: config schemas require annotated data fields"
             )
+        if statement.value is not None:
+            raise QueueFrontendError(
+                "ACPY-TYPE-008: config fields cannot have defaults"
+            )
         annotation = _decorator_name(statement.annotation).rsplit(".", 1)[-1]
         if annotation in declarations:
             field_type: object = _config_schema_document(
@@ -649,18 +666,59 @@ def _config_schema_document(
                 annotation,
                 (*active, type_name),
             )
-        else:
-            annotation_text = ast.unparse(statement.annotation)
-            if annotation_text not in {"int", "bool", "float", "str"}:
-                raise QueueFrontendError(
-                    "ACPY-TYPE-008: typed config roots support only int, bool, "
-                    "float, str, or nested @ac.config fields"
-                )
+        elif annotation == "bool" and isinstance(statement.annotation, ast.Name):
             field_type = {
-                "kind": "scalar",
-                "name": annotation_text,
+                "kind": "bool",
                 "version": 1,
             }
+        elif annotation in enum_names and isinstance(statement.annotation, ast.Name):
+            field_type = {
+                "kind": "enum",
+                "name": annotation,
+                "version": 1,
+            }
+        elif (
+            annotation == "static_int"
+            and isinstance(statement.annotation, ast.Call)
+            and not statement.annotation.args
+        ):
+            keywords = {
+                keyword.arg: keyword.value
+                for keyword in statement.annotation.keywords
+            }
+            if None in keywords or set(keywords) != {"width", "signed"}:
+                raise QueueFrontendError(
+                    "ACPY-TYPE-008: config static_int requires literal width "
+                    "and signedness"
+                )
+            width_node = keywords["width"]
+            signed_node = keywords["signed"]
+            if (
+                not isinstance(width_node, ast.Constant)
+                or type(width_node.value) is not int
+                or width_node.value <= 0
+                or not isinstance(signed_node, ast.Constant)
+                or type(signed_node.value) is not bool
+            ):
+                raise QueueFrontendError(
+                    "ACPY-TYPE-008: config static_int requires literal positive "
+                    "width and Boolean signedness"
+                )
+            field_type = {
+                "kind": "static_int",
+                "signed": signed_node.value,
+                "version": 1,
+                "width": width_node.value,
+            }
+        else:
+            raise QueueFrontendError(
+                "ACPY-TYPE-008: typed config roots support only bool, explicit "
+                "static_int, nominal enum, or nested @ac.config fields"
+            )
+        if any(field["name"] == statement.target.id for field in fields):
+            raise QueueFrontendError(
+                "ACPY-TYPE-008: config schemas require unique annotated fields"
+            )
         fields.append({"name": statement.target.id, "type": field_type})
     if not fields or len({field["name"] for field in fields}) != len(fields):
         raise QueueFrontendError(
@@ -674,7 +732,7 @@ def _config_schema_document(
     }
 
 
-def _static_config_bindings_for_checks(
+def _resolved_config_values_for_checks(
     tree: ast.Module,
     checks: Collection[StaticTypeCheck],
     aliases: Mapping[str, StaticParameterAlias],
@@ -1386,6 +1444,13 @@ def _payload(
     enums: Mapping[str, ValueType] | None = None,
     static_values: Mapping[str, StaticValue] | None = None,
 ) -> ValueType:
+    if (
+        isinstance(node, ast.Subscript)
+        and _decorator_name(node.value).rsplit(".", 1)[-1] == "Queue"
+        and isinstance(node.slice, ast.Tuple)
+        and len(node.slice.elts) == 3
+    ):
+        node = node.slice.elts[0]
     try:
         return _scalar_type_descriptor(node, static_values)
     except QueueFrontendError:

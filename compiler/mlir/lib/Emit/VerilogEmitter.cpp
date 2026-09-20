@@ -1,5 +1,7 @@
 #include "pyc/Emit/VerilogEmitter.h"
 
+#include "acir/Dialect/ACIR/ACIROps.h"
+#include "pyc/Dialect/PYC/PYCAttributes.h"
 #include "pyc/Dialect/PYC/PYCOps.h"
 #include "pyc/Dialect/PYC/PYCTypes.h"
 
@@ -232,6 +234,226 @@ static void computeUniquePortNames(func::FuncOp f, std::vector<std::string> &inN
   for (unsigned i = 0; i < numResults; ++i) {
     outNames.push_back(nt.unique(getPortName(f, i, /*isResult=*/true)));
   }
+}
+
+static LogicalResult computeCasePortNames(pyc::ModuleCaseOp moduleCase,
+                                          std::vector<std::string> &inNames,
+                                          std::vector<std::string> &outNames) {
+  auto signature = moduleCase.getSignature();
+  auto functionType = cast<FunctionType>(signature.getPhysical().getValue());
+  inNames.assign(functionType.getNumInputs(), std::string());
+  outNames.assign(functionType.getNumResults(), std::string());
+  NameTable names;
+  for (ControlPortMappingAttr control :
+       signature.getMapping().getControls().getAsRange<ControlPortMappingAttr>()) {
+    std::string name = control.getKind().getValue() == "clock" ? "clk" : "rst";
+    inNames[control.getPhysicalInputIndex()] = names.unique(name);
+  }
+  for (LogicalPortMappingAttr logical : signature.getMapping()
+                                                   .getLogicalPorts()
+                                                   .getAsRange<LogicalPortMappingAttr>()) {
+    uint64_t lanes = 0;
+    for (PhysicalPortAttr carrier :
+         logical.getCarriers().getAsRange<PhysicalPortAttr>())
+      if (carrier.getLane())
+        lanes = std::max(lanes,
+                         carrier.getLane().getValue().getZExtValue() + 1);
+    for (PhysicalPortAttr carrier :
+         logical.getCarriers().getAsRange<PhysicalPortAttr>()) {
+      std::string name = sanitizeId(logical.getName().getValue());
+      StringRef role = carrier.getRole().getValue();
+      if (role == "queue_valid")
+        name += "_valid";
+      else if (role == "queue_data")
+        name += "_data";
+      else if (role == "queue_ready")
+        name += "_ready";
+      if (carrier.getLane() && lanes > 1)
+        name += "_" + std::to_string(carrier.getLane().getValue().getZExtValue());
+      auto &ports = carrier.getDirection().getValue() == "input" ? inNames
+                                                                  : outNames;
+      ports[carrier.getIndex()] = names.unique(name);
+    }
+  }
+  if (llvm::any_of(inNames, [](const std::string &name) { return name.empty(); }) ||
+      llvm::any_of(outNames, [](const std::string &name) { return name.empty(); }))
+    return moduleCase.emitError("verified case mapping has an unnamed physical carrier");
+  return success();
+}
+
+static std::optional<std::string> verilogStaticRawValue(Attribute value) {
+  if (auto boolean = dyn_cast<acir::ac::StaticBoolValueAttr>(value))
+    return std::string(boolean.getValue() ? "1'b1" : "1'b0");
+  if (auto integer = dyn_cast<acir::ac::StaticIntValueAttr>(value)) {
+    llvm::SmallString<64> spelling;
+    integer.getValue().getValue().toString(
+        spelling, 10, integer.getType().getIsSigned());
+    return spelling.str().str();
+  }
+  if (auto enumeration = dyn_cast<acir::ac::StaticEnumValueAttr>(value))
+    return sanitizeId(enumeration.getDeclaration().getValue()) + "_" +
+           sanitizeId(enumeration.getMember().getValue());
+  if (auto config = dyn_cast<acir::ac::StaticConfigValueAttr>(value)) {
+    std::string result =
+        sanitizeId(config.getDeclaration().getValue()) + "'{";
+    bool first = true;
+    for (acir::ac::StaticConfigFieldValueAttr field :
+         config.getFields().getFields().getAsRange<
+             acir::ac::StaticConfigFieldValueAttr>()) {
+      auto fieldValue = verilogStaticRawValue(field.getValue());
+      if (!fieldValue)
+        return std::nullopt;
+      if (!first)
+        result += ", ";
+      first = false;
+      result += *fieldValue;
+    }
+    result += "}";
+    return result;
+  }
+  return std::nullopt;
+}
+
+static std::optional<std::string>
+verilogStaticValue(acir::ac::StaticValueAttr wrapped) {
+  return verilogStaticRawValue(wrapped.getValue());
+}
+
+static std::optional<std::string>
+verilogCaseCondition(acir::ac::StaticArgumentsAttr arguments) {
+  std::string result;
+  llvm::raw_string_ostream stream(result);
+  bool first = true;
+  for (acir::ac::StaticArgumentAttr argument :
+       arguments.getArguments().getAsRange<acir::ac::StaticArgumentAttr>()) {
+    auto value = verilogStaticValue(argument.getValue());
+    if (!value)
+      return std::nullopt;
+    if (!first)
+      stream << " && ";
+    first = false;
+    stream << "(" << sanitizeId(argument.getName().getValue()) << " == "
+           << *value << ")";
+  }
+  return first ? std::optional<std::string>("1'b1")
+               : std::optional<std::string>(stream.str());
+}
+
+static std::optional<std::string>
+verilogInstanceParameters(acir::ac::StaticArgumentsAttr arguments) {
+  std::string result;
+  llvm::raw_string_ostream stream(result);
+  bool first = true;
+  for (acir::ac::StaticArgumentAttr argument :
+       arguments.getArguments().getAsRange<acir::ac::StaticArgumentAttr>()) {
+    auto value = verilogStaticValue(argument.getValue());
+    if (!value)
+      return std::nullopt;
+    if (!first)
+      stream << ", ";
+    first = false;
+    stream << "." << sanitizeId(argument.getName().getValue()) << "(" << *value
+           << ")";
+  }
+  return stream.str();
+}
+
+static std::optional<std::string> verilogStaticType(Attribute type) {
+  if (isa<acir::ac::StaticBoolTypeAttr>(type))
+    return std::string("bit");
+  if (auto integer = dyn_cast<acir::ac::StaticIntTypeAttr>(type)) {
+    std::string result = "logic ";
+    if (integer.getIsSigned())
+      result += "signed ";
+    result += "[" + std::to_string(integer.getWidth() - 1) + ":0]";
+    return result;
+  }
+  if (auto enumeration = dyn_cast<acir::ac::StaticEnumTypeAttr>(type))
+    return sanitizeId(enumeration.getDeclaration().getValue());
+  if (auto config = dyn_cast<acir::ac::StaticConfigTypeAttr>(type))
+    return sanitizeId(config.getDeclaration().getValue());
+  return std::nullopt;
+}
+
+static LogicalResult emitVerilogNominalDeclarations(ModuleOp module,
+                                                     raw_ostream &os) {
+  llvm::StringMap<Attribute> emittedTypes;
+  for (pyc::FamilyOp family : module.getOps<pyc::FamilyOp>()) {
+    for (acir::ac::StaticParameterAttr parameter :
+         family.getSchema()
+             .getParameters()
+             .getParameters()
+             .getAsRange<acir::ac::StaticParameterAttr>()) {
+      Attribute type = parameter.getType().getValue();
+      if (auto enumeration = dyn_cast<acir::ac::StaticEnumTypeAttr>(type)) {
+        StringRef name = enumeration.getDeclaration().getValue();
+        if (auto previous = emittedTypes.find(name);
+            previous != emittedTypes.end()) {
+          if (previous->second != type)
+            return family.emitError(
+                "nominal enum parameter definitions disagree");
+          continue;
+        }
+        acir::ac::EnumOp declaration;
+        for (acir::ac::TypeScopeOp scope :
+             module.getOps<acir::ac::TypeScopeOp>())
+          for (acir::ac::EnumOp candidate :
+               scope.getBody().front().getOps<acir::ac::EnumOp>())
+            if (candidate.getSymName() == name)
+              declaration = candidate;
+        if (!declaration)
+          return family.emitError("nominal enum definition is unavailable: ")
+                 << name;
+        emittedTypes.try_emplace(name, type);
+        uint64_t width = declaration.getEncodingWidth().value_or(32);
+        os << "typedef enum logic [" << (width - 1) << ":0] {\n";
+        ArrayAttr values = declaration.getValuesAttr();
+        for (auto [index, rawMember] :
+             llvm::enumerate(declaration.getEnumerants())) {
+          os << "  " << sanitizeId(name) << "_"
+             << sanitizeId(cast<StringAttr>(rawMember).getValue()) << " = "
+             << width << "'d";
+          if (values) {
+            llvm::SmallString<64> spelling;
+            cast<IntegerAttr>(values[index]).getValue().toStringUnsigned(
+                spelling, 10);
+            os << spelling;
+          } else {
+            os << index;
+          }
+          os << (index + 1 == declaration.getEnumerants().size() ? "\n"
+                                                                  : ",\n");
+        }
+        os << "} " << sanitizeId(name) << ";\n\n";
+        continue;
+      }
+      auto config = dyn_cast<acir::ac::StaticConfigTypeAttr>(type);
+      if (!config)
+        continue;
+      StringRef name = config.getDeclaration().getValue();
+      if (auto previous = emittedTypes.find(name);
+          previous != emittedTypes.end()) {
+        if (previous->second != type)
+          return family.emitError(
+              "nominal config parameter definitions disagree");
+        continue;
+      }
+      emittedTypes.try_emplace(name, type);
+      os << "typedef struct packed {\n";
+      for (acir::ac::StaticConfigFieldAttr field :
+           config.getFields().getFields().getAsRange<
+               acir::ac::StaticConfigFieldAttr>()) {
+        auto fieldType = verilogStaticType(field.getType());
+        if (!fieldType)
+          return family.emitError(
+              "Verilog config field uses an unsupported static type");
+        os << "  " << *fieldType << " "
+           << sanitizeId(field.getName().getValue()) << ";\n";
+      }
+      os << "} " << sanitizeId(name) << ";\n\n";
+    }
+  }
+  return success();
 }
 
 // Emit a single combinational assignment for the common scalar/elementwise op
@@ -670,42 +892,64 @@ static bool topoSortCombOps(ArrayRef<Operation *> ops, NameTable &nt, llvm::Smal
   return true;
 }
 
-static LogicalResult emitFunc(func::FuncOp f, raw_ostream &os, const VerilogEmitterOptions &opts) {
+static LogicalResult emitBlockModule(
+    Operation *owner, StringRef symbol, Block &top, FunctionType functionType,
+    ArrayRef<std::string> inputPortNames,
+    ArrayRef<std::string> outputPortNames, ValueRange returnValues,
+    raw_ostream &os, const VerilogEmitterOptions &opts,
+    StringRef parameterClause = {}, ArrayRef<std::string> inputRanges = {},
+    ArrayRef<std::string> outputRanges = {}, StringRef bodyPrefix = {},
+    StringRef bodySuffix = {}, bool emitHeader = true, bool emitFooter = true) {
   (void)opts;
   NameTable nt;
   std::vector<std::string> outNames;
-  outNames.reserve(f.getNumResults());
-  os << "// Generated by pycc (pyCircuit)\n";
-  os << "// Module: " << f.getSymName() << "\n\n";
-
-  // Module header.
-  os << "module " << f.getSymName() << " (\n";
-  for (auto [i, arg] : llvm::enumerate(f.getArguments())) {
-    std::string portName = nt.unique(getPortName(f, i, /*isResult=*/false));
-    std::string range = vPortRange(arg.getType());
-    os << "  input ";
-    if (!range.empty())
-      os << range << " ";
-    os << portName;
-    os << ((i + 1 == f.getNumArguments() && f.getNumResults() == 0) ? "\n" : ",\n");
+  outNames.reserve(functionType.getNumResults());
+  if (emitHeader) {
+    os << "// Generated by pycc (pyCircuit)\n";
+    os << "// Module: " << symbol << "\n\n";
+    os << "module " << symbol;
+    if (!parameterClause.empty())
+      os << " #(\n" << parameterClause << "\n)";
+    os << " (\n";
+  }
+  for (auto [i, arg] : llvm::enumerate(top.getArguments())) {
+    std::string portName = nt.unique(inputPortNames[i]);
+    if (emitHeader) {
+      std::string range = inputRanges.empty() ? vPortRange(arg.getType())
+                                               : inputRanges[i];
+      os << "  input ";
+      if (!range.empty())
+        os << range << " ";
+      os << portName;
+      os << ((i + 1 == top.getNumArguments() &&
+              functionType.getNumResults() == 0)
+                 ? "\n"
+                 : ",\n");
+    }
     nt.names.try_emplace(arg, portName);
   }
-  for (unsigned i = 0; i < f.getNumResults(); ++i) {
-    std::string portName = nt.unique(getPortName(f, i, /*isResult=*/true));
+  for (unsigned i = 0; i < functionType.getNumResults(); ++i) {
+    std::string portName = nt.unique(outputPortNames[i]);
     outNames.push_back(portName);
-    std::string range = vPortRange(f.getResultTypes()[i]);
-    os << "  output ";
-    if (!range.empty())
-      os << range << " ";
-    os << portName;
-    os << ((i + 1 == f.getNumResults()) ? "\n" : ",\n");
+    if (emitHeader) {
+      std::string range = outputRanges.empty()
+                              ? vPortRange(functionType.getResult(i))
+                              : outputRanges[i];
+      os << "  output ";
+      if (!range.empty())
+        os << range << " ";
+      os << portName;
+      os << ((i + 1 == functionType.getNumResults()) ? "\n" : ",\n");
+    }
   }
-  os << ");\n\n";
+  if (emitHeader)
+    os << ");\n\n";
+  os << bodyPrefix;
 
   // Declare internal nets for op results (including results inside pyc.comb regions).
   std::vector<NetDecl> decls;
   decls.reserve(256);
-  f.walk([&](Operation *op) {
+  owner->walk([&](Operation *op) {
     for (Value r : op->getResults()) {
       NetDecl d;
       d.name = nt.get(r);
@@ -735,9 +979,8 @@ static LogicalResult emitFunc(func::FuncOp f, raw_ostream &os, const VerilogEmit
   llvm::SmallVector<Operation *> instOps;
   llvm::SmallVector<Operation *> seqInstOps;
 
-  for (Block &b : f.getBody()) {
-    for (Operation &op : b) {
-      if (isa<func::ReturnOp>(op))
+  for (Operation &op : top) {
+      if (isa<func::ReturnOp, pyc::ReturnOp>(op))
         continue;
       if (isa<pyc::WireOp>(op))
         continue;
@@ -767,7 +1010,6 @@ static LogicalResult emitFunc(func::FuncOp f, raw_ostream &os, const VerilogEmit
         continue;
       }
       return op.emitError("unsupported op for verilog emission: ") << op.getName();
-    }
   }
 
   auto cmp = [&](Operation *a, Operation *b) { return opSortKey(a, nt) < opSortKey(b, nt); };
@@ -817,9 +1059,9 @@ static LogicalResult emitFunc(func::FuncOp f, raw_ostream &os, const VerilogEmit
 
   if (!instOps.empty()) {
     os << "// --- Submodules\n";
-    ModuleOp mod = f->getParentOfType<ModuleOp>();
+    ModuleOp mod = owner->getParentOfType<ModuleOp>();
     if (!mod)
-      return f.emitError("verilog emitter: missing parent module for instance resolution");
+      return owner->emitError("verilog emitter: missing parent module for instance resolution");
     for (Operation *op : instOps) {
       auto inst = dyn_cast<pyc::InstanceOp>(op);
       if (!inst)
@@ -828,13 +1070,42 @@ static LogicalResult emitFunc(func::FuncOp f, raw_ostream &os, const VerilogEmit
       auto calleeAttr = op->getAttrOfType<FlatSymbolRefAttr>("callee");
       if (!calleeAttr)
         return inst.emitError("missing required FlatSymbolRefAttr `callee`");
-      auto callee = mod.lookupSymbol<func::FuncOp>(calleeAttr.getValue());
-      if (!callee)
-        return inst.emitError("callee symbol not found: ") << calleeAttr.getValue();
-
       std::vector<std::string> inPorts;
       std::vector<std::string> outPorts;
-      computeUniquePortNames(callee, inPorts, outPorts);
+      std::string calleeName;
+      std::string calleeParameters;
+      if (auto callee = mod.lookupSymbol<func::FuncOp>(calleeAttr.getValue())) {
+        computeUniquePortNames(callee, inPorts, outPorts);
+        calleeName = callee.getSymName().str();
+      } else if (auto family =
+                     mod.lookupSymbol<pyc::FamilyOp>(calleeAttr.getValue())) {
+        pyc::ModuleCaseOp selected;
+        for (pyc::ModuleCaseOp candidate :
+             family.getBody().front().getOps<pyc::ModuleCaseOp>())
+          if (candidate.getSignature().getArguments() == inst.getStaticArgs()) {
+            selected = candidate;
+            break;
+          }
+        if (!selected)
+          return inst.emitError("static arguments do not select a family case");
+        if (failed(computeCasePortNames(selected, inPorts, outPorts)))
+          return failure();
+        calleeName = family.getSymName().str();
+        if (!family.getSchema().getParameters().getParameters().empty()) {
+          auto concreteArguments = pyc::staticArgumentsFromDependent(
+              inst.getStaticArgs());
+          if (failed(concreteArguments))
+            return inst.emitError(
+                "Verilog instance arguments must be concrete typed values");
+          auto parameters = verilogInstanceParameters(*concreteArguments);
+          if (!parameters)
+            return inst.emitError(
+                "Verilog family emission does not support this static value type");
+          calleeParameters = *parameters;
+        }
+      } else {
+        return inst.emitError("callee symbol not found: ") << calleeAttr.getValue();
+      }
       if (inPorts.size() != inst.getNumOperands())
         return inst.emitError("operand count does not match callee signature");
       if (outPorts.size() != inst.getNumResults())
@@ -857,7 +1128,10 @@ static LogicalResult emitFunc(func::FuncOp f, raw_ostream &os, const VerilogEmit
       for (unsigned i = 0; i < outPorts.size(); ++i)
         outConn.push_back(nt.get(inst.getResult(i)));
 
-      os << callee.getSymName() << " " << instName << " (\n";
+      os << calleeName;
+      if (!calleeParameters.empty())
+        os << " #(" << calleeParameters << ")";
+      os << " " << instName << " (\n";
       unsigned totalPorts = static_cast<unsigned>(inPorts.size() + outPorts.size());
       unsigned emitted = 0;
 
@@ -1044,16 +1318,182 @@ static LogicalResult emitFunc(func::FuncOp f, raw_ostream &os, const VerilogEmit
   }
 
   // Connect outputs from return.
+  for (auto [i, v] : llvm::enumerate(returnValues)) {
+    if (nt.get(v) == outNames[i])
+      continue;
+    emitConnectAssign(outNames[i], nt.get(v), functionType.getResult(i), os);
+  }
+
+  os << bodySuffix;
+  if (emitFooter)
+    os << "\nendmodule\n\n";
+  return success();
+}
+
+static LogicalResult emitFunc(func::FuncOp f, raw_ostream &os,
+                              const VerilogEmitterOptions &opts) {
+  if (!llvm::hasSingleElement(f.getBody()))
+    return f.emitError("verilog emitter currently supports single-block functions only");
+  std::vector<std::string> inputNames;
+  std::vector<std::string> outputNames;
+  computeUniquePortNames(f, inputNames, outputNames);
   auto ret = dyn_cast_or_null<func::ReturnOp>(f.getBody().front().getTerminator());
   if (!ret)
     return f.emitError("missing return");
-  for (auto [i, v] : llvm::enumerate(ret.getOperands())) {
-    if (nt.get(v) == outNames[i])
-      continue;
-    emitConnectAssign(outNames[i], nt.get(v), f.getResultTypes()[i], os);
+  return emitBlockModule(f, f.getSymName(), f.getBody().front(),
+                         f.getFunctionType(), inputNames, outputNames,
+                         ret.getOperands(), os, opts);
+}
+
+static LogicalResult emitFamily(pyc::FamilyOp family, raw_ostream &os,
+                                const VerilogEmitterOptions &opts) {
+  auto cases = family.getBody().front().getOps<pyc::ModuleCaseOp>();
+  auto parameters = family.getSchema().getParameters().getParameters();
+  if (parameters.empty()) {
+    if (!llvm::hasSingleElement(cases))
+      return family.emitError("an unparameterized family must have one case");
+    pyc::ModuleCaseOp moduleCase = *cases.begin();
+    std::vector<std::string> inputNames;
+    std::vector<std::string> outputNames;
+    if (failed(computeCasePortNames(moduleCase, inputNames, outputNames)))
+      return failure();
+    auto functionType = cast<FunctionType>(
+        moduleCase.getSignature().getPhysical().getValue());
+    auto ret = dyn_cast_or_null<pyc::ReturnOp>(
+        moduleCase.getBody().front().getTerminator());
+    if (!ret)
+      return moduleCase.emitError("missing pyc.return");
+    return emitBlockModule(moduleCase, family.getSymName(),
+                           moduleCase.getBody().front(), functionType,
+                           inputNames, outputNames, ret.getValues(), os, opts);
   }
 
-  os << "\nendmodule\n\n";
+  llvm::SmallVector<pyc::ModuleCaseOp> orderedCases(cases.begin(), cases.end());
+  std::vector<std::string> inputNames;
+  std::vector<std::string> outputNames;
+  if (failed(computeCasePortNames(orderedCases.front(), inputNames,
+                                  outputNames)))
+    return failure();
+  auto firstType = cast<FunctionType>(
+      orderedCases.front().getSignature().getPhysical().getValue());
+  std::vector<std::string> conditions;
+  conditions.reserve(orderedCases.size());
+  for (pyc::ModuleCaseOp moduleCase : orderedCases) {
+    std::vector<std::string> caseInputs;
+    std::vector<std::string> caseOutputs;
+    if (failed(computeCasePortNames(moduleCase, caseInputs, caseOutputs)))
+      return failure();
+    auto functionType = cast<FunctionType>(
+        moduleCase.getSignature().getPhysical().getValue());
+    if (caseInputs != inputNames || caseOutputs != outputNames ||
+        functionType.getNumInputs() != firstType.getNumInputs() ||
+        functionType.getNumResults() != firstType.getNumResults())
+      return family.emitError(
+          "admitted cases do not share one representable RTL carrier shape");
+    auto arguments = pyc::staticArgumentsFromDependent(
+        moduleCase.getSignature().getArguments());
+    if (failed(arguments))
+      return moduleCase.emitError(
+          "Verilog family case arguments must be concrete typed values");
+    auto condition = verilogCaseCondition(*arguments);
+    if (!condition)
+      return moduleCase.emitError(
+          "Verilog family emission does not support this static value type");
+    conditions.push_back(*condition);
+  }
+
+  auto physicalWidth = [&](Type type) -> std::optional<unsigned> {
+    if (isa<pyc::ClockType, pyc::ResetType>(type))
+      return 1;
+    return leafWidth(type);
+  };
+  auto makeRanges = [&](bool inputs) -> std::optional<std::vector<std::string>> {
+    unsigned count = inputs ? firstType.getNumInputs() : firstType.getNumResults();
+    std::vector<std::string> ranges(count);
+    for (unsigned index = 0; index < count; ++index) {
+      llvm::SmallVector<unsigned> widths;
+      for (pyc::ModuleCaseOp moduleCase : orderedCases) {
+        auto type = cast<FunctionType>(
+            moduleCase.getSignature().getPhysical().getValue());
+        auto width = physicalWidth(inputs ? type.getInput(index)
+                                          : type.getResult(index));
+        if (!width)
+          return std::nullopt;
+        widths.push_back(*width);
+      }
+      if (llvm::all_of(widths, [](unsigned width) { return width == 1; }))
+        continue;
+      std::string expression = std::to_string(widths.back());
+      for (int caseIndex = static_cast<int>(widths.size()) - 2; caseIndex >= 0;
+           --caseIndex)
+        expression = "(" + conditions[caseIndex] + " ? " +
+                     std::to_string(widths[caseIndex]) + " : " + expression +
+                     ")";
+      ranges[index] = "[(" + expression + ")-1:0]";
+    }
+    return ranges;
+  };
+  auto inputRanges = makeRanges(true);
+  auto outputRanges = makeRanges(false);
+  if (!inputRanges || !outputRanges)
+    return family.emitError(
+        "admitted family case has a non-integer physical RTL carrier");
+
+  auto firstStaticArguments = pyc::staticArgumentsFromDependent(
+      orderedCases.front().getSignature().getArguments());
+  if (failed(firstStaticArguments))
+    return family.emitError(
+        "default family case arguments must be concrete typed values");
+  auto firstArguments = firstStaticArguments->getArguments()
+                            .getAsRange<acir::ac::StaticArgumentAttr>();
+  auto firstArgument = firstArguments.begin();
+  std::string parameterClause;
+  llvm::raw_string_ostream parameterStream(parameterClause);
+  bool first = true;
+  for (acir::ac::StaticParameterAttr parameter :
+       parameters.getAsRange<acir::ac::StaticParameterAttr>()) {
+    if (firstArgument == firstArguments.end())
+      return family.emitError("default case arguments are incomplete");
+    auto defaultValue = verilogStaticValue((*firstArgument++).getValue());
+    if (!defaultValue)
+      return family.emitError(
+          "Verilog family emission does not support this static parameter type");
+    if (!first)
+      parameterStream << ",\n";
+    first = false;
+    Attribute type = parameter.getType().getValue();
+    auto typeSpelling = verilogStaticType(type);
+    if (!typeSpelling)
+      return family.emitError(
+          "Verilog family emission does not support this static parameter type");
+    parameterStream << "  parameter " << *typeSpelling << " "
+                    << sanitizeId(parameter.getName().getValue()) << " = "
+                    << *defaultValue;
+  }
+  parameterStream.flush();
+
+  for (auto [caseIndex, moduleCase] : llvm::enumerate(orderedCases)) {
+    auto functionType = cast<FunctionType>(
+        moduleCase.getSignature().getPhysical().getValue());
+    auto ret = dyn_cast_or_null<pyc::ReturnOp>(
+        moduleCase.getBody().front().getTerminator());
+    if (!ret)
+      return moduleCase.emitError("missing pyc.return");
+    std::string prefix = caseIndex == 0 ? "generate\n  if (" : "  else if (";
+    prefix += conditions[caseIndex] + ") begin : admitted_case\n";
+    std::string suffix = "  end\n";
+    const bool last = caseIndex + 1 == orderedCases.size();
+    if (last)
+      suffix += "  else begin : rejected_parameters\n"
+                "    initial $fatal(1, \"unadmitted static family arguments\");\n"
+                "  end\nendgenerate\n";
+    if (failed(emitBlockModule(
+            moduleCase, family.getSymName(), moduleCase.getBody().front(),
+            functionType, inputNames, outputNames, ret.getValues(), os, opts,
+            parameterClause, *inputRanges, *outputRanges, prefix, suffix,
+            /*emitHeader=*/caseIndex == 0, /*emitFooter=*/last)))
+      return failure();
+  }
   return success();
 }
 
@@ -1087,10 +1527,16 @@ LogicalResult emitVerilog(ModuleOp module, llvm::raw_ostream &os, const VerilogE
       os << "\n";
   }
 
+  if (failed(emitVerilogNominalDeclarations(module, os)))
+    return failure();
+
   for (auto f : module.getOps<func::FuncOp>()) {
     if (failed(emitFunc(f, os, opts)))
       return failure();
   }
+  for (auto family : module.getOps<pyc::FamilyOp>())
+    if (failed(emitFamily(family, os, opts)))
+      return failure();
   return success();
 }
 

@@ -40,7 +40,19 @@ def write_entry(entries, request, owner_generation):
     return WriteAck(request=request, accepted=accepted)
 
 
-@ac.module
+@ac.module_decl(
+    source="tests/integration/agentic-circuit/e2e/fixtures/typed_system/leaf.py"
+)
+def typed_state_leaf_decl(
+    read_request: ReadRequest,
+    write_request: WriteRequest,
+    *,
+    owner_generation: ac.const[int],
+) -> tuple[ReadResult, WriteAck]:
+    ...
+
+
+@ac.module(declaration=typed_state_leaf_decl)
 def typed_state_leaf(
     read_request: ReadRequest,
     write_request: WriteRequest,

@@ -4,6 +4,7 @@
 
 #include <cstdint>
 #include <limits>
+#include <memory>
 #include <string>
 #include <type_traits>
 
@@ -43,6 +44,55 @@ struct IncrementAndDouble {
 struct SumToWide {
   std::tuple<int64_t> operator()(const int &left, const int64_t &right) const {
     return {static_cast<int64_t>(left) + right};
+  }
+};
+
+struct WideLifetimePayload {
+  static inline size_t allocations = 0;
+  static inline size_t destructions = 0;
+  uint64_t words[3]{};
+
+  explicit WideLifetimePayload(uint64_t value) : words{value, value + 1, value + 2} {
+    ++allocations;
+  }
+  ~WideLifetimePayload() { ++destructions; }
+};
+
+using WideLifetimeRef = std::shared_ptr<const WideLifetimePayload>;
+
+struct ForwardWideLifetime {
+  std::tuple<WideLifetimeRef> operator()(const WideLifetimeRef &value) const {
+    return {value};
+  }
+};
+
+struct AllocateWideLifetime {
+  static inline size_t calls = 0;
+  std::tuple<WideLifetimeRef> operator()(const uint64_t &value) const {
+    ++calls;
+    return {std::make_shared<const WideLifetimePayload>(value)};
+  }
+};
+
+struct FailWideAllocation {
+  std::tuple<WideLifetimeRef> operator()(const uint64_t &) const {
+    throw std::bad_alloc{};
+  }
+};
+
+struct DuplicateToPair {
+  std::tuple<uint64_t, uint64_t> operator()(const uint64_t &value) const {
+    return {value, value};
+  }
+};
+
+template <typename T> class FailingProposalReserveQueue : public SimQueue<T> {
+public:
+  using SimQueue<T>::SimQueue;
+
+private:
+  void beforePreparePushProposalStorage(size_t) override {
+    throw std::bad_alloc{};
   }
 };
 
@@ -3150,6 +3200,129 @@ TEST(QueueBlocksTest, PreparedPopBorrowsCommittedPayloadUntilXfer) {
   ASSERT_TRUE(copied);
   EXPECT_EQ(copied->value, 11);
   EXPECT_EQ(CopyTrackedPayload::copies, 1u);
+}
+
+TEST(QueueBlocksTest, WidePayloadForwardingPreservesAddressAndFinalRelease) {
+  WideLifetimePayload::allocations = 0;
+  WideLifetimePayload::destructions = 0;
+  SimQueue<WideLifetimeRef> input("wide_input", 1, nullptr, 1);
+  SimQueue<WideLifetimeRef> output("wide_output", 2, nullptr, 1);
+  QueueAtomicTransform<ForwardWideLifetime, std::tuple<WideLifetimeRef>,
+                       std::tuple<WideLifetimeRef>>
+      forward("forward", 3, nullptr, std::tuple{&input}, std::tuple{&output});
+
+  auto payload = std::make_shared<const WideLifetimePayload>(7);
+  const WideLifetimePayload *address = payload.get();
+  ASSERT_TRUE(input.proposePush(payload));
+  input.doXfer({0, 0});
+  payload.reset();
+  EXPECT_EQ(WideLifetimePayload::allocations, 1u);
+  EXPECT_EQ(WideLifetimePayload::destructions, 0u);
+
+  forward.doWork({1, 0});
+  input.doXfer({1, 0});
+  output.doXfer({1, 0});
+  forward.doXfer({1, 0});
+  ASSERT_TRUE(input.isEmpty());
+  ASSERT_NE(output.peek(), nullptr);
+  EXPECT_EQ(output.peek()->get(), address);
+  EXPECT_EQ(WideLifetimePayload::allocations, 1u);
+  EXPECT_EQ(WideLifetimePayload::destructions, 0u);
+
+  ASSERT_TRUE(output.proposePop());
+  output.doXfer({2, 0});
+  EXPECT_EQ(WideLifetimePayload::destructions, 1u);
+}
+
+TEST(QueueBlocksTest, WidePayloadCancelResetAndDestructionReleaseReferences) {
+  WideLifetimePayload::allocations = 0;
+  WideLifetimePayload::destructions = 0;
+  {
+    SimQueue<WideLifetimeRef> queue("wide", 1, nullptr, 2);
+    auto first = std::make_shared<const WideLifetimePayload>(1);
+    ASSERT_TRUE(queue.proposePush(first));
+    first.reset();
+    queue.doXfer({0, 0});
+    ASSERT_TRUE(queue.preparePop(17));
+    queue.cancelPrepared(17);
+    EXPECT_EQ(WideLifetimePayload::destructions, 0u);
+    queue.reset();
+    EXPECT_EQ(WideLifetimePayload::destructions, 1u);
+
+    auto second = std::make_shared<const WideLifetimePayload>(2);
+    ASSERT_TRUE(queue.preparePush(18));
+    ASSERT_TRUE(queue.publishPush(18, second));
+    second.reset();
+  }
+  EXPECT_EQ(WideLifetimePayload::allocations, 2u);
+  EXPECT_EQ(WideLifetimePayload::destructions, 2u);
+}
+
+TEST(QueueBlocksTest, BlockedWideOutputPerformsNoPayloadAllocation) {
+  WideLifetimePayload::allocations = 0;
+  WideLifetimePayload::destructions = 0;
+  AllocateWideLifetime::calls = 0;
+  SimQueue<uint64_t> input("input", 1, nullptr, 1);
+  SimQueue<WideLifetimeRef> output("output", 2, nullptr, 1);
+  QueueAtomicTransform<AllocateWideLifetime, std::tuple<uint64_t>,
+                       std::tuple<WideLifetimeRef>>
+      transform("allocate", 3, nullptr, std::tuple{&input},
+                std::tuple{&output});
+  ASSERT_TRUE(input.proposePush(9));
+  ASSERT_TRUE(output.proposePush(
+      std::make_shared<const WideLifetimePayload>(100)));
+  input.doXfer({0, 0});
+  output.doXfer({0, 0});
+
+  transform.doWork({1, 0});
+  EXPECT_EQ(AllocateWideLifetime::calls, 0u);
+  EXPECT_EQ(WideLifetimePayload::allocations, 1u);
+  EXPECT_EQ(input.committedSize(), 1u);
+  EXPECT_FALSE(transform.hasPendingCommit());
+}
+
+TEST(QueueBlocksTest, WideAllocationFailureCancelsWholeCommitGroup) {
+  SimQueue<uint64_t> input("input", 1, nullptr, 1);
+  SimQueue<WideLifetimeRef> output("output", 2, nullptr, 1);
+  QueueAtomicTransform<FailWideAllocation, std::tuple<uint64_t>,
+                       std::tuple<WideLifetimeRef>>
+      transform("allocate", 3, nullptr, std::tuple{&input},
+                std::tuple{&output});
+  ASSERT_TRUE(input.proposePush(9));
+  input.doXfer({0, 0});
+
+  transform.doWork({1, 0});
+  EXPECT_EQ(transform.runtimeFailureCode(),
+            "commit_group_payload_allocation_failed");
+  EXPECT_FALSE(input.hasPrepared(3));
+  EXPECT_FALSE(output.hasPrepared(3));
+  EXPECT_EQ(input.committedSize(), 1u);
+  EXPECT_TRUE(output.isEmpty());
+}
+
+TEST(QueueBlocksTest,
+     ProposalStorageAllocationFailureCancelsAllOutputsBeforePublish) {
+  SimQueue<uint64_t> input("input", 1, nullptr, 1);
+  SimQueue<uint64_t> first("first", 2, nullptr, 1);
+  FailingProposalReserveQueue<uint64_t> second("second", 3, nullptr, 1);
+  QueueAtomicTransform<DuplicateToPair, std::tuple<uint64_t>,
+                       std::tuple<uint64_t, uint64_t>>
+      transform("duplicate", 4, nullptr, std::tuple{&input},
+                std::tuple{&first, &second});
+  ASSERT_TRUE(input.proposePush(9));
+  input.doXfer({0, 0});
+
+  transform.doWork({1, 0});
+
+  EXPECT_FALSE(transform.hasPendingCommit());
+  EXPECT_FALSE(input.hasPrepared(4));
+  EXPECT_FALSE(first.hasPrepared(4));
+  EXPECT_FALSE(second.hasPrepared(4));
+  EXPECT_FALSE(first.hasPendingCommit());
+  EXPECT_FALSE(second.hasPendingCommit());
+  EXPECT_EQ(input.committedSize(), 1u);
+  EXPECT_TRUE(first.isEmpty());
+  EXPECT_TRUE(second.isEmpty());
 }
 
 TEST(QueueBlocksTest, SimQueueBatchTransfersOneOrderedAtomicPrefix) {

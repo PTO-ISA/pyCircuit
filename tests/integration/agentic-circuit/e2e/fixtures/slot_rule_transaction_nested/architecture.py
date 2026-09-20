@@ -8,7 +8,13 @@ class Event:
     value: ac.u8
 
 
-@ac.module
+@ac.module_decl(source="tests/integration/agentic-circuit/e2e/fixtures/slot_rule_transaction_nested/architecture.py")
+def mailbox_module(incoming: Event) -> Event:
+    ...
+
+mailbox_module_decl = mailbox_module
+
+@ac.module(declaration=mailbox_module_decl)
 def mailbox_module(incoming: Event) -> Event:
     mailbox = ac.slot(incoming)
 

@@ -24,6 +24,3 @@ def encode_flags(value: EncodedFlags) -> EncodedFlags:
 def onehot_encode(value: EncodedFlags) -> EncodedFlags:
     result = encode_flags(value)
     return result
-
-
-specialization = ac.jit(onehot_encode)

@@ -102,6 +102,26 @@ findBundleFile(const std::vector<QueueGraphGeneratedFile> &bundle,
   return found == bundle.end() ? nullptr : &*found;
 }
 
+const QueueGraphPlan *findFamilyBody(const QueueGraphPlan &plan,
+                                     llvm::StringRef definition) {
+  for (const ModuleFamilyPlan &family : plan.moduleFamilies)
+    if (family.definition == definition)
+      for (const ModuleCasePlan &moduleCase : family.cases)
+        if (moduleCase.bodyPlan)
+          return moduleCase.bodyPlan.get();
+  return nullptr;
+}
+
+const QueueGraphPlan *findInstanceBody(
+    const QueueGraphPlan &plan, const QueueModuleInstancePlan &instance) {
+  for (const ModuleFamilyPlan &family : plan.moduleFamilies)
+    if (family.definition == instance.definition)
+      for (const ModuleCasePlan &moduleCase : family.cases)
+        if (moduleCase.arguments == instance.staticArguments)
+          return moduleCase.bodyPlan.get();
+  return nullptr;
+}
+
 void expectCppCompiles(llvm::StringRef source) {
   llvm::SmallString<256> directory;
   ASSERT_FALSE(
@@ -1074,97 +1094,8 @@ TEST(QueueGraphPlanTest, RejectsMalformedNominalEnumMetadata) {
       std::string::npos);
 }
 
-TEST(QueueGraphPlanTest, RecomputesStaticTypeMetadataAndRejectsForgery) {
-  mlir::MLIRContext context;
-  context.loadDialect<ac::ACIRDialect, mlir::DLTIDialect>();
-  auto module =
-      mlir::parseSourceString<mlir::ModuleOp>(kStructuredTransform, &context);
-  ASSERT_TRUE(module);
-  ASSERT_TRUE(freezeQueueGraph(*module));
-  auto plan = buildQueueGraphPlan(*module);
-  ASSERT_TRUE(bool(plan)) << llvm::toString(plan.takeError());
 
-  plan->staticTypeBindings = {{"WIDTH", 64}};
-  plan->staticTypeChecks = {
-      QueueStaticTypeCheckPlan{"Item.value:bits", {"param:WIDTH"}, 64}};
-  EXPECT_FALSE(bool(verifyQueueGraphPlan(*plan)));
-  auto json = plan->canonicalJson();
-  ASSERT_TRUE(bool(json)) << llvm::toString(json.takeError());
-  EXPECT_NE(json->find("static_type_bindings"), std::string::npos);
 
-  plan->staticTypeChecks.front().result = 63;
-  auto error = verifyQueueGraphPlan(*plan);
-  ASSERT_TRUE(bool(error));
-  EXPECT_NE(llvm::toString(std::move(error)).find("result is inconsistent"),
-            std::string::npos);
-}
-
-TEST(QueueGraphPlanTest, RecomputesAggregateStaticTypeMetadata) {
-  QueueGraphPlan plan = aggregateMetadataPlan();
-  plan.staticTypeBindings = {{"PAIR_WIDTH", 5}, {"LANES", 4}};
-  plan.staticTypeChecks = {
-      {"Packet.pair.tuple_1:bits", {"param:PAIR_WIDTH"}, 5},
-      {"Packet.lanes:array_length", {"param:LANES"}, 4},
-  };
-  auto verification = verifyQueueGraphPlan(plan);
-  EXPECT_FALSE(bool(verification)) << llvm::toString(std::move(verification));
-
-  plan.staticTypeBindings.push_back({"UNUSED", 1});
-  auto unused = verifyQueueGraphPlan(plan);
-  ASSERT_TRUE(bool(unused));
-  EXPECT_NE(llvm::toString(std::move(unused)).find("not referenced"),
-            std::string::npos);
-  plan.staticTypeBindings.pop_back();
-
-  plan.staticTypeChecks.push_back(plan.staticTypeChecks.front());
-  auto duplicate = verifyQueueGraphPlan(plan);
-  ASSERT_TRUE(bool(duplicate));
-  EXPECT_NE(llvm::toString(std::move(duplicate)).find("must be complete"),
-            std::string::npos);
-  plan.staticTypeChecks.pop_back();
-
-  plan.staticTypeBindings[0].second = 4;
-  plan.staticTypeChecks[0].result = 4;
-  auto error = verifyQueueGraphPlan(plan);
-  ASSERT_TRUE(bool(error));
-  EXPECT_NE(llvm::toString(std::move(error)).find("bits width is inconsistent"),
-            std::string::npos);
-}
-
-TEST(QueueGraphPlanTest, RecomputesNestedConfigProjectionMetadata) {
-  QueueGraphPlan plan = aggregateMetadataPlan();
-  plan.staticTypeBindings = {{"cfg.entries", 5}};
-  plan.staticTypeChecks = {
-      {"Packet.pair.tuple_1:bits", {"param:cfg.entries"}, 5},
-  };
-  constexpr llvm::StringLiteral kSchema =
-      R"({"fields":[{"name":"entries","type":{"kind":"scalar","name":"int","version":1}}],"kind":"config","name":"Config","version":1})";
-  plan.staticConfigBindings = {{
-      "cfg",
-      "Config",
-      kSchema.str(),
-      R"({"entries":5})",
-  }};
-
-  auto verification = verifyQueueGraphPlan(plan);
-  EXPECT_FALSE(bool(verification)) << llvm::toString(std::move(verification));
-  auto json = plan.canonicalJson();
-  ASSERT_TRUE(bool(json)) << llvm::toString(json.takeError());
-  EXPECT_NE(json->find("static_config_bindings"), std::string::npos);
-
-  plan.staticConfigBindings.front().value = R"({"entries":4})";
-  auto forgedValue = verifyQueueGraphPlan(plan);
-  ASSERT_TRUE(bool(forgedValue));
-  EXPECT_NE(llvm::toString(std::move(forgedValue)).find("root binding"),
-            std::string::npos);
-
-  plan.staticConfigBindings.front().value = R"({"entries":5})";
-  plan.staticConfigBindings.clear();
-  auto missingRoot = verifyQueueGraphPlan(plan);
-  ASSERT_TRUE(bool(missingRoot));
-  EXPECT_NE(llvm::toString(std::move(missingRoot)).find("exactly one"),
-            std::string::npos);
-}
 
 TEST(QueueGraphPlanTest, VerifiesCanonicalSourceProvenance) {
   QueueGraphPlan plan = aggregateMetadataPlan();
@@ -1257,68 +1188,7 @@ TEST(QueueGraphPlanTest,
   }
 }
 
-TEST(QueueGraphPlanTest, AcceptsCanonicalConfigFloatNumbers) {
-  QueueGraphPlan plan = aggregateMetadataPlan();
-  plan.staticTypeBindings = {{"cfg.entries", 5}};
-  plan.staticTypeChecks = {
-      {"Packet.pair.tuple_1:bits", {"param:cfg.entries"}, 5},
-  };
-  constexpr llvm::StringLiteral kSchema =
-      R"({"fields":[{"name":"entries","type":{"kind":"scalar","name":"int","version":1}},{"name":"ratio","type":{"kind":"scalar","name":"float","version":1}}],"kind":"config","name":"Config","version":1})";
-  for (llvm::StringRef value :
-       {R"({"entries":5,"ratio":0})", R"({"entries":5,"ratio":1})",
-        R"({"entries":5,"ratio":1.5})"}) {
-    plan.staticConfigBindings = {{
-        "cfg",
-        "Config",
-        kSchema.str(),
-        value.str(),
-    }};
-    auto verification = verifyQueueGraphPlan(plan);
-    EXPECT_FALSE(bool(verification))
-        << value.str() << ": " << llvm::toString(std::move(verification));
-  }
-}
 
-TEST(QueueGraphPlanTest, VerifiesScalarAndNominalStaticTypeIdentity) {
-  QueueGraphPlan scalar = aggregateMetadataPlan();
-  scalar.staticTypeBindings = {{"WIDTH", 8}};
-  scalar.staticTypeChecks = {
-      {"interface.system.shared_reference.input.input:bits",
-       {"param:WIDTH"},
-       8,
-       "i8"}};
-  auto scalarError = verifyQueueGraphPlan(scalar);
-  EXPECT_FALSE(bool(scalarError)) << llvm::toString(std::move(scalarError));
-  scalar.queues.front().payloadType = "i7";
-  auto forgedScalar = verifyQueueGraphPlan(scalar);
-  ASSERT_TRUE(bool(forgedScalar));
-  EXPECT_NE(llvm::toString(std::move(forgedScalar)).find("actual endpoint"),
-            std::string::npos);
-
-  QueueGraphPlan nominal = aggregateMetadataPlan();
-  nominal.payloads = {
-      {"Entry__p435bcab52046", {{"a", "i4", 4}, {"b", "i4", 4}}}};
-  nominal.staticTypeBindings = {{"N", 4}};
-  nominal.staticTypeChecks = {
-      {"Entry__p435bcab52046.a:bits", {"param:N"}, 4},
-      {"Entry__p435bcab52046.b:bits", {"param:N"}, 4},
-  };
-  nominal.staticTypeIdentities = {{
-      "Entry",
-      "Entry__p435bcab52046",
-      {{"N", "N", 4}},
-      {"Entry__p435bcab52046.a:bits", "Entry__p435bcab52046.b:bits"},
-  }};
-  auto nominalError = verifyQueueGraphPlan(nominal);
-  EXPECT_FALSE(bool(nominalError)) << llvm::toString(std::move(nominalError));
-
-  nominal.staticTypeChecks.pop_back();
-  auto missing = verifyQueueGraphPlan(nominal);
-  ASSERT_TRUE(bool(missing));
-  EXPECT_NE(llvm::toString(std::move(missing)).find("targets are inconsistent"),
-            std::string::npos);
-}
 
 TEST(QueueGraphPlanTest, SerializesExplicitEnumValuesAsUnsignedHex) {
   QueueGraphPlan plan = aggregateMetadataPlan();
@@ -1384,215 +1254,6 @@ TEST(QueueGraphPlanTest, AcceptsAggregateMetadataWiderThanSixtyFourBits) {
   EXPECT_FALSE(bool(error)) << llvm::toString(std::move(error));
 }
 
-TEST(QueueGraphPlanTest, VerifiesBoundedRangeConversionsAndCheckedPairing) {
-  QueueGraphPlan plan = boundedRangePlan();
-  auto verification = verifyQueueGraphPlan(plan);
-  ASSERT_FALSE(bool(verification)) << llvm::toString(std::move(verification));
-
-  QueueGraphPlan dependent = plan;
-  dependent.staticTypeBindings = {{"N", 5}};
-  dependent.staticTypeChecks = {QueueStaticTypeCheckPlan{
-      "interface.system.bounded_range.output.0:range_upper",
-      {"param:N"},
-      5,
-      "!ac.range<0, 4>"}};
-  auto dependentVerification = verifyQueueGraphPlan(dependent);
-  ASSERT_FALSE(bool(dependentVerification))
-      << llvm::toString(std::move(dependentVerification));
-  dependent.staticTypeBindings.front().second = 4;
-  dependent.staticTypeChecks.front().result = 4;
-  auto metadataError = verifyQueueGraphPlan(dependent);
-  ASSERT_TRUE(bool(metadataError));
-  EXPECT_NE(llvm::toString(std::move(metadataError))
-                .find("static bounded range is inconsistent"),
-            std::string::npos);
-
-  QueueGraphPlan expressionDependent = plan;
-  expressionDependent.blocks[1].expressions[0].staticTypeTarget =
-      "expression.decode.0";
-  expressionDependent.blocks[1].expressions[1].staticTypeTarget =
-      "expression.decode.0";
-  expressionDependent.staticTypeBindings = {{"N", 5}};
-  expressionDependent.staticTypeChecks = {QueueStaticTypeCheckPlan{
-      "expression.decode.0:range_upper", {"param:N"}, 5, "!ac.range<0, 4>"}};
-  auto expressionVerification = verifyQueueGraphPlan(expressionDependent);
-  ASSERT_FALSE(bool(expressionVerification))
-      << llvm::toString(std::move(expressionVerification));
-  expressionDependent.blocks[1].expressions[1].staticTypeTarget =
-      "expression.decode.forged";
-  auto expressionTargetError = verifyQueueGraphPlan(expressionDependent);
-  ASSERT_TRUE(bool(expressionTargetError));
-  EXPECT_NE(
-      llvm::toString(std::move(expressionTargetError))
-          .find("static expression type target has no matching type check"),
-      std::string::npos);
-
-  QueueGraphPlan strippedMetadata = plan;
-  strippedMetadata.blocks[1].expressions[0].staticTypeTarget =
-      "expression.decode.0";
-  strippedMetadata.blocks[1].expressions[1].staticTypeTarget =
-      "expression.decode.0";
-  auto strippedError = verifyQueueGraphPlan(strippedMetadata);
-  ASSERT_TRUE(bool(strippedError));
-  EXPECT_NE(llvm::toString(std::move(strippedError))
-                .find("static expression type target requires type metadata"),
-            std::string::npos);
-
-  QueueGraphPlan missingValid = plan;
-  missingValid.blocks[1].expressions.pop_back();
-  auto missingError = verifyQueueGraphPlan(missingValid);
-  ASSERT_TRUE(bool(missingError));
-  EXPECT_NE(
-      llvm::toString(std::move(missingError)).find("one value/valid pair"),
-      std::string::npos);
-
-  QueueGraphPlan mismatchedTarget = plan;
-  mismatchedTarget.blocks[1].expressions[1].field = "!ac.range<0, 3>";
-  auto targetError = verifyQueueGraphPlan(mismatchedTarget);
-  ASSERT_TRUE(bool(targetError));
-  EXPECT_NE(llvm::toString(std::move(targetError)).find("one value/valid pair"),
-            std::string::npos);
-
-  QueueGraphPlan duplicateValue = plan;
-  QueueExpressionPlan duplicate = duplicateValue.blocks[1].expressions.front();
-  duplicate.result = "duplicate_checked_value";
-  duplicateValue.blocks[1].expressions.push_back(std::move(duplicate));
-  auto duplicateError = verifyQueueGraphPlan(duplicateValue);
-  ASSERT_TRUE(bool(duplicateError));
-  EXPECT_NE(
-      llvm::toString(std::move(duplicateError)).find("one value/valid pair"),
-      std::string::npos);
-
-  QueueGraphPlan wideSource = plan;
-  wideSource.queues[0].payloadType = "i65";
-  auto wideError = verifyQueueGraphPlan(wideSource);
-  ASSERT_TRUE(bool(wideError));
-  EXPECT_NE(llvm::toString(std::move(wideError))
-                .find("checked range conversion contract"),
-            std::string::npos);
-
-  QueueGraphPlan boundedIngress = plan;
-  boundedIngress.queues[0].payloadType = "!ac.range<0, 4>";
-  auto ingressError = verifyQueueGraphPlan(boundedIngress);
-  ASSERT_TRUE(bool(ingressError));
-  EXPECT_NE(llvm::toString(std::move(ingressError))
-                .find("external source cannot carry"),
-            std::string::npos);
-
-  QueueGraphPlan nestedIngress;
-  nestedIngress.system = "nested_bounded_ingress";
-  nestedIngress.aggregates = {
-      {"tuple<!ac.range<0, 4>, i5>", "tuple", {"!ac.range<0, 4>", "i5"}, 2, 8},
-  };
-  nestedIngress.queues = {
-      {"input", "tuple<!ac.range<0, 4>, i5>", "/", 1, 1},
-  };
-  nestedIngress.blocks.push_back(
-      {"source", "input", "/", {}, {"input"}, {1}, {1}});
-  nestedIngress.blocks.push_back({"sink", "sink_0", "/", {"input"}, {}});
-  auto nestedIngressError = verifyQueueGraphPlan(nestedIngress);
-  ASSERT_TRUE(bool(nestedIngressError));
-  EXPECT_NE(llvm::toString(std::move(nestedIngressError))
-                .find("external source cannot carry"),
-            std::string::npos);
-
-  QueueGraphPlan badConstant = plan;
-  QueueExpressionPlan constant;
-  constant.result = "bad_constant";
-  constant.kind = "constant";
-  constant.type = "!ac.range<0, 4>";
-  constant.literal = "5 : i3";
-  badConstant.blocks[1].expressions.push_back(std::move(constant));
-  auto constantError = verifyQueueGraphPlan(badConstant);
-  ASSERT_TRUE(bool(constantError));
-  EXPECT_NE(llvm::toString(std::move(constantError))
-                .find("range constant is outside declared bounds"),
-            std::string::npos);
-
-  QueueGraphPlan badArithmetic = plan;
-  QueueExpressionPlan zero;
-  zero.result = "zero";
-  zero.kind = "constant";
-  zero.type = "!ac.range<0, 4>";
-  zero.literal = "0 : i3";
-  QueueExpressionPlan one;
-  one.result = "one";
-  one.kind = "constant";
-  one.type = "!ac.range<1, 1>";
-  one.literal = "1 : i1";
-  QueueExpressionPlan sum;
-  sum.result = "sum";
-  sum.kind = "range_add";
-  sum.type = "!ac.range<0, 4>";
-  sum.operands = {"zero", "one"};
-  badArithmetic.blocks[1].expressions.push_back(std::move(zero));
-  badArithmetic.blocks[1].expressions.push_back(std::move(one));
-  badArithmetic.blocks[1].expressions.push_back(std::move(sum));
-  auto arithmeticError = verifyQueueGraphPlan(badArithmetic);
-  ASSERT_TRUE(bool(arithmeticError));
-  EXPECT_NE(llvm::toString(std::move(arithmeticError))
-                .find("bounded arithmetic result range is inconsistent"),
-            std::string::npos);
-
-  QueueGraphPlan forgedRangeBits = plan;
-  QueueExpressionPlan rangeBits;
-  rangeBits.result = "forged_range_bits";
-  rangeBits.kind = "range_bits";
-  rangeBits.type = "!ac.range<0, 7>";
-  rangeBits.operands = {"checked_value"};
-  forgedRangeBits.blocks[1].expressions.push_back(std::move(rangeBits));
-  auto rangeBitsError = verifyQueueGraphPlan(forgedRangeBits);
-  ASSERT_TRUE(bool(rangeBitsError));
-  EXPECT_NE(llvm::toString(std::move(rangeBitsError))
-                .find("range_bits conversion contract is malformed"),
-            std::string::npos);
-
-  QueueGraphPlan forgedExtract = plan;
-  QueueExpressionPlan extract;
-  extract.result = "forged_extract";
-  extract.kind = "bit_extract";
-  extract.type = "!ac.range<0, 7>";
-  extract.operands = {"item"};
-  extract.width = 3;
-  forgedExtract.blocks[1].expressions.push_back(std::move(extract));
-  auto extractError = verifyQueueGraphPlan(forgedExtract);
-  ASSERT_TRUE(bool(extractError));
-  EXPECT_NE(llvm::toString(std::move(extractError))
-                .find("bit_extract expression widths are inconsistent"),
-            std::string::npos);
-
-  QueueGraphPlan forgedAdd = plan;
-  QueueExpressionPlan zeroBits;
-  zeroBits.result = "zero_bits";
-  zeroBits.kind = "constant";
-  zeroBits.type = "i8";
-  zeroBits.literal = "0 : i8";
-  QueueExpressionPlan add;
-  add.result = "forged_add";
-  add.kind = "add";
-  add.type = "!ac.range<0, 4>";
-  add.operands = {"item", "zero_bits"};
-  forgedAdd.blocks[1].expressions.push_back(std::move(zeroBits));
-  forgedAdd.blocks[1].expressions.push_back(std::move(add));
-  auto addError = verifyQueueGraphPlan(forgedAdd);
-  ASSERT_TRUE(bool(addError));
-  EXPECT_NE(llvm::toString(std::move(addError))
-                .find("bits arithmetic operands and result"),
-            std::string::npos);
-
-  QueueGraphPlan unknownKind = plan;
-  QueueExpressionPlan unknown;
-  unknown.result = "unknown";
-  unknown.kind = "range_magic";
-  unknown.type = "!ac.range<0, 4>";
-  unknown.operands = {"item"};
-  unknownKind.blocks[1].expressions.push_back(std::move(unknown));
-  auto unknownError = verifyQueueGraphPlan(unknownKind);
-  ASSERT_TRUE(bool(unknownError));
-  EXPECT_NE(llvm::toString(std::move(unknownError))
-                .find("unsupported QueueGraph expression kind"),
-            std::string::npos);
-}
 
 TEST(QueueGraphPlanTest, RecomputesDynamicValueArrayBounds) {
   QueueGraphPlan plan = boundedArrayPlan();
@@ -2068,23 +1729,76 @@ TEST(QueueGraphPlanTest,
   auto plan = buildQueueGraphPlan(*module);
   ASSERT_TRUE(bool(plan)) << llvm::toString(plan.takeError());
   EXPECT_EQ(plan->definition, "Top");
-  ASSERT_EQ(plan->moduleSpecializations.size(), 1u);
+  const QueueGraphPlan *incrementBody = findFamilyBody(*plan, "Increment");
+  ASSERT_NE(incrementBody, nullptr);
   ASSERT_EQ(plan->moduleInstances.size(), 2u);
-  EXPECT_EQ(plan->moduleSpecializations.front()->definition, "Increment");
-  EXPECT_EQ(plan->moduleInstances[0].specializationKey,
-            plan->moduleInstances[1].specializationKey);
-  EXPECT_EQ(plan->moduleInstances[0].specializationKey,
-            plan->moduleSpecializations.front()->specializationKey);
+  EXPECT_EQ(incrementBody->definition, "Increment");
+  EXPECT_EQ(plan->moduleInstances[0].staticArguments,
+            plan->moduleInstances[1].staticArguments);
   EXPECT_EQ(plan->moduleInstances[0].lexicalOrder, 2u);
   EXPECT_EQ(plan->moduleInstances[1].lexicalOrder, 3u);
+  auto incrementFamily = llvm::find_if(
+      plan->moduleFamilies, [](const ModuleFamilyPlan &family) {
+        return family.definition == "Increment";
+      });
+  ASSERT_NE(incrementFamily, plan->moduleFamilies.end());
+  ASSERT_EQ(incrementFamily->cases.size(), 1u);
+  ASSERT_EQ(incrementFamily->cases[0].materializedInterface.getPorts().size(),
+            2u);
+
+  QueueGraphPlan missingCase = *plan;
+  auto missingFamily = llvm::find_if(
+      missingCase.moduleFamilies, [](const ModuleFamilyPlan &family) {
+        return family.definition == "Increment";
+      });
+  missingFamily->cases.clear();
+  auto missingCaseError = verifyQueueGraphPlan(missingCase);
+  ASSERT_TRUE(bool(missingCaseError));
+  EXPECT_NE(llvm::toString(std::move(missingCaseError))
+                .find("case coverage differs"),
+            std::string::npos);
+
+  QueueGraphPlan extraCase = *plan;
+  auto extraFamily = llvm::find_if(
+      extraCase.moduleFamilies, [](const ModuleFamilyPlan &family) {
+        return family.definition == "Increment";
+      });
+  extraFamily->cases.push_back(extraFamily->cases.front());
+  auto extraCaseError = verifyQueueGraphPlan(extraCase);
+  ASSERT_TRUE(bool(extraCaseError));
+  EXPECT_NE(llvm::toString(std::move(extraCaseError))
+                .find("case coverage differs"),
+            std::string::npos);
+
+  QueueGraphPlan forgedSignature = *plan;
+  auto signatureFamily = llvm::find_if(
+      forgedSignature.moduleFamilies, [](const ModuleFamilyPlan &family) {
+        return family.definition == "Increment";
+      });
+  signatureFamily->cases[0].concreteSignature =
+      builder.getFunctionType({}, {});
+  auto signatureError = verifyQueueGraphPlan(forgedSignature);
+  ASSERT_TRUE(bool(signatureError));
+  EXPECT_NE(llvm::toString(std::move(signatureError))
+                .find("materialized input is excess"),
+            std::string::npos);
+
+  QueueGraphPlan forgedInterface = *plan;
+  auto interfaceFamily = llvm::find_if(
+      forgedInterface.moduleFamilies, [](const ModuleFamilyPlan &family) {
+        return family.definition == "Increment";
+      });
+  interfaceFamily->cases[0].materializedInterface =
+      ac::ModuleInterfaceAttr::get(&context, builder.getArrayAttr({}));
+  auto interfaceError = verifyQueueGraphPlan(forgedInterface);
+  ASSERT_TRUE(bool(interfaceError));
+  EXPECT_NE(llvm::toString(std::move(interfaceError))
+                .find("materialized interface is incomplete"),
+            std::string::npos);
   auto sourceMap = plan->sourceMapJson();
   ASSERT_TRUE(bool(sourceMap)) << llvm::toString(sourceMap.takeError());
   auto parsedSourceMap = llvm::json::parse(*sourceMap);
   ASSERT_TRUE(bool(parsedSourceMap));
-  ASSERT_EQ(parsedSourceMap->getAsObject()
-                ->getArray("module_specializations")
-                ->size(),
-            1u);
   QueueGraphPlan malformedOrder = *plan;
   malformedOrder.moduleInstances[1].lexicalOrder =
       malformedOrder.moduleInstances[0].lexicalOrder;
@@ -2096,8 +1810,7 @@ TEST(QueueGraphPlanTest,
   auto pyc = generateQueueGraphPyc(*plan);
   ASSERT_FALSE(bool(pyc));
   EXPECT_NE(llvm::toString(pyc.takeError())
-                .find("module-preserving QueueGraph PYC lowering is not "
-                      "implemented"),
+                .find("family case mapping disagrees with emitted carrier arity"),
             std::string::npos);
 
   auto generated = generateQueueGraphCpp(*plan);
@@ -2112,13 +1825,13 @@ TEST(QueueGraphPlanTest,
   llvm::StringRef implementation =
       source.slice(classBegin + std::string("class ").size(), classEnd);
   EXPECT_EQ(source.count(("class " + implementation + " final").str()), 1u);
-  EXPECT_EQ(source.count(("  " + implementation + " instance_").str()), 2u);
+  EXPECT_EQ(source.count(("std::unique_ptr<" + implementation + "> instance_").str()), 2u);
   const size_t dispatch = source.find("dispatch_rows()");
   ASSERT_NE(dispatch, llvm::StringRef::npos);
   const size_t broadcastRow =
       source.find("makeDispatchRow(&block_0_)", dispatch);
-  const size_t leftRow = source.find("instance_0_.dispatch_row(0)", dispatch);
-  const size_t rightRow = source.find("instance_1_.dispatch_row(0)", dispatch);
+  const size_t leftRow = source.find("instance_0_->dispatch_row(0)", dispatch);
+  const size_t rightRow = source.find("instance_1_->dispatch_row(0)", dispatch);
   const size_t firstSinkRow =
       source.find("makeDispatchRow(&block_1_)", dispatch);
   EXPECT_LT(broadcastRow, leftRow);
@@ -2153,6 +1866,244 @@ int main() {
   expectCppRuns(executableSource);
 }
 
+TEST(QueueGraphPlanTest,
+     MaterializesHalfOpenRangeUpperExclusiveTwoTo64Exactly) {
+  mlir::MLIRContext context;
+  context.loadDialect<ac::ACIRDialect>();
+  mlir::Builder builder(&context);
+  auto arguments = ac::StaticArgumentsAttr::get(&context, builder.getArrayAttr({}));
+  auto lower = ac::DependentValueAttr::get(
+      &context, ac::DependentIntegerLiteralAttr::get(&context, llvm::APInt(1, 0)));
+  auto upper = ac::DependentValueAttr::get(
+      &context, ac::DependentIntegerLiteralAttr::get(
+                    &context, llvm::APInt(66, llvm::StringRef("18446744073709551616"), 10)));
+  auto range = ac::TypeExprAttr::get(
+      &context, ac::TypeExprRangeAttr::get(&context, lower, upper));
+  auto one = ac::DependentValueAttr::get(
+      &context, ac::DependentIntegerLiteralAttr::get(&context, llvm::APInt(2, 1)));
+  auto queue = ac::TypeExprAttr::get(
+      &context, ac::TypeExprQueueAttr::get(&context, range, one, one));
+  auto provenance = ac::SourceProvenanceAttr::get(
+      &context, builder.getStringAttr("tests/range.py"), 1, 1, 1, 1);
+  auto port = ac::InterfacePortAttr::get(
+      &context, builder.getStringAttr("input"), builder.getStringAttr("input"),
+      queue, provenance);
+  auto interface = ac::ModuleInterfaceAttr::get(
+      &context, builder.getArrayAttr({port}));
+  auto concreteQueue = ac::QueueType::get(
+      &context, ac::RangeType::get(&context, 0, UINT64_MAX), 1, 1);
+  auto signature = builder.getFunctionType({concreteQueue}, {});
+  auto materialized = ac::materializeModuleInterface(interface, arguments, signature);
+  ASSERT_TRUE(bool(materialized)) << llvm::toString(materialized.takeError());
+  auto concretePort = mlir::cast<ac::InterfacePortAttr>(materialized->getPorts()[0]);
+  auto concrete = mlir::cast<ac::TypeExprConcreteAttr>(
+      concretePort.getLogicalType().getValue());
+  auto materializedQueue = mlir::cast<ac::QueueType>(concrete.getType().getValue());
+  auto materializedRange = mlir::cast<ac::RangeType>(materializedQueue.getElementType());
+  EXPECT_EQ(materializedRange.getLower(), 0u);
+  EXPECT_EQ(materializedRange.getUpper(), UINT64_MAX);
+}
+
+TEST(QueueGraphPlanTest,
+     PreservesAndValidatesOrderedDependentNominalArguments) {
+  mlir::MLIRContext context;
+  context.loadDialect<ac::ACIRDialect, mlir::DLTIDialect>();
+  auto file = mlir::parseSourceString<mlir::ModuleOp>(R"mlir(
+builtin.module {
+  ac.type_scope @types {
+    ac.struct @Box fields [{name = "value", type = i8}] {parameters = #ac.static_parameters<[
+      #ac.static_parameter<"width", #ac.static_type<#ac.static_int_type<8, false>>, true, [], #ac.source_provenance<"pkg/box.py", 1, 1, 1, 1>>,
+      #ac.static_parameter<"enabled", #ac.static_type<#ac.static_bool_type>, true, [], #ac.source_provenance<"pkg/box.py", 2, 1, 2, 1>>
+    ]>}
+  } {dlti.dl_spec = #dlti.dl_spec<!ac.struct<@types::@Box> = {abi_alignment = 1 : i64, endianness = "little", preferred_alignment = 1 : i64, size = 1 : i64}>}
+}
+)mlir", &context);
+  ASSERT_TRUE(file);
+  mlir::Builder builder(&context);
+  auto declaration = mlir::SymbolRefAttr::get(
+      &context, "types", {mlir::FlatSymbolRefAttr::get(&context, "Box")});
+  auto intType = ac::StaticIntTypeAttr::get(&context, 8, false);
+  auto width = ac::StaticValueAttr::get(
+      &context, ac::StaticIntValueAttr::get(
+                    &context, intType,
+                    builder.getIntegerAttr(builder.getIntegerType(8), 8)));
+  auto enabled = ac::StaticValueAttr::get(
+      &context, ac::StaticBoolValueAttr::get(&context, true));
+  auto staticArguments = ac::StaticArgumentsAttr::get(
+      &context, builder.getArrayAttr({
+                    ac::StaticArgumentAttr::get(
+                        &context, builder.getStringAttr("width"), width),
+                    ac::StaticArgumentAttr::get(
+                        &context, builder.getStringAttr("enabled"), enabled),
+                }));
+  auto dependentParameter = [&](llvm::StringRef name) {
+    return ac::DependentValueAttr::get(
+        &context, ac::DependentParameterAttr::get(
+                      &context, builder.getStringAttr(name)));
+  };
+  auto dependentArgument = [&](llvm::StringRef name) {
+    return ac::DependentArgumentAttr::get(
+        &context, builder.getStringAttr(name), dependentParameter(name));
+  };
+  auto provenance = ac::SourceProvenanceAttr::get(
+      &context, builder.getStringAttr("pkg/box.py"), 3, 1, 3, 1);
+  auto signature = builder.getFunctionType(
+      {ac::StructType::get(&context, declaration)}, {});
+  auto materialize = [&](mlir::ArrayAttr rawArguments) {
+    auto arguments = ac::DependentArgumentsAttr::get(&context, rawArguments);
+    auto nominal = ac::TypeExprAttr::get(
+        &context,
+        ac::TypeExprNominalAttr::get(&context, declaration, arguments));
+    auto port = ac::InterfacePortAttr::get(
+        &context, builder.getStringAttr("value"),
+        builder.getStringAttr("input"), nominal, provenance);
+    auto interface = ac::ModuleInterfaceAttr::get(
+        &context, builder.getArrayAttr({port}));
+    return ac::materializeModuleInterface(interface, staticArguments, signature,
+                                          *file);
+  };
+
+  auto materialized = materialize(builder.getArrayAttr(
+      {dependentArgument("width"), dependentArgument("enabled")}));
+  ASSERT_TRUE(bool(materialized)) << llvm::toString(materialized.takeError());
+  auto port = mlir::cast<ac::InterfacePortAttr>(materialized->getPorts()[0]);
+  auto nominal = mlir::cast<ac::TypeExprNominalAttr>(
+      port.getLogicalType().getValue());
+  auto resolved =
+      nominal.getArguments().getArguments().getAsRange<ac::DependentArgumentAttr>();
+  ASSERT_EQ(nominal.getArguments().getArguments().size(), 2u);
+  auto iterator = resolved.begin();
+  auto widthArgument = *iterator;
+  EXPECT_EQ(widthArgument.getName().getValue(), "width");
+  auto widthLiteral = mlir::cast<ac::DependentStaticLiteralAttr>(
+      widthArgument.getValue().getValue());
+  EXPECT_EQ(widthLiteral.getValue(), width);
+  ++iterator;
+  auto enabledArgument = *iterator;
+  EXPECT_EQ(enabledArgument.getName().getValue(), "enabled");
+  auto enabledLiteral = mlir::cast<ac::DependentStaticLiteralAttr>(
+      enabledArgument.getValue().getValue());
+  EXPECT_EQ(enabledLiteral.getValue(), enabled);
+
+  for (mlir::ArrayAttr invalid : {
+           builder.getArrayAttr({dependentArgument("width")}),
+           builder.getArrayAttr(
+               {dependentArgument("enabled"), dependentArgument("width")}),
+           builder.getArrayAttr({dependentArgument("width"),
+                                 dependentArgument("enabled"),
+                                 dependentArgument("extra")}),
+       }) {
+    auto rejected = materialize(invalid);
+    ASSERT_FALSE(bool(rejected));
+    llvm::consumeError(rejected.takeError());
+  }
+}
+
+TEST(QueueGraphPlanTest, BuildsUnusedDeclaredFamilyCaseBodyPlans) {
+  mlir::MLIRContext context;
+  context.loadDialect<ac::ACIRDialect, mlir::DLTIDialect>();
+  auto module = mlir::parseSourceString<mlir::ModuleOp>(R"mlir(
+module attributes {ac.model_kind = "queue_graph", ac.queue_graph_domain = "cycle"} {
+  ac.system @finite root @Top as "root" tick 0 "cycle"
+      seed {kind = "fixed", value = 0 : i64} instrumentation []
+      results {id = "default", format = "json"} selected true
+  ac.module @Leaf source #ac.source_owner<"tests/leaf.py", "tests/leaf.py">
+      schema #ac.module_family_schema<
+        #ac.static_parameters<[
+          #ac.static_parameter<"enabled", #ac.static_type<#ac.static_bool_type>,
+              true, [], #ac.source_provenance<"tests/leaf.py", 1, 1, 1, 1>>
+        ]>,
+        #ac.static_cases<[
+          #ac.static_arguments<[#ac.static_argument<"enabled", #ac.static_value<#ac.static_bool_value<true>>>]>,
+          #ac.static_arguments<[#ac.static_argument<"enabled", #ac.static_value<#ac.static_bool_value<false>>>]>
+        ]>,
+        #ac.module_interface<[
+          #ac.interface_port<"input", "input",
+              #ac.type_expr<#ac.type_expr_concrete<!ac.queue<i8>>>,
+              #ac.source_provenance<"tests/leaf.py", 1, 1, 1, 1>>,
+          #ac.interface_port<"output", "output",
+              #ac.type_expr<#ac.type_expr_concrete<!ac.queue<i8>>>,
+              #ac.source_provenance<"tests/leaf.py", 1, 1, 1, 1>>
+        ]>, #ac.source_owner<"tests/leaf.py", "tests/leaf.py">, []> {
+    ac.module.case arguments #ac.static_arguments<[
+        #ac.static_argument<"enabled", #ac.static_value<#ac.static_bool_value<true>>>]>
+        type (!ac.queue<i8>) -> !ac.queue<i8>
+        source #ac.source_provenance<"tests/leaf.py", 1, 1, 1, 1> graph {
+    ^bb0(%input: !ac.queue<i8>):
+      %output = ac.scope @body(%input) {
+      ^bb0(%borrowed: !ac.queue<i8>):
+        %next = ac.transform %borrowed depths [1] latencies [1] {
+        ^bb0(%value: !ac.var<i8>):
+          %one = ac.var.constant 1 : i8 as !ac.var<i8>
+          %sum = ac.var.add %value, %one : !ac.var<i8>
+          ac.transform.yield %sum : !ac.var<i8>
+        } {ac.name = "output"} : (!ac.queue<i8>) -> !ac.queue<i8>
+        ac.scope.yield %next : !ac.queue<i8>
+      } : (!ac.queue<i8>) -> !ac.queue<i8>
+      ac.return %output : !ac.queue<i8>
+    }
+    ac.module.case arguments #ac.static_arguments<[
+        #ac.static_argument<"enabled", #ac.static_value<#ac.static_bool_value<false>>>]>
+        type (!ac.queue<i8>) -> !ac.queue<i8>
+        source #ac.source_provenance<"tests/leaf.py", 2, 1, 2, 1> graph {
+    ^bb0(%input: !ac.queue<i8>):
+      %output = ac.scope @body(%input) {
+      ^bb0(%borrowed: !ac.queue<i8>):
+        %next = ac.transform %borrowed depths [1] latencies [1] {
+        ^bb0(%value: !ac.var<i8>):
+          %two = ac.var.constant 2 : i8 as !ac.var<i8>
+          %sum = ac.var.add %value, %two : !ac.var<i8>
+          ac.transform.yield %sum : !ac.var<i8>
+        } {ac.name = "output"} : (!ac.queue<i8>) -> !ac.queue<i8>
+        ac.scope.yield %next : !ac.queue<i8>
+      } : (!ac.queue<i8>) -> !ac.queue<i8>
+      ac.return %output : !ac.queue<i8>
+    }
+  }
+  ac.module @Top source #ac.source_owner<"tests/core.py", "tests/core.py">
+      schema #ac.module_family_schema<#ac.static_parameters<[]>,
+        #ac.static_cases<[#ac.static_arguments<[]>]>, #ac.module_interface<[]>,
+        #ac.source_owner<"tests/core.py", "tests/core.py">, []> {
+    ac.module.case arguments #ac.static_arguments<[]> type () -> ()
+        source #ac.source_provenance<"tests/core.py", 1, 1, 1, 1> graph {
+      %input = ac.scope @inputs() {
+        %source = ac.source depth 1 latency 1 {ac.name = "input"} : !ac.queue<i8>
+        ac.scope.yield %source : !ac.queue<i8>
+      } : () -> !ac.queue<i8>
+      %output = ac.instance @leaf of @Leaf(%input) static #ac.static_arguments<[
+          #ac.static_argument<"enabled", #ac.static_value<#ac.static_bool_value<true>>>]>
+          id "leaf" path "leaf" : (!ac.queue<i8>) -> !ac.queue<i8>
+      ac.scope @outputs(%output) {
+      ^bb0(%borrowed: !ac.queue<i8>):
+        ac.sink %borrowed {ac.name = "sink"} : !ac.queue<i8>
+        ac.scope.yield
+      } : (!ac.queue<i8>) -> ()
+      ac.return
+    }
+  }
+}
+)mlir", &context);
+  ASSERT_TRUE(module);
+  ASSERT_TRUE(freezeQueueGraph(*module));
+  auto plan = buildQueueGraphPlan(*module);
+  ASSERT_TRUE(bool(plan)) << llvm::toString(plan.takeError());
+  auto family = llvm::find_if(plan->moduleFamilies,
+                              [](const ModuleFamilyPlan &candidate) {
+                                return candidate.definition == "Leaf";
+                              });
+  ASSERT_NE(family, plan->moduleFamilies.end());
+  ASSERT_EQ(family->cases.size(), 2u);
+  ASSERT_TRUE(family->cases[0].bodyPlan);
+  ASSERT_TRUE(family->cases[1].bodyPlan);
+  ASSERT_EQ(plan->moduleInstances.size(), 1u);
+  ASSERT_EQ(family->cases[0].bodyPlan->blocks.size(), 1u);
+  ASSERT_EQ(family->cases[1].bodyPlan->blocks.size(), 1u);
+  EXPECT_EQ(family->cases[0].bodyPlan->blocks[0].expressions[0].literal,
+            "1 : i8");
+  EXPECT_EQ(family->cases[1].bodyPlan->blocks[0].expressions[0].literal,
+            "2 : i8");
+}
+
 TEST(QueueGraphPlanTest, CppIdentityUsesReadableModuleNames) {
   mlir::MLIRContext context;
   context.loadDialect<ac::ACIRDialect, mlir::DLTIDialect>();
@@ -2175,7 +2126,7 @@ TEST(QueueGraphPlanTest, CppIdentityUsesReadableModuleNames) {
   ASSERT_TRUE(freezeQueueGraph(*module));
   auto plan = buildQueueGraphPlan(*module);
   ASSERT_TRUE(bool(plan)) << llvm::toString(plan.takeError());
-  ASSERT_EQ(plan->moduleSpecializations.size(), 1u);
+  ASSERT_NE(findFamilyBody(*plan, "Increment"), nullptr);
 
   const std::string firstClass = "Increment";
   auto single = generateQueueGraphCpp(*plan);
@@ -2183,8 +2134,8 @@ TEST(QueueGraphPlanTest, CppIdentityUsesReadableModuleNames) {
   EXPECT_NE(single->find("class " + firstClass), std::string::npos);
   auto singleBundle = generateQueueGraphModelBundle(*plan);
   ASSERT_TRUE(bool(singleBundle)) << llvm::toString(singleBundle.takeError());
-  const std::string firstHeaderPath = "include/generated/modules/Increment.h";
-  const std::string firstSourcePath = "src/generated/modules/Increment.cpp";
+  const std::string firstHeaderPath = "include/generated/modules/increment.hpp";
+  const std::string firstSourcePath = "src/generated/modules/increment.cpp";
   const QueueGraphGeneratedFile *singleHeader =
       findBundleFile(*singleBundle, firstHeaderPath);
   const QueueGraphGeneratedFile *singleSource =
@@ -2202,6 +2153,60 @@ TEST(QueueGraphPlanTest, CppIdentityUsesReadableModuleNames) {
   EXPECT_EQ(singleSource->content.find("// specialization:"),
             std::string::npos);
 
+}
+
+TEST(QueueGraphPlanTest,
+     FamilyCppInventoryIsIndependentOfCallerInstanceOrder) {
+  mlir::MLIRContext context;
+  context.loadDialect<ac::ACIRDialect, mlir::DLTIDialect>();
+  auto original = mlir::parseSourceFile<mlir::ModuleOp>(
+      ACIR_TEST_SOURCE_DIR
+      "/tests/mlir/agentic-circuit/Transforms/queue-module-freeze.mlir",
+      &context);
+  ASSERT_TRUE(original);
+  auto reordered = mlir::cast<mlir::ModuleOp>(original->clone());
+  mlir::SymbolTable symbols(reordered);
+  auto top = symbols.lookup<ac::ModuleOp>("Top");
+  ASSERT_TRUE(top);
+  auto topCase = mlir::cast<ac::ModuleCaseOp>(top.getBody().front().front());
+  llvm::SmallVector<ac::InstanceOp> instances;
+  for (ac::InstanceOp instance :
+       topCase.getBody().front().getOps<ac::InstanceOp>())
+    instances.push_back(instance);
+  ASSERT_EQ(instances.size(), 2u);
+  instances[1]->moveBefore(instances[0]);
+
+  ASSERT_TRUE(freezeQueueGraph(*original));
+  ASSERT_TRUE(freezeQueueGraph(reordered));
+  auto originalPlan = buildQueueGraphPlan(*original);
+  auto reorderedPlan = buildQueueGraphPlan(reordered);
+  ASSERT_TRUE(bool(originalPlan)) << llvm::toString(originalPlan.takeError());
+  ASSERT_TRUE(bool(reorderedPlan)) << llvm::toString(reorderedPlan.takeError());
+  auto originalBundle = generateQueueGraphModelBundle(*originalPlan);
+  auto reorderedBundle = generateQueueGraphModelBundle(*reorderedPlan);
+  ASSERT_TRUE(bool(originalBundle))
+      << llvm::toString(originalBundle.takeError());
+  ASSERT_TRUE(bool(reorderedBundle))
+      << llvm::toString(reorderedBundle.takeError());
+  auto findIncrementFile = [](const std::vector<QueueGraphGeneratedFile> &bundle,
+                              llvm::StringRef suffix) {
+    auto found = llvm::find_if(bundle, [&](const QueueGraphGeneratedFile &file) {
+      return llvm::StringRef(file.relativePath).ends_with(suffix) &&
+             llvm::StringRef(file.relativePath).contains("/modules/") &&
+             file.content.find("Increment") != std::string::npos;
+    });
+    return found == bundle.end() ? nullptr : &*found;
+  };
+  for (llvm::StringRef suffix : {".hpp", ".cpp"}) {
+    const QueueGraphGeneratedFile *originalFile =
+        findIncrementFile(*originalBundle, suffix);
+    const QueueGraphGeneratedFile *reorderedFile =
+        findIncrementFile(*reorderedBundle, suffix);
+    ASSERT_NE(originalFile, nullptr);
+    ASSERT_NE(reorderedFile, nullptr);
+    EXPECT_EQ(originalFile->relativePath, reorderedFile->relativePath);
+    EXPECT_EQ(originalFile->content, reorderedFile->content);
+  }
 }
 
 TEST(QueueGraphPlanTest,
@@ -2223,9 +2228,11 @@ TEST(QueueGraphPlanTest,
   ASSERT_TRUE(bool(plan)) << llvm::toString(plan.takeError());
   auto planJson = plan->canonicalJson();
   ASSERT_TRUE(bool(planJson)) << llvm::toString(planJson.takeError());
-  ASSERT_EQ(plan->moduleSpecializations.size(), 1u);
   ASSERT_EQ(plan->moduleInstances.size(), 2u);
-  const QueueGraphPlan &specialization = *plan->moduleSpecializations.front();
+  const QueueGraphPlan *selected =
+      findInstanceBody(*plan, plan->moduleInstances.front());
+  ASSERT_NE(selected, nullptr);
+  const QueueGraphPlan &specialization = *selected;
   ASSERT_EQ(specialization.blocks.size(), 1u);
   ASSERT_EQ(specialization.tables.size(), 1u);
   EXPECT_FALSE(plan->activationEdges.empty());
@@ -2245,7 +2252,7 @@ TEST(QueueGraphPlanTest,
   llvm::StringRef implementation =
       source.slice(classBegin + std::string("class ").size(), classEnd);
   EXPECT_EQ(source.count(("class " + implementation + " final").str()), 1u);
-  EXPECT_EQ(source.count(("  " + implementation + " instance_").str()), 2u);
+  EXPECT_EQ(source.count(("std::unique_ptr<" + implementation + "> instance_").str()), 2u);
   EXPECT_EQ(source.count("gfsim::SimTable<gfsim::UInt<8>> state_sum_;"), 1u);
   EXPECT_NE(source.find("activation_offsets()"), llvm::StringRef::npos);
   EXPECT_NE(source.find("activation_complete() { return true; }"),
@@ -2329,16 +2336,15 @@ int main() {
     inventory.push_back(file.relativePath);
   llvm::sort(inventory);
   const std::string moduleHeaderPath =
-      "include/generated/modules/Accumulator.h";
+      "include/generated/modules/Accumulator.hpp";
   const std::string moduleSourcePath = "src/generated/modules/Accumulator.cpp";
   EXPECT_EQ(inventory, (std::vector<std::string>{
                            "CMakeLists.txt",
                            "include/generated/dut.h",
+                           "include/generated/interfaces/Top_interface.hpp",
                            "include/generated/model.h",
                            moduleHeaderPath,
-                           "include/generated/modules/queuegraph_helpers.h",
-                           "include/generated/modules/queuegraph_types.h",
-                           "include/generated/types/Mode.h",
+                           "include/generated/modules/queuegraph_helpers.hpp",
                            "share/generated/cost-report.json",
                            "share/generated/source-map.json",
                            "src/generated/helpers/queuegraph_helpers.cpp",
@@ -2366,24 +2372,18 @@ int main() {
                 .find("class StatefulReuse final"),
             llvm::StringRef::npos);
   EXPECT_NE(llvm::StringRef(dut->content)
-                .find("#include \"generated/modules/Accumulator.h\""),
+                .find("#include \"generated/modules/Accumulator.hpp\""),
             llvm::StringRef::npos);
-  const QueueGraphGeneratedFile *types =
-      findBundleFile(*bundle, "include/generated/types/Mode.h");
-  ASSERT_NE(types, nullptr);
-  EXPECT_NE(llvm::StringRef(types->content).find("enum class Mode"),
-            llvm::StringRef::npos);
-  const QueueGraphGeneratedFile *typesUmbrella =
-      findBundleFile(*bundle, "include/generated/modules/queuegraph_types.h");
-  ASSERT_NE(typesUmbrella, nullptr);
-  EXPECT_NE(llvm::StringRef(typesUmbrella->content)
-                .find("#include \"generated/types/Mode.h\""),
+  const QueueGraphGeneratedFile *interfaceShard = findBundleFile(
+      *bundle, "include/generated/interfaces/Top_interface.hpp");
+  ASSERT_NE(interfaceShard, nullptr);
+  EXPECT_NE(llvm::StringRef(interfaceShard->content).find("enum class Mode"),
             llvm::StringRef::npos);
   const QueueGraphGeneratedFile *helpersSource =
       findBundleFile(*bundle, "src/generated/helpers/queuegraph_helpers.cpp");
   ASSERT_NE(helpersSource, nullptr);
   EXPECT_NE(llvm::StringRef(helpersSource->content)
-                .find("#include \"generated/modules/queuegraph_helpers.h\""),
+                .find("#include \"generated/modules/queuegraph_helpers.hpp\""),
             llvm::StringRef::npos);
   EXPECT_NE(
       llvm::StringRef(helpersSource->content).find("namespace ac_generated"),
@@ -2428,9 +2428,11 @@ TEST(QueueGraphPlanTest,
   ASSERT_TRUE(freezeQueueGraph(*module));
   auto plan = buildQueueGraphPlan(*module);
   ASSERT_TRUE(bool(plan)) << llvm::toString(plan.takeError());
-  ASSERT_EQ(plan->moduleSpecializations.size(), 1u);
   ASSERT_EQ(plan->moduleInstances.size(), 2u);
-  const QueueGraphPlan &specialization = *plan->moduleSpecializations.front();
+  const QueueGraphPlan *selected =
+      findInstanceBody(*plan, plan->moduleInstances.front());
+  ASSERT_NE(selected, nullptr);
+  const QueueGraphPlan &specialization = *selected;
   ASSERT_EQ(specialization.interfaceInputs.size(), 2u);
   ASSERT_EQ(specialization.interfaceOutputs.size(), 2u);
   EXPECT_EQ(specialization.interfaceInputs[0].displayName, "completion-in");
@@ -2453,18 +2455,18 @@ TEST(QueueGraphPlanTest,
   llvm::StringRef implementation =
       source.slice(classBegin + std::string("class ").size(), classEnd);
   EXPECT_EQ(source.count(("class " + implementation + " final").str()), 1u);
-  EXPECT_EQ(source.count(("  " + implementation + " instance_").str()), 2u);
+  EXPECT_EQ(source.count(("std::unique_ptr<" + implementation + "> instance_").str()), 2u);
   EXPECT_NE(source.find((implementation + "_rule_accumulate_b_policy").str()),
             llvm::StringRef::npos);
   EXPECT_NE(source.find((implementation + "_rule_accumulate_a_policy").str()),
             llvm::StringRef::npos);
-  EXPECT_NE(source.find("gfsim::SimQueue<gfsim::UInt<8>> &completion_in"),
+  EXPECT_NE(source.find("gfsim::SimQueue<gfsim::UInt<8>> *completion_in"),
             llvm::StringRef::npos);
-  EXPECT_NE(source.find("gfsim::SimQueue<gfsim::UInt<8>> &completion_in_2"),
+  EXPECT_NE(source.find("gfsim::SimQueue<gfsim::UInt<8>> *completion_in_2"),
             llvm::StringRef::npos);
-  EXPECT_NE(source.find("gfsim::SimQueue<gfsim::UInt<8>> &result"),
+  EXPECT_NE(source.find("gfsim::SimQueue<gfsim::UInt<8>> *result"),
             llvm::StringRef::npos);
-  EXPECT_NE(source.find("gfsim::SimQueue<gfsim::UInt<8>> &result_2"),
+  EXPECT_NE(source.find("gfsim::SimQueue<gfsim::UInt<8>> *result_2"),
             llvm::StringRef::npos);
 
   std::string executableSource = *generated;
@@ -2578,9 +2580,11 @@ TEST(QueueGraphPlanTest,
   ASSERT_TRUE(freezeQueueGraph(*module));
   auto plan = buildQueueGraphPlan(*module);
   ASSERT_TRUE(bool(plan)) << llvm::toString(plan.takeError());
-  ASSERT_EQ(plan->moduleSpecializations.size(), 1u);
   ASSERT_EQ(plan->moduleInstances.size(), 2u);
-  const QueueGraphPlan &specialization = *plan->moduleSpecializations.front();
+  const QueueGraphPlan *selected =
+      findInstanceBody(*plan, plan->moduleInstances.front());
+  ASSERT_NE(selected, nullptr);
+  const QueueGraphPlan &specialization = *selected;
   ASSERT_EQ(specialization.blocks.size(), 1u);
   ASSERT_EQ(specialization.tables.size(), 2u);
   ASSERT_EQ(specialization.blocks.front().stateWrites.size(), 2u);
@@ -2597,7 +2601,7 @@ TEST(QueueGraphPlanTest,
   llvm::StringRef implementation =
       source.slice(classBegin + std::string("class ").size(), classEnd);
   EXPECT_EQ(source.count(("class " + implementation + " final").str()), 1u);
-  EXPECT_EQ(source.count(("  " + implementation + " instance_").str()), 2u);
+  EXPECT_EQ(source.count(("std::unique_ptr<" + implementation + "> instance_").str()), 2u);
   EXPECT_NE(source.find("gfsim::QueueStateTransition<"), llvm::StringRef::npos);
 
   std::string executableSource = *generated;
@@ -2653,8 +2657,11 @@ TEST(QueueGraphPlanTest,
   ASSERT_TRUE(freezeQueueGraph(*module));
   auto plan = buildQueueGraphPlan(*module);
   ASSERT_TRUE(bool(plan)) << llvm::toString(plan.takeError());
-  ASSERT_EQ(plan->moduleSpecializations.size(), 1u);
-  QueueGraphPlan &specialization = *plan->moduleSpecializations.front();
+  ASSERT_FALSE(plan->moduleInstances.empty());
+  const QueueGraphPlan *selected =
+      findInstanceBody(*plan, plan->moduleInstances.front());
+  ASSERT_NE(selected, nullptr);
+  QueueGraphPlan &specialization = *const_cast<QueueGraphPlan *>(selected);
   QueueBlockPlan &firing = specialization.blocks.front();
   ASSERT_EQ(firing.stateWrites.size(), 2u);
   StateWritePlan repeated = firing.stateWrites.front();
@@ -2739,9 +2746,11 @@ TEST(QueueGraphPlanTest,
   ASSERT_TRUE(freezeQueueGraph(*module));
   auto plan = buildQueueGraphPlan(*module);
   ASSERT_TRUE(bool(plan)) << llvm::toString(plan.takeError());
-  ASSERT_EQ(plan->moduleSpecializations.size(), 1u);
   ASSERT_EQ(plan->moduleInstances.size(), 2u);
-  const QueueGraphPlan &specialization = *plan->moduleSpecializations.front();
+  const QueueGraphPlan *selected =
+      findInstanceBody(*plan, plan->moduleInstances.front());
+  ASSERT_NE(selected, nullptr);
+  const QueueGraphPlan &specialization = *selected;
   ASSERT_EQ(specialization.blocks.size(), 2u);
   ASSERT_EQ(specialization.tables.size(), 2u);
   ASSERT_EQ(specialization.blocks[0].stateWrites.size(), 2u);
@@ -2759,7 +2768,7 @@ TEST(QueueGraphPlanTest,
   llvm::StringRef implementation =
       source.slice(classBegin + std::string("class ").size(), classEnd);
   EXPECT_EQ(source.count(("class " + implementation + " final").str()), 1u);
-  EXPECT_EQ(source.count(("  " + implementation + " instance_").str()), 2u);
+  EXPECT_EQ(source.count(("std::unique_ptr<" + implementation + "> instance_").str()), 2u);
   EXPECT_EQ(source.count("gfsim::QueueStateTransition<"), 2u);
 
   std::string executableSource = *generated;
@@ -2808,8 +2817,11 @@ TEST(QueueGraphPlanTest,
   ASSERT_TRUE(module);
   auto plan = buildQueueGraphPlan(*module);
   ASSERT_TRUE(bool(plan)) << llvm::toString(plan.takeError());
-  ASSERT_EQ(plan->moduleSpecializations.size(), 1u);
-  const QueueGraphPlan &specialization = *plan->moduleSpecializations.front();
+  ASSERT_FALSE(plan->moduleInstances.empty());
+  const QueueGraphPlan *selected =
+      findInstanceBody(*plan, plan->moduleInstances.front());
+  ASSERT_NE(selected, nullptr);
+  const QueueGraphPlan &specialization = *selected;
   ASSERT_EQ(specialization.blocks.size(), 1u);
   EXPECT_TRUE(specialization.tables.empty());
   EXPECT_EQ(specialization.interfaceInputs.size(), 1u);
@@ -2826,7 +2838,7 @@ TEST(QueueGraphPlanTest,
   const llvm::StringRef implementation =
       source.slice(classBegin + std::string("class ").size(), classEnd);
   EXPECT_EQ(source.count(("class " + implementation + " final").str()), 1u);
-  EXPECT_EQ(source.count(("  " + implementation + " instance_").str()), 1u);
+  EXPECT_EQ(source.count(("std::unique_ptr<" + implementation + "> instance_").str()), 1u);
   EXPECT_NE(source.find("gfsim::QueueStateTransition<"), llvm::StringRef::npos);
   EXPECT_NE(source.find("std::tuple<gfsim::UInt<8>, gfsim::UInt<8>, "
                         "gfsim::UInt<8>, gfsim::UInt<8>>"),
@@ -2844,8 +2856,8 @@ int main() {
   gfsim::SimQueue<gfsim::UInt<8>> fourth("fourth", 4, &root, 1);
   ac_generated::)cpp"
           << implementation
-          << R"cpp( fanout("fanout", 5, &root, input, first, second, third,
-                 fourth);
+          << R"cpp( fanout("fanout", 5, &root, &input, &first, &second, &third,
+                 &fourth);
 
   if (!third.proposePush(gfsim::UInt<8>{99}) ||
       !input.proposePush(gfsim::UInt<8>{7}))
@@ -2917,15 +2929,17 @@ TEST(QueueGraphPlanTest,
   ASSERT_TRUE(freezeQueueGraph(*module));
   auto plan = buildQueueGraphPlan(*module);
   ASSERT_TRUE(bool(plan)) << llvm::toString(plan.takeError());
-  ASSERT_EQ(plan->moduleSpecializations.size(), 1u);
   ASSERT_EQ(plan->moduleInstances.size(), 2u);
-  const QueueGraphPlan &wrapper = *plan->moduleSpecializations.front();
+  const QueueGraphPlan *wrapperBody =
+      findInstanceBody(*plan, plan->moduleInstances.front());
+  ASSERT_NE(wrapperBody, nullptr);
+  const QueueGraphPlan &wrapper = *wrapperBody;
   EXPECT_EQ(wrapper.definition, "Wrapper");
-  ASSERT_EQ(wrapper.moduleSpecializations.size(), 1u);
   ASSERT_EQ(wrapper.moduleInstances.size(), 1u);
-  EXPECT_EQ(wrapper.moduleSpecializations.front()->definition, "Increment");
-  EXPECT_EQ(wrapper.moduleInstances.front().specializationKey,
-            wrapper.moduleSpecializations.front()->specializationKey);
+  const QueueGraphPlan *increment =
+      findInstanceBody(wrapper, wrapper.moduleInstances.front());
+  ASSERT_NE(increment, nullptr);
+  EXPECT_EQ(increment->definition, "Increment");
 
   auto costReport = generateQueueGraphCostReport(*plan);
   ASSERT_TRUE(bool(costReport)) << llvm::toString(costReport.takeError());
@@ -2968,16 +2982,16 @@ TEST(QueueGraphPlanTest,
                 .find("std::vector<gfsim::DispatchRow> rows"),
             llvm::StringRef::npos);
   EXPECT_NE(llvm::StringRef(dutHeader->content)
-                .find("#include \"generated/modules/" + childFile + ".h\""),
+                .find("#include \"generated/modules/" + childFile + ".hpp\""),
             llvm::StringRef::npos);
   EXPECT_NE(llvm::StringRef(dutHeader->content)
-                .find("#include \"generated/modules/" + wrapperFile + ".h\""),
+                .find("#include \"generated/modules/" + wrapperFile + ".hpp\""),
             llvm::StringRef::npos);
   ASSERT_NE(findBundleFile(*runtimeBundle,
-                           "include/generated/modules/" + childFile + ".h"),
+                           "include/generated/modules/" + childFile + ".hpp"),
             nullptr);
   ASSERT_NE(findBundleFile(*runtimeBundle,
-                           "include/generated/modules/" + wrapperFile + ".h"),
+                           "include/generated/modules/" + wrapperFile + ".hpp"),
             nullptr);
   ASSERT_NE(findBundleFile(*runtimeBundle,
                            "src/generated/modules/" + childFile + ".cpp"),
@@ -2986,7 +3000,7 @@ TEST(QueueGraphPlanTest,
                            "src/generated/modules/" + wrapperFile + ".cpp"),
             nullptr);
   ASSERT_NE(findBundleFile(*runtimeBundle,
-                           "include/generated/modules/queuegraph_types.h"),
+                           "include/generated/interfaces/Top_interface.hpp"),
             nullptr);
 
   auto generated = generateQueueGraphCpp(*plan);
@@ -2994,7 +3008,7 @@ TEST(QueueGraphPlanTest,
   llvm::StringRef source(*generated);
   EXPECT_EQ(source.count("class Increment"), 1u);
   EXPECT_EQ(source.count("class Wrapper"), 1u);
-  EXPECT_EQ(source.count(" child_0_;"), 1u);
+  EXPECT_EQ(source.count("std::unique_ptr<Increment> child_0_;"), 1u);
 
   std::string executableSource = *generated;
   executableSource.append(R"cpp(
@@ -3022,8 +3036,70 @@ int main() {
              ? 0
              : 2;
 }
+
 )cpp");
   expectCppRuns(executableSource);
+}
+
+TEST(QueueGraphPlanTest,
+     StructuredQueueStorageUsesValueAt64BitsAndImmutableSharedAt65Bits) {
+  mlir::MLIRContext context;
+  context.loadDialect<ac::ACIRDialect, mlir::DLTIDialect>();
+  auto module = mlir::parseSourceFile<mlir::ModuleOp>(
+      ACIR_TEST_SOURCE_DIR
+      "/tests/mlir/agentic-circuit/Transforms/queue-module-freeze.mlir",
+      &context);
+  ASSERT_TRUE(module);
+  ASSERT_TRUE(freezeQueueGraph(*module));
+  auto original = buildQueueGraphPlan(*module);
+  ASSERT_TRUE(bool(original)) << llvm::toString(original.takeError());
+
+  auto configure = [](QueueGraphPlan &plan, llvm::StringRef payload,
+                      uint64_t width) {
+    plan.payloads = {{payload.str(), {{"low", "i64", 64}}}};
+    if (width > 64)
+      plan.payloads.front().fields.push_back({"high", "i1", 1});
+    const std::string nominal =
+        "!ac.struct<@types::@" + payload.str() + ">";
+    std::function<void(QueueGraphPlan &)> rewrite = [&](QueueGraphPlan &item) {
+      item.payloads = plan.payloads;
+      for (QueuePlan &queue : item.queues)
+        queue.payloadType = nominal;
+      for (QueueInterfacePlan &input : item.interfaceInputs)
+        input.payloadType = nominal;
+      for (QueueInterfacePlan &output : item.interfaceOutputs)
+        output.payloadType = nominal;
+      for (QueueBlockPlan &block : item.blocks)
+        if (block.kind == "transform") {
+          block.expressions.clear();
+          block.yields = {"item"};
+        }
+      for (ModuleFamilyPlan &family : item.moduleFamilies)
+        for (ModuleCasePlan &moduleCase : family.cases)
+          if (moduleCase.bodyPlan)
+            rewrite(*moduleCase.bodyPlan);
+    };
+    rewrite(plan);
+  };
+
+  QueueGraphPlan narrow = *original;
+  configure(narrow, "NarrowPayload", 64);
+  auto narrowCpp = generateQueueGraphCpp(narrow);
+  ASSERT_TRUE(bool(narrowCpp)) << llvm::toString(narrowCpp.takeError());
+  EXPECT_NE(narrowCpp->find("gfsim::SimQueue<NarrowPayload>"),
+            std::string::npos);
+  EXPECT_EQ(narrowCpp->find("std::shared_ptr<const NarrowPayload>"),
+            std::string::npos);
+
+  QueueGraphPlan wide = *original;
+  configure(wide, "WidePayload", 65);
+  auto wideCpp = generateQueueGraphCpp(wide);
+  ASSERT_TRUE(bool(wideCpp)) << llvm::toString(wideCpp.takeError());
+  EXPECT_NE(wideCpp->find(
+                "gfsim::SimQueue<std::shared_ptr<const WidePayload>>"),
+            std::string::npos);
+  EXPECT_NE(wideCpp->find("std::shared_ptr<const WidePayload>"),
+            std::string::npos);
 }
 
 TEST(QueueGraphPlanTest,
@@ -3038,13 +3114,16 @@ TEST(QueueGraphPlanTest,
   ASSERT_TRUE(freezeQueueGraph(*module));
   auto plan = buildQueueGraphPlan(*module);
   ASSERT_TRUE(bool(plan)) << llvm::toString(plan.takeError());
-  ASSERT_EQ(plan->moduleSpecializations.size(), 1u);
-  const QueueGraphPlan &parent = *plan->moduleSpecializations.front();
+  ASSERT_FALSE(plan->moduleInstances.empty());
+  const QueueGraphPlan *parentBody =
+      findInstanceBody(*plan, plan->moduleInstances.front());
+  ASSERT_NE(parentBody, nullptr);
+  const QueueGraphPlan &parent = *parentBody;
   EXPECT_EQ(parent.definition, "PrepareAndIncrement");
   ASSERT_EQ(parent.blocks.size(), 1u);
   ASSERT_EQ(parent.moduleInstances.size(), 1u);
-  ASSERT_EQ(parent.moduleSpecializations.size(), 1u);
-  ASSERT_EQ(parent.queues.size(), 2u);
+  ASSERT_NE(findInstanceBody(parent, parent.moduleInstances.front()), nullptr);
+  ASSERT_EQ(parent.queues.size(), 3u);
   EXPECT_EQ(parent.blocks.front().outputs.front(), "prepared");
   EXPECT_EQ(parent.moduleInstances.front().inputs.front(), "prepared");
 
@@ -3087,20 +3166,23 @@ int main() {
   expectCppRuns(executableSource);
 }
 
-TEST(QueueGraphPlanTest, PreservesQueueRateAndRejectsUnspecializedPycLanes) {
+TEST(QueueGraphPlanTest, PreservesQueueRateAndLowersSharedReadyPycLanes) {
   mlir::MLIRContext context;
   context.loadDialect<ac::ACIRDialect, mlir::DLTIDialect>();
-  std::string rated = kQueueGraph.str();
+  std::string rated = kStructuredTransform.str();
   size_t attributes = rated.find("{ac.name = \"input\"}");
   ASSERT_NE(attributes, std::string::npos);
   rated.replace(attributes, std::string("{ac.name = \"input\"}").size(),
                 "{ac.name = \"input\", "
                 "ac.output_rates = array<i64: 2>}");
+  constexpr llvm::StringLiteral queueType =
+      "!ac.queue<!ac.struct<@types::@Item>>";
+  constexpr llvm::StringLiteral ratedQueueType =
+      "!ac.queue<!ac.struct<@types::@Item>, lanes=2, rate=2>";
   for (size_t offset = 0;
-       (offset = rated.find("!ac.queue<i64>", offset)) != std::string::npos;
-       offset += std::string("!ac.queue<i64, lanes=2, rate=2>").size())
-    rated.replace(offset, std::string("!ac.queue<i64>").size(),
-                  "!ac.queue<i64, lanes=2, rate=2>");
+       (offset = rated.find(queueType.str(), offset)) != std::string::npos;
+       offset += ratedQueueType.size())
+    rated.replace(offset, queueType.size(), ratedQueueType.str());
   auto module = mlir::parseSourceString<mlir::ModuleOp>(rated, &context);
   ASSERT_TRUE(module);
   ASSERT_TRUE(freezeQueueGraph(*module));
@@ -3115,8 +3197,15 @@ TEST(QueueGraphPlanTest, PreservesQueueRateAndRejectsUnspecializedPycLanes) {
   ASSERT_TRUE(bool(cpp)) << llvm::toString(cpp.takeError());
   EXPECT_NE(cpp->find(", nullptr, 1, 2, 2)"), std::string::npos);
   auto pyc = generateQueueGraphPyc(*plan);
-  ASSERT_FALSE(bool(pyc));
-  EXPECT_FALSE(llvm::toString(pyc.takeError()).empty());
+  ASSERT_TRUE(bool(pyc)) << llvm::toString(pyc.takeError());
+  EXPECT_NE(pyc->find("%in_valid_0: i1, %in_data_0: i64, "
+                      "%in_valid_1: i1, %in_data_1: i64, %out_ready: i1"),
+            std::string::npos);
+  EXPECT_NE(pyc->find("result_names = [\"out_valid_0\", \"out_data_0\", "
+                      "\"out_valid_1\", \"out_data_1\", \"in_ready\"]"),
+            std::string::npos);
+  EXPECT_EQ(pyc->find("%out_ready_0"), std::string::npos);
+  EXPECT_EQ(pyc->find("%out_ready_1"), std::string::npos);
 }
 
 TEST(QueueGraphPlanTest, ExtractsPayloadAndImmutableVarDag) {
@@ -5322,8 +5411,13 @@ TEST(QueueGraphPlanTest,
     std::string source;
     llvm::raw_string_ostream stream(source);
     stream << R"mlir(
+#args = #ac.static_arguments<[]>
+#owner = #ac.source_owner<"tests/proof.py", "tests/proof.py">
+#prov = #ac.source_provenance<"tests/proof.py", 1, 1, 1, 1>
+#schema = #ac.module_family_schema<#ac.static_parameters<[]>, #ac.static_cases<[#ac.static_arguments<[]>]>, #ac.module_interface<[]>, #ac.source_owner<"tests/proof.py", "tests/proof.py">, []>
 builtin.module attributes {ac.model_kind = "queue_graph", ac.queue_graph_domain = "cycle", ac.system = "proof_order"} {
-  ac.module @M() parameters {} graph {
+  ac.module @M source #owner schema #schema {
+    ac.module.case arguments #args type () -> () source #prov graph {
     ac.scope @logic() {
       ac.table @state entry i8 entries 1 init 0 owner "/logic" stable_id "table/logic/state"
       %input = ac.source depth 1 latency 1 : !ac.queue<i1>
@@ -5344,6 +5438,7 @@ builtin.module attributes {ac.model_kind = "queue_graph", ac.queue_graph_domain 
       ac.scope.yield
     } : () -> ()
     ac.return
+    }
   }
 }
 )mlir";

@@ -78,6 +78,24 @@ def _flattened_definition_names(tree: ast.Module) -> tuple[str, ...]:
     return tuple(dict.fromkeys(names))
 
 
+def _module_family_definition_kinds(tree: ast.Module) -> dict[str, set[str]]:
+    result: dict[str, set[str]] = {}
+    for statement in tree.body:
+        if not isinstance(statement, (ast.FunctionDef, ast.AsyncFunctionDef)):
+            continue
+        for decorator in statement.decorator_list:
+            target = decorator.func if isinstance(decorator, ast.Call) else decorator
+            if isinstance(target, ast.Attribute):
+                name = target.attr
+            elif isinstance(target, ast.Name):
+                name = target.id
+            else:
+                continue
+            if name in {"module", "module_decl"}:
+                result.setdefault(statement.name, set()).add(name)
+    return result
+
+
 class _DynamicCodeAnalyzer:
     """Conservatively reject bindings that can evade the static closure."""
 
@@ -402,6 +420,7 @@ def capture_source_closure(entry: Path, workspace: Path) -> SourceClosure:
     visited: set[Path] = set()
     entries: list[SourceClosureEntry] = []
     definition_sources: dict[str, str] = {}
+    module_family_kinds: dict[str, set[str]] = {}
     while pending:
         source = pending.pop()
         resolved = source.resolve(strict=True)
@@ -423,14 +442,22 @@ def capture_source_closure(entry: Path, workspace: Path) -> SourceClosure:
             ) from error
         tree = ast.parse(text, filename=relative, type_comments=True)
         _DynamicCodeAnalyzer(source=relative).analyze(tree)
+        local_family_kinds = _module_family_definition_kinds(tree)
         for name in _flattened_definition_names(tree):
             prior = definition_sources.get(name)
             if prior is not None and prior != relative:
-                raise SourceClosureError(
-                    "ACPY-JIT-006: flattened source symbol "
-                    f"{name!r} is defined by both {prior!r} and {relative!r}"
+                combined = module_family_kinds.get(name, set()) | local_family_kinds.get(
+                    name, set()
                 )
+                if combined != {"module", "module_decl"}:
+                    raise SourceClosureError(
+                        "ACPY-JIT-006: flattened source symbol "
+                        f"{name!r} is defined by both {prior!r} and {relative!r}"
+                    )
             definition_sources[name] = relative
+            module_family_kinds.setdefault(name, set()).update(
+                local_family_kinds.get(name, set())
+            )
         for node in ast.walk(tree):
             if isinstance(node, (ast.Import, ast.ImportFrom)):
                 pending.extend(

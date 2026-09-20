@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-DEFAULT_PARAMS = {"MAIN_CLK_BIT": 4}
+DEFAULT_PARAMS = {}
 
 TB_PRESETS = {
     "smoke": {"timeout": 32, "finish": 2},

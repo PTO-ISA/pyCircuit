@@ -216,12 +216,24 @@ remains available for standalone pipelines.
 import agentic_circuit as ac
 
 
-@ac.module
+@ac.module_decl(source="examples/module.py")
+def keep(value: WorkItem) -> WorkItem:
+    ...
+
+keep_decl = keep
+
+@ac.module(declaration=keep_decl)
 def keep(value: WorkItem) -> WorkItem:
     return value
 
 
-@ac.module
+@ac.module_decl(source="examples/module.py")
+def increment(value: WorkItem) -> WorkItem:
+    ...
+
+increment_decl = increment
+
+@ac.module(declaration=increment_decl)
 def increment(value: WorkItem) -> WorkItem:
     return value.with_fields(value=value.value + 1)
 
@@ -235,12 +247,11 @@ def pipeline(value: WorkItem, *, increment_value: ac.const[bool]) -> WorkItem:
     return result
 
 
-specialization = ac.jit(pipeline, increment_value=True)
 ```
 
 The source file is compiled through AST capture. The queue primitives inside
 the system body are syntax markers; ordinary Python execution of the body is
-not the compilation path. `ac.jit` binds only `ac.const` parameters. Runtime
+not the compilation path. Typed finite-family cases bind declared static parameters. Runtime
 payload arguments remain unbound and do not enter specialization identity. An
 optional `workspace=` captures the transitive local source closure;
 local dependencies use explicit `from module import Symbol` imports. Local
@@ -360,7 +371,7 @@ class Group:
     count: ac.bits[ac.count_width(ROB_ENTRIES)]
 ```
 
-`ac.jit(..., rob_entries=128, issue_width=4)` binds the matching
+An explicitly declared typed finite-family case binds the matching
 `ac.const[int]` parameters before payload descriptors are finalized.
 `index_width(N)` is `max(1, ceil(log2(N)))`; `count_width(N)` is
 `max(1, ceil(log2(N + 1)))`. Only closed checked integer arithmetic and these
@@ -1390,7 +1401,13 @@ state parameters. The frontend infers each captured owner from static references
 to direct typed module state:
 
 ```python
-@ac.module
+@ac.module_decl(source="examples/module.py")
+def accumulator(incoming: ac.u8) -> ac.u8:
+    ...
+
+accumulator_decl = accumulator
+
+@ac.module(declaration=accumulator_decl)
 def accumulator(incoming: ac.u8) -> ac.u8:
     total: ac.u8 = 0
 
@@ -2466,7 +2483,13 @@ The stateful module slice accepts one or more zero-initialized scalar lexical
 variables, one serial assignment per variable, and a typed result expression:
 
 ```python
-@ac.module
+@ac.module_decl(source="examples/module.py")
+def accumulator(value: ac.u8) -> ac.u8:
+    ...
+
+accumulator_decl = accumulator
+
+@ac.module(declaration=accumulator_decl)
 def accumulator(value: ac.u8) -> ac.u8:
     total: ac.u8 = 0
     total = total + value

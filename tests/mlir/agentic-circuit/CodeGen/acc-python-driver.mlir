@@ -8,14 +8,11 @@
 // RUN: %FileCheck %s --check-prefix=VERILOG < %t/model.v
 // RUN: %cxx -std=c++20 -I%source_root/simulator/gfsim/include %t/harness.cpp -o %t/model
 // RUN: %t/model | %FileCheck %s --check-prefix=EXEC
-// RUN: env PYTHONPATH=%source_root/python/semantic-core/src:%source_root/python/agentic-circuit/src:%binary_root/python %python -m agentic_circuit._acc_py --project %t/specialized.toml -c %t/architecture.py -o %t/specialized.ac --quiet
-// RUN: %FileCheck %s --check-prefix=AC < %t/specialized.ac
 // RUN: env PYTHONPATH=%source_root/python/semantic-core/src:%source_root/python/agentic-circuit/src:%binary_root/python %python -m agentic_circuit._acc_py --project %t/structured.toml -c %t/structured.py -o %t/structured.ac --quiet
 // RUN: %not %acc -c %t/structured.ac -emit-verilog -o %t/structured.v 2>&1 | %FileCheck %s --check-prefix=STRUCTURED-VERILOG-ERROR
 // RUN: test ! -e %t/structured.v
 
 // AC: ac.system = "rob"
-// AC-SAME: ac.topology_frozen = true
 // AC: ac.ndf_ids = ["DAV-ACC-RULE-0001"]
 // AC-SAME: ac.ndf_requires = ["DAV-ACC-CONTRACT-0001"]
 // CPP: // rule: complete
@@ -28,7 +25,7 @@
 // VERILOG: module rob (
 // VERILOG: endmodule
 // EXEC: acc generated DUT: PASS
-// STRUCTURED-VERILOG-ERROR: module-preserving QueueGraph PYC lowering is not implemented
+// STRUCTURED-VERILOG-ERROR: structured input requires a directory-backed AC package
 
 //--- architecture.py
 import agentic_circuit as ac
@@ -56,8 +53,6 @@ def rob() -> None:
     retired = ac.reorder(completed, by=Entry.sequence, entries=8, start=0)
     ac.sink(retired)
 
-
-specialization = ac.jit(rob)
 
 //--- harness.cpp
 #include "model.cpp"
@@ -141,32 +136,6 @@ inputs = {}
 [diagnostics]
 format = "text"
 
-//--- specialized.toml
-[project]
-name = "acc-exported-specialization-smoke"
-version = "0.1.0"
-architecture = "architecture.py"
-system = "specialization"
-
-[providers]
-standard_library = ["ac"]
-
-[build]
-profile = "fast"
-compiler = "c++"
-standard_library = "libc++"
-component_roots = []
-protocol_roots = []
-build_root = "build-specialized"
-instrumentation_layers = []
-
-[run]
-trace_roots = []
-inputs = {}
-
-[diagnostics]
-format = "text"
-
 //--- structured.py
 import agentic_circuit as ac
 
@@ -176,7 +145,15 @@ def frontend_marker(value):
     return value
 
 
-@ac.module
+@ac.module_decl(source="structured.py")
+def increment(value: ac.u8) -> ac.u8:
+    ...
+
+
+increment_decl = increment
+
+
+@ac.module(declaration=increment_decl)
 def increment(value: ac.u8) -> ac.u8:
     return value + 1
 

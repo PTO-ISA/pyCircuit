@@ -69,7 +69,7 @@ mlir::LogicalResult verifyArchitectureObligations(mlir::ModuleOp model,
 
 /// Recompute dependent type metadata and expression-target closure before any
 /// transform may erase or merge verifier-visible evidence.
-mlir::LogicalResult verifyStaticTypeMetadata(mlir::ModuleOp model);
+mlir::LogicalResult verifyRemovedStaticMetadataAbsent(mlir::ModuleOp model);
 
 /// Expand recursive value equality and inline pure value invariants before
 /// dataflow analysis or backend planning.

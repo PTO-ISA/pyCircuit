@@ -3,7 +3,7 @@
 Reimplements the Traffic-lights-ce project in the pyCircuit unified signal model.
 Outputs are BCD countdowns per direction plus discrete red/yellow/green lights.
 
-JIT parameters:
+Source-owned configuration:
   CLK_FREQ     — system clock frequency in Hz (default 50 MHz)
   EW_GREEN_S   — east/west green time in seconds
   EW_YELLOW_S  — east/west yellow time in seconds
@@ -16,8 +16,6 @@ Derived:
 """
 
 from __future__ import annotations
-
-import os
 
 from pycircuit import (
     Circuit,
@@ -60,16 +58,12 @@ def bin_to_bcd_60(m: Circuit, val, width):
     return (tens | u(8, 0)) << 4 | (units | u(8, 0))
 
 
-def build(
-    m: CycleAwareCircuit,
-    domain: CycleAwareDomain,
-    *,
-    CLK_FREQ: int = 50_000_000,
-    EW_GREEN_S: int = 45,
-    EW_YELLOW_S: int = 5,
-    NS_GREEN_S: int = 30,
-    NS_YELLOW_S: int = 5,
-) -> None:
+def build(m: CycleAwareCircuit, domain: CycleAwareDomain) -> None:
+    CLK_FREQ = 4
+    EW_GREEN_S = 3
+    EW_YELLOW_S = 1
+    NS_GREEN_S = 2
+    NS_YELLOW_S = 1
     if min(EW_GREEN_S, EW_YELLOW_S, NS_GREEN_S, NS_YELLOW_S) <= 0:
         raise ValueError("all durations must be > 0")
 
@@ -213,24 +207,4 @@ def build(
 build.__pycircuit_name__ = "traffic_lights_ce_pyc"
 
 if __name__ == "__main__":
-
-    def _env_int(key: str, default: int) -> int:
-        raw = os.getenv(key)
-        if raw is None:
-            return default
-        try:
-            return int(raw, 0)
-        except ValueError as exc:
-            raise ValueError(f"invalid {key}={raw!r}") from exc
-
-    print(
-        compile_cycle_aware(
-            build,
-            name="traffic_lights_ce_pyc",
-            CLK_FREQ=_env_int("PYC_TL_CLK_FREQ", 50_000_000),
-            EW_GREEN_S=_env_int("PYC_TL_EW_GREEN_S", 45),
-            EW_YELLOW_S=_env_int("PYC_TL_EW_YELLOW_S", 5),
-            NS_GREEN_S=_env_int("PYC_TL_NS_GREEN_S", 30),
-            NS_YELLOW_S=_env_int("PYC_TL_NS_YELLOW_S", 5),
-        ).emit_mlir()
-    )
+    print(compile_cycle_aware(build, name="traffic_lights_ce_pyc").emit_mlir())

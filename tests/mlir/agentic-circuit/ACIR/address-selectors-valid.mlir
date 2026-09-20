@@ -6,7 +6,8 @@ builtin.module  {
     "ac.transaction"() <{sym_name = "A", fields = [{name = "tag", type = i8}]}> : () -> ()
     "ac.transaction"() <{sym_name = "B", fields = [{name = "tag", type = i8}]}> : () -> ()
   }) : () -> ()
-  ac.module @M() parameters {} graph {
+  ac.module @M source #ac.source_owner<"tests/native_family.py", "tests/native_family.py"> schema #ac.module_family_schema<#ac.static_parameters<[]>, #ac.static_cases<[#ac.static_arguments<[]>]>, #ac.module_interface<[]>, #ac.source_owner<"tests/native_family.py", "tests/native_family.py">, []> {
+    ac.module.case arguments #ac.static_arguments<[]> type () -> () source #ac.source_provenance<"tests/native_family.py", 1, 1, 1, 1> graph {
     ac.address_space @space width 8 unit "byte" id "space" path "space"
     ac.address_map @class_split source @space entries [
       {base = 0 : i64, size = 32 : i64, target = @space, offset = 0 : i64,
@@ -47,6 +48,8 @@ builtin.module  {
        interleave = {granularity = 2 : i64, banks = 7 : i64, bank = 0 : i64}}
     ] default {kind = "unmapped"}
     ac.return
+
+    }
   }
 }
 

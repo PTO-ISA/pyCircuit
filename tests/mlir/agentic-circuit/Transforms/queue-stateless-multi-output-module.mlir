@@ -1,9 +1,11 @@
 // RUN: %acir_queue_plan %s | %FileCheck %s --check-prefix=PLAN
 // RUN: %acir_queue_cxxgen %s | %FileCheck %s --check-prefix=CXX
 
-module attributes {ac.frozen_owners = [{kind = "ac.system_root", owner = @Top, path = "root", stable_id = "root"}, {kind = "ac.instance", owner = @Top::@first__second__third__fourth, path = "root.first__second__third__fourth", stable_id = "root/first__second__third__fourth"}], ac.frozen_system = @atomic_fanout, ac.model_kind = "queue_graph", ac.queue_graph_domain = "cycle", ac.topology_frozen = true} {
+module attributes {ac.frozen_owners = [{kind = "ac.system_root", owner = @Top, path = "root", stable_id = "root"}, {kind = "ac.instance", owner = @Top::@first_second_third_fourth, path = "root.first_second_third_fourth", stable_id = "root/first_second_third_fourth"}], ac.frozen_system = @atomic_fanout, ac.model_kind = "queue_graph", ac.queue_graph_domain = "cycle", ac.topology_frozen = true} {
   ac.system @atomic_fanout root @Top as "root" tick 0 "cycle" seed {kind = "fixed", value = 0 : i64} instrumentation [] results {format = "json", id = "default"} selected true
-  ac.module @fanout(%arg0: !ac.queue<i8>) -> (!ac.queue<i8>, !ac.queue<i8>, !ac.queue<i8>, !ac.queue<i8>) parameters {} attributes {ac.input_display_names = ["value"], ac.output_display_names = ["first", "second", "third", "fourth"]} graph {
+ac.module @fanout source #ac.source_owner<"tests/native_family.py", "tests/native_family.py"> schema #ac.module_family_schema<#ac.static_parameters<[]>, #ac.static_cases<[#ac.static_arguments<[]>]>, #ac.module_interface<[#ac.interface_port<"input_0", "input", #ac.type_expr<#ac.type_expr_concrete<!ac.queue<i8>>>, #ac.source_provenance<"tests/native_family.py", 1, 1, 1, 1>>, #ac.interface_port<"output_0", "output", #ac.type_expr<#ac.type_expr_concrete<!ac.queue<i8>>>, #ac.source_provenance<"tests/native_family.py", 1, 1, 1, 1>>, #ac.interface_port<"output_1", "output", #ac.type_expr<#ac.type_expr_concrete<!ac.queue<i8>>>, #ac.source_provenance<"tests/native_family.py", 1, 1, 1, 1>>, #ac.interface_port<"output_2", "output", #ac.type_expr<#ac.type_expr_concrete<!ac.queue<i8>>>, #ac.source_provenance<"tests/native_family.py", 1, 1, 1, 1>>, #ac.interface_port<"output_3", "output", #ac.type_expr<#ac.type_expr_concrete<!ac.queue<i8>>>, #ac.source_provenance<"tests/native_family.py", 1, 1, 1, 1>>]>, #ac.source_owner<"tests/native_family.py", "tests/native_family.py">, []> {
+    ac.module.case arguments #ac.static_arguments<[]> type (!ac.queue<i8>) -> (!ac.queue<i8>, !ac.queue<i8>, !ac.queue<i8>, !ac.queue<i8>) {ac.input_display_names = ["value"], ac.output_display_names = ["first", "second", "third", "fourth"]} source #ac.source_provenance<"tests/native_family.py", 1, 1, 1, 1> graph {
+    ^bb0(%arg0: !ac.queue<i8>):
     %0:4 = ac.scope @body(%arg0) {
     ^bb0(%arg1: !ac.queue<i8>):
       %1:4 = ac.firing %arg1 depths [1, 1, 1, 1] latencies [1, 1, 1, 1] stable_id "fanout/first" domain "cycle" {
@@ -25,13 +27,16 @@ module attributes {ac.frozen_owners = [{kind = "ac.system_root", owner = @Top, p
       ac.scope.yield %1#0, %1#1, %1#2, %1#3 : !ac.queue<i8>, !ac.queue<i8>, !ac.queue<i8>, !ac.queue<i8>
     } : (!ac.queue<i8>) -> (!ac.queue<i8>, !ac.queue<i8>, !ac.queue<i8>, !ac.queue<i8>)
     ac.return %0#0, %0#1, %0#2, %0#3 : !ac.queue<i8>, !ac.queue<i8>, !ac.queue<i8>, !ac.queue<i8>
-  }
-  ac.module @Top() parameters {} graph {
+
+    }
+  } {ac.input_display_names = ["value"], ac.output_display_names = ["first", "second", "third", "fourth"]}
+  ac.module @Top source #ac.source_owner<"tests/native_family.py", "tests/native_family.py"> schema #ac.module_family_schema<#ac.static_parameters<[]>, #ac.static_cases<[#ac.static_arguments<[]>]>, #ac.module_interface<[]>, #ac.source_owner<"tests/native_family.py", "tests/native_family.py">, []> {
+    ac.module.case arguments #ac.static_arguments<[]> type () -> () source #ac.source_provenance<"tests/native_family.py", 1, 1, 1, 1> graph {
     %0 = ac.scope @inputs() {
       %2 = ac.source depth 1 latency 1 {ac.name = "value"} : !ac.queue<i8>
       ac.scope.yield %2 : !ac.queue<i8>
     } : () -> !ac.queue<i8>
-    %1:4 = ac.instance @first__second__third__fourth of @fanout(%0) static {} id "first__second__third__fourth" path "first__second__third__fourth" : (!ac.queue<i8>) -> (!ac.queue<i8>, !ac.queue<i8>, !ac.queue<i8>, !ac.queue<i8>)
+    %1:4 = ac.instance @first_second_third_fourth of @fanout(%0) static #ac.static_arguments<[]> id "first_second_third_fourth" path "first_second_third_fourth" : (!ac.queue<i8>) -> (!ac.queue<i8>, !ac.queue<i8>, !ac.queue<i8>, !ac.queue<i8>)
     ac.scope @outputs(%1#0, %1#1, %1#2, %1#3) {
     ^bb0(%arg0: !ac.queue<i8>, %arg1: !ac.queue<i8>, %arg2: !ac.queue<i8>, %arg3: !ac.queue<i8>):
       ac.sink %arg0 {ac.name = "sink_0"} : !ac.queue<i8>
@@ -41,13 +46,13 @@ module attributes {ac.frozen_owners = [{kind = "ac.system_root", owner = @Top, p
       ac.scope.yield
     } : (!ac.queue<i8>, !ac.queue<i8>, !ac.queue<i8>, !ac.queue<i8>) -> ()
     ac.return
+
+    }
   }
 }
 
-// PLAN: "display_rule_name":"split"
-// PLAN-SAME: "outputs":["first","second","third","fourth"]
-// PLAN-SAME: "definition":"fanout"
-// PLAN-SAME: "interface_inputs":[{"display_name":"value","lanes":1,"name":"input_0","payload_type":"i8","rate":1}]
-// PLAN-SAME: "interface_outputs":[{"display_name":"first","lanes":1,"name":"first","payload_type":"i8","rate":1},{"display_name":"second","lanes":1,"name":"second","payload_type":"i8","rate":1},{"display_name":"third","lanes":1,"name":"third","payload_type":"i8","rate":1},{"display_name":"fourth","lanes":1,"name":"fourth","payload_type":"i8","rate":1}]
+// PLAN: "definition":"Top"
+// PLAN-SAME: "module_instances":[{"definition":"fanout","inputs":["value"]
+// PLAN-SAME: "outputs":["first_second_third_fourth_0","first_second_third_fourth_1","first_second_third_fourth_2","first_second_third_fourth_3"]
 // CXX-COUNT-1: class [[FANOUT:Fanout]] final : public gfsim::Module
 // CXX: gfsim::QueueStateTransition<[[FANOUT]]_rule_split_policy, std::tuple<>, std::tuple<gfsim::UInt<8>>, std::tuple<gfsim::UInt<8>, gfsim::UInt<8>, gfsim::UInt<8>, gfsim::UInt<8>>, std::tuple<>> rule_split_;

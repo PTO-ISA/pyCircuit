@@ -23,7 +23,7 @@ class OrderedQueueLaneFrontendTest(unittest.TestCase):
         queue_type = "!ac.queue<i8, lanes = 3, rate = 2>"
         self.assertGreaterEqual(lowered.count(queue_type), 6)
         self.assertEqual(1, lowered.count("%incoming = ac.source"))
-        self.assertNotIn("incoming__lane", lowered)
+        self.assertNotIn("incoming_lane_", lowered)
 
     def test_lane_count_is_separate_from_payload_shape(self) -> None:
         from agentic_circuit._queue_frontend import lower_queue_source

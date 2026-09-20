@@ -15,6 +15,7 @@
 #include <algorithm>
 #include <cctype>
 #include <limits>
+#include <memory>
 #include <optional>
 #include <set>
 #include <sstream>
@@ -42,7 +43,26 @@ void appendInitializer(std::vector<std::string> &initializers,
 }
 
 std::string identifier(llvm::StringRef value) {
-  return legalizeQueueGraphIdentifier(value);
+  std::string legalized = legalizeQueueGraphIdentifier(value);
+  std::string result;
+  bool underscore = false;
+  for (char character : legalized) {
+    if (character == '_') {
+      if (underscore || result.empty())
+        continue;
+      underscore = true;
+    } else {
+      underscore = false;
+    }
+    result.push_back(character);
+  }
+  while (!result.empty() && result.back() == '_')
+    result.pop_back();
+  if (result.empty())
+    return "ac_value";
+  if (std::isdigit(static_cast<unsigned char>(result.front())))
+    result.insert(0, "ac_");
+  return result;
 }
 
 std::string uniqueIdentifier(llvm::StringRef preferred,
@@ -266,6 +286,18 @@ std::string className(llvm::StringRef value) {
   return result;
 }
 
+std::string sourceStem(const QueueGraphPlan &plan) {
+  llvm::StringRef source = plan.sourceFile;
+  if (source.empty() || source.starts_with('<'))
+    source = plan.sourceDefinition.empty() ? llvm::StringRef(plan.system)
+                                           : llvm::StringRef(plan.sourceDefinition);
+  if (source.contains('/'))
+    source = source.rsplit('/').second;
+  if (source.ends_with(".py") || source.ends_with(".ac"))
+    source = source.drop_back(3);
+  return identifier(source);
+}
+
 std::string cppStringLiteral(llvm::StringRef value) {
   std::string result = "\"";
   for (char character : value) {
@@ -463,10 +495,36 @@ llvm::Expected<std::string> cppValueType(const QueueGraphPlan &plan,
   return cppType(type);
 }
 
+llvm::Expected<uint64_t> generatedTypeWidth(const QueueGraphPlan &plan,
+                                            llvm::StringRef type);
+
+llvm::Expected<bool> usesSharedQueueStorage(const QueueGraphPlan &plan,
+                                            llvm::StringRef type) {
+  if (!findPayloadType(plan, type))
+    return false;
+  auto width = generatedTypeWidth(plan, type);
+  if (!width)
+    return width.takeError();
+  return *width > 64;
+}
+
+llvm::Expected<std::string> cppQueueStorageType(const QueueGraphPlan &plan,
+                                                llvm::StringRef type) {
+  auto valueType = cppValueType(plan, type);
+  if (!valueType)
+    return valueType.takeError();
+  auto shared = usesSharedQueueStorage(plan, type);
+  if (!shared)
+    return shared.takeError();
+  return *shared ? "std::shared_ptr<const " + *valueType + ">"
+                 : std::move(*valueType);
+}
+
 llvm::Expected<std::string> cppQueueType(const QueueGraphPlan &plan,
                                          const QueuePlan &queue) {
   if (!queue.payloadProjection)
-    return cppType(queue.payloadType);
+    return plan.definition.empty() ? cppType(queue.payloadType)
+                                   : cppQueueStorageType(plan, queue.payloadType);
   if (queue.payloadProjection->profile != "private_transform_tuple_v1" ||
       queue.payloadProjection->carrierType != queue.payloadType)
     return generatorError(
@@ -482,9 +540,41 @@ llvm::Expected<std::string> cppQueueType(const QueueGraphPlan &plan,
   return "gfsim::UInt<" + std::to_string(aggregate->width) + ">";
 }
 
-llvm::Expected<std::string> cppQueueType(const QueueGraphPlan &,
+llvm::Expected<std::string> cppQueueType(const QueueGraphPlan &plan,
                                          const QueueInterfacePlan &interface) {
-  return cppType(interface.payloadType);
+  return cppQueueStorageType(plan, interface.payloadType);
+}
+
+const QueueGraphPlan *findFamilyCaseBody(
+    const QueueGraphPlan &plan, llvm::StringRef definition,
+    acir::ac::StaticArgumentsAttr arguments) {
+  for (const ModuleFamilyPlan &family : plan.moduleFamilies) {
+    if (family.definition != definition)
+      continue;
+    for (const ModuleCasePlan &moduleCase : family.cases)
+      if (moduleCase.arguments == arguments)
+        return moduleCase.bodyPlan.get();
+  }
+  return nullptr;
+}
+
+std::vector<const QueueGraphPlan *>
+orderedFamilyCaseBodies(const QueueGraphPlan &plan) {
+  std::vector<const QueueGraphPlan *> result;
+  llvm::DenseSet<const QueueGraphPlan *> visited;
+  std::function<void(const QueueGraphPlan *)> visit =
+      [&](const QueueGraphPlan *body) {
+        if (!body || !visited.insert(body).second)
+          return;
+        for (const QueueModuleInstancePlan &instance : body->moduleInstances)
+          visit(findFamilyCaseBody(plan, instance.definition,
+                                   instance.staticArguments));
+        result.push_back(body);
+      };
+  for (const ModuleFamilyPlan &family : plan.moduleFamilies)
+    for (const ModuleCasePlan &moduleCase : family.cases)
+      visit(moduleCase.bodyPlan.get());
+  return result;
 }
 
 const QueueHelperPlan *findHelper(const QueueGraphPlan &plan,
@@ -500,6 +590,7 @@ bool isAggregateValueType(const QueueGraphPlan &plan, llvm::StringRef type) {
 }
 
 const TablePlan *findTable(const QueueGraphPlan &plan, llvm::StringRef name);
+const QueuePlan *findQueue(const QueueGraphPlan &plan, llvm::StringRef name);
 
 llvm::Expected<uint64_t> generatedTypeWidth(const QueueGraphPlan &plan,
                                             llvm::StringRef type) {
@@ -834,6 +925,19 @@ emitExpressionBody(const QueueGraphPlan &plan, const QueueBlockPlan &block,
   llvm::StringMap<std::vector<std::string>> priorChoiceIndices;
   llvm::StringMap<std::pair<unsigned, unsigned>> tableChoicePairCounts;
   llvm::StringMap<unsigned> tableChoicePairOrdinals;
+  llvm::StringSet<> sharedValues;
+  for (auto [index, inputName] : llvm::enumerate(block.inputs)) {
+    if (plan.definition.empty())
+      break;
+    const QueuePlan *input = findQueue(plan, inputName);
+    if (!input)
+      continue;
+    auto shared = usesSharedQueueStorage(plan, input->payloadType);
+    if (!shared)
+      return shared.takeError();
+    if (*shared)
+      sharedValues.insert(index == 0 ? "item" : "item" + std::to_string(index));
+  }
   for (const QueueExpressionPlan &expression : block.expressions) {
     if (expression.kind != "table_choose_index" &&
         expression.kind != "table_choose_valid")
@@ -1364,7 +1468,8 @@ emitExpressionBody(const QueueGraphPlan &plan, const QueueBlockPlan &block,
       output << padding
              << (isAggregateValueType(plan, expression.type) ? "const auto &"
                                                              : "auto ")
-             << expression.result << " = " << first->str() << '.'
+             << expression.result << " = " << first->str()
+             << (sharedValues.contains(*first) ? "->" : ".")
              << identifier(expression.field) << ";\n";
       continue;
     }
@@ -1747,13 +1852,17 @@ emitExpressionBody(const QueueGraphPlan &plan, const QueueBlockPlan &block,
       output << padding << "auto " << expression.result << " = " << first->str()
              << " ? " << trueValue->str() << " : " << falseValue->str()
              << ";\n";
+      if (sharedValues.contains(*trueValue) &&
+          sharedValues.contains(*falseValue))
+        sharedValues.insert(expression.result);
       continue;
     }
     auto second = operand(1);
     if (!second)
       return second.takeError();
     if (expression.kind == "with") {
-      output << padding << "auto " << expression.result << " = " << first->str()
+      output << padding << "auto " << expression.result << " = "
+             << (sharedValues.contains(*first) ? "*" : "") << first->str()
              << ";\n";
       output << padding << expression.result << '.'
              << identifier(expression.field) << " = " << second->str() << ";\n";
@@ -1823,9 +1932,35 @@ emitExpressionBody(const QueueGraphPlan &plan, const QueueBlockPlan &block,
     output << ";\n";
   }
   output << "#line 1 \"generated/agentic-circuit.cpp\"\n";
-  output << padding << "return "
-         << (returnExpression.empty() ? yield : returnExpression).str()
-         << ";\n";
+  llvm::StringRef returned = returnExpression.empty() ? yield : returnExpression;
+  const QueuePlan *outputQueue = nullptr;
+  if (returnExpression.empty())
+    for (auto [index, candidate] : llvm::enumerate(block.yields))
+      if (candidate == yield && index < block.outputs.size()) {
+        outputQueue = findQueue(plan, block.outputs[index]);
+        break;
+      }
+  bool wrapShared = false;
+  std::string sharedValueType;
+  if (outputQueue && !plan.definition.empty()) {
+    auto shared = usesSharedQueueStorage(plan, outputQueue->payloadType);
+    if (!shared)
+      return shared.takeError();
+    wrapShared = *shared && !sharedValues.contains(returned);
+    if (wrapShared) {
+      auto type = cppValueType(plan, outputQueue->payloadType);
+      if (!type)
+        return type.takeError();
+      sharedValueType = std::move(*type);
+    }
+  }
+  output << padding << "return ";
+  if (wrapShared)
+    output << "std::make_shared<const " << sharedValueType << ">(";
+  output << returned.str();
+  if (wrapShared)
+    output << ')';
+  output << ";\n";
   return output.str();
 }
 
@@ -2503,49 +2638,22 @@ llvm::Expected<StructuredQueueGraphCpp>
 generateStructuredQueueGraphCpp(const QueueGraphPlan &plan) {
   if (auto error = verifyQueueGraphPlan(plan))
     return std::move(error);
-  if (plan.definition.empty() || plan.moduleSpecializations.empty() ||
+  std::vector<const QueueGraphPlan *> emissionOrder =
+      orderedFamilyCaseBodies(plan);
+  if (plan.definition.empty() || emissionOrder.empty() ||
       plan.moduleInstances.empty())
     return generatorError("structured QueueGraph plan is incomplete");
-
-  struct SpecializationFrame {
-    const QueueGraphPlan *specialization = nullptr;
-    bool expanded = false;
-  };
-  std::vector<SpecializationFrame> pending;
-  for (const std::shared_ptr<QueueGraphPlan> &specialization :
-       llvm::reverse(plan.moduleSpecializations))
-    pending.push_back({specialization.get(), false});
-  llvm::StringSet<> scheduledSpecializations;
-  std::vector<const QueueGraphPlan *> emissionOrder;
-  while (!pending.empty()) {
-    SpecializationFrame frame = pending.back();
-    pending.pop_back();
-    if (!frame.specialization)
-      return generatorError("nested specialization plan is null");
-    if (frame.expanded) {
-      emissionOrder.push_back(frame.specialization);
-      continue;
-    }
-    if (!scheduledSpecializations
-             .insert(frame.specialization->specializationKey)
-             .second)
-      continue;
-    pending.push_back({frame.specialization, true});
-    for (const std::shared_ptr<QueueGraphPlan> &child :
-         llvm::reverse(frame.specialization->moduleSpecializations))
-      pending.push_back({child.get(), false});
-  }
 
   auto verifyRuntimeInstanceNamespace =
       [](const QueueGraphPlan &candidate) -> llvm::Error {
     for (const QueuePlan &queue : candidate.queues)
-      if (llvm::StringRef(queue.name).starts_with("__ac_instance_"))
+      if (llvm::StringRef(queue.name).starts_with("compiler_instance_"))
         return generatorError(
             "Queue name uses the compiler-reserved runtime instance prefix");
     for (const std::string &scope : candidate.scopes) {
       const std::vector<std::string> parts = pathParts(scope);
       if (!parts.empty() &&
-          llvm::StringRef(parts.back()).starts_with("__ac_instance_"))
+          llvm::StringRef(parts.back()).starts_with("compiler_instance_"))
         return generatorError(
             "scope name uses the compiler-reserved runtime instance prefix");
     }
@@ -2557,7 +2665,6 @@ generateStructuredQueueGraphCpp(const QueueGraphPlan &plan) {
     if (auto error = verifyRuntimeInstanceNamespace(*specialization))
       return std::move(error);
 
-  llvm::StringMap<const QueueGraphPlan *> specializations;
   for (const QueueGraphPlan *specialization : emissionOrder) {
     const bool pureTransform =
         specialization && specialization->blocks.size() == 1 &&
@@ -2659,7 +2766,6 @@ generateStructuredQueueGraphCpp(const QueueGraphPlan &plan) {
         return generatorError(
             "first multi-rule specialization slice requires direct interface "
             "Queue bindings");
-    specializations[specialization->specializationKey] = specialization;
   }
 
   for (const QueueBlockPlan &block : plan.blocks)
@@ -2669,71 +2775,74 @@ generateStructuredQueueGraphCpp(const QueueGraphPlan &plan) {
           "first structured QueueGraph root supports source, broadcast, "
           "sink, and observe blocks");
 
-  llvm::StringMap<std::string> specializationClassNames;
   llvm::StringSet<> resolvedClassNames;
   for (const QueueGraphPlan *specialization : emissionOrder) {
     std::string resolved = className(specialization->sourceDefinition);
-    for (const auto &[name, value] : specialization->specializationParameters)
-      resolved.append("_")
-          .append(legalizeQueueGraphIdentifier(name))
-          .append("_")
-          .append(legalizeQueueGraphIdentifier(value));
     if (!resolvedClassNames.insert(resolved).second)
       return generatorError(
-          "parameter-derived specialization class names collide; make the "
-          "MLIR specialization parameters explicit");
-    specializationClassNames[specialization->specializationKey] =
-        std::move(resolved);
+          "unsupported C++ parameter family shape: one readable class name "
+          "would denote incompatible family cases");
   }
   auto specializationClassName =
       [&](const QueueGraphPlan &specialization) -> std::string {
-    return specializationClassNames.lookup(specialization.specializationKey);
+    return className(specialization.sourceDefinition);
   };
-  llvm::StringMap<std::string> specializationFileStems;
   llvm::StringMap<std::string> portableFileDefinitions;
   for (const QueueGraphPlan *specialization : emissionOrder) {
-    const std::string fileStem =
-        legalizeQueueGraphIdentifier(specialization->sourceDefinition);
+    const std::string fileStem = sourceStem(*specialization);
     std::string portableKey = fileStem;
     for (char &character : portableKey)
       if (character >= 'A' && character <= 'Z')
         character = static_cast<char>(character - 'A' + 'a');
     auto [entry, inserted] = portableFileDefinitions.try_emplace(
-        portableKey, specialization->sourceDefinition);
-    if (!inserted && entry->getValue() != specialization->sourceDefinition)
+        portableKey, specialization->sourceFile);
+    if (!inserted && entry->getValue() != specialization->sourceFile)
       return generatorError(
-          "portable readable module file names collide; rename one Python "
-          "definition");
-    specializationFileStems[specialization->specializationKey] = fileStem;
+          "portable source-stem collision: rename one implementation source");
   }
   auto specializationFileStem =
       [&](const QueueGraphPlan &specialization) -> std::string {
-    return specializationFileStems.lookup(specialization.specializationKey);
+    return sourceStem(specialization);
   };
-  llvm::StringMap<uint64_t> specializationObjectCounts;
-  for (const QueueGraphPlan *specialization : emissionOrder) {
+  llvm::DenseMap<const QueueGraphPlan *, uint64_t> specializationObjectCounts;
+  std::function<llvm::Expected<uint64_t>(const QueueGraphPlan &)>
+      computeObjectCount = [&](const QueueGraphPlan &specialization)
+      -> llvm::Expected<uint64_t> {
+    if (auto found = specializationObjectCounts.find(&specialization);
+        found != specializationObjectCounts.end())
+      return found->second;
     llvm::StringSet<> interfaceQueues;
-    for (const QueueInterfacePlan &input : specialization->interfaceInputs)
+    for (const QueueInterfacePlan &input : specialization.interfaceInputs)
       interfaceQueues.insert(input.name);
-    for (const QueueInterfacePlan &output : specialization->interfaceOutputs)
+    for (const QueueInterfacePlan &output : specialization.interfaceOutputs)
       interfaceQueues.insert(output.name);
     uint64_t count =
-        specialization->blocks.size() + specialization->tables.size() +
-        llvm::count_if(specialization->queues, [&](const QueuePlan &queue) {
+        specialization.blocks.size() + specialization.tables.size() +
+        llvm::count_if(specialization.queues, [&](const QueuePlan &queue) {
           return !interfaceQueues.contains(queue.name);
         });
     for (const QueueModuleInstancePlan &instance :
-         specialization->moduleInstances) {
-      auto child = specializationObjectCounts.find(instance.specializationKey);
-      if (child == specializationObjectCounts.end())
+         specialization.moduleInstances) {
+      const QueueGraphPlan *childPlan = findFamilyCaseBody(
+          plan, instance.definition, instance.staticArguments);
+      if (!childPlan)
         return generatorError(
-            "nested specialization object count dependency is unavailable");
-      count += child->getValue();
+            "nested family case object count dependency is unavailable");
+      auto child = computeObjectCount(*childPlan);
+      if (!child)
+        return child.takeError();
+      count += *child;
     }
-    specializationObjectCounts[specialization->specializationKey] = count;
+    specializationObjectCounts[&specialization] = count;
+    return count;
+  };
+  for (const QueueGraphPlan *specialization : emissionOrder) {
+    auto count = computeObjectCount(*specialization);
+    if (!count)
+      return count.takeError();
   }
   auto specializationObjectCount = [&](const QueueGraphPlan &specialization) {
-    return specializationObjectCounts.lookup(specialization.specializationKey);
+    return specializationObjectCounts.lookup(&specialization);
   };
   auto specializationInternalQueueCount =
       [](const QueueGraphPlan &specialization) -> uint64_t {
@@ -2745,6 +2854,23 @@ generateStructuredQueueGraphCpp(const QueueGraphPlan &plan) {
     return llvm::count_if(specialization.queues, [&](const QueuePlan &queue) {
       return !interfaceQueues.contains(queue.name);
     });
+  };
+  auto queueRuntimeNames = [](const QueueGraphPlan &specialization) {
+    llvm::StringSet<> occupied;
+    for (const QueuePlan &queue : specialization.queues)
+      occupied.insert(queue.name);
+    for (const QueueModuleInstancePlan &instance :
+         specialization.moduleInstances)
+      occupied.insert(identifier(instance.name));
+    llvm::StringMap<std::string> names;
+    for (const QueuePlan &queue : specialization.queues) {
+      std::string candidate = queue.name + "_queue";
+      while (occupied.contains(candidate))
+        candidate += "_queue";
+      occupied.insert(candidate);
+      names[queue.name] = std::move(candidate);
+    }
+    return names;
   };
 
   llvm::StringMap<std::string> queueMembers;
@@ -2814,7 +2940,7 @@ generateStructuredQueueGraphCpp(const QueueGraphPlan &plan) {
       const QueueModuleInstancePlan &instance =
           plan.moduleInstances[item.instanceIndex];
       const QueueGraphPlan *specialization =
-          specializations.lookup(instance.specializationKey);
+          findFamilyCaseBody(plan, instance.definition, instance.staticArguments);
       for (uint64_t index = 0;
            index < specializationObjectCount(*specialization); ++index)
         instanceObjectIds[item.instanceIndex].push_back(nextId++);
@@ -2996,7 +3122,7 @@ generateStructuredQueueGraphCpp(const QueueGraphPlan &plan) {
     for (const QueueModuleInstancePlan &instance :
          specialization.moduleInstances) {
       const QueueGraphPlan *child =
-          specializations.lookup(instance.specializationKey);
+          findFamilyCaseBody(plan, instance.definition, instance.staticArguments);
       if (!child)
         return generatorError("nested activation specialization is missing");
       const uint64_t childCount = specializationObjectCount(*child);
@@ -3027,7 +3153,7 @@ generateStructuredQueueGraphCpp(const QueueGraphPlan &plan) {
   };
   for (auto [instanceIndex, instance] : llvm::enumerate(plan.moduleInstances)) {
     const QueueGraphPlan *specialization =
-        specializations.lookup(instance.specializationKey);
+        findFamilyCaseBody(plan, instance.definition, instance.staticArguments);
     if (!specialization)
       return generatorError("activation specialization is missing");
     llvm::StringMap<uint64_t> bindings;
@@ -3075,9 +3201,17 @@ generateStructuredQueueGraphCpp(const QueueGraphPlan &plan) {
             "#include \"gfsim/queue.h\"\n"
             "#include \"gfsim/queue_blocks.h\"\n\n"
             "#include <array>\n#include <cstdint>\n#include <limits>\n"
-            "#include <optional>\n#include <string>\n#include <tuple>\n"
-            "#include <utility>\n#include <vector>\n\n"
-            "namespace ac_generated {\n\n";
+            "#include <memory>\n#include <optional>\n#include <string>\n#include <tuple>\n"
+            "#include <stdexcept>\n#include <string_view>\n#include <utility>\n"
+            "#include <vector>\n\n"
+            "namespace ac_generated {\n\n"
+            "template <typename T>\n"
+            "gfsim::SimQueue<T> &require_queue_port(gfsim::SimQueue<T> *queue, "
+            "std::string_view name) {\n"
+            "  if (!queue) throw std::invalid_argument(std::string{name} + "
+            "\" Queue port is null\");\n"
+            "  return *queue;\n"
+            "}\n\n";
   std::vector<StructuredQueueGraphCpp::TypeUnit> typeUnits;
   llvm::StringSet<> typePaths;
   llvm::StringMap<std::string> typeHeaderNames;
@@ -3144,6 +3278,14 @@ generateStructuredQueueGraphCpp(const QueueGraphPlan &plan) {
   std::ostringstream helperOutput;
   std::ostringstream helperDeclarations;
   std::ostringstream helperDefinitions;
+  helperDeclarations
+      << "template <typename T>\n"
+         "gfsim::SimQueue<T> &require_queue_port(gfsim::SimQueue<T> *queue, "
+         "std::string_view name) {\n"
+         "  if (!queue) throw std::invalid_argument(std::string{name} + "
+         "\" Queue port is null\");\n"
+         "  return *queue;\n"
+         "}\n\n";
   llvm::StringSet<> emittedHelpers;
   llvm::StringSet<> declaredHelpers;
   llvm::StringSet<> definedHelpers;
@@ -3577,7 +3719,7 @@ generateStructuredQueueGraphCpp(const QueueGraphPlan &plan) {
       for (auto [index, queue] : llvm::enumerate(queues)) {
         if (index)
           output << ", ";
-        output << '&' << portParameters.lookup(queue);
+        output << portParameters.lookup(queue);
       }
       output << '}';
     };
@@ -3590,10 +3732,10 @@ generateStructuredQueueGraphCpp(const QueueGraphPlan &plan) {
       output << ", gfsim::ObjectId table_" << index << "_id";
     output << ", gfsim::SimObject *parent";
     for (const QueueInterfacePlan &input : specialization.interfaceInputs)
-      output << ", gfsim::SimQueue<" << portTypes.lookup(input.name) << "> &"
+      output << ", gfsim::SimQueue<" << portTypes.lookup(input.name) << "> *"
              << portParameters.lookup(input.name);
     for (const QueueInterfacePlan &result : specialization.interfaceOutputs)
-      output << ", gfsim::SimQueue<" << portTypes.lookup(result.name) << "> &"
+      output << ", gfsim::SimQueue<" << portTypes.lookup(result.name) << "> *"
              << portParameters.lookup(result.name);
     output << ")\n      : gfsim::Module(std::move(name), "
               "gfsim::kInvalidObjectId, parent),\n        scope_(\""
@@ -3621,7 +3763,9 @@ generateStructuredQueueGraphCpp(const QueueGraphPlan &plan) {
         policy.push_back('}');
         output << ",\n        " << firingSymbols[blockIndex] << "_(\"slot_"
                << firing.name << "\", block_" << blockIndex << "_id, &scope_, "
-               << portParameters.lookup(firing.inputs.front())
+               << "require_queue_port("
+               << portParameters.lookup(firing.inputs.front()) << ", \""
+               << firing.inputs.front() << "\")"
                << ", slot_state_" << slotIndex->getValue() << "_, " << policy
                << ")";
         continue;
@@ -3763,6 +3907,7 @@ generateStructuredQueueGraphCpp(const QueueGraphPlan &plan) {
   auto emitNestedWrapper =
       [&](const QueueGraphPlan &specialization,
           const std::string &implementation) -> llvm::Error {
+    const auto runtimeNames = queueRuntimeNames(specialization);
     llvm::StringMap<std::string> portTypes;
     llvm::StringMap<std::string> queueExpressions;
     const uint64_t objectCount = specializationObjectCount(specialization);
@@ -3797,7 +3942,7 @@ generateStructuredQueueGraphCpp(const QueueGraphPlan &plan) {
       const size_t index = internalQueues.size();
       internalQueues.push_back(&queue);
       portTypes[queue.name] = *type;
-      queueExpressions[queue.name] = "queue_" + std::to_string(index) + "_";
+      queueExpressions[queue.name] = "&queue_" + std::to_string(index) + "_";
     }
     output << "class " << implementation
            << " final : public gfsim::Module {\npublic:\n  " << implementation
@@ -3806,29 +3951,42 @@ generateStructuredQueueGraphCpp(const QueueGraphPlan &plan) {
       output << ", gfsim::ObjectId object_" << index << "_id";
     output << ", gfsim::SimObject *parent";
     for (const QueueInterfacePlan &input : specialization.interfaceInputs)
-      output << ", gfsim::SimQueue<" << portTypes.lookup(input.name) << "> &"
+      output << ", gfsim::SimQueue<" << portTypes.lookup(input.name) << "> *"
              << portParameters.lookup(input.name);
     for (const QueueInterfacePlan &result : specialization.interfaceOutputs)
-      output << ", gfsim::SimQueue<" << portTypes.lookup(result.name) << "> &"
+      output << ", gfsim::SimQueue<" << portTypes.lookup(result.name) << "> *"
              << portParameters.lookup(result.name);
     output << ")\n      : gfsim::Module(std::move(name), "
               "gfsim::kInvalidObjectId, parent)";
     for (auto [index, queue] : llvm::enumerate(internalQueues))
-      output << ",\n        queue_" << index << "_(\"" << queue->name
+      output << ",\n        queue_" << index << "_(\""
+             << runtimeNames.lookup(queue->name)
              << "\", object_" << index << "_id, this, " << queue->depth
              << ", std::numeric_limits<size_t>::max(), nullptr, "
              << queue->latency << ", " << queue->rate << ", " << queue->lanes
              << ")";
     uint64_t objectOffset = internalQueues.size();
+    for (const QueueModuleInstancePlan &instance : specialization.moduleInstances) {
+      const QueueGraphPlan *child =
+          findFamilyCaseBody(plan, instance.definition, instance.staticArguments);
+      if (!child)
+        return generatorError("nested wrapper child specialization is missing");
+      objectOffset += specializationObjectCount(*child);
+    }
+    if (objectOffset != objectCount)
+      return generatorError("nested wrapper object ID partition is incomplete");
+    output << " {\n";
+    for (size_t index = 0; index < internalQueues.size(); ++index)
+      output << "    attachChild(queue_" << index << "_);\n";
+    objectOffset = internalQueues.size();
     for (auto [instanceIndex, instance] :
          llvm::enumerate(specialization.moduleInstances)) {
       const QueueGraphPlan *child =
-          specializations.lookup(instance.specializationKey);
-      if (!child)
-        return generatorError("nested wrapper child specialization is missing");
+          findFamilyCaseBody(plan, instance.definition, instance.staticArguments);
       const uint64_t childCount = specializationObjectCount(*child);
-      output << ",\n        child_" << instanceIndex << "_(\"__ac_instance_"
-             << instance.name << "\"";
+      output << "    child_" << instanceIndex << "_ = std::make_unique<"
+             << specializationClassName(*child) << ">(\""
+             << identifier(instance.name) << "\"";
       for (uint64_t index = 0; index < childCount; ++index)
         output << ", object_" << objectOffset + index << "_id";
       output << ", this";
@@ -3836,17 +3994,9 @@ generateStructuredQueueGraphCpp(const QueueGraphPlan &plan) {
         output << ", " << queueExpressions.lookup(input);
       for (const std::string &result : instance.outputs)
         output << ", " << queueExpressions.lookup(result);
-      output << ')';
+      output << ");\n    attachChild(*child_" << instanceIndex << "_);\n";
       objectOffset += childCount;
     }
-    if (objectOffset != objectCount)
-      return generatorError("nested wrapper object ID partition is incomplete");
-    output << " {\n";
-    for (size_t index = 0; index < internalQueues.size(); ++index)
-      output << "    attachChild(queue_" << index << "_);\n";
-    for (size_t index = 0; index < specialization.moduleInstances.size();
-         ++index)
-      output << "    attachChild(child_" << index << "_);\n";
     output << "  }\n\n  gfsim::DispatchRow dispatch_row(size_t index) {\n";
     for (size_t queueIndex = 0; queueIndex < internalQueues.size();
          ++queueIndex)
@@ -3857,10 +4007,10 @@ generateStructuredQueueGraphCpp(const QueueGraphPlan &plan) {
     for (auto [instanceIndex, instance] :
          llvm::enumerate(specialization.moduleInstances)) {
       const QueueGraphPlan *child =
-          specializations.lookup(instance.specializationKey);
+          findFamilyCaseBody(plan, instance.definition, instance.staticArguments);
       const uint64_t childCount = specializationObjectCount(*child);
       output << "    if (index < " << objectOffset + childCount
-             << ") return child_" << instanceIndex << "_.dispatch_row(index - "
+             << ") return child_" << instanceIndex << "_->dispatch_row(index - "
              << objectOffset << ");\n";
       objectOffset += childCount;
     }
@@ -3871,9 +4021,9 @@ generateStructuredQueueGraphCpp(const QueueGraphPlan &plan) {
     for (auto [instanceIndex, instance] :
          llvm::enumerate(specialization.moduleInstances)) {
       const QueueGraphPlan *child =
-          specializations.lookup(instance.specializationKey);
-      output << "  " << specializationClassName(*child) << " child_"
-             << instanceIndex << "_;\n";
+          findFamilyCaseBody(plan, instance.definition, instance.staticArguments);
+      output << "  std::unique_ptr<" << specializationClassName(*child)
+             << "> child_" << instanceIndex << "_;\n";
     }
     output << "};\n\n";
     return llvm::Error::success();
@@ -3882,6 +4032,7 @@ generateStructuredQueueGraphCpp(const QueueGraphPlan &plan) {
   auto emitNestedAssembly =
       [&](const QueueGraphPlan &specialization,
           const std::string &implementation) -> llvm::Error {
+    const auto runtimeNames = queueRuntimeNames(specialization);
     llvm::StringMap<std::string> queueTypes;
     llvm::StringMap<std::string> queueExpressions;
     const uint64_t objectCount = specializationObjectCount(specialization);
@@ -3914,7 +4065,7 @@ generateStructuredQueueGraphCpp(const QueueGraphPlan &plan) {
       const size_t index = internalQueues.size();
       internalQueues.push_back(&queue);
       queueTypes[queue.name] = *type;
-      queueExpressions[queue.name] = "queue_" + std::to_string(index) + "_";
+      queueExpressions[queue.name] = "&queue_" + std::to_string(index) + "_";
     }
     llvm::StringMap<std::string> scopeMembers;
     for (auto [index, scope] : llvm::enumerate(specialization.scopes))
@@ -3946,10 +4097,10 @@ generateStructuredQueueGraphCpp(const QueueGraphPlan &plan) {
       output << ", gfsim::ObjectId object_" << index << "_id";
     output << ", gfsim::SimObject *parent";
     for (const QueueInterfacePlan &input : specialization.interfaceInputs)
-      output << ", gfsim::SimQueue<" << queueTypes.lookup(input.name) << "> &"
+      output << ", gfsim::SimQueue<" << queueTypes.lookup(input.name) << "> *"
              << portParameters.lookup(input.name);
     for (const QueueInterfacePlan &result : specialization.interfaceOutputs)
-      output << ", gfsim::SimQueue<" << queueTypes.lookup(result.name) << "> &"
+      output << ", gfsim::SimQueue<" << queueTypes.lookup(result.name) << "> *"
              << portParameters.lookup(result.name);
     output << ")\n      : gfsim::Module(std::move(name), "
               "gfsim::kInvalidObjectId, parent)";
@@ -3968,7 +4119,8 @@ generateStructuredQueueGraphCpp(const QueueGraphPlan &plan) {
       auto parentPointer = modulePointer(queue->scope);
       if (!parentPointer)
         return parentPointer.takeError();
-      output << ",\n        queue_" << index << "_(\"" << queue->name
+      output << ",\n        queue_" << index << "_(\""
+             << runtimeNames.lookup(queue->name)
              << "\", object_" << index << "_id, " << *parentPointer << ", "
              << queue->depth
              << ", std::numeric_limits<size_t>::max(), nullptr, "
@@ -3976,27 +4128,14 @@ generateStructuredQueueGraphCpp(const QueueGraphPlan &plan) {
              << ")";
     }
     uint64_t childOffset = internalQueues.size() + specialization.blocks.size();
-    for (auto [instanceIndex, instance] :
-         llvm::enumerate(specialization.moduleInstances)) {
+    for (const QueueModuleInstancePlan &instance :
+         specialization.moduleInstances) {
       const QueueGraphPlan *child =
-          specializations.lookup(instance.specializationKey);
+          findFamilyCaseBody(plan, instance.definition, instance.staticArguments);
       if (!child)
         return generatorError(
             "nested assembly child specialization is missing");
-      auto parentPointer = modulePointer(instance.scope);
-      if (!parentPointer)
-        return parentPointer.takeError();
       const uint64_t childCount = specializationObjectCount(*child);
-      output << ",\n        child_" << instanceIndex << "_(\"__ac_instance_"
-             << instance.name << "\"";
-      for (uint64_t index = 0; index < childCount; ++index)
-        output << ", object_" << childOffset + index << "_id";
-      output << ", " << *parentPointer;
-      for (const std::string &input : instance.inputs)
-        output << ", " << queueExpressions.lookup(input);
-      for (const std::string &result : instance.outputs)
-        output << ", " << queueExpressions.lookup(result);
-      output << ')';
       childOffset += childCount;
     }
     const uint64_t blockOffset = internalQueues.size();
@@ -4014,13 +4153,15 @@ generateStructuredQueueGraphCpp(const QueueGraphPlan &plan) {
       output << ",\n        block_" << blockIndex << "_(\"broadcast_"
              << block.name << "\", object_" << blockOffset + blockIndex
              << "_id, " << *parentPointer << ", "
-             << queueExpressions.lookup(block.inputs.front())
+             << "require_queue_port("
+             << queueExpressions.lookup(block.inputs.front()) << ", \""
+             << block.inputs.front() << "\")"
              << ", std::array<gfsim::SimQueue<" << type << "> *, "
              << block.outputs.size() << ">{";
       for (auto [outputIndex, outputName] : llvm::enumerate(block.outputs)) {
         if (outputIndex)
           output << ", ";
-        output << '&' << queueExpressions.lookup(outputName);
+        output << queueExpressions.lookup(outputName);
       }
       output << "})";
     }
@@ -4044,13 +4185,32 @@ generateStructuredQueueGraphCpp(const QueueGraphPlan &plan) {
         return line.takeError();
       output << *line << '\n';
     }
-    for (size_t index = 0; index < specialization.moduleInstances.size();
-         ++index) {
-      auto line = attach(specialization.moduleInstances[index].scope,
-                         "child_" + std::to_string(index) + "_");
+    childOffset = internalQueues.size() + specialization.blocks.size();
+    for (auto [index, instance] :
+         llvm::enumerate(specialization.moduleInstances)) {
+      const QueueGraphPlan *child =
+          findFamilyCaseBody(plan, instance.definition, instance.staticArguments);
+      auto parentPointer = modulePointer(instance.scope);
+      if (!parentPointer)
+        return parentPointer.takeError();
+      const uint64_t childCount = specializationObjectCount(*child);
+      output << "    child_" << index << "_ = std::make_unique<"
+             << specializationClassName(*child) << ">(\""
+             << identifier(instance.name) << "\"";
+      for (uint64_t local = 0; local < childCount; ++local)
+        output << ", object_" << childOffset + local << "_id";
+      output << ", " << *parentPointer;
+      for (const std::string &input : instance.inputs)
+        output << ", " << queueExpressions.lookup(input);
+      for (const std::string &result : instance.outputs)
+        output << ", " << queueExpressions.lookup(result);
+      output << ");\n";
+      auto line = attach(instance.scope,
+                         "*child_" + std::to_string(index) + "_");
       if (!line)
         return line.takeError();
       output << *line << '\n';
+      childOffset += childCount;
     }
     for (auto [index, block] : llvm::enumerate(specialization.blocks)) {
       auto line = attach(block.scope, "block_" + std::to_string(index) + "_");
@@ -4069,10 +4229,10 @@ generateStructuredQueueGraphCpp(const QueueGraphPlan &plan) {
     for (auto [instanceIndex, instance] :
          llvm::enumerate(specialization.moduleInstances)) {
       const QueueGraphPlan *child =
-          specializations.lookup(instance.specializationKey);
+          findFamilyCaseBody(plan, instance.definition, instance.staticArguments);
       const uint64_t childCount = specializationObjectCount(*child);
       output << "    if (index < " << childOffset + childCount
-             << ") return child_" << instanceIndex << "_.dispatch_row(index - "
+             << ") return child_" << instanceIndex << "_->dispatch_row(index - "
              << childOffset << ");\n";
       childOffset += childCount;
     }
@@ -4085,9 +4245,9 @@ generateStructuredQueueGraphCpp(const QueueGraphPlan &plan) {
     for (auto [instanceIndex, instance] :
          llvm::enumerate(specialization.moduleInstances)) {
       const QueueGraphPlan *child =
-          specializations.lookup(instance.specializationKey);
-      output << "  " << specializationClassName(*child) << " child_"
-             << instanceIndex << "_;\n";
+          findFamilyCaseBody(plan, instance.definition, instance.staticArguments);
+      output << "  std::unique_ptr<" << specializationClassName(*child)
+             << "> child_" << instanceIndex << "_;\n";
     }
     for (auto [index, block] : llvm::enumerate(specialization.blocks)) {
       const std::string type = queueTypes.lookup(block.inputs.front());
@@ -4100,6 +4260,7 @@ generateStructuredQueueGraphCpp(const QueueGraphPlan &plan) {
 
   auto emitMixedNested = [&](const QueueGraphPlan &specialization,
                              const std::string &implementation) -> llvm::Error {
+    const auto runtimeNames = queueRuntimeNames(specialization);
     const QueueBlockPlan &block = specialization.blocks.front();
     llvm::StringMap<std::string> queueTypes;
     llvm::StringMap<std::string> queueExpressions;
@@ -4120,6 +4281,8 @@ generateStructuredQueueGraphCpp(const QueueGraphPlan &plan) {
       queueExpressions[result.name] = "output_" + std::to_string(index);
     }
     llvm::StringSet<> exported;
+    for (const QueueInterfacePlan &input : specialization.interfaceInputs)
+      exported.insert(input.name);
     for (const QueueInterfacePlan &result : specialization.interfaceOutputs)
       exported.insert(result.name);
     std::vector<const QueuePlan *> internalQueues;
@@ -4132,7 +4295,7 @@ generateStructuredQueueGraphCpp(const QueueGraphPlan &plan) {
       const size_t index = internalQueues.size();
       internalQueues.push_back(&queue);
       queueTypes[queue.name] = *type;
-      queueExpressions[queue.name] = "queue_" + std::to_string(index) + "_";
+      queueExpressions[queue.name] = "&queue_" + std::to_string(index) + "_";
     }
     if (block.inputs.size() != 1 || block.outputs.size() != 1 ||
         internalQueues.empty())
@@ -4161,17 +4324,18 @@ generateStructuredQueueGraphCpp(const QueueGraphPlan &plan) {
     output << ", gfsim::SimObject *parent";
     for (auto [index, input] : llvm::enumerate(specialization.interfaceInputs))
       output << ", gfsim::SimQueue<" << queueTypes.lookup(input.name)
-             << "> &input_" << index;
+             << "> *input_" << index;
     for (auto [index, result] :
          llvm::enumerate(specialization.interfaceOutputs))
       output << ", gfsim::SimQueue<" << queueTypes.lookup(result.name)
-             << "> &output_" << index;
+             << "> *output_" << index;
     output << ")\n      : gfsim::Module(std::move(name), "
               "gfsim::kInvalidObjectId, parent),\n        scope_(\""
            << pathParts(block.scope).back()
            << "\", gfsim::kInvalidObjectId, this)";
     for (auto [index, queue] : llvm::enumerate(internalQueues))
-      output << ",\n        queue_" << index << "_(\"" << queue->name
+      output << ",\n        queue_" << index << "_(\""
+             << runtimeNames.lookup(queue->name)
              << "\", object_" << index << "_id, this, " << queue->depth
              << ", std::numeric_limits<size_t>::max(), nullptr, "
              << queue->latency << ", " << queue->rate << ", " << queue->lanes
@@ -4179,37 +4343,47 @@ generateStructuredQueueGraphCpp(const QueueGraphPlan &plan) {
     const uint64_t blockId = internalQueues.size();
     output << ",\n        block_(\"transform_" << block.name << "\", object_"
            << blockId << "_id, &scope_, "
-           << queueExpressions.lookup(block.inputs.front()) << ", "
-           << queueExpressions.lookup(block.outputs.front()) << ")";
+           << "require_queue_port(" << queueExpressions.lookup(block.inputs.front())
+           << ", \"" << block.inputs.front() << "\"), "
+           << "require_queue_port(" << queueExpressions.lookup(block.outputs.front())
+           << ", \"" << block.outputs.front() << "\"))";
     uint64_t childOffset = blockId + 1;
-    for (auto [instanceIndex, instance] :
-         llvm::enumerate(specialization.moduleInstances)) {
+    for (const QueueModuleInstancePlan &instance :
+         specialization.moduleInstances) {
       const QueueGraphPlan *child =
-          specializations.lookup(instance.specializationKey);
+          findFamilyCaseBody(plan, instance.definition, instance.staticArguments);
       if (!child)
         return generatorError("mixed nested child specialization is missing");
       const uint64_t childCount = specializationObjectCount(*child);
-      output << ",\n        child_" << instanceIndex << "_(\"__ac_instance_"
-             << instance.name << "\"";
-      for (uint64_t index = 0; index < childCount; ++index)
-        output << ", object_" << childOffset + index << "_id";
+      childOffset += childCount;
+    }
+    if (childOffset != objectCount)
+      return generatorError("mixed nested object ID partition is incomplete: " +
+                            std::to_string(childOffset) + " != " +
+                            std::to_string(objectCount));
+    output << " {\n    attachChild(scope_);\n";
+    for (size_t index = 0; index < internalQueues.size(); ++index)
+      output << "    attachChild(queue_" << index << "_);\n";
+    output << "    scope_.attachChild(block_);\n";
+    childOffset = blockId + 1;
+    for (auto [index, instance] :
+         llvm::enumerate(specialization.moduleInstances)) {
+      const QueueGraphPlan *child =
+          findFamilyCaseBody(plan, instance.definition, instance.staticArguments);
+      const uint64_t childCount = specializationObjectCount(*child);
+      output << "    child_" << index << "_ = std::make_unique<"
+             << specializationClassName(*child) << ">(\""
+             << identifier(instance.name) << "\"";
+      for (uint64_t local = 0; local < childCount; ++local)
+        output << ", object_" << childOffset + local << "_id";
       output << ", this";
       for (const std::string &input : instance.inputs)
         output << ", " << queueExpressions.lookup(input);
       for (const std::string &result : instance.outputs)
         output << ", " << queueExpressions.lookup(result);
-      output << ')';
+      output << ");\n    attachChild(*child_" << index << "_);\n";
       childOffset += childCount;
     }
-    if (childOffset != objectCount)
-      return generatorError("mixed nested object ID partition is incomplete");
-    output << " {\n    attachChild(scope_);\n";
-    for (size_t index = 0; index < internalQueues.size(); ++index)
-      output << "    attachChild(queue_" << index << "_);\n";
-    output << "    scope_.attachChild(block_);\n";
-    for (size_t index = 0; index < specialization.moduleInstances.size();
-         ++index)
-      output << "    attachChild(child_" << index << "_);\n";
     output << "  }\n\n  gfsim::DispatchRow dispatch_row(size_t index) {\n";
     for (size_t index = 0; index < internalQueues.size(); ++index)
       output << "    if (index == " << index
@@ -4220,10 +4394,10 @@ generateStructuredQueueGraphCpp(const QueueGraphPlan &plan) {
     for (auto [instanceIndex, instance] :
          llvm::enumerate(specialization.moduleInstances)) {
       const QueueGraphPlan *child =
-          specializations.lookup(instance.specializationKey);
+          findFamilyCaseBody(plan, instance.definition, instance.staticArguments);
       const uint64_t childCount = specializationObjectCount(*child);
       output << "    if (index < " << childOffset + childCount
-             << ") return child_" << instanceIndex << "_.dispatch_row(index - "
+             << ") return child_" << instanceIndex << "_->dispatch_row(index - "
              << childOffset << ");\n";
       childOffset += childCount;
     }
@@ -4236,9 +4410,9 @@ generateStructuredQueueGraphCpp(const QueueGraphPlan &plan) {
     for (auto [instanceIndex, instance] :
          llvm::enumerate(specialization.moduleInstances)) {
       const QueueGraphPlan *child =
-          specializations.lookup(instance.specializationKey);
-      output << "  " << specializationClassName(*child) << " child_"
-             << instanceIndex << "_;\n";
+          findFamilyCaseBody(plan, instance.definition, instance.staticArguments);
+      output << "  std::unique_ptr<" << specializationClassName(*child)
+             << "> child_" << instanceIndex << "_;\n";
     }
     output << "};\n\n";
     return llvm::Error::success();
@@ -4251,7 +4425,7 @@ generateStructuredQueueGraphCpp(const QueueGraphPlan &plan) {
     for (const QueueModuleInstancePlan &instance :
          specialization->moduleInstances) {
       const QueueGraphPlan *child =
-          specializations.lookup(instance.specializationKey);
+          findFamilyCaseBody(plan, instance.definition, instance.staticArguments);
       if (!child)
         return generatorError("specialization child is missing");
       childFileStems.push_back(specializationFileStem(*child));
@@ -4391,11 +4565,11 @@ generateStructuredQueueGraphCpp(const QueueGraphPlan &plan) {
              << "(std::string name, gfsim::ObjectId block_id, "
                 "gfsim::SimObject *parent";
       for (const QueueInterfacePlan &input : specialization->interfaceInputs)
-        output << ", gfsim::SimQueue<" << queueTypes.lookup(input.name) << "> &"
+        output << ", gfsim::SimQueue<" << queueTypes.lookup(input.name) << "> *"
                << portParameters.lookup(input.name);
       for (const QueueInterfacePlan &result : specialization->interfaceOutputs)
         output << ", gfsim::SimQueue<" << queueTypes.lookup(result.name)
-               << "> &" << portParameters.lookup(result.name);
+               << "> *" << portParameters.lookup(result.name);
       output
           << ")\n      : gfsim::Module(std::move(name), "
              "gfsim::kInvalidObjectId, parent),\n        scope_(\""
@@ -4403,20 +4577,23 @@ generateStructuredQueueGraphCpp(const QueueGraphPlan &plan) {
           << "\", gfsim::kInvalidObjectId, this),\n        block_(\"transform_"
           << block.name << "\", block_id, &scope_, ";
       if (oneByOne) {
-        output << portParameters.lookup(block.inputs.front()) << ", "
-               << portParameters.lookup(block.outputs.front());
+        output << "require_queue_port("
+               << portParameters.lookup(block.inputs.front()) << ", \""
+               << block.inputs.front() << "\"), require_queue_port("
+               << portParameters.lookup(block.outputs.front()) << ", \""
+               << block.outputs.front() << "\")";
       } else {
         output << "std::tuple{";
         for (auto [index, input] : llvm::enumerate(block.inputs)) {
           if (index)
             output << ", ";
-          output << '&' << portParameters.lookup(input);
+          output << portParameters.lookup(input);
         }
         output << "}, std::tuple{";
         for (auto [index, result] : llvm::enumerate(block.outputs)) {
           if (index)
             output << ", ";
-          output << '&' << portParameters.lookup(result);
+          output << portParameters.lookup(result);
         }
         output << '}';
       }
@@ -4458,6 +4635,7 @@ generateStructuredQueueGraphCpp(const QueueGraphPlan &plan) {
   }
 
   const std::size_t rootBegin = static_cast<std::size_t>(output.tellp());
+  const auto rootRuntimeNames = queueRuntimeNames(plan);
   const std::string modelClass = className(plan.system);
   emitDefinitionProvenance(output, plan);
   output << "class " << modelClass
@@ -4483,30 +4661,12 @@ generateStructuredQueueGraphCpp(const QueueGraphPlan &plan) {
       return type.takeError();
     if (!parent)
       return parent.takeError();
-    appendInitializer(initializers, queueMembers[queue.name], "(\"", queue.name,
+    appendInitializer(initializers, queueMembers[queue.name], "(\"",
+                      rootRuntimeNames.lookup(queue.name),
                       "\", ", queueIds[queue.name], ", ", *parent, ", ",
                       queue.depth,
                       ", std::numeric_limits<size_t>::max(), nullptr, ",
                       queue.latency, ", ", queue.rate, ", ", queue.lanes, ")");
-  }
-  for (auto [index, instance] : llvm::enumerate(plan.moduleInstances)) {
-    const QueueGraphPlan *specialization =
-        specializations.lookup(instance.specializationKey);
-    if (!specialization)
-      return generatorError("structured module specialization is missing");
-    auto parent = modulePointer(instance.scope);
-    if (!parent)
-      return parent.takeError();
-    appendInitializer(initializers, "instance_", index, "_(\"__ac_instance_",
-                      instance.name, "\"");
-    for (uint64_t objectId : instanceObjectIds[index])
-      initializers.back().append(", ").append(std::to_string(objectId));
-    initializers.back().append(", ").append(*parent);
-    for (const std::string &input : instance.inputs)
-      initializers.back().append(", ").append(queueMembers[input]);
-    for (const std::string &outputName : instance.outputs)
-      initializers.back().append(", ").append(queueMembers[outputName]);
-    initializers.back().append(")");
   }
   for (auto [index, block] : llvm::enumerate(runtimeBlocks)) {
     auto parent = modulePointer(block->scope);
@@ -4558,8 +4718,26 @@ generateStructuredQueueGraphCpp(const QueueGraphPlan &plan) {
     output << *line << '\n';
   }
   for (auto [index, instance] : llvm::enumerate(plan.moduleInstances)) {
+    const QueueGraphPlan *specialization =
+        findFamilyCaseBody(plan, instance.definition, instance.staticArguments);
+    if (!specialization)
+      return generatorError("structured module specialization is missing");
+    auto parent = modulePointer(instance.scope);
+    if (!parent)
+      return parent.takeError();
+    output << "    instance_" << index << "_ = std::make_unique<"
+           << specializationClassName(*specialization) << ">(\""
+           << identifier(instance.name) << "\"";
+    for (uint64_t objectId : instanceObjectIds[index])
+      output << ", " << objectId;
+    output << ", " << *parent;
+    for (const std::string &input : instance.inputs)
+      output << ", &" << queueMembers[input];
+    for (const std::string &outputName : instance.outputs)
+      output << ", &" << queueMembers[outputName];
+    output << ");\n";
     auto line =
-        attach(instance.scope, "instance_" + std::to_string(index) + "_");
+        attach(instance.scope, "*instance_" + std::to_string(index) + "_");
     if (!line)
       return line.takeError();
     output << *line << '\n';
@@ -4571,6 +4749,26 @@ generateStructuredQueueGraphCpp(const QueueGraphPlan &plan) {
     output << *line << '\n';
   }
   output << "  }\n\n";
+  for (const QueueInterfacePlan &input : plan.interfaceInputs) {
+    const QueuePlan *queue = findQueue(plan, input.name);
+    auto type = queue ? cppQueueType(plan, *queue)
+                      : llvm::Expected<std::string>(
+                            generatorError("structured input is missing"));
+    if (!type)
+      return type.takeError();
+    const std::string publicName =
+        identifier(input.displayName.empty() ? input.name : input.displayName);
+    output << "  gfsim::SimQueue<" << *type << "> &" << publicName
+           << "() { return " << queueMembers[input.name] << "; }\n"
+           << "  bool offer_" << publicName
+           << "(gfsim::SimSystem &system, " << *type << " value) {\n"
+           << "    if (!" << queueMembers[input.name]
+           << ".canProposePush() || !system.scheduleExternalXfer("
+           << queueMembers[input.name] << ".id()))\n"
+           << "      return false;\n"
+           << "    return " << queueMembers[input.name]
+           << ".proposePush(std::move(value));\n  }\n";
+  }
   for (const QueueBlockPlan &block : plan.blocks)
     if (block.kind == "source") {
       const QueuePlan *queue = findQueue(plan, block.outputs.front());
@@ -4647,7 +4845,7 @@ generateStructuredQueueGraphCpp(const QueueGraphPlan &plan) {
     for (const QueueModuleInstancePlan &instance :
          specialization.moduleInstances) {
       const QueueGraphPlan *child =
-          specializations.lookup(instance.specializationKey);
+          findFamilyCaseBody(plan, instance.definition, instance.staticArguments);
       if (!child)
         continue;
       const size_t count = specializationObjectCount(*child);
@@ -4657,7 +4855,7 @@ generateStructuredQueueGraphCpp(const QueueGraphPlan &plan) {
   };
   for (auto [index, instance] : llvm::enumerate(plan.moduleInstances)) {
     const QueueGraphPlan *specialization =
-        specializations.lookup(instance.specializationKey);
+        findFamilyCaseBody(plan, instance.definition, instance.staticArguments);
     if (specialization)
       collectNestedArbitration(*specialization, instanceObjectIds[index]);
   }
@@ -4676,10 +4874,10 @@ generateStructuredQueueGraphCpp(const QueueGraphPlan &plan) {
       const QueueModuleInstancePlan &instance =
           plan.moduleInstances[item.instanceIndex];
       const QueueGraphPlan *specialization =
-          specializations.lookup(instance.specializationKey);
+          findFamilyCaseBody(plan, instance.definition, instance.staticArguments);
       for (uint64_t index = 0;
            index < specializationObjectCount(*specialization); ++index)
-        output << "        instance_" << item.instanceIndex << "_.dispatch_row("
+        output << "        instance_" << item.instanceIndex << "_->dispatch_row("
                << index << "),\n";
     }
   }
@@ -4769,9 +4967,9 @@ generateStructuredQueueGraphCpp(const QueueGraphPlan &plan) {
   }
   for (auto [index, instance] : llvm::enumerate(plan.moduleInstances)) {
     const QueueGraphPlan *specialization =
-        specializations.lookup(instance.specializationKey);
-    output << "  " << specializationClassName(*specialization) << " instance_"
-           << index << "_;\n";
+        findFamilyCaseBody(plan, instance.definition, instance.staticArguments);
+    output << "  std::unique_ptr<" << specializationClassName(*specialization)
+           << "> instance_" << index << "_;\n";
   }
   for (auto [index, block] : llvm::enumerate(runtimeBlocks)) {
     const QueuePlan *input = findQueue(plan, block->inputs.front());
@@ -4993,8 +5191,6 @@ llvm::Expected<std::string> generateQueueGraphCpp(const QueueGraphPlan &plan) {
 
   std::ostringstream output;
   output << "// Generated from verified ACIR QueueGraph plan; do not edit.\n";
-  if (!plan.specializationKey.empty())
-    output << "// Specialization: " << plan.specializationKey << "\n";
   output << "#include \"gfsim/bits.h\"\n"
             "#include \"gfsim/dispatch.h\"\n"
             "#include \"gfsim/object.h\"\n"
@@ -7532,30 +7728,25 @@ agentic_model_query_v1(void) {
     return costReport.takeError();
   result.push_back({"include/generated/model.h", modelHeader});
   if (structured && !structured->modules.empty()) {
-    std::ostringstream typesHeader;
-    typesHeader << "#pragma once\n";
-    for (const auto &type : structured->types)
-      typesHeader << "#include \"generated/types/" << type.name << ".h\"\n";
-    result.push_back(
-        {"include/generated/modules/queuegraph_types.h", typesHeader.str()});
+    const std::string interfaceStem = sourceStem(plan) + "_interface";
+    std::ostringstream interfaceHeader;
+    interfaceHeader << "#pragma once\n\n"
+                       "#include \"gfsim/bits.h\"\n\n"
+                       "#include <array>\n#include <cstdint>\n#include <tuple>\n\n"
+                       "namespace ac_generated {\n\n";
     for (const auto &type : structured->types) {
-      std::ostringstream header;
-      header << "#pragma once\n\n"
-                "#include \"gfsim/bits.h\"\n\n"
-                "#include <array>\n#include <cstdint>\n#include <tuple>\n\n";
-      for (const std::string &dependency : type.dependencies)
-        header << "#include \"generated/types/" << dependency << ".h\"\n";
-      if (!type.dependencies.empty())
-        header << '\n';
-      header << "namespace ac_generated {\n\n"
-             << type.definition << "} // namespace ac_generated\n";
-      result.push_back(
-          {"include/generated/types/" + type.name + ".h", header.str()});
+      interfaceHeader << type.definition;
     }
+    interfaceHeader << "} // namespace ac_generated\n";
+    result.push_back({"include/generated/interfaces/" + interfaceStem +
+                          ".hpp",
+                      interfaceHeader.str()});
     std::ostringstream helpersHeader;
     helpersHeader
         << "#pragma once\n\n"
-           "#include \"generated/modules/queuegraph_types.h\"\n"
+           "#include \"generated/interfaces/"
+        << interfaceStem
+        << ".hpp\"\n"
            "#include \"gfsim/bits.h\"\n"
            "#include \"gfsim/dispatch.h\"\n"
            "#include \"gfsim/object.h\"\n"
@@ -7563,14 +7754,15 @@ agentic_model_query_v1(void) {
            "#include \"gfsim/queue.h\"\n"
            "#include \"gfsim/queue_blocks.h\"\n\n"
            "#include <array>\n#include <cstdint>\n#include <limits>\n"
-           "#include <optional>\n#include <string>\n#include <tuple>\n"
+           "#include <optional>\n#include <stdexcept>\n#include <string>\n"
+           "#include <string_view>\n#include <tuple>\n"
            "#include <utility>\n#include <vector>\n\n"
            "namespace ac_generated {\n\n"
         << structured->helperDeclarations << "} // namespace ac_generated\n";
-    result.push_back({"include/generated/modules/queuegraph_helpers.h",
+    result.push_back({"include/generated/modules/queuegraph_helpers.hpp",
                       helpersHeader.str()});
     std::ostringstream helpersSource;
-    helpersSource << "#include \"generated/modules/queuegraph_helpers.h\"\n\n"
+    helpersSource << "#include \"generated/modules/queuegraph_helpers.hpp\"\n\n"
                      "namespace ac_generated {\n\n"
                   << structured->helperDefinitions
                   << "} // namespace ac_generated\n";
@@ -7602,17 +7794,20 @@ agentic_model_query_v1(void) {
     for (const ModuleFileGroup &group : moduleFiles) {
       std::ostringstream header;
       header << "#pragma once\n\n"
-                "#include \"generated/modules/queuegraph_types.h\"\n"
-                "#include \"generated/modules/queuegraph_helpers.h\"\n";
+                "#include \"generated/interfaces/"
+             << interfaceStem
+             << ".hpp\"\n"
+                "#include \"generated/modules/queuegraph_helpers.hpp\"\n"
+                "#include <memory>\n";
       for (const std::string &child : group.childFileStems)
-        header << "#include \"generated/modules/" << child << ".h\"\n";
+        header << "#include \"generated/modules/" << child << ".hpp\"\n";
       header << "\nnamespace ac_generated {\n\n"
              << group.header << "} // namespace ac_generated\n";
       result.push_back(
-          {"include/generated/modules/" + group.fileStem + ".h", header.str()});
+          {"include/generated/modules/" + group.fileStem + ".hpp", header.str()});
       std::ostringstream source;
       source << "#include \"generated/modules/" << group.fileStem
-             << ".h\"\n\nnamespace ac_generated {\n\n"
+             << ".hpp\"\n\nnamespace ac_generated {\n\n"
              << group.provenance << group.source
              << "} // namespace ac_generated\n";
       result.push_back(
@@ -7620,12 +7815,13 @@ agentic_model_query_v1(void) {
     }
     std::ostringstream dutHeader;
     dutHeader << "#pragma once\n\n"
-                 "#include \"generated/modules/queuegraph_types.h\"\n";
+                 "#include \"generated/interfaces/"
+              << interfaceStem << ".hpp\"\n";
     llvm::StringSet<> includedDutModules;
     for (const auto &unit : structured->modules)
       if (includedDutModules.insert(unit.fileStem).second)
         dutHeader << "#include \"generated/modules/" << unit.fileStem
-                  << ".h\"\n";
+                  << ".hpp\"\n";
     dutHeader << "\nnamespace ac_generated {\n\n"
               << structured->rootClass << "} // namespace ac_generated\n";
     result.push_back({"include/generated/dut.h", dutHeader.str()});
@@ -7642,15 +7838,30 @@ agentic_model_query_v1(void) {
   std::ostringstream cmake;
   cmake << "cmake_minimum_required(VERSION 3.20)\n"
            "project(ac_generated_model LANGUAGES CXX)\n\n"
-           "add_library(ac_generated_model STATIC\n";
-  for (const std::string &source : generatedSources)
-    cmake << "  " << source << "\n";
+           "find_path(AC_GFSIM_INCLUDE_DIR gfsim/core.h REQUIRED)\n\n";
+  std::vector<std::string> objectTargets;
+  for (const std::string &source : generatedSources) {
+    const llvm::StringRef path(source);
+    std::string target = "ac_" + legalizeQueueGraphIdentifier(
+                                      path.rsplit('/').second.drop_back(4));
+    if (llvm::is_contained(objectTargets, target))
+      return generatorError("generated C++ source target names collide");
+    objectTargets.push_back(target);
+    cmake << "add_library(" << target << " OBJECT " << source << ")\n"
+          << "target_compile_features(" << target << " PUBLIC cxx_std_20)\n"
+          << "target_include_directories(" << target << " PUBLIC\n"
+          << "  ${CMAKE_CURRENT_SOURCE_DIR}/include\n"
+          << "  ${AC_GFSIM_INCLUDE_DIR}\n"
+          << ")\n\n";
+  }
+  cmake << "add_library(ac_generated_model STATIC\n";
+  for (const std::string &target : objectTargets)
+    cmake << "  $<TARGET_OBJECTS:" << target << ">\n";
   cmake << ")\n"
            "target_compile_features(ac_generated_model PUBLIC cxx_std_20)\n"
            "target_include_directories(ac_generated_model PUBLIC\n"
            "  ${CMAKE_CURRENT_SOURCE_DIR}/include\n"
            ")\n"
-           "find_path(AC_GFSIM_INCLUDE_DIR gfsim/core.h REQUIRED)\n"
            "target_include_directories(ac_generated_model PUBLIC\n"
            "  ${AC_GFSIM_INCLUDE_DIR}\n"
            ")\n";

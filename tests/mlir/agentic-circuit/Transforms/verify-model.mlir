@@ -14,11 +14,14 @@ builtin.module  {
   ac.system @soc root @Top as "root" tick 0 "cycle"
       workload @Top::@workload seed {kind = "fixed", value = 7 : i64}
       instrumentation [] results {id = "default", format = "json"} selected true
-  ac.module @Top() parameters {} graph {
+ac.module @Top source #ac.source_owner<"tests/native_family.py", "tests/native_family.py"> schema #ac.module_family_schema<#ac.static_parameters<[]>, #ac.static_cases<[#ac.static_arguments<[]>]>, #ac.module_interface<[]>, #ac.source_owner<"tests/native_family.py", "tests/native_family.py">, []> {
+    ac.module.case arguments #ac.static_arguments<[]> type () -> () source #ac.source_provenance<"tests/native_family.py", 1, 1, 1, 1> graph {
     ac.process @workload kind "workload" {
       ac.yield_sim
     }
     ac.return
+
+    }
   }
 }
 // VALID: ac.process @workload
@@ -33,37 +36,49 @@ builtin.module  {
     ac.event @push from @sender to @receiver payload i32 action "offer"
     ac.transition from @idle to @done on @push transfer true retain false guard {}
   }
-  ac.module @Leaf(!ac.flow<i32, @p>) -> !ac.flow<i32, @p> parameters {} graph {
+ac.module @Leaf source #ac.source_owner<"tests/native_family.py", "tests/native_family.py"> schema #ac.module_family_schema<#ac.static_parameters<[]>, #ac.static_cases<[#ac.static_arguments<[]>]>, #ac.module_interface<[#ac.interface_port<"input_0", "input", #ac.type_expr<#ac.type_expr_concrete<!ac.flow<i32, @p>>>, #ac.source_provenance<"tests/native_family.py", 1, 1, 1, 1>>, #ac.interface_port<"output_0", "output", #ac.type_expr<#ac.type_expr_concrete<!ac.flow<i32, @p>>>, #ac.source_provenance<"tests/native_family.py", 1, 1, 1, 1>>]>, #ac.source_owner<"tests/native_family.py", "tests/native_family.py">, []> {
+    ac.module.case arguments #ac.static_arguments<[]> type (!ac.flow<i32, @p>) -> !ac.flow<i32, @p> source #ac.source_provenance<"tests/native_family.py", 1, 1, 1, 1> graph {
   ^bb0(%arg0 : !ac.flow<i32, @p>):
     ac.return %arg0 : !ac.flow<i32, @p>
+
+    }
   }
-  ac.module @Top(!ac.flow<i32, @p>) parameters {} graph {
+  ac.module @Top source #ac.source_owner<"tests/native_family.py", "tests/native_family.py"> schema #ac.module_family_schema<#ac.static_parameters<[]>, #ac.static_cases<[#ac.static_arguments<[]>]>, #ac.module_interface<[#ac.interface_port<"input_0", "input", #ac.type_expr<#ac.type_expr_concrete<!ac.flow<i32, @p>>>, #ac.source_provenance<"tests/native_family.py", 1, 1, 1, 1>>]>, #ac.source_owner<"tests/native_family.py", "tests/native_family.py">, []> {
+    ac.module.case arguments #ac.static_arguments<[]> type (!ac.flow<i32, @p>) -> () source #ac.source_provenance<"tests/native_family.py", 1, 1, 1, 1> graph {
   ^bb0(%arg0 : !ac.flow<i32, @p>):
-    %a = ac.instance @a of @Leaf(%arg0) static {} id "a" path "a" : (!ac.flow<i32, @p>) -> !ac.flow<i32, @p>
-    %b = ac.instance @b of @Leaf(%arg0) static {} id "b" path "b" : (!ac.flow<i32, @p>) -> !ac.flow<i32, @p>
+    %a = ac.instance @a of @Leaf(%arg0) static #ac.static_arguments<[]> id "a" path "a" : (!ac.flow<i32, @p>) -> !ac.flow<i32, @p>
+    %b = ac.instance @b of @Leaf(%arg0) static #ac.static_arguments<[]> id "b" path "b" : (!ac.flow<i32, @p>) -> !ac.flow<i32, @p>
     ac.return
+
+    }
   }
 }
 // FANOUT: flow value has more than one functional use
 
 //--- duplicate-owner.mlir
 builtin.module  {
-  ac.module @Top() parameters {} graph {
+ac.module @Top source #ac.source_owner<"tests/native_family.py", "tests/native_family.py"> schema #ac.module_family_schema<#ac.static_parameters<[]>, #ac.static_cases<[#ac.static_arguments<[]>]>, #ac.module_interface<[]>, #ac.source_owner<"tests/native_family.py", "tests/native_family.py">, []> {
+    ac.module.case arguments #ac.static_arguments<[]> type () -> () source #ac.source_provenance<"tests/native_family.py", 1, 1, 1, 1> graph {
     ac.stat @same kind "counter"
     ac.process @same kind "control" { ac.yield_sim }
     ac.return
+
+    }
   }
 }
-// DUPLICATE: duplicate local structural name 'same'
+// DUPLICATE: duplicate local structural name
 
 //--- arbitration.mlir
 builtin.module  {
-  ac.module @Top() parameters {} graph {
+ac.module @Top source #ac.source_owner<"tests/native_family.py", "tests/native_family.py"> schema #ac.module_family_schema<#ac.static_parameters<[]>, #ac.static_cases<[#ac.static_arguments<[]>]>, #ac.module_interface<[]>, #ac.source_owner<"tests/native_family.py", "tests/native_family.py">, []> {
+    ac.module.case arguments #ac.static_arguments<[]> type () -> () source #ac.source_provenance<"tests/native_family.py", 1, 1, 1, 1> graph {
     ac.resource @r capacity 1 issue_width 1 ii 1
         latency {kind = "fixed", ticks = 1 : i64}
         lifecycle {reservation = "propose_commit", release = "balanced", cancellation = "explicit"}
         ownership "contested" classes [] id "r" path "r"
     ac.return
+
+    }
   }
 }
 // ARBITRATION: shared or contested resource requires one arbitration owner
@@ -78,38 +93,49 @@ builtin.module  {
 
 //--- bad-provider.mlir
 builtin.module  {
-  ac.module.extern @Missing : () -> () parameters {}
+  ac.module.extern @Missing
+      source #ac.source_owner<"tests/native_family.py", "tests/native_family.py">
+      schema #ac.module_family_schema<#ac.static_parameters<[]>, #ac.static_cases<[#ac.static_arguments<[]>]>, #ac.module_interface<[]>, #ac.source_owner<"tests/native_family.py", "tests/native_family.py">, []>
       implementation {registry = "cpp", name = "NotRegistered"}
 }
 // PROVIDER: structural provider 'cpp:NotRegistered' is not registered
 
 //--- bad-process.mlir
 builtin.module  {
-  ac.module @Top() parameters {} graph {
+ac.module @Top source #ac.source_owner<"tests/native_family.py", "tests/native_family.py"> schema #ac.module_family_schema<#ac.static_parameters<[]>, #ac.static_cases<[#ac.static_arguments<[]>]>, #ac.module_interface<[]>, #ac.source_owner<"tests/native_family.py", "tests/native_family.py">, []> {
+    ac.module.case arguments #ac.static_arguments<[]> type () -> () source #ac.source_provenance<"tests/native_family.py", 1, 1, 1, 1> graph {
     ac.process @p kind "control" { ac.wait_for @missing ac.yield_sim }
     ac.return
+
+    }
   }
 }
-// PROCESS: unresolved runtime target '@missing'
+// PROCESS: unresolved runtime target 'missing'
 
 //--- bad-probe.mlir
 builtin.module  {
-  ac.module @Top() parameters {} graph {
+ac.module @Top source #ac.source_owner<"tests/native_family.py", "tests/native_family.py"> schema #ac.module_family_schema<#ac.static_parameters<[]>, #ac.static_cases<[#ac.static_arguments<[]>]>, #ac.module_interface<[]>, #ac.source_owner<"tests/native_family.py", "tests/native_family.py">, []> {
+    ac.module.case arguments #ac.static_arguments<[]> type () -> () source #ac.source_provenance<"tests/native_family.py", 1, 1, 1, 1> graph {
     ac.process @p kind "monitor" {
       %v = ac.probe @missing kind "queue" : i32
       ac.yield_sim
     }
     ac.return
+
+    }
   }
 }
 // PROBE: unresolved runtime target '@missing'
 
 //--- bad-contract.mlir
 builtin.module  {
-  ac.module @Top() parameters {} graph {
+ac.module @Top source #ac.source_owner<"tests/native_family.py", "tests/native_family.py"> schema #ac.module_family_schema<#ac.static_parameters<[]>, #ac.static_cases<[#ac.static_arguments<[]>]>, #ac.module_interface<[]>, #ac.source_owner<"tests/native_family.py", "tests/native_family.py">, []> {
+    ac.module.case arguments #ac.static_arguments<[]> type () -> () source #ac.source_provenance<"tests/native_family.py", 1, 1, 1, 1> graph {
     %true = arith.constant true
     ac.assert %true, "not static"
     ac.return
+
+    }
   }
 }
-// CONTRACT: operation is not legal in an ac.module structural Graph region
+// CONTRACT: operation is not legal in an ac.module.case Graph region

@@ -9,7 +9,8 @@ from pycircuit import (
 )
 
 
-def build(m: CycleAwareCircuit, domain: CycleAwareDomain, depth: int = 2) -> None:
+def build(m: CycleAwareCircuit, domain: CycleAwareDomain) -> None:
+    depth = 2
     cd = domain.clock_domain
     clk = cd.clk
     rst = cd.rst
@@ -31,4 +32,4 @@ build.__pycircuit_name__ = "fifo_loopback"
 
 
 if __name__ == "__main__":
-    print(build_cycle_aware(build, name="fifo_loopback", depth=2).emit_mlir())
+    print(build_cycle_aware(build, name="fifo_loopback").emit_mlir())

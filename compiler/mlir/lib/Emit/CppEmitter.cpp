@@ -1,5 +1,7 @@
 #include "pyc/Emit/CppEmitter.h"
 
+#include "acir/Dialect/ACIR/ACIROps.h"
+#include "pyc/Dialect/PYC/PYCAttributes.h"
 #include "pyc/Dialect/PYC/PYCOps.h"
 #include "pyc/Dialect/PYC/PYCTypes.h"
 
@@ -152,23 +154,6 @@ static std::string getPortName(func::FuncOp f, unsigned idx, bool isResult) {
   return "out" + std::to_string(idx);
 }
 
-static std::string getPortCanonicalFieldPath(func::FuncOp f, unsigned idx, bool isResult) {
-  if (!isResult) {
-    if (auto names = f->getAttrOfType<ArrayAttr>("arg_names")) {
-      if (idx < names.size())
-        if (auto s = dyn_cast<StringAttr>(names[idx]))
-          return s.getValue().str();
-    }
-    return "arg" + std::to_string(idx);
-  }
-  if (auto names = f->getAttrOfType<ArrayAttr>("result_names")) {
-    if (idx < names.size())
-      if (auto s = dyn_cast<StringAttr>(names[idx]))
-        return s.getValue().str();
-  }
-  return "out" + std::to_string(idx);
-}
-
 struct ProbeAliasEntry {
   std::string canonicalPath;
   std::string sourcePath;
@@ -264,6 +249,212 @@ static void computeUniquePortNames(func::FuncOp f, std::vector<std::string> &inN
   for (unsigned i = 0; i < numResults; ++i) {
     outNames.push_back(nt.unique(getPortName(f, i, /*isResult=*/true)));
   }
+}
+
+static LogicalResult computeCasePortNames(pyc::ModuleCaseOp moduleCase,
+                                          std::vector<std::string> &inNames,
+                                          std::vector<std::string> &outNames) {
+  auto signature = moduleCase.getSignature();
+  auto functionType = cast<FunctionType>(signature.getPhysical().getValue());
+  inNames.assign(functionType.getNumInputs(), std::string());
+  outNames.assign(functionType.getNumResults(), std::string());
+  NameTable names;
+  for (ControlPortMappingAttr control :
+       signature.getMapping().getControls().getAsRange<ControlPortMappingAttr>()) {
+    std::string name = control.getKind().getValue() == "clock" ? "clk" : "rst";
+    inNames[control.getPhysicalInputIndex()] = names.unique(name);
+  }
+  for (LogicalPortMappingAttr logical : signature.getMapping()
+                                                   .getLogicalPorts()
+                                                   .getAsRange<LogicalPortMappingAttr>()) {
+    uint64_t lanes = 0;
+    for (PhysicalPortAttr carrier :
+         logical.getCarriers().getAsRange<PhysicalPortAttr>())
+      if (carrier.getLane())
+        lanes = std::max(lanes,
+                         carrier.getLane().getValue().getZExtValue() + 1);
+    for (PhysicalPortAttr carrier :
+         logical.getCarriers().getAsRange<PhysicalPortAttr>()) {
+      std::string name = sanitizeId(logical.getName().getValue());
+      StringRef role = carrier.getRole().getValue();
+      if (role == "queue_valid")
+        name += "_valid";
+      else if (role == "queue_data")
+        name += "_data";
+      else if (role == "queue_ready")
+        name += "_ready";
+      if (carrier.getLane() && lanes > 1)
+        name += "_" + std::to_string(carrier.getLane().getValue().getZExtValue());
+      auto &ports = carrier.getDirection().getValue() == "input" ? inNames
+                                                                  : outNames;
+      ports[carrier.getIndex()] = names.unique(name);
+    }
+  }
+  if (llvm::any_of(inNames, [](const std::string &name) { return name.empty(); }) ||
+      llvm::any_of(outNames, [](const std::string &name) { return name.empty(); }))
+    return moduleCase.emitError("verified case mapping has an unnamed physical carrier");
+  return success();
+}
+
+static std::optional<std::string> cppStaticType(Attribute value) {
+  if (isa<acir::ac::StaticBoolTypeAttr>(value))
+    return std::string("bool");
+  if (auto integer = dyn_cast<acir::ac::StaticIntTypeAttr>(value)) {
+    if (integer.getWidth() > 64)
+      return std::nullopt;
+    return std::string(integer.getIsSigned() ? "std::int64_t" : "std::uint64_t");
+  }
+  if (auto enumeration = dyn_cast<acir::ac::StaticEnumTypeAttr>(value))
+    return sanitizeId(enumeration.getDeclaration().getValue());
+  if (auto config = dyn_cast<acir::ac::StaticConfigTypeAttr>(value))
+    return sanitizeId(config.getDeclaration().getValue());
+  return std::nullopt;
+}
+
+static std::optional<std::string> cppStaticRawValue(Attribute value) {
+  if (auto boolean = dyn_cast<acir::ac::StaticBoolValueAttr>(value))
+    return std::string(boolean.getValue() ? "true" : "false");
+  if (auto integer = dyn_cast<acir::ac::StaticIntValueAttr>(value)) {
+    llvm::SmallString<64> spelling;
+    integer.getValue().getValue().toString(
+        spelling, 10, integer.getType().getIsSigned());
+    return spelling.str().str();
+  }
+  if (auto enumeration = dyn_cast<acir::ac::StaticEnumValueAttr>(value))
+    return sanitizeId(enumeration.getDeclaration().getValue()) + "::" +
+           sanitizeId(enumeration.getMember().getValue());
+  if (auto config = dyn_cast<acir::ac::StaticConfigValueAttr>(value)) {
+    std::string result = sanitizeId(config.getDeclaration().getValue()) + "{";
+    bool first = true;
+    for (acir::ac::StaticConfigFieldValueAttr field :
+         config.getFields().getFields().getAsRange<
+             acir::ac::StaticConfigFieldValueAttr>()) {
+      auto fieldValue = cppStaticRawValue(field.getValue());
+      if (!fieldValue)
+        return std::nullopt;
+      if (!first)
+        result += ", ";
+      first = false;
+      result += *fieldValue;
+    }
+    result += "}";
+    return result;
+  }
+  return std::nullopt;
+}
+
+static std::optional<std::string>
+cppStaticParameterType(acir::ac::StaticTypeAttr type) {
+  return cppStaticType(type.getValue());
+}
+
+static std::optional<std::string>
+cppStaticValue(acir::ac::StaticValueAttr wrapped) {
+  return cppStaticRawValue(wrapped.getValue());
+}
+
+static std::optional<std::string>
+cppStaticArguments(acir::ac::StaticArgumentsAttr arguments) {
+  std::string result;
+  llvm::raw_string_ostream stream(result);
+  bool first = true;
+  for (acir::ac::StaticArgumentAttr argument :
+       arguments.getArguments().getAsRange<acir::ac::StaticArgumentAttr>()) {
+    auto value = cppStaticValue(argument.getValue());
+    if (!value)
+      return std::nullopt;
+    if (!first)
+      stream << ", ";
+    first = false;
+    stream << *value;
+  }
+  return stream.str();
+}
+
+static LogicalResult emitCppNominalDeclarations(ModuleOp module,
+                                                llvm::raw_ostream &os) {
+  llvm::StringMap<Attribute> emittedTypes;
+  for (pyc::FamilyOp family : module.getOps<pyc::FamilyOp>()) {
+    for (acir::ac::StaticParameterAttr parameter :
+         family.getSchema()
+             .getParameters()
+             .getParameters()
+             .getAsRange<acir::ac::StaticParameterAttr>()) {
+      Attribute type = parameter.getType().getValue();
+      if (auto enumeration = dyn_cast<acir::ac::StaticEnumTypeAttr>(type)) {
+        StringRef name = enumeration.getDeclaration().getValue();
+        if (auto previous = emittedTypes.find(name);
+            previous != emittedTypes.end()) {
+          if (previous->second != type)
+            return family.emitError(
+                "nominal enum parameter definitions disagree");
+          continue;
+        }
+        acir::ac::EnumOp declaration;
+        for (acir::ac::TypeScopeOp scope :
+             module.getOps<acir::ac::TypeScopeOp>())
+          for (acir::ac::EnumOp candidate :
+               scope.getBody().front().getOps<acir::ac::EnumOp>())
+            if (candidate.getSymName() == name)
+              declaration = candidate;
+        if (!declaration)
+          return family.emitError("nominal enum definition is unavailable: ")
+                 << name;
+        emittedTypes.try_emplace(name, type);
+        uint64_t width = declaration.getEncodingWidth().value_or(32);
+        StringRef storage = width <= 8    ? "std::uint8_t"
+                            : width <= 16 ? "std::uint16_t"
+                            : width <= 32 ? "std::uint32_t"
+                                          : "std::uint64_t";
+        os << "enum class " << sanitizeId(name) << " : " << storage
+           << " {\n";
+        ArrayAttr values = declaration.getValuesAttr();
+        for (auto [index, rawMember] :
+             llvm::enumerate(declaration.getEnumerants())) {
+          os << "  " << sanitizeId(cast<StringAttr>(rawMember).getValue())
+             << " = ";
+          if (values) {
+            llvm::SmallString<64> spelling;
+            cast<IntegerAttr>(values[index]).getValue().toStringUnsigned(
+                spelling, 10);
+            os << spelling;
+          } else {
+            os << index;
+          }
+          os << (index + 1 == declaration.getEnumerants().size() ? "\n"
+                                                                  : ",\n");
+        }
+        os << "};\n\n";
+        continue;
+      }
+      auto config = dyn_cast<acir::ac::StaticConfigTypeAttr>(type);
+      if (!config)
+        continue;
+      StringRef name = config.getDeclaration().getValue();
+      if (auto previous = emittedTypes.find(name);
+          previous != emittedTypes.end()) {
+        if (previous->second != type)
+          return family.emitError(
+              "nominal config parameter definitions disagree");
+        continue;
+      }
+      emittedTypes.try_emplace(name, type);
+      os << "struct " << sanitizeId(name) << " {\n";
+      for (acir::ac::StaticConfigFieldAttr field :
+           config.getFields().getFields().getAsRange<
+               acir::ac::StaticConfigFieldAttr>()) {
+        auto fieldType = cppStaticType(field.getType());
+        if (!fieldType)
+          return family.emitError(
+              "C++ config field uses an unsupported static type");
+        os << "  " << *fieldType << " "
+           << sanitizeId(field.getName().getValue()) << ";\n";
+      }
+      os << "  constexpr bool operator==(const " << sanitizeId(name)
+         << " &) const = default;\n};\n\n";
+    }
+  }
+  return success();
 }
 
 enum class SeqStateKind : std::uint8_t {
@@ -651,38 +842,43 @@ static LogicalResult emitCombMethod(pyc::CombOp comb,
   return success();
 }
 
-static LogicalResult emitFunc(func::FuncOp f, llvm::raw_ostream &os, const CppEmitterOptions &opts) {
+static LogicalResult emitBlockStruct(
+    Operation *owner, StringRef symbol, Block &top, FunctionType functionType,
+    ArrayRef<std::string> inputPortNames,
+    ArrayRef<std::string> outputPortNames, ValueRange returnValues,
+    llvm::raw_ostream &os, const CppEmitterOptions &opts,
+    StringRef specialization = {}) {
   NameTable nt;
 
-  if (!llvm::hasSingleElement(f.getBody()))
-    return f.emitError("C++ emitter currently supports single-block functions only");
-
-  Block &top = f.getBody().front();
-
-  std::string structName = sanitizeId(f.getSymName());
-  os << "struct " << structName << " {\n";
+  std::string structName = sanitizeId(symbol);
+  if (!specialization.empty())
+    os << "template <> ";
+  os << "struct " << structName;
+  if (!specialization.empty())
+    os << "<" << specialization << ">";
+  os << " {\n";
 
   // Ports.
   std::vector<std::string> inNames;
-  inNames.reserve(f.getNumArguments());
+  inNames.reserve(functionType.getNumInputs());
   std::vector<std::string> inCanon;
-  inCanon.reserve(f.getNumArguments());
+  inCanon.reserve(functionType.getNumInputs());
   std::vector<std::string> outNames;
-  outNames.reserve(f.getNumResults());
+  outNames.reserve(functionType.getNumResults());
   std::vector<std::string> outCanon;
-  outCanon.reserve(f.getNumResults());
-  for (auto [i, arg] : llvm::enumerate(f.getArguments())) {
-    inCanon.push_back(getPortCanonicalFieldPath(f, i, /*isResult=*/false));
-    std::string name = nt.unique(getPortName(f, i, /*isResult=*/false));
+  outCanon.reserve(functionType.getNumResults());
+  for (auto [i, arg] : llvm::enumerate(top.getArguments())) {
+    inCanon.push_back(inputPortNames[i]);
+    std::string name = nt.unique(inputPortNames[i]);
     inNames.push_back(name);
     nt.names.try_emplace(arg, name);
     os << "  " << cppType(arg.getType()) << " " << name << "{};\n";
   }
-  for (unsigned i = 0; i < f.getNumResults(); ++i) {
-    outCanon.push_back(getPortCanonicalFieldPath(f, i, /*isResult=*/true));
-    std::string name = nt.unique(getPortName(f, i, /*isResult=*/true));
+  for (unsigned i = 0; i < functionType.getNumResults(); ++i) {
+    outCanon.push_back(outputPortNames[i]);
+    std::string name = nt.unique(outputPortNames[i]);
     outNames.push_back(name);
-    os << "  " << cppType(f.getResultTypes()[i]) << " " << name << "{};\n";
+    os << "  " << cppType(functionType.getResult(i)) << " " << name << "{};\n";
   }
   os << "\n";
 
@@ -693,7 +889,7 @@ static LogicalResult emitFunc(func::FuncOp f, llvm::raw_ostream &os, const CppEm
   };
   std::vector<Decl> decls;
   decls.reserve(256);
-  f.walk([&](Operation *op) {
+  owner->walk([&](Operation *op) {
     for (Value r : op->getResults()) {
       decls.push_back(Decl{nt.get(r), r.getType()});
     }
@@ -776,7 +972,8 @@ static LogicalResult emitFunc(func::FuncOp f, llvm::raw_ostream &os, const CppEm
 
   struct InstInfo {
     pyc::InstanceOp op;
-    func::FuncOp callee;
+    std::string calleeName;
+    bool hasSequentialState;
     std::string member;
     std::string seg;
     std::vector<std::string> inPorts;
@@ -785,9 +982,9 @@ static LogicalResult emitFunc(func::FuncOp f, llvm::raw_ostream &os, const CppEm
   std::vector<InstInfo> instInfos;
   instInfos.reserve(instances.size());
   llvm::DenseMap<Operation *, unsigned> instIndex;
-  ModuleOp mod = f->getParentOfType<ModuleOp>();
+  ModuleOp mod = owner->getParentOfType<ModuleOp>();
   if (!mod)
-    return f.emitError("C++ emitter: missing parent module for instance resolution");
+    return owner->emitError("C++ emitter: missing parent module for instance resolution");
   std::vector<bool> instHasSequentialCallee{};
 
   if (!instances.empty()) {
@@ -795,27 +992,58 @@ static LogicalResult emitFunc(func::FuncOp f, llvm::raw_ostream &os, const CppEm
       auto calleeAttr = inst->getAttrOfType<FlatSymbolRefAttr>("callee");
       if (!calleeAttr)
         return inst.emitError("missing required FlatSymbolRefAttr `callee`");
-      auto callee = mod.lookupSymbol<func::FuncOp>(calleeAttr.getValue());
-      if (!callee)
-        return inst.emitError("callee symbol not found: ") << calleeAttr.getValue();
-
       std::vector<std::string> inPorts;
       std::vector<std::string> outPorts;
-      computeUniquePortNames(callee, inPorts, outPorts);
+      std::string calleeName;
+      bool hasSequentialState = true;
+      if (auto callee = mod.lookupSymbol<func::FuncOp>(calleeAttr.getValue())) {
+        computeUniquePortNames(callee, inPorts, outPorts);
+        calleeName = callee.getSymName().str();
+        llvm::DenseMap<Operation *, SeqStateKind> seqMemo;
+        hasSequentialState = functionHasSequentialState(callee, mod, seqMemo);
+      } else if (auto family =
+                     mod.lookupSymbol<pyc::FamilyOp>(calleeAttr.getValue())) {
+        pyc::ModuleCaseOp selected;
+        for (pyc::ModuleCaseOp candidate :
+             family.getBody().front().getOps<pyc::ModuleCaseOp>())
+          if (candidate.getSignature().getArguments() == inst.getStaticArgs()) {
+            selected = candidate;
+            break;
+          }
+        if (!selected)
+          return inst.emitError("static arguments do not select a family case");
+        if (failed(computeCasePortNames(selected, inPorts, outPorts)))
+          return failure();
+        calleeName = family.getSymName().str();
+        if (!family.getSchema().getParameters().getParameters().empty()) {
+          auto concreteArguments = pyc::staticArgumentsFromDependent(
+              inst.getStaticArgs());
+          if (failed(concreteArguments))
+            return inst.emitError(
+                "C++ instance arguments must be concrete typed values");
+          auto staticArguments = cppStaticArguments(*concreteArguments);
+          if (!staticArguments)
+            return inst.emitError(
+                "C++ family emission does not support this static value type");
+          calleeName += "<" + *staticArguments + ">";
+        }
+      } else {
+        return inst.emitError("callee symbol not found: ") << calleeAttr.getValue();
+      }
       if (inPorts.size() != inst.getNumOperands())
         return inst.emitError("operand count does not match callee signature: inst=")
                << inst.getNumOperands() << ", callee=" << inPorts.size()
-               << " (" << callee.getSymName() << ")";
+               << " (" << calleeName << ")";
       if (outPorts.size() != inst.getNumResults())
         return inst.emitError("result count does not match callee signature: inst=")
                << inst.getNumResults() << ", callee=" << outPorts.size()
-               << " (" << callee.getSymName() << ")";
+               << " (" << calleeName << ")";
 
       std::string base = "inst";
       if (auto nameAttr = inst->getAttrOfType<StringAttr>("name"))
         base = sanitizeId(nameAttr.getValue());
       else
-        base = sanitizeId(callee.getSymName()) + std::string("_inst");
+        base = sanitizeId(calleeAttr.getValue()) + std::string("_inst");
       std::string seg = base;
       if (auto shortAttr = inst->getAttrOfType<StringAttr>("short_name"))
         seg = sanitizeId(shortAttr.getValue());
@@ -823,14 +1051,15 @@ static LogicalResult emitFunc(func::FuncOp f, llvm::raw_ostream &os, const CppEm
 
       unsigned idx = static_cast<unsigned>(instInfos.size());
       instIndex.try_emplace(inst.getOperation(), idx);
-      instInfos.push_back(InstInfo{inst, callee, std::move(member), std::move(seg), std::move(inPorts), std::move(outPorts)});
+      instInfos.push_back(InstInfo{inst, std::move(calleeName),
+                                   hasSequentialState, std::move(member),
+                                   std::move(seg), std::move(inPorts),
+                                   std::move(outPorts)});
     }
 
-    llvm::DenseMap<Operation *, SeqStateKind> seqMemo{};
     instHasSequentialCallee.reserve(instInfos.size());
-    for (const auto &ii : instInfos) {
-      instHasSequentialCallee.push_back(functionHasSequentialState(ii.callee, mod, seqMemo));
-    }
+    for (const auto &ii : instInfos)
+      instHasSequentialCallee.push_back(ii.hasSequentialState);
   }
 
   auto instancePackedCacheWordCount = [&](const InstInfo &ii) -> unsigned {
@@ -861,10 +1090,9 @@ static LogicalResult emitFunc(func::FuncOp f, llvm::raw_ostream &os, const CppEm
 	  if (!instInfos.empty()) {
 	    os << "  // Sub-modules.\n";
 	    for (const auto &ii : instInfos) {
-	      auto callee = ii.callee;
 	      // Decision 0012: Parent SimObjects own children via unique_ptr.
-	      os << "  std::unique_ptr<" << sanitizeId(callee.getSymName()) << "> " << ii.member
-	         << " = std::make_unique<" << sanitizeId(callee.getSymName()) << ">();\n";
+	      os << "  std::unique_ptr<" << ii.calleeName << "> " << ii.member
+	         << " = std::make_unique<" << ii.calleeName << ">();\n";
 	    }
 	    os << "\n";
 
@@ -942,20 +1170,18 @@ static LogicalResult emitFunc(func::FuncOp f, llvm::raw_ostream &os, const CppEm
     // Decision 0003 / 0051-0052: infer probe kind for ports and named internal
     // objects. A value is considered stateful iff it directly returns the q
     // output of a local pyc.reg (through optional pyc.alias wrappers).
-    std::vector<bool> outIsReg(f.getNumResults(), false);
-    std::vector<Value> outRegQ(f.getNumResults(), Value());
+    std::vector<bool> outIsReg(functionType.getNumResults(), false);
+    std::vector<Value> outRegQ(functionType.getNumResults(), Value());
     std::vector<NamedProbeInfo> namedProbes;
-    if (!f.isDeclaration()) {
-      auto ret = dyn_cast_or_null<func::ReturnOp>(f.getBody().front().getTerminator());
-      if (!ret)
-        return f.emitError("missing return");
-      for (unsigned i = 0; i < f.getNumResults() && i < ret.getNumOperands(); ++i)
-        outRegQ[i] = findRegQFromValue(ret.getOperand(i));
-      for (unsigned i = 0; i < f.getNumResults(); ++i)
+    {
+      for (unsigned i = 0;
+           i < functionType.getNumResults() && i < returnValues.size(); ++i)
+        outRegQ[i] = findRegQFromValue(returnValues[i]);
+      for (unsigned i = 0; i < functionType.getNumResults(); ++i)
         outIsReg[i] = static_cast<bool>(outRegQ[i]);
 
       llvm::StringSet<> seenNamedFields;
-      f.walk([&](Operation *op) {
+      owner->walk([&](Operation *op) {
         auto nameAttr = op->getAttrOfType<StringAttr>("pyc.name");
         if (!nameAttr || op->getNumResults() != 1)
           return;
@@ -981,21 +1207,21 @@ static LogicalResult emitFunc(func::FuncOp f, llvm::raw_ostream &os, const CppEm
       });
     }
 
-		  for (auto [i, arg] : llvm::enumerate(f.getArguments())) {
+		  for (auto [i, arg] : llvm::enumerate(top.getArguments())) {
 		    unsigned w = bitWidth(arg.getType());
 		    if (w == 0)
-		      return f.emitError("invalid input port width for ProbeRegistry: ") << getPortCanonicalFieldPath(f, i, /*isResult=*/false);
+		      return owner->emitError("invalid input port width for ProbeRegistry: ") << inCanon[i];
 		    emitWireProbes(os, arg.getType(), w, inCanon[static_cast<unsigned>(i)], inNames[static_cast<unsigned>(i)]);
 		  }
-		  for (unsigned i = 0; i < f.getNumResults(); ++i) {
-		    unsigned w = bitWidth(f.getResultTypes()[i]);
+		  for (unsigned i = 0; i < functionType.getNumResults(); ++i) {
+		    unsigned w = bitWidth(functionType.getResult(i));
 		    if (w == 0)
-		      return f.emitError("invalid output port width for ProbeRegistry: ") << getPortCanonicalFieldPath(f, i, /*isResult=*/true);
+		      return owner->emitError("invalid output port width for ProbeRegistry: ") << outCanon[i];
 		    if (outIsReg[i]) {
 		      os << "    reg.addReg<" << w << ">(reg_path(" << cppStringLiteral(outCanon[i]) << "), &" << outNames[i]
 		         << ", &" << nt.get(outRegQ[i]) << "_inst->pending, &" << nt.get(outRegQ[i]) << "_inst->qNext);\n";
 		    } else {
-		      emitWireProbes(os, f.getResultTypes()[i], w, outCanon[i], outNames[i]);
+		      emitWireProbes(os, functionType.getResult(i), w, outCanon[i], outNames[i]);
 		    }
 		  }
       for (const auto &named : namedProbes) {
@@ -1040,7 +1266,7 @@ static LogicalResult emitFunc(func::FuncOp f, llvm::raw_ostream &os, const CppEm
 	    for (const auto &ii : instInfos)
 	      os << "    reg_child(" << ii.member << ", \"" << ii.seg << "\");\n";
 	  }
-      auto probeAliases = loadProbeAliasesForTop(opts.probePlanPath, f.getSymName());
+      auto probeAliases = loadProbeAliasesForTop(opts.probePlanPath, symbol);
       if (!probeAliases.empty()) {
         for (const auto &alias : probeAliases) {
           os << "    if (const auto *src = reg.findByPath(" << cppStringLiteral(alias.sourcePath) << "))\n";
@@ -1396,7 +1622,7 @@ static LogicalResult emitFunc(func::FuncOp f, llvm::raw_ostream &os, const CppEm
     llvm::DenseMap<Operation *, unsigned> nodeIndex;
 
     auto shouldInclude = [&](Operation &op) -> bool {
-      if (isa<func::ReturnOp>(op) || isa<pyc::WireOp>(op) || isa<pyc::RegOp>(op) || isa<pyc::SyncMemOp>(op) ||
+      if (isa<func::ReturnOp, pyc::ReturnOp>(op) || isa<pyc::WireOp>(op) || isa<pyc::RegOp>(op) || isa<pyc::SyncMemOp>(op) ||
           isa<pyc::SyncMemDPOp>(op) || isa<pyc::CdcSyncOp>(op))
         return false;
       if (!includePrims &&
@@ -1518,7 +1744,7 @@ static LogicalResult emitFunc(func::FuncOp f, llvm::raw_ostream &os, const CppEm
   llvm::SmallVector<Operation *> ordered;
   if (!topoOrder(/*includePrims=*/false, ordered)) {
     for (Operation &op : top) {
-      if (isa<func::ReturnOp>(op) || isa<pyc::WireOp>(op))
+      if (isa<func::ReturnOp, pyc::ReturnOp>(op) || isa<pyc::WireOp>(op))
         continue;
       ordered.push_back(&op);
     }
@@ -1563,7 +1789,7 @@ static LogicalResult emitFunc(func::FuncOp f, llvm::raw_ostream &os, const CppEm
       // Primitives are evaluated in eval(), and regs only tick.
       continue;
     }
-    if (isa<func::ReturnOp, pyc::WireOp>(*op))
+    if (isa<func::ReturnOp, pyc::ReturnOp, pyc::WireOp>(*op))
       continue;
     return op->emitError("unsupported op for C++ emission: ") << op->getName();
   }
@@ -1966,7 +2192,7 @@ static LogicalResult emitFunc(func::FuncOp f, llvm::raw_ostream &os, const CppEm
 
     llvm::DenseMap<Operation *, unsigned> nodeIndex;
     for (Operation &op : top) {
-      if (isa<func::ReturnOp>(op) || isa<pyc::WireOp>(op) || isa<pyc::RegOp>(op) || isa<pyc::SyncMemOp>(op) ||
+      if (isa<func::ReturnOp, pyc::ReturnOp>(op) || isa<pyc::WireOp>(op) || isa<pyc::RegOp>(op) || isa<pyc::SyncMemOp>(op) ||
           isa<pyc::SyncMemDPOp>(op) || isa<pyc::CdcSyncOp>(op))
         continue;
 
@@ -2312,10 +2538,7 @@ static LogicalResult emitFunc(func::FuncOp f, llvm::raw_ostream &os, const CppEm
   }
 
   // Connect return values to output ports.
-  auto ret = dyn_cast_or_null<func::ReturnOp>(f.getBody().front().getTerminator());
-  if (!ret)
-    return f.emitError("missing return");
-  for (auto [i, v] : llvm::enumerate(ret.getOperands()))
+  for (auto [i, v] : llvm::enumerate(returnValues))
     os << "    " << outNames[i] << " = " << nt.get(v) << ";\n";
 
   os << "  }\n\n";
@@ -2436,6 +2659,77 @@ static LogicalResult emitFunc(func::FuncOp f, llvm::raw_ostream &os, const CppEm
 	  return success();
 	}
 
+static LogicalResult emitFunc(func::FuncOp f, llvm::raw_ostream &os,
+                              const CppEmitterOptions &opts) {
+  if (!llvm::hasSingleElement(f.getBody()))
+    return f.emitError("C++ emitter currently supports single-block functions only");
+  std::vector<std::string> inputNames;
+  std::vector<std::string> outputNames;
+  computeUniquePortNames(f, inputNames, outputNames);
+  auto ret = dyn_cast_or_null<func::ReturnOp>(f.getBody().front().getTerminator());
+  if (!ret)
+    return f.emitError("missing return");
+  return emitBlockStruct(f, f.getSymName(), f.getBody().front(),
+                         f.getFunctionType(), inputNames, outputNames,
+                         ret.getOperands(), os, opts);
+}
+
+static LogicalResult emitFamily(pyc::FamilyOp family, llvm::raw_ostream &os,
+                                const CppEmitterOptions &opts) {
+  auto cases = family.getBody().front().getOps<pyc::ModuleCaseOp>();
+  auto parameters = family.getSchema().getParameters().getParameters();
+  const bool parameterized = !parameters.empty();
+  if (!parameterized && !llvm::hasSingleElement(cases))
+    return family.emitError("an unparameterized family must have one case");
+  if (parameterized) {
+    os << "template <";
+    bool first = true;
+    for (acir::ac::StaticParameterAttr parameter :
+         parameters.getAsRange<acir::ac::StaticParameterAttr>()) {
+      auto type = cppStaticParameterType(parameter.getType());
+      if (!type)
+        return family.emitError(
+            "C++ family emission does not support this static parameter type");
+      if (!first)
+        os << ", ";
+      first = false;
+      os << *type << " " << sanitizeId(parameter.getName().getValue());
+    }
+    os << "> struct " << sanitizeId(family.getSymName()) << ";\n\n";
+  }
+  for (pyc::ModuleCaseOp moduleCase : cases) {
+    std::vector<std::string> inputNames;
+    std::vector<std::string> outputNames;
+    if (failed(computeCasePortNames(moduleCase, inputNames, outputNames)))
+      return failure();
+    auto functionType = cast<FunctionType>(
+        moduleCase.getSignature().getPhysical().getValue());
+    auto ret = dyn_cast_or_null<pyc::ReturnOp>(
+        moduleCase.getBody().front().getTerminator());
+    if (!ret)
+      return moduleCase.emitError("missing pyc.return");
+    std::string specialization;
+    if (parameterized) {
+      auto arguments = pyc::staticArgumentsFromDependent(
+          moduleCase.getSignature().getArguments());
+      if (failed(arguments))
+        return moduleCase.emitError(
+            "C++ family case arguments must be concrete typed values");
+      auto values = cppStaticArguments(*arguments);
+      if (!values)
+        return moduleCase.emitError(
+            "C++ family emission does not support this static value type");
+      specialization = *values;
+    }
+    if (failed(emitBlockStruct(moduleCase, family.getSymName(),
+                               moduleCase.getBody().front(), functionType,
+                               inputNames, outputNames, ret.getValues(), os,
+                               opts, specialization)))
+      return failure();
+  }
+  return success();
+}
+
 } // namespace
 
 LogicalResult emitCpp(ModuleOp module, llvm::raw_ostream &os, const CppEmitterOptions &opts) {
@@ -2448,6 +2742,13 @@ LogicalResult emitCpp(ModuleOp module, llvm::raw_ostream &os, const CppEmitterOp
   os << "#include <string>\n";
   os << "#include <cpp/pyc_sim.hpp>\n\n";
   os << "namespace pyc::gen {\n\n";
+
+  if (failed(emitCppNominalDeclarations(module, os)))
+    return failure();
+
+  for (auto family : module.getOps<pyc::FamilyOp>())
+    if (failed(emitFamily(family, os, opts)))
+      return failure();
 
   // Emit structs in dependency order so submodule types are defined before use.
   llvm::SmallVector<func::FuncOp> funcs;

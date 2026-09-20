@@ -96,7 +96,7 @@ def handle_memory_array_select(
     depth = _positive_int(environment, call, "depth", 1)
     latency = _positive_int(environment, call, "latency", 1)
     routed_inputs = tuple(
-        f"{name}__bank{index}_request" for index in range(len(array.members))
+        f"{name}_bank_{index}_request" for index in range(len(array.members))
     )
     for routed in routed_inputs:
         if routed in state.by_name:
@@ -258,7 +258,7 @@ def handle_memory_array_declaration(
         )
     pending: list[MemoryInstanceBinding] = []
     for index in range(extent):
-        member_name = f"{name}__{index}"
+        member_name = f"{name}_element_{index}"
         if (
             member_name in state.by_name
             or member_name in state.collections
@@ -385,7 +385,7 @@ def handle_memory_request(
         merge_depth = _positive_int(environment, call, "merge_depth", 1)
         merge_latency = _positive_int(environment, call, "merge_latency", 1)
         response_names = tuple(
-            f"{name}__bank{index}" for index in range(len(array.members))
+            f"{name}_bank_{index}" for index in range(len(array.members))
         )
         for instance_name, input_name, output_name in zip(
             array.members, selected.routed_inputs, response_names, strict=True

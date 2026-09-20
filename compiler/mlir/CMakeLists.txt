@@ -69,6 +69,13 @@ mlir_tablegen(include/pyc/Dialect/PYC/PYCTypes.h.inc -gen-typedef-decls -dialect
 mlir_tablegen(include/pyc/Dialect/PYC/PYCTypes.cpp.inc -gen-typedef-defs -dialect=pyc)
 add_public_tablegen_target(PYCTypesIncGen)
 
+# --- TableGen: attributes ---
+include_directories("${PYC_REPO_ROOT}/compiler/acir/include")
+set(LLVM_TARGET_DEFINITIONS "${PYC_SOURCE_DIR}/include/pyc/Dialect/PYC/PYCAttributes.td")
+mlir_tablegen(include/pyc/Dialect/PYC/PYCAttributes.h.inc -gen-attrdef-decls -attrdefs-dialect=pyc)
+mlir_tablegen(include/pyc/Dialect/PYC/PYCAttributes.cpp.inc -gen-attrdef-defs -attrdefs-dialect=pyc)
+add_public_tablegen_target(PYCAttributesIncGen)
+
 # --- TableGen: ops ---
 set(LLVM_TARGET_DEFINITIONS "${PYC_SOURCE_DIR}/include/pyc/Dialect/PYC/PYCOps.td")
 mlir_tablegen(include/pyc/Dialect/PYC/PYCOps.h.inc -gen-op-decls)
@@ -82,6 +89,7 @@ add_library(pyc_dialect
 )
 add_dependencies(pyc_dialect
   PYCTypesIncGen
+  PYCAttributesIncGen
   PYCOpsIncGen
   PYCSemanticPrimitiveRegistryGen
 )
@@ -89,8 +97,11 @@ llvm_update_compile_flags(pyc_dialect)
 target_include_directories(pyc_dialect PUBLIC
   "${PYC_SOURCE_DIR}/include"
   "${PYC_BINARY_DIR}/include"
+  "${PYC_REPO_ROOT}/compiler/acir/include"
+  "${CMAKE_BINARY_DIR}/compiler/acir/include"
 )
 target_link_libraries(pyc_dialect PUBLIC
+  ACIRDialect
   MLIRIR
   MLIRSupport
   LLVMSupport
@@ -171,7 +182,9 @@ if(TARGET MLIRRegisterAllPasses)
   target_link_libraries(pyc-opt PRIVATE
     pyc_dialect
     pyc_transforms
+    ACIRDialect
     MLIRArithDialect
+    MLIRDLTIDialect
     MLIRFuncDialect
     MLIRFuncInlinerExtension
     MLIRRegisterAllPasses
@@ -200,6 +213,7 @@ target_link_libraries(pycc PRIVATE
   pyc_support
   pyc_transforms
   MLIRArithDialect
+  MLIRDLTIDialect
   MLIRIR
   MLIRSupport
   MLIRFuncDialect

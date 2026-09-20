@@ -7,6 +7,8 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Callable, Literal, TypeAlias, TypeVar, overload
 
+from ._families import StaticCase, StaticParameter, normalize_family_cases
+
 DefinitionKind: TypeAlias = Literal[
     "system",
     "module",
@@ -159,23 +161,34 @@ def system(function: F | None = None, **options: object):
     )
 
 
-def module(function: F | None = None, **options: object):
+def module(*, declaration: Definition):
+    if not isinstance(declaration, Definition) or declaration.kind != "module_decl":
+        raise TypeError("ACPY-FAMILY-007: module declaration must be @module_decl")
     return _decorate(
         "module",
-        function,
         _annotation_types=_visible_annotation_types(),
-        **options,
+        declaration=declaration,
     )
 
 
-def module_decl(function: F | None = None, **options: object):
+def module_decl(
+    *,
+    source: str,
+    parameters: tuple[StaticParameter, ...] = (),
+    finite_cases: tuple[StaticCase, ...] | None = None,
+):
     """Declare a separately compiled module without providing its body."""
+
+    if not isinstance(source, str) or not source or source.startswith("/"):
+        raise ValueError("ACPY-FAMILY-007: module declaration source must be relative")
+    cases = normalize_family_cases(parameters, finite_cases)
 
     return _decorate(
         "module_decl",
-        function,
         _annotation_types=_visible_annotation_types(),
-        **options,
+        source=source,
+        parameters=parameters,
+        finite_cases=cases,
     )
 
 

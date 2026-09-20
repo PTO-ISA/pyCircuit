@@ -329,6 +329,12 @@ class CycleAwareDomain:
         base_name = getattr(fn, "__pycircuit_name__", getattr(fn, "__name__", "sub"))
         prefix = kwargs.get("prefix", base_name)
         specialization_params = {k: v for k, v in kwargs.items() if k != "prefix"}
+        if specialization_params:
+            names = ", ".join(specialization_params)
+            raise PyCircuitTypeError(
+                "hierarchical static arguments require an explicit source-owned "
+                f"finite-family declaration; caller-inferred specialization is forbidden: {names}"
+            )
         params_json = canonical_params_json(specialization_params)
         suffix = readable_params_suffix(params_json)
         sub_name = base_name if not suffix else f"{base_name}__{suffix}"
@@ -570,6 +576,14 @@ def _make_compiled_module(
         _kind_of,
     )
     import json as _json
+    import inspect as _inspect
+
+    source_file = _inspect.getsourcefile(fn) or _inspect.getfile(fn)
+    try:
+        source_line = _inspect.getsourcelines(fn)[1]
+    except (OSError, TypeError):
+        source_line = 1
+    circuit.set_source_location(source_file, source_line)
 
     arg_names = tuple(n for n, _ in circuit._args)
     arg_types = tuple(sig.ty for _, sig in circuit._args)
@@ -1946,6 +1960,12 @@ def compile_cycle_aware(
             f"compile_cycle_aware() no longer accepts {names}; "
             "use build_cycle_aware() for direct Python elaboration and hierarchy"
         )
+    if jit_params:
+        names = ", ".join(sorted(jit_params))
+        raise PyCircuitTypeError(
+            "static build arguments require an explicit source-owned finite-family "
+            f"declaration; caller-inferred specialization is forbidden: {names}"
+        )
     from .jit import compile as jit_compile
 
     if name is None or not str(name).strip():
@@ -1998,6 +2018,12 @@ def build_cycle_aware(
     if removed:
         names = ", ".join(removed)
         raise PyCircuitTypeError(f"build_cycle_aware() no longer accepts {names}")
+    if build_params:
+        names = ", ".join(sorted(build_params))
+        raise PyCircuitTypeError(
+            "static build arguments require an explicit source-owned finite-family "
+            f"declaration; caller-inferred specialization is forbidden: {names}"
+        )
     value_params = getattr(fn, "__pycircuit_value_params__", None)
     if value_params:
         raise PyCircuitTypeError(
