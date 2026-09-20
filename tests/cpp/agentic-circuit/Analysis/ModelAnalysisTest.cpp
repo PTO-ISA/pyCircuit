@@ -2,6 +2,7 @@
 #include "Analysis/ModelAnalysisInternal.h"
 #include "Analysis/ModelAnalysisTestHooks.h"
 #include "Analysis/VariableAnalysisTestHooks.h"
+#include "acir/Analysis/RuleEffectGraph.h"
 #include "acir/Analysis/VariableAnalysis.h"
 #include "acir/Dialect/ACIR/ACIROps.h"
 #include "acir/Dialect/ACIR/GraphRegion.h"
@@ -44,6 +45,18 @@ concept ExposesProcessSkeleton =
 static_assert(!ExposesOwnerManifest<ModelAnalysis>);
 static_assert(!ExposesOwnerWork<ModelAnalysis>);
 static_assert(!ExposesProcessSkeleton<ProcessOp>);
+
+TEST(RuleEffectGraphTest, DotEscapesEveryControlByte) {
+  RuleEffectGraph graph;
+  graph.nodes.push_back({std::string("id\0node", 7), "rule",
+                         std::string("x\n\t\0y", 5), "present"});
+  std::string output;
+  llvm::raw_string_ostream stream(output);
+  printRuleEffectGraphDOT(graph, stream);
+  EXPECT_NE(std::string::npos, output.find("id\\x00node"));
+  EXPECT_NE(std::string::npos, output.find("x\\n\\t\\x00y"));
+  EXPECT_EQ(std::string::npos, output.find(std::string(1, '\0')));
+}
 
 constexpr llvm::StringLiteral kProcessModel = R"mlir(
   builtin.module  {
@@ -535,14 +548,13 @@ TEST(ModelAnalysisTest, FrozenMutationCannotBeResealedThroughPublicRoutes) {
   OwningOpRef<mlir::ModuleOp> nestedEvidenceOnly = cloneFrozen();
   retarget(*nestedEvidenceOnly);
   for (StringRef name :
-       {"ac.frozen_system", "ac.frozen_owners",
-        "ac.frozen_primary_workload", "ac.frozen_instrumentation",
-        "ac.topology_frozen", "ac.topology_frozen"})
+       {"ac.frozen_system", "ac.frozen_owners", "ac.frozen_primary_workload",
+        "ac.frozen_instrumentation", "ac.topology_frozen",
+        "ac.topology_frozen"})
     (*nestedEvidenceOnly)->removeAttr(name);
   EXPECT_NE(runFreeze(context, *nestedEvidenceOnly)
                 .find("malformed topology closure marker"),
             std::string::npos);
-
 }
 
 TEST(ModelAnalysisTest,
@@ -586,15 +598,13 @@ TEST(ModelAnalysisTest,
 
   auto buildCase = [&](const Case &testCase) {
     OwningOpRef<mlir::ModuleOp> model;
-    model =
-        OwningOpRef<mlir::ModuleOp>(cast<mlir::ModuleOp>(frozen->clone()));
+    model = OwningOpRef<mlir::ModuleOp>(cast<mlir::ModuleOp>(frozen->clone()));
     if (testCase.evidence == Evidence::MissingMarker)
       (*model)->removeAttr("ac.topology_frozen");
     if (testCase.evidence == Evidence::NestedOnly)
-      for (StringRef name :
-           {"ac.frozen_system", "ac.frozen_owners",
-            "ac.frozen_primary_workload", "ac.frozen_instrumentation",
-            "ac.topology_frozen"})
+      for (StringRef name : {"ac.frozen_system", "ac.frozen_owners",
+                             "ac.frozen_primary_workload",
+                             "ac.frozen_instrumentation", "ac.topology_frozen"})
         (*model)->removeAttr(name);
     if (testCase.retarget)
       one<TrySendOp>(*model).setQueueAttr(
@@ -692,7 +702,6 @@ TEST(ModelAnalysisTest, AddressSpacesFreezeAsAbsoluteStateOwners) {
               "elaborated_absolute");
     EXPECT_EQ(parameters.getAs<ArrayAttr>("owners"), owners);
   }
-
 }
 
 TEST(ModelAnalysisTest, AddressSpacesParticipateInSaturatedOwnerBudget) {
@@ -1396,7 +1405,8 @@ TEST(ACDataFlowAnalyzerTest, InfersOrderedStateAccessFootprints) {
   EXPECT_EQ((std::vector<std::string>{"index", "value"}), footprints[1].fields);
 }
 
-TEST(ACDataFlowAnalyzerTest, ExactRuleEffectSummaryRejectsCategoryPreservingTampering) {
+TEST(ACDataFlowAnalyzerTest,
+     ExactRuleEffectSummaryRejectsCategoryPreservingTampering) {
   DialectRegistry registry;
   registerAllDialects(registry);
   MLIRContext context(registry);
@@ -1438,8 +1448,7 @@ TEST(ACDataFlowAnalyzerTest, ExactRuleEffectSummaryRejectsCategoryPreservingTamp
   model->walk([&](ac::RuleOp op) { rule = op; });
   rule.getBody().walk([&](ac::TableProposeOp op) { proposal = op; });
   rule.getBody().walk([&](ac::VarGetOp op) { fields[op.getField()] = op; });
-  rule.getBody().walk(
-      [&](ac::VarConstantOp op) { constants.push_back(op); });
+  rule.getBody().walk([&](ac::VarConstantOp op) { constants.push_back(op); });
   ASSERT_TRUE(rule && proposal);
   Builder builder(&context);
 
@@ -1464,8 +1473,7 @@ TEST(ACDataFlowAnalyzerTest, ExactRuleEffectSummaryRejectsCategoryPreservingTamp
   };
   Location originalLocation = proposal.getLoc();
   proposal->setLoc(FileLineColLoc::get(&context, "endpoint.py", 11, 7));
-  proposal->setAttr("ac.source_provenance",
-                    provenance("endpoint.py", 11, 7));
+  proposal->setAttr("ac.source_provenance", provenance("endpoint.py", 11, 7));
   FailureOr<ac::ExactRuleEffectSummary> endpointSummary =
       ac::buildExactRuleEffectSummary(rule.getOperation());
   ASSERT_TRUE(succeeded(endpointSummary));
@@ -1474,8 +1482,7 @@ TEST(ACDataFlowAnalyzerTest, ExactRuleEffectSummaryRejectsCategoryPreservingTamp
       rule.getOperation(), endpointSummary->expressionDAG,
       endpointSummary->footprints)));
   proposal->setLoc(FileLineColLoc::get(&context, "endpoint.py", 12, 9));
-  proposal->setAttr("ac.source_provenance",
-                    provenance("endpoint.py", 12, 9));
+  proposal->setAttr("ac.source_provenance", provenance("endpoint.py", 12, 9));
   FailureOr<ac::ExactRuleEffectSummary> secondEndpointSummary =
       ac::buildExactRuleEffectSummary(rule.getOperation());
   ASSERT_TRUE(succeeded(secondEndpointSummary));
@@ -1517,15 +1524,13 @@ TEST(ACDataFlowAnalyzerTest, ExactRuleEffectSummaryRejectsCategoryPreservingTamp
                                 {static_cast<int64_t>(cyclic.size() - 1)}));
   cyclic.back() = builder.getDictionaryAttr(cycleNode);
   EXPECT_TRUE(failed(ac::verifyExactRuleEffectSummary(
-      rule.getOperation(), builder.getArrayAttr(cyclic),
-      summary->footprints)));
+      rule.getOperation(), builder.getArrayAttr(cyclic), summary->footprints)));
 
   SmallVector<Attribute> wrongWidth(summary->expressionDAG.begin(),
                                     summary->expressionDAG.end());
   NamedAttrList wrongWidthNode(cast<DictionaryAttr>(wrongWidth.front()));
-  wrongWidthNode.set("result_type",
-                     TypeAttr::get(ac::VarType::get(&context,
-                                                    builder.getI2Type())));
+  wrongWidthNode.set("result_type", TypeAttr::get(ac::VarType::get(
+                                        &context, builder.getI2Type())));
   wrongWidth.front() = builder.getDictionaryAttr(wrongWidthNode);
   EXPECT_TRUE(failed(ac::verifyExactRuleEffectSummary(
       rule.getOperation(), builder.getArrayAttr(wrongWidth),
@@ -1556,8 +1561,7 @@ TEST(ACDataFlowAnalyzerTest, ExactRuleEffectSummaryRejectsCategoryPreservingTamp
   forgedFrame.set("column", builder.getI64IntegerAttr(1));
   NamedAttrList forgedOrigin;
   forgedOrigin.set(
-      "frames",
-      builder.getArrayAttr({builder.getDictionaryAttr(forgedFrame)}));
+      "frames", builder.getArrayAttr({builder.getDictionaryAttr(forgedFrame)}));
   proposal->setLoc(FileLineColLoc::get(&context, "endpoint.py", 11, 7));
   proposal->setAttr(
       "ac.source_provenance",
@@ -1594,8 +1598,7 @@ TEST(ACDataFlowAnalyzerTest, ExactRuleEffectSummaryRejectsCategoryPreservingTamp
       builder.getArrayAttr(forged))));
 
   StringAttr sourceFile = rule->getAttrOfType<StringAttr>("ac.source_file");
-  IntegerAttr sourceLine =
-      rule->getAttrOfType<IntegerAttr>("ac.source_line");
+  IntegerAttr sourceLine = rule->getAttrOfType<IntegerAttr>("ac.source_line");
   IntegerAttr sourceColumn =
       rule->getAttrOfType<IntegerAttr>("ac.source_column");
   rule->setAttr("ac.source_file", builder.getStringAttr(""));
@@ -1612,8 +1615,8 @@ TEST(ACDataFlowAnalyzerTest, ExactRuleEffectSummaryRejectsCategoryPreservingTamp
   OperationState externalState(rule.getLoc(),
                                ac::VarConstantOp::getOperationName());
   externalState.addTypes(originalIndex.getType());
-  externalState.addAttribute("value", builder.getIntegerAttr(
-                                          IntegerType::get(&context, 3), 2));
+  externalState.addAttribute(
+      "value", builder.getIntegerAttr(IntegerType::get(&context, 3), 2));
   Value externalIndex = externalBuilder.create(externalState)->getResult(0);
   proposal->setOperand(0, externalIndex);
   EXPECT_TRUE(failed(ac::verifyExactRuleEffectSummary(
@@ -1621,7 +1624,8 @@ TEST(ACDataFlowAnalyzerTest, ExactRuleEffectSummaryRejectsCategoryPreservingTamp
   proposal->setOperand(0, originalIndex);
 }
 
-TEST(ACDataFlowAnalyzerTest, ExactRuleEffectSummaryUsesIterativeDeepNormalization) {
+TEST(ACDataFlowAnalyzerTest,
+     ExactRuleEffectSummaryUsesIterativeDeepNormalization) {
   DialectRegistry registry;
   registerAllDialects(registry);
   MLIRContext context(registry);
@@ -1659,6 +1663,20 @@ TEST(ACDataFlowAnalyzerTest, ExactRuleEffectSummaryUsesIterativeDeepNormalizatio
   EXPECT_GT(summary->expressionDAG.size(), 2048u);
   EXPECT_TRUE(succeeded(ac::verifyExactRuleEffectSummary(
       rule.getOperation(), summary->expressionDAG, summary->footprints)));
+  FailureOr<std::vector<int64_t>> ranks =
+      canonicalRuleExpressionRanks(summary->expressionDAG);
+  FailureOr<std::vector<int64_t>> repeatedRanks =
+      canonicalRuleExpressionRanks(summary->expressionDAG);
+  ASSERT_TRUE(succeeded(ranks));
+  ASSERT_TRUE(succeeded(repeatedRanks));
+  EXPECT_EQ(*ranks, *repeatedRanks);
+  EXPECT_EQ(summary->expressionDAG.size(), ranks->size());
+  const size_t boundedDigits =
+      std::to_string(summary->expressionDAG.size()).size();
+  for (int64_t rank : *ranks) {
+    EXPECT_GE(rank, 0);
+    EXPECT_LE(std::to_string(rank).size(), boundedDigits);
+  }
 }
 
 TEST(ACDataFlowAnalyzerTest, InfersConditionalEffectSnapshotReadSet) {
@@ -1969,14 +1987,13 @@ TEST(ACDataFlowAnalyzerTest,
   ASSERT_EQ(0, pthread_attr_init(&attributes));
   ASSERT_EQ(0, pthread_attr_setstacksize(&attributes, kStackBytes));
   pthread_t worker;
-  ASSERT_EQ(0,
-            pthread_create(
-                &worker, &attributes,
-                [](void *raw) -> void * {
-                  (*static_cast<decltype(traverse) *>(raw))();
-                  return nullptr;
-                },
-                &traverse));
+  ASSERT_EQ(0, pthread_create(
+                   &worker, &attributes,
+                   [](void *raw) -> void * {
+                     (*static_cast<decltype(traverse) *>(raw))();
+                     return nullptr;
+                   },
+                   &traverse));
   ASSERT_EQ(0, pthread_join(worker, nullptr));
   pthread_attr_destroy(&attributes);
 

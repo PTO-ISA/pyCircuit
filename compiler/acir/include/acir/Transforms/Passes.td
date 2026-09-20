@@ -22,6 +22,22 @@ def VerifyValueConstraintsPass
   }];
 }
 
+def BuildRuleEffectGraphPass
+    : Pass<"ac-build-rule-effect-graph", "::mlir::ModuleOp"> {
+  let summary = "Build the read-only whole-design rule effect graph";
+  let description = [{
+    Consumes independently verified exact rule summaries and the shared value
+    constraint/writer arbitration analysis. Optional JSON and DOT files are
+    deterministic debug/evidence views, never identity or release formats.
+  }];
+  let options = [
+    Option<"jsonOutput", "json-output", "std::string", /*default=*/"",
+           "Write the deterministic debug graph as JSON">,
+    Option<"dotOutput", "dot-output", "std::string", /*default=*/"",
+           "Write the deterministic debug graph as DOT">,
+  ];
+}
+
 def CanonicalizeModelPass : Pass<"ac-canonicalize-model", "::mlir::ModuleOp"> {
   let summary = "Canonicalize Agentic Circuit model topology";
   let description = [{

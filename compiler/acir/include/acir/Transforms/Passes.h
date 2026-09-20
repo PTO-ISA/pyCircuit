@@ -21,6 +21,7 @@ std::unique_ptr<mlir::Pass> createPruneInternalPayloadsPass();
 
 #define GEN_PASS_DECL_VERIFYMODELPASS
 #define GEN_PASS_DECL_VERIFYVALUECONSTRAINTSPASS
+#define GEN_PASS_DECL_BUILDRULEEFFECTGRAPHPASS
 #define GEN_PASS_DECL_LOWERPROCESSSTATEPASS
 #define GEN_PASS_DECL_LOWERVARIABLESTATEPASS
 #define GEN_PASS_DECL_LOWERVALUECONTRACTSPASS
@@ -51,6 +52,9 @@ mlir::LogicalResult verifyRuleClosure(mlir::ModuleOp model);
 /// Prove that every dynamic state index is within its declared resource
 /// extent. Unknown constraints fail closed.
 mlir::LogicalResult verifyValueConstraints(mlir::ModuleOp model);
+
+/// Build Decision 0271's read-only graph and optionally emit debug artifacts.
+std::unique_ptr<mlir::Pass> createBuildRuleEffectGraphPass();
 
 /// Recompute dependent type metadata and expression-target closure before any
 /// transform may erase or merge verifier-visible evidence.
