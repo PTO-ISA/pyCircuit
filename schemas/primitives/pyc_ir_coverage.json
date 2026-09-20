@@ -214,6 +214,7 @@
       "canonicalization": [
         "compiler/mlir/lib/Transforms/CheckClockDomainsPass.cpp",
         "compiler/mlir/lib/Transforms/CheckCombCyclesPass.cpp",
+        "compiler/mlir/lib/Transforms/CheckFrontendContractPass.cpp",
         "compiler/mlir/lib/Transforms/CheckLogicDepthPass.cpp",
         "compiler/mlir/lib/Transforms/CombDepGraph.cpp",
         "compiler/mlir/lib/Transforms/EliminateWiresPass.cpp"
@@ -224,7 +225,9 @@
       "folder": null,
       "kind": "operation",
       "name": "pyc.assign",
-      "negative_mlir": [],
+      "negative_mlir": [
+        "tests/mlir/pyc/sequential-profile-invalid.mlir"
+      ],
       "positive_mlir": [
         "tests/mlir/agentic-circuit/CodeGen/atomic-transform.mlir",
         "tests/mlir/agentic-circuit/CodeGen/pure-helpers.mlir",
@@ -250,7 +253,8 @@
         "tests/mlir/agentic-circuit/CodeGen/table-multi-selection-pyc.mlir",
         "tests/mlir/agentic-circuit/PYC/source-provenance-eliminate-wire.mlir",
         "tests/mlir/agentic-circuit/Transforms/firing-field-replace-order.mlir",
-        "tests/mlir/agentic-circuit/Transforms/firing-field-write.mlir"
+        "tests/mlir/agentic-circuit/Transforms/firing-field-write.mlir",
+        "tests/mlir/pyc/sequential-profile-invalid.mlir"
       ],
       "verifier": "compiler/mlir/lib/Dialect/PYC/PYCOps.cpp",
       "verilog_emitter": "compiler/mlir/lib/Emit/VerilogEmitter.cpp"
@@ -490,7 +494,9 @@
       "folder": "compiler/mlir/lib/Dialect/PYC/PYCOps.cpp",
       "kind": "operation",
       "name": "pyc.constant",
-      "negative_mlir": [],
+      "negative_mlir": [
+        "tests/mlir/pyc/sequential-profile-invalid.mlir"
+      ],
       "positive_mlir": [
         "tests/mlir/agentic-circuit/CodeGen/architecture-obligation-backends.mlir",
         "tests/mlir/agentic-circuit/CodeGen/masked-match.mlir",
@@ -521,6 +527,7 @@
         "tests/mlir/agentic-circuit/PYC/source-provenance-eliminate-wire.mlir",
         "tests/mlir/agentic-circuit/PYC/source-provenance.mlir",
         "tests/mlir/pyc/family-ops.mlir",
+        "tests/mlir/pyc/sequential-profile-invalid.mlir",
         "tests/test_pyc_canonical_ops.py",
         "tests/test_pyc_enum.py"
       ],
@@ -774,13 +781,15 @@
       "name": "pyc.module",
       "negative_mlir": [
         "tests/mlir/agentic-circuit/CodeGen/rtl-naming-invalid.mlir",
-        "tests/mlir/pyc/family-mapping-attributes-invalid.mlir"
+        "tests/mlir/pyc/family-mapping-attributes-invalid.mlir",
+        "tests/mlir/pyc/sequential-profile-invalid.mlir"
       ],
       "positive_mlir": [
         "tests/mlir/agentic-circuit/CodeGen/architecture-obligation-backends.mlir",
         "tests/mlir/agentic-circuit/CodeGen/family-config-backends.mlir",
         "tests/mlir/agentic-circuit/CodeGen/priority-rtl-structure.mlir",
         "tests/mlir/agentic-circuit/CodeGen/pycircuit-hierarchical-family.mlir",
+        "tests/mlir/agentic-circuit/CodeGen/sram-four-state-parity.mlir",
         "tests/mlir/agentic-circuit/PYC/source-provenance.mlir",
         "tests/mlir/pyc/count-leading-zeros-primitive.mlir",
         "tests/mlir/pyc/family-ops.mlir",
@@ -809,12 +818,14 @@
         "tests/mlir/agentic-circuit/CodeGen/priority-rtl-structure.mlir",
         "tests/mlir/agentic-circuit/CodeGen/pycircuit-hierarchical-family.mlir",
         "tests/mlir/agentic-circuit/CodeGen/rtl-naming-invalid.mlir",
+        "tests/mlir/agentic-circuit/CodeGen/sram-four-state-parity.mlir",
         "tests/mlir/agentic-circuit/PYC/source-provenance.mlir",
         "tests/mlir/pyc/count-leading-zeros-primitive.mlir",
         "tests/mlir/pyc/family-mapping-attributes-invalid.mlir",
         "tests/mlir/pyc/family-ops.mlir",
         "tests/mlir/pyc/popcount-primitive.mlir",
         "tests/mlir/pyc/priority-primitive.mlir",
+        "tests/mlir/pyc/sequential-profile-invalid.mlir",
         "tests/python/agentic-circuit/python_frontend/test_public_api.py",
         "tests/unit/test_cli_entrypoints.py",
         "tests/unit/test_documentation_layout.py",
@@ -1112,6 +1123,7 @@
       "canonicalization": [
         "compiler/mlir/lib/Transforms/CheckClockDomainsPass.cpp",
         "compiler/mlir/lib/Transforms/CheckCombCyclesPass.cpp",
+        "compiler/mlir/lib/Transforms/CheckFrontendContractPass.cpp",
         "compiler/mlir/lib/Transforms/CheckLogicDepthPass.cpp",
         "compiler/mlir/lib/Transforms/CollectCompileStatsPass.cpp",
         "compiler/mlir/lib/Transforms/CombDepGraph.cpp",
@@ -1125,7 +1137,8 @@
       "kind": "operation",
       "name": "pyc.reg",
       "negative_mlir": [
-        "tests/mlir/agentic-circuit/CodeGen/table-pyc-profile-invalid.mlir"
+        "tests/mlir/agentic-circuit/CodeGen/table-pyc-profile-invalid.mlir",
+        "tests/mlir/pyc/sequential-profile-invalid.mlir"
       ],
       "positive_mlir": [
         "tests/mlir/agentic-circuit/CodeGen/queue-lanes-pyc.mlir",
@@ -1178,9 +1191,11 @@
         "tests/mlir/agentic-circuit/Transforms/rule-consume-only-lowering.mlir",
         "tests/mlir/agentic-circuit/Transforms/rule-owner-write-batch.mlir",
         "tests/mlir/agentic-circuit/Transforms/rule-table-lowering.mlir",
+        "tests/mlir/pyc/sequential-profile-invalid.mlir",
         "tests/test_bitfield_view.py",
         "tests/unit/test_documentation_layout.py",
         "tests/unit/test_dodgeball_example.py",
+        "tests/unit/test_sram_profile.py",
         "tests/unit/test_v6_forward_signal.py"
       ],
       "verifier": "compiler/mlir/lib/Dialect/PYC/PYCOps.cpp",
@@ -1325,6 +1340,7 @@
         "compiler/acir/lib/CodeGen/QueueGraphPyc.cpp"
       ],
       "canonicalization": [
+        "compiler/mlir/lib/Transforms/CheckFrontendContractPass.cpp",
         "compiler/mlir/lib/Transforms/CombCanonicalizePass.cpp",
         "compiler/mlir/lib/Transforms/FuseCombPass.cpp",
         "compiler/mlir/lib/Transforms/LowerSCFToPYCStaticPass.cpp"
@@ -1337,7 +1353,8 @@
       "name": "pyc.select",
       "negative_mlir": [
         "tests/mlir/agentic-circuit/ACIR/collections-invalid.mlir",
-        "tests/mlir/pyc/canonical-select-invalid.mlir"
+        "tests/mlir/pyc/canonical-select-invalid.mlir",
+        "tests/mlir/pyc/sequential-profile-invalid.mlir"
       ],
       "positive_mlir": [
         "tests/mlir/agentic-circuit/ACIR/collections-valid.mlir",
@@ -1371,8 +1388,10 @@
         "tests/mlir/agentic-circuit/Transforms/rule-table-lowering.mlir",
         "tests/mlir/pyc/canonical-ops-valid.mlir",
         "tests/mlir/pyc/canonical-select-invalid.mlir",
+        "tests/mlir/pyc/sequential-profile-invalid.mlir",
         "tests/test_pyc_canonical_ops.py",
         "tests/unit/test_pyc6_surface.py",
+        "tests/unit/test_sram_profile.py",
         "tests/unit/test_v6_forward_signal.py"
       ],
       "verifier": "compiler/mlir/lib/Dialect/PYC/PYCOps.cpp",
@@ -1524,8 +1543,12 @@
       "folder": null,
       "kind": "operation",
       "name": "pyc.sync_mem",
-      "negative_mlir": [],
-      "positive_mlir": [],
+      "negative_mlir": [
+        "tests/mlir/pyc/sram-profile-invalid.mlir"
+      ],
+      "positive_mlir": [
+        "tests/mlir/agentic-circuit/CodeGen/sram-four-state-parity.mlir"
+      ],
       "python_producer": [
         "python/pycircuit/src/pycircuit/dsl.py",
         "python/pycircuit/src/pycircuit/jit_cache.py"
@@ -1536,7 +1559,10 @@
       "status": "normative",
       "symbol": "PYC_SyncMemOp",
       "tests": [
-        "tests/cpp/agentic-circuit/CodeGen/QueueGraphPlanTest.cpp"
+        "tests/cpp/agentic-circuit/CodeGen/QueueGraphPlanTest.cpp",
+        "tests/mlir/agentic-circuit/CodeGen/sram-four-state-parity.mlir",
+        "tests/mlir/pyc/sram-profile-invalid.mlir",
+        "tests/unit/test_sram_profile.py"
       ],
       "verifier": "compiler/mlir/lib/Dialect/PYC/PYCOps.cpp",
       "verilog_emitter": "compiler/mlir/lib/Emit/VerilogEmitter.cpp"
@@ -1558,7 +1584,9 @@
       "folder": null,
       "kind": "operation",
       "name": "pyc.sync_mem_dp",
-      "negative_mlir": [],
+      "negative_mlir": [
+        "tests/mlir/pyc/sram-profile-invalid.mlir"
+      ],
       "positive_mlir": [],
       "python_producer": [
         "python/pycircuit/src/pycircuit/dsl.py",
@@ -1569,7 +1597,9 @@
       "stage": "canonical-pyc",
       "status": "normative",
       "symbol": "PYC_SyncMemDPOp",
-      "tests": [],
+      "tests": [
+        "tests/mlir/pyc/sram-profile-invalid.mlir"
+      ],
       "verifier": "compiler/mlir/lib/Dialect/PYC/PYCOps.cpp",
       "verilog_emitter": "compiler/mlir/lib/Emit/VerilogEmitter.cpp"
     },
@@ -1679,6 +1709,7 @@
       "canonicalization": [
         "compiler/mlir/lib/Transforms/CheckClockDomainsPass.cpp",
         "compiler/mlir/lib/Transforms/CheckCombCyclesPass.cpp",
+        "compiler/mlir/lib/Transforms/CheckFrontendContractPass.cpp",
         "compiler/mlir/lib/Transforms/CheckLogicDepthPass.cpp",
         "compiler/mlir/lib/Transforms/CombDepGraph.cpp",
         "compiler/mlir/lib/Transforms/EliminateWiresPass.cpp"
@@ -1689,7 +1720,9 @@
       "folder": null,
       "kind": "operation",
       "name": "pyc.wire",
-      "negative_mlir": [],
+      "negative_mlir": [
+        "tests/mlir/pyc/sequential-profile-invalid.mlir"
+      ],
       "positive_mlir": [
         "tests/mlir/agentic-circuit/ACIR/interfaces-valid.mlir",
         "tests/mlir/agentic-circuit/CodeGen/atomic-transform.mlir",
@@ -1709,7 +1742,8 @@
         "tests/cpp/agentic-circuit/CodeGen/QueueGraphPlanTest.cpp",
         "tests/mlir/agentic-circuit/ACIR/interfaces-valid.mlir",
         "tests/mlir/agentic-circuit/CodeGen/atomic-transform.mlir",
-        "tests/mlir/agentic-circuit/PYC/source-provenance-eliminate-wire.mlir"
+        "tests/mlir/agentic-circuit/PYC/source-provenance-eliminate-wire.mlir",
+        "tests/mlir/pyc/sequential-profile-invalid.mlir"
       ],
       "verifier": null,
       "verilog_emitter": "compiler/mlir/lib/Emit/VerilogEmitter.cpp"
@@ -1827,10 +1861,13 @@
       "kind": "type",
       "name": "!pyc.clock",
       "negative_mlir": [
-        "tests/mlir/pyc/family-mapping-attributes-invalid.mlir"
+        "tests/mlir/pyc/family-mapping-attributes-invalid.mlir",
+        "tests/mlir/pyc/sequential-profile-invalid.mlir",
+        "tests/mlir/pyc/sram-profile-invalid.mlir"
       ],
       "positive_mlir": [
         "tests/mlir/agentic-circuit/CodeGen/architecture-obligation-backends.mlir",
+        "tests/mlir/agentic-circuit/CodeGen/sram-four-state-parity.mlir",
         "tests/mlir/agentic-circuit/PYC/source-provenance-pack-i1.mlir",
         "tests/mlir/pyc/family-mapping-attributes.mlir",
         "tests/mlir/pyc/family-ops.mlir"
@@ -1855,10 +1892,13 @@
       "symbol": "PYC_ClockType",
       "tests": [
         "tests/mlir/agentic-circuit/CodeGen/architecture-obligation-backends.mlir",
+        "tests/mlir/agentic-circuit/CodeGen/sram-four-state-parity.mlir",
         "tests/mlir/agentic-circuit/PYC/source-provenance-pack-i1.mlir",
         "tests/mlir/pyc/family-mapping-attributes-invalid.mlir",
         "tests/mlir/pyc/family-mapping-attributes.mlir",
-        "tests/mlir/pyc/family-ops.mlir"
+        "tests/mlir/pyc/family-ops.mlir",
+        "tests/mlir/pyc/sequential-profile-invalid.mlir",
+        "tests/mlir/pyc/sram-profile-invalid.mlir"
       ],
       "verifier": null,
       "verilog_emitter": null
@@ -1875,10 +1915,13 @@
       "kind": "type",
       "name": "!pyc.reset",
       "negative_mlir": [
-        "tests/mlir/pyc/family-mapping-attributes-invalid.mlir"
+        "tests/mlir/pyc/family-mapping-attributes-invalid.mlir",
+        "tests/mlir/pyc/sequential-profile-invalid.mlir",
+        "tests/mlir/pyc/sram-profile-invalid.mlir"
       ],
       "positive_mlir": [
         "tests/mlir/agentic-circuit/CodeGen/architecture-obligation-backends.mlir",
+        "tests/mlir/agentic-circuit/CodeGen/sram-four-state-parity.mlir",
         "tests/mlir/agentic-circuit/PYC/source-provenance-pack-i1.mlir",
         "tests/mlir/pyc/family-mapping-attributes.mlir",
         "tests/mlir/pyc/family-ops.mlir"
@@ -1903,10 +1946,13 @@
       "symbol": "PYC_ResetType",
       "tests": [
         "tests/mlir/agentic-circuit/CodeGen/architecture-obligation-backends.mlir",
+        "tests/mlir/agentic-circuit/CodeGen/sram-four-state-parity.mlir",
         "tests/mlir/agentic-circuit/PYC/source-provenance-pack-i1.mlir",
         "tests/mlir/pyc/family-mapping-attributes-invalid.mlir",
         "tests/mlir/pyc/family-mapping-attributes.mlir",
-        "tests/mlir/pyc/family-ops.mlir"
+        "tests/mlir/pyc/family-ops.mlir",
+        "tests/mlir/pyc/sequential-profile-invalid.mlir",
+        "tests/mlir/pyc/sram-profile-invalid.mlir"
       ],
       "verifier": null,
       "verilog_emitter": null

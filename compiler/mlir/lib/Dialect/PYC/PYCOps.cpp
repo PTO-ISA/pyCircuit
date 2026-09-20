@@ -1446,7 +1446,6 @@ LogicalResult ByteMemOp::verify() {
     return emitOpError("requires integer attribute `depth` (bytes)");
   if (depthAttr.getValue().getSExtValue() <= 0)
     return emitOpError("depth must be > 0");
-
   if (auto nameAttr = (*this)->getAttrOfType<StringAttr>("name")) {
     if (nameAttr.getValue().empty())
       return emitOpError("name must be non-empty when provided");
@@ -1485,6 +1484,10 @@ LogicalResult SyncMemOp::verify() {
     return emitOpError("requires integer attribute `depth` (entries)");
   if (depthAttr.getValue().getSExtValue() <= 0)
     return emitOpError("depth must be > 0");
+  auto liveWindow = (*this)->getAttrOfType<IntegerAttr>("live_window");
+  if (!liveWindow || liveWindow.getInt() != 1)
+    return emitOpError(
+        "sync_mem requires the static aggressive live_window N=1");
 
   if (auto nameAttr = (*this)->getAttrOfType<StringAttr>("name")) {
     if (nameAttr.getValue().empty())
@@ -1526,6 +1529,10 @@ LogicalResult SyncMemDPOp::verify() {
     return emitOpError("requires integer attribute `depth` (entries)");
   if (depthAttr.getValue().getSExtValue() <= 0)
     return emitOpError("depth must be > 0");
+  auto liveWindow = (*this)->getAttrOfType<IntegerAttr>("live_window");
+  if (!liveWindow || liveWindow.getInt() != 1)
+    return emitOpError(
+        "sync_mem_dp requires the static aggressive live_window N=1");
 
   if (auto nameAttr = (*this)->getAttrOfType<StringAttr>("name")) {
     if (nameAttr.getValue().empty())

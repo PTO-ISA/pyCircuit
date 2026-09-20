@@ -1,6 +1,7 @@
 #pragma once
 
 #include "pyc_bits.hpp"
+#include "pyc_four_state.hpp"
 #include "pyc_change_detect.hpp"
 #include "pyc_clock.hpp"
 #include "pyc_connector.hpp"

@@ -49,7 +49,19 @@ def SRAM(
         depth=int(depth),
         name="mem",
     )
+    always = m.const(1, width=1)
+    captured = m.reg(
+        clk_v,
+        rst_v,
+        always,
+        rdata,
+        m.const(0, width=wdata_w.width),
+    )
+    nba_safe = ren_w.select(rdata, captured.q)
 
     return m.bundle_connector(
-        rdata=rdata,
+        rdata=nba_safe,
+        rdata_live=ren_w,
+        rdata_raw=rdata,
+        rdata_captured=captured.q,
     )

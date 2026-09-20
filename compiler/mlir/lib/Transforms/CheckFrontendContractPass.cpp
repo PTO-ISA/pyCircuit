@@ -614,6 +614,34 @@ public:
       ok = false;
     });
 
+    module.walk([&](pyc::RegOp reg) {
+      auto wire = reg.getNext().getDefiningOp<pyc::WireOp>();
+      if (!wire)
+        return;
+      pyc::AssignOp driver;
+      for (Operation *user : wire.getResult().getUsers())
+        if (auto assign = dyn_cast<pyc::AssignOp>(user);
+            assign && assign.getDst() == wire.getResult()) {
+          if (driver) {
+            reg.emitError("register next wire has multiple drivers");
+            ok = false;
+            return;
+          }
+          driver = assign;
+        }
+      if (!driver)
+        return;
+      auto select = driver.getSrc().getDefiningOp<pyc::SelectOp>();
+      if (!select || select.getSel() != reg.getEn())
+        return;
+      if (select.getA() == reg.getQ() || select.getB() == reg.getQ()) {
+        reg.emitError(
+            "stall recirculation is redundant; drive the update value and "
+            "hold state with register enable=0");
+        ok = false;
+      }
+    });
+
     module.walk([&](func::FuncOp f) {
       auto checkStrAttr = [&](StringRef name, llvm::StringRef code,
                               llvm::StringRef hint) -> StringAttr {

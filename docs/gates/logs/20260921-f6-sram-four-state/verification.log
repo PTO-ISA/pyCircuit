@@ -1,0 +1,40 @@
+LLVM/MLIR: 22.1.8
+check-acir: PASS 232/232
+check-pyc: PASS 6/6
+CompilerTests: PASS 10/10
+CodeGenTests: PASS 110/110
+ACIROpsTests: PASS 1843/1843
+ACIRModelAnalysisTests: PASS 36/36
+GfsimTests: PASS 272/272
+GfsimTests ASAN halt_on_error=1: PASS 272/272
+repository unit suite: PASS 164/164
+Agentic Python contracts/CLI/frontend: PASS 381/381
+Agentic integration e2e: PASS 1/1
+primitive selection: PASS 18/18
+repository contracts: PASS
+API hygiene: PASS
+MkDocs strict: PASS
+decision status coverage: PASS 278 rows, 0 deferred
+pre-commit changed-file checks: PASS
+git diff --check: PASS
+
+COMMAND: cmake --build .pycircuit_out/build-llvm22 --target check-acir check-pyc -j 8
+OUTPUT: check-acir 232/232; check-pyc 6/6
+
+COMMAND: .pycircuit_out/build-llvm22/bin/GfsimTests
+OUTPUT: 272 passed, including FourStateTest and SyncMemFourStateTest
+
+COMMAND: ASAN_OPTIONS=halt_on_error=1 .pycircuit_out/acir/asan-llvm22/bin/GfsimTests
+OUTPUT: 272 passed
+
+COMMAND: sram-four-state-parity.mlir RUN lines
+OUTPUT: C++/RTL masks match for known/X/Z; Icarus aggressive SRAM lifecycle passes; active unknown read address fails; Verilator lint passes.
+
+COMMAND: PYTHONPATH=python/pycircuit/src:python/semantic-core/src:python/agentic-circuit/src .pycircuit_out/venv-llvm22/bin/python -m pytest -q tests/unit -m unit
+OUTPUT: 164 passed
+
+COMMAND: PYTHONPATH=.pycircuit_out/build-llvm22/compiler/acir/python:python/agentic-circuit/src:python/semantic-core/src .pycircuit_out/ac-venv/bin/python -m pytest -q tests/python/agentic-circuit/contracts tests/python/agentic-circuit/cli tests/python/agentic-circuit/python_frontend
+OUTPUT: 381 passed
+
+COMMAND: python3 flows/tools/check_decision_status.py --status docs/gates/decision_status_v6.md --out docs/gates/logs/20260921-f6-sram-four-state/decision_status_report.json
+OUTPUT: PASS; 278 rows, 0 deferred

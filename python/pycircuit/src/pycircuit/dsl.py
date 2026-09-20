@@ -629,7 +629,7 @@ class Module:
             )
 
         tmp = self._get_next_temp_var()
-        attrs = f'{{depth = {int(depth)}, name = "{name}"}}'
+        attrs = f'{{depth = {int(depth)}, live_window = 1, name = "{name}"}}'
         self._emit(
             f"{tmp} = pyc.sync_mem {clk.ref}, {rst.ref}, {ren.ref}, {raddr.ref}, {wvalid.ref}, {waddr.ref}, {wdata.ref}, {wstrb.ref} "
             + f"{attrs} : {raddr.ty}, {wdata.ty}, {wstrb.ty}"
@@ -672,7 +672,7 @@ class Module:
 
         out0 = self._get_next_temp_var()
         out1 = self._get_next_temp_var()
-        attrs = f'{{depth = {int(depth)}, name = "{name}"}}'
+        attrs = f'{{depth = {int(depth)}, live_window = 1, name = "{name}"}}'
         self._emit(
             f"{out0}, {out1} = pyc.sync_mem_dp {clk.ref}, {rst.ref}, {ren0.ref}, {raddr0.ref}, {ren1.ref}, {raddr1.ref}, "
             + f"{wvalid.ref}, {waddr.ref}, {wdata.ref}, {wstrb.ref} {attrs} : {raddr0.ty}, {wdata.ty}, {wstrb.ty}"

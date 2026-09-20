@@ -1449,13 +1449,18 @@ static LogicalResult emitBlockStruct(
     if (!depthAttr)
       return mem.emitError("missing integer attribute `depth`");
     auto depth = depthAttr.getValue().getZExtValue();
+    auto liveWindowAttr = mem->getAttrOfType<IntegerAttr>("live_window");
+    if (!liveWindowAttr)
+      return mem.emitError("missing integer attribute `live_window`");
+    auto liveWindow = liveWindowAttr.getValue().getZExtValue();
 
     std::string instName = nt.get(mem.getRdata()) + "_inst";
     if (auto nameAttr = mem->getAttrOfType<StringAttr>("name"))
       instName = sanitizeId(nameAttr.getValue());
     syncMemInstName.try_emplace(mem.getOperation(), instName);
 
-    os << "  pyc::cpp::pyc_sync_mem<" << addrW << ", " << dataW << ", " << depth << "> *" << instName
+    os << "  pyc::cpp::pyc_sync_mem<" << addrW << ", " << dataW << ", "
+       << depth << ", " << liveWindow << "> *" << instName
        << " = nullptr;\n";
   }
   for (auto mem : syncMemDPs) {
@@ -1474,13 +1479,18 @@ static LogicalResult emitBlockStruct(
     if (!depthAttr)
       return mem.emitError("missing integer attribute `depth`");
     auto depth = depthAttr.getValue().getZExtValue();
+    auto liveWindowAttr = mem->getAttrOfType<IntegerAttr>("live_window");
+    if (!liveWindowAttr)
+      return mem.emitError("missing integer attribute `live_window`");
+    auto liveWindow = liveWindowAttr.getValue().getZExtValue();
 
     std::string instName = nt.get(mem.getRdata0()) + "_inst";
     if (auto nameAttr = mem->getAttrOfType<StringAttr>("name"))
       instName = sanitizeId(nameAttr.getValue());
     syncMemDPInstName.try_emplace(mem.getOperation(), instName);
 
-    os << "  pyc::cpp::pyc_sync_mem_dp<" << addrW << ", " << dataW << ", " << depth << "> *" << instName
+    os << "  pyc::cpp::pyc_sync_mem_dp<" << addrW << ", " << dataW << ", "
+       << depth << ", " << liveWindow << "> *" << instName
        << " = nullptr;\n";
   }
   for (auto fifo : asyncFifos) {
@@ -1648,9 +1658,14 @@ static LogicalResult emitBlockStruct(
     if (!depthAttr)
       return mem.emitError("missing integer attribute `depth`");
     auto depth = depthAttr.getValue().getZExtValue();
+    auto liveWindowAttr = mem->getAttrOfType<IntegerAttr>("live_window");
+    if (!liveWindowAttr)
+      return mem.emitError("missing integer attribute `live_window`");
+    auto liveWindow = liveWindowAttr.getValue().getZExtValue();
     std::string instName = syncMemInstName.lookup(mem.getOperation());
-    os << "    " << instName << " = new pyc::cpp::pyc_sync_mem<" << addrW << ", " << dataW << ", " << depth << ">("
-       << nt.get(mem.getClk()) << ", " << nt.get(mem.getRst()) << ", " << nt.get(mem.getRen()) << ", "
+    os << "    " << instName << " = new pyc::cpp::pyc_sync_mem<" << addrW
+       << ", " << dataW << ", " << depth << ", " << liveWindow << ">(" << nt.get(mem.getClk()) << ", " << nt.get(mem.getRst()) << ", "
+       << nt.get(mem.getRen()) << ", "
        << nt.get(mem.getRaddr()) << ", " << nt.get(mem.getRdata()) << ", " << nt.get(mem.getWvalid()) << ", "
        << nt.get(mem.getWaddr()) << ", " << nt.get(mem.getWdata()) << ", " << nt.get(mem.getWstrb()) << ");\n";
   }
@@ -1665,9 +1680,14 @@ static LogicalResult emitBlockStruct(
     if (!depthAttr)
       return mem.emitError("missing integer attribute `depth`");
     auto depth = depthAttr.getValue().getZExtValue();
+    auto liveWindowAttr = mem->getAttrOfType<IntegerAttr>("live_window");
+    if (!liveWindowAttr)
+      return mem.emitError("missing integer attribute `live_window`");
+    auto liveWindow = liveWindowAttr.getValue().getZExtValue();
     std::string instName = syncMemDPInstName.lookup(mem.getOperation());
-    os << "    " << instName << " = new pyc::cpp::pyc_sync_mem_dp<" << addrW << ", " << dataW << ", " << depth << ">("
-       << nt.get(mem.getClk()) << ", " << nt.get(mem.getRst()) << ", " << nt.get(mem.getRen0()) << ", "
+    os << "    " << instName << " = new pyc::cpp::pyc_sync_mem_dp<" << addrW
+       << ", " << dataW << ", " << depth << ", " << liveWindow << ">(" << nt.get(mem.getClk()) << ", " << nt.get(mem.getRst()) << ", "
+       << nt.get(mem.getRen0()) << ", "
        << nt.get(mem.getRaddr0()) << ", " << nt.get(mem.getRdata0()) << ", " << nt.get(mem.getRen1()) << ", "
        << nt.get(mem.getRaddr1()) << ", " << nt.get(mem.getRdata1()) << ", " << nt.get(mem.getWvalid()) << ", "
        << nt.get(mem.getWaddr()) << ", " << nt.get(mem.getWdata()) << ", " << nt.get(mem.getWstrb()) << ");\n";
