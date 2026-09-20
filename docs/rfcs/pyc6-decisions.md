@@ -11133,3 +11133,274 @@ carrier whose cases are concrete, ordered, non-symbol regions.
 - Shared parametric body IR, proof generalization across cases, richer
   dependent types, and relational case generation require a later decision.
   Implementers must use the finite concrete case-region model or reject.
+
+## Decision 0277: finite module families use one exact frontend, ACIR, and PYC schema
+
+**Status:** Accepted; implementation required
+
+**Refines:** Decisions 0267, 0270, 0274, 0275, and 0276. This decision freezes
+the concrete schema required to implement those decisions; it does not weaken
+their source ownership, structural identity, finite-domain, or hard-break
+requirements.
+
+**Context / Goal**
+Decisions 0275 and 0276 establish the semantic family and case model but leave
+too much implementation latitude in the Python call signatures, accepted AST,
+TableGen attributes, operation shapes, and PYC carrier. The current direct-body
+`ac.module`, dictionary `static_params`/`static_args`, suffixed concrete module
+symbols, and string-valued PYC parameter metadata cannot be incrementally
+reinterpreted as that model. F4 therefore freezes one exact logical and
+physical schema before implementation.
+
+**Python authoring surface**
+
+The complete public family-construction surface has these signatures:
+
+```python
+static_bool()
+static_int(*, width: int, signed: bool)
+static_enum(EnumType, /)
+static_config(ConfigType, /)
+static_parameter(name, type, /, *, default=_MISSING, constraints=())
+one_of(*values)
+integer_range(min, max, /)
+case(*bindings: tuple[str, value])
+module_decl(*, source, parameters=(), finite_cases=None)
+module(*, declaration)
+```
+
+- `parameters`, `constraints`, `finite_cases`, and every `case` binding are
+  tuple literals in source order. `case(("lanes", 2), ("signed", False))` is
+  the only binding shape. Dictionaries, sets, comprehensions, generator
+  expressions, `*`/`**` expansion, computed collections, and calls that return
+  a case list reject during source capture.
+- Static values are closed AST literals: `True`/`False`; an integer literal
+  with an optional unary `-`; `EnumType.member`; or an immutable
+  `ConfigType(field=value, ...)` construction whose keyword list names every
+  declared field exactly once and whose field values recursively use this
+  grammar. Config declarations are nominal, source-owned, non-inherited,
+  immutable records with a fixed ordered field list. Positional config
+  construction, omitted/extra/duplicate fields, mutable fields, methods,
+  properties, runtime values, and arbitrary constructor execution reject.
+- `static_bool`, `static_int`, `static_enum`, and `static_config` construct only
+  static parameter types. `static_int.width` is a positive integer literal and
+  `signed` is a Boolean literal. `static_enum` requires one closed nominal enum;
+  `static_config` requires one admitted nominal immutable config declaration.
+  These constructors are not runtime values or hardware types.
+- `static_parameter` names are non-empty source identifiers and unique in the
+  enclosing tuple. `_MISSING` distinguishes required parameters from a typed
+  default. Defaults and constraint operands use the same literal grammar and
+  are checked after conversion to the declared static type. `one_of` is
+  non-empty with no duplicate canonical values. `integer_range` is inclusive,
+  integer-only, ordered, and representable in the declared width/signedness.
+- `module_decl` contains an ellipsis body and runtime ports only. Its
+  `parameters` tuple is the complete ordered declaration list. `finite_cases`
+  is an explicit non-empty tuple for a parameterized module. For zero
+  parameters, `finite_cases=None` canonicalizes to `(case(),)`; spelling any
+  non-empty binding rejects. No other implicit case generation exists.
+- The implementation is written as `@module(declaration=decl)` and provides
+  all case bodies for that declaration. A child call is
+  `child(runtime_arg_0, ..., static=case(("name", value), ...))`. The `static`
+  keyword is required for a parameterized child, is forbidden for runtime
+  data, and must contain the complete ordered binding list. A call cannot use
+  ordinary keyword arguments, a dictionary, or a previously computed object
+  as static arguments.
+- Dependent expressions are admitted only where a declaration's runtime port
+  type is built. Their source AST is an integer literal, a declared static
+  parameter reference, a nominal static-config field projection, binary `+`,
+  `-`, or `*`, or `index_width(expr)`/`count_width(expr)`. The expression is
+  preserved rather than host-evaluated. Subscripts, conditionals, division,
+  calls other than the two width operators, host attributes, dictionary
+  lookup, and runtime names reject.
+- Runtime interface types lower to a closed typed type-expression tree:
+  concrete type, dependent bits, bounded range, fixed value array, tuple,
+  nominal application, or Queue. A nominal application carries the declaration
+  symbol and complete ordered typed static arguments explicitly. Queue wraps
+  one such logical payload expression. A dependent or nominal type is never a
+  string, suffix, Python object identity, or dictionary lookup.
+
+**ACIR attribute schema**
+
+The following are first-class `AttrDef` records in `ACIRAttributes.td`. Every
+plural form is an ordered typed array attribute with a dedicated element type;
+none is a `DictionaryAttr`, JSON blob, flattened string, or parallel untyped
+array.
+
+| AttrDef | Required payload |
+| --- | --- |
+| `StaticBoolTypeAttr` / `StaticBoolValueAttr` | Boolean static type / canonical Boolean value |
+| `StaticIntTypeAttr` / `StaticIntValueAttr` | positive width and signedness / exact typed integer value |
+| `StaticEnumTypeAttr` / `StaticEnumValueAttr` | nominal enum declaration symbol / that symbol plus declared member |
+| `StaticConfigFieldAttr` / `StaticConfigFieldsAttr` | field name and static type / ordered unique field declarations |
+| `StaticConfigFieldValueAttr` / `StaticConfigFieldValuesAttr` | field name and exact typed value / declaration-order config field values |
+| `StaticConfigTypeAttr` / `StaticConfigValueAttr` | nominal config declaration plus `StaticConfigFieldsAttr` / that declaration plus `StaticConfigFieldValuesAttr` |
+| `OneOfConstraintAttr` / `IntegerRangeConstraintAttr` | ordered unique typed values / inclusive typed integer bounds |
+| `StaticParameterAttr` / `StaticParametersAttr` | name, static type, required/default state, constraints, provenance / ordered declarations |
+| `StaticArgumentAttr` / `StaticArgumentsAttr` | declaration name plus exact typed value / complete declaration-order tuple |
+| `StaticCasesAttr` | non-empty ordered unique `StaticArgumentsAttr` tuples |
+| `SourceOwnerAttr` | normalized implementation source and declaration source ownership |
+| `InterfacePortAttr` / `ModuleInterfaceAttr` | name, direction, logical type expression, provenance / ordered runtime inputs and outputs |
+| `ModuleFamilySchemaAttr` | parameters, cases, interface, source owner, and required nominal declarations |
+
+Dependent integer expressions use the closed tagged records
+`DependentLiteralAttr`, `DependentParameterAttr`, `DependentFieldAttr`,
+`DependentAddAttr`, `DependentSubAttr`, `DependentMulAttr`,
+`DependentIndexWidthAttr`, and `DependentCountWidthAttr`, collected through
+`DependentArgumentAttr` and `DependentArgumentsAttr`. Dependent field paths are
+ordered field-name arrays rooted in one declared static-config parameter; they
+are not dot-separated strings.
+
+Logical runtime types use the closed records `TypeExprConcreteAttr`,
+`TypeExprBitsAttr`, `TypeExprRangeAttr`, `TypeExprValueArrayAttr`,
+`TypeExprTupleAttr`, `TypeExprNominalAttr`, and `TypeExprQueueAttr`.
+`TypeExprNominalAttr` contains the nominal declaration symbol and
+`StaticArgumentsAttr`; `TypeExprQueueAttr` contains one payload type expression.
+All records recursively verify exact kinds and have no extensible name/value
+bag.
+
+**High ACIR operation schema**
+
+- `ac.module` is the one family container. It is a `Symbol`, `SymbolTable`,
+  `IsolatedFromAbove`, single-block, `NoTerminator` operation with exactly
+  `sym_name`, `SourceOwnerAttr`, and `ModuleFamilySchemaAttr` as its family
+  contract. It does not implement `FunctionOpInterface`; it has no function
+  type, block arguments, executable operations, or direct `ac.return`.
+  Its block contains only `ac.module.case` operations in `StaticCasesAttr`
+  order.
+- `ac.module.case` is not a symbol. It is `SymbolTable`, `IsolatedFromAbove`,
+  and owns one single-block graph region. It carries one complete
+  `StaticArgumentsAttr`, one concrete `FunctionType`, and source provenance.
+  Its block arguments exactly match the concrete runtime input types; its only
+  terminator is `ac.return`, whose operands exactly match the concrete runtime
+  results. The case has no independent name, ordinal identity, source unit, or
+  lookup path.
+- `ac.module.import` has no body. It carries the family symbol reference,
+  `SourceOwnerAttr`, and complete `ModuleFamilySchemaAttr`, including the full
+  case inventory and nominal declarations required to type every case.
+- `ac.instance` names the family symbol, consumes runtime operands, and carries
+  one complete `StaticArgumentsAttr`. Verification selects exactly one case,
+  materializes the logical interface, and checks the runtime operand/result
+  types against that case's concrete `FunctionType`.
+- `ac.return` is legal only with a direct `ac.module.case` parent. It is never
+  the terminator of `ac.module` or `ac.module.import`.
+- Nominal type applications carry their declaration symbol plus complete
+  ordered typed arguments. No nominal application, import, instance, case, or
+  return is recovered from a concrete symbol suffix or static dictionary.
+
+Each case is a separate ownership and proof scope. State, Queue, Table, Slot,
+rule, exact effect, proof fact, architecture obligation, provenance, and
+coverage keys are `(family symbol, StaticArgumentsAttr, case-local key)`.
+Case-local names and obligation IDs may repeat in different cases because the
+full key remains distinct. A proof or obligation from one case cannot satisfy,
+alias, suppress, or rewrite another case; family closure is the conjunction of
+all case closures.
+
+**Canonical PYC carrier and logical-to-physical mapping**
+
+- PYC adds `pyc.module`, `pyc.module.import`, `pyc.module.case`, and
+  `pyc.return` with the same family/import/case/return ownership shape as High
+  ACIR. `pyc.instance` carries the complete typed static arguments and refers
+  to the family symbol, not a concrete function name.
+- `pyc.module` owns the logical `ModuleFamilySchemaAttr` and ordered cases.
+  Every `pyc.module.case` owns its concrete physical `FunctionType`, its
+  materialized logical interface, and an ordered logical-to-physical mapping
+  for each input and result. The mapping records logical nominal/type-expression
+  identity, physical scalar/packed carrier type, layout, and projection path;
+  it cannot be inferred from widths or strings.
+- `pyc.return` terminates a direct `pyc.module.case` and returns the physical
+  carriers declared by that case. Verification proves the return carriers and
+  every instance mapping reconstruct exactly the materialized logical
+  interface before C++ or RTL emission.
+- C++ and RTL backends consume this verified family/case carrier. They do not
+  flatten cases into unrelated `pyc.func` names, interpret string `pyc.params`,
+  parse suffixes, or reconstruct logical identity from physical types.
+
+The canonical textual shape is one family container and ordered case regions:
+
+```text
+pyc.module @family source #ac.source_owner<...>
+    schema #ac.module_family_schema<...> {
+  pyc.module.case arguments #ac.static_arguments<...>
+      logical #ac.module_interface<...>
+      physical (physical-input-types) -> (physical-result-types)
+      mapping [typed-logical-to-physical-port-maps] {
+    ...
+    pyc.return physical-results
+  }
+}
+pyc.module.import @family source #ac.source_owner<...>
+    schema #ac.module_family_schema<...>
+results = pyc.instance @instance of @family(runtime-operands)
+    static #ac.static_arguments<...> : (physical-input-types) -> (physical-result-types)
+```
+
+The printed form may use custom assembly elision only when parse/print restores
+the same typed attributes exactly. It cannot replace a typed field with a
+string, infer a case from the physical function type, or omit the mapping.
+
+**One-stage hard break**
+
+The migration atomically replaces the direct-body/function-like `ac.module`,
+dictionary `static_params`/`static_args`, suffixed concrete module symbols,
+legacy bare `@module`/JIT specialization, `specializations.json` or equivalent
+sidecars, and string-valued PYC parameter authority. The new frontend,
+headers/imports, package linker, QueueGraph plans, PYC carrier, emitters, tests,
+examples, schemas, and documentation land together. There is no reader,
+writer, upgrader, compatibility decorator, alias, flag, fallback, or dual-mode
+path. Existing unparameterized modules migrate mechanically to an empty family
+schema with one empty-argument case; they do not retain the old direct body.
+
+**Acceptance matrix**
+
+| Input | Required result |
+| --- | --- |
+| zero-parameter declaration with `finite_cases=None` | empty `StaticParametersAttr`, one empty `StaticArgumentsAttr` case, one `ac.module.case`, and the same PYC carrier |
+| ordered Boolean, fixed integer, enum, and nested config declarations with literal cases | exact typed records and source order survive frontend, import/link, QueueGraph, ACIR-to-PYC, and both backends |
+| dependent bits/array/tuple/nominal/Queue ports | each case materializes one concrete logical interface, physical function type, and verified logical-to-physical mapping |
+| two cases use the same local rule and obligation spelling | distinct full ownership/proof keys; both cases close independently |
+| two instances select the same case | one family/case implementation is reused while runtime objects and state remain independent |
+| imported unused case | complete schema, case carrier, proof closure, and backend materialization remain present |
+| clean repeat with caller order changed | byte-identical family order, case order, typed arguments, mappings, and backend inventory |
+
+**Negative matrix**
+
+| Input | Required rejection |
+| --- | --- |
+| dictionary/set/comprehension/generator, `*`/`**`, computed parameter/case collection, or computed static call argument | non-literal or unordered family authoring |
+| missing explicit cases for parameters, incomplete/reordered/unknown bindings, invalid config construction, invalid default, or invalid constraint | malformed finite typed schema |
+| direct operations or `ac.return` under `ac.module`, function-like module type/arguments, symbol-bearing case, or case outside its family | invalid High ACIR family container |
+| case arguments/signature/ports/return disagree with the family schema | invalid concrete case materialization |
+| import or instance omits the complete typed schema/arguments or refers to a suffixed concrete symbol | invalid family reference |
+| proof, obligation, state, or provenance crosses cases without a declared family-independent object | invalid case-local ownership |
+| dictionary/JSON/flattened-string AttrDef, string nominal application, or suffix/ordinal-derived identity | forbidden untyped schema or second identity |
+| PYC flattens to unrelated functions, uses string `pyc.params`, omits logical-to-physical mapping, or lets a backend recover it | invalid PYC carrier |
+| legacy bare module/JIT specialization, direct-body module, compatibility reader, specialization sidecar, or dual mode | forbidden migration path |
+| open/symbolic/generated case set, runtime static selection, shared parametric body, or caller-driven monomorphization | unsupported open family |
+
+**Required verification**
+- AST/frontend positives and negatives cover every exact signature, literal
+  rule, static value/config form, declaration, case, implementation, and child
+  call above.
+- AttrDef parse/print and verifier tests cover every typed record, nested
+  dependent/type-expression form, malformed array element, and prohibition on
+  dictionary/string authority.
+- ACIR tests prove the exact module/import/case/instance/return structure,
+  unparameterized normalization, full case ordering, signature materialization,
+  nominal applications, and case-local proof/obligation ownership.
+- Package, QueueGraph, and PYC tests prove exact schema preservation, complete
+  unused-case coverage, typed instance selection, logical-to-physical mapping,
+  and fail-closed backend admission.
+- Generated C++/RTL tests prove one readable family identifier, exact case
+  materialization, deterministic output, independent repeated-instance state,
+  and per-case logical/physical parity.
+- API and repository absence gates reject every removed frontend, ACIR, PYC,
+  sidecar, suffix, dictionary, and compatibility path.
+
+**Deferred explicitly**
+- Open or symbolic cases, generated/range case sets, runtime static selection,
+  caller-driven monomorphization, and shared parametric body IR require a later
+  decision.
+- Richer dependent expressions, relational constraints/defaults, config
+  collections, proof generalization across cases, and backend-only family
+  lowering are not admitted. Implementers must use this exact finite schema or
+  reject before publication.

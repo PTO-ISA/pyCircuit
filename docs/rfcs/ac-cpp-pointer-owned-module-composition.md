@@ -1,8 +1,8 @@
 # AC C++ pointer-owned module composition
 
-**Status:** Accepted architecture contract; implementation tracked by Decisions 0274-0276
+**Status:** Accepted architecture contract; implementation tracked by Decisions 0274-0277
 
-**Related decisions:** 0264, 0267, 0269, 0270, 0274, 0275, 0276
+**Related decisions:** 0264, 0267, 0269, 0270, 0274, 0275, 0276, 0277
 
 **Implementation checklist:**
 [AC rule and SimQueue atomic lowering checklist](ac-rule-simqueue-atomic-lowering-checklist.md)
@@ -76,8 +76,9 @@ It does not change:
 
 The package linker resolves a declaration, its implementation owner, and the
 complete ordered set of concrete case regions before C++ emission. Decision
-0276 requires one family symbol, with each case remaining a non-symbol body
-selected by ordered typed arguments.
+0277 requires one family symbol, with each case remaining a non-symbol body
+selected by `StaticArgumentsAttr` and lowered through the same verified PYC
+family/case carrier.
 
 | AC artifact | Generated artifact | Content authority |
 | --- | --- | --- |
@@ -429,7 +430,7 @@ Queue storage representation changes.
 
 ## Specialization and reuse
 
-Decisions 0275 and 0276 are the normative finite-family schema. Family emission
+Decisions 0275-0277 are the normative finite-family schema. Family emission
 is blocked until the frontend, ACIR/link verifier, QueueGraph, and PYC represent its ordered
 `StaticParameterDecl` records, closed parameter types, required/default state,
 `one_of`/`integer_range` constraints, source-declared `finite_cases`, and closed
@@ -438,6 +439,14 @@ ordered non-symbol `ac.module.case` concrete High ACIR regions, including one
 empty-argument case for an unparameterized module. Observed callers, concrete
 symbol spellings, dictionaries, sidecar specialization manifests, and
 identifier suffixes cannot supply missing family information.
+
+Decision 0277 freezes the exact cutover: tuple-literal Python declarations and
+cases; typed ACIR AttrDefs rather than dictionaries; `ac.module` as a
+container-only family symbol; non-symbol `ac.module.case` regions; typed
+imports and instances; and a `pyc.module`/`pyc.module.case` carrier with an
+explicit logical-to-physical mapping. A backend cannot substitute concrete
+function names, string parameters, or physical-width inference for that
+carrier.
 
 Specialization equality remains:
 
@@ -480,13 +489,14 @@ The dependent interface skeleton is materialized and checked against each
 case's body signature. Header/import/link verification covers every case,
 including unused cases. Typed `ModuleFamilyPlan` and `ModuleCasePlan` records
 preserve case-local state, resources, proofs, obligations, and provenance into
-a verified PYC family/case carrier. The C++ template family explicitly
+a verified PYC family/case carrier with an explicit logical-to-physical
+interface mapping. The C++ template family explicitly
 materializes those cases under the same identifier, RTL covers exactly those
 cases through typed parameters/generate branches, and Queue storage is selected
 after per-case dependent-type concretization. Open-domain families, richer
 cross-parameter constraints, and family emission from the current
 concrete-symbol baseline remain rejected until a later decision or Decisions
-0275 and 0276 are implemented and verified.
+0275-0277 are implemented and verified.
 
 ## Names and traceability
 
