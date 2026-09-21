@@ -629,6 +629,35 @@ as required by Decision 0161. PYC, ACIR, and gfsim each use one local width
 helper; exhaustive contract tests compare every width 1 through 64 and reject
 65 through 130 so no backend silently widens the admitted profile.
 
+`schemas/primitives/acir_semantic_registry.json` is the semantic registry for the
+compiler-owned ACIR lane-algebra endpoints: `ac.reservation_set`,
+`ac.transaction_group`, `ac.multi_allocator`, `ac.age_select_k`,
+`ac.dependency_set`, `ac.terminal_transaction`, `ac.memory_order_edge`, and
+`ac.load_disposition`. Each entry declares the semantic ID, the ACIR operation
+binding, the effect class, the parameters, the exact operand and result
+contracts with their admitted lane range, the latency, and the zero-input
+behaviour. It carries `ir_level: "acir"` and
+`implementation_kind: "lowered"`, which records the realization boundary: these
+endpoints lower through the QueueGraph plan and the generic backend expression
+set, so they have no Verilog implementation catalog entry and are never offered
+to the Verilog-only selection pass. Replaceable PYC primitives keep their
+semantics in `schemas/primitives/semantic_registry.json` and their
+implementations in `library/verilog/rtl_catalog.json`; a semantic ID may not
+appear in both roles, and the ACIR registry is cross-checked against
+`ACIROps.td` so neither an endpoint without a semantic entry nor a semantic entry
+without an endpoint can exist. Implementation entries additionally carry
+`latency_cycles`, `initiation_interval`, `pipeline_depth`, `banks`,
+`depth_entries`, `storage`, and a structural estimate, which is what the
+advisory `pyc-primitive-ppa-report-v1` report is rendered from.
+
+`tests/mlir/agentic-circuit/CodeGen/miniooo-acceptance.mlir` is the
+vendor-neutral reduced MiniOOO acceptance fixture: it combines these endpoints
+with the recovery, versioned-table, and terminal-transaction lowering into one
+machine that starts from a frozen ACIR and is checked through the rule effect
+graph, the QueueGraph plan, PYC, the gfsim C++ model, the PYC C++ model, and
+Verilog with SVA. It imports no product module and encodes no consumer-specific
+behavior.
+
 ### Source and sink
 
 `ac.source(T, depth=N, latency=L)` creates a Queue boundary with payload `T`.

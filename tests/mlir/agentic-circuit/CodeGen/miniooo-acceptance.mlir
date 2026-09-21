@@ -14,12 +14,16 @@
 // RUN: %pycc %t.pyc --cpp %t.cpp --logic-depth=512
 // RUN: %FileCheck %s --check-prefix=CPP < %t.cpp
 // RUN: %cxx -std=c++20 -I%source_root/library -fsyntax-only %t.cpp
+// RUN: %cxx -std=c++20 -I%source_root/library -include %t.cpp %S/miniooo-stress-harness.cpp -o %t.stress
+// RUN: %t.stress | %FileCheck %s --check-prefix=EXEC
 // RUN: %pycc %t.pyc --verilog %t.sv --logic-depth=512
 // RUN: %pycc %t.pyc --verilog %t.sv.again --logic-depth=512
 // RUN: diff %t.sv %t.sv.again
 // RUN: %FileCheck %s --check-prefix=SVA < %t.sv
 // RUN: %python %source_root/flows/tools/check_generated_rtl.py %t.sv --json-out %t.audit.json
 // RUN: verilator --lint-only -Wno-fatal -I%source_root/library/verilog %t.sv
+// RUN: iverilog -g2012 -DSYNTHESIS -I%source_root/library/verilog -s tb_miniooo -o %t.vvp %t.sv %S/miniooo-tb.sv
+// RUN: vvp %t.vvp | %FileCheck %s --check-prefix=RTL-EXEC
 
 // A vendor-neutral reduced MiniOOO, not a product Core: four-wide dispatch with
 // one committed resource group, two execution resource classes, a small
@@ -289,3 +293,21 @@ module attributes {ac.model_kind = "queue_graph", ac.queue_graph_domain = "cycle
 // PLAN: "stale_obligation_id":"no_stale_update:window:recover"
 // SVA: assert property
 // SVA: cover property
+// The executed stress drives the whole lane algebra for 48 bounded cycles:
+// every dispatch and every driven completion or recovery is accepted through the
+// real ready/valid handshake. Coverage is the load-bearing evidence here, not
+// the assertion outcome: the generated no_stale_update guard is orthogonal by
+// construction, so this run asserts that the versioned window keeps committing
+// qualified updates (the halfway counter is strictly smaller than the final
+// one) instead of wedging after its first update, that the killing recovery is
+// observed as a stale-mutation attempt, and that a stale lane is classified as
+// stale rather than forwarded.
+// EXEC: miniOOO stress PASS cycles=48 stale_trials=6 dispatched=48 completed=47 recovered=1 retire_coverage={{[1-9][0-9]*}}
+// EXEC-SAME: retire_at_half={{[1-9][0-9]*}}
+// EXEC-SAME: recover_coverage={{[1-9][0-9]*}}
+// EXEC-SAME: stale_coverage={{[1-9][0-9]*}} failures=0
+// The RTL lowering replays the same bounded schedule with an independently
+// drawn payload stream and has to accept the identical dispatch, completion and
+// recovery cadence: 48 dispatches, 47 versioned completions and the single
+// killing recovery, with no source stalled past the handshake bound.
+// RTL-EXEC: miniOOO rtl stress PASS cycles=48 dispatched=48 completed=47 recovered=1
