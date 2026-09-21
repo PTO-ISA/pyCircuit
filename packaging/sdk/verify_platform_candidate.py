@@ -513,9 +513,7 @@ def installed_smoke(sdk_root: Path, wheels: list[Path], workspace: Path) -> None
     )
     pycircuit_script = installed_console_script(commands, f"pycircuit{suffix}")
     if pycircuit_script is None:
-        raise ValueError(
-            "installed wheel did not provide the pycircuit console script"
-        )
+        raise ValueError("installed wheel did not provide the pycircuit console script")
     run([pycircuit_script, "--help"], cwd=workspace)
     acc_script = installed_console_script(commands, f"acc.py{suffix}")
     acc_py: list[os.PathLike[str] | str] = (
