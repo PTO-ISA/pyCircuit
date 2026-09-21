@@ -159,3 +159,65 @@ module {
 }
 
 // CHECK: packed layout does not recursively match the logical type
+
+// -----
+
+// A repeated control name would make one clock domain unreachable from the
+// emitted module, so the signature rejects it.
+#prov = #ac.source_provenance<"tests/family.py", 1, 1, 1, 8>
+#args = #ac.dependent_arguments<[]>
+#iface = #ac.module_interface<[]>
+#clock_origin = #pyc.implicit_control_origin<"clock", "implicit", #prov>
+#reset_origin = #pyc.implicit_control_origin<"reset", "implicit", #prov>
+#clock = #pyc.control_port_mapping<"clock", 0, !pyc.clock, #clock_origin, "clk">
+#reset = #pyc.control_port_mapping<"reset", 1, !pyc.reset, #reset_origin, "clk">
+#mapping = #pyc.module_port_mapping<[#clock, #reset], [], [], []>
+
+module attributes {
+  pyc.duplicate_names = #pyc.module_case_signature<
+      #args, #iface, (!pyc.clock, !pyc.reset) -> (), #mapping>
+} {
+}
+
+// CHECK: control port names must be unique: clk
+
+// -----
+
+// Controls come in clock-then-reset pairs, so an odd count is rejected.
+#prov = #ac.source_provenance<"tests/family.py", 1, 1, 1, 8>
+#args = #ac.dependent_arguments<[]>
+#iface = #ac.module_interface<[]>
+#clock_origin = #pyc.implicit_control_origin<"clock", "implicit", #prov>
+#reset_origin = #pyc.implicit_control_origin<"reset", "implicit", #prov>
+#clock_a = #pyc.control_port_mapping<"clock", 0, !pyc.clock, #clock_origin, "clk_a">
+#reset_a = #pyc.control_port_mapping<"reset", 1, !pyc.reset, #reset_origin, "rst_a">
+#clock_b = #pyc.control_port_mapping<"clock", 2, !pyc.clock, #clock_origin, "clk_b">
+#mapping = #pyc.module_port_mapping<[#clock_a, #reset_a, #clock_b], [], [], []>
+
+module attributes {
+  pyc.odd_controls = #pyc.module_case_signature<
+      #args, #iface, (!pyc.clock, !pyc.reset, !pyc.clock) -> (), #mapping>
+} {
+}
+
+// CHECK: controls must be ordered clock then reset pairs
+
+// -----
+
+// The control mapping must describe the physical FunctionType it maps.
+#prov = #ac.source_provenance<"tests/family.py", 1, 1, 1, 8>
+#args = #ac.dependent_arguments<[]>
+#iface = #ac.module_interface<[]>
+#clock_origin = #pyc.implicit_control_origin<"clock", "implicit", #prov>
+#reset_origin = #pyc.implicit_control_origin<"reset", "implicit", #prov>
+#clock = #pyc.control_port_mapping<"clock", 0, !pyc.clock, #clock_origin, "clk">
+#reset = #pyc.control_port_mapping<"reset", 1, !pyc.reset, #reset_origin, "rst">
+#mapping = #pyc.module_port_mapping<[#clock, #reset], [], [], []>
+
+module attributes {
+  pyc.control_type = #pyc.module_case_signature<
+      #args, #iface, (!pyc.clock, !pyc.clock) -> (), #mapping>
+} {
+}
+
+// CHECK: control carrier type does not match FunctionType

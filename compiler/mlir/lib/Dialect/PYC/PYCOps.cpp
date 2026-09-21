@@ -189,9 +189,11 @@ LogicalResult ControlPortMappingAttr::verify(
 LogicalResult ModulePortMappingAttr::verify(
     llvm::function_ref<InFlightDiagnostic()> emitError, ArrayAttr controls,
     ArrayAttr logicalPorts, ArrayAttr physicalInputs, ArrayAttr physicalResults) {
+  // Control count and clock/reset pairing belong to the case signature, which
+  // can report them with a readable diagnostic; keeping them out of this
+  // attribute avoids the ODS field-parser wrapper swallowing the reason.
   if (failed(verifyTypedArray<ControlPortMappingAttr>(
           emitError, controls, "control mappings", true)) ||
-      controls.size() < 2 || controls.size() % 2 != 0 ||
       failed(verifyTypedArray<LogicalPortMappingAttr>(
           emitError, logicalPorts, "logical mappings")) ||
       failed(verifyTypedArray<PhysicalPortAttr>(
@@ -215,6 +217,7 @@ LogicalResult ModuleCaseSignatureAttr::verify(
   // one or more clock-then-reset pairs with contiguous physical inputs.
   if (mapping.getControls().size() < 2 || mapping.getControls().size() % 2 != 0)
     return emitError() << "controls must be ordered clock then reset pairs";
+  llvm::StringSet<> controlNames;
   for (auto [index, control] : llvm::enumerate(controls)) {
     const bool expectClock = index % 2 == 0;
     if (control.getKind().getValue() != (expectClock ? "clock" : "reset") ||
@@ -222,6 +225,11 @@ LogicalResult ModuleCaseSignatureAttr::verify(
       return emitError() << "controls must be ordered clock then reset pairs";
     if (control.getType().getValue() != functionType.getInput(index))
       return emitError() << "control carrier type does not match FunctionType";
+    // Port names address the emitted module, so a repeated spelling would make
+    // one domain unreachable; the frontend must name each control distinctly.
+    if (!controlNames.insert(control.getName().getValue()).second)
+      return emitError() << "control port names must be unique: "
+                         << control.getName().getValue();
   }
   const uint64_t controlCount = mapping.getControls().size();
   if (functionType.getNumInputs() !=
