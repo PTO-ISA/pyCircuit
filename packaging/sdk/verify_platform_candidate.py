@@ -481,12 +481,15 @@ def canonical_path(path: Path) -> Path:
 
 
 def bundled_toolchain_site_packages(sdk_root: Path) -> Path | None:
-    """Return the SDK's bundled Python environment, when the wheel ships one."""
-    for candidate in sorted(
-        (sdk_root / "pycircuit/_toolchain/lib").glob("python*/site-packages")
-    ):
-        if (candidate / "agentic_circuit").is_dir():
-            return candidate
+    """Return the SDK's bundled Python environment, when it ships one.
+
+    The extracted SDK tree keeps it at `lib/python<X>/site-packages`; the same
+    environment appears under `pycircuit/_toolchain/lib` inside the wheel.
+    """
+    for root in (sdk_root / "lib", sdk_root / "pycircuit/_toolchain/lib"):
+        for candidate in sorted(root.glob("python*/site-packages")):
+            if (candidate / "agentic_circuit").is_dir():
+                return candidate
     return None
 
 
