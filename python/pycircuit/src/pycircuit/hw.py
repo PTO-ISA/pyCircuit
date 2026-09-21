@@ -823,12 +823,19 @@ def _flush_reg_next_drivers(m: Any) -> None:
     if not pending:
         return
     for next_wire, q_wire, entries in pending.values():
-        expression: Any = q_wire
+        # Anything before the last unconditional assignment is unreachable, so
+        # it is dropped instead of emitting selects nothing reads.
+        base: Any = q_wire
+        reachable: list[Any] = []
         for condition, value in entries:
             if condition is None:
-                expression = value
+                base = value
+                reachable = []
             else:
-                expression = condition._select_internal(value, expression)
+                reachable.append((condition, value))
+        expression: Any = base
+        for condition, value in reachable:
+            expression = condition._select_internal(value, expression)
         m.assign(next_wire, expression)
 
 
@@ -1348,6 +1355,7 @@ class Circuit(Module):
         self._record_struct_state_alloc()
         q_sig = super().reg(clk, rst, en.sig, next_.sig, init.sig)
         q_w = Wire(self, q_sig)
+        self._declared_registers.append((next_, q_w))
         return Reg(q=q_w, clk=clk, rst=rst, en=en, next=next_, init=init)
 
     def backedge_reg(

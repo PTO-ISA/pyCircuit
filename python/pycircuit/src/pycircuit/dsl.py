@@ -82,6 +82,10 @@ class Module:
         # finalize callbacks to run after emit_mlir() but before returning the final MLIR string.
         self._finalizers: list[Callable[[], None]] = []
         self._finalized = False
+        # Declared (next, q) register pairs and the wires something already
+        # drives, used to hold a register nothing writes.
+        self._declared_registers: list[tuple[Signal, Signal]] = []
+        self._driven_wires: set[str] = set()
         # Extra `func.func` attributes emitted by `emit_func_mlir()`.
         # Values are stored as MLIR attribute literals (e.g. `"foo"`).
         self._func_attrs: dict[str, str] = {}
@@ -489,7 +493,25 @@ class Module:
 
     def assign(self, dst: Signal, src: Signal) -> None:
         self._require_same_ty(dst.ty, src.ty, "assign")
+        self._driven_wires.add(dst.ref)
         self._emit(f"pyc.assign {dst.ref}, {src.ref} : {dst.ty}")
+
+    def _flush_undriven_registers(self) -> None:
+        """Hold every declared register that nothing drives.
+
+        `m.out()`/`m.reg()`/`m.backedge_reg()` expose the register `next` as an
+        SSA backedge placeholder. Without this, a register the design declares
+        but never writes reaches the emitters with an undriven next wire, which
+        becomes a floating `.d()` in Verilog and an uninitialised load in the
+        C++ model instead of holding the declared value.
+        """
+        pending = getattr(self, "_reg_next_sets", {})
+        for next_signal, q_signal in self._declared_registers:
+            if next_signal.ref in self._driven_wires:
+                continue
+            if next_signal.ref in pending:
+                continue
+            self.assign(next_signal, q_signal)
 
     def assert_(self, cond: Signal, *, msg: str | None = None) -> None:
         """Add a simulation-only assertion."""
@@ -761,6 +783,7 @@ class Module:
             self._finalized = True
             for fn in list(self._finalizers):
                 fn()
+            self._flush_undriven_registers()
 
         # Decision 0126: every declared clock/reset pair is a module control, so
         # a multi-domain module carries one control pair per domain in source
