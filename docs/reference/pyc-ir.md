@@ -234,6 +234,31 @@ effect-done, and terminal masks. Every lane mask keeps its exact `iLanes` type,
 and the QueueGraph plan re-verifies lane count, widths, and closed policy
 fail-closed before PYC, gfsim C++, or RTL emission.
 
+### Core-local memory ordering lowering
+
+Decision 0281 keeps Core-local memory ordering in ACIR and lowers one verified
+form to PYC. `ac.memory_order_edge` becomes one bitwise AND chain over the
+producer, consumer, and optional typed proof masks; its closed kind classifies
+the relation and never changes the extent. `ac.load_disposition` lowers to the
+same lane algebra in PYC, gfsim C++, and RTL: an identity-mismatched or
+flush-invalidated lane is `stale = pending && (!identity || killed)`, the
+remaining qualified lanes split into `forward = qualified && alias && ready &&
+!executed`, `replay = qualified && alias && executed`, and `bypass =
+qualified && disjoint && !alias`, and `wait` is the remainder. Identity
+qualification is a typed mask, so no consumer predicate enters the lowering, and
+the plan re-verifies lane counts, widths, closed kinds, and the disposition
+operands fail-closed before emission.
+
+A stale response is consumed rather than accepted. Each disposition emits one
+stable `no_stale_response:<anchor>` assertion whose condition proves that the
+stale mask and every live disposition are disjoint, and whose cover condition is
+the stale event itself. Generated C++ gives that cover a distinct `_coverage`
+counter and RTL uses it as the SVA cover property; both carry the same
+obligation ID, kind, severity, `pre_publish` sampling point, anchor, and message
+as PYC. Two limits are recorded rather than hidden: the kill path takes a typed
+lane invalidation mask because `ac.kill_set` is scalar, and the pending-load set
+remains fixture- or consumer-owned state.
+
 ### `pyc.sync_mem` / `pyc.sync_mem_dp` verification profile
 
 Every synchronous memory carries `live_window = 1`. The value is a static

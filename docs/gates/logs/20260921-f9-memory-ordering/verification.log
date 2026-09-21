@@ -1,0 +1,48 @@
+F9 CORE-LOCAL MEMORY ORDERING VERIFICATION
+
+Decision 0281: implemented-verified
+
+check-acir lit (tests/mlir): PASS 245/245
+ACIRTypesTests: PASS 6/6
+ACIROpsTests: PASS 1843/1843
+ACIRModelAnalysisTests: PASS 36/36
+CodeGenTests: PASS 110/110
+CompilerTests: PASS 10/10
+GfsimTests: PASS 272/272
+repository unit suite: PASS 164/164
+system suite: PASS 19/19 (3 pre-existing environment skips in tests/system/test_smoke_system.py)
+Agentic Python contracts/frontend/CLI: PASS 28 + 320 + 1 + 5 = 354/354
+
+ACIR positive and negative fixtures for both endpoints: PASS (closed kinds, exact lane widths on every operand and result including the invalidation mask, fail-closed plan re-verification)
+Generated QueueGraph plan: PASS
+Generated gfsim C++ syntax: PASS
+Generated PYC C++ memory-ordering executable: PASS (200 randomized cases from a real address and store model plus 6 directed cases; wait=45 bypass=68 forward=4 replay=5 stale=276)
+Generated RTL Icarus memory-ordering executable: PASS (200 seeded cases plus the same 6 directed cases; wait=83 bypass=73 forward=4 replay=5 stale=246)
+Matched no_stale_response obligation: PASS (one ID, kind, severity, pre_publish sampling point, anchor, and message in PYC, C++, and RTL; C++ coverage counter and RTL cover property for the stale event)
+Generated RTL Verilator lint: PASS
+Generated RTL structural audit: PASS
+Deterministic clean re-emission (frozen IR, plan JSON, PYC, gfsim C++, C++, RTL byte-identical): PASS
+
+ACIR coverage inventory: PASS (171 operations)
+PYC inventory: PASS (45 operations, 2 types, exact ODS/ledger match)
+Repository contracts: PASS
+API hygiene: PASS
+Diagnostic catalog: PASS
+MkDocs strict build: PASS
+Decision status coverage: PASS 281 rows, 0 deferred, evidence present
+git diff --check: PASS
+
+Non-vacuity: the executed fixtures assert a one-hot disposition per lane and fail
+if any of wait, bypass, forward, replay, or stale never occurs, so a vacuous run
+cannot pass. The directed cases additionally pin unknown-address wait, disjoint
+bypass, ready alias forward, late replay, stale drop, and flush-with-outstanding.
+
+Scope notes recorded in Decision 0281 and the evidence summary:
+- ac.kill_set is scalar (!ac.var<i1>) and cannot express a lane-vector flush, so
+  the kill path consumes a typed lane invalidation mask; a lane-vector kill form
+  is an explicit open item.
+- The pending-load set is fixture/consumer-owned state; the framework adds no
+  memory queue and this is not a full ISA memory-consistency model.
+- The gfsim C++ obligation path computes the stale predicate and the plan
+  re-verifies the expression shape, but only the PYC C++ and RTL paths
+  materialize the matched assertion and coverage, as in the earlier stages.

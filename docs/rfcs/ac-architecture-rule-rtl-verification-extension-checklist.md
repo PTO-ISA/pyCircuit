@@ -1091,16 +1091,34 @@ cases in RTL. No Python surface is admitted in P9.
 
 ### P10 - Memory ordering
 
-- [ ] Add typed MemoryOrderingGraph edges.
-- [ ] Add store-resolution dependency discharge.
-- [ ] Add alias forwarding relation.
-- [ ] Add late violation/replay relation.
-- [ ] Add execution-attempt and load-generation qualification.
-- [ ] Add flush with outstanding response.
-- [ ] Add negative stale-response tests.
+- [x] Add typed MemoryOrderingGraph edges.
+- [x] Add store-resolution dependency discharge.
+- [x] Add alias forwarding relation.
+- [x] Add late violation/replay relation.
+- [x] Add execution-attempt and load-generation qualification.
+- [x] Add flush with outstanding response.
+- [x] Add negative stale-response tests.
 
 **Exit:** the reduced LSU fixture covers wait, non-alias, forward, replay,
 flush, and old-response rejection in C++ and RTL.
+
+Decision 0281 closes this bounded internal profile. `ac.memory_order_edge` is the
+closed typed relation (the six Requirement I kinds) with optional typed proof
+masks, and `ac.load_disposition` is the only disposition endpoint: exactly one of
+wait, bypass, forward, or replay per identity-qualified lane, plus a separate
+stale mask. Bypass requires the disjoint proof rather than the absence of an
+alias match, forward requires alias with ready data on a not-yet-executed load,
+replay requires alias on an already executed load, and wait is the unproven
+remainder. A flush-invalidated outstanding load is stale regardless of its
+response identity, so the required tests cover wait, non-alias discharge,
+forward, late replay, flush with outstanding responses, and old-response
+rejection in executed generated C++ and RTL. Identity reuses Decision 0279 and
+the tracking relation reuses `ac.dependency_set`; the closed obligation kind
+`no_stale_response` carries one ID through PYC, C++, and RTL with a coverage
+counter for the stale event. Two limits are recorded rather than hidden:
+`ac.kill_set` is scalar and cannot express a lane-vector flush, so the profile
+consumes a typed invalidation mask, and the pending-load set stays
+fixture/consumer-owned state. No Python surface is admitted in P10.
 
 ### P11 - Refinement and PPA evidence
 
