@@ -569,6 +569,7 @@ def installed_smoke(sdk_root: Path, wheels: list[Path], workspace: Path) -> None
     architecture = source / "architecture.py"
     project = source / "agentic-circuit.toml"
     acir = generated / "pipeline.ac"
+    acir_second = generated / "pipeline-second.ac"
     cpp = generated / "pipeline.cpp"
     cpp_second = generated / "pipeline-second.cpp"
     bundle = generated / "pipeline"
@@ -604,8 +605,12 @@ def installed_smoke(sdk_root: Path, wheels: list[Path], workspace: Path) -> None
     ]
     run(compile_command, cwd=source, env=clean_environment)
     acir_bytes = acir.read_bytes()
-    run(compile_command, cwd=source, env=clean_environment)
-    if acir.read_bytes() != acir_bytes:
+    # The driver refuses to clobber an existing artifact, so regenerate into a
+    # second path and compare bytes, exactly as the C++ step below does.
+    compile_second = [*compile_command]
+    compile_second[compile_second.index(acir)] = acir_second
+    run(compile_second, cwd=source, env=clean_environment)
+    if acir_second.read_bytes() != acir_bytes:
         raise ValueError("ACC Python regeneration is not byte-identical")
 
     run([acc, "-c", acir, "-emit-cpp", "-o", cpp], cwd=workspace)
