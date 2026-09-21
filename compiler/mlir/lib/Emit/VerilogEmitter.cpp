@@ -808,7 +808,7 @@ static std::optional<LogicalResult> emitScalarOpAssign(Operation &op, raw_ostrea
         return {selected.emitError("selected RTL parameters must be integer")};
       os << "." << parameter.getName().strref() << "(" << value.getInt() << ")";
     }
-    os << ") rtl_" << nt.get(selected.getOutputs().front()) << " (";
+    os << ") comb_" << nt.get(selected.getOutputs().front()) << " (";
     bool first = true;
     for (auto [port, value] : llvm::zip(inputPorts, selected.getInputs())) {
       if (!first)
@@ -886,21 +886,43 @@ static std::string opSortKey(Operation *op, NameTable &nt) {
   }
   if (auto a = dyn_cast<pyc::AssignOp>(op))
     return nt.get(a.getDst());
+  // Every instance sort key below is the exact emitted instance identifier.
+  // The RTL structural audit requires emitted instances to appear in lexical
+  // order, so a key that only resembles the name (for example dropping the
+  // `_inst` suffix, or using a result wire instead of the named instance)
+  // silently reorders instances whose base names share a numeric prefix.
+  // Selected RTL primitives are ordered in the collected instance pass instead,
+  // where their `comb_` name is known.
+  if (auto inst = dyn_cast<pyc::InstanceOp>(op)) {
+    if (auto nameAttr = op->getAttrOfType<StringAttr>("short_name"))
+      return sanitizeId(nameAttr.getValue());
+    if (auto nameAttr = op->getAttrOfType<StringAttr>("name"))
+      return sanitizeId(nameAttr.getValue());
+    return "inst";
+  }
   if (auto mem = dyn_cast<pyc::ByteMemOp>(op)) {
     if (auto nameAttr = mem->getAttrOfType<StringAttr>("name"))
       return sanitizeId(nameAttr.getValue());
-    return nt.get(mem.getRdata());
+    return nt.get(mem.getRdata()) + "_inst";
   }
   if (auto mem = dyn_cast<pyc::SyncMemOp>(op)) {
     if (auto nameAttr = mem->getAttrOfType<StringAttr>("name"))
       return sanitizeId(nameAttr.getValue());
-    return nt.get(mem.getRdata());
+    return nt.get(mem.getRdata()) + "_inst";
   }
   if (auto mem = dyn_cast<pyc::SyncMemDPOp>(op)) {
     if (auto nameAttr = mem->getAttrOfType<StringAttr>("name"))
       return sanitizeId(nameAttr.getValue());
-    return nt.get(mem.getRdata0());
+    return nt.get(mem.getRdata0()) + "_inst";
   }
+  if (auto reg = dyn_cast<pyc::RegOp>(op))
+    return nt.get(reg.getQ()) + "_inst";
+  if (auto fifo = dyn_cast<pyc::FifoOp>(op))
+    return nt.get(fifo.getInReady()) + "_inst";
+  if (auto fifo = dyn_cast<pyc::AsyncFifoOp>(op))
+    return nt.get(fifo.getInReady()) + "_inst";
+  if (auto cdc = dyn_cast<pyc::CdcSyncOp>(op))
+    return nt.get(cdc.getOut()) + "_inst";
   if (!op->getResults().empty())
     return nt.get(op->getResult(0));
   return "";
@@ -1128,8 +1150,8 @@ static LogicalResult emitBlockModule(
   }
 
   auto cmp = [&](Operation *a, Operation *b) { return opSortKey(a, nt) < opSortKey(b, nt); };
-  std::sort(instOps.begin(), instOps.end(), cmp);
-  std::sort(seqInstOps.begin(), seqInstOps.end(), cmp);
+  std::stable_sort(instOps.begin(), instOps.end(), cmp);
+  std::stable_sort(seqInstOps.begin(), seqInstOps.end(), cmp);
   llvm::SmallVector<Operation *> orderedComb;
   if (!topoSortCombOps(combAssignOps, nt, orderedComb))
     std::sort(combAssignOps.begin(), combAssignOps.end(), cmp);
@@ -1167,6 +1189,8 @@ static LogicalResult emitBlockModule(
     llvm::StringSet<> assertionLabels;
     os << "// --- Combinational (netlist)\n";
     for (Operation *op : combAssignOps) {
+      if (isa<pyc::RtlCombOp>(op))
+        continue;
       if (auto a = dyn_cast<pyc::AssertOp>(op)) {
         std::string msg = assertionDiagnostic(a);
         std::string esc;
@@ -1218,15 +1242,22 @@ static LogicalResult emitBlockModule(
     os << "\n";
   }
 
-  if (!instOps.empty()) {
-    os << "// --- Submodules\n";
-    ModuleOp mod = owner->getParentOfType<ModuleOp>();
-    if (!mod)
-      return owner->emitError("verilog emitter: missing parent module for instance resolution");
-    for (Operation *op : instOps) {
+  // Every instance in the module body is emitted in one globally name-sorted
+  // block. The structural RTL audit compares the whole module body at once, so
+  // per-section sorting is not sufficient: a submodule instance name such as
+  // `aa` sorts before a selected-primitive instance name such as `comb_x`, and
+  // no section order can keep every such pair ordered.
+  llvm::SmallVector<std::pair<std::string, std::string>> renderedInstances;
+  ModuleOp mod = owner->getParentOfType<ModuleOp>();
+  if (!mod)
+    return owner->emitError(
+        "verilog emitter: missing parent module for instance resolution");
+
+  auto renderSubmodule = [&](Operation *op, llvm::raw_ostream &os,
+                             std::string &instanceName) -> LogicalResult {
       auto inst = dyn_cast<pyc::InstanceOp>(op);
       if (!inst)
-        continue;
+        return success();
 
       auto calleeAttr = op->getAttrOfType<FlatSymbolRefAttr>("callee");
       if (!calleeAttr)
@@ -1307,19 +1338,32 @@ static LogicalResult emitBlockModule(
         os << ((emitted == totalPorts) ? "\n" : ",\n");
       }
       os << ");\n";
-    }
-    os << "\n";
+      instanceName = instName;
+      return success();
+  };
+
+  for (Operation *op : instOps) {
+    std::string text;
+    llvm::raw_string_ostream buffer(text);
+    std::string instanceName;
+    if (failed(renderSubmodule(op, buffer, instanceName)))
+      return failure();
+    buffer.flush();
+    if (instanceName.empty())
+      continue;
+    renderedInstances.push_back({std::move(instanceName), std::move(text)});
   }
 
-  if (!seqInstOps.empty()) {
-    os << "// --- Sequential primitives\n";
-    for (Operation *op : seqInstOps) {
+  auto renderSequential =
+      [&](Operation *op, llvm::raw_ostream &os,
+          std::string &instanceName) -> LogicalResult {
       if (auto r = dyn_cast<pyc::RegOp>(op)) {
         auto qTy = r.getQ().getType();
         auto width = leafWidth(qTy);
         if (!width)
           return r.emitError("verilog emitter only supports integer reg data type");
 
+        instanceName = nt.get(r.getQ()) + "_inst";
         os << "pyc_reg #(.WIDTH(" << *width << ")) " << nt.get(r.getQ()) << "_inst (\n";
         os << "  .clk(" << nt.get(r.getClk()) << "),\n";
         os << "  .rst(" << nt.get(r.getRst()) << "),\n";
@@ -1328,13 +1372,14 @@ static LogicalResult emitBlockModule(
         os << "  .init(" << nt.get(r.getInit()) << "),\n";
         os << "  .q(" << nt.get(r.getQ()) << ")\n";
         os << ");\n";
-        continue;
+        return success();
       }
       if (auto fifo = dyn_cast<pyc::FifoOp>(op)) {
         auto inDataTy = dyn_cast<IntegerType>(fifo.getInData().getType());
         if (!inDataTy)
           return fifo.emitError("verilog emitter only supports integer fifo data type");
         auto depth = fifo->getAttrOfType<IntegerAttr>("depth").getValue().getZExtValue();
+        instanceName = nt.get(fifo.getInReady()) + "_inst";
         os << "pyc_fifo #(.WIDTH(" << inDataTy.getWidth() << "), .DEPTH(" << depth << ")) "
            << nt.get(fifo.getInReady()) << "_inst (\n";
         os << "  .clk(" << nt.get(fifo.getClk()) << "),\n";
@@ -1346,7 +1391,7 @@ static LogicalResult emitBlockModule(
         os << "  .out_ready(" << nt.get(fifo.getOutReady()) << "),\n";
         os << "  .out_data(" << nt.get(fifo.getOutData()) << ")\n";
         os << ");\n";
-        continue;
+        return success();
       }
       if (auto mem = dyn_cast<pyc::ByteMemOp>(op)) {
         auto addrTy = dyn_cast<IntegerType>(mem.getRaddr().getType());
@@ -1363,6 +1408,7 @@ static LogicalResult emitBlockModule(
         if (auto nameAttr = mem->getAttrOfType<StringAttr>("name"))
           inst = sanitizeId(nameAttr.getValue());
 
+        instanceName = inst;
         os << "pyc_byte_mem #(.ADDR_WIDTH(" << addrTy.getWidth() << "), .DATA_WIDTH(" << dataTy.getWidth() << "), .DEPTH("
            << depth << ")) " << inst << " (\n";
         os << "  .clk(" << nt.get(mem.getClk()) << "),\n";
@@ -1374,7 +1420,7 @@ static LogicalResult emitBlockModule(
         os << "  .wdata(" << nt.get(mem.getWdata()) << "),\n";
         os << "  .wstrb(" << nt.get(mem.getWstrb()) << ")\n";
         os << ");\n";
-        continue;
+        return success();
       }
       if (auto mem = dyn_cast<pyc::SyncMemOp>(op)) {
         auto addrTy = dyn_cast<IntegerType>(mem.getRaddr().getType());
@@ -1395,6 +1441,7 @@ static LogicalResult emitBlockModule(
         if (auto nameAttr = mem->getAttrOfType<StringAttr>("name"))
           inst = sanitizeId(nameAttr.getValue());
 
+        instanceName = inst;
         os << "pyc_sync_mem #(.ADDR_WIDTH(" << addrTy.getWidth()
            << "), .DATA_WIDTH(" << dataTy.getWidth() << "), .DEPTH(" << depth
            << "), .LIVE_WINDOW(" << liveWindow << ")) " << inst << " (\n";
@@ -1408,7 +1455,7 @@ static LogicalResult emitBlockModule(
         os << "  .wdata(" << nt.get(mem.getWdata()) << "),\n";
         os << "  .wstrb(" << nt.get(mem.getWstrb()) << ")\n";
         os << ");\n";
-        continue;
+        return success();
       }
       if (auto mem = dyn_cast<pyc::SyncMemDPOp>(op)) {
         auto addrTy = dyn_cast<IntegerType>(mem.getRaddr0().getType());
@@ -1429,6 +1476,7 @@ static LogicalResult emitBlockModule(
         if (auto nameAttr = mem->getAttrOfType<StringAttr>("name"))
           inst = sanitizeId(nameAttr.getValue());
 
+        instanceName = inst;
         os << "pyc_sync_mem_dp #(.ADDR_WIDTH(" << addrTy.getWidth()
            << "), .DATA_WIDTH(" << dataTy.getWidth() << "), .DEPTH(" << depth
            << "), .LIVE_WINDOW(" << liveWindow << ")) " << inst << " (\n";
@@ -1445,13 +1493,14 @@ static LogicalResult emitBlockModule(
         os << "  .wdata(" << nt.get(mem.getWdata()) << "),\n";
         os << "  .wstrb(" << nt.get(mem.getWstrb()) << ")\n";
         os << ");\n";
-        continue;
+        return success();
       }
       if (auto fifo = dyn_cast<pyc::AsyncFifoOp>(op)) {
         auto inDataTy = dyn_cast<IntegerType>(fifo.getInData().getType());
         if (!inDataTy)
           return fifo.emitError("verilog emitter only supports integer async_fifo data type");
         auto depth = fifo->getAttrOfType<IntegerAttr>("depth").getValue().getZExtValue();
+        instanceName = nt.get(fifo.getInReady()) + "_inst";
         os << "pyc_async_fifo #(.WIDTH(" << inDataTy.getWidth() << "), .DEPTH(" << depth << ")) "
            << nt.get(fifo.getInReady()) << "_inst (\n";
         os << "  .in_clk(" << nt.get(fifo.getInClk()) << "),\n";
@@ -1465,7 +1514,7 @@ static LogicalResult emitBlockModule(
         os << "  .out_ready(" << nt.get(fifo.getOutReady()) << "),\n";
         os << "  .out_data(" << nt.get(fifo.getOutData()) << ")\n";
         os << ");\n";
-        continue;
+        return success();
       }
       if (auto s = dyn_cast<pyc::CdcSyncOp>(op)) {
         auto ty = dyn_cast<IntegerType>(s.getIn().getType());
@@ -1474,6 +1523,7 @@ static LogicalResult emitBlockModule(
         std::uint64_t stages = 2;
         if (auto st = s->getAttrOfType<IntegerAttr>("stages"))
           stages = st.getValue().getZExtValue();
+        instanceName = nt.get(s.getOut()) + "_inst";
         os << "pyc_cdc_sync #(.WIDTH(" << ty.getWidth() << "), .STAGES(" << stages << ")) " << nt.get(s.getOut())
            << "_inst (\n";
         os << "  .clk(" << nt.get(s.getClk()) << "),\n";
@@ -1481,10 +1531,48 @@ static LogicalResult emitBlockModule(
         os << "  .in(" << nt.get(s.getIn()) << "),\n";
         os << "  .out(" << nt.get(s.getOut()) << ")\n";
         os << ");\n";
-        continue;
+        return success();
       }
       return op->emitError("internal error: missing verilog sequential primitive emission handler");
-    }
+  };
+
+  for (Operation *op : seqInstOps) {
+    std::string text;
+    llvm::raw_string_ostream buffer(text);
+    std::string instanceName;
+    if (failed(renderSequential(op, buffer, instanceName)))
+      return failure();
+    buffer.flush();
+    if (instanceName.empty())
+      continue;
+    renderedInstances.push_back({std::move(instanceName), std::move(text)});
+  }
+
+  for (Operation *op : combAssignOps) {
+    if (!isa<pyc::RtlCombOp>(op))
+      continue;
+    std::string text;
+    llvm::raw_string_ostream buffer(text);
+    std::optional<LogicalResult> handled = emitScalarOpAssign(*op, buffer, nt);
+    if (!handled)
+      return op->emitError(
+          "internal error: missing selected RTL emission handler");
+    if (failed(*handled))
+      return failure();
+    buffer.flush();
+    renderedInstances.push_back(
+        {"comb_" + nt.get(cast<pyc::RtlCombOp>(op).getOutputs().front()),
+         std::move(text)});
+  }
+
+  if (!renderedInstances.empty()) {
+    std::stable_sort(renderedInstances.begin(), renderedInstances.end(),
+                     [](const auto &left, const auto &right) {
+                       return left.first < right.first;
+                     });
+    os << "// --- Instances\n";
+    for (const auto &instance : renderedInstances)
+      os << instance.second;
     os << "\n";
   }
 

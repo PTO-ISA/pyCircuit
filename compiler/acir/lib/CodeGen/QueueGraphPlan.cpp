@@ -1104,6 +1104,93 @@ extractExpressions(mlir::Region &region, QueueBlockPlan &plan,
         return error;
       continue;
     }
+    if (auto reservation = mlir::dyn_cast<ac::ReservationSetOp>(operation)) {
+      if (auto error = append(operation, "reservation_set"))
+        return error;
+      plan.expressions.back().selectionCount =
+          static_cast<uint64_t>(reservation.getLanes());
+      plan.expressions.back().predicate =
+          reservation.getCommit() ? "commit" : "preview";
+      continue;
+    }
+    if (auto group = mlir::dyn_cast<ac::TransactionGroupOp>(operation)) {
+      if (auto error = append(operation, "transaction_group", {},
+                              ac::stringifyTransactionGroupPolicy(
+                                  group.getPolicy())))
+        return error;
+      plan.expressions.back().selectionCount =
+          static_cast<uint64_t>(group.getLanes());
+      continue;
+    }
+    if (auto allocator = mlir::dyn_cast<ac::MultiAllocatorOp>(operation)) {
+      auto operands = operandNames(allocator->getOperands());
+      if (!operands)
+        return operands.takeError();
+      constexpr llvm::StringLiteral kinds[] = {
+          "multi_allocator_allocation", "multi_allocator_accepted",
+          "multi_allocator_next_free"};
+      for (auto [resultIndex, resultValue] :
+           llvm::enumerate(allocator->getResults())) {
+        auto resultType = mlir::cast<ac::VarType>(resultValue.getType());
+        std::string result = resultIdentity(
+            operation, prefix.str() + std::to_string(plan.expressions.size()));
+        values[resultValue] = result;
+        QueueExpressionPlan expression{result, kinds[resultIndex].str(),
+                                       printType(resultType.getElementType()),
+                                       *operands};
+        expression.selectionCount =
+            static_cast<uint64_t>(allocator.getLanes());
+        expression.predicate = ac::stringifySameCycleReusePolicy(
+                                   allocator.getReusePolicy())
+                                   .str();
+        expression.width =
+            static_cast<uint64_t>(allocator.getGenerationBits());
+        expression.literal = allocator.getGenerationPolicy().str();
+        expression.laneOrdinal = resultIndex;
+        expression.sourceProvenance = currentExpressionProvenance;
+        plan.expressions.push_back(std::move(expression));
+      }
+      continue;
+    }
+    if (auto select = mlir::dyn_cast<ac::AgeSelectKOp>(operation)) {
+      if (auto error = append(operation, "age_select_k", {},
+                              select.getOrdering()))
+        return error;
+      plan.expressions.back().selectionCount =
+          static_cast<uint64_t>(select.getLanes());
+      plan.expressions.back().laneOrdinal =
+          static_cast<uint64_t>(select.getCount());
+      continue;
+    }
+    if (auto dependency = mlir::dyn_cast<ac::DependencySetOp>(operation)) {
+      auto operands = operandNames(dependency->getOperands());
+      if (!operands)
+        return operands.takeError();
+      constexpr llvm::StringLiteral kinds[] = {"dependency_set_next",
+                                                "dependency_set_ready"};
+      for (auto [resultIndex, resultValue] :
+           llvm::enumerate(dependency->getResults())) {
+        auto resultType = mlir::cast<ac::VarType>(resultValue.getType());
+        std::string result = resultIdentity(
+            operation, prefix.str() + std::to_string(plan.expressions.size()));
+        values[resultValue] = result;
+        QueueExpressionPlan expression{result, kinds[resultIndex].str(),
+                                       printType(resultType.getElementType()),
+                                       *operands};
+        expression.selectionCount =
+            static_cast<uint64_t>(dependency.getLanes());
+        expression.sourceProvenance = currentExpressionProvenance;
+        plan.expressions.push_back(std::move(expression));
+      }
+      continue;
+    }
+    if (auto terminal = mlir::dyn_cast<ac::TerminalTransactionOp>(operation)) {
+      if (auto error = append(operation, "terminal_transaction"))
+        return error;
+      plan.expressions.back().selectionCount =
+          static_cast<uint64_t>(terminal.getLanes());
+      continue;
+    }
     if (auto tuple = mlir::dyn_cast<ac::VarTupleOp>(operation)) {
       if (auto error = append(operation, "tuple_create"))
         return error;
@@ -6588,6 +6675,75 @@ llvm::Error verifyQueueGraphPlan(const QueueGraphPlan &plan) {
         if (expression.operands.size() != 5 || expression.type != "i1" ||
             expression.predicate != "epoch_mismatch_or_younger")
           return planError("kill-set expression contract is malformed");
+      } else if (expression.kind == "reservation_set" ||
+                 expression.kind == "transaction_group" ||
+                 expression.kind.starts_with("multi_allocator_") ||
+                 expression.kind == "age_select_k" ||
+                 expression.kind.starts_with("dependency_set_") ||
+                 expression.kind == "terminal_transaction") {
+        const uint64_t lanes = expression.selectionCount;
+        auto resultWidth = bitsWidth(expression.type);
+        auto masksHaveWidth = [&](size_t count) {
+          if (expression.operands.size() < count)
+            return false;
+          for (llvm::StringRef operandName :
+               llvm::ArrayRef(expression.operands).take_front(count)) {
+            auto operand = valueTypes.find(operandName);
+            auto width = operand == valueTypes.end()
+                             ? std::optional<unsigned>()
+                             : bitsWidth(operand->getValue());
+            if (!width || *width != lanes)
+              return false;
+          }
+          return true;
+        };
+        if (lanes == 0 || lanes > 64)
+          return planError("transaction algebra lane count is invalid");
+        if (expression.kind == "reservation_set") {
+          if (expression.operands.empty() || !resultWidth ||
+              *resultWidth != lanes ||
+              !masksHaveWidth(expression.operands.size()) ||
+              (expression.predicate != "preview" &&
+               expression.predicate != "commit") ||
+              (expression.predicate == "commit" &&
+               (expression.operands.size() < 2 ||
+                llvm::any_of(llvm::ArrayRef(expression.operands).drop_front(),
+                             [&](llvm::StringRef operand) {
+                               return operand != expression.operands.front();
+                             }))))
+            return planError("reservation-set expression is malformed");
+        } else if (expression.kind == "transaction_group") {
+          if (expression.operands.size() != 2 || !resultWidth ||
+              *resultWidth != lanes || !masksHaveWidth(2) ||
+              (expression.predicate != "all_or_none" &&
+               expression.predicate != "valid_prefix" &&
+               expression.predicate != "independent"))
+            return planError("transaction-group expression is malformed");
+        } else if (expression.kind.starts_with("multi_allocator_")) {
+          if (expression.operands.size() != 3 || !resultWidth ||
+              *resultWidth != lanes || !masksHaveWidth(3) ||
+              expression.laneOrdinal > 2 || expression.width == 0 ||
+              expression.width > 64 ||
+              (expression.predicate != "allow" &&
+               expression.predicate != "forbid") ||
+              expression.literal != "increment_on_allocate")
+            return planError("multi-allocator expression is malformed");
+        } else if (expression.kind == "age_select_k") {
+          if (expression.operands.size() != lanes + 1 || !resultWidth ||
+              *resultWidth != lanes || !masksHaveWidth(1) ||
+              expression.laneOrdinal == 0 ||
+              expression.laneOrdinal > lanes ||
+              expression.predicate != "oldest_first")
+            return planError("age-select-k expression is malformed");
+        } else if (expression.kind.starts_with("dependency_set_")) {
+          const bool ready = expression.kind == "dependency_set_ready";
+          if (expression.operands.size() != 5 || !masksHaveWidth(5) ||
+              !resultWidth || *resultWidth != (ready ? 1 : lanes))
+            return planError("dependency-set expression is malformed");
+        } else if (expression.operands.size() != 3 || !resultWidth ||
+                   *resultWidth != lanes || !masksHaveWidth(3)) {
+          return planError("terminal-transaction expression is malformed");
+        }
       } else if (expression.kind == "versioned_lookup_payload" ||
                  expression.kind == "versioned_lookup_valid") {
         const TablePlan *table = tables.lookup(expression.table);

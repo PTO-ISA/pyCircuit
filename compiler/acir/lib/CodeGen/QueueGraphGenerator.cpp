@@ -1482,6 +1482,177 @@ emitExpressionBody(const QueueGraphPlan &plan, const QueueBlockPlan &block,
              << transactionSlot->str() << "));\n";
       continue;
     }
+    if (expression.kind == "reservation_set") {
+      output << padding << "auto " << expression.result << " = "
+             << first->str();
+      for (size_t index = 1; index < expression.operands.size(); ++index) {
+        auto current = operand(index);
+        if (!current)
+          return current.takeError();
+        output << " & " << current->str();
+      }
+      output << ";\n";
+      continue;
+    }
+    if (expression.kind == "transaction_group") {
+      auto reserved = operand(1);
+      if (!reserved)
+        return reserved.takeError();
+      const uint64_t lanes = expression.selectionCount;
+      if (expression.predicate == "independent") {
+        output << padding << "auto " << expression.result << " = "
+               << first->str() << " & " << reserved->str() << ";\n";
+      } else if (expression.predicate == "all_or_none") {
+        output << padding << "auto " << expression.result
+               << " = ((" << first->str() << " & " << reserved->str()
+               << ") == " << first->str() << ") ? " << first->str()
+               << " : gfsim::UInt<" << lanes << ">{0};\n";
+      } else {
+        output << padding << "auto " << expression.result << " = [&]() {\n"
+               << padding << "  const std::uint64_t valid = " << first->str()
+               << ".value();\n"
+               << padding << "  const std::uint64_t reserved = "
+               << reserved->str() << ".value();\n"
+               << padding << "  std::uint64_t accepted = 0;\n"
+               << padding << "  bool prefix = true;\n"
+               << padding << "  for (std::size_t lane = 0; lane < " << lanes
+               << "; ++lane) {\n"
+               << padding
+               << "    const bool take = prefix && ((valid >> lane) & 1u) && "
+                  "((reserved >> lane) & 1u);\n"
+               << padding << "    if (take) accepted |= std::uint64_t{1} << lane;\n"
+               << padding << "    prefix = take;\n"
+               << padding << "  }\n"
+               << padding << "  return gfsim::UInt<" << lanes
+               << ">{accepted};\n"
+               << padding << "}();\n";
+      }
+      continue;
+    }
+    if (expression.kind.starts_with("multi_allocator_")) {
+      auto requests = operand(1);
+      auto release = operand(2);
+      if (!requests || !release)
+        return generatorError("multi-allocator operand is unavailable");
+      const uint64_t lanes = expression.selectionCount;
+      const unsigned resultOrdinal =
+          expression.kind == "multi_allocator_allocation" ? 0
+          : expression.kind == "multi_allocator_accepted" ? 1
+                                                            : 2;
+      output << padding << "auto " << expression.result << " = [&]() {\n"
+             << padding << "  const std::uint64_t free_mask = " << first->str()
+             << ".value();\n"
+             << padding << "  const std::uint64_t request_mask = "
+             << requests->str() << ".value();\n"
+             << padding << "  const std::uint64_t release_mask = "
+             << release->str() << ".value();\n"
+             << padding << "  const std::uint64_t candidate_free = "
+             << (expression.predicate == "allow"
+                     ? "free_mask | release_mask"
+                     : "free_mask")
+             << ";\n"
+             << padding << "  unsigned free_count = 0;\n"
+             << padding << "  for (std::size_t slot = 0; slot < " << lanes
+             << "; ++slot) free_count += (candidate_free >> slot) & 1u;\n"
+             << padding << "  unsigned accepted_count = 0;\n"
+             << padding << "  std::uint64_t accepted = 0;\n"
+             << padding << "  bool prefix = true;\n"
+             << padding << "  for (std::size_t lane = 0; lane < " << lanes
+             << "; ++lane) {\n"
+             << padding
+             << "    const bool take = prefix && ((request_mask >> lane) & 1u) "
+                "&& accepted_count < free_count;\n"
+             << padding << "    if (take) { accepted |= std::uint64_t{1} << lane; ++accepted_count; }\n"
+             << padding << "    prefix = take;\n"
+             << padding << "  }\n"
+             << padding << "  unsigned allocated_count = 0;\n"
+             << padding << "  std::uint64_t allocation = 0;\n"
+             << padding << "  for (std::size_t slot = 0; slot < " << lanes
+             << "; ++slot) {\n"
+             << padding
+             << "    if (((candidate_free >> slot) & 1u) && allocated_count < "
+                "accepted_count) { allocation |= std::uint64_t{1} << slot; "
+                "++allocated_count; }\n"
+             << padding << "  }\n"
+             << padding << "  const std::uint64_t remaining = candidate_free & ~allocation;\n"
+             << padding << "  const std::uint64_t next_free = "
+             << (expression.predicate == "allow"
+                     ? "remaining"
+                     : "remaining | release_mask")
+             << ";\n"
+             << padding << "  return gfsim::UInt<" << lanes << ">{"
+             << (resultOrdinal == 0 ? "allocation"
+                 : resultOrdinal == 1 ? "accepted"
+                                      : "next_free")
+             << "};\n"
+             << padding << "}();\n";
+      continue;
+    }
+    if (expression.kind == "age_select_k") {
+      const uint64_t lanes = expression.selectionCount;
+      output << padding << "auto " << expression.result << " = [&]() {\n"
+             << padding << "  std::uint64_t remaining = " << first->str()
+             << ".value();\n"
+             << padding << "  std::uint64_t winners = 0;\n"
+             << padding << "  const std::array<std::uint64_t, " << lanes
+             << "> ages{";
+      for (size_t index = 1; index < expression.operands.size(); ++index) {
+        auto age = operand(index);
+        if (!age)
+          return age.takeError();
+        if (index != 1)
+          output << ", ";
+        output << age->str() << ".value()";
+      }
+      output << "};\n"
+             << padding << "  for (std::size_t pick = 0; pick < "
+             << expression.laneOrdinal << "; ++pick) {\n"
+             << padding << "    std::size_t winner = " << lanes << ";\n"
+             << padding << "    for (std::size_t lane = 0; lane < " << lanes
+             << "; ++lane) {\n"
+             << padding << "      if (!((remaining >> lane) & 1u)) continue;\n"
+             << padding << "      if (winner == " << lanes
+             << " || ages[lane] < ages[winner]) winner = lane;\n"
+             << padding << "    }\n"
+             << padding << "    if (winner == " << lanes << ") break;\n"
+             << padding << "    winners |= std::uint64_t{1} << winner;\n"
+             << padding << "    remaining &= ~(std::uint64_t{1} << winner);\n"
+             << padding << "  }\n"
+             << padding << "  return gfsim::UInt<" << lanes
+             << ">{winners};\n"
+             << padding << "}();\n";
+      continue;
+    }
+    if (expression.kind.starts_with("dependency_set_")) {
+      llvm::SmallVector<std::string> values;
+      for (size_t index = 0; index < expression.operands.size(); ++index) {
+        auto current = operand(index);
+        if (!current)
+          return current.takeError();
+        values.push_back(current->str());
+      }
+      const std::string next = "((" + values[0] + " | " + values[1] +
+                               ") & ~(" + values[2] + " & " + values[4] +
+                               ") & ~(" + values[3] + " & " + values[4] +
+                               "))";
+      output << padding << "auto " << expression.result << " = "
+             << (expression.kind == "dependency_set_next"
+                     ? next
+                     : next + " == gfsim::UInt<" +
+                           std::to_string(expression.selectionCount) + ">{0}")
+             << ";\n";
+      continue;
+    }
+    if (expression.kind == "terminal_transaction") {
+      auto effects = operand(1);
+      auto terminal = operand(2);
+      if (!effects || !terminal)
+        return generatorError("terminal transaction operand is unavailable");
+      output << padding << "auto " << expression.result << " = "
+             << first->str() << " & " << effects->str() << " & "
+             << terminal->str() << ";\n";
+      continue;
+    }
     if (expression.kind == "versioned_lookup_payload" ||
         expression.kind == "versioned_lookup_valid") {
       const TablePlan *tablePlan = findTable(plan, expression.table);

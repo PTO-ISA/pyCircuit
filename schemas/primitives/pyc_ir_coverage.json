@@ -23,6 +23,7 @@
         "tests/mlir/agentic-circuit/CodeGen/queue-lanes-transform-pyc.mlir",
         "tests/mlir/agentic-circuit/CodeGen/table-masked-write-pyc.mlir",
         "tests/mlir/agentic-circuit/CodeGen/table-runtime-row-pyc.mlir",
+        "tests/mlir/agentic-circuit/CodeGen/transaction-algebra-lowering.mlir",
         "tests/mlir/agentic-circuit/PYC/source-provenance-cse.mlir",
         "tests/mlir/agentic-circuit/Transforms/rule-multi-input-lowering.mlir"
       ],
@@ -41,6 +42,7 @@
         "tests/mlir/agentic-circuit/CodeGen/queue-lanes-transform-pyc.mlir",
         "tests/mlir/agentic-circuit/CodeGen/table-masked-write-pyc.mlir",
         "tests/mlir/agentic-circuit/CodeGen/table-runtime-row-pyc.mlir",
+        "tests/mlir/agentic-circuit/CodeGen/transaction-algebra-lowering.mlir",
         "tests/mlir/agentic-circuit/PYC/source-provenance-cse.mlir",
         "tests/mlir/agentic-circuit/Transforms/rule-multi-input-lowering.mlir",
         "tests/python/agentic-circuit/python_frontend/test_queue_frontend.py",
@@ -1033,6 +1035,7 @@
       "negative_mlir": [],
       "positive_mlir": [
         "tests/mlir/agentic-circuit/CodeGen/popcount.mlir",
+        "tests/mlir/agentic-circuit/CodeGen/transaction-algebra-lowering.mlir",
         "tests/mlir/pyc/popcount-primitive.mlir"
       ],
       "python_producer": [
@@ -1057,6 +1060,7 @@
         "tests/cpp/agentic-circuit/CodeGen/QueueGraphPlanTest.cpp",
         "tests/cpp/agentic-circuit/gfsim/BitsTest.cpp",
         "tests/mlir/agentic-circuit/CodeGen/popcount.mlir",
+        "tests/mlir/agentic-circuit/CodeGen/transaction-algebra-lowering.mlir",
         "tests/mlir/pyc/popcount-primitive.mlir",
         "tests/python/agentic-circuit/python_frontend/test_public_api.py",
         "tests/python/agentic-circuit/python_frontend/test_queue_frontend.py",

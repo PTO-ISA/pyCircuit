@@ -1,0 +1,39 @@
+F8 MULTI-LANE TRANSACTION ALGEBRA VERIFICATION
+
+Decision 0280: implemented-verified
+
+check-acir lit (tests/mlir): PASS 240/240
+ACIRTypesTests: PASS 6/6
+ACIROpsTests: PASS 1843/1843
+ACIRModelAnalysisTests: PASS 36/36
+CodeGenTests: PASS 110/110
+CompilerTests: PASS 10/10
+GfsimTests: PASS 272/272
+repository unit suite: PASS 164/164
+system suite: PASS 19/19 (3 pre-existing environment skips in tests/system/test_smoke_system.py, unmodified since #120)
+Agentic Python contracts/frontend/CLI: PASS 28 + 320 + 1 + 5 = 354/354
+
+ACIR negative/positive fixtures: PASS (lane-width bounds, empty reservation, divergent and single-owner committed masks, generation policy and width, transaction-group width, age count/type/ordering, non-integer dependency ready, non-integer kill-set result)
+Generated QueueGraph plan: PASS
+Generated gfsim C++ syntax: PASS
+Generated PYC C++ transaction executable: PASS (200 deterministic splitmix64 inputs, random 0..4-cycle output stalls, capacity-limited independent oracle)
+Generated RTL Icarus transaction executable: PASS (50 seeded cases, same oracle)
+Generated RTL Verilator lint: PASS
+Generated RTL structural audit (module/wire/instance/assertion ordering): PASS for 4, 8, and 10 lanes
+RTL instance-order regression (submodule `aa` before selected primitive): PASS
+Deterministic clean re-emission (frozen IR, plan JSON, PYC, gfsim C++, C++, RTL byte-identical): PASS
+
+ACIR coverage inventory: PASS (169 operations)
+PYC inventory: PASS (45 operations, 2 types, exact ODS/ledger match)
+Repository contracts: PASS
+API hygiene: PASS
+Diagnostic catalog: PASS
+MkDocs strict build: PASS
+Decision status coverage: PASS 280 rows, 0 deferred, evidence present
+git diff --check: PASS
+
+Environment note: tests/python/agentic-circuit/tools/test_perfetto_trace.py fails
+to collect because it imports tools.perfetto_trace, which lives at
+compiler/acir/tools/perfetto_trace.py. That path assumption is pre-existing,
+unrelated to F8, and is not part of the CI Agentic Python lane, which runs the
+contracts, python_frontend, and cli subsets recorded above.

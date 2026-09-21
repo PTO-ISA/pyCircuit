@@ -210,6 +210,30 @@ reconstructs identity metadata. Each qualified write emits one stable
 its optional cover condition. Plain `ac.table.propose`, partial identity, and
 unqualified versioned writes are rejected before PYC emission.
 
+### Multi-lane transaction algebra lowering
+
+Decision 0280 keeps lane-mask algebra in ACIR and lowers one verified form to
+PYC. All six endpoints are compiler-owned and internal; no Python API is
+admitted. `ac.reservation_set` becomes one bitwise AND chain over the exact
+lane masks, and a `commit` ReservationSet is verified to carry one identical
+accepted mask per resource owner before lowering. `ac.transaction_group`
+becomes an AND for `independent`, a masked equality select for `all_or_none`,
+and one low-to-high `valid && reserved` prefix scan built from
+`pyc.extract`/`pyc.concat` for `valid_prefix`; the policy is never inferred from
+source order.
+
+`ac.multi_allocator` becomes one popcount plus two lane-order prefix scans: the
+requested prefix that still fits free capacity, and the lowest free slots that
+cover the accepted count, with `pyc.zext`/`pyc.add` accounting and a closed
+same-cycle reuse policy. `ac.age_select_k` lowers to iterative `oldest_first`
+reduction over the per-lane ages with lower-lane tie-breaking.
+`ac.dependency_set` lowers the exact
+`(current | add) & ~((resolve | kill) & identity_match)` expression and its
+zero-readiness predicate. `ac.terminal_transaction` conjoins the committed,
+effect-done, and terminal masks. Every lane mask keeps its exact `iLanes` type,
+and the QueueGraph plan re-verifies lane count, widths, and closed policy
+fail-closed before PYC, gfsim C++, or RTL emission.
+
 ### `pyc.sync_mem` / `pyc.sync_mem_dp` verification profile
 
 Every synchronous memory carries `live_window = 1`. The value is a static

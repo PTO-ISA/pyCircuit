@@ -11736,3 +11736,102 @@ There is no unqualified write to a versioned Table, slot-only reference,
 generation-only reference, naked recovery Boolean, manual consumer predicate,
 compatibility alias, fallback lowering, dual path, or generated-code semantic
 patch. Unsupported or partial identity metadata rejects before backend emit.
+
+## Decision 0280: multi-lane transactions use one explicit reservation, commit, and terminal algebra
+
+**Status:** Accepted and implemented-verified for the internal bounded profile
+
+**Context / Goal**
+A rule that consumes several lanes and allocates several resources needs one
+explicit lane-mask algebra. Scalar selection is not enough: without it a
+resource may accept a lane mask that another resource refused, source order may
+silently decide which lanes commit, and free capacity may be over-issued.
+QueueGraph/gfsim, generated C++, PYC, and RTL must lower the same algebra.
+
+**Decision (strong constraint)**
+- `ac.reservation_set` is the only common-mask endpoint. It intersects every
+  participating resource mask with bitwise AND. `lanes` is an explicit value in
+  `[1, 64]`; every operand and the result is exactly `!ac.var<iLanes>`. The
+  operation requires at least one participating resource.
+- A `commit` ReservationSet marks the committed lane mask. It requires at least
+  two resource owners and requires every owner operand to be the exact same
+  accepted mask, so no resource may accept a divergent lane mask. A non-commit
+  ReservationSet is a preview and may intersect different masks.
+- `ac.transaction_group` is the only lane-selection endpoint. `policy` is
+  closed to `all_or_none`, `valid_prefix`, and `independent`, and the policy is
+  written explicitly. `valid_prefix` accepts the contiguous prefix of
+  `valid && reserved` from lane zero; `all_or_none` accepts every valid lane only
+  when all of them are reserved and otherwise accepts none; `independent`
+  accepts any lane that is both valid and reserved. No policy is inferred from
+  source order, and the same valid and reservation masks feed all three.
+- `ac.multi_allocator` allocates free capacity to a request mask.
+  `reuse_policy` is closed to `allow` and `forbid` for same-cycle release reuse,
+  `generation_bits` is in `[1, 64]`, and `generation_policy` is exactly
+  `increment_on_allocate`. It returns allocation, accepted, and next-free masks
+  that share the exact lane width. Requests are accepted in lane order while
+  free capacity remains, and allocation takes the lowest free slots first, so
+  capacity is never over-issued and every lane is accounted exactly once.
+- When same-cycle reuse is allowed, released lanes join the candidate free set
+  for this cycle and are returned to next-free only if they stay unallocated.
+  When reuse is forbidden, released lanes are not allocatable in the same cycle
+  and are added back to next-free.
+- `ac.age_select_k` selects `count` winners from a candidate mask using exactly
+  one age operand per lane. `count` is in `[1, lanes]`, `ordering` is exactly
+  `oldest_first`, ties resolve to the lower lane index, and every age shares one
+  signless integer type of finite width in `[1, 64]`.
+- `ac.dependency_set` computes
+  `next = (current | add) & ~((resolve | kill) & identity_match)` and
+  `ready = (next == 0)`. Every mask is the exact lane width and `ready` is
+  exactly `!ac.var<i1>`.
+- `ac.terminal_transaction` computes
+  `completed = committed & effect_done & terminal`. A lane can never report
+  completion before its committed, effect-done, and terminal masks all cover it.
+- QueueGraph, gfsim C++, PYC, and RTL lower the same lane algebra. The
+  QueueGraph plan re-verifies lane count, mask widths, closed policy,
+  ordering, generation policy, reuse policy, and committed-mask uniformity
+  fail-closed before any backend emission.
+- `generation_bits` and the `increment_on_allocate` generation policy are
+  admission-verified allocator metadata: the plan records and re-checks them,
+  and the lane-mask lowering does not materialize generation tags. A
+  materialized generation tag belongs to the Decision 0279 versioned-identity
+  contract, not to this lane algebra.
+- Zero-loss accounting holds under arbitrary output stalls: accepted,
+  allocated, and completed lanes are all counted from the same committed mask,
+  so no lane is lost, duplicated, or silently dropped.
+
+**Bounds**
+- Lanes are in `[1, 64]`. The winner count is in `[1, lanes]`. Generation and
+  age widths are finite tags in `[1, 64]` bits.
+- Transaction-group policy, same-cycle reuse policy, and age ordering are
+  closed sets. Additional policies require a new closed case plus parity
+  evidence; they are not configurable strings.
+
+**Verification**
+- ACIR positive and negative tests cover lane-width exactness, empty
+  reservation, divergent committed masks, generation policy, winner count, and
+  non-`i1` dependency readiness.
+- The reduced four-lane, three-resource fixture lowers reservation, all three
+  transaction-group policies, both same-cycle reuse policies, committed mask,
+  age-select-K, dependency set, and terminal transaction through deterministic
+  QueueGraph JSON. The eight-lane and ten-lane scale fixtures re-emit the same
+  algebra at wider lane counts.
+- The executable PYC fixture drives every algebra output from two hundred
+  deterministic pseudorandom inputs with random output stalls and an
+  independent reference oracle. The oracle models capacity-limited allocator
+  acceptance, so a design that over-issues free capacity fails the fixture.
+  The Icarus fixture runs the same reference oracle for fifty seeded cases.
+- Deterministic QueueGraph JSON, generated gfsim C++, generated PYC C++, and
+  generated RTL all carry the same lane expressions. Generated gfsim C++
+  compiles, generated PYC C++ executes, and generated RTL passes the structural
+  audit, Verilator lint, and Icarus execution.
+- The eight-lane and ten-lane fixtures prove width scaling, deterministic
+  clean re-emission, and structural-audit compliance; their semantic proof is
+  the executed four-lane differential fixture.
+
+**Hard break**
+There is no per-resource divergent committed lane mask, no source-order
+transaction selection, no implicit commit policy, no partial commit, no
+per-resource private allocator, no consumer-specific memory or scheduling
+lowering, and no compatibility alias, fallback lowering, dual path, or
+generated-code semantic patch. Unsupported lane widths or policies reject
+before backend emit.
