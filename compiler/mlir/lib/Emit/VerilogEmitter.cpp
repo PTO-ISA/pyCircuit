@@ -358,7 +358,13 @@ static LogicalResult computeCasePortNames(pyc::ModuleCaseOp moduleCase,
   NameTable names;
   for (ControlPortMappingAttr control :
        signature.getMapping().getControls().getAsRange<ControlPortMappingAttr>()) {
-    std::string name = control.getKind().getValue() == "clock" ? "clk" : "rst";
+    // A declared clock/reset keeps its source name; synthesized controls fall
+    // back to the generic clk/rst spelling.
+    std::string name;
+    if (control.getName())
+      name = control.getName().getValue().str();
+    if (name.empty())
+      name = control.getKind().getValue() == "clock" ? "clk" : "rst";
     inNames[control.getPhysicalInputIndex()] = names.unique(name);
   }
   for (LogicalPortMappingAttr logical : signature.getMapping()
@@ -1210,14 +1216,21 @@ static LogicalResult emitBlockModule(
                    });
 
   if (!combAssignOps.empty()) {
+    // Decision 0126: a module may carry several clock domains, so the
+    // single-clock requirement only applies when an architecture SVA assertion
+    // actually needs a sampling edge.
+    const bool hasAssertions = llvm::any_of(
+        combAssignOps, [](Operation *op) { return isa<pyc::AssertOp>(op); });
     std::optional<std::string> assertionClock;
-    for (BlockArgument argument : top.getArguments())
-      if (isa<pyc::ClockType>(argument.getType())) {
-        if (assertionClock)
-          return owner->emitError(
-              "architecture SVA requires one unambiguous module clock");
-        assertionClock = nt.get(argument);
-      }
+    if (hasAssertions) {
+      for (BlockArgument argument : top.getArguments())
+        if (isa<pyc::ClockType>(argument.getType())) {
+          if (assertionClock)
+            return owner->emitError(
+                "architecture SVA requires one unambiguous module clock");
+          assertionClock = nt.get(argument);
+        }
+    }
     llvm::StringSet<> assertionLabels;
     os << "// --- Combinational (netlist)\n";
     for (Operation *op : combAssignOps) {

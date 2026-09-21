@@ -2570,10 +2570,11 @@ int main(int argc, char **argv) {
     passTimingCollector = passTimingStorage.get();
     pm.addInstrumentation(std::move(passTimingStorage));
   }
-  // Bridge the classic frontend's single-case families onto the func-based
-  // checker pipeline before anything inspects the IR.
-  pm.addPass(pyc::createLowerModuleFamiliesToFuncsPass());
   pm.addPass(pyc::createCheckFrontendContractPass());
+  // Bridge single-case families onto the func-based checker pipeline after the
+  // frontend contract check, which keeps its established treatment of
+  // family-shaped input from every producer.
+  pm.addPass(pyc::createLowerModuleFamiliesToFuncsPass());
   pm.addPass(pyc::createInlineFunctionsPass());
   if (wantFlatten)
     pm.addPass(pyc::createFlattenInstancesPass());

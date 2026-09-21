@@ -80,8 +80,9 @@ def PYC_ControlPortMappingAttr : PYC_Attr<"ControlPortMapping"> {
   let parameters = (ins "::mlir::StringAttr":$kind,
                          "uint64_t":$physicalInputIndex,
                          "::mlir::TypeAttr":$type,
-                         "::pyc::ImplicitControlOriginAttr":$origin);
-  let assemblyFormat = "`<` $kind `,` $physicalInputIndex `,` $type `,` $origin `>`";
+                         "::pyc::ImplicitControlOriginAttr":$origin,
+                         "::mlir::StringAttr":$name);
+  let assemblyFormat = "`<` $kind `,` $physicalInputIndex `,` $type `,` $origin `,` $name `>`";
   let genVerifyDecl = 1;
 }
 def PYC_ModulePortMappingAttr : PYC_Attr<"ModulePortMapping"> {

@@ -5,8 +5,8 @@
 #iface = #ac.module_interface<[]>
 #clock_origin = #pyc.implicit_control_origin<"clock", "implicit", #prov>
 #reset_origin = #pyc.implicit_control_origin<"reset", "implicit", #prov>
-#clock = #pyc.control_port_mapping<"clock", 0, !pyc.clock, #clock_origin>
-#reset = #pyc.control_port_mapping<"reset", 1, !pyc.reset, #reset_origin>
+#clock = #pyc.control_port_mapping<"clock", 0, !pyc.clock, #clock_origin, "clk">
+#reset = #pyc.control_port_mapping<"reset", 1, !pyc.reset, #reset_origin, "rst">
 #mapping = #pyc.module_port_mapping<[#reset, #clock], [], [], []>
 
 module attributes {
@@ -27,8 +27,8 @@ module attributes {
 ]>
 #clock_origin = #pyc.implicit_control_origin<"clock", "implicit", #prov>
 #reset_origin = #pyc.implicit_control_origin<"reset", "implicit", #prov>
-#clock = #pyc.control_port_mapping<"clock", 0, !pyc.clock, #clock_origin>
-#reset = #pyc.control_port_mapping<"reset", 1, !pyc.reset, #reset_origin>
+#clock = #pyc.control_port_mapping<"clock", 0, !pyc.clock, #clock_origin, "clk">
+#reset = #pyc.control_port_mapping<"reset", 1, !pyc.reset, #reset_origin, "rst">
 #layout = #pyc.layout<8, [#pyc.packed_leaf<#pyc.projection_path<[]>, #ac.type_expr<#ac.type_expr_concrete<i8>>, 0, 8>]>
 #valid = #pyc.physical_port<"input", 3, i1, "queue_valid" lane 0 : i64>
 #data = #pyc.physical_port<"input", 4, i8, "queue_data" lane 0 : i64 layout #layout>
@@ -54,8 +54,8 @@ module attributes {
 ]>
 #clock_origin = #pyc.implicit_control_origin<"clock", "implicit", #prov>
 #reset_origin = #pyc.implicit_control_origin<"reset", "implicit", #prov>
-#clock = #pyc.control_port_mapping<"clock", 0, !pyc.clock, #clock_origin>
-#reset = #pyc.control_port_mapping<"reset", 1, !pyc.reset, #reset_origin>
+#clock = #pyc.control_port_mapping<"clock", 0, !pyc.clock, #clock_origin, "clk">
+#reset = #pyc.control_port_mapping<"reset", 1, !pyc.reset, #reset_origin, "rst">
 #layout = #pyc.layout<8, [#pyc.packed_leaf<#pyc.projection_path<[]>, #ac.type_expr<#ac.type_expr_concrete<i8>>, 0, 8>]>
 #valid1 = #pyc.physical_port<"input", 2, i1, "queue_valid" lane 1 : i64>
 #data1 = #pyc.physical_port<"input", 3, i8, "queue_data" lane 1 : i64 layout #layout>
@@ -83,8 +83,8 @@ module attributes {
 ]>
 #clock_origin = #pyc.implicit_control_origin<"clock", "implicit", #prov>
 #reset_origin = #pyc.implicit_control_origin<"reset", "implicit", #prov>
-#clock = #pyc.control_port_mapping<"clock", 0, !pyc.clock, #clock_origin>
-#reset = #pyc.control_port_mapping<"reset", 1, !pyc.reset, #reset_origin>
+#clock = #pyc.control_port_mapping<"clock", 0, !pyc.clock, #clock_origin, "clk">
+#reset = #pyc.control_port_mapping<"reset", 1, !pyc.reset, #reset_origin, "rst">
 #layout = #pyc.layout<8, [#pyc.packed_leaf<#pyc.projection_path<[]>, #ac.type_expr<#ac.type_expr_concrete<i8>>, 0, 8>]>
 #valid = #pyc.physical_port<"input", 2, i1, "queue_valid" lane 0 : i64>
 #data = #pyc.physical_port<"input", 3, i8, "queue_data" lane 0 : i64 layout #layout>
@@ -110,8 +110,8 @@ module attributes {
 ]>
 #clock_origin = #pyc.implicit_control_origin<"clock", "implicit", #prov>
 #reset_origin = #pyc.implicit_control_origin<"reset", "implicit", #prov>
-#clock = #pyc.control_port_mapping<"clock", 0, !pyc.clock, #clock_origin>
-#reset = #pyc.control_port_mapping<"reset", 1, !pyc.reset, #reset_origin>
+#clock = #pyc.control_port_mapping<"clock", 0, !pyc.clock, #clock_origin, "clk">
+#reset = #pyc.control_port_mapping<"reset", 1, !pyc.reset, #reset_origin, "rst">
 #layout = #pyc.layout<8, [#pyc.packed_leaf<#pyc.projection_path<[]>, #ac.type_expr<#ac.type_expr_concrete<i8>>, 0, 8>]>
 #valid = #pyc.physical_port<"input", 2, i1, "queue_valid" lane 0 : i64>
 #data = #pyc.physical_port<"input", 3, i8, "queue_data" lane 0 : i64 layout #layout>
@@ -141,8 +141,8 @@ module attributes {
 #schema = #ac.module_family_schema<#ac.static_parameters<[]>, #ac.static_cases<[#args]>, #iface, #owner, []>
 #clock_origin = #pyc.implicit_control_origin<"clock", "implicit", #prov>
 #reset_origin = #pyc.implicit_control_origin<"reset", "implicit", #prov>
-#clock = #pyc.control_port_mapping<"clock", 0, !pyc.clock, #clock_origin>
-#reset = #pyc.control_port_mapping<"reset", 1, !pyc.reset, #reset_origin>
+#clock = #pyc.control_port_mapping<"clock", 0, !pyc.clock, #clock_origin, "clk">
+#reset = #pyc.control_port_mapping<"reset", 1, !pyc.reset, #reset_origin, "rst">
 #bad_layout = #pyc.layout<8, [#pyc.packed_leaf<#pyc.projection_path<[]>, #ac.type_expr<#ac.type_expr_concrete<i4>>, 0, 8>]>
 #value = #pyc.physical_port<"input", 2, i8, "value" layout #bad_layout>
 #logical = #pyc.logical_port_mapping<"input", 0, "value", #logical_type, [#value], #prov>

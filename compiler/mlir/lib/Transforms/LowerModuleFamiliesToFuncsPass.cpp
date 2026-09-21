@@ -48,8 +48,13 @@ static void collectCasePortNames(pyc::ModuleCaseOp moduleCase,
                           .getAsRange<pyc::ControlPortMappingAttr>()) {
     if (control.getPhysicalInputIndex() >= argNames.size())
       continue;
+    std::string declared;
+    if (control.getName())
+      declared = control.getName().getValue().str();
     const llvm::StringRef base =
-        control.getKind().getValue() == "clock" ? "clk" : "rst";
+        declared.empty()
+            ? (control.getKind().getValue() == "clock" ? "clk" : "rst")
+            : llvm::StringRef(declared);
     unsigned &count = controlCounts[base];
     ++count;
     argNames[control.getPhysicalInputIndex()] =
@@ -183,6 +188,14 @@ struct LowerModuleFamiliesToFuncsPass
         resultAttrs.push_back(builder.getStringAttr(name));
       func->setAttr("arg_names", builder.getArrayAttr(argAttrs));
       func->setAttr("result_names", builder.getArrayAttr(resultAttrs));
+      // Later passes require the frontend metadata a bodyless or
+      // structurally-generated family may not carry.
+      if (!func->hasAttr("pyc.inline"))
+        func->setAttr("pyc.inline", builder.getStringAttr("false"));
+      if (!func->hasAttr("pyc.struct.metrics"))
+        func->setAttr("pyc.struct.metrics", builder.getStringAttr(kEmptyMetrics));
+      if (!func->hasAttr("pyc.struct.collections"))
+        func->setAttr("pyc.struct.collections", builder.getStringAttr("[]"));
 
       Block *entry = func.addEntryBlock();
       Block &body = moduleCase.getBody().front();

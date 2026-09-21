@@ -12,8 +12,8 @@
   []>
 #clock_origin = #pyc.implicit_control_origin<"clock", "implicit", #prov>
 #reset_origin = #pyc.implicit_control_origin<"reset", "implicit", #prov>
-#clock = #pyc.control_port_mapping<"clock", 0, !pyc.clock, #clock_origin>
-#reset = #pyc.control_port_mapping<"reset", 1, !pyc.reset, #reset_origin>
+#clock = #pyc.control_port_mapping<"clock", 0, !pyc.clock, #clock_origin, "clk">
+#reset = #pyc.control_port_mapping<"reset", 1, !pyc.reset, #reset_origin, "rst">
 #mapping = #pyc.module_port_mapping<[#clock, #reset], [], [], []>
 #signature = #pyc.module_case_signature<
   #dependent_args, #ac.module_interface<[]>, (!pyc.clock, !pyc.reset) -> (), #mapping>

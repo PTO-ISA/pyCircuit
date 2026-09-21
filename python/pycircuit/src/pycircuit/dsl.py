@@ -875,8 +875,8 @@ class Module:
                 entry
                 for pair_index in range(len(control_pairs))
                 for entry in (
-                    f'#pyc.control_port_mapping<"clock", {pair_index * 2}, !pyc.clock, {clock_origin}>',
-                    f'#pyc.control_port_mapping<"reset", {pair_index * 2 + 1}, !pyc.reset, {reset_origin}>',
+                    f'#pyc.control_port_mapping<"clock", {pair_index * 2}, !pyc.clock, {clock_origin}, {self._escape_attr(control_pairs[pair_index][0])}>',
+                    f'#pyc.control_port_mapping<"reset", {pair_index * 2 + 1}, !pyc.reset, {reset_origin}, {self._escape_attr(control_pairs[pair_index][2])}>',
                 )
             )
             + "]"

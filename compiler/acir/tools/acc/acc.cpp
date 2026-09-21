@@ -533,8 +533,15 @@ llvm::Error writeVerilogAtomically(llvm::StringRef program,
     return llvm::createStringError(error, "cannot create Verilog staging file");
   cleanup.verilogStats = cleanup.verilog;
   cleanup.verilogStats += ".stats.json";
-  if (std::error_code error = llvm::sys::fs::closeFile(verilogDescriptor))
-    return llvm::createStringError(error, "cannot close Verilog staging file");
+  {
+    // `llvm::sys::fs::file_t` is a HANDLE on Windows, so close through the
+    // stream wrapper instead of the POSIX-shaped closeFile overload.
+    llvm::raw_fd_ostream reserve(verilogDescriptor, /*shouldClose=*/true);
+    reserve.flush();
+    if (reserve.has_error())
+      return llvm::createStringError(reserve.error(),
+                                     "cannot close Verilog staging file");
+  }
 
   std::vector<std::string> ownedArguments{
       pycc->str().str(),

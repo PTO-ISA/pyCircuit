@@ -170,9 +170,12 @@ LogicalResult ImplicitControlOriginAttr::verify(
 }
 LogicalResult ControlPortMappingAttr::verify(
     llvm::function_ref<InFlightDiagnostic()> emitError, StringAttr kind,
-    uint64_t index, TypeAttr type, ImplicitControlOriginAttr origin) {
+    uint64_t index, TypeAttr type, ImplicitControlOriginAttr origin,
+    StringAttr name) {
   bool clock = kind && kind.getValue() == "clock";
   bool reset = kind && kind.getValue() == "reset";
+  if (!name || name.getValue().empty())
+    return emitError() << "control mapping must carry its source port name";
   // Decision 0126: controls are contiguous clock-then-reset pairs, so a clock
   // occupies an even physical input index and its reset the following odd one.
   if ((!clock && !reset) || !type || !origin || origin.getKind() != kind ||

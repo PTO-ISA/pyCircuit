@@ -83,7 +83,12 @@ LogicalResult publishArtifacts(ModuleOp model,
              << "cannot reserve rule effect graph backup for '"
              << artifact.finalPath << "': " << error.message();
     }
-    llvm::sys::fs::closeFile(descriptor);
+    {
+      // `llvm::sys::fs::file_t` is a HANDLE on Windows, so close through the
+      // stream wrapper instead of the POSIX-shaped closeFile overload.
+      llvm::raw_fd_ostream reserve(descriptor, /*shouldClose=*/true);
+      reserve.flush();
+    }
     llvm::sys::fs::remove(backup);
     artifact.backupPath = backup.str().str();
     if (std::error_code error =

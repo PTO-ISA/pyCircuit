@@ -6638,10 +6638,10 @@ emitFamilyCaseMapping(const QueueGraphPlan &bodyPlan,
   std::vector<std::string> controls = {
       "#pyc.control_port_mapping<\"clock\", 0, !pyc.clock, "
       "#pyc.implicit_control_origin<\"clock\", \"implicit\", " + provenance +
-          ">>",
+          ">, \"clk\">",
       "#pyc.control_port_mapping<\"reset\", 1, !pyc.reset, "
       "#pyc.implicit_control_origin<\"reset\", \"implicit\", " + provenance +
-          ">>"};
+          ">, \"rst\">"};
   uint64_t inputCarrierCount = 0;
   uint64_t outputCarrierCount = 0;
   uint64_t inputQueueCount = 0;
