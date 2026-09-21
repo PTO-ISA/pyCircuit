@@ -34,14 +34,6 @@ WindowEntry slot0(const Model &model) {
           unsigned(raw & 0xffu)};
 }
 
-std::uint64_t next_random(std::uint64_t &state) {
-  state += 0x9e3779b97f4a7c15ULL;
-  std::uint64_t z = state;
-  z = (z ^ (z >> 30)) * 0xbf58476d1ce4e5b9ULL;
-  z = (z ^ (z >> 27)) * 0x94d049bb133111ebULL;
-  return z ^ (z >> 31);
-}
-
 // The dispatch payload mirrors the fixture's @Dispatch field order. It is wider
 // than one machine word, so it is assembled in the generated wire type. `free`
 // is the availability bitmap and `valid` the dispatch bitmap: the ALU allocator
