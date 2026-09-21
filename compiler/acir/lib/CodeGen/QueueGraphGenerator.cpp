@@ -1482,7 +1482,8 @@ emitExpressionBody(const QueueGraphPlan &plan, const QueueBlockPlan &block,
              << transactionSlot->str() << "));\n";
       continue;
     }
-    if (expression.kind == "reservation_set") {
+    if (expression.kind == "reservation_set" ||
+        expression.kind == "memory_order_edge") {
       output << padding << "auto " << expression.result << " = "
              << first->str();
       for (size_t index = 1; index < expression.operands.size(); ++index) {
@@ -1492,6 +1493,67 @@ emitExpressionBody(const QueueGraphPlan &plan, const QueueBlockPlan &block,
         output << " & " << current->str();
       }
       output << ";\n";
+      continue;
+    }
+    if (expression.kind.starts_with("load_disposition_")) {
+      if (expression.operands.size() != 7)
+        return generatorError("load-disposition operand count mismatch");
+      const uint64_t lanes = expression.selectionCount;
+      std::array<std::string, 7> names;
+      for (size_t index = 0; index < names.size(); ++index) {
+        auto current = operand(index);
+        if (!current)
+          return current.takeError();
+        names[index] = current->str();
+      }
+      const std::string &pending = names[0];
+      const std::string &alias = names[1];
+      const std::string &disjoint = names[2];
+      const std::string &ready = names[3];
+      const std::string &executed = names[4];
+      const std::string &identity = names[5];
+      const std::string &killed = names[6];
+      output << padding << "auto " << expression.result << " = [&]() {\n"
+             << padding << "  const std::uint64_t pending = " << pending
+             << ".value();\n"
+             << padding << "  const std::uint64_t alias = " << alias
+             << ".value();\n"
+             << padding << "  const std::uint64_t disjoint = " << disjoint
+             << ".value();\n"
+             << padding << "  const std::uint64_t ready = " << ready
+             << ".value();\n"
+             << padding << "  const std::uint64_t executed = " << executed
+             << ".value();\n"
+             << padding << "  const std::uint64_t identity = " << identity
+             << ".value();\n"
+             << padding << "  const std::uint64_t killed = " << killed
+             << ".value();\n"
+             << padding
+             << "  const std::uint64_t stale = pending & (~identity | "
+                "killed);\n"
+             << padding
+             << "  const std::uint64_t qualified = pending & ~stale;\n"
+             << padding
+             << "  const std::uint64_t forward = qualified & alias & ready & "
+                "~executed;\n"
+             << padding
+             << "  const std::uint64_t replay = qualified & alias & executed;\n"
+             << padding
+             << "  const std::uint64_t bypass = qualified & disjoint & "
+                "~alias;\n"
+             << padding << "  const std::uint64_t wait = qualified & "
+                "~(forward | replay | bypass);\n"
+             << padding << "  return gfsim::UInt<" << lanes << ">{"
+             << (expression.kind == "load_disposition_wait"
+                     ? "wait"
+                 : expression.kind == "load_disposition_bypass"
+                     ? "bypass"
+                 : expression.kind == "load_disposition_forward"
+                     ? "forward"
+                 : expression.kind == "load_disposition_replay" ? "replay"
+                                                                 : "stale")
+             << "};\n"
+             << padding << "}();\n";
       continue;
     }
     if (expression.kind == "transaction_group") {

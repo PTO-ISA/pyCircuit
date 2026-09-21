@@ -1191,6 +1191,38 @@ extractExpressions(mlir::Region &region, QueueBlockPlan &plan,
           static_cast<uint64_t>(terminal.getLanes());
       continue;
     }
+    if (auto edge = mlir::dyn_cast<ac::MemoryOrderEdgeOp>(operation)) {
+      if (auto error = append(operation, "memory_order_edge", {},
+                              ac::stringifyMemoryOrderKind(edge.getKind())))
+        return error;
+      plan.expressions.back().selectionCount =
+          static_cast<uint64_t>(edge.getLanes());
+      continue;
+    }
+    if (auto disposition = mlir::dyn_cast<ac::LoadDispositionOp>(operation)) {
+      auto operands = operandNames(disposition->getOperands());
+      if (!operands)
+        return operands.takeError();
+      constexpr llvm::StringLiteral kinds[] = {
+          "load_disposition_wait", "load_disposition_bypass",
+          "load_disposition_forward", "load_disposition_replay",
+          "load_disposition_stale"};
+      for (auto [resultIndex, resultValue] :
+           llvm::enumerate(disposition->getResults())) {
+        auto resultType = mlir::cast<ac::VarType>(resultValue.getType());
+        std::string result = resultIdentity(
+            operation, prefix.str() + std::to_string(plan.expressions.size()));
+        values[resultValue] = result;
+        QueueExpressionPlan expression{result, kinds[resultIndex].str(),
+                                       printType(resultType.getElementType()),
+                                       *operands};
+        expression.selectionCount =
+            static_cast<uint64_t>(disposition.getLanes());
+        expression.sourceProvenance = currentExpressionProvenance;
+        plan.expressions.push_back(std::move(expression));
+      }
+      continue;
+    }
     if (auto tuple = mlir::dyn_cast<ac::VarTupleOp>(operation)) {
       if (auto error = append(operation, "tuple_create"))
         return error;
@@ -6680,7 +6712,9 @@ llvm::Error verifyQueueGraphPlan(const QueueGraphPlan &plan) {
                  expression.kind.starts_with("multi_allocator_") ||
                  expression.kind == "age_select_k" ||
                  expression.kind.starts_with("dependency_set_") ||
-                 expression.kind == "terminal_transaction") {
+                 expression.kind == "terminal_transaction" ||
+                 expression.kind == "memory_order_edge" ||
+                 expression.kind.starts_with("load_disposition_")) {
         const uint64_t lanes = expression.selectionCount;
         auto resultWidth = bitsWidth(expression.type);
         auto masksHaveWidth = [&](size_t count) {
@@ -6740,9 +6774,33 @@ llvm::Error verifyQueueGraphPlan(const QueueGraphPlan &plan) {
           if (expression.operands.size() != 5 || !masksHaveWidth(5) ||
               !resultWidth || *resultWidth != (ready ? 1 : lanes))
             return planError("dependency-set expression is malformed");
-        } else if (expression.operands.size() != 3 || !resultWidth ||
-                   *resultWidth != lanes || !masksHaveWidth(3)) {
-          return planError("terminal-transaction expression is malformed");
+        } else if (expression.kind == "terminal_transaction") {
+          if (expression.operands.size() != 3 || !resultWidth ||
+              *resultWidth != lanes || !masksHaveWidth(3))
+            return planError("terminal-transaction expression is malformed");
+        } else if (expression.kind == "memory_order_edge") {
+          const bool closedKind =
+              expression.predicate == "older_than" ||
+              expression.predicate == "must_wait" ||
+              expression.predicate == "may_bypass" ||
+              expression.predicate == "must_forward" ||
+              expression.predicate == "must_replay_if" ||
+              expression.predicate == "visibility_before";
+          if (!closedKind || expression.operands.size() < 2 ||
+              expression.operands.size() > 3 || !resultWidth ||
+              *resultWidth != lanes ||
+              !masksHaveWidth(expression.operands.size()))
+            return planError("memory-order-edge expression is malformed");
+        } else {
+          const bool closedKind =
+              expression.kind == "load_disposition_wait" ||
+              expression.kind == "load_disposition_bypass" ||
+              expression.kind == "load_disposition_forward" ||
+              expression.kind == "load_disposition_replay" ||
+              expression.kind == "load_disposition_stale";
+          if (!closedKind || expression.operands.size() != 7 ||
+              !resultWidth || *resultWidth != lanes || !masksHaveWidth(7))
+            return planError("load-disposition expression is malformed");
         }
       } else if (expression.kind == "versioned_lookup_payload" ||
                  expression.kind == "versioned_lookup_valid") {

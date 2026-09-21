@@ -73,7 +73,8 @@
       "name": "pyc.alias",
       "negative_mlir": [],
       "positive_mlir": [
-        "tests/mlir/agentic-circuit/CodeGen/arbiter.mlir"
+        "tests/mlir/agentic-circuit/CodeGen/arbiter.mlir",
+        "tests/mlir/agentic-circuit/CodeGen/memory-ordering-lowering.mlir"
       ],
       "python_producer": [
         "python/pycircuit/src/pycircuit/dsl.py",
@@ -86,7 +87,8 @@
       "status": "normative",
       "symbol": "PYC_AliasOp",
       "tests": [
-        "tests/mlir/agentic-circuit/CodeGen/arbiter.mlir"
+        "tests/mlir/agentic-circuit/CodeGen/arbiter.mlir",
+        "tests/mlir/agentic-circuit/CodeGen/memory-ordering-lowering.mlir"
       ],
       "verifier": null,
       "verilog_emitter": "compiler/mlir/lib/Emit/VerilogEmitter.cpp"
@@ -109,6 +111,7 @@
       "positive_mlir": [
         "tests/mlir/agentic-circuit/CodeGen/bit-widths.mlir",
         "tests/mlir/agentic-circuit/CodeGen/masked-match.mlir",
+        "tests/mlir/agentic-circuit/CodeGen/memory-ordering-lowering.mlir",
         "tests/mlir/agentic-circuit/CodeGen/table-writer-arbitration-pyc.mlir"
       ],
       "python_producer": [
@@ -124,6 +127,7 @@
         "tests/cpp/agentic-circuit/CodeGen/QueueGraphPlanTest.cpp",
         "tests/mlir/agentic-circuit/CodeGen/bit-widths.mlir",
         "tests/mlir/agentic-circuit/CodeGen/masked-match.mlir",
+        "tests/mlir/agentic-circuit/CodeGen/memory-ordering-lowering.mlir",
         "tests/mlir/agentic-circuit/CodeGen/table-writer-arbitration-pyc.mlir",
         "tests/python/agentic-circuit/python_frontend/test_queue_frontend.py",
         "tests/test_bitmask_match.py",
@@ -958,6 +962,7 @@
       "positive_mlir": [
         "tests/mlir/agentic-circuit/CodeGen/architecture-obligation-backends.mlir",
         "tests/mlir/agentic-circuit/CodeGen/bit-widths.mlir",
+        "tests/mlir/agentic-circuit/CodeGen/memory-ordering-lowering.mlir",
         "tests/mlir/agentic-circuit/CodeGen/table-writer-arbitration-pyc.mlir",
         "tests/mlir/agentic-circuit/PYC/source-provenance-eliminate-wire.mlir",
         "tests/mlir/lit.cfg.py"
@@ -975,6 +980,7 @@
         "tests/cpp/agentic-circuit/CodeGen/QueueGraphPlanTest.cpp",
         "tests/mlir/agentic-circuit/CodeGen/architecture-obligation-backends.mlir",
         "tests/mlir/agentic-circuit/CodeGen/bit-widths.mlir",
+        "tests/mlir/agentic-circuit/CodeGen/memory-ordering-lowering.mlir",
         "tests/mlir/agentic-circuit/CodeGen/table-writer-arbitration-pyc.mlir",
         "tests/mlir/agentic-circuit/PYC/source-provenance-eliminate-wire.mlir",
         "tests/mlir/lit.cfg.py",

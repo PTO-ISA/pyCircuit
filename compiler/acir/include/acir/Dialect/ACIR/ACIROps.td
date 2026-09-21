@@ -782,6 +782,33 @@ def ACIR_TerminalTransactionOp
   let hasVerifier = 1;
 }
 
+def ACIR_MemoryOrderEdgeOp : ACIR_Op<"memory_order_edge", [Pure]> {
+  let arguments = (ins ACIR_VarType:$producer,
+                       ACIR_VarType:$consumer,
+                       Optional<ACIR_VarType>:$predicate,
+                       I64Attr:$lanes,
+                       ACIR_MemoryOrderKindAttr:$kind);
+  let results = (outs ACIR_VarType:$applies_mask);
+  let hasVerifier = 1;
+}
+
+def ACIR_LoadDispositionOp : ACIR_Op<"load_disposition", [Pure]> {
+  let arguments = (ins ACIR_VarType:$pending_mask,
+                       ACIR_VarType:$alias_mask,
+                       ACIR_VarType:$disjoint_mask,
+                       ACIR_VarType:$data_ready_mask,
+                       ACIR_VarType:$executed_mask,
+                       ACIR_VarType:$identity_match_mask,
+                       ACIR_VarType:$killed_mask,
+                       I64Attr:$lanes);
+  let results = (outs ACIR_VarType:$wait_mask,
+                      ACIR_VarType:$bypass_mask,
+                      ACIR_VarType:$forward_mask,
+                      ACIR_VarType:$replay_mask,
+                      ACIR_VarType:$stale_mask);
+  let hasVerifier = 1;
+}
+
 def ACIR_SourceOp : ACIR_Op<"source", [
     DeclareOpInterfaceMethods<MemoryEffectsOpInterface>
   ]> {

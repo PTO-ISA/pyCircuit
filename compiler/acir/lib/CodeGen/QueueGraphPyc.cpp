@@ -2028,7 +2028,8 @@ emitTransform(const QueueGraphPlan &plan, const QueueBlockPlan &block,
         result = emitPycBinary(
             "and", *first,
             emitPycBinary("or", epochMismatch, younger, "i1"), "i1");
-      } else if (expression.kind == "reservation_set") {
+      } else if (expression.kind == "reservation_set" ||
+                 expression.kind == "memory_order_edge") {
         if (expression.operands.empty())
           return pycError("reservation_set requires resource masks");
         auto maskType = pycType(plan, expression.type);
@@ -2041,6 +2042,112 @@ emitTransform(const QueueGraphPlan &plan, const QueueBlockPlan &block,
           if (!operandValue)
             return operandValue.takeError();
           result = emitPycBinary("and", result, *operandValue, *maskType);
+        }
+      } else if (expression.kind.starts_with("load_disposition_")) {
+        if (expression.operands.size() != 7)
+          return pycError("load_disposition operand count mismatch");
+        const std::string maskType =
+            "i" + std::to_string(expression.selectionCount);
+        std::vector<std::string> operands;
+        operands.reserve(7);
+        for (llvm::StringRef name : expression.operands) {
+          auto operandValue = value(name);
+          if (!operandValue)
+            return operandValue.takeError();
+          operands.push_back(*operandValue);
+        }
+        const std::string &pending = operands[0];
+        const std::string &alias = operands[1];
+        const std::string &disjoint = operands[2];
+        const std::string &ready = operands[3];
+        const std::string &executed = operands[4];
+        const std::string &identity = operands[5];
+        const std::string &killed = operands[6];
+        // A killed (flush-invalidated) outstanding load is stale regardless of
+        // its response identity, so it can only be consumed.
+        const std::string stale = emitPycBinary(
+            "and", pending,
+            emitPycBinary("or", emitPycNot(identity, maskType), killed,
+                          maskType),
+            maskType);
+        const std::string qualified =
+            emitPycBinary("and", pending, emitPycNot(stale, maskType),
+                          maskType);
+        const std::string forward = emitPycBinary(
+            "and", qualified,
+            emitPycBinary(
+                "and", alias,
+                emitPycBinary("and", ready,
+                              emitPycNot(executed, maskType), maskType),
+                maskType),
+            maskType);
+        const std::string replay = emitPycBinary(
+            "and", qualified,
+            emitPycBinary("and", alias, executed, maskType), maskType);
+        const std::string bypass = emitPycBinary(
+            "and", qualified,
+            emitPycBinary("and", disjoint, emitPycNot(alias, maskType),
+                          maskType),
+            maskType);
+        const std::string waitMask = emitPycBinary(
+            "and", qualified,
+            emitPycNot(
+                emitPycBinary(
+                    "or", forward,
+                    emitPycBinary("or", replay, bypass, maskType), maskType),
+                maskType),
+            maskType);
+        if (expression.kind == "load_disposition_wait") {
+          result = waitMask;
+        } else if (expression.kind == "load_disposition_bypass") {
+          result = bypass;
+        } else if (expression.kind == "load_disposition_forward") {
+          result = forward;
+        } else if (expression.kind == "load_disposition_replay") {
+          result = replay;
+        } else {
+          result = stale;
+          // A stale (identity-mismatched) response may only be consumed: it
+          // must never reach a live disposition. The assertion and its cover
+          // condition carry one stable obligation ID through PYC, C++, and
+          // RTL, and the cover gives the stale-event coverage counter.
+          const std::string live = emitPycBinary(
+              "or", waitMask,
+              emitPycBinary("or", bypass,
+                            emitPycBinary("or", forward, replay, maskType),
+                            maskType),
+              maskType);
+          const std::string overlap =
+              emitPycBinary("and", stale, live, maskType);
+          const std::string noOverlap =
+              emitPycBinary("eq", overlap, emitPycConstant(0, maskType),
+                            maskType);
+          const std::string staleSeen = emitPycNot(
+              emitPycBinary("eq", stale, emitPycConstant(0, maskType),
+                            maskType),
+              "i1");
+          const std::string anchor =
+              !block.stableId.empty()
+                  ? block.stableId
+                  : (!block.name.empty() ? block.name : plan.system);
+          const std::string obligationId = "no_stale_response:" + anchor;
+          const std::string source =
+              block.sourceFile.empty()
+                  ? (plan.sourceFile.empty() ? std::string("generated")
+                                             : plan.sourceFile + ":" +
+                                                   std::to_string(plan.sourceLine))
+                  : block.sourceFile + ":" +
+                        std::to_string(block.sourceLine);
+          body << "    pyc.assert " << noOverlap << " cover " << staleSeen
+               << " {msg = \"a stale memory response cannot reach a live "
+                  "disposition\", obligation_id = "
+               << mlirStringLiteral(obligationId)
+               << ", obligation_kind = \"no_stale_response\", severity = "
+                  "\"error\", sampling_kind = \"pre_publish\", "
+                  "sampling_edge = \"none\", sample_anchor = "
+               << mlirStringLiteral(anchor)
+               << ", source = " << mlirStringLiteral(source)
+               << ", ndf_ids = []}\n";
         }
       } else if (expression.kind == "transaction_group" ||
                  expression.kind.starts_with("multi_allocator_") ||
