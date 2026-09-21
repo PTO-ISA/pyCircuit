@@ -75,7 +75,8 @@
       "positive_mlir": [
         "tests/mlir/agentic-circuit/CodeGen/arbiter.mlir",
         "tests/mlir/agentic-circuit/CodeGen/memory-ordering-lowering.mlir",
-        "tests/mlir/agentic-circuit/CodeGen/memory-ordering-multi-disposition.mlir"
+        "tests/mlir/agentic-circuit/CodeGen/memory-ordering-multi-disposition.mlir",
+        "tests/mlir/agentic-circuit/CodeGen/miniooo-acceptance.mlir"
       ],
       "python_producer": [
         "python/pycircuit/src/pycircuit/dsl.py",
@@ -90,7 +91,8 @@
       "tests": [
         "tests/mlir/agentic-circuit/CodeGen/arbiter.mlir",
         "tests/mlir/agentic-circuit/CodeGen/memory-ordering-lowering.mlir",
-        "tests/mlir/agentic-circuit/CodeGen/memory-ordering-multi-disposition.mlir"
+        "tests/mlir/agentic-circuit/CodeGen/memory-ordering-multi-disposition.mlir",
+        "tests/mlir/agentic-circuit/CodeGen/miniooo-acceptance.mlir"
       ],
       "verifier": null,
       "verilog_emitter": "compiler/mlir/lib/Emit/VerilogEmitter.cpp"
