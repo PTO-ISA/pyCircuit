@@ -11,7 +11,8 @@ module tb_memory_ordering;
   memory_ordering dut(.*);
   always #5 clk = ~clk;
 
-  // Deterministic splitmix64, matching the C++ differential harness.
+  // Deterministic splitmix64. The draw schedule differs from the C++
+  // differential harness, so the two engines do not share trial inputs.
   logic [63:0] rnd_state = 64'h243f6a8885a308d3;
   function automatic logic [63:0] next_random();
     logic [63:0] z;
@@ -63,6 +64,25 @@ module tb_memory_ordering;
     end
   endfunction
 
+  // Check the DUT's own output: every qualified lane must have exactly one live
+  // disposition, and an unqualified lane must be reported as stale only.
+  task automatic check_conformance(input logic [35:0] value,
+                                   input logic [23:0] actual);
+    logic [3:0] qualified, live;
+    integer index;
+    begin
+      qualified = value[35:32] & value[15:12] & ~value[3:0];
+      live = actual[19:16] | actual[15:12] | actual[11:8] | actual[7:4];
+      for (index = 0; index < 4; index = index + 1) begin
+        if (qualified[index] && (!live[index] || actual[index]))
+          $fatal(1, "lane %0d must have exactly one live disposition", index);
+        if (!qualified[index] &&
+            (live[index] || (actual[index] !== value[32 + index])))
+          $fatal(1, "lane %0d must be consumed as stale only", index);
+      end
+    end
+  endtask
+
   task automatic check_one(input logic [35:0] value);
     logic [23:0] expected;
     integer cycles;
@@ -84,6 +104,7 @@ module tb_memory_ordering;
           if (out_data !== expected)
             $fatal(1, "memory ordering mismatch got=%h expected=%h",
                    out_data, expected);
+          check_conformance(value, out_data);
           out_ready = 1;
           @(posedge clk);
           @(negedge clk);
@@ -186,6 +207,27 @@ module tb_memory_ordering;
       stale_count = stale_count + popcount4(stale_mask);
       check_one(value);
     end
+    // Directed boundaries, matching the C++ differential harness.
+    // Unknown address: neither alias nor disjoint is provable, so lane 0 waits.
+    value = pack_input(4'b0001, 4'b0000, 4'b0000, 4'b0000, 4'b0000, 4'b0001,
+                       4'b1111, 4'b1111, 4'b0000);
+    check_one(value);
+    // Resolved and disjoint: lane 0 bypasses.
+    value = pack_input(4'b0001, 4'b0000, 4'b0001, 4'b0000, 4'b0000, 4'b0001,
+                       4'b1111, 4'b1111, 4'b0000);
+    check_one(value);
+    // Alias with ready data on a not-yet-executed load: forward.
+    value = pack_input(4'b0001, 4'b0001, 4'b0000, 4'b0001, 4'b0000, 4'b0001,
+                       4'b1111, 4'b1111, 4'b0000);
+    check_one(value);
+    // Alias on an already executed load: late violation, replay.
+    value = pack_input(4'b0001, 4'b0001, 4'b0000, 4'b0000, 4'b0001, 4'b0001,
+                       4'b1111, 4'b1111, 4'b0000);
+    check_one(value);
+    // Identity mismatch: the response can only be dropped.
+    value = pack_input(4'b0001, 4'b0001, 4'b0000, 4'b0001, 4'b0000, 4'b0000,
+                       4'b1111, 4'b1111, 4'b0000);
+    check_one(value);
     // Directed flush case: the outstanding lane is invalidated, so it must be
     // consumed as stale even though its response identity still matches.
     value = pack_input(4'b0001, 4'b0000, 4'b0000, 4'b0000, 4'b0000, 4'b0001,

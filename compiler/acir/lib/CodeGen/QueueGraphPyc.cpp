@@ -2031,7 +2031,8 @@ emitTransform(const QueueGraphPlan &plan, const QueueBlockPlan &block,
       } else if (expression.kind == "reservation_set" ||
                  expression.kind == "memory_order_edge") {
         if (expression.operands.empty())
-          return pycError("reservation_set requires resource masks");
+          return pycError(expression.kind +
+                          " requires resource masks");
         auto maskType = pycType(plan, expression.type);
         if (!maskType)
           return maskType.takeError();
@@ -2130,7 +2131,18 @@ emitTransform(const QueueGraphPlan &plan, const QueueBlockPlan &block,
               !block.stableId.empty()
                   ? block.stableId
                   : (!block.name.empty() ? block.name : plan.system);
-          const std::string obligationId = "no_stale_response:" + anchor;
+          // One obligation per disposition, so two dispositions in one block
+          // must not collide on the ID.
+          size_t ordinal = 0;
+          for (const QueueExpressionPlan &candidate : block.expressions) {
+            if (candidate.result == expression.result)
+              break;
+            if (candidate.kind == "load_disposition_stale")
+              ++ordinal;
+          }
+          const std::string obligationId =
+              "no_stale_response:" + anchor + ":disposition" +
+              std::to_string(ordinal);
           const std::string source =
               block.sourceFile.empty()
                   ? (plan.sourceFile.empty() ? std::string("generated")

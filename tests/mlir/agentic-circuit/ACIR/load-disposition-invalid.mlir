@@ -3,6 +3,10 @@
 // RUN: %not %acir_opt %t/disjoint-width.mlir 2>&1 | %FileCheck %s --check-prefix=DISJOINT
 // RUN: %not %acir_opt %t/wait-width.mlir 2>&1 | %FileCheck %s --check-prefix=WAIT
 // RUN: %not %acir_opt %t/killed-width.mlir 2>&1 | %FileCheck %s --check-prefix=KILLED
+// RUN: %not %acir_opt %t/alias-width.mlir 2>&1 | %FileCheck %s --check-prefix=ALIAS
+// RUN: %not %acir_opt %t/identity-width.mlir 2>&1 | %FileCheck %s --check-prefix=IDENTITY
+// RUN: %not %acir_opt %t/forward-width.mlir 2>&1 | %FileCheck %s --check-prefix=FORWARD
+// RUN: %not %acir_opt %t/stale-width.mlir 2>&1 | %FileCheck %s --check-prefix=STALE
 
 //--- pending-width.mlir
 module {
@@ -50,3 +54,49 @@ module {
                                        !ac.var<i4>, !ac.var<i4>)
 }
 // KILLED: 'ac.load_disposition' op killed mask must be an exact !ac.var<i4>
+
+//--- alias-width.mlir
+module {
+  %mask = ac.var.constant 0 : i4 as !ac.var<i4>
+  %narrow = ac.var.constant 0 : i3 as !ac.var<i3>
+  %wait, %bypass, %forward, %replay, %stale = "ac.load_disposition"(
+      %mask, %narrow, %mask, %mask, %mask, %mask, %mask) <{lanes = 4 : i64}>
+      : (!ac.var<i4>, !ac.var<i3>, !ac.var<i4>, !ac.var<i4>, !ac.var<i4>,
+         !ac.var<i4>, !ac.var<i4>) -> (!ac.var<i4>, !ac.var<i4>, !ac.var<i4>,
+                                       !ac.var<i4>, !ac.var<i4>)
+}
+// ALIAS: 'ac.load_disposition' op alias mask must be an exact !ac.var<i4>
+
+//--- identity-width.mlir
+module {
+  %mask = ac.var.constant 0 : i4 as !ac.var<i4>
+  %narrow = ac.var.constant 0 : i2 as !ac.var<i2>
+  %wait, %bypass, %forward, %replay, %stale = "ac.load_disposition"(
+      %mask, %mask, %mask, %mask, %mask, %narrow, %mask) <{lanes = 4 : i64}>
+      : (!ac.var<i4>, !ac.var<i4>, !ac.var<i4>, !ac.var<i4>, !ac.var<i4>,
+         !ac.var<i2>, !ac.var<i4>) -> (!ac.var<i4>, !ac.var<i4>, !ac.var<i4>,
+                                       !ac.var<i4>, !ac.var<i4>)
+}
+// IDENTITY: 'ac.load_disposition' op identity-match mask must be an exact !ac.var<i4>
+
+//--- forward-width.mlir
+module {
+  %mask = ac.var.constant 0 : i4 as !ac.var<i4>
+  %wait, %bypass, %forward, %replay, %stale = "ac.load_disposition"(
+      %mask, %mask, %mask, %mask, %mask, %mask, %mask) <{lanes = 4 : i64}>
+      : (!ac.var<i4>, !ac.var<i4>, !ac.var<i4>, !ac.var<i4>, !ac.var<i4>,
+         !ac.var<i4>, !ac.var<i4>) -> (!ac.var<i4>, !ac.var<i4>, !ac.var<i2>,
+                                       !ac.var<i4>, !ac.var<i4>)
+}
+// FORWARD: 'ac.load_disposition' op forward mask must be an exact !ac.var<i4>
+
+//--- stale-width.mlir
+module {
+  %mask = ac.var.constant 0 : i4 as !ac.var<i4>
+  %wait, %bypass, %forward, %replay, %stale = "ac.load_disposition"(
+      %mask, %mask, %mask, %mask, %mask, %mask, %mask) <{lanes = 4 : i64}>
+      : (!ac.var<i4>, !ac.var<i4>, !ac.var<i4>, !ac.var<i4>, !ac.var<i4>,
+         !ac.var<i4>, !ac.var<i4>) -> (!ac.var<i4>, !ac.var<i4>, !ac.var<i4>,
+                                       !ac.var<i4>, !ac.var<i2>)
+}
+// STALE: 'ac.load_disposition' op stale mask must be an exact !ac.var<i4>

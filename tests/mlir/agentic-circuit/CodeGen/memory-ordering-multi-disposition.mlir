@@ -1,23 +1,15 @@
 // RUN: %acir_opt --pass-pipeline='builtin.module(ac-lower-rules,canonicalize,cse,ac-verify-rule-closure,ac-freeze-topology)' %s -o %t.frozen.mlir
-// RUN: %acir_queue_plan %t.frozen.mlir | %FileCheck %s --check-prefix=PLAN
 // RUN: %acir_queue_pycgen %t.frozen.mlir > %t.pyc
 // RUN: %FileCheck %s --check-prefix=PYC < %t.pyc
-// RUN: %acir_queue_cxxgen %t.frozen.mlir > %t.gfsim.cpp
-// RUN: %FileCheck %s --check-prefix=CPP < %t.gfsim.cpp
-// RUN: %cxx -std=c++20 -I%source_root/simulator/gfsim/include -fsyntax-only %t.gfsim.cpp
 // RUN: %pycc %t.pyc --cpp %t.cpp --logic-depth=64
-// RUN: %cxx -std=c++20 -I%source_root/library -fsyntax-only %t.cpp
-// RUN: %FileCheck %s --check-prefix=PYC-CPP < %t.cpp
-// RUN: %cxx -std=c++20 -I%source_root/library -include %t.cpp %S/memory-ordering-harness.cpp -o %t.run
-// RUN: %t.run | %FileCheck %s --check-prefix=EXEC
+// RUN: %FileCheck %s --check-prefix=CPP < %t.cpp
 // RUN: %pycc %t.pyc --verilog %t.sv --logic-depth=64
 // RUN: %FileCheck %s --check-prefix=RTL < %t.sv
 // RUN: %python %source_root/flows/tools/check_generated_rtl.py %t.sv --json-out %t.audit.json
-// RUN: verilator --lint-only -Wno-fatal -I%source_root/library/verilog %t.sv
-// RUN: iverilog -g2012 -DSYNTHESIS -I%source_root/library/verilog -s tb_memory_ordering -o %t.vvp %t.sv %S/memory-ordering-tb.sv
-// RUN: vvp %t.vvp | %FileCheck %s --check-prefix=RTL-EXEC
 
-module attributes {ac.model_kind = "queue_graph", ac.queue_graph_domain = "cycle", ac.system = "memory_ordering"} {
+// Two dispositions in one rule must carry two distinct obligation IDs. A single
+// block-scoped anchor used to collide and made both emitters reject the module.
+module attributes {ac.model_kind = "queue_graph", ac.queue_graph_domain = "cycle", ac.system = "memory_ordering_multi"} {
   ac.type_scope @types {
     ac.struct @Input fields [
       {name = "pending", type = i4}, {name = "alias", type = i4},
@@ -27,13 +19,11 @@ module attributes {ac.model_kind = "queue_graph", ac.queue_graph_domain = "cycle
       {name = "killed", type = i4}
     ]
     ac.struct @Output fields [
-      {name = "applies", type = i4}, {name = "wait", type = i4},
-      {name = "bypass", type = i4}, {name = "forward", type = i4},
-      {name = "replay", type = i4}, {name = "stale", type = i4}
+      {name = "first", type = i4}, {name = "second", type = i4}
     ]
   } {dlti.dl_spec = #dlti.dl_spec<
       !ac.struct<@types::@Input> = {abi_alignment = 1 : i64, endianness = "little", preferred_alignment = 1 : i64, size = 36 : i64},
-      !ac.struct<@types::@Output> = {abi_alignment = 1 : i64, endianness = "little", preferred_alignment = 1 : i64, size = 24 : i64}>}
+      !ac.struct<@types::@Output> = {abi_alignment = 1 : i64, endianness = "little", preferred_alignment = 1 : i64, size = 8 : i64}>}
 
   %input = ac.source depth 4 latency 1 {ac.name = "input"}
       : !ac.queue<!ac.struct<@types::@Input>>
@@ -46,21 +36,25 @@ module attributes {ac.model_kind = "queue_graph", ac.queue_graph_domain = "cycle
     %ready = ac.var.get %item field "ready" : !ac.var<!ac.struct<@types::@Input>> -> !ac.var<i4>
     %executed = ac.var.get %item field "executed" : !ac.var<!ac.struct<@types::@Input>> -> !ac.var<i4>
     %identity = ac.var.get %item field "identity" : !ac.var<!ac.struct<@types::@Input>> -> !ac.var<i4>
-    %producer = ac.var.get %item field "producer" : !ac.var<!ac.struct<@types::@Input>> -> !ac.var<i4>
-    %consumer = ac.var.get %item field "consumer" : !ac.var<!ac.struct<@types::@Input>> -> !ac.var<i4>
     %killed = ac.var.get %item field "killed" : !ac.var<!ac.struct<@types::@Input>> -> !ac.var<i4>
-    %applies = "ac.memory_order_edge"(%producer, %consumer) <{
-      lanes = 4 : i64, kind = #ac<memory_order_kind must_wait>
-    }> : (!ac.var<i4>, !ac.var<i4>) -> !ac.var<i4>
-    %wait, %bypass, %forward, %replay, %stale = "ac.load_disposition"(
+    %wait_a, %bypass_a, %forward_a, %replay_a, %stale_a = "ac.load_disposition"(
         %pending, %alias, %disjoint, %ready, %executed, %identity, %killed) <{
       lanes = 4 : i64
     }> : (!ac.var<i4>, !ac.var<i4>, !ac.var<i4>, !ac.var<i4>, !ac.var<i4>,
           !ac.var<i4>, !ac.var<i4>) -> (!ac.var<i4>, !ac.var<i4>, !ac.var<i4>,
                                         !ac.var<i4>, !ac.var<i4>)
-    %result = ac.var.record %applies, %wait, %bypass, %forward, %replay,
-        %stale : !ac.var<i4>, !ac.var<i4>, !ac.var<i4>, !ac.var<i4>,
-        !ac.var<i4>, !ac.var<i4> -> !ac.var<!ac.struct<@types::@Output>>
+    %wait_b, %bypass_b, %forward_b, %replay_b, %stale_b = "ac.load_disposition"(
+        %pending, %disjoint, %alias, %ready, %executed, %identity, %killed) <{
+      lanes = 4 : i64
+    }> : (!ac.var<i4>, !ac.var<i4>, !ac.var<i4>, !ac.var<i4>, !ac.var<i4>,
+          !ac.var<i4>, !ac.var<i4>) -> (!ac.var<i4>, !ac.var<i4>, !ac.var<i4>,
+                                        !ac.var<i4>, !ac.var<i4>)
+    %first = "ac.reservation_set"(%stale_a, %wait_a) <{lanes = 4 : i64}>
+        : (!ac.var<i4>, !ac.var<i4>) -> !ac.var<i4>
+    %second = "ac.reservation_set"(%stale_b, %wait_b) <{lanes = 4 : i64}>
+        : (!ac.var<i4>, !ac.var<i4>) -> !ac.var<i4>
+    %result = ac.var.record %first, %second : !ac.var<i4>, !ac.var<i4>
+        -> !ac.var<!ac.struct<@types::@Output>>
     %handshake = ac.marker.obligation %result state pending resolver handshake
         origin "order:return" path "true"
         : !ac.var<!ac.struct<@types::@Output>>
@@ -71,23 +65,9 @@ module attributes {ac.model_kind = "queue_graph", ac.queue_graph_domain = "cycle
       : !ac.queue<!ac.struct<@types::@Output>>
 }
 
-// PLAN: "kind":"memory_order_edge"
-// PLAN-SAME: "predicate":"must_wait"
-// PLAN: "kind":"load_disposition_wait"
-// PLAN: "kind":"load_disposition_bypass"
-// PLAN: "kind":"load_disposition_forward"
-// PLAN: "kind":"load_disposition_replay"
-// PLAN: "kind":"load_disposition_stale"
-// PYC: pyc.and
-// PYC: pyc.not
 // PYC: obligation_id = "no_stale_response:output:disposition0"
-// PYC-SAME: obligation_kind = "no_stale_response"
-// CPP: const std::uint64_t stale = pending & (~identity | killed);
-// CPP: const std::uint64_t qualified = pending & ~stale;
-// CPP: const std::uint64_t bypass = qualified & disjoint & ~alias;
-// PYC-CPP: obligation_no_stale_response_output_disposition0_coverage = 0;
-// EXEC: memory ordering PASS 200
-// RTL: module memory_ordering
+// PYC: obligation_id = "no_stale_response:output:disposition1"
+// CPP: obligation_no_stale_response_output_disposition0_coverage = 0;
+// CPP: obligation_no_stale_response_output_disposition1_coverage = 0;
 // RTL: obligation_no_stale_response_output_disposition0: assert property
-// RTL: obligation_no_stale_response_output_disposition0_coverage: cover property
-// RTL-EXEC: memory ordering RTL PASS 200
+// RTL: obligation_no_stale_response_output_disposition1: assert property

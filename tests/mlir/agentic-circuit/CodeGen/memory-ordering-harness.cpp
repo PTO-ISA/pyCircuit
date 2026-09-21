@@ -113,20 +113,48 @@ std::uint64_t oracle(std::uint64_t pending, std::uint64_t alias,
                             ((bypass & bit) ? 1u : 0u) +
                             ((forward & bit) ? 1u : 0u) +
                             ((replay & bit) ? 1u : 0u);
-      if ((qualified & bit) && hits != 1) {
-        std::cerr << "non-one-hot disposition on lane " << lane << "\n";
-        std::exit(1);
-      }
-      if (!(qualified & bit) && hits != 0) {
-        std::cerr << "stale lane " << lane << " reached a live disposition\n";
-        std::exit(1);
-      }
+      (void)hits;
     }
   }
   std::uint64_t result = producer & consumer;
   for (std::uint64_t field : {wait, bypass, forward, replay, stale})
     result = (result << 4) | (field & 15);
   return result;
+}
+
+// Check the DUT's own output, not the oracle's intermediate masks: for every
+// qualified lane exactly one live disposition must be set, and a lane that is
+// not qualified (identity mismatch or flush kill) must reach none of them and
+// must be reported as stale.
+bool check_disposition_conformance(std::uint64_t actual,
+                                   std::uint64_t pending,
+                                   std::uint64_t identity,
+                                   std::uint64_t killed,
+                                   const char *label) {
+  const std::uint64_t qualified = pending & identity & ~killed;
+  // Output packing is applies, wait, bypass, forward, replay, stale.
+  const std::array<std::uint64_t, 4> masks{
+      (actual >> 16) & 15, (actual >> 12) & 15, (actual >> 8) & 15,
+      (actual >> 4) & 15};
+  const std::uint64_t stale_mask = actual & 15;
+  for (unsigned lane = 0; lane < 4; ++lane) {
+    const std::uint64_t bit = std::uint64_t{1} << lane;
+    unsigned live = 0;
+    for (unsigned index = 0; index < 4; ++index)
+      live += (masks[index] & bit) ? 1u : 0u;
+    const bool stale = (stale_mask & bit) != 0;
+    if ((qualified & bit) && (live != 1 || stale)) {
+      std::cerr << label << ": lane " << lane
+                << " must have exactly one live disposition\n";
+      return false;
+    }
+    if (!(qualified & bit) && (live != 0 || stale != ((pending & bit) != 0))) {
+      std::cerr << label << ": lane " << lane
+                << " must be consumed as stale only\n";
+      return false;
+    }
+  }
+  return true;
 }
 
 std::uint64_t run_one(Model &model, PackedInput input) {
@@ -217,6 +245,9 @@ int main() {
                 << " expected=" << expected << std::dec << "\n";
       return 1;
     }
+    if (!check_disposition_conformance(actual, pending, identity, killed,
+                                       "trial"))
+      return 1;
   }
 
   // Directed cases. The random stream reaches every disposition, but these pin
@@ -306,6 +337,9 @@ int main() {
                 << " expected=" << expected << std::dec << "\n";
       return 1;
     }
+    if (!check_disposition_conformance(actual, pending, identity, test.killed,
+                                       "directed case"))
+      return 1;
   }
 
   // Non-vacuity: every disposition must actually occur, otherwise the fixture

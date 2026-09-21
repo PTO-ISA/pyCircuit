@@ -11852,10 +11852,13 @@ stale-set mechanism, or a consumer-specific memory-order model.
 - Closed static edge kinds. `ac.memory_order_edge` carries a producer lane mask,
   a consumer lane mask, an optional typed proof mask, and one closed `kind` in
   `{older_than, must_wait, may_bypass, must_forward, must_replay_if,
-  visibility_before}`. The edge's extent is the intersection of its masks.
+  visibility_before}`. The edge's extent is the intersection of its masks, and
   `older_than` and `visibility_before` are static relation kinds only; the
   identity-qualified tracking relation remains `ac.dependency_set` and is not
-  re-implemented, and `must_wait` dominates `may_bypass`.
+  re-implemented. The disposition endpoint does not yet consume edges, so
+  `must_wait` dominance over `may_bypass` is an accepted requirement that this
+  bounded profile does not enforce; it is an open item and is not claimed as
+  implemented.
 - Closed disposition set. `ac.load_disposition` produces exactly one of
   `{wait, bypass, forward, replay}` for every qualified lane plus a separate
   stale mask. Every operand and result is an exact `!ac.var<iLanes>` with
@@ -11868,24 +11871,31 @@ stale-set mechanism, or a consumer-specific memory-order model.
   lane that is neither proven disjoint nor resolved by an alias lands there. An
   aliasing lane dominates a disjoint claim on the same lane, so a contradictory
   pair still resolves to a live disposition rather than bypassing.
-- Identity. A lane's response identity is the Decision 0279 hierarchy. This
+- Identity. A lane's response identity is the Decision 0279 hierarchy, and this
   decision adds no generation, epoch, or attempt field beyond `transaction_ref`
-  and `execution_attempt`; identity mismatch is the stale condition.
+  and `execution_attempt`. In this bounded profile the identity is consumed as a
+  typed match mask that the consumer must derive from that hierarchy; the
+  profile does not type-enforce the derivation, which is an open item.
 - Flush with outstanding responses. A killed (flush-invalidated) outstanding
   load is stale regardless of whether its response identity still matches:
   `stale = pending && (!identity || killed)`. A killed lane can never reach
   wait, bypass, forward, or replay. The forward/kill sampling point is the
   publish boundary, named once and shared by the C++ and RTL materializations.
 - Stale responses are consumed, never accepted. The closed obligation kind
-  `no_stale_response` asserts that the stale mask and any live disposition are
-  disjoint and covers the stale event. One stable ID
-  `no_stale_response:<anchor>` is carried through ACIR, QueueGraph, PYC, C++,
-  SVA/RTL, trace, coverage, and diagnostics, and a pending or unsupported
-  obligation blocks backend emission.
+  `no_stale_response` emits one assertion per disposition with a stable ID
+  `no_stale_response:<anchor>:disposition<ordinal>` and a cover condition on the
+  stale event. The assertion condition is a structural self-consistency guard
+  over the generated masks and cannot fail on its own; its load-bearing value is
+  the cover condition and the resulting coverage counter, and a pending or
+  unsupported obligation still blocks backend emission. The PYC C++ and RTL
+  materializations carry the same ID, kind, severity, `pre_publish` sampling
+  point, anchor, and message; the gfsim C++ path computes the predicate and the
+  plan re-verifies the expression shape without materializing the assertion.
 - Admission is compile-time. Exact lane widths, closed kinds, and the
-  disposition expression shapes are re-verified fail-closed in the QueueGraph
-  plan before any backend emit. A runtime assertion is belt-and-braces and never
-  authorizes legality.
+  disposition operand shape are re-verified fail-closed in the QueueGraph plan
+  before any backend emit. A runtime assertion is belt-and-braces and never
+  authorizes legality; a forged-plan negative test is still an open
+  defense-in-depth item.
 - Consumer boundary. This profile is Core-local ordering only. The address and
   alias function, store-buffer depth, coherence, replacement, and the ISA
   memory-consistency model stay in the consumer. The framework consumes typed
@@ -11903,11 +11913,16 @@ stale-set mechanism, or a consumer-specific memory-order model.
 - The pending-load set is fixture- and consumer-owned state in this profile; the
   framework does not add a memory queue, and this is not a full ISA memory
   consistency model.
+- Edge-kind dominance, the Decision 0279 derivation of the identity mask, and a
+  forged-plan negative test are explicit open items listed above and are not
+  claimed as implemented.
 
 **Verification**
-- ACIR positive and negative tests cover closed-kind parsing, exact lane widths
-  for every operand and result including the invalidation mask, and the
-  fail-closed plan re-verification.
+- ACIR positive and negative tests cover closed-kind parsing and lane-width
+  rejection for a representative set of disposition inputs and results plus the
+  edge operands, result, and lane bounds, and a two-disposition fixture proves
+  that one rule cannot collide on obligation IDs. The fail-closed plan
+  re-verification is exercised through the lowered fixtures.
 - The reduced generic fixture executes in generated C++ and RTL. Its oracle
   derives alias, disjoint, and data-ready from a real address and store model
   rather than restating the DUT expression, models a flush that invalidates

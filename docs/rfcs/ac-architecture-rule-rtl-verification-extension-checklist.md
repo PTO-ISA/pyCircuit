@@ -1112,13 +1112,16 @@ replay requires alias on an already executed load, and wait is the unproven
 remainder. A flush-invalidated outstanding load is stale regardless of its
 response identity, so the required tests cover wait, non-alias discharge,
 forward, late replay, flush with outstanding responses, and old-response
-rejection in executed generated C++ and RTL. Identity reuses Decision 0279 and
-the tracking relation reuses `ac.dependency_set`; the closed obligation kind
-`no_stale_response` carries one ID through PYC, C++, and RTL with a coverage
-counter for the stale event. Two limits are recorded rather than hidden:
-`ac.kill_set` is scalar and cannot express a lane-vector flush, so the profile
-consumes a typed invalidation mask, and the pending-load set stays
-fixture/consumer-owned state. No Python surface is admitted in P10.
+rejection in executed generated C++ and RTL. Identity reuses the Decision 0279
+hierarchy, and the tracking relation reuses `ac.dependency_set`; the closed
+obligation kind `no_stale_response` carries one ID per disposition through PYC,
+PYC C++, and RTL with a coverage counter for the stale event. Limits are
+recorded rather than hidden: `ac.kill_set` is scalar and cannot express a
+lane-vector flush, so the profile consumes a typed invalidation mask; the
+pending-load set stays fixture/consumer-owned state; the identity mask is
+consumer-derived without type enforcement; edge-kind dominance is not yet
+enforced; and the assertion condition is a self-consistency guard whose cover
+condition carries the evidence. No Python surface is admitted in P10.
 
 ### P11 - Refinement and PPA evidence
 

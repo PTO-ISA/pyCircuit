@@ -250,12 +250,14 @@ the plan re-verifies lane counts, widths, closed kinds, and the disposition
 operands fail-closed before emission.
 
 A stale response is consumed rather than accepted. Each disposition emits one
-stable `no_stale_response:<anchor>` assertion whose condition proves that the
-stale mask and every live disposition are disjoint, and whose cover condition is
-the stale event itself. Generated C++ gives that cover a distinct `_coverage`
-counter and RTL uses it as the SVA cover property; both carry the same
-obligation ID, kind, severity, `pre_publish` sampling point, anchor, and message
-as PYC. Two limits are recorded rather than hidden: the kill path takes a typed
+stable `no_stale_response:<anchor>:disposition<ordinal>` assertion with a cover
+condition on the stale event. The condition is a structural self-consistency
+guard over the generated masks rather than an independent proof; the cover
+condition is the load-bearing part and gives the event its coverage. Generated
+PYC C++ gives that cover a distinct `_coverage` counter and RTL uses it as the
+SVA cover property; both carry the same obligation ID, kind, severity,
+`pre_publish` sampling point, anchor, and message as PYC, while the gfsim C++
+path computes the predicate without materializing the assertion. Two limits are recorded rather than hidden: the kill path takes a typed
 lane invalidation mask because `ac.kill_set` is scalar, and the pending-load set
 remains fixture- or consumer-owned state.
 
