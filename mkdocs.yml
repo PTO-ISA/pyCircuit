@@ -110,6 +110,7 @@ nav:
       - Contributing Workflow: development/contributing-workflow.md
       - Testing and Gates: development/testing-and-gates.md
       - Stable SDK Release Contract: development/sdk-release-contract.md
+      - Release Runbook: development/release-runbook.md
       - Review and Merge: development/review-and-merge.md
       - Repository Management: development/repository-management.md
       - Repository Layout: development/repository-layout.md
