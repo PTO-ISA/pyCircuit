@@ -8,6 +8,7 @@ import sys
 from pathlib import Path
 
 import pytest
+import yaml
 
 ROOT = Path(__file__).resolve().parents[2]
 pytestmark = pytest.mark.unit
@@ -289,3 +290,43 @@ def test_closure_scripts_do_not_pipe_python_into_an_early_exit_consumer() -> Non
                 offenders.append(f"{script.name}:{number}")
 
     assert offenders == []
+
+
+def test_pypi_publication_cannot_invalidate_a_published_release() -> None:
+    """The package host is outside the language contract.
+
+    The PyPI upload runs as its own job, and neither the publication
+    verification, the stable platform re-verification, nor the final attestation
+    may depend on it: a rejected upload must not leave an already published
+    GitHub release unattested.
+    """
+
+    workflow = yaml.safe_load(_read(".github/workflows/release.yml"))
+    jobs = workflow["jobs"]
+    pypi_jobs = [
+        name
+        for name, job in jobs.items()
+        if "pypa/gh-action-pypi-publish" in json.dumps(job)
+    ]
+    assert len(pypi_jobs) == 1, pypi_jobs
+    pypi_job = pypi_jobs[0]
+    assert jobs[pypi_job]["needs"] == ["publish-release"]
+    assert "vars.PYC_PUBLISH_PYPI == '1'" in json.dumps(jobs[pypi_job])
+
+    def needs_closure(name: str) -> set[str]:
+        seen: set[str] = set()
+        pending = list(jobs[name].get("needs") or [])
+        while pending:
+            current = pending.pop()
+            if current in seen:
+                continue
+            seen.add(current)
+            pending.extend(jobs[current].get("needs") or [])
+        return seen
+
+    for dependent in (
+        "verify-published-bytes",
+        "verify-stable-platforms",
+        "release-attestation",
+    ):
+        assert pypi_job not in needs_closure(dependent), dependent

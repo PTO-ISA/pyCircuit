@@ -26,8 +26,17 @@ The release publishes, in one asset set:
 - `pycircuit-sdk-<version>-release-index.json`, `LICENSES.tar.gz`, release notes,
 - one `pyc-tools-<platform>:v<version>` GHCR artifact per platform.
 
-PyPI publication only happens when the repository variable `PYC_PUBLISH_PYPI`
-is `1`; it is unset today, so the GitHub Release is the delivery surface.
+PyPI publication is opt-in and runs as its **own job** (`publish-pypi`) so a
+rejected upload cannot invalidate a GitHub release that is already published and
+about to be attested. Enabling it needs both sides:
+
+1. repository variable `PYC_PUBLISH_PYPI=1`, and
+2. a PyPI trusted publisher for owner `PTO-ISA`, repository `pyCircuit`, workflow
+   `release.yml`, environment `release` (the job requests `id-token: write` and
+   uses `environment: release`).
+
+PyPI refuses a version that already exists, so a package already uploaded there
+can only be superseded by a new version.
 
 ## Entry criteria
 
@@ -156,3 +165,32 @@ into a consumer that exits early (`awk ... exit`, `head`): the producer raises
   the whole release, if a later check flakes.
 - `docs/gates/logs/` accumulates one directory per gate run; keep the accepted
   release attestation, and treat the rest as disposable evidence.
+
+## Re-releasing a version
+
+The tag is the release pin, so re-cutting a published version rewrites its
+identity: `v<version>` starts pointing at a different revision. Only do it while
+no consumer has pinned the old revision, and only when the published version is
+unusable (for example the release index or consumer lock is missing what the
+consumption flow needs).
+
+```bash
+# 1. remove the release and its tag
+gh release delete v<version> --repo PTO-ISA/pyCircuit --yes --cleanup-tag
+
+# 2. make sure the version metadata still names the version being re-cut
+#    (pyproject.toml, python/semantic-core/pyproject.toml,
+#     packaging/sdk/version-map.json candidate_tag)
+
+# 3. preflight the revision that will carry it, then publish once
+gh workflow run closure-probe.yml -f commit_sha=$SHA
+gh workflow run platform-evidence.yml -f version=<version> -f commit_sha=$SHA -f platform=all
+gh workflow run release.yml -f version=<version> -f commit_sha=$SHA
+```
+
+`release.yml` validates `! git ls-remote --exit-code --tags origin
+refs/tags/v<version>`, so step 1 has to complete first, and the new tag is
+created only after the candidate is accepted.
+
+If a version already exists on PyPI it cannot be re-uploaded; cut the next patch
+version instead.

@@ -659,14 +659,6 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: gh release create "v${{ inputs.version }}" candidate/* --repo "${{ github.repository }}" --title "pyCircuit ${{ inputs.version }}" --notes-file candidate/RELEASE_NOTES.md --verify-tag
-      - name: Select retained wheel bytes for PyPI
-        if: vars.PYC_PUBLISH_PYPI == '1'
-        run: mkdir wheels && cp candidate/*.whl wheels/
-      - name: Publish the same four retained wheels to PyPI
-        if: vars.PYC_PUBLISH_PYPI == '1'
-        uses: pypa/gh-action-pypi-publish@dc37677b2e1c63e2034f94d8a5b11f265b73ba33 # release/v1
-        with:
-          packages-dir: wheels
 
   publish-ghcr:
     needs: [create-tag]
@@ -692,6 +684,31 @@ jobs:
             archive="candidate/pycircuit-sdk-${{ inputs.version }}-${platform}.tar.gz"
             oras push "ghcr.io/pto-isa/pyc-tools-${platform}:v${{ inputs.version }}" "${archive}:application/gzip"
           done
+
+  publish-pypi:
+    # Publication to PyPI is its own job on purpose: the package host is
+    # outside the language contract, so a rejected upload must not invalidate a
+    # GitHub release that is already published and about to be attested.
+    needs: [publish-release]
+    if: github.repository == 'PTO-ISA/pyCircuit' && vars.PYC_PUBLISH_PYPI == '1'
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+      id-token: write
+    environment:
+      name: release
+    steps:
+      - name: Download accepted bytes without rebuilding
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+        with:
+          name: accepted-release-${{ inputs.commit_sha }}
+          path: candidate
+      - name: Select retained wheel bytes for PyPI
+        run: mkdir wheels && cp candidate/*.whl wheels/
+      - name: Publish the same four retained wheels to PyPI
+        uses: pypa/gh-action-pypi-publish@dc37677b2e1c63e2034f94d8a5b11f265b73ba33 # release/v1
+        with:
+          packages-dir: wheels
 
   verify-stable-platforms:
     needs: [verify-published-bytes]
