@@ -50,8 +50,11 @@ Scope notes recorded in Decision 0281 and the evidence summary:
   generated gfsim C++ is syntax-checked rather than executed, and Verilator is
   lint-only; execution is the PYC C++ binary and Icarus.
 - The disposition oracle restates the frozen rule; independence is in the
-  address, store, and flush models. Three deliberately wrong disposition rules
-  were executed during review and each failed on both the C++ and the RTL side.
+  address, store, and flush models. Sensitivity to rule errors comes from the
+  executed 24-bit comparison against that oracle; review confirmed it by
+  mutating the rule (dropping the disjoint proof, the flush kill, or the
+  identity term) and observing a failure on both the C++ and the RTL side. The
+  mutations are not committed artifacts.
 - Edge-kind dominance, type-enforced Decision 0279 derivation of the identity
   mask, and a forged-plan negative test are open items recorded in Decision 0281
   and the evidence summary; they are not claimed as implemented.

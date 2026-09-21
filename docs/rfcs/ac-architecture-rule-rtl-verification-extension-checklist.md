@@ -1099,8 +1099,8 @@ cases in RTL. No Python surface is admitted in P9.
 - [x] Add flush with outstanding response.
 - [x] Add negative stale-response tests.
 
-**Exit:** the reduced LSU fixture covers wait, non-alias, forward, replay,
-flush, and old-response rejection in C++ and RTL.
+**Exit:** the reduced generic ordering fixture covers wait, non-alias, forward,
+replay, flush, and old-response rejection in C++ and RTL.
 
 Decision 0281 closes this bounded internal profile. `ac.memory_order_edge` is the
 closed typed relation (the six Requirement I kinds) with optional typed proof

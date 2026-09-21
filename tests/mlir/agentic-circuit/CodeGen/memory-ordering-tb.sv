@@ -68,16 +68,17 @@ module tb_memory_ordering;
   // disposition, and an unqualified lane must be reported as stale only.
   task automatic check_conformance(input logic [35:0] value,
                                    input logic [23:0] actual);
-    logic [3:0] qualified, live;
-    integer index;
+    logic [3:0] qualified;
+    integer index, live_count;
     begin
       qualified = value[35:32] & value[15:12] & ~value[3:0];
-      live = actual[19:16] | actual[15:12] | actual[11:8] | actual[7:4];
       for (index = 0; index < 4; index = index + 1) begin
-        if (qualified[index] && (!live[index] || actual[index]))
+        live_count = actual[16 + index] + actual[12 + index] +
+                     actual[8 + index] + actual[4 + index];
+        if (qualified[index] && (live_count != 1 || actual[index]))
           $fatal(1, "lane %0d must have exactly one live disposition", index);
         if (!qualified[index] &&
-            (live[index] || (actual[index] !== value[32 + index])))
+            (live_count != 0 || (actual[index] !== value[32 + index])))
           $fatal(1, "lane %0d must be consumed as stale only", index);
       end
     end

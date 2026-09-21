@@ -11924,15 +11924,18 @@ stale-set mechanism, or a consumer-specific memory-order model.
   that one rule cannot collide on obligation IDs. The fail-closed plan
   re-verification is exercised through the lowered fixtures.
 - The reduced generic fixture executes in generated C++ and RTL. Its oracle
-  derives alias, disjoint, and data-ready from a real address and store model
-  rather than restating the DUT expression, models a flush that invalidates
-  outstanding loads, asserts a one-hot disposition per lane, and fails when any
-  disposition never occurs. Directed cases pin the unknown-address wait,
-  disjoint bypass, ready alias forward, late replay, stale drop, and
-  flush-with-outstanding boundaries.
-- The obligation materializes with one ID and one condition in PYC, C++, and
-  RTL, with a C++ coverage counter and an RTL cover property for the stale
-  event.
+  derives alias, disjoint, and data-ready from a real address and store model,
+  models a flush that invalidates outstanding loads, and restates the frozen
+  disposition rule; the executed 24-bit comparison therefore catches
+  disposition-rule errors on covered stimuli. Both sides check the DUT's own
+  output for exactly one live disposition per qualified lane and a stale-only
+  disposition otherwise, and the fixture fails when any disposition never
+  occurs. Directed cases pin the unknown-address wait, disjoint bypass, ready
+  alias forward, late replay, stale drop, and flush-with-outstanding boundaries.
+- The obligation materializes with one ID per disposition and one condition in
+  PYC, PYC C++, and RTL, with a PYC C++ coverage counter and an RTL cover
+  property for the stale event; the QueueGraph plan re-verifies arity, widths,
+  and closed kinds rather than disposition shape semantics.
 
 **Hard break**
 There is no consumer-specific memory-order lowering, no second identity or

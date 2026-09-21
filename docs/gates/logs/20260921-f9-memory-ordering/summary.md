@@ -75,12 +75,6 @@ an alias on an already executed load replays, an identity-mismatched response is
 dropped, and a flush-invalidated outstanding load is consumed as stale even
 though its response identity still matches.
 
-Six directed cases pin the boundaries: unknown address waits, a resolved
-non-alias store discharges, an alias with ready data forwards, an alias on an
-already executed load replays, an identity-mismatched response is dropped, and a
-flush-invalidated outstanding load is consumed as stale even though its response
-identity still matches.
-
 Observed disposition counts on the final run: C++ `wait=45 bypass=68 forward=4
 replay=5 stale=276`; Icarus `wait=83 bypass=73 forward=4 replay=5 stale=246`.
 Every disposition is exercised on both sides.

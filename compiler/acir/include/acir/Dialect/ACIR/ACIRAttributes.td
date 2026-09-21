@@ -107,8 +107,6 @@ def ACIR_ArchitectureObligationKind_CreditBalance
     : I32EnumAttrCase<"CreditBalance", 12, "credit_balance">;
 def ACIR_ArchitectureObligationKind_PipelineAlignment
     : I32EnumAttrCase<"PipelineAlignment", 13, "pipeline_alignment">;
-def ACIR_ArchitectureObligationKind_NoStaleResponse
-    : I32EnumAttrCase<"NoStaleResponse", 14, "no_stale_response">;
 def ACIR_ArchitectureObligationKind
     : I32EnumAttr<"ArchitectureObligationKind",
                   "closed Decision 0272 phase-one safety kind",
@@ -125,8 +123,7 @@ def ACIR_ArchitectureObligationKind
                    ACIR_ArchitectureObligationKind_NoPartialCommit,
                    ACIR_ArchitectureObligationKind_NoStaleUpdate,
                    ACIR_ArchitectureObligationKind_CreditBalance,
-                   ACIR_ArchitectureObligationKind_PipelineAlignment,
-                   ACIR_ArchitectureObligationKind_NoStaleResponse]> {
+                   ACIR_ArchitectureObligationKind_PipelineAlignment]> {
   let genSpecializedAttr = 0;
   let cppNamespace = "::acir::ac";
 }
