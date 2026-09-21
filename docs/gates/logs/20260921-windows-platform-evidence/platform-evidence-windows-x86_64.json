@@ -1,0 +1,16 @@
+{
+  "candidate_tag": null,
+  "cpp_execution": true,
+  "deterministic_regeneration": true,
+  "exact_inventory_closure": true,
+  "native_dependency_closure": true,
+  "platform": "windows-x86_64",
+  "release_url": null,
+  "relocated_acc_dut": true,
+  "schema": "pycircuit-platform-verification",
+  "source_revision": "bebbd2b5dd665be5ad41288061c34abb0e84a968",
+  "transactional_publication": true,
+  "verified": true,
+  "verilog_emission": true,
+  "version": "1"
+}
