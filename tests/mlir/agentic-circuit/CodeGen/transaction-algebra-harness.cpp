@@ -259,6 +259,48 @@ int main() {
       return 1;
     }
   }
-  std::cout << "transaction algebra PASS 200\n";
+
+  // Random fields rarely make the reservation cover lane zero, so the sampled
+  // stream almost never reaches a multi-lane prefix or a request that exceeds
+  // free capacity. These directed cases pin both, so a design that ignores
+  // capacity or only ever accepts lane zero fails the fixture.
+  struct DirectedCase {
+    std::uint64_t valid, r0, r1, r2, candidates;
+    std::array<std::uint64_t, 4> ages;
+    std::uint64_t current, resolve, kill, add, identity, effects, terminal;
+    std::uint64_t free_mask, release_mask;
+  };
+  const std::array<DirectedCase, 6> directed{{
+      // Four-lane prefix with one free slot: capacity must bind.
+      {15, 15, 15, 15, 15, {0, 1, 2, 3}, 15, 15, 15, 15, 15, 15, 15, 1, 0},
+      // Four-lane prefix, two free slots, one released for same-cycle reuse.
+      {15, 15, 15, 15, 15, {7, 6, 5, 4}, 8, 1, 2, 4, 3, 11, 15, 2, 1},
+      // Three-lane prefix with no capacity pressure.
+      {7, 15, 15, 15, 5, {7, 6, 5, 4}, 8, 1, 2, 4, 3, 11, 15, 15, 8},
+      // Zero free capacity: no lane may be accepted or allocated.
+      {15, 15, 15, 15, 0, {0, 0, 0, 0}, 0, 0, 0, 0, 0, 0, 0, 0, 15},
+      // Lane-zero reservation only: the common mask cannot widen the request.
+      {15, 1, 3, 9, 15, {1, 2, 3, 4}, 15, 15, 15, 15, 3, 15, 15, 4, 4},
+      // Single-lane prefix with a hole at lane one.
+      {1, 15, 15, 15, 1, {0, 7, 7, 7}, 1, 0, 0, 0, 1, 1, 1, 15, 0},
+  }};
+  for (const DirectedCase &test : directed) {
+    const PackedInput input = pack_input(
+        test.valid, test.r0, test.r1, test.r2, test.candidates, test.ages,
+        test.current, test.resolve, test.kill, test.add, test.identity,
+        test.effects, test.terminal, test.free_mask, test.release_mask);
+    const std::uint64_t expected = oracle(
+        test.valid, test.r0, test.r1, test.r2, test.candidates, test.ages,
+        test.current, test.resolve, test.kill, test.add, test.identity,
+        test.effects, test.terminal, test.free_mask, test.release_mask);
+    const std::uint64_t actual = run_one(model, input, 1);
+    if (actual != expected) {
+      std::cerr << "directed case got=" << std::hex << actual
+                << " expected=" << expected << std::dec << "\n";
+      return 1;
+    }
+  }
+  std::cout << "transaction algebra PASS 200 directed " << directed.size()
+            << "\n";
   return 0;
 }

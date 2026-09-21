@@ -7,7 +7,7 @@
 // RUN: %not %acir_opt %t/terminal-width.mlir 2>&1 | %FileCheck %s --check-prefix=TERMINAL
 // RUN: %not %acir_opt %t/commit-mask.mlir 2>&1 | %FileCheck %s --check-prefix=COMMIT
 // RUN: %not %acir_opt %t/commit-single-owner.mlir 2>&1 | %FileCheck %s --check-prefix=COMMIT-OWNER
-// RUN: %not %acir_opt %t/lane-count.mlir 2>&1 | %FileCheck %s --check-prefix=LANES
+// RUN: %not %acir_opt %t/lanes-zero.mlir 2>&1 | %FileCheck %s --check-prefix=LANES-ZERO
 // RUN: %not %acir_opt %t/allocator-bits.mlir 2>&1 | %FileCheck %s --check-prefix=BITS
 // RUN: %not %acir_opt %t/allocator-width.mlir 2>&1 | %FileCheck %s --check-prefix=ALLOC-WIDTH
 // RUN: %not %acir_opt %t/age-missing.mlir 2>&1 | %FileCheck %s --check-prefix=AGE-MISSING
@@ -15,6 +15,9 @@
 // RUN: %not %acir_opt %t/age-ordering.mlir 2>&1 | %FileCheck %s --check-prefix=AGE-ORDER
 // RUN: %not %acir_opt %t/dependency-noninteger.mlir 2>&1 | %FileCheck %s --check-prefix=DEPENDENCY-TYPE
 // RUN: %not %acir_opt %t/kill-set-noninteger.mlir 2>&1 | %FileCheck %s --check-prefix=KILL-TYPE
+// RUN: %not %acir_opt %t/recovery-noninteger.mlir 2>&1 | %FileCheck %s --check-prefix=RECOVERY-TYPE
+// RUN: %not %acir_opt %t/lanes-zero.mlir 2>&1 | %FileCheck %s --check-prefix=LANES-ZERO
+// RUN: %not %acir_opt %t/lanes-too-wide.mlir 2>&1 | %FileCheck %s --check-prefix=LANES-WIDE
 
 //--- reservation-empty.mlir
 module {
@@ -93,16 +96,22 @@ module {
 }
 // COMMIT-OWNER: 'ac.reservation_set' op commit ReservationSet requires at least two resource owners
 
-//--- lane-count.mlir
+//--- lanes-zero.mlir
 module {
   %mask = ac.var.constant 0 : i4 as !ac.var<i4>
   %common = "ac.reservation_set"(%mask) <{lanes = 0 : i64}>
       : (!ac.var<i4>) -> !ac.var<i4>
+}
+// LANES-ZERO: lane mask with lanes in [1, 64]
+
+//--- lanes-too-wide.mlir
+module {
+  %mask = ac.var.constant 0 : i4 as !ac.var<i4>
   %accepted = "ac.transaction_group"(%mask, %mask) <{
     lanes = 65 : i64, policy = #ac<transaction_group_policy independent>
   }> : (!ac.var<i4>, !ac.var<i4>) -> !ac.var<i4>
 }
-// LANES: lane mask with lanes in [1, 64]
+// LANES-WIDE: lane mask with lanes in [1, 64]
 
 //--- allocator-bits.mlir
 module {
@@ -172,10 +181,22 @@ module {
 
 //--- kill-set-noninteger.mlir
 module {
+  %event = ac.var.constant 0 : i1 as !ac.var<i1>
   %mask = ac.var.constant 0 : i2 as !ac.var<i2>
-  %killed = "ac.kill_set"(%mask, %mask, %mask, %mask, %mask) <{
+  %killed = "ac.kill_set"(%event, %mask, %mask, %mask, %mask) <{
     lanes = 2 : i64, policy = "epoch_mismatch_or_younger"
-  }> : (!ac.var<i2>, !ac.var<i2>, !ac.var<i2>, !ac.var<i2>, !ac.var<i2>)
+  }> : (!ac.var<i1>, !ac.var<i2>, !ac.var<i2>, !ac.var<i2>, !ac.var<i2>)
       -> !ac.var<f32>
 }
 // KILL-TYPE: 'ac.kill_set' op kill-set event/result must be !ac.var<i1>
+
+//--- recovery-noninteger.mlir
+module {
+  ac.recovery_domain @speculation epoch_bits 3 initial 0
+  %valid = ac.var.constant 0 : i1 as !ac.var<i1>
+  %epoch = ac.var.constant 0 : i3 as !ac.var<i3>
+  %event = "ac.recovery.event"(%valid, %epoch, %epoch, %epoch) <{
+    domain = @speculation, cause = "noninteger-result"
+  }> : (!ac.var<i1>, !ac.var<i3>, !ac.var<i3>, !ac.var<i3>) -> !ac.var<f32>
+}
+// RECOVERY-TYPE: 'ac.recovery.event' op event valid input/result must be !ac.var<i1>

@@ -6027,7 +6027,7 @@ LogicalResult VersionedTableLookupOp::verify() {
       getPayload().getType() !=
           VarType::get(getContext(), fieldType(declaration, *payloadIndex)))
     return emitOpError("payload result must match the declared payload field");
-  if (!integerVarType(getValid()).isInteger(1))
+  if (auto valid = integerVarType(getValid()); !valid || !valid.isInteger(1))
     return emitOpError("valid result must be !ac.var<i1>");
   auto exactTag = [&](Value value, IntegerAttr width) {
     auto integer = integerVarType(value);

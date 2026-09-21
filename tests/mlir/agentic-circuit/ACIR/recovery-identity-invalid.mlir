@@ -10,6 +10,7 @@
 // RUN: %not %acir_opt %t/recovery-event.mlir 2>&1 | %FileCheck %s --check-prefix=RECOVERY-EVENT
 // RUN: %not %acir_opt %t/kill-set.mlir 2>&1 | %FileCheck %s --check-prefix=KILL-SET
 // RUN: %not %acir_opt %t/lookup.mlir 2>&1 | %FileCheck %s --check-prefix=LOOKUP
+// RUN: %not %acir_opt %t/lookup-noninteger.mlir 2>&1 | %FileCheck %s --check-prefix=LOOKUP-TYPE
 
 //--- epoch-width.mlir
 module {
@@ -138,3 +139,32 @@ module {
   %payload, %valid = ac.versioned_table.lookup @plain[%slot] ref %generation, %epoch : !ac.var<i2>, !ac.var<i3> : !ac.var<i1> -> !ac.var<i8>, !ac.var<i1>
 }
 // LOOKUP: 'ac.versioned_table.lookup' op lookup requires a versioned Table
+
+//--- lookup-noninteger.mlir
+module {
+  ac.type_scope @types {
+    ac.struct @Entry fields [
+      {name = "valid", type = i1},
+      {name = "generation", type = i2},
+      {name = "recovery_epoch", type = i3},
+      {name = "payload", type = i8}
+    ]
+  } {dlti.dl_spec = #dlti.dl_spec<!ac.struct<@types::@Entry> = {abi_alignment = 1 : i64, endianness = "little", preferred_alignment = 1 : i64, size = 14 : i64}>}
+  ac.recovery_domain @speculation epoch_bits 3 initial 0
+  ac.typed_identity @transaction width 8
+  ac.table @window entry !ac.struct<@types::@Entry> entries 2 init 0 owner "/" stable_id "table/window" {
+    recovery_domain = @speculation,
+    identity = @transaction,
+    generation_bits = 2 : i64,
+    epoch_bits = 3 : i64,
+    valid_field = "valid",
+    generation_field = "generation",
+    epoch_field = "recovery_epoch",
+    payload_field = "payload"
+  }
+  %slot = ac.var.constant 0 : i1 as !ac.var<i1>
+  %generation = ac.var.constant 0 : i2 as !ac.var<i2>
+  %epoch = ac.var.constant 0 : i3 as !ac.var<i3>
+  %payload, %valid = ac.versioned_table.lookup @window[%slot] ref %generation, %epoch : !ac.var<i2>, !ac.var<i3> : !ac.var<i1> -> !ac.var<i8>, !ac.var<f32>
+}
+// LOOKUP-TYPE: 'ac.versioned_table.lookup' op valid result must be !ac.var<i1>

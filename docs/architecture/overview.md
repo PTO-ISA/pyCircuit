@@ -263,8 +263,9 @@ op = 1；寄存器与存储为路径切点；跨 `pyc.instance` 用 `CombDepGrap
 module fetch ( input clk, input rst, ... );
   // 内部 wire 声明（按名排序，注释来源 op / pyc.name）
   // --- Combinational (netlist)   ← 拓扑序 assign（pyc.comb 内联展开）
-  // --- Instances                 ← 子模块例化（层次模式）
-  // --- Sequential primitives     ← pyc_reg / pyc_fifo / pyc_sync_mem ...
+  // --- Instances                 ← 全部例化，按实例名统一排序：
+  //                                 选中的 RTL 原语（comb_*）、子模块例化、
+  //                                 pyc_reg / pyc_fifo / pyc_sync_mem 等顺序原语
   //     输出端口连线
 endmodule
 ```

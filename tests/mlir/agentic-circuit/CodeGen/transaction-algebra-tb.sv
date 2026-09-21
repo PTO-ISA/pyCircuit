@@ -202,7 +202,27 @@ module tb_transaction_algebra;
           draws[16][3:0], draws[17][3:0]);
       transact(input_value, oracle(input_value), next_random() % 5);
     end
-    $display("transaction algebra RTL PASS 50");
+    // Directed cases that make capacity bind and the prefix span several
+    // lanes, which the random stream rarely reaches.
+    input_value = pack_input(15, 15, 15, 15, 15, 0, 1, 2, 3,
+                             15, 15, 15, 15, 15, 15, 15, 1, 0);
+    transact(input_value, oracle(input_value), 1);
+    input_value = pack_input(15, 15, 15, 15, 15, 7, 6, 5, 4,
+                             8, 1, 2, 4, 3, 11, 15, 2, 1);
+    transact(input_value, oracle(input_value), 1);
+    input_value = pack_input(7, 15, 15, 15, 5, 7, 6, 5, 4,
+                             8, 1, 2, 4, 3, 11, 15, 15, 8);
+    transact(input_value, oracle(input_value), 1);
+    input_value = pack_input(15, 15, 15, 15, 0, 0, 0, 0, 0,
+                             0, 0, 0, 0, 0, 0, 0, 0, 15);
+    transact(input_value, oracle(input_value), 1);
+    input_value = pack_input(15, 1, 3, 9, 15, 1, 2, 3, 4,
+                             15, 15, 15, 15, 3, 15, 15, 4, 4);
+    transact(input_value, oracle(input_value), 1);
+    input_value = pack_input(1, 15, 15, 15, 1, 0, 7, 7, 7,
+                             1, 0, 0, 0, 1, 1, 1, 15, 0);
+    transact(input_value, oracle(input_value), 1);
+    $display("transaction algebra RTL PASS 50 directed 6");
     $finish;
   end
 endmodule

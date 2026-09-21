@@ -21,8 +21,10 @@
   `SameCycleReusePolicy` attributes. Each operation verifies exact lane width,
   closed policy values, age width agreement, winner bounds, and `i1`
   dependency readiness. Non-integer results now reject instead of
-  dereferencing a null type: the `ac.dependency_set` ready check and the two
-  pre-existing `ac.recovery.event` / `ac.kill_set` `i1` checks are guarded.
+  dereferencing a null type: the `ac.dependency_set` ready check and the three
+  pre-existing `ac.recovery.event`, `ac.kill_set`, and
+  `ac.versioned_table.lookup` `i1` checks are guarded, and each site has a
+  negative case (the versioned-lookup site crashed the compiler before).
 - The QueueGraph plan extracts one typed expression per endpoint and re-verifies
   lane count, operand widths, closed policy, committed-mask uniformity, and
   generation metadata fail-closed before any backend emission.
@@ -69,7 +71,17 @@ LCG alternated bit zero on every draw, which pinned the reservation AND to zero
 and silently dropped most of the algebra out of the fixture; the reference
 oracle also modelled the allocator's accepted mask as the uncapped request
 mask instead of the capacity-limited prefix the DUT computes. Both defects are
-fixed, so the fixture now fails a design that over-issues free capacity.
+fixed.
+
+An independent review then measured the sampled stream and found that random
+`r0 & r1 & r2` almost never covers lane zero, so the random cases alone reached
+neither a multi-lane prefix nor a request exceeding free capacity: a design that
+ignored capacity or accepted only lane zero would have passed. Both the C++ and
+the RTL fixture therefore add six directed cases that make capacity bind
+(including one free slot against a four-lane request) and force three- and
+four-lane prefixes, with zero-capacity, lane-zero-only, and single-lane-prefix
+cases alongside them. The fixture now fails a design that over-issues free
+capacity.
 
 The `transaction-algebra-scale.mlir` fixture re-emits the same algebra at eight
 and ten lanes. It is compile/lint/audit coverage for width scaling and
@@ -77,9 +89,9 @@ deterministic ordering, not an executed semantic differential; the executed
 semantic proof is the four-lane fixture.
 
 The executable PYC fixture validates two hundred deterministic pseudorandom
-inputs with random zero-to-four-cycle output stalls against the independent
-oracle, and the Icarus fixture validates fifty seeded cases with the same
-oracle.
+inputs with random zero-to-four-cycle output stalls plus six directed cases
+against the independent oracle, and the Icarus fixture validates fifty seeded
+cases plus the same six directed cases with the same oracle.
 
 ## Known limits
 

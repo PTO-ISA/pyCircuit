@@ -16,8 +16,8 @@ Agentic Python contracts/frontend/CLI: PASS 28 + 320 + 1 + 5 = 354/354
 ACIR negative/positive fixtures: PASS (lane-width bounds, empty reservation, divergent and single-owner committed masks, generation policy and width, transaction-group width, age count/type/ordering, non-integer dependency ready, non-integer kill-set result)
 Generated QueueGraph plan: PASS
 Generated gfsim C++ syntax: PASS
-Generated PYC C++ transaction executable: PASS (200 deterministic splitmix64 inputs, random 0..4-cycle output stalls, capacity-limited independent oracle)
-Generated RTL Icarus transaction executable: PASS (50 seeded cases, same oracle)
+Generated PYC C++ transaction executable: PASS (200 deterministic splitmix64 inputs with random 0..4-cycle output stalls plus 6 directed cases that bind allocator capacity and force three- and four-lane prefixes, against the capacity-limited independent oracle)
+Generated RTL Icarus transaction executable: PASS (50 seeded cases plus the same 6 directed cases, same oracle)
 Generated RTL Verilator lint: PASS
 Generated RTL structural audit (module/wire/instance/assertion ordering): PASS for 4, 8, and 10 lanes
 RTL instance-order regression (submodule `aa` before selected primitive): PASS
@@ -31,6 +31,18 @@ Diagnostic catalog: PASS
 MkDocs strict build: PASS
 Decision status coverage: PASS 280 rows, 0 deferred, evidence present
 git diff --check: PASS
+
+Guard note: four ACIR op verifiers previously dereferenced a null integer type and
+crashed the compiler instead of rejecting a non-integer result
+(ac.dependency_set, ac.recovery.event, ac.kill_set, ac.versioned_table.lookup).
+All four are guarded and each is locked by a negative case; the
+versioned_table.lookup site was confirmed to SIGSEGV before the guard.
+
+Flake note: a first full parallel `check-acir` run can fail
+`CodeGen/architecture-obligation-backends.mlir` with a Verilator `--binary`
+"error opening 'verilated.d'" from concurrent Verilator scratch use. The test
+passes in isolation and on rerun; the test file is unmodified and this is a
+pre-existing parallel-run flake, not an F8 regression.
 
 Environment note: tests/python/agentic-circuit/tools/test_perfetto_trace.py fails
 to collect because it imports tools.perfetto_trace, which lives at
