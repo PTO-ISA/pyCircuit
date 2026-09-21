@@ -61,16 +61,23 @@ def test_pyc_inventory_records_exact_rtl_selection_boundary() -> None:
     assert coverage["dialect"] == "pyc"
     operations = {entry["name"]: entry for entry in coverage["operations"]}
     expected = {
-        "pyc.priority_encode": "pyc.priority_encode.v1",
-        "pyc.popcount": "pyc.popcount.v1",
-        "pyc.count_zeros": "pyc.count_zeros.v1",
+        "pyc.priority_encode": (
+            "pyc.priority_encode.v1",
+            ["pyc.bsd.priority_encode.v1", "pyc.tree.priority_encode.v1"],
+        ),
+        "pyc.popcount": ("pyc.popcount.v1", ["pyc.bsd.popcount.v1"]),
+        "pyc.count_zeros": ("pyc.count_zeros.v1", ["pyc.bsd.count_zeros.v1"]),
     }
-    for operation, semantic_id in expected.items():
+    for operation, (semantic_id, implementation_ids) in expected.items():
         selection = operations[operation]["rtl_selection"]
         assert selection["pass"].endswith("SelectRtlPrimitivesPass.cpp")
         assert selection["catalog"] == "library/verilog/rtl_catalog.json"
-        assert [entry["semantic_id"] for entry in selection["candidates"]] == [
-            semantic_id
-        ]
-    assert len(operations["pyc.rtl.comb"]["rtl_selection"]["candidates"]) == 3
+        candidates = selection["candidates"]
+        assert [entry["semantic_id"] for entry in candidates] == [semantic_id] * len(
+            implementation_ids
+        )
+        assert [entry["implementation_id"] for entry in candidates] == (
+            implementation_ids
+        )
+    assert len(operations["pyc.rtl.comb"]["rtl_selection"]["candidates"]) == 4
     assert operations["pyc.add"]["rtl_selection"] is None

@@ -35,6 +35,7 @@ FLOW_TOOLS = {
     "check_generated_rtl.py",
     "discover_examples.py",
     "gen_cmake_from_manifest.py",
+    "report_primitive_ppa.py",
     "summarize_gate_run.py",
 }
 

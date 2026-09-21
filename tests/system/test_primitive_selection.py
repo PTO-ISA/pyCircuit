@@ -1095,3 +1095,117 @@ def test_installed_catalog_keeps_license_evidence() -> None:
     for implementation in catalog["implementations"]:
         license_path = catalog_path.parent / implementation["license_file"]
         assert license_path.is_file()
+
+
+def _isolated_variant_catalog(root: Path, target: Path) -> dict[str, object]:
+    catalog = root / "library" / "verilog" / "rtl_catalog.json"
+    document = json.loads(catalog.read_text(encoding="utf-8"))
+    target.mkdir(parents=True, exist_ok=True)
+    for implementation in document["implementations"]:
+        for source in implementation["sources"]:
+            shutil.copy2(root / "library" / "verilog" / source["path"], target)
+    (target / "licenses").mkdir(exist_ok=True)
+    shutil.copy2(
+        root / "library" / "verilog" / "licenses" / "BSD-3-Clause.txt",
+        target / "licenses" / "BSD-3-Clause.txt",
+    )
+    return document
+
+
+def test_priority_encode_variants_are_qualified_with_metadata() -> None:
+    root = _root()
+    catalog = json.loads(
+        (root / "library" / "verilog" / "rtl_catalog.json").read_text(encoding="utf-8")
+    )
+    variants = [
+        entry
+        for entry in catalog["implementations"]
+        if entry["semantic_id"] == "pyc.priority_encode.v1"
+    ]
+    assert len(variants) >= 2
+    identifiers = {entry["implementation_id"] for entry in variants}
+    assert "pyc.bsd.priority_encode.v1" in identifiers
+    assert "pyc.tree.priority_encode.v1" in identifiers
+    priorities = {entry["selection_priority"] for entry in variants}
+    assert len(priorities) == len(variants)
+    for entry in variants:
+        assert entry["qualification"]["status"] == "validated"
+        metadata = entry["metadata"]
+        for field in (
+            "latency_cycles",
+            "initiation_interval",
+            "pipeline_depth",
+            "banks",
+            "depth_entries",
+            "storage",
+            "structural_estimate",
+        ):
+            assert field in metadata, (entry["implementation_id"], field)
+        for source in entry["sources"]:
+            assert (root / "library" / "verilog" / source["path"]).is_file()
+
+
+def test_priority_encode_variant_selection_is_priority_ordered(
+    tmp_path: Path,
+) -> None:
+    root = _root()
+    pyc_opt = _tool("pyc-opt")
+    fixture = root / "tests" / "mlir" / "pyc" / "priority-primitive.mlir"
+    isolated = tmp_path / "catalog"
+    document = _isolated_variant_catalog(root, isolated)
+    for entry in document["implementations"]:
+        if entry["implementation_id"] == "pyc.tree.priority_encode.v1":
+            entry["selection_priority"] = 110
+    preferred = isolated / "preferred_catalog.json"
+    preferred.write_text(json.dumps(document), encoding="utf-8")
+    selected = tmp_path / "selected.mlir"
+    subprocess.run(
+        [
+            pyc_opt,
+            str(fixture),
+            f"--pyc-select-rtl-primitives=catalog={preferred}",
+            "-o",
+            str(selected),
+        ],
+        cwd=root,
+        check=True,
+        env=_environment(),
+    )
+    text = selected.read_text(encoding="utf-8")
+    assert 'implementation_id = "pyc.tree.priority_encode.v1"' in text
+    assert 'implementation_id = "pyc.bsd.priority_encode.v1"' not in text
+
+
+def test_priority_encode_variants_are_observationally_equivalent(
+    tmp_path: Path,
+) -> None:
+    root = _root()
+    iverilog = _tool("iverilog")
+    vvp = _tool("vvp")
+    output = tmp_path / "priority_variant_parity.vvp"
+    subprocess.run(
+        [
+            iverilog,
+            "-g2012",
+            "-Ilibrary/verilog",
+            "-s",
+            "tb_priority_variant_parity",
+            "-o",
+            str(output),
+            "library/verilog/pyc_priority_encode.v",
+            "library/verilog/pyc_priority_encode_tree.v",
+            "tests/system/priority_variant_parity_tb.sv",
+        ],
+        cwd=root,
+        check=True,
+        env=_environment(),
+    )
+    completed = subprocess.run(
+        [vvp, str(output)],
+        cwd=root,
+        text=True,
+        capture_output=True,
+        check=True,
+        env=_environment(),
+    )
+    assert "priority variant parity PASS 512" in completed.stdout

@@ -1109,6 +1109,10 @@
           {
             "implementation_id": "pyc.bsd.priority_encode.v1",
             "semantic_id": "pyc.priority_encode.v1"
+          },
+          {
+            "implementation_id": "pyc.tree.priority_encode.v1",
+            "semantic_id": "pyc.priority_encode.v1"
           }
         ],
         "catalog": "library/verilog/rtl_catalog.json",
@@ -1300,6 +1304,10 @@
         "candidates": [
           {
             "implementation_id": "pyc.bsd.priority_encode.v1",
+            "semantic_id": "pyc.priority_encode.v1"
+          },
+          {
+            "implementation_id": "pyc.tree.priority_encode.v1",
             "semantic_id": "pyc.priority_encode.v1"
           },
           {
