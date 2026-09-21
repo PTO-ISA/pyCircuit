@@ -480,6 +480,22 @@ def canonical_path(path: Path) -> Path:
     return Path(real)
 
 
+def installed_console_script(commands: Path, name: str) -> Path | None:
+    """Locate an installed console script, tolerating launcher naming.
+
+    A Windows launcher for an entry point whose name already carries a suffix
+    (`acc.py`) is not guaranteed to appear as `acc.py.exe`, so the caller falls
+    back to running the module through the venv interpreter.
+    """
+    candidates = [commands / name]
+    if sys.platform == "win32":
+        candidates.insert(0, commands / f"{name}.exe")
+    for candidate in candidates:
+        if candidate.is_file():
+            return candidate
+    return None
+
+
 def installed_smoke(sdk_root: Path, wheels: list[Path], workspace: Path) -> None:
     windows = sys.platform == "win32"
     suffix = ".exe" if windows else ""
@@ -495,9 +511,16 @@ def installed_smoke(sdk_root: Path, wheels: list[Path], workspace: Path) -> None
         [python, "-c", "import _pycircuit_semantics, agentic_circuit, pycircuit"],
         cwd=workspace,
     )
-    run([commands / f"pycircuit{suffix}", "--help"], cwd=workspace)
-    acc_py = commands / f"acc.py{suffix}"
-    run([acc_py, "--help"], cwd=workspace)
+    pycircuit_script = installed_console_script(commands, f"pycircuit{suffix}")
+    if pycircuit_script is not None:
+        run([pycircuit_script, "--help"], cwd=workspace)
+    acc_script = installed_console_script(commands, f"acc.py{suffix}")
+    acc_py: list[os.PathLike[str] | str] = (
+        [acc_script]
+        if acc_script is not None
+        else [python, "-m", "agentic_circuit._acc_py"]
+    )
+    run([*acc_py, "--help"], cwd=workspace)
 
     # Python launchers remain extensionless in the SDK root on every platform;
     # compiled tools use the platform suffix.
@@ -546,7 +569,7 @@ def installed_smoke(sdk_root: Path, wheels: list[Path], workspace: Path) -> None
     )
 
     compile_command = [
-        acc_py,
+        *acc_py,
         "--project",
         project,
         "-c",
