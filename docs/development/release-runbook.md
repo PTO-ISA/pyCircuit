@@ -54,8 +54,11 @@ Two traps are worth naming, because both pass locally and fail in CI:
   attestation needs `git add -f`. `--require-existing-evidence` resolves paths
   on the checked-out tree, and the release lane checks out the candidate SHA.
   `tests/unit/test_release_evidence_and_platform_constraints.py` enforces this.
-- **`pre-commit run --all-files` only sees tracked files.** Run it after staging
-  new tests, or run the hooks on those files explicitly.
+- **Hooks and tracked-file tests only see staged files.** `pre-commit run
+  --all-files` skips untracked paths, and so do the unit tests that enumerate
+  `git ls-files` (documentation navigation, repository layout). Stage new files
+  before running the local gates; a brand-new page or test otherwise reports a
+  failure that disappears once it is committed.
 
 ## Pipeline
 
