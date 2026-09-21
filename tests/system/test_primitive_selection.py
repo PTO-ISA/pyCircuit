@@ -1176,6 +1176,49 @@ def test_priority_encode_variant_selection_is_priority_ordered(
     assert 'implementation_id = "pyc.bsd.priority_encode.v1"' not in text
 
 
+def test_priority_encode_selection_is_independent_of_catalog_order(
+    tmp_path: Path,
+) -> None:
+    """The selected implementation must not depend on catalog entry order.
+
+    Two catalogs with identical content but reversed implementation order must
+    select the same implementation, so a tie or a first-match rule cannot hide
+    behind list order.
+    """
+    root = _root()
+    pyc_opt = _tool("pyc-opt")
+    fixture = root / "tests" / "mlir" / "pyc" / "priority-primitive.mlir"
+    isolated = tmp_path / "catalog"
+    document = _isolated_variant_catalog(root, isolated)
+
+    forward = isolated / "forward_catalog.json"
+    forward.write_text(json.dumps(document), encoding="utf-8")
+    reversed_document = dict(document)
+    reversed_document["implementations"] = list(reversed(document["implementations"]))
+    backward = isolated / "backward_catalog.json"
+    backward.write_text(json.dumps(reversed_document), encoding="utf-8")
+
+    outputs = []
+    for index, catalog in enumerate((forward, backward)):
+        selected = tmp_path / f"selected_{index}.mlir"
+        subprocess.run(
+            [
+                pyc_opt,
+                str(fixture),
+                f"--pyc-select-rtl-primitives=catalog={catalog}",
+                "-o",
+                str(selected),
+            ],
+            cwd=root,
+            check=True,
+            env=_environment(),
+        )
+        outputs.append(selected.read_text(encoding="utf-8"))
+
+    assert outputs[0] == outputs[1]
+    assert 'implementation_id = "pyc.bsd.priority_encode.v1"' in outputs[0]
+
+
 def test_priority_encode_variants_are_observationally_equivalent(
     tmp_path: Path,
 ) -> None:
@@ -1208,4 +1251,6 @@ def test_priority_encode_variants_are_observationally_equivalent(
         check=True,
         env=_environment(),
     )
-    assert "priority variant parity PASS 512" in completed.stdout
+    assert "priority variant parity PASS comparisons=" in completed.stdout
+    comparisons = int(completed.stdout.split("comparisons=")[1].split()[0])
+    assert comparisons >= 2000

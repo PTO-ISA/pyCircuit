@@ -5,6 +5,7 @@
 // RUN: %acir_queue_plan %t.frozen.mlir > %t.plan.json
 // RUN: %FileCheck %s --check-prefix=PLAN < %t.plan.json
 // RUN: %acir_queue_pycgen %t.frozen.mlir > %t.pyc
+// RUN: %FileCheck %s --check-prefix=PYC < %t.pyc
 // RUN: %acir_queue_pycgen %t.frozen.mlir > %t.pyc.again
 // RUN: diff %t.pyc %t.pyc.again
 // RUN: %acir_queue_cxxgen %t.frozen.mlir > %t.gfsim.cpp
@@ -274,13 +275,21 @@ module attributes {ac.model_kind = "queue_graph", ac.queue_graph_domain = "cycle
 // EFFECT: "kind": "obligation_linkage"
 // EFFECT: "kind": "recovery_domain"
 // EFFECT: "kind": "rule"
-// PYC: obligation_kind = "no_stale_response"
-// PYC-SAME: obligation_id = "no_stale_response:issue_q:disposition0"
-// PYC: obligation_kind = "no_stale_update"
-// PYC: no_stale_update:window:recover:slot0
-// PYC: no_stale_update:window:retire:slot0
+// PYC: obligation_id = "no_stale_response:issue_q:disposition0"
+// PYC-SAME: obligation_kind = "no_stale_response"
+// PYC-SAME: sample_anchor = "issue_q"
+// PYC: obligation_id = "no_stale_update:window:retire:slot0"
+// PYC-SAME: obligation_kind = "no_stale_update"
+// PYC-SAME: sample_anchor = "retire"
+// PYC: obligation_id = "no_stale_update:window:recover:slot0"
+// PYC-SAME: obligation_kind = "no_stale_update"
+// PYC-SAME: sample_anchor = "recover"
+// PYC: obligation_id = "no_stale_update:window:retire:slot3"
+// PYC: obligation_id = "no_stale_update:window:recover:slot3"
 // CPP: obligation_no_stale_response_issue_q_disposition0_coverage = 0;
 // CPP: obligation_no_stale_update_window_retire_slot0_coverage = 0;
+// PLAN: "activation_edges"
+// PLAN: "arbitration_membership"
 // PLAN: "kind":"reservation_set"
 // PLAN: "kind":"transaction_group"
 // PLAN: "kind":"multi_allocator_accepted"
@@ -290,24 +299,38 @@ module attributes {ac.model_kind = "queue_graph", ac.queue_graph_domain = "cycle
 // PLAN: "kind":"load_disposition_forward"
 // PLAN: "kind":"terminal_transaction"
 // PLAN: "stale_obligation_id":"no_stale_update:window:commit"
+// PLAN: "versioned_action":"allocate"
+// PLAN: "stale_obligation_id":"no_stale_update:window:retire"
+// PLAN: "versioned_action":"qualified_update"
 // PLAN: "stale_obligation_id":"no_stale_update:window:recover"
+// PLAN: "versioned_action":"invalidate"
 // SVA: assert property
 // SVA: cover property
-// The executed stress drives the whole lane algebra for 48 bounded cycles:
-// every dispatch and every driven completion or recovery is accepted through the
-// real ready/valid handshake. Coverage is the load-bearing evidence here, not
-// the assertion outcome: the generated no_stale_update guard is orthogonal by
-// construction, so this run asserts that the versioned window keeps committing
-// qualified updates (the halfway counter is strictly smaller than the final
-// one) instead of wedging after its first update, that the killing recovery is
-// observed as a stale-mutation attempt, and that a stale lane is classified as
-// stale rather than forwarded.
-// EXEC: miniOOO stress PASS cycles=48 stale_trials=6 dispatched=48 completed=47 recovered=1 retire_coverage={{[1-9][0-9]*}}
-// EXEC-SAME: retire_at_half={{[1-9][0-9]*}}
+// The executed stress drives the lane algebra for 46 bounded cycles through the
+// real ready/valid handshakes and reads the generated window state directly,
+// because the no_stale_update coverage condition is `requested && !qualified`:
+// that counter counts *rejected stale* updates and grows fastest when the window
+// is wedged, so it cannot be used as commit evidence. Instead the harness proves
+// three separate properties. Committing: on 24 consecutive cycles whose
+// completions carry the version the commit rule publishes, the slot 0 window
+// payload advances on 21 of them, so the window keeps applying qualified updates
+// rather than committing once and wedging. Rejecting: 12 completions whose
+// version no longer matches never reach the window payload (the stale band never
+// appears) while the no_stale_update counter reports them, which is the
+// counter's actual meaning. Recovering: the same killing invalidation is
+// presented twice, once with a stale version and once with the live one, and
+// only the second one commits, observed as the slot 0 valid bit dropping, after
+// which the window accepts qualified updates again (6 further payload
+// advances). Reaching the end also proves no obligation aborted the model; the
+// generated no_stale_update assertion itself is orthogonal by construction and
+// cannot fire, so it is a lowering-invariant canary and not runtime enforcement.
+// EXEC: miniOOO stress PASS cycles=46 commit_advances=21 resume_advances=6 stale_commits=0 stale_rejections={{[1-9][0-9]*}} commit_rejections=0 stale_invalidations=1 invalidations=1
+// EXEC-SAME: retire_coverage={{[1-9][0-9]*}}
 // EXEC-SAME: recover_coverage={{[1-9][0-9]*}}
 // EXEC-SAME: stale_coverage={{[1-9][0-9]*}} failures=0
-// The RTL lowering replays the same bounded schedule with an independently
-// drawn payload stream and has to accept the identical dispatch, completion and
-// recovery cadence: 48 dispatches, 47 versioned completions and the single
-// killing recovery, with no source stalled past the handshake bound.
+// The RTL lowering replays the same bounded cadence through iverilog and has to
+// accept the identical dispatch, completion and recovery schedule with no source
+// stalled past the handshake bound. `-DSYNTHESIS` is required because iverilog
+// cannot elaborate concurrent assertions, so this run proves cadence and
+// liveness; the emitted SVA is checked by the SVA checks and the RTL audit.
 // RTL-EXEC: miniOOO rtl stress PASS cycles=48 dispatched=48 completed=47 recovered=1

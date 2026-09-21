@@ -100,8 +100,11 @@ module tb_miniooo;
                                (cycle % 4) == 3 ? 4'd3 : 4'd0,
                                (cycle % 16) == 15 ? 4'd3 : 4'd0);
       if (cycle == 0) begin
-        // First cycle: the killing recovery invalidates the version the very
-        // first commit publishes.
+        // First cycle: the same cadence the C++ stress uses, one dispatch plus a
+        // killing recovery instead of a completion. `-DSYNTHESIS` means the
+        // emitted assertions are not elaborated, so this run proves cadence and
+        // liveness; the committed and rejected invalidation branches are proven
+        // against the window state by the C++ stress harness.
         in1_valid = 0;
         in1_data = '0;
         in2_valid = 1;

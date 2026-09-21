@@ -643,9 +643,11 @@ set, so they have no Verilog implementation catalog entry and are never offered
 to the Verilog-only selection pass. Replaceable PYC primitives keep their
 semantics in `schemas/primitives/semantic_registry.json` and their
 implementations in `library/verilog/rtl_catalog.json`; a semantic ID may not
-appear in both roles, and the ACIR registry is cross-checked against
-`ACIROps.td` so neither an endpoint without a semantic entry nor a semantic entry
-without an endpoint can exist. Implementation entries additionally carry
+appear in both roles. The ACIR registry is declarative and no compiler or flow
+tool consumes it yet: the build checks it in one direction by requiring every
+declared `operation` to exist among the `ACIR_Op<...>` names in `ACIROps.td`, and
+a reverse coverage check plus a build-time consumer are open items rather than
+claimed behavior. Implementation entries additionally carry
 `latency_cycles`, `initiation_interval`, `pipeline_depth`, `banks`,
 `depth_entries`, `storage`, and a structural estimate, which is what the
 advisory `pyc-primitive-ppa-report-v1` report is rendered from.

@@ -11961,14 +11961,20 @@ vendor-neutral fixture that generates and exercises the whole chain.
 
 **Decision (strong constraint)**
 - Two registries, one binding. `schemas/primitives/acir_semantic_registry.json`
-  (`pyc-acir-semantic-primitive-registry-v1`) is the only place a semantic
-  endpoint is defined: semantic id, operand and result contract, `min_width` and
-  `max_width`, and `implementation_kind`. `library/verilog/rtl_catalog.json` is
-  the only place an implementation is described, and every implementation entry
-  names exactly one semantic id through `semantic`. No implementation entry may
-  add or weaken semantics, and no semantic entry may name an implementation. The
-  registry is cross-checked against `ACIROps.td` so a semantic id cannot exist
-  without a dialect endpoint or the reverse.
+  (`pyc-acir-semantic-primitive-registry-v1`) is the only place a compiler-owned
+  ACIR semantic endpoint is declared: semantic id, operation binding, effect
+  class, parameters, operand and result contracts with their admitted lane range
+  in `inputs[].constraints`/`outputs[]`, latency, and
+  `implementation_kind: "lowered"`. `library/verilog/rtl_catalog.json` is the
+  only place an implementation is described, and every implementation entry names
+  exactly one semantic id through `semantic_id`. No implementation entry may add
+  or weaken semantics, and no semantic entry may name an implementation: the
+  registry declares no implementation id, module, or source, and a unit test
+  rejects any such key. The registry is declarative — no compiler or flow tool
+  reads it yet — and its binding to the dialect is checked in one direction, by
+  requiring every declared `operation` to exist among the `ACIR_Op<...>` names in
+  `ACIROps.td`; the reverse coverage check and a consumer that consumes the
+  registry at build time are recorded as open items rather than claimed.
 - Complete implementation metadata. Every catalog entry carries a `metadata`
   block with `latency_cycles`, `initiation_interval`, `pipeline_depth`, `banks`,
   `depth_entries`, `storage`, and a structural estimate. A catalog entry without
@@ -11989,10 +11995,14 @@ vendor-neutral fixture that generates and exercises the whole chain.
   an additive refinement instead of a silent behavior change.
 - Observation equivalence, not structural identity. Two implementations of one
   semantic primitive must be observationally equivalent for every input in the
-  declared width range. The parity testbench compares `index`/`valid` for all 512
-  8-bit inputs in both instantiation orders; implementations so far are
-  combinational (`latency_cycles = 0`, `initiation_interval = 1`,
-  `pipeline_depth = 0`, no storage), so equivalence needs no cycle alignment.
+  declared width range. The parity testbench compares `index`/`valid` against an
+  in-testbench golden encoder and against each other in both instantiation
+  orders, sweeping widths 1, 2, 3, 4, 8, 16, 32 and 64 (exhaustively up to 8,
+  then zero, all-ones, every single-bit input and a deterministic random sweep),
+  and it counts the comparisons it made rather than printing a constant.
+  Implementations so far are combinational (`latency_cycles = 0`,
+  `initiation_interval = 1`, `pipeline_depth = 0`, no storage), so equivalence
+  needs no cycle alignment.
 - PPA is advisory evidence, never a gate. `flows/tools/report_primitive_ppa.py`
   emits the `pyc-primitive-ppa-report-v1` report with `gating: false` from the
   catalog metadata. No regression threshold is introduced before a stable
@@ -12008,13 +12018,24 @@ vendor-neutral fixture that generates and exercises the whole chain.
   rule effect graph, the plan, PYC, gfsim C++, PYC C++, and Verilog and SVA, and
   determinism is asserted by byte-diffing two emissions of each generated text
   artifact rather than by comparing one artifact against a stored golden.
-- Bounded executed evidence. The acceptance stress is a bounded deterministic
-  run that drives the real ready/valid handshakes, walks the versioned window
-  across successive commitment versions, asserts that the window keeps
-  committing instead of wedging after the first update, and replays the same
-  cadence in RTL with independently drawn payloads. Long random runs belong to
-  nightly and release lanes, and full SSM validation belongs to the SSM
-  repository against a pinned pyCircuit revision.
+- Bounded executed evidence, asserted on the window state rather than on an
+  obligation counter. The acceptance stress is a bounded deterministic run that
+  drives the real ready/valid handshakes and reads the generated versioned-window
+  entry directly, because the `no_stale_update` coverage condition is
+  `requested && !qualified`: that counter counts *rejected stale* updates and
+  grows fastest when the window is wedged, so it cannot stand in for commit
+  evidence. The run instead proves three separate properties. Committing: with
+  completions that carry the version the commit rule publishes, the window
+  payload advances on nearly every commit cycle, so the window keeps applying
+  qualified updates instead of committing once and wedging. Rejecting: a
+  completion whose version no longer matches never reaches the window payload
+  while the coverage counter reports it, which pins what that counter means.
+  Recovering: the same killing invalidation is presented with a stale version and
+  then with the live one, and only the second commits, observed as the window
+  valid bit dropping, after which the window accepts qualified updates again.
+  The RTL testbench replays the same cadence. Long random runs belong to nightly
+  and release lanes, and full SSM validation belongs to the SSM repository
+  against a pinned pyCircuit revision.
 
 **Consequences**
 - A semantic primitive can gain, lose, or reorder implementations without
@@ -12034,11 +12055,12 @@ vendor-neutral fixture that generates and exercises the whole chain.
   the executed stress is asserted on coverage counters, and the forged-lowering
   negative test recorded in Decision 0281 remains the missing
   defense-in-depth step.
-- The versioned window advances its commitment version on every qualified
-  update, so a completion must carry the version the current commit publishes. A
-  completion that names an older version is reported as a stale-mutation attempt
-  and dropped rather than applied; this is how the recovery coverage in the
-  executed stress is reached.
+- The window's stored identity fields are written by the commit rule's
+  `allocate` (from the issue record) and are not rewritten by the retire rule's
+  field-level `qualified_update`, which touches only `payload`. A completion or
+  invalidation whose reference does not match the stored entry is therefore
+  reported as a stale-mutation attempt and dropped rather than applied, and the
+  executed stress reaches both branches of that decision explicitly.
 
 **Hard break**
 There is no semantic meaning in the implementation catalog, no implementation

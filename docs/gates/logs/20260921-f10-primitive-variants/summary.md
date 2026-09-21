@@ -29,12 +29,19 @@ passing.
 
 - **Observation equivalence.** `tests/system/priority_variant_parity_tb.sv`
   instantiates both implementations in both orders and compares `index`/`valid`
-  for every 8-bit input: 512 vectors, `priority variant parity PASS 512`. The
-  testbench is driven from the system suite.
+  against an in-testbench golden priority encoder, at widths 1, 2, 3, 4, 8, 16,
+  32 and 64. Widths up to 8 are swept exhaustively; wider widths get zero,
+  all-ones, every single-bit input, and a deterministic random sweep. The
+  comparison count is measured, not hardcoded, and the run prints
+  `priority variant parity PASS comparisons=2344`, so an empty loop cannot
+  report a pass.
 - **Deterministic selection.** The selector picks the single highest-priority
   legal implementation for the requested width and reports
   `RTL selection is ambiguous at priority N` when two legal implementations
-  share the top priority, so a catalog cannot silently depend on entry order.
+  share the top priority, so a catalog cannot silently depend on entry order. A
+  system test writes the same catalog twice with the implementation list in both
+  orders and asserts the selected output is byte-identical, so order
+  independence is regression-tested rather than argued from the pass source.
 - **Fail-closed legality.** A catalog whose implementation is outside the
   semantic registry width range still rejects with
   `outside the semantic registry`, and an unqualified or malformed entry still
@@ -92,29 +99,42 @@ each stage is checked rather than merely produced:
 
 ## Executed stress
 
-`tests/mlir/agentic-circuit/CodeGen/miniooo-stress-harness.cpp` drives 48 bounded
+`tests/mlir/agentic-circuit/CodeGen/miniooo-stress-harness.cpp` drives bounded
 cycles against the generated PYC C++ model through the real ready/valid
-handshakes. Each cycle presents one dispatch and, except for the first cycle, one
-versioned completion; the first cycle presents a killing recovery instead, which
-invalidates the window version the first commit publishes. Every eighth cycle
-drops the identity match, and the alias/disjoint/executed/killed qualifications
-rotate so the wait, bypass, forward and replay dispositions all stay reachable.
+handshakes, and it reads the generated versioned-window entry directly (slot 0
+`valid`/`generation`/`recovery_epoch`/`attempt`/`payload`). Reading the window is
+what makes the run able to tell a committed update from a rejected one: the
+`no_stale_update` coverage condition is `requested && !qualified`, so that
+counter counts *rejected stale* updates and grows fastest when the window is
+wedged. Asserting commit liveness on it would be backwards, which is exactly the
+defect the first version of this harness had.
 
-The versioned window advances its commitment version on every qualified update,
-so a completion only commits when it carries the version the current commit
-publishes; the harness walks the version counter across the run and asserts that
-the halfway coverage counter is strictly smaller than the final one, which fails
-if the window commits once and then wedges. Observed result:
+The run is split into phases, each asserted on an observable that can fail:
+
+| phase | cycles | what it drives | what is asserted |
+| --- | --- | --- | --- |
+| commit | 24 | one dispatch plus one completion per cycle, completion version matching the published one | the window payload advances on 21 of the cycles, so the window keeps applying qualified updates instead of wedging |
+| stale | 12 | completions whose version no longer matches, drawn from a disjoint high payload band | no stale payload ever reaches the window (0), while the `no_stale_update` counter reports the rejections, which pins the counter's meaning |
+| stale recovery | 1 | a killing invalidation with a stale version | the recover obligation reports a stale-mutation attempt and the entry stays valid |
+| recover | 1 | the same killing invalidation with the live version | the invalidation commits, observed as the slot 0 valid bit dropping |
+| resume | 8 | matching completions again | the window accepts qualified updates again with further payload advances |
+
+Observed result:
 
 ```
-miniOOO stress PASS cycles=48 stale_trials=6 dispatched=48 completed=47 recovered=1
-  retire_coverage=454 retire_at_half=229 recover_coverage=14 stale_coverage=73 failures=0
+miniOOO stress PASS cycles=46 commit_advances=21 resume_advances=6 stale_commits=0
+  stale_rejections=134 commit_rejections=0 stale_invalidations=1 invalidations=1
+  retire_coverage=169 recover_coverage=12 stale_coverage=42 failures=0
 ```
 
-`tests/mlir/agentic-circuit/CodeGen/miniooo-tb.sv` replays the same cadence in
-RTL through `iverilog`/`vvp` with an independently drawn payload stream
-(splitmix64 seeded differently from the C++ harness) and requires every driven
-source to be accepted inside the handshake bound:
+Two ablations confirm the assertions are live rather than decorative. Forcing
+every commit-phase completion to a stale version freezes the window and the
+harness fails with `commit_advances=0`. Removing the live killing invalidation
+fails with `recovery branch mismatch stale=1 committed=0`.
+
+`tests/mlir/agentic-circuit/CodeGen/miniooo-tb.sv` replays the same bounded
+cadence in RTL through `iverilog`/`vvp` and requires every driven source to be
+accepted inside the handshake bound:
 
 ```
 miniOOO rtl stress PASS cycles=48 dispatched=48 completed=47 recovered=1
@@ -122,34 +142,35 @@ miniOOO rtl stress PASS cycles=48 dispatched=48 completed=47 recovered=1
 
 The bounded run is the deterministic acceptance evidence; long random runs stay
 in nightly and release lanes, and full SSM validation remains in the SSM
-repository against a pinned pyCircuit revision. `iverilog` cannot elaborate
-concurrent assertions, which is why the RTL fixture runs with `-DSYNTHESIS` and
-proves cadence and liveness while the emitted SVA is checked by the RTL audit,
-the `SVA` checks, and Verilator lint rather than by RTL assertion evaluation.
+repository against a pinned pyCircuit revision. The RTL run compiles with
+`-DSYNTHESIS` because `iverilog` cannot elaborate concurrent assertions, so it
+proves cadence and liveness while the emitted SVA is checked by the `SVA` checks
+and the RTL audit rather than by RTL assertion evaluation.
 
 ## Obligation evidence boundary
 
-The executed `failures == 0` assertion is deliberately weak for the two window
+The executed `failures == 0` assertion is deliberately weak for the window
 obligations and must not be read as runtime enforcement. In
 `compiler/acir/lib/CodeGen/QueueGraphPyc.cpp` the `no_stale_update` guard is
 
 ```
 stale     = requested && !qualified
-selected  = requested &&  qualified
+selected  = requested && qualified
 assert !(stale && selected)  cover stale
 ```
 
 so the assertion term is orthogonal by construction and cannot fail on any
 stimulus while the emitted write enable keeps excluding the stale set. Its value
 is a lowering-invariant canary: it fires if a future change stops excluding the
-stale set from `selected`. The stimulus-dependent evidence is the `cover stale`
-condition, which is why the stress and the RTL fixture are asserted on coverage
-counters rather than on assertion failures, and why the forged-lowering negative
-test recorded as an open item in Decision 0281 remains the missing
-defense-in-depth step. The recovery coverage is reached the same way: the
-recovery carries an attempt that no longer matches the committed entry, so the
-invalidation is reported as a stale-mutation attempt rather than being silently
-applied.
+stale set from `selected`. A width-aware solver check over the emitted Verilog
+assign graph confirms all nine generated obligation assertions
+(`no_stale_response:issue_q:disposition0` and the eight
+`no_stale_update:window:{retire,recover}:slot0..3`) are tautologically true,
+while the three coverage operands are not. The stimulus-dependent evidence is
+therefore the `cover` conditions and their counters, which is why the executed
+stress is asserted on window state and coverage rather than on assertion
+failures, and why the forged-lowering negative test recorded as an open item in
+Decision 0281 remains the missing defense-in-depth step.
 
 ## Gate evidence
 
@@ -183,3 +204,10 @@ git diff --check
   Decision 0281).
 - Regression thresholds for the PPA report remain absent until a stable baseline
   exists; the report stays advisory.
+- `schemas/primitives/acir_semantic_registry.json` is declarative: no compiler or
+  flow tool consumes it yet, and its dialect binding is checked in one direction
+  only (every declared `operation` must exist in `ACIROps.td`). A reverse
+  coverage check and a build-time consumer are open items.
+- The catalog-order independence of priority selection is argued from the pass
+  implementation (sort by implementation id, then take a unique maximum) and is
+  not yet regression-tested by permuting catalog order.

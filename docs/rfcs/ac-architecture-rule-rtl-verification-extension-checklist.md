@@ -1137,11 +1137,14 @@ condition carries the evidence. No Python surface is admitted in P10.
 equivalent observations, and illegal parameter combinations fail before emit.
 
 Decision 0282 closes this stage. `schemas/primitives/acir_semantic_registry.json`
-is the only definition of a semantic endpoint, `library/verilog/rtl_catalog.json`
-is the only description of an implementation, and every implementation entry
-names one semantic id plus a complete metadata block. `pyc.priority_encode.v1`
-has two implementations whose `index`/`valid` observations agree over all 512
-8-bit inputs, selection is a deterministic highest-priority choice that rejects
+is the only declaration of a compiler-owned ACIR semantic endpoint (declarative,
+with a one-way operation-name check against `ACIROps.td`; a reverse check and a
+build-time consumer remain open), `library/verilog/rtl_catalog.json` is the only
+description of an implementation, and every implementation entry names one
+semantic id plus a complete metadata block. `pyc.priority_encode.v1`
+has two implementations whose `index`/`valid` observations agree with each other
+and with an in-testbench golden encoder across the admitted widths, selection is a
+deterministic highest-priority choice that rejects
 ties instead of depending on catalog order, and an out-of-range or unqualified
 entry fails before emit. The last bullet is satisfied by *not* adding a
 threshold: `flows/tools/report_primitive_ppa.py` emits the
@@ -1189,10 +1192,13 @@ only producing it; rule and blocker coverage is carried by the effect-graph
 interaction, state-footprint and obligation nodes, the per-rule plan guards and
 activation records, and the IR coverage ledger; determinism is asserted by
 byte-diffing two emissions of the PYC, gfsim C++ and Verilog text. Deterministic
-stress evidence is executed on both backends: the C++ harness walks 48 bounded
-cycles over the real ready/valid handshakes and proves that the versioned window
-keeps committing instead of wedging after its first update, and the RTL
-testbench replays the same cadence with independently drawn payloads. The
+stress evidence is executed on both backends: the C++ harness walks 46 bounded
+cycles over the real ready/valid handshakes, reads the generated versioned-window
+entry, and proves that the window keeps applying qualified updates instead of
+wedging after its first one, that a completion whose version no longer matches
+never reaches the window while the coverage counter reports it, and that a stale
+killing invalidation is rejected while the live one commits and is followed by
+further commits; the RTL testbench replays the same cadence. The
 obligation evidence boundary is stated rather than implied: the generated
 `no_stale_update` guard is orthogonal by construction, so it is a
 lowering-invariant canary and the coverage counter is the stimulus-dependent
