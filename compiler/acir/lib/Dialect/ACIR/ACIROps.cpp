@@ -1174,7 +1174,8 @@ struct TypedExpressionNormalizer {
                 "ac.versioned_table.lookup", "ac.reservation_set",
                 "ac.transaction_group", "ac.multi_allocator",
                 "ac.age_select_k", "ac.dependency_set",
-                "ac.terminal_transaction"}, true)
+                "ac.terminal_transaction", "ac.memory_order_edge",
+                "ac.load_disposition"}, true)
         .Default(false);
   }
 
@@ -1222,6 +1223,10 @@ struct TypedExpressionNormalizer {
              attribute == "ordering";
     if (operation == "ac.dependency_set" ||
         operation == "ac.terminal_transaction")
+      return attribute == "lanes";
+    if (operation == "ac.memory_order_edge")
+      return attribute == "lanes" || attribute == "kind";
+    if (operation == "ac.load_disposition")
       return attribute == "lanes";
     return false;
   }
@@ -5643,6 +5648,46 @@ LogicalResult TerminalTransactionOp::verify() {
       {getCompletedMask(), "completed mask"},
   }};
   for (auto [value, role] : masks)
+    if (failed(verifyLaneMask(*this, value, getLanes(), role)))
+      return failure();
+  return success();
+}
+
+LogicalResult MemoryOrderEdgeOp::verify() {
+  if (failed(
+          verifyLaneMask(*this, getProducer(), getLanes(), "producer mask")) ||
+      failed(
+          verifyLaneMask(*this, getConsumer(), getLanes(), "consumer mask")) ||
+      failed(verifyLaneMask(*this, getAppliesMask(), getLanes(),
+                            "applies mask")))
+    return failure();
+  if (getPredicate() && failed(verifyLaneMask(*this, getPredicate(),
+                                              getLanes(), "predicate mask")))
+    return failure();
+  return success();
+}
+
+LogicalResult LoadDispositionOp::verify() {
+  const std::array<std::pair<Value, StringRef>, 7> inputs{{
+      {getPendingMask(), "pending mask"},
+      {getAliasMask(), "alias mask"},
+      {getDisjointMask(), "disjoint proof mask"},
+      {getDataReadyMask(), "data-ready mask"},
+      {getExecutedMask(), "executed mask"},
+      {getIdentityMatchMask(), "identity-match mask"},
+      {getKilledMask(), "killed mask"},
+  }};
+  for (auto [value, role] : inputs)
+    if (failed(verifyLaneMask(*this, value, getLanes(), role)))
+      return failure();
+  const std::array<std::pair<Value, StringRef>, 5> dispositions{{
+      {getWaitMask(), "wait mask"},
+      {getBypassMask(), "bypass mask"},
+      {getForwardMask(), "forward mask"},
+      {getReplayMask(), "replay mask"},
+      {getStaleMask(), "stale mask"},
+  }};
+  for (auto [value, role] : dispositions)
     if (failed(verifyLaneMask(*this, value, getLanes(), role)))
       return failure();
   return success();

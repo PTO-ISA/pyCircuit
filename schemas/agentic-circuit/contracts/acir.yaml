@@ -53,6 +53,8 @@ operations:
   - ac.age_select_k
   - ac.dependency_set
   - ac.terminal_transaction
+  - ac.memory_order_edge
+  - ac.load_disposition
   - ac.var.constant
   - ac.var.enum
   - ac.var.enum_match

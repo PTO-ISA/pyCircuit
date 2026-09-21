@@ -1,0 +1,60 @@
+F9 CORE-LOCAL MEMORY ORDERING VERIFICATION
+
+Decision 0281: implemented-verified
+
+check-acir lit (tests/mlir): PASS 246/246
+ACIRTypesTests: PASS 6/6
+ACIROpsTests: PASS 1843/1843
+ACIRModelAnalysisTests: PASS 36/36
+CodeGenTests: PASS 110/110
+CompilerTests: PASS 10/10
+GfsimTests: PASS 272/272
+repository unit suite: PASS 164/164
+system suite: PASS 19/19 (3 pre-existing environment skips in tests/system/test_smoke_system.py)
+Agentic Python contracts/frontend/CLI: PASS 28 + 320 + 1 + 5 = 354/354
+
+ACIR positive and negative fixtures for both endpoints: PASS (closed kinds, lane-width rejection for pending, alias, disjoint, identity, killed, wait, forward, and stale plus the edge producer, consumer, predicate, result, and lane bounds; two-disposition obligation-ID uniqueness regression)
+Generated QueueGraph plan: PASS
+Generated gfsim C++ syntax: PASS
+Generated PYC C++ memory-ordering executable: PASS (200 randomized cases from a real address and store model plus 6 directed cases; wait=45 bypass=68 forward=4 replay=5 stale=276)
+Generated RTL Icarus memory-ordering executable: PASS (200 seeded cases plus the same 6 directed cases; wait=83 bypass=73 forward=4 replay=5 stale=246)
+no_stale_response obligation: PASS (one ID per disposition, kind, severity, pre_publish sampling point, anchor, and message in PYC, PYC C++, and RTL; C++ coverage counter and RTL cover property for the stale event; two dispositions in one rule emit distinct IDs. The assertion condition is a structural self-consistency guard and the cover condition carries the evidence; the gfsim C++ path computes the predicate without materializing the assertion)
+Generated RTL Verilator lint: PASS
+Generated RTL structural audit: PASS
+Deterministic clean re-emission (frozen IR, plan JSON, PYC, gfsim C++, C++, RTL byte-identical): PASS
+
+ACIR coverage inventory: PASS (171 operations)
+PYC inventory: PASS (45 operations, 2 types, exact ODS/ledger match)
+Repository contracts: PASS
+API hygiene: PASS
+Diagnostic catalog: PASS
+MkDocs strict build: PASS
+Decision status coverage: PASS 281 rows, 0 deferred, evidence present
+git diff --check: PASS
+
+Non-vacuity and conformance: both executed fixtures check the DUT's own output
+(exactly one live disposition per qualified lane, stale-only otherwise), fail if
+any of wait, bypass, forward, replay, or stale never occurs, and run six directed
+cases that pin unknown-address wait, disjoint bypass, ready alias forward, late
+replay, stale drop, and flush-with-outstanding on both the C++ and the RTL side.
+
+Scope notes recorded in Decision 0281 and the evidence summary:
+- ac.kill_set is scalar (!ac.var<i1>) and cannot express a lane-vector flush, so
+  the kill path consumes a typed lane invalidation mask; a lane-vector kill form
+  is an explicit open item.
+- The pending-load set is fixture/consumer-owned state; the framework adds no
+  memory queue and this is not a full ISA memory-consistency model.
+- The gfsim C++ obligation path computes the stale predicate and the plan
+  re-verifies the expression shape, but only the PYC C++ and RTL paths
+  materialize the matched assertion and coverage, as in the earlier stages. The
+  generated gfsim C++ is syntax-checked rather than executed, and Verilator is
+  lint-only; execution is the PYC C++ binary and Icarus.
+- The disposition oracle restates the frozen rule; independence is in the
+  address, store, and flush models. Sensitivity to rule errors comes from the
+  executed 24-bit comparison against that oracle; review confirmed it by
+  mutating the rule (dropping the disjoint proof, the flush kill, or the
+  identity term) and observing a failure on both the C++ and the RTL side. The
+  mutations are not committed artifacts.
+- Edge-kind dominance, type-enforced Decision 0279 derivation of the identity
+  mask, and a forged-plan negative test are open items recorded in Decision 0281
+  and the evidence summary; they are not claimed as implemented.

@@ -11835,3 +11835,112 @@ per-resource private allocator, no consumer-specific memory or scheduling
 lowering, and no compatibility alias, fallback lowering, dual path, or
 generated-code semantic patch. Unsupported lane widths or policies reject
 before backend emit.
+
+## Decision 0281: Core-local memory ordering uses one typed edge relation and one closed load disposition
+
+**Status:** Accepted and implemented-verified for the internal bounded profile
+
+**Context / Goal**
+A load that must be ordered against older stores needs one explicit relation and
+one explicit disposition. Without them an unknown address is indistinguishable
+from a proven-disjoint one, an alias hit cannot forward or replay, and a
+response that no longer matches its load identity could still be accepted. At
+the same time the framework must not grow a second identity mechanism, a second
+stale-set mechanism, or a consumer-specific memory-order model.
+
+**Decision (strong constraint)**
+- Closed static edge kinds. `ac.memory_order_edge` carries a producer lane mask,
+  a consumer lane mask, an optional typed proof mask, and one closed `kind` in
+  `{older_than, must_wait, may_bypass, must_forward, must_replay_if,
+  visibility_before}`. The edge's extent is the intersection of its masks, and
+  `older_than` and `visibility_before` are static relation kinds only; the
+  identity-qualified tracking relation remains `ac.dependency_set` and is not
+  re-implemented. The disposition endpoint does not yet consume edges, so
+  `must_wait` dominance over `may_bypass` is an accepted requirement that this
+  bounded profile does not enforce; it is an open item and is not claimed as
+  implemented.
+- Closed disposition set. `ac.load_disposition` produces exactly one of
+  `{wait, bypass, forward, replay}` for every qualified lane plus a separate
+  stale mask. Every operand and result is an exact `!ac.var<iLanes>` with
+  `lanes` in `[1, 64]`.
+- Proof obligations per disposition. `bypass` requires the disjoint proof mask
+  and requires the lane not to alias, so the absence of an alias match is never
+  a proof. `forward` requires alias, data-ready, and a load that has not already
+  executed. `replay` requires alias on an already executed load (late
+  violation). `wait` requires no proof and is the remainder: every qualified
+  lane that is neither proven disjoint nor resolved by an alias lands there. An
+  aliasing lane dominates a disjoint claim on the same lane, so a contradictory
+  pair still resolves to a live disposition rather than bypassing.
+- Identity. A lane's response identity is the Decision 0279 hierarchy, and this
+  decision adds no generation, epoch, or attempt field beyond `transaction_ref`
+  and `execution_attempt`. In this bounded profile the identity is consumed as a
+  typed match mask that the consumer must derive from that hierarchy; the
+  profile does not type-enforce the derivation, which is an open item.
+- Flush with outstanding responses. A killed (flush-invalidated) outstanding
+  load is stale regardless of whether its response identity still matches:
+  `stale = pending && (!identity || killed)`. A killed lane can never reach
+  wait, bypass, forward, or replay. The forward/kill sampling point is the
+  publish boundary, named once and shared by the C++ and RTL materializations.
+- Stale responses are consumed, never accepted. The closed obligation kind
+  `no_stale_response` emits one assertion per disposition with a stable ID
+  `no_stale_response:<anchor>:disposition<ordinal>` and a cover condition on the
+  stale event. The assertion condition is a structural self-consistency guard
+  over the generated masks and cannot fail on its own; its load-bearing value is
+  the cover condition and the resulting coverage counter, and a pending or
+  unsupported obligation still blocks backend emission. The PYC C++ and RTL
+  materializations carry the same ID, kind, severity, `pre_publish` sampling
+  point, anchor, and message; the gfsim C++ path computes the predicate and the
+  plan re-verifies the expression shape without materializing the assertion.
+- Admission is compile-time. Exact lane widths, closed kinds, and the
+  disposition operand shape are re-verified fail-closed in the QueueGraph plan
+  before any backend emit. A runtime assertion is belt-and-braces and never
+  authorizes legality; a forged-plan negative test is still an open
+  defense-in-depth item.
+- Consumer boundary. This profile is Core-local ordering only. The address and
+  alias function, store-buffer depth, coherence, replacement, and the ISA
+  memory-consistency model stay in the consumer. The framework consumes typed
+  alias, disjoint, data-ready, executed, identity, and invalidation masks and
+  never infers them from a design name or a consumer profile. No Python API is
+  admitted.
+
+**Bounds and open items**
+- Lanes are in `[1, 64]` and the profile stays lane-mask algebra over the
+  existing QueueGraph expression set.
+- `ac.kill_set` is scalar (`!ac.var<i1>`) and cannot express a lane-vector
+  flush, so this profile consumes a typed lane invalidation mask. A lane-vector
+  kill form is an explicit open item and must not be emulated by overloading an
+  unrelated operation.
+- The pending-load set is fixture- and consumer-owned state in this profile; the
+  framework does not add a memory queue, and this is not a full ISA memory
+  consistency model.
+- Edge-kind dominance, the Decision 0279 derivation of the identity mask, and a
+  forged-plan negative test are explicit open items listed above and are not
+  claimed as implemented.
+
+**Verification**
+- ACIR positive and negative tests cover closed-kind parsing and lane-width
+  rejection for a representative set of disposition inputs and results plus the
+  edge operands, result, and lane bounds, and a two-disposition fixture proves
+  that one rule cannot collide on obligation IDs. The fail-closed plan
+  re-verification is exercised through the lowered fixtures.
+- The reduced generic fixture executes in generated C++ and RTL. Its oracle
+  derives alias, disjoint, and data-ready from a real address and store model,
+  models a flush that invalidates outstanding loads, and restates the frozen
+  disposition rule; the executed 24-bit comparison therefore catches
+  disposition-rule errors on covered stimuli. Both sides check the DUT's own
+  output for exactly one live disposition per qualified lane and a stale-only
+  disposition otherwise, and the fixture fails when any disposition never
+  occurs. Directed cases pin the unknown-address wait, disjoint bypass, ready
+  alias forward, late replay, stale drop, and flush-with-outstanding boundaries.
+- The obligation materializes with one ID per disposition and one condition in
+  PYC, PYC C++, and RTL, with a PYC C++ coverage counter and an RTL cover
+  property for the stale event; the QueueGraph plan re-verifies arity, widths,
+  and closed kinds rather than disposition shape semantics.
+
+**Hard break**
+There is no consumer-specific memory-order lowering, no second identity or
+stale-set mechanism, no unqualified response acceptance, no alias-free bypass,
+no source-order ordering inference, no compatibility alias, fallback lowering,
+dual path, backend-only stale check, or generated-code semantic patch.
+Unsupported lane widths, kinds, or disposition shapes reject before backend
+emit.

@@ -1694,7 +1694,8 @@ LogicalResult AssertOp::verify() {
        {"mutual_exclusion", "single_writer", "resource_capacity",
         "ready_valid_integrity", "transaction_atomicity", "generation_match",
         "epoch_match", "ordering", "range", "onehot0", "no_partial_commit",
-        "no_stale_update", "credit_balance", "pipeline_alignment"})
+        "no_stale_update", "credit_balance", "pipeline_alignment",
+        "no_stale_response"})
     safetyKinds.insert(supported);
   if (!safetyKinds.contains(kind.getValue()))
     return emitOpError(

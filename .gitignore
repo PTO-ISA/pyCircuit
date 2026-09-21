@@ -294,3 +294,5 @@ docs/gates/logs/*
 !docs/gates/logs/20260918-windows-platform-evidence/**
 !docs/gates/logs/20260921-f8-multilane-transaction/
 !docs/gates/logs/20260921-f8-multilane-transaction/**
+!docs/gates/logs/20260921-f9-memory-ordering/
+!docs/gates/logs/20260921-f9-memory-ordering/**

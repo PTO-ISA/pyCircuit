@@ -311,6 +311,33 @@ def ACIR_SameCycleReusePolicyAttr
     : EnumAttr<ACIR_Dialect, ACIR_SameCycleReusePolicy,
                "same_cycle_reuse_policy">;
 
+def ACIR_MemoryOrderKind_OlderThan
+    : I32EnumAttrCase<"OlderThan", 0, "older_than">;
+def ACIR_MemoryOrderKind_MustWait
+    : I32EnumAttrCase<"MustWait", 1, "must_wait">;
+def ACIR_MemoryOrderKind_MayBypass
+    : I32EnumAttrCase<"MayBypass", 2, "may_bypass">;
+def ACIR_MemoryOrderKind_MustForward
+    : I32EnumAttrCase<"MustForward", 3, "must_forward">;
+def ACIR_MemoryOrderKind_MustReplayIf
+    : I32EnumAttrCase<"MustReplayIf", 4, "must_replay_if">;
+def ACIR_MemoryOrderKind_VisibilityBefore
+    : I32EnumAttrCase<"VisibilityBefore", 5, "visibility_before">;
+def ACIR_MemoryOrderKind
+    : I32EnumAttr<"MemoryOrderKind",
+                  "closed Core-local memory ordering relation kind",
+                  [ACIR_MemoryOrderKind_OlderThan,
+                   ACIR_MemoryOrderKind_MustWait,
+                   ACIR_MemoryOrderKind_MayBypass,
+                   ACIR_MemoryOrderKind_MustForward,
+                   ACIR_MemoryOrderKind_MustReplayIf,
+                   ACIR_MemoryOrderKind_VisibilityBefore]> {
+  let genSpecializedAttr = 0;
+  let cppNamespace = "::acir::ac";
+}
+def ACIR_MemoryOrderKindAttr
+    : EnumAttr<ACIR_Dialect, ACIR_MemoryOrderKind, "memory_order_kind">;
+
 def ACIR_WriterArbitrationPolicy_Priority
     : I32EnumAttrCase<"Priority", 0, "priority">;
 def ACIR_WriterArbitrationPolicy
