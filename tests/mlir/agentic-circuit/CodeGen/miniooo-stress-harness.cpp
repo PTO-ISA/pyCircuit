@@ -30,9 +30,11 @@ struct WindowEntry {
 WindowEntry slot0(const Model &model) {
   const std::uint64_t raw = model.pyc_reg_23.value();
   // The generated retire block for this register compares the incoming slot
-  // against the constant 0, so this register is window slot 0. Checking the
-  // stored slot field keeps the hand-written bit offsets tied to the fixture's
-  // @Entry layout instead of silently reading a different slot.
+  // against the constant 0, so this register is window slot 0. The guard below
+  // catches a stored slot field that no longer matches that assumption, which is
+  // what a re-layout of the fixture's @Entry record would produce; it cannot
+  // detect reading the wrong register, because only slot 0 is ever written and
+  // the other three stay all-zero.
   if (((raw >> 16) & 3u) != 0u)
     throw std::runtime_error("miniOOO stress: pyc_reg_23 is not window slot 0");
   return {((raw >> 15) & 1u) != 0, unsigned((raw >> 13) & 3u),

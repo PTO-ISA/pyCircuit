@@ -173,9 +173,9 @@ so the assertion term is orthogonal by construction and cannot fail on any
 stimulus while the emitted write enable keeps excluding the stale set. Its value
 is a lowering-invariant canary: it fires if a future change stops excluding the
 stale set from `selected`. The tautology is visible by inspection — the operand
-is `!(X & ~X)` — and an independent verification round additionally modelled the
-emitted Verilog assign graph with a bit-vector solver and found all nine
-generated obligation assertions
+is `!(X & ~X)` — and the independent verification round modelled the emitted
+Verilog assign graph in a bit-vector solver (z3) and found all nine generated
+obligation assertions
 (`no_stale_response:issue_q:disposition0` and the eight
 `no_stale_update:window:{retire,recover}:slot0..3`) tautologically true while the
 three coverage operands are not; that solver model lives in the review record,
