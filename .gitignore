@@ -292,3 +292,5 @@ docs/gates/logs/*
 !docs/gates/logs/20260915-issue126-iterative-proof/**
 !docs/gates/logs/20260918-windows-platform-evidence/
 !docs/gates/logs/20260918-windows-platform-evidence/**
+!docs/gates/logs/20260921-f8-multilane-transaction/
+!docs/gates/logs/20260921-f8-multilane-transaction/**

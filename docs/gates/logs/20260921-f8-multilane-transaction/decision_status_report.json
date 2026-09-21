@@ -1,0 +1,1992 @@
+{
+  "checks": {
+    "require_all_verified": false,
+    "require_concrete_evidence": true,
+    "require_existing_evidence": true,
+    "require_no_deferred": true
+  },
+  "decisions": [
+    {
+      "decision": "0001",
+      "evidence": "docs/gates/logs/20260303-closure-v40-r2/summary.json, docs/gates/logs/20260303-closure-v40-r2/decision_status_report.json",
+      "next_action": "Keep gates green; refresh evidence on behavior changes",
+      "owner": "pyc4-core",
+      "status": "implemented-verified"
+    },
+    {
+      "decision": "0002",
+      "evidence": "docs/gates/logs/20260303-closure-v40-r2/summary.json, docs/gates/logs/20260303-closure-v40-r2/decision_status_report.json",
+      "next_action": "Keep gates green; refresh evidence on behavior changes",
+      "owner": "pyc4-core",
+      "status": "implemented-verified"
+    },
+    {
+      "decision": "0003",
+      "evidence": "docs/gates/logs/20260303-closure-v40-r2/summary.json, docs/gates/logs/20260303-closure-v40-r2/decision_status_report.json",
+      "next_action": "Keep gates green; refresh evidence on behavior changes",
+      "owner": "pyc4-core",
+      "status": "implemented-verified"
+    },
+    {
+      "decision": "0004",
+      "evidence": "docs/gates/logs/20260303-closure-v40-r2/summary.json, docs/gates/logs/20260303-closure-v40-r2/decision_status_report.json",
+      "next_action": "Keep gates green; refresh evidence on behavior changes",
+      "owner": "pyc4-core",
+      "status": "implemented-verified"
+    },
+    {
+      "decision": "0005",
+      "evidence": "docs/gates/logs/20260303-closure-v40-r2/summary.json, docs/gates/logs/20260303-closure-v40-r2/decision_status_report.json",
+      "next_action": "Keep gates green; refresh evidence on behavior changes",
+      "owner": "pyc4-core",
+      "status": "implemented-verified"
+    },
+    {
+      "decision": "0006",
+      "evidence": "docs/gates/logs/20260303-closure-v40-r2/summary.json, docs/gates/logs/20260303-closure-v40-r2/decision_status_report.json",
+      "next_action": "Keep gates green; refresh evidence on behavior changes",
+      "owner": "pyc4-core",
+      "status": "implemented-verified"
+    },
+    {
+      "decision": "0007",
+      "evidence": "docs/gates/logs/20260303-closure-v40-r2/summary.json, docs/gates/logs/20260303-closure-v40-r2/decision_status_report.json",
+      "next_action": "Keep gates green; refresh evidence on behavior changes",
+      "owner": "pyc4-core",
+      "status": "implemented-verified"
+    },
+    {
+      "decision": "0008",
+      "evidence": "docs/gates/logs/20260303-closure-v40-r2/summary.json, docs/gates/logs/20260303-closure-v40-r2/decision_status_report.json",
+      "next_action": "Keep gates green; refresh evidence on behavior changes",
+      "owner": "pyc4-core",
+      "status": "implemented-verified"
+    },
+    {
+      "decision": "0009",
+      "evidence": "docs/gates/logs/20260303-closure-v40-r2/summary.json, docs/gates/logs/20260303-closure-v40-r2/decision_status_report.json",
+      "next_action": "Keep gates green; refresh evidence on behavior changes",
+      "owner": "pyc4-core",
+      "status": "implemented-verified"
+    },
+    {
+      "decision": "0010",
+      "evidence": "docs/gates/logs/20260303-closure-v40-r2/summary.json, docs/gates/logs/20260303-closure-v40-r2/decision_status_report.json",
+      "next_action": "Historical closure only; superseded by Decision 0148",
+      "owner": "pyc4-core",
+      "status": "implemented-verified"
+    },
+    {
+      "decision": "0011",
+      "evidence": "docs/gates/logs/20260303-closure-v40-r2/summary.json, docs/gates/logs/20260303-closure-v40-r2/decision_status_report.json",
+      "next_action": "Keep gates green; refresh evidence on behavior changes",
+      "owner": "pyc4-core",
+      "status": "implemented-verified"
+    },
+    {
+      "decision": "0012",
+      "evidence": "docs/gates/logs/20260303-closure-v40-r2/summary.json, docs/gates/logs/20260303-closure-v40-r2/decision_status_report.json",
+      "next_action": "Keep gates green; refresh evidence on behavior changes",
+      "owner": "pyc4-core",
+      "status": "implemented-verified"
+    },
+    {
+      "decision": "0013",
+      "evidence": "docs/gates/logs/20260303-closure-v40-r2/summary.json, docs/gates/logs/20260303-closure-v40-r2/decision_status_report.json",
+      "next_action": "Keep gates green; refresh evidence on behavior changes",
+      "owner": "pyc4-runtime",
+      "status": "implemented-verified"
+    },
+    {
+      "decision": "0014",
+      "evidence": "docs/gates/logs/20260303-closure-v40-r2/summary.json, docs/gates/logs/20260303-closure-v40-r2/decision_status_report.json",
+      "next_action": "Keep gates green; refresh evidence on behavior changes",
+      "owner": "pyc4-runtime",
+      "status": "implemented-verified"
+    },
+    {
+      "decision": "0015",
+      "evidence": "docs/gates/logs/20260303-closure-v40-r2/summary.json, docs/gates/logs/20260303-closure-v40-r2/decision_status_report.json",
+      "next_action": "Keep gates green; refresh evidence on behavior changes",
+      "owner": "pyc4-core",
+      "status": "implemented-verified"
+    },
+    {
+      "decision": "0016",
+      "evidence": "docs/gates/logs/20260303-closure-v40-r2/summary.json, docs/gates/logs/20260303-closure-v40-r2/decision_status_report.json",
+      "next_action": "Keep gates green; refresh evidence on behavior changes",
+      "owner": "pyc4-core",
+      "status": "implemented-verified"
+    },
+    {
+      "decision": "0017",
+      "evidence": "docs/gates/logs/20260303-closure-v40-r2/summary.json, docs/gates/logs/20260303-closure-v40-r2/decision_status_report.json",
+      "next_action": "Keep gates green; refresh evidence on behavior changes",
+      "owner": "pyc4-core",
+      "status": "implemented-verified"
+    },
+    {
+      "decision": "0018",
+      "evidence": "docs/gates/logs/20260303-closure-v40-r2/summary.json, docs/gates/logs/20260303-closure-v40-r2/decision_status_report.json",
+      "next_action": "Keep gates green; refresh evidence on behavior changes",
+      "owner": "pyc4-core",
+      "status": "implemented-verified"
+    },
+    {
+      "decision": "0019",
+      "evidence": "docs/gates/logs/20260303-closure-v40-r2/summary.json, docs/gates/logs/20260303-closure-v40-r2/decision_status_report.json",
+      "next_action": "Keep gates green; refresh evidence on behavior changes",
+      "owner": "pyc4-core",
+      "status": "implemented-verified"
+    },
+    {
+      "decision": "0020",
+      "evidence": "docs/gates/logs/20260303-closure-v40-r2/summary.json, docs/gates/logs/20260303-closure-v40-r2/decision_status_report.json",
+      "next_action": "Keep gates green; refresh evidence on behavior changes",
+      "owner": "pyc4-core",
+      "status": "implemented-verified"
+    },
+    {
+      "decision": "0021",
+      "evidence": "docs/gates/logs/20260303-closure-v40-r2/summary.json, docs/gates/logs/20260303-closure-v40-r2/decision_status_report.json",
+      "next_action": "Keep gates green; refresh evidence on behavior changes",
+      "owner": "pyc4-core",
+      "status": "implemented-verified"
+    },
+    {
+      "decision": "0022",
+      "evidence": "docs/gates/logs/20260303-closure-v40-r2/summary.json, docs/gates/logs/20260303-closure-v40-r2/decision_status_report.json",
+      "next_action": "Keep gates green; refresh evidence on behavior changes",
+      "owner": "pyc4-core",
+      "status": "implemented-verified"
+    },
+    {
+      "decision": "0023",
+      "evidence": "docs/gates/logs/20260303-closure-v40-r2/summary.json, docs/gates/logs/20260303-closure-v40-r2/decision_status_report.json",
+      "next_action": "Keep gates green; refresh evidence on behavior changes",
+      "owner": "pyc4-core",
+      "status": "implemented-verified"
+    },
+    {
+      "decision": "0024",
+      "evidence": "docs/gates/logs/20260303-closure-v40-r2/summary.json, docs/gates/logs/20260303-closure-v40-r2/decision_status_report.json",
+      "next_action": "Keep gates green; refresh evidence on behavior changes",
+      "owner": "pyc4-core",
+      "status": "implemented-verified"
+    },
+    {
+      "decision": "0025",
+      "evidence": "docs/gates/logs/20260303-closure-v40-r2/summary.json, docs/gates/logs/20260303-closure-v40-r2/decision_status_report.json",
+      "next_action": "Keep gates green; refresh evidence on behavior changes",
+      "owner": "pyc4-core",
+      "status": "implemented-verified"
+    },
+    {
+      "decision": "0026",
+      "evidence": "docs/gates/logs/20260303-closure-v40-r2/summary.json, docs/gates/logs/20260303-closure-v40-r2/decision_status_report.json",
+      "next_action": "Keep gates green; refresh evidence on behavior changes",
+      "owner": "pyc4-core",
+      "status": "implemented-verified"
+    },
+    {
+      "decision": "0027",
+      "evidence": "docs/gates/logs/20260303-closure-v40-r2/summary.json, docs/gates/logs/20260303-closure-v40-r2/decision_status_report.json",
+      "next_action": "Keep gates green; refresh evidence on behavior changes",
+      "owner": "pyc4-core",
+      "status": "implemented-verified"
+    },
+    {
+      "decision": "0028",
+      "evidence": "docs/gates/logs/20260303-closure-v40-r2/summary.json, docs/gates/logs/20260303-closure-v40-r2/decision_status_report.json",
+      "next_action": "Keep gates green; refresh evidence on behavior changes",
+      "owner": "pyc4-core",
+      "status": "implemented-verified"
+    },
+    {
+      "decision": "0029",
+      "evidence": "docs/gates/logs/20260303-closure-v40-r2/summary.json, docs/gates/logs/20260303-closure-v40-r2/decision_status_report.json",
+      "next_action": "Keep gates green; refresh evidence on behavior changes",
+      "owner": "pyc4-core",
+      "status": "implemented-verified"
+    },
+    {
+      "decision": "0030",
+      "evidence": "docs/gates/logs/20260303-closure-v40-r2/summary.json, docs/gates/logs/20260303-closure-v40-r2/decision_status_report.json",
+      "next_action": "Keep gates green; refresh evidence on behavior changes",
+      "owner": "pyc4-core",
+      "status": "implemented-verified"
+    },
+    {
+      "decision": "0031",
+      "evidence": "docs/gates/logs/20260303-closure-v40-r2/summary.json, docs/gates/logs/20260303-closure-v40-r2/decision_status_report.json",
+      "next_action": "Keep gates green; refresh evidence on behavior changes",
+      "owner": "pyc4-core",
+      "status": "implemented-verified"
+    },
+    {
+      "decision": "0032",
+      "evidence": "docs/gates/logs/20260303-closure-v40-r2/summary.json, docs/gates/logs/20260303-closure-v40-r2/decision_status_report.json",
+      "next_action": "Keep gates green; refresh evidence on behavior changes",
+      "owner": "pyc4-core",
+      "status": "implemented-verified"
+    },
+    {
+      "decision": "0033",
+      "evidence": "docs/gates/logs/20260303-closure-v40-r2/summary.json, docs/gates/logs/20260303-closure-v40-r2/decision_status_report.json",
+      "next_action": "Keep gates green; refresh evidence on behavior changes",
+      "owner": "pyc4-core",
+      "status": "implemented-verified"
+    },
+    {
+      "decision": "0034",
+      "evidence": "docs/gates/logs/20260303-closure-v40-r2/summary.json, docs/gates/logs/20260303-closure-v40-r2/decision_status_report.json",
+      "next_action": "Keep gates green; refresh evidence on behavior changes",
+      "owner": "pyc4-core",
+      "status": "implemented-verified"
+    },
+    {
+      "decision": "0035",
+      "evidence": "docs/gates/logs/20260303-closure-v40-r2/summary.json, docs/gates/logs/20260303-closure-v40-r2/decision_status_report.json",
+      "next_action": "Keep gates green; refresh evidence on behavior changes",
+      "owner": "pyc4-core",
+      "status": "implemented-verified"
+    },
+    {
+      "decision": "0036",
+      "evidence": "docs/gates/logs/20260303-closure-v40-r2/summary.json, docs/gates/logs/20260303-closure-v40-r2/decision_status_report.json",
+      "next_action": "Keep gates green; refresh evidence on behavior changes",
+      "owner": "pyc4-core",
+      "status": "implemented-verified"
+    },
+    {
+      "decision": "0037",
+      "evidence": "docs/gates/logs/20260303-closure-v40-r2/summary.json, docs/gates/logs/20260303-closure-v40-r2/decision_status_report.json",
+      "next_action": "Keep gates green; refresh evidence on behavior changes",
+      "owner": "pyc4-core",
+      "status": "implemented-verified"
+    },
+    {
+      "decision": "0038",
+      "evidence": "docs/gates/logs/20260303-closure-v40-r2/summary.json, docs/gates/logs/20260303-closure-v40-r2/decision_status_report.json",
+      "next_action": "Keep gates green; refresh evidence on behavior changes",
+      "owner": "pyc4-core",
+      "status": "implemented-verified"
+    },
+    {
+      "decision": "0039",
+      "evidence": "docs/gates/logs/20260303-closure-v40-r2/summary.json, docs/gates/logs/20260303-closure-v40-r2/decision_status_report.json",
+      "next_action": "Keep gates green; refresh evidence on behavior changes",
+      "owner": "pyc4-core",
+      "status": "implemented-verified"
+    },
+    {
+      "decision": "0040",
+      "evidence": "docs/gates/logs/20260303-closure-v40-r2/summary.json, docs/gates/logs/20260303-closure-v40-r2/decision_status_report.json",
+      "next_action": "Keep gates green; refresh evidence on behavior changes",
+      "owner": "pyc4-core",
+      "status": "implemented-verified"
+    },
+    {
+      "decision": "0041",
+      "evidence": "docs/gates/logs/20260303-closure-v40-r2/summary.json, docs/gates/logs/20260303-closure-v40-r2/decision_status_report.json",
+      "next_action": "Keep gates green; refresh evidence on behavior changes",
+      "owner": "pyc4-core",
+      "status": "implemented-verified"
+    },
+    {
+      "decision": "0042",
+      "evidence": "docs/gates/logs/20260303-closure-v40-r2/summary.json, docs/gates/logs/20260303-closure-v40-r2/decision_status_report.json",
+      "next_action": "Keep gates green; refresh evidence on behavior changes",
+      "owner": "pyc4-core",
+      "status": "implemented-verified"
+    },
+    {
+      "decision": "0043",
+      "evidence": "docs/gates/logs/20260303-closure-v40-r2/summary.json, docs/gates/logs/20260303-closure-v40-r2/decision_status_report.json",
+      "next_action": "Keep gates green; refresh evidence on behavior changes",
+      "owner": "pyc4-core",
+      "status": "implemented-verified"
+    },
+    {
+      "decision": "0044",
+      "evidence": "docs/gates/logs/20260303-closure-v40-r2/summary.json, docs/gates/logs/20260303-closure-v40-r2/decision_status_report.json",
+      "next_action": "Keep gates green; refresh evidence on behavior changes",
+      "owner": "pyc4-core",
+      "status": "implemented-verified"
+    },
+    {
+      "decision": "0045",
+      "evidence": "docs/gates/logs/20260303-closure-v40-r2/summary.json, docs/gates/logs/20260303-closure-v40-r2/decision_status_report.json",
+      "next_action": "Keep gates green; refresh evidence on behavior changes",
+      "owner": "pyc4-core",
+      "status": "implemented-verified"
+    },
+    {
+      "decision": "0046",
+      "evidence": "docs/gates/logs/20260303-closure-v40-r2/summary.json, docs/gates/logs/20260303-closure-v40-r2/decision_status_report.json",
+      "next_action": "Keep gates green; refresh evidence on behavior changes",
+      "owner": "pyc4-core",
+      "status": "implemented-verified"
+    },
+    {
+      "decision": "0047",
+      "evidence": "docs/gates/logs/20260303-closure-v40-r2/summary.json, docs/gates/logs/20260303-closure-v40-r2/decision_status_report.json",
+      "next_action": "Keep gates green; refresh evidence on behavior changes",
+      "owner": "pyc4-core",
+      "status": "implemented-verified"
+    },
+    {
+      "decision": "0048",
+      "evidence": "docs/gates/logs/20260303-closure-v40-r2/summary.json, docs/gates/logs/20260303-closure-v40-r2/decision_status_report.json",
+      "next_action": "Keep gates green; refresh evidence on behavior changes",
+      "owner": "pyc4-core",
+      "status": "implemented-verified"
+    },
+    {
+      "decision": "0049",
+      "evidence": "docs/gates/logs/20260303-closure-v40-r2/summary.json, docs/gates/logs/20260303-closure-v40-r2/decision_status_report.json",
+      "next_action": "Keep gates green; refresh evidence on behavior changes",
+      "owner": "pyc4-core",
+      "status": "implemented-verified"
+    },
+    {
+      "decision": "0050",
+      "evidence": "docs/gates/logs/20260303-closure-v40-r2/summary.json, docs/gates/logs/20260303-closure-v40-r2/decision_status_report.json",
+      "next_action": "Keep gates green; refresh evidence on behavior changes",
+      "owner": "pyc4-core",
+      "status": "implemented-verified"
+    },
+    {
+      "decision": "0051",
+      "evidence": "docs/gates/logs/20260303-closure-v40-r2/summary.json, docs/gates/logs/20260303-closure-v40-r2/decision_status_report.json",
+      "next_action": "Keep gates green; refresh evidence on behavior changes",
+      "owner": "pyc4-core",
+      "status": "implemented-verified"
+    },
+    {
+      "decision": "0052",
+      "evidence": "docs/gates/logs/20260303-closure-v40-r2/summary.json, docs/gates/logs/20260303-closure-v40-r2/decision_status_report.json",
+      "next_action": "Keep gates green; refresh evidence on behavior changes",
+      "owner": "pyc4-core",
+      "status": "implemented-verified"
+    },
+    {
+      "decision": "0053",
+      "evidence": "docs/gates/logs/20260303-closure-v40-r2/summary.json, docs/gates/logs/20260303-closure-v40-r2/decision_status_report.json",
+      "next_action": "Keep gates green; refresh evidence on behavior changes",
+      "owner": "pyc4-core",
+      "status": "implemented-verified"
+    },
+    {
+      "decision": "0054",
+      "evidence": "docs/gates/logs/20260303-closure-v40-r2/summary.json, docs/gates/logs/20260303-closure-v40-r2/decision_status_report.json",
+      "next_action": "Keep gates green; refresh evidence on behavior changes",
+      "owner": "pyc4-core",
+      "status": "implemented-verified"
+    },
+    {
+      "decision": "0055",
+      "evidence": "docs/gates/logs/20260303-closure-v40-r2/summary.json, docs/gates/logs/20260303-closure-v40-r2/decision_status_report.json",
+      "next_action": "Keep gates green; refresh evidence on behavior changes",
+      "owner": "pyc4-core",
+      "status": "implemented-verified"
+    },
+    {
+      "decision": "0056",
+      "evidence": "docs/gates/logs/20260303-closure-v40-r2/summary.json, docs/gates/logs/20260303-closure-v40-r2/decision_status_report.json",
+      "next_action": "Keep gates green; refresh evidence on behavior changes",
+      "owner": "pyc4-semantic-lane",
+      "status": "implemented-verified"
+    },
+    {
+      "decision": "0057",
+      "evidence": "docs/gates/logs/20260303-closure-v40-r2/summary.json, docs/gates/logs/20260303-closure-v40-r2/decision_status_report.json",
+      "next_action": "Keep gates green; refresh evidence on behavior changes",
+      "owner": "pyc4-semantic-lane",
+      "status": "implemented-verified"
+    },
+    {
+      "decision": "0058",
+      "evidence": "docs/gates/logs/20260303-closure-v40-r2/summary.json, docs/gates/logs/20260303-closure-v40-r2/decision_status_report.json",
+      "next_action": "Keep gates green; refresh evidence on behavior changes",
+      "owner": "pyc4-semantic-lane",
+      "status": "implemented-verified"
+    },
+    {
+      "decision": "0059",
+      "evidence": "docs/gates/logs/20260303-closure-v40-r2/summary.json, docs/gates/logs/20260303-closure-v40-r2/decision_status_report.json",
+      "next_action": "Keep gates green; refresh evidence on behavior changes",
+      "owner": "pyc4-semantic-lane",
+      "status": "implemented-verified"
+    },
+    {
+      "decision": "0060",
+      "evidence": "docs/gates/logs/20260303-closure-v40-r2/summary.json, docs/gates/logs/20260303-closure-v40-r2/decision_status_report.json",
+      "next_action": "Keep gates green; refresh evidence on behavior changes",
+      "owner": "pyc4-semantic-lane",
+      "status": "implemented-verified"
+    },
+    {
+      "decision": "0061",
+      "evidence": "docs/gates/logs/20260303-closure-v40-r2/summary.json, docs/gates/logs/20260303-closure-v40-r2/decision_status_report.json",
+      "next_action": "Keep gates green; refresh evidence on behavior changes",
+      "owner": "pyc4-semantic-lane",
+      "status": "implemented-verified"
+    },
+    {
+      "decision": "0062",
+      "evidence": "docs/gates/logs/20260303-closure-v40-r2/summary.json, docs/gates/logs/20260303-closure-v40-r2/decision_status_report.json",
+      "next_action": "Keep gates green; refresh evidence on behavior changes",
+      "owner": "pyc4-semantic-lane",
+      "status": "implemented-verified"
+    },
+    {
+      "decision": "0063",
+      "evidence": "docs/gates/logs/20260303-closure-v40-r2/summary.json, docs/gates/logs/20260303-closure-v40-r2/decision_status_report.json",
+      "next_action": "Keep gates green; refresh evidence on behavior changes",
+      "owner": "pyc4-semantic-lane",
+      "status": "implemented-verified"
+    },
+    {
+      "decision": "0064",
+      "evidence": "docs/gates/logs/20260303-closure-v40-r2/summary.json, docs/gates/logs/20260303-closure-v40-r2/decision_status_report.json",
+      "next_action": "Keep gates green; refresh evidence on behavior changes",
+      "owner": "pyc4-semantic-lane",
+      "status": "implemented-verified"
+    },
+    {
+      "decision": "0065",
+      "evidence": "docs/gates/logs/20260303-closure-v40-r2/summary.json, docs/gates/logs/20260303-closure-v40-r2/decision_status_report.json",
+      "next_action": "Keep gates green; refresh evidence on behavior changes",
+      "owner": "pyc4-semantic-lane",
+      "status": "implemented-verified"
+    },
+    {
+      "decision": "0066",
+      "evidence": "docs/gates/logs/20260303-closure-v40-r2/summary.json, docs/gates/logs/20260303-closure-v40-r2/decision_status_report.json",
+      "next_action": "Keep gates green; refresh evidence on behavior changes",
+      "owner": "pyc4-semantic-lane",
+      "status": "implemented-verified"
+    },
+    {
+      "decision": "0067",
+      "evidence": "docs/gates/logs/20260303-closure-v40-r2/summary.json, docs/gates/logs/20260303-closure-v40-r2/decision_status_report.json",
+      "next_action": "Keep gates green; refresh evidence on behavior changes",
+      "owner": "pyc4-semantic-lane",
+      "status": "implemented-verified"
+    },
+    {
+      "decision": "0068",
+      "evidence": "docs/gates/logs/20260303-closure-v40-r2/summary.json, docs/gates/logs/20260303-closure-v40-r2/decision_status_report.json",
+      "next_action": "Keep gates green; refresh evidence on behavior changes",
+      "owner": "pyc4-semantic-lane",
+      "status": "implemented-verified"
+    },
+    {
+      "decision": "0069",
+      "evidence": "docs/gates/logs/20260303-closure-v40-r2/summary.json, docs/gates/logs/20260303-closure-v40-r2/decision_status_report.json",
+      "next_action": "Keep gates green; refresh evidence on behavior changes",
+      "owner": "pyc4-semantic-lane",
+      "status": "implemented-verified"
+    },
+    {
+      "decision": "0070",
+      "evidence": "docs/gates/logs/20260303-closure-v40-r2/summary.json, docs/gates/logs/20260303-closure-v40-r2/decision_status_report.json",
+      "next_action": "Keep gates green; refresh evidence on behavior changes",
+      "owner": "pyc4-semantic-lane",
+      "status": "implemented-verified"
+    },
+    {
+      "decision": "0071",
+      "evidence": "docs/gates/logs/20260303-closure-v40-r2/summary.json, docs/gates/logs/20260303-closure-v40-r2/decision_status_report.json",
+      "next_action": "Keep gates green; refresh evidence on behavior changes",
+      "owner": "pyc4-semantic-lane",
+      "status": "implemented-verified"
+    },
+    {
+      "decision": "0072",
+      "evidence": "docs/gates/logs/20260303-closure-v40-r2/summary.json, docs/gates/logs/20260303-closure-v40-r2/decision_status_report.json",
+      "next_action": "Keep gates green; refresh evidence on behavior changes",
+      "owner": "pyc4-semantic-lane",
+      "status": "implemented-verified"
+    },
+    {
+      "decision": "0073",
+      "evidence": "docs/gates/logs/20260303-closure-v40-r2/summary.json, docs/gates/logs/20260303-closure-v40-r2/decision_status_report.json",
+      "next_action": "Keep gates green; refresh evidence on behavior changes",
+      "owner": "pyc4-semantic-lane",
+      "status": "implemented-verified"
+    },
+    {
+      "decision": "0074",
+      "evidence": "docs/gates/logs/20260303-closure-v40-r2/summary.json, docs/gates/logs/20260303-closure-v40-r2/decision_status_report.json",
+      "next_action": "Keep gates green; refresh evidence on behavior changes",
+      "owner": "pyc4-semantic-lane",
+      "status": "implemented-verified"
+    },
+    {
+      "decision": "0075",
+      "evidence": "docs/gates/logs/20260303-closure-v40-r2/summary.json, docs/gates/logs/20260303-closure-v40-r2/decision_status_report.json",
+      "next_action": "Keep gates green; refresh evidence on behavior changes",
+      "owner": "pyc4-semantic-lane",
+      "status": "implemented-verified"
+    },
+    {
+      "decision": "0076",
+      "evidence": "docs/gates/logs/20260303-closure-v40-r2/summary.json, docs/gates/logs/20260303-closure-v40-r2/decision_status_report.json",
+      "next_action": "Keep gates green; refresh evidence on behavior changes",
+      "owner": "pyc4-semantic-lane",
+      "status": "implemented-verified"
+    },
+    {
+      "decision": "0077",
+      "evidence": "docs/gates/logs/20260303-closure-v40-r2/summary.json, docs/gates/logs/20260303-closure-v40-r2/decision_status_report.json",
+      "next_action": "Keep gates green; refresh evidence on behavior changes",
+      "owner": "pyc4-semantic-lane",
+      "status": "implemented-verified"
+    },
+    {
+      "decision": "0078",
+      "evidence": "docs/gates/logs/20260303-closure-v40-r2/summary.json, docs/gates/logs/20260303-closure-v40-r2/decision_status_report.json",
+      "next_action": "Keep gates green; refresh evidence on behavior changes",
+      "owner": "pyc4-semantic-lane",
+      "status": "implemented-verified"
+    },
+    {
+      "decision": "0079",
+      "evidence": "docs/gates/logs/20260303-closure-v40-r2/summary.json, docs/gates/logs/20260303-closure-v40-r2/decision_status_report.json",
+      "next_action": "Keep gates green; refresh evidence on behavior changes",
+      "owner": "pyc4-semantic-lane",
+      "status": "implemented-verified"
+    },
+    {
+      "decision": "0080",
+      "evidence": "docs/gates/logs/20260303-closure-v40-r2/summary.json, docs/gates/logs/20260303-closure-v40-r2/decision_status_report.json",
+      "next_action": "Keep gates green; refresh evidence on behavior changes",
+      "owner": "pyc4-semantic-lane",
+      "status": "implemented-verified"
+    },
+    {
+      "decision": "0081",
+      "evidence": "docs/gates/logs/20260303-closure-v40-r2/summary.json, docs/gates/logs/20260303-closure-v40-r2/decision_status_report.json",
+      "next_action": "Keep gates green; refresh evidence on behavior changes",
+      "owner": "pyc4-semantic-lane",
+      "status": "implemented-verified"
+    },
+    {
+      "decision": "0082",
+      "evidence": "docs/gates/logs/20260303-closure-v40-r2/summary.json, docs/gates/logs/20260303-closure-v40-r2/decision_status_report.json",
+      "next_action": "Keep gates green; refresh evidence on behavior changes",
+      "owner": "pyc4-semantic-lane",
+      "status": "implemented-verified"
+    },
+    {
+      "decision": "0083",
+      "evidence": "docs/gates/logs/20260303-closure-v40-r2/summary.json, docs/gates/logs/20260303-closure-v40-r2/decision_status_report.json",
+      "next_action": "Keep gates green; refresh evidence on behavior changes",
+      "owner": "pyc4-semantic-lane",
+      "status": "implemented-verified"
+    },
+    {
+      "decision": "0084",
+      "evidence": "docs/gates/logs/20260303-closure-v40-r2/summary.json, docs/gates/logs/20260303-closure-v40-r2/decision_status_report.json",
+      "next_action": "Keep gates green; refresh evidence on behavior changes",
+      "owner": "pyc4-semantic-lane",
+      "status": "implemented-verified"
+    },
+    {
+      "decision": "0085",
+      "evidence": "docs/gates/logs/20260303-closure-v40-r2/summary.json, docs/gates/logs/20260303-closure-v40-r2/decision_status_report.json",
+      "next_action": "Keep gates green; refresh evidence on behavior changes",
+      "owner": "pyc4-core",
+      "status": "implemented-verified"
+    },
+    {
+      "decision": "0086",
+      "evidence": "docs/gates/logs/20260303-closure-v40-r2/summary.json, docs/gates/logs/20260303-closure-v40-r2/decision_status_report.json",
+      "next_action": "Keep gates green; refresh evidence on behavior changes",
+      "owner": "pyc4-core",
+      "status": "implemented-verified"
+    },
+    {
+      "decision": "0087",
+      "evidence": "docs/gates/logs/20260303-closure-v40-r2/summary.json, docs/gates/logs/20260303-closure-v40-r2/decision_status_report.json",
+      "next_action": "Keep gates green; refresh evidence on behavior changes",
+      "owner": "pyc4-core",
+      "status": "implemented-verified"
+    },
+    {
+      "decision": "0088",
+      "evidence": "docs/gates/logs/20260303-closure-v40-r2/summary.json, docs/gates/logs/20260303-closure-v40-r2/decision_status_report.json",
+      "next_action": "Keep gates green; refresh evidence on behavior changes",
+      "owner": "pyc4-core",
+      "status": "implemented-verified"
+    },
+    {
+      "decision": "0089",
+      "evidence": "docs/gates/logs/20260303-closure-v40-r2/summary.json, docs/gates/logs/20260303-closure-v40-r2/decision_status_report.json",
+      "next_action": "Keep gates green; refresh evidence on behavior changes",
+      "owner": "pyc4-core",
+      "status": "implemented-verified"
+    },
+    {
+      "decision": "0090",
+      "evidence": "docs/gates/logs/20260303-closure-v40-r2/summary.json, docs/gates/logs/20260303-closure-v40-r2/decision_status_report.json",
+      "next_action": "Keep gates green; refresh evidence on behavior changes",
+      "owner": "pyc4-core",
+      "status": "implemented-verified"
+    },
+    {
+      "decision": "0091",
+      "evidence": "docs/gates/logs/20260303-closure-v40-r2/summary.json, docs/gates/logs/20260303-closure-v40-r2/decision_status_report.json",
+      "next_action": "Keep gates green; refresh evidence on behavior changes",
+      "owner": "pyc4-core",
+      "status": "implemented-verified"
+    },
+    {
+      "decision": "0092",
+      "evidence": "docs/gates/logs/20260303-closure-v40-r2/summary.json, docs/gates/logs/20260303-closure-v40-r2/decision_status_report.json",
+      "next_action": "Keep gates green; refresh evidence on behavior changes",
+      "owner": "pyc4-core",
+      "status": "implemented-verified"
+    },
+    {
+      "decision": "0093",
+      "evidence": "docs/gates/logs/20260303-closure-v40-r2/summary.json, docs/gates/logs/20260303-closure-v40-r2/decision_status_report.json",
+      "next_action": "Keep gates green; refresh evidence on behavior changes",
+      "owner": "pyc4-core",
+      "status": "implemented-verified"
+    },
+    {
+      "decision": "0094",
+      "evidence": "docs/gates/logs/20260303-closure-v40-r2/summary.json, docs/gates/logs/20260303-closure-v40-r2/decision_status_report.json",
+      "next_action": "Keep gates green; refresh evidence on behavior changes",
+      "owner": "pyc4-core",
+      "status": "implemented-verified"
+    },
+    {
+      "decision": "0095",
+      "evidence": "docs/gates/logs/20260303-closure-v40-r2/summary.json, docs/gates/logs/20260303-closure-v40-r2/decision_status_report.json",
+      "next_action": "Keep gates green; refresh evidence on behavior changes",
+      "owner": "pyc4-core",
+      "status": "implemented-verified"
+    },
+    {
+      "decision": "0096",
+      "evidence": "docs/gates/logs/20260303-closure-v40-r2/summary.json, docs/gates/logs/20260303-closure-v40-r2/decision_status_report.json",
+      "next_action": "Keep gates green; refresh evidence on behavior changes",
+      "owner": "pyc4-core",
+      "status": "implemented-verified"
+    },
+    {
+      "decision": "0097",
+      "evidence": "docs/gates/logs/20260303-closure-v40-r2/summary.json, docs/gates/logs/20260303-closure-v40-r2/decision_status_report.json",
+      "next_action": "Keep gates green; refresh evidence on behavior changes",
+      "owner": "pyc4-core",
+      "status": "implemented-verified"
+    },
+    {
+      "decision": "0098",
+      "evidence": "docs/gates/logs/20260303-closure-v40-r2/summary.json, docs/gates/logs/20260303-closure-v40-r2/decision_status_report.json",
+      "next_action": "Keep gates green; refresh evidence on behavior changes",
+      "owner": "pyc4-core",
+      "status": "implemented-verified"
+    },
+    {
+      "decision": "0099",
+      "evidence": "docs/gates/logs/20260303-closure-v40-r2/summary.json, docs/gates/logs/20260303-closure-v40-r2/decision_status_report.json",
+      "next_action": "Keep gates green; refresh evidence on behavior changes",
+      "owner": "pyc4-core",
+      "status": "implemented-verified"
+    },
+    {
+      "decision": "0100",
+      "evidence": "docs/gates/logs/20260303-closure-v40-r2/summary.json, docs/gates/logs/20260303-closure-v40-r2/decision_status_report.json",
+      "next_action": "Keep gates green; refresh evidence on behavior changes",
+      "owner": "pyc4-core",
+      "status": "implemented-verified"
+    },
+    {
+      "decision": "0101",
+      "evidence": "docs/gates/logs/20260303-closure-v40-r2/summary.json, docs/gates/logs/20260303-closure-v40-r2/decision_status_report.json",
+      "next_action": "Keep gates green; refresh evidence on behavior changes",
+      "owner": "pyc4-core",
+      "status": "implemented-verified"
+    },
+    {
+      "decision": "0102",
+      "evidence": "docs/gates/logs/20260303-closure-v40-r2/summary.json, docs/gates/logs/20260303-closure-v40-r2/decision_status_report.json",
+      "next_action": "Keep gates green; refresh evidence on behavior changes",
+      "owner": "pyc4-core",
+      "status": "implemented-verified"
+    },
+    {
+      "decision": "0103",
+      "evidence": "docs/gates/logs/20260303-closure-v40-r2/summary.json, docs/gates/logs/20260303-closure-v40-r2/decision_status_report.json",
+      "next_action": "Keep gates green; refresh evidence on behavior changes",
+      "owner": "pyc4-core",
+      "status": "implemented-verified"
+    },
+    {
+      "decision": "0104",
+      "evidence": "docs/gates/logs/20260303-closure-v40-r2/summary.json, docs/gates/logs/20260303-closure-v40-r2/decision_status_report.json",
+      "next_action": "Keep gates green; refresh evidence on behavior changes",
+      "owner": "pyc4-core",
+      "status": "implemented-verified"
+    },
+    {
+      "decision": "0105",
+      "evidence": "docs/gates/logs/20260303-closure-v40-r2/summary.json, docs/gates/logs/20260303-closure-v40-r2/decision_status_report.json",
+      "next_action": "Keep gates green; refresh evidence on behavior changes",
+      "owner": "pyc4-core",
+      "status": "implemented-verified"
+    },
+    {
+      "decision": "0106",
+      "evidence": "docs/gates/logs/20260303-closure-v40-r2/summary.json, docs/gates/logs/20260303-closure-v40-r2/decision_status_report.json",
+      "next_action": "Keep gates green; refresh evidence on behavior changes",
+      "owner": "pyc4-core",
+      "status": "implemented-verified"
+    },
+    {
+      "decision": "0107",
+      "evidence": "docs/gates/logs/20260303-closure-v40-r2/summary.json, docs/gates/logs/20260303-closure-v40-r2/decision_status_report.json",
+      "next_action": "Keep gates green; refresh evidence on behavior changes",
+      "owner": "pyc4-core",
+      "status": "implemented-verified"
+    },
+    {
+      "decision": "0108",
+      "evidence": "docs/gates/logs/20260303-closure-v40-r2/summary.json, docs/gates/logs/20260303-closure-v40-r2/decision_status_report.json",
+      "next_action": "Keep gates green; refresh evidence on behavior changes",
+      "owner": "pyc4-core",
+      "status": "implemented-verified"
+    },
+    {
+      "decision": "0109",
+      "evidence": "docs/gates/logs/20260303-closure-v40-r2/summary.json, docs/gates/logs/20260303-closure-v40-r2/decision_status_report.json",
+      "next_action": "Keep gates green; refresh evidence on behavior changes",
+      "owner": "pyc4-core",
+      "status": "implemented-verified"
+    },
+    {
+      "decision": "0110",
+      "evidence": "docs/gates/logs/20260303-closure-v40-r2/summary.json, docs/gates/logs/20260303-closure-v40-r2/decision_status_report.json",
+      "next_action": "Keep gates green; refresh evidence on behavior changes",
+      "owner": "pyc4-core",
+      "status": "implemented-verified"
+    },
+    {
+      "decision": "0111",
+      "evidence": "docs/gates/logs/20260303-closure-v40-r2/summary.json, docs/gates/logs/20260303-closure-v40-r2/decision_status_report.json",
+      "next_action": "Keep gates green; refresh evidence on behavior changes",
+      "owner": "pyc4-core",
+      "status": "implemented-verified"
+    },
+    {
+      "decision": "0112",
+      "evidence": "docs/gates/logs/20260303-closure-v40-r2/summary.json, docs/gates/logs/20260303-closure-v40-r2/decision_status_report.json",
+      "next_action": "Keep gates green; refresh evidence on behavior changes",
+      "owner": "pyc4-core",
+      "status": "implemented-verified"
+    },
+    {
+      "decision": "0113",
+      "evidence": "docs/gates/logs/20260303-closure-v40-r2/summary.json, docs/gates/logs/20260303-closure-v40-r2/decision_status_report.json",
+      "next_action": "Keep gates green; refresh evidence on behavior changes",
+      "owner": "pyc4-core",
+      "status": "implemented-verified"
+    },
+    {
+      "decision": "0114",
+      "evidence": "docs/gates/logs/20260303-closure-v40-r2/summary.json, docs/gates/logs/20260303-closure-v40-r2/decision_status_report.json",
+      "next_action": "Keep gates green; refresh evidence on behavior changes",
+      "owner": "pyc4-core",
+      "status": "implemented-verified"
+    },
+    {
+      "decision": "0115",
+      "evidence": "docs/gates/logs/20260303-closure-v40-r2/summary.json, docs/gates/logs/20260303-closure-v40-r2/decision_status_report.json",
+      "next_action": "Keep gates green; refresh evidence on behavior changes",
+      "owner": "pyc4-core",
+      "status": "implemented-verified"
+    },
+    {
+      "decision": "0116",
+      "evidence": "docs/gates/logs/20260303-closure-v40-r2/summary.json, docs/gates/logs/20260303-closure-v40-r2/decision_status_report.json",
+      "next_action": "Keep gates green; refresh evidence on behavior changes",
+      "owner": "pyc4-semantic-lane",
+      "status": "implemented-verified"
+    },
+    {
+      "decision": "0117",
+      "evidence": "docs/gates/logs/20260303-closure-v40-r2/summary.json, docs/gates/logs/20260303-closure-v40-r2/decision_status_report.json",
+      "next_action": "Keep gates green; refresh evidence on behavior changes",
+      "owner": "pyc4-semantic-lane",
+      "status": "implemented-verified"
+    },
+    {
+      "decision": "0118",
+      "evidence": "docs/gates/logs/20260303-closure-v40-r2/summary.json, docs/gates/logs/20260303-closure-v40-r2/decision_status_report.json",
+      "next_action": "Keep gates green; refresh evidence on behavior changes",
+      "owner": "pyc4-semantic-lane",
+      "status": "implemented-verified"
+    },
+    {
+      "decision": "0119",
+      "evidence": "docs/gates/logs/20260303-closure-v40-r2/summary.json, docs/gates/logs/20260303-closure-v40-r2/decision_status_report.json",
+      "next_action": "Keep gates green; refresh evidence on behavior changes",
+      "owner": "pyc4-semantic-lane",
+      "status": "implemented-verified"
+    },
+    {
+      "decision": "0120",
+      "evidence": "docs/gates/logs/20260303-closure-v40-r2/summary.json, docs/gates/logs/20260303-closure-v40-r2/decision_status_report.json",
+      "next_action": "Keep gates green; refresh evidence on behavior changes",
+      "owner": "pyc4-semantic-lane",
+      "status": "implemented-verified"
+    },
+    {
+      "decision": "0121",
+      "evidence": "docs/gates/logs/20260303-closure-v40-r2/summary.json, docs/gates/logs/20260303-closure-v40-r2/decision_status_report.json",
+      "next_action": "Keep gates green; refresh evidence on behavior changes",
+      "owner": "pyc4-semantic-lane",
+      "status": "implemented-verified"
+    },
+    {
+      "decision": "0122",
+      "evidence": "docs/gates/logs/20260303-closure-v40-r2/summary.json, docs/gates/logs/20260303-closure-v40-r2/decision_status_report.json",
+      "next_action": "Keep gates green; refresh evidence on behavior changes",
+      "owner": "pyc4-semantic-lane",
+      "status": "implemented-verified"
+    },
+    {
+      "decision": "0123",
+      "evidence": "docs/gates/logs/20260303-closure-v40-r2/summary.json, docs/gates/logs/20260303-closure-v40-r2/decision_status_report.json",
+      "next_action": "Keep gates green; refresh evidence on behavior changes",
+      "owner": "pyc4-semantic-lane",
+      "status": "implemented-verified"
+    },
+    {
+      "decision": "0124",
+      "evidence": "docs/gates/logs/20260303-closure-v40-r2/summary.json, docs/gates/logs/20260303-closure-v40-r2/decision_status_report.json",
+      "next_action": "Keep gates green; refresh evidence on behavior changes",
+      "owner": "pyc4-semantic-lane",
+      "status": "implemented-verified"
+    },
+    {
+      "decision": "0125",
+      "evidence": "docs/gates/logs/20260303-closure-v40-r2/summary.json, docs/gates/logs/20260303-closure-v40-r2/decision_status_report.json",
+      "next_action": "Keep gates green; refresh evidence on behavior changes",
+      "owner": "pyc4-semantic-lane",
+      "status": "implemented-verified"
+    },
+    {
+      "decision": "0126",
+      "evidence": "docs/gates/logs/20260303-closure-v40-r2/summary.json, docs/gates/logs/20260303-closure-v40-r2/decision_status_report.json",
+      "next_action": "Keep gates green; refresh evidence on behavior changes",
+      "owner": "pyc4-semantic-lane",
+      "status": "implemented-verified"
+    },
+    {
+      "decision": "0127",
+      "evidence": "docs/gates/logs/20260303-closure-v40-r2/summary.json, docs/gates/logs/20260303-closure-v40-r2/decision_status_report.json",
+      "next_action": "Keep gates green; refresh evidence on behavior changes",
+      "owner": "pyc4-semantic-lane",
+      "status": "implemented-verified"
+    },
+    {
+      "decision": "0128",
+      "evidence": "docs/gates/logs/20260303-closure-v40-r2/summary.json, docs/gates/logs/20260303-closure-v40-r2/decision_status_report.json",
+      "next_action": "Keep gates green; refresh evidence on behavior changes",
+      "owner": "pyc4-semantic-lane",
+      "status": "implemented-verified"
+    },
+    {
+      "decision": "0129",
+      "evidence": "docs/gates/logs/20260303-closure-v40-r2/summary.json, docs/gates/logs/20260303-closure-v40-r2/decision_status_report.json",
+      "next_action": "Keep gates green; refresh evidence on behavior changes",
+      "owner": "pyc4-semantic-lane",
+      "status": "implemented-verified"
+    },
+    {
+      "decision": "0130",
+      "evidence": "docs/gates/logs/20260303-closure-v40-r2/summary.json, docs/gates/logs/20260303-closure-v40-r2/decision_status_report.json",
+      "next_action": "Keep gates green; refresh evidence on behavior changes",
+      "owner": "pyc4-semantic-lane",
+      "status": "implemented-verified"
+    },
+    {
+      "decision": "0131",
+      "evidence": "docs/gates/logs/20260303-closure-v40-r2/summary.json, docs/gates/logs/20260303-closure-v40-r2/decision_status_report.json",
+      "next_action": "Keep gates green; refresh evidence on behavior changes",
+      "owner": "pyc4-semantic-lane",
+      "status": "implemented-verified"
+    },
+    {
+      "decision": "0132",
+      "evidence": "docs/gates/logs/20260303-closure-v40-r2/summary.json, docs/gates/logs/20260303-closure-v40-r2/decision_status_report.json",
+      "next_action": "Keep gates green; refresh evidence on behavior changes",
+      "owner": "pyc4-core",
+      "status": "implemented-verified"
+    },
+    {
+      "decision": "0133",
+      "evidence": "docs/gates/logs/20260303-closure-v40-r2/summary.json, docs/gates/logs/20260303-closure-v40-r2/decision_status_report.json",
+      "next_action": "Keep gates green; refresh evidence on behavior changes",
+      "owner": "pyc4-core",
+      "status": "implemented-verified"
+    },
+    {
+      "decision": "0134",
+      "evidence": "docs/gates/logs/20260303-closure-v40-r2/summary.json, docs/gates/logs/20260303-closure-v40-r2/decision_status_report.json",
+      "next_action": "Keep gates green; refresh evidence on behavior changes",
+      "owner": "pyc4-core",
+      "status": "implemented-verified"
+    },
+    {
+      "decision": "0135",
+      "evidence": "docs/gates/logs/20260303-closure-v40-r2/summary.json, docs/gates/logs/20260303-closure-v40-r2/decision_status_report.json",
+      "next_action": "Keep gates green; refresh evidence on behavior changes",
+      "owner": "pyc4-core",
+      "status": "implemented-verified"
+    },
+    {
+      "decision": "0136",
+      "evidence": "docs/gates/logs/20260303-closure-v40-r2/summary.json, docs/gates/logs/20260303-closure-v40-r2/decision_status_report.json",
+      "next_action": "Keep gates green; refresh evidence on behavior changes",
+      "owner": "pyc4-core",
+      "status": "implemented-verified"
+    },
+    {
+      "decision": "0137",
+      "evidence": "docs/gates/logs/20260303-closure-v40-r2/summary.json, docs/gates/logs/20260303-closure-v40-r2/decision_status_report.json",
+      "next_action": "Keep gates green; refresh evidence on behavior changes",
+      "owner": "pyc4-core",
+      "status": "implemented-verified"
+    },
+    {
+      "decision": "0138",
+      "evidence": "docs/gates/logs/20260303-closure-v40-r2/summary.json, docs/gates/logs/20260303-closure-v40-r2/decision_status_report.json",
+      "next_action": "Keep gates green; refresh evidence on behavior changes",
+      "owner": "pyc4-core",
+      "status": "implemented-verified"
+    },
+    {
+      "decision": "0139",
+      "evidence": "docs/gates/logs/20260303-closure-v40-r2/summary.json, docs/gates/logs/20260303-closure-v40-r2/decision_status_report.json",
+      "next_action": "Keep gates green; refresh evidence on behavior changes",
+      "owner": "pyc4-core",
+      "status": "implemented-verified"
+    },
+    {
+      "decision": "0140",
+      "evidence": "docs/gates/logs/20260303-closure-v40-r2/summary.json, docs/gates/logs/20260303-closure-v40-r2/decision_status_report.json",
+      "next_action": "Keep gates green; refresh evidence on behavior changes",
+      "owner": "pyc4-core",
+      "status": "implemented-verified"
+    },
+    {
+      "decision": "0141",
+      "evidence": "docs/gates/logs/20260303-closure-v40-r2/summary.json, docs/gates/logs/20260303-closure-v40-r2/decision_status_report.json",
+      "next_action": "Keep gates green; refresh evidence on behavior changes",
+      "owner": "pyc4-core",
+      "status": "implemented-verified"
+    },
+    {
+      "decision": "0142",
+      "evidence": "docs/gates/logs/20260303-closure-v40-r2/summary.json, docs/gates/logs/20260303-closure-v40-r2/decision_status_report.json",
+      "next_action": "Historical consumer cosim closure; superseded by Decision 0158",
+      "owner": "pyc4-core",
+      "status": "implemented-verified"
+    },
+    {
+      "decision": "0143",
+      "evidence": "docs/gates/logs/20260303-closure-v40-r2/summary.json, docs/gates/logs/20260303-closure-v40-r2/decision_status_report.json",
+      "next_action": "Keep gates green; refresh evidence on behavior changes",
+      "owner": "pyc4-core",
+      "status": "implemented-verified"
+    },
+    {
+      "decision": "0144",
+      "evidence": "docs/gates/logs/20260303-closure-v40-r2/summary.json, docs/gates/logs/20260303-closure-v40-r2/decision_status_report.json",
+      "next_action": "Keep gates green; refresh evidence on behavior changes",
+      "owner": "pyc4-core",
+      "status": "implemented-verified"
+    },
+    {
+      "decision": "0145",
+      "evidence": "docs/gates/logs/20260303-closure-v40-r2/summary.json, docs/gates/logs/20260303-closure-v40-r2/decision_status_report.json",
+      "next_action": "Keep gates green; refresh evidence on behavior changes",
+      "owner": "pyc4-core",
+      "status": "implemented-verified"
+    },
+    {
+      "decision": "0146",
+      "evidence": "docs/gates/logs/20260303-closure-v40-r2/summary.json, docs/gates/logs/20260303-closure-v40-r2/decision_status_report.json",
+      "next_action": "Historical consumer commit-bundle closure; superseded by Decision 0158",
+      "owner": "pyc4-core",
+      "status": "implemented-verified"
+    },
+    {
+      "decision": "0147",
+      "evidence": "docs/gates/logs/20260303-closure-v40-r2/summary.json, docs/gates/logs/20260303-closure-v40-r2/decision_status_report.json",
+      "next_action": "Keep gates green; refresh evidence on behavior changes",
+      "owner": "pyc4-core",
+      "status": "implemented-verified"
+    },
+    {
+      "decision": "0148",
+      "evidence": "tests/unit/test_pyc6_surface.py, tests/unit/test_v6_forward_signal.py, tests/unit/test_api_contract.py, tests/test_pyc_canonical_ops.py, docs/gates/logs/pyc6-unification/pyc6_migration_summary.md, docs/gates/logs/pyc6-unification/semantic_regressions_summary.json, docs/gates/logs/20260907-issue40-p0-provenance/summary.json, docs/gates/logs/20260907-issue40-p1-facade/summary.json, docs/gates/logs/20260908-issue40-p1-compile/summary.json, docs/gates/logs/20260908-issue40-p1-cas-boundary/summary.json, docs/gates/logs/20260908-issue40-p1-api-hygiene/summary.json, docs/gates/logs/20260908-issue40-p1-phantom-params/summary.json, docs/gates/logs/20260911-api-hygiene-98-99/summary.json",
+      "next_action": "Keep the exact public CycleAware surface, module/decorator ownership, shared declarative receiver policy, stable compile/build and CAS/Wire boundaries, fail-closed constructors, provenance, composed-input validation, and scalar automatic cycle balancing gates green",
+      "owner": "pyc6-frontend",
+      "status": "implemented-verified"
+    },
+    {
+      "decision": "0149",
+      "evidence": "CMakeLists.txt, library/cpp/CMakeLists.txt, tests/unit/test_pyc6_surface.py, tests/system/test_smoke_system.py, docs/gates/logs/pyc6-unification/pyc6_migration_summary.md, docs/gates/logs/pyc6-unification/summary.json",
+      "next_action": "Keep runtime, trace, packaging, and semantic-gate names on V6",
+      "owner": "pyc6-runtime",
+      "status": "implemented-verified"
+    },
+    {
+      "decision": "0150",
+      "evidence": "docs/gates/logs/20260905-agentic-retirement/summary.md, docs/gates/logs/20260831-agentic-consolidation-r2/agentic_circuit_summary.json, docs/gates/logs/20260831-agentic-consolidation-r2/summary.json, docs/gates/logs/20260831-agentic-consolidation-r2/run_sims_summary.json, docs/gates/logs/20260831-agentic-consolidation-r2/run_sims_nightly_summary.json, docs/gates/logs/20260831-agentic-consolidation-r2/semantic_regressions_summary.json, docs/gates/logs/20260831-agentic-consolidation-r2/migration_closure.md, docs/gates/logs/20260911-api-hygiene-98-99/summary.json, docs/gates/logs/20260911-issues-100-101-docs-hierarchy/summary.json",
+      "next_action": "Keep the Agentic Python boundary, installed/source resource discovery, and consolidated AC/PYC release closure green",
+      "owner": "acir-integration",
+      "status": "implemented-verified"
+    },
+    {
+      "decision": "0151",
+      "evidence": "docs/gates/logs/20260903-ac-table-stack-closure-r5/closure_summary.md, docs/gates/logs/20260903-ac-table-stack-closure-r5/agentic_circuit_summary.json, docs/gates/logs/20260903-ac-table-stack-closure-r5/decision_status_report.json",
+      "next_action": "Historical prototype boundary; Decision 0241 supersedes it for the bounded explicit-register-bank profile",
+      "owner": "acir-table",
+      "status": "implemented-verified"
+    },
+    {
+      "decision": "0152",
+      "evidence": "docs/gates/logs/20260903-ac-table-stack-closure-r5/closure_summary.md, docs/gates/logs/20260903-ac-table-stack-closure-r5/agentic_circuit_summary.json, docs/gates/logs/20260903-ac-table-stack-closure-r5/decision_status_report.json",
+      "next_action": "Keep focused G0/G1 and native/direct runtime parity green under the Decision 0241 backend profile",
+      "owner": "acir-table",
+      "status": "implemented-verified"
+    },
+    {
+      "decision": "0153",
+      "evidence": "docs/gates/logs/20260903-ac-table-stack-closure-r5/closure_summary.md, docs/gates/logs/20260903-ac-table-stack-closure-r5/agentic_circuit_summary.json, docs/gates/logs/20260903-ac-table-stack-closure-r5/decision_status_report.json",
+      "next_action": "Keep focused G0/G1, native/direct runtime parity, scalar regression, and bounded PYC admission green",
+      "owner": "acir-table",
+      "status": "implemented-verified"
+    },
+    {
+      "decision": "0154",
+      "evidence": "docs/rfcs/pyc6-decisions.md, compiler/acir/lib/Analysis/VariableAnalysis.cpp, tests/cpp/agentic-circuit/Analysis/ModelAnalysisTest.cpp, docs/gates/logs/20260915-issue126-iterative-proof/summary.json, docs/gates/logs/20260903-ac-table-stack-closure-r5/closure_summary.md, docs/gates/logs/20260903-ac-table-stack-closure-r5/agentic_circuit_summary.json, docs/gates/logs/20260903-ac-table-stack-closure-r5/decision_status_report.json, docs/gates/logs/20260915-issue129-static-field-writes/summary.md, docs/gates/logs/20260916-issue129-mixed-field-writes/summary.md",
+      "next_action": "Keep field-overlap verification, writer-local cancellation, direct/native merge parity, and bounded PYC field-merge parity green; keep the disjointness proof iterative so structural interning and conjunct collection scale with the reachable SSA graph rather than stack depth, and retain the 20000-level chain regression",
+      "owner": "acir-table",
+      "status": "implemented-verified"
+    },
+    {
+      "decision": "0155",
+      "evidence": "docs/gates/logs/20260903-ac-table-stack-closure-r5/closure_summary.md, docs/gates/logs/20260903-ac-table-stack-closure-r5/agentic_circuit_summary.json, docs/gates/logs/20260903-ac-table-stack-closure-r5/decision_status_report.json, docs/gates/logs/20260908-issue63-opt04-priority-find/summary.json, docs/gates/logs/20260908-issue63-opt05-table-borrow/summary.json, docs/gates/logs/20260908-issue63-opt03-match-fusion/summary.json",
+      "next_action": "Keep shared SSA provenance, once-per-attempt evaluation, scalar first-choice priority encoding, lexical aggregate observation borrowing, value materialization boundaries, same-snapshot pure-match fusion, independent masks, exact effect fallback semantics, and gfsim/PYC parity green",
+      "owner": "acir-table",
+      "status": "implemented-verified"
+    },
+    {
+      "decision": "0156",
+      "evidence": "docs/gates/logs/20260903-ac-table-stack-closure-r5/closure_summary.md, docs/gates/logs/20260903-ac-table-stack-closure-r5/agentic_circuit_summary.json, docs/gates/logs/20260903-ac-table-stack-closure-r5/decision_status_report.json",
+      "next_action": "Keep replace-mode verification, allocation-wins commit ordering, and direct/native/PYC parity green",
+      "owner": "acir-table",
+      "status": "implemented-verified"
+    },
+    {
+      "decision": "0157",
+      "evidence": "docs/gates/logs/20260903-layout-hard-break/layout_summary.json, docs/gates/logs/20260911-issues-100-101-docs-hierarchy/summary.json, docs/gates/logs/20260912-examples-designs-layout/summary.json, docs/gates/logs/20260912-repository-layout-followup/summary.json, docs/gates/logs/20260912-repo-professionalization/summary.json, tools/agentic-circuit/check-release-layout.py, flows/scripts/run_agentic_circuit.sh, tests/unit/test_documentation_layout.py, tests/unit/test_example_layout.py, tests/unit/test_repository_layout.py, CMakeLists.txt",
+      "next_action": "Preserve responsibility-based source, documentation, navigation, examples, integration fixtures, benchmarks, tools, and golden-data layout; external-system placement is superseded by Decision 0158",
+      "owner": "repository-layout",
+      "status": "implemented-verified"
+    },
+    {
+      "decision": "0158",
+      "evidence": "docs/gates/logs/20260904-framework-boundary-r1/boundary_summary.md, docs/gates/logs/20260908-issue40-p2-fm16-boundary/summary.json, docs/gates/logs/20260912-repo-professionalization/summary.json, tools/agentic-circuit/check-release-layout.py, tests/unit/test_agentic_circuit_component.py, tests/unit/test_repository_layout.py, CMakeLists.txt",
+      "next_action": "Keep consumer designs, product-system examples, name-based device inference, tools, gates, headers, and path exceptions out of the framework tree",
+      "owner": "repository-layout",
+      "status": "implemented-verified"
+    },
+    {
+      "decision": "0159",
+      "evidence": "docs/gates/logs/20260904-pr-release-gate-tiering-r1/summary.md, docs/gates/logs/20260911-issues-100-101-docs-hierarchy/summary.json, .github/workflows/ci.yml, .github/workflows/release.yml, .github/workflows/ci-macos.yml, tests/system/test_pyc_opt_driver.py",
+      "next_action": "Keep PR checks lightweight, focused evidence proportional, optimizer pass registration visible, and full AC/PYC closure required before release packaging",
+      "owner": "repository-management",
+      "status": "implemented-verified"
+    },
+    {
+      "decision": "0160",
+      "evidence": "docs/gates/logs/20260905-ac-uint-widths-r1/summary.md, tests/python/agentic-circuit/python_frontend/test_queue_frontend.py, tests/mlir/agentic-circuit/CodeGen/bit-widths.mlir, tests/cpp/agentic-circuit/gfsim/BitsTest.cpp",
+      "next_action": "Keep u1-u64 exact-width frontend, verifier, gfsim, and PYC lowering coverage green",
+      "owner": "acir-types",
+      "status": "implemented-verified"
+    },
+    {
+      "decision": "0161",
+      "evidence": "docs/gates/logs/20260905-pyc-priority-rtl-r1/summary.md, docs/gates/logs/20260908-issue63-opt04-priority-find/summary.json, docs/gates/logs/20260911-api-hygiene-98-99/summary.json, docs/gates/logs/20260911-issues-100-101-docs-hierarchy/summary.json, tests/integration/agentic-circuit/e2e/test_bit_primitive_parity.py, tests/system/test_primitive_selection.py, tests/mlir/agentic-circuit/CodeGen/bit-widths.mlir, tests/cpp/agentic-circuit/gfsim/BitsTest.cpp",
+      "next_action": "Keep the shared priority-result shape, ACPy/gfsim/PYC parity, exact bit-scan semantics, semantic/implementation separation, and C++/RTL parity green",
+      "owner": "pyc-primitives",
+      "status": "implemented-verified"
+    },
+    {
+      "decision": "0162",
+      "evidence": "docs/gates/logs/20260905-ac-commit-groups-r1/summary.md, tests/cpp/agentic-circuit/gfsim/QueueBlocksTest.cpp",
+      "next_action": "Keep Queue/Table prepare-publish-no-fail commit groups and ROB-shaped transition regressions green as stateful rule slices expand",
+      "owner": "acir-runtime",
+      "status": "implemented-verified"
+    },
+    {
+      "decision": "0163",
+      "evidence": "docs/gates/logs/20260905-ac-stateful-rule-r1/summary.md, examples/agentic-circuit/state/table_rule.py, tests/mlir/agentic-circuit/Transforms/rule-table-lowering.mlir",
+      "next_action": "Keep simple Table assignment, verified proposal lowering, grouped gfsim execution, and bounded PYC C++/Verilog parity green",
+      "owner": "acir-rules",
+      "status": "implemented-verified"
+    },
+    {
+      "decision": "0164",
+      "evidence": "docs/gates/logs/20260905-pyc-popcount-rtl-r1/summary.md, docs/gates/logs/20260911-issues-100-101-docs-hierarchy/summary.json, tests/integration/agentic-circuit/e2e/test_bit_primitive_parity.py, tests/mlir/pyc/popcount-primitive.mlir, tests/system/test_primitive_selection.py, tests/cpp/agentic-circuit/gfsim/BitsTest.cpp",
+      "next_action": "Keep exact popcount width, semantic PYC/Agentic lowering, ACPy/gfsim/PYC parity, BSD selected RTL, and C++/RTL/SimQueue parity green",
+      "owner": "pyc-primitives",
+      "status": "implemented-verified"
+    },
+    {
+      "decision": "0165",
+      "evidence": "docs/gates/logs/20260905-pyc-count-leading-zeros-r1/summary.md, docs/gates/logs/20260911-issues-100-101-docs-hierarchy/summary.json, tests/integration/agentic-circuit/e2e/test_bit_primitive_parity.py, tests/mlir/pyc/count-leading-zeros-primitive.mlir, tests/mlir/agentic-circuit/CodeGen/count-leading-zeros.mlir, tests/system/test_primitive_selection.py, tests/cpp/agentic-circuit/gfsim/BitsTest.cpp",
+      "next_action": "Keep exact all-zero semantics, semantic PYC/Agentic lowering, ACPy/gfsim/PYC parity, balanced BSD selected RTL, and C++/RTL/SimQueue parity green",
+      "owner": "pyc-primitives",
+      "status": "implemented-verified"
+    },
+    {
+      "decision": "0166",
+      "evidence": "docs/gates/logs/20260905-pyc-zero-count-family-r1/summary.md, docs/gates/logs/20260911-issues-100-101-docs-hierarchy/summary.json, tests/integration/agentic-circuit/e2e/test_bit_primitive_parity.py, tests/mlir/pyc/count-leading-zeros-primitive.mlir, tests/mlir/agentic-circuit/CodeGen/count-leading-zeros.mlir, tests/system/test_primitive_selection.py, tests/cpp/agentic-circuit/gfsim/BitsTest.cpp",
+      "next_action": "Keep leading/trailing helpers on one static-direction ACIR/PYC, gfsim, selected RTL, and ACPy-derived parity family",
+      "owner": "pyc-primitives",
+      "status": "implemented-verified"
+    },
+    {
+      "decision": "0167",
+      "evidence": "examples/agentic-circuit/pipelines/pyc_multi_input_rule_pipeline.py, tests/mlir/agentic-circuit/Transforms/rule-multi-input-lowering.mlir",
+      "next_action": "Keep multi-input pure rules inferred as one atomic Queue transition without exposing readiness or commit mechanics in Python",
+      "owner": "acir-rules",
+      "status": "implemented-verified"
+    },
+    {
+      "decision": "0168",
+      "evidence": "tests/integration/agentic-circuit/e2e/fixtures/state/table_multi_input_rule.py, tests/mlir/agentic-circuit/Transforms/rule-table-multi-input-lowering.mlir",
+      "next_action": "Keep heterogeneous stateful Queue inputs and one Table replacement in a single inferred prepare-publish-no-fail commit group",
+      "owner": "acir-rules",
+      "status": "implemented-verified"
+    },
+    {
+      "decision": "0169",
+      "evidence": "compiler/acir/include/acir/Analysis/VariableAnalysis.h, compiler/acir/lib/Analysis/VariableAnalysis.cpp, compiler/acir/lib/Transforms/LowerRules.cpp, tests/cpp/agentic-circuit/Analysis/ModelAnalysisTest.cpp",
+      "next_action": "Keep lifetime, update permission, and lexical ownership as compiler-inferred ac.var properties rather than Python hardware annotations",
+      "owner": "acir-analysis",
+      "status": "implemented-verified"
+    },
+    {
+      "decision": "0170",
+      "evidence": "compiler/acir/include/acir/Dialect/ACIR/ACIROps.td, compiler/acir/lib/Transforms/LowerVariables.cpp, tests/mlir/agentic-circuit/Transforms/variable-state-lowering.mlir, tests/mlir/agentic-circuit/Transforms/variable-struct-state-lowering.mlir, tests/mlir/agentic-circuit/ACIR/var-state-invalid.mlir",
+      "next_action": "Keep persistent class/module fields in the ac.var family and storage-select scalar/flat-struct state before rule transaction lowering",
+      "owner": "acir-variables",
+      "status": "implemented-verified"
+    },
+    {
+      "decision": "0171",
+      "evidence": "examples/agentic-circuit/pipelines/inferred_boundary_pipeline.py, tests/python/agentic-circuit/python_frontend/test_queue_frontend.py",
+      "next_action": "Keep ordinary typed system parameters/returns as the Python boundary while ACIR and gfsim retain inferred source/sink nodes internally",
+      "owner": "acir-boundaries",
+      "status": "implemented-verified"
+    },
+    {
+      "decision": "0172",
+      "evidence": "compiler/acir/include/acir/Dialect/ACIR/ACIROps.td, compiler/acir/lib/Transforms/LowerVariables.cpp, tests/integration/agentic-circuit/e2e/fixtures/state/indexed_variable_array.py, tests/mlir/agentic-circuit/Transforms/variable-array-state-lowering.mlir",
+      "next_action": "Keep persistent Python lists in the shaped ac.var family until storage selection and preserve touched-entry atomic updates",
+      "owner": "acir-variables",
+      "status": "implemented-verified"
+    },
+    {
+      "decision": "0173",
+      "evidence": "simulator/gfsim/include/gfsim/queue_blocks.h, tests/cpp/agentic-circuit/gfsim/QueueBlocksTest.cpp",
+      "next_action": "Keep stateful candidate evaluation side-effect-free in Work and perform deterministic atomic reservation/publication only during Arbitrate",
+      "owner": "acir-runtime",
+      "status": "implemented-verified"
+    },
+    {
+      "decision": "0174",
+      "evidence": "compiler/acir/include/acir/Analysis/VariableAnalysis.h, compiler/acir/lib/Analysis/VariableAnalysis.cpp, compiler/acir/lib/Transforms/LowerRules.cpp, tests/integration/agentic-circuit/e2e/fixtures/state/shared_indexed_rules.py, tests/cpp/agentic-circuit/Analysis/ModelAnalysisTest.cpp",
+      "next_action": "Keep shared inferred state ordered by MLIR footprints and lexical priority, with runtime conflicts resolved only in stable Arbitrate order",
+      "owner": "acir-analysis",
+      "status": "implemented-verified"
+    },
+    {
+      "decision": "0175",
+      "evidence": "compiler/acir/include/acir/Dialect/ACIR/ACIROps.td, compiler/acir/lib/Transforms/LowerRules.cpp, compiler/acir/lib/CodeGen/QueueGraphPlan.cpp, compiler/acir/lib/CodeGen/QueueGraphGenerator.cpp, tests/integration/agentic-circuit/e2e/fixtures/state/consume_only_completion.py, tests/integration/agentic-circuit/e2e/fixtures/state/state_driven_retire.py, tests/mlir/agentic-circuit/Transforms/rule-consume-only-lowering.mlir, tests/mlir/agentic-circuit/Transforms/rule-state-driven-lowering.mlir",
+      "next_action": "Keep zero-output completion and guarded zero-input retirement as typed MLIR transactions with inferred backpressure and no Python dummy endpoints",
+      "owner": "acir-rules",
+      "status": "implemented-verified"
+    },
+    {
+      "decision": "0176",
+      "evidence": "docs/gates/logs/20260906-circular-rob/summary.md, simulator/gfsim/include/gfsim/queue_blocks.h, compiler/acir/lib/CodeGen/QueueGraphPlan.cpp, compiler/acir/lib/CodeGen/QueueGraphGenerator.cpp, tests/integration/agentic-circuit/e2e/fixtures/state/multi_state_allocate.py, tests/cpp/agentic-circuit/gfsim/QueueBlocksTest.cpp, tests/mlir/agentic-circuit/Transforms/rule-multi-state-lowering.mlir",
+      "next_action": "Keep heterogeneous scalar/list state and selected Queues in one inferred multi-owner prepare-publish-commit group",
+      "owner": "acir-rules",
+      "status": "implemented-verified"
+    },
+    {
+      "decision": "0177",
+      "evidence": "docs/gates/logs/20260906-circular-rob/summary.md, tests/integration/agentic-circuit/e2e/fixtures/state/circular_rob.py, compiler/acir/lib/Transforms/LowerRules.cpp, simulator/gfsim/include/gfsim/queue_blocks.h",
+      "next_action": "Keep the circular ROB acceptance covering full/empty, dual output backpressure, wrap, stale generation, recovery epoch, out-of-order completion, and in-order retirement",
+      "owner": "acir-rob",
+      "status": "implemented-verified"
+    },
+    {
+      "decision": "0178",
+      "evidence": "docs/gates/logs/20260906-queue-module-freeze/summary.md, compiler/acir/lib/Transforms/FreezeTopology.cpp, compiler/acir/lib/Analysis/ModelAnalysis.cpp, compiler/acir/lib/CodeGen/QueueGraphPlan.cpp, compiler/acir/lib/CodeGen/QueueGraphGenerator.cpp, tests/mlir/agentic-circuit/Transforms/queue-module-freeze.mlir, tests/cpp/agentic-circuit/CodeGen/QueueGraphPlanTest.cpp",
+      "next_action": "Support mixed local/nested Queue graphs, Python module lowering, and incremental activation",
+      "owner": "acir-queue-modules",
+      "status": "implemented-verified"
+    },
+    {
+      "decision": "0179",
+      "evidence": "docs/gates/logs/20260906-stateful-module-reuse/summary.md, compiler/acir/include/acir/Dialect/ACIR/ACIROps.td, compiler/acir/lib/Dialect/ACIR/ACIROps.cpp, compiler/acir/lib/CodeGen/QueueGraphGenerator.cpp, tests/mlir/agentic-circuit/Transforms/queue-stateful-module-freeze.mlir, tests/cpp/agentic-circuit/CodeGen/QueueGraphPlanTest.cpp",
+      "next_action": "Support internal Queue graphs, Python module lowering, and incremental activation",
+      "owner": "acir-queue-modules",
+      "status": "implemented-verified"
+    },
+    {
+      "decision": "0180",
+      "evidence": "docs/gates/logs/20260906-multi-rule-module-reuse/summary.md, compiler/acir/lib/CodeGen/QueueGraphPlan.cpp, compiler/acir/lib/CodeGen/QueueGraphGenerator.cpp, tests/mlir/agentic-circuit/Transforms/queue-multi-rule-module-freeze.mlir, tests/cpp/agentic-circuit/CodeGen/QueueGraphPlanTest.cpp",
+      "next_action": "Support mixed local/nested Queue graphs and Python module lowering",
+      "owner": "acir-queue-modules",
+      "status": "implemented-verified"
+    },
+    {
+      "decision": "0181",
+      "evidence": "docs/gates/logs/20260906-multi-owner-module-reuse/summary.md, compiler/acir/lib/CodeGen/QueueGraphPlan.cpp, compiler/acir/lib/CodeGen/QueueGraphGenerator.cpp, simulator/gfsim/include/gfsim/queue_blocks.h, tests/mlir/agentic-circuit/Transforms/queue-multi-owner-module-freeze.mlir, tests/cpp/agentic-circuit/CodeGen/QueueGraphPlanTest.cpp",
+      "next_action": "Support mixed local/nested Queue graphs and Python module lowering",
+      "owner": "acir-queue-modules",
+      "status": "implemented-verified"
+    },
+    {
+      "decision": "0182",
+      "evidence": "docs/gates/logs/20260906-combined-module-reuse/summary.md, compiler/acir/lib/CodeGen/QueueGraphPlan.cpp, compiler/acir/lib/CodeGen/QueueGraphGenerator.cpp, tests/mlir/agentic-circuit/Transforms/queue-multi-rule-multi-owner-module.mlir, tests/cpp/agentic-circuit/CodeGen/QueueGraphPlanTest.cpp",
+      "next_action": "Support mixed local/nested Queue graphs, Python module lowering, and activation",
+      "owner": "acir-queue-modules",
+      "status": "implemented-verified"
+    },
+    {
+      "decision": "0183",
+      "evidence": "docs/gates/logs/20260906-nested-module-reuse/summary.md, compiler/acir/lib/CodeGen/QueueGraphPlan.cpp, compiler/acir/lib/CodeGen/QueueGraphGenerator.cpp, tests/mlir/agentic-circuit/Transforms/queue-nested-module-freeze.mlir, tests/cpp/agentic-circuit/CodeGen/QueueGraphPlanTest.cpp",
+      "next_action": "Extend nested modules to arbitrary internal graphs, local state plus children, and Python module lowering",
+      "owner": "acir-queue-modules",
+      "status": "implemented-verified"
+    },
+    {
+      "decision": "0184",
+      "evidence": "docs/gates/logs/20260906-internal-queue-module/summary.md, docs/gates/logs/20260909-release-preflight-structural-instances/summary.json, compiler/acir/lib/CodeGen/QueueGraphPlan.cpp, compiler/acir/lib/CodeGen/QueueGraphGenerator.cpp, compiler/acir/include/acir/Dialect/ACIR/ACIROps.td, compiler/acir/lib/Analysis/ModelAnalysis.cpp, tests/mlir/agentic-circuit/Transforms/queue-mixed-nested-module.mlir, tests/mlir/agentic-circuit/Transforms/structural-instance-retention.mlir, tests/cpp/agentic-circuit/CodeGen/QueueGraphPlanTest.cpp",
+      "next_action": "Generalize parent-local Queue ownership to arbitrary internal graphs, local state plus children, and Python module lowering",
+      "owner": "acir-queue-modules",
+      "status": "implemented-verified"
+    },
+    {
+      "decision": "0185",
+      "evidence": "docs/gates/logs/20260906-python-module-lowering/summary.md, python/agentic-circuit/src/agentic_circuit/_queue_frontend.py, examples/agentic-circuit/pipelines/inferred_module_pipeline.py, tests/python/agentic-circuit/python_frontend/test_queue_frontend.py",
+      "next_action": "Extend ordinary module calls to stateful modules, arbitrary arity, static parameters, and inferred fanout",
+      "owner": "acir-python-modules",
+      "status": "implemented-verified"
+    },
+    {
+      "decision": "0186",
+      "evidence": "docs/gates/logs/20260906-python-nested-module/summary.md, python/agentic-circuit/src/agentic_circuit/_queue_frontend.py, examples/agentic-circuit/pipelines/inferred_nested_module_pipeline.py, tests/python/agentic-circuit/python_frontend/test_queue_frontend.py",
+      "next_action": "Extend nested Python modules to multi-statement graphs, stateful composition, arbitrary arity, and static parameters",
+      "owner": "acir-python-modules",
+      "status": "implemented-verified"
+    },
+    {
+      "decision": "0187",
+      "evidence": "docs/gates/logs/20260906-python-stateful-module/summary.md, compiler/acir/include/acir/Dialect/ACIR/ACIROps.td, python/agentic-circuit/src/agentic_circuit/_queue_frontend.py, examples/agentic-circuit/state/inferred_stateful_module.py, tests/mlir/agentic-circuit/Transforms/variable-module-state-lowering.mlir, tests/python/agentic-circuit/python_frontend/test_queue_frontend.py",
+      "next_action": "Extend lexical module state to arbitrary internal graphs, conditional updates, static parameters, and inferred fanout",
+      "owner": "acir-python-modules",
+      "status": "implemented-verified"
+    },
+    {
+      "decision": "0188",
+      "evidence": "docs/gates/logs/20260906-python-multi-state-module/summary.md, python/agentic-circuit/src/agentic_circuit/_queue_frontend.py, tests/integration/agentic-circuit/e2e/fixtures/state/inferred_multi_state_module.py, tests/python/agentic-circuit/python_frontend/test_queue_frontend.py",
+      "next_action": "Extend multi-state modules to internal graphs, conditional updates, shaped state, static parameters, and inferred fanout",
+      "owner": "acir-python-modules",
+      "status": "implemented-verified"
+    },
+    {
+      "decision": "0189",
+      "evidence": "docs/gates/logs/20260906-reusable-circular-rob/summary.md, python/agentic-circuit/src/agentic_circuit/_queue_frontend.py, compiler/acir/lib/CodeGen/QueueGraphGenerator.cpp, examples/agentic-circuit/state/reusable_circular_rob.py, tests/mlir/agentic-circuit/Transforms/queue-stateless-multi-output-module.mlir, tests/cpp/agentic-circuit/CodeGen/QueueGraphPlanTest.cpp",
+      "next_action": "Preserve reusable ROB behavior and stateless arbitrary-arity atomic transforms while adding internal graphs, activation, typed CFG effects, static parameters, and ISQ composition",
+      "owner": "acir-rob",
+      "status": "implemented-verified"
+    },
+    {
+      "decision": "0190",
+      "evidence": "docs/gates/logs/20260906-queuegraph-activation/summary.md, compiler/acir/include/acir/CodeGen/QueueGraphPlan.h, compiler/acir/lib/CodeGen/QueueGraphPlan.cpp, compiler/acir/lib/CodeGen/QueueGraphGenerator.cpp, simulator/gfsim/include/gfsim/queue_blocks.h, tests/mlir/agentic-circuit/Transforms/queue-stateful-module-freeze.mlir, tests/cpp/agentic-circuit/CodeGen/QueueGraphPlanTest.cpp, tests/cpp/agentic-circuit/gfsim/QueueBlocksTest.cpp",
+      "next_action": "Add output adapters, semantic-change filtering, and full ROB tick/timeline equivalence",
+      "owner": "acir-runtime",
+      "status": "implemented-verified"
+    },
+    {
+      "decision": "0191",
+      "evidence": "docs/gates/logs/20260906-mlir-rule-activation/summary.md, compiler/acir/include/acir/Dialect/ACIR/ACIRAttributes.td, compiler/acir/include/acir/Transforms/Passes.td, compiler/acir/lib/Transforms/LowerRules.cpp, compiler/acir/lib/Dialect/ACIR/ACIROps.cpp, compiler/acir/include/acir/CodeGen/QueueGraphPlan.h, compiler/acir/lib/CodeGen/QueueGraphPlan.cpp, compiler/acir/lib/CodeGen/QueueGraphGenerator.cpp, tests/mlir/agentic-circuit/Transforms/rule-state-driven-lowering.mlir, tests/mlir/agentic-circuit/Transforms/rule-multi-state-lowering.mlir",
+      "next_action": "Extend typed activation through structural blocks, output adapters, and semantic-change filtering",
+      "owner": "acir-analysis",
+      "status": "implemented-verified"
+    },
+    {
+      "decision": "0192",
+      "evidence": "docs/gates/logs/20260906-nested-activation/summary.md, compiler/acir/lib/CodeGen/QueueGraphGenerator.cpp, tests/cpp/agentic-circuit/CodeGen/QueueGraphPlanTest.cpp",
+      "next_action": "Generalize structured codegen shapes while keeping recursive activation binding, class reuse, and dense instance IDs aligned",
+      "owner": "acir-runtime",
+      "status": "implemented-verified"
+    },
+    {
+      "decision": "0193",
+      "evidence": "docs/gates/logs/20260906-work-xfer-closure/summary.md, compiler/acir/include/acir/CodeGen/QueueGraphPlan.h, compiler/acir/lib/CodeGen/QueueGraphPlan.cpp, compiler/acir/lib/CodeGen/QueueGraphGenerator.cpp, simulator/gfsim/include/gfsim/object.h, simulator/gfsim/system.cpp, tests/cpp/agentic-circuit/CodeGen/QueueGraphPlanTest.cpp, tests/cpp/agentic-circuit/gfsim/core_test.cpp, tests/mlir/agentic-circuit/Transforms/queue-stateful-module-freeze.mlir",
+      "next_action": "Add semantic-change wake filtering and full ROB tick/timeline equivalence",
+      "owner": "acir-runtime",
+      "status": "implemented-verified"
+    },
+    {
+      "decision": "0194",
+      "evidence": "docs/gates/logs/20260906-host-result-boundary/summary.md, python/agentic-circuit/src/agentic_circuit/_queue_frontend.py, compiler/acir/lib/Analysis/ModelAnalysis.cpp, compiler/acir/lib/CodeGen/QueueGraphGenerator.cpp, tests/mlir/agentic-circuit/Transforms/queue-root-result-freeze.mlir, tests/python/agentic-circuit/python_frontend/test_queue_frontend.py",
+      "next_action": "Generalize host results beyond structured modules and complete full ROB tick/state/timeline equivalence",
+      "owner": "acir-boundaries",
+      "status": "implemented-verified"
+    },
+    {
+      "decision": "0195",
+      "evidence": "docs/gates/logs/20260906-table-semantic-activation/summary.md, simulator/gfsim/include/gfsim/object.h, simulator/gfsim/include/gfsim/queue_blocks.h, simulator/gfsim/system.cpp, tests/cpp/agentic-circuit/gfsim/QueueBlocksTest.cpp",
+      "next_action": "Complete full ROB tick/state/timeline equivalence and retain conservative wake behavior for non-comparable Table entries",
+      "owner": "acir-runtime",
+      "status": "implemented-verified"
+    },
+    {
+      "decision": "0196",
+      "evidence": "docs/gates/logs/20260906-rob-tick-equivalence/summary.md, simulator/gfsim/include/gfsim/core.h, simulator/gfsim/include/gfsim/object.h, simulator/gfsim/system.cpp, examples/agentic-circuit/state/reusable_circular_rob.py",
+      "next_action": "Keep exact scan/incremental state, commit timeline, and performance counters green as rule semantics expand",
+      "owner": "acir-rob",
+      "status": "implemented-verified"
+    },
+    {
+      "decision": "0197",
+      "evidence": "docs/gates/logs/20260906-reusable-oldest-ready-isq/summary.md, python/agentic-circuit/src/agentic_circuit/__init__.py, python/agentic-circuit/src/agentic_circuit/_queue_frontend.py, compiler/acir/include/acir/Dialect/ACIR/ACIROps.td, compiler/acir/lib/Dialect/ACIR/ACIROps.cpp, compiler/acir/lib/Analysis/VariableAnalysis.cpp, compiler/acir/lib/Transforms/LowerVariables.cpp, compiler/acir/lib/CodeGen/QueueGraphGenerator.cpp, examples/agentic-circuit/state/reusable_oldest_ready_isq.py, tests/mlir/agentic-circuit/ACIR/var-state-invalid.mlir, tests/mlir/agentic-circuit/Transforms/variable-array-state-lowering.mlir, tests/python/agentic-circuit/python_frontend/test_queue_frontend.py",
+      "next_action": "Add per-tick scan/incremental ISQ equivalence and finish typed path/output-presence/conflict IR",
+      "owner": "acir-isq",
+      "status": "implemented-verified"
+    },
+    {
+      "decision": "0198",
+      "evidence": "docs/gates/logs/20260906-isq-tick-equivalence/summary.md, examples/agentic-circuit/state/reusable_oldest_ready_isq.py, simulator/gfsim/include/gfsim/core.h, simulator/gfsim/include/gfsim/object.h, simulator/gfsim/system.cpp",
+      "next_action": "Finish typed path predicates, output presence, conflict classes, and explicit arbitration IR",
+      "owner": "acir-isq",
+      "status": "implemented-verified"
+    },
+    {
+      "decision": "0199",
+      "evidence": "docs/gates/logs/20260906-typed-rule-summary/summary.md, compiler/acir/include/acir/Dialect/ACIR/ACIRAttributes.td, compiler/acir/lib/Transforms/LowerRules.cpp, compiler/acir/lib/Dialect/ACIR/ACIROps.cpp, tests/mlir/agentic-circuit/Transforms/rule-state-driven-lowering.mlir",
+      "next_action": "Add SSA output/state presence, then derive real conflict classes and explicit contender arbitration",
+      "owner": "acir-rules",
+      "status": "implemented-verified"
+    },
+    {
+      "decision": "0200",
+      "evidence": "docs/gates/logs/20260906-ssa-rule-presence/summary.md, compiler/acir/include/acir/Dialect/ACIR/ACIROps.td, compiler/acir/lib/Transforms/LowerRules.cpp, compiler/acir/lib/Dialect/ACIR/ACIROps.cpp, compiler/acir/include/acir/CodeGen/QueueGraphPlan.h, compiler/acir/lib/CodeGen/QueueGraphPlan.cpp, tests/mlir/agentic-circuit/Transforms/rule-state-driven-lowering.mlir, tests/mlir/agentic-circuit/Transforms/rule-multi-state-lowering.mlir, tests/mlir/agentic-circuit/ACIR/firing-invalid.mlir",
+      "next_action": "Generalize independent effect presence and CFG joins, then derive conflict classes and explicit contender arbitration",
+      "owner": "acir-rules",
+      "status": "implemented-verified"
+    },
+    {
+      "decision": "0201",
+      "evidence": "docs/gates/logs/20260906-conditional-rule-effects/summary.md, python/agentic-circuit/src/agentic_circuit/_queue_frontend.py, compiler/acir/include/acir/Dialect/ACIR/ACIROps.td, compiler/acir/lib/Analysis/VariableAnalysis.cpp, compiler/acir/lib/Transforms/LowerVariables.cpp, compiler/acir/lib/Transforms/LowerRules.cpp, compiler/acir/lib/Dialect/ACIR/ACIROps.cpp, compiler/acir/lib/CodeGen/QueueGraphPlan.cpp, compiler/acir/lib/CodeGen/QueueGraphGenerator.cpp, simulator/gfsim/include/gfsim/queue_blocks.h, tests/integration/agentic-circuit/e2e/fixtures/state/consume_only_completion.py, examples/agentic-circuit/state/reusable_circular_rob.py, tests/mlir/agentic-circuit/Transforms/rule-consume-only-lowering.mlir, tests/cpp/agentic-circuit/gfsim/QueueBlocksTest.cpp",
+      "next_action": "Preserve early-return input-only commits while adding optional outputs and general CFG joins",
+      "owner": "acir-rules",
+      "status": "implemented-verified"
+    },
+    {
+      "decision": "0202",
+      "evidence": "docs/gates/logs/20260906-state-snapshot-reservations/summary.md, compiler/acir/include/acir/Analysis/VariableAnalysis.h, compiler/acir/lib/Analysis/VariableAnalysis.cpp, compiler/acir/include/acir/Dialect/ACIR/ACIROps.td, compiler/acir/lib/Dialect/ACIR/ACIROps.cpp, compiler/acir/lib/Transforms/LowerRules.cpp, compiler/acir/include/acir/CodeGen/QueueGraphPlan.h, compiler/acir/lib/CodeGen/QueueGraphPlan.cpp, compiler/acir/lib/CodeGen/QueueGraphGenerator.cpp, simulator/gfsim/include/gfsim/queue_blocks.h, python/agentic-circuit/src/agentic_circuit/_queue_frontend.py, examples/agentic-circuit/state/reusable_circular_rob.py, tests/cpp/agentic-circuit/Analysis/ModelAnalysisTest.cpp, tests/cpp/agentic-circuit/gfsim/QueueBlocksTest.cpp, tests/mlir/agentic-circuit/ACIR/firing-invalid.mlir, tests/mlir/agentic-circuit/Transforms/rule-consume-only-lowering.mlir",
+      "next_action": "Extend snapshots to candidate/output predicates and exact match/choose index sets, then add ISQ starvation/performance gates",
+      "owner": "acir-analysis",
+      "status": "implemented-verified"
+    },
+    {
+      "decision": "0203",
+      "evidence": "docs/gates/logs/20260906-snapshot-set-isq/summary.md, compiler/acir/include/acir/Analysis/VariableAnalysis.h, compiler/acir/lib/Analysis/VariableAnalysis.cpp, compiler/acir/include/acir/Dialect/ACIR/ACIROps.td, compiler/acir/lib/Dialect/ACIR/ACIROps.cpp, compiler/acir/lib/Transforms/LowerRules.cpp, compiler/acir/include/acir/CodeGen/QueueGraphPlan.h, compiler/acir/lib/CodeGen/QueueGraphPlan.cpp, compiler/acir/lib/CodeGen/QueueGraphGenerator.cpp, simulator/gfsim/include/gfsim/queue_blocks.h, examples/agentic-circuit/state/reusable_oldest_ready_isq.py, tests/mlir/agentic-circuit/Transforms/rule-snapshot-set-lowering.mlir",
+      "next_action": "Preserve exact match-evaluation snapshot sets while extending field, CFG, and larger-domain representations",
+      "owner": "acir-analysis",
+      "status": "implemented-verified"
+    },
+    {
+      "decision": "0204",
+      "evidence": "docs/gates/logs/20260906-choose-key-snapshot-set/summary.md, compiler/acir/lib/Analysis/VariableAnalysis.cpp, compiler/acir/include/acir/Dialect/ACIR/ACIROps.td, compiler/acir/lib/Dialect/ACIR/ACIROps.cpp, compiler/acir/lib/Transforms/LowerRules.cpp, compiler/acir/lib/CodeGen/QueueGraphPlan.cpp, compiler/acir/lib/CodeGen/QueueGraphGenerator.cpp, tests/cpp/agentic-circuit/Analysis/ModelAnalysisTest.cpp, tests/mlir/agentic-circuit/ACIR/state-snapshot-set-invalid.mlir, tests/mlir/agentic-circuit/Transforms/rule-snapshot-set-lowering.mlir, tests/python/agentic-circuit/python_frontend/test_queue_frontend.py",
+      "next_action": "Preserve choose-key provenance while extending per-index field relations, CFG joins, and larger domains",
+      "owner": "acir-analysis",
+      "status": "implemented-verified"
+    },
+    {
+      "decision": "0205",
+      "evidence": "docs/gates/logs/20260906-field-snapshot-reservations/summary.md, compiler/acir/include/acir/Analysis/VariableAnalysis.h, compiler/acir/lib/Analysis/VariableAnalysis.cpp, compiler/acir/include/acir/Dialect/ACIR/ACIROps.td, compiler/acir/lib/Dialect/ACIR/ACIROps.cpp, compiler/acir/lib/Transforms/LowerRules.cpp, compiler/acir/include/acir/CodeGen/QueueGraphPlan.h, compiler/acir/lib/CodeGen/QueueGraphPlan.cpp, compiler/acir/lib/CodeGen/QueueGraphGenerator.cpp, simulator/gfsim/include/gfsim/queue_blocks.h, tests/cpp/agentic-circuit/gfsim/QueueBlocksTest.cpp, tests/mlir/agentic-circuit/ACIR/state-snapshot-set-invalid.mlir, tests/mlir/agentic-circuit/Transforms/rule-consume-only-lowering.mlir, tests/mlir/agentic-circuit/Transforms/rule-snapshot-set-lowering.mlir",
+      "next_action": "Extend exact snapshot relations through general CFG joins and wider-than-64-bit representations",
+      "owner": "acir-analysis",
+      "status": "implemented-verified"
+    },
+    {
+      "decision": "0206",
+      "evidence": "docs/gates/logs/20260906-serial-guard-chain/summary.md, python/agentic-circuit/src/agentic_circuit/_queue_frontend.py, examples/agentic-circuit/state/reusable_circular_rob.py, tests/python/agentic-circuit/python_frontend/test_queue_frontend.py",
+      "next_action": "Preserve serial discard chains while adding same-owner joins, selected outputs, nested CFG, and multi-input paths",
+      "owner": "acir-rules",
+      "status": "implemented-verified"
+    },
+    {
+      "decision": "0207",
+      "evidence": "docs/gates/logs/20260906-branch-local-effects/summary.md, python/agentic-circuit/src/agentic_circuit/_queue_frontend.py, compiler/acir/lib/Dialect/ACIR/ACIROps.cpp, compiler/acir/lib/Transforms/LowerRules.cpp, compiler/acir/lib/CodeGen/QueueGraphPlan.cpp, tests/integration/agentic-circuit/e2e/fixtures/state/branch_local_state.py, tests/python/agentic-circuit/python_frontend/test_queue_frontend.py, tests/mlir/agentic-circuit/Transforms/rule-branch-local-lowering.mlir, tests/mlir/agentic-circuit/ACIR/firing-invalid.mlir",
+      "next_action": "Preserve complementary branch effects while adding indexed joins, selected outputs, nested CFG, and multi-input semantics",
+      "owner": "acir-rules",
+      "status": "implemented-verified"
+    },
+    {
+      "decision": "0208",
+      "evidence": "docs/gates/logs/20260906-same-owner-branch-join/summary.md, compiler/acir/include/acir/Dialect/ACIR/ACIROps.td, compiler/acir/lib/Dialect/ACIR/ACIROps.cpp, compiler/acir/lib/CodeGen/QueueGraphPlan.cpp, compiler/acir/lib/CodeGen/QueueGraphGenerator.cpp, compiler/acir/lib/CodeGen/QueueGraphPyc.cpp, python/agentic-circuit/src/agentic_circuit/_queue_frontend.py, tests/integration/agentic-circuit/e2e/fixtures/state/branch_join_state.py, tests/mlir/agentic-circuit/ACIR/var-expressions.mlir, tests/mlir/agentic-circuit/ACIR/var-expressions-invalid.mlir, tests/mlir/agentic-circuit/Transforms/rule-branch-join-lowering.mlir, tests/mlir/agentic-circuit/CodeGen/value-select.mlir, tests/python/agentic-circuit/python_frontend/test_queue_frontend.py",
+      "next_action": "Preserve typed joins while adding selected outputs, nested CFG, and multi-input branch semantics",
+      "owner": "acir-rules",
+      "status": "implemented-verified"
+    },
+    {
+      "decision": "0209",
+      "evidence": "docs/gates/logs/20260906-indexed-branch-join/summary.md, python/agentic-circuit/src/agentic_circuit/_queue_frontend.py, tests/integration/agentic-circuit/e2e/fixtures/state/indexed_branch_join.py, tests/python/agentic-circuit/python_frontend/test_queue_frontend.py, tests/mlir/agentic-circuit/Transforms/rule-branch-join-lowering.mlir",
+      "next_action": "Preserve indexed joins while adding multiple outputs, nested CFG, cross-owner joins, and multi-input semantics",
+      "owner": "acir-rules",
+      "status": "implemented-verified"
+    },
+    {
+      "decision": "0210",
+      "evidence": "docs/gates/logs/20260906-optional-output-presence/summary.md, docs/gates/logs/20260908-issue48-state-guard-snapshot/summary.json, python/agentic-circuit/src/agentic_circuit/_queue_frontend.py, compiler/acir/lib/Dialect/ACIR/ACIROps.cpp, compiler/acir/lib/Transforms/LowerRules.cpp, tests/integration/agentic-circuit/e2e/fixtures/state/optional_output_state.py, tests/python/agentic-circuit/python_frontend/test_queue_frontend.py, tests/mlir/agentic-circuit/Transforms/rule-optional-output-lowering.mlir, tests/mlir/agentic-circuit/ACIR/firing-invalid.mlir",
+      "next_action": "Keep blocking/effect/output guards on the committed snapshot while state assignments form separate proposals; extend multiple selected outputs, nested CFG, and multi-input optional-output semantics",
+      "owner": "acir-rules",
+      "status": "implemented-verified"
+    },
+    {
+      "decision": "0211",
+      "evidence": "docs/gates/logs/20260906-bitfield-spec/summary.md, python/semantic-core/src/_pycircuit_semantics/bitfield.py, python/pycircuit/src/pycircuit/bitfield.py, python/agentic-circuit/src/agentic_circuit/_types.py, python/agentic-circuit/src/agentic_circuit/_queue_frontend.py, compiler/acir/include/acir/Dialect/ACIR/ACIROps.td, compiler/acir/lib/Dialect/ACIR/ACIROps.cpp, examples/agentic-circuit/pipelines/bitfield_decode_pipeline.py, examples/agentic-circuit/pipelines/bitfield_scalar_pipeline.py, tests/mlir/agentic-circuit/ACIR/bitfield-schema.mlir",
+      "next_action": "Replace frontend type strings with the recursive descriptor, then add recursive aggregates, bounded constraints, and masked matching",
+      "owner": "acir-types",
+      "status": "implemented-verified"
+    },
+    {
+      "decision": "0212",
+      "evidence": "docs/gates/logs/20260906-recursive-type-descriptor/summary.md, python/semantic-core/src/_pycircuit_semantics/types.py, python/agentic-circuit/src/agentic_circuit/_queue_frontend.py, compiler/acir/include/acir/Dialect/ACIR/ACIRTypes.td, compiler/acir/lib/Dialect/ACIR/ACIRTypes.cpp, tests/unit/test_semantic_core.py, tests/cpp/agentic-circuit/Dialect/ACIR/TypesTest.cpp, tests/mlir/agentic-circuit/ACIR/queue-var-types.mlir, tests/python/agentic-circuit/python_frontend/test_queue_frontend.py",
+      "next_action": "Replace remaining QueueProgram strings, then admit recursive aggregates through QueueGraph, gfsim, PYC, and RTL",
+      "owner": "acir-types",
+      "status": "implemented-verified"
+    },
+    {
+      "decision": "0213",
+      "evidence": "docs/gates/logs/20260906-nested-payload/summary.md, python/semantic-core/src/_pycircuit_semantics/types.py, python/agentic-circuit/src/agentic_circuit/_queue_frontend.py, compiler/acir/lib/CodeGen/QueueGraphPlan.cpp, compiler/acir/lib/CodeGen/QueueGraphGenerator.cpp, examples/agentic-circuit/pipelines/nested_payload_pipeline.py, tests/cpp/agentic-circuit/CodeGen/QueueGraphPlanTest.cpp, tests/python/agentic-circuit/python_frontend/test_queue_frontend.py",
+      "next_action": "Add nominal enum values, then tuple/value-array operations and complete descriptor migration",
+      "owner": "acir-types",
+      "status": "implemented-verified"
+    },
+    {
+      "decision": "0214",
+      "evidence": "docs/gates/logs/20260906-enum-payload/summary.md, docs/gates/logs/20260907-issue48-persistent-enum/summary.json, python/semantic-core/src/_pycircuit_semantics/types.py, python/agentic-circuit/src/agentic_circuit/_queue_frontend.py, compiler/acir/include/acir/Dialect/ACIR/ACIROps.td, compiler/acir/lib/Dialect/ACIR/ACIROps.cpp, compiler/acir/include/acir/CodeGen/QueueGraphPlan.h, compiler/acir/lib/CodeGen/QueueGraphPlan.cpp, compiler/acir/lib/CodeGen/QueueGraphGenerator.cpp, compiler/acir/lib/CodeGen/QueueGraphPyc.cpp, examples/agentic-circuit/pipelines/enum_payload_pipeline.py, tests/mlir/agentic-circuit/ACIR/enum-values.mlir, tests/python/agentic-circuit/python_frontend/test_queue_frontend.py",
+      "next_action": "Add tuple/value-array operations, enum exhaustiveness with constraints, and complete descriptor migration",
+      "owner": "acir-types",
+      "status": "implemented-verified"
+    },
+    {
+      "decision": "0215",
+      "evidence": "docs/gates/logs/20260906-aggregate-payload/summary.md, python/semantic-core/src/_pycircuit_semantics/types.py, python/agentic-circuit/src/agentic_circuit/_queue_frontend.py, compiler/acir/include/acir/Dialect/ACIR/ACIROps.td, compiler/acir/lib/Dialect/ACIR/ACIROps.cpp, compiler/acir/include/acir/CodeGen/QueueGraphPlan.h, compiler/acir/lib/CodeGen/QueueGraphPlan.cpp, compiler/acir/lib/CodeGen/QueueGraphGenerator.cpp, compiler/acir/lib/CodeGen/QueueGraphPyc.cpp, examples/agentic-circuit/pipelines/aggregate_payload_pipeline.py, examples/agentic-circuit/pipelines/recursive_aggregate_payload_pipeline.py, tests/mlir/agentic-circuit/ACIR/aggregate-values.mlir, tests/python/agentic-circuit/python_frontend/test_queue_frontend.py, tests/cpp/agentic-circuit/CodeGen/QueueGraphPlanTest.cpp",
+      "next_action": "Replace remaining QueueProgram type strings, then add bounded constraints and masked matching",
+      "owner": "acir-types",
+      "status": "implemented-verified"
+    },
+    {
+      "decision": "0216",
+      "evidence": "docs/gates/logs/20260906-queue-descriptor-migration/summary.md, python/semantic-core/src/_pycircuit_semantics/types.py, python/agentic-circuit/src/agentic_circuit/_queue_frontend.py, tests/unit/test_semantic_core.py, tests/python/agentic-circuit/contracts/test_queue_type_hygiene.py, tests/python/agentic-circuit/python_frontend/test_queue_frontend.py",
+      "next_action": "Add bounded static constraints, enum exhaustiveness, and verified masked matching",
+      "owner": "acir-types",
+      "status": "implemented-verified"
+    },
+    {
+      "decision": "0217",
+      "evidence": "docs/gates/logs/20260906-bounded-constraints/summary.md, python/semantic-core/src/_pycircuit_semantics/constraints.py, python/agentic-circuit/src/agentic_circuit/_queue_frontend.py, compiler/acir/include/acir/Analysis/VariableAnalysis.h, compiler/acir/lib/Analysis/VariableAnalysis.cpp, compiler/acir/lib/Transforms/VerifyValueConstraints.cpp, compiler/acir/lib/Transforms/LowerRules.cpp, compiler/acir/lib/Transforms/FreezeTopology.cpp, compiler/acir/lib/CodeGen/QueueGraphPlan.cpp, tests/integration/agentic-circuit/e2e/fixtures/state/indexed_variable_array.py, tests/unit/test_semantic_core.py, tests/cpp/agentic-circuit/Analysis/ModelAnalysisTest.cpp, tests/mlir/agentic-circuit/Transforms/value-constraints.mlir, tests/mlir/agentic-circuit/Transforms/value-constraints-invalid.mlir, tests/python/agentic-circuit/python_frontend/test_queue_frontend.py",
+      "next_action": "Add verified masked matching, then path-sensitive refinement and dynamic aggregate indexing",
+      "owner": "acir-analysis",
+      "status": "implemented-verified"
+    },
+    {
+      "decision": "0218",
+      "evidence": "docs/gates/logs/20260906-issue39-closure-r3/summary.md, python/semantic-core/src/_pycircuit_semantics/bitmask.py, python/pycircuit/src/pycircuit/bitmask.py, python/agentic-circuit/src/agentic_circuit/__init__.py, python/agentic-circuit/src/agentic_circuit/_queue_frontend.py, compiler/acir/include/acir/Dialect/ACIR/ACIROps.td, compiler/acir/lib/Dialect/ACIR/ACIROps.cpp, compiler/acir/lib/Analysis/VariableAnalysis.cpp, compiler/acir/lib/CodeGen/QueueGraphPlan.cpp, compiler/acir/lib/CodeGen/QueueGraphGenerator.cpp, compiler/acir/lib/CodeGen/QueueGraphPyc.cpp, examples/agentic-circuit/pipelines/masked_decode_pipeline.py, tests/mlir/agentic-circuit/ACIR/masked-matching.mlir, tests/mlir/agentic-circuit/ACIR/masked-matching-invalid.mlir, tests/mlir/agentic-circuit/CodeGen/masked-match.mlir, tests/cpp/agentic-circuit/CodeGen/QueueGraphPlanTest.cpp",
+      "next_action": "Implement Decision 0219 and issue #41 non-vector primitive cleanup",
+      "owner": "acir-types",
+      "status": "implemented-verified"
+    },
+    {
+      "decision": "0219",
+      "evidence": "docs/gates/logs/20260907-issue41-primitive-cleanup/summary.md, compiler/acir/include/acir/Dialect/ACIR/ACIRAttributes.td, compiler/acir/include/acir/Dialect/ACIR/ACIROps.td, compiler/acir/include/acir/Dialect/ACIR/ACIRTypes.td, compiler/acir/lib/Dialect/ACIR/ACIROps.cpp, compiler/acir/lib/Transforms/LowerRules.cpp, compiler/mlir/include/pyc/Dialect/PYC/PYCOps.td, compiler/mlir/lib/Dialect/PYC/PYCOps.cpp, compiler/mlir/lib/Emit/CppEmitter.cpp, compiler/mlir/lib/Emit/VerilogEmitter.cpp, schemas/primitives/pyc_ir_inventory.yaml, schemas/primitives/pyc_ir_coverage.json, tools/pycircuit/check-pyc-inventory.py, tests/mlir/agentic-circuit/ACIR/dormant-surface-invalid.mlir, tests/mlir/pyc/canonical-ops-valid.mlir, tests/mlir/pyc/canonical-cmp-invalid.mlir, tests/mlir/pyc/canonical-select-invalid.mlir",
+      "next_action": "Complete issue #41 merge/closure, then execute issue #42 vector removal",
+      "owner": "acir-pyc-primitives",
+      "status": "implemented-verified"
+    },
+    {
+      "decision": "0220",
+      "evidence": "docs/gates/logs/20260907-issue42-scalar-pyc/summary.md, compiler/mlir/include/pyc/Dialect/PYC/PYCOps.td, compiler/mlir/lib/Transforms/CheckFlatTypesPass.cpp, compiler/mlir/lib/Emit/CppEmitter.cpp, compiler/mlir/lib/Emit/VerilogEmitter.cpp, compiler/acir/lib/CodeGen/QueueGraphPyc.cpp, python/pycircuit/src/pycircuit/data.py, schemas/primitives/pyc_ir_inventory.yaml, tests/mlir/pyc/residual-vector-invalid.mlir, tests/mlir/pyc/removed-vector-op-invalid.mlir",
+      "next_action": "Keep scalar-only PYC legality, exact inventory, and packed aggregate parity gates green",
+      "owner": "pyc-scalar-aggregate",
+      "status": "implemented-verified"
+    },
+    {
+      "decision": "0221",
+      "evidence": "docs/rfcs/pyc6-decisions.md, python/agentic-circuit/src/agentic_circuit/_source_closure.py, python/agentic-circuit/src/agentic_circuit/_queue_frontend.py, compiler/acir/lib/Analysis/VariableAnalysis.cpp, compiler/acir/lib/Transforms/VerifyValueConstraints.cpp, compiler/acir/lib/CodeGen/QueueGraphGenerator.cpp, simulator/gfsim/include/gfsim/queue_blocks.h, tests/mlir/agentic-circuit/Transforms/rule-owner-write-batch.mlir, tests/mlir/agentic-circuit/Transforms/rule-pure-optional-lowering.mlir, docs/gates/logs/20260907-issue44-review-closure/summary.json",
+      "next_action": "Keep plain typed JIT boundaries, source closure constants, 128-entry find/snapshots, serial CFG, owner-local write batches, gfsim execution, bounded PYC Table admission, and current generic consumers green",
+      "owner": "acir-typed-jit",
+      "status": "implemented-verified"
+    },
+    {
+      "decision": "0222",
+      "evidence": "docs/rfcs/pyc6-decisions.md, docs/gates/logs/20260907-davincioo-hierarchy-checklist/summary.json",
+      "next_action": "Historical closure only; superseded by Decision 0235 and removed from the active tree",
+      "owner": "historical-design-governance",
+      "status": "implemented-verified"
+    },
+    {
+      "decision": "0223",
+      "evidence": "docs/rfcs/pyc6-decisions.md, python/agentic-circuit/src/agentic_circuit/_queue_frontend.py, compiler/acir/lib/Dialect/ACIR/ACIROps.cpp, compiler/acir/lib/Transforms/LowerRules.cpp, compiler/acir/lib/CodeGen/QueueGraphPlan.cpp, compiler/acir/lib/CodeGen/QueueGraphGenerator.cpp, compiler/acir/lib/CodeGen/QueueGraphPyc.cpp, simulator/gfsim/include/gfsim/queue_blocks.h, tests/mlir/agentic-circuit/Transforms/rule-multi-output-lowering.mlir, tests/mlir/agentic-circuit/Transforms/rule-eight-output-lowering.mlir, tests/mlir/agentic-circuit/Transforms/queue-stateless-multi-output-module.mlir, tests/cpp/agentic-circuit/CodeGen/QueueGraphPlanTest.cpp, docs/gates/logs/20260907-issue46-multi-output/summary.json",
+      "next_action": "Preserve fixed tuple/None authoring, per-ordinal proof, selected-output atomicity including reusable modules, and one-pass stateless/stateful PYC expression emission",
+      "owner": "acir-multi-output",
+      "status": "implemented-verified"
+    },
+    {
+      "decision": "0224",
+      "evidence": "docs/rfcs/pyc6-decisions.md, docs/acir/spec/agentic-circuit.md, docs/acir/spec/agentic-circuit.zh-CN.md, python/agentic-circuit/src/agentic_circuit/_definitions.py, python/agentic-circuit/src/agentic_circuit/_queue_frontend.py, compiler/acir/include/acir/Dialect/ACIR/ACIROps.td, compiler/acir/lib/Transforms/LowerValueContracts.cpp, tests/mlir/agentic-circuit/Transforms/value-contracts-lowering.mlir, docs/gates/logs/20260907-issue48-aggregate-invariants/summary.json",
+      "next_action": "Keep recursive equality and verifier-visible invariant composition generic and green",
+      "owner": "acir-value-contracts",
+      "status": "implemented-verified"
+    },
+    {
+      "decision": "0225",
+      "evidence": "docs/rfcs/pyc6-decisions.md, docs/acir/spec/agentic-circuit.md, docs/acir/spec/agentic-circuit.zh-CN.md, python/agentic-circuit/src/agentic_circuit/_queue_frontend.py, compiler/acir/lib/Dialect/ACIR/ACIROps.cpp, compiler/acir/lib/Transforms/LowerValueContracts.cpp, tests/python/agentic-circuit/python_frontend/test_queue_frontend.py, tests/mlir/agentic-circuit/ACIR/value-contracts-invalid.mlir, tests/mlir/agentic-circuit/Transforms/value-contracts-lowering.mlir, docs/gates/logs/20260908-issue63-opt01-invariant-composition/summary.json",
+      "next_action": "Keep exact-typed acyclic invariant composition and generic backend parity green",
+      "owner": "acir-value-contracts",
+      "status": "implemented-verified"
+    },
+    {
+      "decision": "0226",
+      "evidence": "docs/rfcs/pyc6-decisions.md, docs/acir/spec/agentic-circuit.md, docs/acir/spec/agentic-circuit.zh-CN.md, python/agentic-circuit/src/agentic_circuit/_queue_frontend.py, tests/python/agentic-circuit/python_frontend/test_queue_frontend.py, docs/gates/logs/20260908-issue63-opt02-rule-capture/summary.json, docs/gates/logs/20260911-issue105-inferred-rule-capture/summary.json",
+      "next_action": "Keep declaration-ordered inferred nested-rule captures, exact explicit-`nonlocal` equivalence, and independent module instances generic and green",
+      "owner": "acir-rules",
+      "status": "implemented-verified"
+    },
+    {
+      "decision": "0227",
+      "evidence": "docs/rfcs/pyc6-decisions.md, docs/acir/spec/agentic-circuit.md, docs/acir/spec/agentic-circuit.zh-CN.md, python/agentic-circuit/src/agentic_circuit/_queue_frontend.py, tests/python/agentic-circuit/python_frontend/test_queue_frontend.py, docs/gates/logs/20260908-issue63-opt06-static-queue-array/summary.json",
+      "next_action": "Keep static Queue-operation array expansion, indexed apply/merge receivers, deterministic names, homogeneous shape rejection, and zero runtime Queue collections",
+      "owner": "acir-collections",
+      "status": "implemented-verified"
+    },
+    {
+      "decision": "0228",
+      "evidence": "docs/rfcs/pyc6-decisions.md, docs/gates/logs/20260908-issue7-readable-symbols/summary.json",
+      "next_action": "Historical closure only; the ACSim code generator was removed by Decision 0267",
+      "owner": "historical-acsim-codegen",
+      "status": "implemented-verified"
+    },
+    {
+      "decision": "0229",
+      "evidence": "docs/rfcs/pyc6-decisions.md, docs/gates/logs/20260908-issue17-trace-oracle/summary.json",
+      "next_action": "Historical closure only; superseded by Decision 0235 and removed from the active tree",
+      "owner": "historical-consumer-trace",
+      "status": "implemented-verified"
+    },
+    {
+      "decision": "0230",
+      "evidence": "docs/rfcs/pyc6-decisions.md, simulator/gfsim/include/gfsim/bits.h, docs/gates/logs/20260908-issue18-pto-payload-abi/summary.json",
+      "next_action": "Historical consumer ABI removed by Decision 0235; keep only generic wide-value support",
+      "owner": "historical-consumer-abi",
+      "status": "implemented-verified"
+    },
+    {
+      "decision": "0231",
+      "evidence": "docs/rfcs/pyc6-decisions.md, docs/acir/spec/agentic-circuit.md, docs/acir/spec/agentic-circuit.zh-CN.md, python/agentic-circuit/src/agentic_circuit/_queue_frontend.py, compiler/acir/include/acir/CodeGen/QueueGraphPlan.h, compiler/acir/lib/CodeGen/QueueGraphPlan.cpp, compiler/acir/lib/CodeGen/QueueGraphGenerator.cpp, simulator/gfsim/include/gfsim/queue_blocks.h, examples/agentic-circuit/pipelines/persistent_schedule.py, tests/cpp/agentic-circuit/gfsim/QueueBlocksTest.cpp, tests/cpp/agentic-circuit/CodeGen/QueueGraphPlanTest.cpp, docs/gates/logs/20260909-issue19-schedule-v2/summary.json",
+      "next_action": "Keep only the generic bounded Schedule-v2 and lost-wakeup semantics; consumer specialization is superseded by Decision 0235",
+      "owner": "acir-schedule-v2",
+      "status": "implemented-verified"
+    },
+    {
+      "decision": "0232",
+      "evidence": "docs/rfcs/pyc6-decisions.md, docs/development/sdk-release-contract.md, packaging/sdk/version-map.json, packaging/sdk/create_platform_manifest.py, packaging/sdk/verify_platform_candidate.py, schemas/agentic-circuit/sdk-version-map.schema.json, schemas/agentic-circuit/sdk-manifest.schema.json, schemas/agentic-circuit/release-index.schema.json, schemas/agentic-circuit/consumer-lock.schema.json, tests/python/agentic-circuit/contracts/test_sdk_release_contract.py, tools/agentic-circuit/check-sdk-contract.py, docs/gates/logs/20260910-issue61-release-workflow/summary.json, docs/gates/logs/20260911-release-readiness/summary.json",
+      "next_action": "Keep exact four-wheel aggregation, pycache-free deterministic archives, native relocation, installed incremental/topology/concurrency/mismatch gates, and platform attestation binding green; require both real platform jobs before accepting a release candidate",
+      "owner": "sdk-release",
+      "status": "implemented-verified"
+    },
+    {
+      "decision": "0233",
+      "evidence": "docs/rfcs/pyc6-decisions.md, docs/gates/logs/20260909-issue61-model-plan/summary.json, docs/gates/logs/20260909-framework-boundary-cleanup/summary.md",
+      "next_action": "Historical closure only; model plan/emit interchange was removed by Decision 0267",
+      "owner": "historical-sdk-model-api",
+      "status": "implemented-verified"
+    },
+    {
+      "decision": "0234",
+      "evidence": "docs/rfcs/pyc6-decisions.md, docs/development/sdk-release-contract.md, packaging/sdk/release_candidate.py, packaging/sdk/verify_platform_candidate.py, packaging/sdk/examples/release-index.example.json, schemas/agentic-circuit/release-index.schema.json, .github/workflows/release.yml, .github/scripts/validate_repo_management.py, tests/python/agentic-circuit/contracts/test_sdk_release_contract.py, docs/gates/logs/20260910-issue61-release-workflow/summary.json, docs/gates/logs/20260911-release-readiness/summary.json",
+      "next_action": "Keep the parsed accept-before-tag/publish DAG, retained-byte-only publication, stable-URL redownload, exact platform/source/tag binding, and release/issue attestation links green; require Part B in every release instance",
+      "owner": "sdk-release",
+      "status": "implemented-verified"
+    },
+    {
+      "decision": "0235",
+      "evidence": "docs/rfcs/pyc6-decisions.md, docs/pyc6-plan.md, AGENTS.md, tests/unit/test_agentic_circuit_component.py, tests/unit/test_repository_layout.py, simulator/gfsim/include/gfsim/model_api.h, flows/scripts/run_agentic_circuit.sh, docs/gates/logs/20260909-framework-boundary-cleanup/summary.md, docs/gates/logs/20260909-framework-boundary-cleanup/decision_status_report.json, docs/gates/logs/20260912-repo-professionalization/summary.json",
+      "next_action": "Keep consumer designs, payload/trace adapters, product branches, name-based semantics, and trace ABI methods out of the active framework tree",
+      "owner": "repository-boundary",
+      "status": "implemented-verified"
+    },
+    {
+      "decision": "0236",
+      "evidence": "docs/rfcs/pyc6-decisions.md, compiler/acir/lib/Dialect/ACIR/ACIROps.cpp, compiler/acir/lib/Transforms/LowerRules.cpp, compiler/acir/lib/CodeGen/QueueGraphPlan.cpp, simulator/gfsim/include/gfsim/queue_blocks.h, tests/mlir/agentic-circuit/Transforms/rule-multi-input-branch-lowering.mlir, tests/cpp/agentic-circuit/gfsim/QueueBlocksTest.cpp, tests/unit/test_agentic_circuit_component.py, tests/python/agentic-circuit/python_frontend/test_rule_field_assignment.py, docs/gates/logs/20260905-ac-stateful-rule-r1/summary.md, docs/gates/logs/20260905-ac-multi-input-rule-r1/summary.md, docs/gates/logs/20260906-branch-local-effects/summary.md, docs/gates/logs/20260906-work-xfer-closure/summary.md, docs/gates/logs/20260910-issue28-atomic-rule/summary.md, docs/gates/logs/20260911-issue103-field-assignment/summary.json, docs/gates/logs/20260915-issue129-static-field-writes/summary.md, docs/gates/logs/20260916-issue129-mixed-field-writes/summary.md",
+      "next_action": "Keep `@ac.rule` as the only public scheduling boundary and preserve immutable field-assignment normalization, compiler-owned branch selection, all-resource prepare, no-fail publish, reset cleanup, and no-partial-commit semantics",
+      "owner": "acir-rules",
+      "status": "implemented-verified"
+    },
+    {
+      "decision": "0237",
+      "evidence": "docs/rfcs/pyc6-decisions.md, docs/acir/spec/agentic-circuit.md, docs/acir/spec/agentic-circuit.zh-CN.md, docs/gates/logs/20260910-issue25-writer-arbitration/summary.json, docs/gates/logs/20260910-issue25-writer-arbitration/summary.md, docs/gates/logs/20260910-issue25-writer-arbitration/decision_status_report.json, docs/gates/logs/20260911-issue22-table-pyc/summary.json",
+      "next_action": "Keep committed-snapshot disjointness proof, typed stable-identity priority, cross-owner cycle rejection, deterministic pre-prepare winner selection, atomic loser suppression, and gfsim/PYC C++/Verilog parity green",
+      "owner": "acir-table-arbitration",
+      "status": "implemented-verified"
+    },
+    {
+      "decision": "0238",
+      "evidence": "docs/rfcs/pyc6-decisions.md, docs/acir/spec/agentic-circuit.md, docs/acir/spec/agentic-circuit.zh-CN.md, docs/gates/logs/20260910-issue23-table-layout/summary.json, docs/gates/logs/20260910-issue23-table-layout/summary.md, docs/gates/logs/20260910-issue23-table-layout/decision_status_report.json, docs/gates/logs/20260911-issue22-table-pyc/summary.json",
+      "next_action": "Keep frontend/ACIR/QueueGraph/gfsim/PYC shape, row-major index, typed image, projection, bounds, structural schema validation, reset, and C++/Verilog parity gates green",
+      "owner": "acir-table-layout",
+      "status": "implemented-verified"
+    },
+    {
+      "decision": "0239",
+      "evidence": "docs/rfcs/pyc6-decisions.md, docs/acir/spec/agentic-circuit.md, docs/acir/spec/agentic-circuit.zh-CN.md, docs/gates/logs/20260910-issue21-24-prefix-transactions/summary.json, docs/gates/logs/20260910-issue21-24-prefix-transactions/summary.md, docs/gates/logs/20260911-issue22-table-pyc/summary.json",
+      "next_action": "Keep static 2N result segments, typed first/min/max/round-robin policies, once-per-attempt key evaluation, atomic valid-prefix consumers, accepted-only cursor advance, fail-closed partial/mixed uses, and C++/Verilog parity green",
+      "owner": "acir-table-selection",
+      "status": "implemented-verified"
+    },
+    {
+      "decision": "0240",
+      "evidence": "docs/rfcs/pyc6-decisions.md, docs/acir/spec/agentic-circuit.md, docs/acir/spec/agentic-circuit.zh-CN.md, docs/gates/logs/20260910-issue21-24-prefix-transactions/summary.json, docs/gates/logs/20260910-issue21-24-prefix-transactions/summary.md",
+      "next_action": "Keep one typed Queue identity, canonical lane ordinals, exact-prefix batch commit, simultaneous dequeue/append, direct and one-to-one transform admission, and generated gfsim/PYC C++/Verilator parity green; other multi-lane PYC topologies remain fail closed",
+      "owner": "acir-queue-lanes",
+      "status": "implemented-verified"
+    },
+    {
+      "decision": "0241",
+      "evidence": "docs/rfcs/pyc6-decisions.md, compiler/acir/lib/CodeGen/QueueGraphPyc.cpp, compiler/acir/lib/CodeGen/QueueGraphPlan.cpp, simulator/gfsim/include/gfsim/queue_blocks.h, tests/mlir/agentic-circuit/CodeGen/table-pyc-profile-invalid.mlir, tests/mlir/agentic-circuit/CodeGen/table-read-pyc.mlir, tests/mlir/agentic-circuit/CodeGen/table-typed-init-pyc.mlir, tests/mlir/agentic-circuit/CodeGen/table-multidimensional-pyc.mlir, tests/mlir/agentic-circuit/CodeGen/table-masked-write-pyc.mlir, tests/mlir/agentic-circuit/CodeGen/table-multi-selection-pyc.mlir, tests/mlir/agentic-circuit/CodeGen/table-selection-policies-pyc.mlir, tests/mlir/agentic-circuit/CodeGen/table-max-selection-pyc.mlir, tests/mlir/agentic-circuit/CodeGen/table-selection-write-pyc.mlir, tests/mlir/agentic-circuit/CodeGen/table-writer-arbitration-pyc.mlir, tests/mlir/agentic-circuit/CodeGen/table-field-replace-order-pyc.mlir, docs/gates/logs/20260911-issue22-table-pyc/summary.json",
+      "next_action": "Keep rank<=4, entries<=256, Entry<=256 bits, total<=65536 bits, writers<=4, explicit `pyc.reg` banking, no `sync_mem`, old-state reads, shared selection reuse, field/masked/replace ordering, multi-selection, arbitration, reset, sanitizer, determinism, and C++/Verilog parity green",
+      "owner": "acir-table-pyc",
+      "status": "implemented-verified"
+    },
+    {
+      "decision": "0242",
+      "evidence": "docs/rfcs/pyc6-decisions.md, python/agentic-circuit/src/agentic_circuit/_diagnostics.py, python/agentic-circuit/src/agentic_circuit/_exit_codes.py, python/pycircuit/src/pycircuit/diagnostics.py, compiler/mlir/include/pyc/Support/Diagnostics.h, compiler/acir/lib/Compiler/Driver.cpp, tests/cpp/agentic-circuit/Compiler/PYCDiagnosticsTest.cpp, tests/python/agentic-circuit/contracts/test_contracts.py, docs/gates/logs/20260911-issue95-diagnostics/summary.json, docs/gates/logs/20260911-issues-100-101-docs-hierarchy/summary.json, docs/gates/logs/20260912-repo-professionalization/summary.json",
+      "next_action": "Keep code/message/source separation, rule-diagnostic propagation, shared CLI exit policy, per-layer registries, unique native meanings, and structured Python/native propagation green",
+      "owner": "diagnostics",
+      "status": "implemented-verified"
+    },
+    {
+      "decision": "0243",
+      "evidence": "docs/rfcs/pyc6-decisions.md, docs/acir/spec/agentic-circuit.md, docs/acir/spec/agentic-circuit.zh-CN.md, python/agentic-circuit/src/agentic_circuit/_queue_frontend.py, compiler/acir/lib/CodeGen/QueueGraphPlan.cpp, compiler/acir/lib/CodeGen/QueueGraphGenerator.cpp, compiler/acir/lib/CodeGen/QueueGraphPyc.cpp, tests/python/agentic-circuit/python_frontend/test_pure_helpers.py, docs/gates/logs/20260912-issue104-pure-helpers/summary.json, docs/gates/logs/20260915-structured-helper-defer/summary.json, docs/gates/logs/20260916-issue129-mixed-field-writes/summary.md",
+      "next_action": "Keep exact typed pure-helper signatures, closed acyclic call graphs, mandatory inline expansion, ordinary GFSim function calls, PYC legalization, zero-delay timing, and backend parity green; defer only unreachable helpers whose dependent payload remains unbound in the selected structured root",
+      "owner": "acir-pure-helpers",
+      "status": "implemented-verified"
+    },
+    {
+      "decision": "0244",
+      "evidence": "docs/rfcs/pyc6-decisions.md, docs/acir/spec/agentic-circuit.md, docs/acir/spec/agentic-circuit.zh-CN.md, python/agentic-circuit/src/agentic_circuit/_queue_frontend.py, compiler/acir/include/acir/CodeGen/QueueGraphPlan.h, compiler/acir/lib/CodeGen/QueueGraphPlan.cpp, compiler/acir/lib/CodeGen/QueueGraphGenerator.cpp, tests/cpp/agentic-circuit/CodeGen/QueueGraphPlanTest.cpp, docs/gates/logs/20260912-issue106-readable-transitions/summary.json",
+      "next_action": "Keep display provenance separate from semantic identity, generated names collision-free and deterministic, transition construction reviewable, source paths relative, and GFSim behavior/ABI unchanged",
+      "owner": "queuegraph-provenance",
+      "status": "implemented-verified"
+    },
+    {
+      "decision": "0245",
+      "evidence": "docs/rfcs/pyc6-decisions.md, compiler/acir/lib/Analysis/VariableAnalysis.cpp, compiler/acir/lib/Analysis/VariableAnalysisTestHooks.h, tests/cpp/agentic-circuit/Analysis/ModelAnalysisTest.cpp, docs/gates/logs/20260913-issue126-127-r7/summary.json, docs/gates/logs/20260915-issue126-snapshot-worklist/summary.json",
+      "next_action": "Keep root predicate, set source, and monotone field demand in snapshot traversal memoization; keep propagation iterative so deep shared-DAG chains, wide fan-out, and stateless diamonds stay bounded; retain the shared-diamond complexity and 2048-level depth regressions",
+      "owner": "acir-analysis",
+      "status": "implemented-verified"
+    },
+    {
+      "decision": "0246",
+      "evidence": "docs/rfcs/pyc6-decisions.md, docs/acir/spec/agentic-circuit.md, docs/acir/spec/agentic-circuit.zh-CN.md, python/semantic-core/src/_pycircuit_semantics/static_expr.py, python/semantic-core/src/_pycircuit_semantics/types.py, python/agentic-circuit/src/agentic_circuit/_queue_frontend.py, compiler/acir/lib/Transforms/VerifyACIRFile.cpp, compiler/acir/lib/CodeGen/QueueGraphPlan.cpp, examples/agentic-circuit/types/parameterized_types.py, examples/agentic-circuit/types/scalar_parameterized_types.py, examples/agentic-circuit/pipelines/record_spread_pipeline.py, examples/agentic-circuit/pipelines/encoded_enum_pipeline.py, examples/agentic-circuit/blocks/onehot_encode.py, tests/cpp/agentic-circuit/CodeGen/QueueGraphPlanTest.cpp, tests/python/agentic-circuit/python_frontend/test_queue_frontend.py, tests/integration/agentic-circuit/e2e/test_bit_primitive_parity.py, docs/gates/logs/20260913-issue126-127-r7/summary.json",
+      "next_action": "Keep dependent types concrete and recursively verifier-proven per specialization; isolate unrelated payload bindings, fold closed static arithmetic before exact-width emission, and preserve strict spread, unsigned sparse enum, and one-hot backend parity",
+      "owner": "acir-types",
+      "status": "implemented-verified"
+    },
+    {
+      "decision": "0247",
+      "evidence": "docs/rfcs/pyc6-decisions.md, docs/acir/spec/agentic-circuit.md, docs/acir/spec/agentic-circuit.zh-CN.md, python/agentic-circuit/src/agentic_circuit/_queue_frontend.py, compiler/acir/include/acir/Dialect/ACIR/ACIROps.td, compiler/acir/lib/Dialect/ACIR/ACIROps.cpp, compiler/acir/lib/Analysis/VariableAnalysis.cpp, compiler/acir/lib/CodeGen/QueueGraphPlan.cpp, compiler/acir/lib/CodeGen/QueueGraphGenerator.cpp, compiler/acir/lib/CodeGen/QueueGraphPyc.cpp, simulator/gfsim/include/gfsim/bits.h, examples/agentic-circuit/blocks/typed_integer_operations.py, tests/mlir/agentic-circuit/ACIR/var-div-rem-canonicalize.mlir, tests/python/agentic-circuit/python_frontend/test_queue_frontend.py, docs/gates/logs/20260913-issue128-p0-r7/summary.json",
+      "next_action": "Keep explicit width conversion, elaboration-only static assertions, total unsigned div/rem, power-of-two canonicalization, and imported rule/static-assert source locations aligned across ACIR, QueueGraph, GFSim, and PYC",
+      "owner": "acir-integer-primitives",
+      "status": "implemented-verified"
+    },
+    {
+      "decision": "0248",
+      "evidence": "docs/rfcs/pyc6-decisions.md, docs/acir/spec/agentic-circuit.md, docs/acir/spec/agentic-circuit.zh-CN.md, python/agentic-circuit/src/agentic_circuit/_queue_frontend.py, compiler/acir/include/acir/Dialect/ACIR/ACIROps.td, compiler/acir/lib/Dialect/ACIR/ACIROps.cpp, compiler/acir/lib/Transforms/LowerVariables.cpp, compiler/acir/lib/Transforms/VerifyValueConstraints.cpp, compiler/acir/lib/CodeGen/QueueGraphPlan.cpp, compiler/acir/lib/CodeGen/QueueGraphGenerator.cpp, compiler/acir/lib/CodeGen/QueueGraphPyc.cpp, simulator/gfsim/include/gfsim/queue_blocks.h, tests/mlir/agentic-circuit/ACIR/table-runtime-row-invalid.mlir, tests/mlir/agentic-circuit/CodeGen/table-runtime-row-pyc.mlir, tests/mlir/agentic-circuit/Transforms/variable-runtime-row-state-lowering.mlir, tests/cpp/agentic-circuit/CodeGen/QueueGraphPlanTest.cpp, tests/cpp/agentic-circuit/gfsim/QueueBlocksTest.cpp, tests/python/agentic-circuit/python_frontend/test_queue_frontend.py, docs/gates/logs/20260913-issue128-runtime-row-r4/agentic_circuit_summary.json",
+      "next_action": "Keep rank-two runtime row views verifier-owned, firing-local, exact-width and bounded; preserve row-local masks, global TableChoice indices, four-way GFSim execution, and ways-only PYC predicate expansion",
+      "owner": "acir-table-runtime-row",
+      "status": "implemented-verified"
+    },
+    {
+      "decision": "0249",
+      "evidence": "docs/rfcs/pyc6-decisions.md, docs/acir/spec/agentic-circuit.md, docs/acir/spec/agentic-circuit.zh-CN.md, docs/reference/language.md, docs/development/agent-frontend-guide.md, python/agentic-circuit/src/agentic_circuit/_definitions.py, python/agentic-circuit/src/agentic_circuit/_types.py, python/agentic-circuit/src/agentic_circuit/_queue_frontend.py, compiler/acir/lib/Transforms/VerifyACIRFile.cpp, compiler/acir/include/acir/CodeGen/QueueGraphPlan.h, compiler/acir/lib/CodeGen/QueueGraphPlan.cpp, examples/agentic-circuit/types/nested_config_types.py, tests/cpp/agentic-circuit/CodeGen/QueueGraphPlanTest.cpp, tests/python/agentic-circuit/python_frontend/test_public_api.py, tests/python/agentic-circuit/python_frontend/test_queue_frontend.py, docs/gates/logs/20260913-issue128-config-projection-r2/agentic_circuit_summary.json, docs/gates/logs/20260913-issue128-config-projection-r2/summary.json",
+      "next_action": "Keep typed config roots, exact nominal JIT/module binding, canonical schema/root/path metadata, structured assertion diagnostics, Python 3.11 coverage, and ACIR/QueueGraph forgery rejection green",
+      "owner": "acir-types",
+      "status": "implemented-verified"
+    },
+    {
+      "decision": "0250",
+      "evidence": "docs/rfcs/pyc6-decisions.md, docs/acir/spec/agentic-circuit.md, docs/acir/spec/agentic-circuit.zh-CN.md, python/agentic-circuit/src/agentic_circuit/_source_map.py, python/agentic-circuit/src/agentic_circuit/_queue_frontend.py, compiler/acir/lib/Transforms/InlinePureHelpers.cpp, compiler/acir/lib/Transforms/FreezeTopology.cpp, compiler/acir/lib/Transforms/VerifyACIRFile.cpp, compiler/acir/lib/CodeGen/QueueGraphPlan.cpp, compiler/acir/lib/CodeGen/QueueGraphPyc.cpp, compiler/acir/lib/CodeGen/QueueGraphGenerator.cpp, compiler/mlir/lib/Transforms/CheckFrontendContractPass.cpp, compiler/mlir/lib/Transforms/SourceAwareCSEPass.cpp, compiler/mlir/lib/Transforms/PackI1RegsPass.cpp, compiler/mlir/lib/Transforms/EliminateWiresPass.cpp, schemas/agentic-circuit/source-map.schema.json, tests/mlir/agentic-circuit/ACIR/source-provenance.mlir, tests/mlir/agentic-circuit/Transforms/source-provenance-cse.mlir, tests/mlir/agentic-circuit/PYC/source-provenance.mlir, tests/mlir/agentic-circuit/PYC/source-provenance-cse.mlir, tests/mlir/agentic-circuit/PYC/source-provenance-pack-i1.mlir, tests/mlir/agentic-circuit/PYC/source-provenance-eliminate-wire.mlir, docs/gates/logs/20260913-issue128-source-provenance-r2/agentic_circuit_summary.json",
+      "next_action": "Keep topology/state/helper/module provenance, full PYC source-map verification, optimization-origin fusion, identity exclusion, and G0/G1/G2 parity green",
+      "owner": "source-provenance",
+      "status": "implemented-verified"
+    },
+    {
+      "decision": "0251",
+      "evidence": "docs/rfcs/pyc6-decisions.md, docs/acir/spec/agentic-circuit.md, docs/acir/spec/agentic-circuit.zh-CN.md, docs/reference/language.md, python/semantic-core/src/_pycircuit_semantics/types.py, python/semantic-core/src/_pycircuit_semantics/constraints.py, python/agentic-circuit/src/agentic_circuit/_types.py, python/agentic-circuit/src/agentic_circuit/_queue_frontend.py, compiler/acir/include/acir/Dialect/ACIR/ACIRTypes.td, compiler/acir/include/acir/Dialect/ACIR/ACIROps.td, compiler/acir/lib/Dialect/ACIR/ACIRTypes.cpp, compiler/acir/lib/Dialect/ACIR/ACIROps.cpp, compiler/acir/lib/Analysis/VariableAnalysis.cpp, compiler/acir/lib/Transforms/VerifyValueConstraints.cpp, compiler/acir/lib/Transforms/VerifyACIRFile.cpp, compiler/acir/lib/Transforms/LowerValueContracts.cpp, compiler/acir/lib/Transforms/LowerVariables.cpp, compiler/acir/lib/CodeGen/QueueGraphPlan.cpp, compiler/acir/lib/CodeGen/QueueGraphGenerator.cpp, compiler/acir/lib/CodeGen/QueueGraphPyc.cpp, simulator/gfsim/include/gfsim/bits.h, examples/agentic-circuit/blocks/bounded_integer_operations.py, tests/mlir/agentic-circuit/ACIR/bounded-range-types.mlir, tests/mlir/agentic-circuit/ACIR/bounded-range-types-invalid.mlir, tests/mlir/agentic-circuit/CodeGen/table-runtime-row-pyc.mlir, tests/mlir/agentic-circuit/Transforms/value-contracts-lowering.mlir, tests/cpp/agentic-circuit/CodeGen/QueueGraphPlanTest.cpp, docs/gates/logs/20260914-issue128-bounded-range-r7/agentic_circuit_summary.json",
+      "next_action": "Keep declared bounds separate from inferred facts; preserve explicit total/strict conversion, dependent-target metadata, dynamic immutable-array read, zero-safe state/Table init, and GFSim/PYC C++/Verilator parity green",
+      "owner": "acir-bounded-range",
+      "status": "implemented-verified"
+    },
+    {
+      "decision": "0252",
+      "evidence": "docs/rfcs/pyc6-decisions.md, docs/acir/spec/agentic-circuit.md, docs/acir/spec/agentic-circuit.zh-CN.md, docs/reference/language.md, python/agentic-circuit/src/agentic_circuit/_queue_frontend.py, compiler/acir/include/acir/Dialect/ACIR/ACIROps.td, compiler/acir/lib/Dialect/ACIR/ACIROps.cpp, compiler/acir/lib/Transforms/VerifyValueConstraints.cpp, compiler/acir/include/acir/CodeGen/QueueGraphPlan.h, compiler/acir/lib/CodeGen/QueueGraphPlan.cpp, compiler/acir/lib/CodeGen/QueueGraphGenerator.cpp, compiler/acir/lib/CodeGen/QueueGraphPyc.cpp, simulator/gfsim/include/gfsim/bits.h, examples/agentic-circuit/blocks/bounded_integer_operations.py, tests/mlir/agentic-circuit/ACIR/bounded-range-types.mlir, tests/cpp/agentic-circuit/gfsim/BitsTest.cpp, tests/cpp/agentic-circuit/CodeGen/QueueGraphPlanTest.cpp, tests/python/agentic-circuit/python_frontend/test_queue_frontend.py, tests/integration/agentic-circuit/e2e/fixtures/array_update_state/architecture.py, docs/gates/logs/20260914-issue128-array-update-r2/agentic_circuit_summary.json",
+      "next_action": "Keep immutable fixed-array update exact-typed and verifier-bounded; preserve MSB-first packed layout, balanced dynamic reads, deterministic QueueGraph cost, atomic owner writes, and GFSim/PYC C++/Verilator parity green",
+      "owner": "acir-array-update",
+      "status": "implemented-verified"
+    },
+    {
+      "decision": "0253",
+      "evidence": "docs/rfcs/pyc6-decisions.md, docs/acir/spec/agentic-circuit.md, docs/acir/spec/agentic-circuit.zh-CN.md, docs/reference/language.md, docs/development/agent-frontend-guide.md, python/agentic-circuit/src/agentic_circuit/_queue_frontend.py, compiler/acir/lib/Analysis/ModelAnalysis.cpp, compiler/acir/lib/CodeGen/QueueGraphGenerator.cpp, examples/agentic-circuit/blocks/array_combinators.py, tests/python/agentic-circuit/python_frontend/test_queue_frontend.py, tests/mlir/agentic-circuit/CMakeLists.txt, flows/scripts/run_agentic_circuit.sh, docs/gates/logs/20260914-issue128-array-map-r1/agentic_circuit_summary.json",
+      "next_action": "Keep map callbacks lexically hygienic, exact-typed, pure, and expansion-bounded; keep zip exact-length and preserve static element/tuple/array lowering with GFSim/PYC C++/Verilator parity",
+      "owner": "acir-array-map-zip",
+      "status": "implemented-verified"
+    },
+    {
+      "decision": "0254",
+      "evidence": "docs/rfcs/pyc6-decisions.md, docs/acir/spec/agentic-circuit.md, docs/acir/spec/agentic-circuit.zh-CN.md, docs/reference/language.md, docs/development/agent-frontend-guide.md, python/agentic-circuit/src/agentic_circuit/_queue_frontend.py, compiler/acir/lib/Transforms/VerifyValueConstraints.cpp, examples/agentic-circuit/blocks/array_combinators.py, tests/mlir/agentic-circuit/ACIR/bounded-range-types.mlir, tests/python/agentic-circuit/python_frontend/test_queue_frontend.py, flows/scripts/run_agentic_circuit.sh, docs/gates/logs/20260914-issue128-array-reduce-scan-r1/agentic_circuit_summary.json",
+      "next_action": "Keep bool reductions and closed-kind fold balanced; preserve total stable first/argmin selection and strictly ordered inclusive scan across exact frontend/ACIR/QueueGraph/GFSim/PYC/Verilog semantics",
+      "owner": "acir-array-reduce-scan",
+      "status": "implemented-verified"
+    },
+    {
+      "decision": "0255",
+      "evidence": "docs/rfcs/pyc6-decisions.md, docs/acir/spec/agentic-circuit.md, docs/acir/spec/agentic-circuit.zh-CN.md, docs/reference/language.md, docs/development/agent-frontend-guide.md, python/agentic-circuit/src/agentic_circuit/markers.py, python/agentic-circuit/src/agentic_circuit/_queue_frontend.py, compiler/acir/include/acir/Dialect/ACIR/ACIROps.td, compiler/acir/lib/Dialect/ACIR/ACIROps.cpp, compiler/acir/lib/Transforms/LowerValueContracts.cpp, examples/agentic-circuit/pipelines/enum_helpers.py, tests/mlir/agentic-circuit/ACIR/enum-match-invalid.mlir, tests/mlir/agentic-circuit/Transforms/enum-match-lowering.mlir, tests/python/agentic-circuit/python_frontend/test_queue_frontend.py, tests/integration/agentic-circuit/e2e/fixtures/enum_stress/architecture.py, flows/scripts/run_agentic_circuit.sh, docs/gates/logs/20260914-issue128-enum-r3/agentic_circuit_summary.json",
+      "next_action": "Keep exact nominal membership, checked sparse decoding, explicit one-hot empty/conflict policies, exhaustive invalid-aware match verification, balanced lowering, and GFSim/PYC C++/Verilog parity green",
+      "owner": "acir-enum-classification",
+      "status": "implemented-verified"
+    },
+    {
+      "decision": "0256",
+      "evidence": "docs/rfcs/pyc6-decisions.md, docs/acir/spec/agentic-circuit.md, docs/acir/spec/agentic-circuit.zh-CN.md, docs/reference/language.md, docs/development/agent-frontend-guide.md, python/agentic-circuit/src/agentic_circuit/_queue_frontend.py, compiler/acir/include/acir/Dialect/ACIR/ACIROps.td, compiler/acir/lib/Dialect/ACIR/ACIROps.cpp, examples/agentic-circuit/pipelines/record_projection.py, tests/mlir/agentic-circuit/Transforms/record-projection-canonicalize.mlir, tests/python/agentic-circuit/python_frontend/test_queue_frontend.py, flows/scripts/run_agentic_circuit.sh, docs/gates/logs/20260914-issue128-record-projection-r2/agentic_circuit_summary.json",
+      "next_action": "Keep explicit nominal projection exact-name and exact-typed; preserve immutable patch-back, bounded record/with/select demand propagation, Python source origins, and GFSim/PYC C++/Verilog parity",
+      "owner": "acir-record-projection",
+      "status": "implemented-verified"
+    },
+    {
+      "decision": "0257",
+      "evidence": "docs/rfcs/pyc6-decisions.md, docs/acir/spec/agentic-circuit.md, docs/acir/spec/agentic-circuit.zh-CN.md, docs/reference/language.md, docs/development/agent-frontend-guide.md, compiler/acir/include/acir/Transforms/Passes.td, compiler/acir/lib/Transforms/PruneInternalPayloads.cpp, compiler/acir/lib/Transforms/FreezeTopology.cpp, compiler/acir/include/acir/CodeGen/QueueGraphPlan.h, compiler/acir/lib/CodeGen/QueueGraphPlan.cpp, compiler/acir/lib/CodeGen/QueueGraphGenerator.cpp, tests/mlir/agentic-circuit/Transforms/private-queue-payload-pruning.mlir, tests/mlir/agentic-circuit/Transforms/private-queue-payload-chain.mlir, tests/mlir/agentic-circuit/Transforms/private-queue-payload-boundaries.mlir, tests/cpp/agentic-circuit/CodeGen/QueueGraphPlanTest.cpp, tests/integration/agentic-circuit/e2e/fixtures/private_queue_payload/architecture.py, flows/scripts/run_agentic_circuit.sh, docs/gates/logs/20260914-issue128-payload-pruning-r4/agentic_circuit_summary.json",
+      "next_action": "Keep private flat Transform payload projection exact, verifier-paired and structurally validated; preserve Queue identity/timing/source provenance, reject protected or whole-value escapes, and keep baseline GFSim plus PYC C++/Verilator parity green",
+      "owner": "acir-private-payload-pruning",
+      "status": "implemented-verified"
+    },
+    {
+      "decision": "0258",
+      "evidence": "docs/rfcs/pyc6-decisions.md, compiler/acir/include/acir/CodeGen/QueueGraphGenerator.h, compiler/acir/lib/CodeGen/QueueGraphCost.cpp, compiler/acir/lib/CodeGen/QueueGraphGenerator.cpp, schemas/agentic-circuit/emitted-cost.schema.json, packaging/sdk/examples/emitted-cost.example.json, tests/cpp/agentic-circuit/CodeGen/QueueGraphPlanTest.cpp, tests/python/agentic-circuit/contracts/test_sdk_release_contract.py, docs/gates/logs/20260914-issue128-emitted-cost-r1/agentic_circuit_summary.json",
+      "next_action": "Keep structural QueueGraph/source-map association, per-instance module totals, honest metric status/stage/unit, helper-aware conservative depth, fixed-array and Table bounds, private payload cost, generated file closure, and source attribution green",
+      "owner": "acir-emitted-cost",
+      "status": "implemented-verified"
+    },
+    {
+      "decision": "0259",
+      "evidence": "docs/rfcs/pyc6-decisions.md, simulator/gfsim/include/gfsim/queue.h, simulator/gfsim/include/gfsim/queue_blocks.h, compiler/acir/lib/CodeGen/QueueGraphCost.cpp, tests/cpp/agentic-circuit/gfsim/QueueBlocksTest.cpp, tests/cpp/agentic-circuit/CodeGen/QueueGraphPlanTest.cpp, docs/gates/logs/20260914-issue128-gfsim-preflight-r1/agentic_circuit_summary.json",
+      "next_action": "Keep static resource identity constructor-validated, address scratch reusable, prepared Queue payloads borrowed only until Xfer, discard publication copy-free, and generated firing value/backpressure/reset/parity behavior green",
+      "owner": "gfsim-firing-preflight",
+      "status": "implemented-verified"
+    },
+    {
+      "decision": "0260",
+      "evidence": "docs/rfcs/pyc6-decisions.md, docs/development/sdk-release-contract.md, simulator/gfsim/include/gfsim/dispatch.h, simulator/gfsim/include/gfsim/object.h, simulator/gfsim/include/gfsim/queue_blocks.h, simulator/gfsim/system.cpp, compiler/acir/lib/CodeGen/QueueGraphGenerator.cpp, tests/cpp/agentic-circuit/gfsim/QueueBlocksTest.cpp, tests/cpp/agentic-circuit/gfsim/core_test.cpp, tests/cpp/agentic-circuit/CodeGen/QueueGraphPlanTest.cpp, docs/gates/logs/20260914-issue128-sink-activation-r1/agentic_circuit_summary.json",
+      "next_action": "Keep System-owned scheduler plans, generated activation configuration, bounded/drain-only sink retention, consumer output equivalence, activation traversal, reduced Work invocation, and model-bundle no-scan behavior green",
+      "owner": "gfsim-sink-activation",
+      "status": "implemented-verified"
+    },
+    {
+      "decision": "0261",
+      "evidence": "docs/rfcs/pyc6-decisions.md, docs/acir/spec/agentic-circuit.md, compiler/acir/lib/Analysis/VariableAnalysis.cpp, compiler/acir/lib/Dialect/ACIR/ACIROps.cpp, tests/cpp/agentic-circuit/Analysis/ModelAnalysisTest.cpp, tests/mlir/agentic-circuit/ACIR/state-snapshot-field-order-invalid.mlir, docs/gates/logs/20260915-issue126-field-order-canonical/summary.json, docs/gates/logs/20260916-issue129-mixed-field-writes/summary.md",
+      "next_action": "Keep field lists set-valued and normalized to Table Entry declaration order for read and write endpoints; normalize before snapshot comparison, merge, and emission; retain the order-independence and non-normalized-rejection regressions",
+      "owner": "acir-analysis",
+      "status": "implemented-verified"
+    },
+    {
+      "decision": "0262",
+      "evidence": "docs/rfcs/pyc6-decisions.md, docs/acir/spec/agentic-circuit.md, docs/acir/spec/agentic-circuit.zh-CN.md, python/agentic-circuit/src/agentic_circuit/_queue_frontend.py, compiler/acir/include/acir/Dialect/ACIR/ACIROps.td, compiler/acir/lib/Dialect/ACIR/ACIROps.cpp, compiler/acir/lib/Transforms/LowerRules.cpp, compiler/acir/lib/CodeGen/QueueGraphPlan.cpp, compiler/acir/lib/CodeGen/QueueGraphGenerator.cpp, simulator/gfsim/include/gfsim/queue_blocks.h, examples/agentic-circuit/state/slot_rule_mailbox.py, tests/mlir/agentic-circuit/Transforms/rule-slot-release-lowering.mlir, tests/cpp/agentic-circuit/gfsim/QueueBlocksTest.cpp, tests/python/agentic-circuit/python_frontend/test_queue_frontend.py, docs/gates/logs/20260915-ac-slot-rule-transactions/summary.md",
+      "next_action": "Keep module-owned Slot parameters and nested captures, unique release ownership, firing-local guarded release effects, atomic Queue/Table/Slot prepare-publish-cancel, slot-only activation, committed snapshot visibility, reset, no-same-epoch refill, deterministic QueueGraph generation, and explicit provisional PYC rejection green",
+      "owner": "acir-slot-transactions",
+      "status": "implemented-verified"
+    },
+    {
+      "decision": "0263",
+      "evidence": "docs/rfcs/pyc6-decisions.md, docs/acir/spec/agentic-circuit.md, docs/acir/spec/agentic-circuit.zh-CN.md, docs/reference/language.md, docs/development/agent-frontend-guide.md, python/agentic-circuit/src/agentic_circuit/_queue_frontend.py, python/agentic-circuit/src/agentic_circuit/__init__.py, python/agentic-circuit/src/agentic_circuit/markers.py, compiler/acir/lib/Analysis/VariableAnalysis.cpp, compiler/acir/lib/Transforms/LowerVariables.cpp, compiler/acir/lib/Transforms/LowerRules.cpp, compiler/acir/lib/CodeGen/QueueGraphPlan.cpp, tests/mlir/agentic-circuit/Transforms/rule-lexical-priority.mlir, tests/mlir/agentic-circuit/Transforms/variable-module-field-state-lowering.mlir, tests/mlir/agentic-circuit/Transforms/variable-module-struct-state-lowering.mlir, tests/python/agentic-circuit/python_frontend/test_public_api.py, tests/python/agentic-circuit/python_frontend/test_queue_frontend.py, tests/python/agentic-circuit/python_frontend/test_rule_field_assignment.py, docs/gates/logs/20260915-issue136-explicit-table-state/summary.md, docs/gates/logs/20260915-issue136-explicit-table-state/agentic_circuit_summary.json, docs/gates/logs/20260915-issue129-static-field-writes/summary.md, docs/gates/logs/20260916-issue129-mixed-field-writes/summary.md",
+      "next_action": "Keep indexed persistent state explicit, receiver-owned Table selection, static Python lists elaboration-only, exact migration diagnostics, snapshot/transaction semantics, wide and row selection, and GFSim/PYC C++/Verilog parity green",
+      "owner": "acir-explicit-table-state",
+      "status": "implemented-verified"
+    },
+    {
+      "decision": "0264",
+      "evidence": "docs/rfcs/pyc6-decisions.md, python/agentic-circuit/src/agentic_circuit/_queue_frontend.py, compiler/acir/lib/Dialect/ACIR/ACIROps.cpp, compiler/acir/lib/Transforms/LowerVariables.cpp, compiler/acir/lib/Compiler/Driver.cpp, compiler/acir/include/acir/CodeGen/QueueGraphPlan.h, compiler/acir/lib/CodeGen/QueueGraphPlan.cpp, compiler/acir/lib/CodeGen/QueueGraphGenerator.cpp, tests/python/agentic-circuit/python_frontend/test_queue_frontend.py, tests/mlir/agentic-circuit/Transforms/variable-nonzero-init-lowering.mlir, tests/mlir/agentic-circuit/Transforms/variable-module-state-lowering.mlir, tests/cpp/agentic-circuit/Compiler/DriverTest.cpp, tests/cpp/agentic-circuit/CodeGen/QueueGraphPlanTest.cpp, docs/gates/logs/20260916-per-module-acir-multitu/summary.md",
+      "next_action": "Keep scalar reset images exact through `ac.var`/Table/gfsim, write-enable guards, source-named C++ module units, nominal type headers, out-of-line module/helper translation units, per-source object compilation, final linking, and structured provenance green",
+      "owner": "acir-var-reset-units",
+      "status": "implemented-verified"
+    },
+    {
+      "decision": "0265",
+      "evidence": "docs/rfcs/pyc6-decisions.md, packaging/sdk/version-map.json, packaging/sdk/create_platform_manifest.py, packaging/sdk/verify_platform_candidate.py, packaging/sdk/release_candidate.py, packaging/sdk/examples/release-index.example.json, schemas/agentic-circuit/sdk-version-map.schema.json, schemas/agentic-circuit/sdk-manifest.schema.json, schemas/agentic-circuit/release-index.schema.json, schemas/agentic-circuit/consumer-lock.schema.json, toolchains/agentic-circuit/llvm.lock.json, .github/workflows/release.yml, flows/scripts/pyc.ps1, tests/python/agentic-circuit/contracts/test_sdk_release_contract.py, tools/agentic-circuit/check-sdk-contract.py",
+      "next_action": "Run the windows-2022 candidate and stable lanes on a real Windows runner and attach their attestations before accepting a release candidate that contains the Windows profile",
+      "owner": "sdk-release",
+      "status": "implemented-unverified"
+    },
+    {
+      "decision": "0266",
+      "evidence": "docs/rfcs/pyc6-decisions.md, docs/reference/name-mangling.md, docs/gates/logs/20260918-acc-naming-contract/summary.md",
+      "next_action": "Historical closure only; content-derived identity clauses are superseded by Decision 0267",
+      "owner": "acc-stable-naming",
+      "status": "implemented-verified"
+    },
+    {
+      "decision": "0267",
+      "evidence": "docs/rfcs/pyc6-decisions.md, docs/reference/name-mangling.md, docs/development/sdk-release-contract.md, compiler/acir/lib/Compiler/Driver.cpp, compiler/acir/lib/CodeGen/QueueGraphPlan.cpp, compiler/acir/lib/CodeGen/QueueGraphGenerator.cpp, compiler/acir/tools/acc/acc.cpp, python/agentic-circuit/src/agentic_circuit/_acc_py.py, packaging/sdk/create_platform_manifest.py, packaging/sdk/verify_platform_candidate.py, library/verilog/rtl_catalog.json, tools/agentic-circuit/check-contracts.py, tools/agentic-circuit/check-sdk-contract.py, tests/cpp/agentic-circuit/CodeGen/QueueGraphPlanTest.cpp, tests/mlir/agentic-circuit/CodeGen/acc-driver.mlir, tests/mlir/agentic-circuit/CodeGen/acc-python-driver.mlir, tests/python/agentic-circuit/cli/test_acc_command.py, tests/unit/test_primitive_catalog.py, tests/system/test_primitive_selection.py, docs/gates/logs/20260919-zero-content-identity/summary.md",
+      "next_action": "Keep ACC as the only Agentic backend flow, structural specialization reuse, source-named generated files, transactional publication, and repository zero-identity gate green",
+      "owner": "acc-structural-identity",
+      "status": "implemented-verified"
+    },
+    {
+      "decision": "0268",
+      "evidence": "docs/rfcs/pyc6-decisions.md, docs/acir/spec/agentic-circuit.md, docs/development/sdk-release-contract.md, compiler/acir/lib/Analysis/ModelAnalysis.cpp, compiler/acir/lib/Transforms/FreezeTopology.cpp, compiler/acir/lib/CodeGen/QueueGraphPlan.cpp, python/agentic-circuit/src/agentic_circuit/_acc_py.py, schemas/agentic-circuit/acpy.schema.json, packaging/sdk/version-map.json, tests/mlir/agentic-circuit/CodeGen/acc-driver.mlir, tests/python/agentic-circuit/cli/test_acc_command.py, docs/gates/logs/20260919-external-release-identity/summary.md",
+      "next_action": "Keep release identity exclusively in external package and exact Git metadata; IR and generated artifacts remain release-neutral",
+      "owner": "external-release-identity",
+      "status": "implemented-verified"
+    },
+    {
+      "decision": "0269",
+      "evidence": "docs/rfcs/pyc6-decisions.md, docs/gates/logs/20260919-acc-composite-modules/summary.md",
+      "next_action": "Historical closure only; the implemented source-owned package/link contract is refined and superseded by Decision 0270",
+      "owner": "historical-modular-ac-package",
+      "status": "implemented-verified"
+    },
+    {
+      "decision": "0270",
+      "evidence": "docs/rfcs/pyc6-decisions.md, docs/gates/logs/20260919-acc-composite-modules/summary.md",
+      "next_action": "Keep one public module per implementation source, source-owned declaration headers, High ACIR source units, package link verification, and composite activation-scheduler evidence green",
+      "owner": "high-acir-module-headers",
+      "status": "implemented-verified"
+    },
+    {
+      "decision": "0271",
+      "evidence": "docs/rfcs/pyc6-decisions.md, docs/rfcs/architecture-rule-compiler-extension.md, docs/rfcs/ac-architecture-rule-rtl-verification-extension-checklist.md, docs/gates/logs/20260920-arch-rule-f1/summary.md, docs/gates/logs/20260920-arch-rule-f2/summary.md",
+      "next_action": "Keep F1 exact-summary and F2 whole-design graph gates green; F3 Architecture Obligation IR remains a separate Decision 0272 implementation",
+      "owner": "architecture-rule-effects",
+      "status": "implemented-verified"
+    },
+    {
+      "decision": "0272",
+      "evidence": "docs/rfcs/pyc6-decisions.md, docs/rfcs/architecture-rule-compiler-extension.md, docs/rfcs/ac-architecture-rule-rtl-verification-extension-checklist.md, docs/gates/logs/20260920-arch-rule-f3/summary.md, docs/gates/logs/20260921-f5-verified-codegen/summary.md",
+      "next_action": "Keep exact cpp/gfsim/SVA materializations, shared conditions and IDs, synchronous sampling, C++ counters/trace probes, SVA coverage, liveness rejection, and synthesis-admission separation green",
+      "owner": "architecture-obligations",
+      "status": "implemented-verified"
+    },
+    {
+      "decision": "0273",
+      "evidence": "docs/rfcs/pyc6-decisions.md, docs/rfcs/ac-architecture-rule-rtl-verification-extension-checklist.md, docs/gates/logs/20260921-f6-sram-four-state/summary.md",
+      "next_action": "Keep exact value/known/Z parity, static live-window N=1, one-cycle Q lifetime, NBA-safe capture, active knownness checks, inactive gating, old-data read-during-write, and synthesis isolation green",
+      "owner": "four-state-sram-verification",
+      "status": "implemented-verified"
+    },
+    {
+      "decision": "0274",
+      "evidence": "docs/rfcs/pyc6-decisions.md, docs/rfcs/ac-cpp-pointer-owned-module-composition.md, docs/rfcs/ac-rule-simqueue-atomic-lowering-checklist.md, docs/gates/logs/20260920-f4-atomic-composition/summary.md",
+      "next_action": "Keep atomic prepare/publish/cancel, parent-owned Queue storage, pointer-wired unique child instances, immutable wide payload ownership, source-owned AC/C++ shards, and separately linked translation units green",
+      "owner": "pointer-owned-composition",
+      "status": "implemented-verified"
+    },
+    {
+      "decision": "0275",
+      "evidence": "docs/rfcs/pyc6-decisions.md, docs/rfcs/ac-cpp-pointer-owned-module-composition.md, docs/rfcs/ac-rule-simqueue-atomic-lowering-checklist.md, docs/rfcs/ac-architecture-rule-rtl-verification-extension-checklist.md, docs/reference/name-mangling.md, docs/development/agent-frontend-guide.md, docs/gates/logs/20260920-f4-static-parameter-decision/summary.md, docs/gates/logs/20260920-f4-atomic-composition/summary.md",
+      "next_action": "Keep source-owned ordered typed declarations, exact constraints, finite cases, typed QueueGraph plans, and one-family C++/RTL emission green",
+      "owner": "static-parameter-families",
+      "status": "implemented-verified"
+    },
+    {
+      "decision": "0276",
+      "evidence": "docs/rfcs/pyc6-decisions.md, docs/rfcs/ac-cpp-pointer-owned-module-composition.md, docs/rfcs/ac-rule-simqueue-atomic-lowering-checklist.md, docs/rfcs/ac-architecture-rule-rtl-verification-extension-checklist.md, docs/reference/name-mangling.md, docs/development/agent-frontend-guide.md, docs/gates/logs/20260920-f4-module-case-decision/summary.md, docs/gates/logs/20260920-f4-atomic-composition/summary.md",
+      "next_action": "Keep one family symbol with ordered concrete High ACIR case regions, complete typed header/link/QueueGraph/PYC coverage, and one-family C++/RTL materialization green",
+      "owner": "finite-module-case-bodies",
+      "status": "implemented-verified"
+    },
+    {
+      "decision": "0277",
+      "evidence": "docs/rfcs/pyc6-decisions.md, docs/rfcs/ac-cpp-pointer-owned-module-composition.md, docs/rfcs/ac-rule-simqueue-atomic-lowering-checklist.md, docs/rfcs/ac-architecture-rule-rtl-verification-extension-checklist.md, docs/rfcs/architecture-rule-compiler-extension.md, docs/reference/name-mangling.md, docs/development/agent-frontend-guide.md, docs/gates/logs/20260920-f4-family-schema-decision/summary.md, docs/gates/logs/20260920-f4-atomic-composition/summary.md",
+      "next_action": "Keep the tuple-literal Python API, typed ACIR AttrDefs and family/case operations, typed QueueGraph plans, and verified PYC logical-to-physical family carrier green; direct-body and dictionary compatibility stay absent",
+      "owner": "exact-finite-family-schema",
+      "status": "implemented-verified"
+    },
+    {
+      "decision": "0278",
+      "evidence": "docs/rfcs/pyc6-decisions.md, docs/rfcs/ac-cpp-pointer-owned-module-composition.md, docs/rfcs/ac-rule-simqueue-atomic-lowering-checklist.md, docs/rfcs/ac-architecture-rule-rtl-verification-extension-checklist.md, docs/rfcs/architecture-rule-compiler-extension.md, docs/reference/name-mangling.md, docs/development/agent-frontend-guide.md, docs/gates/logs/20260920-f4-dependent-schema-decision/summary.md, docs/gates/logs/20260920-f4-atomic-composition/summary.md",
+      "next_action": "Keep arbitrary-precision dependent values, explicit-width integer expressions, nominal argument validation, and exact PYC projection/layout/control/shared-ready mappings green",
+      "owner": "exact-dependent-family-mapping",
+      "status": "implemented-verified"
+    },
+    {
+      "decision": "0279",
+      "evidence": "docs/rfcs/pyc6-decisions.md, docs/rfcs/ac-architecture-rule-rtl-verification-extension-checklist.md, docs/reference/language.md, docs/reference/pyc-ir.md, compiler/acir/include/acir/Dialect/ACIR/ACIRTypes.td, compiler/acir/include/acir/Dialect/ACIR/ACIROps.td, compiler/acir/lib/CodeGen/QueueGraphPlan.cpp, compiler/acir/lib/CodeGen/QueueGraphGenerator.cpp, compiler/acir/lib/CodeGen/QueueGraphPyc.cpp, compiler/mlir/include/pyc/Dialect/PYC/PYCOps.td, compiler/mlir/lib/Emit/CppEmitter.cpp, compiler/mlir/lib/Emit/VerilogEmitter.cpp, tests/mlir/agentic-circuit/ACIR/recovery-identity.mlir, tests/mlir/agentic-circuit/ACIR/recovery-identity-invalid.mlir, tests/mlir/agentic-circuit/CodeGen/versioned-table-recovery.mlir, tests/mlir/agentic-circuit/CodeGen/versioned-table-recovery-harness.cpp, docs/gates/logs/20260921-f7-recovery-versioned-identity/summary.md",
+      "next_action": "Keep explicit slot/generation/epoch/attempt identity, complete VersionedTable metadata, qualified lookup/update/invalidation, RecoveryEvent/KillSet lowering, checkpoint/retained-result binding, stale consume-only behavior, matched C++/RTL assertions, and stale-event coverage green",
+      "owner": "recovery-versioned-identity",
+      "status": "implemented-verified"
+    },
+    {
+      "decision": "0280",
+      "evidence": "docs/rfcs/pyc6-decisions.md, docs/rfcs/ac-architecture-rule-rtl-verification-extension-checklist.md, docs/reference/language.md, docs/reference/pyc-ir.md, compiler/acir/include/acir/Dialect/ACIR/ACIRAttributes.td, compiler/acir/include/acir/Dialect/ACIR/ACIROps.td, compiler/acir/lib/Dialect/ACIR/ACIROps.cpp, compiler/acir/lib/CodeGen/QueueGraphPlan.cpp, compiler/acir/lib/CodeGen/QueueGraphGenerator.cpp, compiler/acir/lib/CodeGen/QueueGraphPyc.cpp, compiler/mlir/lib/Emit/VerilogEmitter.cpp, tests/mlir/agentic-circuit/ACIR/transaction-algebra.mlir, tests/mlir/agentic-circuit/ACIR/transaction-algebra-invalid.mlir, tests/mlir/agentic-circuit/CodeGen/transaction-algebra-lowering.mlir, tests/mlir/agentic-circuit/CodeGen/transaction-algebra-harness.cpp, tests/mlir/agentic-circuit/CodeGen/transaction-algebra-tb.sv, tests/mlir/agentic-circuit/CodeGen/transaction-algebra-scale.mlir, docs/gates/logs/20260921-f8-multilane-transaction/summary.md",
+      "next_action": "Keep identical committed lane masks, closed transaction-group policies, multi-allocator reuse/generation accounting, age-select-K ordering, identity-qualified dependency sets, terminal transactions, deterministic instance ordering, and random-stall zero-loss accounting green",
+      "owner": "multi-lane-transaction-algebra",
+      "status": "implemented-verified"
+    }
+  ],
+  "deferred_decisions": [],
+  "empty_evidence_decisions": [],
+  "extra_decisions": [],
+  "gap_in_scope_decisions": [],
+  "invalid_status_decisions": [],
+  "missing_decisions": [],
+  "missing_evidence_paths": {},
+  "non_verified_decisions": [
+    "0265"
+  ],
+  "ok": true,
+  "placeholder_evidence_decisions": [],
+  "rfc_path": "/Users/zhoubot/linx-isa/tools/pyCircuit/docs/rfcs/pyc6-decisions.md",
+  "rows": 280,
+  "status_counts": {
+    "deferred": 0,
+    "gap-in-scope": 0,
+    "implemented-unverified": 1,
+    "implemented-verified": 279
+  },
+  "status_path": "/Users/zhoubot/linx-isa/tools/pyCircuit/docs/gates/decision_status_v6.md",
+  "total_decisions": 280
+}

@@ -706,6 +706,82 @@ def ACIR_KillSetOp : ACIR_Op<"kill_set", [Pure]> {
   }];
 }
 
+def ACIR_ReservationSetOp
+    : ACIR_Op<"reservation_set", [Pure]> {
+  let arguments = (ins Variadic<ACIR_VarType>:$resource_masks,
+                       I64Attr:$lanes,
+                       DefaultValuedAttr<BoolAttr, "false">:$commit);
+  let results = (outs ACIR_VarType:$common_mask);
+  let hasVerifier = 1;
+}
+
+def ACIR_TransactionGroupOp : ACIR_Op<"transaction_group", [
+    Pure, AllTypesMatch<["valid_mask", "reservation_mask", "accepted_mask"]>
+  ]> {
+  let arguments = (ins ACIR_VarType:$valid_mask,
+                       ACIR_VarType:$reservation_mask,
+                       I64Attr:$lanes,
+                       ACIR_TransactionGroupPolicyAttr:$policy);
+  let results = (outs ACIR_VarType:$accepted_mask);
+  let hasVerifier = 1;
+}
+
+def ACIR_MultiAllocatorOp : ACIR_Op<"multi_allocator", [
+    Pure, AllTypesMatch<["free_mask", "request_mask", "release_mask",
+                         "allocation_mask", "accepted_mask",
+                         "next_free_mask"]>
+  ]> {
+  let arguments = (ins ACIR_VarType:$free_mask,
+                       ACIR_VarType:$request_mask,
+                       ACIR_VarType:$release_mask,
+                       I64Attr:$lanes,
+                       ACIR_SameCycleReusePolicyAttr:$reuse_policy,
+                       I64Attr:$generation_bits,
+                       StrAttr:$generation_policy);
+  let results = (outs ACIR_VarType:$allocation_mask,
+                       ACIR_VarType:$accepted_mask,
+                       ACIR_VarType:$next_free_mask);
+  let hasVerifier = 1;
+}
+
+def ACIR_AgeSelectKOp : ACIR_Op<"age_select_k", [
+    Pure, AllTypesMatch<["candidates", "winner_mask"]>
+  ]> {
+  let arguments = (ins ACIR_VarType:$candidates,
+                       Variadic<ACIR_VarType>:$ages,
+                       I64Attr:$lanes, I64Attr:$count,
+                       StrAttr:$ordering);
+  let results = (outs ACIR_VarType:$winner_mask);
+  let hasVerifier = 1;
+}
+
+def ACIR_DependencySetOp : ACIR_Op<"dependency_set", [
+    Pure, AllTypesMatch<["current_mask", "add_mask", "resolve_mask",
+                         "kill_mask", "identity_match_mask", "next_mask"]>
+  ]> {
+  let arguments = (ins ACIR_VarType:$current_mask,
+                       ACIR_VarType:$add_mask,
+                       ACIR_VarType:$resolve_mask,
+                       ACIR_VarType:$kill_mask,
+                       ACIR_VarType:$identity_match_mask,
+                       I64Attr:$lanes);
+  let results = (outs ACIR_VarType:$next_mask, ACIR_VarType:$ready);
+  let hasVerifier = 1;
+}
+
+def ACIR_TerminalTransactionOp
+    : ACIR_Op<"terminal_transaction", [
+        Pure, AllTypesMatch<["accepted_mask", "effect_done_mask",
+                             "terminal_mask", "completed_mask"]>
+      ]> {
+  let arguments = (ins ACIR_VarType:$accepted_mask,
+                       ACIR_VarType:$effect_done_mask,
+                       ACIR_VarType:$terminal_mask,
+                       I64Attr:$lanes);
+  let results = (outs ACIR_VarType:$completed_mask);
+  let hasVerifier = 1;
+}
+
 def ACIR_SourceOp : ACIR_Op<"source", [
     DeclareOpInterfaceMethods<MemoryEffectsOpInterface>
   ]> {

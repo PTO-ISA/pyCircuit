@@ -276,6 +276,41 @@ def ACIR_RuleScheduleKind
 def ACIR_RuleScheduleKindAttr
     : EnumAttr<ACIR_Dialect, ACIR_RuleScheduleKind, "rule_schedule_kind">;
 
+def ACIR_TransactionGroupPolicy_AllOrNone
+    : I32EnumAttrCase<"AllOrNone", 0, "all_or_none">;
+def ACIR_TransactionGroupPolicy_ValidPrefix
+    : I32EnumAttrCase<"ValidPrefix", 1, "valid_prefix">;
+def ACIR_TransactionGroupPolicy_Independent
+    : I32EnumAttrCase<"Independent", 2, "independent">;
+def ACIR_TransactionGroupPolicy
+    : I32EnumAttr<"TransactionGroupPolicy",
+                  "multi-lane transaction commit policy",
+                  [ACIR_TransactionGroupPolicy_AllOrNone,
+                   ACIR_TransactionGroupPolicy_ValidPrefix,
+                   ACIR_TransactionGroupPolicy_Independent]> {
+  let genSpecializedAttr = 0;
+  let cppNamespace = "::acir::ac";
+}
+def ACIR_TransactionGroupPolicyAttr
+    : EnumAttr<ACIR_Dialect, ACIR_TransactionGroupPolicy,
+               "transaction_group_policy">;
+
+def ACIR_SameCycleReusePolicy_Forbid
+    : I32EnumAttrCase<"Forbid", 0, "forbid">;
+def ACIR_SameCycleReusePolicy_Allow
+    : I32EnumAttrCase<"Allow", 1, "allow">;
+def ACIR_SameCycleReusePolicy
+    : I32EnumAttr<"SameCycleReusePolicy",
+                  "multi-allocator same-cycle reuse policy",
+                  [ACIR_SameCycleReusePolicy_Forbid,
+                   ACIR_SameCycleReusePolicy_Allow]> {
+  let genSpecializedAttr = 0;
+  let cppNamespace = "::acir::ac";
+}
+def ACIR_SameCycleReusePolicyAttr
+    : EnumAttr<ACIR_Dialect, ACIR_SameCycleReusePolicy,
+               "same_cycle_reuse_policy">;
+
 def ACIR_WriterArbitrationPolicy_Priority
     : I32EnumAttrCase<"Priority", 0, "priority">;
 def ACIR_WriterArbitrationPolicy

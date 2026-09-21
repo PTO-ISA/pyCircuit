@@ -1171,7 +1171,10 @@ struct TypedExpressionNormalizer {
         .Cases({"ac.var.range_sub", "ac.var.range_cmp"}, true)
         .Cases({"ac.var.insert", "ac.var.get", "ac.var.with"}, true)
         .Cases({"ac.table.index", "ac.recovery.event", "ac.kill_set",
-                "ac.versioned_table.lookup"}, true)
+                "ac.versioned_table.lookup", "ac.reservation_set",
+                "ac.transaction_group", "ac.multi_allocator",
+                "ac.age_select_k", "ac.dependency_set",
+                "ac.terminal_transaction"}, true)
         .Default(false);
   }
 
@@ -1206,6 +1209,20 @@ struct TypedExpressionNormalizer {
       return attribute == "policy";
     if (operation == "ac.versioned_table.lookup")
       return attribute == "table";
+    if (operation == "ac.reservation_set")
+      return attribute == "lanes" || attribute == "commit";
+    if (operation == "ac.transaction_group")
+      return attribute == "lanes" || attribute == "policy";
+    if (operation == "ac.multi_allocator")
+      return attribute == "lanes" || attribute == "reuse_policy" ||
+             attribute == "generation_bits" ||
+             attribute == "generation_policy";
+    if (operation == "ac.age_select_k")
+      return attribute == "lanes" || attribute == "count" ||
+             attribute == "ordering";
+    if (operation == "ac.dependency_set" ||
+        operation == "ac.terminal_transaction")
+      return attribute == "lanes";
     return false;
   }
 
@@ -5484,8 +5501,9 @@ LogicalResult RecoveryEventOp::verify() {
       lookupGraphSymbol(*this, getDomainAttr()));
   if (!domain)
     return emitOpError("domain must resolve to ac.recovery_domain");
-  if (!integerVarType(getValid()).isInteger(1) ||
-      !integerVarType(getEventValid()).isInteger(1))
+  auto valid = integerVarType(getValid());
+  auto eventValid = integerVarType(getEventValid());
+  if (!valid || !valid.isInteger(1) || !eventValid || !eventValid.isInteger(1))
     return emitOpError("event valid input/result must be !ac.var<i1>");
   auto epoch = integerVarType(getNextEpoch());
   if (!epoch || epoch.getWidth() != static_cast<unsigned>(domain.getEpochBits()))
@@ -5502,8 +5520,10 @@ LogicalResult RecoveryEventOp::verify() {
 }
 
 LogicalResult KillSetOp::verify() {
-  if (!integerVarType(getEventValid()).isInteger(1) ||
-      !integerVarType(getKilled()).isInteger(1))
+  auto eventValid = integerVarType(getEventValid());
+  auto killed = integerVarType(getKilled());
+  if (!eventValid || !eventValid.isInteger(1) || !killed ||
+      !killed.isInteger(1))
     return emitOpError("kill-set event/result must be !ac.var<i1>");
   if (getTransactionEpoch().getType() != getNextEpoch().getType())
     return emitOpError("transaction and next epoch types must match");
@@ -5512,6 +5532,119 @@ LogicalResult KillSetOp::verify() {
   if (getPolicy() != "epoch_mismatch_or_younger")
     return emitOpError(
         "kill-set policy must be epoch_mismatch_or_younger");
+  return success();
+}
+
+static LogicalResult verifyLaneMask(Operation *operation, Value value,
+                                    int64_t lanes, StringRef role) {
+  auto integer = integerVarType(value);
+  if (lanes <= 0 || lanes > 64 || !integer || !integer.isSignless() ||
+      integer.getWidth() != static_cast<unsigned>(lanes))
+    return operation->emitOpError()
+           << role << " must be an exact !ac.var<i" << lanes
+           << "> lane mask with lanes in [1, 64]";
+  return success();
+}
+
+LogicalResult ReservationSetOp::verify() {
+  if (getResourceMasks().empty())
+    return emitOpError("requires at least one participating resource mask");
+  for (Value mask : getResourceMasks())
+    if (failed(verifyLaneMask(*this, mask, getLanes(), "resource mask")))
+      return failure();
+  if (getCommit()) {
+    if (getResourceMasks().size() < 2)
+      return emitOpError(
+          "commit ReservationSet requires at least two resource owners");
+    for (Value mask : llvm::drop_begin(getResourceMasks()))
+      if (mask != getResourceMasks().front())
+        return emitOpError(
+            "commit ReservationSet requires the exact same accepted mask for every resource");
+  }
+  return verifyLaneMask(*this, getCommonMask(), getLanes(), "common mask");
+}
+
+LogicalResult TransactionGroupOp::verify() {
+  if (failed(verifyLaneMask(*this, getValidMask(), getLanes(), "valid mask")) ||
+      failed(verifyLaneMask(*this, getReservationMask(), getLanes(),
+                            "reservation mask")) ||
+      failed(verifyLaneMask(*this, getAcceptedMask(), getLanes(),
+                            "accepted mask")))
+    return failure();
+  return success();
+}
+
+LogicalResult MultiAllocatorOp::verify() {
+  const std::array<std::pair<Value, StringRef>, 6> masks{{
+      {getFreeMask(), "free mask"},
+      {getRequestMask(), "request mask"},
+      {getReleaseMask(), "release mask"},
+      {getAllocationMask(), "allocation mask"},
+      {getAcceptedMask(), "accepted mask"},
+      {getNextFreeMask(), "next free mask"},
+  }};
+  for (auto [value, role] : masks)
+    if (failed(verifyLaneMask(*this, value, getLanes(), role)))
+      return failure();
+  if (getGenerationBits() <= 0 || getGenerationBits() > 64)
+    return emitOpError("generation_bits must be in [1, 64]");
+  if (getGenerationPolicy() != "increment_on_allocate")
+    return emitOpError(
+        "generation policy must be increment_on_allocate");
+  return success();
+}
+
+LogicalResult AgeSelectKOp::verify() {
+  if (failed(
+          verifyLaneMask(*this, getCandidates(), getLanes(), "candidate mask")) ||
+      failed(
+          verifyLaneMask(*this, getWinnerMask(), getLanes(), "winner mask")))
+    return failure();
+  if (getAges().size() != static_cast<size_t>(getLanes()))
+    return emitOpError("requires exactly one age per lane");
+  if (getCount() <= 0 || getCount() > getLanes())
+    return emitOpError("winner count must be in [1, lanes]");
+  if (getOrdering() != "oldest_first")
+    return emitOpError("ordering must be oldest_first");
+  IntegerType ageType;
+  for (Value age : getAges()) {
+    auto integer = integerVarType(age);
+    if (!integer || !integer.isSignless() || integer.getWidth() == 0 ||
+        integer.getWidth() > 64 || (ageType && integer != ageType))
+      return emitOpError(
+          "ages must share one 1..64-bit signless integer Var type");
+    ageType = integer;
+  }
+  return success();
+}
+
+LogicalResult DependencySetOp::verify() {
+  const std::array<std::pair<Value, StringRef>, 6> masks{{
+      {getCurrentMask(), "current mask"},
+      {getAddMask(), "add mask"},
+      {getResolveMask(), "resolve mask"},
+      {getKillMask(), "kill mask"},
+      {getIdentityMatchMask(), "identity-match mask"},
+      {getNextMask(), "next mask"},
+  }};
+  for (auto [value, role] : masks)
+    if (failed(verifyLaneMask(*this, value, getLanes(), role)))
+      return failure();
+  if (auto ready = integerVarType(getReady()); !ready || !ready.isInteger(1))
+    return emitOpError("ready result must be !ac.var<i1>");
+  return success();
+}
+
+LogicalResult TerminalTransactionOp::verify() {
+  const std::array<std::pair<Value, StringRef>, 4> masks{{
+      {getAcceptedMask(), "accepted mask"},
+      {getEffectDoneMask(), "effect-done mask"},
+      {getTerminalMask(), "terminal mask"},
+      {getCompletedMask(), "completed mask"},
+  }};
+  for (auto [value, role] : masks)
+    if (failed(verifyLaneMask(*this, value, getLanes(), role)))
+      return failure();
   return success();
 }
 
@@ -5894,7 +6027,7 @@ LogicalResult VersionedTableLookupOp::verify() {
       getPayload().getType() !=
           VarType::get(getContext(), fieldType(declaration, *payloadIndex)))
     return emitOpError("payload result must match the declared payload field");
-  if (!integerVarType(getValid()).isInteger(1))
+  if (auto valid = integerVarType(getValid()); !valid || !valid.isInteger(1))
     return emitOpError("valid result must be !ac.var<i1>");
   auto exactTag = [&](Value value, IntegerAttr width) {
     auto integer = integerVarType(value);

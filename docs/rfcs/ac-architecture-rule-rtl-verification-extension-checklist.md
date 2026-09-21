@@ -1055,17 +1055,39 @@ RTL stale-predicate cover properties. No Python surface is admitted in P8.
 
 ### P9 - Multi-lane transaction and resources
 
-- [ ] Add `TransactionGroup<N>` policies.
-- [ ] Add ReservationSet preview/reserve/commit.
-- [ ] Add MultiAllocator with explicit same-cycle reuse policy.
-- [ ] Add AgeSelect-K semantic primitive and simple refinement.
-- [ ] Add identity-qualified DependencySet.
-- [ ] Add TerminalTransaction.
-- [ ] Prove 4-wide prefix dispatch across at least three resource classes.
-- [ ] Prove independent completion and ordered retirement fixtures.
+- [x] Add `TransactionGroup<N>` policies.
+- [x] Add ReservationSet preview/reserve/commit.
+- [x] Add MultiAllocator with explicit same-cycle reuse policy.
+- [x] Add AgeSelect-K semantic primitive and simple refinement.
+- [x] Add identity-qualified DependencySet.
+- [x] Add TerminalTransaction.
+- [x] Prove 4-wide prefix dispatch across at least three resource classes.
+- [x] Prove independent completion and ordered retirement fixtures.
 
 **Exit:** the 4-wide fixture cannot allocate different lane counts in its
 participating resources and passes transaction accounting under random stalls.
+
+Decision 0280 closes this bounded internal profile. `ac.transaction_group` is the
+only lane-selection endpoint with the closed `all_or_none`, `valid_prefix`, and
+`independent` policies. `ac.reservation_set` has one explicit `commit` marker: a
+non-commit set is a preview intersection, and a commit set is the resource
+reservation, which requires every resource owner to carry the identical accepted
+mask, so no participating resource can accept a different lane count.
+`ac.multi_allocator` allocates lowest-free-slot-first within free capacity with
+an explicit `allow`/`forbid` same-cycle reuse policy and
+`increment_on_allocate` generation. `ac.age_select_k` is the semantic primitive;
+its only admitted refinement is the deterministic iterative `oldest_first` lane
+scan used by QueueGraph, C++, PYC, and RTL; the semantic-primitive and
+implementation-catalog separation remains a P10 deliverable. `ac.dependency_set` carries the identity-qualified
+dependency mask, and `ac.terminal_transaction` conjoins the committed,
+effect-done, and terminal masks for completion. The 4-wide fixture dispatches
+one valid prefix across three resource masks and covers independent completion
+and age-ordered retirement, both same-cycle reuse policies, and the committed
+uniform lane mask; the 8-wide and 10-wide scale fixtures re-emit the same
+algebra for width scaling, deterministic re-emission, and structural-audit
+compliance. Random-stall accounting is proven against an independent
+capacity-limited oracle for two hundred cases in generated C++ and fifty seeded
+cases in RTL. No Python surface is admitted in P9.
 
 ### P10 - Memory ordering
 

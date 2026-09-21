@@ -47,6 +47,12 @@ operations:
   - ac.retained_result
   - ac.recovery.event
   - ac.kill_set
+  - ac.reservation_set
+  - ac.transaction_group
+  - ac.multi_allocator
+  - ac.age_select_k
+  - ac.dependency_set
+  - ac.terminal_transaction
   - ac.var.constant
   - ac.var.enum
   - ac.var.enum_match

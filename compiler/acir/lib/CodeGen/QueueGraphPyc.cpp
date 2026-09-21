@@ -980,9 +980,11 @@ emitTransform(const QueueGraphPlan &plan, const QueueBlockPlan &block,
          << "\n";
     return result;
   };
-  auto emitPycNot = [&](llvm::StringRef input) {
+  auto emitPycNot = [&](llvm::StringRef input,
+                        llvm::StringRef type = llvm::StringRef("i1")) {
     std::string result = newValue();
-    body << "    " << result << " = pyc.not " << input.str() << " : i1\n";
+    body << "    " << result << " = pyc.not " << input.str() << " : "
+         << type.str() << "\n";
     return result;
   };
   auto emitPycSelect = [&](llvm::StringRef condition, llvm::StringRef trueValue,
@@ -2026,6 +2028,229 @@ emitTransform(const QueueGraphPlan &plan, const QueueBlockPlan &block,
         result = emitPycBinary(
             "and", *first,
             emitPycBinary("or", epochMismatch, younger, "i1"), "i1");
+      } else if (expression.kind == "reservation_set") {
+        if (expression.operands.empty())
+          return pycError("reservation_set requires resource masks");
+        auto maskType = pycType(plan, expression.type);
+        if (!maskType)
+          return maskType.takeError();
+        result = *first;
+        for (llvm::StringRef operandName :
+             llvm::ArrayRef(expression.operands).drop_front()) {
+          auto operandValue = value(operandName);
+          if (!operandValue)
+            return operandValue.takeError();
+          result = emitPycBinary("and", result, *operandValue, *maskType);
+        }
+      } else if (expression.kind == "transaction_group" ||
+                 expression.kind.starts_with("multi_allocator_") ||
+                 expression.kind == "age_select_k" ||
+                 expression.kind.starts_with("dependency_set_") ||
+                 expression.kind == "terminal_transaction") {
+        const uint64_t lanes = expression.selectionCount;
+        const std::string maskType = "i" + std::to_string(lanes);
+        auto extractBit = [&](llvm::StringRef input, uint64_t lane) {
+          std::string bit = newValue();
+          body << "    " << bit << " = pyc.extract " << input.str()
+               << " {lsb = " << lane << "} : " << maskType << " -> i1\n";
+          return bit;
+        };
+        auto concatBits = [&](llvm::ArrayRef<std::string> lowToHigh) {
+          if (lowToHigh.size() == 1)
+            return lowToHigh.front();
+          std::string packed = newValue();
+          body << "    " << packed << " = pyc.concat(";
+          for (auto [index, bit] :
+               llvm::enumerate(llvm::reverse(lowToHigh))) {
+            if (index)
+              body << ", ";
+            body << bit;
+          }
+          body << ") : (";
+          for (size_t index = 0; index < lowToHigh.size(); ++index) {
+            if (index)
+              body << ", ";
+            body << "i1";
+          }
+          body << ") -> " << maskType << "\n";
+          return packed;
+        };
+        if (expression.kind == "transaction_group") {
+          auto reserved = value(expression.operands[1]);
+          if (!reserved)
+            return reserved.takeError();
+          std::string available =
+              emitPycBinary("and", *first, *reserved, maskType);
+          if (expression.predicate == "independent") {
+            result = std::move(available);
+          } else if (expression.predicate == "all_or_none") {
+            std::string complete =
+                emitPycBinary("eq", available, *first, maskType);
+            result = emitPycSelect(complete, *first,
+                                   emitPycConstant(0, maskType), maskType);
+          } else {
+            std::vector<std::string> accepted;
+            std::string prefix = emitPycConstant(1, "i1");
+            for (uint64_t lane = 0; lane < lanes; ++lane) {
+              std::string laneValid = extractBit(*first, lane);
+              std::string laneReserved = extractBit(*reserved, lane);
+              std::string take = emitPycBinary(
+                  "and", prefix,
+                  emitPycBinary("and", laneValid, laneReserved, "i1"),
+                  "i1");
+              accepted.push_back(take);
+              prefix = std::move(take);
+            }
+            result = concatBits(accepted);
+          }
+        } else if (expression.kind.starts_with("multi_allocator_")) {
+          auto requests = value(expression.operands[1]);
+          auto release = value(expression.operands[2]);
+          if (!requests || !release)
+            return pycError("multi_allocator operands are unavailable");
+          std::string candidateFree =
+              expression.predicate == "allow"
+                  ? emitPycBinary("or", *first, *release, maskType)
+                  : *first;
+          const unsigned countWidth =
+              std::max(1u, llvm::Log2_64_Ceil(lanes + 1));
+          const std::string countType = "i" + std::to_string(countWidth);
+          std::string freeCount = newValue();
+          body << "    " << freeCount << " = pyc.popcount " << candidateFree
+               << " : " << maskType << " -> " << countType << "\n";
+          std::string acceptedCount = emitPycConstant(0, countType);
+          std::string one = emitPycConstant(1, countType);
+          std::string prefix = emitPycConstant(1, "i1");
+          std::vector<std::string> acceptedBits;
+          for (uint64_t lane = 0; lane < lanes; ++lane) {
+            std::string requested = extractBit(*requests, lane);
+            std::string capacity =
+                emitPycBinary("ult", acceptedCount, freeCount, countType);
+            std::string take = emitPycBinary(
+                "and", prefix,
+                emitPycBinary("and", requested, capacity, "i1"), "i1");
+            acceptedBits.push_back(take);
+            prefix = take;
+            std::string increment = newValue();
+            body << "    " << increment << " = pyc.zext " << take
+                 << " : i1 -> " << countType << "\n";
+            acceptedCount =
+                emitPycBinary("add", acceptedCount, increment, countType);
+          }
+          std::string acceptedMask = concatBits(acceptedBits);
+          std::string allocatedCount = emitPycConstant(0, countType);
+          std::vector<std::string> allocationBits;
+          for (uint64_t slot = 0; slot < lanes; ++slot) {
+            std::string isFree = extractBit(candidateFree, slot);
+            std::string needed = emitPycBinary(
+                "ult", allocatedCount, acceptedCount, countType);
+            std::string take =
+                emitPycBinary("and", isFree, needed, "i1");
+            allocationBits.push_back(take);
+            std::string increment = newValue();
+            body << "    " << increment << " = pyc.zext " << take
+                 << " : i1 -> " << countType << "\n";
+            allocatedCount =
+                emitPycBinary("add", allocatedCount, increment, countType);
+          }
+          std::string allocationMask = concatBits(allocationBits);
+          std::string remaining = emitPycBinary(
+              "and", candidateFree, emitPycNot(allocationMask, maskType),
+              maskType);
+          std::string nextFree =
+              expression.predicate == "allow"
+                  ? remaining
+                  : emitPycBinary("or", remaining, *release, maskType);
+          result = expression.kind == "multi_allocator_allocation"
+                       ? allocationMask
+                   : expression.kind == "multi_allocator_accepted"
+                       ? acceptedMask
+                       : nextFree;
+        } else if (expression.kind == "age_select_k") {
+          if (expression.operands.size() != lanes + 1)
+            return pycError("age_select_k operand count mismatch");
+          std::vector<std::string> remaining;
+          std::vector<std::string> winners;
+          for (uint64_t lane = 0; lane < lanes; ++lane) {
+            remaining.push_back(extractBit(*first, lane));
+            winners.push_back(emitPycConstant(0, "i1"));
+          }
+          auto ageType = valueType(expression.operands[1]);
+          auto agePycType = ageType
+                                ? pycType(plan, *ageType)
+                                : llvm::Expected<std::string>(
+                                      ageType.takeError());
+          if (!agePycType)
+            return agePycType.takeError();
+          std::vector<std::string> ages;
+          for (llvm::StringRef name :
+               llvm::ArrayRef(expression.operands).drop_front()) {
+            auto age = value(name);
+            if (!age)
+              return age.takeError();
+            ages.push_back(*age);
+          }
+          for (uint64_t pick = 0; pick < expression.laneOrdinal; ++pick) {
+            std::vector<std::string> selected(lanes);
+            for (uint64_t lane = 0; lane < lanes; ++lane) {
+              std::string wins = remaining[lane];
+              for (uint64_t other = 0; other < lanes; ++other) {
+                if (lane == other)
+                  continue;
+                std::string less = emitPycBinary(
+                    "ult", ages[lane], ages[other], *agePycType);
+                std::string equal = emitPycBinary(
+                    "eq", ages[lane], ages[other], *agePycType);
+                std::string beats = lane < other
+                                        ? emitPycBinary("or", less, equal, "i1")
+                                        : less;
+                wins = emitPycBinary(
+                    "and", wins,
+                    emitPycBinary("or", emitPycNot(remaining[other]), beats,
+                                  "i1"),
+                    "i1");
+              }
+              selected[lane] = wins;
+            }
+            for (uint64_t lane = 0; lane < lanes; ++lane) {
+              winners[lane] = emitPycBinary("or", winners[lane],
+                                            selected[lane], "i1");
+              remaining[lane] = emitPycBinary(
+                  "and", remaining[lane], emitPycNot(selected[lane]), "i1");
+            }
+          }
+          result = concatBits(winners);
+        } else if (expression.kind.starts_with("dependency_set_")) {
+          std::vector<std::string> operands;
+          for (llvm::StringRef name : expression.operands) {
+            auto operandValue = value(name);
+            if (!operandValue)
+              return operandValue.takeError();
+            operands.push_back(*operandValue);
+          }
+          std::string matchedResolve = emitPycBinary(
+              "and", operands[2], operands[4], maskType);
+          std::string matchedKill = emitPycBinary(
+              "and", operands[3], operands[4], maskType);
+          std::string next = emitPycBinary(
+              "and", emitPycBinary("or", operands[0], operands[1], maskType),
+              emitPycNot(emitPycBinary("or", matchedResolve, matchedKill,
+                                       maskType),
+                         maskType),
+              maskType);
+          result = expression.kind == "dependency_set_next"
+                       ? next
+                       : emitPycBinary("eq", next,
+                                       emitPycConstant(0, maskType), maskType);
+        } else {
+          auto effects = value(expression.operands[1]);
+          auto terminal = value(expression.operands[2]);
+          if (!effects || !terminal)
+            return pycError("terminal transaction operands unavailable");
+          result = emitPycBinary(
+              "and", *first,
+              emitPycBinary("and", *effects, *terminal, maskType), maskType);
+        }
       } else if (expression.kind == "versioned_lookup_payload" ||
                  expression.kind == "versioned_lookup_valid") {
         if (!tableValues ||
