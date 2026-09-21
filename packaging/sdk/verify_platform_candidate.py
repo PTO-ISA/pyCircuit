@@ -95,14 +95,23 @@ def run(
     cwd: Path,
     env: dict[str, str] | None = None,
 ) -> None:
-    completed = subprocess.run(
-        [os.fspath(item) for item in command],
-        cwd=cwd,
-        env=env,
-        text=True,
-        capture_output=True,
-        check=False,
-    )
+    try:
+        completed = subprocess.run(
+            [os.fspath(item) for item in command],
+            cwd=cwd,
+            env=env,
+            text=True,
+            capture_output=True,
+            check=False,
+        )
+    except OSError as error:
+        # `subprocess` reports a missing executable as a bare WinError/ENOENT;
+        # name the command so a platform lane failure is actionable.
+        raise ValueError(
+            "command could not start: "
+            + " ".join(map(os.fspath, command))
+            + f": {error}"
+        ) from error
     if completed.returncode:
         raise ValueError(
             f"command failed ({completed.returncode}): "
