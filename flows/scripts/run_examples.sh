@@ -198,9 +198,8 @@ PY
       continue
     fi
 
-    pyc_log "[${count}] check M5 incremental cache ${bex}"
+    pyc_log "[${count}] check M5 build out-dir contract ${bex}"
     if ! PYTHONPATH="${PYTHONPATH_VAL}" python3 - "${ex}" "${out_root}" "${trace_cfg}" <<'PY'
-import json
 import os
 import subprocess
 import sys
@@ -210,6 +209,8 @@ src = sys.argv[1]
 out_root = Path(sys.argv[2]).resolve()
 trace_cfg = sys.argv[3]
 
+# Incremental out-dir reuse is not implemented: `pyc build` owns a fresh output
+# directory and must refuse a populated one instead of clobbering artifacts.
 cmd = [
     sys.executable,
     "-m",
@@ -228,22 +229,16 @@ cmd = [
     trace_cfg,
 ]
 proc = subprocess.run(cmd, text=True, capture_output=True, env=os.environ.copy())
-if proc.returncode != 0:
-    raise SystemExit(f"second build failed:\n{proc.stdout}\n{proc.stderr}")
-out = (proc.stdout or "") + "\n" + (proc.stderr or "")
-if "jit-cache: hit" not in out:
-    raise SystemExit("expected 'jit-cache: hit' on second build output")
+if proc.returncode == 0:
+    raise SystemExit("second build into a populated out-dir unexpectedly succeeded")
+combined = (proc.stdout or "") + "\n" + (proc.stderr or "")
+if "build output directory must be empty" not in combined:
+    raise SystemExit(f"unexpected second-build diagnostic:\n{combined}")
 
-cache_path = out_root / ".build_cache.json"
-cache = json.loads(cache_path.read_text(encoding="utf-8"))
-jobs = cache.get("last_pycc_jobs")
-if jobs != 0:
-    raise SystemExit(f"expected last_pycc_jobs==0 on second build, got {jobs!r}")
-
-print("ok: incremental build cache hit (jit + pycc)")
+print("ok: a populated build out-dir is refused instead of clobbered")
 PY
     then
-      pyc_warn "M5 incremental cache check failed: ${bex}"
+      pyc_warn "M5 build out-dir contract check failed: ${bex}"
       fail=1
       continue
     fi
@@ -251,11 +246,14 @@ PY
 
 done < <(python3 "${DISCOVER}" --root "${EX_DIR}" --tier all --format tsv)
 
-pyc_log "running M5 const/valueclass canonicalization positive checks"
+pyc_log "running M5 static-parameter contract checks (Decision 0267)"
 pos_dir="$(pyc_out_root)/example-smoke/_pos_valueclass_params"
 rm -rf "${pos_dir}" >/dev/null 2>&1 || true
 mkdir -p "${pos_dir}"
 
+# Decision 0267 removed caller-inferred module specialization: a valueclass
+# default parameter is no longer a specialization key, and the frontend must
+# reject it in favour of an explicit source-owned finite-family declaration.
 pos_py="${pos_dir}/pos_valueclass_params.py"
 cat > "${pos_py}" <<'PY'
 from __future__ import annotations
@@ -281,42 +279,14 @@ build.__pycircuit_name__ = "pos_valueclass_params"
 PY
 
 pos_pyc="${pos_dir}/pos_valueclass_params.pyc"
-if ! PYTHONPATH="${PYTHONPATH_VAL}" python3 -m pycircuit.cli emit "${pos_py}" -o "${pos_pyc}"; then
-  pyc_warn "positive check failed: valueclass param emit failed"
+if PYTHONPATH="${PYTHONPATH_VAL}" python3 -m pycircuit.cli emit "${pos_py}" -o "${pos_pyc}" \
+    >"${pos_dir}/pos_emit.stdout" 2>"${pos_dir}/pos_emit.stderr"; then
+  pyc_warn "negative check failed: caller-inferred module specialization unexpectedly compiled"
   fail=1
 else
-  if ! PYC_FILE="${pos_pyc}" python3 - <<'PY'
-import json
-import os
-import re
-
-path = os.environ["PYC_FILE"]
-text = open(path, encoding="utf-8").read()
-
-m = re.search(
-    r'func\.func @pos_valueclass_params\b[^\n]*?pyc\.params\s*=\s*"((?:\\.|[^"\\])*)"',
-    text,
-)
-if not m:
-    raise SystemExit("missing pyc.params attribute on @pos_valueclass_params")
-
-params_json = json.loads('"' + m.group(1) + '"')
-params = json.loads(params_json)
-cfg = params.get("cfg", None)
-if not isinstance(cfg, dict):
-    raise SystemExit(f"missing cfg param in pyc.params: {params!r}")
-if cfg.get("kind") != "valueclass":
-    raise SystemExit(f"expected cfg.kind='valueclass', got {cfg.get('kind')!r}")
-if not isinstance(cfg.get("type"), str) or not cfg["type"]:
-    raise SystemExit(f"expected cfg.type string, got {cfg.get('type')!r}")
-fields = cfg.get("fields", None)
-if fields != {"mode": "a", "ways": 4}:
-    raise SystemExit(f"cfg.fields mismatch: got {fields!r}")
-
-print("ok: valueclass params are canonicalized into stable pyc.params JSON")
-PY
-  then
-    pyc_warn "positive check failed: valueclass param canonicalization check"
+  if ! grep -Eiq "caller-inferred specialization is forbidden|finite-family declaration" \
+      "${pos_dir}/pos_emit.stderr"; then
+    pyc_warn "negative check failed: missing expected finite-family diagnostic"
     fail=1
   fi
 fi
@@ -397,7 +367,7 @@ module attributes {pyc.top = @top, pyc.frontend.contract = "pycircuit"} {
   }
 
   func.func @top(%x: i1) -> (i1) attributes {arg_names = ["x"], result_names = ["y"], pyc.kind = "module", pyc.inline = "false", pyc.params = "{}", pyc.base = "top", pyc.struct.metrics = "{\"source_loc\":0,\"ast_node_count\":0,\"hardware_call_count\":0,\"loop_count\":0,\"module_call_count\":1,\"state_call_count\":0,\"estimated_inline_cost\":0,\"instance_count\":1,\"state_alloc_count\":0,\"collection_count\":0,\"collection_instance_count\":0,\"module_family_collection_count\":0,\"repeated_body_clusters\":[]}", pyc.struct.collections = "[]"} {
-    %y = pyc.instance %x {callee = @leaf, name = "u0"} : (i1) -> i1
+    %y = pyc.instance %x {callee = @leaf, name = "u0", static_args = #ac.dependent_arguments<[]>} : (i1) -> i1
     return %y : i1
   }
 }
@@ -508,7 +478,7 @@ module attributes {pyc.top = @top, pyc.frontend.contract = "pycircuit"} {
   }
 
   func.func @top(%x: i8) -> (i8) attributes {arg_names = ["x"], result_names = ["y"], pyc.kind = "module", pyc.inline = "false", pyc.params = "{}", pyc.base = "top", pyc.struct.metrics = "{\"source_loc\":0,\"ast_node_count\":0,\"hardware_call_count\":0,\"loop_count\":0,\"module_call_count\":1,\"state_call_count\":0,\"estimated_inline_cost\":0,\"instance_count\":1,\"state_alloc_count\":0,\"collection_count\":0,\"collection_instance_count\":0,\"module_family_collection_count\":0,\"repeated_body_clusters\":[]}", pyc.struct.collections = "[]"} {
-    %y = pyc.instance %x {callee = @leaf, name = "u0"} : (i8) -> i8
+    %y = pyc.instance %x {callee = @leaf, name = "u0", static_args = #ac.dependent_arguments<[]>} : (i8) -> i8
     return %y : i8
   }
 }
@@ -637,7 +607,7 @@ module attributes {pyc.top = @top, pyc.frontend.contract = "pycircuit"} {
 
   func.func @top(%x: i1) -> (i1) attributes {arg_names = ["x"], result_names = ["y"], pyc.kind = "module", pyc.inline = "false", pyc.params = "{}", pyc.base = "top", pyc.struct.metrics = "{\"source_loc\":0,\"ast_node_count\":0,\"hardware_call_count\":0,\"loop_count\":0,\"module_call_count\":1,\"state_call_count\":0,\"estimated_inline_cost\":0,\"instance_count\":1,\"state_alloc_count\":0,\"collection_count\":0,\"collection_instance_count\":0,\"module_family_collection_count\":0,\"repeated_body_clusters\":[]}", pyc.struct.collections = "[]"} {
     %w = pyc.wire {pyc.name = "w"} : i1
-    %y = pyc.instance %w {callee = @id, name = "u0"} : (i1) -> i1
+    %y = pyc.instance %w {callee = @id, name = "u0", static_args = #ac.dependent_arguments<[]>} : (i1) -> i1
     pyc.assign %w, %y : i1
     return %w : i1
   }
@@ -673,8 +643,8 @@ module attributes {pyc.top = @top, pyc.frontend.contract = "pycircuit"} {
   }
 
   func.func @top(%x: i8) -> (i8) attributes {arg_names = ["x"], result_names = ["y"], pyc.kind = "module", pyc.inline = "false", pyc.params = "{}", pyc.base = "top", pyc.struct.metrics = "{\"source_loc\":0,\"ast_node_count\":0,\"hardware_call_count\":0,\"loop_count\":0,\"module_call_count\":2,\"state_call_count\":0,\"estimated_inline_cost\":0,\"instance_count\":2,\"state_alloc_count\":0,\"collection_count\":0,\"collection_instance_count\":0,\"module_family_collection_count\":0,\"repeated_body_clusters\":[]}", pyc.struct.collections = "[]"} {
-    %y1 = pyc.instance %x {callee = @chain4, name = "u0"} : (i8) -> i8
-    %y2 = pyc.instance %y1 {callee = @chain4, name = "u1"} : (i8) -> i8
+    %y1 = pyc.instance %x {callee = @chain4, name = "u0", static_args = #ac.dependent_arguments<[]>} : (i8) -> i8
+    %y2 = pyc.instance %y1 {callee = @chain4, name = "u1", static_args = #ac.dependent_arguments<[]>} : (i8) -> i8
     return %y2 : i8
   }
 }
