@@ -11,14 +11,17 @@ from pycircuit import (
 )
 
 
+# Decision 0267: caller-inferred specialization is forbidden, so this
+# fixture's sizing is a source constant instead of a build argument.
+ptag_count = 256
+const_count = 128
+nr = 10
+nw = 5
+
+
 def build(
     m: CycleAwareCircuit,
     domain: CycleAwareDomain,
-    *,
-    ptag_count: int = 256,
-    const_count: int = 128,
-    nr: int = 10,
-    nw: int = 5,
 ) -> None:
     ptag_n = int(ptag_count)
     const_n = int(const_count)
