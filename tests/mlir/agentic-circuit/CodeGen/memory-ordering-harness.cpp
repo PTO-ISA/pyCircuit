@@ -107,14 +107,6 @@ std::uint64_t oracle(std::uint64_t pending, std::uint64_t alias,
     (*counter)[2] += __builtin_popcountll(forward);
     (*counter)[3] += __builtin_popcountll(replay);
     (*counter)[4] += __builtin_popcountll(stale);
-    for (unsigned lane = 0; lane < 4; ++lane) {
-      const std::uint64_t bit = std::uint64_t{1} << lane;
-      const unsigned hits = ((wait & bit) ? 1u : 0u) +
-                            ((bypass & bit) ? 1u : 0u) +
-                            ((forward & bit) ? 1u : 0u) +
-                            ((replay & bit) ? 1u : 0u);
-      (void)hits;
-    }
   }
   std::uint64_t result = producer & consumer;
   for (std::uint64_t field : {wait, bypass, forward, replay, stale})
