@@ -1,9 +1,10 @@
-// Executable acceptance testbench for the reduced MiniOOO. It replays the same
-// bounded schedule as the C++ stress harness -- one killing recovery on the
-// first cycle, then a dispatch and a versioned completion every cycle -- but
+// Executable acceptance testbench for the reduced MiniOOO. It replays the
+// C++ stress harness's one-dispatch-per-cycle cadence -- one killing recovery on
+// the first cycle, then a dispatch and a versioned completion every cycle -- but
 // draws its payloads from a different generator and drives the ready/valid
-// handshake directly, so the RTL lowering has to accept the same stimulus
-// stream on its own.
+// handshake directly, so the RTL lowering has to accept that cadence on its own.
+// The C++ stress phases (matching commits, stale completions, and the paired
+// stale/live invalidation) are not replicated here.
 module tb_miniooo;
   logic clk = 0;
   logic rst = 1;
@@ -100,11 +101,11 @@ module tb_miniooo;
                                (cycle % 4) == 3 ? 4'd3 : 4'd0,
                                (cycle % 16) == 15 ? 4'd3 : 4'd0);
       if (cycle == 0) begin
-        // First cycle: the same cadence the C++ stress uses, one dispatch plus a
-        // killing recovery instead of a completion. `-DSYNTHESIS` means the
-        // emitted assertions are not elaborated, so this run proves cadence and
-        // liveness; the committed and rejected invalidation branches are proven
-        // against the window state by the C++ stress harness.
+        // First cycle: one dispatch plus a killing recovery instead of a
+        // completion. `-DSYNTHESIS` means the emitted assertions are not
+        // elaborated, so this run proves cadence and liveness; the committed and
+        // rejected invalidation branches are proven against the window state by
+        // the C++ stress harness.
         in1_valid = 0;
         in1_data = '0;
         in2_valid = 1;

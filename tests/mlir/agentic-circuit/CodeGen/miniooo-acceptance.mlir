@@ -318,19 +318,23 @@ module attributes {ac.model_kind = "queue_graph", ac.queue_graph_domain = "cycle
 // version no longer matches never reach the window payload (the stale band never
 // appears) while the no_stale_update counter reports them, which is the
 // counter's actual meaning. Recovering: the same killing invalidation is
-// presented twice, once with a stale version and once with the live one, and
-// only the second one commits, observed as the slot 0 valid bit dropping, after
-// which the window accepts qualified updates again (6 further payload
-// advances). Reaching the end also proves no obligation aborted the model; the
+// presented twice, once with a stale version and once with the live one; the
+// stale one is reported as a rejected mutation and leaves the slot 0 entry
+// valid, while only the live one commits, observed as the slot 0 valid bit
+// dropping, after which the window accepts qualified updates again (6 further
+// payload advances). Reaching the end also proves no obligation aborted the
+// model; the
 // generated no_stale_update assertion itself is orthogonal by construction and
 // cannot fire, so it is a lowering-invariant canary and not runtime enforcement.
-// EXEC: miniOOO stress PASS cycles=46 commit_advances=21 resume_advances=6 stale_commits=0 stale_rejections={{[1-9][0-9]*}} commit_rejections=0 stale_invalidations=1 invalidations=1
+// EXEC: miniOOO stress PASS cycles=46 commit_advances=21 resume_advances=6 stale_commits=0 stale_rejections={{[1-9][0-9]*}} commit_rejections=0 stale_invalidations=1 stale_kept_valid=1 invalidations=1
 // EXEC-SAME: retire_coverage={{[1-9][0-9]*}}
 // EXEC-SAME: recover_coverage={{[1-9][0-9]*}}
 // EXEC-SAME: stale_coverage={{[1-9][0-9]*}} failures=0
-// The RTL lowering replays the same bounded cadence through iverilog and has to
-// accept the identical dispatch, completion and recovery schedule with no source
-// stalled past the handshake bound. `-DSYNTHESIS` is required because iverilog
+// The RTL lowering replays the same one-dispatch-per-cycle cadence through
+// iverilog and has to accept its own schedule with no source stalled past the
+// handshake bound. The RTL run is a cadence replay, not a port of the C++ phase
+// schedule, so the committed and rejected invalidation branches are proven by
+// the C++ stress only. `-DSYNTHESIS` is required because iverilog
 // cannot elaborate concurrent assertions, so this run proves cadence and
 // liveness; the emitted SVA is checked by the SVA checks and the RTL audit.
 // RTL-EXEC: miniOOO rtl stress PASS cycles=48 dispatched=48 completed=47 recovered=1

@@ -1,8 +1,8 @@
 // Observation-equivalence and reference-conformance testbench for the two
 // qualified implementations of pyc.priority_encode.v1: the serial priority loop
 // and the one-hot tree. Each implementation must match an in-testbench golden
-// priority encoder, and the two must agree with each other, for every admitted
-// width and both ORDER_LOW settings. Comparisons are counted rather than
+// priority encoder, and the two must agree with each other, for the swept widths
+// and both ORDER_LOW settings. Comparisons are counted rather than
 // hardcoded so an empty loop cannot print a pass.
 module tb_priority_variant_parity;
   localparam integer WIDTH_COUNT = 8;

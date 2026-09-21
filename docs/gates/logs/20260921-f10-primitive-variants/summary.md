@@ -115,26 +115,36 @@ The run is split into phases, each asserted on an observable that can fail:
 | --- | --- | --- | --- |
 | commit | 24 | one dispatch plus one completion per cycle, completion version matching the published one | the window payload advances on 21 of the cycles, so the window keeps applying qualified updates instead of wedging |
 | stale | 12 | completions whose version no longer matches, drawn from a disjoint high payload band | no stale payload ever reaches the window (0), while the `no_stale_update` counter reports the rejections, which pins the counter's meaning |
-| stale recovery | 1 | a killing invalidation with a stale version | the recover obligation reports a stale-mutation attempt and the entry stays valid |
-| recover | 1 | the same killing invalidation with the live version | the invalidation commits, observed as the slot 0 valid bit dropping |
+| stale recovery | 1 | a killing invalidation with a stale version | the recover obligation reports a stale-mutation attempt *and* the slot 0 entry is still valid, so a rejected invalidation cannot be confused with a committed one |
+| recover | 1 | the same killing invalidation with the live version | the entry was valid beforehand and the slot 0 valid bit drops, so the invalidation commits |
 | resume | 8 | matching completions again | the window accepts qualified updates again with further payload advances |
 
 Observed result:
 
 ```
 miniOOO stress PASS cycles=46 commit_advances=21 resume_advances=6 stale_commits=0
-  stale_rejections=134 commit_rejections=0 stale_invalidations=1 invalidations=1
-  retire_coverage=169 recover_coverage=12 stale_coverage=42 failures=0
+  stale_rejections=134 commit_rejections=0 stale_invalidations=1 stale_kept_valid=1
+  invalidations=1 retire_coverage=169 recover_coverage=12 stale_coverage=42 failures=0
 ```
 
-Two ablations confirm the assertions are live rather than decorative. Forcing
-every commit-phase completion to a stale version freezes the window and the
-harness fails with `commit_advances=0`. Removing the live killing invalidation
-fails with `recovery branch mismatch stale=1 committed=0`.
+The commit payloads stay below `0x80` and the stale payloads start at `0x80`, so
+a high-band value in the window payload is by itself proof that a stale
+completion was applied; the two bands have to stay disjoint for that check to
+mean anything.
 
-`tests/mlir/agentic-circuit/CodeGen/miniooo-tb.sv` replays the same bounded
-cadence in RTL through `iverilog`/`vvp` and requires every driven source to be
-accepted inside the handshake bound:
+Ablations confirm the assertions are live rather than decorative. Forcing every
+commit-phase completion to a stale version freezes the window and the harness
+fails with `commit_advances=0`. Presenting the killing invalidation with the live
+version on both occasions fails with `stale_kept_valid=0`, which is the case a
+version-check regression in the recover path would produce. Removing the live
+invalidation fails with `recovery branch mismatch ... committed=0`. Making the
+stale completions qualify fails with `stale completions reached the window
+count=10`.
+
+`tests/mlir/agentic-circuit/CodeGen/miniooo-tb.sv` replays the same
+one-dispatch-per-cycle cadence in RTL through `iverilog`/`vvp` — 48 cycles with
+one killing recovery, not a port of the C++ phase schedule — and requires every
+driven source to be accepted inside the handshake bound:
 
 ```
 miniOOO rtl stress PASS cycles=48 dispatched=48 completed=47 recovered=1
@@ -162,11 +172,14 @@ assert !(stale && selected)  cover stale
 so the assertion term is orthogonal by construction and cannot fail on any
 stimulus while the emitted write enable keeps excluding the stale set. Its value
 is a lowering-invariant canary: it fires if a future change stops excluding the
-stale set from `selected`. A width-aware solver check over the emitted Verilog
-assign graph confirms all nine generated obligation assertions
+stale set from `selected`. The tautology is visible by inspection — the operand
+is `!(X & ~X)` — and an independent verification round additionally modelled the
+emitted Verilog assign graph with a bit-vector solver and found all nine
+generated obligation assertions
 (`no_stale_response:issue_q:disposition0` and the eight
-`no_stale_update:window:{retire,recover}:slot0..3`) are tautologically true,
-while the three coverage operands are not. The stimulus-dependent evidence is
+`no_stale_update:window:{retire,recover}:slot0..3`) tautologically true while the
+three coverage operands are not; that solver model lives in the review record,
+not in this repository. The stimulus-dependent evidence is
 therefore the `cover` conditions and their counters, which is why the executed
 stress is asserted on window state and coverage rather than on assertion
 failures, and why the forged-lowering negative test recorded as an open item in
@@ -208,6 +221,6 @@ git diff --check
   flow tool consumes it yet, and its dialect binding is checked in one direction
   only (every declared `operation` must exist in `ACIROps.td`). A reverse
   coverage check and a build-time consumer are open items.
-- The catalog-order independence of priority selection is argued from the pass
-  implementation (sort by implementation id, then take a unique maximum) and is
-  not yet regression-tested by permuting catalog order.
+- The generated `no_stale_update` guard is emitted as `std::abort()`/`$fatal`, so
+  the tautology open item has to be scheduled before any downstream claim that
+  obligations are enforced at runtime.

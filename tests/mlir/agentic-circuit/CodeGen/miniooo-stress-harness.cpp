@@ -29,6 +29,12 @@ struct WindowEntry {
 
 WindowEntry slot0(const Model &model) {
   const std::uint64_t raw = model.pyc_reg_23.value();
+  // The generated retire block for this register compares the incoming slot
+  // against the constant 0, so this register is window slot 0. Checking the
+  // stored slot field keeps the hand-written bit offsets tied to the fixture's
+  // @Entry layout instead of silently reading a different slot.
+  if (((raw >> 16) & 3u) != 0u)
+    throw std::runtime_error("miniOOO stress: pyc_reg_23 is not window slot 0");
   return {((raw >> 15) & 1u) != 0, unsigned((raw >> 13) & 3u),
           unsigned((raw >> 10) & 7u), unsigned((raw >> 8) & 3u),
           unsigned(raw & 0xffu)};
@@ -213,6 +219,11 @@ int main() {
   clock_one(model);
   model.rst = pyc::cpp::Wire<1>{0};
 
+  // The commit payloads stay below 0x80 and the stale payloads are drawn from
+  // 0x80 upward, so seeing a high-band value in the window payload is by itself
+  // proof that a stale completion was applied. Keep the two bands disjoint.
+  constexpr std::uint64_t commit_payload_base = 0x40;
+  constexpr std::uint64_t stale_payload_base = 0x80;
   constexpr unsigned commit_cycles = 24;
   constexpr unsigned stale_cycles = 12;
   constexpr unsigned resume_cycles = 8;
@@ -227,11 +238,12 @@ int main() {
   unsigned resume_advances = 0;
   unsigned stale_invalidations = 0;
   unsigned invalidations = 0;
+  unsigned stale_recovery_kept_valid = 0;
   unsigned window_valid_during_commit = 0;
   std::uint64_t retire_after_warmup = 0;
   bool window_became_valid = false;
   std::uint64_t previous_payload = 0;
-  std::uint64_t commit_payload = 0x40;
+  std::uint64_t commit_payload = commit_payload_base;
 
   // Phase 1: every completion carries the window version the commit rule
   // publishes, so the slot 0 payload has to keep advancing. A window that
@@ -274,10 +286,11 @@ int main() {
   for (unsigned cycle = 0; cycle < stale_cycles; ++cycle) {
     const auto dispatch = pack_dispatch(3, 3, 0, 3, 0, 0);
     drive_cycle(model, dispatch,
-                pack_completion(/*attempt=*/1, 0x80u + cycle));
+                pack_completion(/*attempt=*/1,
+                                stale_payload_base + cycle));
     ++dispatched;
     ++completed;
-    if (slot0(model).payload >= 0x80u)
+    if (slot0(model).payload >= stale_payload_base)
       ++stale_commits;
   }
   const auto retire_after_stale =
@@ -287,24 +300,31 @@ int main() {
 
   // Phase 3: a killing recovery carrying a stale version must be rejected, so
   // the recover obligation reports a stale-mutation attempt and the entry stays
-  // valid.
+  // valid. Requiring the entry to stay valid is what makes this distinguishable
+  // from a committed invalidation: without it a regression that applied the
+  // stale invalidation would still satisfy the phase-4 observation.
   const auto dispatch = pack_dispatch(3, 3, 0, 3, 0, 0);
+  const bool valid_before_stale_recovery = slot0(model).valid;
   drive_recovery(model, dispatch, pack_recovery(/*next_epoch=*/1, /*attempt=*/1));
   ++dispatched;
   ++recovered;
   settle(model, 6);
+  const bool valid_after_stale_recovery = slot0(model).valid;
   if (model.obligation_no_stale_update_window_recover_slot0_coverage >
       recover_before_stale)
     ++stale_invalidations;
-  if (slot0(model).valid)
+  if (valid_before_stale_recovery && valid_after_stale_recovery)
+    ++stale_recovery_kept_valid;
+  if (valid_after_stale_recovery)
     ++window_valid_during_commit;
 
   // Phase 4: the same killing recovery with the live version has to commit the
   // invalidation, which is observable as the slot 0 valid bit dropping.
+  const bool valid_before_recovery = slot0(model).valid;
   drive_recovery(model, dispatch, pack_recovery(/*next_epoch=*/1, /*attempt=*/0));
   ++dispatched;
   ++recovered;
-  if (window_ever_invalid(model, 4))
+  if (valid_before_recovery && window_ever_invalid(model, 6))
     ++invalidations;
 
   // Phase 5: after the committed invalidation the window has to accept
@@ -382,13 +402,15 @@ int main() {
   }
   // The stale killing recovery must be rejected and the live one committed: the
   // two recover obligations differ exactly there.
-  if (stale_invalidations != 1 || invalidations != 1) {
-    std::cerr << "miniOOO stress: recovery branch mismatch stale="
-              << stale_invalidations << " committed=" << invalidations
+  // The two invalidation presentations must differ in both halves: the stale one
+  // is reported and leaves the entry valid, the live one commits and drops it.
+  if (stale_invalidations != 1 || stale_recovery_kept_valid != 1 ||
+      invalidations != 1) {
+    std::cerr << "miniOOO stress: recovery branch mismatch stale_reported="
+              << stale_invalidations << " stale_kept_valid="
+              << stale_recovery_kept_valid << " committed=" << invalidations
               << " recover_before_stale=" << recover_before_stale
-              << " recover=" << recover << " retire=" << retire
-              << " commit_advances=" << commit_advances
-              << " resume_advances=" << resume_advances << "\n";
+              << " recover=" << recover << " retire=" << retire << "\n";
     return 1;
   }
   if (!window_became_valid || window_valid_during_commit == 0) {
@@ -406,6 +428,7 @@ int main() {
             << " stale_rejections=" << stale_rejections
             << " commit_rejections=" << commit_rejections
             << " stale_invalidations=" << stale_invalidations
+            << " stale_kept_valid=" << stale_recovery_kept_valid
             << " invalidations=" << invalidations
             << " retire_coverage=" << retire << " recover_coverage=" << recover
             << " stale_coverage=" << stale << " failures=" << failures << "\n";

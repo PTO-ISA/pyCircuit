@@ -1198,7 +1198,9 @@ entry, and proves that the window keeps applying qualified updates instead of
 wedging after its first one, that a completion whose version no longer matches
 never reaches the window while the coverage counter reports it, and that a stale
 killing invalidation is rejected while the live one commits and is followed by
-further commits; the RTL testbench replays the same cadence. The
+further commits; the RTL testbench replays the same
+one-dispatch-per-cycle cadence, with the invalidation branches proven by the C++
+stress. The
 obligation evidence boundary is stated rather than implied: the generated
 `no_stale_update` guard is orthogonal by construction, so it is a
 lowering-invariant canary and the coverage counter is the stimulus-dependent

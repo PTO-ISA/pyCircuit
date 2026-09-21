@@ -12031,11 +12031,14 @@ vendor-neutral fixture that generates and exercises the whole chain.
   completion whose version no longer matches never reaches the window payload
   while the coverage counter reports it, which pins what that counter means.
   Recovering: the same killing invalidation is presented with a stale version and
-  then with the live one, and only the second commits, observed as the window
-  valid bit dropping, after which the window accepts qualified updates again.
-  The RTL testbench replays the same cadence. Long random runs belong to nightly
-  and release lanes, and full SSM validation belongs to the SSM repository
-  against a pinned pyCircuit revision.
+  then with the live one; the stale one is reported as a rejected mutation and
+  must leave the entry valid, which is what separates it from a committed
+  invalidation, while only the live one commits, observed as the window valid bit
+  dropping, after which the window accepts qualified updates again. The RTL
+  testbench replays the same one-dispatch-per-cycle cadence, with the
+  invalidation branches proven by the C++ stress only. Long random runs belong to
+  nightly and release lanes, and full SSM validation belongs to the SSM
+  repository against a pinned pyCircuit revision.
 
 **Consequences**
 - A semantic primitive can gain, lose, or reorder implementations without
