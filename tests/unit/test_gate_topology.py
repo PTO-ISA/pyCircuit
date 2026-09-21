@@ -89,6 +89,9 @@ def test_closure_scripts_are_composable_and_partition_simulation_coverage() -> N
     assert "tools/agentic-circuit/check-contracts.py" in agentic
     assert "tests/python/agentic-circuit/contracts" in agentic
     assert "--target check-acir" in agentic
+    # The pyc dialect suite holds the family/attribute contracts and used to run
+    # nowhere in CI.
+    assert "--target check-pyc" in agentic
     assert "ctest --test-dir" in agentic
 
     semantic_cases = {
@@ -221,3 +224,44 @@ def test_windows_manifest_steps_check_native_exit_codes() -> None:
             in workflow
         )
         assert 'if ($LASTEXITCODE -ne 0) { throw "twine check failed' in workflow
+
+
+def test_lanes_running_check_acir_install_ripgrep() -> None:
+    """The source-hygiene lit test shells out to `rg`.
+
+    It fails closed when ripgrep is missing, so every lane that runs check-acir
+    must install it; the release lane shipped without it and the whole closure
+    failed on one source-hygiene test.
+    """
+
+    consumers = [
+        path
+        for path in sorted((ROOT / "tests/mlir").rglob("*.mlir"))
+        if re.search(r"RUN:.*%not\s+rg\b", path.read_text(encoding="utf-8"))
+    ]
+    assert consumers, "no lit test depends on ripgrep"
+
+    lanes = [
+        path
+        for path in sorted((ROOT / ".github/workflows").glob("*.yml"))
+        if "run_agentic_circuit.sh" in path.read_text(encoding="utf-8")
+    ]
+    assert lanes, "no workflow runs the Agentic Circuit closure"
+    for lane in lanes:
+        assert "ripgrep" in lane.read_text(encoding="utf-8"), lane.name
+
+
+def test_release_attestation_commands_are_repo_explicit() -> None:
+    """The final attestation job runs without a checkout.
+
+    GitHub CLI resolves `--repo` on its own; without it the v6.0.0 attestation
+    job failed with "not a git repository" and the release lost its verification
+    link.
+    """
+
+    release = _read(".github/workflows/release.yml")
+    for command in ("gh release view", "gh release edit", "gh issue comment"):
+        matches = [line for line in release.splitlines() if command in line]
+        assert matches, command
+        for line in matches:
+            assert "--repo" in line, line

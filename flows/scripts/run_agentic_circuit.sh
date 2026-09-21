@@ -55,6 +55,7 @@ recorded_toolchain="${AC_GATE_TOOLCHAIN_ROOT:-${gate_out_dir}/toolchain/install}
     echo "python3 -m unittest discover -s tests/python/agentic-circuit/python_frontend -p 'test_*.py'"
     echo "python3 -m unittest discover -s tests/python/agentic-circuit/cli -p 'test_*.py'"
     echo "cmake --build ${ac_build} --target check-acir"
+    echo "cmake --build ${ac_build} --target check-pyc"
     echo "ctest --test-dir ${ac_build} --output-on-failure"
   fi
   if [[ -n "${AC_GATE_TOOLCHAIN_ROOT:-}" ]]; then
@@ -150,6 +151,10 @@ if [[ "${resume_from}" == "g0" ]]; then
         -s tests/python/agentic-circuit/cli -p 'test_*.py'
     PYTHONPATH="${site_packages}" \
       cmake --build "${ac_build}" --target check-acir -j "${PYC_BUILD_JOBS:-6}"
+    # The pyc dialect suite carries the family/attribute contracts; before this
+    # it ran nowhere in CI.
+    PYTHONPATH="${site_packages}" \
+      cmake --build "${ac_build}" --target check-pyc -j "${PYC_BUILD_JOBS:-6}"
     ctest --test-dir "${ac_build}" --output-on-failure \
       -j "${PYC_TEST_JOBS:-6}"
   )

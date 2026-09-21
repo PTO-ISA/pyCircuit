@@ -12,6 +12,10 @@ builtin.module  {
   %result = ac.var.enum_match %selector, %idle, %run, %wait, %invalid cases ["idle", "run", "wait"] : !ac.var<!ac.enum<@types::@Mode>>, !ac.var<i8>, !ac.var<i8>, !ac.var<i8>, !ac.var<i8> -> !ac.var<i8>
 }
 
+// The tournament is built through named locals on purpose: passing the two
+// creations as sibling call arguments left their order in the block up to
+// the host compiler's argument evaluation order, so this expected
+// select/or interleaving differed between toolchains.
 // CHECK-NOT: ac.var.enum_match
 // CHECK-COUNT-3: ac.var.cmp "eq"
 // CHECK: ac.var.select

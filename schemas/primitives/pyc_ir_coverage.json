@@ -264,7 +264,8 @@
         "tests/mlir/agentic-circuit/PYC/source-provenance-eliminate-wire.mlir",
         "tests/mlir/agentic-circuit/Transforms/firing-field-replace-order.mlir",
         "tests/mlir/agentic-circuit/Transforms/firing-field-write.mlir",
-        "tests/mlir/pyc/sequential-profile-invalid.mlir"
+        "tests/mlir/pyc/sequential-profile-invalid.mlir",
+        "tests/unit/test_reg_next_single_driver.py"
       ],
       "verifier": "compiler/mlir/lib/Dialect/PYC/PYCOps.cpp",
       "verilog_emitter": "compiler/mlir/lib/Emit/VerilogEmitter.cpp"
@@ -718,6 +719,7 @@
       "name": "pyc.instance",
       "negative_mlir": [],
       "positive_mlir": [
+        "tests/mlir/agentic-circuit/CodeGen/module-family-import-instance.mlir",
         "tests/mlir/agentic-circuit/CodeGen/pycircuit-hierarchical-family.mlir",
         "tests/mlir/pyc/family-ops.mlir"
       ],
@@ -735,6 +737,7 @@
       "status": "normative",
       "symbol": "PYC_InstanceOp",
       "tests": [
+        "tests/mlir/agentic-circuit/CodeGen/module-family-import-instance.mlir",
         "tests/mlir/agentic-circuit/CodeGen/pycircuit-hierarchical-family.mlir",
         "tests/mlir/pyc/family-ops.mlir",
         "tests/unit/test_pyc6_surface.py"
@@ -801,6 +804,8 @@
       "positive_mlir": [
         "tests/mlir/agentic-circuit/CodeGen/architecture-obligation-backends.mlir",
         "tests/mlir/agentic-circuit/CodeGen/family-config-backends.mlir",
+        "tests/mlir/agentic-circuit/CodeGen/module-family-comb-cycle.mlir",
+        "tests/mlir/agentic-circuit/CodeGen/module-family-import-instance.mlir",
         "tests/mlir/agentic-circuit/CodeGen/priority-rtl-structure.mlir",
         "tests/mlir/agentic-circuit/CodeGen/pycircuit-hierarchical-family.mlir",
         "tests/mlir/agentic-circuit/CodeGen/sram-four-state-parity.mlir",
@@ -829,6 +834,8 @@
         "tests/cpp/agentic-circuit/Dialect/ACIR/OpsTest.cpp",
         "tests/mlir/agentic-circuit/CodeGen/architecture-obligation-backends.mlir",
         "tests/mlir/agentic-circuit/CodeGen/family-config-backends.mlir",
+        "tests/mlir/agentic-circuit/CodeGen/module-family-comb-cycle.mlir",
+        "tests/mlir/agentic-circuit/CodeGen/module-family-import-instance.mlir",
         "tests/mlir/agentic-circuit/CodeGen/priority-rtl-structure.mlir",
         "tests/mlir/agentic-circuit/CodeGen/pycircuit-hierarchical-family.mlir",
         "tests/mlir/agentic-circuit/CodeGen/rtl-naming-invalid.mlir",
@@ -844,7 +851,8 @@
         "tests/unit/test_cli_entrypoints.py",
         "tests/unit/test_documentation_layout.py",
         "tests/unit/test_primitive_catalog.py",
-        "tests/unit/test_pyc6_surface.py"
+        "tests/unit/test_pyc6_surface.py",
+        "tests/unit/test_sdk_verify_helpers.py"
       ],
       "verifier": "compiler/mlir/lib/Dialect/PYC/PYCOps.cpp",
       "verilog_emitter": "compiler/mlir/lib/Emit/VerilogEmitter.cpp"
@@ -867,6 +875,7 @@
       ],
       "positive_mlir": [
         "tests/mlir/agentic-circuit/CodeGen/family-config-backends.mlir",
+        "tests/mlir/agentic-circuit/CodeGen/module-family-import-instance.mlir",
         "tests/mlir/agentic-circuit/CodeGen/pycircuit-hierarchical-family.mlir",
         "tests/mlir/pyc/family-ops.mlir"
       ],
@@ -880,6 +889,7 @@
       "symbol": "PYC_ModuleCaseOp",
       "tests": [
         "tests/mlir/agentic-circuit/CodeGen/family-config-backends.mlir",
+        "tests/mlir/agentic-circuit/CodeGen/module-family-import-instance.mlir",
         "tests/mlir/agentic-circuit/CodeGen/pycircuit-hierarchical-family.mlir",
         "tests/mlir/pyc/family-mapping-attributes-invalid.mlir",
         "tests/mlir/pyc/family-ops.mlir",
@@ -902,6 +912,7 @@
       "name": "pyc.module.import",
       "negative_mlir": [],
       "positive_mlir": [
+        "tests/mlir/agentic-circuit/CodeGen/module-family-import-instance.mlir",
         "tests/mlir/pyc/family-ops.mlir"
       ],
       "python_producer": [
@@ -913,6 +924,7 @@
       "status": "normative",
       "symbol": "PYC_ModuleImportOp",
       "tests": [
+        "tests/mlir/agentic-circuit/CodeGen/module-family-import-instance.mlir",
         "tests/mlir/pyc/family-ops.mlir"
       ],
       "verifier": "compiler/mlir/lib/Dialect/PYC/PYCOps.cpp",
@@ -1221,6 +1233,7 @@
         "tests/test_bitfield_view.py",
         "tests/unit/test_documentation_layout.py",
         "tests/unit/test_dodgeball_example.py",
+        "tests/unit/test_reg_next_single_driver.py",
         "tests/unit/test_sram_profile.py",
         "tests/unit/test_v6_forward_signal.py"
       ],
@@ -1275,6 +1288,7 @@
         "tests/mlir/pyc/family-mapping-attributes-invalid.mlir"
       ],
       "positive_mlir": [
+        "tests/mlir/agentic-circuit/CodeGen/module-family-import-instance.mlir",
         "tests/mlir/pyc/family-ops.mlir"
       ],
       "python_producer": [
@@ -1287,6 +1301,7 @@
       "status": "normative",
       "symbol": "PYC_ReturnOp",
       "tests": [
+        "tests/mlir/agentic-circuit/CodeGen/module-family-import-instance.mlir",
         "tests/mlir/pyc/family-mapping-attributes-invalid.mlir",
         "tests/mlir/pyc/family-ops.mlir",
         "tests/unit/test_documentation_layout.py",
@@ -1423,6 +1438,7 @@
         "tests/mlir/pyc/sequential-profile-invalid.mlir",
         "tests/test_pyc_canonical_ops.py",
         "tests/unit/test_pyc6_surface.py",
+        "tests/unit/test_reg_next_single_driver.py",
         "tests/unit/test_sram_profile.py",
         "tests/unit/test_v6_forward_signal.py"
       ],
@@ -1899,9 +1915,11 @@
       ],
       "positive_mlir": [
         "tests/mlir/agentic-circuit/CodeGen/architecture-obligation-backends.mlir",
+        "tests/mlir/agentic-circuit/CodeGen/module-family-import-instance.mlir",
         "tests/mlir/agentic-circuit/CodeGen/sram-four-state-parity.mlir",
         "tests/mlir/agentic-circuit/PYC/source-provenance-pack-i1.mlir",
         "tests/mlir/pyc/family-mapping-attributes.mlir",
+        "tests/mlir/pyc/family-multi-clock-controls.mlir",
         "tests/mlir/pyc/family-ops.mlir"
       ],
       "python_producer": [
@@ -1924,10 +1942,12 @@
       "symbol": "PYC_ClockType",
       "tests": [
         "tests/mlir/agentic-circuit/CodeGen/architecture-obligation-backends.mlir",
+        "tests/mlir/agentic-circuit/CodeGen/module-family-import-instance.mlir",
         "tests/mlir/agentic-circuit/CodeGen/sram-four-state-parity.mlir",
         "tests/mlir/agentic-circuit/PYC/source-provenance-pack-i1.mlir",
         "tests/mlir/pyc/family-mapping-attributes-invalid.mlir",
         "tests/mlir/pyc/family-mapping-attributes.mlir",
+        "tests/mlir/pyc/family-multi-clock-controls.mlir",
         "tests/mlir/pyc/family-ops.mlir",
         "tests/mlir/pyc/sequential-profile-invalid.mlir",
         "tests/mlir/pyc/sram-profile-invalid.mlir"
@@ -1953,9 +1973,11 @@
       ],
       "positive_mlir": [
         "tests/mlir/agentic-circuit/CodeGen/architecture-obligation-backends.mlir",
+        "tests/mlir/agentic-circuit/CodeGen/module-family-import-instance.mlir",
         "tests/mlir/agentic-circuit/CodeGen/sram-four-state-parity.mlir",
         "tests/mlir/agentic-circuit/PYC/source-provenance-pack-i1.mlir",
         "tests/mlir/pyc/family-mapping-attributes.mlir",
+        "tests/mlir/pyc/family-multi-clock-controls.mlir",
         "tests/mlir/pyc/family-ops.mlir"
       ],
       "python_producer": [
@@ -1978,10 +2000,12 @@
       "symbol": "PYC_ResetType",
       "tests": [
         "tests/mlir/agentic-circuit/CodeGen/architecture-obligation-backends.mlir",
+        "tests/mlir/agentic-circuit/CodeGen/module-family-import-instance.mlir",
         "tests/mlir/agentic-circuit/CodeGen/sram-four-state-parity.mlir",
         "tests/mlir/agentic-circuit/PYC/source-provenance-pack-i1.mlir",
         "tests/mlir/pyc/family-mapping-attributes-invalid.mlir",
         "tests/mlir/pyc/family-mapping-attributes.mlir",
+        "tests/mlir/pyc/family-multi-clock-controls.mlir",
         "tests/mlir/pyc/family-ops.mlir",
         "tests/mlir/pyc/sequential-profile-invalid.mlir",
         "tests/mlir/pyc/sram-profile-invalid.mlir"
