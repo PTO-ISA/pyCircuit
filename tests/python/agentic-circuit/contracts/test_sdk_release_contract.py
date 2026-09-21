@@ -567,7 +567,10 @@ class SdkReleaseContractTest(unittest.TestCase):
             verifier = (ROOT / "packaging/sdk/verify_platform_candidate.py").read_text(
                 encoding="utf-8"
             )
-            self.assertIn('commands / f"acc.py{suffix}"', verifier)
+            self.assertIn(
+                'installed_console_script(commands, f"acc.py{suffix}")', verifier
+            )
+            self.assertIn('"-m", "agentic_circuit._acc_py"', verifier)
             self.assertIn('sdk_root / f"bin/acc{suffix}"', verifier)
             self.assertIn('"-emit-cpp-bundle"', verifier)
             self.assertIn('"-emit-verilog"', verifier)
@@ -642,7 +645,6 @@ class SdkReleaseContractTest(unittest.TestCase):
         )
         for runtime_dll in ("python3.dll", "python311.dll"):
             self.assertIn(runtime_dll, generator.WINDOWS_SYSTEM_DLLS)
-
 
     def test_platform_manifest_files_use_posix_string_order(self) -> None:
         """Consumers require ``files`` in plain POSIX-string order.

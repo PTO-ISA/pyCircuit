@@ -487,7 +487,9 @@ def bundled_toolchain_site_packages(sdk_root: Path) -> Path | None:
     environment appears under `pycircuit/_toolchain/lib` inside the wheel.
     """
     for root in (sdk_root / "lib", sdk_root / "pycircuit/_toolchain/lib"):
-        for candidate in sorted(root.glob("python*/site-packages")):
+        for candidate in sorted(
+            root.glob("python*/site-packages"), key=lambda path: path.as_posix()
+        ):
             if (candidate / "agentic_circuit").is_dir():
                 return candidate
     return None
