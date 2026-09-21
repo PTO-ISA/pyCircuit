@@ -480,6 +480,16 @@ def canonical_path(path: Path) -> Path:
     return Path(real)
 
 
+def bundled_toolchain_site_packages(sdk_root: Path) -> Path | None:
+    """Return the SDK's bundled Python environment, when the wheel ships one."""
+    for candidate in sorted(
+        (sdk_root / "pycircuit/_toolchain/lib").glob("python*/site-packages")
+    ):
+        if (candidate / "agentic_circuit").is_dir():
+            return candidate
+    return None
+
+
 def installed_console_script(commands: Path, name: str) -> Path | None:
     """Locate an installed console script, tolerating launcher naming.
 
@@ -521,7 +531,15 @@ def installed_smoke(sdk_root: Path, wheels: list[Path], workspace: Path) -> None
         if acc_script is not None
         else [python, "-m", "agentic_circuit._acc_py"]
     )
-    run([*acc_py, "--help"], cwd=workspace)
+    # The wheel's ACC driver loads the native compiler extension, which the
+    # platform wheel ships inside its bundled toolchain environment rather than
+    # in the universal `agentic_circuit` wheel. Expose that environment the way
+    # the SDK launcher does.
+    bundled_site_packages = bundled_toolchain_site_packages(sdk_root)
+    acc_environment = os.environ.copy()
+    if bundled_site_packages is not None:
+        acc_environment["PYTHONPATH"] = os.fspath(bundled_site_packages)
+    run([*acc_py, "--help"], cwd=workspace, env=acc_environment)
 
     # Python launchers remain extensionless in the SDK root on every platform;
     # compiled tools use the platform suffix.
@@ -555,6 +573,8 @@ def installed_smoke(sdk_root: Path, wheels: list[Path], workspace: Path) -> None
 
     clean_environment = os.environ.copy()
     clean_environment.pop("PYTHONPATH", None)
+    if bundled_site_packages is not None:
+        clean_environment["PYTHONPATH"] = os.fspath(bundled_site_packages)
     tool_directories = {
         os.fspath(Path(tool).resolve().parent)
         for name in ("cmake", "ninja", "c++")
