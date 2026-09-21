@@ -477,25 +477,28 @@ def _emit_debug_and_ready(
     m.output("issued_total", issued_total_q.out())
 
 
+# Decision 0267: caller-inferred specialization is forbidden, so this
+# fixture's sizing is a source constant instead of a build argument.
+ENTRIES = 16
+PTAG_COUNT = 64
+PAYLOAD_WIDTH = 32
+ENQ_PORTS = 2
+ISSUE_PORTS = 2
+INIT_READY_MASK = 0
+
+
 def build(
     m: CycleAwareCircuit,
     domain: CycleAwareDomain,
-    *,
-    entries: int = 16,
-    ptag_count: int = 64,
-    payload_width: int = 32,
-    enq_ports: int = 2,
-    issue_ports: int = 2,
-    init_ready_mask: int = 0,
 ):
     cfg = _derive_cfg(
         m,
-        entries=entries,
-        ptag_count=ptag_count,
-        payload_width=payload_width,
-        enq_ports=enq_ports,
-        issue_ports=issue_ports,
-        init_ready_mask=init_ready_mask,
+        entries=ENTRIES,
+        ptag_count=PTAG_COUNT,
+        payload_width=PAYLOAD_WIDTH,
+        enq_ports=ENQ_PORTS,
+        issue_ports=ISSUE_PORTS,
+        init_ready_mask=INIT_READY_MASK,
     )
 
     e = int(cfg.entries)
@@ -627,11 +630,5 @@ if __name__ == "__main__":
         compile_cycle_aware(
             build,
             name="issq",
-            entries=16,
-            ptag_count=64,
-            payload_width=32,
-            enq_ports=2,
-            issue_ports=2,
-            init_ready_mask=0,
         ).emit_mlir()
     )

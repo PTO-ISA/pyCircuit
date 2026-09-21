@@ -580,9 +580,5 @@ if __name__ == "__main__":
         compile_cycle_aware(
             build,
             name="tb_bypass_unit_top",
-            lanes=8,
-            data_width=64,
-            ptag_count=256,
-            ptype_count=4,
         ).emit_mlir()
     )

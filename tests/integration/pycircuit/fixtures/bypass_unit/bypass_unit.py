@@ -133,19 +133,22 @@ def _resolve_src(
     return out_data, out_hit, out_stage, out_lane
 
 
+# Decision 0267: caller-inferred specialization is forbidden, so the sizing of
+# this fixture is a source constant instead of a build argument.
+LANES = 8
+DATA_WIDTH = 64
+PTAG_COUNT = 256
+PTYPE_COUNT = 4
+
+
 def build(
     m: CycleAwareCircuit,
     domain: CycleAwareDomain,
-    *,
-    lanes: int = 8,
-    data_width: int = 64,
-    ptag_count: int = 256,
-    ptype_count: int = 4,
 ) -> None:
-    lanes_n = int(lanes)
-    data_w = int(data_width)
-    ptag_n = int(ptag_count)
-    ptype_n = int(ptype_count)
+    lanes_n = int(LANES)
+    data_w = int(DATA_WIDTH)
+    ptag_n = int(PTAG_COUNT)
+    ptype_n = int(PTYPE_COUNT)
 
     if lanes_n <= 0:
         raise ValueError("bypass_unit lanes must be > 0")

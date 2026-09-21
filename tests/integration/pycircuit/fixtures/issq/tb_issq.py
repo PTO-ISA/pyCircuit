@@ -141,11 +141,5 @@ if __name__ == "__main__":
         compile_cycle_aware(
             build,
             name="tb_issq_top",
-            entries=16,
-            ptag_count=64,
-            payload_width=32,
-            enq_ports=2,
-            issue_ports=2,
-            init_ready_mask=0,
         ).emit_mlir()
     )
