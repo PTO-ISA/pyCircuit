@@ -11944,3 +11944,133 @@ no source-order ordering inference, no compatibility alias, fallback lowering,
 dual path, backend-only stale check, or generated-code semantic patch.
 Unsupported lane widths, kinds, or disposition shapes reject before backend
 emit.
+
+## Decision 0282: Semantic primitives are separate from implementation catalogs, and the acceptance demo is consumer-neutral
+
+**Status:** Accepted and implemented-verified for the internal bounded profile
+
+**Context / Goal**
+A semantic primitive and one way to build it are different things. If a catalog
+entry can define its own meaning, then a second implementation either silently
+changes semantics or has to be rejected by a consumer-specific rule, and a cost
+report can be mistaken for a correctness gate. In the same way, an acceptance
+demo that imports a product Core proves that one consumer works, not that the
+framework does. P11 and P12 therefore need one semantic registry, one
+implementation catalog bound to it, deterministic fail-closed selection, and a
+vendor-neutral fixture that generates and exercises the whole chain.
+
+**Decision (strong constraint)**
+- Two registries, one binding. `schemas/primitives/acir_semantic_registry.json`
+  (`pyc-acir-semantic-primitive-registry-v1`) is the only place a compiler-owned
+  ACIR semantic endpoint is declared: semantic id, operation binding, effect
+  class, parameters, operand and result contracts with their admitted lane range
+  in `inputs[].constraints`/`outputs[]`, latency, and
+  `implementation_kind: "lowered"`. `library/verilog/rtl_catalog.json` is the
+  only place an implementation is described, and every implementation entry names
+  exactly one semantic id through `semantic_id`. No implementation entry may add
+  or weaken semantics, and no semantic entry may name an implementation: the
+  registry declares no implementation id, module, or source, and a unit test
+  rejects any such key. The registry is declarative — no compiler or flow tool
+  reads it yet — and its binding to the dialect is checked in one direction, by
+  requiring every declared `operation` to exist among the `ACIR_Op<...>` names in
+  `ACIROps.td`; the reverse coverage check and a consumer that consumes the
+  registry at build time are recorded as open items rather than claimed.
+- Complete implementation metadata. Every catalog entry carries a `metadata`
+  block with `latency_cycles`, `initiation_interval`, `pipeline_depth`, `banks`,
+  `depth_entries`, `storage`, and a structural estimate. A catalog entry without
+  metadata is a catalog error, so structural cost cannot be omitted and then
+  hand-waved later.
+- Deterministic fail-closed selection. Selection filters implementations by
+  semantic id and by `min_width`/`max_width` legality for the requested width,
+  then picks the single highest `selection_priority`. Two legal implementations
+  at the same top priority reject with
+  `RTL selection is ambiguous at priority N`, so selection never depends on
+  catalog order. An entry whose `qualification.status` is not `validated`, whose
+  report is empty, whose license file is missing, or whose source path is not a
+  normalized relative path rejects before emit.
+- Variants are additions, not replacements. `pyc.priority_encode.v1` has two
+  implementations: `pyc.bsd.priority_encode.v1` at priority 100 and
+  `pyc.tree.priority_encode.v1` at priority 90. Adding the lower-priority tree
+  variant leaves the default selection unchanged, which is what makes a variant
+  an additive refinement instead of a silent behavior change.
+- Observation equivalence, not structural identity. Two implementations of one
+  semantic primitive must be observationally equivalent for every input in the
+  declared width range. The parity testbench compares `index`/`valid` against an
+  in-testbench golden encoder and against each other in both instantiation
+  orders, sweeping widths 1, 2, 3, 4, 8, 16, 32 and 64 (exhaustively up to 8,
+  then zero, all-ones, every single-bit input and a deterministic random sweep),
+  and it counts the comparisons it made rather than printing a constant.
+  Implementations so far are combinational (`latency_cycles = 0`,
+  `initiation_interval = 1`, `pipeline_depth = 0`, no storage), so equivalence
+  needs no cycle alignment.
+- PPA is advisory evidence, never a gate. `flows/tools/report_primitive_ppa.py`
+  emits the `pyc-primitive-ppa-report-v1` report with `gating: false` from the
+  catalog metadata. No regression threshold is introduced before a stable
+  baseline exists.
+- The acceptance demo is vendor-neutral. The MiniOOO fixture is a reduced
+  machine, not a product Core: 4-wide dispatch, one committed reservation group,
+  two execution resource classes, a small versioned reorder window, a small
+  ready and dependency table, versioned completion, branch recovery, one memory
+  dependency, and ordered retirement. It imports no product module and encodes
+  no consumer-specific behavior, so a green fixture is evidence about the
+  framework rather than about one customer of it.
+- One frozen input, all backends. The fixture lowers a single frozen ACIR to the
+  rule effect graph, the plan, PYC, gfsim C++, PYC C++, and Verilog and SVA, and
+  determinism is asserted by byte-diffing two emissions of each generated text
+  artifact rather than by comparing one artifact against a stored golden.
+- Bounded executed evidence, asserted on the window state rather than on an
+  obligation counter. The acceptance stress is a bounded deterministic run that
+  drives the real ready/valid handshakes and reads the generated versioned-window
+  entry directly, because the `no_stale_update` coverage condition is
+  `requested && !qualified`: that counter counts *rejected stale* updates and
+  grows fastest when the window is wedged, so it cannot stand in for commit
+  evidence. The run instead proves three separate properties. Committing: with
+  completions that carry the version the commit rule publishes, the window
+  payload advances on nearly every commit cycle, so the window keeps applying
+  qualified updates instead of committing once and wedging. Rejecting: a
+  completion whose version no longer matches never reaches the window payload
+  while the coverage counter reports it, which pins what that counter means.
+  Recovering: the same killing invalidation is presented with a stale version and
+  then with the live one; the stale one is reported as a rejected mutation and
+  must leave the entry valid, which is what separates it from a committed
+  invalidation, while only the live one commits, observed as the window valid bit
+  dropping, after which the window accepts qualified updates again. The RTL
+  testbench replays the same one-dispatch-per-cycle cadence, with the
+  invalidation branches proven by the C++ stress only. Long random runs belong to
+  nightly and release lanes, and full SSM validation belongs to the SSM
+  repository against a pinned pyCircuit revision.
+
+**Consequences**
+- A semantic primitive can gain, lose, or reorder implementations without
+  changing what it means, and an illegal width or an ambiguous priority fails
+  before any backend emit.
+- Cost evidence is reviewable but cannot fail a build, so P11 cannot be closed by
+  tuning a threshold and P12 cannot be closed by a fixture that only compiles.
+- The executed `failures == 0` assertion is weak evidence for the window
+  obligations and is not claimed as runtime enforcement. In
+  `compiler/acir/lib/CodeGen/QueueGraphPyc.cpp` the `no_stale_update` guard is
+  emitted as `assert !(stale && selected) cover stale` with
+  `stale = requested && !qualified` and `selected = requested && qualified`, so
+  the assertion term is orthogonal by construction and cannot fail on any
+  stimulus while the write enable keeps excluding the stale set. Its value is a
+  lowering-invariant canary that fires if a future change stops excluding the
+  stale set; the stimulus-dependent evidence is the `cover stale` condition, so
+  the executed stress is asserted on coverage counters, and the forged-lowering
+  negative test recorded in Decision 0281 remains the missing
+  defense-in-depth step.
+- The window's stored identity fields are written by the commit rule's
+  `allocate` (from the issue record) and are not rewritten by the retire rule's
+  field-level `qualified_update`, which touches only `payload`. A completion or
+  invalidation whose reference does not match the stored entry is therefore
+  reported as a stale-mutation attempt and dropped rather than applied, and the
+  executed stress reaches both branches of that decision explicitly.
+
+**Hard break**
+There is no semantic meaning in the implementation catalog, no implementation
+references in the semantic registry, no catalog entry without metadata, no
+first-match or catalog-order selection, no silently tolerated priority tie, no
+threshold that can fail a build, no product Core or consumer import in the
+acceptance fixture, no golden-file comparison standing in for determinism, and
+no claim that a tautological obligation assertion enforces the obligation at
+runtime. Unqualified, ambiguous, or out-of-range selections reject before
+backend emit.

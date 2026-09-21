@@ -1,0 +1,71 @@
+{
+  "schema": "pyc-primitive-ppa-report-v1",
+  "gating": false,
+  "note": "Structural estimates only. No regression threshold is applied; thresholds follow only after a stable baseline exists.",
+  "implementations": [
+    {
+      "semantic_id": "pyc.count_zeros.v1",
+      "implementation_id": "pyc.bsd.count_zeros.v1",
+      "module": "pyc_count_zeros_primitive",
+      "effect_class": "comb",
+      "selection_priority": 100,
+      "min_width": 1,
+      "max_width": 64,
+      "latency_cycles": 0,
+      "initiation_interval": 1,
+      "pipeline_depth": 0,
+      "banks": 1,
+      "depth_entries": 1,
+      "storage": "none",
+      "structural_estimate": "WIDTH prefix scan plus one leading/trailing select"
+    },
+    {
+      "semantic_id": "pyc.popcount.v1",
+      "implementation_id": "pyc.bsd.popcount.v1",
+      "module": "pyc_popcount_primitive",
+      "effect_class": "comb",
+      "selection_priority": 100,
+      "min_width": 1,
+      "max_width": 64,
+      "latency_cycles": 0,
+      "initiation_interval": 1,
+      "pipeline_depth": 0,
+      "banks": 1,
+      "depth_entries": 1,
+      "storage": "none",
+      "structural_estimate": "WIDTH single-bit adders in a balanced reduction"
+    },
+    {
+      "semantic_id": "pyc.priority_encode.v1",
+      "implementation_id": "pyc.bsd.priority_encode.v1",
+      "module": "pyc_priority_encode",
+      "effect_class": "comb",
+      "selection_priority": 100,
+      "min_width": 1,
+      "max_width": 64,
+      "latency_cycles": 0,
+      "initiation_interval": 1,
+      "pipeline_depth": 0,
+      "banks": 1,
+      "depth_entries": 1,
+      "storage": "none",
+      "structural_estimate": "WIDTH priority comparisons in a serial loop"
+    },
+    {
+      "semantic_id": "pyc.priority_encode.v1",
+      "implementation_id": "pyc.tree.priority_encode.v1",
+      "module": "pyc_priority_encode_tree",
+      "effect_class": "comb",
+      "selection_priority": 90,
+      "min_width": 1,
+      "max_width": 64,
+      "latency_cycles": 0,
+      "initiation_interval": 1,
+      "pipeline_depth": 0,
+      "banks": 1,
+      "depth_entries": 1,
+      "storage": "none",
+      "structural_estimate": "one two's-complement isolation plus WIDTH OR-encode terms"
+    }
+  ]
+}

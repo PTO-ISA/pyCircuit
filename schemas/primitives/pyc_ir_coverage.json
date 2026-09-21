@@ -75,7 +75,8 @@
       "positive_mlir": [
         "tests/mlir/agentic-circuit/CodeGen/arbiter.mlir",
         "tests/mlir/agentic-circuit/CodeGen/memory-ordering-lowering.mlir",
-        "tests/mlir/agentic-circuit/CodeGen/memory-ordering-multi-disposition.mlir"
+        "tests/mlir/agentic-circuit/CodeGen/memory-ordering-multi-disposition.mlir",
+        "tests/mlir/agentic-circuit/CodeGen/miniooo-acceptance.mlir"
       ],
       "python_producer": [
         "python/pycircuit/src/pycircuit/dsl.py",
@@ -90,7 +91,8 @@
       "tests": [
         "tests/mlir/agentic-circuit/CodeGen/arbiter.mlir",
         "tests/mlir/agentic-circuit/CodeGen/memory-ordering-lowering.mlir",
-        "tests/mlir/agentic-circuit/CodeGen/memory-ordering-multi-disposition.mlir"
+        "tests/mlir/agentic-circuit/CodeGen/memory-ordering-multi-disposition.mlir",
+        "tests/mlir/agentic-circuit/CodeGen/miniooo-acceptance.mlir"
       ],
       "verifier": null,
       "verilog_emitter": "compiler/mlir/lib/Emit/VerilogEmitter.cpp"
@@ -1109,6 +1111,10 @@
           {
             "implementation_id": "pyc.bsd.priority_encode.v1",
             "semantic_id": "pyc.priority_encode.v1"
+          },
+          {
+            "implementation_id": "pyc.tree.priority_encode.v1",
+            "semantic_id": "pyc.priority_encode.v1"
           }
         ],
         "catalog": "library/verilog/rtl_catalog.json",
@@ -1300,6 +1306,10 @@
         "candidates": [
           {
             "implementation_id": "pyc.bsd.priority_encode.v1",
+            "semantic_id": "pyc.priority_encode.v1"
+          },
+          {
+            "implementation_id": "pyc.tree.priority_encode.v1",
             "semantic_id": "pyc.priority_encode.v1"
           },
           {

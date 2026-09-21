@@ -1,0 +1,190 @@
+{
+  "schema": "pyc-acir-semantic-primitive-registry-v1",
+  "ir_level": "acir",
+  "implementation_kind": "lowered",
+  "description": "Compiler-owned ACIR lane-algebra endpoints. They declare a vendor-neutral semantic contract and lower through the QueueGraph plan and the generic backend expression set, so they have no Verilog implementation catalog entry. PYC primitives that do have replaceable RTL implementations live in semantic_registry.json and library/verilog/rtl_catalog.json.",
+  "primitives": [
+    {
+      "semantic_id": "acir.reservation_set.v1",
+      "operation": "ac.reservation_set",
+      "effect_class": "comb",
+      "parameters": {
+        "mode": {"kind": "enum", "values": ["preview", "commit"]}
+      },
+      "inputs": [
+        {"name": "resource_masks", "type": "iN list", "constraints": ["1 <= N <= 64", "at least one mask"]}
+      ],
+      "outputs": [
+        {"name": "common_mask", "type": "iN"}
+      ],
+      "latency": 0,
+      "dependency_matrix": {"common_mask": ["resource_masks"]},
+      "zero_input": {"common_mask": 0}
+    },
+    {
+      "semantic_id": "acir.transaction_group.v1",
+      "operation": "ac.transaction_group",
+      "effect_class": "comb",
+      "parameters": {
+        "policy": {"kind": "enum", "values": ["all_or_none", "valid_prefix", "independent"]}
+      },
+      "inputs": [
+        {"name": "valid_mask", "type": "iN", "constraints": ["1 <= N <= 64"]},
+        {"name": "reservation_mask", "type": "iN", "constraints": ["1 <= N <= 64"]}
+      ],
+      "outputs": [
+        {"name": "accepted_mask", "type": "iN"}
+      ],
+      "latency": 0,
+      "dependency_matrix": {"accepted_mask": ["valid_mask", "reservation_mask"]},
+      "zero_input": {"accepted_mask": 0}
+    },
+    {
+      "semantic_id": "acir.multi_allocator.v1",
+      "operation": "ac.multi_allocator",
+      "effect_class": "comb",
+      "parameters": {
+        "reuse_policy": {"kind": "enum", "values": ["allow", "forbid"]},
+        "generation_policy": {"kind": "enum", "values": ["increment_on_allocate"]}
+      },
+      "inputs": [
+        {"name": "free_mask", "type": "iN", "constraints": ["1 <= N <= 64"]},
+        {"name": "request_mask", "type": "iN", "constraints": ["1 <= N <= 64"]},
+        {"name": "release_mask", "type": "iN", "constraints": ["1 <= N <= 64"]}
+      ],
+      "outputs": [
+        {"name": "allocation_mask", "type": "iN"},
+        {"name": "accepted_mask", "type": "iN"},
+        {"name": "next_free_mask", "type": "iN"}
+      ],
+      "latency": 0,
+      "dependency_matrix": {
+        "allocation_mask": ["free_mask", "request_mask"],
+        "accepted_mask": ["free_mask", "request_mask", "release_mask"],
+        "next_free_mask": ["free_mask", "allocation_mask", "release_mask"]
+      },
+      "zero_input": {
+        "allocation_mask": 0,
+        "accepted_mask": 0,
+        "next_free_mask": 0
+      }
+    },
+    {
+      "semantic_id": "acir.age_select_k.v1",
+      "operation": "ac.age_select_k",
+      "effect_class": "comb",
+      "parameters": {
+        "ordering": {"kind": "enum", "values": ["oldest_first"]}
+      },
+      "inputs": [
+        {"name": "candidates", "type": "iN", "constraints": ["1 <= N <= 64"]},
+        {"name": "ages", "type": "iA list", "constraints": ["one age per lane", "1 <= A <= 64"]}
+      ],
+      "outputs": [
+        {"name": "winner_mask", "type": "iN"}
+      ],
+      "latency": 0,
+      "dependency_matrix": {"winner_mask": ["candidates", "ages"]},
+      "zero_input": {"winner_mask": 0}
+    },
+    {
+      "semantic_id": "acir.dependency_set.v1",
+      "operation": "ac.dependency_set",
+      "effect_class": "comb",
+      "parameters": {},
+      "inputs": [
+        {"name": "current_mask", "type": "iN", "constraints": ["1 <= N <= 64"]},
+        {"name": "add_mask", "type": "iN", "constraints": ["1 <= N <= 64"]},
+        {"name": "resolve_mask", "type": "iN", "constraints": ["1 <= N <= 64"]},
+        {"name": "kill_mask", "type": "iN", "constraints": ["1 <= N <= 64"]},
+        {"name": "identity_match_mask", "type": "iN", "constraints": ["1 <= N <= 64"]}
+      ],
+      "outputs": [
+        {"name": "next_mask", "type": "iN"},
+        {"name": "ready", "type": "i1"}
+      ],
+      "latency": 0,
+      "dependency_matrix": {
+        "next_mask": ["current_mask", "add_mask", "resolve_mask", "kill_mask", "identity_match_mask"],
+        "ready": ["next_mask"]
+      },
+      "zero_input": {"next_mask": 0, "ready": 1}
+    },
+    {
+      "semantic_id": "acir.terminal_transaction.v1",
+      "operation": "ac.terminal_transaction",
+      "effect_class": "comb",
+      "parameters": {},
+      "inputs": [
+        {"name": "committed_mask", "type": "iN", "constraints": ["1 <= N <= 64"]},
+        {"name": "effect_done_mask", "type": "iN", "constraints": ["1 <= N <= 64"]},
+        {"name": "terminal_mask", "type": "iN", "constraints": ["1 <= N <= 64"]}
+      ],
+      "outputs": [
+        {"name": "completed_mask", "type": "iN"}
+      ],
+      "latency": 0,
+      "dependency_matrix": {"completed_mask": ["committed_mask", "effect_done_mask", "terminal_mask"]},
+      "zero_input": {"completed_mask": 0}
+    },
+    {
+      "semantic_id": "acir.memory_order_edge.v1",
+      "operation": "ac.memory_order_edge",
+      "effect_class": "comb",
+      "parameters": {
+        "kind": {
+          "kind": "enum",
+          "values": ["older_than", "must_wait", "may_bypass", "must_forward", "must_replay_if", "visibility_before"]
+        }
+      },
+      "inputs": [
+        {"name": "producer_mask", "type": "iN", "constraints": ["1 <= N <= 64"]},
+        {"name": "consumer_mask", "type": "iN", "constraints": ["1 <= N <= 64"]},
+        {"name": "predicate_mask", "type": "iN", "constraints": ["optional", "1 <= N <= 64"]}
+      ],
+      "outputs": [
+        {"name": "applies_mask", "type": "iN"}
+      ],
+      "latency": 0,
+      "dependency_matrix": {"applies_mask": ["producer_mask", "consumer_mask", "predicate_mask"]},
+      "zero_input": {"applies_mask": 0}
+    },
+    {
+      "semantic_id": "acir.load_disposition.v1",
+      "operation": "ac.load_disposition",
+      "effect_class": "comb",
+      "parameters": {},
+      "inputs": [
+        {"name": "pending_mask", "type": "iN", "constraints": ["1 <= N <= 64"]},
+        {"name": "alias_mask", "type": "iN", "constraints": ["1 <= N <= 64"]},
+        {"name": "disjoint_mask", "type": "iN", "constraints": ["1 <= N <= 64"]},
+        {"name": "data_ready_mask", "type": "iN", "constraints": ["1 <= N <= 64"]},
+        {"name": "executed_mask", "type": "iN", "constraints": ["1 <= N <= 64"]},
+        {"name": "identity_match_mask", "type": "iN", "constraints": ["1 <= N <= 64"]},
+        {"name": "killed_mask", "type": "iN", "constraints": ["1 <= N <= 64"]}
+      ],
+      "outputs": [
+        {"name": "wait_mask", "type": "iN"},
+        {"name": "bypass_mask", "type": "iN"},
+        {"name": "forward_mask", "type": "iN"},
+        {"name": "replay_mask", "type": "iN"},
+        {"name": "stale_mask", "type": "iN"}
+      ],
+      "latency": 0,
+      "dependency_matrix": {
+        "wait_mask": ["pending_mask", "alias_mask", "disjoint_mask", "data_ready_mask", "executed_mask", "identity_match_mask", "killed_mask"],
+        "bypass_mask": ["pending_mask", "alias_mask", "disjoint_mask", "identity_match_mask", "killed_mask"],
+        "forward_mask": ["pending_mask", "alias_mask", "data_ready_mask", "executed_mask", "identity_match_mask", "killed_mask"],
+        "replay_mask": ["pending_mask", "alias_mask", "executed_mask", "identity_match_mask", "killed_mask"],
+        "stale_mask": ["pending_mask", "identity_match_mask", "killed_mask"]
+      },
+      "zero_input": {
+        "wait_mask": 0,
+        "bypass_mask": 0,
+        "forward_mask": 0,
+        "replay_mask": 0,
+        "stale_mask": 0
+      }
+    }
+  ]
+}

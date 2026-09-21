@@ -276,3 +276,95 @@ int main() {
         check=True,
     )
     subprocess.run([str(executable)], check=True)
+
+
+def test_acir_semantic_registry_separates_semantics_from_implementations() -> None:
+    root = Path(__file__).resolve().parents[2]
+    registry_path = root / "schemas" / "primitives" / "acir_semantic_registry.json"
+    registry = json.loads(registry_path.read_text(encoding="utf-8"))
+
+    assert registry["schema"] == "pyc-acir-semantic-primitive-registry-v1"
+    assert registry["ir_level"] == "acir"
+    assert registry["implementation_kind"] == "lowered"
+
+    expected = {
+        "acir.age_select_k.v1",
+        "acir.dependency_set.v1",
+        "acir.load_disposition.v1",
+        "acir.memory_order_edge.v1",
+        "acir.multi_allocator.v1",
+        "acir.reservation_set.v1",
+        "acir.terminal_transaction.v1",
+        "acir.transaction_group.v1",
+    }
+    assert {item["semantic_id"] for item in registry["primitives"]} == expected
+
+    encoded = json.dumps(registry, sort_keys=True).lower()
+    assert "implementation_id" not in encoded
+    assert '"module"' not in encoded
+
+    operations = {
+        f"ac.{mnemonic}"
+        for mnemonic in __import__("re").findall(
+            r'ACIR_Op<"([a-z_.]+)"',
+            (root / "compiler/acir/include/acir/Dialect/ACIR/ACIROps.td").read_text(
+                encoding="utf-8"
+            ),
+        )
+    }
+    for primitive in registry["primitives"]:
+        assert set(primitive) == {
+            "semantic_id",
+            "operation",
+            "effect_class",
+            "parameters",
+            "inputs",
+            "outputs",
+            "latency",
+            "dependency_matrix",
+            "zero_input",
+        }, primitive["semantic_id"]
+        assert primitive["effect_class"] == "comb"
+        assert primitive["latency"] == 0
+        assert primitive["operation"] in operations, primitive["semantic_id"]
+        input_names = {item["name"] for item in primitive["inputs"]}
+        output_names = {item["name"] for item in primitive["outputs"]}
+        # Every output is described by the dependency matrix and the zero-input
+        # contract, and every dependency names a declared input or a declared
+        # result of the same primitive.
+        assert set(primitive["dependency_matrix"]) == output_names
+        assert set(primitive["zero_input"]) == output_names
+        for dependencies in primitive["dependency_matrix"].values():
+            assert dependencies
+            assert set(dependencies) <= input_names | output_names
+        # Lane-style inputs declare the shared width bound.
+        for item in primitive["inputs"]:
+            if item["type"].startswith("iN"):
+                assert item["constraints"], primitive["semantic_id"]
+
+
+def test_primitive_ppa_report_is_advisory_and_complete() -> None:
+    import subprocess
+    import sys
+
+    root = Path(__file__).resolve().parents[2]
+    completed = subprocess.run(
+        [sys.executable, str(root / "flows" / "tools" / "report_primitive_ppa.py")],
+        cwd=root,
+        text=True,
+        capture_output=True,
+        check=True,
+    )
+    report = json.loads(completed.stdout)
+    assert report["schema"] == "pyc-primitive-ppa-report-v1"
+    assert report["gating"] is False
+    assert "No regression threshold" in report["note"]
+    rows = {row["implementation_id"]: row for row in report["implementations"]}
+    assert "pyc.tree.priority_encode.v1" in rows
+    assert "pyc.bsd.priority_encode.v1" in rows
+    for row in rows.values():
+        assert row["latency_cycles"] == 0
+        assert row["initiation_interval"] == 1
+        assert row["storage"] == "none"
+        assert row["structural_estimate"]
+        assert row["max_width"] == 64

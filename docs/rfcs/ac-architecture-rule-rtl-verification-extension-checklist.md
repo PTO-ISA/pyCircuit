@@ -1125,16 +1125,31 @@ condition carries the evidence. No Python surface is admitted in P10.
 
 ### P11 - Refinement and PPA evidence
 
-- [ ] Define semantic primitive registry entries for AgeSelect-K, allocator,
+- [x] Define semantic primitive registry entries for AgeSelect-K, allocator,
       dependency set, and selected reservation structures.
-- [ ] Add implementation variants with legality/latency/II/port/bank metadata.
-- [ ] Add deterministic rule-based selection.
-- [ ] Verify selected implementation cycle/refinement contract.
-- [ ] Record structural estimates and optional synthesis results as evidence.
-- [ ] Add regression thresholds only after stable baselines exist.
+- [x] Add implementation variants with legality/latency/II/port/bank metadata.
+- [x] Add deterministic rule-based selection.
+- [x] Verify selected implementation cycle/refinement contract.
+- [x] Record structural estimates and optional synthesis results as evidence.
+- [x] Add regression thresholds only after stable baselines exist.
 
 **Exit:** at least two legal implementations of one semantic primitive produce
 equivalent observations, and illegal parameter combinations fail before emit.
+
+Decision 0282 closes this stage. `schemas/primitives/acir_semantic_registry.json`
+is the only declaration of a compiler-owned ACIR semantic endpoint (declarative,
+with a one-way operation-name check against `ACIROps.td`; a reverse check and a
+build-time consumer remain open), `library/verilog/rtl_catalog.json` is the only
+description of an implementation, and every implementation entry names one
+semantic id plus a complete metadata block. `pyc.priority_encode.v1`
+has two implementations whose `index`/`valid` observations agree with each other
+and with an in-testbench golden encoder across the admitted widths, selection is a
+deterministic highest-priority choice that rejects
+ties instead of depending on catalog order, and an out-of-range or unqualified
+entry fails before emit. The last bullet is satisfied by *not* adding a
+threshold: `flows/tools/report_primitive_ppa.py` emits the
+`pyc-primitive-ppa-report-v1` report with `gating: false`, so no regression gate
+exists to be tuned and none is introduced before a stable baseline exists.
 
 ### P12 - Framework acceptance demo
 
@@ -1162,6 +1177,35 @@ It must generate:
 
 Long random runs belong in nightly/release lanes. Full SSM validation remains in
 the SSM repository against a pinned pyCircuit revision.
+
+Decision 0282 closes this stage.
+`tests/mlir/agentic-circuit/CodeGen/miniooo-acceptance.mlir` is the
+vendor-neutral reduced MiniOOO: it imports no product module and encodes no
+consumer-specific behavior, and it contains all four dispatch lanes, one
+committed reservation group, two execution resource classes, the versioned
+reorder window, the ready and dependency update, the versioned completion, branch
+recovery, one memory ordering edge with a load disposition, and ordered
+retirement. A single lit test lowers one frozen input through the verified ACIR,
+the Rule Effect Graph, the plan, the PYC obligation records, the gfsim C++ model,
+the PYC C++ model, and Verilog with SVA, and it checks each artifact rather than
+only producing it; rule and blocker coverage is carried by the effect-graph
+interaction, state-footprint and obligation nodes, the per-rule plan guards and
+activation records, and the IR coverage ledger; determinism is asserted by
+byte-diffing two emissions of the PYC, gfsim C++ and Verilog text. Deterministic
+stress evidence is executed on both backends: the C++ harness walks 46 bounded
+cycles over the real ready/valid handshakes, reads the generated versioned-window
+entry, and proves that the window keeps applying qualified updates instead of
+wedging after its first one, that a completion whose version no longer matches
+never reaches the window while the coverage counter reports it, and that a stale
+killing invalidation is rejected while the live one commits and is followed by
+further commits; the RTL testbench replays the same
+one-dispatch-per-cycle cadence, with the invalidation branches proven by the C++
+stress. The
+obligation evidence boundary is stated rather than implied: the generated
+`no_stale_update` guard is orthogonal by construction, so it is a
+lowering-invariant canary and the coverage counter is the stimulus-dependent
+evidence, which is why the executed assertions rest on coverage and why the
+forged-lowering negative test stays recorded as an open item.
 
 ## Suggested agent order and ownership
 

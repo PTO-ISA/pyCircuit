@@ -44,6 +44,15 @@
       "qualification": {
         "status": "validated",
         "report": "docs/gates/logs/20260905-pyc-priority-rtl-r1/summary.md"
+      },
+      "metadata": {
+        "latency_cycles": 0,
+        "initiation_interval": 1,
+        "pipeline_depth": 0,
+        "banks": 1,
+        "depth_entries": 1,
+        "storage": "none",
+        "structural_estimate": "WIDTH priority comparisons in a serial loop"
       }
     },
     {
@@ -82,6 +91,15 @@
       "qualification": {
         "status": "validated",
         "report": "docs/gates/logs/20260905-pyc-popcount-rtl-r1/summary.md"
+      },
+      "metadata": {
+        "latency_cycles": 0,
+        "initiation_interval": 1,
+        "pipeline_depth": 0,
+        "banks": 1,
+        "depth_entries": 1,
+        "storage": "none",
+        "structural_estimate": "WIDTH single-bit adders in a balanced reduction"
       }
     },
     {
@@ -127,6 +145,69 @@
       "qualification": {
         "status": "validated",
         "report": "docs/gates/logs/20260905-pyc-zero-count-family-r1/summary.md"
+      },
+      "metadata": {
+        "latency_cycles": 0,
+        "initiation_interval": 1,
+        "pipeline_depth": 0,
+        "banks": 1,
+        "depth_entries": 1,
+        "storage": "none",
+        "structural_estimate": "WIDTH prefix scan plus one leading/trailing select"
+      }
+    },
+    {
+      "semantic_id": "pyc.priority_encode.v1",
+      "implementation_id": "pyc.tree.priority_encode.v1",
+      "effect_class": "comb",
+      "module": "pyc_priority_encode_tree",
+      "min_width": 1,
+      "max_width": 64,
+      "selection_priority": 90,
+      "parameter_bindings": {
+        "ORDER_LOW": {
+          "attribute": "order",
+          "values": {
+            "high": 0,
+            "low": 1
+          }
+        },
+        "WIDTH": "input_width"
+      },
+      "ports": {
+        "inputs": [
+          "in_value"
+        ],
+        "outputs": [
+          "index",
+          "valid"
+        ]
+      },
+      "metadata": {
+        "latency_cycles": 0,
+        "initiation_interval": 1,
+        "pipeline_depth": 0,
+        "banks": 1,
+        "depth_entries": 1,
+        "storage": "none",
+        "structural_estimate": "one two's-complement isolation plus WIDTH OR-encode terms"
+      },
+      "sources": [
+        {
+          "path": "pyc_priority_encode_tree.v",
+          "license": "BSD-3-Clause",
+          "modified": false
+        }
+      ],
+      "license_file": "licenses/BSD-3-Clause.txt",
+      "provenance": {
+        "origin": "PTO-ISA/pyCircuit",
+        "design_input": "PTO-ISA/pyCircuit#29",
+        "license": "BSD-3-Clause"
+      },
+      "qualification": {
+        "status": "validated",
+        "report": "docs/gates/logs/20260921-f10-primitive-variants/summary.md"
       }
     }
   ]
