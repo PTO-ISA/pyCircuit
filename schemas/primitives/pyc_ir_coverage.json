@@ -781,7 +781,9 @@
       "acir_producer": [
         "compiler/acir/lib/CodeGen/QueueGraphPyc.cpp"
       ],
-      "canonicalization": [],
+      "canonicalization": [
+        "compiler/mlir/lib/Transforms/LowerModuleFamiliesToFuncsPass.cpp"
+      ],
       "cpp_emitter": "compiler/mlir/lib/Emit/CppEmitter.cpp",
       "e2e": [],
       "examples": [
@@ -851,7 +853,9 @@
       "acir_producer": [
         "compiler/acir/lib/CodeGen/QueueGraphPyc.cpp"
       ],
-      "canonicalization": [],
+      "canonicalization": [
+        "compiler/mlir/lib/Transforms/LowerModuleFamiliesToFuncsPass.cpp"
+      ],
       "cpp_emitter": "compiler/mlir/lib/Emit/CppEmitter.cpp",
       "e2e": [],
       "examples": [],
@@ -887,8 +891,10 @@
     },
     {
       "acir_producer": [],
-      "canonicalization": [],
-      "cpp_emitter": null,
+      "canonicalization": [
+        "compiler/mlir/lib/Transforms/LowerModuleFamiliesToFuncsPass.cpp"
+      ],
+      "cpp_emitter": "compiler/mlir/lib/Emit/CppEmitter.cpp",
       "e2e": [],
       "examples": [],
       "folder": null,
@@ -910,7 +916,7 @@
         "tests/mlir/pyc/family-ops.mlir"
       ],
       "verifier": "compiler/mlir/lib/Dialect/PYC/PYCOps.cpp",
-      "verilog_emitter": null
+      "verilog_emitter": "compiler/mlir/lib/Emit/VerilogEmitter.cpp"
     },
     {
       "acir_producer": [
@@ -1256,7 +1262,9 @@
       "acir_producer": [
         "compiler/acir/lib/CodeGen/QueueGraphPyc.cpp"
       ],
-      "canonicalization": [],
+      "canonicalization": [
+        "compiler/mlir/lib/Transforms/LowerModuleFamiliesToFuncsPass.cpp"
+      ],
       "cpp_emitter": "compiler/mlir/lib/Emit/CppEmitter.cpp",
       "e2e": [],
       "examples": [],

@@ -43,6 +43,7 @@
 #include "cpp/pyc_probe_registry.hpp"
 
 #include <algorithm>
+#include <functional>
 #include <cctype>
 #include <chrono>
 #include <cstdint>
@@ -65,8 +66,9 @@
 // set for the same diagnostic field.
 #define WIN32_LEAN_AND_MEAN
 #define NOMINMAX
-#include <psapi.h>
+// psapi.h depends on the Windows base types, so windows.h has to come first.
 #include <windows.h>
+#include <psapi.h>
 #if defined(_MSC_VER)
 #pragma comment(lib, "psapi.lib")
 #endif
@@ -266,14 +268,26 @@ static llvm::cl::opt<bool> clHierarchical(
 static std::string topSymbol(ModuleOp module) {
   if (auto topAttr = module->getAttrOfType<FlatSymbolRefAttr>("pyc.top"))
     return topAttr.getValue().str();
+  if (auto first = module.getOps<pyc::FamilyOp>().begin();
+      first != module.getOps<pyc::FamilyOp>().end())
+    return (*first).getSymName().str();
   if (auto first = module.getOps<func::FuncOp>().begin();
       first != module.getOps<func::FuncOp>().end())
     return (*first).getSymName().str();
   return "";
 }
 
+// The structural frontend publishes one `pyc.module` family per source module,
+// so hierarchy preservation is measured on the family symbol set. Legacy
+// `func.func` modules stay counted while the flat path still exists.
 static std::set<std::string> collectFrontendModuleSymbols(ModuleOp module) {
   std::set<std::string> out;
+  for (pyc::FamilyOp family : module.getOps<pyc::FamilyOp>())
+    out.insert(family.getSymName().str());
+  // A split-module unit declares its siblings as imports, which the bridge
+  // rewrites to func declarations, so they belong to the same symbol set.
+  for (pyc::ModuleImportOp import : module.getOps<pyc::ModuleImportOp>())
+    out.insert(import.getSymName().str());
   for (func::FuncOp f : module.getOps<func::FuncOp>()) {
     auto kind = f->getAttrOfType<StringAttr>("pyc.kind");
     if (!kind || kind.getValue() != "module")
@@ -2429,6 +2443,12 @@ int main(int argc, char **argv) {
   }
   if (emitStructuralMode == "on" || emitStructuralMode == "off") {
     bool enableStructural = (emitStructuralMode == "on");
+    for (pyc::FamilyOp family : module->getOps<pyc::FamilyOp>()) {
+      if (enableStructural)
+        family->setAttr("pyc.emit.structural", StringAttr::get(&ctx, "true"));
+      else
+        family->removeAttr("pyc.emit.structural");
+    }
     for (func::FuncOp f : module->getOps<func::FuncOp>()) {
       if (enableStructural)
         f->setAttr("pyc.emit.structural", StringAttr::get(&ctx, "true"));
@@ -2550,6 +2570,9 @@ int main(int argc, char **argv) {
     passTimingCollector = passTimingStorage.get();
     pm.addInstrumentation(std::move(passTimingStorage));
   }
+  // Bridge the classic frontend's single-case families onto the func-based
+  // checker pipeline before anything inspects the IR.
+  pm.addPass(pyc::createLowerModuleFamiliesToFuncsPass());
   pm.addPass(pyc::createCheckFrontendContractPass());
   pm.addPass(pyc::createInlineFunctionsPass());
   if (wantFlatten)
@@ -2813,6 +2836,23 @@ int main(int argc, char **argv) {
         verilogFiles.push_back(fname);
       }
 
+      for (pyc::FamilyOp family : module->getOps<pyc::FamilyOp>()) {
+        std::string fname = (family.getSymName() + ".v").str();
+        llvm::SmallString<256> path(outDir);
+        llvm::sys::path::append(path, fname);
+
+        std::error_code fe;
+        llvm::raw_fd_ostream os(path, fe, llvm::sys::fs::OF_Text);
+        if (fe) {
+          llvm::errs() << "error: cannot open " << path << ": " << fe.message()
+                       << "\n";
+          return 1;
+        }
+        if (failed(pyc::emitVerilogFamily(*module, family, os, opts)))
+          return 1;
+        verilogFiles.push_back(fname);
+      }
+
       SelectedRtlManifestData rtlManifest = selectedRtlManifest(*module);
       if (failed(updateManifest(outDir, top, std::move(verilogFiles),
                                 /*cppMods=*/std::nullopt,
@@ -2833,6 +2873,8 @@ int main(int argc, char **argv) {
           continue;
         yss << "read_verilog -sv " << f.getSymName().str() << ".v\n";
       }
+      for (pyc::FamilyOp family : module->getOps<pyc::FamilyOp>())
+        yss << "read_verilog -sv " << family.getSymName().str() << ".v\n";
       yss << "hierarchy -top " << top << "\n";
       yss << "proc; opt; memory; opt\n";
       yss << "synth -top " << top << "\n";
@@ -2866,11 +2908,9 @@ int main(int argc, char **argv) {
 
       // Collect direct dependencies per module for header includes.
       llvm::StringMap<llvm::SmallVector<std::string>> deps;
-      for (auto f : module->getOps<func::FuncOp>()) {
-        if (f.isDeclaration())
-          continue;
-        auto &v = deps[f.getSymName()];
-        f.walk([&](pyc::InstanceOp inst) {
+      auto collectDeps = [&](llvm::StringRef name, Operation *anchor) {
+        auto &v = deps[name];
+        anchor->walk([&](pyc::InstanceOp inst) {
           auto calleeAttr = inst->getAttrOfType<FlatSymbolRefAttr>("callee");
           if (!calleeAttr)
             return;
@@ -2878,7 +2918,14 @@ int main(int argc, char **argv) {
         });
         std::sort(v.begin(), v.end());
         v.erase(std::unique(v.begin(), v.end()), v.end());
+      };
+      for (auto f : module->getOps<func::FuncOp>()) {
+        if (f.isDeclaration())
+          continue;
+        collectDeps(f.getSymName(), f.getOperation());
       }
+      for (pyc::FamilyOp family : module->getOps<pyc::FamilyOp>())
+        collectDeps(family.getSymName(), family.getOperation());
 
       bool splitModule = false;
       if (cppSplitMode == "module")
@@ -2916,11 +2963,34 @@ int main(int argc, char **argv) {
         os << "} // namespace pyc::gen\n";
       };
 
+      struct ModuleEmitRequest {
+        std::string name{};
+        bool probeOnly = false;
+        std::function<LogicalResult(llvm::raw_ostream &)> emit;
+      };
+      std::vector<ModuleEmitRequest> moduleRequests;
       for (auto f : module->getOps<func::FuncOp>()) {
         if (f.isDeclaration())
           continue;
-        std::string moduleName = f.getSymName().str();
-        const bool probeOnlyModule = isProbeOnlyFunc(f);
+        moduleRequests.push_back(
+            ModuleEmitRequest{f.getSymName().str(), isProbeOnlyFunc(f),
+                              [&, f](llvm::raw_ostream &os) {
+                                return pyc::emitCppFunc(*module, f, os,
+                                                        cppEmitOpts);
+                              }});
+      }
+      for (pyc::FamilyOp family : module->getOps<pyc::FamilyOp>()) {
+        moduleRequests.push_back(
+            ModuleEmitRequest{family.getSymName().str(), /*probeOnly=*/false,
+                              [&, family](llvm::raw_ostream &os) {
+                                return pyc::emitCppFamily(*module, family, os,
+                                                          cppEmitOpts);
+                              }});
+      }
+
+      for (const ModuleEmitRequest &request : moduleRequests) {
+        std::string moduleName = request.name;
+        const bool probeOnlyModule = request.probeOnly;
         std::string headerName = moduleName + ".hpp";
         llvm::SmallString<256> headerPath(outDir);
         llvm::sys::path::append(headerPath, headerName);
@@ -2928,7 +2998,7 @@ int main(int argc, char **argv) {
         std::string emitted;
         {
           llvm::raw_string_ostream emitOs(emitted);
-          if (failed(pyc::emitCppFunc(*module, f, emitOs, cppEmitOpts)))
+          if (failed(request.emit(emitOs)))
             return 1;
           emitOs.flush();
         }
@@ -2950,7 +3020,7 @@ int main(int argc, char **argv) {
             return 1;
           }
           writeHeaderPreamble(hos, moduleName);
-          for (const std::string &dep : deps[f.getSymName()])
+          for (const std::string &dep : deps[moduleName])
             hos << "#include \"" << dep << ".hpp\"\n";
           hos << "\nnamespace pyc::gen {\n\n";
           hos << split->headerBody << "\n";
@@ -3157,7 +3227,7 @@ int main(int argc, char **argv) {
           hos << "#include <iostream>\n";
           hos << "#include <memory>\n";
           hos << "#include <cpp/pyc_sim.hpp>\n";
-          for (const std::string &dep : deps[f.getSymName()])
+          for (const std::string &dep : deps[moduleName])
             hos << "#include \"" << dep << ".hpp\"\n";
           hos << "\nnamespace pyc::gen {\n\n";
           hos << emitted;

@@ -4,6 +4,7 @@
 #include "mlir/IR/BuiltinOps.h"
 #include "mlir/Support/LogicalResult.h"
 #include "llvm/Support/raw_ostream.h"
+#include "pyc/Dialect/PYC/PYCOps.h"
 
 #include <string>
 
@@ -32,5 +33,11 @@ struct CppEmitterOptions {
 
 ::mlir::LogicalResult emitCppFunc(::mlir::ModuleOp module, ::mlir::func::FuncOp f, ::llvm::raw_ostream &os,
                                   const CppEmitterOptions &opts = {});
+
+// One finite-family module case as standalone C++: the split (--out-dir) build
+// compiles every module family into its own translation unit.
+::mlir::LogicalResult emitCppFamily(::mlir::ModuleOp module, ::pyc::FamilyOp family,
+                                    ::llvm::raw_ostream &os,
+                                    const CppEmitterOptions &opts = {});
 
 } // namespace pyc

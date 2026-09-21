@@ -762,14 +762,44 @@ class Module:
             for fn in list(self._finalizers):
                 fn()
 
-        clock, reset = self._control_signals()
-        has_explicit_controls = (
-            len(self._args) >= 2
-            and self._args[0][1] is clock
-            and self._args[1][1] is reset
-        )
-        logical_args = self._args[2:] if has_explicit_controls else self._args
-        physical_args = [("clock", clock), ("reset", reset), *logical_args]
+        # Decision 0126: every declared clock/reset pair is a module control, so
+        # a multi-domain module carries one control pair per domain in source
+        # order and the remaining arguments form the logical interface.
+        control_pairs: list[tuple[str, Signal, str, Signal]] = []
+        logical_args: list[tuple[str, Signal]] = []
+        pending_clock: tuple[str, Signal] | None = None
+        for arg_name, arg_signal in self._args:
+            if isinstance(arg_signal.ty, Clock):
+                if pending_clock is not None:
+                    raise ValueError(
+                        f"clock {pending_clock[0]!r} is not followed by its reset"
+                    )
+                pending_clock = (arg_name, arg_signal)
+                continue
+            if isinstance(arg_signal.ty, Reset):
+                if pending_clock is None:
+                    raise ValueError(f"reset {arg_name!r} has no preceding clock")
+                control_pairs.append(
+                    (pending_clock[0], pending_clock[1], arg_name, arg_signal)
+                )
+                pending_clock = None
+                continue
+            if pending_clock is not None:
+                raise ValueError(
+                    f"clock {pending_clock[0]!r} is not followed by its reset"
+                )
+            logical_args.append((arg_name, arg_signal))
+        if pending_clock is not None:
+            raise ValueError(f"clock {pending_clock[0]!r} is not followed by its reset")
+        if not control_pairs:
+            clock, reset = self._control_signals()
+            control_pairs.append(("clock", clock, "reset", reset))
+        control_count = 2 * len(control_pairs)
+        physical_args: list[tuple[str, Signal]] = []
+        for clock_name, clock_signal, reset_name, reset_signal in control_pairs:
+            physical_args.append((clock_name, clock_signal))
+            physical_args.append((reset_name, reset_signal))
+        physical_args.extend(logical_args)
         arg_sig = ", ".join(f"{sig.ref}: {sig.ty}" for _, sig in physical_args)
         res_types = [v.ty for _, v in self._results]
         if len(res_types) == 0:
@@ -805,7 +835,7 @@ class Module:
         for index, (name, sig) in enumerate(logical_args):
             lty = logical_type(sig.ty)
             carrier = (
-                f'#pyc.physical_port<"input", {index + 2}, {sig.ty}, "value" '
+                f'#pyc.physical_port<"input", {index + control_count}, {sig.ty}, "value" '
                 f"layout {layout(sig.ty)}>"
             )
             logical_ports.append(
@@ -840,8 +870,16 @@ class Module:
         clock_origin = f'#pyc.implicit_control_origin<"clock", "implicit", {prov}>'
         reset_origin = f'#pyc.implicit_control_origin<"reset", "implicit", {prov}>'
         controls = (
-            f'[#pyc.control_port_mapping<"clock", 0, !pyc.clock, {clock_origin}>, '
-            f'#pyc.control_port_mapping<"reset", 1, !pyc.reset, {reset_origin}>]'
+            "["
+            + ", ".join(
+                entry
+                for pair_index in range(len(control_pairs))
+                for entry in (
+                    f'#pyc.control_port_mapping<"clock", {pair_index * 2}, !pyc.clock, {clock_origin}>',
+                    f'#pyc.control_port_mapping<"reset", {pair_index * 2 + 1}, !pyc.reset, {reset_origin}>',
+                )
+            )
+            + "]"
         )
         mapping = (
             f"#pyc.module_port_mapping<{controls}, [{', '.join(logical_mappings)}], "

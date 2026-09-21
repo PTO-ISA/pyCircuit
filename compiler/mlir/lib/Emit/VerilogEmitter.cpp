@@ -217,6 +217,11 @@ static LogicalResult buildRtlModuleNames(
   for (pyc::FamilyOp family : module.getOps<pyc::FamilyOp>())
     if (failed(add(family, family.getSymName())))
       return failure();
+  // Split-module units declare their siblings as imports; the RTL module name
+  // must match the one the defining unit emits for the same symbol.
+  for (pyc::ModuleImportOp import : module.getOps<pyc::ModuleImportOp>())
+    if (failed(add(import, import.getSymName())))
+      return failure();
   return success();
 }
 
@@ -385,6 +390,33 @@ static LogicalResult computeCasePortNames(pyc::ModuleCaseOp moduleCase,
   if (llvm::any_of(inNames, [](const std::string &name) { return name.empty(); }) ||
       llvm::any_of(outNames, [](const std::string &name) { return name.empty(); }))
     return moduleCase.emitError("verified case mapping has an unnamed physical carrier");
+  return success();
+}
+
+// A split-module compilation unit sees its sibling modules only as
+// source-owned `pyc.module.import` declarations, so instance wiring is derived
+// from the declared interface, which is the accepted ABI. Interfaces the
+// declaration cannot describe exactly fail closed instead of miscompiling.
+static LogicalResult computeImportPortNames(pyc::ModuleImportOp import,
+                                            std::vector<std::string> &inNames,
+                                            std::vector<std::string> &outNames) {
+  inNames.assign({"clk", "rst"});
+  outNames.clear();
+  for (auto port : import.getSchema()
+                       .getInterface()
+                       .getPorts()
+                       .getAsRange<acir::ac::InterfacePortAttr>()) {
+    auto concrete = dyn_cast<acir::ac::TypeExprConcreteAttr>(
+        port.getLogicalType().getValue());
+    if (!concrete || isa<acir::ac::QueueType>(concrete.getType().getValue()))
+      return import.emitError(
+          "split Verilog emission cannot wire an imported queue carrier");
+    std::string name = sanitizeId(port.getName().getValue());
+    if (port.getDirection().getValue() == "input")
+      inNames.push_back(std::move(name));
+    else
+      outNames.push_back(std::move(name));
+  }
   return success();
 }
 
@@ -1295,6 +1327,11 @@ static LogicalResult emitBlockModule(
                 "Verilog family emission does not support this static value type");
           calleeParameters = *parameters;
         }
+      } else if (auto import =
+                     mod.lookupSymbol<pyc::ModuleImportOp>(calleeAttr.getValue())) {
+        if (failed(computeImportPortNames(import, inPorts, outPorts)))
+          return failure();
+        calleeName = rtlModuleNames.lookup(import.getSymName());
       } else {
         return inst.emitError("callee symbol not found: ") << calleeAttr.getValue();
       }
@@ -1826,6 +1863,18 @@ LogicalResult emitVerilogFunc(ModuleOp module, func::FuncOp f, llvm::raw_ostream
     return failure();
   return emitFunc(f, rtlModuleNames.lookup(f.getSymName()), os, opts,
                   rtlModuleNames);
+}
+
+LogicalResult emitVerilogFamily(ModuleOp module, pyc::FamilyOp family,
+                                llvm::raw_ostream &os,
+                                const VerilogEmitterOptions &opts) {
+  llvm::StringMap<std::string> rtlModuleNames;
+  if (failed(buildRtlModuleNames(module, rtlModuleNames)))
+    return failure();
+  if (failed(emitVerilogNominalDeclarations(module, os)))
+    return failure();
+  return emitFamily(family, rtlModuleNames.lookup(family.getSymName()), os, opts,
+                    rtlModuleNames);
 }
 
 } // namespace pyc

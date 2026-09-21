@@ -124,6 +124,7 @@ target_link_libraries(pyc_support PUBLIC
 add_library(pyc_transforms OBJECT
   lib/Transforms/CombDepGraph.cpp
   lib/Transforms/CheckFrontendContractPass.cpp
+  lib/Transforms/LowerModuleFamiliesToFuncsPass.cpp
   lib/Transforms/CheckHierarchyDisciplinePass.cpp
   lib/Transforms/CheckFlatTypesPass.cpp
   lib/Transforms/CheckLogicDepthPass.cpp

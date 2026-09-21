@@ -173,10 +173,14 @@ LogicalResult ControlPortMappingAttr::verify(
     uint64_t index, TypeAttr type, ImplicitControlOriginAttr origin) {
   bool clock = kind && kind.getValue() == "clock";
   bool reset = kind && kind.getValue() == "reset";
+  // Decision 0126: controls are contiguous clock-then-reset pairs, so a clock
+  // occupies an even physical input index and its reset the following odd one.
   if ((!clock && !reset) || !type || !origin || origin.getKind() != kind ||
-      (clock ? index != 0 || !isa<ClockType>(type.getValue())
-             : index != 1 || !isa<ResetType>(type.getValue())))
-    return emitError() << "control mapping must use !pyc.clock/!pyc.reset at inputs 0/1";
+      (clock ? index % 2 != 0 || !isa<ClockType>(type.getValue())
+             : index % 2 != 1 || !isa<ResetType>(type.getValue())))
+    return emitError()
+           << "control mapping must pair !pyc.clock at even inputs with "
+              "!pyc.reset at odd inputs";
   return success();
 }
 LogicalResult ModulePortMappingAttr::verify(
@@ -184,7 +188,7 @@ LogicalResult ModulePortMappingAttr::verify(
     ArrayAttr logicalPorts, ArrayAttr physicalInputs, ArrayAttr physicalResults) {
   if (failed(verifyTypedArray<ControlPortMappingAttr>(
           emitError, controls, "control mappings", true)) ||
-      controls.size() != 2 ||
+      controls.size() < 2 || controls.size() % 2 != 0 ||
       failed(verifyTypedArray<LogicalPortMappingAttr>(
           emitError, logicalPorts, "logical mappings")) ||
       failed(verifyTypedArray<PhysicalPortAttr>(
@@ -204,21 +208,27 @@ LogicalResult ModuleCaseSignatureAttr::verify(
     return emitError() << "PYC module case signature is incomplete";
   auto functionType = cast<FunctionType>(physical.getValue());
   auto controls = mapping.getControls().getAsRange<ControlPortMappingAttr>();
-  if (mapping.getControls().size() != 2)
-    return emitError() << "controls must be ordered clock then reset";
-  auto controlIt = controls.begin();
-  ControlPortMappingAttr clock = *controlIt++;
-  ControlPortMappingAttr reset = *controlIt;
-  if (clock.getKind().getValue() != "clock" ||
-      reset.getKind().getValue() != "reset")
-    return emitError() << "controls must be ordered clock then reset";
-  if (functionType.getNumInputs() != mapping.getPhysicalInputs().size() + 2 ||
+  // Decision 0126: a module may carry several clock domains, so controls are
+  // one or more clock-then-reset pairs with contiguous physical inputs.
+  if (mapping.getControls().size() < 2 || mapping.getControls().size() % 2 != 0)
+    return emitError() << "controls must be ordered clock then reset pairs";
+  for (auto [index, control] : llvm::enumerate(controls)) {
+    const bool expectClock = index % 2 == 0;
+    if (control.getKind().getValue() != (expectClock ? "clock" : "reset") ||
+        control.getPhysicalInputIndex() != index)
+      return emitError() << "controls must be ordered clock then reset pairs";
+    if (control.getType().getValue() != functionType.getInput(index))
+      return emitError() << "control carrier type does not match FunctionType";
+  }
+  const uint64_t controlCount = mapping.getControls().size();
+  if (functionType.getNumInputs() !=
+          mapping.getPhysicalInputs().size() + controlCount ||
       functionType.getNumResults() != mapping.getPhysicalResults().size())
     return emitError() << "physical mapping arity does not match FunctionType";
 
   llvm::SmallDenseSet<Attribute> inputCarriers;
   llvm::SmallDenseSet<Attribute> resultCarriers;
-  uint64_t expectedInput = 2;
+  uint64_t expectedInput = controlCount;
   for (auto port : mapping.getPhysicalInputs().getAsRange<PhysicalPortAttr>()) {
     if (port.getDirection().getValue() != "input")
       return emitError() << "physical input carrier has non-input direction";
@@ -1585,8 +1595,35 @@ LogicalResult InstanceOp::verify() {
 
   Operation *sym = SymbolTable::lookupSymbolIn(module, calleeAttr);
   auto family = dyn_cast_or_null<pyc::FamilyOp>(sym);
-  if (!family)
+  if (!family) {
+    // A split-module compilation unit references its siblings through a
+    // source-owned `pyc.module.import` because the defining family lives in
+    // another unit. Only the declared schema is available here, so the case
+    // selection is verified where the family itself is compiled.
+    if (auto import = dyn_cast_or_null<pyc::ModuleImportOp>(sym)) {
+      auto cases = import.getSchema().getCases().getCases();
+      const std::size_t requested = getStaticArgs().getArguments().size();
+      if (!cases.empty() &&
+          llvm::none_of(cases, [&](Attribute raw) {
+            auto arguments =
+                dyn_cast<acir::ac::StaticArgumentsAttr>(raw);
+            return arguments && arguments.getArguments().size() == requested;
+          }))
+        return emitOpError(
+            "static arguments do not select one declared family case");
+      return success();
+    }
+    // The func-based pipeline bridges single-case families and imports onto
+    // func.func, and legacy fixtures may reference a func callee directly.
+    if (auto func = dyn_cast_or_null<func::FuncOp>(sym)) {
+      if (func.getNumArguments() != getNumOperands() ||
+          func.getNumResults() != getNumResults())
+        return emitOpError(
+            "operand and result counts must match the callee func");
+      return success();
+    }
     return emitOpError("callee must reference a pyc.module family");
+  }
   pyc::ModuleCaseOp selected;
   for (pyc::ModuleCaseOp candidate :
        family.getBody().front().getOps<pyc::ModuleCaseOp>())

@@ -782,6 +782,10 @@ class Reg(Generic[DT]):
 
         - `r.set(v)` is equivalent to `m.assign(r.next, v)`
         - `r.set(v, when=cond)` drives `cond ? v : r` (hold otherwise)
+
+        Repeated calls fold into one driver with the last call winning, which
+        keeps the frontend contract that a register next wire has exactly one
+        driver while preserving the sequential write order of the source.
         """
         m = self.q.m
         if not isinstance(m, Circuit):
@@ -789,16 +793,43 @@ class Reg(Generic[DT]):
 
         next_w = Wire.as_wire(value, m=m, width=self.width)
 
-        if isinstance(when, int) and int(when) == 1:
-            m.assign(self.next, next_w)
-            return
+        condition: Wire | None = None
+        if not (isinstance(when, int) and int(when) == 1):
+            cond = Wire.as_wire(when, m=m, width=1)
+            if cond.width != 1:
+                raise TypeError("when width must be 1")
+            condition = Wire.as_wire(when, m=m)
 
-        cond = Wire.as_wire(when, m=m, width=1)
-        if cond.width != 1:
-            raise TypeError("when width must be 1")
-        when_w = Wire.as_wire(when, m=m)
+        pending = getattr(m, "_reg_next_sets", None)
+        if pending is None:
+            pending = {}
+            m._reg_next_sets = pending  # noqa: SLF001
+            m.add_finalizer(lambda: _flush_reg_next_drivers(m))
+        entry = pending.get(self.next.ref)
+        if entry is None:
+            entry = (self.next, self.q, [])
+            pending[self.next.ref] = entry
+        entry[2].append((condition, next_w))
 
-        m.assign(self.next, when_w._select_internal(value, self.q))
+
+def _flush_reg_next_drivers(m: Any) -> None:
+    """Emit one priority-selected driver per register next wire.
+
+    Entries are folded in source order, so a later `set` wraps an earlier one
+    and wins, matching the sequential write order a chain of assigns used to
+    produce.
+    """
+    pending = getattr(m, "_reg_next_sets", None)
+    if not pending:
+        return
+    for next_wire, q_wire, entries in pending.values():
+        expression: Any = q_wire
+        for condition, value in entries:
+            if condition is None:
+                expression = value
+            else:
+                expression = condition._select_internal(value, expression)
+        m.assign(next_wire, expression)
 
 
 class Circuit(Module):
