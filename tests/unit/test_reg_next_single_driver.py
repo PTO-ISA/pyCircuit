@@ -8,15 +8,13 @@ keeping the later-write-wins order the emitted sequence used to produce.
 
 from __future__ import annotations
 
+import pytest
 from pycircuit import (
     CycleAwareCircuit,
     CycleAwareDomain,
     compile_cycle_aware,
-    module,
 )
 from pycircuit.hw import ClockDomain
-
-import pytest
 
 pytestmark = pytest.mark.unit
 

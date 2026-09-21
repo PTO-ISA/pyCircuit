@@ -8,7 +8,6 @@ domain and keeps each control's source port name, so an emitted module exposes
 from __future__ import annotations
 
 import pytest
-
 from pycircuit import (
     CycleAwareCircuit,
     CycleAwareDomain,

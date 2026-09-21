@@ -265,3 +265,27 @@ def test_release_attestation_commands_are_repo_explicit() -> None:
         assert matches, command
         for line in matches:
             assert "--repo" in line, line
+
+
+def test_closure_scripts_do_not_pipe_python_into_an_early_exit_consumer() -> None:
+    """A consumer that stops reading closes the pipe under the producer.
+
+    `run_semantic_regressions_v6.sh` filtered a Python producer through
+    `awk ... exit`; the producer then raised BrokenPipeError while flushing
+    stdout at shutdown, exit code 120, and `pipefail` failed the whole gate.
+    """
+
+    offenders: list[str] = []
+    for script in sorted((ROOT / "flows/scripts").glob("*.sh")):
+        for number, line in enumerate(
+            script.read_text(encoding="utf-8").splitlines(), 1
+        ):
+            if "python" not in line or "|" not in line:
+                continue
+            producer, consumer = line.split("|", 1)
+            if "python" not in producer:
+                continue
+            if re.search(r"\bexit\b", consumer) or re.search(r"\bhead\b", consumer):
+                offenders.append(f"{script.name}:{number}")
+
+    assert offenders == []

@@ -499,11 +499,12 @@ class Module:
     def _flush_undriven_registers(self) -> None:
         """Hold every declared register that nothing drives.
 
+        Decision 0049 makes a register that is not written hold its value; a
+        register the design declares but never writes has to say so explicitly.
         `m.out()`/`m.reg()`/`m.backedge_reg()` expose the register `next` as an
-        SSA backedge placeholder. Without this, a register the design declares
-        but never writes reaches the emitters with an undriven next wire, which
-        becomes a floating `.d()` in Verilog and an uninitialised load in the
-        C++ model instead of holding the declared value.
+        SSA backedge placeholder, so without this the placeholder reached the
+        emitters undriven: a floating `.d()` in Verilog and an uninitialised
+        load in the C++ model instead of the declared value.
         """
         pending = getattr(self, "_reg_next_sets", {})
         for next_signal, q_signal in self._declared_registers:

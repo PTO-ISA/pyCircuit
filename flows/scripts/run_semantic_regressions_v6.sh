@@ -22,7 +22,10 @@ run_case() {
   rm -rf "${out_dir}" >/dev/null 2>&1 || true
   mkdir -p "${out_dir}"
   local record
-  record="$(python3 "${DISCOVER}" --root "${PYC_ROOT_DIR}/examples/pycircuit" --tier all --format tsv | awk -F '\t' -v name="${case_name}" '$1 == name { print; exit }')"
+  # `awk ... exit` closes the pipe early, which makes the Python producer raise
+  # BrokenPipeError while flushing stdout at shutdown (and `pipefail` turns that
+  # into a failed gate), so the filter reads to the end of the stream.
+  record="$(python3 "${DISCOVER}" --root "${PYC_ROOT_DIR}/examples/pycircuit" --tier all --format tsv | awk -F '\t' -v name="${case_name}" '$1 == name { print }')"
   [[ -n "${record}" ]] || pyc_die "missing discovered example: ${case_name}"
   local _name _category design tb _cfg _tier
   IFS=$'\t' read -r _name _category design tb _cfg _tier <<< "${record}"
