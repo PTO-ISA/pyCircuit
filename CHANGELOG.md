@@ -6,15 +6,14 @@ published through the repository's release workflow.
 
 ## Unreleased
 
+## 6.1.0 - 2026-09-21
+
 - Hard-break Agentic Circuit onto the two-stage `acc.py`/native `acc` compiler
   flow. Remove content-derived identities, persistent JIT caching, retired
   ACSim interchange, and byte-bound SDK/RTL catalogs. Specializations now use
-  the MLIR definition symbol plus
-  typed static arguments; generated C++ names those arguments directly and
-  retains NDF IDs and Python provenance (Decision 0267).
-
-## 6.1.0 - 2026-09-18
-
+  the MLIR definition symbol plus typed static arguments; generated C++ names
+  those arguments directly and retains NDF IDs and Python provenance
+  (Decision 0267).
 - Map Agentic lexical register reset onto `ac.var.decl init` and write enable
   onto `ac.var.assign when`, copy non-zero scalar images through storage
   selection and `SimTable` restore, dump one `.ac.mlir` per `ac.module`, and

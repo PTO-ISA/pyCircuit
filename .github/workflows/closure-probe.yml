@@ -1,0 +1,151 @@
+name: Closure probe (no publish)
+
+# Diagnostic-only lane for release preparation. It runs the same closure steps
+# the release workflow runs, reports each one independently, and never tags,
+# never publishes, and never touches the release environment. Delete this file
+# once the release pipeline is green again.
+
+on:
+  workflow_dispatch:
+    inputs:
+      commit_sha:
+        description: Full commit SHA to validate
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+env:
+  LLVM_VERSION: "22"
+  VERILATOR_VERSION: "5.048"
+  PYC_GATE_RUN_ID: probe-${{ github.run_id }}-${{ github.run_attempt }}
+
+jobs:
+  closure:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 360
+    steps:
+      - name: Checkout exact candidate SHA
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          ref: ${{ inputs.commit_sha }}
+
+      - name: Set up Python
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7
+        with:
+          python-version: "3.11"
+
+      - name: Install Python, LLVM, and simulation dependencies
+        run: |
+          set -euxo pipefail
+          python -m pip install -e "python/semantic-core"
+          python -m pip install -e ".[dev,docs]"
+          python -m pip install -e "python/agentic-circuit[test]"
+          sudo apt-get update
+          sudo apt-get install -y wget gnupg software-properties-common cmake ninja-build clang iverilog libgtest-dev ripgrep
+          wget --https-only https://apt.llvm.org/llvm.sh
+          chmod +x llvm.sh
+          sudo ./llvm.sh "${LLVM_VERSION}"
+          sudo apt-get install -y "llvm-${LLVM_VERSION}-dev" "mlir-${LLVM_VERSION}-tools" "libmlir-${LLVM_VERSION}-dev"
+          echo "/usr/lib/llvm-${LLVM_VERSION}/bin" >> "$GITHUB_PATH"
+
+      - name: Setup Verilator
+        uses: ./.github/actions/setup-verilator
+        with:
+          version: ${{ env.VERILATOR_VERSION }}
+
+      - name: Build integrated toolchain
+        run: |
+          export PYC_PYTHON_EXECUTABLE="$(command -v python3)"
+          PYC_BUILD_AGENTIC_CIRCUIT_TESTS=ON bash flows/scripts/pyc build --llvm-config "/usr/lib/llvm-${LLVM_VERSION}/bin/llvm-config" --build-dir "$PWD/.pycircuit_out/toolchain/build" --install-prefix "$PWD/.pycircuit_out/toolchain/install"
+
+      - name: Agentic Circuit closure
+        id: ac
+        continue-on-error: true
+        run: |
+          export AC_GATE_BUILD_ROOT="$PWD/.pycircuit_out/toolchain/build"
+          export AC_GATE_TOOLCHAIN_ROOT="$PWD/.pycircuit_out/toolchain/install"
+          bash flows/scripts/run_agentic_circuit.sh
+
+      - name: Repository contract closure
+        id: contracts
+        continue-on-error: true
+        run: |
+          SKIP=pyc-api-hygiene pre-commit run --all-files
+          python3 .github/scripts/validate_repo_management.py
+          pytest tests/unit -m unit
+          python3 flows/tools/check_api_hygiene.py python/pycircuit/src/pycircuit examples/pycircuit docs README.md
+          python3 flows/tools/check_decision_status.py --rfc docs/rfcs/pyc6-decisions.md --status docs/gates/decision_status_v6.md --out "docs/gates/logs/${PYC_GATE_RUN_ID}/release_decision_status.json" --require-no-deferred --require-all-verified --require-concrete-evidence --require-existing-evidence
+          mkdocs build --strict
+
+      - name: pyCircuit closure (examples)
+        id: examples
+        continue-on-error: true
+        run: |
+          export PYC_TOOLCHAIN_ROOT="$PWD/.pycircuit_out/toolchain/install"
+          export PATH="$PYC_TOOLCHAIN_ROOT/bin:$PATH"
+          unset PYCC || true
+          bash flows/scripts/run_examples.sh
+
+      - name: pyCircuit closure (sims)
+        id: sims
+        continue-on-error: true
+        run: |
+          export PYC_TOOLCHAIN_ROOT="$PWD/.pycircuit_out/toolchain/install"
+          export PATH="$PYC_TOOLCHAIN_ROOT/bin:$PATH"
+          unset PYCC || true
+          bash flows/scripts/run_sims.sh
+
+      - name: pyCircuit closure (nightly sims)
+        id: sims_nightly
+        continue-on-error: true
+        run: |
+          export PYC_TOOLCHAIN_ROOT="$PWD/.pycircuit_out/toolchain/install"
+          export PATH="$PYC_TOOLCHAIN_ROOT/bin:$PATH"
+          unset PYCC || true
+          bash flows/scripts/run_sims_nightly.sh
+
+      - name: pyCircuit closure (semantic regressions)
+        id: semantic
+        continue-on-error: true
+        run: |
+          export PYC_TOOLCHAIN_ROOT="$PWD/.pycircuit_out/toolchain/install"
+          export PATH="$PYC_TOOLCHAIN_ROOT/bin:$PATH"
+          unset PYCC || true
+          bash flows/scripts/run_semantic_regressions_v6.sh
+
+      - name: Upload probe gate logs
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: closure-probe-logs-${{ env.PYC_GATE_RUN_ID }}
+          path: docs/gates/logs/${{ env.PYC_GATE_RUN_ID }}/
+          if-no-files-found: warn
+          retention-days: 14
+
+      - name: Report closure outcomes
+        if: always()
+        run: |
+          {
+            echo "| step | outcome |"
+            echo "| --- | --- |"
+            echo "| agentic-circuit | ${{ steps.ac.outcome }} |"
+            echo "| repository-contracts | ${{ steps.contracts.outcome }} |"
+            echo "| examples | ${{ steps.examples.outcome }} |"
+            echo "| sims | ${{ steps.sims.outcome }} |"
+            echo "| sims-nightly | ${{ steps.sims_nightly.outcome }} |"
+            echo "| semantic-regressions | ${{ steps.semantic.outcome }} |"
+          } >> "$GITHUB_STEP_SUMMARY"
+          for outcome in \
+            "${{ steps.ac.outcome }}" \
+            "${{ steps.contracts.outcome }}" \
+            "${{ steps.examples.outcome }}" \
+            "${{ steps.sims.outcome }}" \
+            "${{ steps.sims_nightly.outcome }}" \
+            "${{ steps.semantic.outcome }}"; do
+            if [[ "${outcome}" != "success" ]]; then
+              echo "one or more closure steps failed" >&2
+              exit 1
+            fi
+          done

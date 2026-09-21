@@ -430,7 +430,7 @@ def verify_only_export(plugin: Path) -> None:
         return
     command = (
         ["nm", "-gU", plugin]
-        if platform.system() == "Darwin"
+        if sys.platform == "darwin"
         else ["nm", "-D", "--defined-only", plugin]
     )
     completed = subprocess.run(command, text=True, capture_output=True, check=False)

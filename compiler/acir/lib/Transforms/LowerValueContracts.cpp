@@ -103,11 +103,17 @@ LogicalResult lowerEnumMatch(ac::VarEnumMatchOp match) {
       }
       auto [leftValue, leftValid] = candidates[index];
       auto [rightValue, rightValid] = candidates[index + 1];
-      next.emplace_back(createSelect(builder, match.getLoc(), leftValid,
-                                     leftValue, rightValue),
-                        createBoolBinary(builder, match.getLoc(),
-                                         ac::VarOrOp::getOperationName(),
-                                         leftValid, rightValid));
+      // Build both halves through named locals: handing them to emplace_back as
+      // sibling call arguments left the order in which they enter the block up
+      // to the host compiler's argument evaluation order, so the printed
+      // select/or interleaving was not stable across toolchains.
+      Value selected = createSelect(builder, match.getLoc(), leftValid,
+                                    leftValue, rightValue);
+      Value valid =
+          createBoolBinary(builder, match.getLoc(),
+                           ac::VarOrOp::getOperationName(), leftValid,
+                           rightValid);
+      next.emplace_back(selected, valid);
     }
     candidates = std::move(next);
   }
