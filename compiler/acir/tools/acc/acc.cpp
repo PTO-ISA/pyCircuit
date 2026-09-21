@@ -2,6 +2,7 @@
 #include "acir/CodeGen/QueueGraphPlan.h"
 #include "acir/CodeGen/QueueGraphPyc.h"
 #include "acir/InitAllDialects.h"
+#include "acir/Support/DirectoryPublication.h"
 #include "acir/Transforms/Passes.h"
 
 #include "mlir/IR/DialectRegistry.h"
@@ -611,7 +612,7 @@ llvm::Error writeBundleAtomically(
 
   if (auto error = requireAbsent(output))
     return error;
-  if (std::error_code error = llvm::sys::fs::rename(staging, output))
+  if (std::error_code error = acir::publishDirectory(staging, output))
     return llvm::createStringError(error, "cannot publish generated bundle");
   cleanup.path.clear();
   return llvm::Error::success();

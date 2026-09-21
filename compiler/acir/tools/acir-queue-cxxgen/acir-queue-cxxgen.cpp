@@ -1,3 +1,4 @@
+#include "acir/Support/DirectoryPublication.h"
 #include "acir/CodeGen/QueueGraphGenerator.h"
 #include "acir/CodeGen/QueueGraphPlan.h"
 #include "acir/InitAllDialects.h"
@@ -23,37 +24,6 @@
 #endif
 
 namespace {
-
-/// Move the staged bundle directory into its final location.
-///
-/// llvm::sys::fs::rename opens the source without FILE_FLAG_BACKUP_SEMANTICS,
-/// which Windows requires in order to open a directory, so it cannot move a
-/// directory there and fails with permission denied. MoveFileExW moves
-/// directories, and the caller has already established that the destination
-/// does not exist.
-std::error_code publishDirectory(llvm::StringRef staged, llvm::StringRef root) {
-#if defined(_WIN32)
-  llvm::SmallVector<wchar_t, 0> source;
-  llvm::SmallVector<wchar_t, 0> target;
-  if (std::error_code error = llvm::sys::windows::UTF8ToUTF16(staged, source))
-    return error;
-  if (std::error_code error = llvm::sys::windows::UTF8ToUTF16(root, target))
-    return error;
-  source.push_back(L'\0');
-  target.push_back(L'\0');
-  // A scanner or indexer can still hold a handle on a file written moments
-  // ago, which blocks the move; retry briefly before reporting failure.
-  for (unsigned attempt = 0; attempt != 20; ++attempt) {
-    if (::MoveFileExW(source.data(), target.data(), MOVEFILE_REPLACE_EXISTING))
-      return std::error_code();
-    ::Sleep(50);
-  }
-  return std::error_code(static_cast<int>(::GetLastError()),
-                         std::system_category());
-#else
-  return llvm::sys::fs::rename(staged, root);
-#endif
-}
 
 llvm::cl::opt<std::string> inputFile(llvm::cl::Positional, llvm::cl::Required,
                                      llvm::cl::desc("<verified-acir>"));
@@ -109,7 +79,7 @@ llvm::Error writeBundle(
     return llvm::createStringError(
         std::make_error_code(std::errc::file_exists),
         "output root already exists; refusing a partial replacement");
-  if (std::error_code error = publishDirectory(staging, root))
+  if (std::error_code error = acir::publishDirectory(staging, root))
     return llvm::createStringError(error, "cannot publish generated bundle");
   cleanup.path.clear();
   return llvm::Error::success();
