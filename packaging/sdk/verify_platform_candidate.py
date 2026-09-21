@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import argparse
+import ctypes
 import json
 import os
 import shutil
@@ -453,6 +454,23 @@ def tree_snapshot(root: Path) -> tuple[tuple[str, bytes], ...]:
     )
 
 
+def canonical_path(path: Path) -> Path:
+    """Return the long spelling of a path.
+
+    Hosted Windows runners set `TEMP` to a Windows 8.3 short path such as
+    `...\\RUNNER~1\\...`. A venv created from that spelling records a location
+    the operating system reports differently afterwards, which makes the new
+    interpreter unreachable and fails the installed smoke test.
+    """
+    real = os.path.realpath(os.fspath(path))
+    if sys.platform == "win32":
+        buffer = ctypes.create_unicode_buffer(32768)
+        length = ctypes.windll.kernel32.GetLongPathNameW(real, buffer, len(buffer))
+        if 0 < length < len(buffer):
+            real = buffer.value
+    return Path(real)
+
+
 def installed_smoke(sdk_root: Path, wheels: list[Path], workspace: Path) -> None:
     windows = sys.platform == "win32"
     suffix = ".exe" if windows else ""
@@ -615,7 +633,7 @@ def main() -> int:
         raise ValueError("candidate tag and release URL must be supplied together")
     external_manifest = load(args.manifest)
     with tempfile.TemporaryDirectory(prefix="pycircuit-sdk-verify-") as raw:
-        workspace = Path(raw)
+        workspace = canonical_path(Path(raw))
         first = workspace / "relocated-a"
         second = workspace / "relocated-b"
         extract(args.archive, first)
