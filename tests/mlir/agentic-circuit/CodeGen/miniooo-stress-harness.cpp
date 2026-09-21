@@ -243,8 +243,11 @@ int main() {
               << "\n";
     return 1;
   }
-  // Reaching the end already proves no obligation aborted the model; the
-  // explicit failure sum keeps a silently disabled check from passing.
+  // Reaching the end proves no obligation aborted the model. The
+  // no_stale_response counter is falsifiable, while the two window counters are
+  // lowering-invariant canaries that cannot fire while the emitted write enable
+  // keeps excluding the stale set, so the coverage checks below, and not this
+  // sum, carry the executed evidence.
   if (failures != 0) {
     std::cerr << "miniOOO stress: obligations failed count=" << failures << "\n";
     return 1;

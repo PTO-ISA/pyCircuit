@@ -122,7 +122,10 @@ miniOOO rtl stress PASS cycles=48 dispatched=48 completed=47 recovered=1
 
 The bounded run is the deterministic acceptance evidence; long random runs stay
 in nightly and release lanes, and full SSM validation remains in the SSM
-repository against a pinned pyCircuit revision.
+repository against a pinned pyCircuit revision. `iverilog` cannot elaborate
+concurrent assertions, which is why the RTL fixture runs with `-DSYNTHESIS` and
+proves cadence and liveness while the emitted SVA is checked by the RTL audit,
+the `SVA` checks, and Verilator lint rather than by RTL assertion evaluation.
 
 ## Obligation evidence boundary
 
