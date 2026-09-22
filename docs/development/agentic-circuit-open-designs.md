@@ -241,10 +241,13 @@ mistake for complete:
 - `V08` requires a fixed revision in the consumer checkout and stays a
   consumer-side obligation under Decisions 0158 and 0235. `V04` and `V07` need a
   Verilog toolchain, the simulation lanes, and strict documentation, none of
-  which are available in this environment, so neither is claimed. `V05` still
-  needs checked-in source-map goldens covering the helper, module, projection,
-  and specialization constructs; the QueueGraph source-map JSON is round-tripped
-  by `QueueGraphPlanTest`, but no golden pins those four shapes.
+  which are available in this environment, so neither is claimed. `V05` is
+  partially satisfied: `test_source_map_goldens.py` pins the helper and
+  projection source maps against the published schema
+  (`docs/gates/logs/20260922-v05-source-map-goldens/`), while the module and
+  specialization constructs need the linked AC package flow that `acc
+  -emit-cpp-bundle` requires for a multi-definition unit — the multi-unit work
+  tracked by #180.
 
 ## Hierarchical instances and structured GFSIM source bundles (#180)
 

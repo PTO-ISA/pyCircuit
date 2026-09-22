@@ -1,0 +1,19 @@
+# Item V05 of the #128 cross-layer verification matrix: source-map golden tests
+# covering the helper, module, projection, and specialization constructs.
+#
+# Run from the repository root with the Agentic Circuit test dependencies
+# installed and the native toolchain built (.pycircuit_out/toolchain/build/bin).
+
+python3 -m pytest tests/python/agentic-circuit/python_frontend/test_source_map_goldens.py -q -p no:cacheprovider
+
+# Same lane by hand, per construct:
+#   frontend lower_queue_source
+#   -> acir-opt --pass-pipeline='builtin.module(ac-lower-rules,ac-inline-pure-helpers,canonicalize,cse,ac-verify-rule-closure,ac-freeze-topology)'
+#   -> acc -c <unit.ac> -emit-cpp-bundle -o <bundle>
+#   -> <bundle>/share/generated/source-map.json
+.pycircuit_out/toolchain/build/bin/acc -c <unit.ac> -emit-cpp-bundle -o <bundle>
+python3 -c 'import json, jsonschema; jsonschema.Draft202012Validator(json.load(open("schemas/agentic-circuit/source-map.schema.json"))).validate(json.load(open("<bundle>/share/generated/source-map.json")))'
+
+# Lane context.
+python3 -m pytest tests/python/agentic-circuit/python_frontend -q -p no:cacheprovider \
+  --ignore=tests/python/agentic-circuit/python_frontend/test_dual_port_issue_queue.py
