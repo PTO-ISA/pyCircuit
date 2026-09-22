@@ -1,12 +1,11 @@
 // RUN: %acir_opt --pass-pipeline='builtin.module(ac-lower-rules,ac-inline-pure-helpers,canonicalize,cse,ac-verify-rule-closure,ac-freeze-topology)' %s -o %t.frozen.mlir
-// RUN: %not %acir_queue_cxxgen %t.frozen.mlir 2>&1 | %FileCheck %s --check-prefix=REJECT
+// RUN: %acir_queue_cxxgen %t.frozen.mlir > %t.cpp
+// RUN: %FileCheck %s --check-prefix=GFSIM < %t.cpp
+// RUN: %cxx -std=c++20 -I%source_root/simulator/gfsim/include -c %t.cpp -o %t.o
 
-// Issue #223 boundary. A module body holding ONE local block plus child instances
-// is accepted by the backend (see composite-module-body.mlir). Interleaving TWO
-// local blocks around a child instance is still rejected by the structured
-// QueueGraph specialization whitelist, which admits exactly one local block next
-// to child instances. This test pins that boundary so generalizing the whitelist
-// is a deliberate change.
+// Issue #223 general shape: a parent mixes TWO local rule blocks around a child
+// module instance. Each local block keeps its own scope, generated policy and
+// transform member; the Queues between them and the child stay parent-owned.
 
 builtin.module attributes {ac.contract_epoch = "0.5", ac.model_kind = "queue_graph", ac.queue_graph_domain = "cycle"} {
   ac.module @Child(%input_0: !ac.queue<i8>) -> !ac.queue<i8> parameters {}  attributes {ac.input_display_names = ["value"], ac.output_display_names = ["result"]} graph {
@@ -59,4 +58,15 @@ builtin.module attributes {ac.contract_epoch = "0.5", ac.model_kind = "queue_gra
   ac.system @probe root @Top as "root" tick 0 "cycle" seed {kind = "fixed", value = 0 : i64} instrumentation [] results {id = "default", format = "json"} selected true
 }
 
-// REJECT: structured QueueGraph specialization requires a pure transform
+// The child keeps its own reusable class.
+// GFSIM: class Module_Child
+// Each local block gets its own generated policy.
+// GFSIM: struct Module_Parent_local_policy_0
+// GFSIM: struct Module_Parent_local_policy_1
+// The parent owns one scope and one transform per local block, plus the child.
+// GFSIM: class Module_Parent
+// GFSIM: gfsim::Module scope_0_;
+// GFSIM: gfsim::Module scope_1_;
+// GFSIM: block_0_;
+// GFSIM: block_1_;
+// GFSIM: Module_Child child_0_;
