@@ -434,10 +434,21 @@ def lower_queue_program(
             f'stable_id "memory/{stable_id}"'
             + _render_source_frame_location(instance.source)
         )
+    # A segmented rule-backed body does not open the synthetic `ac.scope @body`
+    # wrapper; its module-local state is hoisted to the `ac.module.case` root so
+    # every scope segment shares one declaration. The owner path has to follow
+    # the physical placement: the case root, not a `/body` scope that does not
+    # exist for this shape. A non-segmented body keeps the `/body` owner because
+    # the declaration really is nested there.
+    def state_owner_scope(scope: tuple[str, ...]) -> tuple[str, ...]:
+        if module is None or segmented_body:
+            return scope
+        return ("body", *scope)
+
     for variable in sorted(
         program.variables, key=lambda value: (value.scope, value.order, value.name)
     ):
-        owner_scope = variable.scope if module is None else ("body", *variable.scope)
+        owner_scope = state_owner_scope(variable.scope)
         owner = "/" + "/".join(owner_scope) if owner_scope else "/"
         stable_id = (
             "/".join((*owner_scope, variable.name)) if owner_scope else variable.name
@@ -477,7 +488,7 @@ def lower_queue_program(
     for table in sorted(
         program.tables, key=lambda value: (value.scope, value.order, value.name)
     ):
-        owner_scope = table.scope if module is None else ("body", *table.scope)
+        owner_scope = state_owner_scope(table.scope)
         owner = "/" + "/".join(owner_scope) if owner_scope else "/"
         stable_id = "/".join((*owner_scope, table.name)) if owner_scope else table.name
         attributes = ""
@@ -3363,10 +3374,14 @@ def lower_queue_program(
 
         # The structured QueueGraph backend lowers a stateless local rule with
         # one result to a single transform and a stateless local rule with
-        # several results to a multi-output firing block. A rule that owns Table
-        # or Var state still has no representation next to child instances, so
-        # reject that here with a frontend diagnostic instead of letting codegen
-        # fail on the emitted graph.
+        # several results to a multi-output firing block. A single-result rule
+        # that owns Table or Var state is representable: the segmented body
+        # hoists the declaration to the `ac.module.case` root, where the mixed
+        # emitter binds it through the same Table transition runtime as the
+        # childless stateful case. A multi-result stateful local rule still has
+        # no representation next to child instances, so reject only that here
+        # with a frontend diagnostic instead of letting codegen fail on the
+        # emitted graph.
         def local_rule_is_stateless(candidate: QueueBinding) -> bool:
             return not (
                 candidate.rule_table is not None
