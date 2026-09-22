@@ -911,56 +911,78 @@ def _lower_simple_module_source(
             else ""
         )
         symbol = module_name if not digest else f"{module_name}__p{digest}"
+        if symbol in rule_module_specializations:
+            definition, _, _ = rule_module_specializations[symbol]
+            return symbol, frozen, definition.inputs, definition.outputs
+        namespace = "" if not digest else f"{module_name}__p{digest}__"
+        program = parse_queue_program(
+            text,
+            module_name,
+            static_arguments=dict(frozen),
+            specialization_fingerprint=specialization_fingerprint,
+            entry_kind="module",
+            source_path=normalized_source_path,
+            static_type_namespace=namespace,
+            definition_locations=definition_locations,
+            static_assert_locations=static_assert_locations,
+            source_node_locations=source_node_locations,
+        )
+        specialized_payloads = {item.name: item for item in program.payloads}
+        specialized_values = _type_static_values(tree, dict(frozen))
+        inputs = tuple(
+            (
+                name,
+                _payload(
+                    annotation,
+                    specialized_payloads,
+                    enum_map,
+                    specialized_values,
+                ),
+            )
+            for name, annotation in template.input_annotations
+        )
+        outputs = tuple(
+            (
+                name,
+                _payload(
+                    annotation,
+                    specialized_payloads,
+                    enum_map,
+                    specialized_values,
+                ),
+            )
+            for name, annotation in zip(
+                template.output_names,
+                template.output_annotations,
+                strict=True,
+            )
+        )
+        definition = RuleModuleDefinition(
+            inputs,
+            outputs,
+            template.static_parameters,
+            template.static_defaults,
+        )
+        # A parameter the body read symbolically cannot change this definition,
+        # so binding a different value for it must not produce a second
+        # specialization. Only the parameters the body actually folded into
+        # constants may distinguish one definition from another.
+        folded = tuple(
+            (name, value)
+            for name, value in frozen
+            if name not in program.symbolic_parameters
+        )
+        symbol = (
+            module_name
+            if not folded
+            else f"{module_name}__p"
+            + sha256_bytes(
+                canonical_json_bytes(
+                    {name: static_json_value(value) for name, value in folded}
+                )
+            ).removeprefix("sha256:")[:12]
+        )
         if symbol not in rule_module_specializations:
-            namespace = "" if not digest else f"{module_name}__p{digest}__"
-            program = parse_queue_program(
-                text,
-                module_name,
-                static_arguments=dict(frozen),
-                specialization_fingerprint=specialization_fingerprint,
-                entry_kind="module",
-                source_path=normalized_source_path,
-                static_type_namespace=namespace,
-                definition_locations=definition_locations,
-                static_assert_locations=static_assert_locations,
-                source_node_locations=source_node_locations,
-            )
-            specialized_payloads = {item.name: item for item in program.payloads}
-            specialized_values = _type_static_values(tree, dict(frozen))
-            inputs = tuple(
-                (
-                    name,
-                    _payload(
-                        annotation,
-                        specialized_payloads,
-                        enum_map,
-                        specialized_values,
-                    ),
-                )
-                for name, annotation in template.input_annotations
-            )
-            outputs = tuple(
-                (
-                    name,
-                    _payload(
-                        annotation,
-                        specialized_payloads,
-                        enum_map,
-                        specialized_values,
-                    ),
-                )
-                for name, annotation in zip(
-                    template.output_names,
-                    template.output_annotations,
-                    strict=True,
-                )
-            )
-            definition = RuleModuleDefinition(
-                inputs,
-                outputs,
-                template.static_parameters,
-                template.static_defaults,
-            )
             rule_module_specializations[symbol] = (
                 definition,
                 program,

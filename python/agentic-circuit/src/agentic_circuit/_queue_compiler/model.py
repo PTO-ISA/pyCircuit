@@ -737,6 +737,10 @@ class QueueProgram:
     static_type_checks: tuple[StaticTypeCheck, ...] = ()
     static_config_bindings: tuple[StaticConfigBinding, ...] = ()
     specialization_fingerprint: str | None = None
+    # Module parameters the body read symbolically with ac.param.get. Their
+    # values cannot change the lowered body, so they must not distinguish
+    # specializations of the same definition.
+    symbolic_parameters: frozenset[str] = frozenset()
     diagnostics: tuple[Diagnostic, ...] = ()
     source_path: str = _DEFAULT_QUEUE_SOURCE_PATH
     statement_sources: tuple[tuple[int, SourceFrame], ...] = ()

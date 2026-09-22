@@ -121,6 +121,7 @@ class _ExpressionEmitter:
         invariants: Mapping[str, InvariantDefinition] | None = None,
         helpers: Mapping[str, PureHelperDefinition] | None = None,
         inline_pure_helpers: bool = False,
+        module_parameters: frozenset[str] = frozenset(),
         strict_descriptors: bool = False,
         array_expansion: list[int] | None = None,
     ) -> None:
@@ -164,6 +165,7 @@ class _ExpressionEmitter:
         self.invariants = dict(invariants or {})
         self.helpers = dict(helpers or {})
         self.inline_pure_helpers = inline_pure_helpers
+        self.module_parameters = module_parameters
         self.active_inline_helpers: set[str] = set()
         self.strict_descriptors = strict_descriptors
         self.array_expansion = array_expansion if array_expansion is not None else [0]
@@ -2776,6 +2778,25 @@ class _ExpressionEmitter:
             return self.root_values[node.id]
         if isinstance(node, ast.Name) and node.id == self.argument:
             return self.root_name, self.payload
+        if isinstance(node, ast.Name) and node.id in self.module_parameters:
+            # The module body is generic over this structural parameter: read it
+            # from the enclosing definition instead of inlining one value, so a
+            # single definition serves every instance binding.
+            from _pycircuit_semantics import BitsType as _BitsType
+            from _pycircuit_semantics import RangeType as _RangeType
+
+            target = (
+                expected
+                if isinstance(expected, (_BitsType, _RangeType))
+                else _BitsType(64)
+            )
+            result = self._new()
+            self.lines.append(
+                f"    %{result} = ac.param.get "
+                f"{canonical_mlir_string(node.id)} : "
+                f"!ac.var<{_render_type(target)}>"
+            )
+            return self._remember(result, target)
         if isinstance(node, ast.Name) and node.id in self.candidate_values:
             return self.candidate_values[node.id]
         if isinstance(node, ast.Name) and node.id in self.candidates:

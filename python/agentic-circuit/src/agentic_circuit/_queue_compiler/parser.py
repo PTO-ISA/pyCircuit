@@ -87,6 +87,7 @@ from .model import (
     VarStateBinding,
 )
 from .normalize import (
+    ModuleStaticValues,
     _constantize_expression,
     _desugar_nested_rule_captures,
     _normalize_rule_field_assignments,
@@ -2072,10 +2073,19 @@ def parse_queue_program(
         raise QueueFrontendError(
             f"ACPY-QUEUE-001: unknown static argument {extras[0]!r}"
         )
-    system_static_values: Mapping[str, StaticValue] = {
-        **module_static_values,
-        **supplied,
-    }
+    system_static_values: Mapping[str, StaticValue] = ModuleStaticValues(
+        {
+            **module_static_values,
+            **supplied,
+        },
+        # The module's declared structural parameters stay symbolic in its body
+        # so the definition is generic over the instance bindings.
+        parameters=(
+            frozenset(static_arguments or ())
+            if entry_kind == "module"
+            else frozenset()
+        ),
+    )
     _strip_static_assertions(
         function,
         system_static_values,
@@ -2273,7 +2283,11 @@ def parse_queue_program(
         if not static_values and not module_static_values:
             return definition, call
 
-        constant_values = {**module_static_values, **static_values}
+        constant_values = ModuleStaticValues(
+            {**module_static_values, **static_values},
+            parameters=getattr(system_static_values, "parameters", frozenset()),
+            symbolic=getattr(system_static_values, "symbolic", None),
+        )
         for argument in runtime_arguments:
             constant_values.pop(argument, None)
 
@@ -4884,6 +4898,9 @@ def parse_queue_program(
         static_type_checks=tuple((*interface_type_checks, *expression_type_checks)),
         static_config_bindings=static_config_bindings,
         specialization_fingerprint=specialization_fingerprint,
+        symbolic_parameters=frozenset(
+            getattr(system_static_values, "symbolic", ()) or ()
+        ),
         source_path=normalized_source_path,
         statement_sources=tuple(sorted(statement_sources.items())),
     )

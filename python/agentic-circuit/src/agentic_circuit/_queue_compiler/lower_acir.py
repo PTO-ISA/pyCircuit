@@ -96,6 +96,19 @@ def lower_queue_program(
     module: _ModuleRenderSpec | None = None,
     include_helpers: bool = True,
 ) -> str:
+    # Every emitter created while lowering this module may read the module's own
+    # structural parameters, so a single definition stays generic over the
+    # instance bindings instead of inlining one value.
+    module_parameters = (
+        frozenset(name for name, _ in module.static_arguments)
+        if module is not None
+        else frozenset()
+    )
+
+    def make_emitter(*args: object, **kwargs: object) -> _ExpressionEmitter:
+        kwargs.setdefault("module_parameters", module_parameters)
+        return _ExpressionEmitter(*args, **kwargs)
+
     def add_display_name(
         emitted_lines: list[str], result: str, logical_name: str
     ) -> None:
@@ -271,7 +284,7 @@ def lower_queue_program(
             f"  func.func private @{helper.name}({arguments}) -> "
             f"!ac.var<{_render_type(helper.result)}>{attributes} {{"
         )
-        helper_emitter = _ExpressionEmitter(
+        helper_emitter = make_emitter(
             payloads,
             "",
             helper.result,
@@ -648,7 +661,7 @@ def lower_queue_program(
                     queue.rule_table_read_index,
                     entry_type,
                 )
-            emitter = _ExpressionEmitter(
+            emitter = make_emitter(
                 payloads,
                 queue.argument,
                 queue.payload,
@@ -844,7 +857,7 @@ def lower_queue_program(
                             f"!ac.var<{_render_type(table_domain_base_type)}>"
                         )
                         emitter._remember(table_domain_base, table_domain_base_type)
-                predicate_emitter = _ExpressionEmitter(
+                predicate_emitter = make_emitter(
                     payloads,
                     find.predicate_argument,
                     find.value_type,
@@ -960,7 +973,7 @@ def lower_queue_program(
                     )
                 else:
                     assert find.key_argument is not None
-                    key_emitter = _ExpressionEmitter(
+                    key_emitter = make_emitter(
                         payloads,
                         find.key_argument,
                         find.value_type,
@@ -1849,7 +1862,7 @@ def lower_queue_program(
         assert queue.input_name is not None
         input_name = effective_input.get((queue.name, 0), queue.input_name)
         input_ssa = mapping[input_name]
-        emitter = _ExpressionEmitter(
+        emitter = make_emitter(
             payloads,
             queue.argument,
             queue.payload,
@@ -2051,7 +2064,7 @@ def lower_queue_program(
                 table = next(
                     value for value in program.tables if value.name == candidate.table
                 )
-                emitter = _ExpressionEmitter(
+                emitter = make_emitter(
                     payloads,
                     candidate.argument,
                     table.entry_type,
@@ -2112,7 +2125,7 @@ def lower_queue_program(
                     key_region = "{}"
                 else:
                     assert selection.argument is not None and selection.key is not None
-                    emitter = _ExpressionEmitter(
+                    emitter = make_emitter(
                         payloads,
                         selection.argument,
                         table.entry_type,
@@ -2230,7 +2243,7 @@ def lower_queue_program(
                 select = item
                 assert isinstance(select, SelectBinding)
                 control = by_name[select.control]
-                emitter = _ExpressionEmitter(
+                emitter = make_emitter(
                     payloads,
                     select.argument,
                     control.payload,
@@ -2273,7 +2286,7 @@ def lower_queue_program(
                 route = item
                 assert isinstance(route, RouteBinding)
                 incoming = by_name[route.input_name]
-                emitter = _ExpressionEmitter(
+                emitter = make_emitter(
                     payloads,
                     route.argument,
                     incoming.payload,
@@ -2348,7 +2361,7 @@ def lower_queue_program(
                 feedback = item
                 assert isinstance(feedback, FeedbackBinding)
                 incoming = by_name[feedback.input_name]
-                emitter = _ExpressionEmitter(
+                emitter = make_emitter(
                     payloads,
                     feedback.argument,
                     incoming.payload,
@@ -2393,7 +2406,7 @@ def lower_queue_program(
                 reorder = item
                 assert isinstance(reorder, ReorderBinding)
                 incoming = by_name[reorder.input_name]
-                emitter = _ExpressionEmitter(
+                emitter = make_emitter(
                     payloads,
                     reorder.argument,
                     incoming.payload,
@@ -2441,7 +2454,7 @@ def lower_queue_program(
                 )
                 emitted: list[tuple[str, ValueType, list[str]]] = []
                 for _policy_name, expression in policies:
-                    emitter = _ExpressionEmitter(
+                    emitter = make_emitter(
                         payloads,
                         dependency.argument,
                         incoming.payload,
@@ -2516,7 +2529,7 @@ def lower_queue_program(
                 credit = item
                 assert isinstance(credit, CreditBinding)
                 incoming = by_name[credit.input_name]
-                emitter = _ExpressionEmitter(
+                emitter = make_emitter(
                     payloads,
                     credit.argument,
                     incoming.payload,
@@ -2567,7 +2580,7 @@ def lower_queue_program(
                 )
                 emitted: list[tuple[str, ValueType, list[str]]] = []
                 for _policy_name, expression in policies:
-                    emitter = _ExpressionEmitter(
+                    emitter = make_emitter(
                         payloads,
                         memory.argument,
                         incoming.payload,
@@ -2643,7 +2656,7 @@ def lower_queue_program(
                     if read.view_alias
                     else {}
                 )
-                address_emitter = _ExpressionEmitter(
+                address_emitter = make_emitter(
                     payloads,
                     argument,
                     input_payload,
@@ -2660,7 +2673,7 @@ def lower_queue_program(
                 address, address_type = address_emitter.emit_table_index(
                     read.table, read.address
                 )
-                when_emitter = _ExpressionEmitter(
+                when_emitter = make_emitter(
                     payloads,
                     argument,
                     input_payload,
@@ -2727,7 +2740,7 @@ def lower_queue_program(
                     else by_name[write.input_name].payload
                 )
                 argument = write.argument or ""
-                address_emitter = _ExpressionEmitter(
+                address_emitter = make_emitter(
                     payloads,
                     argument,
                     input_payload,
@@ -2744,7 +2757,7 @@ def lower_queue_program(
                 address, address_type = address_emitter.emit_table_index(
                     write.table, write.address
                 )
-                enable_emitter = _ExpressionEmitter(
+                enable_emitter = make_emitter(
                     payloads,
                     argument,
                     input_payload,
@@ -2759,7 +2772,7 @@ def lower_queue_program(
                     helpers=helpers,
                 )
                 enabled, enable_type = enable_emitter.emit(write.enable, BoolType())
-                value_emitter = _ExpressionEmitter(
+                value_emitter = make_emitter(
                     payloads,
                     argument,
                     input_payload,
@@ -2870,7 +2883,7 @@ def lower_queue_program(
                     value for value in program.tables if value.name == write.table
                 )
                 candidate = candidate_views[write.candidates]
-                mask_emitter = _ExpressionEmitter(
+                mask_emitter = make_emitter(
                     payloads,
                     "",
                     table.entry_type,
@@ -2887,7 +2900,7 @@ def lower_queue_program(
                 mask, mask_type = mask_emitter.emit(
                     ast.Name(id=write.candidates, ctx=ast.Load())
                 )
-                enable_emitter = _ExpressionEmitter(
+                enable_emitter = make_emitter(
                     payloads,
                     "",
                     table.entry_type,
@@ -2903,7 +2916,7 @@ def lower_queue_program(
                     helpers=helpers,
                 )
                 enabled, enable_type = enable_emitter.emit(write.enable, BoolType())
-                value_emitter = _ExpressionEmitter(
+                value_emitter = make_emitter(
                     payloads,
                     "__old",
                     table.entry_type,
@@ -3001,7 +3014,7 @@ def lower_queue_program(
                 slot = next(
                     value for value in program.slots if value.name == release.slot
                 )
-                emitter = _ExpressionEmitter(
+                emitter = make_emitter(
                     payloads,
                     "",
                     slot.payload,
@@ -3060,7 +3073,7 @@ def lower_queue_program(
                 expectation = item
                 assert isinstance(expectation, ExpectBinding)
                 queue = by_name[expectation.queue]
-                emitter = _ExpressionEmitter(
+                emitter = make_emitter(
                     payloads,
                     expectation.argument,
                     queue.payload,

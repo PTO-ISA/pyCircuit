@@ -7,7 +7,7 @@ builtin.module attributes {ac.contract_epoch = "0.5", ac.model_kind = "queue_gra
     ^bb0(%borrowed_0: !ac.queue<i8>):
       %result = ac.rule %borrowed_0 depths [1] latencies [1] name "keep" stable_id "Generic/result" domain "cycle" type exact {
       ^rule(%item: !ac.var<i8>):
-        %width = ac.param.get "width" : !ac.var<i64>
+        %width = ac.param.get "width" : !ac.var<i8>
         ac.rule.return %item : !ac.var<i8>
       } : (!ac.queue<i8>) -> !ac.queue<i8>
       ac.scope.yield %result : !ac.queue<i8>
@@ -18,4 +18,4 @@ builtin.module attributes {ac.contract_epoch = "0.5", ac.model_kind = "queue_gra
 
 // CHECK: ac.module @Generic
 // CHECK: parameters {width = 8 : i64}
-// CHECK: ac.param.get "width" : !ac.var<i64>
+// CHECK: ac.param.get "width" : !ac.var<i8>

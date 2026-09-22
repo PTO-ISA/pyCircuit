@@ -2070,6 +2070,28 @@ LogicalResult ParamGetOp::verify() {
           "bounds");
     return success();
   }
+  // A structural parameter is declared at its own `ac.const` width, while a
+  // consumer may read it at a narrower payload width. The read is legal exactly
+  // when no information is lost, which is the same narrowing the frontend
+  // already applies to an inlined literal at that use site.
+  if (auto integer = dyn_cast<IntegerAttr>(parameter)) {
+    auto target = dyn_cast<IntegerType>(result.getElementType());
+    if (!target)
+      return emitOpError(
+          "module parameter read requires an integer result for an integer "
+          "parameter");
+    if (target.getWidth() < integer.getValue().getBitWidth() &&
+        integer.getValue().getActiveBits() > target.getWidth()) {
+      SmallVector<char, 32> buffer;
+      integer.getValue().toString(buffer, /*Radix=*/10, /*Signed=*/false);
+      return emitOpError()
+             << "module parameter value "
+             << StringRef(buffer.data(), buffer.size())
+             << " does not fit the requested " << target.getWidth()
+             << "-bit result";
+    }
+    return success();
+  }
   auto value = dyn_cast<TypedAttr>(parameter);
   if (!value || value.getType() != result.getElementType())
     return emitOpError("module parameter type must match Var element type");

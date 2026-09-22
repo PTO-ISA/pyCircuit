@@ -18,11 +18,43 @@ from .errors import QueueFrontendError
 from .syntax import _decorator_name
 
 
+class ModuleStaticValues(dict):
+    """Static bindings that also name the module parameters left symbolic.
+
+    A module body reads its own structural parameters symbolically so that one
+    generic definition can serve several instance bindings. Only a module parse
+    marks those names; every other static environment leaves ``parameters``
+    empty and folds exactly as before.
+
+    ``symbolic`` collects the parameters a body actually read symbolically. A
+    parameter that a body never reads cannot change that body, so it must not
+    make two otherwise identical definitions distinct specializations.
+    """
+
+    def __init__(
+        self,
+        *args: object,
+        parameters: frozenset[str] = frozenset(),
+        symbolic: set[str] | None = None,
+        **kwargs: object,
+    ) -> None:
+        super().__init__(*args, **kwargs)
+        self.parameters = parameters
+        self.symbolic: set[str] = set() if symbolic is None else symbolic
+
+
 def _constantize_expression(
     node: ast.expr,
     argument: str,
     values: Mapping[str, StaticValue],
 ) -> ast.expr:
+    # A module's own structural parameters stay symbolic: the module definition
+    # is generic and reads them with ac.param.get, so one definition can serve
+    # instances that bind different values. Derived expressions still fold, and
+    # ``values`` only advertises ``parameters`` for a module body.
+    parameters: frozenset[str] = getattr(values, "parameters", frozenset())
+    symbolic: set[str] | None = getattr(values, "symbolic", None)
+
     class Constantizer(ast.NodeTransformer):
         def _constant(self, candidate: ast.expr) -> ast.expr | None:
             try:
@@ -34,7 +66,7 @@ def _constantize_expression(
             return None
 
         def visit_Name(self, candidate: ast.Name) -> ast.expr:
-            if candidate.id == argument:
+            if candidate.id == argument or candidate.id in parameters:
                 return candidate
             return self._constant(candidate) or candidate
 
@@ -53,6 +85,13 @@ def _constantize_expression(
 
     result = Constantizer().visit(copy.deepcopy(node))
     assert isinstance(result, ast.expr)
+    if symbolic is not None:
+        # Only a parameter reference that SURVIVED constantization keeps the
+        # body generic. A reference inside a folded expression is recorded as
+        # folded, because that expression's value does change the body.
+        for remaining in ast.walk(result):
+            if isinstance(remaining, ast.Name) and remaining.id in parameters:
+                symbolic.add(remaining.id)
     return ast.fix_missing_locations(result)
 
 

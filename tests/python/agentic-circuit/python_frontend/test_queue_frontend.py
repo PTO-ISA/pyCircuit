@@ -734,6 +734,31 @@ class Packet:
 
 @ac.rule
 def tag_lane(packet: Packet, lane) -> Packet:
+    return packet.with_fields(hit=(packet.lane == (lane * 1)))
+
+@ac.module
+def bank(packet: Packet, *, lane: ac.const[int]) -> Packet:
+    result = tag_lane(packet, lane)
+    return result
+
+@ac.system
+def two_banks(low: Packet, high: Packet) -> tuple[Packet, Packet]:
+    first = bank(low, lane=0)
+    second = bank(high, lane=1)
+    return first, second
+"""
+
+GENERIC_MODULE_PARAMETER_SOURCE = """
+import agentic_circuit as ac
+
+@ac.struct
+class Packet:
+    value: ac.bits[8]
+    lane: ac.bits[1]
+    hit: ac.bits[1]
+
+@ac.rule
+def tag_lane(packet: Packet, lane) -> Packet:
     return packet.with_fields(hit=(packet.lane == lane))
 
 @ac.module
@@ -4385,10 +4410,9 @@ def scalar(value: ac.bits[WIDTH], *, width: ac.const[int]) -> ac.bits[WIDTH]:
         lowered = lower_queue_source(
             MULTI_SPECIALIZATION_INTERFACE_SOURCE, "two_banks"
         )
-        # Two genuinely different static argument sets cannot share one module
-        # symbol, so the fingerprint suffix is still required for them. A source
-        # module is only allowed to keep the plain definition name when it
-        # lowers to exactly one specialization.
+        # The body folds the argument into a constant, so the two argument sets
+        # produce genuinely different bodies and cannot share one module symbol.
+        # The fingerprint suffix is still required for them.
         symbols = sorted(
             set(re.findall(r"ac\.module @(bank__p[0-9a-f]{12})\(", lowered))
         )
@@ -4396,6 +4420,26 @@ def scalar(value: ac.bits[WIDTH], *, width: ac.const[int]) -> ac.bits[WIDTH]:
         self.assertNotIn("ac.module @bank(", lowered)
         self.assertIn("parameters {lane = 0 : i64}", lowered)
         self.assertIn("parameters {lane = 1 : i64}", lowered)
+
+    def test_symbolic_parameter_keeps_one_generic_definition(self) -> None:
+        from agentic_circuit._queue_frontend import lower_queue_source
+
+        lowered = lower_queue_source(
+            GENERIC_MODULE_PARAMETER_SOURCE, "two_banks"
+        )
+        # The body reads the parameter instead of folding it, so its value
+        # cannot change the definition. Specialization must not rename the
+        # module: one plain definition serves both instance bindings and each
+        # instance keeps its own static argument.
+        symbols = sorted(set(re.findall(r"ac\.module @(\w+)\(", lowered)))
+        self.assertEqual(["Top", "bank"], symbols)
+        self.assertEqual(1, lowered.count("ac.param.get"))
+        self.assertIn('ac.param.get "lane"', lowered)
+        self.assertIn("parameters {lane = 0 : i64}", lowered)
+        self.assertIn("ac.instance @first of @bank(", lowered)
+        self.assertIn("ac.instance @second of @bank(", lowered)
+        self.assertIn("static {lane = 0 : i64}", lowered)
+        self.assertIn("static {lane = 1 : i64}", lowered)
 
     def test_module_specialization_ignores_unrelated_dependent_payload(self) -> None:
         from agentic_circuit._queue_frontend import lower_queue_source
