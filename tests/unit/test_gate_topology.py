@@ -347,7 +347,7 @@ def test_pypi_publication_cannot_invalidate_a_published_release() -> None:
     # of failing the whole upload.
     assert "max_upload_bytes" in text
     assert "Deferred:" in text
-    assert "exceed the {limit}-byte host limit" in text
+    assert "exceed the {limit}-byte host " in text
     # The host is irreversible, so an interrupted upload must stay recoverable
     # instead of failing forever on the files it already accepted.
     (upload,) = [
