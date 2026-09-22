@@ -339,6 +339,14 @@ def test_pypi_publication_cannot_invalidate_a_published_release() -> None:
     assert "len(selected) != 4" in text
     assert "len(platforms) != 3" in text
     assert 'expected = {"pycircuit-hisi", "pycircuit-semantic-core"}' in text
+    # The host is irreversible, so an interrupted upload must stay recoverable
+    # instead of failing forever on the files it already accepted.
+    (upload,) = [
+        step
+        for step in job["steps"]
+        if "pypa/gh-action-pypi-publish" in json.dumps(step)
+    ]
+    assert upload["with"] == {"packages-dir": "wheels", "skip-existing": True}
 
     def needs_closure(name: str) -> set[str]:
         seen: set[str] = set()

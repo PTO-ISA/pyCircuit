@@ -55,7 +55,10 @@ Enabling it needs both sides:
    linked.
 
 PyPI refuses a version that already exists, so a package already uploaded there
-can only be superseded by a new version.
+can only be superseded by a new version. Because of that the upload runs with
+`skip-existing`, so a partially completed upload is finished by re-dispatching
+the same workflow instead of becoming permanently unpublishable; the skipped
+files are printed in the job summary.
 
 ## Entry criteria
 

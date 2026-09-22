@@ -175,3 +175,9 @@ jobs:
         uses: pypa/gh-action-pypi-publish@dc37677b2e1c63e2034f94d8a5b11f265b73ba33 # release/v1
         with:
           packages-dir: wheels
+          # PyPI refuses a filename that already exists and the action fails on
+          # it. The host is irreversible, so an interrupted upload must still be
+          # recoverable: a re-run republishes only what is missing and reports
+          # every file it skipped. The bytes come from the immutable release and
+          # are re-verified above, so skipping an identical file is safe.
+          skip-existing: true
