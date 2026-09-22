@@ -245,11 +245,13 @@ mistake for complete:
   partially satisfied: `test_source_map_goldens.py` pins the helper and
   projection source maps against the published schema
   (`docs/gates/logs/20260922-v05-source-map-goldens/`), while the module and
-  specialization constructs need the linked AC package flow. The flow landed
-  with #258 and the **module** construct is now pinned:
-  `tests/goldens/agentic-circuit/source-map/module.json` records the linked
-  three-file hierarchy's placement provenance. The **specialization** construct
-  still needs a package that carries a parameterized family across units.
+  specialization constructs are now all pinned. The linked package flow landed
+  with #258, publication provenance with #259, and the goldens live in
+  `tests/goldens/agentic-circuit/source-map/`: `helper.json` and
+  `projection.json` for the flat constructs, `module.json` for the linked
+  three-file hierarchy's placement provenance, and `specialization.json` for a
+  parameterized family carried across units (the test also proves the published
+  unit keeps both declared cases and their static arguments).
 
 ## Hierarchical instances and structured GFSIM source bundles (#180)
 
