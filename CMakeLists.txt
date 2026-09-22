@@ -4,9 +4,22 @@ project(pycircuit VERSION 6.1.0 LANGUAGES C CXX)
 include(CMakePackageConfigHelpers)
 include(GNUInstallDirs)
 
+# compiler/acir/lib/Bindings/Binding.cpp uses the floating-point overload of
+# std::to_chars, which libstdc++ only implements from GCC 11. Fail here, at
+# configure time, instead of letting an older GCC surface a template error
+# dozens of LLVM-linked targets into the build. Clang and AppleClang use their
+# own standard library and are not subject to the libstdc++ constraint.
+if(CMAKE_CXX_COMPILER_ID STREQUAL "GNU" AND
+   CMAKE_CXX_COMPILER_VERSION VERSION_LESS 11)
+  message(FATAL_ERROR
+    "pyCircuit requires GCC 11 or newer, but found GCC "
+    "${CMAKE_CXX_COMPILER_VERSION}. compiler/acir/lib/Bindings/Binding.cpp "
+    "calls the floating-point overload of std::to_chars, which libstdc++ "
+    "implements from GCC 11; see docs/getting-started/installation.md.")
+endif()
+
 option(PYC_BUILD_MLIR_TOOLS "Build MLIR-based pyc tools" ON)
 option(PYC_BUILD_RUNTIME_LIB "Build pyc6 runtime library" ON)
-option(PYC_BUILD_AGENTIC_CIRCUIT "Build the integrated Agentic Circuit subsystems" OFF)
 option(PYC_BUILD_AGENTIC_CIRCUIT_TESTS "Build Agentic Circuit tests" OFF)
 option(PYC_RUNTIME_ENABLE_ZLIB_TRACE "Enable gzip trace output in runtime (optional)" OFF)
 option(PYC_RUNTIME_BUILD_SHARED "Build shared pyc6 runtime library" OFF)
@@ -41,12 +54,20 @@ if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/.git")
   endif()
 endif()
 
-if(PYC_BUILD_AGENTIC_CIRCUIT)
-  # Discover LLVM/MLIR in the common parent scope so the PYC and ACIR sibling
-  # subprojects share one imported target graph.
-  find_package(LLVM 22.1.8 EXACT CONFIG REQUIRED)
-  find_package(MLIR 22.1.8 EXACT CONFIG REQUIRED)
+# ACIR is not optional: the pyc dialect embeds ACIR attributes and operations,
+# so pycc cannot be built or run without it. The integrated toolchain therefore
+# always needs the repo-local MLIR tools and runtime library.
+if(NOT PYC_BUILD_MLIR_TOOLS OR NOT PYC_BUILD_RUNTIME_LIB)
+  message(FATAL_ERROR
+    "The integrated Agentic Circuit subsystem is always built and requires "
+    "PYC_BUILD_MLIR_TOOLS=ON and PYC_BUILD_RUNTIME_LIB=ON so ACIR-to-PYC uses "
+    "the repo-local pyc6 toolchain")
 endif()
+
+# Discover LLVM/MLIR in the common parent scope so the PYC and ACIR sibling
+# subprojects share one imported target graph.
+find_package(LLVM 22.1.8 EXACT CONFIG REQUIRED)
+find_package(MLIR 22.1.8 EXACT CONFIG REQUIRED)
 
 if(PYC_BUILD_MLIR_TOOLS)
   add_subdirectory(compiler/mlir)
@@ -56,16 +77,9 @@ if(PYC_BUILD_RUNTIME_LIB)
   add_subdirectory(library/cpp)
 endif()
 
-if(PYC_BUILD_AGENTIC_CIRCUIT)
-  if(NOT PYC_BUILD_MLIR_TOOLS OR NOT PYC_BUILD_RUNTIME_LIB)
-    message(FATAL_ERROR
-      "PYC_BUILD_AGENTIC_CIRCUIT requires PYC_BUILD_MLIR_TOOLS=ON and "
-      "PYC_BUILD_RUNTIME_LIB=ON so ACIR-to-PYC uses the repo-local pyc6 toolchain")
-  endif()
-  set(ACIR_BUILD_TESTING "${PYC_BUILD_AGENTIC_CIRCUIT_TESTS}" CACHE BOOL
-    "Build Agentic Circuit tests" FORCE)
-  add_subdirectory(compiler/acir)
-endif()
+set(ACIR_BUILD_TESTING "${PYC_BUILD_AGENTIC_CIRCUIT_TESTS}" CACHE BOOL
+  "Build Agentic Circuit tests" FORCE)
+add_subdirectory(compiler/acir)
 
 if(PYC_INSTALL_TEMPLATES)
   install(

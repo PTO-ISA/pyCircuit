@@ -12,9 +12,17 @@ command, no CMake and no LLVM/MLIR checkout. See
 | --- | --- | --- |
 | Operating system | Linux, macOS, or Windows | Linux, macOS, or Windows |
 | Python | 3.10+ | 3.11+ recommended |
+| C++ compiler | Not required | GCC 11+ on Linux; Clang or AppleClang elsewhere |
 | CMake and Ninja | Not required | Required |
 | LLVM/MLIR 22.1.8 | Not required | Required |
 | Verilator | Not required | Required for Verilog simulation |
+
+The full toolchain calls the floating-point overload of `std::to_chars` in
+`compiler/acir/lib/Bindings/Binding.cpp`. libstdc++ only implements that
+overload from GCC 11, so an older GCC fails late in the build with a template
+error. CMake rejects a GNU compiler older than 11 at configure time. Clang,
+AppleClang, and clang-cl use their own standard library and are not subject to
+this constraint.
 
 On macOS, install the native dependencies with Homebrew:
 
@@ -49,8 +57,8 @@ Windows consumption is limited to the `windows-x86_64` SDK profile; the exact
 supported tuple is recorded in
 [the SDK release contract](../development/sdk-release-contract.md).
 
-On Ubuntu or Debian, install CMake, Ninja, Python, a C++ compiler, and the LLVM
-22 development packages from the
+On Ubuntu or Debian, install CMake, Ninja, Python, GCC 11 or newer (`g++`), and
+the LLVM 22 development packages from the
 [official LLVM package repository](https://apt.llvm.org/). Verify the selected
 toolchain before configuring the build:
 
@@ -60,6 +68,7 @@ MLIR_OPT="$(command -v mlir-opt-22 || command -v mlir-opt)"
 "$LLVM_CONFIG" --version
 "$MLIR_OPT" --version
 python3 --version
+g++ --version   # must report 11 or newer
 ```
 
 ## Install the published wheel
