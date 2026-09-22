@@ -2967,6 +2967,25 @@ The generated system owns interconnect Queues. Child scope modules and common
 blocks borrow typed Queue references. Sibling blocks MUST NOT own duplicate
 instances of the same interconnect.
 
+### Value storage width
+
+`gfsim::UInt<Width>` stores `std::array<std::uint64_t, ceil(Width / 64)>`, so
+every width in `1..64` occupies exactly one 8-byte word. Measured on generated
+code: `gfsim::UInt<1>` and `gfsim::UInt<64>` are both 8 bytes, a payload field
+declared `ac.u8` becomes a `UInt<8>` field, and a payload of five `ac.u8` fields
+is 40 bytes while the same 40 bits declared as one `ac.bits[40]` field is 8
+bytes. Widths above 64 are admitted up to 65536 and occupy `ceil(Width / 64)`
+words.
+
+This is a deliberate trade: scalar-exact arithmetic with no bit-packing in the
+hot path, a trivially copyable and ABI-stable layout, and a value type the
+generated C++, the trace path, and the observation records can all use directly.
+The cost is padding for narrow values. A packed representation is not a
+transparent change and MUST NOT be introduced as one: it needs its own proof of
+the arithmetic semantics, ABI and alignment, trace output, and a measured
+performance benefit. A storage-sensitive design should aggregate narrow fields
+into one wider field instead of declaring many small ones.
+
 A source definition that declares a static parameter family owns one generated
 class per declared case instead of one class for every case. The class name is
 the definition's readable name plus a deterministic suffix over that case's

@@ -1781,6 +1781,20 @@ PYC design hierarchy 明确拒绝 `ac.expect`；对应检查必须放到 PYC tes
 同一 PYC IR 生成的 PYC C++ 和 Verilog 必须 cycle equivalent。gfsim 与 PYC 可以有
 不同内部 latency，但必须满足选定的 observation/refinement contract。
 
+### 值的存储宽度
+
+`gfsim::UInt<Width>` 内部是 `std::array<std::uint64_t, ceil(Width / 64)>`，因此 `1..64`
+内每个宽度都恰好占一个 8 byte word。按生成代码实测：`gfsim::UInt<1>` 与
+`gfsim::UInt<64>` 都是 8 byte；声明为 `ac.u8` 的 payload 字段会变成 `UInt<8>` 字段，
+所以五个 `ac.u8` 字段的 payload 是 40 byte，而同样 40 bit 写成单个 `ac.bits[40]` 字段
+则是 8 byte。大于 64 的宽度可到 65536，占 `ceil(Width / 64)` 个 word。
+
+这是有意的取舍：热路径上不做 bit-packing 的精确标量算术、可平凡拷贝且 ABI 稳定的
+布局，以及生成 C++、trace 路径和 observation 记录都能直接使用的值类型。代价是窄值
+的填充。packed 表示不是透明改动，禁止作为透明改动引入：它需要单独证明算术语义、
+ABI 与 alignment、trace 输出以及实测性能收益。对存储敏感的设计应把多个窄字段聚合成
+一个更宽的字段，而不是声明许多小字段。
+
 ## 编译和验证示例
 
 先配置 LLVM 22.1.8 开发环境：
