@@ -31,7 +31,8 @@ from .hw import (
     unsigned,
     zext,
 )
-from .jit import JitError, compile
+from .jit import JitError
+from .jit import compile as compile
 from .literals import LiteralValue, S, U, s, u
 from .probe import (
     ProbeBuilder,
@@ -65,7 +66,8 @@ from .v6 import (
 
 # ``__all__`` is the wildcard-import surface.  A wildcard import MUST NOT bind
 # a Python builtin, so ``compile`` stays reachable only as the explicit
-# attribute ``pycircuit.compile`` and never appears here.
+# attribute ``pycircuit.compile`` and never appears here.  The redundant
+# ``compile as compile`` alias above marks that re-export as intentional.
 __all__ = [
     "CycleAwareCircuit",
     "CycleAwareDomain",
