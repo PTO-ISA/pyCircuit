@@ -545,16 +545,29 @@ def _reconstruct_output_dict(
     """
     outs: dict[str, Any] = {}
     seq_idx = 0
+
+    def result_wire(key: str, index: int) -> Any:
+        if index >= len(out_wires):
+            count = len(out_wires)
+            ports = "port" if count == 1 else "ports"
+            raise PyCircuitKeyError(
+                f"domain.call: submodule returns output {key!r}, but the compiled "
+                f"submodule only exposes {count} result {ports}. Emit every key of "
+                "the returned dict with m.output() in standalone mode so the "
+                "hierarchical instance can bind it back."
+            )
+        return out_wires[index]
+
     for key, kind, count, cycles, indices in entries:
         if kind == "scalar":
             ri = indices[0] if indices and indices[0] >= 0 else seq_idx
-            outs[key] = CycleAwareSignal(domain, out_wires[ri], cycles[0])
+            outs[key] = CycleAwareSignal(domain, result_wire(key, ri), cycles[0])
             seq_idx += 1
         else:
             items: list[CycleAwareSignal] = []
             for i in range(count):
                 ri = indices[i] if indices and indices[i] >= 0 else seq_idx
-                items.append(CycleAwareSignal(domain, out_wires[ri], cycles[i]))
+                items.append(CycleAwareSignal(domain, result_wire(key, ri), cycles[i]))
                 seq_idx += 1
             outs[key] = items
     return outs

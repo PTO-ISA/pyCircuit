@@ -103,9 +103,9 @@ def registered_increment(
     domain: CycleAwareDomain,
     *,
     inputs: dict | None = None,
-    width: int = 8,
     prefix: str = "inc",
 ) -> dict[str, CycleAwareSignal]:
+    width = 8
     data = submodule_input(
         inputs, "data", m, domain, prefix=prefix, width=width
     )
@@ -147,8 +147,20 @@ Follow these rules:
 - Convert raw top-level inputs with `cas()` or `submodule_input()`.
 - Keep `CycleAwareSignal` or `ForwardSignal` values inside the design. Use
   `wire_of()` only at an explicit output boundary.
+- Declare geometry as a constant inside the module that owns it (`width = 8`).
+  Caller-inferred specialization is removed: `build_cycle_aware`,
+  `compile_cycle_aware`, and `domain.call` reject `width=`-style static
+  arguments, and the CLI fails closed on any defaulted static parameter of a
+  cycle-aware entrypoint. `prefix` is the only caller-supplied configuration
+  `domain.call` accepts, and it exists to keep instance names unique.
+- Emit every returned dictionary key through `m.output()` in standalone mode.
+  Hierarchical `domain.call` compiles the child standalone and rebinds each
+  returned key to a `pyc.instance` result, so a key without a result port fails
+  closed.
 - Declare state with `domain.signal()`. Place `domain.next()` at the intended
-  write occurrence, then use `<<=` or `.assign(..., when=...)`.
+  write occurrence, then use `<<=` or `.assign(..., when=...)`. Build each next
+  value in the cycle where its operands live, before that `domain.next()`;
+  building it after `next()` adds one balancing register per bypassed operand.
 - Use `mux()` or `.select()` for hardware choices. Python `if` and `for` are
   elaboration-time structure only; never coerce a signal to Python `bool`.
 - Use Python lists and static loops for repeated scalar lanes. Do not invent a
