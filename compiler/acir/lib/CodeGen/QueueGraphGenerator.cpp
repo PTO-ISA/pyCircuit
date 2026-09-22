@@ -3092,8 +3092,22 @@ generateStructuredQueueGraphCpp(const QueueGraphPlan &plan) {
         llvm::all_of(specialization->blocks, [](const QueueBlockPlan &block) {
           return block.kind == "broadcast";
         });
+    // A parent may own any number of local block subgraphs alongside its child
+    // instances. Every block has to live in one of the parent's own scopes, and
+    // the Queues between the local blocks and the children stay parent-owned.
+    // This is the generalization of mixedNested from exactly one transform to
+    // the whole "local blocks plus child instances" shape.
+    const bool wideMixedNested =
+        specialization && !specialization->blocks.empty() &&
+        specialization->tables.empty() &&
+        !specialization->moduleInstances.empty() &&
+        !specialization->scopes.empty() &&
+        llvm::all_of(specialization->blocks, [&](const QueueBlockPlan &block) {
+          return llvm::is_contained(specialization->scopes, block.scope);
+        });
     const bool localShape =
         emptyModule || nestedWrapper || mixedNested || nestedAssembly ||
+        wideMixedNested ||
         (specialization && specialization->moduleInstances.empty() &&
          specialization->scopes.size() == 1 &&
          llvm::none_of(specialization->blocks,
@@ -3102,7 +3116,8 @@ generateStructuredQueueGraphCpp(const QueueGraphPlan &plan) {
                        }));
     if (!specialization ||
         (!emptyModule && !pureTransform && !conditionalTransform &&
-         !firingModule && !nestedWrapper && !mixedNested && !nestedAssembly) ||
+         !firingModule && !nestedWrapper && !mixedNested && !nestedAssembly &&
+         !wideMixedNested) ||
         !localShape || !specialization->memoryInstances.empty())
       return generatorError(
           "structured QueueGraph specialization requires a pure transform, "
@@ -3113,7 +3128,7 @@ generateStructuredQueueGraphCpp(const QueueGraphPlan &plan) {
       interfaceQueues.insert(input.name);
     for (const QueueInterfacePlan &output : specialization->interfaceOutputs)
       interfaceQueues.insert(output.name);
-    if (mixedNested || nestedAssembly)
+    if (mixedNested || nestedAssembly || wideMixedNested)
       for (const QueuePlan &queue : specialization->queues)
         interfaceQueues.insert(queue.name);
     for (const QueueBlockPlan &block : specialization->blocks)
@@ -4641,7 +4656,6 @@ generateStructuredQueueGraphCpp(const QueueGraphPlan &plan) {
   auto emitMixedNested = [&](const QueueGraphPlan &specialization,
                              const std::string &implementation) -> llvm::Error {
     const auto runtimeNames = queueRuntimeNames(specialization);
-    const QueueBlockPlan &block = specialization.blocks.front();
     llvm::StringMap<std::string> queueTypes;
     llvm::StringMap<std::string> queueExpressions;
     for (auto [index, input] :
@@ -4677,25 +4691,63 @@ generateStructuredQueueGraphCpp(const QueueGraphPlan &plan) {
       queueTypes[queue.name] = *type;
       queueExpressions[queue.name] = "&queue_" + std::to_string(index) + "_";
     }
-    if (block.inputs.size() != 1 || block.outputs.size() != 1 ||
-        internalQueues.empty())
-      return generatorError("mixed nested module requires one local transform "
-                            "and internal Queue");
-    const std::string inputType = queueTypes.lookup(block.inputs.front());
-    const std::string outputType = queueTypes.lookup(block.outputs.front());
-    const QueuePlan *outputQueue =
-        findQueue(specialization, block.outputs.front());
-    if (!outputQueue)
-      return generatorError("mixed nested transform output Queue is missing");
-    const std::string policy = implementation + "_local_policy";
-    output << "struct " << policy << " {\n  " << outputType
-           << " operator()(const " << inputType << " &item) const {\n";
-    auto body =
-        emitExpressionBody(specialization, block, block.yields.front(), 4);
-    if (!body)
-      return body.takeError();
-    output << *body << "  }\n};\n\n"
-           << "class " << implementation
+    if (specialization.blocks.empty() || internalQueues.empty())
+      return generatorError("mixed nested module requires local transforms and "
+                            "an internal Queue");
+    // A parent owns one scope object per distinct local block scope. The single
+    // block shape keeps the original scope_/block_ spelling so its generated
+    // output stays byte-identical.
+    llvm::SmallVector<std::string> scopeNames;
+    for (const QueueBlockPlan &candidate : specialization.blocks) {
+      const std::string scope = pathParts(candidate.scope).back();
+      if (!llvm::is_contained(scopeNames, scope))
+        scopeNames.push_back(scope);
+    }
+    const bool singleLocalBlock = specialization.blocks.size() == 1;
+    auto scopeMember = [&](size_t index) -> std::string {
+      return singleLocalBlock ? std::string("scope_")
+                              : "scope_" + std::to_string(index) + "_";
+    };
+    auto blockMember = [&](size_t index) -> std::string {
+      return singleLocalBlock ? std::string("block_")
+                              : "block_" + std::to_string(index) + "_";
+    };
+    auto blockPolicy = [&](size_t index) -> std::string {
+      return singleLocalBlock
+                 ? implementation + "_local_policy"
+                 : implementation + "_local_policy_" + std::to_string(index);
+    };
+    auto scopeIndexOf = [&](const std::string &scope) -> size_t {
+      const auto found = std::find(scopeNames.begin(), scopeNames.end(),
+                                   pathParts(scope).back());
+      return static_cast<size_t>(std::distance(scopeNames.begin(), found));
+    };
+    llvm::SmallVector<std::string> blockInputTypes;
+    llvm::SmallVector<std::string> blockOutputTypes;
+    llvm::SmallVector<std::string> blockPolicies;
+    llvm::SmallVector<uint64_t> blockRates;
+    for (auto [index, block] : llvm::enumerate(specialization.blocks)) {
+      if (block.inputs.size() != 1 || block.outputs.size() != 1)
+        return generatorError("mixed nested module requires one local transform "
+                              "input and output Queue");
+      const QueuePlan *outputQueue =
+          findQueue(specialization, block.outputs.front());
+      if (!outputQueue)
+        return generatorError("mixed nested transform output Queue is missing");
+      blockInputTypes.push_back(queueTypes.lookup(block.inputs.front()));
+      blockOutputTypes.push_back(queueTypes.lookup(block.outputs.front()));
+      blockRates.push_back(outputQueue->rate);
+      blockPolicies.push_back(blockPolicy(index));
+      output << "struct " << blockPolicies.back() << " {\n  "
+             << blockOutputTypes.back() << " operator()(const "
+             << blockInputTypes.back() << " &item) const {\n";
+      auto body =
+          emitExpressionBody(specialization, block, block.yields.front(), 4);
+      if (!body)
+        return body.takeError();
+      output << *body << "  }\n};\n\n";
+    }
+    output << "class " << implementation
            << " final : public gfsim::Module {\npublic:\n  " << implementation
            << "(std::string name";
     const uint64_t objectCount = specializationObjectCount(specialization);
@@ -4710,9 +4762,10 @@ generateStructuredQueueGraphCpp(const QueueGraphPlan &plan) {
       output << ", gfsim::SimQueue<" << queueTypes.lookup(result.name)
              << "> *output_" << index;
     output << ")\n      : gfsim::Module(std::move(name), "
-              "gfsim::kInvalidObjectId, parent),\n        scope_(\""
-           << pathParts(block.scope).back()
-           << "\", gfsim::kInvalidObjectId, this)";
+              "gfsim::kInvalidObjectId, parent)";
+    for (size_t index = 0; index < scopeNames.size(); ++index)
+      output << ",\n        " << scopeMember(index) << "(\""
+             << scopeNames[index] << "\", gfsim::kInvalidObjectId, this)";
     for (auto [index, queue] : llvm::enumerate(internalQueues))
       output << ",\n        queue_" << index << "_(\""
              << runtimeNames.lookup(queue->name)
@@ -4721,13 +4774,17 @@ generateStructuredQueueGraphCpp(const QueueGraphPlan &plan) {
              << queue->latency << ", " << queue->rate << ", " << queue->lanes
              << ")";
     const uint64_t blockId = internalQueues.size();
-    output << ",\n        block_(\"transform_" << block.name << "\", object_"
-           << blockId << "_id, &scope_, "
-           << "require_queue_port(" << queueExpressions.lookup(block.inputs.front())
-           << ", \"" << block.inputs.front() << "\"), "
-           << "require_queue_port(" << queueExpressions.lookup(block.outputs.front())
-           << ", \"" << block.outputs.front() << "\"))";
-    uint64_t childOffset = blockId + 1;
+    for (auto [index, block] : llvm::enumerate(specialization.blocks))
+      output << ",\n        " << blockMember(index) << "(\"transform_"
+             << block.name << "\", object_" << blockId + index << "_id, &"
+             << scopeMember(scopeIndexOf(block.scope)) << ", "
+             << "require_queue_port("
+             << queueExpressions.lookup(block.inputs.front()) << ", \""
+             << block.inputs.front() << "\"), "
+             << "require_queue_port("
+             << queueExpressions.lookup(block.outputs.front()) << ", \""
+             << block.outputs.front() << "\"))";
+    uint64_t childOffset = blockId + specialization.blocks.size();
     for (const QueueModuleInstancePlan &instance :
          specialization.moduleInstances) {
       const QueueGraphPlan *child =
@@ -4741,11 +4798,15 @@ generateStructuredQueueGraphCpp(const QueueGraphPlan &plan) {
       return generatorError("mixed nested object ID partition is incomplete: " +
                             std::to_string(childOffset) + " != " +
                             std::to_string(objectCount));
-    output << " {\n    attachChild(scope_);\n";
+    output << " {\n";
+    for (size_t index = 0; index < scopeNames.size(); ++index)
+      output << "    attachChild(" << scopeMember(index) << ");\n";
     for (size_t index = 0; index < internalQueues.size(); ++index)
       output << "    attachChild(queue_" << index << "_);\n";
-    output << "    scope_.attachChild(block_);\n";
-    childOffset = blockId + 1;
+    for (auto [index, block] : llvm::enumerate(specialization.blocks))
+      output << "    " << scopeMember(scopeIndexOf(block.scope))
+             << ".attachChild(" << blockMember(index) << ");\n";
+    childOffset = blockId + specialization.blocks.size();
     for (auto [index, instance] :
          llvm::enumerate(specialization.moduleInstances)) {
       const QueueGraphPlan *child =
@@ -4768,9 +4829,11 @@ generateStructuredQueueGraphCpp(const QueueGraphPlan &plan) {
     for (size_t index = 0; index < internalQueues.size(); ++index)
       output << "    if (index == " << index
              << ") return gfsim::makeDispatchRow(&queue_" << index << "_);\n";
-    output << "    if (index == " << blockId
-           << ") return gfsim::makeDispatchRow(&block_);\n";
-    childOffset = blockId + 1;
+    for (size_t index = 0; index < specialization.blocks.size(); ++index)
+      output << "    if (index == " << blockId + index
+             << ") return gfsim::makeDispatchRow(&" << blockMember(index)
+             << ");\n";
+    childOffset = blockId + specialization.blocks.size();
     for (auto [instanceIndex, instance] :
          llvm::enumerate(specialization.moduleInstances)) {
       const QueueGraphPlan *child =
@@ -4781,12 +4844,16 @@ generateStructuredQueueGraphCpp(const QueueGraphPlan &plan) {
              << childOffset << ");\n";
       childOffset += childCount;
     }
-    output << "    return {};\n  }\n\nprivate:\n  gfsim::Module scope_;\n";
+    output << "    return {};\n  }\n\nprivate:\n";
+    for (size_t index = 0; index < scopeNames.size(); ++index)
+      output << "  gfsim::Module " << scopeMember(index) << ";\n";
     for (auto [index, queue] : llvm::enumerate(internalQueues))
       output << "  gfsim::SimQueue<" << queueTypes.lookup(queue->name)
              << "> queue_" << index << "_;\n";
-    output << "  gfsim::QueueTransform<" << inputType << ", " << outputType
-           << ", " << policy << ", " << outputQueue->rate << "> block_;\n";
+    for (size_t index = 0; index < specialization.blocks.size(); ++index)
+      output << "  gfsim::QueueTransform<" << blockInputTypes[index] << ", "
+             << blockOutputTypes[index] << ", " << blockPolicies[index] << ", "
+             << blockRates[index] << "> " << blockMember(index) << ";\n";
     for (auto [instanceIndex, instance] :
          llvm::enumerate(specialization.moduleInstances)) {
       const QueueGraphPlan *child =
