@@ -9,6 +9,7 @@ from _pycircuit_semantics import BitfieldLayout, StructType, ValueType
 
 from .._diagnostics import Diagnostic
 from .._source_map import SourceFrame
+from .._static_eval import StaticValue
 from .source import _DEFAULT_QUEUE_SOURCE_PATH
 from .type_rendering import _render_type
 
@@ -208,6 +209,7 @@ class QueueBinding:
     table_read_output: bool = False
     barrier_output: bool = False
     select_output: bool = False
+    instance_output: bool = False
     provider: str = "transform"
     rate: int = 1
     lanes: int = 1
@@ -697,6 +699,27 @@ class PureHelperDefinition:
 
 
 @dataclass(frozen=True, slots=True)
+class ChildInstanceBinding:
+    """One child module instantiated inside a rule-backed module body.
+
+    The child consumes parent-owned Queues named by ``input_names`` and
+    produces parent-owned Queues named by ``output_names``. ``symbol`` is the
+    resolved definition symbol, which may differ from ``module_name`` when the
+    child is a parameterized family case. ``order`` is the parent body statement
+    order that anchors the instance between two emitted segments.
+    """
+
+    name: str
+    module_name: str
+    symbol: str
+    input_names: tuple[str, ...]
+    output_names: tuple[str, ...]
+    static_arguments: tuple[tuple[str, StaticValue], ...]
+    order: int
+    source: SourceFrame | None = None
+
+
+@dataclass(frozen=True, slots=True)
 class QueueProgram:
     system: str
     payloads: tuple[Payload, ...]
@@ -732,6 +755,7 @@ class QueueProgram:
     observations: tuple[ObservationBinding, ...]
     expectations: tuple[ExpectBinding, ...]
     sinks: tuple[SinkBinding, ...]
+    children: tuple[ChildInstanceBinding, ...] = ()
     resolved_type_bindings: tuple[tuple[str, int], ...] = ()
     resolved_type_checks: tuple[StaticTypeCheck, ...] = ()
     resolved_config_values: tuple[StaticConfigBinding, ...] = ()

@@ -2544,6 +2544,15 @@ ordinary tuple assignment. The compiler, not Python, materializes
 `ac.instance`, interface bindings, specialization identity, and per-instance
 state.
 
+A rule-backed module body may also place child module calls (issues #180, #197,
+#223). The frontend partitions the body by statement order into one `ac.scope`
+per maximal run of local rule statements, emits one `ac.instance` per child
+between those scopes, threads each child's result Queues into the following
+segment, and makes the last segment's element the `ac.return` operand.
+Consecutive children share no synthetic empty scope, and a body without a child
+call keeps its existing single body scope unchanged. Affected decisions: 0180,
+0185, and 0189.
+
 `reusable_circular_rob.py` exercises this path with one 3-input/2-output ROB,
 five lexical state owners, four rules, and two independent placements. Its
 specialization body and generated class occur once. Direct interface-to-rule
@@ -2558,7 +2567,17 @@ only pure helpers referenced by that child and its reachable rules; the root
 source pass still validates the complete typed helper set with root JIT
 bindings, including the static index checks required by Decision 0254.
 Composite child graphs support acyclic child-to-child Queue wiring and inferred
-fanout. Cross-child communication cycles are not yet admitted. The existing
+fanout. Cross-child communication cycles are not yet admitted.
+
+A rule-backed module may also invoke child modules. Its body then lowers to a
+sequence of scopes separated by `ac.instance` placements: each scope holds the
+local rules that run before or after a child placement, the Queues between the
+two stay parent-owned, and each child keeps its own instance and specialization.
+This is the general composition capability requested by issues #223, #197 and
+#180; it removes the need for a one-rule wrapper module per route or arbiter.
+The structured QueueGraph backend admits the resulting shape (any number of local
+blocks across the parent's own scopes alongside child instances), and issue #223
+records the acceptance evidence. The existing
 `ac.feedback` keeps its bounded single-block iteration semantics and is not a
 substitute for a requester/responder module protocol; an implicit Python
 dataflow cycle is rejected rather than guessed from statement order.

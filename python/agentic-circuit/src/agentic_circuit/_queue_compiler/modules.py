@@ -2238,6 +2238,42 @@ def _lower_simple_module_source(
             namespace = ""
             program: QueueProgram | None = None
             specialized_payloads = payload_map
+
+            def resolve_child_module(
+                child_name: str,
+                child_call: ast.Call,
+            ) -> tuple[
+                str,
+                tuple[tuple[str, StaticValue], ...],
+                tuple[tuple[str, ValueType], ...],
+                tuple[tuple[str, ValueType], ...],
+            ]:
+                if child_name in rule_modules:
+                    return specialize_rule_module(
+                        child_name,
+                        child_call,
+                        context_static_values=active_static_values,
+                        context_static_types=active_static_types,
+                    )
+                if child_name in empty_modules:
+                    if child_call.keywords:
+                        raise QueueFrontendError(
+                            "ACPY-MODULE-007: pure module static parameters "
+                            "are not implemented"
+                        )
+                    return child_name, (), (), ()
+                if child_name in module_types:
+                    inputs, outputs = module_signature(child_name)
+                    if child_call.keywords:
+                        raise QueueFrontendError(
+                            "ACPY-MODULE-007: pure module static parameters "
+                            "are not implemented"
+                        )
+                    return child_name, (), inputs, outputs
+                raise QueueFrontendError(
+                    f"ACPY-MODULE-011: child module {child_name!r} is not callable"
+                )
+
             if (
                 module_name in module_implementations
                 and module_name not in composite_modules
@@ -2255,6 +2291,7 @@ def _lower_simple_module_source(
                         definition_locations=definition_locations,
                         static_assert_locations=static_assert_locations,
                         source_node_locations=source_node_locations,
+                        resolve_child_module=resolve_child_module,
                     )
                 except QueueFrontendError as error:
                     raise QueueFrontendError(
@@ -3785,6 +3822,7 @@ def _lower_simple_module_source(
                 helper_names_to_emit=frozenset(helper_names_to_emit),
                 definition_locations=dict(definition_locations or {}),
                 definition_ndf=definition_ndf,
+                render_instance_static_arguments=family_arguments,
             )
             .rstrip()
             .splitlines()

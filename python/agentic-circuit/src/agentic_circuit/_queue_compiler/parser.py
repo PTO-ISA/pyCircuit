@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import ast
 import copy
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
 from dataclasses import replace
 
 from _pycircuit_semantics import (
@@ -54,6 +54,7 @@ from .memory_statements import (
     handle_memory_request,
 )
 from .model import (
+    ChildInstanceBinding,
     CollectionBinding,
     CreditBinding,
     DependencyBinding,
@@ -121,6 +122,7 @@ from .static_types import (
     _static_parameter_aliases,
     _resolved_type_bindings_for_checks,
     _type_static_values,
+    _types_compatible,
     _validate_static_config_roots,
 )
 from .syntax import _decorator_name
@@ -148,6 +150,18 @@ def parse_queue_program(
         Mapping[str, tuple[tuple[str, int, int], ...]] | None
     ) = None,
     source_node_locations: SourceNodeLocations | None = None,
+    resolve_child_module: (
+        Callable[
+            [str, ast.Call],
+            tuple[
+                str,
+                tuple[tuple[str, StaticValue], ...],
+                tuple[tuple[str, ValueType], ...],
+                tuple[tuple[str, ValueType], ...],
+            ],
+        ]
+        | None
+    ) = None,
 ) -> QueueProgram:
     normalized_source_path = _normalize_queue_source_path(source_path)
     tree = ast.parse(text, filename=normalized_source_path, type_comments=True)
@@ -2400,6 +2414,16 @@ def parse_queue_program(
     )
     parser_state = _ParserState()
     state_semantics = _StateSemantics(parser_environment, parser_state)
+    child_module_names = {
+        node.name
+        for node in tree.body
+        if isinstance(node, ast.FunctionDef)
+        and any(
+            _decorator_name(decorator).rsplit(".", 1)[-1] == "module"
+            for decorator in node.decorator_list
+        )
+    }
+    child_instances: list[ChildInstanceBinding] = []
     queues = parser_state.queues
     effect_rules = parser_state.effect_rules
     scopes = parser_state.scopes
@@ -2462,6 +2486,13 @@ def parse_queue_program(
 
     def call_name(call: ast.Call) -> str:
         return _decorator_name(call.func).rsplit(".", 1)[-1]
+
+    def is_child_module_call(call: ast.Call) -> bool:
+        return (
+            resolve_child_module is not None
+            and isinstance(call.func, ast.Name)
+            and call.func.id in child_module_names
+        )
 
     def rewrite_selection_tuple_refs(statement: ast.stmt) -> ast.stmt:
         class StaticSelectionTupleRefs(ast.NodeTransformer):
@@ -3377,6 +3408,7 @@ def parse_queue_program(
                             rule_definitions[call_name(statement.value)].output_types
                         )
                     )
+                    or is_child_module_call(statement.value)
                 )
             ):
                 target = statement.targets[0]
@@ -3396,9 +3428,12 @@ def parse_queue_program(
                         "ACPY-RULE-014: multi-output rule call requires fixed local unpacking"
                     )
                 name = target_names[0]
-                if len(target_names) > 1 and (
-                    call_name(call) not in rule_definitions
-                    or not rule_definitions[call_name(call)].output_types
+                if len(target_names) > 1 and not (
+                    (
+                        call_name(call) in rule_definitions
+                        and bool(rule_definitions[call_name(call)].output_types)
+                    )
+                    or is_child_module_call(call)
                 ):
                     raise QueueFrontendError(
                         "ACPY-RULE-014: tuple unpacking is reserved for typed "
@@ -4293,6 +4328,68 @@ def parse_queue_program(
                         current_order,
                         source=source_frame(call),
                     )
+                elif is_child_module_call(call):
+                    (
+                        child_symbol,
+                        child_static_arguments,
+                        child_inputs,
+                        child_outputs,
+                    ) = resolve_child_module(call.func.id, call)
+                    if len(call.args) != len(child_inputs):
+                        raise QueueFrontendError(
+                            "ACPY-MODULE-011: child module call requires one "
+                            "positional Queue per runtime input"
+                        )
+                    if len(target_names) != len(child_outputs):
+                        raise QueueFrontendError(
+                            "ACPY-MODULE-011: child module result arity does "
+                            "not match its declared outputs"
+                        )
+                    child_input_names = tuple(
+                        queue_reference(argument, aliases) for argument in call.args
+                    )
+                    for input_name, (_, expected_type) in zip(
+                        child_input_names, child_inputs, strict=True
+                    ):
+                        incoming = by_name.get(input_name)
+                        if incoming is None:
+                            raise QueueFrontendError(
+                                f"ACPY-QUEUE-001: input queue {input_name!r} "
+                                "is unbound"
+                            )
+                        if not _types_compatible(incoming.payload, expected_type):
+                            raise QueueFrontendError(
+                                "ACPY-MODULE-011: child module input type does "
+                                "not match its declared parameter"
+                            )
+                    child_instances.append(
+                        ChildInstanceBinding(
+                            f"child_{len(child_instances)}",
+                            call.func.id,
+                            child_symbol,
+                            child_input_names,
+                            tuple(target_names),
+                            tuple(child_static_arguments),
+                            current_order,
+                            source_frame(call),
+                        )
+                    )
+                    for output_name, (_, output_payload) in zip(
+                        target_names, child_outputs, strict=True
+                    ):
+                        output_binding = QueueBinding(
+                            output_name,
+                            output_payload,
+                            1,
+                            1,
+                            None,
+                            scope=scope_path,
+                            order=current_order,
+                            instance_output=True,
+                        )
+                        queues.append(output_binding)
+                        by_name[output_name] = output_binding
+                    continue
                 else:
                     raise QueueFrontendError(
                         "ACPY-QUEUE-001: unsupported queue-producing call "
@@ -4849,6 +4946,7 @@ def parse_queue_program(
         tuple(observations),
         tuple(expectations),
         tuple(sinks),
+        children=tuple(child_instances),
         resolved_type_bindings=_resolved_type_bindings_for_checks(
             all_static_checks,
             parameter_aliases,
