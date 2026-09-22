@@ -723,6 +723,31 @@ def same_specialization(
     return result
 """
 
+MULTI_SPECIALIZATION_INTERFACE_SOURCE = """
+import agentic_circuit as ac
+
+@ac.struct
+class Packet:
+    value: ac.bits[8]
+    lane: ac.bits[1]
+    hit: ac.bits[1]
+
+@ac.rule
+def tag_lane(packet: Packet, lane) -> Packet:
+    return packet.with_fields(hit=(packet.lane == lane))
+
+@ac.module
+def bank(packet: Packet, *, lane: ac.const[int]) -> Packet:
+    result = tag_lane(packet, lane)
+    return result
+
+@ac.system
+def two_banks(low: Packet, high: Packet) -> tuple[Packet, Packet]:
+    first = bank(low, lane=0)
+    second = bank(high, lane=1)
+    return first, second
+"""
+
 BIT_OPERATION_SOURCE = """
 import agentic_circuit as ac
 
@@ -4346,7 +4371,31 @@ def scalar(value: ac.bits[WIDTH], *, width: ac.const[int]) -> ac.bits[WIDTH]:
             match.group(0) for match in re.finditer(r"Entry__p[0-9a-f]{12}", lowered)
         }
         self.assertEqual(1, len(symbols))
-        self.assertIn("ac.module @stage__p", lowered)
+        # One specialization of the source module keeps the plain definition
+        # name; the static argument is carried by the module parameters and the
+        # instance static binding instead of a fingerprint suffix.
+        self.assertIn("ac.module @stage(", lowered)
+        self.assertNotIn("ac.module @stage__p", lowered)
+        self.assertIn("parameters {width = 4 : i64}", lowered)
+        self.assertIn("static {width = 4 : i64}", lowered)
+
+    def test_distinct_specializations_remain_distinct_symbols(self) -> None:
+        from agentic_circuit._queue_frontend import lower_queue_source
+
+        lowered = lower_queue_source(
+            MULTI_SPECIALIZATION_INTERFACE_SOURCE, "two_banks"
+        )
+        # Two genuinely different static argument sets cannot share one module
+        # symbol, so the fingerprint suffix is still required for them. A source
+        # module is only allowed to keep the plain definition name when it
+        # lowers to exactly one specialization.
+        symbols = sorted(
+            set(re.findall(r"ac\.module @(bank__p[0-9a-f]{12})\(", lowered))
+        )
+        self.assertEqual(2, len(symbols))
+        self.assertNotIn("ac.module @bank(", lowered)
+        self.assertIn("parameters {lane = 0 : i64}", lowered)
+        self.assertIn("parameters {lane = 1 : i64}", lowered)
 
     def test_module_specialization_ignores_unrelated_dependent_payload(self) -> None:
         from agentic_circuit._queue_frontend import lower_queue_source
@@ -4603,7 +4652,9 @@ def design(index: ac.u2, *, entries: ac.const[int]) -> ac.u2:
         self.assertEqual(1, lowered.count('type = "Config"'))
         self.assertEqual(1, lowered.count('root = "cfg"'))
         self.assertNotIn('root = "stage__p', lowered)
-        self.assertIn("ac.module @stage__p", lowered)
+        self.assertIn("ac.module @stage(", lowered)
+        self.assertNotIn("ac.module @stage__p", lowered)
+        self.assertIn("static {cfg = ", lowered)
 
     def test_payload_parser_retains_recursive_type_descriptors_before_mlir(
         self,

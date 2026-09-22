@@ -727,6 +727,7 @@ def _lower_simple_module_source(
             tuple[tuple[str, StaticValue], ...],
         ],
     ] = {}
+    specialization_sources: dict[str, str] = {}
     returned_names: tuple[str, ...] | None = None
     returned_sources: tuple[SourceFrame | None, ...] | None = None
     projection_index = 0
@@ -965,6 +966,7 @@ def _lower_simple_module_source(
                 program,
                 frozen,
             )
+            specialization_sources[symbol] = module_name
         definition, _, _ = rule_module_specializations[symbol]
         return symbol, frozen, definition.inputs, definition.outputs
 
@@ -1551,6 +1553,39 @@ def _lower_simple_module_source(
                 "  }",
             ]
         )
+    # A source module that lowers to exactly one specialization does not need a
+    # disambiguating fingerprint suffix: the digest can only tell it apart from a
+    # sibling specialization that does not exist. Keep the plain definition name
+    # for those and reserve the suffix for modules that are genuinely specialized
+    # more than once, so specialization alone never renames a module. This
+    # mirrors the readable specialization class naming already used by the
+    # structured QueueGraph code generator.
+    symbols_by_source: dict[str, list[str]] = {}
+    for specialization_symbol, source in specialization_sources.items():
+        symbols_by_source.setdefault(source, []).append(specialization_symbol)
+    unique_symbols = {
+        symbols[0]: source
+        for source, symbols in symbols_by_source.items()
+        if len(symbols) == 1
+    }
+    if unique_symbols:
+        rule_module_specializations = {
+            unique_symbols.get(symbol, symbol): value
+            for symbol, value in rule_module_specializations.items()
+        }
+        instances = [
+            (
+                instance[0],
+                unique_symbols.get(instance[1], instance[1]),
+                *instance[2:],
+            )
+            for instance in instances
+        ]
+        specialization_sources = {
+            unique_symbols.get(symbol, symbol): source
+            for symbol, source in specialization_sources.items()
+        }
+
     for name, (
         definition,
         program,
