@@ -438,3 +438,50 @@ def test_hierarchical_domain_call_rejects_domain_and_width_mismatches() -> None:
 
     with pytest.raises(TypeError, match="width mismatch: expected 8, got 4"):
         pycircuit.build_cycle_aware(wrong_width_top, hierarchical=True)
+
+
+def test_hierarchical_domain_call_fails_closed_on_unemitted_output_keys() -> None:
+    """Every returned dict key needs a result port when the child is composed.
+
+    ``domain.call`` compiles the child with ``inputs=None`` and then rebinds each
+    returned key to a ``pyc.instance`` result. A key whose value was never
+    emitted with ``m.output()`` has no result index, which surfaced as a bare
+    ``IndexError`` on the instance result list instead of a diagnostic.
+    """
+
+    def child(m, domain, *, inputs, prefix="child"):
+        value = pycircuit.submodule_input(
+            inputs, "value", m, domain, prefix=prefix, width=8
+        )
+        summed = value + 1
+        # `sum` is emitted; `next_sum` is returned without a result port.
+        m.output(f"{prefix}_sum", pycircuit.wire_of(summed))
+        return {"sum": summed, "next_sum": value + 2}
+
+    def unemitted_top(m, domain):
+        value = pycircuit.cas(domain, m.input("value", width=8), cycle=0)
+        domain.call(child, inputs={"value": value}, prefix="u_child")
+
+    with pytest.raises(KeyError) as error:
+        pycircuit.build_cycle_aware(unemitted_top, hierarchical=True)
+
+    message = str(error.value)
+    assert "next_sum" in message
+    assert "m.output()" in message
+
+    def complete_child(m, domain, *, inputs, prefix="child"):
+        value = pycircuit.submodule_input(
+            inputs, "value", m, domain, prefix=prefix, width=8
+        )
+        outputs = {"sum": value + 1, "next_sum": value + 2}
+        for key, output in outputs.items():
+            m.output(f"{prefix}_{key}", pycircuit.wire_of(output))
+        return outputs
+
+    def complete_top(m, domain):
+        value = pycircuit.cas(domain, m.input("value", width=8), cycle=0)
+        bound = domain.call(complete_child, inputs={"value": value}, prefix="u_child")
+        m.output("out", pycircuit.wire_of(bound["next_sum"]))
+
+    emitted = pycircuit.build_cycle_aware(complete_top, hierarchical=True).emit_mlir()
+    assert "pyc.instance" in emitted

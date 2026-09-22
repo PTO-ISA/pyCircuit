@@ -538,17 +538,33 @@ def compile_cycle_aware(
     *,
     name: str | None = None,       # 模块名
     domain_name: str = "clk",      # 时钟域名
-    **jit_params,                  # 转发给 fn 的配置参数
+    **jit_params,                  # 仅允许 runtime value_params；静态参数 fail closed
 ) -> Design
 ```
 
 ```python
-design = compile_cycle_aware(my_module, name="my_module", width=16)
+design = compile_cycle_aware(my_module, name="my_module")
 mlir_text = design.emit_mlir()
 ```
 
 `compile_cycle_aware()` 始终经 AST/JIT 编译并返回 hardened `Design`。函数不再
 用布尔参数切换返回类型；`structural` 与 `value_params` 只由装饰器元数据定义。
+
+**静态几何属于源码，不属于调用方。** pyCircuit 6 移除了 caller-inferred
+specialization：模块的位宽、深度、lane 数等几何量写成模块内的 Python 常量，
+调用方不能再通过 `jit_params`/`build_params` 覆盖。任何静态参数（包括
+`width: int = 16` 这样的默认值）被当作编译参数传入时，入口一律 fail closed：
+
+```text
+PYC-PY-TYPE: static build arguments require an explicit source-owned finite-family
+declaration; caller-inferred specialization is forbidden: width
+```
+
+`pycircuit emit` / `pycircuit build` 会对入口函数上带默认值的静态参数报同一个
+错误，因此可编译的设计不要在入口函数上声明几何参数；需要多种几何时在源码里
+各写一个常量，或使用 Agentic Circuit 的 typed finite-family 声明
+（`ac.module_decl(..., finite_cases=...)`）。唯一的例外是运行期 `value_params`：
+它们由装饰器声明为 instance 端口，而不是特化键。
 
 ### build_cycle_aware()（显式 Python elaboration）
 
@@ -559,16 +575,18 @@ def build_cycle_aware(
     name: str | None = None,
     domain_name: str = "clk",
     hierarchical: bool = False,
-    **build_params,
+    **build_params,             # 同上：几何常量不可由调用方覆盖
 ) -> CycleAwareCircuit
 ```
 
 `build_cycle_aware()` 直接执行 Python 函数体，返回 `CycleAwareCircuit`；其
 `emit_mlir()` 同样包含完整 hardened frontend attributes。Python `if`/`for` 仅
 用于 elaboration-time 元编程；运行时硬件选择使用 `mux()`。`hierarchical=True`
-保留 `domain.call()` 边界，并用 canonical 参数摘要区分同一子模块的不同
-specialization。Builder 保留 decorator 的 `structural=True`，但不支持 runtime
-`value_params`；此类模块必须使用 `compile_cycle_aware()`。
+保留 `domain.call()` 边界。Builder 保留 decorator 的 `structural=True`，但不支持
+runtime `value_params`；此类模块必须使用 `compile_cycle_aware()`。
+
+`domain.call()` 在层次化模式下只接受 `inputs=` 与 `prefix=`；传入
+`width=`/`pc_width=` 等特化参数会以同一 fail-closed 诊断被拒绝。
 
 ### @module JIT 路径（结构化库接口）
 

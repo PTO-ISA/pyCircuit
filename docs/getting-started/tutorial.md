@@ -55,7 +55,8 @@ from pycircuit import (
     build_cycle_aware, cas, wire_of,
 )
 
-def build(m: CycleAwareCircuit, domain: CycleAwareDomain, width: int = 8) -> None:
+def build(m: CycleAwareCircuit, domain: CycleAwareDomain) -> None:
+    width = 8
     # ① 输入端口：m.input() 返回裸 Wire，用 cas() 打上 cycle=0 标签
     enable = cas(domain, m.input("enable", width=1), cycle=0)
 
@@ -74,8 +75,17 @@ def build(m: CycleAwareCircuit, domain: CycleAwareDomain, width: int = 8) -> Non
 build.__pycircuit_name__ = "counter"
 
 if __name__ == "__main__":
-    print(build_cycle_aware(build, name="counter", width=8).emit_mlir())
+    print(build_cycle_aware(build, name="counter").emit_mlir())
 ```
+
+> **静态几何写在源码里，不通过调用方传入。** `width` 是模块内部的
+> elaboration-time 常量，不是编译参数：pyCircuit 6 移除了 caller-inferred
+> specialization，所以给编译入口多传一个 `width=8` 会以
+> `PYC-PY-TYPE: static build arguments require an explicit source-owned
+> finite-family declaration` fail closed。需要多种几何时，为每种几何写一个
+> 源码内的常量，或使用 Agentic Circuit 的 typed finite-family 声明。
+> `prefix` 是 `domain.call()` 唯一接受的调用方配置（用于区分同一子模块的多个
+> 实例名），见下文“标准模块模板与双模运行”。
 
 运行：
 
@@ -140,7 +150,8 @@ from pycircuit import (
     build_cycle_aware, cas, mux, wire_of,
 )
 
-def mini_alu(m: CycleAwareCircuit, domain: CycleAwareDomain, width: int = 32) -> None:
+def mini_alu(m: CycleAwareCircuit, domain: CycleAwareDomain) -> None:
+    width = 32
     a  = cas(domain, m.input("a",  width=width), cycle=0)
     b  = cas(domain, m.input("b",  width=width), cycle=0)
     op = cas(domain, m.input("op", width=2),     cycle=0)
@@ -179,7 +190,8 @@ mini_alu.__pycircuit_name__ = "mini_alu"
 设计一个两级流水乘加器：`out = (a * b) + c`，乘法一拍、加法一拍。
 
 ```python
-def mac2(m: CycleAwareCircuit, domain: CycleAwareDomain, width: int = 16) -> None:
+def mac2(m: CycleAwareCircuit, domain: CycleAwareDomain) -> None:
+    width = 16
     a = cas(domain, m.input("a", width=width), cycle=0)
     b = cas(domain, m.input("b", width=width), cycle=0)
     c = cas(domain, m.input("c", width=width), cycle=0)
@@ -191,14 +203,31 @@ def mac2(m: CycleAwareCircuit, domain: CycleAwareDomain, width: int = 16) -> Non
 
     # ── Stage 2：加法结果再打一拍 ──
     acc = domain.signal(width=width, name="acc")
+    acc_comb = prod + c               # 在 cycle 1 构造：prod 就在这一列
     domain.next()                     # → cycle 2
-    acc <<= prod + c                  # c 在 cycle 0，prod 在 cycle 1 →
-                                      #   c 自动延迟 1 拍对齐（自动平衡！）
+    acc <<= acc_comb                  # c 自动延迟 1 拍对齐（自动平衡！）
 
     m.output("out", wire_of(acc))
 ```
 
-注意 `prod + c` 这一行：`c` 是 cycle 0 的输入，`prod` 是 cycle 1 的寄存器输出。编译器自动为 `c` 插入一级 DFF，两者在 cycle 1 相加，结果在 cycle 2 写入 `acc`。**你从头到尾没有写过任何「对齐寄存器」**——这正是周期感知模型的价值：改流水级数时，只动 `domain.next()` 的位置，所有旁路信号自动重新对齐。
+**先构造、再 `next()`、最后提交**，这是本节的唯一规则。`prod + c` 必须写在
+`domain.next()` **之前**，因为 `prod` 是 cycle 1 的值：在 cycle 1 构造这个加法，
+只有 `c`（cycle 0）需要补一级 DFF。如果把 `acc <<= prod + c` 写在第二个
+`domain.next()` 之后，表达式就落在 cycle 2，`c` 会被补**两**级 DFF，旁路比
+`prod` 晚一拍，硬件算出的就不再是 `out = (a * b) + c`。两种写法的寄存器数不同：
+
+```text
+写在 next() 之前（本教程）: 3 个 pyc.reg，c 延迟 1 拍
+写在 next() 之后          : 4 个 pyc.reg，c 延迟 2 拍（多一级 _v6_bal_2）
+```
+
+这条陷阱与 `examples/pycircuit/basics/counter/counter.py` 注释里记录的是同一条：
+**赋值位置（`<<=` 写在哪一列）不决定平衡，表达式的构造位置才决定。**
+
+`c` 是 cycle 0 的输入，`prod` 是 cycle 1 的寄存器输出。编译器自动为 `c` 插入一级
+DFF，两者在 cycle 1 相加，结果在 cycle 2 写入 `acc`。**你从头到尾没有写过任何
+「对齐寄存器」**——这正是周期感知模型的价值：改流水级数时，只动
+`domain.next()` 的位置，所有旁路信号自动重新对齐。
 
 补一个实用技巧：`domain.prev()` 可以回到上一列补写逻辑；`domain.cycle(sig)`
 显式给某个信号打一拍，并返回标记为 `sig.cycle + 1` 的 CAS。之后移动 domain
@@ -283,9 +312,9 @@ def accumulator(
     domain: CycleAwareDomain,
     *,
     inputs: dict | None = None,     # ← 双模开关
-    width: int = 32,
     prefix: str = "acc",
 ) -> dict:
+    width = 32
     _in = submodule_input
 
     # ── Step 1: 输入（独立模式创建端口；组合模式取父模块信号）──
@@ -314,20 +343,27 @@ accumulator.__pycircuit_name__ = "accumulator"
 
 # ── Step 6: 独立编译入口 ──
 if __name__ == "__main__":
-    circ = build_cycle_aware(accumulator, name="accumulator", width=16)
+    circ = build_cycle_aware(accumulator, name="accumulator")
     print(circ.emit_mlir())
 ```
+
+`prefix` 之后不再有几何参数：模块的位宽/深度是源码内的常量（`width = 32`），
+`domain.call()` 不接受 `width=`/`pc_width=` 这类调用方特化参数。
 
 | 模式 | 触发 | 输入来源 | 输出去向 |
 |------|------|----------|----------|
 | 独立 | `inputs=None` | `m.input(f"{prefix}_{key}")` | `m.output()` |
 | 组合 | `inputs={...}` | `inputs[key]`（父模块 CAS） | 仅返回 dict |
 
-三个高频错误提前打预防针：
+四个高频错误提前打预防针：
 
 1. **dict 值必须是 CAS**，不要 `outs["x"] = wire_of(x)`；
 2. **key 必须与子模块完全一致**——缺失或额外 key 会立即抛出 `KeyError`；
-3. **每个子模块实例给独立 prefix**，否则寄存器名冲突。
+3. **每个子模块实例给独立 prefix**，否则寄存器名冲突；
+4. **独立模式必须把 dict 里的每个 key 都 `m.output()` 出来**。层次化
+   `domain.call()` 会用独立模式编译子模块，再按 key 把 `pyc.instance` 的结果接
+   回 dict；只发射一部分 key 时，未发射的那一项没有对应的结果端口，编译会
+   fail closed。上例用 `for k, v in outs.items()` 保证两者一致。
 
 ---
 
@@ -336,7 +372,11 @@ if __name__ == "__main__":
 用 `domain.call()` 把模块组合成层次。三层结构：`soc_top` → `cpu_core` → `frontend` + `backend`。
 
 ```python
-def frontend(m, domain, *, inputs=None, pc_width=32, prefix="fe") -> dict:
+from pycircuit import cas, mux, submodule_input, u, wire_of
+
+
+def frontend(m, domain, *, inputs=None, prefix="fe") -> dict:
+    pc_width = 32
     _in = submodule_input
     redirect_valid  = _in(inputs, "redirect_valid",  m, domain, prefix=prefix, width=1)
     redirect_target = _in(inputs, "redirect_target", m, domain, prefix=prefix, width=pc_width)
@@ -350,13 +390,15 @@ def frontend(m, domain, *, inputs=None, pc_width=32, prefix="fe") -> dict:
 
     outs = {"pc": pc, "next_pc": next_pc}
     if inputs is None:
-        m.output(f"{prefix}_pc", wire_of(pc))
+        for k, v in outs.items():          # 每个 key 都要有结果端口
+            m.output(f"{prefix}_{k}", wire_of(v))
     return outs
 
 frontend.__pycircuit_name__ = "frontend"
 
 
-def backend(m, domain, *, inputs=None, data_width=32, prefix="be") -> dict:
+def backend(m, domain, *, inputs=None, prefix="be") -> dict:
+    data_width = 32
     _in = submodule_input
     op_a   = _in(inputs, "op_a",   m, domain, prefix=prefix, width=data_width)
     op_b   = _in(inputs, "op_b",   m, domain, prefix=prefix, width=data_width)
@@ -369,29 +411,33 @@ def backend(m, domain, *, inputs=None, data_width=32, prefix="be") -> dict:
 
     outs = {"wb_data": wb, "result": result}
     if inputs is None:
-        m.output(f"{prefix}_wb_data", wire_of(wb))
+        for k, v in outs.items():          # 每个 key 都要有结果端口
+            m.output(f"{prefix}_{k}", wire_of(v))
     return outs
 
 backend.__pycircuit_name__ = "backend"
 
 
-def cpu_core(m, domain, *, inputs=None, data_width=32, pc_width=32, prefix="cpu") -> dict:
+def cpu_core(m, domain, *, inputs=None, prefix="cpu") -> dict:
+    data_width = 32
+    pc_width = 32
     _in = submodule_input
     redirect = _in(inputs, "redirect", m, domain, prefix=prefix, width=1)
     target   = _in(inputs, "target",   m, domain, prefix=prefix, width=pc_width)
 
-    # 子模块调用：inputs 的 key 与子模块 _in 的 key 一一对应
+    # 子模块调用：inputs 的 key 与子模块 _in 的 key 一一对应。
+    # 几何常量在子模块源码里，调用方只能给 inputs 与 prefix。
     fe = domain.call(frontend, inputs={
         "redirect_valid":  redirect,
         "redirect_target": target,
-    }, pc_width=pc_width, prefix=f"{prefix}_fe")
+    }, prefix=f"{prefix}_fe")
 
     # 级联：frontend 输出直接喂给 backend
     be = domain.call(backend, inputs={
         "op_a":   fe["pc"],
         "op_b":   cas(domain, u(data_width, 0), cycle=0),
         "alu_op": cas(domain, u(4, 0), cycle=0),
-    }, data_width=data_width, prefix=f"{prefix}_be")
+    }, prefix=f"{prefix}_be")
 
     outs = {"pc": fe["pc"], "wb_data": be["wb_data"]}
     if inputs is None:
@@ -510,7 +556,7 @@ python3 -m pycircuit.cli build examples/pycircuit/basics/counter/tb_counter.py \
 | `--target both`（默认） | 两者都做（可交叉比对） |
 | `--run-verilator` | 构建后立即运行 Verilator 仿真（`--run-arg` 可传运行参数） |
 | `--tb-schedule-mode sidecar` | 长测试改用 sidecar 外置激励 |
-| `--param width=16` | 覆盖设计的 JIT 参数（可重复） |
+| `--param name=value` | 覆盖 JIT 入口的编译参数（可重复）。几何常量写在源码里，因此本教程的设计不接受 `--param`；对带默认值的静态参数一律 fail closed |
 
 **产物目录布局**（`--out-dir .pycircuit_out/tutorial/counter`）：
 
@@ -683,7 +729,9 @@ consumer_project/my_soc/
 
 - 每个模块函数满足“标准模块模板与双模运行”的约定 → 每个模块可独立编译、独立测试；
 - 集成自底向上：先单测 `alu`，再单测 `scalar_rs`，最后 `soc_top` 集成测试；
-- 参数集中管理，模块通过 keyword-only 配置参数接收。
+- 几何常量放在拥有它的模块源码里（`width = 32` 这样的模块内常量），不要做成
+  调用方可覆盖的编译参数：`common/parameters.py` 只作为**源码级**共享常量的
+  来源被各模块 `import`，而不是作为把几何量传给 `domain.call` 的特化入口。
 
 大规模设计应在独立 consumer 仓库中组合模块，并通过固定的 pyCircuit
 版本执行兼容性验证。

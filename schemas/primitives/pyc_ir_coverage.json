@@ -47,7 +47,8 @@
         "tests/mlir/agentic-circuit/Transforms/rule-multi-input-lowering.mlir",
         "tests/python/agentic-circuit/python_frontend/test_queue_frontend.py",
         "tests/unit/test_pyc_ir_inventory.py",
-        "tests/unit/test_semantic_core.py"
+        "tests/unit/test_semantic_core.py",
+        "tests/unit/test_tutorial_snippets.py"
       ],
       "verifier": "compiler/mlir/lib/Dialect/PYC/PYCOps.cpp",
       "verilog_emitter": "compiler/mlir/lib/Emit/VerilogEmitter.cpp"
@@ -740,7 +741,9 @@
         "tests/mlir/agentic-circuit/CodeGen/module-family-import-instance.mlir",
         "tests/mlir/agentic-circuit/CodeGen/pycircuit-hierarchical-family.mlir",
         "tests/mlir/pyc/family-ops.mlir",
-        "tests/unit/test_pyc6_surface.py"
+        "tests/unit/test_pyc6_surface.py",
+        "tests/unit/test_tutorial_snippets.py",
+        "tests/unit/test_v6_forward_signal.py"
       ],
       "verifier": "compiler/mlir/lib/Dialect/PYC/PYCOps.cpp",
       "verilog_emitter": "compiler/mlir/lib/Emit/VerilogEmitter.cpp"
@@ -1235,6 +1238,7 @@
         "tests/unit/test_dodgeball_example.py",
         "tests/unit/test_reg_next_single_driver.py",
         "tests/unit/test_sram_profile.py",
+        "tests/unit/test_tutorial_snippets.py",
         "tests/unit/test_v6_forward_signal.py"
       ],
       "verifier": "compiler/mlir/lib/Dialect/PYC/PYCOps.cpp",
