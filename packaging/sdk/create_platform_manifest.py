@@ -306,7 +306,16 @@ def require_dumpbin() -> str:
     return dumpbin
 
 
-def relocate_native_dependencies(stage: Path, identity: str) -> None:
+def relocate_native_dependencies(
+    stage: Path, identity: str, library_root: Path | None = None
+) -> None:
+    """Rewrite bundled library references so the tree is relocatable.
+
+    ``library_root`` is the directory the relocated binaries must reach at
+    runtime. It defaults to ``<stage>/lib`` (the SDK archive layout); the wheel
+    stages the same toolchain one level deeper, under
+    ``<stage>/pycircuit/_toolchain``, and passes that root explicitly.
+    """
     binaries = (
         windows_native_files(stage)
         if identity == "windows-x86_64"
@@ -379,7 +388,9 @@ def relocate_native_dependencies(stage: Path, identity: str) -> None:
     patchelf = shutil.which("patchelf")
     if patchelf is None and binaries:
         raise ValueError("patchelf is required to relocate Linux SDK binaries")
-    library_root = stage / "lib"
+    library_root = library_root or (stage / "lib")
+    if binaries and not library_root.is_dir():
+        raise ValueError(f"bundled library root does not exist: {library_root}")
     for path in binaries:
         relative = os.path.relpath(library_root, path.parent)
         rpath = "$ORIGIN" if relative == "." else "$ORIGIN/" + relative

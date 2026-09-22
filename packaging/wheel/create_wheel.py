@@ -143,7 +143,9 @@ def _relocate(stage: Path, platform: str) -> None:
     sys.path.insert(0, str(sdk_tools))
     import create_platform_manifest  # noqa: PLC0415 - single shared implementation
 
-    create_platform_manifest.relocate_native_dependencies(stage, platform)
+    create_platform_manifest.relocate_native_dependencies(
+        stage, platform, stage / "pycircuit" / "_toolchain" / "lib"
+    )
 
 
 def _platform_for(plat_name: str) -> str:

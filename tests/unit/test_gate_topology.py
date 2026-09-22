@@ -422,17 +422,20 @@ def test_wheel_build_relocates_bundled_libraries() -> None:
 
     builder = _read("packaging/wheel/create_wheel.py")
     assert "import create_platform_manifest" in builder
-    assert (
-        "create_platform_manifest.relocate_native_dependencies(stage, platform)"
-        in builder
-    )
+    assert "create_platform_manifest.relocate_native_dependencies(" in builder
+    assert 'stage / "pycircuit" / "_toolchain" / "lib"' in builder
     assert "_relocate(stage, args.platform or _platform_for(plat_name))" in builder
     assert "_drop_toolchain_frontend_copies(package_dir)" in builder
 
     verifier = _read("packaging/sdk/verify_platform_candidate.py")
     assert 'for name in ("pycc", "acc"):' in verifier
-    assert "runs from the SDK tree but not from the installed" in verifier
-    assert "does not run from the installed wheel or from the" in verifier
+    assert "compiler_failure_report(" in verifier
+    for outcome in (
+        "installed wheel console script",
+        "SDK tree binary",
+        "installed wheel binary",
+    ):
+        assert outcome in verifier, outcome
 
     for workflow in (
         ".github/workflows/release.yml",

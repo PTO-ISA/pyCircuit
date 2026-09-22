@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import argparse
 import ctypes
+import hashlib
 import json
 import os
 import shutil
@@ -511,6 +512,69 @@ def installed_console_script(commands: Path, name: str) -> Path | None:
     return None
 
 
+def installed_toolchain_tool(environment: Path, name: str) -> Path | None:
+    """Locate the compiler the installed wheel bundles inside its toolchain."""
+    matches = sorted(
+        (
+            path
+            for path in environment.rglob(f"pycircuit/_toolchain/bin/{name}*")
+            if path.is_file()
+        ),
+        key=lambda path: path.as_posix(),
+    )
+    return matches[0] if matches else None
+
+
+def _try_run(command: list[os.PathLike[str] | str], *, cwd: Path) -> str:
+    try:
+        run(command, cwd=cwd)
+    except ValueError as error:
+        return f"fails ({error})".replace("\n", " ")
+    return "runs"
+
+
+def compiler_failure_report(
+    name: str,
+    wheel_error: ValueError,
+    sdk_root: Path,
+    environment: Path,
+    workspace: Path,
+    suffix: str,
+) -> str:
+    """Explain which copy of a compiler failed.
+
+    The same binary exists in three places once a wheel is installed: the venv
+    console script, the copy the wheel bundles, and the SDK tree. A relocation
+    defect, a broken console-script launcher, and a broken compiler each fail in
+    a different one of them, so name all three outcomes.
+    """
+    report = [
+        f"{name} failed from the installed wheel console script:",
+        str(wheel_error),
+    ]
+    tree_compiler = sdk_root / f"bin/{name}{suffix}"
+    report.append(
+        f"SDK tree binary: {_try_run([tree_compiler, '--help'], cwd=workspace)}"
+    )
+    bundled = installed_toolchain_tool(environment, name)
+    if bundled is None:
+        report.append("installed wheel binary: missing from the wheel")
+    else:
+        report.append(
+            f"installed wheel binary ({bundled.stat().st_size} bytes): "
+            f"{_try_run([bundled, '--help'], cwd=workspace)}"
+        )
+        if tree_compiler.is_file():
+            report.append(
+                "same bytes as the SDK tree binary: "
+                + str(
+                    hashlib.sha256(bundled.read_bytes()).digest()
+                    == hashlib.sha256(tree_compiler.read_bytes()).digest()
+                )
+            )
+    return "\n".join(report)
+
+
 def installed_smoke(sdk_root: Path, wheels: list[Path], workspace: Path) -> None:
     windows = sys.platform == "win32"
     suffix = ".exe" if windows else ""
@@ -543,17 +607,10 @@ def installed_smoke(sdk_root: Path, wheels: list[Path], workspace: Path) -> None
         try:
             run([compiler, "--help"], cwd=workspace)
         except ValueError as wheel_error:
-            tree_compiler = sdk_root / f"bin/{name}{suffix}"
-            try:
-                run([tree_compiler, "--help"], cwd=workspace)
-            except ValueError as tree_error:
-                raise ValueError(
-                    f"{name} does not run from the installed wheel or from the "
-                    f"SDK tree:\n{wheel_error}\n{tree_error}"
-                ) from wheel_error
             raise ValueError(
-                f"{name} runs from the SDK tree but not from the installed "
-                f"wheel:\n{wheel_error}"
+                compiler_failure_report(
+                    name, wheel_error, sdk_root, environment, workspace, suffix
+                )
             ) from wheel_error
     acc_script = installed_console_script(commands, f"acc.py{suffix}")
     acc_py: list[os.PathLike[str] | str] = (
