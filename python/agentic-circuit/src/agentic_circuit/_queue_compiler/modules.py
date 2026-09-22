@@ -1383,6 +1383,60 @@ def _lower_simple_module_source(
         family_case_functions[family_name] = case_functions
         modules[family_name] = case_functions[0][1]
 
+    def template_static_fields(
+        name: str, function: ast.FunctionDef
+    ) -> tuple[
+        tuple[str, ...],
+        tuple[tuple[str, ast.expr], ...],
+        tuple[tuple[str, str], ...],
+    ]:
+        """Static parameter fields for one module template.
+
+        A declared static family owns its parameters in the family declaration,
+        so its specs win for every body shape. A parameterized family body that
+        instantiates a child (composite) otherwise degrades to its empty Python
+        keyword-only signature and then rejects the family's own
+        `static=case(...)` selection as an unknown argument. Non-family modules
+        keep the keyword-only `ac.const` fields unchanged.
+        """
+        family_specs = module_family_parameter_specs.get(name, [])
+        if family_specs:
+            return (
+                tuple(str(parameter["name"]) for parameter in family_specs),
+                tuple(
+                    (
+                        str(parameter["name"]),
+                        ast.Constant(value=parameter["default"]),
+                    )
+                    for parameter in family_specs
+                    if not parameter["required"]
+                ),
+                tuple(
+                    (str(parameter["name"]), str(parameter["kind"]))
+                    for parameter in family_specs
+                ),
+            )
+        return (
+            tuple(parameter.arg for parameter in function.args.kwonlyargs),
+            tuple(
+                (parameter.arg, default)
+                for parameter, default in zip(
+                    function.args.kwonlyargs,
+                    function.args.kw_defaults,
+                    strict=True,
+                )
+                if default is not None
+            ),
+            tuple(
+                (
+                    parameter.arg,
+                    _decorator_name(parameter.annotation.slice).rsplit(".", 1)[-1],
+                )
+                for parameter in function.args.kwonlyargs
+                if isinstance(parameter.annotation, ast.Subscript)
+            ),
+        )
+
     for name, function in modules.items():
         if name in module_declarations:
             declaration = module_declaration_nodes[name]
@@ -1536,6 +1590,11 @@ def _lower_simple_module_source(
                     "typed runtime inputs and optional keyword-only ac.const parameters"
                 )
             output_annotations = result_annotations(function.returns)
+            (
+                template_static_parameters,
+                template_static_defaults,
+                template_static_parameter_types,
+            ) = template_static_fields(name, function)
             rule_modules[name] = RuleModuleTemplate(
                 tuple(
                     (parameter.arg, copy.deepcopy(parameter.annotation))
@@ -1546,27 +1605,29 @@ def _lower_simple_module_source(
                     for index in range(len(output_annotations))
                 ),
                 output_annotations,
-                tuple(parameter.arg for parameter in function.args.kwonlyargs),
-                tuple(
-                    (parameter.arg, default)
-                    for parameter, default in zip(
-                        function.args.kwonlyargs,
-                        function.args.kw_defaults,
-                        strict=True,
-                    )
-                    if default is not None
-                ),
-                tuple(
-                    (
-                        parameter.arg,
-                        _decorator_name(parameter.annotation.slice).rsplit(".", 1)[-1],
-                    )
-                    for parameter in function.args.kwonlyargs
-                ),
+                template_static_parameters,
+                template_static_defaults,
+                template_static_parameter_types,
             )
             composite_modules[name] = function
             continue
         if contains_rule_call:
+            family_specs = module_family_parameter_specs.get(name, [])
+            if family_specs:
+                # Every concrete family case would render the same
+                # module-local rule under the same module-qualified stable
+                # identity, so the two bodies collide in `ac-lower-rules`
+                # ("duplicate stable rule identity"). Family-local state has the
+                # same problem for `ac.var`/`ac.table` owned by a rule. Reject
+                # the shape here, where the parameterized declaration is still
+                # known, instead of emitting IR that only fails verification.
+                raise QueueFrontendError(
+                    "ACPY-FAMILY-008: a parameterized family body may not "
+                    f"contain rule calls yet ({name!r}); one rule identity "
+                    "cannot be shared across the family's concrete cases. Move "
+                    "the rule into a child module or keep the family body a "
+                    "composite of child instances"
+                )
             if (
                 not function.args.args
                 or function.args.posonlyargs
@@ -1864,8 +1925,32 @@ def _lower_simple_module_source(
     ) -> tuple[tuple[tuple[int, int], ...], tuple[tuple[int, int], ...]]:
         declaration = module_declaration_nodes.get(name)
         if declaration is None:
-            inputs, outputs = module_signature(name)
-            return ((1, 1),) * len(inputs), ((1, 1),) * len(outputs)
+            if name in module_types or name in empty_modules:
+                inputs, outputs = module_signature(name)
+                return ((1, 1),) * len(inputs), ((1, 1),) * len(outputs)
+            # A composite body (one that instantiates a child instead of
+            # returning a single pure expression) owns no `module_types` entry.
+            # Its Queue shapes live in the specialized template annotations,
+            # which is also where a finite family case keeps them during
+            # concrete case lowering after the family declaration is replaced
+            # by a concrete module definition.
+            template = rule_modules.get(name)
+            if template is None:
+                raise QueueFrontendError(
+                    f"ACPY-MODULE-002: module {name!r} has no materialized "
+                    "Queue interface"
+                )
+            values = dict(static_arguments)
+            return (
+                tuple(
+                    materialized_queue_shape(annotation, values)
+                    for _, annotation in template.input_annotations
+                ),
+                tuple(
+                    materialized_queue_shape(annotation, values)
+                    for annotation in template.output_annotations
+                ),
+            )
         values = dict(static_arguments)
         input_annotations = (
             *declaration.args.posonlyargs,

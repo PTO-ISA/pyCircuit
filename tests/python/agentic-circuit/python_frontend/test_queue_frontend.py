@@ -9522,15 +9522,44 @@ def composite(packet: ac.Queue[Packet, 1, 1]) -> ac.Queue[Packet, 1, 1]:
 )
 
 
-class ParameterizedBankCountGapTest(unittest.TestCase):
-    """Pin what the frontend cannot yet express for issue #223 criterion 8.
+C8_PARAMETERIZED_FAMILY_WITH_RULE_SOURCE = (
+    C8_UNPARAMETERIZED_BANK_SOURCE
+    + """
+@ac.rule
+def passthrough(packet: Packet) -> Packet:
+    return packet
 
-    A structurally parameterized Thread/bank count needs the NUMBER of child
-    placements to scale with a static parameter. Today it does not: a composite
-    body rejects compile-time `for` loops, and a parameterized family whose body
-    instantiates a child (or invokes a rule) fails while specializing the child
-    with the family's own static arguments. Both shapes are recorded here so a
-    partial implementation cannot land silently.
+@ac.module_decl(
+    source="tests/python/agentic-circuit/python_frontend/test_queue_frontend.py",
+    parameters=(ac.static_parameter("banks", ac.static_int(width=4, signed=False)),),
+    finite_cases=(ac.case(("banks", 2)), ac.case(("banks", 4))),
+)
+def staged(packet: ac.Queue[Packet, 1, 1]) -> ac.Queue[Packet, 1, 1]:
+    ...
+
+staged_decl = staged
+
+@ac.module(declaration=staged_decl)
+def staged(packet: ac.Queue[Packet, 1, 1]) -> ac.Queue[Packet, 1, 1]:
+    forwarded = passthrough(packet)
+    return forwarded
+
+@ac.system
+def composite(packet: ac.Queue[Packet, 1, 1]) -> ac.Queue[Packet, 1, 1]:
+    return staged(packet, static=ac.case(("banks", 4)))
+"""
+)
+
+
+class ParameterizedBankCountTest(unittest.TestCase):
+    """Structural parameterization of Thread/bank counts for issue #223.
+
+    A structurally parameterized count is expressed by dependent lane counts, so
+    ONE declaration serves every shape. A parameterized family body may be a
+    composite of child instances. Two shapes stay rejected with a specific
+    diagnostic rather than emitting IR that cannot be verified: a composite
+    `for` placement loop, and a rule-backed family body whose concrete cases
+    would share one module-local rule identity.
     """
 
     def lower(self, source: str) -> str:
@@ -9549,14 +9578,25 @@ class ParameterizedBankCountGapTest(unittest.TestCase):
         ):
             self.lower(C8_COMPOSITE_RANGE_SOURCE)
 
-    def test_parameterized_family_body_cannot_instantiate_a_child(self) -> None:
+    def test_parameterized_family_body_instantiates_a_child(self) -> None:
+        lowered = self.lower(C8_PARAMETERIZED_FAMILY_WITH_CHILD_SOURCE)
+        family = lowered[lowered.index("  ac.module @stage ") :]
+        family = family[: family.index("  ac.module @Top ")]
+        # ONE family declaration, TWO concrete cases, each instantiating the
+        # same single-case child module.
+        self.assertEqual(2, family.count("ac.module.case arguments"))
+        self.assertEqual(2, family.count(" of @bank("))
+        self.assertIn('#ac.static_parameter<"banks"', family)
+
+    def test_parameterized_family_body_rejects_rule_calls(self) -> None:
         from agentic_circuit._queue_frontend import QueueFrontendError
 
         with self.assertRaisesRegex(
             QueueFrontendError,
-            "ACPY-MODULE-007: unknown module static argument 'banks'",
+            "ACPY-FAMILY-008: a parameterized family body may not contain "
+            "rule calls yet",
         ):
-            self.lower(C8_PARAMETERIZED_FAMILY_WITH_CHILD_SOURCE)
+            self.lower(C8_PARAMETERIZED_FAMILY_WITH_RULE_SOURCE)
 
 
 if __name__ == "__main__":
