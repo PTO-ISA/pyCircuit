@@ -94,6 +94,7 @@ class _ModuleRenderSpec:
     source_line: int = 0
     source_column: int = 0
     definition_name: str = ""
+    schema: str = ""
 
 
 def _ndf_attribute_fields(metadata: NdfMetadata) -> tuple[str, ...]:
@@ -276,18 +277,21 @@ def lower_queue_program(
                 f"#ac.type_expr<#ac.type_expr_concrete<{queue_type}>>, "
                 f"{provenance}>"
             )
-        nominals = _nominal_declarations(
-            [payload for _, payload in module.inputs]
-            + [payload for _, payload in module.outputs]
-        )
-        schema = (
-            "#ac.module_family_schema<#ac.static_parameters<[]>, "
-            "#ac.static_cases<[#ac.static_arguments<[]>]>, "
-            "#ac.module_interface<[" + ", ".join(interface_ports) + "]>, "
-            f"{owner}, ["
-            + ", ".join(f"@{nominal}" for nominal in nominals)
-            + "]>"
-        )
+        interface = "#ac.module_interface<[" + ", ".join(interface_ports) + "]>"
+        if module.schema:
+            schema = module.schema
+        else:
+            nominals = _nominal_declarations(
+                [payload for _, payload in module.inputs]
+                + [payload for _, payload in module.outputs]
+            )
+            schema = (
+                "#ac.module_family_schema<#ac.static_parameters<[]>, "
+                "#ac.static_cases<[#ac.static_arguments<[]>]>, "
+                f"{interface}, {owner}, ["
+                + ", ".join(f"@{nominal}" for nominal in nominals)
+                + "]>"
+            )
         physical_inputs = ", ".join(
             f"!ac.queue<{_render_type(payload)}>" for _, payload in module.inputs
         )

@@ -842,13 +842,14 @@ def _lower_simple_module_source(
 
     def render_family_interface(
         declaration: ast.FunctionDef, frame: tuple[str, int, int]
-    ) -> str:
+    ) -> tuple[str, tuple[ValueType, ...]]:
         provenance = (
             "#ac.source_provenance<"
             f"{canonical_mlir_string(frame[0])}, {frame[1]}, {frame[2]}, "
             f"{frame[1]}, {frame[2]}>"
         )
         one = "#ac.dependent_value<#ac.dependent_integer<1>>"
+        port_payloads: list[ValueType] = []
 
         parameter_names = {
             str(parameter["name"])
@@ -947,6 +948,7 @@ def _lower_simple_module_source(
                 enum_map,
                 static_values=type_static_values,
             )
+            port_payloads.append(value_type)
             return (
                 "#ac.type_expr<#ac.type_expr_concrete<"
                 f"{_render_type(value_type)}>>"
@@ -1018,7 +1020,10 @@ def _lower_simple_module_source(
                 f"{canonical_mlir_string(name)}, \"output\", "
                 f"{logical_queue(annotation)}, {provenance}>"
             )
-        return "#ac.module_interface<[" + ", ".join(ports) + "]>"
+        return (
+            "#ac.module_interface<[" + ", ".join(ports) + "]>",
+            tuple(port_payloads),
+        )
 
     for node in tree.body:
         if not isinstance(node, ast.FunctionDef):
@@ -1095,12 +1100,19 @@ def _lower_simple_module_source(
             case_values = ((),)
         module_family_schemas[node.name] = (rendered_parameters, rendered_cases)
         module_family_parameter_specs[node.name] = parsed_parameters
-        module_family_nominals[node.name] = tuple(
+        interface, port_payloads = render_family_interface(node, frame)
+        nominals = [
             str(parameter["enum"])
             for parameter in parsed_parameters
             if parameter.get("enum") is not None
+        ]
+        nominals.extend(
+            nominal
+            for nominal in _nominal_declarations(port_payloads)
+            if nominal not in nominals
         )
-        module_family_interfaces[node.name] = render_family_interface(node, frame)
+        module_family_nominals[node.name] = tuple(nominals)
+        module_family_interfaces[node.name] = interface
         module_family_cases[node.name] = case_values
         rendered_argument_sets: list[str] = []
         for values in case_values:
@@ -3298,7 +3310,7 @@ def _lower_simple_module_source(
         lines.append("  ac.type_scope @types {")
         for enumeration in enum_bindings:
             rendered = _render_enum(enumeration, "    ")
-            location = (definition_locations or {}).get(enumeration.name)
+            location = definition_sources.get(enumeration.name)
             if location is not None:
                 rendered += (
                     " {ac.source_file = "
@@ -3313,7 +3325,7 @@ def _lower_simple_module_source(
             rendered = (
                 f"    ac.struct @{payload.descriptor.symbol} fields [{fields}]"
             )
-            location = (definition_locations or {}).get(payload.name)
+            location = definition_sources.get(payload.name)
             if location is not None:
                 rendered += (
                     " {ac.source_file = "
@@ -3953,6 +3965,16 @@ def _lower_simple_module_source(
                     "ACPY-HELPER-002: concrete helper symbol collision for "
                     f"{helper.name!r}; make its typed family case explicit"
                 )
+        module_frame = definition_sources.get(program.system, ("", 0, 0))
+        module_interface = concrete_family_interface(
+            definition.inputs,
+            definition.outputs,
+            family_provenance(*module_frame),
+        )
+        module_nominals = _nominal_declarations(
+            [payload for _, payload in definition.inputs]
+            + [payload for _, payload in definition.outputs]
+        )
         lines.extend(
             lower_queue_program(
                 program,
@@ -3962,8 +3984,14 @@ def _lower_simple_module_source(
                     definition.outputs,
                     static_arguments,
                     definition_ndf.get(program.system, NdfMetadata()),
-                    *(definition_sources.get(program.system, ("", 0, 0))),
+                    *module_frame,
                     definition_name=program.system,
+                    schema=family_schema(
+                        name,
+                        module_frame[0],
+                        module_interface,
+                        module_nominals,
+                    ),
                 ),
                 include_helpers=True,
                 helper_names_to_emit=frozenset(helper_names_to_emit),

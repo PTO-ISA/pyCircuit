@@ -2010,7 +2010,37 @@ rule-backed module 还可以调用 child module。其 body 会降为以 `ac.inst
 `ac.scope` 序列：每个 scope 持有 child 之前或之后的本地 rule，二者之间的 Queue 仍由
 parent 拥有，每个 child 保持自己的 instance 与 specialization。这正是 issue #223、
 #197、#180 要求的通用组合能力，不再需要为每个 route 或 arbiter 写一个单 rule 的
-wrapper module。结构化 QueueGraph 后端接纳这样的 shape：parent 自有 scope 中的每个本地
+wrapper module。
+
+#### AC source unit 与 linked package
+
+一个 Python source 文件编译为一个 AC unit。module source 发布实现与该文件的 interface
+header，root source 发布 `core.ac`，`--unit interfaces` 发布编译器 interface unit：
+
+```console
+acc.py -c source/child_a.py -o package/sources_child_a.ac \
+  --header-output package/interfaces/source/child_a.ac
+acc.py -c source/core.py -o package/core.ac
+acc.py -c source/core.py --unit interfaces -o interfaces
+```
+
+linked package 是包含 `core.ac`、各 source unit 以及各 logical path 上 interface unit 的
+目录。`acc` 会拼接所有 source interface type scope，把每个 source definition 与其
+interface header 对应，并逐字节比较每个 `ac.module.import` schema 与 provider 发布的
+schema：
+
+```console
+acc -c package -verify
+acc -c package -emit-cpp-bundle -o bundle
+```
+
+三条前端性质保证该比较精确成立：declaration 拥有其 port 所需的 nominal declaration
+inventory，因此 import 携带与 provider 相同的 inventory；symbol 带 declaration 记录的
+实现发布声明的 interface skeleton，而不是重新解析出的 concrete interface；每个 nominal
+declaration 用 `ac.source_file` 标明其所属 Python 文件，因此编译器按 source 文件各生成一个
+interface unit，被多个文件共享的 nominal 只声明一次。
+
+结构化 QueueGraph 后端接纳这样的 shape：parent 自有 scope 中的每个本地
 block 都是单次 `transform`、fanout `broadcast` 或无状态 `firing`，且 block 与 child 之间
 的 Queue 仍由 parent 拥有。transform 可以接收多个输入 Queue，因此「多个参数、一个结果」
 的本地 rule 是被接纳的；需要匹配的是 yield 与 results 的数量，而不是输入与输出的数量。
