@@ -266,6 +266,14 @@ Follow these rules:
   leaves share one nested nominal configuration. A field projection retains
   its root parameter and ordered field path; never encode it as a dotted
   string or recover it with dictionary lookup.
+- Build hierarchy by instantiating child `@ac.module`s inside a module body when
+  an H1 -> H2 -> H3 tree matters. A hierarchy body may take more than one typed
+  runtime input, binds every child-selected value to a name, and reads
+  keyword-only `ac.const` geometry. Bind each intermediate before passing it on:
+  an inline `child_b(child_a(x))` is rejected with `ACPY-MODULE-010`, and every
+  composite input must have a consumer. Flattening the same composition into the
+  top-level system stays equivalent, so prefer the hierarchy form whenever a
+  consumer needs the boundary.
 - Use `bool` for logical facts, standard `Enum` for closed categories, and
   `@ac.encoding(width=N)` only when an external protocol requires fixed or
   sparse values. Keep independent flags independent. Use `is_one_of` for

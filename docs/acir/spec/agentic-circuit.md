@@ -256,7 +256,18 @@ payload arguments remain unbound and do not enter specialization identity. A
 parameterized family body may be a composite of child module instances, so one
 declaration serves every declared case. A family body that calls a local rule is
 rejected with `ACPY-FAMILY-008` instead: its concrete cases would publish the
-same module-qualified rule identity. An
+same module-qualified rule identity.
+
+A module body that instantiates children may be a **hierarchy module**: it may
+take more than one typed runtime input, bind named intermediates from child
+instances, and read keyword-only `ac.const` geometry, so an H1 -> H2 -> H3 tree
+does not have to be flattened into the top-level system. Each child-selected
+value must be bound to a name first; an inline nested child call such as
+`child_b(child_a(x))` is rejected with `ACPY-MODULE-010`, because a composite
+child input must be a named parent or prior-child Queue value. Every composite
+input must be consumed, and a composite body that neither binds an intermediate
+nor reads a child instance is not a composite at all.
+An
 optional `workspace=` captures the transitive local source closure;
 local dependencies use explicit `from module import Symbol` imports. Local
 module-qualified imports, renamed imports, and conflicting definitions across
