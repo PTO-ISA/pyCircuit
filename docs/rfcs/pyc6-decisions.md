@@ -5486,7 +5486,8 @@ resource concepts into the frontend.
 
 **Status:** Accepted and implemented for direct-interface rule graphs,
 including stateless multi-input transforms and mixed rule-plus-child bodies
-(issue #223)
+whose local blocks are single-pass transforms or fanout broadcasts and whose
+local rules each produce exactly one result (issue #223)
 
 **Context / Goal**
 The existing circular ROB already exercised four rules and five state owners,

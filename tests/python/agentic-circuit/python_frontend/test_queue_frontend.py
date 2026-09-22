@@ -8171,8 +8171,16 @@ def two_accumulators(left: ac.u8, right: ac.u8) -> tuple[ac.u8, ac.u8]:
             lowered,
         )
 
-    def test_rule_module_body_mixes_rules_and_child_instances(self) -> None:
-        from agentic_circuit._queue_frontend import lower_queue_source
+    def test_multi_output_rule_rejected_in_segmented_module_body(self) -> None:
+        # The issue's headline shape (`route` -> two `state_bank` children ->
+        # `arbitrate`) uses a rule with two results. The structured QueueGraph
+        # backend can only lower a single-result local transform inside a parent
+        # that owns child instances, so the frontend must reject it explicitly
+        # rather than emit a graph that fails during codegen.
+        from agentic_circuit._queue_frontend import (
+            QueueFrontendError,
+            lower_queue_source,
+        )
 
         source = """
 import agentic_circuit as ac
@@ -8226,10 +8234,69 @@ def top(request: Request) -> Result:
 def composite(request: Request) -> Result:
     return top(request)
 """
+        with self.assertRaises(QueueFrontendError) as raised:
+            lower_queue_source(source, "composite")
+        self.assertIn("ACPY-MODULE-013", str(raised.exception))
+        self.assertIn("route", str(raised.exception))
+
+    def test_rule_module_body_mixes_rules_and_child_instances(self) -> None:
+        from agentic_circuit._queue_frontend import lower_queue_source
+
+        source = """
+import agentic_circuit as ac
+
+@ac.struct
+class Request:
+    value: ac.bits[8]
+    tid: ac.bits[1]
+    valid: ac.bits[1]
+
+@ac.struct
+class Result:
+    value: ac.bits[8]
+    valid: ac.bits[1]
+
+@ac.rule
+def stage(request: Request) -> Request:
+    return request.with_fields(valid=request.valid)
+
+@ac.rule
+def arbitrate(first: Result, second: Result) -> Result:
+    return first if first.valid else second
+
+@ac.module_decl(source="tests/python/agentic-circuit/python_frontend/test_queue_frontend.py")
+def state_bank(packet: Request) -> Result:
+    ...
+
+state_bank_decl = state_bank
+
+@ac.module(declaration=state_bank_decl)
+def state_bank(packet: Request) -> Result:
+    return Result(value=packet.value, valid=packet.valid)
+
+@ac.module_decl(source="tests/python/agentic-circuit/python_frontend/test_queue_frontend.py")
+def top(request: Request, spare: Request) -> Result:
+    ...
+
+top_decl = top
+
+@ac.module(declaration=top_decl)
+def top(request: Request, spare: Request) -> Result:
+    first_packet = stage(request)
+    second_packet = stage(spare)
+    first = state_bank(first_packet)
+    second = state_bank(second_packet)
+    result = arbitrate(first, second)
+    return result
+
+@ac.system
+def composite(request: Request, spare: Request) -> Result:
+    return top(request, spare)
+"""
         lowered = lower_queue_source(source, "composite")
         body = lowered.split("ac.module @top ", 1)[1].split("ac.module @Top ", 1)[0]
         fragments = (
-            "%first_packet, %second_packet = ac.scope @seg0(%input_0) {",
+            "%first_packet, %second_packet = ac.scope @seg0(%input_0, %input_1) {",
             "%first = ac.instance @child_0 of @state_bank(%first_packet) "
             'static #ac.static_arguments<[]> id "child_0" path "child_0"',
             "%second = ac.instance @child_1 of @state_bank(%second_packet) "
@@ -8243,9 +8310,9 @@ def composite(request: Request) -> Result:
         self.assertEqual(sorted(positions), positions)
         # The two rules stay in their own segments on either side of the
         # children, and the empty segment between the children is elided.
-        self.assertEqual(1, body.count('name "route"'))
+        self.assertEqual(2, body.count('name "stage"'))
         self.assertEqual(1, body.count('name "arbitrate"'))
-        self.assertLess(body.index('name "route"'), body.index(fragments[1]))
+        self.assertLess(body.index('name "stage"'), body.index(fragments[1]))
         self.assertLess(body.index(fragments[2]), body.index('name "arbitrate"'))
         self.assertNotIn("@seg2", body)
 
@@ -8762,6 +8829,228 @@ def pipeline(left: ac.u8, right: ac.u8) -> tuple[ac.u8, ac.u8]:
         self.assertEqual(1, lowered.count("ac.rule %borrowed"))
         self.assertEqual(2, lowered.count(" of @tally"))
         self.assertNotIn("ac.table", lowered)
+
+
+RULE_MODULE_CHILD_PIPELINE_SOURCE = """
+import agentic_circuit as ac
+
+@ac.struct
+class Request:
+    value: ac.bits[8]
+    tid: ac.bits[1]
+    valid: ac.bits[1]
+
+@ac.struct
+class Result:
+    value: ac.bits[8]
+    valid: ac.bits[1]
+
+@ac.rule
+def mk(request: Request) -> Result:
+    return Result(value=request.value, valid=request.valid)
+
+@ac.rule
+def dup(result: Result) -> Result:
+    return result
+
+@ac.rule
+def arbitrate(first: Result, second: Result) -> Result:
+    return first if first.valid else second
+
+@ac.module_decl(source="tests/python/agentic-circuit/python_frontend/test_queue_frontend.py")
+def state_bank(packet: Request) -> Result:
+    ...
+
+state_bank_decl = state_bank
+
+@ac.module(declaration=state_bank_decl)
+def state_bank(packet: Request) -> Result:
+    return Result(value=packet.value, valid=packet.valid)
+
+@ac.module_decl(source="tests/python/agentic-circuit/python_frontend/test_queue_frontend.py")
+def top(request: Request) -> Result:
+    ...
+
+top_decl = top
+
+@ac.module(declaration=top_decl)
+def top(request: Request) -> Result:
+    r0 = mk(request)
+    first = state_bank(request)
+    r1 = dup(r0)
+    r2 = dup(r0)
+    result = arbitrate(r1, r2)
+    return result
+
+@ac.system
+def composite(request: Request) -> Result:
+    return top(request)
+"""
+
+
+RULE_MODULE_CHILD_MULTI_OUTPUT_SOURCE = """
+import agentic_circuit as ac
+
+@ac.struct
+class Request:
+    value: ac.bits[8]
+    tid: ac.bits[1]
+    valid: ac.bits[1]
+
+@ac.struct
+class Result:
+    value: ac.bits[8]
+    valid: ac.bits[1]
+
+@ac.rule
+def route(request: Request) -> tuple[Request, Request]:
+    first = request.with_fields(value=request.value, valid=(request.valid & (request.tid == 0)))
+    second = request.with_fields(value=request.value, valid=(request.valid & (request.tid == 1)))
+    return first, second
+
+@ac.rule
+def arbitrate(first: Result, second: Result) -> Result:
+    return first if first.valid else second
+
+@ac.module_decl(source="tests/python/agentic-circuit/python_frontend/test_queue_frontend.py")
+def state_bank(packet: Request) -> Result:
+    ...
+
+state_bank_decl = state_bank
+
+@ac.module(declaration=state_bank_decl)
+def state_bank(packet: Request) -> Result:
+    return Result(value=packet.value, valid=packet.valid)
+
+@ac.module_decl(source="tests/python/agentic-circuit/python_frontend/test_queue_frontend.py")
+def top(request: Request) -> Result:
+    ...
+
+top_decl = top
+
+@ac.module(declaration=top_decl)
+def top(request: Request) -> Result:
+    first_packet, second_packet = route(request)
+    first = state_bank(first_packet)
+    second = state_bank(second_packet)
+    result = arbitrate(first, second)
+    return result
+
+@ac.system
+def composite(request: Request) -> Result:
+    return top(request)
+"""
+
+
+class RuleModuleChildPipelineTest(unittest.TestCase):
+    """Compile real frontend output for a rule-backed module with children.
+
+    The structured QueueGraph backend consumes the frontend's own emitted ACIR,
+    so the pipeline has to be exercised end to end: lowering, rule lowering and
+    topology freeze, C++ codegen, and a syntax-only compile of the generated
+    model. The reviewed regression only compared a lowered string.
+    """
+
+    def native_tools(self) -> dict[str, Any]:
+        import os
+        import shutil
+        from pathlib import Path
+        from typing import Any
+
+        repository = Path(__file__).resolve().parents[4]
+        build_bin = repository / ".pycircuit_out" / "toolchain" / "build" / "bin"
+        return {
+            "repository": repository,
+            "opt": Path(
+                os.environ.get("ACIR_OPT_INTERNAL", build_bin / "acir-opt-internal")
+            ),
+            "cxxgen": Path(
+                os.environ.get("ACIR_QUEUE_CXXGEN", build_bin / "acir-queue-cxxgen")
+            ),
+            "cxx": shutil.which("c++"),
+        }
+
+    def compile_pipeline(self, source: str) -> str:
+        import subprocess
+        import tempfile
+        from pathlib import Path
+
+        from agentic_circuit._queue_frontend import (
+            RULE_LOWERING_PIPELINE,
+            lower_queue_source,
+        )
+
+        tools = self.native_tools()
+        if not tools["opt"].is_file() or not tools["cxxgen"].is_file():
+            self.skipTest("native ACIR queue tools are unavailable")
+        if tools["cxx"] is None:
+            self.skipTest("C++ compiler is unavailable")
+
+        raw = lower_queue_source(
+            source, "composite", source_path="generated/module.py"
+        )
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            raw_path = root / "raw.mlir"
+            raw_path.write_text(raw, encoding="utf-8")
+            frozen = subprocess.run(
+                (
+                    str(tools["opt"]),
+                    f"--pass-pipeline={RULE_LOWERING_PIPELINE}",
+                    str(raw_path),
+                ),
+                text=True,
+                capture_output=True,
+                check=False,
+            )
+            self.assertEqual(0, frozen.returncode, frozen.stderr)
+            frozen_path = root / "frozen.mlir"
+            frozen_path.write_text(frozen.stdout, encoding="utf-8")
+            generated = subprocess.run(
+                (str(tools["cxxgen"]), str(frozen_path)),
+                text=True,
+                capture_output=True,
+                check=False,
+            )
+            self.assertEqual(0, generated.returncode, generated.stderr)
+            model = root / "model.cpp"
+            model.write_text(generated.stdout, encoding="utf-8")
+            compiled = subprocess.run(
+                (
+                    str(tools["cxx"]),
+                    "-std=c++20",
+                    "-I",
+                    str(Path(tools["repository"]) / "simulator/gfsim/include"),
+                    "-fsyntax-only",
+                    str(model),
+                ),
+                text=True,
+                capture_output=True,
+                check=False,
+            )
+            self.assertEqual(0, compiled.returncode, compiled.stderr)
+            return generated.stdout
+
+    def test_frontend_output_compiles_with_fanouts_and_multi_input_rule(
+        self,
+    ) -> None:
+        model = self.compile_pipeline(RULE_MODULE_CHILD_PIPELINE_SOURCE)
+        # `request` feeds a local rule and the child, so the parent broadcasts
+        # before wiring the child; `r0` fans out to two rules after the child.
+        self.assertIn("gfsim::QueueBroadcast<", model)
+        self.assertIn("gfsim::QueueAtomicTransform<", model)
+        self.assertIn("gfsim::QueueTransform<", model)
+
+    def test_multi_output_issue_example_reports_frontend_diagnostic(self) -> None:
+        from agentic_circuit._queue_frontend import (
+            QueueFrontendError,
+            lower_queue_source,
+        )
+
+        source = RULE_MODULE_CHILD_MULTI_OUTPUT_SOURCE
+        with self.assertRaises(QueueFrontendError) as raised:
+            lower_queue_source(source, "composite")
+        self.assertIn("ACPY-MODULE-013", str(raised.exception))
 
 
 if __name__ == "__main__":

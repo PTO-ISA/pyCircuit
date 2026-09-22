@@ -3096,14 +3096,21 @@ generateStructuredQueueGraphCpp(const QueueGraphPlan &plan) {
     // instances. Every block has to live in one of the parent's own scopes, and
     // the Queues between the local blocks and the children stay parent-owned.
     // This is the generalization of mixedNested from exactly one transform to
-    // the whole "local blocks plus child instances" shape.
+    // the whole "local blocks plus child instances" shape. Only single-pass
+    // local transforms and fanout broadcasts are representable here: a feedback,
+    // select, firing, or table block would otherwise be silently flattened into
+    // a one-shot transform.
     const bool wideMixedNested =
         specialization && !specialization->blocks.empty() &&
         specialization->tables.empty() &&
         !specialization->moduleInstances.empty() &&
         !specialization->scopes.empty() &&
         llvm::all_of(specialization->blocks, [&](const QueueBlockPlan &block) {
-          return llvm::is_contained(specialization->scopes, block.scope);
+          if (!llvm::is_contained(specialization->scopes, block.scope))
+            return false;
+          if (block.kind == "broadcast")
+            return block.inputs.size() == 1 && block.outputs.size() >= 2;
+          return block.kind == "transform";
         });
     const bool localShape =
         emptyModule || nestedWrapper || mixedNested || nestedAssembly ||
@@ -3114,6 +3121,17 @@ generateStructuredQueueGraphCpp(const QueueGraphPlan &plan) {
                        [&](const QueueBlockPlan &block) {
                          return block.scope != specialization->scopes.front();
                        }));
+    if (specialization && !specialization->moduleInstances.empty() &&
+        specialization->tables.empty() && !specialization->scopes.empty() &&
+        !nestedWrapper && !nestedAssembly && !mixedNested &&
+        !wideMixedNested) {
+      for (const QueueBlockPlan &block : specialization->blocks)
+        if (block.kind != "transform" && block.kind != "broadcast")
+          return generatorError(
+              "mixed nested module supports only local transform and broadcast "
+              "blocks; block '" +
+              block.name + "' has kind '" + block.kind + "'");
+    }
     if (!specialization ||
         (!emptyModule && !pureTransform && !conditionalTransform &&
          !firingModule && !nestedWrapper && !mixedNested && !nestedAssembly &&
@@ -4722,30 +4740,116 @@ generateStructuredQueueGraphCpp(const QueueGraphPlan &plan) {
                                    pathParts(scope).back());
       return static_cast<size_t>(std::distance(scopeNames.begin(), found));
     };
-    llvm::SmallVector<std::string> blockInputTypes;
-    llvm::SmallVector<std::string> blockOutputTypes;
+    llvm::SmallVector<std::vector<std::string>> blockInputTypes;
+    llvm::SmallVector<std::vector<std::string>> blockOutputTypes;
     llvm::SmallVector<std::string> blockPolicies;
     llvm::SmallVector<uint64_t> blockRates;
     for (auto [index, block] : llvm::enumerate(specialization.blocks)) {
-      if (block.inputs.size() != 1 || block.outputs.size() != 1)
-        return generatorError("mixed nested module requires one local transform "
-                              "input and output Queue");
+      if (block.kind == "broadcast") {
+        if (block.inputs.size() != 1 || block.outputs.size() < 2)
+          return generatorError("mixed nested broadcast requires one input and "
+                                "at least two output Queues");
+        const std::string inputType = queueTypes.lookup(block.inputs.front());
+        if (inputType.empty())
+          return generatorError("mixed nested broadcast input Queue is missing");
+        blockInputTypes.push_back({inputType});
+        blockOutputTypes.push_back({});
+        blockPolicies.push_back("");
+        blockRates.push_back(0);
+        continue;
+      }
+      if (block.kind != "transform")
+        return generatorError(
+            "mixed nested module supports local transform and broadcast blocks "
+            "only");
+      if (block.inputs.empty() || block.outputs.empty())
+        return generatorError(
+            "mixed nested transform requires input and output Queues");
+      if (block.yields.size() != block.outputs.size())
+        return generatorError("mixed nested transform yield count does not "
+                              "match its output Queue count");
+      std::vector<std::string> inputTypes;
+      for (const std::string &name : block.inputs) {
+        const std::string type = queueTypes.lookup(name);
+        if (type.empty())
+          return generatorError(
+              "mixed nested transform input Queue type is missing");
+        inputTypes.push_back(type);
+      }
+      std::vector<std::string> outputTypes;
+      for (const std::string &name : block.outputs) {
+        const std::string type = queueTypes.lookup(name);
+        if (type.empty())
+          return generatorError(
+              "mixed nested transform output Queue type is missing");
+        outputTypes.push_back(type);
+      }
       const QueuePlan *outputQueue =
           findQueue(specialization, block.outputs.front());
       if (!outputQueue)
         return generatorError("mixed nested transform output Queue is missing");
-      blockInputTypes.push_back(queueTypes.lookup(block.inputs.front()));
-      blockOutputTypes.push_back(queueTypes.lookup(block.outputs.front()));
+      const bool oneByOne = inputTypes.size() == 1 && outputTypes.size() == 1;
+      if (!oneByOne) {
+        // The variadic atomic transform shares one policy invocation across all
+        // inputs and outputs, so every port has to be a scalar Queue.
+        for (const std::string &name : block.inputs) {
+          const QueuePlan *queue = findQueue(specialization, name);
+          if (queue && (queue->lanes != 1 || queue->rate != 1))
+            return generatorError(
+                "mixed nested atomic transform requires scalar rate and lanes");
+        }
+        for (const std::string &name : block.outputs) {
+          const QueuePlan *queue = findQueue(specialization, name);
+          if (queue && (queue->lanes != 1 || queue->rate != 1))
+            return generatorError(
+                "mixed nested atomic transform requires scalar rate and lanes");
+        }
+      }
+      blockInputTypes.push_back(std::move(inputTypes));
+      blockOutputTypes.push_back(std::move(outputTypes));
       blockRates.push_back(outputQueue->rate);
       blockPolicies.push_back(blockPolicy(index));
-      output << "struct " << blockPolicies.back() << " {\n  "
-             << blockOutputTypes.back() << " operator()(const "
-             << blockInputTypes.back() << " &item) const {\n";
-      auto body =
-          emitExpressionBody(specialization, block, block.yields.front(), 4);
-      if (!body)
-        return body.takeError();
-      output << *body << "  }\n};\n\n";
+      output << "struct " << blockPolicies.back() << " {\n  ";
+      if (oneByOne) {
+        output << blockOutputTypes.back().front();
+      } else {
+        output << "std::tuple<";
+        for (auto [typeIndex, type] : llvm::enumerate(blockOutputTypes.back())) {
+          if (typeIndex)
+            output << ", ";
+          output << type;
+        }
+        output << ">";
+      }
+      output << " operator()(";
+      for (auto [inputIndex, type] : llvm::enumerate(blockInputTypes.back())) {
+        if (inputIndex)
+          output << ", ";
+        output << "const " << type << " &item";
+        if (inputIndex)
+          output << inputIndex;
+      }
+      output << ") const {\n";
+      if (oneByOne) {
+        auto body =
+            emitExpressionBody(specialization, block, block.yields.front(), 4);
+        if (!body)
+          return body.takeError();
+        output << *body;
+      } else {
+        output << "    return {\n";
+        for (auto [yieldIndex, yield] : llvm::enumerate(block.yields)) {
+          output << "      [&]() -> " << blockOutputTypes.back()[yieldIndex]
+                 << " {\n";
+          auto body = emitExpressionBody(specialization, block, yield, 8);
+          if (!body)
+            return body.takeError();
+          output << *body << "      }()"
+                 << (yieldIndex + 1 == block.yields.size() ? "\n" : ",\n");
+        }
+        output << "    };\n";
+      }
+      output << "  }\n};\n\n";
     }
     output << "class " << implementation
            << " final : public gfsim::Module {\npublic:\n  " << implementation
@@ -4774,16 +4878,52 @@ generateStructuredQueueGraphCpp(const QueueGraphPlan &plan) {
              << queue->latency << ", " << queue->rate << ", " << queue->lanes
              << ")";
     const uint64_t blockId = internalQueues.size();
-    for (auto [index, block] : llvm::enumerate(specialization.blocks))
-      output << ",\n        " << blockMember(index) << "(\"transform_"
-             << block.name << "\", object_" << blockId + index << "_id, &"
-             << scopeMember(scopeIndexOf(block.scope)) << ", "
-             << "require_queue_port("
-             << queueExpressions.lookup(block.inputs.front()) << ", \""
-             << block.inputs.front() << "\"), "
-             << "require_queue_port("
-             << queueExpressions.lookup(block.outputs.front()) << ", \""
-             << block.outputs.front() << "\"))";
+    for (auto [index, block] : llvm::enumerate(specialization.blocks)) {
+      output << ",\n        " << blockMember(index) << "(\"";
+      if (block.kind == "broadcast") {
+        output << "broadcast_" << block.name << "\", object_" << blockId + index
+               << "_id, &" << scopeMember(scopeIndexOf(block.scope)) << ", "
+               << "require_queue_port("
+               << queueExpressions.lookup(block.inputs.front()) << ", \""
+               << block.inputs.front() << "\"), "
+               << "std::array<gfsim::SimQueue<" << blockInputTypes[index].front()
+               << "> *, " << block.outputs.size() << ">{";
+        for (auto [outputIndex, name] : llvm::enumerate(block.outputs)) {
+          if (outputIndex)
+            output << ", ";
+          output << queueExpressions.lookup(name);
+        }
+        output << "})";
+        continue;
+      }
+      const bool oneByOne = blockInputTypes[index].size() == 1 &&
+                            blockOutputTypes[index].size() == 1;
+      output << "transform_" << block.name << "\", object_" << blockId + index
+             << "_id, &" << scopeMember(scopeIndexOf(block.scope)) << ", ";
+      if (oneByOne) {
+        output << "require_queue_port("
+               << queueExpressions.lookup(block.inputs.front()) << ", \""
+               << block.inputs.front() << "\"), "
+               << "require_queue_port("
+               << queueExpressions.lookup(block.outputs.front()) << ", \""
+               << block.outputs.front() << "\")";
+      } else {
+        output << "std::tuple{";
+        for (auto [inputIndex, name] : llvm::enumerate(block.inputs)) {
+          if (inputIndex)
+            output << ", ";
+          output << queueExpressions.lookup(name);
+        }
+        output << "}, std::tuple{";
+        for (auto [outputIndex, name] : llvm::enumerate(block.outputs)) {
+          if (outputIndex)
+            output << ", ";
+          output << queueExpressions.lookup(name);
+        }
+        output << "}";
+      }
+      output << ")";
+    }
     uint64_t childOffset = blockId + specialization.blocks.size();
     for (const QueueModuleInstancePlan &instance :
          specialization.moduleInstances) {
@@ -4850,10 +4990,37 @@ generateStructuredQueueGraphCpp(const QueueGraphPlan &plan) {
     for (auto [index, queue] : llvm::enumerate(internalQueues))
       output << "  gfsim::SimQueue<" << queueTypes.lookup(queue->name)
              << "> queue_" << index << "_;\n";
-    for (size_t index = 0; index < specialization.blocks.size(); ++index)
-      output << "  gfsim::QueueTransform<" << blockInputTypes[index] << ", "
-             << blockOutputTypes[index] << ", " << blockPolicies[index] << ", "
-             << blockRates[index] << "> " << blockMember(index) << ";\n";
+    for (auto [index, block] : llvm::enumerate(specialization.blocks)) {
+      if (block.kind == "broadcast") {
+        output << "  gfsim::QueueBroadcast<" << blockInputTypes[index].front()
+               << ", " << block.outputs.size() << "> " << blockMember(index)
+               << ";\n";
+        continue;
+      }
+      const bool oneByOne = blockInputTypes[index].size() == 1 &&
+                            blockOutputTypes[index].size() == 1;
+      if (oneByOne) {
+        output << "  gfsim::QueueTransform<" << blockInputTypes[index].front()
+               << ", " << blockOutputTypes[index].front() << ", "
+               << blockPolicies[index] << ", " << blockRates[index] << "> "
+               << blockMember(index) << ";\n";
+      } else {
+        output << "  gfsim::QueueAtomicTransform<" << blockPolicies[index]
+               << ", std::tuple<";
+        for (auto [typeIndex, type] : llvm::enumerate(blockInputTypes[index])) {
+          if (typeIndex)
+            output << ", ";
+          output << type;
+        }
+        output << ">, std::tuple<";
+        for (auto [typeIndex, type] : llvm::enumerate(blockOutputTypes[index])) {
+          if (typeIndex)
+            output << ", ";
+          output << type;
+        }
+        output << ">> " << blockMember(index) << ";\n";
+      }
+    }
     for (auto [instanceIndex, instance] :
          llvm::enumerate(specialization.moduleInstances)) {
       const QueueGraphPlan *child =
