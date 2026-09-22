@@ -215,8 +215,8 @@ items still unchecked are the typed positive-latency feedback edge (`J`),
 cross-owner transaction groups (`K`), mutually-exclusive state-write mux
 synthesis, unchanged-store elimination, invariant proof propagation (`L04`,
 `L05`, `L07`), the packed-storage documentation item (`L12`), and the cross-layer
-verification matrix (`V01`-`V08`), several of which depend on the design work in
-#150 and #152 above.
+verification matrix (`V01`-`V08`), several of which depend on the design work
+recorded for #150 and #152 above.
 
 Two items deserve emphasis because they are the ones a reader would otherwise
 mistake for complete:
