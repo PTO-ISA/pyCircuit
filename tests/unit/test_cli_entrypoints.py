@@ -158,9 +158,9 @@ def test_bundled_tool_launcher_avoids_the_windows_exec_chain() -> None:
     child's exit code instead, and the POSIX branch keeps real exec semantics.
     """
 
-    source = (
-        ROOT / "python/pycircuit/src/pycircuit/packaged_toolchain.py"
-    ).read_text(encoding="utf-8")
+    source = (ROOT / "python/pycircuit/src/pycircuit/packaged_toolchain.py").read_text(
+        encoding="utf-8"
+    )
     assert 'if os.name == "nt":' in source
     assert (
         "subprocess.run([str(exe), *argv], env=env, check=False).returncode" in source

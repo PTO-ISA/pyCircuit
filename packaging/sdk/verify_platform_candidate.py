@@ -5,7 +5,6 @@ from __future__ import annotations
 
 import argparse
 import ctypes
-import hashlib
 import json
 import os
 import shutil
@@ -564,14 +563,8 @@ def compiler_failure_report(
             f"installed wheel binary ({bundled.stat().st_size} bytes): "
             f"{_try_run([bundled, '--help'], cwd=workspace)}"
         )
-        if tree_compiler.is_file():
-            report.append(
-                "same bytes as the SDK tree binary: "
-                + str(
-                    hashlib.sha256(bundled.read_bytes()).digest()
-                    == hashlib.sha256(tree_compiler.read_bytes()).digest()
-                )
-            )
+    if tree_compiler.is_file():
+        report.append(f"SDK tree binary size: {tree_compiler.stat().st_size} bytes")
     return "\n".join(report)
 
 
