@@ -1,6 +1,7 @@
 #include "acir/CodeGen/QueueGraphPlan.h"
 #include "acir/CodeGen/QueueGraphGenerator.h"
 #include "acir/CodeGen/QueueGraphPyc.h"
+#include "acir/Bindings/Binding.h"
 #include "acir/Transforms/Passes.h"
 
 #include "acir/Dialect/ACIR/ACIRDialect.h"
@@ -27,6 +28,22 @@
 
 namespace acir::codegen {
 namespace {
+
+TEST(JsonBindingsTest, SeparatesCanonicalBudgetFromInputBudget) {
+  llvm::json::Value value(std::string(2U << 20, 'x'));
+  acir::bindings::JsonParseLimits limits;
+  limits.maxStringBytes = 4U << 20;
+  limits.maxTotalStringBytes = 4U << 20;
+  limits.maxCanonicalBytes = 4U << 20;
+
+  auto canonical = acir::bindings::canonicalizeJson(value, limits);
+  ASSERT_TRUE(canonical);
+  EXPECT_GT(canonical->size(), 1U << 20);
+
+  limits.maxCanonicalBytes = 1U << 20;
+  auto rejected = acir::bindings::canonicalizeJson(value, limits);
+  ASSERT_FALSE(rejected);
+}
 
 struct SelectionTreeShape {
   uint64_t selects = 0;

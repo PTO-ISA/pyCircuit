@@ -16,6 +16,11 @@ namespace acir::bindings {
 
 struct JsonParseLimits {
   size_t maxInputBytes = 1U << 20;
+  // Canonicalization may expand a compact input (for example, a queue-graph
+  // metadata DOM) while preserving the same structural limits.  Keep this
+  // budget separate from the raw input cap so valid generated metadata is not
+  // rejected solely because its canonical spelling is larger.
+  size_t maxCanonicalBytes = 128U << 20;
   size_t maxDepth = 64;
   size_t maxStructuralWork = 100000;
   size_t maxStringBytes = 1U << 18;

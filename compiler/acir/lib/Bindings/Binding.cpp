@@ -356,7 +356,7 @@ private:
   }
 
   llvm::Error accountCanonicalBytes(size_t bytes) {
-    if (bytes > limits.maxInputBytes - canonicalBytes)
+    if (bytes > limits.maxCanonicalBytes - canonicalBytes)
       return jsonError("canonical output byte limit exceeded");
     canonicalBytes += bytes;
     return llvm::Error::success();
