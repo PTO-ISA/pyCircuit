@@ -324,7 +324,10 @@ The current frontend accepts these scalar field spellings:
 | `ac.u1` through `ac.u64` | exact-width unsigned bit value, lowered to `i1` through `i64` |
 | `ac.s8`, `ac.s16`, `ac.s32`, `ac.s64` | corresponding integer width |
 
-Field order is declaration order. Fields MUST be unique and annotated. The
+Field order is declaration order. Fields MUST be unique and annotated. A class
+docstring is accepted and ignored, matching `@ac.config` and `@ac.Enum`; any other
+non-annotated statement is rejected with `ACPY-QUEUE-002` and the offending
+statement is named in the diagnostic. The
 operators `+`, `-`, `*`, `//`, `%`, `&`, `|`, `^`, `~`, `<<`, and `>>`
 preserve the declared width. Binary bit operands MUST have the same width; a
 right-side integer literal is typed from the left operand. Results wrap modulo
@@ -706,6 +709,14 @@ ac.sink(incoming)
 
 `ac.sink(queue)` consumes tokens from a Queue. A system MUST contain at least
 one source Queue and at least one sink.
+
+Wherever a Queue reference is required (`ac.sink`, `ac.route`, `ac.merge`,
+`queue.apply`, a static collection member, and every other Queue operand), the
+argument MUST be a bound name or a statically resolvable collection member. A
+rule, helper, or child-module call cannot appear inline as the operand; bind its
+result to a name first. `ac.sink(keep(queue))` is rejected with
+`ACPY-QUEUE-005` and a diagnostic that names the call and the required
+`result = keep(...)` binding.
 
 ### Transform with `apply`
 

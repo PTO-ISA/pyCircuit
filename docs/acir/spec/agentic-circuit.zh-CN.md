@@ -206,7 +206,15 @@ Queue-handle 参数仍被拒绝。`source`、`apply` 和 `sink` 是 AST marker�
 
 ## 定义结构化 payload
 
-使用 `@ac.struct` 冻结字段顺序、位宽和结构身份。
+使用 `@ac.struct` 冻结字段顺序、位宽和结构身份。字段必须唯一且带注解；类
+docstring 被接受并忽略（与 `@ac.config`、`@ac.Enum` 一致），其他非注解语句会以
+`ACPY-QUEUE-002` 被拒绝，且诊断会点名该语句。
+
+凡需要 Queue 引用的位置（`ac.sink`、`ac.route`、`ac.merge`、`queue.apply`、静态
+集合成员，以及其他所有 Queue 操作数），实参必须是已绑定名字或静态可解析的集合
+成员。rule、helper 或子 module 调用不能内联作为操作数，必须先把结果绑定到名字：
+`ac.sink(keep(queue))` 会以 `ACPY-QUEUE-005` 被拒绝，诊断会给出该调用以及所需的
+`result = keep(...)` 绑定写法。
 
 ```python
 import agentic_circuit as ac

@@ -1225,11 +1225,25 @@ def _payloads(
         fields: list[ValueField] = []
         static_checks: list[StaticTypeCheck] = []
         for statement in node.body:
+            # A class docstring is ordinary Python and carries no ACIR
+            # semantics; `@ac.config` and `@ac.Enum` already skip it. Reporting
+            # "struct body requires annotated fields" for a documented payload
+            # pointed users at a field that was in fact annotated.
+            if (
+                isinstance(statement, ast.Expr)
+                and isinstance(statement.value, ast.Constant)
+                and type(statement.value.value) is str
+            ):
+                continue
             if not isinstance(statement, ast.AnnAssign) or not isinstance(
                 statement.target, ast.Name
             ):
+                detail = ast.unparse(statement)
+                if len(detail) > 60:
+                    detail = f"{detail[:57]}..."
                 raise QueueFrontendError(
-                    "ACPY-QUEUE-002: struct body requires annotated fields"
+                    "ACPY-QUEUE-002: struct body accepts a docstring and "
+                    f"annotated fields only; {name} has {detail!r}"
                 )
             try:
                 field_type = annotation_type(statement.annotation)
