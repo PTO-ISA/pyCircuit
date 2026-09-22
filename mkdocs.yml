@@ -106,6 +106,7 @@ nav:
   - Development:
       - Overview: development/index.md
       - Agent Frontend Guide: development/agent-frontend-guide.md
+      - Agentic Circuit Open Design Resolutions: development/agentic-circuit-open-designs.md
       - Implementation Guide: development/implementation-guide.md
       - Contributing Workflow: development/contributing-workflow.md
       - Testing and Gates: development/testing-and-gates.md
