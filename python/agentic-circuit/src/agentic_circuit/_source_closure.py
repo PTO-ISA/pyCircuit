@@ -1,8 +1,16 @@
-"""Deterministic workspace-local Python import closure for JIT identity."""
+"""Deterministic workspace-local Python import closure for JIT identity.
+
+``workspace=`` is the directory that *contains* the root package: an entry at
+``<workspace>/pkg/top.py`` imports its own package as ``from pkg.types import S``.
+Standard-library imports are admitted except for the modules listed in
+``_FORBIDDEN_STDLIB_MODULES``, which can change elaboration without appearing in
+the captured source.
+"""
 
 from __future__ import annotations
 
 import ast
+import sys
 from dataclasses import dataclass
 from enum import Enum, auto
 from pathlib import Path
@@ -39,6 +47,72 @@ _NAMESPACE_REFLECTORS = frozenset({"globals", "locals", "vars"})
 _FORBIDDEN_DYNAMIC_MODULES = frozenset({"builtins", "importlib", "operator"})
 _ALLOWED_EXTERNAL_MODULES = frozenset({"__future__", "agentic_circuit", "enum"})
 _ALLOWED_ENUM_IMPORTS = frozenset({"Enum", "IntEnum", "auto", "unique"})
+# The closure only has to produce deterministic source text, and a standard
+# library import introduces no un-captured workspace source, so the stdlib is
+# importable. This denylist keeps the modules that can smuggle host state,
+# platform state, nondeterminism, or dynamic code execution into elaboration
+# without appearing in the captured source.
+_FORBIDDEN_STDLIB_MODULES = frozenset(
+    {
+        # Dynamic code execution, reflection, and live-object serialization.
+        "ast",
+        "builtins",
+        "code",
+        "codeop",
+        "compileall",
+        "copyreg",
+        "ctypes",
+        "dis",
+        "importlib",
+        "inspect",
+        "marshal",
+        "operator",
+        "pickle",
+        "py_compile",
+        "shelve",
+        "sqlite3",
+        # Host, platform, process, filesystem, and network state.
+        "asyncio",
+        "atexit",
+        "concurrent",
+        "dbm",
+        "fcntl",
+        "gc",
+        "glob",
+        "grp",
+        "http",
+        "io",
+        "multiprocessing",
+        "os",
+        "pathlib",
+        "platform",
+        "pty",
+        "pwd",
+        "resource",
+        "select",
+        "shutil",
+        "signal",
+        "socket",
+        "ssl",
+        "subprocess",
+        "sys",
+        "tempfile",
+        "termios",
+        "threading",
+        "urllib",
+        "webbrowser",
+        # Wall-clock and entropy sources are not elaboration-deterministic.
+        "datetime",
+        "random",
+        "secrets",
+        "time",
+        "uuid",
+        "zoneinfo",
+    }
+)
+_STDLIB_MODULE_ROOTS = frozenset(
+    getattr(sys, "stdlib_module_names", frozenset())
+) - _FORBIDDEN_STDLIB_MODULES
 _FORBIDDEN_REFLECTIVE_NAMES = frozenset(
     {
         "__dict__",
@@ -49,6 +123,47 @@ _FORBIDDEN_REFLECTIVE_NAMES = frozenset(
         "setattr",
     }
 )
+
+
+def _external_root(name: str) -> str:
+    return name.partition(".")[0]
+
+
+def _is_allowed_external_root(root: str) -> bool:
+    return root in _ALLOWED_EXTERNAL_MODULES or root in _STDLIB_MODULE_ROOTS
+
+
+def _rejected_external_root(root: str) -> str | None:
+    """Return a specific rejection for a denied stdlib module."""
+
+    if root in _FORBIDDEN_STDLIB_MODULES and root in getattr(
+        sys, "stdlib_module_names", frozenset()
+    ):
+        return root
+    return None
+
+
+def _workspace_root_package_hint(
+    root: Path, module_name: str, relative: str
+) -> str | None:
+    """Explain the ``workspace=`` contract when the root package was passed.
+
+    ``workspace=`` is the directory that *contains* the root package. Passing the
+    package root itself makes every in-package absolute import look external, and
+    the generic "external import" text sends the user looking for a missing
+    dependency instead of at the workspace root.
+    """
+
+    if not module_name or _external_root(module_name) != root.name:
+        return None
+    if not root.joinpath("__init__.py").is_file():
+        return None
+    return (
+        f"ACPY-JIT-006: import {module_name!r} did not resolve in {relative}, but "
+        f"workspace {root} is itself the root package {root.name!r}. workspace= "
+        "must be the directory that contains the root package, so pass "
+        f"{root.parent}; in-package imports are then resolved from there."
+    )
 
 
 def _bound_names(target: ast.expr) -> tuple[str, ...]:
@@ -322,8 +437,16 @@ def _import_targets(
     if isinstance(node, ast.Import):
         targets: list[Path] = []
         for alias in node.names:
-            root_name = alias.name.partition(".")[0]
-            if root_name in _ALLOWED_EXTERNAL_MODULES:
+            root_name = _external_root(alias.name)
+            rejected = _rejected_external_root(root_name)
+            if rejected is not None:
+                raise SourceClosureError(
+                    f"ACPY-JIT-006: standard library import {rejected!r} is not "
+                    "allowed in the captured source closure because it can change "
+                    f"elaboration without appearing in the source: {alias.name!r} "
+                    f"in {source.relative_to(root)}"
+                )
+            if _is_allowed_external_root(root_name):
                 if any(part.startswith("_") for part in alias.name.split(".")):
                     raise SourceClosureError(
                         f"ACPY-JIT-006: private external import {alias.name!r} "
@@ -332,6 +455,11 @@ def _import_targets(
                 continue
             local = _module_candidates(root, tuple(alias.name.split(".")))
             if not local:
+                hint = _workspace_root_package_hint(
+                    root, alias.name, source.relative_to(root).as_posix()
+                )
+                if hint is not None:
+                    raise SourceClosureError(hint)
                 raise SourceClosureError(
                     f"ACPY-JIT-006: external import {alias.name!r} is not "
                     f"allowed in {source.relative_to(root)}"
@@ -345,9 +473,17 @@ def _import_targets(
 
     if any(alias.name == "*" for alias in node.names):
         raise SourceClosureError(f"ACPY-JIT-006: star import is forbidden in {source}")
-    if node.level == 0 and (node.module or "").partition(".")[0] in (
-        _ALLOWED_EXTERNAL_MODULES
-    ):
+    if node.level == 0 and _rejected_external_root(
+        _external_root(node.module or "")
+    ) is not None:
+        rejected = _rejected_external_root(_external_root(node.module or ""))
+        raise SourceClosureError(
+            f"ACPY-JIT-006: standard library import {rejected!r} is not allowed "
+            "in the captured source closure because it can change elaboration "
+            f"without appearing in the source: {node.module!r} in "
+            f"{source.relative_to(root)}"
+        )
+    if node.level == 0 and _is_allowed_external_root(_external_root(node.module or "")):
         if node.module == "enum" and any(
             alias.name not in _ALLOWED_ENUM_IMPORTS for alias in node.names
         ):
@@ -355,7 +491,7 @@ def _import_targets(
                 "ACPY-JIT-006: enum imports are restricted to "
                 f"{sorted(_ALLOWED_ENUM_IMPORTS)} in {source.relative_to(root)}"
             )
-        if (node.module or "").partition(".")[0] == "agentic_circuit" and (
+        if _external_root(node.module or "") != "__future__" and (
             any(part.startswith("_") for part in (node.module or "").split("."))
             or any(alias.name.startswith("_") for alias in node.names)
         ):
@@ -397,6 +533,10 @@ def _import_targets(
             f"{renamed.name!r} as {renamed.asname!r} is not supported in {relative}"
         )
     if not targets:
+        if node.level == 0:
+            hint = _workspace_root_package_hint(root, node.module or "", relative)
+            if hint is not None:
+                raise SourceClosureError(hint)
         kind = "external" if node.level == 0 else "unresolved relative"
         raise SourceClosureError(
             f"ACPY-JIT-006: {kind} import {node.module!r} is not allowed in {relative}"
