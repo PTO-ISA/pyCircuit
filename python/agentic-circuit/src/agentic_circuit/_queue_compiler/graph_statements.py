@@ -11,6 +11,7 @@ from .model import (
     DependencyBinding,
     ForkBinding,
     MergeBinding,
+    StaticQueueCollection,
     QueueBinding,
     ReorderBinding,
     RouteBinding,
@@ -26,6 +27,7 @@ from .parser_context import (
 )
 from .statement_common import (
     _call_name,
+    _static_reference,
     _field_expression,
     _is_queue_reference_syntax,
     _keyword_value,
@@ -274,11 +276,23 @@ def _handle_select(
     aliases = context.aliases
     current_order = context.current_order
     operation = "select"
-    if (
-        operation == "select"
-        and isinstance(receiver, ast.Name)
-        and receiver.id in state.collections
-    ):
+    receiver_collection: StaticQueueCollection | None = None
+    if operation == "select":
+        if isinstance(receiver, ast.Name) and receiver.id in state.collections:
+            receiver_collection = state.collections[receiver.id]
+        elif isinstance(receiver, ast.Subscript) and isinstance(
+            receiver.slice, ast.Slice
+        ):
+            # A slice of a static collection is itself a static collection, so
+            # it is a valid select receiver: select among the selected subset.
+            resolved = _static_reference(state, receiver, aliases)
+            if not isinstance(resolved, StaticQueueCollection):
+                raise QueueFrontendError(
+                    "ACPY-QUEUE-018: select receiver slice must be a static "
+                    "collection"
+                )
+            receiver_collection = resolved
+    if operation == "select" and receiver_collection is not None:
         if name in state.by_name or name in state.collections:
             raise QueueFrontendError(
                 "ACPY-QUEUE-018: select output requires one fresh name"
@@ -291,7 +305,7 @@ def _handle_select(
                 "ACPY-QUEUE-018: select requires one control Queue"
             )
         control = _queue_reference(state, call.args[0], aliases)
-        collection = state.collections[receiver.id]
+        collection = receiver_collection
         if any(not isinstance(member, str) for _, member in collection.members):
             raise QueueFrontendError(
                 "ACPY-QUEUE-018: select requires a flat Queue collection"
