@@ -2576,17 +2576,23 @@ local rules that run before or after a child placement, the Queues between the
 two stay parent-owned, and each child keeps its own instance and specialization.
 This is the general composition capability requested by issues #223, #197 and
 #180; it removes the need for a one-rule wrapper module per route or arbiter.
-The structured QueueGraph backend admits that shape only when every local block
-in the parent's own scopes is a single-pass `transform` or a fanout
-`broadcast`, every local rule produces exactly one Queue, and every local
-transform declares exactly as many results as it yields. A transform may take
-several input Queues, so a local rule with several parameters and one result is
-admitted; it is the yields-to-results arity, not the inputs-to-outputs arity,
-that has to match. A parent whose segment holds a `firing`, `feedback`,
-`select`, or table block is not admitted. When a segmented body contains a local
-rule with more than one result, the frontend rejects it with `ACPY-MODULE-013`
-instead of emitting a graph that fails during codegen. Issue #223 records the
-acceptance evidence for the admitted subset. The existing
+The structured QueueGraph backend admits that shape when every local block in
+the parent's own scopes is a single-pass `transform`, a fanout `broadcast`, or a
+stateless `firing` block and the Queues between the blocks and the children stay
+parent-owned. A `transform` may take several input Queues, so a local rule with
+several parameters and one result is admitted; it is the yields-to-results
+arity, not the inputs-to-outputs arity, that has to match. A stateless local
+rule with several results lowers to one multi-output `firing` block that keeps
+each `ac.firing.output ... when ...` presence predicate and ordinal, so a demux
+can feed a distinct child instance per result without flattening. The same
+multi-block local shape is admitted for a rule-backed body with no child call,
+which is what lets a body chain two rules or fan one input into several rules. A
+segment that holds a stateful `firing` block or a `feedback`, `select`, or table
+block is not admitted; the backend reports the specific unsupported block
+instead of flattening it. When a segmented body contains a local rule with more
+than one result that owns Table or Var state, the frontend rejects it with
+`ACPY-MODULE-013` instead of emitting a graph that fails during codegen. Issue
+#223 records the acceptance evidence for the admitted subset. The existing
 `ac.feedback` keeps its bounded single-block iteration semantics and is not a
 substitute for a requester/responder module protocol; an implicit Python
 dataflow cycle is rejected rather than guessed from statement order.

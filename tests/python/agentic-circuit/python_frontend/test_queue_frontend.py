@@ -8171,73 +8171,51 @@ def two_accumulators(left: ac.u8, right: ac.u8) -> tuple[ac.u8, ac.u8]:
             lowered,
         )
 
-    def test_multi_output_rule_rejected_in_segmented_module_body(self) -> None:
+    def test_multi_output_stateless_rule_lowers_in_segmented_module_body(
+        self,
+    ) -> None:
         # The issue's headline shape (`route` -> two `state_bank` children ->
-        # `arbitrate`) uses a rule with two results. The structured QueueGraph
-        # backend can only lower a single-result local transform inside a parent
-        # that owns child instances, so the frontend must reject it explicitly
-        # rather than emit a graph that fails during codegen.
+        # `arbitrate`) uses a rule with two results. A stateless multi-result
+        # local rule lowers to a multi-output `ac.rule` block, which the
+        # structured QueueGraph backend now emits as a multi-output firing
+        # block, so the frontend must accept it.
+        from agentic_circuit._queue_frontend import lower_queue_source
+
+        lowered = lower_queue_source(
+            RULE_MODULE_CHILD_MULTI_OUTPUT_SOURCE, "composite"
+        )
+        self.assertIn(
+            "%thread0, %thread1 = ac.rule %borrowed_0 depths [1, 1]", lowered
+        )
+        self.assertIn('ac.output_names = ["thread0", "thread1"]', lowered)
+        self.assertEqual(2, lowered.count("ac.instance @child_"))
+
+    def test_stateful_multi_output_rule_rejected_in_segmented_module_body(
+        self,
+    ) -> None:
+        # A multi-result local rule that owns Table or Var state still has no
+        # representation in a parent that owns child instances, so the frontend
+        # must reject it with a diagnostic instead of emitting a graph that
+        # fails during codegen.
         from agentic_circuit._queue_frontend import (
             QueueFrontendError,
             lower_queue_source,
         )
 
-        source = """
-import agentic_circuit as ac
-
-@ac.struct
-class Request:
-    value: ac.bits[8]
-    tid: ac.bits[1]
-    valid: ac.bits[1]
-
-@ac.struct
-class Result:
-    value: ac.bits[8]
-    valid: ac.bits[1]
-
-@ac.rule
-def route(request: Request) -> tuple[Request, Request]:
-    first = request.with_fields(value=request.value, valid=(request.valid & (request.tid == 0)))
-    second = request.with_fields(value=request.value, valid=(request.valid & (request.tid == 1)))
-    return first, second
-
-@ac.rule
-def arbitrate(first: Result, second: Result) -> Result:
-    return first if first.valid else second
-
-@ac.module_decl(source="tests/python/agentic-circuit/python_frontend/test_queue_frontend.py")
-def state_bank(packet: Request) -> Result:
-    ...
-
-state_bank_decl = state_bank
-
-@ac.module(declaration=state_bank_decl)
-def state_bank(packet: Request) -> Result:
-    return Result(value=packet.value, valid=packet.valid)
-
-@ac.module_decl(source="tests/python/agentic-circuit/python_frontend/test_queue_frontend.py")
-def top(request: Request) -> Result:
-    ...
-
-top_decl = top
-
-@ac.module(declaration=top_decl)
-def top(request: Request) -> Result:
-    first_packet, second_packet = route(request)
-    first = state_bank(first_packet)
-    second = state_bank(second_packet)
-    result = arbitrate(first, second)
-    return result
-
-@ac.system
-def composite(request: Request) -> Result:
-    return top(request)
-"""
+        source = RULE_MODULE_CHILD_MULTI_OUTPUT_SOURCE.replace(
+            "def route(request: Request) -> tuple[Request, Request]:",
+            "def route(count, request: Request) -> tuple[Request, Request]:\n"
+            "    count = count + 1",
+        ).replace(
+            "    thread0, thread1 = route(request)",
+            "    count: ac.bits[8] = 0\n"
+            "    thread0, thread1 = route(count, request)",
+        )
         with self.assertRaises(QueueFrontendError) as raised:
             lower_queue_source(source, "composite")
         self.assertIn("ACPY-MODULE-013", str(raised.exception))
         self.assertIn("route", str(raised.exception))
+        self.assertIn("stateless", str(raised.exception))
 
     def test_rule_module_body_mixes_rules_and_child_instances(self) -> None:
         from agentic_circuit._queue_frontend import lower_queue_source
@@ -8904,13 +8882,13 @@ class Result:
 
 @ac.rule
 def route(request: Request) -> tuple[Request, Request]:
-    first = request.with_fields(value=request.value, valid=(request.valid & (request.tid == 0)))
-    second = request.with_fields(value=request.value, valid=(request.valid & (request.tid == 1)))
-    return first, second
+    thread0 = request.with_fields(valid=request.valid & (request.tid == 0))
+    thread1 = request.with_fields(valid=request.valid & (request.tid == 1))
+    return thread0, thread1
 
 @ac.rule
-def arbitrate(first: Result, second: Result) -> Result:
-    return first if first.valid else second
+def arbitrate(result0: Result, result1: Result) -> Result:
+    return result0 if result0.valid else result1
 
 @ac.module_decl(source="tests/python/agentic-circuit/python_frontend/test_queue_frontend.py")
 def state_bank(packet: Request) -> Result:
@@ -8930,10 +8908,171 @@ top_decl = top
 
 @ac.module(declaration=top_decl)
 def top(request: Request) -> Result:
-    first_packet, second_packet = route(request)
-    first = state_bank(first_packet)
-    second = state_bank(second_packet)
+    thread0, thread1 = route(request)
+    result0 = state_bank(thread0)
+    result1 = state_bank(thread1)
+    result = arbitrate(result0, result1)
+    return result
+
+@ac.system
+def composite(request: Request) -> Result:
+    return top(request)
+"""
+
+
+RULE_MODULE_LOCAL_SINGLE_SOURCE = """
+import agentic_circuit as ac
+
+@ac.struct
+class Request:
+    value: ac.bits[8]
+    valid: ac.bits[1]
+
+@ac.struct
+class Result:
+    value: ac.bits[8]
+    valid: ac.bits[1]
+
+@ac.rule
+def mk(request: Request) -> Result:
+    return Result(value=request.value, valid=request.valid)
+
+@ac.module_decl(source="tests/python/agentic-circuit/python_frontend/test_queue_frontend.py")
+def top(request: Request) -> Result:
+    ...
+
+top_decl = top
+
+@ac.module(declaration=top_decl)
+def top(request: Request) -> Result:
+    result = mk(request)
+    return result
+
+@ac.system
+def composite(request: Request) -> Result:
+    return top(request)
+"""
+
+
+RULE_MODULE_LOCAL_CHAIN_SOURCE = """
+import agentic_circuit as ac
+
+@ac.struct
+class Request:
+    value: ac.bits[8]
+    valid: ac.bits[1]
+
+@ac.struct
+class Result:
+    value: ac.bits[8]
+    valid: ac.bits[1]
+
+@ac.rule
+def mk(request: Request) -> Result:
+    return Result(value=request.value, valid=request.valid)
+
+@ac.rule
+def dup(result: Result) -> Result:
+    return result
+
+@ac.module_decl(source="tests/python/agentic-circuit/python_frontend/test_queue_frontend.py")
+def top(request: Request) -> Result:
+    ...
+
+top_decl = top
+
+@ac.module(declaration=top_decl)
+def top(request: Request) -> Result:
+    prepared = mk(request)
+    result = dup(prepared)
+    return result
+
+@ac.system
+def composite(request: Request) -> Result:
+    return top(request)
+"""
+
+
+RULE_MODULE_LOCAL_FANOUT_SOURCE = """
+import agentic_circuit as ac
+
+@ac.struct
+class Request:
+    value: ac.bits[8]
+    valid: ac.bits[1]
+
+@ac.struct
+class Result:
+    value: ac.bits[8]
+    valid: ac.bits[1]
+
+@ac.rule
+def mk(request: Request) -> Result:
+    return Result(value=request.value, valid=request.valid)
+
+@ac.rule
+def arbitrate(first: Result, second: Result) -> Result:
+    return first if first.valid else second
+
+@ac.module_decl(source="tests/python/agentic-circuit/python_frontend/test_queue_frontend.py")
+def top(request: Request) -> Result:
+    ...
+
+top_decl = top
+
+@ac.module(declaration=top_decl)
+def top(request: Request) -> Result:
+    first = mk(request)
+    second = mk(request)
     result = arbitrate(first, second)
+    return result
+
+@ac.system
+def composite(request: Request) -> Result:
+    return top(request)
+"""
+
+
+RULE_MODULE_LOCAL_MULTI_OUTPUT_SOURCE = """
+import agentic_circuit as ac
+
+@ac.struct
+class Request:
+    value: ac.bits[8]
+    tid: ac.bits[1]
+    valid: ac.bits[1]
+
+@ac.struct
+class Result:
+    value: ac.bits[8]
+    valid: ac.bits[1]
+
+@ac.rule
+def route(request: Request) -> tuple[Request, Request]:
+    thread0 = request.with_fields(valid=request.valid & (request.tid == 0))
+    thread1 = request.with_fields(valid=request.valid & (request.tid == 1))
+    return thread0, thread1
+
+@ac.rule
+def to_result(packet: Request) -> Result:
+    return Result(value=packet.value, valid=packet.valid)
+
+@ac.rule
+def arbitrate(result0: Result, result1: Result) -> Result:
+    return result0 if result0.valid else result1
+
+@ac.module_decl(source="tests/python/agentic-circuit/python_frontend/test_queue_frontend.py")
+def top(request: Request) -> Result:
+    ...
+
+top_decl = top
+
+@ac.module(declaration=top_decl)
+def top(request: Request) -> Result:
+    thread0, thread1 = route(request)
+    result0 = to_result(thread0)
+    result1 = to_result(thread1)
+    result = arbitrate(result0, result1)
     return result
 
 @ac.system
@@ -9031,6 +9170,122 @@ class RuleModuleChildPipelineTest(unittest.TestCase):
             self.assertEqual(0, compiled.returncode, compiled.stderr)
             return generated.stdout
 
+    def class_body(self, model: str, class_name: str) -> str:
+        start = model.index(f"class {class_name} final : public gfsim::Module")
+        end = model.index("\n};", start)
+        return model[start:end]
+
+    def braced(self, text: str, start: int) -> str:
+        opening = text[start]
+        closing = "}" if opening == "{" else ")"
+        depth = 0
+        for index in range(start, len(text)):
+            if text[index] == opening:
+                depth += 1
+            elif text[index] == closing:
+                depth -= 1
+                if depth == 0:
+                    return text[start + 1 : index]
+        raise AssertionError(f"unbalanced {opening!r} in {text!r}")
+
+    def queue_tokens(self, text: str) -> list[str]:
+        import re
+
+        text = re.sub(r'"[^"]*"', "", text)
+        return re.findall(r"&?(queue_\d+_|input_\d+|output_\d+)", text)
+
+    def queue_readers(
+        self, body: str, child_input_counts: dict[str, int]
+    ) -> dict[str, list[str]]:
+        """Return the consumers that read each SimQueue in one generated class.
+
+        A read is an input port of a generated block or a child input port; a
+        write is an output port. The generated constructor syntax makes the two
+        unambiguous, so a Queue that appears as an input more than once is a
+        double-consumed Queue.
+        """
+
+        import re
+
+        readers: dict[str, list[str]] = {}
+
+        def record(consumer: str, queues: list[str]) -> None:
+            for queue in queues:
+                readers.setdefault(queue, []).append(consumer)
+
+        for match in re.finditer(r"^\s*(block_\d+_)\(", body, re.M):
+            consumer = match.group(1)
+            line = body[match.start() : body.index("\n", match.start())]
+            if '"broadcast_' in line:
+                port = line.index("(", line.index("require_queue_port("))
+                record(consumer, self.queue_tokens(self.braced(line, port)))
+                continue
+            tuples = [m.start() for m in re.finditer(r"std::tuple\{", line)]
+            if '"firing_' in line:
+                # Tables, then inputs, then outputs.
+                record(
+                    consumer,
+                    self.queue_tokens(
+                        self.braced(line, line.index("{", tuples[1]))
+                    ),
+                )
+                continue
+            if tuples:
+                record(
+                    consumer,
+                    self.queue_tokens(
+                        self.braced(line, line.index("{", tuples[0]))
+                    ),
+                )
+                continue
+            port = line.index("(", line.index("require_queue_port("))
+            record(consumer, self.queue_tokens(self.braced(line, port)))
+
+        for match in re.finditer(
+            r"(child_\d+_) = std::make_unique<(\w+)>\(", body
+        ):
+            consumer, child_class = match.group(1), match.group(2)
+            line = body[match.start() : body.index("\n", match.start())]
+            after_parent = line.index("this, ") + len("this, ")
+            tokens = re.findall(
+                r"&?(queue_\d+_|input_\d+|output_\d+)",
+                line[after_parent : line.rindex(")")],
+            )
+            record(consumer, tokens[: child_input_counts[child_class]])
+
+        return readers
+
+    def assert_single_consumer(
+        self, model: str, class_name: str, child_input_counts: dict[str, int]
+    ) -> dict[str, list[str]]:
+        readers = self.queue_readers(
+            self.class_body(model, class_name), child_input_counts
+        )
+        for queue, consumers in readers.items():
+            self.assertLessEqual(
+                len(consumers),
+                1,
+                f"SimQueue {queue} is read by more than one consumer: {consumers}",
+            )
+        return readers
+
+    def child_queue_arguments(self, model: str, child_class: str) -> list[list[str]]:
+        import re
+
+        result: list[list[str]] = []
+        for match in re.finditer(
+            rf"child_\d+_ = std::make_unique<{child_class}>\(", model
+        ):
+            line = model[match.start() : model.index("\n", match.start())]
+            after_parent = line.index("this, ") + len("this, ")
+            result.append(
+                re.findall(
+                    r"&?(queue_\d+_|input_\d+|output_\d+)",
+                    line[after_parent : line.rindex(")")],
+                )
+            )
+        return result
+
     def test_frontend_output_compiles_with_fanouts_and_multi_input_rule(
         self,
     ) -> None:
@@ -9041,16 +9296,47 @@ class RuleModuleChildPipelineTest(unittest.TestCase):
         self.assertIn("gfsim::QueueAtomicTransform<", model)
         self.assertIn("gfsim::QueueTransform<", model)
 
-    def test_multi_output_issue_example_reports_frontend_diagnostic(self) -> None:
-        from agentic_circuit._queue_frontend import (
-            QueueFrontendError,
-            lower_queue_source,
-        )
+    def test_multi_output_issue_example_compiles_end_to_end(self) -> None:
+        # Issue #223 acceptance criterion 1: the demux rule lowers to a real
+        # multi-output firing block whose two children read distinct demux
+        # Queues, and the multi-input merge rule lowers to an atomic transform.
+        model = self.compile_pipeline(RULE_MODULE_CHILD_MULTI_OUTPUT_SOURCE)
+        self.assertIn("gfsim::QueueStateTransition<", model)
+        self.assertIn("gfsim::QueueAtomicTransform<", model)
+        self.assertEqual(1, model.count("gfsim::QueueStateTransition<"))
+        arguments = self.child_queue_arguments(model, "StateBank")
+        self.assertEqual(2, len(arguments))
+        # Each child has one input and one output: `this, <input>, <output>`.
+        self.assertEqual(["queue_0_", "queue_2_"], arguments[0])
+        self.assertEqual(["queue_1_", "queue_3_"], arguments[1])
+        self.assertNotEqual(arguments[0][0], arguments[1][0])
+        readers = self.assert_single_consumer(model, "Top", {"StateBank": 1})
+        self.assertEqual(["child_0_"], readers["queue_0_"])
+        self.assertEqual(["child_1_"], readers["queue_1_"])
+        self.assertEqual(["block_1_"], readers["queue_2_"])
+        self.assertEqual(["block_1_"], readers["queue_3_"])
+        self.assertEqual(["block_0_"], readers["input_0"])
 
-        source = RULE_MODULE_CHILD_MULTI_OUTPUT_SOURCE
-        with self.assertRaises(QueueFrontendError) as raised:
-            lower_queue_source(source, "composite")
-        self.assertIn("ACPY-MODULE-013", str(raised.exception))
+    def test_single_rule_local_module_compiles_end_to_end(self) -> None:
+        model = self.compile_pipeline(RULE_MODULE_LOCAL_SINGLE_SOURCE)
+        self.assertIn("gfsim::QueueTransform<", model)
+
+    def test_chained_rules_local_module_compiles_end_to_end(self) -> None:
+        model = self.compile_pipeline(RULE_MODULE_LOCAL_CHAIN_SOURCE)
+        self.assertEqual(2, model.count("gfsim::QueueTransform<"))
+        self.assert_single_consumer(model, "Top", {})
+
+    def test_fanout_rules_local_module_compiles_end_to_end(self) -> None:
+        model = self.compile_pipeline(RULE_MODULE_LOCAL_FANOUT_SOURCE)
+        self.assertIn("gfsim::QueueBroadcast<", model)
+        self.assertIn("gfsim::QueueAtomicTransform<", model)
+        self.assert_single_consumer(model, "Top", {})
+
+    def test_multi_output_local_module_compiles_end_to_end(self) -> None:
+        model = self.compile_pipeline(RULE_MODULE_LOCAL_MULTI_OUTPUT_SOURCE)
+        self.assertIn("gfsim::QueueStateTransition<", model)
+        self.assertIn("gfsim::QueueAtomicTransform<", model)
+        self.assert_single_consumer(model, "Top", {})
 
 
 if __name__ == "__main__":

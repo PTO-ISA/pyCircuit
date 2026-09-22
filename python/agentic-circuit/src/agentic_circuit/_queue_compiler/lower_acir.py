@@ -3361,22 +3361,48 @@ def lower_queue_program(
         values produced inside it and consumed after it.
         """
 
-        # The structured QueueGraph backend lowers each local rule to one
-        # single-result transform inside the parent, so a rule with several
-        # results cannot be represented yet. Reject it here with a frontend
-        # diagnostic instead of letting codegen fail on the emitted graph.
+        # The structured QueueGraph backend lowers a stateless local rule with
+        # one result to a single transform and a stateless local rule with
+        # several results to a multi-output firing block. A rule that owns Table
+        # or Var state still has no representation next to child instances, so
+        # reject that here with a frontend diagnostic instead of letting codegen
+        # fail on the emitted graph.
+        def local_rule_is_stateless(candidate: QueueBinding) -> bool:
+            return not (
+                candidate.rule_table is not None
+                or candidate.rule_table_read_name is not None
+                or candidate.rule_var is not None
+                or candidate.rule_var_read_name is not None
+                or candidate.rule_state_writes
+                or candidate.rule_state_reads
+                or candidate.rule_state_owners
+                or candidate.rule_slot_owners
+                or candidate.rule_slot_releases
+                or candidate.rule_finds
+            )
+
         for candidate in (*program.queues, *program.effect_rules):
             if candidate.rule_name is None:
                 continue
             outputs = candidate.rule_output_names or (
                 (candidate.name,) if candidate.rule_has_output else ()
             )
-            if len(outputs) != 1:
+            if len(outputs) == 1:
+                continue
+            if len(outputs) > 1 and local_rule_is_stateless(candidate):
+                continue
+            if len(outputs) > 1:
                 raise QueueFrontendError(
                     "ACPY-MODULE-013: a segmented rule-backed module body "
-                    "supports only local rules with exactly one output Queue; "
-                    f"rule {candidate.rule_name!r} produces {len(outputs)}"
+                    "supports a multi-result local rule only when the rule is "
+                    f"stateless; rule {candidate.rule_name!r} produces "
+                    f"{len(outputs)} results and owns Table or Var state"
                 )
+            raise QueueFrontendError(
+                "ACPY-MODULE-013: a segmented rule-backed module body "
+                "supports only local rules with one output Queue; "
+                f"rule {candidate.rule_name!r} produces none"
+            )
 
         inf = float("inf")
         module_input_index = {
