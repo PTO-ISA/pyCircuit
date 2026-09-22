@@ -1933,7 +1933,12 @@ parent input 或 child output 有多个消费者时，编译器插入原子的 `
 函数仍只返回普通值，不命名 Queue 或 hierarchy object。Composite control flow 只允许
 依赖 typed `ac.const` 闭合值的 `if`，每个产生的 Queue value 必须有 consumer。前端生成
 parent-owned internal Queue 和 child `ac.instance`，planning/codegen 保持
-child-before-parent 复用。
+child-before-parent 复用。每个生成的 `ac.module` 都声明其 case 可 materialize 的
+logical interface：按顺序为每个已解析输入和每个结果各一个 port。symbol 带有
+declaration 记录的 family 保留声明的 dependent skeleton，由各 case 用自己的 typed
+static argument materialize。symbol 没有 declaration 记录的 module——实现名称与声明不同，
+或完全没有声明的 pure module——则声明其已解析签名，因为 `ac.module.case` 校验会拒绝任何
+interface 无法 materialize 到该 case 精确 concrete signature 的 case。
 
 独立编译的 parent 只 import typed declaration。声明保持与实现完全一致的 runtime/static
 签名，显式绑定实现 source，并且没有实现正文：

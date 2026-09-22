@@ -2663,7 +2663,15 @@ Queue or hierarchy object. Composite control flow is limited to `if` conditions
 closed over typed `ac.const` values, and every produced Queue value requires a
 consumer. The frontend emits the parent-owned internal Queues and child
 `ac.instance` operations; specialization planning and codegen preserve
-child-before-parent reuse.
+child-before-parent reuse. Every emitted `ac.module` declares the logical
+interface its cases materialize to: one port per resolved input and per result,
+in that order. A family whose symbol carries a declaration entry keeps the
+declared dependent skeleton, which each case materializes with its own typed
+static arguments. A module whose symbol has no declaration entry — an
+implementation named independently of its declaration, or a pure module with no
+declaration at all — declares its resolved signature instead, because
+`ac.module.case` verification rejects any case whose interface cannot
+materialize to that case's exact concrete signature.
 The stateful module slice accepts one or more zero-initialized scalar lexical
 variables, one serial assignment per variable, and a typed result expression:
 
