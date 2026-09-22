@@ -46,9 +46,10 @@ every wheel it skips, and uploads the result.
 
 Enabling it needs both sides:
 
-1. a PyPI trusted publisher for owner `PTO-ISA`, repository `pyCircuit`, workflow
-   `publish-pypi.yml`, environment `release` (the job requests `id-token: write`
-   and uses `environment: release`), and
+1. a PyPI trusted publisher for the single shipped project `pycircuit-hisi`
+   (owner `PTO-ISA`, repository `pyCircuit`, workflow `publish-pypi.yml`,
+   environment `release`; the job requests `id-token: write` and uses
+   `environment: release`), and
 2. the release itself to be green, so the tag exists and the attestation is
    linked.
 
