@@ -38,6 +38,34 @@ def _nonnegative_int(
     return _nonnegative_int_value(call, name, default, environment.static_values)
 
 
+def _unresolved_reference_error(node: ast.expr) -> QueueFrontendError:
+    """Explain why an expression is not a usable Queue reference.
+
+    ``ac.sink(keep(q))`` used to report "collection reference must be statically
+    resolvable", which sends the reader looking for an ``ac.array``/``ac.map``
+    mistake. A Queue reference is a name or a static collection member, so the
+    real fix for a call result is to bind it to a name first. Both the parser
+    closure and the statement handlers funnel their final rejection through here
+    so the two copies cannot drift.
+    """
+
+    if isinstance(node, ast.Call):
+        expression = ast.unparse(node)
+        callee = ast.unparse(node.func)
+        if len(expression) > 60:
+            expression = f"{expression[:57]}..."
+        return QueueFrontendError(
+            "ACPY-QUEUE-005: a call result cannot be used directly where a Queue "
+            f"reference is required: {expression}. Queue references are names or "
+            "static collection members; bind the call to a name first, for "
+            f"example `result = {callee}(...)`, then use `result`"
+        )
+    return QueueFrontendError(
+        "ACPY-QUEUE-005: collection reference must be statically resolvable: "
+        f"{ast.unparse(node)!r}"
+    )
+
+
 def _static_reference(
     state: _ParserState, node: ast.expr, aliases: _Aliases
 ) -> str | StaticQueueCollection:
@@ -64,9 +92,7 @@ def _static_reference(
         raise QueueFrontendError(
             f"ACPY-QUEUE-005: collection has no key {node.slice.value!r}"
         )
-    raise QueueFrontendError(
-        "ACPY-QUEUE-005: collection reference must be statically resolvable"
-    )
+    raise _unresolved_reference_error(node)
 
 
 def _queue_reference(state: _ParserState, node: ast.expr, aliases: _Aliases) -> str:

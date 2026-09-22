@@ -103,6 +103,7 @@ from .source import (
 )
 from .state_semantics import _StateSemantics
 from .state_statements import handle_state_statement
+from .statement_common import _unresolved_reference_error
 from .static_types import (
     _bitfields,
     _bounded_annotation_static_checks,
@@ -2612,9 +2613,7 @@ def parse_queue_program(
             raise QueueFrontendError(
                 f"ACPY-QUEUE-005: collection has no key {node.slice.value!r}"
             )
-        raise QueueFrontendError(
-            "ACPY-QUEUE-005: collection reference must be statically resolvable"
-        )
+        raise _unresolved_reference_error(node)
 
     def queue_reference(
         node: ast.expr,
