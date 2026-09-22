@@ -252,7 +252,11 @@ def pipeline(value: WorkItem, *, increment_value: ac.const[bool]) -> WorkItem:
 The source file is compiled through AST capture. The queue primitives inside
 the system body are syntax markers; ordinary Python execution of the body is
 not the compilation path. Typed finite-family cases bind declared static parameters. Runtime
-payload arguments remain unbound and do not enter specialization identity. An
+payload arguments remain unbound and do not enter specialization identity. A
+parameterized family body may be a composite of child module instances, so one
+declaration serves every declared case. A family body that calls a local rule is
+rejected with `ACPY-FAMILY-008` instead: its concrete cases would publish the
+same module-qualified rule identity. An
 optional `workspace=` captures the transitive local source closure;
 local dependencies use explicit `from module import Symbol` imports. Local
 module-qualified imports, renamed imports, and conflicting definitions across
@@ -2822,6 +2826,14 @@ gfsim::SimQueue<WorkItem> output_queue_;
 The generated system owns interconnect Queues. Child scope modules and common
 blocks borrow typed Queue references. Sibling blocks MUST NOT own duplicate
 instances of the same interconnect.
+
+A source definition that declares a static parameter family owns one generated
+class per declared case instead of one class for every case. The class name is
+the definition's readable name plus a deterministic suffix over that case's
+static arguments in declaration order, for example `stage` with `lanes = 2`
+becomes `StageLanes2`; a definition with exactly one case keeps its bare name.
+A multi-lane transform binds `gfsim::QueueLaneTransform`, which retires the
+whole committed prefix one item per lane.
 
 The implementation currently provides reusable templates for transform,
 atomic transform, sink, observe, broadcast, fork, route, merge, barrier, credit,
