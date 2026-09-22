@@ -1,0 +1,33 @@
+# Items V01 and V02 of the #128 cross-layer verification matrix.
+#
+# V01  frontend positive/negative examples plus public API and typecheck.
+# V02  Frozen ACIR verifier/lit tests plus the QueueGraph schema round trip.
+#
+# Run from the repository root with the Agentic Circuit test dependencies
+# installed and the native toolchain built. The native tools are discovered
+# under .pycircuit_out/toolchain/build/bin.
+
+# --- V01: frontend positive/negative examples -----------------------------
+python3 -m pytest tests/python/agentic-circuit/python_frontend -q -p no:cacheprovider \
+  --ignore=tests/python/agentic-circuit/python_frontend/test_dual_port_issue_queue.py
+grep -rc "assertRaises" tests/python/agentic-circuit/python_frontend/*.py
+grep -rl "QueueFrontendError" tests/python/agentic-circuit/python_frontend/*.py
+
+# --- V01: public API and contracts ---------------------------------------
+python3 -m pytest tests/python/agentic-circuit/python_frontend/test_public_api.py -q -p no:cacheprovider
+python3 -m unittest discover -s tests/python/agentic-circuit/contracts -p 'test_*.py'
+python3 tools/agentic-circuit/check-contracts.py
+python3 tools/agentic-circuit/generate-diagnostic-catalog.py --check
+
+# --- V02: Frozen ACIR verifier and lit coverage --------------------------
+ls tests/mlir/agentic-circuit/ACIR/*.mlir | wc -l
+ls tests/mlir/agentic-circuit/Transforms/*.mlir | wc -l
+grep -rl 'ac-freeze-topology' tests/mlir/ | wc -l
+grep -rl 'ac-verify-rule-closure' tests/mlir/ | wc -l
+ninja -C .pycircuit_out/toolchain/build check-acir
+
+# --- V02: QueueGraph plan and source-map JSON round trip -----------------
+.pycircuit_out/toolchain/build/bin/acir-queue-plan <frozen.mlir>
+.pycircuit_out/toolchain/build/bin/CodeGenTests --gtest_list_tests --gtest_filter='*QueueGraphPlan*'
+.pycircuit_out/toolchain/build/bin/CodeGenTests --gtest_filter='*QueueGraphPlan*'
+ctest --test-dir .pycircuit_out/toolchain/build
