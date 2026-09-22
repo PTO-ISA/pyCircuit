@@ -338,7 +338,7 @@ jobs:
           export PYC_PYTHON_EXECUTABLE="$(command -v python3)"
           bash flows/scripts/pyc build --llvm-config "${llvm_config}" --build-dir "$PWD/.pycircuit_out/toolchain/build" --install-prefix "$PWD/.pycircuit_out/toolchain/install"
           mkdir candidate
-          python3 packaging/wheel/create_wheel.py --install-dir "$PWD/.pycircuit_out/toolchain/install" --out-dir candidate --wheel-version "${{ inputs.version }}"
+          python3 packaging/wheel/create_wheel.py --install-dir "$PWD/.pycircuit_out/toolchain/install" --out-dir candidate --wheel-version "${{ inputs.version }}" --platform "${{ matrix.platform }}"
           wheel="$(find candidate -maxdepth 1 -name 'pycircuit_hisi-*.whl' -print -quit)"
           python3 packaging/sdk/create_platform_manifest.py \
             --install-dir "$PWD/.pycircuit_out/toolchain/install" \
@@ -399,7 +399,7 @@ jobs:
           pwsh -NoProfile -File flows/scripts/pyc.ps1 build --llvm-config "$llvmConfig" --build-dir "$PWD/.pycircuit_out/toolchain/build" --install-prefix "$PWD/.pycircuit_out/toolchain/install"
           if ($LASTEXITCODE -ne 0) { throw "the platform SDK build failed with exit code $LASTEXITCODE" }
           New-Item -ItemType Directory -Force -Path candidate | Out-Null
-          python3 packaging/wheel/create_wheel.py --install-dir "$PWD/.pycircuit_out/toolchain/install" --out-dir candidate --wheel-version "${{ inputs.version }}"
+          python3 packaging/wheel/create_wheel.py --install-dir "$PWD/.pycircuit_out/toolchain/install" --out-dir candidate --wheel-version "${{ inputs.version }}" --platform "${{ matrix.platform }}"
           if ($LASTEXITCODE -ne 0) { throw "wheel creation failed with exit code $LASTEXITCODE" }
           $wheel = (Get-ChildItem candidate -Filter "pycircuit_hisi-*.whl" | Select-Object -First 1).FullName
           if (-not $wheel) {

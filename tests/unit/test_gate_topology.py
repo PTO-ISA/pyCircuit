@@ -407,3 +407,42 @@ def test_release_ships_exactly_one_wheel_per_platform() -> None:
     builder = _read("packaging/wheel/create_wheel.py")
     assert "_stage_vendored_packages(install_dir, stage)" in builder
     assert "NATIVE_EXTENSION" in builder
+
+
+def test_wheel_build_relocates_bundled_libraries() -> None:
+    """A wheel must not reference the builder's absolute toolchain paths.
+
+    The build links the platform's own LLVM, z3, and zstd, and those references
+    are absolute on macOS. A wheel that shipped them verbatim would only start on
+    a machine with the builder's exact Homebrew tree, which is how the published
+    `pycc` failed platform verification. The SDK archive builder already
+    relocates its copy, so the wheel build must call that same implementation,
+    and every lane that builds the wheel must state the profile it relocates for.
+    """
+
+    builder = _read("packaging/wheel/create_wheel.py")
+    assert "import create_platform_manifest" in builder
+    assert (
+        "create_platform_manifest.relocate_native_dependencies(stage, platform)"
+        in builder
+    )
+    assert "_relocate(stage, args.platform or _platform_for(plat_name))" in builder
+    assert "_drop_toolchain_frontend_copies(package_dir)" in builder
+
+    verifier = _read("packaging/sdk/verify_platform_candidate.py")
+    assert 'for name in ("pycc", "acc"):' in verifier
+    assert "runs from the SDK tree but not from the installed" in verifier
+    assert "does not run from the installed wheel or from the" in verifier
+
+    for workflow in (
+        ".github/workflows/release.yml",
+        ".github/workflows/platform-evidence.yml",
+    ):
+        text = _read(workflow)
+        assert (
+            text.count(
+                '--wheel-version "${{ inputs.version }}" '
+                '--platform "${{ matrix.platform }}"'
+            )
+            == 2
+        ), workflow

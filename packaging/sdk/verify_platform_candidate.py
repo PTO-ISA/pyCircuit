@@ -531,14 +531,30 @@ def installed_smoke(sdk_root: Path, wheels: list[Path], workspace: Path) -> None
         raise ValueError("installed wheel did not provide the pycircuit console script")
     run([pycircuit_script, "--help"], cwd=workspace)
     # One wheel carries both compilers: the pyCircuit compiler and the Agentic
-    # Circuit compiler must both run from the installed environment alone.
+    # Circuit compiler must both run from the installed environment alone. When
+    # one fails, say whether the same binary still runs from the SDK tree, so a
+    # relocation defect is distinguishable from a broken compiler.
     for name in ("pycc", "acc"):
         compiler = installed_console_script(commands, f"{name}{suffix}")
         if compiler is None:
             raise ValueError(
                 f"installed wheel did not provide the {name} console script"
             )
-        run([compiler, "--help"], cwd=workspace)
+        try:
+            run([compiler, "--help"], cwd=workspace)
+        except ValueError as wheel_error:
+            tree_compiler = sdk_root / f"bin/{name}{suffix}"
+            try:
+                run([tree_compiler, "--help"], cwd=workspace)
+            except ValueError as tree_error:
+                raise ValueError(
+                    f"{name} does not run from the installed wheel or from the "
+                    f"SDK tree:\n{wheel_error}\n{tree_error}"
+                ) from wheel_error
+            raise ValueError(
+                f"{name} runs from the SDK tree but not from the installed "
+                f"wheel:\n{wheel_error}"
+            ) from wheel_error
     acc_script = installed_console_script(commands, f"acc.py{suffix}")
     acc_py: list[os.PathLike[str] | str] = (
         [acc_script]

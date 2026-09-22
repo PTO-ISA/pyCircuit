@@ -48,7 +48,8 @@ jobs:
         run: |
           python packaging/wheel/create_wheel.py \
             --install-dir "$PWD/.pycircuit_out/toolchain/install" \
-            --out-dir "$PWD/dist"
+            --out-dir "$PWD/dist" \
+            --platform macos-arm64
 
       - name: Check wheel tag
         shell: bash

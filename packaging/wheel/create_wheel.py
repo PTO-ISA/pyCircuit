@@ -35,16 +35,21 @@ WHEEL_TOOL_SOURCES = (
 )
 
 # The frontend packages the toolchain install tree carries in its own Python
-# environment. They are staged at the wheel root as well, so one wheel installs
+# environment. They are staged at the wheel root, so one wheel installs
 # `pycircuit`, `_pycircuit_semantics`, and `agentic_circuit` together and no
-# consumer needs a second distribution. The toolchain copy stays where the
-# install tree puts it: the SDK launcher and the retained platform bytes are
-# assembled from that same tree.
+# consumer needs a second distribution. The toolchain's own copy is dropped from
+# the wheel: it would be a second copy of the same files inside one artifact.
 VENDORED_PACKAGES = ("_pycircuit_semantics", "agentic_circuit")
 
 # The Agentic Circuit native compiler bridge. A wheel without it would install
 # a frontend that cannot compile, so the build refuses to produce one.
 NATIVE_EXTENSION = "_native"
+
+# The wheel is relocated for the platform it is built on, so its bundled
+# libraries are found relative to the installed tree instead of at the builder's
+# absolute paths (a Homebrew `libLLVM.dylib`, for example). The relocation is
+# shared with the SDK archive builder, which needs the same treatment.
+PLATFORM_IDS = ("linux-x86_64", "macos-arm64", "windows-x86_64")
 
 
 def _repo_root() -> Path:
@@ -111,6 +116,44 @@ def _stage_vendored_packages(install_dir: Path, stage: Path) -> None:
         )
 
 
+def _drop_toolchain_frontend_copies(package_dir: Path) -> None:
+    """Keep one copy of each frontend package inside the wheel.
+
+    The staged tree already carries them at the wheel root, so the copies under
+    the bundled toolchain environment would only duplicate files (including the
+    native bridge) inside a single artifact.
+    """
+    for site_packages in (package_dir / "_toolchain" / "lib").glob(
+        "python*/site-packages"
+    ):
+        for package in VENDORED_PACKAGES:
+            duplicate = site_packages / package
+            if duplicate.is_dir():
+                shutil.rmtree(duplicate)
+
+
+def _relocate(stage: Path, platform: str) -> None:
+    """Rewrite bundled library references so the installed wheel is relocatable.
+
+    The build links the platform's own LLVM, z3, and zstd. Those references are
+    absolute on macOS, so a wheel that shipped them verbatim would only run on a
+    machine with the builder's exact toolchain paths.
+    """
+    sdk_tools = Path(__file__).resolve().parents[1] / "sdk"
+    sys.path.insert(0, str(sdk_tools))
+    import create_platform_manifest  # noqa: PLC0415 - single shared implementation
+
+    create_platform_manifest.relocate_native_dependencies(stage, platform)
+
+
+def _platform_for(plat_name: str) -> str:
+    if "win" in plat_name:
+        return "windows-x86_64"
+    if plat_name.startswith("macosx"):
+        return "macos-arm64"
+    return "linux-x86_64"
+
+
 def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(
         description="Build a platform wheel from a staged pyCircuit toolchain install tree."
@@ -130,6 +173,12 @@ def main(argv: list[str] | None = None) -> int:
         "--wheel-plat-name",
         default=None,
         help="Optional explicit bdist_wheel platform tag",
+    )
+    ap.add_argument(
+        "--platform",
+        choices=PLATFORM_IDS,
+        default=None,
+        help="Platform profile to relocate for (defaults to the host platform)",
     )
     ap.add_argument(
         "--build-root",
@@ -159,6 +208,7 @@ def main(argv: list[str] | None = None) -> int:
         _copytree(repo_root / "python" / "pycircuit" / "src" / "pycircuit", package_dir)
         _copytree(install_dir, package_dir / "_toolchain")
         _stage_vendored_packages(install_dir, stage)
+        _drop_toolchain_frontend_copies(package_dir)
         bundled_python = package_dir / "_toolchain" / "share" / "pycircuit" / "python"
         if bundled_python.is_dir():
             shutil.rmtree(bundled_python)
@@ -174,6 +224,7 @@ def main(argv: list[str] | None = None) -> int:
         )
 
         plat_name = args.wheel_plat_name or wheel_plat_name()
+        _relocate(stage, args.platform or _platform_for(plat_name))
 
         env = os.environ.copy()
         env["PYC_WHEEL_VERSION"] = version
