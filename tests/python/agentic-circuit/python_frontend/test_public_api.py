@@ -1,14 +1,15 @@
 from __future__ import annotations
 
+import builtins
 import importlib
 import unittest
+from collections.abc import Callable
 from dataclasses import FrozenInstanceError
 
 CAPTURE_ONLY = {
     "scope",
     "map",
     "set",
-    "instances",
     "view",
     "concat",
     "literal",
@@ -52,13 +53,7 @@ RUNTIME = {
     "system",
     "module",
     "module_decl",
-    "extern_module",
     "struct",
-    "packet",
-    "transaction",
-    "protocol",
-    "interface",
-    "process",
     "rule",
     "invariant",
     "inline",
@@ -99,9 +94,165 @@ RUNTIME = {
     "s64",
 }
 
+RESERVED = {
+    "extern_module",
+    "interface",
+    "packet",
+    "process",
+    "protocol",
+    "transaction",
+}
+
+# ``__all__`` is the wildcard surface derived from ``RUNTIME_API`` minus every
+# name that would shadow a Python builtin.  ``range`` stays reachable through
+# the explicit attribute ``ac.range``.
+WILDCARD = RUNTIME - {"range"}
+
 
 class ReadyValid:
     """Local schema marker used to form a public Flow annotation."""
+
+
+def _runtime_evidence() -> dict[str, Callable[[], object]]:
+    """Executable evidence that each runtime inventory name authors something.
+
+    Only names with an executable example live here.  ``priority`` and
+    ``round_robin`` are policy *tokens* rather than call targets: authored
+    source writes their literal string value as ``policy="priority"`` /
+    ``policy="round_robin"``, and the test below exercises that value.
+    """
+
+    api = importlib.import_module("agentic_circuit")
+    lower_queue_source = importlib.import_module(
+        "agentic_circuit._queue_frontend"
+    ).lower_queue_source
+
+    def author_model() -> None:
+        lowered = lower_queue_source(
+            """
+import agentic_circuit as ac
+
+@ac.struct
+class Item:
+    lane: ac.u8
+
+@ac.rule
+def keep(item):
+    return item
+
+@ac.system
+def top() -> None:
+    incoming = ac.source(Item, depth=2, latency=1)
+    outgoing = keep(incoming)
+    ac.sink(outgoing)
+""",
+            "top",
+        )
+        assert "ac.source" in lowered and "ac.sink" in lowered
+
+    def declare_module() -> None:
+        @api.module_decl(source="tests/producer.py")
+        def producer() -> None:
+            ...
+
+        @api.module(declaration=producer)
+        def producer_body() -> None:
+            ...
+
+    def declare_config() -> None:
+        @api.config
+        class Geometry:
+            entries: api.static_int(width=8, signed=False)
+
+        api.static_config(Geometry)
+
+    def declare_enum() -> None:
+        from enum import Enum
+
+        class Opcode(Enum):
+            NONE = 0
+
+        @api.encoding(width=4)
+        class Encoded(Enum):
+            NONE = 0
+
+        api.static_enum(Opcode)
+
+    def declare_parameter() -> None:
+        entries = api.param[int]("entries")
+        assert api.index_width(entries) is not None
+        assert api.count_width(entries) is not None
+        api.static_parameter(
+            "entries",
+            api.static_int(width=8, signed=False),
+            constraints=(api.one_of(1, 2), api.integer_range(1, 4)),
+        )
+
+    def declare_resources() -> None:
+        api.queue("q", payload_type="Item", protocol="ready_valid", depth=2)
+        space = api.address_space("mem", width=32)
+        reference = api.ResourceRef(
+            stable_name="bank", annotation=object(), role="master"
+        )
+        api.address_map(space, (0, 16, reference, 0))
+
+    def declare_decorators() -> None:
+        @api.rule
+        def rule(item):
+            return item
+
+        @api.invariant
+        def invariant(item):
+            return True
+
+        @api.inline
+        def helper(item):
+            return item
+
+    evidence: dict[str, Callable[[], object]] = {
+        "system": author_model,
+        "struct": author_model,
+        "rule": declare_decorators,
+        "invariant": declare_decorators,
+        "inline": declare_decorators,
+        "module": declare_module,
+        "module_decl": declare_module,
+        "writer_priority": lambda: api.writer_priority(1),
+        "array": lambda: api.array[4, api.u8],
+        "bits": lambda: api.bits[5],
+        "BitfieldSpec": lambda: api.BitfieldSpec(width=8, fields={"a": (3, 0)}),
+        "queue": declare_resources,
+        "ResourceRef": declare_resources,
+        "address_space": declare_resources,
+        "address_map": declare_resources,
+        "Queue": lambda: api.Queue[api.u8, 1, 1],
+        "Static": lambda: api.Static[int],
+        "const": lambda: api.const[int],
+        "Flow": lambda: api.Flow[int, ReadyValid],
+        "Endpoint": lambda: api.Endpoint[ReadyValid, int],
+        "config": declare_config,
+        "static_config": declare_config,
+        "encoding": declare_enum,
+        "static_enum": declare_enum,
+        "param": declare_parameter,
+        "index_width": declare_parameter,
+        "count_width": declare_parameter,
+        "static_parameter": declare_parameter,
+        "one_of": declare_parameter,
+        "integer_range": declare_parameter,
+        "index": lambda: api.index[5],
+        "range": lambda: api.range[0, 5],
+        "static_bool": lambda: api.static_bool(),
+        "static_int": lambda: api.static_int(width=8, signed=False),
+        "case": lambda: api.case(("x", 1)),
+    }
+    for width in range(1, 65):
+        evidence[f"u{width}"] = (
+            lambda width=width: getattr(api, f"u{width}")
+        )
+    for name in ("s8", "s16", "s32", "s64"):
+        evidence[name] = (lambda name=name: getattr(api, name))
+    return evidence
 
 
 class PublicApiTest(unittest.TestCase):
@@ -109,9 +260,24 @@ class PublicApiTest(unittest.TestCase):
         api = importlib.import_module("agentic_circuit")
 
         self.assertEqual(RUNTIME, set(api.RUNTIME_API))
-        self.assertEqual(RUNTIME, set(api.__all__))
-        for name in RUNTIME:
+        self.assertEqual(WILDCARD, set(api.__all__))
+        for name in RUNTIME | RESERVED:
             self.assertIsNotNone(getattr(api, name))
+
+    def test_wildcard_surface_never_shadows_a_python_builtin(self) -> None:
+        api = importlib.import_module("agentic_circuit")
+
+        self.assertEqual(set(), set(api.__all__) & set(dir(builtins)))
+        self.assertNotIn("range", api.__all__)
+        self.assertIsNotNone(api.range[0, 5])
+
+    def test_reserved_inventory_is_explicit_and_disjoint(self) -> None:
+        api = importlib.import_module("agentic_circuit")
+
+        self.assertEqual(RESERVED, set(api.RESERVED_API))
+        self.assertTrue(RESERVED.isdisjoint(RUNTIME))
+        self.assertTrue(RESERVED.isdisjoint(CAPTURE_ONLY))
+        self.assertTrue(RESERVED.isdisjoint(api.__all__))
 
     def test_capture_only_inventory_has_a_dedicated_namespace(self) -> None:
         api = importlib.import_module("agentic_circuit")
@@ -120,6 +286,7 @@ class PublicApiTest(unittest.TestCase):
         self.assertEqual(CAPTURE_ONLY, set(api.CAPTURE_ONLY_API))
         self.assertEqual(CAPTURE_ONLY, set(markers.__all__))
         self.assertTrue(CAPTURE_ONLY.isdisjoint(api.__all__))
+        self.assertTrue(CAPTURE_ONLY.isdisjoint(api.RESERVED_API))
         for name in CAPTURE_ONLY:
             self.assertIs(getattr(markers, name), getattr(api, name))
 
@@ -130,6 +297,94 @@ class PublicApiTest(unittest.TestCase):
         self.assertTrue(
             all(getattr(api, name) not in marker_objects for name in api.RUNTIME_API)
         )
+
+    def test_runtime_inventory_names_have_executable_evidence(self) -> None:
+        api = importlib.import_module("agentic_circuit")
+
+        documented = {
+            "priority": "policy token accepted as the literal policy=\"priority\"",
+            "round_robin": "policy token accepted as the literal policy=\"round_robin\"",
+        }
+        evidence = _runtime_evidence()
+
+        self.assertEqual(RUNTIME, set(evidence) | set(documented))
+        self.assertTrue(set(evidence).isdisjoint(documented))
+        self.assertTrue(set(documented).issubset(api.RUNTIME_API))
+        for name, invoke in evidence.items():
+            with self.subTest(name=name):
+                invoke()
+        lower_queue_source = importlib.import_module(
+            "agentic_circuit._queue_frontend"
+        ).lower_queue_source
+        for name in documented:
+            with self.subTest(policy=name):
+                token = getattr(api, name)
+                self.assertIsInstance(token, str)
+                lowered = lower_queue_source(
+                    f"""
+import agentic_circuit as ac
+
+@ac.struct
+class Item:
+    lane: ac.u8
+
+@ac.system
+def top() -> None:
+    left = ac.source(Item)
+    right = ac.source(Item)
+    merged = left.merge(right, policy="{token}", depth=1, latency=1)
+    ac.sink(merged)
+""",
+                    "top",
+                )
+                self.assertIn(f'policy "{token}"', lowered)
+
+    def test_reserved_declarations_fail_fast_with_a_targeted_diagnostic(self) -> None:
+        from agentic_circuit._queue_frontend import (
+            QueueFrontendError,
+            lower_queue_source,
+            parse_queue_program,
+        )
+
+        for name in sorted(RESERVED):
+            with self.subTest(name=name):
+                source = (
+                    "import agentic_circuit as ac\n\n"
+                    f"@ac.{name}\n"
+                    "def reserved() -> None:\n"
+                    "    ...\n"
+                )
+                for entry in (parse_queue_program, lower_queue_source):
+                    with self.assertRaisesRegex(
+                        QueueFrontendError, f"ACPY-API-001: ac.{name} is reserved"
+                    ):
+                        entry(source, "reserved")
+
+    def test_instances_marker_is_removed_with_a_migration_diagnostic(self) -> None:
+        api = importlib.import_module("agentic_circuit")
+        markers = importlib.import_module("agentic_circuit.markers")
+        from agentic_circuit._queue_frontend import (
+            QueueFrontendError,
+            lower_queue_source,
+            parse_queue_program,
+        )
+
+        self.assertNotIn("instances", api.CAPTURE_ONLY_API)
+        self.assertNotIn("instances", markers.__all__)
+        self.assertFalse(hasattr(api, "instances"))
+        self.assertFalse(hasattr(markers, "instances"))
+        source = (
+            "import agentic_circuit as ac\n\n"
+            "@ac.system\n"
+            "def top() -> None:\n"
+            "    ac.instances()\n"
+        )
+        for entry in (parse_queue_program, lower_queue_source):
+            with self.assertRaisesRegex(
+                QueueFrontendError,
+                r"ACPY-API-002: ac\.instances has no lowering.*ac\.list",
+            ):
+                entry(source, "top")
 
     def test_writer_priority_is_an_immutable_checked_compile_descriptor(self) -> None:
         api = importlib.import_module("agentic_circuit")
@@ -377,7 +632,6 @@ class PublicApiTest(unittest.TestCase):
             lambda: api.array(1, 2),
             lambda: api.map({"a": object()}),
             lambda: api.set({object()}),
-            lambda: api.instances(1, 2),
             lambda: api.view(object(), "field"),
             lambda: api.concat(object(), object()),
             lambda: api.insert(object(), object(), lsb=0),

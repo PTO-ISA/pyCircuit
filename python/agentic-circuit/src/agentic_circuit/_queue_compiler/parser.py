@@ -20,6 +20,7 @@ from .._source_map import (
     apply_source_node_locations,
     source_frame,
 )
+from .._api_inventory import RESERVED_API
 from .._static_eval import (
     MAX_STATIC_EXPANSION,
     StaticEnvironment,
@@ -137,6 +138,34 @@ RULE_LOWERING_PIPELINE = (
     "ac-freeze-topology)"
 )
 
+_RESERVED_DECLARATION_DIAGNOSTIC = (
+    "ACPY-API-001: ac.{name} is reserved: the ACPy frontend accepts the "
+    "declaration name but has no implementation for it; use @ac.struct for a "
+    "compile-time payload or remove the declaration"
+)
+
+_REMOVED_MARKER_DIAGNOSTICS = {
+    "instances": (
+        "ACPY-API-002: ac.instances has no lowering and was removed from the "
+        "ACPy marker inventory; express static expansion with ac.array, ac.map, "
+        "or ac.set today, or ac.list once issue #150 lands"
+    ),
+}
+
+
+def _reject_reserved_declarations(tree: ast.Module) -> None:
+    """Fail fast when authored source declares a reserved public name."""
+
+    reserved = frozenset(RESERVED_API)
+    for node in tree.body:
+        for decorator in getattr(node, "decorator_list", ()):
+            name = _decorator_name(decorator).rsplit(".", 1)[-1]
+            if name in reserved:
+                raise QueueFrontendError(
+                    _RESERVED_DECLARATION_DIAGNOSTIC.format(name=name)
+                )
+
+
 
 def parse_queue_program(
     text: str,
@@ -171,6 +200,7 @@ def parse_queue_program(
         source_node_locations,
         normalized_source_path,
     )
+    _reject_reserved_declarations(tree)
     tree = _desugar_nested_rule_captures(tree, system, entry_kind)
     module_static_values = _module_static_values(tree)
     type_static_values = _type_static_values(tree, static_arguments)
@@ -2817,6 +2847,14 @@ def parse_queue_program(
                 and isinstance(statement.value.value, str)
             ):
                 continue
+            if (
+                isinstance(statement, (ast.Expr, ast.Assign))
+                and isinstance(statement.value, ast.Call)
+                and call_name(statement.value) in _REMOVED_MARKER_DIAGNOSTICS
+            ):
+                raise QueueFrontendError(
+                    _REMOVED_MARKER_DIAGNOSTICS[call_name(statement.value)]
+                )
             current_order = parser_state.order
             parser_state.order += 1
             if (frame := source_frame(statement)) is not None:
