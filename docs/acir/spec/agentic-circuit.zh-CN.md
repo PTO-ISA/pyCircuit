@@ -287,6 +287,20 @@ composite input 都必须被消费。
 immutable integer/bitmask constant 会在具体使用点按精确位宽折叠，共享 contract 不需要复制
 magic literal。
 
+`workspace=` 是**包含**根包的目录，而不是包本身。入口位于
+`<workspace>/pkg/top.py` 时，包内依赖写作 `from pkg.types import Symbol`。
+把包根当作 workspace 会让每个包内绝对导入都被判成外部导入；这种形状会给出
+指明应传哪个目录的诊断，而不是通用的 external import 报错。
+
+closure 之外允许「不会在不进入捕获源码的情况下改变 elaboration」的导入：
+`agentic_circuit`、`__future__` 与标准库都可以导入。closure 拒绝那些状态依赖
+宿主、平台、墙上时钟、熵源或代码生成的模块（`os`、`sys`、`pathlib`、`io`、
+`subprocess`、`socket`、`threading`、`multiprocessing`、`asyncio`、`time`、
+`datetime`、`random`、`secrets`、`uuid`、`platform`、`ctypes`、`pickle`、
+`marshal`、`inspect`、`importlib` 等）。对任何被允许的外部根，`_` 前缀的
+私有外部模块与导入名仍然被拒绝。`from enum import ...` 另外只接受
+`Enum`、`IntEnum`、`auto`、`unique`，因为它们是静态类型解析器建模的 enum 成员。
+
 类型位宽和固定 value-array 长度可以引用显式声明的 JIT 参数：
 
 ```python

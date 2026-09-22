@@ -278,6 +278,25 @@ uppercase immutable integer and bitmask constants are folded from that closure
 at their exact-width use sites, so shared contracts do not require copied magic
 literals.
 
+`workspace=` is the directory that **contains** the root package, not the package
+itself. Given an entry at `<workspace>/pkg/top.py`, an in-package dependency is
+`from pkg.types import Symbol`. Passing the package root as the workspace makes
+every in-package absolute import look external; that shape is rejected with a
+diagnostic naming the directory to pass instead of the generic external-import
+message.
+
+Imports outside the closure are admitted when they cannot change elaboration
+without appearing in the captured source. `agentic_circuit`, `__future__`, and
+the standard library are importable; the closure rejects the standard-library
+modules whose state is host-, platform-, wall-clock-, entropy-, or
+code-generation-dependent (`os`, `sys`, `pathlib`, `io`, `subprocess`, `socket`,
+`threading`, `multiprocessing`, `asyncio`, `time`, `datetime`, `random`,
+`secrets`, `uuid`, `platform`, `ctypes`, `pickle`, `marshal`, `inspect`,
+`importlib`, and the like). Private `_`-prefixed external modules and imported
+names stay rejected for every allowed external root. `from enum import ...`
+additionally admits only `Enum`, `IntEnum`, `auto`, and `unique`, because those
+are the enum members the static-type resolver models.
+
 Static bitmask expressions obey the portable I-JSON integer range. Negative
 shift counts and left shifts whose result exceeds that range are rejected
 before evaluating the shift; runtime `ac.uN` shifts retain their exact-width
