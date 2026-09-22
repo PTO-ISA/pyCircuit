@@ -1828,7 +1828,12 @@ c++ -std=c++20 -Isimulator/gfsim/include -fsyntax-only \
 安装目录中的 `acc` 与相邻的 `pycc` 必须来自同一个精确 pyCircuit revision。
 
 结构化 C++ bundle 用 `include/generated/dut.h` 暴露 typed root model，
-`include/generated/model.h` 只保留 opaque lifecycle ABI。生成的 CMake target
+`include/generated/model.h` 只保留 opaque lifecycle ABI。每个 module 贡献一个 source
+group：`include/generated/modules/<module>.hpp`、`src/generated/modules/<module>.cpp`，
+以及 materialize 后的 interface `include/generated/interfaces/<stem>.hpp`，因此模块层次
+会保留到生成 C++ 中，而不是被摊平进顶层 unit。flat plan 只发布
+`include/generated/model.h` 与 `src/generated/{model,queuegraph}.cpp`，没有 `dut.h`。
+生成的 CMake target
 必须把 generated include 与 gfsim public include 一并传播给 consumer。两个 header、
 生成 C++、source map 与 emitted-cost report 均不嵌入产品版本或 Git revision；release
 选择属于 IR 与 generated model 之外的外部流程。
