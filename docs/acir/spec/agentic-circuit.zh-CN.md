@@ -269,6 +269,25 @@ def pipeline() -> None:
     ac.sink(updated)
 ```
 
+`@ac.struct` 会把被装饰的类替换为真正的 nominal Python 类型：不可变、以关键字构造、
+可哈希的 dataclass，字段顺序即语义。运行时表面携带捕获的元数据：
+
+| 属性 | 含义 |
+| --- | --- |
+| `__ac_struct__` | 每个 struct payload 类上的 `True` |
+| `__ac_definition__` | 捕获的 `Definition` 记录（kind、源文件/行、显式选项） |
+| `__ac_fields__` | 按声明顺序排列的 `(field, annotation)` 对 |
+| `descriptor` | 不可变的 nominal 运行时 descriptor |
+
+`with_fields(**fields)` 与 `project(Target)` 仍是按源码解释的编译期 record 操作；
+其运行时方法为普通 Python 使用提供同样的不可变 record 语义。`descriptor` 是
+`_pycircuit_semantics.ValueType`，记录声明名与声明字段，因此 eager 的
+`ac.array[N, Entry]` 注解无需 postponed annotations import 即可求值。编译器仍从源码
+解析具体布局，所以只有当每个声明字段都有静态位宽时 `descriptor.bit_width()` 才是精确的。
+
+通过 `importlib.util.spec_from_file_location` 加载 struct 不要求定义模块已注册到
+`sys.modules`；当无法恢复源码 provenance 时会退化为 `None`。
+
 typed finite-family case 只绑定声明的静态参数；普通 typed runtime 参数保持未绑定，不进入
 specialization key。Python 不增加 Queue/Input/Output wrapper，也不表达
 ready/full/pop/push。可选 `workspace=` 会确定性捕获本地传递 import closure；

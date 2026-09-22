@@ -285,6 +285,30 @@ class WorkItem:
     valid: bool
 ```
 
+`@ac.struct` replaces the decorated class with a real nominal Python type: an
+immutable, keyword-constructed, hashable dataclass whose field order is
+semantic. The runtime surface carries the captured metadata:
+
+| attribute | meaning |
+| --- | --- |
+| `__ac_struct__` | `True` on every struct payload class |
+| `__ac_definition__` | the captured `Definition` record (kind, source file/line, explicit options) |
+| `__ac_fields__` | declared `(field, annotation)` pairs in declaration order |
+| `descriptor` | the immutable nominal runtime descriptor |
+
+`with_fields(**fields)` and `project(Target)` stay compile-time record
+operations interpreted from source; their runtime methods provide the same
+immutable record semantics for ordinary Python use. `descriptor` is a
+`_pycircuit_semantics.ValueType` recording the declaration name and declared
+fields, so an eager `ac.array[N, Entry]` annotation evaluates without a
+postponed-annotations import. The compiler still resolves the concrete layout
+from source, so `descriptor.bit_width()` is exact only when every declared
+field has a static width.
+
+Loading a struct through `importlib.util.spec_from_file_location` does not
+require the defining module to be registered in `sys.modules`; source
+provenance degrades to `None` when it cannot be recovered.
+
 The current frontend accepts these scalar field spellings:
 
 | Python spelling | ACIR element type |
