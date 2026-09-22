@@ -106,6 +106,56 @@ def top() -> None:
         self.assertEqual("ACPY-QUEUE-005", caught.exception.code)
         self.assertIn("range extent must be a compile-time integer", str(caught.exception))
 
+    def test_len_is_usable_in_a_static_index(self) -> None:
+        """`lanes[len(lanes) - 1]` needs the substitution in both resolvers."""
+
+        lowered = lower(
+            """
+@ac.system
+def top() -> None:
+    lanes = ac.array(4, lambda i: ac.source(S, depth=2, latency=1))
+    ac.sink(lanes[len(lanes) - 1])
+"""
+        )
+        self.assertEqual(1, lowered.count("ac.sink"))
+
+    def test_len_is_usable_in_the_index_of_a_slice(self) -> None:
+        lowered = lower(
+            """
+@ac.system
+def top() -> None:
+    lanes = ac.array(4, lambda i: ac.source(S, depth=2, latency=1))
+    head = lanes[0:2]
+    ac.sink(head[len(head) - 1])
+"""
+        )
+        self.assertEqual(1, lowered.count("ac.sink"))
+
+    def test_a_length_derived_index_out_of_range_names_the_key(self) -> None:
+        with self.assertRaises(QueueFrontendError) as caught:
+            lower(
+                """
+@ac.system
+def top() -> None:
+    lanes = ac.array(3, lambda i: ac.source(S, depth=2, latency=1))
+    ac.sink(lanes[len(lanes)])
+"""
+            )
+        self.assertEqual("ACPY-QUEUE-005", caught.exception.code)
+        self.assertIn("collection has no key 3", str(caught.exception))
+
+    def test_len_of_a_queue_in_an_index_still_fails_closed(self) -> None:
+        with self.assertRaises(QueueFrontendError) as caught:
+            lower(
+                """
+@ac.system
+def top() -> None:
+    queue = ac.source(S, depth=2, latency=1)
+    ac.sink(queue[len(queue) - 1])
+"""
+            )
+        self.assertEqual("ACPY-QUEUE-005", caught.exception.code)
+
     def test_a_static_collection_stays_statically_indexed(self) -> None:
         """A runtime index over a static collection is still rejected."""
 
