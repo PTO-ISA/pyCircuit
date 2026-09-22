@@ -2671,7 +2671,12 @@ static arguments. A module whose symbol has no declaration entry — an
 implementation named independently of its declaration, or a pure module with no
 declaration at all — declares its resolved signature instead, because
 `ac.module.case` verification rejects any case whose interface cannot
-materialize to that case's exact concrete signature.
+materialize to that case's exact concrete signature. Each emitted module also
+carries the nominal declaration inventory its cases are typed by: every struct
+and enum reachable from the resolved interface, recursively through struct
+field types, in traversal order. A backend derives a payload's packed layout
+from that inventory, so a module family with a struct payload that declares
+nothing cannot be lowered to PYC or C++.
 The stateful module slice accepts one or more zero-initialized scalar lexical
 variables, one serial assignment per variable, and a typed result expression:
 

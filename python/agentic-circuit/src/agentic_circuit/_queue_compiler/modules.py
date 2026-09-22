@@ -79,6 +79,7 @@ from .static_types import (
     _validate_static_config_roots,
 )
 from .syntax import _decorator_name
+from .type_rendering import _nominal_declarations
 
 
 def _lower_simple_module_source(
@@ -3236,7 +3237,10 @@ def _lower_simple_module_source(
         return "#ac.module_interface<[" + ", ".join(ports) + "]>"
 
     def family_schema(
-        name: str, source: str, fallback_interface: str | None = None
+        name: str,
+        source: str,
+        fallback_interface: str | None = None,
+        fallback_nominals: tuple[str, ...] = (),
     ) -> str:
         parameters, cases = module_family_schemas.get(
             name,
@@ -3249,11 +3253,13 @@ def _lower_simple_module_source(
                 if fallback_interface is not None
                 else "#ac.module_interface<[]>"
             )
+        nominals = list(module_family_nominals.get(name, ()))
+        nominals.extend(item for item in fallback_nominals if item not in nominals)
         return (
             f"#ac.module_family_schema<{parameters}, {cases}, "
             f"{interface}, "
             f"{family_owner(source)}, ["
-            + ", ".join(f"@{name}" for name in module_family_nominals.get(name, ()))
+            + ", ".join(f"@{nominal}" for nominal in nominals)
             + "]>"
         )
 
@@ -3406,9 +3412,13 @@ def _lower_simple_module_source(
         interface = concrete_family_interface(
             arguments, result_ports, family_provenance(*frame)
         )
+        nominals = _nominal_declarations(
+            [payload for _, payload in arguments]
+            + [payload for _, payload in result_ports]
+        )
         return [
             f"  ac.module @{name} source {family_owner(source)} "
-            f"schema {family_schema(name, source, interface)} {{",
+            f"schema {family_schema(name, source, interface, nominals)} {{",
             f"    ac.module.case arguments #ac.static_arguments<[]> type ({input_types}) -> {result_type}"
             + metadata.removeprefix(" attributes")
             + f" source {family_provenance(*frame)} graph {{",
@@ -3714,10 +3724,13 @@ def _lower_simple_module_source(
             (("result", output_type),),
             projection_provenance,
         )
+        projection_nominals = _nominal_declarations([input_type, output_type])
         projection_schema = (
             "#ac.module_family_schema<#ac.static_parameters<[]>, "
             "#ac.static_cases<[#ac.static_arguments<[]>]>, "
-            f"{projection_interface}, {family_owner(projection_owner)}, []>"
+            f"{projection_interface}, {family_owner(projection_owner)}, ["
+            + ", ".join(f"@{nominal}" for nominal in projection_nominals)
+            + "]>"
         )
         projection_metadata = _render_interface_display_attributes(
             (ast.unparse(expression),),
@@ -3793,9 +3806,13 @@ def _lower_simple_module_source(
             definition.outputs,
             family_provenance(*source_frame),
         )
+        nominals = _nominal_declarations(
+            [payload for _, payload in definition.inputs]
+            + [payload for _, payload in definition.outputs]
+        )
         lines.extend([
             f"  ac.module @{symbol} source {family_owner(source)} "
-            f"schema {family_schema(function.name, source, interface)} {{",
+            f"schema {family_schema(function.name, source, interface, nominals)} {{",
             f"    ac.module.case arguments #ac.static_arguments<[]> "
             f"type ({physical_inputs}) -> {physical_results}"
             + _render_interface_display_attributes(
@@ -3992,11 +4009,16 @@ def _lower_simple_module_source(
             f"#ac.type_expr<#ac.type_expr_concrete<{queue_type}>>, "
             f"{root_provenance}>"
         )
+    root_nominals = _nominal_declarations(
+        [payload for _, payload in external] + list(expected_results)
+    )
     root_schema = (
         "#ac.module_family_schema<#ac.static_parameters<[]>, "
         "#ac.static_cases<[#ac.static_arguments<[]>]>, "
         "#ac.module_interface<[" + ", ".join(root_ports) + "]>, "
-        f"{family_owner(top_source)}, []>"
+        f"{family_owner(top_source)}, ["
+        + ", ".join(f"@{nominal}" for nominal in root_nominals)
+        + "]>"
     )
     root_arguments = ", ".join(
         f"%input_{index}: {render_concrete_queue(payload, external_queue_shapes[name])}"
