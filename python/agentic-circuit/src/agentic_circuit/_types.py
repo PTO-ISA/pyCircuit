@@ -47,30 +47,74 @@ class BitsFactory:
 bits = BitsFactory()
 
 
+def _enum_enumerants(
+    element: object,
+) -> tuple[tuple[str, ...], tuple[object, ...], int | None] | None:
+    from enum import Enum
+
+    if not (isinstance(element, type) and issubclass(element, Enum)):
+        return None
+    names = tuple(member.name for member in element)
+    width = getattr(element, "compiler_encoding_width__", None)
+    if width is None:
+        return names, (), None
+    return names, tuple(member.value for member in element), width
+
+
+def _element_descriptor(element: object) -> object | None:
+    """Resolve one eager ``ac.array`` element annotation to a value descriptor.
+
+    The compiler resolves the same annotations from source.  This helper keeps
+    the runtime annotation family consistent with that surface so eager
+    annotations do not depend on ``from __future__ import annotations``.
+    """
+
+    from _pycircuit_semantics import (
+        BitsType,
+        BoolType,
+        EnumType,
+        TupleType,
+        ValueType,
+    )
+
+    if isinstance(element, ValueType):
+        return element
+    captured = getattr(element, "descriptor", None)
+    if isinstance(captured, ValueType):
+        return captured
+    if element is bool:
+        return BoolType()
+    if isinstance(element, ScalarType):
+        return BitsType(element.width)
+    enumerants = _enum_enumerants(element)
+    if enumerants is not None:
+        names, values, width = enumerants
+        if width is None:
+            return EnumType(element.__name__, names)
+        return EnumType(element.__name__, names, values, width)
+    origin = getattr(element, "__origin__", None)
+    if origin is tuple:
+        arguments = getattr(element, "__args__", ())
+        resolved = tuple(_element_descriptor(item) for item in arguments)
+        if resolved and all(item is not None for item in resolved):
+            return TupleType(resolved)
+    return None
+
+
 class ArrayFactory:
     """Fixed value-array annotation and AST-only static collection intrinsic."""
 
     __slots__ = ()
 
     def __getitem__(self, parameters: tuple[int, object]) -> object:
-        from _pycircuit_semantics import (
-            ArrayType,
-            BitsType,
-            StaticIntExpression,
-            ValueType,
-        )
+        from _pycircuit_semantics import ArrayType, StaticIntExpression
 
         if not isinstance(parameters, tuple) or len(parameters) != 2:
             raise TypeError("ACPY-TYPE-006: array requires [length, element]")
         length, element = parameters
         dependent_element = isinstance(element, RangeAnnotation)
-        descriptor = element if isinstance(element, ValueType) else None
-        descriptor = getattr(element, "descriptor", descriptor)
-        if descriptor is None and isinstance(element, ScalarType):
-            descriptor = BitsType(element.width)
-        if descriptor is None and dependent_element:
-            descriptor = element
-        if not isinstance(descriptor, ValueType) and not dependent_element:
+        descriptor = element if dependent_element else _element_descriptor(element)
+        if descriptor is None:
             raise TypeError("ACPY-TYPE-006: array element must be an AC value type")
         if isinstance(length, StaticIntExpression) or dependent_element:
             return ArrayAnnotation(length, descriptor)

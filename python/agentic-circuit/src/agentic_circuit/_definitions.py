@@ -107,7 +107,12 @@ def _decorate(
 ) -> Definition | Callable[[F], Definition]:
     def apply(target: F) -> Definition:
         module_name = getattr(target, "__module__", "")
-        source_file = inspect.getsourcefile(target)
+        try:
+            source_file = inspect.getsourcefile(target)
+        except (OSError, TypeError):
+            # File-path loading may leave the defining module out of
+            # ``sys.modules``; provenance must degrade instead of aborting.
+            source_file = None
         source_line: int | None
         code = getattr(target, "__code__", None)
         if code is not None:
@@ -197,7 +202,26 @@ def extern_module(function: F | None = None, **options: object):
 
 
 def struct(function: F | None = None, **options: object):
-    return _decorate("struct", function, **options)
+    """Declare one nominal immutable payload type.
+
+    The decorated class is replaced by a real frozen slotted dataclass.  The
+    returned type keeps the captured record in ``__ac_definition__``, the
+    declared ``(field, annotation)`` pairs in ``__ac_fields__``, the
+    ``__ac_struct__`` marker, the ``with_fields``/``project`` replacement
+    surface, and a ``descriptor`` used by runtime annotation families such as
+    ``ac.array[N, Entry]``.
+    """
+
+    def apply(target: F):
+        from ._structs import build_struct_class
+
+        decorated = build_struct_class(target)
+        decorated.__ac_definition__ = _decorate(  # type: ignore[attr-defined]
+            "struct", target, **options
+        )
+        return decorated
+
+    return apply(function) if function is not None else apply
 
 
 def packet(function: F | None = None, **options: object):
