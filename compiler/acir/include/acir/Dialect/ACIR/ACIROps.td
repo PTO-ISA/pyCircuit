@@ -78,6 +78,18 @@ def ACIR_VarConstantOp : ACIR_Op<"var.constant", [Pure]> {
   let assemblyFormat = "$value attr-dict `as` qualified(type($result))";
 }
 
+// Reads one structural parameter of the enclosing ``ac.module`` from inside a
+// nested rule or process body. The value is a concrete literal carried by the
+// module's ``static_params`` dictionary, so a single module definition can serve
+// several instances that bind different static arguments. The name is resolved
+// against the enclosing module, which is why the op stays pure and capture-free.
+def ACIR_ParamGetOp : ACIR_Op<"param.get", [Pure]> {
+  let arguments = (ins StrAttr:$parameter);
+  let results = (outs ACIR_VarType:$result);
+  let hasVerifier = 1;
+  let assemblyFormat = "$parameter attr-dict `:` qualified(type($result))";
+}
+
 def ACIR_VarEnumOp : ACIR_Op<"var.enum", [Pure]> {
   let arguments = (ins SymbolRefAttr:$declaration, StrAttr:$enumerant);
   let results = (outs ACIR_VarType:$result);

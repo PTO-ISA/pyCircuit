@@ -2044,6 +2044,38 @@ LogicalResult VarConstantOp::verify() {
   return success();
 }
 
+LogicalResult ParamGetOp::verify() {
+  auto module = getOperation()->getParentOfType<ModuleOp>();
+  if (!module)
+    return emitOpError("must appear inside an ac.module");
+  Attribute parameter = module.getStaticParams().get(getParameter());
+  if (!parameter)
+    return emitOpError() << "unknown module parameter '" << getParameter()
+                         << "'";
+  if (!isConcreteStaticValue(parameter))
+    return emitOpError() << "module parameter '" << getParameter()
+                         << "' must be a concrete static value";
+  auto result = cast<VarType>(getResult().getType());
+  if (auto range = dyn_cast<RangeType>(result.getElementType())) {
+    auto integer = dyn_cast<IntegerAttr>(parameter);
+    const uint64_t upper = range.getUpper();
+    const unsigned width = upper == std::numeric_limits<uint64_t>::max()
+                               ? 64
+                               : std::max(1u, llvm::Log2_64_Ceil(upper + 1));
+    if (!integer || !integer.getType().isSignlessInteger(width) ||
+        integer.getValue().getZExtValue() < range.getLower() ||
+        integer.getValue().getZExtValue() > upper)
+      return emitOpError(
+          "module parameter must use the range storage width and lie within "
+          "bounds");
+    return success();
+  }
+  auto value = dyn_cast<TypedAttr>(parameter);
+  if (!value || value.getType() != result.getElementType())
+    return emitOpError("module parameter type must match Var element type");
+  return success();
+}
+
 LogicalResult VarEnumOp::verify() {
   auto declaration = dyn_cast_or_null<EnumOp>(lookup(*this, getDeclaration()));
   if (!declaration)
