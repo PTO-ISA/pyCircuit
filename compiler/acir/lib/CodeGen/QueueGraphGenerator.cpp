@@ -286,6 +286,56 @@ std::string className(llvm::StringRef value) {
   return result;
 }
 
+// The deterministic spelling of one static argument value. The static value
+// vocabulary is closed: integers keep their decimal spelling (with their
+// authored signedness), booleans keep Python's spelling, an enum value keeps
+// its member name, and a nominal config keeps its declaration name followed by
+// each field name and value. Anything outside that vocabulary falls back to the
+// legalized printed form so a future value kind still yields a stable
+// identifier instead of crashing; a legalization collision is reported later by
+// the class-name uniqueness check.
+std::string staticArgumentValueToken(mlir::Attribute value) {
+  if (auto integer = mlir::dyn_cast<acir::ac::StaticIntValueAttr>(value)) {
+    llvm::SmallString<32> text;
+    integer.getValue().getValue().toString(
+        text, 10, integer.getType().getIsSigned());
+    return text.str().str();
+  }
+  if (auto boolean = mlir::dyn_cast<acir::ac::StaticBoolValueAttr>(value))
+    return boolean.getValue() ? "True" : "False";
+  if (auto enumeration = mlir::dyn_cast<acir::ac::StaticEnumValueAttr>(value))
+    return className(enumeration.getMember().getValue());
+  if (auto config = mlir::dyn_cast<acir::ac::StaticConfigValueAttr>(value)) {
+    std::string result = className(config.getDeclaration().getValue());
+    for (mlir::Attribute rawField : config.getFields().getFields()) {
+      auto field = mlir::cast<acir::ac::StaticConfigFieldValueAttr>(rawField);
+      result += className(field.getName().getValue());
+      result += staticArgumentValueToken(field.getValue());
+    }
+    return result;
+  }
+  std::string printed;
+  llvm::raw_string_ostream stream(printed);
+  value.print(stream);
+  stream.flush();
+  return className(printed);
+}
+
+// The per-case class-name suffix for one static family case. The arguments keep
+// their declaration order and each contributes `<ArgumentName><ValueToken>`, so
+// `lanes = 2` becomes `Lanes2` and `(lanes = 4, mode = fast)` becomes
+// `Lanes4ModeFast`. The suffix depends only on the case arguments, never on
+// emission or declaration order, so the generated class names are stable.
+std::string staticCaseSuffix(acir::ac::StaticArgumentsAttr arguments) {
+  std::string suffix;
+  for (mlir::Attribute raw : arguments.getArguments()) {
+    auto argument = mlir::cast<acir::ac::StaticArgumentAttr>(raw);
+    suffix += className(argument.getName().getValue());
+    suffix += staticArgumentValueToken(argument.getValue().getValue());
+  }
+  return suffix;
+}
+
 std::string sourceStem(const QueueGraphPlan &plan) {
   llvm::StringRef source = plan.sourceFile;
   if (source.empty() || source.starts_with('<'))
@@ -3681,17 +3731,44 @@ generateStructuredQueueGraphCpp(const QueueGraphPlan &plan) {
           "first structured QueueGraph root supports source, broadcast, "
           "sink, and observe blocks");
 
-  llvm::StringSet<> resolvedClassNames;
-  for (const QueueGraphPlan *specialization : emissionOrder) {
-    std::string resolved = className(specialization->sourceDefinition);
-    if (!resolvedClassNames.insert(resolved).second)
-      return generatorError(
-          "unsupported C++ parameter family shape: one readable class name "
-          "would denote incompatible family cases");
+  // Resolve the C++ class name of every emitted specialization body. A source
+  // definition with a single case keeps its bare readable class name, so
+  // single-case output is byte-for-byte unchanged. A source definition with
+  // more than one case is a static parameter family, and each concrete case
+  // appends the stable suffix of its own static arguments (`stage` with
+  // `lanes = 2` becomes `StageLanes2`), so one module declaration emits one
+  // class per supported shape instead of every case colliding on one name.
+  llvm::StringMap<const QueueGraphPlan *> specializationByName;
+  llvm::DenseMap<const QueueGraphPlan *, std::string> specializationNames;
+  for (const ModuleFamilyPlan &family : plan.moduleFamilies) {
+    const bool parameterized = family.cases.size() > 1;
+    for (const ModuleCasePlan &moduleCase : family.cases) {
+      const QueueGraphPlan *body = moduleCase.bodyPlan.get();
+      if (!body)
+        continue;
+      std::string resolved = className(body->sourceDefinition);
+      if (parameterized)
+        resolved += staticCaseSuffix(moduleCase.arguments);
+      specializationNames[body] = resolved;
+      if (const QueueGraphPlan *other =
+              specializationByName.lookup(resolved)) {
+        if (other == body)
+          continue;
+        return generatorError(
+            "generated C++ class name '" + resolved +
+            "' would denote incompatible specializations; rename one "
+            "implementation source or one static family case");
+      }
+      specializationByName[resolved] = body;
+    }
   }
+  for (const QueueGraphPlan *specialization : emissionOrder)
+    if (!specializationNames.count(specialization))
+      return generatorError(
+          "emitted specialization has no resolvable source definition");
   auto specializationClassName =
       [&](const QueueGraphPlan &specialization) -> std::string {
-    return className(specialization.sourceDefinition);
+    return specializationNames.lookup(&specialization);
   };
   llvm::StringMap<std::string> portableFileDefinitions;
   for (const QueueGraphPlan *specialization : emissionOrder) {
@@ -5750,14 +5827,34 @@ generateStructuredQueueGraphCpp(const QueueGraphPlan &plan) {
           return type.takeError();
         queueTypes[result.name] = *type;
       }
+      // One Queue-level transform either works on a scalar Queue, or on a
+      // multi-lane Queue whose whole committed prefix is transformed one item
+      // per lane (`gfsim::QueueLaneTransform`). Every interface side has to
+      // name the same lane count, and a scalar lane count still requires a
+      // scalar rate, so an unsupported shape fails instead of silently
+      // dropping lanes or rate.
+      uint64_t transformLanes = 0;
+      auto recordTransformShape =
+          [&](const QueuePlan *queue) -> llvm::Error {
+        if (!queue)
+          return llvm::Error::success();
+        if (transformLanes == 0)
+          transformLanes = queue->lanes;
+        else if (transformLanes != queue->lanes)
+          return generatorError(
+              "specialization transform requires one Queue lane count");
+        if (queue->lanes == 1 && queue->rate != 1)
+          return generatorError(
+              "multi-interface specialization transform requires scalar rate");
+        return llvm::Error::success();
+      };
       for (const std::string &inputName : block.inputs) {
         const QueuePlan *input = findQueue(*specialization, inputName);
         const std::string type = queueTypes.lookup(inputName);
         if (type.empty())
           return generatorError("specialization transform input is missing");
-        if (input && (input->lanes != 1 || input->rate != 1))
-          return generatorError(
-              "multi-interface specialization transform requires scalar rate");
+        if (auto error = recordTransformShape(input))
+          return std::move(error);
         inputTypes.push_back(type);
       }
       for (const std::string &outputName : block.outputs) {
@@ -5765,12 +5862,15 @@ generateStructuredQueueGraphCpp(const QueueGraphPlan &plan) {
         const std::string type = queueTypes.lookup(outputName);
         if (type.empty())
           return generatorError("specialization transform output is missing");
-        if (result && (result->lanes != 1 || result->rate != 1))
-          return generatorError(
-              "multi-interface specialization transform requires scalar rate");
+        if (auto error = recordTransformShape(result))
+          return std::move(error);
         outputTypes.push_back(type);
       }
       const bool oneByOne = inputTypes.size() == 1 && outputTypes.size() == 1;
+      const bool laneWise = transformLanes > 1;
+      if (laneWise && !oneByOne)
+        return generatorError(
+            "multi-interface specialization transform requires scalar rate");
       output << "struct " << implementation << "_policy {\n  ";
       if (oneByOne) {
         output << outputTypes.front();
@@ -5858,9 +5958,15 @@ generateStructuredQueueGraphCpp(const QueueGraphPlan &plan) {
                 "gfsim::DispatchRow{};\n  }\n\nprivate:\n"
              << "  gfsim::Module scope_;\n  ";
       if (oneByOne) {
-        output << "gfsim::QueueTransform<" << inputTypes.front() << ", "
-               << outputTypes.front() << ", " << implementation
-               << "_policy, 1> block_;\n";
+        if (laneWise) {
+          output << "gfsim::QueueLaneTransform<" << inputTypes.front() << ", "
+                 << outputTypes.front() << ", " << implementation
+                 << "_policy> block_;\n";
+        } else {
+          output << "gfsim::QueueTransform<" << inputTypes.front() << ", "
+                 << outputTypes.front() << ", " << implementation
+                 << "_policy, 1> block_;\n";
+        }
       } else {
         output << "gfsim::QueueAtomicTransform<" << implementation
                << "_policy, std::tuple<";
