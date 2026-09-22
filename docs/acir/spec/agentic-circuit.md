@@ -2547,11 +2547,12 @@ state.
 A rule-backed module body may also place child module calls (issues #180, #197,
 #223). The frontend partitions the body by statement order into one `ac.scope`
 per maximal run of local rule statements, emits one `ac.instance` per child
-between those scopes, threads each child's result Queues into the following
-segment, and makes the last segment's element the `ac.return` operand.
-Consecutive children share no synthetic empty scope, and a body without a child
-call keeps its existing single body scope unchanged. Affected decisions: 0180,
-0185, and 0189.
+between those scopes, and threads each child's result Queues into the following
+segment. The `ac.return` operand names the Queues bound to the Python return
+values, which may come from the last segment, from a child result, or from an
+earlier segment. Consecutive children share no synthetic empty scope, and a body
+without a child call keeps its existing single body scope unchanged. Affected
+decisions: 0180, 0185, and 0189.
 
 `reusable_circular_rob.py` exercises this path with one 3-input/2-output ROB,
 five lexical state owners, four rules, and two independent placements. Its
@@ -2575,9 +2576,17 @@ local rules that run before or after a child placement, the Queues between the
 two stay parent-owned, and each child keeps its own instance and specialization.
 This is the general composition capability requested by issues #223, #197 and
 #180; it removes the need for a one-rule wrapper module per route or arbiter.
-The structured QueueGraph backend admits the resulting shape (any number of local
-blocks across the parent's own scopes alongside child instances), and issue #223
-records the acceptance evidence. The existing
+The structured QueueGraph backend admits that shape only when every local block
+in the parent's own scopes is a single-pass `transform` or a fanout
+`broadcast`, every local rule produces exactly one Queue, and every local
+transform declares exactly as many results as it yields. A transform may take
+several input Queues, so a local rule with several parameters and one result is
+admitted; it is the yields-to-results arity, not the inputs-to-outputs arity,
+that has to match. A parent whose segment holds a `firing`, `feedback`,
+`select`, or table block is not admitted. When a segmented body contains a local
+rule with more than one result, the frontend rejects it with `ACPY-MODULE-013`
+instead of emitting a graph that fails during codegen. Issue #223 records the
+acceptance evidence for the admitted subset. The existing
 `ac.feedback` keeps its bounded single-block iteration semantics and is not a
 substitute for a requester/responder module protocol; an implicit Python
 dataflow cycle is rejected rather than guessed from statement order.

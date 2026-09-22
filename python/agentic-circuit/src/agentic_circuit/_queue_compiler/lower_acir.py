@@ -544,7 +544,11 @@ def lower_queue_program(
     def name_array(names: list[str] | tuple[str, ...]) -> str:
         return "[" + ", ".join(f'"{name}"' for name in names) + "]"
 
-    consumers: dict[str, list[tuple[QueueBinding, int]]] = {}
+    # Every object that consumes a Queue counts as a consumer for fanout
+    # analysis: local rules and child module instances alike. Excluding children
+    # here previously wired one SimQueue into two consumers without an
+    # ``ac.broadcast``.
+    consumers: dict[str, list[tuple[QueueBinding | ChildInstanceBinding, int]]] = {}
     for queue in (*program.queues, *program.effect_rules):
         input_names = (
             queue.rule_input_names
@@ -553,9 +557,22 @@ def lower_queue_program(
         )
         for input_index, input_name in enumerate(input_names):
             consumers.setdefault(input_name, []).append((queue, input_index))
+    for child in program.children:
+        for input_index, input_name in enumerate(child.input_names):
+            consumers.setdefault(input_name, []).append((child, input_index))
     fanouts: dict[
-        str, tuple[tuple[str, ...], tuple[tuple[QueueBinding, int], ...]]
+        str,
+        tuple[
+            tuple[str, ...],
+            tuple[tuple[QueueBinding | ChildInstanceBinding, int], ...],
+        ],
     ] = {}
+
+    def consumer_scope(
+        consumer: QueueBinding | ChildInstanceBinding,
+    ) -> tuple[str, ...]:
+        # A child instance always sits at the body's own scope.
+        return () if isinstance(consumer, ChildInstanceBinding) else consumer.scope
 
     def common_scope(scopes: list[tuple[str, ...]]) -> tuple[str, ...]:
         common: list[str] = []
@@ -569,7 +586,7 @@ def lower_queue_program(
         if len(group) < 2:
             continue
         fanouts[source_name] = (
-            common_scope([consumer.scope for consumer, _ in group]),
+            common_scope([consumer_scope(consumer) for consumer, _ in group]),
             tuple(group),
         )
     payload_by_queue = {name: queue.payload for name, queue in by_name.items()}
@@ -2012,13 +2029,38 @@ def lower_queue_program(
     ) -> None:
         source_by_order = dict(program.statement_sources)
 
-        def visible_order(consumer: QueueBinding) -> int:
+        def visible_order(
+            consumer: QueueBinding | ChildInstanceBinding,
+        ) -> int:
+            if isinstance(consumer, ChildInstanceBinding):
+                return consumer.order
             if consumer.scope == path:
                 return consumer.order
             child_path = (*path, consumer.scope[len(path)])
             return next(
                 scope.order for scope in program.scopes if scope.path == child_path
             )
+
+        def broadcast_order(source: str) -> int:
+            _, group = fanouts[source]
+            return min(visible_order(consumer) for consumer, _ in group)
+
+        def broadcast_member_order(source: str) -> float:
+            """Return the segment-membership order for one fanout broadcast.
+
+            A broadcast belongs to the segment holding its earliest consumer.
+            A child instance sits exactly on a segment boundary, so a broadcast
+            that must precede that child belongs to the preceding segment and
+            needs an order strictly below the boundary.
+            """
+
+            _, group = fanouts[source]
+            earliest = min(group, key=lambda pair: visible_order(pair[0]))
+            consumer = earliest[0]
+            order = visible_order(consumer)
+            if isinstance(consumer, ChildInstanceBinding):
+                return order - 0.5
+            return float(order)
 
         events: list[tuple[float, str, object]] = []
         events.extend(
@@ -2126,7 +2168,7 @@ def lower_queue_program(
         )
         events.extend(
             (
-                min(visible_order(consumer) for consumer, _ in group) - 0.4,
+                broadcast_order(source) - 0.4,
                 "broadcast",
                 source,
             )
@@ -2155,7 +2197,22 @@ def lower_queue_program(
         )
         if order_range is not None:
             low, high = order_range
-            events = [event for event in events if low <= event[0] < high]
+            # A broadcast belongs to the segment that holds its earliest
+            # consumer. Its sort order is offset so it emits before that
+            # consumer, but membership must use the consumer's own order or a
+            # consumer that is the first statement after a child instance would
+            # fall into the segment gap and quietly drop the broadcast.
+            events = [
+                event
+                for event in events
+                if low
+                <= (
+                    broadcast_member_order(event[2])
+                    if event[1] == "broadcast"
+                    else event[0]
+                )
+                < high
+            ]
         for event_order, kind, item in sorted(events, key=lambda event: event[0]):
             first_line = len(lines)
             if kind in {"queue", "effect_rule"}:
@@ -3304,6 +3361,23 @@ def lower_queue_program(
         values produced inside it and consumed after it.
         """
 
+        # The structured QueueGraph backend lowers each local rule to one
+        # single-result transform inside the parent, so a rule with several
+        # results cannot be represented yet. Reject it here with a frontend
+        # diagnostic instead of letting codegen fail on the emitted graph.
+        for candidate in (*program.queues, *program.effect_rules):
+            if candidate.rule_name is None:
+                continue
+            outputs = candidate.rule_output_names or (
+                (candidate.name,) if candidate.rule_has_output else ()
+            )
+            if len(outputs) != 1:
+                raise QueueFrontendError(
+                    "ACPY-MODULE-013: a segmented rule-backed module body "
+                    "supports only local rules with exactly one output Queue; "
+                    f"rule {candidate.rule_name!r} produces {len(outputs)}"
+                )
+
         inf = float("inf")
         module_input_index = {
             name: index for index, (name, _) in enumerate(module.inputs)
@@ -3395,6 +3469,30 @@ def lower_queue_program(
         for name, _ in module.outputs:
             note_consumer(name, inf)
 
+        def fanout_broadcast_at(
+            group: tuple[tuple[QueueBinding | ChildInstanceBinding, int], ...],
+        ) -> float:
+            earliest = min(group, key=lambda pair: pair[0].order)
+            consumer = earliest[0]
+            if isinstance(consumer, ChildInstanceBinding):
+                return consumer.order - 0.5
+            return float(consumer.order)
+
+        # A fanout can straddle a child boundary: the broadcast is produced in
+        # the segment that holds its earliest consumer and later consumers read
+        # a scope result. Register every synthetic broadcast result in the same
+        # producer/consumer maps so the segment machinery carries it across the
+        # boundary instead of dropping it.
+        for source, (fanout_scope, group) in fanouts.items():
+            if fanout_scope != ():
+                continue
+            broadcast_at = fanout_broadcast_at(group)
+            for index, (consumer, _) in enumerate(group):
+                synthetic = f"{source}_fanout_{index}"
+                note_name(synthetic)
+                producer_order[synthetic] = broadcast_at
+                note_consumer(synthetic, consumer.order)
+
         body_items = (
             *program.queues,
             *program.effect_rules,
@@ -3446,6 +3544,12 @@ def lower_queue_program(
         }
         body_orders.update(
             scope.order for scope in program.scopes if scope.path[:-1] == ()
+        )
+        # A segment that only carries a fanout broadcast still has to render.
+        body_orders.update(
+            fanout_broadcast_at(group)
+            for fanout_scope, group in fanouts.values()
+            if fanout_scope == ()
         )
 
         def segment_io(
@@ -3517,12 +3621,14 @@ def lower_queue_program(
                 mapping[name] = name
 
         def render_instance(child: ChildInstanceBinding) -> None:
-            operands = ", ".join(
-                f"%{mapping[name]}" for name in child.input_names
+            input_names = tuple(
+                effective_input.get((child.name, index), name)
+                for index, name in enumerate(child.input_names)
             )
+            operands = ", ".join(f"%{mapping[name]}" for name in input_names)
             input_types = ", ".join(
                 f"!ac.queue<{_render_type(payload_by_queue[name])}>"
-                for name in child.input_names
+                for name in input_names
             )
             output_types = ", ".join(
                 f"!ac.queue<{_render_type(payload_by_queue[name])}>"
@@ -3570,7 +3676,17 @@ def lower_queue_program(
                 render_instance(ordered_children[index])
 
     if segmented_body:
-        render_children_body(initial_mapping)
+        try:
+            render_children_body(initial_mapping)
+        except KeyError as error:
+            # A missing Queue mapping means the segment/fanout analysis lost a
+            # value. Surface it as a diagnostic instead of a raw Python error.
+            missing = error.args[0] if error.args else "<unknown>"
+            raise QueueFrontendError(
+                "ACPY-MODULE-014: segmented module body cannot resolve Queue "
+                f"{missing!r}; a fanout crosses a child instance boundary in an "
+                "unsupported way"
+            ) from error
         output_types = ", ".join(
             f"!ac.queue<{_render_type(payload)}>" for _, payload in module.outputs
         )

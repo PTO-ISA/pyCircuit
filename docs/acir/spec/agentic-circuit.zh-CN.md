@@ -1838,9 +1838,10 @@ module；`ac.instance`、interface binding、specialization identity 和每实�
 
 rule-backed module body 也可以放置 child module call（issue #180、#197、#223）。
 前端按 statement order 把 body 切分为若干 `ac.scope`，每段包含一段连续的本地 rule
-调用；child 之间插入一条 `ac.instance`，其 result Queue 串入下一段，最后一段的结果
-作为 `ac.return` operand。连续 child 之间不生成空的合成 scope；不含 child call 的
-body 保持原有单一 body scope，输出不变。相关 decision：0180、0185、0189。
+调用；child 之间插入一条 `ac.instance`，其 result Queue 串入下一段。`ac.return`
+命名的是 Python 返回值绑定的 Queue，它们可能来自最后一段、某个 child 的结果，或更早
+的 segment。连续 child 之间不生成空的合成 scope；不含 child call 的 body 保持原有
+单一 body scope，输出不变。相关 decision：0180、0185、0189。
 
 `reusable_circular_rob.py` 用一份 3-input/2-output、五个 lexical state owner、四条 rule
 的 ROB 定义放置两个独立实例；specialization body 和生成 class 都只出现一次。当前已支持
@@ -1852,6 +1853,19 @@ hardware 生成或验证。Composite child graph 支持无环的 child-to-child 
 fanout；跨 child 的通信环当前尚未接纳。既有 `ac.feedback` 继续表示 bounded single-block
 iteration，不能替代 requester/responder module protocol；前端不会从 Python statement
 顺序猜测隐式环。
+
+rule-backed module 还可以调用 child module。其 body 会降为以 `ac.instance` 分隔的
+`ac.scope` 序列：每个 scope 持有 child 之前或之后的本地 rule，二者之间的 Queue 仍由
+parent 拥有，每个 child 保持自己的 instance 与 specialization。这正是 issue #223、
+#197、#180 要求的通用组合能力，不再需要为每个 route 或 arbiter 写一个单 rule 的
+wrapper module。结构化 QueueGraph 后端只接纳这样的 shape：parent 自有 scope 中的每个
+本地 block 都是单次 `transform` 或 fanout `broadcast`，每条本地 rule 恰好产生一个
+Queue，且每个本地 transform 声明的 result 数量与 yield 的 Queue 数量一致。transform
+可以接收多个输入 Queue，因此「多个参数、一个结果」的本地 rule 是被接纳的；需要匹配的
+是 yield 与 results 的数量，而不是输入与输出的数量。segment 中出现 `firing`、
+`feedback`、`select` 或 table block 的 parent 不被接纳；当分段 body 的本地 rule 有
+多个结果时，前端以 `ACPY-MODULE-013` 拒绝，而不是生成会在
+codegen 阶段失败的图。issue #223 记录了被接纳子集的验收证据。
 
 definition symbol 与 ordered typed static arguments 是完整 specialization identity。
 生成 C++ 使用可读 definition，并在需要时添加参数名和值；不添加 `Module_` 前缀或
