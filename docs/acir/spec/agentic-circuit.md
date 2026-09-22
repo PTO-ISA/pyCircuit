@@ -3236,6 +3236,16 @@ optional `SourceSpan`; compiler and CLI boundaries consume those fields rather
 than parsing message punctuation. The packaged catalog is complete for the
 implementation and is queried with `agentic-circuit explain CODE`.
 
+One code carries many distinct messages (`ACPY-QUEUE-001` reports twelve,
+`ACPY-TYPE-006` more than sixty), so a single hand-written paragraph cannot
+describe it. The catalog therefore also carries the **exact message templates**
+extracted from the implementation, with interpolated values rendered as
+`{expression}`, and `explain` lists them instead of summarizing the code.
+Hand-written `title`/`rule` prose is optional, and when present it MUST be a real
+description: the generator rejects prose that substitutes a placeholder for an
+interpolated value (such as "the reported value") or reuses the generic per-stage
+repair line.
+
 Frontend Queue diagnostics use the `ACPY-QUEUE-*` family and public-inventory
 diagnostics use `ACPY-API-*`. Value-level primitive
 validation uses `ACPY-VAR-*`; lowering, build, and runtime stages keep their own

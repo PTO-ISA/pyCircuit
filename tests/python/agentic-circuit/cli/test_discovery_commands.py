@@ -152,6 +152,35 @@ class DiscoveryCommandTest(unittest.TestCase):
         checks = json.loads(doctor.stdout)["checks"]
         self.assertTrue(all(check["status"] == "passed" for check in checks))
 
+    def test_explain_lists_every_reported_condition(self) -> None:
+        """One code carries many messages, so `explain` must not invent one cause.
+
+        `ACPY-QUEUE-001` used to render "The acpy queue stage enforces: repeated
+        the reported value; ...", which is neither the rule nor any message the
+        code can report, and `ACPY-TYPE-006` was described as aggregate-record
+        construction while its most common message is about array annotations.
+        """
+
+        with tempfile.TemporaryDirectory() as temporary:
+            workspace = Path(temporary)
+            explained = run_cli("explain", "ACPY-QUEUE-001", cwd=workspace)
+            machine = run_cli("explain", "ACPY-QUEUE-001", "--json", cwd=workspace)
+
+        self.assertEqual(0, explained.returncode, explained.stderr)
+        self.assertIn("ACPY-QUEUE-001", explained.stdout)
+        self.assertIn("stage: acpy-queue", explained.stdout)
+        self.assertIn("reported conditions", explained.stdout)
+        self.assertIn("repeated {name}", explained.stdout)
+        self.assertNotIn("the reported value", explained.stdout)
+
+        self.assertEqual(0, machine.returncode, machine.stderr)
+        document = json.loads(machine.stdout)
+        self.assertEqual("ACPY-QUEUE-001", document["code"])
+        messages = document["messages"]
+        self.assertGreater(len(messages), 1)
+        self.assertIn("repeated {name}", messages)
+        self.assertEqual(sorted(set(messages)), messages)
+
 
 if __name__ == "__main__":
     unittest.main()
