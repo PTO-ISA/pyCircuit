@@ -4441,6 +4441,65 @@ def scalar(value: ac.bits[WIDTH], *, width: ac.const[int]) -> ac.bits[WIDTH]:
         self.assertIn("static {lane = 0 : i64}", lowered)
         self.assertIn("static {lane = 1 : i64}", lowered)
 
+    def test_composite_module_body_reports_the_unsupported_shape(self) -> None:
+        from agentic_circuit._queue_compiler.errors import QueueFrontendError
+        from agentic_circuit._queue_frontend import lower_queue_source
+
+        # A module body that mixes local rule calls with child module calls is
+        # issue #223. It must fail with a diagnostic that names the real
+        # limitation instead of the generic unsupported-call message, which
+        # falsely suggests the child call itself is malformed.
+        source = """
+import agentic_circuit as ac
+
+@ac.struct
+class Request:
+    value: ac.bits[8]
+    tid: ac.bits[1]
+    valid: ac.bits[1]
+
+@ac.struct
+class Result:
+    value: ac.bits[8]
+    valid: ac.bits[1]
+
+@ac.rule
+def route(request: Request) -> tuple[Request, Request]:
+    first = request.with_fields(
+        value=request.value, valid=(request.valid & (request.tid == 0))
+    )
+    second = request.with_fields(
+        value=request.value, valid=(request.valid & (request.tid == 1))
+    )
+    return first, second
+
+@ac.rule
+def arbitrate(first: Result, second: Result) -> Result:
+    return first if first.valid else second
+
+@ac.module
+def state_bank(packet: Request) -> Result:
+    return Result(value=packet.value, valid=packet.valid)
+
+@ac.module
+def top(request: Request) -> Result:
+    first_packet, second_packet = route(request)
+    first = state_bank(first_packet)
+    second = state_bank(second_packet)
+    result = arbitrate(first, second)
+    return result
+
+@ac.system
+def composite(request: Request) -> Result:
+    return top(request)
+"""
+        with self.assertRaises(QueueFrontendError) as raised:
+            lower_queue_source(source, "composite")
+        message = str(raised.exception)
+        self.assertIn("'state_bank'", message)
+        self.assertIn("composite body mixing local rules", message)
+        self.assertIn("child module instances", message)
+
     def test_module_specialization_ignores_unrelated_dependent_payload(self) -> None:
         from agentic_circuit._queue_frontend import lower_queue_source
 

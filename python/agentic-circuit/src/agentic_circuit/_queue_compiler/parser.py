@@ -4333,6 +4333,24 @@ def parse_queue_program(
                         source=source_frame(call),
                     )
                 else:
+                    callee = call_name(call)
+                    if any(
+                        isinstance(node, ast.FunctionDef)
+                        and node.name == callee
+                        and any(
+                            _decorator_name(decorator).rsplit(".", 1)[-1]
+                            == "module"
+                            for decorator in node.decorator_list
+                        )
+                        for node in tree.body
+                    ):
+                        raise QueueFrontendError(
+                            "ACPY-QUEUE-001: module "
+                            f"{callee!r} is called from a module body that also "
+                            "contains local rule calls; a composite body mixing "
+                            "local rules with child module instances is not "
+                            "supported yet"
+                        )
                     raise QueueFrontendError(
                         "ACPY-QUEUE-001: unsupported queue-producing call "
                         f"{ast.unparse(call)!r}"
