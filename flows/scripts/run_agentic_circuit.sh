@@ -61,7 +61,7 @@ recorded_toolchain="${AC_GATE_TOOLCHAIN_ROOT:-${gate_out_dir}/toolchain/install}
   if [[ -n "${AC_GATE_TOOLCHAIN_ROOT:-}" ]]; then
     echo "# reuse installed toolchain: ${recorded_toolchain}"
   else
-    echo "PYC_BUILD_AGENTIC_CIRCUIT=ON bash flows/scripts/pyc build"
+    echo "bash flows/scripts/pyc build"
   fi
   echo "${recorded_toolchain}/bin/acir-opt --pass-pipeline='builtin.module(ac-freeze-topology)' <raw-queue-graph> # topology closure"
   echo "${recorded_toolchain}/bin/acc -c <verified.ac> -emit-cpp -o <model.cpp>"
@@ -168,7 +168,6 @@ else
   gate_toolchain="${gate_out_dir}/toolchain"
   PYC_BUILD_DIR="${gate_toolchain}/build" \
   PYC_INSTALL_PREFIX="${gate_toolchain}/install" \
-  PYC_BUILD_AGENTIC_CIRCUIT=ON \
     bash "${PYC_ROOT_DIR}/flows/scripts/pyc" build
   toolchain="${gate_toolchain}/install"
 fi

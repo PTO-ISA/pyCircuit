@@ -20,7 +20,6 @@ Environment parity with the bash wrapper:
   LLVM_CONFIG                Optional explicit llvm-config executable.
   PYC_BUILD_DIR              Optional build directory override.
   PYC_INSTALL_PREFIX         Optional install prefix override.
-  PYC_BUILD_AGENTIC_CIRCUIT  Build/install the integrated subsystem (ON).
   PYC_BUILD_AGENTIC_CIRCUIT_TESTS  Build integrated tests (OFF).
   PYC_PYTHON_EXECUTABLE      Optional exact Python interpreter for the SDK.
   PYCC                       Path to pycc (used by unsupported subcommands).
@@ -76,7 +75,6 @@ Env:
   LLVM_CONFIG               Optional explicit llvm-config executable.
   PYC_BUILD_DIR             Optional build directory override.
   PYC_INSTALL_PREFIX        Optional install prefix override.
-  PYC_BUILD_AGENTIC_CIRCUIT Build/install ACIR, ACC, gfsim, AC tools (ON).
   PYC_BUILD_AGENTIC_CIRCUIT_TESTS Build integrated ACIR tests (OFF).
   PYC_PYTHON_EXECUTABLE     Optional exact Python interpreter for the SDK.
   PYCC                      Path to pycc (overrides auto-detect).
@@ -293,7 +291,6 @@ function Invoke-BuildCommand {
         Exit-PycDie "ninja is required (install Ninja and ensure it is on PATH)"
     }
 
-    $agenticCircuit = Get-EnvironmentValueOrDefault "PYC_BUILD_AGENTIC_CIRCUIT" "ON"
     $agenticCircuitTests = Get-EnvironmentValueOrDefault "PYC_BUILD_AGENTIC_CIRCUIT_TESTS" "OFF"
 
     Write-PycLog "configure ($buildDir)"
@@ -303,7 +300,6 @@ function Invoke-BuildCommand {
         " -DCMAKE_INSTALL_PREFIX=" + (Quote-NativeValue $installPrefix) +
         " -DLLVM_DIR=" + (Quote-NativeValue $llvmDirectories.LlvmDir) +
         " -DMLIR_DIR=" + (Quote-NativeValue $llvmDirectories.MlirDir) +
-        " -DPYC_BUILD_AGENTIC_CIRCUIT=" + (Quote-NativeValue $agenticCircuit) +
         " -DPYC_BUILD_AGENTIC_CIRCUIT_TESTS=" + (Quote-NativeValue $agenticCircuitTests)
     $pythonExecutable = Get-EnvironmentValue "PYC_PYTHON_EXECUTABLE"
     if ($pythonExecutable) {
@@ -321,12 +317,10 @@ function Invoke-BuildCommand {
         Exit-PycDie "ninja failed for pycc and pyc6_runtime"
     }
 
-    if ($agenticCircuit -eq "ON") {
-        Write-PycLog "build integrated ACIR/ACC/gfsim toolchain"
-        Invoke-Expression ("ninja -C " + (Quote-NativeValue $buildDir) + " all")
-        if ($LASTEXITCODE -ne 0) {
-            Exit-PycDie "ninja failed for the integrated toolchain"
-        }
+    Write-PycLog "build integrated ACIR/ACC/gfsim toolchain"
+    Invoke-Expression ("ninja -C " + (Quote-NativeValue $buildDir) + " all")
+    if ($LASTEXITCODE -ne 0) {
+        Exit-PycDie "ninja failed for the integrated toolchain"
     }
 
     # pyc-opt is optional in the bash wrapper and may be declared only on some
