@@ -9343,5 +9343,109 @@ class RuleModuleChildPipelineTest(unittest.TestCase):
         self.assert_single_consumer(model, "Top", {})
 
 
+C8_UNPARAMETERIZED_BANK_SOURCE = """
+import agentic_circuit as ac
+
+@ac.struct
+class Packet:
+    value: ac.bits[8]
+    valid: ac.bits[1]
+
+@ac.module_decl(source="tests/python/agentic-circuit/python_frontend/test_queue_frontend.py")
+def bank(packet: ac.Queue[Packet, 1, 1]) -> ac.Queue[Packet, 1, 1]:
+    ...
+
+bank_decl = bank
+
+@ac.module(declaration=bank_decl)
+def bank(packet: ac.Queue[Packet, 1, 1]) -> ac.Queue[Packet, 1, 1]:
+    return packet
+"""
+
+
+C8_COMPOSITE_RANGE_SOURCE = (
+    C8_UNPARAMETERIZED_BANK_SOURCE
+    + """
+@ac.module_decl(source="tests/python/agentic-circuit/python_frontend/test_queue_frontend.py")
+def top(packet: ac.Queue[Packet, 1, 1]) -> ac.Queue[Packet, 1, 1]:
+    ...
+
+top_decl = top
+
+@ac.module(declaration=top_decl)
+def top(packet: ac.Queue[Packet, 1, 1]) -> ac.Queue[Packet, 1, 1]:
+    for index in range(2):
+        result = bank(packet)
+    return result
+
+@ac.system
+def composite(packet: ac.Queue[Packet, 1, 1]) -> ac.Queue[Packet, 1, 1]:
+    return top(packet)
+"""
+)
+
+
+C8_PARAMETERIZED_FAMILY_WITH_CHILD_SOURCE = (
+    C8_UNPARAMETERIZED_BANK_SOURCE
+    + """
+@ac.module_decl(
+    source="tests/python/agentic-circuit/python_frontend/test_queue_frontend.py",
+    parameters=(ac.static_parameter("banks", ac.static_int(width=4, signed=False)),),
+    finite_cases=(ac.case(("banks", 2)), ac.case(("banks", 4))),
+)
+def stage(packet: ac.Queue[Packet, 1, 1]) -> ac.Queue[Packet, 1, 1]:
+    ...
+
+stage_decl = stage
+
+@ac.module(declaration=stage_decl)
+def stage(packet: ac.Queue[Packet, 1, 1]) -> ac.Queue[Packet, 1, 1]:
+    result = bank(packet)
+    return result
+
+@ac.system
+def composite(packet: ac.Queue[Packet, 1, 1]) -> ac.Queue[Packet, 1, 1]:
+    return stage(packet, static=ac.case(("banks", 4)))
+"""
+)
+
+
+class ParameterizedBankCountGapTest(unittest.TestCase):
+    """Pin what the frontend cannot yet express for issue #223 criterion 8.
+
+    A structurally parameterized Thread/bank count needs the NUMBER of child
+    placements to scale with a static parameter. Today it does not: a composite
+    body rejects compile-time `for` loops, and a parameterized family whose body
+    instantiates a child (or invokes a rule) fails while specializing the child
+    with the family's own static arguments. Both shapes are recorded here so a
+    partial implementation cannot land silently.
+    """
+
+    def lower(self, source: str) -> str:
+        from agentic_circuit._queue_frontend import lower_queue_source
+
+        return lower_queue_source(
+            source, "composite", source_path="generated/module.py"
+        )
+
+    def test_composite_body_rejects_parameterized_placement_loop(self) -> None:
+        from agentic_circuit._queue_frontend import QueueFrontendError
+
+        with self.assertRaisesRegex(
+            QueueFrontendError,
+            "ACPY-MODULE-010: unsupported composite module statement For",
+        ):
+            self.lower(C8_COMPOSITE_RANGE_SOURCE)
+
+    def test_parameterized_family_body_cannot_instantiate_a_child(self) -> None:
+        from agentic_circuit._queue_frontend import QueueFrontendError
+
+        with self.assertRaisesRegex(
+            QueueFrontendError,
+            "ACPY-MODULE-007: unknown module static argument 'banks'",
+        ):
+            self.lower(C8_PARAMETERIZED_FAMILY_WITH_CHILD_SOURCE)
+
+
 if __name__ == "__main__":
     unittest.main()
