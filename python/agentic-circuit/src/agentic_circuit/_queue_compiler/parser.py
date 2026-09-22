@@ -104,7 +104,11 @@ from .source import (
 )
 from .state_semantics import _StateSemantics
 from .state_statements import handle_state_statement
-from .statement_common import _unresolved_reference_error
+from .statement_common import (
+    _static_reference,
+    _substitute_static_lengths,
+    _unresolved_reference_error,
+)
 from .static_types import (
     _bitfields,
     _bounded_annotation_static_checks,
@@ -2616,102 +2620,18 @@ def parse_queue_program(
             )
         return policy
 
-    def static_slice_bounds(
-        node: ast.Slice,
-    ) -> tuple[int | None, int | None, int | None]:
-        """Read compile-time slice bounds, failing closed on anything dynamic."""
-
-        bounds: list[int | None] = []
-        for part in (node.lower, node.upper, node.step):
-            if part is None:
-                bounds.append(None)
-            elif isinstance(part, ast.Constant) and type(part.value) is int:
-                bounds.append(part.value)
-            elif (
-                isinstance(part, ast.UnaryOp)
-                and isinstance(part.op, ast.USub)
-                and isinstance(part.operand, ast.Constant)
-                and type(part.operand.value) is int
-            ):
-                # A negative bound is an unfolded constant, and slice.indices
-                # already implements Python's negative-bound rule.
-                bounds.append(-part.operand.value)
-            else:
-                raise QueueFrontendError(
-                    "ACPY-QUEUE-005: static slice bounds must be compile-time "
-                    "integers"
-                )
-        return bounds[0], bounds[1], bounds[2]
-
-    def slice_collection(
-        source: StaticQueueCollection,
-        node: ast.Slice,
-    ) -> StaticQueueCollection:
-        """Return the sub-collection a Python slice selects.
-
-        A static collection is fully known during elaboration, so a slice is a
-        new static collection with the selected members re-keyed from zero.
-        ``slice.indices`` supplies Python's clamping and negative-bound rules
-        rather than a reimplementation of them.
-        """
-
-        if source.kind == "map":
-            raise QueueFrontendError(
-                "ACPY-QUEUE-005: a keyed collection cannot be sliced; slice an "
-                "ordered collection"
-            )
-        lower, upper, step = static_slice_bounds(node)
-        try:
-            selected = range(*slice(lower, upper, step).indices(len(source.members)))
-        except ValueError:
-            raise QueueFrontendError(
-                "ACPY-QUEUE-005: static slice step must not be zero"
-            ) from None
-        members = tuple(
-            (position, source.members[index][1])
-            for position, index in enumerate(selected)
-        )
-        if not members:
-            raise QueueFrontendError(
-                "ACPY-QUEUE-005: static slice selects no members"
-            )
-        return StaticQueueCollection(source.kind, members)
-
     def static_reference(
         node: ast.expr,
         aliases: dict[str, str | StaticQueueCollection],
     ) -> str | StaticQueueCollection:
-        if isinstance(node, ast.Name):
-            if node.id in aliases:
-                return aliases[node.id]
-            if node.id in by_name:
-                return by_name[node.id].name
-            if node.id in collections:
-                return collections[node.id]
-        if isinstance(node, ast.Subscript) and isinstance(node.slice, ast.Slice):
-            collection = static_reference(node.value, aliases)
-            if not isinstance(collection, StaticQueueCollection):
-                raise QueueFrontendError(
-                    "ACPY-QUEUE-005: static slicing requires a collection"
-                )
-            return slice_collection(collection, node.slice)
-        if (
-            isinstance(node, ast.Subscript)
-            and isinstance(node.slice, ast.Constant)
-            and type(node.slice.value) in {str, int, bool}
-        ):
-            collection = static_reference(node.value, aliases)
-            if not isinstance(collection, StaticQueueCollection):
-                raise QueueFrontendError(
-                    "ACPY-QUEUE-005: static indexing requires a collection"
-                )
-            for key, value in collection.members:
-                if type(key) is type(node.slice.value) and key == node.slice.value:
-                    return value
-            raise QueueFrontendError(
-                f"ACPY-QUEUE-005: collection has no key {node.slice.value!r}"
-            )
-        raise _unresolved_reference_error(node)
+        """Resolve a Queue reference through the one shared implementation.
+
+        The statement handlers call ``statement_common._static_reference``
+        directly, so this closure delegates rather than keeping a second copy of
+        the slice, index, and length rules.
+        """
+
+        return _static_reference(parser_state, node, aliases)
 
     def queue_reference(
         node: ast.expr,
@@ -2754,56 +2674,6 @@ def parse_queue_program(
             )
             + ")"
         )
-
-    def static_collection_length(
-        node: ast.expr,
-        aliases: dict[str, str | StaticQueueCollection],
-    ) -> int | None:
-        """Resolve ``len(<static collection>)`` to its member count.
-
-        A static collection is fully known during elaboration, so its length is
-        a compile-time integer. Without this, a design that expands ``K`` queues
-        has to repeat ``K`` in its loop bound, which is the duplication the
-        ``ac.list`` consolidation removes.
-        """
-
-        if not (
-            isinstance(node, ast.Call)
-            and isinstance(node.func, ast.Name)
-            and node.func.id == "len"
-            and len(node.args) == 1
-            and not node.keywords
-        ):
-            return None
-        try:
-            value = static_reference(node.args[0], aliases)
-        except QueueFrontendError:
-            return None
-        if not isinstance(value, StaticQueueCollection):
-            return None
-        return len(value.members)
-
-    def substitute_static_lengths(
-        node: ast.expr,
-        aliases: dict[str, str | StaticQueueCollection],
-    ) -> ast.expr:
-        """Rewrite ``len(<static collection>)`` to its constant member count.
-
-        The rewrite runs before static evaluation so the length participates in
-        ordinary compile-time integer arithmetic (``range(len(lanes) - 1)``).
-        A ``len`` that does not resolve is left alone, so the caller keeps its
-        existing compile-time-integer diagnostic.
-        """
-
-        class LengthSubstituter(ast.NodeTransformer):
-            def visit_Call(self, call: ast.Call) -> ast.expr:
-                self.generic_visit(call)
-                length = static_collection_length(call, aliases)
-                if length is None:
-                    return call
-                return ast.copy_location(ast.Constant(length), call)
-
-        return LengthSubstituter().visit(node)
 
     def source_binding(
         name: str,
@@ -3400,7 +3270,9 @@ def parse_queue_program(
                 and not statement.orelse
             ):
                 extent = _static_int(
-                    substitute_static_lengths(statement.iter.args[0], aliases)
+                    _substitute_static_lengths(
+                        parser_state, statement.iter.args[0], aliases
+                    )
                 )
                 if extent is None or not prove_within(
                     Constant(extent), 0, MAX_STATIC_EXPANSION
