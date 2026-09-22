@@ -4235,6 +4235,29 @@ def scalar(value: ac.bits[WIDTH], *, width: ac.const[int]) -> ac.bits[WIDTH]:
         self.assertIn('target = "interface.system.scalar.input.value:bits"', lowered)
         self.assertIn('target = "interface.system.scalar.output.0:bits"', lowered)
 
+    def test_pure_module_accepts_keyword_static_specialization(self) -> None:
+        from agentic_circuit._queue_frontend import lower_queue_source
+
+        source = """
+import agentic_circuit as ac
+
+@ac.module
+def stage(value: ac.u8, *, width: ac.const[int] = 4) -> ac.u8:
+    return value
+
+@ac.system
+def design(value: ac.u8, *, width: ac.const[int] = 4) -> ac.u8:
+    result = stage(value, width=width)
+    return result
+"""
+        lowered = lower_queue_source(
+            source,
+            "design",
+            static_arguments={"width": 4},
+        )
+        self.assertIn("ac.module @stage", lowered)
+        self.assertIn("ac.module @Top() parameters {width = 4 : i64}", lowered)
+
     def test_same_dependent_specialization_crosses_module_interface(self) -> None:
         from agentic_circuit._queue_frontend import lower_queue_source
 

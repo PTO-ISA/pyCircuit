@@ -22,9 +22,13 @@ struct JsonParseLimits {
   // rejected solely because its canonical spelling is larger.
   size_t maxCanonicalBytes = 128U << 20;
   size_t maxDepth = 64;
-  size_t maxStructuralWork = 100000;
+  size_t maxStructuralWork = 10000000;
   size_t maxStringBytes = 1U << 18;
-  size_t maxTotalStringBytes = 1U << 20;
+  // Large composed queue packages legitimately repeat long qualified type
+  // names across their binding metadata. Keep the per-string guard tight,
+  // while allowing the package-wide accounting budget to scale with a fused
+  // bring-up graph.
+  size_t maxTotalStringBytes = 128U << 20;
   size_t maxArrayElements = 65536;
   size_t maxObjectMembers = 4096;
 };

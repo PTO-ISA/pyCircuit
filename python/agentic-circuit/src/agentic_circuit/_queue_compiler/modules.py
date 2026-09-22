@@ -559,7 +559,7 @@ def _lower_simple_module_source(
             and node.func.id in modules
             for node in ast.walk(function)
         )
-        if contains_module_call and not contains_rule_call:
+        if contains_module_call:
             if (
                 function.args.posonlyargs
                 or function.args.vararg is not None
@@ -1388,7 +1388,10 @@ def _lower_simple_module_source(
                 isinstance(statement, ast.Return)
                 and isinstance(statement.value, ast.Call)
                 and isinstance(statement.value.func, ast.Name)
-                and statement.value.func.id in modules
+                and (
+                    statement.value.func.id in modules
+                    or statement.value.func.id in rule_modules
+                )
             ):
                 module_name = statement.value.func.id
                 if module_name in rule_modules:
@@ -1522,7 +1525,10 @@ def _lower_simple_module_source(
                 isinstance(statement, ast.Expr)
                 and isinstance(statement.value, ast.Call)
                 and isinstance(statement.value.func, ast.Name)
-                and statement.value.func.id in modules
+                and (
+                    statement.value.func.id in modules
+                    or statement.value.func.id in rule_modules
+                )
             ):
                 append_instance(statement.value, ())
                 continue
@@ -1532,7 +1538,10 @@ def _lower_simple_module_source(
                 and isinstance(statement.targets[0], (ast.Name, ast.Tuple, ast.List))
                 and isinstance(statement.value, ast.Call)
                 and isinstance(statement.value.func, ast.Name)
-                and statement.value.func.id in modules
+                and (
+                    statement.value.func.id in modules
+                    or statement.value.func.id in rule_modules
+                )
             ):
                 target = statement.targets[0]
                 results = (
