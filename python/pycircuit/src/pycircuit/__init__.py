@@ -63,6 +63,9 @@ from .v6 import (
     wire_of,
 )
 
+# ``__all__`` is the wildcard-import surface.  A wildcard import MUST NOT bind
+# a Python builtin, so ``compile`` stays reachable only as the explicit
+# attribute ``pycircuit.compile`` and never appears here.
 __all__ = [
     "CycleAwareCircuit",
     "CycleAwareDomain",
@@ -117,7 +120,6 @@ __all__ = [
     "Wire",
     "WireConnector",
     "cat",
-    "compile",
     "ct",
     "count_leading_zeros",
     "count_trailing_zeros",
