@@ -4500,6 +4500,43 @@ def composite(request: Request) -> Result:
         self.assertIn("composite body mixing local rules", message)
         self.assertIn("child module instances", message)
 
+    def test_system_body_rule_call_reports_the_unsupported_shape(self) -> None:
+        from agentic_circuit._queue_compiler.errors import QueueFrontendError
+        from agentic_circuit._queue_frontend import lower_queue_source
+
+        # The same #223 limitation seen from the system side: a system composes
+        # module instances, so a bare rule call there must say so rather than
+        # report the statement class.
+        source = """
+import agentic_circuit as ac
+
+@ac.struct
+class Packet:
+    value: ac.bits[8]
+    valid: ac.bits[1]
+
+@ac.rule
+def pick(first: Packet, second: Packet) -> Packet:
+    return first if first.valid else second
+
+@ac.module
+def child(p: Packet) -> Packet:
+    return p
+
+@ac.system
+def composite(p: Packet, q: Packet) -> Packet:
+    first = child(p)
+    second = child(q)
+    chosen = pick(first, second)
+    return chosen
+"""
+        with self.assertRaises(QueueFrontendError) as raised:
+            lower_queue_source(source, "composite")
+        message = str(raised.exception)
+        self.assertIn("rule 'pick'", message)
+        self.assertIn("system composes module instances", message)
+        self.assertIn("not supported yet", message)
+
     def test_module_specialization_ignores_unrelated_dependent_payload(self) -> None:
         from agentic_circuit._queue_frontend import lower_queue_source
 

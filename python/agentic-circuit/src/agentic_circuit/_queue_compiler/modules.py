@@ -1147,6 +1147,22 @@ def _lower_simple_module_source(
                     )
                 uses[name] = uses.get(name, 0) + 1
             continue
+        if (
+            isinstance(statement, ast.Assign)
+            and isinstance(statement.value, ast.Call)
+            and isinstance(statement.value.func, ast.Name)
+            and statement.value.func.id in rule_names
+        ):
+            # A system composes module instances. Calling a bare rule here is
+            # issue #223: neither a system body nor a module body can yet mix
+            # local rule calls with child module calls.
+            raise QueueFrontendError(
+                "ACPY-MODULE-002: rule "
+                f"{statement.value.func.id!r} is called directly from a module "
+                "system body; a system composes module instances, and a body "
+                "mixing local rule calls with child module instances is not "
+                "supported yet"
+            )
         raise QueueFrontendError(
             f"ACPY-MODULE-002: unsupported module system statement "
             f"{type(statement).__name__}"
