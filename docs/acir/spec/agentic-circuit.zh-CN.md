@@ -2060,6 +2060,12 @@ UTF-8 字节都能被 MLIR parser 往返读取。
 `tools/agentic-circuit/generate-diagnostic-catalog.py --check` 会阻止实现使用未注册的
 `ACPY-*`、`ACIR-*`、`ACLOWER-*`、`ACBUILD-*`、`ACRUN-*` 或 `ACSDK-*` 诊断码。
 
+一个码会携带多条彼此不同的消息（例如 `ACPY-QUEUE-001` 有 12 条，`ACPY-TYPE-006` 有
+60 余条），因此单段手写描述无法表示它。catalog 因此额外携带从实现中抽取的**精确消息
+模板**（插值位置渲染为 `{expression}`），`explain` 直接逐条列出，而不是把该码概括成
+一段话。`title`/`rule` 等手写散文是可选的；一旦存在就必须是真实描述：生成器拒绝把插值
+位置替换成占位短语（例如 "the reported value"），也拒绝每个 stage 通用的 repair 套话。
+
 Queue 拓扑错误使用 `ACPY-QUEUE-*`，公共 API 清单错误使用 `ACPY-API-*`
 （`ACPY-API-001` 拒绝 reserved 声明名，`ACPY-API-002` 拒绝已移除且需要迁移的
 marker），标量 value primitive 的调用、类型、选项或位宽错误

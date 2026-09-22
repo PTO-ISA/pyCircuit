@@ -67,6 +67,56 @@ class RepositoryContractTest(unittest.TestCase):
         )
         self.assertEqual(0, completed.returncode, completed.stderr)
 
+    def test_diagnostic_catalog_lists_exact_messages(self) -> None:
+        """A code reports many conditions, so the catalog lists them verbatim.
+
+        A single hand-written paragraph cannot describe a code such as
+        ``ACPY-TYPE-006``, and the generated paraphrase that used to stand in for
+        one read as a concrete-but-wrong statement ("Repeated the reported
+        value"). The catalog now carries the exact templates extracted from the
+        implementation, and every active entry is described by either that
+        inventory or a hand-written title.
+        """
+
+        document = json.loads(
+            (
+                ROOT / "schemas/agentic-circuit/diagnostics/diagnostics.json"
+            ).read_text(encoding="utf-8")
+        )
+        entries = document["entries"]
+        self.assertTrue(entries)
+        overloading = []
+        for entry in entries:
+            code = entry["code"]
+            messages = entry.get("messages")
+            if messages is not None:
+                self.assertIsInstance(messages, list, code)
+                self.assertTrue(messages, code)
+                self.assertEqual(sorted(set(messages)), messages, code)
+                for message in messages:
+                    self.assertIsInstance(message, str, code)
+                    self.assertTrue(message.strip(), code)
+                    # A template must not carry the code prefix: the code is its
+                    # own field, so repeating it made `explain` render it twice.
+                    self.assertNotIn(f"{code}:", message, code)
+                if len(messages) > 1:
+                    overloading.append(code)
+            if entry["status"] == "active":
+                self.assertTrue(
+                    entry.get("title") or messages,
+                    f"{code} has neither a title nor a message inventory",
+                )
+            prose = json.dumps(
+                {
+                    field: entry.get(field)
+                    for field in ("title", "rule", "causes", "examples", "repairs")
+                }
+            ).lower()
+            for placeholder in ("the reported value", "correct the reported"):
+                self.assertNotIn(placeholder, prose, code)
+        # Overloading is the normal case, not an exception.
+        self.assertGreater(len(overloading), 100)
+
     def test_repository_contract_checker_passes(self) -> None:
         completed = subprocess.run(
             [sys.executable, "tools/agentic-circuit/check-contracts.py"],
