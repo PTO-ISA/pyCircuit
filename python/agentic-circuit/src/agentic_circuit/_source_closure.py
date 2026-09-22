@@ -438,6 +438,18 @@ def _import_targets(
         targets: list[Path] = []
         for alias in node.names:
             root_name = _external_root(alias.name)
+            # A workspace-local module shadows a standard-library module of the
+            # same name, exactly as it does for the interpreter, because the
+            # workspace precedes the standard library on `sys.path`. Resolving
+            # the standard library first made a design that owns `queue.py`
+            # import the standard-library `queue` instead of its own file.
+            local = _module_candidates(root, tuple(alias.name.split(".")))
+            if local:
+                raise SourceClosureError(
+                    "ACPY-JIT-006: module-qualified local import "
+                    f"{alias.name!r} is not supported in {source.relative_to(root)}; "
+                    "import explicit symbols with 'from ... import ...'"
+                )
             rejected = _rejected_external_root(root_name)
             if rejected is not None:
                 raise SourceClosureError(
@@ -453,27 +465,31 @@ def _import_targets(
                         f"is forbidden in {source.relative_to(root)}"
                     )
                 continue
-            local = _module_candidates(root, tuple(alias.name.split(".")))
-            if not local:
-                hint = _workspace_root_package_hint(
-                    root, alias.name, source.relative_to(root).as_posix()
-                )
-                if hint is not None:
-                    raise SourceClosureError(hint)
-                raise SourceClosureError(
-                    f"ACPY-JIT-006: external import {alias.name!r} is not "
-                    f"allowed in {source.relative_to(root)}"
-                )
+            hint = _workspace_root_package_hint(
+                root, alias.name, source.relative_to(root).as_posix()
+            )
+            if hint is not None:
+                raise SourceClosureError(hint)
             raise SourceClosureError(
-                "ACPY-JIT-006: module-qualified local import "
-                f"{alias.name!r} is not supported in {source.relative_to(root)}; "
-                "import explicit symbols with 'from ... import ...'"
+                f"ACPY-JIT-006: external import {alias.name!r} is not "
+                f"allowed in {source.relative_to(root)}"
             )
         return tuple(targets)
 
     if any(alias.name == "*" for alias in node.names):
         raise SourceClosureError(f"ACPY-JIT-006: star import is forbidden in {source}")
-    if node.level == 0 and _rejected_external_root(
+    # Same precedence for `from X import Y`: a workspace-local `X` wins over a
+    # standard-library `X`, so the external branches are skipped when the
+    # workspace owns that name.
+    local_module_parts = (
+        tuple((node.module or "").split("."))
+        if node.level == 0 and node.module
+        else ()
+    )
+    resolves_locally = bool(local_module_parts) and bool(
+        _module_candidates(root, local_module_parts)
+    )
+    if not resolves_locally and node.level == 0 and _rejected_external_root(
         _external_root(node.module or "")
     ) is not None:
         rejected = _rejected_external_root(_external_root(node.module or ""))
@@ -483,7 +499,11 @@ def _import_targets(
             f"without appearing in the source: {node.module!r} in "
             f"{source.relative_to(root)}"
         )
-    if node.level == 0 and _is_allowed_external_root(_external_root(node.module or "")):
+    if (
+        not resolves_locally
+        and node.level == 0
+        and _is_allowed_external_root(_external_root(node.module or ""))
+    ):
         if node.module == "enum" and any(
             alias.name not in _ALLOWED_ENUM_IMPORTS for alias in node.names
         ):

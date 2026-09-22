@@ -350,6 +350,11 @@ every in-package absolute import look external; that shape is rejected with a
 diagnostic naming the directory to pass instead of the generic external-import
 message.
 
+A workspace-local module shadows an external module of the same name, exactly
+as it does for the interpreter: the workspace precedes the standard library on
+`sys.path`, so a design that owns `queue.py` gets its own file, not the
+standard-library `queue`.
+
 Imports outside the closure are admitted when they cannot change elaboration
 without appearing in the captured source. `agentic_circuit`, `__future__`, and
 the standard library are importable; the closure rejects the standard-library

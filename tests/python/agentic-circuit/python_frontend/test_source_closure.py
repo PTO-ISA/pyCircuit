@@ -226,5 +226,84 @@ class WorkspaceRootContractTest(SourceClosureTestCase):
         self.assertIn("outside workspace", str(caught.exception))
 
 
+class LocalModulePrecedenceTest(SourceClosureTestCase):
+    """A workspace module shadows a standard-library module of the same name.
+
+    The workspace precedes the standard library on ``sys.path``, so
+    ``from queue import Item`` in a workspace that owns ``queue.py`` means the
+    local file. Admitting the standard library by name first silently resolved
+    the standard-library module instead: the closure captured only the entry
+    file, and the payload type was then unknown to the frontend.
+    """
+
+    def shadow(self, module: str, entry_statement: str) -> list[str]:
+        self.write(
+            f"{module}.py",
+            """
+            import agentic_circuit as ac
+
+
+            @ac.struct
+            class Item:
+                lane: ac.u8
+            """,
+        )
+        entry = self.write(
+            "top.py",
+            f"""
+            from __future__ import annotations
+
+            import agentic_circuit as ac
+
+            {entry_statement}
+
+
+            @ac.system
+            def top() -> None:
+                q = ac.source(Item, depth=2, latency=1)
+                ac.sink(q)
+            """,
+        )
+        return [item.path for item in self.capture(entry).entries]
+
+    def test_local_module_shadows_an_admitted_standard_library_name(self) -> None:
+        for module in ("queue", "sched", "typing", "dataclasses"):
+            with self.subTest(module=module):
+                self.setUp()
+                # The closure is deterministic and ordered by workspace path.
+                self.assertEqual(
+                    sorted([f"{module}.py", "top.py"]),
+                    self.shadow(module, f"from {module} import Item"),
+                )
+
+    def test_local_module_shadows_a_denied_standard_library_name(self) -> None:
+        # The denylist exists to stop an *uncaptured* module from changing
+        # elaboration. A workspace-local `os.py` is captured source, so it is
+        # used exactly as the interpreter would use it.
+        self.assertEqual(["os.py", "top.py"], self.shadow("os", "from os import Item"))
+
+    def test_module_qualified_local_import_still_reports_the_binding_rule(self) -> None:
+        self.write("queue.py", "import agentic_circuit as ac\n")
+        entry = self.write(
+            "top.py",
+            """
+            import agentic_circuit as ac
+            import queue
+            """,
+        )
+        with self.assertRaises(SourceClosureError) as caught:
+            self.capture(entry)
+        message = str(caught.exception)
+        self.assertIn("module-qualified local import 'queue'", message)
+        self.assertIn("import explicit symbols", message)
+
+    def test_standard_library_still_resolves_without_a_local_module(self) -> None:
+        entry = self.package("from queue import Queue")
+        self.assertEqual(
+            ["pkg/__init__.py", "pkg/top.py", "pkg/types.py"],
+            [item.path for item in self.capture(entry).entries],
+        )
+
+
 if __name__ == "__main__":
     unittest.main()
