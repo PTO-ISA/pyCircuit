@@ -760,11 +760,9 @@ def _lower_simple_module_source(
         if (
             len(function.args.args) != 1
             or function.args.posonlyargs
-            or function.args.kwonlyargs
             or function.args.vararg is not None
             or function.args.kwarg is not None
             or function.args.defaults
-            or function.args.kw_defaults
             or any(
                 isinstance(decorator, ast.Call) for decorator in function.decorator_list
             )
@@ -772,6 +770,16 @@ def _lower_simple_module_source(
             raise QueueFrontendError(
                 "ACPY-MODULE-001: first module slice requires one typed "
                 "positional parameter"
+            )
+        if any(
+            not isinstance(parameter.annotation, ast.Subscript)
+            or _decorator_name(parameter.annotation.value).rsplit(".", 1)[-1]
+            != "const"
+            for parameter in function.args.kwonlyargs
+        ) or any(default is None for default in function.args.kw_defaults):
+            raise QueueFrontendError(
+                "ACPY-MODULE-001: keyword-only module parameters must use "
+                "ac.const and provide defaults"
             )
         parameter = function.args.args[0]
         body = list(function.body)
@@ -1448,10 +1456,6 @@ def _lower_simple_module_source(
                     context_static_types=active_static_types,
                 )
             inputs, outputs = module_signature(module_name)
-            if call.keywords:
-                raise QueueFrontendError(
-                    "ACPY-MODULE-007: pure module static parameters are not implemented"
-                )
             return module_name, (), inputs, outputs
 
         def append_instance(
@@ -1690,10 +1694,6 @@ def _lower_simple_module_source(
                     "ACPY-MODULE-002: expression module calls require a "
                     "zero-input zero-output signature"
                 )
-            if module_name not in rule_modules and statement.value.keywords:
-                raise QueueFrontendError(
-                    "ACPY-MODULE-007: pure module static parameters are not implemented"
-                )
             instances.append(
                 (
                     (),
@@ -1877,10 +1877,6 @@ def _lower_simple_module_source(
             for result, output_type in zip(results, output_types, strict=True):
                 values[result] = output_type
                 uses[result] = 0
-            if module_name not in rule_modules and statement.value.keywords:
-                raise QueueFrontendError(
-                    "ACPY-MODULE-007: pure module static parameters are not implemented"
-                )
             instances.append(
                 (
                     results,
