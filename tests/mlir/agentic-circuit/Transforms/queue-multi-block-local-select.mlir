@@ -43,5 +43,5 @@ module attributes {ac.frozen_owners = [{kind = "ac.system_root", owner = @Top, p
 
 // A select block in a parent's own scope must not be flattened into a
 // single-pass transform: the multi-block local backend only accepts local
-// transforms, fanout broadcasts, and stateless firing blocks.
-// ERR: ACLOWER-QUEUE-CXX: mixed nested module supports only local transform, fanout broadcast, and stateless firing blocks; block 'pick' has kind 'select'
+// transforms, fanout broadcasts, selective merges, and stateless firing blocks.
+// ERR: ACLOWER-QUEUE-CXX: mixed nested module supports only local transform, fanout broadcast, selective merge, and stateless firing blocks; block 'pick' has kind 'select'

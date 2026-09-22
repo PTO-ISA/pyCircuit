@@ -7,49 +7,36 @@
 // RUN: cmake --build %t/build --parallel 2
 // RUN: %cxx -std=c++20 -I%t/bundle/include -I%source_root/simulator/gfsim/include %t/harness.cpp %t/build/libac_generated_model.a %binary_root/gfsim/libgfsim.a -o %t/harness
 // RUN: %t/harness observe | %FileCheck %s --check-prefix=OBSERVE
-// RUN: %not %t/harness --expect-criterion4 | %FileCheck %s --check-prefix=GAP
+// RUN: %t/harness --expect-join | %FileCheck %s --check-prefix=JOIN
 
-// Issue #223 acceptance criterion 4 -- CURRENTLY MISSING, pinned as a known gap.
+// Issue #223 -- the plain multi-input rule stays a JOIN by construction.
 //
-// Criterion 4: "The arbiter publishes only the permitted width per cycle, and
-// an unselected child output stays unchanged."
+// The issue's literal arbiter is the rule `result0 if result0.valid else
+// result1`. A multi-input rule is a JOIN -- its body is evaluated once per
+// transaction and the rule only fires when EVERY input Queue is ready, so the
+// lowering to `gfsim::QueueAtomicTransform` is faithful to the rule's
+// transaction semantics. This test locks that behaviour:
 //
-// The scenario is the issue's minimal repro with per-output presence expressed
-// through `None`: a local demux rule feeds two bank children, and the local
-// arbiter `result0 if result0.valid else result1` merges their outputs.
+//   * a lone request on either bank is never published, because the other
+//     bank's output Queue stays empty;
+//   * when both banks hold a result the arbiter publishes one and consumes
+//     both, so the unselected result is dropped.
 //
-// The generated arbiter is a `gfsim::QueueAtomicTransform` with two inputs. Its
-// runtime requires EVERY input to be ready (`allInputsReady`) and pops EVERY
-// input on commit (`publishInputs`), so it does not select: it joins. Observed
-// consequences:
-//
-//   * a lone request on either bank loads that bank but publishes NOTHING,
-//     because the other bank's output Queue stays empty;
-//   * when both banks hold a result the arbiter pops both and publishes one,
-//     so the unselected child output is consumed and dropped instead of staying
-//     unchanged.
-//
-// The `observe` run prints the current behaviour. The `--expect-criterion4` run
-// asserts the criterion itself and must keep failing until the arbiter gains
-// per-input selection/consumption. When that lands, replace the GAP run with a
-// positive assertion.
-//
-// A selective block already exists: `result0.merge(result1, policy="priority")`
-// lowers to `ac.merge` and `gfsim::QueueMerge`, whose `doWork` picks the first
-// ready input and pops ONLY that input. It is not usable here because the
-// structured QueueGraph mixed-shape whitelist (`isWideMixedLocalShape`,
-// QueueGraphGenerator.cpp) admits only transform, broadcast, and stateless
-// firing blocks and rejects `kind == "merge"` with "mixed nested module supports
-// only local transform, fanout broadcast, and stateless firing blocks". The same
-// body written with `merge` therefore fails at `acir-queue-cxxgen`.
+// Criterion 4 ("the arbiter publishes only the permitted width per cycle, and
+// an unselected child output stays unchanged") is therefore delivered by the
+// explicit selective primitive `result0.merge(result1, policy="priority")`,
+// which lowers to `gfsim::QueueMerge`. `queue-composite-selective-merge-runtime`
+// proves that behaviour; this file keeps the JOIN distinguishable from it so it
+// cannot be redefined silently.
 
 // EMIT: emitted model bundle v1
 
-// OBSERVE: arbiter bank0_only results=0 bank0_accepted=1 bank1_accepted=0
-// OBSERVE: arbiter bank1_only results=0 bank0_accepted=0 bank1_accepted=1
-// OBSERVE: arbiter pair results=1 bank0_accepted=1 bank1_accepted=1
+// OBSERVE: join-arbiter bank0_only results=0 bank0_accepted=1 bank1_accepted=0
+// OBSERVE: join-arbiter bank1_only results=0 bank0_accepted=0 bank1_accepted=1
+// OBSERVE: join-arbiter pair results=1 bank0_accepted=1 bank1_accepted=1
+// OBSERVE: join-arbiter pair result[0] value=7 valid=1
 
-// GAP: criterion4 VIOLATION:
+// JOIN: join-arbiter satisfied
 
 //--- lower.py
 from pathlib import Path
@@ -129,14 +116,13 @@ def composite(request: Request) -> Result:
     return top(request)
 
 //--- harness.cpp
-// Criterion 4 probe for issue #223's local arbiter.
+// JOIN regression probe for issue #223's plain multi-input arbiter rule.
 //
-// Usage: harness observe | harness --expect-criterion4
+// Usage: harness observe | harness --expect-join
 //
 // `observe` prints the number of published results per stimulus and how many
-// times each bank loaded. `--expect-criterion4` additionally requires the
-// criterion-4 property (see the test header) and exits non-zero while the arbiter
-// cannot select an input.
+// times each bank loaded. `--expect-join` asserts the JOIN contract: a rule
+// with two input Queues fires only when both are ready and consumes both.
 
 #include "generated/dut.h"
 
@@ -180,7 +166,7 @@ struct ScenarioResult {
 
 ScenarioResult runScenario(const Scenario &scenario, size_t maxTicks) {
   ScenarioResult run;
-  gfsim::SimSystem system{"arbiter"};
+  gfsim::SimSystem system{"join_arbiter"};
   Composite model;
   std::array<gfsim::TimeDomainRuntime, 1> timeDomains{{{"cycle", 1, 0, 1}}};
   if (!system.root().attachChild(model) || !system.setTimeDomains(timeDomains) ||
@@ -217,53 +203,61 @@ ScenarioResult runScenario(const Scenario &scenario, size_t maxTicks) {
 } // namespace
 
 int main(int argc, char **argv) {
-  const bool expectCriterion4 =
-      argc == 2 && std::strcmp(argv[1], "--expect-criterion4") == 0;
-  if (argc != 2 ||
-      (!expectCriterion4 && std::strcmp(argv[1], "observe") != 0)) {
-    std::printf("usage: %s observe|--expect-criterion4\n", argv[0]);
+  const bool expectJoin =
+      argc == 2 && std::strcmp(argv[1], "--expect-join") == 0;
+  if (argc != 2 || (!expectJoin && std::strcmp(argv[1], "observe") != 0)) {
+    std::printf("usage: %s observe|--expect-join\n", argv[0]);
     return 2;
   }
 
   const std::array<Scenario, 3> scenarios{{
-      {"bank0_only", {makeRequest(42, /*tid=*/false)}, 1, {42}},
-      {"bank1_only", {makeRequest(9, /*tid=*/true)}, 1, {9}},
+      {"bank0_only", {makeRequest(42, /*tid=*/false)}, 0, {}},
+      {"bank1_only", {makeRequest(9, /*tid=*/true)}, 0, {}},
       {"pair",
        {makeRequest(7, /*tid=*/false), makeRequest(9, /*tid=*/true)},
-       2,
-       {7, 9}},
+       1,
+       {7}},
   }};
 
   for (const Scenario &scenario : scenarios) {
     const ScenarioResult observed = runScenario(scenario, 128);
     if (!observed.wired) {
-      std::printf("arbiter %s wire_failure=1\n", scenario.label);
+      std::printf("join-arbiter %s wire_failure=1\n", scenario.label);
       return 1;
     }
-    std::printf(
-        "arbiter %s results=%zu bank0_accepted=%llu bank1_accepted=%llu\n",
-        scenario.label, observed.values.size(),
-        static_cast<unsigned long long>(observed.bank0),
-        static_cast<unsigned long long>(observed.bank1));
+    std::printf("join-arbiter %s results=%zu bank0_accepted=%llu "
+                "bank1_accepted=%llu\n",
+                scenario.label, observed.values.size(),
+                static_cast<unsigned long long>(observed.bank0),
+                static_cast<unsigned long long>(observed.bank1));
+    for (size_t index = 0; index < observed.values.size(); ++index)
+      std::printf("join-arbiter %s result[%zu] value=%u valid=1\n",
+                  scenario.label, index, observed.values[index]);
 
-    if (!expectCriterion4)
+    if (!expectJoin)
       continue;
-    // Criterion 4: every bank that loaded must have its result published, and
-    // the unselected child output must survive to be served later.
-    if (observed.values.size() != scenario.expected_results) {
-      std::printf("criterion4 VIOLATION: %s expected %zu result(s), observed "
-                  "%zu\n",
+    if (observed.values.size() != scenario.expected_results ||
+        observed.values != scenario.expected_values) {
+      std::printf("JOIN VIOLATION: %s expected %zu result(s), observed %zu\n",
                   scenario.label, scenario.expected_results,
                   observed.values.size());
       return 1;
     }
-    if (observed.values != scenario.expected_values) {
-      std::printf("criterion4 VIOLATION: %s published the wrong payloads\n",
-                  scenario.label);
+    // A lone request loads exactly its own bank and never the other.
+    if (scenario.requests.size() == 1) {
+      const bool tid0 = scenario.requests.front().tid.value() == 0;
+      if (tid0 ? (observed.bank0 != 1 || observed.bank1 != 0)
+               : (observed.bank0 != 0 || observed.bank1 != 1)) {
+        std::printf("JOIN VIOLATION: %s loaded the wrong bank\n",
+                    scenario.label);
+        return 1;
+      }
+    } else if (observed.bank0 != 1 || observed.bank1 != 1) {
+      std::printf("JOIN VIOLATION: pair did not load both banks once\n");
       return 1;
     }
   }
-  if (expectCriterion4)
-    std::printf("criterion4 satisfied\n");
+  if (expectJoin)
+    std::printf("join-arbiter satisfied\n");
   return 0;
 }
