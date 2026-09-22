@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import builtins
 import importlib.util
 import inspect
 import subprocess
@@ -88,6 +89,12 @@ def test_tutorial_facade_is_not_part_of_the_public_surface() -> None:
     assert removed.isdisjoint(pycircuit.__all__)
     for name in removed:
         assert not hasattr(pycircuit, name)
+
+
+def test_wildcard_surface_never_shadows_a_python_builtin() -> None:
+    assert set(pycircuit.__all__) & set(dir(builtins)) == set()
+    assert "compile" not in pycircuit.__all__
+    assert callable(pycircuit.compile)
 
 
 def test_public_exception_families_share_one_runtime_base() -> None:

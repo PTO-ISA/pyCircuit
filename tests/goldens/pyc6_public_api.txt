@@ -44,7 +44,6 @@ auto
 build_cycle_aware
 cas
 cat
-compile
 compile_cycle_aware
 const
 count_leading_zeros
