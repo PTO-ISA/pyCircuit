@@ -276,6 +276,25 @@ as the typed root interface, `include/generated/interfaces/<stem>.hpp`,
 which is why the specification scopes its description to "a structured C++
 bundle".
 
+The **multi-unit `--header-output` flow** that reaches a structured bundle is
+now exercised end to end.
+`tests/python/agentic-circuit/python_frontend/test_multi_unit_package.py`
+compiles a three-file hierarchy (`source/child_a.py`, `source/child_b.py`,
+`source/core.py`) into per-source AC units and interface headers, links the
+directory with `acc -c <package> -verify`, and emits the structured bundle with
+`acc -c <package> -emit-cpp-bundle`: `include/generated/dut.h`, one
+`include/generated/modules/<module>.hpp` and `src/generated/modules/<module>.cpp`
+per module, and the published source map. Evidence:
+`docs/gates/logs/20260922-multi-unit-package/`.
+
+Making that flow link required three frontend properties that were previously
+wrong or absent: a declaration owns the nominal declaration inventory its ports
+need (so `ac.module.import` carries the provider's inventory), an implementation
+whose symbol carries a declaration entry publishes the declared interface
+skeleton (so the import and provider schemas compare equal), and every nominal
+declaration names its owning Python file with `ac.source_file` (so the compiler
+splits one interface unit per source file and a shared nominal is declared once).
+
 What is genuinely missing:
 
 - **No Python/JIT API.** `lower_cpp()` does not exist in this tree, so the issue's
@@ -286,10 +305,10 @@ What is genuinely missing:
   carries no content identity to expose either way.)
 - **No module/instance manifest.** Definition versus instance identity is
   available to the compiler but is not published as a machine-readable artifact
-  for graph exporters or testbench adapters.
-- **No in-repo example or test** exercises the multi-unit `--header-output` flow
-  that reaches a structured bundle, so that path is reachable but unverified
-  inside this repository.
+  for graph exporters or testbench adapters. The bundle's
+  `share/generated/source-map.json` does carry `module_instances` with their
+  definition symbols, but cross-unit placements currently publish an empty
+  provenance origin list, so it is not yet a complete instancing manifest.
 
 **Recommended shape** for the remaining work, consistent with the module family
 work that has landed since the issue was filed: derive the manifest from the typed

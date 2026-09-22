@@ -2743,6 +2743,38 @@ local rules that run before or after a child placement, the Queues between the
 two stay parent-owned, and each child keeps its own instance and specialization.
 This is the general composition capability requested by issues #223, #197 and
 #180; it removes the need for a one-rule wrapper module per route or arbiter.
+
+#### AC source units and the linked package
+
+One Python source file compiles to one AC unit. A module source publishes its
+implementation and its interface header, the root source publishes `core.ac`,
+and `--unit interfaces` publishes the compiler interface units:
+
+```console
+acc.py -c source/child_a.py -o package/sources_child_a.ac \
+  --header-output package/interfaces/source/child_a.ac
+acc.py -c source/core.py -o package/core.ac
+acc.py -c source/core.py --unit interfaces -o interfaces
+```
+
+The linked package is the directory holding `core.ac`, the per-source units, and
+the interface units at their logical paths. `acc` splices every source interface
+type scope, resolves each source definition against its interface header, and
+compares each `ac.module.import` schema with the provider's published schema
+exactly:
+
+```console
+acc -c package -verify
+acc -c package -emit-cpp-bundle -o bundle
+```
+
+Three frontend properties keep that comparison exact. A declaration owns the
+nominal declaration inventory its ports need, so an import carries the same
+inventory as its provider. An implementation whose symbol carries a declaration
+entry publishes the declared interface skeleton rather than a freshly resolved
+concrete interface. Every nominal declaration names the Python file that owns it
+with `ac.source_file`, so the compiler emits one interface unit per source file
+and a nominal shared by several files is declared exactly once.
 The structured QueueGraph backend admits that shape when every local block in
 the parent's own scopes is a single-pass `transform`, a fanout `broadcast`, or a
 stateless `firing` block and the Queues between the blocks and the children stay

@@ -1,0 +1,28 @@
+# Issue #180: the multi-unit --header-output AC package flow links and emits a
+# structured bundle. Run from the repository root with the native toolchain
+# built (.pycircuit_out/toolchain/build/bin) and the Agentic Circuit native
+# extension importable.
+
+python3 -m pytest tests/python/agentic-circuit/python_frontend/test_multi_unit_package.py -q -p no:cacheprovider
+
+# The flow the test drives, by hand, for a three-file hierarchy:
+#   workspace: agentic-circuit.toml + source/{child_a.py,child_b.py,core.py}
+python3 -m agentic_circuit._acc_py -c source/child_a.py -o package/sources_child_a.ac \
+  --header-output package/interfaces/source/child_a.ac --quiet
+python3 -m agentic_circuit._acc_py -c source/child_b.py -o package/sources_child_b.ac \
+  --header-output package/interfaces/source/child_b.ac --quiet
+python3 -m agentic_circuit._acc_py -c source/core.py -o package/core.ac --quiet
+python3 -m agentic_circuit._acc_py -c source/core.py --unit interfaces -o interfaces --quiet
+cp interfaces/_compiler/*.ac package/interfaces/_compiler/
+.pycircuit_out/toolchain/build/bin/acc -c package -verify
+.pycircuit_out/toolchain/build/bin/acc -c package -emit-cpp-bundle -o bundle
+
+# Lane context.
+python3 -m pytest tests/python/agentic-circuit -q -p no:cacheprovider \
+  --ignore=tests/python/agentic-circuit/tools
+python3 -m pytest tests/unit -m unit -q -p no:cacheprovider
+ninja -C .pycircuit_out/toolchain/build check-acir
+ctest --test-dir .pycircuit_out/toolchain/build
+python3 tools/agentic-circuit/check-contracts.py
+python3 tools/agentic-circuit/check-ir-coverage.py
+python3 tools/agentic-circuit/generate-diagnostic-catalog.py --check

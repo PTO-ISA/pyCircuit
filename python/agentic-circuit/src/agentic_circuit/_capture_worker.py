@@ -323,6 +323,7 @@ def _capture_queue_rule(
     source_path: str,
     static_arguments: dict[str, StaticValue],
     definition_ndf: DefinitionNdfMetadata | None = None,
+    definition_locations: dict[str, tuple[str, int, int]] | None = None,
 ) -> tuple[object, str, tuple[Diagnostic, ...]]:
     """Capture Queue/rule artifacts and preserve frontend diagnostics."""
 
@@ -338,6 +339,7 @@ def _capture_queue_rule(
         system,
         static_arguments=static_arguments,
         source_path=source_path,
+        definition_locations=definition_locations,
         definition_ndf=definition_ndf,
     )
     try:
@@ -360,13 +362,19 @@ def _capture_queue_rule(
 def _flatten_source_closure(
     closure: SourceClosure,
     entry: Path,
-) -> tuple[str, dict[str, NdfMetadata]]:
-    """Keep the entry body and only typed declarations from dependency sources."""
+) -> tuple[str, dict[str, NdfMetadata], dict[str, tuple[str, int, int]]]:
+    """Keep the entry body and only typed declarations from dependency sources.
+
+    Each selected definition also reports the Python file that declares it, so
+    the frontend owns every nominal and helper by its real source file instead
+    of attributing the whole closure to the entry file.
+    """
 
     from ._queue_compiler.provenance import extract_definition_ndf_metadata
 
     statements: list[ast.stmt] = []
     definition_ndf: dict[str, NdfMetadata] = {}
+    definition_locations: dict[str, tuple[str, int, int]] = {}
     for source_entry in closure.entries:
         source_tree = ast.parse(
             source_entry.source,
@@ -407,6 +415,12 @@ def _flatten_source_closure(
             ):
                 selected.append(statement)
         statements.extend(selected)
+        for statement in selected:
+            if isinstance(statement, (ast.FunctionDef, ast.ClassDef)):
+                definition_locations.setdefault(
+                    statement.name,
+                    (source_entry.path, statement.lineno, statement.col_offset + 1),
+                )
         selected_names = {
             statement.name
             for statement in selected
@@ -426,7 +440,7 @@ def _flatten_source_closure(
     source_text = ast.unparse(
         ast.fix_missing_locations(ast.Module(statements, []))
     )
-    return source_text, definition_ndf
+    return source_text, definition_ndf, definition_locations
 
 
 def _worker_main(request_path: Path) -> int:
@@ -487,11 +501,14 @@ def _worker_main(request_path: Path) -> int:
                 from ._source_closure import capture_source_closure
 
                 closure = capture_source_closure(entry, workspace)
-                source_text, definition_ndf = _flatten_source_closure(closure, entry)
+                source_text, definition_ndf, definition_locations = (
+                    _flatten_source_closure(closure, entry)
+                )
                 acir = lower_source_unit(
                     source_text,
                     ((module_name, ()),),
                     source_path=entry.relative_to(workspace).as_posix(),
+                    definition_locations=definition_locations,
                     definition_ndf=definition_ndf,
                 )
                 diagnostics = ()
@@ -500,13 +517,16 @@ def _worker_main(request_path: Path) -> int:
                 from ._source_closure import capture_source_closure
 
                 closure = capture_source_closure(entry, workspace)
-                source_text, definition_ndf = _flatten_source_closure(closure, entry)
+                source_text, definition_ndf, definition_locations = (
+                    _flatten_source_closure(closure, entry)
+                )
                 document, acir, diagnostics = _capture_queue_rule(
                     source_text,
                     request["system"],
                     entry.relative_to(workspace).as_posix(),
                     static_arguments,
                     definition_ndf,
+                    definition_locations,
                 )
             elif has_rule or modern_module_system:
                 frontend_kind = "queue_rule"
