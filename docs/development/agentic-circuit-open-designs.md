@@ -214,14 +214,23 @@ per-item checkboxes and remains the right place to track the remaining work. The
 items still unchecked are the typed positive-latency feedback edge (`J`),
 cross-owner transaction groups (`K`), mutually-exclusive state-write mux
 synthesis, unchanged-store elimination, invariant proof propagation (`L04`,
-`L05`, `L07`), and most of the cross-layer verification matrix (`V01`, `V02`,
-`V04`, `V05`, `V07`, `V08`), several of which depend on the design work recorded
-for #150 and #152 above. `V03` is verified on the current revision:
-`tests/python/agentic-circuit/python_frontend/test_pyc_lowering_closure.py`
-freezes five frontend-published designs, lowers each to PYC, asserts that no
-residual `scf.*`/`index` operation survives, and requires `pycc` to accept the
-result; the run is recorded under
-`docs/gates/logs/20260922-v03-pyc-closure/`.
+`L05`, `L07`), and part of the cross-layer verification matrix (`V04`, `V05`,
+`V07`, `V08`), several of which depend on the design work recorded above for
+issues #150 and #152. Three matrix items are verified on the current revision,
+each with a recorded run:
+
+- `V01` (frontend positive/negative examples, public API, and typecheck):
+  417 tracked frontend tests with 304 `assertRaises` call sites, 31 public-API
+  tests, 29 contract tests, and the contract plus diagnostic-catalog gates. See
+  `docs/gates/logs/20260922-v01-v02-cross-layer-audit/`.
+- `V02` (Frozen ACIR verifier/lit coverage and the QueueGraph schema round trip):
+  95 lit fixtures run `ac-freeze-topology` and 53 run `ac-verify-rule-closure`,
+  and `QueueGraphPlanTest` covers 110 cases including byte-identical canonical
+  JSON and the re-parsed source-map JSON. See the same log.
+- `V03` (no residual `scf.*`/`index` after ACIR to PYC lowering, PYC verifier
+  accepts): `tests/python/agentic-circuit/python_frontend/test_pyc_lowering_closure.py`
+  freezes five frontend-published designs, lowers each to PYC, and requires
+  `pycc` to accept the result. See `docs/gates/logs/20260922-v03-pyc-closure/`.
 
 Two items deserve emphasis because they are the ones a reader would otherwise
 mistake for complete:
@@ -232,7 +241,10 @@ mistake for complete:
 - `V08` requires a fixed revision in the consumer checkout and stays a
   consumer-side obligation under Decisions 0158 and 0235. `V04` and `V07` need a
   Verilog toolchain, the simulation lanes, and strict documentation, none of
-  which are available in this environment, so neither is claimed.
+  which are available in this environment, so neither is claimed. `V05` still
+  needs checked-in source-map goldens covering the helper, module, projection,
+  and specialization constructs; the QueueGraph source-map JSON is round-tripped
+  by `QueueGraphPlanTest`, but no golden pins those four shapes.
 
 ## Hierarchical instances and structured GFSIM source bundles (#180)
 

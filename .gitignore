@@ -300,3 +300,5 @@ docs/gates/logs/*
 !docs/gates/logs/20260921-f10-primitive-variants/**
 !docs/gates/logs/20260922-v03-pyc-closure/
 !docs/gates/logs/20260922-v03-pyc-closure/**
+!docs/gates/logs/20260922-v01-v02-cross-layer-audit/
+!docs/gates/logs/20260922-v01-v02-cross-layer-audit/**
