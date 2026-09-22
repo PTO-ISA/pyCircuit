@@ -1028,7 +1028,8 @@ named = ac.map({"scalar": lanes[0], "vector": lanes[1]})
 active = ac.set({named["scalar"], named["vector"]})
 ```
 
-静态索引和编译期遍历会被展开。运行时从 flat Queue collection 选择一个成员时，必须
+静态索引和编译期遍历会被展开。`len(collection)` 是编译期整数，可以参与
+`range(len(lanes) - 1)` 这类静态算术。运行时从 flat Queue collection 选择一个成员时，必须
 提供显式 control Queue；编译器生成 `ac.select`，而不是动态 Queue 指针。
 
 ```python

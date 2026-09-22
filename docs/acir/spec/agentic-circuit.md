@@ -1941,6 +1941,8 @@ The current frontend supports:
 - `ac.set({...})` over unique Queue or nested collection members;
 - nested collections;
 - static indexing;
+- `len(collection)`, which is a compile-time integer and participates in
+  static arithmetic such as `range(len(lanes) - 1)`;
 - compile-time iteration over a collection.
 
 Map keys and set members are canonicalized. Frozen QueueGraph planning flattens
