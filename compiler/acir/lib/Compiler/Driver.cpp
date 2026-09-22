@@ -615,6 +615,11 @@ llvm::Error runStage(CompilerStage stage, const CompilerRequest &request,
       if (mlir::failed(runPass(state, createInlinePureHelpersPass())) ||
           mlir::failed(runPass(state, createVerifyACIRFilePass())))
         return capture.takeFailure(stage);
+      // A published unit is re-parsed by the linker and the backends, which
+      // only read the canonical attribute carrier, never MLIR debug locations.
+      // Materialize it before publication so a source-owned unit keeps the
+      // provenance of the operations it publishes.
+      materializeSourceProvenance(*state.module);
       return emitAcirPackage(*state.module, result);
     }
     return llvm::Error::success();

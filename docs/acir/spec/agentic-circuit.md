@@ -2775,6 +2775,14 @@ entry publishes the declared interface skeleton rather than a freshly resolved
 concrete interface. Every nominal declaration names the Python file that owns it
 with `ac.source_file`, so the compiler emits one interface unit per source file
 and a nominal shared by several files is declared exactly once.
+
+A published unit carries canonical `ac.source_provenance` attributes rather than
+MLIR debug locations: the compiler materializes the attribute for every
+operation that has a location before publishing a verified unit, so a re-parsed
+unit keeps the provenance that the linker and the backends read. The closure
+capture reports each definition's original file, line, and column, so a frame
+names the file and position that declare the statement instead of the entry
+file's post-flattening position.
 The structured QueueGraph backend admits that shape when every local block in
 the parent's own scopes is a single-pass `transform`, a fanout `broadcast`, or a
 stateless `firing` block and the Queues between the blocks and the children stay

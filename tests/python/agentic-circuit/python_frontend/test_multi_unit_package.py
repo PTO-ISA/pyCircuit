@@ -34,6 +34,7 @@ from jsonschema import Draft202012Validator
 
 REPOSITORY = Path(__file__).resolve().parents[4]
 SCHEMA = REPOSITORY / "schemas" / "agentic-circuit" / "source-map.schema.json"
+GOLDENS = REPOSITORY / "tests" / "goldens" / "agentic-circuit" / "source-map"
 
 MANIFEST = """[project]
 name = "multi-unit-fixture"
@@ -309,6 +310,104 @@ class MultiUnitPackageTest(unittest.TestCase):
         self.assertEqual(
             ["child_a_0", "child_b_1"],
             [instance["name"] for instance in document["module_instances"]],
+        )
+        # Publication keeps canonical provenance and the capture keeps the
+        # original call site, not the flattened text position.
+        core_lines = (self.root / "source" / "core.py").read_text(
+            encoding="utf-8"
+        ).splitlines()
+
+        def call_line(needle: str) -> int:
+            return next(
+                index + 1
+                for index, text in enumerate(core_lines)
+                if needle in text
+            )
+
+        self.assertEqual(
+            [
+                {
+                    "origins": [
+                        {
+                            "frames": [
+                                {
+                                    "column": 11,
+                                    "file": "source/core.py",
+                                    "kind": "statement",
+                                    "line": call_line("= child_a("),
+                                }
+                            ]
+                        }
+                    ]
+                },
+                {
+                    "origins": [
+                        {
+                            "frames": [
+                                {
+                                    "column": 11,
+                                    "file": "source/core.py",
+                                    "kind": "statement",
+                                    "line": call_line("= child_b("),
+                                }
+                            ]
+                        }
+                    ]
+                },
+            ],
+            [
+                instance["source_provenance"]
+                for instance in document["module_instances"]
+            ],
+        )
+
+    def test_multi_unit_source_map_matches_golden(self) -> None:
+        """Item V05: the module construct is pinned by a source-map golden."""
+
+        self._require_native_flow()
+        self._write("source/child_a.py", CHILD_A)
+        self._write("source/child_b.py", CHILD_B)
+        self._write("source/core.py", CORE)
+
+        bundle = self._build_package()
+
+        document = (bundle / "share" / "generated" / "source-map.json").read_bytes()
+        Draft202012Validator(
+            json.loads(SCHEMA.read_text(encoding="utf-8"))
+        ).validate(json.loads(document))
+        self.assertEqual(
+            (GOLDENS / "module.json").read_bytes(),
+            document,
+            "module source-map golden drifted",
+        )
+
+    def test_published_source_unit_keeps_canonical_provenance(self) -> None:
+        self._require_native_flow()
+        self._write("source/child_a.py", CHILD_A)
+        self._write("source/child_b.py", CHILD_B)
+        self._write("source/core.py", CORE)
+
+        self._build_package()
+
+        unit = (
+            self.root / "package" / "sources_child_a.ac"
+        ).read_text(encoding="utf-8")
+        child_lines = (self.root / "source" / "child_a.py").read_text(
+            encoding="utf-8"
+        ).splitlines()
+        rule_line = next(
+            index + 1
+            for index, text in enumerate(child_lines)
+            if "return Mid(" in text
+        )
+
+        # A published unit carries the canonical attribute, not MLIR locations.
+        self.assertIn("ac.source_provenance = [", unit)
+        self.assertNotIn("loc(\"source/child_a.py\"", unit)
+        self.assertIn(
+            "{column = 18 : i64, file = \"source/child_a.py\", "
+            f"kind = \"statement\", line = {rule_line} : i64}}",
+            unit,
         )
 
     def test_each_source_owns_its_nominals_and_import_header(self) -> None:

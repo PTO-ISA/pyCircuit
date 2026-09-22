@@ -2040,6 +2040,12 @@ inventory，因此 import 携带与 provider 相同的 inventory；symbol 带 de
 declaration 用 `ac.source_file` 标明其所属 Python 文件，因此编译器按 source 文件各生成一个
 interface unit，被多个文件共享的 nominal 只声明一次。
 
+已发布的 unit 携带规范的 `ac.source_provenance` attribute，而不是 MLIR debug location：编译器在
+发布 verified unit 之前为每个带 location 的 operation materialize 该 attribute，因此重新
+parse 的 unit 仍保留 linker 与 backend 读取的 provenance。closure capture 会报告每个
+definition 的原始文件、行与列，因此 frame 指向声明该语句的文件与位置，而不是 entry 文件
+flatten 后的位置。
+
 结构化 QueueGraph 后端接纳这样的 shape：parent 自有 scope 中的每个本地
 block 都是单次 `transform`、fanout `broadcast` 或无状态 `firing`，且 block 与 child 之间
 的 Queue 仍由 parent 拥有。transform 可以接收多个输入 Queue，因此「多个参数、一个结果」

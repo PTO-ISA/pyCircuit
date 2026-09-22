@@ -78,6 +78,11 @@ mlir::LogicalResult lowerValueContracts(mlir::ModuleOp model);
 /// Verify compiler-private logical-to-physical Queue payload projections.
 mlir::LogicalResult verifyInternalPayloadProjections(mlir::ModuleOp model);
 
+/// Materialize the canonical `ac.source_provenance` attribute from every
+/// operation's MLIR location. Operations that already carry the attribute are
+/// left untouched, so freeze and package publication agree on the carrier.
+void materializeSourceProvenance(mlir::ModuleOp model);
+
 /// Add the canonical staged rule-to-marker-free-IR pipeline. Topology freeze
 /// remains a separate stage so compiler drivers can preserve stage evidence.
 void addRuleLoweringPipeline(mlir::OpPassManager &manager);

@@ -121,6 +121,8 @@ SmallVector<SourceOriginRecord> sourceOrigins(Location location) {
   return {};
 }
 
+} // namespace
+
 void materializeSourceProvenance(ModuleOp model) {
   Builder builder(model.getContext());
   model.walk([&](Operation *operation) {
@@ -162,6 +164,8 @@ void materializeSourceProvenance(ModuleOp model) {
                        builder.getArrayAttr(originAttrs));
   });
 }
+
+namespace {
 
 std::string manifestKey(SymbolRefAttr owner, StringRef kind) {
   std::string key;

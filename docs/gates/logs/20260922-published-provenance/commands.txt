@@ -1,0 +1,25 @@
+# Canonical source provenance through AC unit publication.
+# Run from the repository root with the native toolchain built
+# (.pycircuit_out/toolchain/build) and the Python extension importable.
+
+ninja -C .pycircuit_out/toolchain/build acc
+ninja -C .pycircuit_out/toolchain/build agentic_circuit_native
+python3 -m pytest tests/python/agentic-circuit/python_frontend/test_multi_unit_package.py -q -p no:cacheprovider
+
+# Bisect used to locate the gap: the frontend carries MLIR locations only, and
+# the published unit used to drop them without materializing the attribute.
+#   frontend lower_queue_source  -> 2 loc(...) , 0 ac.source_provenance
+#   native acir-verify publish   -> 0 loc(...) , 0 ac.source_provenance   (before)
+#   native acir-verify publish   -> 0 loc(...) , N ac.source_provenance   (after)
+
+# End-to-end placement provenance:
+python3 -m agentic_circuit._acc_py -c source/core.py -o package/core.ac --quiet
+.pycircuit_out/toolchain/build/bin/acc -c package -emit-cpp-bundle -o bundle
+python3 -c 'import json;d=json.load(open("bundle/share/generated/source-map.json"));print(d["module_instances"])'
+
+# Lane context.
+python3 -m pytest tests/python/agentic-circuit -q -p no:cacheprovider \
+  --ignore=tests/python/agentic-circuit/tools
+python3 -m pytest tests/unit -m unit -q -p no:cacheprovider
+ninja -C .pycircuit_out/toolchain/build check-acir
+ctest --test-dir .pycircuit_out/toolchain/build
