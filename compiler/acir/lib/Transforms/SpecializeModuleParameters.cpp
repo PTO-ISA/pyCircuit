@@ -34,6 +34,16 @@ void foldParameters(ac::ModuleOp module, DictionaryAttr environment) {
     Attribute value = environment.get(read.getParameter());
     if (!value)
       continue;
+    // A read may narrow the declared parameter to the consumer's payload
+    // width, and ac.var.constant requires the literal at that exact width.
+    // The read verifier already proved the value fits.
+    auto element =
+        cast<ac::VarType>(read.getResult().getType()).getElementType();
+    if (auto integer = dyn_cast<IntegerAttr>(value))
+      if (auto target = dyn_cast<IntegerType>(element))
+        if (integer.getValue().getBitWidth() != target.getWidth())
+          value = IntegerAttr::get(
+              target, integer.getValue().zextOrTrunc(target.getWidth()));
     OpBuilder builder(read);
     auto constant = builder.create<ac::VarConstantOp>(
         read.getLoc(), read.getResult().getType(), value);
@@ -61,6 +71,24 @@ std::string specializedName(ac::ModuleOp source, DictionaryAttr environment) {
     hex.push_back(llvm::hexdigit(digest[index] & 0xF, /*LowerCase=*/true));
   }
   return (source.getSymName() + "__p" + hex).str();
+}
+
+/// A clone is its own definition, so the rule identities the source definition
+/// namespaced by its own symbol must be rescoped to the clone. Identities that
+/// are already definition-local (``var/...``, ``table/...``) stay untouched.
+void rescopeStableIds(ac::ModuleOp module, StringRef source, StringRef clone) {
+  module.walk([&](Operation *operation) {
+    auto attribute = operation->getAttrOfType<StringAttr>("stable_id");
+    if (!attribute)
+      return;
+    StringRef remainder = attribute.getValue();
+    if (!remainder.consume_front(source) || !remainder.consume_front("/"))
+      return;
+    operation->setAttr(
+        "stable_id",
+        StringAttr::get(operation->getContext(),
+                        (clone + "/" + remainder).str()));
+  });
 }
 
 struct SpecializeModuleParametersPass
@@ -114,6 +142,7 @@ struct SpecializeModuleParametersPass
         auto clone = cast<ac::ModuleOp>(builder.clone(*source.getOperation()));
         clone.setSymName(specializedName(source, environment));
         clone->setAttr("static_params", environment);
+        rescopeStableIds(clone, source.getSymName(), clone.getSymName());
         targets.push_back({environment, clone});
       }
 

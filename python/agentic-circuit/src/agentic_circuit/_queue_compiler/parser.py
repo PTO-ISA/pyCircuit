@@ -129,6 +129,7 @@ from .syntax import _decorator_name
 
 RULE_LOWERING_PIPELINE = (
     "builtin.module("
+    "ac-specialize-module-parameters,"
     "ac-lower-rules,"
     "ac-inline-pure-helpers,"
     "canonicalize,cse,"
