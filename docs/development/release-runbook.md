@@ -26,14 +26,33 @@ The release publishes, in one asset set:
 - `pycircuit-sdk-<version>-release-index.json`, `LICENSES.tar.gz`, release notes,
 - one `pyc-tools-<platform>:v<version>` GHCR artifact per platform.
 
-PyPI publication is opt-in and runs as its **own job** (`publish-pypi`) so a
-rejected upload cannot invalidate a GitHub release that is already published and
-about to be attested. Enabling it needs both sides:
+PyPI publication is **not** part of `release.yml`. The package host is outside
+the language contract, so it runs as the separate `Publish accepted wheels to
+PyPI` workflow (`.github/workflows/publish-pypi.yml`) over bytes that the release
+already published. A rejected upload therefore cannot invalidate a release or
+its attestation, and an already cut release can still be published later without
+rebuilding, re-tagging, or moving the source revision pin:
 
-1. repository variable `PYC_PUBLISH_PYPI=1`, and
-2. a PyPI trusted publisher for owner `PTO-ISA`, repository `pyCircuit`, workflow
-   `release.yml`, environment `release` (the job requests `id-token: write` and
-   uses `environment: release`).
+```bash
+gh workflow run publish-pypi.yml --repo PTO-ISA/pyCircuit \
+  -f version=6.1.0 -f source_revision=<accepted revision>
+```
+
+The workflow refuses to run unless the release is published, non-prerelease, and
+its tag peels to the given source revision. It then selects exactly the wheels
+that carry the release version (the SDK wheel for each platform plus
+`pycircuit-semantic-core`), checks each one's recorded size and its `METADATA`
+name and version, reports every wheel it skips, and uploads the result. A
+separately versioned tool wheel in the same release (`agentic_circuit` 0.1.0)
+is skipped by design rather than silently published.
+
+Enabling it needs both sides:
+
+1. a PyPI trusted publisher for owner `PTO-ISA`, repository `pyCircuit`, workflow
+   `publish-pypi.yml`, environment `release` (the job requests `id-token: write`
+   and uses `environment: release`), and
+2. the release itself to be green, so the tag exists and the attestation is
+   linked.
 
 PyPI refuses a version that already exists, so a package already uploaded there
 can only be superseded by a new version.

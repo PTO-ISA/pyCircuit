@@ -1,0 +1,177 @@
+name: Publish accepted wheels to PyPI
+
+# The package host is outside the language contract, so publication runs as its
+# own workflow over bytes that are already accepted and published on the
+# immutable GitHub release. A rejected upload can therefore never invalidate a
+# release or its attestation, and an already cut release can be published to
+# PyPI later without rebuilding, re-tagging, or moving the source revision pin.
+#
+# The workflow uploads exactly the wheels that carry the release version. A
+# separately versioned tool wheel in the same release (agentic_circuit 0.1.0)
+# is reported and skipped, so publishing a release never silently publishes an
+# unrelated project version.
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: Release version without the leading v (for example 6.1.0)
+        required: true
+        type: string
+      source_revision:
+        description: Accepted source revision that the release tag must peel to
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: pypi-publish-${{ inputs.version }}
+  cancel-in-progress: false
+
+jobs:
+  publish-pypi:
+    if: github.repository == 'PTO-ISA/pyCircuit'
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+      id-token: write
+    environment:
+      name: release
+    steps:
+      - name: Verify the release tag carries the accepted source revision
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          version='${{ inputs.version }}'
+          revision='${{ inputs.source_revision }}'
+          test -n "$version"
+          test -n "$revision"
+          live="$(gh release view "v${version}" --repo "$GITHUB_REPOSITORY" \
+            --json isDraft,isPrerelease \
+            --jq '[(.isDraft | not), (.isPrerelease | not)] | all')"
+          test "$live" = "true"
+          peeled="$(git ls-remote "https://github.com/${GITHUB_REPOSITORY}" "refs/tags/v${version}^{}" | cut -f1)"
+          if [ "$peeled" != "$revision" ]; then
+            echo "release tag v${version} peels to '${peeled}', not '${revision}'" >&2
+            exit 1
+          fi
+          echo "release tag v${version} is pinned to ${revision}" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Download the published accepted bytes
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          mkdir -p release wheels
+          gh release download "v${{ inputs.version }}" \
+            --repo "$GITHUB_REPOSITORY" \
+            --dir release \
+            --pattern '*.whl' \
+            --pattern "pycircuit-sdk-${{ inputs.version }}-release-index.json"
+
+      - name: Select the wheels that carry the release version
+        run: |
+          set -euo pipefail
+          python3 - '${{ inputs.version }}' '${{ inputs.source_revision }}' <<'PY'
+          import json
+          import os
+          import pathlib
+          import shutil
+          import sys
+          import zipfile
+
+          version, revision = sys.argv[1], sys.argv[2]
+          release = pathlib.Path("release")
+          wheels = pathlib.Path("wheels")
+          index = json.loads(
+              (release / f"pycircuit-sdk-{version}-release-index.json").read_text(
+                  encoding="utf-8"
+              )
+          )
+
+          def fail(message: str) -> None:
+              raise SystemExit(message)
+
+          if index["schema"] != "pycircuit-sdk-release-index":
+              fail(f"unexpected release index schema: {index['schema']}")
+          if index["product_version"] != version:
+              fail(f"release index product version {index['product_version']} != {version}")
+          if index["candidate_tag"] != f"v{version}":
+              fail(f"release index candidate tag {index['candidate_tag']} != v{version}")
+          if index["source_revision"] != revision:
+              fail(f"release index source revision {index['source_revision']} != {revision}")
+
+          def normalize(project: str) -> str:
+              return project.replace("_", "-").lower()
+
+          published = {
+              normalize(project)
+              for project, declared in index["distributions"].items()
+              if declared == version
+          }
+          # The release version carries exactly the SDK wheel plus the semantic
+          # core. A different set is a contract change, not a silent widening.
+          expected = {"pycircuit-hisi", "pycircuit-semantic-core"}
+          if published != expected:
+              fail(f"release {version} declares {sorted(published)}, expected {sorted(expected)}")
+
+          selected: list[str] = []
+          skipped: list[str] = []
+          platforms: list[str] = []
+          for entry in index["wheels"].values():
+              name = entry["name"]
+              project = normalize(name.split("-", 1)[0])
+              if project not in published:
+                  skipped.append(f"{name} (project version is not {version})")
+                  continue
+              path = release / name
+              if not path.is_file():
+                  fail(f"release index names a wheel that is not published: {name}")
+              size = path.stat().st_size
+              if size != entry["size"]:
+                  fail(f"{name} is {size} bytes, release index records {entry['size']}")
+              with zipfile.ZipFile(path) as archive:
+                  metadata = [
+                      item
+                      for item in archive.namelist()
+                      if item.endswith(".dist-info/METADATA")
+                  ]
+                  if len(metadata) != 1:
+                      fail(f"{name} carries {len(metadata)} METADATA members")
+                  headers: dict[str, str] = {}
+                  for line in archive.read(metadata[0]).decode("utf-8").splitlines():
+                      if not line:
+                          break
+                      key, _, value = line.partition(": ")
+                      headers[key] = value
+              if normalize(headers.get("Name", "")) != project:
+                  fail(f"{name} declares project {headers.get('Name')!r}, expected {project!r}")
+              if headers.get("Version") != version:
+                  fail(f"{name} declares version {headers.get('Version')!r}, expected {version!r}")
+              shutil.copy2(path, wheels / name)
+              if project == "pycircuit-hisi":
+                  platforms.append(name)
+              selected.append(f"{name} ({size} bytes)")
+
+          if len(selected) != 4:
+              fail(f"release {version} selects {len(selected)} wheels, expected 4")
+          if len(platforms) != 3:
+              fail(f"release {version} carries {len(platforms)} pycircuit-hisi wheels, expected 3")
+          if len(skipped) != len(index["wheels"]) - 4:
+              fail(f"release {version} skips {len(skipped)} wheels unexpectedly")
+
+          report = [f"Publishing {len(selected)} wheels for {version}:"]
+          report += [f"  {item}" for item in sorted(selected)]
+          report += [f"Skipping {len(skipped)} wheel(s) outside the release version:"]
+          report += [f"  {item}" for item in sorted(skipped)]
+          print("\n".join(report))
+          with open(os.environ["GITHUB_STEP_SUMMARY"], "a", encoding="utf-8") as handle:
+              handle.write("\n".join(report) + "\n")
+          PY
+
+      - name: Publish the accepted wheels to PyPI
+        uses: pypa/gh-action-pypi-publish@dc37677b2e1c63e2034f94d8a5b11f265b73ba33 # release/v1
+        with:
+          packages-dir: wheels

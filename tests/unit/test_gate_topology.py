@@ -295,23 +295,50 @@ def test_closure_scripts_do_not_pipe_python_into_an_early_exit_consumer() -> Non
 def test_pypi_publication_cannot_invalidate_a_published_release() -> None:
     """The package host is outside the language contract.
 
-    The PyPI upload runs as its own job, and neither the publication
-    verification, the stable platform re-verification, nor the final attestation
-    may depend on it: a rejected upload must not leave an already published
-    GitHub release unattested.
+    Publication runs as its own workflow over the already published release
+    bytes, and the release workflow contains no upload at all: a rejected upload
+    must not leave an already published GitHub release unattested, and an
+    already cut release must be publishable to PyPI later without rebuilding,
+    re-tagging, or re-verifying anything.
     """
 
-    workflow = yaml.safe_load(_read(".github/workflows/release.yml"))
-    jobs = workflow["jobs"]
-    pypi_jobs = [
-        name
-        for name, job in jobs.items()
-        if "pypa/gh-action-pypi-publish" in json.dumps(job)
-    ]
-    assert len(pypi_jobs) == 1, pypi_jobs
-    pypi_job = pypi_jobs[0]
-    assert jobs[pypi_job]["needs"] == ["publish-release"]
-    assert "vars.PYC_PUBLISH_PYPI == '1'" in json.dumps(jobs[pypi_job])
+    release = yaml.safe_load(_read(".github/workflows/release.yml"))
+    jobs = release["jobs"]
+    assert "pypa/gh-action-pypi-publish" not in json.dumps(release)
+    assert "PYC_PUBLISH_PYPI" not in json.dumps(release)
+    for placeholder in ("publish-pypi", "pypi"):
+        assert placeholder not in jobs, jobs
+
+    text = _read(".github/workflows/publish-pypi.yml")
+    publication = yaml.safe_load(text)
+    triggers = publication[True] if True in publication else publication["on"]
+    assert list(triggers) == ["workflow_dispatch"], triggers
+    inputs = triggers["workflow_dispatch"]["inputs"]
+    assert set(inputs) == {"version", "source_revision"}
+    assert all(inputs[name]["required"] is True for name in inputs)
+
+    (job,) = publication["jobs"].values()
+    assert job["environment"] == {"name": "release"}
+    assert job["permissions"]["id-token"] == "write"
+    assert job["permissions"]["contents"] == "read"
+
+    assert "pypa/gh-action-pypi-publish@" in text
+    # The upload must be the release bytes, never a rebuild.
+    for rebuild in (
+        "cmake --build",
+        "python3 -m build",
+        "create_wheel.py",
+        "pyc build",
+    ):
+        assert rebuild not in text, rebuild
+    assert "gh release download" in text
+    # The tag is the source revision pin, and the selection is version-scoped so
+    # a separately versioned tool wheel in the same release is never published.
+    assert "refs/tags/v${version}^{}" in text
+    assert "${{ inputs.source_revision }}" in text
+    assert "len(selected) != 4" in text
+    assert "len(platforms) != 3" in text
+    assert 'expected = {"pycircuit-hisi", "pycircuit-semantic-core"}' in text
 
     def needs_closure(name: str) -> set[str]:
         seen: set[str] = set()
@@ -329,4 +356,4 @@ def test_pypi_publication_cannot_invalidate_a_published_release() -> None:
         "verify-stable-platforms",
         "release-attestation",
     ):
-        assert pypi_job not in needs_closure(dependent), dependent
+        assert not needs_closure(dependent) & set(publication["jobs"]), dependent
