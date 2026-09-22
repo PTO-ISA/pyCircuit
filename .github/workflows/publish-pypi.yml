@@ -20,6 +20,11 @@ on:
         description: Accepted source revision that the release tag must peel to
         required: true
         type: string
+      max_upload_bytes:
+        description: Per-file host limit; larger wheels are reported and deferred
+        required: false
+        default: "104857600"
+        type: string
 
 permissions:
   contents: read
@@ -73,7 +78,7 @@ jobs:
       - name: Select the wheels that carry the release version
         run: |
           set -euo pipefail
-          python3 - '${{ inputs.version }}' '${{ inputs.source_revision }}' <<'PY'
+          python3 - '${{ inputs.version }}' '${{ inputs.source_revision }}' '${{ inputs.max_upload_bytes }}' <<'PY'
           import json
           import os
           import pathlib
@@ -81,7 +86,7 @@ jobs:
           import sys
           import zipfile
 
-          version, revision = sys.argv[1], sys.argv[2]
+          version, revision, limit = sys.argv[1], sys.argv[2], int(sys.argv[3])
           release = pathlib.Path("release")
           wheels = pathlib.Path("wheels")
           index = json.loads(
@@ -150,10 +155,11 @@ jobs:
                   fail(f"{name} declares project {headers.get('Name')!r}, expected {project!r}")
               if headers.get("Version") != version:
                   fail(f"{name} declares version {headers.get('Version')!r}, expected {version!r}")
-              shutil.copy2(path, wheels / name)
               if project == "pycircuit-hisi":
                   platforms.append(name)
-              selected.append(f"{name} ({size} bytes)")
+              selected.append((name, size))
+              if size <= limit:
+                  shutil.copy2(path, wheels / name)
 
           if len(selected) != 3:
               fail(f"release {version} selects {len(selected)} wheels, expected 3")
@@ -162,10 +168,22 @@ jobs:
           if len(skipped) != len(index["wheels"]) - 3:
               fail(f"release {version} skips {len(skipped)} wheels unexpectedly")
 
-          report = [f"Publishing {len(selected)} wheels for {version}:"]
-          report += [f"  {item}" for item in sorted(selected)]
-          report += [f"Skipping {len(skipped)} wheel(s) outside the release version:"]
-          report += [f"  {item}" for item in sorted(skipped)]
+          uploading = [(name, size) for name, size in selected if size <= limit]
+          deferred = [(name, size) for name, size in selected if size > limit]
+          if not uploading:
+              fail(f"every wheel for {version} exceeds the {limit}-byte host limit")
+
+          report = [f"Publishing {len(uploading)} wheel(s) for {version}:"]
+          report += [f"  {name} ({size} bytes)" for name, size in sorted(uploading)]
+          if deferred:
+              report += [
+                  f"Deferred: {len(deferred)} wheel(s) exceed the {limit}-byte host "
+                  "limit and need a PyPI file-size increase:"
+              ]
+              report += [f"  {name} ({size} bytes)" for name, size in sorted(deferred)]
+          if skipped:
+              report += [f"Skipping {len(skipped)} wheel(s) outside the release version:"]
+              report += [f"  {item}" for item in sorted(skipped)]
           print("\n".join(report))
           with open(os.environ["GITHUB_STEP_SUMMARY"], "a", encoding="utf-8") as handle:
               handle.write("\n".join(report) + "\n")

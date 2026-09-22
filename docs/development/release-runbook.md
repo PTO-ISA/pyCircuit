@@ -57,6 +57,13 @@ attestation is linked, plus **one** of these two account-side setups:
 Creating a pending publisher is a PyPI web-console action (there is no API for
 it), so it cannot be automated from this repository.
 
+PyPI refuses a file larger than its per-project limit (100 MiB by default, raised
+on request through
+<https://docs.pypi.org/project-management/storage-limits>). The selection step
+takes that limit as `max_upload_bytes`, publishes every wheel that fits, and
+reports the rest as deferred instead of failing; re-dispatching after an increase
+uploads only what is still missing.
+
 PyPI refuses a version that already exists, so a package already uploaded there
 can only be superseded by a new version. Because of that the upload runs with
 `skip-existing`, so a partially completed upload is finished by re-dispatching
