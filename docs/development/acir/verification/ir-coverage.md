@@ -127,7 +127,7 @@
 | ac.route.yield | ACIR_RouteYieldOp | tests/mlir/agentic-circuit/ACIR/route.mlir | tests/mlir/agentic-circuit/ACIR/route-invalid.mlir |
 | ac.select | ACIR_SelectOp | tests/mlir/agentic-circuit/ACIR/select.mlir<br>tests/mlir/agentic-circuit/Transforms/queue-multi-block-local-select.mlir | tests/mlir/agentic-circuit/ACIR/select-invalid.mlir |
 | ac.select.yield | ACIR_SelectYieldOp | tests/mlir/agentic-circuit/ACIR/select.mlir<br>tests/mlir/agentic-circuit/Transforms/queue-multi-block-local-select.mlir | tests/mlir/agentic-circuit/ACIR/select-invalid.mlir |
-| ac.merge | ACIR_MergeOp | tests/mlir/agentic-circuit/ACIR/control-feedback.mlir<br>tests/mlir/agentic-circuit/CodeGen/arbiter.mlir | tests/mlir/agentic-circuit/ACIR/control-feedback-invalid.mlir |
+| ac.merge | ACIR_MergeOp | tests/mlir/agentic-circuit/ACIR/control-feedback.mlir<br>tests/mlir/agentic-circuit/CodeGen/arbiter.mlir<br>tests/mlir/agentic-circuit/CodeGen/queue-composite-arbiter-selection-gap.mlir | tests/mlir/agentic-circuit/ACIR/control-feedback-invalid.mlir |
 | ac.barrier | ACIR_BarrierOp | tests/mlir/agentic-circuit/ACIR/barrier.mlir | tests/mlir/agentic-circuit/ACIR/barrier-invalid.mlir |
 | ac.credit | ACIR_CreditOp | tests/mlir/agentic-circuit/ACIR/credit.mlir | tests/mlir/agentic-circuit/ACIR/credit-invalid.mlir |
 | ac.credit.yield | ACIR_CreditYieldOp | tests/mlir/agentic-circuit/ACIR/credit.mlir | tests/mlir/agentic-circuit/ACIR/credit-invalid.mlir |
