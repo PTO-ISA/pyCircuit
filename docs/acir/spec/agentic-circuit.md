@@ -177,20 +177,81 @@ agentic-circuit schema opcode ac.transform
 
 ## Python authoring contract
 
-### Runtime API and capture-only markers
+### Runtime, reserved, and capture-only inventories
 
 The package separates Python objects that have ordinary runtime behavior from
-names that exist only for ACPy source capture. `agentic_circuit.RUNTIME_API` is
-the exact runtime authoring inventory and is also the package's `__all__`.
-Consequently, wildcard imports do not claim that capture-only syntax produces
-runtime values. `agentic_circuit.CAPTURE_ONLY_API` is the exact 37-name marker
-inventory:
+names that exist only for ACPy source capture. Three disjoint inventories
+describe the authored surface.
 
-```text
-scope map set instances view find concat literal zero zext sext truncate static_assert insert matches source popcount
-count_leading_zeros count_trailing_zeros priority_encode onehot_encode memory sink observe
-expect compute pipeline route merge schedule engine reorder fork barrier table
-slot
+`agentic_circuit.RUNTIME_API` is the exact runtime authoring inventory: every
+listed name can author a Queue model. `agentic_circuit.__all__` is the
+wildcard-import surface derived from `RUNTIME_API`; it never contains a name
+that shadows a Python builtin, so `range` stays reachable only as the explicit
+attribute `ac.range`.
+
+`agentic_circuit.RESERVED_API` is the exact reserved-declaration inventory.
+The package accepts each spelling so authored source can import it, but the
+ACPy queue frontend has no implementation and rejects the declaration with
+`ACPY-API-001`.
+
+```python
+# inventory-size: 6
+agentic_circuit.RESERVED_API = (
+    "extern_module",
+    "interface",
+    "packet",
+    "process",
+    "protocol",
+    "transaction",
+)
+```
+
+`agentic_circuit.CAPTURE_ONLY_API` is the exact capture-only marker inventory:
+
+```python
+# inventory-size: 40
+agentic_circuit.CAPTURE_ONLY_API = (
+    "scope",
+    "map",
+    "set",
+    "view",
+    "concat",
+    "literal",
+    "zero",
+    "zext",
+    "sext",
+    "truncate",
+    "wrap",
+    "saturate",
+    "checked",
+    "refine",
+    "static_assert",
+    "insert",
+    "matches",
+    "source",
+    "popcount",
+    "count_leading_zeros",
+    "count_trailing_zeros",
+    "priority_encode",
+    "onehot_encode",
+    "onehot_enum",
+    "match_enum",
+    "memory",
+    "sink",
+    "observe",
+    "expect",
+    "compute",
+    "pipeline",
+    "route",
+    "merge",
+    "schedule",
+    "engine",
+    "reorder",
+    "fork",
+    "barrier",
+    "table",
+    "slot",
+)
 ```
 
 The canonical marker namespace is `agentic_circuit.markers`. For example,
@@ -204,6 +265,10 @@ as capture-time only. A marker MUST NOT return a placeholder queue, value,
 table, or other fake runtime object. `ac.table[...]` remains subscript-only,
 and calling the removed `ac.table(value, ...)` form raises `TypeError` with the
 `ac.memory` replacement guidance.
+
+The removed `ac.instances(...)` marker has no lowering. Calling it fails with
+`ACPY-API-002`, which points at `ac.array`, `ac.map`, and `ac.set` today and at
+the `ac.list` consolidation tracked by issue #150.
 
 ### System declaration
 
@@ -3147,13 +3212,16 @@ optional `SourceSpan`; compiler and CLI boundaries consume those fields rather
 than parsing message punctuation. The packaged catalog is complete for the
 implementation and is queried with `agentic-circuit explain CODE`.
 
-Frontend Queue diagnostics use the `ACPY-QUEUE-*` family. Value-level primitive
+Frontend Queue diagnostics use the `ACPY-QUEUE-*` family and public-inventory
+diagnostics use `ACPY-API-*`. Value-level primitive
 validation uses `ACPY-VAR-*`; lowering, build, and runtime stages keep their own
 registered families. Diagnostics SHOULD identify the source construct,
 violated static rule, and repair. Important current codes include:
 
 | Code | Meaning |
 | --- | --- |
+| `ACPY-API-001` | reserved declaration name has no implementation |
+| `ACPY-API-002` | removed marker has no lowering; migration is required |
 | `ACPY-QUEUE-001` | invalid system, assignment, statement, or positive constant |
 | `ACPY-QUEUE-002` | unsupported payload or structure declaration |
 | `ACPY-QUEUE-003` | invalid lambda or general Queue expression |

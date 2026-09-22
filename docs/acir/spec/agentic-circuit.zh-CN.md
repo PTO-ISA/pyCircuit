@@ -149,18 +149,77 @@ credit、dependency 和 reorder 等可复用硬件行为。
 agentic-circuit schema opcode ac.transform
 ```
 
-## 运行时 API 与 capture-only marker
+## 运行时 API、reserved 与 capture-only 清单
 
 Python 包明确区分可按普通 Python 语义使用的对象和只供 ACPy 源码捕获的语法
-marker。`agentic_circuit.RUNTIME_API` 是精确的运行时 authoring API 清单，也就是
-包的 `__all__`；因此 wildcard import 不再暗示 capture-only 语法会产生运行时值。
-`agentic_circuit.CAPTURE_ONLY_API` 是以下 30 个 marker 的精确清单：
+marker。三个互不相交的清单共同描述可书写的 API 表面。
 
-```text
-scope map set instances view find concat insert matches source popcount
-count_leading_zeros count_trailing_zeros priority_encode onehot_encode memory sink observe
-expect compute pipeline route merge schedule engine reorder fork barrier table
-slot
+`agentic_circuit.RUNTIME_API` 是精确的运行时 authoring API 清单：清单中的每个名字
+都能 authoring 一个 Queue 模型。`agentic_circuit.__all__` 是由 `RUNTIME_API` 派生
+的 wildcard import 表面；它绝不包含会遮蔽 Python 内建名字的条目，因此 `range`
+只能通过显式属性 `ac.range` 使用。
+
+`agentic_circuit.RESERVED_API` 是精确的 reserved 声明名字清单。包接受这些
+拼写以便源码导入，但 ACPy queue 前端没有实现，会在声明处以 `ACPY-API-001` 拒绝。
+
+```python
+# inventory-size: 6
+agentic_circuit.RESERVED_API = (
+    "extern_module",
+    "interface",
+    "packet",
+    "process",
+    "protocol",
+    "transaction",
+)
+```
+
+`agentic_circuit.CAPTURE_ONLY_API` 是精确的 capture-only marker 清单：
+
+```python
+# inventory-size: 40
+agentic_circuit.CAPTURE_ONLY_API = (
+    "scope",
+    "map",
+    "set",
+    "view",
+    "concat",
+    "literal",
+    "zero",
+    "zext",
+    "sext",
+    "truncate",
+    "wrap",
+    "saturate",
+    "checked",
+    "refine",
+    "static_assert",
+    "insert",
+    "matches",
+    "source",
+    "popcount",
+    "count_leading_zeros",
+    "count_trailing_zeros",
+    "priority_encode",
+    "onehot_encode",
+    "onehot_enum",
+    "match_enum",
+    "memory",
+    "sink",
+    "observe",
+    "expect",
+    "compute",
+    "pipeline",
+    "route",
+    "merge",
+    "schedule",
+    "engine",
+    "reorder",
+    "fork",
+    "barrier",
+    "table",
+    "slot",
+)
 ```
 
 规范 marker 命名空间是 `agentic_circuit.markers`。例如，前端捕获
@@ -172,6 +231,10 @@ slot
 伪造的 Queue、值、Table 或其他运行时占位对象。`ac.table[...]` 仍然只能用下标
 形式声明；被移除的旧式 `ac.table(value, ...)` 调用继续抛出 `TypeError`，并给出
 迁移到 `ac.memory` 的提示。
+
+被移除的 `ac.instances(...)` marker 没有 lowering。调用它会以 `ACPY-API-002`
+失败，该诊断指向当前的 `ac.array`、`ac.map`、`ac.set`，以及由 issue #150 跟踪
+的 `ac.list` 统一方案。
 
 ## 最小示例
 
@@ -1978,7 +2041,9 @@ UTF-8 字节都能被 MLIR parser 往返读取。
 `tools/agentic-circuit/generate-diagnostic-catalog.py --check` 会阻止实现使用未注册的
 `ACPY-*`、`ACIR-*`、`ACLOWER-*`、`ACBUILD-*`、`ACRUN-*` 或 `ACSDK-*` 诊断码。
 
-Queue 拓扑错误使用 `ACPY-QUEUE-*`，标量 value primitive 的调用、类型、选项或位宽错误
+Queue 拓扑错误使用 `ACPY-QUEUE-*`，公共 API 清单错误使用 `ACPY-API-*`
+（`ACPY-API-001` 拒绝 reserved 声明名，`ACPY-API-002` 拒绝已移除且需要迁移的
+marker），标量 value primitive 的调用、类型、选项或位宽错误
 统一使用 `ACPY-VAR-003`，native QueueGraph/backend 使用 `ACLOWER-QUEUE-*`。同一码可在
 同一语义的多个检查点发射，但不得表示不同含义；详见 Decision 0242。
 
