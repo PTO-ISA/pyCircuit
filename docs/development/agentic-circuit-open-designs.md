@@ -245,9 +245,11 @@ mistake for complete:
   partially satisfied: `test_source_map_goldens.py` pins the helper and
   projection source maps against the published schema
   (`docs/gates/logs/20260922-v05-source-map-goldens/`), while the module and
-  specialization constructs need the linked AC package flow that `acc
-  -emit-cpp-bundle` requires for a multi-definition unit — the multi-unit work
-  tracked by #180.
+  specialization constructs need the linked AC package flow. The flow landed
+  with #258 and the **module** construct is now pinned:
+  `tests/goldens/agentic-circuit/source-map/module.json` records the linked
+  three-file hierarchy's placement provenance. The **specialization** construct
+  still needs a package that carries a parameterized family across units.
 
 ## Hierarchical instances and structured GFSIM source bundles (#180)
 
@@ -306,9 +308,13 @@ What is genuinely missing:
 - **No module/instance manifest.** Definition versus instance identity is
   available to the compiler but is not published as a machine-readable artifact
   for graph exporters or testbench adapters. The bundle's
-  `share/generated/source-map.json` does carry `module_instances` with their
-  definition symbols, but cross-unit placements currently publish an empty
-  provenance origin list, so it is not yet a complete instancing manifest.
+  `share/generated/source-map.json` reports `module_instances` with their
+  definition symbols and now also with the exact placement provenance (file,
+  line, column of the Python call), because a published unit materializes
+  canonical `ac.source_provenance` before publication and the closure capture
+  keeps original positions. It still carries no ordered typed static arguments,
+  so repeated placements of one definition are not yet distinguishable as a
+  manifest full specialization identity would.
 
 **Recommended shape** for the remaining work, consistent with the module family
 work that has landed since the issue was filed: derive the manifest from the typed

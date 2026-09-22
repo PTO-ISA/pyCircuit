@@ -32,6 +32,7 @@ from ._diagnostics import (
 from ._output import OutputSink
 from ._queue_compiler.provenance import DefinitionNdfMetadata, NdfMetadata
 from ._source_closure import SourceClosure
+from ._source_map import SourceNodeRecord, capture_source_node_locations
 from ._staging import ArtifactStage
 from ._static_eval import FrozenMap, StaticValue
 
@@ -324,6 +325,7 @@ def _capture_queue_rule(
     static_arguments: dict[str, StaticValue],
     definition_ndf: DefinitionNdfMetadata | None = None,
     definition_locations: dict[str, tuple[str, int, int]] | None = None,
+    source_node_locations: dict[str, tuple[SourceNodeRecord, ...]] | None = None,
 ) -> tuple[object, str, tuple[Diagnostic, ...]]:
     """Capture Queue/rule artifacts and preserve frontend diagnostics."""
 
@@ -340,6 +342,7 @@ def _capture_queue_rule(
         static_arguments=static_arguments,
         source_path=source_path,
         definition_locations=definition_locations,
+        source_node_locations=source_node_locations,
         definition_ndf=definition_ndf,
     )
     try:
@@ -362,12 +365,20 @@ def _capture_queue_rule(
 def _flatten_source_closure(
     closure: SourceClosure,
     entry: Path,
-) -> tuple[str, dict[str, NdfMetadata], dict[str, tuple[str, int, int]]]:
+) -> tuple[
+    str,
+    dict[str, NdfMetadata],
+    dict[str, tuple[str, int, int]],
+    dict[str, tuple[SourceNodeRecord, ...]],
+]:
     """Keep the entry body and only typed declarations from dependency sources.
 
     Each selected definition also reports the Python file that declares it, so
     the frontend owns every nominal and helper by its real source file instead
-    of attributing the whole closure to the entry file.
+    of attributing the whole closure to the entry file. The original node
+    locations travel with it as well, so the reparsed flattened text keeps the
+    real file, line, and column of every statement instead of the entry file's
+    flattened position.
     """
 
     from ._queue_compiler.provenance import extract_definition_ndf_metadata
@@ -375,6 +386,7 @@ def _flatten_source_closure(
     statements: list[ast.stmt] = []
     definition_ndf: dict[str, NdfMetadata] = {}
     definition_locations: dict[str, tuple[str, int, int]] = {}
+    source_node_locations: dict[str, tuple[SourceNodeRecord, ...]] = {}
     for source_entry in closure.entries:
         source_tree = ast.parse(
             source_entry.source,
@@ -415,12 +427,18 @@ def _flatten_source_closure(
             ):
                 selected.append(statement)
         statements.extend(selected)
+        captured_locations = capture_source_node_locations(
+            source_tree, source_entry.path
+        )
         for statement in selected:
             if isinstance(statement, (ast.FunctionDef, ast.ClassDef)):
                 definition_locations.setdefault(
                     statement.name,
                     (source_entry.path, statement.lineno, statement.col_offset + 1),
                 )
+                captured = captured_locations.get(statement.name)
+                if captured is not None:
+                    source_node_locations[statement.name] = captured
         selected_names = {
             statement.name
             for statement in selected
@@ -440,7 +458,7 @@ def _flatten_source_closure(
     source_text = ast.unparse(
         ast.fix_missing_locations(ast.Module(statements, []))
     )
-    return source_text, definition_ndf, definition_locations
+    return source_text, definition_ndf, definition_locations, source_node_locations
 
 
 def _worker_main(request_path: Path) -> int:
@@ -501,14 +519,18 @@ def _worker_main(request_path: Path) -> int:
                 from ._source_closure import capture_source_closure
 
                 closure = capture_source_closure(entry, workspace)
-                source_text, definition_ndf, definition_locations = (
-                    _flatten_source_closure(closure, entry)
-                )
+                (
+                    source_text,
+                    definition_ndf,
+                    definition_locations,
+                    source_node_locations,
+                ) = _flatten_source_closure(closure, entry)
                 acir = lower_source_unit(
                     source_text,
                     ((module_name, ()),),
                     source_path=entry.relative_to(workspace).as_posix(),
                     definition_locations=definition_locations,
+                    source_node_locations=source_node_locations,
                     definition_ndf=definition_ndf,
                 )
                 diagnostics = ()
@@ -517,9 +539,12 @@ def _worker_main(request_path: Path) -> int:
                 from ._source_closure import capture_source_closure
 
                 closure = capture_source_closure(entry, workspace)
-                source_text, definition_ndf, definition_locations = (
-                    _flatten_source_closure(closure, entry)
-                )
+                (
+                    source_text,
+                    definition_ndf,
+                    definition_locations,
+                    source_node_locations,
+                ) = _flatten_source_closure(closure, entry)
                 document, acir, diagnostics = _capture_queue_rule(
                     source_text,
                     request["system"],
@@ -527,6 +552,7 @@ def _worker_main(request_path: Path) -> int:
                     static_arguments,
                     definition_ndf,
                     definition_locations,
+                    source_node_locations,
                 )
             elif has_rule or modern_module_system:
                 frontend_kind = "queue_rule"

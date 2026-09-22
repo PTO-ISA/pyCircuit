@@ -306,3 +306,5 @@ docs/gates/logs/*
 !docs/gates/logs/20260922-v05-source-map-goldens/**
 !docs/gates/logs/20260922-multi-unit-package/
 !docs/gates/logs/20260922-multi-unit-package/**
+!docs/gates/logs/20260922-published-provenance/
+!docs/gates/logs/20260922-published-provenance/**
