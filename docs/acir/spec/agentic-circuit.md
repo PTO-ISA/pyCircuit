@@ -3165,7 +3165,13 @@ it never merges with or replaces an existing bundle. The installed `acc` and
 its sibling `pycc` come from the same exact pyCircuit revision.
 
 A structured C++ bundle publishes `include/generated/dut.h` as the typed root
-model interface and `include/generated/model.h` as the opaque lifecycle ABI.
+model interface and `include/generated/model.h` as the opaque lifecycle ABI. Each
+module contributes one source group at `include/generated/modules/<module>.hpp`
+and `src/generated/modules/<module>.cpp`, and its materialized interface at
+`include/generated/interfaces/<stem>.hpp`, so module hierarchy survives into the
+generated C++ instead of being flattened into the top-level unit. A flat plan
+publishes `include/generated/model.h` with `src/generated/model.cpp` and
+`src/generated/queuegraph.cpp` and no `dut.h`.
 The generated CMake target propagates both the generated include directory and
 the gfsim public include directory to consumers. Neither header, generated C++,
 source map, nor emitted-cost report embeds product-version or Git-revision

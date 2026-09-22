@@ -18,7 +18,7 @@ than described as done.
 | [#152](https://github.com/PTO-ISA/pyCircuit/issues/152) | unify `if`/`elif`/`else` conditional lowering | decision: shared predicate/effect model, staged plan recorded |
 | [#153](https://github.com/PTO-ISA/pyCircuit/issues/153) | Table allocation replacement vs generation init | answer recorded; no feature request |
 | [#128](https://github.com/PTO-ISA/pyCircuit/issues/128) | primitives/analysis/GFSim roadmap | tracker: current checkbox state re-verified |
-| [#180](https://github.com/PTO-ISA/pyCircuit/issues/180) | hierarchical instances and GFSIM source bundles | status: not implemented; recommendation recorded |
+| [#180](https://github.com/PTO-ISA/pyCircuit/issues/180) | hierarchical instances and GFSIM source bundles | status: native bundle exists, Python API and manifest missing |
 
 ## Split `_queue_frontend.py` (#147)
 
@@ -229,22 +229,54 @@ mistake for complete:
 
 ## Hierarchical instances and structured GFSIM source bundles (#180)
 
-**Not implemented. Recommendation recorded.**
+**Partly implemented. The Python API and the module/instance manifest are
+missing; the issue's API reference is stale.**
 
-`lower_cpp()` still returns one string, and the Python JIT does not expose the
-native `SourceBundle` / `generateModelSources` path. The request is coherent and
-its contract is already spelled out in the issue (definition versus instance
-identity, per-module files, an explicit manifest, `lower_cpp()` kept as a
-compatibility wrapper).
+The native bundle already exists: `acc -emit-cpp-bundle` publishes a deterministic
+multi-file directory with a generated `CMakeLists.txt`. Verified by running it on
+a compiled `.ac` unit whose plan is flat:
 
-**Recommended shape**, consistent with the module family work that has landed
-since the issue was filed: derive the manifest from the typed `ac.module` /
-`ac.instance` structure rather than from generated C++ names, and key repeated
-instances by the `(definition symbol, ordered typed static arguments)` pair that
-Decisions 0277/0278 already fix as the specialization identity. Two placements of
-one definition must share implementation code and own independent state, which is
-the same property the family codegen now verifies.
+```text
+CMakeLists.txt
+include/generated/model.h            # opaque lifecycle ABI
+src/generated/model.cpp
+src/generated/queuegraph.cpp
+share/generated/cost-report.json
+share/generated/source-map.json
+```
+
+For a **structured** plan the emitter additionally publishes one source group per
+module, which is the per-module hierarchy preservation the issue asks for
+(`compiler/acir/lib/CodeGen/QueueGraphGenerator.cpp`): `include/generated/dut.h`
+as the typed root interface, `include/generated/interfaces/<stem>.hpp`,
+`include/generated/modules/<module>.hpp`, and
+`src/generated/modules/<module>.cpp`. `dut.h` is not published for a flat plan,
+which is why the specification scopes its description to "a structured C++
+bundle".
+
+What is genuinely missing:
+
+- **No Python/JIT API.** `lower_cpp()` does not exist in this tree, so the issue's
+  `ac.jit(...).lower_cpp()` reference is stale: the authoring flow is
+  `acc.py -c <source>.py -o <unit>.ac` followed by the native `acc`. There is no
+  `lower_sources(...)` equivalent that hands a Python caller the generated source
+  files or a manifest. (Identity is structural under Decision 0267, so a bundle
+  carries no content identity to expose either way.)
+- **No module/instance manifest.** Definition versus instance identity is
+  available to the compiler but is not published as a machine-readable artifact
+  for graph exporters or testbench adapters.
+- **No in-repo example or test** exercises the multi-unit `--header-output` flow
+  that reaches a structured bundle, so that path is reachable but unverified
+  inside this repository.
+
+**Recommended shape** for the remaining work, consistent with the module family
+work that has landed since the issue was filed: derive the manifest from the typed
+`ac.module` / `ac.instance` structure rather than from generated C++ names, and key
+repeated instances by the `(definition symbol, ordered typed static arguments)`
+pair that Decisions 0277/0278 already fix as the specialization identity. Two
+placements of one definition must share implementation code and own independent
+state, which is the same property the family codegen now verifies.
 
 This is a feature sized like the finite-family work, not a bug fix; it needs its
-own design pass and gate evidence. Recording the recommendation here so the
-issue has a starting point rather than a summary.
+own design pass and gate evidence. Recording the corrected starting point here so
+the issue is not read as untouched.
