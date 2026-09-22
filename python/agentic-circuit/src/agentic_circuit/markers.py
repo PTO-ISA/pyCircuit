@@ -13,7 +13,6 @@ CAPTURE_ONLY_API = (
     "scope",
     "map",
     "set",
-    "instances",
     "view",
     "concat",
     "literal",
@@ -73,10 +72,6 @@ def map(*values: object) -> Never:
 
 def set(*values: object) -> Never:
     return _capture_time_only("set")
-
-
-def instances(*values: object) -> Never:
-    return _capture_time_only("instances")
 
 
 def view(value: object, *selectors: object) -> Never:

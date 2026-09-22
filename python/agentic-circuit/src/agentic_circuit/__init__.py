@@ -6,6 +6,7 @@ from pkgutil import extend_path
 
 __path__ = extend_path(__path__, __name__)
 
+from . import _api_inventory
 from . import _types as _types_module
 from . import markers as markers
 from ._definitions import (
@@ -67,7 +68,6 @@ from .markers import (
     expect,
     fork,
     insert,
-    instances,
     map,
     match_enum,
     matches,
@@ -109,17 +109,17 @@ del _name
 
 CAPTURE_ONLY_API = markers.CAPTURE_ONLY_API
 
+# Reserved declaration names: the package accepts the spelling so authored
+# source can import it, but the ACPy queue frontend has no implementation for
+# it.  These names stay reachable as explicit attributes (``ac.packet``) and
+# are deliberately absent from both ``RUNTIME_API`` and ``__all__``.
+RESERVED_API = _api_inventory.RESERVED_API
+
 RUNTIME_API = (
     "system",
     "module",
     "module_decl",
-    "extern_module",
     "struct",
-    "packet",
-    "transaction",
-    "protocol",
-    "interface",
-    "process",
     "rule",
     "invariant",
     "inline",
@@ -163,4 +163,11 @@ RUNTIME_API = (
 round_robin = "round_robin"
 priority = "priority"
 
-__all__ = RUNTIME_API
+# ``__all__`` is the wildcard-import surface.  A wildcard import MUST NOT bind
+# a Python builtin, so a name that would shadow one stays reachable only as an
+# explicit attribute (``ac.range``) and never appears here.
+_BUILTIN_SHADOWING_API = ("range",)
+
+__all__ = tuple(
+    name for name in RUNTIME_API if name not in _BUILTIN_SHADOWING_API
+)

@@ -53,7 +53,7 @@ from .normalize import (
     _desugar_nested_rule_captures,
     _strip_static_assertions,
 )
-from .parser import parse_queue_program
+from .parser import _reject_reserved_declarations, parse_queue_program
 from .provenance import DefinitionNdfMetadata, NdfMetadata
 from .source import (
     _normalize_queue_source_path,
@@ -103,6 +103,7 @@ def _lower_simple_module_source(
         source_node_locations,
         normalized_source_path,
     )
+    _reject_reserved_declarations(tree)
     definition_sources = dict(definition_locations or {})
     if normalized_source_path.endswith(".py"):
         for node in ast.walk(tree):
