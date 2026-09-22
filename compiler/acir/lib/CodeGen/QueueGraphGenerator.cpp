@@ -2730,6 +2730,350 @@ llvm::Error emitStructuredMergePolicy(std::ostringstream &output,
   return llvm::Error::success();
 }
 
+// Emit the stateful firing policy struct and its per-owner Table merge
+// policies. Both the direct-interface stateful emitter and the mixed
+// local-blocks-plus-children emitter bind this same text to a
+// `gfsim::QueueTableTransition`/`gfsim::QueueStateTransition`, so the two paths
+// cannot drift into different state semantics.
+llvm::Error emitStatefulFiringPolicy(
+    std::ostringstream &output, const QueueGraphPlan &plan,
+    const QueueGraphPlan &specialization, const QueueBlockPlan &firing,
+    llvm::ArrayRef<std::string> tableTypes,
+    llvm::ArrayRef<std::string> slotTypes,
+    llvm::ArrayRef<std::string> inputTypes,
+    llvm::ArrayRef<std::string> outputTypes, const std::string &policy,
+    const std::function<std::string(size_t)> &mergeName) {
+  auto tupleType = [](llvm::ArrayRef<std::string> types) {
+    std::string result = "std::tuple<";
+    for (auto [index, type] : llvm::enumerate(types)) {
+      if (index)
+        result.append(", ");
+      result.append(type);
+    }
+    result.push_back('>');
+    return result;
+  };
+  llvm::StringMap<size_t> tableIndices;
+  for (auto [index, table] : llvm::enumerate(specialization.tables))
+    tableIndices[table.name] = index;
+  auto tableBindings = [&](const QueueBlockPlan &block) {
+    std::vector<size_t> result;
+    for (const TablePlan *table : stateOwnerTables(specialization, block))
+      result.push_back(tableIndices.lookup(table->name));
+    return result;
+  };
+  auto readOnlyTableBindings = [&](const QueueBlockPlan &block) {
+    std::vector<size_t> result;
+    for (const TablePlan *table : readOnlyTables(specialization, block))
+      result.push_back(tableIndices.lookup(table->name));
+    return result;
+  };
+  const std::vector<size_t> tables = tableBindings(firing);
+  const std::vector<size_t> readOnlyTables = readOnlyTableBindings(firing);
+  std::vector<std::string> writeTypes;
+  for (size_t table : tables)
+    writeTypes.push_back(tableTypes[table]);
+  const bool oneOwner = tables.size() == 1 && firing.slotReleases.empty();
+
+  QueueBlockPlan evaluation = firing;
+  std::vector<std::string> additional{firing.guard};
+  std::string tupleResult = "std::tuple{";
+  bool tupleHasValue = false;
+  for (auto [writeIndex, write] : llvm::enumerate(firing.stateWrites)) {
+    if (tupleHasValue)
+      tupleResult.append(", ");
+    tupleResult.append(write.index)
+        .append(", ")
+        .append(write.value)
+        .append(", ")
+        .append(write.present);
+    tupleHasValue = true;
+    additional.push_back(write.index);
+    additional.push_back(write.value);
+    additional.push_back(write.present);
+    if (!write.versionedAction.empty()) {
+      tupleResult.append(", ").append(write.refGeneration)
+          .append(", ")
+          .append(write.refEpoch);
+      additional.push_back(write.refGeneration);
+      additional.push_back(write.refEpoch);
+      if (!write.refAttempt.empty()) {
+        tupleResult.append(", ").append(write.refAttempt);
+        additional.push_back(write.refAttempt);
+      }
+    }
+  }
+  for (auto [outputIndex, yield] : llvm::enumerate(firing.yields)) {
+    const std::string &present = firing.outputPresence[outputIndex].present;
+    if (tupleHasValue)
+      tupleResult.append(", ");
+    tupleResult.append(yield).append(", ").append(present);
+    tupleHasValue = true;
+    additional.push_back(yield);
+    additional.push_back(present);
+  }
+  for (auto [ownerIndex, tableIndex] : llvm::enumerate(tables)) {
+    const TablePlan &table = specialization.tables[tableIndex];
+    size_t reservationIndex = 0;
+    for (const StateReservationPlan *reservation :
+         findStateReservations(firing, table.name)) {
+      if (reservation->indexKind == "all") {
+        ++reservationIndex;
+        continue;
+      }
+      if (reservation->indexKind == "set") {
+        const std::string result = "snapshot_set_" +
+                                   std::to_string(ownerIndex) + "_" +
+                                   std::to_string(reservationIndex++);
+        auto fieldMask = reservationFieldMask(specialization, table,
+                                              reservation->fields);
+        if (!fieldMask)
+          return fieldMask.takeError();
+        QueueExpressionPlan expression{
+            result, "snapshot_set", "state_reservation", {}};
+        expression.field = reservation->source;
+        expression.table = reservation->table;
+        expression.predicate = fieldMask->complete ? "complete" : "fields";
+        expression.mask = std::to_string(fieldMask->mask);
+        expression.width = fieldMask->count;
+        evaluation.expressions.push_back(std::move(expression));
+        tupleResult.append(", ").append(result);
+        additional.push_back(result);
+        continue;
+      }
+      ++reservationIndex;
+      if (tupleHasValue)
+        tupleResult.append(", ");
+      tupleResult.append(reservation->index);
+      tupleHasValue = true;
+      additional.push_back(reservation->index);
+    }
+  }
+  for (const SlotReleaseEffectPlan &release : firing.slotReleases) {
+    if (tupleHasValue)
+      tupleResult.append(", ");
+    tupleResult.append(release.when);
+    tupleHasValue = true;
+    additional.push_back(release.when);
+  }
+  tupleResult.append(", ").append(firing.guard).push_back('}');
+  const std::string &primaryValue =
+      !firing.stateWrites.empty() ? firing.stateWrites.front().index
+      : !firing.yields.empty()    ? firing.yields.front()
+                                  : firing.guard;
+  auto body = emitExpressionBody(specialization, evaluation, primaryValue,
+                                 6, true, false, additional, tupleResult);
+  if (!body)
+    return body.takeError();
+
+  std::string planType;
+  if (oneOwner) {
+    planType = "gfsim::TableTransitionPlan<" + writeTypes.front();
+    for (const std::string &type : outputTypes)
+      planType.append(", ").append(type);
+    planType.push_back('>');
+  } else {
+    planType = "gfsim::StateTransitionPlan<" + tupleType(writeTypes) +
+               ", " + tupleType(outputTypes) + ">";
+  }
+  emitRuleProvenance(output, firing);
+  output << "struct " << policy << " {\n";
+  for (size_t table : readOnlyTables)
+    output << "  const gfsim::SimTable<" << tableTypes[table]
+           << "> *read_table_"
+           << identifier(specialization.tables[table].name) << "{};\n";
+  for (auto [slotIndex, slot] : llvm::enumerate(specialization.slots))
+    output << "  const gfsim::SlotState<" << slotTypes[slotIndex]
+           << "> *slot_" << identifier(slot.name) << "{};\n";
+  output << "  std::optional<" << planType
+         << "> operator()(gfsim::Epoch epoch, ";
+  if (oneOwner) {
+    output << "const gfsim::SimTable<" << writeTypes.front()
+           << "> &table_ref";
+  } else {
+    output << "std::tuple<";
+    for (auto [index, type] : llvm::enumerate(writeTypes)) {
+      if (index)
+        output << ", ";
+      output << "const gfsim::SimTable<" << type << "> *";
+    }
+    output << "> table_refs";
+  }
+  for (auto [inputIndex, type] : llvm::enumerate(inputTypes)) {
+    output << ", const " << type << " &item";
+    if (inputIndex)
+      output << inputIndex;
+  }
+  output << ") const {\n";
+  if (oneOwner) {
+    output << "    const auto *table_"
+           << identifier(specialization.tables[tables.front()].name)
+           << " = &table_ref;\n";
+  } else {
+    for (auto [ownerIndex, tableIndex] : llvm::enumerate(tables))
+      output << "    const auto *table_"
+             << identifier(specialization.tables[tableIndex].name)
+             << " = std::get<" << ownerIndex << ">(table_refs);\n";
+  }
+  for (size_t table : readOnlyTables)
+    output << "    const auto *table_"
+           << identifier(specialization.tables[table].name)
+           << " = read_table_"
+           << identifier(specialization.tables[table].name) << ";\n";
+  output << "    auto [";
+  bool bindingHasValue = false;
+  for (size_t writeIndex = 0; writeIndex < firing.stateWrites.size();
+       ++writeIndex) {
+    if (bindingHasValue)
+      output << ", ";
+    output << stateWriteIndexName(firing, writeIndex) << ", "
+           << stateWriteValueName(firing, writeIndex) << ", "
+           << stateWritePresentName(firing, writeIndex);
+    const StateWritePlan &write = firing.stateWrites[writeIndex];
+    if (!write.versionedAction.empty()) {
+      output << ", " << stateWriteRefGenerationName(firing, writeIndex)
+             << ", " << stateWriteRefEpochName(firing, writeIndex);
+      if (!write.refAttempt.empty())
+        output << ", " << stateWriteRefAttemptName(firing, writeIndex);
+    }
+    bindingHasValue = true;
+  }
+  for (size_t outputIndex = 0; outputIndex < outputTypes.size();
+       ++outputIndex) {
+    if (bindingHasValue)
+      output << ", ";
+    output << outputValueName(firing, outputIndex) << ", "
+           << outputPresentName(firing, outputIndex);
+    bindingHasValue = true;
+  }
+  for (auto [ownerIndex, tableIndex] : llvm::enumerate(tables)) {
+    size_t reservationIndex = 0;
+    for (const StateReservationPlan *reservation : findStateReservations(
+             firing, specialization.tables[tableIndex].name)) {
+      if (reservation->indexKind == "all") {
+        ++reservationIndex;
+        continue;
+      }
+      if (bindingHasValue)
+        output << ", ";
+      output << reservationBindingName(
+          specialization.tables[tableIndex].name, *reservation,
+          reservationIndex++);
+      bindingHasValue = true;
+    }
+  }
+  for (size_t releaseIndex = 0; releaseIndex < firing.slotReleases.size();
+       ++releaseIndex) {
+    if (bindingHasValue)
+      output << ", ";
+    output << "slot_release_" << releaseIndex;
+    bindingHasValue = true;
+  }
+  output << ", rule_condition] = [&]() {\n"
+         << *body << "    }();\n"
+         << "    if (!rule_condition)\n      return std::nullopt;\n";
+  emitVersionedWriteQualification(output, firing, specialization, "    ");
+  if (auto error = emitArchitectureObligationChecks(
+          output, specialization, firing, "    "))
+    return error;
+  for (auto [ownerIndex, tableIndex] : llvm::enumerate(tables))
+    emitStateWriteBatch(
+        output, firing, specialization.tables[tableIndex].name,
+        specialization, writeTypes[ownerIndex], ownerIndex, "    ");
+  output << "    return " << planType;
+  if (oneOwner) {
+    output << "{std::move("
+           << stateWriteBatchName(
+                  specialization.tables[tables.front()].name)
+           << "), {";
+  } else {
+    output << "{{";
+    for (size_t ownerIndex = 0; ownerIndex < writeTypes.size();
+         ++ownerIndex) {
+      if (ownerIndex)
+        output << ", ";
+      output << "std::move("
+             << stateWriteBatchName(
+                    specialization.tables[tables[ownerIndex]].name)
+             << ")";
+    }
+    output << "}, {";
+  }
+  for (auto [outputIndex, type] : llvm::enumerate(outputTypes)) {
+    if (outputIndex)
+      output << ", ";
+    output << outputPresentName(firing, outputIndex) << " ? std::optional<"
+           << type << ">{" << outputValueName(firing, outputIndex)
+           << "} : std::optional<" << type << ">{}";
+  }
+  output << "}, {";
+  for (size_t ownerIndex = 0; ownerIndex < writeTypes.size();
+       ++ownerIndex) {
+    if (ownerIndex)
+      output << ", ";
+    const TablePlan &table = specialization.tables[tables[ownerIndex]];
+    output << "gfsim::StateReservation{}";
+    size_t reservationIndex = 0;
+    for (const StateReservationPlan *reservation :
+         findStateReservations(firing, table.name)) {
+      auto fieldMask =
+          reservationFieldMask(plan, table, reservation->fields);
+      if (!fieldMask)
+        return fieldMask.takeError();
+      if (reservation->indexKind == "all") {
+        output << " | "
+               << (fieldMask->complete
+                       ? "gfsim::StateReservation::all()"
+                       : "gfsim::StateReservation::forAllFields("
+                         "std::uint64_t{" +
+                             std::to_string(fieldMask->mask) + "}, " +
+                             std::to_string(fieldMask->count) + ")");
+        ++reservationIndex;
+      } else if (reservation->indexKind == "set") {
+        output << " | "
+               << reservationBindingName(table.name, *reservation,
+                                         reservationIndex++);
+      } else {
+        output << " | "
+               << (fieldMask->complete
+                       ? "gfsim::StateReservation::forEntry("
+                       : "gfsim::StateReservation::forFieldsAt(")
+               << "static_cast<std::size_t>("
+               << reservationBindingName(table.name, *reservation,
+                                         reservationIndex++)
+               << ")";
+        if (fieldMask->complete)
+          output << ")";
+        else
+          output << ", std::uint64_t{" << fieldMask->mask << "}, "
+                 << fieldMask->count << ")";
+      }
+    }
+  }
+  if (!oneOwner) {
+    output << "}, {";
+    for (size_t releaseIndex = 0; releaseIndex < firing.slotReleases.size();
+         ++releaseIndex) {
+      if (releaseIndex)
+        output << ", ";
+      output << "slot_release_" << releaseIndex;
+    }
+  }
+  output << "}};\n  }\n};\n\n";
+  for (auto [ownerIndex, tableIndex] : llvm::enumerate(tables)) {
+    const TablePlan &table = specialization.tables[tableIndex];
+    const StateWritePlan *write = findStateWrite(firing, table.name);
+    const std::vector<std::string> fields =
+        write ? write->fields : std::vector<std::string>{"$entry"};
+    if (auto error = emitStructuredMergePolicy(
+            output, specialization, mergeName(ownerIndex),
+            writeTypes[ownerIndex], fields))
+      return error;
+  }
+
+  return llvm::Error::success();
+}
+
 struct StructuredQueueGraphCpp {
   std::string concatenated;
   struct TypeUnit {
@@ -3070,6 +3414,90 @@ generateStructuredQueueGraphCpp(const QueueGraphPlan &plan) {
                           return block.kind == "transform";
                         });
   };
+  // A stateful local firing block is representable next to child instances only
+  // in the narrow shape the mixed emitter binds: at least one Table write, no
+  // slot releases, and no read-only Tables or Slots. Read-modify-write
+  // reservations are carried by the same transition plan the direct-interface
+  // stateful emitter already uses. Everything else has to stay rejected with a
+  // specific diagnostic instead of being emitted as a partial transition.
+  auto isStatefulMixedFiringBlock = [&](const QueueGraphPlan &specialization,
+                                        const QueueBlockPlan &block) {
+    if (block.yields.size() != block.outputs.size() ||
+        block.outputPresence.size() != block.outputs.size())
+      return false;
+    // A local firing that reads a Table needs a policy Table binding. The mixed
+    // stateless policy binds none, so a stateless block may reference no Table
+    // at all; a stateful block may bind only the Tables it writes or reserves.
+    if (readOnlyTables(specialization, block).empty() == false)
+      return false;
+    if (block.stateWrites.empty())
+      return isStatelessFiringBlock(block);
+    return block.slotReleases.empty() && specialization.slots.empty();
+  };
+  // The mixed "local blocks plus child instances" shape when a local firing
+  // block owns module-local state. This is the exact `isWideMixedLocalShape`
+  // contract with stateful local firings allowed, and it is admitted only
+  // alongside children so every childless shape keeps its previous emitter.
+  auto isStatefulWideMixedLocalShape =
+      [&](const QueueGraphPlan &specialization) {
+        if (specialization.moduleInstances.empty() ||
+            specialization.blocks.empty() || specialization.scopes.empty() ||
+            specialization.slots.empty() == false)
+          return false;
+        return llvm::all_of(
+            specialization.blocks, [&](const QueueBlockPlan &block) {
+              if (!llvm::is_contained(specialization.scopes, block.scope))
+                return false;
+              if (block.kind == "broadcast")
+                return block.inputs.size() == 1 && block.outputs.size() >= 2;
+              if (block.kind == "merge")
+                return block.inputs.size() >= 2 &&
+                       block.outputs.size() == 1;
+              if (block.kind == "firing")
+                return isStatefulMixedFiringBlock(specialization, block);
+              return block.kind == "transform";
+            });
+      };
+  // Name the exact reason a local firing block keeps a mixed shape out of every
+  // admitted emitter. A shape that is not representable must fail here with
+  // this diagnostic, never with generated C++ or a generic backend error.
+  auto mixedFiringRejection =
+      [&](const QueueGraphPlan &specialization,
+          const QueueBlockPlan &block) -> std::optional<std::string> {
+    if (block.kind != "firing")
+      return std::nullopt;
+    // A childless multi-block body still has no stateful local firing emitter.
+    if (!isStatelessFiringBlock(block) && specialization.moduleInstances.empty())
+      return "mixed nested module supports only stateless local firing "
+             "blocks; firing block '" +
+             block.name + "' owns Table state";
+    if (block.yields.size() != block.outputs.size() ||
+        block.outputPresence.size() != block.outputs.size())
+      return "mixed nested local firing block '" + block.name +
+             "' has an unsupported condition or presence shape";
+    // A local firing that reads a Table it does not own needs a Table binding
+    // the mixed stateless policy cannot provide.
+    if (!readOnlyTables(specialization, block).empty())
+      return "mixed nested local firing reads a Table it does not write; "
+             "firing block '" +
+             block.name + "'";
+    if (!specialization.slots.empty())
+      return "mixed nested local firing does not support Slots; firing block '" +
+             block.name + "' coexists with " +
+             std::to_string(specialization.slots.size()) + " Slot(s)";
+    if (isStatelessFiringBlock(block))
+      return std::nullopt;
+    if (block.stateWrites.empty())
+      return "mixed nested local firing does not support a read-only state "
+             "reservation; firing block '" +
+             block.name + "' reserves a Table without writing it";
+    if (!block.slotReleases.empty())
+      return "mixed nested stateful local firing does not support slot "
+             "releases; firing block '" +
+             block.name + "' releases " +
+             std::to_string(block.slotReleases.size()) + " Slot(s)";
+    return std::nullopt;
+  };
 
   for (const QueueGraphPlan *specialization : emissionOrder) {
     const bool pureTransform =
@@ -3141,6 +3569,9 @@ generateStructuredQueueGraphCpp(const QueueGraphPlan &plan) {
         specialization && isWideMixedLocalShape(*specialization);
     const bool wideMixedNested =
         wideMixedLocal && !specialization->moduleInstances.empty();
+    const bool statefulWideMixedNested =
+        specialization && !specialization->tables.empty() &&
+        isStatefulWideMixedLocalShape(*specialization);
     // A childless rule-backed body may own the same multi-block local shape. A
     // body with a single local block keeps the older dedicated emitters so its
     // generated output stays byte-identical, and an all-firing body keeps the
@@ -3153,7 +3584,7 @@ generateStructuredQueueGraphCpp(const QueueGraphPlan &plan) {
         });
     const bool localShape =
         emptyModule || nestedWrapper || mixedNested || nestedAssembly ||
-        wideMixedNested || multiBlockLocal ||
+        wideMixedNested || statefulWideMixedNested || multiBlockLocal ||
         (specialization && specialization->moduleInstances.empty() &&
          specialization->scopes.size() == 1 &&
          llvm::none_of(specialization->blocks,
@@ -3171,17 +3602,14 @@ generateStructuredQueueGraphCpp(const QueueGraphPlan &plan) {
                        return llvm::is_contained(specialization->scopes,
                                                  block.scope);
                      });
-    if (localBlockGraph && !wideMixedLocal && !nestedWrapper &&
-        !nestedAssembly && !mixedNested && !firingModule && !pureTransform &&
-        !conditionalTransform &&
+    if (localBlockGraph && !wideMixedLocal && !statefulWideMixedNested &&
+        !nestedWrapper && !nestedAssembly && !mixedNested && !firingModule &&
+        !pureTransform && !conditionalTransform &&
         (!specialization->moduleInstances.empty() ||
          specialization->blocks.size() > 1)) {
       for (const QueueBlockPlan &block : specialization->blocks) {
-        if (block.kind == "firing" && !isStatelessFiringBlock(block))
-          return generatorError(
-              "mixed nested module supports only stateless local firing "
-              "blocks; firing block '" +
-              block.name + "' owns Table state");
+        if (auto reason = mixedFiringRejection(*specialization, block))
+          return generatorError(*reason);
         if (block.kind == "merge") {
           // A merge with the supported arity is not the offending block here;
           // some sibling shape is. Only a malformed merge is reported.
@@ -3203,21 +3631,34 @@ generateStructuredQueueGraphCpp(const QueueGraphPlan &plan) {
               block.name + "' has kind '" + block.kind + "'");
       }
     }
-    if (!specialization ||
-        (!emptyModule && !pureTransform && !conditionalTransform &&
-         !firingModule && !nestedWrapper && !mixedNested && !nestedAssembly &&
-         !wideMixedNested && !multiBlockLocal) ||
-        !localShape || !specialization->memoryInstances.empty())
+    const bool representable =
+        specialization &&
+        (emptyModule || pureTransform || conditionalTransform || firingModule ||
+         nestedWrapper || mixedNested || nestedAssembly || wideMixedNested ||
+         statefulWideMixedNested || multiBlockLocal) &&
+        localShape && specialization->memoryInstances.empty();
+    if (!representable) {
+      // Report the offending local block before the generic shape error so an
+      // unsupported stateful or Table-reading firing never reaches an emitter.
+      if (specialization)
+        for (const QueueBlockPlan &block : specialization->blocks)
+          if (auto reason = mixedFiringRejection(*specialization, block))
+            return generatorError(*reason);
       return generatorError(
           "structured QueueGraph specialization requires a pure transform, "
-          "direct-interface firing module, or "
-          "direct nested wrapper");
+          "direct-interface firing module, or direct nested wrapper; "
+          "specialization '" +
+          std::string(specialization ? specialization->definition
+                                     : "<none>") +
+          "' is not representable");
+    }
     llvm::StringSet<> interfaceQueues;
     for (const QueueInterfacePlan &input : specialization->interfaceInputs)
       interfaceQueues.insert(input.name);
     for (const QueueInterfacePlan &output : specialization->interfaceOutputs)
       interfaceQueues.insert(output.name);
-    if (mixedNested || nestedAssembly || wideMixedLocal)
+    if (mixedNested || nestedAssembly || wideMixedLocal ||
+        statefulWideMixedNested)
       for (const QueuePlan &queue : specialization->queues)
         interfaceQueues.insert(queue.name);
     for (const QueueBlockPlan &block : specialization->blocks)
@@ -3893,310 +4334,15 @@ generateStructuredQueueGraphCpp(const QueueGraphPlan &plan) {
         output << *body << "  }\n};\n\n";
         continue;
       }
-      const std::vector<size_t> tables = tableBindings(firing);
-      const std::vector<size_t> readOnlyTables = readOnlyTableBindings(firing);
-      std::vector<std::string> writeTypes;
-      for (size_t table : tables)
-        writeTypes.push_back(tableTypes[table]);
-      const std::vector<std::string> inputTypes = queueTypes(firing.inputs);
-      const std::vector<std::string> outputTypes = queueTypes(firing.outputs);
-      const bool oneOwner = tables.size() == 1 && firing.slotReleases.empty();
-
-      QueueBlockPlan evaluation = firing;
-      std::vector<std::string> additional{firing.guard};
-      std::string tupleResult = "std::tuple{";
-      bool tupleHasValue = false;
-      for (auto [writeIndex, write] : llvm::enumerate(firing.stateWrites)) {
-        if (tupleHasValue)
-          tupleResult.append(", ");
-        tupleResult.append(write.index)
-            .append(", ")
-            .append(write.value)
-            .append(", ")
-            .append(write.present);
-        tupleHasValue = true;
-        additional.push_back(write.index);
-        additional.push_back(write.value);
-        additional.push_back(write.present);
-        if (!write.versionedAction.empty()) {
-          tupleResult.append(", ").append(write.refGeneration)
-              .append(", ")
-              .append(write.refEpoch);
-          additional.push_back(write.refGeneration);
-          additional.push_back(write.refEpoch);
-          if (!write.refAttempt.empty()) {
-            tupleResult.append(", ").append(write.refAttempt);
-            additional.push_back(write.refAttempt);
-          }
-        }
-      }
-      for (auto [outputIndex, yield] : llvm::enumerate(firing.yields)) {
-        const std::string &present = firing.outputPresence[outputIndex].present;
-        if (tupleHasValue)
-          tupleResult.append(", ");
-        tupleResult.append(yield).append(", ").append(present);
-        tupleHasValue = true;
-        additional.push_back(yield);
-        additional.push_back(present);
-      }
-      for (auto [ownerIndex, tableIndex] : llvm::enumerate(tables)) {
-        const TablePlan &table = specialization.tables[tableIndex];
-        size_t reservationIndex = 0;
-        for (const StateReservationPlan *reservation :
-             findStateReservations(firing, table.name)) {
-          if (reservation->indexKind == "all") {
-            ++reservationIndex;
-            continue;
-          }
-          if (reservation->indexKind == "set") {
-            const std::string result = "snapshot_set_" +
-                                       std::to_string(ownerIndex) + "_" +
-                                       std::to_string(reservationIndex++);
-            auto fieldMask = reservationFieldMask(specialization, table,
-                                                  reservation->fields);
-            if (!fieldMask)
-              return fieldMask.takeError();
-            QueueExpressionPlan expression{
-                result, "snapshot_set", "state_reservation", {}};
-            expression.field = reservation->source;
-            expression.table = reservation->table;
-            expression.predicate = fieldMask->complete ? "complete" : "fields";
-            expression.mask = std::to_string(fieldMask->mask);
-            expression.width = fieldMask->count;
-            evaluation.expressions.push_back(std::move(expression));
-            tupleResult.append(", ").append(result);
-            additional.push_back(result);
-            continue;
-          }
-          ++reservationIndex;
-          if (tupleHasValue)
-            tupleResult.append(", ");
-          tupleResult.append(reservation->index);
-          tupleHasValue = true;
-          additional.push_back(reservation->index);
-        }
-      }
-      for (const SlotReleaseEffectPlan &release : firing.slotReleases) {
-        if (tupleHasValue)
-          tupleResult.append(", ");
-        tupleResult.append(release.when);
-        tupleHasValue = true;
-        additional.push_back(release.when);
-      }
-      tupleResult.append(", ").append(firing.guard).push_back('}');
-      const std::string &primaryValue =
-          !firing.stateWrites.empty() ? firing.stateWrites.front().index
-          : !firing.yields.empty()    ? firing.yields.front()
-                                      : firing.guard;
-      auto body = emitExpressionBody(specialization, evaluation, primaryValue,
-                                     6, true, false, additional, tupleResult);
-      if (!body)
-        return body.takeError();
-
-      std::string planType;
-      if (oneOwner) {
-        planType = "gfsim::TableTransitionPlan<" + writeTypes.front();
-        for (const std::string &type : outputTypes)
-          planType.append(", ").append(type);
-        planType.push_back('>');
-      } else {
-        planType = "gfsim::StateTransitionPlan<" + tupleType(writeTypes) +
-                   ", " + tupleType(outputTypes) + ">";
-      }
-      emitRuleProvenance(output, firing);
-      output << "struct " << policyName(blockIndex) << " {\n";
-      for (size_t table : readOnlyTables)
-        output << "  const gfsim::SimTable<" << tableTypes[table]
-               << "> *read_table_"
-               << identifier(specialization.tables[table].name) << "{};\n";
-      for (auto [slotIndex, slot] : llvm::enumerate(specialization.slots))
-        output << "  const gfsim::SlotState<" << slotTypes[slotIndex]
-               << "> *slot_" << identifier(slot.name) << "{};\n";
-      output << "  std::optional<" << planType
-             << "> operator()(gfsim::Epoch epoch, ";
-      if (oneOwner) {
-        output << "const gfsim::SimTable<" << writeTypes.front()
-               << "> &table_ref";
-      } else {
-        output << "std::tuple<";
-        for (auto [index, type] : llvm::enumerate(writeTypes)) {
-          if (index)
-            output << ", ";
-          output << "const gfsim::SimTable<" << type << "> *";
-        }
-        output << "> table_refs";
-      }
-      for (auto [inputIndex, type] : llvm::enumerate(inputTypes)) {
-        output << ", const " << type << " &item";
-        if (inputIndex)
-          output << inputIndex;
-      }
-      output << ") const {\n";
-      if (oneOwner) {
-        output << "    const auto *table_"
-               << identifier(specialization.tables[tables.front()].name)
-               << " = &table_ref;\n";
-      } else {
-        for (auto [ownerIndex, tableIndex] : llvm::enumerate(tables))
-          output << "    const auto *table_"
-                 << identifier(specialization.tables[tableIndex].name)
-                 << " = std::get<" << ownerIndex << ">(table_refs);\n";
-      }
-      for (size_t table : readOnlyTables)
-        output << "    const auto *table_"
-               << identifier(specialization.tables[table].name)
-               << " = read_table_"
-               << identifier(specialization.tables[table].name) << ";\n";
-      output << "    auto [";
-      bool bindingHasValue = false;
-      for (size_t writeIndex = 0; writeIndex < firing.stateWrites.size();
-           ++writeIndex) {
-        if (bindingHasValue)
-          output << ", ";
-        output << stateWriteIndexName(firing, writeIndex) << ", "
-               << stateWriteValueName(firing, writeIndex) << ", "
-               << stateWritePresentName(firing, writeIndex);
-        const StateWritePlan &write = firing.stateWrites[writeIndex];
-        if (!write.versionedAction.empty()) {
-          output << ", " << stateWriteRefGenerationName(firing, writeIndex)
-                 << ", " << stateWriteRefEpochName(firing, writeIndex);
-          if (!write.refAttempt.empty())
-            output << ", " << stateWriteRefAttemptName(firing, writeIndex);
-        }
-        bindingHasValue = true;
-      }
-      for (size_t outputIndex = 0; outputIndex < outputTypes.size();
-           ++outputIndex) {
-        if (bindingHasValue)
-          output << ", ";
-        output << outputValueName(firing, outputIndex) << ", "
-               << outputPresentName(firing, outputIndex);
-        bindingHasValue = true;
-      }
-      for (auto [ownerIndex, tableIndex] : llvm::enumerate(tables)) {
-        size_t reservationIndex = 0;
-        for (const StateReservationPlan *reservation : findStateReservations(
-                 firing, specialization.tables[tableIndex].name)) {
-          if (reservation->indexKind == "all") {
-            ++reservationIndex;
-            continue;
-          }
-          if (bindingHasValue)
-            output << ", ";
-          output << reservationBindingName(
-              specialization.tables[tableIndex].name, *reservation,
-              reservationIndex++);
-          bindingHasValue = true;
-        }
-      }
-      for (size_t releaseIndex = 0; releaseIndex < firing.slotReleases.size();
-           ++releaseIndex) {
-        if (bindingHasValue)
-          output << ", ";
-        output << "slot_release_" << releaseIndex;
-        bindingHasValue = true;
-      }
-      output << ", rule_condition] = [&]() {\n"
-             << *body << "    }();\n"
-             << "    if (!rule_condition)\n      return std::nullopt;\n";
-      emitVersionedWriteQualification(output, firing, specialization, "    ");
-      if (auto error = emitArchitectureObligationChecks(
-              output, specialization, firing, "    "))
+      std::vector<std::string> inputTypes = queueTypes(firing.inputs);
+      std::vector<std::string> outputTypes = queueTypes(firing.outputs);
+      if (auto error = emitStatefulFiringPolicy(
+              output, plan, specialization, firing, tableTypes, slotTypes,
+              inputTypes, outputTypes, policyName(blockIndex),
+              [&](size_t ownerIndex) {
+                return mergeName(blockIndex, ownerIndex);
+              }))
         return error;
-      for (auto [ownerIndex, tableIndex] : llvm::enumerate(tables))
-        emitStateWriteBatch(
-            output, firing, specialization.tables[tableIndex].name,
-            specialization, writeTypes[ownerIndex], ownerIndex, "    ");
-      output << "    return " << planType;
-      if (oneOwner) {
-        output << "{std::move("
-               << stateWriteBatchName(
-                      specialization.tables[tables.front()].name)
-               << "), {";
-      } else {
-        output << "{{";
-        for (size_t ownerIndex = 0; ownerIndex < writeTypes.size();
-             ++ownerIndex) {
-          if (ownerIndex)
-            output << ", ";
-          output << "std::move("
-                 << stateWriteBatchName(
-                        specialization.tables[tables[ownerIndex]].name)
-                 << ")";
-        }
-        output << "}, {";
-      }
-      for (auto [outputIndex, type] : llvm::enumerate(outputTypes)) {
-        if (outputIndex)
-          output << ", ";
-        output << outputPresentName(firing, outputIndex) << " ? std::optional<"
-               << type << ">{" << outputValueName(firing, outputIndex)
-               << "} : std::optional<" << type << ">{}";
-      }
-      output << "}, {";
-      for (size_t ownerIndex = 0; ownerIndex < writeTypes.size();
-           ++ownerIndex) {
-        if (ownerIndex)
-          output << ", ";
-        const TablePlan &table = specialization.tables[tables[ownerIndex]];
-        output << "gfsim::StateReservation{}";
-        size_t reservationIndex = 0;
-        for (const StateReservationPlan *reservation :
-             findStateReservations(firing, table.name)) {
-          auto fieldMask =
-              reservationFieldMask(plan, table, reservation->fields);
-          if (!fieldMask)
-            return fieldMask.takeError();
-          if (reservation->indexKind == "all") {
-            output << " | "
-                   << (fieldMask->complete
-                           ? "gfsim::StateReservation::all()"
-                           : "gfsim::StateReservation::forAllFields("
-                             "std::uint64_t{" +
-                                 std::to_string(fieldMask->mask) + "}, " +
-                                 std::to_string(fieldMask->count) + ")");
-            ++reservationIndex;
-          } else if (reservation->indexKind == "set") {
-            output << " | "
-                   << reservationBindingName(table.name, *reservation,
-                                             reservationIndex++);
-          } else {
-            output << " | "
-                   << (fieldMask->complete
-                           ? "gfsim::StateReservation::forEntry("
-                           : "gfsim::StateReservation::forFieldsAt(")
-                   << "static_cast<std::size_t>("
-                   << reservationBindingName(table.name, *reservation,
-                                             reservationIndex++)
-                   << ")";
-            if (fieldMask->complete)
-              output << ")";
-            else
-              output << ", std::uint64_t{" << fieldMask->mask << "}, "
-                     << fieldMask->count << ")";
-          }
-        }
-      }
-      if (!oneOwner) {
-        output << "}, {";
-        for (size_t releaseIndex = 0; releaseIndex < firing.slotReleases.size();
-             ++releaseIndex) {
-          if (releaseIndex)
-            output << ", ";
-          output << "slot_release_" << releaseIndex;
-        }
-      }
-      output << "}};\n  }\n};\n\n";
-      for (auto [ownerIndex, tableIndex] : llvm::enumerate(tables)) {
-        const TablePlan &table = specialization.tables[tableIndex];
-        const StateWritePlan *write = findStateWrite(firing, table.name);
-        const std::vector<std::string> fields =
-            write ? write->fields : std::vector<std::string>{"$entry"};
-        if (auto error = emitStructuredMergePolicy(
-                output, specialization, mergeName(blockIndex, ownerIndex),
-                writeTypes[ownerIndex], fields))
-          return error;
-      }
     }
     auto emitQueueTuple = [&](llvm::ArrayRef<std::string> queues) {
       output << "std::tuple{";
@@ -4827,6 +4973,52 @@ generateStructuredQueueGraphCpp(const QueueGraphPlan &plan) {
             "_policy";
       }
     }
+    // A stateful local firing block binds the same
+    // `gfsim::QueueTableTransition`/`gfsim::QueueStateTransition` runtime as the
+    // direct-interface stateful emitter, so its module-local Table lives on the
+    // parent module (owner "/") or on the scope that owns it and takes an
+    // object ID between the local blocks and the child instances. That is
+    // exactly the layout `instantiateActivation` already assumes.
+    std::vector<std::string> tableTypes;
+    std::vector<std::string> tableMembers;
+    llvm::StringMap<size_t> tableIndices;
+    {
+      llvm::StringSet<> usedTableMembers;
+      for (auto [tableIndex, table] : llvm::enumerate(specialization.tables)) {
+        auto type = cppType(table.entryType);
+        if (!type)
+          return type.takeError();
+        tableTypes.push_back(std::move(*type));
+        tableMembers.push_back(
+            uniqueIdentifier("state_" + table.name, usedTableMembers) + "_");
+        tableIndices[table.name] = tableIndex;
+      }
+    }
+    auto mergePolicyName = [&](size_t blockIndex, size_t writeIndex) {
+      return blockFiringPolicies[blockIndex] + "_merge_" +
+             std::to_string(writeIndex);
+    };
+    auto tableWriteBindings = [&](const QueueBlockPlan &block) {
+      std::vector<size_t> result;
+      for (const TablePlan *table : stateOwnerTables(specialization, block))
+        result.push_back(tableIndices.lookup(table->name));
+      return result;
+    };
+    // A hoisted module-local Table is owned by the case root ("/"), so it is a
+    // direct child of the parent module; a Table nested in a scope is owned by
+    // that scope. An unknown owner is refused rather than attached to the wrong
+    // parent.
+    auto tableOwnerMember = [&](const TablePlan &table) -> std::string {
+      if (table.ownerPath == "/")
+        return "this";
+      const std::string part = pathParts(table.ownerPath).back();
+      const auto found = std::find(scopeNames.begin(), scopeNames.end(), part);
+      if (found == scopeNames.end())
+        return {};
+      return "&" +
+             scopeMember(static_cast<size_t>(
+                 std::distance(scopeNames.begin(), found)));
+    };
     auto emitStatelessFiringPolicy =
         [&](const QueueBlockPlan &block, const std::string &policy,
             llvm::ArrayRef<std::string> inputTypes,
@@ -4987,9 +5179,43 @@ generateStructuredQueueGraphCpp(const QueueGraphPlan &plan) {
         blockOutputTypes.push_back(std::move(outputTypes));
         blockPolicies.push_back(blockFiringPolicies[index]);
         blockRates.push_back(1);
-        if (auto error = emitStatelessFiringPolicy(
-                block, blockPolicies.back(), blockInputTypes.back(),
-                blockOutputTypes.back()))
+        if (isStatelessFiringBlock(block)) {
+          if (auto error = emitStatelessFiringPolicy(
+                  block, blockPolicies.back(), blockInputTypes.back(),
+                  blockOutputTypes.back()))
+            return error;
+          continue;
+        }
+        // A stateful local firing is admitted only in the narrow shape the
+        // mixed emitter can bind: at least one Table write, no slot releases,
+        // and no read-only Tables or slots. Read-modify-write reservations are
+        // carried by the same transition plan. Anything wider is rejected here
+        // with the specific unsupported feature instead of being emitted as a
+        // partial transition.
+        if (!specialization.slots.empty())
+          return generatorError(
+              "mixed nested stateful local firing does not support Slots; "
+              "firing block '" +
+              block.name + "' coexists with " +
+              std::to_string(specialization.slots.size()) + " Slot(s)");
+        if (!block.slotReleases.empty())
+          return generatorError(
+              "mixed nested stateful local firing does not support slot "
+              "releases; firing block '" +
+              block.name + "' releases " +
+              std::to_string(block.slotReleases.size()) + " Slot(s)");
+        if (!readOnlyTables(specialization, block).empty())
+          return generatorError(
+              "mixed nested stateful local firing does not support read-only "
+              "Tables; firing block '" +
+              block.name + "' reads a Table it does not write");
+        if (auto error = emitStatefulFiringPolicy(
+                output, plan, specialization, block, tableTypes, {},
+                blockInputTypes.back(), blockOutputTypes.back(),
+                blockPolicies.back(),
+                [&](size_t writeIndex) {
+                  return mergePolicyName(index, writeIndex);
+                }))
           return error;
         continue;
       }
@@ -5150,8 +5376,23 @@ generateStructuredQueueGraphCpp(const QueueGraphPlan &plan) {
       }
       if (block.kind == "firing") {
         output << "firing_" << block.name << "\", object_" << blockId + index
-               << "_id, &" << scopeMember(scopeIndexOf(block.scope)) << ", "
-               << "std::tuple{}, std::tuple{";
+               << "_id, &" << scopeMember(scopeIndexOf(block.scope)) << ", ";
+        const std::vector<size_t> writeTables =
+            isStatelessFiringBlock(block)
+                ? std::vector<size_t>{}
+                : tableWriteBindings(block);
+        if (writeTables.size() == 1 && block.slotReleases.empty()) {
+          output << tableMembers[writeTables.front()] << ", ";
+        } else {
+          output << "std::tuple{";
+          for (auto [writeIndex, tableIndex] : llvm::enumerate(writeTables)) {
+            if (writeIndex)
+              output << ", ";
+            output << '&' << tableMembers[tableIndex];
+          }
+          output << "}, ";
+        }
+        output << "std::tuple{";
         for (auto [inputIndex, name] : llvm::enumerate(block.inputs)) {
           if (inputIndex)
             output << ", ";
@@ -5163,10 +5404,37 @@ generateStructuredQueueGraphCpp(const QueueGraphPlan &plan) {
             output << ", ";
           output << queueExpressions.lookup(name);
         }
-        output << "}, std::array<gfsim::TableWriteMode, 0>{}, "
-               << blockPolicies[index]
-               << "{}, std::tuple{}, nullptr, "
-                  "std::vector<gfsim::SlotReleaseResource *>{})";
+        output << "}, ";
+        if (writeTables.size() == 1) {
+          const StateWritePlan *write = findStateWrite(
+              block, specialization.tables[writeTables.front()].name);
+          output << "gfsim::TableWriteMode::"
+                 << (!write || write->mode == "replace" ? "Replace"
+                                                        : "FieldMerge")
+                 << ", " << blockPolicies[index] << "{}, "
+                 << mergePolicyName(index, 0) << "{})";
+        } else {
+          output << (writeTables.empty()
+                         ? "std::array<gfsim::TableWriteMode, 0>{"
+                         : "std::array{");
+          for (auto [writeIndex, tableIndex] : llvm::enumerate(writeTables)) {
+            if (writeIndex)
+              output << ", ";
+            const StateWritePlan *write =
+                findStateWrite(block, specialization.tables[tableIndex].name);
+            output << "gfsim::TableWriteMode::"
+                   << (!write || write->mode == "replace" ? "Replace"
+                                                          : "FieldMerge");
+          }
+          output << "}, " << blockPolicies[index] << "{}, std::tuple{";
+          for (size_t writeIndex = 0; writeIndex < writeTables.size();
+               ++writeIndex) {
+            if (writeIndex)
+              output << ", ";
+            output << mergePolicyName(index, writeIndex) << "{}";
+          }
+          output << "}, nullptr, std::vector<gfsim::SlotReleaseResource *>{})";
+        }
         continue;
       }
       const bool oneByOne = blockInputTypes[index].size() == 1 &&
@@ -5197,7 +5465,22 @@ generateStructuredQueueGraphCpp(const QueueGraphPlan &plan) {
       }
       output << ")";
     }
-    uint64_t childOffset = blockId + specialization.blocks.size();
+    // Module-local state takes its runtime object ID after the local blocks and
+    // before the child instances, the layout `instantiateActivation` expects.
+    const uint64_t tableIdBase = blockId + specialization.blocks.size();
+    for (auto [tableIndex, table] : llvm::enumerate(specialization.tables)) {
+      const std::string owner = tableOwnerMember(table);
+      if (owner.empty())
+        return generatorError("mixed nested Table owner scope is missing: " +
+                              table.ownerPath);
+      auto storage = tableStorageArgument(specialization, table);
+      if (!storage)
+        return storage.takeError();
+      output << ",\n        " << tableMembers[tableIndex] << "(\""
+             << table.name << "\", object_" << tableIdBase + tableIndex
+             << "_id, " << owner << ", " << *storage << ")";
+    }
+    uint64_t childOffset = tableIdBase + specialization.tables.size();
     for (const QueueModuleInstancePlan &instance :
          specialization.moduleInstances) {
       const QueueGraphPlan *child =
@@ -5219,7 +5502,18 @@ generateStructuredQueueGraphCpp(const QueueGraphPlan &plan) {
     for (auto [index, block] : llvm::enumerate(specialization.blocks))
       output << "    " << scopeMember(scopeIndexOf(block.scope))
              << ".attachChild(" << blockMember(index) << ");\n";
-    childOffset = blockId + specialization.blocks.size();
+    for (auto [tableIndex, table] : llvm::enumerate(specialization.tables)) {
+      const std::string owner = tableOwnerMember(table);
+      if (owner.empty())
+        return generatorError("mixed nested Table owner scope is missing: " +
+                              table.ownerPath);
+      if (owner == "this")
+        output << "    attachChild(" << tableMembers[tableIndex] << ");\n";
+      else
+        output << "    " << owner << ".attachChild(" << tableMembers[tableIndex]
+               << ");\n";
+    }
+    childOffset = tableIdBase + specialization.tables.size();
     for (auto [index, instance] :
          llvm::enumerate(specialization.moduleInstances)) {
       const QueueGraphPlan *child =
@@ -5246,7 +5540,11 @@ generateStructuredQueueGraphCpp(const QueueGraphPlan &plan) {
       output << "    if (index == " << blockId + index
              << ") return gfsim::makeDispatchRow(&" << blockMember(index)
              << ");\n";
-    childOffset = blockId + specialization.blocks.size();
+    for (auto [tableIndex, table] : llvm::enumerate(specialization.tables))
+      output << "    if (index == " << tableIdBase + tableIndex
+             << ") return gfsim::makeDispatchRow(&" << tableMembers[tableIndex]
+             << ");\n";
+    childOffset = tableIdBase + specialization.tables.size();
     for (auto [instanceIndex, instance] :
          llvm::enumerate(specialization.moduleInstances)) {
       const QueueGraphPlan *child =
@@ -5277,8 +5575,35 @@ generateStructuredQueueGraphCpp(const QueueGraphPlan &plan) {
         continue;
       }
       if (block.kind == "firing") {
+        const std::vector<size_t> writeTables = tableWriteBindings(block);
+        if (writeTables.size() == 1 && block.slotReleases.empty()) {
+          output << "  gfsim::QueueTableTransition<" << blockPolicies[index]
+                 << ", " << tableTypes[writeTables.front()] << ", std::tuple<";
+          for (auto [typeIndex, type] :
+               llvm::enumerate(blockInputTypes[index])) {
+            if (typeIndex)
+              output << ", ";
+            output << type;
+          }
+          output << ">, std::tuple<";
+          for (auto [typeIndex, type] :
+               llvm::enumerate(blockOutputTypes[index])) {
+            if (typeIndex)
+              output << ", ";
+            output << type;
+          }
+          output << ">, " << mergePolicyName(index, 0) << "> "
+                 << blockMember(index) << ";\n";
+          continue;
+        }
         output << "  gfsim::QueueStateTransition<" << blockPolicies[index]
-               << ", std::tuple<>, std::tuple<";
+               << ", std::tuple<";
+        for (auto [writeIndex, tableIndex] : llvm::enumerate(writeTables)) {
+          if (writeIndex)
+            output << ", ";
+          output << tableTypes[tableIndex];
+        }
+        output << ">, std::tuple<";
         for (auto [typeIndex, type] : llvm::enumerate(blockInputTypes[index])) {
           if (typeIndex)
             output << ", ";
@@ -5290,7 +5615,14 @@ generateStructuredQueueGraphCpp(const QueueGraphPlan &plan) {
             output << ", ";
           output << type;
         }
-        output << ">, std::tuple<>> " << blockMember(index) << ";\n";
+        output << ">, std::tuple<";
+        for (size_t writeIndex = 0; writeIndex < writeTables.size();
+             ++writeIndex) {
+          if (writeIndex)
+            output << ", ";
+          output << mergePolicyName(index, writeIndex);
+        }
+        output << ">> " << blockMember(index) << ";\n";
         continue;
       }
       const bool oneByOne = blockInputTypes[index].size() == 1 &&
@@ -5317,6 +5649,9 @@ generateStructuredQueueGraphCpp(const QueueGraphPlan &plan) {
         output << ">> " << blockMember(index) << ";\n";
       }
     }
+    for (auto [tableIndex, type] : llvm::enumerate(tableTypes))
+      output << "  gfsim::SimTable<" << type << "> "
+             << tableMembers[tableIndex] << ";\n";
     for (auto [instanceIndex, instance] :
          llvm::enumerate(specialization.moduleInstances)) {
       const QueueGraphPlan *child =
