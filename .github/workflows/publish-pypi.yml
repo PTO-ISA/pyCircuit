@@ -175,6 +175,12 @@ jobs:
         uses: pypa/gh-action-pypi-publish@dc37677b2e1c63e2034f94d8a5b11f265b73ba33 # release/v1
         with:
           packages-dir: wheels
+          # Trusted publishing (OIDC) is the default and needs no secret. When a
+          # `PYPI_API_TOKEN` repository secret exists it is used instead, so an
+          # account without a pending publisher can still publish with one
+          # project-scoped token; an absent secret evaluates to an empty password
+          # and the action falls back to the OIDC exchange.
+          password: ${{ secrets.PYPI_API_TOKEN }}
           # PyPI refuses a filename that already exists and the action fails on
           # it. The host is irreversible, so an interrupted upload must still be
           # recoverable: a re-run republishes only what is missing and reports

@@ -44,14 +44,18 @@ that carry the release version (one platform wheel per supported platform),
 checks each one's recorded size and its `METADATA` name and version, reports
 every wheel it skips, and uploads the result.
 
-Enabling it needs both sides:
+Enabling it needs the release itself to be green, so the tag exists and the
+attestation is linked, plus **one** of these two account-side setups:
 
 1. a PyPI trusted publisher for the single shipped project `pycircuit-hisi`
    (owner `PTO-ISA`, repository `pyCircuit`, workflow `publish-pypi.yml`,
    environment `release`; the job requests `id-token: write` and uses
-   `environment: release`), and
-2. the release itself to be green, so the tag exists and the attestation is
-   linked.
+   `environment: release`), or
+2. a `PYPI_API_TOKEN` repository secret holding a project-scoped PyPI API token,
+   which the publish step uses instead of the OIDC exchange.
+
+Creating a pending publisher is a PyPI web-console action (there is no API for
+it), so it cannot be automated from this repository.
 
 PyPI refuses a version that already exists, so a package already uploaded there
 can only be superseded by a new version. Because of that the upload runs with

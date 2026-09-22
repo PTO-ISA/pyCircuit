@@ -346,7 +346,11 @@ def test_pypi_publication_cannot_invalidate_a_published_release() -> None:
         for step in job["steps"]
         if "pypa/gh-action-pypi-publish" in json.dumps(step)
     ]
-    assert upload["with"] == {"packages-dir": "wheels", "skip-existing": True}
+    assert upload["with"] == {
+        "packages-dir": "wheels",
+        "password": "${{ secrets.PYPI_API_TOKEN }}",
+        "skip-existing": True,
+    }
 
     def needs_closure(name: str) -> set[str]:
         seen: set[str] = set()
