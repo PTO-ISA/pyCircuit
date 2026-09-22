@@ -246,6 +246,13 @@ def transaction_pipeline(incoming: Entry) -> Entry:
     return outgoing
 ```
 
+`@ac.struct` returns a real nominal Python type: an immutable, keyword-
+constructed, hashable dataclass. `isinstance(value, Entry)`, `Entry(value=1)`,
+and eager `ac.array[N, Entry]` annotations therefore work without a
+`from __future__ import annotations` import. The captured metadata lives in
+`__ac_struct__`, `__ac_definition__`, and `__ac_fields__`, and `descriptor`
+exposes the runtime nominal descriptor.
+
 Follow these rules:
 
 - Use exact types such as `ac.u1` through `ac.u64`, `@ac.struct`, enums, fixed
