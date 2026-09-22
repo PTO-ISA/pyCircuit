@@ -139,6 +139,55 @@ def probe(x: In) -> Out:
     return out
 """
 
+# A source unit is imported by the capture worker, so its dependent annotations
+# have to stay lazy.
+SPECIALIZED_STAGE = """
+from __future__ import annotations
+
+import agentic_circuit as ac
+
+
+@ac.module_decl(
+    source="source/stage.py",
+    parameters=(
+        ac.static_parameter("lanes", ac.static_int(width=4, signed=False)),
+    ),
+    finite_cases=(
+        ac.case(("lanes", 2)),
+        ac.case(("lanes", 4)),
+    ),
+)
+def stage(
+    value: ac.Queue[ac.u8, lanes, 2],
+) -> ac.Queue[ac.u8, lanes, 2]:
+    ...
+
+
+stage_decl = stage
+
+
+@ac.module(declaration=stage_decl)
+def stage(
+    value: ac.Queue[ac.u8, lanes, 2],
+) -> ac.Queue[ac.u8, lanes, 2]:
+    return value
+"""
+
+SPECIALIZED_CORE = """
+from __future__ import annotations
+
+import agentic_circuit as ac
+
+from source.stage import stage
+
+
+@ac.system
+def probe(
+    value: ac.Queue[ac.u8, 2, 2],
+) -> ac.Queue[ac.u8, 2, 2]:
+    return stage(value, static=ac.case(("lanes", 2)))
+"""
+
 
 def _repository_tool(name: str) -> Path | None:
     for candidate in (
@@ -189,14 +238,14 @@ class MultiUnitPackageTest(unittest.TestCase):
             f"acc.py failed: {completed.stdout}\n{completed.stderr}",
         )
 
-    def _build_package(self) -> Path:
+    def _build_package(self, modules: tuple[str, ...] = ("child_a", "child_b")) -> Path:
         acc = _repository_tool("acc")
         assert acc is not None
         package = self.root / "package"
         (package / "interfaces" / "source").mkdir(parents=True)
         (package / "interfaces" / "_compiler").mkdir(parents=True)
 
-        for name in ("child_a", "child_b"):
+        for name in modules:
             self._compile(
                 [
                     "-c",
@@ -380,6 +429,36 @@ class MultiUnitPackageTest(unittest.TestCase):
             document,
             "module source-map golden drifted",
         )
+
+    def test_specialized_family_source_map_matches_golden(self) -> None:
+        """Item V05: the specialization construct is pinned by a golden."""
+
+        self._require_native_flow()
+        self._write("source/stage.py", SPECIALIZED_STAGE)
+        self._write("source/core.py", SPECIALIZED_CORE)
+
+        bundle = self._build_package(("stage",))
+
+        document = (bundle / "share" / "generated" / "source-map.json").read_bytes()
+        Draft202012Validator(
+            json.loads(SCHEMA.read_text(encoding="utf-8"))
+        ).validate(json.loads(document))
+        self.assertEqual(
+            (GOLDENS / "specialization.json").read_bytes(),
+            document,
+            "specialization source-map golden drifted",
+        )
+        self.assertEqual(
+            ["stage"], [item["definition"] for item in json.loads(document)["module_instances"]]
+        )
+
+        # The published unit carries every declared case, so the golden covers a
+        # specialization rather than a single concrete module.
+        unit = (self.root / "package" / "sources_stage.ac").read_text(encoding="utf-8")
+        self.assertEqual(2, unit.count("ac.module.case arguments"))
+        self.assertIn('#ac.static_argument<"lanes"', unit)
+        self.assertIn("2 : i4", unit)
+        self.assertIn("4 : i4", unit)
 
     def test_published_source_unit_keeps_canonical_provenance(self) -> None:
         self._require_native_flow()

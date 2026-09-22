@@ -2024,6 +2024,10 @@ acc.py -c source/core.py -o package/core.ac
 acc.py -c source/core.py --unit interfaces -o interfaces
 ```
 
+source unit 会被 capture worker import，因此 `ac.Queue[ac.u8, lanes, 2]` 这类 dependent
+annotation 必须保持 lazy（`from __future__ import annotations` 或字符串 annotation）；
+提前求值的 annotation 会在 lowering 之前以 `ACPY-CAPTURE-001` 失败。
+
 linked package 是包含 `core.ac`、各 source unit 以及各 logical path 上 interface unit 的
 目录。`acc` 会拼接所有 source interface type scope，把每个 source definition 与其
 interface header 对应，并逐字节比较每个 `ac.module.import` schema 与 provider 发布的

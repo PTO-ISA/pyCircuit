@@ -308,3 +308,5 @@ docs/gates/logs/*
 !docs/gates/logs/20260922-multi-unit-package/**
 !docs/gates/logs/20260922-published-provenance/
 !docs/gates/logs/20260922-published-provenance/**
+!docs/gates/logs/20260922-v05-specialization-golden/
+!docs/gates/logs/20260922-v05-specialization-golden/**

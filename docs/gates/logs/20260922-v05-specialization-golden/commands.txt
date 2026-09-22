@@ -1,0 +1,20 @@
+# Item V05: the specialization construct's source-map golden.
+# Run from the repository root with the native toolchain and Python extension built.
+
+python3 -m pytest tests/python/agentic-circuit/python_frontend/test_multi_unit_package.py -q -p no:cacheprovider
+
+# The covered flow, by hand:
+#   workspace: agentic-circuit.toml + source/{stage.py,core.py}
+#   stage.py declares one parameterized family (lanes in {2,4}) with an implementation;
+#   core.py places one specialization with static=ac.case(("lanes", 2)).
+python3 -m agentic_circuit._acc_py -c source/stage.py -o package/sources_stage.ac \
+  --header-output package/interfaces/source/stage.ac --quiet
+python3 -m agentic_circuit._acc_py -c source/core.py -o package/core.ac --quiet
+python3 -m agentic_circuit._acc_py -c source/core.py --unit interfaces -o interfaces --quiet
+.pycircuit_out/toolchain/build/bin/acc -c package -verify
+.pycircuit_out/toolchain/build/bin/acc -c package -emit-cpp-bundle -o bundle
+python3 -c 'import json;d=json.load(open("tests/goldens/agentic-circuit/source-map/specialization.json"));print(d)'
+
+# Lane context.
+python3 -m pytest tests/python/agentic-circuit -q -p no:cacheprovider \
+  --ignore=tests/python/agentic-circuit/tools
