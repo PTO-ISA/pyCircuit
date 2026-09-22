@@ -80,6 +80,7 @@ from .static_types import (
     _types_compatible,
 )
 from .syntax import _decorator_name
+from .type_rendering import _nominal_declarations
 
 
 @dataclass(frozen=True, slots=True)
@@ -275,11 +276,17 @@ def lower_queue_program(
                 f"#ac.type_expr<#ac.type_expr_concrete<{queue_type}>>, "
                 f"{provenance}>"
             )
+        nominals = _nominal_declarations(
+            [payload for _, payload in module.inputs]
+            + [payload for _, payload in module.outputs]
+        )
         schema = (
             "#ac.module_family_schema<#ac.static_parameters<[]>, "
             "#ac.static_cases<[#ac.static_arguments<[]>]>, "
             "#ac.module_interface<[" + ", ".join(interface_ports) + "]>, "
-            f"{owner}, []>"
+            f"{owner}, ["
+            + ", ".join(f"@{nominal}" for nominal in nominals)
+            + "]>"
         )
         physical_inputs = ", ".join(
             f"!ac.queue<{_render_type(payload)}>" for _, payload in module.inputs

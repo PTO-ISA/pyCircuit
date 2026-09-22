@@ -1938,7 +1938,10 @@ logical interface：按顺序为每个已解析输入和每个结果各一个 po
 declaration 记录的 family 保留声明的 dependent skeleton，由各 case 用自己的 typed
 static argument materialize。symbol 没有 declaration 记录的 module——实现名称与声明不同，
 或完全没有声明的 pure module——则声明其已解析签名，因为 `ac.module.case` 校验会拒绝任何
-interface 无法 materialize 到该 case 精确 concrete signature 的 case。
+interface 无法 materialize 到该 case 精确 concrete signature 的 case。每个生成的 module 还
+携带其 case 的类型所需 nominal declaration inventory：从已解析 interface 可达的每个 struct
+与 enum，按 traversal 顺序递归展开 struct 字段类型。backend 依据该 inventory 计算 payload
+的 packed layout，因此声明为空的 struct payload 的 module family 无法 lowered 到 PYC 或 C++。
 
 独立编译的 parent 只 import typed declaration。声明保持与实现完全一致的 runtime/static
 签名，显式绑定实现 source，并且没有实现正文：
