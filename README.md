@@ -57,7 +57,118 @@ implementations.
 Read [Choose a Frontend](docs/getting-started/choose-a-frontend.md) for the
 supported authoring boundaries and examples.
 
-## Quick start
+## Install
+
+One wheel installs both frontends and both compilers. No compiler build, no
+LLVM/MLIR checkout, and no CMake are involved:
+
+```bash
+python3 -m pip install pycircuit-hisi
+```
+
+Use Python 3.11 or later. The `pycircuit` frontend alone runs on 3.10, but the
+native bridge bundled for the Agentic Circuit frontend targets the 3.11 stable
+ABI, so 3.11+ covers everything in the wheel.
+
+That one install provides:
+
+| Command | What it does |
+| --- | --- |
+| `pycircuit` | Emit PYC MLIR from a Python design, then drive the C++/Verilog backends |
+| `pycc` | Compile PYC MLIR to C++ or Verilog |
+| `acc.py` | Capture ACPy source into verified ACIR |
+| `acc` | Compile verified ACIR to C++, a C++ bundle, or Verilog |
+| `agentic-circuit` | Agentic Circuit workspace, catalog, and diagnostic commands |
+
+`import pycircuit`, `import agentic_circuit`, and `import _pycircuit_semantics`
+all resolve from that same install.
+
+Check the install:
+
+```bash
+pycircuit --help
+pycc --help
+acc.py --help
+```
+
+### Your first design
+
+Save this as `counter.py`. It needs nothing from this repository:
+
+```python
+from pycircuit import (
+    CycleAwareCircuit,
+    CycleAwareDomain,
+    cas,
+    mux,
+    wire_of,
+)
+
+
+def build(m: CycleAwareCircuit, domain: CycleAwareDomain) -> None:
+    enable = cas(domain, m.input("enable", width=1), cycle=0)
+    count = domain.signal(width=8, reset_value=0, name="count")
+
+    m.output("count", wire_of(count))
+
+    # Compute the next value in this logical cycle, then commit it.
+    count_next = mux(enable, count + 1, count)
+    domain.next()
+    count <<= count_next
+
+
+build.__pycircuit_name__ = "counter"
+```
+
+Emit PYC MLIR, then compile it to Verilog:
+
+```bash
+pycircuit emit counter.py -o counter.pyc
+pycc counter.pyc --verilog counter.v
+```
+
+`counter.v` declares `module counter` and needs no other input. Swap
+`--verilog counter.v` for `--cpp counter.cpp` to generate C++ instead.
+
+To build and run a design end to end, add `@testbench def tb(t: Tb)` to the same
+file and use `pycircuit build counter.py --out-dir out --target both`. That step
+also needs CMake, Ninja, and a C++ compiler on the host (`--target verilator`
+and simulation additionally need Verilator).
+
+### Platform notes
+
+| Platform | Install |
+| --- | --- |
+| macOS (Apple silicon), Windows (x86-64) | `python3 -m pip install pycircuit-hisi` |
+| Linux (x86-64) | `python3 -m pip install https://github.com/PTO-ISA/pyCircuit/releases/download/v6.1.0/pycircuit_hisi-6.1.0-py3-none-linux_x86_64.whl` |
+
+The Linux wheel is 140 MB, above PyPI's 100 MiB per-file limit, so it is
+installed from the release URL above until that limit is raised for the project;
+macOS and Windows install straight from PyPI.
+
+The wheel carries the toolchain and runtime libraries it needs. It requires
+glibc 2.39 or newer on Linux (Ubuntu 24.04 baseline), macOS 15 or newer, or
+Windows Server 2022 or newer, and it supports exactly the platforms listed in
+[the SDK release contract](docs/development/sdk-release-contract.md).
+
+### C++ and CMake consumers
+
+`pycc` and `acc` generate C++ that links against the released runtime. For that,
+use the platform SDK archive published with the same release:
+
+- `pycircuit-sdk-<version>-<platform>.tar.gz` plus its `.manifest.json` and
+  `.lock.json`, or
+- the matching container artifact
+  `ghcr.io/pto-isa/pyc-tools-<platform>:v<version>`.
+
+`<platform>` is one of `linux-x86_64`, `macos-arm64`, or `windows-x86_64`. The
+manifest records the platform's compiler, ABI, minimum OS, and exact file
+inventory; the lock records the release identity for a consumer.
+
+## Quick start (from source)
+
+The wheel above needs no build. The following source setup is for developing
+pyCircuit itself and for targets that are not part of a release.
 
 The integrated development setup requires Python 3.11 or later, CMake, Ninja,
 and LLVM/MLIR 22.1.8. pyCircuit-only frontend use supports Python 3.10 or later.

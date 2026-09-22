@@ -44,14 +44,25 @@ that carry the release version (one platform wheel per supported platform),
 checks each one's recorded size and its `METADATA` name and version, reports
 every wheel it skips, and uploads the result.
 
-Enabling it needs both sides:
+Enabling it needs the release itself to be green, so the tag exists and the
+attestation is linked, plus **one** of these two account-side setups:
 
 1. a PyPI trusted publisher for the single shipped project `pycircuit-hisi`
    (owner `PTO-ISA`, repository `pyCircuit`, workflow `publish-pypi.yml`,
    environment `release`; the job requests `id-token: write` and uses
-   `environment: release`), and
-2. the release itself to be green, so the tag exists and the attestation is
-   linked.
+   `environment: release`), or
+2. a `PYPI_API_TOKEN` repository secret holding a project-scoped PyPI API token,
+   which the publish step uses instead of the OIDC exchange.
+
+Creating a pending publisher is a PyPI web-console action (there is no API for
+it), so it cannot be automated from this repository.
+
+PyPI refuses a file larger than its per-project limit (100 MiB by default, raised
+on request through
+<https://docs.pypi.org/project-management/storage-limits>). The selection step
+takes that limit as `max_upload_bytes`, publishes every wheel that fits, and
+reports the rest as deferred instead of failing; re-dispatching after an increase
+uploads only what is still missing.
 
 PyPI refuses a version that already exists, so a package already uploaded there
 can only be superseded by a new version. Because of that the upload runs with
@@ -146,6 +157,8 @@ Portability traps already paid for, each with a regression test:
 | venv interpreter not found (`WinError 2`) | `TEMP` is an 8.3 short path (`RUNNER~1`) | resolve the workspace to its long spelling first |
 | `acc.py.exe` missing | pip does not materialise a launcher for an entry point whose name carries a suffix | prefer the launcher, otherwise run the module through the venv interpreter |
 | `Agentic Circuit native extension is unavailable` | a wheel was installed that does not carry the native bridge (for example a hand-built pure-Python package) | install the published platform wheel, which carries `agentic_circuit/_native` |
+| `pycc` / `acc` starts from the SDK tree but not from the installed wheel | the wheel was built without relocation, so it still references the builder's absolute library paths | rebuild with `create_wheel.py --platform <profile>`; the verifier names all three copies and whether they are byte-identical |
+| an installed compiler aborts once immediately after extraction (macOS signal 6, Windows `0xC0000005`) | the freshly written binary was not yet fully available to the loader; observed once on windows-2022 | re-run the verification; the failure report distinguishes a flake from a defect by naming the console script, the wheel binary, and the SDK tree binary |
 | `output AC unit must not already exist` | the driver refuses to clobber artifacts | regenerate into a second path and compare bytes |
 
 ## Diagnostics

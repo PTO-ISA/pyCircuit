@@ -314,8 +314,11 @@ def test_pypi_publication_cannot_invalidate_a_published_release() -> None:
     triggers = publication[True] if True in publication else publication["on"]
     assert list(triggers) == ["workflow_dispatch"], triggers
     inputs = triggers["workflow_dispatch"]["inputs"]
-    assert set(inputs) == {"version", "source_revision"}
-    assert all(inputs[name]["required"] is True for name in inputs)
+    assert set(inputs) == {"version", "source_revision", "max_upload_bytes"}
+    assert inputs["version"]["required"] is True
+    assert inputs["source_revision"]["required"] is True
+    assert inputs["max_upload_bytes"]["required"] is False
+    assert inputs["max_upload_bytes"]["default"] == "104857600"
 
     (job,) = publication["jobs"].values()
     assert job["environment"] == {"name": "release"}
@@ -339,6 +342,12 @@ def test_pypi_publication_cannot_invalidate_a_published_release() -> None:
     assert "len(selected) != 3" in text
     assert "len(platforms) != 3" in text
     assert 'expected = {"pycircuit-hisi"}' in text
+    # The host rejects a wheel over its per-file limit, so a release whose Linux
+    # wheel exceeds it must publish what fits and name what was deferred instead
+    # of failing the whole upload.
+    assert "max_upload_bytes" in text
+    assert "Deferred:" in text
+    assert "exceed the {limit}-byte host " in text
     # The host is irreversible, so an interrupted upload must stay recoverable
     # instead of failing forever on the files it already accepted.
     (upload,) = [
@@ -346,7 +355,11 @@ def test_pypi_publication_cannot_invalidate_a_published_release() -> None:
         for step in job["steps"]
         if "pypa/gh-action-pypi-publish" in json.dumps(step)
     ]
-    assert upload["with"] == {"packages-dir": "wheels", "skip-existing": True}
+    assert upload["with"] == {
+        "packages-dir": "wheels",
+        "password": "${{ secrets.PYPI_API_TOKEN }}",
+        "skip-existing": True,
+    }
 
     def needs_closure(name: str) -> set[str]:
         seen: set[str] = set()

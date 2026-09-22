@@ -146,3 +146,26 @@ def test_verilog_primitive_merge_keeps_later_module_closure(tmp_path) -> None:
         4,
         13,
     }
+
+
+def test_bundled_tool_launcher_avoids_the_windows_exec_chain() -> None:
+    """Windows has no exec(2), and the emulation intermittently aborted.
+
+    The installed `pycc`/`acc` console scripts launch the bundled compiler. On
+    Windows `os.exec*` spawns the target and terminates the launcher, and that
+    double-launch chain aborted with 0xC0000005 while the compiler itself and a
+    byte-identical toolchain copy both ran. The Windows branch must forward the
+    child's exit code instead, and the POSIX branch keeps real exec semantics.
+    """
+
+    source = (ROOT / "python/pycircuit/src/pycircuit/packaged_toolchain.py").read_text(
+        encoding="utf-8"
+    )
+    assert 'if os.name == "nt":' in source
+    assert (
+        "subprocess.run([str(exe), *argv], env=env, check=False).returncode" in source
+    )
+    assert "os.execvpe(str(exe), [str(exe), *argv], env)" in source
+    assert source.index("subprocess.run([str(exe)") < source.index(
+        "os.execvpe(str(exe)"
+    )
