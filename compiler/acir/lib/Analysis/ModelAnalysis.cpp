@@ -1110,11 +1110,17 @@ LogicalResult verifyFrozenStructuredQueueGraph(ModuleOp model) {
           return definition.emitOpError(
               "structured QueueGraph module results must be ac.queue values");
       for (Operation &child : moduleCase.getBody().front()) {
+      // A segmented rule-backed body hoists the state owned by its local rules
+      // to the case root, because more than one scope segment can read or write
+      // it. Those declarations are structural members of the body, just like a
+      // case-level queue, so the frozen shape has to admit them next to the
+      // scopes and instances that use them.
       if (!isa<ac::ScopeOp, ac::InstanceOp, ac::ArchitectureObligationOp,
-               ac::ReturnOp>(child))
+               ac::VarDeclOp, ac::TableOp, ac::ReturnOp>(child))
         return child.emitOpError(
             "structured QueueGraph module body permits scopes, instances, "
-            "architecture obligations, and ac.return only");
+            "architecture obligations, hoisted state declarations, and "
+            "ac.return only");
       auto instance = dyn_cast<ac::InstanceOp>(child);
       if (!instance)
         continue;

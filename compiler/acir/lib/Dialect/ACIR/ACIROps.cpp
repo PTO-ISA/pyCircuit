@@ -7433,10 +7433,17 @@ bool isStructuralGraphChild(Operation &child) {
       file ? file->getAttrOfType<StringAttr>("ac.model_kind") : StringAttr();
   const bool queueGraphChild =
       kind && kind.getValue() == "queue_graph" && isa<ScopeOp>(child);
+  // Module-local state declarations are structural members of a concrete Graph
+  // body. A segmented rule-backed body hoists the declarations owned by its
+  // local rules to the common `ac.module.case` level, because more than one
+  // scope segment can read or write the same state, so `ac.var.decl` and its
+  // frozen `ac.table` form have to be legal next to the segments that use them,
+  // exactly as `ac.queue` already is. They stay declarations: their uses remain
+  // confined to the segments that were originally verified against them.
   return isa<InstanceOp, ArrayOp, InstancesOp, ViewOp, QueueOp, EventQueueOp,
              ResourceOp, AddressSpaceOp, AddressMapOp, TimeDomainOp, ProcessOp,
-             RequireOp, EnsureOp, StatOp, ArchitectureObligationOp, ReturnOp>(
-             child) ||
+             RequireOp, EnsureOp, StatOp, ArchitectureObligationOp,
+             VarDeclOp, TableOp, ReturnOp>(child) ||
          queueGraphChild || child.getName().getStringRef() == "arith.constant";
 }
 
