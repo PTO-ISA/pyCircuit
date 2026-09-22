@@ -7,6 +7,13 @@
 // RUN: %not %acir_opt --verify-each=false --pass-pipeline='builtin.module(ac-freeze-topology)' %t/forged-flat.mlir 2>&1 | %FileCheck %s --check-prefix=FORGED-FLAT
 // RUN: %not %acir_opt --verify-each=false --pass-pipeline='builtin.module(ac-freeze-topology)' %t/mixed-flat.mlir 2>&1 | %FileCheck %s --check-prefix=MIXED-FLAT
 // RUN: %not %acir_opt --verify-each=false --pass-pipeline='builtin.module(ac-verify-model)' %t/mutated-frozen.mlir 2>&1 | %FileCheck %s --check-prefix=MUTATED
+// The frozen fast paths must still re-prove the module ac.require/ac.ensure
+// contracts. Flipping the proven constant in the frozen output models a contract
+// that was added or changed after the freeze; selecting the frozen branch on an
+// `ac.freeze_proven`/`ac.frozen_*`/`ac.topology_*` attribute name alone used to
+// skip `verifyFreezeContracts` for it.
+// RUN: sed 's|arith.constant true|arith.constant false|' %t/frozen.mlir > %t/frozen-mutated-contract.mlir
+// RUN: %not %acir_opt --verify-each=false --pass-pipeline='builtin.module(ac-freeze-topology)' %t/frozen-mutated-contract.mlir 2>&1 | %FileCheck %s --check-prefix=FROZEN-CONTRACT
 
 //--- valid.mlir
 builtin.module  {
@@ -115,3 +122,5 @@ ac.module @Top source #ac.source_owner<"tests/native_family.py", "tests/native_f
   }
 }
 // MUTATED: frozen owner manifest mismatch; topology ownership was mutated after ac-freeze-topology
+
+// FROZEN-CONTRACT: topology-freeze contract failed: topology remains deterministic
