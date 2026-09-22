@@ -2,6 +2,10 @@
 
 Choose the smallest installation profile that matches the work you need to do.
 
+To use pyCircuit without building anything, install the published wheel: one
+command, no CMake and no LLVM/MLIR checkout. See
+[Install the published wheel](#install-the-published-wheel).
+
 ## Requirements
 
 | Component | Frontend only | Full toolchain |
@@ -57,6 +61,32 @@ MLIR_OPT="$(command -v mlir-opt-22 || command -v mlir-opt)"
 "$MLIR_OPT" --version
 python3 --version
 ```
+
+## Install the published wheel
+
+The release wheel carries both frontends and both compilers, so one install is
+enough:
+
+```bash
+python3 -m pip install pycircuit-hisi
+pycircuit --help
+pycc --help
+acc.py --help
+```
+
+`pycircuit`, `pycc`, `acc`, `acc.py`, and `agentic-circuit` are installed as
+commands, and `pycircuit`, `agentic_circuit`, and `_pycircuit_semantics` import
+from the same environment. Python 3.11 or later covers everything in the wheel.
+
+The Linux wheel is larger than PyPI's per-file limit, so it is installed from the
+release URL until that limit is raised:
+
+```bash
+python3 -m pip install https://github.com/PTO-ISA/pyCircuit/releases/download/v6.1.0/pycircuit_hisi-6.1.0-py3-none-linux_x86_64.whl
+```
+
+The [README](https://github.com/PTO-ISA/pyCircuit#install) has the same
+instructions with a first design to compile.
 
 ## Frontend-only editable install
 
@@ -125,11 +155,11 @@ PYC_GATE_RUN_ID=local-ac-$(date +%Y%m%d-%H%M%S) \
 bash flows/scripts/run_agentic_circuit.sh
 ```
 
-## Install a release wheel
+## Install a release wheel from a local file
 
-Download the wheel for your platform from
-[GitHub Releases](https://github.com/PTO-ISA/pyCircuit/releases/latest), then
-install the local file:
+For an offline or air-gapped install, download the wheel for your platform from
+[GitHub Releases](https://github.com/PTO-ISA/pyCircuit/releases/latest) and
+install that file:
 
 ```bash
 python3 -m pip install /path/to/pycircuit_hisi-6.1.0-*.whl
