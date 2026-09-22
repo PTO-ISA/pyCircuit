@@ -382,6 +382,10 @@ magic literal。
 把包根当作 workspace 会让每个包内绝对导入都被判成外部导入；这种形状会给出
 指明应传哪个目录的诊断，而不是通用的 external import 报错。
 
+workspace 内的本地模块会遮蔽同名的外部模块，与解释器一致：workspace 在
+`sys.path` 上先于标准库，因此自带 `queue.py` 的设计导入的是自己的文件，而不是
+标准库的 `queue`。
+
 closure 之外允许「不会在不进入捕获源码的情况下改变 elaboration」的导入：
 `agentic_circuit`、`__future__` 与标准库都可以导入。closure 拒绝那些状态依赖
 宿主、平台、墙上时钟、熵源或代码生成的模块（`os`、`sys`、`pathlib`、`io`、
