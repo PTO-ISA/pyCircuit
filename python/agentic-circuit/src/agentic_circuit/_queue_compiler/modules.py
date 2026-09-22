@@ -3209,14 +3209,49 @@ def _lower_simple_module_source(
         quoted = canonical_mlir_string(normalized)
         return f"#ac.source_owner<{quoted}, {quoted}>"
 
-    def family_schema(name: str, source: str) -> str:
+    def concrete_family_interface(
+        inputs: tuple[tuple[str, ValueType], ...],
+        outputs: tuple[tuple[str, ValueType], ...],
+        provenance: str,
+    ) -> str:
+        """Interface one resolved module signature materializes to.
+
+        ``ac.module.case`` verification materializes the family interface
+        against the concrete case signature, so a module emitted for one
+        resolved signature needs exactly one port per input and per result.
+        The declared interface of a same-named family already provides that;
+        this is the fallback for a symbol whose declaration is registered under
+        a different name, or for a module that has no declaration entry at all.
+        """
+        ports: list[str] = []
+        for direction, signature in (("input", inputs), ("output", outputs)):
+            for name, payload in signature:
+                queue_type = f"!ac.queue<{_render_type(payload)}>"
+                ports.append(
+                    "#ac.interface_port<"
+                    f"{canonical_mlir_string(name)}, \"{direction}\", "
+                    f"#ac.type_expr<#ac.type_expr_concrete<{queue_type}>>, "
+                    f"{provenance}>"
+                )
+        return "#ac.module_interface<[" + ", ".join(ports) + "]>"
+
+    def family_schema(
+        name: str, source: str, fallback_interface: str | None = None
+    ) -> str:
         parameters, cases = module_family_schemas.get(
             name,
             ("#ac.static_parameters<[]>", "#ac.static_cases<[#ac.static_arguments<[]>]>")
         )
+        interface = module_family_interfaces.get(name)
+        if interface is None:
+            interface = (
+                fallback_interface
+                if fallback_interface is not None
+                else "#ac.module_interface<[]>"
+            )
         return (
             f"#ac.module_family_schema<{parameters}, {cases}, "
-            f"{module_family_interfaces.get(name, '#ac.module_interface<[]>')}, "
+            f"{interface}, "
             f"{family_owner(source)}, ["
             + ", ".join(f"@{name}" for name in module_family_nominals.get(name, ()))
             + "]>"
@@ -3364,8 +3399,16 @@ def _lower_simple_module_source(
         result_type = (
             "()" if not results else result_types if len(results) == 1 else f"({result_types})"
         )
+        result_ports = tuple(
+            ("result" if len(results) == 1 else f"result{index}", value_type)
+            for index, value_type in enumerate(results)
+        )
+        interface = concrete_family_interface(
+            arguments, result_ports, family_provenance(*frame)
+        )
         return [
-            f"  ac.module @{name} source {family_owner(source)} schema {family_schema(name, source)} {{",
+            f"  ac.module @{name} source {family_owner(source)} "
+            f"schema {family_schema(name, source, interface)} {{",
             f"    ac.module.case arguments #ac.static_arguments<[]> type ({input_types}) -> {result_type}"
             + metadata.removeprefix(" attributes")
             + f" source {family_provenance(*frame)} graph {{",
@@ -3666,14 +3709,10 @@ def _lower_simple_module_source(
             else "generated/compiler_projection.py"
         )
         projection_provenance = family_provenance(projection_owner)
-        projection_interface = (
-            "#ac.module_interface<["
-            f'#ac.interface_port<"value", "input", '
-            f"#ac.type_expr<#ac.type_expr_concrete<!ac.queue<{_render_type(input_type)}>>>, "
-            f"{projection_provenance}>, "
-            f'#ac.interface_port<"result", "output", '
-            f"#ac.type_expr<#ac.type_expr_concrete<!ac.queue<{_render_type(output_type)}>>>, "
-            f"{projection_provenance}>]>"
+        projection_interface = concrete_family_interface(
+            (("value", input_type),),
+            (("result", output_type),),
+            projection_provenance,
         )
         projection_schema = (
             "#ac.module_family_schema<#ac.static_parameters<[]>, "
@@ -3749,9 +3788,14 @@ def _lower_simple_module_source(
             for _, payload in definition.inputs
         )
         physical_results = result_signature if definition.outputs else "()"
+        interface = concrete_family_interface(
+            definition.inputs,
+            definition.outputs,
+            family_provenance(*source_frame),
+        )
         lines.extend([
             f"  ac.module @{symbol} source {family_owner(source)} "
-            f"schema {family_schema(function.name, source)} {{",
+            f"schema {family_schema(function.name, source, interface)} {{",
             f"    ac.module.case arguments #ac.static_arguments<[]> "
             f"type ({physical_inputs}) -> {physical_results}"
             + _render_interface_display_attributes(
