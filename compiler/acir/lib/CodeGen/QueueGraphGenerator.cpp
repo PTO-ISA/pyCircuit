@@ -3026,6 +3026,42 @@ generateStructuredQueueGraphCpp(const QueueGraphPlan &plan) {
     if (auto error = verifyRuntimeInstanceNamespace(*specialization))
       return std::move(error);
 
+  // A stateless local firing block has no Table writes, reservations, or slot
+  // releases, and carries exactly one condition and presence predicate per
+  // output. Both the mixed local shapes and the emitter rely on this shape so a
+  // stateful firing block is rejected instead of flattened.
+  auto isStatelessFiringBlock = [](const QueueBlockPlan &block) {
+    return block.kind == "firing" && block.stateWrites.empty() &&
+           block.stateReservations.empty() && block.slotReleases.empty() &&
+           block.yields.size() == block.outputs.size() &&
+           block.outputPresence.size() == block.outputs.size();
+  };
+  // A parent may own any number of local block subgraphs across its own scopes,
+  // either alongside child instances or on its own for a rule-backed body with
+  // no child call. Every block has to live in one of the parent's scopes, and
+  // the Queues between the local blocks and the children stay parent-owned.
+  // This is the generalization of mixedNested from exactly one transform to the
+  // whole "local blocks plus child instances" shape. Only single-pass local
+  // transforms, fanout broadcasts, and stateless firing blocks are
+  // representable here: a feedback, select, stateful firing, or table block
+  // would otherwise be silently flattened into a one-shot transform.
+  auto isWideMixedLocalShape = [&](const QueueGraphPlan &specialization) {
+    return !specialization.blocks.empty() && specialization.tables.empty() &&
+           !specialization.scopes.empty() &&
+           llvm::all_of(specialization.blocks,
+                        [&](const QueueBlockPlan &block) {
+                          if (!llvm::is_contained(specialization.scopes,
+                                                  block.scope))
+                            return false;
+                          if (block.kind == "broadcast")
+                            return block.inputs.size() == 1 &&
+                                   block.outputs.size() >= 2;
+                          if (block.kind == "firing")
+                            return isStatelessFiringBlock(block);
+                          return block.kind == "transform";
+                        });
+  };
+
   for (const QueueGraphPlan *specialization : emissionOrder) {
     const bool pureTransform =
         specialization && specialization->blocks.size() == 1 &&
@@ -3092,50 +3128,63 @@ generateStructuredQueueGraphCpp(const QueueGraphPlan &plan) {
         llvm::all_of(specialization->blocks, [](const QueueBlockPlan &block) {
           return block.kind == "broadcast";
         });
-    // A parent may own any number of local block subgraphs alongside its child
-    // instances. Every block has to live in one of the parent's own scopes, and
-    // the Queues between the local blocks and the children stay parent-owned.
-    // This is the generalization of mixedNested from exactly one transform to
-    // the whole "local blocks plus child instances" shape. Only single-pass
-    // local transforms and fanout broadcasts are representable here: a feedback,
-    // select, firing, or table block would otherwise be silently flattened into
-    // a one-shot transform.
+    const bool wideMixedLocal =
+        specialization && isWideMixedLocalShape(*specialization);
     const bool wideMixedNested =
-        specialization && !specialization->blocks.empty() &&
-        specialization->tables.empty() &&
-        !specialization->moduleInstances.empty() &&
-        !specialization->scopes.empty() &&
-        llvm::all_of(specialization->blocks, [&](const QueueBlockPlan &block) {
-          if (!llvm::is_contained(specialization->scopes, block.scope))
-            return false;
-          if (block.kind == "broadcast")
-            return block.inputs.size() == 1 && block.outputs.size() >= 2;
-          return block.kind == "transform";
+        wideMixedLocal && !specialization->moduleInstances.empty();
+    // A childless rule-backed body may own the same multi-block local shape. A
+    // body with a single local block keeps the older dedicated emitters so its
+    // generated output stays byte-identical, and an all-firing body keeps the
+    // direct-interface stateful emitter.
+    const bool multiBlockLocal =
+        wideMixedLocal && specialization->moduleInstances.empty() &&
+        specialization->blocks.size() > 1 &&
+        llvm::any_of(specialization->blocks, [](const QueueBlockPlan &block) {
+          return block.kind != "firing" && block.kind != "slot";
         });
     const bool localShape =
         emptyModule || nestedWrapper || mixedNested || nestedAssembly ||
-        wideMixedNested ||
+        wideMixedNested || multiBlockLocal ||
         (specialization && specialization->moduleInstances.empty() &&
          specialization->scopes.size() == 1 &&
          llvm::none_of(specialization->blocks,
                        [&](const QueueBlockPlan &block) {
                          return block.scope != specialization->scopes.front();
                        }));
-    if (specialization && !specialization->moduleInstances.empty() &&
-        specialization->tables.empty() && !specialization->scopes.empty() &&
-        !nestedWrapper && !nestedAssembly && !mixedNested &&
-        !wideMixedNested) {
-      for (const QueueBlockPlan &block : specialization->blocks)
-        if (block.kind != "transform" && block.kind != "broadcast")
+    // The local block graph is not representable by any admitted shape, so
+    // report the specific unsupported block instead of silently flattening it
+    // into a one-shot transform.
+    const bool localBlockGraph =
+        specialization && !specialization->blocks.empty() &&
+        !specialization->scopes.empty() &&
+        llvm::all_of(specialization->blocks,
+                     [&](const QueueBlockPlan &block) {
+                       return llvm::is_contained(specialization->scopes,
+                                                 block.scope);
+                     });
+    if (localBlockGraph && !wideMixedLocal && !nestedWrapper &&
+        !nestedAssembly && !mixedNested && !firingModule && !pureTransform &&
+        !conditionalTransform &&
+        (!specialization->moduleInstances.empty() ||
+         specialization->blocks.size() > 1)) {
+      for (const QueueBlockPlan &block : specialization->blocks) {
+        if (block.kind == "firing" && !isStatelessFiringBlock(block))
           return generatorError(
-              "mixed nested module supports only local transform and broadcast "
-              "blocks; block '" +
+              "mixed nested module supports only stateless local firing "
+              "blocks; firing block '" +
+              block.name + "' owns Table state");
+        if (block.kind != "transform" && block.kind != "broadcast" &&
+            block.kind != "firing")
+          return generatorError(
+              "mixed nested module supports only local transform, fanout "
+              "broadcast, and stateless firing blocks; block '" +
               block.name + "' has kind '" + block.kind + "'");
+      }
     }
     if (!specialization ||
         (!emptyModule && !pureTransform && !conditionalTransform &&
          !firingModule && !nestedWrapper && !mixedNested && !nestedAssembly &&
-         !wideMixedNested) ||
+         !wideMixedNested && !multiBlockLocal) ||
         !localShape || !specialization->memoryInstances.empty())
       return generatorError(
           "structured QueueGraph specialization requires a pure transform, "
@@ -3146,7 +3195,7 @@ generateStructuredQueueGraphCpp(const QueueGraphPlan &plan) {
       interfaceQueues.insert(input.name);
     for (const QueueInterfacePlan &output : specialization->interfaceOutputs)
       interfaceQueues.insert(output.name);
-    if (mixedNested || nestedAssembly || wideMixedNested)
+    if (mixedNested || nestedAssembly || wideMixedLocal)
       for (const QueuePlan &queue : specialization->queues)
         interfaceQueues.insert(queue.name);
     for (const QueueBlockPlan &block : specialization->blocks)
@@ -4710,8 +4759,8 @@ generateStructuredQueueGraphCpp(const QueueGraphPlan &plan) {
       queueExpressions[queue.name] = "&queue_" + std::to_string(index) + "_";
     }
     if (specialization.blocks.empty() || internalQueues.empty())
-      return generatorError("mixed nested module requires local transforms and "
-                            "an internal Queue");
+      return generatorError("mixed nested module requires local blocks and an "
+                            "internal Queue");
     // A parent owns one scope object per distinct local block scope. The single
     // block shape keeps the original scope_/block_ spelling so its generated
     // output stays byte-identical.
@@ -4734,6 +4783,104 @@ generateStructuredQueueGraphCpp(const QueueGraphPlan &plan) {
       return singleLocalBlock
                  ? implementation + "_local_policy"
                  : implementation + "_local_policy_" + std::to_string(index);
+    };
+    // A stateless firing block reuses the direct-interface stateful emitter's
+    // policy shape: one closed condition plus one presence predicate per output,
+    // returned as a StateTransitionPlan over an empty Table tuple. That keeps
+    // the conditional `ac.firing.output ... when ...` presence instead of
+    // flattening it into an unconditional single output.
+    llvm::SmallVector<std::string> blockFiringPolicies(
+        specialization.blocks.size());
+    {
+      llvm::StringSet<> usedFiringSymbols;
+      for (auto [index, block] : llvm::enumerate(specialization.blocks)) {
+        if (block.kind != "firing")
+          continue;
+        llvm::StringRef display = block.displayRuleName.empty()
+                                      ? llvm::StringRef(block.name)
+                                      : llvm::StringRef(block.displayRuleName);
+        blockFiringPolicies[index] =
+            implementation + "_" +
+            uniqueIdentifier(("rule_" + display).str(), usedFiringSymbols) +
+            "_policy";
+      }
+    }
+    auto emitStatelessFiringPolicy =
+        [&](const QueueBlockPlan &block, const std::string &policy,
+            llvm::ArrayRef<std::string> inputTypes,
+            llvm::ArrayRef<std::string> outputTypes) -> llvm::Error {
+      if (!isStatelessFiringBlock(block))
+        return generatorError(
+            "mixed nested module supports only stateless local firing blocks; "
+            "firing block '" +
+            block.name + "' owns Table state");
+      if (block.outputs.empty() || block.yields.size() != block.outputs.size())
+        return generatorError(
+            "mixed nested firing yield count does not match its output Queue "
+            "count");
+      std::string planType = "gfsim::StateTransitionPlan<std::tuple<>, "
+                             "std::tuple<";
+      for (auto [typeIndex, type] : llvm::enumerate(outputTypes)) {
+        if (typeIndex)
+          planType.append(", ");
+        planType.append(type);
+      }
+      planType.append(">>");
+      QueueBlockPlan evaluation = block;
+      std::vector<std::string> additional{block.guard};
+      std::string tupleResult = "std::tuple{";
+      bool tupleHasValue = false;
+      for (auto [outputIndex, yield] : llvm::enumerate(block.yields)) {
+        const std::string &present = block.outputPresence[outputIndex].present;
+        if (tupleHasValue)
+          tupleResult.append(", ");
+        tupleResult.append(yield).append(", ").append(present);
+        tupleHasValue = true;
+        additional.push_back(yield);
+        additional.push_back(present);
+      }
+      if (tupleHasValue)
+        tupleResult.append(", ");
+      tupleResult.append(block.guard).push_back('}');
+      auto body = emitExpressionBody(specialization, evaluation,
+                                     block.yields.front(), 6, true, false,
+                                     additional, tupleResult);
+      if (!body)
+        return body.takeError();
+      emitRuleProvenance(output, block);
+      output << "struct " << policy << " {\n";
+      output << "  std::optional<" << planType
+             << "> operator()(gfsim::Epoch epoch, std::tuple<> table_refs";
+      for (auto [inputIndex, type] : llvm::enumerate(inputTypes)) {
+        output << ", const " << type << " &item";
+        if (inputIndex)
+          output << inputIndex;
+      }
+      output << ") const {\n    auto [";
+      bool bindingHasValue = false;
+      for (size_t outputIndex = 0; outputIndex < outputTypes.size();
+           ++outputIndex) {
+        if (bindingHasValue)
+          output << ", ";
+        output << outputValueName(block, outputIndex) << ", "
+               << outputPresentName(block, outputIndex);
+        bindingHasValue = true;
+      }
+      if (bindingHasValue)
+        output << ", ";
+      output << "rule_condition] = [&]() {\n"
+             << *body << "    }();\n"
+             << "    if (!rule_condition)\n      return std::nullopt;\n"
+             << "    return " << planType << "{{}, {";
+      for (auto [outputIndex, type] : llvm::enumerate(outputTypes)) {
+        if (outputIndex)
+          output << ", ";
+        output << outputPresentName(block, outputIndex) << " ? std::optional<"
+               << type << ">{" << outputValueName(block, outputIndex)
+               << "} : std::optional<" << type << ">{}";
+      }
+      output << "}, {}, {}};\n  }\n};\n\n";
+      return llvm::Error::success();
     };
     auto scopeIndexOf = [&](const std::string &scope) -> size_t {
       const auto found = std::find(scopeNames.begin(), scopeNames.end(),
@@ -4758,10 +4905,40 @@ generateStructuredQueueGraphCpp(const QueueGraphPlan &plan) {
         blockRates.push_back(0);
         continue;
       }
+      if (block.kind == "firing") {
+        if (block.inputs.empty() || block.outputs.empty())
+          return generatorError(
+              "mixed nested firing requires input and output Queues");
+        std::vector<std::string> inputTypes;
+        for (const std::string &name : block.inputs) {
+          const std::string type = queueTypes.lookup(name);
+          if (type.empty())
+            return generatorError(
+                "mixed nested firing input Queue type is missing");
+          inputTypes.push_back(type);
+        }
+        std::vector<std::string> outputTypes;
+        for (const std::string &name : block.outputs) {
+          const std::string type = queueTypes.lookup(name);
+          if (type.empty())
+            return generatorError(
+                "mixed nested firing output Queue type is missing");
+          outputTypes.push_back(type);
+        }
+        blockInputTypes.push_back(std::move(inputTypes));
+        blockOutputTypes.push_back(std::move(outputTypes));
+        blockPolicies.push_back(blockFiringPolicies[index]);
+        blockRates.push_back(1);
+        if (auto error = emitStatelessFiringPolicy(
+                block, blockPolicies.back(), blockInputTypes.back(),
+                blockOutputTypes.back()))
+          return error;
+        continue;
+      }
       if (block.kind != "transform")
         return generatorError(
-            "mixed nested module supports local transform and broadcast blocks "
-            "only");
+            "mixed nested module supports local transform, fanout broadcast, "
+            "and stateless firing blocks only");
       if (block.inputs.empty() || block.outputs.empty())
         return generatorError(
             "mixed nested transform requires input and output Queues");
@@ -4896,6 +5073,27 @@ generateStructuredQueueGraphCpp(const QueueGraphPlan &plan) {
         output << "})";
         continue;
       }
+      if (block.kind == "firing") {
+        output << "firing_" << block.name << "\", object_" << blockId + index
+               << "_id, &" << scopeMember(scopeIndexOf(block.scope)) << ", "
+               << "std::tuple{}, std::tuple{";
+        for (auto [inputIndex, name] : llvm::enumerate(block.inputs)) {
+          if (inputIndex)
+            output << ", ";
+          output << queueExpressions.lookup(name);
+        }
+        output << "}, std::tuple{";
+        for (auto [outputIndex, name] : llvm::enumerate(block.outputs)) {
+          if (outputIndex)
+            output << ", ";
+          output << queueExpressions.lookup(name);
+        }
+        output << "}, std::array<gfsim::TableWriteMode, 0>{}, "
+               << blockPolicies[index]
+               << "{}, std::tuple{}, nullptr, "
+                  "std::vector<gfsim::SlotReleaseResource *>{})";
+        continue;
+      }
       const bool oneByOne = blockInputTypes[index].size() == 1 &&
                             blockOutputTypes[index].size() == 1;
       output << "transform_" << block.name << "\", object_" << blockId + index
@@ -4997,6 +5195,23 @@ generateStructuredQueueGraphCpp(const QueueGraphPlan &plan) {
                << ";\n";
         continue;
       }
+      if (block.kind == "firing") {
+        output << "  gfsim::QueueStateTransition<" << blockPolicies[index]
+               << ", std::tuple<>, std::tuple<";
+        for (auto [typeIndex, type] : llvm::enumerate(blockInputTypes[index])) {
+          if (typeIndex)
+            output << ", ";
+          output << type;
+        }
+        output << ">, std::tuple<";
+        for (auto [typeIndex, type] : llvm::enumerate(blockOutputTypes[index])) {
+          if (typeIndex)
+            output << ", ";
+          output << type;
+        }
+        output << ">, std::tuple<>> " << blockMember(index) << ";\n";
+        continue;
+      }
       const bool oneByOne = blockInputTypes[index].size() == 1 &&
                             blockOutputTypes[index].size() == 1;
       if (oneByOne) {
@@ -5054,8 +5269,16 @@ generateStructuredQueueGraphCpp(const QueueGraphPlan &plan) {
                              static_cast<std::size_t>(output.tellp())});
       return llvm::Error::success();
     };
-    if (!specialization->moduleInstances.empty()) {
+    const bool multiBlockLocal =
+        specialization->moduleInstances.empty() &&
+        isWideMixedLocalShape(*specialization) &&
+        specialization->blocks.size() > 1 &&
+        llvm::any_of(specialization->blocks, [](const QueueBlockPlan &block) {
+          return block.kind != "firing" && block.kind != "slot";
+        });
+    if (!specialization->moduleInstances.empty() || multiBlockLocal) {
       const bool broadcastAssembly =
+          !specialization->moduleInstances.empty() &&
           !specialization->blocks.empty() &&
           llvm::all_of(specialization->blocks, [](const QueueBlockPlan &block) {
             return block.kind == "broadcast";
