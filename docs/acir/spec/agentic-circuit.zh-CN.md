@@ -271,7 +271,16 @@ def pipeline() -> None:
 
 typed finite-family case 只绑定声明的静态参数；普通 typed runtime 参数保持未绑定，不进入
 specialization key。Python 不增加 Queue/Input/Output wrapper，也不表达
-ready/full/pop/push。可选 `workspace=` 会确定性捕获本地传递 import closure；
+ready/full/pop/push。
+
+实例化子 module 的 module body 可以是 **hierarchy module**：允许一个以上 typed
+runtime input、用名字绑定 child instance 产生的中间值，并读取 keyword-only
+`ac.const` 几何量，因此 H1 -> H2 -> H3 树不需要摊平进顶层 system。child 选中的值必须
+先绑定到名字；内联嵌套调用（如 `child_b(child_a(x))`）会以 `ACPY-MODULE-010` 被拒绝，
+因为 composite child input 必须是已命名的 parent 或 prior-child Queue 值。每个
+composite input 都必须被消费。
+
+可选 `workspace=` 会确定性捕获本地传递 import closure；
 本地依赖使用明确的 `from module import Symbol`。在支持保留模块命名空间的打包之前，
 本地模块限定访问、重命名导入及跨文件定义重名都会在 lowering 前被拒绝。
 动态 import、反射或 specialization 后源码变化也会 fail closed。closure 中导入的全大写
