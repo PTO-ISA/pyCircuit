@@ -352,6 +352,11 @@ llvm::Error runStage(CompilerStage stage, const CompilerRequest &request,
         return capture.takeFailure(stage);
       return llvm::Error::success();
     }
+    // Re-monomorphize generic module definitions before rule lowering, so every
+    // later stage (and topology freeze) still sees one definition per concrete
+    // static-argument environment.
+    if (mlir::failed(runPass(state, createSpecializeModuleParametersPass())))
+      return capture.takeFailure(stage);
     if (mlir::failed(runRulePipeline(state)))
       return capture.takeFailure(stage);
     if (mlir::failed(runPass(state, createNormalizeACIRFilePass())))

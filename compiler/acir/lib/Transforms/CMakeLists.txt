@@ -12,6 +12,7 @@ add_acir_library(ACIRTransforms SOURCES
   PruneInternalPayloads.cpp
   InlinePureHelpers.cpp
   LowerVariables.cpp
+  SpecializeModuleParameters.cpp
 )
 add_dependencies(ACIRTransforms ACIRTransformsIncGen)
 target_link_libraries(ACIRTransforms PUBLIC

@@ -39,6 +39,7 @@ std::unique_ptr<mlir::Pass> createPruneInternalPayloadsPass();
 #define GEN_PASS_DECL_LOWERRULESTOFIRINGPASS
 #define GEN_PASS_DECL_CANONICALIZEPUREFIRINGSPASS
 #define GEN_PASS_DECL_VERIFYRULECLOSUREPASS
+#define GEN_PASS_DECL_SPECIALIZEMODULEPARAMETERSPASS
 #include "acir/Transforms/Passes.h.inc"
 
 /// Shared implementation used by ac-canonicalize-model and the atomic freeze

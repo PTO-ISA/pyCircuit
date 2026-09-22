@@ -127,4 +127,18 @@ def VerifyRuleClosurePass : Pass<"ac-verify-rule-closure", "::mlir::ModuleOp"> {
   let summary = "Reject transient rules and unresolved markers";
 }
 
+def SpecializeModuleParametersPass
+    : Pass<"ac-specialize-module-parameters", "::mlir::ModuleOp"> {
+  let summary = "Re-monomorphize modules that read static parameters";
+  let description = [{
+    A module body may read its own structural parameters with ac.param.get, so
+    one generic definition can serve instances that bind different static
+    arguments. Backends plan and generate per parameter set, so immediately
+    before those stages this pass clones a generic definition once per distinct
+    instance argument dictionary, folds every ac.param.get to the concrete
+    ac.var.constant of that environment, and repoints the instances at the
+    clone. Modules without ac.param.get are left untouched.
+  }];
+}
+
 #endif // ACIR_TRANSFORMS_PASSES
