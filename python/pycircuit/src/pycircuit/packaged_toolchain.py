@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+import subprocess
 import sys
 from pathlib import Path
 
@@ -37,6 +38,13 @@ def _exec_tool(name: str, argv: list[str]) -> int:
 
     env = os.environ.copy()
     env.setdefault("PYC_TOOLCHAIN_ROOT", str(exe.parent.parent))
+    if os.name == "nt":
+        # Windows has no exec(2): `os.exec*` spawns the target and terminates the
+        # launcher, and that double-launch chain intermittently aborted the
+        # installed console scripts with 0xC0000005 while the compiler itself and
+        # its byte-identical toolchain copy both ran. Run the tool as a child and
+        # forward its exit code instead.
+        return subprocess.run([str(exe), *argv], env=env, check=False).returncode
     os.execvpe(str(exe), [str(exe), *argv], env)
     return 0
 

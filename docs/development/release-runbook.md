@@ -146,6 +146,8 @@ Portability traps already paid for, each with a regression test:
 | venv interpreter not found (`WinError 2`) | `TEMP` is an 8.3 short path (`RUNNER~1`) | resolve the workspace to its long spelling first |
 | `acc.py.exe` missing | pip does not materialise a launcher for an entry point whose name carries a suffix | prefer the launcher, otherwise run the module through the venv interpreter |
 | `Agentic Circuit native extension is unavailable` | a wheel was installed that does not carry the native bridge (for example a hand-built pure-Python package) | install the published platform wheel, which carries `agentic_circuit/_native` |
+| `pycc` / `acc` starts from the SDK tree but not from the installed wheel | the wheel was built without relocation, so it still references the builder's absolute library paths | rebuild with `create_wheel.py --platform <profile>`; the verifier names all three copies and whether they are byte-identical |
+| an installed compiler aborts once immediately after extraction (macOS signal 6, Windows `0xC0000005`) | the freshly written binary was not yet fully available to the loader; observed once on windows-2022 | re-run the verification; the failure report distinguishes a flake from a defect by naming the console script, the wheel binary, and the SDK tree binary |
 | `output AC unit must not already exist` | the driver refuses to clobber artifacts | regenerate into a second path and compare bytes |
 
 ## Diagnostics
