@@ -1409,6 +1409,7 @@
         "tests/mlir/agentic-circuit/CodeGen/value-select.mlir",
         "tests/mlir/agentic-circuit/Transforms/firing-field-replace-order.mlir",
         "tests/mlir/agentic-circuit/Transforms/firing-field-write.mlir",
+        "tests/mlir/agentic-circuit/Transforms/queue-multi-block-local-select.mlir",
         "tests/mlir/agentic-circuit/Transforms/rule-multi-input-branch-lowering.mlir",
         "tests/mlir/agentic-circuit/Transforms/rule-table-lowering.mlir",
         "tests/mlir/pyc/canonical-ops-valid.mlir"
@@ -1431,6 +1432,7 @@
         "tests/mlir/agentic-circuit/CodeGen/value-select.mlir",
         "tests/mlir/agentic-circuit/Transforms/firing-field-replace-order.mlir",
         "tests/mlir/agentic-circuit/Transforms/firing-field-write.mlir",
+        "tests/mlir/agentic-circuit/Transforms/queue-multi-block-local-select.mlir",
         "tests/mlir/agentic-circuit/Transforms/rule-multi-input-branch-lowering.mlir",
         "tests/mlir/agentic-circuit/Transforms/rule-table-lowering.mlir",
         "tests/mlir/pyc/canonical-ops-valid.mlir",
