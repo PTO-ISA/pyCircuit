@@ -298,3 +298,5 @@ docs/gates/logs/*
 !docs/gates/logs/20260921-f9-memory-ordering/**
 !docs/gates/logs/20260921-f10-primitive-variants/
 !docs/gates/logs/20260921-f10-primitive-variants/**
+!docs/gates/logs/20260922-v03-pyc-closure/
+!docs/gates/logs/20260922-v03-pyc-closure/**

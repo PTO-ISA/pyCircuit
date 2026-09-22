@@ -1,0 +1,27 @@
+# Item V03: applicable ACIR -> PYC lowering has no residual scf.*/index and the
+# PYC verifier accepts the result. Run from the repository root.
+#
+# Focused item evidence (tests/python/agentic-circuit/python_frontend/
+# test_pyc_lowering_closure.py). Each case runs the whole lane:
+#   frontend -> ac-freeze-topology -> acir-queue-pycgen -> pycc
+
+# Environment: any checkout with the Agentic Circuit test dependencies installed
+# and the native toolchain built (the tools are discovered under
+# .pycircuit_out/toolchain/build/bin; without them the tests skip).
+python3 -m pytest tests/python/agentic-circuit/python_frontend/test_pyc_lowering_closure.py -q -p no:cacheprovider
+
+# The per-design residual check and the pyc.* non-vacuity check are asserted by
+# the same test, so the pytest command above is the whole reproduction:
+#   frontend lower_queue_source -> acir-opt --pass-pipeline=... -> acir-queue-pycgen -> pycc --emit=none
+
+# Lane context for the focused evidence.
+python3 -m pytest tests/python/agentic-circuit/python_frontend -q -p no:cacheprovider \
+  --ignore=tests/python/agentic-circuit/python_frontend/test_dual_port_issue_queue.py
+python3 -m pytest tests/python/agentic-circuit -q -p no:cacheprovider \
+  --ignore=tests/python/agentic-circuit/tools
+python3 -m pytest tests/unit -m unit -q -p no:cacheprovider
+ninja -C .pycircuit_out/toolchain/build check-acir
+ctest --test-dir .pycircuit_out/toolchain/build
+python3 tools/agentic-circuit/check-contracts.py
+python3 tools/agentic-circuit/check-ir-coverage.py
+python3 tools/agentic-circuit/generate-diagnostic-catalog.py --check

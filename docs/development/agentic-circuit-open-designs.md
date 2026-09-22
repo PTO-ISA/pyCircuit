@@ -214,9 +214,14 @@ per-item checkboxes and remains the right place to track the remaining work. The
 items still unchecked are the typed positive-latency feedback edge (`J`),
 cross-owner transaction groups (`K`), mutually-exclusive state-write mux
 synthesis, unchanged-store elimination, invariant proof propagation (`L04`,
-`L05`, `L07`), the packed-storage documentation item (`L12`), and the cross-layer
-verification matrix (`V01`-`V08`), several of which depend on the design work
-recorded for #150 and #152 above.
+`L05`, `L07`), and most of the cross-layer verification matrix (`V01`, `V02`,
+`V04`, `V05`, `V07`, `V08`), several of which depend on the design work recorded
+for #150 and #152 above. `V03` is verified on the current revision:
+`tests/python/agentic-circuit/python_frontend/test_pyc_lowering_closure.py`
+freezes five frontend-published designs, lowers each to PYC, asserts that no
+residual `scf.*`/`index` operation survives, and requires `pycc` to accept the
+result; the run is recorded under
+`docs/gates/logs/20260922-v03-pyc-closure/`.
 
 Two items deserve emphasis because they are the ones a reader would otherwise
 mistake for complete:
@@ -225,7 +230,9 @@ mistake for complete:
   an ACIR/verifier owner with cross-backend semantics before any frontend
   surface. They are not frontend-only changes.
 - `V08` requires a fixed revision in the consumer checkout and stays a
-  consumer-side obligation under Decisions 0158 and 0235.
+  consumer-side obligation under Decisions 0158 and 0235. `V04` and `V07` need a
+  Verilog toolchain, the simulation lanes, and strict documentation, none of
+  which are available in this environment, so neither is claimed.
 
 ## Hierarchical instances and structured GFSIM source bundles (#180)
 
