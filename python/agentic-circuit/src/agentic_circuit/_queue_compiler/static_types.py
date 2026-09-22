@@ -474,6 +474,7 @@ def _validate_static_config_roots(
     used_roots: Collection[str],
     *,
     binding_namespace: str = "",
+    context_external_names: Collection[str] = (),
 ) -> None:
     parameters = {
         parameter.arg: parameter
@@ -495,6 +496,8 @@ def _validate_static_config_roots(
         ):
             continue
         parameter = parameters.get(binding.external_name)
+        if parameter is None and binding.external_name in context_external_names:
+            continue
         annotation = None if parameter is None else parameter.annotation
         actual_type = (
             _decorator_name(annotation.slice).rsplit(".", 1)[-1]

@@ -442,6 +442,42 @@ def _lower_simple_module_source(
             for decorator in node.decorator_list
         )
     }
+    # Pure @ac.rule helpers are legal children of a composite module.  Give
+    # them the same one-result specialization shape as a rule-backed module;
+    # their expression body is still lowered by the ordinary rule parser.
+    for node in tree.body:
+        if not isinstance(node, ast.FunctionDef) or node.name not in rule_names:
+            continue
+        output_annotations = result_annotations(node.returns)
+        rule_modules[node.name] = RuleModuleTemplate(
+            tuple(
+                (parameter.arg, copy.deepcopy(parameter.annotation))
+                for parameter in node.args.args
+            ),
+            tuple(
+                "result" if len(output_annotations) == 1 else f"result{index}"
+                for index in range(len(output_annotations))
+            ),
+            output_annotations,
+            tuple(parameter.arg for parameter in node.args.kwonlyargs),
+            tuple(
+                (parameter.arg, default)
+                for parameter, default in zip(
+                    node.args.kwonlyargs,
+                    node.args.kw_defaults,
+                    strict=True,
+                )
+                if default is not None
+            ),
+            tuple(
+                (
+                    parameter.arg,
+                    _decorator_name(parameter.annotation.slice).rsplit(".", 1)[-1],
+                )
+                for parameter in node.args.kwonlyargs
+                if isinstance(parameter.annotation, ast.Subscript)
+            ),
+        )
     for name, function in modules.items():
         if name in module_declarations:
             body = list(function.body)
@@ -656,16 +692,20 @@ def _lower_simple_module_source(
                 if isinstance(returned.value, (ast.Tuple, ast.List))
                 else (returned.value,)
             )
-            if len(result_nodes) != len(output_annotations) or not all(
-                isinstance(result, ast.Name) for result in result_nodes
-            ):
+            if len(result_nodes) != len(output_annotations):
                 raise QueueFrontendError(
-                    "ACPY-MODULE-005: rule module return names must match its arity"
+                    "ACPY-MODULE-005: rule module "
+                    f"{name!r} return names must match its arity"
                 )
             rule_modules[name] = RuleModuleTemplate(
                 input_annotations,
                 tuple(
-                    result.id for result in result_nodes if isinstance(result, ast.Name)
+                    result.id
+                    if isinstance(result, ast.Name)
+                    else "result"
+                    if len(result_nodes) == 1
+                    else f"result{index}"
+                    for index, result in enumerate(result_nodes)
                 ),
                 output_annotations,
                 tuple(parameter.arg for parameter in function.args.kwonlyargs),
@@ -769,7 +809,7 @@ def _lower_simple_module_source(
         ):
             raise QueueFrontendError(
                 "ACPY-MODULE-001: first module slice requires one typed "
-                "positional parameter"
+                f"positional parameter ({function.name})"
             )
         if any(
             not isinstance(parameter.annotation, ast.Subscript)
@@ -1240,10 +1280,38 @@ def _lower_simple_module_source(
                 and module_name not in composite_modules
             ):
                 try:
+                    # Child modules inherit the enclosing composite's static
+                    # type bindings (for example FRONTEND_WIDTH) even when
+                    # those values are not parameters of the child itself.
+                    # Keep the specialization symbol based on the child's
+                    # own static arguments, but provide the enclosing values
+                    # to payload resolution.
+                    program_text = text
+                    if module_name in rule_names:
+                        # A pure @ac.rule has no queue-system decorator.  For
+                        # type-checking its expression body, lower a private
+                        # AST view with only this definition promoted to a
+                        # synthetic @ac.module entry point.
+                        rule_tree = ast.parse(text, filename=normalized_source_path)
+                        for rule_node in rule_tree.body:
+                            if (
+                                isinstance(rule_node, ast.FunctionDef)
+                                and rule_node.name == module_name
+                            ):
+                                rule_node.decorator_list = [
+                                    ast.Attribute(
+                                        value=ast.Name(id="ac", ctx=ast.Load()),
+                                        attr="module",
+                                        ctx=ast.Load(),
+                                    )
+                                ]
+                                break
+                        program_text = ast.unparse(ast.fix_missing_locations(rule_tree))
                     program = parse_queue_program(
-                        text,
+                        program_text,
                         module_name,
                         static_arguments=dict(frozen),
+                        context_static_arguments=active_static_values,
                         entry_kind="module",
                         source_path=normalized_source_path,
                         static_type_namespace=namespace,
@@ -1260,7 +1328,9 @@ def _lower_simple_module_source(
                     **payload_map,
                     **{item.name: item for item in program.payloads},
                 }
-            specialized_values = _type_static_values(tree, dict(frozen))
+            specialized_values = _type_static_values(
+                tree, {**active_static_values, **dict(frozen)}
+            )
             inputs = tuple(
                 (
                     name,
@@ -1487,18 +1557,108 @@ def _lower_simple_module_source(
             for argument, (_, expected_type) in zip(
                 call.args, input_signature, strict=True
             ):
-                if not isinstance(argument, ast.Name) or argument.id not in values:
+                source_argument = argument
+                root = argument
+                while isinstance(root, ast.Attribute):
+                    root = root.value
+                if not isinstance(root, ast.Name) or root.id not in values:
                     raise QueueFrontendError(
                         "ACPY-MODULE-010: composite child inputs must be named "
                         "parent or prior-child Queue values"
                     )
-                actual_type = values[argument.id]
+                source = root.id
+                actual_type = values[source]
+                if not isinstance(argument, ast.Name):
+                    if not isinstance(actual_type, StructType):
+                        raise QueueFrontendError(
+                            "ACPY-MODULE-010: composite field projection requires "
+                            "a struct root"
+                        )
+                    emitter = _ExpressionEmitter(
+                        payload_map,
+                        root.id,
+                        actual_type,
+                        enum_types=enum_map,
+                        bitfields=bitfield_map,
+                        invariants=invariants,
+                        helpers=helpers,
+                        inline_explicit_helpers=True,
+                    )
+                    _, projected_type = emitter.emit(argument, expected_type)
+                    fields: list[str] = []
+                    cursor: ast.expr = argument
+                    while isinstance(cursor, ast.Attribute):
+                        fields.append(cursor.attr)
+                        cursor = cursor.value
+                    fields.reverse()
+                    projection_definition = (
+                        f"__ac_project_{actual_type.name}__{'__'.join(fields)}"
+                    )
+                    projection_static_arguments = tuple(
+                        actual_type.specialization_bindings
+                    )
+                    readable = "".join(
+                        f"__{name}_{'neg_' if value < 0 else ''}{abs(value)}"
+                        for name, value in projection_static_arguments
+                    )
+                    projection_module = projection_definition + readable
+                    projection_expression: ast.expr = ast.Name(
+                        id="value", ctx=ast.Load()
+                    )
+                    for field in fields:
+                        projection_expression = ast.Attribute(
+                            value=projection_expression,
+                            attr=field,
+                            ctx=ast.Load(),
+                        )
+                    projection_definition_record = (
+                        "value",
+                        projection_definition,
+                        projection_static_arguments,
+                        actual_type,
+                        projection_expression,
+                        projected_type,
+                        source_frame(argument),
+                    )
+                    existing_projection = projection_definitions.get(projection_module)
+                    if existing_projection is not None and (
+                        existing_projection[1] != projection_definition
+                        or existing_projection[2] != projection_static_arguments
+                        or existing_projection[3] != actual_type
+                        or ast.dump(existing_projection[4])
+                        != ast.dump(projection_expression)
+                        or existing_projection[5] != projected_type
+                    ):
+                        raise QueueFrontendError(
+                            "ACPY-MODULE-010: readable projection module name collision"
+                        )
+                    projection_definitions.setdefault(
+                        projection_module, projection_definition_record
+                    )
+                    projection_name = f"__ac_projection_{len(instances)}_{root.id}"
+                    while projection_name in values:
+                        projection_name += "_"
+                    values[projection_name] = projected_type
+                    uses[projection_name] = 0
+                    uses[source] += 1
+                    instances.append(
+                        CompositeInstance(
+                            (projection_name,),
+                            projection_module,
+                            (source,),
+                            (projected_type,),
+                            projection_static_arguments,
+                            source_frame(argument),
+                        )
+                    )
+                    source = projection_name
+                    actual_type = projected_type
                 if not _types_compatible(actual_type, expected_type):
                     raise QueueFrontendError(
                         "ACPY-MODULE-010: composite child input type mismatch"
                     )
-                uses[argument.id] += 1
-                sources.append(argument.id)
+                uses[source] += 1
+                sources.append(source)
             output_types = tuple(payload for _, payload in output_signature)
             for result, output_type in zip(results, output_types, strict=True):
                 values[result] = output_type

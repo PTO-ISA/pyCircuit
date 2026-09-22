@@ -139,6 +139,7 @@ def parse_queue_program(
     text: str,
     system: str,
     static_arguments: Mapping[str, StaticValue] | None = None,
+    context_static_arguments: Mapping[str, StaticValue] | None = None,
     *,
     entry_kind: str = "system",
     source_path: str | None = None,
@@ -158,7 +159,13 @@ def parse_queue_program(
     )
     tree = _desugar_nested_rule_captures(tree, system, entry_kind)
     module_static_values = _module_static_values(tree)
-    type_static_values = _type_static_values(tree, static_arguments)
+    type_static_values = _type_static_values(
+        tree,
+        {
+            **dict(context_static_arguments or {}),
+            **dict(static_arguments or {}),
+        },
+    )
     parameter_aliases = _static_parameter_aliases(tree)
     expression_type_checks: list[StaticTypeCheck] = []
     reachable_expression_owners: set[str] | None = None
@@ -4813,6 +4820,7 @@ def parse_queue_program(
             if token[:6] == "param:"
         },
         binding_namespace=static_type_namespace,
+        context_external_names=(context_static_arguments or {}).keys(),
     )
     return QueueProgram(
         system,
