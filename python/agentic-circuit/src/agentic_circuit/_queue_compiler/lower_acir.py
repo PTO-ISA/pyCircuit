@@ -5,6 +5,7 @@ from __future__ import annotations
 import ast
 import copy
 import re
+from collections.abc import Callable
 from dataclasses import dataclass, replace
 
 from _pycircuit_semantics import (
@@ -37,6 +38,7 @@ from .expressions import _ExpressionEmitter
 from .model import (
     BarrierBinding,
     CandidateSetBinding,
+    ChildInstanceBinding,
     CreditBinding,
     DependencyBinding,
     ExpectBinding,
@@ -135,6 +137,9 @@ def lower_queue_program(
     helper_names_to_emit: frozenset[str] | None = None,
     definition_locations: dict[str, tuple[str, int, int]] | None = None,
     definition_ndf: DefinitionNdfMetadata | None = None,
+    render_instance_static_arguments: (
+        Callable[[str, tuple[tuple[str, StaticValue], ...]], str] | None
+    ) = None,
 ) -> str:
     definition_ndf = definition_ndf or {}
 
@@ -186,6 +191,7 @@ def lower_queue_program(
     module_inputs = set() if module is None else {name for name, _ in module.inputs}
     module_outputs = set() if module is None else {name for name, _ in module.outputs}
     initial_mapping: dict[str, str] = {}
+    segmented_body = False
     if module is None:
         system_fields = list(
             _ndf_attribute_fields(definition_ndf.get(program.system, NdfMetadata()))
@@ -279,18 +285,32 @@ def lower_queue_program(
             f"!ac.queue<{_render_type(payload)}>" for _, payload in module.inputs
         )
         function_type = f"({physical_inputs}) -> {result_signature[4:] if result_signature else '()'}"
+        segmented_body = bool(program.children)
         lines = [
             f"  ac.module @{module.name} source {owner} schema {schema} {{",
             f"    ac.module.case arguments {empty_arguments} type {function_type} "
             f"{_render_interface_display_attributes(tuple(name for name, _ in module.inputs), tuple(name for name, _ in module.outputs), _module_attribute_fields(module)).removeprefix(' attributes')} "
             f"source {provenance} graph {{",
             f"    ^bb0({argument_types}):" if argument_types else "    ^bb0:",
-            f"    {scope_lhs}ac.scope @body({scope_operands}) {{",
-            f"    ^bb0({scope_arguments}):" if scope_arguments else "    ^bb0:",
         ]
-        initial_mapping = {
-            name: f"borrowed_{index}" for index, (name, _) in enumerate(module.inputs)
-        }
+        if not segmented_body:
+            lines.extend(
+                (
+                    f"    {scope_lhs}ac.scope @body({scope_operands}) {{",
+                    f"    ^bb0({scope_arguments}):" if scope_arguments else "    ^bb0:",
+                )
+            )
+        initial_mapping = (
+            {
+                name: f"input_{index}"
+                for index, (name, _) in enumerate(module.inputs)
+            }
+            if segmented_body
+            else {
+                name: f"borrowed_{index}"
+                for index, (name, _) in enumerate(module.inputs)
+            }
+        )
         content_indent = "      "
     payloads = {item.name: item for item in program.payloads}
     enum_types = {item.name: item.descriptor for item in program.enums}
@@ -1985,7 +2005,10 @@ def lower_queue_program(
         mapping[queue.name] = output_ssa
 
     def render_items(
-        path: tuple[str, ...], mapping: dict[str, str], indent: str
+        path: tuple[str, ...],
+        mapping: dict[str, str],
+        indent: str,
+        order_range: tuple[float, float] | None = None,
     ) -> None:
         source_by_order = dict(program.statement_sources)
 
@@ -2003,6 +2026,7 @@ def lower_queue_program(
             for queue in program.queues
             if queue.scope == path
             and queue.name not in module_inputs
+            and not queue.instance_output
             and not queue.route_output
             and not queue.feedback_output
             and not queue.merge_output
@@ -2129,6 +2153,9 @@ def lower_queue_program(
             for sink_binding in program.sinks
             if sink_binding.scope == path and sink_binding.queue not in module_outputs
         )
+        if order_range is not None:
+            low, high = order_range
+            events = [event for event in events if low <= event[0] < high]
         for event_order, kind, item in sorted(events, key=lambda event: event[0]):
             first_line = len(lines)
             if kind in {"queue", "effect_rule"}:
@@ -3268,34 +3295,287 @@ def lower_queue_program(
         for name, result in zip(outputs, result_names, strict=True):
             parent_mapping[name] = result
 
-    render_items((), initial_mapping, content_indent)
-    if module is None:
-        lines.append("}")
-    else:
-        yielded = ", ".join(f"%{initial_mapping[name]}" for name, _ in module.outputs)
-        yield_types = ", ".join(
-            f"!ac.queue<{_render_type(payload)}>" for _, payload in module.outputs
+    def render_children_body(mapping: dict[str, str]) -> None:
+        """Render a mixed module body as scope/instance/scope segments.
+
+        Segments are cut by statement order; each child instance sits between
+        the segment before it and the segment after it. Scope inputs are values
+        produced before the segment and consumed inside it; scope results are
+        values produced inside it and consumed after it.
+        """
+
+        inf = float("inf")
+        module_input_index = {
+            name: index for index, (name, _) in enumerate(module.inputs)
+        }
+        producer_order: dict[str, float] = {
+            name: -inf for name in module_inputs
+        }
+        name_order: list[str] = []
+        seen_names: set[str] = set()
+
+        def note_name(name: str) -> None:
+            if name not in seen_names:
+                seen_names.add(name)
+                name_order.append(name)
+
+        for name, _ in module.inputs:
+            note_name(name)
+        for queue in program.queues:
+            if queue.name in module_inputs or queue.instance_output:
+                continue
+            note_name(queue.name)
+            producer_order[queue.name] = queue.order
+            for output_name in queue.rule_output_names:
+                note_name(output_name)
+                producer_order[output_name] = queue.order
+        ordered_children = sorted(program.children, key=lambda child: child.order)
+        for child in ordered_children:
+            for output_name in child.output_names:
+                note_name(output_name)
+                producer_order[output_name] = child.order
+
+        consumer_orders: dict[str, list[float]] = {}
+
+        def note_consumer(name: str | None, order: float) -> None:
+            if name is not None:
+                consumer_orders.setdefault(name, []).append(order)
+
+        for consumer in (*program.queues, *program.effect_rules):
+            consumed = (
+                consumer.rule_input_names
+                if consumer.rule_input_names
+                else (
+                    ()
+                    if consumer.input_name is None
+                    else (consumer.input_name,)
+                )
+            )
+            for name in consumed:
+                note_consumer(name, consumer.order)
+        for sink_binding in program.sinks:
+            note_consumer(sink_binding.queue, sink_binding.order)
+        for observation in program.observations:
+            note_consumer(observation.queue, observation.order)
+        for expectation in program.expectations:
+            note_consumer(expectation.queue, expectation.order)
+        for route in program.routes:
+            note_consumer(route.input_name, route.order)
+        for fork in program.forks:
+            note_consumer(fork.input_name, fork.order)
+        for feedback in program.feedbacks:
+            note_consumer(feedback.input_name, feedback.order)
+        for merge in program.merges:
+            for name in merge.inputs:
+                note_consumer(name, merge.order)
+        for reorder in program.reorders:
+            note_consumer(reorder.input_name, reorder.order)
+        for dependency in program.dependencies:
+            note_consumer(dependency.input_name, dependency.order)
+        for credit in program.credits:
+            note_consumer(credit.input_name, credit.order)
+        for barrier in program.barriers:
+            for name in barrier.inputs:
+                note_consumer(name, barrier.order)
+        for select in program.selects:
+            note_consumer(select.control, select.order)
+            for name in select.inputs:
+                note_consumer(name, select.order)
+        for request in program.memory_requests:
+            note_consumer(request.input_name, request.order)
+        for read in program.table_reads:
+            note_consumer(read.input_name, read.order)
+        for write in program.table_writes:
+            note_consumer(write.input_name, write.order)
+        for slot in program.slots:
+            note_consumer(slot.input_name, slot.order)
+        for child in ordered_children:
+            for name in child.input_names:
+                note_consumer(name, child.order)
+        for name, _ in module.outputs:
+            note_consumer(name, inf)
+
+        body_items = (
+            *program.queues,
+            *program.effect_rules,
+            *program.routes,
+            *program.forks,
+            *program.feedbacks,
+            *program.merges,
+            *program.reorders,
+            *program.dependencies,
+            *program.credits,
+            *program.barriers,
+            *program.selects,
+            *program.memory_requests,
+            *program.table_reads,
+            *program.table_writes,
+            *program.masked_table_writes,
+            *program.slots,
+            *program.slot_releases,
+            *program.candidates,
+            *program.selections,
+            *program.observations,
+            *program.expectations,
+            *program.sinks,
         )
-        lines.append(
-            "      ac.scope.yield"
-            + (f" {yielded} : {yield_types}" if module.outputs else "")
+        body_orders = {
+            item.order
+            for item in body_items
+            if getattr(item, "scope", None) == ()
+            and not (
+                isinstance(item, QueueBinding)
+                and (
+                    item.name in module_inputs
+                    or item.instance_output
+                    or item.route_output
+                    or item.feedback_output
+                    or item.merge_output
+                    or item.reorder_output
+                    or item.dependency_output
+                    or item.credit_output
+                    or item.memory_output
+                    or item.table_read_output
+                    or item.barrier_output
+                    or item.select_output
+                )
+            )
+            and not (
+                isinstance(item, SinkBinding) and item.queue in module_outputs
+            )
+        }
+        body_orders.update(
+            scope.order for scope in program.scopes if scope.path[:-1] == ()
         )
-        input_types = ", ".join(
-            f"!ac.queue<{_render_type(payload)}>" for _, payload in module.inputs
-        )
+
+        def segment_io(
+            low: float, high: float
+        ) -> tuple[list[str], list[str]]:
+            inputs = [
+                name
+                for name in name_order
+                if producer_order.get(name, inf) < low
+                and any(
+                    low <= order < high
+                    for order in consumer_orders.get(name, ())
+                )
+            ]
+            outputs = [
+                name
+                for name in name_order
+                if low <= producer_order.get(name, inf) < high
+                and any(order >= high for order in consumer_orders.get(name, ()))
+            ]
+            return inputs, outputs
+
+        def render_segment(index: int, low: float, high: float) -> None:
+            inputs, outputs = segment_io(low, high)
+            operands = ", ".join(f"%{mapping[name]}" for name in inputs)
+            input_types = ", ".join(
+                f"!ac.queue<{_render_type(payload_by_queue[name])}>"
+                for name in inputs
+            )
+            output_types = ", ".join(
+                f"!ac.queue<{_render_type(payload_by_queue[name])}>"
+                for name in outputs
+            )
+            lhs = ", ".join(f"%{name}" for name in outputs)
+            lines.append(
+                f"    {lhs + ' = ' if lhs else ''}"
+                f"ac.scope @seg{index}({operands}) {{"
+            )
+            local_mapping = dict(mapping)
+            if inputs:
+                arguments = []
+                for name in inputs:
+                    argument = (
+                        f"borrowed_{module_input_index[name]}"
+                        if name in module_input_index
+                        else f"{name}_in"
+                    )
+                    arguments.append(
+                        f"%{argument}: "
+                        f"!ac.queue<{_render_type(payload_by_queue[name])}>"
+                    )
+                    local_mapping[name] = argument
+                lines.append(f"    ^bb0({', '.join(arguments)}):")
+            else:
+                lines.append("    ^bb0:")
+            render_items(
+                (), local_mapping, content_indent, order_range=(low, high)
+            )
+            yielded = ", ".join(f"%{local_mapping[name]}" for name in outputs)
+            lines.append(
+                f"{content_indent}ac.scope.yield"
+                + (f" {yielded} : {output_types}" if outputs else "")
+            )
+            result_signature = (
+                output_types if len(outputs) == 1 else f"({output_types})"
+            )
+            lines.append(f"    }} : ({input_types}) -> {result_signature}")
+            for name in outputs:
+                mapping[name] = name
+
+        def render_instance(child: ChildInstanceBinding) -> None:
+            operands = ", ".join(
+                f"%{mapping[name]}" for name in child.input_names
+            )
+            input_types = ", ".join(
+                f"!ac.queue<{_render_type(payload_by_queue[name])}>"
+                for name in child.input_names
+            )
+            output_types = ", ".join(
+                f"!ac.queue<{_render_type(payload_by_queue[name])}>"
+                for name in child.output_names
+            )
+            result_type = (
+                output_types
+                if len(child.output_names) == 1
+                else f"({output_types})"
+            )
+            lhs = ", ".join(f"%{name}" for name in child.output_names)
+            if child.static_arguments:
+                if render_instance_static_arguments is None:
+                    raise QueueFrontendError(
+                        "ACPY-MODULE-012: child module static arguments require "
+                        "a static-argument renderer"
+                    )
+                static_arguments = render_instance_static_arguments(
+                    child.module_name, child.static_arguments
+                )
+            else:
+                static_arguments = "#ac.static_arguments<[]>"
+            lines.append(
+                f"    {lhs + ' = ' if lhs else ''}ac.instance @{child.name} "
+                f"of @{child.symbol}({operands}) static {static_arguments} "
+                f'id "{child.name}" path "{child.name}" '
+                f": ({input_types}) -> {result_type}"
+                + _render_source_frame_location(child.source)
+            )
+            for name in child.output_names:
+                mapping[name] = name
+
+        boundaries: list[tuple[float, float]] = []
+        start: float = -1
+        for child in ordered_children:
+            boundaries.append((start, child.order))
+            start = child.order + 1
+        boundaries.append((start, inf))
+        segment_index = 0
+        for index, (low, high) in enumerate(boundaries):
+            if any(low <= order < high for order in body_orders):
+                render_segment(segment_index, low, high)
+                segment_index += 1
+            if index < len(ordered_children):
+                render_instance(ordered_children[index])
+
+    if segmented_body:
+        render_children_body(initial_mapping)
         output_types = ", ".join(
             f"!ac.queue<{_render_type(payload)}>" for _, payload in module.outputs
         )
-        output_signature = (
-            "()"
-            if not module.outputs
-            else output_types
-            if len(module.outputs) == 1
-            else f"({output_types})"
-        )
-        lines.append(f"    }} : ({input_types}) -> {output_signature}")
         returned = ", ".join(
-            f"%module_result_{index}" for index in range(len(module.outputs))
+            f"%{initial_mapping[name]}" for name, _ in module.outputs
         )
         lines.append(
             "    ac.return"
@@ -3303,4 +3583,42 @@ def lower_queue_program(
         )
         lines.append("    }")
         lines.append("  }")
+    else:
+        render_items((), initial_mapping, content_indent)
+        if module is None:
+            lines.append("}")
+        else:
+            yielded = ", ".join(
+                f"%{initial_mapping[name]}" for name, _ in module.outputs
+            )
+            yield_types = ", ".join(
+                f"!ac.queue<{_render_type(payload)}>" for _, payload in module.outputs
+            )
+            lines.append(
+                "      ac.scope.yield"
+                + (f" {yielded} : {yield_types}" if module.outputs else "")
+            )
+            input_types = ", ".join(
+                f"!ac.queue<{_render_type(payload)}>" for _, payload in module.inputs
+            )
+            output_types = ", ".join(
+                f"!ac.queue<{_render_type(payload)}>" for _, payload in module.outputs
+            )
+            output_signature = (
+                "()"
+                if not module.outputs
+                else output_types
+                if len(module.outputs) == 1
+                else f"({output_types})"
+            )
+            lines.append(f"    }} : ({input_types}) -> {output_signature}")
+            returned = ", ".join(
+                f"%module_result_{index}" for index in range(len(module.outputs))
+            )
+            lines.append(
+                "    ac.return"
+                + (f" {returned} : {output_types}" if module.outputs else "")
+            )
+            lines.append("    }")
+            lines.append("  }")
     return "\n".join(lines) + "\n"

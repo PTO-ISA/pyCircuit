@@ -8171,6 +8171,84 @@ def two_accumulators(left: ac.u8, right: ac.u8) -> tuple[ac.u8, ac.u8]:
             lowered,
         )
 
+    def test_rule_module_body_mixes_rules_and_child_instances(self) -> None:
+        from agentic_circuit._queue_frontend import lower_queue_source
+
+        source = """
+import agentic_circuit as ac
+
+@ac.struct
+class Request:
+    value: ac.bits[8]
+    tid: ac.bits[1]
+    valid: ac.bits[1]
+
+@ac.struct
+class Result:
+    value: ac.bits[8]
+    valid: ac.bits[1]
+
+@ac.rule
+def route(request: Request) -> tuple[Request, Request]:
+    first = request.with_fields(value=request.value, valid=(request.valid & (request.tid == 0)))
+    second = request.with_fields(value=request.value, valid=(request.valid & (request.tid == 1)))
+    return first, second
+
+@ac.rule
+def arbitrate(first: Result, second: Result) -> Result:
+    return first if first.valid else second
+
+@ac.module_decl(source="tests/python/agentic-circuit/python_frontend/test_queue_frontend.py")
+def state_bank(packet: Request) -> Result:
+    ...
+
+state_bank_decl = state_bank
+
+@ac.module(declaration=state_bank_decl)
+def state_bank(packet: Request) -> Result:
+    return Result(value=packet.value, valid=packet.valid)
+
+@ac.module_decl(source="tests/python/agentic-circuit/python_frontend/test_queue_frontend.py")
+def top(request: Request) -> Result:
+    ...
+
+top_decl = top
+
+@ac.module(declaration=top_decl)
+def top(request: Request) -> Result:
+    first_packet, second_packet = route(request)
+    first = state_bank(first_packet)
+    second = state_bank(second_packet)
+    result = arbitrate(first, second)
+    return result
+
+@ac.system
+def composite(request: Request) -> Result:
+    return top(request)
+"""
+        lowered = lower_queue_source(source, "composite")
+        body = lowered.split("ac.module @top ", 1)[1].split("ac.module @Top ", 1)[0]
+        fragments = (
+            "%first_packet, %second_packet = ac.scope @seg0(%input_0) {",
+            "%first = ac.instance @child_0 of @state_bank(%first_packet) "
+            'static #ac.static_arguments<[]> id "child_0" path "child_0"',
+            "%second = ac.instance @child_1 of @state_bank(%second_packet) "
+            'static #ac.static_arguments<[]> id "child_1" path "child_1"',
+            "%result = ac.scope @seg1(%first, %second) {",
+            "ac.return %result : !ac.queue<!ac.struct<@types::@Result>>",
+        )
+        for fragment in fragments:
+            self.assertIn(fragment, body)
+        positions = [body.index(fragment) for fragment in fragments]
+        self.assertEqual(sorted(positions), positions)
+        # The two rules stay in their own segments on either side of the
+        # children, and the empty segment between the children is elided.
+        self.assertEqual(1, body.count('name "route"'))
+        self.assertEqual(1, body.count('name "arbitrate"'))
+        self.assertLess(body.index('name "route"'), body.index(fragments[1]))
+        self.assertLess(body.index(fragments[2]), body.index('name "arbitrate"'))
+        self.assertNotIn("@seg2", body)
+
     def test_multi_input_rule_requires_one_queue_per_parameter(self) -> None:
         from agentic_circuit._queue_frontend import (
             QueueFrontendError,

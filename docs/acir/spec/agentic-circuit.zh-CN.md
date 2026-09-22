@@ -1836,6 +1836,12 @@ return name 变成 `ac.return` operand。root system 只需用普通 tuple assig
 module；`ac.instance`、interface binding、specialization identity 和每实例 state 都由
 编译器生成。
 
+rule-backed module body 也可以放置 child module call（issue #180、#197、#223）。
+前端按 statement order 把 body 切分为若干 `ac.scope`，每段包含一段连续的本地 rule
+调用；child 之间插入一条 `ac.instance`，其 result Queue 串入下一段，最后一段的结果
+作为 `ac.return` operand。连续 child 之间不生成空的合成 scope；不含 child call 的
+body 保持原有单一 body scope，输出不变。相关 decision：0180、0185、0189。
+
 `reusable_circular_rob.py` 用一份 3-input/2-output、五个 lexical state owner、四条 rule
 的 ROB 定义放置两个独立实例；specialization body 和生成 class 都只出现一次。当前已支持
 direct interface-to-rule graph。无状态 rule-backed module 也可以具有多个 typed input/output；
