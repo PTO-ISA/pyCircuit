@@ -33,6 +33,15 @@
 // asserts the criterion itself and must keep failing until the arbiter gains
 // per-input selection/consumption. When that lands, replace the GAP run with a
 // positive assertion.
+//
+// A selective block already exists: `result0.merge(result1, policy="priority")`
+// lowers to `ac.merge` and `gfsim::QueueMerge`, whose `doWork` picks the first
+// ready input and pops ONLY that input. It is not usable here because the
+// structured QueueGraph mixed-shape whitelist (`isWideMixedLocalShape`,
+// QueueGraphGenerator.cpp) admits only transform, broadcast, and stateless
+// firing blocks and rejects `kind == "merge"` with "mixed nested module supports
+// only local transform, fanout broadcast, and stateless firing blocks". The same
+// body written with `merge` therefore fails at `acir-queue-cxxgen`.
 
 // EMIT: emitted model bundle v1
 
