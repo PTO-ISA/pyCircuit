@@ -3042,9 +3042,15 @@ generateStructuredQueueGraphCpp(const QueueGraphPlan &plan) {
   // the Queues between the local blocks and the children stay parent-owned.
   // This is the generalization of mixedNested from exactly one transform to the
   // whole "local blocks plus child instances" shape. Only single-pass local
-  // transforms, fanout broadcasts, and stateless firing blocks are
-  // representable here: a feedback, select, stateful firing, or table block
-  // would otherwise be silently flattened into a one-shot transform.
+  // transforms, fanout broadcasts, selective merges, and stateless firing
+  // blocks are representable here: a feedback, select, stateful firing, or
+  // table block would otherwise be silently flattened into a one-shot
+  // transform.
+  //
+  // A selective merge (`ac.merge` -> `gfsim::QueueMerge`) is admitted only with
+  // the arity its runtime primitive requires: at least two inputs and exactly
+  // one output. Any other arity stays rejected so the mixed emitter can never
+  // emit a half-formed `QueueMerge`.
   auto isWideMixedLocalShape = [&](const QueueGraphPlan &specialization) {
     return !specialization.blocks.empty() && specialization.tables.empty() &&
            !specialization.scopes.empty() &&
@@ -3056,6 +3062,9 @@ generateStructuredQueueGraphCpp(const QueueGraphPlan &plan) {
                           if (block.kind == "broadcast")
                             return block.inputs.size() == 1 &&
                                    block.outputs.size() >= 2;
+                          if (block.kind == "merge")
+                            return block.inputs.size() >= 2 &&
+                                   block.outputs.size() == 1;
                           if (block.kind == "firing")
                             return isStatelessFiringBlock(block);
                           return block.kind == "transform";
@@ -3173,11 +3182,24 @@ generateStructuredQueueGraphCpp(const QueueGraphPlan &plan) {
               "mixed nested module supports only stateless local firing "
               "blocks; firing block '" +
               block.name + "' owns Table state");
+        if (block.kind == "merge") {
+          // A merge with the supported arity is not the offending block here;
+          // some sibling shape is. Only a malformed merge is reported.
+          if (block.inputs.size() >= 2 && block.outputs.size() == 1)
+            continue;
+          return generatorError(
+              "mixed nested module merge block requires at least two input "
+              "Queues and exactly one output Queue; block '" +
+              block.name + "' has " + std::to_string(block.inputs.size()) +
+              " input(s) and " + std::to_string(block.outputs.size()) +
+              " output(s)");
+        }
         if (block.kind != "transform" && block.kind != "broadcast" &&
             block.kind != "firing")
           return generatorError(
               "mixed nested module supports only local transform, fanout "
-              "broadcast, and stateless firing blocks; block '" +
+              "broadcast, selective merge, and stateless firing blocks; "
+              "block '" +
               block.name + "' has kind '" + block.kind + "'");
       }
     }
@@ -4905,6 +4927,42 @@ generateStructuredQueueGraphCpp(const QueueGraphPlan &plan) {
         blockRates.push_back(0);
         continue;
       }
+      if (block.kind == "merge") {
+        // A selective merge reuses the runtime `gfsim::QueueMerge` primitive
+        // that the generic `kind == "merge"` emitter already binds; the mixed
+        // path only proves the arity, payload equality, and policy the
+        // primitive requires before registering the block.
+        if (block.inputs.size() < 2 || block.outputs.size() != 1)
+          return generatorError(
+              "mixed nested merge requires at least two input Queues and "
+              "exactly one output Queue");
+        if (block.policy != "priority" && block.policy != "round_robin")
+          return generatorError(
+              "mixed nested merge policy must be priority or round_robin");
+        const std::string outputType = queueTypes.lookup(block.outputs.front());
+        if (outputType.empty())
+          return generatorError(
+              "mixed nested merge output Queue type is missing");
+        std::vector<std::string> inputTypes;
+        for (const std::string &name : block.inputs) {
+          const std::string type = queueTypes.lookup(name);
+          if (type.empty())
+            return generatorError(
+                "mixed nested merge input Queue type is missing");
+          if (type != outputType)
+            return generatorError(
+                "mixed nested merge requires every input Queue payload type "
+                "to match its output Queue payload type");
+          inputTypes.push_back(type);
+        }
+        blockInputTypes.push_back(std::move(inputTypes));
+        blockOutputTypes.push_back({outputType});
+        blockPolicies.push_back(block.policy == "priority"
+                                    ? "gfsim::QueueMergePolicy::Priority"
+                                    : "gfsim::QueueMergePolicy::RoundRobin");
+        blockRates.push_back(1);
+        continue;
+      }
       if (block.kind == "firing") {
         if (block.inputs.empty() || block.outputs.empty())
           return generatorError(
@@ -4938,7 +4996,7 @@ generateStructuredQueueGraphCpp(const QueueGraphPlan &plan) {
       if (block.kind != "transform")
         return generatorError(
             "mixed nested module supports local transform, fanout broadcast, "
-            "and stateless firing blocks only");
+            "selective merge, and stateless firing blocks only");
       if (block.inputs.empty() || block.outputs.empty())
         return generatorError(
             "mixed nested transform requires input and output Queues");
@@ -5073,6 +5131,23 @@ generateStructuredQueueGraphCpp(const QueueGraphPlan &plan) {
         output << "})";
         continue;
       }
+      if (block.kind == "merge") {
+        output << "merge_" << block.name << "\", object_" << blockId + index
+               << "_id, &" << scopeMember(scopeIndexOf(block.scope))
+               << ", std::array<gfsim::SimQueue<"
+               << blockInputTypes[index].front() << "> *, "
+               << block.inputs.size() << ">{";
+        for (auto [inputIndex, name] : llvm::enumerate(block.inputs)) {
+          if (inputIndex)
+            output << ", ";
+          output << queueExpressions.lookup(name);
+        }
+        output << "}, require_queue_port("
+               << queueExpressions.lookup(block.outputs.front()) << ", \""
+               << block.outputs.front() << "\"), " << blockPolicies[index]
+               << ")";
+        continue;
+      }
       if (block.kind == "firing") {
         output << "firing_" << block.name << "\", object_" << blockId + index
                << "_id, &" << scopeMember(scopeIndexOf(block.scope)) << ", "
@@ -5192,6 +5267,12 @@ generateStructuredQueueGraphCpp(const QueueGraphPlan &plan) {
       if (block.kind == "broadcast") {
         output << "  gfsim::QueueBroadcast<" << blockInputTypes[index].front()
                << ", " << block.outputs.size() << "> " << blockMember(index)
+               << ";\n";
+        continue;
+      }
+      if (block.kind == "merge") {
+        output << "  gfsim::QueueMerge<" << blockOutputTypes[index].front()
+               << ", " << block.inputs.size() << "> " << blockMember(index)
                << ";\n";
         continue;
       }
