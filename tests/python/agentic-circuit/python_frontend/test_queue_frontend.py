@@ -281,6 +281,17 @@ def pipeline() -> None:
     sink(merged)
 """
 
+MISMATCHED_MERGE_SOURCE = """
+from agentic_circuit import sink, source, system
+
+@system
+def pipeline() -> None:
+    left = source(int)
+    right = source(bool)
+    merged = left.merge(right, policy="round_robin", depth=2, latency=1)
+    sink(merged)
+"""
+
 COLLECTION_SOURCE = """
 import agentic_circuit as ac
 
@@ -3539,6 +3550,27 @@ def pipeline() -> None:
         self.assertIn('%merged = ac.merge %left, %right policy "round_robin"', lowered)
         self.assertIn("depth 3 latency 1", lowered)
         self.assertIn("ac.sink %merged", lowered)
+
+    def test_merge_rejects_unsupported_arity_and_payload_mismatch(self) -> None:
+        # Criterion 4 uses the selective `.merge(...)` primitive, so its
+        # fail-closed surface is pinned here: fewer than two inputs and
+        # unequal payloads must be diagnosed before any ACIR is produced.
+        from agentic_circuit._queue_frontend import QueueFrontendError, lower_queue_source
+
+        with self.assertRaisesRegex(
+            QueueFrontendError, "ACPY-QUEUE-008: merge requires at least two Queues"
+        ):
+            lower_queue_source(
+                ROUTE_SOURCE.replace(
+                    'left.merge(right, policy="round_robin", depth=3, latency=1)',
+                    'left.merge(policy="round_robin", depth=3, latency=1)',
+                ),
+                "pipeline",
+            )
+        with self.assertRaisesRegex(
+            QueueFrontendError, "ACPY-QUEUE-008: merge Queue payloads must match"
+        ):
+            lower_queue_source(MISMATCHED_MERGE_SOURCE, "pipeline")
 
     def test_static_queue_collections_flatten_in_canonical_order(self) -> None:
         from agentic_circuit._queue_frontend import lower_queue_source

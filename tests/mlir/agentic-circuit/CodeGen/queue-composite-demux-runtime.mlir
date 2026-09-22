@@ -22,10 +22,16 @@
 // against both. The harness asserts the issue's isolation property without
 // knowing which program produced the model:
 //
-//   A) a tid=0-only request must produce no result and must never load the
-//      tid=1 bank, because the local arbiter consumes both banks;
-//   B) one tid=0 plus one tid=1 request must produce exactly one result (the
-//      tid=0 payload), so a passing A is not merely asserting silence.
+//   A) a tid=0-only request must publish exactly its own bank's result and must
+//      never load the tid=1 bank, because the demux must not fabricate a tid=1
+//      token;
+//   B) one tid=0 plus one tid=1 request must produce both payloads, so a
+//      passing A is not merely asserting silence.
+//
+// Both models use the selective `result0.merge(result1, policy="priority")`
+// arbiter, so the tid=0-only result is published (criterion 4) while the
+// non-target bank stays untouched. Before selective arbitration this scenario
+// asserted `results=0` because the JOINing arbiter had to consume both banks.
 //
 // Pointed at the presence model the harness passes; pointed at the masking model
 // it fails because route publishes both outputs unconditionally, so the tid=1
@@ -36,15 +42,16 @@
 // EMIT: emitted model bundle v1
 
 // PRESENCE: model presence invert_isolation=0
-// PRESENCE: scenario tid0_only {{.*}}accepted=1 results=0 {{.*}}bank1_accepted=0
-// PRESENCE: scenario pair {{.*}}accepted=2 results=1 {{.*}}bank0_accepted=1 bank1_accepted=1
+// PRESENCE: scenario tid0_only {{.*}}accepted=1 results=1 {{.*}}bank0_accepted=1 bank1_accepted=0
+// PRESENCE: scenario tid0_only result[0] value=42 valid=1
+// PRESENCE: scenario pair {{.*}}accepted=2 results=2 {{.*}}bank0_accepted=1 bank1_accepted=1
 // PRESENCE: scenario pair result[0] value=7 valid=1
+// PRESENCE: scenario pair result[1] value=9 valid=1
 // PRESENCE: PASS presence
 
 // MASKING: model masking invert_isolation=0
-// MASKING: scenario tid0_only {{.*}}accepted=1 results=1 {{.*}}bank1_accepted=1
-// MASKING: scenario tid0_only result[0] value=42 valid=1
-// MASKING: FAIL: tid0_only produced a result or loaded the tid=1 bank
+// MASKING: scenario tid0_only {{.*}}accepted=1 results=2 {{.*}}bank1_accepted=1
+// MASKING: FAIL: tid0_only loaded the tid=1 bank
 
 // INVERTED: model presence invert_isolation=1
 // INVERTED: FAIL: deliberately inverted expectation
@@ -87,11 +94,6 @@ def route(request: Request) -> tuple[Request, Request]:
     return thread0, thread1
 
 
-@ac.rule
-def arbitrate(result0: Result, result1: Result) -> Result:
-    return result0 if result0.valid else result1
-
-
 @ac.module_decl(source="tests/python/agentic-circuit/python_frontend/test_queue_frontend.py")
 def state_bank(packet: Request) -> Result:
     ...
@@ -118,7 +120,7 @@ def top(request: Request) -> Result:
     thread0, thread1 = route(request)
     result0 = state_bank(thread0)
     result1 = state_bank(thread1)
-    result = arbitrate(result0, result1)
+    result = result0.merge(result1, policy="priority", depth=1, latency=1)
     return result
 
 
@@ -184,7 +186,7 @@ def top(request: Request) -> Result:
     thread0, thread1 = route(request)
     result0 = state_bank(thread0)
     result1 = state_bank(thread1)
-    result = arbitrate(result0, result1)
+    result = result0.merge(result1, policy="priority", depth=1, latency=1)
     return result
 
 
@@ -202,10 +204,10 @@ def composite(request: Request) -> Result:
 // output unconditionally and therefore loads the non-target bank with a spurious
 // token. That contrast is what proves the assertion measures the property.
 //
-// Assertion A (isolation): a tid=0-only request must produce no result and must
-//   never load the tid=1 bank, because the arbiter consumes both banks.
-// Assertion B (not silence): one tid=0 plus one tid=1 request must produce
-//   exactly one result, the tid=0 payload, so a passing A is meaningful.
+// Assertion A (isolation): a tid=0-only request must publish the tid=0 payload
+//   (selective arbitration) and must never load the tid=1 bank.
+// Assertion B (not silence): one tid=0 plus one tid=1 request must produce both
+//   payloads, so a passing A is meaningful.
 //
 // Usage: harness <label> [--invert-isolation]
 //   --invert-isolation deliberately asserts the opposite of A and is used as the
@@ -337,29 +339,33 @@ int main(int argc, char **argv) {
   std::printf("model %s invert_isolation=%d\n", argv[1],
               invertIsolation ? 1 : 0);
 
-  // Scenario A: a single tid=0 request, no tid=1 traffic at all.
+  // Scenario A: a single tid=0 request, no tid=1 traffic at all. Selective
+  // arbitration still publishes that bank's result (criterion 4), but the demux
+  // must never load the tid=1 bank.
   const ScenarioResult tid0Only =
       runScenario("tid0_only", {makeRequest(42, /*tid=*/false)}, 64);
   if (tid0Only.accepted != 1)
     return fail("tid0_only request was not accepted by the input queue");
   const bool isolationHeld =
-      tid0Only.results == 0 && tid0Only.bank1_accepted == 0;
+      tid0Only.results == 1 && tid0Only.bank1_accepted == 0 &&
+      tid0Only.taken.front() == std::make_pair(42u, 1u);
   if (isolationHeld == invertIsolation) {
     return fail(invertIsolation
                     ? "deliberately inverted expectation: tid0_only stayed "
                       "isolated, so the inverted assertion failed"
-                    : "tid0_only produced a result or loaded the tid=1 bank");
+                    : "tid0_only loaded the tid=1 bank");
   }
 
-  // Scenario B: one tid=0 request and one tid=1 request must still complete.
+  // Scenario B: one tid=0 request and one tid=1 request must both complete.
   const ScenarioResult pair = runScenario(
       "pair", {makeRequest(7, /*tid=*/false), makeRequest(9, /*tid=*/true)}, 64);
   if (pair.accepted != 2)
     return fail("pair scenario did not accept both requests");
-  if (pair.results != 1)
-    return fail("pair scenario did not produce exactly one result");
-  if (pair.taken.front() != std::make_pair(7u, 1u))
-    return fail("pair scenario did not return the tid=0 payload");
+  if (pair.results != 2 || pair.taken.size() != 2)
+    return fail("pair scenario did not produce both results");
+  if (pair.taken[0] != std::make_pair(7u, 1u) ||
+      pair.taken[1] != std::make_pair(9u, 1u))
+    return fail("pair scenario did not return both payloads in order");
   if (pair.bank0_accepted != 1 || pair.bank1_accepted != 1)
     return fail("pair scenario did not load both banks once");
 
