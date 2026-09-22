@@ -2587,8 +2587,17 @@ each `ac.firing.output ... when ...` presence predicate and ordinal, so a demux
 can feed a distinct child instance per result without flattening. The same
 multi-block local shape is admitted for a rule-backed body with no child call,
 which is what lets a body chain two rules or fan one input into several rules. A
-segment that holds a stateful `firing` block or a `feedback`, `select`, or table
-block is not admitted; the backend reports the specific unsupported block
+local rule with one result that owns module-local Var or Table state is admitted
+next to child instances: the segmented body has no synthetic `/body` scope, so
+the declaration is hoisted to the `ac.module.case` root with owner `/`, every
+scope segment reads and writes that one declaration, and the mixed emitter binds
+it to the same `gfsim::QueueTableTransition`/`gfsim::QueueStateTransition`
+runtime the childless stateful case already emits. Such a local `firing` admits
+read-modify-write reservations but not slot releases, read-only Tables, or
+Slots; the backend reports the specific unsupported feature instead of emitting
+a partial transition. A segment that holds a stateful `firing` block in a
+childless multi-block body, or a `feedback`, `select`, or table block, is not
+admitted; the backend reports the specific unsupported block
 instead of flattening it. When a segmented body contains a local rule with more
 than one result that owns Table or Var state, the frontend rejects it with
 `ACPY-MODULE-013` instead of emitting a graph that fails during codegen. Issue

@@ -8249,6 +8249,86 @@ def two_accumulators(left: ac.u8, right: ac.u8) -> tuple[ac.u8, ac.u8]:
         self.assertIn("route", str(raised.exception))
         self.assertIn("stateless", str(raised.exception))
 
+    def test_single_result_stateful_local_rule_hoists_state_for_segmented_body(
+        self,
+    ) -> None:
+        # Criterion 9: a LOCAL rule that owns module-local Var state may coexist
+        # with a child instance. The segmented body has no `/body` scope, so the
+        # declaration is hoisted to the `ac.module.case` root and its owner and
+        # stable identity follow the physical placement. A childless body still
+        # nests the same declaration inside `ac.scope @body` with owner
+        # "/body", so the two shapes stay distinct.
+        from agentic_circuit._queue_frontend import lower_queue_source
+
+        source = """
+import agentic_circuit as ac
+
+@ac.struct
+class Request:
+    value: ac.bits[8]
+    tid: ac.bits[1]
+    valid: ac.bits[1]
+
+@ac.struct
+class Result:
+    value: ac.bits[8]
+    valid: ac.bits[1]
+
+@ac.rule
+def bump(total, packet):
+    total = total + 1
+    return packet
+
+@ac.module_decl(source="scen/entry.py")
+def state_bank(packet: Request) -> Result:
+    ...
+
+state_bank_decl = state_bank
+
+@ac.module(declaration=state_bank_decl)
+def state_bank(packet: Request) -> Result:
+    return Result(value=packet.value, valid=packet.valid)
+
+@ac.module_decl(source="scen/entry.py")
+def top(request: Request) -> Result:
+    ...
+
+top_decl = top
+
+@ac.module(declaration=top_decl)
+def top(request: Request) -> Result:
+    total: ac.bits[8] = 0
+    tagged = bump(total, request)
+    result = state_bank(tagged)
+    return result
+
+@ac.system
+def composite(request: Request) -> Result:
+    return top(request)
+"""
+        lowered = lower_queue_source(source, "composite")
+        self.assertIn(
+            'ac.var.decl @total type i8 init 0 : i8 owner "/" '
+            'stable_id "var/total"',
+            lowered,
+        )
+        # The hoisted declaration is a sibling of the scope segment and the
+        # child instance in the `top` case body.
+        top_body = lowered.split("ac.module @top ")[1]
+        self.assertLess(
+            top_body.index('ac.var.decl @total'),
+            top_body.index("ac.scope @seg0"),
+        )
+        self.assertLess(
+            top_body.index("ac.scope @seg0"),
+            top_body.index("ac.instance @child_0"),
+        )
+        # The childless `state_bank` keeps the nested `ac.scope @body` wrapper.
+        state_bank = lowered.split("ac.module @state_bank ")[1].split(
+            "ac.module @top "
+        )[0]
+        self.assertIn("ac.scope @body", state_bank)
+
     def test_rule_module_body_mixes_rules_and_child_instances(self) -> None:
         from agentic_circuit._queue_frontend import lower_queue_source
 
