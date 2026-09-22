@@ -2687,6 +2687,56 @@ def parse_queue_program(
             + ")"
         )
 
+    def static_collection_length(
+        node: ast.expr,
+        aliases: dict[str, str | StaticQueueCollection],
+    ) -> int | None:
+        """Resolve ``len(<static collection>)`` to its member count.
+
+        A static collection is fully known during elaboration, so its length is
+        a compile-time integer. Without this, a design that expands ``K`` queues
+        has to repeat ``K`` in its loop bound, which is the duplication the
+        ``ac.list`` consolidation removes.
+        """
+
+        if not (
+            isinstance(node, ast.Call)
+            and isinstance(node.func, ast.Name)
+            and node.func.id == "len"
+            and len(node.args) == 1
+            and not node.keywords
+        ):
+            return None
+        try:
+            value = static_reference(node.args[0], aliases)
+        except QueueFrontendError:
+            return None
+        if not isinstance(value, StaticQueueCollection):
+            return None
+        return len(value.members)
+
+    def substitute_static_lengths(
+        node: ast.expr,
+        aliases: dict[str, str | StaticQueueCollection],
+    ) -> ast.expr:
+        """Rewrite ``len(<static collection>)`` to its constant member count.
+
+        The rewrite runs before static evaluation so the length participates in
+        ordinary compile-time integer arithmetic (``range(len(lanes) - 1)``).
+        A ``len`` that does not resolve is left alone, so the caller keeps its
+        existing compile-time-integer diagnostic.
+        """
+
+        class LengthSubstituter(ast.NodeTransformer):
+            def visit_Call(self, call: ast.Call) -> ast.expr:
+                self.generic_visit(call)
+                length = static_collection_length(call, aliases)
+                if length is None:
+                    return call
+                return ast.copy_location(ast.Constant(length), call)
+
+        return LengthSubstituter().visit(node)
+
     def source_binding(
         name: str,
         call: ast.Call,
@@ -3261,7 +3311,9 @@ def parse_queue_program(
                 and not statement.iter.keywords
                 and not statement.orelse
             ):
-                extent = _static_int(statement.iter.args[0])
+                extent = _static_int(
+                    substitute_static_lengths(statement.iter.args[0], aliases)
+                )
                 if extent is None or not prove_within(
                     Constant(extent), 0, MAX_STATIC_EXPANSION
                 ):
