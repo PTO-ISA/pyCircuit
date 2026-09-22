@@ -2616,6 +2616,67 @@ def parse_queue_program(
             )
         return policy
 
+    def static_slice_bounds(
+        node: ast.Slice,
+    ) -> tuple[int | None, int | None, int | None]:
+        """Read compile-time slice bounds, failing closed on anything dynamic."""
+
+        bounds: list[int | None] = []
+        for part in (node.lower, node.upper, node.step):
+            if part is None:
+                bounds.append(None)
+            elif isinstance(part, ast.Constant) and type(part.value) is int:
+                bounds.append(part.value)
+            elif (
+                isinstance(part, ast.UnaryOp)
+                and isinstance(part.op, ast.USub)
+                and isinstance(part.operand, ast.Constant)
+                and type(part.operand.value) is int
+            ):
+                # A negative bound is an unfolded constant, and slice.indices
+                # already implements Python's negative-bound rule.
+                bounds.append(-part.operand.value)
+            else:
+                raise QueueFrontendError(
+                    "ACPY-QUEUE-005: static slice bounds must be compile-time "
+                    "integers"
+                )
+        return bounds[0], bounds[1], bounds[2]
+
+    def slice_collection(
+        source: StaticQueueCollection,
+        node: ast.Slice,
+    ) -> StaticQueueCollection:
+        """Return the sub-collection a Python slice selects.
+
+        A static collection is fully known during elaboration, so a slice is a
+        new static collection with the selected members re-keyed from zero.
+        ``slice.indices`` supplies Python's clamping and negative-bound rules
+        rather than a reimplementation of them.
+        """
+
+        if source.kind == "map":
+            raise QueueFrontendError(
+                "ACPY-QUEUE-005: a keyed collection cannot be sliced; slice an "
+                "ordered collection"
+            )
+        lower, upper, step = static_slice_bounds(node)
+        try:
+            selected = range(*slice(lower, upper, step).indices(len(source.members)))
+        except ValueError:
+            raise QueueFrontendError(
+                "ACPY-QUEUE-005: static slice step must not be zero"
+            ) from None
+        members = tuple(
+            (position, source.members[index][1])
+            for position, index in enumerate(selected)
+        )
+        if not members:
+            raise QueueFrontendError(
+                "ACPY-QUEUE-005: static slice selects no members"
+            )
+        return StaticQueueCollection(source.kind, members)
+
     def static_reference(
         node: ast.expr,
         aliases: dict[str, str | StaticQueueCollection],
@@ -2627,6 +2688,13 @@ def parse_queue_program(
                 return by_name[node.id].name
             if node.id in collections:
                 return collections[node.id]
+        if isinstance(node, ast.Subscript) and isinstance(node.slice, ast.Slice):
+            collection = static_reference(node.value, aliases)
+            if not isinstance(collection, StaticQueueCollection):
+                raise QueueFrontendError(
+                    "ACPY-QUEUE-005: static slicing requires a collection"
+                )
+            return slice_collection(collection, node.slice)
         if (
             isinstance(node, ast.Subscript)
             and isinstance(node.slice, ast.Constant)
@@ -3141,8 +3209,16 @@ def parse_queue_program(
                 isinstance(statement, ast.Assign)
                 and len(statement.targets) == 1
                 and isinstance(statement.targets[0], ast.Name)
-                and isinstance(statement.value, ast.Call)
-                and call_name(statement.value) in {"array", "map", "set"}
+                and (
+                    (
+                        isinstance(statement.value, ast.Call)
+                        and call_name(statement.value) in {"array", "map", "set"}
+                    )
+                    or (
+                        isinstance(statement.value, ast.Subscript)
+                        and isinstance(statement.value.slice, ast.Slice)
+                    )
+                )
             ):
                 name = statement.targets[0].id
                 if (
@@ -3155,6 +3231,18 @@ def parse_queue_program(
                     raise QueueFrontendError(
                         "ACPY-QUEUE-005: collection assignment requires one fresh name"
                     )
+                if isinstance(statement.value, ast.Subscript):
+                    sliced = static_reference(statement.value, aliases)
+                    if not isinstance(sliced, StaticQueueCollection):
+                        raise QueueFrontendError(
+                            "ACPY-QUEUE-005: slice assignment requires a static "
+                            "collection"
+                        )
+                    collections[name] = sliced
+                    collection_bindings.append(
+                        CollectionBinding(name, sliced, scope_path, current_order)
+                    )
+                    continue
                 call = statement.value
                 if call_name(call) == "array" and len(call.args) == 2:
                     extent = _static_int(call.args[0])

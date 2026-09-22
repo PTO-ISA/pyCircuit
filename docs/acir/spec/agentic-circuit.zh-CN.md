@@ -1028,7 +1028,11 @@ named = ac.map({"scalar": lanes[0], "vector": lanes[1]})
 active = ac.set({named["scalar"], named["vector"]})
 ```
 
-静态索引和编译期遍历会被展开。`len(collection)` 是编译期整数，可以参与
+静态索引、静态切片和编译期遍历会被展开。切片遵循 Python 的 clamp 与负数边界规则，并产生
+一个新的静态 collection，因此 `lanes[0:2]`、`lanes[-2:]`、`lanes[::-1]` 都可以 elaboration；
+keyed 的 `ac.map` 不能切片，动态边界、step 为 0 和空选择都 fail closed。切片结果仍是静态
+collection，因此可以作为 `select` 的 receiver，只在该子集内选择。
+`len(collection)` 是编译期整数，可以参与
 `range(len(lanes) - 1)` 这类静态算术。运行时从 flat Queue collection 选择一个成员时，必须
 提供显式 control Queue；编译器生成 `ac.select`，而不是动态 Queue 指针。
 

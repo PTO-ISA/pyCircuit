@@ -1941,9 +1941,17 @@ The current frontend supports:
 - `ac.set({...})` over unique Queue or nested collection members;
 - nested collections;
 - static indexing;
+- static slicing over an ordered collection, using Python's clamping and
+  negative-bound rules and producing a selected collection, so `lanes[0:2]`,
+  `lanes[-2:]`, and `lanes[::-1]` all elaborate; a keyed `ac.map` cannot be
+  sliced, and dynamic bounds, a zero step, and an empty selection fail closed;
 - `len(collection)`, which is a compile-time integer and participates in
   static arithmetic such as `range(len(lanes) - 1)`;
 - compile-time iteration over a collection.
+
+A sliced collection is still a static collection, so it is a valid `select`
+receiver: `window = lanes[1:3]` followed by `window.select(control, ...)`
+selects among that subset only.
 
 Map keys and set members are canonicalized. Frozen QueueGraph planning flattens
 collections into statically named Queue members; it never creates a runtime
