@@ -5485,9 +5485,9 @@ resource concepts into the frontend.
 ## Decision 0189: systems and reusable rule modules share one body lowering
 
 **Status:** Accepted and implemented for direct-interface rule graphs,
-including stateless multi-input transforms and mixed rule-plus-child bodies
-whose local blocks are single-pass transforms or fanout broadcasts and whose
-local rules each produce exactly one result (issue #223)
+including stateless multi-input transforms, multi-output stateless firings, and
+mixed rule-plus-child bodies whose local blocks are single-pass transforms,
+fanout broadcasts, or stateless firing blocks (issue #223)
 
 **Context / Goal**
 The existing circular ROB already exercised four rules and five state owners,

@@ -1858,13 +1858,17 @@ rule-backed module 还可以调用 child module。其 body 会降为以 `ac.inst
 `ac.scope` 序列：每个 scope 持有 child 之前或之后的本地 rule，二者之间的 Queue 仍由
 parent 拥有，每个 child 保持自己的 instance 与 specialization。这正是 issue #223、
 #197、#180 要求的通用组合能力，不再需要为每个 route 或 arbiter 写一个单 rule 的
-wrapper module。结构化 QueueGraph 后端只接纳这样的 shape：parent 自有 scope 中的每个
-本地 block 都是单次 `transform` 或 fanout `broadcast`，每条本地 rule 恰好产生一个
-Queue，且每个本地 transform 声明的 result 数量与 yield 的 Queue 数量一致。transform
-可以接收多个输入 Queue，因此「多个参数、一个结果」的本地 rule 是被接纳的；需要匹配的
-是 yield 与 results 的数量，而不是输入与输出的数量。segment 中出现 `firing`、
-`feedback`、`select` 或 table block 的 parent 不被接纳；当分段 body 的本地 rule 有
-多个结果时，前端以 `ACPY-MODULE-013` 拒绝，而不是生成会在
+wrapper module。结构化 QueueGraph 后端接纳这样的 shape：parent 自有 scope 中的每个本地
+block 都是单次 `transform`、fanout `broadcast` 或无状态 `firing`，且 block 与 child 之间
+的 Queue 仍由 parent 拥有。transform 可以接收多个输入 Queue，因此「多个参数、一个结果」
+的本地 rule 是被接纳的；需要匹配的是 yield 与 results 的数量，而不是输入与输出的数量。
+无状态的多结果本地 rule 会降为一个多输出 `firing` block，并保留每个
+`ac.firing.output ... when ...` 的 presence predicate 与 ordinal，因此 demux 的每个结果
+可以各自喂给一个 child instance，而不会被摊平。不含 child call 的 rule-backed body 也
+接纳同样的多 block 本地 shape，这正是「两条 rule 串联」或「一个输入 fanout 到多条 rule」
+能够编译的原因。segment 中出现有状态 `firing`、`feedback`、`select` 或 table block 的
+parent 不被接纳；后端会报告具体的不支持 block，而不是把它摊平。当分段 body 的本地 rule
+有多个结果且拥有 Table 或 Var state 时，前端以 `ACPY-MODULE-013` 拒绝，而不是生成会在
 codegen 阶段失败的图。issue #223 记录了被接纳子集的验收证据。
 
 definition symbol 与 ordered typed static arguments 是完整 specialization identity。
