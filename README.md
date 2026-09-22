@@ -52,7 +52,7 @@ implementations.
 | You want to describe | Install | Import | Primary flow |
 | --- | --- | --- | --- |
 | Ports, signals, registers, memories, pipelines, and synthesizable hardware | `pycircuit-hisi` | `pycircuit` | Python → PYC → `pycc` → C++ / Verilog |
-| Processes, queues, resources, scheduling, and architecture state | `agentic-circuit` | `agentic_circuit` | Python → `acc.py` → verified ACIR → `acc` → C++ / bundle / Verilog |
+| Processes, queues, resources, scheduling, and architecture state | `pycircuit-hisi` | `agentic_circuit` | Python → `acc.py` → verified ACIR → `acc` → C++ / bundle / Verilog |
 
 Read [Choose a Frontend](docs/getting-started/choose-a-frontend.md) for the
 supported authoring boundaries and examples.

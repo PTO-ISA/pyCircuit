@@ -46,8 +46,6 @@ jobs:
 
       - name: Build platform wheel
         run: |
-          python -m pip wheel --no-deps --wheel-dir "$PWD/dist" \
-            "$PWD/python/semantic-core"
           python packaging/wheel/create_wheel.py \
             --install-dir "$PWD/.pycircuit_out/toolchain/install" \
             --out-dir "$PWD/dist"
@@ -58,6 +56,34 @@ jobs:
           set -euxo pipefail
           wheel="$(basename dist/pycircuit_hisi-*.whl)"
           [[ "${wheel}" == pycircuit_hisi-*-py3-none-*.whl ]]
+
+      - name: Check the single wheel carries both compilers and both frontends
+        run: |
+          python - <<'PY'
+          import pathlib, zipfile
+
+          wheel = next(pathlib.Path("dist").glob("pycircuit_hisi-*.whl"))
+          with zipfile.ZipFile(wheel) as archive:
+              names = set(archive.namelist())
+              (entry_points_name,) = [
+                  name for name in names if name.endswith(".dist-info/entry_points.txt")
+              ]
+              entry_points = archive.read(entry_points_name).decode()
+
+          required = {
+              "pycircuit/__init__.py",
+              "_pycircuit_semantics/__init__.py",
+              "agentic_circuit/__init__.py",
+              "pycircuit/_toolchain/bin/pycc",
+              "pycircuit/_toolchain/bin/acc",
+          }
+          missing = sorted(name for name in required if name not in names)
+          if missing:
+              raise SystemExit(f"single wheel is missing {missing}")
+          for script in ("pyc-opt", "pycircuit", "pycc", "acc", "acc.py", "agentic-circuit"):
+              if f"\n{script} = " not in f"\n{entry_points}":
+                  raise SystemExit(f"single wheel does not provide the {script} console script")
+          PY
 
       - name: Run example compile gate
         run: |

@@ -17,9 +17,7 @@
     "gfsim-runtime-v1"
   ],
   "distributions": {
-    "agentic-circuit": "0.1.0",
-    "pycircuit-hisi": "6.1.0",
-    "pycircuit-semantic-core": "6.1.0"
+    "pycircuit-hisi": "6.1.0"
   },
   "files": [
     {
@@ -52,7 +50,7 @@
     },
     {
       "kind": "wheel",
-      "path": "python/wheelhouse/agentic_circuit-0.1.0-py3-none-any.whl"
+      "path": "python/wheelhouse/pycircuit_hisi-6.1.0-py3-none-linux_x86_64.whl"
     },
     {
       "kind": "schema",

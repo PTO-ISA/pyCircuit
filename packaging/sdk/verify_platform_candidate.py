@@ -330,8 +330,8 @@ def validate_tree(
     wheels = sorted(
         (root / "python/wheelhouse").glob("*.whl"), key=lambda path: path.name
     )
-    if len(wheels) != 3:
-        raise ValueError(f"SDK wheelhouse must contain exactly three wheels: {wheels}")
+    if len(wheels) != 1:
+        raise ValueError(f"SDK wheelhouse must contain exactly one wheel: {wheels}")
     verify_native_closure(root, manifest)
     return manifest, wheels
 
@@ -530,16 +530,25 @@ def installed_smoke(sdk_root: Path, wheels: list[Path], workspace: Path) -> None
     if pycircuit_script is None:
         raise ValueError("installed wheel did not provide the pycircuit console script")
     run([pycircuit_script, "--help"], cwd=workspace)
+    # One wheel carries both compilers: the pyCircuit compiler and the Agentic
+    # Circuit compiler must both run from the installed environment alone.
+    for name in ("pycc", "acc"):
+        compiler = installed_console_script(commands, f"{name}{suffix}")
+        if compiler is None:
+            raise ValueError(
+                f"installed wheel did not provide the {name} console script"
+            )
+        run([compiler, "--help"], cwd=workspace)
     acc_script = installed_console_script(commands, f"acc.py{suffix}")
     acc_py: list[os.PathLike[str] | str] = (
         [acc_script]
         if acc_script is not None
         else [python, "-m", "agentic_circuit._acc_py"]
     )
-    # The wheel's ACC driver loads the native compiler extension, which the
-    # platform wheel ships inside its bundled toolchain environment rather than
-    # in the universal `agentic_circuit` wheel. Expose that environment the way
-    # the SDK launcher does.
+    # The installed wheel is self-contained: it carries the ACC driver, the
+    # native bridge it loads, and the shared semantic descriptors. The SDK tree
+    # additionally bundles its own Python environment, so expose that the way the
+    # SDK launcher does when it is present.
     bundled_site_packages = bundled_toolchain_site_packages(sdk_root)
     acc_environment = os.environ.copy()
     if bundled_site_packages is not None:

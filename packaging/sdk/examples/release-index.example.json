@@ -18,9 +18,7 @@
     "gfsim-runtime-v1"
   ],
   "distributions": {
-    "agentic-circuit": "0.1.0",
-    "pycircuit-hisi": "6.1.0",
-    "pycircuit-semantic-core": "6.1.0"
+    "pycircuit-hisi": "6.1.0"
   },
   "licenses": {
     "name": "LICENSES.tar.gz",
@@ -75,11 +73,6 @@
   "source_revision": "e4485192727e27ac4d1de62bfdb6438fd878cdff",
   "version": "1",
   "wheels": {
-    "agentic-circuit": {
-      "name": "agentic_circuit-0.1.0-py3-none-any.whl",
-      "size": 1,
-      "url": "https://github.com/PTO-ISA/pyCircuit/releases/download/v6.1.0/agentic_circuit-0.1.0-py3-none-any.whl"
-    },
     "pycircuit-hisi-linux-x86_64": {
       "name": "pycircuit_hisi-6.1.0-py3-none-linux_x86_64.whl",
       "size": 1,
@@ -94,11 +87,6 @@
       "name": "pycircuit_hisi-6.1.0-py3-none-win_amd64.whl",
       "size": 1,
       "url": "https://github.com/PTO-ISA/pyCircuit/releases/download/v6.1.0/pycircuit_hisi-6.1.0-py3-none-win_amd64.whl"
-    },
-    "pycircuit-semantic-core": {
-      "name": "pycircuit_semantic_core-6.1.0-py3-none-any.whl",
-      "size": 1,
-      "url": "https://github.com/PTO-ISA/pyCircuit/releases/download/v6.1.0/pycircuit_semantic_core-6.1.0-py3-none-any.whl"
     }
   }
 }

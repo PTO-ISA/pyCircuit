@@ -38,19 +38,9 @@
   "source_revision": "e4485192727e27ac4d1de62bfdb6438fd878cdff",
   "version": "1",
   "wheels": {
-    "agentic-circuit": {
-      "name": "agentic_circuit-0.1.0-py3-none-any.whl",
-      "url": "https://github.com/PTO-ISA/pyCircuit/releases/download/v6.1.0/agentic_circuit-0.1.0-py3-none-any.whl",
-      "version": "0.1.0"
-    },
     "pycircuit-hisi": {
       "name": "pycircuit_hisi-6.1.0-py3-none-linux_x86_64.whl",
       "url": "https://github.com/PTO-ISA/pyCircuit/releases/download/v6.1.0/pycircuit_hisi-6.1.0-py3-none-linux_x86_64.whl",
-      "version": "6.1.0"
-    },
-    "pycircuit-semantic-core": {
-      "name": "pycircuit_semantic_core-6.1.0-py3-none-any.whl",
-      "url": "https://github.com/PTO-ISA/pyCircuit/releases/download/v6.1.0/pycircuit_semantic_core-6.1.0-py3-none-any.whl",
       "version": "6.1.0"
     }
   }

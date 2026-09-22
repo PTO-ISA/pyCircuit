@@ -8,6 +8,12 @@ published through the repository's release workflow.
 
 ## 6.1.0 - 2026-09-21
 
+- Ship exactly one wheel per platform. The `pycircuit-hisi` platform wheel now
+  carries both frontends (`pycircuit`, `agentic_circuit`, `_pycircuit_semantics`)
+  and both compilers (`pycc`, `acc`, and the `acc.py` capture driver) as console
+  scripts, and no longer depends on a separately published
+  `pycircuit-semantic-core`. The `pycircuit-semantic-core` and `agentic-circuit`
+  universal wheels are retired as release artifacts.
 - Hard-break Agentic Circuit onto the two-stage `acc.py`/native `acc` compiler
   flow. Remove content-derived identities, persistent JIT caching, retired
   ACSim interchange, and byte-bound SDK/RTL catalogs. Specializations now use

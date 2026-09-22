@@ -6,10 +6,9 @@ name: Publish accepted wheels to PyPI
 # release or its attestation, and an already cut release can be published to
 # PyPI later without rebuilding, re-tagging, or moving the source revision pin.
 #
-# The workflow uploads exactly the wheels that carry the release version. A
-# separately versioned tool wheel in the same release (agentic_circuit 0.1.0)
-# is reported and skipped, so publishing a release never silently publishes an
-# unrelated project version.
+# The workflow uploads exactly the wheels that carry the release version: the
+# platform wheel for each supported platform. That wheel carries both frontends
+# and both compilers, so nothing else belongs on the package host.
 on:
   workflow_dispatch:
     inputs:
@@ -111,9 +110,10 @@ jobs:
               for project, declared in index["distributions"].items()
               if declared == version
           }
-          # The release version carries exactly the SDK wheel plus the semantic
-          # core. A different set is a contract change, not a silent widening.
-          expected = {"pycircuit-hisi", "pycircuit-semantic-core"}
+          # One wheel per platform, and it is the only distribution the release
+          # version carries. A different set is a contract change, not a silent
+          # widening of what gets published.
+          expected = {"pycircuit-hisi"}
           if published != expected:
               fail(f"release {version} declares {sorted(published)}, expected {sorted(expected)}")
 
@@ -155,11 +155,11 @@ jobs:
                   platforms.append(name)
               selected.append(f"{name} ({size} bytes)")
 
-          if len(selected) != 4:
-              fail(f"release {version} selects {len(selected)} wheels, expected 4")
+          if len(selected) != 3:
+              fail(f"release {version} selects {len(selected)} wheels, expected 3")
           if len(platforms) != 3:
               fail(f"release {version} carries {len(platforms)} pycircuit-hisi wheels, expected 3")
-          if len(skipped) != len(index["wheels"]) - 4:
+          if len(skipped) != len(index["wheels"]) - 3:
               fail(f"release {version} skips {len(skipped)} wheels unexpectedly")
 
           report = [f"Publishing {len(selected)} wheels for {version}:"]

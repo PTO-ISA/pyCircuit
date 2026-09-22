@@ -100,8 +100,10 @@ The supported profiles remain:
 | `macos-arm64` | `macos-15` | macOS 15 | C++20, Apple libc++ |
 | `windows-x86_64` | `windows-2022` | Windows Server 2022 | C++20, MSVC v143 |
 
-The release contains one `pycircuit-hisi` wheel per supported platform and one
-universal wheel each for `pycircuit-semantic-core` and `agentic-circuit`.
+The release contains exactly one `pycircuit-hisi` wheel per supported platform.
+That wheel carries both frontends (`pycircuit`, `agentic_circuit`,
+`_pycircuit_semantics`) and both compilers (`pycc`, `acc`) as console scripts, so
+there is no second distribution to install and no universal wheel to match.
 
 ## Required verification
 

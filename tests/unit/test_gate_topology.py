@@ -333,12 +333,12 @@ def test_pypi_publication_cannot_invalidate_a_published_release() -> None:
         assert rebuild not in text, rebuild
     assert "gh release download" in text
     # The tag is the source revision pin, and the selection is version-scoped so
-    # a separately versioned tool wheel in the same release is never published.
+    # only the wheels the release itself carries are ever published.
     assert "refs/tags/v${version}^{}" in text
     assert "${{ inputs.source_revision }}" in text
-    assert "len(selected) != 4" in text
+    assert "len(selected) != 3" in text
     assert "len(platforms) != 3" in text
-    assert 'expected = {"pycircuit-hisi", "pycircuit-semantic-core"}' in text
+    assert 'expected = {"pycircuit-hisi"}' in text
     # The host is irreversible, so an interrupted upload must stay recoverable
     # instead of failing forever on the files it already accepted.
     (upload,) = [
@@ -365,3 +365,45 @@ def test_pypi_publication_cannot_invalidate_a_published_release() -> None:
         "release-attestation",
     ):
         assert not needs_closure(dependent) & set(publication["jobs"]), dependent
+
+
+def test_release_ships_exactly_one_wheel_per_platform() -> None:
+    """One wheel carries both frontends and both compilers.
+
+    `_pycircuit_semantics` and `agentic_circuit` are staged inside the platform
+    wheel, so no lane may build, publish, or depend on a second distribution:
+    a universal-wheel lane would put them back on the package host as separate
+    projects and let a consumer install a wheel without the native bridge.
+    """
+
+    release = _read(".github/workflows/release.yml")
+    evidence = _read(".github/workflows/platform-evidence.yml")
+    assert "build-universal-wheels" not in release
+    for text in (release, evidence):
+        for retired in (
+            "release-shard-universal",
+            "platform-evidence-universal",
+            "python3 -m build --wheel",
+            "find universal -name",
+            "universalWheel",
+        ):
+            assert retired not in text, retired
+
+    version_map = json.loads(_read("packaging/sdk/version-map.json"))
+    assert version_map["distributions"] == {
+        "pycircuit-hisi": version_map["product_version"]
+    }
+
+    setup = _read("packaging/wheel/setup.py")
+    assert 'VENDORED_PACKAGES = ("_pycircuit_semantics", "agentic_circuit")' in setup
+    assert "pycircuit-semantic-core" not in setup
+    for script in (
+        "acc=pycircuit.packaged_toolchain:acc_main",
+        "acc.py=",
+        "agentic-circuit=",
+    ):
+        assert script in setup, script
+
+    builder = _read("packaging/wheel/create_wheel.py")
+    assert "_stage_vendored_packages(install_dir, stage)" in builder
+    assert "NATIVE_EXTENSION" in builder

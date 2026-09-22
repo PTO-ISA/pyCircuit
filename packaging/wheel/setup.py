@@ -6,6 +6,8 @@ from pathlib import Path
 from setuptools import Distribution, find_namespace_packages, setup
 from wheel.bdist_wheel import bdist_wheel as _bdist_wheel
 
+VENDORED_PACKAGES = ("_pycircuit_semantics", "agentic_circuit")
+
 
 def package_files(root: Path, package_root: Path) -> list[str]:
     files: list[str] = []
@@ -53,17 +55,33 @@ setup(
     install_requires=[
         "click>=8.0.0",
         "pyyaml>=6.0",
-        f"pycircuit-semantic-core=={os.environ['PYC_WHEEL_VERSION']}",
     ],
+    # One wheel carries both frontends and both compilers: the `pycircuit`
+    # package with the bundled toolchain (`pycc`, `acc`, `pyc-opt`), plus the
+    # shared semantic descriptors and the Agentic Circuit frontend with its
+    # native bridge, which used to be published as two separate distributions.
     packages=find_namespace_packages(
-        include=["pycircuit", "pycircuit.*"], exclude=["pycircuit._toolchain*"]
+        include=[
+            "pycircuit",
+            "pycircuit.*",
+            "_pycircuit_semantics",
+            "_pycircuit_semantics.*",
+            "agentic_circuit",
+            "agentic_circuit.*",
+        ],
+        exclude=["pycircuit._toolchain*"],
     ),
     package_data={
         "pycircuit": package_files(PACKAGE_ROOT / "_toolchain", PACKAGE_ROOT)
         + package_files(PACKAGE_ROOT / "_tools", PACKAGE_ROOT),
+        **{
+            package: package_files(ROOT / package, ROOT / package)
+            for package in VENDORED_PACKAGES
+        },
     },
-    # Toolchain files are enumerated explicitly in package_data above. Disabling
-    # implicit discovery avoids treating toolchain directories as Python packages.
+    # Toolchain and vendored files are enumerated explicitly in package_data
+    # above. Disabling implicit discovery avoids treating toolchain directories
+    # as Python packages.
     include_package_data=False,
     zip_safe=False,
     entry_points={
@@ -71,6 +89,9 @@ setup(
             "pycircuit=pycircuit.cli:main",
             "pycc=pycircuit.packaged_toolchain:main",
             "pyc-opt=pycircuit.packaged_toolchain:pyc_opt_main",
+            "acc=pycircuit.packaged_toolchain:acc_main",
+            "acc.py=agentic_circuit._acc_py:main",
+            "agentic-circuit=agentic_circuit._cli:main",
         ]
     },
     cmdclass={"bdist_wheel": PlatformBinaryWheel},

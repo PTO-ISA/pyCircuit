@@ -56,7 +56,6 @@ def _expected_assets(
     version_map: dict[str, Any], files: dict[str, Path]
 ) -> dict[str, str]:
     product = version_map["product_version"]
-    agentic = version_map["distributions"]["agentic-circuit"]
     patterns = {
         "pycircuit-hisi-linux-x86_64": re.compile(
             rf"^pycircuit_hisi-{re.escape(product)}-py3-none-linux_x86_64\.whl$"
@@ -66,12 +65,6 @@ def _expected_assets(
         ),
         "pycircuit-hisi-windows-x86_64": re.compile(
             rf"^pycircuit_hisi-{re.escape(product)}-py3-none-win_amd64\.whl$"
-        ),
-        "pycircuit-semantic-core": re.compile(
-            rf"^pycircuit_semantic_core-{re.escape(product)}-py3-none-any\.whl$"
-        ),
-        "agentic-circuit": re.compile(
-            rf"^agentic_circuit-{re.escape(agentic)}-py3-none-any\.whl$"
         ),
     }
     selected: dict[str, str] = {}
@@ -186,14 +179,7 @@ def aggregate(args: argparse.Namespace) -> int:
             "release_index": lock_reference(_record(output_dir / index_name, tag)),
             "platform": {"id": platform_id, **platform},
             "wheels": {
-                "agentic-circuit": lock_wheel(
-                    "agentic-circuit",
-                    version_map["distributions"]["agentic-circuit"],
-                ),
                 "pycircuit-hisi": lock_wheel(hisi_key, product),
-                "pycircuit-semantic-core": lock_wheel(
-                    "pycircuit-semantic-core", product
-                ),
             },
             "abi": version_map["contracts"],
             "capabilities": release_index["capabilities"],

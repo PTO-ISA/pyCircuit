@@ -45,5 +45,9 @@ def main() -> int:
     return _exec_tool("pycc", sys.argv[1:])
 
 
+def acc_main() -> int:
+    return _exec_tool("acc", sys.argv[1:])
+
+
 def pyc_opt_main() -> int:
     return _exec_tool("pyc-opt", sys.argv[1:])

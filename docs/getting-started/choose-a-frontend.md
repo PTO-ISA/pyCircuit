@@ -1,14 +1,14 @@
 # Choose a Frontend
 
-pyCircuit contains two supported Python distributions. Choose from the
-abstraction you want to describe; both can target the same verified hardware
-backend.
+pyCircuit ships one wheel per platform that contains two frontends. Choose from
+the abstraction you want to describe; both can target the same verified hardware
+backend, and both compilers come from the same install.
 
 ## Frontend comparison
 
 | Question | pyCircuit 6 | Agentic Circuit |
 | --- | --- | --- |
-| Distribution | `pycircuit-hisi` | `agentic-circuit` |
+| Distribution | one wheel, `pycircuit-hisi` | same wheel |
 | Python import | `pycircuit` | `agentic_circuit` |
 | Authoring focus | Signals, state, hierarchy, and logical cycles | Processes, queues, resources, scheduling, and architecture state |
 | Primary representation | Cycle-Aware Signal or structural modules | ACPy and verified ACIR |

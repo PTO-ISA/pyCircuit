@@ -528,7 +528,6 @@ def main() -> int:
     args = parser.parse_args()
     version_map = json.loads((ROOT / "packaging/sdk/version-map.json").read_text())
     product = version_map["product_version"]
-    agentic = version_map["distributions"]["agentic-circuit"]
     if args.platform == "linux-x86_64":
         hisi_wheel_pattern = (
             rf"^pycircuit_hisi-{re.escape(product)}-py3-none-linux_x86_64\.whl$"
@@ -539,10 +538,10 @@ def main() -> int:
         )
     else:
         hisi_wheel_pattern = rf"^pycircuit_hisi-{re.escape(product)}-py3-none-macosx_[0-9]+_[0-9]+_arm64\.whl$"
+    # Each platform ships exactly one wheel. It carries both frontends and both
+    # compilers, so there is no second distribution to place in the wheelhouse.
     wheel_patterns = {
         "pycircuit-hisi": hisi_wheel_pattern,
-        "pycircuit-semantic-core": rf"^pycircuit_semantic_core-{re.escape(product)}-py3-none-any\.whl$",
-        "agentic-circuit": rf"^agentic_circuit-{re.escape(agentic)}-py3-none-any\.whl$",
     }
     observed = {wheel.name: wheel for wheel in args.wheel}
     if len(observed) != len(args.wheel):
@@ -553,10 +552,8 @@ def main() -> int:
             raise ValueError(
                 f"SDK requires exactly one {identity} wheel; observed {matches}"
             )
-    if len(observed) != 3:
-        raise ValueError(
-            f"SDK requires exactly three wheels; observed {sorted(observed)}"
-        )
+    if len(observed) != 1:
+        raise ValueError(f"SDK requires exactly one wheel; observed {sorted(observed)}")
     args.out_dir.mkdir(parents=True, exist_ok=True)
     with tempfile.TemporaryDirectory(prefix="pycircuit-sdk-") as raw:
         stage = Path(raw) / "sdk"

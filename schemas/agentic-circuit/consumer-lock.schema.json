@@ -61,18 +61,10 @@
       "type": "object",
       "additionalProperties": false,
       "required": [
-        "agentic-circuit",
-        "pycircuit-hisi",
-        "pycircuit-semantic-core"
+        "pycircuit-hisi"
       ],
       "properties": {
-        "agentic-circuit": {
-          "$ref": "#/$defs/wheel"
-        },
         "pycircuit-hisi": {
-          "$ref": "#/$defs/wheel"
-        },
-        "pycircuit-semantic-core": {
           "$ref": "#/$defs/wheel"
         }
       }

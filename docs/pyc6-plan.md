@@ -76,10 +76,10 @@ closed; remaining release work is repository/platform evidence and publication.
   statistics, and error reporting.
 - Validate the SDK with an external vendor-neutral fixture containing no ISA,
   product, trace, or reference-model contract.
-- Decision 0232 repository support is implemented-verified with exactly four
-  release wheel assets: one platform-specific `pycircuit-hisi` wheel for each
-  supported platform and one universal wheel each for
-  `pycircuit-semantic-core` and `agentic-circuit`. The release instance still
+- Decision 0232 repository support is implemented-verified with exactly one
+  release wheel per supported platform: a platform-specific `pycircuit-hisi`
+  wheel that carries both compilers (`pycc`, `acc`) and both frontends
+  (`pycircuit`, `agentic_circuit`, `_pycircuit_semantics`). The release instance still
   requires the real Linux and macOS candidate jobs and relocated
   installed-consumer evidence before tag creation.
 - Decision 0234 Part A is implemented-verified as one source-SHA-pinned

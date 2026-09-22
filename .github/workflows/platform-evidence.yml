@@ -97,39 +97,9 @@ jobs:
           esac
           echo "matrix={\"include\":${include}}" >> "$GITHUB_OUTPUT"
 
-  universal-wheels:
-    name: "Evidence: universal wheels"
-    if: github.repository == 'PTO-ISA/pyCircuit'
-    runs-on: ubuntu-24.04
-    timeout-minutes: 60
-    steps:
-      - name: Checkout exact candidate SHA
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
-        with:
-          ref: ${{ inputs.commit_sha }}
-      - name: Set up Python
-        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7
-        with:
-          python-version: "3.11"
-      - name: Build universal wheels
-        run: |
-          set -euxo pipefail
-          python3 -m pip install build twine
-          mkdir -p universal
-          python3 -m build --wheel --outdir universal python/semantic-core
-          python3 -m build --wheel --outdir universal python/agentic-circuit
-          python3 -m twine check universal/*.whl
-      - name: Upload universal wheels
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
-        with:
-          name: platform-evidence-universal
-          path: universal/
-          if-no-files-found: error
-          retention-days: 14
-
   platform-candidate:
     name: "Evidence: build ${{ matrix.platform }}"
-    needs: [plan, universal-wheels]
+    needs: [plan]
     if: github.repository == 'PTO-ISA/pyCircuit'
     strategy:
       fail-fast: false
@@ -154,11 +124,6 @@ jobs:
             throw "platform ${{ matrix.platform }} requires a $expectedOs runner, observed $env:RUNNER_OS"
           }
           Write-Host "runner profile verified: $env:RUNNER_OS $env:RUNNER_ARCH"
-      - name: Download universal wheels
-        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
-        with:
-          name: platform-evidence-universal
-          path: universal
       - name: Install platform dependencies
         if: matrix.runner_os != 'Windows'
         run: |
@@ -350,8 +315,6 @@ jobs:
           python3 packaging/sdk/create_platform_manifest.py \
             --install-dir "$PWD/.pycircuit_out/toolchain/install" \
             --wheel "${wheel}" \
-            --wheel "$(find universal -name 'pycircuit_semantic_core-*.whl' -print -quit)" \
-            --wheel "$(find universal -name 'agentic_circuit-*.whl' -print -quit)" \
             --platform "${{ matrix.platform }}" \
             --source-revision "${{ inputs.commit_sha }}" \
             --cxx-compiler "${CXX}" \
@@ -411,12 +374,10 @@ jobs:
           python3 packaging/wheel/create_wheel.py --install-dir "$PWD/.pycircuit_out/toolchain/install" --out-dir candidate --wheel-version "${{ inputs.version }}"
           if ($LASTEXITCODE -ne 0) { throw "wheel creation failed with exit code $LASTEXITCODE" }
           $wheel = (Get-ChildItem candidate -Filter "pycircuit_hisi-*.whl" | Select-Object -First 1).FullName
-          $semanticWheel = (Get-ChildItem universal -Filter "pycircuit_semantic_core-*.whl" | Select-Object -First 1).FullName
-          $agenticWheel = (Get-ChildItem universal -Filter "agentic_circuit-*.whl" | Select-Object -First 1).FullName
-          if (-not $wheel -or -not $semanticWheel -or -not $agenticWheel) {
-            throw "the platform wheel or a universal wheel is missing"
+          if (-not $wheel) {
+            throw "the platform wheel is missing"
           }
-          python3 packaging/sdk/create_platform_manifest.py --install-dir "$PWD/.pycircuit_out/toolchain/install" --wheel "$wheel" --wheel "$semanticWheel" --wheel "$agenticWheel" --platform "${{ matrix.platform }}" --source-revision "${{ inputs.commit_sha }}" --cxx-compiler "$env:CXX" --out-dir candidate
+          python3 packaging/sdk/create_platform_manifest.py --install-dir "$PWD/.pycircuit_out/toolchain/install" --wheel "$wheel" --platform "${{ matrix.platform }}" --source-revision "${{ inputs.commit_sha }}" --cxx-compiler "$env:CXX" --out-dir candidate
           # $ErrorActionPreference does not make a failing native command fatal,
           # so this exit code must be checked explicitly. Without it a failed
           # manifest or archive step is masked and the lane uploads a partial

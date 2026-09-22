@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import argparse
+import importlib.machinery
 import os
 import shutil
 import subprocess
@@ -33,6 +34,18 @@ WHEEL_TOOL_SOURCES = (
     Path("tools") / "pycircuit" / "pyc_module_graph.py",
 )
 
+# The frontend packages the toolchain install tree carries in its own Python
+# environment. They are staged at the wheel root as well, so one wheel installs
+# `pycircuit`, `_pycircuit_semantics`, and `agentic_circuit` together and no
+# consumer needs a second distribution. The toolchain copy stays where the
+# install tree puts it: the SDK launcher and the retained platform bytes are
+# assembled from that same tree.
+VENDORED_PACKAGES = ("_pycircuit_semantics", "agentic_circuit")
+
+# The Agentic Circuit native compiler bridge. A wheel without it would install
+# a frontend that cannot compile, so the build refuses to produce one.
+NATIVE_EXTENSION = "_native"
+
 
 def _repo_root() -> Path:
     return Path(__file__).resolve().parents[2]
@@ -58,6 +71,44 @@ def _copytree(src: Path, dst: Path) -> None:
 def _copy_file(src: Path, dst: Path) -> None:
     dst.parent.mkdir(parents=True, exist_ok=True)
     shutil.copy2(src, dst)
+
+
+def _toolchain_site_packages(install_dir: Path) -> Path:
+    """Return the single bundled `lib/python<X>/site-packages` environment."""
+    matches = sorted(
+        (
+            path
+            for path in (install_dir / "lib").glob("python*/site-packages")
+            if path.is_dir()
+        ),
+        key=lambda path: path.as_posix(),
+    )
+    if len(matches) != 1:
+        raise SystemExit(
+            f"expected exactly one bundled python environment under {install_dir}/lib, "
+            f"found {[path.name for path in matches]}"
+        )
+    return matches[0]
+
+
+def _stage_vendored_packages(install_dir: Path, stage: Path) -> None:
+    """Stage the frontend packages so one wheel imports without a second one."""
+    site_packages = _toolchain_site_packages(install_dir)
+    for package in VENDORED_PACKAGES:
+        source = site_packages / package
+        if not source.is_dir():
+            raise SystemExit(f"bundled toolchain is missing {package}: {source}")
+        _copytree(source, stage / package)
+    native = [
+        path
+        for path in (stage / "agentic_circuit").glob(f"{NATIVE_EXTENSION}.*")
+        if path.suffix in importlib.machinery.EXTENSION_SUFFIXES
+    ]
+    if len(native) != 1:
+        raise SystemExit(
+            "bundled agentic_circuit must carry exactly one native extension; "
+            f"found {[path.name for path in native]}"
+        )
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -107,6 +158,7 @@ def main(argv: list[str] | None = None) -> int:
         package_dir = stage / "pycircuit"
         _copytree(repo_root / "python" / "pycircuit" / "src" / "pycircuit", package_dir)
         _copytree(install_dir, package_dir / "_toolchain")
+        _stage_vendored_packages(install_dir, stage)
         bundled_python = package_dir / "_toolchain" / "share" / "pycircuit" / "python"
         if bundled_python.is_dir():
             shutil.rmtree(bundled_python)

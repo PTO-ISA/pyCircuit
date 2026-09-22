@@ -6,9 +6,7 @@
   "source_revision_policy": "annotated_tag_peeled_commit",
   "compatibility": "exact_identity_tuple",
   "distributions": {
-    "pycircuit-hisi": "6.1.0",
-    "pycircuit-semantic-core": "6.1.0",
-    "agentic-circuit": "0.1.0"
+    "pycircuit-hisi": "6.1.0"
   },
   "contracts": {
     "sdk_manifest": "1",

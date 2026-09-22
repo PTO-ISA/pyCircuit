@@ -137,9 +137,10 @@ pycc --version
 python3 -m pycircuit.cli --help
 ```
 
-Platform wheels include the compiler and runtime assets. The semantic-core and
-Agentic Circuit distributions remain separate universal wheels. Use exactly the
-asset set published by one release.
+The platform wheel is self-contained: it ships both compilers (`pycc` and
+`acc`), both Python frontends (`pycircuit` and `agentic_circuit`), the shared
+semantic descriptors, and the compiled runtime assets. Use exactly the asset set
+published by one release; there is no second wheel to install.
 
 ## Verify the setup
 

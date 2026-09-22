@@ -58,8 +58,8 @@ policy. Admin merges remain visible in GitHub's pull-request and audit history.
 Only PTO-ISA/pyCircuit may:
 
 - create canonical version tags and GitHub releases;
-- publish the `pycircuit-hisi` package;
-- publish the `agentic-circuit` package;
+- publish the `pycircuit-hisi` package, which carries both frontends and both
+  compilers;
 - publish canonical compiler or runtime artifacts; and
 - announce a language, framework-runtime, or toolchain compatibility level.
 

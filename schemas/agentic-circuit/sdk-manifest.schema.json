@@ -198,18 +198,10 @@
       "type": "object",
       "additionalProperties": false,
       "required": [
-        "pycircuit-hisi",
-        "pycircuit-semantic-core",
-        "agentic-circuit"
+        "pycircuit-hisi"
       ],
       "properties": {
         "pycircuit-hisi": {
-          "$ref": "#/$defs/version"
-        },
-        "pycircuit-semantic-core": {
-          "$ref": "#/$defs/version"
-        },
-        "agentic-circuit": {
           "$ref": "#/$defs/version"
         }
       }

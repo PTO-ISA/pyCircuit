@@ -12,7 +12,6 @@ at. The version must agree everywhere before dispatch:
 | Fact | Source |
 | --- | --- |
 | `project.version` | `pyproject.toml` |
-| semantic-core version | `python/semantic-core/pyproject.toml` |
 | candidate tag | `packaging/sdk/version-map.json` |
 | tag does not exist yet | `git ls-remote --tags origin refs/tags/v<version>` |
 
@@ -20,9 +19,10 @@ The release publishes, in one asset set:
 
 - `pycircuit-sdk-<version>-{linux-x86_64,macos-arm64,windows-x86_64}.tar.gz`
   plus an attached `.manifest.json` and `.lock.json` per platform,
-- one `pycircuit_hisi` wheel per platform (`linux_x86_64`, `macosx_*_arm64`,
-  `win_amd64`),
-- the `pycircuit-semantic-core` and `agentic-circuit` universal wheels,
+- exactly one `pycircuit_hisi` wheel per platform (`linux_x86_64`,
+  `macosx_*_arm64`, `win_amd64`). That wheel carries both frontends
+  (`pycircuit`, `agentic_circuit`, `_pycircuit_semantics`) and both compilers
+  (`pycc`, `acc`), so no consumer needs a second distribution,
 - `pycircuit-sdk-<version>-release-index.json`, `LICENSES.tar.gz`, release notes,
 - one `pyc-tools-<platform>:v<version>` GHCR artifact per platform.
 
@@ -40,11 +40,9 @@ gh workflow run publish-pypi.yml --repo PTO-ISA/pyCircuit \
 
 The workflow refuses to run unless the release is published, non-prerelease, and
 its tag peels to the given source revision. It then selects exactly the wheels
-that carry the release version (the SDK wheel for each platform plus
-`pycircuit-semantic-core`), checks each one's recorded size and its `METADATA`
-name and version, reports every wheel it skips, and uploads the result. A
-separately versioned tool wheel in the same release (`agentic_circuit` 0.1.0)
-is skipped by design rather than silently published.
+that carry the release version (one platform wheel per supported platform),
+checks each one's recorded size and its `METADATA` name and version, reports
+every wheel it skips, and uploads the result.
 
 Enabling it needs both sides:
 
@@ -99,9 +97,8 @@ every job checks out `commit_sha`, and no job rebuilds an earlier job's bytes.
 | Stage | What it gates |
 | --- | --- |
 | `full-validation` | Integrated toolchain build, full Agentic Circuit closure (`check-acir` + `check-pyc` + ctest + e2e), repository contracts (pre-commit, unit tests, API hygiene, decision status, `mkdocs --strict`), full pyCircuit closure (examples, sims, nightly sims, semantic regressions). Nothing else starts until this passes. |
-| `build-universal-wheels` | semantic-core and agentic-circuit wheels plus an installed-wheel smoke and `LICENSES.tar.gz`. |
 | `build-platform-candidates` | One retained candidate per platform, in parallel. The Windows lane provisions the pinned clang-cl 22.1.8 driver and builds MLIR from the pinned LLVM source (the LLVM Windows release ships no MLIR). |
-| `aggregate-candidate` | Deterministic aggregation into one candidate set, plus the SDK contract check over the release index and all three platform manifests/locks. |
+| `aggregate-candidate` | `LICENSES.tar.gz` and `RELEASE_NOTES.md`, then deterministic aggregation into one candidate set, plus the SDK contract check over the release index and all three platform manifests/locks. |
 | `verify-platform-candidates` | Per platform: relocation, manifest closure, native dependency closure (`dumpbin` on Windows), wheel set, and installed smoke. |
 | `accept-candidate` | Acceptance barrier; the accepted bytes are what gets tagged. |
 | `create-tag` | Annotated tag after acceptance, verified against `commit_sha`. |
@@ -147,7 +144,7 @@ Portability traps already paid for, each with a regression test:
 | `cannot publish generated bundle` | `fs::rename` cannot move a directory on Windows | `acir::publishDirectory` (`MoveFileExW`) |
 | venv interpreter not found (`WinError 2`) | `TEMP` is an 8.3 short path (`RUNNER~1`) | resolve the workspace to its long spelling first |
 | `acc.py.exe` missing | pip does not materialise a launcher for an entry point whose name carries a suffix | prefer the launcher, otherwise run the module through the venv interpreter |
-| `Agentic Circuit native extension is unavailable` | the universal wheel does not carry `_native.pyd` | put the SDK's bundled site-packages on `PYTHONPATH` |
+| `Agentic Circuit native extension is unavailable` | a wheel was installed that does not carry the native bridge (for example a hand-built pure-Python package) | install the published platform wheel, which carries `agentic_circuit/_native` |
 | `output AC unit must not already exist` | the driver refuses to clobber artifacts | regenerate into a second path and compare bytes |
 
 ## Diagnostics
@@ -201,8 +198,7 @@ consumption flow needs).
 gh release delete v<version> --repo PTO-ISA/pyCircuit --yes --cleanup-tag
 
 # 2. make sure the version metadata still names the version being re-cut
-#    (pyproject.toml, python/semantic-core/pyproject.toml,
-#     packaging/sdk/version-map.json candidate_tag)
+#    (pyproject.toml and packaging/sdk/version-map.json candidate_tag)
 
 # 3. preflight the revision that will carry it, then publish once
 gh workflow run closure-probe.yml -f commit_sha=$SHA

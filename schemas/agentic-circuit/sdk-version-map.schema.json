@@ -22,23 +22,13 @@
     "distributions": {
       "additionalProperties": false,
       "properties": {
-        "agentic-circuit": {
-          "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+(?:[.a-zA-Z0-9+-]*)?$",
-          "type": "string"
-        },
         "pycircuit-hisi": {
-          "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+(?:[.a-zA-Z0-9+-]*)?$",
-          "type": "string"
-        },
-        "pycircuit-semantic-core": {
           "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+(?:[.a-zA-Z0-9+-]*)?$",
           "type": "string"
         }
       },
       "required": [
-        "pycircuit-hisi",
-        "pycircuit-semantic-core",
-        "agentic-circuit"
+        "pycircuit-hisi"
       ],
       "type": "object"
     },

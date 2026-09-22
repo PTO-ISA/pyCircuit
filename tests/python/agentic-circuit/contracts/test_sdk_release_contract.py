@@ -99,17 +99,14 @@ class SdkReleaseContractTest(unittest.TestCase):
         self.assertEqual("v6.1.0", version_map["candidate_tag"])
         self.assertEqual("exact_identity_tuple", version_map["compatibility"])
         self.assertEqual(
-            {
-                "pycircuit-hisi": project_version(ROOT / "pyproject.toml"),
-                "pycircuit-semantic-core": project_version(
-                    ROOT / "python/semantic-core/pyproject.toml"
-                ),
-                "agentic-circuit": project_version(
-                    ROOT / "python/agentic-circuit/pyproject.toml"
-                ),
-            },
+            {"pycircuit-hisi": project_version(ROOT / "pyproject.toml")},
             version_map["distributions"],
         )
+        # The two frontend packages are vendored inside the platform wheel, so
+        # they must not reappear as separately released distributions that would
+        # need their own versions here.
+        for vendored in ("pycircuit-semantic-core", "agentic-circuit"):
+            self.assertNotIn(vendored, version_map["distributions"])
         self.assertEqual(
             ["linux-x86_64", "macos-arm64", "windows-x86_64"],
             [platform["id"] for platform in version_map["platforms"]],
@@ -196,7 +193,9 @@ class SdkReleaseContractTest(unittest.TestCase):
         self.assertIn("release-attestation:", workflow)
         self.assertIn("packaging/sdk/verify_platform_candidate.py", workflow)
         self.assertIn('--forbidden-path "$GITHUB_WORKSPACE"', workflow)
-        self.assertIn('--wheel "$(find universal', workflow)
+        self.assertNotIn("build-universal-wheels", workflow)
+        self.assertNotIn("release-shard-universal", workflow)
+        self.assertNotIn("python3 -m build --wheel", workflow)
         self.assertIn("--attestation evidence/ACCEPTANCE.json", workflow)
         self.assertIn("sudo apt-get install -y", workflow)
         self.assertIn("patchelf", workflow)
@@ -267,8 +266,6 @@ class SdkReleaseContractTest(unittest.TestCase):
                 f"pycircuit_hisi-{version}-py3-none-linux_x86_64.whl",
                 f"pycircuit_hisi-{version}-py3-none-macosx_15_0_arm64.whl",
                 f"pycircuit_hisi-{version}-py3-none-win_amd64.whl",
-                f"pycircuit_semantic_core-{version}-py3-none-any.whl",
-                "agentic_circuit-0.1.0-py3-none-any.whl",
                 f"pycircuit-sdk-{version}-linux-x86_64.tar.gz",
                 f"pycircuit-sdk-{version}-macos-arm64.tar.gz",
                 f"pycircuit-sdk-{version}-windows-x86_64.tar.gz",
@@ -330,11 +327,9 @@ class SdkReleaseContractTest(unittest.TestCase):
             index = json.loads(outputs[0])
             self.assertEqual(
                 [
-                    "agentic-circuit",
                     "pycircuit-hisi-linux-x86_64",
                     "pycircuit-hisi-macos-arm64",
                     "pycircuit-hisi-windows-x86_64",
-                    "pycircuit-semantic-core",
                 ],
                 list(index["wheels"]),
             )
@@ -387,7 +382,11 @@ class SdkReleaseContractTest(unittest.TestCase):
             self.assertEqual(0, accepted.returncode, accepted.stdout + accepted.stderr)
             self.assertTrue(json.loads(accepted_attestation.read_text())["accepted"])
 
-            tampered = root / "one" / "agentic_circuit-0.1.0-py3-none-any.whl"
+            tampered = (
+                root
+                / "one"
+                / f"pycircuit_hisi-{version}-py3-none-linux_x86_64.whl"
+            )
             tampered.write_bytes(b"tampered")
             rejected_bytes = subprocess.run(
                 [
@@ -409,9 +408,12 @@ class SdkReleaseContractTest(unittest.TestCase):
             self.assertNotEqual(0, rejected_bytes.returncode)
             self.assertIn("accepted asset size changed", rejected_bytes.stderr)
 
-            (candidates / "agentic_circuit-0.1.0-py2-none-any.whl").write_bytes(
-                b"duplicate"
-            )
+            # The retired universal wheel is not merely unused: a candidate that
+            # still carries it is rejected as an unexpected asset.
+            (
+                candidates
+                / f"pycircuit_semantic_core-{version}-py3-none-any.whl"
+            ).write_bytes(b"duplicate")
             rejected = subprocess.run(
                 [
                     sys.executable,
@@ -432,7 +434,7 @@ class SdkReleaseContractTest(unittest.TestCase):
             self.assertNotEqual(0, rejected.returncode)
             self.assertIn("unexpected candidate asset", rejected.stderr)
 
-    def test_platform_generator_embeds_three_wheels_and_schema_valid_manifest(
+    def test_platform_generator_embeds_one_wheel_and_schema_valid_manifest(
         self,
     ) -> None:
         with tempfile.TemporaryDirectory() as raw:
@@ -456,8 +458,6 @@ class SdkReleaseContractTest(unittest.TestCase):
             cached.write_bytes(str(ROOT).encode())
             wheels = (
                 root / f"pycircuit_hisi-{PRODUCT_VERSION}-py3-none-linux_x86_64.whl",
-                root / f"pycircuit_semantic_core-{PRODUCT_VERSION}-py3-none-any.whl",
-                root / "agentic_circuit-0.1.0-py3-none-any.whl",
             )
             for wheel in wheels:
                 wheel.write_bytes(wheel.name.encode())
