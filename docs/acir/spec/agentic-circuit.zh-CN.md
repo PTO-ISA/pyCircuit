@@ -1755,7 +1755,10 @@ QueueGraph、gfsim、PYC、测试和 opcode catalog。
 
 QueueGraph 可以保留结构化模块层次。此时 IR 使用唯一选中的 `ac.system`、可复用的
 `ac.module` 定义、`ac.instance` 实例和模块局部 `ac.scope`；freeze pass 校验
-definition symbol 与 ordered typed static arguments。同一定义和同一组参数的多个实例必须共享 specialization 身份，后端按
+definition symbol 与 ordered typed static arguments。已冻结的输入继续走冻结快速路径，
+但每次 freeze 都会重新证明每个模块的 `ac.require`/`ac.ensure` contract：freeze 之后
+新增或修改的 contract 会 fail closed，而不是因为冻结证据属性存在而被接受。
+同一定义和同一组参数的多个实例必须共享 specialization 身份，后端按
 specialization 生成一次实现类，只为每个实例绑定独立端口和状态，不能按层次路径把
 模块摊开。旧的 flat QueueGraph 仍作为过渡输入保留，但不再是模块化设计的目标形式。
 对于 stateful specialization，实现类共享 Table/transition 的成员布局，但每个实例必须

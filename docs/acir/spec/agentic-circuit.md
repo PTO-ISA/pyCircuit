@@ -2439,6 +2439,11 @@ representation instead uses one selected `ac.system`, materialized
 `ac.scope` Queue graphs. The freeze pass verifies the selected system, the
 elaborated instance-owner relation, and every typed static-argument dictionary.
 
+Already-frozen input keeps its frozen fast path, but every module
+`ac.require`/`ac.ensure` contract is re-proved on each freeze. A contract that
+was added or changed after the freeze fails closed instead of being accepted
+because the frozen evidence attributes are present.
+
 Backends must key generated implementation classes by specialization and bind
 instances to independently owned ports and state. They must not flatten a
 repeated module merely because its placements have different hierarchy paths.

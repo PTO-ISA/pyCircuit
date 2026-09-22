@@ -20,6 +20,19 @@ using namespace mlir;
 namespace acir {
 namespace {
 
+/// Re-prove the module ac.require/ac.ensure contracts on already-frozen input.
+///
+/// The frozen fast paths skip `canonicalizeModel` and the full freeze, but the
+/// static proof of a module's own contracts is not a freeze-time-only property.
+/// Selecting the frozen branch on the presence of an `ac.freeze_proven` /
+/// `ac.frozen_*` / `ac.topology_*` attribute used to skip
+/// `verifyFreezeContracts` entirely, so a contract added or changed after the
+/// freeze was accepted with no proof at all.
+LogicalResult verifyFrozenInputContracts(ModuleOp model) {
+  ModelAnalysis analysis(model);
+  return analysis.verifyFreezeContracts();
+}
+
 struct SourceFrameRecord {
   std::string kind;
   std::string file;
@@ -248,8 +261,11 @@ LogicalResult freezeFlatQueueGraph(ModuleOp model) {
     return failure();
   if (failed(verifyInternalPayloadProjections(model)))
     return failure();
-  if (detail::hasTopologyFreezeEvidence(model))
+  if (detail::hasTopologyFreezeEvidence(model)) {
+    if (failed(verifyFrozenInputContracts(model)))
+      return failure();
     return verifyFrozenFlatQueueGraph(model);
+  }
   Builder builder(model.getContext());
   model->setAttr("ac.frozen_owners", builder.getArrayAttr({}));
   model->setAttr("ac.topology_frozen", builder.getBoolAttr(true));
@@ -268,8 +284,11 @@ LogicalResult freezeStructuredQueueGraph(ModuleOp model) {
         "structured QueueGraph freeze requires ac.system and ac.module");
   if (failed(mlir::verify(model)) || failed(ac::verifyGraphStructure(model)))
     return failure();
-  if (detail::hasTopologyFreezeEvidence(model))
+  if (detail::hasTopologyFreezeEvidence(model)) {
+    if (failed(verifyFrozenInputContracts(model)))
+      return failure();
     return verifyFrozenStructuredQueueGraph(model);
+  }
 
   ac::SystemOp selected;
   unsigned selectedCount = 0;
@@ -328,8 +347,11 @@ LogicalResult freezeTopology(ModuleOp model) {
         "flat QueueGraph model requires ac.model_kind = \"queue_graph\"");
   if (failed(detail::preflightModelStructure(model)))
     return failure();
-  if (detail::hasTopologyFreezeEvidence(model))
+  if (detail::hasTopologyFreezeEvidence(model)) {
+    if (failed(verifyFrozenInputContracts(model)))
+      return failure();
     return verifyModel(model);
+  }
   if (failed(canonicalizeModel(model)))
     return failure();
 
