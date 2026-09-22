@@ -9098,11 +9098,15 @@ class RuleModuleChildPipelineTest(unittest.TestCase):
 
         repository = Path(__file__).resolve().parents[4]
         build_bin = repository / ".pycircuit_out" / "toolchain" / "build" / "bin"
+        # `ACIR_OPT` is the name the integration lane exports
+        # (flows/scripts/run_agentic_circuit.sh); `ACIR_OPT_INTERNAL` is accepted as an
+        # alias so an explicit override of the internal binary also works. Reading only
+        # one of the two couples this test to the lane's build directory happening to
+        # equal the fallback below.
+        opt_override = os.environ.get("ACIR_OPT") or os.environ.get("ACIR_OPT_INTERNAL")
         return {
             "repository": repository,
-            "opt": Path(
-                os.environ.get("ACIR_OPT_INTERNAL", build_bin / "acir-opt-internal")
-            ),
+            "opt": Path(opt_override or (build_bin / "acir-opt-internal")),
             "cxxgen": Path(
                 os.environ.get("ACIR_QUEUE_CXXGEN", build_bin / "acir-queue-cxxgen")
             ),
