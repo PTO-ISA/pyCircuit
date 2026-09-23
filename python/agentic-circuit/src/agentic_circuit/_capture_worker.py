@@ -460,6 +460,58 @@ def _flatten_source_closure(
                 imports[alias.name] = (target, alias.name)
         imports_by_source[source_entry.path] = imports
 
+    trees_by_source = {
+        source_entry.path: source_tree
+        for source_entry, source_tree, _ in parsed_entries
+    }
+    assignments_by_source = {
+        source_path: {
+            statement.targets[0].id: statement.value
+            for statement in source_tree.body
+            if isinstance(statement, ast.Assign)
+            and len(statement.targets) == 1
+            and isinstance(statement.targets[0], ast.Name)
+        }
+        for source_path, source_tree in trees_by_source.items()
+    }
+    retained_type_bindings_by_source: dict[str, set[str]] = {
+        source_path: set() for source_path in trees_by_source
+    }
+    pending_type_bindings = [
+        (source_path, node.id)
+        for source_path, source_tree in trees_by_source.items()
+        for statement in source_tree.body
+        if isinstance(statement, ast.ClassDef)
+        and (
+            decorator_kinds(statement) & {"config", "struct", "bitfield"}
+            or any(
+                isinstance(base, ast.Name) and base.id in {"Enum", "IntEnum"}
+                for base in statement.bases
+            )
+        )
+        for node in ast.walk(statement)
+        if isinstance(node, ast.Name) and isinstance(node.ctx, ast.Load)
+    ]
+    visited_type_bindings: set[tuple[str, str]] = set()
+    while pending_type_bindings:
+        source_path, name = pending_type_bindings.pop()
+        key = (source_path, name)
+        if key in visited_type_bindings:
+            continue
+        visited_type_bindings.add(key)
+        expression = assignments_by_source[source_path].get(name)
+        if expression is not None:
+            retained_type_bindings_by_source[source_path].add(name)
+            pending_type_bindings.extend(
+                (source_path, node.id)
+                for node in ast.walk(expression)
+                if isinstance(node, ast.Name) and isinstance(node.ctx, ast.Load)
+            )
+            continue
+        imported = imports_by_source[source_path].get(name)
+        if imported is not None:
+            pending_type_bindings.append(imported)
+
     def helper_target(source_path: str, name: str) -> tuple[str, str] | None:
         local = functions_by_source[source_path].get(name)
         if local is not None and not (decorator_kinds(local) & architecture_kinds):
@@ -533,10 +585,23 @@ def _flatten_source_closure(
     entry_owned_names: set[str] = set()
     for source_entry, source_tree, owns_entry in parsed_entries:
         selected: list[ast.stmt] = []
+        retained_type_bindings = retained_type_bindings_by_source[source_entry.path]
         for statement in source_tree.body:
             if isinstance(statement, (ast.Import, ast.ImportFrom)):
                 continue
             if owns_entry:
+                selected.append(statement)
+                continue
+            if (
+                isinstance(statement, ast.Assign)
+                and len(statement.targets) == 1
+                and isinstance(statement.targets[0], ast.Name)
+                and statement.targets[0].id in retained_type_bindings
+            ):
+                # Imported nominal declarations keep their source-owned
+                # dependent type roots and closed geometry constants. Dropping
+                # either leaves the class annotation in the closure but turns
+                # its array/bit/range expression into an unresolved name.
                 selected.append(statement)
                 continue
             if isinstance(statement, ast.ClassDef) and (

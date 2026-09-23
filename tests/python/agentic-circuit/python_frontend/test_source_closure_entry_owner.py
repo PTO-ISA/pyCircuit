@@ -128,3 +128,72 @@ def unused(value: ac.u8) -> ac.u8:
     assert locations["helper_leaf"][0] == "pkg/helpers.py"
     assert nodes["helper_reachable"][0][1].file == "pkg/helpers.py"
     assert nodes["helper_leaf"][0][1].file == "pkg/helpers.py"
+
+
+def test_source_unit_keeps_imported_nominal_dependent_parameter_roots(
+    tmp_path: Path,
+) -> None:
+    geometry = tmp_path / "pkg" / "geometry.py"
+    types = tmp_path / "pkg" / "types.py"
+    interface = tmp_path / "pkg" / "interface.py"
+    implementation = tmp_path / "pkg" / "unit.py"
+    geometry_source = """\
+import agentic_circuit as ac
+
+FETCH_WIDTH = ac.param[int]("fetch_width")
+MAX_TAGS = 64
+"""
+    types_source = """\
+import agentic_circuit as ac
+from pkg.geometry import FETCH_WIDTH, MAX_TAGS
+
+@ac.struct
+class Batch:
+    lanes: ac.array[FETCH_WIDTH, ac.u8]
+    tag: ac.index[MAX_TAGS]
+"""
+    interface_source = """\
+import agentic_circuit as ac
+from pkg.types import Batch
+
+@ac.module_decl(
+    source="pkg/unit.py",
+    parameters=(
+        ac.static_parameter("fetch_width", ac.static_int(width=4, signed=False)),
+    ),
+    finite_cases=(ac.case(("fetch_width", 1)), ac.case(("fetch_width", 8))),
+)
+def unit(value: ac.Queue[Batch, 1, 1]) -> ac.Queue[Batch, 1, 1]:
+    ...
+"""
+    implementation_source = """\
+import agentic_circuit as ac
+from pkg.interface import unit
+from pkg.types import Batch
+
+unit_decl = unit
+
+@ac.module(declaration=unit_decl)
+def unit(value: ac.Queue[Batch, 1, 1]) -> ac.Queue[Batch, 1, 1]:
+    return value
+"""
+    closure = SourceClosure(
+        entries=(
+            SourceClosureEntry(
+                "pkg/geometry.py", str(geometry), geometry_source
+            ),
+            SourceClosureEntry("pkg/types.py", str(types), types_source),
+            SourceClosureEntry(
+                "pkg/interface.py", str(interface), interface_source
+            ),
+            SourceClosureEntry(
+                "pkg/unit.py", str(implementation), implementation_source
+            ),
+        )
+    )
+
+    source, _, _, _ = _flatten_source_closure(closure, implementation, "unit")
+
+    assert "FETCH_WIDTH = ac.param[int]('fetch_width')" in source
+    assert "MAX_TAGS = 64" in source
+    assert "lanes: ac.array[FETCH_WIDTH, ac.u8]" in source
