@@ -12,7 +12,7 @@ import os
 import subprocess
 import sys
 from dataclasses import dataclass
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 from types import ModuleType
 
 try:
@@ -365,6 +365,7 @@ def _capture_queue_rule(
 def _flatten_source_closure(
     closure: SourceClosure,
     entry: Path,
+    entry_symbol: str | None = None,
 ) -> tuple[
     str,
     dict[str, NdfMetadata],
@@ -383,28 +384,154 @@ def _flatten_source_closure(
 
     from ._queue_compiler.provenance import extract_definition_ndf_metadata
 
+    parsed_entries = tuple(
+        (
+            source_entry,
+            ast.parse(
+                source_entry.source,
+                filename=source_entry.path,
+                type_comments=True,
+            ),
+            Path(source_entry.source_file).resolve() == entry.resolve(),
+        )
+        for source_entry in closure.entries
+    )
+
+    def decorator_kinds(statement: ast.FunctionDef | ast.ClassDef) -> set[str]:
+        kinds: set[str] = set()
+        for decorator in statement.decorator_list:
+            target = decorator.func if isinstance(decorator, ast.Call) else decorator
+            if isinstance(target, ast.Attribute):
+                kinds.add(target.attr)
+            elif isinstance(target, ast.Name):
+                kinds.add(target.id)
+        return kinds
+
+    architecture_kinds = {
+        "system",
+        "module",
+        "module_decl",
+        "extern_module",
+        "process",
+        "rule",
+        "invariant",
+    }
+    closure_paths = {source_entry.path for source_entry, _, _ in parsed_entries}
+    functions_by_source = {
+        source_entry.path: {
+            statement.name: statement
+            for statement in source_tree.body
+            if isinstance(statement, ast.FunctionDef)
+        }
+        for source_entry, source_tree, _ in parsed_entries
+    }
+
+    def imported_source(
+        source_path: str, statement: ast.ImportFrom
+    ) -> str | None:
+        package_parts = list(PurePosixPath(source_path).parent.parts)
+        if statement.level:
+            ascent = statement.level - 1
+            if ascent:
+                package_parts = package_parts[:-ascent]
+        else:
+            package_parts = []
+        module_parts = (
+            list((statement.module or "").split("."))
+            if statement.module
+            else []
+        )
+        base = "/".join((*package_parts, *module_parts))
+        for candidate in (f"{base}.py", f"{base}/__init__.py"):
+            if candidate in closure_paths:
+                return candidate
+        return None
+
+    imports_by_source: dict[str, dict[str, tuple[str, str]]] = {}
+    for source_entry, source_tree, _ in parsed_entries:
+        imports: dict[str, tuple[str, str]] = {}
+        for statement in source_tree.body:
+            if not isinstance(statement, ast.ImportFrom):
+                continue
+            target = imported_source(source_entry.path, statement)
+            if target is None:
+                continue
+            for alias in statement.names:
+                imports[alias.name] = (target, alias.name)
+        imports_by_source[source_entry.path] = imports
+
+    def helper_target(source_path: str, name: str) -> tuple[str, str] | None:
+        local = functions_by_source[source_path].get(name)
+        if local is not None and not (decorator_kinds(local) & architecture_kinds):
+            return source_path, name
+        imported = imports_by_source[source_path].get(name)
+        if imported is None:
+            return None
+        target_source, target_name = imported
+        target = functions_by_source[target_source].get(target_name)
+        if target is None or decorator_kinds(target) & architecture_kinds:
+            return None
+        return target_source, target_name
+
+    reachable_helpers: set[tuple[str, str]] = set()
+    entry_record = next(
+        (
+            (source_entry, source_tree)
+            for source_entry, source_tree, owns_entry in parsed_entries
+            if owns_entry
+        ),
+        None,
+    )
+    if entry_record is not None:
+        entry_source, entry_tree = entry_record
+        entry_architecture = {
+            statement.name: statement
+            for statement in entry_tree.body
+            if isinstance(statement, ast.FunctionDef)
+            and decorator_kinds(statement) & architecture_kinds
+        }
+        pending_architecture = (
+            [entry_symbol]
+            if entry_symbol is not None and entry_symbol in entry_architecture
+            else list(entry_architecture)
+        )
+        visited_architecture: set[str] = set()
+        pending_helpers: list[tuple[str, str]] = []
+
+        def follow_names(source_path: str, function: ast.FunctionDef) -> None:
+            for candidate in ast.walk(function):
+                if not isinstance(candidate, ast.Name) or not isinstance(
+                    candidate.ctx, ast.Load
+                ):
+                    continue
+                if (
+                    source_path == entry_source.path
+                    and candidate.id in entry_architecture
+                    and candidate.id not in visited_architecture
+                ):
+                    pending_architecture.append(candidate.id)
+                    continue
+                helper = helper_target(source_path, candidate.id)
+                if helper is not None and helper not in reachable_helpers:
+                    reachable_helpers.add(helper)
+                    pending_helpers.append(helper)
+
+        while pending_architecture:
+            name = pending_architecture.pop()
+            if name in visited_architecture:
+                continue
+            visited_architecture.add(name)
+            follow_names(entry_source.path, entry_architecture[name])
+        while pending_helpers:
+            source_path, name = pending_helpers.pop()
+            follow_names(source_path, functions_by_source[source_path][name])
+
     statements: list[ast.stmt] = []
     definition_ndf: dict[str, NdfMetadata] = {}
     definition_locations: dict[str, tuple[str, int, int]] = {}
     source_node_locations: dict[str, tuple[SourceNodeRecord, ...]] = {}
     entry_owned_names: set[str] = set()
-    for source_entry in closure.entries:
-        source_tree = ast.parse(
-            source_entry.source,
-            filename=source_entry.path,
-            type_comments=True,
-        )
-        owns_entry = Path(source_entry.source_file).resolve() == entry.resolve()
-
-        def decorator_kind(statement: ast.FunctionDef | ast.ClassDef) -> str:
-            for decorator in statement.decorator_list:
-                target = decorator.func if isinstance(decorator, ast.Call) else decorator
-                if isinstance(target, ast.Attribute):
-                    return target.attr
-                if isinstance(target, ast.Name):
-                    return target.id
-            return ""
-
+    for source_entry, source_tree, owns_entry in parsed_entries:
         selected: list[ast.stmt] = []
         for statement in source_tree.body:
             if isinstance(statement, (ast.Import, ast.ImportFrom)):
@@ -413,7 +540,7 @@ def _flatten_source_closure(
                 selected.append(statement)
                 continue
             if isinstance(statement, ast.ClassDef) and (
-                decorator_kind(statement) in {"config", "struct", "bitfield"}
+                decorator_kinds(statement) & {"config", "struct", "bitfield"}
                 or any(
                     isinstance(base, ast.Name)
                     and base.id in {"Enum", "IntEnum"}
@@ -424,7 +551,10 @@ def _flatten_source_closure(
                 continue
             if (
                 isinstance(statement, ast.FunctionDef)
-                and decorator_kind(statement) == "module_decl"
+                and (
+                    "module_decl" in decorator_kinds(statement)
+                    or (source_entry.path, statement.name) in reachable_helpers
+                )
             ):
                 selected.append(statement)
         statements.extend(selected)
@@ -532,7 +662,7 @@ def _worker_main(request_path: Path) -> int:
                     definition_ndf,
                     definition_locations,
                     source_node_locations,
-                ) = _flatten_source_closure(closure, entry)
+                ) = _flatten_source_closure(closure, entry, module_name)
                 acir = lower_source_unit(
                     source_text,
                     ((module_name, ()),),
@@ -552,7 +682,7 @@ def _worker_main(request_path: Path) -> int:
                     definition_ndf,
                     definition_locations,
                     source_node_locations,
-                ) = _flatten_source_closure(closure, entry)
+                ) = _flatten_source_closure(closure, entry, request["system"])
                 document, acir, diagnostics = _capture_queue_rule(
                     source_text,
                     request["system"],
