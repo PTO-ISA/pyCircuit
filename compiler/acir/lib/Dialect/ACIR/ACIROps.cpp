@@ -5893,6 +5893,7 @@ LogicalResult TableOp::verify() {
   bool duplicateSelectionStableId = false;
   llvm::StringSet<> selectionStableIds;
   ModuleOp owningModule = (*this)->getParentOfType<ModuleOp>();
+  ModuleCaseOp owningModuleCase = (*this)->getParentOfType<ModuleCaseOp>();
   unsigned endpoints = 0;
   llvm::StringMap<Operation *> fieldWriters;
   std::string overlappingField;
@@ -5906,10 +5907,14 @@ LogicalResult TableOp::verify() {
       path.append(scope.getSymName());
       ownerExists |= path == getOwner();
     }
-    if (auto other = dyn_cast<TableOp>(operation))
-      duplicateStableId |= other != *this &&
-                           other->getParentOfType<ModuleOp>() == owningModule &&
-                           other.getStableId() == getStableId();
+    if (auto other = dyn_cast<TableOp>(operation)) {
+      ModuleCaseOp otherModuleCase = other->getParentOfType<ModuleCaseOp>();
+      const bool sameOwner =
+          owningModuleCase ? otherModuleCase == owningModuleCase
+                           : other->getParentOfType<ModuleOp>() == owningModule;
+      duplicateStableId |=
+          other != *this && sameOwner && other.getStableId() == getStableId();
+    }
     if (auto read = dyn_cast<TableReadOp>(operation)) {
       if (resolveTable(read, read.getTableAttr()) == *this)
         ++endpoints;
