@@ -974,11 +974,6 @@ def _lower_simple_module_source(
                     f"{logical_type(payload)}, {dependent_value(lanes)}, "
                     f"{dependent_value(rate)}>>"
                 )
-            if module_family_parameter_specs.get(declaration.name):
-                raise QueueFrontendError(
-                    "ACPY-FAMILY-008: parameterized module ports require an "
-                    "explicit Queue[payload, lanes, rate] annotation"
-                )
             return (
                 "#ac.type_expr<#ac.type_expr_queue<"
                 f"{logical_type(annotation)}, {one}, {one}>>"
@@ -4508,7 +4503,10 @@ def _lower_simple_module_source(
     # A finite implementation owns one concrete case region for every declared
     # case, including declared cases unused by the selected caller graph.
     for family_name, case_attrs in module_family_case_attrs.items():
-        if len(case_attrs) <= 1 or family_name not in module_implementations:
+        if (
+            family_name not in module_implementations
+            or not module_family_parameter_specs.get(family_name)
+        ):
             continue
         prefix = f"  ac.module @{family_name} "
         start = next(
