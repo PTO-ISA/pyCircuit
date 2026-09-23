@@ -208,6 +208,7 @@ class Step:
 @ac.struct
 class Result:
     value: ac.u8
+    wide: ac.u64
     valid: ac.u1
 
 @ac.struct
@@ -221,7 +222,7 @@ def update(resident: Resident, step: Step) -> Result:
     accepted = step.valid
     if accepted:
         resident = resident.with_fields(value=previous + step.value, valid=1)
-    return Result(value=resident.value, valid=accepted)
+    return Result(value=resident.value, wide=0, valid=accepted)
 
 @ac.module_decl(source="source/stateful.py")
 def stateful(step: ac.Queue[Step, 1, 1]) -> ac.Queue[Result, 1, 1]:
@@ -744,6 +745,25 @@ def add_one(value: ac.u8) -> ac.u8:
             text=True, capture_output=True, check=False,
         )
         self.assertEqual(0, verified.returncode, verified.stderr)
+        bundle = self.root / "stateful-bundle"
+        emitted = subprocess.run(
+            [str(_repository_tool("acc")), "-c", str(package),
+             "-emit-cpp-bundle", "-o", str(bundle)],
+            text=True, capture_output=True, check=False,
+        )
+        self.assertEqual(0, emitted.returncode, emitted.stderr)
+        configured = subprocess.run(
+            ["cmake", "-S", str(bundle), "-B", str(bundle / "build"),
+             "-G", "Ninja",
+             f"-DAC_GFSIM_INCLUDE_DIR={REPOSITORY / 'simulator/gfsim/include'}"],
+            text=True, capture_output=True, check=False,
+        )
+        self.assertEqual(0, configured.returncode, configured.stderr)
+        built = subprocess.run(
+            ["cmake", "--build", str(bundle / "build"), "--parallel", "4"],
+            text=True, capture_output=True, check=False,
+        )
+        self.assertEqual(0, built.returncode, built.stdout + built.stderr)
 
     def test_each_source_owns_its_nominals_and_import_header(self) -> None:
         """A source header carries its own nominals and its own import."""

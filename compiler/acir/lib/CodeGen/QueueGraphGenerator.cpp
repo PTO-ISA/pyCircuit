@@ -3053,7 +3053,8 @@ llvm::Error emitStatefulFiringPolicy(
     if (outputIndex)
       output << ", ";
     output << outputPresentName(firing, outputIndex) << " ? std::optional<"
-           << type << ">{" << outputValueName(firing, outputIndex)
+           << type << ">{gfsim::queueStorageValue<" << type << ">("
+           << outputValueName(firing, outputIndex) << ")"
            << "} : std::optional<" << type << ">{}";
   }
   output << "}, {";
@@ -5167,7 +5168,8 @@ generateStructuredQueueGraphCpp(const QueueGraphPlan &plan) {
         if (outputIndex)
           output << ", ";
         output << outputPresentName(block, outputIndex) << " ? std::optional<"
-               << type << ">{" << outputValueName(block, outputIndex)
+               << type << ">{gfsim::queueStorageValue<" << type << ">("
+               << outputValueName(block, outputIndex) << ")"
                << "} : std::optional<" << type << ">{}";
       }
       output << "}, {}, {}};\n  }\n};\n\n";
@@ -6971,8 +6973,9 @@ llvm::Expected<std::string> generateQueueGraphCpp(const QueueGraphPlan &plan) {
           if (outputIndex)
             output << ", ";
           output << outputPresentName(*block, outputIndex)
-                 << " ? std::optional<" << type << ">{"
-                 << outputValueName(*block, outputIndex) << "} : std::optional<"
+                 << " ? std::optional<" << type << ">{gfsim::queueStorageValue<"
+                 << type << ">(" << outputValueName(*block, outputIndex)
+                 << ")} : std::optional<"
                  << type << ">{}";
         }
         output << "}, {";
@@ -7250,7 +7253,8 @@ llvm::Expected<std::string> generateQueueGraphCpp(const QueueGraphPlan &plan) {
         if (outputIndex)
           output << ", ";
         output << outputPresentName(*block, outputIndex) << " ? std::optional<"
-               << outputType << ">{" << outputValueName(*block, outputIndex)
+               << outputType << ">{gfsim::queueStorageValue<" << outputType
+               << ">(" << outputValueName(*block, outputIndex) << ")"
                << "} : std::optional<" << outputType << ">{}";
       }
       output << "}, gfsim::StateReservation{}";

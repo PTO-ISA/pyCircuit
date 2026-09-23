@@ -15,11 +15,13 @@
 #include <initializer_list>
 #include <limits>
 #include <map>
+#include <memory>
 #include <new>
 #include <optional>
 #include <span>
 #include <stdexcept>
 #include <tuple>
+#include <type_traits>
 #include <utility>
 #include <vector>
 
@@ -2318,6 +2320,15 @@ bool tableAddressInRange(AddressResult address, size_t entries) {
 }
 
 template <typename Entry> class OwnerWriteBatch;
+
+template <typename Storage, typename Value>
+Storage queueStorageValue(Value &&value) {
+  if constexpr (std::is_constructible_v<Storage, Value &&>)
+    return Storage(std::forward<Value>(value));
+  else
+    return std::make_shared<typename Storage::element_type>(
+        std::forward<Value>(value));
+}
 
 template <typename Entry, typename... Outputs> struct TableTransitionPlan {
   OwnerWriteBatch<Entry> writes;
