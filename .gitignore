@@ -314,3 +314,5 @@ docs/gates/logs/*
 !docs/gates/logs/20260922-instance-static-arguments/**
 !docs/gates/logs/20260922-module-manifest/
 !docs/gates/logs/20260922-module-manifest/**
+!docs/gates/logs/20260922-bundle-api/
+!docs/gates/logs/20260922-bundle-api/**

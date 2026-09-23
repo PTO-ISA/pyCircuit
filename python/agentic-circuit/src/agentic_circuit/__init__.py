@@ -8,6 +8,7 @@ __path__ = extend_path(__path__, __name__)
 
 from . import _api_inventory
 from . import _types as _types_module
+from . import bundle as bundle
 from . import markers as markers
 from ._definitions import (
     extern_module,

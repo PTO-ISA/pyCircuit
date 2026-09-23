@@ -2781,6 +2781,16 @@ concrete interface. Every nominal declaration names the Python file that owns it
 with `ac.source_file`, so the compiler emits one interface unit per source file
 and a nominal shared by several files is declared exactly once.
 
+A Python caller does not have to drive the three compile steps itself:
+`agentic_circuit.bundle.lower_sources(<architecture>, output=<bundle directory>)`
+compiles every imported workspace source that declares one public `@ac.module`
+into its own unit and interface header, compiles the architecture into
+`core.ac`, links the package, and emits the structured bundle. It returns a
+`ModuleBundle` carrying the emitted file inventory and the parsed module
+manifest, and it retains the package directory when `package=<path>` is given.
+The native `acc` tool is required for the link and bundle steps and is taken from
+the `acc` argument, then `AGENTIC_CIRCUIT_ACC`, then `PATH`.
+
 A structured bundle publishes `share/generated/module-manifest.json`
 (`agentic-circuit-module-manifest`, version 0.1) beside the source map: one entry
 per module family with its symbol, owning files, interface ports, static

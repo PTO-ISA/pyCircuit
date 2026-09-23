@@ -307,18 +307,17 @@ What is genuinely missing:
   `lower_sources(...)` equivalent that hands a Python caller the generated source
   files or a manifest. (Identity is structural under Decision 0267, so a bundle
   carries no content identity to expose either way.)
-- **No Python API yet.** The manifest artifact exists: a structured bundle
-  publishes `share/generated/module-manifest.json`
-  (`agentic-circuit-module-manifest`, version 0.1, schema
-  `schemas/agentic-circuit/module-manifest.schema.json`) with one entry per
-  module family (symbol, owning files, interface ports, static parameters,
-  declared cases, concrete case signatures) and one per placement (definition,
-  scope, ordered typed static arguments, source provenance), so two placements of
-  one definition are distinguishable without generated names. What is still
-  missing is a Python caller that returns the generated sources plus that
-  manifest: today a consumer drives `acc.py -c <source>.py -o <unit>.ac
-  [--header-output <header>.ac]`, `acc.py -c <core>.py --unit interfaces`, and
-  `acc -c <package> [--emit-cpp-bundle]` itself.
+- **The bundle API exists; the in-process path and a JIT surface do not.**
+  `agentic_circuit.bundle.lower_sources(<architecture>, output=<bundle directory>)`
+  compiles every imported workspace source that declares one public
+  `@ac.module` into its own unit and interface header, compiles the architecture
+  into `core.ac`, links the package, and emits the structured bundle, returning
+  the file inventory and the parsed manifest (`package=<path>` retains the
+  package). It still shells out to the native `acc` tool for the link and bundle
+  steps, because the Python extension exposes only `run_compiler` and
+  `capabilities` while `EmitMode` — including `CppBundle` — lives in the `acc`
+  tool. Moving that step in-process needs a binding entry point, and the issue's
+  `ac.jit(...).lower_cpp()` framing still has no JIT-level method.
 
 **Recommended shape** for the remaining work, consistent with the module family
 work that has landed since the issue was filed: derive the manifest from the typed
