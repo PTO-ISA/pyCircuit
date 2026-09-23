@@ -44,6 +44,27 @@ class FiniteFamilyValuesTest(unittest.TestCase):
             tuple(name for name, _ in family_case.bindings),
             ("enabled", "lanes", "mode", "nested"),
         )
+
+    def test_dependent_nominal_integer_parameter_has_explicit_static_type(self) -> None:
+        import ast
+
+        from agentic_circuit._queue_compiler.static_types import (
+            _static_parameter_aliases,
+        )
+
+        reference = ac.param[ac.static_int(width=4, signed=False)](
+            "frontend_width"
+        )
+        self.assertEqual(reference.name, "frontend_width")
+        aliases = _static_parameter_aliases(
+            ast.parse(
+                'import agentic_circuit as ac\n'
+                'WIDTH = ac.param[ac.static_int(width=4, signed=False)]("frontend_width")\n'
+            )
+        )
+        self.assertEqual(aliases["WIDTH"].external_name, "frontend_width")
+        self.assertEqual(aliases["WIDTH"].integer_width, 4)
+        self.assertFalse(aliases["WIDTH"].integer_signed)
         self.assertTrue(dataclasses.is_dataclass(Nested))
 
     def test_rejects_invalid_closed_values(self) -> None:

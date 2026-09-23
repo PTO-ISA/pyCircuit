@@ -368,6 +368,8 @@ def _module_static_values(tree: ast.Module) -> dict[str, StaticValue]:
 class StaticParameterAlias:
     external_name: str
     config_type: str | None = None
+    integer_width: int | None = None
+    integer_signed: bool = False
 
 
 def _config_type_names(tree: ast.Module) -> set[str]:
@@ -440,11 +442,36 @@ def _static_parameter_aliases(tree: ast.Module) -> dict[str, StaticParameterAlia
             else ""
         )
         parameter_type = family.slice.id if isinstance(family.slice, ast.Name) else ""
+        integer_width: int | None = None
+        integer_signed = False
+        if (
+            isinstance(family.slice, ast.Call)
+            and _decorator_name(family.slice.func).rsplit(".", 1)[-1] == "static_int"
+        ):
+            values = {keyword.arg: keyword.value for keyword in family.slice.keywords}
+            width = values.get("width")
+            signed = values.get("signed")
+            if (
+                family.slice.args
+                or set(values) != {"width", "signed"}
+                or not isinstance(width, ast.Constant)
+                or type(width.value) is not int
+                or not 1 <= width.value <= 64
+                or not isinstance(signed, ast.Constant)
+                or type(signed.value) is not bool
+            ):
+                raise QueueFrontendError(
+                    "ACPY-TYPE-008: ac.param[ac.static_int] requires exact "
+                    "literal width and signed fields"
+                )
+            parameter_type = "static_int"
+            integer_width = width.value
+            integer_signed = signed.value
         if family_name != "param":
             continue
         if (
             not target.isupper()
-            or (parameter_type != "int" and parameter_type not in config_types)
+            or (parameter_type not in {"int", "static_int"} and parameter_type not in config_types)
             or len(declaration.args) != 1
             or declaration.keywords
             or not isinstance(declaration.args[0], ast.Constant)
@@ -453,7 +480,7 @@ def _static_parameter_aliases(tree: ast.Module) -> dict[str, StaticParameterAlia
         ):
             raise QueueFrontendError(
                 "ACPY-TYPE-008: static type parameters require "
-                'UPPER_SNAKE = ac.param[int | Config]("const_argument")'
+                'UPPER_SNAKE = ac.param[int | ac.static_int | Config]("const_argument")'
             )
         external = declaration.args[0].value
         if target in aliases or external in external_names:
@@ -462,7 +489,9 @@ def _static_parameter_aliases(tree: ast.Module) -> dict[str, StaticParameterAlia
             )
         aliases[target] = StaticParameterAlias(
             external,
-            None if parameter_type == "int" else parameter_type,
+            None if parameter_type in {"int", "static_int"} else parameter_type,
+            integer_width,
+            integer_signed,
         )
         external_names.add(external)
     return aliases
