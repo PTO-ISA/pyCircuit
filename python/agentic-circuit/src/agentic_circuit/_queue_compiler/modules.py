@@ -1626,22 +1626,6 @@ def _lower_simple_module_source(
             composite_modules[name] = function
             continue
         if contains_rule_call:
-            family_specs = module_family_parameter_specs.get(name, [])
-            if family_specs:
-                # Every concrete family case would render the same
-                # module-local rule under the same module-qualified stable
-                # identity, so the two bodies collide in `ac-lower-rules`
-                # ("duplicate stable rule identity"). Family-local state has the
-                # same problem for `ac.var`/`ac.table` owned by a rule. Reject
-                # the shape here, where the parameterized declaration is still
-                # known, instead of emitting IR that only fails verification.
-                raise QueueFrontendError(
-                    "ACPY-FAMILY-008: a parameterized family body may not "
-                    f"contain rule calls yet ({name!r}); one rule identity "
-                    "cannot be shared across the family's concrete cases. Move "
-                    "the rule into a child module or keep the family body a "
-                    "composite of child instances"
-                )
             if (
                 not function.args.args
                 or function.args.posonlyargs
@@ -1692,30 +1676,20 @@ def _lower_simple_module_source(
                 raise QueueFrontendError(
                     "ACPY-MODULE-005: rule module return names must match its arity"
                 )
+            (
+                template_static_parameters,
+                template_static_defaults,
+                template_static_parameter_types,
+            ) = template_static_fields(name, function)
             rule_modules[name] = RuleModuleTemplate(
                 input_annotations,
                 tuple(
                     result.id for result in result_nodes if isinstance(result, ast.Name)
                 ),
                 output_annotations,
-                tuple(parameter.arg for parameter in function.args.kwonlyargs),
-                tuple(
-                    (parameter.arg, default)
-                    for parameter, default in zip(
-                        function.args.kwonlyargs,
-                        function.args.kw_defaults,
-                        strict=True,
-                    )
-                    if default is not None
-                ),
-                tuple(
-                    (
-                        parameter.arg,
-                        _decorator_name(parameter.annotation.slice).rsplit(".", 1)[-1],
-                    )
-                    for parameter in function.args.kwonlyargs
-                    if isinstance(parameter.annotation, ast.Subscript)
-                ),
+                template_static_parameters,
+                template_static_defaults,
+                template_static_parameter_types,
             )
             continue
         pure_module_checks: list[StaticTypeCheck] = []

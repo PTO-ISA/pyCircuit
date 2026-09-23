@@ -9522,12 +9522,12 @@ def composite(packet: ac.Queue[Packet, 1, 1]) -> ac.Queue[Packet, 1, 1]:
 )
 
 
-C8_PARAMETERIZED_FAMILY_WITH_RULE_SOURCE = (
-    C8_UNPARAMETERIZED_BANK_SOURCE
-    + """
-@ac.rule
-def passthrough(packet: Packet) -> Packet:
-    return packet
+C8_PARAMETERIZED_FAMILY_WITH_RULE_STATE_SOURCE = """
+import agentic_circuit as ac
+
+@ac.struct
+class Packet:
+    value: ac.u8
 
 @ac.module_decl(
     source="tests/python/agentic-circuit/python_frontend/test_queue_frontend.py",
@@ -9541,25 +9541,30 @@ staged_decl = staged
 
 @ac.module(declaration=staged_decl)
 def staged(packet: ac.Queue[Packet, 1, 1]) -> ac.Queue[Packet, 1, 1]:
-    forwarded = passthrough(packet)
+    total: ac.u8 = 0
+
+    @ac.rule
+    def accumulate(item: Packet) -> Packet:
+        nonlocal total
+        total = total + item.value
+        return Packet(value=total)
+
+    forwarded = accumulate(packet)
     return forwarded
 
 @ac.system
 def composite(packet: ac.Queue[Packet, 1, 1]) -> ac.Queue[Packet, 1, 1]:
     return staged(packet, static=ac.case(("banks", 4)))
 """
-)
 
 
 class ParameterizedBankCountTest(unittest.TestCase):
     """Structural parameterization of Thread/bank counts for issue #223.
 
     A structurally parameterized count is expressed by dependent lane counts, so
-    ONE declaration serves every shape. A parameterized family body may be a
-    composite of child instances. Two shapes stay rejected with a specific
-    diagnostic rather than emitting IR that cannot be verified: a composite
-    `for` placement loop, and a rule-backed family body whose concrete cases
-    would share one module-local rule identity.
+    ONE declaration serves every shape. Each declared case owns its concrete
+    body, including module-local rule and lexical-state identities. A composite
+    `for` placement loop stays rejected until the placement grammar admits it.
     """
 
     def lower(self, source: str) -> str:
@@ -9588,15 +9593,32 @@ class ParameterizedBankCountTest(unittest.TestCase):
         self.assertEqual(2, family.count(" of @bank("))
         self.assertIn('#ac.static_parameter<"banks"', family)
 
-    def test_parameterized_family_body_rejects_rule_calls(self) -> None:
+    def test_parameterized_family_materializes_rule_and_state_per_case(self) -> None:
+        lowered = self.lower(C8_PARAMETERIZED_FAMILY_WITH_RULE_STATE_SOURCE)
+        family = lowered[lowered.index("  ac.module @staged ") :]
+        family = family[: family.index("  ac.module @Top ")]
+        self.assertEqual(2, family.count("ac.module.case arguments"))
+        self.assertEqual(2, family.count("ac.var.decl @total"))
+        self.assertEqual(2, family.count('stable_id "var/body/total"'))
+        self.assertEqual(2, family.count('stable_id "staged/forwarded"'))
+        self.assertEqual(2, family.count("ac.var.assign @total"))
+
+    def test_parameterized_family_rejects_duplicate_rule_identity_within_case(
+        self,
+    ) -> None:
         from agentic_circuit._queue_frontend import QueueFrontendError
 
+        duplicate = C8_PARAMETERIZED_FAMILY_WITH_RULE_STATE_SOURCE.replace(
+            "    forwarded = accumulate(packet)\n    return forwarded",
+            "    forwarded = accumulate(packet)\n"
+            "    forwarded = accumulate(packet)\n"
+            "    return forwarded",
+        )
         with self.assertRaisesRegex(
             QueueFrontendError,
-            "ACPY-FAMILY-008: a parameterized family body may not contain "
-            "rule calls yet",
+            "ACPY-QUEUE-001: queue assignment requires one fresh name",
         ):
-            self.lower(C8_PARAMETERIZED_FAMILY_WITH_RULE_SOURCE)
+            self.lower(duplicate)
 
 
 if __name__ == "__main__":
