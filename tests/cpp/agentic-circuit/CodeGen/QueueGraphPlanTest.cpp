@@ -1947,8 +1947,17 @@ builtin.module {
   };
   auto provenance = ac::SourceProvenanceAttr::get(
       &context, builder.getStringAttr("pkg/box.py"), 3, 1, 3, 1);
+  auto resolvedArgument = [&](llvm::StringRef name, ac::StaticValueAttr value) {
+    auto literal = ac::DependentStaticLiteralAttr::get(&context, value);
+    return ac::DependentArgumentAttr::get(
+        &context, builder.getStringAttr(name),
+        ac::DependentValueAttr::get(&context, literal));
+  };
+  auto resolvedArguments = ac::DependentArgumentsAttr::get(
+      &context, builder.getArrayAttr({resolvedArgument("width", width),
+                                      resolvedArgument("enabled", enabled)}));
   auto signature = builder.getFunctionType(
-      {ac::StructType::get(&context, declaration)}, {});
+      {ac::StructType::get(&context, declaration, resolvedArguments)}, {});
   auto materialize = [&](mlir::ArrayAttr rawArguments) {
     auto arguments = ac::DependentArgumentsAttr::get(&context, rawArguments);
     auto nominal = ac::TypeExprAttr::get(

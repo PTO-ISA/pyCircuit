@@ -193,12 +193,22 @@ verifyQualifiedDataName(function_ref<InFlightDiagnostic()> emitError,
     return verifyQualifiedDataName(emitError, name);                           \
   }
 
-ACIR_DEFINE_DATA_NAME_VERIFY(StructType)
 ACIR_DEFINE_DATA_NAME_VERIFY(PacketType)
 ACIR_DEFINE_DATA_NAME_VERIFY(TransactionType)
 ACIR_DEFINE_DATA_NAME_VERIFY(EnumType)
 
 #undef ACIR_DEFINE_DATA_NAME_VERIFY
+
+LogicalResult StructType::verify(
+    function_ref<InFlightDiagnostic()> emitError, SymbolRefAttr name,
+    DependentArgumentsAttr arguments) {
+  if (failed(verifyQualifiedDataName(emitError, name)))
+    return failure();
+  if (arguments && arguments.getArguments().empty())
+    return emitError()
+           << "empty struct application arguments must use the zero-argument form";
+  return success();
+}
 
 LogicalResult
 ValueArrayType::verify(function_ref<InFlightDiagnostic()> emitError,

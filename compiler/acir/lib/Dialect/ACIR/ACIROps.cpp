@@ -3234,6 +3234,41 @@ LogicalResult verifyNamedTypes(Operation *from, Type type) {
       result = failure();
       return WalkResult::interrupt();
     }
+    if (auto structure = dyn_cast<StructType>(nested)) {
+      auto parameters = decl->getAttrOfType<StaticParametersAttr>("parameters");
+      ArrayAttr declared = parameters
+                               ? parameters.getParameters()
+                               : ArrayAttr::get(from->getContext(), {});
+      DependentArgumentsAttr application = structure.getArguments();
+      ArrayAttr supplied = application
+                               ? application.getArguments()
+                               : ArrayAttr::get(from->getContext(), {});
+      if (declared.size() != supplied.size()) {
+        from->emitOpError()
+            << "struct application arguments must exactly match declaration "
+               "parameters for '"
+            << ref->name << "'";
+        result = failure();
+        return WalkResult::interrupt();
+      }
+      for (auto [rawParameter, rawArgument] :
+           llvm::zip_equal(declared, supplied)) {
+        auto parameter = cast<StaticParameterAttr>(rawParameter);
+        auto argument = cast<DependentArgumentAttr>(rawArgument);
+        auto literal = dyn_cast<DependentStaticLiteralAttr>(
+            argument.getValue().getValue());
+        if (parameter.getName() != argument.getName() || !literal ||
+            !staticValueMatchesType(parameter.getType().getValue(),
+                                    literal.getValue().getValue())) {
+          from->emitOpError()
+              << "struct application arguments must preserve declaration "
+                 "order, names, and exact typed values for '"
+              << ref->name << "'";
+          result = failure();
+          return WalkResult::interrupt();
+        }
+      }
+    }
     return WalkResult::advance();
   });
   return result;
@@ -7913,7 +7948,9 @@ llvm::Expected<ModuleInterfaceAttr> materializeModuleInterface(
       if (!resolved)
         return resolved.takeError();
       if (isa_and_nonnull<StructOp>(declaration))
-        return StructType::get(context, nominal.getDeclaration());
+        return resolved->getArguments().empty()
+                   ? StructType::get(context, nominal.getDeclaration())
+                   : StructType::get(context, nominal.getDeclaration(), *resolved);
       if (isa_and_nonnull<PacketOp>(declaration))
         return PacketType::get(context, nominal.getDeclaration());
       if (isa_and_nonnull<TransactionOp>(declaration))
