@@ -2781,6 +2781,14 @@ concrete interface. Every nominal declaration names the Python file that owns it
 with `ac.source_file`, so the compiler emits one interface unit per source file
 and a nominal shared by several files is declared exactly once.
 
+A structured bundle publishes `share/generated/module-manifest.json`
+(`agentic-circuit-module-manifest`, version 0.1) beside the source map: one entry
+per module family with its symbol, owning files, interface ports, static
+parameters, declared case inventory, and concrete case signatures, plus one entry
+per placement with its definition, scope, ordered typed static arguments, and
+source provenance. Its contract is
+`schemas/agentic-circuit/module-manifest.schema.json`.
+
 The published source map reports one entry per module placement with the
 definition symbol, the scope, the placement provenance, and the ordered typed
 static arguments that select the case. Those arguments are the specialization

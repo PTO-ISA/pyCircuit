@@ -1,0 +1,21 @@
+# Issue #180: a structured bundle publishes a module manifest.
+# Run from the repository root with the native toolchain and Python extension built.
+
+ninja -C .pycircuit_out/toolchain/build acc
+ninja -C .pycircuit_out/toolchain/build agentic_circuit_native
+python3 -m pytest tests/python/agentic-circuit/python_frontend/test_multi_unit_package.py -q -p no:cacheprovider
+
+# Schema and artifact:
+python3 -c 'import json,jsonschema;jsonschema.Draft202012Validator.check_schema(json.load(open("schemas/agentic-circuit/module-manifest.schema.json")))'
+python3 -c 'import json,jsonschema;s=json.load(open("schemas/agentic-circuit/module-manifest.schema.json"));d=json.load(open("bundle/share/generated/module-manifest.json"));jsonschema.Draft202012Validator(s).validate(d)'
+
+# Native bundle inventory tests:
+.pycircuit_out/toolchain/build/bin/CodeGenTests --gtest_filter='*QueueGraphPlan*'
+
+# Lane context.
+python3 -m pytest tests/python/agentic-circuit -q -p no:cacheprovider \
+  --ignore=tests/python/agentic-circuit/tools
+python3 -m pytest tests/unit -m unit -q -p no:cacheprovider
+ninja -C .pycircuit_out/toolchain/build check-acir
+ctest --test-dir .pycircuit_out/toolchain/build
+python3 tools/agentic-circuit/check-contracts.py

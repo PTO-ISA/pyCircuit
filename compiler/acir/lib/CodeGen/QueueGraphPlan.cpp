@@ -8442,4 +8442,115 @@ llvm::Expected<std::string> QueueGraphPlan::sourceMapJson() const {
   return bindings::canonicalizeJson(llvm::json::Value(std::move(root)));
 }
 
+llvm::Expected<std::string> QueueGraphPlan::moduleManifestJson() const {
+  auto argumentsJson = [](acir::ac::StaticArgumentsAttr arguments) {
+    llvm::json::Array values;
+    if (!arguments)
+      return values;
+    for (auto argument :
+         arguments.getArguments()
+             .getAsRange<acir::ac::StaticArgumentAttr>()) {
+      values.push_back(llvm::json::Object{
+          {"name", argument.getName().getValue().str()},
+          {"value", renderStaticValueText(argument.getValue())}});
+    }
+    return values;
+  };
+  auto provenanceJson = [](const QueueSourceProvenancePlan &provenance) {
+    llvm::json::Array origins;
+    for (const QueueSourceOriginPlan &origin : provenance.origins) {
+      llvm::json::Array frames;
+      for (const QueueSourceFramePlan &frame : origin) {
+        llvm::json::Object value{{"column", frame.column},
+                                 {"file", frame.file},
+                                 {"kind", frame.kind},
+                                 {"line", frame.line}};
+        if (!frame.symbol.empty())
+          value["symbol"] = frame.symbol;
+        frames.push_back(std::move(value));
+      }
+      origins.push_back(llvm::json::Object{{"frames", std::move(frames)}});
+    }
+    return llvm::json::Object{{"origins", std::move(origins)}};
+  };
+  auto portsJson = [](acir::ac::ModuleInterfaceAttr interface) {
+    llvm::json::Array values;
+    if (!interface)
+      return values;
+    for (auto port :
+         interface.getPorts().getAsRange<acir::ac::InterfacePortAttr>()) {
+      values.push_back(llvm::json::Object{
+          {"direction", port.getDirection().getValue().str()},
+          {"logical_type", renderStaticValueText(port.getLogicalType())},
+          {"name", port.getName().getValue().str()}});
+    }
+    return values;
+  };
+  auto parametersJson = [](acir::ac::StaticParametersAttr parameters) {
+    llvm::json::Array values;
+    if (!parameters)
+      return values;
+    for (auto parameter :
+         parameters.getParameters()
+             .getAsRange<acir::ac::StaticParameterAttr>()) {
+      values.push_back(llvm::json::Object{
+          {"name", parameter.getName().getValue().str()},
+          {"required", parameter.getRequired()},
+          {"type", renderStaticValueText(parameter.getType())}});
+    }
+    return values;
+  };
+
+  llvm::json::Array moduleValues;
+  for (const ModuleFamilyPlan &family : moduleFamilies) {
+    llvm::json::Array declaredCases;
+    if (family.declaredCases)
+      for (auto arguments :
+           family.declaredCases.getCases()
+               .getAsRange<acir::ac::StaticArgumentsAttr>())
+        declaredCases.push_back(llvm::json::Object{
+            {"static_arguments", argumentsJson(arguments)}});
+    llvm::json::Array caseValues;
+    for (const ModuleCasePlan &moduleCase : family.cases) {
+      std::string signature;
+      llvm::raw_string_ostream stream(signature);
+      if (moduleCase.concreteSignature)
+        moduleCase.concreteSignature.print(stream);
+      caseValues.push_back(llvm::json::Object{
+          {"signature", stream.str()},
+          {"static_arguments", argumentsJson(moduleCase.arguments)}});
+    }
+    moduleValues.push_back(llvm::json::Object{
+        {"cases", std::move(caseValues)},
+        {"declaration",
+         family.source ? family.source.getDeclaration().getValue().str()
+                       : std::string()},
+        {"declared_cases", std::move(declaredCases)},
+        {"interface", portsJson(family.interface)},
+        {"owner",
+         family.source ? family.source.getImplementation().getValue().str()
+                       : std::string()},
+        {"parameters", parametersJson(family.parameters)},
+        {"symbol", family.definition}});
+  }
+  llvm::json::Array instanceValues;
+  for (const QueueModuleInstancePlan &instance : moduleInstances)
+    instanceValues.push_back(llvm::json::Object{
+        {"definition", instance.definition},
+        {"name", instance.name},
+        {"scope", instance.scope},
+        {"source_provenance", provenanceJson(instance.sourceProvenance)},
+        {"static_arguments", argumentsJson(instance.staticArguments)}});
+  llvm::json::Object root{
+      {"definition", definition.empty() ? llvm::json::Value(nullptr)
+                                        : llvm::json::Value(definition)},
+      {"instances", std::move(instanceValues)},
+      {"modules", std::move(moduleValues)},
+      {"schema", "agentic-circuit-module-manifest"},
+      {"system", system},
+      {"version", "0.1"},
+  };
+  return bindings::canonicalizeJson(llvm::json::Value(std::move(root)));
+}
+
 } // namespace acir::codegen
