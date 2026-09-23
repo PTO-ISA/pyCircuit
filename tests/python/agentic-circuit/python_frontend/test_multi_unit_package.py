@@ -183,9 +183,12 @@ from source.stage import stage
 
 @ac.system
 def probe(
-    value: ac.Queue[ac.u8, 2, 2],
-) -> ac.Queue[ac.u8, 2, 2]:
-    return stage(value, static=ac.case(("lanes", 2)))
+    low: ac.Queue[ac.u8, 2, 2],
+    high: ac.Queue[ac.u8, 4, 2],
+) -> tuple[ac.Queue[ac.u8, 2, 2], ac.Queue[ac.u8, 4, 2]]:
+    first = stage(low, static=ac.case(("lanes", 2)))
+    second = stage(high, static=ac.case(("lanes", 4)))
+    return first, second
 """
 
 
@@ -448,8 +451,26 @@ class MultiUnitPackageTest(unittest.TestCase):
             document,
             "specialization source-map golden drifted",
         )
+        # Two placements of one definition are distinguishable only by their
+        # ordered typed static arguments, which is the manifest identity the
+        # issue asks for.
+        instances = json.loads(document)["module_instances"]
+        self.assertEqual(["stage", "stage"], [item["definition"] for item in instances])
         self.assertEqual(
-            ["stage"], [item["definition"] for item in json.loads(document)["module_instances"]]
+            [
+                ("stage_0", [("lanes", "2 : i4")]),
+                ("stage_1", [("lanes", "4 : i4")]),
+            ],
+            [
+                (
+                    item["name"],
+                    [
+                        (argument["name"], argument["value"].split(", ")[-1][:-2])
+                        for argument in item["static_arguments"]
+                    ],
+                )
+                for item in instances
+            ],
         )
 
         # The published unit carries every declared case, so the golden covers a
