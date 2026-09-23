@@ -578,6 +578,52 @@ def _flatten_source_closure(
             source_path, name = pending_helpers.pop()
             follow_names(source_path, functions_by_source[source_path][name])
 
+        # A reachable rule may use an imported static parameter as a range or
+        # array target even when no nominal declaration refers to that alias.
+        # Keep its source-owned binding and its closed constant dependencies.
+        pending_range_bindings: list[tuple[str, str]] = []
+        reachable_functions = [
+            (entry_source.path, entry_architecture[name])
+            for name in visited_architecture
+        ] + [
+            (source_path, functions_by_source[source_path][name])
+            for source_path, name in reachable_helpers
+        ]
+        for source_path, function in reachable_functions:
+            for candidate in ast.walk(function):
+                if not (
+                    isinstance(candidate, ast.Subscript)
+                    and isinstance(candidate.value, ast.Attribute)
+                    and isinstance(candidate.value.value, ast.Name)
+                    and candidate.value.value.id == "ac"
+                    and candidate.value.attr in {"array", "bits", "index", "range"}
+                ):
+                    continue
+                pending_range_bindings.extend(
+                    (source_path, name.id)
+                    for name in ast.walk(candidate.slice)
+                    if isinstance(name, ast.Name) and isinstance(name.ctx, ast.Load)
+                )
+        while pending_range_bindings:
+            source_path, name = pending_range_bindings.pop()
+            key = (source_path, name)
+            if key in visited_type_bindings:
+                continue
+            visited_type_bindings.add(key)
+            expression = assignments_by_source[source_path].get(name)
+            if expression is not None:
+                retained_type_bindings_by_source[source_path].add(name)
+                pending_range_bindings.extend(
+                    (source_path, dependency.id)
+                    for dependency in ast.walk(expression)
+                    if isinstance(dependency, ast.Name)
+                    and isinstance(dependency.ctx, ast.Load)
+                )
+                continue
+            imported = imports_by_source[source_path].get(name)
+            if imported is not None:
+                pending_range_bindings.append(imported)
+
     statements: list[ast.stmt] = []
     definition_ndf: dict[str, NdfMetadata] = {}
     definition_locations: dict[str, tuple[str, int, int]] = {}

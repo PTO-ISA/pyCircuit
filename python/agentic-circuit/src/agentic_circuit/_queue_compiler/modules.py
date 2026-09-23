@@ -1347,8 +1347,14 @@ def _lower_simple_module_source(
     def specialize_family_function(
         function: ast.FunctionDef,
         values: tuple[tuple[str, StaticValue], ...],
+        *,
+        aliases_only: bool = False,
     ) -> ast.FunctionDef:
-        environment = dict(values)
+        case_values = dict(values)
+        environment = {} if aliases_only else dict(case_values)
+        for alias, parameter in parameter_aliases.items():
+            if parameter.config_type is None and parameter.external_name in case_values:
+                environment[alias] = case_values[parameter.external_name]
 
         class Specialize(ast.NodeTransformer):
             def visit_Name(self, node: ast.Name) -> ast.expr:
@@ -1432,6 +1438,13 @@ def _lower_simple_module_source(
                     continue
                 if statement.name.startswith(nested_prefix) and "rule" in decorators:
                     rewritten.append(specialize_family_function(statement, values))
+                    continue
+                if "rule" in decorators:
+                    rewritten.append(
+                        specialize_family_function(
+                            statement, values, aliases_only=True
+                        )
+                    )
                     continue
             rewritten.append(statement)
         case_tree.body = rewritten
@@ -4425,6 +4438,14 @@ def _lower_simple_module_source(
                 _decorator_name(decorator).rsplit(".", 1)[-1] == "system"
                 for decorator in statement.decorator_list
             ):
+                continue
+            if isinstance(statement, ast.FunctionDef) and any(
+                _decorator_name(decorator).rsplit(".", 1)[-1] == "rule"
+                for decorator in statement.decorator_list
+            ):
+                filtered.append(
+                    specialize_family_function(statement, values, aliases_only=True)
+                )
                 continue
             filtered.append(statement)
         if implementation is None:

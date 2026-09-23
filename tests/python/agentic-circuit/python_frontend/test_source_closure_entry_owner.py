@@ -197,3 +197,58 @@ def unit(value: ac.Queue[Batch, 1, 1]) -> ac.Queue[Batch, 1, 1]:
     assert "FETCH_WIDTH = ac.param[int]('fetch_width')" in source
     assert "MAX_TAGS = 64" in source
     assert "lanes: ac.array[FETCH_WIDTH, ac.u8]" in source
+
+
+def test_source_unit_binds_imported_range_alias_in_reachable_rule(
+    tmp_path: Path,
+) -> None:
+    from agentic_circuit._queue_frontend import lower_source_unit
+
+    geometry = tmp_path / "pkg" / "geometry.py"
+    implementation = tmp_path / "pkg" / "unit.py"
+    geometry_source = '''import agentic_circuit as ac
+RANGE = ac.param[int]("entries")
+'''
+    implementation_source = '''import agentic_circuit as ac
+from pkg.geometry import RANGE
+
+@ac.rule
+def wrap_value(item: ac.u8) -> ac.index[8]:
+    return ac.wrap(item, ac.index[RANGE])
+
+@ac.module_decl(
+    source="pkg/unit.py",
+    parameters=(ac.static_parameter("entries", ac.static_int(width=4, signed=False)),),
+    finite_cases=(ac.case(("entries", 8)),),
+)
+def unit(item: ac.u8) -> ac.index[8]:
+    ...
+
+unit_decl = unit
+
+@ac.module(declaration=unit_decl)
+def unit(item: ac.u8) -> ac.index[8]:
+    result = wrap_value(item)
+    return result
+'''
+    closure = SourceClosure(
+        entries=(
+            SourceClosureEntry("pkg/geometry.py", str(geometry), geometry_source),
+            SourceClosureEntry(
+                "pkg/unit.py", str(implementation), implementation_source
+            ),
+        )
+    )
+    source, ndf, locations, nodes = _flatten_source_closure(
+        closure, implementation, "unit"
+    )
+    assert "RANGE = ac.param[int]('entries')" in source
+    lowered = lower_source_unit(
+        source,
+        (("unit", ()),),
+        source_path="pkg/unit.py",
+        definition_locations=locations,
+        source_node_locations=nodes,
+        definition_ndf=ndf,
+    )
+    assert "ac.var.range_wrap" in lowered
