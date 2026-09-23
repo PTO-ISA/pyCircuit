@@ -9,7 +9,9 @@
 #include "llvm/Support/JSON.h"
 
 #include <algorithm>
+#include <map>
 #include <optional>
+#include <set>
 #include <tuple>
 
 using namespace mlir;
@@ -88,6 +90,7 @@ struct GraphFootprint {
   std::string nodeId;
   std::string ownerPath;
   std::string ownerStableId;
+  std::string ownerIdentity;
   std::string access;
   std::string fieldsText;
   std::string indexExpression;
@@ -156,15 +159,64 @@ FailureOr<std::vector<int64_t>> canonicalRuleExpressionRanks(ArrayAttr dag) {
 
 namespace {
 
-std::pair<std::string, std::string>
-resourceIdentity(Operation *scope, FlatSymbolRefAttr reference) {
+struct ResourceIdentity {
+  Operation *operation = nullptr;
+  std::string ownerPath;
+  std::string stableId;
+};
+
+std::string caseScopeIdentity(Operation *operation) {
+  auto moduleCase = operation->getParentOfType<ac::ModuleCaseOp>();
+  if (!moduleCase)
+    return {};
+  auto family = dyn_cast_or_null<ac::ModuleOp>(moduleCase->getParentOp());
+  if (!family)
+    return {};
+  return "module=" + family.getSymName().str() +
+         ";arguments=" + attributeText(moduleCase.getArguments());
+}
+
+using IdentityScopes = std::map<std::string, std::set<std::string>>;
+
+std::string scopedDebugIdentity(StringRef localIdentity, StringRef scope,
+                                const IdentityScopes &identityScopes) {
+  auto found = identityScopes.find(localIdentity.str());
+  if (found == identityScopes.end() || found->second.size() <= 1)
+    return localIdentity.str();
+  return "case={" + (scope.empty() ? std::string("model") : scope.str()) +
+         "}:" + localIdentity.str();
+}
+
+ResourceIdentity resourceIdentity(Operation *scope,
+                                  FlatSymbolRefAttr reference) {
   Operation *resource = ac::lookupRuntimeSymbol(scope, reference);
   if (!resource)
-    return {"", ""};
+    return {};
   auto owner = resource->getAttrOfType<StringAttr>("owner");
   auto stable = resource->getAttrOfType<StringAttr>("stable_id");
-  return {owner ? owner.getValue().str() : "",
+  return {resource, owner ? owner.getValue().str() : "",
           stable ? stable.getValue().str() : ""};
+}
+
+Operation *resourceByStableIdentity(Operation *scope, StringRef stableId) {
+  Operation *result = nullptr;
+  auto consider = [&](Operation *operation) {
+    if (result || !operation->getAttrOfType<StringAttr>("owner"))
+      return;
+    auto stable = operation->getAttrOfType<StringAttr>("stable_id");
+    if (stable && stable.getValue() == stableId)
+      result = operation;
+  };
+  if (auto moduleCase = scope->getParentOfType<ac::ModuleCaseOp>()) {
+    moduleCase.walk(consider);
+    return result;
+  }
+  auto model = scope->getParentOfType<ModuleOp>();
+  model.walk([&](Operation *operation) {
+    if (caseScopeIdentity(operation).empty())
+      consider(operation);
+  });
+  return result;
 }
 
 } // namespace
@@ -177,12 +229,30 @@ LogicalResult buildRuleEffectGraph(ModuleOp model, RuleEffectGraph &graph) {
         "AC value constraint analysis failed before rule effect graph");
 
   SmallVector<Operation *> rules;
+  IdentityScopes ruleScopes;
+  IdentityScopes resourceScopes;
   model.walk([&](Operation *operation) {
-    if (isa<ac::RuleOp, ac::FiringOp>(operation))
+    if (isa<ac::RuleOp, ac::FiringOp>(operation)) {
       rules.push_back(operation);
+      ruleScopes[stableRuleId(operation)].insert(caseScopeIdentity(operation));
+    }
+    auto owner = operation->getAttrOfType<StringAttr>("owner");
+    auto stable = operation->getAttrOfType<StringAttr>("stable_id");
+    if (owner && stable)
+      resourceScopes[stable.getValue().str()].insert(
+          caseScopeIdentity(operation));
   });
-  llvm::sort(rules, [](Operation *left, Operation *right) {
-    return stableRuleId(left) < stableRuleId(right);
+  auto ruleIdentity = [&](Operation *operation) {
+    return scopedDebugIdentity(stableRuleId(operation),
+                               caseScopeIdentity(operation), ruleScopes);
+  };
+  auto ownerIdentity = [&](const ResourceIdentity &resource) {
+    return scopedDebugIdentity(resource.stableId,
+                               caseScopeIdentity(resource.operation),
+                               resourceScopes);
+  };
+  llvm::sort(rules, [&](Operation *left, Operation *right) {
+    return ruleIdentity(left) < ruleIdentity(right);
   });
 
   llvm::SmallSet<std::string, 32> nodeIds;
@@ -194,7 +264,8 @@ LogicalResult buildRuleEffectGraph(ModuleOp model, RuleEffectGraph &graph) {
   };
 
   for (Operation *operation : rules) {
-    const std::string ruleId = stableRuleId(operation);
+    const std::string localRuleId = stableRuleId(operation);
+    const std::string ruleId = ruleIdentity(operation);
     const std::string ruleNode = "rule:" + ruleId;
     ArrayAttr dag =
         ruleArray(operation, "ac.rule.expression_dag", "ac.expression_dag");
@@ -215,7 +286,11 @@ LogicalResult buildRuleEffectGraph(ModuleOp model, RuleEffectGraph &graph) {
     if (liveFootprints.size() != footprints.size())
       return operation->emitOpError(
           "exact footprint/live endpoint count changed after verification");
-    uniqueNode(ruleNode, "rule", ruleId);
+    const std::string ruleScope = caseScopeIdentity(operation);
+    uniqueNode(ruleNode, "rule",
+               ruleScopes[localRuleId].size() > 1
+                   ? localRuleId + " [" + ruleScope + "]"
+                   : localRuleId);
 
     for (auto [raw, live] : llvm::zip_equal(footprints, liveFootprints)) {
       DictionaryAttr footprint = cast<DictionaryAttr>(raw);
@@ -223,8 +298,16 @@ LogicalResult buildRuleEffectGraph(ModuleOp model, RuleEffectGraph &graph) {
           cast<StringAttr>(footprint.get("owner")).getValue().str();
       const std::string ownerStable =
           cast<StringAttr>(footprint.get("owner_stable_id")).getValue().str();
-      const std::string resource =
-          cast<FlatSymbolRefAttr>(footprint.get("resource")).getValue().str();
+      auto resourceReference =
+          cast<FlatSymbolRefAttr>(footprint.get("resource"));
+      const std::string resource = resourceReference.getValue().str();
+      const ResourceIdentity resolvedResource =
+          resourceIdentity(operation, resourceReference);
+      if (!resolvedResource.operation ||
+          resolvedResource.stableId != ownerStable)
+        return operation->emitOpError(
+            "exact footprint resource lacks matching canonical owner identity");
+      const std::string qualifiedOwner = ownerIdentity(resolvedResource);
       const std::string access =
           cast<StringAttr>(footprint.get("access")).getValue().str();
       const bool wholeEntry =
@@ -245,10 +328,16 @@ LogicalResult buildRuleEffectGraph(ModuleOp model, RuleEffectGraph &graph) {
                                      .getInt()]);
       const std::string source =
           attributeText(footprint.get("source_provenance"));
-      const std::string ownerNode = "state_owner:" + ownerStable;
-      uniqueNode(ownerNode, "state_owner", owner + " [" + ownerStable + "]");
+      const std::string ownerNode = "state_owner:" + qualifiedOwner;
+      const std::string resourceScope =
+          caseScopeIdentity(resolvedResource.operation);
+      uniqueNode(ownerNode, "state_owner",
+                 owner + " [" + ownerStable + "]" +
+                     (resourceScopes[ownerStable].size() > 1
+                          ? " [" + resourceScope + "]"
+                          : ""));
       const std::string footprintNode =
-          "footprint:" + ownerStable + ":rule=" + ruleId +
+          "footprint:" + qualifiedOwner + ":rule=" + ruleId +
           ":resource=" + resource + ":" + access + ":index={" +
           indexExpression + "}:predicate={" + predicateExpression +
           "}:f=" + fieldText(fields, wholeEntry) + ":endpoint=" +
@@ -263,9 +352,9 @@ LogicalResult buildRuleEffectGraph(ModuleOp model, RuleEffectGraph &graph) {
               "Decision0271.owner_identity",
               "owner_path=" + owner + ";owner_stable_id=" + ownerStable);
       graphFootprints.push_back(
-          {ruleId, ruleNode, footprintNode, owner, ownerStable, access,
-           fieldText(fields, wholeEntry), indexExpression, predicateExpression,
-           fields, wholeEntry, live});
+          {localRuleId, ruleNode, footprintNode, owner, ownerStable,
+           qualifiedOwner, access, fieldText(fields, wholeEntry),
+           indexExpression, predicateExpression, fields, wholeEntry, live});
     }
 
     ArrayAttr resources = ruleArray(operation, "ac.rule.transaction_resources",
@@ -287,13 +376,13 @@ LogicalResult buildRuleEffectGraph(ModuleOp model, RuleEffectGraph &graph) {
                          ";ordinal=" + std::to_string(ordinal.getInt());
       } else {
         auto reference = cast<FlatSymbolRefAttr>(resource.get("resource"));
-        auto [ownerPath, ownerStable] = resourceIdentity(operation, reference);
-        if (ownerStable.empty())
+        ResourceIdentity resolved = resourceIdentity(operation, reference);
+        if (resolved.stableId.empty())
           return operation->emitOpError(
               "transaction resource lacks canonical owner identity");
-        identity = ownerStable;
-        resourceDetail =
-            "owner_path=" + ownerPath + ";owner_stable_id=" + ownerStable;
+        identity = ownerIdentity(resolved);
+        resourceDetail = "owner_path=" + resolved.ownerPath +
+                         ";owner_stable_id=" + resolved.stableId;
       }
       const std::string node = "resource:" + resourceKind + ":" + identity;
       uniqueNode(node, resourceKind, identity);
@@ -319,20 +408,21 @@ LogicalResult buildRuleEffectGraph(ModuleOp model, RuleEffectGraph &graph) {
       DictionaryAttr membership = cast<DictionaryAttr>(raw);
       const std::string owner =
           cast<FlatSymbolRefAttr>(membership.get("owner")).getValue().str();
-      auto [ownerPath, ownerStable] = resourceIdentity(
+      ResourceIdentity resolved = resourceIdentity(
           operation, cast<FlatSymbolRefAttr>(membership.get("owner")));
-      if (ownerStable.empty())
+      if (resolved.stableId.empty())
         return operation->emitOpError(
             "arbitration domain lacks canonical owner identity");
       const int64_t rank =
           cast<IntegerAttr>(membership.get("declared_rank")).getInt();
-      const std::string domain = "arbitration:" + ownerStable;
+      const std::string qualifiedOwner = ownerIdentity(resolved);
+      const std::string domain = "arbitration:" + qualifiedOwner;
       uniqueNode(domain, "arbitration_domain",
-                 owner + " [" + ownerStable + "]");
+                 owner + " [" + resolved.stableId + "]");
       addEdge(graph, ruleNode, domain, "arbitration", "priority",
               "VerifyValueConstraints.explicitPriority",
-              "owner_path=" + ownerPath + ";owner_stable_id=" + ownerStable +
-                  ";rank=" + std::to_string(rank) +
+              "owner_path=" + resolved.ownerPath + ";owner_stable_id=" +
+                  resolved.stableId + ";rank=" + std::to_string(rank) +
                   ";policy=priority;resolution=winner_takes_transaction");
     }
 
@@ -360,7 +450,7 @@ LogicalResult buildRuleEffectGraph(ModuleOp model, RuleEffectGraph &graph) {
     for (size_t rightIndex = leftIndex + 1; rightIndex < graphFootprints.size();
          ++rightIndex) {
       const GraphFootprint &right = graphFootprints[rightIndex];
-      if (left.ownerStableId != right.ownerStableId)
+      if (left.ownerIdentity != right.ownerIdentity)
         continue;
       const FootprintRelationProofKind relation = proveFootprintRelation(
           dataFlow,
@@ -403,11 +493,11 @@ LogicalResult buildRuleEffectGraph(ModuleOp model, RuleEffectGraph &graph) {
                                       : "read_write_committed_old_state";
         provenance = "Decision0271.committedOldState";
       }
-      const std::string relationNode = "interaction:" + left.ownerStableId +
+      const std::string relationNode = "interaction:" + left.ownerIdentity +
                                        ":left={" + left.nodeId + "}:right={" +
                                        right.nodeId + "}";
       uniqueNode(relationNode, "interaction",
-                 left.ownerStableId + ":" + left.ruleId + ":" + right.ruleId,
+                 left.ownerIdentity + ":" + left.ruleId + ":" + right.ruleId,
                  result);
       const std::string detail =
           "owner_path=" + left.ownerPath +
@@ -432,10 +522,21 @@ LogicalResult buildRuleEffectGraph(ModuleOp model, RuleEffectGraph &graph) {
   for (const WriterConflictProof &conflict : arbitration.conflicts) {
     if (!conflict.leftRule.empty() && !conflict.rightRule.empty())
       continue;
+    ResourceIdentity conflictOwner;
+    Operation *conflictOperation = conflict.leftOperation
+                                       ? conflict.leftOperation
+                                       : conflict.rightOperation;
+    if (conflictOperation)
+      if (Operation *resource = resourceByStableIdentity(
+              conflictOperation, conflict.ownerStableId))
+        conflictOwner = {resource, conflict.ownerPath, conflict.ownerStableId};
+    const std::string conflictOwnerIdentity = conflictOwner.operation
+                                                  ? ownerIdentity(conflictOwner)
+                                                  : conflict.ownerStableId;
     auto endpointNode = [&](Operation *operation, StringRef rule,
                             StringRef endpoint) -> std::optional<std::string> {
       if (rule.empty())
-        return "writer_endpoint:" + conflict.ownerStableId + ":" +
+        return "writer_endpoint:" + conflictOwnerIdentity + ":" +
                endpoint.str();
       for (const GraphFootprint &footprint : graphFootprints)
         if (footprint.live.endpoint == operation)
@@ -453,11 +554,11 @@ LogicalResult buildRuleEffectGraph(ModuleOp model, RuleEffectGraph &graph) {
     std::string secondIdentity = *rightNode;
     if (secondIdentity < firstIdentity)
       std::swap(firstIdentity, secondIdentity);
-    const std::string conflictNode = "conflict:" + conflict.ownerStableId +
+    const std::string conflictNode = "conflict:" + conflictOwnerIdentity +
                                      ":left={" + firstIdentity + "}:right={" +
                                      secondIdentity + "}";
     uniqueNode(conflictNode, "conflict",
-               conflict.ownerStableId + ":" + firstIdentity + ":" +
+               conflictOwnerIdentity + ":" + firstIdentity + ":" +
                    secondIdentity,
                conflict.result);
     if (conflict.leftRule.empty())
@@ -473,21 +574,37 @@ LogicalResult buildRuleEffectGraph(ModuleOp model, RuleEffectGraph &graph) {
             "owner_path=" + conflict.ownerPath + ";owner_stable_id=" +
                 conflict.ownerStableId + ";provenance=" + conflict.provenance);
   }
+  std::set<std::tuple<std::string, std::string, std::string>> emittedOrdering;
   for (const WriterOrderingProof &ordering : arbitration.ordering) {
     if (ordering.beforeRule.empty() || ordering.afterRule.empty())
       continue;
-    addEdge(graph, "rule:" + ordering.beforeRule, "rule:" + ordering.afterRule,
-            "ordering",
-            arbitration.hasCrossOwnerCycle ? "rejected" : "priority",
-            arbitration.hasCrossOwnerCycle
-                ? "cross_owner_priority_cycle_rejected"
-                : "VerifyValueConstraints.crossOwnerAcyclicity",
-            "owner_path=" + ordering.ownerPath +
-                ";owner_stable_id=" + ordering.ownerStableId +
-                ";before_endpoint=" + ordering.beforeEndpoint +
-                ";after_endpoint=" + ordering.afterEndpoint +
-                ";ranks=" + std::to_string(ordering.beforeRank) + "<" +
-                std::to_string(ordering.afterRank));
+    std::set<std::tuple<std::string, std::string, std::string>> scopedRules;
+    for (const GraphFootprint &before : graphFootprints) {
+      if (before.ownerPath != ordering.ownerPath ||
+          before.ownerStableId != ordering.ownerStableId ||
+          before.ruleId != ordering.beforeRule)
+        continue;
+      for (const GraphFootprint &after : graphFootprints)
+        if (after.ownerIdentity == before.ownerIdentity &&
+            after.ruleId == ordering.afterRule)
+          scopedRules.insert(
+              {before.ruleNode, after.ruleNode, before.ownerIdentity});
+    }
+    for (const auto &[beforeNode, afterNode, scopedOwner] : scopedRules) {
+      if (!emittedOrdering.insert({beforeNode, afterNode, scopedOwner}).second)
+        continue;
+      addEdge(graph, beforeNode, afterNode, "ordering",
+              arbitration.hasCrossOwnerCycle ? "rejected" : "priority",
+              arbitration.hasCrossOwnerCycle
+                  ? "cross_owner_priority_cycle_rejected"
+                  : "VerifyValueConstraints.crossOwnerAcyclicity",
+              "owner_path=" + ordering.ownerPath +
+                  ";owner_stable_id=" + ordering.ownerStableId +
+                  ";before_endpoint=" + ordering.beforeEndpoint +
+                  ";after_endpoint=" + ordering.afterEndpoint +
+                  ";ranks=" + std::to_string(ordering.beforeRank) + "<" +
+                  std::to_string(ordering.afterRank));
+    }
   }
   if (arbitration.ordering.empty()) {
     uniqueNode("ordering:absent", "ordering", "absent", "absent");
