@@ -6,6 +6,7 @@
 #include "acir/InitAllPasses.h"
 #include "acir/Transforms/Passes.h"
 
+#include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/IR/Diagnostics.h"
 #include "mlir/IR/Location.h"
 #include "mlir/IR/SymbolTable.h"
@@ -612,6 +613,33 @@ llvm::Error runStage(CompilerStage stage, const CompilerRequest &request,
       // A source-owned AC unit must not retain a call to a helper definition
       // that will be published under another source path. Expand verified pure
       // helpers before package isolation while preserving rules and High ACIR.
+      ac::ModuleOp sourceRoot;
+      for (ac::SystemOp system : state.module->getOps<ac::SystemOp>()) {
+        if (!system.getSelected())
+          continue;
+        for (ac::ModuleOp definition : state.module->getOps<ac::ModuleOp>())
+          if (definition.getSymName() == system.getRootAttr().getValue()) {
+            sourceRoot = definition;
+            break;
+          }
+      }
+      if (sourceRoot) {
+        auto rootName = sourceDefinitionName(sourceRoot);
+        if (!rootName)
+          return compilerFailure(stage, "ACIR-EMIT-002",
+                                 llvm::toString(rootName.takeError()));
+        if (llvm::StringRef(*rootName).starts_with("_acc_source_unit_root")) {
+          auto source = sourceRoot.getSource().getImplementation();
+          for (mlir::func::FuncOp helper :
+               state.module->getOps<mlir::func::FuncOp>()) {
+            auto owner = helper->getAttrOfType<mlir::StringAttr>(
+                "ac.source_file");
+            if (owner && owner.getValue() != source)
+              helper->setAttr("ac.inline",
+                              mlir::BoolAttr::get(&state.context, true));
+          }
+        }
+      }
       if (mlir::failed(runPass(state, createInlinePureHelpersPass())) ||
           mlir::failed(runPass(state, createVerifyACIRFilePass())))
         return capture.takeFailure(stage);

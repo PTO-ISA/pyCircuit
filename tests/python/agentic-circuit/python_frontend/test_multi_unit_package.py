@@ -640,6 +640,33 @@ class MultiUnitPackageTest(unittest.TestCase):
             unit,
         )
 
+    def test_imported_pure_helper_is_inlined_before_source_publication(self) -> None:
+        self._require_native_flow()
+        self._write(
+            "source/arithmetic.py",
+            """import agentic_circuit as ac
+
+def add_one(value: ac.u8) -> ac.u8:
+    return value + 1
+""",
+        )
+        self._write(
+            "source/child_a.py",
+            CHILD_A.replace(
+                "import agentic_circuit as ac",
+                "import agentic_circuit as ac\nfrom source.arithmetic import add_one",
+            ).replace("return Mid(v=x.a)", "return Mid(v=add_one(x.a))"),
+        )
+        output = self.root / "child_a.ac"
+        self._compile(
+            ["-c", str(self.root / "source" / "child_a.py"),
+             "-o", str(output), "--quiet"]
+        )
+        unit = output.read_text(encoding="utf-8")
+        self.assertNotIn("func.func private @add_one", unit)
+        self.assertNotIn("func.call @add_one", unit)
+        self.assertIn('file = "source/arithmetic.py"', unit)
+
     def test_each_source_owns_its_nominals_and_import_header(self) -> None:
         """A source header carries its own nominals and its own import."""
 
