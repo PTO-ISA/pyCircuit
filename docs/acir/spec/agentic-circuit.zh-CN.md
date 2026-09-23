@@ -2044,6 +2044,12 @@ inventory，因此 import 携带与 provider 相同的 inventory；symbol 带 de
 declaration 用 `ac.source_file` 标明其所属 Python 文件，因此编译器按 source 文件各生成一个
 interface unit，被多个文件共享的 nominal 只声明一次。
 
+structured bundle 在 source map 之外还发布 `share/generated/module-manifest.json`
+（`agentic-circuit-module-manifest`，version 0.1）：每个 module family 一条 entry，含 symbol、
+所属文件、interface port、static parameter、declared case inventory 与 concrete case signature；
+每个 placement 一条 entry，含 definition、scope、有序 typed static arguments 与 source provenance。
+其 contract 为 `schemas/agentic-circuit/module-manifest.schema.json`。
+
 已发布的 source map 为每个 module placement 记录一条 entry：definition symbol、scope、placement
 provenance，以及选择该 case 的有序 typed static arguments。这些 arguments 就是 placement 的
 specialization identity，因此同一 definition 的多个 placement 无需依赖生成名即可区分。没有本地

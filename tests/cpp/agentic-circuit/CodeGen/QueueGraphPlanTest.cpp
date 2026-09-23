@@ -2346,6 +2346,7 @@ int main() {
                            moduleHeaderPath,
                            "include/generated/modules/queuegraph_helpers.hpp",
                            "share/generated/cost-report.json",
+                           "share/generated/module-manifest.json",
                            "share/generated/source-map.json",
                            "src/generated/helpers/queuegraph_helpers.cpp",
                            "src/generated/model.cpp",
@@ -3261,13 +3262,15 @@ TEST(QueueGraphPlanTest, EmitsClosedOpaqueRuntimeAbiBundle) {
 
   auto bundle = generateQueueGraphModelBundle(*plan);
   ASSERT_TRUE(bool(bundle)) << llvm::toString(bundle.takeError());
-  ASSERT_EQ(bundle->size(), 6u);
+  ASSERT_EQ(bundle->size(), 7u);
   EXPECT_EQ((*bundle)[0].relativePath, "include/generated/model.h");
   EXPECT_EQ((*bundle)[1].relativePath, "share/generated/cost-report.json");
   EXPECT_EQ((*bundle)[2].relativePath, "share/generated/source-map.json");
-  EXPECT_EQ((*bundle)[3].relativePath, "src/generated/model.cpp");
-  EXPECT_EQ((*bundle)[4].relativePath, "src/generated/queuegraph.cpp");
-  EXPECT_EQ((*bundle)[5].relativePath, "CMakeLists.txt");
+  EXPECT_EQ((*bundle)[3].relativePath,
+            "share/generated/module-manifest.json");
+  EXPECT_EQ((*bundle)[4].relativePath, "src/generated/model.cpp");
+  EXPECT_EQ((*bundle)[5].relativePath, "src/generated/queuegraph.cpp");
+  EXPECT_EQ((*bundle)[6].relativePath, "CMakeLists.txt");
 
   const llvm::StringRef header((*bundle)[0].content);
   EXPECT_NE(header.find("gfsim/model_api.h"), llvm::StringRef::npos);
@@ -3288,7 +3291,13 @@ TEST(QueueGraphPlanTest, EmitsClosedOpaqueRuntimeAbiBundle) {
   EXPECT_EQ(sourceMap->getAsObject()->getString("schema"),
             "agentic-circuit-source-map");
 
-  const llvm::StringRef model((*bundle)[3].content);
+  auto moduleManifest = llvm::json::parse((*bundle)[3].content);
+  ASSERT_TRUE(bool(moduleManifest));
+  EXPECT_EQ(moduleManifest->getAsObject()->getString("schema"),
+            "agentic-circuit-module-manifest");
+  EXPECT_EQ(moduleManifest->getAsObject()->getString("version"), "0.1");
+
+  const llvm::StringRef model((*bundle)[4].content);
   EXPECT_EQ(model.count("agentic_model_query_v1"), 1u);
   EXPECT_NE(model.find("AgenticModelApiV1 api"), llvm::StringRef::npos);
   EXPECT_EQ(model.find("sdk_product_version"), llvm::StringRef::npos);
@@ -3299,7 +3308,7 @@ TEST(QueueGraphPlanTest, EmitsClosedOpaqueRuntimeAbiBundle) {
   EXPECT_EQ(model.find("observations_json"), llvm::StringRef::npos);
   EXPECT_EQ(model.find("trace_position"), llvm::StringRef::npos);
 
-  const llvm::StringRef queueGraph((*bundle)[4].content);
+  const llvm::StringRef queueGraph((*bundle)[5].content);
   EXPECT_NE(queueGraph.find("gfsim::SimSystem system"), llvm::StringRef::npos);
   EXPECT_NE(queueGraph.find("model.set_sink_retention_limit(0);"),
             llvm::StringRef::npos);

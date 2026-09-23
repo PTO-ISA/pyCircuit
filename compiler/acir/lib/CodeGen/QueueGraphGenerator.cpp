@@ -9123,6 +9123,9 @@ agentic_model_query_v1(void) {
   auto sourceMap = plan.sourceMapJson();
   if (!sourceMap)
     return sourceMap.takeError();
+  auto moduleManifest = plan.moduleManifestJson();
+  if (!moduleManifest)
+    return moduleManifest.takeError();
   const std::string queueGraphBytes = *canonicalQueueGraph + "\n";
   const std::string sourceMapBytes = *sourceMap + "\n";
   auto costReport = generateQueueGraphCostReport(plan);
@@ -9230,6 +9233,8 @@ agentic_model_query_v1(void) {
   }
   result.push_back({"share/generated/cost-report.json", *costReport + "\n"});
   result.push_back({"share/generated/source-map.json", sourceMapBytes});
+  result.push_back(
+      {"share/generated/module-manifest.json", *moduleManifest + "\n"});
   result.push_back({"src/generated/model.cpp", modelSource.str()});
   result.push_back({"src/generated/queuegraph.cpp", queueGraphSource.str()});
   std::vector<std::string> generatedSources;

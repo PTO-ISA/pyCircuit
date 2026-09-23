@@ -1,0 +1,290 @@
+{
+  "$defs": {
+    "case": {
+      "additionalProperties": false,
+      "properties": {
+        "signature": {
+          "type": "string"
+        },
+        "static_arguments": {
+          "$ref": "#/$defs/static_arguments"
+        }
+      },
+      "required": [
+        "signature",
+        "static_arguments"
+      ],
+      "type": "object"
+    },
+    "declared_case": {
+      "additionalProperties": false,
+      "properties": {
+        "static_arguments": {
+          "$ref": "#/$defs/static_arguments"
+        }
+      },
+      "required": [
+        "static_arguments"
+      ],
+      "type": "object"
+    },
+    "frame": {
+      "additionalProperties": false,
+      "properties": {
+        "column": {
+          "minimum": 1,
+          "type": "integer"
+        },
+        "file": {
+          "pattern": "^(?!/)(?![A-Za-z]:)(?!.*\\\\)(?!.*(?:^|/)\\.\\.?(/|$))(?!.*//)[A-Za-z0-9._+@/-]+\\.py$",
+          "type": "string"
+        },
+        "kind": {
+          "enum": [
+            "statement",
+            "definition",
+            "inline_callsite",
+            "instance",
+            "specialization"
+          ]
+        },
+        "line": {
+          "minimum": 1,
+          "type": "integer"
+        },
+        "symbol": {
+          "minLength": 1,
+          "type": "string"
+        }
+      },
+      "required": [
+        "column",
+        "file",
+        "kind",
+        "line"
+      ],
+      "type": "object"
+    },
+    "instance": {
+      "additionalProperties": false,
+      "properties": {
+        "definition": {
+          "minLength": 1,
+          "type": "string"
+        },
+        "name": {
+          "minLength": 1,
+          "type": "string"
+        },
+        "scope": {
+          "type": "string"
+        },
+        "source_provenance": {
+          "$ref": "#/$defs/provenance"
+        },
+        "static_arguments": {
+          "$ref": "#/$defs/static_arguments"
+        }
+      },
+      "required": [
+        "definition",
+        "name",
+        "scope",
+        "source_provenance",
+        "static_arguments"
+      ],
+      "type": "object"
+    },
+    "module": {
+      "additionalProperties": false,
+      "properties": {
+        "cases": {
+          "items": {
+            "$ref": "#/$defs/case"
+          },
+          "type": "array"
+        },
+        "declaration": {
+          "type": "string"
+        },
+        "declared_cases": {
+          "items": {
+            "$ref": "#/$defs/declared_case"
+          },
+          "type": "array"
+        },
+        "interface": {
+          "items": {
+            "$ref": "#/$defs/port"
+          },
+          "type": "array"
+        },
+        "owner": {
+          "type": "string"
+        },
+        "parameters": {
+          "items": {
+            "$ref": "#/$defs/parameter"
+          },
+          "type": "array"
+        },
+        "symbol": {
+          "minLength": 1,
+          "type": "string"
+        }
+      },
+      "required": [
+        "cases",
+        "declaration",
+        "declared_cases",
+        "interface",
+        "owner",
+        "parameters",
+        "symbol"
+      ],
+      "type": "object"
+    },
+    "parameter": {
+      "additionalProperties": false,
+      "properties": {
+        "name": {
+          "minLength": 1,
+          "type": "string"
+        },
+        "required": {
+          "type": "boolean"
+        },
+        "type": {
+          "minLength": 1,
+          "type": "string"
+        }
+      },
+      "required": [
+        "name",
+        "required",
+        "type"
+      ],
+      "type": "object"
+    },
+    "port": {
+      "additionalProperties": false,
+      "properties": {
+        "direction": {
+          "enum": [
+            "input",
+            "output"
+          ]
+        },
+        "logical_type": {
+          "minLength": 1,
+          "type": "string"
+        },
+        "name": {
+          "minLength": 1,
+          "type": "string"
+        }
+      },
+      "required": [
+        "direction",
+        "logical_type",
+        "name"
+      ],
+      "type": "object"
+    },
+    "provenance": {
+      "additionalProperties": false,
+      "properties": {
+        "origins": {
+          "items": {
+            "additionalProperties": false,
+            "properties": {
+              "frames": {
+                "items": {
+                  "$ref": "#/$defs/frame"
+                },
+                "minItems": 1,
+                "type": "array"
+              }
+            },
+            "required": [
+              "frames"
+            ],
+            "type": "object"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "origins"
+      ],
+      "type": "object"
+    },
+    "static_argument": {
+      "additionalProperties": false,
+      "properties": {
+        "name": {
+          "minLength": 1,
+          "type": "string"
+        },
+        "value": {
+          "minLength": 1,
+          "type": "string"
+        }
+      },
+      "required": [
+        "name",
+        "value"
+      ],
+      "type": "object"
+    },
+    "static_arguments": {
+      "items": {
+        "$ref": "#/$defs/static_argument"
+      },
+      "type": "array"
+    }
+  },
+  "$id": "https://pto-isa.org/schemas/agentic-circuit/module-manifest-v0.1.schema.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "description": "Definition and placement inventory of one linked AC package: module families with their interface, static parameters, and case inventory, plus every placement with its ordered typed static arguments and source provenance.",
+  "properties": {
+    "definition": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "instances": {
+      "items": {
+        "$ref": "#/$defs/instance"
+      },
+      "type": "array"
+    },
+    "modules": {
+      "items": {
+        "$ref": "#/$defs/module"
+      },
+      "type": "array"
+    },
+    "schema": {
+      "const": "agentic-circuit-module-manifest"
+    },
+    "system": {
+      "type": "string"
+    },
+    "version": {
+      "const": "0.1"
+    }
+  },
+  "required": [
+    "definition",
+    "instances",
+    "modules",
+    "schema",
+    "system",
+    "version"
+  ],
+  "title": "Agentic Circuit module manifest",
+  "type": "object"
+}

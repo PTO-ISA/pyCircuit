@@ -566,6 +566,7 @@ struct QueueGraphPlan {
 
   llvm::Expected<std::string> canonicalJson() const;
   llvm::Expected<std::string> sourceMapJson() const;
+  llvm::Expected<std::string> moduleManifestJson() const;
 };
 
 llvm::Expected<QueueGraphPlan> buildQueueGraphPlan(mlir::ModuleOp module);

@@ -35,6 +35,12 @@ from jsonschema import Draft202012Validator
 REPOSITORY = Path(__file__).resolve().parents[4]
 SCHEMA = REPOSITORY / "schemas" / "agentic-circuit" / "source-map.schema.json"
 GOLDENS = REPOSITORY / "tests" / "goldens" / "agentic-circuit" / "source-map"
+MANIFEST_SCHEMA = (
+    REPOSITORY / "schemas" / "agentic-circuit" / "module-manifest.schema.json"
+)
+MANIFEST_GOLDENS = (
+    REPOSITORY / "tests" / "goldens" / "agentic-circuit" / "module-manifest"
+)
 
 MANIFEST = """[project]
 name = "multi-unit-fixture"
@@ -359,6 +365,33 @@ class MultiUnitPackageTest(unittest.TestCase):
             ["child_a", "child_b"],
             [instance["definition"] for instance in document["module_instances"]],
         )
+
+        manifest = json.loads(
+            (bundle / "share" / "generated" / "module-manifest.json").read_text(
+                encoding="utf-8"
+            )
+        )
+        Draft202012Validator(
+            json.loads(MANIFEST_SCHEMA.read_text(encoding="utf-8"))
+        ).validate(manifest)
+        self.assertEqual("Top", manifest["definition"])
+        self.assertEqual(
+            ["Top", "child_a", "child_b"],
+            sorted(module["symbol"] for module in manifest["modules"]),
+        )
+        self.assertEqual(
+            ["child_a", "child_b"],
+            [instance["definition"] for instance in manifest["instances"]],
+        )
+        # Interface ports stay ordered inputs-then-outputs, which is the order
+        # the case signature materializes against.
+        for module in manifest["modules"]:
+            directions = [port["direction"] for port in module["interface"]]
+            self.assertGreaterEqual(len(directions), 2)
+            self.assertEqual(
+                sorted(directions, key=lambda item: 0 if item == "input" else 1),
+                directions,
+            )
         self.assertEqual(
             ["child_a_0", "child_b_1"],
             [instance["name"] for instance in document["module_instances"]],
@@ -471,6 +504,38 @@ class MultiUnitPackageTest(unittest.TestCase):
                 )
                 for item in instances
             ],
+        )
+
+        manifest = (
+            bundle / "share" / "generated" / "module-manifest.json"
+        ).read_bytes()
+        Draft202012Validator(
+            json.loads(MANIFEST_SCHEMA.read_text(encoding="utf-8"))
+        ).validate(json.loads(manifest))
+        self.assertEqual(
+            (MANIFEST_GOLDENS / "specialization.json").read_bytes(),
+            manifest,
+            "module manifest golden drifted",
+        )
+        stage = next(
+            module
+            for module in json.loads(manifest)["modules"]
+            if module["symbol"] == "stage"
+        )
+        self.assertEqual(
+            [
+                ("lanes", "true", "#ac.static_type<#ac.static_int_type<4, false>>"),
+            ],
+            [
+                (parameter["name"], str(parameter["required"]).lower(), parameter["type"])
+                for parameter in stage["parameters"]
+            ],
+        )
+        self.assertEqual(2, len(stage["declared_cases"]))
+        self.assertEqual(2, len(stage["cases"]))
+        self.assertTrue(
+            all(module_case["signature"].startswith("(!ac.queue<i8")
+                for module_case in stage["cases"])
         )
 
         # The published unit carries every declared case, so the golden covers a

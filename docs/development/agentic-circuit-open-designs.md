@@ -307,15 +307,18 @@ What is genuinely missing:
   `lower_sources(...)` equivalent that hands a Python caller the generated source
   files or a manifest. (Identity is structural under Decision 0267, so a bundle
   carries no content identity to expose either way.)
-- **No dedicated manifest artifact or Python API yet.** The bundle's
-  `share/generated/source-map.json` now carries the instancing identity:
-  `module_instances` report the definition symbol, the scope, the exact placement
-  provenance (file, line, column of the Python call), and the ordered typed
-  static arguments that select the case, so two placements of one definition are
-  distinguishable without generated names. What is still missing is a
-  purpose-built manifest artifact with its own published schema and a Python
-  caller that returns the generated sources plus that manifest; today a consumer
-  reads the source map and drives `acc.py`/`acc` itself.
+- **No Python API yet.** The manifest artifact exists: a structured bundle
+  publishes `share/generated/module-manifest.json`
+  (`agentic-circuit-module-manifest`, version 0.1, schema
+  `schemas/agentic-circuit/module-manifest.schema.json`) with one entry per
+  module family (symbol, owning files, interface ports, static parameters,
+  declared cases, concrete case signatures) and one per placement (definition,
+  scope, ordered typed static arguments, source provenance), so two placements of
+  one definition are distinguishable without generated names. What is still
+  missing is a Python caller that returns the generated sources plus that
+  manifest: today a consumer drives `acc.py -c <source>.py -o <unit>.ac
+  [--header-output <header>.ac]`, `acc.py -c <core>.py --unit interfaces`, and
+  `acc -c <package> [--emit-cpp-bundle]` itself.
 
 **Recommended shape** for the remaining work, consistent with the module family
 work that has landed since the issue was filed: derive the manifest from the typed
