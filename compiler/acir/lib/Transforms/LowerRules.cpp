@@ -6,18 +6,28 @@
 #include "mlir/Pass/PassManager.h"
 #include "mlir/Pass/PassRegistry.h"
 #include "mlir/Transforms/Passes.h"
+#include "llvm/ADT/DenseMap.h"
 #include "llvm/ADT/STLExtras.h"
 #include "llvm/ADT/SmallVector.h"
 #include "llvm/ADT/StringMap.h"
 #include "llvm/ADT/StringSet.h"
 #include "llvm/ADT/StringSwitch.h"
 
+#include <map>
 #include <optional>
+#include <set>
+#include <string>
 
 using namespace mlir;
 
 namespace acir {
 namespace {
+
+Operation *ruleIdentityScope(Operation *operation, ModuleOp model) {
+  if (auto moduleCase = operation->getParentOfType<ac::ModuleCaseOp>())
+    return moduleCase.getOperation();
+  return model.getOperation();
+}
 
 template <typename Marker> SmallVector<Marker> collectMarkers(ModuleOp model) {
   SmallVector<Marker> markers;
@@ -571,17 +581,16 @@ LogicalResult dischargeRuleObligations(ModuleOp model) {
 
 LogicalResult resolveRuleSchedule(ModuleOp model) {
   LogicalResult result = success();
-  llvm::StringSet<> stableIds;
-  SmallVector<StringRef> orderedStableIds;
+  std::map<Operation *, std::set<std::string>> stableIds;
+  llvm::DenseMap<Operation *, int64_t> nextPriority;
+  llvm::DenseMap<Operation *, int64_t> canonicalPriorities;
   model.walk([&](ac::RuleOp rule) {
-    orderedStableIds.push_back(rule.getStableId());
+    Operation *scope = ruleIdentityScope(rule.getOperation(), model);
+    canonicalPriorities[rule.getOperation()] = nextPriority[scope]++;
   });
   // The frontend emits rules in Python serial order.  Preserve that lexical
-  // order here: stable ids identify endpoints, but their spelling must not
-  // change transaction priority.
-  llvm::StringMap<int64_t> canonicalPriorities;
-  for (auto [ordinal, stableId] : llvm::enumerate(orderedStableIds))
-    canonicalPriorities[stableId] = ordinal;
+  // order within each concrete case: local stable ids may repeat across cases,
+  // but their spelling must not change transaction priority.
   Builder builder(model.getContext());
   ACDataFlowAnalyzer dataFlow(model.getOperation());
   if (failed(dataFlow.run()))
@@ -599,7 +608,8 @@ LogicalResult resolveRuleSchedule(ModuleOp model) {
       result = failure();
       return;
     }
-    if (!stableIds.insert(rule.getStableId()).second) {
+    Operation *scope = ruleIdentityScope(rule.getOperation(), model);
+    if (!stableIds[scope].insert(rule.getStableId().str()).second) {
       rule.emitOpError() << "duplicate stable rule identity '"
                          << rule.getStableId() << "'";
       result = failure();
@@ -778,7 +788,7 @@ LogicalResult resolveRuleSchedule(ModuleOp model) {
     }
     // Stable canonical plan order only. Same-field winner selection requires
     // explicit arbitration membership and never consumes this rank.
-    const int64_t priority = canonicalPriorities.lookup(rule.getStableId());
+    const int64_t priority = canonicalPriorities.lookup(rule.getOperation());
     rule->setAttr("ac.rule.priority", builder.getI64IntegerAttr(priority));
     rule->setAttr(
         "ac.rule.guard_kind",
@@ -1104,7 +1114,7 @@ LogicalResult verifyRuleClosure(ModuleOp model) {
   if (failed(verifyArchitectureObligations(model, /*requireClosed=*/true)))
     return failure();
   LogicalResult result = success();
-  llvm::StringSet<> stableIds;
+  std::map<Operation *, std::set<std::string>> stableIds;
   model.walk([&](Operation *operation) {
     if (isa<ac::VarInvariantOp>(operation)) {
       result = operation->emitError(
@@ -1215,7 +1225,10 @@ LogicalResult verifyRuleClosure(ModuleOp model) {
       }
       identity = transform->getAttrOfType<StringAttr>("ac.rule_stable_id");
     }
-    if (identity && !stableIds.insert(identity.getValue()).second)
+    if (identity &&
+        !stableIds[ruleIdentityScope(operation, model)]
+             .insert(identity.getValue().str())
+             .second)
       result = operation->emitError() << "duplicate lowered rule identity '"
                                       << identity.getValue() << "'";
   });
