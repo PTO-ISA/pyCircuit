@@ -9541,6 +9541,7 @@ staged_decl = staged
 
 @ac.module(declaration=staged_decl)
 def staged(packet: ac.Queue[Packet, 1, 1]) -> ac.Queue[Packet, 1, 1]:
+    ac.static_assert(0 <= banks <= 15, "banks must fit its declared width")
     total: ac.u8 = 0
 
     @ac.rule
@@ -9602,6 +9603,24 @@ class ParameterizedBankCountTest(unittest.TestCase):
         self.assertEqual(2, family.count('stable_id "var/body/total"'))
         self.assertEqual(2, family.count('stable_id "staged/forwarded"'))
         self.assertEqual(2, family.count("ac.var.assign @total"))
+        self.assertNotIn("static_assert", family)
+
+    def test_parameterized_family_static_assert_checks_every_declared_case(
+        self,
+    ) -> None:
+        from agentic_circuit._queue_frontend import QueueFrontendError
+
+        invalid = C8_PARAMETERIZED_FAMILY_WITH_RULE_STATE_SOURCE.replace(
+            "0 <= banks <= 15", "banks == 2"
+        ).replace(
+            'static=ac.case(("banks", 4))',
+            'static=ac.case(("banks", 2))',
+        )
+        with self.assertRaisesRegex(
+            QueueFrontendError,
+            "ACPY-STATIC-003: .*banks must fit its declared width",
+        ):
+            self.lower(invalid)
 
     def test_parameterized_family_rejects_duplicate_rule_identity_within_case(
         self,

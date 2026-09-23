@@ -1397,6 +1397,51 @@ def _lower_simple_module_source(
         family_case_functions[family_name] = case_functions
         modules[family_name] = case_functions[0][1]
 
+    def materialized_family_case_source(
+        family_name: str,
+        values: tuple[tuple[str, StaticValue], ...],
+    ) -> str | None:
+        """Render one selected family body with its static values bound.
+
+        ``parse_queue_program`` discovers ``ac.const`` parameters from the
+        entry signature. Family parameters instead belong to the source-owned
+        declaration, so passing them as parser arguments would correctly reject
+        them as unknown. Materialize the selected finite case first, including
+        nested rules desugared out of the module body, then parse the resulting
+        closed body without inventing a second parameter surface.
+        """
+        if not module_family_parameter_specs.get(family_name):
+            return None
+        cases = family_case_functions.get(family_name)
+        if cases is None:
+            return None
+        selected = next(
+            (function for arguments, function in cases if arguments == values),
+            None,
+        )
+        if selected is None:
+            raise QueueFrontendError(
+                "ACPY-FAMILY-008: static arguments do not select a declared case"
+            )
+        case_tree = copy.deepcopy(tree)
+        nested_prefix = f"compiler_nested_{family_name}_"
+        rewritten: list[ast.stmt] = []
+        for statement in case_tree.body:
+            if isinstance(statement, ast.FunctionDef):
+                decorators = {
+                    _decorator_name(decorator).rsplit(".", 1)[-1]
+                    for decorator in statement.decorator_list
+                }
+                if statement.name == family_name and "module" in decorators:
+                    rewritten.append(copy.deepcopy(selected))
+                    continue
+                if statement.name.startswith(nested_prefix) and "rule" in decorators:
+                    rewritten.append(specialize_family_function(statement, values))
+                    continue
+            rewritten.append(statement)
+        case_tree.body = rewritten
+        return ast.unparse(ast.fix_missing_locations(case_tree))
+
     def template_static_fields(
         name: str, function: ast.FunctionDef
     ) -> tuple[
@@ -2363,9 +2408,12 @@ def _lower_simple_module_source(
                 module_name in module_implementations
                 and module_name not in composite_modules
             ):
+                materialized_source = materialized_family_case_source(
+                    module_name, frozen
+                )
                 try:
                     program = parse_queue_program(
-                        text,
+                        text if materialized_source is None else materialized_source,
                         module_name,
                         static_arguments=(
                             {} if module_name in module_family_schemas else dict(frozen)
@@ -2375,7 +2423,11 @@ def _lower_simple_module_source(
                         static_type_namespace=namespace,
                         definition_locations=definition_locations,
                         static_assert_locations=static_assert_locations,
-                        source_node_locations=source_node_locations,
+                        source_node_locations=(
+                            source_node_locations
+                            if materialized_source is None
+                            else None
+                        ),
                         resolve_child_module=resolve_child_module,
                     )
                 except QueueFrontendError as error:
