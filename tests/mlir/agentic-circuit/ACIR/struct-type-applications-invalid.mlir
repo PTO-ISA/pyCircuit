@@ -2,7 +2,7 @@
 
 builtin.module {
   ac.type_scope @types {
-    ac.struct @Batch fields [{name = "value", type = i8}] {
+    ac.struct @Batch fields [{name = "value", type_expr = #ac.type_expr<#ac.type_expr_concrete<i8>>}] {
       parameters = #ac.static_parameters<[
         #ac.static_parameter<"width", #ac.static_type<#ac.static_int_type<4, false>>, true, [], #ac.source_provenance<"pkg/types.py", 1, 1, 1, 1>>
       ]>
@@ -10,7 +10,26 @@ builtin.module {
     // expected-error @+1 {{struct application arguments must exactly match declaration parameters}}
     ac.struct @Holder fields [{name = "batch", type = !ac.struct<@types::@Batch>}]
   } {dlti.dl_spec = #dlti.dl_spec<
-    !ac.struct<@types::@Batch> = {abi_alignment = 1 : i64, endianness = "little", preferred_alignment = 1 : i64, size = 1 : i64},
+    !ac.struct<@types::@Batch, #ac.dependent_arguments<[#ac.dependent_argument<"width", #ac.dependent_value<#ac.dependent_static<#ac.static_value<#ac.static_int_value<#ac.static_int_type<4, false>, 1 : i4>>>>>]>> = {abi_alignment = 1 : i64, endianness = "little", preferred_alignment = 1 : i64, size = 1 : i64},
+    !ac.struct<@types::@Holder> = {abi_alignment = 1 : i64, endianness = "little", preferred_alignment = 1 : i64, size = 1 : i64}
+  >}
+}
+
+// -----
+
+builtin.module {
+  ac.type_scope @types {
+    ac.struct @Batch fields [{name = "value", type_expr = #ac.type_expr<#ac.type_expr_concrete<i8>>}] {
+      parameters = #ac.static_parameters<[
+        #ac.static_parameter<"width", #ac.static_type<#ac.static_int_type<4, false>>, true, [], #ac.source_provenance<"pkg/types.py", 1, 1, 1, 1>>
+      ]>
+    }
+    // expected-error @+1 {{struct application has no exact typed DLTI layout}}
+    ac.struct @Holder fields [{name = "batch", type = !ac.struct<@types::@Batch, #ac.dependent_arguments<[
+      #ac.dependent_argument<"width", #ac.dependent_value<#ac.dependent_static<#ac.static_value<#ac.static_int_value<#ac.static_int_type<4, false>, 8 : i4>>>>>
+    ]>>}]
+  } {dlti.dl_spec = #dlti.dl_spec<
+    !ac.struct<@types::@Batch, #ac.dependent_arguments<[#ac.dependent_argument<"width", #ac.dependent_value<#ac.dependent_static<#ac.static_value<#ac.static_int_value<#ac.static_int_type<4, false>, 1 : i4>>>>>]>> = {abi_alignment = 1 : i64, endianness = "little", preferred_alignment = 1 : i64, size = 1 : i64},
     !ac.struct<@types::@Holder> = {abi_alignment = 1 : i64, endianness = "little", preferred_alignment = 1 : i64, size = 1 : i64}
   >}
 }
@@ -32,13 +51,13 @@ builtin.module {
 
 builtin.module {
   ac.type_scope @types {
-    ac.struct @Batch fields [{name = "value", type = i8}] {
+    ac.struct @Batch fields [{name = "value", type_expr = #ac.type_expr<#ac.type_expr_concrete<i8>>}] {
       parameters = #ac.static_parameters<[
         #ac.static_parameter<"width", #ac.static_type<#ac.static_int_type<4, false>>, true, [], #ac.source_provenance<"pkg/types.py", 1, 1, 1, 1>>
       ]>
     }
   } {dlti.dl_spec = #dlti.dl_spec<
-    !ac.struct<@types::@Batch> = {abi_alignment = 1 : i64, endianness = "little", preferred_alignment = 1 : i64, size = 1 : i64}
+    !ac.struct<@types::@Batch, #ac.dependent_arguments<[#ac.dependent_argument<"width", #ac.dependent_value<#ac.dependent_static<#ac.static_value<#ac.static_int_value<#ac.static_int_type<4, false>, 8 : i4>>>>>]>> = {abi_alignment = 1 : i64, endianness = "little", preferred_alignment = 1 : i64, size = 1 : i64}
   >}
   ac.module @stage source #ac.source_owner<"pkg/stage.py", "pkg/stage.py"> schema #ac.module_family_schema<
     #ac.static_parameters<[
@@ -79,7 +98,7 @@ builtin.module {
 
 builtin.module {
   ac.type_scope @types {
-    ac.struct @Batch fields [{name = "value", type = i8}] {
+    ac.struct @Batch fields [{name = "value", type_expr = #ac.type_expr<#ac.type_expr_concrete<i8>>}] {
       parameters = #ac.static_parameters<[
         #ac.static_parameter<"width", #ac.static_type<#ac.static_int_type<4, false>>, true, [], #ac.source_provenance<"pkg/types.py", 1, 1, 1, 1>>,
         #ac.static_parameter<"enabled", #ac.static_type<#ac.static_bool_type>, true, [], #ac.source_provenance<"pkg/types.py", 2, 1, 2, 1>>
@@ -91,7 +110,7 @@ builtin.module {
       #ac.dependent_argument<"width", #ac.dependent_value<#ac.dependent_static<#ac.static_value<#ac.static_int_value<#ac.static_int_type<4, false>, 1 : i4>>>>>
     ]>>}]
   } {dlti.dl_spec = #dlti.dl_spec<
-    !ac.struct<@types::@Batch> = {abi_alignment = 1 : i64, endianness = "little", preferred_alignment = 1 : i64, size = 1 : i64},
+    !ac.struct<@types::@Batch, #ac.dependent_arguments<[#ac.dependent_argument<"width", #ac.dependent_value<#ac.dependent_static<#ac.static_value<#ac.static_int_value<#ac.static_int_type<4, false>, 1 : i4>>>>>, #ac.dependent_argument<"enabled", #ac.dependent_value<#ac.dependent_static<#ac.static_value<#ac.static_bool_value<true>>>>>]>> = {abi_alignment = 1 : i64, endianness = "little", preferred_alignment = 1 : i64, size = 1 : i64},
     !ac.struct<@types::@Holder> = {abi_alignment = 1 : i64, endianness = "little", preferred_alignment = 1 : i64, size = 1 : i64}
   >}
 }
@@ -100,7 +119,7 @@ builtin.module {
 
 builtin.module {
   ac.type_scope @types {
-    ac.struct @Batch fields [{name = "value", type = i8}] {
+    ac.struct @Batch fields [{name = "value", type_expr = #ac.type_expr<#ac.type_expr_concrete<i8>>}] {
       parameters = #ac.static_parameters<[
         #ac.static_parameter<"width", #ac.static_type<#ac.static_int_type<4, false>>, true, [], #ac.source_provenance<"pkg/types.py", 1, 1, 1, 1>>
       ]>
@@ -110,7 +129,7 @@ builtin.module {
       #ac.dependent_argument<"width", #ac.dependent_value<#ac.dependent_static<#ac.static_value<#ac.static_bool_value<true>>>>>
     ]>>}]
   } {dlti.dl_spec = #dlti.dl_spec<
-    !ac.struct<@types::@Batch> = {abi_alignment = 1 : i64, endianness = "little", preferred_alignment = 1 : i64, size = 1 : i64},
+    !ac.struct<@types::@Batch, #ac.dependent_arguments<[#ac.dependent_argument<"width", #ac.dependent_value<#ac.dependent_static<#ac.static_value<#ac.static_int_value<#ac.static_int_type<4, false>, 1 : i4>>>>>]>> = {abi_alignment = 1 : i64, endianness = "little", preferred_alignment = 1 : i64, size = 1 : i64},
     !ac.struct<@types::@Holder> = {abi_alignment = 1 : i64, endianness = "little", preferred_alignment = 1 : i64, size = 1 : i64}
   >}
 }
@@ -119,7 +138,7 @@ builtin.module {
 
 builtin.module {
   ac.type_scope @types {
-    ac.struct @Batch fields [{name = "value", type = i8}] {
+    ac.struct @Batch fields [{name = "value", type_expr = #ac.type_expr<#ac.type_expr_concrete<i8>>}] {
       parameters = #ac.static_parameters<[
         #ac.static_parameter<"width", #ac.static_type<#ac.static_int_type<4, false>>, true, [], #ac.source_provenance<"pkg/types.py", 1, 1, 1, 1>>
       ]>
@@ -129,7 +148,7 @@ builtin.module {
       #ac.dependent_argument<"width", #ac.dependent_value<#ac.dependent_parameter<"width">>>
     ]>>}]
   } {dlti.dl_spec = #dlti.dl_spec<
-    !ac.struct<@types::@Batch> = {abi_alignment = 1 : i64, endianness = "little", preferred_alignment = 1 : i64, size = 1 : i64},
+    !ac.struct<@types::@Batch, #ac.dependent_arguments<[#ac.dependent_argument<"width", #ac.dependent_value<#ac.dependent_static<#ac.static_value<#ac.static_int_value<#ac.static_int_type<4, false>, 1 : i4>>>>>]>> = {abi_alignment = 1 : i64, endianness = "little", preferred_alignment = 1 : i64, size = 1 : i64},
     !ac.struct<@types::@Holder> = {abi_alignment = 1 : i64, endianness = "little", preferred_alignment = 1 : i64, size = 1 : i64}
   >}
 }

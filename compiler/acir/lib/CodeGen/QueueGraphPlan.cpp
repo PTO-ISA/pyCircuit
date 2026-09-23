@@ -187,8 +187,15 @@ extractTableInitValue(mlir::Operation *anchor, mlir::Type type,
         lookupTypeDeclaration(anchor, structure.getName()));
     if (!record || !declaration)
       return planError("typed Table struct initializer is malformed");
+    auto fields = structure.getArguments()
+                      ? ac::materializeStructFields(
+                            declaration, structure.getArguments(),
+                            declaration->getParentOfType<mlir::ModuleOp>())
+                      : llvm::Expected<mlir::ArrayAttr>(declaration.getFields());
+    if (!fields)
+      return fields.takeError();
     result.kind = "struct";
-    for (mlir::Attribute rawField : declaration.getFields()) {
+    for (mlir::Attribute rawField : *fields) {
       auto field = mlir::dyn_cast<mlir::DictionaryAttr>(rawField);
       auto name =
           field ? field.getAs<mlir::StringAttr>("name") : mlir::StringAttr();
@@ -313,8 +320,15 @@ mlirValueBitWidth(mlir::Operation *from, mlir::Type type,
         lookupTypeDeclaration(from, structure.getName()));
     if (!declaration)
       return finish(planError("struct type declaration is unresolved"));
+    auto fields = structure.getArguments()
+                      ? ac::materializeStructFields(
+                            declaration, structure.getArguments(),
+                            declaration->getParentOfType<mlir::ModuleOp>())
+                      : llvm::Expected<mlir::ArrayAttr>(declaration.getFields());
+    if (!fields)
+      return finish(fields.takeError());
     uint64_t total = 0;
-    for (mlir::Attribute rawField : declaration.getFields()) {
+    for (mlir::Attribute rawField : *fields) {
       auto field = mlir::dyn_cast<mlir::DictionaryAttr>(rawField);
       auto fieldType =
           field ? field.getAs<mlir::TypeAttr>("type") : mlir::TypeAttr();
@@ -3167,6 +3181,12 @@ private:
       auto structure = mlir::dyn_cast<ac::StructOp>(declaration);
       if (!structure)
         continue;
+      if (auto parameters = structure->getAttrOfType<ac::StaticParametersAttr>(
+              "parameters");
+          parameters && !parameters.getParameters().empty())
+        return planError(
+            "dependent struct backend emission requires application-aware "
+            "payload plans");
       if (!payloadIdentities.insert(structure.getSymName()).second)
         return planError("payload identities must be unique");
       QueuePayloadPlan payload{structure.getSymName().str(), {}};

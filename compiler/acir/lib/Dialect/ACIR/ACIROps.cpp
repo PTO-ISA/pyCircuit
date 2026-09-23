@@ -3268,6 +3268,17 @@ LogicalResult verifyNamedTypes(Operation *from, Type type) {
           return WalkResult::interrupt();
         }
       }
+      if (application) {
+        auto scope = cast<TypeScopeOp>(decl->getParentOp());
+        auto spec = scope.getDataLayoutSpec();
+        if (!spec || failed(spec.query(DataLayoutEntryKey(nested)))) {
+          from->emitOpError()
+              << "struct application has no exact typed DLTI layout for '"
+              << ref->name << "'";
+          result = failure();
+          return WalkResult::interrupt();
+        }
+      }
     }
     return WalkResult::advance();
   });
@@ -3572,6 +3583,81 @@ FailureOr<DictionaryAttr> queryLayout(TypeScopeOp scope, Type type) {
   return dictionary;
 }
 
+FailureOr<std::pair<uint64_t, uint64_t>> physicalABI(TypeScopeOp scope,
+                                                     Type type) {
+  auto scalar = [](uint64_t width) {
+    uint64_t size = std::max<uint64_t>(1, (width + 7) / 8);
+    return std::make_pair(size, size);
+  };
+  if (auto integer = dyn_cast<IntegerType>(type))
+    return scalar(integer.getWidth());
+  if (auto floating = dyn_cast<FloatType>(type))
+    return scalar(floating.getWidth());
+  if (auto range = dyn_cast<RangeType>(type)) {
+    uint64_t width = range.getUpper() == std::numeric_limits<uint64_t>::max()
+                         ? 64
+                         : std::max<uint64_t>(
+                               1, llvm::Log2_64_Ceil(range.getUpper() + 1));
+    return scalar(width);
+  }
+  if (auto array = dyn_cast<ValueArrayType>(type)) {
+    auto element = physicalABI(scope, array.getElementType());
+    if (failed(element))
+      return failure();
+    uint64_t stride = llvm::alignTo(element->first, element->second);
+    if (static_cast<uint64_t>(array.getLength()) >
+        std::numeric_limits<uint64_t>::max() / stride)
+      return failure();
+    return std::make_pair(stride * static_cast<uint64_t>(array.getLength()),
+                          element->second);
+  }
+  if (auto tuple = dyn_cast<TupleType>(type)) {
+    uint64_t offset = 0;
+    uint64_t alignment = 1;
+    for (Type elementType : tuple.getTypes()) {
+      auto element = physicalABI(scope, elementType);
+      if (failed(element))
+        return failure();
+      offset = llvm::alignTo(offset, element->second);
+      if (element->first > std::numeric_limits<uint64_t>::max() - offset)
+        return failure();
+      offset += element->first;
+      alignment = std::max(alignment, element->second);
+    }
+    return std::make_pair(llvm::alignTo(offset, alignment), alignment);
+  }
+  if (isa<StructType, PacketType, EnumType>(type)) {
+    auto layout = queryLayout(scope, type);
+    if (failed(layout))
+      return failure();
+    auto size = layout->getAs<IntegerAttr>("size");
+    auto alignment = layout->getAs<IntegerAttr>("abi_alignment");
+    if (!size || !alignment || size.getInt() <= 0 || alignment.getInt() <= 0)
+      return failure();
+    return std::make_pair(static_cast<uint64_t>(size.getInt()),
+                          static_cast<uint64_t>(alignment.getInt()));
+  }
+  return failure();
+}
+
+FailureOr<std::pair<uint64_t, uint64_t>>
+physicalStructABI(TypeScopeOp scope, ArrayAttr fields) {
+  uint64_t offset = 0;
+  uint64_t alignment = 1;
+  for (Attribute rawField : fields) {
+    auto field = cast<DictionaryAttr>(rawField);
+    auto member = physicalABI(scope, field.getAs<TypeAttr>("type").getValue());
+    if (failed(member))
+      return failure();
+    offset = llvm::alignTo(offset, member->second);
+    if (member->first > std::numeric_limits<uint64_t>::max() - offset)
+      return failure();
+    offset += member->first;
+    alignment = std::max(alignment, member->second);
+  }
+  return std::make_pair(llvm::alignTo(offset, alignment), alignment);
+}
+
 LogicalResult verifyDeclarationLayout(Operation *declaration) {
   Type type = declarationType(declaration);
   auto scope = cast<TypeScopeOp>(declaration->getParentOp());
@@ -3609,9 +3695,79 @@ LogicalResult TypeAliasOp::verify() {
 }
 
 LogicalResult StructOp::verify() {
-  if (failed(verifyRecordDeclaration(*this, getFields())))
+  auto parameters = (*this)->getAttrOfType<StaticParametersAttr>("parameters");
+  if (!parameters || parameters.getParameters().empty()) {
+    if (failed(verifyRecordDeclaration(*this, getFields())))
+      return failure();
+    return verifyDeclarationLayout(*this);
+  }
+  if (failed(verifyPlacement(*this)))
     return failure();
-  return verifyDeclarationLayout(*this);
+  if (getFields().empty())
+    return emitOpError("dependent struct requires at least one field");
+  llvm::StringSet<> names;
+  for (Attribute rawField : getFields()) {
+    auto field = dyn_cast<DictionaryAttr>(rawField);
+    auto name = field ? field.getAs<StringAttr>("name") : StringAttr();
+    auto expression = field ? field.getAs<TypeExprAttr>("type_expr")
+                            : TypeExprAttr();
+    if (!field || field.size() != 2 || !name || name.empty() || !expression)
+      return emitOpError(
+          "dependent struct fields require exact {name, type_expr} records");
+    if (!names.insert(name.getValue()).second)
+      return emitOpError() << "duplicate field '" << name.getValue() << "'";
+  }
+
+  auto scope = cast<TypeScopeOp>((*this)->getParentOp());
+  DataLayoutSpecInterface spec = scope.getDataLayoutSpec();
+  if (!spec)
+    return emitOpError("dependent struct requires typed DLTI applications");
+  size_t applications = 0;
+  SymbolRefAttr reference = declarationReference(*this);
+  for (DataLayoutEntryInterface entry : spec.getEntries()) {
+    auto key = entry.getKey().dyn_cast<Type>();
+    auto application = dyn_cast_or_null<StructType>(key);
+    if (!application || application.getName() != reference)
+      continue;
+    if (!application.getArguments())
+      return emitOpError(
+          "parameterized struct layout must use a typed application key");
+    if (failed(verifyNamedTypes(*this, application)))
+      return failure();
+    auto fields = materializeStructFields(
+        *this, application.getArguments(),
+        (*this)->getParentOfType<mlir::ModuleOp>());
+    if (!fields)
+      return emitOpError()
+             << "dependent struct application failed to materialize: "
+             << llvm::toString(fields.takeError());
+    for (Attribute rawConcrete : *fields) {
+      auto concrete = cast<DictionaryAttr>(rawConcrete);
+      Type fieldType = concrete.getAs<TypeAttr>("type").getValue();
+      if (!isNormativeValueType(fieldType) ||
+          failed(verifyNamedTypes(*this, fieldType)))
+        return failure();
+    }
+    auto expected = physicalStructABI(scope, *fields);
+    auto layout = dyn_cast<DictionaryAttr>(entry.getValue());
+    auto size = layout ? layout.getAs<IntegerAttr>("size") : IntegerAttr();
+    auto abi =
+        layout ? layout.getAs<IntegerAttr>("abi_alignment") : IntegerAttr();
+    auto preferred = layout ? layout.getAs<IntegerAttr>("preferred_alignment")
+                            : IntegerAttr();
+    if (failed(expected) || !size || !abi || !preferred ||
+        size.getInt() != static_cast<int64_t>(expected->first) ||
+        abi.getInt() != static_cast<int64_t>(expected->second) ||
+        preferred.getInt() != static_cast<int64_t>(expected->second))
+      return emitOpError()
+             << "dependent struct DLTI layout disagrees with materialized "
+                "physical fields for "
+             << application;
+    ++applications;
+  }
+  if (applications == 0)
+    return emitOpError("dependent struct has no typed DLTI application");
+  return success();
 }
 
 LogicalResult BitfieldOp::verify() {
@@ -8082,6 +8238,122 @@ llvm::Expected<ModuleInterfaceAttr> materializeModuleInterface(
                                   builder.getArrayAttr(ports));
 }
 
+llvm::Expected<ArrayAttr>
+materializeStructFields(StructOp structure, DependentArgumentsAttr arguments,
+                        mlir::ModuleOp file) {
+  auto error = [](llvm::Twine message) -> llvm::Error {
+    return llvm::createStringError(llvm::inconvertibleErrorCode(), message);
+  };
+  if (!structure || !arguments)
+    return error("dependent struct materialization requires typed arguments");
+  if (!file)
+    file = structure->getParentOfType<mlir::ModuleOp>();
+
+  Builder builder(structure.getContext());
+  SmallVector<Attribute> staticArguments;
+  for (auto argument :
+       arguments.getArguments().getAsRange<DependentArgumentAttr>()) {
+    auto literal = dyn_cast<DependentStaticLiteralAttr>(
+        argument.getValue().getValue());
+    if (!literal)
+      return error("dependent struct application requires typed literal arguments");
+    staticArguments.push_back(StaticArgumentAttr::get(
+        structure.getContext(), argument.getName(), literal.getValue()));
+  }
+  auto concreteArguments = StaticArgumentsAttr::get(
+      structure.getContext(), builder.getArrayAttr(staticArguments));
+
+  auto sourcePath = structure->getAttrOfType<StringAttr>("ac.source_file");
+  auto provenance = SourceProvenanceAttr::get(
+      structure.getContext(),
+      sourcePath ? sourcePath : builder.getStringAttr("generated/types.py"),
+      1, 1, 1, 1);
+  SmallVector<Attribute> ports;
+  SmallVector<StringAttr> names;
+  for (Attribute rawField : structure.getFields()) {
+    auto field = dyn_cast<DictionaryAttr>(rawField);
+    auto name = field ? field.getAs<StringAttr>("name") : StringAttr();
+    auto expression = field ? field.getAs<TypeExprAttr>("type_expr")
+                            : TypeExprAttr();
+    if (!name || !expression)
+      return error("dependent struct field schema is malformed");
+    names.push_back(name);
+    ports.push_back(InterfacePortAttr::get(
+        structure.getContext(), name, builder.getStringAttr("input"),
+        expression, provenance));
+  }
+  auto interface = ModuleInterfaceAttr::get(structure.getContext(),
+                                             builder.getArrayAttr(ports));
+  auto materialized = materializeModuleInterface(interface, concreteArguments,
+                                                 {}, file);
+  if (!materialized)
+    return materialized.takeError();
+
+  std::function<llvm::Expected<Type>(TypeExprAttr)> physicalType =
+      [&](TypeExprAttr expression) -> llvm::Expected<Type> {
+    Attribute value = expression.getValue();
+    if (auto concrete = dyn_cast<TypeExprConcreteAttr>(value))
+      return concrete.getType().getValue();
+    if (auto nominal = dyn_cast<TypeExprNominalAttr>(value)) {
+      Operation *declaration = lookup(structure, nominal.getDeclaration());
+      if (isa_and_nonnull<StructOp>(declaration))
+        return nominal.getArguments().getArguments().empty()
+                   ? StructType::get(structure.getContext(),
+                                     nominal.getDeclaration())
+                   : StructType::get(structure.getContext(),
+                                     nominal.getDeclaration(),
+                                     nominal.getArguments());
+      if (isa_and_nonnull<PacketOp>(declaration))
+        return PacketType::get(structure.getContext(),
+                               nominal.getDeclaration());
+      if (isa_and_nonnull<TransactionOp>(declaration))
+        return TransactionType::get(structure.getContext(),
+                                    nominal.getDeclaration());
+      if (isa_and_nonnull<EnumOp>(declaration))
+        return EnumType::get(structure.getContext(), nominal.getDeclaration());
+      return error("dependent struct nested nominal declaration is unresolved");
+    }
+    if (auto array = dyn_cast<TypeExprValueArrayAttr>(value)) {
+      auto length = dyn_cast<DependentIntegerLiteralAttr>(
+          array.getLength().getValue());
+      auto element = physicalType(array.getElement());
+      if (!length || !element || length.getValue().isNegative() ||
+          length.getValue().isZero() ||
+          length.getValue().getActiveBits() > 63)
+        return !element ? element.takeError()
+                        : error("dependent struct array length is invalid");
+      return ValueArrayType::get(
+          structure.getContext(),
+          static_cast<int64_t>(length.getValue().getZExtValue()), *element);
+    }
+    if (auto tuple = dyn_cast<TypeExprTupleAttr>(value)) {
+      SmallVector<Type> elements;
+      for (TypeExprAttr element :
+           tuple.getElements().getAsRange<TypeExprAttr>()) {
+        auto concrete = physicalType(element);
+        if (!concrete)
+          return concrete.takeError();
+        elements.push_back(*concrete);
+      }
+      return TupleType::get(structure.getContext(), elements);
+    }
+    return error("dependent struct field did not materialize to a physical type");
+  };
+
+  SmallVector<Attribute> fields;
+  auto materializedPorts =
+      materialized->getPorts().getAsRange<InterfacePortAttr>();
+  for (auto [name, port] : llvm::zip_equal(names, materializedPorts)) {
+    auto type = physicalType(port.getLogicalType());
+    if (!type)
+      return type.takeError();
+    fields.push_back(builder.getDictionaryAttr(
+        {builder.getNamedAttr("name", name),
+         builder.getNamedAttr("type", TypeAttr::get(*type))}));
+  }
+  return builder.getArrayAttr(fields);
+}
+
 LogicalResult SystemOp::verify() {
   if (failed(verifyOuterPlacement(*this)))
     return failure();
@@ -8145,6 +8417,12 @@ LogicalResult ModuleCaseOp::verify() {
     return emitOpError()
            << "dependent interface does not materialize to the case signature: "
            << llvm::toString(materialized.takeError());
+  for (Type type : getFunctionType().getInputs())
+    if (failed(verifyNamedTypes(*this, type)))
+      return failure();
+  for (Type type : getFunctionType().getResults())
+    if (failed(verifyNamedTypes(*this, type)))
+      return failure();
   Block &entry = getBody().front();
   if (!llvm::equal(entry.getArgumentTypes(), getFunctionType().getInputs()))
     return emitOpError("block arguments must match the concrete function type");
