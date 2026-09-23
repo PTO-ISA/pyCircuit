@@ -2044,6 +2044,14 @@ inventory，因此 import 携带与 provider 相同的 inventory；symbol 带 de
 declaration 用 `ac.source_file` 标明其所属 Python 文件，因此编译器按 source 文件各生成一个
 interface unit，被多个文件共享的 nominal 只声明一次。
 
+Python 调用者不必自己驱动三个编译步骤：
+`agentic_circuit.bundle.lower_sources(<architecture>, output=<bundle directory>)`
+会为每个声明单个 public `@ac.module` 的 workspace source 编译独立的 unit 与 interface
+header，把 architecture 编译为 `core.ac`，链接 package，并生成 structured bundle。它返回
+`ModuleBundle`，携带生成文件清单与解析后的 module manifest；传入 `package=<path>` 时会保留
+package 目录。link 与 bundle 步骤需要 native `acc` 工具，依次从 `acc` 参数、
+`AGENTIC_CIRCUIT_ACC`、`PATH` 获取。
+
 structured bundle 在 source map 之外还发布 `share/generated/module-manifest.json`
 （`agentic-circuit-module-manifest`，version 0.1）：每个 module family 一条 entry，含 symbol、
 所属文件、interface port、static parameter、declared case inventory 与 concrete case signature；

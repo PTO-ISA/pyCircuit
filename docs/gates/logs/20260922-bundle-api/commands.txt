@@ -1,0 +1,23 @@
+# Issue #180: a Python API that returns the structured bundle and manifest.
+# Run from the repository root with the native toolchain and Python extension built.
+
+python3 -m pytest tests/python/agentic-circuit/python_frontend/test_multi_unit_package.py -q -p no:cacheprovider
+
+# By hand:
+python3 -c '
+from agentic_circuit import bundle
+result = bundle.lower_sources(
+    "source/core.py",
+    output="/tmp/pipeline-bundle",
+    acc=".pycircuit_out/toolchain/build/bin/acc",
+)
+print(result.files)
+print(result.manifest["instances"])'
+
+# Lane context.
+python3 -m pytest tests/python/agentic-circuit -q -p no:cacheprovider \
+  --ignore=tests/python/agentic-circuit/tools
+python3 -m pytest tests/unit -m unit -q -p no:cacheprovider
+python3 tools/agentic-circuit/check-contracts.py
+python3 tools/agentic-circuit/check-ir-coverage.py
+python3 tools/agentic-circuit/generate-diagnostic-catalog.py --check

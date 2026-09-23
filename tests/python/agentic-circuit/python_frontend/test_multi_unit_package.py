@@ -546,6 +546,71 @@ class MultiUnitPackageTest(unittest.TestCase):
         self.assertIn("2 : i4", unit)
         self.assertIn("4 : i4", unit)
 
+    def test_lower_sources_returns_the_bundle_and_manifest(self) -> None:
+        """The Python API drives the flow and returns the published manifest."""
+
+        self._require_native_flow()
+        self._write("source/child_a.py", CHILD_A)
+        self._write("source/child_b.py", CHILD_B)
+        self._write("source/core.py", CORE)
+        acc = _repository_tool("acc")
+        assert acc is not None
+
+        from agentic_circuit import bundle
+
+        output = self.root / "api-bundle"
+        result = bundle.lower_sources(
+            self.root / "source" / "core.py", output=output, acc=acc
+        )
+
+        self.assertEqual(output, result.bundle)
+        self.assertIsNone(result.package)
+        self.assertEqual(
+            [
+                "CMakeLists.txt",
+                "include/generated/dut.h",
+                "include/generated/interfaces/Top_interface.hpp",
+                "include/generated/model.h",
+                "include/generated/modules/child_a.hpp",
+                "include/generated/modules/child_b.hpp",
+                "include/generated/modules/queuegraph_helpers.hpp",
+                "share/generated/cost-report.json",
+                "share/generated/module-manifest.json",
+                "share/generated/source-map.json",
+                "src/generated/helpers/queuegraph_helpers.cpp",
+                "src/generated/model.cpp",
+                "src/generated/modules/child_a.cpp",
+                "src/generated/modules/child_b.cpp",
+                "src/generated/queuegraph.cpp",
+            ],
+            list(result.files),
+        )
+        self.assertEqual("Top", result.manifest["definition"])
+        self.assertEqual(
+            ["child_a", "child_b"],
+            [item["definition"] for item in result.manifest["instances"]],
+        )
+
+        retained = self.root / "api-package"
+        second = bundle.lower_sources(
+            self.root / "source" / "core.py",
+            output=self.root / "api-bundle-retained",
+            acc=acc,
+            package=retained,
+        )
+        self.assertEqual(retained, second.package)
+        # The retained package keeps the canonical logical paths: one source
+        # unit per Python source and one interface header beside it.
+        self.assertTrue((retained / "core.ac").is_file())
+        self.assertTrue((retained / "sources" / "source" / "child_a.ac").is_file())
+        self.assertTrue((retained / "sources" / "source" / "child_b.ac").is_file())
+        self.assertTrue(
+            (retained / "interfaces" / "source" / "child_a.ac").is_file()
+        )
+        self.assertTrue(
+            (retained / "interfaces" / "_compiler" / "layouts.ac").is_file()
+        )
+
     def test_published_source_unit_keeps_canonical_provenance(self) -> None:
         self._require_native_flow()
         self._write("source/child_a.py", CHILD_A)
