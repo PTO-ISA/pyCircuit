@@ -2761,6 +2761,10 @@ A source unit is imported by the capture worker, so a dependent annotation such
 as `ac.Queue[ac.u8, lanes, 2]` has to stay lazy (`from __future__ import
 annotations` or a string annotation); an eagerly evaluated annotation fails the
 capture with `ACPY-CAPTURE-001` before lowering.
+When an interface source declares a module and the implementation source imports
+that same name, the implementation definition owns the emitted body location,
+source-node provenance, and NDF metadata. Closure path order cannot transfer
+body ownership to the interface declaration.
 
 The linked package is the directory holding `core.ac`, the per-source units, and
 the interface units at their logical paths. `acc` splices every source interface

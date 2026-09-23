@@ -387,6 +387,7 @@ def _flatten_source_closure(
     definition_ndf: dict[str, NdfMetadata] = {}
     definition_locations: dict[str, tuple[str, int, int]] = {}
     source_node_locations: dict[str, tuple[SourceNodeRecord, ...]] = {}
+    entry_owned_names: set[str] = set()
     for source_entry in closure.entries:
         source_tree = ast.parse(
             source_entry.source,
@@ -432,13 +433,17 @@ def _flatten_source_closure(
         )
         for statement in selected:
             if isinstance(statement, (ast.FunctionDef, ast.ClassDef)):
-                definition_locations.setdefault(
-                    statement.name,
-                    (source_entry.path, statement.lineno, statement.col_offset + 1),
-                )
-                captured = captured_locations.get(statement.name)
-                if captured is not None:
-                    source_node_locations[statement.name] = captured
+                if owns_entry or statement.name not in definition_locations:
+                    definition_locations[statement.name] = (
+                        source_entry.path,
+                        statement.lineno,
+                        statement.col_offset + 1,
+                    )
+                    captured = captured_locations.get(statement.name)
+                    if captured is not None:
+                        source_node_locations[statement.name] = captured
+                if owns_entry:
+                    entry_owned_names.add(statement.name)
         selected_names = {
             statement.name
             for statement in selected
@@ -451,9 +456,12 @@ def _flatten_source_closure(
                 continue
             previous = definition_ndf.get(name)
             if previous is not None and previous != metadata:
-                raise ValueError(
-                    f"ACPY-NDF-001: definition {name!r} has ambiguous NDF metadata"
-                )
+                if not owns_entry:
+                    if name in entry_owned_names:
+                        continue
+                    raise ValueError(
+                        f"ACPY-NDF-001: definition {name!r} has ambiguous NDF metadata"
+                    )
             definition_ndf[name] = metadata
     source_text = ast.unparse(
         ast.fix_missing_locations(ast.Module(statements, []))

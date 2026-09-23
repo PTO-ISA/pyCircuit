@@ -2028,6 +2028,10 @@ source unit 会被 capture worker import，因此 `ac.Queue[ac.u8, lanes, 2]` �
 annotation 必须保持 lazy（`from __future__ import annotations` 或字符串 annotation）；
 提前求值的 annotation 会在 lowering 之前以 `ACPY-CAPTURE-001` 失败。
 
+interface source 与 implementation source 出现同名 module declaration 和实现时，
+实现定义拥有输出 body 的源码位置、节点来源与 NDF 元数据；closure 路径排序不得把
+body 所有权转移给 interface declaration。
+
 linked package 是包含 `core.ac`、各 source unit 以及各 logical path 上 interface unit 的
 目录。`acc` 会拼接所有 source interface type scope，把每个 source definition 与其
 interface header 对应，并逐字节比较每个 `ac.module.import` schema 与 provider 发布的
