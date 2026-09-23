@@ -1181,7 +1181,8 @@ struct TypedExpressionNormalizer {
 
   static bool isClosedOperationAttribute(StringRef operation,
                                          StringRef attribute) {
-    if (attribute == "ac.source_provenance")
+    if (attribute == "ac.source_provenance" ||
+        attribute == "ac.display_name")
       return true;
     if (operation == "ac.var.enum" || operation == "ac.var.enum_match")
       return attribute == "declaration" || attribute == "enumerant" ||

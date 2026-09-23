@@ -197,6 +197,54 @@ def probe(
     return first, second
 """
 
+STATEFUL_CHILD = """
+import agentic_circuit as ac
+
+@ac.struct
+class Step:
+    value: ac.u8
+    valid: ac.u1
+
+@ac.struct
+class Result:
+    value: ac.u8
+    valid: ac.u1
+
+@ac.struct
+class Resident:
+    value: ac.u8
+    valid: ac.u1
+
+@ac.rule
+def update(resident: Resident, step: Step) -> Result:
+    previous = resident.value
+    accepted = step.valid
+    if accepted:
+        resident = resident.with_fields(value=previous + step.value, valid=1)
+    return Result(value=resident.value, valid=accepted)
+
+@ac.module_decl(source="source/stateful.py")
+def stateful(step: ac.Queue[Step, 1, 1]) -> ac.Queue[Result, 1, 1]:
+    ...
+
+stateful_decl = stateful
+
+@ac.module(declaration=stateful_decl)
+def stateful(step: ac.Queue[Step, 1, 1]) -> ac.Queue[Result, 1, 1]:
+    resident: Resident = 0
+    result = update(resident, step)
+    return result
+"""
+
+STATEFUL_CORE = """
+import agentic_circuit as ac
+from source.stateful import Step, Result, stateful
+
+@ac.system
+def probe(step: ac.Queue[Step, 1, 1]) -> ac.Queue[Result, 1, 1]:
+    return stateful(step)
+"""
+
 
 def _repository_tool(name: str) -> Path | None:
     for candidate in (
@@ -666,6 +714,36 @@ def add_one(value: ac.u8) -> ac.u8:
         self.assertNotIn("func.func private @add_one", unit)
         self.assertNotIn("func.call @add_one", unit)
         self.assertIn('file = "source/arithmetic.py"', unit)
+
+    def test_source_owned_stateful_rule_keeps_display_name_metadata(self) -> None:
+        self._require_native_flow()
+        self._write("source/stateful.py", STATEFUL_CHILD)
+        self._write("source/core.py", STATEFUL_CORE)
+        package = self.root / "stateful-package"
+        (package / "interfaces" / "source").mkdir(parents=True)
+        self._compile(
+            ["-c", str(self.root / "source/stateful.py"),
+             "-o", str(package / "stateful.ac"),
+             "--header-output", str(package / "interfaces/source/stateful.ac"),
+             "--quiet"]
+        )
+        self._compile(
+            ["-c", str(self.root / "source/core.py"),
+             "-o", str(package / "core.ac"), "--quiet"]
+        )
+        interfaces = self.root / "stateful-interfaces"
+        self._compile(
+            ["-c", str(self.root / "source/core.py"), "--unit", "interfaces",
+             "-o", str(interfaces), "--quiet"]
+        )
+        shutil.copytree(interfaces / "_compiler", package / "interfaces" / "_compiler")
+        unit = (package / "stateful.ac").read_text(encoding="utf-8")
+        self.assertIn('ac.display_name = "previous"', unit)
+        verified = subprocess.run(
+            [str(_repository_tool("acc")), "-c", str(package), "-verify"],
+            text=True, capture_output=True, check=False,
+        )
+        self.assertEqual(0, verified.returncode, verified.stderr)
 
     def test_each_source_owns_its_nominals_and_import_header(self) -> None:
         """A source header carries its own nominals and its own import."""
