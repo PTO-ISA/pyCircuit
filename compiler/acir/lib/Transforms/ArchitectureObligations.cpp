@@ -7,6 +7,7 @@
 #include "llvm/ADT/StringMap.h"
 #include "llvm/ADT/StringSet.h"
 #include "llvm/Support/FormatVariadic.h"
+#include "llvm/Support/raw_ostream.h"
 
 #include <algorithm>
 #include <array>
@@ -19,6 +20,17 @@ namespace {
 ac::ModuleOp owningModule(Operation *operation);
 FailureOr<SymbolRefAttr> moduleOwnedReference(Operation *endpoint,
                                               FlatSymbolRefAttr local);
+
+std::string typedCaseIdentity(Operation *operation) {
+  auto ownerCase = operation->getParentOfType<ac::ModuleCaseOp>();
+  if (!ownerCase)
+    return {};
+  std::string text;
+  llvm::raw_string_ostream stream(text);
+  Attribute arguments = ownerCase.getArguments();
+  arguments.print(stream);
+  return text;
+}
 
 WriterConflictProof canonicalWriterProof(WriterConflictProof proof) {
   if (proof.rightEndpoint < proof.leftEndpoint) {
@@ -45,11 +57,18 @@ std::string writerObligationId(const WriterConflictProof &proof) {
 }
 
 std::string writerExpressionScope(const WriterConflictProof &proof) {
-  return proof.leftRule + "::" + writerObligationId(proof);
+  std::string scope = proof.leftRule + "::" + writerObligationId(proof);
+  auto owner = owningModule(proof.leftOperation);
+  if (owner && owner.getSchema().getCases().getCases().size() > 1)
+    return typedCaseIdentity(proof.leftOperation) + "::" + scope;
+  return scope;
 }
 
-std::string scopedId(ac::ModuleOp module, StringRef id) {
-  return (module.getSymName() + "\x1f" + id).str();
+std::string scopedId(Operation *operation, StringRef id) {
+  auto module = owningModule(operation);
+  return (module.getSymName() + "\x1f" + typedCaseIdentity(operation) +
+          "\x1f" + id)
+      .str();
 }
 
 DictionaryAttr operationNode(Builder &builder, StringRef operation,
@@ -204,8 +223,13 @@ LogicalResult writerProofs(ModuleOp model,
         proof.kind == WriterConflictProofKind::PredicateExclusive &&
         proof.leftRule == proof.rightRule && owningModule(proof.leftOperation) &&
         owningModule(proof.leftOperation) == owningModule(proof.rightOperation)) {
+      if (proof.leftOperation->getParentOfType<ac::ModuleCaseOp>() !=
+          proof.rightOperation->getParentOfType<ac::ModuleCaseOp>())
+        return proof.leftOperation->emitError(
+            "predicate-exclusive proof crosses module case ownership");
       ac::ModuleOp owner = owningModule(proof.leftOperation);
-      const std::string identity = scopedId(owner, writerObligationId(proof));
+      const std::string identity =
+          scopedId(proof.leftOperation, writerObligationId(proof));
       if (!proofs.try_emplace(identity, proof).second)
         return proof.leftOperation->emitError(
             "duplicate predicate-exclusive architecture proof identity");
@@ -248,8 +272,7 @@ LogicalResult inferArchitectureObligations(ModuleOp model) {
     return failure();
   llvm::StringSet<> existing;
   model.walk([&](ac::ArchitectureObligationOp obligation) {
-    existing.insert(scopedId(obligation->getParentOfType<ac::ModuleOp>(),
-                             obligation.getId()));
+    existing.insert(scopedId(obligation.getOperation(), obligation.getId()));
   });
   for (const auto &entry : expected) {
     if (existing.contains(entry.getKey()))
@@ -348,8 +371,8 @@ LogicalResult proveArchitectureObligations(ModuleOp model) {
   model.walk([&](ac::ArchitectureObligationOp obligation) {
     if (obligation.getStatus() != ac::ArchitectureObligationStatus::Pending)
       return;
-    auto proof = expected.find(scopedId(
-        obligation->getParentOfType<ac::ModuleOp>(), obligation.getId()));
+    auto proof = expected.find(
+        scopedId(obligation.getOperation(), obligation.getId()));
     if (proof == expected.end()) {
       return;
     }
@@ -560,7 +583,7 @@ LogicalResult verifyArchitectureObligations(ModuleOp model,
       return;
     }
     ac::ModuleOp owner = obligation->getParentOfType<ac::ModuleOp>();
-    std::string identity = scopedId(owner, obligation.getId());
+    std::string identity = scopedId(obligation.getOperation(), obligation.getId());
     if (!observed.insert(identity).second) {
       result = obligation.emitOpError("duplicates a live obligation ID");
       return;
@@ -580,7 +603,8 @@ LogicalResult verifyArchitectureObligations(ModuleOp model,
       return;
     }
     llvm::StringSet<> liveRules;
-    owner.walk([&](Operation *operation) {
+    auto ownerCase = obligation->getParentOfType<ac::ModuleCaseOp>();
+    auto collectRule = [&](Operation *operation) {
       if (auto rule = dyn_cast<ac::RuleOp>(operation))
         liveRules.insert(rule.getStableId());
       else if (auto firing = dyn_cast<ac::FiringOp>(operation))
@@ -588,7 +612,11 @@ LogicalResult verifyArchitectureObligations(ModuleOp model,
       else if (auto transform = dyn_cast<ac::TransformOp>(operation))
         if (auto id = transform->getAttrOfType<StringAttr>("ac.rule_stable_id"))
           liveRules.insert(id.getValue());
-    });
+    };
+    if (ownerCase)
+      ownerCase.walk(collectRule);
+    else
+      owner.walk(collectRule);
     for (Attribute raw : obligation.getSourceRules())
       if (!liveRules.contains(cast<StringAttr>(raw).getValue())) {
         result = obligation.emitOpError(
