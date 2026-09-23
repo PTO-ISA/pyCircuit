@@ -85,6 +85,14 @@ materializeModuleInterface(ModuleInterfaceAttr interface,
                            mlir::FunctionType signature = {},
                            mlir::ModuleOp file = {});
 
+/// Materialize one source-owned dependent struct schema for an exact typed
+/// application. The returned canonical field dictionaries contain only
+/// `{name, type}` with concrete physical types.
+llvm::Expected<mlir::ArrayAttr>
+materializeStructFields(StructOp structure,
+                        DependentArgumentsAttr arguments,
+                        mlir::ModuleOp file = {});
+
 /// Verifies symbol resolution and linear-use rules for ACIR topology types on
 /// an arbitrary operation. This is called by the whole-file ACIR verifier.
 mlir::LogicalResult verifyTopologyTypeUses(mlir::Operation *operation);

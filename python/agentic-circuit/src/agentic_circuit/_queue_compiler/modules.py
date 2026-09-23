@@ -974,11 +974,6 @@ def _lower_simple_module_source(
                     f"{logical_type(payload)}, {dependent_value(lanes)}, "
                     f"{dependent_value(rate)}>>"
                 )
-            if module_family_parameter_specs.get(declaration.name):
-                raise QueueFrontendError(
-                    "ACPY-FAMILY-008: parameterized module ports require an "
-                    "explicit Queue[payload, lanes, rate] annotation"
-                )
             return (
                 "#ac.type_expr<#ac.type_expr_queue<"
                 f"{logical_type(annotation)}, {one}, {one}>>"
@@ -1352,8 +1347,14 @@ def _lower_simple_module_source(
     def specialize_family_function(
         function: ast.FunctionDef,
         values: tuple[tuple[str, StaticValue], ...],
+        *,
+        aliases_only: bool = False,
     ) -> ast.FunctionDef:
-        environment = dict(values)
+        case_values = dict(values)
+        environment = {} if aliases_only else dict(case_values)
+        for alias, parameter in parameter_aliases.items():
+            if parameter.config_type is None and parameter.external_name in case_values:
+                environment[alias] = case_values[parameter.external_name]
 
         class Specialize(ast.NodeTransformer):
             def visit_Name(self, node: ast.Name) -> ast.expr:
@@ -1396,6 +1397,58 @@ def _lower_simple_module_source(
         )
         family_case_functions[family_name] = case_functions
         modules[family_name] = case_functions[0][1]
+
+    def materialized_family_case_source(
+        family_name: str,
+        values: tuple[tuple[str, StaticValue], ...],
+    ) -> str | None:
+        """Render one selected family body with its static values bound.
+
+        ``parse_queue_program`` discovers ``ac.const`` parameters from the
+        entry signature. Family parameters instead belong to the source-owned
+        declaration, so passing them as parser arguments would correctly reject
+        them as unknown. Materialize the selected finite case first, including
+        nested rules desugared out of the module body, then parse the resulting
+        closed body without inventing a second parameter surface.
+        """
+        if not module_family_parameter_specs.get(family_name):
+            return None
+        cases = family_case_functions.get(family_name)
+        if cases is None:
+            return None
+        selected = next(
+            (function for arguments, function in cases if arguments == values),
+            None,
+        )
+        if selected is None:
+            raise QueueFrontendError(
+                "ACPY-FAMILY-008: static arguments do not select a declared case"
+            )
+        case_tree = copy.deepcopy(tree)
+        nested_prefix = f"compiler_nested_{family_name}_"
+        rewritten: list[ast.stmt] = []
+        for statement in case_tree.body:
+            if isinstance(statement, ast.FunctionDef):
+                decorators = {
+                    _decorator_name(decorator).rsplit(".", 1)[-1]
+                    for decorator in statement.decorator_list
+                }
+                if statement.name == family_name and "module" in decorators:
+                    rewritten.append(copy.deepcopy(selected))
+                    continue
+                if statement.name.startswith(nested_prefix) and "rule" in decorators:
+                    rewritten.append(specialize_family_function(statement, values))
+                    continue
+                if "rule" in decorators:
+                    rewritten.append(
+                        specialize_family_function(
+                            statement, values, aliases_only=True
+                        )
+                    )
+                    continue
+            rewritten.append(statement)
+        case_tree.body = rewritten
+        return ast.unparse(ast.fix_missing_locations(case_tree))
 
     def template_static_fields(
         name: str, function: ast.FunctionDef
@@ -1626,22 +1679,6 @@ def _lower_simple_module_source(
             composite_modules[name] = function
             continue
         if contains_rule_call:
-            family_specs = module_family_parameter_specs.get(name, [])
-            if family_specs:
-                # Every concrete family case would render the same
-                # module-local rule under the same module-qualified stable
-                # identity, so the two bodies collide in `ac-lower-rules`
-                # ("duplicate stable rule identity"). Family-local state has the
-                # same problem for `ac.var`/`ac.table` owned by a rule. Reject
-                # the shape here, where the parameterized declaration is still
-                # known, instead of emitting IR that only fails verification.
-                raise QueueFrontendError(
-                    "ACPY-FAMILY-008: a parameterized family body may not "
-                    f"contain rule calls yet ({name!r}); one rule identity "
-                    "cannot be shared across the family's concrete cases. Move "
-                    "the rule into a child module or keep the family body a "
-                    "composite of child instances"
-                )
             if (
                 not function.args.args
                 or function.args.posonlyargs
@@ -1692,30 +1729,20 @@ def _lower_simple_module_source(
                 raise QueueFrontendError(
                     "ACPY-MODULE-005: rule module return names must match its arity"
                 )
+            (
+                template_static_parameters,
+                template_static_defaults,
+                template_static_parameter_types,
+            ) = template_static_fields(name, function)
             rule_modules[name] = RuleModuleTemplate(
                 input_annotations,
                 tuple(
                     result.id for result in result_nodes if isinstance(result, ast.Name)
                 ),
                 output_annotations,
-                tuple(parameter.arg for parameter in function.args.kwonlyargs),
-                tuple(
-                    (parameter.arg, default)
-                    for parameter, default in zip(
-                        function.args.kwonlyargs,
-                        function.args.kw_defaults,
-                        strict=True,
-                    )
-                    if default is not None
-                ),
-                tuple(
-                    (
-                        parameter.arg,
-                        _decorator_name(parameter.annotation.slice).rsplit(".", 1)[-1],
-                    )
-                    for parameter in function.args.kwonlyargs
-                    if isinstance(parameter.annotation, ast.Subscript)
-                ),
+                template_static_parameters,
+                template_static_defaults,
+                template_static_parameter_types,
             )
             continue
         pure_module_checks: list[StaticTypeCheck] = []
@@ -2389,9 +2416,12 @@ def _lower_simple_module_source(
                 module_name in module_implementations
                 and module_name not in composite_modules
             ):
+                materialized_source = materialized_family_case_source(
+                    module_name, frozen
+                )
                 try:
                     program = parse_queue_program(
-                        text,
+                        text if materialized_source is None else materialized_source,
                         module_name,
                         static_arguments=(
                             {} if module_name in module_family_schemas else dict(frozen)
@@ -2401,7 +2431,11 @@ def _lower_simple_module_source(
                         static_type_namespace=namespace,
                         definition_locations=definition_locations,
                         static_assert_locations=static_assert_locations,
-                        source_node_locations=source_node_locations,
+                        source_node_locations=(
+                            source_node_locations
+                            if materialized_source is None
+                            else None
+                        ),
                         resolve_child_module=resolve_child_module,
                     )
                 except QueueFrontendError as error:
@@ -4405,6 +4439,14 @@ def _lower_simple_module_source(
                 for decorator in statement.decorator_list
             ):
                 continue
+            if isinstance(statement, ast.FunctionDef) and any(
+                _decorator_name(decorator).rsplit(".", 1)[-1] == "rule"
+                for decorator in statement.decorator_list
+            ):
+                filtered.append(
+                    specialize_family_function(statement, values, aliases_only=True)
+                )
+                continue
             filtered.append(statement)
         if implementation is None:
             raise QueueFrontendError(
@@ -4482,7 +4524,10 @@ def _lower_simple_module_source(
     # A finite implementation owns one concrete case region for every declared
     # case, including declared cases unused by the selected caller graph.
     for family_name, case_attrs in module_family_case_attrs.items():
-        if len(case_attrs) <= 1 or family_name not in module_implementations:
+        if (
+            family_name not in module_implementations
+            or not module_family_parameter_specs.get(family_name)
+        ):
             continue
         prefix = f"  ac.module @{family_name} "
         start = next(

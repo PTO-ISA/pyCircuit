@@ -1911,11 +1911,14 @@ TEST(QueueGraphPlanTest,
   auto file = mlir::parseSourceString<mlir::ModuleOp>(R"mlir(
 builtin.module {
   ac.type_scope @types {
-    ac.struct @Box fields [{name = "value", type = i8}] {parameters = #ac.static_parameters<[
+    ac.struct @Box fields [{name = "value", type_expr = #ac.type_expr<#ac.type_expr_concrete<i8>>}] {parameters = #ac.static_parameters<[
       #ac.static_parameter<"width", #ac.static_type<#ac.static_int_type<8, false>>, true, [], #ac.source_provenance<"pkg/box.py", 1, 1, 1, 1>>,
       #ac.static_parameter<"enabled", #ac.static_type<#ac.static_bool_type>, true, [], #ac.source_provenance<"pkg/box.py", 2, 1, 2, 1>>
     ]>}
-  } {dlti.dl_spec = #dlti.dl_spec<!ac.struct<@types::@Box> = {abi_alignment = 1 : i64, endianness = "little", preferred_alignment = 1 : i64, size = 1 : i64}>}
+  } {dlti.dl_spec = #dlti.dl_spec<!ac.struct<@types::@Box, #ac.dependent_arguments<[
+    #ac.dependent_argument<"width", #ac.dependent_value<#ac.dependent_static<#ac.static_value<#ac.static_int_value<#ac.static_int_type<8, false>, 8 : i8>>>>>,
+    #ac.dependent_argument<"enabled", #ac.dependent_value<#ac.dependent_static<#ac.static_value<#ac.static_bool_value<true>>>>>
+  ]>> = {abi_alignment = 1 : i64, endianness = "little", preferred_alignment = 1 : i64, size = 1 : i64}>}
 }
 )mlir", &context);
   ASSERT_TRUE(file);
@@ -1947,8 +1950,17 @@ builtin.module {
   };
   auto provenance = ac::SourceProvenanceAttr::get(
       &context, builder.getStringAttr("pkg/box.py"), 3, 1, 3, 1);
+  auto resolvedArgument = [&](llvm::StringRef name, ac::StaticValueAttr value) {
+    auto literal = ac::DependentStaticLiteralAttr::get(&context, value);
+    return ac::DependentArgumentAttr::get(
+        &context, builder.getStringAttr(name),
+        ac::DependentValueAttr::get(&context, literal));
+  };
+  auto resolvedArguments = ac::DependentArgumentsAttr::get(
+      &context, builder.getArrayAttr({resolvedArgument("width", width),
+                                      resolvedArgument("enabled", enabled)}));
   auto signature = builder.getFunctionType(
-      {ac::StructType::get(&context, declaration)}, {});
+      {ac::StructType::get(&context, declaration, resolvedArguments)}, {});
   auto materialize = [&](mlir::ArrayAttr rawArguments) {
     auto arguments = ac::DependentArgumentsAttr::get(&context, rawArguments);
     auto nominal = ac::TypeExprAttr::get(

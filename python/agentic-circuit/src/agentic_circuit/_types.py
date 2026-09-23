@@ -213,18 +213,23 @@ class _ConfigParameterReference:
 
 class ParameterDeclaration:
     def __init__(self, value_type: object) -> None:
-        if value_type is not int and not (
+        from ._families import StaticIntType
+
+        if value_type is not int and not isinstance(value_type, StaticIntType) and not (
             isinstance(value_type, type) and getattr(value_type, "compiler_config__", False)
         ):
             raise TypeError(
-                "ACPY-TYPE-008: only integer or @ac.config static parameters are supported"
+                "ACPY-TYPE-008: only integer, ac.static_int, or @ac.config "
+                "static parameters are supported"
             )
         self._value_type = value_type
 
     def __call__(self, name: str) -> StaticIntExpression | _ConfigParameterReference:
+        from ._families import StaticIntType
+
         if not isinstance(name, str) or not name:
             raise TypeError("ACPY-TYPE-008: static parameter name must be non-empty")
-        if self._value_type is not int:
+        if self._value_type is not int and not isinstance(self._value_type, StaticIntType):
             return _ConfigParameterReference(self._value_type, name)
         from _pycircuit_semantics import StaticIntExpression
 

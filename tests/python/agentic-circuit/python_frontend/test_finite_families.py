@@ -1,8 +1,8 @@
 from __future__ import annotations
 
 import dataclasses
-from enum import Enum
 import unittest
+from enum import Enum
 
 import agentic_circuit as ac
 
@@ -44,6 +44,27 @@ class FiniteFamilyValuesTest(unittest.TestCase):
             tuple(name for name, _ in family_case.bindings),
             ("enabled", "lanes", "mode", "nested"),
         )
+
+    def test_dependent_nominal_integer_parameter_has_explicit_static_type(self) -> None:
+        import ast
+
+        from agentic_circuit._queue_compiler.static_types import (
+            _static_parameter_aliases,
+        )
+
+        reference = ac.param[ac.static_int(width=4, signed=False)](
+            "frontend_width"
+        )
+        self.assertEqual(reference.name, "frontend_width")
+        aliases = _static_parameter_aliases(
+            ast.parse(
+                'import agentic_circuit as ac\n'
+                'WIDTH = ac.param[ac.static_int(width=4, signed=False)]("frontend_width")\n'
+            )
+        )
+        self.assertEqual(aliases["WIDTH"].external_name, "frontend_width")
+        self.assertEqual(aliases["WIDTH"].integer_width, 4)
+        self.assertFalse(aliases["WIDTH"].integer_signed)
         self.assertTrue(dataclasses.is_dataclass(Nested))
 
     def test_rejects_invalid_closed_values(self) -> None:
@@ -104,7 +125,7 @@ class FiniteFamilyValuesTest(unittest.TestCase):
             lower_queue_source,
         )
 
-        template = '''
+        template = """
 import agentic_circuit as ac
 
 CONFIG
@@ -120,7 +141,7 @@ def stage(value: ac.Queue[ac.u8, 1, 1]) -> ac.Queue[ac.u8, 1, 1]:
 @ac.system
 def core(value: ac.u8) -> ac.u8:
     return stage(value, static=ac.case(("cfg", Config(value=1))))
-'''
+"""
         invalid_configs = (
             ("integers require", "@ac.config\nclass Config:\n    value: int"),
             (
@@ -177,8 +198,7 @@ def core(value: ac.u8) -> ac.u8:
         )
         def stage_decl(
             value: ac.Queue[ac.u8, 1, 1],
-        ) -> ac.Queue[ac.u8, 1, 1]:
-            ...
+        ) -> ac.Queue[ac.u8, 1, 1]: ...
 
         @ac.module(declaration=stage_decl)
         def stage(
@@ -198,8 +218,7 @@ def core(value: ac.u8) -> ac.u8:
 
     def test_zero_parameter_declaration_has_one_empty_case(self) -> None:
         @ac.module_decl(source="families/identity.py")
-        def identity_decl(value: ac.u8) -> ac.u8:
-            ...
+        def identity_decl(value: ac.u8) -> ac.u8: ...
 
         self.assertEqual(
             dict(identity_decl.explicit_options)["finite_cases"], (ac.case(),)
@@ -231,10 +250,12 @@ def core(value: ac.u8) -> ac.u8:
                 ),
             )
 
-    def test_literal_family_lowers_typed_schema_cases_and_instance_arguments(self) -> None:
+    def test_literal_family_lowers_typed_schema_cases_and_instance_arguments(
+        self,
+    ) -> None:
         from agentic_circuit._queue_frontend import lower_queue_source
 
-        source = '''
+        source = """
 import agentic_circuit as ac
 
 @ac.module_decl(
@@ -262,21 +283,21 @@ def core(value: ac.u8) -> ac.u8:
         value,
         static=ac.case(("enabled", True), ("lanes", 2)),
     )
-'''
+"""
         lowered = lower_queue_source(source, "core", source_path="core.py")
         self.assertIn('#ac.static_parameter<"enabled"', lowered)
         self.assertIn('#ac.static_parameter<"lanes"', lowered)
-        self.assertEqual(lowered.count('#ac.static_arguments<['), 5)
-        self.assertIn('#ac.static_bool_value<true>', lowered)
+        self.assertEqual(lowered.count("#ac.static_arguments<["), 5)
+        self.assertIn("#ac.static_bool_value<true>", lowered)
         self.assertIn('#ac.interface_port<"value", "input"', lowered)
         self.assertIn('#ac.interface_port<"result", "output"', lowered)
-        self.assertIn('#ac.type_expr_queue<', lowered)
+        self.assertIn("#ac.type_expr_queue<", lowered)
         self.assertNotIn("stage__", lowered)
 
     def test_family_queue_preserves_dependent_lanes_and_authored_rate(self) -> None:
         from agentic_circuit._queue_frontend import lower_queue_source
 
-        source = '''
+        source = """
 import agentic_circuit as ac
 
 @ac.module_decl(
@@ -307,12 +328,12 @@ def core(
     value: ac.Queue[ac.u8, 2, 2],
 ) -> ac.Queue[ac.u8, 2, 2]:
     return stage(value, static=ac.case(("lanes", 2)))
-'''
+"""
         lowered = lower_queue_source(source, "core", source_path="stage.py")
         self.assertIn(
-            '#ac.type_expr_queue<#ac.type_expr<#ac.type_expr_concrete<i8>>, '
+            "#ac.type_expr_queue<#ac.type_expr<#ac.type_expr_concrete<i8>>, "
             '#ac.dependent_value<#ac.dependent_parameter<"lanes">>, '
-            '#ac.dependent_value<#ac.dependent_integer<2>>>',
+            "#ac.dependent_value<#ac.dependent_integer<2>>>",
             lowered,
         )
         family = lowered[lowered.index("  ac.module @stage ") :]
@@ -321,13 +342,10 @@ def core(
         self.assertIn("!ac.queue<i8, lanes=4, rate=2>", family)
         self.assertEqual(family.count("ac.module.case arguments"), 2)
 
-    def test_parameterized_family_rejects_implicit_scalar_queue_shape(self) -> None:
-        from agentic_circuit._queue_frontend import (
-            QueueFrontendError,
-            lower_queue_source,
-        )
+    def test_parameterized_family_uses_fixed_scalar_queue_shape(self) -> None:
+        from agentic_circuit._queue_frontend import lower_queue_source
 
-        source = '''
+        source = """
 import agentic_circuit as ac
 
 @ac.module_decl(
@@ -338,18 +356,33 @@ import agentic_circuit as ac
 def stage(value: ac.u8) -> ac.u8:
     ...
 
-@ac.system
-def core() -> None:
-    value = ac.source(ac.u8, depth=1)
-    ac.sink(value)
-'''
-        with self.assertRaisesRegex(QueueFrontendError, "explicit Queue"):
-            lower_queue_source(source, "core", source_path="stage.py")
+stage_decl = stage
 
-    def test_parameterized_implementation_preserves_declared_unused_case_body(self) -> None:
+@ac.module(declaration=stage_decl)
+def stage(value: ac.u8) -> ac.u8:
+    return value
+
+@ac.system
+def core(value: ac.u8) -> ac.u8:
+    return stage(value, static=ac.case(("enabled", True)))
+"""
+        lowered = lower_queue_source(source, "core", source_path="stage.py")
+        self.assertIn("ac.module @stage", lowered)
+        self.assertIn("!ac.queue<i8>", lowered)
+        self.assertIn("ac.type_expr_queue", lowered)
+        self.assertIn(
+            "ac.module.case arguments #ac.static_arguments<["
+            '#ac.static_argument<"enabled", '
+            "#ac.static_value<#ac.static_bool_value<true>>>]",
+            lowered,
+        )
+
+    def test_parameterized_implementation_preserves_declared_unused_case_body(
+        self,
+    ) -> None:
         from agentic_circuit._queue_frontend import lower_queue_source
 
-        source = '''
+        source = """
 import agentic_circuit as ac
 
 @ac.module_decl(
@@ -372,18 +405,18 @@ def stage(value: ac.Queue[ac.u8, 1, 1]) -> ac.Queue[ac.u8, 1, 1]:
 @ac.system
 def core(value: ac.u8) -> ac.u8:
     return stage(value, static=ac.case(("enabled", True)))
-'''
+"""
         lowered = lower_queue_source(source, "core", source_path="stage.py")
         family = lowered[lowered.index("  ac.module @stage ") :]
         family = family[: family.index("  ac.module @Top ")]
         self.assertEqual(family.count("ac.module.case arguments"), 2)
-        self.assertIn('#ac.static_bool_value<true>', family)
-        self.assertIn('#ac.static_bool_value<false>', family)
+        self.assertIn("#ac.static_bool_value<true>", family)
+        self.assertIn("#ac.static_bool_value<false>", family)
 
     def test_dependent_bit_interface_preserves_parameter_expression(self) -> None:
         from agentic_circuit._queue_frontend import lower_queue_source
 
-        source = '''
+        source = """
 import agentic_circuit as ac
 
 @ac.module_decl(
@@ -404,18 +437,18 @@ def stage(
 @ac.system
 def core(value: ac.u8) -> ac.u8:
     return stage(value, static=ac.case(("width", 8)))
-'''
+"""
         lowered = lower_queue_source(source, "core", source_path="core.py")
         self.assertIn(
             '#ac.type_expr_bits<#ac.dependent_value<#ac.dependent_parameter<"width">>, false>',
             lowered,
         )
-        self.assertIn(': (!ac.queue<i8>) -> !ac.queue<i8>', lowered)
+        self.assertIn(": (!ac.queue<i8>) -> !ac.queue<i8>", lowered)
 
     def test_cases_lower_independent_bodies_and_concrete_widths(self) -> None:
         from agentic_circuit._queue_frontend import lower_queue_source
 
-        source = '''
+        source = """
 import agentic_circuit as ac
 
 @ac.module_decl(
@@ -450,7 +483,7 @@ def core(value: ac.u8) -> ac.u8:
         value,
         static=ac.case(("enabled", True), ("width", 8)),
     )
-'''
+"""
         lowered = lower_queue_source(source, "core", source_path="stage.py")
         family = lowered[lowered.index("  ac.module @stage ") :]
         family = family[: family.index("  ac.module @Top ")]
@@ -462,7 +495,7 @@ def core(value: ac.u8) -> ac.u8:
     def test_enum_family_uses_nominal_typed_values(self) -> None:
         from agentic_circuit._queue_frontend import lower_queue_source
 
-        source = '''
+        source = """
 import agentic_circuit as ac
 from enum import Enum
 
@@ -484,7 +517,7 @@ def stage(value: ac.Queue[ac.u8, 1, 1]) -> ac.Queue[ac.u8, 1, 1]:
 @ac.system
 def core(value: ac.u8) -> ac.u8:
     return stage(value, static=ac.case(("mode", Mode.FAST)))
-'''
+"""
         lowered = lower_queue_source(source, "core", source_path="core.py")
         self.assertIn("#ac.static_enum_type<@Mode>", lowered)
         self.assertIn('#ac.static_enum_value<@Mode, "FAST">', lowered)
@@ -494,7 +527,7 @@ def core(value: ac.u8) -> ac.u8:
     def test_config_family_uses_recursive_nominal_typed_values(self) -> None:
         from agentic_circuit._queue_frontend import lower_queue_source
 
-        source = '''
+        source = """
 import agentic_circuit as ac
 from enum import Enum
 
@@ -529,7 +562,7 @@ def core(value: ac.u8) -> ac.u8:
         value,
         static=ac.case(("cfg", Config(geometry=Geometry(entries=4, enabled=True), mode=Mode.FAST))),
     )
-'''
+"""
         lowered = lower_queue_source(source, "core", source_path="core.py")
         self.assertIn("#ac.static_config_type<@Config", lowered)
         self.assertIn("#ac.static_config_type<@Geometry", lowered)

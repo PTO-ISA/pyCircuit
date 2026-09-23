@@ -319,9 +319,11 @@ the system body are syntax markers; ordinary Python execution of the body is
 not the compilation path. Typed finite-family cases bind declared static parameters. Runtime
 payload arguments remain unbound and do not enter specialization identity. A
 parameterized family body may be a composite of child module instances, so one
-declaration serves every declared case. A family body that calls a local rule is
-rejected with `ACPY-FAMILY-008` instead: its concrete cases would publish the
-same module-qualified rule identity.
+declaration serves every declared case. Ordinary typed payload ports use a
+fixed one-lane, one-item-per-cycle Queue boundary; explicit `Queue[payload,
+lanes, rate]` is required when lane count or rate differs. Local rules are
+materialized separately for each concrete case, and their rule identities are
+scoped to that case.
 
 A module body that instantiates children may be a **hierarchy module**: it may
 take more than one typed runtime input, bind named intermediates from child

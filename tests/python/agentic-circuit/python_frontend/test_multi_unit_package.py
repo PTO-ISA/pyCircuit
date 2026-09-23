@@ -197,6 +197,88 @@ def probe(
     return first, second
 """
 
+STATEFUL_CHILD = """
+import agentic_circuit as ac
+
+@ac.struct
+class Step:
+    value: ac.u8
+    valid: ac.u1
+
+@ac.struct
+class Result:
+    value: ac.u8
+    wide: ac.u64
+    valid: ac.u1
+
+@ac.struct
+class Resident:
+    value: ac.u8
+    valid: ac.u1
+
+@ac.rule
+def update(resident: Resident, step: Step) -> Result:
+    previous = resident.value
+    accepted = step.valid
+    if accepted:
+        resident = resident.with_fields(value=previous + step.value, valid=1)
+    return Result(value=resident.value, wide=0, valid=accepted)
+
+@ac.module_decl(source="source/stateful.py")
+def stateful(step: ac.Queue[Step, 1, 1]) -> ac.Queue[Result, 1, 1]:
+    ...
+
+stateful_decl = stateful
+
+@ac.module(declaration=stateful_decl)
+def stateful(step: ac.Queue[Step, 1, 1]) -> ac.Queue[Result, 1, 1]:
+    resident: Resident = 0
+    result = update(resident, step)
+    return result
+"""
+
+STATEFUL_CORE = """
+import agentic_circuit as ac
+from source.stateful import Step, Result, stateful
+
+@ac.system
+def probe(step: ac.Queue[Step, 1, 1]) -> ac.Queue[Result, 1, 1]:
+    return stateful(step)
+"""
+
+PLAIN_FAMILY_CHILD = """
+import agentic_circuit as ac
+
+@ac.rule
+def add(left: ac.u8, right: ac.u8) -> ac.u8:
+    return left + right
+
+@ac.module_decl(
+    source="source/plain_family.py",
+    parameters=(ac.static_parameter("mode", ac.static_int(width=2, signed=False)),),
+    finite_cases=(ac.case(("mode", 1)),),
+)
+def plain_family(left: ac.u8, right: ac.u8) -> ac.u8:
+    ...
+
+plain_decl = plain_family
+
+@ac.module(declaration=plain_decl)
+def plain_family(left: ac.u8, right: ac.u8) -> ac.u8:
+    ac.static_assert(mode == 1, "only mode 1 is admitted")
+    result = add(left, right)
+    return result
+"""
+
+PLAIN_FAMILY_CORE = """
+import agentic_circuit as ac
+from source.plain_family import plain_family
+
+@ac.system
+def probe(left: ac.u8, right: ac.u8) -> ac.u8:
+    return plain_family(left, right, static=ac.case(("mode", 1)))
+"""
+
 
 def _repository_tool(name: str) -> Path | None:
     for candidate in (
@@ -355,9 +437,9 @@ class MultiUnitPackageTest(unittest.TestCase):
                 encoding="utf-8"
             )
         )
-        Draft202012Validator(
-            json.loads(SCHEMA.read_text(encoding="utf-8"))
-        ).validate(document)
+        Draft202012Validator(json.loads(SCHEMA.read_text(encoding="utf-8"))).validate(
+            document
+        )
 
         self.assertEqual("Top", document["definition"])
         self.assertEqual("probe", document["system"])
@@ -398,15 +480,13 @@ class MultiUnitPackageTest(unittest.TestCase):
         )
         # Publication keeps canonical provenance and the capture keeps the
         # original call site, not the flattened text position.
-        core_lines = (self.root / "source" / "core.py").read_text(
-            encoding="utf-8"
-        ).splitlines()
+        core_lines = (
+            (self.root / "source" / "core.py").read_text(encoding="utf-8").splitlines()
+        )
 
         def call_line(needle: str) -> int:
             return next(
-                index + 1
-                for index, text in enumerate(core_lines)
-                if needle in text
+                index + 1 for index, text in enumerate(core_lines) if needle in text
             )
 
         self.assertEqual(
@@ -457,9 +537,9 @@ class MultiUnitPackageTest(unittest.TestCase):
         bundle = self._build_package()
 
         document = (bundle / "share" / "generated" / "source-map.json").read_bytes()
-        Draft202012Validator(
-            json.loads(SCHEMA.read_text(encoding="utf-8"))
-        ).validate(json.loads(document))
+        Draft202012Validator(json.loads(SCHEMA.read_text(encoding="utf-8"))).validate(
+            json.loads(document)
+        )
         self.assertEqual(
             (GOLDENS / "module.json").read_bytes(),
             document,
@@ -476,9 +556,9 @@ class MultiUnitPackageTest(unittest.TestCase):
         bundle = self._build_package(("stage",))
 
         document = (bundle / "share" / "generated" / "source-map.json").read_bytes()
-        Draft202012Validator(
-            json.loads(SCHEMA.read_text(encoding="utf-8"))
-        ).validate(json.loads(document))
+        Draft202012Validator(json.loads(SCHEMA.read_text(encoding="utf-8"))).validate(
+            json.loads(document)
+        )
         self.assertEqual(
             (GOLDENS / "specialization.json").read_bytes(),
             document,
@@ -527,15 +607,21 @@ class MultiUnitPackageTest(unittest.TestCase):
                 ("lanes", "true", "#ac.static_type<#ac.static_int_type<4, false>>"),
             ],
             [
-                (parameter["name"], str(parameter["required"]).lower(), parameter["type"])
+                (
+                    parameter["name"],
+                    str(parameter["required"]).lower(),
+                    parameter["type"],
+                )
                 for parameter in stage["parameters"]
             ],
         )
         self.assertEqual(2, len(stage["declared_cases"]))
         self.assertEqual(2, len(stage["cases"]))
         self.assertTrue(
-            all(module_case["signature"].startswith("(!ac.queue<i8")
-                for module_case in stage["cases"])
+            all(
+                module_case["signature"].startswith("(!ac.queue<i8")
+                for module_case in stage["cases"]
+            )
         )
 
         # The published unit carries every declared case, so the golden covers a
@@ -604,9 +690,7 @@ class MultiUnitPackageTest(unittest.TestCase):
         self.assertTrue((retained / "core.ac").is_file())
         self.assertTrue((retained / "sources" / "source" / "child_a.ac").is_file())
         self.assertTrue((retained / "sources" / "source" / "child_b.ac").is_file())
-        self.assertTrue(
-            (retained / "interfaces" / "source" / "child_a.ac").is_file()
-        )
+        self.assertTrue((retained / "interfaces" / "source" / "child_a.ac").is_file())
         self.assertTrue(
             (retained / "interfaces" / "_compiler" / "layouts.ac").is_file()
         )
@@ -619,26 +703,236 @@ class MultiUnitPackageTest(unittest.TestCase):
 
         self._build_package()
 
-        unit = (
-            self.root / "package" / "sources_child_a.ac"
-        ).read_text(encoding="utf-8")
-        child_lines = (self.root / "source" / "child_a.py").read_text(
+        unit = (self.root / "package" / "sources_child_a.ac").read_text(
             encoding="utf-8"
-        ).splitlines()
+        )
+        child_lines = (
+            (self.root / "source" / "child_a.py")
+            .read_text(encoding="utf-8")
+            .splitlines()
+        )
         rule_line = next(
-            index + 1
-            for index, text in enumerate(child_lines)
-            if "return Mid(" in text
+            index + 1 for index, text in enumerate(child_lines) if "return Mid(" in text
         )
 
         # A published unit carries the canonical attribute, not MLIR locations.
         self.assertIn("ac.source_provenance = [", unit)
-        self.assertNotIn("loc(\"source/child_a.py\"", unit)
+        self.assertNotIn('loc("source/child_a.py"', unit)
         self.assertIn(
-            "{column = 18 : i64, file = \"source/child_a.py\", "
-            f"kind = \"statement\", line = {rule_line} : i64}}",
+            '{column = 18 : i64, file = "source/child_a.py", '
+            f'kind = "statement", line = {rule_line} : i64}}',
             unit,
         )
+
+    def test_imported_pure_helper_is_inlined_before_source_publication(self) -> None:
+        self._require_native_flow()
+        self._write(
+            "source/arithmetic.py",
+            """import agentic_circuit as ac
+
+def add_one(value: ac.u8) -> ac.u8:
+    return value + 1
+""",
+        )
+        self._write(
+            "source/child_a.py",
+            CHILD_A.replace(
+                "import agentic_circuit as ac",
+                "import agentic_circuit as ac\nfrom source.arithmetic import add_one",
+            ).replace("return Mid(v=x.a)", "return Mid(v=add_one(x.a))"),
+        )
+        output = self.root / "child_a.ac"
+        self._compile(
+            [
+                "-c",
+                str(self.root / "source" / "child_a.py"),
+                "-o",
+                str(output),
+                "--quiet",
+            ]
+        )
+        unit = output.read_text(encoding="utf-8")
+        self.assertNotIn("func.func private @add_one", unit)
+        self.assertNotIn("func.call @add_one", unit)
+        self.assertIn('file = "source/arithmetic.py"', unit)
+
+    def test_source_owned_stateful_rule_keeps_display_name_metadata(self) -> None:
+        self._require_native_flow()
+        self._write("source/stateful.py", STATEFUL_CHILD)
+        self._write("source/core.py", STATEFUL_CORE)
+        package = self.root / "stateful-package"
+        (package / "interfaces" / "source").mkdir(parents=True)
+        self._compile(
+            [
+                "-c",
+                str(self.root / "source/stateful.py"),
+                "-o",
+                str(package / "stateful.ac"),
+                "--header-output",
+                str(package / "interfaces/source/stateful.ac"),
+                "--quiet",
+            ]
+        )
+        self._compile(
+            [
+                "-c",
+                str(self.root / "source/core.py"),
+                "-o",
+                str(package / "core.ac"),
+                "--quiet",
+            ]
+        )
+        interfaces = self.root / "stateful-interfaces"
+        self._compile(
+            [
+                "-c",
+                str(self.root / "source/core.py"),
+                "--unit",
+                "interfaces",
+                "-o",
+                str(interfaces),
+                "--quiet",
+            ]
+        )
+        shutil.copytree(interfaces / "_compiler", package / "interfaces" / "_compiler")
+        unit = (package / "stateful.ac").read_text(encoding="utf-8")
+        self.assertIn('ac.display_name = "previous"', unit)
+        verified = subprocess.run(
+            [str(_repository_tool("acc")), "-c", str(package), "-verify"],
+            text=True,
+            capture_output=True,
+            check=False,
+        )
+        self.assertEqual(0, verified.returncode, verified.stderr)
+        bundle = self.root / "stateful-bundle"
+        emitted = subprocess.run(
+            [
+                str(_repository_tool("acc")),
+                "-c",
+                str(package),
+                "-emit-cpp-bundle",
+                "-o",
+                str(bundle),
+            ],
+            text=True,
+            capture_output=True,
+            check=False,
+        )
+        self.assertEqual(0, emitted.returncode, emitted.stderr)
+        configured = subprocess.run(
+            [
+                "cmake",
+                "-S",
+                str(bundle),
+                "-B",
+                str(bundle / "build"),
+                "-G",
+                "Ninja",
+                f"-DAC_GFSIM_INCLUDE_DIR={REPOSITORY / 'simulator/gfsim/include'}",
+            ],
+            text=True,
+            capture_output=True,
+            check=False,
+        )
+        self.assertEqual(0, configured.returncode, configured.stderr)
+        built = subprocess.run(
+            ["cmake", "--build", str(bundle / "build"), "--parallel", "4"],
+            text=True,
+            capture_output=True,
+            check=False,
+        )
+        self.assertEqual(0, built.returncode, built.stdout + built.stderr)
+
+    def test_single_case_plain_port_family_links_with_exact_case(self) -> None:
+        self._require_native_flow()
+        self._write("source/plain_family.py", PLAIN_FAMILY_CHILD)
+        self._write("source/core.py", PLAIN_FAMILY_CORE)
+        package = self.root / "plain-package"
+        (package / "interfaces/source").mkdir(parents=True)
+        source = package / "sources/source/plain_family.ac"
+        source.parent.mkdir(parents=True)
+        self._compile(
+            [
+                "-c",
+                str(self.root / "source/plain_family.py"),
+                "-o",
+                str(source),
+                "--header-output",
+                str(package / "interfaces/source/plain_family.ac"),
+                "--quiet",
+            ]
+        )
+        self._compile(
+            [
+                "-c",
+                str(self.root / "source/core.py"),
+                "-o",
+                str(package / "core.ac"),
+                "--quiet",
+            ]
+        )
+        interfaces = self.root / "plain-interfaces"
+        self._compile(
+            [
+                "-c",
+                str(self.root / "source/core.py"),
+                "--unit",
+                "interfaces",
+                "-o",
+                str(interfaces),
+                "--quiet",
+            ]
+        )
+        if (interfaces / "_compiler").exists():
+            shutil.copytree(interfaces / "_compiler", package / "interfaces/_compiler")
+        unit = source.read_text(encoding="utf-8")
+        self.assertIn("ac.module.case arguments #ac.static_arguments<[", unit)
+        self.assertIn('"mode"', unit)
+        verified = subprocess.run(
+            [str(_repository_tool("acc")), "-c", str(package), "-verify"],
+            text=True,
+            capture_output=True,
+            check=False,
+        )
+        self.assertEqual(0, verified.returncode, verified.stderr)
+        bundle = self.root / "plain-bundle"
+        emitted = subprocess.run(
+            [
+                str(_repository_tool("acc")),
+                "-c",
+                str(package),
+                "-emit-cpp-bundle",
+                "-o",
+                str(bundle),
+            ],
+            text=True,
+            capture_output=True,
+            check=False,
+        )
+        self.assertEqual(0, emitted.returncode, emitted.stderr)
+        configured = subprocess.run(
+            [
+                "cmake",
+                "-S",
+                str(bundle),
+                "-B",
+                str(bundle / "build"),
+                "-G",
+                "Ninja",
+                f"-DAC_GFSIM_INCLUDE_DIR={REPOSITORY / 'simulator/gfsim/include'}",
+            ],
+            text=True,
+            capture_output=True,
+            check=False,
+        )
+        self.assertEqual(0, configured.returncode, configured.stderr)
+        built = subprocess.run(
+            ["cmake", "--build", str(bundle / "build"), "--parallel", "4"],
+            text=True,
+            capture_output=True,
+            check=False,
+        )
+        self.assertEqual(0, built.returncode, built.stdout + built.stderr)
 
     def test_each_source_owns_its_nominals_and_import_header(self) -> None:
         """A source header carries its own nominals and its own import."""
@@ -678,8 +972,8 @@ class MultiUnitPackageTest(unittest.TestCase):
 
         # The import header carries the nominals the declared ports need, so the
         # linker compares it against the provider's schema successfully.
-        self.assertIn('ac.module.import @child_a', header_a)
-        self.assertIn('ac.module.import @child_b', header_b)
+        self.assertIn("ac.module.import @child_a", header_a)
+        self.assertIn("ac.module.import @child_b", header_b)
         self.assertIn(
             ']>, <"source/child_a.py", "source/child_a.py">, [@In, @Mid]>',
             header_a,

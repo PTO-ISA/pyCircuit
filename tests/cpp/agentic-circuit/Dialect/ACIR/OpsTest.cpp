@@ -138,6 +138,52 @@ TEST(ACIROpsTest, SemanticPrimitiveWidthsAcceptOneTo64AndReject65To130) {
   }
 }
 
+TEST(ACIROpsTest, DependentStructApplicationsMaterializeExactPhysicalFields) {
+  mlir::MLIRContext context;
+  context.loadDialect<ACIRDialect, mlir::DLTIDialect>();
+  auto module = mlir::parseSourceString<mlir::ModuleOp>(R"mlir(
+builtin.module {
+  ac.type_scope @types {
+    ac.struct @Batch fields [
+      {name = "lanes", type_expr = #ac.type_expr<#ac.type_expr_value_array<#ac.dependent_value<#ac.dependent_parameter<"width">>, #ac.type_expr<#ac.type_expr_concrete<i8>>>>},
+      {name = "index", type_expr = #ac.type_expr<#ac.type_expr_range<#ac.dependent_value<#ac.dependent_integer<0>>, #ac.dependent_value<#ac.dependent_parameter<"width">>>>}
+    ] {parameters = #ac.static_parameters<[
+      #ac.static_parameter<"width", #ac.static_type<#ac.static_int_type<4, false>>, true, [], #ac.source_provenance<"pkg/types.py", 1, 1, 1, 1>>
+    ]>}
+  } {dlti.dl_spec = #dlti.dl_spec<
+    !ac.struct<@types::@Batch, #ac.dependent_arguments<[#ac.dependent_argument<"width", #ac.dependent_value<#ac.dependent_static<#ac.static_value<#ac.static_int_value<#ac.static_int_type<4, false>, 1 : i4>>>>>]>> = {abi_alignment = 1 : i64, endianness = "little", preferred_alignment = 1 : i64, size = 2 : i64},
+    !ac.struct<@types::@Batch, #ac.dependent_arguments<[#ac.dependent_argument<"width", #ac.dependent_value<#ac.dependent_static<#ac.static_value<#ac.static_int_value<#ac.static_int_type<4, false>, 8 : i4>>>>>]>> = {abi_alignment = 1 : i64, endianness = "little", preferred_alignment = 1 : i64, size = 9 : i64}
+  >}
+}
+)mlir", &context);
+  ASSERT_TRUE(module);
+  auto scope = *module->getOps<TypeScopeOp>().begin();
+  auto structure = *scope.getBody().front().getOps<StructOp>().begin();
+  llvm::SmallVector<std::pair<int64_t, uint64_t>> layouts;
+  for (mlir::DataLayoutEntryInterface entry :
+       scope.getDataLayoutSpec().getEntries()) {
+    auto type = mlir::dyn_cast_if_present<StructType>(
+        entry.getKey().dyn_cast<mlir::Type>());
+    if (!type || !type.getArguments())
+      continue;
+    auto fields = materializeStructFields(structure, type.getArguments(), *module);
+    ASSERT_TRUE(bool(fields)) << llvm::toString(fields.takeError());
+    ASSERT_EQ(fields->size(), 2u);
+    auto lanes = mlir::cast<mlir::DictionaryAttr>((*fields)[0])
+                     .getAs<mlir::TypeAttr>("type")
+                     .getValue();
+    auto index = mlir::cast<mlir::DictionaryAttr>((*fields)[1])
+                     .getAs<mlir::TypeAttr>("type")
+                     .getValue();
+    layouts.emplace_back(mlir::cast<ValueArrayType>(lanes).getLength(),
+                         mlir::cast<RangeType>(index).getUpper());
+  }
+  llvm::sort(layouts);
+  ASSERT_EQ(layouts.size(), 2u);
+  EXPECT_EQ(layouts[0], (std::make_pair<int64_t, uint64_t>(1, 0)));
+  EXPECT_EQ(layouts[1], (std::make_pair<int64_t, uint64_t>(8, 7)));
+}
+
 TEST(ACIROpsTest, QueueBoundariesOwnEffectsAndFiringBodyIsPure) {
   mlir::MLIRContext context;
   context.loadDialect<ACIRDialect>();

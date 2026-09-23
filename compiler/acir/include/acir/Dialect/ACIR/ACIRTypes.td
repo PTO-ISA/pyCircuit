@@ -27,7 +27,26 @@ class ACIR_LayoutNamedType<string name, string mnemonic>
                                     ["verifyEntries", "getPreferredAlignment"]>
       ]>;
 
-def ACIR_StructType : ACIR_LayoutNamedType<"Struct", "struct">;
+// A struct application is identified by its source-owned declaration plus the
+// complete ordered typed arguments selecting one finite-family case.  The
+// default null attribute preserves the established zero-argument spelling
+// `!ac.struct<@types::@Name>`.
+def ACIR_StructType : ACIR_Type<"Struct", "struct", [
+    DeclareTypeInterfaceMethods<DataLayoutTypeInterface,
+                                ["verifyEntries", "getPreferredAlignment"]>
+  ]> {
+  let parameters = (ins "mlir::SymbolRefAttr":$name,
+      DefaultValuedParameter<"::acir::ac::DependentArgumentsAttr",
+                             "::acir::ac::DependentArgumentsAttr()">:$arguments);
+  let builders = [
+    TypeBuilder<(ins "mlir::SymbolRefAttr":$name), [{
+      return $_get($_ctxt, name,
+                   ::acir::ac::DependentArgumentsAttr());
+    }]>
+  ];
+  let assemblyFormat = "`<` $name (`,` $arguments^)? `>`";
+  let genVerifyDecl = 1;
+}
 def ACIR_PacketType : ACIR_LayoutNamedType<"Packet", "packet">;
 def ACIR_TransactionType : ACIR_DataNamedType<"Transaction", "transaction">;
 def ACIR_EnumType : ACIR_LayoutNamedType<"Enum", "enum">;

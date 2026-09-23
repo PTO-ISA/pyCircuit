@@ -162,6 +162,8 @@ class QueueTypeHygieneTest(unittest.TestCase):
         allowed = {
             ("implementation_source", "startswith"),
             ("name", "startswith"),
+            # Match compiler-generated AST function names, not rendered types.
+            ("statement.name", "startswith"),
             ("line", "startswith"),
             ("lines[index]", "startswith"),
             ("concrete_lines[index]", "startswith"),
