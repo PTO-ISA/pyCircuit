@@ -2781,6 +2781,14 @@ concrete interface. Every nominal declaration names the Python file that owns it
 with `ac.source_file`, so the compiler emits one interface unit per source file
 and a nominal shared by several files is declared exactly once.
 
+The published source map reports one entry per module placement with the
+definition symbol, the scope, the placement provenance, and the ordered typed
+static arguments that select the case. Those arguments are the specialization
+identity of a placement, so two placements of one definition stay
+distinguishable without generated names. A declaration without a local
+implementation publishes exactly one `ac.module.import` and carries no concrete
+case; each placement keeps its own ordered static arguments.
+
 A published unit carries canonical `ac.source_provenance` attributes rather than
 MLIR debug locations: the compiler materializes the attribute for every
 operation that has a location before publishing a verified unit, so a re-parsed

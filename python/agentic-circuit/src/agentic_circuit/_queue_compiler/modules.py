@@ -2329,9 +2329,21 @@ def _lower_simple_module_source(
         symbol = module_name
         existing = module_bodies.get(symbol)
         if existing is not None and existing[2] != frozen:
-            raise QueueFrontendError(
-                "ACPY-FAMILY-008: one family symbol cannot carry an "
-                "undeclared concrete body"
+            if existing[1] is not None:
+                raise QueueFrontendError(
+                    "ACPY-FAMILY-008: one family symbol cannot carry an "
+                    "undeclared concrete body"
+                )
+            # A declaration without a local implementation publishes exactly one
+            # `ac.module.import`, which carries no concrete case. Each placement
+            # keeps its own ordered static arguments, so only the first
+            # registration owns the import.
+            imported_definition, _, _ = existing
+            return (
+                symbol,
+                frozen,
+                imported_definition.inputs,
+                imported_definition.outputs,
             )
         if symbol not in module_bodies:
             namespace = ""

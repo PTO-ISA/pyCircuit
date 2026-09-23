@@ -7516,6 +7516,21 @@ llvm::Error verifyQueueGraphPlan(const QueueGraphPlan &plan) {
   return llvm::Error::success();
 }
 
+namespace {
+
+/// Render one typed static value as its canonical attribute text.
+///
+/// The generated ODS printer overload takes an ``AsmPrinter&`` and hides
+/// ``Attribute::print(raw_ostream&)``, so the value is converted explicitly.
+std::string renderStaticValueText(mlir::Attribute value) {
+  std::string rendered;
+  llvm::raw_string_ostream stream(rendered);
+  value.print(stream);
+  return stream.str();
+}
+
+} // namespace
+
 llvm::Expected<std::string> QueueGraphPlan::canonicalJson() const {
   auto provenanceJson = [](const QueueSourceProvenancePlan &provenance) {
     llvm::json::Array origins;
@@ -8088,13 +8103,22 @@ llvm::Expected<std::string> QueueGraphPlan::canonicalJson() const {
     llvm::json::Array outputs;
     for (const std::string &output : instance.outputs)
       outputs.push_back(output);
+    llvm::json::Array staticArguments;
+    for (auto argument :
+         instance.staticArguments.getArguments()
+             .getAsRange<acir::ac::StaticArgumentAttr>()) {
+      staticArguments.push_back(llvm::json::Object{
+          {"name", argument.getName().getValue().str()},
+          {"value", renderStaticValueText(argument.getValue())}});
+    }
     llvm::json::Object instanceValue{
         {"definition", instance.definition},
         {"inputs", std::move(inputs)},
         {"lexical_order", instance.lexicalOrder},
         {"name", instance.name},
         {"outputs", std::move(outputs)},
-        {"scope", instance.scope}};
+        {"scope", instance.scope},
+        {"static_arguments", std::move(staticArguments)}};
     if (!instance.sourceProvenance.origins.empty())
       instanceValue["source_provenance"] =
           provenanceJson(instance.sourceProvenance);
@@ -8338,6 +8362,18 @@ llvm::Expected<std::string> QueueGraphPlan::sourceMapJson() const {
         {"source_provenance", provenanceJson(helper.sourceProvenance)},
     });
   }
+  auto staticArgumentsJson =
+      [](const acir::ac::StaticArgumentsAttr &arguments) {
+        llvm::json::Array values;
+        for (auto argument :
+             arguments.getArguments()
+                 .getAsRange<acir::ac::StaticArgumentAttr>()) {
+          values.push_back(llvm::json::Object{
+              {"name", argument.getName().getValue().str()},
+              {"value", renderStaticValueText(argument.getValue())}});
+        }
+        return values;
+      };
   llvm::json::Array instanceValues;
   for (const QueueModuleInstancePlan &instance : moduleInstances)
     instanceValues.push_back(llvm::json::Object{
@@ -8345,6 +8381,7 @@ llvm::Expected<std::string> QueueGraphPlan::sourceMapJson() const {
         {"name", instance.name},
         {"scope", instance.scope},
         {"source_provenance", provenanceJson(instance.sourceProvenance)},
+        {"static_arguments", staticArgumentsJson(instance.staticArguments)},
     });
   llvm::json::Array tableMatchValues;
   for (const TableMatchPlan &match : tableMatches) {

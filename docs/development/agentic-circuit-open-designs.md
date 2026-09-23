@@ -307,16 +307,15 @@ What is genuinely missing:
   `lower_sources(...)` equivalent that hands a Python caller the generated source
   files or a manifest. (Identity is structural under Decision 0267, so a bundle
   carries no content identity to expose either way.)
-- **No module/instance manifest.** Definition versus instance identity is
-  available to the compiler but is not published as a machine-readable artifact
-  for graph exporters or testbench adapters. The bundle's
-  `share/generated/source-map.json` reports `module_instances` with their
-  definition symbols and now also with the exact placement provenance (file,
-  line, column of the Python call), because a published unit materializes
-  canonical `ac.source_provenance` before publication and the closure capture
-  keeps original positions. It still carries no ordered typed static arguments,
-  so repeated placements of one definition are not yet distinguishable as a
-  manifest full specialization identity would.
+- **No dedicated manifest artifact or Python API yet.** The bundle's
+  `share/generated/source-map.json` now carries the instancing identity:
+  `module_instances` report the definition symbol, the scope, the exact placement
+  provenance (file, line, column of the Python call), and the ordered typed
+  static arguments that select the case, so two placements of one definition are
+  distinguishable without generated names. What is still missing is a
+  purpose-built manifest artifact with its own published schema and a Python
+  caller that returns the generated sources plus that manifest; today a consumer
+  reads the source map and drives `acc.py`/`acc` itself.
 
 **Recommended shape** for the remaining work, consistent with the module family
 work that has landed since the issue was filed: derive the manifest from the typed

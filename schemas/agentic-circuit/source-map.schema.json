@@ -93,6 +93,24 @@
         "origins"
       ],
       "type": "object"
+    },
+    "static_argument": {
+      "additionalProperties": false,
+      "properties": {
+        "name": {
+          "minLength": 1,
+          "type": "string"
+        },
+        "value": {
+          "minLength": 1,
+          "type": "string"
+        }
+      },
+      "required": [
+        "name",
+        "value"
+      ],
+      "type": "object"
     }
   },
   "$id": "https://pto-isa.org/schemas/agentic-circuit/source-map-v0.1.schema.json",
@@ -190,13 +208,20 @@
           },
           "source_provenance": {
             "$ref": "#/$defs/provenance"
+          },
+          "static_arguments": {
+            "items": {
+              "$ref": "#/$defs/static_argument"
+            },
+            "type": "array"
           }
         },
         "required": [
           "definition",
           "name",
           "scope",
-          "source_provenance"
+          "source_provenance",
+          "static_arguments"
         ],
         "type": "object"
       },

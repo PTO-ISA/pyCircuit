@@ -2044,6 +2044,12 @@ inventory，因此 import 携带与 provider 相同的 inventory；symbol 带 de
 declaration 用 `ac.source_file` 标明其所属 Python 文件，因此编译器按 source 文件各生成一个
 interface unit，被多个文件共享的 nominal 只声明一次。
 
+已发布的 source map 为每个 module placement 记录一条 entry：definition symbol、scope、placement
+provenance，以及选择该 case 的有序 typed static arguments。这些 arguments 就是 placement 的
+specialization identity，因此同一 definition 的多个 placement 无需依赖生成名即可区分。没有本地
+实现的 declaration 只发布一个 `ac.module.import` 且不携带 concrete case；每个 placement 保留自己的
+有序 static arguments。
+
 已发布的 unit 携带规范的 `ac.source_provenance` attribute，而不是 MLIR debug location：编译器在
 发布 verified unit 之前为每个带 location 的 operation materialize 该 attribute，因此重新
 parse 的 unit 仍保留 linker 与 backend 读取的 provenance。closure capture 会报告每个

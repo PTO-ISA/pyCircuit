@@ -1,0 +1,24 @@
+# Issue #180: expose each module placement's ordered typed static arguments and
+# allow two specializations of one imported family in one design.
+# Run from the repository root with the native toolchain and Python extension built.
+
+ninja -C .pycircuit_out/toolchain/build acc
+ninja -C .pycircuit_out/toolchain/build agentic_circuit_native
+python3 -m pytest tests/python/agentic-circuit/python_frontend/test_multi_unit_package.py -q -p no:cacheprovider
+
+# The flow the specialization golden drives:
+#   source/stage.py declares the family (lanes in {2,4}) with its implementation
+#   source/core.py places both specializations from two shaped inputs
+python3 -m agentic_circuit._acc_py -c source/stage.py -o package/sources_stage.ac \
+  --header-output package/interfaces/source/stage.ac --quiet
+python3 -m agentic_circuit._acc_py -c source/core.py -o package/core.ac --quiet
+python3 -m agentic_circuit._acc_py -c source/core.py --unit interfaces -o interfaces --quiet
+.pycircuit_out/toolchain/build/bin/acc -c package -verify
+.pycircuit_out/toolchain/build/bin/acc -c package -emit-cpp-bundle -o bundle
+python3 -c 'import json;d=json.load(open("bundle/share/generated/source-map.json"));print(json.dumps(d["module_instances"], indent=1))'
+
+# Lane context.
+python3 -m pytest tests/python/agentic-circuit -q -p no:cacheprovider \
+  --ignore=tests/python/agentic-circuit/tools
+ninja -C .pycircuit_out/toolchain/build check-acir
+ctest --test-dir .pycircuit_out/toolchain/build
