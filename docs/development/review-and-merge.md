@@ -3,6 +3,11 @@
 This page defines the review standard for merge-ready pyCircuit pull requests.
 It complements the active CI workflows; it does not replace reviewer judgment.
 
+For modernization work, also follow
+[Project Governance](project-governance.md). Design approval-readiness reviews
+are indexed under [Modernization Reviews](../reviews/README.md); their verdicts
+do not replace the user's required approval for an interface change.
+
 ## A merge-ready PR must answer
 
 1. What changed?

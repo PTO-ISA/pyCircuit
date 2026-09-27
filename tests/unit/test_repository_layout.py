@@ -10,6 +10,7 @@ ROOT = Path(__file__).resolve().parents[2]
 pytestmark = pytest.mark.unit
 
 TOP_LEVEL_ROOTS = {
+    ".codex",
     ".github",
     "benchmarks",
     "cmake",

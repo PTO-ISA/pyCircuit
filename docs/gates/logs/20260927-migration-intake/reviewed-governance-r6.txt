@@ -1,0 +1,114 @@
+# pyCircuit 项目治理与 subagent 调度方案
+
+日期：2026-09-27。规划修订：6。状态：待 M1 落地的治理提案；调度纪律可用于当前规划。用户最新方向是单一 Pythonic frontend → MLIR → C++/Verilog、GFSIM 设计优先、hard break；此前保留三条 authoring/lowering 路线的计划已失效。具体接口仍先由用户批准。本文件不声明产品决策、AGENTS 或调度配置已切换。
+
+来源：GFSIM `docs/Project-Governance.md` 修订 7，以及该仓 PM skill、design-review skill、DeepSeek Flash adapter。来源基线与差异见[迁移计划](pycircuit-modernization-plan.md)。本方案迁移组织方式，移除 GFSIM full-core/ELF 的目标授权与模型任务，不继承其逐案批准或发布权限。
+
+## 1. 权责与单一来源
+
+PM 是用户的统一入口，负责范围、依赖、成本、构建健康、协调和最终验收。用户决定产品目标，并已明确要求所有接口变动先由其批准。范围明确、已授权且不改变接口的可逆工作自动继续；不逐步询问许可。
+
+职责分为需求/PM、架构设计、独立设计验证、任务拆解、实现、独立测试、独立代码审查、构建集成。它们是逻辑职责，不要求每项任务都启动八个常驻 agent。PM 可直接处理调研、文档与小型集成；实质代码由独立测试和审查覆盖，包括 PM 自己写的代码。
+
+治理落地后的单一规则源拟为 `docs/development/project-governance.md`；AGENTS 和 project skills 只保留入口及必须遵守的简短约束。产品语义继续进入 `docs/rfcs/pyc6-decisions.md`，gate 状态继续使用现有 `docs/gates/decision_status_v6.md`，避免另建竞争决策 registry。
+
+接受分三类：不改变接口的现行契约恢复/清理由 PM 正常验收；任何 Python/CLI/IR/跨模块/生成 C++/runtime/schema/诊断契约变化都先形成精确提案、独立审阅，再请求用户明确批准，PM 不能代批；外部发布、破坏性操作按用户授权范围处理。既有 Decision 0148/0150 等与单路线目标冲突的条款按主计划 C1/C2/C3 明确 supersede；不要反过来用旧规则保留三路线，也不要在精确接口批准前修改其产品实现。GFSIM decision 0033 的自主 full-core 委托不能成为本仓接口授权，donor 已批准的接口也须本仓用户批准后才迁入。
+
+批准包必须有前后对照示例、精确接口、类型/硬件时序/ownership/错误语义、C++ 与 Verilog 的共同 IR 映射、受影响调用方、硬切换删除清单和验证计划。只向用户提交经独立 Astra 判定 approval-ready 的精确修订；记录真实批准来源和内容摘要。批准前不实现相关接口，实质修订后重新审阅并请求批准。继续不依赖该接口的已授权工作，不把等待扩大为全仓停工。
+
+## 2. 复杂度和模型路由
+
+| 等级 | 条件 | 最小合理组织 |
+| --- | --- | --- |
+| 简单 | 只读事实、文案、低风险机械变更 | PM 直接处理或一个 bounded 调研 agent |
+| 局部 | 单层既有契约修复 | PM 拆解；实现、独立测试、Sol 审查分阶段执行 |
+| 复杂 | 跨模块、生成代码/构建接口、依赖较多 | Sol 拆解/集成，必要的并行实现和测试；涉及设计时加入 Astra |
+| 关键语义 | 新 IR/API、时序、ownership、atomicity、跨 backend | 精确设计 → 独立 Astra → 用户接口批准及适用决策 → 实现/测试 → Sol 审查 → 架构符合性 |
+
+| 逻辑角色 | 迁移后的默认模型 | 推理强度及边界 |
+| --- | --- | --- |
+| PM | 当前主会话 | 不为迁移擅自切换主模型 |
+| 架构设计 | `gpt-6-astra` | `high`/`xhigh`；关键语义建议 `ultra`，在任务包记录理由 |
+| 独立设计验证、验证策略 | `gpt-6-astra` | 与复杂度匹配；关键语义建议 `ultra`；独立实例，不写被审实现 |
+| 拆解、代码审查、构建集成 | `gpt-5.6-sol` | `low`/`medium`/`high` 按实际风险；审查者不参与被审差异写入 |
+| 实现与独立测试 | `gpt-6-luna` | `low`/`medium`/`high`；两个不同实例，按文件授权 |
+| 故障定位/性能 | `gpt-5.6-sol` | 跨层疑难用 `high`；先最小复现再修改 |
+| 文档/契约核对 | `gpt-6-luna` | 按需；不能自行批准语义 |
+| 可选低成本子任务 | DSH `deepseek-flash` | 默认只读；不替代 Astra、独立测试或 Sol 审查 |
+
+这是按本仓复杂度适配的路由，不照搬 donor 某个目标强制所有 Astra 使用 `ultra` 的授权。低复杂度任务只要涉及接口变化也不能跳过用户批准。实际派发核对工具支持与真实绑定；不能把固定绑定其他模型的角色别名当作指定模型。需要显式模型时使用支持覆盖的通用 native agent 和有界上下文；不冒称一个固定 `architect` 别名运行了 `ultra`。本轮规划的实际角色/配置在审阅记录中单独记录。
+
+模型不可用时报告受影响职责；不伪造模型参与。可串行复用同职责实例，但设计与验证、实现与测试、作者与审查的独立性不可合并。连续两次尝试没有新证据时调整粒度或加入定位角色；不是自动放弃，也不是无上限重复。
+
+## 3. 原生 subagent 调度
+
+当前宿主允许总计 4 个活动 agent，含 PM；最多 3 个子 agent。以后从宿主能力读取限制，不把数字写死在项目实现里。子 agent 不递归组队；边界扩大、冲突、需要新契约统一上报 PM。
+
+调度纪律：
+
+1. PM 固定输入基线，检查依赖与文件归属，再实际启动任务。
+2. 每个写文件在同一时间只有一个 owner；CMake、ODS/registry、pipeline、共享 docs、snapshot 注册入口串行集成。
+3. 每次给写入者说明“共享 checkout，不回退或覆盖他人改动”；使用绝对 checkout/文件路径。
+4. 构建输出按 lane 独立；源码依赖发生并发重写时先冻结或隔离源码，不能仅靠不同 build 目录宣称隔离。
+5. 验证从当前候选 checkout 自行构建；不复制其他 worktree 的 compiler、库或生成产物。
+6. 空闲/完成实例的新任务用 `followup_task`；`send_message` 只补充正在执行的上下文。等待前核对真实状态。
+7. review 与测试可同时只读同一 frozen candidate；修复产生新候选，相关证据按影响重做。
+
+一轮典型安排：设计者完成 → 独立验证者完成 → PM 拆解；实现阶段“实现 A + 实现 B + 独立测试”；验收阶段“独立 Sol 审查 + Sol 集成验证 + 必要的 Astra 符合性”。单关键路径只用必要实例。
+
+每个派发包包含：
+
+```text
+Task ID / objective / non-goals:
+Checkout / HEAD / relevant dirty overlay / candidate digest:
+Contract and accepted decision IDs:
+Dependencies, C1/C2/C3 user approval, frozen interfaces:
+Logical role / actual model / effort:
+Allowed files / retired paths to remove / forbidden shared files / build-output directory:
+Acceptance, independent target-contract oracle, old-route rejection cases, exact commands:
+Stop conditions and escalation destination (PM):
+Deliverable: concise result, changed files, logs, exit codes, residual risk.
+Shared checkout: do not revert others' changes; do not recursively delegate.
+```
+
+优化整个任务的 token 和返工成本：有界上下文、一个事实问题一个调查 owner、只返回关键日志、复用仍有效证据。独立 reviewer 仍须自己读取关键代码。没有可靠统计就不编造 token、费用或节省比例，不设置用户未要求的硬预算。
+
+## 4. DeepSeek Flash 适配范围
+
+拟新增的 `pycircuit_deepseek` 使用 Luna low 作为协调者，实际外部执行模型由 DSH 路由确认。不能与个人 `deepseek` 角色混淆，也不能把协调模型写成 DeepSeek。拟新增 runner 位于 `tools/`，由脚本自身位置确定 pyCircuit checkout，任务通过 stdin/独立 argv 传递，使用非 shell subprocess。
+
+M1 的必要验证：空输入非零；DSH 缺失错误；provider 非零退出传播；参数中的引号/newline 不触发 shell 执行；从别的 cwd 调用仍指向本仓；默认只读任务有明确 scope；日志不含凭据。使用 fake DSH 进程完成测试，不需访问外部服务。
+
+真正运行前核对 DSH 实际 provider/model，不能仅相信 patch 的默认值，因为保存的用户选择可能覆盖它。凭据只由已配置服务解析，不读取或复制 donor 凭据。外部任务发送范围必须有用户/显式 workflow 授权；本方案本身不发起外部任务，也不默认安装依赖或创建后台服务。
+
+DSH 并发计入主机、provider 和任务文件锁预算，不以“不占原生槽位”为由无限启动。只读任务优先；写入必须已分配互斥文件并满足设计门槛，结果由本仓 independent tests/review 验收。外部不可用不阻塞治理主路径。
+
+## 5. 任务状态、评审和证据
+
+任务状态：`backlog → ready → active → review → verified → done`；另有 `blocked`、`cancelled`。`ready` 要求依赖与契约已成立；`verified` 要求当前候选证据；`done` 由 PM 在集成和文档闭环后设置。
+
+能力状态另记：提议、已接受、已实现待验证、已验证。旧测试和历史 review 保留原候选身份，不把 checked box 或子 agent 的完成消息升级成当前产品通过。
+
+拟新增任务包 `docs/work-items/<id>.md`：目标、需求来源、基线和 dirty overlay、复杂度、依赖、精确写入集合、角色、接受依据、测试矩阵、失败、集成 owner、回退边界、剩余事项。review 放 `docs/reviews/`，记录 proposal/candidate SHA-256、实际实例/模型/effort、日期、verdict、问题与处理。
+
+摘要仅用于工作证据绑定，不进入 ACIR semantic identity、生成类名或 public model ABI；遵守 Decisions 0267/0268。OMX state 由相应工具维护，不用本地 receipt 伪装宿主授权。
+
+## 6. 清理与集成纪律
+
+先写 cleanup slice 和删除计划。行为不变的局部清理先以独立回归锁定行为；hard break 则区分保留行为、批准替换的行为、批准退役能力，不能锁死旧语法再被迫留下兼容路径。优先迁移 donor 主干，不先花大量时间拆分将被删除的旧实现。优先删除、复用与修复边界，不为搬 donor 增加一整层 wrapper。格式重排与语义变更分开。
+
+600 行规则拟用于新手写 C++/header/TableGen 文件，并建立现存大文件的债务清单与“不增长”约束。例外必须有具体原因、owner 和解除条件；不允许通过 include 碎片或空壳委托规避职责设计。Python 文件使用另列的职责拆解标准，不因 donor 只限制 C++ 而忽略 frontend。
+
+优先复用 GFSIM 前端、IR、C++ 方案，同时使共享 IR 贴近硬件、支撑 Verilog，Python 前端保持 Pythonic。新路线的名字/类型/效果/owner/调度分析统一由 MLIR 承担，Python 只 capture。最终只有一个 GFSIM C++ generator 和一个 Verilog backend；不得派发“统一 CLI、保留旧三套 lowering”的假清理。语义变更先 verifier/pass，两个 backend 同步验证；不能单独修 C++ emitter。任何接口变化先用户批准，再按批准范围 hard break，同步删除旧语法、接口、注册、测试和活跃文档；历史证据与 rejection fixture 明确标记。consumer 产品逻辑留在其仓库，缺陷归约成通用 framework fixture。
+
+旧路线只作为独立 revision 的历史基线，不进入最终安装包或新 driver fallback。M5 切换必须同时删除旧 source API、lowering/codegen、CMake targets、exports、模式开关和活跃文档；每个旧语义断言有继承或批准退役记录。
+
+gate 分层沿用[Testing and Gates](testing-and-gates.md)：轻量 required PR CI、focused native/semantic author evidence、release full closure。GFSIM “每次 compiler 修改跑所有 native 测试”的本仓外规则不直接移植；也不以减成本为由跳过适用门槛。
+
+每次验证记录 cwd、候选身份、toolchain、选项、命令、退出码、失败用例与日志；并行局部通过不能代替集成后通过。无变化且无新疑点不重复测试。独立代码审查覆盖集成新增差异，PM 对最终交付负责。
+
+## 7. 激活与维护
+
+M1 完成时，将本方案转成正式规则、增加 AGENTS/skill/docs 入口，记录范围与试运行结果。治理与未完成产品代码分别提交；不自动 push、merge 或发布。本轮不安装 global skill，不改 GFSIM，不创建 recurring automation。
+
+第一轮试运行后只根据真实冲突、等待、返工和验证缺口调整调度。规则的价值由正确完成一个纵向切片证明，不以增加角色、模板数量或审批次数证明。

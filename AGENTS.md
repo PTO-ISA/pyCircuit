@@ -21,6 +21,21 @@ of truth.
 - Consumer-specific compatibility and design work runs in the owning consumer
   repository, never in this framework tree (Decisions 0158 and 0235).
 
+## Modernization project management
+
+- Follow `docs/development/project-governance.md` and
+  `docs/development/pycircuit-modernization-plan.md` for modernization work.
+- Use the repo-local `$pycircuit-project-manager` skill for planning,
+  dispatch, integration, and acceptance, and `$pycircuit-design-review` for an
+  independent approval-readiness review.
+- Governance activation does not approve an interface change or supersede a
+  decision. Every Python, CLI, IR, cross-module, generated C++, runtime,
+  schema, diagnostic, timing, ownership, or error-contract change requires the
+  user's precise approval before implementation.
+- Keep design and validation, implementation and independent tests, and author
+  and reviewer as independent instances. Preserve current semantic constraints
+  until an approved contract explicitly cuts them over.
+
 ## Task mapping
 
 - Complex circuit authoring: choose the frontend and decomposition pattern in

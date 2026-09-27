@@ -38,6 +38,7 @@ product-specific testbench sources belong in consumer repositories.
 
 | Root | Ownership |
 | --- | --- |
+| `.codex/` | Repository-local PM and independent design-review skills; no credentials, generated state, or product runtime |
 | `schemas/` | Versioned machine-readable contracts, inventories, and registries |
 | `toolchains/` | Pinned external toolchain identities and lock metadata |
 | `packaging/` | SDK, archive, and wheel assembly and verification |

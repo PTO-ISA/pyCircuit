@@ -1,0 +1,4 @@
+git status --porcelain=v1 --untracked-files=normal
+git rev-parse HEAD
+git diff HEAD --binary
+# Per-component source path and donor approval-file content checks performed by PM Python inventory capture.

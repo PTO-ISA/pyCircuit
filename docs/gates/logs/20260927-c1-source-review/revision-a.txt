@@ -1,0 +1,203 @@
+# C1：唯一 Pythonic 源语言接口
+
+修订：A。状态：提案，待独立设计审阅和用户批准。适用项目：[单一路线迁移](../../development/pycircuit-modernization-plan.md)。
+
+本提案请求批准**新的 Python 源语言合同及旧 authoring 接口的 hard break 方向**。它不授予尚未定义的 C2 IR 属性/载体或 C3 CLI/runtime ABI 的实现批准；相应产品修改仍等待那些精确提案。它也不批准删去 memory、CDC、四态、异构静态参数和外部 DUT 能力。完整项目状态见[能力矩阵](../../work-items/migration-capabilities.md)。
+
+## 推荐决定
+
+采用 GFSIM 已批准修订 C 的对象式设计作为本仓源语言基线，只有 `module`、`rule`、`system` 三个领域装饰器。普通 class、method、record、标准类型注解与 Python 表达式描述意图；MLIR 负责名字、类型、效果、静态参数、连接与状态分析。Python 层只捕获语法与来源，不执行用户模型。
+
+源 import 为：
+
+```python
+from typing import Annotated
+from pycircuit import module, rule, system
+```
+
+三个名字均表示编译期源声明，不能建立另一条 eager Python 仿真路线。普通 Python 执行模型不是受支持的产品执行方式。`@system` 的完整测试动作合同归后续 C1/C3 扩展；M2 不依赖它，选一个普通 module 作为 root。实现未覆盖的源构造必须给出能力诊断，不回退到旧 compiler。
+
+来源：GFSIM `frontend/ObjectFrontendProposal.md` 和 `docs/API/proposals/signless-integer-codegen.md` 的精确修订 C，批准记录为 `docs/IR/approvals/object-frontend.md`。本仓[来源证据](../../gates/logs/20260927-migration-intake/source-inventory.json)绑定了实读内容。donor 的旧 pending 页眉不替代批准记录；donor 批准也不代替本仓用户批准。
+
+## 模块、构造函数与连接
+
+`@module` 无参数，装饰一个普通类。一个 implementation source 拥有一个 public module；普通记录与 private 纯 helper 可以同源。`@rule` 无参数，装饰 module 的方法。
+
+构造函数是静态描述。可分析的常量、有限 `if/for`、子实例构造和 rule 注册合法；文件/网络 I/O、动态 import、运行时改变拓扑、descriptor/metaclass、继承与动态多态不在此合同内。
+
+| 源形式 | 含义 |
+| --- | --- |
+| `self.input_value = incoming` | 将成员绑定到 constructor connection 实参，保留相同 state identity，不读 Q，不新建寄存器 |
+| `self.count: Word = 0` | 声明本实例拥有的状态及 reset image；初值必须是 MLIR 可证明的静态值 |
+| `self.child = Child(self.request, self.result)` | 声明独立子实例和连接，不执行 Python constructor |
+| `self.result = self.compute(self.request)` | 注册一条 rule，并把返回绑定到已声明/已绑定目标的 next |
+| `self.a, self.b = self.compute(...)` | 固定平坦 tuple 的逐项 next 绑定，目标数/类型/identity 必须匹配 |
+| `self.update()` | 注册无返回值 rule；不能丢弃一个数据返回值 |
+
+同一成员路径只做一次结构声明，后续不能改 owner、初值或成员种类。rule 返回绑定不是第二次结构声明。带注解的 state 初始化与不带注解的 connection alias 不混用：`self.copy: T = runtime_connection` 不是 alias，因 reset image 不是静态值而拒绝。
+
+连接方向由 MLIR 在 module scope 按效果得出：读 current 为 R，写 next 为 W，同时读写为 R+W；R+W 的两个物理端点共享同一 state identity。参数/字段的名字与前导下划线不决定方向。子模块端口转发不增加 relay storage 或额外周期。
+
+父模块编译时 import 子模块的 compiler-published interface，不读取子模块 Python/body AC。interface 的精确 MLIR schema、依赖求解顺序和 link 一致性检查归 C2；不能用 C1 批准绕过逐源编译。
+
+## rule 的值、时序与错误
+
+每条 rule 读取拍初的 committed current。局部变量赋值按普通 Python 顺序建立值依赖；持久成员赋值只提出 next。再次读取持久成员仍读 current，需要复用候选时使用局部变量。
+
+```python
+value = self.count
+value = value + 1
+self.count = value
+old_count = self.count  # 仍为 current，不是刚提交的候选
+```
+
+一条动态执行路径对同一 next target 最多驱动一次；重复连续赋值、重复 tuple target、跨 alias 重复 target 均拒绝，不能 last-write-wins。互斥分支可合并成一个 next 与 enable；无写的路径保持 current。
+
+多条 rule 并行定义行为，声明/遍历顺序不建立优先级。可同时 active 的同目标驱动必须证明互斥或使用另行批准的显式仲裁合同，否则拒绝或产生先于发布的明确 conflict failure。普通源算法可以表达选择，但 compiler 不替作者选 winner。
+
+rule 可以读取本实例合法 input/owned current、驱动合法 output/owned next；不得读写 child 内部状态或创建模块/持久状态。普通 helper 必须是纯值计算，可由 MLIR 内联，不得隐藏 persistent effects，也不得用 rule-to-rule call 暗建调度。
+
+有返回绑定的 rule 每条正常返回路径必须有同类型/结构的值；`None` 不表示“本次没有输出”。有条件 hold 用无返回绑定 rule 的条件成员赋值表达。标量形参重绑定是局部变量，不隐式写回调用者。
+
+source `assert` 和动态算术/index/range 错误按照 evaluation path 检查，而非乘以输出 fire。未被求值的短路分支不报其动态错误。发生源求值或 precommit 检查错误时，整个 source-owned tree 不执行 DriveNext，当前 step 进入失败状态，必须完整 Reset 后复用；不能把错误当成合法背压或吞掉继续运行。C2/C3 必须精确实现相应 IR check coverage 和 runtime failure 状态，再接纳这种执行路径。
+
+## 普通 record
+
+未装饰的普通类描述有序 nominal 数据记录。字段类型静态确定，constructor 必须初始化全部字段，可用有限默认值、关键字参数、嵌套 record 和纯值计算。
+
+record 是不可空逻辑值，不是 nullable host pointer；`None`、缺字段、未定义路径、夹带 module/state/resource handle、动态属性均拒绝。构造后不通过 current alias 原地改字段；更新持久记录时构造完整新值再赋给 owner。后端可使用共享存储实现，但指针/null 不成为源或 RTL 可观察语义。
+
+普通 `Enum`、固定 tuple/array 的完整扩展需给出对应 source/IR 合同；此提案不让它们因为当前 donor 未完全支持而被永久删除。
+
+## 有限数学整数
+
+采用 `Annotated[int, range(lo, hi)]`，表示 `lo <= value < hi`。允许等价简写 `range(hi)`；步长只能为 1，区间必须非空，边界为 MLIR 可求值的静态整数。`bool` 与 `range(2)` 是不同源类型。
+
+MLIR 选择能表示全部值的最小 N>=1；非负区间按 unsigned 解释，包含负数的区间按二补码 signed 解释。可执行 scalar state/port/temporary 的初始实现边界为 1..64 位；静态常量不受该运行时限制，record 总打包宽度也不等于一个 scalar 的上限。
+
+| 算子 | 精确合同 |
+| --- | --- |
+| `+ - *`、一元 `-` | 数学整数；按操作数区间推导足够中间宽度，在运算前扩展，不能由目标位宽或 C++ promotion 暗中回绕 |
+| `// %` | Python floor 语义，余数符号同除数；`-7//3 == -3`，`-7%3 == 2`；除零只在实际求值路径报错 |
+| `& \| ^ ~` | 无限二补码整数语义，扩展后运算；`~x == -x-1`，`-1 & 255 == 255` |
+| `<< >>` | 负 shift 为路径错误；左移按数学乘法，右移按 floor 除；大 shift 明确处理，不执行未定义 C++/IR shift |
+| 比较 | 先扩展到可同时表示两边的公共宽度；按源数学值比较，`255 > -1` 为真 |
+| `and or not`、条件表达式 | 条件为 bool；短路且未选中分支不提前求值 |
+| `int(bool)`、`int(integer)` | 0/1 转换或恒等；不是截断/位模式重解释 |
+| `/`、`**`、运行时浮点、隐式 bool 算术 | 初始合同拒绝，不能部分生成代码 |
+
+每个声明边界——字段、state、rule 参数/返回、next 赋值——检查区间。静态越界编译失败，动态越界在发布前失败；检查后才能缩窄。
+
+```python
+# x/out 为 range(256)
+self.out = self.x + 1         # x=255 时为区间错误，不能变成 0
+self.out = (self.x + 1) & 255 # 独立示例：x=255 时结果为 0
+```
+
+以上两行是不同模型的替代示例，不能同时驱动一个 target。完整 u64 加一需要 i65，未获证明的表达式必须拒绝；`(x+1) & ((1<<64)-1)` 可由 MLIR 等价证明改为 i64 低位方程，证明不能移除除零/index 等可观察错误。C++ signedness/format 表示归配套 C2/C3，不能在 codegen 猜测。
+
+这明确替换旧定宽算术接口。保留旧 wrap 行为的模型必须在迁移后的普通表达式中显式表示；不新增第二种兼容 arithmetic mode。
+
+## 固定集合与静态配置
+
+constructor 的固定 `list[T]` 字面量或有限 comprehension 声明固定集合。长度、元素类型、初值在编译时闭合；运行时 append/delete/reshape 不合法。动态索引在 MLIR 产生 evaluation-path bounds checks；collection 不是隐含 consuming FIFO。
+
+普通 constructor 参数按用途推导 static 或 connection，不能按名字、是否有默认值或实际传入常量猜测。静态用途包括结构个数、循环界限和依赖类型；连接按当前值/next 效果参与硬件。冲突分类明确拒绝。
+
+目标允许同一 module 的不同静态配置实例，由 MLIR specialization 处理：
+
+```python
+self.small = Bank(..., lanes=2)
+self.large = Bank(..., lanes=4)
+```
+
+此处 `...` 只省略与示意无关的 connection 实参，不是合法模型语法。相同 typed arguments 复用实现，不共享实例状态；不同配置仍由同一个 owning Python source/AC/C++ source group 发布，不能生成 per-case 文件或公开 parameter-value 类名。
+
+删除 authored `module_decl`、`finite_cases`、`case` 接口，使用生成的 source interface。dependent type/shape 与 family realization 的精确载体归 C2 后续包。donor 当前每 symbol 一组参数可作为 M2 实现阶段的明确限制，不能作为最终框架永久限制或用来关闭完整迁移目标。
+
+## 首个可执行源例与独立期望
+
+以下代码是提议的新语法，尚未实施或作为已编译示例发布。三个 source 分别编译，interface linking 由 C2/C3 定义。
+
+```python
+# packet.py：type-only source
+from typing import Annotated
+Word = Annotated[int, range(256)]
+
+class Request:
+    value: Word
+    valid: bool
+    def __init__(self, value: Word = 0, valid: bool = False):
+        self.value = value
+        self.valid = valid
+```
+
+```python
+# accumulator.py
+from pycircuit import module, rule
+from .packet import Request, Word
+
+@module
+class Accumulator:
+    def __init__(self, request: Request, result: Word):
+        self.request = request
+        self.result = result
+        self.total: Word = 0
+        self.result = self.accumulate(self.request)
+
+    @rule
+    def accumulate(self, item: Request) -> Word:
+        total = self.total
+        if item.valid:
+            total = (total + item.value) & 255
+            self.total = total
+        return total
+```
+
+```python
+# core.py：M2 普通 portless module root
+from pycircuit import module, rule
+from .packet import Request, Word
+from .accumulator import Accumulator
+
+@module
+class Core:
+    def __init__(self):
+        self.left_request: Request = Request(1, True)
+        self.right_request: Request = Request(2, True)
+        self.left_result: Word = 7
+        self.right_result: Word = 19
+        self.left = Accumulator(self.left_request, self.left_result)
+        self.right = Accumulator(self.right_request, self.right_result)
+        self.advance()
+
+    @rule
+    def advance(self):
+        self.left_request = Request(1, not self.left_request.valid)
+```
+
+| 观察 | left_result | right_result |
+| --- | --- | --- |
+| Reset 后 | 7 | 19 |
+| 第一拍 Work 后、Xfer 前 | 7 | 19 |
+| 第一拍 Xfer 后 | 1 | 2 |
+| 第二拍 Xfer 后 | 1 | 4 |
+| 第三拍 Xfer 后 | 2 | 6 |
+
+Reset 后重复该序列。期望向量由独立测试维护，不由 compiler 生成。首 gate 可用 donor 已有 `Print(std::ostream&) const` 的状态输出观测 C++，RTL 用仅供 gate 的 source-state 到 Q 路径映射，在 clock edge/NBA 前后采样。它们不改变状态、不携带预期、不成为公开 model observation ABI；精确生成/采样接口随 C2/C3 批准。
+
+M2 portless root 是启动验证的方法，不是最终输入/输出限制。外部 typed DUT 端口、真实 stimuli、多 clock stepping、source `system` 都是强制后续合同与完整验收工作。
+
+## 受影响的旧合同与 hard break
+
+C1 接受后登记新的待实现源合同；实际产品切换时同步 supersede Decision 0148 的 CAS/JIT/direct builder/occurrence 接口、0150 的多 frontend/ACPy 表面、以及相关旧 function-style Agentic 与 finite-case authoring 条款。0136 的 authoritative type/effect inference 迁到 MLIR。必要硬件行为由新表达和批准的扩展继承，不随源 API 删除。
+
+切换删除旧 exports、CLI source dispatch、Python semantic lowerers、旧接口例子/正例和 fallback；保留明确的拒绝测试和历史记录。所有动态驱动、数据类型、ABI 或 IR 变化还需 C2/C3 对应批准，不能从此 C1 提案推导无限实施权限。
+
+## 本次批准的范围与不在本次批准的范围
+
+建议用户批准本文件修订 A 的源语法、对象/record/current-next、数学整数、collection/static 参数方向及硬切换义务，允许据此完成相关 verifier/test 和后续具体 IR/SDK 设计。
+
+本次不批准：新的 IR op/type/attribute 精确形式、CLI/compile/link flags、source-header binary/schema、runtime ABI、memory/CDC/四态源绑定、完整 `system`/external-DUT 端口协议。它们分别进入 C2/C3 或后续扩展，并保持完整项目的 release 阻断条件。任何实现同时触及这些接口，必须等待其批准。
+
+独立设计 reviewer 必须检查合法/非法 source、例子的逐拍结果、范围/短路/错误语义、当前来源记录、hard-break 删除范围及本次批准边界，给出针对精确文件的 approval-ready 或 revise。PM 不能替用户批准。

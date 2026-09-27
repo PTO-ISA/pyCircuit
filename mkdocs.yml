@@ -108,6 +108,16 @@ nav:
       - Agent Frontend Guide: development/agent-frontend-guide.md
       - Agentic Circuit Open Design Resolutions: development/agentic-circuit-open-designs.md
       - Implementation Guide: development/implementation-guide.md
+      - Modernization Plan: development/pycircuit-modernization-plan.md
+      - Project Governance: development/project-governance.md
+      - Governance Proposal (Historical): development/project-governance-proposal.md
+      - Modernization Test Strategy: development/pycircuit-modernization-tests.md
+      - Modernization Plan Review: development/pycircuit-modernization-review.md
+      - Modernization Work Items: work-items/README.md
+      - Migration Execution Ledger: work-items/single-route-migration.md
+      - Migration Capabilities: work-items/migration-capabilities.md
+      - C2 Contract Inventory: work-items/migration-c2-contract-gaps.md
+      - Modernization Reviews: reviews/README.md
       - Contributing Workflow: development/contributing-workflow.md
       - Testing and Gates: development/testing-and-gates.md
       - Stable SDK Release Contract: development/sdk-release-contract.md
@@ -126,6 +136,7 @@ nav:
   - Decisions:
       - pyCircuit 6 Decisions: rfcs/pyc6-decisions.md
       - Evolution Plan: pyc6-plan.md
+      - C1 Pythonic Source Proposal: rfcs/migration/c1-pythonic-source.md
       - Tier Annotation RFC: rfcs/tier_annotation.md
       - Architecture Rule Compiler Extension: rfcs/architecture-rule-compiler-extension.md
       - Architecture Rule RTL and Verification Checklist: rfcs/ac-architecture-rule-rtl-verification-extension-checklist.md

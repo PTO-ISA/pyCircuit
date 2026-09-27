@@ -1,0 +1,175 @@
+{
+  "captured_at_utc": "2026-09-27T09:57:40.576754+00:00",
+  "purpose": "M0 B01 component/source inventory; not semantic identity or test evidence",
+  "target": {
+    "head": "8887e6dec7b4cc530a9967c860dc6a224d79a4ab",
+    "branch": "main",
+    "status_at_capture": "?? .omx-state-locks.identity.json\n?? .omx-state-locks/\n?? docs/development/project-governance-proposal.md\n?? docs/development/pycircuit-modernization-plan.md\n?? docs/development/pycircuit-modernization-review.md\n?? docs/development/pycircuit-modernization-tests.md\n?? examples/davo/",
+    "tracked_diff_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "checkout": "/Users/zhoubot/linx-isa/tools/pyCircuit",
+    "origin": "https://github.com/PTO-ISA/pyCircuit.git"
+  },
+  "donor": {
+    "head": "b852ed83fa0288d0be7406bba0ed47be4b2c0f63",
+    "branch": "codex/autonomous-core-bringup",
+    "status_at_capture": "M .codex/skills/gfsim-project-manager/SKILL.md\n M AGENTS.md\n M docs/Project-Governance.md\n?? .codex/agents/\n?? .codex/dsh/\n?? scripts/run_deepseek_subagent.py",
+    "tracked_diff_sha256": "7406bb60fa895cfb297a73afde8c80e1100e70db82440605eeaa4f9d8a192791",
+    "checkout": "/Users/zhoubot/Documents/GFSIM",
+    "origin": "https://github.com/LinxISA/GFSIM.git"
+  },
+  "donor_evidence_sha256": {
+    "frontend/ObjectFrontendProposal.md": "b0b5265f3b813b022bbcbf28091204478699c086af69c2f3fe94e385926747ae",
+    "docs/API/proposals/signless-integer-codegen.md": "b219db671bc54be35471a16d823bbbe4c019dbc1649a907cce25c4c65bab1229",
+    "docs/IR/approvals/object-frontend.md": "d581d728588527a1a1c7fb8ffe42d71e4c2ef2750f2138176cffa6a118f45a06",
+    "docs/Project-Governance.md": "6191448b5f7c93daf1bae9396799d98d889aaecd1a877d6fc0f7df3653db0f77",
+    "AGENTS.md": "e807c8173fd97167e4f0925e16c22d1840a9cb836561f7acd63fc35f14beff55",
+    ".codex/skills/gfsim-project-manager/SKILL.md": "b565b8820561d357519c81da4881b208bad009ac1adda8b303ce67a9cd604964",
+    ".codex/agents/gfsim_deepseek.toml": "4540e05fed66b026f326805cc27438d704f7ab50280b90551050efab4c4bab47",
+    ".codex/dsh/deepseek-flash.patch.yml": "ed4a48a0e3c1f812f012a1eaa053f4ef95d825cfd27f92e39cfb8a040592f426",
+    "scripts/run_deepseek_subagent.py": "65a01e6c0f9e68504d6262c59bf4e3d19d636e0235361a0ad1acc4c6084221e1"
+  },
+  "donor_license_file_inventory": [],
+  "source_reuse_authority": "User directed migration from their referenced donor checkout; no third-party license or public redistribution claim inferred. Resolve provenance/attribution for copied files before publication.",
+  "components": [
+    {
+      "id": "capture",
+      "donor_paths": [
+        "frontend/python/gfsim_frontend"
+      ],
+      "target_paths": [
+        "python/agentic-circuit/src/agentic_circuit/_capture_worker.py"
+      ],
+      "planned_action": "adapt source-unit capture; replace semantic Python capture path",
+      "adoption_status": "inventory-only; exact contracts pending user approval",
+      "donor_path_exists": {
+        "frontend/python/gfsim_frontend": true
+      },
+      "target_path_exists": {
+        "python/agentic-circuit/src/agentic_circuit/_capture_worker.py": true
+      }
+    },
+    {
+      "id": "source-analysis",
+      "donor_paths": [
+        "compiler/acir/lib/PythonLower.cpp",
+        "compiler/acir/lib/ImportPython.cpp",
+        "compiler/acir/lib/PythonObjectSemantics.cpp"
+      ],
+      "target_paths": [
+        "python/agentic-circuit/src/agentic_circuit/_queue_compiler",
+        "python/pycircuit/src/pycircuit/jit.py"
+      ],
+      "planned_action": "migrate MLIR importer/analysis; retire Python semantic lowerers after approved cutover",
+      "adoption_status": "inventory-only; exact contracts pending user approval",
+      "donor_path_exists": {
+        "compiler/acir/lib/PythonLower.cpp": true,
+        "compiler/acir/lib/ImportPython.cpp": true,
+        "compiler/acir/lib/PythonObjectSemantics.cpp": true
+      },
+      "target_path_exists": {
+        "python/agentic-circuit/src/agentic_circuit/_queue_compiler": true,
+        "python/pycircuit/src/pycircuit/jit.py": true
+      }
+    },
+    {
+      "id": "acir-passes",
+      "donor_paths": [
+        "compiler/acir/lib/Passes.cpp",
+        "compiler/acir/lib/VerifyFinal.cpp"
+      ],
+      "target_paths": [
+        "compiler/acir/lib/Transforms"
+      ],
+      "planned_action": "donor-first shared pass chain; preserve applicable independent checks",
+      "adoption_status": "inventory-only; exact contracts pending user approval",
+      "donor_path_exists": {
+        "compiler/acir/lib/Passes.cpp": true,
+        "compiler/acir/lib/VerifyFinal.cpp": true
+      },
+      "target_path_exists": {
+        "compiler/acir/lib/Transforms": true
+      }
+    },
+    {
+      "id": "cpp",
+      "donor_paths": [
+        "compiler/acir/lib/CodeGenDriver.cpp",
+        "compiler/acir/lib/CodeGenLifecyclePhases.cpp"
+      ],
+      "target_paths": [
+        "compiler/acir/lib/CodeGen/QueueGraphGenerator.cpp",
+        "compiler/mlir/lib/Emit/CppEmitter.cpp"
+      ],
+      "planned_action": "replace both old generator routes with one donor-style final-IR backend",
+      "adoption_status": "inventory-only; exact contracts pending user approval",
+      "donor_path_exists": {
+        "compiler/acir/lib/CodeGenDriver.cpp": true,
+        "compiler/acir/lib/CodeGenLifecyclePhases.cpp": true
+      },
+      "target_path_exists": {
+        "compiler/acir/lib/CodeGen/QueueGraphGenerator.cpp": true,
+        "compiler/mlir/lib/Emit/CppEmitter.cpp": true
+      }
+    },
+    {
+      "id": "runtime",
+      "donor_paths": [
+        "include",
+        "src"
+      ],
+      "target_paths": [
+        "simulator/gfsim",
+        "library/cpp"
+      ],
+      "planned_action": "qualify primitive subset and exact ABI before adoption; no consumer runtime assets",
+      "adoption_status": "inventory-only; exact contracts pending user approval",
+      "donor_path_exists": {
+        "include": true,
+        "src": true
+      },
+      "target_path_exists": {
+        "simulator/gfsim": true,
+        "library/cpp": true
+      }
+    },
+    {
+      "id": "rtl",
+      "donor_paths": [],
+      "target_paths": [
+        "compiler/mlir/lib/Emit/VerilogEmitter.cpp",
+        "compiler/mlir/lib/Transforms/SelectRtlPrimitivesPass.cpp",
+        "library/verilog"
+      ],
+      "planned_action": "reuse RTL assets behind shared final hardware IR; no donor RTL implementation",
+      "adoption_status": "inventory-only; exact contracts pending user approval",
+      "donor_path_exists": {},
+      "target_path_exists": {
+        "compiler/mlir/lib/Emit/VerilogEmitter.cpp": true,
+        "compiler/mlir/lib/Transforms/SelectRtlPrimitivesPass.cpp": true,
+        "library/verilog": true
+      }
+    },
+    {
+      "id": "source-units",
+      "donor_paths": [],
+      "target_paths": [
+        "compiler/acir",
+        "tools/agentic-circuit"
+      ],
+      "planned_action": "retain one source unit and header-only parent contract; adapter design pending",
+      "adoption_status": "inventory-only; exact contracts pending user approval",
+      "donor_path_exists": {},
+      "target_path_exists": {
+        "compiler/acir": true,
+        "tools/agentic-circuit": true
+      }
+    }
+  ],
+  "product_validation": "delegated to baseline_verification; no pass assumed from existing build trees",
+  "preserved_unrelated_paths": [
+    ".omx-state-locks.identity.json",
+    ".omx-state-locks/",
+    "examples/davo/"
+  ],
+  "omx_legacy_state": "Existing .omx/ultragoal belongs to earlier architectural/SSM work with G013-G015 pending; left untouched. This migration uses active native Goal and versioned work items."
+}

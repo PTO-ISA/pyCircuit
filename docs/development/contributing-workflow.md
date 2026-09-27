@@ -4,6 +4,11 @@ pyCircuit is a hardware design and compile-flow repository. Changes are expected
 to preserve semantic contracts, keep gate evidence current, and stay aligned
 with the current pyCircuit 6 CycleAwareSignal authoring contract.
 
+Modernization work also follows [Project Governance](project-governance.md) and
+the [modernization plan](pycircuit-modernization-plan.md). Governance activation
+does not approve an interface change; retain current contracts until the user
+approves an exact replacement.
+
 ## Core principles
 
 - Read the decision corpus before changing semantics:

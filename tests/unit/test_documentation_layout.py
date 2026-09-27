@@ -20,7 +20,9 @@ DOC_SECTIONS = {
     "legal",
     "reference",
     "research",
+    "reviews",
     "rfcs",
+    "work-items",
 }
 ROOT_PAGES = {"index.md", "pyc6-plan.md"}
 

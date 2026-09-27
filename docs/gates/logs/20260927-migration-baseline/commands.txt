@@ -1,0 +1,104 @@
+Source: 8887e6dec7b4cc530a9967c860dc6a224d79a4ab
+Working directory: /Users/zhoubot/linx-isa/tools/pyCircuit
+
+# Python G0 environment discovery
+.venv/bin/python -m pytest tests/unit -m unit
+# rc=1: .venv has no pytest module
+
+pytest tests/unit -m unit
+# rc=1: 215 passed, 2 failed; one failure was missing pycircuit in the runner
+
+PYTHONPATH="$PWD/python/pycircuit/src:$PWD/python/semantic-core/src" pytest tests/unit -m unit
+# rc=1: 216 passed, 1 dirty-governance-document failure
+
+# Agentic Python G0; all commands used AC_PYTHON_ONLY=1 and
+# PYTHONPATH="$PWD/python/semantic-core/src:$PWD/python/agentic-circuit/src:$PWD/tests/python/agentic-circuit"
+.pycircuit_out/agentic-circuit/venv/bin/python tools/agentic-circuit/check-contracts.py
+# rc=1: zero-content-identity violation in untracked governance document
+
+.pycircuit_out/agentic-circuit/venv/bin/python -m unittest discover -s tests/python/agentic-circuit/contracts -p 'test_*.py'
+# rc=1: 28 passed, 1 failed with the same governance-document violation
+
+.pycircuit_out/agentic-circuit/venv/bin/python -m unittest discover -s tests/python/agentic-circuit/python_frontend -p 'test_*.py'
+# rc=1: 415 passed, 7 skipped, 5 native QueueGraph failures; default stale native build
+
+.pycircuit_out/agentic-circuit/venv/bin/python -m unittest discover -s tests/python/agentic-circuit/cli -p 'test_all_commands.py'
+# rc=0: 1 passed
+
+.pycircuit_out/agentic-circuit/venv/bin/python -m unittest discover -s tests/python/agentic-circuit/cli -p 'test_workspace.py'
+# rc=0: 5 passed
+
+# Integrated native build configuration and rebuild
+cmake -S . -B .pycircuit_out/toolchain/build-llvm22-autodetect -DPYC_BUILD_AGENTIC_CIRCUIT_TESTS=ON -DACIR_LIT_EXECUTABLE="$PWD/.pycircuit_out/agentic-circuit/venv/bin/lit"
+# rc=0
+
+cmake --build .pycircuit_out/toolchain/build-llvm22-autodetect --target acir-opt acc acir-queue-cxxgen acir-queue-pycgen pycc -j 6
+# rc=0; repeated after the first background build and reported no work
+
+cmake --build .pycircuit_out/toolchain/build-llvm22-autodetect --target GfsimTests ACIRTypesTests ACIROpsTests CodeGenTests CompilerTests -j 6
+# rc=0
+
+cmake --build .pycircuit_out/toolchain/build-llvm22-autodetect --target acir-opt-internal acir-queue-plan acir-queue-cxxgen acir-queue-pycgen acc _native.so pycc -j 6
+# rc=0
+
+# Focused C++ tests
+.pycircuit_out/toolchain/build-llvm22-autodetect/bin/ACIRTypesTests --gtest_filter='ACIRTypesTest.QueueVarTypesRoundTripWithImmutablePayloads:ACIRTypesTest.StaticQueueVarCollectionsRoundTrip'
+.pycircuit_out/toolchain/build-llvm22-autodetect/bin/ACIROpsTests --gtest_filter='ACIROpsTest.SemanticPrimitiveWidthsAcceptOneTo64AndReject65To130:ACIROpsTest.ModulePortMetadataPrintsAndReparsesCanonically'
+.pycircuit_out/toolchain/build-llvm22-autodetect/bin/GfsimTests --gtest_filter='UIntTest.*:QueueBlocksTest.StatefulTableReadsOldDataAndCommitsWriteAtTickEnd:GfsimComponentsTest.LinkForwardsValue'
+.pycircuit_out/toolchain/build-llvm22-autodetect/bin/CodeGenTests --gtest_filter='QueueGraphPlanTest.BuildsUnusedDeclaredFamilyCaseBodyPlans:QueueGraphPlanTest.PreservesNestedSpecializationReuseWithoutFlatteningChildBodies:QueueGraphPlanTest.StructuredQueueStorageUsesValueAt64BitsAndImmutableSharedAt65Bits:QueueGraphPlanTest.EmitsCanonicalScalarQueuePyc'
+.pycircuit_out/toolchain/build-llvm22-autodetect/bin/CompilerTests --gtest_filter='CompilerDriverTest.PublishesOneDirectSourceOwnedUnitAndInterface:CompilerDriverTest.RejectsWholeDesignPostCompileSplitting'
+# combined rc=0: 20 passed
+
+# Focused MLIR/C++/Verilog tests
+.pycircuit_out/agentic-circuit/venv/bin/lit -sv --filter='(ACIR/static-family-attributes\.mlir|CodeGen/(acc-driver|acc-package-driver|bit-widths|family-hard-break-absence|queue-family-child-cxx|queue-lanes-pyc)\.mlir)$' .pycircuit_out/toolchain/build-llvm22-autodetect/compiler/acir/tests/mlir
+# first rc=1: 1 passed, 6 failed because acir-opt-internal/native extension had not been built
+# final rc=0 after the prerequisite build: 7 passed
+
+# Frontend rerun with current integrated opt/cxxgen/native extension
+AC_PYTHON_ONLY=1 ACIR_OPT="$PWD/.pycircuit_out/toolchain/build-llvm22-autodetect/bin/acir-opt-internal" ACIR_QUEUE_CXXGEN="$PWD/.pycircuit_out/toolchain/build-llvm22-autodetect/bin/acir-queue-cxxgen" GFSIM_LIBRARY="$PWD/.pycircuit_out/toolchain/build-llvm22-autodetect/compiler/acir/gfsim/libgfsim.a" PYTHONPATH="$PWD/python/semantic-core/src:$PWD/python/agentic-circuit/src:$PWD/tests/python/agentic-circuit:$PWD/.pycircuit_out/toolchain/build-llvm22-autodetect/compiler/acir/python" .pycircuit_out/agentic-circuit/venv/bin/python -m unittest discover -s tests/python/agentic-circuit/python_frontend -p 'test_*.py'
+# rc=1: 423 passed, 1 failure, 3 errors; multi-unit tests hardcoded a different acc build
+
+# Standalone current-source recovery build
+cmake -S compiler/acir -B .pycircuit_out/acir/dev-llvm22 -DACIR_BUILD_TESTING=ON -DACIR_LIT_EXECUTABLE="$PWD/.pycircuit_out/ac-venv/bin/lit"
+# rc=0; Debug, current checkout, LLVM/MLIR 22.1.8
+
+cmake --build .pycircuit_out/acir/dev-llvm22 --target clean
+cmake --build .pycircuit_out/acir/dev-llvm22 --target acc acir-opt-internal acir-queue-plan acir-queue-cxxgen acir-queue-pycgen _native.so gfsim -j 6
+# combined rc=0; 68 current-source build steps
+
+# First hardcoded tool-path recovery build
+cmake -S . -B .pycircuit_out/toolchain/build -DPYC_BUILD_AGENTIC_CIRCUIT_TESTS=ON -DACIR_LIT_EXECUTABLE="$PWD/.pycircuit_out/ac-venv/bin/lit"
+ninja -C .pycircuit_out/toolchain/build -t clean acc acir-opt-internal acir-queue-cxxgen _native.so gfsim
+cmake --build .pycircuit_out/toolchain/build --target acc acir-opt-internal acir-queue-cxxgen _native.so gfsim -j 6
+# combined rc=0; Release, current checkout, LLVM/MLIR 22.1.8, 64 build steps
+
+AC_PYTHON_ONLY=1 ACIR_OPT="$PWD/.pycircuit_out/toolchain/build/bin/acir-opt-internal" ACIR_QUEUE_CXXGEN="$PWD/.pycircuit_out/toolchain/build/bin/acir-queue-cxxgen" GFSIM_LIBRARY="$PWD/.pycircuit_out/toolchain/build/compiler/acir/gfsim/libgfsim.a" PYTHONPATH="$PWD/python/semantic-core/src:$PWD/python/agentic-circuit/src:$PWD/tests/python/agentic-circuit:$PWD/.pycircuit_out/toolchain/build/compiler/acir/python" .pycircuit_out/agentic-circuit/venv/bin/python -m unittest discover -s tests/python/agentic-circuit/python_frontend -p 'test_*.py'
+# rc=0: 426 passed, 1 skipped
+
+# Post-governance-integration reruns
+AC_PYTHON_ONLY=1 PYTHONPATH="$PWD/python/semantic-core/src:$PWD/python/agentic-circuit/src:$PWD/tests/python/agentic-circuit" .pycircuit_out/agentic-circuit/venv/bin/python tools/agentic-circuit/check-contracts.py
+# rc=0: repository contracts OK
+
+AC_PYTHON_ONLY=1 PYTHONPATH="$PWD/python/semantic-core/src:$PWD/python/agentic-circuit/src:$PWD/tests/python/agentic-circuit" .pycircuit_out/agentic-circuit/venv/bin/python -m unittest discover -s tests/python/agentic-circuit/contracts -p 'test_*.py'
+# rc=0: 29 passed
+
+PYTHONPATH="$PWD/python/pycircuit/src:$PWD/python/semantic-core/src" pytest tests/unit -m unit
+# rc=1: 216 passed, 1 repository-layout failure; staged .codex is an undocumented top-level root
+
+# Final unit rerun after repository-layout registration
+PYTHONPATH="$PWD/python/pycircuit/src:$PWD/python/semantic-core/src" pytest tests/unit -m unit
+# rc=0: 217 passed
+
+# Executable dual-backend candidates
+.pycircuit_out/agentic-circuit/venv/bin/lit -sv --filter='CodeGen/family-python-multilane-backends\.mlir$' .pycircuit_out/toolchain/build-llvm22-autodetect/compiler/acir/tests/mlir
+# rc=1: failed before backend emission with ACIR-EMIT-002 cross-source body ownership
+
+.pycircuit_out/agentic-circuit/venv/bin/lit -sv --filter='CodeGen/architecture-obligation-backends\.mlir$' .pycircuit_out/toolchain/build-llvm22-autodetect/compiler/acir/tests/mlir
+# first rc=1: stale pyc-opt rejected current pyc.cmp
+
+ninja -C .pycircuit_out/toolchain/build-llvm22-autodetect -t clean pyc-opt pycc
+cmake --build .pycircuit_out/toolchain/build-llvm22-autodetect --target pyc-opt pycc -j 6
+# combined rc=0: rebuilt current-source PYC optimizer and both emitters
+
+.pycircuit_out/agentic-circuit/venv/bin/lit -sv --filter='CodeGen/architecture-obligation-backends\.mlir$' .pycircuit_out/toolchain/build-llvm22-autodetect/compiler/acir/tests/mlir
+# final rc=0: generated C++ executed; Verilator pass/fail binaries executed; checks agreed
