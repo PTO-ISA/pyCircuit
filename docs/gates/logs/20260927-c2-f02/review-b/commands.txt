@@ -1,0 +1,4 @@
+cmake --build .pycircuit_out/c2-f01/build --target ACIRSourceContractsTests ACIRTypesTests acir-opt-internal -j2
+.pycircuit_out/c2-f01/build/bin/ACIRSourceContractsTests --gtest_brief=1
+.pycircuit_out/c2-f01/build/bin/ACIRTypesTests --gtest_brief=1
+.pycircuit_out/c2-f01/venv/bin/lit -sv --filter='PyCircuitMLIR :: ACIR/(c2-source-contracts(-invalid)?|types-(valid|invalid))\.mlir$' .pycircuit_out/c2-f01/build/tests/mlir

@@ -2,15 +2,15 @@
 
 状态：能力清单与验收责任；不是产品完成声明。[C1-C](../rfcs/migration/approvals/c1-pythonic-source.md) 与 [C2-C/C3-C](../rfcs/migration/approvals/c2-c3-foundation.md) 已获用户精确批准。三份冻结合同覆盖基础能力，尚未覆盖的扩展单独审阅批准。完整范围见[主计划](../development/pycircuit-modernization-plan.md)，实施状态见[账本](single-route-migration.md)。
 
-合同批准、实现、执行证据分别记录。当前已独立验证私有单文件捕获和 C2-F01 基础 MLIR 属性/类型/记录校验；尚无新编译主干的完整执行闭环。现有旧路线的基线不证明新路线已保留该能力。下表每行都必须在完整迁移验收前关闭，未批准扩展不能因为 donor 缺失就默认退役或延期。
+合同批准、实现、执行证据分别记录。当前已独立验证私有单文件捕获和 C2-F01/F02 基础 MLIR 属性、类型、静态值和记录匹配；尚无新编译主干的完整执行闭环。现有旧路线的基线不证明新路线已保留该能力。下表每行都必须在完整迁移验收前关闭，未批准扩展不能因为 donor 缺失就默认退役或延期。
 
 ## 能力与证据责任
 
 | 能力 | 现行依据与迁移处置 | 合同/批准状态 | 实现/证据状态 | 验收与 owner |
 | --- | --- | --- | --- | --- |
 | 单一 Pythonic module/rule 前端 | 0148/0150；用普通对象源替换 CAS/JIT/builder/function-style Agentic 接口，保留所需硬件能力 | C1-C 源合同已批准；system 不在本行 | 私有单文件捕获已验证，public route 未切换 | frontend/import；[36 focused、253 unit 与独立 review](../gates/logs/20260927-c1-capture/review.md)，仍需 importer、旧入口拒绝与 installed route |
-| 数学整数/范围/位运算 | 0246/0247；从隐式定宽回绕改为数学中间值、边界检查与显式 mask，属于已批准语义替换 | C1-C/C2-C 已批准 | MathInt 属性/临时类型已在 [F01](../gates/logs/20260927-c2-f01/integration/results.md) 验证；运算/proof/双后端未实现 | MLIR + independent tests；signed/floor div/rem、短路错误、shift、u64 超宽及低位 proof |
-| bool 与普通 nominal record | 0212–0215、0255/0256 的类型/值能力保留；不可空、完整初始化、不可原地更新 | C1-C/C2-C 已批准 | capture fixture 仅解析；constructor/header/record lowering 未验证 | frontend/MLIR；默认值/kwargs、身份/字段/投影/范围、打包布局和双后端 |
+| 数学整数/范围/位运算 | 0246/0247；从隐式定宽回绕改为数学中间值、边界检查与显式 mask，属于已批准语义替换 | C1-C/C2-C 已批准 | [F01](../gates/logs/20260927-c2-f01/integration/results.md) MathInt 与 [F02](../gates/logs/20260927-c2-f02/integration/results.md) 最小类型/静态值匹配通过；运算/proof/双后端未实现 | MLIR + independent tests；signed/floor div/rem、短路错误、shift、u64 超宽及低位 proof |
+| bool 与普通 nominal record | 0212–0215、0255/0256 的类型/值能力保留；不可空、完整初始化、不可原地更新 | C1-C/C2-C 已批准 | F02 结构与注入 resolver 匹配通过；constructor/header/record lowering 未验证 | frontend/MLIR；默认值/kwargs、身份/字段/投影/范围、打包布局和双后端 |
 | Enum 与完整 tuple/value array | 0252–0256 相关值类型能力不能随旧 DSL 消失 | 扩展未批准；C1 明确未定义完整绑定 | 完整迁移阻断项 | architect + MLIR/tests；编码/非法值、不可变聚合、布局、两 backend 独立 oracle |
 | fixed owned/reference list 与静态循环 | 0252–0254 的固定集合硬件能力采用 C1 新表达；负 index 拒绝、声明正长度、逐 ordinal effects | C1-C/C2-C 已批准；不等于全部 tuple/array 扩展 | 未实现新 source→MLIR 路径 | frontend/MLIR；零次循环局部值、bounds、alias、非均匀 reset image、2/4 特化 |
 | 普通 constructor 静态配置/多特化 | 0275–0278 的 typed identity/实例独立性保留；人工 finite_cases/case 源接口及旧 carrier 退役 | C1-C/C2-C/C3-C 已批准 | Bank 2/4 独立 oracle 已定义，backend UNRUN | MLIR/backend；同参数复用代码、异参数同时实例化、同源一个文件组，无 per-case 文件 |

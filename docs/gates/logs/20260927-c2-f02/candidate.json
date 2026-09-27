@@ -1,0 +1,22 @@
+{
+  "base": "9c1a3502",
+  "checkout": "/Users/zhoubot/.codex/worktrees/migration-capture/pyCircuit",
+  "worktree_commit": "34abbb6c",
+  "integration_commit": "29b424bf",
+  "files": {
+    "compiler/acir/lib/Dialect/ACIR/ACIRSourceContracts.h": "f6e312a99a3ddec5425da4791cb0ebd42f87fa7942cd2324b94359fd7ccbf405",
+    "compiler/acir/lib/Dialect/ACIR/ACIRSourceContracts.cpp": "ce3021758c58af0b1ae698d14218fa118b998324882227c74b5df2cf5f0b201e",
+    "compiler/acir/lib/Dialect/ACIR/ACIRValueContracts.cpp": "bb43e383ac1536f2dd4710b103b53f1a52fdf51f1f8e151d020d735410a05517",
+    "compiler/acir/lib/Dialect/ACIR/CMakeLists.txt": "078b30b0a63bcc355662c044e5c36c4d6df83982c2101596897cc03aa2658793",
+    "tests/cpp/agentic-circuit/Dialect/ACIR/SourceTypeContractsTest.cpp": "4f180578b53adca5e031bfd5ee2e75c171216666cdf95b38e3b9e4928c18adbc",
+    "tests/cpp/agentic-circuit/Dialect/ACIR/SourceStaticMatchingTest.cpp": "a8c82f78f84de37bc9a669da9b59473492b9d189358b3d533e6e246906e82054",
+    "tests/cpp/agentic-circuit/Dialect/ACIR/CMakeLists.txt": "dc413a95eefbf29f72ab1a17de597a9dc79458b0f90551cb97a9903695dea3a9"
+  },
+  "review": "PASS; governance_review, gpt-5.6-sol, high; review-b",
+  "review_manifest_sha256": "fc26eef7acf2977ceb063d92f9bc1ae34b8aca4ee9df5b52b20b02a59cfc6f19",
+  "implementation": "governance_impl, gpt-5.6-sol, medium",
+  "independent_tests": "baseline_verification, gpt-5.6-sol, medium",
+  "toolchain": "LLVM/MLIR22.1.8, current-checkout Debug/assertions build; no copied native artifacts",
+  "scope": "C2-F02 private structure and injected nominal-resolver matching; no actual header authority/import/link/backend",
+  "integration_content_check": "All seven primary files match independently reviewed worktree bytes"
+}

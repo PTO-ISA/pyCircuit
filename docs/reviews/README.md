@@ -30,3 +30,4 @@ approval. It is not approval of the interface or authorization to implement it.
 - [C3 driver/runtime proposal revision C](../gates/logs/20260927-c3-review/revision-c-review.md): approval-ready; [user approval recorded](../rfcs/migration/approvals/c2-c3-foundation.md).
 - [Capability and retirement inventory audit](../gates/logs/20260927-capability-inventory/revision-b-review.md): PASS for inventory completeness/status; no product validation.
 - [C2-F01 foundational MLIR implementation](../gates/logs/20260927-c2-f01/review-b/summary.md): independent Sol high review PASS; [primary-checkout integration](../gates/logs/20260927-c2-f01/integration/results.md) passed 17 GTest and 4 lit cases.
+- [C2-F02 private type/value contracts](../gates/logs/20260927-c2-f02/review-b/summary.md): independent Sol high review PASS; [primary integration](../gates/logs/20260927-c2-f02/integration/results.md) passed 34 GTest and 4 lit cases; real header authority remains pending.
