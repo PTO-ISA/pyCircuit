@@ -22,6 +22,7 @@
 | I01 私有单文件源码捕获 | done | 隔离 checkout；governance_impl 实现（Sol medium），baseline_verification 独立测试（Sol medium） | 36 focused / 253 unit 通过、独立 Sol high code-review PASS，集成 `30e4f709`；[证据](../gates/logs/20260927-c1-capture/review.md)。不接 C2/C3/公开入口；Luna 派发受 thread limit 阻断，实际使用 Sol |
 | I02 C2-F01 MLIR 基础 | done | 隔离 checkout b3df12ad；governance_impl 实现、baseline_verification 独立测试，均 Sol medium | 已集成 d104dae0；独立 Sol high review PASS，17 GTest + 4 lit 通过，主 checkout 重建复验相同 21 项；[证据](../gates/logs/20260927-c2-f01/integration/results.md)。仅基础属性/类型与私有验证器，不代表 C2 pipeline 闭合 |
 | I03 C2-F02 类型/静态值 | done | 隔离 checkout 9c1a3502；governance_impl 实现、baseline_verification 独立测试，均 Sol medium | 已集成 29b424bf；独立 Sol high review PASS；主 checkout 28+6 GTest 与4 lit通过，[证据](../gates/logs/20260927-c2-f02/integration/results.md)。只验证结构与注入 resolver 匹配，真实 header authority 待接入 |
+| I04 C2-F03 identity | active | 隔离 checkout 8f7bd5bb；governance_impl 实现、baseline_verification 独立测试，均 Sol medium | SourceOwner、展开/发生位置、SpecKey 与 proof/owner/state IDs 私有结构验证；完成后进入真实 Packet header，不以此声称 unit/link 已验证 |
 | 用户接口批准 | partial | 用户 | C1-C、C2-C、C3-C 均已批准；其范围外的硬件扩展仍须精确批准 |
 
 所有 writer 共享 checkout 且有互斥文件归属；ODS/CMake/product source 此刻未派发写入。native build 由 baseline owner 统一操作，其他 lane 不用同一输出目录构建。
@@ -72,3 +73,22 @@ C2-F01 由 governance_impl（Sol medium）只读分解，C2-C 已获批准，此
 私有 resolver 提供所请求 record 的 ordered LogicalType fields；F02 检查未知/错误 symbol、字段类型、active/done 区分按值循环与共享 DAG。真实 header authority、SourceOwner/import snapshot 一致性由后续 source-unit 包接入，F02 的注入 resolver 测试不能替代它。
 
 实现可新增独立 ACIRValueContracts.cpp，复用私有 SourceContracts 声明与 MathInt/u64 helper，避免把已完成的基础文件扩成大文件。实现者负责 lib CMake 注册，独立测试作者负责 SourceTypeContractsTest.cpp 及其测试 target 注册；两者互斥文件归属，build 串行移交。不得额外增加非空 symbol/name、固定递归层数、任意元素数量上限或 record 总宽度64限制。
+
+## 下一整合目标：实际逐源闭环
+
+architect 已完成 F03 和后续主干分解。F03 只补一次 SourceOwner/Occurrence/ExpansionFrame/SpecKey 与 proof/owner/state identity 的私有结构验证，随后转入实际 Packet 源码生成 header；不继续以孤立字典测试替代 source→IR→backend 进展。
+
+| 工作包 | 依赖与可执行出口 | 主要复用/替换 |
+| --- | --- | --- |
+| F03 identity | F02；闭合记录正反例，context 义务留给 unit/link | 复用 Site、StaticValue、u64 helpers，不新建公开 AttrDef |
+| U01 Packet header | F03；Packet.py 真正产生 body/interface，header 单独支持 Request 默认值/kwargs/字段读取 | donor ImportPython/PythonScope/PythonConstants/ObjectSemantics/RecordSemantics/LowerEmit；接真实 header resolver |
+| U02 Accumulator/Core 单元和 link | U01；三个 source 各自 producer，parent 仅读 header，link 才读 bodies；重复 child 独立 state | donor rule analysis/lowering/initialization、link 装载图算法；补 C2 authority/snapshot/SpecKey |
+| U03 共同 final IR | U02；原样 C1 arithmetic/current-next，经 source-math、check/use/target proof 到可重验 final IR | 补 donor 对象 BinOp、integer-format/evaluation-path 缺口；不能调用旧 QueueGraph 文本链 |
+| B01 C++/runtime 与 B02 RTL | 同依赖 U03，可独立并行；同一 final IR 执行独立 oracle | donor CodeGen/SimSystem 固定树；target VerilogEmitter/pyc.reg 与必要分析；适配 SourceOwner/SpecKey/data-enable |
+| C3 driver/CMake 整合 | 发布事务可先开发；集成依赖 U02/B01/B02 | 获批 compile/link/emit、三 producer、每源 TU、ABI/reset/error/目录恢复 |
+
+U01 的同名 schema 冲突须在隔离 migration 候选中一次替换：一个 ac dialect、同名 op 仅获批 C2 形式，更新 ODS/builders/verifiers/调用者；候选 CMake 不再编译或链接依赖旧 schema 的 semantic pipelines。不得添加新旧选择开关、ac2 dialect 或旧 lowerer fallback。旧产品和候选处于不同 revision，候选完成 M5 前不正式安装/发布；暂不编译的旧文件不等于 M5 已删除。
+
+首个普通状态闭环坚持 C1 oracle：Reset 为 (7,19)，Work 后仍 (7,19)，三次 Xfer 为 (1,2)/(1,4)/(2,6)，Reset 后重跑。它不能关闭 M2 尚需单独资源合同的 Queue 用例，更不能关闭全框架目标。
+
+固定 reference-list 的本地显式元素给出具体长度；constructor 中与参数无关的 literal len 约束可按 donor 对象式设计在 MLIR 提取。依赖 static 参数的 formal-list 长度属于尚未批准的 dependent-interface 扩展；裸 list 参数若无可闭合长度，不从某个 caller actual、默认值或最大下标猜测。Packet/Accumulator/Core 使用 scalar/record 端口，不依赖这一扩展。
