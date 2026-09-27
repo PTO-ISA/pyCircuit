@@ -371,3 +371,109 @@ def test_rebinding_cannot_silently_retarget_definition_time_record_default(
         "accepting this source with the final T=B binding is a semantic bug"
     )
     assert unit.completed.stderr.strip()
+
+
+def test_module_facade_preserves_canonical_child_definition(tmp_path: Path) -> None:
+    root = tmp_path / "source"
+    root.mkdir()
+    provider_source = _write(
+        root,
+        "provider.py",
+        "from typing import Annotated\n"
+        "from pycircuit import module, rule\n"
+        "Word = Annotated[int, range(256)]\n\n"
+        "@module\n"
+        "class Pass:\n"
+        "    def __init__(self, source: Word, sink: Word):\n"
+        "        self.source = source\n"
+        "        self.sink = sink\n"
+        "        self.sink = self.forward(self.source)\n\n"
+        "    @rule\n"
+        "    def forward(self, value: Word) -> Word:\n"
+        "        return value\n",
+    )
+    provider = _compile(provider_source, root=root, output=tmp_path / "provider-out")
+    assert provider.completed.returncode == 0, provider.completed.stderr
+    facade_source = _write(
+        root,
+        "facade.py",
+        "from .provider import Pass as Channel, Word\n",
+    )
+    facade = _compile(
+        facade_source,
+        root=root,
+        output=tmp_path / "facade-out",
+        headers=(provider.interface,),
+    )
+    assert facade.completed.returncode == 0, facade.completed.stderr
+
+    consumer_source = _write(
+        root,
+        "consumer.py",
+        "from pycircuit import module\n"
+        "from .facade import Channel, Word\n\n"
+        "@module\n"
+        "class Root:\n"
+        "    def __init__(self):\n"
+        "        self.a: Word = 1\n"
+        "        self.b: Word = 2\n"
+        "        self.x: Word = 0\n"
+        "        self.y: Word = 0\n"
+        "        self.left = Channel(self.a, self.x)\n"
+        "        self.right = Channel(self.b, self.y)\n",
+    )
+    provider_source.unlink()
+    facade_source.unlink()
+    provider.body.unlink()
+    facade.body.unlink()
+    consumer = _compile(
+        consumer_source,
+        root=root,
+        output=tmp_path / "consumer-out",
+        headers=(provider.interface, facade.interface),
+    )
+    assert consumer.completed.returncode == 0, consumer.completed.stderr
+    facade_text = facade.interface.read_text(encoding="utf-8")
+    consumer_text = consumer.interface.read_text(encoding="utf-8")
+    facade_exports = dict(
+        _binding_table(
+            _module_attribute(facade_text, "ac.exports", "ac.import_bindings")
+        )
+    )
+    consumer_imports = dict(
+        _binding_table(
+            _module_attribute(consumer_text, "ac.import_bindings", "ac.interfaces")
+        )
+    )
+    assert facade_exports["Channel"] == "demo.provider.Pass"
+    assert consumer_imports["Channel"] == "demo.provider.Pass"
+    body_text = consumer.body.read_text(encoding="utf-8")
+    instances = [line for line in body_text.splitlines() if '"ac.instance"' in line]
+    assert len(instances) == 2
+    assert all("callee = @demo.provider.Pass" in line for line in instances)
+    assert 'name = "left"' in instances[0]
+    assert 'name = "right"' in instances[1]
+    handles = [re.search(r'"ac.instance"\(([^)]*)\)', line) for line in instances]
+    assert all(handle is not None for handle in handles)
+    assert handles[0].group(1) != handles[1].group(1)
+
+    imports = _module_attribute(facade_text, "ac.import_bindings", "ac.interfaces")
+    stale_imports = imports.replace(
+        "target = @demo.provider.Pass", "target = @demo.provider.Word", 1
+    )
+    assert stale_imports != imports
+    stale_header = tmp_path / "stale-facade.interface.mlir"
+    stale_header.write_text(
+        facade_text.replace(
+            f"ac.import_bindings = {imports}", f"ac.import_bindings = {stale_imports}"
+        ),
+        encoding="utf-8",
+    )
+    stale = _compile(
+        consumer_source,
+        root=root,
+        output=tmp_path / "stale-consumer-out",
+        headers=(provider.interface, stale_header),
+    )
+    assert stale.completed.returncode != 0
+    assert "stale import binding" in stale.completed.stderr
