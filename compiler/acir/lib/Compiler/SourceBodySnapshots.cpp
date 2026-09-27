@@ -7,6 +7,78 @@
 using namespace mlir;
 
 namespace acir::compiler {
+namespace {
+
+LogicalResult verifyModulePortsAgainstHeader(ac::ModuleOp module,
+                                             ac::ModuleImportOp declaration,
+                                             ac::detail::EmitError emitError) {
+  auto contract = declaration->getAttrOfType<DictionaryAttr>("ac.contract");
+  auto parameters =
+      contract ? contract.getAs<ArrayAttr>("parameters") : ArrayAttr();
+  auto connections =
+      contract ? contract.getAs<ArrayAttr>("connections") : ArrayAttr();
+  auto actual = module->getAttrOfType<ArrayAttr>("ac.ports");
+  if (!parameters || !connections || !actual)
+    return emitError() << "source module/header port authority is incomplete";
+
+  llvm::StringMap<DictionaryAttr> parameterByName;
+  for (Attribute raw : parameters) {
+    auto parameter = dyn_cast<DictionaryAttr>(raw);
+    auto name = parameter ? parameter.getAs<StringAttr>("name") : StringAttr();
+    auto category =
+        parameter ? parameter.getAs<StringAttr>("category") : StringAttr();
+    if (name && category && category.getValue() == "connection")
+      parameterByName.try_emplace(name.getValue(), parameter);
+  }
+
+  SmallVector<Attribute> currentPorts;
+  SmallVector<Attribute> nextPorts;
+  Builder builder(module.getContext());
+  for (Attribute raw : connections) {
+    auto connection = dyn_cast<DictionaryAttr>(raw);
+    auto name =
+        connection ? connection.getAs<StringAttr>("parameter") : StringAttr();
+    auto elements =
+        connection ? connection.getAs<ArrayAttr>("elements") : ArrayAttr();
+    auto found =
+        name ? parameterByName.find(name.getValue()) : parameterByName.end();
+    if (!name || !elements || found == parameterByName.end())
+      return emitError()
+             << "source module header has an unresolved connection contract";
+    DictionaryAttr parameter = found->second;
+    for (Attribute rawElement : elements) {
+      auto element = dyn_cast<DictionaryAttr>(rawElement);
+      auto read = element ? element.getAs<BoolAttr>("read") : BoolAttr();
+      auto write = element ? element.getAs<BoolAttr>("write") : BoolAttr();
+      if (!element || !read || !write)
+        return emitError()
+               << "source module header has a malformed connection effect";
+      auto makePort = [&](StringRef role) -> Attribute {
+        return builder.getDictionaryAttr({
+            builder.getNamedAttr("parameter", name),
+            builder.getNamedAttr("ordinal", element.get("ordinal")),
+            builder.getNamedAttr("role", builder.getStringAttr(role)),
+            builder.getNamedAttr("type", parameter.get("type")),
+            builder.getNamedAttr("origin", parameter.get("origin")),
+            builder.getNamedAttr("location", parameter.get("location")),
+        });
+      };
+      if (read.getValue())
+        currentPorts.push_back(makePort("current"));
+      if (write.getValue())
+        nextPorts.push_back(makePort("next"));
+    }
+  }
+  SmallVector<Attribute> expected;
+  llvm::append_range(expected, currentPorts);
+  llvm::append_range(expected, nextPorts);
+  if (actual != builder.getArrayAttr(expected))
+    return emitError()
+           << "source module ports differ from the owning header contract";
+  return success();
+}
+
+} // namespace
 
 LogicalResult SourceHeaderRegistry::verifyBodySnapshots(
     ModuleOp body, ModuleOp owningHeader,
@@ -48,11 +120,15 @@ LogicalResult SourceHeaderRegistry::verifyBodySnapshots(
                  : FlatSymbolRefAttr();
       Operation *declaration =
           canonical ? authority->lookupDeclaration(canonical) : nullptr;
-      if (!declaration || !isa<ac::ModuleImportOp>(declaration) ||
-          declaration->getAttrOfType<DictionaryAttr>("ac.source_owner") !=
-              owner)
+      auto moduleDeclaration =
+          dyn_cast_or_null<ac::ModuleImportOp>(declaration);
+      if (!moduleDeclaration || declaration->getAttrOfType<DictionaryAttr>(
+                                    "ac.source_owner") != owner)
         return emitError()
                << "source module has no matching owning header declaration";
+      if (failed(verifyModulePortsAgainstHeader(module, moduleDeclaration,
+                                                emitError)))
+        return failure();
       continue;
     }
 

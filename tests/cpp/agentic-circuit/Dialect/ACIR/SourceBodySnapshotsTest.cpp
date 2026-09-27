@@ -255,6 +255,21 @@ class ProbeRoot:
         registry->verifyBodySnapshots(candidate, *owningHeader, emit));
   }
 
+  bool registryAccepts(llvm::ArrayRef<mlir::ModuleOp> providers) {
+    std::string diagnostic;
+    mlir::ScopedDiagnosticHandler capture(
+        &context, [&](mlir::Diagnostic &value) {
+          llvm::raw_string_ostream stream(diagnostic);
+          value.print(stream);
+          return mlir::success();
+        });
+    auto location = mlir::UnknownLoc::get(&context);
+    auto emit = [location]() -> mlir::InFlightDiagnostic {
+      return mlir::emitError(location);
+    };
+    return mlir::succeeded(SourceHeaderRegistry::create(providers, emit));
+  }
+
   void expectRejects(mlir::OwningOpRef<mlir::ModuleOp> candidate) {
     llvm::SmallVector<mlir::ModuleOp> providers{*packetHeader};
     EXPECT_FALSE(verify(*candidate, providers));
@@ -272,6 +287,94 @@ class ProbeRoot:
 TEST_F(SourceBodySnapshotsTest, CanonicalBodyMatchesSuppliedAuthorities) {
   llvm::SmallVector<mlir::ModuleOp> providers{*packetHeader};
   EXPECT_TRUE(verify(*body, providers));
+}
+
+TEST_F(SourceBodySnapshotsTest,
+       SynchronizedBodyPortAndRuleMutationCannotReplaceHeaderAuthority) {
+  auto candidate = snapshotClone(*body);
+  auto module = findSymbol<ac::ModuleOp>(
+      *candidate, "demo.accumulator_probe.AccumulatorProbe");
+  ASSERT_TRUE(module);
+  mlir::Builder builder(&context);
+  auto ports = module->getAttrOfType<mlir::ArrayAttr>("ac.ports");
+  llvm::SmallVector<mlir::Attribute> changedPorts(ports.begin(), ports.end());
+  auto current = mlir::cast<mlir::DictionaryAttr>(changedPorts[0]);
+  changedPorts[0] = snapshotWithField(builder, current, "parameter",
+                                      builder.getStringAttr("renamed"));
+  module->setAttr("ac.ports", builder.getArrayAttr(changedPorts));
+
+  ac::RuleOp rule;
+  module.walk([&](ac::RuleOp candidateRule) { rule = candidateRule; });
+  ASSERT_TRUE(rule);
+  auto bindings = rule->getAttrOfType<mlir::ArrayAttr>("ac.input_bindings");
+  auto binding = mlir::cast<mlir::DictionaryAttr>(bindings[0]);
+  binding = snapshotWithField(builder, binding, "parameter",
+                              builder.getStringAttr("renamed"));
+  rule->setAttr("ac.input_bindings", builder.getArrayAttr({binding}));
+
+  ASSERT_TRUE(mlir::succeeded(mlir::verify(*candidate)));
+  expectRejects(std::move(candidate));
+}
+
+TEST_F(SourceBodySnapshotsTest,
+       SourceMathHelperSnapshotsRemainWithinVerifiedHelperClosure) {
+  auto provider = snapshotClone(*packetHeader);
+  auto addMathConstant = [&](mlir::ModuleOp module) {
+    auto helper =
+        findSymbol<mlir::func::FuncOp>(module, "demo.packet.Request.__init__");
+    ASSERT_TRUE(helper);
+    mlir::OpBuilder builder(&context);
+    builder.setInsertionPoint(&helper.getBody().front().back());
+    mlir::OperationState state(
+        mlir::FileLineColLoc::get(&context, "packet.py", 12, 24),
+        ac::MathConstantOp::getOperationName());
+    state.addAttribute(
+        "value",
+        ac::MathIntAttr::get(
+            &context, llvm::APSInt(llvm::APInt(2, 1), /*isUnsigned=*/true)));
+    state.addAttribute(
+        "ac.origin", helper->getAttrOfType<mlir::DictionaryAttr>("ac.origin"));
+    state.addTypes(ac::MathIntType::get(&context));
+    builder.create(state);
+  };
+  addMathConstant(*provider);
+  llvm::SmallVector<mlir::ModuleOp> providers{*provider};
+  EXPECT_TRUE(registryAccepts(providers));
+
+  provider = snapshotClone(*packetHeader);
+  auto addRecursiveCall = [&](mlir::ModuleOp module) {
+    auto helper =
+        findSymbol<mlir::func::FuncOp>(module, "demo.packet.Request.__init__");
+    ASSERT_TRUE(helper);
+    mlir::OpBuilder builder(&context);
+    builder.setInsertionPoint(&helper.getBody().front().back());
+    mlir::OperationState state(helper.getLoc(),
+                               mlir::func::CallOp::getOperationName());
+    state.addOperands(helper.getBody().front().getArguments());
+    state.addTypes(helper.getFunctionType().getResults());
+    state.addAttribute(
+        "callee", mlir::FlatSymbolRefAttr::get(&context, helper.getSymName()));
+    builder.create(state);
+  };
+  addRecursiveCall(*provider);
+  providers = {*provider};
+  EXPECT_FALSE(registryAccepts(providers));
+
+  provider = snapshotClone(*packetHeader);
+  context.allowUnregisteredDialects(true);
+  auto addNestedOperation = [&](mlir::ModuleOp module) {
+    auto helper =
+        findSymbol<mlir::func::FuncOp>(module, "demo.packet.Request.__init__");
+    ASSERT_TRUE(helper);
+    mlir::OpBuilder builder(&context);
+    builder.setInsertionPoint(&helper.getBody().front().back());
+    mlir::OperationState state(helper.getLoc(), "test.nested_helper_effect");
+    state.addRegion();
+    builder.create(state);
+  };
+  addNestedOperation(*provider);
+  providers = {*provider};
+  EXPECT_FALSE(registryAccepts(providers));
 }
 
 TEST_F(SourceBodySnapshotsTest, SourceStageAndUnitKindAreFailClosed) {

@@ -208,8 +208,13 @@ LogicalResult verifyHeaderHelper(func::FuncOp helper,
 
   Block &entry = helper.getBody().front();
   for (Operation &operation : entry) {
+    if (operation.getNumRegions() != 0)
+      return emitError()
+             << "nested regions are not supported in source helper bodies: "
+             << operation.getName();
     if (isa<func::ReturnOp, arith::ConstantOp, ac::StructCreateOp,
-            ac::StructGetOp>(operation))
+            ac::StructGetOp, ac::MathConstantOp, ac::MathFromBitsOp,
+            ac::MathBinaryOp, ac::MathToBitsOp>(operation))
       continue;
     if (auto call = dyn_cast<func::CallOp>(operation)) {
       auto target = registry.lookupHelper(call.getCalleeAttr());

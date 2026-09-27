@@ -116,6 +116,47 @@ LogicalResult verifyInitialSpec(DictionaryAttr spec, ArrayAttr shape,
   return error() << "InitialSpec kind is invalid";
 }
 
+LogicalResult verifyRuleInputAuthority(Value handle, DictionaryAttr binding,
+                                       DictionaryAttr logical, RuleOp rule) {
+  auto error = [&] { return rule.emitOpError(); };
+  auto module = rule->getParentOfType<ModuleOp>();
+  if (!module)
+    return error() << "rule input has no enclosing source module";
+  auto kind = binding.getAs<StringAttr>("kind");
+  if (!kind)
+    return error() << "rule input StateRef has no kind";
+
+  if (kind.getValue() == "owned") {
+    auto state = handle.getDefiningOp<DffeOp>();
+    auto element = binding.getAs<ArrayAttr>("element");
+    auto shape =
+        state ? state->getAttrOfType<ArrayAttr>("ac.shape") : ArrayAttr();
+    if (!state || state->getParentOfType<ModuleOp>() != module || !element ||
+        !element.empty() || !shape || !shape.empty() ||
+        binding.getAs<DictionaryAttr>("declaration") !=
+            state->getAttrOfType<DictionaryAttr>("ac.declaration") ||
+        logical != state->getAttrOfType<DictionaryAttr>("ac.logical_element"))
+      return error() << "owned rule input does not match its source DFFE";
+    return success();
+  }
+
+  auto formal = dyn_cast<BlockArgument>(handle);
+  if (!formal || formal.getOwner() != &module.getBody().front())
+    return error() << "formal rule input is not an enclosing module port";
+  auto ports = module->getAttrOfType<ArrayAttr>("ac.ports");
+  if (!ports || formal.getArgNumber() >= ports.size())
+    return error() << "formal rule input has no matching PortSlot";
+  auto port = dyn_cast<DictionaryAttr>(ports[formal.getArgNumber()]);
+  auto role = port ? port.getAs<StringAttr>("role") : StringAttr();
+  if (!port || !role || role.getValue() != "current" ||
+      binding.getAs<StringAttr>("parameter") !=
+          port.getAs<StringAttr>("parameter") ||
+      binding.get("ordinal") != port.get("ordinal") ||
+      logical != port.getAs<DictionaryAttr>("type"))
+    return error() << "formal rule input does not match its current PortSlot";
+  return success();
+}
+
 } // namespace
 
 LogicalResult DffeOp::verify() {
@@ -258,7 +299,9 @@ LogicalResult RuleOp::verify() {
         failed(detail::verifyLogicalTypeStructure(logical, error)) ||
         failed(checkPhysical(
             cast<DffeType>(getInputs()[index].getType()).getElementType(),
-            logical, *this)))
+            logical, *this)) ||
+        failed(verifyRuleInputAuthority(getInputs()[index], binding, logical,
+                                        *this)))
       return error() << "rule input binding/type mismatch";
   }
   for (auto [index, raw] : llvm::enumerate(outputs)) {
