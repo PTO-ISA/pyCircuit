@@ -1,4 +1,4 @@
-"""N1 source namespace tests for records, aliases, and value helpers only."""
+"""N1 source namespace tests for records, aliases, constants, and helpers."""
 
 from __future__ import annotations
 
@@ -88,6 +88,8 @@ PROVIDER = """\
 from typing import Annotated
 
 Word = Annotated[int, range(256)]
+LIMIT = 7
+ENABLED = True
 
 class Payload:
     value: Word
@@ -125,7 +127,8 @@ def test_aliases_private_and_unused_imports_have_exact_namespace_mapping(
     facade_source = _write(
         root,
         "facade.py",
-        "from .provider import (Payload as Item, Word as Count, Make,\n"
+        "from .provider import (Payload as Item, Word as Count, LIMIT,\n"
+        "                       ENABLED as Switch, Make,\n"
         "                       Unused as NeverUsed, _Private as _Hidden)\n"
         "Local = Count\n\n"
         "def Read() -> Count:\n"
@@ -149,13 +152,17 @@ def test_aliases_private_and_unused_imports_have_exact_namespace_mapping(
     assert exports == [
         ("Count", "demo.provider.Word"),
         ("Item", "demo.provider.Payload"),
+        ("LIMIT", "demo.provider.LIMIT"),
         ("Local", "demo.facade.Local"),
         ("Make", "demo.provider.Make"),
         ("NeverUsed", "demo.provider.Unused"),
         ("Read", "demo.facade.Read"),
+        ("Switch", "demo.provider.ENABLED"),
         ("_Hidden", "demo.provider._Private"),
     ]
     assert imports == [
+        ("ENABLED", "demo.provider.ENABLED"),
+        ("LIMIT", "demo.provider.LIMIT"),
         ("Make", "demo.provider.Make"),
         ("Payload", "demo.provider.Payload"),
         ("Unused", "demo.provider.Unused"),
@@ -169,6 +176,8 @@ def test_aliases_private_and_unused_imports_have_exact_namespace_mapping(
     assert _module_attribute(text, "ac.import_bindings", "ac.interfaces") == (
         _module_attribute(body_text, "ac.import_bindings", "ac.interfaces")
     )
+    assert '"ac.constant"() <{sym_name = "demo.provider.LIMIT"' in text
+    assert '"ac.constant"() <{sym_name = "demo.provider.ENABLED"' in text
 
 
 def test_chained_facade_uses_only_headers_and_clones_transitive_make_value(
@@ -178,7 +187,8 @@ def test_chained_facade_uses_only_headers_and_clones_transitive_make_value(
     facade_source = _write(
         root,
         "facade.py",
-        "from .provider import Payload as Item, Word as Count, Make\n",
+        "from .provider import (Payload as Item, Word as Count, LIMIT as Bound,\n"
+        "                       ENABLED, Make)\n",
     )
     facade = _compile(
         facade_source,
@@ -190,7 +200,7 @@ def test_chained_facade_uses_only_headers_and_clones_transitive_make_value(
     consumer_source = _write(
         root,
         "consumer.py",
-        "from .facade import Item, Count, Make\n\n"
+        "from .facade import Item, Count, Bound as Limit, ENABLED as Active, Make\n\n"
         "def Read() -> Count:\n"
         "    return Make().value\n",
     )
@@ -219,7 +229,19 @@ def test_chained_facade_uses_only_headers_and_clones_transitive_make_value(
     assert "@demo.provider.Make" in interface
     assert "@demo.provider.Payload" in interface
     assert "@demo.provider.Payload.__init__" in interface
+    assert '"ac.constant"() <{sym_name = "demo.provider.LIMIT"' in interface
+    assert '"ac.constant"() <{sym_name = "demo.provider.ENABLED"' in interface
     assert "ac.struct.get" in interface
+    exports = _binding_table(
+        _module_attribute(interface, "ac.exports", "ac.import_bindings")
+    )
+    imports = _binding_table(
+        _module_attribute(interface, "ac.import_bindings", "ac.interfaces")
+    )
+    assert ("Active", "demo.provider.ENABLED") in exports
+    assert ("Limit", "demo.provider.LIMIT") in exports
+    assert ("Bound", "demo.provider.LIMIT") in imports
+    assert ("ENABLED", "demo.provider.ENABLED") in imports
 
 
 def test_multiple_aliases_and_later_local_shadow_preserve_import_uses(

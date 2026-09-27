@@ -266,6 +266,61 @@ TEST_F(NamespaceContractsTest, GeneratedHeadersMatchIndependentBindingTables) {
 }
 
 TEST_F(NamespaceContractsTest,
+       ConstantsAreCanonicalDeclarationsWithCheckedStaticValues) {
+  const std::string source = root + "/constants.py";
+  const std::string transport = temporary.child("constants.transport.mlir");
+  const std::string body = temporary.child("constants.body.mlir");
+  const std::string interface = temporary.child("constants.interface.mlir");
+  writeFile(source, "LIMIT = 7\nENABLED = True\n");
+  ASSERT_EQ(emitTransport(source, root, transport,
+                          temporary.child("constants-python.log")),
+            0);
+  ASSERT_EQ(compileUnit(transport, "constants.py", body, interface,
+                        temporary.child("constants.log")),
+            0);
+  auto header = parse(interface, context);
+  ASSERT_TRUE(header);
+  RegistryResult accepted = checkRegistry(*header);
+  ASSERT_TRUE(accepted.accepted) << accepted.diagnostic;
+  const std::vector<std::pair<std::string, std::string>> expected = {
+      {"ENABLED", "demo.constants.ENABLED"}, {"LIMIT", "demo.constants.LIMIT"}};
+  EXPECT_EQ(
+      bindingTable((*header)->getAttrOfType<mlir::ArrayAttr>("ac.exports")),
+      expected);
+
+  llvm::SmallVector<ac::ConstantOp> constants;
+  (*header)->walk(
+      [&](ac::ConstantOp constant) { constants.push_back(constant); });
+  ASSERT_EQ(constants.size(), 2u);
+
+  auto mismatched = clone(*header);
+  ac::ConstantOp integer;
+  mismatched->walk([&](ac::ConstantOp constant) {
+    if (constant.getSymName() == "demo.constants.LIMIT")
+      integer = constant;
+  });
+  ASSERT_TRUE(integer);
+  mlir::Builder builder(&context);
+  integer->setAttr("type", builder.getDictionaryAttr({builder.getNamedAttr(
+                               "kind", builder.getStringAttr("bool"))}));
+  RegistryResult mismatch = checkRegistry(*mismatched);
+  EXPECT_FALSE(mismatch.accepted);
+  EXPECT_FALSE(mismatch.diagnostic.empty());
+
+  auto malformed = clone(*header);
+  ac::ConstantOp boolean;
+  malformed->walk([&](ac::ConstantOp constant) {
+    if (constant.getSymName() == "demo.constants.ENABLED")
+      boolean = constant;
+  });
+  ASSERT_TRUE(boolean);
+  auto value = boolean->getAttrOfType<mlir::DictionaryAttr>("value");
+  boolean->setAttr("value",
+                   withField(builder, value, "extra", builder.getUnitAttr()));
+  EXPECT_FALSE(checkRegistry(*malformed).accepted);
+}
+
+TEST_F(NamespaceContractsTest,
        MandatoryArraysAndClosedExportRecordsAreEnforced) {
   auto missing = clone(*packetHeader);
   missing->getOperation()->removeAttr("ac.exports");

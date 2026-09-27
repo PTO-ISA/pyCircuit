@@ -150,7 +150,8 @@ LogicalResult verifyTargetCategory(FlatSymbolRefAttr target,
     return emitError()
            << "namespace target has no canonical declaration authority: "
            << target;
-  if (isa<ac::TypeAliasOp, ac::StructOp, ac::ModuleImportOp>(declaration))
+  if (isa<ac::TypeAliasOp, ac::ConstantOp, ac::StructOp, ac::ModuleImportOp>(
+          declaration))
     return success();
   if (auto helper = dyn_cast<func::FuncOp>(declaration)) {
     auto kind = helper->getAttrOfType<StringAttr>("ac.helper_kind");

@@ -50,7 +50,8 @@ bool hasQualifiedDeclarationIdentity(Operation *operation, StringRef symbol,
     return false;
   StringRef local =
       module.empty() ? symbol : symbol.drop_front(module.size() + 1);
-  if (isa<ac::TypeAliasOp, ac::StructOp, ac::ModuleImportOp>(operation))
+  if (isa<ac::TypeAliasOp, ac::ConstantOp, ac::StructOp, ac::ModuleImportOp>(
+          operation))
     return !local.empty() && !local.contains('.');
   if (isa<func::FuncOp>(operation)) {
     if (!local.contains('.'))
@@ -250,6 +251,8 @@ SourceHeaderRegistry::create(ArrayRef<ModuleOp> headers,
       registry.authorities_.try_emplace(flat, &operation);
       if (auto alias = dyn_cast<ac::TypeAliasOp>(operation))
         registry.aliases_.try_emplace(flat, alias);
+      else if (isa<ac::ConstantOp>(operation))
+        continue;
       else if (auto record = dyn_cast<ac::StructOp>(operation))
         registry.records_.try_emplace(flat, record);
       else if (auto helper = dyn_cast<func::FuncOp>(operation))
@@ -307,6 +310,19 @@ SourceHeaderRegistry::create(ArrayRef<ModuleOp> headers,
                        target, ac::detail::ExpectedTypeKind::Logical, resolver,
                        emitError)))
       return emitError() << "invalid type alias export " << symbol;
+  }
+  for (auto &[symbol, declaration] : registry.authorities_) {
+    auto constant = dyn_cast<ac::ConstantOp>(declaration);
+    if (!constant)
+      continue;
+    auto type = constant->getAttrOfType<DictionaryAttr>("type");
+    auto value = constant->getAttrOfType<DictionaryAttr>("value");
+    if (!type || !value ||
+        failed(ac::detail::verifyStaticTypeStructure(type, emitError)) ||
+        failed(ac::detail::verifyStaticValueMatchesType(
+            value, type, ac::detail::ExpectedTypeKind::Static, resolver,
+            emitError)))
+      return emitError() << "invalid constant export " << symbol;
   }
   for (auto &[symbol, record] : registry.records_) {
     auto recordRef = dyn_cast<FlatSymbolRefAttr>(symbol);

@@ -97,6 +97,21 @@ Operation *createAlias(OpBuilder &builder, Location location, StringRef symbol,
   return builder.create(state);
 }
 
+Operation *createConstant(OpBuilder &builder, Location location,
+                          StringRef symbol, DictionaryAttr owner,
+                          DictionaryAttr origin, StringRef role,
+                          DictionaryAttr type, DictionaryAttr value) {
+  OperationState state(location, ac::ConstantOp::getOperationName());
+  state.addAttribute(SymbolTable::getSymbolAttrName(),
+                     builder.getStringAttr(symbol));
+  state.addAttribute("ac.source_owner", owner);
+  state.addAttribute("ac.origin", origin);
+  state.addAttribute("ac.declaration_role", builder.getStringAttr(role));
+  state.addAttribute("type", type);
+  state.addAttribute("value", value);
+  return builder.create(state);
+}
+
 Operation *createStruct(OpBuilder &builder, Location location, StringRef symbol,
                         DictionaryAttr owner, DictionaryAttr origin,
                         StringRef role, ArrayAttr fields,
@@ -203,7 +218,27 @@ LogicalResult RecordCompiler::scanImportsAndAliases() {
     AstNode target = statement.item("targets", 0);
     if (target.kind() != "Name")
       continue;
-    auto type = annotation(statement.child("value"));
+    AstNode assigned = statement.child("value");
+    DictionaryAttr value =
+        staticValue(builder, assigned.get("value"), emitError);
+    if (value) {
+      StringRef name = target.string("id");
+      std::string symbol = qualifiedName(name);
+      auto flat = FlatSymbolRefAttr::get(builder.getContext(), symbol);
+      AstNode declaration = statement;
+      declaration.path.clear();
+      StringRef kind = value.getAs<StringAttr>("kind").getValue();
+      DictionaryAttr type = builder.getDictionaryAttr(
+          {builder.getNamedAttr("kind", builder.getStringAttr(kind))});
+      Operation *constant = createConstant(
+          builder, statement.location(builder.getContext(), source.path),
+          symbol, owner, occurrence(builder, flat, declaration), "definition",
+          type, value);
+      registerLocalDeclaration(flat, constant);
+      bindNamespaceName(name, flat, statement);
+      continue;
+    }
+    auto type = annotation(assigned);
     if (failed(type))
       return emitError()
              << "U01 assignment must be a supported source type alias";

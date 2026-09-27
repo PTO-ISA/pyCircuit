@@ -87,7 +87,7 @@ bool ownerLess(DictionaryAttr left, DictionaryAttr right) {
 }
 
 bool isExportableDeclaration(Operation *declaration) {
-  if (isa<ac::StructOp, ac::TypeAliasOp>(declaration))
+  if (isa<ac::StructOp, ac::TypeAliasOp, ac::ConstantOp>(declaration))
     return true;
   if (declaration &&
       declaration->getName().getStringRef() == "ac.module.import")
