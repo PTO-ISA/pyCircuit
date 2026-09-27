@@ -19,8 +19,3 @@ set(LLVM_TARGET_DEFINITIONS ACIROps.td)
 mlir_tablegen(ACIROps.h.inc -gen-op-decls)
 mlir_tablegen(ACIROps.cpp.inc -gen-op-defs)
 add_public_tablegen_target(ACIROpsIncGen)
-
-set(LLVM_TARGET_DEFINITIONS ACIRInterfaces.td)
-mlir_tablegen(ACIROpInterfaces.h.inc -gen-op-interface-decls)
-mlir_tablegen(ACIROpInterfaces.cpp.inc -gen-op-interface-defs)
-add_public_tablegen_target(ACIROpInterfacesIncGen)

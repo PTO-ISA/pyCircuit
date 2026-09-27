@@ -1,35 +1,28 @@
 add_acir_library(ACIRDialect SOURCES
   ACIRDialect.cpp
-  ACIRInterfaces.cpp
-  ACIROps.cpp
   ACIRIdentityContracts.cpp
-  ACIRResources.cpp
+  ACIRPacketOps.cpp
+  ACIRPacketTypes.cpp
+  ACIRRegistration.cpp
   ACIRSourceContracts.cpp
-  ACIRTypes.cpp
   ACIRValueContracts.cpp
-  GraphRegion.cpp
-  ProcessLowerability.cpp
 )
 add_dependencies(ACIRDialect
   ACIRDialectIncGen
   ACIRAttributesIncGen
   ACIRTypesIncGen
   ACIROpsIncGen
-  ACIROpInterfacesIncGen
 )
 target_link_libraries(ACIRDialect PUBLIC
-  MLIRControlFlowInterfaces
-  MLIRDLTIDialect
-  MLIRDataLayoutInterfaces
-  MLIRFunctionInterfaces
   MLIRFuncDialect
-  MLIRPresburger
-  MLIRSCFDialect
   MLIRSideEffectInterfaces
 )
 target_include_directories(ACIRDialect PUBLIC
   "$<BUILD_INTERFACE:${ACIR_SOURCE_DIR}/include>"
   "$<BUILD_INTERFACE:${ACIR_BINARY_DIR}/include>"
   "$<INSTALL_INTERFACE:include>"
+)
+target_include_directories(ACIRDialect PRIVATE
+  "${ACIR_SOURCE_DIR}/lib"
 )
 add_library(AgenticCircuit::ACIRDialect ALIAS ACIRDialect)

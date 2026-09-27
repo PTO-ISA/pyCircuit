@@ -1,22 +1,17 @@
-add_acir_library(ACIRCompiler SOURCES
-  Driver.cpp
-  Pipeline.cpp
+add_acir_library(ACIRSourceCompiler SOURCES
+  PythonImportAST.cpp
+  PythonImportHelpers.cpp
+  PythonImportRecords.cpp
+  SourceHeaderRegistry.cpp
+  SourceHeaderHelpers.cpp
+  SourceUnit.cpp
+  LINK_LIBRARIES
+    ACIRDialect
+    MLIRArithDialect
+    MLIRFuncDialect
+    MLIRParser
 )
-target_link_libraries(ACIRCompiler PUBLIC
-  ACIRTransforms
-  ACIRDialect
-  MLIRIndexDialect
-  MLIRParser
-  MLIRPass
-  MLIRTransforms
-  LLVMSupport
+target_include_directories(ACIRSourceCompiler PUBLIC
+  "$<BUILD_INTERFACE:${ACIR_SOURCE_DIR}/lib>"
 )
-target_include_directories(ACIRCompiler PUBLIC
-  "$<BUILD_INTERFACE:${ACIR_SOURCE_DIR}/include>"
-  "$<BUILD_INTERFACE:${ACIR_BINARY_DIR}/include>"
-  "$<INSTALL_INTERFACE:include>"
-)
-target_include_directories(ACIRCompiler PRIVATE
-  "${ACIR_SOURCE_DIR}/lib"
-)
-add_library(AgenticCircuit::ACIRCompiler ALIAS ACIRCompiler)
+add_library(AgenticCircuit::SourceCompiler ALIAS ACIRSourceCompiler)

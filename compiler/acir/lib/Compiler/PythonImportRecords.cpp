@@ -1,0 +1,621 @@
+#include "PythonImportRecords.h"
+#include "PythonImportInternal.h"
+
+#include "acir/Dialect/ACIR/ACIRDialect.h"
+#include "mlir/Dialect/Arith/IR/Arith.h"
+#include "mlir/IR/Builders.h"
+#include "llvm/ADT/APSInt.h"
+#include "llvm/ADT/StringMap.h"
+#include "llvm/ADT/StringSet.h"
+
+#include <optional>
+#include <string>
+
+using namespace mlir;
+
+namespace acir::compiler::detail {
+namespace {
+
+bool isDocstring(const AstNode &node) {
+  if (node.kind() != "Expr")
+    return false;
+  AstNode value = node.child("value");
+  return value.kind() == "Constant" && isa<StringAttr>(value.get("value"));
+}
+
+std::string sourceModuleName(DictionaryAttr owner) {
+  StringRef package = owner.getAs<StringAttr>("package").getValue();
+  StringRef path = owner.getAs<StringAttr>("path").getValue();
+  SmallVector<StringRef> parts;
+  path.drop_back(3).split(parts, '/');
+  if (!parts.empty() && parts.back() == "__init__")
+    parts.pop_back();
+  std::string result = package.str();
+  for (StringRef part : parts) {
+    if (!result.empty())
+      result.push_back('.');
+    result.append(part);
+  }
+  return result;
+}
+
+std::string qualified(StringRef module, StringRef name) {
+  return module.empty() ? name.str() : (Twine(module) + "." + name).str();
+}
+
+DictionaryAttr logicalBool(OpBuilder &builder) {
+  return builder.getDictionaryAttr({
+      builder.getNamedAttr("kind", builder.getStringAttr("bool")),
+      builder.getNamedAttr("storage", TypeAttr::get(builder.getI1Type())),
+  });
+}
+
+FailureOr<ac::MathIntAttr> mathInt(OpBuilder &builder, StringRef spelling,
+                                   ac::detail::EmitError emitError) {
+  return ac::detail::parseMathIntAttr(builder.getContext(), spelling,
+                                      emitError);
+}
+
+DictionaryAttr logicalInteger(OpBuilder &builder, ac::MathIntAttr lower,
+                              ac::MathIntAttr upper, unsigned width) {
+  return builder.getDictionaryAttr({
+      builder.getNamedAttr("kind", builder.getStringAttr("integer")),
+      builder.getNamedAttr("storage",
+                           TypeAttr::get(builder.getIntegerType(width))),
+      builder.getNamedAttr("lower", lower),
+      builder.getNamedAttr("upper", upper),
+      builder.getNamedAttr("interpretation", builder.getStringAttr("unsigned")),
+  });
+}
+
+DictionaryAttr logicalRecord(OpBuilder &builder, FlatSymbolRefAttr symbol) {
+  return builder.getDictionaryAttr({
+      builder.getNamedAttr("kind", builder.getStringAttr("record")),
+      builder.getNamedAttr("symbol", symbol),
+  });
+}
+
+FailureOr<ac::MathIntAttr> integerLiteral(OpBuilder &builder,
+                                          const AstNode &node,
+                                          ac::detail::EmitError emitError) {
+  if (node.kind() != "Constant")
+    return emitError() << "expected a static integer literal";
+  auto encoded = dyn_cast_or_null<DictionaryAttr>(node.get("value"));
+  auto spelling = encoded ? encoded.getAs<StringAttr>("integer") : StringAttr();
+  if (!spelling)
+    return emitError() << "expected a static integer literal";
+  return mathInt(builder, spelling.getValue(), emitError);
+}
+
+DictionaryAttr absentDefault(OpBuilder &builder) {
+  return builder.getDictionaryAttr(
+      {builder.getNamedAttr("present", builder.getBoolAttr(false))});
+}
+
+DictionaryAttr staticValue(OpBuilder &builder, Attribute raw,
+                           ac::detail::EmitError emitError) {
+  if (auto boolean = dyn_cast_or_null<BoolAttr>(raw))
+    return builder.getDictionaryAttr({
+        builder.getNamedAttr("kind", builder.getStringAttr("bool")),
+        builder.getNamedAttr("value", boolean),
+    });
+  auto encoded = dyn_cast_or_null<DictionaryAttr>(raw);
+  auto spelling = encoded ? encoded.getAs<StringAttr>("integer") : StringAttr();
+  if (!spelling)
+    return {};
+  auto value = mathInt(builder, spelling.getValue(), emitError);
+  if (failed(value))
+    return {};
+  return builder.getDictionaryAttr({
+      builder.getNamedAttr("kind", builder.getStringAttr("integer")),
+      builder.getNamedAttr("value", *value),
+  });
+}
+
+Type physicalType(DictionaryAttr logical, MLIRContext *context) {
+  StringRef kind = logical.getAs<StringAttr>("kind").getValue();
+  if (kind == "bool")
+    return IntegerType::get(context, 1);
+  if (kind == "integer")
+    return logical.getAs<TypeAttr>("storage").getValue();
+  auto symbol = logical.getAs<FlatSymbolRefAttr>("symbol");
+  return symbol ? Type(ac::StructType::get(
+                      context, StringAttr::get(context, symbol.getValue())))
+                : Type();
+}
+
+DictionaryAttr valueConstraint(OpBuilder &builder, DictionaryAttr type) {
+  return builder.getDictionaryAttr({
+      builder.getNamedAttr("kind", builder.getStringAttr("logical")),
+      builder.getNamedAttr("type", type),
+  });
+}
+
+DictionaryAttr fieldRecord(OpBuilder &builder, StringRef name,
+                           DictionaryAttr type, FlatSymbolRefAttr definition,
+                           const AstNode &node, StringRef sourcePath) {
+  return builder.getDictionaryAttr({
+      builder.getNamedAttr("name", builder.getStringAttr(name)),
+      builder.getNamedAttr("type", type),
+      builder.getNamedAttr("origin", occurrence(builder, definition, node)),
+      builder.getNamedAttr("location", sourceSpan(builder, sourcePath, node)),
+  });
+}
+
+OwningOpRef<ModuleOp> createUnit(MLIRContext *context, Location location,
+                                 DictionaryAttr owner, StringRef kind,
+                                 ArrayAttr interfaces) {
+  OwningOpRef<ModuleOp> unit(ModuleOp::create(location));
+  unit->getOperation()->setAttr("ac.source_owner", owner);
+  unit->getOperation()->setAttr("ac.unit_kind", StringAttr::get(context, kind));
+  unit->getOperation()->setAttr("ac.stage", StringAttr::get(context, "source"));
+  unit->getOperation()->setAttr("ac.interfaces", interfaces);
+  return unit;
+}
+
+Operation *createAlias(OpBuilder &builder, Location location, StringRef symbol,
+                       DictionaryAttr owner, DictionaryAttr origin,
+                       StringRef role, DictionaryAttr target) {
+  OperationState state(location, ac::TypeAliasOp::getOperationName());
+  state.addAttribute(SymbolTable::getSymbolAttrName(),
+                     builder.getStringAttr(symbol));
+  state.addAttribute("ac.source_owner", owner);
+  state.addAttribute("ac.origin", origin);
+  state.addAttribute("ac.declaration_role", builder.getStringAttr(role));
+  state.addAttribute("target", target);
+  return builder.create(state);
+}
+
+Operation *createStruct(OpBuilder &builder, Location location, StringRef symbol,
+                        DictionaryAttr owner, DictionaryAttr origin,
+                        StringRef role, ArrayAttr fields,
+                        FlatSymbolRefAttr constructor) {
+  OperationState state(location, ac::StructOp::getOperationName());
+  state.addAttribute(SymbolTable::getSymbolAttrName(),
+                     builder.getStringAttr(symbol));
+  state.addAttribute("ac.source_owner", owner);
+  state.addAttribute("ac.origin", origin);
+  state.addAttribute("ac.declaration_role", builder.getStringAttr(role));
+  state.addAttribute("fields", fields);
+  state.addAttribute("constructor", constructor);
+  return builder.create(state);
+}
+
+} // namespace
+
+RecordCompiler::RecordCompiler(const CapturedSource &source,
+                               DictionaryAttr owner,
+                               const SourceHeaderRegistry &headers,
+                               ac::detail::EmitError emitError)
+    : source(source), owner(owner), headers(headers), emitError(emitError),
+      builder(owner.getContext()), module(sourceModuleName(owner)) {}
+
+LogicalResult RecordCompiler::scanImportsAndAliases() {
+  ArrayAttr statements = source.module.array("body");
+  for (size_t index = 0; index < statements.size(); ++index) {
+    AstNode statement = source.module.item("body", index);
+    if (statement.kind() == "Import")
+      return emitError() << "plain import is outside the U01 source capability";
+    if (statement.kind() == "ImportFrom") {
+      StringRef importedModule = statement.string("module");
+      auto level = dyn_cast_or_null<DictionaryAttr>(statement.get("level"));
+      auto levelText =
+          level ? level.getAs<StringAttr>("integer") : StringAttr();
+      if (!levelText)
+        return emitError() << "relative import level must be a static integer";
+      std::string targetModule = importedModule.str();
+      if (levelText.getValue() == "1") {
+        StringRef prefix = StringRef(module).rsplit('.').first;
+        targetModule = prefix.empty()
+                           ? importedModule.str()
+                           : (Twine(prefix) + "." + importedModule).str();
+      } else if (levelText.getValue() != "0")
+        return emitError()
+               << "relative import levels greater than one are outside U01";
+      if (targetModule == "typing")
+        continue;
+      DictionaryAttr dependency = headers.ownerForModule(targetModule);
+      if (!dependency)
+        return emitError() << "missing explicit interface for import module '"
+                           << targetModule << "'";
+      if (!llvm::is_contained(dependencies, dependency))
+        dependencies.push_back(dependency);
+      ArrayAttr names = statement.array("names");
+      for (size_t nameIndex = 0; nameIndex < names.size(); ++nameIndex) {
+        AstNode alias = statement.item("names", nameIndex);
+        StringRef remote = alias.string("name");
+        StringRef local =
+            alias.get("asname") && !isa<UnitAttr>(alias.get("asname"))
+                ? alias.string("asname")
+                : remote;
+        auto symbol = headers.lookupExport(targetModule, remote);
+        if (!symbol)
+          return emitError() << "interface module '" << targetModule
+                             << "' does not export '" << remote << "'";
+        imports[local] = {targetModule, symbol};
+      }
+      continue;
+    }
+    if (statement.kind() != "Assign")
+      continue;
+    ArrayAttr targets = statement.array("targets");
+    if (!targets || targets.size() != 1)
+      return emitError() << "type alias assignment requires one target";
+    AstNode target = statement.item("targets", 0);
+    if (target.kind() != "Name")
+      continue;
+    auto type = annotation(statement.child("value"));
+    if (failed(type))
+      return emitError()
+             << "U01 assignment must be a supported source type alias";
+    StringRef name = target.string("id");
+    std::string symbol = qualified(module, name);
+    auto flat = FlatSymbolRefAttr::get(builder.getContext(), symbol);
+    aliases[name] = *type;
+    AstNode declaration = statement;
+    declaration.path.clear();
+    createAlias(builder, statement.location(builder.getContext(), source.path),
+                symbol, owner, occurrence(builder, flat, declaration),
+                "definition", *type);
+  }
+  llvm::sort(dependencies, [](DictionaryAttr left, DictionaryAttr right) {
+    StringRef leftPackage = left.getAs<StringAttr>("package").getValue();
+    StringRef rightPackage = right.getAs<StringAttr>("package").getValue();
+    if (leftPackage != rightPackage)
+      return leftPackage < rightPackage;
+    return left.getAs<StringAttr>("path").getValue() <
+           right.getAs<StringAttr>("path").getValue();
+  });
+  return success();
+}
+
+FailureOr<DictionaryAttr> RecordCompiler::annotation(const AstNode &node) {
+  if (node.kind() == "Name") {
+    StringRef name = node.string("id");
+    if (name == "bool")
+      return logicalBool(builder);
+    if (auto found = aliases.find(name); found != aliases.end())
+      return found->second;
+    auto imported = imports.find(name);
+    if (imported == imports.end())
+      return emitError() << "unresolved source annotation '" << name << "'";
+    if (auto alias = headers.lookupAlias(imported->second.symbol))
+      return alias.getTarget();
+    if (headers.lookupRecord(imported->second.symbol))
+      return logicalRecord(builder, imported->second.symbol);
+    return emitError() << "imported symbol is not a source type: "
+                       << imported->second.symbol;
+  }
+  if (node.kind() != "Subscript" ||
+      node.child("value").string("id") != "Annotated")
+    return emitError() << "unsupported U01 source annotation";
+  AstNode tuple = node.child("slice");
+  if (tuple.kind() != "Tuple" || tuple.array("elts").size() != 2 ||
+      tuple.item("elts", 0).string("id") != "int")
+    return emitError() << "Annotated integer requires int and range bounds";
+  AstNode range = tuple.item("elts", 1);
+  if (range.kind() != "Call" || range.child("func").string("id") != "range" ||
+      range.array("args").size() != 1 || !range.array("keywords").empty())
+    return emitError() << "Annotated integer requires range(upper)";
+  auto upper = integerLiteral(builder, range.item("args", 0), emitError);
+  auto lower = mathInt(builder, "0", emitError);
+  if (failed(lower) || failed(upper))
+    return failure();
+  llvm::APSInt upperValue((*upper).getCanonicalValue());
+  unsigned width = 1;
+  while (width < 64 &&
+         llvm::APSInt::compareValues(
+             upperValue,
+             llvm::APSInt(llvm::APInt::getOneBitSet(width + 1, width), true)) >
+             0)
+    ++width;
+  DictionaryAttr result = logicalInteger(builder, *lower, *upper, width);
+  auto resolver = [&](FlatSymbolRefAttr symbol) {
+    return headers.resolveRecord(symbol);
+  };
+  if (failed(ac::detail::verifyTypeResolved(
+          result, ac::detail::ExpectedTypeKind::Logical, resolver, emitError)))
+    return failure();
+  return result;
+}
+
+LogicalResult RecordCompiler::emitRecord(const AstNode &node) {
+  if (!node.array("bases").empty() || !node.array("keywords").empty() ||
+      !node.array("decorator_list").empty() ||
+      (node.array("type_params") && !node.array("type_params").empty()))
+    return emitError() << "U01 records reject inheritance, metaclasses, "
+                          "decorators and type parameters";
+  StringRef name = node.string("name");
+  std::string symbolText = qualified(module, name);
+  auto symbol = FlatSymbolRefAttr::get(builder.getContext(), symbolText);
+  AstNode constructor;
+  SmallVector<std::pair<AstNode, DictionaryAttr>> fields;
+  llvm::StringSet<> fieldNames;
+  ArrayAttr bodyNodes = node.array("body");
+  for (size_t index = 0; index < bodyNodes.size(); ++index) {
+    AstNode member = node.item("body", index);
+    member.path = {{"body", std::nullopt}, {{}, static_cast<uint64_t>(index)}};
+    if (isDocstring(member))
+      continue;
+    if (member.kind() == "AnnAssign") {
+      AstNode target = member.child("target");
+      if (target.kind() != "Name")
+        return emitError() << "record field declaration requires a name";
+      if (member.get("value") && !isa<UnitAttr>(member.get("value")))
+        return emitError()
+               << "record field declarations cannot contain initializers";
+      auto type = annotation(member.child("annotation"));
+      if (failed(type))
+        return failure();
+      if (!fieldNames.insert(target.string("id")).second)
+        return emitError() << "duplicate record field declaration '"
+                           << target.string("id") << "'";
+      fields.push_back({member, *type});
+      continue;
+    }
+    if (member.kind() == "FunctionDef" && member.string("name") == "__init__") {
+      if (!member.array("decorator_list").empty() ||
+          (member.array("type_params") && !member.array("type_params").empty()))
+        return emitError()
+               << "record constructors reject decorators and type parameters";
+      if (constructor)
+        return emitError() << "record defines more than one __init__";
+      constructor = member;
+      continue;
+    }
+    return emitError() << "U01 record body supports fields and __init__ only";
+  }
+  if (!constructor)
+    return emitError() << "record requires one __init__ constructor";
+  constructor.path.clear();
+
+  std::string constructorText = symbolText + ".__init__";
+  auto constructorSymbol =
+      FlatSymbolRefAttr::get(builder.getContext(), constructorText);
+  SmallVector<Attribute> fieldAttrs;
+  for (const auto &[field, type] : fields)
+    fieldAttrs.push_back(fieldRecord(builder,
+                                     field.child("target").string("id"), type,
+                                     symbol, field, source.path));
+  createStruct(builder, node.location(builder.getContext(), source.path),
+               symbolText, owner, occurrence(builder, symbol, {}), "definition",
+               builder.getArrayAttr(fieldAttrs), constructorSymbol);
+
+  AstNode arguments = constructor.child("args");
+  ArrayAttr positionalOnly = arguments.array("posonlyargs");
+  ArrayAttr ordinary = arguments.array("args");
+  ArrayAttr keywordOnly = arguments.array("kwonlyargs");
+  ArrayAttr defaults = arguments.array("defaults");
+  ArrayAttr keywordDefaults = arguments.array("kw_defaults");
+  if (!positionalOnly || !ordinary || !keywordOnly || !defaults ||
+      !keywordDefaults || keywordDefaults.size() != keywordOnly.size())
+    return emitError() << "record constructor signature arrays are malformed";
+  if ((arguments.get("vararg") && !isa<UnitAttr>(arguments.get("vararg"))) ||
+      (arguments.get("kwarg") && !isa<UnitAttr>(arguments.get("kwarg"))))
+    return emitError() << "record constructors reject *args and **kwargs";
+
+  struct ParameterSpec {
+    AstNode formal;
+    StringRef binding;
+    Attribute defaultValue;
+  };
+  SmallVector<ParameterSpec> signature;
+  SmallVector<AstNode> positional;
+  for (size_t index = 0; index < positionalOnly.size(); ++index)
+    positional.push_back(arguments.item("posonlyargs", index));
+  for (size_t index = 0; index < ordinary.size(); ++index)
+    positional.push_back(arguments.item("args", index));
+  if (positional.empty() || positional.front().string("arg") != "self")
+    return emitError()
+           << "record constructor first positional parameter must be self";
+  if (defaults.size() > positional.size())
+    return emitError()
+           << "record constructor defaults exceed positional parameters";
+  size_t firstDefault = positional.size() - defaults.size();
+  Attribute receiverAnnotation = positional.front().get("annotation");
+  if (!receiverAnnotation || !isa<UnitAttr>(receiverAnnotation))
+    return emitError()
+           << "U01 does not yet support an annotated constructor receiver";
+  if (firstDefault == 0)
+    return emitError()
+           << "U01 does not yet support a defaulted constructor receiver";
+  for (size_t index = 1; index < positional.size(); ++index) {
+    Attribute defaultValue;
+    if (index >= firstDefault)
+      defaultValue = defaults[index - firstDefault];
+    signature.push_back({positional[index],
+                         index < positionalOnly.size()
+                             ? StringRef("positional_only")
+                             : StringRef("positional_or_keyword"),
+                         defaultValue});
+  }
+  for (size_t index = 0; index < keywordOnly.size(); ++index)
+    signature.push_back({arguments.item("kwonlyargs", index), "keyword_only",
+                         keywordDefaults[index]});
+
+  SmallVector<Type> inputTypes;
+  SmallVector<Attribute> parameters;
+  llvm::StringMap<size_t> parameterIndices;
+  llvm::StringMap<DictionaryAttr> parameterTypes;
+  llvm::StringSet<> parameterNames;
+  for (size_t index = 0; index < signature.size(); ++index) {
+    AstNode formal = signature[index].formal;
+    auto type = annotation(formal.child("annotation"));
+    if (failed(type))
+      return failure();
+    StringRef parameterName = formal.string("arg");
+    if (parameterName == "self" || !parameterNames.insert(parameterName).second)
+      return emitError() << "duplicate record constructor parameter '"
+                         << parameterName << "'";
+    parameterIndices[parameterName] = index;
+    parameterTypes[parameterName] = *type;
+    inputTypes.push_back(physicalType(*type, builder.getContext()));
+    DictionaryAttr defaultValue = absentDefault(builder);
+    if (signature[index].defaultValue &&
+        !isa<UnitAttr>(signature[index].defaultValue)) {
+      AstNode defaultNode{
+          dyn_cast<DictionaryAttr>(signature[index].defaultValue), {}};
+      DictionaryAttr value =
+          staticValue(builder, defaultNode.get("value"), emitError);
+      if (!value)
+        return emitError() << "U01 defaults must be bool or integer literals";
+      defaultValue = builder.getDictionaryAttr({
+          builder.getNamedAttr("present", builder.getBoolAttr(true)),
+          builder.getNamedAttr("value", value),
+      });
+      auto resolver = [&](FlatSymbolRefAttr requested) {
+        if (requested == symbol) {
+          ac::detail::ResolvedRecordView local;
+          local.symbol = symbol;
+          for (const auto &field : fields)
+            local.fieldLogicalTypes.push_back(field.second);
+          return FailureOr<ac::detail::ResolvedRecordView>(std::move(local));
+        }
+        return headers.resolveRecord(requested);
+      };
+      if (failed(ac::detail::verifyDefaultMatchesType(
+              defaultValue, *type, ac::detail::ExpectedTypeKind::Logical,
+              resolver, emitError)))
+        return failure();
+    }
+    parameters.push_back(builder.getDictionaryAttr({
+        builder.getNamedAttr("name", builder.getStringAttr(parameterName)),
+        builder.getNamedAttr("binding",
+                             builder.getStringAttr(signature[index].binding)),
+        builder.getNamedAttr("constraint", valueConstraint(builder, *type)),
+        builder.getNamedAttr("default", defaultValue),
+        builder.getNamedAttr("origin",
+                             occurrence(builder, constructorSymbol, formal)),
+        builder.getNamedAttr("location",
+                             sourceSpan(builder, source.path, formal)),
+    }));
+  }
+  inputTypes.push_back(builder.getI1Type());
+  auto recordType = ac::StructType::get(builder.getContext(),
+                                        builder.getStringAttr(symbolText));
+  auto functionType = builder.getFunctionType(
+      inputTypes, TypeRange{recordType, builder.getI1Type()});
+  auto function = func::FuncOp::create(
+      constructor.location(builder.getContext(), source.path), constructorText,
+      functionType);
+  function->setAttr("ac.source_owner", owner);
+  function->setAttr("ac.origin", occurrence(builder, constructorSymbol, {}));
+  function->setAttr("ac.declaration_role", builder.getStringAttr("definition"));
+  function->setAttr("ac.helper_kind",
+                    builder.getStringAttr("record_constructor"));
+  function->setAttr("ac.parameters", builder.getArrayAttr(parameters));
+  function->setAttr("ac.return_form", builder.getStringAttr("single"));
+  function->setAttr("ac.result_constraints",
+                    builder.getArrayAttr({valueConstraint(
+                        builder, logicalRecord(builder, symbol))}));
+  function->setAttr("ac.check_templates", builder.getArrayAttr({}));
+  function->setAttr("ac.record", symbol);
+  Block *entry = function.addEntryBlock();
+  OpBuilder at = OpBuilder::atBlockEnd(entry);
+  llvm::StringMap<size_t> fieldArguments;
+  ArrayAttr constructorBody = constructor.array("body");
+  for (size_t index = 0; index < constructorBody.size(); ++index) {
+    AstNode statement = constructor.item("body", index);
+    if (isDocstring(statement))
+      continue;
+    if (statement.kind() != "Assign" || statement.array("targets").size() != 1)
+      return emitError()
+             << "U01 record constructor supports direct field assignments";
+    AstNode target = statement.item("targets", 0);
+    AstNode base = target.child("value");
+    AstNode assigned = statement.child("value");
+    if (target.kind() != "Attribute" || base.kind() != "Name" ||
+        base.string("id") != "self" || assigned.kind() != "Name")
+      return emitError() << "U01 record constructor assignment must be "
+                            "self.field = parameter";
+    if (!fieldNames.contains(target.string("attr")))
+      return emitError() << "constructor assigns undeclared field '"
+                         << target.string("attr") << "'";
+    auto parameter = parameterIndices.find(assigned.string("id"));
+    if (parameter == parameterIndices.end())
+      return emitError() << "constructor assignment uses an unknown parameter";
+    if (!fieldArguments.try_emplace(target.string("attr"), parameter->second)
+             .second)
+      return emitError() << "record field is initialized more than once";
+  }
+  SmallVector<Value> values;
+  for (const auto &[field, fieldType] : fields) {
+    StringRef fieldName = field.child("target").string("id");
+    auto argument = fieldArguments.find(fieldName);
+    if (argument == fieldArguments.end())
+      return emitError() << "record constructor does not initialize field '"
+                         << fieldName << "'";
+    StringRef parameterName = cast<DictionaryAttr>(parameters[argument->second])
+                                  .getAs<StringAttr>("name")
+                                  .getValue();
+    if (parameterTypes.lookup(parameterName) != fieldType)
+      return emitError() << "constructor assignment type does not match field '"
+                         << fieldName << "'";
+    values.push_back(entry->getArgument(argument->second));
+  }
+  auto created = at.create<ac::StructCreateOp>(function.getLoc(), recordType,
+                                               ValueRange(values));
+  at.create<func::ReturnOp>(
+      function.getLoc(),
+      ValueRange{created.getResult(), entry->getArguments().back()});
+  interface->getBody()->push_back(function);
+  return success();
+}
+
+FailureOr<SourceUnitArtifacts> RecordCompiler::run() {
+  if (source.path != owner.getAs<StringAttr>("path").getValue())
+    return emitError() << "capture path does not match SourceOwner path";
+  Location location = source.module.location(builder.getContext(), source.path);
+  SmallVector<Attribute> interfaces{owner};
+  for (DictionaryAttr dependency : dependencies)
+    interfaces.push_back(dependency);
+  body = createUnit(builder.getContext(), location, owner, "declarations",
+                    builder.getArrayAttr(interfaces));
+  interface = createUnit(builder.getContext(), location, owner, "interface",
+                         builder.getArrayAttr(interfaces));
+  builder.setInsertionPointToEnd(interface->getBody());
+  if (failed(scanImportsAndAliases()))
+    return failure();
+  interfaces.assign({owner});
+  llvm::append_range(interfaces, dependencies);
+  (*body)->setAttr("ac.interfaces", builder.getArrayAttr(interfaces));
+  (*interface)->setAttr("ac.interfaces", builder.getArrayAttr(interfaces));
+  if (failed(cloneImportedDeclarations()))
+    return failure();
+
+  ArrayAttr statements = source.module.array("body");
+  for (size_t index = 0; index < statements.size(); ++index) {
+    AstNode statement = source.module.item("body", index);
+    if (isDocstring(statement) || statement.kind() == "Import" ||
+        statement.kind() == "ImportFrom" || statement.kind() == "Assign")
+      continue;
+    if (statement.kind() == "ClassDef") {
+      if (failed(emitRecord(statement)))
+        return failure();
+      continue;
+    }
+    if (statement.kind() == "FunctionDef") {
+      if (failed(emitValueHelper(statement)))
+        return failure();
+      continue;
+    }
+    return emitError() << "unsupported U01 top-level source syntax '"
+                       << statement.kind() << "'";
+  }
+
+  SmallVector<ModuleOp> validationHeaders(headers.suppliedHeaders());
+  validationHeaders.push_back(*interface);
+  auto validated = SourceHeaderRegistry::create(validationHeaders, emitError);
+  if (failed(validated))
+    return failure();
+  return SourceUnitArtifacts{std::move(body), std::move(interface)};
+}
+
+FailureOr<SourceUnitArtifacts>
+lowerRecordSourceUnit(const CapturedSource &source, DictionaryAttr owner,
+                      const SourceHeaderRegistry &headers,
+                      ac::detail::EmitError emitError) {
+  return RecordCompiler(source, owner, headers, emitError).run();
+}
+
+} // namespace acir::compiler::detail
