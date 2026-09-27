@@ -142,6 +142,8 @@ nav:
       - C2-N1 Namespace Binding Proposal: rfcs/migration/c2-n1-namespaces.md
       - C2-N1 Namespace Binding Approval: rfcs/migration/approvals/c2-n1-namespaces.md
       - C3 Driver Runtime Proposal: rfcs/migration/c3-driver-runtime.md
+      - Typed DUT I/O Draft: rfcs/migration/c3-dut-io.md
+      - Resource Transaction Design Gaps: rfcs/migration/c2-resources-transactions.md
       - C2 and C3 Foundation Approval: rfcs/migration/approvals/c2-c3-foundation.md
       - Tier Annotation RFC: rfcs/tier_annotation.md
       - Architecture Rule Compiler Extension: rfcs/architecture-rule-compiler-extension.md
