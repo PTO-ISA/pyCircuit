@@ -7,6 +7,7 @@ import os
 from pathlib import Path
 from types import SimpleNamespace
 
+import pycircuit._publication_fs as publication_fs
 import pytest
 from pycircuit._publication_fs import (
     _PublicationFileSystem,
@@ -134,6 +135,44 @@ def test_move_flushes_parent_before_reporting_completion_fault(
     ]
 
 
+@pytest.mark.parametrize("operation", ["rename", "replace"])
+def test_cross_parent_move_flushes_both_parents_before_completion_fault(
+    tmp_path: Path, operation: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    events: list[str] = []
+
+    def fault(point: str) -> None:
+        events.append(point)
+        if point.startswith(f"after_{operation}:"):
+            raise _InjectedCrash(point)
+
+    filesystem = _PublicationFileSystem(fault)
+    monkeypatch.setattr(
+        filesystem,
+        "sync_directory",
+        lambda path: events.append(f"sync_directory:{path.name}"),
+    )
+    source_parent = tmp_path / "control"
+    destination_parent = tmp_path / "outputs"
+    source_parent.mkdir()
+    destination_parent.mkdir()
+    source = source_parent / "stage"
+    destination = destination_parent / "program.ac"
+    source.write_text("new", encoding="utf-8")
+    if operation == "replace":
+        destination.write_text("old", encoding="utf-8")
+
+    with pytest.raises(_InjectedCrash):
+        getattr(filesystem, operation)(source, destination)
+
+    assert destination.read_text(encoding="utf-8") == "new"
+    assert events[-3:] == [
+        "sync_directory:control",
+        "sync_directory:outputs",
+        f"after_{operation}:stage:program.ac",
+    ]
+
+
 def test_sharing_violation_retry_is_bounded_and_delayed() -> None:
     attempts = 0
     delays: list[float] = []
@@ -195,3 +234,18 @@ def test_windows_real_reparse_metadata_open_is_rejected(tmp_path: Path) -> None:
 
     with pytest.raises((OSError, _PublicationFileSystemError)):
         _PublicationFileSystem().read_json(link)
+
+
+@pytest.mark.skipif(os.name != "nt", reason="requires real Windows directory handles")
+def test_windows_directory_flush_rejects_handle_identity_change(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    identities = iter([(7, 11), (7, 12)])
+    monkeypatch.setattr(
+        publication_fs,
+        "_windows_handle_identity",
+        lambda _kernel32, _handle: next(identities),
+    )
+
+    with pytest.raises(_PublicationFileSystemError, match="changed while opening"):
+        _PublicationFileSystem().sync_directory(tmp_path)

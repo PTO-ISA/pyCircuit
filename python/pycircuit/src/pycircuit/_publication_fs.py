@@ -266,6 +266,37 @@ def _move_file_windows(source: Path, destination: Path, *, replace: bool) -> Non
         raise ctypes.WinError(ctypes.get_last_error())
 
 
+def _windows_handle_identity(kernel32: object, handle: object) -> tuple[int, int]:
+    import ctypes
+    from ctypes import wintypes
+
+    class _ByHandleFileInformation(ctypes.Structure):
+        _fields_ = [
+            ("FileAttributes", wintypes.DWORD),
+            ("CreationTime", wintypes.FILETIME),
+            ("LastAccessTime", wintypes.FILETIME),
+            ("LastWriteTime", wintypes.FILETIME),
+            ("VolumeSerialNumber", wintypes.DWORD),
+            ("FileSizeHigh", wintypes.DWORD),
+            ("FileSizeLow", wintypes.DWORD),
+            ("NumberOfLinks", wintypes.DWORD),
+            ("FileIndexHigh", wintypes.DWORD),
+            ("FileIndexLow", wintypes.DWORD),
+        ]
+
+    get_information = kernel32.GetFileInformationByHandle
+    get_information.argtypes = [
+        wintypes.HANDLE,
+        ctypes.POINTER(_ByHandleFileInformation),
+    ]
+    get_information.restype = wintypes.BOOL
+    info = _ByHandleFileInformation()
+    if not get_information(handle, ctypes.byref(info)):
+        raise ctypes.WinError(ctypes.get_last_error())
+    file_index = (info.FileIndexHigh << 32) | info.FileIndexLow
+    return info.VolumeSerialNumber, file_index
+
+
 def _sync_directory_windows(path: Path) -> None:
     import ctypes
     from ctypes import wintypes
@@ -330,6 +361,26 @@ def _sync_directory_windows(path: Path) -> None:
         if not is_directory or is_reparse:
             raise _PublicationFileSystemError(
                 f"publication directory is unsafe to flush: {path}"
+            )
+        opened_identity = _windows_handle_identity(kernel32, handle)
+        current_handle = create_file(
+            os.fspath(path),
+            generic_read,
+            share_all,
+            None,
+            open_existing,
+            backup_semantics | open_reparse_point,
+            None,
+        )
+        if current_handle == invalid_handle:
+            raise ctypes.WinError(ctypes.get_last_error())
+        try:
+            current_identity = _windows_handle_identity(kernel32, current_handle)
+        finally:
+            close_handle(current_handle)
+        if opened_identity != current_identity:
+            raise _PublicationFileSystemError(
+                f"publication directory changed while opening: {path}"
             )
         if not flush_file_buffers(handle):
             raise ctypes.WinError(ctypes.get_last_error())
@@ -471,7 +522,7 @@ class _PublicationFileSystem:
             self._retry_windows(lambda: _replace_windows(source, destination))
         else:
             os.replace(source, destination)
-        self.sync_directory(destination.parent)
+        self._sync_move_parents(source, destination)
         self.fault(f"after_replace:{source.name}:{destination.name}")
 
     def rename(self, source: Path, destination: Path) -> None:
@@ -485,7 +536,7 @@ class _PublicationFileSystem:
             self._retry_windows(lambda: _rename_windows(source, destination))
         else:
             source.rename(destination)
-        self.sync_directory(destination.parent)
+        self._sync_move_parents(source, destination)
         self.fault(f"after_rename:{source.name}:{destination.name}")
 
     def remove_file(self, path: Path) -> None:
@@ -612,6 +663,11 @@ class _PublicationFileSystem:
             raise _PublicationFileSystemError(
                 "publication rename must remain on one filesystem volume"
             )
+
+    def _sync_move_parents(self, source: Path, destination: Path) -> None:
+        self.sync_directory(source.parent)
+        if destination.parent != source.parent:
+            self.sync_directory(destination.parent)
 
     @staticmethod
     def _is_reparse_point(info: os.stat_result) -> bool:
