@@ -9,6 +9,7 @@
 #include "mlir/IR/Verifier.h"
 #include "mlir/Parser/Parser.h"
 #include "llvm/ADT/SmallString.h"
+#include "llvm/ADT/StringSet.h"
 #include "llvm/Support/FileSystem.h"
 #include "llvm/Support/MemoryBuffer.h"
 #include "llvm/Support/Path.h"
@@ -25,13 +26,29 @@ namespace acir::compiler {
 namespace {
 
 TEST(SourceRuleAnalysisTest, InputIndicesAreResolvedThroughBoundArguments) {
-  detail::RulePlan plan;
-  plan.arguments.push_back({"formal", 2, {}, {}});
-  plan.arguments.push_back({"self.first", 0, {}, {}});
-  plan.inputs.push_back(0);
+  auto makePlan = [] {
+    detail::RulePlan plan;
+    plan.arguments.push_back({"formal", 2, {}, {}});
+    plan.arguments.push_back({"self.same", 2, {}, {}});
+    plan.arguments.push_back({"other", 0, {}, {}});
+    plan.arguments.push_back({"alias", 2, {}, {}});
+    return plan;
+  };
 
-  EXPECT_TRUE(detail::rulePlanHasMemberInput(plan, 2));
-  EXPECT_FALSE(detail::rulePlanHasMemberInput(plan, 0));
+  detail::RulePlan formalFirst = makePlan();
+  EXPECT_EQ(detail::bindRuleInput(formalFirst, 0), 0u);
+  EXPECT_EQ(detail::bindRuleInput(formalFirst, 1), 0u);
+  EXPECT_EQ(detail::bindRuleInput(formalFirst, 3), 0u);
+  EXPECT_EQ(detail::bindRuleInput(formalFirst, 2), 1u);
+  EXPECT_EQ(formalFirst.inputs, (llvm::SmallVector<size_t>{0, 2}));
+
+  detail::RulePlan memberFirst = makePlan();
+  EXPECT_EQ(detail::bindRuleInput(memberFirst, 1), 0u);
+  EXPECT_EQ(detail::bindRuleInput(memberFirst, 0), 0u);
+  EXPECT_EQ(detail::bindRuleInput(memberFirst, 2), 1u);
+  EXPECT_EQ(memberFirst.inputs, (llvm::SmallVector<size_t>{1, 2}));
+  EXPECT_EQ(detail::rulePlanInputSlot(memberFirst, 2), 0u);
+  EXPECT_EQ(detail::rulePlanInputSlot(memberFirst, 0), 1u);
 }
 
 struct ModuleTemporaryDirectory {
@@ -147,6 +164,23 @@ mlir::DictionaryAttr replaceField(mlir::Builder &builder,
   return builder.getDictionaryAttr(fields);
 }
 
+void replaceRuleBodyWithIdentity(mlir::Operation *rule,
+                                 mlir::MLIRContext &context) {
+  mlir::Block &body = rule->getRegion(2).front();
+  body.getArgument(0).setType(mlir::IntegerType::get(&context, 8));
+  while (!body.empty())
+    body.back().erase();
+  mlir::OpBuilder builder(&context);
+  builder.setInsertionPointToEnd(&body);
+  auto enabled = builder.create<mlir::arith::ConstantOp>(
+      mlir::UnknownLoc::get(&context), builder.getI1Type(),
+      builder.getBoolAttr(true));
+  mlir::OperationState yield(mlir::UnknownLoc::get(&context),
+                             ac::YieldOp::getOperationName());
+  yield.addOperands({body.getArgument(0), enabled.getResult()});
+  builder.create(yield);
+}
+
 struct RegistryResult {
   bool accepted;
   std::string diagnostic;
@@ -260,6 +294,68 @@ class ProbeRoot:
   mlir::OwningOpRef<mlir::ModuleOp> packetHeader, accumulatorHeader,
       accumulatorImplementation, rootImplementation;
 };
+
+TEST_F(SourceModuleContractsTest,
+       AssignmentTargetsReadIndicesButNotStoredBaseIdentities) {
+  std::string source = root + "/target_reads.py";
+  std::string transportPath = temporary.child("target-reads.transport.mlir");
+  moduleWrite(source, R"py(def scan(self, item):
+    self.items[self.index] = item
+    self.packet.field.leaf = item
+    (self.left, self.items[self.tuple_index]) = item
+    [self.right, self.items[self.list_index]] = item
+    value = self.loaded.value
+)py");
+  ASSERT_EQ(moduleEmit(source, root, transportPath,
+                       temporary.child("target-reads-python.log")),
+            0);
+  auto transport = moduleParse(transportPath, context);
+  ASSERT_TRUE(transport);
+  auto emit = [&]() -> mlir::InFlightDiagnostic {
+    return mlir::emitError(mlir::UnknownLoc::get(&context));
+  };
+  auto captured = detail::readSingleCapture(*transport, emit);
+  ASSERT_TRUE(mlir::succeeded(captured));
+  detail::AstNode function = captured->module.item("body", 0);
+  ASSERT_EQ(function.kind(), "FunctionDef");
+
+  llvm::StringSet<> formals;
+  llvm::StringSet<> members;
+  llvm::StringSet<> targetFormals;
+  llvm::StringSet<> targetMembers;
+  auto formalRead = [&](llvm::StringRef name, const detail::AstNode &) {
+    formals.insert(name);
+  };
+  auto memberRead = [&](llvm::StringRef name, const detail::AstNode &) {
+    members.insert(name);
+  };
+  mlir::ArrayAttr statements = function.array("body");
+  for (size_t index = 0; index < statements.size(); ++index) {
+    detail::AstNode statement = function.item("body", index);
+    detail::collectRuleStatementReads(statement, formalRead, memberRead);
+    mlir::ArrayAttr targets = statement.array("targets");
+    for (size_t targetIndex = 0; targetIndex < targets.size(); ++targetIndex)
+      detail::collectRuleExpressionReads(
+          statement.item("targets", targetIndex),
+          [&](llvm::StringRef name, const detail::AstNode &) {
+            targetFormals.insert(name);
+          },
+          [&](llvm::StringRef name, const detail::AstNode &) {
+            targetMembers.insert(name);
+          });
+  }
+
+  EXPECT_TRUE(formals.contains("item"));
+  for (llvm::StringRef read : {"index", "tuple_index", "list_index", "loaded"})
+    EXPECT_TRUE(members.contains(read)) << read.str();
+  for (llvm::StringRef stored : {"items", "packet", "left", "right"})
+    EXPECT_FALSE(members.contains(stored)) << stored.str();
+  EXPECT_TRUE(targetFormals.empty());
+  for (llvm::StringRef read : {"index", "tuple_index", "list_index"})
+    EXPECT_TRUE(targetMembers.contains(read)) << read.str();
+  for (llvm::StringRef stored : {"items", "packet", "left", "right", "loaded"})
+    EXPECT_FALSE(targetMembers.contains(stored)) << stored.str();
+}
 
 TEST_F(SourceModuleContractsTest, HeaderPublishesOneClosedModuleSignature) {
   mlir::Builder builder(&context);
@@ -455,6 +551,66 @@ TEST_F(SourceModuleContractsTest, RuleShapeAndBindingsAreMandatory) {
   rule = findOperation(*implementation, "ac.rule");
   rule->getRegion(0).emplaceBlock();
   EXPECT_TRUE(mlir::failed(mlir::verify(*implementation)));
+}
+
+TEST_F(SourceModuleContractsTest,
+       RuleInputsAreBoundToTheirActualFormalOrOwnedAuthority) {
+  mlir::Builder builder(&context);
+  EXPECT_TRUE(mlir::succeeded(mlir::verify(*accumulatorImplementation)));
+
+  {
+    auto implementation = moduleClone(*accumulatorImplementation);
+    mlir::Operation *rule = findOperation(*implementation, "ac.rule");
+    auto bindings = rule->getAttrOfType<mlir::ArrayAttr>("ac.input_bindings");
+    auto binding = mlir::cast<mlir::DictionaryAttr>(bindings[0]);
+    binding = replaceField(builder, binding, "parameter",
+                           builder.getStringAttr("result"));
+    rule->setAttr("ac.input_bindings", builder.getArrayAttr({binding}));
+    EXPECT_TRUE(mlir::failed(mlir::verify(*implementation)));
+  }
+
+  {
+    auto implementation = moduleClone(*accumulatorImplementation);
+    mlir::Operation *rule = findOperation(*implementation, "ac.rule");
+    auto outputBindings =
+        rule->getAttrOfType<mlir::ArrayAttr>("ac.output_bindings");
+    auto outputTypes = rule->getAttrOfType<mlir::ArrayAttr>("ac.output_types");
+    rule->setOperand(0, rule->getOperand(1));
+    rule->setAttr("ac.input_bindings",
+                  builder.getArrayAttr({outputBindings[0]}));
+    rule->setAttr("ac.input_types", builder.getArrayAttr({outputTypes[0]}));
+    replaceRuleBodyWithIdentity(rule, context);
+    EXPECT_TRUE(mlir::failed(mlir::verify(*implementation)));
+  }
+
+  auto owned = moduleClone(*accumulatorImplementation);
+  mlir::Operation *rule = findOperation(*owned, "ac.rule");
+  mlir::Operation *state = findOperation(*owned, "ac.dffe");
+  ASSERT_NE(rule, nullptr);
+  ASSERT_NE(state, nullptr);
+  auto ownedBinding = builder.getDictionaryAttr({
+      builder.getNamedAttr("kind", builder.getStringAttr("owned")),
+      builder.getNamedAttr(
+          "declaration",
+          state->getAttrOfType<mlir::DictionaryAttr>("ac.declaration")),
+      builder.getNamedAttr("element", builder.getArrayAttr({})),
+  });
+  rule->setOperand(0, state->getResult(0));
+  rule->setAttr("ac.input_bindings", builder.getArrayAttr({ownedBinding}));
+  rule->setAttr("ac.input_types",
+                builder.getArrayAttr({state->getAttr("ac.logical_element")}));
+  replaceRuleBodyWithIdentity(rule, context);
+  EXPECT_TRUE(mlir::succeeded(mlir::verify(*owned)));
+
+  auto declaration = ownedBinding.getAs<mlir::DictionaryAttr>("declaration");
+  auto site = declaration.getAs<mlir::DictionaryAttr>("site");
+  site = replaceField(builder, site, "definition",
+                      mlir::FlatSymbolRefAttr::get(&context, "demo.Other"));
+  declaration = replaceField(builder, declaration, "site", site);
+  ownedBinding =
+      replaceField(builder, ownedBinding, "declaration", declaration);
+  rule->setAttr("ac.input_bindings", builder.getArrayAttr({ownedBinding}));
+  EXPECT_TRUE(mlir::failed(mlir::verify(*owned)));
 }
 
 TEST_F(SourceModuleContractsTest, InstanceCalleeAndStaticArgsAreMandatory) {
