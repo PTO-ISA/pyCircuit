@@ -1,0 +1,10 @@
+============================= test session starts ==============================
+platform darwin -- Python 3.14.6, pytest-9.0.2, pluggy-1.6.0
+rootdir: /Users/zhoubot/.codex/worktrees/migration-capture/pyCircuit
+configfile: pyproject.toml
+collected 3 items
+
+tests/python/agentic-circuit/tools/test_source_identifier_unicode_generator.py . [ 33%]
+..                                                                       [100%]
+
+============================== 3 passed in 0.14s ===============================

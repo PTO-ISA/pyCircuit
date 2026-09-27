@@ -24,3 +24,13 @@ This slice covers records, aliases and value helpers. Constants/module imports,
 real link stale-binding enforcement, final cleanup and both emits remain open.
 The unsupported record-construction default test proves capability rejection,
 not definition-time name-binding conformance.
+
+## Review B checkpoint
+
+Test B passes 126 selected tests with zero skips and CTest 3/3. Review B closes
+all six A findings but requires one test portability repair: exact CPython
+3.14.6/UCD16 regeneration/oracle work must use an explicitly configured tooling
+interpreter, separate from supported ordinary Python source/runtime tests.
+Pre-3.14 ordinary-runtime evidence and exact-recipe evidence are both required.
+The candidate remains REVISE; independent test C is active. No source identifier
+semantics changed during the provenance/license repair.

@@ -1,0 +1,11 @@
+Test project /Users/zhoubot/.codex/worktrees/migration-capture/pyCircuit/.pycircuit_out/u02-n1/build
+    Start 1: ACIRSourceContractsTests
+1/3 Test #1: ACIRSourceContractsTests .........   Passed    0.01 sec
+    Start 2: ACIRSourceUnitTests
+2/3 Test #2: ACIRSourceUnitTests ..............   Passed    1.88 sec
+    Start 3: ACIRNamespaceContractsTests
+3/3 Test #3: ACIRNamespaceContractsTests ......   Passed    2.48 sec
+
+100% tests passed, 0 tests failed out of 3
+
+Total Test time (real) =   4.38 sec

@@ -1,0 +1,40 @@
+Running main() from /private/tmp/googletest-20250910-5249-qce8ci/googletest-1.17.0/googletest/src/gtest_main.cc
+[==========] Running 14 tests from 2 test suites.
+[----------] Global test environment set-up.
+[----------] 8 tests from SourceUnitHeaderTest
+[ RUN      ] SourceUnitHeaderTest.ExtraOrdinaryModuleMetadataIsAccepted
+[       OK ] SourceUnitHeaderTest.ExtraOrdinaryModuleMetadataIsAccepted (144 ms)
+[ RUN      ] SourceUnitHeaderTest.RequiredEnvelopeAttributesAreMandatoryAndTyped
+[       OK ] SourceUnitHeaderTest.RequiredEnvelopeAttributesAreMandatoryAndTyped (130 ms)
+[ RUN      ] SourceUnitHeaderTest.DefinitionsUseEnclosingOwnerAndSnapshotsKeepAuthority
+[       OK ] SourceUnitHeaderTest.DefinitionsUseEnclosingOwnerAndSnapshotsKeepAuthority (131 ms)
+[ RUN      ] SourceUnitHeaderTest.DeclarationAndConstructorKeysAreExact
+[       OK ] SourceUnitHeaderTest.DeclarationAndConstructorKeysAreExact (131 ms)
+[ RUN      ] SourceUnitHeaderTest.ParameterMetadataAndPhysicalSignatureMustAgree
+[       OK ] SourceUnitHeaderTest.ParameterMetadataAndPhysicalSignatureMustAgree (132 ms)
+[ RUN      ] SourceUnitHeaderTest.TypeDefaultNominalReturnAndImpureTamperingFail
+[       OK ] SourceUnitHeaderTest.TypeDefaultNominalReturnAndImpureTamperingFail (131 ms)
+[ RUN      ] SourceUnitHeaderTest.ConstructorAndConsumerUseDeclaredFieldOrder
+[       OK ] SourceUnitHeaderTest.ConstructorAndConsumerUseDeclaredFieldOrder (129 ms)
+[ RUN      ] SourceUnitHeaderTest.ConstructorAndParameterOriginsUseConstructorRelativePaths
+[       OK ] SourceUnitHeaderTest.ConstructorAndParameterOriginsUseConstructorRelativePaths (129 ms)
+[----------] 8 tests from SourceUnitHeaderTest (1059 ms total)
+
+[----------] 6 tests from SourceUnitReviewTest
+[ RUN      ] SourceUnitReviewTest.OriginDefinitionsAreCheckedAtEveryDeclarationLayer
+[       OK ] SourceUnitReviewTest.OriginDefinitionsAreCheckedAtEveryDeclarationLayer (131 ms)
+[ RUN      ] SourceUnitReviewTest.ForgedBindingOrderAndDefaultGapAreRejected
+[       OK ] SourceUnitReviewTest.ForgedBindingOrderAndDefaultGapAreRejected (130 ms)
+[ RUN      ] SourceUnitReviewTest.SnapshotComparisonNormalizesLocationsButRejectsBodyChanges
+[       OK ] SourceUnitReviewTest.SnapshotComparisonNormalizesLocationsButRejectsBodyChanges (132 ms)
+[ RUN      ] SourceUnitReviewTest.ForwardReferenceToMalformedRecordDiagnosesWithoutCrash
+[       OK ] SourceUnitReviewTest.ForwardReferenceToMalformedRecordDiagnosesWithoutCrash (130 ms)
+[ RUN      ] SourceUnitReviewTest.ImporterOriginsMatchKnownFixtureAstPathsAndProviderSource
+[       OK ] SourceUnitReviewTest.ImporterOriginsMatchKnownFixtureAstPathsAndProviderSource (129 ms)
+[ RUN      ] SourceUnitReviewTest.RawAndSnapshotLocationsRetainProviderPathButIgnoreDiagnosticCoordinates
+[       OK ] SourceUnitReviewTest.RawAndSnapshotLocationsRetainProviderPathButIgnoreDiagnosticCoordinates (133 ms)
+[----------] 6 tests from SourceUnitReviewTest (787 ms total)
+
+[----------] Global test environment tear-down
+[==========] 14 tests from 2 test suites ran. (1846 ms total)
+[  PASSED  ] 14 tests.

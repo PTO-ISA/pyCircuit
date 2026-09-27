@@ -1,0 +1,31 @@
+[  8%] Built target ACIRDialectIncGen
+[ 26%] Built target ACIRAttributesIncGen
+[ 34%] Built target ACIRTypesIncGen
+[ 43%] Built target ACIROpsIncGen
+[ 78%] Built target ACIRDialect
+[100%] Built target ACIRSourceContractsTests
+[  5%] Built target ACIRDialectIncGen
+[ 17%] Built target ACIRAttributesIncGen
+[ 23%] Built target ACIRTypesIncGen
+[ 29%] Built target ACIROpsIncGen
+[ 52%] Built target ACIRDialect
+[ 85%] Built target ACIRSourceCompiler
+[ 91%] Built target acir-source-unit-harness
+[ 94%] Linking CXX executable ../../bin/ACIRSourceUnitTests
+ld: warning: ignoring duplicate libraries: '../../lib/Dialect/ACIR/libACIRDialect.a', '/opt/homebrew/Cellar/llvm/22.1.8/lib/libMLIRFuncDialect.a', '/opt/homebrew/Cellar/llvm/22.1.8/lib/libMLIRSupport.a'
+[100%] Built target ACIRSourceUnitTests
+[  5%] Built target ACIRDialectIncGen
+[ 17%] Built target ACIRAttributesIncGen
+[ 22%] Built target ACIRTypesIncGen
+[ 28%] Built target ACIROpsIncGen
+[ 51%] Built target ACIRDialect
+[ 82%] Built target ACIRSourceCompiler
+[ 88%] Built target acir-source-unit-harness
+[100%] Built target ACIRNamespaceContractsTests
+[  6%] Built target ACIRDialectIncGen
+[ 19%] Built target ACIRAttributesIncGen
+[ 25%] Built target ACIRTypesIncGen
+[ 32%] Built target ACIROpsIncGen
+[ 58%] Built target ACIRDialect
+[ 93%] Built target ACIRSourceCompiler
+[100%] Built target acir-source-unit-harness

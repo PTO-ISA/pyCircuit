@@ -1,0 +1,49 @@
+Running main() from /private/tmp/googletest-20250910-5249-qce8ci/googletest-1.17.0/googletest/src/gtest_main.cc
+[==========] Running 17 tests from 3 test suites.
+[----------] Global test environment set-up.
+[----------] 8 tests from NamespaceContractsTest
+[ RUN      ] NamespaceContractsTest.GeneratedHeadersMatchIndependentBindingTables
+[       OK ] NamespaceContractsTest.GeneratedHeadersMatchIndependentBindingTables (129 ms)
+[ RUN      ] NamespaceContractsTest.MandatoryArraysAndClosedExportRecordsAreEnforced
+[       OK ] NamespaceContractsTest.MandatoryArraysAndClosedExportRecordsAreEnforced (132 ms)
+[ RUN      ] NamespaceContractsTest.NamespaceSitesMustBelongToTheHeaderOwner
+[       OK ] NamespaceContractsTest.NamespaceSitesMustBelongToTheHeaderOwner (131 ms)
+[ RUN      ] NamespaceContractsTest.ExportBindingsRejectEveryMalformedFieldShape
+[       OK ] NamespaceContractsTest.ExportBindingsRejectEveryMalformedFieldShape (132 ms)
+[ RUN      ] NamespaceContractsTest.ImportBindingsRejectEveryMalformedFieldShape
+[       OK ] NamespaceContractsTest.ImportBindingsRejectEveryMalformedFieldShape (136 ms)
+[ RUN      ] NamespaceContractsTest.NamespaceSiteAndPathComponentsAreClosed
+[       OK ] NamespaceContractsTest.NamespaceSiteAndPathComponentsAreClosed (133 ms)
+[ RUN      ] NamespaceContractsTest.Utf8NamesAndNumericPathIndicesUseExactOrdering
+[       OK ] NamespaceContractsTest.Utf8NamesAndNumericPathIndicesUseExactOrdering (133 ms)
+[ RUN      ] NamespaceContractsTest.OrderingAndStaleProviderBindingsAreRejected
+[       OK ] NamespaceContractsTest.OrderingAndStaleProviderBindingsAreRejected (131 ms)
+[----------] 8 tests from NamespaceContractsTest (1059 ms total)
+
+[----------] 4 tests from NamespaceRegistryGraphTest
+[ RUN      ] NamespaceRegistryGraphTest.CompleteCyclicImportBindingsAcceptHeaderPermutation
+[       OK ] NamespaceRegistryGraphTest.CompleteCyclicImportBindingsAcceptHeaderPermutation (252 ms)
+[ RUN      ] NamespaceRegistryGraphTest.ImportSnapshotWithoutAuthorityIsRejected
+[       OK ] NamespaceRegistryGraphTest.ImportSnapshotWithoutAuthorityIsRejected (129 ms)
+[ RUN      ] NamespaceRegistryGraphTest.DanglingAndRecordConstructorExportsAreRejected
+[       OK ] NamespaceRegistryGraphTest.DanglingAndRecordConstructorExportsAreRejected (132 ms)
+[ RUN      ] NamespaceRegistryGraphTest.SameProviderAndNameWithDifferentTargetIsRejected
+[       OK ] NamespaceRegistryGraphTest.SameProviderAndNameWithDifferentTargetIsRejected (130 ms)
+[----------] 4 tests from NamespaceRegistryGraphTest (645 ms total)
+
+[----------] 5 tests from SourceIdentifierTest
+[ RUN      ] SourceIdentifierTest.FixedUnicode16CasesMatchPythonAstRules
+[       OK ] SourceIdentifierTest.FixedUnicode16CasesMatchPythonAstRules (181 ms)
+[ RUN      ] SourceIdentifierTest.Python314UsesUcd16AndNormalizesSourceIdentifiers
+[       OK ] SourceIdentifierTest.Python314UsesUcd16AndNormalizesSourceIdentifiers (54 ms)
+[ RUN      ] SourceIdentifierTest.MalformedUtf8IsRejectedWithDiagnostics
+[       OK ] SourceIdentifierTest.MalformedUtf8IsRejectedWithDiagnostics (0 ms)
+[ RUN      ] SourceIdentifierTest.BoundedIndependentOracleBatchHasNoMismatches
+[       OK ] SourceIdentifierTest.BoundedIndependentOracleBatchHasNoMismatches (411 ms)
+[ RUN      ] SourceIdentifierTest.ExhaustiveBmpSingleCharactersMatchCPython314
+[       OK ] SourceIdentifierTest.ExhaustiveBmpSingleCharactersMatchCPython314 (107 ms)
+[----------] 5 tests from SourceIdentifierTest (754 ms total)
+
+[----------] Global test environment tear-down
+[==========] 17 tests from 3 test suites ran. (2459 ms total)
+[  PASSED  ] 17 tests.
