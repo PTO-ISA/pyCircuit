@@ -253,9 +253,7 @@ def test_chained_facade_uses_only_headers_and_clones_transitive_make_value(
     assert "@demo.provider.Payload" in interface
     assert "@demo.provider.Payload.__init__" in interface
     assert '"ac.constant"() <{sym_name = "demo.provider.LIMIT"' in interface
-    assert (
-        '"ac.constant"() <{sym_name = "demo.provider.ALSO_LIMIT"' in interface
-    )
+    assert '"ac.constant"() <{sym_name = "demo.provider.ALSO_LIMIT"' in interface
     assert '"ac.constant"() <{sym_name = "demo.provider.ENABLED"' in interface
     assert "ac.struct.get" in interface
     exports = _binding_table(
