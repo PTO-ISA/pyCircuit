@@ -1,0 +1,76 @@
+[
+  {
+    "name": "unit",
+    "cwd": "/Users/zhoubot/linx-isa/tools/pyCircuit",
+    "argv": [
+      "pytest",
+      "tests/unit",
+      "-m",
+      "unit",
+      "-q"
+    ],
+    "env": {},
+    "exit_code": 1,
+    "log": "unit.log"
+  },
+  {
+    "name": "parser",
+    "cwd": "/Users/zhoubot/linx-isa/tools/pyCircuit",
+    "argv": [
+      "pytest",
+      "tests/system/test_source_transport_mlir.py",
+      "-q"
+    ],
+    "env": {
+      "MLIR_OPT": "/opt/homebrew/opt/llvm/bin/mlir-opt"
+    },
+    "exit_code": 0,
+    "log": "parser.log"
+  },
+  {
+    "name": "ruff",
+    "cwd": "/Users/zhoubot/linx-isa/tools/pyCircuit",
+    "argv": [
+      "ruff",
+      "check",
+      "python/pycircuit/src/pycircuit/_source_transport.py",
+      "tests/unit/test_source_transport.py",
+      "tests/system/test_source_transport_mlir.py"
+    ],
+    "env": {},
+    "exit_code": 0,
+    "log": "ruff.log"
+  },
+  {
+    "name": "unit-configured",
+    "cwd": "/Users/zhoubot/linx-isa/tools/pyCircuit",
+    "argv": [
+      "pytest",
+      "tests/unit",
+      "-m",
+      "unit",
+      "-q"
+    ],
+    "env": {
+      "PYTHONPATH": "/Users/zhoubot/linx-isa/tools/pyCircuit/python/pycircuit/src"
+    },
+    "exit_code": 1,
+    "log": "unit-configured.log"
+  },
+  {
+    "name": "unit-source-packages",
+    "cwd": "/Users/zhoubot/linx-isa/tools/pyCircuit",
+    "argv": [
+      "pytest",
+      "tests/unit",
+      "-m",
+      "unit",
+      "-q"
+    ],
+    "env": {
+      "PYTHONPATH": "/Users/zhoubot/linx-isa/tools/pyCircuit/python/pycircuit/src:/Users/zhoubot/linx-isa/tools/pyCircuit/python/semantic-core/src"
+    },
+    "exit_code": 0,
+    "log": "unit-source-packages.log"
+  }
+]

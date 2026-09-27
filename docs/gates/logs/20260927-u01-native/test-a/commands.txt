@@ -1,0 +1,17 @@
+Working directory: /Users/zhoubot/.codex/worktrees/migration-capture/pyCircuit
+Git HEAD: 6ac45c51f146df60e01813bad820b1265b4430ec
+Native overlay: dirty, file and binary identities in content-sha256.txt
+
+cmake -S compiler/acir -B .pycircuit_out/u01/build -DACIR_BUILD_TESTING=ON
+cmake --build .pycircuit_out/u01/build --target ACIRSourceContractsTests ACIRSourceUnitTests acir-source-unit-harness -j 6
+ctest --test-dir .pycircuit_out/u01/build -N
+# rc=0 after test-source compile repairs; exactly ACIRSourceContractsTests and ACIRSourceUnitTests registered
+
+.pycircuit_out/u01/build/bin/ACIRSourceContractsTests
+# rc=0: 36 passed
+
+.pycircuit_out/u01/build/bin/ACIRSourceUnitTests
+# rc=1: 0 passed, 7 failed; every fixture setup stopped at reordered constructor rejection
+
+ACIR_SOURCE_UNIT_HARNESS="$PWD/.pycircuit_out/u01/build/bin/acir-source-unit-harness" PYTHONPATH="$PWD/python/semantic-core/src:$PWD/python/pycircuit/src:$PWD/python/agentic-circuit/src:$PWD" pytest tests/system/test_source_unit_packet.py -q
+# rc=1: 13 passed, 10 failed

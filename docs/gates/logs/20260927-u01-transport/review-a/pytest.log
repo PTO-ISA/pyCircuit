@@ -1,0 +1,10 @@
+============================= test session starts ==============================
+platform darwin -- Python 3.14.6, pytest-9.0.2, pluggy-1.6.0
+rootdir: /Users/zhoubot/.codex/worktrees/migration-capture/pyCircuit
+configfile: pyproject.toml
+collected 49 items
+
+tests/unit/test_source_capture.py ....................................   [ 73%]
+tests/unit/test_source_transport.py .............                        [100%]
+
+============================== 49 passed in 0.15s ==============================

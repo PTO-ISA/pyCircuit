@@ -1,0 +1,38 @@
+============================= test session starts ==============================
+platform darwin -- Python 3.14.6, pytest-9.0.2, pluggy-1.6.0
+rootdir: /Users/zhoubot/linx-isa/tools/pyCircuit
+configfile: pyproject.toml
+collected 266 items
+
+tests/unit/test_agentic_circuit_component.py ........                    [  3%]
+tests/unit/test_agentic_struct_type.py ........                          [  6%]
+tests/unit/test_api_contract.py .....                                    [  7%]
+tests/unit/test_build_out_dir_contract.py .                              [  8%]
+tests/unit/test_cli_entrypoints.py .......                               [ 10%]
+tests/unit/test_diagnostics.py .....                                     [ 12%]
+tests/unit/test_documentation_layout.py ........                         [ 15%]
+tests/unit/test_dodgeball_example.py .                                   [ 16%]
+tests/unit/test_example_layout.py ....                                   [ 17%]
+tests/unit/test_gate_topology.py ............                            [ 22%]
+tests/unit/test_generated_rtl_audit.py ........                          [ 25%]
+tests/unit/test_multi_clock_frontend.py ..                               [ 25%]
+tests/unit/test_primitive_catalog.py ...........                         [ 30%]
+tests/unit/test_pyc6_surface.py ........................................ [ 45%]
+......                                                                   [ 47%]
+tests/unit/test_pyc_bits_neon_store.py .                                 [ 47%]
+tests/unit/test_pyc_ir_inventory.py ...                                  [ 48%]
+tests/unit/test_reg_next_single_driver.py .......                        [ 51%]
+tests/unit/test_register_file.py .                                       [ 51%]
+tests/unit/test_release_evidence_and_platform_constraints.py .....       [ 53%]
+tests/unit/test_repository_layout.py ........                            [ 56%]
+tests/unit/test_sdk_verify_helpers.py ....                               [ 58%]
+tests/unit/test_semantic_core.py ............................            [ 68%]
+tests/unit/test_source_capture.py ....................................   [ 82%]
+tests/unit/test_source_transport.py .............                        [ 87%]
+tests/unit/test_sram_profile.py .                                        [ 87%]
+tests/unit/test_static_specialization_rejected.py ..                     [ 88%]
+tests/unit/test_toolchain_compiler_requirements.py .....                 [ 90%]
+tests/unit/test_tutorial_snippets.py .......                             [ 92%]
+tests/unit/test_v6_forward_signal.py ...................                 [100%]
+
+============================= 266 passed in 13.87s =============================

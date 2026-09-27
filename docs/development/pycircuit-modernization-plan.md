@@ -1,12 +1,12 @@
 # pyCircuit 单一路线重构与 GFSIM 迁移计划
 
-日期：2026-09-27。规划修订：6。状态：方案修订；尚未实施产品接口变更。
+日期：2026-09-27。规划修订：6。状态：C1-C/C2-C/C3-C 已获用户批准，隔离候选实施中；正式产品切换尚未完成。最新进度见[执行账本](../work-items/single-route-migration.md)。
 
 **目标只有一条产品编译路线：GFSIM 风格 Pythonic 源码 → 语法捕获 → MLIR 语义分析与 lowering → 经过验证的硬件 IR → GFSIM C++ 或 Verilog。** 优先迁移 GFSIM 已有设计与实现，以 hard break 退役 pyCircuit 的旧编译路线。
 
 用户最新要求取代上一版“保留 CAS、structural、Agentic 三种 authoring 路径”的前提。单一路线是已明确的架构方向，不再反复确认。具体 Python、IR、CLI、生成代码或 runtime 接口的改变，仍须先完成可审阅提案、独立技术审阅，再取得用户对精确修订的批准。**本规划不代替接口批准。**
 
-配套：[治理与调度](project-governance.md)、[验收规范](pycircuit-modernization-tests.md)、[独立审阅记录](pycircuit-modernization-review.md)。本轮只修改规划文档；现行源码与决策文件尚未切换。
+配套：[治理与调度](project-governance.md)、[验收规范](pycircuit-modernization-tests.md)、[独立审阅记录](pycircuit-modernization-review.md)。下文来源分析记录规划时点；已批准合同的基础实施与测试另见执行账本，完整决定与产品切换按 M5 完成。
 
 ## 分析结论与证据
 

@@ -1,0 +1,13 @@
+# U01 native independent test B
+
+The current-source isolated build registers the retained F01-F03 foundation contract target and the new SourceUnit target. Incompatible legacy `ACIRTypesTests` and `ACIROpsTests` files remain present but are intentionally not registered in this bounded U01 build.
+
+Final results are 36/36 foundation contract GTests, 12/12 SourceUnit/header-authority GTests, and 35/35 configured Packet system cases, all with zero skips. CTest passed both executable targets. The first SourceUnit rerun had one test-only oracle error: MLIR i1 true read through signed `IntegerAttr::getInt()` is `-1`; the test was corrected to inspect the APInt with zero-extension, after which the unchanged native candidate passed 12/12.
+
+Positive evidence uses real Python `_capture_source_file` and `_emit_source_transport`, the registered native harness, compiler-produced body/interface modules, and an in-memory header registry. It covers canonical `migration_c1/packet.py`, extended reordered `Request` and same-type `Pair`, defaults, kwargs, positional-only/keyword-only bindings, field reads, constructor calls with valid threading, relative constructor origins, dependency/snapshot ordering, and header-only consumer compilation after child source/body removal.
+
+Negative evidence covers unknown/duplicate/excess/missing constructor arguments; positional-only and keyword-only misuse; variadic constructors; decorators, inheritance, metaclass/type parameters, field initializers, helper decorators/type parameters, undeclared self fields, level-two relative imports, unsupported imports/assignments, duplicate fields/constructors, malformed capture Module/body/span/keyword records, nonempty capture module bodies, exact required `ac.*` declaration/helper keys, envelope required-vs-extra attributes, owner/snapshot authority, origin anchors, binding/default order, physical signatures and hidden controls, nominal/default/type tampering, pure arith admission, recursive helper rejection, snapshot SSA/location normalization and operand/body divergence, and forward malformed record diagnostics without crashes.
+
+Reproducible transport, body, and interface artifacts for Packet and consumer are under `artifacts/`. Consumer compilation reparsed the saved Packet interface through the registered dialect and used no Packet Python source or body in the header-only test.
+
+Limits: this is an isolated U01 source-unit/header-registry slice. It does not restore or validate the excluded legacy native suites, C3 publication/recovery, installed SDK behavior, final link closure, U03 math/check proofs, backends, or the unapproved N1 namespace re-export draft. It is not a full framework green claim.
