@@ -1,0 +1,9 @@
+============================= test session starts ==============================
+platform darwin -- Python 3.14.6, pytest-9.0.2, pluggy-1.6.0
+rootdir: /Users/zhoubot/linx-isa/tools/pyCircuit
+configfile: pyproject.toml
+collected 4 items
+
+tests/system/test_source_transport_mlir.py ....                          [100%]
+
+============================== 4 passed in 0.11s ===============================

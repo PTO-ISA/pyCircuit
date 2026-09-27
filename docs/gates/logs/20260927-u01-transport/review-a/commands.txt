@@ -1,0 +1,3 @@
+PYTHONPATH=python/pycircuit/src:python/semantic-core/src:python/agentic-circuit/src pytest -q tests/unit/test_source_capture.py tests/unit/test_source_transport.py
+ruff check python/pycircuit/src/pycircuit/_source_transport.py tests/unit/test_source_transport.py
+/opt/homebrew/opt/llvm/bin/mlir-opt --version

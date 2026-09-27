@@ -23,9 +23,10 @@
 | I02 C2-F01 MLIR 基础 | done | 隔离 checkout b3df12ad；governance_impl 实现、baseline_verification 独立测试，均 Sol medium | 已集成 d104dae0；独立 Sol high review PASS，17 GTest + 4 lit 通过，主 checkout 重建复验相同 21 项；[证据](../gates/logs/20260927-c2-f01/integration/results.md)。仅基础属性/类型与私有验证器，不代表 C2 pipeline 闭合 |
 | I03 C2-F02 类型/静态值 | done | 隔离 checkout 9c1a3502；governance_impl 实现、baseline_verification 独立测试，均 Sol medium | 已集成 29b424bf；独立 Sol high review PASS；主 checkout 28+6 GTest 与4 lit通过，[证据](../gates/logs/20260927-c2-f02/integration/results.md)。只验证结构与注入 resolver 匹配，真实 header authority 待接入 |
 | I04 C2-F03 identity | done | 隔离 checkout 8f7bd5bb；governance_impl 实现、baseline_verification 独立测试，均 Sol medium | 已集成 4b84de00；独立 Sol high PASS，主 checkout 36+6 GTest/4 lit通过，[证据](../gates/logs/20260927-c2-f03/integration/results.md)。结构验证完成，转入实际 Packet header；不声称 context/unit/link 完成 |
+| I05 U01 Packet source/header | active | 隔离 checkout 85cb2a06，分支 codex/gfsim-source-units；governance_impl 原生实现（Sol medium），source_transport 私有 transport（Luna high），baseline_verification 独立测试（Sol medium） | transport 已独立 Sol high PASS 并集成 8b39f70a，[主 checkout 266 unit/4 parser 通过](../gates/logs/20260927-u01-transport/integration/results.md)。原生 body/interface 与 header-only constructor/default/kwargs/get 仍在实施测试；不代表公共 driver、link 或双后端完成 |
 | 用户接口批准 | partial | 用户 | C1-C、C2-C、C3-C 均已批准；其范围外的硬件扩展仍须精确批准 |
 
-所有 writer 共享 checkout 且有互斥文件归属；ODS/CMake/product source 此刻未派发写入。native build 由 baseline owner 统一操作，其他 lane 不用同一输出目录构建。
+所有 writer 使用互斥文件归属。U01 的 ODS/原生 importer/非安装 harness 与产品 CMake 由 governance_impl 负责，测试及测试 CMake 由 baseline_verification 负责；private transport 单独派发。实现期间 native build 由 governance_impl 操作，稳定后移交测试 owner，其他 lane 不用同一输出目录构建。PM 维护主 checkout 文档，不改 candidate 产品源码。
 
 ## 全项目里程碑
 

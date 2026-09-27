@@ -1,0 +1,17 @@
+Working directory: /Users/zhoubot/.codex/worktrees/migration-capture/pyCircuit
+Source: 85cb2a0625e87247bacf9e9e5585a8c2a7f0f7d1
+
+env -u MLIR_OPT -u PYC_TOOLCHAIN_ROOT PATH=/usr/bin:/bin PYTHONPATH="$PWD/python/semantic-core/src:$PWD/python/pycircuit/src:$PWD/python/agentic-circuit/src:$PWD" /opt/homebrew/bin/pytest tests/unit/test_source_transport.py -q
+# rc=0: 13 passed; no native parser/tool discovery available
+
+MLIR_OPT=/opt/homebrew/opt/llvm/bin/mlir-opt PYTHONPATH="$PWD/python/semantic-core/src:$PWD/python/pycircuit/src:$PWD/python/agentic-circuit/src:$PWD" pytest tests/system/test_source_transport_mlir.py -q
+# rc=0: 4 passed; LLVM 22.1.8; zero skips
+
+env -u MLIR_OPT -u PYC_TOOLCHAIN_ROOT PATH=/usr/bin:/bin PYTHONPATH="$PWD/python/semantic-core/src:$PWD/python/pycircuit/src:$PWD/python/agentic-circuit/src:$PWD" /opt/homebrew/bin/pytest tests/unit -m unit -q
+# rc=1: 265 passed, 1 failed in test_primitive_catalog.py because concurrent native U01 ODS currently omits ac.reservation_set; transport tests 13/13 passed
+
+ruff check tests/unit/test_source_transport.py tests/system/test_source_transport_mlir.py
+# rc=0
+
+ruff format --check tests/unit/test_source_transport.py tests/system/test_source_transport_mlir.py
+# rc=0

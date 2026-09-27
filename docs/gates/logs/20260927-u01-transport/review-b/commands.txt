@@ -1,0 +1,3 @@
+env -u MLIR_OPT -u PYC_TOOLCHAIN_ROOT PATH=/usr/bin:/bin PYTHONPATH=python/pycircuit/src:python/semantic-core/src:python/agentic-circuit/src /opt/homebrew/bin/pytest -q tests/unit/test_source_transport.py
+MLIR_OPT=/opt/homebrew/opt/llvm/bin/mlir-opt PYTHONPATH=python/pycircuit/src:python/semantic-core/src:python/agentic-circuit/src /opt/homebrew/bin/pytest -q tests/system/test_source_transport_mlir.py
+/opt/homebrew/bin/ruff check python/pycircuit/src/pycircuit/_source_transport.py tests/unit/test_source_transport.py tests/system/test_source_transport_mlir.py
