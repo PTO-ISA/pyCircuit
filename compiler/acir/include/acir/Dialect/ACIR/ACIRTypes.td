@@ -21,6 +21,15 @@ class ACIR_DataNamedType<string name, string mnemonic, list<Trait> traits = []>
   let genVerifyDecl = 1;
 }
 
+def ACIR_MathIntType : ACIR_Type<"MathInt", "math_int"> {
+  let summary = "Temporary arbitrary-precision source mathematical integer";
+  let description = [{
+    MathInt is a source and linked-semantic carrier. It has no final hardware
+    storage or runtime ABI and must be eliminated before final hardware IR.
+  }];
+  let hasCustomAssemblyFormat = 1;
+}
+
 class ACIR_LayoutNamedType<string name, string mnemonic>
     : ACIR_DataNamedType<name, mnemonic, [
         DeclareTypeInterfaceMethods<DataLayoutTypeInterface,

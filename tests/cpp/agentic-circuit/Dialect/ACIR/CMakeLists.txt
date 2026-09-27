@@ -27,3 +27,15 @@ target_link_libraries(ACIROpsTests PRIVATE
   GTest::gtest_main
 )
 add_test(NAME ACIROpsTests COMMAND ACIROpsTests)
+
+add_executable(ACIRSourceContractsTests SourceContractsTest.cpp)
+target_include_directories(ACIRSourceContractsTests PRIVATE
+  "${ACIR_SOURCE_DIR}/lib"
+)
+target_link_libraries(ACIRSourceContractsTests PRIVATE
+  ACIRDialect
+  MLIRAsmParser
+  MLIRIR
+  GTest::gtest_main
+)
+add_test(NAME ACIRSourceContractsTests COMMAND ACIRSourceContractsTests)

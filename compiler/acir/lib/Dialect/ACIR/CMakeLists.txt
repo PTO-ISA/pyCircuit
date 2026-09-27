@@ -3,6 +3,7 @@ add_acir_library(ACIRDialect SOURCES
   ACIRInterfaces.cpp
   ACIROps.cpp
   ACIRResources.cpp
+  ACIRSourceContracts.cpp
   ACIRTypes.cpp
   GraphRegion.cpp
   ProcessLowerability.cpp

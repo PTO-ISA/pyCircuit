@@ -1,7 +1,9 @@
 #ifndef ACIR_DIALECT_ACIR_ACIRATTRIBUTES_H
 #define ACIR_DIALECT_ACIR_ACIRATTRIBUTES_H
 
-#include "mlir/IR/Attributes.h"
+#include "mlir/IR/BuiltinAttributes.h"
+#include "llvm/ADT/APSInt.h"
+#include "llvm/ADT/SmallString.h"
 
 #include "acir/Dialect/ACIR/ACIREnums.h.inc"
 
