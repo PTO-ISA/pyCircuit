@@ -137,6 +137,9 @@ nav:
       - pyCircuit 6 Decisions: rfcs/pyc6-decisions.md
       - Evolution Plan: pyc6-plan.md
       - C1 Pythonic Source Proposal: rfcs/migration/c1-pythonic-source.md
+      - C1 Source Approval: rfcs/migration/approvals/c1-pythonic-source.md
+      - C2 MLIR Contract Proposal: rfcs/migration/c2-mlir-contract.md
+      - C3 Driver Runtime Draft: rfcs/migration/c3-driver-runtime.md
       - Tier Annotation RFC: rfcs/tier_annotation.md
       - Architecture Rule Compiler Extension: rfcs/architecture-rule-compiler-extension.md
       - Architecture Rule RTL and Verification Checklist: rfcs/ac-architecture-rule-rtl-verification-extension-checklist.md

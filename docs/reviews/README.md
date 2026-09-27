@@ -21,4 +21,4 @@ approval. It is not approval of the interface or authorization to implement it.
 - [Migration governance activation](../gates/logs/20260927-migration-governance/independent-review.md): independent code review passed; no product-interface approval.
 - [C1 source proposal revision A](../gates/logs/20260927-c1-source-review/revision-a-review.md): revise; revision B is under independent review.
 
-- [C1 source proposal revision C](../gates/logs/20260927-c1-source-review/revision-c-review.md): approval-ready; awaiting the user’s exact source-contract approval.
+- [C1 source proposal revision C](../gates/logs/20260927-c1-source-review/revision-c-review.md): approval-ready; [user approval recorded](../rfcs/migration/approvals/c1-pythonic-source.md).

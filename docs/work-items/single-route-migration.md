@@ -16,9 +16,10 @@
 | B02 能力/退役矩阵 | review | PM；`migration-capabilities.md` | 现行能力、target disposition、批准包、oracle/gate、退役资产完整关联 |
 | B03 当前版本基线 | verified | `baseline_verification`，test-engineer，Sol medium；专属 baseline 输出与 gate evidence 目录 | 当前源码自行构建，Python G0 和最窄 native/双后端证据；不采用旧绿灯 |
 | G01 治理与 skills 落地 | done | `governance_impl`，executor，Sol medium；其派发中列出的治理/skills/导航文件 | lint/docs/skill validation + 独立审查；不改产品合同 |
-| D01 C1 设计 | review | `interface_design`，Architect，Astra xhigh，只读设计建议；PM 写精确提案 | [C1 修订 C](../rfcs/migration/c1-pythonic-source.md) C 版已独立 Astra approval-ready；[审阅证据](../gates/logs/20260927-c1-source-review/revision-c-review.md)，等待用户精确批准；精确 IR/SDK 另见后续 D02/D03 |
-| D02/D03 IR/SDK 精确提案 | pending | PM + 后续架构 author lane | 原 architecture-author 续派受宿主限制未启动；已由独立 explore lane 完成[实际 IR/缺口清单](migration-c2-contract-gaps.md)，PM 据此编写精确提案 |
-| 用户接口批准 | pending | 用户 | 独立 approval-ready 后呈现精确提案与修订；未批准前不实现相关接口 |
+| D01 C1 设计 | review | `interface_design`，Architect，Astra xhigh，只读设计建议；PM 写精确提案 | [C1 修订 C](../rfcs/migration/c1-pythonic-source.md) C 版已独立 Astra approval-ready；[审阅证据](../gates/logs/20260927-c1-source-review/revision-c-review.md)，[用户已批准该精确修订](../rfcs/migration/approvals/c1-pythonic-source.md)；精确 IR/SDK 另见后续 D02/D03 |
+| D02 C2 IR 精确提案 | review | interface_design（Astra xhigh）设计补齐，PM 整理 | [C2 修订 A](../rfcs/migration/c2-mlir-contract.md) 已独立审阅 revise；architect 正补齐四组 schema/proof 绑定缺口，随后复审和用户批准 |
+| D03 SDK/driver/runtime | active | PM 起草，architect 补齐缺失设计 | 统一 driver、unit publication、生成接口和一套 runtime 的精确合同，尚未批准 |
+| 用户接口批准 | partial | 用户 | C1 修订 C 已批准；C2/C3 及硬件扩展尚未批准，相关接口实现仍有门槛 |
 
 所有 writer 共享 checkout 且有互斥文件归属；ODS/CMake/product source 此刻未派发写入。native build 由 baseline owner 统一操作，其他 lane 不用同一输出目录构建。
 
@@ -39,7 +40,7 @@
 
 ## 当前限制与下一步
 
-C1/C2/C3 尚未成为精确用户批准接口，所以本轮先完成治理、基线和设计，继续所有不依赖该批准的工作。实际测试结果、独立 review 与用户回复到达后更新本账本；不提前宣布产品通过，不把审批等待扩大成全仓停止。
+C1 修订 C 已获用户精确批准；C2/C3 仍在设计中。继续不依赖尚未批准接口的准备工作，实施时逐项核对批准范围。实际测试结果、独立 review 与用户回复到达后更新本账本；不提前宣布产品通过，不把审批等待扩大成全仓停止。
 
 ## 本轮基线结果
 
@@ -47,4 +48,8 @@ C1/C2/C3 尚未成为精确用户批准接口，所以本轮先完成治理、�
 
 ## PM 本轮验收
 
-G01 已经独立 Sol code-review PASS，项目 skills 验证、文档构建、changed-file checks 和仓库/文档目录精确门槛通过；治理激活不批准产品接口。B01 的 donor/target 定位与内容由独立 reviewer 核对，完成来源调查交付。B03 已完成定向基线采集并明确失败/未运行范围；完整产品质量目标继续 active。C1 修订 C 为 approval-ready，用户批准请求已提交，未收到批准前不得实施该接口。
+G01 已经独立 Sol code-review PASS，项目 skills 验证、文档构建、changed-file checks 和仓库/文档目录精确门槛通过；治理激活不批准产品接口。B01 的 donor/target 定位与内容由独立 reviewer 核对，完成来源调查交付。B03 已完成定向基线采集并明确失败/未运行范围；完整产品质量目标继续 active。C1 修订 C 已由用户明确批准；批准记录与原文内容绑定，C2/C3 未因此获得批准。
+
+## C1 实施准备边界
+
+C1 已批准的私有语法捕获可先在隔离 checkout 实施：读取单文件、保留 AST/源位置、禁止执行模型，不发布 C2 IR/schema、C3 CLI 或新的 public Python compile API。该工作不切换产品入口、不开放第四条 lowering 路线，后续只接入获批的新主干。
