@@ -6,6 +6,8 @@ add_acir_library(ACIRSourceCompiler SOURCES
   PythonImportSignature.cpp
   SourceHeaderRegistry.cpp
   SourceHeaderHelpers.cpp
+  SourceNamespace.cpp
+  SourceIdentifier.cpp
   SourceUnit.cpp
   LINK_LIBRARIES
     ACIRDialect

@@ -17,39 +17,90 @@ bool isHelperDocstring(const AstNode &node) {
   return value.kind() == "Constant" && isa<StringAttr>(value.get("value"));
 }
 
+void collectTypeDeclarations(Type type,
+                             SmallVectorImpl<FlatSymbolRefAttr> &references);
+
+void collectDeclarationReferences(
+    Attribute attribute, SmallVectorImpl<FlatSymbolRefAttr> &references) {
+  if (auto symbol = dyn_cast<FlatSymbolRefAttr>(attribute)) {
+    references.push_back(symbol);
+    return;
+  }
+  if (auto type = dyn_cast<TypeAttr>(attribute)) {
+    collectTypeDeclarations(type.getValue(), references);
+    return;
+  }
+  if (auto dictionary = dyn_cast<DictionaryAttr>(attribute)) {
+    for (NamedAttribute field : dictionary)
+      collectDeclarationReferences(field.getValue(), references);
+    return;
+  }
+  if (auto array = dyn_cast<ArrayAttr>(attribute))
+    for (Attribute element : array)
+      collectDeclarationReferences(element, references);
+}
+
+void collectTypeDeclarations(Type type,
+                             SmallVectorImpl<FlatSymbolRefAttr> &references) {
+  if (auto record = dyn_cast<ac::StructType>(type))
+    references.push_back(
+        FlatSymbolRefAttr::get(type.getContext(), record.getName()));
+  else if (auto function = dyn_cast<FunctionType>(type)) {
+    for (Type input : function.getInputs())
+      collectTypeDeclarations(input, references);
+    for (Type result : function.getResults())
+      collectTypeDeclarations(result, references);
+  } else if (auto shaped = dyn_cast<ShapedType>(type))
+    collectTypeDeclarations(shaped.getElementType(), references);
+}
+
+void collectOperationDeclarations(
+    Operation *operation, SmallVectorImpl<FlatSymbolRefAttr> &references) {
+  for (NamedAttribute attribute : operation->getAttrs())
+    collectDeclarationReferences(attribute.getValue(), references);
+  for (Type type : operation->getOperandTypes())
+    collectTypeDeclarations(type, references);
+  for (Type type : operation->getResultTypes())
+    collectTypeDeclarations(type, references);
+  for (Region &region : operation->getRegions())
+    for (Block &block : region)
+      for (BlockArgument argument : block.getArguments())
+        collectTypeDeclarations(argument.getType(), references);
+  for (Region &region : operation->getRegions())
+    for (Block &block : region)
+      for (Operation &nested : block)
+        collectOperationDeclarations(&nested, references);
+}
+
 } // namespace
 LogicalResult RecordCompiler::cloneImportedDeclarations() {
-  llvm::DenseSet<Operation *> cloned;
-  SmallVector<ImportBinding> ordered;
-  for (const auto &[name, binding] : imports)
-    ordered.push_back(binding);
-  llvm::sort(ordered,
-             [](const ImportBinding &left, const ImportBinding &right) {
-               return left.symbol.getValue() < right.symbol.getValue();
-             });
-  for (const ImportBinding &binding : ordered) {
-    Operation *sourceOperation = nullptr;
-    if (auto alias = headers.lookupAlias(binding.symbol))
-      sourceOperation = alias;
-    else if (auto record = headers.lookupRecord(binding.symbol))
-      sourceOperation = record;
-    if (!sourceOperation)
+  llvm::DenseSet<Attribute> visited;
+  SmallVector<FlatSymbolRefAttr> pending;
+  for (const NamespaceImportUse &use : namespaceImportUses)
+    pending.push_back(use.target);
+  llvm::sort(pending, [](FlatSymbolRefAttr left, FlatSymbolRefAttr right) {
+    return left.getValue() < right.getValue();
+  });
+  for (size_t index = 0; index < pending.size(); ++index) {
+    FlatSymbolRefAttr target = pending[index];
+    if (!visited.insert(target).second)
       continue;
-    auto cloneSnapshot = [&](Operation *operation) {
-      if (!cloned.insert(operation).second)
-        return;
-      Operation *clone = operation->clone();
-      clone->setAttr("ac.declaration_role",
-                     builder.getStringAttr("import_snapshot"));
-      interface->getBody()->push_back(clone);
-    };
-    cloneSnapshot(sourceOperation);
-    if (auto record = dyn_cast<ac::StructOp>(sourceOperation)) {
-      auto constructor = headers.lookupHelper(record.getConstructorAttr());
-      if (!constructor)
-        return emitError() << "imported record lacks a verified constructor";
-      cloneSnapshot(constructor);
-    }
+    Operation *sourceOperation = headers.lookupDeclaration(target);
+    if (!sourceOperation)
+      return emitError() << "imported name lacks a verified declaration";
+    Operation *clone = sourceOperation->clone();
+    clone->setAttr("ac.declaration_role",
+                   builder.getStringAttr("import_snapshot"));
+    interface->getBody()->push_back(clone);
+
+    SmallVector<FlatSymbolRefAttr> references;
+    collectOperationDeclarations(sourceOperation, references);
+    llvm::sort(references, [](FlatSymbolRefAttr left, FlatSymbolRefAttr right) {
+      return left.getValue() < right.getValue();
+    });
+    for (FlatSymbolRefAttr reference : references)
+      if (!visited.contains(reference) && headers.lookupDeclaration(reference))
+        pending.push_back(reference);
   }
   return success();
 }
@@ -92,13 +143,28 @@ FailureOr<Value> RecordCompiler::recordCall(const AstNode &node,
   AstNode callee = node.child("func");
   if (callee.kind() != "Name")
     return emitError() << "U01 constructor call requires an imported name";
-  auto imported = imports.find(callee.string("id"));
-  if (imported == imports.end())
+  auto binding = namespaceBindings.find(callee.string("id"));
+  if (binding == namespaceBindings.end())
     return emitError() << "U01 constructor call must resolve from a header";
-  auto record = headers.lookupRecord(imported->second.symbol);
+  Operation *declaration = lookupCanonicalDeclaration(binding->second.target);
+  if (auto helper = dyn_cast_or_null<func::FuncOp>(declaration)) {
+    auto kind = helper->getAttrOfType<StringAttr>("ac.helper_kind");
+    if (!kind || kind.getValue() != "value")
+      return emitError() << "constructor target is not a nominal record";
+    if (!node.array("args").empty() || !node.array("keywords").empty())
+      return emitError() << "U01 value-helper calls do not take arguments";
+    auto call = at.create<func::CallOp>(
+        node.location(builder.getContext(), source.path),
+        binding->second.target, helper.getFunctionType().getResults(),
+        ValueRange{liveValid});
+    liveValid = call.getResult(1);
+    return call.getResult(0);
+  }
+  auto record = dyn_cast_or_null<ac::StructOp>(declaration);
   if (!record)
     return emitError() << "constructor target is not a nominal record";
-  auto constructor = headers.lookupHelper(record.getConstructorAttr());
+  auto constructor = dyn_cast_or_null<func::FuncOp>(
+      lookupCanonicalDeclaration(record.getConstructorAttr()));
   if (!constructor)
     return emitError() << "record header has no verified constructor";
   ArrayAttr metadata = constructor->getAttrOfType<ArrayAttr>("ac.parameters");
@@ -201,7 +267,8 @@ FailureOr<Value> RecordCompiler::expression(const AstNode &node,
       return emitError() << "field access requires a nominal record";
     auto symbol =
         FlatSymbolRefAttr::get(builder.getContext(), recordType.getName());
-    auto record = headers.lookupRecord(symbol);
+    auto record =
+        dyn_cast_or_null<ac::StructOp>(lookupCanonicalDeclaration(symbol));
     if (!record)
       return emitError()
              << "field access record is absent from header registry";
@@ -279,6 +346,7 @@ LogicalResult RecordCompiler::emitValueHelper(const AstNode &node) {
     return emitError() << "value helper return type does not match annotation";
   at.create<func::ReturnOp>(function.getLoc(), ValueRange{*value, liveValid});
   interface->getBody()->push_back(function);
+  registerLocalDeclaration(symbol, function);
   return success();
 }
 

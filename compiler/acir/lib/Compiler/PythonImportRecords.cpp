@@ -144,12 +144,16 @@ LogicalResult RecordCompiler::scanImportsAndAliases() {
                << "relative import levels greater than one are outside U01";
       if (targetModule == "typing")
         continue;
-      DictionaryAttr dependency = headers.ownerForModule(targetModule);
-      if (!dependency)
+      DictionaryAttr provider = headers.ownerForModule(targetModule);
+      ArrayAttr closure = headers.interfacesForModule(targetModule);
+      if (!provider || !closure || closure.empty())
         return emitError() << "missing explicit interface for import module '"
                            << targetModule << "'";
-      if (!llvm::is_contained(dependencies, dependency))
-        dependencies.push_back(dependency);
+      for (Attribute rawDependency : closure) {
+        auto dependency = dyn_cast<DictionaryAttr>(rawDependency);
+        if (dependency && !llvm::is_contained(dependencies, dependency))
+          dependencies.push_back(dependency);
+      }
       ArrayAttr names = statement.array("names");
       for (size_t nameIndex = 0; nameIndex < names.size(); ++nameIndex) {
         AstNode alias = statement.item("names", nameIndex);
@@ -162,8 +166,17 @@ LogicalResult RecordCompiler::scanImportsAndAliases() {
         if (!symbol)
           return emitError() << "interface module '" << targetModule
                              << "' does not export '" << remote << "'";
-        imports[local] = {targetModule, symbol};
+        bindNamespaceName(local, symbol, alias);
+        recordNamespaceImport(provider, remote, symbol, alias);
       }
+      continue;
+    }
+    if (statement.kind() == "ClassDef" || statement.kind() == "FunctionDef") {
+      StringRef name = statement.string("name");
+      bindNamespaceName(
+          name,
+          FlatSymbolRefAttr::get(builder.getContext(), qualifiedName(name)),
+          statement);
       continue;
     }
     if (statement.kind() != "Assign")
@@ -181,12 +194,14 @@ LogicalResult RecordCompiler::scanImportsAndAliases() {
     StringRef name = target.string("id");
     std::string symbol = qualifiedName(name);
     auto flat = FlatSymbolRefAttr::get(builder.getContext(), symbol);
-    aliases[name] = *type;
     AstNode declaration = statement;
     declaration.path.clear();
-    createAlias(builder, statement.location(builder.getContext(), source.path),
-                symbol, owner, occurrence(builder, flat, declaration),
-                "definition", *type);
+    Operation *alias = createAlias(
+        builder, statement.location(builder.getContext(), source.path), symbol,
+        owner, occurrence(builder, flat, declaration), "definition", *type);
+    registerLocalDeclaration(flat, alias);
+    bindNamespaceName(name, flat, statement);
+    continue;
   }
   llvm::sort(dependencies, [](DictionaryAttr left, DictionaryAttr right) {
     StringRef leftPackage = left.getAs<StringAttr>("package").getValue();
@@ -204,17 +219,16 @@ FailureOr<DictionaryAttr> RecordCompiler::annotation(const AstNode &node) {
     StringRef name = node.string("id");
     if (name == "bool")
       return logicalBool(builder);
-    if (auto found = aliases.find(name); found != aliases.end())
-      return found->second;
-    auto imported = imports.find(name);
-    if (imported == imports.end())
+    auto binding = namespaceBindings.find(name);
+    if (binding == namespaceBindings.end())
       return emitError() << "unresolved source annotation '" << name << "'";
-    if (auto alias = headers.lookupAlias(imported->second.symbol))
+    Operation *declaration = lookupCanonicalDeclaration(binding->second.target);
+    if (auto alias = dyn_cast_or_null<ac::TypeAliasOp>(declaration))
       return alias.getTarget();
-    if (headers.lookupRecord(imported->second.symbol))
-      return logicalRecord(builder, imported->second.symbol);
+    if (isa_and_nonnull<ac::StructOp>(declaration))
+      return logicalRecord(builder, binding->second.target);
     return emitError() << "imported symbol is not a source type: "
-                       << imported->second.symbol;
+                       << binding->second.target;
   }
   if (node.kind() != "Subscript" ||
       node.child("value").string("id") != "Annotated")
@@ -307,9 +321,11 @@ LogicalResult RecordCompiler::emitRecord(const AstNode &node) {
     fieldAttrs.push_back(fieldRecord(builder,
                                      field.child("target").string("id"), type,
                                      symbol, field, source.path));
-  createStruct(builder, node.location(builder.getContext(), source.path),
-               symbolText, owner, occurrence(builder, symbol, {}), "definition",
-               builder.getArrayAttr(fieldAttrs), constructorSymbol);
+  Operation *record = createStruct(
+      builder, node.location(builder.getContext(), source.path), symbolText,
+      owner, occurrence(builder, symbol, {}), "definition",
+      builder.getArrayAttr(fieldAttrs), constructorSymbol);
+  registerLocalDeclaration(symbol, record);
 
   AstNode arguments = constructor.child("args");
   auto signature = parseFunctionSignature(arguments, true, emitError);
@@ -387,6 +403,7 @@ LogicalResult RecordCompiler::emitRecord(const AstNode &node) {
                         builder, logicalRecord(builder, symbol))}));
   function->setAttr("ac.check_templates", builder.getArrayAttr({}));
   function->setAttr("ac.record", symbol);
+  registerLocalDeclaration(constructorSymbol, function);
   Block *entry = function.addEntryBlock();
   OpBuilder at = OpBuilder::atBlockEnd(entry);
   llvm::StringMap<size_t> fieldArguments;
@@ -479,6 +496,9 @@ FailureOr<SourceUnitArtifacts> RecordCompiler::run() {
     return emitError() << "unsupported U01 top-level source syntax '"
                        << statement.kind() << "'";
   }
+
+  if (failed(attachNamespaceMetadata()))
+    return failure();
 
   SmallVector<ModuleOp> validationHeaders(headers.suppliedHeaders());
   validationHeaders.push_back(*interface);

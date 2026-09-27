@@ -14,9 +14,16 @@
 
 namespace acir::compiler::detail {
 
-struct ImportBinding {
-  std::string module;
-  mlir::FlatSymbolRefAttr symbol;
+struct NamespaceBinding {
+  mlir::FlatSymbolRefAttr target;
+  AstNode site;
+};
+
+struct NamespaceImportUse {
+  mlir::DictionaryAttr source;
+  std::string name;
+  mlir::FlatSymbolRefAttr target;
+  AstNode site;
 };
 
 // Private state shared by the source-unit frontend stages. It retains the
@@ -29,6 +36,17 @@ protected:
                       ac::detail::EmitError emitError);
 
   std::string qualifiedName(llvm::StringRef name) const;
+  void bindNamespaceName(llvm::StringRef name, mlir::FlatSymbolRefAttr target,
+                         const AstNode &site);
+  void recordNamespaceImport(mlir::DictionaryAttr provider,
+                             llvm::StringRef remoteName,
+                             mlir::FlatSymbolRefAttr target,
+                             const AstNode &site);
+  void registerLocalDeclaration(mlir::FlatSymbolRefAttr symbol,
+                                mlir::Operation *declaration);
+  mlir::Operation *
+  lookupCanonicalDeclaration(mlir::FlatSymbolRefAttr symbol) const;
+  mlir::LogicalResult attachNamespaceMetadata();
 
   const CapturedSource &source;
   mlir::DictionaryAttr owner;
@@ -36,8 +54,9 @@ protected:
   ac::detail::EmitError emitError;
   mlir::OpBuilder builder;
   std::string module;
-  llvm::StringMap<mlir::DictionaryAttr> aliases;
-  llvm::StringMap<ImportBinding> imports;
+  llvm::StringMap<NamespaceBinding> namespaceBindings;
+  llvm::StringMap<mlir::Operation *> localDeclarations;
+  llvm::SmallVector<NamespaceImportUse> namespaceImportUses;
   llvm::SmallVector<mlir::DictionaryAttr> dependencies;
   mlir::OwningOpRef<mlir::ModuleOp> body;
   mlir::OwningOpRef<mlir::ModuleOp> interface;

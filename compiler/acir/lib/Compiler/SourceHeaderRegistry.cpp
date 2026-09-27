@@ -1,5 +1,6 @@
 #include "SourceUnit.h"
 #include "SourceHeaderHelpers.h"
+#include "SourceNamespace.h"
 
 #include "mlir/IR/OperationSupport.h"
 #include "mlir/IR/SymbolTable.h"
@@ -78,10 +79,16 @@ LogicalResult verifyUnitEnvelope(ModuleOp header, DictionaryAttr &owner,
   auto unitKind = header->getAttrOfType<StringAttr>("ac.unit_kind");
   auto stage = header->getAttrOfType<StringAttr>("ac.stage");
   auto interfaces = header->getAttrOfType<ArrayAttr>("ac.interfaces");
+  auto exports = header->getAttrOfType<ArrayAttr>("ac.exports");
+  auto importBindings = header->getAttrOfType<ArrayAttr>("ac.import_bindings");
   if (failed(ac::detail::verifySourceOwner(owner, emitError)) || !unitKind ||
       unitKind.getValue() != "interface" || !stage ||
       stage.getValue() != "source" || !interfaces || interfaces.empty())
     return emitError() << "interface unit envelope is incomplete";
+  if (!exports)
+    return emitError() << "interface requires ArrayAttr ac.exports";
+  if (!importBindings)
+    return emitError() << "interface requires ArrayAttr ac.import_bindings";
   llvm::DenseSet<Attribute> unique;
   DictionaryAttr previous;
   for (auto [index, raw] : llvm::enumerate(interfaces)) {
@@ -219,6 +226,40 @@ SourceHeaderRegistry::create(ArrayRef<ModuleOp> headers,
   }
 
   for (ModuleOp header : registry.headers_) {
+    DictionaryAttr owner = header->getAttrOfType<DictionaryAttr>("ac.source_owner");
+    llvm::DenseSet<Attribute> visited;
+    visited.insert(owner);
+    SmallVector<DictionaryAttr> pending;
+    auto firstInterfaces = header->getAttrOfType<ArrayAttr>("ac.interfaces");
+    for (auto [index, rawOwner] : llvm::enumerate(firstInterfaces))
+      if (index != 0)
+        pending.push_back(cast<DictionaryAttr>(rawOwner));
+    for (size_t index = 0; index < pending.size(); ++index) {
+      DictionaryAttr dependency = pending[index];
+      if (!visited.insert(dependency).second)
+        continue;
+      ModuleOp dependencyHeader = ownerHeaders.lookup(dependency);
+      auto dependencies = dependencyHeader->getAttrOfType<ArrayAttr>("ac.interfaces");
+      for (auto [dependencyIndex, rawDependency] : llvm::enumerate(dependencies))
+        if (dependencyIndex != 0)
+          pending.push_back(cast<DictionaryAttr>(rawDependency));
+    }
+    SmallVector<DictionaryAttr> sortedDependencies;
+    for (Attribute dependency : visited)
+      if (dependency != owner)
+        sortedDependencies.push_back(cast<DictionaryAttr>(dependency));
+    llvm::sort(sortedDependencies, ownerLess);
+    SmallVector<Attribute> closure{owner};
+    llvm::append_range(closure, sortedDependencies);
+    ArrayAttr expectedClosure = ArrayAttr::get(header.getContext(), closure);
+    auto declaredInterfaces = header->getAttrOfType<ArrayAttr>("ac.interfaces");
+    if (declaredInterfaces != expectedClosure)
+      return emitError() << "ac.interfaces must contain the complete sorted dependency closure";
+    registry.interfaceClosures_.try_emplace(
+        moduleName(owner), expectedClosure);
+  }
+
+  for (ModuleOp header : registry.headers_) {
     DictionaryAttr enclosingOwner =
         header->getAttrOfType<DictionaryAttr>("ac.source_owner");
     for (Operation &operation : header.getBody()->getOperations()) {
@@ -258,13 +299,6 @@ SourceHeaderRegistry::create(ArrayRef<ModuleOp> headers,
         registry.helpers_.try_emplace(flat, helper);
       else
         return emitError() << "interface contains an unsupported declaration";
-      if (isa<ac::TypeAliasOp, ac::StructOp>(operation)) {
-        std::string key = exportKey(declarationModule, name.rsplit('.').second);
-        if (!registry.exports_.try_emplace(
-                 key, FlatSymbolRefAttr::get(header.getContext(), name))
-                 .second)
-          return emitError() << "duplicate source export '" << key << "'";
-      }
     }
   }
 
@@ -385,6 +419,23 @@ SourceHeaderRegistry::create(ArrayRef<ModuleOp> headers,
   for (auto &[symbol, helper] : registry.helpers_)
     if (failed(visit(symbol)))
       return failure();
+
+  for (ModuleOp header : registry.headers_) {
+    DictionaryAttr owner = header->getAttrOfType<DictionaryAttr>("ac.source_owner");
+    std::string module = moduleName(owner);
+    auto exports = detail::readNamespaceExports(header, registry, emitError);
+    if (failed(exports))
+      return failure();
+    for (const detail::NamespaceExportBinding &binding : *exports) {
+      std::string key = exportKey(module, binding.name.getValue());
+      if (!registry.exports_.try_emplace(key, binding.target).second)
+        return emitError() << "duplicate namespace export '" << binding.name.getValue()
+                           << "' in " << module;
+    }
+  }
+  for (ModuleOp header : registry.headers_)
+    if (failed(detail::verifyNamespaceImports(header, registry, emitError)))
+      return failure();
   return registry;
 }
 
@@ -421,6 +472,12 @@ func::FuncOp SourceHeaderRegistry::lookupHelper(FlatSymbolRefAttr symbol) const 
   return found == helpers_.end() ? func::FuncOp() : found->second;
 }
 
+Operation *SourceHeaderRegistry::lookupDeclaration(
+    FlatSymbolRefAttr canonical) const {
+  auto found = authorities_.find(canonical);
+  return found == authorities_.end() ? nullptr : found->second;
+}
+
 DictionaryAttr SourceHeaderRegistry::ownerForModule(StringRef module) const {
   auto found = moduleOwners_.find(module);
   return found == moduleOwners_.end() ? DictionaryAttr() : found->second;
@@ -430,6 +487,11 @@ FlatSymbolRefAttr SourceHeaderRegistry::lookupExport(StringRef module,
                                                      StringRef sourceName) const {
   auto found = exports_.find(exportKey(module, sourceName));
   return found == exports_.end() ? FlatSymbolRefAttr() : found->second;
+}
+
+ArrayAttr SourceHeaderRegistry::interfacesForModule(StringRef module) const {
+  auto found = interfaceClosures_.find(module);
+  return found == interfaceClosures_.end() ? ArrayAttr() : found->second;
 }
 
 } // namespace acir::compiler

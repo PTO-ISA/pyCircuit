@@ -29,9 +29,11 @@ public:
   ac::TypeAliasOp lookupAlias(mlir::FlatSymbolRefAttr symbol) const;
   ac::StructOp lookupRecord(mlir::FlatSymbolRefAttr symbol) const;
   mlir::func::FuncOp lookupHelper(mlir::FlatSymbolRefAttr symbol) const;
+  mlir::Operation *lookupDeclaration(mlir::FlatSymbolRefAttr canonical) const;
   mlir::DictionaryAttr ownerForModule(llvm::StringRef moduleName) const;
   mlir::FlatSymbolRefAttr lookupExport(llvm::StringRef moduleName,
                                        llvm::StringRef sourceName) const;
+  mlir::ArrayAttr interfacesForModule(llvm::StringRef moduleName) const;
   llvm::ArrayRef<mlir::ModuleOp> suppliedHeaders() const { return headers_; }
 
 private:
@@ -41,6 +43,7 @@ private:
   llvm::DenseMap<mlir::Attribute, ac::StructOp> records_;
   llvm::DenseMap<mlir::Attribute, mlir::func::FuncOp> helpers_;
   llvm::StringMap<mlir::DictionaryAttr> moduleOwners_;
+  llvm::StringMap<mlir::ArrayAttr> interfaceClosures_;
   llvm::StringMap<mlir::FlatSymbolRefAttr> exports_;
 };
 
