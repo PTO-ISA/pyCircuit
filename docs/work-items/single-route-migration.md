@@ -23,10 +23,14 @@
 | I02 C2-F01 MLIR 基础 | done | 隔离 checkout b3df12ad；governance_impl 实现、baseline_verification 独立测试，均 Sol medium | 已集成 d104dae0；独立 Sol high review PASS，17 GTest + 4 lit 通过，主 checkout 重建复验相同 21 项；[证据](../gates/logs/20260927-c2-f01/integration/results.md)。仅基础属性/类型与私有验证器，不代表 C2 pipeline 闭合 |
 | I03 C2-F02 类型/静态值 | done | 隔离 checkout 9c1a3502；governance_impl 实现、baseline_verification 独立测试，均 Sol medium | 已集成 29b424bf；独立 Sol high review PASS；主 checkout 28+6 GTest 与4 lit通过，[证据](../gates/logs/20260927-c2-f02/integration/results.md)。只验证结构与注入 resolver 匹配，真实 header authority 待接入 |
 | I04 C2-F03 identity | done | 隔离 checkout 8f7bd5bb；governance_impl 实现、baseline_verification 独立测试，均 Sol medium | 已集成 4b84de00；独立 Sol high PASS，主 checkout 36+6 GTest/4 lit通过，[证据](../gates/logs/20260927-c2-f03/integration/results.md)。结构验证完成，转入实际 Packet header；不声称 context/unit/link 完成 |
-| I05 U01 Packet source/header | active | 隔离 checkout 85cb2a06，分支 codex/gfsim-source-units；governance_impl 原生 importer（Sol medium），u01_header_authority registry 与 source_transport 私有 transport（Luna high），baseline_verification 独立测试（Sol medium） | transport 已独立 Sol high PASS 并集成 8b39f70a，[主 checkout 266 unit/4 parser 通过](../gates/logs/20260927-u01-transport/integration/results.md)。原生首轮[独立测试 RED](../gates/logs/20260927-u01-native/test-a/results.md)：基础 36 通过，header 0/7、system 13/23；参数绑定与静默接纳缺陷正在修复。非公共 driver/link/双后端完成证据 |
-| 用户接口批准 | partial | 用户 | C1-C、C2-C、C3-C 均已批准；其范围外的硬件扩展仍须精确批准 |
+| I05 U01 Packet source/header | done（隔离候选） | codex/gfsim-source-units；governance_impl importer（Sol medium），u01_header_authority registry 与 source_transport（Luna high），baseline_verification 独立测试（Sol medium），PM 整合 | [验收](../gates/logs/20260927-u01-native/acceptance.md)：d6fb408e，36 foundation/14 header/51 system 共 101 项通过、0 skip，Sol high PASS。真实 Packet/body/header 与 header-only 消费成立；尚非公共 driver/link/双后端闭环 |
+| D04 C2-N1 名称绑定增补 | done（合同） | interface_design Astra xhigh 设计，PM 整理；namespace_review 独立 Astra xhigh 审阅 | [修订 C](../rfcs/migration/c2-n1-namespaces.md) approval-ready，[用户已批准](../rfcs/migration/approvals/c2-n1-namespaces.md)。实施与完整 gate 尚待完成，不能以 U01 替代 |
+| I06 U02-A0 共享前端服务 | ready | 隔离候选 d6fb408e；PM 派发 Luna 实现、独立测试及 Sol 审阅 | 先复用 U01 的 101 项行为门槛，抽取 source context、参数签名与重复类型/静态值服务；不增加第二 importer，不在重构中偷偷切换 N1 schema |
+| 用户接口批准 | partial | 用户 | C1-C、C2-C、C3-C、C2-N1-C 已批准；其范围外的硬件扩展仍须精确批准 |
 
 所有 writer 使用互斥文件归属。U01 的 ODS/原生 importer/非安装 harness 与产品 CMake 由 governance_impl 负责，测试及测试 CMake 由 baseline_verification 负责；private transport 单独派发。实现期间 native build 由 governance_impl 操作，稳定后移交测试 owner，其他 lane 不用同一输出目录构建。PM 维护主 checkout 文档，不改 candidate 产品源码。
+
+U01 有一项临时文件规模例外：PythonImportRecords.cpp 在验收候选中为 621 行，owner 为 governance_impl。当前保留连贯的 record 声明/构造器处理；U02-A 真正引入 module constructor 时，抽取共同签名绑定并降回 600 行以内，下一次职责扩张前执行。此例外已独立审阅，不扩展接口；registry 的 helper 验证已按独立职责拆分，CMake 注册由 PM 串行整合。
 
 ## 全项目里程碑
 
@@ -119,3 +123,13 @@ U02 必须为 fixture 中的数学加法和 mask 建立已批准 source-math IR�
 独立正反例覆盖：隐藏 child source/body、仅 header 默认值与构造器调用、端口改名不改变 R/W、未注册方法无 active effect、序列化重读后绑定不变、缺 header、错误 nominal/range/actual、重复 authority、篡改 snapshot/signature/effects、结构 alias 重绑、跨 child 内部 state 访问，以及错误合并两个实例 total。仍含 math_int/helper/未闭合义务的产物不发布为 final program，不调用 backend。
 
 该 scalar/record fixture 不需要新的用户接口批准；资源、memory/CDC/四态等扩展继续按能力矩阵补齐合同与审批。
+
+### 已批准 N1 后的实施顺序
+
+先执行 U02-A0：从 RecordCompiler 抽取 PythonImportContext 与 PythonImportSignature 私有服务，移除 Records/Helpers 重复的类型/静态值转换。签名服务返回 parameter AST、binding kind、optional default AST，不能固定输出 HelperParameter；module 的 static/connection Parameter 与 helper ValueConstraint 由各自调用者产生。隐式 receiver 由调用者明确选择，保留当前 capability diagnostics，不能把普通 helper 的第一个参数误删。清理前以 U01 的 101 项独立测试锁定行为，重构后复验并独立审阅；新文件按实际职责划分，解除 Records 的规模例外。
+
+随后把 N1 两个必需属性同时接入 producer、registry 和真实 Packet→Facade→Consumer，替换按 canonical symbol 末段猜 export 的逻辑。词法名字到 canonical reference、reference 到 local/header declaration view 分层；独立保留所有 named-import 消费事件，不能从最终名称表反推。此时只记录已实现类别的 source/header 子集证据；ac.constant/ac.module.import、真实 link 和两个 emit 的门槛仍须逐项完成。
+
+module/rule/DFFE 扩展沿同一 compilePythonSourceUnit 和共享 context 推进。模块构造器参数、owned state、注册调用与 rule body 的 Site.definition 使用 enclosing module class；相对路径包含 class body 内的方法与语句位置。record constructor 仍以真实 func helper 为锚。不要为模块静态构造器或 rule 方法制造假 func；registration occurrence 与 body occurrence 分开。保留 source-Module 绝对 AST path 供 N1 NamespaceSite 使用，从私有 anchor/root view 派生 definition-relative path，不破坏原路径。这是现有 C2 的 producer 约定，不是新增 header AST-path 白名单。
+
+frontend lane 独占 context/signature/Records/Helpers/后续 Modules/Rules；registry lane 独占 header authority/N1 验证；测试 lane 独立写 oracle。SourceUnit.h、ODS、注册和 CMake 由单个 integration owner 串行修改。实际 Accumulator/Core 不能用 stub rule body 或旧 lowering 宣称完成。
