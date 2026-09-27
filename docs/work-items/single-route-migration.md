@@ -25,12 +25,15 @@
 | I04 C2-F03 identity | done | 隔离 checkout 8f7bd5bb；governance_impl 实现、baseline_verification 独立测试，均 Sol medium | 已集成 4b84de00；独立 Sol high PASS，主 checkout 36+6 GTest/4 lit通过，[证据](../gates/logs/20260927-c2-f03/integration/results.md)。结构验证完成，转入实际 Packet header；不声称 context/unit/link 完成 |
 | I05 U01 Packet source/header | done（隔离候选） | codex/gfsim-source-units；governance_impl importer（Sol medium），u01_header_authority registry 与 source_transport（Luna high），baseline_verification 独立测试（Sol medium），PM 整合 | [验收](../gates/logs/20260927-u01-native/acceptance.md)：d6fb408e，36 foundation/14 header/51 system 共 101 项通过、0 skip，Sol high PASS。真实 Packet/body/header 与 header-only 消费成立；尚非公共 driver/link/双后端闭环 |
 | D04 C2-N1 名称绑定增补 | done（合同） | interface_design Astra xhigh 设计，PM 整理；namespace_review 独立 Astra xhigh 审阅 | [修订 C](../rfcs/migration/c2-n1-namespaces.md) approval-ready，[用户已批准](../rfcs/migration/approvals/c2-n1-namespaces.md)。实施与完整 gate 尚待完成，不能以 U01 替代 |
-| I06 U02-A0 共享前端服务 | active | 隔离候选 2c8f2dbe（原生 d6fb408e 加批准文档同步）；u02_frontend 显式配置 Luna high 实现，PM 串行注册 CMake；随后独立测试及 Sol 审阅 | 先复用 U01 的 101 项行为门槛，抽取 source context、参数签名与重复类型/静态值服务；不增加第二 importer，不在重构中偷偷切换 N1 schema |
+| I06 U02-A0 共享前端服务 | done（隔离候选） | b797eaf77；u02_frontend Luna high 实现，baseline_verification Sol medium 独立测试，governance_review Sol high 独立审阅；PM CMake 整合 | [验收](../gates/logs/20260928-u02-a0/acceptance.md)：101 项、0 skip、CTest 2/2；六份原始产物逐字节等同 U01-E，14 项提交内容绑定核对；Records 621→498 行，不改变 schema |
+| I07 N1 source/header 子集 | active（独立测试） | 隔离 b797eaf77 上的 frozen overlay；u02_frontend、u01_header_authority、namespace_unicode 均 Luna high；baseline_verification Sol medium 独立测试 | 真实 Packet→Facade→Consumer 冒烟已通过；三类别、双属性、传递依赖与 Unicode 的独立门槛在跑，尚不能宣称全 N1/link/emit 完成 |
+| D05 外部 DUT I/O 与资源事务 | active（设计） | dut_resource_design，architect，Astra xhigh 设计；独立 Astra 审阅随后进行 | 从 donor 和真实消费者需要补齐精确通用合同；当前未批准，禁止用 host 模拟核或后端私有补丁绕过 |
+| S01 基础 ALU/BRU ELF 消费者接入 | active | 独立 SSM 工作区 codex/pyc-alu-bru-migration；框架树只记录外部验收边界 | SSM fd0fcf9f2 修复派生 decode 完整性字段，经独立 Sol high PASS，8 项主机测试通过；真实生成核/八 ELF/同 ELF reference 比较尚未执行 |
 | 用户接口批准 | partial | 用户 | C1-C、C2-C、C3-C、C2-N1-C 已批准；其范围外的硬件扩展仍须精确批准 |
 
 所有 writer 使用互斥文件归属。U01 的 ODS/原生 importer/非安装 harness 与产品 CMake 由 governance_impl 负责，测试及测试 CMake 由 baseline_verification 负责；private transport 单独派发。实现期间 native build 由 governance_impl 操作，稳定后移交测试 owner，其他 lane 不用同一输出目录构建。PM 维护主 checkout 文档，不改 candidate 产品源码。
 
-U01 有一项临时文件规模例外：PythonImportRecords.cpp 在验收候选中为 621 行，owner 为 governance_impl。当前保留连贯的 record 声明/构造器处理；U02-A 真正引入 module constructor 时，抽取共同签名绑定并降回 600 行以内，下一次职责扩张前执行。此例外已独立审阅，不扩展接口；registry 的 helper 验证已按独立职责拆分，CMake 注册由 PM 串行整合。
+U01 的临时文件规模例外已由 I06 关闭：共享 context/signature 抽取后 PythonImportRecords.cpp 为 498 行；N1 冻结候选为 518 行。保持新手写原生文件小于 600 行的要求，registry、Unicode 与前端职责分开，CMake 注册由 PM 串行整合。
 
 ## 全项目里程碑
 
@@ -133,3 +136,19 @@ U02 必须为 fixture 中的数学加法和 mask 建立已批准 source-math IR�
 module/rule/DFFE 扩展沿同一 compilePythonSourceUnit 和共享 context 推进。模块构造器参数、owned state、注册调用与 rule body 的 Site.definition 使用 enclosing module class；相对路径包含 class body 内的方法与语句位置。record constructor 仍以真实 func helper 为锚。不要为模块静态构造器或 rule 方法制造假 func；registration occurrence 与 body occurrence 分开。保留 source-Module 绝对 AST path 供 N1 NamespaceSite 使用，从私有 anchor/root view 派生 definition-relative path，不破坏原路径。这是现有 C2 的 producer 约定，不是新增 header AST-path 白名单。
 
 frontend lane 独占 context/signature/Records/Helpers/后续 Modules/Rules；registry lane 独占 header authority/N1 验证；测试 lane 独立写 oracle。SourceUnit.h、ODS、注册和 CMake 由单个 integration owner 串行修改。实际 Accumulator/Core 不能用 stub rule body 或旧 lowering 宣称完成。
+
+## 外部基础 ALU/BRU 验收
+
+用户追加的完成条件是 SuperScalarModel 的 pyc 实际运行现有基础 ALU/BRU ELF。
+这是完整框架成熟目标的外部验收，不将目标缩小为消费者或 Packet。框架只承担
+通用 Python/MLIR/统一硬件 IR/双后端/SDK；ELF、ISA decode、核层次、独立 oracle
+与执行证据全部留在 SSM。SSM 主机前端不能计算操作数、ALU、分支结果或提交状态。
+
+八个现有程序覆盖 ALU 独立/依赖/WAW、跳转、分支双向、reset/zero alias 和循环。
+最终必须用新构建的逐源模块 DUT 无 skip 执行，保留原始期望、寄存器/提交与 block PC、
+周期对账、真实在途重叠和负向用例；同 ELF reference 与独立 golden 比较留在消费者仓。
+现阶段只有 fixture 和主机前端 8 项通过。SSM 原有 NDF 检查存在 627 项 NDF、48 项
+style 诊断，修复前后完全一致，change-check 因既有 index 无效失败；不记为全仓通过。
+
+typed DUT I/O 和资源/事务需要新合同，不能把 C3 portless root 或普通 DFFE 包装成
+已经支持真实消费者。设计工作与获批 N1/U02 实施并行；新接口完成独立审阅后提交用户。

@@ -1,0 +1,85 @@
+{
+  "candidate": "b797eaf77f2bf5d1651e608bc3855d14fac92047",
+  "source_directory": "/Users/zhoubot/.codex/worktrees/migration-capture/pyCircuit/.pycircuit_out/u02-a0",
+  "rule": "MLIR previews remove only surplus trailing LF bytes; append removed_trailing_lf_bytes LF bytes to recover raw artifact. Other files unchanged.",
+  "files": [
+    {
+      "path": "test-a/artifacts/consumer.body.mlir",
+      "raw_sha256": "e429af1c96502e7cf18941374d9abc17ea9159c815facfdfd9f9257235e1ea75",
+      "archived_sha256": "cb1c62f38bcf1957a47f21e9e5f614a1a2c3aa1701f2b1826e11f319c7f32ea8",
+      "removed_trailing_lf_bytes": 1
+    },
+    {
+      "path": "test-a/artifacts/consumer.interface.mlir",
+      "raw_sha256": "1d68dd5e84696fdbd02f9014aa2b172089ba35bfa43311002813480ca4e81743",
+      "archived_sha256": "8f9d6017af16e0acb14f0d8c4818623467087b225727ebaf173e7cfa2acb27bb",
+      "removed_trailing_lf_bytes": 1
+    },
+    {
+      "path": "test-a/artifacts/consumer.transport.mlir",
+      "raw_sha256": "a15397ce808c9aed5cc0725a28a891b771e9fd8554103869817620b3ecaa2bd8",
+      "archived_sha256": "a15397ce808c9aed5cc0725a28a891b771e9fd8554103869817620b3ecaa2bd8",
+      "removed_trailing_lf_bytes": 0
+    },
+    {
+      "path": "test-a/artifacts/packet.body.mlir",
+      "raw_sha256": "cc768dda7bb0146edf5a4acaf1094bce22f2366f7d0f7a0592a596d9209cfb08",
+      "archived_sha256": "e6398aaf09ac6bc55ca813fe774ecd576aa1550f8943a91e802ee1bc1ccfed88",
+      "removed_trailing_lf_bytes": 1
+    },
+    {
+      "path": "test-a/artifacts/packet.interface.mlir",
+      "raw_sha256": "91ab608d22085743f65b6ff9c34d061f38e49bf2b67f1dab45a0ca26ede6a415",
+      "archived_sha256": "c5312b6a013f3bb569f822deaa6aba493687f4bd28edf71076b2b64631209ad1",
+      "removed_trailing_lf_bytes": 1
+    },
+    {
+      "path": "test-a/artifacts/packet.transport.mlir",
+      "raw_sha256": "3a67823e7f6cf0d2d90d717c18a14fa8a057d1616d6c743182a8cbd03c038635",
+      "archived_sha256": "3a67823e7f6cf0d2d90d717c18a14fa8a057d1616d6c743182a8cbd03c038635",
+      "removed_trailing_lf_bytes": 0
+    },
+    {
+      "path": "test-a/commands.txt",
+      "raw_sha256": "955070b37ee96bc5ce12dd9177143c134eb5f61d45e2a9ffa689f4e710a4402c",
+      "archived_sha256": "955070b37ee96bc5ce12dd9177143c134eb5f61d45e2a9ffa689f4e710a4402c",
+      "removed_trailing_lf_bytes": 0
+    },
+    {
+      "path": "test-a/content-sha256.txt",
+      "raw_sha256": "04347148a4c304d1c9a66ed98ddc244c7710a460e44490a550eddc73ed0086e6",
+      "archived_sha256": "04347148a4c304d1c9a66ed98ddc244c7710a460e44490a550eddc73ed0086e6",
+      "removed_trailing_lf_bytes": 0
+    },
+    {
+      "path": "test-a/results.md",
+      "raw_sha256": "297e7d794150fd12b6f541f0f241867a1f113541ee90090beacc574a5ff8d5b0",
+      "archived_sha256": "297e7d794150fd12b6f541f0f241867a1f113541ee90090beacc574a5ff8d5b0",
+      "removed_trailing_lf_bytes": 0
+    },
+    {
+      "path": "review-a/clang-format.log",
+      "raw_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "archived_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "removed_trailing_lf_bytes": 0
+    },
+    {
+      "path": "review-a/content-sha256.txt",
+      "raw_sha256": "1765df29971a243f75749e28b53ed93e16d303cdfe477f11a97e9cccb03d06f0",
+      "archived_sha256": "1765df29971a243f75749e28b53ed93e16d303cdfe477f11a97e9cccb03d06f0",
+      "removed_trailing_lf_bytes": 0
+    },
+    {
+      "path": "review-a/diff-check.log",
+      "raw_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "archived_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "removed_trailing_lf_bytes": 0
+    },
+    {
+      "path": "review-a/summary.md",
+      "raw_sha256": "8d8d2031521bf68a87de1256465686f96b1c98b55fb17791992b4b5ba5ca854b",
+      "archived_sha256": "8d8d2031521bf68a87de1256465686f96b1c98b55fb17791992b4b5ba5ca854b",
+      "removed_trailing_lf_bytes": 0
+    }
+  ]
+}
