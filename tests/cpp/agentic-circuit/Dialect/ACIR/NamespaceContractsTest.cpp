@@ -6,6 +6,7 @@
 #include "mlir/IR/Builders.h"
 #include "mlir/IR/Diagnostics.h"
 #include "mlir/Parser/Parser.h"
+#include "llvm/ADT/APSInt.h"
 #include "llvm/ADT/SmallString.h"
 #include "llvm/Support/FileSystem.h"
 #include "llvm/Support/MemoryBuffer.h"
@@ -271,7 +272,7 @@ TEST_F(NamespaceContractsTest,
   const std::string transport = temporary.child("constants.transport.mlir");
   const std::string body = temporary.child("constants.body.mlir");
   const std::string interface = temporary.child("constants.interface.mlir");
-  writeFile(source, "LIMIT = 7\nENABLED = True\n");
+  writeFile(source, "LIMIT = 7\nALSO_LIMIT = 7\nENABLED = True\n");
   ASSERT_EQ(emitTransport(source, root, transport,
                           temporary.child("constants-python.log")),
             0);
@@ -283,7 +284,9 @@ TEST_F(NamespaceContractsTest,
   RegistryResult accepted = checkRegistry(*header);
   ASSERT_TRUE(accepted.accepted) << accepted.diagnostic;
   const std::vector<std::pair<std::string, std::string>> expected = {
-      {"ENABLED", "demo.constants.ENABLED"}, {"LIMIT", "demo.constants.LIMIT"}};
+      {"ALSO_LIMIT", "demo.constants.ALSO_LIMIT"},
+      {"ENABLED", "demo.constants.ENABLED"},
+      {"LIMIT", "demo.constants.LIMIT"}};
   EXPECT_EQ(
       bindingTable((*header)->getAttrOfType<mlir::ArrayAttr>("ac.exports")),
       expected);
@@ -291,7 +294,34 @@ TEST_F(NamespaceContractsTest,
   llvm::SmallVector<ac::ConstantOp> constants;
   (*header)->walk(
       [&](ac::ConstantOp constant) { constants.push_back(constant); });
-  ASSERT_EQ(constants.size(), 2u);
+  ASSERT_EQ(constants.size(), 3u);
+  auto findConstant = [](mlir::ModuleOp module, llvm::StringRef symbol) {
+    ac::ConstantOp result;
+    module.walk([&](ac::ConstantOp constant) {
+      if (constant.getSymName() == symbol)
+        result = constant;
+    });
+    return result;
+  };
+  ac::ConstantOp limit = findConstant(*header, "demo.constants.LIMIT");
+  ac::ConstantOp alsoLimit = findConstant(*header, "demo.constants.ALSO_LIMIT");
+  ac::ConstantOp enabled = findConstant(*header, "demo.constants.ENABLED");
+  ASSERT_TRUE(limit && alsoLimit && enabled);
+  for (ac::ConstantOp integer : {limit, alsoLimit}) {
+    auto type = integer->getAttrOfType<mlir::DictionaryAttr>("type");
+    auto value = integer->getAttrOfType<mlir::DictionaryAttr>("value");
+    ASSERT_TRUE(type && value);
+    EXPECT_EQ(type.getAs<mlir::StringAttr>("kind").getValue(), "integer");
+    EXPECT_EQ(value.getAs<mlir::StringAttr>("kind").getValue(), "integer");
+    EXPECT_EQ(value.getAs<ac::MathIntAttr>("value").getCanonicalValue(), "7");
+  }
+  EXPECT_NE(limit.getSymName(), alsoLimit.getSymName());
+  auto enabledType = enabled->getAttrOfType<mlir::DictionaryAttr>("type");
+  auto enabledValue = enabled->getAttrOfType<mlir::DictionaryAttr>("value");
+  ASSERT_TRUE(enabledType && enabledValue);
+  EXPECT_EQ(enabledType.getAs<mlir::StringAttr>("kind").getValue(), "bool");
+  EXPECT_EQ(enabledValue.getAs<mlir::StringAttr>("kind").getValue(), "bool");
+  EXPECT_TRUE(enabledValue.getAs<mlir::BoolAttr>("value").getValue());
 
   auto mismatched = clone(*header);
   ac::ConstantOp integer;
@@ -318,6 +348,82 @@ TEST_F(NamespaceContractsTest,
   boolean->setAttr("value",
                    withField(builder, value, "extra", builder.getUnitAttr()));
   EXPECT_FALSE(checkRegistry(*malformed).accepted);
+
+  const std::string facadeSource = root + "/facade_constants.py";
+  const std::string facadeTransport =
+      temporary.child("facade-constants.transport.mlir");
+  const std::string facadeBody = temporary.child("facade-constants.body.mlir");
+  const std::string facadeInterface =
+      temporary.child("facade-constants.interface.mlir");
+  writeFile(facadeSource,
+            "from .constants import LIMIT, ALSO_LIMIT as COPY, ENABLED\n");
+  ASSERT_EQ(emitTransport(facadeSource, root, facadeTransport,
+                          temporary.child("facade-constants-python.log")),
+            0);
+  ASSERT_EQ(compileUnit(facadeTransport, "facade_constants.py", facadeBody,
+                        facadeInterface,
+                        temporary.child("facade-constants.log"), {interface}),
+            0);
+  auto facade = parse(facadeInterface, context);
+  ASSERT_TRUE(facade);
+  llvm::SmallVector<mlir::ModuleOp> validFacade{*header, *facade};
+  ASSERT_TRUE(checkRegistry(validFacade).accepted);
+
+  auto staleFacade = clone(*facade);
+  ac::ConstantOp facadeLimit =
+      findConstant(*staleFacade, "demo.constants.LIMIT");
+  ASSERT_TRUE(facadeLimit);
+  auto staleValue = facadeLimit->getAttrOfType<mlir::DictionaryAttr>("value");
+  staleValue = withField(builder, staleValue, "value",
+                         ac::MathIntAttr::get(&context, llvm::APSInt("8")));
+  facadeLimit->setAttr("value", staleValue);
+  llvm::SmallVector<mlir::ModuleOp> staleFacadeHeaders{*header, *staleFacade};
+  RegistryResult staleFacadeResult = checkRegistry(staleFacadeHeaders);
+  EXPECT_FALSE(staleFacadeResult.accepted);
+  EXPECT_NE(staleFacadeResult.diagnostic.find("import snapshot differs"),
+            std::string::npos);
+
+  const std::string consumerSource = root + "/constant_consumer.py";
+  const std::string consumerTransport =
+      temporary.child("constant-consumer.transport.mlir");
+  const std::string consumerBody =
+      temporary.child("constant-consumer.body.mlir");
+  const std::string consumerInterface =
+      temporary.child("constant-consumer.interface.mlir");
+  writeFile(consumerSource,
+            "from .facade_constants import LIMIT as Bound, COPY, ENABLED\n");
+  ASSERT_EQ(emitTransport(consumerSource, root, consumerTransport,
+                          temporary.child("constant-consumer-python.log")),
+            0);
+  ASSERT_EQ(compileUnit(consumerTransport, "constant_consumer.py", consumerBody,
+                        consumerInterface,
+                        temporary.child("constant-consumer.log"),
+                        {interface, facadeInterface}),
+            0);
+  auto consumer = parse(consumerInterface, context);
+  ASSERT_TRUE(consumer);
+  llvm::SmallVector<mlir::ModuleOp> validConsumer{*header, *facade, *consumer};
+  ASSERT_TRUE(checkRegistry(validConsumer).accepted);
+
+  auto staleConsumer = clone(*consumer);
+  ac::ConstantOp consumerLimit =
+      findConstant(*staleConsumer, "demo.constants.LIMIT");
+  ASSERT_TRUE(consumerLimit);
+  consumerLimit->setAttr(
+      "type",
+      builder.getDictionaryAttr({
+          builder.getNamedAttr("kind", builder.getStringAttr("integer")),
+          builder.getNamedAttr(
+              "lower", ac::MathIntAttr::get(&context, llvm::APSInt("0"))),
+          builder.getNamedAttr(
+              "upper", ac::MathIntAttr::get(&context, llvm::APSInt("8"))),
+      }));
+  llvm::SmallVector<mlir::ModuleOp> staleConsumerHeaders{*header, *facade,
+                                                         *staleConsumer};
+  RegistryResult staleConsumerResult = checkRegistry(staleConsumerHeaders);
+  EXPECT_FALSE(staleConsumerResult.accepted);
+  EXPECT_NE(staleConsumerResult.diagnostic.find("import snapshot differs"),
+            std::string::npos);
 }
 
 TEST_F(NamespaceContractsTest,

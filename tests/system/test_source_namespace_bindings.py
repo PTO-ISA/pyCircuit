@@ -89,6 +89,7 @@ from typing import Annotated
 
 Word = Annotated[int, range(256)]
 LIMIT = 7
+ALSO_LIMIT = 7
 ENABLED = True
 
 class Payload:
@@ -117,6 +118,23 @@ def _provider(tmp_path: Path) -> tuple[Path, Unit]:
     source = _write(root, "provider.py", PROVIDER)
     unit = _compile(source, root=root, output=tmp_path / "provider-out")
     assert unit.completed.returncode == 0, unit.completed.stderr
+    text = unit.interface.read_text(encoding="utf-8")
+    assert re.search(
+        r'sym_name = "demo\.provider\.LIMIT", type = \{kind = "integer"\}, '
+        r'value = \{kind = "integer", value = #ac\.math_int<7>\}',
+        text,
+    )
+    assert re.search(
+        r'sym_name = "demo\.provider\.ALSO_LIMIT", '
+        r'type = \{kind = "integer"\}, '
+        r'value = \{kind = "integer", value = #ac\.math_int<7>\}',
+        text,
+    )
+    assert re.search(
+        r'sym_name = "demo\.provider\.ENABLED", type = \{kind = "bool"\}, '
+        r'value = \{kind = "bool", value = true\}',
+        text,
+    )
     return root, unit
 
 
@@ -128,6 +146,7 @@ def test_aliases_private_and_unused_imports_have_exact_namespace_mapping(
         root,
         "facade.py",
         "from .provider import (Payload as Item, Word as Count, LIMIT,\n"
+        "                       ALSO_LIMIT as Same,\n"
         "                       ENABLED as Switch, Make,\n"
         "                       Unused as NeverUsed, _Private as _Hidden)\n"
         "Local = Count\n\n"
@@ -157,10 +176,12 @@ def test_aliases_private_and_unused_imports_have_exact_namespace_mapping(
         ("Make", "demo.provider.Make"),
         ("NeverUsed", "demo.provider.Unused"),
         ("Read", "demo.facade.Read"),
+        ("Same", "demo.provider.ALSO_LIMIT"),
         ("Switch", "demo.provider.ENABLED"),
         ("_Hidden", "demo.provider._Private"),
     ]
     assert imports == [
+        ("ALSO_LIMIT", "demo.provider.ALSO_LIMIT"),
         ("ENABLED", "demo.provider.ENABLED"),
         ("LIMIT", "demo.provider.LIMIT"),
         ("Make", "demo.provider.Make"),
@@ -177,6 +198,7 @@ def test_aliases_private_and_unused_imports_have_exact_namespace_mapping(
         _module_attribute(body_text, "ac.import_bindings", "ac.interfaces")
     )
     assert '"ac.constant"() <{sym_name = "demo.provider.LIMIT"' in text
+    assert '"ac.constant"() <{sym_name = "demo.provider.ALSO_LIMIT"' in text
     assert '"ac.constant"() <{sym_name = "demo.provider.ENABLED"' in text
 
 
@@ -188,7 +210,7 @@ def test_chained_facade_uses_only_headers_and_clones_transitive_make_value(
         root,
         "facade.py",
         "from .provider import (Payload as Item, Word as Count, LIMIT as Bound,\n"
-        "                       ENABLED, Make)\n",
+        "                       ALSO_LIMIT as Mirror, ENABLED, Make)\n",
     )
     facade = _compile(
         facade_source,
@@ -200,7 +222,8 @@ def test_chained_facade_uses_only_headers_and_clones_transitive_make_value(
     consumer_source = _write(
         root,
         "consumer.py",
-        "from .facade import Item, Count, Bound as Limit, ENABLED as Active, Make\n\n"
+        "from .facade import (Item, Count, Bound as Limit, Mirror as Same,\n"
+        "                     ENABLED as Active, Make)\n\n"
         "def Read() -> Count:\n"
         "    return Make().value\n",
     )
@@ -230,6 +253,9 @@ def test_chained_facade_uses_only_headers_and_clones_transitive_make_value(
     assert "@demo.provider.Payload" in interface
     assert "@demo.provider.Payload.__init__" in interface
     assert '"ac.constant"() <{sym_name = "demo.provider.LIMIT"' in interface
+    assert (
+        '"ac.constant"() <{sym_name = "demo.provider.ALSO_LIMIT"' in interface
+    )
     assert '"ac.constant"() <{sym_name = "demo.provider.ENABLED"' in interface
     assert "ac.struct.get" in interface
     exports = _binding_table(
@@ -240,8 +266,11 @@ def test_chained_facade_uses_only_headers_and_clones_transitive_make_value(
     )
     assert ("Active", "demo.provider.ENABLED") in exports
     assert ("Limit", "demo.provider.LIMIT") in exports
+    assert ("Same", "demo.provider.ALSO_LIMIT") in exports
     assert ("Bound", "demo.provider.LIMIT") in imports
+    assert ("Mirror", "demo.provider.ALSO_LIMIT") in imports
     assert ("ENABLED", "demo.provider.ENABLED") in imports
+    assert dict(exports)["Limit"] != dict(exports)["Same"]
 
 
 def test_multiple_aliases_and_later_local_shadow_preserve_import_uses(
