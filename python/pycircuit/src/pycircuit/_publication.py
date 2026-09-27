@@ -191,6 +191,13 @@ def _publication_lock_set(
                 if journal is not None and journal["owner"] != entry.owner:
                     raise _PublicationError("published input owner does not match")
                 _validate_stable_state(entry.paths, journal, fs)
+                if journal is not None:
+                    _validate_artifact(
+                        entry.paths.destination,
+                        entry.owner,
+                        entry.recovery_validate,
+                        fs,
+                    )
                 _validate_stable_artifact(
                     entry.paths.destination,
                     entry.owner,
@@ -473,6 +480,10 @@ def _read_published(
                 if journal is not None and journal["owner"] != expected_owner:
                     raise _PublicationError("published artifact owner does not match")
                 _validate_stable_state(paths, journal, fs)
+                if journal is not None:
+                    _validate_artifact(
+                        paths.destination, expected_owner, recovery_validate, fs
+                    )
                 _validate_stable_artifact(
                     paths.destination, expected_owner, stable_validate, fs
                 )

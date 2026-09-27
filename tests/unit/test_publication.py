@@ -574,6 +574,74 @@ def test_cleanup_failure_after_commit_warns_and_reader_can_use_new_output(
     assert (_control(destination) / "journal.json").is_file()
 
 
+def test_cleanup_pending_read_runs_full_validation_before_stable_projection(
+    tmp_path: Path,
+) -> None:
+    destination = tmp_path / "unit"
+    _publish(destination, "old")
+    _publish(
+        destination,
+        "new",
+        replace=True,
+        filesystem=_PublicationFileSystem(
+            _Fault("before_rmdir_tree:previous", OSError)
+        ),
+    )
+    calls: list[str] = []
+
+    def full(path: Path, owner: Mapping[str, object]) -> None:
+        calls.append("full")
+        _validate(path, owner)
+
+    def stable(path: Path, owner: Mapping[str, object]) -> None:
+        calls.append("stable")
+        receipt = json.loads((path / "artifact.json").read_text(encoding="utf-8"))
+        assert receipt["owner"] == owner
+
+    value = _read_published(
+        destination,
+        owner=OWNER,
+        stable_validate=stable,
+        recovery_validate=full,
+        read=_content,
+    )
+
+    assert value == "new"
+    assert calls == ["full", "stable"]
+    assert (_control(destination) / "journal.json").is_file()
+
+
+def test_cleanup_pending_lock_set_runs_full_before_stable(tmp_path: Path) -> None:
+    destination = tmp_path / "unit"
+    _publish(destination, "old")
+    _publish(
+        destination,
+        "new",
+        replace=True,
+        filesystem=_PublicationFileSystem(
+            _Fault("before_rmdir_tree:previous", OSError)
+        ),
+    )
+    calls: list[str] = []
+
+    def full(path: Path, owner: Mapping[str, object]) -> None:
+        calls.append("full")
+        _validate(path, owner)
+
+    def stable(path: Path, owner: Mapping[str, object]) -> None:
+        calls.append("stable")
+        assert (
+            json.loads((path / "artifact.json").read_text(encoding="utf-8"))["owner"]
+            == owner
+        )
+
+    request = _PublicationInput(destination, OWNER, stable, full)
+    with _publication_lock_set(inputs=[request]) as locks:
+        assert locks.snapshot(destination, _content) == "new"
+
+    assert calls == ["full", "stable"]
+
+
 def test_error_after_journal_unlink_does_not_report_cleanup_pending(
     tmp_path: Path,
 ) -> None:
@@ -653,6 +721,34 @@ def test_stable_reader_and_recovery_use_distinct_validators(tmp_path: Path) -> N
 
     assert value == "old"
     assert calls == ["full", "full", "stable"]
+
+
+def test_no_journal_read_uses_only_stable_projection(tmp_path: Path) -> None:
+    destination = tmp_path / "unit"
+    _publish(destination, "old")
+    calls: list[str] = []
+
+    def stable(path: Path, owner: Mapping[str, object]) -> None:
+        calls.append("stable")
+        assert (
+            json.loads((path / "artifact.json").read_text(encoding="utf-8"))["owner"]
+            == owner
+        )
+
+    def full(_path: Path, _owner: Mapping[str, object]) -> None:
+        calls.append("full")
+
+    assert (
+        _read_published(
+            destination,
+            owner=OWNER,
+            stable_validate=stable,
+            recovery_validate=full,
+            read=_content,
+        )
+        == "old"
+    )
+    assert calls == ["stable"]
 
 
 def test_lock_set_rejects_equal_and_ancestor_related_paths(tmp_path: Path) -> None:
