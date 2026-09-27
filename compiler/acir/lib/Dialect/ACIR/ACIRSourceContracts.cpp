@@ -60,6 +60,16 @@ FailureOr<uint64_t> decodeU64(IntegerAttr value, StringRef description,
   return bits.getZExtValue();
 }
 
+FailureOr<uint32_t> decodeU32(IntegerAttr value, StringRef description,
+                              EmitError emitError) {
+  auto decoded = decodeU64(value, description, emitError);
+  if (failed(decoded))
+    return failure();
+  if (*decoded > std::numeric_limits<uint32_t>::max())
+    return emitError() << description << " is outside the u32 range";
+  return static_cast<uint32_t>(*decoded);
+}
+
 } // namespace detail
 
 Attribute MathIntAttr::parse(AsmParser &parser, Type) {

@@ -31,6 +31,9 @@ mlir::FailureOr<MathIntAttr> parseMathIntAttr(mlir::MLIRContext *context,
 mlir::FailureOr<uint64_t> decodeU64(mlir::IntegerAttr value,
                                     llvm::StringRef description,
                                     EmitError emitError);
+mlir::FailureOr<uint32_t> decodeU32(mlir::IntegerAttr value,
+                                    llvm::StringRef description,
+                                    EmitError emitError);
 
 mlir::LogicalResult verifySourceSpan(mlir::DictionaryAttr value,
                                      EmitError emitError);
@@ -63,6 +66,27 @@ mlir::LogicalResult verifyDefaultMatchesType(mlir::DictionaryAttr defaultValue,
                                              ExpectedTypeKind kind,
                                              RecordResolver resolver,
                                              EmitError emitError);
+
+mlir::LogicalResult verifySourceOwner(mlir::DictionaryAttr value,
+                                      EmitError emitError);
+mlir::LogicalResult verifyExpansionFrame(mlir::DictionaryAttr value,
+                                         EmitError emitError);
+mlir::LogicalResult verifyOccurrence(mlir::DictionaryAttr value,
+                                     EmitError emitError);
+mlir::LogicalResult verifySpecKey(mlir::DictionaryAttr value,
+                                  EmitError emitError);
+mlir::LogicalResult verifyValueID(mlir::DictionaryAttr value,
+                                  EmitError emitError);
+mlir::LogicalResult verifyCheckID(mlir::DictionaryAttr value,
+                                  EmitError emitError);
+mlir::LogicalResult verifyProofScope(mlir::DictionaryAttr value,
+                                     EmitError emitError);
+mlir::LogicalResult verifyOwnerRef(mlir::DictionaryAttr value,
+                                   EmitError emitError);
+mlir::LogicalResult verifyStateID(mlir::DictionaryAttr value,
+                                  EmitError emitError);
+mlir::LogicalResult verifyStateRef(mlir::DictionaryAttr value,
+                                   EmitError emitError);
 
 } // namespace acir::ac::detail
 

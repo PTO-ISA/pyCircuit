@@ -30,6 +30,7 @@ add_test(NAME ACIROpsTests COMMAND ACIROpsTests)
 
 add_executable(ACIRSourceContractsTests
   SourceContractsTest.cpp
+  SourceIdentityContractsTest.cpp
   SourceStaticMatchingTest.cpp
   SourceTypeContractsTest.cpp
 )
