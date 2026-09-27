@@ -38,6 +38,7 @@
 | D08 U02-C source link 设计 | active（只读设计） | u02c_link_design Astra xhigh；PM 集成建议 | [纵向切片摘要](../gates/logs/20260928-next-vertical-slices/design-summary.md)建议先完整 body/header 接纳，再 private linked-semantic 特化与 owner；ElementEffect read-origin 完整重算的已批准载体正在独立核对，缺口若需新增接口仍须审阅与用户批准 |
 | D09 C2-L1 current-read 载体 | active（设计，未批准） | u02c_link_design Astra xhigh 找出来源丢失，PM 起草[修订 A](../rfcs/migration/c2-l1-source-read.md) | 既有 IR 只足够重算 R/W，不能从 body 独立恢复完整 read origins；拟增一个 source-only `ac.source.read` 直通 op。独立审阅和用户精确批准前不得实施，也不得把 U02-C 阶段结果称为完整 effects 闭合 |
 | I12 C3 单源 compile | active（私有发布引擎） | c3_compile_design Astra xhigh 只读设计；c3_publication executor 实现私有 P1 | [纵向切片摘要](../gates/logs/20260928-next-vertical-slices/design-summary.md)给出 P1 发布、P2 稳定源/receipt、P3 native helper、P4 唯一 CLI、P5 CMake/gate；当前只启动 P1，不宣称公开 compile 可用 |
+| I13 N1 module facade 子集 | done（隔离候选 source/header） | PM 写真实 producer/facade/consumer 系统门槛；n1_constant_review Sol high 独立审阅 | 隔离测试提交 `c97959ff`；[验收](../gates/logs/20260928-u02-n1-module/acceptance.md)记录 6/6 namespace 系统用例、provider/facade Python/body 隐藏、两个独立 child 与过期绑定拒绝。全 N1 link/final/emit 仍开放 |
 | 用户接口批准 | partial | 用户 | C1-C、C2-C、C3-C、C2-N1-C 已批准；其范围外的硬件扩展仍须精确批准 |
 
 所有 writer 使用互斥文件归属。U01 的 ODS/原生 importer/非安装 harness 与产品 CMake 由 governance_impl 负责，测试及测试 CMake 由 baseline_verification 负责；private transport 单独派发。实现期间 native build 由 governance_impl 操作，稳定后移交测试 owner，其他 lane 不用同一输出目录构建。PM 维护主 checkout 文档，不改 candidate 产品源码。
