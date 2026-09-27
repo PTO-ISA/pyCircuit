@@ -25,7 +25,7 @@
 | I04 C2-F03 identity | done | 隔离 checkout 8f7bd5bb；governance_impl 实现、baseline_verification 独立测试，均 Sol medium | 已集成 4b84de00；独立 Sol high PASS，主 checkout 36+6 GTest/4 lit通过，[证据](../gates/logs/20260927-c2-f03/integration/results.md)。结构验证完成，转入实际 Packet header；不声称 context/unit/link 完成 |
 | I05 U01 Packet source/header | done（隔离候选） | codex/gfsim-source-units；governance_impl importer（Sol medium），u01_header_authority registry 与 source_transport（Luna high），baseline_verification 独立测试（Sol medium），PM 整合 | [验收](../gates/logs/20260927-u01-native/acceptance.md)：d6fb408e，36 foundation/14 header/51 system 共 101 项通过、0 skip，Sol high PASS。真实 Packet/body/header 与 header-only 消费成立；尚非公共 driver/link/双后端闭环 |
 | D04 C2-N1 名称绑定增补 | done（合同） | interface_design Astra xhigh 设计，PM 整理；namespace_review 独立 Astra xhigh 审阅 | [修订 C](../rfcs/migration/c2-n1-namespaces.md) approval-ready，[用户已批准](../rfcs/migration/approvals/c2-n1-namespaces.md)。实施与完整 gate 尚待完成，不能以 U01 替代 |
-| I06 U02-A0 共享前端服务 | ready | 隔离候选 d6fb408e；PM 派发 Luna 实现、独立测试及 Sol 审阅 | 先复用 U01 的 101 项行为门槛，抽取 source context、参数签名与重复类型/静态值服务；不增加第二 importer，不在重构中偷偷切换 N1 schema |
+| I06 U02-A0 共享前端服务 | active | 隔离候选 2c8f2dbe（原生 d6fb408e 加批准文档同步）；u02_frontend 显式配置 Luna high 实现，PM 串行注册 CMake；随后独立测试及 Sol 审阅 | 先复用 U01 的 101 项行为门槛，抽取 source context、参数签名与重复类型/静态值服务；不增加第二 importer，不在重构中偷偷切换 N1 schema |
 | 用户接口批准 | partial | 用户 | C1-C、C2-C、C3-C、C2-N1-C 已批准；其范围外的硬件扩展仍须精确批准 |
 
 所有 writer 使用互斥文件归属。U01 的 ODS/原生 importer/非安装 harness 与产品 CMake 由 governance_impl 负责，测试及测试 CMake 由 baseline_verification 负责；private transport 单独派发。实现期间 native build 由 governance_impl 操作，稳定后移交测试 owner，其他 lane 不用同一输出目录构建。PM 维护主 checkout 文档，不改 candidate 产品源码。
