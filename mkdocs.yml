@@ -139,7 +139,8 @@ nav:
       - C1 Pythonic Source Proposal: rfcs/migration/c1-pythonic-source.md
       - C1 Source Approval: rfcs/migration/approvals/c1-pythonic-source.md
       - C2 MLIR Contract Proposal: rfcs/migration/c2-mlir-contract.md
-      - C3 Driver Runtime Draft: rfcs/migration/c3-driver-runtime.md
+      - C3 Driver Runtime Proposal: rfcs/migration/c3-driver-runtime.md
+      - C2 and C3 Foundation Approval: rfcs/migration/approvals/c2-c3-foundation.md
       - Tier Annotation RFC: rfcs/tier_annotation.md
       - Architecture Rule Compiler Extension: rfcs/architecture-rule-compiler-extension.md
       - Architecture Rule RTL and Verification Checklist: rfcs/ac-architecture-rule-rtl-verification-extension-checklist.md

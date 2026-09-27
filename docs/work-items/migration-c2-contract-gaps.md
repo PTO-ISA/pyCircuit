@@ -1,6 +1,6 @@
 # C2 接口事实与待冻结缺口
 
-状态：分析完成，精确提案待编写；不是 C2 批准。来源为独立 `gfsim_inventory` 的只读代码核对，donor 基线 `b852ed83fa0288d0be7406bba0ed47be4b2c0f63`。本页把已有语义与真正需要新增的接口分开，避免重新发明基本状态操作。
+状态：来源分析完成；[C2-C](../rfcs/migration/c2-mlir-contract.md) 与 [C3-C](../rfcs/migration/c3-driver-runtime.md) 已独立 approval-ready 且[获用户批准](../rfcs/migration/approvals/c2-c3-foundation.md)。来源为独立 `gfsim_inventory` 的只读代码核对，donor 基线 `b852ed83fa0288d0be7406bba0ed47be4b2c0f63`。本页把已有语义与真正需要新增的接口分开，避免重新发明基本状态操作。
 
 ## 可直接采用设计的现有 donor 形状
 
@@ -15,7 +15,7 @@
 | current/next | input mode `q` 将 payload current 作为 region 参数；DFF yield data，DFFE yield data+enable | `compiler/acir/test/valid/state_ports.mlir:5` |
 | static parameter | `ac.param` 有名字及 integer/index result；link 用 param_names/values 绑定 | `ACIROps.td:62`、`tools/acir-link.cpp:392` |
 
-这些是物理 IR 的真实接口，不自动等于已实现完整 C1 数学整数、range/check 或 source-unit 接口。C1 当前 source 提案仍等待用户批准。
+这些是 donor 物理 IR 的实际接口，不等于目标合同或 pyCircuit 已实现能力。[C1-C 已获用户批准](../rfcs/migration/approvals/c1-pythonic-source.md)，目前只有私有单文件捕获完成实施；数学整数、range/check 与 source-unit MLIR 尚未落地。C2-C 提议普通状态只用 DFFE，并把 rule/module/instance 边界统一为 data,enable；donor module binding 的 enable,payload 必须适配，不能按同名操作直接复制。
 
 ## 真正需要 C2 冻结的接口
 
@@ -34,4 +34,4 @@ syntax capture → `acir-import-python`（验证并移除 capture）→ link（�
 
 ## 下一步与不被缩减的目标
 
-PM 将这些缺口写成可批准的 C2/C3 接口表和正反例，独立 Astra 审阅后再提交用户。首先覆盖与 C1 scalar/record/root 匹配的完整 foundation；异构 static geometry、external typed DUT、memory/CDC/四态和 transaction/resource 扩展仍是完整项目必须完成的合同，不因 foundation 可编译而关闭。
+上述 foundation 缺口已形成 C2-C/C3-C 精确合同及正反例，并经独立 Astra 审阅提交用户；现按批准范围逐步实施。首个闭环覆盖与 C1 scalar/record/root 匹配的 foundation，不能替代 M2 中另需资源合同的 Queue 用例或后续完整能力验收。异构 static geometry、external typed DUT、memory/CDC/四态和 transaction/resource 扩展仍是完整项目必须完成的合同，不因 foundation 可编译而关闭。
