@@ -1,0 +1,11 @@
+# U01 native independent RED
+
+The isolated build registered exactly the retained F01-F03 contract target and the new SourceUnit target. Incompatible legacy `ACIRTypesTests` and `ACIROpsTests` source files remain in the repository but are not registered in this U01 build.
+
+`ACIRSourceContractsTests` passed 36/36. `ACIRSourceUnitTests` ran seven tests and all seven failed during real fixture setup with `record constructor parameters must match fields`. The direct cause is the approved `Modes` constructor: its `self` and positional-only parameter are represented in `posonlyargs`, while the importer currently reads only `arguments.args`, sees the wrong formal count, and rejects the combined source. The same fixture also carries reordered `Request(value, valid)` / `(valid, value)` and same-typed `Pair(left, right)` / `(right, left)` oracles, but this run never reached them and therefore does not prove either success or failure of reordered constructor mapping.
+
+The configured Packet system lane collected 23 cases: 13 passed and 10 failed. The passing cases include canonical `migration_c1/packet.py`, eight malformed capture record/span cases rejected with diagnostics rather than crashes, and four unsupported-source cases (plain import, dynamic top-level assignment, duplicate field, duplicate constructor). Eight failures were blocked by the same positional-only formal collection defect: header-only defaults/kwargs/field-read, six constructor binding cases, and malformed-keyword transport. Two independent failures exposed silent acceptance of `*args` and `**kwargs` constructors (exit 0 with no diagnostic).
+
+Because extended Packet compilation failed, this candidate has no independent evidence for compiler-produced header reparsing, header-only child removal, exact declaration/helper keys, enclosing/snapshot authority, metadata/physical signature agreement, constructor body inlining, same-type reordered values, or header tamper rejection. The canonical Packet smoke proves only the bounded canonical fixture path. Native header/link/publish and backend behavior remain unproved.
+
+No implementation or approved contract was changed by the test lane. Build/source ownership was returned for importer fixes; no further build was run.
