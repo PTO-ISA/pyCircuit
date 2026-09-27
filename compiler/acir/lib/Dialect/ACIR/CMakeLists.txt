@@ -1,4 +1,5 @@
 add_acir_library(ACIRDialect SOURCES
+  ACIRConstantOps.cpp
   ACIRDialect.cpp
   ACIRIdentityContracts.cpp
   ACIRModuleContracts.cpp

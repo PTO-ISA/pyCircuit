@@ -17,6 +17,13 @@ def ACIR_TypeAliasOp : ACIR_Op<"type_alias", [Symbol]> {
   let assemblyFormat = "$sym_name `target` $target attr-dict";
 }
 
+def ACIR_ConstantOp : ACIR_Op<"constant", [Symbol]> {
+  let summary = "Declare one source-owned compile-time constant";
+  let arguments = (ins StrAttr:$sym_name, DictionaryAttr:$type,
+                       DictionaryAttr:$value);
+  let hasVerifier = 1;
+}
+
 def ACIR_ModuleImportOp : ACIR_Op<"module.import", [Symbol]> {
   let summary = "Declare one source-owned Pythonic hardware module signature";
   let arguments = (ins StrAttr:$sym_name);
