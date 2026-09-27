@@ -1,6 +1,6 @@
 # C2：逐源 MLIR 与共同硬件 IR 合同
 
-修订：C。状态：根据独立审阅补齐合同，待复审与用户批准。依据[已批准的 C1-C](approvals/c1-pythonic-source.md)，本包不重新改变其源语义。C3 driver/发布/runtime 接口单列。
+修订：B。状态：根据独立审阅补齐合同，待复审与用户批准。依据[已批准的 C1-C](approvals/c1-pythonic-source.md)，本包不重新改变其源语义。C3 driver/发布/runtime 接口单列。
 
 本设计由独立架构 author `interface_design`（Astra xhigh）补齐，PM 整理。目标是一个 MLIR 语义链，不能把 Python compiler、QueueGraph 或 backend interpreter 留作替代路线。实现可以分阶段，本文已定义的能力不能因 M2 尚未实现就永久退役。
 
@@ -261,33 +261,14 @@ exact verifier 独立重算 domain/宽度，识别实际 SSA 的正确扩展、�
 
 ```text
 UseID={origin:Occurrence,role="helper_return"|"next",slot:u32}
-RequiredUse={id:UseID,value:ValueID,target:UseTarget}
-UseTarget={kind="next_scalar",state:StateRef}
-         | {kind="next_selection",states:Array<StateRef>,index:ValueID}
-         | {kind="helper_return",call:Occurrence,ordinal:u32}
+RequiredUse={id:UseID,value:ValueID}
 ac.value.use(value,valid,path) {id:UseID,source:ValueID}
-ac.yield_bindings:Array<{
-  data_operand:u32,enable_operand:u32,target:StateRef,
-  contributions:Array<{use:UseID,selection_ordinal:UnitAttr|u64}>
-}>
+ac.yield_bindings:Array<{data_operand:u32,enable_operand:u32,value:ValueID}>
 ```
 
-specialization 后、list scalarization/numeric lowering 前，从实际 source next-assignment/return-target operations 独立提取 `ac.required_uses:Array<RequiredUse>` 并保留；不能从 final yield 反推源目标。UseID.role 必须匹配 target kind。next_selection.states 是 source collection ordinal 顺序的完整非空有限目标表；index 指该次下标求值/已验证 bounds 转换的 ValueID，不能重算或替换。
+numeric lowering 前以 `ac.required_uses:Array<RequiredUse>` 记录 required uses，展开到 ProofScope 后一对一匹配。use 的 value/valid 等于 binding，path 是验证过的源 use path。helper inline 后仍保留 helper-return marker。final rule 的 yield_bindings 第 j 项恰指向 operands 2j/2j+1；data 必须是该 binding 的实际 SSA，enable 必须等于验证过的 source write-path equation 且蕴含 binding path/valid。
 
-展开到 ProofScope 后 required uses 与 `ac.value.use` 一对一匹配；marker 的 id/source 等于 RequiredUse.id/value，其 value/valid 等于 binding，path 是 threaded-path/检查图验证过的源 use path。helper inline 后仍保留 helper-return marker，匹配 call/ordinal。
-
-final rule yield_bindings 第 j 项恰指 operands 2j/2j+1，target 必须结构等于唯一 physical output `ac.output_bindings[j]`；不靠重复 output bindings 表示互斥写。contributions 非空，每项通过 UseID 取得 RequiredUse 的原始目标和值：
-
-- next_scalar：selection_ordinal=unit，target 等于原始源 state；候选 data 是 RequiredUse.value binding 的实际 SSA。
-- next_selection：selection_ordinal=k，0<=k<states.size，target=states[k]；候选 data 仍是同一次 RequiredUse.value 的实际 SSA；要求同一个已验证 index==k。
-
-每项 Ei 等于其 ac.value.use 的 threaded path AND validity，selection 再 AND 同一 index==k。final enable 必须等于 OR(Ei)，data 是按 Ei 选择各实际 binding.value 的已验证 SSA merge；无 active contribution 时只允许类型正确、不可观察的 zero-bit placeholder。每对可能同时 active 的 Ei 必须有 C1 要求的静态互斥证明或 precommit overlap check，不能把 select 顺序当优先级。
-
-每个 scalar RequiredUse 在本 rule contributions 中恰出现一次；每个 selection RequiredUse 的每个 k 恰出现一次，本版全部保留，不可达项 Ei=false。互斥分支写保留多个 source uses，合并成一个 next/enable；不能删除原始 uses 后以合成 ValueID 自证。module 层继续按同样冲突合同合并不同 rule/child drivers。
-
-scalarization 不重复求值 replacement/index，不产生新 owner，不改源 ordinal 映射；dynamic owner 不在此形式内。所有 next-use marker 必须被 yield bindings 消费。link 将每个实例的 StateRef 经 ac.instance_bindings 解析成 StateID，复核实际 operand handle/commit 指向相同目标；两个 formal 在某实例偶然 alias 不能授权交换模板目标。
-
-module commit 只能由验证过的 rule outputs 和 child next results 构造；冲突检查后的 merge 按实际 enables 选择。verifier 沿真实 SSA edges 验证，其他位置的孤立 proof 不授权写入。必须拒绝：两个同型同 enable 的已证结果交换 outputs（即使同时交换旧 ValueID 标记）、good proof 配 redirected yield、changed binding、cross-scope proof、dropped bound arguments、forged ownership map、altered child operand、stale helper-return binding。此为 compiler transformation 正确性合同，不声称认证任意篡改全部源语义及义务记录的输入。
+module commit 只能由验证过的 rule outputs 和 child next results 构造；冲突检查后的 merge 按实际 enables 选择。verifier 沿真实 SSA edges 验证，不允许其他位置的孤立 proof 授权写入。必须拒绝：good proof 配 redirected yield、changed binding、cross-scope proof、dropped bound arguments、forged ownership map、altered child operand、stale helper-return binding。
 
 ## 状态、端口与实例归属
 
@@ -302,7 +283,6 @@ PortBinding={port:u32,target:StateRef}
 InitialSpec={kind="scalar",value:StaticExpr}
            | {kind="repeat",value:StaticExpr}
            | {kind="elements",values:Array<StaticExpr>}
-           | {kind="expression",value:StaticExpr}
 ```
 
 StateRef 为 module-relative，StateID 为 instance-resolved。owned scalar 的 element=[]，list 元素为 [i]，record fields 不各自获得 owner。
@@ -311,11 +291,7 @@ StateRef 为 module-relative，StateID 为 instance-resolved。owned scalar 的 
 
 source/final module 要求 `ac.ports:Array<PortSlot>`，先 current 再 next，每组按 constructor parameter/element 顺序；body 每 slot 一个 DFFE-handle 参数。RW 两个端点共享一个逻辑 state identity。
 
-每个 source state 要求 `ac.source_owner`、`ac.declaration:Occurrence`、`ac.logical_element:LogicalType`、`ac.shape:Array<StaticExpr>`（scalar [] 或 list [length]）、`ac.initial_value:InitialSpec`、`ac.domain="default"`。scalar 使用 scalar initializer，list 使用 repeat/elements/expression；特化后 count/arity 一致。register-list scalarize 为 DFFEs 与 bounds-checked select/demux，不推断 SRAM。
-
-expression 只用于求完整静态 list，不能当成重复首项。特化先求 ac.shape[0] 的正整数 N，再在同一参数环境中求 expression 恰一次；结果必须为 StaticValue.list，长度恰 N。按源顺序检查每项的 declared LogicalType：整数范围、bool/int 区别、record nominal identity、完整字段和不可空。长度、类型、范围或求值错误在发布 final IR 前拒绝；禁止补齐、截断、排序、回绕。
-
-`[i for i in range(entries)]` 使用 comprehension(binder=B,iterable=range(0,parameter(entries),1),value=reference(induction(B)))。entries=2/4 分别产生 [0,1]/[0,1,2,3]；scalarization 把第 k 项精确写入 element[k] 的 payload initializer。Build 和每次 Reset 恢复同一向量，不能因 donor repeated-entry 限制改为全零。新增 gate 覆盖同源两种参数的逐元素初值与 Reset，以及错误长度、entries=257 导致 Word(range256) 第256项越界、bool 冒充 int、重排列表、Reset 只恢复首项等反例；不引入 SRAM 推断。
+每个 source state 要求 `ac.source_owner`、`ac.declaration:Occurrence`、`ac.logical_element:LogicalType`、`ac.shape:Array<StaticExpr>`（scalar [] 或 list [length]）、`ac.initial_value:InitialSpec`、`ac.domain="default"`。scalar 使用 scalar initializer，list 使用 repeat/elements；特化后 count/arity 一致。register-list scalarize 为 DFFEs 与 bounds-checked select/demux，不推断 SRAM。
 
 final DFFE 保留 source owner/declaration、`ac.element:Array<u64>`、concrete `ac.logical_type`、payload-typed `ac.initial_value`、domain；移除 symbolic shape/initializer。
 

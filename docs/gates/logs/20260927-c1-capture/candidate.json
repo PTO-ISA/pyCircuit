@@ -1,0 +1,26 @@
+{
+  "base": "a3e7d35540d644092ebc3e29b53edddd91c166af",
+  "checkout": "/Users/zhoubot/.codex/worktrees/migration-capture/pyCircuit",
+  "files": {
+    "python/pycircuit/src/pycircuit/_source_capture.py": "c31e8f7a5eb234073bc1b2a7ec4075b5987825d24189fbb0f657eb6896b6b002",
+    "tests/unit/test_source_capture.py": "319bdea10da53111c12f47359ae6e3fb3a224dc8b77bf4ffaf6f82c72e0e3735"
+  },
+  "contract": "C1 revision C; exact approval in docs/rfcs/migration/approvals/c1-pythonic-source.md",
+  "implementation": {
+    "agent": "governance_impl",
+    "model": "gpt-5.6-sol",
+    "effort": "medium"
+  },
+  "independent_test": {
+    "agent": "baseline_verification",
+    "model": "gpt-5.6-sol",
+    "effort": "medium"
+  },
+  "routing_note": "Explicit Luna spawn failed: agent thread limit reached; existing fixed Sol lanes reused with actual model recorded.",
+  "donor": {
+    "checkout": "/Users/zhoubot/Documents/GFSIM",
+    "head": "b852ed83fa0288d0be7406bba0ed47be4b2c0f63",
+    "source": "frontend/python/gfsim_frontend/_capture.py"
+  },
+  "scope": "Private single-file syntax/encoding/location capture; no model execution, semantic lowering, CLI, IR or public compile API."
+}

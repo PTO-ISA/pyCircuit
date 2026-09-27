@@ -17,8 +17,9 @@
 | B03 当前版本基线 | verified | `baseline_verification`，test-engineer，Sol medium；专属 baseline 输出与 gate evidence 目录 | 当前源码自行构建，Python G0 和最窄 native/双后端证据；不采用旧绿灯 |
 | G01 治理与 skills 落地 | done | `governance_impl`，executor，Sol medium；其派发中列出的治理/skills/导航文件 | lint/docs/skill validation + 独立审查；不改产品合同 |
 | D01 C1 设计 | review | `interface_design`，Architect，Astra xhigh，只读设计建议；PM 写精确提案 | [C1 修订 C](../rfcs/migration/c1-pythonic-source.md) C 版已独立 Astra approval-ready；[审阅证据](../gates/logs/20260927-c1-source-review/revision-c-review.md)，[用户已批准该精确修订](../rfcs/migration/approvals/c1-pythonic-source.md)；精确 IR/SDK 另见后续 D02/D03 |
-| D02 C2 IR 精确提案 | review | interface_design（Astra xhigh）设计补齐，PM 整理 | [C2 修订 A](../rfcs/migration/c2-mlir-contract.md) 已独立审阅 revise；architect 正补齐四组 schema/proof 绑定缺口，随后复审和用户批准 |
-| D03 SDK/driver/runtime | active | PM 起草，architect 补齐缺失设计 | 统一 driver、unit publication、生成接口和一套 runtime 的精确合同，尚未批准 |
+| D02 C2 IR 精确提案 | review | interface_design（Astra xhigh）设计补齐，PM 整理 | [C2 修订 C](../rfcs/migration/c2-mlir-contract.md) 已关闭全部独立审阅问题，[Astra xhigh approval-ready](../gates/logs/20260927-c2-review/revision-c-review.md)；待用户精确批准 |
+| D03 SDK/driver/runtime | active | PM 起草，interface_design（Astra xhigh）只读补齐设计，PM 转录 | 统一 driver、unit publication、生成接口和一套 runtime 的精确合同，尚未批准 |
+| I01 私有单文件源码捕获 | done | 隔离 checkout；governance_impl 实现（Sol medium），baseline_verification 独立测试（Sol medium） | 36 focused / 253 unit 通过、独立 Sol high code-review PASS，集成 `30e4f709`；[证据](../gates/logs/20260927-c1-capture/review.md)。不接 C2/C3/公开入口；Luna 派发受 thread limit 阻断，实际使用 Sol |
 | 用户接口批准 | partial | 用户 | C1 修订 C 已批准；C2/C3 及硬件扩展尚未批准，相关接口实现仍有门槛 |
 
 所有 writer 共享 checkout 且有互斥文件归属；ODS/CMake/product source 此刻未派发写入。native build 由 baseline owner 统一操作，其他 lane 不用同一输出目录构建。
