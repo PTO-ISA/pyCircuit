@@ -1,0 +1,15 @@
+Running main() from /private/tmp/googletest-20250910-5249-qce8ci/googletest-1.17.0/googletest/src/gtest_main.cc
+[==========] Running 3 tests from 1 test suite.
+[----------] Global test environment set-up.
+[----------] 3 tests from SourceIdentifierOracleTest
+[ RUN      ] SourceIdentifierOracleTest.RecipeVersionAndFixedAstCasesMatch
+[       OK ] SourceIdentifierOracleTest.RecipeVersionAndFixedAstCasesMatch (165 ms)
+[ RUN      ] SourceIdentifierOracleTest.BoundedBatchHasNoMismatches
+[       OK ] SourceIdentifierOracleTest.BoundedBatchHasNoMismatches (413 ms)
+[ RUN      ] SourceIdentifierOracleTest.ExhaustiveBmpSingleCharactersMatch
+[       OK ] SourceIdentifierOracleTest.ExhaustiveBmpSingleCharactersMatch (1079 ms)
+[----------] 3 tests from SourceIdentifierOracleTest (1659 ms total)
+
+[----------] Global test environment tear-down
+[==========] 3 tests from 1 test suite ran. (1659 ms total)
+[  PASSED  ] 3 tests.

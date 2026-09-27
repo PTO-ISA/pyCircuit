@@ -1,0 +1,2 @@
+PYC_UNICODE_GENERATOR_PYTHON:FILEPATH=/opt/homebrew/opt/python@3.14/bin/python3.14
+Python3_EXECUTABLE:UNINITIALIZED=/Users/zhoubot/.local/bin/python3.12

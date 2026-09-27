@@ -1,0 +1,2 @@
+3.12.12 (main, Jan 14 2026, 23:36:32) [Clang 21.1.4 ]
+Expected rejection: generator recipe requires CPython 3.14.6; found cpython 3.12.12

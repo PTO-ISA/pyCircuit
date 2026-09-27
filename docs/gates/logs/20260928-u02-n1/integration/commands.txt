@@ -1,0 +1,17 @@
+Working directory: /Users/zhoubot/.codex/worktrees/migration-capture/pyCircuit
+Baseline HEAD: b797eaf77f2bf5d1651e608bc3855d14fac92047 plus review-c candidate
+
+ACIR_SOURCE_UNIT_HARNESS="$PWD/.pycircuit_out/u02-n1/build-pre314/bin/acir-source-unit-harness" PYTHONPATH="$PWD/python/semantic-core/src:$PWD/python/pycircuit/src:$PWD/python/agentic-circuit/src:$PWD" pytest tests/system/test_source_unit_packet.py tests/system/test_source_namespace_bindings.py -q
+
+/Users/zhoubot/.local/bin/python3.12 - <<'PY'
+import runpy, sys
+namespace = runpy.run_path('tools/pycircuit/generate_source_identifier_unicode.py')
+try:
+    namespace['generate']()
+except RuntimeError as error:
+    assert 'generator recipe requires CPython 3.14.6' in str(error), str(error)
+    print(sys.version)
+    print('Expected rejection:', error)
+else:
+    raise AssertionError('non-recipe interpreter unexpectedly accepted')
+PY

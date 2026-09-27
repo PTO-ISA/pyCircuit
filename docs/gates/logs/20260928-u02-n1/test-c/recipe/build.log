@@ -1,0 +1,10 @@
+[  6%] Built target ACIRDialectIncGen
+[ 19%] Built target ACIRAttributesIncGen
+[ 25%] Built target ACIRTypesIncGen
+[ 32%] Built target ACIROpsIncGen
+[ 58%] Built target ACIRDialect
+[ 93%] Built target ACIRSourceCompiler
+[ 96%] Building CXX object tests/source-unit/CMakeFiles/ACIRSourceIdentifierOracleTests.dir/SourceIdentifierOracleTest.cpp.o
+[100%] Linking CXX executable ../../bin/ACIRSourceIdentifierOracleTests
+ld: warning: ignoring duplicate libraries: '../../lib/Dialect/ACIR/libACIRDialect.a', '/opt/homebrew/Cellar/llvm/22.1.8/lib/libMLIRSupport.a'
+[100%] Built target ACIRSourceIdentifierOracleTests

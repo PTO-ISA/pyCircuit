@@ -1,0 +1,21 @@
+ M compiler/acir/lib/Compiler/CMakeLists.txt
+ M compiler/acir/lib/Compiler/PythonImportContext.cpp
+ M compiler/acir/lib/Compiler/PythonImportContext.h
+ M compiler/acir/lib/Compiler/PythonImportHelpers.cpp
+ M compiler/acir/lib/Compiler/PythonImportRecords.cpp
+ M compiler/acir/lib/Compiler/SourceHeaderRegistry.cpp
+ M compiler/acir/lib/Compiler/SourceUnit.h
+ M tests/cpp/agentic-circuit/Dialect/ACIR/CMakeLists.txt
+?? compiler/acir/lib/Compiler/SourceIdentifier.cpp
+?? compiler/acir/lib/Compiler/SourceIdentifier.h
+?? compiler/acir/lib/Compiler/SourceIdentifierUnicodeData.LICENSE.txt
+?? compiler/acir/lib/Compiler/SourceIdentifierUnicodeData.h
+?? compiler/acir/lib/Compiler/SourceNamespace.cpp
+?? compiler/acir/lib/Compiler/SourceNamespace.h
+?? tests/cpp/agentic-circuit/Dialect/ACIR/NamespaceContractsTest.cpp
+?? tests/cpp/agentic-circuit/Dialect/ACIR/NamespaceRegistryGraphTest.cpp
+?? tests/cpp/agentic-circuit/Dialect/ACIR/SourceIdentifierOracleTest.cpp
+?? tests/cpp/agentic-circuit/Dialect/ACIR/SourceIdentifierTest.cpp
+?? tests/python/agentic-circuit/tools/test_source_identifier_unicode_generator.py
+?? tests/system/test_source_namespace_bindings.py
+?? tools/pycircuit/generate_source_identifier_unicode.py

@@ -1,0 +1,1 @@
+PASS: Python 3.12 rejected by recipe guard: generator recipe requires CPython 3.14.6; found cpython 3.12.12

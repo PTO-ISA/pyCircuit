@@ -1,0 +1,21 @@
+-- Performing Test HAVE_FFI_CALL
+-- Performing Test HAVE_FFI_CALL - Success
+-- Found FFI: /Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX.sdk/usr/lib/libffi.tbd
+-- Looking for histedit.h
+-- Looking for histedit.h - found
+-- Found LibEdit: /Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX.sdk/usr/include (found version "2.11")
+-- Found ZLIB: /Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX.sdk/usr/lib/libz.tbd (found version "1.2.12")
+-- Found zstd: /opt/homebrew/lib/libzstd.dylib
+-- Found LibXml2: /Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX.sdk/usr/lib/libxml2.tbd (found version "2.9.13")
+-- Linker detection: Apple
+-- Performing Test LLVM_LINKER_SUPPORTS_NO_EXPORTED_SYMBOLS
+-- Performing Test LLVM_LINKER_SUPPORTS_NO_EXPORTED_SYMBOLS - Success
+-- Performing Test LLVM_LINKER_SUPPORTS_NO_WARN_DUPLICATE_LIBRARIES
+-- Performing Test LLVM_LINKER_SUPPORTS_NO_WARN_DUPLICATE_LIBRARIES - Success
+-- Performing Test CMAKE_HAVE_LIBC_PTHREAD
+-- Performing Test CMAKE_HAVE_LIBC_PTHREAD - Success
+-- Found Threads: TRUE
+-- Found Python3: /Users/zhoubot/.local/bin/python3.12 (found suitable version "3.12.12", minimum required is "3.11") found components: Interpreter
+-- Configuring done (1.1s)
+-- Generating done (0.1s)
+-- Build files have been written to: /Users/zhoubot/.codex/worktrees/migration-capture/pyCircuit/.pycircuit_out/u02-n1/build-pre314

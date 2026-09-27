@@ -1,0 +1,27 @@
+# Ordinary supported pre-3.14 lane
+env -u PYC_UNICODE_GENERATOR_PYTHON cmake -S compiler/acir -B .pycircuit_out/u02-n1/build-pre314 -DACIR_BUILD_TESTING=ON -DPython3_EXECUTABLE=/Users/zhoubot/.local/bin/python3.12 -DPYC_UNICODE_GENERATOR_PYTHON= -DLLVM_DIR=/opt/homebrew/opt/llvm@22/lib/cmake/llvm -DMLIR_DIR=/opt/homebrew/opt/llvm@22/lib/cmake/mlir -DGTest_DIR=/opt/homebrew/lib/cmake/GTest
+cmake --build .pycircuit_out/u02-n1/build-pre314 --target ACIRSourceContractsTests ACIRSourceUnitTests ACIRNamespaceContractsTests acir-source-unit-harness -j 6
+ctest --test-dir .pycircuit_out/u02-n1/build-pre314 -N
+.pycircuit_out/u02-n1/build-pre314/bin/ACIRSourceContractsTests --gtest_color=no
+.pycircuit_out/u02-n1/build-pre314/bin/ACIRSourceUnitTests --gtest_color=no
+.pycircuit_out/u02-n1/build-pre314/bin/ACIRNamespaceContractsTests --gtest_color=no
+ctest --test-dir .pycircuit_out/u02-n1/build-pre314 --output-on-failure
+/Users/zhoubot/.local/bin/python3.12 - <<'PY'
+# Import generator and assert generate() rejects with requires CPython 3.14.6.
+PY
+cmake -S compiler/acir -B .pycircuit_out/u02-n1/build-invalid-recipe -DACIR_BUILD_TESTING=ON -DPython3_EXECUTABLE=/Users/zhoubot/.local/bin/python3.12 -DPYC_UNICODE_GENERATOR_PYTHON=/Users/zhoubot/.local/bin/python3.12 -DLLVM_DIR=/opt/homebrew/opt/llvm@22/lib/cmake/llvm -DMLIR_DIR=/opt/homebrew/opt/llvm@22/lib/cmake/mlir -DGTest_DIR=/opt/homebrew/lib/cmake/GTest
+# Expected configuration failure: explicit recipe interpreter is not CPython 3.14.6/UCD 16.
+
+# Explicit CPython 3.14.6/UCD 16 recipe tooling lane
+PYC_UNICODE_GENERATOR_PYTHON=/opt/homebrew/opt/python@3.14/bin/python3.14 cmake -S compiler/acir -B .pycircuit_out/u02-n1/build-pre314 -DACIR_BUILD_TESTING=ON -DPython3_EXECUTABLE=/Users/zhoubot/.local/bin/python3.12 -DPYC_UNICODE_GENERATOR_PYTHON=/opt/homebrew/opt/python@3.14/bin/python3.14 -DLLVM_DIR=/opt/homebrew/opt/llvm@22/lib/cmake/llvm -DMLIR_DIR=/opt/homebrew/opt/llvm@22/lib/cmake/mlir -DGTest_DIR=/opt/homebrew/lib/cmake/GTest
+cmake --build .pycircuit_out/u02-n1/build-pre314 --target ACIRSourceIdentifierOracleTests -j 6
+ctest --test-dir .pycircuit_out/u02-n1/build-pre314 -N
+.pycircuit_out/u02-n1/build-pre314/bin/ACIRSourceIdentifierOracleTests --gtest_color=no
+PYC_UNICODE_GENERATOR_PYTHON=/opt/homebrew/opt/python@3.14/bin/python3.14 pytest tests/python/agentic-circuit/tools/test_source_identifier_unicode_generator.py -q
+ctest --test-dir .pycircuit_out/u02-n1/build-pre314 --output-on-failure
+
+# Static checks
+clang-format --dry-run --Werror tests/cpp/agentic-circuit/Dialect/ACIR/NamespaceContractsTest.cpp tests/cpp/agentic-circuit/Dialect/ACIR/NamespaceRegistryGraphTest.cpp tests/cpp/agentic-circuit/Dialect/ACIR/SourceIdentifierTest.cpp tests/cpp/agentic-circuit/Dialect/ACIR/SourceIdentifierOracleTest.cpp
+ruff format --check tests/system/test_source_namespace_bindings.py tests/python/agentic-circuit/tools/test_source_identifier_unicode_generator.py
+ruff check tests/system/test_source_namespace_bindings.py tests/python/agentic-circuit/tools/test_source_identifier_unicode_generator.py
+GIT_WORK_TREE="$PWD" git diff --check
