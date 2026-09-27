@@ -28,7 +28,11 @@ target_link_libraries(ACIROpsTests PRIVATE
 )
 add_test(NAME ACIROpsTests COMMAND ACIROpsTests)
 
-add_executable(ACIRSourceContractsTests SourceContractsTest.cpp)
+add_executable(ACIRSourceContractsTests
+  SourceContractsTest.cpp
+  SourceStaticMatchingTest.cpp
+  SourceTypeContractsTest.cpp
+)
 target_include_directories(ACIRSourceContractsTests PRIVATE
   "${ACIR_SOURCE_DIR}/lib"
 )

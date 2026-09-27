@@ -43,22 +43,24 @@ parseCanonicalMathInt(StringRef spelling,
   return llvm::APSInt(std::move(bits), /*isUnsigned=*/!negative);
 }
 
-FailureOr<uint64_t>
-readU64(DictionaryAttr record, StringRef name,
-        llvm::function_ref<InFlightDiagnostic()> emitError) {
-  auto value = record.getAs<IntegerAttr>(name);
+} // namespace
+
+namespace detail {
+
+FailureOr<uint64_t> decodeU64(IntegerAttr value, StringRef description,
+                              EmitError emitError) {
   if (!value || isa<BoolAttr>(value))
-    return emitError() << "field '" << name << "' must be a u64 IntegerAttr";
+    return emitError() << description << " must be a u64 IntegerAttr";
   auto integerType = dyn_cast<IntegerType>(value.getType());
   const llvm::APInt &bits = value.getValue();
   if (!integerType || (!integerType.isUnsigned() && bits.isNegative()))
-    return emitError() << "field '" << name << "' must be non-negative";
+    return emitError() << description << " must be non-negative";
   if (bits.getActiveBits() > 64)
-    return emitError() << "field '" << name << "' is outside the u64 range";
+    return emitError() << description << " is outside the u64 range";
   return bits.getZExtValue();
 }
 
-} // namespace
+} // namespace detail
 
 Attribute MathIntAttr::parse(AsmParser &parser, Type) {
   if (failed(parser.parseLess()))
@@ -112,18 +114,22 @@ void MathIntType::print(AsmPrinter &) const {}
 
 namespace detail {
 
-FailureOr<MathIntAttr>
-parseMathIntAttr(MLIRContext *context, StringRef spelling,
-                 llvm::function_ref<InFlightDiagnostic()> emitError) {
+FailureOr<uint64_t> readU64(DictionaryAttr record, StringRef name,
+                            EmitError emitError) {
+  return decodeU64(record.getAs<IntegerAttr>(name),
+                   (Twine("field '") + name + "'").str(), emitError);
+}
+
+FailureOr<MathIntAttr> parseMathIntAttr(MLIRContext *context,
+                                        StringRef spelling,
+                                        EmitError emitError) {
   FailureOr<llvm::APSInt> value = parseCanonicalMathInt(spelling, emitError);
   if (failed(value))
     return failure();
   return MathIntAttr::get(context, *value);
 }
 
-LogicalResult
-verifySourceSpan(DictionaryAttr value,
-                 llvm::function_ref<InFlightDiagnostic()> emitError) {
+LogicalResult verifySourceSpan(DictionaryAttr value, EmitError emitError) {
   if (!value || value.size() != 5)
     return emitError() << "SourceSpan must contain exactly five fields";
   if (!value.getAs<StringAttr>("path"))
@@ -142,9 +148,7 @@ verifySourceSpan(DictionaryAttr value,
   return success();
 }
 
-LogicalResult
-verifyPathComponent(DictionaryAttr value,
-                    llvm::function_ref<InFlightDiagnostic()> emitError) {
+LogicalResult verifyPathComponent(DictionaryAttr value, EmitError emitError) {
   if (!value || value.size() != 2)
     return emitError() << "PathComponent must contain exactly two fields";
   auto kind = value.getAs<StringAttr>("kind");
@@ -162,8 +166,7 @@ verifyPathComponent(DictionaryAttr value,
   return emitError() << "PathComponent kind must be 'field' or 'index'";
 }
 
-LogicalResult verifySite(DictionaryAttr value,
-                         llvm::function_ref<InFlightDiagnostic()> emitError) {
+LogicalResult verifySite(DictionaryAttr value, EmitError emitError) {
   if (!value || value.size() != 2)
     return emitError() << "Site must contain exactly two fields";
   if (!value.getAs<FlatSymbolRefAttr>("definition"))

@@ -5,6 +5,7 @@ add_acir_library(ACIRDialect SOURCES
   ACIRResources.cpp
   ACIRSourceContracts.cpp
   ACIRTypes.cpp
+  ACIRValueContracts.cpp
   GraphRegion.cpp
   ProcessLowerability.cpp
 )
