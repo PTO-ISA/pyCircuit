@@ -1,0 +1,8 @@
+-- Testing: 4 of 273 tests, 4 workers --
+Testing:  0.. 10.. 20.. 30.. 40.. 50.. 60.. 70.. 80.. 90..
+
+Testing Time: 1.42s
+
+Total Discovered Tests: 273
+  Excluded: 269 (98.53%)
+  Passed  :   4 (1.47%)

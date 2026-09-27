@@ -1,0 +1,23 @@
+[0/1] Re-running CMake...
+-- Using LLVM 22.1.8 from /opt/homebrew/opt/llvm/lib/cmake/llvm
+-- Using MLIR 22.1.8 from /opt/homebrew/opt/llvm/lib/cmake/mlir
+-- Found Python3: /opt/homebrew/Frameworks/Python.framework/Versions/3.14/bin/python3.14 (found suitable version "3.14.6", minimum required is "3.11") found components: Interpreter
+-- Found Python3: /opt/homebrew/Frameworks/Python.framework/Versions/3.14/bin/python3.14 (found suitable version "3.14.6", minimum required is "3.11") found components: Interpreter Development.Module
+-- Standalone Agentic Circuit build: ACIR-to-PYC toolchain target is disabled
+-- Configuring done (0.2s)
+-- Generating done (0.1s)
+-- Build files have been written to: /Users/zhoubot/linx-isa/tools/pyCircuit/.pycircuit_out/acir/dev-llvm22
+[1/12] Building CXX object lib/Dialect/ACIR/CMakeFiles/ACIRDialect.dir/ACIRIdentityContracts.cpp.o
+[2/12] Building CXX object lib/Dialect/ACIR/CMakeFiles/ACIRDialect.dir/ACIRValueContracts.cpp.o
+[3/12] Building CXX object lib/Dialect/ACIR/CMakeFiles/ACIRDialect.dir/ACIRSourceContracts.cpp.o
+[4/12] Linking CXX static library lib/Dialect/ACIR/libACIRDialect.a
+[5/12] Linking CXX executable bin/ACIRTypesTests
+ld: warning: ignoring duplicate libraries: '/opt/homebrew/Cellar/llvm/22.1.8/lib/libMLIRIR.a'
+[6/12] Linking CXX executable bin/acir-opt-internal
+ld: warning: ignoring duplicate libraries: '/opt/homebrew/Cellar/llvm/22.1.8/lib/libMLIRFuncDialect.a', '/opt/homebrew/Cellar/llvm/22.1.8/lib/libMLIRSCFDialect.a', '/opt/homebrew/Cellar/llvm/22.1.8/lib/libMLIRTransforms.a', 'lib/Analysis/libACIRAnalysis.a', 'lib/Dialect/ACIR/libACIRDialect.a', 'lib/Transforms/libACIRTransforms.a'
+[7/12] Building CXX object tests/cpp/Dialect/ACIR/CMakeFiles/ACIRSourceContractsTests.dir/SourceStaticMatchingTest.cpp.o
+[8/12] Building CXX object tests/cpp/Dialect/ACIR/CMakeFiles/ACIRSourceContractsTests.dir/SourceIdentityContractsTest.cpp.o
+[9/12] Building CXX object tests/cpp/Dialect/ACIR/CMakeFiles/ACIRSourceContractsTests.dir/SourceContractsTest.cpp.o
+[10/12] Building CXX object tests/cpp/Dialect/ACIR/CMakeFiles/ACIRSourceContractsTests.dir/SourceTypeContractsTest.cpp.o
+[11/12] Linking CXX executable bin/ACIRSourceContractsTests
+ld: warning: ignoring duplicate libraries: '/opt/homebrew/Cellar/llvm/22.1.8/lib/libMLIRIR.a'

@@ -1,0 +1,19 @@
+{
+  "base": "8f7bd5bb",
+  "checkout": "/Users/zhoubot/.codex/worktrees/migration-capture/pyCircuit",
+  "worktree_commit": "0c38929d",
+  "integration_commit": "4b84de00",
+  "files": {
+    "compiler/acir/lib/Dialect/ACIR/ACIRSourceContracts.h": "6c787f4d46e1d48886ab56ea4e4f2d7fdc156a3e98928d506cf4a1880f186fcc",
+    "compiler/acir/lib/Dialect/ACIR/ACIRSourceContracts.cpp": "bcca03964ec89df553b5ca75895a3d2cb239ca0e6ef3c46d37e2916f678f4398",
+    "compiler/acir/lib/Dialect/ACIR/ACIRIdentityContracts.cpp": "340d6150cb31da8d5c869a02d9b7e993e5b191297d0cda3ab0309099282be81a",
+    "compiler/acir/lib/Dialect/ACIR/CMakeLists.txt": "433daeaa566ca3d589860a45d5c1c2f651630a30647e8bf80e0ed4c5432ef1e9",
+    "tests/cpp/agentic-circuit/Dialect/ACIR/SourceIdentityContractsTest.cpp": "0d96d5e86eed3af61f7d9879e429f3a022219e619d35cab58fb6117c5752554a",
+    "tests/cpp/agentic-circuit/Dialect/ACIR/CMakeLists.txt": "0a3ed6d0d398499471af1028ce32475bdd4b0426f3e6fb7ff564e1db3a56fcc9"
+  },
+  "review": "PASS; governance_review; gpt-5.6-sol; high",
+  "review_manifest_sha256": "41c6073b39fa620dd67b83de54939c0fdc1ca611fb45c0ca6f939275b8cf6708",
+  "implementation": "governance_impl; gpt-5.6-sol; medium",
+  "independent_tests": "baseline_verification; gpt-5.6-sol; medium",
+  "scope": "private structural identity/provenance validation only; all primary bytes match reviewed candidate"
+}
