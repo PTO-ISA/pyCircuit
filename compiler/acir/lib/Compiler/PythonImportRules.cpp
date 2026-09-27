@@ -13,14 +13,12 @@ using namespace mlir;
 namespace acir::compiler::detail {
 namespace {
 
-void visitAstChildren(const AstNode &node,
-                      llvm::function_ref<void(const AstNode &)> visitor) {
+void visitImmediateAstChildren(
+    const AstNode &node, llvm::function_ref<void(const AstNode &)> visitor) {
   for (NamedAttribute field : node.fields()) {
     if (auto child = dyn_cast<DictionaryAttr>(field.getValue());
         child && child.getAs<StringAttr>("kind")) {
-      AstNode childNode = node.child(field.getName());
-      visitor(childNode);
-      visitAstChildren(childNode, visitor);
+      visitor(node.child(field.getName()));
       continue;
     }
     if (auto array = dyn_cast<ArrayAttr>(field.getValue()))
@@ -29,15 +27,44 @@ void visitAstChildren(const AstNode &node,
         if (!childNode)
           continue;
         visitor(childNode);
-        visitAstChildren(childNode, visitor);
       }
   }
 }
 
-void collectRuleReads(
-    const AstNode &node,
-    llvm::function_ref<void(StringRef, const AstNode &)> formalRead,
-    llvm::function_ref<void(StringRef, const AstNode &)> memberRead) {
+void collectRuleTargetReads(const AstNode &node, RuleReadCallback formalRead,
+                            RuleReadCallback memberRead) {
+  if (node.kind() == "Tuple" || node.kind() == "List") {
+    ArrayAttr elements = node.array("elts");
+    for (size_t index = 0; index < elements.size(); ++index)
+      collectRuleTargetReads(node.item("elts", index), formalRead, memberRead);
+    return;
+  }
+  if (node.kind() == "Starred") {
+    collectRuleTargetReads(node.child("value"), formalRead, memberRead);
+    return;
+  }
+  if (node.kind() == "Subscript") {
+    collectRuleTargetReads(node.child("value"), formalRead, memberRead);
+    collectRuleExpressionReads(node.child("slice"), formalRead, memberRead);
+    return;
+  }
+  if (node.kind() == "Attribute") {
+    collectRuleTargetReads(node.child("value"), formalRead, memberRead);
+    return;
+  }
+  if (node.kind() != "Name")
+    collectRuleExpressionReads(node, formalRead, memberRead);
+}
+
+} // namespace
+
+void collectRuleExpressionReads(const AstNode &node,
+                                RuleReadCallback formalRead,
+                                RuleReadCallback memberRead) {
+  if (node.child("ctx").kind() == "Store") {
+    collectRuleTargetReads(node, formalRead, memberRead);
+    return;
+  }
   if ((node.kind() == "Attribute" || node.kind() == "Name") &&
       node.child("ctx").kind() != "Load")
     return;
@@ -56,10 +83,43 @@ void collectRuleReads(
     formalRead(node.string("id"), node);
     return;
   }
-  visitAstChildren(node, [&](const AstNode &child) {
-    collectRuleReads(child, formalRead, memberRead);
+  visitImmediateAstChildren(node, [&](const AstNode &child) {
+    collectRuleExpressionReads(child, formalRead, memberRead);
   });
 }
+
+void collectRuleStatementReads(const AstNode &node, RuleReadCallback formalRead,
+                               RuleReadCallback memberRead) {
+  if (node.kind() == "Return" || node.kind() == "Expr") {
+    collectRuleExpressionReads(node.child("value"), formalRead, memberRead);
+    return;
+  }
+  if (node.kind() == "Assign") {
+    collectRuleExpressionReads(node.child("value"), formalRead, memberRead);
+    ArrayAttr targets = node.array("targets");
+    for (size_t index = 0; index < targets.size(); ++index)
+      collectRuleTargetReads(node.item("targets", index), formalRead,
+                             memberRead);
+    return;
+  }
+  if (node.kind() == "AnnAssign") {
+    AstNode value = node.child("value");
+    if (value)
+      collectRuleExpressionReads(value, formalRead, memberRead);
+    collectRuleTargetReads(node.child("target"), formalRead, memberRead);
+    return;
+  }
+  if (node.kind() != "If")
+    return;
+  collectRuleExpressionReads(node.child("test"), formalRead, memberRead);
+  for (StringRef arm : {"body", "orelse"}) {
+    ArrayAttr statements = node.array(arm);
+    for (size_t index = 0; index < statements.size(); ++index)
+      collectRuleStatementReads(node.item(arm, index), formalRead, memberRead);
+  }
+}
+
+namespace {
 
 mlir::DictionaryAttr stateReference(OpBuilder &builder,
                                     const ModuleModel &module,
@@ -83,10 +143,21 @@ mlir::DictionaryAttr stateReference(OpBuilder &builder,
 
 } // namespace
 
-bool rulePlanHasMemberInput(const RulePlan &plan, size_t memberIndex) {
-  return llvm::any_of(plan.inputs, [&](size_t inputIndex) {
-    return plan.arguments[inputIndex].memberIndex == memberIndex;
-  });
+size_t bindRuleInput(RulePlan &plan, size_t argumentIndex) {
+  size_t memberIndex = plan.arguments[argumentIndex].memberIndex;
+  auto [entry, inserted] =
+      plan.inputSlotForMember.try_emplace(memberIndex, plan.inputs.size());
+  if (inserted)
+    plan.inputs.push_back(argumentIndex);
+  return entry->second;
+}
+
+std::optional<size_t> rulePlanInputSlot(const RulePlan &plan,
+                                        size_t memberIndex) {
+  auto found = plan.inputSlotForMember.find(memberIndex);
+  if (found == plan.inputSlotForMember.end())
+    return std::nullopt;
+  return found->second;
 }
 
 RuleCompiler::RuleCompiler(RecordCompiler &sourceCompiler, ModuleModel &module)
@@ -199,7 +270,7 @@ LogicalResult RuleCompiler::analyzeRegistration(size_t registrationIndex,
         !inputLocals.insert(name).second)
       return;
     size_t argumentIndex = found->second;
-    plan.inputs.push_back(argumentIndex);
+    bindRuleInput(plan, argumentIndex);
     ModuleMember &member =
         module.members[plan.arguments[argumentIndex].memberIndex];
     member.read = true;
@@ -223,8 +294,7 @@ LogicalResult RuleCompiler::analyzeRegistration(size_t registrationIndex,
     argument.formal = {};
     argument.actual = site;
     plan.arguments.push_back(std::move(argument));
-    if (!rulePlanHasMemberInput(plan, memberIndex))
-      plan.inputs.push_back(plan.arguments.size() - 1);
+    bindRuleInput(plan, plan.arguments.size() - 1);
     found->read = true;
     found->readSites.push_back(site);
   };
@@ -232,18 +302,7 @@ LogicalResult RuleCompiler::analyzeRegistration(size_t registrationIndex,
   ArrayAttr body = registration.method.array("body");
   for (size_t index = 0; index < body.size(); ++index) {
     AstNode statement = registration.method.item("body", index);
-    if (statement.kind() == "Return")
-      collectRuleReads(statement.child("value"), formalRead, memberRead);
-    else if (statement.kind() == "Assign")
-      collectRuleReads(statement.child("value"), formalRead, memberRead);
-    else if (statement.kind() == "If") {
-      collectRuleReads(statement.child("test"), formalRead, memberRead);
-      for (StringRef arm : {"body", "orelse"})
-        for (size_t childIndex = 0; childIndex < statement.array(arm).size();
-             ++childIndex)
-          collectRuleReads(statement.item(arm, childIndex), formalRead,
-                           memberRead);
-    }
+    collectRuleStatementReads(statement, formalRead, memberRead);
   }
 
   if (!registration.outputMember.empty()) {
@@ -431,13 +490,11 @@ LogicalResult RuleCompiler::emit(size_t registrationIndex,
   for (size_t argumentIndex = 0; argumentIndex < plan->arguments.size();
        ++argumentIndex) {
     const BoundRuleArgument &argument = plan->arguments[argumentIndex];
-    auto inputIndex = llvm::find_if(plan->inputs, [&](size_t candidateIndex) {
-      return plan->arguments[candidateIndex].memberIndex ==
-             argument.memberIndex;
-    });
-    if (inputIndex != plan->inputs.end())
-      values[argument.localName] = body->getArgument(
-          static_cast<unsigned>(inputIndex - plan->inputs.begin()));
+    std::optional<size_t> inputSlot =
+        rulePlanInputSlot(*plan, argument.memberIndex);
+    if (inputSlot)
+      values[argument.localName] =
+          body->getArgument(static_cast<unsigned>(*inputSlot));
   }
   OpBuilder at = OpBuilder::atBlockEnd(body);
   ArrayAttr statements = call.method.array("body");

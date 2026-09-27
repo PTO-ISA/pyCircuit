@@ -351,7 +351,7 @@ def test_rule_store_target_is_not_a_current_value_read(tmp_path: Path) -> None:
         "    @rule\n"
         "    def forward(self, item: Request) -> Word:\n"
         "        if item.valid:\n"
-        "            self.result = item.value\n"
+        "            self.result[self.request.value] = item.value\n"
         "        return item.value\n",
         encoding="utf-8",
     )

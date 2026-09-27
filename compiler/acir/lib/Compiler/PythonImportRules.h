@@ -3,6 +3,8 @@
 
 #include "PythonImportModules.h"
 
+#include "llvm/ADT/DenseMap.h"
+
 namespace acir::compiler::detail {
 
 struct BoundRuleArgument {
@@ -17,10 +19,21 @@ struct RulePlan {
   FunctionSignatureSyntax signature;
   llvm::SmallVector<BoundRuleArgument> arguments;
   llvm::SmallVector<size_t> inputs;
+  llvm::DenseMap<size_t, size_t> inputSlotForMember;
   llvm::SmallVector<size_t> outputs;
 };
 
-bool rulePlanHasMemberInput(const RulePlan &plan, size_t memberIndex);
+size_t bindRuleInput(RulePlan &plan, size_t argumentIndex);
+std::optional<size_t> rulePlanInputSlot(const RulePlan &plan,
+                                        size_t memberIndex);
+
+using RuleReadCallback =
+    llvm::function_ref<void(llvm::StringRef, const AstNode &)>;
+void collectRuleExpressionReads(const AstNode &node,
+                                RuleReadCallback formalRead,
+                                RuleReadCallback memberRead);
+void collectRuleStatementReads(const AstNode &node, RuleReadCallback formalRead,
+                               RuleReadCallback memberRead);
 
 class RuleCompiler {
 public:
