@@ -11,9 +11,42 @@ from collections.abc import Callable, Mapping
 from contextlib import AbstractContextManager
 from pathlib import Path
 
+_WINDOWS_SHARING_VIOLATIONS = {5, 32, 33}
+_WINDOWS_RENAME_ATTEMPTS = 5
+
 
 class _PublicationFileSystemError(RuntimeError):
     """A filesystem object violates the publication storage contract."""
+
+
+def _same_file_identity(left: os.stat_result, right: os.stat_result) -> bool:
+    return (left.st_dev, left.st_ino) == (right.st_dev, right.st_ino)
+
+
+def _retry_sharing_violations(
+    operation: Callable[[], None], *, attempts: int, delay: Callable[[float], None]
+) -> None:
+    for attempt in range(attempts):
+        try:
+            operation()
+            return
+        except OSError as error:
+            sharing = getattr(error, "winerror", None) in _WINDOWS_SHARING_VIOLATIONS
+            if not sharing or attempt + 1 == attempts:
+                raise
+            delay(0.01 * (attempt + 1))
+    raise OSError(errno.EIO, "unreachable publication rename retry failure")
+
+
+def _strict_json_object(pairs: list[tuple[str, object]]) -> dict[str, object]:
+    result: dict[str, object] = {}
+    for key, value in pairs:
+        if key in result:
+            raise _PublicationFileSystemError(
+                f"publication metadata contains duplicate key: {key!r}"
+            )
+        result[key] = value
+    return result
 
 
 class _FileLock(AbstractContextManager["_FileLock"]):
@@ -107,6 +140,203 @@ def _unlock_windows(descriptor: int) -> None:
         raise ctypes.WinError()
 
 
+def _open_regular_windows(
+    path: Path,
+    *,
+    writable: bool,
+    create: bool,
+    truncate: bool,
+    exclusive: bool,
+) -> int:
+    import ctypes
+    import msvcrt
+    from ctypes import wintypes
+
+    generic_read = 0x80000000
+    generic_write = 0x40000000
+    share_all = 0x00000001 | 0x00000002 | 0x00000004
+    create_new = 1
+    open_existing = 3
+    file_attribute_normal = 0x00000080
+    open_reparse_point = 0x00200000
+    invalid_handle = wintypes.HANDLE(-1).value
+
+    kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+    create_file = kernel32.CreateFileW
+    create_file.argtypes = [
+        wintypes.LPCWSTR,
+        wintypes.DWORD,
+        wintypes.DWORD,
+        ctypes.c_void_p,
+        wintypes.DWORD,
+        wintypes.DWORD,
+        wintypes.HANDLE,
+    ]
+    create_file.restype = wintypes.HANDLE
+    close_handle = kernel32.CloseHandle
+    close_handle.argtypes = [wintypes.HANDLE]
+    close_handle.restype = wintypes.BOOL
+
+    desired_access = generic_read | (generic_write if writable else 0)
+    disposition = create_new if create else open_existing
+    handle = create_file(
+        os.fspath(path),
+        desired_access,
+        share_all,
+        None,
+        disposition,
+        file_attribute_normal | open_reparse_point,
+        None,
+    )
+    if handle == invalid_handle and create and not exclusive:
+        error = ctypes.get_last_error()
+        if error in {80, 183}:  # ERROR_FILE_EXISTS, ERROR_ALREADY_EXISTS
+            handle = create_file(
+                os.fspath(path),
+                desired_access,
+                share_all,
+                None,
+                open_existing,
+                file_attribute_normal | open_reparse_point,
+                None,
+            )
+    if handle == invalid_handle:
+        raise ctypes.WinError(ctypes.get_last_error())
+
+    flags = os.O_RDWR if writable else os.O_RDONLY
+    flags |= getattr(os, "O_BINARY", 0)
+    try:
+        descriptor = msvcrt.open_osfhandle(handle, flags)
+    except BaseException:
+        close_handle(handle)
+        raise
+    if truncate:
+        try:
+            os.ftruncate(descriptor, 0)
+        except BaseException:
+            os.close(descriptor)
+            raise
+    return descriptor
+
+
+def _replace_windows(source: Path, destination: Path) -> None:
+    import ctypes
+    from ctypes import wintypes
+
+    kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+    replace_file = kernel32.ReplaceFileW
+    replace_file.argtypes = [
+        wintypes.LPCWSTR,
+        wintypes.LPCWSTR,
+        wintypes.LPCWSTR,
+        wintypes.DWORD,
+        ctypes.c_void_p,
+        ctypes.c_void_p,
+    ]
+    replace_file.restype = wintypes.BOOL
+    try:
+        destination.lstat()
+    except FileNotFoundError:
+        pass
+    else:
+        if replace_file(os.fspath(destination), os.fspath(source), None, 0, None, None):
+            return
+        error = ctypes.get_last_error()
+        if error not in {2, 3}:  # raced removal may safely retry as a new move
+            raise ctypes.WinError(error)
+    _move_file_windows(source, destination, replace=False)
+
+
+def _rename_windows(source: Path, destination: Path) -> None:
+    _move_file_windows(source, destination, replace=False)
+
+
+def _move_file_windows(source: Path, destination: Path, *, replace: bool) -> None:
+    import ctypes
+    from ctypes import wintypes
+
+    kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+    move_file = kernel32.MoveFileExW
+    move_file.argtypes = [wintypes.LPCWSTR, wintypes.LPCWSTR, wintypes.DWORD]
+    move_file.restype = wintypes.BOOL
+    flags = 0x00000008  # MOVEFILE_WRITE_THROUGH
+    if replace:
+        flags |= 0x00000001  # MOVEFILE_REPLACE_EXISTING
+    if not move_file(os.fspath(source), os.fspath(destination), flags):
+        raise ctypes.WinError(ctypes.get_last_error())
+
+
+def _sync_directory_windows(path: Path) -> None:
+    import ctypes
+    from ctypes import wintypes
+
+    generic_read = 0x80000000
+    generic_write = 0x40000000
+    share_all = 0x00000001 | 0x00000002 | 0x00000004
+    open_existing = 3
+    backup_semantics = 0x02000000
+    open_reparse_point = 0x00200000
+    invalid_handle = wintypes.HANDLE(-1).value
+
+    class _FileAttributeTagInfo(ctypes.Structure):
+        _fields_ = [
+            ("FileAttributes", wintypes.DWORD),
+            ("ReparseTag", wintypes.DWORD),
+        ]
+
+    kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+    create_file = kernel32.CreateFileW
+    create_file.argtypes = [
+        wintypes.LPCWSTR,
+        wintypes.DWORD,
+        wintypes.DWORD,
+        ctypes.c_void_p,
+        wintypes.DWORD,
+        wintypes.DWORD,
+        wintypes.HANDLE,
+    ]
+    create_file.restype = wintypes.HANDLE
+    get_file_information = kernel32.GetFileInformationByHandleEx
+    get_file_information.argtypes = [
+        wintypes.HANDLE,
+        ctypes.c_int,
+        ctypes.c_void_p,
+        wintypes.DWORD,
+    ]
+    get_file_information.restype = wintypes.BOOL
+    flush_file_buffers = kernel32.FlushFileBuffers
+    flush_file_buffers.argtypes = [wintypes.HANDLE]
+    flush_file_buffers.restype = wintypes.BOOL
+    close_handle = kernel32.CloseHandle
+    close_handle.argtypes = [wintypes.HANDLE]
+    close_handle.restype = wintypes.BOOL
+    handle = create_file(
+        os.fspath(path),
+        generic_read | generic_write,
+        share_all,
+        None,
+        open_existing,
+        backup_semantics | open_reparse_point,
+        None,
+    )
+    if handle == invalid_handle:
+        raise ctypes.WinError(ctypes.get_last_error())
+    try:
+        info = _FileAttributeTagInfo()
+        if not get_file_information(handle, 9, ctypes.byref(info), ctypes.sizeof(info)):
+            raise ctypes.WinError(ctypes.get_last_error())
+        is_directory = bool(info.FileAttributes & 0x00000010)
+        is_reparse = bool(info.FileAttributes & 0x00000400)
+        if not is_directory or is_reparse:
+            raise _PublicationFileSystemError(
+                f"publication directory is unsafe to flush: {path}"
+            )
+        if not flush_file_buffers(handle):
+            raise ctypes.WinError(ctypes.get_last_error())
+    finally:
+        close_handle(handle)
+
+
 class _PublicationFileSystem:
     """Strict local-filesystem operations with deterministic fault points."""
 
@@ -175,35 +405,25 @@ class _PublicationFileSystem:
 
     def create_lock(self, path: Path) -> None:
         self.fault("before_create_lock")
-        flags = os.O_CREAT | os.O_EXCL | os.O_RDWR
-        flags |= getattr(os, "O_NOFOLLOW", 0)
-        descriptor = os.open(path, flags, 0o600)
+        descriptor = self._open_regular(
+            path, writable=True, create=True, exclusive=True
+        )
         try:
             os.fsync(descriptor)
         finally:
             os.close(descriptor)
-        self.fault("after_create_lock")
         self.sync_directory(path.parent)
+        self.fault("after_create_lock")
 
     def lock(self, path: Path, *, shared: bool) -> _FileLock:
-        self.require_kind(path, "file")
-        flags = os.O_RDONLY if shared else os.O_RDWR
-        flags |= getattr(os, "O_NOFOLLOW", 0)
-        descriptor = os.open(path, flags)
-        opened = os.fstat(descriptor)
-        current = path.stat(follow_symlinks=False)
-        if (opened.st_dev, opened.st_ino) != (current.st_dev, current.st_ino):
-            os.close(descriptor)
-            raise _PublicationFileSystemError("publication lock changed while opening")
+        descriptor = self._open_regular(path, writable=not shared)
         return _FileLock(descriptor, shared=shared)
 
     def read_json(self, path: Path) -> object:
-        self.require_kind(path, "file")
-        flags = os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0)
-        descriptor = os.open(path, flags)
+        descriptor = self._open_regular(path)
         try:
             with os.fdopen(descriptor, "r", encoding="utf-8") as stream:
-                return json.load(stream)
+                return json.load(stream, object_pairs_hook=_strict_json_object)
         except (UnicodeDecodeError, json.JSONDecodeError) as error:
             raise _PublicationFileSystemError(
                 f"publication metadata is not valid JSON: {path}"
@@ -223,9 +443,9 @@ class _PublicationFileSystem:
                 f"publication temporary metadata is not a file: {temporary}"
             )
         self.fault(f"before_write:{temporary.name}")
-        flags = os.O_WRONLY | os.O_CREAT | os.O_TRUNC
-        flags |= getattr(os, "O_NOFOLLOW", 0)
-        descriptor = os.open(temporary, flags, 0o600)
+        descriptor = self._open_regular(
+            temporary, writable=True, create=True, truncate=True
+        )
         try:
             encoded = json.dumps(
                 value, ensure_ascii=False, separators=(",", ":"), sort_keys=True
@@ -246,9 +466,13 @@ class _PublicationFileSystem:
 
     def replace(self, source: Path, destination: Path) -> None:
         self.fault(f"before_replace:{source.name}:{destination.name}")
-        self._retry_windows(lambda: os.replace(source, destination))
-        self.fault(f"after_replace:{source.name}:{destination.name}")
+        self._require_same_volume(source, destination)
+        if os.name == "nt":
+            self._retry_windows(lambda: _replace_windows(source, destination))
+        else:
+            os.replace(source, destination)
         self.sync_directory(destination.parent)
+        self.fault(f"after_replace:{source.name}:{destination.name}")
 
     def rename(self, source: Path, destination: Path) -> None:
         if self.kind(destination) is not None:
@@ -256,9 +480,13 @@ class _PublicationFileSystem:
                 f"publication rename destination already exists: {destination}"
             )
         self.fault(f"before_rename:{source.name}:{destination.name}")
-        self._retry_windows(lambda: source.rename(destination))
-        self.fault(f"after_rename:{source.name}:{destination.name}")
+        self._require_same_volume(source, destination)
+        if os.name == "nt":
+            self._retry_windows(lambda: _rename_windows(source, destination))
+        else:
+            source.rename(destination)
         self.sync_directory(destination.parent)
+        self.fault(f"after_rename:{source.name}:{destination.name}")
 
     def remove_file(self, path: Path) -> None:
         kind = self.kind(path)
@@ -299,24 +527,91 @@ class _PublicationFileSystem:
         for directory, _names, files in os.walk(root, topdown=False):
             directory_path = Path(directory)
             for name in files:
-                descriptor = os.open(
-                    directory_path / name,
-                    os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0),
-                )
-                try:
-                    os.fsync(descriptor)
-                finally:
-                    os.close(descriptor)
+                self.sync_file(directory_path / name)
             self.sync_directory(directory_path)
 
-    def sync_directory(self, path: Path) -> None:
-        if os.name == "nt":
-            return
-        descriptor = os.open(path, os.O_RDONLY | getattr(os, "O_DIRECTORY", 0))
+    def sync_file(self, path: Path) -> None:
+        """Durably flush one regular file without following links/reparse points."""
+
+        descriptor = self._open_regular(path, writable=True)
         try:
             os.fsync(descriptor)
         finally:
             os.close(descriptor)
+
+    def sync_directory(self, path: Path) -> None:
+        if os.name == "nt":
+            _sync_directory_windows(path)
+            return
+        descriptor = os.open(
+            path,
+            os.O_RDONLY | getattr(os, "O_DIRECTORY", 0) | getattr(os, "O_NOFOLLOW", 0),
+        )
+        try:
+            opened = os.fstat(descriptor)
+            current = path.stat(follow_symlinks=False)
+            if not stat.S_ISDIR(opened.st_mode) or not _same_file_identity(
+                opened, current
+            ):
+                raise _PublicationFileSystemError(
+                    f"publication directory changed while opening: {path}"
+                )
+            os.fsync(descriptor)
+        finally:
+            os.close(descriptor)
+
+    def _open_regular(
+        self,
+        path: Path,
+        *,
+        writable: bool = False,
+        create: bool = False,
+        truncate: bool = False,
+        exclusive: bool = False,
+    ) -> int:
+        if os.name == "nt":
+            descriptor = _open_regular_windows(
+                path,
+                writable=writable,
+                create=create,
+                truncate=truncate,
+                exclusive=exclusive,
+            )
+        else:
+            flags = os.O_RDWR if writable else os.O_RDONLY
+            flags |= getattr(os, "O_NOFOLLOW", 0)
+            if create:
+                flags |= os.O_CREAT
+            if truncate:
+                flags |= os.O_TRUNC
+            if exclusive:
+                flags |= os.O_EXCL
+            descriptor = os.open(path, flags, 0o600)
+        try:
+            opened = os.fstat(descriptor)
+            current = path.stat(follow_symlinks=False)
+            if (
+                not stat.S_ISREG(opened.st_mode)
+                or stat.S_ISLNK(current.st_mode)
+                or self._is_reparse_point(current)
+                or not _same_file_identity(opened, current)
+            ):
+                raise _PublicationFileSystemError(
+                    f"publication file changed while opening: {path}"
+                )
+        except BaseException:
+            os.close(descriptor)
+            raise
+        return descriptor
+
+    @staticmethod
+    def _require_same_volume(source: Path, destination: Path) -> None:
+        source_parent = source.parent.stat(follow_symlinks=False)
+        destination_parent = destination.parent.stat(follow_symlinks=False)
+        if source_parent.st_dev != destination_parent.st_dev:
+            raise _PublicationFileSystemError(
+                "publication rename must remain on one filesystem volume"
+            )
 
     @staticmethod
     def _is_reparse_point(info: os.stat_result) -> bool:
@@ -325,14 +620,5 @@ class _PublicationFileSystem:
 
     @staticmethod
     def _retry_windows(operation: Callable[[], None]) -> None:
-        attempts = 5 if os.name == "nt" else 1
-        for attempt in range(attempts):
-            try:
-                operation()
-                return
-            except OSError as error:
-                sharing = getattr(error, "winerror", None) in {5, 32, 33}
-                if not sharing or attempt + 1 == attempts:
-                    raise
-                time.sleep(0.01 * (attempt + 1))
-        raise OSError(errno.EIO, "unreachable publication rename retry failure")
+        attempts = _WINDOWS_RENAME_ATTEMPTS if os.name == "nt" else 1
+        _retry_sharing_violations(operation, attempts=attempts, delay=time.sleep)
