@@ -24,7 +24,8 @@ struct FunctionSignatureSyntax {
 // retain every formal, including the first positional parameter.
 mlir::FailureOr<FunctionSignatureSyntax>
 parseFunctionSignature(const AstNode &arguments, bool hasImplicitReceiver,
-                       ac::detail::EmitError emitError);
+                       ac::detail::EmitError emitError,
+                       llvm::StringRef receiverOwner = "record constructor");
 
 } // namespace acir::compiler::detail
 

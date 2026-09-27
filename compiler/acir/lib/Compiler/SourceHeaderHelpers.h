@@ -5,21 +5,26 @@
 
 namespace acir::compiler::detail {
 
-mlir::LogicalResult verifyOriginDefinition(
-    mlir::DictionaryAttr origin, mlir::FlatSymbolRefAttr expected,
-    llvm::StringRef description, ac::detail::EmitError emitError);
+bool sameDeclaration(mlir::Operation *definition, mlir::Operation *snapshot);
 
-mlir::LogicalResult verifySourcePath(
-    mlir::DictionaryAttr sourceSpan, mlir::DictionaryAttr owner,
-    llvm::StringRef description, ac::detail::EmitError emitError);
+mlir::LogicalResult verifyOriginDefinition(mlir::DictionaryAttr origin,
+                                           mlir::FlatSymbolRefAttr expected,
+                                           llvm::StringRef description,
+                                           ac::detail::EmitError emitError);
 
-mlir::LogicalResult verifyHeaderHelper(
-    mlir::func::FuncOp helper, const SourceHeaderRegistry &registry,
-    ac::detail::EmitError emitError);
+mlir::LogicalResult verifySourcePath(mlir::DictionaryAttr sourceSpan,
+                                     mlir::DictionaryAttr owner,
+                                     llvm::StringRef description,
+                                     ac::detail::EmitError emitError);
 
-mlir::LogicalResult verifySnapshotRecordFieldLocations(
-    ac::StructOp record, mlir::DictionaryAttr owner,
-    ac::detail::EmitError emitError);
+mlir::LogicalResult verifyHeaderHelper(mlir::func::FuncOp helper,
+                                       const SourceHeaderRegistry &registry,
+                                       ac::detail::EmitError emitError);
+
+mlir::LogicalResult
+verifySnapshotRecordFieldLocations(ac::StructOp record,
+                                   mlir::DictionaryAttr owner,
+                                   ac::detail::EmitError emitError);
 
 } // namespace acir::compiler::detail
 

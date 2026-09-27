@@ -22,4 +22,12 @@ def ACIR_MathIntAttr : AttrDef<ACIR_Dialect, "MathInt"> {
   }];
 }
 
+def ACIR_StaticExprAttr : AttrDef<ACIR_Dialect, "StaticExpr"> {
+  let mnemonic = "static_expr";
+  let summary = "Source-linked compile-time expression tree";
+  let parameters = (ins "::mlir::DictionaryAttr":$tree);
+  let assemblyFormat = "`<` $tree `>`";
+  let genVerifyDecl = 1;
+}
+
 #endif // ACIR_DIALECT_ACIR_ACIRATTRIBUTES_TD

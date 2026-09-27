@@ -144,6 +144,22 @@ LogicalResult RecordCompiler::scanImportsAndAliases() {
                << "relative import levels greater than one are outside U01";
       if (targetModule == "typing")
         continue;
+      if (targetModule == "pycircuit") {
+        ArrayAttr names = statement.array("names");
+        for (size_t nameIndex = 0; nameIndex < names.size(); ++nameIndex) {
+          AstNode alias = statement.item("names", nameIndex);
+          StringRef remote = alias.string("name");
+          if (remote != "module" && remote != "rule")
+            return emitError() << "pycircuit import is outside the U02-A "
+                                  "module/rule capability";
+          StringRef local =
+              alias.get("asname") && !isa<UnitAttr>(alias.get("asname"))
+                  ? alias.string("asname")
+                  : remote;
+          bindCompilerDecorator(local, remote);
+        }
+        continue;
+      }
       DictionaryAttr provider = headers.ownerForModule(targetModule);
       ArrayAttr closure = headers.interfacesForModule(targetModule);
       if (!provider || !closure || closure.empty())
@@ -470,21 +486,33 @@ FailureOr<SourceUnitArtifacts> RecordCompiler::run() {
   builder.setInsertionPointToEnd(interface->getBody());
   if (failed(scanImportsAndAliases()))
     return failure();
+  unsigned publicModules = 0;
+  ArrayAttr statements = source.module.array("body");
+  for (size_t index = 0; index < statements.size(); ++index)
+    if (isModuleDefinition(source.module.item("body", index)))
+      ++publicModules;
+  if (publicModules > 1)
+    return emitError()
+           << "one source unit may define at most one @module class";
+  if (publicModules == 1)
+    (*body)->setAttr("ac.unit_kind", builder.getStringAttr("implementation"));
   interfaces.assign({owner});
   llvm::append_range(interfaces, dependencies);
   (*body)->setAttr("ac.interfaces", builder.getArrayAttr(interfaces));
   (*interface)->setAttr("ac.interfaces", builder.getArrayAttr(interfaces));
-  if (failed(cloneImportedDeclarations()))
+  if (failed(cloneImportedDeclarations(publicModules == 1)))
     return failure();
 
-  ArrayAttr statements = source.module.array("body");
   for (size_t index = 0; index < statements.size(); ++index) {
     AstNode statement = source.module.item("body", index);
     if (isDocstring(statement) || statement.kind() == "Import" ||
         statement.kind() == "ImportFrom" || statement.kind() == "Assign")
       continue;
     if (statement.kind() == "ClassDef") {
-      if (failed(emitRecord(statement)))
+      LogicalResult result = isModuleDefinition(statement)
+                                 ? emitModule(statement)
+                                 : emitRecord(statement);
+      if (failed(result))
         return failure();
       continue;
     }

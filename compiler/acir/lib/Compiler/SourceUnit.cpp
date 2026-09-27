@@ -16,8 +16,12 @@ compilePythonSourceUnit(ModuleOp transport, DictionaryAttr sourceOwner,
   auto captured = detail::readSingleCapture(transport, emitError);
   if (failed(captured))
     return failure();
-  return detail::lowerRecordSourceUnit(*captured, sourceOwner, headers,
-                                       emitError);
+  auto result =
+      detail::lowerRecordSourceUnit(*captured, sourceOwner, headers, emitError);
+  if (failed(result) || failed(headers.verifyBodySnapshots(
+                            *result->body, *result->interface, emitError)))
+    return failure();
+  return result;
 }
 
 } // namespace acir::compiler

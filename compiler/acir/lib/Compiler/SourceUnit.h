@@ -21,7 +21,8 @@ struct SourceUnitArtifacts {
 class SourceHeaderRegistry {
 public:
   static mlir::FailureOr<SourceHeaderRegistry>
-  create(llvm::ArrayRef<mlir::ModuleOp> headers, ac::detail::EmitError emitError);
+  create(llvm::ArrayRef<mlir::ModuleOp> headers,
+         ac::detail::EmitError emitError);
 
   mlir::FailureOr<ac::detail::ResolvedRecordView>
   resolveRecord(mlir::FlatSymbolRefAttr symbol) const;
@@ -35,6 +36,10 @@ public:
                                        llvm::StringRef sourceName) const;
   mlir::ArrayAttr interfacesForModule(llvm::StringRef moduleName) const;
   llvm::ArrayRef<mlir::ModuleOp> suppliedHeaders() const { return headers_; }
+
+  mlir::LogicalResult
+  verifyBodySnapshots(mlir::ModuleOp body, mlir::ModuleOp owningHeader,
+                      ac::detail::EmitError emitError) const;
 
 private:
   llvm::SmallVector<mlir::ModuleOp> headers_;

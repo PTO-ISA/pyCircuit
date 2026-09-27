@@ -1,6 +1,6 @@
-#include "SourceUnit.h"
 #include "SourceHeaderHelpers.h"
 #include "SourceNamespace.h"
+#include "SourceUnit.h"
 
 #include "mlir/IR/OperationSupport.h"
 #include "mlir/IR/SymbolTable.h"
@@ -34,7 +34,8 @@ std::string moduleName(DictionaryAttr owner) {
 }
 
 StringRef symbolName(Operation *operation) {
-  auto name = operation->getAttrOfType<StringAttr>(SymbolTable::getSymbolAttrName());
+  auto name =
+      operation->getAttrOfType<StringAttr>(SymbolTable::getSymbolAttrName());
   return name ? name.getValue() : StringRef();
 }
 
@@ -47,8 +48,9 @@ bool hasQualifiedDeclarationIdentity(Operation *operation, StringRef symbol,
                                      StringRef module) {
   if (!isInOwnerModule(symbol, module))
     return false;
-  StringRef local = module.empty() ? symbol : symbol.drop_front(module.size() + 1);
-  if (isa<ac::TypeAliasOp, ac::StructOp>(operation))
+  StringRef local =
+      module.empty() ? symbol : symbol.drop_front(module.size() + 1);
+  if (isa<ac::TypeAliasOp, ac::StructOp, ac::ModuleImportOp>(operation))
     return !local.empty() && !local.contains('.');
   if (isa<func::FuncOp>(operation)) {
     if (!local.contains('.'))
@@ -106,7 +108,8 @@ LogicalResult verifyUnitEnvelope(ModuleOp header, DictionaryAttr &owner,
       continue;
     }
     if (dependency == owner || (previous && !ownerLess(previous, dependency)))
-      return emitError() << "ac.interfaces dependencies must be structurally ordered";
+      return emitError()
+             << "ac.interfaces dependencies must be structurally ordered";
     previous = dependency;
   }
   return success();
@@ -123,75 +126,25 @@ LogicalResult verifyCommonDeclaration(Operation *operation,
       failed(ac::detail::verifyOccurrence(origin, emitError)))
     return failure();
   StringRef name = symbolName(operation);
-  if (name.empty() || failed(detail::verifyOriginDefinition(
-                          origin, FlatSymbolRefAttr::get(operation->getContext(), name),
-                          "declaration", emitError)))
+  if (name.empty() ||
+      failed(detail::verifyOriginDefinition(
+          origin, FlatSymbolRefAttr::get(operation->getContext(), name),
+          "declaration", emitError)))
     return failure();
-  if (!role || (role.getValue() != "definition" &&
-                role.getValue() != "import_snapshot"))
+  if (!role ||
+      (role.getValue() != "definition" && role.getValue() != "import_snapshot"))
     return emitError() << "exported declaration role is invalid";
   if (role.getValue() == "definition" && declarationOwner != enclosingOwner)
-    return emitError()
-           << "definition SourceOwner does not match its interface";
+    return emitError() << "definition SourceOwner does not match its interface";
   if (role.getValue() == "import_snapshot") {
     auto file = operation->getParentOfType<ModuleOp>();
-    auto interfaces = file ? file->getAttrOfType<ArrayAttr>("ac.interfaces")
-                           : ArrayAttr();
+    auto interfaces =
+        file ? file->getAttrOfType<ArrayAttr>("ac.interfaces") : ArrayAttr();
     if (!interfaces || !llvm::is_contained(interfaces, declarationOwner))
       return emitError()
              << "import snapshot SourceOwner is absent from ac.interfaces";
   }
   return success();
-}
-
-Attribute normalizedAttribute(Attribute attribute, StringRef key = {}) {
-  if (key == "location" || key == "loc") {
-    auto span = dyn_cast<DictionaryAttr>(attribute);
-    auto path = span ? span.getAs<StringAttr>("path") : StringAttr();
-    if (!span || !path)
-      return attribute;
-    SmallVector<NamedAttribute> fields{
-        NamedAttribute(StringAttr::get(attribute.getContext(), "path"), path)};
-    return DictionaryAttr::get(attribute.getContext(), fields);
-  }
-  if (auto dictionary = dyn_cast<DictionaryAttr>(attribute)) {
-    SmallVector<NamedAttribute> fields;
-    for (NamedAttribute field : dictionary) {
-      StringRef name = field.getName().getValue();
-      Attribute value = normalizedAttribute(field.getValue(), name);
-      if (name == "ac.declaration_role")
-        value = StringAttr::get(attribute.getContext(), "definition");
-      fields.push_back(NamedAttribute(field.getName(), value ? value : field.getValue()));
-    }
-    return DictionaryAttr::get(attribute.getContext(), fields);
-  }
-  if (auto array = dyn_cast<ArrayAttr>(attribute)) {
-    SmallVector<Attribute> values;
-    for (Attribute value : array)
-      values.push_back(normalizedAttribute(value));
-    return ArrayAttr::get(attribute.getContext(), values);
-  }
-  return attribute;
-}
-
-bool sameDeclaration(Operation *definition, Operation *snapshot) {
-  if (definition->getName() != snapshot->getName() ||
-      definition->getAttrs().size() != snapshot->getAttrs().size() ||
-      normalizedAttribute(definition->getPropertiesAsAttribute()) !=
-          normalizedAttribute(snapshot->getPropertiesAsAttribute()))
-    return false;
-  auto left = cast<DictionaryAttr>(normalizedAttribute(
-      DictionaryAttr::get(definition->getContext(), definition->getAttrs())));
-  auto right = cast<DictionaryAttr>(normalizedAttribute(
-      DictionaryAttr::get(snapshot->getContext(), snapshot->getAttrs())));
-  if (left != right || definition->getNumRegions() != snapshot->getNumRegions())
-    return false;
-  for (auto [leftRegion, rightRegion] :
-       llvm::zip(definition->getRegions(), snapshot->getRegions()))
-    if (!OperationEquivalence::isRegionEquivalentTo(
-            &leftRegion, &rightRegion, OperationEquivalence::IgnoreLocations))
-      return false;
-  return true;
 }
 
 } // namespace
@@ -221,12 +174,14 @@ SourceHeaderRegistry::create(ArrayRef<ModuleOp> headers,
       if (index == 0)
         continue;
       if (!ownerHeaders.contains(rawOwner))
-        return emitError() << "ac.interfaces names a dependency without an explicitly supplied header";
+        return emitError() << "ac.interfaces names a dependency without an "
+                              "explicitly supplied header";
     }
   }
 
   for (ModuleOp header : registry.headers_) {
-    DictionaryAttr owner = header->getAttrOfType<DictionaryAttr>("ac.source_owner");
+    DictionaryAttr owner =
+        header->getAttrOfType<DictionaryAttr>("ac.source_owner");
     llvm::DenseSet<Attribute> visited;
     visited.insert(owner);
     SmallVector<DictionaryAttr> pending;
@@ -239,8 +194,10 @@ SourceHeaderRegistry::create(ArrayRef<ModuleOp> headers,
       if (!visited.insert(dependency).second)
         continue;
       ModuleOp dependencyHeader = ownerHeaders.lookup(dependency);
-      auto dependencies = dependencyHeader->getAttrOfType<ArrayAttr>("ac.interfaces");
-      for (auto [dependencyIndex, rawDependency] : llvm::enumerate(dependencies))
+      auto dependencies =
+          dependencyHeader->getAttrOfType<ArrayAttr>("ac.interfaces");
+      for (auto [dependencyIndex, rawDependency] :
+           llvm::enumerate(dependencies))
         if (dependencyIndex != 0)
           pending.push_back(cast<DictionaryAttr>(rawDependency));
     }
@@ -254,9 +211,9 @@ SourceHeaderRegistry::create(ArrayRef<ModuleOp> headers,
     ArrayAttr expectedClosure = ArrayAttr::get(header.getContext(), closure);
     auto declaredInterfaces = header->getAttrOfType<ArrayAttr>("ac.interfaces");
     if (declaredInterfaces != expectedClosure)
-      return emitError() << "ac.interfaces must contain the complete sorted dependency closure";
-    registry.interfaceClosures_.try_emplace(
-        moduleName(owner), expectedClosure);
+      return emitError() << "ac.interfaces must contain the complete sorted "
+                            "dependency closure";
+    registry.interfaceClosures_.try_emplace(moduleName(owner), expectedClosure);
   }
 
   for (ModuleOp header : registry.headers_) {
@@ -274,12 +231,13 @@ SourceHeaderRegistry::create(ArrayRef<ModuleOp> headers,
           role && role.getValue() == "import_snapshot" ? declarationOwner
                                                        : enclosingOwner;
       std::string declarationModule = moduleName(identityOwner);
-      if (name.empty() || !hasQualifiedDeclarationIdentity(
-                              &operation, name, declarationModule))
-        return emitError() << "declaration qualified identity does not match its SourceOwner: "
+      if (name.empty() ||
+          !hasQualifiedDeclarationIdentity(&operation, name, declarationModule))
+        return emitError() << "declaration qualified identity does not match "
+                              "its SourceOwner: "
                            << name;
-      if (failed(verifyCommonDeclaration(&operation, enclosingOwner,
-                                         emitError)))
+      if (failed(
+              verifyCommonDeclaration(&operation, enclosingOwner, emitError)))
         return failure();
       FlatSymbolRefAttr flat =
           FlatSymbolRefAttr::get(header.getContext(), name);
@@ -288,8 +246,7 @@ SourceHeaderRegistry::create(ArrayRef<ModuleOp> headers,
         continue;
       }
       if (registry.authorities_.contains(flat))
-        return emitError() << "duplicate declaration authority "
-                           << flat;
+        return emitError() << "duplicate declaration authority " << flat;
       registry.authorities_.try_emplace(flat, &operation);
       if (auto alias = dyn_cast<ac::TypeAliasOp>(operation))
         registry.aliases_.try_emplace(flat, alias);
@@ -297,6 +254,8 @@ SourceHeaderRegistry::create(ArrayRef<ModuleOp> headers,
         registry.records_.try_emplace(flat, record);
       else if (auto helper = dyn_cast<func::FuncOp>(operation))
         registry.helpers_.try_emplace(flat, helper);
+      else if (isa<ac::ModuleImportOp>(operation))
+        continue;
       else
         return emitError() << "interface contains an unsupported declaration";
     }
@@ -306,13 +265,16 @@ SourceHeaderRegistry::create(ArrayRef<ModuleOp> headers,
     auto owner = snapshot->getAttrOfType<DictionaryAttr>("ac.source_owner");
     auto authorityHeader = ownerHeaders.find(owner);
     if (authorityHeader == ownerHeaders.end())
-      return emitError() << "import snapshot has no explicitly supplied owner header";
-    auto name = snapshot->getAttrOfType<StringAttr>(SymbolTable::getSymbolAttrName());
+      return emitError()
+             << "import snapshot has no explicitly supplied owner header";
+    auto name =
+        snapshot->getAttrOfType<StringAttr>(SymbolTable::getSymbolAttrName());
     Operation *authority = nullptr;
-    for (Operation &candidate : authorityHeader->second.getBody()->getOperations())
+    for (Operation &candidate :
+         authorityHeader->second.getBody()->getOperations())
       if (symbolName(&candidate) == name.getValue() &&
-          candidate.getAttrOfType<StringAttr>("ac.declaration_role").getValue() ==
-              "definition") {
+          candidate.getAttrOfType<StringAttr>("ac.declaration_role")
+                  .getValue() == "definition") {
         authority = &candidate;
         break;
       }
@@ -321,7 +283,8 @@ SourceHeaderRegistry::create(ArrayRef<ModuleOp> headers,
              : FlatSymbolRefAttr();
     if (!authority || !flat || !registry.authorities_.contains(flat) ||
         registry.authorities_.lookup(flat) != authority)
-      return emitError() << "import snapshot does not resolve to its explicit owning declaration";
+      return emitError() << "import snapshot does not resolve to its explicit "
+                            "owning declaration";
     if (auto helper = dyn_cast<func::FuncOp>(snapshot)) {
       if (failed(detail::verifyHeaderHelper(helper, registry, emitError)))
         return emitError() << "invalid helper snapshot metadata";
@@ -330,8 +293,9 @@ SourceHeaderRegistry::create(ArrayRef<ModuleOp> headers,
                                                             emitError)))
         return failure();
     }
-    if (!sameDeclaration(authority, snapshot))
-      return emitError() << "import snapshot differs from its owning header declaration";
+    if (!detail::sameDeclaration(authority, snapshot))
+      return emitError()
+             << "import snapshot differs from its owning header declaration";
   }
 
   auto resolver = [&](FlatSymbolRefAttr symbol) {
@@ -340,8 +304,8 @@ SourceHeaderRegistry::create(ArrayRef<ModuleOp> headers,
   for (auto &[symbol, alias] : registry.aliases_) {
     auto target = alias->getAttrOfType<DictionaryAttr>("target");
     if (!target || failed(ac::detail::verifyTypeResolved(
-                        target, ac::detail::ExpectedTypeKind::Logical,
-                        resolver, emitError)))
+                       target, ac::detail::ExpectedTypeKind::Logical, resolver,
+                       emitError)))
       return emitError() << "invalid type alias export " << symbol;
   }
   for (auto &[symbol, record] : registry.records_) {
@@ -351,13 +315,14 @@ SourceHeaderRegistry::create(ArrayRef<ModuleOp> headers,
     auto constructorAttr =
         record->getAttrOfType<FlatSymbolRefAttr>("constructor");
     if (!recordRef || !fields || !constructorAttr)
-      return emitError() << "record declaration requires fields and constructor";
+      return emitError()
+             << "record declaration requires fields and constructor";
     llvm::StringSet<> fieldNames;
     for (auto [index, raw] : llvm::enumerate(fields)) {
       auto field = dyn_cast<DictionaryAttr>(raw);
-      if (!field || field.size() != 4 ||
-          !field.getAs<StringAttr>("name") ||
-          !fieldNames.insert(field.getAs<StringAttr>("name").getValue()).second ||
+      if (!field || field.size() != 4 || !field.getAs<StringAttr>("name") ||
+          !fieldNames.insert(field.getAs<StringAttr>("name").getValue())
+               .second ||
           failed(ac::detail::verifyTypeResolved(
               field.getAs<DictionaryAttr>("type"),
               ac::detail::ExpectedTypeKind::Logical, resolver, emitError)) ||
@@ -365,33 +330,69 @@ SourceHeaderRegistry::create(ArrayRef<ModuleOp> headers,
               field.getAs<DictionaryAttr>("origin"), emitError)) ||
           failed(ac::detail::verifySourceSpan(
               field.getAs<DictionaryAttr>("location"), emitError)))
-        return emitError() << "invalid record field[" << index << "] in " << symbol;
+        return emitError() << "invalid record field[" << index << "] in "
+                           << symbol;
       if (failed(detail::verifyOriginDefinition(
               field.getAs<DictionaryAttr>("origin"), recordRef, "record field",
               emitError)))
         return failure();
-      if (failed(detail::verifySourcePath(
-              field.getAs<DictionaryAttr>("location"), recordOwner,
-              "record field", emitError)))
+      if (failed(
+              detail::verifySourcePath(field.getAs<DictionaryAttr>("location"),
+                                       recordOwner, "record field", emitError)))
         return failure();
     }
     auto constructor = registry.lookupHelper(constructorAttr);
     if (!constructor)
-      return emitError() << "record constructor is absent from explicit headers: "
-                         << constructorAttr;
+      return emitError()
+             << "record constructor is absent from explicit headers: "
+             << constructorAttr;
     auto declaredRecord =
         constructor->getAttrOfType<FlatSymbolRefAttr>("ac.record");
     if (!recordRef || !declaredRecord || declaredRecord != recordRef)
       return emitError() << "record constructor nominal result mismatch for "
                          << symbol;
     Type expected = ac::StructType::get(
-        record.getContext(), StringAttr::get(record.getContext(),
-                                             recordRef.getValue()));
+        record.getContext(),
+        StringAttr::get(record.getContext(), recordRef.getValue()));
     FunctionType functionType = constructor.getFunctionType();
-    if (functionType.getNumResults() != 2 || functionType.getResult(0) != expected ||
+    if (functionType.getNumResults() != 2 ||
+        functionType.getResult(0) != expected ||
         !functionType.getResult(1).isInteger(1))
       return emitError() << "record constructor physical return is invalid for "
                          << symbol;
+  }
+
+  for (auto &[symbol, declaration] : registry.authorities_) {
+    auto module = dyn_cast<ac::ModuleImportOp>(declaration);
+    if (!module)
+      continue;
+    auto contract = module->getAttrOfType<DictionaryAttr>("ac.contract");
+    auto parameters =
+        contract ? contract.getAs<ArrayAttr>("parameters") : ArrayAttr();
+    if (!parameters)
+      return emitError() << "module import has no verified parameters "
+                         << symbol;
+    for (auto [index, raw] : llvm::enumerate(parameters)) {
+      auto parameter = dyn_cast<DictionaryAttr>(raw);
+      auto category =
+          parameter ? parameter.getAs<StringAttr>("category") : StringAttr();
+      auto type = parameter ? parameter.getAs<DictionaryAttr>("type")
+                            : DictionaryAttr();
+      auto defaultValue = parameter ? parameter.getAs<DictionaryAttr>("default")
+                                    : DictionaryAttr();
+      if (!category || !type || !defaultValue)
+        return emitError() << "invalid module parameter[" << index << "] in "
+                           << symbol;
+      auto kind = category.getValue() == "static"
+                      ? ac::detail::ExpectedTypeKind::Static
+                      : ac::detail::ExpectedTypeKind::Logical;
+      if (failed(ac::detail::verifyTypeResolved(type, kind, resolver,
+                                                emitError)) ||
+          failed(ac::detail::verifyDefaultMatchesType(defaultValue, type, kind,
+                                                      resolver, emitError)))
+        return emitError() << "unresolved module parameter[" << index
+                           << "] type/default in " << symbol;
+    }
   }
 
   for (auto &[symbol, helper] : registry.helpers_)
@@ -400,7 +401,8 @@ SourceHeaderRegistry::create(ArrayRef<ModuleOp> headers,
 
   llvm::DenseSet<Attribute> completed;
   llvm::DenseSet<Attribute> active;
-  std::function<LogicalResult(Attribute)> visit = [&](Attribute symbol) -> LogicalResult {
+  std::function<LogicalResult(Attribute)> visit =
+      [&](Attribute symbol) -> LogicalResult {
     if (completed.contains(symbol))
       return success();
     if (!active.insert(symbol).second) {
@@ -421,7 +423,8 @@ SourceHeaderRegistry::create(ArrayRef<ModuleOp> headers,
       return failure();
 
   for (ModuleOp header : registry.headers_) {
-    DictionaryAttr owner = header->getAttrOfType<DictionaryAttr>("ac.source_owner");
+    DictionaryAttr owner =
+        header->getAttrOfType<DictionaryAttr>("ac.source_owner");
     std::string module = moduleName(owner);
     auto exports = detail::readNamespaceExports(header, registry, emitError);
     if (failed(exports))
@@ -429,8 +432,8 @@ SourceHeaderRegistry::create(ArrayRef<ModuleOp> headers,
     for (const detail::NamespaceExportBinding &binding : *exports) {
       std::string key = exportKey(module, binding.name.getValue());
       if (!registry.exports_.try_emplace(key, binding.target).second)
-        return emitError() << "duplicate namespace export '" << binding.name.getValue()
-                           << "' in " << module;
+        return emitError() << "duplicate namespace export '"
+                           << binding.name.getValue() << "' in " << module;
     }
   }
   for (ModuleOp header : registry.headers_)
@@ -457,23 +460,26 @@ SourceHeaderRegistry::resolveRecord(FlatSymbolRefAttr symbol) const {
   return view;
 }
 
-ac::TypeAliasOp SourceHeaderRegistry::lookupAlias(FlatSymbolRefAttr symbol) const {
+ac::TypeAliasOp
+SourceHeaderRegistry::lookupAlias(FlatSymbolRefAttr symbol) const {
   auto found = aliases_.find(symbol);
   return found == aliases_.end() ? ac::TypeAliasOp() : found->second;
 }
 
-ac::StructOp SourceHeaderRegistry::lookupRecord(FlatSymbolRefAttr symbol) const {
+ac::StructOp
+SourceHeaderRegistry::lookupRecord(FlatSymbolRefAttr symbol) const {
   auto found = records_.find(symbol);
   return found == records_.end() ? ac::StructOp() : found->second;
 }
 
-func::FuncOp SourceHeaderRegistry::lookupHelper(FlatSymbolRefAttr symbol) const {
+func::FuncOp
+SourceHeaderRegistry::lookupHelper(FlatSymbolRefAttr symbol) const {
   auto found = helpers_.find(symbol);
   return found == helpers_.end() ? func::FuncOp() : found->second;
 }
 
-Operation *SourceHeaderRegistry::lookupDeclaration(
-    FlatSymbolRefAttr canonical) const {
+Operation *
+SourceHeaderRegistry::lookupDeclaration(FlatSymbolRefAttr canonical) const {
   auto found = authorities_.find(canonical);
   return found == authorities_.end() ? nullptr : found->second;
 }
@@ -483,8 +489,9 @@ DictionaryAttr SourceHeaderRegistry::ownerForModule(StringRef module) const {
   return found == moduleOwners_.end() ? DictionaryAttr() : found->second;
 }
 
-FlatSymbolRefAttr SourceHeaderRegistry::lookupExport(StringRef module,
-                                                     StringRef sourceName) const {
+FlatSymbolRefAttr
+SourceHeaderRegistry::lookupExport(StringRef module,
+                                   StringRef sourceName) const {
   auto found = exports_.find(exportKey(module, sourceName));
   return found == exports_.end() ? FlatSymbolRefAttr() : found->second;
 }

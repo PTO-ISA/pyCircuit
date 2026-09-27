@@ -79,8 +79,9 @@ int compareSite(DictionaryAttr left, DictionaryAttr right) {
   ArrayAttr rightPath = right.getAs<ArrayAttr>("ast_path");
   size_t count = std::min(leftPath.size(), rightPath.size());
   for (size_t index = 0; index < count; ++index) {
-    int component = comparePathComponent(cast<DictionaryAttr>(leftPath[index]),
-                                         cast<DictionaryAttr>(rightPath[index]));
+    int component =
+        comparePathComponent(cast<DictionaryAttr>(leftPath[index]),
+                             cast<DictionaryAttr>(rightPath[index]));
     if (component)
       return component;
   }
@@ -136,7 +137,8 @@ LogicalResult verifyNamespaceSite(DictionaryAttr site, DictionaryAttr owner,
   auto sitePath = location.getAs<StringAttr>("path");
   auto ownerPath = owner ? owner.getAs<StringAttr>("path") : StringAttr();
   if (!sitePath || !ownerPath || sitePath != ownerPath)
-    return emitError() << "NamespaceSite SourceSpan.path does not match unit owner path";
+    return emitError()
+           << "NamespaceSite SourceSpan.path does not match unit owner path";
   return success();
 }
 
@@ -145,26 +147,29 @@ LogicalResult verifyTargetCategory(FlatSymbolRefAttr target,
                                    ac::detail::EmitError emitError) {
   Operation *declaration = registry.lookupDeclaration(target);
   if (!declaration)
-    return emitError() << "namespace target has no canonical declaration authority: "
-                       << target;
-  if (isa<ac::TypeAliasOp, ac::StructOp>(declaration))
+    return emitError()
+           << "namespace target has no canonical declaration authority: "
+           << target;
+  if (isa<ac::TypeAliasOp, ac::StructOp, ac::ModuleImportOp>(declaration))
     return success();
   if (auto helper = dyn_cast<func::FuncOp>(declaration)) {
     auto kind = helper->getAttrOfType<StringAttr>("ac.helper_kind");
     if (kind && kind.getValue() == "value")
       return success();
     if (kind && kind.getValue() == "record_constructor")
-      return emitError() << "record constructor helpers are not direct namespace exports";
+      return emitError()
+             << "record constructor helpers are not direct namespace exports";
   }
-  return emitError() << "namespace target category is not supported by this U02 slice: "
-                     << target;
+  return emitError()
+         << "namespace target category is not supported by this U02 slice: "
+         << target;
 }
 
 } // namespace
 
-FailureOr<SmallVector<NamespaceExportBinding>> readNamespaceExports(
-    ModuleOp header, const SourceHeaderRegistry &registry,
-    ac::detail::EmitError emitError) {
+FailureOr<SmallVector<NamespaceExportBinding>>
+readNamespaceExports(ModuleOp header, const SourceHeaderRegistry &registry,
+                     ac::detail::EmitError emitError) {
   auto entries = header->getAttrOfType<ArrayAttr>("ac.exports");
   auto owner = header->getAttrOfType<DictionaryAttr>("ac.source_owner");
   if (!entries)
@@ -174,19 +179,22 @@ FailureOr<SmallVector<NamespaceExportBinding>> readNamespaceExports(
   for (auto [index, raw] : llvm::enumerate(entries)) {
     auto entry = dyn_cast<DictionaryAttr>(raw);
     auto name = entry ? entry.getAs<StringAttr>("name") : StringAttr();
-    auto target = entry ? entry.getAs<FlatSymbolRefAttr>("target")
-                        : FlatSymbolRefAttr();
+    auto target =
+        entry ? entry.getAs<FlatSymbolRefAttr>("target") : FlatSymbolRefAttr();
     auto site = entry ? entry.getAs<DictionaryAttr>("site") : DictionaryAttr();
     if (!entry || entry.size() != 3 || !name || !target || !site)
       return emitError() << "ac.exports[" << index
-                         << "] must be a closed ExportBinding with StringAttr name, target, and site";
+                         << "] must be a closed ExportBinding with StringAttr "
+                            "name, target, and site";
     if (failed(verifyPythonAstIdentifier(name.getValue(), true, emitError)))
       return failure();
     if (failed(verifyNamespaceSite(site, owner, emitError)) ||
         failed(verifyTargetCategory(target, registry, emitError)))
       return failure();
-    if (previousName && compareBytes(previousName.getValue(), name.getValue()) >= 0)
-      return emitError() << "ac.exports must be unique and sorted by UTF-8 name bytes";
+    if (previousName &&
+        compareBytes(previousName.getValue(), name.getValue()) >= 0)
+      return emitError()
+             << "ac.exports must be unique and sorted by UTF-8 name bytes";
     previousName = name;
     result.push_back({name, target});
   }
@@ -205,30 +213,36 @@ LogicalResult verifyNamespaceImports(ModuleOp header,
   llvm::StringMap<FlatSymbolRefAttr> targetsByProviderName;
   for (auto [index, raw] : llvm::enumerate(entries)) {
     auto entry = dyn_cast<DictionaryAttr>(raw);
-    auto source = entry ? entry.getAs<DictionaryAttr>("source") : DictionaryAttr();
+    auto source =
+        entry ? entry.getAs<DictionaryAttr>("source") : DictionaryAttr();
     auto name = entry ? entry.getAs<StringAttr>("name") : StringAttr();
-    auto target = entry ? entry.getAs<FlatSymbolRefAttr>("target")
-                        : FlatSymbolRefAttr();
+    auto target =
+        entry ? entry.getAs<FlatSymbolRefAttr>("target") : FlatSymbolRefAttr();
     auto site = entry ? entry.getAs<DictionaryAttr>("site") : DictionaryAttr();
     if (!entry || entry.size() != 4 || !source || !name || !target || !site ||
         failed(ac::detail::verifySourceOwner(source, emitError)) ||
         failed(verifyNamespaceSite(site, owner, emitError)))
       return emitError() << "ac.import_bindings[" << index
-                         << "] must be a closed ImportBindingUse with valid source/name/site";
+                         << "] must be a closed ImportBindingUse with valid "
+                            "source/name/site";
     if (failed(verifyPythonAstIdentifier(name.getValue(), false, emitError)))
       return failure();
     std::string providerModule = moduleName(source);
     auto explicitProvider = registry.ownerForModule(providerModule);
     if (!explicitProvider || explicitProvider != source ||
         !llvm::is_contained(localInterfaces, source))
-      return emitError() << "import binding provider has no explicit header in the unit dependency closure";
-    FlatSymbolRefAttr published = registry.lookupExport(providerModule, name.getValue());
+      return emitError() << "import binding provider has no explicit header in "
+                            "the unit dependency closure";
+    FlatSymbolRefAttr published =
+        registry.lookupExport(providerModule, name.getValue());
     auto location = site.getAs<DictionaryAttr>("location");
     if (!published) {
-      emitError() << "import at " << location.getAs<StringAttr>("path").getValue()
-                  << ':' << integerValue(location, "line") << ':'
-                  << integerValue(location, "column") << " requests unpublished name '"
-                  << name.getValue() << "' from provider '" << providerModule << "'";
+      emitError() << "import at "
+                  << location.getAs<StringAttr>("path").getValue() << ':'
+                  << integerValue(location, "line") << ':'
+                  << integerValue(location, "column")
+                  << " requests unpublished name '" << name.getValue()
+                  << "' from provider '" << providerModule << "'";
       return failure();
     }
     if (published != target) {
@@ -243,13 +257,15 @@ LogicalResult verifyNamespaceImports(ModuleOp header,
     std::string key = (Twine(providerModule) + "::" + name.getValue()).str();
     auto existing = targetsByProviderName.find(key);
     if (existing != targetsByProviderName.end() && existing->second != target)
-      return emitError() << "one producer records different targets for the same provider/name";
+      return emitError() << "one producer records different targets for the "
+                            "same provider/name";
     targetsByProviderName.try_emplace(key, target);
     bindings.push_back({source, name, target, site});
   }
   for (size_t index = 1; index < bindings.size(); ++index)
     if (compareImportBinding(bindings[index - 1], bindings[index]) >= 0)
-      return emitError() << "ac.import_bindings must be unique and structurally ordered";
+      return emitError()
+             << "ac.import_bindings must be unique and structurally ordered";
   return success();
 }
 

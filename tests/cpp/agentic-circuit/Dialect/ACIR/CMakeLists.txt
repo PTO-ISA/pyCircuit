@@ -70,6 +70,31 @@ target_link_libraries(ACIRNamespaceContractsTests PRIVATE
 add_dependencies(ACIRNamespaceContractsTests acir-source-unit-harness)
 add_test(NAME ACIRNamespaceContractsTests COMMAND ACIRNamespaceContractsTests)
 
+add_executable(ACIRSourceModuleContractsTests
+  SourceBodySnapshotsTest.cpp
+  SourceModuleContractsTest.cpp
+)
+target_include_directories(ACIRSourceModuleContractsTests PRIVATE
+  "${ACIR_SOURCE_DIR}/lib"
+)
+target_compile_definitions(ACIRSourceModuleContractsTests PRIVATE
+  ACIR_TEST_PYTHON="${Python3_EXECUTABLE}"
+  ACIR_TEST_REPO_ROOT="${ACIR_REPO_ROOT}"
+  ACIR_TEST_SOURCE_UNIT_HARNESS="$<TARGET_FILE:acir-source-unit-harness>"
+)
+target_link_libraries(ACIRSourceModuleContractsTests PRIVATE
+  ACIRDialect
+  ACIRSourceCompiler
+  MLIRArithDialect
+  MLIRFuncDialect
+  MLIRParser
+  MLIRSupport
+  GTest::gtest_main
+)
+add_dependencies(ACIRSourceModuleContractsTests acir-source-unit-harness)
+add_test(NAME ACIRSourceModuleContractsTests
+  COMMAND ACIRSourceModuleContractsTests)
+
 if(PYC_UNICODE_GENERATOR_PYTHON)
   execute_process(
     COMMAND "${PYC_UNICODE_GENERATOR_PYTHON}" -c

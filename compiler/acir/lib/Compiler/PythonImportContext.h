@@ -26,11 +26,17 @@ struct NamespaceImportUse {
   AstNode site;
 };
 
+class ModuleCompiler;
+class RuleCompiler;
+
 // Private state shared by the source-unit frontend stages. It retains the
 // captured module and original source identity/module-root AST paths while
 // exposing local names and supplied header declarations through separate maps.
 class PythonImportContext {
 protected:
+  friend class ModuleCompiler;
+  friend class RuleCompiler;
+
   PythonImportContext(const CapturedSource &source, mlir::DictionaryAttr owner,
                       const SourceHeaderRegistry &headers,
                       ac::detail::EmitError emitError);
@@ -42,6 +48,10 @@ protected:
                              llvm::StringRef remoteName,
                              mlir::FlatSymbolRefAttr target,
                              const AstNode &site);
+  void bindCompilerDecorator(llvm::StringRef localName,
+                             llvm::StringRef intrinsicName);
+  bool isCompilerDecorator(llvm::StringRef localName,
+                           llvm::StringRef intrinsicName) const;
   void registerLocalDeclaration(mlir::FlatSymbolRefAttr symbol,
                                 mlir::Operation *declaration);
   mlir::Operation *
@@ -55,6 +65,7 @@ protected:
   mlir::OpBuilder builder;
   std::string module;
   llvm::StringMap<NamespaceBinding> namespaceBindings;
+  llvm::StringMap<std::string> compilerDecorators;
   llvm::StringMap<mlir::Operation *> localDeclarations;
   llvm::SmallVector<NamespaceImportUse> namespaceImportUses;
   llvm::SmallVector<mlir::DictionaryAttr> dependencies;
@@ -72,6 +83,10 @@ mlir::Type physicalType(mlir::DictionaryAttr logical,
 mlir::DictionaryAttr valueConstraint(mlir::OpBuilder &builder,
                                      mlir::DictionaryAttr type);
 mlir::DictionaryAttr absentDefault(mlir::OpBuilder &builder);
+mlir::Operation *createSourceOperation(
+    mlir::OpBuilder &builder, mlir::Location location, llvm::StringRef name,
+    mlir::ValueRange operands, mlir::TypeRange results,
+    llvm::ArrayRef<mlir::NamedAttribute> attributes, unsigned regionCount = 0);
 
 } // namespace acir::compiler::detail
 

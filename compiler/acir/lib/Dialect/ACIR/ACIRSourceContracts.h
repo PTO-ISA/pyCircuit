@@ -14,6 +14,10 @@ namespace acir::ac::detail {
 
 using EmitError = llvm::function_ref<mlir::InFlightDiagnostic()>;
 
+mlir::LogicalResult verifyDeclarationMetadata(
+    mlir::Operation *operation, mlir::DictionaryAttr owner,
+    mlir::DictionaryAttr origin, mlir::StringAttr role);
+
 enum class ExpectedTypeKind { Logical, Static };
 
 struct ResolvedRecordView {

@@ -1,10 +1,14 @@
 add_acir_library(ACIRDialect SOURCES
   ACIRDialect.cpp
   ACIRIdentityContracts.cpp
+  ACIRModuleContracts.cpp
+  ACIRModuleOps.cpp
   ACIRPacketOps.cpp
   ACIRPacketTypes.cpp
   ACIRRegistration.cpp
   ACIRSourceContracts.cpp
+  ACIRStaticContracts.cpp
+  ACIRStaticEvaluation.cpp
   ACIRValueContracts.cpp
 )
 add_dependencies(ACIRDialect

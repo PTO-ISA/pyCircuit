@@ -9,21 +9,6 @@ using namespace mlir;
 namespace acir::ac {
 namespace {
 
-LogicalResult verifyDeclarationMetadata(Operation *operation,
-                                        DictionaryAttr owner,
-                                        DictionaryAttr origin,
-                                        StringAttr role) {
-  auto emitError = [&] { return operation->emitOpError(); };
-  if (failed(detail::verifySourceOwner(owner, emitError)) ||
-      failed(detail::verifyOccurrence(origin, emitError)))
-    return failure();
-  if (!role ||
-      (role.getValue() != "definition" && role.getValue() != "import_snapshot"))
-    return operation->emitOpError()
-           << "declaration_role must be 'definition' or 'import_snapshot'";
-  return success();
-}
-
 FailureOr<Type> physicalType(DictionaryAttr logical, Operation *owner) {
   auto kind = logical.getAs<StringAttr>("kind");
   if (!kind)
@@ -48,7 +33,7 @@ FailureOr<Type> physicalType(DictionaryAttr logical, Operation *owner) {
 }
 
 StructOp lookupStruct(Operation *operation, StructType type) {
-  auto file = operation->getParentOfType<ModuleOp>();
+  auto file = operation->getParentOfType<mlir::ModuleOp>();
   if (!file)
     return {};
   auto symbol = FlatSymbolRefAttr::get(operation->getContext(), type.getName());
@@ -58,7 +43,7 @@ StructOp lookupStruct(Operation *operation, StructType type) {
 } // namespace
 
 LogicalResult TypeAliasOp::verify() {
-  if (failed(verifyDeclarationMetadata(
+  if (failed(detail::verifyDeclarationMetadata(
           *this, (*this)->getAttrOfType<DictionaryAttr>("ac.source_owner"),
           (*this)->getAttrOfType<DictionaryAttr>("ac.origin"),
           (*this)->getAttrOfType<StringAttr>("ac.declaration_role"))))
@@ -68,7 +53,7 @@ LogicalResult TypeAliasOp::verify() {
 }
 
 LogicalResult StructOp::verify() {
-  if (failed(verifyDeclarationMetadata(
+  if (failed(detail::verifyDeclarationMetadata(
           *this, (*this)->getAttrOfType<DictionaryAttr>("ac.source_owner"),
           (*this)->getAttrOfType<DictionaryAttr>("ac.origin"),
           (*this)->getAttrOfType<StringAttr>("ac.declaration_role"))))

@@ -8,7 +8,8 @@ namespace acir::compiler::detail {
 
 FailureOr<FunctionSignatureSyntax>
 parseFunctionSignature(const AstNode &arguments, bool hasImplicitReceiver,
-                       ac::detail::EmitError emitError) {
+                       ac::detail::EmitError emitError,
+                       StringRef receiverOwner) {
   ArrayAttr positionalOnly = arguments.array("posonlyargs");
   ArrayAttr ordinary = arguments.array("args");
   ArrayAttr keywordOnly = arguments.array("kwonlyargs");
@@ -16,15 +17,18 @@ parseFunctionSignature(const AstNode &arguments, bool hasImplicitReceiver,
   ArrayAttr keywordDefaults = arguments.array("kw_defaults");
   if (!positionalOnly || !ordinary || !keywordOnly || !defaults ||
       !keywordDefaults || keywordDefaults.size() != keywordOnly.size())
-    return emitError() << "record constructor signature arrays are malformed";
+    return emitError() << receiverOwner << " signature arrays are malformed";
 
   FunctionSignatureSyntax result;
   Attribute rawVararg = arguments.get("vararg");
   Attribute rawKwarg = arguments.get("kwarg");
   result.hasVararg = rawVararg && !isa<UnitAttr>(rawVararg);
   result.hasKwarg = rawKwarg && !isa<UnitAttr>(rawKwarg);
-  if (hasImplicitReceiver && (result.hasVararg || result.hasKwarg))
-    return emitError() << "record constructors reject *args and **kwargs";
+  if (hasImplicitReceiver && (result.hasVararg || result.hasKwarg)) {
+    if (receiverOwner == "record constructor")
+      return emitError() << "record constructors reject *args and **kwargs";
+    return emitError() << receiverOwner << " rejects *args and **kwargs";
+  }
 
   SmallVector<AstNode> positional;
   for (size_t index = 0; index < positionalOnly.size(); ++index)
@@ -34,13 +38,13 @@ parseFunctionSignature(const AstNode &arguments, bool hasImplicitReceiver,
 
   if (hasImplicitReceiver &&
       (positional.empty() || positional.front().string("arg") != "self"))
-    return emitError()
-           << "record constructor first positional parameter must be self";
+    return emitError() << receiverOwner
+                       << " first positional parameter must be self";
   size_t firstDefault = 0;
   if (defaults.size() > positional.size()) {
     if (hasImplicitReceiver)
-      return emitError()
-             << "record constructor defaults exceed positional parameters";
+      return emitError() << receiverOwner
+                         << " defaults exceed positional parameters";
     return emitError() << "function defaults exceed positional parameters";
   }
   firstDefault = positional.size() - defaults.size();
@@ -62,8 +66,8 @@ parseFunctionSignature(const AstNode &arguments, bool hasImplicitReceiver,
   for (size_t index = firstParameter; index < positional.size(); ++index) {
     StringRef name = positional[index].string("arg");
     if (!parameterNames.insert(name).second)
-      return emitError() << "duplicate record constructor parameter '" << name
-                         << "'";
+      return emitError() << "duplicate " << receiverOwner << " parameter '"
+                         << name << "'";
     std::optional<AstNode> defaultValue;
     if (index >= firstDefault)
       defaultValue =
@@ -77,8 +81,8 @@ parseFunctionSignature(const AstNode &arguments, bool hasImplicitReceiver,
   for (size_t index = 0; index < keywordOnly.size(); ++index) {
     StringRef name = arguments.item("kwonlyargs", index).string("arg");
     if (!parameterNames.insert(name).second)
-      return emitError() << "duplicate record constructor parameter '" << name
-                         << "'";
+      return emitError() << "duplicate " << receiverOwner << " parameter '"
+                         << name << "'";
     Attribute rawDefault = keywordDefaults[index];
     std::optional<AstNode> defaultValue;
     if (!isa<UnitAttr>(rawDefault))

@@ -89,6 +89,9 @@ bool ownerLess(DictionaryAttr left, DictionaryAttr right) {
 bool isExportableDeclaration(Operation *declaration) {
   if (isa<ac::StructOp, ac::TypeAliasOp>(declaration))
     return true;
+  if (declaration &&
+      declaration->getName().getStringRef() == "ac.module.import")
+    return true;
   auto function = dyn_cast<func::FuncOp>(declaration);
   auto kind = function ? function->getAttrOfType<StringAttr>("ac.helper_kind")
                        : StringAttr();
@@ -140,6 +143,17 @@ void PythonImportContext::recordNamespaceImport(DictionaryAttr provider,
                                                 FlatSymbolRefAttr target,
                                                 const AstNode &site) {
   namespaceImportUses.push_back({provider, remoteName.str(), target, site});
+}
+
+void PythonImportContext::bindCompilerDecorator(StringRef localName,
+                                                StringRef intrinsicName) {
+  compilerDecorators[localName] = intrinsicName.str();
+}
+
+bool PythonImportContext::isCompilerDecorator(StringRef localName,
+                                              StringRef intrinsicName) const {
+  auto found = compilerDecorators.find(localName);
+  return found != compilerDecorators.end() && found->second == intrinsicName;
 }
 
 void PythonImportContext::registerLocalDeclaration(FlatSymbolRefAttr symbol,
@@ -259,6 +273,20 @@ DictionaryAttr valueConstraint(OpBuilder &builder, DictionaryAttr type) {
 DictionaryAttr absentDefault(OpBuilder &builder) {
   return builder.getDictionaryAttr(
       {builder.getNamedAttr("present", builder.getBoolAttr(false))});
+}
+
+Operation *createSourceOperation(OpBuilder &builder, Location location,
+                                 StringRef name, ValueRange operands,
+                                 TypeRange results,
+                                 ArrayRef<NamedAttribute> attributes,
+                                 unsigned regionCount) {
+  OperationState state(location, name);
+  state.addOperands(operands);
+  state.addTypes(results);
+  state.addAttributes(attributes);
+  for (unsigned index = 0; index < regionCount; ++index)
+    state.addRegion();
+  return builder.create(state);
 }
 
 } // namespace acir::compiler::detail

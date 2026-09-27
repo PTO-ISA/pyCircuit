@@ -1,8 +1,9 @@
 #include "SourceHeaderHelpers.h"
 
 #include "mlir/Dialect/Arith/IR/Arith.h"
-#include "mlir/Interfaces/SideEffectInterfaces.h"
+#include "mlir/IR/OperationSupport.h"
 #include "mlir/IR/SymbolTable.h"
+#include "mlir/Interfaces/SideEffectInterfaces.h"
 #include "llvm/ADT/STLExtras.h"
 #include "llvm/ADT/StringSet.h"
 
@@ -39,35 +40,38 @@ LogicalResult verifyOriginDefinition(DictionaryAttr origin,
                                      StringRef description,
                                      ac::detail::EmitError emitError) {
   auto site = origin ? origin.getAs<DictionaryAttr>("site") : DictionaryAttr();
-  auto definition = site ? site.getAs<FlatSymbolRefAttr>("definition")
-                         : FlatSymbolRefAttr();
+  auto definition =
+      site ? site.getAs<FlatSymbolRefAttr>("definition") : FlatSymbolRefAttr();
   if (!expected || !definition || definition != expected)
-    return emitError() << description
-                       << " occurrence definition does not match its canonical symbol";
+    return emitError()
+           << description
+           << " occurrence definition does not match its canonical symbol";
   return success();
 }
 
 LogicalResult verifySourcePath(DictionaryAttr sourceSpan, DictionaryAttr owner,
                                StringRef description,
                                ac::detail::EmitError emitError) {
-  auto sourcePath = sourceSpan ? sourceSpan.getAs<StringAttr>("path") : StringAttr();
+  auto sourcePath =
+      sourceSpan ? sourceSpan.getAs<StringAttr>("path") : StringAttr();
   auto ownerPath = owner ? owner.getAs<StringAttr>("path") : StringAttr();
   if (!sourcePath || !ownerPath || sourcePath != ownerPath)
-    return emitError() << description
-                       << " SourceSpan.path does not match its original SourceOwner.path";
+    return emitError()
+           << description
+           << " SourceSpan.path does not match its original SourceOwner.path";
   return success();
 }
 
-LogicalResult verifySnapshotRecordFieldLocations(ac::StructOp record,
-                                                  DictionaryAttr owner,
-                                                  ac::detail::EmitError emitError) {
+LogicalResult
+verifySnapshotRecordFieldLocations(ac::StructOp record, DictionaryAttr owner,
+                                   ac::detail::EmitError emitError) {
   auto fields = record->getAttrOfType<ArrayAttr>("fields");
   if (!fields)
     return emitError() << "record snapshot requires an ArrayAttr fields";
   for (auto [index, rawField] : llvm::enumerate(fields)) {
     auto field = dyn_cast<DictionaryAttr>(rawField);
-    auto location = field ? field.getAs<DictionaryAttr>("location")
-                          : DictionaryAttr();
+    auto location =
+        field ? field.getAs<DictionaryAttr>("location") : DictionaryAttr();
     if (!field || field.size() != 4 || !location ||
         failed(ac::detail::verifySourceSpan(location, emitError)) ||
         failed(verifySourcePath(location, owner, "record field snapshot",
@@ -88,8 +92,9 @@ LogicalResult verifyHeaderHelper(func::FuncOp helper,
   auto returnForm = helper->getAttrOfType<StringAttr>("ac.return_form");
   auto constraints = helper->getAttrOfType<ArrayAttr>("ac.result_constraints");
   auto checks = helper->getAttrOfType<ArrayAttr>("ac.check_templates");
-  if (!helperKind || (helperKind.getValue() != "record_constructor" &&
-                      helperKind.getValue() != "value") ||
+  if (!helperKind ||
+      (helperKind.getValue() != "record_constructor" &&
+       helperKind.getValue() != "value") ||
       !parameters || !returnForm || !constraints || !checks)
     return emitError() << "header helper contract metadata is incomplete";
   if (!checks.empty())
@@ -116,15 +121,16 @@ LogicalResult verifyHeaderHelper(func::FuncOp helper,
     auto defaultValue = parameter.getAs<DictionaryAttr>("default");
     auto origin = parameter.getAs<DictionaryAttr>("origin");
     auto location = parameter.getAs<DictionaryAttr>("location");
-    auto constraintKind = constraint ? constraint.getAs<StringAttr>("kind")
-                                     : StringAttr();
-    unsigned bindingRank = !binding ? 3 : binding.getValue() == "positional_only"
-                                                   ? 0
-                                                   : binding.getValue() == "positional_or_keyword"
-                                                         ? 1
-                                                         : binding.getValue() == "keyword_only" ? 2 : 3;
+    auto constraintKind =
+        constraint ? constraint.getAs<StringAttr>("kind") : StringAttr();
+    unsigned bindingRank = !binding                                        ? 3
+                           : binding.getValue() == "positional_only"       ? 0
+                           : binding.getValue() == "positional_or_keyword" ? 1
+                           : binding.getValue() == "keyword_only"          ? 2
+                                                                           : 3;
     if (!name || !parameterNames.insert(name.getValue()).second ||
-        bindingRank == 3 || (hasPreviousBinding && bindingRank < previousBindingRank) ||
+        bindingRank == 3 ||
+        (hasPreviousBinding && bindingRank < previousBindingRank) ||
         !constraint || constraint.size() != 2 || !constraintKind ||
         constraintKind.getValue() != "logical")
       return emitError() << "helper parameter[" << index
@@ -132,10 +138,10 @@ LogicalResult verifyHeaderHelper(func::FuncOp helper,
     previousBindingRank = bindingRank;
     hasPreviousBinding = true;
     auto type = constraint.getAs<DictionaryAttr>("type");
-    if (!type || failed(ac::detail::verifyDefaultMatchesType(
-                         defaultValue, type,
-                         ac::detail::ExpectedTypeKind::Logical, resolver,
-                         emitError)) ||
+    if (!type ||
+        failed(ac::detail::verifyDefaultMatchesType(
+            defaultValue, type, ac::detail::ExpectedTypeKind::Logical, resolver,
+            emitError)) ||
         failed(ac::detail::verifyOccurrence(origin, emitError)) ||
         failed(ac::detail::verifySourceSpan(location, emitError)) ||
         failed(verifySourcePath(
@@ -144,15 +150,18 @@ LogicalResult verifyHeaderHelper(func::FuncOp helper,
       return emitError() << "helper parameter[" << index
                          << "] type, default, or source metadata is invalid";
     auto defaultPresent = defaultValue.getAs<BoolAttr>("present");
-    if (!defaultPresent ||
-        (bindingRank < 2 && !defaultPresent.getValue() && positionalDefaultSeen))
+    if (!defaultPresent || (bindingRank < 2 && !defaultPresent.getValue() &&
+                            positionalDefaultSeen))
       return emitError() << "helper positional defaults must form a suffix";
     if (bindingRank < 2 && defaultPresent.getValue())
       positionalDefaultSeen = true;
-    auto helperName = helper->getAttrOfType<StringAttr>(SymbolTable::getSymbolAttrName());
+    auto helperName =
+        helper->getAttrOfType<StringAttr>(SymbolTable::getSymbolAttrName());
     if (failed(verifyOriginDefinition(
-            origin, helperName ? FlatSymbolRefAttr::get(helper.getContext(), helperName.getValue())
-                               : FlatSymbolRefAttr(),
+            origin,
+            helperName ? FlatSymbolRefAttr::get(helper.getContext(),
+                                                helperName.getValue())
+                       : FlatSymbolRefAttr(),
             "helper parameter", emitError)))
       return failure();
     Type input = physicalType(type, helper.getContext(), emitError);
@@ -182,9 +191,11 @@ LogicalResult verifyHeaderHelper(func::FuncOp helper,
   FunctionType functionType = helper.getFunctionType();
   if (functionType.getNumInputs() != expectedInputs.size() ||
       !llvm::equal(functionType.getInputs(), expectedInputs) ||
-      functionType.getNumResults() != 2 || functionType.getResult(0) != result ||
+      functionType.getNumResults() != 2 ||
+      functionType.getResult(0) != result ||
       !functionType.getResult(1).isInteger(1))
-    return emitError() << "helper physical signature does not match parameters, evaluation_path, result, and valid";
+    return emitError() << "helper physical signature does not match "
+                          "parameters, evaluation_path, result, and valid";
 
   if (helperKind.getValue() == "record_constructor") {
     auto record = helper->getAttrOfType<FlatSymbolRefAttr>("ac.record");
@@ -206,8 +217,10 @@ LogicalResult verifyHeaderHelper(func::FuncOp helper,
           target.getFunctionType() != call.getCalleeType() ||
           call.getNumOperands() == 0 ||
           !call.getOperand(call.getNumOperands() - 1).getType().isInteger(1) ||
-          call.getNumResults() != 2 || !call.getResult(1).getType().isInteger(1))
-        return emitError() << "helper calls an unresolved or incompatible helper";
+          call.getNumResults() != 2 ||
+          !call.getResult(1).getType().isInteger(1))
+        return emitError()
+               << "helper calls an unresolved or incompatible helper";
       continue;
     }
     if (operation.getDialect() &&
@@ -228,9 +241,61 @@ LogicalResult verifyHeaderHelper(func::FuncOp helper,
   if (helperKind.getValue() == "record_constructor") {
     auto created = returned.getOperand(0).getDefiningOp<ac::StructCreateOp>();
     if (!created || created.getResult().getType() != result)
-      return emitError() << "record constructor must return its constructed record";
+      return emitError()
+             << "record constructor must return its constructed record";
   }
   return success();
+}
+
+Attribute normalizedAttribute(Attribute attribute, StringRef key = {}) {
+  if (key == "location" || key == "loc") {
+    auto span = dyn_cast<DictionaryAttr>(attribute);
+    auto path = span ? span.getAs<StringAttr>("path") : StringAttr();
+    if (!span || !path)
+      return attribute;
+    SmallVector<NamedAttribute> fields{
+        NamedAttribute(StringAttr::get(attribute.getContext(), "path"), path)};
+    return DictionaryAttr::get(attribute.getContext(), fields);
+  }
+  if (auto dictionary = dyn_cast<DictionaryAttr>(attribute)) {
+    SmallVector<NamedAttribute> fields;
+    for (NamedAttribute field : dictionary) {
+      StringRef name = field.getName().getValue();
+      Attribute value = normalizedAttribute(field.getValue(), name);
+      if (name == "ac.declaration_role")
+        value = StringAttr::get(attribute.getContext(), "definition");
+      fields.push_back(
+          NamedAttribute(field.getName(), value ? value : field.getValue()));
+    }
+    return DictionaryAttr::get(attribute.getContext(), fields);
+  }
+  if (auto array = dyn_cast<ArrayAttr>(attribute)) {
+    SmallVector<Attribute> values;
+    for (Attribute value : array)
+      values.push_back(normalizedAttribute(value));
+    return ArrayAttr::get(attribute.getContext(), values);
+  }
+  return attribute;
+}
+
+bool sameDeclaration(Operation *definition, Operation *snapshot) {
+  if (definition->getName() != snapshot->getName() ||
+      definition->getAttrs().size() != snapshot->getAttrs().size() ||
+      normalizedAttribute(definition->getPropertiesAsAttribute()) !=
+          normalizedAttribute(snapshot->getPropertiesAsAttribute()))
+    return false;
+  auto left = cast<DictionaryAttr>(normalizedAttribute(
+      DictionaryAttr::get(definition->getContext(), definition->getAttrs())));
+  auto right = cast<DictionaryAttr>(normalizedAttribute(
+      DictionaryAttr::get(snapshot->getContext(), snapshot->getAttrs())));
+  if (left != right || definition->getNumRegions() != snapshot->getNumRegions())
+    return false;
+  for (auto [leftRegion, rightRegion] :
+       llvm::zip(definition->getRegions(), snapshot->getRegions()))
+    if (!OperationEquivalence::isRegionEquivalentTo(
+            &leftRegion, &rightRegion, OperationEquivalence::IgnoreLocations))
+      return false;
+  return true;
 }
 
 } // namespace acir::compiler::detail

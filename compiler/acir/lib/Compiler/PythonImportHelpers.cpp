@@ -1,4 +1,5 @@
 #include "PythonImportInternal.h"
+#include "PythonImportRules.h"
 
 #include "mlir/Dialect/Arith/IR/Arith.h"
 #include "llvm/ADT/APSInt.h"
@@ -73,7 +74,145 @@ void collectOperationDeclarations(
 }
 
 } // namespace
-LogicalResult RecordCompiler::cloneImportedDeclarations() {
+
+LogicalResult RuleCompiler::validateInactiveMethods() {
+  for (const AstNode &method : module.inactiveRuleMethods) {
+    auto signature = parseFunctionSignature(method.child("args"), true,
+                                            sourceCompiler.emitError,
+                                            "inactive module rule method");
+    if (failed(signature))
+      return failure();
+    llvm::StringMap<DictionaryAttr> locals;
+    for (const ParameterSyntax &parameter : signature->parameters) {
+      AstNode annotation = parameter.parameter.child("annotation");
+      if (!annotation)
+        return sourceCompiler.emitError()
+               << "@rule parameters require explicit logical types";
+      auto type = sourceCompiler.annotation(annotation);
+      if (failed(type))
+        return failure();
+      locals[parameter.parameter.string("arg")] = *type;
+      if (!parameter.defaultValue)
+        continue;
+      DictionaryAttr value = staticValue(sourceCompiler.builder,
+                                         parameter.defaultValue->get("value"),
+                                         sourceCompiler.emitError);
+      if (!value)
+        return sourceCompiler.emitError()
+               << "inactive @rule defaults must be bool or integer literals";
+      DictionaryAttr defaultValue = sourceCompiler.builder.getDictionaryAttr({
+          sourceCompiler.builder.getNamedAttr(
+              "present", sourceCompiler.builder.getBoolAttr(true)),
+          sourceCompiler.builder.getNamedAttr("value", value),
+      });
+      auto resolver = [&](FlatSymbolRefAttr symbol) {
+        return sourceCompiler.headers.resolveRecord(symbol);
+      };
+      if (failed(ac::detail::verifyDefaultMatchesType(
+              defaultValue, *type, ac::detail::ExpectedTypeKind::Logical,
+              resolver, sourceCompiler.emitError)))
+        return failure();
+    }
+    auto resultType = sourceCompiler.annotation(method.child("returns"));
+    if (failed(resultType))
+      return failure();
+    AstNode returned;
+    ArrayAttr statements = method.array("body");
+    for (size_t index = 0; index < statements.size(); ++index) {
+      AstNode statement = method.item("body", index);
+      if (isModuleDocstring(statement))
+        continue;
+      if (statement.kind() != "Return" || returned)
+        return sourceCompiler.emitError()
+               << "U02-A inactive @rule body supports one return statement";
+      returned = statement.child("value");
+      if (!returned)
+        return sourceCompiler.emitError()
+               << "U02-A inactive @rule return requires a value";
+    }
+    if (!returned)
+      return sourceCompiler.emitError()
+             << "U02-A inactive @rule body requires one return statement";
+
+    auto typeOf = [&](auto &&self,
+                      const AstNode &expr) -> FailureOr<DictionaryAttr> {
+      if (expr.kind() == "Name") {
+        auto found = locals.find(expr.string("id"));
+        if (found == locals.end())
+          return sourceCompiler.emitError()
+                 << "inactive @rule reads unbound name '" << expr.string("id")
+                 << "'";
+        return found->second;
+      }
+      if (expr.kind() == "Attribute") {
+        StringRef name;
+        if (isModuleSelfMember(expr, &name)) {
+          auto member =
+              llvm::find_if(module.members, [&](const ModuleMember &m) {
+                return m.name == name;
+              });
+          if (member == module.members.end())
+            return sourceCompiler.emitError()
+                   << "inactive @rule reads unknown member '" << name << "'";
+          if (member->kind == ModuleMember::Kind::ChildInstance)
+            return sourceCompiler.emitError()
+                   << "inactive @rule cannot read child module internals";
+          return member->logicalType;
+        }
+        auto base = self(self, expr.child("value"));
+        if (failed(base))
+          return failure();
+        auto kind = base->template getAs<StringAttr>("kind");
+        auto symbol = base->template getAs<FlatSymbolRefAttr>("symbol");
+        auto record =
+            kind && kind.getValue() == "record" && symbol
+                ? dyn_cast_or_null<ac::StructOp>(
+                      sourceCompiler.lookupCanonicalDeclaration(symbol))
+                : ac::StructOp();
+        if (!record)
+          return sourceCompiler.emitError()
+                 << "inactive @rule field read requires a canonical record";
+        for (Attribute raw : record.getFields()) {
+          auto field = cast<DictionaryAttr>(raw);
+          if (field.getAs<StringAttr>("name").getValue() == expr.string("attr"))
+            return field.getAs<DictionaryAttr>("type");
+        }
+        return sourceCompiler.emitError()
+               << "inactive @rule reads unknown record field '"
+               << expr.string("attr") << "'";
+      }
+      if (expr.kind() == "Constant") {
+        auto value = staticValue(sourceCompiler.builder, expr.get("value"),
+                                 sourceCompiler.emitError);
+        if (!value)
+          return sourceCompiler.emitError()
+                 << "inactive @rule literal must be bool or integer";
+        auto resolver = [&](FlatSymbolRefAttr symbol) {
+          return sourceCompiler.headers.resolveRecord(symbol);
+        };
+        if (failed(ac::detail::verifyStaticValueMatchesType(
+                value, *resultType, ac::detail::ExpectedTypeKind::Logical,
+                resolver, sourceCompiler.emitError)))
+          return failure();
+        return *resultType;
+      }
+      return sourceCompiler.emitError()
+             << "U02-A inactive @rule expressions support names, fields, and "
+                "bool/integer literals";
+    };
+    auto actualType = typeOf(typeOf, returned);
+    if (failed(actualType))
+      return failure();
+    if (*actualType != *resultType)
+      return sourceCompiler.emitError()
+             << "inactive @rule return logical type does not match its "
+                "annotation";
+  }
+  return success();
+}
+
+LogicalResult
+RecordCompiler::cloneImportedDeclarations(bool includeBodySnapshots) {
   llvm::DenseSet<Attribute> visited;
   SmallVector<FlatSymbolRefAttr> pending;
   for (const NamespaceImportUse &use : namespaceImportUses)
@@ -92,6 +231,12 @@ LogicalResult RecordCompiler::cloneImportedDeclarations() {
     clone->setAttr("ac.declaration_role",
                    builder.getStringAttr("import_snapshot"));
     interface->getBody()->push_back(clone);
+    if (includeBodySnapshots) {
+      Operation *bodySnapshot = sourceOperation->clone();
+      bodySnapshot->setAttr("ac.declaration_role",
+                            builder.getStringAttr("import_snapshot"));
+      body->getBody()->push_back(bodySnapshot);
+    }
 
     SmallVector<FlatSymbolRefAttr> references;
     collectOperationDeclarations(sourceOperation, references);

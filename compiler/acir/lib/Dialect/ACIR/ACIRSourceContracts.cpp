@@ -47,6 +47,21 @@ parseCanonicalMathInt(StringRef spelling,
 
 namespace detail {
 
+LogicalResult verifyDeclarationMetadata(Operation *operation,
+                                        DictionaryAttr owner,
+                                        DictionaryAttr origin,
+                                        StringAttr role) {
+  auto emitError = [&] { return operation->emitOpError(); };
+  if (failed(verifySourceOwner(owner, emitError)) ||
+      failed(verifyOccurrence(origin, emitError)))
+    return failure();
+  if (!role ||
+      (role.getValue() != "definition" && role.getValue() != "import_snapshot"))
+    return operation->emitOpError()
+           << "declaration_role must be 'definition' or 'import_snapshot'";
+  return success();
+}
+
 FailureOr<uint64_t> decodeU64(IntegerAttr value, StringRef description,
                               EmitError emitError) {
   if (!value || isa<BoolAttr>(value))
