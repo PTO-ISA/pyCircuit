@@ -1,0 +1,38 @@
+ M compiler/acir/include/acir/Dialect/ACIR/ACIRAttributes.td
+ M compiler/acir/include/acir/Dialect/ACIR/ACIROps.td
+ M compiler/acir/include/acir/Dialect/ACIR/ACIRTypes.td
+ M compiler/acir/lib/Compiler/CMakeLists.txt
+ M compiler/acir/lib/Compiler/PythonImportContext.cpp
+ M compiler/acir/lib/Compiler/PythonImportContext.h
+ M compiler/acir/lib/Compiler/PythonImportHelpers.cpp
+ M compiler/acir/lib/Compiler/PythonImportInternal.h
+ M compiler/acir/lib/Compiler/PythonImportRecords.cpp
+ M compiler/acir/lib/Compiler/PythonImportSignature.cpp
+ M compiler/acir/lib/Compiler/PythonImportSignature.h
+ M compiler/acir/lib/Compiler/SourceHeaderHelpers.cpp
+ M compiler/acir/lib/Compiler/SourceHeaderHelpers.h
+ M compiler/acir/lib/Compiler/SourceHeaderRegistry.cpp
+ M compiler/acir/lib/Compiler/SourceNamespace.cpp
+ M compiler/acir/lib/Compiler/SourceUnit.cpp
+ M compiler/acir/lib/Compiler/SourceUnit.h
+ M compiler/acir/lib/Dialect/ACIR/ACIRPacketOps.cpp
+ M compiler/acir/lib/Dialect/ACIR/ACIRPacketTypes.cpp
+ M compiler/acir/lib/Dialect/ACIR/ACIRSourceContracts.cpp
+ M compiler/acir/lib/Dialect/ACIR/ACIRSourceContracts.h
+ M compiler/acir/lib/Dialect/ACIR/CMakeLists.txt
+ M tests/cpp/agentic-circuit/Dialect/ACIR/CMakeLists.txt
+?? compiler/acir/lib/Compiler/PythonImportModuleAnalysis.cpp
+?? compiler/acir/lib/Compiler/PythonImportModuleBody.cpp
+?? compiler/acir/lib/Compiler/PythonImportModules.cpp
+?? compiler/acir/lib/Compiler/PythonImportModules.h
+?? compiler/acir/lib/Compiler/PythonImportRules.cpp
+?? compiler/acir/lib/Compiler/PythonImportRules.h
+?? compiler/acir/lib/Compiler/SourceBodySnapshots.cpp
+?? compiler/acir/lib/Dialect/ACIR/ACIRModuleContracts.cpp
+?? compiler/acir/lib/Dialect/ACIR/ACIRModuleOps.cpp
+?? compiler/acir/lib/Dialect/ACIR/ACIRStaticContracts.cpp
+?? compiler/acir/lib/Dialect/ACIR/ACIRStaticEvaluation.cpp
+?? compiler/acir/lib/Dialect/ACIR/ACIRStaticEvaluation.h
+?? tests/cpp/agentic-circuit/Dialect/ACIR/SourceBodySnapshotsTest.cpp
+?? tests/cpp/agentic-circuit/Dialect/ACIR/SourceModuleContractsTest.cpp
+?? tests/system/test_source_module_units.py

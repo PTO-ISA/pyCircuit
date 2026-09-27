@@ -1,0 +1,13 @@
+env -u PYC_UNICODE_GENERATOR_PYTHON cmake -S compiler/acir -B .pycircuit_out/u02-modules/test-b/build -DACIR_BUILD_TESTING=ON -DPYC_UNICODE_GENERATOR_PYTHON= -DLLVM_DIR=/opt/homebrew/opt/llvm@22/lib/cmake/llvm -DMLIR_DIR=/opt/homebrew/opt/llvm@22/lib/cmake/mlir -DGTest_DIR=/opt/homebrew/lib/cmake/GTest
+cmake --build .pycircuit_out/u02-modules/test-b/build --target ACIRSourceModuleContractsTests ACIRSourceContractsTests ACIRSourceUnitTests ACIRNamespaceContractsTests acir-source-unit-harness -j 6
+.pycircuit_out/u02-modules/test-b/build/bin/ACIRSourceModuleContractsTests --gtest_color=no
+.pycircuit_out/u02-modules/test-b/build/bin/ACIRSourceContractsTests --gtest_color=no
+.pycircuit_out/u02-modules/test-b/build/bin/ACIRSourceUnitTests --gtest_color=no
+.pycircuit_out/u02-modules/test-b/build/bin/ACIRNamespaceContractsTests --gtest_color=no
+ACIR_SOURCE_UNIT_HARNESS="$PWD/.pycircuit_out/u02-modules/test-b/build/bin/acir-source-unit-harness" PYTHONPATH="$PWD/python/semantic-core/src:$PWD/python/pycircuit/src:$PWD/python/agentic-circuit/src:$PWD" pytest tests/system/test_source_unit_packet.py tests/system/test_source_namespace_bindings.py tests/system/test_source_module_units.py -q
+ctest --test-dir .pycircuit_out/u02-modules/test-b/build -N
+ctest --test-dir .pycircuit_out/u02-modules/test-b/build --output-on-failure
+clang-format --dry-run --Werror tests/cpp/agentic-circuit/Dialect/ACIR/SourceBodySnapshotsTest.cpp tests/cpp/agentic-circuit/Dialect/ACIR/SourceModuleContractsTest.cpp
+ruff format --check tests/system/test_source_module_units.py
+ruff check tests/system/test_source_module_units.py
+GIT_WORK_TREE="$PWD" git diff --check
