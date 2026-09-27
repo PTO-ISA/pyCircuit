@@ -26,3 +26,5 @@ approval. It is not approval of the interface or authorization to implement it.
 - [C1 private source capture](../gates/logs/20260927-c1-capture/review.md): independent code review PASS; integrated with 36 focused and 253 unit tests.
 - [C2 MLIR proposal revision B](../gates/logs/20260927-c2-review/revision-b-review.md): revise; two remaining IR-contract findings, no interface approval.
 - [C2 MLIR proposal revision C](../gates/logs/20260927-c2-review/revision-c-review.md): approval-ready; user approval pending.
+- [C3 driver/runtime proposal revision B](../gates/logs/20260927-c3-review/revision-b-review.md): revise; publication recovery and exact RTL parameter acceptance require repair.
+- [C3 driver/runtime proposal revision C](../gates/logs/20260927-c3-review/revision-c-review.md): approval-ready; user approval pending.

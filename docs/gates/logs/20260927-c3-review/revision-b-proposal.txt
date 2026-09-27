@@ -1,6 +1,6 @@
 # C3：统一 driver、产物发布与 runtime/SDK
 
-修订：C。状态：architect（interface_design，Astra xhigh）已补齐，PM 整理，待独立审阅；尚未请求用户批准。配套 [C2](c2-mlir-contract.md) 和[已批准 C1](approvals/c1-pythonic-source.md)。本包不改变 C1 源语义，也不批准一般 clock/CDC、外部 typed DUT 或其他尚缺的硬件接口。
+修订：B。状态：architect（interface_design，Astra xhigh）已补齐，PM 整理，待独立审阅；尚未请求用户批准。配套 [C2](c2-mlir-contract.md) 和[已批准 C1](approvals/c1-pythonic-source.md)。本包不改变 C1 源语义，也不批准一般 clock/CDC、外部 typed DUT 或其他尚缺的硬件接口。
 
 ## 单一产品接口
 
@@ -108,35 +108,7 @@ static_list<ElementKeys...>
 
 整数 literal 用 C++20 structural-string NTTP 表示任意精度身份，不实现 runtime bigint；bool/int、record nominal 和字段次序保留 C2 区分。这是生成 C++ 类型参数，不是新的 Python family DSL。
 
-RTL 每 implementation source 一个按 qualified source-module path 命名的 module family；static parameters 选择互斥 generate 分支。record/list 叶按 C2 声明/ordinal 次序展开，nominal/字段顺序/list 长度由已验证声明固定，不另设可覆盖参数。整组叶必须匹配一个完整 SpecKey，不能逐叶分别属于允许集合就接受。未声明 named override 由 elaboration 拒绝。源 bool/int/nominal 检查仍在 MLIR，RTL 是固定类型接口的物理表示。
-
-### RTL 参数接纳先于缩窄
-
-公开参数无显式数据类型、无 packed range，保留覆写表达式自决定位宽/signedness，例如 `parameter entries = 32'sd2;`。禁止 `parameter logic [2:0] entries = 3'd2;` 之类先将 override 10 截成 2 的形式。对每个原始 integral 叶 R 和每个 admitted 数学常量 v，规则为：
-
-```text
-RW = $bits(R)
-CW = max(RW + 1, signed_bits_required(v))
-known = ((^R) !== 1'bx)
-negative = (R < 0)
-extended = {{(CW-RW){negative}}, R}
-match(v) = known && (extended === exact_CW_bit_pattern(v))
-```
-
-不先缩窄 R；RW+1 也容纳 unsigned 最大值的非负 signed 表示，signed 负值符号扩展，unsigned 高位不当负号。四态 case equality 拒绝 X/Z；非 integral 参数不能参与 reduction/concatenation，必须 elaboration 失败。生成 actual literal 使用足够位宽和明确 signedness，自身不得截断。
-
-Bool 叶仅接纳已知数学 0/1，拒绝 2、-1、X/Z；integer 与完整合法 SpecKey 对应值精确相等，拒绝越界、v+2^N 和负数截断别名。选中完整合法分支后，内部只使用已验证 SpecKey 有限常量/布局，不再从 raw 参数窄化重建。
-
-非法 generate 分支同时包含故意未定义的保留 module 与 fatal：
-
-```systemverilog
-pycircuit_rejected_static_configuration reject_configuration();
-initial $fatal(1, "unadmitted static configuration");
-```
-
-生成器、用户设计和 primitive catalog 不得提供该保留 module 定义。支持流程要求 elaboration/lint 的 unresolved-module 错误；simulation 先 elaboration，即使工具允许未解析模块也须 fatal 非零；synthesis 对完整 selected hierarchy 严格检查（例如 Yosys hierarchy -check），不得把此保留实例当黑盒。未启用严格检查的流程不属于此发布合同，不能声称参数拒绝成立。仍是一份 RTL、一个 verilog target，不另造执行路线。
-
-工具级反例必须在 elaboration/simulation/synthesis 分别非零失败：linked entries={2,4} override10、合法值+2^旧窄化宽度、负数截断别名、bool2/-1/X/Z、record/list 逐叶各自合法但组合无对应 SpecKey、域外宽整数。只检查文本含 fatal 不够。可复用当前 VerilogEmitter.cpp 的 generate-if 结构，但必须替换有类型参数的接纳方法，不保留旧 finite-case source compiler。
+RTL 每 implementation source 一个按 qualified source-module path 命名的 module family；显式 static parameters 选择互斥 generate 分支。按 C2 StaticType 将 record/list 参数叶展开成具名参数；integer 参数宽度覆盖本族全部 linked values，signedness 明确。实例传精确值，未知配置进入明确拒绝分支。可复用当前 `VerilogEmitter.cpp:1767–1809` 的 generate-if 结构，输入改为 C2 SpecKey，不能保留旧 finite-case source compiler。
 
 ## 目录事务、失败与并行
 
@@ -147,23 +119,17 @@ initial $fatal(1, "unadmitted static configuration");
 ```text
 parent/.name.pycircuit-publication/
   owner.json
-  owner.json.tmp
   lock
   journal.json
-  journal.json.tmp
   stage
   previous
 ```
 
-owner.json 恰为 `{"kind":"pycircuit-publication-control","destination":"name"}`。控制项只能为上面七种固定名字，目录/文件类型必须相应，拒绝 symlink/reparse point。临时文件可能因中止不完整，不据此当成外来目录。lock 永不删除/替换。
-
-bootstrap：创建或打开控制目录；未初始化时创建/打开固定普通 lock 并取独占锁。owner 不存在时只允许 lock/owner.json.tmp（或空目录），出现 journal/stage/previous 拒绝。在锁内完整写 owner.json.tmp、flush、校验 marker 后原子 rename 为 owner.json，再同步目录，随后才可创建 journal/stage。空目录、仅 lock、半写 owner tmp 均按此流程重入。正式 owner 不原地写，若已存在而不正确则拒绝；正式 owner 存在但 lock 缺失视为损坏，不重建新锁 inode。
-
-journal 更新固定使用 journal.json.tmp→journal.json，只有正式 journal 权威：正式有效则忽略/清理 tmp，按正式 phase 恢复；无正式 journal、仅 tmp 且无 stage/previous，意图未生效，删 tmp 保持输出；无正式 journal 却有 stage/previous 则拒绝猜测；正式损坏不能以 tmp 替代。严格保证正式 preparing 已持久化才创建 stage。
+owner.json 恰为 `{"kind":"pycircuit-publication-control","destination":"name"}`。已有控制目录 marker 不符、含 symlink/reparse point 或非约定文件拒绝。lock 不删除、不替换，避免旧 inode 锁失效。
 
 Linux/macOS 对同一 lock 使用共享/独占 flock；Windows 对 byte 0 长度 1 使用 LockFileEx，共享读/独占写。退出由 OS 释放锁，不能依据 PID/时间戳抢锁。初始保证限定支持该锁及同卷 rename 的本地文件系统，不宣称网络文件系统同样可靠。
 
-一次命令提前收集全部输入共享锁和输出独占锁，按规范绝对路径排序获取。输入输出相同或祖先/后代冲突拒绝。持锁完成快照/生成/发布，不升级锁。读者发现未提交 journal，释放当前锁集合，以该目标独占锁恢复，再重新获取原锁集合；丢弃之前部分输入。committed 状态可按下述规则直接验证读取。
+一次命令提前收集全部输入共享锁和输出独占锁，按规范绝对路径排序获取。输入输出相同或祖先/后代冲突拒绝。持锁完成快照/生成/发布，不升级锁。读者发现 journal，释放当前锁集合，以该目标独占锁恢复，再重新获取原锁集合；丢弃之前部分输入。
 
 ### Journal 与提交点
 
@@ -171,7 +137,7 @@ Linux/macOS 对同一 lock 使用共享/独占 flock；Windows 对 byte 0 长度
 Journal={kind:"pycircuit-publication",
   artifact:"source-unit"|"generated"|"program",destination:String,
   owner:PublicationOwner,had_previous:Bool,
-  phase:"preparing"|"prepared"|"rollback_restore"|"rollback_cleanup"|"committed"}
+  phase:"preparing"|"prepared"|"committed"}
 PublicationOwner={kind:"source-unit",source:SourceOwner}
   | {kind:"generated",source:SourceOwner,
      definition:QualifiedSymbol,target:"cpp"|"verilog"}
@@ -184,38 +150,17 @@ PublicationOwner={kind:"source-unit",source:SourceOwner}
 
 journal 更新写临时文件、flush、原子替换；POSIX 同步有关目录。Windows 同卷 rename/相应 flush，对 sharing violation 有界重试。现有 DirectoryPublication.h:19–47 仅支持目标不存在的移动，不能当作已有 replacement/recovery。
 
-### 可重入恢复
+| 崩溃位置 | 必须恢复动作 |
+| --- | --- |
+| journal 尚不存在 | 输出未变，不删不明遗留内容 |
+| preparing，stage 部分完成 | 保留旧输出，删除本事务 stage |
+| prepared，旧输出仍在、stage 完整 | 回滚：保留旧输出，删 stage |
+| prepared，旧输出在 previous、目标缺失 | 恢复 previous，删 stage |
+| prepared，新目标已安装，尚未 committed | 回滚新目标，恢复 previous；原无输出则恢复不存在 |
+| committed，previous 未清理完 | 保留新目标，完成清理 |
+| committed 目标缺失/损坏或不可能的路径组合 | recovery error，保留证据，不猜测有效产物 |
 
-所有恢复 mutation 持独占锁，每次 phase 更新仍用固定 tmp 原子发布。正常发布的 preparing 表示目标从未移动；恢复时先持久化 rollback_cleanup，再清理 stage。
-
-prepared 先验证路径组合来自合法发布状态，再持久化 rollback_restore，不能先移动/删除。rollback_restore 重入同一恢复动作：
-
-| had_previous | 路径组合 | 恢复 |
-| --- | --- | --- |
-| true | previous 在、目标缺失 | previous rename 回目标 |
-| true | previous 在、目标在、stage 缺失 | 新目标 rename 回 stage，再恢复 previous |
-| true | previous 缺失、目标在、stage 在 | 旧目标未移动或恢复已完成；保留目标 |
-| true | 其他组合 | recovery error |
-| false | previous 在 | recovery error |
-| false | 目标在、stage 缺失 | 目标 rename 回 stage |
-| false | 目标缺失、previous 缺失 | 无旧产物需恢复 |
-| false | 目标和 stage 同时在 | recovery error |
-
-恢复后 true 要求完整旧目标、previous 不存在，false 要求目标/previous 均不存在；stage 可存在。随后持久化 rollback_cleanup。
-
-rollback_cleanup 要求目标存在性等于 had_previous，存在则验证完整性/owner，previous 必须缺失。stage 允许完整、部分删除或不存在；完成 stage/tmp 清理，最后删正式 journal。这样恢复的 rename、phase 更新、删除各处再次中止均可重入。
-
-committed 要求完整新目标且 owner 正确、stage 缺失，previous 允许完整/部分清理/缺失，继续清理。新目标缺失/损坏或不可能的路径组合为 recovery error，保留证据，不猜测。
-
-提交后持续清理 I/O 错误：保留 committed journal 和完整新目标，原发布命令仍成功，输出固定 warning `publication_cleanup_pending`；不能误报回滚。读者持共享锁验证并读取 committed 目标，无需等 previous 清理成功；新 writer 必须先清理，失败则本次新发布非零退出而不改新目标。提交前恢复 I/O 失败则非零退出，保留恢复资料，不认可 prepared/rollback 目标。
-
-保证针对进程中止/可观察 I/O 故障，不承诺硬件违反 flush 时断电原子性。提交点前取消回滚、exit130；提交点后清理并按已提交成功返回（清理失败按上述 warning）。强制终止由下一次访问恢复。
-
-### Program 读取入口
-
-先检查控制目录，不能先判 program.ac 存在性。控制目录存在则先锁/marker/journal：prepared/rollback 先恢复，再打开目标；committed 验证并读取；控制目录损坏报 recovery error，不 fallback 到 unmanaged。
-
-控制目录不存在时，可把 program.ac 作为外部不可变输入：检查无控制目录→打开读取完整文件并核对前后身份/大小/修改状态→再次检查控制目录不存在→完整 final verifier。途中出现控制目录则丢弃 snapshot，重走 managed；打开失败也先复查控制目录，仅仍不存在才报告真正缺文件。外部提供者不得在读期间原地改写，这不冒充 managed 的原子保证，也不强制在只读输入目录创建 lock。
+恢复失败阻止认可产物。保证针对进程中止/可观察 I/O 故障，不承诺硬件违反 flush 时断电原子性。提交点前取消回滚、exit 130；提交点后完成清理并按已提交成功返回。强制终止由下一次访问恢复。
 
 ### 输入快照与 CMake
 

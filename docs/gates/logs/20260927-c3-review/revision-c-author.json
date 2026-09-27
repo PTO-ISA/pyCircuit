@@ -1,0 +1,11 @@
+{
+  "proposal": "docs/rfcs/migration/c3-driver-runtime.md",
+  "sha256": "0c476ced27519cf93427a89f77b9348d388e96db57fb183790144d24118b1170",
+  "design_author": {
+    "agent": "interface_design",
+    "model": "gpt-6-astra",
+    "effort": "xhigh"
+  },
+  "transcription": "PM",
+  "status": "independent rereview pending; no approval"
+}
