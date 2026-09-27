@@ -5,6 +5,7 @@ from __future__ import annotations
 import os
 import shutil
 import subprocess
+from dataclasses import replace
 from pathlib import Path
 
 import pytest
@@ -28,19 +29,24 @@ def _configured_mlir_opt() -> Path:
     )
 
 
-def _capture_transport(tmp_path: Path, source: str, name: str) -> str:
+def _capture_transport(
+    tmp_path: Path, source: str, name: str, synthetic_name: str | None
+) -> str:
     path = tmp_path / name
     path.write_text(source, encoding="utf-8")
     captured = _capture_source_file(path, source_root=tmp_path)
+    if synthetic_name:
+        captured = replace(captured, path=tmp_path / synthetic_name)
     return _emit_source_transport(captured)
 
 
 @pytest.mark.parametrize(
-    "name, source",
+    "name, source, synthetic_name",
     [
         (
             "imports.py",
             "from pycircuit import module\n\n@module\nclass Leaf:\n    pass\n",
+            None,
         ),
         (
             "literals.py",
@@ -50,16 +56,18 @@ def _capture_transport(tmp_path: Path, source: str, name: str) -> str:
             "COMPLEX = 2j\n"
             "BINARY = b'\\x00\\xff'\n"
             "ELLIPSIS_VALUE = ...\n",
+            None,
         ),
         (
-            'quo"te-π.py',
+            "escaped.py",
             'VALUE = "quote\\" slash\\\\ nul\\x00 ctrl\\x01 piπ sep\u2028"\n',
+            'quo"te-π.py',
         ),
-        ("huge.py", f"VALUE = 0x{'F' * 5000}\n"),
+        ("huge.py", f"VALUE = 0x{'F' * 5000}\n", None),
     ],
 )
 def test_configured_llvm22_parses_private_source_transport(
-    tmp_path: Path, name: str, source: str
+    tmp_path: Path, name: str, source: str, synthetic_name: str | None
 ) -> None:
     mlir_opt = _configured_mlir_opt()
     version = subprocess.run(
@@ -71,7 +79,7 @@ def test_configured_llvm22_parses_private_source_transport(
     assert version.returncode == 0, version.stderr
     assert "LLVM" in version.stdout
     assert "22.1.8" in version.stdout
-    transport = _capture_transport(tmp_path, source, name)
+    transport = _capture_transport(tmp_path, source, name, synthetic_name)
 
     completed = subprocess.run(
         [str(mlir_opt), "--allow-unregistered-dialect"],

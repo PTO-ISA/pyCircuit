@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import ast
 import sys
+from dataclasses import replace
 from decimal import Decimal
 from pathlib import Path
 
@@ -125,8 +126,9 @@ def test_mlir_byte_escaping_covers_path_and_literal_bytes(tmp_path: Path) -> Non
     captured = _capture_text(
         tmp_path,
         'VALUE = "quote\\" slash\\\\ nul\\x00 ctrl\\x01 piπ sep\u2028"\n',
-        'quo"te-π.py',
+        "escaped.py",
     )
+    captured = replace(captured, path=tmp_path / 'quo"te-π.py')
 
     transport = _emit_transport(captured)
 
