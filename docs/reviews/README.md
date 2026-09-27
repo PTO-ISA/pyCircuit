@@ -38,3 +38,5 @@ approval. It is not approval of the interface or authorization to implement it.
 - [U01 native review C](../gates/logs/20260927-u01-native/review-c/summary.md): Sol high PASS; [acceptance](../gates/logs/20260927-u01-native/acceptance.md) binds 101 passing tests to isolated commit d6fb408e, without driver/final/backend claims.
 - [C2-N1 namespace revision B](../gates/logs/20260928-c2-n1-review/revision-b-review.md): revise, validation packet only; no architecture blocker.
 - [C2-N1 namespace revision C](../gates/logs/20260928-c2-n1-review/revision-c-review.md): independent Astra xhigh approval-ready; [user approval](../rfcs/migration/approvals/c2-n1-namespaces.md) recorded.
+- [U02-A0 shared frontend extraction](../gates/logs/20260928-u02-a0/review-a/summary.md): independent Sol high PASS; [acceptance](../gates/logs/20260928-u02-a0/acceptance.md) binds 101 passing regressions and six unchanged artifacts to isolated commit b797eaf77. N1 is a separate candidate.
+- [N1 source/header review A](../gates/logs/20260928-u02-n1/review-a/summary.md): Sol high REVISE; 116 selected tests pass, but two provenance repairs and four test-coverage gaps remain. No N1 acceptance.

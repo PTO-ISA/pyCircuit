@@ -1,0 +1,11 @@
+cmake -S compiler/acir -B .pycircuit_out/u02-n1/build -DACIR_BUILD_TESTING=ON
+cmake --build .pycircuit_out/u02-n1/build --target ACIRSourceContractsTests ACIRSourceUnitTests ACIRNamespaceContractsTests acir-source-unit-harness -j 6
+.pycircuit_out/u02-n1/build/bin/ACIRSourceContractsTests --gtest_color=no
+.pycircuit_out/u02-n1/build/bin/ACIRSourceUnitTests --gtest_color=no
+.pycircuit_out/u02-n1/build/bin/ACIRNamespaceContractsTests --gtest_color=no
+ACIR_SOURCE_UNIT_HARNESS="$PWD/.pycircuit_out/u02-n1/build/bin/acir-source-unit-harness" PYTHONPATH="$PWD/python/semantic-core/src:$PWD/python/pycircuit/src:$PWD/python/agentic-circuit/src:$PWD" pytest tests/system/test_source_unit_packet.py tests/system/test_source_namespace_bindings.py -q
+ctest --test-dir .pycircuit_out/u02-n1/build --output-on-failure
+clang-format --dry-run --Werror tests/cpp/agentic-circuit/Dialect/ACIR/NamespaceContractsTest.cpp tests/cpp/agentic-circuit/Dialect/ACIR/SourceIdentifierTest.cpp
+ruff format --check tests/system/test_source_namespace_bindings.py
+ruff check tests/system/test_source_namespace_bindings.py
+GIT_WORK_TREE="$PWD" git diff --check

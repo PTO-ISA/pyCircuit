@@ -1,0 +1,11 @@
+[  5%] Built target ACIRDialectIncGen
+[ 17%] Built target ACIRAttributesIncGen
+[ 23%] Built target ACIRTypesIncGen
+[ 29%] Built target ACIROpsIncGen
+[ 52%] Built target ACIRDialect
+[ 85%] Built target ACIRSourceCompiler
+[ 91%] Built target acir-source-unit-harness
+[ 94%] Building CXX object tests/source-unit/CMakeFiles/ACIRNamespaceContractsTests.dir/NamespaceContractsTest.cpp.o
+[ 97%] Linking CXX executable ../../bin/ACIRNamespaceContractsTests
+ld: warning: ignoring duplicate libraries: '../../lib/Dialect/ACIR/libACIRDialect.a', '/opt/homebrew/Cellar/llvm/22.1.8/lib/libMLIRFuncDialect.a', '/opt/homebrew/Cellar/llvm/22.1.8/lib/libMLIRSupport.a'
+[100%] Built target ACIRNamespaceContractsTests
