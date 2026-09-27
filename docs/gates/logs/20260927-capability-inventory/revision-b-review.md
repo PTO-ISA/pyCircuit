@@ -12,3 +12,5 @@ All five earlier groups are closed: approval and implementation evidence separat
 Approval records match frozen C1/C2/C3 contents. This is read-only inventory completeness/status validation, not compiler/backend/product validation. No implementation or product tests were performed by the reviewer.
 
 Routing note: the original Sol high reviewer could not be re-dispatched because the native agent pool returned thread-limit errors. An existing Astra architect independently audited the PM-written matrix. No Sol rereview is claimed.
+
+The exact reviewed matrix is preserved as revision-b-matrix.txt. Later implementation-status updates cite their own candidate evidence; this historical review does not bind later matrix bytes.

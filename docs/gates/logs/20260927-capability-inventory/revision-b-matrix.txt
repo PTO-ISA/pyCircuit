@@ -2,14 +2,14 @@
 
 状态：能力清单与验收责任；不是产品完成声明。[C1-C](../rfcs/migration/approvals/c1-pythonic-source.md) 与 [C2-C/C3-C](../rfcs/migration/approvals/c2-c3-foundation.md) 已获用户精确批准。三份冻结合同覆盖基础能力，尚未覆盖的扩展单独审阅批准。完整范围见[主计划](../development/pycircuit-modernization-plan.md)，实施状态见[账本](single-route-migration.md)。
 
-合同批准、实现、执行证据分别记录。当前已独立验证私有单文件捕获和 C2-F01 基础 MLIR 属性/类型/记录校验；尚无新编译主干的完整执行闭环。现有旧路线的基线不证明新路线已保留该能力。下表每行都必须在完整迁移验收前关闭，未批准扩展不能因为 donor 缺失就默认退役或延期。
+合同批准、实现、执行证据分别记录。当前只有私有单文件语法捕获在新实现中独立验证；现有旧路线的基线不证明新路线已保留该能力。下表每行都必须在完整迁移验收前关闭，未批准扩展不能因为 donor 缺失就默认退役或延期。
 
 ## 能力与证据责任
 
 | 能力 | 现行依据与迁移处置 | 合同/批准状态 | 实现/证据状态 | 验收与 owner |
 | --- | --- | --- | --- | --- |
 | 单一 Pythonic module/rule 前端 | 0148/0150；用普通对象源替换 CAS/JIT/builder/function-style Agentic 接口，保留所需硬件能力 | C1-C 源合同已批准；system 不在本行 | 私有单文件捕获已验证，public route 未切换 | frontend/import；[36 focused、253 unit 与独立 review](../gates/logs/20260927-c1-capture/review.md)，仍需 importer、旧入口拒绝与 installed route |
-| 数学整数/范围/位运算 | 0246/0247；从隐式定宽回绕改为数学中间值、边界检查与显式 mask，属于已批准语义替换 | C1-C/C2-C 已批准 | MathInt 属性/临时类型已在 [F01](../gates/logs/20260927-c2-f01/integration/results.md) 验证；运算/proof/双后端未实现 | MLIR + independent tests；signed/floor div/rem、短路错误、shift、u64 超宽及低位 proof |
+| 数学整数/范围/位运算 | 0246/0247；从隐式定宽回绕改为数学中间值、边界检查与显式 mask，属于已批准语义替换 | C1-C/C2-C 已批准 | 尚无新 MLIR/双后端证据 | MLIR + independent tests；signed/floor div/rem、短路错误、shift、u64 超宽及低位 proof |
 | bool 与普通 nominal record | 0212–0215、0255/0256 的类型/值能力保留；不可空、完整初始化、不可原地更新 | C1-C/C2-C 已批准 | capture fixture 仅解析；constructor/header/record lowering 未验证 | frontend/MLIR；默认值/kwargs、身份/字段/投影/范围、打包布局和双后端 |
 | Enum 与完整 tuple/value array | 0252–0256 相关值类型能力不能随旧 DSL 消失 | 扩展未批准；C1 明确未定义完整绑定 | 完整迁移阻断项 | architect + MLIR/tests；编码/非法值、不可变聚合、布局、两 backend 独立 oracle |
 | fixed owned/reference list 与静态循环 | 0252–0254 的固定集合硬件能力采用 C1 新表达；负 index 拒绝、声明正长度、逐 ordinal effects | C1-C/C2-C 已批准；不等于全部 tuple/array 扩展 | 未实现新 source→MLIR 路径 | frontend/MLIR；零次循环局部值、bounds、alias、非均匀 reset image、2/4 特化 |
@@ -28,7 +28,7 @@
 | 外部 typed DUT/system/testbench | 保留完整 source system、真实 stimuli、输入输出、多 clock stepping；不能 portless-only 收尾 | 源/IR/runtime 扩展未批准 | 完整迁移阻断项 | architect + frontend/runtime/tests；真实外部输入、typed 端口、通用 testbench、reset/error/multi-clock |
 | 共同 final IR 与两个 backend | 旧 QueueGraph/PYC 两种 C++产品路线退役，采用 donor 一套 C++和 RTL 私有合法化 | C2-C/C3-C 基础合同已批准；扩展按各自行 | 未实现新完整闭环 | MLIR/C++/RTL；相同 final IR、相同 stimulus、独立 oracle；不能仅互相一致 |
 | runtime/SDK/发布与打包 | 0149/0232/0233/0265；0267/0268 的发布/身份条款按 C3 显式更新；一个库、ABI、driver | C3-C 已批准；consumer memory/ELF 不迁入 | 尚未实施新 runtime/driver/SDK | integration/runtime；完整状态机、crash/recovery、RTL raw 参数拒绝、relocation、Runtime-only TU、三平台 |
-| 源位置与基础诊断 | 0242/0250；保留定位责任，采用 C2/C3 结构化来源/错误；不以位置作为模型身份 | C1-C/C2-C/C3-C 已批准 | 私有 capture span 与 F01 闭合来源记录校验通过；跨 pass/实例/ABI 诊断未验证 | frontend/MLIR/runtime；encoding/codepoint、expanded occurrences、精确 check target、错误不发布半成品 |
+| 源位置与基础诊断 | 0242/0250；保留定位责任，采用 C2/C3 结构化来源/错误；不以位置作为模型身份 | C1-C/C2-C/C3-C 已批准 | 私有 capture span 测试通过；跨 pass/实例/ABI 诊断未验证 | frontend/MLIR/runtime；encoding/codepoint、expanded occurrences、精确 check target、错误不发布半成品 |
 | RTL primitive catalogs | 0282；保留 semantic primitive 与 RTL implementation 目录分离及目录验证，不能成为另一个语义引擎 | 迁入所需新绑定/接口尚未冻结 | 必需完整目标工作 | MLIR/RTL/integration；目录篡改拒绝、选择合法性、两 backend 相同语义 |
 | DFX/probes/trace 与观察配置 | 0140/0145/0121；通用观测能力必须迁移，consumer trace/schema 不迁入 | 新源/IR/runtime 配置合同未批准；现有能力不得默认删除 | 完整迁移阻断项 | architect + runtime/tests；选择/过滤/启停、稳定 source 路径、观察时点与 known/Z、无状态副作用 |
 | 组合环与实例感知时序/逻辑深度 | 主计划保留现行 CheckClockDomains、组合环和 depth 分析；适用算法迁入 MLIR | 现有硬件合法性责任保留，新 IR pass 映射待架构闭合 | 必需完整目标工作 | architect + MLIR/tests；跨实例环、非法 feedback、层级深度与时序检查，不能只分析单 module |

@@ -1,0 +1,28 @@
+{
+  "base": "b3df12ad",
+  "checkout": "/Users/zhoubot/.codex/worktrees/migration-capture/pyCircuit",
+  "contract": "C2 revision C approved with C3-C in docs/rfcs/migration/approvals/c2-c3-foundation.md",
+  "files": {
+    "compiler/acir/include/acir/Dialect/ACIR/ACIRAttributes.h": "d6405b38d7575af50b5658a78de3b09f0640a959b15e08aed8586d75d6381d65",
+    "compiler/acir/include/acir/Dialect/ACIR/ACIRAttributes.td": "35bb341c9c379b88eaaef27db9ac6132cd65c1145a8a94744f067d6d1a887981",
+    "compiler/acir/include/acir/Dialect/ACIR/ACIRTypes.td": "9dbef910570d2dc1b33e789428dfd6cb5df891638eee2821c90b966aa0dfdd35",
+    "compiler/acir/lib/Dialect/ACIR/ACIRSourceContracts.cpp": "1d420bc33f929ae7efc2a3a0555b9ef79efd5ebe07e8574342a2ef7d8980a15b",
+    "compiler/acir/lib/Dialect/ACIR/ACIRSourceContracts.h": "9ba2dd930e3a7fa2b0ce57e3765d6e95ca951ac5c812ed91775458e344ed9bcd",
+    "compiler/acir/lib/Dialect/ACIR/CMakeLists.txt": "307c9ed8c1edf86ccfe96b91d9414255cefe9cbaa098853aae0d1d00418b3c10",
+    "tests/cpp/agentic-circuit/Dialect/ACIR/CMakeLists.txt": "53f34c910a57901db86fe091c99ddf8c9ad7609b4811da1ce544308c70e98923",
+    "tests/cpp/agentic-circuit/Dialect/ACIR/SourceContractsTest.cpp": "29763a051a450f6bc45faa2a23ec9fde146e996d88564f97e5ef3bf7b69dda88",
+    "tests/mlir/agentic-circuit/ACIR/c2-source-contracts.mlir": "fcb1bf2ecec36cec89000f649af63d4ac487bbe1475a753847f4eb2fe04d86d1",
+    "tests/mlir/agentic-circuit/ACIR/c2-source-contracts-invalid.mlir": "95a4ed76d6a9eb1fdbac3cec1f314df814855489c2e6cee9af264dd7f7b40ab3"
+  },
+  "implementation": "governance_impl; gpt-5.6-sol; medium",
+  "independent_tests": "baseline_verification; gpt-5.6-sol; medium",
+  "review": "governance_review; gpt-5.6-sol; high; in progress",
+  "toolchain": {
+    "LLVM_MLIR": "22.1.8",
+    "location": "/opt/homebrew/opt/llvm",
+    "build": "/Users/zhoubot/.codex/worktrees/migration-capture/pyCircuit/.pycircuit_out/c2-f01/build",
+    "profile": "Debug, assertions ON",
+    "lit": "18.1.8, freshly installed declared development dependency in this worktree"
+  },
+  "scope": "C2-F01 attributes/type/private dictionary verifiers only, no source op/pass/link/backend closure"
+}
