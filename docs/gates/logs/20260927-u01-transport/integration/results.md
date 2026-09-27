@@ -25,3 +25,14 @@ The isolated U01 native candidate separately has an old primitive-catalog unit
 failure after schema replacement; it is not included in this transport commit
 and remains an integration obligation. This result proves private AST transport,
 not source-unit authority, helper execution, final IR, or either backend.
+
+## Filesystem portability follow-up
+
+Test-only candidate `6ac45c51` was independently reviewed by Sol high with
+PASS in `../review-c/summary.md`, then integrated as `c96c909b`. Quoted paths
+are now synthetic capture metadata over a portable real filename, so tests
+do not require creating a Windows-invalid filename. The serializer is unchanged.
+Primary command `MLIR_OPT=/opt/homebrew/opt/llvm/bin/mlir-opt pytest
+tests/unit/test_source_transport.py tests/system/test_source_transport_mlir.py
+-q` passed all 17 tests, exit 0. This is a reviewed portability fix tested on
+macOS; no Windows execution result is claimed.

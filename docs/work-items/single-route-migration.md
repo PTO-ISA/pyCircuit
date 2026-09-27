@@ -99,3 +99,23 @@ U01 的同名 schema 冲突须在隔离 migration 候选中一次替换：一个
 内部 loadHeaderView 仅验证 receipt 的闭合字段/安全名字和 header 内容，不打开或要求存在 child Python、body、depfile，也不扫描其他 AC；它不证明完整单元有效。producer 发布前、replace、完整恢复与 link 另用 FullSourceUnit 验证。只有合法 controller 无 journal 的稳定状态可使用缺 body 的 HeaderView；prepared/rollback 必须先恢复，committed 清理未结束仍须完整新目标验证，损坏控制状态不得降级读取。
 
 无 controller 的外部 header-only projection 尚无 C3 接纳合同，不擅自套用只针对 program 的 unmanaged 分支；当前 U01 原生内存 header registry 和后续正常发布完成的单元无需这一扩展。
+
+## U02 逐源模块实施分解
+
+interface_design（Astra xhigh）已根据冻结 C1/C2、原样 fixture、donor 与正在实施的 U01 提供只读架构建议。该建议不改变接口，也不是 U01 代码验收。U01 通过独立测试/审查后，沿同一个 compilePythonSourceUnit 与 SourceHeaderRegistry 推进以下三个包；不另建 compiler 或重复 record/type/default 解析器。
+
+| 包 | 实施内容 | 可验证出口 |
+| --- | --- | --- |
+| U02-A | module import/header、module/rule/instance/DFFE/yield 的获批 schema；constructor 分类、registered rule effects、owned reset 与 ports | Accumulator request 只读、result 只写；total reset=0；所有 rule output 为 data,enable。只计算实际注册的方法 |
+| U02-B | 原样 Accumulator/Core 源；建 source-math、bool/scf、record/helper 运算和 source use/target 关系 | Packet、Accumulator、Core 三次独立编译；Core 四个 owned state、两个 child。parent 仅输入显式 headers，无 child source/body 读取 |
+| U02-C | 单一路线内的 header/body linker、authority/snapshot 比较与去重、实际 body effects 重算、SpecKey/OwnerRef/StateID 绑定 | 相同 Accumulator specialization 复用定义，left/right 的 total 保持两个实例状态；缺 body 只阻断 link，不阻断 header-only compile |
+
+优先复用 donor PythonLower 的 constructor 分类、PythonRuleAnalysis 的 effects、PythonLowerRules 的注册/参数绑定、PythonLowerEmit 的 child endpoint 绑定和 PythonLowerInitial 的初始化递归。child 的源成员查询替换为已验证 header contract。record 初始化执行 header-owned helper，不把 constructor 参数顺序当成字段布局。donor acir-link 的符号/递归算法可用，其直接合并所有声明的接纳逻辑不符合目标 authority/snapshot 合同。
+
+U02 必须为 fixture 中的数学加法和 mask 建立已批准 source-math IR；不能替换成旧 i8 回绕算术。它保存每个源写入/返回的 origin、value、path、target 关系，U03 才完成区间/位宽、range/error、ValueID/use/target witness 和 final verifier。不能从合并后的 yield 反猜源目标，也不能新增临时公开 assignment schema。
+
+普通 DFFE 不引入 Queue admission。Accumulator 的 result 每个成功路径都返回；total 仅在旧 item.valid 为真时写入。Core advance 读旧 left_request、写完整新 Request；right_request 无 writer，保持旧值。两后端后续仍须执行 Reset=(7,19)、Work 后=(7,19)、三次 Xfer=(1,2)/(1,4)/(2,6) 及 reset/rerun oracle；U02 linked-semantic 产物不是这些执行证据。
+
+独立正反例覆盖：隐藏 child source/body、仅 header 默认值与构造器调用、端口改名不改变 R/W、未注册方法无 active effect、序列化重读后绑定不变、缺 header、错误 nominal/range/actual、重复 authority、篡改 snapshot/signature/effects、结构 alias 重绑、跨 child 内部 state 访问，以及错误合并两个实例 total。仍含 math_int/helper/未闭合义务的产物不发布为 final program，不调用 backend。
+
+该 scalar/record fixture 不需要新的用户接口批准；资源、memory/CDC/四态等扩展继续按能力矩阵补齐合同与审批。
