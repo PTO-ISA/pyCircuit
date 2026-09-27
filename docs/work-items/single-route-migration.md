@@ -32,6 +32,8 @@
 | D06 SSM basic-ELF scalar 配置 | approval-ready（待用户批准） | SSM 5897214f8 的修订 D；ssm_basic_architecture Astra xhigh 独立设计建议，PM 整理；ssm_profile_review 另一个 Astra xhigh 实例独立审阅通过 | 精确 SHA-256 `13ee3dfc564f1fa4e3ad033508ad8143a7a37452d6540670cda06aa98331c0e4`；八例 J/B.cond、IFU byte-valid、Core/SPE owner 和真实提交边界已写明；已单独请求用户批准，尚未获批。不改原 oracle、不将核逻辑移到 host |
 | D07 C2-A2 源 use 载体 | approval-ready（待用户批准） | u02_ods_design Astra xhigh 给出缺口与精确建议；PM 写[修订 B](../rfcs/migration/c2-a2-source-use.md)，source_use_design_review 独立 Astra xhigh 审阅 | [审阅证据](../gates/logs/20260928-c2-a2-review/revision-b-review.md)绑定 SHA-256 `060835e029acc2ff987637c1e264aa0b1191894346cc923b23ecaac88b121c9c`；已提交精确审批问题，回复前不得实现 `ac.source.use` |
 | I08 U02-A 逐源 module/state/rule | done（隔离候选） | 隔离提交 946cd022；u02_frontend 实现 importer，PM 整合 ODS/registry/CMake，baseline_verification Sol medium 独立测试，governance_review Sol high 独立审阅 | [U02-A 验收](../gates/logs/20260928-u02-a/acceptance.md)：38 文件绑定核对；真实 Packet→AccumulatorProbe→ProbeRoot 各自编译、parent 只读 header；159/159、零 skip，CTest 4/4，独立审阅 PASS。原样 Accumulator/Core、link/final、双后端仍未完成 |
+| I09 N1 常量类别 | active（隔离候选） | n1_constant executor 负责 importer/registry/namespace 与测试；PM 负责 ac.constant ODS/verifier/CMake | `5923ce4e` 已定义获批 C2 的 ac.constant 并通过 dialect 构建与基础 36 测试；五类别 source/header 与独立审阅仍待完成，不记为 N1/link/emit 闭合 |
+| I10 U02-B 数学 IR 基础 | active（隔离候选） | u02b_math_design Astra xhigh 只读设计；u02b_math_ops executor 负责 ODS/verifier/测试 | 先在获批 C2 范围实现 math.constant/from_bits/binary/to_bits 的可验证子集；rule 表达式、SCF 与原样三源后续接入。A2 source use 在精确批准前不实施 |
 | 用户接口批准 | partial | 用户 | C1-C、C2-C、C3-C、C2-N1-C 已批准；其范围外的硬件扩展仍须精确批准 |
 
 所有 writer 使用互斥文件归属。U01 的 ODS/原生 importer/非安装 harness 与产品 CMake 由 governance_impl 负责，测试及测试 CMake 由 baseline_verification 负责；private transport 单独派发。实现期间 native build 由 governance_impl 操作，稳定后移交测试 owner，其他 lane 不用同一输出目录构建。PM 维护主 checkout 文档，不改 candidate 产品源码。
@@ -119,6 +121,8 @@ interface_design（Astra xhigh）已根据冻结 C1/C2、原样 fixture、donor 
 | U02-A | module import/header、module/rule/instance/DFFE/yield 的获批 schema；constructor 分类、registered rule effects、owned reset 与 ports | Accumulator request 只读、result 只写；total reset=0；所有 rule output 为 data,enable。只计算实际注册的方法 |
 | U02-B | 原样 Accumulator/Core 源；建 source-math、bool/scf、record/helper 运算和 source use/target 关系 | Packet、Accumulator、Core 三次独立编译；Core 四个 owned state、两个 child。parent 仅输入显式 headers，无 child source/body 读取 |
 | U02-C | 单一路线内的 header/body linker、authority/snapshot 比较与去重、实际 body effects 重算、SpecKey/OwnerRef/StateID 绑定 | 相同 Accumulator specialization 复用定义，left/right 的 total 保持两个实例状态；缺 body 只阻断 link，不阻断 header-only compile |
+
+U02-B 先交付已批准 C2 的表达式/分析基础，再在 A2 获得精确批准后接入可序列化的实际 source use。当前 `RuleCompiler` 只接受名称、字段和 literal，并把输出数误当返回形状；原样 `Accumulator.accumulate` 有一个返回值与两个 next 目标，`Core.advance` 没有返回值却有一个 next 目标。rule scope/effects 须分别跟踪局部 SSA、拍初 current 与 next 写，且修正 input argument index 和 member index 混用；不能把 member Store 计作 current read。引入 `scf.if` 后，helper 允许集、调用 DAG 和非法 effect 检查必须递归走子区域。表达式仍先用任意精度数学整数，经显式范围证明才转换到有限 bits；测试应包括 255+1 在 range(512) 得 256，不能只用 `&255` 掩盖过早 i8 回绕。A2 获批前，不能用临时 assignment 字典或直接合并 yield 冒充所需的 source use/target 关系。
 
 优先复用 donor PythonLower 的 constructor 分类、PythonRuleAnalysis 的 effects、PythonLowerRules 的注册/参数绑定、PythonLowerEmit 的 child endpoint 绑定和 PythonLowerInitial 的初始化递归。child 的源成员查询替换为已验证 header contract。record 初始化执行 header-owned helper，不把 constructor 参数顺序当成字段布局。donor acir-link 的符号/递归算法可用，其直接合并所有声明的接纳逻辑不符合目标 authority/snapshot 合同。
 
