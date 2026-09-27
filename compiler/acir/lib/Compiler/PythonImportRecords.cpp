@@ -1,5 +1,6 @@
 #include "PythonImportRecords.h"
 #include "PythonImportInternal.h"
+#include "PythonImportSignature.h"
 
 #include "acir/Dialect/ACIR/ACIRDialect.h"
 #include "mlir/Dialect/Arith/IR/Arith.h"
@@ -23,37 +24,11 @@ bool isDocstring(const AstNode &node) {
   return value.kind() == "Constant" && isa<StringAttr>(value.get("value"));
 }
 
-std::string sourceModuleName(DictionaryAttr owner) {
-  StringRef package = owner.getAs<StringAttr>("package").getValue();
-  StringRef path = owner.getAs<StringAttr>("path").getValue();
-  SmallVector<StringRef> parts;
-  path.drop_back(3).split(parts, '/');
-  if (!parts.empty() && parts.back() == "__init__")
-    parts.pop_back();
-  std::string result = package.str();
-  for (StringRef part : parts) {
-    if (!result.empty())
-      result.push_back('.');
-    result.append(part);
-  }
-  return result;
-}
-
-std::string qualified(StringRef module, StringRef name) {
-  return module.empty() ? name.str() : (Twine(module) + "." + name).str();
-}
-
 DictionaryAttr logicalBool(OpBuilder &builder) {
   return builder.getDictionaryAttr({
       builder.getNamedAttr("kind", builder.getStringAttr("bool")),
       builder.getNamedAttr("storage", TypeAttr::get(builder.getI1Type())),
   });
-}
-
-FailureOr<ac::MathIntAttr> mathInt(OpBuilder &builder, StringRef spelling,
-                                   ac::detail::EmitError emitError) {
-  return ac::detail::parseMathIntAttr(builder.getContext(), spelling,
-                                      emitError);
 }
 
 DictionaryAttr logicalInteger(OpBuilder &builder, ac::MathIntAttr lower,
@@ -84,51 +59,7 @@ FailureOr<ac::MathIntAttr> integerLiteral(OpBuilder &builder,
   auto spelling = encoded ? encoded.getAs<StringAttr>("integer") : StringAttr();
   if (!spelling)
     return emitError() << "expected a static integer literal";
-  return mathInt(builder, spelling.getValue(), emitError);
-}
-
-DictionaryAttr absentDefault(OpBuilder &builder) {
-  return builder.getDictionaryAttr(
-      {builder.getNamedAttr("present", builder.getBoolAttr(false))});
-}
-
-DictionaryAttr staticValue(OpBuilder &builder, Attribute raw,
-                           ac::detail::EmitError emitError) {
-  if (auto boolean = dyn_cast_or_null<BoolAttr>(raw))
-    return builder.getDictionaryAttr({
-        builder.getNamedAttr("kind", builder.getStringAttr("bool")),
-        builder.getNamedAttr("value", boolean),
-    });
-  auto encoded = dyn_cast_or_null<DictionaryAttr>(raw);
-  auto spelling = encoded ? encoded.getAs<StringAttr>("integer") : StringAttr();
-  if (!spelling)
-    return {};
-  auto value = mathInt(builder, spelling.getValue(), emitError);
-  if (failed(value))
-    return {};
-  return builder.getDictionaryAttr({
-      builder.getNamedAttr("kind", builder.getStringAttr("integer")),
-      builder.getNamedAttr("value", *value),
-  });
-}
-
-Type physicalType(DictionaryAttr logical, MLIRContext *context) {
-  StringRef kind = logical.getAs<StringAttr>("kind").getValue();
-  if (kind == "bool")
-    return IntegerType::get(context, 1);
-  if (kind == "integer")
-    return logical.getAs<TypeAttr>("storage").getValue();
-  auto symbol = logical.getAs<FlatSymbolRefAttr>("symbol");
-  return symbol ? Type(ac::StructType::get(
-                      context, StringAttr::get(context, symbol.getValue())))
-                : Type();
-}
-
-DictionaryAttr valueConstraint(OpBuilder &builder, DictionaryAttr type) {
-  return builder.getDictionaryAttr({
-      builder.getNamedAttr("kind", builder.getStringAttr("logical")),
-      builder.getNamedAttr("type", type),
-  });
+  return parseStaticInteger(builder, spelling.getValue(), emitError);
 }
 
 DictionaryAttr fieldRecord(OpBuilder &builder, StringRef name,
@@ -187,8 +118,7 @@ RecordCompiler::RecordCompiler(const CapturedSource &source,
                                DictionaryAttr owner,
                                const SourceHeaderRegistry &headers,
                                ac::detail::EmitError emitError)
-    : source(source), owner(owner), headers(headers), emitError(emitError),
-      builder(owner.getContext()), module(sourceModuleName(owner)) {}
+    : PythonImportContext(source, owner, headers, emitError) {}
 
 LogicalResult RecordCompiler::scanImportsAndAliases() {
   ArrayAttr statements = source.module.array("body");
@@ -249,7 +179,7 @@ LogicalResult RecordCompiler::scanImportsAndAliases() {
       return emitError()
              << "U01 assignment must be a supported source type alias";
     StringRef name = target.string("id");
-    std::string symbol = qualified(module, name);
+    std::string symbol = qualifiedName(name);
     auto flat = FlatSymbolRefAttr::get(builder.getContext(), symbol);
     aliases[name] = *type;
     AstNode declaration = statement;
@@ -298,7 +228,7 @@ FailureOr<DictionaryAttr> RecordCompiler::annotation(const AstNode &node) {
       range.array("args").size() != 1 || !range.array("keywords").empty())
     return emitError() << "Annotated integer requires range(upper)";
   auto upper = integerLiteral(builder, range.item("args", 0), emitError);
-  auto lower = mathInt(builder, "0", emitError);
+  auto lower = parseStaticInteger(builder, "0", emitError);
   if (failed(lower) || failed(upper))
     return failure();
   llvm::APSInt upperValue((*upper).getCanonicalValue());
@@ -326,7 +256,7 @@ LogicalResult RecordCompiler::emitRecord(const AstNode &node) {
     return emitError() << "U01 records reject inheritance, metaclasses, "
                           "decorators and type parameters";
   StringRef name = node.string("name");
-  std::string symbolText = qualified(module, name);
+  std::string symbolText = qualifiedName(name);
   auto symbol = FlatSymbolRefAttr::get(builder.getContext(), symbolText);
   AstNode constructor;
   SmallVector<std::pair<AstNode, DictionaryAttr>> fields;
@@ -382,79 +312,27 @@ LogicalResult RecordCompiler::emitRecord(const AstNode &node) {
                builder.getArrayAttr(fieldAttrs), constructorSymbol);
 
   AstNode arguments = constructor.child("args");
-  ArrayAttr positionalOnly = arguments.array("posonlyargs");
-  ArrayAttr ordinary = arguments.array("args");
-  ArrayAttr keywordOnly = arguments.array("kwonlyargs");
-  ArrayAttr defaults = arguments.array("defaults");
-  ArrayAttr keywordDefaults = arguments.array("kw_defaults");
-  if (!positionalOnly || !ordinary || !keywordOnly || !defaults ||
-      !keywordDefaults || keywordDefaults.size() != keywordOnly.size())
-    return emitError() << "record constructor signature arrays are malformed";
-  if ((arguments.get("vararg") && !isa<UnitAttr>(arguments.get("vararg"))) ||
-      (arguments.get("kwarg") && !isa<UnitAttr>(arguments.get("kwarg"))))
-    return emitError() << "record constructors reject *args and **kwargs";
-
-  struct ParameterSpec {
-    AstNode formal;
-    StringRef binding;
-    Attribute defaultValue;
-  };
-  SmallVector<ParameterSpec> signature;
-  SmallVector<AstNode> positional;
-  for (size_t index = 0; index < positionalOnly.size(); ++index)
-    positional.push_back(arguments.item("posonlyargs", index));
-  for (size_t index = 0; index < ordinary.size(); ++index)
-    positional.push_back(arguments.item("args", index));
-  if (positional.empty() || positional.front().string("arg") != "self")
-    return emitError()
-           << "record constructor first positional parameter must be self";
-  if (defaults.size() > positional.size())
-    return emitError()
-           << "record constructor defaults exceed positional parameters";
-  size_t firstDefault = positional.size() - defaults.size();
-  Attribute receiverAnnotation = positional.front().get("annotation");
-  if (!receiverAnnotation || !isa<UnitAttr>(receiverAnnotation))
-    return emitError()
-           << "U01 does not yet support an annotated constructor receiver";
-  if (firstDefault == 0)
-    return emitError()
-           << "U01 does not yet support a defaulted constructor receiver";
-  for (size_t index = 1; index < positional.size(); ++index) {
-    Attribute defaultValue;
-    if (index >= firstDefault)
-      defaultValue = defaults[index - firstDefault];
-    signature.push_back({positional[index],
-                         index < positionalOnly.size()
-                             ? StringRef("positional_only")
-                             : StringRef("positional_or_keyword"),
-                         defaultValue});
-  }
-  for (size_t index = 0; index < keywordOnly.size(); ++index)
-    signature.push_back({arguments.item("kwonlyargs", index), "keyword_only",
-                         keywordDefaults[index]});
+  auto signature = parseFunctionSignature(arguments, true, emitError);
+  if (failed(signature))
+    return failure();
 
   SmallVector<Type> inputTypes;
   SmallVector<Attribute> parameters;
   llvm::StringMap<size_t> parameterIndices;
   llvm::StringMap<DictionaryAttr> parameterTypes;
-  llvm::StringSet<> parameterNames;
-  for (size_t index = 0; index < signature.size(); ++index) {
-    AstNode formal = signature[index].formal;
+  for (size_t index = 0; index < signature->parameters.size(); ++index) {
+    const ParameterSyntax &syntax = signature->parameters[index];
+    AstNode formal = syntax.parameter;
     auto type = annotation(formal.child("annotation"));
     if (failed(type))
       return failure();
     StringRef parameterName = formal.string("arg");
-    if (parameterName == "self" || !parameterNames.insert(parameterName).second)
-      return emitError() << "duplicate record constructor parameter '"
-                         << parameterName << "'";
     parameterIndices[parameterName] = index;
     parameterTypes[parameterName] = *type;
     inputTypes.push_back(physicalType(*type, builder.getContext()));
     DictionaryAttr defaultValue = absentDefault(builder);
-    if (signature[index].defaultValue &&
-        !isa<UnitAttr>(signature[index].defaultValue)) {
-      AstNode defaultNode{
-          dyn_cast<DictionaryAttr>(signature[index].defaultValue), {}};
+    if (syntax.defaultValue) {
+      AstNode defaultNode = *syntax.defaultValue;
       DictionaryAttr value =
           staticValue(builder, defaultNode.get("value"), emitError);
       if (!value)
@@ -480,8 +358,7 @@ LogicalResult RecordCompiler::emitRecord(const AstNode &node) {
     }
     parameters.push_back(builder.getDictionaryAttr({
         builder.getNamedAttr("name", builder.getStringAttr(parameterName)),
-        builder.getNamedAttr("binding",
-                             builder.getStringAttr(signature[index].binding)),
+        builder.getNamedAttr("binding", builder.getStringAttr(syntax.binding)),
         builder.getNamedAttr("constraint", valueConstraint(builder, *type)),
         builder.getNamedAttr("default", defaultValue),
         builder.getNamedAttr("origin",

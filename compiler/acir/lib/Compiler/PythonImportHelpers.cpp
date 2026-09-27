@@ -17,55 +17,6 @@ bool isHelperDocstring(const AstNode &node) {
   return value.kind() == "Constant" && isa<StringAttr>(value.get("value"));
 }
 
-std::string helperQualified(StringRef module, StringRef name) {
-  return module.empty() ? name.str() : (Twine(module) + "." + name).str();
-}
-
-FailureOr<ac::MathIntAttr> helperMathInt(OpBuilder &builder, StringRef spelling,
-                                         ac::detail::EmitError emitError) {
-  return ac::detail::parseMathIntAttr(builder.getContext(), spelling,
-                                      emitError);
-}
-
-DictionaryAttr helperStaticValue(OpBuilder &builder, Attribute raw,
-                                 ac::detail::EmitError emitError) {
-  if (auto boolean = dyn_cast_or_null<BoolAttr>(raw))
-    return builder.getDictionaryAttr({
-        builder.getNamedAttr("kind", builder.getStringAttr("bool")),
-        builder.getNamedAttr("value", boolean),
-    });
-  auto encoded = dyn_cast_or_null<DictionaryAttr>(raw);
-  auto spelling = encoded ? encoded.getAs<StringAttr>("integer") : StringAttr();
-  if (!spelling)
-    return {};
-  auto value = helperMathInt(builder, spelling.getValue(), emitError);
-  if (failed(value))
-    return {};
-  return builder.getDictionaryAttr({
-      builder.getNamedAttr("kind", builder.getStringAttr("integer")),
-      builder.getNamedAttr("value", *value),
-  });
-}
-
-Type helperPhysicalType(DictionaryAttr logical, MLIRContext *context) {
-  StringRef kind = logical.getAs<StringAttr>("kind").getValue();
-  if (kind == "bool")
-    return IntegerType::get(context, 1);
-  if (kind == "integer")
-    return logical.getAs<TypeAttr>("storage").getValue();
-  auto symbol = logical.getAs<FlatSymbolRefAttr>("symbol");
-  return symbol ? Type(ac::StructType::get(
-                      context, StringAttr::get(context, symbol.getValue())))
-                : Type();
-}
-
-DictionaryAttr helperValueConstraint(OpBuilder &builder, DictionaryAttr type) {
-  return builder.getDictionaryAttr({
-      builder.getNamedAttr("kind", builder.getStringAttr("logical")),
-      builder.getNamedAttr("type", type),
-  });
-}
-
 } // namespace
 LogicalResult RecordCompiler::cloneImportedDeclarations() {
   llvm::DenseSet<Operation *> cloned;
@@ -107,7 +58,7 @@ FailureOr<Value> RecordCompiler::constant(const AstNode &node,
                                           DictionaryAttr expected,
                                           OpBuilder &at) {
   Attribute raw = node.get("value");
-  DictionaryAttr value = helperStaticValue(builder, raw, emitError);
+  DictionaryAttr value = staticValue(builder, raw, emitError);
   if (!value)
     return emitError() << "U01 expression requires bool or integer literal";
   auto resolver = [&](FlatSymbolRefAttr symbol) {
@@ -117,7 +68,7 @@ FailureOr<Value> RecordCompiler::constant(const AstNode &node,
           value, expected, ac::detail::ExpectedTypeKind::Logical, resolver,
           emitError)))
     return failure();
-  Type type = helperPhysicalType(expected, builder.getContext());
+  Type type = physicalType(expected, builder.getContext());
   if (auto boolean = dyn_cast_or_null<BoolAttr>(raw))
     return at
         .create<arith::ConstantOp>(
@@ -215,7 +166,7 @@ FailureOr<Value> RecordCompiler::recordCall(const AstNode &node,
     Attribute raw = staticDefault.get("value");
     DictionaryAttr type = parameter.getAs<DictionaryAttr>("constraint")
                               .getAs<DictionaryAttr>("type");
-    Type physical = helperPhysicalType(type, builder.getContext());
+    Type physical = physicalType(type, builder.getContext());
     if (auto boolean = dyn_cast<BoolAttr>(raw))
       values.push_back(
           at.create<arith::ConstantOp>(function.getLoc(), physical, boolean));
@@ -259,8 +210,8 @@ FailureOr<Value> RecordCompiler::expression(const AstNode &node,
       auto field = cast<DictionaryAttr>(rawField);
       if (field.getAs<StringAttr>("name").getValue() != fieldName)
         continue;
-      Type result = helperPhysicalType(field.getAs<DictionaryAttr>("type"),
-                                       builder.getContext());
+      Type result = physicalType(field.getAs<DictionaryAttr>("type"),
+                                 builder.getContext());
       return at
           .create<ac::StructGetOp>(
               node.location(builder.getContext(), source.path), result, *base,
@@ -279,7 +230,7 @@ LogicalResult RecordCompiler::emitValueHelper(const AstNode &node) {
       (node.array("type_params") && !node.array("type_params").empty()))
     return emitError() << "value helpers reject decorators and type parameters";
   StringRef name = node.string("name");
-  std::string symbolText = helperQualified(module, name);
+  std::string symbolText = qualifiedName(name);
   auto symbol = FlatSymbolRefAttr::get(builder.getContext(), symbolText);
   auto resultType = annotation(node.child("returns"));
   AstNode arguments = node.child("args");
@@ -304,7 +255,7 @@ LogicalResult RecordCompiler::emitValueHelper(const AstNode &node) {
   }
   if (!returned)
     return emitError() << "U01 value helper requires a return value";
-  Type physical = helperPhysicalType(*resultType, builder.getContext());
+  Type physical = physicalType(*resultType, builder.getContext());
   auto functionType = builder.getFunctionType(
       TypeRange{builder.getI1Type()}, TypeRange{physical, builder.getI1Type()});
   auto function =
@@ -318,7 +269,7 @@ LogicalResult RecordCompiler::emitValueHelper(const AstNode &node) {
   function->setAttr("ac.return_form", builder.getStringAttr("single"));
   function->setAttr(
       "ac.result_constraints",
-      builder.getArrayAttr({helperValueConstraint(builder, *resultType)}));
+      builder.getArrayAttr({valueConstraint(builder, *resultType)}));
   function->setAttr("ac.check_templates", builder.getArrayAttr({}));
   Block *entry = function.addEntryBlock();
   OpBuilder at = OpBuilder::atBlockEnd(entry);

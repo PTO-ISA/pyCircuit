@@ -1,7 +1,9 @@
 add_acir_library(ACIRSourceCompiler SOURCES
   PythonImportAST.cpp
+  PythonImportContext.cpp
   PythonImportHelpers.cpp
   PythonImportRecords.cpp
+  PythonImportSignature.cpp
   SourceHeaderRegistry.cpp
   SourceHeaderHelpers.cpp
   SourceUnit.cpp
