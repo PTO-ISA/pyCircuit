@@ -20,6 +20,8 @@ struct RulePlan {
   llvm::SmallVector<size_t> outputs;
 };
 
+bool rulePlanHasMemberInput(const RulePlan &plan, size_t memberIndex);
+
 class RuleCompiler {
 public:
   RuleCompiler(RecordCompiler &sourceCompiler, ModuleModel &module);

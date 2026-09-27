@@ -38,6 +38,9 @@ void collectRuleReads(
     const AstNode &node,
     llvm::function_ref<void(StringRef, const AstNode &)> formalRead,
     llvm::function_ref<void(StringRef, const AstNode &)> memberRead) {
+  if ((node.kind() == "Attribute" || node.kind() == "Name") &&
+      node.child("ctx").kind() != "Load")
+    return;
   if (isModuleSelfMember(node)) {
     StringRef member;
     isModuleSelfMember(node, &member);
@@ -79,6 +82,12 @@ mlir::DictionaryAttr stateReference(OpBuilder &builder,
 }
 
 } // namespace
+
+bool rulePlanHasMemberInput(const RulePlan &plan, size_t memberIndex) {
+  return llvm::any_of(plan.inputs, [&](size_t inputIndex) {
+    return plan.arguments[inputIndex].memberIndex == memberIndex;
+  });
+}
 
 RuleCompiler::RuleCompiler(RecordCompiler &sourceCompiler, ModuleModel &module)
     : sourceCompiler(sourceCompiler), module(module) {}
@@ -196,6 +205,7 @@ LogicalResult RuleCompiler::analyzeRegistration(size_t registrationIndex,
     member.read = true;
     member.readSites.push_back(site);
   };
+  llvm::StringSet<> memberInputLocals;
   auto memberRead = [&](StringRef name, const AstNode &site) {
     auto found = llvm::find_if(module.members, [&](const ModuleMember &item) {
       return item.name == name &&
@@ -204,15 +214,17 @@ LogicalResult RuleCompiler::analyzeRegistration(size_t registrationIndex,
     if (found == module.members.end())
       return;
     size_t memberIndex = static_cast<size_t>(found - module.members.begin());
-    if (llvm::is_contained(plan.inputs, memberIndex))
+    std::string localName = (Twine("self.") + name).str();
+    if (!memberInputLocals.insert(localName).second)
       return;
     BoundRuleArgument argument;
-    argument.localName = (Twine("self.") + name).str();
+    argument.localName = std::move(localName);
     argument.memberIndex = memberIndex;
     argument.formal = {};
     argument.actual = site;
     plan.arguments.push_back(std::move(argument));
-    plan.inputs.push_back(plan.arguments.size() - 1);
+    if (!rulePlanHasMemberInput(plan, memberIndex))
+      plan.inputs.push_back(plan.arguments.size() - 1);
     found->read = true;
     found->readSites.push_back(site);
   };
@@ -419,7 +431,10 @@ LogicalResult RuleCompiler::emit(size_t registrationIndex,
   for (size_t argumentIndex = 0; argumentIndex < plan->arguments.size();
        ++argumentIndex) {
     const BoundRuleArgument &argument = plan->arguments[argumentIndex];
-    auto inputIndex = llvm::find(plan->inputs, argumentIndex);
+    auto inputIndex = llvm::find_if(plan->inputs, [&](size_t candidateIndex) {
+      return plan->arguments[candidateIndex].memberIndex ==
+             argument.memberIndex;
+    });
     if (inputIndex != plan->inputs.end())
       values[argument.localName] = body->getArgument(
           static_cast<unsigned>(inputIndex - plan->inputs.begin()));

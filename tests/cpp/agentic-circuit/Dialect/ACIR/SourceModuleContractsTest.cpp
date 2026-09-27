@@ -1,3 +1,4 @@
+#include "Compiler/PythonImportRules.h"
 #include "Compiler/SourceUnit.h"
 #include "acir/Dialect/ACIR/ACIRDialect.h"
 
@@ -22,6 +23,16 @@
 
 namespace acir::compiler {
 namespace {
+
+TEST(SourceRuleAnalysisTest, InputIndicesAreResolvedThroughBoundArguments) {
+  detail::RulePlan plan;
+  plan.arguments.push_back({"formal", 2, {}, {}});
+  plan.arguments.push_back({"self.first", 0, {}, {}});
+  plan.inputs.push_back(0);
+
+  EXPECT_TRUE(detail::rulePlanHasMemberInput(plan, 2));
+  EXPECT_FALSE(detail::rulePlanHasMemberInput(plan, 0));
+}
 
 struct ModuleTemporaryDirectory {
   llvm::SmallString<256> path;

@@ -296,6 +296,78 @@ def test_probe_body_and_header_mirror_unit_metadata(tmp_path: Path) -> None:
     )
 
 
+def test_rule_member_read_uses_member_identity_not_argument_index(
+    tmp_path: Path,
+) -> None:
+    source = _prepare(tmp_path)
+    packet = _compile(source / "packet.py", root=source, output=tmp_path / "packet-out")
+    assert packet.completed.returncode == 0, packet.completed.stderr
+    path = source / "member_read_probe.py"
+    path.write_text(
+        "from pycircuit import module, rule\n"
+        "from .packet import Word\n\n"
+        "@module\n"
+        "class MemberReadProbe:\n"
+        "    def __init__(self, result: Word):\n"
+        "        self.result = result\n"
+        "        self.total: Word = 0\n"
+        "        self.result = self.forward(self.result)\n\n"
+        "    @rule\n"
+        "    def forward(self, item: Word) -> Word:\n"
+        "        return self.total\n",
+        encoding="utf-8",
+    )
+
+    result = _compile(
+        path,
+        root=source,
+        output=tmp_path / "member-read-out",
+        headers=(packet.interface,),
+    )
+
+    assert result.completed.returncode == 0, result.completed.stderr
+    body = result.body.read_text(encoding="utf-8")
+    input_bindings = body.split("ac.input_bindings = ", 1)[1].split(
+        ", ac.input_types = ", 1
+    )[0]
+    assert input_bindings.count('kind = "owned"') == 1
+    assert 'parameter = "result"' not in input_bindings
+
+
+def test_rule_store_target_is_not_a_current_value_read(tmp_path: Path) -> None:
+    source = _prepare(tmp_path)
+    packet = _compile(source / "packet.py", root=source, output=tmp_path / "packet-out")
+    assert packet.completed.returncode == 0, packet.completed.stderr
+    path = source / "store_target_probe.py"
+    path.write_text(
+        "from pycircuit import module, rule\n"
+        "from .packet import Request, Word\n\n"
+        "@module\n"
+        "class StoreTargetProbe:\n"
+        "    def __init__(self, request: Request, result: Word):\n"
+        "        self.request = request\n"
+        "        self.result = result\n"
+        "        self.result = self.forward(self.request)\n\n"
+        "    @rule\n"
+        "    def forward(self, item: Request) -> Word:\n"
+        "        if item.valid:\n"
+        "            self.result = item.value\n"
+        "        return item.value\n",
+        encoding="utf-8",
+    )
+
+    result = _compile(
+        path,
+        root=source,
+        output=tmp_path / "store-target-out",
+        headers=(packet.interface,),
+    )
+
+    assert result.completed.returncode != 0
+    assert "rule body supports one return statement" in result.completed.stderr
+    assert "input has no current DFFE handle" not in result.completed.stderr
+
+
 def test_probe_root_uses_headers_without_provider_source_or_body(
     tmp_path: Path,
 ) -> None:
