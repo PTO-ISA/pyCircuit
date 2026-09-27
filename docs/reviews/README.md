@@ -55,3 +55,4 @@ approval. It is not approval of the interface or authorization to implement it.
 - [N1 module facade source/header review](../gates/logs/20260928-u02-n1-module/review.md): Sol high PASS; [acceptance](../gates/logs/20260928-u02-n1-module/acceptance.md) covers a real header-only consumer with two child instances and stale binding rejection.
 - [C2-L1 current-read revision A](../gates/logs/20260928-c2-l1-review/revision-a-review.md): independent Astra xhigh REVISE; four contract/verification packet gaps.
 - [C2-L1 current-read revision B](../gates/logs/20260928-c2-l1-review/revision-b-review.md): independent Astra xhigh approval-ready; precise user approval requested, no implementation authorization yet.
+- [C3 private publication review A](../gates/logs/20260928-c3-publication/review-a.md): Sol high REQUEST CHANGES for file targets, sorted lock sets, HeaderView/recovery separation and Windows durability; private P1 is not accepted.
