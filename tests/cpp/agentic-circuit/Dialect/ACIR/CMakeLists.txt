@@ -21,6 +21,22 @@ target_link_libraries(ACIRSourceContractsTests PRIVATE
 )
 add_test(NAME ACIRSourceContractsTests COMMAND ACIRSourceContractsTests)
 
+add_executable(ACIRSourceMathContractsTests
+  SourceMathContractsTest.cpp
+)
+target_include_directories(ACIRSourceMathContractsTests PRIVATE
+  "${ACIR_SOURCE_DIR}/lib"
+)
+target_link_libraries(ACIRSourceMathContractsTests PRIVATE
+  ACIRDialect
+  MLIRAsmParser
+  MLIRIR
+  MLIRParser
+  GTest::gtest_main
+)
+add_test(NAME ACIRSourceMathContractsTests
+  COMMAND ACIRSourceMathContractsTests)
+
 add_executable(ACIRSourceUnitTests
   SourceUnitHeaderTest.cpp
   SourceUnitReviewTest.cpp

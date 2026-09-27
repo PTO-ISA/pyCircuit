@@ -24,6 +24,36 @@ def ACIR_ConstantOp : ACIR_Op<"constant", [Symbol]> {
   let hasVerifier = 1;
 }
 
+def ACIR_MathConstantOp : ACIR_Op<"math.constant"> {
+  let summary = "Materialize one source mathematical integer constant";
+  let arguments = (ins ACIR_MathIntAttr:$value);
+  let results = (outs ACIR_MathIntType:$result);
+  let hasVerifier = 1;
+}
+
+def ACIR_MathFromBitsOp : ACIR_Op<"math.from_bits"> {
+  let summary = "Lift a bounded source integer into mathematical arithmetic";
+  let arguments = (ins AnySignlessInteger:$value, DictionaryAttr:$domain);
+  let results = (outs ACIR_MathIntType:$result);
+  let hasVerifier = 1;
+}
+
+def ACIR_MathBinaryOp : ACIR_Op<"math.binary"> {
+  let summary = "Evaluate one guarded source mathematical binary operation";
+  let arguments = (ins I1:$path, ACIR_MathIntType:$lhs, I1:$lhs_valid,
+                       ACIR_MathIntType:$rhs, I1:$rhs_valid);
+  let results = (outs ACIR_MathIntType:$result, I1:$valid);
+  let hasVerifier = 1;
+}
+
+def ACIR_MathToBitsOp : ACIR_Op<"math.to_bits"> {
+  let summary = "Range-check and lower a mathematical integer to bounded bits";
+  let arguments = (ins I1:$path, ACIR_MathIntType:$value, I1:$value_valid,
+                       DictionaryAttr:$domain);
+  let results = (outs AnySignlessInteger:$result, I1:$valid);
+  let hasVerifier = 1;
+}
+
 def ACIR_ModuleImportOp : ACIR_Op<"module.import", [Symbol]> {
   let summary = "Declare one source-owned Pythonic hardware module signature";
   let arguments = (ins StrAttr:$sym_name);

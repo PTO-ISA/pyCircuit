@@ -2,6 +2,7 @@ add_acir_library(ACIRDialect SOURCES
   ACIRConstantOps.cpp
   ACIRDialect.cpp
   ACIRIdentityContracts.cpp
+  ACIRMathOps.cpp
   ACIRModuleContracts.cpp
   ACIRModuleOps.cpp
   ACIRPacketOps.cpp
