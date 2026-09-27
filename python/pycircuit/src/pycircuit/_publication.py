@@ -2,7 +2,10 @@
 
 from __future__ import annotations
 
-from collections.abc import Callable, Mapping
+import os
+import unicodedata
+from collections.abc import Callable, Iterator, Mapping, Sequence
+from contextlib import ExitStack, contextmanager
 from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
 
@@ -60,6 +63,68 @@ class _Paths:
     previous: Path
 
 
+@dataclass(frozen=True, slots=True)
+class _PublicationInput:
+    destination: str | Path
+    owner: Mapping[str, object]
+    stable_validate: _Validator
+    recovery_validate: _Validator
+
+
+@dataclass(frozen=True, slots=True)
+class _PublicationOutput:
+    destination: str | Path
+    recovery_validate: _Validator
+
+
+@dataclass(frozen=True, slots=True)
+class _LockEntry:
+    paths: _Paths
+    exclusive: bool
+    owner: _Owner | None
+    stable_validate: _Validator | None
+    recovery_validate: _Validator
+
+
+class _PublicationLocks:
+    """An active, command-wide set of publication locks."""
+
+    def __init__(
+        self, filesystem: _PublicationFileSystem, entries: Sequence[_LockEntry]
+    ) -> None:
+        self.filesystem = filesystem
+        self._entries = {
+            _normalized_path_parts(entry.paths.destination): entry for entry in entries
+        }
+        self._active = True
+
+    def close(self) -> None:
+        self._active = False
+
+    def require(self, destination: str | Path, *, exclusive: bool) -> _Paths:
+        if not self._active:
+            raise _PublicationError("publication lock set is no longer active")
+        absolute = self.filesystem.absolute(destination)
+        entry = self._entries.get(_normalized_path_parts(absolute))
+        if entry is None or (exclusive and not entry.exclusive):
+            mode = "exclusive" if exclusive else "shared"
+            raise _PublicationError(
+                f"publication destination is not held with {mode} access: {absolute}"
+            )
+        return entry.paths
+
+    def snapshot(
+        self, destination: str | Path, read: Callable[[Path], object]
+    ) -> object:
+        """Read one declared input while the command-wide lock set is held."""
+
+        paths = self.require(destination, exclusive=False)
+        entry = self._entries[_normalized_path_parts(paths.destination)]
+        if entry.exclusive:
+            raise _PublicationError("publication output is not an input snapshot")
+        return read(paths.destination)
+
+
 _Owner = dict[str, object]
 _Validator = Callable[[Path, Mapping[str, object]], None]
 _Builder = Callable[[Path], None]
@@ -89,6 +154,120 @@ def _publication_owner_program(*, package: str, path: str, definition: str) -> _
     }
 
 
+@contextmanager
+def _publication_lock_set(
+    *,
+    inputs: Sequence[_PublicationInput] = (),
+    outputs: Sequence[_PublicationOutput] = (),
+    filesystem: _PublicationFileSystem | None = None,
+) -> Iterator[_PublicationLocks]:
+    """Acquire one command's shared inputs and exclusive outputs in path order."""
+
+    fs = filesystem or _PublicationFileSystem()
+    entries = _lock_entries(inputs, outputs, fs)
+    while True:
+        recover_input: _LockEntry | None = None
+        with ExitStack() as stack:
+            for entry in entries:
+                if entry.exclusive:
+                    _bootstrap(entry.paths, fs)
+                else:
+                    _require_initialized_control(entry.paths, fs)
+            for entry in entries:
+                stack.enter_context(
+                    fs.lock(entry.paths.lock, shared=not entry.exclusive)
+                )
+            for entry in entries:
+                _validate_control(entry.paths, fs, cleanup_temporary=entry.exclusive)
+                if entry.exclusive:
+                    _recover_locked(entry.paths, entry.recovery_validate, fs)
+                    continue
+                journal = _read_journal(entry.paths, fs, cleanup_temporary=False)
+                if journal is not None and journal["phase"] != "committed":
+                    recover_input = entry
+                    break
+                assert entry.owner is not None
+                assert entry.stable_validate is not None
+                if journal is not None and journal["owner"] != entry.owner:
+                    raise _PublicationError("published input owner does not match")
+                _validate_stable_state(entry.paths, journal, fs)
+                _validate_stable_artifact(
+                    entry.paths.destination,
+                    entry.owner,
+                    entry.stable_validate,
+                    fs,
+                )
+            if recover_input is None:
+                locks = _PublicationLocks(fs, entries)
+                try:
+                    yield locks
+                finally:
+                    locks.close()
+                return
+        assert recover_input is not None
+        _recover_publication(
+            recover_input.paths.destination,
+            validate=recover_input.recovery_validate,
+            filesystem=fs,
+        )
+
+
+def _lock_entries(
+    inputs: Sequence[_PublicationInput],
+    outputs: Sequence[_PublicationOutput],
+    fs: _PublicationFileSystem,
+) -> tuple[_LockEntry, ...]:
+    entries: list[_LockEntry] = []
+    for request in inputs:
+        owner = _validate_owner(request.owner)
+        entries.append(
+            _LockEntry(
+                paths=_paths_for(request.destination, fs),
+                exclusive=False,
+                owner=owner,
+                stable_validate=request.stable_validate,
+                recovery_validate=request.recovery_validate,
+            )
+        )
+    for request in outputs:
+        entries.append(
+            _LockEntry(
+                paths=_paths_for(request.destination, fs),
+                exclusive=True,
+                owner=None,
+                stable_validate=None,
+                recovery_validate=request.recovery_validate,
+            )
+        )
+    for index, left in enumerate(entries):
+        for right in entries[index + 1 :]:
+            if _paths_conflict(left.paths.destination, right.paths.destination):
+                raise _PublicationError(
+                    "publication lock paths are equal or ancestor-related: "
+                    f"{left.paths.destination} and {right.paths.destination}"
+                )
+    return tuple(
+        sorted(
+            entries,
+            key=lambda entry: _normalized_path_parts(entry.paths.destination),
+        )
+    )
+
+
+def _paths_conflict(left: Path, right: Path) -> bool:
+    left_parts = _normalized_path_parts(left)
+    right_parts = _normalized_path_parts(right)
+    limit = min(len(left_parts), len(right_parts))
+    return left_parts[:limit] == right_parts[:limit]
+
+
+def _normalized_path_parts(path: Path) -> tuple[str, ...]:
+    return tuple(
+        unicodedata.normalize("NFC", os.path.normcase(component)).casefold()
+        for component in path.parts
+    )
+
+
 def _publish_directory(
     destination: str | Path,
     *,
@@ -98,81 +277,152 @@ def _publish_directory(
     replace: bool = False,
     cancelled: _Cancelled | None = None,
     filesystem: _PublicationFileSystem | None = None,
+    locks: _PublicationLocks | None = None,
 ) -> _PublicationResult:
-    """Build and atomically publish one owned directory.
+    """Build and atomically publish one owned directory."""
 
-    ``build`` must populate the supplied empty fixed stage directory. ``validate``
+    expected_owner = _validate_owner(owner)
+    if expected_owner["kind"] == "program":
+        raise _PublicationError("program publication requires a single file")
+    return _publish_artifact(
+        destination,
+        owner=expected_owner,
+        build=build,
+        validate=validate,
+        replace=replace,
+        cancelled=cancelled,
+        filesystem=filesystem,
+        locks=locks,
+    )
+
+
+def _publish_file(
+    destination: str | Path,
+    *,
+    owner: Mapping[str, object],
+    build: _Builder,
+    validate: _Validator,
+    replace: bool = False,
+    cancelled: _Cancelled | None = None,
+    filesystem: _PublicationFileSystem | None = None,
+    locks: _PublicationLocks | None = None,
+) -> _PublicationResult:
+    """Build and atomically publish one owned ``program.ac`` file."""
+
+    expected_owner = _validate_owner(owner)
+    if expected_owner["kind"] != "program":
+        raise _PublicationError("single-file publication requires a program owner")
+    return _publish_artifact(
+        destination,
+        owner=expected_owner,
+        build=build,
+        validate=validate,
+        replace=replace,
+        cancelled=cancelled,
+        filesystem=filesystem,
+        locks=locks,
+    )
+
+
+def _publish_artifact(
+    destination: str | Path,
+    *,
+    owner: Mapping[str, object],
+    build: _Builder,
+    validate: _Validator,
+    replace: bool,
+    cancelled: _Cancelled | None,
+    filesystem: _PublicationFileSystem | None,
+    locks: _PublicationLocks | None = None,
+) -> _PublicationResult:
+    """Build and atomically publish one artifact using the shared protocol.
+
+    ``build`` must populate the supplied empty fixed stage path. ``validate``
     must verify its receipt, exact file set, and owner. Fault injection should
     raise ``BaseException`` to model abrupt process termination, and ``Exception``
     to model an observable I/O failure that can be rolled back immediately.
     """
 
-    fs = filesystem or _PublicationFileSystem()
+    if (
+        locks is not None
+        and filesystem is not None
+        and locks.filesystem is not filesystem
+    ):
+        raise _PublicationError("publication lock set uses a different filesystem")
+    fs = (
+        locks.filesystem
+        if locks is not None
+        else (filesystem or _PublicationFileSystem())
+    )
     expected_owner = _validate_owner(owner)
-    paths = _paths_for(destination, fs)
-    _bootstrap(paths, fs)
+    if locks is None:
+        with _publication_lock_set(
+            outputs=[_PublicationOutput(destination, validate)], filesystem=fs
+        ) as acquired:
+            return _publish_artifact(
+                destination,
+                owner=expected_owner,
+                build=build,
+                validate=validate,
+                replace=replace,
+                cancelled=cancelled,
+                filesystem=fs,
+                locks=acquired,
+            )
+    paths = locks.require(destination, exclusive=True)
     cancel = cancelled or (lambda _point: False)
+    if cancel("before_prepare"):
+        raise _PublicationCancelledError("publication cancelled before preparation")
 
-    with fs.lock(paths.lock, shared=False):
-        _validate_control(paths, fs)
-        _recover_locked(paths, validate, fs)
-        if cancel("before_prepare"):
-            raise _PublicationCancelledError("publication cancelled before preparation")
+    had_previous = _artifact_exists(paths.destination, expected_owner, fs)
+    if had_previous:
+        if not replace:
+            raise _PublicationError("publication destination already exists")
+        _validate_artifact(paths.destination, expected_owner, validate, fs)
 
-        destination_kind = fs.kind(paths.destination)
-        if destination_kind == "link":
-            raise _PublicationError("publication destination is a symlink")
-        if destination_kind not in {None, "directory"}:
-            raise _PublicationError("publication destination is not a directory")
-        had_previous = destination_kind == "directory"
-        if had_previous:
-            if not replace:
-                raise _PublicationError("publication destination already exists")
-            _validate_artifact(paths.destination, expected_owner, validate, fs)
+    journal = _journal(expected_owner, paths.destination.name, had_previous)
+    committed = False
+    try:
+        _write_journal(paths, journal, fs)
+        fs.fault("after_journal_preparing")
+        _cancel_or_raise(cancel, "after_preparing")
 
-        journal = _journal(expected_owner, paths.destination.name, had_previous)
-        committed = False
-        try:
-            _write_journal(paths, journal, fs)
-            fs.fault("after_journal_preparing")
-            _cancel_or_raise(cancel, "after_preparing")
-
+        if _artifact_kind(expected_owner) == "directory":
             fs.mkdir(paths.stage)
-            build(paths.stage)
-            fs.validate_plain_tree(paths.stage)
-            _validate_artifact(paths.stage, expected_owner, validate, fs)
-            fs.sync_tree(paths.stage)
-            fs.fault("after_stage_complete")
-            _cancel_or_raise(cancel, "after_stage")
+        build(paths.stage)
+        _validate_artifact(paths.stage, expected_owner, validate, fs)
+        _sync_artifact(paths.stage, expected_owner, fs)
+        fs.fault("after_stage_complete")
+        _cancel_or_raise(cancel, "after_stage")
 
-            journal["phase"] = "prepared"
-            _write_journal(paths, journal, fs)
-            fs.fault("after_journal_prepared")
-            _cancel_or_raise(cancel, "after_prepared")
+        journal["phase"] = "prepared"
+        _write_journal(paths, journal, fs)
+        fs.fault("after_journal_prepared")
+        _cancel_or_raise(cancel, "after_prepared")
 
-            if had_previous:
-                fs.rename(paths.destination, paths.previous)
-                fs.fault("after_previous_saved")
-                _cancel_or_raise(cancel, "after_previous_saved")
-            fs.rename(paths.stage, paths.destination)
-            fs.fault("after_destination_installed")
-            _cancel_or_raise(cancel, "after_destination_installed")
-            _validate_artifact(paths.destination, expected_owner, validate, fs)
+        if had_previous:
+            fs.rename(paths.destination, paths.previous)
+            fs.fault("after_previous_saved")
+            _cancel_or_raise(cancel, "after_previous_saved")
+        fs.rename(paths.stage, paths.destination)
+        fs.fault("after_destination_installed")
+        _cancel_or_raise(cancel, "after_destination_installed")
+        _validate_artifact(paths.destination, expected_owner, validate, fs)
 
-            journal["phase"] = "committed"
-            _write_journal(paths, journal, fs)
-            committed = True
-            fs.fault("after_journal_committed")
-        except Exception:
-            authoritative = _read_journal(paths, fs)
-            if authoritative is not None and authoritative["phase"] == "committed":
-                return _finish_committed(paths, authoritative, validate, fs)
-            if not committed:
-                _recover_locked(paths, validate, fs)
-                raise
-        cancel("after_committed")
+        journal["phase"] = "committed"
+        _write_journal(paths, journal, fs)
+        committed = True
+        fs.fault("after_journal_committed")
+    except Exception:
+        authoritative = _read_journal(paths, fs)
+        if authoritative is not None and authoritative["phase"] == "committed":
+            return _finish_committed(paths, authoritative, validate, fs)
+        if not committed:
+            _recover_locked(paths, validate, fs)
+            raise
+    cancel("after_committed")
 
-        return _finish_committed(paths, journal, validate, fs)
+    return _finish_committed(paths, journal, validate, fs)
 
 
 def _recover_publication(
@@ -200,7 +450,8 @@ def _read_published(
     destination: str | Path,
     *,
     owner: Mapping[str, object],
-    validate: _Validator,
+    stable_validate: _Validator,
+    recovery_validate: _Validator,
     read: Callable[[Path], object],
     filesystem: _PublicationFileSystem | None = None,
 ) -> object:
@@ -209,7 +460,7 @@ def _read_published(
     fs = filesystem or _PublicationFileSystem()
     expected_owner = _validate_owner(owner)
     paths = _paths_for(destination, fs)
-    _bootstrap(paths, fs)
+    _require_initialized_control(paths, fs)
 
     while True:
         needs_recovery = False
@@ -221,10 +472,13 @@ def _read_published(
             else:
                 if journal is not None and journal["owner"] != expected_owner:
                     raise _PublicationError("published artifact owner does not match")
-                _validate_artifact(paths.destination, expected_owner, validate, fs)
+                _validate_stable_state(paths, journal, fs)
+                _validate_stable_artifact(
+                    paths.destination, expected_owner, stable_validate, fs
+                )
                 return read(paths.destination)
         if needs_recovery:
-            _recover_publication(destination, validate=validate, filesystem=fs)
+            _recover_publication(destination, validate=recovery_validate, filesystem=fs)
 
 
 def _paths_for(destination: str | Path, fs: _PublicationFileSystem) -> _Paths:
@@ -320,6 +574,15 @@ def _read_control_owner(paths: _Paths, fs: _PublicationFileSystem) -> dict[str, 
     return expected
 
 
+def _require_initialized_control(paths: _Paths, fs: _PublicationFileSystem) -> None:
+    if fs.kind(paths.control) != "directory":
+        raise _PublicationError("unmanaged publication input is not accepted")
+    fs.assert_no_symlink_chain(paths.control)
+    if fs.kind(paths.owner) != "file" or fs.kind(paths.lock) != "file":
+        raise _PublicationError("publication input control is not initialized")
+    _read_control_owner(paths, fs)
+
+
 def _verify_control_marker(value: object, expected: dict[str, str]) -> None:
     if value != expected:
         raise _PublicationError("publication control owner verification failed")
@@ -343,7 +606,7 @@ def _validate_control(
         if fs.kind(path) not in {None, "file"}:
             raise _PublicationError(f"publication metadata is not a file: {path.name}")
     for path in (paths.stage, paths.previous):
-        if fs.kind(path) not in {None, "directory"}:
+        if fs.kind(path) not in {None, "directory", "file"}:
             raise _PublicationError(
                 f"publication transaction path is unsafe: {path.name}"
             )
@@ -442,8 +705,9 @@ def _validate_owner(value: object) -> _Owner:
     result: _Owner = {"kind": kind, "source": dict(source)}
     if kind in {"generated", "program"}:
         definition = value["definition"]
-        if type(definition) is not str or not definition:
+        if type(definition) is not str:
             raise _PublicationError("publication definition is invalid")
+        _validate_qualified_symbol(definition)
         result["definition"] = definition
     if kind == "generated":
         target = value["target"]
@@ -472,13 +736,29 @@ def _validate_source_path(path: str) -> None:
         raise _PublicationError("publication source path is invalid")
 
 
+def _validate_qualified_symbol(symbol: str) -> None:
+    if len(symbol) < 4 or not symbol.startswith('@"') or not symbol.endswith('"'):
+        raise _PublicationError("publication definition is not canonical")
+    components = symbol[2:-1].split(".")
+    if any(not component or not component.isidentifier() for component in components):
+        raise _PublicationError("publication definition is not canonical")
+
+
 def _validate_artifact(
     path: Path,
     owner: Mapping[str, object],
     validate: _Validator,
     fs: _PublicationFileSystem,
 ) -> None:
-    fs.validate_plain_tree(path)
+    expected_kind = _artifact_kind(owner)
+    actual_kind = fs.kind(path)
+    if actual_kind != expected_kind:
+        raise _PublicationError(
+            f"publication artifact has type {actual_kind!r}, "
+            f"expected {expected_kind}: {path}"
+        )
+    if expected_kind == "directory":
+        fs.validate_plain_tree(path)
     try:
         validate(path, owner)
     except _PublicationError:
@@ -489,13 +769,91 @@ def _validate_artifact(
         ) from error
 
 
+def _validate_stable_artifact(
+    path: Path,
+    owner: Mapping[str, object],
+    validate: _Validator,
+    fs: _PublicationFileSystem,
+) -> None:
+    expected_kind = _artifact_kind(owner)
+    if fs.kind(path) != expected_kind:
+        raise _PublicationError(
+            f"published stable artifact is missing or unsafe: {path}"
+        )
+    try:
+        validate(path, owner)
+    except _PublicationError:
+        raise
+    except Exception as error:
+        raise _PublicationError(
+            f"published stable view validation failed: {path}"
+        ) from error
+
+
+def _validate_stable_state(
+    paths: _Paths, journal: _Owner | None, fs: _PublicationFileSystem
+) -> None:
+    if journal is None:
+        if fs.kind(paths.stage) is not None or fs.kind(paths.previous) is not None:
+            raise _PublicationError("transaction artifacts exist without journal")
+        return
+    if journal["phase"] != "committed":
+        raise _PublicationError("stable read requires a committed publication")
+    if fs.kind(paths.stage) is not None:
+        raise _PublicationError("committed publication still has a stage artifact")
+    if not journal["had_previous"] and fs.kind(paths.previous) is not None:
+        raise _PublicationError("new committed publication has previous output")
+
+
+def _artifact_kind(owner: Mapping[str, object]) -> str:
+    return "file" if owner["kind"] == "program" else "directory"
+
+
+def _artifact_exists(
+    path: Path, owner: Mapping[str, object], fs: _PublicationFileSystem
+) -> bool:
+    kind = fs.kind(path)
+    expected = _artifact_kind(owner)
+    if kind not in {None, expected}:
+        raise _PublicationError(
+            f"publication artifact has type {kind!r}, expected {expected}: {path}"
+        )
+    return kind == expected
+
+
+def _sync_artifact(
+    path: Path, owner: Mapping[str, object], fs: _PublicationFileSystem
+) -> None:
+    if _artifact_kind(owner) == "file":
+        fs.sync_file(path)
+    else:
+        fs.sync_tree(path)
+
+
+def _remove_artifact(
+    path: Path, owner: Mapping[str, object], fs: _PublicationFileSystem
+) -> None:
+    kind = fs.kind(path)
+    if kind is None:
+        return
+    expected = _artifact_kind(owner)
+    if kind != expected:
+        raise _PublicationError(
+            f"publication cleanup has type {kind!r}, expected {expected}: {path}"
+        )
+    if expected == "file":
+        fs.remove_file(path)
+    else:
+        fs.remove_tree(path)
+
+
 def _recover_locked(
     paths: _Paths, validate: _Validator, fs: _PublicationFileSystem
 ) -> None:
     journal = _read_journal(paths, fs)
     if journal is None:
         if fs.kind(paths.stage) is not None or fs.kind(paths.previous) is not None:
-            raise _PublicationError("transaction directories exist without journal")
+            raise _PublicationError("transaction artifacts exist without journal")
         return
     phase = journal["phase"]
     if phase == "committed":
@@ -522,7 +880,7 @@ def _recover_locked(
         fs.fault("after_journal_rollback_cleanup")
     if journal["phase"] == "rollback_cleanup":
         _validate_restored(paths, journal, validate, fs)
-        fs.remove_tree(paths.stage)
+        _remove_artifact(paths.stage, journal["owner"], fs)
         fs.remove_file(paths.journal_tmp)
         fs.remove_file(paths.journal)
 
@@ -535,7 +893,7 @@ def _validate_preparing(
         raise _PublicationError(
             "preparing transaction unexpectedly has previous output"
         )
-    destination_exists = _directory_exists(paths.destination, fs)
+    destination_exists = _artifact_exists(paths.destination, journal["owner"], fs)
     if destination_exists != had_previous:
         raise _PublicationError("preparing transaction destination state is invalid")
     if destination_exists:
@@ -546,9 +904,9 @@ def _validate_prepared_combination(
     paths: _Paths, journal: _Owner, fs: _PublicationFileSystem
 ) -> None:
     had_previous = bool(journal["had_previous"])
-    destination = _directory_exists(paths.destination, fs)
-    stage = fs.kind(paths.stage) == "directory"
-    previous = fs.kind(paths.previous) == "directory"
+    destination = _artifact_exists(paths.destination, journal["owner"], fs)
+    stage = _artifact_exists(paths.stage, journal["owner"], fs)
+    previous = _artifact_exists(paths.previous, journal["owner"], fs)
     if had_previous:
         valid = (
             (previous and not destination)
@@ -565,9 +923,9 @@ def _restore_previous(
     paths: _Paths, journal: _Owner, fs: _PublicationFileSystem
 ) -> None:
     had_previous = bool(journal["had_previous"])
-    destination = _directory_exists(paths.destination, fs)
-    stage = fs.kind(paths.stage) == "directory"
-    previous = fs.kind(paths.previous) == "directory"
+    destination = _artifact_exists(paths.destination, journal["owner"], fs)
+    stage = _artifact_exists(paths.stage, journal["owner"], fs)
+    previous = _artifact_exists(paths.previous, journal["owner"], fs)
     if had_previous:
         if previous and not destination:
             fs.rename(paths.previous, paths.destination)
@@ -594,8 +952,8 @@ def _validate_restored(
 ) -> None:
     had_previous = bool(journal["had_previous"])
     if fs.kind(paths.previous) is not None:
-        raise _PublicationError("rollback left a previous directory")
-    destination_exists = _directory_exists(paths.destination, fs)
+        raise _PublicationError("rollback left a previous artifact")
+    destination_exists = _artifact_exists(paths.destination, journal["owner"], fs)
     if destination_exists != had_previous:
         raise _PublicationError("rollback did not restore destination state")
     if destination_exists:
@@ -606,15 +964,17 @@ def _finish_committed(
     paths: _Paths, journal: _Owner, validate: _Validator, fs: _PublicationFileSystem
 ) -> _PublicationResult:
     if fs.kind(paths.stage) is not None:
-        raise _PublicationError("committed publication still has a stage directory")
+        raise _PublicationError("committed publication still has a stage artifact")
     _validate_artifact(paths.destination, journal["owner"], validate, fs)
     if not journal["had_previous"] and fs.kind(paths.previous) is not None:
         raise _PublicationError("new committed publication has previous output")
     try:
-        fs.remove_tree(paths.previous)
+        _remove_artifact(paths.previous, journal["owner"], fs)
         fs.remove_file(paths.journal_tmp)
         fs.remove_file(paths.journal)
     except OSError:
+        if fs.kind(paths.journal) is None:
+            return _PublicationResult(committed=True)
         return _PublicationResult(
             committed=True, warnings=("publication_cleanup_pending",)
         )
@@ -626,23 +986,21 @@ def _cancel_or_raise(cancelled: _Cancelled, point: str) -> None:
         raise _PublicationCancelledError(f"publication cancelled at {point}")
 
 
-def _directory_exists(path: Path, fs: _PublicationFileSystem) -> bool:
-    kind = fs.kind(path)
-    if kind not in {None, "directory"}:
-        raise _PublicationError(f"publication path is not a directory: {path}")
-    return kind == "directory"
-
-
 __all__ = [
     "_PublicationCancelledError",
     "_PublicationError",
     "_PublicationFileSystem",
     "_PublicationFileSystemError",
+    "_PublicationInput",
+    "_PublicationLocks",
+    "_PublicationOutput",
     "_PublicationResult",
+    "_publication_lock_set",
     "_publication_owner_generated",
     "_publication_owner_program",
     "_publication_owner_source_unit",
     "_publish_directory",
+    "_publish_file",
     "_read_published",
     "_recover_publication",
 ]
