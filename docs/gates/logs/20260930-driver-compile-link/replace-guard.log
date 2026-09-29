@@ -69,3 +69,40 @@ content after: #loc1 = loc("counter.py":5:1)   (residue (b) reproduced)
 ### what remains genuinely enforced, and still works
 first publish exit=0
 republish exit=0
+
+
+## ROUND 3: the complete refusal matrix, executed on the round-3 bytes
+# 'control guard path' is whether a control directory for that destination existed before the
+# command; every seeded case is a directory this log created on purpose to test the shapes.
+
+case                     exit  before     after      artifact
+regular                  1     none       none       content: user data
+empty                    1     none       none       still 0 bytes
+adir                     1     none       none       still a directory
+valid-symlink            1     none       none       still a symlink
+fifo                     1     none       none       still a fifo
+copied                   1     present    present    content: user
+uninit                   1     present    present    content: user
+lockonly                 1     present    present    content: user
+symctrl                  1     present    present    control path still a symlink
+regctrl                  1     present    present    control path still a regular file
+dangling                 1     none       none       still a dangling symlink, target absent
+
+no case created a control directory where none existed, and every refusal is one line:
+  regular                  lines=1  pycircuit link: refusing to replace a path without a publication control directory naming it: /private/var/folders/dw/zd1zl_y14dndg0ydz1mdt25h0000gn/T/tmpnj6bx29g/out/regular.ac
+  empty                    lines=1  pycircuit link: refusing to replace a path without a publication control directory naming it: /private/var/folders/dw/zd1zl_y14dndg0ydz1mdt25h0000gn/T/tmpnj6bx29g/out/empty.ac
+  adir                     lines=1  pycircuit link: refusing to replace a path without a publication control directory naming it: /private/var/folders/dw/zd1zl_y14dndg0ydz1mdt25h0000gn/T/tmpnj6bx29g/out/adir.ac
+  valid-symlink            lines=1  pycircuit link: refusing to replace a path without a publication control directory naming it: /private/var/folders/dw/zd1zl_y14dndg0ydz1mdt25h0000gn/T/tmpnj6bx29g/out/valid-symlink.ac
+  fifo                     lines=1  pycircuit link: refusing to replace a path without a publication control directory naming it: /private/var/folders/dw/zd1zl_y14dndg0ydz1mdt25h0000gn/T/tmpnj6bx29g/out/fifo.ac
+  copied                   lines=1  pycircuit link: refusing to replace a path without a publication control directory naming it: /private/var/folders/dw/zd1zl_y14dndg0ydz1mdt25h0000gn/T/tmpnj6bx29g/out/copied.ac
+  uninit                   lines=1  pycircuit link: refusing to replace a path without a publication control directory naming it: /private/var/folders/dw/zd1zl_y14dndg0ydz1mdt25h0000gn/T/tmpnj6bx29g/out/uninit.ac
+  lockonly                 lines=1  pycircuit link: refusing to replace a path without a publication control directory naming it: /private/var/folders/dw/zd1zl_y14dndg0ydz1mdt25h0000gn/T/tmpnj6bx29g/out/lockonly.ac
+  symctrl                  lines=1  pycircuit link: refusing to replace a path without a publication control directory naming it: /private/var/folders/dw/zd1zl_y14dndg0ydz1mdt25h0000gn/T/tmpnj6bx29g/out/symctrl.ac
+  regctrl                  lines=1  pycircuit link: refusing to replace a path without a publication control directory naming it: /private/var/folders/dw/zd1zl_y14dndg0ydz1mdt25h0000gn/T/tmpnj6bx29g/out/regctrl.ac
+  dangling                 lines=1  pycircuit link: refusing to replace a path without a publication control directory naming it: /private/var/folders/dw/zd1zl_y14dndg0ydz1mdt25h0000gn/T/tmpnj6bx29g/out/dangling.ac
+
+positives unchanged
+  first publish             exit=0
+  republish with --replace  exit=0
+  no --replace on existing  exit=1  pycircuit link: publication destination already exists
+  first publish, --replace  exit=0

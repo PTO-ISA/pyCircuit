@@ -13,4 +13,4 @@ tests/unit/test_source_capture.py ....................................   [ 92%]
 tests/unit/test_source_transport.py .............                        [100%]
 
 - generated xml file: /Users/zhoubot/.codex/worktrees/migration-capture/pyCircuit/docs/gates/logs/20260930-driver-compile-link/unit.xml -
-======================== 171 passed, 3 skipped in 7.77s ========================
+======================== 171 passed, 3 skipped in 6.99s ========================

@@ -7,4 +7,4 @@ collected 4 items
 tests/system/test_source_transport_mlir.py ....                          [100%]
 
 - generated xml file: /Users/zhoubot/.codex/worktrees/migration-capture/pyCircuit/docs/gates/logs/20260930-driver-compile-link/transport-mlir.xml -
-============================== 4 passed in 0.24s ===============================
+============================== 4 passed in 0.30s ===============================

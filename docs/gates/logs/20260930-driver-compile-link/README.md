@@ -106,32 +106,40 @@ that control directory before the lock set can bootstrap one, and refuses
 otherwise:
 
 ```text
-pycircuit link: refusing to replace a path with no publication control directory: <path>
+pycircuit link: refusing to replace a path without a publication control directory naming it: <path>
 ```
 
 **This is a typo and accident guard, not proof of authorship.** The control
-marker has no secret and the control directory is also bootstrapped by any
-earlier command that *failed* at that path, because C3-C §160 requires the lock
-set to bootstrap every exclusive output before the work. So this guard does not
-establish that the driver published the file it is about to replace, and the
-round-2 review is right that the earlier wording claimed more than the check
-proves. What it does establish, and what is verified in `replace-guard.log`:
+marker has no secret and the control directory is also bootstrapped, because
+C3-C §160 requires the lock set to bootstrap every exclusive output before the
+work, by any earlier command that reached the lock set at that path and then
+failed — a non-empty `--parameters`, an unpublished unit argument or a missing
+output parent all fail earlier and seed nothing. So this guard does not establish
+that the driver published the file it is about to replace, and the round-2 review
+is right that the earlier wording claimed more than the check proves. What it
+does establish, every case executed in `replace-guard.log`, is that none of these
+is replaced and none creates a control directory where none existed:
 
 - a foreign non-empty file, an empty file, a directory, a symlink, a FIFO, a
   control directory copied from another artifact (its marker names the wrong
   destination), an uninitialized control directory, a lock-only control
   directory, a symlinked control path and a control path that is a regular file
-  are all refused with the artifact byte-intact and no control directory created;
+  are all refused with the artifact byte-intact;
 - a dangling symlink is now refused by the guard too, so it no longer leaves
   behind the control directory that would authorise a later replacement;
-- republishing a path this driver really did publish, a first publication with
-  `--replace`, and the publication recovery semantics all still work.
+- republishing a path this driver really did publish, and a first publication with
+  `--replace`, still work. Publication *recovery* under the guard was exercised
+  directly by the round-3 reviewer on seeded committed and prepared/previous
+  leftovers (both recovered and republished, exit 0), and the publication
+  package's own recovery suite is in the unit lane; it is not demonstrated in
+  `replace-guard.log`.
 
-Three residues remain and are declared below: the previous *owner* cannot be
+Four residues remain and are declared below: the previous *owner* cannot be
 compared, a file at a path this driver did publish but that was later modified is
-not recognized as a corrupted artifact, and a control directory bootstrapped by
-an earlier *failed* command at that path will authorise a replacement of a user
-file placed there afterwards.
+not recognized as a corrupted artifact, a control directory bootstrapped by an
+earlier command that reached the lock set at that path and then failed will
+authorise a replacement of a user file placed there afterwards, and a hand-written
+control marker opens the guard because it carries no secret.
 
 ## Declared gaps
 
@@ -142,8 +150,8 @@ These are recorded rather than hidden; none of them is faked or worked around:
   only at the M5 hard break.
 - **Static parameter specialization is not implemented.** `link --parameters`
   accepts only the empty array.
-- **`--replace` still cannot compare the previous program, in three ways.** All
-  three have the same root cause — `program.ac` carries no Python-readable owner
+- **`--replace` still cannot compare the previous program, in four ways.** All
+  four have the same root cause — `program.ac` carries no Python-readable owner
   or receipt, there is no standalone native verify-only entry, and C3-C §158
   fixes the control directory's permitted entries to seven names so no
   "successfully published" marker can be added. First, a genuinely different root
@@ -151,12 +159,15 @@ These are recorded rather than hidden; none of them is faked or worked around:
   is not enforced. Second, if the file at such a path is later replaced by
   something else, the driver cannot tell it from a corrupted artifact and
   `--replace` overwrites it. Third, a control directory left behind by an earlier
-  *failed* command at that path — which C3-C §160 requires — will authorise
-  replacing a user file placed there afterwards, with no forgery involved. What
-  *is* enforced is only that a publication control directory names the
-  destination; that is an accident guard, not authorship. Every measurement is in
-  `replace-guard.log`; closing any of the three needs a native verify/owner-read
-  entry or an RFC change to the control directory.
+  command that reached the lock set at that path and then failed — which C3-C §160
+  requires — will authorise replacing a user file placed there afterwards, with no
+  forgery involved. Fourth, a hand-written control marker plus an empty `lock`
+  opens the guard outright, because the marker carries no secret; that is a
+  corollary of the invariant being stated in its general form rather than a
+  separate hole. What *is* enforced is only that a publication control directory
+  names the destination; that is an accident guard, not authorship. Every
+  measurement is in `replace-guard.log`; closing any of the four needs a native
+  verify/owner-read entry or an RFC change to the control directory.
 - **`emit`'s per-implementation-source `.hpp/.cpp` groups and `generated.json`
   are not produced.** The current C++ backend returns one monolithic artifact;
   splitting it in Python to fake per-source groups is explicitly rejected.
@@ -343,3 +354,99 @@ dangling symlink is refused by the guard and no longer leaves behind the control
 directory that authorised the later harm. (a) and (b) cannot be closed in Python
 for the reasons the reviewer gives, and are now declared as the third residue
 beside the owner and corrupted-artifact ones in "Declared gaps".
+
+## Independent review, round 3
+
+Reviewed `6228bcc4` (fix) and `ddbf0449` (evidence) at HEAD `ddbf0449`, against
+C3-C `0c476ced…` (re-verified unchanged).
+
+**Verdict: PASS.**
+
+The reviewer re-derived every item rather than accepting the disposition:
+
+- **(a′) closed, verified.** `_driver.py:218` now tests
+  `destination.exists() or destination.is_symlink()`. `--replace` onto a fresh
+  dangling symlink exits 1 with the new diagnostic, leaves the symlink intact and
+  creates **no** control directory; previously the guard was skipped and the
+  lock-set bootstrap left behind the directory that authorised the later harm.
+  On POSIX the pair covers every occupied path.
+- **D1's closure still holds.** The full bypass matrix was re-run against the new
+  condition — foreign non-empty file, empty file, directory, valid symlink, FIFO,
+  a control directory copied from another artifact, an uninitialized control
+  directory, a lock-only control directory, a symlinked control path and a
+  control path that is a regular file — all exit 1 with the artifact byte-intact
+  and no control directory created. A control directory carrying a stray entry
+  passes the guard and is then rejected by `_validate_control`, still fail-closed.
+  Republishing, first publication with `--replace`, the no-`--replace` rejection,
+  the `compile` foreign-directory rejection and the symlinked-parent diagnostic
+  are all unchanged. Publication recovery was exercised directly by the reviewer
+  under the guard: seeded committed and prepared/previous leftovers both recovered
+  and republished, exit 0.
+- **The rewritten claim matches the code.** `README.md:102/112` and
+  `README.md:145-153` now state the invariant the check establishes and call it an
+  accident guard rather than proof of authorship; the reviewer could not construct
+  a protection claim in the changed paragraphs that the code does not support.
+- **Residue (a) already covers the dangling-symlink-without-`--replace` case**
+  observed by the test author, because it is worded existentially ("a control
+  directory left behind by an earlier failed command at that path"). Reproduced by
+  the reviewer: that command exits 1 with `publication artifact has type 'link',
+  expected file`, seeds the control directory, and a user file placed at the path
+  afterwards is then replaced. Naming the symlink explicitly is optional.
+
+Evidence was found sound: 5/5 overlay hashes match HEAD, the worktree and
+`6228bcc4`; all six JUnit XMLs parsed independently give unit 174 (3 skipped),
+system-focused 105, transport 4, driver 66 (43 unit + 23 system), CLI regression
+60 and masked-next 15, with zero failures and errors and fresh run timestamps;
+the reviewer re-ran the driver lane (66, exit 0), the focused system lane (105,
+exit 0) and the remaining four lanes (250 passed + 3 skipped, exit 0). The fix
+touches only `_driver.py`, one test file and the evidence directory.
+
+Four documentation-precision notes are recorded, none of them gating and none a
+claim about what the guard protects:
+
+1. `README.md:118` attributes to `replace-guard.log` a ten-item bullet of which
+   five items (FIFO, uninitialized control directory, lock-only control directory,
+   symlinked control path, control path as a regular file) are recorded in this
+   README's round-2 review section instead, and "the publication recovery
+   semantics all still work" is not demonstrated in that log either. The reviewer
+   re-verified all ten behaviours; only the attribution needs correcting.
+2. `README.md:112-116` and `_driver.py:223` say the control directory is
+   bootstrapped by "any earlier command that failed at that path". Measured: a
+   non-empty `--parameters`, an unpublished unit argument and a missing output
+   parent all fail without creating it; only failures reaching the lock set seed
+   it. The error is conservative, and the Declared-gaps wording is correctly
+   existential.
+3. `README.md:145` says "in three ways" while a hand-written marker — reproduced
+   in `replace-guard.log` as residue (b) — is a fourth. The strongest-form
+   invariant statement and the disclosure that the marker has no secret make it a
+   corollary rather than a hidden hole.
+4. The heading at `README.md:102` says "naming it" but the emitted diagnostic at
+   `README.md:109` / `_driver.py:227` drops the qualifier; for the
+   copied-control-directory case one is visibly present with the wrong marker.
+
+Not verified by the reviewer: the 2/2 mutation-check claim (no artifacts); the
+shared build against a fresh compile (the C++ is byte-identical to round 1 and
+unchanged across rounds 2–3); Windows lock and reparse-point behaviour (POSIX
+only, where a dangling junction could still be an instance of residue (a)); and
+injected-fault recovery through the driver (committed and prepared leftovers were
+constructed directly instead).
+
+### Round-3 disposition
+
+All four notes are applied. F1: `replace-guard.log` now executes the complete
+refusal matrix — including the FIFO and the four control-path shapes — and records
+for each case whether a control directory existed before and after, so no case
+creates one where none existed; the recovery sentence now attributes that exercise
+to the reviewer and to the publication package's own suite instead of to that log.
+F2: the bootstrap condition is stated as "reached the lock set at that path and
+then failed", with the three earlier-failure counterexamples named. F3: the
+enumeration now says four and includes the forged marker. F4: the diagnostic is
+`refusing to replace a path without a publication control directory naming it:
+<path>`, so the copied-control-directory case no longer reads as if no control
+directory were present.
+
+The PASS above was returned for `6228bcc4` + `ddbf0449`. F4 is the only note that
+touches code, and only the message string: the guard condition, the refusal
+behaviour, the exit codes and every case the reviewer verified are unchanged. The
+independent test author updated the two assertions that pin the message and the
+lanes were re-run afterwards.
