@@ -22,3 +22,19 @@ replace exit=0
 
 ## declared residue: a DIFFERENT root on a path this driver published is still accepted
 exit=0 (0 = owner comparison still open)
+
+## RESIDUE (declared, not closed): a path this driver published, whose file was later modified
+# The guard recognizes 'we published here' from the control directory. It cannot tell that the
+# file at that path is no longer our program, because program.ac has no Python-readable receipt
+# and there is no native verify-only entry. C3-C 143 also forbids overwriting a corrupted artifact.
+$ pycircuit link units/counter units/types --top demo.counter.Counter -o out/prog.ac   # publish
+published head: #loc1 = loc("counter.py":5:1)
+$ printf 'my own data now\n' > out/prog.ac                                             # user edits it
+$ pycircuit link units/counter units/types --top demo.counter.Counter -o out/prog.ac --replace
+exit=0 (0 = the user's bytes were overwritten)
+content after: #loc1 = loc("counter.py":5:1)
+#loc5 = lo
+
+## control marker must name the destination, so a copied/foreign control dir does not open the guard
+pycircuit link: refusing to replace a path this driver did not publish: /private/var/folders/dw/zd1zl_y14dndg0ydz1mdt25h0000gn/T/tmpsb0fk8cl/out/other.ac
+exit=1

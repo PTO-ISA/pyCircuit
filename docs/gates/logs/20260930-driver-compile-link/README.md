@@ -109,9 +109,11 @@ pycircuit link: refusing to replace a path this driver did not publish: <path>
 
 This closes the C3-C §143 consequence that a pre-existing user file at the output
 path would otherwise be overwritten: the file is left byte-identical and no
-control directory is created. What remains open is narrower and is declared
-below — the previous *owner* cannot be compared, because a committed program
-publication persists no owner.
+control directory is created. The control marker must name the destination, so a
+copied or foreign control directory does not open the guard. Two narrower
+consequences of the same root cause remain open and are declared below: the
+previous *owner* cannot be compared, and a file at a path this driver did publish
+but that was later modified is not recognized as a corrupted artifact.
 
 ## Declared gaps
 
@@ -122,12 +124,16 @@ These are recorded rather than hidden; none of them is faked or worked around:
   only at the M5 hard break.
 - **Static parameter specialization is not implemented.** `link --parameters`
   accepts only the empty array.
-- **`--replace` cannot compare the previous program owner.** `program.ac` carries
-  no Python-readable owner record and there is no standalone native verify-only
-  entry, so relinking a genuinely different root onto a path this driver already
-  published is still accepted; only the "did this driver publish it at all" part
-  of C3-C §143/§181 is enforced (see below). Closing the owner comparison needs a
-  native verify/owner-read entry.
+- **`--replace` still cannot compare the previous program, in two narrower ways.**
+  Both have the same root cause — `program.ac` carries no Python-readable owner
+  or receipt, and there is no standalone native verify-only entry. First, a
+  genuinely different root relinked onto a path this driver published is
+  accepted, so §181's "same owner" is not enforced. Second, if the file at such a
+  path is later replaced by something else, the driver cannot tell it from a
+  corrupted artifact and `--replace` overwrites it, which is the other half of
+  §143. What *is* enforced is that the path was published by this driver at all.
+  Both measurements are in `replace-guard.log`; closing either needs a native
+  verify/owner-read entry.
 - **`emit`'s per-implementation-source `.hpp/.cpp` groups and `generated.json`
   are not produced.** The current C++ backend returns one monolithic artifact;
   splitting it in Python to fake per-source groups is explicitly rejected.
