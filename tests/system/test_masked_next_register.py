@@ -413,7 +413,11 @@ def test_numeric_obligation_cannot_be_downgraded_to_generic(
     """Deleting numeric inventory must not let a numeric rule pass as a generic
     assignment: with the proofs still present the generic path refuses numeric
     residue, and with the proofs removed as well the value has no direct source
-    authority."""
+    authority.
+
+    These two cases are enforced at parse time by the dialect-level final
+    verifier, so they are defence in depth rather than unit coverage of the
+    compiler-side classifier in Compiler/RuleInventory.h."""
     _, design = _linked_counter(tmp_path)
     text = design.read_text()
     mutated = text.replace("ac.required_numeric = [", "ac.required_unused = [", 1)

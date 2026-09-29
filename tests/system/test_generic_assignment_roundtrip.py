@@ -374,3 +374,55 @@ def test_generic_use_carriers_are_verified(tmp_path: Path, label: str, apply, di
     assert result.returncode != 0, f"{label} unexpectedly emitted"
     assert diagnostic in result.stderr, result.stderr
     assert not output.exists()
+
+
+SYSTEM_GENERIC = """\
+from typing import Annotated
+from pycircuit import rule, system
+
+Word = Annotated[int, range(256)]
+
+@system
+def GenericUses():
+    source: Word = 3
+    direct_out: Word = 0
+    literal_out: Word = 0
+
+    @rule
+    def direct():
+        nonlocal direct_out
+        direct_out = source
+        return
+
+    @rule
+    def literal():
+        nonlocal literal_out
+        literal_out = 7
+        return
+
+    direct()
+    literal()
+"""
+
+
+def test_system_root_generic_rules_link_and_emit(tmp_path: Path) -> None:
+    """The system-root generic shape (a system whose own rules copy a register or
+    assign a literal) links and emits on both backends. This makes the packet's
+    third pre-fix baseline row reproducible from the repository instead of only
+    from the localisation probe that found it."""
+    source_root = tmp_path / "source"
+    source_root.mkdir()
+    (source_root / "generic.py").write_text(SYSTEM_GENERIC, encoding="utf-8")
+    unit = _compile(source_root / "generic.py", source_root=source_root,
+                    output_dir=tmp_path / "units/generic")
+    design = tmp_path / "generic.ac"
+
+    linked = _link([unit], design, "demo.generic.GenericUses")
+    assert linked.returncode == 0, linked.stderr
+    assert design.is_file()
+
+    for target, extension in (("cpp", "cpp"), ("verilog", "sv")):
+        output = tmp_path / f"generic.{extension}"
+        emitted = _emit(design, target, output)
+        assert emitted.returncode == 0, f"{target}: {emitted.stderr}"
+        assert output.is_file() and output.stat().st_size > 0, target

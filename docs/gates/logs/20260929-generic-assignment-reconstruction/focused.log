@@ -2,12 +2,12 @@
 platform darwin -- Python 3.14.6, pytest-9.0.2, pluggy-1.6.0
 rootdir: /Users/zhoubot/.codex/worktrees/migration-capture/pyCircuit
 configfile: pyproject.toml
-collected 62 items
+collected 63 items
 
-tests/system/test_generic_assignment_roundtrip.py ......                 [  9%]
-tests/system/test_masked_next_register.py ...............                [ 33%]
+tests/system/test_generic_assignment_roundtrip.py .......                [ 11%]
+tests/system/test_masked_next_register.py ...............                [ 34%]
 tests/system/test_source_design_bridge.py .............................. [ 82%]
 ...........                                                              [100%]
 
 - generated xml file: /Users/zhoubot/.codex/worktrees/migration-capture/pyCircuit/docs/gates/logs/20260929-generic-assignment-reconstruction/focused.xml -
-============================= 62 passed in 28.58s ==============================
+============================= 63 passed in 29.30s ==============================

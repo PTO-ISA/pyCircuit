@@ -27,7 +27,7 @@ error: final hardware program view reconstruction failed
 | --- | --- | --- |
 | `state = other` | `@module` | 1, no artifact |
 | `state = 7` | `@module` | 1, no artifact |
-| system generic rules (`direct_out = source`, `literal_out = 7`) | `@system` | 1, no artifact |
+| system generic rules (`direct_out = source`, `literal_out = 7`) | `@system` | 1, no artifact — now reproducible from the repository via `test_system_root_generic_rules_link_and_emit`, added after the review noted the row had only been covered by a localisation probe |
 
 The dialect layer is already correct: `ACIRFinalUses.cpp` defines
 `hasGenericFinalUses` as "has `ac.required_uses` and `ac.yield_bindings`, and has
@@ -152,21 +152,29 @@ retained and still pass.
 ## Negative control (the new tests are not vacuous)
 
 Stashing the five compiler files, rebuilding and re-running the roundtrip file
-gives **6 failed** with the pre-fix chain
-(`source check analysis supports only verified U1 numeric next-state rules` →
-`linked design is not reconstructible by the emit path`). Restoring the fix and
-rebuilding returns 6 passed. Raw log: `negative-control.log`.
+gives **6 failed** with the full pre-fix chain, which the reviewer reproduced
+independently in its own scratch build of `17f4b1e5`:
+
+```
+error: source check analysis supports only verified U1 numeric next-state rules
+error: final hardware CheckGraph reconstruction failed
+error: final hardware program view reconstruction failed
+error: linked design is not reconstructible by the emit path; this source shape is not supported yet
+```
+
+Restoring the fix and rebuilding returns the same cases green. Raw log:
+`negative-control.log`.
 
 ## Verification
 
 | Lane | Tests | failures | errors | skipped | disabled |
 | --- | --- | --- | --- | --- | --- |
-| `focused.xml` (3 system files) | 62 | 0 | 0 | 0 | — |
-| `system.xml` (6 system files, `-k 'not v44'`) | 89 | 0 | 0 | 0 | — |
+| `focused.xml` (3 system files) | 63 | 0 | 0 | 0 | — |
+| `system.xml` (6 system files, `-k 'not v44'`) | 90 | 0 | 0 | 0 | — |
 | native, all 20 `ACIR*Tests` binaries | 355 | 0 | 0 | 0 | 0 |
 
 All exit codes are 0. Selector inventory of `system.xml`:
-`test_generic_assignment_roundtrip` 6, `test_masked_next_register` 15,
+`test_generic_assignment_roundtrip` 7, `test_masked_next_register` 15,
 `test_source_design_bridge` 41, `test_source_numeric_next` 6,
 `test_unified_register_backends` 10, `test_v41_v42_source_fixtures` 11. The two
 V44 cases remain deselected and DEFERRED to M6.
@@ -195,3 +203,40 @@ registers), plus `test_v42_approved_sources_publish_hierarchy_without_relay_regi
 
 Requested from a separate instance; not self-signed. The verdict is to be
 appended here before the packet is accepted.
+
+
+## Independent review
+
+Reviewer: a separate instance that rebuilt the pre-fix compiler in its own
+scratch tree, re-ran every lane, and attacked the classifier with eight further
+downgrade mutations. Verdict on `d877ff93`: **PASS** — no downgrade path found,
+no missed site, no vacuous test, no weakened oracle, scope exact, and every
+evidence number reproduced.
+
+Its two informational findings and three unverified items are addressed here
+rather than left implicit:
+
+1. *(info)* the two anti-downgrade tests are enforced at **parse time by the
+   dialect-level final verifier**, not by `ruleHasNumericObligation`, so they are
+   defence in depth rather than unit coverage of the new classifier. The test
+   docstring now says so explicitly. The reviewer's structural argument is also
+   recorded: both `hasNumericNextUseContract` and `hasNumericCompositionContract`
+   require `ac.required_numeric`, so a rule carrying only value provenance never
+   had a numeric contract to skip — the old code turned "no contract" into a hard
+   error rather than performing a closure check.
+2. *(info)* the negative-control chain is now quoted in full above.
+3. *(unverified)* the third baseline row had no committed fixture. A committed
+   test, `test_system_root_generic_rules_link_and_emit`, now covers the
+   system-root generic shape through link plus both emitters.
+4. *(unverified)* the `ObservationGraph.cpp` ownership expansion rests on the
+   integrator's explicit approval given in this session when the fourth copy was
+   found; it has no repository artifact, and it is recorded here as a process
+   fact rather than a verifiable one. The reviewer confirmed the diff itself is
+   the include plus a comment plus the single classification call.
+5. *(unverified)* hand-forging a fully consistent generic final rule is out of
+   scope; every deletion or rewrite the reviewer could construct fails closed.
+
+**Acceptance:** PASS applies to `d877ff93`. The follow-up commit after it is
+clarity only — one added positive test plus documentation — and the same
+reviewer was asked to confirm it. This packet is not self-signed and does not
+mark M4, M5 or M7 done.
