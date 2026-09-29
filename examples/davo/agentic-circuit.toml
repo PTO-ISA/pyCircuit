@@ -1,0 +1,24 @@
+[project]
+name = "davo-queue-adder"
+version = "0.1.0"
+architecture = "core.py"
+system = "queue_adder_system"
+
+[providers]
+standard_library = ["ac"]
+
+[build]
+profile = "fast"
+compiler = "c++"
+standard_library = "libc++"
+component_roots = []
+protocol_roots = []
+build_root = "build"
+instrumentation_layers = []
+
+[run]
+trace_roots = []
+inputs = {}
+
+[diagnostics]
+format = "text"
