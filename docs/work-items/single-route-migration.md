@@ -148,6 +148,39 @@ root 是带 stimulus/phase/check/report 的 `@system`，这些内容一并进入
 4. C3-C 文本中的 `-o <program.ac>` 需按用户命名规则改为跟随来源 Python 文件名
    （`<stem>.ac`）的合同修订，避免公开 driver 实施时硬编码旧名或保留标签。
 
+## W10 状态更正与剩余缺口（2026-09-29 复核）
+
+I25 行「仍缺 … 完整 Result/events」需要收窄，避免下一轮重复实现。
+
+**已交付并通过**（与 M4-D1/N0-U1 同一冻结 lane，证据
+[python.xml](../gates/logs/20260929-m4-role-split/python.xml)，73 passed / 0 skipped）：
+
+- `test_v43_two_systems_terminate_once_and_reset_reruns`：两个 system 在 cpp 与
+  verilog 上各跑 first_run/rerun，完整公开记录逐字段相等，terminal Result、
+  report 身份与取值、commit 上限语义均被断言。
+- `test_v43_zero_rule_system_is_quiescent_at_epoch_zero[cpp|verilog]`：零 rule
+  系统第一次 Step 即 QUIESCENT，epoch=0、step_calls=1、模型保持 READY。
+- `test_v43_oracle_rejects_empty_or_truncated_summaries`：runner 摘要 oracle 反例。
+
+**依约 DEFERRED 到 M6**（`-k 'not v44'`，未计 PASS）：
+`test_v44_schedule_permutations_preserve_values_errors_and_events`、
+`test_v44_source_reorder_compares_explicit_semantic_identity`。
+
+因此 W10 真正剩余的**工具出口**只有 M1 固定的 `--events`：
+
+- 运行侧数据已具备：`ComposedObservations.cpp` 的 `composedObservation` 已产出
+  完整 M1 Event 记录形状（kind/instance/registration/site/evaluation_epoch/
+  commit_epoch/spec/values），composed run JSON 里也已有 `observations` 与
+  `terminal` Result。
+- 缺的是 sink 本身：`--events <path|->` 的运行前校验（既有文件、symlink、
+  非普通文件、重复选项、打开失败一律非零退出且不覆盖）、JSONL 逐行输出，
+  以及只交付成功 Step 的事件。
+- **需先澄清的合同点**：M1-C 的 `Event.kind` 枚举含 `"report"`，但现实现把
+  `report` 绑定只投递到 gauge 通道（`ComposedObservations.cpp` 要求
+  `(tag == "G") == (kind == "report")`）。按字面实现 `--events`（report 也进事件流）
+  会改变观察投递分工，属于 runtime/协议行为；因此在拿到合同裁决前不实现该项，
+  也不擅自把 report 从 gauge 通道移走。
+
 ## 全项目里程碑
 
 | 阶段 | 状态 | 完成证据要求 |
