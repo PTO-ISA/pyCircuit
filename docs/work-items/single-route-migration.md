@@ -296,13 +296,29 @@ stem 随来源文件名，不固定为 design_top。
 - 另加 owner 后置校验：编译产物必须带请求的 `ac.source_owner`。
 
 lane：unit 174 项 0 failures/errors（3 项既有平台 skip）；focused system 105 项
-0 failures/errors/skips。证据
+0 failures/errors/skips；LLVM transport 4 项 0 failures/errors/skips。三条 lane 退出码
+均为 0，导出环境记录在证据目录的 `lane-env.txt`。证据
 [source-compile-orchestration](../gates/logs/20260929-source-compile-orchestration/README.md)。
 
-**如实报告**：`tests/system/test_source_module_units.py`（15）与
-`tests/system/test_source_transport_mlir.py`（6）使用 class/self 写法，当前前端按设计
-拒绝；对**基线** harness 复跑同为 21 failed / 5 passed，与本候选完全一致 → 属既有
-陈旧 fixture，不是本包回归，本包不修（另立有界任务）。
+**如实报告**：`tests/system/test_source_module_units.py` 收集 **22** 项，配好 harness 后
+**17 failed / 5 passed**，全部失败都带前端按设计拒绝 class/self 写法的诊断
+（`@module and @system require function definitions; class/self authoring has been
+retired`）。对**基线树**（`06680be2` detached worktree，同一 harness 二进制与同一环境，
+只有 checkout 不同）复跑得到同样的 17 failed / 9 passed，失败集合逐项一致 → 属既有陈旧
+fixture，不是本包回归，本包不修（另立有界任务）。
+
+`tests/system/test_source_transport_mlir.py` **不是**陈旧 fixture，也**不**排除：它的 **4**
+项测试只受 `mlir-opt` 是否配置约束，而该工具在本机是 keg-only、不在 `PATH` 上。设好
+`MLIR_OPT` 后基线与候选同为 **4 passed**；未设置时 4 项都在
+`tests/system/test_source_transport_mlir.py:27` 以 `LLVM 22 mlir-opt is required; set
+MLIR_OPT or PYC_TOOLCHAIN_ROOT` 失败（该未配置运行作为工具门负向对照留档）。该文件只
+导入本包未改动的纯 Python capture/transport 模块，因此单列一条 lane，不计入"陈旧"。
+
+本段与 lane 表是 `64cb6106` 的独立审阅判 FAIL 后的更正。审阅只否证证据完整性：原稿把
+两个文件的收集数写成 15/6，并把 4 项 transport 失败误归因为已退役的 class/self fixture。
+功能结论未被否证。代码侧的低危项（在持有的锁内重复读取 interface receipt，形成第二个
+权威）已改为复用加锁前已验证的 owner（`51ec9ab5`）；证据更正落在 `d6233d1e`，其中
+overlay 哈希由提交后的字节重算。已请求对该两笔提交重新验证。
 
 不新增公开 CLI/SDK/IR/runtime/manifest，也不实施一等 system。本包只是 M4 的逐源
 compile 环节，不代表 M4 完成。
