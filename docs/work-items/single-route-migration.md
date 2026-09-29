@@ -198,14 +198,32 @@ N0-U1 的形状探测发现 `state = other` / `state = 7` 能 link、reparse 后
   私有桥的 link 拒绝是保守的能力限制，不是最终修复，**不退役普通 copy/constant
   赋值，也不再要求用户重新决定是否允许普通赋值。**
 
-后续修复任务（不属本轮，需单独有界包）：
+### 已修复（2026-09-29，候选 `d877ff93`）
 
-1. 先冻结 source/final 两个阶段的分类不变量并写独立反例（哪些 op 属于 numeric
-   义务、哪些只是通用 value/use provenance），确认修复不会放松 numeric proof、
-   RequiredUse、`YieldBinding` 与检查闭包。
-2. 再改共享分析（三处谓词收敛为单一实现），带正反例与双后端回归。
-3. 本轮**禁止**直接从三处 `hasNumericInventory` 删除 value ops；在任何裁决前
-   私有桥保持 fail-closed（link 即拒绝），不扩大支持面也不弱化校验。
+分类不变量已冻结并写入证据包，共享分析已收敛：
+
+- 不变量：通用 provenance（`ac.value.binding`/`ac.value.use`）不等于数值义务；
+  numeric 义务只能由显式载体声明（非空 `ac.required_numeric`、`ac.numeric.proof`、
+  `ac.math.*`、带 `ac.check_template` 的 op）；不得用 dialect 名（`arith.*`）粗判；
+  numeric 义务不能靠删字段降级；generic 仍走既有严格校验。
+- 实现：新增内部 header-only 分类器
+  `compiler/acir/lib/Compiler/RuleInventory.h::ruleHasNumericObligation`，四处副本
+  全部收敛（`CheckGraph`、`ProposalGraph`、`Passes/InferRuleEffects`，以及经集成者
+  明确批准扩入本包的 `ObservationGraph`——它原来内联了第四份同名逻辑，且在
+  `:210` 对每个 rule 分类）。各调用点保留自己的 numeric/generic 校验责任。
+- 校验：`copy` 与 `constant` 走完逐源 capture → link → 保存 `.ac` → 新进程 emit →
+  clang/Icarus 实编实跑，观测轨迹 `[254,7,7]`、`[254,3,3]`，reset/rerun 相同，
+  父子 alias 下物理 `ac.reg` 恰 3 个（无 relay/double reg）；4 项 generic 载体
+  反例与 2 项 anti-downgrade 反例（删 `required_numeric`、再删 proof）全部拒绝。
+  负向对照：回退五个编译器文件后 roundtrip 6 项全部失败。
+- 证据：[generic-assignment-reconstruction](../gates/logs/20260929-generic-assignment-reconstruction/README.md)。
+  lane：62 focused、89 system（2 项 V44 依约 deselected）、355 native（20 二进制），
+  0 failures/errors/skips/disabled；V41/V42 轨迹与 4/5 物理寄存器不变。
+
+历史勘误（保留原时点）：`CheckGraph.cpp`、`Passes/InferRuleEffects.cpp`、
+`ProposalGraph.cpp` 三处逐字重复的 `hasNumericInventory` 把通用 value ops 当作
+numeric 声明；`FinalProgram.cpp` 的 residual 检查虽提到这两个 op，但用
+`hasGenericFinalUses` 正确豁免，未改。
 
 `hasNumericInventory` 三处重复本身仍是待收敛的实现债；独立的 U1 closure
 verifier（`ACIRNumericNextUse.cpp`）在任何选择下都继续强制闭合。
