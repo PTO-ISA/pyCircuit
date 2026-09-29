@@ -701,21 +701,35 @@ def test_ported_module_root_is_rejected_until_the_dut_io_contract(
 
 
 def test_glue_output_path_alias_still_publishes_nothing(tmp_path: Path) -> None:
-    """The equal-path guard is string equality, so an aliased second path
-    reaches the rollback instead. Either way no half bundle may survive."""
+    """The equal-path guard compares argv strings, so an aliased spelling that
+    survives through argv reaches the second exclusive create and therefore the
+    rollback. This is the only case that exercises that rollback."""
     _, program = _linked_m2_design(tmp_path)
     rtl = tmp_path / "aliased.sv"
-    glue = tmp_path / "." / "aliased.sv"
+    # Keep the raw "/./" spelling: passing this string through pathlib would
+    # normalize it back to the same string and the argv guard would fire first.
+    aliased = str(tmp_path) + "/./aliased.sv"
+    sentinel = tmp_path / "sentinel.bin"
+    sentinel.write_bytes(b"keep me\x00")
+
+    assert str(rtl) != aliased, "the two argv strings must differ"
+    assert not rtl.exists()
 
     result = _design_command(
         program,
         ["--target", "verilog", "--role", "testbench",
-         "--output", str(rtl), "--glue-output", str(glue)],
+         "--output", str(rtl), "--glue-output", aliased],
     )
 
-    assert result.returncode != 0, result.stdout
+    # An execution failure from the second exclusive create, not the argument
+    # guard: rc=2 would mean the tool never tried to publish.
+    assert result.returncode == 1, (result.returncode, result.stderr)
+    assert "cannot create output" in result.stderr, result.stderr
+    assert "must differ" not in result.stderr, result.stderr
+    # the first role file was rolled back and unrelated files are untouched
     assert not rtl.exists()
-    assert not glue.exists()
+    assert not Path(aliased).exists()
+    assert sentinel.read_bytes() == b"keep me\x00"
 
 
 def test_system_root_must_be_declared_as_a_testbench(tmp_path: Path) -> None:
@@ -803,3 +817,60 @@ def test_private_regression_fixtures_do_not_leak_into_shipped_surfaces() -> None
         text = path.read_text(encoding="utf-8", errors="ignore")
         for fixture in fixtures:
             assert fixture not in text, f"{fixture} leaked into {path}"
+
+
+MULTI_VALUE_OBSERVATION = """\
+from pycircuit import system, rule
+
+@system
+def Multi():
+    first: bool = True
+    second: bool = False
+
+    @rule
+    def observe():
+        print("event", first, second)
+
+    observe()
+"""
+
+
+def test_multi_value_observation_is_a_known_backend_capability_limit(
+    tmp_path: Path,
+) -> None:
+    """The reconstruction guard proves the shared final IR can be rebuilt; it
+    does not promise that both backends can emit every shape. A multi-value
+    observation links today and is rejected by each emitter at emit time, and
+    this records that limit instead of hiding it."""
+    source_root = tmp_path / "source"
+    source_root.mkdir()
+    (source_root / "multi.py").write_text(MULTI_VALUE_OBSERVATION, encoding="utf-8")
+    unit = _compile_source(
+        source_root / "multi.py", source_root=source_root,
+        output_dir=tmp_path / "units/multi",
+    )
+    design = tmp_path / "multi.ac"
+
+    linked = _link([unit], design, top="demo.multi.Multi", role="testbench")
+    assert linked.returncode == 0, linked.stderr
+    assert design.is_file()
+
+    diagnostics = {
+        "cpp": "C++ emitter supports scalar observations only",
+        "verilog": "RTL supports zero or one local observation value",
+    }
+    for target, diagnostic in diagnostics.items():
+        fresh = tmp_path / f"fresh.{target}"
+        rejected = _emit(design, target, fresh, role="testbench")
+        assert rejected.returncode != 0, f"{target}: unexpectedly emitted"
+        assert diagnostic in rejected.stderr, rejected.stderr
+        assert not fresh.exists(), f"{target}: wrote output despite rejecting"
+
+    # An existing output must also survive a rejected emit unchanged.
+    preserved = tmp_path / "preserved.verilog"
+    original = b"previous backend output\x00\xff"
+    preserved.write_bytes(original)
+    rejected = _emit(design, "verilog", preserved, role="testbench")
+    assert rejected.returncode != 0
+    assert diagnostics["verilog"] in rejected.stderr, rejected.stderr
+    assert preserved.read_bytes() == original

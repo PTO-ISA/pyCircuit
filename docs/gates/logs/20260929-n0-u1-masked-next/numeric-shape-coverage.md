@@ -41,16 +41,37 @@ final artifact cannot be reconstructed is rejected at link with
 `linked design is not reconstructible by the emit path; this source shape is not
 supported yet`, and no file is written.
 
+**Scope of this guarantee (corrected 2026-09-29):** it proves that the *shared
+final IR can be rebuilt by the emit path*. It is **not** a promise that every
+backend can emit every shape. Backend capability limits are enforced by each
+emitter when that backend actually runs — for example a multi-value observation
+links today and is then rejected by both emitters
+(`C++ emitter supports scalar observations only`,
+`RTL supports zero or one local observation value`), with no backend output and
+no change to an existing output. See
+`tests/system/test_source_design_bridge.py::test_multi_value_observation_is_a_known_backend_capability_limit`.
+Link must not call the emitters to widen this guarantee, because C3 requires link
+to stay codegen-free; a stronger capability gate belongs in a shared analysis,
+pass or verifier and needs its own approved packet.
+
 This is a private-tool guard, so no compiler semantics, IR, CLI, runtime or
-schema changed. The compiler-side question it exposes is deliberately left open
-below.
+schema changed.
 
 ## What remains open
 
-1. **Should copy and constant next assignments be supported?** They are ordinary
-   C1 assignments and are not in the declared bounded-M2 profile. Supporting
-   them means extending the next-use route beyond the U1 masked-add profile, and
-   that is a capability decision, not a bug fix.
+1. **Plain copy and constant next assignments are an implementation gap under an
+   existing contract, not a new language decision** (corrected 2026-09-29).
+   `FinalUses.cpp:16-65` already carries direct-current/literal assignment
+   authority and `ACIRFinalContracts.cpp:437-450` already distinguishes numeric
+   from generic final uses, so `state = other` and `state = 7` are inside the
+   approved assignment semantics. What is inconsistent is the classification
+   during serialized-final reconstruction. The private bridge's link rejection is
+   a conservative capability limit, **not** the final fix, and the plain
+   assignment is **not** retired; no further user decision about whether plain
+   assignment is allowed is required. The follow-up fix packet must first freeze
+   the source/final classification invariants with independent counterexamples
+   proving that numeric proof, RequiredUse, `YieldBinding` and check closure are
+   not relaxed, and only then change the shared analysis.
 2. **`hasNumericInventory` is duplicated verbatim in three places**
    (`CheckGraph.cpp:40`, `Passes/InferRuleEffects.cpp:177`,
    `ProposalGraph.cpp:93`) and treats `ac.value.binding`/`ac.value.use` as a
@@ -73,3 +94,13 @@ below.
 | `tests/system/test_masked_next_register.py` | **13 passed** (2 new link-rejection cases, 1 new supported-shapes positive) |
 | Python system selectors (5 files) | **76 passed, 0 failed, 0 skipped**; 2 V44 cases deselected |
 | Native lane | unchanged by this packet: no compiler library source changed and no native target links `acir-design-harness` |
+
+
+## Erratum log
+
+- 2026-09-29: the guard's claim was narrowed from "emit can consume it" to "the
+  shared final IR can be rebuilt", and the multi-value observation limit is now
+  recorded with its own regression instead of being implied away.
+- 2026-09-29: plain copy/constant next assignment was reclassified from "new
+  capability decision" to "serialized-final reconstruction gap under the
+  existing assignment contract". Historical measurements above are unchanged.

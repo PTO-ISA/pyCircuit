@@ -1,0 +1,15 @@
+# Baseline: implementation 6696eb3f (dirty overlay = this batch's R2-R5 files)
+cmake --build "$PYC_BUILD" --target acir-design-harness acir-source-unit-harness \
+  acir-backend-closure-harness ACIRFinalProgramTests ACIRProposalContractsTests -j 4
+export ACIR_SOURCE_UNIT_HARNESS="$PYC_BUILD/bin/acir-source-unit-harness"
+export ACIR_BACKEND_CLOSURE_HARNESS="$PYC_BUILD/bin/acir-backend-closure-harness"
+export ACIR_DESIGN_HARNESS="$PYC_BUILD/bin/acir-design-harness"
+export PYTHONPATH="$PYC_PRODUCT/python/pycircuit/src:$PYC_PRODUCT/python/semantic-core/src:$PYC_PRODUCT/python/agentic-circuit/src"
+pytest -q tests/system/test_masked_next_register.py tests/system/test_source_design_bridge.py \
+  --junitxml="$PYC_REVIEW_OUT/focused.xml"
+pytest -q tests/system/test_masked_next_register.py tests/system/test_source_design_bridge.py \
+  tests/system/test_v41_v42_source_fixtures.py tests/system/test_source_numeric_next.py \
+  tests/system/test_unified_register_backends.py -k 'not v44' --junitxml="$PYC_REVIEW_OUT/system.xml"
+"$PYC_BUILD/bin/ACIRFinalProgramTests" --gtest_output="xml:$PYC_REVIEW_OUT/final-native.xml"
+"$PYC_BUILD/bin/ACIRProposalContractsTests" --gtest_output="xml:$PYC_REVIEW_OUT/proposal-native.xml"
+git diff --check

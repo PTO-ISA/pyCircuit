@@ -1,0 +1,27 @@
+Running main() from /private/tmp/googletest-20250910-5249-qce8ci/googletest-1.17.0/googletest/src/gtest_main.cc
+[==========] Running 9 tests from 1 test suite.
+[----------] Global test environment set-up.
+[----------] 9 tests from ProposalContractsTest
+[ RUN      ] ProposalContractsTest.DifferentTargetsRemainIndependentWithoutPolicy
+[       OK ] ProposalContractsTest.DifferentTargetsRemainIndependentWithoutPolicy (138 ms)
+[ RUN      ] ProposalContractsTest.SourcePathValidAndProposalEnableStayDistinct
+[       OK ] ProposalContractsTest.SourcePathValidAndProposalEnableStayDistinct (129 ms)
+[ RUN      ] ProposalContractsTest.AlwaysOverlappingWritersRemainSourceFactsUntilLinkAnalysis
+[       OK ] ProposalContractsTest.AlwaysOverlappingWritersRemainSourceFactsUntilLinkAnalysis (129 ms)
+[ RUN      ] ProposalContractsTest.PossibleOverlapWithoutProofCarrierIsRejected
+[       OK ] ProposalContractsTest.PossibleOverlapWithoutProofCarrierIsRejected (131 ms)
+[ RUN      ] ProposalContractsTest.ConstantFalseProposalDoesNotBlockTrueCommit
+[       OK ] ProposalContractsTest.ConstantFalseProposalDoesNotBlockTrueCommit (129 ms)
+[ RUN      ] ProposalContractsTest.VerifierRejectsContributionIdentityAndSsaExchange
+[       OK ] ProposalContractsTest.VerifierRejectsContributionIdentityAndSsaExchange (130 ms)
+[ RUN      ] ProposalContractsTest.VerifierRejectsForgedConflictRecipes
+[       OK ] ProposalContractsTest.VerifierRejectsForgedConflictRecipes (158 ms)
+[ RUN      ] ProposalContractsTest.VerifierRejectsForgedCommitRecipes
+[       OK ] ProposalContractsTest.VerifierRejectsForgedCommitRecipes (130 ms)
+[ RUN      ] ProposalContractsTest.VerifierRejectsForgedGlobalPermit
+[       OK ] ProposalContractsTest.VerifierRejectsForgedGlobalPermit (128 ms)
+[----------] 9 tests from ProposalContractsTest (1206 ms total)
+
+[----------] Global test environment tear-down
+[==========] 9 tests from 1 test suite ran. (1207 ms total)
+[  PASSED  ] 9 tests.

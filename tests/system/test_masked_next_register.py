@@ -399,22 +399,52 @@ def test_link_rejects_shapes_the_emit_path_cannot_consume(
     assert not (tmp_path / "counter.ac").exists()
 
 
+# The three next-assignment profiles declared as supported. Each entry is
+# (fields, nonlocal names, body lines).
+SUPPORTED_SHAPES = {
+    "unconditional": (
+        ["state: Word = 254"], ["state"], ["state = (state + 1) & 255"],
+    ),
+    "enable-guarded": (
+        ["state: Word = 254", "en: bool = True"], ["state"],
+        ["if en:", "    state = (state + 1) & 255"],
+    ),
+    "conditional-comparison": (
+        ["state: Word = 254", "other: Word = 3"], ["state"],
+        ["if other == 0:", "    state = (state + 1) & 255"],
+    ),
+}
+
+
+def _counter_source(fields, nonlocals_, body_lines) -> str:
+    declarations = "".join(f"    {field}\n" for field in fields)
+    body = "".join(f"        {line}\n" for line in body_lines)
+    return (
+        "from pycircuit import module, rule\nfrom .types import Word\n\n"
+        f"@module\ndef Counter():\n{declarations}\n"
+        f"    @rule\n    def tick():\n        nonlocal {', '.join(nonlocals_)}\n"
+        f"{body}\n    tick()\n"
+    )
+
+
 def test_supported_shapes_still_link_and_emit(tmp_path: Path) -> None:
-    """The fail-closed guard must not reject the supported next-assignment
-    profiles: masked add, enable-guarded add and conditional add."""
-    for name, body in (
-        ("unconditional", ["state = (state + 1) & 255"]),
-        ("enable-guarded", ["if en:", "    state = (state + 1) & 255"]),
-    ):
+    """Every declared supported shape is compiled from real Python, linked to
+    its own artifact, and then actually emitted by both backends to distinct
+    paths, so the fail-closed guard cannot pass by only linking."""
+    for name, (fields, nonlocals_, body_lines) in SUPPORTED_SHAPES.items():
         case = tmp_path / name
         case.mkdir()
-        extra = "    en: bool = True\n" if name == "enable-guarded" else ""
-        text = (
-            "from pycircuit import module, rule\nfrom .types import Word\n\n"
-            "@module\ndef Counter():\n    state: Word = 254\n" + extra +
-            "\n    @rule\n    def tick():\n        nonlocal state\n"
-            + "".join("        " + line + "\n" for line in body) + "\n    tick()\n"
+        linked = _linked_from_source(
+            case, _counter_source(fields, nonlocals_, body_lines)
         )
-        result = _linked_from_source(case, text)
-        assert result.returncode == 0, f"{name}: {result.stderr}"
-        assert (case / "counter.ac").is_file()
+        assert linked.returncode == 0, f"{name}: {linked.stderr}"
+        design = case / "counter.ac"
+        assert design.is_file(), name
+
+        for target, extension in (("cpp", "cpp"), ("verilog", "sv")):
+            output = case / f"counter.{extension}"
+            assert not output.exists(), f"{name}/{target}: stale output path"
+            emitted = _emit(design, target, output)
+            assert emitted.returncode == 0, f"{name}/{target}: {emitted.stderr}"
+            assert output.is_file(), f"{name}/{target}: no backend output"
+            assert output.stat().st_size > 0, f"{name}/{target}: empty output"

@@ -288,11 +288,11 @@ mlir::LogicalResult runLink(const Options &options, mlir::MLIRContext &context,
       acir::compiler::materializeFinalProgram(std::move(*analysis), emitError);
   if (mlir::failed(program))
     return mlir::failure();
-  // A linked design is only useful if the emit path can consume it in a fresh
-  // process. Reconstructing from a clone here makes that guarantee fail closed:
-  // link must not publish an artifact that emit would have to reject, because
-  // that would surface as an emit-time error for a design the tool already
-  // accepted.
+  // Reconstructing from a clone here guarantees only that the shared final IR
+  // can be rebuilt by the emit path; it is not a promise that every backend can
+  // emit every shape. Backend capability limits (for example a multi-value
+  // observation) stay enforced by each emitter when that backend actually runs,
+  // and link must not call the emitters to widen this guarantee.
   mlir::OwningOpRef<mlir::ModuleOp> emittedView(
       llvm::cast<mlir::ModuleOp>(program->hardware()->clone()));
   if (mlir::failed(acir::compiler::buildFinalProgramFromHardware(*emittedView,
