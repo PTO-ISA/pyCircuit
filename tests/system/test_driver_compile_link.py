@@ -709,7 +709,7 @@ def test_link_accepts_replace_for_a_first_publication(
 def test_link_replace_refuses_a_path_this_driver_did_not_publish(
     workspace: _Workspace, cli_environment: dict[str, str]
 ) -> None:
-    """--replace may only republish an artifact this driver published."""
+    """--replace may only republish a path with a publication control directory."""
 
     types, counter = _two_units(cli_environment, workspace)
     foreign = workspace.out / "foreign.ac"
@@ -724,13 +724,36 @@ def test_link_replace_refuses_a_path_this_driver_did_not_publish(
     )
 
     diagnostic = _diagnostic(result, "link")
-    assert "refusing to replace a path this driver did not publish" in diagnostic
+    assert "refusing to replace a path with no publication control directory" in (
+        diagnostic
+    )
     assert str(foreign) in diagnostic
     # The user file is untouched and no publication control directory was
     # created beside it.
     assert foreign.read_text(encoding="utf-8") == "user data\n"
     assert not _control(foreign).exists()
     assert sorted(entry.name for entry in workspace.out.iterdir()) == ["foreign.ac"]
+
+    # A dangling symlink is the same case: exists() cannot see its target, but
+    # --replace must still refuse before the lock set bootstraps a control
+    # directory on this path.
+    dangling = workspace.out / "dangling.ac"
+    dangling.symlink_to(workspace.out / "missing-target.ac")
+    result = _link(
+        cli_environment,
+        (types, counter),
+        "demo.counter.Counter",
+        dangling,
+        replace=True,
+    )
+    diagnostic = _diagnostic(result, "link")
+    assert "refusing to replace a path with no publication control directory" in (
+        diagnostic
+    )
+    assert str(dangling) in diagnostic
+    assert dangling.is_symlink()
+    assert not (workspace.out / "missing-target.ac").exists()
+    assert not _control(dangling).exists()
 
     # Without --replace the same foreign file is still never overwritten.
     rejected = _link(cli_environment, (types, counter), "demo.counter.Counter", foreign)

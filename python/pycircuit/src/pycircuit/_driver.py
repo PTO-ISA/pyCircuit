@@ -215,17 +215,21 @@ def link_command(
     if not inputs:
         raise _DriverError("link requires at least one explicitly listed unit")
 
-    if replace and destination.exists():
-        # C3-C forbids --replace touching anything this driver did not publish. A
-        # program carries no owner record, so "we published this" is recognized
-        # by the publication control directory it would have created, checked
-        # before the lock set bootstraps one.
+    if replace and (destination.exists() or destination.is_symlink()):
+        # C3-C forbids --replace touching anything this driver did not publish,
+        # but a program carries no owner record, so the only invariant Python can
+        # check is that a publication control directory names this destination.
+        # That is a typo and accident guard, not proof of a prior publication:
+        # the control directory is also bootstrapped by any earlier command that
+        # failed here. Requiring it before the lock set runs avoids creating one
+        # on this path, and is_symlink() catches a dangling link, whose target
+        # exists() cannot see.
         try:
             _require_initialized_control(_paths_for(destination, fs), fs)
         except _PublicationError as error:
             raise _DriverError(
-                "refusing to replace a path this driver did not publish: "
-                f"{destination}"
+                "refusing to replace a path with no publication control "
+                f"directory: {destination}"
             ) from error
 
     scratch = Path(tempfile.mkdtemp(prefix="pycircuit-link-")).resolve()
