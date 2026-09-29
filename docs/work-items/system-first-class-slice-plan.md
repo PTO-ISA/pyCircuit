@@ -4,7 +4,8 @@
 
 精确内容以 [C2-SYSTEM 修订 B](../rfcs/migration/c2-system-definition-role.md)
 （SHA-256 `db81dbc85e54346a0b8f953b6162c7b88d0ed5c5368b1cdbe26a2b4ccda79448`）
-为准。该修订已获独立设计审阅 approval-ready，但
+为准。用户在本轮任务说明中陈述该修订已通过独立设计审阅，但仓库内没有
+reviewer 实例或结论产物，两份提案正文仍标"待审阅"；且
 `docs/rfcs/migration/approvals/` 下**没有**对应批准记录，因此本包
 **不得实施**新的 IR、CLI 或 manifest schema。本页只固定范围、依赖、文件归属、
 拒绝用例与验收命令，供批准后按序执行。
@@ -14,12 +15,17 @@
 | 项 | 状态 |
 | --- | --- |
 | 方向（一等 `ac.system` 定义） | 用户已选 |
-| C2-SYSTEM 修订 B 精确字段 | 独立审阅 approval-ready；**用户未批准** |
-| C2-EXPECT 修订 B 精确字段 | 独立审阅 approval-ready；**用户未批准** |
+| C2-SYSTEM 修订 B 精确字段 | 审阅产物**未归档**（用户陈述已通过）；**用户未批准** |
+| C2-EXPECT 修订 B 精确字段 | 审阅产物**未归档**（用户陈述已通过）；**用户未批准** |
 
 批准必须绑定上面的内容哈希。批准前允许做：分析、准备、以及不触及新 schema 的
 测试/文档修正。批准前禁止做：改 ODS、改 source/header 映射、加
 `ac.artifact_role`、改 public `link --role`、改 manifest。
+
+**审阅归档缺口**：要把"已通过独立设计审阅"作为准入依据，必须先按
+`docs/reviews/20260929-system-role-expect-design-review.md` 文末补齐 reviewer
+实例与结论产物，并把两份提案正文的状态行同步。在该缺口关闭前，本包的批准前置
+只承认"用户已选方向 + 尚无批准记录"，不承认 approval-ready 作为执行依据。
 
 **已知冲突（批准后必须一起处理）**：当前私有 `acir-design-harness --role` 强制
 `@system` root ⟹ `testbench`。C2-SYSTEM 修订 B §5/§7 要求删除该私有规则（role 与

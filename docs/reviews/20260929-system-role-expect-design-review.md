@@ -5,22 +5,31 @@
 零 region descriptor。用户同时要求审阅 IR 级 design/testbench role 与 expect
 字段；方向选择不等于下表字段已经批准。
 
-**approval-ready 不等于用户批准。** 本记录把"独立设计审阅结论"与"用户批准
-状态"分列，不得混写。截至本记录，两份修订都**没有**用户批准：规划
-`docs/rfcs/migration/approvals/` 下只有 `c1-pythonic-source.md`、
-`c2-c3-foundation.md`、`c2-n1-namespaces.md`、`c2-r1-m1-interface.md` 四份，
-不含本两份修订。不要据本页补写或推断批准记录。
+**两种状态都必须有产物支撑，不得混写，也不得凭陈述上游标。**
+
+- **用户批准**：两份修订都**没有**批准记录。规划
+  `docs/rfcs/migration/approvals/` 下只有 `c1-pythonic-source.md`、
+  `c2-c3-foundation.md`、`c2-n1-namespaces.md`、`c2-r1-m1-interface.md` 四份，
+  不含本两份修订。不要据本页补写或推断批准记录。
+- **独立设计审阅**：用户在本轮任务说明中陈述"两份精确提案已通过独立设计审阅"，
+  但仓库内**没有**对应的 reviewer 实例、结论产物或 gates-log 记录，而两份提案
+  自身的状态行仍写"待独立复审"（`c2-expect-schema.md:3`）与"仍待独立审阅"
+  （`c2-system-definition-role.md:3–5`）。因此本记录**不**把任何一份标成
+  approval-ready，只登记"用户陈述已通过、审阅产物待归档"。补齐方式见文末
+  "审阅归档缺口"。
 
 设计基线：规划 `b7d0dd3d`，实现 `6696eb3f`（实现侧后续含本批 R2–R4 测试与
 注释修正）。本记录不修改产品 ODS、编译器语义或 runtime。
 
-| 提案 | 修订 | 内容 SHA-256 | 独立设计审阅 | 用户批准 |
+| 提案 | 修订 | 内容 SHA-256（实测） | 独立设计审阅产物 | 用户批准 |
 | --- | --- | --- | --- | --- |
-| C2-EXPECT | B | `e8f287e76180c701648dfb2dc8aa08a877ee347da351ebc1fbab4ae24c400b3b` | approval-ready | **未批准** |
-| C2-SYSTEM | B | `db81dbc85e54346a0b8f953b6162c7b88d0ed5c5368b1cdbe26a2b4ccda79448` | approval-ready | **未批准** |
+| C2-EXPECT | B | `e8f287e76180c701648dfb2dc8aa08a877ee347da351ebc1fbab4ae24c400b3b` | **未归档**（用户陈述已通过；提案正文仍标待复审） | **未批准** |
+| C2-SYSTEM | B | `db81dbc85e54346a0b8f953b6162c7b88d0ed5c5368b1cdbe26a2b4ccda79448` | **未归档**（用户陈述已通过；提案正文仍标待审阅） | **未批准** |
 
-两处哈希按当前工作树实测，与用户交接记录给出的修订 B 哈希一致；哈希只作
-项目证据与批准绑定候选，不进入设计身份。
+两处哈希按当前工作树实测，并且与用户本轮任务说明给出的修订 B 哈希一致。该
+一致性陈述**不落在仓库产物内**：`docs/work-items/deepseek-review-followup-m1-m7.md`
+与两份提案正文都不含这两个哈希。因此哈希只作本项目内部的候选绑定证据，
+**不充当审阅证据**，也不进入设计身份。
 
 ## C2-EXPECT 修订 B
 
@@ -91,3 +100,19 @@ owning module source owner。这是当前实现限制，不能被本次字段冻
 manifest 字段变更，**必须等精确批准后实施**；本轮不修改它，也不据本页把它标成
 已批准或已交付。修订 B 允许私有测试 helper 暂时保留 `--role` 作为**一致性断言**，
 但只能是比较相等，不得推断用途，也不得覆盖 IR。
+
+
+## 审阅归档缺口（阻断 approval-ready 标注）
+
+要把上表"独立设计审阅"一列改成 approval-ready，至少需要一个可核对的产物，
+任选其一：
+
+1. 独立 reviewer 实例的结论记录，落到 `docs/reviews/` 或
+   `docs/gates/logs/<run-id>/`，写明被审对象的内容哈希、reviewer 实例、审查项与
+   结论（对照 `docs/reviews/20260928-c2-r1-unified-register.md` 的形式）；或
+2. 一个独立的 data-check 记录，逐条列出两份修订的字段与现有实现/合同的差异
+   核查结果。
+
+同时两份提案正文的状态行需要更新为"独立审阅 approval-ready，待用户批准"，
+以消除正文与本记录之间的表述冲突。**在这两项完成前，本记录不宣称
+approval-ready，也不得据此进入实现。**
