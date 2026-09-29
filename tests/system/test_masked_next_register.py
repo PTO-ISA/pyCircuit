@@ -386,17 +386,50 @@ def Counter():
     "source_text,label",
     [(COPY_SOURCE, "register copy"), (CONSTANT_SOURCE, "constant assignment")],
 )
-def test_link_rejects_shapes_the_emit_path_cannot_consume(
+def test_plain_assignments_link_under_the_existing_contract(
     tmp_path: Path, source_text: str, label: str
 ) -> None:
-    """A plain copy or constant next assignment currently links but cannot be
-    reconstructed by the emit path. Link must fail closed instead of publishing
-    an artifact that emit would have to reject."""
+    """A plain copy or constant next assignment is inside the existing
+    assignment contract, so it must link now that the numeric classification no
+    longer treats generic provenance carriers as a numeric obligation. The full
+    source -> serialized-final -> both-backend run oracle for these shapes lives
+    in tests/system/test_generic_assignment_roundtrip.py."""
     result = _linked_from_source(tmp_path, source_text)
 
-    assert result.returncode != 0, f"{label} unexpectedly linked"
-    assert "is not reconstructible by the emit path" in result.stderr, result.stderr
-    assert not (tmp_path / "counter.ac").exists()
+    assert result.returncode == 0, f"{label}: {result.stderr}"
+    assert (tmp_path / "counter.ac").is_file()
+
+
+@pytest.mark.parametrize(
+    "strip_proofs,diagnostic",
+    [
+        (False, "generic final use rejects numeric/source evidence"),
+        (True, "generic final value has no direct source authority"),
+    ],
+)
+def test_numeric_obligation_cannot_be_downgraded_to_generic(
+    tmp_path: Path, strip_proofs: bool, diagnostic: str
+) -> None:
+    """Deleting numeric inventory must not let a numeric rule pass as a generic
+    assignment: with the proofs still present the generic path refuses numeric
+    residue, and with the proofs removed as well the value has no direct source
+    authority."""
+    _, design = _linked_counter(tmp_path)
+    text = design.read_text()
+    mutated = text.replace("ac.required_numeric = [", "ac.required_unused = [", 1)
+    if strip_proofs:
+        mutated = "".join(line for line in mutated.splitlines(keepends=True)
+                          if '"ac.numeric.proof"' not in line)
+    assert mutated != text, "downgrade mutation did not apply"
+
+    candidate = tmp_path / "downgraded.ac"
+    candidate.write_text(mutated, encoding="utf-8")
+    output = tmp_path / "downgraded.sv"
+    result = _emit(candidate, "verilog", output)
+
+    assert result.returncode != 0, "downgraded numeric rule unexpectedly emitted"
+    assert diagnostic in result.stderr, result.stderr
+    assert not output.exists()
 
 
 # The three next-assignment profiles declared as supported. Each entry is

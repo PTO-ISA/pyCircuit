@@ -1,4 +1,5 @@
 #include "ObservationGraph.h"
+#include "Compiler/RuleInventory.h"
 #include "Dialect/ACIR/ACIRNumericComposition.h"
 #include "Dialect/ACIR/ACIRNumericNextUse.h"
 
@@ -71,18 +72,11 @@ ArrayAttr internalValueConstraints(Builder &builder,
 
 LogicalResult rejectUnsupportedNumericProofs(ac::RuleOp rule,
                                              ac::detail::EmitError emitError) {
-  bool numeric = false;
-  if (auto values = rule->getAttrOfType<ArrayAttr>("ac.required_numeric");
-      values && !values.empty())
-    numeric = true;
-  for (Operation &operation : rule.getBody().front()) {
-    StringRef name = operation.getName().getStringRef();
-    if (name.starts_with("ac.math.") || name == "ac.numeric.proof" ||
-        name == "ac.value.binding" || name == "ac.value.use" ||
-        operation.hasAttr("ac.check_template"))
-      numeric = true;
-  }
-  if (!numeric)
+  // Generic provenance carriers (ac.value.binding / ac.value.use) are
+  // synthesized for ordinary direct-current and literal assignments too, so only
+  // an explicit numeric obligation may gate this closure. The shared classifier
+  // is the single definition of that test.
+  if (!ruleHasNumericObligation(rule))
     return success();
   if (ac::hasNumericCompositionContract(rule)) {
     if (failed(ac::verifyNumericCompositionClosure(rule)))

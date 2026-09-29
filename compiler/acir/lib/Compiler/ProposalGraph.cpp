@@ -1,4 +1,5 @@
 #include "ProposalGraph.h"
+#include "Compiler/RuleInventory.h"
 #include "CheckGraph.h"
 #include "Dialect/ACIR/ACIRNumericComposition.h"
 #include "Dialect/ACIR/ACIRNumericNextUse.h"
@@ -90,23 +91,9 @@ DictionaryAttr ownedState(Builder &builder, ac::RegOp reg) {
   });
 }
 
-bool hasNumericInventory(ac::RuleOp rule) {
-  if (auto required = rule->getAttrOfType<ArrayAttr>("ac.required_numeric");
-      required && !required.empty())
-    return true;
-  for (Operation &operation : rule.getBody().front()) {
-    StringRef name = operation.getName().getStringRef();
-    if (name.starts_with("ac.math.") || name == "ac.numeric.proof" ||
-        name == "ac.value.binding" || name == "ac.value.use" ||
-        operation.hasAttr("ac.check_template"))
-      return true;
-  }
-  return false;
-}
-
 LogicalResult verifySupportedNumericRule(ac::RuleOp rule,
                                          ac::detail::EmitError emitError) {
-  if (!hasNumericInventory(rule))
+  if (!ruleHasNumericObligation(rule))
     return success();
   if (ac::hasNumericCompositionContract(rule)) {
     if (failed(ac::verifyNumericCompositionClosure(rule)))

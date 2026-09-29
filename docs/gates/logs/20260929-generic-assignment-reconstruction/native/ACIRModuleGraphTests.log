@@ -1,0 +1,19 @@
+Running main() from /private/tmp/googletest-20250910-5249-qce8ci/googletest-1.17.0/googletest/src/gtest_main.cc
+[==========] Running 5 tests from 1 test suite.
+[----------] Global test environment set-up.
+[----------] 5 tests from ModuleGraphTest
+[ RUN      ] ModuleGraphTest.HeaderOnlyParentAndCompleteBodiesAreAdmitted
+[       OK ] ModuleGraphTest.HeaderOnlyParentAndCompleteBodiesAreAdmitted (255 ms)
+[ RUN      ] ModuleGraphTest.GraphHasRootOrderedChildrenOwnersAndPostOrder
+[       OK ] ModuleGraphTest.GraphHasRootOrderedChildrenOwnersAndPostOrder (248 ms)
+[ RUN      ] ModuleGraphTest.GraphOwnsThreeStatesAndRelayIsOneStateID
+[       OK ] ModuleGraphTest.GraphOwnsThreeStatesAndRelayIsOneStateID (254 ms)
+[ RUN      ] ModuleGraphTest.BadControlAndRecursiveCalleeAreRejected
+[       OK ] ModuleGraphTest.BadControlAndRecursiveCalleeAreRejected (252 ms)
+[ RUN      ] ModuleGraphTest.ForeignAndMissingOrRepeatedActualsAreRejected
+[       OK ] ModuleGraphTest.ForeignAndMissingOrRepeatedActualsAreRejected (250 ms)
+[----------] 5 tests from ModuleGraphTest (1261 ms total)
+
+[----------] Global test environment tear-down
+[==========] 5 tests from 1 test suite ran. (1261 ms total)
+[  PASSED  ] 5 tests.

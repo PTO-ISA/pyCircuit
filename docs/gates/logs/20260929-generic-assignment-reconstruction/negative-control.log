@@ -1,0 +1,95 @@
+============================= test session starts ==============================
+platform darwin -- Python 3.14.6, pytest-9.0.2, pluggy-1.6.0
+rootdir: /Users/zhoubot/.codex/worktrees/migration-capture/pyCircuit
+configfile: pyproject.toml
+collected 6 items
+
+tests/system/test_generic_assignment_roundtrip.py FFFFFF                 [100%]
+
+=================================== FAILURES ===================================
+__________ test_generic_assignment_roundtrip_both_backends[constant] ___________
+tests/system/test_generic_assignment_roundtrip.py:299: in test_generic_assignment_roundtrip_both_backends
+    design = _build_and_link(tmp_path, child, bench)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+tests/system/test_generic_assignment_roundtrip.py:184: in _build_and_link
+    assert linked.returncode == 0, linked.stderr
+E   AssertionError: error: source check analysis supports only verified U1 numeric next-state rules
+E     error: final hardware CheckGraph reconstruction failed
+E     error: final hardware program view reconstruction failed
+E     error: linked design is not reconstructible by the emit path; this source shape is not supported yet
+E     
+E   assert 1 == 0
+E    +  where 1 = CompletedProcess(args=['/Users/zhoubot/.codex/worktrees/migration-capture/pyCircuit/.pycircuit_out/w10-pm/build/bin/ac...uction failed\nerror: linked design is not reconstructible by the emit path; this source shape is not supported yet\n').returncode
+________ test_generic_assignment_roundtrip_both_backends[register-copy] ________
+tests/system/test_generic_assignment_roundtrip.py:299: in test_generic_assignment_roundtrip_both_backends
+    design = _build_and_link(tmp_path, child, bench)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+tests/system/test_generic_assignment_roundtrip.py:184: in _build_and_link
+    assert linked.returncode == 0, linked.stderr
+E   AssertionError: error: source check analysis supports only verified U1 numeric next-state rules
+E     error: final hardware CheckGraph reconstruction failed
+E     error: final hardware program view reconstruction failed
+E     error: linked design is not reconstructible by the emit path; this source shape is not supported yet
+E     
+E   assert 1 == 0
+E    +  where 1 = CompletedProcess(args=['/Users/zhoubot/.codex/worktrees/migration-capture/pyCircuit/.pycircuit_out/w10-pm/build/bin/ac...uction failed\nerror: linked design is not reconstructible by the emit path; this source shape is not supported yet\n').returncode
+__________ test_generic_use_carriers_are_verified[drop-required-uses] __________
+tests/system/test_generic_assignment_roundtrip.py:364: in test_generic_use_carriers_are_verified
+    design = _build_and_link(tmp_path, child, bench)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+tests/system/test_generic_assignment_roundtrip.py:184: in _build_and_link
+    assert linked.returncode == 0, linked.stderr
+E   AssertionError: error: source check analysis supports only verified U1 numeric next-state rules
+E     error: final hardware CheckGraph reconstruction failed
+E     error: final hardware program view reconstruction failed
+E     error: linked design is not reconstructible by the emit path; this source shape is not supported yet
+E     
+E   assert 1 == 0
+E    +  where 1 = CompletedProcess(args=['/Users/zhoubot/.codex/worktrees/migration-capture/pyCircuit/.pycircuit_out/w10-pm/build/bin/ac...uction failed\nerror: linked design is not reconstructible by the emit path; this source shape is not supported yet\n').returncode
+________ test_generic_use_carriers_are_verified[redirect-data-operand] _________
+tests/system/test_generic_assignment_roundtrip.py:364: in test_generic_use_carriers_are_verified
+    design = _build_and_link(tmp_path, child, bench)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+tests/system/test_generic_assignment_roundtrip.py:184: in _build_and_link
+    assert linked.returncode == 0, linked.stderr
+E   AssertionError: error: source check analysis supports only verified U1 numeric next-state rules
+E     error: final hardware CheckGraph reconstruction failed
+E     error: final hardware program view reconstruction failed
+E     error: linked design is not reconstructible by the emit path; this source shape is not supported yet
+E     
+E   assert 1 == 0
+E    +  where 1 = CompletedProcess(args=['/Users/zhoubot/.codex/worktrees/migration-capture/pyCircuit/.pycircuit_out/w10-pm/build/bin/ac...uction failed\nerror: linked design is not reconstructible by the emit path; this source shape is not supported yet\n').returncode
+_______ test_generic_use_carriers_are_verified[redirect-enable-operand] ________
+tests/system/test_generic_assignment_roundtrip.py:364: in test_generic_use_carriers_are_verified
+    design = _build_and_link(tmp_path, child, bench)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+tests/system/test_generic_assignment_roundtrip.py:184: in _build_and_link
+    assert linked.returncode == 0, linked.stderr
+E   AssertionError: error: source check analysis supports only verified U1 numeric next-state rules
+E     error: final hardware CheckGraph reconstruction failed
+E     error: final hardware program view reconstruction failed
+E     error: linked design is not reconstructible by the emit path; this source shape is not supported yet
+E     
+E   assert 1 == 0
+E    +  where 1 = CompletedProcess(args=['/Users/zhoubot/.codex/worktrees/migration-capture/pyCircuit/.pycircuit_out/w10-pm/build/bin/ac...uction failed\nerror: linked design is not reconstructible by the emit path; this source shape is not supported yet\n').returncode
+____________ test_generic_use_carriers_are_verified[drop-value-use] ____________
+tests/system/test_generic_assignment_roundtrip.py:364: in test_generic_use_carriers_are_verified
+    design = _build_and_link(tmp_path, child, bench)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+tests/system/test_generic_assignment_roundtrip.py:184: in _build_and_link
+    assert linked.returncode == 0, linked.stderr
+E   AssertionError: error: source check analysis supports only verified U1 numeric next-state rules
+E     error: final hardware CheckGraph reconstruction failed
+E     error: final hardware program view reconstruction failed
+E     error: linked design is not reconstructible by the emit path; this source shape is not supported yet
+E     
+E   assert 1 == 0
+E    +  where 1 = CompletedProcess(args=['/Users/zhoubot/.codex/worktrees/migration-capture/pyCircuit/.pycircuit_out/w10-pm/build/bin/ac...uction failed\nerror: linked design is not reconstructible by the emit path; this source shape is not supported yet\n').returncode
+=========================== short test summary info ============================
+FAILED tests/system/test_generic_assignment_roundtrip.py::test_generic_assignment_roundtrip_both_backends[constant]
+FAILED tests/system/test_generic_assignment_roundtrip.py::test_generic_assignment_roundtrip_both_backends[register-copy]
+FAILED tests/system/test_generic_assignment_roundtrip.py::test_generic_use_carriers_are_verified[drop-required-uses]
+FAILED tests/system/test_generic_assignment_roundtrip.py::test_generic_use_carriers_are_verified[redirect-data-operand]
+FAILED tests/system/test_generic_assignment_roundtrip.py::test_generic_use_carriers_are_verified[redirect-enable-operand]
+FAILED tests/system/test_generic_assignment_roundtrip.py::test_generic_use_carriers_are_verified[drop-value-use]
+============================== 6 failed in 2.09s ===============================
