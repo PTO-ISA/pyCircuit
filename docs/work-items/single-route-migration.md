@@ -255,11 +255,11 @@ native 未受影响（无编译器库源码变更）。
 精确字段见 [C2-SYSTEM 修订 B](../rfcs/migration/c2-system-definition-role.md)
 与 [C2-EXPECT 修订 B](../rfcs/migration/c2-expect-schema.md)。
 
-**两份都没有用户批准记录**；`docs/rfcs/migration/approvals/` 下无对应文件。
-独立设计审阅产物也**未归档**（用户陈述已通过，但仓库内没有 reviewer 实例或结论，
-两份提案正文仍标待审阅）。因此
-[审阅记录](../reviews/20260929-system-role-expect-design-review.md) **不标
-approval-ready**，只在文末列出补齐方式。批准前不实施新 op/IR/CLI/manifest。
+**两份都没有用户精确批准记录**。2026-09-30 已补齐
+[实际独立设计审阅归档](../reviews/20260930-revision-b-independent-review-archive.md)，
+核对 reviewer 实例、结论及两份 B 的内容摘要，当前状态均为 **approval-ready，
+待用户批准**。提案正文保留被审字节，当前状态由审阅记录维护；历史页眉不再
+被误当作没有审阅。批准前仍不实施新 op/IR/CLI/manifest。
 
 准备材料：[stage 分析](system-root-kind-stage-analysis.md)（source/header/linked/
 final/reparse 谁承载 system、谁选入口，以及 final 的 `ac.entry` 与
@@ -270,6 +270,42 @@ final/reparse 谁承载 system、谁选入口，以及 final 的 `ac.entry` 与
 已知冲突（批准后必须一起处理）：当前私有桥 `@system ⟹ testbench` 规则正是
 修订 B §5/§7 要求删除的私有规则；它属 public `link --role`/IR role 变更，
 本轮未改。
+
+## M4 逐源 compile 编排入口（2026-09-29，候选 `64cb6106`）
+
+私有可调用入口 `python/pycircuit/src/pycircuit/_source_compile.py::_compile_source_unit`
+把已有组件接成一条可用流程：一次稳定的 Python source 快照 → 显式提供的 managed
+interface units → 现有 native source compiler → 已验证 body/header → 原子发布
+四文件 source unit（`<stem>.ac`、`<stem>.interface.ac`、`<stem>.d`、`unit.json`）。
+stem 随来源文件名，不固定为 design_top。
+
+关键约束与实现：
+
+- **一套完整锁集合**：所有 interface unit 作共享输入、输出目录作独占输出，由同一个
+  `_publication_lock_set` 覆盖输入快照、native 编译与发布；header 只从锁内快照写入
+  scratch，native compiler 不会重新打开 provider 文件，因此"逐个读 header→释放→
+  编译时重读→另取输出锁"在结构上不可能。
+- **owner 发现不是权威**：discovery 只为命名预期输入；锁集合在锁内重新核对 owner 与
+  artifact。
+- **正常读取与恢复校验分开**：输入用新的 header-only stable validator，恢复用既有
+  full validator；parent 因此只消费 header，恢复也不会为 header-only 让路。
+- **depfile 来源可验证**：native helper 新增最小私有 `--deps-out`，报告**实际消费**的
+  interface 闭包（来自 body 的 `ac.interfaces`，实测排除"提供了但未消费"的头）；depfile
+  的 target 是已发布产物，依赖为原 source、被消费 provider 的 interface 与 receipt、
+  以及 native 工具本身，并做 Make 转义，不含任何 scratch 路径。
+- 另加 owner 后置校验：编译产物必须带请求的 `ac.source_owner`。
+
+lane：unit 174 项 0 failures/errors（3 项既有平台 skip）；focused system 105 项
+0 failures/errors/skips。证据
+[source-compile-orchestration](../gates/logs/20260929-source-compile-orchestration/README.md)。
+
+**如实报告**：`tests/system/test_source_module_units.py`（15）与
+`tests/system/test_source_transport_mlir.py`（6）使用 class/self 写法，当前前端按设计
+拒绝；对**基线** harness 复跑同为 21 failed / 5 passed，与本候选完全一致 → 属既有
+陈旧 fixture，不是本包回归，本包不修（另立有界任务）。
+
+不新增公开 CLI/SDK/IR/runtime/manifest，也不实施一等 system。本包只是 M4 的逐源
+compile 环节，不代表 M4 完成。
 
 ## 全项目里程碑
 
