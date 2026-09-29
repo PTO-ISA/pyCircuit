@@ -284,11 +284,46 @@ def _load_full_source_unit(
     return result
 
 
+def _validate_source_unit_header(path: Path, owner: Mapping[str, object]) -> None:
+    """Header-only publication callback: receipt plus interface only.
+
+    Normal parent compilation must accept a managed provider without reading its
+    body or depfile; recovery still uses the full validator.
+    """
+
+    _read_header_view(path, owner, _PublicationFileSystem())
+
+
+def _discover_source_unit_owner(destination: str | Path) -> dict[str, object]:
+    """Read a managed unit's declared owner without granting it authority.
+
+    The result is only a candidate: the caller must present it as the expected
+    owner to a lock set that re-validates it under the lock before use.
+    """
+
+    value = _read_strict_json(Path(destination) / "unit.json", purpose="receipt")
+    if type(value) is not dict or set(value) != {"kind", "source", "files"}:
+        raise _PublicationError("source-unit receipt fields are not closed")
+    if value["kind"] != "pycircuit-source-unit":
+        raise _PublicationError("source-unit receipt kind is invalid")
+    source = value["source"]
+    if type(source) is not dict or set(source) != {"package", "path"}:
+        raise _PublicationError("source-unit receipt source fields are not closed")
+    package = source["package"]
+    path = source["path"]
+    if type(package) is not str or type(path) is not str:
+        raise _PublicationError("source-unit receipt source is not textual")
+    return {"kind": "source-unit", "source": {"package": package, "path": path}}
+
+
 __all__ = [
     "_FullSourceUnit",
     "_SourceUnitHeaderView",
     "_SourceUnitReceipt",
+    "_discover_source_unit_owner",
     "_load_full_source_unit",
     "_load_source_unit_header",
+    "_read_header_view",
     "_validate_full_source_unit",
+    "_validate_source_unit_header",
 ]
