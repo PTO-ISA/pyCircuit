@@ -202,6 +202,27 @@ N0-U1 的形状探测暴露两个**需要设计裁决、不能顺手改**的点�
 
 在这两点裁决前：私有桥保持 fail-closed（link 即拒绝），不扩大支持面，也不弱化校验。
 
+## design/testbench role 契约（工具层强制，2026-09-29）
+
+审计「没有任何东西阻止把带 stimulus 的 `@system` 当成 design 产物」这条发现已修复：
+
+- 私有桥新增 `--role design|testbench`，link 与 emit 两个模式都校验；
+- root 带 `ac.root_kind = "system"`（外部驱动的 harness，实例化 design）时，
+  必须显式标 `testbench`，否则 link/emit 都 fail-closed 并说明"system root 不是 design"；
+- `@module` root 不得标 `testbench`；
+- emit 从**产物自身**重新推导 root kind 再校验，不信任 link 时的声明。
+
+用的是既有 `ac.root_kind`，**不新增 IR、role 属性、端口、runtime 或公开 CLI**。
+IR 级的 design/testbench role 仍是需批准的开放提案（见审计 §1.3）。
+审计 §1.5 的"私有夹具不得进入安装/导出面、不得成为标准入口必须知道的模型"也已核验
+（三个私有 harness 无 `install(`、compiler lib 不引用 fixture 名）并加了守卫测试。
+
+证据：[修复记录](../reviews/20260929-design-testbench-ir-authority.md) 末节、
+`docs/gates/logs/20260929-m4-artifact-boundary/`（role 契约）、
+`docs/gates/logs/20260929-m4-role-split/`（角色拆分）。lane：bridge 39 项、
+masked-next 13 项、5 文件 80 通过 / 2 V44 deselected、0 failed/0 skipped；
+native 未受影响（无编译器库源码变更）。
+
 ## 全项目里程碑
 
 | 阶段 | 状态 | 完成证据要求 |
