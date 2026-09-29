@@ -74,7 +74,7 @@ Python 采用用户明确选择的模块函数与嵌套 rule。R1 B 的既有 re
 | I27 M4 私有 design 文件桥 | done（复审 FAIL 已修补；候选 `81fb596b` 已推送） | m4_program_bridge 实现、m4_program_tests 独立测试、独立 reviewer、PM CMake 整合/证据/验收 | 新增 `acir-design-harness`：把逐源显式 body/header 读盘、link 并物化为一支 verified final design 文件，另一进程重解析后交同一 final verifier 与两个 emitter；三种模式都拒绝既有输出（file/dir/symlink/dangling），且全部验证与 emit 先于建文件。`ProposalGraph` 按 `ac.stage` 选 `ac.logical_type`（final）/`ac.logical_element`（source）。产物按来源 Python 文件名命名（`test_increment.py` → `test_increment.ac`），不设保留标签。[证据](../gates/logs/20260929-m4-design-bridge/README.md)：355 native（20 binaries）+52 Python 通过，2 V44 deselected。独立复审对 `ede5aec7` 判 FAIL：生产代码无缺陷，但两个反例测试空转（既有输出使 no-clobber 先拒绝；`"logical"` 子串只匹配 tmp_path）。已修：改断言真实诊断与"未创建输出"、stage 校验提到每 view 一次、补 `!logical` 诊断、去弱断言；负向对照证明该 stage 修复是 load-bearing（回退后正向双后端 emit 失败）。**独立 design/testbench 交付尚未成立** |
 | I28 M4-D1 生成物角色拆分 | done（复审 PASS；修正 `0d2e3ab6`） | PM 实现 emitter 角色拆分与私有 `--glue-output`；独立测试与证据 | 新增 `FinalVerilogEmission{rtl,runtimeGlue}` 与 `emitFinalVerilogParts`；`emitFinalVerilog` 保持签名并返回 `rtl+runtimeGlue`，既有调用点与合并字节完全不变。emitter 在 `FinalModel`/`FinalModelSim` 边界分流；私有 harness `--glue-output` 把 `runtime-glue` 写到第二个文件，非 emit 模式 / `--target cpp` / 与 `--output` 相同均 rc=2；双目标先校验后创建、第二个失败回滚第一个。C++ 不拆分（模型消费 gfsim runtime，无 `FinalModelSim` 对应物）。[证据](../gates/logs/20260929-m4-role-split/README.md)：355 native（20 binaries）+60 Python 通过，2 V44 deselected。**尚无 `generated.json` bundle writer**，公开 emit 入口与 role 清单仍属后续。独立复审对 `fcdb75e6` 判 **PASS**（无 fail trigger 成立，合并输出逐字节不变、无接口/语义变更），但提出 1 项 major 证据溯源 + 3 项 minor，均已修复：`overlay-sha256.txt` 原先记录的是 clang-format **之前**的哈希、与任何已提交 blob 都不匹配，导致证据没有钉住被审修订——现已从干净重建重跑全部 lane，并在提交后按提交字节重算、用 `git show HEAD:<path>` 逐条核对通过；`FinalEmit.cpp` 抽出统一 `EmissionGuard`；回滚 `remove` 失败改为报错；C++ 不拆分表述收紧为「无可独立拆分的 simulation observation wrapper」；`rtl` 增加 `$strobe`/`AC_OBS` 缺席断言，并补 alias 路径用例以走回滚而非字符串相等守卫 |
 | I29 M4-D2 design/testbench 产物边界 | implemented（候选 `3af302e0` 已推送；独立复审待做） | PM 设计边界测试与证据；不新增任何接口 | DUT-only closure 单独 link 成设计产物（名随源文件），system testbench 为**独立**产物；断言设计产物含 DUT 但无 `ac.observe`、无 testbench 符号、无 stimulus 字符串，且其 `rtl` 角色文件无 `FinalModelSim` 与 `AC_OBS`；带 typed 端口的 DUT root 仍 fail-closed（`unbound data formal`）并把 D5 依赖写成显式反例。[证据](../gates/logs/20260929-m4-artifact-boundary/README.md)：35 设计桥用例、62 Python selectors 通过，2 V44 deselected。仍是**无端口**设计产物，非独立 DUT 交付 |
-| I30 N0-U1 masked next assignment | done（候选 `3b888d15`） | PM 侦察＋独立测试与证据；**无产品改动** | 先侦察确认 lowering 与专用 `U1` verifier 已实现要求，故只补测试。源 body 与最终产物**同时**断言：mask witness（`arith.andi`）、boundary `ac.numeric.proof` 带 check binding、`kind="range"` check、next-role UseID 与 `next_scalar` target、`ac.yield_bindings` 的 data/enable→target 绑定；RTL 断言 `initial0 = 8'd254`、full mask `8'd255`、d0/q0_e；用 Icarus + **层次探针**（无端口 root 无法从端口观察）跑 reset=254 → 两相保持 → 256 次 commit 回到 254，覆盖全部可达状态；7 个重定向/缺失突变（data/enable/role/target kind/check kind 重定向，proof/check 删除）各以具体 U1 诊断 fail-closed 且不产出文件。[证据](../gates/logs/20260929-n0-u1-masked-next/README.md)：新增 10 项通过；共享 lane 73 Python 通过、2 V44 deselected。**运行时 oracle 依赖仿真层次探针**；typed 端口 DUT 仍属 D5，本包不新增 accessor/端口/CLI/runtime API |
+| I30 N0-U1 masked next assignment | done（候选 `3b888d15`） | PM 侦察＋独立测试与证据；**无产品改动** | 先侦察确认 lowering 与专用 `U1` verifier 已实现要求，故只补测试。源 body 与最终产物**同时**断言：mask witness（`arith.andi`）、boundary `ac.numeric.proof` 带 check binding、`kind="range"` check、next-role UseID 与 `next_scalar` target、`ac.yield_bindings` 的 data/enable→target 绑定；RTL 断言 `initial0 = 8'd254`、full mask `8'd255`、d0/q0_e；用 Icarus + **层次探针**（无端口 root 无法从端口观察）跑 reset=254 → 两相保持 → 256 次 commit 回到 254，覆盖全部可达状态；7 个重定向/缺失突变（data/enable/role/target kind/check kind 重定向，proof/check 删除）各以具体 U1 诊断 fail-closed 且不产出文件。[证据](../gates/logs/20260929-n0-u1-masked-next/README.md)：新增 10 项通过；共享 lane 73 Python 通过、2 V44 deselected。**运行时 oracle 依赖仿真层次探针**；typed 端口 DUT 仍属 D5，本包不新增 accessor/端口/CLI/runtime API。补测后将 numeric next 形状覆盖实测成图（[覆盖图](../gates/logs/20260929-n0-u1-masked-next/numeric-shape-coverage.md)）：支持 4 种（无条件/使能守卫/条件 masked add、只观察）；9 种在编译期以具体诊断 fail-closed（无 mask、减法、乘法、operand 反序、非满 mask、双 reg、临时变量、双写）；并发现**链接成功但 emit 失败**的不一致——`state = other`、`state = 7` 能 link，reparse 后 emit 报 `source check analysis supports only verified U1 numeric next-state rules`。已在私有桥加 fail-closed 守卫（提交前用 emit 路径对 materialized 硬件模块的 clone 重建），二者改为在 **link** 拒绝且不产出文件 |
 | 用户接口批准 | partial | 用户 | C1-C、C2-C、C3-C、C2-N1-C 与 R1-B/M1-C 联合实施包已批准；参数化/动态 collection、circular-buffer 库、外部 typed DUT、多时钟/CDC、四态 source 值及开放 RTL fault continuation 仍须后续合同 |
 
 所有 writer 使用互斥文件归属。U01 的 ODS/原生 importer/非安装 harness 与产品 CMake 由 governance_impl 负责，测试及测试 CMake 由 baseline_verification 负责；private transport 单独派发。实现期间 native build 由 governance_impl 操作，稳定后移交测试 owner，其他 lane 不用同一输出目录构建。PM 维护主 checkout 文档，不改 candidate 产品源码。
@@ -181,6 +181,26 @@ I25 行「仍缺 … 完整 Result/events」需要收窄，避免下一轮重复
   `(tag == "G") == (kind == "report")`）。按字面实现 `--events`（report 也进事件流）
   会改变观察投递分工，属于 runtime/协议行为；因此在拿到合同裁决前不实现该项，
   也不擅自把 report 从 gauge 通道移走。
+
+## 待决：numeric next 形状与 hasNumericInventory（2026-09-29 发现）
+
+N0-U1 的形状探测暴露两个**需要设计裁决、不能顺手改**的点，记录如下以免下一轮
+误判为 bug 或误改：
+
+1. **copy / constant next assignment 是否要支持**：`state = other`、`state = 7`
+   是普通 C1 赋值，但不在 bounded-M2 声明档内。当前在私有桥被 link 拒绝；
+   若要支持，属于把 next-use 路线从 U1 masked-add 扩展到非数值赋值的能力包，
+   需要能力矩阵与合同裁决，不是修 bug。
+2. **`hasNumericInventory` 三处逐字重复**（`CheckGraph.cpp:40`、
+   `Passes/InferRuleEffects.cpp:177`、`ProposalGraph.cpp:93`），且把
+   `ac.value.binding`/`ac.value.use` 当作"数值声明"。这两个 op 在 final
+   materialization 中会为**每个**赋值合成，所以谓词对非数值 rule 也为真，
+   这正是 reparse 路径只接受 U1/composition 的原因。把二者移出谓词会让
+   reconstruction 接受 copy/constant，但同时改变 `InferRuleEffects` 的路由选择
+   和 `ProposalGraph` 的数值 rule 校验触发条件，必须作为设计决定；
+   独立的 U1 closure verifier（`ACIRNumericNextUse.cpp`）在两种选择下都会继续强制闭合。
+
+在这两点裁决前：私有桥保持 fail-closed（link 即拒绝），不扩大支持面，也不弱化校验。
 
 ## 全项目里程碑
 
