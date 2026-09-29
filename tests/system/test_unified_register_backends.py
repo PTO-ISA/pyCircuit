@@ -204,7 +204,9 @@ def _assert_composed_measurements(
             "observations",
             "commit",
             "step_calls",
+            "terminal",
         }
+        _assert_result(run["terminal"], status="TERMINATED", epoch=5, completed=1)
         assert run["trace"] == expected_trace
         assert run["commit"] == 5
         assert run["step_calls"] == 5
@@ -318,6 +320,9 @@ def test_v43_two_systems_terminate_once_and_reset_reruns(
     assert result.returncode == 0, result.stderr
     observed = _read_json(result_path)
     assert set(observed) == {"cpp", "verilog"}
+    # Compare the complete public records, including report identity and values,
+    # independently of the harness's internal backend comparison.
+    assert observed["cpp"] == observed["verilog"]
     expected_systems = {
         "single-module": ([0, 2, 5, 5, 5], 5),
         "two-level-system": ([0, 0, 3, 6, 6], 6),

@@ -1,0 +1,9 @@
+{
+  "base": "ee855c1adc18b2d86b2e6599d6cb15b4231c67ba",
+  "checkout": "/Users/zhoubot/.codex/worktrees/migration-capture/pyCircuit",
+  "source_overlay": {
+    "compiler/acir/tools/acir-backend-closure-harness/ComposedObservations.cpp": "40927b1af92a9dc0afad973702049a9250b75bf577f41cebd2c4dc0105eba699",
+    "tests/cpp/agentic-circuit/Dialect/ACIR/ZeroRuleFinalProgramTest.cpp": "e56fa17a32a12fa28e1b35eb8f793d3949f760d91053cd88f29ecb71f041bc16",
+    "tests/system/test_unified_register_backends.py": "b14a2f9f4b788d84edba1663fb6127a47c1f9b14c08b4cb37b4346b3da98e043"
+  }
+}

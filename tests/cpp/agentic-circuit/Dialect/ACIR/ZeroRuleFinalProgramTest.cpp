@@ -314,7 +314,7 @@ TEST_F(ZeroRuleFinalProgramTest, RejectsMissingRootAndStrippedSourceMetadata) {
 }
 
 TEST_F(ZeroRuleFinalProgramTest,
-       RejectsAnalysisClosureWithRuleButNoSourceCarriers) {
+       AcceptsRegisteredClockedRuleWithNoSourceCarriers) {
   mlir::OwningOpRef<mlir::ModuleOp> body, header;
   ASSERT_TRUE(compile("empty_rule.py",
                       R"py(from pycircuit import rule, system
@@ -336,8 +336,29 @@ def EmptyRule():
   EXPECT_TRUE(definition.getBody().front().getOps<ac::SourceReadOp>().empty());
   EXPECT_TRUE(definition.getBody().front().getOps<ac::SourceUseOp>().empty());
   SourceLinkUnit unit{*body, *header};
-  EXPECT_TRUE(mlir::failed(
-      buildFinalProgram(llvm::ArrayRef<SourceLinkUnit>(unit), emitError())));
+  auto analysis =
+      buildFinalProgram(llvm::ArrayRef<SourceLinkUnit>(unit), emitError());
+  ASSERT_TRUE(mlir::succeeded(analysis));
+  EXPECT_EQ(analysis->state(), FinalProgramState::AnalysisClosed);
+  ASSERT_NE(analysis->modules().root, nullptr);
+  EXPECT_EQ(llvm::range_size(analysis->modules()
+                                 .root->module.getBody()
+                                 .front()
+                                 .getOps<ac::RuleOp>()),
+            1u);
+  EXPECT_TRUE(mlir::succeeded(verifyFinalProgram(*analysis, emitError())));
+
+  auto ready = materializeFinalProgram(std::move(*analysis), emitError());
+  ASSERT_TRUE(mlir::succeeded(ready));
+  ASSERT_EQ(ready->instances().size(), 1u);
+  ASSERT_EQ(ready->instances().front().ruleOrdinals.size(), 1u);
+  auto cpp = emitFinalCpp(*ready, emitError());
+  ASSERT_TRUE(mlir::succeeded(cpp));
+  EXPECT_NE(cpp->find("::HasWork() const noexcept { return true; }"),
+            std::string::npos)
+      << "C3 defines QUIESCENT only for a model with no registered rule; a "
+         "clocked rule with no active write remains RUNNING "
+         "(docs/rfcs/migration/c3-driver-runtime.md, Step state contract)";
 }
 
 TEST_F(ZeroRuleFinalProgramTest,

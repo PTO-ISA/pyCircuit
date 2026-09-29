@@ -1,0 +1,443 @@
+Running main() from /private/tmp/googletest-20250910-5249-qce8ci/googletest-1.17.0/googletest/src/gtest_main.cc
+[==========] Running 51 tests from 6 test suites.
+[----------] Global test environment set-up.
+[----------] 2 tests from FinalGenericUsesTest
+[ RUN      ] FinalGenericUsesTest.FreshPackageRetainsOriginalUseLineageAndAllControlForms
+[       OK ] FinalGenericUsesTest.FreshPackageRetainsOriginalUseLineageAndAllControlForms (87 ms)
+[ RUN      ] FinalGenericUsesTest.RejectsMissingDuplicateRedirectedAndHiddenFacts
+[       OK ] FinalGenericUsesTest.RejectsMissingDuplicateRedirectedAndHiddenFacts (76 ms)
+[----------] 2 tests from FinalGenericUsesTest (164 ms total)
+
+[----------] 2 tests from FinalHardwareClosureTest
+[ RUN      ] FinalHardwareClosureTest.FreshContextRebuildsHierarchyRepeatedInstancesAndAliases
+[       OK ] FinalHardwareClosureTest.FreshContextRebuildsHierarchyRepeatedInstancesAndAliases (205 ms)
+[ RUN      ] FinalHardwareClosureTest.RejectsEnvelopeTreeRowsPortsAndCommitTampering
+[       OK ] FinalHardwareClosureTest.RejectsEnvelopeTreeRowsPortsAndCommitTampering (204 ms)
+[----------] 2 tests from FinalHardwareClosureTest (409 ms total)
+
+[----------] 18 tests from FinalRealizationClosureTest
+[ RUN      ] FinalRealizationClosureTest.RepeatedPortlessChildrenAreEmitReady
+[       OK ] FinalRealizationClosureTest.RepeatedPortlessChildrenAreEmitReady (133 ms)
+[ RUN      ] FinalRealizationClosureTest.SourceUnitPermutationPreservesRealizationAndPostorder
+[       OK ] FinalRealizationClosureTest.SourceUnitPermutationPreservesRealizationAndPostorder (138 ms)
+[ RUN      ] FinalRealizationClosureTest.RejectsRepeatedChildActualOperandMutation
+[       OK ] FinalRealizationClosureTest.RejectsRepeatedChildActualOperandMutation (135 ms)
+[ RUN      ] FinalRealizationClosureTest.RejectsChildCalleeAndStaticArgumentMutation
+[       OK ] FinalRealizationClosureTest.RejectsChildCalleeAndStaticArgumentMutation (138 ms)
+[ RUN      ] FinalRealizationClosureTest.RejectsRuleInputOperandPermutation
+[       OK ] FinalRealizationClosureTest.RejectsRuleInputOperandPermutation (125 ms)
+[ RUN      ] FinalRealizationClosureTest.RejectsRuleInputRedirectToSameTypedHandle
+[       OK ] FinalRealizationClosureTest.RejectsRuleInputRedirectToSameTypedHandle (122 ms)
+[ RUN      ] FinalRealizationClosureTest.RejectsConstantValueMutation
+[       OK ] FinalRealizationClosureTest.RejectsConstantValueMutation (133 ms)
+[ RUN      ] FinalRealizationClosureTest.RejectsSameTypedAndOrXorOperandMutation
+[       OK ] FinalRealizationClosureTest.RejectsSameTypedAndOrXorOperandMutation (128 ms)
+[ RUN      ] FinalRealizationClosureTest.RejectsSupportedOperationResultTypeMutation
+[       OK ] FinalRealizationClosureTest.RejectsSupportedOperationResultTypeMutation (129 ms)
+[ RUN      ] FinalRealizationClosureTest.RejectsSupportedOperationAttributeMutation
+[       OK ] FinalRealizationClosureTest.RejectsSupportedOperationAttributeMutation (127 ms)
+[ RUN      ] FinalRealizationClosureTest.RejectsMovingSupportedExpressionIntoSecondRuleBlock
+[       OK ] FinalRealizationClosureTest.RejectsMovingSupportedExpressionIntoSecondRuleBlock (127 ms)
+[ RUN      ] FinalRealizationClosureTest.RejectsMovingRuleIntoSecondOwnerModuleBlock
+[       OK ] FinalRealizationClosureTest.RejectsMovingRuleIntoSecondOwnerModuleBlock (133 ms)
+[ RUN      ] FinalRealizationClosureTest.RejectsRuleOutputTargetSwapAndRedirect
+[       OK ] FinalRealizationClosureTest.RejectsRuleOutputTargetSwapAndRedirect (141 ms)
+[ RUN      ] FinalRealizationClosureTest.RejectsPlacementControlAndActualSegmentMutation
+[       OK ] FinalRealizationClosureTest.RejectsPlacementControlAndActualSegmentMutation (144 ms)
+[ RUN      ] FinalRealizationClosureTest.RejectsPlacementResultTypeMutationWhenResultsExist
+[       OK ] FinalRealizationClosureTest.RejectsPlacementResultTypeMutationWhenResultsExist (136 ms)
+[ RUN      ] FinalRealizationClosureTest.RejectsArbitraryGenericPlacementAttributeMutation
+[       OK ] FinalRealizationClosureTest.RejectsArbitraryGenericPlacementAttributeMutation (134 ms)
+[ RUN      ] FinalRealizationClosureTest.RejectsFrozenInstanceProposalCheckAndObservationPartitionMutations
+[       OK ] FinalRealizationClosureTest.RejectsFrozenInstanceProposalCheckAndObservationPartitionMutations (142 ms)
+[ RUN      ] FinalRealizationClosureTest.RequiresFrozenPostorderOrdinalsWhenExposed
+[       OK ] FinalRealizationClosureTest.RequiresFrozenPostorderOrdinalsWhenExposed (132 ms)
+[----------] 18 tests from FinalRealizationClosureTest (2404 ms total)
+
+[----------] 7 tests from FinalRegControlClosureTest
+[ RUN      ] FinalRegControlClosureTest.EmitReadyCarriersMatchTheirOwnerControls
+[       OK ] FinalRegControlClosureTest.EmitReadyCarriersMatchTheirOwnerControls (133 ms)
+[ RUN      ] FinalRegControlClosureTest.RejectsSwappedRegisterClockAndReset
+[       OK ] FinalRegControlClosureTest.RejectsSwappedRegisterClockAndReset (129 ms)
+[ RUN      ] FinalRegControlClosureTest.RejectsRegisterClockOrResetRedirectedToConstant
+[       OK ] FinalRegControlClosureTest.RejectsRegisterClockOrResetRedirectedToConstant (129 ms)
+[ RUN      ] FinalRegControlClosureTest.RejectsRegisterControlRedirectedToAnotherModule
+[       OK ] FinalRegControlClosureTest.RejectsRegisterControlRedirectedToAnotherModule (130 ms)
+[ RUN      ] FinalRegControlClosureTest.RejectsControlPortMetadataMutations
+[       OK ] FinalRegControlClosureTest.RejectsControlPortMetadataMutations (143 ms)
+[ RUN      ] FinalRegControlClosureTest.RejectsWrongOwnerControlArgumentType
+[       OK ] FinalRegControlClosureTest.RejectsWrongOwnerControlArgumentType (132 ms)
+[ RUN      ] FinalRegControlClosureTest.RejectsControlMutationAcrossRepeatedChildInstances
+[       OK ] FinalRegControlClosureTest.RejectsControlMutationAcrossRepeatedChildInstances (124 ms)
+[----------] 7 tests from FinalRegControlClosureTest (923 ms total)
+
+[----------] 16 tests from FinalProgramTest
+[ RUN      ] FinalProgramTest.CompleteSourceLinkUnitClosesAnalysisButIsNotEmitReady
+[       OK ] FinalProgramTest.CompleteSourceLinkUnitClosesAnalysisButIsNotEmitReady (63 ms)
+[ RUN      ] FinalProgramTest.VerificationRejectsGraphMutationAndStageSpoof
+[       OK ] FinalProgramTest.VerificationRejectsGraphMutationAndStageSpoof (64 ms)
+[ RUN      ] FinalProgramTest.VerificationRejectsMissingOwnerCommitCheckAndObservation
+[       OK ] FinalProgramTest.VerificationRejectsMissingOwnerCommitCheckAndObservation (66 ms)
+[ RUN      ] FinalProgramTest.MissingRootUnitIsRejected
+[       OK ] FinalProgramTest.MissingRootUnitIsRejected (64 ms)
+[ RUN      ] FinalProgramTest.MaterializerProducesVerifiedEmitReadyCarrier
+[       OK ] FinalProgramTest.MaterializerProducesVerifiedEmitReadyCarrier (67 ms)
+[ RUN      ] FinalProgramTest.MaterializerPreservesStateCommitPermitCheckAndObservationClosure
+[       OK ] FinalProgramTest.MaterializerPreservesStateCommitPermitCheckAndObservationClosure (64 ms)
+[ RUN      ] FinalProgramTest.EmitReadyVerifierRejectsTargetSwapPermitDisconnectAndStageSpoof
+[       OK ] FinalProgramTest.EmitReadyVerifierRejectsTargetSwapPermitDisconnectAndStageSpoof (66 ms)
+[ RUN      ] FinalProgramTest.EmitReadyVerifierRejectsResidualSourceOperation
+[       OK ] FinalProgramTest.EmitReadyVerifierRejectsResidualSourceOperation (65 ms)
+[ RUN      ] FinalProgramTest.EmitReadyVerifierRejectsCommitDataAndEnableSwap
+[       OK ] FinalProgramTest.EmitReadyVerifierRejectsCommitDataAndEnableSwap (67 ms)
+[ RUN      ] FinalProgramTest.EmitReadyVerifierRejectsStateCarrierFactMutations
+[       OK ] FinalProgramTest.EmitReadyVerifierRejectsStateCarrierFactMutations (67 ms)
+[ RUN      ] FinalProgramTest.EmitReadyStateAliasTableResolvesEveryFrozenHandle
+[       OK ] FinalProgramTest.EmitReadyStateAliasTableResolvesEveryFrozenHandle (65 ms)
+[ RUN      ] FinalProgramTest.EmitReadyVerifierRejectsStateAliasMutations
+[       OK ] FinalProgramTest.EmitReadyVerifierRejectsStateAliasMutations (65 ms)
+[ RUN      ] FinalProgramTest.EmitReadyVerifierRejectsEveryCheckBindingMutation
+[       OK ] FinalProgramTest.EmitReadyVerifierRejectsEveryCheckBindingMutation (67 ms)
+[ RUN      ] FinalProgramTest.EmitReadyVerifierRejectsEveryObservationBindingMutation
+[       OK ] FinalProgramTest.EmitReadyVerifierRejectsEveryObservationBindingMutation (69 ms)
+[ RUN      ] FinalProgramTest.HierarchicalMaterializationRemovesImportsAndPreservesCallerIR
+[       OK ] FinalProgramTest.HierarchicalMaterializationRemovesImportsAndPreservesCallerIR (194 ms)
+[ RUN      ] FinalProgramTest.FinalEmittersAreDeterministicAndToolAccepted
+[       OK ] FinalProgramTest.FinalEmittersAreDeterministicAndToolAccepted (417 ms)
+[----------] 16 tests from FinalProgramTest (1539 ms total)
+
+[----------] 6 tests from FinalSystemPlanTest
+[ RUN      ] FinalSystemPlanTest.PortlessRootOwnsRegistersAndRepeatedChildrenAreViews
+[       OK ] FinalSystemPlanTest.PortlessRootOwnsRegistersAndRepeatedChildrenAreViews (137 ms)
+[ RUN      ] FinalSystemPlanTest.UnboundFormalRootPortsAreNotSynthesizedAsStorage
+[       OK ] FinalSystemPlanTest.UnboundFormalRootPortsAreNotSynthesizedAsStorage (202 ms)
+[ RUN      ] FinalSystemPlanTest.OwnedCarrierInventoryIsExactAndFormalsOnlyAlias
+[       OK ] FinalSystemPlanTest.OwnedCarrierInventoryIsExactAndFormalsOnlyAlias (137 ms)
+[ RUN      ] FinalSystemPlanTest.InstanceOrdinalsAreStableUnderSourceUnitPermutation
+[       OK ] FinalSystemPlanTest.InstanceOrdinalsAreStableUnderSourceUnitPermutation (132 ms)
+[ RUN      ] FinalSystemPlanTest.VerifierRejectsInstancePortAliasAndCommitOwnershipMutations
+[       OK ] FinalSystemPlanTest.VerifierRejectsInstancePortAliasAndCommitOwnershipMutations (154 ms)
+[ RUN      ] FinalSystemPlanTest.EveryFrozenOwnerAnchorAndSemanticMutationFailsBeforeEitherEmitter
+[       OK ] FinalSystemPlanTest.EveryFrozenOwnerAnchorAndSemanticMutationFailsBeforeEitherEmitter (159 ms)
+[----------] 6 tests from FinalSystemPlanTest (924 ms total)
+
+[----------] Global test environment tear-down
+[==========] 51 tests from 6 test suites ran. (6367 ms total)
+[  PASSED  ] 51 tests.
+loc("uses.py":15:5): error: 'ac.rule' op proof-scoped rule must retain ac.required_numeric
+loc("uses.py":15:5): error: 'ac.rule' op proof-scoped rule must retain ac.required_numeric
+loc("uses.py":17:22): error: 'ac.value.binding' op ProofScope must contain exactly 2 fields
+loc("uses.py":17:22): error: 'ac.value.binding' op rule proof_scope must match its registered occurrence
+loc("uses.py":17:22): error: 'ac.value.binding' op ValueBinding requires exact ID, domain and rule scope
+loc("uses.py":15:5): error: 'ac.rule' op nonnumeric final target rule lacks generic use authority
+loc("uses.py":15:5): error: 'ac.rule' op generic final value binding is missing or invalid
+loc("uses.py":15:5): error: 'ac.rule' op generic final binding/use inventory has orphan entries
+loc("uses.py":25:5): error: 'ac.rule' op generic final ValueUse does not reach its exact yield
+loc("uses.py":25:5): error: 'ac.rule' op generic final enable is not valid AND path
+loc("uses.py":25:5): error: 'ac.rule' op generic final YieldBinding is stale or redirected
+loc("uses.py":15:5): error: 'ac.rule' op generic final use contains hidden arithmetic
+loc("uses.py":17:22): error: 'ac.value.binding' op final use integer type differs from logical storage
+loc("uses.py":15:5): error: 'ac.rule' op generic final value binding is missing or invalid
+loc("uses.py":15:5): error: 'ac.rule' op generic final value binding is missing or invalid
+loc("uses.py":17:22): error: 'ac.value.binding' op Occurrence must contain exactly 2 fields
+loc("uses.py":17:22): error: 'ac.value.binding' op ProofScope field 'registration' is invalid
+loc("uses.py":17:22): error: 'ac.value.binding' op rule proof_scope must match its registered occurrence
+loc("uses.py":17:22): error: 'ac.value.binding' op ValueBinding requires exact ID, domain and rule scope
+loc("uses.py":15:5): error: 'ac.rule' op generic final value binding is missing or invalid
+loc("uses.py":17:9): error: 'ac.value.use' op generic final ValueUse provenance is outside its source module
+loc("wrong.py":1:1): error: 'ac.value.use' op generic final ValueUse provenance is outside its source module
+loc("uses.py":17:9): error: 'ac.value.use' op generic final ValueUse provenance is outside its source module
+loc("uses.py":20:5): error: 'ac.rule' op generic final value has no direct source authority
+loc("uses.py":15:5): error: 'ac.rule' op generic final enable is not valid AND path
+error: final package lacks system or definitions
+error: final hardware package repeats ac.system
+error: final hardware package envelope is not canonical
+error: ac.system descriptor is not canonical
+error: ac.instance_bindings does not cover the instance tree
+error: ac.instance_bindings does not cover the instance tree
+error: final InstanceBinding row is stale or unordered
+error: final InstanceBinding port differs from reconstructed alias
+error: final instance envelope/port arity is invalid
+error: final package has missing root or unreachable definitions
+error: final PortBinding differs from its actual operand
+error: final package has missing root or unreachable definitions
+error: final module commit target/yield arity is invalid
+error: final module commit targets are missing, reordered or duplicate
+error: undriven final state must hold reset image with false enable
+error: undriven final state must hold reset image with false enable
+error: final module commit target/yield arity is invalid
+error: final package child is not a source-owned implementation
+error: final instance envelope/port arity is invalid
+error: final package has missing root or unreachable definitions
+error: EmitReady global final hardware verification failed
+error: final instance envelope/port arity is invalid
+error: final package has missing root or unreachable definitions
+error: EmitReady global final hardware verification failed
+error: final instance envelope/port arity is invalid
+error: final package has missing root or unreachable definitions
+error: EmitReady global final hardware verification failed
+error: final instance envelope/port arity is invalid
+error: final package has missing root or unreachable definitions
+error: EmitReady global final hardware verification failed
+error: final instance envelope/port arity is invalid
+error: final package has missing root or unreachable definitions
+error: EmitReady global final hardware verification failed
+error: final instance envelope/port arity is invalid
+error: final package has missing root or unreachable definitions
+error: EmitReady global final hardware verification failed
+loc("child.py":7:5): error: 'ac.rule' op final formal rule handle differs from its PortSlot
+loc("child.py":7:5): error: 'ac.rule' op final rule input authority is invalid
+error: EmitReady global final hardware verification failed
+loc("child.py":7:5): error: 'ac.rule' op final formal rule handle differs from its PortSlot
+loc("child.py":7:5): error: 'ac.rule' op final rule input authority is invalid
+error: EmitReady global final hardware verification failed
+loc("child.py":7:5): error: 'ac.rule' op final formal rule handle differs from its PortSlot
+loc("child.py":7:5): error: 'ac.rule' op final rule input authority is invalid
+error: EmitReady global final hardware verification failed
+loc("child.py":7:5): error: 'ac.rule' op final formal rule handle differs from its PortSlot
+loc("child.py":7:5): error: 'ac.rule' op final rule input authority is invalid
+error: EmitReady global final hardware verification failed
+error: undriven final state must hold reset image with false enable
+error: EmitReady global final hardware verification failed
+error: undriven final state must hold reset image with false enable
+error: EmitReady global final hardware verification failed
+loc("child.py":7:5): error: 'ac.rule' op generic final enable is not valid AND path
+error: EmitReady global final hardware verification failed
+loc("child.py":7:5): error: 'ac.rule' op generic final enable is not valid AND path
+error: EmitReady global final hardware verification failed
+loc("child.py":10:13): error: 'arith.andi' op requires the same type for all operands and results
+error: EmitReady global final hardware verification failed
+loc("child.py":10:13): error: 'arith.andi' op requires the same type for all operands and results
+error: EmitReady global final hardware verification failed
+loc("child.py":7:5): error: 'ac.rule' op generic final enable is not valid AND path
+error: EmitReady global final hardware verification failed
+loc("child.py":7:5): error: 'ac.rule' op generic final enable is not valid AND path
+error: EmitReady global final hardware verification failed
+loc("child.py":10:29): error: 'ac.value.binding' op B0 ValueBinding must be in a rule's top computation block
+error: EmitReady global final hardware verification failed
+loc("child.py":10:29): error: 'ac.value.binding' op B0 ValueBinding must be in a rule's top computation block
+error: EmitReady global final hardware verification failed
+error: undriven final state must hold reset image with false enable
+error: EmitReady global final hardware verification failed
+error: undriven final state must hold reset image with false enable
+error: EmitReady global final hardware verification failed
+loc("child.py":7:5): error: 'ac.rule' op final owned rule handle does not match its register
+loc("child.py":7:5): error: 'ac.rule' op final rule output authority is invalid
+error: EmitReady global final hardware verification failed
+loc("child.py":7:5): error: 'ac.rule' op final owned rule handle does not match its register
+loc("child.py":7:5): error: 'ac.rule' op final rule output authority is invalid
+error: EmitReady global final hardware verification failed
+loc("child.py":7:5): error: 'ac.rule' op final owned rule handle does not match its register
+loc("child.py":7:5): error: 'ac.rule' op final rule output authority is invalid
+error: EmitReady global final hardware verification failed
+loc("child.py":7:5): error: 'ac.rule' op final owned rule handle does not match its register
+loc("child.py":7:5): error: 'ac.rule' op final rule output authority is invalid
+error: EmitReady global final hardware verification failed
+error: final instance envelope/port arity is invalid
+error: final package has missing root or unreachable definitions
+error: EmitReady global final hardware verification failed
+error: final instance envelope/port arity is invalid
+error: final package has missing root or unreachable definitions
+error: EmitReady global final hardware verification failed
+error: final instance envelope/port arity is invalid
+error: final package has missing root or unreachable definitions
+error: EmitReady global final hardware verification failed
+error: final instance envelope/port arity is invalid
+error: final package has missing root or unreachable definitions
+error: EmitReady global final hardware verification failed
+error: final PortBinding differs from its actual operand
+error: final package has missing root or unreachable definitions
+error: EmitReady global final hardware verification failed
+error: final PortBinding differs from its actual operand
+error: final package has missing root or unreachable definitions
+error: EmitReady global final hardware verification failed
+error: final child next result type is invalid
+error: final package has missing root or unreachable definitions
+error: EmitReady global final hardware verification failed
+error: final child next result type is invalid
+error: final package has missing root or unreachable definitions
+error: EmitReady global final hardware verification failed
+error: final instance envelope/port arity is invalid
+error: final package has missing root or unreachable definitions
+error: EmitReady global final hardware verification failed
+error: final instance envelope/port arity is invalid
+error: final package has missing root or unreachable definitions
+error: EmitReady global final hardware verification failed
+error: EmitReady instance contribution partition is incomplete or misowned
+error: EmitReady instance contribution partition is incomplete or misowned
+error: EmitReady instance contribution partition is incomplete or misowned
+error: EmitReady instance contribution partition is incomplete or misowned
+error: EmitReady instance contribution partition is incomplete or misowned
+error: EmitReady instance contribution partition is incomplete or misowned
+error: EmitReady instance contribution partition is incomplete or misowned
+error: EmitReady instance contribution partition is incomplete or misowned
+error: EmitReady postorder instance ordinals changed
+error: EmitReady postorder instance ordinals changed
+loc("child.py":5:5): error: 'ac.reg' op final register metadata is incomplete or mixed
+error: EmitReady global final hardware verification failed
+loc("child.py":5:5): error: 'ac.reg' op final register metadata is incomplete or mixed
+error: EmitReady global final hardware verification failed
+loc("child.py":5:5): error: 'ac.reg' op final register metadata is incomplete or mixed
+error: EmitReady global final hardware verification failed
+loc("child.py":5:5): error: 'ac.reg' op final register metadata is incomplete or mixed
+error: EmitReady global final hardware verification failed
+loc("child.py":5:5): error: 'ac.reg' op final register metadata is incomplete or mixed
+error: EmitReady global final hardware verification failed
+loc("child.py":5:5): error: 'ac.reg' op final register metadata is incomplete or mixed
+error: EmitReady global final hardware verification failed
+loc("child.py":5:5): error: 'ac.reg' op final register metadata is incomplete or mixed
+error: EmitReady global final hardware verification failed
+loc("child.py":5:5): error: 'ac.reg' op final register metadata is incomplete or mixed
+error: EmitReady global final hardware verification failed
+loc("child.py":5:5): error: 'ac.reg' op final register metadata is incomplete or mixed
+error: EmitReady global final hardware verification failed
+loc("child.py":5:5): error: 'ac.reg' op final register metadata is incomplete or mixed
+error: EmitReady global final hardware verification failed
+loc("child.py":5:5): error: 'ac.reg' op final register metadata is incomplete or mixed
+error: EmitReady global final hardware verification failed
+loc("child.py":5:5): error: 'ac.reg' op final register metadata is incomplete or mixed
+error: EmitReady global final hardware verification failed
+loc("child.py":4:1): error: 'ac.module' op final controls require clock=0 and reset=1
+loc("child.py":4:1): error: 'ac.module' op final module metadata is incomplete or mixed
+error: EmitReady global final hardware verification failed
+loc("child.py":4:1): error: 'ac.module' op final controls require clock=0 and reset=1
+loc("child.py":4:1): error: 'ac.module' op final module metadata is incomplete or mixed
+error: EmitReady global final hardware verification failed
+loc("child.py":4:1): error: 'ac.module' op final controls require clock=0 and reset=1
+loc("child.py":4:1): error: 'ac.module' op final module metadata is incomplete or mixed
+error: EmitReady global final hardware verification failed
+loc("child.py":4:1): error: 'ac.module' op final controls require clock=0 and reset=1
+loc("child.py":4:1): error: 'ac.module' op final module metadata is incomplete or mixed
+error: EmitReady global final hardware verification failed
+loc("child.py":4:1): error: 'ac.module' op final controls require clock=0 and reset=1
+loc("child.py":4:1): error: 'ac.module' op final module metadata is incomplete or mixed
+error: EmitReady global final hardware verification failed
+loc("child.py":4:1): error: 'ac.module' op final controls require clock=0 and reset=1
+loc("child.py":4:1): error: 'ac.module' op final module metadata is incomplete or mixed
+error: EmitReady global final hardware verification failed
+loc("child.py":4:1): error: 'ac.module' op final controls require clock=0 and reset=1
+loc("child.py":4:1): error: 'ac.module' op final module metadata is incomplete or mixed
+error: EmitReady global final hardware verification failed
+loc("child.py":4:1): error: 'ac.module' op final controls require clock=0 and reset=1
+loc("child.py":4:1): error: 'ac.module' op final module metadata is incomplete or mixed
+error: EmitReady global final hardware verification failed
+loc("child.py":4:1): error: 'ac.module' op final controls require clock=0 and reset=1
+loc("child.py":4:1): error: 'ac.module' op final module metadata is incomplete or mixed
+error: EmitReady global final hardware verification failed
+loc("child.py":4:1): error: 'ac.module' op final controls require clock=0 and reset=1
+loc("child.py":4:1): error: 'ac.module' op final module metadata is incomplete or mixed
+error: EmitReady global final hardware verification failed
+loc("child.py":4:1): error: 'ac.module' op final controls require clock=0 and reset=1
+loc("child.py":4:1): error: 'ac.module' op final module metadata is incomplete or mixed
+error: EmitReady global final hardware verification failed
+loc("child.py":4:1): error: 'ac.module' op final controls require clock=0 and reset=1
+loc("child.py":4:1): error: 'ac.module' op final module metadata is incomplete or mixed
+error: EmitReady global final hardware verification failed
+loc("child.py":5:5): error: 'ac.reg' op operand #0 must be 1-bit signless integer, but got 'i8'
+error: EmitReady global final hardware verification failed
+loc("child.py":5:5): error: 'ac.reg' op operand #0 must be 1-bit signless integer, but got 'i8'
+error: EmitReady global final hardware verification failed
+loc("child.py":5:5): error: 'ac.reg' op operand #0 must be 1-bit signless integer, but got 'i8'
+error: EmitReady global final hardware verification failed
+loc("child.py":5:5): error: 'ac.reg' op operand #1 must be 1-bit signless integer, but got 'i8'
+error: EmitReady global final hardware verification failed
+loc("child.py":5:5): error: 'ac.reg' op operand #1 must be 1-bit signless integer, but got 'i8'
+error: EmitReady global final hardware verification failed
+loc("child.py":5:5): error: 'ac.reg' op operand #1 must be 1-bit signless integer, but got 'i8'
+error: EmitReady global final hardware verification failed
+loc("child.py":5:5): error: 'ac.reg' op final register metadata is incomplete or mixed
+error: EmitReady global final hardware verification failed
+loc("child.py":5:5): error: 'ac.reg' op final register metadata is incomplete or mixed
+error: EmitReady global final hardware verification failed
+loc("child.py":5:5): error: 'ac.reg' op final register metadata is incomplete or mixed
+error: EmitReady global final hardware verification failed
+error: final program graph pointers are not closed
+error: final program graph operation spoofs a stage
+error: OwnerRef must contain exactly 1 fields
+error: final program ModuleGraph has an invalid owner
+error: proposal commit permit is not derived from checks
+error: final program analysis graph verification failed
+error: check binding differs from actual source check
+error: final program analysis graph verification failed
+error: observation binding differs from actual source observation
+error: final program analysis graph verification failed
+error: final program requires at least one source link unit
+error: final program commit owner does not match proposal StateID
+error: EmitReady proposal storage closure changed
+error: EmitReady closure cardinality or permit changed
+error: EmitReady module owner/root closure changed
+loc("main.py":10:16): error: 'ac.source.read' op source hardware op requires a source-stage implementation unit
+error: EmitReady global final hardware verification failed
+error: EmitReady commit closure changed
+error: EmitReady commit closure changed
+error: undriven final state must hold reset image with false enable
+error: EmitReady global final hardware verification failed
+error: undriven final state must hold reset image with false enable
+error: EmitReady global final hardware verification failed
+loc("main.py":4:5): error: 'ac.reg' op final register metadata is incomplete or mixed
+error: EmitReady global final hardware verification failed
+loc("main.py":4:5): error: 'ac.reg' op final register metadata is incomplete or mixed
+error: EmitReady global final hardware verification failed
+error: EmitReady ordered rule input/StateID changed
+error: EmitReady ordered rule input/StateID changed
+error: EmitReady check closure changed
+error: EmitReady check closure changed
+error: EmitReady check closure changed
+error: EmitReady check closure changed
+error: EmitReady check closure changed
+error: EmitReady check closure changed
+error: EmitReady check closure changed
+error: EmitReady observation closure changed
+error: EmitReady observation closure changed
+error: EmitReady observation closure changed
+error: EmitReady observation closure changed
+error: EmitReady observation closure changed
+error: EmitReady observation closure changed
+error: EmitReady observation closure changed
+error: EmitReady observation closure changed
+error: final emitter requires an EmitReady FinalProgram
+error: final emitter requires an EmitReady FinalProgram
+error: selected root has an unbound data formal or synthetic root StateID
+error: final program ProposalGraph storage closure failed
+error: EmitReady instance plan row changed
+error: EmitReady instance plan row changed
+error: EmitReady instance plan row changed
+error: EmitReady instance plan row changed
+error: final PortBinding differs from its actual operand
+error: final package has missing root or unreachable definitions
+error: EmitReady global final hardware verification failed
+error: EmitReady state handle alias changed
+error: EmitReady state alias closure changed
+error: EmitReady state handle alias changed
+error: EmitReady state alias closure changed
+error: EmitReady instance contribution partition is incomplete or misowned
+error: EmitReady module owner/root closure changed
+error: EmitReady module owner/root closure changed
+error: EmitReady module owner/root closure changed
+error: EmitReady module owner/root closure changed
+error: EmitReady module owner/root closure changed
+error: EmitReady module owner/root closure changed
+error: EmitReady module owner/root closure changed
+error: EmitReady module owner/root closure changed
+error: EmitReady module owner/root closure changed
+error: EmitReady module owner/root closure changed
+error: EmitReady module owner/root closure changed
+error: EmitReady module owner/root closure changed
+error: EmitReady instance contribution partition is incomplete or misowned
+error: EmitReady instance contribution partition is incomplete or misowned
+error: EmitReady instance contribution partition is incomplete or misowned
+error: EmitReady proposal contribution closure changed
+error: EmitReady proposal contribution closure changed
+error: EmitReady proposal contribution closure changed
+error: EmitReady proposal contribution closure changed
+error: EmitReady proposal contribution closure changed
+error: EmitReady proposal contribution closure changed
+error: EmitReady proposal contribution closure changed
+error: EmitReady proposal contribution closure changed
+error: EmitReady proposal contribution closure changed
+error: EmitReady check closure changed
+error: EmitReady check closure changed
+error: EmitReady check closure changed
+error: EmitReady observation closure changed
+error: EmitReady observation closure changed
+error: EmitReady observation closure changed

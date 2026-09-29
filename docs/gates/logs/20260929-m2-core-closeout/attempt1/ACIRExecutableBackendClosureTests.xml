@@ -1,0 +1,45 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuites tests="18" failures="1" disabled="0" errors="0" time="8.166" timestamp="2026-09-29T21:11:33.065" name="AllTests">
+  <testsuite name="ExecutableBackendClosureTest" tests="1" failures="0" disabled="0" skipped="0" errors="0" time="1.335" timestamp="2026-09-29T21:11:33.065">
+    <testcase name="SameEmitReadyProgramExecutesCppAndVerilogCycleOracle" file="/Users/zhoubot/.codex/worktrees/migration-capture/pyCircuit/tests/cpp/agentic-circuit/Dialect/ACIR/ExecutableBackendClosureTest.cpp" line="69" status="run" result="completed" time="1.335" timestamp="2026-09-29T21:11:33.065" classname="ExecutableBackendClosureTest" />
+  </testsuite>
+  <testsuite name="NumericNextBackendTest" tests="4" failures="0" disabled="0" skipped="0" errors="0" time="1.018" timestamp="2026-09-29T21:11:34.401">
+    <testcase name="GraphsAcceptOnlyTheExactValueUsePacket" file="/Users/zhoubot/.codex/worktrees/migration-capture/pyCircuit/tests/cpp/agentic-circuit/Dialect/ACIR/NumericNextBackendTest.cpp" line="200" status="run" result="completed" time="0.067" timestamp="2026-09-29T21:11:34.401" classname="NumericNextBackendTest" />
+    <testcase name="SameProgramExecutesCppAndRtlModuloCounter" file="/Users/zhoubot/.codex/worktrees/migration-capture/pyCircuit/tests/cpp/agentic-circuit/Dialect/ACIR/NumericNextBackendTest.cpp" line="263" status="run" result="completed" time="0.801" timestamp="2026-09-29T21:11:34.468" classname="NumericNextBackendTest" />
+    <testcase name="FrozenMutationsRejectBothEmitters" file="/Users/zhoubot/.codex/worktrees/migration-capture/pyCircuit/tests/cpp/agentic-circuit/Dialect/ACIR/NumericNextBackendTest.cpp" line="375" status="run" result="completed" time="0.082" timestamp="2026-09-29T21:11:35.269" classname="NumericNextBackendTest" />
+    <testcase name="NativeFinalSurvivesIndependentReparse" file="/Users/zhoubot/.codex/worktrees/migration-capture/pyCircuit/tests/cpp/agentic-circuit/Dialect/ACIR/NumericNextBackendTest.cpp" line="454" status="run" result="completed" time="0.068" timestamp="2026-09-29T21:11:35.352" classname="NumericNextBackendTest" />
+  </testsuite>
+  <testsuite name="MultiInstanceEmitTest" tests="3" failures="0" disabled="0" skipped="0" errors="0" time="1.124" timestamp="2026-09-29T21:11:35.420">
+    <testcase name="RepeatedChildrenEmitAndExecuteAsIndependentOwnerViews" file="/Users/zhoubot/.codex/worktrees/migration-capture/pyCircuit/tests/cpp/agentic-circuit/Dialect/ACIR/MultiInstanceEmitTest.cpp" line="203" status="run" result="completed" time="0.85" timestamp="2026-09-29T21:11:35.420" classname="MultiInstanceEmitTest" />
+    <testcase name="SourceUnitPermutationPreservesSemanticObservationTrace" file="/Users/zhoubot/.codex/worktrees/migration-capture/pyCircuit/tests/cpp/agentic-circuit/Dialect/ACIR/MultiInstanceEmitTest.cpp" line="405" status="run" result="completed" time="0.136" timestamp="2026-09-29T21:11:36.270" classname="MultiInstanceEmitTest" />
+    <testcase name="RejectsFormalAliasToForeignOwnerState" file="/Users/zhoubot/.codex/worktrees/migration-capture/pyCircuit/tests/cpp/agentic-circuit/Dialect/ACIR/MultiInstanceEmitTest.cpp" line="417" status="run" result="completed" time="0.137" timestamp="2026-09-29T21:11:36.407" classname="MultiInstanceEmitTest" />
+  </testsuite>
+  <testsuite name="MultiInstanceVerilogTest" tests="2" failures="0" disabled="0" skipped="0" errors="0" time="0.377" timestamp="2026-09-29T21:11:36.545">
+    <testcase name="RepeatedChildrenUseHierarchicalRtlAndTransactionalObservationRecords" file="/Users/zhoubot/.codex/worktrees/migration-capture/pyCircuit/tests/cpp/agentic-circuit/Dialect/ACIR/MultiInstanceVerilogTest.cpp" line="236" status="run" result="completed" time="0.239" timestamp="2026-09-29T21:11:36.545" classname="MultiInstanceVerilogTest" />
+    <testcase name="ReversingSourceUnitInputOrderPreservesGeneratedRtl" file="/Users/zhoubot/.codex/worktrees/migration-capture/pyCircuit/tests/cpp/agentic-circuit/Dialect/ACIR/MultiInstanceVerilogTest.cpp" line="506" status="run" result="completed" time="0.138" timestamp="2026-09-29T21:11:36.784" classname="MultiInstanceVerilogTest" />
+  </testsuite>
+  <testsuite name="ReusableFamilyVerilogTest" tests="1" failures="0" disabled="0" skipped="0" errors="0" time="0.343" timestamp="2026-09-29T21:11:36.922">
+    <testcase name="ReusedParentFamilyPreservesTiedAndDistinctLeafCurrentAliases" file="/Users/zhoubot/.codex/worktrees/migration-capture/pyCircuit/tests/cpp/agentic-circuit/Dialect/ACIR/ReusableFamilyVerilogTest.cpp" line="236" status="run" result="completed" time="0.343" timestamp="2026-09-29T21:11:36.922" classname="ReusableFamilyVerilogTest" />
+  </testsuite>
+  <testsuite name="ReusableFamilyCppTest" tests="1" failures="0" disabled="0" skipped="0" errors="0" time="1.045" timestamp="2026-09-29T21:11:37.265">
+    <testcase name="SpecFamiliesKeepTiedAndDistinctLeafPortsAndObjectPathsAcrossReset" file="/Users/zhoubot/.codex/worktrees/migration-capture/pyCircuit/tests/cpp/agentic-circuit/Dialect/ACIR/ReusableFamilyCppTest.cpp" line="248" status="run" result="completed" time="1.045" timestamp="2026-09-29T21:11:37.265" classname="ReusableFamilyCppTest" />
+  </testsuite>
+  <testsuite name="HierarchyPathFreezeCppTest" tests="1" failures="0" disabled="0" skipped="0" errors="0" time="1.717" timestamp="2026-09-29T21:11:38.310">
+    <testcase name="UnicodeActualPathsFreezeParentLinksAndRejectCorruptedGeneratedTree" file="/Users/zhoubot/.codex/worktrees/migration-capture/pyCircuit/tests/cpp/agentic-circuit/Dialect/ACIR/HierarchyPathFreezeCppTest.cpp" line="248" status="run" result="completed" time="1.717" timestamp="2026-09-29T21:11:38.310" classname="HierarchyPathFreezeCppTest" />
+  </testsuite>
+  <testsuite name="ZeroRuleFinalProgramTest" tests="5" failures="1" disabled="0" skipped="0" errors="0" time="1.204" timestamp="2026-09-29T21:11:40.028">
+    <testcase name="PythonSystemExecutesAsQuiescentCppAndHoldingVerilog" file="/Users/zhoubot/.codex/worktrees/migration-capture/pyCircuit/tests/cpp/agentic-circuit/Dialect/ACIR/ZeroRuleFinalProgramTest.cpp" line="168" status="run" result="completed" time="0.828" timestamp="2026-09-29T21:11:40.028" classname="ZeroRuleFinalProgramTest" />
+    <testcase name="RejectsMissingRootAndStrippedSourceMetadata" file="/Users/zhoubot/.codex/worktrees/migration-capture/pyCircuit/tests/cpp/agentic-circuit/Dialect/ACIR/ZeroRuleFinalProgramTest.cpp" line="290" status="run" result="completed" time="0.073" timestamp="2026-09-29T21:11:40.857" classname="ZeroRuleFinalProgramTest" />
+    <testcase name="AcceptsRegisteredClockedRuleWithNoSourceCarriers" file="/Users/zhoubot/.codex/worktrees/migration-capture/pyCircuit/tests/cpp/agentic-circuit/Dialect/ACIR/ZeroRuleFinalProgramTest.cpp" line="317" status="run" result="completed" time="0.121" timestamp="2026-09-29T21:11:40.930" classname="ZeroRuleFinalProgramTest">
+      <failure message="/Users/zhoubot/.codex/worktrees/migration-capture/pyCircuit/tests/cpp/agentic-circuit/Dialect/ACIR/ZeroRuleFinalProgramTest.cpp:343&#x0A;Expected equality of these values:&#x0A;  analysis-&gt;instances().size()&#x0A;    Which is: 0&#x0A;  1u&#x0A;    Which is: 1&#x0A;" type=""><![CDATA[/Users/zhoubot/.codex/worktrees/migration-capture/pyCircuit/tests/cpp/agentic-circuit/Dialect/ACIR/ZeroRuleFinalProgramTest.cpp:343
+Expected equality of these values:
+  analysis->instances().size()
+    Which is: 0
+  1u
+    Which is: 1
+]]></failure>
+    </testcase>
+    <testcase name="EmitReadyGraphMutationIsRejectedByBothEmitters" file="/Users/zhoubot/.codex/worktrees/migration-capture/pyCircuit/tests/cpp/agentic-circuit/Dialect/ACIR/ZeroRuleFinalProgramTest.cpp" line="361" status="run" result="completed" time="0.06" timestamp="2026-09-29T21:11:41.051" classname="ZeroRuleFinalProgramTest" />
+    <testcase name="NativeResetMustFitLogicalRange" file="/Users/zhoubot/.codex/worktrees/migration-capture/pyCircuit/tests/cpp/agentic-circuit/Dialect/ACIR/ZeroRuleFinalProgramTest.cpp" line="377" status="run" result="completed" time="0.12" timestamp="2026-09-29T21:11:41.112" classname="ZeroRuleFinalProgramTest" />
+  </testsuite>
+</testsuites>

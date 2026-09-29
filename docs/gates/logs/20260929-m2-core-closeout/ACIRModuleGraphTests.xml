@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuites tests="5" failures="0" disabled="0" errors="0" time="0.693" timestamp="2026-09-29T21:11:22.349" name="AllTests">
+  <testsuite name="ModuleGraphTest" tests="5" failures="0" disabled="0" skipped="0" errors="0" time="0.693" timestamp="2026-09-29T21:11:22.349">
+    <testcase name="HeaderOnlyParentAndCompleteBodiesAreAdmitted" file="/Users/zhoubot/.codex/worktrees/migration-capture/pyCircuit/tests/cpp/agentic-circuit/Dialect/ACIR/ModuleGraphTest.cpp" line="220" status="run" result="completed" time="0.131" timestamp="2026-09-29T21:11:22.349" classname="ModuleGraphTest" />
+    <testcase name="GraphHasRootOrderedChildrenOwnersAndPostOrder" file="/Users/zhoubot/.codex/worktrees/migration-capture/pyCircuit/tests/cpp/agentic-circuit/Dialect/ACIR/ModuleGraphTest.cpp" line="235" status="run" result="completed" time="0.132" timestamp="2026-09-29T21:11:22.481" classname="ModuleGraphTest" />
+    <testcase name="GraphOwnsThreeStatesAndRelayIsOneStateID" file="/Users/zhoubot/.codex/worktrees/migration-capture/pyCircuit/tests/cpp/agentic-circuit/Dialect/ACIR/ModuleGraphTest.cpp" line="255" status="run" result="completed" time="0.126" timestamp="2026-09-29T21:11:22.613" classname="ModuleGraphTest" />
+    <testcase name="BadControlAndRecursiveCalleeAreRejected" file="/Users/zhoubot/.codex/worktrees/migration-capture/pyCircuit/tests/cpp/agentic-circuit/Dialect/ACIR/ModuleGraphTest.cpp" line="277" status="run" result="completed" time="0.14" timestamp="2026-09-29T21:11:22.739" classname="ModuleGraphTest" />
+    <testcase name="ForeignAndMissingOrRepeatedActualsAreRejected" file="/Users/zhoubot/.codex/worktrees/migration-capture/pyCircuit/tests/cpp/agentic-circuit/Dialect/ACIR/ModuleGraphTest.cpp" line="300" status="run" result="completed" time="0.163" timestamp="2026-09-29T21:11:22.879" classname="ModuleGraphTest" />
+  </testsuite>
+</testsuites>

@@ -131,17 +131,17 @@ mlir::FailureOr<llvm::json::Array>
 composedRtlStatistics(const acir::compiler::FinalProgram &program,
                       uint64_t epoch, const llvm::json::Array &gauges,
                       acir::ac::detail::EmitError error) {
-  auto row = [](llvm::StringRef owner, llvm::StringRef name,
-                llvm::StringRef kind, uint64_t value, uint64_t time) {
+  auto row = [](std::string owner, std::string name, std::string kind,
+                uint64_t value, uint64_t time) {
     return llvm::json::Object{
         {"buckets", llvm::json::Array{}},
         {"count", 0},
-        {"kind", kind},
+        {"kind", std::move(kind)},
         {"last_update", llvm::json::Object{{"delta", 0}, {"time", time}}},
         {"maximum", 0},
         {"minimum", 0},
-        {"name", name},
-        {"object_path", owner},
+        {"name", std::move(name)},
+        {"object_path", std::move(owner)},
         {"sum", 0},
         {"value", value}};
   };
@@ -166,7 +166,7 @@ composedRtlStatistics(const acir::compiler::FinalProgram &program,
     }
     result.push_back(
         row(identity(observation.ownerRef),
-            observation.spec.getAs<mlir::StringAttr>("name").getValue(),
+            observation.spec.getAs<mlir::StringAttr>("name").getValue().str(),
             "gauge", value, time));
   }
   llvm::sort(

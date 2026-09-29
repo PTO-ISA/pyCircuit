@@ -1,0 +1,92 @@
+[
+  {
+    "target": "ACIRRegContractsTests",
+    "exit": 0,
+    "tests": "10",
+    "failures": "0",
+    "disabled": "0",
+    "errors": "0",
+    "skipped": 0
+  },
+  {
+    "target": "ACIRModuleGraphTests",
+    "exit": 0,
+    "tests": "5",
+    "failures": "0",
+    "disabled": "0",
+    "errors": "0",
+    "skipped": 0
+  },
+  {
+    "target": "ACIRProposalContractsTests",
+    "exit": 0,
+    "tests": "9",
+    "failures": "0",
+    "disabled": "0",
+    "errors": "0",
+    "skipped": 0
+  },
+  {
+    "target": "ACIRRegRuntimeTests",
+    "exit": 0,
+    "tests": "5",
+    "failures": "0",
+    "disabled": "0",
+    "errors": "0",
+    "skipped": 0
+  },
+  {
+    "target": "ACIRSystemLifecycleTests",
+    "exit": 0,
+    "tests": "10",
+    "failures": "0",
+    "disabled": "0",
+    "errors": "0",
+    "skipped": 0
+  },
+  {
+    "target": "ACIRSimExecutorTests",
+    "exit": 0,
+    "tests": "9",
+    "failures": "0",
+    "disabled": "0",
+    "errors": "0",
+    "skipped": 0
+  },
+  {
+    "target": "ACIRCheckContractsTests",
+    "exit": 0,
+    "tests": "9",
+    "failures": "0",
+    "disabled": "0",
+    "errors": "0",
+    "skipped": 0
+  },
+  {
+    "target": "ACIRObservationContractsTests",
+    "exit": 0,
+    "tests": "6",
+    "failures": "0",
+    "disabled": "0",
+    "errors": "0",
+    "skipped": 0
+  },
+  {
+    "target": "ACIRFinalProgramTests",
+    "exit": 0,
+    "tests": "51",
+    "failures": "0",
+    "disabled": "0",
+    "errors": "0",
+    "skipped": 0
+  },
+  {
+    "target": "ACIRExecutableBackendClosureTests",
+    "exit": 1,
+    "tests": "18",
+    "failures": "1",
+    "disabled": "0",
+    "errors": "0",
+    "skipped": 0
+  }
+]
