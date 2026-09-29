@@ -33,6 +33,15 @@ module class/self 与递归生命周期方向；冻结 C1/C2/C3 文本及已验�
 后续进入一条 M4 可用流程，M3 按需补缺口。并行调度、完整 SDK 等仍为后续责任。
 验收范围与证据位置见 [M2 执行记录](../work-items/m2-closure-execution.md)。
 
+## 最新纠偏：硬件 design 与 testbench 分离
+
+用户明确要求设计产物使用 `design_top.ac`。M2 已验收的是封闭系统
+回归范围，不是独立 DUT/testbench 的公开交付。M4 必须分别证明 design、
+testbench 与通用框架/runtime 的边界，不能把含 stimulus/checker 的
+测试 system 更名后当作 design。当前暂停进一步公开入口和 IR 扩展，
+先按 [边界与 primitive 授权审计](../reviews/20260929-design-testbench-ir-authority.md)
+收敛；已有精确批准继续适用，新增语义不得由代理自行批准。
+
 ## 2026-09-29：交付范围收缩
 
 用户明确要求评估 M1–M7，不要求把所有能力实现完备，允许后续补充。
