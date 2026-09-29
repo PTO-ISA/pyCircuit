@@ -1,0 +1,7 @@
+# Verification environment, recorded 2026-09-29T16:44:36Z
+ACIR_SOURCE_UNIT_HARNESS=/Users/zhoubot/.codex/worktrees/migration-capture/pyCircuit/.pycircuit_out/w10-pm/build/bin/acir-source-unit-harness
+ACIR_DESIGN_HARNESS=/Users/zhoubot/.codex/worktrees/migration-capture/pyCircuit/.pycircuit_out/w10-pm/build/bin/acir-design-harness
+MLIR_OPT=/opt/homebrew/Cellar/llvm/22.1.8/bin/mlir-opt
+PYTHONPATH=python/pycircuit/src:python/semantic-core/src:python/agentic-circuit/src  (relative to the checkout root)
+candidate tree: 51ec9ab5b91efec0eeeb2af713d40b86bc67fb80
+baseline tree:  06680be25422a97e0604842f79f9bebdf130df81  (detached worktree, same harness binary and environment)

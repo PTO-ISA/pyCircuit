@@ -1,0 +1,205 @@
+============================= test session starts ==============================
+platform darwin -- Python 3.14.6, pytest-9.0.2, pluggy-1.6.0
+rootdir: /Users/zhoubot/.codex/worktrees/migration-capture/pyCircuit
+configfile: pyproject.toml
+collected 26 items
+
+tests/system/test_source_module_units.py FFFFFF.....FFFFFFFFFFF          [ 84%]
+tests/system/test_source_transport_mlir.py ....                          [100%]
+
+=================================== FAILURES ===================================
+_____________ test_real_packet_then_probe_emit_body_and_interface ______________
+tests/system/test_source_module_units.py:236: in test_real_packet_then_probe_emit_body_and_interface
+    source, packet, probe = _compile_probe(tmp_path)
+                            ^^^^^^^^^^^^^^^^^^^^^^^^
+tests/system/test_source_module_units.py:123: in _compile_probe
+    assert probe.completed.returncode == 0, probe.completed.stderr
+E   AssertionError: error: @module and @system require function definitions; class/self authoring has been retired
+E     
+E   assert 1 == 0
+E    +  where 1 = CompletedProcess(args=['/Users/zhoubot/.codex/worktrees/migration-capture/pyCircuit/.pycircuit_out/w10-pm/build/bin/ac..., stdout='', stderr='error: @module and @system require function definitions; class/self authoring has been retired\n').returncode
+E    +    where CompletedProcess(args=['/Users/zhoubot/.codex/worktrees/migration-capture/pyCircuit/.pycircuit_out/w10-pm/build/bin/ac..., stdout='', stderr='error: @module and @system require function definitions; class/self authoring has been retired\n') = Unit(completed=CompletedProcess(args=['/Users/zhoubot/.codex/worktrees/migration-capture/pyCircuit/.pycircuit_out/w10-...25h0000gn/T/pytest-of-zhoubot/pytest-1032/test_real_packet_then_probe_em0/probe-out/accumulator_probe.interface.mlir')).completed
+__________ test_probe_header_matches_the_approved_c2_module_contract ___________
+tests/system/test_source_module_units.py:249: in test_probe_header_matches_the_approved_c2_module_contract
+    _, _, probe = _compile_probe(tmp_path)
+                  ^^^^^^^^^^^^^^^^^^^^^^^^
+tests/system/test_source_module_units.py:123: in _compile_probe
+    assert probe.completed.returncode == 0, probe.completed.stderr
+E   AssertionError: error: @module and @system require function definitions; class/self authoring has been retired
+E     
+E   assert 1 == 0
+E    +  where 1 = CompletedProcess(args=['/Users/zhoubot/.codex/worktrees/migration-capture/pyCircuit/.pycircuit_out/w10-pm/build/bin/ac..., stdout='', stderr='error: @module and @system require function definitions; class/self authoring has been retired\n').returncode
+E    +    where CompletedProcess(args=['/Users/zhoubot/.codex/worktrees/migration-capture/pyCircuit/.pycircuit_out/w10-pm/build/bin/ac..., stdout='', stderr='error: @module and @system require function definitions; class/self authoring has been retired\n') = Unit(completed=CompletedProcess(args=['/Users/zhoubot/.codex/worktrees/migration-capture/pyCircuit/.pycircuit_out/w10-...25h0000gn/T/pytest-of-zhoubot/pytest-1032/test_probe_header_matches_the_0/probe-out/accumulator_probe.interface.mlir')).completed
+_______________ test_probe_body_and_header_mirror_unit_metadata ________________
+tests/system/test_source_module_units.py:277: in test_probe_body_and_header_mirror_unit_metadata
+    _, _, probe = _compile_probe(tmp_path)
+                  ^^^^^^^^^^^^^^^^^^^^^^^^
+tests/system/test_source_module_units.py:123: in _compile_probe
+    assert probe.completed.returncode == 0, probe.completed.stderr
+E   AssertionError: error: @module and @system require function definitions; class/self authoring has been retired
+E     
+E   assert 1 == 0
+E    +  where 1 = CompletedProcess(args=['/Users/zhoubot/.codex/worktrees/migration-capture/pyCircuit/.pycircuit_out/w10-pm/build/bin/ac..., stdout='', stderr='error: @module and @system require function definitions; class/self authoring has been retired\n').returncode
+E    +    where CompletedProcess(args=['/Users/zhoubot/.codex/worktrees/migration-capture/pyCircuit/.pycircuit_out/w10-pm/build/bin/ac..., stdout='', stderr='error: @module and @system require function definitions; class/self authoring has been retired\n') = Unit(completed=CompletedProcess(args=['/Users/zhoubot/.codex/worktrees/migration-capture/pyCircuit/.pycircuit_out/w10-...25h0000gn/T/pytest-of-zhoubot/pytest-1032/test_probe_body_and_header_mir0/probe-out/accumulator_probe.interface.mlir')).completed
+________ test_rule_member_read_uses_member_identity_not_argument_index _________
+tests/system/test_source_module_units.py:328: in test_rule_member_read_uses_member_identity_not_argument_index
+    assert result.completed.returncode == 0, result.completed.stderr
+E   AssertionError: error: @module and @system require function definitions; class/self authoring has been retired
+E     
+E   assert 1 == 0
+E    +  where 1 = CompletedProcess(args=['/Users/zhoubot/.codex/worktrees/migration-capture/pyCircuit/.pycircuit_out/w10-pm/build/bin/ac..., stdout='', stderr='error: @module and @system require function definitions; class/self authoring has been retired\n').returncode
+E    +    where CompletedProcess(args=['/Users/zhoubot/.codex/worktrees/migration-capture/pyCircuit/.pycircuit_out/w10-pm/build/bin/ac..., stdout='', stderr='error: @module and @system require function definitions; class/self authoring has been retired\n') = Unit(completed=CompletedProcess(args=['/Users/zhoubot/.codex/worktrees/migration-capture/pyCircuit/.pycircuit_out/w10-...0gn/T/pytest-of-zhoubot/pytest-1032/test_rule_member_read_uses_mem0/member-read-out/member_read_probe.interface.mlir')).completed
+______________ test_rule_store_target_is_not_a_current_value_read ______________
+tests/system/test_source_module_units.py:367: in test_rule_store_target_is_not_a_current_value_read
+    assert "rule body supports one return statement" in result.completed.stderr
+E   AssertionError: assert 'rule body supports one return statement' in 'error: @module and @system require function definitions; class/self authoring has been retired\n'
+E    +  where 'error: @module and @system require function definitions; class/self authoring has been retired\n' = CompletedProcess(args=['/Users/zhoubot/.codex/worktrees/migration-capture/pyCircuit/.pycircuit_out/w10-pm/build/bin/ac..., stdout='', stderr='error: @module and @system require function definitions; class/self authoring has been retired\n').stderr
+E    +    where CompletedProcess(args=['/Users/zhoubot/.codex/worktrees/migration-capture/pyCircuit/.pycircuit_out/w10-pm/build/bin/ac..., stdout='', stderr='error: @module and @system require function definitions; class/self authoring has been retired\n') = Unit(completed=CompletedProcess(args=['/Users/zhoubot/.codex/worktrees/migration-capture/pyCircuit/.pycircuit_out/w10-...n/T/pytest-of-zhoubot/pytest-1032/test_rule_store_target_is_not_0/store-target-out/store_target_probe.interface.mlir')).completed
+_________ test_probe_root_uses_headers_without_provider_source_or_body _________
+tests/system/test_source_module_units.py:374: in test_probe_root_uses_headers_without_provider_source_or_body
+    source, packet, probe = _compile_probe(tmp_path)
+                            ^^^^^^^^^^^^^^^^^^^^^^^^
+tests/system/test_source_module_units.py:123: in _compile_probe
+    assert probe.completed.returncode == 0, probe.completed.stderr
+E   AssertionError: error: @module and @system require function definitions; class/self authoring has been retired
+E     
+E   assert 1 == 0
+E    +  where 1 = CompletedProcess(args=['/Users/zhoubot/.codex/worktrees/migration-capture/pyCircuit/.pycircuit_out/w10-pm/build/bin/ac..., stdout='', stderr='error: @module and @system require function definitions; class/self authoring has been retired\n').returncode
+E    +    where CompletedProcess(args=['/Users/zhoubot/.codex/worktrees/migration-capture/pyCircuit/.pycircuit_out/w10-pm/build/bin/ac..., stdout='', stderr='error: @module and @system require function definitions; class/self authoring has been retired\n') = Unit(completed=CompletedProcess(args=['/Users/zhoubot/.codex/worktrees/migration-capture/pyCircuit/.pycircuit_out/w10-...25h0000gn/T/pytest-of-zhoubot/pytest-1032/test_probe_root_uses_headers_w0/probe-out/accumulator_probe.interface.mlir')).completed
+___________________ test_valid_unregistered_rule_is_inactive ___________________
+tests/system/test_source_module_units.py:452: in test_valid_unregistered_rule_is_inactive
+    assert result.completed.returncode == 0, result.completed.stderr
+E   AssertionError: error: @module and @system require function definitions; class/self authoring has been retired
+E     
+E   assert 1 == 0
+E    +  where 1 = CompletedProcess(args=['/Users/zhoubot/.codex/worktrees/migration-capture/pyCircuit/.pycircuit_out/w10-pm/build/bin/ac..., stdout='', stderr='error: @module and @system require function definitions; class/self authoring has been retired\n').returncode
+E    +    where CompletedProcess(args=['/Users/zhoubot/.codex/worktrees/migration-capture/pyCircuit/.pycircuit_out/w10-pm/build/bin/ac..., stdout='', stderr='error: @module and @system require function definitions; class/self authoring has been retired\n') = Unit(completed=CompletedProcess(args=['/Users/zhoubot/.codex/worktrees/migration-capture/pyCircuit/.pycircuit_out/w10-...25h0000gn/T/pytest-of-zhoubot/pytest-1032/test_valid_unregistered_rule_i0/inactive-out/inactive_probe.interface.mlir')).completed
+__________ test_invalid_source_reset_expressions_are_rejected[False] ___________
+tests/system/test_source_module_units.py:476: in test_invalid_source_reset_expressions_are_rejected
+    source, packet, probe = _compile_probe(tmp_path)
+                            ^^^^^^^^^^^^^^^^^^^^^^^^
+tests/system/test_source_module_units.py:123: in _compile_probe
+    assert probe.completed.returncode == 0, probe.completed.stderr
+E   AssertionError: error: @module and @system require function definitions; class/self authoring has been retired
+E     
+E   assert 1 == 0
+E    +  where 1 = CompletedProcess(args=['/Users/zhoubot/.codex/worktrees/migration-capture/pyCircuit/.pycircuit_out/w10-pm/build/bin/ac..., stdout='', stderr='error: @module and @system require function definitions; class/self authoring has been retired\n').returncode
+E    +    where CompletedProcess(args=['/Users/zhoubot/.codex/worktrees/migration-capture/pyCircuit/.pycircuit_out/w10-pm/build/bin/ac..., stdout='', stderr='error: @module and @system require function definitions; class/self authoring has been retired\n') = Unit(completed=CompletedProcess(args=['/Users/zhoubot/.codex/worktrees/migration-capture/pyCircuit/.pycircuit_out/w10-...25h0000gn/T/pytest-of-zhoubot/pytest-1032/test_invalid_source_reset_expr0/probe-out/accumulator_probe.interface.mlir')).completed
+_____ test_invalid_source_reset_expressions_are_rejected[Missing(3, True)] _____
+tests/system/test_source_module_units.py:476: in test_invalid_source_reset_expressions_are_rejected
+    source, packet, probe = _compile_probe(tmp_path)
+                            ^^^^^^^^^^^^^^^^^^^^^^^^
+tests/system/test_source_module_units.py:123: in _compile_probe
+    assert probe.completed.returncode == 0, probe.completed.stderr
+E   AssertionError: error: @module and @system require function definitions; class/self authoring has been retired
+E     
+E   assert 1 == 0
+E    +  where 1 = CompletedProcess(args=['/Users/zhoubot/.codex/worktrees/migration-capture/pyCircuit/.pycircuit_out/w10-pm/build/bin/ac..., stdout='', stderr='error: @module and @system require function definitions; class/self authoring has been retired\n').returncode
+E    +    where CompletedProcess(args=['/Users/zhoubot/.codex/worktrees/migration-capture/pyCircuit/.pycircuit_out/w10-pm/build/bin/ac..., stdout='', stderr='error: @module and @system require function definitions; class/self authoring has been retired\n') = Unit(completed=CompletedProcess(args=['/Users/zhoubot/.codex/worktrees/migration-capture/pyCircuit/.pycircuit_out/w10-...25h0000gn/T/pytest-of-zhoubot/pytest-1032/test_invalid_source_reset_expr1/probe-out/accumulator_probe.interface.mlir')).completed
+_________ test_invalid_source_reset_expressions_are_rejected[Word(3)] __________
+tests/system/test_source_module_units.py:476: in test_invalid_source_reset_expressions_are_rejected
+    source, packet, probe = _compile_probe(tmp_path)
+                            ^^^^^^^^^^^^^^^^^^^^^^^^
+tests/system/test_source_module_units.py:123: in _compile_probe
+    assert probe.completed.returncode == 0, probe.completed.stderr
+E   AssertionError: error: @module and @system require function definitions; class/self authoring has been retired
+E     
+E   assert 1 == 0
+E    +  where 1 = CompletedProcess(args=['/Users/zhoubot/.codex/worktrees/migration-capture/pyCircuit/.pycircuit_out/w10-pm/build/bin/ac..., stdout='', stderr='error: @module and @system require function definitions; class/self authoring has been retired\n').returncode
+E    +    where CompletedProcess(args=['/Users/zhoubot/.codex/worktrees/migration-capture/pyCircuit/.pycircuit_out/w10-pm/build/bin/ac..., stdout='', stderr='error: @module and @system require function definitions; class/self authoring has been retired\n') = Unit(completed=CompletedProcess(args=['/Users/zhoubot/.codex/worktrees/migration-capture/pyCircuit/.pycircuit_out/w10-...25h0000gn/T/pytest-of-zhoubot/pytest-1032/test_invalid_source_reset_expr2/probe-out/accumulator_probe.interface.mlir')).completed
+___ test_invalid_source_reset_expressions_are_rejected[Request(3, value=4)] ____
+tests/system/test_source_module_units.py:476: in test_invalid_source_reset_expressions_are_rejected
+    source, packet, probe = _compile_probe(tmp_path)
+                            ^^^^^^^^^^^^^^^^^^^^^^^^
+tests/system/test_source_module_units.py:123: in _compile_probe
+    assert probe.completed.returncode == 0, probe.completed.stderr
+E   AssertionError: error: @module and @system require function definitions; class/self authoring has been retired
+E     
+E   assert 1 == 0
+E    +  where 1 = CompletedProcess(args=['/Users/zhoubot/.codex/worktrees/migration-capture/pyCircuit/.pycircuit_out/w10-pm/build/bin/ac..., stdout='', stderr='error: @module and @system require function definitions; class/self authoring has been retired\n').returncode
+E    +    where CompletedProcess(args=['/Users/zhoubot/.codex/worktrees/migration-capture/pyCircuit/.pycircuit_out/w10-pm/build/bin/ac..., stdout='', stderr='error: @module and @system require function definitions; class/self authoring has been retired\n') = Unit(completed=CompletedProcess(args=['/Users/zhoubot/.codex/worktrees/migration-capture/pyCircuit/.pycircuit_out/w10-...25h0000gn/T/pytest-of-zhoubot/pytest-1032/test_invalid_source_reset_expr3/probe-out/accumulator_probe.interface.mlir')).completed
+____ test_invalid_source_reset_expressions_are_rejected[Request(unknown=3)] ____
+tests/system/test_source_module_units.py:476: in test_invalid_source_reset_expressions_are_rejected
+    source, packet, probe = _compile_probe(tmp_path)
+                            ^^^^^^^^^^^^^^^^^^^^^^^^
+tests/system/test_source_module_units.py:123: in _compile_probe
+    assert probe.completed.returncode == 0, probe.completed.stderr
+E   AssertionError: error: @module and @system require function definitions; class/self authoring has been retired
+E     
+E   assert 1 == 0
+E    +  where 1 = CompletedProcess(args=['/Users/zhoubot/.codex/worktrees/migration-capture/pyCircuit/.pycircuit_out/w10-pm/build/bin/ac..., stdout='', stderr='error: @module and @system require function definitions; class/self authoring has been retired\n').returncode
+E    +    where CompletedProcess(args=['/Users/zhoubot/.codex/worktrees/migration-capture/pyCircuit/.pycircuit_out/w10-pm/build/bin/ac..., stdout='', stderr='error: @module and @system require function definitions; class/self authoring has been retired\n') = Unit(completed=CompletedProcess(args=['/Users/zhoubot/.codex/worktrees/migration-capture/pyCircuit/.pycircuit_out/w10-...25h0000gn/T/pytest-of-zhoubot/pytest-1032/test_invalid_source_reset_expr4/probe-out/accumulator_probe.interface.mlir')).completed
+_________________ test_wrong_nominal_record_reset_is_rejected __________________
+tests/system/test_source_module_units.py:487: in test_wrong_nominal_record_reset_is_rejected
+    source, packet, probe = _compile_probe(tmp_path)
+                            ^^^^^^^^^^^^^^^^^^^^^^^^
+tests/system/test_source_module_units.py:123: in _compile_probe
+    assert probe.completed.returncode == 0, probe.completed.stderr
+E   AssertionError: error: @module and @system require function definitions; class/self authoring has been retired
+E     
+E   assert 1 == 0
+E    +  where 1 = CompletedProcess(args=['/Users/zhoubot/.codex/worktrees/migration-capture/pyCircuit/.pycircuit_out/w10-pm/build/bin/ac..., stdout='', stderr='error: @module and @system require function definitions; class/self authoring has been retired\n').returncode
+E    +    where CompletedProcess(args=['/Users/zhoubot/.codex/worktrees/migration-capture/pyCircuit/.pycircuit_out/w10-pm/build/bin/ac..., stdout='', stderr='error: @module and @system require function definitions; class/self authoring has been retired\n') = Unit(completed=CompletedProcess(args=['/Users/zhoubot/.codex/worktrees/migration-capture/pyCircuit/.pycircuit_out/w10-...25h0000gn/T/pytest-of-zhoubot/pytest-1032/test_wrong_nominal_record_rese0/probe-out/accumulator_probe.interface.mlir')).completed
+_ test_child_static_parameters_never_lower_to_empty_static_args[False-AccumulatorProbe(self.request, self.result)] _
+tests/system/test_source_module_units.py:537: in test_child_static_parameters_never_lower_to_empty_static_args
+    source, packet, probe = _compile_probe(tmp_path)
+                            ^^^^^^^^^^^^^^^^^^^^^^^^
+tests/system/test_source_module_units.py:123: in _compile_probe
+    assert probe.completed.returncode == 0, probe.completed.stderr
+E   AssertionError: error: @module and @system require function definitions; class/self authoring has been retired
+E     
+E   assert 1 == 0
+E    +  where 1 = CompletedProcess(args=['/Users/zhoubot/.codex/worktrees/migration-capture/pyCircuit/.pycircuit_out/w10-pm/build/bin/ac..., stdout='', stderr='error: @module and @system require function definitions; class/self authoring has been retired\n').returncode
+E    +    where CompletedProcess(args=['/Users/zhoubot/.codex/worktrees/migration-capture/pyCircuit/.pycircuit_out/w10-pm/build/bin/ac..., stdout='', stderr='error: @module and @system require function definitions; class/self authoring has been retired\n') = Unit(completed=CompletedProcess(args=['/Users/zhoubot/.codex/worktrees/migration-capture/pyCircuit/.pycircuit_out/w10-...25h0000gn/T/pytest-of-zhoubot/pytest-1032/test_child_static_parameters_n0/probe-out/accumulator_probe.interface.mlir')).completed
+_ test_child_static_parameters_never_lower_to_empty_static_args[True-AccumulatorProbe(self.request, self.result)] _
+tests/system/test_source_module_units.py:537: in test_child_static_parameters_never_lower_to_empty_static_args
+    source, packet, probe = _compile_probe(tmp_path)
+                            ^^^^^^^^^^^^^^^^^^^^^^^^
+tests/system/test_source_module_units.py:123: in _compile_probe
+    assert probe.completed.returncode == 0, probe.completed.stderr
+E   AssertionError: error: @module and @system require function definitions; class/self authoring has been retired
+E     
+E   assert 1 == 0
+E    +  where 1 = CompletedProcess(args=['/Users/zhoubot/.codex/worktrees/migration-capture/pyCircuit/.pycircuit_out/w10-pm/build/bin/ac..., stdout='', stderr='error: @module and @system require function definitions; class/self authoring has been retired\n').returncode
+E    +    where CompletedProcess(args=['/Users/zhoubot/.codex/worktrees/migration-capture/pyCircuit/.pycircuit_out/w10-pm/build/bin/ac..., stdout='', stderr='error: @module and @system require function definitions; class/self authoring has been retired\n') = Unit(completed=CompletedProcess(args=['/Users/zhoubot/.codex/worktrees/migration-capture/pyCircuit/.pycircuit_out/w10-...25h0000gn/T/pytest-of-zhoubot/pytest-1032/test_child_static_parameters_n1/probe-out/accumulator_probe.interface.mlir')).completed
+_ test_child_static_parameters_never_lower_to_empty_static_args[False-AccumulatorProbe(self.request, self.result, 4)] _
+tests/system/test_source_module_units.py:537: in test_child_static_parameters_never_lower_to_empty_static_args
+    source, packet, probe = _compile_probe(tmp_path)
+                            ^^^^^^^^^^^^^^^^^^^^^^^^
+tests/system/test_source_module_units.py:123: in _compile_probe
+    assert probe.completed.returncode == 0, probe.completed.stderr
+E   AssertionError: error: @module and @system require function definitions; class/self authoring has been retired
+E     
+E   assert 1 == 0
+E    +  where 1 = CompletedProcess(args=['/Users/zhoubot/.codex/worktrees/migration-capture/pyCircuit/.pycircuit_out/w10-pm/build/bin/ac..., stdout='', stderr='error: @module and @system require function definitions; class/self authoring has been retired\n').returncode
+E    +    where CompletedProcess(args=['/Users/zhoubot/.codex/worktrees/migration-capture/pyCircuit/.pycircuit_out/w10-pm/build/bin/ac..., stdout='', stderr='error: @module and @system require function definitions; class/self authoring has been retired\n') = Unit(completed=CompletedProcess(args=['/Users/zhoubot/.codex/worktrees/migration-capture/pyCircuit/.pycircuit_out/w10-...25h0000gn/T/pytest-of-zhoubot/pytest-1032/test_child_static_parameters_n2/probe-out/accumulator_probe.interface.mlir')).completed
+_________ test_connection_default_metadata_requires_an_explicit_handle _________
+tests/system/test_source_module_units.py:555: in test_connection_default_metadata_requires_an_explicit_handle
+    source, packet, probe = _compile_probe(tmp_path)
+                            ^^^^^^^^^^^^^^^^^^^^^^^^
+tests/system/test_source_module_units.py:123: in _compile_probe
+    assert probe.completed.returncode == 0, probe.completed.stderr
+E   AssertionError: error: @module and @system require function definitions; class/self authoring has been retired
+E     
+E   assert 1 == 0
+E    +  where 1 = CompletedProcess(args=['/Users/zhoubot/.codex/worktrees/migration-capture/pyCircuit/.pycircuit_out/w10-pm/build/bin/ac..., stdout='', stderr='error: @module and @system require function definitions; class/self authoring has been retired\n').returncode
+E    +    where CompletedProcess(args=['/Users/zhoubot/.codex/worktrees/migration-capture/pyCircuit/.pycircuit_out/w10-pm/build/bin/ac..., stdout='', stderr='error: @module and @system require function definitions; class/self authoring has been retired\n') = Unit(completed=CompletedProcess(args=['/Users/zhoubot/.codex/worktrees/migration-capture/pyCircuit/.pycircuit_out/w10-...25h0000gn/T/pytest-of-zhoubot/pytest-1032/test_connection_default_metada0/probe-out/accumulator_probe.interface.mlir')).completed
+=========================== short test summary info ============================
+FAILED tests/system/test_source_module_units.py::test_real_packet_then_probe_emit_body_and_interface
+FAILED tests/system/test_source_module_units.py::test_probe_header_matches_the_approved_c2_module_contract
+FAILED tests/system/test_source_module_units.py::test_probe_body_and_header_mirror_unit_metadata
+FAILED tests/system/test_source_module_units.py::test_rule_member_read_uses_member_identity_not_argument_index
+FAILED tests/system/test_source_module_units.py::test_rule_store_target_is_not_a_current_value_read
+FAILED tests/system/test_source_module_units.py::test_probe_root_uses_headers_without_provider_source_or_body
+FAILED tests/system/test_source_module_units.py::test_valid_unregistered_rule_is_inactive
+FAILED tests/system/test_source_module_units.py::test_invalid_source_reset_expressions_are_rejected[False]
+FAILED tests/system/test_source_module_units.py::test_invalid_source_reset_expressions_are_rejected[Missing(3, True)]
+FAILED tests/system/test_source_module_units.py::test_invalid_source_reset_expressions_are_rejected[Word(3)]
+FAILED tests/system/test_source_module_units.py::test_invalid_source_reset_expressions_are_rejected[Request(3, value=4)]
+FAILED tests/system/test_source_module_units.py::test_invalid_source_reset_expressions_are_rejected[Request(unknown=3)]
+FAILED tests/system/test_source_module_units.py::test_wrong_nominal_record_reset_is_rejected
+FAILED tests/system/test_source_module_units.py::test_child_static_parameters_never_lower_to_empty_static_args[False-AccumulatorProbe(self.request, self.result)]
+FAILED tests/system/test_source_module_units.py::test_child_static_parameters_never_lower_to_empty_static_args[True-AccumulatorProbe(self.request, self.result)]
+FAILED tests/system/test_source_module_units.py::test_child_static_parameters_never_lower_to_empty_static_args[False-AccumulatorProbe(self.request, self.result, 4)]
+FAILED tests/system/test_source_module_units.py::test_connection_default_metadata_requires_an_explicit_handle
+========================= 17 failed, 9 passed in 1.48s =========================

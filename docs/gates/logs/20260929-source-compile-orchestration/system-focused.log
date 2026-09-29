@@ -12,4 +12,4 @@ tests/system/test_source_design_bridge.py .............................. [ 89%]
 ...........                                                              [100%]
 
 - generated xml file: /Users/zhoubot/.codex/worktrees/migration-capture/pyCircuit/docs/gates/logs/20260929-source-compile-orchestration/system-focused.xml -
-============================= 105 passed in 30.52s =============================
+============================= 105 passed in 29.49s =============================

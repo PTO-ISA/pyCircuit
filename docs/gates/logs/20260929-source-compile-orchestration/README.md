@@ -121,30 +121,57 @@ the rest of the publication package.
 
 ## Verification
 
-| Lane | Tests | failures | errors | skipped |
-| --- | --- | --- | --- | --- |
-| unit (`unit.xml`) | 174 | 0 | 0 | 3 |
-| system focused (`system-focused.xml`) | 105 | 0 | 0 | 0 |
+The environment exported for every lane is recorded in `lane-env.txt`:
+`ACIR_SOURCE_UNIT_HARNESS` and `ACIR_DESIGN_HARNESS` (the shared build's
+helpers), `MLIR_OPT` and `PYTHONPATH`.
+
+| Lane | Log | Tests | failures | errors | skipped | exit |
+| --- | --- | --- | --- | --- | --- | --- |
+| unit | `unit.xml` | 174 | 0 | 0 | 3 | 0 |
+| system focused | `system-focused.xml` | 105 | 0 | 0 | 0 | 0 |
+| LLVM transport | `transport-mlir.xml` | 4 | 0 | 0 | 0 | 0 |
 
 Selector inventory of the system lane: `test_source_compile_publication` 6,
 `test_source_unit_packet` 51, `test_generic_assignment_roundtrip` 7,
-`test_source_design_bridge` 41. Both exit codes are 0.
+`test_source_design_bridge` 41. All three lanes exit 0.
 
 The skipped unit cases are the pre-existing platform skips in the publication
 filesystem suite, unchanged by this packet.
 
 ### Pre-existing failures, reported not hidden
 
-`tests/system/test_source_module_units.py` (15) and
-`tests/system/test_source_transport_mlir.py` (6) contain class/self authoring
-fixtures that the current frontend rejects by design
-(`@module and @system require function definitions; class/self authoring has been
-retired`). Running those two files against the **baseline** harness
-(`git stash` of this packet's helper change, rebuilt) gives **21 failed, 5
-passed** — exactly the same as with the packet applied
-(`baseline-stale-tests.log`). They are therefore pre-existing stale fixtures, not
-a regression from this packet, and they are excluded from this packet's lanes
-rather than repaired here (repairing them is a separate bounded task).
+`tests/system/test_source_module_units.py` collects **22** tests. With the
+harness configured, **17 fail and 5 pass**, and every failure carries the
+frontend's by-design rejection of that file's class/self authoring fixtures:
+`@module and @system require function definitions; class/self authoring has been
+retired`. Measured against the **baseline tree** (`06680be2` in a detached
+worktree; same harness binary, same environment, only the checkout differs) the
+result is identical: baseline **17 failed, 9 passed**, candidate **17 failed,
+9 passed**, and the two failure sets are byte-identical after sorting
+(`stale-tests-baseline.log`, `stale-tests-candidate.log`). It is therefore a
+pre-existing stale fixture, not a regression from this packet, and it is
+excluded from this packet's lanes rather than repaired here — repairing it is a
+separate bounded task. (Without `ACIR_SOURCE_UNIT_HARNESS` the same file fails
+earlier, in all 22 tests, with `set ACIR_SOURCE_UNIT_HARNESS for U02-A system
+tests`; that guard is environmental and is not the failure mode reported here.)
+
+`tests/system/test_source_transport_mlir.py` is **not** a stale fixture and is
+**not** excluded. Its **4** tests are gated on a configured `mlir-opt`, which is
+keg-only in this environment and absent from `PATH`. With `MLIR_OPT` set the file
+is **4 passed** on both the baseline tree and the candidate
+(`stale-tests-candidate.log`); with `MLIR_OPT` unset all 4 fail at
+`tests/system/test_source_transport_mlir.py:27` with `LLVM 22 mlir-opt is
+required; set MLIR_OPT or PYC_TOOLCHAIN_ROOT`
+(`transport-mlir-unconfigured.log`). The file imports only the pure-Python
+capture and transport modules, neither of which this packet modifies, so it is
+reported as its own lane above instead of being counted among "stale" failures.
+
+This subsection was corrected after independent review. The earlier revision
+reported collection counts of 15 and 6 for these two files and attributed all
+four transport failures to retired class/self fixtures; the measured counts,
+the two distinct failure modes, and the separate `MLIR_OPT` gate are above. The
+earlier combined unconfigured run (`baseline-stale-tests.log`, "21 failed, 5
+passed") is superseded by the three logs named here.
 
 ### What the tests prove
 
@@ -184,5 +211,19 @@ rather than repaired here (repairing them is a separate bounded task).
 
 ## Independent review
 
-Requested from a separate instance; not self-signed. The verdict is to be
-appended before the packet is accepted.
+Requested from a separate instance; not self-signed.
+
+**First review, of `64cb6106`: FAIL — evidence integrity only.** The reviewer
+confirmed the functional claims and the interface behaviour, and rejected the
+packet on the evidence in this directory. Two HIGH defects and one LOW were
+raised; all three are fixed here.
+
+| # | Finding | Disposition |
+| --- | --- | --- |
+| 1 | HIGH — this README reported collection counts of `15` and `6` for the two environment-gated files. | Corrected to the measured `22` collected (`17` failed, `5` passed) and `4` collected; see "Pre-existing failures, reported not hidden". |
+| 2 | HIGH — the four `test_source_transport_mlir.py` failures were attributed to retired class/self fixtures. They are a missing `mlir-opt` in `PATH`, not a stale fixture. | Re-measured with `MLIR_OPT` exported: `4 passed`, identical on the baseline tree and the candidate. The file is now its own lane, and the unconfigured run is kept as the tool-gate negative control (`transport-mlir-unconfigured.log`). |
+| 3 | LOW — `_source_compile.py` re-read the interface unit receipt inside the held lock, a redundant second authority for a value the lock set had already validated. | Replaced with a reuse of the owner captured before locking (`51ec9ab5`); `_PublicationInput` remains the only authority, and the lock set still re-validates the receipt under the lock. |
+
+**Re-verification requested** for `51ec9ab5` plus the evidence commit that
+carries this table. The verdict is to be appended before the packet is
+accepted.
