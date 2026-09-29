@@ -1,0 +1,23 @@
+{
+  "purpose": "C2-R1 donor register design evidence; no product implementation claim",
+  "donor_revision": "b852ed83fa0288d0be7406bba0ed47be4b2c0f63",
+  "observed_origin_main": "b9c2ec2704101d91f515a1a7ed69d2e3b02dbdfb",
+  "origin_main_note": "Older bootstrap; no SimDFF.h. No checkout switch performed.",
+  "files": [
+    {
+      "path": "include/SimDFF.h",
+      "sha256": "429978b2484cff2e99f7a90143184567d9dc3ffd10cd69d374d5e8a496ea3a6d",
+      "matches_donor_revision": true
+    },
+    {
+      "path": "docs/API/SimDFF.md",
+      "sha256": "f3510bb67368e2cca24fdc93ad57bb04b48789a87f0d87328ada89ae19a8fdce",
+      "matches_donor_revision": true
+    },
+    {
+      "path": "tests/platform/test_simdff.cpp",
+      "sha256": "26df2f46789e2d589f3c59d20213d89c8c9aa35544bd9ba4407de806574fc2c3",
+      "matches_donor_revision": true
+    }
+  ]
+}

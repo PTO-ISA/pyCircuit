@@ -1,0 +1,87 @@
+{
+  "proposal_sha256": "7b7aec52144f2f44b0f6c410213faab4454b461c2efd7a6bb3c78bf282478f43",
+  "python_examples_syntax_checked": 4,
+  "model_code_executed": false,
+  "oracle_kind": "independent ordinary-Python state equations; no pyCircuit compiler or donor runtime",
+  "oracles": [
+    {
+      "kind": "single",
+      "reversed_rule_order": false,
+      "work_observations": [
+        0,
+        2,
+        5,
+        5,
+        5
+      ],
+      "physical_register_count": 4,
+      "completion_commit": 5,
+      "final_q": {
+        "enabled": false,
+        "incoming": 0,
+        "outgoing": 5,
+        "phase": 4
+      }
+    },
+    {
+      "kind": "single",
+      "reversed_rule_order": true,
+      "work_observations": [
+        0,
+        2,
+        5,
+        5,
+        5
+      ],
+      "physical_register_count": 4,
+      "completion_commit": 5,
+      "final_q": {
+        "enabled": false,
+        "incoming": 0,
+        "outgoing": 5,
+        "phase": 4
+      }
+    },
+    {
+      "kind": "pipeline",
+      "reversed_rule_order": false,
+      "work_observations": [
+        0,
+        0,
+        3,
+        6,
+        6
+      ],
+      "physical_register_count": 5,
+      "completion_commit": 5,
+      "final_q": {
+        "enabled": false,
+        "incoming": 0,
+        "outgoing": 6,
+        "phase": 4,
+        "middle": 5
+      }
+    },
+    {
+      "kind": "pipeline",
+      "reversed_rule_order": true,
+      "work_observations": [
+        0,
+        0,
+        3,
+        6,
+        6
+      ],
+      "physical_register_count": 5,
+      "completion_commit": 5,
+      "final_q": {
+        "enabled": false,
+        "incoming": 0,
+        "outgoing": 6,
+        "phase": 4,
+        "middle": 5
+      }
+    }
+  ],
+  "product_gates_run": false
+}

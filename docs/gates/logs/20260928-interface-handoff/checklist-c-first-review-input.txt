@@ -1,0 +1,179 @@
+# 迁移执行 Checklist
+
+日期：2026-09-28。用途：把已审阅的设计转成有界、可独立验收的执行包。
+本页与 [M1 修订 C](../rfcs/migration/c2-m1-module-system.md)、
+[验证矩阵](migration-verification-matrix.md)配套。当前是设计/派发准备，
+所有产品任务均未勾选；文档检查通过不表示 compiler/runtime 已实现。
+
+## 从这里开始
+
+执行者只做收到的一个 Wxx 包。PM 必须在派发时给出精确 checkout、
+source candidate、获准的合同修订、文件白名单、测试 ID 和 build 目录。
+字段不全或前置包未验收时，该包不是 ready；不能自己补一套接口。
+一旦包已 ready，普通读、编辑、构建和修复自主继续，不反复请求许可。
+
+合同阅读顺序：
+
+1. 本包 dispatch card 和本 checklist 的对应行。
+2. M1 C：无 self 源、自动 interface、system-flat lifecycle、P1–P8、固定 --events 工具出口。
+3. R1 B：ac.reg、元素/reset、proposal、原语 discard、RTL 控制投影。
+4. C2-C/N1：身份、类型、静态值、header/proof；A2/L1 按 M1 的明确
+   lexical/reg 重基规则解释。旧 class/DFFE 例子不是新增实现的目标。
+5. 验证矩阵中分配给本包的全部正例、反例和证据要求。
+
+| 容易误用的旧内容 | 当前目标 |
+| --- | --- |
+| class/self module、method rule、返回值注册到 next | module/system 函数＋无参 lexical rule，nonlocal 写 next |
+| ac.dff/ac.dffe 或多个 storage semantic mode | 一个 ac.reg；SimDFFE 是合法内部 C++ 实现名 |
+| 独立 Drive 或父模块递归 Work/Xfer | system 全树 local Work → precommit → local Xfer；staging 在 Xfer 内 |
+| Python Queue/Interface/Reg/ready DSL | 普通 Python 源；MLIR 推导 interface/effects，禁止框架语义 API 泄漏 |
+| header 中写了 R/W 就视为真实 | link 从 bodies 和 actual operands 独立重算并比较 |
+| 旧 GFSIM/pycc tests 通过 | 只证明其原候选，不证明新 source→final→双后端路线 |
+| print/log sink 或事件取回接口由 worker 自定 | 只实现 M1 的 --events JSONL，不加 config 字段/model vtable；未选出口不改变 source 计算 |
+
+## 全程不得自行改变的语义
+
+- [ ] Python 只做 AST/literal/span capture，不执行模型/import/decorator。
+- [ ] 无 Queue/FIFO 协议 API，无手写 Interface/方向/effect/调度声明。
+- [ ] 不根据变量名、list 形状或 sample 值猜协议、存储或位宽。
+- [ ] Q 只由 primitive Xfer 发布；disabled proposal 清 pending、不重放。
+- [ ] rule 本地计算无持久状态；source path、proposal E、commit permit 分开。
+- [ ] 每个实例/物理 reg 唯一 owner；ports/aliases/inner wires 不分配 reg。
+- [ ] 双写按合同证明互斥、拒绝或报 conflict，不添加 winner/priority/stall。
+- [ ] parent 仅凭 header 编译；link 才读取 child body。
+- [ ] system 是唯一执行入口；module 不递归 child lifecycle。
+- [ ] 正常 Xfer 无分配、无源检查、无重新计算；两后端消费同一 final IR。
+- [ ] 语义修复先落 verifier/pass；不在 emitter、测试或日志中补行为。
+- [ ] 不能 skip/xfail 必需用例、更新 expected 来接受错误结果或删除 oracle。
+
+## W00：候选与授权预检
+
+- [ ] 确认当前任务的精确接口已完成所需独立审阅和用户授权；不得把
+  本页、任务 ready 文案或历史 approval-ready 当作接口批准。
+- [ ] `pwd` 的真实路径与 `git rev-parse --show-toplevel` 一致。
+  已知 migration-capture worktree 的 common core.worktree 曾误指主仓；
+  不一致即交集成者修复 per-worktree metadata，执行者不能修改共用
+  Git 配置。显式 --work-tree 可用于只读诊断，不作为长期掩盖方案。
+- [ ] 记录 HEAD、branch、全部 tracked diff、需要的 untracked 文件内容；
+  既有 `.omx-state-locks*`、`examples/davo/` 和其他 lane 修改不清理。
+- [ ] PM 确认 candidate overlay 已冻结或隔离；一个 build 目录不同不等于
+  源码隔离。检查没有另一个 writer/build 正在使用同一输入或输出。
+- [ ] CMakeCache 的 CMAKE_HOME_DIRECTORY 指向当前 candidate；LLVM/MLIR
+  为合同版本，测试工具能启动。禁止拷贝其他 checkout 的工具/共享库。
+- [ ] 记录 proposal 文件 SHA 与候选 manifest，证据目录位于
+  `docs/gates/logs/<run-id>/`；临时构建位于 `.pycircuit_out/`。
+
+当前定位仅供调查，不自动作为派发输入：主文档 HEAD=7e5ffdc2；隔离
+产品 HEAD=82f161ea，另有未提交 SourceLink 工作。实际派发必须重新
+确认真实路径和字节，不能从本段复制旧 SHA 后跳过检查。
+
+## 任务 DAG 与独占责任
+
+`W00 → W01 → W02 → W03 → W04 → W05 → W06 → W07 → W08 → W09 → W10 → W11 → W12`
+
+这是集成顺序，不要求一个 agent 连续执行全部任务。W01 创建有界门槛，
+独立测试作者可提前准备后续 oracle；任一文件同一时刻只有一个 writer。
+接口设计、独立策略验证、实现、独立测试、代码审阅按治理保持独立。
+
+| 包 | 目标与前置条件 | 产品文件边界（候选中核实） | 完成所需验证 ID |
+| --- | --- | --- | --- |
+| W01 | 门槛 bootstrap；W00 通过 | 仅测试作者新增测试文件/fixture；测试 CMake 由集成者串行注册 | V00、V01；全部未来 ID 有确定 owner/selector，未实现项保持红色 |
+| W02 | R1 reg/rule/control schema；已冻结精确 ODS 和重基规则 | 集成者：ACIRTypes.td、ACIROps.td、注册；实现者：Reg/Module verifier 的派发白名单 | V08–V11、V16、V17 |
+| W03 | lexical 源与 Python 纯净边界；W02 可构建 | PythonImportModules/ModuleBody/ModuleAnalysis/Rules 及 Context/Signature 中分配的文件；Python capture 只能作无语义传输调整 | V02–V07、V09 |
+| W04 | A2/L1 source facts 与 RuleEffectView；W03 | source read/use verifier、PythonImportRules 的已分配部分、新 InferRuleEffects pass；不可改 header authority | V12–V15、V18 |
+| W05 | 自动 interface 发布与消费；W04 | SourceHeaderRegistry、SourceHeaderHelpers、SourceBodySnapshots、SourceNamespace 中明确分配的文件 | V19–V23 |
+| W06 | 实例/alias/owner link；W05 | SourceLink.cpp/.h 与 LinkInstances pass，不能覆盖现有未提交工作 | V24–V27 |
+| W07 | proposals/numeric/check/commit 闭包；W06 | ACIRMathOps 及 VerifyProposals/系统 realization 的指定 pass；不碰 emitter | V14、V18、V28–V31 |
+| W08 | GFSIM reg 与 system 生命周期；W07 | 新 runtime 适配及 System/Reg 文件，准确清单由集成者从候选确定；不写 consumer adapter | V10、V11、V26、V32–V35 |
+| W09 | 标准 observe/report；W08 | ac.observe verifier、既定 observation lowering 和 per-system 发布适配 | V36–V40 |
+| W10 | 同 final IR 两 backend；W09 | donor-derived C++ emitter、RTL-private legalization、source-group 生成器的互斥白名单 | V29–V31、V41–V44 |
+| W11 | C3 CLI/发布/CMake/SDK；W10 | 唯一 driver/private helper、发布模块、根/生成 CMake、安装图由集成者负责 | V22、V45–V48 |
+| W12 | M2 有界验收及 M5 删除准备；W11 | 文档、证据、反向引用/删除 manifest；不提前删除未来库的替代责任 | V41–V48；V49 只登记 M5 待执行责任，不能标通过 |
+
+上表不是目录级写许可。每次 dispatch 最多给一个明确子任务和精确
+文件集合；优先一次不超过四个手写产品文件，超出时由 PM 拆包。
+ODS、pass registry、根/测试 CMake、公共 header 和证据索引属于集成
+owner。worker 提供所需注册 patch 说明，不与另一 writer 抢改共享文件。
+
+W02 的机械引用替换、W03 的 importer 切换可能跨包协同；集成者必须
+安排同一个可构建候选。不得为了让中间包绿灯保留新旧 schema 选择器。
+暂时失败的未迁移门槛须记录，不能把有界包验收升级为整个产品通过。
+
+### 路径填写约束
+
+W00 产出 dispatch manifest 后才能交执行者；不能让 worker 根据表中
+“指定文件”自行选择目录。初始拆分使用以下落点，变更落点由集成者
+更新 manifest 和 review，不改变公共合同：
+
+| 内容 | 预定产品落点 | 状态 |
+| --- | --- | --- |
+| native source capture/import | `compiler/acir/lib/Compiler/PythonImportAST.cpp`、`PythonImportContext.cpp`、`PythonImportSignature.cpp` | 已有，各包按单文件责任分派 |
+| module/rule 词法转换 | 同目录 `PythonImportModules.cpp`、`PythonImportModuleBody.cpp`、`PythonImportModuleAnalysis.cpp`、`PythonImportRules.cpp` | 已有，不允许目录级改写 |
+| interface 权威/快照 | 同目录 `SourceHeaderRegistry.cpp`、`SourceHeaderHelpers.cpp`、`SourceBodySnapshots.cpp` | 已有，单 owner |
+| instance link | 同目录 `SourceLink.cpp/.h` | 当前有别人的未提交工作，须先冻结/整合 |
+| P1–P8 pass 文件 | `compiler/acir/lib/Compiler/Passes/ResolveLexical.cpp`、`InferRegisters.cpp`、`InferRuleEffects.cpp`、`PublishInterface.cpp`、`LinkInstances.cpp`、`VerifyProposals.cpp`、`RealizeSystem.cpp`、`VerifyHardware.cpp` | 拟新增，八个独立 pass；注册/私有声明/CMake由集成者拥有 |
+| reg/runtime 对象 | `simulator/gfsim/include/gfsim/SimDFF.h`、`SimModule.h`、`SimSystem.h`，`simulator/gfsim/src/SimSystem.cpp` | donor-derived 新落点；是现 runtime 的替代，不建第二个 runtime target |
+| 新 backend | `compiler/acir/lib/CodeGen/RegCppEmitter.cpp`、`RegVerilogLowering.cpp`、`SourceBundleEmitter.cpp` | 拟新增，分别拥有，旧 QueueGraph 只在后续删除集合 |
+
+目录下若已有同名不同用途的文件，执行者报告冲突并等待集成者重新
+绑定白名单，不覆盖。新增 pass 不能只是转调旧 QueueGraph/旧 Python
+compiler；通过路由门槛证明实际语义职责已迁入。
+
+## 每个执行包的固定步骤
+
+1. 读取 dispatch card，确认前置 ID、合同摘要、文件和测试白名单。
+2. 独立测试作者先建立正例/负例和独立 expected；新增行为先展示最窄
+   失败，缺失实现不是 skip 的理由。实现者不重新生成自己的 golden。
+3. 添加/收紧 verifier 和 pass；再改 producer 或 runtime/backend。
+4. 构建当前 candidate 的目标，保存发现的测试集合，检查数量非零。
+5. 跑本包全部正反例；负例必须是正确阶段/错误类别，而非任意 crash。
+6. 跑指定既有回归、格式/静态检查；失败先区分真实回归和旧工具混用。
+7. 按矩阵保存 IR/trace/产物与退出码，提交只读 review；修复产生新
+   candidate，按影响范围重审重测。
+8. 独立 reviewer 关闭问题，PM 绑定最终证据后才勾选该包；writer 不能
+   自行把任务从 active 改 done 或把未跑项标 pass。
+
+## 每包结束的机械验收
+
+- [ ] 产品 diff 只含获准文件；共享变更由集成者单独核对。
+- [ ] 每个 assigned Vxx 都有 collected/passed/failed/skipped 数和原始结果。
+- [ ] mandatory case 收集为零、missing target、工具缺失、skip/xfail 均不是通过。
+- [ ] 反例记录 stage/code/source location，并证明失败前没有发布新产物。
+- [ ] 原有输出 replacement 失败时内容保持，不能用空目录蒙混。
+- [ ] C++/RTL lane 确实执行 DUT，不仅生成文本、lint 或编译静态库。
+- [ ] 观察从固定 --events 出口取得，验证单一 Result 和完成 tuple；
+  固定源调度置换严格比事件顺序，源码重排按独立身份映射比较。
+- [ ] 被测工具、generated files 和 source manifest 对应同一 candidate。
+- [ ] 未关闭项逐条写原因和依赖；不把另一平台、旧 revision 的日志挪作当前证据。
+- [ ] 独立 review 指向相同最终内容，作者回复不是 review 结论。
+
+## Dispatch card 模板
+
+```text
+Task: Wxx-<bounded-slice>
+Contract: exact proposal paths + SHA-256 + approval record
+Candidate: absolute checkout + HEAD + content manifest + accounted dirty overlay
+Depends on: verified task IDs and evidence paths
+Role/model/effort: actual assignment, independent tester and reviewer
+Writable files: exact paths (no directory-wide wildcard)
+Forbidden shared files: ODS/registry/CMake/headers unless expressly assigned
+Build/output: absolute unique directory owned by this lane
+Cases: exact Vxx IDs, test selectors, expected inventory
+Commands: fully expanded commands, existing vs bootstrap targets distinguished
+Stop conditions: interface gap, ownership overlap, stale checkout, semantic ambiguity
+Deliver: diff, source manifest, commands/exits, test results, IR/trace, residual gaps
+```
+
+## 必须停下交给集成者的情况
+
+尚无精确 source carrier、需要改接口/错误行为、要引入 hidden reg/queue/
+priority、发现占用同一文件、候选根目录不一致、必须依赖 donor checkout
+或消费者、required oracle 不能独立成立。只报告最小复现和选择点，
+不能自行降低能力、改 expected、扩大白名单或迁回旧 backend。
+
+## 延后项不由执行者自行设计
+
+参数化/动态集合、未来 circular-buffer 库、外部 typed DUT、完整四态/
+多域/CDC、开放 RTL 故障后任意边沿，以及完整发布是后续合同/门槛。
+首片不支持时在规定边界 fail closed，保留验证责任；不能填成永久
+unsupported 后将整个项目标 done，也不能在此 checklist 上打勾代替实现。

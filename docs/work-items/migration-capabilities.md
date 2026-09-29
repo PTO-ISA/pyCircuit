@@ -2,13 +2,29 @@
 
 状态：能力清单与验收责任；不是产品完成声明。[C1-C](../rfcs/migration/approvals/c1-pythonic-source.md) 与 [C2-C/C3-C](../rfcs/migration/approvals/c2-c3-foundation.md) 已获用户精确批准。三份冻结合同覆盖基础能力，尚未覆盖的扩展单独审阅批准。完整范围见[主计划](../development/pycircuit-modernization-plan.md)，实施状态见[账本](single-route-migration.md)。
 
+2026-09-28 用户新增方向：普通状态统一 ac.reg，rule 读取 reg/collection
+并产生 proposal，Xfer 在 C++ 寄存器原语内执行 commit/discard；模块数据
+连接只用 reg；SimQueue 退役，FIFO 走 reg 模块库。精确接口候选为
+[C2-R1](../rfcs/migration/c2-r1-unified-register.md)，不将既有 DFFE 子集
+证据记为新 reg 合同已实现，也不将库未完成的能力静默删除。
+
+用户随后确认模块函数＋嵌套 rule，并要求 ACIR link 完成实例树、连接
+与 system 驱动。此实质源/IR/runtime 增补见 [C2-M1](../rfcs/migration/c2-m1-module-system.md)，
+其[独立审阅](../reviews/20260928-interface-handoff.md)现已覆盖 M1 C
+与交付包；不由 R1 B 的历史 approval-ready 自动覆盖。
+
+最新 M1 C 吸收 Bluespec 的 interface/effects 分层，但 Python 没有
+Queue/FIFO 或手写 Interface 概念。MLIR 自动推导摘要与关系，禁止
+按名称/list 形状猜协议。派发与验证分别见 W00–W12 checklist 和
+V00–V49 matrix；以下状态不因文档交付自动变成 implemented。
+
 合同批准、实现、执行证据分别记录。当前已独立验证私有单文件捕获/transport，以及 C2-F01/F02/F03 基础 MLIR 属性、类型、静态值、记录匹配和结构化身份；尚无新编译主干的完整执行闭环。现有旧路线的基线不证明新路线已保留该能力。下表每行都必须在完整迁移验收前关闭，未批准扩展不能因为 donor 缺失就默认退役或延期。
 
 ## 能力与证据责任
 
 | 能力 | 现行依据与迁移处置 | 合同/批准状态 | 实现/证据状态 | 验收与 owner |
 | --- | --- | --- | --- | --- |
-| 单一 Pythonic module/rule 前端 | 0148/0150；用普通对象源替换 CAS/JIT/builder/function-style Agentic 接口，保留所需硬件能力 | C1-C 源合同已批准；system 不在本行 | 私有单文件捕获已验证，public route 未切换 | frontend/import；[36 focused、253 unit 与独立 review](../gates/logs/20260927-c1-capture/review.md)，仍需 importer、旧入口拒绝与 installed route |
+| 单一 Pythonic module/rule 前端 | 0148/0150；最新用户选择模块函数＋嵌套 rule，由 MLIR 推导 lexical captures/reg/ports，退役旧作者路线 | C1-C 是冻结 class 源基线；M1 lexical/nonlocal 精确增补尚待独立审阅与批准 | 既有私有 capture 已验证，新的 lexical 语义/public route 未实现 | frontend/import；保留[已有捕获证据](../gates/logs/20260927-c1-capture/review.md)，新 scope/nonlocal、next 写、旧作者形式拒绝另行验证 |
 | 数学整数/范围/位运算 | 0246/0247；从隐式定宽回绕改为数学中间值、边界检查与显式 mask，属于已批准语义替换 | C1-C/C2-C 已批准 | [F01](../gates/logs/20260927-c2-f01/integration/results.md) MathInt 与 [F02](../gates/logs/20260927-c2-f02/integration/results.md) 最小类型/静态值匹配通过；运算/proof/双后端未实现 | MLIR + independent tests；signed/floor div/rem、短路错误、shift、u64 超宽及低位 proof |
 | bool 与普通 nominal record | 0212–0215、0255/0256 的类型/值能力保留；不可空、完整初始化、不可原地更新 | C1-C/C2-C 已批准 | [U01](../gates/logs/20260927-u01-native/acceptance.md) 真实逐源 header、直接构造器赋值、默认值/绑定/字段读取子集通过；一般 helper 计算和双后端未验证 | frontend/MLIR；默认值/kwargs、身份/字段/投影/范围、打包布局和双后端 |
 | Enum 与完整 tuple/value array | 0252–0256 相关值类型能力不能随旧 DSL 消失 | 扩展未批准；C1 明确未定义完整绑定 | 完整迁移阻断项 | architect + MLIR/tests；编码/非法值、不可变聚合、布局、两 backend 独立 oracle |
@@ -16,17 +32,23 @@
 | 普通 constructor 静态配置/多特化 | 0275–0278 的 typed identity/实例独立性保留；人工 finite_cases/case 源接口及旧 carrier 退役 | C1-C/C2-C/C3-C 已批准 | Bank 2/4 独立 oracle 已定义，backend UNRUN | MLIR/backend；同参数复用代码、异参数同时实例化、同源一个文件组，无 per-case 文件 |
 | 依赖参数的端口/record 类型 | 0275–0278 中 family/interface 能力需新绑定；不把普通 static 参数批准扩张至 dependent types | 扩展未批准 | 完整迁移阻断项 | architect + MLIR；dependent shape/type、同宽不同 nominal type、header-only parent |
 | 模块层级/逐源独立编译 | 0270/0274；保留逐源 body/interface/AC/TU ownership，适配 donor whole-project capture 与全局类型头 | C2-C/C3-C 已批准 | 尚无新路线 producer/AC/TU 执行证据 | frontend/integration；三层、重复实例、parent 不读 child body、CMake producer 和并行链接图 |
-| 跨文件命名空间与重导出 | C2 保留 import alias/re-export 的原始 declaration identity 和 owner；名称绑定不能从 snapshot 的末段名字猜测 | [C2-N1 修订 C 已批准](../rfcs/migration/approvals/c2-n1-namespaces.md)；仅五类既有声明的 named import/re-export | N1 未实施；U01 直接 header 消费不替代 N1 全矩阵 | frontend/link；改名/链式重导出、双别名、交换 R/S、无 child source/body、陈旧 facade 绑定拒绝且 canonical declaration 不变 |
-| 普通 DFFE/current-next/reset | 0236/0264/0274 中普通状态硬件能力保留，统一 data/enable；不包含资源事务 | C1-C/C2-C/C3-C 已批准 | C1 逐拍 oracle 存在，执行 UNRUN | MLIR/runtime/backend；Q 稳定、enabled hold、非零初值、Xfer、Reset/rerun、实例独立 |
+| 跨文件命名空间与重导出 | C2 保留 import alias/re-export 的原始 declaration identity 和 owner；名称绑定不能从 snapshot 的末段名字猜测 | [C2-N1 修订 C 已批准](../rfcs/migration/approvals/c2-n1-namespaces.md)；仅五类既有声明的 named import/re-export | source/header 类别已有有界验收，见账本 I07/I09/I13；link/final/双 emit 尚未完成 | frontend/link；改名/链式重导出、双别名、交换 R/S、无 child source/body、陈旧 facade 绑定拒绝且 canonical declaration 不变 |
+| 统一 reg/current-next/reset | 0264/0274 的硬件责任保留；ac.reg 统一 D/Q/reset/enable/clk，DFF 仅为恒使能实现特化 | 新用户方向已明确，R1 精确接口待独立审阅与批准；冻结 C2-C 仍记录既有 DFFE 基础 | 新 reg 实现/双后端 UNRUN | MLIR/runtime/backend；Q 只在 Xfer 变化、原语内 discard、reset 优先、禁 stale proposal、唯一 owner |
+| 无状态 rule 与 reg-only 模块连接 | 只读 reg/collection Q，返回 data/enable proposal；转发同一 identity 不增加存储或周期 | R1 精确候选；不增加 source Reg/proposal API | 现有 rule/source-header 为迁移基础，尚无 R1 证据 | MLIR/runtime/tests；同拍快照、独立 proposal buffers、join/check/barrier、唯一物理 Write/Xfer、次序置换 |
+| 实例树与 System 驱动 | parent/children 属于 OwnerRef 实例；link 构建 typed view；system 单次遍历 local Work/precommit/local Xfer | M1 C 独立 approval-ready；具体实施按 W00 授权 | 未实现新实例/System 闭环 | MLIR/runtime/backend；重复实例独立、唯一 StateID、无 double reg/双生命周期访问、source-owned TU、自动 runner |
+| 自动 interface/effect 摘要 | 复用 ac.module.import/ac.contract/ElementEffect，MLIR 从真实 read/use 导出；link generic/exact 双重重算 | M1 C 新增精确约束；借鉴 BSC 接口思想，不移植 implicit guard/default arbitration | 未实现；旧 header 子集不代表新摘要闭合 | V12–V15、V19–V23；header-only parent、rename、stale/篡改、无摘要自证 |
 | 普通 state 多 driver 与求值失败 | 普通 next 冲突按 C1 分类静态拒绝/互斥证明/precommit overlap check；不隐式仲裁 | C1-C/C2-C/C3-C 已批准 | 未实现新共同 IR/check lifecycle | MLIR/tests；rule 顺序置换、alias、同 enable 输出交换、全树失败不 DriveNext、失败后 Reset |
-| Queue/Slot/Table/multilane 资源 | 0216、0238–0241、0262/0263/0280；保留容量/延迟/背压/资源效果，旧 QueueProgram carrier 退役 | 源/IR 资源扩展未批准；普通 register-list 不等于 Table 资源 | 完整迁移阻断项；M2 Queue 用例仍依赖此合同 | architect + MLIR/runtime；full/empty、同拍 pop/push、blocked 不消费、rank/mask/multi-select/lane/profile |
+| FIFO/Queue 库与 SimQueue 退役 | Queue 容量/延迟/收发义务保留，ac.queue 降到由 reg 构成的 circular-buffer 模块；producer 无隐式反压 | 用户已给定库 lowering/SimQueue 退役方向；FIFO 库精确源/IR/protocol 合同另批 | 完整迁移阻断项；库未通过不得删除对应 oracle 或调用 SimQueue fallback | architect + MLIR/library/tests；full/empty、同拍读写、wrap、容量 1/3、reset、两后端独立 deque oracle |
+| Slot/Table/multilane 与资源组合 | 0238–0241、0262/0263/0280 的所需行为逐项迁移；普通 reg collection 不自动拥有 Table/Slot 语义 | 后续库/框架边界与精确接口未批准；SimQueue 退役不批准丢功能 | 完整迁移阻断项 | architect + MLIR/library；rank/mask/multi-select/lane、参与者无部分更新、显式协议和独立 oracle |
 | 多 owner 原子事务 | 0236/0237/0280、LowerRules；all-or-none 硬件义务保留，donor driver checks 不自动证明事务原子性 | 扩展未批准 | 完整迁移阻断项 | MLIR + both backends；selected-branch stall、多输出、order permutation、无部分消费/发布 |
 | memory/SRAM | 0114/0122 的 latency/RDW，加 0273 的相关义务；复用时序算法，补齐 donor 排除的 SRAM/bank/ports | 源/IR/runtime 扩展未批准 | 完整迁移阻断项 | architect + MLIR/backend；读写延迟、read-during-write、mask、bounds、enabled hold、双后端 |
 | clock/reset/CDC | 0126 和现行 reset/domain、CDC 合同；保留合法跨域和 reset ordering；foundation 只含 default rising/synchronous 域 | 多域源/IR/runtime 扩展未批准 | 完整迁移阻断项 | architect + MLIR/runtime；多时钟、复位顺序、非法跨域、同步器/异步 FIFO |
 | 四态与未初始化状态 | 0121/0273、value/known/Z 及未初始化状态义务保留；不能只更名观察字段 | 源/IR/runtime 扩展未批准 | 完整迁移阻断项 | MLIR + C++/RTL；精确 value/known/Z、TICK/XFER、SRAM live window、未初始化值传播 |
 | 通用 recovery/ordering 义务 | 0271/0272/0279/0281；保留 state/version/effect 检查，consumer 微架构/ISA 算法不迁入 | 新 source/IR 绑定未批准；不是 C2 普通 numeric proof 的同义项 | 必需完整目标工作 | architect + MLIR/tests；stale response、kill/version、持有结果、义务篡改拒绝；consumer oracle 在其仓库 |
 | 基础 portless root | 普通 module root 替代伪造 library top，带静态参数；只是首片 | C1-C/C2-C/C3-C 已批准 | 源 fixture 已捕获，完整编译/执行 UNRUN | frontend/integration；root 独立 producer、错误/reset/stats 与独立逐拍 oracle |
-| 外部 typed DUT/system/testbench | 保留完整 source system、真实 stimuli、输入输出、多 clock stepping；不能 portless-only 收尾 | 源/IR/runtime 扩展未批准 | 完整迁移阻断项 | architect + frontend/runtime/tests；真实外部输入、typed 端口、通用 testbench、reset/error/multi-clock |
+| Closed-system 单测/组测 | M1 system-local fixture regs 与 stimulus/check rules，真实 Xfer 边沿，无隐藏输入准备 transfer | M1 精确候选；不是旧 direct-input ABI 的批准 | 提案给出两个五周期 oracle，source→双后端未实现 | frontend/MLIR/runtime/tests；输入旧 Q、完成标记、exact cycles、reset/rerun、生成的标准 system runner |
+| 外部 typed DUT 与完整 testbench | 保留真实外部输入输出、多 clock stepping；按 reg-only/module-system 新方向重基 | 旧 DUT 草案 ac.dut invocation/direct-current 与新方向冲突，精确重基尚未批准 | 完整迁移阻断项 | architect + frontend/runtime/tests；唯一执行入口、明确输入采样边沿、typed ports、reset/error/multi-clock |
+| 标准 assert/print/log/report | assert 复用 source checks，普通观察有界暂存后发布；source report 为无反馈 gauge；runner --events 是固定工具出口 | M1 C 独立 approval-ready；具体实施按 W00 授权 | 未实现；donor Logger/Reporter 不是线程安全实现证据 | MLIR/runtime/backend；真实 path/value/epoch、稳定次序、失败丢弃、日志关闭保留 source safety、综合不改变状态语义 |
 | 共同 final IR 与两个 backend | 旧 QueueGraph/PYC 两种 C++产品路线退役，采用 donor 一套 C++和 RTL 私有合法化 | C2-C/C3-C 基础合同已批准；扩展按各自行 | 未实现新完整闭环 | MLIR/C++/RTL；相同 final IR、相同 stimulus、独立 oracle；不能仅互相一致 |
 | runtime/SDK/发布与打包 | 0149/0232/0233/0265；0267/0268 的发布/身份条款按 C3 显式更新；一个库、ABI、driver | C3-C 已批准；consumer memory/ELF 不迁入 | 尚未实施新 runtime/driver/SDK | integration/runtime；完整状态机、crash/recovery、RTL raw 参数拒绝、relocation、Runtime-only TU、三平台 |
 | 源位置与基础诊断 | 0242/0250；保留定位责任，采用 C2/C3 结构化来源/错误；不以位置作为模型身份 | C1-C/C2-C/C3-C 已批准 | 私有 capture span 与 F01 闭合来源记录校验通过；跨 pass/实例/ABI 诊断未验证 | frontend/MLIR/runtime；encoding/codepoint、expanded occurrences、精确 check target、错误不发布半成品 |
@@ -48,7 +70,7 @@ hard-break 方向和 C1/C2/C3 列明接口替换已批准，实际删除在 M5 �
 | 旧 source-unit/interface/finite-family/link/package carriers | MLIR + integration | C2 独立 header/body、typed SpecKey、source-owned groups 和一致性反例；旧 schema 正例/序列化 dispatch 退役 |
 | 根 CMake producers、registry、Python/native bindings、工具 aliases/flags/modes/forwarding targets | integration | 新每源 producer、唯一 registry/driver/export graph；无 acc.py/acc/pycc/agentic-circuit 编译入口或旧模式 fallback |
 | 旧 public Python namespaces、distribution 中的旧模块与安装资产 | frontend + packaging | 保留 C3 的唯一 pycircuit-hisi distribution；清理其旧 authoring namespaces/载荷，relocated wheel import/路由与清单验证 |
-| 重复 runtime 库、旧 model wrapper、donor consumer adapters | runtime + integration | 唯一 libpyc6_runtime、C ABI 实现与 package target；ELF/ISA/guest-memory/consumer adapter 不随 donor runtime 迁入 |
+| 重复 runtime 库、SimQueue、旧 model wrapper、donor consumer adapters | runtime + integration | 唯一 libpyc6_runtime；reg commit/discard 在 DFF/DFFE 原语内；Queue 库验收后移除 SimQueue 端口/生命周期与安装资产；ELF/ISA/guest-memory/consumer adapter 不迁入 |
 | SDK schemas/manifests、旧 generator ABI 身份、generated bundle 格式/package exports | packaging + integration | C3 generator ABI 2/capability 一致性，拒绝旧 tuple，Runtime/CompilerDev 隔离，文件组/receipt 与 installed inventory 闭合 |
 | 旧例子、活跃文档、gate/workflow/test registrations | tests + PM/integration | 每个所需语义断言有新 owner/替代或用户明确退役决定；同候选同步 decision/AGENTS/docs，不以删门槛掩盖缺口 |
 

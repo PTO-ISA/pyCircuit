@@ -1,0 +1,27 @@
+{
+  "proposal_revision": "M1-C",
+  "contracts": {
+    "docs/rfcs/migration/c2-m1-module-system.md": "84b551ea84d6aa0956ea2342f520f4aafc63f7d741cc651500446a26f49c35cd",
+    "docs/development/migration-agent-checklist.md": "7e7791e3524a0a9feca11ce63afb9fb6bcf50f2a1d95dabda2b8042fed34fe44",
+    "docs/development/migration-verification-matrix.md": "6f82ce4c2cc124bd4597a54809816628fc6795bded10e54c90fcf97616b216ea"
+  },
+  "verification_count": 50,
+  "task_rows": [
+    "W01",
+    "W02",
+    "W03",
+    "W04",
+    "W05",
+    "W06",
+    "W07",
+    "W08",
+    "W09",
+    "W10",
+    "W11",
+    "W12"
+  ],
+  "all_verification_ids_referenced_by_tasks": true,
+  "python_syntax_blocks": 4,
+  "missing_local_links": [],
+  "product_tests_run": false
+}

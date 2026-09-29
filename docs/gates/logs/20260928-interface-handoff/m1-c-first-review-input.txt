@@ -1,0 +1,897 @@
+# C2-M1：模块实例、System 与无 self 源语言
+
+修订 C。日期：2026-09-28。状态：联合设计候选；审阅与授权状态见工作包。
+
+本包继续修订 [C2-R1](c2-r1-unified-register.md)，不是另一条编译路线。
+用户已明确选择“模块函数＋嵌套 rule”，并要求实例 parent/children、
+reg 端口和内部连接由 ACIR link 建立，模块具备标准断言/打印/日志/
+报告接口，由 system 独立或组合测试、统一驱动 Work/Xfer。
+
+这些方向直接采纳；本文补充精确源语法、结构和生命周期。R1 修订 B
+仅有独立 approval-ready，尚无精确接口批准；本包对其 Work/Drive/Xfer、
+source authoring 和 system 入口的修改与 R1 一起审阅，不引用旧结论
+作为新内容已批准的证据。产品实现尚未切换。
+
+用户随后授权吸收 Bluespec 的 interface/effect 分层，并要求 Python
+保持纯净 Pythonic、没有 Queue 概念，MLIR 自动推导。本修订落实该
+方向，并配套[执行 checklist](../../development/migration-agent-checklist.md)
+和[独立验证矩阵](../../development/migration-verification-matrix.md)。
+用户授权的是设计/迁移稿与执行准备，不把未来代码或 gate 记为已完成。
+
+## Python 纯净边界与推导责任
+
+作者只使用普通函数、参数、类型注解、局部变量、nonlocal、if/for、
+record 和 module/rule/system 标记。以下内容不进入 Python 作者接口：
+
+- Queue/FIFO 类型或框架构造器，enqueue/dequeue、push/pop、full/empty、
+  reserve/commit/rollback 协议方法与 queue capacity/latency 标记；
+- 手写 Interface 类或 interface 装饰器、Input/Output/Reg/Signal 包装器；
+- 作者填写 read/write effect、writer priority、ready/admission、调度表，
+  或直接操作生成模型的 parent/children/runtime 指针。
+
+MLIR 从真实声明、词法引用、next 写入和静态调用推导 owned reg、
+reg 引用、R/W 方向、alias、source interface、实例树和提交方程。
+有限范围仍由现有普通类型注解表达；不能从一次 sample value 猜位宽。
+所有推导必须有真实 IR 依据与 verifier，不靠名称或约定前缀。
+
+普通变量叫 queue/head/tail/ready、纯 helper 叫 push，均不自动拥有
+协议语义，也不因名字而被禁止。禁止的是未批准的框架语义 API；
+negative tests 必须按 import/symbol/call identity 判断，不能用字符串
+扫描替代语言验证。
+
+普通 list 或 head/tail/count 算法先按照作者声明降低为 reg 和组合
+计算，不能猜测为 FIFO、自动插入存储或赋予 consuming-read 语义。
+未来缓冲模块也是普通 Python 模块库。旧 ac.queue 不是新的 Python
+入口；如后续保留内部 queue 表示，只能由另行批准、可证明等价的
+编译转换产生，并在 final 前降到库/reg。当前首片拒绝该未闭合形式，
+不回退 SimQueue，也不允许执行者自行选择 pipeline/bypass 行为。
+
+## Bluespec 的吸收范围
+
+检索日期为 2026-09-28；上游发布版为 2026.07.1，调度/接口资料固定
+到官方仓库 `c2b129390efe21cbc7620e63b842bd622867f2ed`。这些是设计
+参考，不增加 BSC 依赖、源码拷贝或第二个源语言入口。
+
+| 上游证据 | 本方案吸收 | 明确不采用 |
+| --- | --- | --- |
+| [APackage 的 state/rule/interface 分层](https://github.com/B-Lang-org/bsc/blob/2026.07.1/src/comp/ASyntax.hs#L146-L184) | source/linked/hardware 分阶段合法性；语义事实先于 codegen | 把一条语义链误解为所有阶段同一种 IR 形态 |
+| [模块 VModInfo](https://github.com/B-Lang-org/bsc/blob/c2b129390efe21cbc7620e63b842bd622867f2ed/src/comp/VModInfo.hs#L569-L614) | source header 包含类型、效果、时钟及连接约束；link 重算并核对 | Python 手写 interface 或完整照搬 BSV method ABI |
+| [CAN_FIRE/WILL_FIRE](https://github.com/B-Lang-org/bsc/blob/c2b129390efe21cbc7620e63b842bd622867f2ed/src/comp/AAddScheduleDefs.hs#L31-L77) | 分开 source path、proposal enable、提交许可 | 自动抑制低优先级 writer 或默认仲裁 |
+| [fire_when_enabled / no_implicit_conditions](https://github.com/B-Lang-org/bsc/blob/c2b129390efe21cbc7620e63b842bd622867f2ed/doc/BSV_ref_guide/BSV_lang.tex#L9440-L9520) | verifier 检查无隐藏执行条件、无隐式阻塞 | 新增同名 Python pragma，或让接收端满状态隐式阻塞整个 rule |
+| [RegN 物理端口](https://github.com/B-Lang-org/bsc/blob/2026.07.1/src/Verilog/RegN.v#L16-L38) | 明确 D/Q/enable/clock/reset 映射 | [Bluesim 直接 write 更新内部 value](https://github.com/B-Lang-org/bsc/blob/2026.07.1/src/bluesim/bs_prim_mod_reg.h#L86-L102)，不替换本项目 Xfer 协议 |
+| [FIFO 变体合同](https://github.com/B-Lang-org/bsc/blob/2026.07.1/doc/libraries_ref_guide/LibDoc/SpecialFIFOs.tex#L21-L32) | 将满/空、同拍操作、bypass/latency 作为未来库的独立验证维度 | 声称所有 BSC FIFO 都由普通 reg 实现，或向 Python 泄漏队列协议 |
+
+BSC 的 CF/SB/SBR/C 关系是分析参考，本包不把它们变成作者调度语言。
+pyCircuit 固定 Q snapshot/next proposal 语义更窄；R/W 相同 reg 并不
+允许读到本周期 D，也不因存在顺序关系就允许两个 active writers。
+
+## 结构从实例出发
+
+`ac.module` 是可复用定义，`SpecKey` 选择其静态特化；`OwnerRef` 表示
+一次真实实例化。parent 和 children 属于实例，不属于可被多个父级
+复用的定义。相同 SpecKey 的两个实例复用代码，各自持有独立状态。
+
+沿用 C2 唯一的 linked 表：
+
+```text
+ac.entry: SpecKey
+ac.instance_bindings: Array<{
+  owner: OwnerRef,
+  key: SpecKey,
+  ports: Array<{port:u32, state:StateID}>
+}>
+```
+
+link 在 MLIR 内构造强类型 `InstanceView`：
+
+```text
+InstanceRef = {owner:OwnerRef, key:SpecKey}
+InstanceView = {
+  ref: InstanceRef,
+  parent: none | InstanceRef,
+  children: ordered Array<InstanceRef>,
+  input_regs: ordered Array<StateID>,
+  output_regs: ordered Array<StateID>,
+  owned_regs: ordered Array<StateID>
+}
+```
+
+它是由已验证 IR 构造的分析视图，不是新的 source 类型或另一份执行
+graph。IR 中不保存 host 地址、pointer integer、shared_ptr 或运行期
+可变对象。root owner=[]、parent=none；child owner 为 parent path
+追加该次实际 ac.instance 展开后的 occurrence。children 从真实实例
+边推导；排序仅用于稳定生成和诊断，不给 rule 建立优先级。
+
+序列化/重新读取后，MLIR 使用相同 verifier/analysis 重建该视图；
+codegen 不能凭类名或文件名猜树，也不依赖上次编译留在内存的缓存。
+若实现缓存 parent/children，必须重新从 actual instances 核对一致。
+
+## 端口、内部 reg 与零存储连线
+
+每个 module 可有任意**有限、link 时确定**数量的输入和输出，包括零。
+runtime 不增删端口。数据端口沿用 C2 `PortSlot` 与 R1 `!ac.reg<T>`：
+
+```text
+body arguments = (clk:i1, reset:i1, data_reg_handles...)
+ac.control_ports = {clock=0:u32, reset=1:u32}
+ac.ports = ordered Array<PortSlot>
+```
+
+数据 port j 对应实际 argument 2+j。R 产生 current input，W 产生 next
+output，R+W 两项必须指向同一个 StateID。方向来自 MLIR effects，
+不是参数名、前缀或 C++ 指针 constness 的猜测。header-only parent
+编译与逐源 producer 合同继续成立。
+
+只有 owning `ac.reg` 分配物理状态。port、alias、inner wire、转发和
+instance binding 只引用已有 identity，不分配 storage、复制 reset
+image 或新增周期。所谓 inner wire 是寄存器连接关系，不是允许 child
+读取 sibling 尚未提交 proposal 的组合旁路。
+
+每个连接分量必须解析到恰好一个物理 StateID：零 owner 是 dangling
+connection；两个不同 owning regs 是 duplicate storage，不能因同型/
+同初值就合并。重复的读引用可以映射到同一个 Q；可写 ordinal alias
+和多 driver 按 C1/R1 的完整规则核验。
+
+典型结构如下：
+
+```text
+System owns request, reply : ac.reg
+  child A(request.current, reply.next)
+    owns hidden local_count : ac.reg
+  child B(reply.current, request.next)
+    owns hidden local_state : ac.reg
+```
+
+这里物理 reg 数为四。A/B 的 ports 没有副本。parent 只能引用 child
+公开绑定的端口，不能借 InstanceView、parent pointer 或 children
+pointer 访问 child 私有状态。child borrowed output 只返回 proposal，
+不取得该 reg 的 Reset/Write/Xfer 权限。
+
+`ac.instance` operands 为 parent clk/reset 及 header 次序的数据 handles，
+callee 为 SpecKey，port bindings 沿用 C2；results 仍为 borrowed next
+ports 对应的交错 `(D,E)`。没有新 parent result 或 pointer ABI。
+
+## Link 的职责
+
+### 自动生成的 module interface
+
+interface 是 compiler-published source header 的语义合同；不是 Python
+对象、额外模型状态或另一条 callable runtime 路线。本包复用
+`ac.module.import`、`ac.contract`、`Parameter`、`Connection.elements`
+和 C2 的 `ElementEffect`，不新增手写 `ac.interface` 定义。
+
+共享 MLIR analysis 构造 `ModuleInterfaceView`，内容必须由以下权威
+导出，不另存一张可独立编辑的同义表：
+
+| 接口事实 | 唯一来源与核验 |
+| --- | --- |
+| nominal/qualified identity | owning source/header 的 SourceOwner、qualified declaration，N1 alias 不改 owner |
+| 参数、类型、静态默认值 | C2 ordered Parameter、LogicalType/StaticType 与 header-owned 必要 helper/record 声明 |
+| 每个 connection 元素 R/W | 实际 source current-read 和 next-use；沿真实 child binding 转发，填充 ElementEffect 的 read/write/precision/origins |
+| clock/reset | R1 两项 control prefix、default domain 和实际 instance identity-forward，不由变量名推断 |
+| 物理端口映射 | 按 Parameter/element 次序导出 current/next PortSlots；R+W 两项共享一个符号 reg identity |
+| alias/owner 义务 | C1/R1 固定规则；source 记录待解 StateRef，link 解析唯一 StateID 与完整 writer 集合 |
+| 时序与接纳 | 本合同固定读取 Q[t]、Xfer 更新、不因端口转发插入存储、无隐藏 ready/stall/priority；不是作者或属性可关闭的开关 |
+
+header 可包含已有 C2 允许的值 helper 定义，以支持默认值/record 构造；
+不能包含 child module/rule/state 实现。没有必要再造一个全项目 types
+文件，或要求 parent 打开 child Python/body 才能取得接口。
+
+generic producer 只从合法 source IR 和已验证 child headers 计算摘要。
+只删除 StaticExpr 已证明不活跃的结构分支；未知静态选择形成保守
+上界，不因普通 DCE、名字、用户 assert 或暂缺 child 而假设 R-only。
+`precision="conservative"` 不能作为允许 writable alias 的证明。
+
+link 在特化前由所有真实 bodies 自底向上重算 generic effects，核对
+owning headers、N1 facade 和消费 snapshots；特化后重算 exact effects，
+再核验实际 alias/driver。exact 要求相等；conservative 必须覆盖真实
+效果并保留原定来源责任。错 read/write、缺 origin、漏 child effect、
+stale facade、错误 nominal/range/default、同型 ports 交换都须拒绝。
+没有原始 read/use 载体的阶段，不得以复制 header metadata 充当重算。
+
+### Rule effect view 与冲突分类
+
+共享的 `RuleEffectView` 是 actual SSA/handles 的分析结果，包含 current
+reads、next uses、RequiredCheck 和 required observations；每项关联
+原始 occurrence 与 StateRef，link 后关联实际 StateID。计算它不需要
+另一份序列化 QueueGraph，也不允许从最终 yield 反猜原始 target。
+A2/L1 的实质 source carrier 必须先按新 lexical/reg 合同精确重基；
+未闭合时对应执行包停在依赖边界，不能临时捏造 assignment 字典。
+
+| 两个实际效果 | 允许的分析结论 |
+| --- | --- |
+| 同 reg 的 R/R | 同一 Q snapshot，多 reader 独立 |
+| 同 reg 的 R/next-W | 读者仍读 Q[t]；没有读取 D 的顺序依赖 |
+| 不同 reg 的 next-W/next-W | 可独立计算，仍经过全树错误检查 |
+| 同 reg 的 next-W/next-W，guard 已证互斥 | 合并为唯一 D/E，无 priority |
+| 同一路径重复写或必然同时写 | 静态拒绝 |
+| 可能但非必然重叠 | C1 precommit overlap check；发生时全树保持 Q，不选择赢家 |
+
+source demand path、proposal E 和全树 commit permit 必须分开。
+E=false 不抹去已求值的错误；另一个输出不写、不要求或被库显式丢弃，
+都不能自动产生整条 producer rule 的 implicit guard。已有模型错误
+导致全树禁止提交是 fatal 合同，不是资源背压。
+
+优化或并行化后，verifier 要求实际 read/use/guard/target 与这些分析
+事实一致。分析缓存遇到改图失效；不能携带旧“通过”标记直接 codegen。
+
+### 实例链接顺序
+
+link 在 codegen 前完成：
+
+1. source/header authority、N1 imports/snapshots、helper 及静态参数绑定。
+2. specialization 与固定结构展开，保留 source ownership。
+3. 从真实 ac.instance 建立完整实例树、OwnerRef 和 InstanceView。
+4. 每个端口/alias 映射到唯一 StateID，核对类型、domain 和访问权限。
+5. 完整 reg owner/reset、rule inputs、proposal targets、writer 集合。
+6. child proposal 返回与 owner merge 的实际 SSA 方程、checks 和 commit
+   targets，以及唯一 system entry。
+
+缺少或重复 port、错误 R/W、R+W 分裂身份、未解析 alias、双 owner、
+跨 owner 私有状态访问、递归实例、同实例多 parent、两个实例错误共用
+状态、伪造 controls、缺 child body 或错误 snapshot，均拒绝。
+有 reg 边界的 A↔B 数据反馈不是实例树递归，不能混为一种环。
+
+## 一个 System 执行入口
+
+linked builtin module 新增恰好一个无 region/operand/result 的
+`ac.system` 描述，闭合字段为：
+
+```text
+entry: SpecKey
+ac.source_owner: SourceOwner
+ac.origin: Occurrence
+domain: "default"
+```
+
+entry 必须等于 ac.entry，并解析到实例树唯一 root；source owner/origin
+与所选定义一致。该描述不复制 module body 或保存额外 scheduler
+脚本。source `@system` 按 module 结构独立编译，其 header/body 带
+`ac.root_kind="system"`，只能作为 root，不能被当作普通 child。
+
+用户也可显式选择普通 portless module 为 top；link 给它生成同一种
+system 描述。有未绑定数据端口的 module 不自动获得隐藏 reg 或零值
+stimulus，必须由明确的 source system composition 提供 fixture。
+
+待批 C3-DUT-IO 的 ac.dut 原本承担 root invocation，本包取代这一
+职责：将来的 ac.dut 只能描述 system 消费的边界，不得再调用 root。
+旧的直接外部 sampled-current 输入也不能无修改地进入 reg-only
+数据模型。外部 API 的后续重基不能引入未申明采样边沿。
+
+## System 独占遍历，Work 与 Xfer 分工
+
+选择 system 从 link 后的实例树取得固定 flat instance view。生成的
+module 生命周期方法只处理本实例，不递归 children；register 对象
+不作为 system 的第二份可遍历 module 注册。
+
+每个成功周期固定为：
+
+```text
+Q snapshot 固定
+  -> 对每个实际实例调用一次 Work
+  -> 全树 Work join/barrier
+  -> system precommit：检查、child proposal 回传、owner merge
+  -> 冻结每个 StateID 的唯一 CommitPair
+  -> 对每个实际实例调用一次 Xfer
+  -> 全树 Xfer barrier
+  -> 发布观察、日志、成功周期和结束状态
+```
+
+`Work()` 只执行本地 registered rules 和其纯计算/检查/事件临时值。
+不调用 child Work，不 Build、Write、Reset 或 Xfer，不改变 Q 或持久
+统计，也不读取可能尚未完成的 child proposal。
+
+system precommit 是编译器生成的内部步骤：消费 Work 已完成的不可变
+结果，沿实际 ac.instance proposal 依赖按 postorder 回传和合并。
+它不重跑 source rule、重取 Q 或重新求值 index/replacement。其检查
+和合并方程全部来自共同 IR，不存在单独序列化的执行计划或动态调度
+策略。标准 runtime 不允许跳过此 barrier 直接调用任一 module Xfer。
+
+`Xfer()` 消费 frozen CommitPair，只对本实例 owned regs 执行一次
+Write(D,E) 和 primitive Xfer。borrowed ports 不提交，children 由 system
+分别访问。Xfer 不运行 rule、不重算冲突、不查询其他 Q、不分配对象。
+因此提交次序不影响任何 data/enable，且没有 normal failure 的半提交
+路径。unexpected host failure 仍按 C3 处理，不能成为合法模型结果。
+
+这明确替代 R1 B 的独立 Drive 阶段：寄存器 staging 和最终提交均放进
+module Xfer，决定 D/E 和是否允许 transfer 的检查先在全树完成。
+不保留 Evaluate/Check/Drive 与 Work/Xfer 两个可选择的 runtime 模式。
+编译器内部纯 helper 可以分解计算，但它们不是额外产品调度入口。
+
+Reset 同样由 system 单次访问每个 owner，使用 R1 reset transfer；
+module Reset 不再 ResetChildren。Build 可以由 system 根据实例树
+生成分配/绑定流程：对象各构造一次、reg 各分配一次、freeze 前完整
+验证；不能同时运行递归 Build 和 flat Build。构建失败不交付半对象。
+
+Freeze 采用唯一一种方式：全部 flat Build 完成后，由 system 对唯一
+root 调一次 donor-style recursive FreezeObjects，遍历 owning object
+tree 校验容量与冻结。borrowed ports 不进入 owning objects；system
+不得再对 flat view 的每个对象重复 Freeze。它是构建完整性校验，
+不是 module Build/Work/Xfer 的递归调度。C3 create 阶段只 Build/Freeze，
+不照搬 donor Build 内的自动 Reset；configure 后由统一 Reset 路径
+执行一次 reset transfer，再允许 Step。
+
+## C++ 与 RTL 映射
+
+| 已验证 IR 事实 | C++ / GFSIM | Verilog |
+| --- | --- | --- |
+| definition / SpecKey | source-owned 类/特化和独立 hpp/cpp | source-owned module family |
+| InstanceView | parent 非拥有指针、parent 拥有 children、只读 child view | hierarchy instances，不生成 pointer register |
+| owned ac.reg | 唯一 DFF/DFFE 实现对象 | 唯一物理寄存器 |
+| input/output alias | 同一 reg 的只读 view 与 proposal target | owner Q / borrowed D/E 连接，无 relay storage |
+| rule | 本地 Work 计算 | 组合方程 |
+| CommitPair | owner Xfer 中 Write/Xfer | 对应 D/E 的边沿更新 |
+| ac.system | 生成的标准 SimSystem glue 和 runner | 生成的 system top、clock/reset/test wrapper |
+
+C++ parent/children 的对象形态采用 donor GFSIM 设计；链接归属始终由
+ACIR 决定。输出端引用不允许 child 调用寄存器 Write。每个 source 的
+TU 独立并行编译，禁止全模型源生成后再拆分。
+
+一个模型端口可以在物理 RTL 上展开为 Q、D/E 等方向的 wires；这些
+都对应同一个 reg identity，不新增 source-level 组合通道。
+R1 的 subtree_error 上行与 root_commit_ok 下行控制投影保留，来自
+完整检查/实例/commit 闭包；它没有状态、额外周期或 output readiness。
+
+system runner 由工具链生成，直接使用适配后的 GFSIM Build/Step/Reset/
+ReportStat 接口；用户不编写 Work/Xfer 遍历、clock loop 或 C++ main 来定义
+模型语义。C3 C ABI 仅包装同一 system，不能成为另一执行引擎。
+run limit 按 C3 的成功提交计数和 TERMINATED 规则处理，不照搬 donor
+Run(n)“没有 RequestTerminate 就在上限抛错”的旧含义。
+Work/Xfer 属于 module 的虚接口，由 system 私有遍历驱动；Print 是
+生成 module 的本地调试方法，不声称 donor SimSystem 有 public
+Xfer/Print/Report 方法。
+
+cpp bundle 的 CMake 增加标准 executable target `pycircuit_system`；
+其 main 属于已有 generated.json 的 runtime-glue role，不是一个额外
+source module 或用户维护的模型 driver。标准调用为
+`pycircuit_system --config <canonical-config.json> [--events <path|->]`；
+config 使用 C3 现有 parser/schema，必须提供有限、正的执行上限。
+--events 只选择下面定义的工具观察出口，不修改 config schema。
+未知/重复选项或
+无有限上限在启动前拒绝，不向模型增加新的状态。main 只包装
+create/configure/reset/step/statistics/report/destroy；模型计算、
+连接和 Work/Xfer 顺序均来自 ac.system 和生成的 runtime 适配。
+
+RTL simulation wrapper 也由同一 source system/IR 生成，使用标准
+backend 仿真适配器提供时钟和执行上限；适配器不含 fixture 算法，
+不直接修改某个 Q。synthesis 输出 source system 的 reg/module 结构，
+不含 host main、文件读写或模拟器 clock loop。
+
+无故障执行、故障当拍和紧接 Reset 的观察点保持 R1。generated system
+在 source failure 后拒绝正常 step 直到 reset；开放 RTL DUT 任意外部
+非 reset 边沿的完整 fault continuation 仍须独立共同合同，不能由
+backend 私自新增未在 ACIR 表达的 latch。
+
+## Python 源表面与标准观察接口
+
+唯一 module/system 作者形式改为 `@module def` / `@system def`。
+两种函数的主体描述结构，嵌套 `@rule def` 描述计算。Python capture
+不执行函数、decorator、closure 或 import；MLIR 负责作用域与语义。
+普通 nominal record 继续 C1 的数据记录合同，不形成另一条 module
+作者路线。
+
+| 源形式 | 精确含义 |
+| --- | --- |
+| module/system 参数 | 按 C1 用途分类为 static 或 reg connection；连接绑定已有 reg identity |
+| 结构 scope 的 `x: T = initial` | T 为有限逻辑类型时声明 owned reg；初值静态完整、范围合法 |
+| `alias = existing_reg` | 零存储 identity alias，不读 Q |
+| `constant = static_expression` | 编译期值，不得从 runtime Q 初始化 |
+| `child = Child(reg_refs..., static_actuals...)` | 子实例声明；仅 link 建立实际 parent/children |
+| 嵌套 `@rule def update(): ...` | rule 定义，定义本身不执行、不注册 |
+| 结构 scope 的 `update()` | 一次明确的 registration occurrence |
+| rule 自由读取外层 reg | 读取本 epoch 的 Q，由 MLIR lift 为显式 reg input |
+| rule 的 `nonlocal x; x = value` | 对已绑定 reg 提出 next，MLIR lift 为 proposal target |
+| rule 普通局部赋值 | SSA 局部值，不能猜成 persistent state |
+
+本包 rule source 签名为无参数、无数据返回的 lexical rule；`return`
+只允许结束本次计算的裸 return，不能返回下一状态或用 None 表示
+optional output。参数化值计算使用纯 helper，目标通过 nonlocal
+绑定。它明确替代 C1 的 method/self 与 rule-return 注册到 next 的
+源形式；仍保留相同硬件表达能力和多输出 proposal，不做兼容分支。
+
+`nonlocal` 只能指向 enclosing module/system 的已绑定 reg 或已接纳
+reg collection；不得重绑定 static 参数、child handle、host object。
+普通局部名字按 Python lexical binding 处理：没有 nonlocal 的
+`x = x + 1` 若引用未定义 local，必须诊断，不能自动猜测为 reg 更新。
+在 `nonlocal x; x = candidate; old = x` 中，old 仍读 Q；复用候选须
+引用 candidate。这是公开的硬件 next-assignment 语义，不声称执行
+CPython closure cell 更新。
+
+一个 implementation source 仍拥有一个 public module 或 system，
+类型/helper 可同源。结构 scope 的 host 副作用、动态 module graph、
+继承、动态 callable 或 rule 内声明新状态/实例均拒绝。模块形式从
+class 改为 function 后，Site.definition 锚定 owning function；
+ast_path 仍相对真实 AST，嵌套 rule 和注册调用的 occurrence 分立。
+A2/L1 的 source read/use 事实保留到检查与 target 义务提取后再降低。
+
+### A2/L1 在 lexical/reg 形式中的精确重基
+
+本包复用 A2 修订 B 的 ac.source.use operand/result/UseID/target 形状，
+以及 L1 修订 B 的 `ac.source.read(current)->current` 形状；不新增一个
+“暂时可用”的 source event 字典。下列替换与 M1 一起成为联合合同，
+不能要求执行者根据旧 self/member 代码自行推断：
+
+- owning definition 改为 public module/system function；嵌套 rule
+  body 的 Site.ast_path 相对该 owning function，保留真实 nested
+  FunctionDef/body/statement 路径。registration origin 是结构 scope
+  的显式 rule 调用；不是 rule definition 本身，也不按行号造 identity。
+- L1 的直接 persistent read 改为词法解析后指向 enclosing reg 的
+  Name/完整 field access。读 alias 仍指同一物理 Q slot，但每次实际
+  source read occurrence 都保留。局部缓存的后续使用不重建 state read。
+- rule current inputs 按所读 constructor connection 的 parameter/
+  element 次序，随后按 owned declaration/element 次序排序；别名按
+  module-relative StateRef 去重，不能因为某个实例恰好 alias 就把两个
+  不同 formal 在定义中合并。无 source rule 参数，不再混用 method
+  argument index 与 module parameter/element index。
+- A2 next_scalar 的源事件是 nonlocal reg 的实际赋值；tuple target 按
+  原语法从左到右编号，逐项范围/type/重复写检查。它绑定真实输出
+  handle、StateRef、值、valid/path 与当前 rule yield/results。
+- 无数据返回的 lexical rule 不生成 rule-return-to-next 隐式目标。
+  普通值 helper/record constructor 的 helper-result/return 仍按 A2
+  的 call/ordinal 与真实 SSA 保留，不能因取消 rule 返回绑定而删掉。
+- 静态具体 collection 的每次已解析元素读写仍保留原 AST 访问来源；
+  动态 next_selection 和未闭合 generic shape 不在首片自行扩义。
+  assignment-target traversal 排除被写的 base，只保留真正被求值的
+  index/表达式读取，不能把 Store 的子节点一律视为 Load。
+- R1 control arguments 不进入 rule current payload 列表；ValueID、
+  CheckID、UseID、ProofScope 和 typed provenance 继续在实际 SSA 上核对。
+
+P1 先解析词法 identity 和待推导声明，P2 在合法 reg/rule context 中
+物化这些 source operations。记录来源不能早于实际绑定伪造证明，
+提取 effects/RequiredUse 则必须早于删除这些 operations。
+
+### 模块与组合例子
+
+以下为待实现的提案源码，每个代码块是独立 source，不是已编译通过
+的例子。types.py 定义 `Word=Annotated[int,range(256)]`、
+`Phase=Annotated[int,range(8)]`。
+
+```python
+# increment.py
+from pycircuit import module, rule
+from .types import Word
+
+@module
+def Increment(enabled: bool, incoming: Word, outgoing: Word):
+    @rule
+    def update():
+        nonlocal outgoing
+        if enabled and incoming != 0:
+            outgoing = (incoming + 1) & 255
+
+    update()
+```
+
+```python
+# pipeline.py
+from pycircuit import module
+from .types import Word
+from .increment import Increment
+
+@module
+def Pipeline(enabled: bool, incoming: Word, outgoing: Word):
+    middle: Word = 0
+    first = Increment(enabled, incoming, middle)
+    second = Increment(enabled, middle, outgoing)
+```
+
+middle 只有一个 owner、一个 StateID 和一份物理存储。first 提出
+middle_D，second 本拍读取 middle_Q，端口和连接不增加副本。
+enabled/incoming/outgoing 由 parent/system 提供；Pipeline 不为这三个
+形式参数分配 storage。
+
+### 标准 source 观察接口
+
+```text
+assert condition [, "static message"]
+print(item, ..., sep=" ", end="\n") -> None
+log(level, event, item, ...) -> None
+report(name, value) -> None
+```
+
+log/report 是 `from pycircuit import log, report` 的编译期 intrinsic，
+不执行 host I/O。level 是静态 debug/info/warning/error；event 和 report
+name 是静态非空字符串。print/log item 首片只接纳静态字符串、有限
+integer、bool；sep/end 为静态字符串。禁止展开参数、动态字符串、
+f-string、format spec、自定义 `__str__`、file/flush。数学整数用十进制，
+bool 用 True/False。log 的 error 等级不等于 source failure。
+
+assert 使用 C2 ac.expect/CheckID/RequiredCheck，不增加第二套断言。
+必须按 source evaluation path 执行，日志关闭或 proposal E=false 均
+不能抹去已求值的错误。source assert 不受 Python -O 影响。
+
+report 首片是具名非负有限整数 gauge，最大 UINT64_MAX；不是增量或
+隐式 counter。需累计的数量由作者声明并更新 ac.reg。每个实际 module
+实例的 report name 对应一个展开后的观察 site，重复命名静态拒绝。
+
+### 统一 observation carrier
+
+新增 `ac.observe(path:i1, values...)`，无 result、无 region，位于
+registered rule computation 及合法结构控制区域。必需属性如下：
+
+```text
+kind: "print" | "log" | "report"
+ac.observation_id: {registration:Occurrence, site:Occurrence}
+ac.value_ids: Array<ValueID>
+spec: PrintSpec | LogSpec | ReportSpec
+loc: MLIR source location
+
+PrintSpec = {items:Array<Item>, sep:StringAttr, end:StringAttr}
+LogSpec = {level:StringAttr, event:StringAttr, items:Array<Item>}
+ReportSpec = {name:StringAttr}
+Item = {kind="literal", text:StringAttr}
+     | {kind="value", ordinal:u32}
+```
+
+source/linked 另有 `ac.value_constraints:Array<ValueConstraint>`，允许
+C2 logical bool/integer 和 mathematical_integer；不接纳 record/list/
+reg handle/proposal/child handle。final 将其替换为
+`ac.logical_types:Array<LogicalType>`，全部为有独立来源证明的有限
+bool/integer representations；所有 math_int 必须在 emit 前消除。
+report 在 final 恰有一个 integer value，其 domain 非负且可由 u64
+完整表示。无法证明接纳范围的数学临时值必须 capability rejection，
+不能在打印时调用 bigint interpreter 或静默截断。
+
+value_ids 按 operands 顺序绑定真实 value/valid/path，归 owning rule
+的 ProofScope。source 到 final 的 numeric/use proofs 必须同时覆盖
+观察实际使用的值；不能只保存 id，却把另一个同型 SSA 打印出来。
+所有动态 item ordinal 按源顺序恰覆盖一次 values；静态字符串不占
+value operand。path 是该 source site 的 live evaluation path 与
+已求值参数 validity 的合取，不是某个 reg enable。参数计算错误仍
+属于 source checks，即使观察 sink 关闭也必须保留。
+
+owning rule 新增 `ac.required_observations:Array<ObservationSpec>`：
+
+```text
+ObservationSpec = {
+  id: {registration:Occurrence, site:Occurrence},
+  kind: StringAttr,
+  spec: PrintSpec | LogSpec | ReportSpec,
+  values: Array<ValueID>
+}
+```
+
+列表按源展开顺序，且与实际 observe 一对一；verifier 核对 owning
+scope、具体 operands/bindings、路径和完整 spec。非法删除/重复/
+重定向观察不得由正确的其他 marker 替代。source producer 仍是原始
+程序语义的可信入口，不声称能验证源码和全部义务一起被修改的输入。
+
+observe 非 Pure：effect 只写该 registration/site 独占的有界、预分配
+临时槽，不写 model state。Work worker 不能调用共享 ostream、Logger
+或 Reporter。precommit 失败丢弃全部本轮普通观察，只保留 C3 失败
+诊断；成功 Xfer barrier 后，system 按 OwnerRef、registration、site
+的稳定结构顺序发布。跨 rule 顺序只是呈现规则，不成为 driver 优先级。
+
+观察值来自 Work 的 Q/SSA，不在 Xfer 后重新读取。其 evaluation epoch
+为 t，发布 epoch 为成功提交后的 t+1。日志禁用只影响呈现，不影响
+参数求值和 source check。sink I/O 失败在 host 层报告，不能回滚 Q、
+改变调度或改记为 source error。
+
+固定 source candidate 仅改变 Work/Xfer 遍历、线程数量或任务完成顺序
+时，观察 identity、呈现顺序、值和 epoch 必须严格相同。若测试改变
+了源码 declaration/registration 顺序，真实 AST occurrence 可以合法
+改变；该测试必须提供独立的 source identity 对应表，比较映射后的
+Q/值/epoch，并分别核验各候选遵守自己的结构排序。不得要求跨这类
+源码重排的原始事件序列字节相同，也不能把合法重排解释为 writer
+优先级变化。
+
+source report 映射到 C3 既有 statistics_json 行 schema：
+
+```text
+object_path = actual instance path
+name = static report name
+kind = "gauge"
+value = last successfully published report value
+last_update = that successful commit epoch
+count/sum/minimum/maximum = 0
+buckets = []
+```
+
+Reset 将静态 gauge inventory 置零。观察缓存只在 host 有效，不是
+ac.reg、source 可读值或硬件反馈；source 不能读取 report 结果。
+原有两个 @runtime rows 保留，source rows 按 object_path/name 稳定
+排序，不改变每行字段形状。不使用 last_error 传输普通日志，也不
+增加本包之外的公共日志拉取 API。
+
+### Module 标准接口与后端边界
+
+生成 module 具有本地 `Print(std::ostream&) const`、`ReportStat()` 和
+断言/日志支持；没有这些源请求时接口仍合法且可为空。Print 在稳定
+观察点展示本实例 reg/公开端口，ReportStat 输出已提交 gauge 和标准
+统计，不触发 Step 或重新执行 source rule。两者都不递归 children；
+system 统一遍历，避免重复输出。Failed 只使用最后完整提交的缓存，
+不读取半完成的 proposal 或异常中的对象树。
+
+标准 sink 由 system 管理，默认不写进程共享 stdout/stderr。输出选择
+固定为 runner 的 --events，不让执行者添加 C3 config 字段、model
+vtable 或任意 stdout 调用；原始 sink API 和 Print 文本不是模型输入
+或硬件语义。
+
+### 固定 runner 观察出口
+
+--events 缺省时不交付普通 print/log 流，有限每步 slots 可在发布阶段
+丢弃；report gauges 仍更新，source 参数/check 照常执行。
+`--events -` 明确选择 stdout，`--events <path>` 选择一个新的普通文件。
+runner 在 Build/Reset/Step 前验证参数及打开文件；已有文件、symlink、
+非普通文件、重复 --events 或打开失败均在运行前非零退出，不覆盖
+用户文件。此 sink 不参与模型 ready/backpressure。
+
+输出采用 UTF-8 JSON Lines，每条完整记录以一个 LF 结束，字符串中
+的换行按 JSON 转义。普通事件只在成功 Step 返回之后交付，且必须
+来自该次成功 Xfer 冻结的 slots；禁止输出失败 epoch 的普通事件。
+--events 是原始观察捕获，不受人类日志级别筛选影响。具体记录为：
+
+```text
+Event = {
+  kind: "print" | "log" | "report",
+  instance: String,
+  registration: String,
+  site: String,
+  evaluation_epoch: DecimalU64String,
+  commit_epoch: DecimalU64String,
+  spec: PrintSpecJSON | LogSpecJSON | ReportSpecJSON,
+  values: Array<{kind:"bool",value:JSONBoolean}
+              |{kind:"integer",value:CanonicalSignedDecimalString}>
+}
+Result = {
+  kind: "result",
+  status: "TERMINATED" | "FAILED",
+  epoch_time: DecimalU64String,
+  statistics: C3StatisticsArray,
+  error: null | C3LastErrorObject
+}
+```
+
+字段闭合。instance 是 C3/linked 实例的可读 object_path；registration
+与 site 是相应 Occurrence 的 canonical MLIR 打印文本，仅作工具定位，
+不变成模型身份或排序算法。排序仍使用真实结构值。SpecJSON 逐字段
+映射前述闭合 spec：StringAttr 为 JSON string，ordinal 为非负整数，
+items 保留次序。values 与 actual operands 同序；整数按已验证逻辑
+signedness 解释，使用十进制字符串避免宿主 JSON 数字精度损失。
+DecimalU64String 为规范非负十进制，无多余前导零；epoch 不含 delta，
+本包 default domain 的 delta=0。
+
+正常结束或已接纳 Step 失败后，runner 在所有已提交 events 后写恰
+一条 Result；FAILED 使用最后完整提交的 epoch/statistics 和现有
+C3 last_error。配置/启动失败没有模型结果，不伪造 Result。sink 写入
+失败令 runner 非零退出且可能缺失/截断末记录；不改变模型 Q、成功
+周期或 source failure 状态。独立 gate 必须拒绝截断 JSON、缺 Result、
+重复 Result、在 Result 后继续输出、错误 status/epoch 或缺完成 gauge。
+
+此文件是 standalone 工具的诊断/测试产物，不是公开 model/runtime
+ABI；不新增事件拉取 API、trace cursor、workload loader 或消费者
+payload schema。C++ runner 与生成的 RTL simulation runner 使用同一
+输出约定。RTL wrapper 的私有 site slots 交给标准 runner 后按相同
+键序列化；测试通过这个固定出口取得 events，并与独立 expected
+比较。source report 的 native formatter仍可用于显式 ReportStat，
+但漂亮打印文本不作为唯一 oracle。
+
+RTL simulation 从相同观察 IR 产生有界 site records，由生成的 system
+wrapper 在 edge/NBA settle 后按相同键输出；不得使用多个 always block
+的执行先后当作日志顺序。test verdict 使用结构化的事件/值/epoch，不
+以 C++ 或 Verilog 的漂亮打印文本为唯一 oracle。
+
+RTL synthesis 投影可以去掉 observation sink/缓存/打印代码，但必须
+保留观察参数求值所必需的 source safety checks、控制与 model D/E。
+该投影不添加 model state，不改变 source error 合同。debug/report 的
+格式代码不进入硬件 datapath；assert 的合法性义务不能被当作普通
+打印一同删除。
+
+## System 单测与组合测试
+
+closed system 本身拥有 fixture regs，嵌套 stimulus/check rule 与
+普通 DUT rules 使用同一 current/proposal/Xfer 规则。不新增输入准备
+transfer，不在 Work 前直接覆写 input Q，也不隐式插入 test 程序计数器。
+需要 phase 的测试明确声明 phase reg。source @system 无装饰器参数，
+run limit 使用 C3 既有配置。
+
+以下两个 source 分别拥有一个 public system。既可单测模块，也可将
+其替换为多模块组合，runner 和调度无需手写。
+
+```python
+# test_increment.py
+from pycircuit import system, rule, log, report
+from .types import Word, Phase
+from .increment import Increment
+
+@system
+def TestIncrement():
+    enabled: bool = True
+    incoming: Word = 1
+    outgoing: Word = 0
+    phase: Phase = 0
+    dut = Increment(enabled, incoming, outgoing)
+
+    @rule
+    def fixture():
+        nonlocal enabled, incoming, phase
+        if phase == 0:
+            assert outgoing == 0, "reset output"
+            incoming = 4
+        elif phase == 1:
+            assert outgoing == 2, "first input"
+            incoming = 0
+        elif phase == 2:
+            assert outgoing == 5, "second input"
+        elif phase == 3:
+            assert outgoing == 5, "disabled input holds"
+            enabled = False
+        elif phase == 4:
+            assert outgoing == 5, "final output"
+            print("increment passed", outgoing)
+            log("info", "test_complete", outgoing)
+            report("completed", 1)
+        if phase < 4:
+            phase = phase + 1
+
+    fixture()
+```
+
+```python
+# test_pipeline.py
+from pycircuit import system, rule, log, report
+from .types import Word, Phase
+from .pipeline import Pipeline
+
+@system
+def TestPipeline():
+    enabled: bool = True
+    incoming: Word = 1
+    outgoing: Word = 0
+    phase: Phase = 0
+    dut = Pipeline(enabled, incoming, outgoing)
+
+    @rule
+    def fixture():
+        nonlocal enabled, incoming, phase
+        if phase == 0:
+            assert outgoing == 0, "reset output"
+            incoming = 4
+        elif phase == 1:
+            assert outgoing == 0, "first stage only"
+            incoming = 0
+        elif phase == 2:
+            assert outgoing == 3, "first end-to-end result"
+        elif phase == 3:
+            assert outgoing == 6, "second end-to-end result"
+            enabled = False
+        elif phase == 4:
+            assert outgoing == 6, "final output"
+            print("pipeline passed", outgoing)
+            log("info", "test_complete", outgoing)
+            report("completed", 1)
+        if phase < 4:
+            phase = phase + 1
+
+    fixture()
+```
+
+独立逐拍期望为：
+
+| Work 开始的 phase | 单模块 outgoing Q | 组合 outgoing Q |
+| --- | --- | --- |
+| 0 | 0 | 0 |
+| 1 | 2 | 0 |
+| 2 | 5 | 3 |
+| 3 | 5 | 6 |
+| 4 | 5 | 6 |
+
+精确物理 reg 数：TestIncrement 为 4（enabled/incoming/outgoing/phase）；
+TestPipeline 为 5（再加 Pipeline.middle）。统计/日志缓存不是模型
+寄存器，不能用它们或端口副本掩盖 double reg。
+
+Work0 提出 incoming_D=4，DUT 仍读取 reset 后的 incoming_Q=1；
+同次 Xfer 更新 input reg，Work1 才读取 4。这是作者显式声明的 input
+reg 的真实时序，不是端口额外插入的 reg。
+
+测试配置 max_ticks=5。phase=3 时关闭 enabled，phase=4 的第 5 拍
+验证完整静止结果且没有新的源状态更新；本拍明确计入成功周期。
+独立测试 gate 的完成条件同时要求 `TERMINATED`、epoch_time=5，以及
+根实例 completed gauge=1。运行上限错误设为 3/4 时缺少完成标记，
+gate 必须失败；不能只把“没有 assert 失败”当成成功。标准 runner
+本身不根据任意 report 的名字猜测试完成或改变停止时刻；gate 只
+比较运行结果，不代替 system 驱动设计。Reset 后原样重跑应得到同一结果。
+
+这些例子不使用未批准的 DUT direct-input ABI，也不窥视 child 私有
+状态。将来外部 drive_inputs 的时序需按唯一 boundary-owned input reg
+重新设计，不在本包复用旧 I[t] 直接进入 Work 的语义。
+
+## MLIR pass 分工
+
+| 阶段 | 负责推导/验证的事实 | 退出条件 |
+| --- | --- | --- |
+| Python capture | AST、literal、names、source span | 不执行 import/decorator/module/rule，不做第二套语义编译 |
+| native import / lexical resolution | module/system/rule 声明、nonlocal/free names、local SSA、静态 scope | 未绑定/不合法 capture、错误非局部写、动态拓扑拒绝 |
+| type/static/effect analysis | finite types、static 参数、owned reg、alias、R/W ports、隐式 rule 输入/targets | 合法固定结构与完整 read/use/observation 来源 |
+| source publication | 单源 body/header、effects、imports、source-owned helper | parent 仅凭 child header 编译，无 whole-system capture |
+| AC link / specialization | SpecKey、实际 parent/children、reg identity、connections、owner、reset | 唯一 source authority、完整实例树和无 double reg 的连接闭包 |
+| proposal/check/observation lowering | D/E、冲突、数学/来源证明、静态观察 site inventory | 无 runtime Python、无 Queue readiness、无隐式 writer priority |
+| system realization / final verify | Work/precommit/Xfer 语义、实例/commit/check/观察闭包 | 无缺失或重复访问、no-fail commit、唯一执行入口 |
+| backend legalization/codegen | 将已验证结构映射到 GFSIM hpp/cpp 或 RTL | 不推断新状态、连接、调度、observer scope 或 owner |
+
+大部分决定在 MLIR passes/analyses 中完成；codegen 使用相同的 verified
+InstanceView 与寄存器绑定。Python orchestration 只负责调用与产物
+发布，不承担 type/effect/scheduler 权威。
+
+为避免后续执行者自由设计管线，本修订固定以下**待实现内部 pass**
+名字和边界。它们不是已经存在的命令，也不新增公开 CLI flags。
+
+| 顺序 | 内部 pass / analysis | 输入与输出不变量 |
+| --- | --- | --- |
+| P1 | `acir-resolve-lexical` | captured source/已验证 headers → 显式 scope、nonlocal/free references 和待推导声明；不执行 host Python，不提前伪造 typed source 事件 |
+| P2 | `acir-infer-registers` | typed/static declarations → ac.reg、alias、current inputs、proposal targets、control bindings 和合法 source read/use/check/observe；静态值不分配假 reg |
+| P3 | `acir-infer-rule-effects` | 实际 source ops/child interfaces → RuleEffectView 和 generic ElementEffects；来源完整、可重复重算 |
+| P4 | `acir-publish-interface` | 通过 unit verifier 的单源语义 → owning interface 与消费 snapshots；body/header 发布成组一致 |
+| P5 | `acir-link-instances` | 完整显式单元闭包 → authority 校验、specialize 后的 InstanceView、StateID/alias；generic/exact effects 均复核 |
+| P6 | `acir-verify-proposals` | 数学、source-use/check lowering 已完成的实际 D/E 图 → 完整 conflicts、唯一 commit target/pair；不可残留未闭合义务 |
+| P7 | `acir-realize-system` | 已验证 instances/proposals → 唯一 ac.system、Work/precommit/Xfer 与检查/观察闭包；无可配置第二 scheduler |
+| P8 | `acir-verify-hardware` | final IR → 独立核验类型/owner/check/use/commit/system；两 emit 入口必须重新运行 |
+
+P1/P2 可通过同一 native import library 协作分步构造，但各步必须有
+独立入口测试和明确 deferred obligations；不能因函数名字叫 Pass
+就把 Python 或 backend 中的语义视为已迁入。helper inline、静态
+展开、numeric proof、RTL-private legalization 沿 C2/R1 明确顺序进行，
+不能把 P6 的名字当作这些既有义务已自动完成。
+
+非安装测试入口必须能保存 P3 effects、P4 interface、P5 instance/reg
+绑定和 P6 conflicts/commit 的可审阅文本；打印内容是工具证据，不是
+新 model ABI、调度输入或语义身份。报告中的每项能追溯到 source
+occurrence 和 actual IR；实现者不能只打印期待的固定字符串。
+
+## 受影响合同、删除与验证
+
+| 对象 | 本包修改与删除责任 |
+| --- | --- |
+| C1 module/system 作者形式 | class/self 改为函数＋lexical rule；删除旧 method/return-binding 编译路径，保留纯 helper/record |
+| C2 source/linked interface | 重新推导 function anchors、captures、input/target lists；InstanceView 复用既有 owner/key/ports 表 |
+| R1 runtime phases | 独立 Drive 改为 module Xfer 内 staging；system 独占遍历；旧递归 lifecycle 与 flat 遍历不能共存 |
+| C3 entry / lifecycle | ac.system 是唯一驱动；标准 runner 包装同一个 system；成功提交后计数，拒绝 donor 超限即错误语义 |
+| 待批 C3-DUT-IO | ac.dut 从 invocation 改为边界描述；direct sampled-current 不再被默认为合法 reg input |
+| instrumentation | source assert 沿用 ac.expect；新 ac.observe/required_observations 与固定 source gauges，移除 worker 直接 Logger/Reporter/MarkProgress |
+| GFSIM module/runtime | 保留 parent/children 所有权、固定容量和标准接口；移除 Queue-only BindPort、Build/Work/Xfer/Reset/ReportChildren 与 child EvaluateNext/CheckNext/DriveNext 生成调用及 guest-memory 依赖；Freeze 仅从 root 递归一次 |
+
+所有新增精确接口与 source semantics 必须联合独立审阅并批准后才实现。
+原批准文档不改字节；M5 对相关决定、AGENTS、source guide、安装与
+测试做一次 hard break，不能同时安装 class/function 两条产品路线。
+
+第一批独立测试至少包含：
+
+- 同 SpecKey 两个 child、三层 hierarchy，parent/children 正确且 hidden
+  regs 独立；借用端口/inner wires 不增加物理 reg 数。
+- 只读 alias 合法；dangling、双 owner、child 私有访问、R+W 分裂、
+  实例递归、错误 controls、漏/重 port、篡改 instance map 均拒绝。
+- 每个实际实例 Build/Work/Xfer/Reset/ReportStat 恰一次；专门检测 flat
+  system 与递归 parent 双访；parent Work 不能提前读取 child proposal。
+- 增加 NoCallChildren 静态门槛，逐个生成 module TU 拒绝
+  BuildChildren/WorkChildren/XferChildren/ResetChildren/ReportChildren
+  和 child EvaluateNext/CheckNext/DriveNext 调用。不能用“system 漏调
+  child、parent 递归补调”伪装每实例一次；同时检查 Freeze 只从 root
+  进入，没有 flat per-object 重复 Freeze。
+- 固定源码反转 Work/Xfer 遍历和并行分组，Q、error 与事件顺序一致；
+  source 重排按显式身份映射比较语义，并核验各自排序；孙模块失败时
+  任何 owner 都不 Write/Xfer。
+- 两个完整 system 样例从逐源 Python 编译到同一 final IR，再分别生成
+  C++/RTL；上述五周期 oracle、完成标记和 reset/rerun 全部一致。
+- scope/nonlocal、local unbound、重复 next、static 参数误写、旧 class/
+  method/return-binding 拒绝；statement 顺序不变成 state 优先级。
+- observations 值/epoch/顺序一致；失败不发布普通 events；日志关闭仍
+  检查参数错误；同名 report 拒绝；综合投影不删除 source checks。
+- 每源独立 hpp/cpp/RTL 分组和并行 CMake object 编译；移除一个 child
+  对象必须失败；生成 runner 中没有手写的模型计算/调度替代逻辑。
+
+拟新增门槛（尚未实现，不能报告已通过）：
+
+```bash
+cmake --build "$M1_BUILD" --target ACIRModuleGraphTests ACIRSystemLifecycleTests ACIRObservationTests
+ctest --test-dir "$M1_BUILD" --output-on-failure -R '^ACIR(ModuleGraph|SystemLifecycle|Observation)Tests$'
+pytest tests/system/test_lexical_module_units.py -q
+pytest tests/system/test_system_composition_backends.py -q
+```
+
+本包不凭 source 单测关闭 FIFO 库、参数化/动态 collection、外部 DUT、
+多 clock/CDC/四态或开放 RTL 的 fault continuation。产品源码和 donor
+checkout 在本轮设计中保持不变；独立 reviewer 绑定本文件精确 SHA。
+
+执行顺序、独占文件、依赖、正反例、失败出口和证据格式以配套
+checklist/verification matrix 为准。门槛 bootstrap、focused tests、
+双后端、M5 删除各自有出口，不能用一项“tests passed”概括全项目。

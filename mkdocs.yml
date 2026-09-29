@@ -112,12 +112,19 @@ nav:
       - Project Governance: development/project-governance.md
       - Governance Proposal (Historical): development/project-governance-proposal.md
       - Modernization Test Strategy: development/pycircuit-modernization-tests.md
+      - Migration Agent Checklist: development/migration-agent-checklist.md
+      - Migration Verification Matrix: development/migration-verification-matrix.md
       - Modernization Plan Review: development/pycircuit-modernization-review.md
       - Modernization Work Items: work-items/README.md
       - Migration Execution Ledger: work-items/single-route-migration.md
+      - Unified Register Work Item: work-items/m2-r1-unified-register.md
+      - Module System Work Item: work-items/m2-m1-module-system.md
       - Migration Capabilities: work-items/migration-capabilities.md
       - C2 Contract Inventory: work-items/migration-c2-contract-gaps.md
       - Modernization Reviews: reviews/README.md
+      - Unified Register Design Review: reviews/20260928-c2-r1-unified-register.md
+      - Module System Design Status: reviews/20260928-c2-m1-module-system.md
+      - Interface Handoff Review: reviews/20260928-interface-handoff.md
       - Contributing Workflow: development/contributing-workflow.md
       - Testing and Gates: development/testing-and-gates.md
       - Stable SDK Release Contract: development/sdk-release-contract.md
@@ -139,6 +146,9 @@ nav:
       - C1 Pythonic Source Proposal: rfcs/migration/c1-pythonic-source.md
       - C1 Source Approval: rfcs/migration/approvals/c1-pythonic-source.md
       - C2 MLIR Contract Proposal: rfcs/migration/c2-mlir-contract.md
+      - C2-R1 Unified Register Proposal: rfcs/migration/c2-r1-unified-register.md
+      - C2-R1 M1 Implementation Approval: rfcs/migration/approvals/c2-r1-m1-interface.md
+      - C2-M1 Module System Proposal: rfcs/migration/c2-m1-module-system.md
       - C2-N1 Namespace Binding Proposal: rfcs/migration/c2-n1-namespaces.md
       - C2-A2 Source Use Proposal: rfcs/migration/c2-a2-source-use.md
       - C2-N1 Namespace Binding Approval: rfcs/migration/approvals/c2-n1-namespaces.md

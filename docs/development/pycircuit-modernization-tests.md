@@ -1,6 +1,12 @@
 # 单一路线 hard break 验收规范
 
-日期：2026-09-27。规划修订：6。状态：测试设计；不表示产品测试已执行。
+日期：2026-09-28。规划修订：7。状态：测试设计；不表示产品测试已执行。
+
+下面 T01–T22 保留全项目责任。实际分派使用
+[V00–V49 验证矩阵](migration-verification-matrix.md)和
+[W00–W12 执行 checklist](migration-agent-checklist.md)。NOW-DOC、
+EXISTING-BASELINE 和 PLANNED-PRODUCT 必须分开，禁止空收集或 skip
+替代语义通过。
 
 配套：[主计划](pycircuit-modernization-plan.md)、[治理方案](project-governance.md)。目标是验证 GFSIM Pythonic source → MLIR → 同一硬件 IR → C++/Verilog，并证明旧路线从产品中消失。三种旧 authoring 继续可用、PYC C++ 继续运行，不再是新版本的验收条件。
 
@@ -19,10 +25,10 @@ C1/C2/C3 必须给出能力表，每行选择“新接口保持硬件行为”�
 | T03 | MLIR 拥有语义分析 | 名字、类型、range、方向、alias、state owner、static/runtime、effects 有合法/非法 MLIR 测试；从 carrier 篡改不能绕过 | M2/M3 |
 | T04 | 同一 final hardware IR 供两个 backend | 保存共同 IR 与各 backend 输入映射；final verifier 独立重建关键义务；RTL 不从 C++/runtime 恢复语义 | M2 起 |
 | T05 | donor 的实际能力准确迁入 | 来源 revision/内容/许可、已批准设计、实际可执行微型测试；`@system`、整数格式、evaluation-check 缺口必须显式补齐或批准延期 | M0/M3 |
-| T06 | Pythonic 接口实现批准合同 | 普通 class/method/record/annotation/控制流示例；rename 不改变方向，构造与 rule 含义明确；拒绝动态拓扑和非法 host 执行 | M2/M4 |
+| T06 | Pythonic 接口实现批准合同 | module/system 函数＋nested rule/nonlocal、普通 record/annotation/控制流；rename 不改变方向；无 Queue/Interface DSL；拒绝动态拓扑与 host 执行 | M2/M4 |
 | T07 | 整数与类型没有悄悄改义 | 1/边界/64 位、数学运算和 range/overflow、显式截断、signedness；u64 中间结果超宽有规定；定宽 wrap 与 donor 数学整数的差异绑定批准 | M2/M3 |
 | T08 | current/next、enable、reset 正确 | rule 读 cycle-start Q；跨 rule next 不提前可见；无写 hold、非零初值、reset/rerun；无源码顺序 winner | M2/M3 |
-| T09 | Queue/state 与事务区分成立 | 普通多 reader state 不变成 consuming FIFO；Queue full/empty、同拍 pop/push、阻塞不消费；批准的多 owner group 无部分发布 | M2/M3 |
+| T09 | 普通状态与未来缓冲库责任分明 | 普通 list/多 reader state 不被猜成 consuming FIFO；Python 无队列协议；未来库显式验证满空/同拍操作/无数据丢失；不能靠隐式 producer 阻塞通过 | M2/M3 |
 | T10 | drivers/冲突与失败行为可证 | declaration/traversal 置换、disjoint/overlap、显式算法/策略；失败注入检查 Q/pending/events；Evaluate/Check/Drive 名字不代替证明 | M3 |
 | T11 | 两 backend 对齐硬件观察 | 同输入独立期望下 C++/Verilator 对齐 cycle/edge、latency、value/known/Z、reset 和背压；失配报最早 rule/instance/source | M2 起 |
 | T12 | 所需硬件约束仍在 MLIR | clock/reset domains、组合环、CDC、memory 读写/延迟、RTL primitive 目录验证；不支持能力在 output 发布前拒绝 | M3 |
@@ -59,7 +65,11 @@ syntax capture 验证完整 AST/literal/span 和静态 import 输入，source im
 
 ### 首个双后端端到端切片
 
-由独立测试作者写逐拍期望：普通对象式叶模块有 typed integer、非零 reset、conditional enable，父模块实例化两次；另加单 Queue 的阻塞与同时 pop/push。不同实例不共享状态，同拍读旧 Q，未允许提交不改变输出或消费输入。
+由独立测试作者写逐拍期望：lexical 叶模块有 typed integer、非零
+reset、conditional enable，父模块重复实例化；使用 M1 的单模块与
+组合 system 运行 V41–V44。不同实例不共享状态，同拍读旧 Q，E=false
+discard 且不重放；source 求值错误不被 E 掩盖。未来缓冲库的容量/
+同拍操作另行验收，不能为首片补一个 Queue 源接口。
 
 从唯一 Pythonic source 经逐源产物/link/final verify 同时生成 GFSIM C++ 和 Verilog，编译运行；再篡改 captured type、owner 或 driver 元数据，验证失败发生在规定 MLIR 边界。不能手写 generated C++ 来实现缺失逻辑。
 
