@@ -182,25 +182,33 @@ I25 行「仍缺 … 完整 Result/events」需要收窄，避免下一轮重复
   会改变观察投递分工，属于 runtime/协议行为；因此在拿到合同裁决前不实现该项，
   也不擅自把 report 从 gauge 通道移走。
 
-## 待决：numeric next 形状与 hasNumericInventory（2026-09-29 发现）
+## 普通赋值的 final 重建缺口与 hasNumericInventory（2026-09-29 勘误）
 
-N0-U1 的形状探测暴露两个**需要设计裁决、不能顺手改**的点，记录如下以免下一轮
-误判为 bug 或误改：
+N0-U1 的形状探测发现 `state = other` / `state = 7` 能 link、reparse 后 emit 失败。
+**勘误（同日）**：这不是"是否要支持普通赋值"的新语言决定——普通赋值语义早已在
+已批准合同内，问题是 serialized-final reconstruction 的分类不一致：
 
-1. **copy / constant next assignment 是否要支持**：`state = other`、`state = 7`
-   是普通 C1 赋值，但不在 bounded-M2 声明档内。当前在私有桥被 link 拒绝；
-   若要支持，属于把 next-use 路线从 U1 masked-add 扩展到非数值赋值的能力包，
-   需要能力矩阵与合同裁决，不是修 bug。
-2. **`hasNumericInventory` 三处逐字重复**（`CheckGraph.cpp:40`、
-   `Passes/InferRuleEffects.cpp:177`、`ProposalGraph.cpp:93`），且把
-   `ac.value.binding`/`ac.value.use` 当作"数值声明"。这两个 op 在 final
-   materialization 中会为**每个**赋值合成，所以谓词对非数值 rule 也为真，
-   这正是 reparse 路径只接受 U1/composition 的原因。把二者移出谓词会让
-   reconstruction 接受 copy/constant，但同时改变 `InferRuleEffects` 的路由选择
-   和 `ProposalGraph` 的数值 rule 校验触发条件，必须作为设计决定；
-   独立的 U1 closure verifier（`ACIRNumericNextUse.cpp`）在两种选择下都会继续强制闭合。
+- 已有 direct-current/literal assignment authority（`FinalUses.cpp:16–65`），
+  `ACIRFinalContracts.cpp:437–450` 也区分 numeric 与 generic final uses；
+- 但 `hasNumericInventory`（`CheckGraph.cpp:40`、`Passes/InferRuleEffects.cpp:177`、
+  `ProposalGraph.cpp:93` 三处逐字重复）把通用 `ac.value.binding`/`ac.value.use`
+  当作"数值声明"。这两个 op 在 final materialization 中为**每个**赋值合成，
+  于是谓词对非数值 rule 也为真，reparse 路径就只接受 U1/composition。
+- 结论：这是**已批准赋值语义的 serialized-final reconstruction 缺口**；当前
+  私有桥的 link 拒绝是保守的能力限制，不是最终修复，**不退役普通 copy/constant
+  赋值，也不再要求用户重新决定是否允许普通赋值。**
 
-在这两点裁决前：私有桥保持 fail-closed（link 即拒绝），不扩大支持面，也不弱化校验。
+后续修复任务（不属本轮，需单独有界包）：
+
+1. 先冻结 source/final 两个阶段的分类不变量并写独立反例（哪些 op 属于 numeric
+   义务、哪些只是通用 value/use provenance），确认修复不会放松 numeric proof、
+   RequiredUse、`YieldBinding` 与检查闭包。
+2. 再改共享分析（三处谓词收敛为单一实现），带正反例与双后端回归。
+3. 本轮**禁止**直接从三处 `hasNumericInventory` 删除 value ops；在任何裁决前
+   私有桥保持 fail-closed（link 即拒绝），不扩大支持面也不弱化校验。
+
+`hasNumericInventory` 三处重复本身仍是待收敛的实现债；独立的 U1 closure
+verifier（`ACIRNumericNextUse.cpp`）在任何选择下都继续强制闭合。
 
 ## design/testbench role 契约（工具层强制，2026-09-29）
 
