@@ -35,8 +35,8 @@ Current-checkout LLVM/MLIR 22.1.8, macOS arm64; both emitters actually executed.
 | Lane | Result |
 | --- | --- |
 | All 20 `ACIR*Tests` binaries | **355 tests, 0 failures / 0 errors / 0 skipped / 0 disabled** (`native/all-native-summary.json`, per-binary `.xml`/`.log`) |
-| Python system selectors | **73 passed, 0 failed, 0 skipped**; 2 V44 cases still deselected and DEFERRED to M6 (`python.xml`). This lane covers the five system files listed in the reproduction command, so it also carries the M4-D2 boundary cases and the N0-U1 masked-next cases. |
-| Role-split system tests | 9 new cases in `tests/system/test_source_design_bridge.py` (34 total in that file), including a path-alias case that proves the rollback, not the string-equality guard, removes a half-published bundle |
+| Python system selectors | **80 passed, 0 failed, 0 skipped**; 2 V44 cases still deselected and DEFERRED to M6 (`python.xml`). This lane covers the five system files listed in the reproduction command, so it also carries the M4-D2 boundary cases and the N0-U1 masked-next cases. |
+| Role-split system tests | 9 role-split cases inside `tests/system/test_source_design_bridge.py` (40 cases in that file), including a path-alias case that proves the rollback, not the string-equality guard, removes a half-published bundle |
 | Native role-split assertions | added to `FinalEmittersAreDeterministicAndToolAccepted` in `FinalProgramTest.cpp` |
 
 The evidence that the split is a pure file-role boundary, not a behaviour change:

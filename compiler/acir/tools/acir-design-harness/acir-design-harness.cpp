@@ -27,7 +27,49 @@ struct Options {
   std::optional<std::string> target;
   std::optional<std::string> output;
   std::optional<std::string> glueOutput;
+  std::optional<std::string> role;
 };
+
+// Which kind of root a linked or reparsed artifact selects. A @system is the
+// externally driven harness that instantiates a design; a @module is the design
+// itself. The framework must not let the two be conflated, so the tool requires
+// the caller to state the role and checks it against the artifact.
+struct RootKind {
+  bool found = false;
+  bool system = false;
+};
+
+RootKind selectedRootKind(mlir::ModuleOp container, llvm::StringRef top) {
+  RootKind result;
+  container.walk([&](mlir::Operation *op) {
+    if (result.found || op->getName().getStringRef() != "ac.module")
+      return;
+    auto name = op->getAttrOfType<mlir::StringAttr>("sym_name");
+    if (!name || name.getValue() != top)
+      return;
+    result.found = true;
+    result.system =
+        static_cast<bool>(op->getAttrOfType<mlir::StringAttr>("ac.root_kind"));
+  });
+  return result;
+}
+
+// Returns a diagnostic when the requested role does not match the artifact, and
+// an empty string when it does.
+std::string roleMismatch(const RootKind &root, llvm::StringRef top,
+                         const std::optional<std::string> &role) {
+  if (!root.found)
+    return {};
+  if (root.system && (!role || *role != "testbench"))
+    return "the selected root '" + top.str() +
+           "' is declared @system, which is the externally driven harness that "
+           "instantiates a design; name it with --role testbench, or link a "
+           "@module root to produce a design artifact";
+  if (!root.system && role && *role == "testbench")
+    return "the selected root '" + top.str() +
+           "' is a @module design; --role testbench is only for a @system root";
+  return {};
+}
 
 bool setOnce(std::optional<std::string> &slot, llvm::StringRef value,
              llvm::StringRef option) {
@@ -44,7 +86,7 @@ bool parseOptions(int argc, char **argv, Options &options) {
     llvm::StringRef arg(argv[i]);
     if (arg != "--body" && arg != "--header" && arg != "--top" &&
         arg != "--design" && arg != "--target" && arg != "--output" &&
-        arg != "--glue-output") {
+        arg != "--glue-output" && arg != "--role") {
       llvm::errs() << "error: unknown option '" << arg << "'\n";
       return false;
     }
@@ -71,6 +113,13 @@ bool parseOptions(int argc, char **argv, Options &options) {
     } else if (arg == "--glue-output" &&
                !setOnce(options.glueOutput, value, arg)) {
       return false;
+    } else if (arg == "--role") {
+      if (value != "design" && value != "testbench") {
+        llvm::errs() << "error: --role must be design or testbench\n";
+        return false;
+      }
+      if (!setOnce(options.role, value, arg))
+        return false;
     }
   }
 
@@ -211,6 +260,20 @@ mlir::LogicalResult runLink(const Options &options, mlir::MLIRContext &context,
                          << "] failed native verification";
   }
 
+  // A @system root is an externally driven harness, not the design. Require the
+  // caller to say which one it is producing so the two cannot be conflated.
+  RootKind linkRoot;
+  for (const mlir::OwningOpRef<mlir::ModuleOp> &body : ownedBodies) {
+    RootKind candidate = selectedRootKind(*body, *options.top);
+    if (candidate.found) {
+      linkRoot = candidate;
+      break;
+    }
+  }
+  if (std::string mismatch = roleMismatch(linkRoot, *options.top, options.role);
+      !mismatch.empty())
+    return emitError() << mismatch;
+
   auto analysis = acir::compiler::buildFinalProgram(units, emitError);
   if (mlir::failed(analysis))
     return mlir::failure();
@@ -253,6 +316,30 @@ mlir::LogicalResult runEmit(const Options &options, mlir::MLIRContext &context,
   auto emitError = [&] {
     return mlir::emitError(mlir::UnknownLoc::get(&context));
   };
+  {
+    // The artifact records which kind of root it selected, so the role is
+    // checked again here rather than trusted from the link invocation. Any
+    // ac.module carrying ac.root_kind is a @system root.
+    RootKind emitRoot;
+    std::string systemName;
+    (*input).walk([&](mlir::Operation *op) {
+      if (emitRoot.system || op->getName().getStringRef() != "ac.module")
+        return;
+      auto kind = op->getAttrOfType<mlir::StringAttr>("ac.root_kind");
+      if (!kind)
+        return;
+      emitRoot.found = true;
+      emitRoot.system = true;
+      if (auto name = op->getAttrOfType<mlir::StringAttr>("sym_name"))
+        systemName = name.getValue().str();
+    });
+    if (emitRoot.system) {
+      if (std::string mismatch =
+              roleMismatch(emitRoot, systemName, options.role);
+          !mismatch.empty())
+        return emitError() << mismatch;
+    }
+  }
   if (mlir::failed(mlir::verify(*input)))
     return emitError() << "final design failed native verification";
   auto program =

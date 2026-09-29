@@ -29,7 +29,7 @@ Two properties are what make this a boundary rather than a naming convention:
 | Lane | Result |
 | --- | --- |
 | `tests/system/test_source_design_bridge.py` | **35 passed** (2 new cases) |
-| Python system selectors | **73 passed, 0 failed, 0 skipped**; 2 V44 cases still deselected and DEFERRED to M6 (`python.xml`). This lane covers the five system files in the reproduction command, so the same run also carries the M4-D1 role-split cases and the N0-U1 masked-next cases. |
+| Python system selectors | **80 passed, 0 failed, 0 skipped**; 2 V44 cases still deselected and DEFERRED to M6 (`python.xml`). This lane covers the five system files in the reproduction command, so the same run also carries the M4-D1 role-split cases and the N0-U1 masked-next cases. |
 | Native suite | unchanged by this packet (test-file-only change); the preceding M4-D1 run remains 355/355 across all 20 `ACIR*Tests` binaries |
 
 New cases:
@@ -86,3 +86,35 @@ they cannot pass vacuously. Measured on the two artifacts of one run:
 The testbench-only log message `dut_started` survives into the testbench
 artifact, and the test asserts that, so `assert "dut_started" not in design_text`
 is proving real separation rather than a string that never survives a link.
+
+
+## Role contract (added after the boundary audit)
+
+The boundary audit's remaining finding was that nothing stopped a
+stimulus-bearing `@system` from being minted as a design artifact by naming
+alone. The private bridge now requires the caller to state which artifact is
+being produced and checks it against the artifact:
+
+- `--role design|testbench`, valid in link and emit mode.
+- A root declared `@system` (`ac.root_kind = "system"`, i.e. the externally
+  driven harness that instantiates a design) must be linked and emitted as
+  `testbench`. Without the flag, or with `--role design`, link and emit both
+  fail closed:
+  `the selected root '<top>' is declared @system, which is the externally
+  driven harness that instantiates a design; name it with --role testbench, or
+  link a @module root to produce a design artifact`.
+- A `@module` root may not be labelled `testbench`:
+  `the selected root '<top>' is a @module design; --role testbench is only for
+  a @system root`.
+- Emit re-derives the root kind from the artifact itself, so the role is not
+  trusted from the link invocation.
+
+This uses the existing `ac.root_kind` attribute, so no new IR, role attribute,
+port, runtime or public CLI surface is introduced. The IR-level design/testbench
+role remains an open proposal that requires approval.
+
+Tests: `test_system_root_must_be_declared_as_a_testbench`,
+`test_module_root_rejects_the_testbench_role`,
+`test_emit_rechecks_the_role_against_the_artifact`, plus
+`test_private_regression_fixtures_do_not_leak_into_shipped_surfaces` for the
+audit's fixture-leak constraint.

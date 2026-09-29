@@ -173,6 +173,7 @@ def _link(
     *,
     top: str = "demo.test_increment.TestIncrement",
     pairs: list[tuple[Path, Path]] | None = None,
+    role: str | None = None,
 ) -> subprocess.CompletedProcess[str]:
     selected = pairs if pairs is not None else [
         (unit.body, unit.header) for unit in units
@@ -181,11 +182,18 @@ def _link(
     for body, header in selected:
         command.extend(("--body", str(body), "--header", str(header)))
     command.extend(("--top", top, "--target", "final", "--output", str(output)))
+    if role:
+        command.extend(("--role", role))
     return subprocess.run(command, text=True, capture_output=True, check=False)
 
 
-def _emit(program: Path, target: str, output: Path) -> subprocess.CompletedProcess[str]:
-    return _design_command(program, ["--target", target, "--output", str(output)])
+def _emit(
+    program: Path, target: str, output: Path, role: str | None = None
+) -> subprocess.CompletedProcess[str]:
+    arguments = ["--target", target, "--output", str(output)]
+    if role:
+        arguments += ["--role", role]
+    return _design_command(program, arguments)
 
 
 def _design_command(
@@ -289,7 +297,7 @@ def _linked_m2_design(tmp_path: Path) -> tuple[list[SourceUnit], Path]:
     _, units = _compile_m2_units(tmp_path)
     # The linked artifact keeps the Python source file name: test_increment.py -> test_increment.ac
     program = tmp_path / "test_increment.ac"
-    completed = _link(units, program)
+    completed = _link(units, program, role="testbench")
     assert completed.returncode == 0, completed.stderr
     assert program.is_file()
     return units, program
@@ -306,7 +314,7 @@ def test_m2_source_design_file_is_one_input_to_both_emitters(
         source.unlink()
     # The linked artifact keeps the Python source file name: test_increment.py -> test_increment.ac
     program = tmp_path / "test_increment.ac"
-    linked = _link(units, program)
+    linked = _link(units, program, role="testbench")
     assert linked.returncode == 0, linked.stderr
     serialized = program.read_text(encoding="utf-8")
     assert 'ac.source_owner = {package = "demo", path = "increment.py"}' in serialized
@@ -316,9 +324,9 @@ def test_m2_source_design_file_is_one_input_to_both_emitters(
     # Each new process reparses the same final file and selects only its backend.
     cpp = tmp_path / "cpp.generated"
     verilog = tmp_path / "verilog.generated"
-    cpp_result = _emit(program, "cpp", cpp)
+    cpp_result = _emit(program, "cpp", cpp, role="testbench")
     assert cpp_result.returncode == 0, cpp_result.stderr
-    verilog_result = _emit(program, "verilog", verilog)
+    verilog_result = _emit(program, "verilog", verilog, role="testbench")
     assert verilog_result.returncode == 0, verilog_result.stderr
     cpp_text = cpp.read_text(encoding="utf-8")
     verilog_text = verilog.read_text(encoding="utf-8")
@@ -343,7 +351,7 @@ def test_link_rejects_duplicate_source_or_unequal_unit_pair_before_output(
     else:
         pairs[1] = (units[1].body, units[0].header)
     output = tmp_path / f"{invalid_pair}.design.ac"
-    completed = _link(units, output, pairs=pairs)
+    completed = _link(units, output, pairs=pairs, role="testbench")
     expected = ("duplicate source link SourceOwner" if invalid_pair == "duplicate"
                 else "body/header SourceOwner mismatch")
     assert completed.returncode != 0, completed.stdout
@@ -372,7 +380,7 @@ def test_emit_rejects_illegal_final_before_creating_output(
     invalid.write_text(text.replace('ac.stage = "final"', 'ac.stage = "source"', 1))
     output = tmp_path / "must-not-exist.cpp"
 
-    completed = _emit(invalid, "cpp", output)
+    completed = _emit(invalid, "cpp", output, role="testbench")
 
     assert completed.returncode != 0, completed.stdout
     assert "final hardware package envelope is not canonical" in completed.stderr
@@ -399,7 +407,8 @@ def test_emit_refuses_any_existing_output_without_mutating_it(
     else:
         output.symlink_to(tmp_path / "absent-target")
 
-    completed = _link(units, output) if mode == "link" else _emit(program, mode, output)
+    completed = (_link(units, output, role="testbench") if mode == "link"
+                 else _emit(program, mode, output, role="testbench"))
 
     assert completed.returncode != 0, completed.stdout
     assert "cannot create output" in completed.stderr
@@ -439,7 +448,7 @@ def test_final_logical_type_cannot_be_replaced_by_source_metadata(tmp_path, targ
     invalid = tmp_path / "wrong-stage-type.ac"
     invalid.write_text(text.replace("ac.logical_type =", "ac.logical_element =", 1))
     output = tmp_path / "must-not-exist"
-    result = _emit(invalid, target, output)
+    result = _emit(invalid, target, output, role="testbench")
     assert result.returncode != 0
     # Assert the real diagnostic: a bare "logical" substring would also match
     # the tmp_path echoed in "cannot parse final design '<path>'".
@@ -455,10 +464,11 @@ def test_emit_splits_hardware_rtl_from_runtime_glue(tmp_path: Path) -> None:
     rtl = tmp_path / "rtl.sv"
     glue = tmp_path / "glue.sv"
 
-    assert _emit(program, "verilog", combined).returncode == 0
+    assert _emit(program, "verilog", combined, role="testbench").returncode == 0
     split = _design_command(
         program,
-        ["--target", "verilog", "--output", str(rtl), "--glue-output", str(glue)],
+        ["--target", "verilog", "--role", "testbench",
+         "--output", str(rtl), "--glue-output", str(glue)],
     )
 
     assert split.returncode == 0, split.stderr
@@ -548,7 +558,8 @@ def test_glue_output_refuses_existing_paths_without_publishing(
 
     result = _design_command(
         program,
-        ["--target", "verilog", "--output", str(rtl), "--glue-output", str(glue)],
+        ["--target", "verilog", "--role", "testbench",
+         "--output", str(rtl), "--glue-output", str(glue)],
     )
 
     assert result.returncode != 0, result.stdout
@@ -643,7 +654,7 @@ def test_design_and_testbench_are_separate_artifacts(tmp_path: Path) -> None:
     design_link = _link([types, blinker], design, top="demo.blinker.Blinker")
     assert design_link.returncode == 0, design_link.stderr
     bench_link = _link([types, blinker, bench], testbench,
-                       top="demo.test_blinker.TestBlinker")
+                       top="demo.test_blinker.TestBlinker", role="testbench")
     assert bench_link.returncode == 0, bench_link.stderr
 
     design_text = design.read_text()
@@ -698,9 +709,97 @@ def test_glue_output_path_alias_still_publishes_nothing(tmp_path: Path) -> None:
 
     result = _design_command(
         program,
-        ["--target", "verilog", "--output", str(rtl), "--glue-output", str(glue)],
+        ["--target", "verilog", "--role", "testbench",
+         "--output", str(rtl), "--glue-output", str(glue)],
     )
 
     assert result.returncode != 0, result.stdout
     assert not rtl.exists()
     assert not glue.exists()
+
+
+def test_system_root_must_be_declared_as_a_testbench(tmp_path: Path) -> None:
+    """A @system is the externally driven harness, not the design. Producing an
+    artifact from one must require the caller to say so, so a stimulus-bearing
+    system can never be minted as a design by naming alone."""
+    _, units = _compile_m2_units(tmp_path)
+
+    undeclared = _link(units, tmp_path / "undeclared.ac")
+    assert undeclared.returncode != 0
+    assert "is declared @system" in undeclared.stderr
+    assert not (tmp_path / "undeclared.ac").exists()
+
+    as_design = _link(units, tmp_path / "as-design.ac", role="design")
+    assert as_design.returncode != 0
+    assert "is declared @system" in as_design.stderr
+    assert not (tmp_path / "as-design.ac").exists()
+
+    as_testbench = _link(units, tmp_path / "as-testbench.ac", role="testbench")
+    assert as_testbench.returncode == 0, as_testbench.stderr
+    assert (tmp_path / "as-testbench.ac").is_file()
+
+
+def test_module_root_rejects_the_testbench_role(tmp_path: Path) -> None:
+    types, blinker, _ = _compile_design_and_testbench(tmp_path)
+
+    mislabelled = _link(
+        [types, blinker], tmp_path / "mislabelled.ac",
+        top="demo.blinker.Blinker", role="testbench",
+    )
+    assert mislabelled.returncode != 0
+    assert "is a @module design" in mislabelled.stderr
+    assert not (tmp_path / "mislabelled.ac").exists()
+
+    design = _link(
+        [types, blinker], tmp_path / "blinker.ac", top="demo.blinker.Blinker"
+    )
+    assert design.returncode == 0, design.stderr
+
+
+def test_emit_rechecks_the_role_against_the_artifact(tmp_path: Path) -> None:
+    """The artifact records its root kind, so the role is checked again at emit
+    rather than trusted from the link invocation."""
+    _, program = _linked_m2_design(tmp_path)
+
+    unattributed = _emit(program, "verilog", tmp_path / "unattributed.sv")
+    assert unattributed.returncode != 0
+    assert "is declared @system" in unattributed.stderr
+    assert not (tmp_path / "unattributed.sv").exists()
+
+    as_design = _emit(
+        program, "verilog", tmp_path / "as-design.sv", role="design"
+    )
+    assert as_design.returncode != 0
+    assert "is declared @system" in as_design.stderr
+    assert not (tmp_path / "as-design.sv").exists()
+
+    as_testbench = _emit(
+        program, "verilog", tmp_path / "as-testbench.sv", role="testbench"
+    )
+    assert as_testbench.returncode == 0, as_testbench.stderr
+
+
+PRIVATE_TOOLS = (
+    "acir-design-harness",
+    "acir-backend-closure-harness",
+    "acir-source-unit-harness",
+)
+
+
+def test_private_regression_fixtures_do_not_leak_into_shipped_surfaces() -> None:
+    """The boundary audit requires the private regression fixtures to stay out of
+    the installed/exported surface and out of the compiler library, so the
+    standard compile entry never has to know a fixture model."""
+    for name in PRIVATE_TOOLS:
+        cmake = (ROOT / "compiler/acir/tools" / name / "CMakeLists.txt").read_text(
+            encoding="utf-8"
+        )
+        assert "install(" not in cmake, f"{name} must not be installed"
+
+    fixtures = ("TestIncrement", "TestPipeline", "ComposedFixture")
+    for path in (ROOT / "compiler/acir/lib").rglob("*"):
+        if path.suffix not in {".cpp", ".h"}:
+            continue
+        text = path.read_text(encoding="utf-8", errors="ignore")
+        for fixture in fixtures:
+            assert fixture not in text, f"{fixture} leaked into {path}"
