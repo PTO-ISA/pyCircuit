@@ -4,6 +4,7 @@
 #include "Dialect/ACIR/ACIRNumericNextUse.h"
 
 #include "mlir/Dialect/Arith/IR/Arith.h"
+#include "mlir/IR/BuiltinOps.h"
 #include "llvm/ADT/DenseMap.h"
 #include "llvm/ADT/DenseSet.h"
 #include "llvm/ADT/STLExtras.h"
@@ -185,9 +186,17 @@ buildSourceProposalGraph(const ModuleGraph &modules, const CheckGraph *checks,
     for (ac::RegOp reg : view->module.getBody().front().getOps<ac::RegOp>()) {
       auto relative = ownedState(builder, reg);
       auto found = view->ownedStates.find(relative);
-      if (found == view->ownedStates.end() ||
-          failed(addState(found->second, reg->getAttrOfType<DictionaryAttr>(
-                                             "ac.logical_element"))))
+      auto unit = view->module->getParentOfType<ModuleOp>();
+      auto stage =
+          unit ? unit->getAttrOfType<StringAttr>("ac.stage") : StringAttr();
+      if (!stage ||
+          (stage.getValue() != "source" && stage.getValue() != "final"))
+        return emitError() << "proposal reg has an unsupported compiler stage";
+      auto logical = reg->getAttrOfType<DictionaryAttr>(
+          stage.getValue() == "final" ? "ac.logical_type"
+                                      : "ac.logical_element");
+      if (found == view->ownedStates.end() || !logical ||
+          failed(addState(found->second, logical)))
         return failure();
     }
     auto ports = view->module->getAttrOfType<ArrayAttr>("ac.ports");

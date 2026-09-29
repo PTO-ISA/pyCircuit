@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuites tests="5" failures="0" disabled="0" errors="0" time="0." timestamp="2026-09-29T22:02:28.640" name="AllTests">
+  <testsuite name="RegRuntimeTest" tests="5" failures="0" disabled="0" skipped="0" errors="0" time="0." timestamp="2026-09-29T22:02:28.640">
+    <testcase name="V10_DffePublishesOnlyEnabledWritesAtXfer" file="/Users/zhoubot/.codex/worktrees/migration-capture/pyCircuit/tests/cpp/agentic-circuit/Runtime/RegRuntimeTest.cpp" line="6" status="run" result="completed" time="0." timestamp="2026-09-29T22:02:28.640" classname="RegRuntimeTest" />
+    <testcase name="V11_ResetIsPendingAndWinsAtXfer" file="/Users/zhoubot/.codex/worktrees/migration-capture/pyCircuit/tests/cpp/agentic-circuit/Runtime/RegRuntimeTest.cpp" line="32" status="run" result="completed" time="0." timestamp="2026-09-29T22:02:28.640" classname="RegRuntimeTest" />
+    <testcase name="DuplicateWriteRejectsWithoutReplacingFirstPair" file="/Users/zhoubot/.codex/worktrees/migration-capture/pyCircuit/tests/cpp/agentic-circuit/Runtime/RegRuntimeTest.cpp" line="49" status="run" result="completed" time="0." timestamp="2026-09-29T22:02:28.640" classname="RegRuntimeTest" />
+    <testcase name="WriteAfterResetIsRejectedAndResetWinsAtXfer" file="/Users/zhoubot/.codex/worktrees/migration-capture/pyCircuit/tests/cpp/agentic-circuit/Runtime/RegRuntimeTest.cpp" line="59" status="run" result="completed" time="0." timestamp="2026-09-29T22:02:28.640" classname="RegRuntimeTest" />
+    <testcase name="DiscardClearsPendingWriteAndPendingReset" file="/Users/zhoubot/.codex/worktrees/migration-capture/pyCircuit/tests/cpp/agentic-circuit/Runtime/RegRuntimeTest.cpp" line="74" status="run" result="completed" time="0." timestamp="2026-09-29T22:02:28.640" classname="RegRuntimeTest" />
+  </testsuite>
+</testsuites>

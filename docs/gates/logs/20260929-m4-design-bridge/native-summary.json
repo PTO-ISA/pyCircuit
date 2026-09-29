@@ -1,0 +1,82 @@
+[
+  {
+    "target": "ACIRCheckContractsTests",
+    "tests": 9,
+    "failures": 0,
+    "disabled": 0,
+    "errors": 0,
+    "skipped": 0
+  },
+  {
+    "target": "ACIRExecutableBackendClosureTests",
+    "tests": 18,
+    "failures": 0,
+    "disabled": 0,
+    "errors": 0,
+    "skipped": 0
+  },
+  {
+    "target": "ACIRFinalProgramTests",
+    "tests": 51,
+    "failures": 0,
+    "disabled": 0,
+    "errors": 0,
+    "skipped": 0
+  },
+  {
+    "target": "ACIRModuleGraphTests",
+    "tests": 5,
+    "failures": 0,
+    "disabled": 0,
+    "errors": 0,
+    "skipped": 0
+  },
+  {
+    "target": "ACIRObservationContractsTests",
+    "tests": 6,
+    "failures": 0,
+    "disabled": 0,
+    "errors": 0,
+    "skipped": 0
+  },
+  {
+    "target": "ACIRProposalContractsTests",
+    "tests": 9,
+    "failures": 0,
+    "disabled": 0,
+    "errors": 0,
+    "skipped": 0
+  },
+  {
+    "target": "ACIRRegContractsTests",
+    "tests": 10,
+    "failures": 0,
+    "disabled": 0,
+    "errors": 0,
+    "skipped": 0
+  },
+  {
+    "target": "ACIRRegRuntimeTests",
+    "tests": 5,
+    "failures": 0,
+    "disabled": 0,
+    "errors": 0,
+    "skipped": 0
+  },
+  {
+    "target": "ACIRSimExecutorTests",
+    "tests": 9,
+    "failures": 0,
+    "disabled": 0,
+    "errors": 0,
+    "skipped": 0
+  },
+  {
+    "target": "ACIRSystemLifecycleTests",
+    "tests": 10,
+    "failures": 0,
+    "disabled": 0,
+    "errors": 0,
+    "skipped": 0
+  }
+]

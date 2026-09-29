@@ -1,0 +1,13 @@
+{
+  "base": "6b514f90",
+  "branch": "codex/gfsim-source-units",
+  "checkout": "/Users/zhoubot/.codex/worktrees/migration-capture/pyCircuit",
+  "uncommitted_overlay": {
+    "compiler/acir/lib/Compiler/ProposalGraph.cpp": "4ec1c9f6b6437507bf27064af90c0e93db535a4699def38fc2aeeb89bb51e624",
+    "compiler/acir/tools/CMakeLists.txt": "b80c7a686bc0fef1dae883ea6a6cdba04f9595067d9d242fa2b7551ca3af9846",
+    "compiler/acir/tools/acir-design-harness/acir-design-harness.cpp": "f06cb9a407716340c4e28ba8f264c5162b7953a08bdd00e497be2a59a0d638d1",
+    "compiler/acir/tools/acir-design-harness/CMakeLists.txt": "8fd862c81256ce4e99627bdf76ca5b309af363826ab4203bc381541bb315868d",
+    "tests/system/test_source_design_bridge.py": "74e8672cbb39e9344241eb25bdc7b8b9434ae674aea4007381d6fa245b59327c",
+    "docs/work-items/m4-design-file-bridge.md": "b12dd9d9605fe4e267fe796c7a3d896e966b15d3f5584d6d5136331093b500d2"
+  }
+}
