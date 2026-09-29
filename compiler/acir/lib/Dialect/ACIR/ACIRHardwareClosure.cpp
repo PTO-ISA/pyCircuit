@@ -9,7 +9,9 @@ using namespace mlir;
 namespace acir::ac::hardware_detail {
 
 FailureOr<DictionaryAttr> specKey(Attribute raw, Operation *owner) {
-  auto value = dyn_cast<DictionaryAttr>(raw);
+  // `dyn_cast` requires a non-null attribute; a package without `ac.entry`
+  // reaches here with none, which must be a diagnostic and not a crash.
+  auto value = dyn_cast_or_null<DictionaryAttr>(raw);
   if (!value || failed(detail::verifySpecKey(
                     value, [&] { return owner->emitOpError(); })))
     return owner->emitOpError() << "final hardware SpecKey is malformed";

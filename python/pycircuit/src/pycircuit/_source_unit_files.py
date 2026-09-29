@@ -19,6 +19,7 @@ from ._publication import (
 )
 from ._publication_fs import _PublicationFileSystemError
 from ._source_capture import _read_stable_file_bytes
+from . import _native_verify
 
 
 @dataclass(frozen=True, slots=True)
@@ -158,6 +159,18 @@ def _read_full_source_unit(
         raise _PublicationError("source-unit directory file set is not closed")
     for name in expected_names:
         _require_regular(path / name, filesystem)
+    # The old artifact's own consistency is what is validated here: its body and
+    # header must parse, verify, and carry the owner its receipt declares. A unit
+    # built against older dependencies is stale, not corrupt, so nothing here
+    # re-binds it to the caller's current dependency set.
+    body_owner, header_owner = _native_verify.verify_source_unit_owners(
+        path / receipt.body, path / receipt.interface
+    )
+    declared = {"package": receipt.package, "path": receipt.path}
+    if body_owner != declared or header_owner != declared:
+        raise _PublicationError(
+            "source-unit internal owner does not match its receipt"
+        )
     return _FullSourceUnit(
         receipt=receipt,
         body=_read_text(path / receipt.body, purpose="body"),
@@ -294,12 +307,8 @@ def _validate_source_unit_header(path: Path, owner: Mapping[str, object]) -> Non
     _read_header_view(path, owner, _PublicationFileSystem())
 
 
-def _discover_source_unit_owner(destination: str | Path) -> dict[str, object]:
-    """Read a managed unit's declared owner without granting it authority.
-
-    The result is only a candidate: the caller must present it as the expected
-    owner to a lock set that re-validates it under the lock before use.
-    """
+def _receipt_owner(destination: str | Path) -> dict[str, object]:
+    """Read a unit's declared owner from its receipt, granting it no authority."""
 
     value = _read_strict_json(Path(destination) / "unit.json", purpose="receipt")
     if type(value) is not dict or set(value) != {"kind", "source", "files"}:
@@ -314,6 +323,41 @@ def _discover_source_unit_owner(destination: str | Path) -> dict[str, object]:
     if type(package) is not str or type(path) is not str:
         raise _PublicationError("source-unit receipt source is not textual")
     return {"kind": "source-unit", "source": {"package": package, "path": path}}
+
+
+def _discover_source_unit_owner(destination: str | Path) -> dict[str, object]:
+    """Read a managed unit's owner from its receipt or its recovery journal.
+
+    The result is only a candidate: the caller must present it as the expected
+    owner to a lock set that re-validates it under the lock before use.
+
+    A unit whose last publication did not finish has no receipt at the
+    destination yet, because the old target was moved aside. That is a
+    legitimate state, not a missing input, so the validated journal supplies the
+    owner and the lock set then recovers the unit and re-validates the recovered
+    artifact against this same owner. Corrupt control state or a corrupt journal
+    is refused rather than treated as an unmanaged directory.
+    """
+
+    path = Path(destination)
+    filesystem = _PublicationFileSystem()
+    if path.parent.is_dir():
+        try:
+            paths = _paths_for(path, filesystem)
+        except (_PublicationError, _PublicationFileSystemError):
+            paths = None
+        if paths is not None and filesystem.kind(paths.control) == "directory":
+            filesystem.assert_no_symlink_chain(paths.control)
+            _require_regular(paths.lock, filesystem)
+            with filesystem.lock(paths.lock, shared=True):
+                journal = _strict_control_metadata(paths)
+                _validate_control(paths, filesystem, cleanup_temporary=False)
+                if journal is not None and journal["phase"] != "committed":
+                    owner = journal["owner"]
+                    return {"kind": "source-unit", "source": dict(owner["source"])}
+                _validate_destination(paths.destination, filesystem)
+                return _receipt_owner(paths.destination)
+    return _receipt_owner(path)
 
 
 __all__ = [

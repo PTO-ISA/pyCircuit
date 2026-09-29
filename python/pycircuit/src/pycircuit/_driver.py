@@ -10,14 +10,12 @@ from __future__ import annotations
 
 import functools
 import json
-import os
 import shutil
 import subprocess
 import tempfile
 from collections.abc import Mapping, Sequence
 from pathlib import Path
 
-from . import packaged_toolchain
 from ._publication import (
     _PublicationError,
     _PublicationFileSystem,
@@ -36,13 +34,12 @@ from ._source_unit_files import (
     _read_full_source_unit,
     _validate_full_source_unit,
 )
+from ._publication_fs import _PublicationFileSystemError
+from . import _native_verify
 
 # Each entry names the bundled executable and the environment override a
 # development tree uses when the toolchain bundle is not installed.
-_HELPERS: dict[str, tuple[str, str]] = {
-    "source-unit": ("acir-source-unit-harness", "ACIR_SOURCE_UNIT_HARNESS"),
-    "design": ("acir-design-harness", "ACIR_DESIGN_HARNESS"),
-}
+_HELPERS: dict[str, tuple[str, str]] = _native_verify._HELPERS
 
 
 class _DriverError(RuntimeError):
@@ -52,37 +49,39 @@ class _DriverError(RuntimeError):
 def _native_helper(kind: str) -> Path:
     """Resolve one private native helper, or fail with the exact override."""
 
-    name, variable = _HELPERS[kind]
-    override = os.environ.get(variable)
-    if override:
-        path = Path(override)
-        if not path.is_file():
-            raise _DriverError(f"{variable} does not name a file: {path}")
-        return path
-    bundled = packaged_toolchain.tool_executable(name)
-    if bundled is not None:
-        return bundled
-    raise _DriverError(
-        f"cannot locate `{name}`: the bundled toolchain is not installed in "
-        f"this tree and {variable} is not set"
-    )
+    return _native_verify.native_helper(kind)
 
 
 def _require_published_unit(directory: str | Path, *, role: str) -> Path:
-    """Name the real cause before the private receipt reader is called.
+    """Accept a unit directory, including one whose transaction is unfinished.
 
-    That reader reports any read failure, including a missing file, as an
-    unstable encoding, which is misleading on the public command surface.
+    A unit whose last publication did not finish has no receipt at its
+    destination yet, because the old target was moved aside. That is a
+    legitimate managed state: discovery reads the validated journal owner and the
+    lock set recovers the unit, so the preflight must not report it missing.
     """
 
     path = Path(directory)
+    if path.is_dir() and (path / "unit.json").is_file():
+        return path
+    if _managed_transaction_exists(path):
+        return path
     if not path.is_dir():
         raise _DriverError(f"{role} is not a directory: {path}")
-    if not (path / "unit.json").is_file():
-        raise _DriverError(
-            f"{role} is not a published source unit (no unit.json): {path}"
-        )
-    return path
+    raise _DriverError(
+        f"{role} is not a published source unit (no unit.json): {path}"
+    )
+
+
+def _managed_transaction_exists(path: Path) -> bool:
+    filesystem = _PublicationFileSystem()
+    if not path.parent.is_dir():
+        return False
+    try:
+        paths = _paths_for(path, filesystem)
+    except (_PublicationError, _PublicationFileSystemError):
+        return False
+    return filesystem.kind(paths.control) == "directory"
 
 
 def compile_command(
@@ -155,20 +154,22 @@ def _program_owner_from_report(report: object) -> dict[str, object]:
 
 
 def _validate_published_program(path: Path, owner: Mapping[str, object]) -> None:
-    """Intrinsic file-level validation of a published program artifact.
+    """Publication callback validating one linked program artifact.
 
-    The publication protocol validates an existing artifact with this same
-    validator before ``--replace`` installs over it, so the check cannot depend
-    on the new linker output. Python does not adjudicate the linked semantics
-    here: the linker produced and verified this artifact under the same lock
-    set. That the existing artifact is one this driver published is enforced
-    separately, because ``program.ac`` carries no owner record.
+    The protocol calls this for the existing artifact before ``--replace``, for
+    the new staging file, for the installed target and during recovery, each time
+    with the owner that step is about: the request's owner when replacing, the
+    journal's own owner when recovering. The artifact is judged by the shared
+    native verifier, and its verified root owner must equal that owner exactly.
     """
 
     if not path.is_file() or path.is_symlink():
-        raise _DriverError("published program is not a regular file")
+        raise _PublicationError("published program is not a regular file")
     if not path.read_text(encoding="utf-8").strip():
-        raise _DriverError("published program is empty")
+        raise _PublicationError("published program is empty")
+    actual = _native_verify.verify_program_owner(path)
+    if actual != dict(owner):
+        raise _PublicationError("published program owner does not match")
 
 
 def link_command(
@@ -178,11 +179,16 @@ def link_command(
     output: str | Path,
     parameters: str | Path | None = None,
     replace: bool = False,
+    filesystem: _PublicationFileSystem | None = None,
 ) -> _PublicationResult:
-    """``pycircuit link``: one closed unit set into one published program."""
+    """``pycircuit link``: one closed unit set into one published program.
+
+    ``filesystem`` exists so a test can drive the real publication fault hooks,
+    exactly as the private per-source entry already allows.
+    """
 
     _reject_parameter_bindings(parameters)
-    fs = _PublicationFileSystem()
+    fs = filesystem or _PublicationFileSystem()
     destination = Path(output)
     harness = _native_helper("design")
 

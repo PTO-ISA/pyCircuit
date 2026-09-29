@@ -30,7 +30,7 @@ from pathlib import Path
 
 import pytest
 
-from pycircuit import _driver
+from pycircuit import _driver, _native_verify
 from pycircuit.cli import main
 
 DECLARATION = """\
@@ -139,11 +139,15 @@ log({
 """
 
 _DESIGN_HEADER = """\
+import hashlib
 import json
+import os
+import re
 import sys
 
 arguments = sys.argv[1:]
 RECORD_PATH = @RECORD@
+PRODUCED_PATH = @PRODUCED@
 
 
 def value(flag):
@@ -168,6 +172,9 @@ def write_program(text):
 
 def write_report(payload):
     open(value("--entry-owner-out"), "w", encoding="utf-8").write(payload)
+    output = value("--output")
+    if output is not None and os.path.isfile(output):
+        remember(read(output), payload)
 
 
 def write_record():
@@ -183,11 +190,93 @@ def write_record():
             {"path": item, "text": read(item)} for item in values("--header")
         ],
     }))
+
+
+# ---------------------------------------------------------------------------
+# Read-only verification shapes.
+#
+# The driver verifies an artifact it is about to replace by asking this harness:
+#
+#   --body B --header H --verify-only --unit-owner-out R
+#   --design P --verify-only --entry-owner-out R
+#
+# Verification here is honest for synthetic artifacts. A unit reports the owner
+# its own body/header declares, or the owner its receipt declares when the
+# synthetic text carries no attribute, and a unit that declares neither is
+# refused exactly like a native verification failure. A program reports the
+# owner recorded when this harness produced those exact bytes, so a program
+# this harness did not author is refused. Verifying real artifacts against the
+# shared native verifier is covered end to end by
+# tests/system/test_artifact_verify_recovery.py.
+# ---------------------------------------------------------------------------
+
+OWNER_ATTRIBUTE = re.compile(
+    r'ac\\.source_owner = \\{package = "([^"]*)", path = "([^"]*)"\\}'
+)
+
+
+def declared_unit_owner(path):
+    match = OWNER_ATTRIBUTE.search(read(path))
+    if match is not None:
+        return {"package": match.group(1), "path": match.group(2)}
+    receipt = os.path.join(os.path.dirname(os.path.abspath(path)), "unit.json")
+    if not os.path.isfile(receipt):
+        return None
+    value = json.load(open(receipt, encoding="utf-8"))
+    source = value.get("source") if isinstance(value, dict) else None
+    if not isinstance(source, dict) or set(source) != {"package", "path"}:
+        return None
+    return {"package": source["package"], "path": source["path"]}
+
+
+def produced():
+    if not os.path.isfile(PRODUCED_PATH):
+        return []
+    return json.load(open(PRODUCED_PATH, encoding="utf-8"))
+
+
+def remember(text, report):
+    entries = produced()
+    entries.append({
+        "sha256": hashlib.sha256(text.encode("utf-8")).hexdigest(),
+        "report": report,
+    })
+    json.dump(entries, open(PRODUCED_PATH, "w", encoding="utf-8"))
+
+
+def verify_only():
+    body = value("--body")
+    header = value("--header")
+    if body is not None and header is not None:
+        owners = [declared_unit_owner(body), declared_unit_owner(header)]
+        if owners[0] is None or owners[1] is None:
+            sys.stderr.write("error: source unit failed verification\\n")
+            sys.exit(1)
+        open(value("--unit-owner-out"), "w", encoding="utf-8").write(
+            json.dumps({"body": owners[0], "header": owners[1]}))
+        sys.exit(0)
+    digest = hashlib.sha256(open(value("--design"), "rb").read()).hexdigest()
+    for entry in produced():
+        if entry["sha256"] == digest:
+            open(value("--entry-owner-out"), "w", encoding="utf-8").write(
+                entry["report"])
+            sys.exit(0)
+    sys.stderr.write("error: program failed verification\\n")
+    sys.exit(1)
+
+
+if "--verify-only" in arguments:
+    verify_only()
 """
 
 _OWNER_REPORT = (
     '{"source": {"package": "demo", "path": "counter.py"}, '
     '"definition": "@\\"demo.counter.Counter\\""}'
+)
+
+_OTHER_OWNER_REPORT = (
+    '{"source": {"package": "demo", "path": "other.py"}, '
+    '"definition": "@\\"demo.other.Other\\""}'
 )
 
 
@@ -218,7 +307,9 @@ def _fake_design(
     *,
     name: str = "fake-design-harness",
 ) -> Path:
-    header = _DESIGN_HEADER.replace("@RECORD@", repr(str(record)))
+    header = _DESIGN_HEADER.replace("@RECORD@", repr(str(record))).replace(
+        "@PRODUCED@", repr(str(tmp_path / f"{name}-produced.json"))
+    )
     return _executable(tmp_path / name, header + "\n" + behaviour)
 
 
@@ -325,6 +416,21 @@ def _publish(
     if replace:
         argv.append("--replace")
     return _cli(*argv)
+
+
+@pytest.fixture(autouse=True)
+def _verification_harness(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Every publication now verifies the artifact it installs.
+
+    ``compile`` verifies the unit it publishes and ``link`` verifies the program,
+    both through the private design harness, so each test needs one answering
+    the read-only verification shapes. Tests that need a specific linked program
+    or owner report install their own harness over this one.
+    """
+
+    record = tmp_path / "autouse-record.json"
+    harness = _fake_design(tmp_path, record, _design_ok("// autouse\n", _OWNER_REPORT))
+    monkeypatch.setenv("ACIR_DESIGN_HARNESS", str(harness))
 
 
 # --------------------------------------------------------------------------
@@ -636,8 +742,12 @@ def test_compile_names_the_env_override_when_the_helper_cannot_be_resolved(
     assert str(tmp_path / "absent-helper") in diagnostic, diagnostic
 
     # With no override and no bundled toolchain the same name is still the fix.
+    # Helper resolution lives in the shared private verification module the
+    # driver delegates to, so that is where the bundle lookup is stubbed out.
     monkeypatch.delenv("ACIR_SOURCE_UNIT_HARNESS")
-    monkeypatch.setattr(_driver.packaged_toolchain, "tool_executable", lambda name: None)
+    monkeypatch.setattr(
+        _native_verify.packaged_toolchain, "tool_executable", lambda name: None
+    )
     diagnostic = _reject(_publish(root, units, "types.py"), "compile")
     assert "ACIR_SOURCE_UNIT_HARNESS" in diagnostic, diagnostic
     assert "acir-source-unit-harness" in diagnostic, diagnostic
@@ -778,7 +888,14 @@ def test_link_publishes_one_program_file_and_the_control_directory(
 def test_link_publishes_the_helper_bytes_verbatim(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """The driver re-verifies at file level only: it never parses MLIR."""
+    """The driver adjudicates no IR itself: it copies the helper's bytes.
+
+    The harness installed here is the one that produced these bytes, so it
+    verifies them as its own artifact; the driver only validates the harness's
+    closed owner report and never reads the program as MLIR. That the driver
+    refuses a program the shared native verifier rejects is covered end to end
+    by ``tests/system/test_artifact_verify_recovery.py``.
+    """
 
     _, units = _two_units(tmp_path, monkeypatch)
     not_mlir = "this is not MLIR at all\n{{{\n"
@@ -797,6 +914,50 @@ def test_link_publishes_the_helper_bytes_verbatim(
 
     assert cli.code == 0, cli.stderr
     assert destination.read_text(encoding="utf-8") == not_mlir
+
+
+def test_link_replace_refuses_a_program_verified_for_another_root(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The stand-in verifies content, so a foreign-owner program is refused.
+
+    The harness reports the owner it recorded for those exact bytes. Replacing
+    the published program with one that belongs to another root therefore fails
+    the owner check and leaves the old bytes alone, exactly as the real helper
+    does in ``tests/system/test_artifact_verify_recovery.py``.
+    """
+
+    _, units = _two_units(tmp_path, monkeypatch)
+    destination = tmp_path / "program.ac"
+    first = _cli(
+        "link", str(units / "types"), str(units / "counter"),
+        "--top", "demo.counter.Counter", "-o", str(destination),
+    )
+    assert first.code == 0, first.stderr
+    before = destination.read_bytes()
+
+    # The same harness name reuses the same recorded-bytes ledger, so the first
+    # program's owner is still known while this harness authors a new program
+    # for a different root.
+    monkeypatch.setenv(
+        "ACIR_DESIGN_HARNESS",
+        str(
+            _fake_design(
+                tmp_path,
+                tmp_path / "other-record.json",
+                _design_ok("// other program\n", _OTHER_OWNER_REPORT),
+                name="fake-design-harness",
+            )
+        ),
+    )
+    replaced = _cli(
+        "link", str(units / "types"), str(units / "counter"),
+        "--top", "demo.counter.Counter", "-o", str(destination), "--replace",
+    )
+
+    diagnostic = _reject(replaced, "link")
+    assert "owner does not match" in diagnostic, diagnostic
+    assert destination.read_bytes() == before
 
 
 def test_link_hands_the_helper_in_lock_snapshot_copies(

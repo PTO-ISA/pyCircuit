@@ -64,6 +64,17 @@ WRITES_NOTHING = """\
 sys.exit(0)
 """
 
+# The body and interface declare an owner the receipt does not: publication must
+# refuse it, which also proves the fake design harness reports what the artifact
+# under test declares rather than confirming everything it is shown.
+WRITES_FOREIGN_OWNER = """\
+owner = 'ac.source_owner = {package = "elsewhere", path = "%s"}' % value("--path")
+open(value("--body-out"), "w", encoding="utf-8").write("// body " + owner + "\\n")
+open(value("--interface-out"), "w", encoding="utf-8").write(
+    "// interface " + owner + "\\n")
+open(value("--deps-out"), "w", encoding="utf-8").write("[]")
+"""
+
 DECLARATION = """\
 from typing import Annotated
 
@@ -94,6 +105,63 @@ def _fake_compiler(tmp_path: Path, behaviour: str, name: str = "fake-native") ->
     )
     compiler.chmod(compiler.stat().st_mode | stat.S_IEXEC)
     return compiler
+
+
+# The private design harness gained two read-only verification shapes; the unit
+# shape is the one this file reaches, because publishing a source unit verifies
+# the body and header it is about to install. This stand-in answers that shape
+# with the owner each synthetic artifact declares, in the same closed report the
+# real helper writes, and it refuses an artifact that declares no owner exactly
+# like a native verification failure. Native verification of real artifacts is
+# covered end to end by tests/system/test_artifact_verify_recovery.py.
+_FAKE_DESIGN = r'''\
+import json
+import re
+import sys
+
+arguments = sys.argv[1:]
+
+
+def value(flag):
+    return arguments[arguments.index(flag) + 1] if flag in arguments else None
+
+
+OWNER = re.compile(
+    r'ac\.source_owner = \{package = "([^"]*)", path = "([^"]*)"\}'
+)
+
+
+def declared(path):
+    """The owner the synthetic artifact at ``path`` declares, or None."""
+
+    match = OWNER.search(open(path, encoding="utf-8").read())
+    if match is None:
+        return None
+    return {"package": match.group(1), "path": match.group(2)}
+
+
+body = declared(value("--body"))
+header = declared(value("--header"))
+if "--verify-only" not in arguments or body is None or header is None:
+    sys.stderr.write("error: source unit failed verification\n")
+    sys.exit(1)
+open(value("--unit-owner-out"), "w", encoding="utf-8").write(
+    json.dumps({"body": body, "header": header}))
+'''
+
+
+def _fake_design_harness(tmp_path: Path) -> Path:
+    harness = tmp_path / "fake-design-harness"
+    harness.write_text(f"#!{sys.executable}\n" + _FAKE_DESIGN, encoding="utf-8")
+    harness.chmod(harness.stat().st_mode | stat.S_IEXEC)
+    return harness
+
+
+@pytest.fixture(autouse=True)
+def _design_harness(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Every publication in this file verifies its unit through the helper."""
+
+    monkeypatch.setenv("ACIR_DESIGN_HARNESS", str(_fake_design_harness(tmp_path)))
 
 
 def _workspace(tmp_path: Path) -> tuple[Path, Path]:
@@ -246,6 +314,28 @@ def test_duplicate_interface_units_are_rejected(tmp_path: Path) -> None:
             native_compiler=compiler, output=units / "counter",
             interface_units=[units / "types-a", units / "types-b"],
         )
+
+
+def test_publication_refuses_a_unit_whose_internal_owner_disagrees(
+    tmp_path: Path,
+) -> None:
+    """Publishing verifies the unit, and the verifier is asked what it declares.
+
+    The fake compiler writes a body and interface that declare ``elsewhere``
+    while the driver's receipt says ``demo``: the stand-in harness reports the
+    declared owner, so the disagreement is refused and nothing is installed.
+    """
+
+    root, units = _workspace(tmp_path)
+
+    with pytest.raises(_PublicationError, match="internal owner does not match"):
+        _compile_source_unit(
+            root / "types.py", source_root=root, package="demo",
+            native_compiler=_fake_compiler(tmp_path, WRITES_FOREIGN_OWNER),
+            output=units / "types",
+        )
+
+    assert not (units / "types").exists()
 
 
 def test_unmanaged_interface_unit_is_rejected(tmp_path: Path) -> None:

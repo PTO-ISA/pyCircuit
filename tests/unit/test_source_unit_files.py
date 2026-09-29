@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import re
 from collections.abc import Mapping
 from pathlib import Path
 
@@ -25,6 +26,44 @@ from pycircuit._source_unit_files import (
 pytestmark = pytest.mark.unit
 
 OWNER = _publication_owner_source_unit(package="demo.units", path="blocks/leaf.py")
+
+_OWNER_ATTRIBUTE = re.compile(
+    r'ac\.source_owner = \{package = "([^"]*)", path = "([^"]*)"\}'
+)
+
+
+def _declared_owner(path: Path) -> dict[str, str]:
+    """The source owner ``path`` declares: its own attribute, else its receipt."""
+
+    match = _OWNER_ATTRIBUTE.search(path.read_text(encoding="utf-8"))
+    if match is not None:
+        return {"package": match.group(1), "path": match.group(2)}
+    receipt = json.loads((path.parent / "unit.json").read_text(encoding="utf-8"))
+    return dict(receipt["source"])
+
+
+@pytest.fixture(autouse=True)
+def _native_owner_seam(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Keep this lane on the receipt/file-set/control-state layer.
+
+    The fixtures in this file are synthetic text, not IR, so the native
+    verification seam is stubbed with the owner each artifact under test
+    declares (its own ``ac.source_owner`` attribute, else the receipt beside
+    it). Native verification of real artifacts - parsing, corruption, owner
+    disagreement - is covered end to end by
+    ``tests/system/test_artifact_verify_recovery.py``. Nothing about the
+    receipt, file-set, symlink or control-state checks asserted here is
+    relaxed: the stub reports what the artifact declares, so a fixture whose
+    declaration changed would still be refused.
+    """
+
+    def owners(body: Path, header: Path) -> tuple[dict[str, str], dict[str, str]]:
+        return _declared_owner(body), _declared_owner(header)
+
+    monkeypatch.setattr(
+        "pycircuit._source_unit_files._native_verify.verify_source_unit_owners",
+        owners,
+    )
 
 
 class _Crash(BaseException):
