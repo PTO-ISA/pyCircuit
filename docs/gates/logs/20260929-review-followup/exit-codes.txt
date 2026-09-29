@@ -1,0 +1,6 @@
+cmake --build ... rc=0 (build.log)
+focused pytest rc=0
+system pytest rc=0
+ACIRFinalProgramTests rc=0
+ACIRProposalContractsTests rc=0
+git diff --check rc=0
