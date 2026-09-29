@@ -724,7 +724,7 @@ def test_link_replace_refuses_a_path_this_driver_did_not_publish(
     )
 
     diagnostic = _diagnostic(result, "link")
-    assert "refusing to replace a path with no publication control directory" in (
+    assert "refusing to replace a path without a publication control directory naming it" in (
         diagnostic
     )
     assert str(foreign) in diagnostic
@@ -747,7 +747,7 @@ def test_link_replace_refuses_a_path_this_driver_did_not_publish(
         replace=True,
     )
     diagnostic = _diagnostic(result, "link")
-    assert "refusing to replace a path with no publication control directory" in (
+    assert "refusing to replace a path without a publication control directory naming it" in (
         diagnostic
     )
     assert str(dangling) in diagnostic

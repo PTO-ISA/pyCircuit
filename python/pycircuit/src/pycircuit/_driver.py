@@ -221,15 +221,15 @@ def link_command(
         # check is that a publication control directory names this destination.
         # That is a typo and accident guard, not proof of a prior publication:
         # the control directory is also bootstrapped by any earlier command that
-        # failed here. Requiring it before the lock set runs avoids creating one
-        # on this path, and is_symlink() catches a dangling link, whose target
-        # exists() cannot see.
+        # reached the lock set at this path and then failed. Requiring it before
+        # the lock set runs avoids creating one here, and is_symlink() catches a
+        # dangling link, whose target exists() cannot see.
         try:
             _require_initialized_control(_paths_for(destination, fs), fs)
         except _PublicationError as error:
             raise _DriverError(
-                "refusing to replace a path with no publication control "
-                f"directory: {destination}"
+                "refusing to replace a path without a publication control "
+                f"directory naming it: {destination}"
             ) from error
 
     scratch = Path(tempfile.mkdtemp(prefix="pycircuit-link-")).resolve()
