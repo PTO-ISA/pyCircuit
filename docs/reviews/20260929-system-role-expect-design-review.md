@@ -1,6 +1,6 @@
 # 一等 system、artifact role 与 expect schema 设计审阅
 
-日期：2026-09-29，同日更新为两份修订 B 的审阅结论。用户已选择方案 2：
+日期：2026-09-29，同日登记两份修订 B 的审阅状态。用户已选择方案 2：
 `ac.system` 成为拥有 symbol 与结构 body 的一等系统定义，不再是只引用 root 的
 零 region descriptor。用户同时要求审阅 IR 级 design/testbench role 与 expect
 字段；方向选择不等于下表字段已经批准。
