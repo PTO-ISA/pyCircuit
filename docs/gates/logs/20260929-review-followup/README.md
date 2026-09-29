@@ -19,10 +19,10 @@ manifest schema, and it does not change compiler semantics.
 ## R1 — approval-status sync
 
 `docs/reviews/20260929-system-role-expect-design-review.md` (planning) now records
-both **revision B** proposals with their exact hashes, their independent design
-independent-review provenance (**no reviewer artifact is archived**, so the
-record does not label them approval-ready) and, separately, their
-user-approval status (**not approved**). The stale "C2-SYSTEM revision A, review pending" text is
+both **revision B** proposals with their exact hashes, their independent-review
+provenance (**no reviewer artifact is archived**, so the record does not label
+them approval-ready) and, separately, their user-approval status (**not
+approved**). The stale "C2-SYSTEM revision A, review pending" text is
 gone. The record states that `docs/rfcs/migration/approvals/` contains only c1,
 c2-c3-foundation, c2-n1 and c2-r1-m1, and that no approval may be inferred or
 back-filled. It also records the known conflict between the pending proposal §5
@@ -135,5 +135,22 @@ reclassification.
 | 3 | The record attributed the revision-B hashes to a "handoff record" that contains no such hashes | low | the wording now attributes them to the user's task statement and explicitly says that consistency is not a repository artifact and is not review evidence |
 | 4 | This packet's overlay table was stale after the overlay was committed | low | the table now names the carrying commit `7e660760` and the follow-up `53855ccb` |
 
-Re-verification of the fixes was requested from the same independent reviewer
-instance. This packet is not accepted until that verdict is recorded here.
+### Re-verification verdict
+
+The same independent reviewer instance re-verified the fixes on implementation
+`3084b9d5` / planning `c9dfdc5b` and returned **PASS**: all four defects closed,
+no false claims remaining, and all five R items CLOSED. It independently confirmed
+that the fix round changed documentation only (`git diff --name-status` shows
+three docs on the implementation side and two on the planning side), that the
+three code/test review targets stayed byte-identical (`84dc5d5f…`, `0b28181f…`,
+`3e39b7dd…`), that the re-pinned overlay verifies 4/4, that no deliverable still
+labels either revision-B proposal approval-ready, and that it re-ran the focused
+lane green (54 passed).
+
+Two LOW cosmetic residuals it reported are also fixed: the review record's header
+now reads "同日登记两份修订 B 的审阅状态" instead of implying archived
+conclusions, and this document's R1 paragraph no longer duplicates a word.
+
+**This packet is accepted for the items it claims, on candidate `3084b9d5`
+(implementation) / `c9dfdc5b` (planning).** Acceptance covers R1–R5 only; it does
+not mark M4, M5 or M7 done.
