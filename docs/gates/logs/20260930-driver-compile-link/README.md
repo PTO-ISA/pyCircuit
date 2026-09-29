@@ -8,8 +8,11 @@ second semantic chain, no MLIR parsing in Python, no new public interface.
 
 ## Approval
 
-[Approval record](../../rfcs/migration/approvals/c3-compile-link-driver.md). The
-approved interface is C3-C (`c3-driver-runtime.md`, SHA-256
+Approval record: `docs/rfcs/migration/approvals/c3-compile-link-driver.md` on the
+planning branch `codex/gfsim-migration-governance` (commit `ef5248eb`). It is not
+present on this branch, which carries only the implementation, so it is cited by
+path rather than by a link that would not resolve here. The approved interface is
+C3-C (`c3-driver-runtime.md`, SHA-256
 `0c476ced27519cf93427a89f77b9348d388e96db57fb183790144d24118b1170`), verified
 unchanged before this packet started. The user approved, in this round:
 
@@ -96,6 +99,20 @@ non-empty array is rejected with an explicit diagnostic because the linker has n
 static-parameter entry point yet; omitted and explicitly empty are equivalent to
 "no bindings", matching C3-C §53.
 
+**`--replace` touches only what this driver published.** When the destination
+exists and `--replace` is set, `link` requires the publication control directory
+to already exist before the lock set can bootstrap one, and refuses otherwise:
+
+```text
+pycircuit link: refusing to replace a path this driver did not publish: <path>
+```
+
+This closes the C3-C §143 consequence that a pre-existing user file at the output
+path would otherwise be overwritten: the file is left byte-identical and no
+control directory is created. What remains open is narrower and is declared
+below — the previous *owner* cannot be compared, because a committed program
+publication persists no owner.
+
 ## Declared gaps
 
 These are recorded rather than hidden; none of them is faked or worked around:
@@ -107,10 +124,10 @@ These are recorded rather than hidden; none of them is faked or worked around:
   accepts only the empty array.
 - **`--replace` cannot compare the previous program owner.** `program.ac` carries
   no Python-readable owner record and there is no standalone native verify-only
-  entry, so replacement is guarded by existence and file-level validation only.
-  Measured: linking a different root onto an existing program path with
-  `--replace` is currently accepted. This is the sharpest remaining deviation
-  from C3-C §181 and needs a native verify/owner-read entry to close.
+  entry, so relinking a genuinely different root onto a path this driver already
+  published is still accepted; only the "did this driver publish it at all" part
+  of C3-C §143/§181 is enforced (see below). Closing the owner comparison needs a
+  native verify/owner-read entry.
 - **`emit`'s per-implementation-source `.hpp/.cpp` groups and `generated.json`
   are not produced.** The current C++ backend returns one monolithic artifact;
   splitting it in Python to fake per-source groups is explicitly rejected.
@@ -131,7 +148,7 @@ pytest summary line.
 | unit (previous packet) | `unit.xml` | 174 | 0 | 0 | 3 | 0 |
 | system focused (previous packet) | `system-focused.xml` | 105 | 0 | 0 | 0 | 0 |
 | LLVM transport | `transport-mlir.xml` | 4 | 0 | 0 | 0 | 0 |
-| driver (this packet) | `driver.xml` | 65 | 0 | 0 | 0 | 0 |
+| driver (this packet) | `driver.xml` | 66 | 0 | 0 | 0 | 0 |
 | CLI regression | `cli-regression.xml` | 60 | 0 | 0 | 0 | 0 |
 | masked-next (remaining helper consumer) | `masked-next.xml` | 15 | 0 | 0 | 0 | 0 |
 
@@ -169,14 +186,13 @@ remains a private-layer message: a symlinked *unit* path reports `unmanaged
 publication input is not accepted` rather than naming the symlink.
 
 The driver lane is 43 unit tests (`tests/unit/test_driver_commands.py`, fake
-helpers, CLI driven in-process) plus 22 system tests
+helpers, CLI driven in-process) plus 23 system tests
 (`tests/system/test_driver_compile_link.py`, real helpers, CLI as a subprocess so
 exit status, the single-line stderr and the absence of a traceback are
-process-level facts). The independent test author reports 8/8 mutation checks
-detected on throwaway copies of the package — provider-path owner, removed
-duplicate-source check, accepted non-empty parameters, the published path instead
-of the in-lock snapshot, disabled body-closure check, altered program bytes,
-forced `--replace`, and a control directory named from the stem.
+process-level facts). The last system test covers the `--replace` guard that
+closes D1 below. The independent test author reports 8/8 mutation checks detected
+on throwaway copies of the package for the first revision and 3/3 for the fix —
+guard removal, making `-c` optional, and renaming `-o` back to a long spelling.
 
 ### Findings the test author reported
 
@@ -200,5 +216,22 @@ forced `--replace`, and a control directory named from the stem.
 
 ## Independent review
 
-Requested from a separate instance; not self-signed. The verdict is to be
-appended before the packet is accepted.
+Requested from a separate instance; not self-signed.
+
+**First review, of `df3f2283` + `57b1ed43`: FAIL — declaration and governance, not
+implementation.** The reviewer reproduced every functional claim independently
+(no MLIR parsing in Python, scratch-copy consumption, the output lock held across
+the native step, the root-owner report surviving renamed unit directories, the
+overlay hashes, the raw-XML lane counts, the additive C++ diff) and failed the
+packet for understating a real C3-C violation.
+
+| # | Finding | Disposition |
+| --- | --- | --- |
+| D1 | **Material.** `link --replace` overwrote any pre-existing non-empty regular file at the output path, including a user file the driver never published — which C3-C §143 forbids outright — while the packet declared only the §181 owner-comparison gap. | **Closed, not merely declared.** When the destination exists and `--replace` is set, `link` now requires the publication control directory to pre-exist and otherwise refuses, leaving the file byte-identical and creating no control directory (`replace-guard.log`). |
+| D2 | Low. `compile` also accepted `--source`, `--interface-unit` and `--output`, which are not in the approved syntax block, contradicting this README's "no extra option". | The three aliases were removed; the surface is now literally the approved one, and `cli-surface.log` is regenerated from it. |
+| D3 | Low, documentation. The approval citation linked to a path that does not exist on this branch. | Cited by path with its planning-branch commit instead. |
+| D4 | Trivial. `_PublicationError` was imported but unused in `_driver.py`. | Now used by the replace guard. |
+| D5 | Trivial. A docstring claimed the published program "is re-verified when read", which nothing in the tree does. | Corrected. |
+
+**Re-verification requested** for the fix commits and the evidence commit carrying
+this table. The verdict is to be appended before the packet is accepted.

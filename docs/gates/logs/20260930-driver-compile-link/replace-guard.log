@@ -1,0 +1,24 @@
+# replace guard: C3-C 143 closure, 2026-09-29T17:20:03Z
+
+## the reviewer's D1 probe, re-run after the fix
+$ printf 'this is my important user data\n' > out/foreign.ac
+$ pycircuit link units/counter units/types --top demo.counter.Counter -o out/foreign.ac --replace
+pycircuit link: refusing to replace a path this driver did not publish: /private/var/folders/dw/zd1zl_y14dndg0ydz1mdt25h0000gn/T/tmpc6ex_jay/out/foreign.ac
+exit=1
+file content after: this is my important user data
+control dir created: no
+
+## an empty file, a directory and a symlink are still rejected too
+pycircuit link: refusing to replace a path this driver did not publish: /private/var/folders/dw/zd1zl_y14dndg0ydz1mdt25h0000gn/T/tmpc6ex_jay/out/empty.ac
+empty exit=1
+pycircuit link: refusing to replace a path this driver did not publish: /private/var/folders/dw/zd1zl_y14dndg0ydz1mdt25h0000gn/T/tmpc6ex_jay/out/adir.ac
+directory exit=1
+pycircuit link: refusing to replace a path this driver did not publish: /private/var/folders/dw/zd1zl_y14dndg0ydz1mdt25h0000gn/T/tmpc6ex_jay/out/link.ac
+symlink exit=1
+
+## what this driver published can still be replaced
+first publish exit=0
+replace exit=0
+
+## declared residue: a DIFFERENT root on a path this driver published is still accepted
+exit=0 (0 = owner comparison still open)

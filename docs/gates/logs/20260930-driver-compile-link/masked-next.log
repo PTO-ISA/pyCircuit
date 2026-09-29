@@ -7,4 +7,4 @@ collected 15 items
 tests/system/test_masked_next_register.py ...............                [100%]
 
 - generated xml file: /Users/zhoubot/.codex/worktrees/migration-capture/pyCircuit/docs/gates/logs/20260930-driver-compile-link/masked-next.xml -
-============================== 15 passed in 1.87s ==============================
+============================== 15 passed in 1.82s ==============================

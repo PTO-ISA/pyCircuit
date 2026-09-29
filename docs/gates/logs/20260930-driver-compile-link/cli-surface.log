@@ -1,4 +1,4 @@
-# Public CLI surface of the two new subcommands, 2026-09-29T17:00:14Z
+# Public CLI surface of the two new subcommands, 2026-09-29T17:20:07Z
 # Contract: C3-C c3-driver-runtime.md SHA-256 0c476ced27519cf93427a89f77b9348d388e96db57fb183790144d24118b1170
 
 ## C3-C approved syntax
@@ -19,15 +19,14 @@ usage: pycircuit compile [-h] -c SOURCE --source-root SOURCE_ROOT
 
 options:
   -h, --help            show this help message and exit
-  -c, --source SOURCE   The one Python source file to compile
+  -c SOURCE             The one Python source file to compile
   --source-root SOURCE_ROOT
                         Capture confinement root for the source
   --package-prefix PACKAGE_PREFIX
                         Dotted source-unit package prefix (default: empty)
-  -I, --interface-unit INTERFACE_UNITS
-                        A published managed interface unit directory
+  -I INTERFACE_UNITS    A published managed interface unit directory
                         (repeatable)
-  -o, --output OUTPUT   Published source unit directory
+  -o OUTPUT             Published source unit directory
   --replace             Republish the target under the same owner and artifact
                         kind
 
@@ -45,7 +44,7 @@ options:
   --top TOP             Qualified module of the source graph root
   --parameters PARAMETERS
                         Ordered JSON bindings for the root's static parameters
-  -o, --output OUTPUT   Published program artifact path
+  -o OUTPUT             Published program artifact path
   --replace             Republish the target under the same owner and
                         definition
 

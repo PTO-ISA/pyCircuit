@@ -5,3 +5,5 @@ MLIR_OPT=/opt/homebrew/Cellar/llvm/22.1.8/bin/mlir-opt
 PYTHONPATH=python/pycircuit/src:python/semantic-core/src:python/agentic-circuit/src  (relative to the checkout root)
 baseline tree: c47b779d38896685ad02682dd88dea2bc7e3bbdb  (d6233d1e was the packet baseline; this records the working-tree parent)
 candidate tree: df3f2283137deea8043ed8345a9d996b3d64a577  (commit A: implementation and tests)
+reviewed candidate: 57b1ed43  (first review: FAIL on declaration)
+fixed candidate: 0b35b2a2cafbd2b1780efeeac95524d3b7e37be5  (commit C: review fixes, all lanes re-run)
