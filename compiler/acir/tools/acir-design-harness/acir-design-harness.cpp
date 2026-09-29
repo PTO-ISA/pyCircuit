@@ -28,7 +28,38 @@ struct Options {
   std::optional<std::string> output;
   std::optional<std::string> glueOutput;
   std::optional<std::string> role;
+  std::optional<std::string> entryOwnerOutput;
 };
+
+// Minimal strict JSON string escaping for the private report channels. The
+// values come from verified declarations, so the control-character branch is
+// defensive rather than expected.
+std::string jsonString(llvm::StringRef value) {
+  static const char *hexDigits = "0123456789abcdef";
+  std::string result = "\"";
+  for (char character : value) {
+    unsigned char byte = static_cast<unsigned char>(character);
+    if (character == '"') {
+      result += "\\\"";
+    } else if (character == '\\') {
+      result += "\\\\";
+    } else if (character == '\n') {
+      result += "\\n";
+    } else if (character == '\r') {
+      result += "\\r";
+    } else if (character == '\t') {
+      result += "\\t";
+    } else if (byte < 0x20) {
+      result += "\\u00";
+      result += hexDigits[(byte >> 4) & 0xF];
+      result += hexDigits[byte & 0xF];
+    } else {
+      result += character;
+    }
+  }
+  result += "\"";
+  return result;
+}
 
 // Which kind of root a linked or reparsed artifact selects. A @system is the
 // externally driven harness that instantiates a design; a @module is the design
@@ -86,7 +117,8 @@ bool parseOptions(int argc, char **argv, Options &options) {
     llvm::StringRef arg(argv[i]);
     if (arg != "--body" && arg != "--header" && arg != "--top" &&
         arg != "--design" && arg != "--target" && arg != "--output" &&
-        arg != "--glue-output" && arg != "--role") {
+        arg != "--glue-output" && arg != "--role" &&
+        arg != "--entry-owner-out") {
       llvm::errs() << "error: unknown option '" << arg << "'\n";
       return false;
     }
@@ -120,6 +152,9 @@ bool parseOptions(int argc, char **argv, Options &options) {
       }
       if (!setOnce(options.role, value, arg))
         return false;
+    } else if (arg == "--entry-owner-out" &&
+               !setOnce(options.entryOwnerOutput, value, arg)) {
+      return false;
     }
   }
 
@@ -146,6 +181,17 @@ bool parseOptions(int argc, char **argv, Options &options) {
                     "verilog\n";
     return false;
   }
+  if (options.entryOwnerOutput && !hasLink) {
+    llvm::errs()
+        << "error: --entry-owner-out reports the linked root owner and "
+           "requires link mode\n";
+    return false;
+  }
+  if (options.entryOwnerOutput &&
+      *options.entryOwnerOutput == *options.output) {
+    llvm::errs() << "error: --entry-owner-out must differ from --output\n";
+    return false;
+  }
   if (options.glueOutput &&
       (hasLink || !options.design || *options.target != "verilog")) {
     llvm::errs() << "error: --glue-output separates the Verilog runtime-glue "
@@ -162,6 +208,45 @@ bool parseOptions(int argc, char **argv, Options &options) {
 mlir::OwningOpRef<mlir::ModuleOp> readModule(llvm::StringRef path,
                                              mlir::MLIRContext &context) {
   return mlir::parseSourceFile<mlir::ModuleOp>(path, &context);
+}
+
+// Report the linked root's source owner and canonical definition so the driver
+// publishes the program under the owner the linker actually selected instead of
+// inferring it from module names.
+bool writeEntryOwner(llvm::StringRef path, mlir::DictionaryAttr owner,
+                     llvm::StringRef definition) {
+  auto package = owner.getAs<mlir::StringAttr>("package");
+  auto sourcePath = owner.getAs<mlir::StringAttr>("path");
+  if (!package || !sourcePath) {
+    llvm::errs() << "error: selected root source owner is not a package/path "
+                    "pair\n";
+    return false;
+  }
+  std::string canonical = "@\"" + definition.str() + "\"";
+  std::string text =
+      "{\"source\":{\"package\":" + jsonString(package.getValue()) +
+      ",\"path\":" + jsonString(sourcePath.getValue()) +
+      "},\"definition\":" + jsonString(canonical) + "}\n";
+  int descriptor = -1;
+  std::error_code error = llvm::sys::fs::openFileForWrite(
+      path, descriptor, llvm::sys::fs::CD_CreateNew, llvm::sys::fs::OF_None);
+  if (error) {
+    llvm::errs() << "error: cannot create entry owner report '" << path
+                 << "': " << error.message() << '\n';
+    return false;
+  }
+  llvm::raw_fd_ostream output(descriptor, true);
+  output << text;
+  output.flush();
+  if (output.has_error()) {
+    llvm::errs() << "error: failed writing entry owner report '" << path
+                 << "'\n";
+    output.close();
+    llvm::sys::fs::remove(path);
+    return false;
+  }
+  output.close();
+  return true;
 }
 
 bool publishNoClobber(llvm::StringRef path, llvm::StringRef contents) {
@@ -284,6 +369,22 @@ mlir::LogicalResult runLink(const Options &options, mlir::MLIRContext &context,
            << (root && root->definition ? root->definition.getValue()
                                         : llvm::StringRef("<missing>"))
            << "'";
+  if (options.entryOwnerOutput) {
+    // The linked root's source owner is the module's declared
+    // `ac.source_owner`, the same attribute the hardware program records for
+    // the root (FinalHardware.cpp). `ModuleSnapshot.owner` is the instance view
+    // owner, which is not a source owner.
+    auto rootOwner =
+        root->module->getAttrOfType<mlir::DictionaryAttr>("ac.source_owner");
+    if (!rootOwner) {
+      llvm::errs() << "error: selected root '" << *options.top
+                   << "' records no source owner\n";
+      return mlir::failure();
+    }
+    if (!writeEntryOwner(*options.entryOwnerOutput, rootOwner,
+                         root->definition.getValue()))
+      return mlir::failure();
+  }
   auto program =
       acir::compiler::materializeFinalProgram(std::move(*analysis), emitError);
   if (mlir::failed(program))
