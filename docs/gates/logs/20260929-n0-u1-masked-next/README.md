@@ -31,8 +31,8 @@ Probing the real chain (`--lower-numeric` → link → emit) on the Counter fixt
 
 | Lane | Result |
 | --- | --- |
-| `tests/system/test_masked_next_register.py` | **10 passed** (3 conformance/oracle + 5 redirected-witness + 2 dropped-obligation cases) |
-| Python system selectors | **73 passed, 0 failed, 0 skipped**; 2 V44 cases still deselected and DEFERRED to M6 (`python.xml`) |
+| `tests/system/test_masked_next_register.py` | **13 passed** (3 conformance/oracle + 5 redirected-witness + 2 dropped-obligation + 3 shape-coverage cases) |
+| Python system selectors | **76 passed, 0 failed, 0 skipped**; 2 V44 cases still deselected and DEFERRED to M6 (`python.xml`) |
 | Native suite | unchanged by this packet; the same frozen revision passes 355 tests across all 20 `ACIR*Tests` binaries |
 
 ### Structural and runtime conformance
@@ -91,6 +91,17 @@ pytest -q tests/system/test_masked_next_register.py \
 
 `IVERILOG` and `VVP` must be on `PATH` (or set those environment variables) for
 the runtime oracle; the other cases need only the two private harnesses.
+
+## Shape coverage and the link/emit guard
+
+`numeric-shape-coverage.md` records the measured coverage of the numeric
+next-assignment route and the fail-closed guard added in this packet: a plain
+register copy or constant assignment used to link successfully and then fail at
+emit, so `acir-design-harness` now reconstructs its own link result through the
+emit path before publishing anything. That guard is a private-tool change; the
+compiler-side questions it exposes (whether copy/constant next assignments
+should be supported, and the `hasNumericInventory` duplication) are recorded
+there as open decisions, not decided here.
 
 ## Non-claims
 

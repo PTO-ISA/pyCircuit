@@ -225,6 +225,17 @@ mlir::LogicalResult runLink(const Options &options, mlir::MLIRContext &context,
       acir::compiler::materializeFinalProgram(std::move(*analysis), emitError);
   if (mlir::failed(program))
     return mlir::failure();
+  // A linked design is only useful if the emit path can consume it in a fresh
+  // process. Reconstructing from a clone here makes that guarantee fail closed:
+  // link must not publish an artifact that emit would have to reject, because
+  // that would surface as an emit-time error for a design the tool already
+  // accepted.
+  mlir::OwningOpRef<mlir::ModuleOp> emittedView(
+      llvm::cast<mlir::ModuleOp>(program->hardware()->clone()));
+  if (mlir::failed(acir::compiler::buildFinalProgramFromHardware(*emittedView,
+                                                                 emitError)))
+    return emitError() << "linked design is not reconstructible by the emit "
+                          "path; this source shape is not supported yet";
   llvm::raw_string_ostream output(result);
   program->hardware().print(output, mlir::OpPrintingFlags().enableDebugInfo());
   output << '\n';

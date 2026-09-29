@@ -328,3 +328,93 @@ def test_masked_next_rejects_dropped_obligations(
     assert result.returncode != 0, result.stdout
     assert "U1 lowered inventory is not closed" in result.stderr, result.stderr
     assert not output.exists()
+
+
+def _linked_from_source(tmp_path: Path, counter_text: str) -> subprocess.CompletedProcess[str]:
+    """Compile a Counter variant and link it, returning the link result."""
+    source_root = tmp_path / "source"
+    source_root.mkdir()
+    (source_root / "types.py").write_text(TYPES, encoding="utf-8")
+    (source_root / "counter.py").write_text(counter_text, encoding="utf-8")
+    types = _compile(
+        source_root / "types.py", source_root=source_root,
+        output_dir=tmp_path / "units/types",
+    )
+    counter = _compile(
+        source_root / "counter.py", source_root=source_root,
+        output_dir=tmp_path / "units/counter", headers=(types.header,),
+        lower_numeric=True,
+    )
+    return _link([types, counter], tmp_path / "counter.ac")
+
+
+COPY_SOURCE = """\
+from pycircuit import module, rule
+from .types import Word
+
+@module
+def Counter():
+    state: Word = 254
+    other: Word = 3
+
+    @rule
+    def tick():
+        nonlocal state
+        state = other
+
+    tick()
+"""
+
+CONSTANT_SOURCE = """\
+from pycircuit import module, rule
+from .types import Word
+
+@module
+def Counter():
+    state: Word = 254
+
+    @rule
+    def tick():
+        nonlocal state
+        state = 7
+
+    tick()
+"""
+
+
+@pytest.mark.parametrize(
+    "source_text,label",
+    [(COPY_SOURCE, "register copy"), (CONSTANT_SOURCE, "constant assignment")],
+)
+def test_link_rejects_shapes_the_emit_path_cannot_consume(
+    tmp_path: Path, source_text: str, label: str
+) -> None:
+    """A plain copy or constant next assignment currently links but cannot be
+    reconstructed by the emit path. Link must fail closed instead of publishing
+    an artifact that emit would have to reject."""
+    result = _linked_from_source(tmp_path, source_text)
+
+    assert result.returncode != 0, f"{label} unexpectedly linked"
+    assert "is not reconstructible by the emit path" in result.stderr, result.stderr
+    assert not (tmp_path / "counter.ac").exists()
+
+
+def test_supported_shapes_still_link_and_emit(tmp_path: Path) -> None:
+    """The fail-closed guard must not reject the supported next-assignment
+    profiles: masked add, enable-guarded add and conditional add."""
+    for name, body in (
+        ("unconditional", ["state = (state + 1) & 255"]),
+        ("enable-guarded", ["if en:", "    state = (state + 1) & 255"]),
+    ):
+        case = tmp_path / name
+        case.mkdir()
+        extra = "    en: bool = True\n" if name == "enable-guarded" else ""
+        text = (
+            "from pycircuit import module, rule\nfrom .types import Word\n\n"
+            "@module\ndef Counter():\n    state: Word = 254\n" + extra +
+            "\n    @rule\n    def tick():\n        nonlocal state\n"
+            + "".join("        " + line + "\n" for line in body) + "\n    tick()\n"
+        )
+        result = _linked_from_source(case, text)
+        assert result.returncode == 0, f"{name}: {result.stderr}"
+        assert (case / "counter.ac").is_file()
