@@ -427,7 +427,28 @@ N1：guard 实际证明的只是"存在一个以该目标命名的 publication c
 链接分支补进同一条测试（这是促成修改的那个回归，原先无覆盖）；driver lane 仍 66 项
 （43 unit + 23 system）全绿，2/2 变异被检出（把 guard 条件退回 `destination.exists()`、
 把诊断退回夸大措辞，都会让测试失败）。六条 lane 在 `6228bcc4` 上重跑全部 exit 0，
-overlay 哈希按该提交字节重算。第三轮复验已请求。
+overlay 哈希按该提交字节重算。
+
+### 独立审阅（第三轮）：PASS
+
+第三轮对 `6228bcc4` + `ddbf0449` 判 **PASS**。reviewer 逐项自行重推而非接受处置：
+(a′) 确认真正关闭（POSIX 上 `exists() or is_symlink()` 覆盖所有被占用路径）；D1 的 11 项
+绕过矩阵在新条件下重跑仍全部拒绝且产物逐字节保留；改写后的声明与代码一致，他未能在改动
+段落中构造出代码不支持的防护声明；残留 (a) 的存在量词措辞已覆盖"不带 `--replace` 的悬空
+链接"这一情形。他另在 guard 之下直接演练了发布恢复（构造 committed 与 prepared/previous
+残留，均恢复并重新发布，exit 0）。
+
+另附四条**非阻塞**的文档精确性提示，已全部采纳：F1 `replace-guard.log` 的归属与实际内容
+不符（已把完整拒绝矩阵——含 FIFO 与四种 control 路径形态——连同"命令前后 control 目录是否
+存在"两列写入该日志，并把恢复演练的归属改为 reviewer 与发布包自身套件）；F2 "任何在该路径
+失败过的命令"过宽（实际只有走到锁集合才 bootstrap；已改正并列出三个反例）；F3 残留从
+"三条"改为四条（补上手写 marker 一条）；F4 诊断丢掉限定词（已改为
+`refusing to replace a path without a publication control directory naming it: <path>`）。
+
+**需要读者注意的口径**：该 PASS 是针对 `6228bcc4` + `ddbf0449` 给出的；F4 是四条提示中
+唯一触及代码的一条，且只改诊断字符串——guard 条件、拒绝行为、退出码与 reviewer 验证过的
+全部情形均未变。F4 落在 `2eec54d4`，证据与 F1–F3 落在 `0f4dedb1`；独立测试作者同步了两处
+断言并报告 3/3 限定词敏感性检测通过，六条 lane 在最终候选上重跑全部 exit 0。
 
 ## 全项目里程碑
 
