@@ -560,3 +560,122 @@ def test_glue_output_refuses_existing_paths_without_publishing(
     else:
         assert glue.is_symlink()
         assert not glue.resolve(strict=False).exists()
+
+
+BLINKER = """\
+from pycircuit import module, rule
+from .types import Word
+
+@module
+def Blinker():
+    phase: Word = 0
+    level: Word = 0
+
+    @rule
+    def tick():
+        nonlocal phase, level
+        phase = (phase + 1) & 255
+        if phase == 0:
+            level = 1
+
+    tick()
+"""
+
+TEST_BLINKER = """\
+from pycircuit import system, rule, log, report
+from .types import Word
+from .blinker import Blinker
+
+@system
+def TestBlinker():
+    phase: Word = 0
+    dut = Blinker()
+
+    @rule
+    def fixture():
+        nonlocal phase
+        if phase == 0:
+            log("info", "dut_started", phase)
+        if phase == 2:
+            report("completed", 1)
+        if phase < 3:
+            phase = phase + 1
+
+    fixture()
+"""
+
+
+def _compile_design_and_testbench(tmp_path: Path):
+    source_root = tmp_path / "source"
+    source_root.mkdir()
+    (source_root / "types.py").write_text(TYPES, encoding="utf-8")
+    (source_root / "blinker.py").write_text(BLINKER, encoding="utf-8")
+    (source_root / "test_blinker.py").write_text(TEST_BLINKER, encoding="utf-8")
+    types = _compile_source(
+        source_root / "types.py", source_root=source_root,
+        output_dir=tmp_path / "units/types",
+    )
+    blinker = _compile_source(
+        source_root / "blinker.py", source_root=source_root,
+        output_dir=tmp_path / "units/blinker", headers=(types.header,),
+    )
+    bench = _compile_source(
+        source_root / "test_blinker.py", source_root=source_root,
+        output_dir=tmp_path / "units/test_blinker",
+        headers=(types.header, blinker.header),
+    )
+    return types, blinker, bench
+
+
+def test_design_and_testbench_are_separate_artifacts(tmp_path: Path) -> None:
+    """The design artifact must carry only the DUT, and the testbench must be a
+    separate artifact that consumes it. Each is named after its own source."""
+    types, blinker, bench = _compile_design_and_testbench(tmp_path)
+    design = tmp_path / "blinker.ac"
+    testbench = tmp_path / "test_blinker.ac"
+
+    # The design links from the DUT closure alone: the testbench source need not
+    # exist, be readable, or be part of the same link.
+    design_link = _link([types, blinker], design, top="demo.blinker.Blinker")
+    assert design_link.returncode == 0, design_link.stderr
+    bench_link = _link([types, blinker, bench], testbench,
+                       top="demo.test_blinker.TestBlinker")
+    assert bench_link.returncode == 0, bench_link.stderr
+
+    design_text = design.read_text()
+    bench_text = testbench.read_text()
+    assert "demo.blinker.Blinker" in design_text
+    assert "ac.observe" not in design_text
+    assert "TestBlinker" not in design_text
+    assert "dut_started" not in design_text
+    assert "TestBlinker" in bench_text
+    assert "ac.observe" in bench_text
+    assert "demo.blinker.Blinker" in bench_text
+
+    # The design's hardware rtl artifact carries neither the simulation wrapper
+    # nor the testbench's observations.
+    rtl = tmp_path / "blinker.rtl.sv"
+    glue = tmp_path / "blinker.runtime-glue.sv"
+    emitted = _design_command(
+        design, ["--target", "verilog", "--output", str(rtl), "--glue-output", str(glue)]
+    )
+    assert emitted.returncode == 0, emitted.stderr
+    assert "module FinalModel(" in rtl.read_text()
+    assert "FinalModelSim" not in rtl.read_text()
+    assert "AC_OBS" not in rtl.read_text()
+
+
+def test_ported_module_root_is_rejected_until_the_dut_io_contract(
+    tmp_path: Path,
+) -> None:
+    """A DUT with typed external ports cannot be a root yet: its formals have no
+    parent to bind them. This must fail closed rather than silently produce a
+    portless or stimulus-bearing artifact."""
+    source_root, units = _compile_m2_units(tmp_path)
+    output = tmp_path / "increment.ac"
+
+    completed = _link(units[:2], output, top="demo.increment.Increment")
+
+    assert completed.returncode != 0
+    assert "unbound data formal" in completed.stderr
+    assert not output.exists()

@@ -1,0 +1,1 @@
+8a22bd15d6b27485f860437b8da56992cc5af31c0553d68c0b6fe6351794cd4c  tests/system/test_source_design_bridge.py
