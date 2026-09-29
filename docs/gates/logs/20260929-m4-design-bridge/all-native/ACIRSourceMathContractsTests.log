@@ -28,7 +28,7 @@ Running main() from /private/tmp/googletest-20250910-5249-qce8ci/googletest-1.17
 [       OK ] SourceMathContractsTest.RejectsDomainTypeDriftAndMalformedRangeCheckTemplates (0 ms)
 [ RUN      ] SourceMathContractsTest.RejectsNonI1ValidityAndNonMathOperands
 [       OK ] SourceMathContractsTest.RejectsNonI1ValidityAndNonMathOperands (0 ms)
-[----------] 13 tests from SourceMathContractsTest (6 ms total)
+[----------] 13 tests from SourceMathContractsTest (5 ms total)
 
 [----------] 9 tests from NumericProofContractsTest
 [ RUN      ] NumericProofContractsTest.AdmitsSubtractionInClosedMathBinaryFoundation
@@ -49,11 +49,11 @@ Running main() from /private/tmp/googletest-20250910-5249-qce8ci/googletest-1.17
 [       OK ] NumericProofContractsTest.MathFromBitsRejectsForgedUseAndSourceReadFromAnotherOwner (0 ms)
 [ RUN      ] NumericProofContractsTest.KeepsMathFromBitsDomainAndBoundedWidthExactAfterSourceRead
 [       OK ] NumericProofContractsTest.KeepsMathFromBitsDomainAndBoundedWidthExactAfterSourceRead (0 ms)
-[----------] 9 tests from NumericProofContractsTest (1 ms total)
+[----------] 9 tests from NumericProofContractsTest (2 ms total)
 
 [----------] 3 tests from ConstantExactProofContractsTest
 [ RUN      ] ConstantExactProofContractsTest.ExactSingletonConstantProofClosesRuleScopeAndBinding
-[       OK ] ConstantExactProofContractsTest.ExactSingletonConstantProofClosesRuleScopeAndBinding (0 ms)
+[       OK ] ConstantExactProofContractsTest.ExactSingletonConstantProofClosesRuleScopeAndBinding (1 ms)
 [ RUN      ] ConstantExactProofContractsTest.RejectsIntegerDomainsBeyondTheApprovedSixtyFourBitCapability
 loc("demo.py":7:3): error: 'ac.value.binding' op LogicalType integer storage must be signless iN for N in [1, 64]
 loc("demo.py":7:3): error: 'ac.value.binding' op LogicalType integer storage must be signless iN for N in [1, 64]
@@ -127,12 +127,12 @@ loc("wrong.py":7:3): error: 'ac.numeric.proof' op mask proof requires its source
 loc("mask.py":7:3): error: 'ac.rule' op rule must belong to its enclosing source module
 loc("mask.py":7:3): error: 'ac.numeric.proof' op mask proof origin must be a direct enclosing module Site with empty expansion
 loc("mask.py":7:3): error: 'ac.numeric.proof' op mask proof origin must be a direct enclosing module Site with empty expansion
-[       OK ] NumericMaskProofContractsTest.RejectsProofProvenanceMutations (1 ms)
+[       OK ] NumericMaskProofContractsTest.RejectsProofProvenanceMutations (2 ms)
 [ RUN      ] NumericMaskProofContractsTest.TransactionIdentityIdempotenceAndRollback
 loc("mask.py":7:3): error: 'ac.rule' op mask source constants must be nonnegative
 loc("mask.py":7:3): error: N0-C1 transactional clone lowering failed verification
 [       OK ] NumericMaskProofContractsTest.TransactionIdentityIdempotenceAndRollback (3 ms)
-[----------] 8 tests from NumericMaskProofContractsTest (12 ms total)
+[----------] 8 tests from NumericMaskProofContractsTest (13 ms total)
 
 [----------] 2 tests from NumericCompositionAdversarialTest
 [ RUN      ] NumericCompositionAdversarialTest.RejectsCoherentRecipeSsaAndProofCorruption
@@ -142,12 +142,12 @@ loc("composition.py":11:5): error: 'ac.rule' op lowered composition comparison i
 loc("composition.py":11:5): error: 'ac.rule' op composition proof obligations are not in source order
 loc("composition.py":11:5): error: 'ac.rule' op LogicalType integer interpretation must be 'unsigned' for its bounds
 loc("composition.py":11:5): error: 'ac.rule' op composition NumericNode schema is invalid
-[       OK ] NumericCompositionAdversarialTest.RejectsCoherentRecipeSsaAndProofCorruption (130 ms)
+[       OK ] NumericCompositionAdversarialTest.RejectsCoherentRecipeSsaAndProofCorruption (170 ms)
 [ RUN      ] NumericCompositionAdversarialTest.RejectsConstantRightAndBoundaryAuthorityBypass
 loc("composition.py":11:5): error: 'ac.rule' op numeric composition requires a constant RHS
 loc("composition.py":11:5): error: 'ac.rule' op composition direct use has no literal/read authority
-[       OK ] NumericCompositionAdversarialTest.RejectsConstantRightAndBoundaryAuthorityBypass (120 ms)
-[----------] 2 tests from NumericCompositionAdversarialTest (250 ms total)
+[       OK ] NumericCompositionAdversarialTest.RejectsConstantRightAndBoundaryAuthorityBypass (142 ms)
+[----------] 2 tests from NumericCompositionAdversarialTest (313 ms total)
 
 [----------] 2 tests from NumericCompositionContractsTest
 [ RUN      ] NumericCompositionContractsTest.SourceClosesProofLocalInputsPolarityChecksAndMergedWrites
@@ -159,7 +159,7 @@ loc("composition.py":11:5): error: 'ac.rule' op composition numeric use redirect
 loc("composition.py":11:5): error: 'ac.rule' op composition numeric use redirects evaluation path
 loc("composition.py":11:5): error: 'ac.rule' op composition checks differ from retained requirements
 loc("composition.py":11:5): error: 'ac.rule' op composition binary/compare SSA control is invalid
-[       OK ] NumericCompositionContractsTest.SourceClosesProofLocalInputsPolarityChecksAndMergedWrites (122 ms)
+[       OK ] NumericCompositionContractsTest.SourceClosesProofLocalInputsPolarityChecksAndMergedWrites (137 ms)
 [ RUN      ] NumericCompositionContractsTest.LoweredClosureRejectsInputProofAndArithmeticMutation
 loc("composition.py":11:5): error: 'ac.rule' op composition finite input binding is invalid
 loc("composition.py":11:5): error: 'ac.rule' op composition proof root/input/segments are invalid
@@ -176,28 +176,28 @@ loc("composition.py":11:5): error: 'ac.rule' op composition proof root/input/seg
 loc("composition.py":11:5): error: 'ac.rule' op lowered composition comparison is not closed/owned
 loc("composition.py":11:5): error: 'ac.rule' op composition proof component is not closed
 loc("composition.py":11:5): error: 'ac.rule' op composition proof root/input/segments are invalid
-[       OK ] NumericCompositionContractsTest.LoweredClosureRejectsInputProofAndArithmeticMutation (136 ms)
-[----------] 2 tests from NumericCompositionContractsTest (259 ms total)
+[       OK ] NumericCompositionContractsTest.LoweredClosureRejectsInputProofAndArithmeticMutation (150 ms)
+[----------] 2 tests from NumericCompositionContractsTest (287 ms total)
 
 [----------] 5 tests from NumericNextUseContractsTest
 [ RUN      ] NumericNextUseContractsTest.SourceInventoryOwnsOneAssignmentUseAndYieldBinding
-[       OK ] NumericNextUseContractsTest.SourceInventoryOwnsOneAssignmentUseAndYieldBinding (117 ms)
+[       OK ] NumericNextUseContractsTest.SourceInventoryOwnsOneAssignmentUseAndYieldBinding (131 ms)
 [ RUN      ] NumericNextUseContractsTest.LoweredInventoryOwnsTwoProofsOneCheckAndOneValueUse
-[       OK ] NumericNextUseContractsTest.LoweredInventoryOwnsTwoProofsOneCheckAndOneValueUse (116 ms)
+[       OK ] NumericNextUseContractsTest.LoweredInventoryOwnsTwoProofsOneCheckAndOneValueUse (140 ms)
 [ RUN      ] NumericNextUseContractsTest.MissingOrDuplicateProofCheckAndRequiredUseAreRejected
 loc("counter.py":8:5): error: 'ac.rule' op U1 lowered inventory is not closed
 loc("counter.py":8:5): error: 'ac.rule' op U1 requires six numeric nodes and one use/yield/check
 loc("counter.py":8:5): error: 'ac.rule' op exact numeric proof requires one or three nodes and one proof
 loc("counter.py":8:5): error: 'ac.rule' op U1 requires six numeric nodes and one use/yield/check
-[       OK ] NumericNextUseContractsTest.MissingOrDuplicateProofCheckAndRequiredUseAreRejected (118 ms)
+[       OK ] NumericNextUseContractsTest.MissingOrDuplicateProofCheckAndRequiredUseAreRejected (140 ms)
 [ RUN      ] NumericNextUseContractsTest.SwappedYieldDataEnableAndForgedTargetAreRejected
 loc("counter.py":8:5): error: 'ac.rule' op U1 yield is not the exact ValueUse data/enable binding
 loc("counter.py":8:5): error: 'ac.rule' op U1 YieldBinding is not the exact scalar contribution
-[       OK ] NumericNextUseContractsTest.SwappedYieldDataEnableAndForgedTargetAreRejected (117 ms)
+[       OK ] NumericNextUseContractsTest.SwappedYieldDataEnableAndForgedTargetAreRejected (135 ms)
 [ RUN      ] NumericNextUseContractsTest.WrongValueUseIdentityIsRejected
 loc("counter.py":8:5): error: 'ac.rule' op U1 ValueUse does not bind the required boundary value
-[       OK ] NumericNextUseContractsTest.WrongValueUseIdentityIsRejected (118 ms)
-[----------] 5 tests from NumericNextUseContractsTest (587 ms total)
+[       OK ] NumericNextUseContractsTest.WrongValueUseIdentityIsRejected (132 ms)
+[----------] 5 tests from NumericNextUseContractsTest (681 ms total)
 
 [----------] 6 tests from NumericRangeProofContractsTest
 [ RUN      ] NumericRangeProofContractsTest.AcceptsDomainsAndEndpointOracle
@@ -220,10 +220,10 @@ loc("counter.py":8:5): error: 'ac.rule' op U1 ValueUse does not bind the require
 [ RUN      ] NumericVariableAddProofContractsTest.ExhaustivelyMatchesSmallIntervalOracle
 [       OK ] NumericVariableAddProofContractsTest.ExhaustivelyMatchesSmallIntervalOracle (0 ms)
 [ RUN      ] NumericVariableAddProofContractsTest.RejectsBoundedInputMutations
-[       OK ] NumericVariableAddProofContractsTest.RejectsBoundedInputMutations (2 ms)
+[       OK ] NumericVariableAddProofContractsTest.RejectsBoundedInputMutations (3 ms)
 [ RUN      ] NumericVariableAddProofContractsTest.RejectsUnrepresentableAndUnsupportedInputs
 [       OK ] NumericVariableAddProofContractsTest.RejectsUnrepresentableAndUnsupportedInputs (0 ms)
-[----------] 4 tests from NumericVariableAddProofContractsTest (4 ms total)
+[----------] 4 tests from NumericVariableAddProofContractsTest (5 ms total)
 
 [----------] 6 tests from ScalarNumericExactLoweringTest
 [ RUN      ] ScalarNumericExactLoweringTest.HelperLowersAllOperatorsIdempotently
@@ -231,7 +231,7 @@ loc("counter.py":8:5): error: 'ac.rule' op U1 ValueUse does not bind the require
 [ RUN      ] ScalarNumericExactLoweringTest.RegisteredPassUsesTheSameTransaction
 [       OK ] ScalarNumericExactLoweringTest.RegisteredPassUsesTheSameTransaction (1 ms)
 [ RUN      ] ScalarNumericExactLoweringTest.ActualSSAExhaustsSignedAndUnsignedDomains
-[       OK ] ScalarNumericExactLoweringTest.ActualSSAExhaustsSignedAndUnsignedDomains (1 ms)
+[       OK ] ScalarNumericExactLoweringTest.ActualSSAExhaustsSignedAndUnsignedDomains (2 ms)
 [ RUN      ] ScalarNumericExactLoweringTest.TwoRuleSuccessAndLaterFailureAreAtomic
 loc("d1.py":7:3): error: 'ac.math.constant' op scalar interval requires unsupported storage above i64
 loc("d1.py":7:3): error: N0-C1 transactional clone lowering failed verification
@@ -255,11 +255,11 @@ loc("d1.py":7:3): error: 'ac.rule' op numeric proof result ID must be the final 
 loc("d1.py":7:3): error: N0-C1 input unit does not verify
 loc("d1.py":7:3): error: N0-C1 rejects mixed source and lowered inventory
 [       OK ] ScalarNumericExactLoweringTest.DamagedAndMixedUnitsRejectUnchanged (1 ms)
-[----------] 6 tests from ScalarNumericExactLoweringTest (10 ms total)
+[----------] 6 tests from ScalarNumericExactLoweringTest (11 ms total)
 
 [----------] 6 tests from ScalarNumericRangeLoweringTest
 [ RUN      ] ScalarNumericRangeLoweringTest.HelperLowersExactContractIdempotently
-[       OK ] ScalarNumericRangeLoweringTest.HelperLowersExactContractIdempotently (3 ms)
+[       OK ] ScalarNumericRangeLoweringTest.HelperLowersExactContractIdempotently (4 ms)
 [ RUN      ] ScalarNumericRangeLoweringTest.RegisteredPassLowersRangeSource
 [       OK ] ScalarNumericRangeLoweringTest.RegisteredPassLowersRangeSource (0 ms)
 [ RUN      ] ScalarNumericRangeLoweringTest.EndpointTruthTableIsIndependent
@@ -285,8 +285,8 @@ loc("range.py":7:3): error: N0-C1 input unit does not verify
 loc("range.py":7:3): error: 'ac.expect' op lowered range check is outside its numeric proof seam
 loc("range.py":7:3): error: N0-C1 input unit does not verify
 loc("range.py":7:3): error: N0-C1 rejects mixed source and lowered inventory
-[       OK ] ScalarNumericRangeLoweringTest.DamagedAndMixedOutputRejectUnchanged (1 ms)
-[----------] 6 tests from ScalarNumericRangeLoweringTest (10 ms total)
+[       OK ] ScalarNumericRangeLoweringTest.DamagedAndMixedOutputRejectUnchanged (2 ms)
+[----------] 6 tests from ScalarNumericRangeLoweringTest (11 ms total)
 
 [----------] 11 tests from ScalarNumericLoweringTest
 [ RUN      ] ScalarNumericLoweringTest.TransactionalHelperLowersAndIsIdempotent
@@ -331,7 +331,7 @@ loc("demo.py":7:3): error: N0-C1 transactional clone lowering failed verificatio
 [ RUN      ] ScalarNumericLoweringTest.RejectsDamagedLoweredWitnessUnchanged
 loc("demo.py":7:3): error: 'ac.rule' op numeric proof result ID must be the final recipe node
 loc("demo.py":7:3): error: N0-C1 input unit does not verify
-[       OK ] ScalarNumericLoweringTest.RejectsDamagedLoweredWitnessUnchanged (0 ms)
+[       OK ] ScalarNumericLoweringTest.RejectsDamagedLoweredWitnessUnchanged (1 ms)
 [ RUN      ] ScalarNumericLoweringTest.RejectsMixedSourceAndB0EvidenceUnchanged
 loc("demo.py":7:3): error: N0-C1 rejects mixed source and lowered inventory
 [       OK ] ScalarNumericLoweringTest.RejectsMixedSourceAndB0EvidenceUnchanged (0 ms)
@@ -339,20 +339,20 @@ loc("demo.py":7:3): error: N0-C1 rejects mixed source and lowered inventory
 
 [----------] 7 tests from ScalarNumericNextUseLoweringTest
 [ RUN      ] ScalarNumericNextUseLoweringTest.HelperLowersAll256ValuesAndExactUseYieldAssociation
-[       OK ] ScalarNumericNextUseLoweringTest.HelperLowersAll256ValuesAndExactUseYieldAssociation (118 ms)
+[       OK ] ScalarNumericNextUseLoweringTest.HelperLowersAll256ValuesAndExactUseYieldAssociation (132 ms)
 [ RUN      ] ScalarNumericNextUseLoweringTest.PassPathIsEquivalentAndSecondLoweringIsIdempotent
-[       OK ] ScalarNumericNextUseLoweringTest.PassPathIsEquivalentAndSecondLoweringIsIdempotent (235 ms)
+[       OK ] ScalarNumericNextUseLoweringTest.PassPathIsEquivalentAndSecondLoweringIsIdempotent (279 ms)
 [ RUN      ] ScalarNumericNextUseLoweringTest.InvalidSourceMaskRollsBackTheWholeUnitByteForByte
 loc("counter.py":8:5): error: 'ac.rule' op U1 source SSA/identity chain is invalid
 loc("counter.py":1:1): error: N0-C1 input unit does not verify
-[       OK ] ScalarNumericNextUseLoweringTest.InvalidSourceMaskRollsBackTheWholeUnitByteForByte (120 ms)
+[       OK ] ScalarNumericNextUseLoweringTest.InvalidSourceMaskRollsBackTheWholeUnitByteForByte (143 ms)
 [ RUN      ] ScalarNumericNextUseLoweringTest.ForgedValueEnableMaskDomainAndValueIDAreRejected
 loc("counter.py":8:5): error: 'ac.rule' op U1 ValueUse does not bind the required boundary value
 loc("counter.py":8:5): error: 'ac.rule' op U1 yield is not the exact ValueUse data/enable binding
 loc("counter.py":8:5): error: 'ac.rule' op U1 finite mask constant is invalid
 loc("counter.py":8:5): error: 'ac.rule' op U1 lowered binding domains or input authority are invalid
 loc("counter.py":8:5): error: 'ac.rule' op U1 ValueUse does not bind the required boundary value
-[       OK ] ScalarNumericNextUseLoweringTest.ForgedValueEnableMaskDomainAndValueIDAreRejected (115 ms)
+[       OK ] ScalarNumericNextUseLoweringTest.ForgedValueEnableMaskDomainAndValueIDAreRejected (145 ms)
 [ RUN      ] ScalarNumericNextUseLoweringTest.ProofLocationOriginScopeSegmentsAndDomainsAreAuthoritative
 error: 'ac.numeric.proof' op U1 proof provenance is outside its source module
 loc("counter.py":10:17): error: 'ac.numeric.proof' op U1 proof provenance is outside its source module
@@ -361,19 +361,19 @@ loc("counter.py":10:18): error: 'ac.value.binding' op B0 proof_scope requires th
 loc("counter.py":10:18): error: 'ac.value.binding' op ValueBinding requires exact ID, domain and rule scope
 loc("counter.py":8:5): error: 'ac.rule' op U1 requires exact low_bits and boundary witnesses
 loc("counter.py":8:5): error: 'ac.rule' op U1 requires exact low_bits and boundary witnesses
-[       OK ] ScalarNumericNextUseLoweringTest.ProofLocationOriginScopeSegmentsAndDomainsAreAuthoritative (114 ms)
+[       OK ] ScalarNumericNextUseLoweringTest.ProofLocationOriginScopeSegmentsAndDomainsAreAuthoritative (139 ms)
 [ RUN      ] ScalarNumericNextUseLoweringTest.FlagsReadSubstitutionConstantDomainAndExtraOpsAreRejected
 loc("counter.py":8:5): error: 'ac.rule' op U1 finite add SSA is invalid
 loc("counter.py":8:5): error: 'ac.rule' op U1 lowered binding domains or input authority are invalid
 loc("counter.py":8:5): error: 'ac.rule' op U1 lowered binding domains or input authority are invalid
 loc("counter.py":8:5): error: 'ac.rule' op U1 lowered binding domains or input authority are invalid
 loc("counter.py":8:5): error: 'ac.rule' op U1 lowered constant is malformed or unused
-[       OK ] ScalarNumericNextUseLoweringTest.FlagsReadSubstitutionConstantDomainAndExtraOpsAreRejected (118 ms)
+[       OK ] ScalarNumericNextUseLoweringTest.FlagsReadSubstitutionConstantDomainAndExtraOpsAreRejected (156 ms)
 [ RUN      ] ScalarNumericNextUseLoweringTest.SourceValidityChainCannotBeReplacedByLiteralTrue
 loc("counter.py":8:5): error: 'ac.rule' op U1 source arithmetic validity chain is invalid
-[       OK ] ScalarNumericNextUseLoweringTest.SourceValidityChainCannotBeReplacedByLiteralTrue (114 ms)
-[----------] 7 tests from ScalarNumericNextUseLoweringTest (937 ms total)
+[       OK ] ScalarNumericNextUseLoweringTest.SourceValidityChainCannotBeReplacedByLiteralTrue (134 ms)
+[----------] 7 tests from ScalarNumericNextUseLoweringTest (1130 ms total)
 
 [----------] Global test environment tear-down
-[==========] 91 tests from 15 test suites ran. (2106 ms total)
+[==========] 91 tests from 15 test suites ran. (2489 ms total)
 [  PASSED  ] 91 tests.

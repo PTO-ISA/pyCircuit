@@ -3,14 +3,14 @@ Running main() from /private/tmp/googletest-20250910-5249-qce8ci/googletest-1.17
 [----------] Global test environment set-up.
 [----------] 4 tests from MathIntAttrTest
 [ RUN      ] MathIntAttrTest.PreservesArbitraryPrecisionSignedDecimalValues
-[       OK ] MathIntAttrTest.PreservesArbitraryPrecisionSignedDecimalValues (1 ms)
+[       OK ] MathIntAttrTest.PreservesArbitraryPrecisionSignedDecimalValues (3 ms)
 [ RUN      ] MathIntAttrTest.MathematicalIdentityDoesNotDependOnHostBitWidth
 [       OK ] MathIntAttrTest.MathematicalIdentityDoesNotDependOnHostBitWidth (0 ms)
 [ RUN      ] MathIntAttrTest.InternalParserRejectsNonCanonicalDecimalSpellings
 [       OK ] MathIntAttrTest.InternalParserRejectsNonCanonicalDecimalSpellings (0 ms)
 [ RUN      ] MathIntAttrTest.AttributeAndTypeParsePrintRoundTrip
 [       OK ] MathIntAttrTest.AttributeAndTypeParsePrintRoundTrip (0 ms)
-[----------] 4 tests from MathIntAttrTest (1 ms total)
+[----------] 4 tests from MathIntAttrTest (4 ms total)
 
 [----------] 3 tests from SourceSpanContractTest
 [ RUN      ] SourceSpanContractTest.AcceptsPositiveOneBasedOrderedCoordinates
@@ -52,7 +52,7 @@ Running main() from /private/tmp/googletest-20250910-5249-qce8ci/googletest-1.17
 [       OK ] SourceIdentityContractsTest.OwnerAndStateIdentitiesAllowRootAndScalarEmptyPaths (0 ms)
 [ RUN      ] SourceIdentityContractsTest.StateRefDistinguishesOwnedAndFormalOrdinals
 [       OK ] SourceIdentityContractsTest.StateRefDistinguishesOwnedAndFormalOrdinals (0 ms)
-[----------] 8 tests from SourceIdentityContractsTest (0 ms total)
+[----------] 8 tests from SourceIdentityContractsTest (1 ms total)
 
 [----------] 5 tests from SourceStaticMatchingTest
 [ RUN      ] SourceStaticMatchingTest.UnboundedIntegerAcceptsArbitraryPrecisionPositiveAndNegativeValues
@@ -95,5 +95,5 @@ Running main() from /private/tmp/googletest-20250910-5249-qce8ci/googletest-1.17
 [----------] 12 tests from SourceTypeContractsTest (1 ms total)
 
 [----------] Global test environment tear-down
-[==========] 36 tests from 7 test suites ran. (5 ms total)
+[==========] 36 tests from 7 test suites ran. (9 ms total)
 [  PASSED  ] 36 tests.

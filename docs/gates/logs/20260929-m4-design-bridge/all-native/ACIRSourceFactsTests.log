@@ -3,13 +3,13 @@ Running main() from /private/tmp/googletest-20250910-5249-qce8ci/googletest-1.17
 [----------] Global test environment set-up.
 [----------] 14 tests from SourceFactsTest
 [ RUN      ] SourceFactsTest.CanonicalReadAndNextUseCloseTheRuleYield
-[       OK ] SourceFactsTest.CanonicalReadAndNextUseCloseTheRuleYield (2 ms)
+[       OK ] SourceFactsTest.CanonicalReadAndNextUseCloseTheRuleYield (10 ms)
 [ RUN      ] SourceFactsTest.UseAndValueIdentitiesAreClosedAndTyped
 [       OK ] SourceFactsTest.UseAndValueIdentitiesAreClosedAndTyped (0 ms)
 [ RUN      ] SourceFactsTest.TwoTargetUsesOwnTheirCorrespondingYieldPairs
 [       OK ] SourceFactsTest.TwoTargetUsesOwnTheirCorrespondingYieldPairs (0 ms)
 [ RUN      ] SourceFactsTest.TwoTargetUsesRejectCrossPairFanoutAndSwap
-[       OK ] SourceFactsTest.TwoTargetUsesRejectCrossPairFanoutAndSwap (0 ms)
+[       OK ] SourceFactsTest.TwoTargetUsesRejectCrossPairFanoutAndSwap (1 ms)
 [ RUN      ] SourceFactsTest.TwoTargetUseRejectsCombinerCrossTargetLeakage
 [       OK ] SourceFactsTest.TwoTargetUseRejectsCombinerCrossTargetLeakage (0 ms)
 [ RUN      ] SourceFactsTest.TwoTargetUsesRejectDuplicateUseIdentity
@@ -30,8 +30,8 @@ Running main() from /private/tmp/googletest-20250910-5249-qce8ci/googletest-1.17
 [       OK ] SourceFactsTest.UseDataAndEnabledMustReachTheirOwnYieldPair (0 ms)
 [ RUN      ] SourceFactsTest.RepeatedReadsOfOneCurrentKeepDistinctOrigins
 [       OK ] SourceFactsTest.RepeatedReadsOfOneCurrentKeepDistinctOrigins (0 ms)
-[----------] 14 tests from SourceFactsTest (6 ms total)
+[----------] 14 tests from SourceFactsTest (16 ms total)
 
 [----------] Global test environment tear-down
-[==========] 14 tests from 1 test suite ran. (6 ms total)
+[==========] 14 tests from 1 test suite ran. (16 ms total)
 [  PASSED  ] 14 tests.

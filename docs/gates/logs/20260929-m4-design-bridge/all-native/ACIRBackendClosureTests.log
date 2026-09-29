@@ -3,16 +3,16 @@ Running main() from /private/tmp/googletest-20250910-5249-qce8ci/googletest-1.17
 [----------] Global test environment set-up.
 [----------] 5 tests from BackendClosureTest
 [ RUN      ] BackendClosureTest.V31_OneVerifiedFinalGraphFeedsBothBackends
-[       OK ] BackendClosureTest.V31_OneVerifiedFinalGraphFeedsBothBackends (3809 ms)
+[       OK ] BackendClosureTest.V31_OneVerifiedFinalGraphFeedsBothBackends (2075 ms)
 [ RUN      ] BackendClosureTest.V31_ResidualSourceFactsRejectBeforePublication
-[       OK ] BackendClosureTest.V31_ResidualSourceFactsRejectBeforePublication (400 ms)
+[       OK ] BackendClosureTest.V31_ResidualSourceFactsRejectBeforePublication (474 ms)
 [ RUN      ] BackendClosureTest.V31_ForgedStageProofAndTargetSwapReject
-[       OK ] BackendClosureTest.V31_ForgedStageProofAndTargetSwapReject (404 ms)
+[       OK ] BackendClosureTest.V31_ForgedStageProofAndTargetSwapReject (451 ms)
 [ RUN      ] BackendClosureTest.V29_PermitProjectionMustReachEveryCommit
-[       OK ] BackendClosureTest.V29_PermitProjectionMustReachEveryCommit (409 ms)
+[       OK ] BackendClosureTest.V29_PermitProjectionMustReachEveryCommit (437 ms)
 [ RUN      ] BackendClosureTest.V30_ErrorCannotDependOnPostGatedEnable
-[       OK ] BackendClosureTest.V30_ErrorCannotDependOnPostGatedEnable (129 ms)
-[----------] 5 tests from BackendClosureTest (5153 ms total)
+[       OK ] BackendClosureTest.V30_ErrorCannotDependOnPostGatedEnable (145 ms)
+[----------] 5 tests from BackendClosureTest (3585 ms total)
 
 [----------] 1 test from FinalBackendEntryApiAvailability
 [ RUN      ] FinalBackendEntryApiAvailability.EmitsOnlyFromFinalProgram
@@ -20,5 +20,5 @@ Running main() from /private/tmp/googletest-20250910-5249-qce8ci/googletest-1.17
 [----------] 1 test from FinalBackendEntryApiAvailability (0 ms total)
 
 [----------] Global test environment tear-down
-[==========] 6 tests from 2 test suites ran. (5153 ms total)
+[==========] 6 tests from 2 test suites ran. (3585 ms total)
 [  PASSED  ] 6 tests.

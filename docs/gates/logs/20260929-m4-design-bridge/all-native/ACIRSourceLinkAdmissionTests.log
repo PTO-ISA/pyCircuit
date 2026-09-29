@@ -3,17 +3,17 @@ Running main() from /private/tmp/googletest-20250910-5249-qce8ci/googletest-1.17
 [----------] Global test environment set-up.
 [----------] 5 tests from SourceLinkAdmissionTest
 [ RUN      ] SourceLinkAdmissionTest.CompleteUnitsAreOrderIndependent
-[       OK ] SourceLinkAdmissionTest.CompleteUnitsAreOrderIndependent (366 ms)
+[       OK ] SourceLinkAdmissionTest.CompleteUnitsAreOrderIndependent (421 ms)
 [ RUN      ] SourceLinkAdmissionTest.MissingOrDuplicatePairsAreRejected
-[       OK ] SourceLinkAdmissionTest.MissingOrDuplicatePairsAreRejected (342 ms)
+[       OK ] SourceLinkAdmissionTest.MissingOrDuplicatePairsAreRejected (391 ms)
 [ RUN      ] SourceLinkAdmissionTest.MissingOrChangedOwnersAreRejected
-[       OK ] SourceLinkAdmissionTest.MissingOrChangedOwnersAreRejected (344 ms)
+[       OK ] SourceLinkAdmissionTest.MissingOrChangedOwnersAreRejected (390 ms)
 [ RUN      ] SourceLinkAdmissionTest.StaleNamespaceBindingIsRejected
-[       OK ] SourceLinkAdmissionTest.StaleNamespaceBindingIsRejected (347 ms)
+[       OK ] SourceLinkAdmissionTest.StaleNamespaceBindingIsRejected (388 ms)
 [ RUN      ] SourceLinkAdmissionTest.BodyMetadataAndDeclarationSnapshotsMustMatch
-[       OK ] SourceLinkAdmissionTest.BodyMetadataAndDeclarationSnapshotsMustMatch (344 ms)
-[----------] 5 tests from SourceLinkAdmissionTest (1745 ms total)
+[       OK ] SourceLinkAdmissionTest.BodyMetadataAndDeclarationSnapshotsMustMatch (394 ms)
+[----------] 5 tests from SourceLinkAdmissionTest (1985 ms total)
 
 [----------] Global test environment tear-down
-[==========] 5 tests from 1 test suite ran. (1745 ms total)
+[==========] 5 tests from 1 test suite ran. (1985 ms total)
 [  PASSED  ] 5 tests.

@@ -3,8 +3,8 @@ Running main() from /private/tmp/googletest-20250910-5249-qce8ci/googletest-1.17
 [----------] Global test environment set-up.
 [----------] 1 test from ObservationGraphContractsTest
 [ RUN      ] ObservationGraphContractsTest.BuiltObservationGraphVerifiesAndRejectsMutation
-[       OK ] ObservationGraphContractsTest.BuiltObservationGraphVerifiesAndRejectsMutation (131 ms)
-[----------] 1 test from ObservationGraphContractsTest (131 ms total)
+[       OK ] ObservationGraphContractsTest.BuiltObservationGraphVerifiesAndRejectsMutation (149 ms)
+[----------] 1 test from ObservationGraphContractsTest (149 ms total)
 
 [----------] 5 tests from ObservationContractsTest
 [ RUN      ] ObservationContractsTest.CanonicalPrintLogAndReportParseAndVerify
@@ -20,5 +20,5 @@ Running main() from /private/tmp/googletest-20250910-5249-qce8ci/googletest-1.17
 [----------] 5 tests from ObservationContractsTest (2 ms total)
 
 [----------] Global test environment tear-down
-[==========] 6 tests from 2 test suites ran. (134 ms total)
+[==========] 6 tests from 2 test suites ran. (152 ms total)
 [  PASSED  ] 6 tests.

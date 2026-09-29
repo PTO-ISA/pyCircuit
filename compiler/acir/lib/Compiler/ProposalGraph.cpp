@@ -183,20 +183,31 @@ buildSourceProposalGraph(const ModuleGraph &modules, const CheckGraph *checks,
   };
 
   for (InstanceView *view : modules.postOrder()) {
+    // Resolve the compiler stage once per view. The stage selects which logical
+    // attribute the regs carry: final designs have ac.logical_element stripped
+    // by final materialization, so their regs carry ac.logical_type only.
+    auto unit = view->module->getParentOfType<ModuleOp>();
+    auto stage =
+        unit ? unit->getAttrOfType<StringAttr>("ac.stage") : StringAttr();
+    if (!stage || (stage.getValue() != "source" && stage.getValue() != "final"))
+      return emitError() << "module has an unsupported compiler stage '"
+                         << (stage ? stage.getValue()
+                                   : llvm::StringRef("<missing>"))
+                         << "'";
+    bool finalStage = stage.getValue() == "final";
     for (ac::RegOp reg : view->module.getBody().front().getOps<ac::RegOp>()) {
       auto relative = ownedState(builder, reg);
       auto found = view->ownedStates.find(relative);
-      auto unit = view->module->getParentOfType<ModuleOp>();
-      auto stage =
-          unit ? unit->getAttrOfType<StringAttr>("ac.stage") : StringAttr();
-      if (!stage ||
-          (stage.getValue() != "source" && stage.getValue() != "final"))
-        return emitError() << "proposal reg has an unsupported compiler stage";
       auto logical = reg->getAttrOfType<DictionaryAttr>(
-          stage.getValue() == "final" ? "ac.logical_type"
-                                      : "ac.logical_element");
-      if (found == view->ownedStates.end() || !logical ||
-          failed(addState(found->second, logical)))
+          finalStage ? "ac.logical_type" : "ac.logical_element");
+      if (found == view->ownedStates.end())
+        return failure();
+      if (!logical)
+        return emitError()
+               << "proposal reg has no stage-matching logical type '"
+               << (finalStage ? "ac.logical_type" : "ac.logical_element")
+               << "'";
+      if (failed(addState(found->second, logical)))
         return failure();
     }
     auto ports = view->module->getAttrOfType<ArrayAttr>("ac.ports");

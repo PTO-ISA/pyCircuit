@@ -3,38 +3,38 @@ Running main() from /private/tmp/googletest-20250910-5249-qce8ci/googletest-1.17
 [----------] Global test environment set-up.
 [----------] 8 tests from SourceUnitHeaderTest
 [ RUN      ] SourceUnitHeaderTest.ExtraOrdinaryModuleMetadataIsAccepted
-[       OK ] SourceUnitHeaderTest.ExtraOrdinaryModuleMetadataIsAccepted (240 ms)
+[       OK ] SourceUnitHeaderTest.ExtraOrdinaryModuleMetadataIsAccepted (270 ms)
 [ RUN      ] SourceUnitHeaderTest.RequiredEnvelopeAttributesAreMandatoryAndTyped
-[       OK ] SourceUnitHeaderTest.RequiredEnvelopeAttributesAreMandatoryAndTyped (233 ms)
+[       OK ] SourceUnitHeaderTest.RequiredEnvelopeAttributesAreMandatoryAndTyped (261 ms)
 [ RUN      ] SourceUnitHeaderTest.DefinitionsUseEnclosingOwnerAndSnapshotsKeepAuthority
-[       OK ] SourceUnitHeaderTest.DefinitionsUseEnclosingOwnerAndSnapshotsKeepAuthority (235 ms)
+[       OK ] SourceUnitHeaderTest.DefinitionsUseEnclosingOwnerAndSnapshotsKeepAuthority (263 ms)
 [ RUN      ] SourceUnitHeaderTest.DeclarationAndConstructorKeysAreExact
-[       OK ] SourceUnitHeaderTest.DeclarationAndConstructorKeysAreExact (235 ms)
+[       OK ] SourceUnitHeaderTest.DeclarationAndConstructorKeysAreExact (266 ms)
 [ RUN      ] SourceUnitHeaderTest.ParameterMetadataAndPhysicalSignatureMustAgree
-[       OK ] SourceUnitHeaderTest.ParameterMetadataAndPhysicalSignatureMustAgree (248 ms)
+[       OK ] SourceUnitHeaderTest.ParameterMetadataAndPhysicalSignatureMustAgree (259 ms)
 [ RUN      ] SourceUnitHeaderTest.TypeDefaultNominalReturnAndImpureTamperingFail
-[       OK ] SourceUnitHeaderTest.TypeDefaultNominalReturnAndImpureTamperingFail (234 ms)
+[       OK ] SourceUnitHeaderTest.TypeDefaultNominalReturnAndImpureTamperingFail (286 ms)
 [ RUN      ] SourceUnitHeaderTest.ConstructorAndConsumerUseDeclaredFieldOrder
-[       OK ] SourceUnitHeaderTest.ConstructorAndConsumerUseDeclaredFieldOrder (234 ms)
+[       OK ] SourceUnitHeaderTest.ConstructorAndConsumerUseDeclaredFieldOrder (262 ms)
 [ RUN      ] SourceUnitHeaderTest.ConstructorAndParameterOriginsUseConstructorRelativePaths
-[       OK ] SourceUnitHeaderTest.ConstructorAndParameterOriginsUseConstructorRelativePaths (235 ms)
-[----------] 8 tests from SourceUnitHeaderTest (1897 ms total)
+[       OK ] SourceUnitHeaderTest.ConstructorAndParameterOriginsUseConstructorRelativePaths (263 ms)
+[----------] 8 tests from SourceUnitHeaderTest (2135 ms total)
 
 [----------] 6 tests from SourceUnitReviewTest
 [ RUN      ] SourceUnitReviewTest.OriginDefinitionsAreCheckedAtEveryDeclarationLayer
-[       OK ] SourceUnitReviewTest.OriginDefinitionsAreCheckedAtEveryDeclarationLayer (249 ms)
+[       OK ] SourceUnitReviewTest.OriginDefinitionsAreCheckedAtEveryDeclarationLayer (268 ms)
 [ RUN      ] SourceUnitReviewTest.ForgedBindingOrderAndDefaultGapAreRejected
-[       OK ] SourceUnitReviewTest.ForgedBindingOrderAndDefaultGapAreRejected (236 ms)
+[       OK ] SourceUnitReviewTest.ForgedBindingOrderAndDefaultGapAreRejected (262 ms)
 [ RUN      ] SourceUnitReviewTest.SnapshotComparisonNormalizesLocationsButRejectsBodyChanges
-[       OK ] SourceUnitReviewTest.SnapshotComparisonNormalizesLocationsButRejectsBodyChanges (236 ms)
+[       OK ] SourceUnitReviewTest.SnapshotComparisonNormalizesLocationsButRejectsBodyChanges (262 ms)
 [ RUN      ] SourceUnitReviewTest.ForwardReferenceToMalformedRecordDiagnosesWithoutCrash
-[       OK ] SourceUnitReviewTest.ForwardReferenceToMalformedRecordDiagnosesWithoutCrash (235 ms)
+[       OK ] SourceUnitReviewTest.ForwardReferenceToMalformedRecordDiagnosesWithoutCrash (268 ms)
 [ RUN      ] SourceUnitReviewTest.ImporterOriginsMatchKnownFixtureAstPathsAndProviderSource
-[       OK ] SourceUnitReviewTest.ImporterOriginsMatchKnownFixtureAstPathsAndProviderSource (229 ms)
+[       OK ] SourceUnitReviewTest.ImporterOriginsMatchKnownFixtureAstPathsAndProviderSource (265 ms)
 [ RUN      ] SourceUnitReviewTest.RawAndSnapshotLocationsRetainProviderPathButIgnoreDiagnosticCoordinates
-[       OK ] SourceUnitReviewTest.RawAndSnapshotLocationsRetainProviderPathButIgnoreDiagnosticCoordinates (256 ms)
-[----------] 6 tests from SourceUnitReviewTest (1444 ms total)
+[       OK ] SourceUnitReviewTest.RawAndSnapshotLocationsRetainProviderPathButIgnoreDiagnosticCoordinates (267 ms)
+[----------] 6 tests from SourceUnitReviewTest (1594 ms total)
 
 [----------] Global test environment tear-down
-[==========] 14 tests from 2 test suites ran. (3342 ms total)
+[==========] 14 tests from 2 test suites ran. (3730 ms total)
 [  PASSED  ] 14 tests.

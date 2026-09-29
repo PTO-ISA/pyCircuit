@@ -230,11 +230,14 @@ int main() {
   model.Build();
   model.Reset();
   for (int i = 0; i < 5; ++i) {
-    if (model.Step() != gfsim::SimStepResult::Running) return 10 + i;
+    if (model.Step() != gfsim::SimStepResult::Running)
+      return 10 + i;
   }
-  if (model.cycle() != 5) return 20;
+  if (model.cycle() != 5)
+    return 20;
   const auto gauges = model.Observations().Gauges();
-  if (gauges.size() != 1 || gauges.front().value.bits != 1) return 21;
+  if (gauges.size() != 1 || gauges.front().value.bits != 1)
+    return 21;
   std::cout << "CYCLE 5 COMPLETED 1\\n";
   return 0;
 }
@@ -301,7 +304,7 @@ def test_m2_source_design_file_is_one_input_to_both_emitters(
 ) -> None:
     source_root, units = _compile_m2_units(tmp_path)
 
-    # Linking must use the captured body/header pairs, without reopening Python.
+#Linking must use the captured body / header pairs, without reopening Python.
     assert 'path = "types.py"' in units[0].header.read_text()
     for source in source_root.glob("*.py"):
         source.unlink()
@@ -313,7 +316,7 @@ def test_m2_source_design_file_is_one_input_to_both_emitters(
     assert 'ac.source_owner = {package = "demo", path = "test_increment.py"}' in serialized
     assert 'package = "demo"' in serialized
 
-    # Each new process reparses the same final file and selects only its backend.
+#Each new process reparses the same final file and selects only its backend.
     cpp = tmp_path / "cpp.generated"
     verilog = tmp_path / "verilog.generated"
     cpp_result = _emit(program, "cpp", cpp)
@@ -344,8 +347,10 @@ def test_link_rejects_duplicate_source_or_unequal_unit_pair_before_output(
         pairs[1] = (units[1].body, units[0].header)
     output = tmp_path / f"{invalid_pair}.design.ac"
     completed = _link(units, output, pairs=pairs)
+    expected = ("duplicate source link SourceOwner" if invalid_pair == "duplicate"
+                else "body/header SourceOwner mismatch")
     assert completed.returncode != 0, completed.stdout
-    assert completed.stderr.strip()
+    assert expected in completed.stderr
     assert not output.exists()
 
 
@@ -360,7 +365,7 @@ def test_link_rejects_top_that_is_not_in_the_captured_source_closure(
     assert not output.exists()
 
 
-def test_emit_rejects_illegal_final_before_changing_existing_bytes(
+def test_emit_rejects_illegal_final_before_creating_output(
     tmp_path: Path,
 ) -> None:
     _, program = _linked_m2_design(tmp_path)
@@ -368,15 +373,13 @@ def test_emit_rejects_illegal_final_before_changing_existing_bytes(
     assert 'ac.stage = "final"' in text
     invalid = tmp_path / "invalid_design.ac"
     invalid.write_text(text.replace('ac.stage = "final"', 'ac.stage = "source"', 1))
-    output = tmp_path / "existing.cpp"
-    original = b"preserve these bytes\x00\xff"
-    output.write_bytes(original)
+    output = tmp_path / "must-not-exist.cpp"
 
     completed = _emit(invalid, "cpp", output)
 
     assert completed.returncode != 0, completed.stdout
-    assert completed.stderr.strip()
-    assert output.read_bytes() == original
+    assert "final hardware package envelope is not canonical" in completed.stderr
+    assert not output.exists()
 
 
 @pytest.mark.parametrize("mode", ["link", "cpp", "verilog"])
@@ -441,5 +444,7 @@ def test_final_logical_type_cannot_be_replaced_by_source_metadata(tmp_path, targ
     output = tmp_path / "must-not-exist"
     result = _emit(invalid, target, output)
     assert result.returncode != 0
-    assert "logical" in result.stderr.lower()
+#Assert the real diagnostic : a bare "logical" substring would also match the
+#tmp_path echoed in "cannot parse final design '<path>'".
+    assert "'ac.reg' op final register metadata is incomplete or mixed" in result.stderr
     assert not output.exists()

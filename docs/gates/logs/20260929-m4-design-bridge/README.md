@@ -77,16 +77,43 @@ design whose `ac.logical_type` is replaced by source-stage `ac.logical_element`
 
 ## Independent review
 
-Status: **requested, not yet returned** at the time this evidence and the
-candidate commit were written. A separate reviewer agent (not the author of any
-file in this overlay) was asked to adversarially review the stage-aware
-`ProposalGraph.cpp` change, the harness option/validation ordering, the negative
-coverage, and the absence of leftover `--program`/`acir-program-harness`
-references. Its verdict, any defects, and the resulting fixes are to be recorded
-here in a follow-up commit before this packet is called accepted.
+Reviewer: a separate reviewer agent in an independent context, not the author of
+any file in this overlay. Verdict on candidate `ede5aec7`: **FAIL**. The
+production bridge and the stage-aware fix were judged minimal and fail-closed,
+with no output-corruption, invalid-final-admission or new-IR-surface defect; FAIL
+was driven by two negative tests that passed without proving what they claimed.
+All findings were fixed and re-verified on this candidate.
 
-Verification evidence above is PM-run on the frozen candidate and is not a
-substitute for that review.
+| # | Finding | Severity | Resolution |
+| --- | --- | --- | --- |
+| 1 | `test_emit_rejects_illegal_final_before_changing_existing_bytes` was fully vacuous — the output already existed, so `publishNoClobber` refused with `File exists` whether or not the illegal final was rejected | blocker | renamed to `..._before_creating_output`; emits to a non-existent path, asserts `final hardware package envelope is not canonical` and `not output.exists()` |
+| 2 | `test_final_logical_type_cannot_be_replaced_by_source_metadata` asserted `"logical" in stderr`, which only matched the tmp_path echoed in `cannot parse final design '<path>'` | major | asserts the real diagnostic `'ac.reg' op final register metadata is incomplete or mixed` |
+| 3 | `!logical` returned a bare `failure()` with no diagnostic | minor | emits `proposal reg has no stage-matching logical type '<attribute>'` |
+| 4 | The `ac.stage` check sat inside the reg loop, so a reg-less module was never validated, contrary to the stated contract | minor | stage is resolved and validated once per instance view, before the reg loop |
+| 5 | `getParentOfType<ModuleOp>()` was recomputed for every reg | minor | hoisted out of the loop |
+| 6 | `test_link_rejects_duplicate_source_or_unequal_unit_pair_before_output` asserted only a non-empty stderr | minor (weak check) | asserts the specific diagnostic for each case |
+
+The reviewer also established — and this was confirmed independently — that the
+new stage-mismatch branches are **defence in depth** and unreachable through the
+design harness: `verifyFinalReg` (`ACIRFinalContracts.cpp:310-321`) and the final
+package envelope reject a final reg that lacks `ac.logical_type` or still carries
+`ac.logical_element`, and the source path is pre-checked by
+`preflightSourceLinkPair` (`SourceLink.cpp:22-39`). Observed on this candidate:
+both mutations fail with `'ac.reg' op final register metadata is incomplete or
+mixed`, and a non-final `ac.stage` fails with
+`final hardware package envelope is not canonical`. The branches are kept
+because they make the analysis fail closed on its own contract rather than
+relying on a caller's earlier check.
+
+**Negative control — the fix is load-bearing.** Reverting `ProposalGraph.cpp` to
+`6b514f90` and rebuilding makes the positive test
+`test_m2_source_design_file_is_one_input_to_both_emitters` fail with
+`error: proposal StateID has inconsistent exact LogicalTypes`. The stage-aware
+selection is therefore required to reparse and emit a final design, and is not
+an unexercised extra.
+
+Verification evidence above is PM-run on the frozen candidate and does not
+replace this review.
 
 ## Artifact naming correction
 
