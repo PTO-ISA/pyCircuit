@@ -172,6 +172,7 @@ def _compile_source_unit(
     # substitution between discovery and locking fails closed.
     inputs: list[_PublicationInput] = []
     directories: dict[tuple[str, str], Path] = {}
+    owners: dict[tuple[str, str], Mapping[str, object]] = {}
     for unit in interface_units:
         directory = Path(unit)
         owner = _discover_source_unit_owner(directory)
@@ -181,6 +182,7 @@ def _compile_source_unit(
         if key in directories:
             raise _PublicationError("two interface units declare the same source")
         directories[key] = directory
+        owners[key] = owner
         inputs.append(
             _PublicationInput(
                 destination=directory,
@@ -213,11 +215,13 @@ def _compile_source_unit(
             header_paths: list[Path] = []
             views: dict[tuple[str, str], object] = {}
             for index, key in enumerate(sorted(directories)):
-                expected = _discover_source_unit_owner(directories[key])
+                # The owner recorded before locking is the one the lock set
+                # validated against; reuse it rather than re-reading the receipt
+                # inside the held lock.
                 view = locks.snapshot(
                     directories[key],
                     functools.partial(
-                        _read_header_view, owner=expected, filesystem=fs
+                        _read_header_view, owner=owners[key], filesystem=fs
                     ),
                 )
                 views[key] = view
