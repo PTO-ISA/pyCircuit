@@ -304,8 +304,9 @@ lane：unit 174 项 0 failures/errors（3 项既有平台 skip）；focused syst
 **17 failed / 5 passed**，全部失败都带前端按设计拒绝 class/self 写法的诊断
 （`@module and @system require function definitions; class/self authoring has been
 retired`）。对**基线树**（`06680be2` detached worktree，同一 harness 二进制与同一环境，
-只有 checkout 不同）复跑得到同样的 17 failed / 9 passed，失败集合逐项一致 → 属既有陈旧
-fixture，不是本包回归，本包不修（另立有界任务）。
+只有 checkout 不同）复跑两个文件合计得到同样的 17 failed / 9 passed，失败集合逐项一致
+→ 属既有陈旧 fixture，不是本包回归，本包不修（另立有界任务）。拆开看：本文件自身是
+17 failed / 5 passed，transport 文件是 4 passed（合计 9 passed 即两者之和）。
 
 `tests/system/test_source_transport_mlir.py` **不是**陈旧 fixture，也**不**排除：它的 **4**
 项测试只受 `mlir-opt` 是否配置约束，而该工具在本机是 keg-only、不在 `PATH` 上。设好
@@ -318,7 +319,19 @@ MLIR_OPT or PYC_TOOLCHAIN_ROOT` 失败（该未配置运行作为工具门负向
 两个文件的收集数写成 15/6，并把 4 项 transport 失败误归因为已退役的 class/self fixture。
 功能结论未被否证。代码侧的低危项（在持有的锁内重复读取 interface receipt，形成第二个
 权威）已改为复用加锁前已验证的 owner（`51ec9ab5`）；证据更正落在 `d6233d1e`，其中
-overlay 哈希由提交后的字节重算。已请求对该两笔提交重新验证。
+overlay 哈希由提交后的字节重算。
+
+**复查（round 2）结论：PASS**（对 `51ec9ab5` + `d6233d1e`）。reviewer 独立重测三条 lane
+（raw XML 174/0/0/3、105/0/0/0、4/0/0/0，重跑 171 passed/3 skipped、105 passed、4 passed，
+退出码均 0），确认 XML 时间戳晚于 `51ec9ab5` 提交时间、且 `51ec9ab5`→`d6233d1e` 的
+`python/ compiler/ tests/` 差异为空（证据提交未动代码）。基线对比在全新 detached worktree
+重做，6461/6461 个跟踪文件与 `06680be2` 逐字节一致，两树同为 17 failed / 9 passed 且失败
+集合相同。五项 overlay 哈希与提交字节及工作树均一致。功能结论 1–9/11 在 `51ec9ab5` 上仍
+成立（对抗脚本 18/18、20/20）。一处非阻塞措辞已按 reviewer 建议澄清（上方 per-file 数字）。
+结论原文与 reviewer 自述的未验证范围已归档在
+[证据包](../gates/logs/20260929-source-compile-orchestration/README.md)。
+
+本包仍**不代表 M4 完成**，也未取得用户对 packet 的验收；该 PASS 是独立审查结论，不是用户批准。
 
 不新增公开 CLI/SDK/IR/runtime/manifest，也不实施一等 system。本包只是 M4 的逐源
 compile 环节，不代表 M4 完成。
