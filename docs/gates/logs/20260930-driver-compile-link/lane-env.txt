@@ -7,3 +7,4 @@ baseline tree: c47b779d38896685ad02682dd88dea2bc7e3bbdb  (d6233d1e was the packe
 candidate tree: df3f2283137deea8043ed8345a9d996b3d64a577  (commit A: implementation and tests)
 reviewed candidate: 57b1ed43  (first review: FAIL on declaration)
 fixed candidate: 0b35b2a2cafbd2b1780efeeac95524d3b7e37be5  (commit C: review fixes, all lanes re-run)
+round-2 fix candidate: 6228bcc4129ffd8107e40dfd911e536245160bfb  (all lanes re-run after the guard rewording)

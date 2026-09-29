@@ -9,4 +9,4 @@ tests/unit/test_driver_commands.py ..................................... [ 56%]
 tests/system/test_driver_compile_link.py .......................         [100%]
 
 - generated xml file: /Users/zhoubot/.codex/worktrees/migration-capture/pyCircuit/docs/gates/logs/20260930-driver-compile-link/driver.xml -
-============================= 66 passed in 30.08s ==============================
+============================= 66 passed in 29.36s ==============================

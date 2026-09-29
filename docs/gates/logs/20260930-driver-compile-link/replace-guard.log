@@ -38,3 +38,34 @@ content after: #loc1 = loc("counter.py":5:1)
 ## control marker must name the destination, so a copied/foreign control dir does not open the guard
 pycircuit link: refusing to replace a path this driver did not publish: /private/var/folders/dw/zd1zl_y14dndg0ydz1mdt25h0000gn/T/tmpsb0fk8cl/out/other.ac
 exit=1
+
+## ROUND 2: the reworded guard and the boundary of what it proves
+
+### guard rejection paths, reworded diagnostic
+$ printf 'user data\n' > out/f.ac ; link ... -o out/f.ac --replace
+pycircuit link: refusing to replace a path with no publication control directory: /private/var/folders/dw/zd1zl_y14dndg0ydz1mdt25h0000gn/T/tmp4esjt1z9/out/f.ac
+exit=1
+content: user data   control dir: no
+
+### (a') dangling symlink: previously SKIPPED the guard, now refused without seeding a control dir
+pycircuit link: refusing to replace a path with no publication control directory: /private/var/folders/dw/zd1zl_y14dndg0ydz1mdt25h0000gn/T/tmp4esjt1z9/out/n2.ac
+exit=1
+control dir: no  (no = the seeding path is closed)
+
+### RESIDUE (a), NOT closed: a FAILED command bootstraps the control dir (C3-C 160 requires it)
+$ link ... -o out/n1.ac          # fails: --top matches nothing
+pycircuit link: native link rejected the unit set: error: --top does not match the selected source graph root 'demo.counter.Counter'
+exit=1
+control dir after the failure: EXISTS; artifact: absent
+$ printf 'USER DATA NEVER PUBLISHED HERE\n' > out/n1.ac ; link ... -o out/n1.ac --replace
+exit=0
+content after: #loc1 = loc("counter.py":5:1)
+#loc5 = lo   (no longer the user's bytes = residue (a) reproduced)
+
+### RESIDUE (b), NOT closed: a hand-written marker opens the guard
+exit=0
+content after: #loc1 = loc("counter.py":5:1)   (residue (b) reproduced)
+
+### what remains genuinely enforced, and still works
+first publish exit=0
+republish exit=0
