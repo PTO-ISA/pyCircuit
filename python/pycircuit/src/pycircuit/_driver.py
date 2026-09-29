@@ -165,7 +165,13 @@ def _validate_published_program(path: Path, owner: Mapping[str, object]) -> None
 
     if not path.is_file() or path.is_symlink():
         raise _PublicationError("published program is not a regular file")
-    if not path.read_text(encoding="utf-8").strip():
+    try:
+        text = path.read_text(encoding="utf-8")
+    except UnicodeDecodeError as error:
+        # An undecodable target is corruption, and must report in that family
+        # rather than through the protocol's generic validation wrapper.
+        raise _PublicationError("published program is not UTF-8 text") from error
+    if not text.strip():
         raise _PublicationError("published program is empty")
     actual = _native_verify.verify_program_owner(path)
     if actual != dict(owner):

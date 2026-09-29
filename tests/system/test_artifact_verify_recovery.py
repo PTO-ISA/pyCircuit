@@ -93,9 +93,14 @@ def Other():
 # of the same corruption: the native verifier rejects the artifact, the verified
 # owner disagrees with the request, or the managed path carries no evidence.
 _CORRUPT_IR = "failed native verification"
+_CORRUPT_TEXT = "not UTF-8 text"
 _OWNER_MISMATCH = "owner does not match"
 _MISSING_CONTROL = "without a publication control directory"
 _MISSING_INPUT = ("not a directory", "no unit.json")
+# The protocol's wrapper for a validator that raised something other than a
+# publication error. A refusal that lands here has lost its reason, so no
+# corruption or owner refusal may be reported through it.
+_GENERIC_WRAPPER = "published artifact validation failed"
 
 
 def _expected_journal(name: str = "types", *, phase: str = "prepared") -> dict[str, object]:
@@ -197,21 +202,23 @@ def _diagnostic(result: subprocess.CompletedProcess[str], command: str) -> str:
 
 
 def _corruption(result: subprocess.CompletedProcess[str], command: str) -> str:
-    """A refusal that blames the artifact's IR, not its owner or its path."""
+    """A refusal that blames the artifact's content, not its owner or its path."""
 
     diagnostic = _diagnostic(result, command)
     assert _CORRUPT_IR in diagnostic, diagnostic
     assert _OWNER_MISMATCH not in diagnostic, diagnostic
     assert _MISSING_CONTROL not in diagnostic, diagnostic
+    assert _GENERIC_WRAPPER not in diagnostic, diagnostic
     return diagnostic
 
 
 def _owner_mismatch(result: subprocess.CompletedProcess[str], command: str) -> str:
-    """A refusal that blames the declared owner, not the artifact's IR."""
+    """A refusal that blames the declared owner, not the artifact's content."""
 
     diagnostic = _diagnostic(result, command)
     assert _OWNER_MISMATCH in diagnostic, diagnostic
     assert _CORRUPT_IR not in diagnostic, diagnostic
+    assert _GENERIC_WRAPPER not in diagnostic, diagnostic
     return diagnostic
 
 
@@ -584,6 +591,42 @@ def test_link_replace_refuses_plain_non_ir_text(
 
     _corruption(result, "link")
     assert destination.read_bytes() == text
+    _committed_control(destination)
+
+
+def test_link_replace_refuses_a_binary_non_utf8_target(
+    workspace: _Workspace, cli_environment: dict[str, str]
+) -> None:
+    """An undecodable target is corruption, with its own diagnostic.
+
+    A binary file at a published program path must be refused in the corruption
+    family. Reporting it through the protocol's generic
+    ``published artifact validation failed`` wrapper is the regression pinned
+    here: that wrapper erases the reason and would stop the three families from
+    being distinguishable.
+    """
+
+    types, counter = _published(cli_environment, workspace)
+    destination = _linked_program(
+        cli_environment, workspace, (types, counter), "demo.counter.Counter"
+    )
+    binary = b"\x00\x01\xff\xfe\x00binary"
+    destination.write_bytes(binary)
+
+    result = _link(
+        cli_environment,
+        (types, counter),
+        "demo.counter.Counter",
+        destination,
+        replace=True,
+    )
+
+    diagnostic = _diagnostic(result, "link")
+    assert _CORRUPT_TEXT in diagnostic, diagnostic
+    assert _GENERIC_WRAPPER not in diagnostic, diagnostic
+    assert _OWNER_MISMATCH not in diagnostic, diagnostic
+    assert _MISSING_CONTROL not in diagnostic, diagnostic
+    assert destination.read_bytes() == binary
     _committed_control(destination)
 
 
