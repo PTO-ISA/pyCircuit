@@ -1,0 +1,66 @@
+# Public CLI surface of the two new subcommands, 2026-09-29T17:00:14Z
+# Contract: C3-C c3-driver-runtime.md SHA-256 0c476ced27519cf93427a89f77b9348d388e96db57fb183790144d24118b1170
+
+## C3-C approved syntax
+```text
+pycircuit compile -c <one-source.py> --source-root <root>
+  [--package-prefix <dotted-prefix>]
+  [-I <interface-unit-dir>]... -o <unit-dir> [--replace]
+```
+```text
+pycircuit link <unit-dir>... --top <qualified-module>
+  [--parameters <bindings.json>] -o <program.ac> [--replace]
+```
+
+## pycircuit compile --help
+usage: pycircuit compile [-h] -c SOURCE --source-root SOURCE_ROOT
+                         [--package-prefix PACKAGE_PREFIX]
+                         [-I INTERFACE_UNITS] -o OUTPUT [--replace]
+
+options:
+  -h, --help            show this help message and exit
+  -c, --source SOURCE   The one Python source file to compile
+  --source-root SOURCE_ROOT
+                        Capture confinement root for the source
+  --package-prefix PACKAGE_PREFIX
+                        Dotted source-unit package prefix (default: empty)
+  -I, --interface-unit INTERFACE_UNITS
+                        A published managed interface unit directory
+                        (repeatable)
+  -o, --output OUTPUT   Published source unit directory
+  --replace             Republish the target under the same owner and artifact
+                        kind
+
+## pycircuit link --help
+usage: pycircuit link [-h] --top TOP [--parameters PARAMETERS] -o OUTPUT
+                      [--replace]
+                      units [units ...]
+
+positional arguments:
+  units                 Published source unit directories: the complete
+                        closure
+
+options:
+  -h, --help            show this help message and exit
+  --top TOP             Qualified module of the source graph root
+  --parameters PARAMETERS
+                        Ordered JSON bindings for the root's static parameters
+  -o, --output OUTPUT   Published program artifact path
+  --replace             Republish the target under the same owner and
+                        definition
+
+## top-level driver
+usage: pycircuit [-h] {compile,link,emit,build,sidecar} ...
+
+positional arguments:
+  {compile,link,emit,build,sidecar}
+    compile             Compile one Python source into one published source
+                        unit.
+    link                Link an explicitly listed unit closure into one
+                        published program.
+    emit                Emit PYC MLIR (*.pyc) from a Python design file.
+    build               Canonical flow: multi-.pyc emit + parallel pycc +
+                        CMake/Verilator.
+    sidecar             Inspect and verify sidecar schedule files.
+
+options:

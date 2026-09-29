@@ -1,0 +1,37 @@
+# adversarial probes, 2026-09-29T17:00:32Z
+
+## 1. duplicate source (same unit twice)
+pycircuit link: two link units declare the same source
+exit=1
+
+## 2. two directories declaring the same source
+pycircuit link: two link units declare the same source
+exit=1
+
+## 3. --top that matches no unit
+pycircuit link: native link rejected the unit set: error: --top does not match the selected source graph root 'demo.counter.Counter'
+exit=1
+
+## 4. body deleted: link must still fail (it reads the full closure)
+pycircuit link: unmanaged publication input is not accepted
+exit=1
+
+## 5. interface-only provider compiles but cannot be linked alone
+pycircuit link: native link rejected the unit set: error: module graph has no executable definition
+error: source link module graph admission failed
+exit=1
+
+## 6. symlinked unit path is rejected by the publication path chain
+pycircuit link: unmanaged publication input is not accepted
+exit=1
+
+## 7. output parent missing
+pycircuit link: publication parent does not exist
+exit=1
+
+## 8. two concurrent links to the same output path
+B exit=0
+A exit=1
+A: pycircuit link: publication destination already exists
+B: 
+published race.ac: yes; control: yes

@@ -1,0 +1,15 @@
+============================= test session starts ==============================
+platform darwin -- Python 3.14.6, pytest-9.0.2, pluggy-1.6.0
+rootdir: /Users/zhoubot/.codex/worktrees/migration-capture/pyCircuit
+configfile: pyproject.toml
+collected 60 items
+
+tests/unit/test_cli_entrypoints.py .......                               [ 11%]
+tests/unit/test_pyc6_surface.py ........................................ [ 78%]
+......                                                                   [ 88%]
+tests/unit/test_build_out_dir_contract.py .                              [ 90%]
+tests/unit/test_static_specialization_rejected.py ..                     [ 93%]
+tests/unit/test_example_layout.py ....                                   [100%]
+
+- generated xml file: /Users/zhoubot/.codex/worktrees/migration-capture/pyCircuit/docs/gates/logs/20260930-driver-compile-link/cli-regression.xml -
+============================== 60 passed in 5.21s ==============================

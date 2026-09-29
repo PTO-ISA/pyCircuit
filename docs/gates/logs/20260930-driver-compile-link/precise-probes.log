@@ -1,0 +1,35 @@
+# precise probes, 2026-09-29T17:01:03Z
+# note: the published stem follows the SOURCE file name, so counter.py publishes counter.ac
+
+## 0. control: the untouched unit links
+exit=0
+
+## A. body counter.ac deleted IN PLACE (control dir intact): link must fail
+counter.ac
+counter.d
+counter.interface.ac
+unit.json
+after rm:
+counter.d
+counter.interface.ac
+unit.json
+pycircuit link: source-unit directory file set is not closed
+exit=1
+  control dir intact: yes; published a.ac: no
+
+## B. depfile counter.d deleted IN PLACE: link must fail on the full closure
+pycircuit link: source-unit directory file set is not closed
+exit=1
+
+## C. symlinked OUTPUT parent: clean diagnostic, no traceback, nothing published
+pycircuit link: publication path traverses symlink or reparse point: /private/var/folders/dw/zd1zl_y14dndg0ydz1mdt25h0000gn/T/tmppchz1d3b/symout
+exit=1
+  realout entries: 0
+## C2. same for compile
+pycircuit compile: publication path traverses symlink or reparse point: /private/var/folders/dw/zd1zl_y14dndg0ydz1mdt25h0000gn/T/tmppchz1d3b/symout
+exit=1
+
+## D. contrast: compile needs only the managed interface; link needs the body
+  provider still has its body: yes
+  compile exit=0
+  link exit=0

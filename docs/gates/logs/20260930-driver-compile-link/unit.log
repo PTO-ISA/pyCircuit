@@ -1,0 +1,16 @@
+============================= test session starts ==============================
+platform darwin -- Python 3.14.6, pytest-9.0.2, pluggy-1.6.0
+rootdir: /Users/zhoubot/.codex/worktrees/migration-capture/pyCircuit
+configfile: pyproject.toml
+collected 174 items
+
+tests/unit/test_source_compile.py ...........                            [  6%]
+tests/unit/test_source_unit_files.py .........................           [ 20%]
+tests/unit/test_publication.py ......................................... [ 44%]
+.................................                                        [ 63%]
+tests/unit/test_publication_fs.py ............sss                        [ 71%]
+tests/unit/test_source_capture.py ....................................   [ 92%]
+tests/unit/test_source_transport.py .............                        [100%]
+
+- generated xml file: /Users/zhoubot/.codex/worktrees/migration-capture/pyCircuit/docs/gates/logs/20260930-driver-compile-link/unit.xml -
+======================== 171 passed, 3 skipped in 5.78s ========================

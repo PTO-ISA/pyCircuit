@@ -1,0 +1,34 @@
+# entry-owner channel evidence, 2026-09-29T16:59:20Z
+# candidate c47b779d38896685ad02682dd88dea2bc7e3bbdb plus this packet's working-tree changes
+
+$ pycircuit compile -c src/types.py --source-root src --package-prefix demo -o units/types
+exit=0
+$ pycircuit compile -c src/counter.py ... -I units/types -o units/counter
+exit=0
+
+# positive: the helper reports the ROOT source (counter.py), not the declaration provider (types.py)
+exit=0
+entry-owner.json: {"source":{"package":"demo","path":"counter.py"},"definition":"@\"demo.counter.Counter\""}
+
+# negative: emit mode rejects the link-only channel
+error: emit mode requires --design and --target cpp or verilog
+exit=2
+# negative: the report may not overwrite the published program
+error: --entry-owner-out must differ from --output
+exit=2
+# negative: an unknown option is still rejected by the strict option table
+error: unknown option '--entry-owner-x'
+exit=2
+
+# declared gap: linking a DIFFERENT root onto an existing program path with --replace
+compile other exit=0
+$ pycircuit link units/counter units/types --top demo.counter.Counter -o program.ac
+pycircuit link: publication destination already exists
+exit=1
+$ pycircuit link units/other units/types --top demo.other.Other -o program.ac --replace   # different root
+exit=0 (0 = the declared gap: a different owner replaced the same path)
+root module now in the program: sym_name = "demo.other.Other" 
+
+# control directory and its marker
+$ cat tmpa_5iam6a/units/../program.ac control:
+{"destination":"program.ac","kind":"pycircuit-publication-control"}
