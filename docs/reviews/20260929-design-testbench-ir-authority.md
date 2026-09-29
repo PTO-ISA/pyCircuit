@@ -138,3 +138,21 @@ driver 不得硬编码旧名或保留标签。
 op/role/端口/协议授权。产品侧已按该规则更新：私有桥 `--output` 仍由调用方给出、
 不自行发明名称，系统测试与证据中的链接产物名改为跟随源文件名
 （`test_increment.ac`）。
+
+## 修复记录（2026-09-29 后续处理）
+
+本记录的发现按下列状态逐条处理；本节只记状态与证据，不改写上面的原始发现与
+授权边界。
+
+| 发现 | 状态 | 处理与证据 |
+| --- | --- | --- |
+| §1.4 `FinalEmitVerilog` 把硬件 `FinalModel` 与 simulation wrapper `FinalModelSim` 输出在同一份文本 | **已修复** | 按 C3-C 已批准的 `rtl` / `runtime-glue` 角色拆分：`FinalVerilogEmission{rtl,runtimeGlue}` + `emitFinalVerilogParts`，`emitFinalVerilog` 保持字节不变；私有 harness `--glue-output` 把两个 role 写成两份文件，双目标先校验后创建、第二个失败回滚第一个。产品 commit `fcdb75e6`，复审 PASS + 溯源修正 `0d2e3ab6`，证据 `docs/gates/logs/20260929-m4-role-split/` |
+| §1.2 / §5 把"封闭测试系统跑通"当成"独立 design 可交付"；仅改名不算分离 | **已修复（工具层强制）** | ① 加 M4-D2 边界测试：DUT-only closure 单独 link 成设计产物（无 `ac.observe`/stimulus），system testbench 为独立产物，设计 `rtl` 无 `FinalModelSim`/`AC_OBS`，证据 `docs/gates/logs/20260929-m4-artifact-boundary/`；② 私有桥新增**显式 role 契约**：`--role design\|testbench`，`@system` root（`ac.root_kind = "system"`）必须是 `testbench`、否则 link/emit 都拒绝，`@module` root 不得标 `testbench`；emit 时按产物内的 `ac.root_kind` **再校验一次**。测试 `test_system_root_must_be_declared_as_a_testbench`、`test_module_root_rejects_the_testbench_role`、`test_emit_rechecks_the_role_against_the_artifact` |
+| §5 命名：设计产物名 | **已按用户指示修订** | 用户指令「ac应该是和python的文件名一致」，`.ac` 按来源 Python 文件名命名；记为用户指示修订 `docs/rfcs/migration/c3-artifact-naming-amendment.md`，C3-C 冻结正文不改 |
+| §1.5 私有回归夹具不得进入安装/导出面，也不得成为标准编译入口必须知道的模型 | **已核验并加回归守卫** | 三个私有 harness 的 `CMakeLists.txt` 均无 `install(`；`compiler/acir/lib/` 不引用 `TestIncrement`/`TestPipeline`/`ComposedFixture`。新增守卫测试 `test_private_regression_fixtures_do_not_leak_into_shipped_surfaces` 固定这两条 |
+| §1.3 `ac.system` 没有独立的 design/testbench role | **仍开放（需批准）** | 加 IR role 属性属新 op/role 接口，按本报告 §5 与 AGENTS 必须另行批准。当前不改 IR，改由工具层用既有 `ac.root_kind` 强制区分；若最终要在 IR/生成产物里落 role，需独立提案 |
+| §3 `ac.expect` 完整 ODS 字段缺逐字段批准映射 | **已提交审批请求** | `docs/rfcs/migration/c2-expect-schema.md`：现有 op 形状、逐字段 → C2-C 条款映射、已实现不变量与 9 项反例、拟逐字冻结文本、明确不覆盖范围；待用户决定 |
+
+本轮（工具层 role 契约 + 夹具泄漏守卫）的 lane 结果：80 Python system
+selector 通过、2 项 V44 deselected，0 failed / 0 skipped；native lane 未受影响
+（无编译器库源码变更，且无 native target 链接该私有工具）。
