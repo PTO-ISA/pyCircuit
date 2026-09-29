@@ -236,7 +236,22 @@ rather than left implicit:
 5. *(unverified)* hand-forging a fully consistent generic final rule is out of
    scope; every deletion or rewrite the reviewer could construct fails closed.
 
-**Acceptance:** PASS applies to `d877ff93`. The follow-up commit after it is
-clarity only — one added positive test plus documentation — and the same
-reviewer was asked to confirm it. This packet is not self-signed and does not
-mark M4, M5 or M7 done.
+**Follow-up confirmation:** the same reviewer instance confirmed `bc9c9030` as
+clarity-only and kept its PASS:
+
+- the compiler is byte-identical between `d877ff93` and `bc9c9030`
+  (`git diff --stat -- compiler/` empty, all five blob hashes equal), so every
+  finding it reported is unchanged;
+- the added `test_system_root_generic_rules_link_and_emit` is genuine and
+  non-vacuous: against its scratch `17f4b1e5` harnesses it fails with the exact
+  four-message pre-fix chain, so it really reproduces the third baseline row;
+- `git diff d877ff93 bc9c9030 -- tests/` is purely additive — no assertion was
+  removed, relaxed or re-scoped;
+- it independently reproduced the refreshed lanes (focused 63, system 90 with 2
+  deselected, native XMLs byte-unchanged at 355 across 20 binaries, no V44 case
+  in any XML) and verified all seven re-pinned overlay hashes.
+
+**Acceptance:** this packet is accepted on candidate `bc9c9030` for the items it
+claims, on the strength of the reviewer's PASS on `d877ff93` plus its
+confirmation of the clarity-only follow-up. It was not self-signed, and it does
+not mark M4, M5 or M7 done.
