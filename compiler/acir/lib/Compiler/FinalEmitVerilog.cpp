@@ -5,8 +5,9 @@
 using namespace mlir;
 
 namespace acir::compiler {
-FailureOr<std::string> emitFinalVerilogBody(const FinalProgram &program,
-                                            ac::detail::EmitError emitError) {
+FailureOr<FinalVerilogEmission>
+emitFinalVerilogPartsBody(const FinalProgram &program,
+                          ac::detail::EmitError emitError) {
   auto instances = program.instances();
   if (instances.empty() || program.rootInstanceOrdinal() >= instances.size() ||
       program.postOrderInstanceOrdinals().size() != instances.size())
@@ -277,8 +278,8 @@ FailureOr<std::string> emitFinalVerilogBody(const FinalProgram &program,
           << *value << "};\n"
           << "    obs_path_" << local << " = " << *path << ";\n";
     }
-    out << "  end\n" << expressions.declarations()
-        << "  assign subtree_error = local_error";
+    out << "  end\n"
+        << expressions.declarations() << "  assign subtree_error = local_error";
     for (size_t childPosition = 0;
          childPosition < instance.childOrdinals.size(); ++childPosition)
       out << " | child_" << childPosition << ".subtree_error";
@@ -393,25 +394,31 @@ FailureOr<std::string> emitFinalVerilogBody(const FinalProgram &program,
     return program.observations().bindings[left.binding].stableOrdinal <
            program.observations().bindings[right.binding].stableOrdinal;
   });
-  out << "module FinalModelSim(input logic clk, input logic reset);\n"
-         "  FinalModel dut(.clk(clk), .reset(reset));\n"
-         "  logic [63:0] evaluation_epoch = 64'd0;\n"
-         "  logic [63:0] captured_evaluation_epoch;\n"
-         "  logic [63:0] captured_commit_epoch;\n";
+  // Role boundary: the hardware RTL artifact ends at the FinalModel top above.
+  // Everything from here is the simulation observation wrapper that carries the
+  // runtime-glue role and instantiates that top.
+  out.flush();
+  std::string glueText;
+  llvm::raw_string_ostream glueOut(glueText);
+  glueOut << "module FinalModelSim(input logic clk, input logic reset);\n"
+             "  FinalModel dut(.clk(clk), .reset(reset));\n"
+             "  logic [63:0] evaluation_epoch = 64'd0;\n"
+             "  logic [63:0] captured_evaluation_epoch;\n"
+             "  logic [63:0] captured_commit_epoch;\n";
   for (size_t index = 0; index < records.size(); ++index)
-    out << "  logic [63:0] captured_value_" << index << ";\n"
-        << "  logic captured_valid_" << index << ";\n";
-  out << "  always @(posedge clk) begin\n"
-         "    if (reset) begin\n"
-         "      evaluation_epoch = 64'd0;\n"
-         "      captured_evaluation_epoch = 64'd0;\n"
-         "      captured_commit_epoch = 64'd0;\n";
+    glueOut << "  logic [63:0] captured_value_" << index << ";\n"
+            << "  logic captured_valid_" << index << ";\n";
+  glueOut << "  always @(posedge clk) begin\n"
+             "    if (reset) begin\n"
+             "      evaluation_epoch = 64'd0;\n"
+             "      captured_evaluation_epoch = 64'd0;\n"
+             "      captured_commit_epoch = 64'd0;\n";
   for (size_t index = 0; index < records.size(); ++index)
-    out << "      captured_value_" << index << " = 64'd0; captured_valid_"
-        << index << " = 1'b0;\n";
-  out << "    end else if (dut.root_commit_ok) begin\n"
-         "      captured_evaluation_epoch = evaluation_epoch;\n"
-         "      captured_commit_epoch = evaluation_epoch + 64'd1;\n";
+    glueOut << "      captured_value_" << index << " = 64'd0; captured_valid_"
+            << index << " = 1'b0;\n";
+  glueOut << "    end else if (dut.root_commit_ok) begin\n"
+             "      captured_evaluation_epoch = evaluation_epoch;\n"
+             "      captured_commit_epoch = evaluation_epoch + 64'd1;\n";
   for (auto [recordIndex, record] : llvm::enumerate(records)) {
     auto local = observationRanks[record.owner].find(record.binding);
     if (local == observationRanks[record.owner].end())
@@ -420,27 +427,27 @@ FailureOr<std::string> emitFinalVerilogBody(const FinalProgram &program,
     if (failed(instancePath))
       return failure();
     const std::string modulePath = "dut." + *instancePath;
-    out << "      captured_value_" << recordIndex << " = " << modulePath
-        << "obs_value_" << local->second << ";\n"
-        << "      captured_valid_" << recordIndex << " = " << modulePath
-        << "obs_path_" << local->second << ";\n";
+    glueOut << "      captured_value_" << recordIndex << " = " << modulePath
+            << "obs_value_" << local->second << ";\n"
+            << "      captured_valid_" << recordIndex << " = " << modulePath
+            << "obs_path_" << local->second << ";\n";
   }
-  out << "      evaluation_epoch = evaluation_epoch + 64'd1;\n";
+  glueOut << "      evaluation_epoch = evaluation_epoch + 64'd1;\n";
   for (auto [recordIndex, record] : llvm::enumerate(records)) {
     const ObservationBinding &observation =
         program.observations().bindings[record.binding];
-    out << "      if (captured_valid_" << recordIndex << ") $strobe(\"AC_OBS "
-        << observation.stableOrdinal << " " << record.owner << " "
-        << record.registration << " " << record.site
-        << " %0d %0d %0d\", captured_value_" << recordIndex
-        << ", captured_evaluation_epoch, captured_commit_epoch);\n";
+    glueOut << "      if (captured_valid_" << recordIndex
+            << ") $strobe(\"AC_OBS " << observation.stableOrdinal << " "
+            << record.owner << " " << record.registration << " " << record.site
+            << " %0d %0d %0d\", captured_value_" << recordIndex
+            << ", captured_evaluation_epoch, captured_commit_epoch);\n";
   }
-  out << "    end else begin\n";
+  glueOut << "    end else begin\n";
   for (size_t index = 0; index < records.size(); ++index)
-    out << "      captured_valid_" << index << " = 1'b0;\n";
-  out << "    end\n  end\nendmodule\n";
-  out.flush();
-  return text;
+    glueOut << "      captured_valid_" << index << " = 1'b0;\n";
+  glueOut << "    end\n  end\nendmodule\n";
+  glueOut.flush();
+  return FinalVerilogEmission{std::move(text), std::move(glueText)};
 }
 
 } // namespace acir::compiler

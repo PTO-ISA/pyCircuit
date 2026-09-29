@@ -31,10 +31,27 @@ FailureOr<std::string> emitFinalCpp(const FinalProgram &program,
                       [&] { return emitFinalCppBody(program, emitError); });
 }
 
+FailureOr<FinalVerilogEmission>
+emitFinalVerilogParts(const FinalProgram &program,
+                      ac::detail::EmitError emitError) {
+  if (failed(verifyFinalProgram(program, emitError)))
+    return failure();
+  if (!program.isEmitReady())
+    return emitError() << "final emitter requires an EmitReady FinalProgram";
+  auto parts = emitFinalVerilogPartsBody(program, emitError);
+  if (failed(parts))
+    return failure();
+  if (failed(verifyFinalProgram(program, emitError)))
+    return emitError() << "final program changed during emission";
+  return parts;
+}
+
 FailureOr<std::string> emitFinalVerilog(const FinalProgram &program,
                                         ac::detail::EmitError emitError) {
-  return emitVerified(program, emitError,
-                      [&] { return emitFinalVerilogBody(program, emitError); });
+  auto parts = emitFinalVerilogParts(program, emitError);
+  if (failed(parts))
+    return failure();
+  return parts->rtl + parts->runtimeGlue;
 }
 
 } // namespace acir::compiler

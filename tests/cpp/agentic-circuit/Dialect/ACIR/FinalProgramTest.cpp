@@ -653,6 +653,23 @@ TEST_F(FinalProgramTest, FinalEmittersAreDeterministicAndToolAccepted) {
   EXPECT_NE(verilog->find("input logic reset"), std::string::npos);
   EXPECT_NE(verilog->find("always_ff @(posedge clk)"), std::string::npos);
   EXPECT_NE(verilog->find("global_permit"), std::string::npos);
+  // C3 generated-file roles: the hardware rtl artifact and the simulation
+  // runtime-glue wrapper are separable, and the split is only a file-role
+  // boundary because the concatenation is byte-identical to the combined
+  // emission.
+  auto parts = emitFinalVerilogParts(*ready, emitError());
+  ASSERT_TRUE(mlir::succeeded(parts));
+  EXPECT_EQ(*verilog, parts->rtl + parts->runtimeGlue);
+  auto partsAgain = emitFinalVerilogParts(*ready, emitError());
+  ASSERT_TRUE(mlir::succeeded(partsAgain));
+  EXPECT_EQ(parts->rtl, partsAgain->rtl);
+  EXPECT_EQ(parts->runtimeGlue, partsAgain->runtimeGlue);
+  EXPECT_NE(parts->rtl.find("module FinalModel("), std::string::npos);
+  EXPECT_EQ(parts->rtl.find("FinalModelSim"), std::string::npos);
+  EXPECT_NE(parts->runtimeGlue.find("module FinalModelSim("),
+            std::string::npos);
+  EXPECT_EQ(parts->runtimeGlue.find("module FinalModel("), std::string::npos);
+  EXPECT_NE(parts->runtimeGlue.find("FinalModel dut("), std::string::npos);
   for (llvm::StringRef forbidden : {"Queue", "SimQueue", "ac.source", "pyc."}) {
     EXPECT_EQ(cpp->find(forbidden.str()), std::string::npos) << forbidden.str();
     EXPECT_EQ(verilog->find(forbidden.str()), std::string::npos)

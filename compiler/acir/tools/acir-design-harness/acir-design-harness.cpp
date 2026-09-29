@@ -26,6 +26,7 @@ struct Options {
   std::optional<std::string> design;
   std::optional<std::string> target;
   std::optional<std::string> output;
+  std::optional<std::string> glueOutput;
 };
 
 bool setOnce(std::optional<std::string> &slot, llvm::StringRef value,
@@ -42,7 +43,8 @@ bool parseOptions(int argc, char **argv, Options &options) {
   for (int i = 1; i < argc; ++i) {
     llvm::StringRef arg(argv[i]);
     if (arg != "--body" && arg != "--header" && arg != "--top" &&
-        arg != "--design" && arg != "--target" && arg != "--output") {
+        arg != "--design" && arg != "--target" && arg != "--output" &&
+        arg != "--glue-output") {
       llvm::errs() << "error: unknown option '" << arg << "'\n";
       return false;
     }
@@ -65,6 +67,9 @@ bool parseOptions(int argc, char **argv, Options &options) {
       if (!setOnce(options.target, value, arg))
         return false;
     } else if (arg == "--output" && !setOnce(options.output, value, arg)) {
+      return false;
+    } else if (arg == "--glue-output" &&
+               !setOnce(options.glueOutput, value, arg)) {
       return false;
     }
   }
@@ -90,6 +95,16 @@ bool parseOptions(int argc, char **argv, Options &options) {
              (*options.target != "cpp" && *options.target != "verilog")) {
     llvm::errs() << "error: emit mode requires --design and --target cpp or "
                     "verilog\n";
+    return false;
+  }
+  if (options.glueOutput &&
+      (hasLink || !options.design || *options.target != "verilog")) {
+    llvm::errs() << "error: --glue-output separates the Verilog runtime-glue "
+                    "role and requires emit mode with --target verilog\n";
+    return false;
+  }
+  if (options.glueOutput && *options.glueOutput == *options.output) {
+    llvm::errs() << "error: --glue-output must differ from --output\n";
     return false;
   }
   return true;
@@ -123,6 +138,31 @@ bool publishNoClobber(llvm::StringRef path, llvm::StringRef contents) {
   if (output.has_error()) {
     llvm::errs() << "error: failed closing output '" << path << "'\n";
     llvm::sys::fs::remove(path);
+    return false;
+  }
+  return true;
+}
+
+// Publish the two role files of one Verilog emission. Both destinations are
+// checked before either is created, and a failure on the second removes the
+// first, so a rejected bundle never leaves a half-published artifact behind.
+bool publishNoClobberPair(llvm::StringRef primaryPath, llvm::StringRef primary,
+                          llvm::StringRef secondaryPath,
+                          llvm::StringRef secondary) {
+  if (llvm::sys::fs::exists(primaryPath)) {
+    llvm::errs() << "error: cannot create output '" << primaryPath
+                 << "' without replacing an existing path\n";
+    return false;
+  }
+  if (llvm::sys::fs::exists(secondaryPath)) {
+    llvm::errs() << "error: cannot create output '" << secondaryPath
+                 << "' without replacing an existing path\n";
+    return false;
+  }
+  if (!publishNoClobber(primaryPath, primary))
+    return false;
+  if (!publishNoClobber(secondaryPath, secondary)) {
+    llvm::sys::fs::remove(primaryPath);
     return false;
   }
   return true;
@@ -188,7 +228,7 @@ mlir::LogicalResult runLink(const Options &options, mlir::MLIRContext &context,
 }
 
 mlir::LogicalResult runEmit(const Options &options, mlir::MLIRContext &context,
-                            std::string &result) {
+                            std::string &result, std::string &glueResult) {
   auto input = readModule(*options.design, context);
   if (!input) {
     llvm::errs() << "error: cannot parse final design '" << *options.design
@@ -204,12 +244,27 @@ mlir::LogicalResult runEmit(const Options &options, mlir::MLIRContext &context,
       acir::compiler::buildFinalProgramFromHardware(*input, emitError);
   if (mlir::failed(program))
     return mlir::failure();
-  auto emitted = *options.target == "cpp"
-                     ? acir::compiler::emitFinalCpp(*program, emitError)
-                     : acir::compiler::emitFinalVerilog(*program, emitError);
-  if (mlir::failed(emitted))
+  if (*options.target == "cpp") {
+    auto emitted = acir::compiler::emitFinalCpp(*program, emitError);
+    if (mlir::failed(emitted))
+      return mlir::failure();
+    result = std::move(*emitted);
+    return mlir::success();
+  }
+  if (!options.glueOutput) {
+    auto emitted = acir::compiler::emitFinalVerilog(*program, emitError);
+    if (mlir::failed(emitted))
+      return mlir::failure();
+    result = std::move(*emitted);
+    return mlir::success();
+  }
+  // Separate the two C3 generated-file roles: --output carries the hardware
+  // `rtl` artifact and --glue-output carries the `runtime-glue` wrapper.
+  auto parts = acir::compiler::emitFinalVerilogParts(*program, emitError);
+  if (mlir::failed(parts))
     return mlir::failure();
-  result = std::move(*emitted);
+  result = std::move(parts->rtl);
+  glueResult = std::move(parts->runtimeGlue);
   return mlir::success();
 }
 
@@ -227,10 +282,16 @@ int main(int argc, char **argv) {
   context.loadAllAvailableDialects();
 
   std::string result;
-  mlir::LogicalResult status = options.design
-                                   ? runEmit(options, context, result)
-                                   : runLink(options, context, result);
+  std::string glueResult;
+  mlir::LogicalResult status =
+      options.design ? runEmit(options, context, result, glueResult)
+                     : runLink(options, context, result);
   if (mlir::failed(status))
     return 1;
+  if (options.glueOutput)
+    return publishNoClobberPair(*options.output, result, *options.glueOutput,
+                                glueResult)
+               ? 0
+               : 1;
   return publishNoClobber(*options.output, result) ? 0 : 1;
 }

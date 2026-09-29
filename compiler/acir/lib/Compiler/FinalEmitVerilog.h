@@ -5,9 +5,9 @@
 
 namespace acir::compiler {
 
-mlir::FailureOr<std::string>
-emitFinalVerilogBody(const FinalProgram &program,
-                     ac::detail::EmitError emitError);
+mlir::FailureOr<FinalVerilogEmission>
+emitFinalVerilogPartsBody(const FinalProgram &program,
+                          ac::detail::EmitError emitError);
 
 } // namespace acir::compiler
 

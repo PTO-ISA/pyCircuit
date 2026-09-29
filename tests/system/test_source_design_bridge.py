@@ -185,16 +185,14 @@ def _link(
 
 
 def _emit(program: Path, target: str, output: Path) -> subprocess.CompletedProcess[str]:
+    return _design_command(program, ["--target", target, "--output", str(output)])
+
+
+def _design_command(
+    program: Path, arguments: list[str]
+) -> subprocess.CompletedProcess[str]:
     return subprocess.run(
-        [
-            str(_design_harness()),
-            "--design",
-            str(program),
-            "--target",
-            target,
-            "--output",
-            str(output),
-        ],
+        [str(_design_harness()), "--design", str(program), *arguments],
         text=True,
         capture_output=True,
         check=False,
@@ -230,14 +228,11 @@ int main() {
   model.Build();
   model.Reset();
   for (int i = 0; i < 5; ++i) {
-    if (model.Step() != gfsim::SimStepResult::Running)
-      return 10 + i;
+    if (model.Step() != gfsim::SimStepResult::Running) return 10 + i;
   }
-  if (model.cycle() != 5)
-    return 20;
+  if (model.cycle() != 5) return 20;
   const auto gauges = model.Observations().Gauges();
-  if (gauges.size() != 1 || gauges.front().value.bits != 1)
-    return 21;
+  if (gauges.size() != 1 || gauges.front().value.bits != 1) return 21;
   std::cout << "CYCLE 5 COMPLETED 1\\n";
   return 0;
 }
@@ -305,7 +300,7 @@ def test_m2_source_design_file_is_one_input_to_both_emitters(
 ) -> None:
     source_root, units = _compile_m2_units(tmp_path)
 
-#Linking must use the captured body / header pairs, without reopening Python.
+    # Linking must use the captured body/header pairs, without reopening Python.
     assert 'path = "types.py"' in units[0].header.read_text()
     for source in source_root.glob("*.py"):
         source.unlink()
@@ -318,7 +313,7 @@ def test_m2_source_design_file_is_one_input_to_both_emitters(
     assert 'ac.source_owner = {package = "demo", path = "test_increment.py"}' in serialized
     assert 'package = "demo"' in serialized
 
-#Each new process reparses the same final file and selects only its backend.
+    # Each new process reparses the same final file and selects only its backend.
     cpp = tmp_path / "cpp.generated"
     verilog = tmp_path / "verilog.generated"
     cpp_result = _emit(program, "cpp", cpp)
@@ -446,7 +441,122 @@ def test_final_logical_type_cannot_be_replaced_by_source_metadata(tmp_path, targ
     output = tmp_path / "must-not-exist"
     result = _emit(invalid, target, output)
     assert result.returncode != 0
-#Assert the real diagnostic : a bare "logical" substring would also match the
-#tmp_path echoed in "cannot parse final design '<path>'".
+    # Assert the real diagnostic: a bare "logical" substring would also match
+    # the tmp_path echoed in "cannot parse final design '<path>'".
     assert "'ac.reg' op final register metadata is incomplete or mixed" in result.stderr
     assert not output.exists()
+
+
+def test_emit_splits_hardware_rtl_from_runtime_glue(tmp_path: Path) -> None:
+    """C3 generated-file roles: the hardware rtl artifact must not carry the
+    simulation observation wrapper, and splitting must not change the bytes."""
+    _, program = _linked_m2_design(tmp_path)
+    combined = tmp_path / "combined.sv"
+    rtl = tmp_path / "rtl.sv"
+    glue = tmp_path / "glue.sv"
+
+    assert _emit(program, "verilog", combined).returncode == 0
+    split = _design_command(
+        program,
+        ["--target", "verilog", "--output", str(rtl), "--glue-output", str(glue)],
+    )
+
+    assert split.returncode == 0, split.stderr
+    assert rtl.read_text() + glue.read_text() == combined.read_text()
+    assert "module FinalModel(" in rtl.read_text()
+    assert "FinalModelSim" not in rtl.read_text()
+    assert "module FinalModelSim(" in glue.read_text()
+    assert "module FinalModel(" not in glue.read_text()
+    assert "FinalModel dut(" in glue.read_text()
+
+
+def test_glue_output_requires_verilog_emit_mode(tmp_path: Path) -> None:
+    _, program = _linked_m2_design(tmp_path)
+    output = tmp_path / "must-not-exist.cpp"
+    glue = tmp_path / "must-not-exist.glue.sv"
+
+    result = _design_command(
+        program,
+        ["--target", "cpp", "--output", str(output), "--glue-output", str(glue)],
+    )
+
+    assert result.returncode == 2
+    assert "requires emit mode with --target verilog" in result.stderr
+    assert not output.exists()
+    assert not glue.exists()
+
+
+def test_glue_output_is_rejected_in_link_mode(tmp_path: Path) -> None:
+    units, _ = _linked_m2_design(tmp_path)
+    output = tmp_path / "must-not-exist.ac"
+    glue = tmp_path / "must-not-exist.sv"
+    command = [str(_design_harness())]
+    for unit in units:
+        command.extend(("--body", str(unit.body), "--header", str(unit.header)))
+    command.extend(("--top", "demo.test_increment.TestIncrement", "--target", "final",
+                    "--output", str(output), "--glue-output", str(glue)))
+
+    result = subprocess.run(command, text=True, capture_output=True, check=False)
+
+    assert result.returncode == 2
+    assert "requires emit mode with --target verilog" in result.stderr
+    assert not output.exists()
+    assert not glue.exists()
+
+
+def test_glue_output_must_differ_from_output(tmp_path: Path) -> None:
+    _, program = _linked_m2_design(tmp_path)
+    output = tmp_path / "same.sv"
+
+    result = _design_command(
+        program,
+        ["--target", "verilog", "--output", str(output), "--glue-output", str(output)],
+    )
+
+    assert result.returncode == 2
+    assert "must differ from --output" in result.stderr
+    assert not output.exists()
+
+
+@pytest.mark.parametrize(
+    "existing_kind", ["file", "directory", "symlink", "dangling-symlink"]
+)
+def test_glue_output_refuses_existing_paths_without_publishing(
+    tmp_path: Path, existing_kind: str
+) -> None:
+    """A rejected bundle must publish neither role file, including the rollback
+    path where the rtl file is created before the glue destination is refused."""
+    _, program = _linked_m2_design(tmp_path)
+    rtl = tmp_path / "rtl.sv"
+    glue = tmp_path / "glue.sv"
+    target = tmp_path / "symlink-target"
+    original = b"existing glue bytes\x00"
+    if existing_kind == "file":
+        glue.write_bytes(original)
+    elif existing_kind == "directory":
+        glue.mkdir()
+        (glue / "sentinel").write_bytes(original)
+    elif existing_kind == "symlink":
+        target.write_bytes(original)
+        glue.symlink_to(target)
+    else:
+        glue.symlink_to(tmp_path / "absent-target")
+
+    result = _design_command(
+        program,
+        ["--target", "verilog", "--output", str(rtl), "--glue-output", str(glue)],
+    )
+
+    assert result.returncode != 0, result.stdout
+    assert "cannot create output" in result.stderr
+    assert not rtl.exists()
+    if existing_kind == "file":
+        assert glue.read_bytes() == original
+    elif existing_kind == "directory":
+        assert (glue / "sentinel").read_bytes() == original
+    elif existing_kind == "symlink":
+        assert glue.is_symlink()
+        assert target.read_bytes() == original
+    else:
+        assert glue.is_symlink()
+        assert not glue.resolve(strict=False).exists()

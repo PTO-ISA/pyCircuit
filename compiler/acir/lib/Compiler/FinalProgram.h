@@ -261,6 +261,21 @@ mlir::FailureOr<std::string> emitFinalCpp(const FinalProgram &program,
 mlir::FailureOr<std::string> emitFinalVerilog(const FinalProgram &program,
                                               ac::detail::EmitError emitError);
 
+// One verified Verilog emission, split by the C3 generated-file roles. `rtl` is
+// the hardware artifact (module families plus the portless FinalModel top) and
+// carries the `rtl` role. `runtimeGlue` is the simulation observation wrapper
+// that instantiates the hardware top and carries the `runtime-glue` role. This
+// is only a file-role boundary: `rtl + runtimeGlue` is byte-identical to what
+// emitFinalVerilog returns for the same program.
+struct FinalVerilogEmission {
+  std::string rtl;
+  std::string runtimeGlue;
+};
+
+mlir::FailureOr<FinalVerilogEmission>
+emitFinalVerilogParts(const FinalProgram &program,
+                      ac::detail::EmitError emitError);
+
 } // namespace acir::compiler
 
 #endif // ACIR_LIB_COMPILER_FINALPROGRAM_H

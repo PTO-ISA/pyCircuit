@@ -1,0 +1,99 @@
+Running main() from /private/tmp/googletest-20250910-5249-qce8ci/googletest-1.17.0/googletest/src/gtest_main.cc
+[==========] Running 36 tests from 7 test suites.
+[----------] Global test environment set-up.
+[----------] 4 tests from MathIntAttrTest
+[ RUN      ] MathIntAttrTest.PreservesArbitraryPrecisionSignedDecimalValues
+[       OK ] MathIntAttrTest.PreservesArbitraryPrecisionSignedDecimalValues (0 ms)
+[ RUN      ] MathIntAttrTest.MathematicalIdentityDoesNotDependOnHostBitWidth
+[       OK ] MathIntAttrTest.MathematicalIdentityDoesNotDependOnHostBitWidth (0 ms)
+[ RUN      ] MathIntAttrTest.InternalParserRejectsNonCanonicalDecimalSpellings
+[       OK ] MathIntAttrTest.InternalParserRejectsNonCanonicalDecimalSpellings (0 ms)
+[ RUN      ] MathIntAttrTest.AttributeAndTypeParsePrintRoundTrip
+[       OK ] MathIntAttrTest.AttributeAndTypeParsePrintRoundTrip (0 ms)
+[----------] 4 tests from MathIntAttrTest (0 ms total)
+
+[----------] 3 tests from SourceSpanContractTest
+[ RUN      ] SourceSpanContractTest.AcceptsPositiveOneBasedOrderedCoordinates
+[       OK ] SourceSpanContractTest.AcceptsPositiveOneBasedOrderedCoordinates (0 ms)
+[ RUN      ] SourceSpanContractTest.RejectsMissingUnknownAndWrongKindFields
+[       OK ] SourceSpanContractTest.RejectsMissingUnknownAndWrongKindFields (0 ms)
+[ RUN      ] SourceSpanContractTest.RejectsBoolNonPositiveAndReversedCoordinates
+[       OK ] SourceSpanContractTest.RejectsBoolNonPositiveAndReversedCoordinates (0 ms)
+[----------] 3 tests from SourceSpanContractTest (0 ms total)
+
+[----------] 1 test from PathComponentContractTest
+[ RUN      ] PathComponentContractTest.AcceptsOnlyClosedFieldAndIndexVariants
+[       OK ] PathComponentContractTest.AcceptsOnlyClosedFieldAndIndexVariants (0 ms)
+[----------] 1 test from PathComponentContractTest (0 ms total)
+
+[----------] 3 tests from SiteContractTest
+[ RUN      ] SiteContractTest.AcceptsFlatDefinitionsAndBothPathVariants
+[       OK ] SiteContractTest.AcceptsFlatDefinitionsAndBothPathVariants (0 ms)
+[ RUN      ] SiteContractTest.RejectsMissingUnknownAndWrongKindFields
+[       OK ] SiteContractTest.RejectsMissingUnknownAndWrongKindFields (0 ms)
+[ RUN      ] SiteContractTest.NonDictionaryPathElementEmitsADiagnostic
+[       OK ] SiteContractTest.NonDictionaryPathElementEmitsADiagnostic (0 ms)
+[----------] 3 tests from SiteContractTest (0 ms total)
+
+[----------] 8 tests from SourceIdentityContractsTest
+[ RUN      ] SourceIdentityContractsTest.SourceOwnerEnforcesOnlyApprovedPosixPathRules
+[       OK ] SourceIdentityContractsTest.SourceOwnerEnforcesOnlyApprovedPosixPathRules (0 ms)
+[ RUN      ] SourceIdentityContractsTest.ExpansionFramesAcceptBothClosedVariants
+[       OK ] SourceIdentityContractsTest.ExpansionFramesAcceptBothClosedVariants (0 ms)
+[ RUN      ] SourceIdentityContractsTest.OccurrencePreservesEmptyAndOrderedDuplicateExpansionFrames
+[       OK ] SourceIdentityContractsTest.OccurrencePreservesEmptyAndOrderedDuplicateExpansionFrames (0 ms)
+[ RUN      ] SourceIdentityContractsTest.SpecKeyAcceptsEmptySymbolsEmptyArgumentsAndOrderedDuplicates
+[       OK ] SourceIdentityContractsTest.SpecKeyAcceptsEmptySymbolsEmptyArgumentsAndOrderedDuplicates (0 ms)
+[ RUN      ] SourceIdentityContractsTest.U32AndU64FieldsHonorMathematicalValueRange
+[       OK ] SourceIdentityContractsTest.U32AndU64FieldsHonorMathematicalValueRange (0 ms)
+[ RUN      ] SourceIdentityContractsTest.CheckValueAndProofIdentitiesRejectMalformedNestedChildren
+[       OK ] SourceIdentityContractsTest.CheckValueAndProofIdentitiesRejectMalformedNestedChildren (0 ms)
+[ RUN      ] SourceIdentityContractsTest.OwnerAndStateIdentitiesAllowRootAndScalarEmptyPaths
+[       OK ] SourceIdentityContractsTest.OwnerAndStateIdentitiesAllowRootAndScalarEmptyPaths (0 ms)
+[ RUN      ] SourceIdentityContractsTest.StateRefDistinguishesOwnedAndFormalOrdinals
+[       OK ] SourceIdentityContractsTest.StateRefDistinguishesOwnedAndFormalOrdinals (0 ms)
+[----------] 8 tests from SourceIdentityContractsTest (0 ms total)
+
+[----------] 5 tests from SourceStaticMatchingTest
+[ RUN      ] SourceStaticMatchingTest.UnboundedIntegerAcceptsArbitraryPrecisionPositiveAndNegativeValues
+[       OK ] SourceStaticMatchingTest.UnboundedIntegerAcceptsArbitraryPrecisionPositiveAndNegativeValues (0 ms)
+[ RUN      ] SourceStaticMatchingTest.BoundedIntegerUsesInclusiveLowerAndExclusiveUpperAtAnyPrecision
+[       OK ] SourceStaticMatchingTest.BoundedIntegerUsesInclusiveLowerAndExclusiveUpperAtAnyPrecision (0 ms)
+[ RUN      ] SourceStaticMatchingTest.BoolAndIntegerKindsNeverMatchImplicitly
+[       OK ] SourceStaticMatchingTest.BoolAndIntegerKindsNeverMatchImplicitly (0 ms)
+[ RUN      ] SourceStaticMatchingTest.NestedStaticListsRequireExactLengthsAndMatchingElements
+[       OK ] SourceStaticMatchingTest.NestedStaticListsRequireExactLengthsAndMatchingElements (0 ms)
+[ RUN      ] SourceStaticMatchingTest.PresentScalarAndListDefaultsUseStaticExpectedTypes
+[       OK ] SourceStaticMatchingTest.PresentScalarAndListDefaultsUseStaticExpectedTypes (0 ms)
+[----------] 5 tests from SourceStaticMatchingTest (0 ms total)
+
+[----------] 12 tests from SourceTypeContractsTest
+[ RUN      ] SourceTypeContractsTest.AcceptsEveryLogicalVariantAndMinimalIntegerDomains
+[       OK ] SourceTypeContractsTest.AcceptsEveryLogicalVariantAndMinimalIntegerDomains (0 ms)
+[ RUN      ] SourceTypeContractsTest.RejectsNonMinimalAndMalformedLogicalVariants
+[       OK ] SourceTypeContractsTest.RejectsNonMinimalAndMalformedLogicalVariants (0 ms)
+[ RUN      ] SourceTypeContractsTest.U64FieldsUseValueRangeInsteadOfContainerWidth
+[       OK ] SourceTypeContractsTest.U64FieldsUseValueRangeInsteadOfContainerWidth (0 ms)
+[ RUN      ] SourceTypeContractsTest.AcceptsUnboundedBoundedAndNestedStaticTypes
+[       OK ] SourceTypeContractsTest.AcceptsUnboundedBoundedAndNestedStaticTypes (0 ms)
+[ RUN      ] SourceTypeContractsTest.RejectsMalformedStaticTypesAndNonPositiveLists
+[       OK ] SourceTypeContractsTest.RejectsMalformedStaticTypesAndNonPositiveLists (0 ms)
+[ RUN      ] SourceTypeContractsTest.EnforcesClosedStaticValueVariantsAndBoolIntegerDistinction
+[       OK ] SourceTypeContractsTest.EnforcesClosedStaticValueVariantsAndBoolIntegerDistinction (0 ms)
+[ RUN      ] SourceTypeContractsTest.EnforcesDefaultPresentDiscriminator
+[       OK ] SourceTypeContractsTest.EnforcesDefaultPresentDiscriminator (0 ms)
+[ RUN      ] SourceTypeContractsTest.AcceptsNestedRecordsAndSharedDeclarationDags
+[       OK ] SourceTypeContractsTest.AcceptsNestedRecordsAndSharedDeclarationDags (0 ms)
+[ RUN      ] SourceTypeContractsTest.RejectsUnknownWrongAuthorityAndCycles
+[       OK ] SourceTypeContractsTest.RejectsUnknownWrongAuthorityAndCycles (0 ms)
+[ RUN      ] SourceTypeContractsTest.EnforcesNominalIdentityArityKindRangeAndOrder
+[       OK ] SourceTypeContractsTest.EnforcesNominalIdentityArityKindRangeAndOrder (0 ms)
+[ RUN      ] SourceTypeContractsTest.NestedListFailureReportsFieldAndElementContext
+[       OK ] SourceTypeContractsTest.NestedListFailureReportsFieldAndElementContext (0 ms)
+[ RUN      ] SourceTypeContractsTest.AbsentDefaultResolvesTypeAndPresentMustMatch
+[       OK ] SourceTypeContractsTest.AbsentDefaultResolvesTypeAndPresentMustMatch (0 ms)
+[----------] 12 tests from SourceTypeContractsTest (1 ms total)
+
+[----------] Global test environment tear-down
+[==========] 36 tests from 7 test suites ran. (3 ms total)
+[  PASSED  ] 36 tests.
