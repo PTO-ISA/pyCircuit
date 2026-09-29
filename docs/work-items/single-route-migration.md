@@ -336,6 +336,51 @@ overlay 哈希由提交后的字节重算。
 不新增公开 CLI/SDK/IR/runtime/manifest，也不实施一等 system。本包只是 M4 的逐源
 compile 环节，不代表 M4 完成。
 
+## C3 public driver：`compile` 与 `link`（2026-09-30，候选 `df3f2283`）
+
+[批准记录](../rfcs/migration/approvals/c3-compile-link-driver.md)。批准对象是**实施已批准的
+C3-C 接口**，不是新接口：`c3-driver-runtime.md` 正文 SHA-256
+`0c476ced27519cf93427a89f77b9348d388e96db57fb183790144d24118b1170` 在动手前复核未变。
+
+交付两个公开子命令，命令行形状逐选项取自 C3-C §compile / §link，无额外选项：
+
+- `pycircuit compile -c <one-source.py> --source-root <root> [--package-prefix <p>]
+  [-I <unit-dir>]... -o <unit-dir> [--replace]`：薄封装已验收的私有
+  `_compile_source_unit`，发布闭合四文件集。
+- `pycircuit link <unit-dir>... --top <qualified-module> [--parameters <bindings.json>]
+  -o <program.ac> [--replace]`：一套 `_publication_lock_set` 覆盖输入快照、native link 与
+  发布；在共享锁下读**完整 body 闭包**（与 compile 只需 managed interface 相对）；helper
+  只拿到锁内快照的 scratch 副本，不重开 provider 文件。
+- program 的 publication owner **不由命名推断**：私有 `--entry-owner-out` 报告 linked root
+  声明的 `ac.source_owner` 与 canonical definition。注意 `ModuleSnapshot.owner` 是
+  instance view owner、不是 source owner，权威属性是 root module 的 `ac.source_owner`。
+
+lane：driver 65 项（43 unit + 22 system，独立测试作者编写，8/8 变异被检出）
+0 failures/errors；既有 lane 复跑无回归：unit 174/0/0/3、focused system 105、transport 4、
+CLI 回归 60、masked-next 15，六条 lane 退出码均为 0。证据
+[driver-compile-link](../gates/logs/20260930-driver-compile-link/README.md)。实现期间自查发现并
+修掉两个缺陷：符号链接输出路径会抛未捕获的 `_PublicationFileSystemError` 而打印 traceback；
+私有 receipt reader 把"文件不存在"误报成编码错误，public 命令改为前置命名真实原因。
+
+**如实声明的缺口**（本包未实现，也不以任何方式假装）：
+
+- **C3 `emit` 未交付**：该子命令名被旧路线占用（旧 `emit` = 设计文件 → `.pyc`），C3-C 要求
+  唯一 driver 且不保留 alias，而批准的计划规定旧路线在 M5 一次性 hard break 才退役，因此
+  既不提前替换也不改名或加别名。
+- **static parameter 特化未实现**：native linker 没有任何 binding 入口，`--parameters` 传
+  非空数组即 fail closed；省略与显式空数组等价于"无绑定"。
+- **`--replace` 对 program 不校验 owner**：owner 只写进 journal，提交即删除，`program.ac`
+  没有 Python 可读的 owner 记录，也没有独立 native verify-only 入口。实测把不同 root
+  （`demo.other.Other`）链到已存在的 program 路径会被接受；`compile` 因 receipt 内嵌 owner
+  而更严格。这是本包对 C3-C §181 最尖锐的偏离，需 native verify/owner-read 入口才能关闭。
+- **per-implementation-source `.hpp/.cpp` 分组与 `generated.json` 未产出**：cpp 后端仍返回
+  单体产物；不用拆字符串的方式伪造逐源 codegen。
+- **`@system` 根暂不可 link**：私有 `@system ⟹ testbench` 规则仍在生效，删除它属尚未批准的
+  C2-SYSTEM 修订 B。
+
+未新增 ODS/IR 或公开 CLI 之外的接口，未改 emitter/runtime/SDK/打包/manifest，旧
+`build`/`emit`/`inspect`/`sidecar` 行为未动。本包不代表 M4 完成，也不代表 M1–M7 验收。
+
 ## 全项目里程碑
 
 | 阶段 | 状态 | 完成证据要求 |
