@@ -12,7 +12,7 @@ manifest schema, and it does not change compiler semantics.
 | --- | --- |
 | Implementation baseline | `6696eb3f1778b710eca3d6b4a167e4ad1ca05a54` |
 | Planning baseline | `b7d0dd3d` (plus the other agent's uncommitted proposals) |
-| Dirty overlay | the four files in `overlay-sha256.txt` |
+| Dirty overlay | the four files in `overlay-sha256.txt`, carried by commit `7e660760` (with the hash-list header dropped in `53855ccb`) |
 | Build directory | `.pycircuit_out/w10-pm/build` (single integrator, no concurrent rebuild) |
 | Toolchain | `toolchain.txt` (Apple clang 21, LLVM/MLIR 22.1.8, Icarus 12.0, pytest 9.0.2) |
 
@@ -20,8 +20,9 @@ manifest schema, and it does not change compiler semantics.
 
 `docs/reviews/20260929-system-role-expect-design-review.md` (planning) now records
 both **revision B** proposals with their exact hashes, their independent design
-review conclusion (`approval-ready`) and, separately, their user-approval status
-(**not approved**). The stale "C2-SYSTEM revision A, review pending" text is
+independent-review provenance (**no reviewer artifact is archived**, so the
+record does not label them approval-ready) and, separately, their
+user-approval status (**not approved**). The stale "C2-SYSTEM revision A, review pending" text is
 gone. The record states that `docs/rfcs/migration/approvals/` contains only c1,
 c2-c3-foundation, c2-n1 and c2-r1-m1, and that no approval may be inferred or
 back-filled. It also records the known conflict between the pending proposal §5
@@ -40,7 +41,8 @@ rule.
   `C++ emitter supports scalar observations only` and
   `RTL supports zero or one local observation value`, each with rc != 0, no new
   backend file created, and a pre-existing output left byte-identical.
-- The limit is listed as a later M3/M4 capability gap, not as completed.
+- The limit is assigned to M3/M4 as a deferred capability gap inside the
+  coverage note's "What remains open" list, and is not claimed as completed.
 
 ## R3 — link-and-emit now really emits
 
@@ -119,6 +121,19 @@ comment.
 
 ## Independent review
 
-Requested; not self-signed. The batch is not "accepted" until a separate
-reviewer instance confirms the five items are closed. The detailed verdict is to
-be appended here in a follow-up commit.
+Reviewer: a separate reviewer instance in an independent context, not the author
+of any file in this batch. Verdict on the first candidate: **FAIL**, triggered by
+one overstated claim in this packet plus one unmet R2 checklist item; R2–R5 were
+otherwise verified clean, R3/R4 were proven non-vacuous by bisect and by the
+normalized-spelling control, and R5's cited code was confirmed to support the
+reclassification.
+
+| # | Finding | Severity | Resolution |
+| --- | --- | --- | --- |
+| 1 | This packet claimed the multi-value observation limit was "listed as a later M3/M4 capability gap", but no deliverable assigned it to a milestone | medium | `numeric-shape-coverage.md` "What remains open" now carries an explicit item deferring multi-value observation emission to M3/M4, with the pinning regression named, and the erratum log records it |
+| 2 | The review record's `approval-ready` cells contradicted both proposals' own "pending review" status lines and named no reviewer instance or verdict artifact | medium | the record no longer labels either proposal approval-ready: it registers "user states it passed; no review artifact archived", cites the contradicting status lines, and adds a "review archival gap" section listing what must be filed before the label may be used. The slice plan and this packet were corrected the same way |
+| 3 | The record attributed the revision-B hashes to a "handoff record" that contains no such hashes | low | the wording now attributes them to the user's task statement and explicitly says that consistency is not a repository artifact and is not review evidence |
+| 4 | This packet's overlay table was stale after the overlay was committed | low | the table now names the carrying commit `7e660760` and the follow-up `53855ccb` |
+
+Re-verification of the fixes was requested from the same independent reviewer
+instance. This packet is not accepted until that verdict is recorded here.

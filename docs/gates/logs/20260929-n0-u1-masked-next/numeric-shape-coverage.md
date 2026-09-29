@@ -83,7 +83,16 @@ schema changed.
    `ProposalGraph`, so it needs a design decision rather than a drive-by edit.
    The dedicated U1 closure verifier (`ACIRNumericNextUse.cpp`) is separate and
    would keep enforcing closure either way.
-3. The nine rejected compile-time shapes all fail closed with specific
+3. **Multi-value observation emission is a deferred capability gap for M3/M4,
+   not completed.** A rule that observes two values in one `print`/`log`/`report`
+   links today and is then rejected by both emitters
+   (`C++ emitter supports scalar observations only`,
+   `RTL supports zero or one local observation value`). The current behaviour is
+   pinned by
+   `tests/system/test_source_design_bridge.py::test_multi_value_observation_is_a_known_backend_capability_limit`.
+   Delivering it is an M3 capability addition with its own approved contract and
+   independent tests; it is not claimed here.
+4. The nine rejected compile-time shapes all fail closed with specific
    diagnostics, which is correct behaviour for an unimplemented profile; they
    are listed here so the next capability slice can pick them deliberately.
 
@@ -101,6 +110,9 @@ schema changed.
 - 2026-09-29: the guard's claim was narrowed from "emit can consume it" to "the
   shared final IR can be rebuilt", and the multi-value observation limit is now
   recorded with its own regression instead of being implied away.
+- 2026-09-29: multi-value observation emission is now explicitly assigned to
+  M3/M4 as a deferred capability gap, so the evidence packet's claim that it is
+  "listed as a later M3/M4 capability gap" is backed by a deliverable.
 - 2026-09-29: plain copy/constant next assignment was reclassified from "new
   capability decision" to "serialized-final reconstruction gap under the
   existing assignment contract". Historical measurements above are unchanged.
