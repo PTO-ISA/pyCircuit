@@ -12,4 +12,4 @@ tests/unit/test_static_specialization_rejected.py ..                     [ 93%]
 tests/unit/test_example_layout.py ....                                   [100%]
 
 - generated xml file: /Users/zhoubot/.codex/worktrees/migration-capture/pyCircuit/docs/gates/logs/20260930-artifact-verify-recovery/cli-regression.xml -
-============================== 60 passed in 2.38s ==============================
+============================== 60 passed in 2.37s ==============================

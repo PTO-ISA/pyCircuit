@@ -9,4 +9,4 @@ tests/unit/test_driver_commands.py ..................................... [ 77%]
 tests/unit/test_artifact_verify.py ....                                  [100%]
 
 - generated xml file: /Users/zhoubot/.codex/worktrees/migration-capture/pyCircuit/docs/gates/logs/20260930-artifact-verify-recovery/driver-unit.xml -
-============================= 48 passed in 23.73s ==============================
+============================= 48 passed in 24.70s ==============================
