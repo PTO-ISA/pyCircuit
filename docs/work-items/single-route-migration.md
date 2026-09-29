@@ -381,6 +381,26 @@ CLI 回归 60、masked-next 15，六条 lane 退出码均为 0。证据
 未新增 ODS/IR 或公开 CLI 之外的接口，未改 emitter/runtime/SDK/打包/manifest，旧
 `build`/`emit`/`inspect`/`sidecar` 行为未动。本包不代表 M4 完成，也不代表 M1–M7 验收。
 
+### 独立审阅（第一轮）与处置
+
+第一轮独立审阅对 `df3f2283` + `57b1ed43` 判 **FAIL**，性质是**声明与治理，不是实现**：
+审阅者独立复现了全部功能断言（Python 不解析 MLIR、helper 只拿锁内快照副本、native 步骤
+期间输出锁确实被持有——用 3 秒 sleep 的 wrapper 证明第二个并发 link 阻塞 5.78s、root owner
+报告在 unit 目录改名后仍报 `counter.py`、overlay 哈希与 raw-XML lane 计数、C++ diff 仅
+102 增 1 改），但认定证据包**少声明了一条真实的 C3-C §143 违规**。
+
+| # | 发现 | 处置 |
+| --- | --- | --- |
+| D1 | **材料性**：`link --replace` 会覆盖输出路径上已存在的任何非空普通文件，包括驱动从未发布的用户文件，而 §143 明文禁止；原稿只声明了 §181 的 owner 比对缺口。 | **关闭而非仅声明**：目标存在且带 `--replace` 时，要求发布控制目录已存在，否则拒绝且不创建任何东西、文件逐字节保留（`replace-guard.log`）。残留收窄为"已发布路径上的 owner 仍不能比对"，继续声明。 |
+| D2 | 低：`compile` 还接受 `--source`/`--interface-unit`/`--output` 三个批准文本之外的拼写，与"no extra option"矛盾。 | 删除三个长别名，公开面现在与 C3-C 逐选项一致，`cli-surface.log` 重新生成。 |
+| D3 | 低/文档：批准记录链接指向本分支不存在的路径。 | 改为按路径引用并写明规划分支 commit。 |
+| D4 | 细节：`_PublicationError` 是死导入。 | 现由 replace guard 使用。 |
+| D5 | 细节：文档串声称发布产物"读取时重新验证"，实际无此入口。 | 已改正。 |
+
+修复落在 `0b35b2a2`（代码+测试）与 `8d56bbb0`（证据）；独立测试作者更新了三处过期断言并
+新增一条 replace guard 端到端测试，driver lane 66 项（43 unit + 23 system）全绿，另
+3/3 变异被检出。第二轮复验已请求。
+
 ## 全项目里程碑
 
 | 阶段 | 状态 | 完成证据要求 |
