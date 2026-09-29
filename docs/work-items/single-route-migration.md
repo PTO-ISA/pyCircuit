@@ -73,6 +73,7 @@ Python 采用用户明确选择的模块函数与嵌套 rule。R1 B 的既有 re
 | I26 Python numeric producer bridge | done（单输入unused-local子片） | 独立Sol实现与测试；Sol/high复审；PM整合private harness | Python add/sub与六类compare生成既有C1/D1 recipe、SourceRead/ValueID/proof_scope；private `--lower-numeric` 验证真实Python到finite SSA。32/32新系统测试、68/68相关frontend测试、19/19 ACIR通过，[验收](../reviews/20260929-python-numeric-bridge.md)。numeric next/use/yield绑定、条件流、Graph/Final/backend admission仍开放；下包N0-U1 masked next assignment |
 | I27 M4 私有 design 文件桥 | done（复审 FAIL 已修补；候选 `81fb596b` 已推送） | m4_program_bridge 实现、m4_program_tests 独立测试、独立 reviewer、PM CMake 整合/证据/验收 | 新增 `acir-design-harness`：把逐源显式 body/header 读盘、link 并物化为一支 verified final design 文件，另一进程重解析后交同一 final verifier 与两个 emitter；三种模式都拒绝既有输出（file/dir/symlink/dangling），且全部验证与 emit 先于建文件。`ProposalGraph` 按 `ac.stage` 选 `ac.logical_type`（final）/`ac.logical_element`（source）。产物按来源 Python 文件名命名（`test_increment.py` → `test_increment.ac`），不设保留标签。[证据](../gates/logs/20260929-m4-design-bridge/README.md)：355 native（20 binaries）+52 Python 通过，2 V44 deselected。独立复审对 `ede5aec7` 判 FAIL：生产代码无缺陷，但两个反例测试空转（既有输出使 no-clobber 先拒绝；`"logical"` 子串只匹配 tmp_path）。已修：改断言真实诊断与"未创建输出"、stage 校验提到每 view 一次、补 `!logical` 诊断、去弱断言；负向对照证明该 stage 修复是 load-bearing（回退后正向双后端 emit 失败）。**独立 design/testbench 交付尚未成立** |
 | I28 M4-D1 生成物角色拆分 | implemented（候选 `fcdb75e6` 已推送；独立复审待做） | PM 实现 emitter 角色拆分与私有 `--glue-output`；独立测试与证据 | 新增 `FinalVerilogEmission{rtl,runtimeGlue}` 与 `emitFinalVerilogParts`；`emitFinalVerilog` 保持签名并返回 `rtl+runtimeGlue`，既有调用点与合并字节完全不变。emitter 在 `FinalModel`/`FinalModelSim` 边界分流；私有 harness `--glue-output` 把 `runtime-glue` 写到第二个文件，非 emit 模式 / `--target cpp` / 与 `--output` 相同均 rc=2；双目标先校验后创建、第二个失败回滚第一个。C++ 不拆分（模型消费 gfsim runtime，无 `FinalModelSim` 对应物）。[证据](../gates/logs/20260929-m4-role-split/README.md)：355 native（20 binaries）+60 Python 通过，2 V44 deselected。**尚无 `generated.json` bundle writer**，公开 emit 入口与 role 清单仍属后续 |
+| I29 M4-D2 design/testbench 产物边界 | implemented（候选 `3af302e0` 已推送；独立复审待做） | PM 设计边界测试与证据；不新增任何接口 | DUT-only closure 单独 link 成设计产物（名随源文件），system testbench 为**独立**产物；断言设计产物含 DUT 但无 `ac.observe`、无 testbench 符号、无 stimulus 字符串，且其 `rtl` 角色文件无 `FinalModelSim` 与 `AC_OBS`；带 typed 端口的 DUT root 仍 fail-closed（`unbound data formal`）并把 D5 依赖写成显式反例。[证据](../gates/logs/20260929-m4-artifact-boundary/README.md)：35 设计桥用例、62 Python selectors 通过，2 V44 deselected。仍是**无端口**设计产物，非独立 DUT 交付 |
 | 用户接口批准 | partial | 用户 | C1-C、C2-C、C3-C、C2-N1-C 与 R1-B/M1-C 联合实施包已批准；参数化/动态 collection、circular-buffer 库、外部 typed DUT、多时钟/CDC、四态 source 值及开放 RTL fault continuation 仍须后续合同 |
 
 所有 writer 使用互斥文件归属。U01 的 ODS/原生 importer/非安装 harness 与产品 CMake 由 governance_impl 负责，测试及测试 CMake 由 baseline_verification 负责；private transport 单独派发。实现期间 native build 由 governance_impl 操作，稳定后移交测试 owner，其他 lane 不用同一输出目录构建。PM 维护主 checkout 文档，不改 candidate 产品源码。
@@ -137,9 +138,9 @@ root 是带 stimulus/phase/check/report 的 `@system`，这些内容一并进入
 1. ~~M4-D1 生成物角色拆分~~：已完成（I28，`fcdb75e6`）；`rtl` 与 `runtime-glue`
    已可分文件产出且合并字节不变。仍缺的是把它接进公开 emit 入口与
    `generated.json` 角色清单。
-2. M4-D2 module-root design 产物：先交付无端口 DUT（产物名随源文件）与 system
-   testbench 分离（不新增接口）；带 typed 端口/外部 testbench 的部分依赖
-   **D05 修订 B 的用户批准**，未批准前 fail closed，不自行发明端口或 role。
+2. ~~M4-D2 design/testbench 产物边界~~：已完成（I29，`3af302e0`），无端口 DUT 与
+   system testbench 已作为两个独立产物被测试锁定。带 typed 端口/外部 testbench 的
+   部分仍依赖 **D5 修订 B 的用户批准**（用户已回复“不用”），未批准前 fail closed。
 3. `ac.expect` 完整字段 schema 的逐字段审批映射（当前
    `condition:i1,path:i1,kind:StringAttr,location:DictionaryAttr` 只找到语义与
    部分字段依据）；任何扩展先补映射并取得用户批准，不由子代理自批。
