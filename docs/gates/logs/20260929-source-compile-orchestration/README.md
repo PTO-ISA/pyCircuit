@@ -48,6 +48,13 @@ keys rejected) *before* locking only to learn `{package, path}`. The lock set
 then re-validates that owner against the journal and re-validates the artifact
 under the lock, so a substitution between discovery and locking fails closed.
 
+The guard that enforces the last step is `_publication.py:191` (`published input
+owner does not match`). That claim is a code-level argument here, not a repository
+test: the message appears nowhere under `tests/`, so this packet does **not** claim
+committed coverage of the swap race. It was exercised only by the reviewer's own
+adversarial provider-swap script, which published nothing. A permanent regression
+test belongs to an independent test author, not to this packet.
+
 **Normal reads and recovery validation are separate**, using the two validators
 `_PublicationInput` already distinguishes:
 
@@ -224,6 +231,92 @@ raised; all three are fixed here.
 | 2 | HIGH — the four `test_source_transport_mlir.py` failures were attributed to retired class/self fixtures. They are a missing `mlir-opt` in `PATH`, not a stale fixture. | Re-measured with `MLIR_OPT` exported: `4 passed`, identical on the baseline tree and the candidate. The file is now its own lane, and the unconfigured run is kept as the tool-gate negative control (`transport-mlir-unconfigured.log`). |
 | 3 | LOW — `_source_compile.py` re-read the interface unit receipt inside the held lock, a redundant second authority for a value the lock set had already validated. | Replaced with a reuse of the owner captured before locking (`51ec9ab5`); `_PublicationInput` remains the only authority, and the lock set still re-validates the receipt under the lock. |
 
-**Re-verification requested** for `51ec9ab5` plus the evidence commit that
-carries this table. The verdict is to be appended before the packet is
-accepted.
+**Re-verification** was requested for `51ec9ab5` plus the evidence commit
+carrying that table, and the round-2 verdict is recorded below.
+
+## Independent review — re-verification (round 2), verdict PASS
+
+**Verdict: PASS** for `51ec9ab5` (code) + `d6233d1e` (evidence). The round-1 FAIL
+was evidence-integrity only; both HIGH evidence defects and the LOW code item are
+corrected, and the functional claims still hold on the new revision.
+
+**Lanes re-measured by the reviewer, independently of the packet's logs.** Parsed
+the raw XML: unit **174 / 0 / 0 / 3**, system focused **105 / 0 / 0 / 0**
+(selectors 6+51+7+41), LLVM transport **4 / 0 / 0 / 0**. Re-ran all three lanes
+here: `171 passed, 3 skipped` exit 0; `105 passed` exit 0; `4 passed` exit 0. The 3
+skips are the pre-existing Windows-only cases in `tests/unit/test_publication_fs.py`.
+XML timestamps (00:43:51, 00:43:56, 00:44:26 +08:00) all post-date the `51ec9ab5`
+commit (00:43:47), and code is byte-identical between `51ec9ab5` and `d6233d1e`.
+
+**Finding dispositions.**
+1. **HIGH, counts — fixed.** `test_source_module_units.py` collects 22 (17 failed /
+   5 passed with the harness configured), not 15; `test_source_transport_mlir.py`
+   collects 4, not 6.
+2. **HIGH, attribution — fixed.** `mlir-opt` is keg-only and absent from `PATH`;
+   with `MLIR_OPT=/opt/homebrew/Cellar/llvm/22.1.8/bin/mlir-opt` the file is 4
+   passed on both trees; unset, all 4 fail at
+   `tests/system/test_source_transport_mlir.py:27` with the tool-gate message.
+   Negative control and its own lane are recorded.
+3. **LOW, redundant in-lock receipt read — fixed and verified.** An instrumented
+   run shows the owner handed to the in-lock snapshot is *the same object* the lock
+   set validated (single authority); substitution between discovery and locking
+   still fails closed and publishes nothing.
+
+**Baseline comparison, redone.** Fresh `git worktree add --detach … 06680be2`: all
+**6461/6461** tracked files byte-identical to the commit. Same harness, same env,
+`MLIR_OPT` set → baseline **17 failed / 9 passed**, candidate **17 failed / 9
+passed**, sorted failing-ID sets **identical**; per file, module_units 17 failures
+on both, transport 0 failures on both. *Environment note:* the common config
+carries `core.worktree`, so in a fresh worktree `git status`/`git diff` resolve
+against `/Users/zhoubot/linx-isa/tools/pyCircuit` — the checkout bytes are correct
+(hash-verified). Temporary worktree removed.
+
+**Hash provenance.** All five `overlay-sha256.txt` entries match both
+`git show HEAD:<path> | shasum -a 256` and the working-tree bytes.
+
+**Functional claims 1–9 and 11 — still confirmed at `51ec9ab5`.** Adversarial
+scripts re-run: claims 1–3 18/18, claim 7 20/20, claims 4/5/6/11 confirmed
+(header-only provider accepted while the full validator rejects it; depfile
+target/prereqs correct with a supplied-but-unconsumed provider absent; `--deps-out`
+= consumed closure only; Python imports only stdlib + private modules — no MLIR
+parsing, no import guessing; publication gated on helper exit status). Scope since
+round 1 is only `_source_compile.py` (6+/2−) plus evidence docs — no ODS/`.td`,
+emitter, runtime, CLI, SDK, manifest, first-class system/artifact-role/`ac.expect`,
+or approval record; `_publication.py`/`_publication_fs.py` untouched.
+
+**Non-blocking note.** Ledger `e903fe7c`: the sentence following the module_units
+measurement reads "…复跑得到同样的 17 failed / 9 passed" — 17/9 is the combined
+two-file result (per file it is 17 failed / 5 passed and 4 passed). Numbers are
+right for the run described; optional clarifying edit.
+
+### Correction to the reviewer's round-1 report (quoted)
+
+> My script's lone "entry does not import an MLIR parser" FAIL was my own
+> over-broad substring grep hitting the docstring's "native MLIR compiler". The
+> proper AST audit shows only `__future__`, `collections.abc`, `functools`,
+> `json`, `pathlib`, `subprocess`, `tempfile` and the five private `._*` modules.
+
+### Reviewer's stated limits (quoted)
+
+> No project rebuild (round 1 linked a genuine baseline harness read-only from
+> existing archives; round 2 used the shared candidate harness for both trees,
+> sound because the helper delta is additive and the stale files never pass
+> `--deps-out`); fault-injection matrices, `cancelled` hook and Windows-only paths
+> rest on the packet's passing suites; no independent MLIR semantic adjudication
+> beyond the real harness.
+
+### Reviewer's evidence (quoted)
+
+> - `git diff 51ec9ab5 d6233d1e -- python/ compiler/ tests/` → empty.
+> - Exact task command → **17 passed**, exit 0; unit lane **171 passed/3 skipped**
+>   exit 0; system lane **105 passed** exit 0; transport with `MLIR_OPT`
+>   **4 passed** exit 0.
+> - XML parse → 174/0/0/3, 105/0/0/0, 4/0/0/0; overlay hashes all match committed
+>   bytes.
+> - Baseline vs candidate: **17 failed/9 passed both, IDENTICAL FAILURE SETS**;
+>   6461/6461 files hash-match `06680be2`.
+> - Unconfigured controls: module_units **22 failed** (harness guard), transport
+>   **4 failed** (line-27 mlir-opt gate).
+> - `verify_claims_123.py` 18/18, `verify_claim7.py` 20/20,
+>   `verify_owner_reuse.py` PASS; `git worktree list` no longer shows the
+>   reviewer's worktree; repo clean.
