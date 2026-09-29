@@ -1,0 +1,11 @@
+============================= test session starts ==============================
+platform darwin -- Python 3.14.6, pytest-9.0.2, pluggy-1.6.0
+rootdir: /Users/zhoubot/.codex/worktrees/migration-capture/pyCircuit
+configfile: pyproject.toml
+collected 46 items
+
+tests/system/test_driver_compile_link.py .......................         [ 50%]
+tests/system/test_artifact_verify_recovery.py .......................    [100%]
+
+- generated xml file: /Users/zhoubot/.codex/worktrees/migration-capture/pyCircuit/docs/gates/logs/20260930-artifact-verify-recovery/driver-system.xml -
+============================= 46 passed in 20.45s ==============================

@@ -1,0 +1,6 @@
+# Verification environment, recorded 2026-09-29T18:18:15Z
+ACIR_SOURCE_UNIT_HARNESS=/Users/zhoubot/.codex/worktrees/migration-capture/pyCircuit/.pycircuit_out/w10-pm/build/bin/acir-source-unit-harness
+ACIR_DESIGN_HARNESS=/Users/zhoubot/.codex/worktrees/migration-capture/pyCircuit/.pycircuit_out/w10-pm/build/bin/acir-design-harness
+MLIR_OPT=/opt/homebrew/Cellar/llvm/22.1.8/bin/mlir-opt
+PYTHONPATH=python/pycircuit/src:python/semantic-core/src:python/agentic-circuit/src  (relative to the checkout root)
+baseline tree: 0f4dedb1  (detached worktree for the failing-first run, since removed)

@@ -1,0 +1,5 @@
+clang++: Apple clang version 21.0.0 (clang-2100.1.1.101)
+pytest: pytest 9.0.2
+llvm: /opt/homebrew/Cellar/llvm/22.1.8
+mlir-opt: /opt/homebrew/Cellar/llvm/22.1.8/bin/mlir-opt
+native suite: ctest -R ACIR in .pycircuit_out/w10-pm/build

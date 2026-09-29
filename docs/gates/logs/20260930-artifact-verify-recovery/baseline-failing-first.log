@@ -1,0 +1,198 @@
+============================= test session starts ==============================
+platform darwin -- Python 3.14.6, pytest-9.0.2, pluggy-1.6.0
+rootdir: /private/var/folders/dw/zd1zl_y14dndg0ydz1mdt25h0000gn/T/baseline-62l_uexi
+configfile: pyproject.toml
+collected 27 items
+
+tests/system/test_artifact_verify_recovery.py ..FFFFFFF.FFF..FF....FF    [ 85%]
+tests/unit/test_artifact_verify.py FFF.                                  [100%]
+
+=================================== FAILURES ===================================
+_____ test_link_replace_refuses_a_different_owner_and_keeps_the_old_bytes ______
+tests/system/test_artifact_verify_recovery.py:560: in test_link_replace_refuses_a_different_owner_and_keeps_the_old_bytes
+    _owner_mismatch(result, "link")
+tests/system/test_artifact_verify_recovery.py:212: in _owner_mismatch
+    diagnostic = _diagnostic(result, command)
+                 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+tests/system/test_artifact_verify_recovery.py:190: in _diagnostic
+    assert result.returncode == 1, (result.returncode, result.stderr)
+E   AssertionError: (0, '')
+E   assert 0 == 1
+E    +  where 0 = CompletedProcess(args=['/opt/homebrew/Cellar/pytest/9.0.2_1/libexec/bin/python', '-c', 'import sys; from pycircuit.cli...-zhoubot/pytest-1203/test_link_replace_refuses_a_di0/out/program.ac', '--replace'], returncode=0, stdout='', stderr='').returncode
+_________________ test_link_replace_refuses_plain_non_ir_text __________________
+tests/system/test_artifact_verify_recovery.py:585: in test_link_replace_refuses_plain_non_ir_text
+    _corruption(result, "link")
+tests/system/test_artifact_verify_recovery.py:202: in _corruption
+    diagnostic = _diagnostic(result, command)
+                 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+tests/system/test_artifact_verify_recovery.py:190: in _diagnostic
+    assert result.returncode == 1, (result.returncode, result.stderr)
+E   AssertionError: (0, '')
+E   assert 0 == 1
+E    +  where 0 = CompletedProcess(args=['/opt/homebrew/Cellar/pytest/9.0.2_1/libexec/bin/python', '-c', 'import sys; from pycircuit.cli...-zhoubot/pytest-1203/test_link_replace_refuses_plai0/out/program.ac', '--replace'], returncode=0, stdout='', stderr='').returncode
+__ test_link_replace_refuses_mlir_that_is_not_a_final_program[module {\n}\n] ___
+tests/system/test_artifact_verify_recovery.py:617: in test_link_replace_refuses_mlir_that_is_not_a_final_program
+    _corruption(result, "link")
+tests/system/test_artifact_verify_recovery.py:202: in _corruption
+    diagnostic = _diagnostic(result, command)
+                 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+tests/system/test_artifact_verify_recovery.py:190: in _diagnostic
+    assert result.returncode == 1, (result.returncode, result.stderr)
+E   AssertionError: (0, '')
+E   assert 0 == 1
+E    +  where 0 = CompletedProcess(args=['/opt/homebrew/Cellar/pytest/9.0.2_1/libexec/bin/python', '-c', 'import sys; from pycircuit.cli...-zhoubot/pytest-1203/test_link_replace_refuses_mlir0/out/program.ac', '--replace'], returncode=0, stdout='', stderr='').returncode
+_ test_link_replace_refuses_mlir_that_is_not_a_final_program[module attributes {ac.stage = "final"} {\n}\n] _
+tests/system/test_artifact_verify_recovery.py:617: in test_link_replace_refuses_mlir_that_is_not_a_final_program
+    _corruption(result, "link")
+tests/system/test_artifact_verify_recovery.py:202: in _corruption
+    diagnostic = _diagnostic(result, command)
+                 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+tests/system/test_artifact_verify_recovery.py:190: in _diagnostic
+    assert result.returncode == 1, (result.returncode, result.stderr)
+E   AssertionError: (0, '')
+E   assert 0 == 1
+E    +  where 0 = CompletedProcess(args=['/opt/homebrew/Cellar/pytest/9.0.2_1/libexec/bin/python', '-c', 'import sys; from pycircuit.cli...-zhoubot/pytest-1203/test_link_replace_refuses_mlir1/out/program.ac', '--replace'], returncode=0, stdout='', stderr='').returncode
+_______ test_link_replace_refuses_user_text_behind_a_failed_link_marker ________
+tests/system/test_artifact_verify_recovery.py:655: in test_link_replace_refuses_user_text_behind_a_failed_link_marker
+    diagnostic = _diagnostic(result, "link")
+                 ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+tests/system/test_artifact_verify_recovery.py:190: in _diagnostic
+    assert result.returncode == 1, (result.returncode, result.stderr)
+E   AssertionError: (0, '')
+E   assert 0 == 1
+E    +  where 0 = CompletedProcess(args=['/opt/homebrew/Cellar/pytest/9.0.2_1/libexec/bin/python', '-c', 'import sys; from pycircuit.cli...of-zhoubot/pytest-1203/test_link_replace_refuses_user0/out/fresh.ac', '--replace'], returncode=0, stdout='', stderr='').returncode
+____ test_hand_written_control_marker_does_not_make_plain_text_replaceable _____
+tests/system/test_artifact_verify_recovery.py:693: in test_hand_written_control_marker_does_not_make_plain_text_replaceable
+    diagnostic = _diagnostic(result, "link")
+                 ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+tests/system/test_artifact_verify_recovery.py:190: in _diagnostic
+    assert result.returncode == 1, (result.returncode, result.stderr)
+E   AssertionError: (0, '')
+E   assert 0 == 1
+E    +  where 0 = CompletedProcess(args=['/opt/homebrew/Cellar/pytest/9.0.2_1/libexec/bin/python', '-c', 'import sys; from pycircuit.cli...-zhoubot/pytest-1203/test_hand_written_control_mark0/out/hostile.ac', '--replace'], returncode=0, stdout='', stderr='').returncode
+_ test_copied_control_marker_does_not_make_a_foreign_owner_program_replaceable _
+tests/system/test_artifact_verify_recovery.py:738: in test_copied_control_marker_does_not_make_a_foreign_owner_program_replaceable
+    _owner_mismatch(result, "link")
+tests/system/test_artifact_verify_recovery.py:212: in _owner_mismatch
+    diagnostic = _diagnostic(result, command)
+                 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+tests/system/test_artifact_verify_recovery.py:190: in _diagnostic
+    assert result.returncode == 1, (result.returncode, result.stderr)
+E   AssertionError: (0, '')
+E   assert 0 == 1
+E    +  where 0 = CompletedProcess(args=['/opt/homebrew/Cellar/pytest/9.0.2_1/libexec/bin/python', '-c', 'import sys; from pycircuit.cli...f-zhoubot/pytest-1203/test_copied_control_marker_doe0/out/victim.ac', '--replace'], returncode=0, stdout='', stderr='').returncode
+______________ test_compile_replace_refuses_a_corrupted_unit_body ______________
+tests/system/test_artifact_verify_recovery.py:831: in test_compile_replace_refuses_a_corrupted_unit_body
+    diagnostic = _diagnostic(result, "compile")
+                 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+tests/system/test_artifact_verify_recovery.py:190: in _diagnostic
+    assert result.returncode == 1, (result.returncode, result.stderr)
+E   AssertionError: (0, '')
+E   assert 0 == 1
+E    +  where 0 = CompletedProcess(args=['/opt/homebrew/Cellar/pytest/9.0.2_1/libexec/bin/python', '-c', 'import sys; from pycircuit.cli...f-zhoubot/pytest-1203/test_compile_replace_refuses_a0/units/counter', '--replace'], returncode=0, stdout='', stderr='').returncode
+___________ test_compile_replace_refuses_a_corrupted_unit_interface ____________
+tests/system/test_artifact_verify_recovery.py:850: in test_compile_replace_refuses_a_corrupted_unit_interface
+    diagnostic = _diagnostic(result, "compile")
+                 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+tests/system/test_artifact_verify_recovery.py:190: in _diagnostic
+    assert result.returncode == 1, (result.returncode, result.stderr)
+E   AssertionError: (0, '')
+E   assert 0 == 1
+E    +  where 0 = CompletedProcess(args=['/opt/homebrew/Cellar/pytest/9.0.2_1/libexec/bin/python', '-c', 'import sys; from pycircuit.cli...f-zhoubot/pytest-1203/test_compile_replace_refuses_a1/units/counter', '--replace'], returncode=0, stdout='', stderr='').returncode
+__________ test_compile_replace_refuses_a_unit_whose_owner_disagrees ___________
+tests/system/test_artifact_verify_recovery.py:901: in test_compile_replace_refuses_a_unit_whose_owner_disagrees
+    _owner_mismatch(result, "compile")
+tests/system/test_artifact_verify_recovery.py:212: in _owner_mismatch
+    diagnostic = _diagnostic(result, command)
+                 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+tests/system/test_artifact_verify_recovery.py:190: in _diagnostic
+    assert result.returncode == 1, (result.returncode, result.stderr)
+E   AssertionError: (0, '')
+E   assert 0 == 1
+E    +  where 0 = CompletedProcess(args=['/opt/homebrew/Cellar/pytest/9.0.2_1/libexec/bin/python', '-c', 'import sys; from pycircuit.cli...f-zhoubot/pytest-1203/test_compile_replace_refuses_a2/units/counter', '--replace'], returncode=0, stdout='', stderr='').returncode
+______ test_public_compile_recovers_a_provider_in_a_prepared_transaction _______
+tests/system/test_artifact_verify_recovery.py:979: in test_public_compile_recovers_a_provider_in_a_prepared_transaction
+    _ok(result)
+tests/system/test_artifact_verify_recovery.py:182: in _ok
+    assert result.returncode == 0, result.stderr
+E   AssertionError: pycircuit compile: compile interface unit is not a directory: /private/var/folders/dw/zd1zl_y14dndg0ydz1mdt25h0000gn/T/pytest-of-zhoubot/pytest-1203/test_public_compile_recovers_a0/units/types
+E     
+E   assert 1 == 0
+E    +  where 1 = CompletedProcess(args=['/opt/homebrew/Cellar/pytest/9.0.2_1/libexec/bin/python', '-c', 'import sys; from pycircuit.cli...lders/dw/zd1zl_y14dndg0ydz1mdt25h0000gn/T/pytest-of-zhoubot/pytest-1203/test_public_compile_recovers_a0/units/types\n').returncode
+________ test_public_link_recovers_a_provider_in_a_prepared_transaction ________
+tests/system/test_artifact_verify_recovery.py:1007: in test_public_link_recovers_a_provider_in_a_prepared_transaction
+    _ok(_link(cli_environment, (types, counter), "demo.counter.Counter", destination))
+tests/system/test_artifact_verify_recovery.py:182: in _ok
+    assert result.returncode == 0, result.stderr
+E   AssertionError: pycircuit link: link unit is not a directory: /private/var/folders/dw/zd1zl_y14dndg0ydz1mdt25h0000gn/T/pytest-of-zhoubot/pytest-1203/test_public_link_recovers_a_pr0/units/types
+E     
+E   assert 1 == 0
+E    +  where 1 = CompletedProcess(args=['/opt/homebrew/Cellar/pytest/9.0.2_1/libexec/bin/python', '-c', 'import sys; from pycircuit.cli...lders/dw/zd1zl_y14dndg0ydz1mdt25h0000gn/T/pytest-of-zhoubot/pytest-1203/test_public_link_recovers_a_pr0/units/types\n').returncode
+_______ test_corrupt_journal_is_refused_and_leaves_the_recovery_evidence _______
+tests/system/test_artifact_verify_recovery.py:1173: in test_corrupt_journal_is_refused_and_leaves_the_recovery_evidence
+    assert diagnostic == baseline_diagnostic, (diagnostic, baseline_diagnostic)
+E   AssertionError: ('pycircuit compile: compile interface unit is not a directory: /private/var/folders/dw/zd1zl_y14dndg0ydz1mdt25h0000gn...test-1203/test_corrupt_journal_is_refuse0/units/types', 'pycircuit compile: publication journal fields are not closed')
+E   assert 'pycircuit co...0/units/types' == 'pycircuit co...re not closed'
+E     
+E     - pycircuit compile: publication journal fields are not closed
+E     + pycircuit compile: compile interface unit is not a directory: /private/var/folders/dw/zd1zl_y14dndg0ydz1mdt25h0000gn/T/pytest-of-zhoubot/pytest-1203/test_corrupt_journal_is_refuse0/units/types
+____ test_unknown_control_entry_is_refused_and_leaves_the_recovery_evidence ____
+tests/system/test_artifact_verify_recovery.py:1221: in test_unknown_control_entry_is_refused_and_leaves_the_recovery_evidence
+    assert missing not in diagnostic, diagnostic
+E   AssertionError: pycircuit compile: compile interface unit is not a directory: /private/var/folders/dw/zd1zl_y14dndg0ydz1mdt25h0000gn/T/pytest-of-zhoubot/pytest-1203/test_unknown_control_entry_is_0/units/types
+E   assert 'not a directory' not in 'pycircuit c.../units/types'
+E     
+E     'not a directory' is contained here:
+E       e unit is not a directory: /private/var/folders/dw/zd1zl_y14dndg0ydz1mdt25h0000gn/T/pytest-of-zhoubot/pytest-1203/test_unknown_control_entry_is_0/units/types
+E     ?           +++++++++++++++
+_ test_owner_discovery_reads_the_validated_journal_of_an_unfinished_transaction _
+python/pycircuit/src/pycircuit/_source_unit_files.py:58: in _read_text
+    content = _read_stable_file_bytes(path).decode("utf-8")
+              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+python/pycircuit/src/pycircuit/_source_capture.py:55: in _read_stable_file_bytes
+    descriptor = os.open(path, flags)
+                 ^^^^^^^^^^^^^^^^^^^^
+E   FileNotFoundError: [Errno 2] No such file or directory: '/private/var/folders/dw/zd1zl_y14dndg0ydz1mdt25h0000gn/T/pytest-of-zhoubot/pytest-1203/test_owner_discovery_reads_the0/leaf/unit.json'
+
+The above exception was the direct cause of the following exception:
+tests/unit/test_artifact_verify.py:156: in test_owner_discovery_reads_the_validated_journal_of_an_unfinished_transaction
+    discovered = _discover_source_unit_owner(destination)
+                 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+python/pycircuit/src/pycircuit/_source_unit_files.py:304: in _discover_source_unit_owner
+    value = _read_strict_json(Path(destination) / "unit.json", purpose="receipt")
+            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+python/pycircuit/src/pycircuit/_source_unit_files.py:69: in _read_strict_json
+    text = _read_text(path, purpose=purpose)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+python/pycircuit/src/pycircuit/_source_unit_files.py:60: in _read_text
+    raise _PublicationError(
+E   pycircuit._publication._PublicationError: source-unit receipt is not stable UTF-8: /private/var/folders/dw/zd1zl_y14dndg0ydz1mdt25h0000gn/T/pytest-of-zhoubot/pytest-1203/test_owner_discovery_reads_the0/leaf/unit.json
+______ test_owner_discovery_refuses_a_corrupt_journal_instead_of_guessing ______
+tests/unit/test_artifact_verify.py:187: in test_owner_discovery_refuses_a_corrupt_journal_instead_of_guessing
+    assert "journal" in message, message
+E   AssertionError: source-unit receipt is not stable UTF-8: /private/var/folders/dw/zd1zl_y14dndg0ydz1mdt25h0000gn/T/pytest-of-zhoubot/pytest-1203/test_owner_discovery_refuses_a0/leaf/unit.json
+E   assert 'journal' in 'source-unit receipt is not stable UTF-8: /private/var/folders/dw/zd1zl_y14dndg0ydz1mdt25h0000gn/T/pytest-of-zhoubot/pytest-1203/test_owner_discovery_refuses_a0/leaf/unit.json'
+____________ test_owner_discovery_refuses_an_unknown_control_entry _____________
+tests/unit/test_artifact_verify.py:208: in test_owner_discovery_refuses_an_unknown_control_entry
+    assert "control" in message, message
+E   AssertionError: source-unit receipt is not stable UTF-8: /private/var/folders/dw/zd1zl_y14dndg0ydz1mdt25h0000gn/T/pytest-of-zhoubot/pytest-1203/test_owner_discovery_refuses_a1/leaf/unit.json
+E   assert 'control' in 'source-unit receipt is not stable UTF-8: /private/var/folders/dw/zd1zl_y14dndg0ydz1mdt25h0000gn/T/pytest-of-zhoubot/pytest-1203/test_owner_discovery_refuses_a1/leaf/unit.json'
+=========================== short test summary info ============================
+FAILED tests/system/test_artifact_verify_recovery.py::test_link_replace_refuses_a_different_owner_and_keeps_the_old_bytes
+FAILED tests/system/test_artifact_verify_recovery.py::test_link_replace_refuses_plain_non_ir_text
+FAILED tests/system/test_artifact_verify_recovery.py::test_link_replace_refuses_mlir_that_is_not_a_final_program[module {\n}\n]
+FAILED tests/system/test_artifact_verify_recovery.py::test_link_replace_refuses_mlir_that_is_not_a_final_program[module attributes {ac.stage = "final"} {\n}\n]
+FAILED tests/system/test_artifact_verify_recovery.py::test_link_replace_refuses_user_text_behind_a_failed_link_marker
+FAILED tests/system/test_artifact_verify_recovery.py::test_hand_written_control_marker_does_not_make_plain_text_replaceable
+FAILED tests/system/test_artifact_verify_recovery.py::test_copied_control_marker_does_not_make_a_foreign_owner_program_replaceable
+FAILED tests/system/test_artifact_verify_recovery.py::test_compile_replace_refuses_a_corrupted_unit_body
+FAILED tests/system/test_artifact_verify_recovery.py::test_compile_replace_refuses_a_corrupted_unit_interface
+FAILED tests/system/test_artifact_verify_recovery.py::test_compile_replace_refuses_a_unit_whose_owner_disagrees
+FAILED tests/system/test_artifact_verify_recovery.py::test_public_compile_recovers_a_provider_in_a_prepared_transaction
+FAILED tests/system/test_artifact_verify_recovery.py::test_public_link_recovers_a_provider_in_a_prepared_transaction
+FAILED tests/system/test_artifact_verify_recovery.py::test_corrupt_journal_is_refused_and_leaves_the_recovery_evidence
+FAILED tests/system/test_artifact_verify_recovery.py::test_unknown_control_entry_is_refused_and_leaves_the_recovery_evidence
+FAILED tests/unit/test_artifact_verify.py::test_owner_discovery_reads_the_validated_journal_of_an_unfinished_transaction
+FAILED tests/unit/test_artifact_verify.py::test_owner_discovery_refuses_a_corrupt_journal_instead_of_guessing
+FAILED tests/unit/test_artifact_verify.py::test_owner_discovery_refuses_an_unknown_control_entry
+======================== 17 failed, 10 passed in 8.57s =========================

@@ -1,0 +1,57 @@
+# Implementer smoke verification, 2026-09-29T17:58:21Z
+# candidate: working tree on top of 0f4dedb1
+
+## native verify shapes
+$ acir-design-harness --design prog.ac --verify-only --entry-owner-out eo.json
+exit=0 report={"source":{"package":"demo","path":"counter.py"},"definition":"@\"demo.counter.Counter\""}
+$ acir-design-harness --body counter.ac --header counter.interface.ac --verify-only --unit-owner-out uo.json
+exit=0 report={"body":{"package":"demo","path":"counter.py"},"header":{"package":"demo","path":"counter.py"}}
+
+## A. existing program must verify by IR and owner
+$ pycircuit link units/other units/types --top demo.other.Other -o prog.ac --replace   # foreign owner
+pycircuit link: published program owner does not match
+exit=1
+bytes unchanged: YES
+$ ... -o prog.ac --replace   # non-IR text
+pycircuit link: published program failed native verification: loc("/private/var/folders/dw/zd1zl_y14dndg0ydz1mdt25h0000gn/T/tmpv5brcfp2/out/prog.ac":1:1): error: custom op 'this' is unknown (tried 'builtin.this' as well) error: cannot parse artifact '/private/var/folders/dw/zd1zl_y14dndg0ydz1mdt25h0000gn/T/tmpv5brcfp2/out/prog.ac'
+exit=1
+bytes unchanged: YES  content: this is not MLIR at all
+$ legitimate republish onto a published path
+exit=0
+
+## B. replaced source unit must verify by IR
+$ pycircuit compile -c other.py ... -o units/other --replace   # corrupted body
+pycircuit compile: published source unit failed native verification: loc("/private/var/folders/dw/zd1zl_y14dndg0ydz1mdt25h0000gn/T/tmpv5brcfp2/units/other/other.ac":1:1): error: custom op 'CORRUPTED' is unknown (tried 'builtin.CORRUPTED' as well) error: cannot parse body file '/private/var/folders/dw/zd1zl_y14dndg0ydz1mdt25h0000gn/T/tmpv5brcfp2/units/other/other.ac'
+exit=1
+bytes unchanged: YES  content: CORRUPTED UNIT BODY
+
+## C. a legitimate unfinished transaction must be recovered, not reported missing
+  unit transaction interrupted at after_previous_saved with BaseException
+  phase: prepared | destination: False | previous: True | stage: True
+  program transaction interrupted at after_previous_saved with BaseException
+  phase: prepared | destination: False | previous: True | stage: True
+$ pycircuit compile -c consumer.py ... -I units/counter -I units/types   # recovers the unit
+exit=0
+  unit recovered: YES | unit journal cleared: YES
+$ pycircuit link units/counter units/types --top demo.counter.Counter -o out/prog.ac --replace
+exit=0
+  program present: YES | program journal cleared: YES
+
+## D. crash fix in the shared verifier (found by the independent test author)
+$ printf 'module {\n}\n' > m.ac ; acir-design-harness --design m.ac --verify-only --entry-owner-out r.json
+loc("/private/var/folders/dw/zd1zl_y14dndg0ydz1mdt25h0000gn/T/tmpv4kv4l7q/m.ac":1:1): error: 'builtin.module' op final hardware SpecKey is malformed
+loc("/private/var/folders/dw/zd1zl_y14dndg0ydz1mdt25h0000gn/T/tmpv4kv4l7q/m.ac":1:1): error: final hardware package envelope is not canonical
+error: final program rehydration requires verified final hardware
+exit=1  report: none  (was SIGSEGV/139)
+$ same input through the pre-existing emit path
+loc("/private/var/folders/dw/zd1zl_y14dndg0ydz1mdt25h0000gn/T/tmpv4kv4l7q/m.ac":1:1): error: 'builtin.module' op final hardware SpecKey is malformed
+loc("/private/var/folders/dw/zd1zl_y14dndg0ydz1mdt25h0000gn/T/tmpv4kv4l7q/m.ac":1:1): error: final hardware package envelope is not canonical
+error: final program rehydration requires verified final hardware
+exit=1  (was SIGSEGV/139)
+$ parses-but-not-final, second shape
+loc("/private/var/folders/dw/zd1zl_y14dndg0ydz1mdt25h0000gn/T/tmpv4kv4l7q/m2.ac":1:1): error: 'builtin.module' op final hardware SpecKey is malformed
+loc("/private/var/folders/dw/zd1zl_y14dndg0ydz1mdt25h0000gn/T/tmpv4kv4l7q/m2.ac":1:1): error: final hardware package envelope is not canonical
+error: final program rehydration requires verified final hardware
+exit=1
+$ valid program still verifies
+error: cannot parse artifact '/private/var/folders/dw/zd1zl_y14dndg0ydz1mdt25h0000gn/T/tmpv4kv4l7q/../nonexistent'
