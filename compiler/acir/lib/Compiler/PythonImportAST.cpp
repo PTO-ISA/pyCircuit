@@ -85,6 +85,20 @@ LogicalResult verifyOptionalArray(DictionaryAttr fields, StringRef name,
                      << "' must be an ArrayAttr when present";
 }
 
+LogicalResult verifyStringArray(DictionaryAttr fields, StringRef name,
+                                StringRef kind,
+                                ac::detail::EmitError emitError) {
+  auto values = fields.getAs<ArrayAttr>(name);
+  if (!values)
+    return emitError() << "captured " << kind << " field '" << name
+                       << "' must be an ArrayAttr";
+  for (Attribute value : values)
+    if (!isa<StringAttr>(value))
+      return emitError() << "captured " << kind << " field '" << name
+                         << "' must contain strings";
+  return success();
+}
+
 LogicalResult verifyOptionalNode(DictionaryAttr fields, StringRef name,
                                  StringRef kind,
                                  ac::detail::EmitError emitError) {
@@ -202,8 +216,19 @@ LogicalResult verifyCapturedNode(Attribute raw,
   } else if (form == "Tuple") {
     if (failed(verifyRequiredArray(fields, "elts", form, emitError)))
       return failure();
-  } else if (form == "Return" || form == "Expr") {
+  } else if (form == "Return") {
+    if (failed(verifyOptionalNode(fields, "value", form, emitError)))
+      return failure();
+  } else if (form == "Expr") {
     if (failed(verifyRequiredNode(fields, "value", form, emitError)))
+      return failure();
+  } else if (form == "Nonlocal") {
+    if (failed(verifyStringArray(fields, "names", form, emitError)))
+      return failure();
+  } else if (form == "If") {
+    if (failed(verifyRequiredNode(fields, "test", form, emitError)) ||
+        failed(verifyRequiredArray(fields, "body", form, emitError)) ||
+        failed(verifyRequiredArray(fields, "orelse", form, emitError)))
       return failure();
   } else if (form == "Name") {
     if (!fields.getAs<StringAttr>("id"))

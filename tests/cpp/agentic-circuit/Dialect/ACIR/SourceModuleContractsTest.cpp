@@ -29,7 +29,7 @@ TEST(SourceRuleAnalysisTest, InputIndicesAreResolvedThroughBoundArguments) {
   auto makePlan = [] {
     detail::RulePlan plan;
     plan.arguments.push_back({"formal", 2, {}, {}});
-    plan.arguments.push_back({"self.same", 2, {}, {}});
+    plan.arguments.push_back({"same", 2, {}, {}});
     plan.arguments.push_back({"other", 0, {}, {}});
     plan.arguments.push_back({"alias", 2, {}, {}});
     return plan;
@@ -166,7 +166,7 @@ mlir::DictionaryAttr replaceField(mlir::Builder &builder,
 
 void replaceRuleBodyWithIdentity(mlir::Operation *rule,
                                  mlir::MLIRContext &context) {
-  mlir::Block &body = rule->getRegion(2).front();
+  mlir::Block &body = rule->getRegion(0).front();
   body.getArgument(0).setType(mlir::IntegerType::get(&context, 8));
   while (!body.empty())
     body.back().erase();
@@ -225,27 +225,26 @@ protected:
 from .packet import Request, Word
 
 @module
-class AccumulatorProbe:
-    def __init__(self, request: Request, result: Word):
-        self.request = request
-        self.result = result
-        self.total: Word = 0
-        self.result = self.forward(self.request)
+def AccumulatorProbe(request: Request, result: Word):
+    total: Word = 0
 
     @rule
-    def forward(self, item: Request) -> Word:
-        return item.value
+    def forward():
+        nonlocal result
+        result = request.value
+        return
+
+    forward()
 )py");
     moduleWrite(rootSource, R"py(from pycircuit import module
 from .packet import Request, Word
 from .accumulator_probe import AccumulatorProbe
 
 @module
-class ProbeRoot:
-    def __init__(self):
-        self.request: Request = Request(3, True)
-        self.result: Word = 0
-        self.child = AccumulatorProbe(self.request, self.result)
+def ProbeRoot():
+    request: Request = Request(3, True)
+    result: Word = 0
+    child = AccumulatorProbe(request, result)
 )py");
     std::string packetTransport = temporary.child("packet.transport.mlir");
     std::string accumulatorTransport =
@@ -296,15 +295,15 @@ class ProbeRoot:
 };
 
 TEST_F(SourceModuleContractsTest,
-       AssignmentTargetsReadIndicesButNotStoredBaseIdentities) {
+       LexicalAssignmentTargetsReadIndicesButNotStoredBaseIdentities) {
   std::string source = root + "/target_reads.py";
   std::string transportPath = temporary.child("target-reads.transport.mlir");
-  moduleWrite(source, R"py(def scan(self, item):
-    self.items[self.index] = item
-    self.packet.field.leaf = item
-    (self.left, self.items[self.tuple_index]) = item
-    [self.right, self.items[self.list_index]] = item
-    value = self.loaded.value
+  moduleWrite(source, R"py(def scan(item):
+    items[index] = item
+    packet.field.leaf = item
+    (left, items[tuple_index]) = item
+    [right, items[list_index]] = item
+    value = loaded.value
 )py");
   ASSERT_EQ(moduleEmit(source, root, transportPath,
                        temporary.child("target-reads-python.log")),
@@ -345,16 +344,41 @@ TEST_F(SourceModuleContractsTest,
           });
   }
 
-  EXPECT_TRUE(formals.contains("item"));
-  for (llvm::StringRef read : {"index", "tuple_index", "list_index", "loaded"})
-    EXPECT_TRUE(members.contains(read)) << read.str();
+  for (llvm::StringRef read :
+       {"item", "index", "tuple_index", "list_index", "loaded"})
+    EXPECT_TRUE(formals.contains(read)) << read.str();
   for (llvm::StringRef stored : {"items", "packet", "left", "right"})
-    EXPECT_FALSE(members.contains(stored)) << stored.str();
-  EXPECT_TRUE(targetFormals.empty());
+    EXPECT_FALSE(formals.contains(stored)) << stored.str();
+  EXPECT_TRUE(members.empty());
   for (llvm::StringRef read : {"index", "tuple_index", "list_index"})
-    EXPECT_TRUE(targetMembers.contains(read)) << read.str();
+    EXPECT_TRUE(targetFormals.contains(read)) << read.str();
   for (llvm::StringRef stored : {"items", "packet", "left", "right", "loaded"})
-    EXPECT_FALSE(targetMembers.contains(stored)) << stored.str();
+    EXPECT_FALSE(targetFormals.contains(stored)) << stored.str();
+  EXPECT_TRUE(targetMembers.empty());
+}
+
+TEST_F(SourceModuleContractsTest, RetiredClassSelfModuleIsAHardError) {
+  std::string source = root + "/retired_class.py";
+  std::string transport = temporary.child("retired-class.transport.mlir");
+  std::string log = temporary.child("retired-class.log");
+  moduleWrite(source, R"py(from pycircuit import module
+from .packet import Word
+
+@module
+class Retired:
+    def __init__(self):
+        self.value: Word = 0
+)py");
+  ASSERT_EQ(moduleEmit(source, root, transport,
+                       temporary.child("retired-class-python.log")),
+            0);
+  EXPECT_NE(moduleCompile(transport, "retired_class.py",
+                          temporary.child("retired-class.body.mlir"),
+                          temporary.child("retired-class.interface.mlir"), log,
+                          {packetInterface}),
+            0);
+  EXPECT_NE(moduleRead(log).find("class/self authoring has been retired"),
+            std::string::npos);
 }
 
 TEST_F(SourceModuleContractsTest, HeaderPublishesOneClosedModuleSignature) {
@@ -403,26 +427,18 @@ TEST_F(SourceModuleContractsTest, HeaderPublishesOneClosedModuleSignature) {
     EXPECT_EQ(site.getAs<mlir::FlatSymbolRefAttr>("definition").getValue(),
               "demo.accumulator_probe.AccumulatorProbe");
     auto path = site.getAs<mlir::ArrayAttr>("ast_path");
-    ASSERT_EQ(path.size(), 5u);
-    EXPECT_EQ(mlir::cast<mlir::DictionaryAttr>(path[0])
-                  .getAs<mlir::StringAttr>("name")
-                  .getValue(),
-              "body");
-    EXPECT_EQ(mlir::cast<mlir::DictionaryAttr>(path[1])
-                  .getAs<mlir::IntegerAttr>("value")
-                  .getInt(),
-              0);
-    EXPECT_EQ(mlir::cast<mlir::DictionaryAttr>(path[4])
+    ASSERT_EQ(path.size(), 3u);
+    EXPECT_EQ(mlir::cast<mlir::DictionaryAttr>(path[2])
                   .getAs<mlir::IntegerAttr>("value")
                   .getInt(),
               argumentIndex);
     auto location = parameter.getAs<mlir::DictionaryAttr>("location");
     EXPECT_EQ(location.getAs<mlir::StringAttr>("path").getValue(),
               "accumulator_probe.py");
-    EXPECT_EQ(location.getAs<mlir::IntegerAttr>("line").getInt(), 6);
+    EXPECT_EQ(location.getAs<mlir::IntegerAttr>("line").getInt(), 5);
   };
-  checkParameter(0, "request", 1);
-  checkParameter(1, "result", 2);
+  checkParameter(0, "request", 0);
+  checkParameter(1, "result", 1);
   auto requestType = mlir::cast<mlir::DictionaryAttr>(parameters[0])
                          .getAs<mlir::DictionaryAttr>("type");
   EXPECT_EQ(requestType.getAs<mlir::StringAttr>("kind").getValue(), "record");
@@ -462,7 +478,7 @@ TEST_F(SourceModuleContractsTest, RegistryAcceptsTheOwningModuleAuthority) {
 TEST_F(SourceModuleContractsTest, ProbeBodyHasOneOwnedStateAndRegisteredRule) {
   mlir::Operation *module =
       findOperation(*accumulatorImplementation, "ac.module");
-  mlir::Operation *state = findOperation(*accumulatorImplementation, "ac.dffe");
+  mlir::Operation *state = findOperation(*accumulatorImplementation, "ac.reg");
   mlir::Operation *rule = findOperation(*accumulatorImplementation, "ac.rule");
   ASSERT_NE(module, nullptr);
   ASSERT_NE(state, nullptr);
@@ -473,6 +489,11 @@ TEST_F(SourceModuleContractsTest, ProbeBodyHasOneOwnedStateAndRegisteredRule) {
             "default");
   EXPECT_TRUE(state->getAttrOfType<mlir::DictionaryAttr>("ac.logical_element"));
   EXPECT_TRUE(state->getAttrOfType<mlir::DictionaryAttr>("ac.declaration"));
+  ASSERT_EQ(state->getNumOperands(), 2u);
+  mlir::Block &moduleBody = module->getRegion(0).front();
+  EXPECT_EQ(state->getOperand(0), moduleBody.getArgument(0));
+  EXPECT_EQ(state->getOperand(1), moduleBody.getArgument(1));
+  EXPECT_TRUE(mlir::isa<ac::RegType>(state->getResult(0).getType()));
   auto shape = state->getAttrOfType<mlir::ArrayAttr>("ac.shape");
   ASSERT_TRUE(shape);
   EXPECT_TRUE(shape.empty());
@@ -484,13 +505,10 @@ TEST_F(SourceModuleContractsTest, ProbeBodyHasOneOwnedStateAndRegisteredRule) {
   EXPECT_EQ(rule->getAttrOfType<mlir::StringAttr>("name").getValue(),
             "forward");
   EXPECT_EQ(rule->getNumOperands(), 2u);
-  EXPECT_EQ(rule->getNumResults(), 0u);
-  ASSERT_EQ(rule->getNumRegions(), 4u);
-  EXPECT_TRUE(rule->getRegion(0).empty());
-  EXPECT_TRUE(rule->getRegion(1).empty());
-  EXPECT_TRUE(rule->getRegion(3).empty());
-  ASSERT_TRUE(rule->getRegion(2).hasOneBlock());
-  mlir::Block &body = rule->getRegion(2).front();
+  EXPECT_EQ(rule->getNumResults(), 2u);
+  ASSERT_EQ(rule->getNumRegions(), 1u);
+  ASSERT_TRUE(rule->getRegion(0).hasOneBlock());
+  mlir::Block &body = rule->getRegion(0).front();
   EXPECT_EQ(body.getNumArguments(), 1u);
   auto *yield = &body.back();
   EXPECT_EQ(yield->getName().getStringRef(), "ac.yield");
@@ -504,23 +522,28 @@ TEST_F(SourceModuleContractsTest, ProbeRootUsesSourceInstanceContract) {
   EXPECT_TRUE(instance->getAttrOfType<mlir::FlatSymbolRefAttr>("callee"));
   EXPECT_TRUE(instance->getAttrOfType<mlir::ArrayAttr>("ac.static_args"));
   EXPECT_TRUE(instance->getAttrOfType<mlir::DictionaryAttr>("ac.origin"));
-  EXPECT_EQ(instance->getNumOperands(), 2u);
-  EXPECT_EQ(instance->getNumResults(), 0u);
+  EXPECT_EQ(instance->getNumOperands(), 4u);
+  EXPECT_EQ(instance->getNumResults(), 2u);
+  auto *module = findOperation(*rootImplementation, "ac.module");
+  ASSERT_NE(module, nullptr);
+  mlir::Block &moduleBody = module->getRegion(0).front();
+  EXPECT_EQ(instance->getOperand(0), moduleBody.getArgument(0));
+  EXPECT_EQ(instance->getOperand(1), moduleBody.getArgument(1));
 }
 
-TEST_F(SourceModuleContractsTest, DffeMetadataIsMandatoryAndClosed) {
+TEST_F(SourceModuleContractsTest, RegMetadataIsMandatoryAndClosed) {
   for (llvm::StringRef attribute :
        {"ac.logical_element", "ac.initial_value", "ac.shape", "ac.domain",
         "ac.declaration"}) {
     SCOPED_TRACE(attribute.str());
     auto implementation = moduleClone(*accumulatorImplementation);
-    mlir::Operation *state = findOperation(*implementation, "ac.dffe");
+    mlir::Operation *state = findOperation(*implementation, "ac.reg");
     ASSERT_NE(state, nullptr);
     state->removeAttr(attribute);
     EXPECT_TRUE(mlir::failed(mlir::verify(*implementation)));
   }
   auto implementation = moduleClone(*accumulatorImplementation);
-  mlir::Operation *state = findOperation(*implementation, "ac.dffe");
+  mlir::Operation *state = findOperation(*implementation, "ac.reg");
   state->setAttr("ac.initial_value", mlir::StringAttr::get(&context, "bad"));
   EXPECT_TRUE(mlir::failed(mlir::verify(*implementation)));
 }
@@ -538,18 +561,30 @@ TEST_F(SourceModuleContractsTest, RuleShapeAndBindingsAreMandatory) {
 
   auto implementation = moduleClone(*accumulatorImplementation);
   mlir::Operation *rule = findOperation(*implementation, "ac.rule");
-  rule->getRegion(2).front().back().eraseOperand(1);
+  rule->getRegion(0).front().back().eraseOperand(1);
   EXPECT_TRUE(mlir::failed(mlir::verify(*implementation)));
 
   implementation = moduleClone(*accumulatorImplementation);
   rule = findOperation(*implementation, "ac.rule");
-  rule->getRegion(2).front().addArgument(mlir::IntegerType::get(&context, 1),
+  rule->getRegion(0).front().addArgument(mlir::IntegerType::get(&context, 1),
                                          mlir::UnknownLoc::get(&context));
   EXPECT_TRUE(mlir::failed(mlir::verify(*implementation)));
 
   implementation = moduleClone(*accumulatorImplementation);
   rule = findOperation(*implementation, "ac.rule");
   rule->getRegion(0).emplaceBlock();
+  EXPECT_TRUE(mlir::failed(mlir::verify(*implementation)));
+
+  implementation = moduleClone(*accumulatorImplementation);
+  rule = findOperation(*implementation, "ac.rule");
+  mlir::OpBuilder builder(rule);
+  mlir::OperationState retired(rule->getLoc(), ac::RuleOp::getOperationName());
+  retired.addOperands(rule->getOperands());
+  retired.addTypes(rule->getResultTypes());
+  retired.addAttributes(rule->getAttrs());
+  for (unsigned index = 0; index < 4; ++index)
+    retired.addRegion();
+  builder.create(retired);
   EXPECT_TRUE(mlir::failed(mlir::verify(*implementation)));
 }
 
@@ -585,7 +620,7 @@ TEST_F(SourceModuleContractsTest,
 
   auto owned = moduleClone(*accumulatorImplementation);
   mlir::Operation *rule = findOperation(*owned, "ac.rule");
-  mlir::Operation *state = findOperation(*owned, "ac.dffe");
+  mlir::Operation *state = findOperation(*owned, "ac.reg");
   ASSERT_NE(rule, nullptr);
   ASSERT_NE(state, nullptr);
   auto ownedBinding = builder.getDictionaryAttr({

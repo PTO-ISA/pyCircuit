@@ -26,8 +26,11 @@ struct ModuleMember {
   mlir::Operation *childHeader = nullptr;
   mlir::DictionaryAttr logicalType;
   mlir::Attribute initialValue;
+  mlir::ArrayAttr shape;
+  std::optional<size_t> canonicalMemberIndex;
   mlir::Type payloadType;
   mlir::Value handle;
+  llvm::SmallVector<mlir::Value> elementHandles;
   mlir::Value currentHandle;
   mlir::Value nextHandle;
   llvm::SmallVector<size_t> childInputMembers;
@@ -37,6 +40,8 @@ struct ModuleMember {
   std::string precision = "exact";
   llvm::SmallVector<AstNode> readSites;
   llvm::SmallVector<AstNode> writeSites;
+
+  bool isCollection() const { return static_cast<bool>(shape); }
 };
 
 struct RuleRegistration {
@@ -58,6 +63,7 @@ struct ModuleModel {
   AstNode declaration;
   AstNode constructor;
   mlir::FlatSymbolRefAttr symbol;
+  bool isSystem = false;
   llvm::SmallVector<ModuleParameter> parameters;
   llvm::SmallVector<ModuleMember, 0> members;
   llvm::SmallVector<AstNode> inactiveRuleMethods;

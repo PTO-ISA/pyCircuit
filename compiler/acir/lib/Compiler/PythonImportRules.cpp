@@ -1,4 +1,9 @@
 #include "PythonImportRules.h"
+#include "PythonImportRuleControl.h"
+#include "PythonImportChecks.h"
+#include "PythonImportNumeric.h"
+#include "PythonImportNumericNext.h"
+#include "PythonImportObservations.h"
 
 #include "acir/Dialect/ACIR/ACIROps.h"
 #include "mlir/Dialect/Arith/IR/Arith.h"
@@ -7,6 +12,8 @@
 #include "llvm/ADT/STLExtras.h"
 #include "llvm/ADT/StringMap.h"
 #include "llvm/ADT/StringSet.h"
+
+#include <tuple>
 
 using namespace mlir;
 
@@ -91,7 +98,16 @@ void collectRuleExpressionReads(const AstNode &node,
 void collectRuleStatementReads(const AstNode &node, RuleReadCallback formalRead,
                                RuleReadCallback memberRead) {
   if (node.kind() == "Return" || node.kind() == "Expr") {
-    collectRuleExpressionReads(node.child("value"), formalRead, memberRead);
+    AstNode value = node.child("value");
+    if (value)
+      collectRuleExpressionReads(value, formalRead, memberRead);
+    return;
+  }
+  if (node.kind() == "Assert") {
+    collectRuleExpressionReads(node.child("test"), formalRead, memberRead);
+    AstNode message = node.child("msg");
+    if (message)
+      collectRuleExpressionReads(message, formalRead, memberRead);
     return;
   }
   if (node.kind() == "Assign") {
@@ -141,6 +157,27 @@ mlir::DictionaryAttr stateReference(OpBuilder &builder,
   });
 }
 
+size_t canonicalStateMember(const ModuleModel &module, size_t memberIndex) {
+  const ModuleMember &member = module.members[memberIndex];
+  if (member.canonicalMemberIndex) {
+    size_t canonical = *member.canonicalMemberIndex;
+    if (canonical >= module.members.size() ||
+        module.members[canonical].canonicalMemberIndex)
+      llvm_unreachable(
+          "module member has a dangling or cyclic canonical alias");
+    return canonical;
+  }
+  if (member.kind != ModuleMember::Kind::Connection)
+    return memberIndex;
+  for (size_t index = 0; index < module.members.size(); ++index) {
+    const ModuleMember &candidate = module.members[index];
+    if (candidate.kind == ModuleMember::Kind::Connection &&
+        candidate.parameter == member.parameter)
+      return index;
+  }
+  llvm_unreachable("connection member has no canonical parameter member");
+}
+
 } // namespace
 
 size_t bindRuleInput(RulePlan &plan, size_t argumentIndex) {
@@ -167,160 +204,128 @@ LogicalResult RuleCompiler::analyzeRegistration(size_t registrationIndex,
                                                 RulePlan &plan) {
   const RuleRegistration &registration =
       module.registrations[registrationIndex];
-  AstNode argumentsNode = registration.method.child("args");
-  auto signature = parseFunctionSignature(
-      argumentsNode, true, sourceCompiler.emitError, "module rule method");
+  auto signature =
+      parseFunctionSignature(registration.method.child("args"), false,
+                             sourceCompiler.emitError, "lexical module rule");
   if (failed(signature))
     return failure();
+  if (!signature->parameters.empty())
+    return sourceCompiler.emitError()
+           << "lexical rules take no parameters; capture module regs instead";
   plan.registrationIndex = registrationIndex;
   plan.signature = *signature;
-
-  ArrayAttr positional = registration.call.array("args");
-  ArrayAttr keywords = registration.call.array("keywords");
-  if (positional.size() > signature->parameters.size())
-    return sourceCompiler.emitError()
-           << "too many registered rule positional arguments";
-  SmallVector<AstNode> actuals(signature->parameters.size());
-  SmallVector<bool> bound(signature->parameters.size(), false);
-  for (size_t index = 0; index < positional.size(); ++index) {
-    if (signature->parameters[index].binding == "keyword_only")
-      return sourceCompiler.emitError()
-             << "keyword-only rule parameter passed positionally";
-    actuals[index] = registration.call.item("args", index);
-    bound[index] = true;
-  }
-  for (size_t index = 0; index < keywords.size(); ++index) {
-    AstNode keyword = registration.call.item("keywords", index);
-    StringRef name = keyword.string("arg");
-    if (name.empty())
-      return sourceCompiler.emitError()
-             << "registered rule keyword unpacking is unsupported";
-    size_t parameterIndex = 0;
-    while (parameterIndex < signature->parameters.size() &&
-           signature->parameters[parameterIndex].parameter.string("arg") !=
-               name)
-      ++parameterIndex;
-    if (parameterIndex == signature->parameters.size())
-      return sourceCompiler.emitError()
-             << "unknown registered rule keyword '" << name << "'";
-    if (signature->parameters[parameterIndex].binding == "positional_only")
-      return sourceCompiler.emitError()
-             << "positional-only rule parameter passed by keyword";
-    if (bound[parameterIndex])
-      return sourceCompiler.emitError()
-             << "duplicate registered rule argument '" << name << "'";
-    actuals[parameterIndex] = keyword.child("value");
-    bound[parameterIndex] = true;
-  }
-
-  for (size_t index = 0; index < signature->parameters.size(); ++index) {
-    const ParameterSyntax &syntax = signature->parameters[index];
-    if (!bound[index]) {
-      if (syntax.defaultValue)
-        return sourceCompiler.emitError()
-               << "U02-A registered rule defaults are "
-                  "deferred to the full binding slice";
-      return sourceCompiler.emitError()
-             << "missing registered rule argument '"
-             << syntax.parameter.string("arg") << "'";
+  ArrayAttr body = registration.method.array("body");
+  SmallVector<std::string> nonlocalOrder;
+  auto scanNonlocals = [&](auto &&self, const AstNode &parent,
+                           StringRef field) -> LogicalResult {
+    ArrayAttr statements = parent.array(field);
+    for (size_t index = 0; index < statements.size(); ++index) {
+      AstNode statement = parent.item(field, index);
+      if (statement.kind() == "Nonlocal") {
+        for (Attribute rawName : statement.array("names")) {
+          StringRef name = cast<StringAttr>(rawName).getValue();
+          if (!plan.nonlocalNames.insert(name).second)
+            return sourceCompiler.emitError()
+                   << "nonlocal target '" << name << "' is repeated";
+          nonlocalOrder.push_back(name.str());
+        }
+        continue;
+      }
+      if (statement.kind() == "If")
+        for (StringRef arm : {"body", "orelse"})
+          if (failed(self(self, statement, arm)))
+            return failure();
     }
-    StringRef actualMemberName;
-    AstNode actual = actuals[index];
-    if (!isModuleSelfMember(actual, &actualMemberName)) {
-      if (actual.kind() == "Name") {
-        auto member =
-            llvm::find_if(module.members, [&](const ModuleMember &item) {
-              return item.kind == ModuleMember::Kind::Connection &&
-                     item.parameter == actual.string("id");
-            });
-        if (member != module.members.end())
-          actualMemberName = member->name;
+    return success();
+  };
+  if (failed(scanNonlocals(scanNonlocals, registration.method, "body")))
+    return failure();
+  auto scanLocals = [&](auto &&self, const AstNode &parent,
+                        StringRef field) -> LogicalResult {
+    ArrayAttr statements = parent.array(field);
+    for (size_t index = 0; index < statements.size(); ++index) {
+      AstNode statement = parent.item(field, index);
+      if (statement.kind() == "Assign") {
+        ArrayAttr targets = statement.array("targets");
+        if (targets && targets.size() == 1) {
+          AstNode target = statement.item("targets", 0);
+          if (target.kind() == "Name" &&
+              !plan.nonlocalNames.contains(target.string("id")))
+            plan.localNames.insert(target.string("id"));
+        }
+      } else if (statement.kind() == "AnnAssign") {
+        AstNode target = statement.child("target");
+        if (target.kind() == "Name" &&
+            !plan.nonlocalNames.contains(target.string("id")))
+          plan.localNames.insert(target.string("id"));
+      } else if (statement.kind() == "If") {
+        for (StringRef arm : {"body", "orelse"})
+          if (failed(self(self, statement, arm)))
+            return failure();
       }
     }
-    if (actualMemberName.empty())
-      return sourceCompiler.emitError() << "U02-A registered rule actual must "
-                                           "name a declared module member";
-    auto member = llvm::find_if(module.members, [&](const ModuleMember &item) {
-      return item.name == actualMemberName &&
-             item.kind != ModuleMember::Kind::ChildInstance;
-    });
-    if (member == module.members.end())
-      return sourceCompiler.emitError() << "registered rule actual is not a "
-                                           "module-owned or connection value";
-    auto expected =
-        sourceCompiler.annotation(syntax.parameter.child("annotation"));
-    if (failed(expected))
-      return failure();
-    if (*expected != member->logicalType)
-      return sourceCompiler.emitError()
-             << "registered rule actual logical type does not match its formal";
-    plan.arguments.push_back(
-        {syntax.parameter.string("arg").str(),
-         static_cast<size_t>(member - module.members.begin()), syntax.parameter,
-         actual});
-  }
-
-  llvm::StringMap<size_t> formalArgumentIndices;
-  for (size_t index = 0; index < plan.arguments.size(); ++index)
-    formalArgumentIndices[plan.arguments[index].localName] = index;
-  llvm::StringSet<> inputLocals;
-  auto formalRead = [&](StringRef name, const AstNode &site) {
-    auto found = formalArgumentIndices.find(name);
-    if (found == formalArgumentIndices.end() ||
-        !inputLocals.insert(name).second)
-      return;
-    size_t argumentIndex = found->second;
-    bindRuleInput(plan, argumentIndex);
-    ModuleMember &member =
-        module.members[plan.arguments[argumentIndex].memberIndex];
-    member.read = true;
-    member.readSites.push_back(site);
+    return success();
   };
-  llvm::StringSet<> memberInputLocals;
-  auto memberRead = [&](StringRef name, const AstNode &site) {
-    auto found = llvm::find_if(module.members, [&](const ModuleMember &item) {
+  if (failed(scanLocals(scanLocals, registration.method, "body")))
+    return failure();
+
+  llvm::DenseSet<size_t> outputStates;
+  for (const std::string &name : nonlocalOrder) {
+    auto member = llvm::find_if(module.members, [&](const ModuleMember &item) {
       return item.name == name &&
              item.kind != ModuleMember::Kind::ChildInstance;
     });
-    if (found == module.members.end())
+    if (member == module.members.end())
+      return sourceCompiler.emitError()
+             << "nonlocal target '" << name << "' is not a module reg";
+    size_t memberIndex = static_cast<size_t>(member - module.members.begin());
+    member->write = true;
+    member->writeSites.push_back(registration.method);
+    size_t canonical = canonicalStateMember(module, memberIndex);
+    if (outputStates.insert(canonical).second)
+      plan.outputs.push_back(canonical);
+  }
+
+  llvm::StringSet<> boundInputs;
+  auto lexicalRead = [&](StringRef name, const AstNode &site) {
+    if (plan.localNames.contains(name))
       return;
-    size_t memberIndex = static_cast<size_t>(found - module.members.begin());
-    std::string localName = (Twine("self.") + name).str();
-    if (!memberInputLocals.insert(localName).second)
+    auto member = llvm::find_if(module.members, [&](const ModuleMember &item) {
+      return item.name == name &&
+             item.kind != ModuleMember::Kind::ChildInstance;
+    });
+    if (member == module.members.end())
+      return;
+    size_t memberIndex = static_cast<size_t>(member - module.members.begin());
+    member->read = true;
+    member->readSites.push_back(site);
+    if (!boundInputs.insert(name).second)
       return;
     BoundRuleArgument argument;
-    argument.localName = std::move(localName);
-    argument.memberIndex = memberIndex;
-    argument.formal = {};
+    argument.localName = name.str();
+    argument.memberIndex = canonicalStateMember(module, memberIndex);
     argument.actual = site;
     plan.arguments.push_back(std::move(argument));
     bindRuleInput(plan, plan.arguments.size() - 1);
-    found->read = true;
-    found->readSites.push_back(site);
   };
-
-  ArrayAttr body = registration.method.array("body");
+  auto retiredMemberRead = [&](StringRef, const AstNode &) {};
   for (size_t index = 0; index < body.size(); ++index) {
     AstNode statement = registration.method.item("body", index);
-    collectRuleStatementReads(statement, formalRead, memberRead);
+    if (statement.kind() == "Nonlocal")
+      continue;
+    collectRuleStatementReads(statement, lexicalRead, retiredMemberRead);
   }
 
-  if (!registration.outputMember.empty()) {
-    auto output = llvm::find_if(module.members, [&](const ModuleMember &item) {
-      return item.name == registration.outputMember &&
-             item.kind != ModuleMember::Kind::ChildInstance;
-    });
-    if (output == module.members.end())
-      return sourceCompiler.emitError()
-             << "rule result target is not a module member";
-    auto resultType =
-        sourceCompiler.annotation(registration.method.child("returns"));
-    if (failed(resultType) || *resultType != output->logicalType)
-      return sourceCompiler.emitError()
-             << "registered rule return type does not match its next target";
-    plan.outputs.push_back(
-        static_cast<size_t>(output - module.members.begin()));
-  }
+  llvm::sort(plan.arguments,
+             [](const BoundRuleArgument &left, const BoundRuleArgument &right) {
+               return std::tie(left.memberIndex, left.localName) <
+                      std::tie(right.memberIndex, right.localName);
+             });
+  plan.inputs.clear();
+  plan.inputSlotForMember.clear();
+  for (size_t index = 0; index < plan.arguments.size(); ++index)
+    bindRuleInput(plan, index);
+
   plans.push_back(std::move(plan));
   return success();
 }
@@ -334,18 +339,29 @@ LogicalResult RuleCompiler::analyze() {
   return success();
 }
 
-FailureOr<Value> RuleCompiler::expression(const RulePlan &plan,
-                                          const AstNode &node,
-                                          const llvm::StringMap<Value> &values,
-                                          OpBuilder &builder,
-                                          DictionaryAttr resultType) {
+FailureOr<Value>
+RuleCompiler::expression(const RulePlan &plan, const AstNode &node,
+                         const llvm::StringMap<Value> &values,
+                         const llvm::StringMap<Value> &entryValues,
+                         OpBuilder &builder, DictionaryAttr resultType) {
   if (node.kind() == "Name") {
     auto value = values.find(node.string("id"));
-    if (value == values.end())
+    if (value != values.end())
+      return value->second;
+    auto entry = entryValues.find(node.string("id"));
+    if (entry == entryValues.end())
       return sourceCompiler.emitError()
-             << "U02-A rule expression uses an unbound local name '"
+             << "rule expression uses an unbound local or current name '"
              << node.string("id") << "'";
-    return value->second;
+    DictionaryAttr origin = occurrence(
+        builder, module.symbol, relativeToModule(module.declaration, node));
+    Operation *read = createSourceOperation(
+        builder,
+        node.location(builder.getContext(), sourceCompiler.source.path),
+        ac::SourceReadOp::getOperationName(), ValueRange{entry->second},
+        TypeRange{entry->second.getType()},
+        {builder.getNamedAttr("ac.origin", origin)});
+    return read->getResult(0);
   }
   if (node.kind() == "Attribute") {
     StringRef memberName;
@@ -357,8 +373,8 @@ FailureOr<Value> RuleCompiler::expression(const RulePlan &plan,
                << "rule state read is absent from input bindings";
       return value->second;
     }
-    auto base =
-        expression(plan, node.child("value"), values, builder, resultType);
+    auto base = expression(plan, node.child("value"), values, entryValues,
+                           builder, resultType);
     if (failed(base))
       return failure();
     auto recordType = dyn_cast<ac::StructType>((*base).getType());
@@ -407,6 +423,22 @@ LogicalResult RuleCompiler::emit(size_t registrationIndex,
   const RuleRegistration &registration =
       module.registrations[registrationIndex];
   OpBuilder &builder = sourceCompiler.builder;
+  bool composed = needsComposedRule(registration.method);
+  FailureOr<std::optional<PythonNumericNextPlan>> numericNext =
+      composed ? FailureOr<std::optional<PythonNumericNextPlan>>(
+                     std::optional<PythonNumericNextPlan>())
+               : analyzePythonNumericNext(*plan, module, registration.method,
+                                          sourceCompiler.emitError);
+  if (failed(numericNext))
+    return failure();
+  FailureOr<std::optional<PythonImportNumericPlan>> numeric =
+      (composed || *numericNext)
+          ? FailureOr<std::optional<PythonImportNumericPlan>>(
+                std::optional<PythonImportNumericPlan>())
+          : analyzePythonImportNumericRule(*plan, module, registration.method,
+                                           sourceCompiler.emitError);
+  if (failed(numeric))
+    return failure();
   SmallVector<Value> inputs, outputs;
   SmallVector<Attribute> inputBindings, outputBindings, inputTypes, outputTypes;
   for (size_t inputIndex : plan->inputs) {
@@ -417,7 +449,7 @@ LogicalResult RuleCompiler::emit(size_t registrationIndex,
                        : member.currentHandle;
     if (!handle)
       return sourceCompiler.emitError()
-             << "registered rule input has no current DFFE handle";
+             << "registered rule input has no current reg handle";
     inputs.push_back(handle);
     inputBindings.push_back(stateReference(builder, module, member));
     inputTypes.push_back(member.logicalType);
@@ -429,18 +461,11 @@ LogicalResult RuleCompiler::emit(size_t registrationIndex,
                        : member.nextHandle;
     if (!handle)
       return sourceCompiler.emitError()
-             << "registered rule output has no next DFFE handle";
+             << "registered rule output has no next reg handle";
     outputs.push_back(handle);
     outputBindings.push_back(stateReference(builder, module, member));
     outputTypes.push_back(member.logicalType);
   }
-  auto returnType =
-      sourceCompiler.annotation(registration.method.child("returns"));
-  if (failed(returnType) && !plan->outputs.empty())
-    return failure();
-  if (plan->outputs.size() > 1)
-    return sourceCompiler.emitError() << "U02-A rule supports one data result";
-
   const RuleRegistration &call = registration;
   AstNode relativeRegistration =
       relativeToModule(module.declaration, call.call);
@@ -471,21 +496,33 @@ LogicalResult RuleCompiler::emit(size_t registrationIndex,
   SmallVector<Value> operands;
   llvm::append_range(operands, inputs);
   llvm::append_range(operands, outputs);
+  SmallVector<Type> resultTypes;
+  for (size_t outputIndex : plan->outputs) {
+    ModuleMember &member = module.members[outputIndex];
+    resultTypes.push_back(member.payloadType);
+    resultTypes.push_back(builder.getI1Type());
+  }
   Operation *ruleOp = createSourceOperation(
       builder,
       call.method.location(builder.getContext(), sourceCompiler.source.path),
-      ac::RuleOp::getOperationName(), operands, {}, attributes, 4);
-  Region &bodyRegion = ruleOp->getRegion(2);
+      ac::RuleOp::getOperationName(), operands, resultTypes, attributes, 1);
+  if (*numeric)
+    attachPythonImportNumericContract(**numeric, ruleOp, module.symbol,
+                                      builder);
+  Region &bodyRegion = ruleOp->getRegion(0);
   Block *body = new Block();
   bodyRegion.push_back(body);
   llvm::StringMap<Value> values;
+  llvm::StringMap<Value> entryValues;
+  llvm::StringMap<DictionaryAttr> valueTypes;
   for (size_t index = 0; index < plan->inputs.size(); ++index) {
     const BoundRuleArgument &argument = plan->arguments[plan->inputs[index]];
     const ModuleMember &member = module.members[argument.memberIndex];
     body->addArgument(member.payloadType,
                       argument.actual.location(builder.getContext(),
                                                sourceCompiler.source.path));
-    values[argument.localName] = body->getArgument(index);
+    entryValues[argument.localName] = body->getArgument(index);
+    valueTypes[argument.localName] = member.logicalType;
   }
   for (size_t argumentIndex = 0; argumentIndex < plan->arguments.size();
        ++argumentIndex) {
@@ -493,41 +530,382 @@ LogicalResult RuleCompiler::emit(size_t registrationIndex,
     std::optional<size_t> inputSlot =
         rulePlanInputSlot(*plan, argument.memberIndex);
     if (inputSlot)
-      values[argument.localName] =
+      entryValues[argument.localName] =
           body->getArgument(static_cast<unsigned>(*inputSlot));
+    if (inputSlot)
+      valueTypes[argument.localName] =
+          module.members[argument.memberIndex].logicalType;
   }
   OpBuilder at = OpBuilder::atBlockEnd(body);
   ArrayAttr statements = call.method.array("body");
-  AstNode returned;
+  SmallVector<Value> proposedValues(plan->outputs.size());
+  SmallVector<Value> proposalEnables(plan->outputs.size());
+  SmallVector<Attribute> requiredObservations;
+  SmallVector<Attribute> requiredChecks;
+  auto logicalTypeOf = [&](auto &&self,
+                           const AstNode &node) -> FailureOr<DictionaryAttr> {
+    if (node.kind() == "Name") {
+      auto type = valueTypes.find(node.string("id"));
+      if (type != valueTypes.end())
+        return type->second;
+      if (plan->localNames.contains(node.string("id")))
+        return sourceCompiler.emitError()
+               << "local '" << node.string("id")
+               << "' is read before definition; assignment target is local or "
+                  "lacks a nonlocal reg declaration";
+      return sourceCompiler.emitError()
+             << "rule expression uses an unbound lexical snapshot '"
+             << node.string("id") << "'";
+    }
+    if (node.kind() == "Attribute") {
+      if (isModuleSelfMember(node))
+        return sourceCompiler.emitError()
+               << "rule expressions require lexical names, not self members";
+      auto base = self(self, node.child("value"));
+      if (failed(base))
+        return failure();
+      auto kind = (*base).template getAs<StringAttr>("kind");
+      auto symbol = (*base).template getAs<FlatSymbolRefAttr>("symbol");
+      auto record = kind && kind.getValue() == "record" && symbol
+                        ? dyn_cast_or_null<ac::StructOp>(
+                              sourceCompiler.lookupCanonicalDeclaration(symbol))
+                        : ac::StructOp();
+      if (!record)
+        return sourceCompiler.emitError()
+               << "rule field read requires a canonical nominal record";
+      for (Attribute rawField : record.getFields()) {
+        auto field = cast<DictionaryAttr>(rawField);
+        if (field.getAs<StringAttr>("name").getValue() == node.string("attr"))
+          return field.getAs<DictionaryAttr>("type");
+      }
+      return sourceCompiler.emitError()
+             << "unknown nominal record field '" << node.string("attr") << "'";
+    }
+    if (node.kind() == "Constant")
+      return DictionaryAttr();
+    return sourceCompiler.emitError()
+           << "rule expressions support lexical names, record fields and "
+              "bool/integer literals";
+  };
+  auto outputOrdinal = [&](StringRef name) -> std::optional<size_t> {
+    auto member = llvm::find_if(module.members, [&](const ModuleMember &item) {
+      return item.name == name &&
+             item.kind != ModuleMember::Kind::ChildInstance;
+    });
+    if (member == module.members.end())
+      return std::nullopt;
+    size_t state = canonicalStateMember(
+        module, static_cast<size_t>(member - module.members.begin()));
+    for (size_t ordinal = 0; ordinal < plan->outputs.size(); ++ordinal)
+      if (plan->outputs[ordinal] == state)
+        return ordinal;
+    return std::nullopt;
+  };
+  auto trueValue = [&](const AstNode &site) {
+    return Value(at.create<arith::ConstantOp>(
+        site.location(builder.getContext(), sourceCompiler.source.path),
+        builder.getI1Type(), builder.getBoolAttr(true)));
+  };
+  PythonImportObservationProducer observations(
+      at, sourceCompiler.source.path, module.symbol, module.declaration,
+      ruleOp->getAttrOfType<DictionaryAttr>("registration"),
+      sourceCompiler.emitError, values, entryValues, valueTypes);
+  PythonImportCheckProducer checks(
+      at, sourceCompiler.source.path, module.symbol, module.declaration,
+      ruleOp->getAttrOfType<DictionaryAttr>("registration"),
+      sourceCompiler.emitError, values, entryValues, valueTypes);
+  auto observationIntrinsic = [&](const AstNode &statement) -> StringRef {
+    AstNode call = statement.child("value");
+    AstNode callee = call.child("func");
+    if (statement.kind() != "Expr" || call.kind() != "Call" ||
+        callee.kind() != "Name")
+      return {};
+    StringRef name = callee.string("id");
+    if (plan->localNames.contains(name) || plan->nonlocalNames.contains(name))
+      return {};
+    if (sourceCompiler.namespaceBindings.contains(name) ||
+        llvm::any_of(module.members, [&](const ModuleMember &member) {
+          return member.name == name;
+        }))
+      return {};
+    if (sourceCompiler.isCompilerDecorator(name, "log"))
+      return "log";
+    if (sourceCompiler.isCompilerDecorator(name, "report"))
+      return "report";
+    if (name != "print")
+      return {};
+    return "print";
+  };
+  if (composed)
+    return emitComposedRule(at, cast<ac::RuleOp>(ruleOp), *plan, module,
+                            call.method, sourceCompiler.source.path,
+                            entryValues, valueTypes, observationIntrinsic,
+                            sourceCompiler.emitError);
+  auto emitAssignment = [&](const AstNode &statement, Value enable,
+                            bool conditional) -> LogicalResult {
+    ArrayAttr targets = statement.array("targets");
+    if (!targets || targets.size() != 1 ||
+        statement.item("targets", 0).kind() != "Name")
+      return sourceCompiler.emitError()
+             << "lexical rule assignment requires one name target";
+    StringRef targetName = statement.item("targets", 0).string("id");
+    AstNode rhs = statement.child("value");
+    if (plan->localNames.contains(targetName)) {
+      if (conditional)
+        return sourceCompiler.emitError()
+               << "branch-local assignment requires a local phi and is not "
+                  "available in this rule subset";
+      auto rhsLogical = logicalTypeOf(logicalTypeOf, rhs);
+      if (failed(rhsLogical))
+        return failure();
+      if (!*rhsLogical)
+        return sourceCompiler.emitError()
+               << "local assignment requires an RHS with an exact inferred "
+                  "LogicalType";
+      auto rhsValue =
+          expression(*plan, rhs, values, entryValues, at, *rhsLogical);
+      if (failed(rhsValue))
+        return failure();
+      if ((*rhsValue).getType() !=
+          physicalType(*rhsLogical, builder.getContext()))
+        return sourceCompiler.emitError()
+               << "local assignment physical type disagrees with its exact "
+                  "LogicalType";
+      values[targetName] = *rhsValue;
+      valueTypes[targetName] = *rhsLogical;
+      return success();
+    }
+
+    auto ordinal = outputOrdinal(targetName);
+    if (!ordinal)
+      return sourceCompiler.emitError()
+             << "assignment to '" << targetName
+             << "' is local or lacks a nonlocal reg declaration";
+    if (proposedValues[*ordinal])
+      return sourceCompiler.emitError()
+             << "overlapping writes to one nonlocal reg require explicit "
+                "conflict semantics and are rejected";
+    ModuleMember &target = module.members[plan->outputs[*ordinal]];
+    auto rhsLogical = logicalTypeOf(logicalTypeOf, rhs);
+    if (failed(rhsLogical))
+      return failure();
+    if (*rhsLogical && *rhsLogical != target.logicalType)
+      return sourceCompiler.emitError()
+             << "nonlocal proposal logical type does not exactly match target";
+    auto rhsValue =
+        expression(*plan, rhs, values, entryValues, at, target.logicalType);
+    if (failed(rhsValue))
+      return failure();
+    if ((*rhsValue).getType() != target.payloadType)
+      return sourceCompiler.emitError()
+             << "nonlocal proposal physical type does not match target";
+    Value path = enable ? enable : trueValue(statement);
+    Value valid = trueValue(statement);
+    DictionaryAttr useOrigin =
+        occurrence(builder, module.symbol,
+                   relativeToModule(module.declaration, statement));
+    DictionaryAttr sourceOrigin;
+    if (auto read = (*rhsValue).getDefiningOp<ac::SourceReadOp>())
+      sourceOrigin = read->getAttrOfType<DictionaryAttr>("ac.origin");
+    else
+      sourceOrigin = occurrence(
+          builder, module.symbol,
+          relativeToModule(module.declaration, statement.child("value")));
+    DictionaryAttr useID = builder.getDictionaryAttr({
+        builder.getNamedAttr("origin", useOrigin),
+        builder.getNamedAttr("role", builder.getStringAttr("next")),
+        builder.getNamedAttr("slot", builder.getI32IntegerAttr(0)),
+    });
+    DictionaryAttr valueID = builder.getDictionaryAttr({
+        builder.getNamedAttr("origin", sourceOrigin),
+        builder.getNamedAttr("slot", builder.getI32IntegerAttr(0)),
+    });
+    DictionaryAttr useTarget = builder.getDictionaryAttr({
+        builder.getNamedAttr("kind", builder.getStringAttr("next_scalar")),
+        builder.getNamedAttr("state", stateReference(builder, module, target)),
+    });
+    Operation *use = createSourceOperation(
+        at,
+        statement.location(builder.getContext(), sourceCompiler.source.path),
+        ac::SourceUseOp::getOperationName(), ValueRange{*rhsValue, valid, path},
+        TypeRange{target.payloadType, builder.getI1Type()},
+        {builder.getNamedAttr("id", useID),
+         builder.getNamedAttr("source", valueID),
+         builder.getNamedAttr("target", useTarget)});
+    proposedValues[*ordinal] = use->getResult(0);
+    proposalEnables[*ordinal] = use->getResult(1);
+    return success();
+  };
+
+  bool returned = false;
+  bool conditionalSeen = false;
   for (size_t index = 0; index < statements.size(); ++index) {
     AstNode statement = call.method.item("body", index);
     if (isModuleDocstring(statement))
       continue;
-    if (statement.kind() != "Return" || returned)
+    if (statement.kind() == "Nonlocal")
+      continue;
+    if (returned)
       return sourceCompiler.emitError()
-             << "U02-A rule body supports one return statement";
-    returned = statement.child("value");
-  }
-  SmallVector<Value> yields;
-  if (!plan->outputs.empty()) {
-    if (!returned)
+             << "lexical rule has reachable statements after return";
+    if (statement.kind() == "Return") {
+      if (statement.child("value"))
+        return sourceCompiler.emitError()
+               << "lexical rules cannot return data; use nonlocal next writes";
+      returned = true;
+      continue;
+    }
+    if (conditionalSeen)
       return sourceCompiler.emitError()
-             << "registered result rule requires a return value";
-    ModuleMember &target = module.members[plan->outputs[0]];
-    auto value = expression(*plan, returned, values, at, target.logicalType);
-    if (failed(value))
+             << "statements after a conditional proposal require control-flow "
+                "join semantics and are rejected";
+    if (statement.kind() == "Assign") {
+      if (*numericNext && statement.value == (**numericNext).assignment.value) {
+        auto current = entryValues.find((**numericNext).name);
+        if (current == entryValues.end())
+          return sourceCompiler.emitError() << "numeric next input is absent";
+        auto &target = module.members[plan->outputs.front()];
+        auto pair = emitPythonNumericNext(
+            **numericNext, current->second,
+            stateReference(builder, module, target), ruleOp, module.symbol,
+            module.declaration, sourceCompiler.source.path, at);
+        if (failed(pair))
+          return failure();
+        proposedValues[0] = (*pair)[0];
+        proposalEnables[0] = (*pair)[1];
+        continue;
+      }
+      if (*numeric && statement.value == (**numeric).assignment.value) {
+        auto current = entryValues.find((**numeric).inputName);
+        if (current == entryValues.end())
+          return sourceCompiler.emitError()
+                 << "numeric source current input is absent from rule bindings";
+        if (failed(emitPythonImportNumericRecipe(
+                **numeric, current->second, module.symbol, module.declaration,
+                sourceCompiler.source.path, at, sourceCompiler.emitError)))
+          return failure();
+        continue;
+      }
+      if (failed(emitAssignment(statement, {}, false)))
+        return failure();
+      continue;
+    }
+    if (statement.kind() == "Expr") {
+      auto emitted =
+          observations.emit(statement, observationIntrinsic(statement),
+                            trueValue(statement), requiredObservations);
+      if (failed(emitted))
+        return failure();
+      if (*emitted)
+        continue;
+      return sourceCompiler.emitError()
+             << "rule expression is unsupported; only canonical "
+                "print/log/report observation calls are allowed";
+    }
+    if (statement.kind() == "Assert") {
+      if (failed(checks.emitAssert(statement, trueValue(statement),
+                                   requiredChecks.size(), requiredChecks)))
+        return failure();
+      continue;
+    }
+    if (statement.kind() != "If")
+      return sourceCompiler.emitError()
+             << "lexical rule supports SSA assignments, one conditional "
+                "proposal, and bare return";
+
+    auto conditionLogical =
+        logicalTypeOf(logicalTypeOf, statement.child("test"));
+    if (failed(conditionLogical))
       return failure();
-    if ((*value).getType() != target.payloadType)
+    auto conditionKind = *conditionLogical
+                             ? (*conditionLogical).getAs<StringAttr>("kind")
+                             : StringAttr();
+    if (!conditionKind || conditionKind.getValue() != "bool")
       return sourceCompiler.emitError()
-             << "rule return physical type does not match result target";
-    Value enabled = at.create<arith::ConstantOp>(
-        returned.location(builder.getContext(), sourceCompiler.source.path),
-        builder.getI1Type(), builder.getBoolAttr(true));
-    yields.push_back(*value);
-    yields.push_back(enabled);
-  } else if (returned) {
-    return sourceCompiler.emitError()
-           << "U02-A does not allow discarding a rule data result";
+             << "conditional proposal requires an exact boolean current/local "
+                "condition";
+    auto condition = expression(*plan, statement.child("test"), values,
+                                entryValues, at, *conditionLogical);
+    if (failed(condition))
+      return failure();
+    if (!(*condition).getType().isInteger(1))
+      return sourceCompiler.emitError()
+             << "conditional proposal condition must lower to i1";
+
+    bool conditionalProposal = false;
+    auto emitArm = [&](StringRef arm, Value enable) -> LogicalResult {
+      bool armReturned = false;
+      ArrayAttr armStatements = statement.array(arm);
+      for (size_t armIndex = 0; armIndex < armStatements.size(); ++armIndex) {
+        AstNode nested = statement.item(arm, armIndex);
+        if (isModuleDocstring(nested))
+          continue;
+        if (armReturned)
+          return sourceCompiler.emitError()
+                 << "conditional proposal arm has reachable statements after "
+                    "return";
+        if (nested.kind() == "Return") {
+          if (nested.child("value"))
+            return sourceCompiler.emitError()
+                   << "conditional proposal arms require bare return";
+          armReturned = true;
+          continue;
+        }
+        if (nested.kind() == "Assign") {
+          if (failed(emitAssignment(nested, enable, true)))
+            return failure();
+          conditionalProposal = true;
+          continue;
+        }
+        if (nested.kind() == "Assert") {
+          if (failed(checks.emitAssert(nested, enable, requiredChecks.size(),
+                                       requiredChecks)))
+            return failure();
+          continue;
+        }
+        if (nested.kind() == "Expr") {
+          auto emitted = observations.emit(nested, observationIntrinsic(nested),
+                                           enable, requiredObservations);
+          if (failed(emitted))
+            return failure();
+          if (*emitted)
+            continue;
+          return sourceCompiler.emitError()
+                 << "conditional rule expression is unsupported; only "
+                    "canonical print/log/report observation calls are allowed";
+        }
+        return sourceCompiler.emitError()
+               << "conditional proposal arms support assignments, asserts, "
+                  "observations and bare return only";
+      }
+      return success();
+    };
+    if (failed(emitArm("body", *condition)))
+      return failure();
+    if (!statement.array("orelse").empty()) {
+      Value one = trueValue(statement.child("test"));
+      Value inverted = at.create<arith::XOrIOp>(
+          statement.child("test").location(builder.getContext(),
+                                           sourceCompiler.source.path),
+          *condition, one);
+      if (failed(emitArm("orelse", inverted)))
+        return failure();
+    }
+    conditionalSeen = conditionalProposal;
+  }
+  if (!requiredObservations.empty())
+    ruleOp->setAttr("ac.required_observations",
+                    builder.getArrayAttr(requiredObservations));
+  if (!requiredChecks.empty())
+    ruleOp->setAttr("ac.required_checks", builder.getArrayAttr(requiredChecks));
+  SmallVector<Value> yields;
+  for (size_t ordinal = 0; ordinal < plan->outputs.size(); ++ordinal) {
+    ModuleMember &target = module.members[plan->outputs[ordinal]];
+    if (!proposedValues[ordinal])
+      return sourceCompiler.emitError()
+             << "nonlocal reg has no proposal value on any admitted path";
+    yields.push_back(proposedValues[ordinal]);
+    yields.push_back(proposalEnables[ordinal]);
   }
   createSourceOperation(
       at,

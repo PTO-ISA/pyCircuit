@@ -1,79 +1,14 @@
 #include "acir/Dialect/ACIR/ACIROps.h"
 
 #include "ACIRSourceContracts.h"
-#include "llvm/ADT/APSInt.h"
 #include "llvm/ADT/DenseSet.h"
 #include "llvm/ADT/STLExtras.h"
 #include "llvm/ADT/StringSet.h"
-#include "llvm/Support/raw_ostream.h"
-
-#include <algorithm>
-#include <string>
 
 using namespace mlir;
 
 namespace acir::ac {
 namespace {
-int compareStructure(Attribute left, Attribute right) {
-  if (left == right)
-    return 0;
-  if (auto lhs = dyn_cast<BoolAttr>(left)) {
-    auto rhs = dyn_cast<BoolAttr>(right);
-    return lhs.getValue() == rhs.getValue() ? 0 : lhs.getValue() ? 1 : -1;
-  }
-  if (auto lhs = dyn_cast<IntegerAttr>(left)) {
-    auto rhs = dyn_cast<IntegerAttr>(right);
-    llvm::APSInt a(lhs.getValue(), /*isUnsigned=*/true);
-    llvm::APSInt b(rhs.getValue(), /*isUnsigned=*/true);
-    return llvm::APSInt::compareValues(a, b);
-  }
-  if (auto lhs = dyn_cast<MathIntAttr>(left)) {
-    auto rhs = dyn_cast<MathIntAttr>(right);
-    return llvm::APSInt::compareValues(llvm::APSInt(lhs.getCanonicalValue()),
-                                       llvm::APSInt(rhs.getCanonicalValue()));
-  }
-  if (auto lhs = dyn_cast<StringAttr>(left)) {
-    auto rhs = dyn_cast<StringAttr>(right);
-    return lhs.getValue().compare(rhs.getValue());
-  }
-  if (auto lhs = dyn_cast<FlatSymbolRefAttr>(left)) {
-    auto rhs = dyn_cast<FlatSymbolRefAttr>(right);
-    return lhs.getValue().compare(rhs.getValue());
-  }
-  if (auto lhs = dyn_cast<ArrayAttr>(left)) {
-    auto rhs = dyn_cast<ArrayAttr>(right);
-    for (size_t index = 0; index < std::min(lhs.size(), rhs.size()); ++index) {
-      int part = compareStructure(lhs[index], rhs[index]);
-      if (part)
-        return part;
-    }
-    return lhs.size() == rhs.size() ? 0 : lhs.size() < rhs.size() ? -1 : 1;
-  }
-  if (auto lhs = dyn_cast<DictionaryAttr>(left)) {
-    auto rhs = dyn_cast<DictionaryAttr>(right);
-    auto lit = lhs.begin();
-    auto rit = rhs.begin();
-    while (lit != lhs.end() && rit != rhs.end()) {
-      int key = lit->getName().getValue().compare(rit->getName().getValue());
-      if (key)
-        return key;
-      int value = compareStructure(lit->getValue(), rit->getValue());
-      if (value)
-        return value;
-      ++lit;
-      ++rit;
-    }
-    return lit == lhs.end() && rit == rhs.end() ? 0 : lit == lhs.end() ? -1 : 1;
-  }
-  std::string l, r;
-  llvm::raw_string_ostream leftStream(l), rightStream(r);
-  left.print(leftStream);
-  right.print(rightStream);
-  leftStream.flush();
-  rightStream.flush();
-  return StringRef(l).compare(r);
-}
-
 LogicalResult verifyElementEffect(DictionaryAttr effect, bool isList,
                                   uint64_t expectedOrdinal,
                                   Operation *operation) {
@@ -105,7 +40,7 @@ LogicalResult verifyElementEffect(DictionaryAttr effect, bool isList,
     if (!origin || failed(detail::verifyOccurrence(origin, error)) ||
         !seen.insert(origin).second)
       return error() << "connection element has invalid or repeated origin";
-    if (previous && compareStructure(previous, origin) >= 0)
+    if (previous && detail::compareClosedSourceStructure(previous, origin) >= 0)
       return error()
              << "connection effect origins must be structurally ordered";
     previous = origin;
@@ -153,6 +88,23 @@ LogicalResult verifyParameter(DictionaryAttr parameter, DictionaryAttr owner,
   return success();
 }
 
+LogicalResult verifyControlPorts(DictionaryAttr controls,
+                                 Operation *operation) {
+  auto error = [&] { return operation->emitOpError(); };
+  if (!controls || controls.size() != 2)
+    return error() << "ac.control_ports requires exactly clock and reset";
+  auto clockAttr = controls.getAs<IntegerAttr>("clock");
+  auto resetAttr = controls.getAs<IntegerAttr>("reset");
+  if (!clockAttr || !resetAttr || !clockAttr.getType().isInteger(32) ||
+      !resetAttr.getType().isInteger(32))
+    return error() << "ac.control_ports indices must be i32 attributes";
+  auto clock = detail::decodeU64(clockAttr, "clock control index", error);
+  auto reset = detail::decodeU64(resetAttr, "reset control index", error);
+  if (failed(clock) || failed(reset) || *clock != 0 || *reset != 1)
+    return error() << "ac.control_ports requires clock=0 and reset=1";
+  return success();
+}
+
 } // namespace
 
 LogicalResult ModuleImportOp::verify() {
@@ -163,6 +115,12 @@ LogicalResult ModuleImportOp::verify() {
     return failure();
   auto contract = (*this)->getAttrOfType<DictionaryAttr>("ac.contract");
   auto error = [&] { return emitOpError(); };
+  if (auto rootKind = (*this)->getAttrOfType<StringAttr>("ac.root_kind");
+      rootKind && rootKind.getValue() != "system")
+    return error() << "ac.root_kind must be system when present";
+  if (failed(verifyControlPorts(
+          (*this)->getAttrOfType<DictionaryAttr>("ac.control_ports"), *this)))
+    return failure();
   if (!contract || contract.size() != 2)
     return error()
            << "ac.contract must have exactly parameters and connections";

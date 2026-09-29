@@ -164,9 +164,16 @@ LogicalResult RecordCompiler::scanImportsAndAliases() {
         for (size_t nameIndex = 0; nameIndex < names.size(); ++nameIndex) {
           AstNode alias = statement.item("names", nameIndex);
           StringRef remote = alias.string("name");
-          if (remote != "module" && remote != "rule")
-            return emitError() << "pycircuit import is outside the U02-A "
-                                  "module/rule capability";
+          if (remote == "Queue" || remote == "FIFO" || remote == "Interface" ||
+              remote == "Reg" || remote == "Signal")
+            return emitError()
+                   << "pycircuit authoring exposes no Queue/FIFO/Interface/"
+                      "Reg/Signal API; MLIR infers registers and interfaces";
+          if (remote != "module" && remote != "rule" && remote != "system" &&
+              remote != "log" && remote != "report")
+            return emitError()
+                   << "pycircuit import is outside the lexical module/rule/"
+                      "system and observation capability";
           StringRef local =
               alias.get("asname") && !isa<UnitAttr>(alias.get("asname"))
                   ? alias.string("asname")
@@ -528,7 +535,7 @@ FailureOr<SourceUnitArtifacts> RecordCompiler::run() {
       ++publicModules;
   if (publicModules > 1)
     return emitError()
-           << "one source unit may define at most one @module class";
+           << "one source unit may define at most one public module/system";
   if (publicModules == 1)
     (*body)->setAttr("ac.unit_kind", builder.getStringAttr("implementation"));
   interfaces.assign({owner});
@@ -552,7 +559,8 @@ FailureOr<SourceUnitArtifacts> RecordCompiler::run() {
       continue;
     }
     if (statement.kind() == "FunctionDef") {
-      if (failed(emitValueHelper(statement)))
+      if (failed(isModuleDefinition(statement) ? emitModule(statement)
+                                               : emitValueHelper(statement)))
         return failure();
       continue;
     }

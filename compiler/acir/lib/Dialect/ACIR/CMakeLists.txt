@@ -1,10 +1,31 @@
 add_acir_library(ACIRDialect SOURCES
   ACIRConstantOps.cpp
   ACIRDialect.cpp
+  ACIRFinalContracts.cpp
+  ACIRFinalUses.cpp
+  ACIRFinalInstanceContracts.cpp
+  ACIRFinalModuleRegion.cpp
+  ACIRHardwareClosure.cpp
+  ACIRHardwareInstances.cpp
+  ACIRHardwareRows.cpp
+  ACIRHardwareCommits.cpp
+  ACIRSystemOps.cpp
   ACIRIdentityContracts.cpp
   ACIRMathOps.cpp
+  ACIRNumericExactAdd.cpp
+  ACIRNumericExactInputAdd.cpp
+  ACIRNumericExactScalar.cpp
+  ACIRNumericMask.cpp
+  ACIRNumericComposition.cpp
+  ACIRNumericCompositionLowered.cpp
+  ACIRNumericCompositionSchema.cpp
+  ACIRNumericCompositionUses.cpp
+  ACIRNumericNextUse.cpp
+  ACIRNumericRange.cpp
+  ACIRNumericSourceClosure.cpp
   ACIRModuleContracts.cpp
   ACIRModuleOps.cpp
+  ACIRNumericProofOps.cpp
   ACIRPacketOps.cpp
   ACIRPacketTypes.cpp
   ACIRRegistration.cpp
@@ -20,7 +41,9 @@ add_dependencies(ACIRDialect
   ACIROpsIncGen
 )
 target_link_libraries(ACIRDialect PUBLIC
+  MLIRArithDialect
   MLIRFuncDialect
+  MLIRSCFDialect
   MLIRSideEffectInterfaces
 )
 target_include_directories(ACIRDialect PUBLIC

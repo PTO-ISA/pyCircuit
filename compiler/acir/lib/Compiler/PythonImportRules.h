@@ -4,6 +4,7 @@
 #include "PythonImportModules.h"
 
 #include "llvm/ADT/DenseMap.h"
+#include "llvm/ADT/StringSet.h"
 
 namespace acir::compiler::detail {
 
@@ -21,6 +22,8 @@ struct RulePlan {
   llvm::SmallVector<size_t> inputs;
   llvm::DenseMap<size_t, size_t> inputSlotForMember;
   llvm::SmallVector<size_t> outputs;
+  llvm::StringSet<> localNames;
+  llvm::StringSet<> nonlocalNames;
 };
 
 size_t bindRuleInput(RulePlan &plan, size_t argumentIndex);
@@ -48,6 +51,7 @@ private:
   mlir::FailureOr<mlir::Value>
   expression(const RulePlan &plan, const AstNode &node,
              const llvm::StringMap<mlir::Value> &values,
+             const llvm::StringMap<mlir::Value> &entryValues,
              mlir::OpBuilder &builder, mlir::DictionaryAttr resultType);
   mlir::LogicalResult analyzeRegistration(size_t registrationIndex,
                                           RulePlan &plan);

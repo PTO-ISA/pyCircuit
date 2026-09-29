@@ -135,9 +135,9 @@ mlir::DictionaryAttr snapshotWithField(mlir::Builder &builder,
   return builder.getDictionaryAttr(fields);
 }
 
-ac::DffeOp findDffe(mlir::ModuleOp module, llvm::StringRef name) {
-  ac::DffeOp result;
-  module.walk([&](ac::DffeOp candidate) {
+ac::RegOp findReg(mlir::ModuleOp module, llvm::StringRef name) {
+  ac::RegOp result;
+  module.walk([&](ac::RegOp candidate) {
     auto candidateName = candidate->getAttrOfType<mlir::StringAttr>("name");
     if (candidateName && candidateName.getValue() == name)
       result = candidate;
@@ -175,27 +175,26 @@ protected:
 from .packet import Request, Word
 
 @module
-class AccumulatorProbe:
-    def __init__(self, request: Request, result: Word):
-        self.request = request
-        self.result = result
-        self.total: Word = 0
-        self.result = self.forward(self.request)
+def AccumulatorProbe(request: Request, result: Word):
+    total: Word = 0
 
     @rule
-    def forward(self, item: Request) -> Word:
-        return item.value
+    def forward():
+        nonlocal result
+        result = request.value
+        return
+
+    forward()
 )py");
     snapshotWrite(probeRoot, R"py(from pycircuit import module
 from .packet import Request, Word
 from .accumulator_probe import AccumulatorProbe
 
 @module
-class ProbeRoot:
-    def __init__(self):
-        self.request: Request = Request(3, True)
-        self.result: Word = 0
-        self.child = AccumulatorProbe(self.request, self.result)
+def ProbeRoot():
+    request: Request = Request(3, True)
+    result: Word = 0
+    child = AccumulatorProbe(request, result)
 )py");
     std::string packetTransport = temporary.child("packet.transport.mlir");
     std::string probeTransport = temporary.child("probe.transport.mlir");
@@ -414,7 +413,7 @@ TEST_F(SourceBodySnapshotsTest, ResetExpressionsAreContextuallyVerified) {
   mlir::Builder builder(&context);
   {
     auto candidate = snapshotClone(*resetBody);
-    auto state = findDffe(*candidate, "result");
+    auto state = findReg(*candidate, "result");
     ASSERT_TRUE(state);
     auto initial =
         state->getAttrOfType<mlir::DictionaryAttr>("ac.initial_value");
@@ -436,7 +435,7 @@ TEST_F(SourceBodySnapshotsTest, ResetExpressionsAreContextuallyVerified) {
   for (Mutation mutation : {Mutation::WrongCallee, Mutation::Duplicate,
                             Mutation::Unknown, Mutation::Nominal}) {
     auto candidate = snapshotClone(*resetBody);
-    auto state = findDffe(*candidate, "request");
+    auto state = findReg(*candidate, "request");
     ASSERT_TRUE(state);
     if (mutation == Mutation::Nominal) {
       auto logical =

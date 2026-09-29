@@ -155,16 +155,22 @@ MathGraph buildMathGraph(mlir::MLIRContext &context, unsigned width = 8,
   moduleState.addAttribute("ac.source_owner", sourceOwner(builder));
   moduleState.addAttribute("ac.origin", occurrence(builder));
   moduleState.addAttribute("ac.ports", builder.getArrayAttr({port}));
+  moduleState.addAttribute(
+      "ac.control_ports",
+      dictionary(builder, {{"clock", builder.getI32IntegerAttr(0)},
+                           {"reset", builder.getI32IntegerAttr(1)}}));
   moduleState.addRegion();
   auto hardware = mlir::cast<ModuleOp>(builder.create(moduleState));
   auto *moduleBody = new mlir::Block();
   hardware.getBody().push_back(moduleBody);
   auto physical = builder.getIntegerType(width);
-  moduleBody->addArgument(DffeType::get(&context, physical), location);
+  moduleBody->addArgument(builder.getI1Type(), location);
+  moduleBody->addArgument(builder.getI1Type(), location);
+  moduleBody->addArgument(RegType::get(&context, physical), location);
 
   builder.setInsertionPointToEnd(moduleBody);
   mlir::OperationState ruleState(location, RuleOp::getOperationName());
-  ruleState.addOperands(moduleBody->getArgument(0));
+  ruleState.addOperands(moduleBody->getArgument(2));
   ruleState.addAttribute("name", builder.getStringAttr("compute"));
   ruleState.addAttribute("registration", occurrence(builder));
   ruleState.addAttribute("operandSegmentSizes",
@@ -175,8 +181,7 @@ MathGraph buildMathGraph(mlir::MLIRContext &context, unsigned width = 8,
   ruleState.addAttribute("ac.output_bindings", builder.getArrayAttr({}));
   ruleState.addAttribute("ac.input_types", builder.getArrayAttr({domain}));
   ruleState.addAttribute("ac.output_types", builder.getArrayAttr({}));
-  for (unsigned index = 0; index < 4; ++index)
-    ruleState.addRegion();
+  ruleState.addRegion();
   auto rule = mlir::cast<RuleOp>(builder.create(ruleState));
   auto *ruleBody = new mlir::Block();
   rule.getBody().push_back(ruleBody);
@@ -213,7 +218,7 @@ MathGraph buildMathGraph(mlir::MLIRContext &context, unsigned width = 8,
   };
   MathBinaryOp add = makeBinary("add", lhs.getResult(), rhs.getResult());
   MathBinaryOp andBits =
-      makeBinary("and_bits", add.getResult(), fromBits.getResult());
+      makeBinary("and_bits", fromBits.getResult(), fromBits.getResult());
 
   mlir::OperationState toState(location, MathToBitsOp::getOperationName());
   toState.addOperands({path, add.getResult(), add.getValid()});
@@ -406,19 +411,9 @@ TEST_F(SourceMathContractsTest,
     auto topLevel = mlir::cast<MathConstantOp>(builder.create(state));
     expectRejected(verify(context, topLevel), "requires an ac.rule");
   }
-  {
-    MathGraph graph = buildMathGraph(context);
-    auto *readiness = new mlir::Block();
-    graph.rule.getReadiness().push_back(readiness);
-    mlir::OpBuilder builder = mlir::OpBuilder::atBlockEnd(readiness);
-    auto location = mlir::FileLineColLoc::get(&context, "demo.py", 9, 1);
-    mlir::OperationState state(location, MathConstantOp::getOperationName());
-    state.addAttribute("value", math(context, "3"));
-    state.addAttribute("ac.origin", occurrence(builder));
-    state.addTypes(MathIntType::get(&context));
-    auto misplaced = mlir::cast<MathConstantOp>(builder.create(state));
-    expectRejected(verify(context, misplaced), "computation body");
-  }
+  MathGraph graph = buildMathGraph(context);
+  EXPECT_EQ(graph.rule->getNumRegions(), 1u);
+  EXPECT_TRUE(graph.rule.getBody().hasOneBlock());
 }
 
 TEST_F(SourceMathContractsTest,
@@ -520,11 +515,13 @@ TEST_F(SourceMathContractsTest,
 }
 
 TEST_F(SourceMathContractsTest,
-       AcceptsRealOwnedDffeAndRejectsRedirectedOwnedHandle) {
+       AcceptsRealOwnedRegAndRejectsRedirectedOwnedHandle) {
   MathGraph graph = buildMathGraph(context);
   mlir::OpBuilder builder(&context);
   builder.setInsertionPoint(graph.rule);
-  mlir::OperationState state(graph.rule.getLoc(), DffeOp::getOperationName());
+  mlir::OperationState state(graph.rule.getLoc(), RegOp::getOperationName());
+  state.addOperands({graph.hardware.getBody().front().getArgument(0),
+                     graph.hardware.getBody().front().getArgument(1)});
   state.addAttribute("name", builder.getStringAttr("owned"));
   state.addAttribute("ac.source_owner", sourceOwner(builder));
   state.addAttribute("ac.declaration", occurrence(builder));
@@ -532,10 +529,25 @@ TEST_F(SourceMathContractsTest,
   state.addAttribute("ac.shape", builder.getArrayAttr({}));
   state.addAttribute(
       "ac.initial_value",
-      dictionary(builder, {{"kind", builder.getStringAttr("scalar")}}));
+      dictionary(
+          builder,
+          {{"kind", builder.getStringAttr("scalar")},
+           {"value",
+            StaticExprAttr::get(
+                &context,
+                dictionary(
+                    builder,
+                    {{"kind", builder.getStringAttr("literal")},
+                     {"value",
+                      dictionary(builder,
+                                 {{"kind", builder.getStringAttr("integer")},
+                                  {"value", math(context, "0")}})},
+                     {"origin", occurrence(builder)},
+                     {"location", sourceSpan(builder)}}))}}));
   state.addAttribute("ac.domain", builder.getStringAttr("default"));
-  state.addTypes(DffeType::get(&context, builder.getI8Type()));
-  auto owned = mlir::cast<DffeOp>(builder.create(state));
+  state.addAttribute("ac.element", builder.getArrayAttr({}));
+  state.addTypes(RegType::get(&context, builder.getI8Type()));
+  auto owned = mlir::cast<RegOp>(builder.create(state));
   graph.rule.getInputsMutable().assign(owned.getState());
   auto binding = dictionary(builder, {{"kind", builder.getStringAttr("owned")},
                                       {"declaration", occurrence(builder)},
@@ -547,7 +559,7 @@ TEST_F(SourceMathContractsTest,
   mlir::Value redirected =
       unrealized(builder, graph.rule.getLoc(), owned.getState().getType());
   graph.rule.getInputsMutable().assign(redirected);
-  expectRejected(verify(context, graph.fromBits), "real scalar DFFE");
+  expectRejected(verify(context, graph.fromBits), "real scalar reg");
 }
 
 TEST_F(SourceMathContractsTest,
@@ -578,14 +590,14 @@ TEST_F(SourceMathContractsTest,
         unrealized(builder, graph.fromBits.getLoc(), builder.getI8Type());
     graph.fromBits.getValueMutable().assign(forged);
     expectRejected(verify(context, graph.fromBits),
-                   "actual ac.rule current argument");
+                   "rule input or its exact SourceRead result");
   }
 }
 
 TEST_F(SourceMathContractsTest,
        RejectsUnsupportedOperatorsAndChecksOnSafeFoundationOperators) {
   for (llvm::StringRef operation :
-       {"sub", "mul", "floordiv", "mod", "or_bits", "xor_bits", "shl", "shr"}) {
+       {"mul", "floordiv", "mod", "or_bits", "xor_bits", "shl", "shr"}) {
     MathGraph graph = buildMathGraph(context);
     graph.add->setAttr("operator", mlir::StringAttr::get(&context, operation));
     expectRejected(verify(context, *graph.module), "not implemented");

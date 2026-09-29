@@ -6,6 +6,8 @@
 #include "mlir/IR/Builders.h"
 #include "llvm/ADT/STLExtras.h"
 
+#include <tuple>
+
 using namespace mlir;
 
 namespace acir::compiler::detail {
@@ -14,14 +16,7 @@ LogicalResult ModuleCompiler::emitBody(ModuleModel &model,
   OpBuilder &builder = sourceCompiler.builder;
   SmallVector<Attribute> currentPorts;
   SmallVector<Attribute> nextPorts;
-  llvm::StringMap<size_t> memberForParameter;
-  for (size_t index = 0; index < model.members.size(); ++index) {
-    const ModuleMember &member = model.members[index];
-    if (member.kind == ModuleMember::Kind::Connection)
-      memberForParameter[member.parameter] = index;
-  }
-  auto appendPort = [&](const ModuleParameter &parameter,
-                        const ModuleMember &member, StringRef role,
+  auto appendPort = [&](const ModuleParameter &parameter, StringRef role,
                         SmallVectorImpl<Attribute> &ports) {
     AstNode formal = parameter.syntax.parameter;
     AstNode relative = relativeToModule(model.declaration, formal);
@@ -30,7 +25,7 @@ LogicalResult ModuleCompiler::emitBody(ModuleModel &model,
                              builder.getStringAttr(parameter.name)),
         builder.getNamedAttr("ordinal", builder.getUnitAttr()),
         builder.getNamedAttr("role", builder.getStringAttr(role)),
-        builder.getNamedAttr("type", member.logicalType),
+        builder.getNamedAttr("type", parameter.type),
         builder.getNamedAttr("origin",
                              occurrence(builder, model.symbol, relative)),
         builder.getNamedAttr(
@@ -38,23 +33,37 @@ LogicalResult ModuleCompiler::emitBody(ModuleModel &model,
             sourceSpan(builder, sourceCompiler.source.path, formal)),
     }));
   };
+  auto aggregateEffects = [&](const ModuleParameter &parameter) {
+    bool found = false;
+    bool read = false;
+    bool write = false;
+    for (const ModuleMember &member : model.members) {
+      if (member.kind != ModuleMember::Kind::Connection ||
+          member.parameter != parameter.name)
+        continue;
+      found = true;
+      read |= member.read;
+      write |= member.write;
+    }
+    return std::tuple(found, read, write);
+  };
   for (const ModuleParameter &parameter : model.parameters) {
-    auto found = memberForParameter.find(parameter.name);
-    if (found == memberForParameter.end())
+    auto [found, read, write] = aggregateEffects(parameter);
+    if (!found)
       return sourceCompiler.emitError()
              << "module port parameter has no member";
-    const ModuleMember &member = model.members[found->second];
-    if (!member.read && !member.write)
+    if (!read && !write)
       return sourceCompiler.emitError()
              << "module connection has no registered rule or child effect";
-    if (member.read)
-      appendPort(parameter, member, "current", currentPorts);
+    if (read)
+      appendPort(parameter, "current", currentPorts);
   }
   for (const ModuleParameter &parameter : model.parameters) {
-    const ModuleMember &member =
-        model.members[memberForParameter.lookup(parameter.name)];
-    if (member.write)
-      appendPort(parameter, member, "next", nextPorts);
+    auto [found, read, write] = aggregateEffects(parameter);
+    (void)found;
+    (void)read;
+    if (write)
+      appendPort(parameter, "next", nextPorts);
   }
   SmallVector<Attribute> ports;
   llvm::append_range(ports, currentPorts);
@@ -72,8 +81,17 @@ LogicalResult ModuleCompiler::emitBody(ModuleModel &model,
                      relativeToModule(model.declaration, model.declaration))),
       builder.getNamedAttr("ac.declaration_role",
                            builder.getStringAttr("definition")),
+      builder.getNamedAttr(
+          "ac.control_ports",
+          builder.getDictionaryAttr({
+              builder.getNamedAttr("clock", builder.getI32IntegerAttr(0)),
+              builder.getNamedAttr("reset", builder.getI32IntegerAttr(1)),
+          })),
       builder.getNamedAttr("ac.ports", builder.getArrayAttr(ports)),
   };
+  if (model.isSystem)
+    attributes.push_back(
+        builder.getNamedAttr("ac.root_kind", builder.getStringAttr("system")));
   builder.setInsertionPointToEnd(sourceCompiler.body->getBody());
   Operation *moduleOperation = createSourceOperation(
       builder,
@@ -82,20 +100,28 @@ LogicalResult ModuleCompiler::emitBody(ModuleModel &model,
       ac::ModuleOp::getOperationName(), {}, {}, attributes, 1);
   Block *body = new Block();
   moduleOperation->getRegion(0).push_back(body);
+  Value clock =
+      body->addArgument(builder.getI1Type(), moduleOperation->getLoc());
+  Value reset =
+      body->addArgument(builder.getI1Type(), moduleOperation->getLoc());
   for (Attribute rawPort : ports) {
     auto port = cast<DictionaryAttr>(rawPort);
     auto logical = port.getAs<DictionaryAttr>("type");
     Type payload = physicalType(logical, builder.getContext());
     Value handle =
-        body->addArgument(ac::DffeType::get(builder.getContext(), payload),
+        body->addArgument(ac::RegType::get(builder.getContext(), payload),
                           moduleOperation->getLoc());
     StringRef parameter = port.getAs<StringAttr>("parameter").getValue();
     StringRef role = port.getAs<StringAttr>("role").getValue();
-    ModuleMember &member = model.members[memberForParameter.lookup(parameter)];
-    if (role == "current")
-      member.currentHandle = handle;
-    else
-      member.nextHandle = handle;
+    for (ModuleMember &member : model.members) {
+      if (member.kind != ModuleMember::Kind::Connection ||
+          member.parameter != parameter)
+        continue;
+      if (role == "current")
+        member.currentHandle = handle;
+      else
+        member.nextHandle = handle;
+    }
   }
   OpBuilder at = OpBuilder::atBlockEnd(body);
   Operation *terminator =
@@ -113,28 +139,45 @@ LogicalResult ModuleCompiler::emitBody(ModuleModel &model,
     if (member.kind == ModuleMember::Kind::Connection)
       continue;
     if (member.kind == ModuleMember::Kind::OwnedState) {
-      SmallVector<NamedAttribute> stateAttributes{
-          builder.getNamedAttr("name", builder.getStringAttr(member.name)),
-          builder.getNamedAttr("ac.source_owner", sourceCompiler.owner),
-          builder.getNamedAttr(
-              "ac.declaration",
-              occurrence(
-                  builder, model.symbol,
-                  relativeToModule(model.declaration, member.declaration))),
-          builder.getNamedAttr("ac.logical_element", member.logicalType),
-          builder.getNamedAttr("ac.shape", builder.getArrayAttr({})),
-          builder.getNamedAttr("ac.initial_value", member.initialValue),
-          builder.getNamedAttr("ac.domain", builder.getStringAttr("default")),
+      DictionaryAttr declaration =
+          occurrence(builder, model.symbol,
+                     relativeToModule(model.declaration, member.declaration));
+      auto emitState = [&](StringRef name, ArrayAttr shape, ArrayAttr element) {
+        SmallVector<NamedAttribute> stateAttributes{
+            builder.getNamedAttr("name", builder.getStringAttr(name)),
+            builder.getNamedAttr("ac.source_owner", sourceCompiler.owner),
+            builder.getNamedAttr("ac.declaration", declaration),
+            builder.getNamedAttr("ac.logical_element", member.logicalType),
+            builder.getNamedAttr("ac.shape", shape),
+            builder.getNamedAttr("ac.element", element),
+            builder.getNamedAttr("ac.initial_value", member.initialValue),
+            builder.getNamedAttr("ac.domain", builder.getStringAttr("default")),
+        };
+        Operation *state = createSourceOperation(
+            builder,
+            member.declaration.location(builder.getContext(),
+                                        sourceCompiler.source.path),
+            ac::RegOp::getOperationName(), ValueRange{clock, reset},
+            TypeRange{
+                ac::RegType::get(builder.getContext(), member.payloadType)},
+            stateAttributes);
+        return state->getResult(0);
       };
-      Operation *state = createSourceOperation(
-          builder,
-          member.declaration.location(builder.getContext(),
-                                      sourceCompiler.source.path),
-          ac::DffeOp::getOperationName(), {},
-          TypeRange{
-              ac::DffeType::get(builder.getContext(), member.payloadType)},
-          stateAttributes);
-      member.handle = state->getResult(0);
+      if (member.isCollection()) {
+        auto values = cast<DictionaryAttr>(member.initialValue)
+                          .getAs<ArrayAttr>("values");
+        member.elementHandles.reserve(values.size());
+        for (size_t element = 0; element < values.size(); ++element) {
+          std::string elementName =
+              (Twine(member.name) + "__" + Twine(element)).str();
+          member.elementHandles.push_back(emitState(
+              elementName, member.shape,
+              builder.getArrayAttr({builder.getI64IntegerAttr(element)})));
+        }
+        continue;
+      }
+      member.handle = emitState(member.name, builder.getArrayAttr({}),
+                                builder.getArrayAttr({}));
       member.currentHandle = member.handle;
       member.nextHandle = member.handle;
       continue;
@@ -148,7 +191,7 @@ LogicalResult ModuleCompiler::emitBody(ModuleModel &model,
                            : actual.currentHandle;
         if (!handle)
           return sourceCompiler.emitError()
-                 << "module instance input has no current DFFE handle";
+                 << "module instance input has no current reg handle";
         inputs.push_back(handle);
       }
       for (size_t memberIndex : member.childOutputMembers) {
@@ -158,7 +201,7 @@ LogicalResult ModuleCompiler::emitBody(ModuleModel &model,
                            : actual.nextHandle;
         if (!handle)
           return sourceCompiler.emitError()
-                 << "module instance output has no next DFFE handle";
+                 << "module instance output has no next reg handle";
         outputs.push_back(handle);
       }
       AstNode statement = member.declaration;
@@ -168,7 +211,7 @@ LogicalResult ModuleCompiler::emitBody(ModuleModel &model,
           builder.getNamedAttr("callee", member.child),
           builder.getNamedAttr("operandSegmentSizes",
                                builder.getDenseI32ArrayAttr(
-                                   {static_cast<int32_t>(inputs.size()),
+                                   {1, 1, static_cast<int32_t>(inputs.size()),
                                     static_cast<int32_t>(outputs.size())})),
           builder.getNamedAttr("ac.static_args", builder.getArrayAttr({})),
           builder.getNamedAttr(
@@ -177,12 +220,21 @@ LogicalResult ModuleCompiler::emitBody(ModuleModel &model,
                          relativeToModule(model.declaration, call))),
       };
       SmallVector<Value> operands;
+      operands.push_back(clock);
+      operands.push_back(reset);
       llvm::append_range(operands, inputs);
       llvm::append_range(operands, outputs);
+      SmallVector<Type> results;
+      for (Value output : outputs) {
+        Type payload = cast<ac::RegType>(output.getType()).getElementType();
+        results.push_back(payload);
+        results.push_back(builder.getI1Type());
+      }
       createSourceOperation(
           builder,
           call.location(builder.getContext(), sourceCompiler.source.path),
-          ac::InstanceOp::getOperationName(), operands, {}, instanceAttributes);
+          ac::InstanceOp::getOperationName(), operands, results,
+          instanceAttributes);
     }
   }
   return success();

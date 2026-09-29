@@ -5,6 +5,7 @@
 #include "llvm/ADT/APSInt.h"
 #include "llvm/ADT/DenseSet.h"
 #include "llvm/ADT/STLExtras.h"
+#include "llvm/ADT/StringSet.h"
 
 using namespace mlir;
 
@@ -77,93 +78,75 @@ void collectOperationDeclarations(
 
 LogicalResult RuleCompiler::validateInactiveMethods() {
   for (const AstNode &method : module.inactiveRuleMethods) {
-    auto signature = parseFunctionSignature(method.child("args"), true,
+    auto signature = parseFunctionSignature(method.child("args"), false,
                                             sourceCompiler.emitError,
-                                            "inactive module rule method");
+                                            "inactive lexical module rule");
     if (failed(signature))
       return failure();
-    llvm::StringMap<DictionaryAttr> locals;
-    for (const ParameterSyntax &parameter : signature->parameters) {
-      AstNode annotation = parameter.parameter.child("annotation");
-      if (!annotation)
-        return sourceCompiler.emitError()
-               << "@rule parameters require explicit logical types";
-      auto type = sourceCompiler.annotation(annotation);
-      if (failed(type))
-        return failure();
-      locals[parameter.parameter.string("arg")] = *type;
-      if (!parameter.defaultValue)
-        continue;
-      DictionaryAttr value = staticValue(sourceCompiler.builder,
-                                         parameter.defaultValue->get("value"),
-                                         sourceCompiler.emitError);
-      if (!value)
-        return sourceCompiler.emitError()
-               << "inactive @rule defaults must be bool or integer literals";
-      DictionaryAttr defaultValue = sourceCompiler.builder.getDictionaryAttr({
-          sourceCompiler.builder.getNamedAttr(
-              "present", sourceCompiler.builder.getBoolAttr(true)),
-          sourceCompiler.builder.getNamedAttr("value", value),
-      });
-      auto resolver = [&](FlatSymbolRefAttr symbol) {
-        return sourceCompiler.headers.resolveRecord(symbol);
-      };
-      if (failed(ac::detail::verifyDefaultMatchesType(
-              defaultValue, *type, ac::detail::ExpectedTypeKind::Logical,
-              resolver, sourceCompiler.emitError)))
-        return failure();
-    }
-    auto resultType = sourceCompiler.annotation(method.child("returns"));
-    if (failed(resultType))
-      return failure();
-    AstNode returned;
+    if (!signature->parameters.empty())
+      return sourceCompiler.emitError()
+             << "lexical rules take no parameters; capture module regs instead";
+    llvm::StringSet<> nonlocals;
+    llvm::StringSet<> requiredTargets;
+    auto stateKey = [&](const ModuleMember &member) {
+      if (member.kind == ModuleMember::Kind::Connection)
+        return (Twine("formal:") + member.parameter).str();
+      return (Twine("owned:") + member.name).str();
+    };
     ArrayAttr statements = method.array("body");
     for (size_t index = 0; index < statements.size(); ++index) {
       AstNode statement = method.item("body", index);
-      if (isModuleDocstring(statement))
+      if (statement.kind() != "Nonlocal")
         continue;
-      if (statement.kind() != "Return" || returned)
-        return sourceCompiler.emitError()
-               << "U02-A inactive @rule body supports one return statement";
-      returned = statement.child("value");
-      if (!returned)
-        return sourceCompiler.emitError()
-               << "U02-A inactive @rule return requires a value";
+      for (Attribute rawName : statement.array("names")) {
+        StringRef name = cast<StringAttr>(rawName).getValue();
+        auto member =
+            llvm::find_if(module.members, [&](const ModuleMember &item) {
+              return item.name == name;
+            });
+        if (member == module.members.end())
+          return sourceCompiler.emitError()
+                 << "inactive lexical rule has unknown nonlocal target '"
+                 << name << "'";
+        if (member->kind == ModuleMember::Kind::ChildInstance)
+          return sourceCompiler.emitError()
+                 << "inactive lexical rule cannot capture child module '"
+                 << name << "'";
+        if (!nonlocals.insert(name).second)
+          return sourceCompiler.emitError()
+                 << "inactive lexical rule repeats nonlocal target '" << name
+                 << "'";
+        requiredTargets.insert(stateKey(*member));
+      }
     }
-    if (!returned)
-      return sourceCompiler.emitError()
-             << "U02-A inactive @rule body requires one return statement";
 
     auto typeOf = [&](auto &&self,
-                      const AstNode &expr) -> FailureOr<DictionaryAttr> {
-      if (expr.kind() == "Name") {
-        auto found = locals.find(expr.string("id"));
-        if (found == locals.end())
+                      const AstNode &expression) -> FailureOr<DictionaryAttr> {
+      if (expression.kind() == "Name") {
+        StringRef name = expression.string("id");
+        auto member =
+            llvm::find_if(module.members, [&](const ModuleMember &item) {
+              return item.name == name;
+            });
+        if (member == module.members.end())
           return sourceCompiler.emitError()
-                 << "inactive @rule reads unbound name '" << expr.string("id")
-                 << "'";
-        return found->second;
+                 << "inactive lexical rule reads unknown name '" << name << "'";
+        if (member->kind == ModuleMember::Kind::ChildInstance)
+          return sourceCompiler.emitError()
+                 << "inactive lexical rule cannot capture child module '"
+                 << name << "'";
+        return member->logicalType;
       }
-      if (expr.kind() == "Attribute") {
-        StringRef name;
-        if (isModuleSelfMember(expr, &name)) {
-          auto member =
-              llvm::find_if(module.members, [&](const ModuleMember &m) {
-                return m.name == name;
-              });
-          if (member == module.members.end())
-            return sourceCompiler.emitError()
-                   << "inactive @rule reads unknown member '" << name << "'";
-          if (member->kind == ModuleMember::Kind::ChildInstance)
-            return sourceCompiler.emitError()
-                   << "inactive @rule cannot read child module internals";
-          return member->logicalType;
-        }
-        auto base = self(self, expr.child("value"));
+      if (expression.kind() == "Attribute") {
+        if (isModuleSelfMember(expression))
+          return sourceCompiler.emitError()
+                 << "inactive lexical rules require lexical names, not self "
+                    "members";
+        auto base = self(self, expression.child("value"));
         if (failed(base))
           return failure();
-        auto kind = base->template getAs<StringAttr>("kind");
-        auto symbol = base->template getAs<FlatSymbolRefAttr>("symbol");
+        auto kind = (*base).template getAs<StringAttr>("kind");
+        auto symbol = (*base).template getAs<FlatSymbolRefAttr>("symbol");
         auto record =
             kind && kind.getValue() == "record" && symbol
                 ? dyn_cast_or_null<ac::StructOp>(
@@ -171,42 +154,101 @@ LogicalResult RuleCompiler::validateInactiveMethods() {
                 : ac::StructOp();
         if (!record)
           return sourceCompiler.emitError()
-                 << "inactive @rule field read requires a canonical record";
-        for (Attribute raw : record.getFields()) {
-          auto field = cast<DictionaryAttr>(raw);
-          if (field.getAs<StringAttr>("name").getValue() == expr.string("attr"))
+                 << "inactive lexical rule field read requires a canonical "
+                    "record";
+        for (Attribute rawField : record.getFields()) {
+          auto field = cast<DictionaryAttr>(rawField);
+          if (field.getAs<StringAttr>("name").getValue() ==
+              expression.string("attr"))
             return field.getAs<DictionaryAttr>("type");
         }
         return sourceCompiler.emitError()
-               << "inactive @rule reads unknown record field '"
-               << expr.string("attr") << "'";
+               << "inactive lexical rule reads unknown record field '"
+               << expression.string("attr") << "'";
       }
-      if (expr.kind() == "Constant") {
-        auto value = staticValue(sourceCompiler.builder, expr.get("value"),
-                                 sourceCompiler.emitError);
+      if (expression.kind() == "Constant") {
+        DictionaryAttr value =
+            staticValue(sourceCompiler.builder, expression.get("value"),
+                        sourceCompiler.emitError);
         if (!value)
           return sourceCompiler.emitError()
-                 << "inactive @rule literal must be bool or integer";
+                 << "inactive lexical rule literal must be bool or integer";
+        return DictionaryAttr();
+      }
+      return sourceCompiler.emitError()
+             << "inactive lexical rule contains an unsupported expression";
+    };
+
+    llvm::StringSet<> assignedTargets;
+    bool returned = false;
+    for (size_t index = 0; index < statements.size(); ++index) {
+      AstNode statement = method.item("body", index);
+      if (isModuleDocstring(statement))
+        continue;
+      if (returned)
+        return sourceCompiler.emitError()
+               << "inactive lexical rule has reachable statements after "
+                  "return";
+      if (statement.kind() == "Nonlocal")
+        continue;
+      if (statement.kind() == "Return") {
+        if (!statement.child("value")) {
+          returned = true;
+          continue;
+        }
+        return sourceCompiler.emitError()
+               << "lexical rules cannot return data; use nonlocal next writes";
+      }
+      if (statement.kind() != "Assign")
+        return sourceCompiler.emitError()
+               << "inactive lexical rule contains unsupported source syntax";
+      ArrayAttr targets = statement.array("targets");
+      if (!targets || targets.size() != 1 ||
+          statement.item("targets", 0).kind() != "Name")
+        return sourceCompiler.emitError()
+               << "inactive lexical rule assignment requires one name target";
+      StringRef targetName = statement.item("targets", 0).string("id");
+      if (!nonlocals.contains(targetName))
+        return sourceCompiler.emitError()
+               << "inactive lexical rule assignment target '" << targetName
+               << "' lacks a nonlocal declaration";
+      auto target =
+          llvm::find_if(module.members, [&](const ModuleMember &item) {
+            return item.name == targetName &&
+                   item.kind != ModuleMember::Kind::ChildInstance;
+          });
+      if (target == module.members.end())
+        return sourceCompiler.emitError()
+               << "inactive lexical rule nonlocal target disappeared";
+      if (!assignedTargets.insert(stateKey(*target)).second)
+        return sourceCompiler.emitError()
+               << "inactive lexical rule writes one canonical nonlocal state "
+                  "more than once";
+      auto valueType = typeOf(typeOf, statement.child("value"));
+      if (failed(valueType))
+        return failure();
+      if (*valueType && *valueType != target->logicalType)
+        return sourceCompiler.emitError()
+               << "inactive lexical rule assignment logical type does not "
+                  "exactly match its nonlocal target";
+      if (!*valueType) {
+        DictionaryAttr value = staticValue(
+            sourceCompiler.builder, statement.child("value").get("value"),
+            sourceCompiler.emitError);
         auto resolver = [&](FlatSymbolRefAttr symbol) {
           return sourceCompiler.headers.resolveRecord(symbol);
         };
         if (failed(ac::detail::verifyStaticValueMatchesType(
-                value, *resultType, ac::detail::ExpectedTypeKind::Logical,
-                resolver, sourceCompiler.emitError)))
+                value, target->logicalType,
+                ac::detail::ExpectedTypeKind::Logical, resolver,
+                sourceCompiler.emitError)))
           return failure();
-        return *resultType;
       }
+    }
+    if (assignedTargets.size() != requiredTargets.size())
       return sourceCompiler.emitError()
-             << "U02-A inactive @rule expressions support names, fields, and "
-                "bool/integer literals";
-    };
-    auto actualType = typeOf(typeOf, returned);
-    if (failed(actualType))
-      return failure();
-    if (*actualType != *resultType)
-      return sourceCompiler.emitError()
-             << "inactive @rule return logical type does not match its "
-                "annotation";
+             << "inactive lexical rule requires one unconditional assignment "
+                "to every canonical nonlocal target";
   }
   return success();
 }

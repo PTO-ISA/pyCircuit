@@ -254,9 +254,10 @@ LogicalResult verifyFormalCurrentProvenance(MathFromBitsOp operation,
   if (!argument || !module || argument.getOwner() != &module.getBody().front())
     return error() << "formal current input must use its real module port";
   auto ports = module->getAttrOfType<ArrayAttr>("ac.ports");
-  if (!ports || argument.getArgNumber() >= ports.size())
+  if (!ports || argument.getArgNumber() < 2 ||
+      argument.getArgNumber() - 2 >= ports.size())
     return error() << "formal current input has no matching PortSlot";
-  auto port = dyn_cast<DictionaryAttr>(ports[argument.getArgNumber()]);
+  auto port = dyn_cast<DictionaryAttr>(ports[argument.getArgNumber() - 2]);
   auto role = port ? port.getAs<StringAttr>("role") : StringAttr();
   if (!port || port.size() != 6 || !role || role.getValue() != "current" ||
       port.getAs<StringAttr>("parameter") !=
@@ -275,7 +276,7 @@ LogicalResult verifyOwnedStateProvenance(MathFromBitsOp operation, RuleOp rule,
                                          unsigned index, DictionaryAttr binding,
                                          DictionaryAttr domain) {
   auto error = [&] { return operation.emitOpError(); };
-  DffeOp state = rule.getInputs()[index].getDefiningOp<DffeOp>();
+  RegOp state = rule.getInputs()[index].getDefiningOp<RegOp>();
   auto element = binding.getAs<ArrayAttr>("element");
   auto module = rule->getParentOfType<ModuleOp>();
   if (!state || state->getParentOfType<ModuleOp>() != module ||
@@ -290,17 +291,33 @@ LogicalResult verifyOwnedStateProvenance(MathFromBitsOp operation, RuleOp rule,
       !element || !element.empty() ||
       !state->getAttrOfType<ArrayAttr>("ac.shape") ||
       !state->getAttrOfType<ArrayAttr>("ac.shape").empty())
-    return error() << "owned current input must use its real scalar DFFE";
+    return error() << "owned current input must use its real scalar reg";
   return success();
 }
 
 LogicalResult verifyRuleFromBitsProvenance(MathFromBitsOp operation,
                                            RuleOp rule) {
-  auto argument = dyn_cast<BlockArgument>(operation.getValue());
+  Value current = operation.getValue();
+  if (auto read = current.getDefiningOp<SourceReadOp>()) {
+    if (read->getParentOfType<RuleOp>() != rule ||
+        read->getBlock() != operation->getBlock() ||
+        read->getBlock() != &rule.getBody().front() ||
+        !read->isBeforeInBlock(operation))
+      return operation.emitOpError()
+             << "from_bits SourceRead must precede it in the same rule";
+    current = read.getCurrent();
+  }
+  auto argument = dyn_cast<BlockArgument>(current);
   if (!argument || argument.getOwner() != &rule.getBody().front() ||
       argument.getArgNumber() >= rule.getInputs().size())
     return operation.emitOpError()
-           << "from_bits requires the actual ac.rule current argument";
+           << "from_bits requires actual ac.rule current argument; rule input "
+              "or its exact SourceRead result";
+  if (current.getType() !=
+      cast<RegType>(rule.getInputs()[argument.getArgNumber()].getType())
+          .getElementType())
+    return operation.emitOpError()
+           << "from_bits SourceRead payload disagrees with its rule input";
   unsigned index = argument.getArgNumber();
   auto inputTypes = rule->getAttrOfType<ArrayAttr>("ac.input_types");
   auto inputBindings = rule->getAttrOfType<ArrayAttr>("ac.input_bindings");
@@ -410,13 +427,34 @@ LogicalResult MathBinaryOp::verify() {
   if (!operation)
     return emitOpError() << "requires StringAttr 'operator'";
   if (!llvm::StringSwitch<bool>(operation.getValue())
-           .Cases({"add", "and_bits"}, true)
+           .Cases({"add", "sub", "and_bits"}, true)
            .Default(false))
     return emitOpError()
            << "operator '" << operation.getValue()
            << "' is not implemented by the source-math foundation";
   if ((*this)->getAttr("ac.check_template"))
-    return emitOpError() << "add and and_bits must not carry a check_template";
+    return emitOpError()
+           << "add, sub and and_bits must not carry a check_template";
+  if ((*this)->hasAttr("domain"))
+    return emitOpError() << "mathematical results have no bit domain";
+  return success();
+}
+
+LogicalResult MathCompareOp::verify() {
+  if (failed(requireSourceMathOp(*this)))
+    return failure();
+  if ((*this)->hasAttr("domain"))
+    return emitOpError() << "mathematical compare has no finite storage domain";
+  auto predicate = getPredicateAttr();
+  if (!predicate || !llvm::StringSwitch<bool>(predicate.getValue())
+                         .Cases({"eq", "ne", "lt", "le", "gt", "ge"}, true)
+                         .Default(false))
+    return emitOpError() << "predicate must be one of eq/ne/lt/le/gt/ge";
+  auto resultType = dyn_cast<IntegerType>(getResult().getType());
+  if (!resultType || !resultType.isSignless() || resultType.getWidth() != 1 ||
+      (*this)->getAttr("ac.check_template"))
+    return emitOpError() << "compare result must be 1-bit signless integer "
+                            "(bool i1) and carry no check_template";
   return success();
 }
 

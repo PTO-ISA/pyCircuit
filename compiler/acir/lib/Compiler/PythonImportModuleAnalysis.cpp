@@ -23,13 +23,43 @@ bool isModuleSelfMember(const AstNode &node, StringRef *name) {
   return true;
 }
 
+bool usesLexicalName(const AstNode &node, StringRef name) {
+  if (!node)
+    return false;
+  if (node.kind() == "Name" && node.string("id") == name)
+    return true;
+  if (node.kind() == "Nonlocal")
+    for (Attribute rawName : node.array("names"))
+      if (cast<StringAttr>(rawName).getValue() == name)
+        return true;
+  for (NamedAttribute field : node.fields()) {
+    if (auto child = dyn_cast<DictionaryAttr>(field.getValue());
+        child && child.getAs<StringAttr>("kind")) {
+      if (usesLexicalName(node.child(field.getName()), name))
+        return true;
+      continue;
+    }
+    auto children = dyn_cast<ArrayAttr>(field.getValue());
+    if (!children)
+      continue;
+    for (size_t index = 0; index < children.size(); ++index) {
+      auto child = dyn_cast<DictionaryAttr>(children[index]);
+      if (child && child.getAs<StringAttr>("kind") &&
+          usesLexicalName(node.item(field.getName(), index), name))
+        return true;
+    }
+  }
+  return false;
+}
+
 bool RecordCompiler::isModuleDefinition(const AstNode &node) const {
-  if (node.kind() != "ClassDef")
+  if (node.kind() != "ClassDef" && node.kind() != "FunctionDef")
     return false;
   for (size_t index = 0; index < node.array("decorator_list").size(); ++index) {
     AstNode decorator = node.item("decorator_list", index);
     if (decorator.kind() == "Name" &&
-        isCompilerDecorator(decorator.string("id"), "module"))
+        (isCompilerDecorator(decorator.string("id"), "module") ||
+         isCompilerDecorator(decorator.string("id"), "system")))
       return true;
   }
   return false;
@@ -44,78 +74,69 @@ ModuleCompiler::ModuleCompiler(RecordCompiler &sourceCompiler,
     : sourceCompiler(sourceCompiler), declaration(declaration) {}
 
 FailureOr<ModuleModel> ModuleCompiler::classify() {
-  if (!declaration.array("bases").empty() ||
-      !declaration.array("keywords").empty() ||
-      (declaration.array("type_params") &&
-       !declaration.array("type_params").empty()))
-    return sourceCompiler.emitError() << "@module classes reject inheritance, "
-                                         "metaclasses and type parameters";
+  if (declaration.kind() != "FunctionDef")
+    return sourceCompiler.emitError()
+           << "@module and @system require function definitions; class/self "
+              "authoring has been retired";
+  if (declaration.array("type_params") &&
+      !declaration.array("type_params").empty())
+    return sourceCompiler.emitError()
+           << "module/system functions reject type parameters";
   ArrayAttr moduleDecorators = declaration.array("decorator_list");
   if (!moduleDecorators || moduleDecorators.size() != 1)
     return sourceCompiler.emitError()
-           << "@module classes require exactly one imported @module decorator";
+           << "module/system functions require exactly one compiler decorator";
   AstNode moduleDecorator = declaration.item("decorator_list", 0);
-  if (moduleDecorator.kind() != "Name" ||
-      !sourceCompiler.isCompilerDecorator(moduleDecorator.string("id"),
-                                          "module"))
+  bool isModule = moduleDecorator.kind() == "Name" &&
+                  sourceCompiler.isCompilerDecorator(
+                      moduleDecorator.string("id"), "module");
+  bool isSystem = moduleDecorator.kind() == "Name" &&
+                  sourceCompiler.isCompilerDecorator(
+                      moduleDecorator.string("id"), "system");
+  if (!isModule && !isSystem)
     return sourceCompiler.emitError()
-           << "module class decorator does not resolve to pycircuit.module";
+           << "decorator does not resolve to pycircuit.module or system";
 
   ModuleModel model;
   model.declaration = declaration;
+  model.constructor = declaration;
+  model.isSystem = isSystem;
   model.symbol = FlatSymbolRefAttr::get(
       sourceCompiler.builder.getContext(),
       sourceCompiler.qualifiedName(declaration.string("name")));
 
   llvm::StringMap<AstNode> ruleMethods;
-  ArrayAttr classBody = declaration.array("body");
-  for (size_t index = 0; index < classBody.size(); ++index) {
+  ArrayAttr structureBody = declaration.array("body");
+  for (size_t index = 0; index < structureBody.size(); ++index) {
     AstNode member = declaration.item("body", index);
     if (isModuleDocstring(member))
       continue;
     if (member.kind() != "FunctionDef")
-      return sourceCompiler.emitError()
-             << "@module class body permits methods only";
+      continue;
     StringRef methodName = member.string("name");
     ArrayAttr decorators = member.array("decorator_list");
-    if (methodName == "__init__") {
-      if (model.constructor)
-        return sourceCompiler.emitError()
-               << "@module class defines more than one __init__";
-      if (decorators && !decorators.empty())
-        return sourceCompiler.emitError()
-               << "module constructor cannot be decorated";
-      model.constructor = member;
-      continue;
-    }
-    if (!decorators || decorators.empty())
-      continue;
-    if (decorators.size() != 1)
+    if (!decorators || decorators.size() != 1)
       return sourceCompiler.emitError()
-             << "module method supports only one @rule decorator";
+             << "nested module functions require exactly one @rule decorator";
     AstNode decorator = member.item("decorator_list", 0);
     if (decorator.kind() != "Name" ||
         !sourceCompiler.isCompilerDecorator(decorator.string("id"), "rule"))
       return sourceCompiler.emitError()
-             << "module method decorator does not resolve to pycircuit.rule";
+             << "nested module function does not resolve to pycircuit.rule";
     if (!ruleMethods.try_emplace(methodName, member).second)
-      return sourceCompiler.emitError() << "duplicate @rule method name";
+      return sourceCompiler.emitError() << "duplicate lexical @rule name";
   }
-  if (!model.constructor)
-    return sourceCompiler.emitError()
-           << "@module class requires exactly one __init__ constructor";
 
   auto signature =
-      parseFunctionSignature(model.constructor.child("args"), true,
-                             sourceCompiler.emitError, "module constructor");
+      parseFunctionSignature(model.declaration.child("args"), false,
+                             sourceCompiler.emitError, "module function");
   if (failed(signature))
     return failure();
-  llvm::StringMap<size_t> parameterByName;
   for (size_t index = 0; index < signature->parameters.size(); ++index) {
     const ParameterSyntax &syntax = signature->parameters[index];
     if (!syntax.parameter.child("annotation"))
       return sourceCompiler.emitError()
-             << "module constructor parameters require explicit types";
+             << "module function parameters require explicit types";
     auto type = sourceCompiler.annotation(syntax.parameter.child("annotation"));
     if (failed(type))
       return failure();
@@ -141,61 +162,151 @@ FailureOr<ModuleModel> ModuleCompiler::classify() {
         return failure();
     }
     StringRef name = syntax.parameter.string("arg");
-    parameterByName[name] = index;
     model.parameters.push_back({syntax, name.str(),
                                 static_cast<unsigned>(index), "connection",
                                 *type, defaultValue});
+    ModuleMember connection;
+    connection.kind = ModuleMember::Kind::Connection;
+    connection.name = name.str();
+    connection.parameter = name.str();
+    connection.declaration = syntax.parameter;
+    connection.logicalType = *type;
+    connection.payloadType =
+        physicalType(*type, sourceCompiler.builder.getContext());
+    model.members.push_back(std::move(connection));
   }
 
   llvm::StringSet<> memberNames;
-  ArrayAttr constructorBody = model.constructor.array("body");
-  for (size_t index = 0; index < constructorBody.size(); ++index) {
-    AstNode statement = model.constructor.item("body", index);
+  for (const ModuleParameter &parameter : model.parameters)
+    memberNames.insert(parameter.name);
+  for (size_t index = 0; index < structureBody.size(); ++index) {
+    AstNode statement = model.declaration.item("body", index);
     if (isModuleDocstring(statement))
       continue;
+    if (statement.kind() == "FunctionDef")
+      continue;
+    if (statement.kind() == "Expr") {
+      AstNode call = statement.child("value");
+      if (call.kind() != "Call" || call.child("func").kind() != "Name")
+        return sourceCompiler.emitError()
+               << "module structure expression must register a lexical rule";
+      StringRef ruleName = call.child("func").string("id");
+      auto method = ruleMethods.find(ruleName);
+      if (method == ruleMethods.end())
+        return sourceCompiler.emitError()
+               << "module structure call is not a nested @rule";
+      if (!call.array("args").empty() || !call.array("keywords").empty())
+        return sourceCompiler.emitError()
+               << "lexical rule registration takes no arguments";
+      size_t registrationIndex = model.registrations.size();
+      model.registrations.push_back({call, method->second, {}, {}});
+      model.actions.push_back(
+          {ModuleAction::Kind::RuleRegistration, registrationIndex, statement});
+      continue;
+    }
     if (statement.kind() != "Assign" && statement.kind() != "AnnAssign")
       return sourceCompiler.emitError()
-             << "U02-A module constructor accepts member bindings and rule "
-                "registrations";
+             << "module structure accepts declarations, aliases, child "
+                "instances and lexical rule registrations";
     AstNode target;
     if (statement.kind() == "Assign") {
       ArrayAttr targets = statement.array("targets");
       if (!targets || targets.size() != 1)
         return sourceCompiler.emitError()
-               << "module constructor assignment requires one member target";
+               << "module structure assignment requires one name target";
       target = statement.item("targets", 0);
     } else {
       target = statement.child("target");
     }
-    StringRef memberName;
-    if (!isModuleSelfMember(target, &memberName))
+    if (target.kind() != "Name")
       return sourceCompiler.emitError()
-             << "module constructor assignments require self.member targets";
+             << "module structure assignments require lexical name targets";
+    StringRef memberName = target.string("id");
     if (statement.kind() == "AnnAssign") {
       if (!memberNames.insert(memberName).second)
         return sourceCompiler.emitError()
-               << "module constructor member identity "
-                  "is declared more than once";
+               << "module lexical identity is declared more than once";
       if (!statement.get("value") || isa<UnitAttr>(statement.get("value")))
         return sourceCompiler.emitError()
                << "owned state requires an initializer in this module subset";
-      auto logical = sourceCompiler.annotation(statement.child("annotation"));
+      AstNode annotation = statement.child("annotation");
+      bool isCollection = annotation.kind() == "Subscript" &&
+                          annotation.child("value").kind() == "Name" &&
+                          annotation.child("value").string("id") == "list";
+      AstNode elementAnnotation =
+          isCollection ? annotation.child("slice") : annotation;
+      auto logical = sourceCompiler.annotation(elementAnnotation);
       if (failed(logical))
         return failure();
       AstNode initializer = statement.child("value");
-      auto expression = staticExpression(model, initializer, *logical);
-      if (failed(expression))
-        return failure();
       ModuleMember state;
       state.kind = ModuleMember::Kind::OwnedState;
       state.name = memberName.str();
       state.declaration = statement;
       state.logicalType = *logical;
-      state.initialValue = sourceCompiler.builder.getDictionaryAttr({
-          sourceCompiler.builder.getNamedAttr(
-              "kind", sourceCompiler.builder.getStringAttr("scalar")),
-          sourceCompiler.builder.getNamedAttr("value", *expression),
-      });
+      if (isCollection) {
+        auto kind = (*logical).getAs<StringAttr>("kind");
+        if (!kind ||
+            (kind.getValue() != "bool" && kind.getValue() != "integer" &&
+             kind.getValue() != "record"))
+          return sourceCompiler.emitError()
+                 << "concrete reg collection element type must be a supported "
+                    "finite logical type";
+        if (initializer.kind() != "List" || initializer.array("elts").empty())
+          return sourceCompiler.emitError()
+                 << "concrete reg collection requires a non-empty list literal "
+                    "initializer";
+        SmallVector<Attribute> initialElements;
+        for (size_t element = 0; element < initializer.array("elts").size();
+             ++element) {
+          auto expression = staticExpression(
+              model, initializer.item("elts", element), *logical);
+          if (failed(expression))
+            return failure();
+          initialElements.push_back(*expression);
+        }
+        auto count = parseStaticInteger(sourceCompiler.builder,
+                                        Twine(initialElements.size()).str(),
+                                        sourceCompiler.emitError);
+        if (failed(count))
+          return failure();
+        DictionaryAttr countValue = sourceCompiler.builder.getDictionaryAttr({
+            sourceCompiler.builder.getNamedAttr(
+                "kind", sourceCompiler.builder.getStringAttr("integer")),
+            sourceCompiler.builder.getNamedAttr("value", *count),
+        });
+        auto shapeExpression = ac::StaticExprAttr::get(
+            sourceCompiler.builder.getContext(),
+            sourceCompiler.builder.getDictionaryAttr({
+                sourceCompiler.builder.getNamedAttr(
+                    "kind", sourceCompiler.builder.getStringAttr("literal")),
+                sourceCompiler.builder.getNamedAttr("value", countValue),
+                sourceCompiler.builder.getNamedAttr(
+                    "origin", occurrence(sourceCompiler.builder, model.symbol,
+                                         relativeToModule(model.declaration,
+                                                          initializer))),
+                sourceCompiler.builder.getNamedAttr(
+                    "location",
+                    sourceSpan(sourceCompiler.builder,
+                               sourceCompiler.source.path, initializer)),
+            }));
+        state.shape = sourceCompiler.builder.getArrayAttr({shapeExpression});
+        state.initialValue = sourceCompiler.builder.getDictionaryAttr({
+            sourceCompiler.builder.getNamedAttr(
+                "kind", sourceCompiler.builder.getStringAttr("elements")),
+            sourceCompiler.builder.getNamedAttr(
+                "values", sourceCompiler.builder.getArrayAttr(initialElements)),
+        });
+      } else {
+        auto expression = staticExpression(model, initializer, *logical);
+        if (failed(expression))
+          return failure();
+        state.initialValue = sourceCompiler.builder.getDictionaryAttr({
+            sourceCompiler.builder.getNamedAttr(
+                "kind", sourceCompiler.builder.getStringAttr("scalar")),
+            sourceCompiler.builder.getNamedAttr("value", *expression),
+        });
+      }
       state.payloadType =
           physicalType(*logical, sourceCompiler.builder.getContext());
       size_t memberIndex = model.members.size();
@@ -209,65 +320,54 @@ FailureOr<ModuleModel> ModuleCompiler::classify() {
     if (value.kind() == "Name") {
       if (!memberNames.insert(memberName).second)
         return sourceCompiler.emitError()
-               << "module constructor member identity "
-                  "is declared more than once";
-      auto parameter = parameterByName.find(value.string("id"));
-      if (parameter == parameterByName.end())
+               << "module lexical identity is declared more than once";
+      auto sourceMember =
+          llvm::find_if(model.members, [&](const ModuleMember &entry) {
+            return entry.name == value.string("id");
+          });
+      if (sourceMember == model.members.end())
         return sourceCompiler.emitError()
-               << "U02-A connection alias must name a "
-                  "module constructor parameter";
-      ModuleParameter &formal = model.parameters[parameter->second];
-      ModuleMember connection;
-      connection.kind = ModuleMember::Kind::Connection;
-      connection.name = memberName.str();
-      connection.parameter = formal.name;
-      connection.declaration = statement;
-      connection.logicalType = formal.type;
-      connection.payloadType =
-          physicalType(formal.type, sourceCompiler.builder.getContext());
-      size_t memberIndex = model.members.size();
-      model.members.push_back(std::move(connection));
-      model.actions.push_back(
-          {ModuleAction::Kind::Member, memberIndex, statement});
+               << "module alias must name a previously declared reg or "
+                  "connection";
+      if (sourceMember->kind == ModuleMember::Kind::ChildInstance)
+        return sourceCompiler.emitError()
+               << "module alias cannot name a child instance";
+      size_t sourceIndex =
+          static_cast<size_t>(sourceMember - model.members.begin());
+      size_t canonicalIndex =
+          sourceMember->canonicalMemberIndex.value_or(sourceIndex);
+      if (canonicalIndex >= model.members.size() ||
+          model.members[canonicalIndex].canonicalMemberIndex)
+        return sourceCompiler.emitError()
+               << "module alias has a dangling or cyclic canonical identity";
+      const ModuleMember &canonical = model.members[canonicalIndex];
+      if (canonical.isCollection())
+        return sourceCompiler.emitError()
+               << "concrete reg collection '" << canonical.name
+               << "' cannot be aliased before exact element lowering is "
+                  "available";
+      ModuleMember alias;
+      alias.kind = canonical.kind;
+      alias.name = memberName.str();
+      alias.declaration = statement;
+      alias.parameter = canonical.parameter;
+      alias.logicalType = canonical.logicalType;
+      alias.canonicalMemberIndex = canonicalIndex;
+      alias.payloadType = canonical.payloadType;
+      model.members.push_back(std::move(alias));
       continue;
     }
     if (value.kind() != "Call")
       return sourceCompiler.emitError()
-             << "U02-A constructor member binding must be a connection, state, "
-                "rule, or child module";
+             << "module assignment must be an alias or child instance";
 
     AstNode callee = value.child("func");
-    if (callee.kind() == "Attribute" &&
-        callee.child("value").kind() == "Name" &&
-        callee.child("value").string("id") == "self") {
-      auto method = ruleMethods.find(callee.string("attr"));
-      if (method == ruleMethods.end())
-        return sourceCompiler.emitError()
-               << "constructor call target is not a declared @rule method";
-      AstNode outputTarget = target;
-      size_t registrationIndex = model.registrations.size();
-      model.registrations.push_back(
-          {value, method->second, outputTarget, memberName.str()});
-      model.actions.push_back(
-          {ModuleAction::Kind::RuleRegistration, registrationIndex, statement});
-      auto outputMember =
-          llvm::find_if(model.members, [&](ModuleMember &entry) {
-            return entry.name == memberName;
-          });
-      if (outputMember == model.members.end())
-        return sourceCompiler.emitError()
-               << "rule output target must be previously declared";
-      outputMember->write = true;
-      outputMember->writeSites.push_back(outputTarget);
-      continue;
-    }
-
     if (callee.kind() != "Name")
       return sourceCompiler.emitError()
              << "module child constructor must use an imported module name";
     if (!memberNames.insert(memberName).second)
       return sourceCompiler.emitError()
-             << "module constructor member identity is declared more than once";
+             << "module lexical identity is declared more than once";
     auto binding = sourceCompiler.namespaceBindings.find(callee.string("id"));
     if (binding == sourceCompiler.namespaceBindings.end())
       return sourceCompiler.emitError()
@@ -298,14 +398,24 @@ FailureOr<ModuleModel> ModuleCompiler::classify() {
                  member.parameter == parameter.name;
         }))
       return sourceCompiler.emitError()
-             << "module constructor parameter is not "
-                "bound to a connection member";
+             << "module parameter is not bound to a connection";
 
   for (const auto &entry : ruleMethods)
     if (llvm::none_of(model.registrations, [&](const RuleRegistration &rule) {
           return rule.method.string("name") == entry.getKey();
         }))
       model.inactiveRuleMethods.push_back(entry.second);
+
+  for (const ModuleMember &member : model.members) {
+    if (!member.isCollection())
+      continue;
+    for (const auto &entry : ruleMethods)
+      if (usesLexicalName(entry.second, member.name))
+        return sourceCompiler.emitError()
+               << "concrete reg collection '" << member.name
+               << "' cannot be captured by a rule before exact element "
+                  "lowering is available";
+  }
 
   return model;
 }
@@ -446,6 +556,11 @@ ModuleCompiler::staticExpression(const ModuleModel &model,
 
 LogicalResult ModuleCompiler::classifyInstanceArguments(ModuleModel &parent,
                                                         ModuleMember &member) {
+  if (auto rootKind =
+          member.childHeader->getAttrOfType<StringAttr>("ac.root_kind"))
+    return sourceCompiler.emitError()
+           << "system definition '" << member.child.getValue()
+           << "' cannot be instantiated as a child module";
   auto contract =
       member.childHeader->getAttrOfType<DictionaryAttr>("ac.contract");
   auto parameters =
@@ -500,11 +615,11 @@ LogicalResult ModuleCompiler::classifyInstanceArguments(ModuleModel &parent,
     explicitlyBound[parameterIndex] = true;
   }
 
-  llvm::StringMap<size_t> memberByParameter;
+  llvm::StringMap<size_t> memberByName;
   for (size_t index = 0; index < parent.members.size(); ++index) {
     const ModuleMember &candidate = parent.members[index];
-    if (candidate.kind == ModuleMember::Kind::Connection)
-      memberByParameter[candidate.parameter] = index;
+    if (candidate.kind != ModuleMember::Kind::ChildInstance)
+      memberByName[candidate.name] = index;
   }
   for (Attribute rawConnection : connections) {
     auto connection = dyn_cast<DictionaryAttr>(rawConnection);
@@ -535,24 +650,31 @@ LogicalResult ModuleCompiler::classifyInstanceArguments(ModuleModel &parent,
              << "module connection requires an explicit handle argument; value "
                 "defaults do not allocate state";
     AstNode actual = actuals[parameterIndex];
-    StringRef actualName;
     size_t parentMemberIndex = parent.members.size();
-    if (isModuleSelfMember(actual, &actualName)) {
-      for (size_t index = 0; index < parent.members.size(); ++index)
-        if (parent.members[index].name == actualName) {
-          parentMemberIndex = index;
-          break;
-        }
-    } else if (actual.kind() == "Name") {
-      auto found = memberByParameter.find(actual.string("id"));
-      if (found != memberByParameter.end())
+    if (actual.kind() == "Name") {
+      auto found = memberByName.find(actual.string("id"));
+      if (found != memberByName.end())
         parentMemberIndex = found->second;
     }
     if (parentMemberIndex == parent.members.size())
       return sourceCompiler.emitError()
              << "module child connection actual must name a previously "
-                "declared self member or connection parameter";
+                "declared reg or connection alias through an approved lexical "
+                "Name or projection";
+    parentMemberIndex =
+        parent.members[parentMemberIndex].canonicalMemberIndex.value_or(
+            parentMemberIndex);
+    if (parentMemberIndex >= parent.members.size() ||
+        parent.members[parentMemberIndex].canonicalMemberIndex)
+      return sourceCompiler.emitError()
+             << "module child connection actual has a dangling or cyclic "
+                "canonical alias";
     ModuleMember &parentMember = parent.members[parentMemberIndex];
+    if (parentMember.isCollection())
+      return sourceCompiler.emitError()
+             << "concrete reg collection '" << parentMember.name
+             << "' cannot bind a child connection before exact element "
+                "lowering is available";
     if (!parentMember.logicalType || parentMember.logicalType != expectedType)
       return sourceCompiler.emitError()
              << "module child connection logical type "

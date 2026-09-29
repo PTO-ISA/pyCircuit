@@ -21,8 +21,8 @@ def ACIR_StructType : ACIR_Type<"Struct", "struct"> {
   let genVerifyDecl = 1;
 }
 
-def ACIR_DffeType : ACIR_Type<"Dffe", "dffe"> {
-  let summary = "Handle to a source-owned enabled register";
+def ACIR_RegType : ACIR_Type<"Reg", "reg"> {
+  let summary = "Handle to a source-owned clocked register";
   let parameters = (ins "::mlir::Type":$elementType);
   let assemblyFormat = "`<` $elementType `>`";
   let genVerifyDecl = 1;

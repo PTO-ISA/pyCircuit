@@ -14,9 +14,10 @@ namespace acir::ac::detail {
 
 using EmitError = llvm::function_ref<mlir::InFlightDiagnostic()>;
 
-mlir::LogicalResult verifyDeclarationMetadata(
-    mlir::Operation *operation, mlir::DictionaryAttr owner,
-    mlir::DictionaryAttr origin, mlir::StringAttr role);
+mlir::LogicalResult verifyDeclarationMetadata(mlir::Operation *operation,
+                                              mlir::DictionaryAttr owner,
+                                              mlir::DictionaryAttr origin,
+                                              mlir::StringAttr role);
 
 enum class ExpectedTypeKind { Logical, Static };
 
@@ -81,6 +82,8 @@ mlir::LogicalResult verifySpecKey(mlir::DictionaryAttr value,
                                   EmitError emitError);
 mlir::LogicalResult verifyValueID(mlir::DictionaryAttr value,
                                   EmitError emitError);
+mlir::LogicalResult verifyUseID(mlir::DictionaryAttr value,
+                                EmitError emitError);
 mlir::LogicalResult verifyCheckID(mlir::DictionaryAttr value,
                                   EmitError emitError);
 mlir::LogicalResult verifyProofScope(mlir::DictionaryAttr value,
@@ -91,6 +94,10 @@ mlir::LogicalResult verifyStateID(mlir::DictionaryAttr value,
                                   EmitError emitError);
 mlir::LogicalResult verifyStateRef(mlir::DictionaryAttr value,
                                    EmitError emitError);
+
+// Total structural order for attributes admitted by closed source identity
+// schemas. Callers must verify the enclosing Occurrence or StateRef first.
+int compareClosedSourceStructure(mlir::Attribute left, mlir::Attribute right);
 
 } // namespace acir::ac::detail
 

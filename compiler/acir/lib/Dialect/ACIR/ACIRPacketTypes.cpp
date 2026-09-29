@@ -16,8 +16,8 @@ StructType::verify(llvm::function_ref<InFlightDiagnostic()> emitError,
 }
 
 LogicalResult
-DffeType::verify(llvm::function_ref<InFlightDiagnostic()> emitError,
-                 Type elementType) {
+RegType::verify(llvm::function_ref<InFlightDiagnostic()> emitError,
+                Type elementType) {
   if (auto integer = dyn_cast<IntegerType>(elementType)) {
     if (integer.isSignless() && integer.getWidth() >= 1 &&
         integer.getWidth() <= 64)
@@ -26,7 +26,7 @@ DffeType::verify(llvm::function_ref<InFlightDiagnostic()> emitError,
     return success();
   }
   return emitError()
-         << "dffe element must be finite signless i1..i64 or a nominal record";
+         << "reg element must be finite signless i1..i64 or a nominal record";
 }
 
 } // namespace acir::ac

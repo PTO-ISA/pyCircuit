@@ -161,11 +161,12 @@ SourceHeaderRegistry::create(ArrayRef<ModuleOp> headers,
     if (failed(verifyUnitEnvelope(header, owner, emitError)) ||
         failed(verify(header)))
       return failure();
+    if (!ownerHeaders.try_emplace(owner, header).second)
+      return emitError() << "duplicate interface SourceOwner";
     std::string owningModule = moduleName(owner);
     if (!registry.moduleOwners_.try_emplace(owningModule, owner).second)
       return emitError() << "duplicate interface module owner '" << owningModule
                          << "'";
-    ownerHeaders.try_emplace(owner, header);
     registry.headers_.push_back(header);
   }
 

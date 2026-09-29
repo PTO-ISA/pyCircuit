@@ -1,16 +1,48 @@
 add_acir_library(ACIRSourceCompiler SOURCES
+  CheckGraph.cpp
+  FinalEmit.cpp
+  FinalEmitCpp.cpp
+  FinalEmitCppSystem.cpp
+  FinalRuntimeMetadata.cpp
+  FinalEmitCppHierarchy.cpp
+  FinalEmitVerilog.cpp
+  FinalHardware.cpp
+  FinalHardwareProgram.cpp
+  FinalUses.cpp
+  FinalNumeric.cpp
+  FinalComposedNumeric.cpp
+  FinalProgram.cpp
+  ModuleGraph.cpp
+  ObservationGraph.cpp
+  ProposalGraph.cpp
+  ScalarNumericLowering.cpp
+  ScalarNumericLoweringAnalysis.cpp
+  ScalarNumericExactLowering.cpp
+  ScalarNumericMaskLowering.cpp
+  ScalarNumericCompositionLowering.cpp
+  ScalarNumericNextUseLowering.cpp
+  ScalarNumericRangeLowering.cpp
   PythonImportAST.cpp
+  PythonImportChecks.cpp
   PythonImportContext.cpp
   PythonImportHelpers.cpp
   PythonImportModuleAnalysis.cpp
   PythonImportModuleBody.cpp
   PythonImportModules.cpp
+  PythonImportNumeric.cpp
+  PythonImportNumericNext.cpp
+  PythonImportObservations.cpp
   PythonImportRecords.cpp
+  PythonImportRuleExpressions.cpp
+  PythonImportRuleControl.cpp
   PythonImportRules.cpp
   PythonImportSignature.cpp
+  Passes/InferRuleEffects.cpp
+  Passes/LowerExactInputAdd.cpp
   SourceHeaderRegistry.cpp
   SourceHeaderHelpers.cpp
   SourceBodySnapshots.cpp
+  SourceLink.cpp
   SourceNamespace.cpp
   SourceIdentifier.cpp
   SourceUnit.cpp
@@ -19,6 +51,8 @@ add_acir_library(ACIRSourceCompiler SOURCES
     MLIRArithDialect
     MLIRFuncDialect
     MLIRParser
+    MLIRPass
+    MLIRSCFDialect
 )
 target_include_directories(ACIRSourceCompiler PUBLIC
   "$<BUILD_INTERFACE:${ACIR_SOURCE_DIR}/lib>"

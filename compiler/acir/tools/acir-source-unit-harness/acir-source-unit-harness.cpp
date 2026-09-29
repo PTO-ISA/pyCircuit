@@ -1,3 +1,4 @@
+#include "Compiler/ScalarNumericLowering.h"
 #include "Compiler/SourceUnit.h"
 #include "acir/Dialect/ACIR/ACIRDialect.h"
 
@@ -21,6 +22,7 @@ llvm::cl::opt<std::string> sourcePath("path", llvm::cl::Required);
 llvm::cl::list<std::string> headerPaths("header", llvm::cl::ZeroOrMore);
 llvm::cl::opt<std::string> bodyOutput("body-out", llvm::cl::Required);
 llvm::cl::opt<std::string> interfaceOutput("interface-out", llvm::cl::Required);
+llvm::cl::opt<bool> lowerNumeric("lower-numeric", llvm::cl::init(false));
 
 mlir::OwningOpRef<mlir::ModuleOp> parseModule(llvm::StringRef path,
                                               mlir::MLIRContext &context) {
@@ -34,7 +36,7 @@ bool writeModule(mlir::ModuleOp module, llvm::StringRef path) {
     llvm::errs() << error.message() << '\n';
     return false;
   }
-  module.print(output.os());
+  module.print(output.os(), mlir::OpPrintingFlags().enableDebugInfo());
   output.os() << '\n';
   output.keep();
   return true;
@@ -79,6 +81,10 @@ int main(int argc, char **argv) {
                                                         *registry, emitError);
   if (mlir::failed(result) || mlir::failed(mlir::verify(*result->body)) ||
       mlir::failed(mlir::verify(*result->interface)))
+    return 1;
+  if (lowerNumeric &&
+      mlir::failed(
+          acir::compiler::lowerExactInputAddTransactional(*result->body)))
     return 1;
   if (!writeModule(*result->body, bodyOutput) ||
       !writeModule(*result->interface, interfaceOutput))

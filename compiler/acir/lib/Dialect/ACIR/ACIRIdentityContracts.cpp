@@ -1,10 +1,13 @@
 #include "ACIRSourceContracts.h"
 
+#include "llvm/ADT/APSInt.h"
 #include "llvm/ADT/STLExtras.h"
 #include "llvm/ADT/SmallVector.h"
 #include "llvm/ADT/Twine.h"
+#include "llvm/Support/ErrorHandling.h"
 #include "llvm/Support/Path.h"
 
+#include <algorithm>
 #include <cstddef>
 
 using namespace mlir;
@@ -109,6 +112,78 @@ LogicalResult verifyFormalOrdinal(Attribute value, EmitError emitError) {
 
 } // namespace
 
+int compareClosedSourceStructure(Attribute left, Attribute right) {
+  if (left == right)
+    return 0;
+  auto rank = [](Attribute value) -> unsigned {
+    if (isa<UnitAttr>(value))
+      return 0;
+    if (isa<BoolAttr>(value))
+      return 1;
+    if (isa<IntegerAttr>(value))
+      return 2;
+    if (isa<MathIntAttr>(value))
+      return 3;
+    if (isa<StringAttr>(value))
+      return 4;
+    if (isa<FlatSymbolRefAttr>(value))
+      return 5;
+    if (isa<ArrayAttr>(value))
+      return 6;
+    if (isa<DictionaryAttr>(value))
+      return 7;
+    llvm_unreachable(
+        "closed source structural order requires verified identity attributes");
+  };
+  unsigned leftRank = rank(left);
+  unsigned rightRank = rank(right);
+  if (leftRank != rightRank)
+    return leftRank < rightRank ? -1 : 1;
+  if (isa<UnitAttr>(left))
+    return 0;
+  if (auto lhs = dyn_cast<BoolAttr>(left)) {
+    bool rhs = cast<BoolAttr>(right).getValue();
+    return lhs.getValue() == rhs ? 0 : lhs.getValue() ? 1 : -1;
+  }
+  if (auto lhs = dyn_cast<IntegerAttr>(left)) {
+    llvm::APSInt a(lhs.getValue(), /*isUnsigned=*/true);
+    llvm::APSInt b(cast<IntegerAttr>(right).getValue(), /*isUnsigned=*/true);
+    return llvm::APSInt::compareValues(a, b);
+  }
+  if (auto lhs = dyn_cast<MathIntAttr>(left))
+    return llvm::APSInt::compareValues(
+        llvm::APSInt(lhs.getCanonicalValue()),
+        llvm::APSInt(cast<MathIntAttr>(right).getCanonicalValue()));
+  if (auto lhs = dyn_cast<StringAttr>(left))
+    return lhs.getValue().compare(cast<StringAttr>(right).getValue());
+  if (auto lhs = dyn_cast<FlatSymbolRefAttr>(left))
+    return lhs.getValue().compare(cast<FlatSymbolRefAttr>(right).getValue());
+  if (auto lhs = dyn_cast<ArrayAttr>(left)) {
+    auto rhs = cast<ArrayAttr>(right);
+    for (size_t index = 0; index < std::min(lhs.size(), rhs.size()); ++index) {
+      int part = compareClosedSourceStructure(lhs[index], rhs[index]);
+      if (part)
+        return part;
+    }
+    return lhs.size() == rhs.size() ? 0 : lhs.size() < rhs.size() ? -1 : 1;
+  }
+  auto lhs = cast<DictionaryAttr>(left);
+  auto rhs = cast<DictionaryAttr>(right);
+  auto lit = lhs.begin();
+  auto rit = rhs.begin();
+  while (lit != lhs.end() && rit != rhs.end()) {
+    int key = lit->getName().getValue().compare(rit->getName().getValue());
+    if (key)
+      return key;
+    int value = compareClosedSourceStructure(lit->getValue(), rit->getValue());
+    if (value)
+      return value;
+    ++lit;
+    ++rit;
+  }
+  return lit == lhs.end() && rit == rhs.end() ? 0 : lit == lhs.end() ? -1 : 1;
+}
+
 LogicalResult verifySourceOwner(DictionaryAttr value, EmitError emitError) {
   if (failed(requireExactFields(value, 2, "SourceOwner", emitError)))
     return failure();
@@ -192,6 +267,22 @@ LogicalResult verifyValueID(DictionaryAttr value, EmitError emitError) {
                                    emitError)))
     return failure();
   return succeeded(decodeU32(value.getAs<IntegerAttr>("slot"), "ValueID slot",
+                             emitError))
+             ? success()
+             : failure();
+}
+
+LogicalResult verifyUseID(DictionaryAttr value, EmitError emitError) {
+  if (failed(requireExactFields(value, 3, "UseID", emitError)))
+    return failure();
+  if (failed(verifyDictionaryField(value, "origin", "UseID", verifyOccurrence,
+                                   emitError)))
+    return failure();
+  auto role = value.getAs<StringAttr>("role");
+  if (!role ||
+      (role.getValue() != "next" && role.getValue() != "helper_return"))
+    return emitError() << "UseID role must be 'next' or 'helper_return'";
+  return succeeded(decodeU32(value.getAs<IntegerAttr>("slot"), "UseID slot",
                              emitError))
              ? success()
              : failure();
