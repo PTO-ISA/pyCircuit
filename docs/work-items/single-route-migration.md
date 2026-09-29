@@ -71,7 +71,7 @@ Python 采用用户明确选择的模块函数与嵌套 rule。R1 B 的既有 re
 | I24 W09 checks / conditional observation / link permit | done（direct-bool check子片） | source expect ODS/verifier、Python assert/conditional instrumentation、private CheckGraph及ProposalGraph permit integration；independent mutations/link tests | assert生成direct bool SourceRead、CheckID与ordered RequiredCheck；conditional assert/print/log/report使用真实branch path；two-instance same-site observation按OwnerRef稳定排序且unit输入置换不变。SourceLink顺序Module→Check→Proposal→Observation，有checks时global/per-commit permit非恒真，删图/重定向/required漂移拒绝。CheckContracts 9/9、source observations16/16、Observation6/6、SourceLink5/5，独立验收PASS。numeric proofs、runner `--events`/ReportStat JSON、sink I/O和synthesis projection仍开放 |
 | I25 W10 FinalProgram / bounded dual emit | implemented（hierarchical dual emit＋Numeric N0-A/B0/B1a/B1b/C1/D1–D3 accepted；W10仍request changes） | move-only FinalProgram、frozen FinalSystem/realization、private C++/Verilog emitters、原子backend harness、独立可执行oracle | Hierarchy/commit/observation与双backend三层执行已接受。C1完成input-add事务 lowering；D1完成sub和六类compare；D2完成exact and_bits与显式full-mask low_bits；D3完成单checked to_bits、range CheckBinding和guarded scf.if。所有包闭合source ownership、I/F/C/S、APInt domain、multi-rule rollback、root identity与幂等，独立Sol复审PASS。75/75 source-math、PM 19/19 ACIR targets，[C1复审](../reviews/20260929-n0-c1-scalar-lowering.md)、[D1–D3复审](../reviews/20260929-n0-d1-d3-numeric-closure.md)、[阶段复审](../reviews/20260929-w10-final-system-closure.md)。backend harness已删除静态JSON假证据并真实运行minimal C++/RTL；严格V41–V44当前1绿7红。仍缺Python算术/控制流producer、graph/final/backend numeric执行、完整Result/events与调度/源码重排；禁止进入W11 |
 | I26 Python numeric producer bridge | done（单输入unused-local子片） | 独立Sol实现与测试；Sol/high复审；PM整合private harness | Python add/sub与六类compare生成既有C1/D1 recipe、SourceRead/ValueID/proof_scope；private `--lower-numeric` 验证真实Python到finite SSA。32/32新系统测试、68/68相关frontend测试、19/19 ACIR通过，[验收](../reviews/20260929-python-numeric-bridge.md)。numeric next/use/yield绑定、条件流、Graph/Final/backend admission仍开放；下包N0-U1 masked next assignment |
-| I27 M4 私有 design 文件桥 | done（复审 FAIL 已修补；候选 `81fb596b` 已推送） | m4_program_bridge 实现、m4_program_tests 独立测试、独立 reviewer、PM CMake 整合/证据/验收 | 新增 `acir-design-harness`：把逐源显式 body/header 读盘、link 并物化为一支 verified final design 文件，另一进程重解析后交同一 final verifier 与两个 emitter；三种模式都拒绝既有输出（file/dir/symlink/dangling），且全部验证与 emit 先于建文件。`ProposalGraph` 按 `ac.stage` 选 `ac.logical_type`（final）/`ac.logical_element`（source）。封闭自测 fixture 更名 `closed_system_testbench.ac`，硬件产物名为 `design_top.ac`。[证据](../gates/logs/20260929-m4-design-bridge/README.md)：355 native（20 binaries）+52 Python 通过，2 V44 deselected。独立复审对 `ede5aec7` 判 FAIL：生产代码无缺陷，但两个反例测试空转（既有输出使 no-clobber 先拒绝；`"logical"` 子串只匹配 tmp_path）。已修：改断言真实诊断与"未创建输出"、stage 校验提到每 view 一次、补 `!logical` 诊断、去弱断言；负向对照证明该 stage 修复是 load-bearing（回退后正向双后端 emit 失败）。**独立 design/testbench 交付尚未成立** |
+| I27 M4 私有 design 文件桥 | done（复审 FAIL 已修补；候选 `81fb596b` 已推送） | m4_program_bridge 实现、m4_program_tests 独立测试、独立 reviewer、PM CMake 整合/证据/验收 | 新增 `acir-design-harness`：把逐源显式 body/header 读盘、link 并物化为一支 verified final design 文件，另一进程重解析后交同一 final verifier 与两个 emitter；三种模式都拒绝既有输出（file/dir/symlink/dangling），且全部验证与 emit 先于建文件。`ProposalGraph` 按 `ac.stage` 选 `ac.logical_type`（final）/`ac.logical_element`（source）。产物按来源 Python 文件名命名（`test_increment.py` → `test_increment.ac`），不设保留标签。[证据](../gates/logs/20260929-m4-design-bridge/README.md)：355 native（20 binaries）+52 Python 通过，2 V44 deselected。独立复审对 `ede5aec7` 判 FAIL：生产代码无缺陷，但两个反例测试空转（既有输出使 no-clobber 先拒绝；`"logical"` 子串只匹配 tmp_path）。已修：改断言真实诊断与"未创建输出"、stage 校验提到每 view 一次、补 `!logical` 诊断、去弱断言；负向对照证明该 stage 修复是 load-bearing（回退后正向双后端 emit 失败）。**独立 design/testbench 交付尚未成立** |
 | 用户接口批准 | partial | 用户 | C1-C、C2-C、C3-C、C2-N1-C 与 R1-B/M1-C 联合实施包已批准；参数化/动态 collection、circular-buffer 库、外部 typed DUT、多时钟/CDC、四态 source 值及开放 RTL fault continuation 仍须后续合同 |
 
 所有 writer 使用互斥文件归属。U01 的 ODS/原生 importer/非安装 harness 与产品 CMake 由 governance_impl 负责，测试及测试 CMake 由 baseline_verification 负责；private transport 单独派发。实现期间 native build 由 governance_impl 操作，稳定后移交测试 owner，其他 lane 不用同一输出目录构建。PM 维护主 checkout 文档，不改 candidate 产品源码。
@@ -81,14 +81,15 @@ U01 的临时文件规模例外已由 I06 关闭：共享 context/signature 抽�
 ## design / testbench 边界纠偏（2026-09-29）
 
 用户指出框架把 pyCircuit 编译当成 program、生成物应是 design 与 testbench，
-并要求硬件设计产物名为 `design_top.ac`。审计结论见
+并要求 `.ac` 与来源 Python 文件名一致（“ac应该是和python的文件名一致”）。审计结论见
 [边界与 primitive 授权审计](../reviews/20260929-design-testbench-ir-authority.md)：
 M2 的封闭系统验证仍有效，但独立 design/testbench 交付不成立——V41/V42 选中的
 root 是带 stimulus/phase/check/report 的 `@system`，这些内容一并进入 `FinalModel`。
 
 本轮已做的收紧（不新增 IR/CLI/runtime 接口）：
 
-- 硬件产物名 `design_top.ac`；封闭自测系统改称 `closed_system_testbench.ac`，
+- `.ac` 产物按来源 Python 文件名命名（`<stem>.ac`），不设保留标签；`design_top.ac`
+  仅指 `design_top.py` 的产物。封闭自测 system 的产物即 `test_increment.ac`，
   不靠改名把测试刺激伪装成独立 DUT。
 - 私有工具更名 `acir-design-harness`、参数 `--design`，不保留旧 alias。
 - `FinalProgram` 仅是编译器内部容器名，不做机械重命名，也不引入
@@ -119,7 +120,8 @@ root 是带 stimulus/phase/check/report 的 `@system`，这些内容一并进入
 
 三条结论：
 
-1. **无端口 module root 的 `design_top.ac` 今天已经成立**，正是 C3-C 已批准的
+1. **无端口 module root 的 design 产物今天已经成立**（`blinker.py` → `blinker.ac`），
+   正是 C3-C 已批准的
    base root 形态；其 `ac.expect` 是设计自身的 range check，审计明确允许留在设计内。
 2. **带外部 typed 端口的真实 DUT 被 D05 外部 typed DUT/端口合同阻塞**：module 成为
    root 后其 formals 没有 parent 可绑定，直接失败。这才是"生成物应是 design 与
@@ -134,14 +136,14 @@ root 是带 stimulus/phase/check/report 的 `@system`，这些内容一并进入
 1. M4-D1 生成物角色拆分：Verilog backend 把硬件 `FinalModel` 与
    `FinalModelSim` observation wrapper 输出到不同 role 文件；同一 final IR 的
    两个 emitter 语义不变，M2 回归保持绿。
-2. M4-D2 module-root design 产物：先交付无端口 DUT 的 `design_top.ac` 与 system
+2. M4-D2 module-root design 产物：先交付无端口 DUT（产物名随源文件）与 system
    testbench 分离（不新增接口）；带 typed 端口/外部 testbench 的部分依赖
    **D05 修订 B 的用户批准**，未批准前 fail closed，不自行发明端口或 role。
 3. `ac.expect` 完整字段 schema 的逐字段审批映射（当前
    `condition:i1,path:i1,kind:StringAttr,location:DictionaryAttr` 只找到语义与
    部分字段依据）；任何扩展先补映射并取得用户批准，不由子代理自批。
-4. C3-C 文本中的 `-o <program.ac>` 需按用户指令记为 `design_top.ac` 的合同修订，
-   避免公开 driver 实施时照抄旧名。
+4. C3-C 文本中的 `-o <program.ac>` 需按用户命名规则改为跟随来源 Python 文件名
+   （`<stem>.ac`）的合同修订，避免公开 driver 实施时硬编码旧名或保留标签。
 
 ## 全项目里程碑
 

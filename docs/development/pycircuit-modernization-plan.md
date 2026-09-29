@@ -35,7 +35,12 @@ module class/self 与递归生命周期方向；冻结 C1/C2/C3 文本及已验�
 
 ## 最新纠偏：硬件 design 与 testbench 分离
 
-用户明确要求设计产物使用 `design_top.ac`。M2 已验收的是封闭系统
+用户明确要求设计产物与 testbench 分离，并追加命名规则：
+「ac应该是和python的文件名一致」——`.ac` 产物按来源 Python 文件名命名
+（`<stem>.ac`），不设保留标签；`design_top.ac` 只是 `design_top.py` 这一
+root 源文件的产物，`test_increment.py` 产出 `test_increment.ac`。这与 C3-C
+逐单元 `<stem>.ac` 的既有命名一致，C3-C 文本中的 `-o <program.ac>` 需按
+此规则修订。M2 已验收的是封闭系统
 回归范围，不是独立 DUT/testbench 的公开交付。M4 必须分别证明 design、
 testbench 与通用框架/runtime 的边界，不能把含 stimulus/checker 的
 测试 system 更名后当作 design。当前暂停进一步公开入口和 IR 扩展，

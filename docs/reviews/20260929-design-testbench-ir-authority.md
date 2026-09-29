@@ -124,3 +124,17 @@ precise approval before implementation.” 同时要求独立设计/验证、实
   op、端口或 runtime 协议时另行批准。本报告不授权新的 testbench 接口。
 - 对任何需要新 role 属性、op、端口或 runtime 协议的方案，先列出精确
   before/after 与现有批准映射，独立审阅后由用户批准；本报告不授权它们。
+
+## 修订注记（同日，用户追加命名指令）
+
+用户追加指令：「ac应该是和python的文件名一致」。本报告 §1/§2/§5 中把
+`design_top.ac` 当作当前设计产物固定名的表述按以下规则订正：`.ac` 产物按来源
+Python 文件名命名（`<stem>.ac`），不设保留标签；`design_top.ac` 只是
+`design_top.py` 这一 root 源文件的产物，`test_increment.py` 产出
+`test_increment.ac`。C3-C 文本中的 `-o <program.ac>` 需按此规则修订，公开
+driver 不得硬编码旧名或保留标签。
+
+§3 的 primitive 授权清单与 §4 的批准映射不受本注记影响；本注记不新增任何
+op/role/端口/协议授权。产品侧已按该规则更新：私有桥 `--output` 仍由调用方给出、
+不自行发明名称，系统测试与证据中的链接产物名改为跟随源文件名
+（`test_increment.ac`）。
