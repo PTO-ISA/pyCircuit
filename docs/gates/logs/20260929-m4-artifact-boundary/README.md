@@ -72,3 +72,17 @@ pytest -q tests/system/test_source_design_bridge.py \
   instance, which is expected: a testbench consumes the design. The separation
   claim is about what the *design* artifact may contain, not about the
   testbench avoiding the DUT.
+
+## Built-in negative control
+
+The absence assertions are paired with presence assertions in the same test, so
+they cannot pass vacuously. Measured on the two artifacts of one run:
+
+| Artifact | `ac.observe` | `TestBlinker` | `dut_started` | `demo.blinker.Blinker` |
+| --- | --- | --- | --- | --- |
+| design (`blinker.ac`) | 0 | 0 | 0 | 88 |
+| testbench (`test_blinker.ac`) | 2 | 99 | 2 | 86 |
+
+The testbench-only log message `dut_started` survives into the testbench
+artifact, and the test asserts that, so `assert "dut_started" not in design_text`
+is proving real separation rather than a string that never survives a link.

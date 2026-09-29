@@ -651,6 +651,10 @@ def test_design_and_testbench_are_separate_artifacts(tmp_path: Path) -> None:
     assert "TestBlinker" in bench_text
     assert "ac.observe" in bench_text
     assert "demo.blinker.Blinker" in bench_text
+    # Built-in negative control: the observation carrier and the testbench-only
+    # log message are both detectable in the testbench artifact, so the absence
+    # assertions above cannot pass merely because those strings never survive.
+    assert "dut_started" in bench_text
 
     # The design's hardware rtl artifact carries neither the simulation wrapper
     # nor the testbench's observations.
