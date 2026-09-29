@@ -29,6 +29,10 @@ module class/self 与递归生命周期方向；冻结 C1/C2/C3 文本及已验�
 
 配套：[治理与调度](project-governance.md)、[验收规范](pycircuit-modernization-tests.md)、[独立审阅记录](pycircuit-modernization-review.md)。下文来源分析记录规划时点；已批准合同的基础实施与测试另见执行账本，完整决定与产品切换按 M5 完成。
 
+当前阶段：**M2 有界主干已验收**（132 项原生测试、27 项 Python/双后端测试通过）；
+后续进入一条 M4 可用流程，M3 按需补缺口。并行调度、完整 SDK 等仍为后续责任。
+验收范围与证据位置见 [M2 执行记录](../work-items/m2-closure-execution.md)。
+
 ## 2026-09-29：交付范围收缩
 
 用户明确要求评估 M1–M7，不要求把所有能力实现完备，允许后续补充。

@@ -11,6 +11,27 @@ Base: `82f161ea95336fdd15c238e103f13b9f823e8f28` plus preserved dirty overlay.
 A working kernel alone does not establish M2 acceptance: bind the declared
 core profile to fresh candidate verification and independent review.
 
+## Accepted bounded M2 core — 2026-09-29
+
+M2 is accepted under modernization-plan revision 8 for the single-module and
+two-level closed-system fixtures, serial Work/Xfer and their documented finite
+numeric profile. This is not full roadmap, public CLI/SDK or M5 acceptance.
+
+Product branch `codex/gfsim-source-units`: base `ee855c1a` plus the content-bound
+closeout recorded at `docs/gates/logs/20260929-m2-core-closeout/` in that branch.
+Fresh verification: 132 native tests and 27 Python/source/backend tests passed;
+no skips, disabled tests or failures. Two V44 selectors remain DEFERRED to M6.
+An independent reviewer verified the real Python-per-source → MLIR → common
+final IR → executable C++/Verilog chain and the corrected tests.
+
+The old V43 mismatch was a dangling StringRef in RTL test-harness statistics;
+owned JSON strings fixed it. The empty clocked-rule rejection was inconsistent
+with approved C3; its replacement verifies registered activity at the proper IR
+stages, with existing malformed negatives preserved. Both are now verified.
+
+Next: one bounded M4 usable workflow, with M3 additions only as required by that
+workflow. Do not reopen all W11/V43–V48 or expand M2 to full capability coverage.
+
 ## Historical closure inventory (reassigned below)
 
 - [x] Numeric next-use authority: source assignment, composed numeric witnesses,
@@ -54,7 +75,7 @@ two-level-system) and critical negative cases,
 and recording the exact supported profile and reproduction command. No new
 feature expansion is required for this closeout.
 
-Latest observed integration state: SimExecutor shared tests 9/9; V43 selected
+Historical integration state before the accepted closeout: SimExecutor shared tests 9/9; V43 selected
 checks 3 passed/1 failed (`lifecycle backends disagree`). This is an open bug in
 unfinished integration, not an accepted result. Determine whether it affects
 the declared core route; fix any core regression or isolate unfinished delivery
@@ -78,7 +99,7 @@ Each source freeze requires fresh build, targeted adversarial tests and an
 independent review. Shared Graph/Final/backend files will be reassigned only
 after the current owner has released them.
 
-## Current checkpoint — 2026-09-29
+## Historical pre-closeout checkpoint — 2026-09-29
 
 Historical status under the former expanded scope: M2 was open, with core
 fixtures verified and W11 entering integration. Under the revised scope, core
