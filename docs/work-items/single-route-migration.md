@@ -145,8 +145,9 @@ root 是带 stimulus/phase/check/report 的 `@system`，这些内容一并进入
 3. `ac.expect` 完整字段 schema 的逐字段审批映射（当前
    `condition:i1,path:i1,kind:StringAttr,location:DictionaryAttr` 只找到语义与
    部分字段依据）；任何扩展先补映射并取得用户批准，不由子代理自批。
-4. C3-C 文本中的 `-o <program.ac>` 需按用户命名规则改为跟随来源 Python 文件名
-   （`<stem>.ac`）的合同修订，避免公开 driver 实施时硬编码旧名或保留标签。
+4. ~~C3-C 命名条款修订~~：已成文为[用户指示修订](../rfcs/migration/c3-artifact-naming-amendment.md)，
+   冻结正文不改、只在下次 C3 修订时并入；公开 driver 实现时必须采用
+   `<root-source-stem>.ac`，不得硬编码 `program.ac` 或保留标签。
 
 ## W10 状态更正与剩余缺口（2026-09-29 复核）
 
