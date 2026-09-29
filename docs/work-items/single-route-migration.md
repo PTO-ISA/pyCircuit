@@ -486,9 +486,42 @@ Windows 用例并已逐条记明原因。独立测试作者新增 23 system + 4 
 
 **如实声明的能力边界**：本包证明旧产物符合 IR 合同、内部 owner 与请求或 journal owner
 一致、损坏/foreign-owner/普通用户文件不被覆盖、合法事务按协议恢复；**不**提供历史作者的
-密码学认证，也**无法**区分"合法同 owner 的人工 final IR 修改"与"本驱动发布的产物"。
-不修：公开 compile/link 形状、公开 emit、ODS/IR、runtime/SDK、receipt/journal/manifest
-字段、两份未批准的修订 B、Windows 锁实现。
+密码学认证，也**无法**区分"合法同 owner 的人工 final IR 修改"与"本驱动发布的产物"；
+另不校验 depfile 内容（只查稳定 UTF-8 与非空）。不修：公开 compile/link 形状、公开 emit、
+ODS/IR、runtime/SDK、receipt/journal/manifest 字段、两份未批准的修订 B、Windows 锁实现。
+
+### 独立审阅（第四轮）：PASS
+
+审阅者未使用本包测试，而是自建复现器对 `bb2b7bf3` + `60f128be` 逐项独立重推（基线用
+`git archive 0f4dedb1` 取，不新增 worktree），八项声明全部确认：
+
+- A/B/C 在旧候选上复现、在 HEAD 上关闭；每次拒绝都是 exit 1 + 单行诊断，且目标产物与
+  control 目录逐字节不变；合法同 owner 替换仍成功。
+- 拒绝原因**可区分**（损坏 / owner 不一致 / 缺恢复证据各自成族）；旧候选把"真缺失"与
+  "事务未完成"合并成 `is not a directory`，正是缺陷 C。
+- 无新增公开面：三个 `--help` 输出与基线逐字节相同，无 `.td`/`generated.json`/schema/SDK/
+  runtime 变更，`--verify-only` 只出现在私有 `_native_verify.py`。
+- callback 边界：`_publication.py` 逐字节未变；替换用请求 owner、恢复用 `journal["owner"]`；
+  跨 owner 替换在**写 journal 之前**即被拒绝，committed 目标损坏时报错并保留证据而非回滚。
+- 陈旧≠损坏：快照过期的 dependent 仍可替换；provider body 删除后 `compile -I` 仍可、
+  `link` 拒绝。
+- 崩溃修复确为 `dyn_cast`→`dyn_cast_or_null` 一处：他用相同参数重建基线对象并重链，
+  证明旧版在 verify 与既有 emit 两条路径上都是 rc=139，HEAD 为 rc=1 + 诊断。
+- 证据：十项 overlay 哈希、七条 lane 的 raw XML、`ctest -R ACIR` 20/20 全部自行重解析；
+  failing-first 在 pristine 导出上独立重跑一致；TableGen 错误由 `mlir-tblgen` 直接复现，
+  两个 revision 的 `.td` 逐字节相同（既有、无关）。
+
+三条非阻塞残留：非 UTF-8 目标落到通用包装消息、depfile 内容未校验、`link_command` 新增
+私有 `filesystem=`。处置：**第一条选择修而不是记**（你的 prompt §5 要求区分语法/语义损坏，
+二进制文件即损坏）——`_validate_published_program` 现在显式解码，失败时报
+`published program is not UTF-8 text`，落在 `1ed84f1a`，独立作者补了回归并用"通用包装消息
+必须缺席"加强断言；第二条已写入证据包的 does-not-claim；第三条早已披露。
+
+**口径**：该 PASS 针对 `bb2b7bf3` + `60f128be`；残留修复在其后，只新增一个解码分支，
+guard 行为、callback 边界与其余诊断均未变。因新增该回归用例，failing-first 基线由
+17 failed / 10 passed 更正为 **18 failed / 10 passed**（第 18 条失败原因正是包装消息归属），
+lane 表中 driver system 为 47。审阅记录中该数字是审阅者在其用例加入前所测，已在证据包内
+注明被取代。
 
 ## 全项目里程碑
 
