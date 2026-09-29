@@ -450,6 +450,46 @@ overlay 哈希按该提交字节重算。
 全部情形均未变。F4 落在 `2eec54d4`，证据与 F1–F3 落在 `0f4dedb1`；独立测试作者同步了两处
 断言并报告 3/3 限定词敏感性检测通过，六条 lane 在最终候选上重跑全部 exit 0。
 
+## C3 产物验证与 managed 输入恢复（2026-09-30，候选 `bb2b7bf3`）
+
+PM 复查对上一包判 **REQUEST CHANGES**：C3-C §143/§181 本就要求"替换前验证旧产物合法性与
+owner"，把缺口写成"已声明残留"不能替代该保护。本包关闭三个已复现缺陷，不推进 emit、SDK、
+一等 system。
+
+| 缺陷 | 根因 | 修复 |
+| --- | --- | --- |
+| A：`link --replace` 覆盖旧 program 不校验 IR/owner | `_validate_published_program` 只查普通文件与非空 UTF-8，**从未使用传入的 owner** | 回调改为调用新的私有只读 native verify 形态，取验证后 root 的 `SourceOwner + definition`，与协议传入的 owner 精确比较 |
+| B：`compile --replace` 覆盖旧 unit 只有文件层校验 | `_validate_full_source_unit` 无任何 IR 校验 | full validator 增加 body/header native 校验（按 `runLink` 同样先做 implementation lowering），两个内部 owner 必须等于 receipt owner；**只加强 full，header-only 消费不变** |
+| C：合法未完成事务被判为输入缺失 | preflight 在取锁前读目标目录/receipt，而 `prepared` 阶段目标已 rename 到 `previous` | owner 发现改为 managed-state 优先：稳定态读 receipt，否则读**经校验的 journal owner**；恢复仍由既有状态机完成 |
+
+**私有调用约定**（实现前冻结，不新增公开 CLI/IR/receipt）：`acir-design-harness` 增加两个
+只读 verify 形态——`--design <program.ac> --verify-only [--entry-owner-out]` 与
+`--body/--header --verify-only [--unit-owner-out]`，复用既有报告形状、共享 native verifier
+与 JSON 转义器。program 形态做 parse + `mlir::verify` + `buildFinalProgramFromHardware`；
+unit 形态报出 body/header 两个内部 owner 供 Python 分别比对。
+
+**状态机路径**（实测）：故障在 `after_previous_saved` 以 `BaseException` 中断 → 形成
+`phase=prepared`、destination 缺失、previous/stage 在；公开 `compile -I` 与公开 `link`
+均成功恢复并清除 journal。source unit 与 program（单文件发布）两条路径都验证。
+注意：故障抛 `Exception` 会被协议立即回滚（其文档规定 `BaseException` 才模拟突然终止）。
+
+**顺带修掉一个共享 verifier 崩溃**：`hardware_detail::specKey` 用 `dyn_cast`（LLVM 要求
+非空值），没有 `ac.entry` 的包会解引用空指针 SIGSEGV——**既有 emit 路径同样中招**。改为
+`dyn_cast_or_null` 后两者都 fail closed 并给诊断。因触及共享 verifier，native `ACIR*`
+ctest 全套重跑 **20/20**。
+
+lane：unit core 175/0/0/3、driver unit 48、focused system 105、driver system 46、
+transport 4、CLI 回归 60、masked-next 15、native ctest 20，全部 exit 0；3 个 skip 是既有的
+Windows 用例并已逐条记明原因。独立测试作者新增 23 system + 4 unit；在 pristine `0f4dedb1`
+上 **17 failed / 10 passed** 且失败原因逐条对应本包三个缺陷（修复前失败证据留档）。证据
+[artifact-verify-recovery](../gates/logs/20260930-artifact-verify-recovery/README.md)。
+
+**如实声明的能力边界**：本包证明旧产物符合 IR 合同、内部 owner 与请求或 journal owner
+一致、损坏/foreign-owner/普通用户文件不被覆盖、合法事务按协议恢复；**不**提供历史作者的
+密码学认证，也**无法**区分"合法同 owner 的人工 final IR 修改"与"本驱动发布的产物"。
+不修：公开 compile/link 形状、公开 emit、ODS/IR、runtime/SDK、receipt/journal/manifest
+字段、两份未批准的修订 B、Windows 锁实现。
+
 ## 全项目里程碑
 
 | 阶段 | 状态 | 完成证据要求 |
