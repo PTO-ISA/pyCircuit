@@ -670,12 +670,13 @@ def test_compile_requires_its_documented_arguments() -> None:
     missing_source = _cli("compile", "--source-root", ".", "-o", "out")
     assert missing_source.argparse_exit
     assert missing_source.code == 2
-    assert "-c/--source" in missing_source.stderr
+    # The approved surface spells this flag `-c`; the parser must require it.
+    assert "the following arguments are required: -c" in missing_source.stderr
 
     missing_output = _cli("compile", "-c", "counter.py", "--source-root", ".")
     assert missing_output.argparse_exit
     assert missing_output.code == 2
-    assert "-o/--output" in missing_output.stderr
+    assert "the following arguments are required: -o" in missing_output.stderr
 
 
 def test_link_requires_its_documented_arguments() -> None:
@@ -687,7 +688,8 @@ def test_link_requires_its_documented_arguments() -> None:
     missing_output = _cli("link", "unit", "--top", "demo.counter.Counter")
     assert missing_output.argparse_exit
     assert missing_output.code == 2
-    assert "-o/--output" in missing_output.stderr
+    # The approved surface spells this flag `-o`; the parser must require it.
+    assert "the following arguments are required: -o" in missing_output.stderr
 
 
 @pytest.mark.parametrize("command", ["compile", "link"])

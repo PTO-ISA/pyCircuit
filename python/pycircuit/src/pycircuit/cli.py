@@ -2994,7 +2994,10 @@ def main(argv: list[str] | None = None) -> int:
         help="Compile one Python source into one published source unit.",
     )
     compile_units.add_argument(
-        "-c", "--source", required=True, help="The one Python source file to compile"
+        "-c",
+        dest="source",
+        required=True,
+        help="The one Python source file to compile",
     )
     compile_units.add_argument(
         "--source-root", required=True, help="Capture confinement root for the source"
@@ -3006,14 +3009,13 @@ def main(argv: list[str] | None = None) -> int:
     )
     compile_units.add_argument(
         "-I",
-        "--interface-unit",
         dest="interface_units",
         action="append",
         default=[],
         help="A published managed interface unit directory (repeatable)",
     )
     compile_units.add_argument(
-        "-o", "--output", required=True, help="Published source unit directory"
+        "-o", dest="output", required=True, help="Published source unit directory"
     )
     compile_units.add_argument(
         "--replace",
@@ -3040,7 +3042,10 @@ def main(argv: list[str] | None = None) -> int:
         help="Ordered JSON bindings for the root's static parameters",
     )
     link_program.add_argument(
-        "-o", "--output", required=True, help="Published program artifact path"
+        "-o",
+        dest="output",
+        required=True,
+        help="Published program artifact path",
     )
     link_program.add_argument(
         "--replace",

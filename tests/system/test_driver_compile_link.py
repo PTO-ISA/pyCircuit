@@ -706,6 +706,38 @@ def test_link_accepts_replace_for_a_first_publication(
     assert destination.is_file()
 
 
+def test_link_replace_refuses_a_path_this_driver_did_not_publish(
+    workspace: _Workspace, cli_environment: dict[str, str]
+) -> None:
+    """--replace may only republish an artifact this driver published."""
+
+    types, counter = _two_units(cli_environment, workspace)
+    foreign = workspace.out / "foreign.ac"
+    foreign.write_text("user data\n", encoding="utf-8")
+
+    result = _link(
+        cli_environment,
+        (types, counter),
+        "demo.counter.Counter",
+        foreign,
+        replace=True,
+    )
+
+    diagnostic = _diagnostic(result, "link")
+    assert "refusing to replace a path this driver did not publish" in diagnostic
+    assert str(foreign) in diagnostic
+    # The user file is untouched and no publication control directory was
+    # created beside it.
+    assert foreign.read_text(encoding="utf-8") == "user data\n"
+    assert not _control(foreign).exists()
+    assert sorted(entry.name for entry in workspace.out.iterdir()) == ["foreign.ac"]
+
+    # Without --replace the same foreign file is still never overwritten.
+    rejected = _link(cli_environment, (types, counter), "demo.counter.Counter", foreign)
+    assert "already exists" in _diagnostic(rejected, "link")
+    assert foreign.read_text(encoding="utf-8") == "user data\n"
+
+
 # --------------------------------------------------------------------------
 # link: --parameters
 # --------------------------------------------------------------------------

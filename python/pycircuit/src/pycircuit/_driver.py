@@ -24,9 +24,11 @@ from ._publication import (
     _PublicationInput,
     _PublicationOutput,
     _PublicationResult,
+    _paths_for,
     _publication_lock_set,
     _publication_owner_program,
     _publish_file,
+    _require_initialized_control,
 )
 from ._source_compile import _SourceCompileResult, _compile_source_unit
 from ._source_unit_files import (
@@ -159,7 +161,8 @@ def _validate_published_program(path: Path, owner: Mapping[str, object]) -> None
     validator before ``--replace`` installs over it, so the check cannot depend
     on the new linker output. Python does not adjudicate the linked semantics
     here: the linker produced and verified this artifact under the same lock
-    set, and it is re-verified when read.
+    set. That the existing artifact is one this driver published is enforced
+    separately, because ``program.ac`` carries no owner record.
     """
 
     if not path.is_file() or path.is_symlink():
@@ -211,6 +214,19 @@ def link_command(
         )
     if not inputs:
         raise _DriverError("link requires at least one explicitly listed unit")
+
+    if replace and destination.exists():
+        # C3-C forbids --replace touching anything this driver did not publish. A
+        # program carries no owner record, so "we published this" is recognized
+        # by the publication control directory it would have created, checked
+        # before the lock set bootstraps one.
+        try:
+            _require_initialized_control(_paths_for(destination, fs), fs)
+        except _PublicationError as error:
+            raise _DriverError(
+                "refusing to replace a path this driver did not publish: "
+                f"{destination}"
+            ) from error
 
     scratch = Path(tempfile.mkdtemp(prefix="pycircuit-link-")).resolve()
     try:
