@@ -231,6 +231,28 @@ IR 级的 design/testbench role 仍是需批准的开放提案（见审计 §1.3
 masked-next 13 项、5 文件 80 通过 / 2 V44 deselected、0 failed/0 skipped；
 native 未受影响（无编译器库源码变更）。
 
+## 一等 system 提案状态与准备（2026-09-29）
+
+用户已选择方案 2 方向：`ac.system` 成为带 symbol 与 body 的一等系统定义。
+精确字段见 [C2-SYSTEM 修订 B](../rfcs/migration/c2-system-definition-role.md)
+与 [C2-EXPECT 修订 B](../rfcs/migration/c2-expect-schema.md)。
+
+**两份都没有用户批准记录**；`docs/rfcs/migration/approvals/` 下无对应文件。
+独立设计审阅产物也**未归档**（用户陈述已通过，但仓库内没有 reviewer 实例或结论，
+两份提案正文仍标待审阅）。因此
+[审阅记录](../reviews/20260929-system-role-expect-design-review.md) **不标
+approval-ready**，只在文末列出补齐方式。批准前不实施新 op/IR/CLI/manifest。
+
+准备材料：[stage 分析](system-root-kind-stage-analysis.md)（source/header/linked/
+final/reparse 谁承载 system、谁选入口，以及 final 的 `ac.entry` 与
+`ac.system.entry` 已被 canonical 检查交叉核对、残留 `ac.root_kind` 已不起独立
+作用）；[实施包三切片准备](system-first-class-slice-plan.md)（文件归属、独立测试
+作者、拒绝用例、验收命令）。
+
+已知冲突（批准后必须一起处理）：当前私有桥 `@system ⟹ testbench` 规则正是
+修订 B §5/§7 要求删除的私有规则；它属 public `link --role`/IR role 变更，
+本轮未改。
+
 ## 全项目里程碑
 
 | 阶段 | 状态 | 完成证据要求 |
