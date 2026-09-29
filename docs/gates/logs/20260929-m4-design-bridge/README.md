@@ -115,16 +115,17 @@ an unexercised extra.
 Verification evidence above is PM-run on the frozen candidate and does not
 replace this review.
 
-## Artifact naming correction
+## Artifact naming
 
-Per the user's direction, the canonical hardware-design artifact name is
-`design_top.ac`, and the private tool was renamed to `acir-design-harness` with
-`--design` (no legacy alias retained). The bounded positive fixture is a
-closed self-testing system, so it writes `closed_system_testbench.ac`; it is
-**not** renamed to `design_top.ac`, because renaming a stimulus/check hierarchy
-would not make it an independent DUT. The internal `FinalProgram` C++ container
-name is unchanged and no `ac.program`/`ac.design`/`ac.testbench` primitive was
-introduced.
+The user's instruction is "ac应该是和python的文件名一致": an `.ac` artifact is
+named after the Python source file it comes from, `<stem>.ac`, matching C3-C's
+per-unit naming. There is no reserved artifact label — `design_top.ac` is simply
+the artifact of a root source file named `design_top.py`. The private tool was
+renamed to `acir-design-harness` with `--design` (no legacy alias retained), and
+its `--output` remains caller-chosen; the tool does not invent or force a name.
+The bounded positive fixture links `test_increment.py` and therefore writes
+`test_increment.ac`. The internal `FinalProgram` C++ container name is unchanged,
+and no `ac.program`/`ac.design`/`ac.testbench` primitive was introduced.
 
 ## Reproduction
 

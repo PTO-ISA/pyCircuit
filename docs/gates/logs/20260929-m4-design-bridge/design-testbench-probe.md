@@ -1,8 +1,11 @@
 # design / testbench boundary probe — module-root design artifact (2026-09-29)
 
-Purpose: find the **smallest real change** that yields an independent
-`design_top.ac` DUT artifact separate from a system testbench, without inventing
-IR or self-approving an interface. Companion to
+Purpose: find the **smallest real change** that yields an independent design
+artifact separate from a system testbench, without inventing IR or
+self-approving an interface. Per the user's naming rule an `.ac` artifact is
+named after the Python source file it comes from (`<stem>.ac`), so the probe
+now writes `increment.ac` / `blinker.ac` / `test_increment.ac` rather than a
+reserved label. Companion to
 `../../reviews/20260929-design-testbench-ir-authority.md` in the planning branch.
 
 Method: read-only probe using the committed `acir-design-harness` (`ede5aec7`)
@@ -32,7 +35,8 @@ testbench stimulus.
 
 ## Conclusions
 
-1. **A DUT-only `design_top.ac` already exists today for a portless root.** That
+1. **A DUT-only design artifact already exists today for a portless root**
+   (`blinker.py` → `blinker.ac`). That
    is exactly C3-C's approved base root: "基础 root 是普通 portless `@module`".
    Nothing new is needed to *name* or *produce* a design artifact in that shape,
    and its `ac.expect` entries are the design's own range checks, which the audit
@@ -40,7 +44,7 @@ testbench stimulus.
 2. **A real DUT with typed external inputs/outputs is blocked on the external
    typed DUT I/O contract.** Scenario A fails because the module's formals have
    no parent to bind them once the module *is* the root. Delivering
-   `design_top.ac` for a real design with ports therefore needs the D05
+   a ported design artifact therefore needs the D05
    external typed DUT / port contract, whose revision B is independently
    approval-ready but **not yet approved by the user**. This — not renaming and
    not more emitter work — is the actual blocker behind the user's

@@ -141,7 +141,7 @@ def _emit(design: Path, target: str, out: Path):
         text=True, capture_output=True)
 
 
-def _scenario(name: str, root: Path, units: Path, sources, top: str):
+def _scenario(name: str, root: Path, units: Path, sources, top: str, root_stem: str):
     src = SCRATCH / name / "source"
     src.mkdir(parents=True, exist_ok=True)
     compiled = {}
@@ -151,7 +151,8 @@ def _scenario(name: str, root: Path, units: Path, sources, top: str):
         compiled[stem] = _compile(src / f"{stem}.py", root=src,
                                  out=units / name / stem, headers=headers)
     pairs = [compiled[stem] for stem, _, _ in sources]
-    design = SCRATCH / name / "design_top.ac"
+    # The .ac artifact is named after the Python source file owning the root.
+    design = SCRATCH / name / f"{root_stem}.ac"
     result = _link(pairs, top, design)
     print(f"--- {name}: root={top} link rc={result.returncode}")
     if result.stderr.strip():
@@ -181,14 +182,14 @@ def main() -> None:
     units = SCRATCH / "units"
     _scenario("A-ported-module-root", SCRATCH, units,
               [("types", TYPES, ()), ("increment", INCREMENT, ("types",))],
-              "demo.increment.Increment")
+              "demo.increment.Increment", "increment")
     _scenario("B-portless-module-root", SCRATCH, units,
               [("types", TYPES, ()), ("blinker", BLINKER, ("types",))],
-              "demo.blinker.Blinker")
+              "demo.blinker.Blinker", "blinker")
     _scenario("C-system-root", SCRATCH, units,
               [("types", TYPES, ()), ("increment", INCREMENT, ("types",)),
                ("test_increment", TEST_INCREMENT, ("types", "increment"))],
-              "demo.test_increment.TestIncrement")
+              "demo.test_increment.TestIncrement", "test_increment")
 
 
 if __name__ == "__main__":

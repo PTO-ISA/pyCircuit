@@ -46,9 +46,8 @@ bridge alone. Existing public routes are not fallback for this private path.
 
 ## User correction — design and testbench boundary
 
-The latest user instruction names the hardware artifact `design_top.ac` and
-requires design, testbench and framework/runtime to remain separate. This
-renaming adds no IR primitive and does not establish that separation by itself.
+The user requires design, testbench and framework/runtime to remain separate.
+This adds no IR primitive and does not establish that separation by itself.
 The present positive fixture links a source test system containing stimulus and
 checks; it is evidence for closed-system simulation, not an independently
 deliverable synthesizable DUT. Public driver wiring and further IR extensions
@@ -56,8 +55,26 @@ are paused until the architecture audit identifies the exact boundary. Existing
 `FinalProgram` is an internal C++ container name, not a new source-language
 program model; any structural replacement needs its own reviewed contract.
 
-The canonical hardware-design artifact name is `design_top.ac`. The current
-V41 closed-system fixture instead writes `closed_system_testbench.ac`: its
-stimulus/phase/check rules are part of that test hierarchy. Renaming that
-fixture output to design_top would not make it an independent DUT. No new
-`ac.design`/`ac.testbench` op or role attribute is authorized by this naming fix.
+## Artifact naming comes from the Python source file
+
+The user's exact instruction: "ac应该是和python的文件名一致" — an `.ac` artifact
+is named after the Python source file it comes from, `<stem>.ac`, exactly as C3-C
+already names per-unit artifacts. There is no reserved artifact label:
+`design_top.ac` is simply the artifact of a root source file named
+`design_top.py`, and `test_increment.py` produces `test_increment.ac`. The
+positive fixture therefore links to `test_increment.ac`.
+
+Consequences held by this packet:
+
+- The harness still writes wherever `--output` points; it must not invent or
+  force a name. Naming is the caller's/source-derived contract, not a constant
+  inside the tool.
+- The linked artifact is named after the source that owns the selected root, so
+  a design produced from `design_top.py` is `design_top.ac` without any special
+  casing.
+- No new `ac.design`/`ac.testbench` op, role attribute or reserved filename is
+  authorized by this naming rule.
+
+The C3-C proposal text, which still writes its link output to `<program.ac>`,
+must be amended to this source-derived name before the public driver is
+implemented, so the driver does not hard-code the old label.

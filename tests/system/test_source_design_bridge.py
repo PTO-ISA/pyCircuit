@@ -292,7 +292,8 @@ endmodule
 def _linked_m2_design(tmp_path: Path) -> tuple[list[SourceUnit], Path]:
     _design_harness()
     _, units = _compile_m2_units(tmp_path)
-    program = tmp_path / "closed_system_testbench.ac"
+    # The linked artifact keeps the Python source file name: test_increment.py -> test_increment.ac
+    program = tmp_path / "test_increment.ac"
     completed = _link(units, program)
     assert completed.returncode == 0, completed.stderr
     assert program.is_file()
@@ -308,7 +309,8 @@ def test_m2_source_design_file_is_one_input_to_both_emitters(
     assert 'path = "types.py"' in units[0].header.read_text()
     for source in source_root.glob("*.py"):
         source.unlink()
-    program = tmp_path / "closed_system_testbench.ac"
+    # The linked artifact keeps the Python source file name: test_increment.py -> test_increment.ac
+    program = tmp_path / "test_increment.ac"
     linked = _link(units, program)
     assert linked.returncode == 0, linked.stderr
     serialized = program.read_text(encoding="utf-8")
