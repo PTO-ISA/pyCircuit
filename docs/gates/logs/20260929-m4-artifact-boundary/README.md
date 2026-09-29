@@ -29,7 +29,7 @@ Two properties are what make this a boundary rather than a naming convention:
 | Lane | Result |
 | --- | --- |
 | `tests/system/test_source_design_bridge.py` | **35 passed** (2 new cases) |
-| Python system selectors | **62 passed, 0 failed, 0 skipped**; 2 V44 cases still deselected and DEFERRED to M6 (`python.xml`) |
+| Python system selectors | **73 passed, 0 failed, 0 skipped**; 2 V44 cases still deselected and DEFERRED to M6 (`python.xml`). This lane covers the five system files in the reproduction command, so the same run also carries the M4-D1 role-split cases and the N0-U1 masked-next cases. |
 | Native suite | unchanged by this packet (test-file-only change); the preceding M4-D1 run remains 355/355 across all 20 `ACIR*Tests` binaries |
 
 New cases:

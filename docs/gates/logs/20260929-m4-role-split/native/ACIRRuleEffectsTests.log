@@ -3,21 +3,21 @@ Running main() from /private/tmp/googletest-20250910-5249-qce8ci/googletest-1.17
 [----------] Global test environment set-up.
 [----------] 7 tests from RuleEffectsTest
 [ RUN      ] RuleEffectsTest.HeaderMatchesEffectsRecomputedFromActiveSourceFacts
-[       OK ] RuleEffectsTest.HeaderMatchesEffectsRecomputedFromActiveSourceFacts (133 ms)
+[       OK ] RuleEffectsTest.HeaderMatchesEffectsRecomputedFromActiveSourceFacts (77 ms)
 [ RUN      ] RuleEffectsTest.DeletedReadMarkerInvalidatesOwningHeader
-[       OK ] RuleEffectsTest.DeletedReadMarkerInvalidatesOwningHeader (127 ms)
+[       OK ] RuleEffectsTest.DeletedReadMarkerInvalidatesOwningHeader (67 ms)
 [ RUN      ] RuleEffectsTest.ForgedReadOriginInvalidatesOwningHeader
-[       OK ] RuleEffectsTest.ForgedReadOriginInvalidatesOwningHeader (127 ms)
+[       OK ] RuleEffectsTest.ForgedReadOriginInvalidatesOwningHeader (63 ms)
 [ RUN      ] RuleEffectsTest.HeaderCannotDropOneRecomputedOrigin
-[       OK ] RuleEffectsTest.HeaderCannotDropOneRecomputedOrigin (126 ms)
+[       OK ] RuleEffectsTest.HeaderCannotDropOneRecomputedOrigin (63 ms)
 [ RUN      ] RuleEffectsTest.OneRuleRejectsDuplicateSourceReadOccurrence
-[       OK ] RuleEffectsTest.OneRuleRejectsDuplicateSourceReadOccurrence (129 ms)
+[       OK ] RuleEffectsTest.OneRuleRejectsDuplicateSourceReadOccurrence (63 ms)
 [ RUN      ] RuleEffectsTest.ScalarStateAndNumericAstPathUseStructuralOrdering
-[       OK ] RuleEffectsTest.ScalarStateAndNumericAstPathUseStructuralOrdering (134 ms)
+[       OK ] RuleEffectsTest.ScalarStateAndNumericAstPathUseStructuralOrdering (63 ms)
 [ RUN      ] RuleEffectsTest.UnsupportedOriginAttributeFailsBeforeEffectSorting
-[       OK ] RuleEffectsTest.UnsupportedOriginAttributeFailsBeforeEffectSorting (137 ms)
-[----------] 7 tests from RuleEffectsTest (915 ms total)
+[       OK ] RuleEffectsTest.UnsupportedOriginAttributeFailsBeforeEffectSorting (63 ms)
+[----------] 7 tests from RuleEffectsTest (462 ms total)
 
 [----------] Global test environment tear-down
-[==========] 7 tests from 1 test suite ran. (915 ms total)
+[==========] 7 tests from 1 test suite ran. (462 ms total)
 [  PASSED  ] 7 tests.

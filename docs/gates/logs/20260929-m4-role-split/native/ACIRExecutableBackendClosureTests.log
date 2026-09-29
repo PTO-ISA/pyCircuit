@@ -3,8 +3,8 @@ Running main() from /private/tmp/googletest-20250910-5249-qce8ci/googletest-1.17
 [----------] Global test environment set-up.
 [----------] 1 test from ExecutableBackendClosureTest
 [ RUN      ] ExecutableBackendClosureTest.SameEmitReadyProgramExecutesCppAndVerilogCycleOracle
-[       OK ] ExecutableBackendClosureTest.SameEmitReadyProgramExecutesCppAndVerilogCycleOracle (1194 ms)
-[----------] 1 test from ExecutableBackendClosureTest (1194 ms total)
+[       OK ] ExecutableBackendClosureTest.SameEmitReadyProgramExecutesCppAndVerilogCycleOracle (668 ms)
+[----------] 1 test from ExecutableBackendClosureTest (668 ms total)
 
 [----------] 4 tests from NumericNextBackendTest
 [ RUN      ] NumericNextBackendTest.GraphsAcceptOnlyTheExactValueUsePacket
@@ -15,9 +15,9 @@ error: source rule effects require verified numeric next-state closure
 loc("counter.py":11:5): error: 'ac.rule' op U1 requires six numeric nodes and one use/yield/check
 error: source rule effects require verified numeric next-state closure
 error: rule observations do not close required observations
-[       OK ] NumericNextBackendTest.GraphsAcceptOnlyTheExactValueUsePacket (135 ms)
+[       OK ] NumericNextBackendTest.GraphsAcceptOnlyTheExactValueUsePacket (72 ms)
 [ RUN      ] NumericNextBackendTest.SameProgramExecutesCppAndRtlModuloCounter
-[       OK ] NumericNextBackendTest.SameProgramExecutesCppAndRtlModuloCounter (1182 ms)
+[       OK ] NumericNextBackendTest.SameProgramExecutesCppAndRtlModuloCounter (607 ms)
 [ RUN      ] NumericNextBackendTest.FrozenMutationsRejectBothEmitters
 loc("counter.py":13:9): error: 'ac.value.use' op ValueUse requires exact rule-scoped identity
 error: EmitReady global final hardware verification failed
@@ -61,7 +61,7 @@ error: EmitReady owned state carrier facts changed
 error: EmitReady state carrier closure changed
 error: EmitReady owned state carrier facts changed
 error: EmitReady state carrier closure changed
-[       OK ] NumericNextBackendTest.FrozenMutationsRejectBothEmitters (167 ms)
+[       OK ] NumericNextBackendTest.FrozenMutationsRejectBothEmitters (88 ms)
 [ RUN      ] NumericNextBackendTest.NativeFinalSurvivesIndependentReparse
 error: ac.system owner/origin differs from selected root
 loc("counter.py":8:5): error: 'ac.reg' op final register metadata is incomplete or mixed
@@ -72,47 +72,47 @@ loc("counter.py":13:9): error: 'ac.expect' op final check identity/location is o
 error: final hardware package envelope is not canonical
 loc("counter.py":11:5): error: 'ac.rule' op U1 final I/F identities must share origin at slots 0/1
 loc("counter.py":11:5): error: 'ac.rule' op U1 final I/F identities must share origin at slots 0/1
-[       OK ] NumericNextBackendTest.NativeFinalSurvivesIndependentReparse (137 ms)
-[----------] 4 tests from NumericNextBackendTest (1621 ms total)
+[       OK ] NumericNextBackendTest.NativeFinalSurvivesIndependentReparse (67 ms)
+[----------] 4 tests from NumericNextBackendTest (836 ms total)
 
 [----------] 3 tests from MultiInstanceEmitTest
 [ RUN      ] MultiInstanceEmitTest.RepeatedChildrenEmitAndExecuteAsIndependentOwnerViews
-[       OK ] MultiInstanceEmitTest.RepeatedChildrenEmitAndExecuteAsIndependentOwnerViews (1367 ms)
+[       OK ] MultiInstanceEmitTest.RepeatedChildrenEmitAndExecuteAsIndependentOwnerViews (670 ms)
 [ RUN      ] MultiInstanceEmitTest.SourceUnitPermutationPreservesSemanticObservationTrace
-[       OK ] MultiInstanceEmitTest.SourceUnitPermutationPreservesSemanticObservationTrace (272 ms)
+[       OK ] MultiInstanceEmitTest.SourceUnitPermutationPreservesSemanticObservationTrace (143 ms)
 [ RUN      ] MultiInstanceEmitTest.RejectsFormalAliasToForeignOwnerState
 error: EmitReady state handle alias changed
 error: EmitReady state alias closure changed
 error: EmitReady state handle alias changed
 error: EmitReady state alias closure changed
-[       OK ] MultiInstanceEmitTest.RejectsFormalAliasToForeignOwnerState (259 ms)
-[----------] 3 tests from MultiInstanceEmitTest (1899 ms total)
+[       OK ] MultiInstanceEmitTest.RejectsFormalAliasToForeignOwnerState (126 ms)
+[----------] 3 tests from MultiInstanceEmitTest (941 ms total)
 
 [----------] 2 tests from MultiInstanceVerilogTest
 [ RUN      ] MultiInstanceVerilogTest.RepeatedChildrenUseHierarchicalRtlAndTransactionalObservationRecords
-[       OK ] MultiInstanceVerilogTest.RepeatedChildrenUseHierarchicalRtlAndTransactionalObservationRecords (453 ms)
+[       OK ] MultiInstanceVerilogTest.RepeatedChildrenUseHierarchicalRtlAndTransactionalObservationRecords (239 ms)
 [ RUN      ] MultiInstanceVerilogTest.ReversingSourceUnitInputOrderPreservesGeneratedRtl
-[       OK ] MultiInstanceVerilogTest.ReversingSourceUnitInputOrderPreservesGeneratedRtl (270 ms)
-[----------] 2 tests from MultiInstanceVerilogTest (724 ms total)
+[       OK ] MultiInstanceVerilogTest.ReversingSourceUnitInputOrderPreservesGeneratedRtl (134 ms)
+[----------] 2 tests from MultiInstanceVerilogTest (374 ms total)
 
 [----------] 1 test from ReusableFamilyVerilogTest
 [ RUN      ] ReusableFamilyVerilogTest.ReusedParentFamilyPreservesTiedAndDistinctLeafCurrentAliases
-[       OK ] ReusableFamilyVerilogTest.ReusedParentFamilyPreservesTiedAndDistinctLeafCurrentAliases (677 ms)
-[----------] 1 test from ReusableFamilyVerilogTest (677 ms total)
+[       OK ] ReusableFamilyVerilogTest.ReusedParentFamilyPreservesTiedAndDistinctLeafCurrentAliases (336 ms)
+[----------] 1 test from ReusableFamilyVerilogTest (336 ms total)
 
 [----------] 1 test from ReusableFamilyCppTest
 [ RUN      ] ReusableFamilyCppTest.SpecFamiliesKeepTiedAndDistinctLeafPortsAndObjectPathsAcrossReset
-[       OK ] ReusableFamilyCppTest.SpecFamiliesKeepTiedAndDistinctLeafPortsAndObjectPathsAcrossReset (1498 ms)
-[----------] 1 test from ReusableFamilyCppTest (1498 ms total)
+[       OK ] ReusableFamilyCppTest.SpecFamiliesKeepTiedAndDistinctLeafPortsAndObjectPathsAcrossReset (821 ms)
+[----------] 1 test from ReusableFamilyCppTest (821 ms total)
 
 [----------] 1 test from HierarchyPathFreezeCppTest
 [ RUN      ] HierarchyPathFreezeCppTest.UnicodeActualPathsFreezeParentLinksAndRejectCorruptedGeneratedTree
-[       OK ] HierarchyPathFreezeCppTest.UnicodeActualPathsFreezeParentLinksAndRejectCorruptedGeneratedTree (2491 ms)
-[----------] 1 test from HierarchyPathFreezeCppTest (2491 ms total)
+[       OK ] HierarchyPathFreezeCppTest.UnicodeActualPathsFreezeParentLinksAndRejectCorruptedGeneratedTree (1303 ms)
+[----------] 1 test from HierarchyPathFreezeCppTest (1303 ms total)
 
 [----------] 5 tests from ZeroRuleFinalProgramTest
 [ RUN      ] ZeroRuleFinalProgramTest.PythonSystemExecutesAsQuiescentCppAndHoldingVerilog
-[       OK ] ZeroRuleFinalProgramTest.PythonSystemExecutesAsQuiescentCppAndHoldingVerilog (1165 ms)
+[       OK ] ZeroRuleFinalProgramTest.PythonSystemExecutesAsQuiescentCppAndHoldingVerilog (616 ms)
 [ RUN      ] ZeroRuleFinalProgramTest.RejectsMissingRootAndStrippedSourceMetadata
 error: final program requires at least one source link unit
 error: source module/header port authority is incomplete
@@ -120,20 +120,20 @@ error: source link body/header admission failed for unit[0]
 error: final program source admission failed
 loc("idle.py":4:1): error: 'ac.module.import' op ac.contract must have exactly parameters and connections
 error: final program source admission failed
-[       OK ] ZeroRuleFinalProgramTest.RejectsMissingRootAndStrippedSourceMetadata (125 ms)
+[       OK ] ZeroRuleFinalProgramTest.RejectsMissingRootAndStrippedSourceMetadata (67 ms)
 [ RUN      ] ZeroRuleFinalProgramTest.AcceptsRegisteredClockedRuleWithNoSourceCarriers
-[       OK ] ZeroRuleFinalProgramTest.AcceptsRegisteredClockedRuleWithNoSourceCarriers (252 ms)
+[       OK ] ZeroRuleFinalProgramTest.AcceptsRegisteredClockedRuleWithNoSourceCarriers (123 ms)
 [ RUN      ] ZeroRuleFinalProgramTest.EmitReadyGraphMutationIsRejectedByBothEmitters
 error: EmitReady final program graph pointers are not closed
 error: EmitReady final program graph pointers are not closed
 error: EmitReady final program graph pointers are not closed
 error: EmitReady final program graph pointers are not closed
-[       OK ] ZeroRuleFinalProgramTest.EmitReadyGraphMutationIsRejectedByBothEmitters (126 ms)
+[       OK ] ZeroRuleFinalProgramTest.EmitReadyGraphMutationIsRejectedByBothEmitters (62 ms)
 [ RUN      ] ZeroRuleFinalProgramTest.NativeResetMustFitLogicalRange
 error: undriven final state must hold reset image with false enable
-[       OK ] ZeroRuleFinalProgramTest.NativeResetMustFitLogicalRange (250 ms)
-[----------] 5 tests from ZeroRuleFinalProgramTest (1920 ms total)
+[       OK ] ZeroRuleFinalProgramTest.NativeResetMustFitLogicalRange (124 ms)
+[----------] 5 tests from ZeroRuleFinalProgramTest (993 ms total)
 
 [----------] Global test environment tear-down
-[==========] 18 tests from 8 test suites ran. (12027 ms total)
+[==========] 18 tests from 8 test suites ran. (6277 ms total)
 [  PASSED  ] 18 tests.

@@ -3,17 +3,17 @@ Running main() from /private/tmp/googletest-20250910-5249-qce8ci/googletest-1.17
 [----------] Global test environment set-up.
 [----------] 10 tests from SourceBodySnapshotsTest
 [ RUN      ] SourceBodySnapshotsTest.CanonicalBodyMatchesSuppliedAuthorities
-[       OK ] SourceBodySnapshotsTest.CanonicalBodyMatchesSuppliedAuthorities (396 ms)
+[       OK ] SourceBodySnapshotsTest.CanonicalBodyMatchesSuppliedAuthorities (203 ms)
 [ RUN      ] SourceBodySnapshotsTest.SynchronizedBodyPortAndRuleMutationCannotReplaceHeaderAuthority
-[       OK ] SourceBodySnapshotsTest.SynchronizedBodyPortAndRuleMutationCannotReplaceHeaderAuthority (385 ms)
+[       OK ] SourceBodySnapshotsTest.SynchronizedBodyPortAndRuleMutationCannotReplaceHeaderAuthority (188 ms)
 [ RUN      ] SourceBodySnapshotsTest.SourceMathHelperSnapshotsRemainWithinVerifiedHelperClosure
-[       OK ] SourceBodySnapshotsTest.SourceMathHelperSnapshotsRemainWithinVerifiedHelperClosure (385 ms)
+[       OK ] SourceBodySnapshotsTest.SourceMathHelperSnapshotsRemainWithinVerifiedHelperClosure (190 ms)
 [ RUN      ] SourceBodySnapshotsTest.SourceStageAndUnitKindAreFailClosed
 loc("accumulator_probe.py":5:1): error: 'ac.module' op source hardware op requires a source-stage implementation unit
 loc("accumulator_probe.py":5:1): error: 'ac.module' op source hardware op requires a source-stage implementation unit
 loc("accumulator_probe.py":5:1): error: 'ac.module' op source hardware op requires a source-stage implementation unit
 loc("accumulator_probe.py":5:1): error: 'ac.module' op source hardware op requires a source-stage implementation unit
-[       OK ] SourceBodySnapshotsTest.SourceStageAndUnitKindAreFailClosed (387 ms)
+[       OK ] SourceBodySnapshotsTest.SourceStageAndUnitKindAreFailClosed (190 ms)
 [ RUN      ] SourceBodySnapshotsTest.ResetExpressionsAreContextuallyVerified
 loc("probe_root.py":8:5): error: 'ac.reg' op StaticValue kind 'bool' does not match expected type kind 'integer'
 loc("probe_root.py":8:5): error: 'ac.reg' op source reg reset value does not match its logical type
@@ -21,18 +21,18 @@ loc("probe_root.py":7:5): error: 'ac.reg' op static initializer requires an expl
 loc("probe_root.py":7:5): error: 'ac.reg' op duplicate static constructor argument
 loc("probe_root.py":7:5): error: 'ac.reg' op unknown constructor keyword
 loc("probe_root.py":7:5): error: 'ac.reg' op record physical payload disagrees with nominal symbol
-[       OK ] SourceBodySnapshotsTest.ResetExpressionsAreContextuallyVerified (386 ms)
+[       OK ] SourceBodySnapshotsTest.ResetExpressionsAreContextuallyVerified (189 ms)
 [ RUN      ] SourceBodySnapshotsTest.ConstructorBodyTamperingIsRejected
-[       OK ] SourceBodySnapshotsTest.ConstructorBodyTamperingIsRejected (385 ms)
+[       OK ] SourceBodySnapshotsTest.ConstructorBodyTamperingIsRejected (187 ms)
 [ RUN      ] SourceBodySnapshotsTest.ConstructorParameterDefaultTamperingIsRejected
-[       OK ] SourceBodySnapshotsTest.ConstructorParameterDefaultTamperingIsRejected (381 ms)
+[       OK ] SourceBodySnapshotsTest.ConstructorParameterDefaultTamperingIsRejected (189 ms)
 [ RUN      ] SourceBodySnapshotsTest.RecordFieldOrderAndTypeTamperingAreRejected
-[       OK ] SourceBodySnapshotsTest.RecordFieldOrderAndTypeTamperingAreRejected (386 ms)
+[       OK ] SourceBodySnapshotsTest.RecordFieldOrderAndTypeTamperingAreRejected (189 ms)
 [ RUN      ] SourceBodySnapshotsTest.SnapshotRoleAndOwnerTamperingAreRejected
-[       OK ] SourceBodySnapshotsTest.SnapshotRoleAndOwnerTamperingAreRejected (385 ms)
+[       OK ] SourceBodySnapshotsTest.SnapshotRoleAndOwnerTamperingAreRejected (190 ms)
 [ RUN      ] SourceBodySnapshotsTest.MissingProviderHeaderRejectsRetainedSnapshots
-[       OK ] SourceBodySnapshotsTest.MissingProviderHeaderRejectsRetainedSnapshots (385 ms)
-[----------] 10 tests from SourceBodySnapshotsTest (3865 ms total)
+[       OK ] SourceBodySnapshotsTest.MissingProviderHeaderRejectsRetainedSnapshots (189 ms)
+[----------] 10 tests from SourceBodySnapshotsTest (1909 ms total)
 
 [----------] 1 test from SourceRuleAnalysisTest
 [ RUN      ] SourceRuleAnalysisTest.InputIndicesAreResolvedThroughBoundArguments
@@ -41,17 +41,17 @@ loc("probe_root.py":7:5): error: 'ac.reg' op record physical payload disagrees w
 
 [----------] 14 tests from SourceModuleContractsTest
 [ RUN      ] SourceModuleContractsTest.LexicalAssignmentTargetsReadIndicesButNotStoredBaseIdentities
-[       OK ] SourceModuleContractsTest.LexicalAssignmentTargetsReadIndicesButNotStoredBaseIdentities (493 ms)
+[       OK ] SourceModuleContractsTest.LexicalAssignmentTargetsReadIndicesButNotStoredBaseIdentities (243 ms)
 [ RUN      ] SourceModuleContractsTest.RetiredClassSelfModuleIsAHardError
-[       OK ] SourceModuleContractsTest.RetiredClassSelfModuleIsAHardError (522 ms)
+[       OK ] SourceModuleContractsTest.RetiredClassSelfModuleIsAHardError (251 ms)
 [ RUN      ] SourceModuleContractsTest.HeaderPublishesOneClosedModuleSignature
-[       OK ] SourceModuleContractsTest.HeaderPublishesOneClosedModuleSignature (412 ms)
+[       OK ] SourceModuleContractsTest.HeaderPublishesOneClosedModuleSignature (189 ms)
 [ RUN      ] SourceModuleContractsTest.RegistryAcceptsTheOwningModuleAuthority
-[       OK ] SourceModuleContractsTest.RegistryAcceptsTheOwningModuleAuthority (386 ms)
+[       OK ] SourceModuleContractsTest.RegistryAcceptsTheOwningModuleAuthority (207 ms)
 [ RUN      ] SourceModuleContractsTest.ProbeBodyHasOneOwnedStateAndRegisteredRule
-[       OK ] SourceModuleContractsTest.ProbeBodyHasOneOwnedStateAndRegisteredRule (382 ms)
+[       OK ] SourceModuleContractsTest.ProbeBodyHasOneOwnedStateAndRegisteredRule (188 ms)
 [ RUN      ] SourceModuleContractsTest.ProbeRootUsesSourceInstanceContract
-[       OK ] SourceModuleContractsTest.ProbeRootUsesSourceInstanceContract (385 ms)
+[       OK ] SourceModuleContractsTest.ProbeRootUsesSourceInstanceContract (189 ms)
 [ RUN      ] SourceModuleContractsTest.RegMetadataIsMandatoryAndClosed
 loc("accumulator_probe.py":6:5): error: 'ac.reg' op source reg state contract is incomplete
 loc("accumulator_probe.py":6:5): error: 'ac.reg' op source reg state contract is incomplete
@@ -60,7 +60,7 @@ loc("accumulator_probe.py":6:5): error: 'ac.reg' op source reg state contract is
 loc("accumulator_probe.py":6:5): error: 'ac.reg' op Occurrence must contain exactly 2 fields
 loc("accumulator_probe.py":6:5): error: 'ac.reg' op source reg state contract is incomplete
 loc("accumulator_probe.py":6:5): error: 'ac.reg' op source reg state contract is incomplete
-[       OK ] SourceModuleContractsTest.RegMetadataIsMandatoryAndClosed (385 ms)
+[       OK ] SourceModuleContractsTest.RegMetadataIsMandatoryAndClosed (191 ms)
 [ RUN      ] SourceModuleContractsTest.RuleShapeAndBindingsAreMandatory
 loc("accumulator_probe.py":9:5): error: 'ac.rule' op rule bindings and logical types must match handles
 loc("accumulator_probe.py":9:5): error: 'ac.rule' op rule bindings and logical types must match handles
@@ -70,7 +70,7 @@ loc("accumulator_probe.py":11:9): error: 'ac.source.use' op source use data and 
 loc("accumulator_probe.py":9:5): error: 'ac.rule' op rule body inputs must be current payload arguments
 loc("accumulator_probe.py":11:18): error: 'ac.source.read' op source read requires one enclosing registered rule body
 loc("accumulator_probe.py":9:5): error: 'ac.rule' op requires one region
-[       OK ] SourceModuleContractsTest.RuleShapeAndBindingsAreMandatory (387 ms)
+[       OK ] SourceModuleContractsTest.RuleShapeAndBindingsAreMandatory (189 ms)
 [ RUN      ] SourceModuleContractsTest.RuleInputsAreBoundToTheirActualFormalOrOwnedAuthority
 loc("accumulator_probe.py":9:5): error: 'ac.rule' op formal rule input does not match its current PortSlot
 loc("accumulator_probe.py":9:5): error: 'ac.rule' op rule input binding/type mismatch
@@ -78,27 +78,27 @@ loc("accumulator_probe.py":9:5): error: 'ac.rule' op formal rule input does not 
 loc("accumulator_probe.py":9:5): error: 'ac.rule' op rule input binding/type mismatch
 loc("accumulator_probe.py":9:5): error: 'ac.rule' op owned rule input does not match its source reg
 loc("accumulator_probe.py":9:5): error: 'ac.rule' op rule input binding/type mismatch
-[       OK ] SourceModuleContractsTest.RuleInputsAreBoundToTheirActualFormalOrOwnedAuthority (389 ms)
+[       OK ] SourceModuleContractsTest.RuleInputsAreBoundToTheirActualFormalOrOwnedAuthority (187 ms)
 [ RUN      ] SourceModuleContractsTest.InstanceCalleeAndStaticArgsAreMandatory
 loc("probe_root.py":9:13): error: 'ac.instance' op source instance requires symbol and static arguments
 loc("probe_root.py":9:13): error: 'ac.instance' op source instance requires symbol and static arguments
-[       OK ] SourceModuleContractsTest.InstanceCalleeAndStaticArgsAreMandatory (382 ms)
+[       OK ] SourceModuleContractsTest.InstanceCalleeAndStaticArgsAreMandatory (188 ms)
 [ RUN      ] SourceModuleContractsTest.MissingAndMalformedContractsAreRejected
 loc("accumulator_probe.py":5:1): error: 'ac.module.import' op ac.contract must have exactly parameters and connections
 loc("accumulator_probe.py":5:1): error: 'ac.module.import' op ac.contract must have exactly parameters and connections
-[       OK ] SourceModuleContractsTest.MissingAndMalformedContractsAreRejected (388 ms)
+[       OK ] SourceModuleContractsTest.MissingAndMalformedContractsAreRejected (190 ms)
 [ RUN      ] SourceModuleContractsTest.SignatureAndWriterShapesAreRejected
 loc("accumulator_probe.py":5:1): error: 'ac.module.import' op connection element read/write must be BoolAttr
 loc("accumulator_probe.py":5:1): error: 'ac.module.import' op connection parameter/order/elements are invalid
-[       OK ] SourceModuleContractsTest.SignatureAndWriterShapesAreRejected (386 ms)
+[       OK ] SourceModuleContractsTest.SignatureAndWriterShapesAreRejected (190 ms)
 [ RUN      ] SourceModuleContractsTest.EffectOriginsUseNumericAstPathOrdering
 loc("accumulator_probe.py":5:1): error: 'ac.module.import' op connection effect origins must be structurally ordered
-[       OK ] SourceModuleContractsTest.EffectOriginsUseNumericAstPathOrdering (387 ms)
+[       OK ] SourceModuleContractsTest.EffectOriginsUseNumericAstPathOrdering (190 ms)
 [ RUN      ] SourceModuleContractsTest.OwnerAndSnapshotTamperingAreRejected
 loc("accumulator_probe.py":5:1): error: 'ac.module.import' op module parameter location does not match original owner
-[       OK ] SourceModuleContractsTest.OwnerAndSnapshotTamperingAreRejected (384 ms)
-[----------] 14 tests from SourceModuleContractsTest (5677 ms total)
+[       OK ] SourceModuleContractsTest.OwnerAndSnapshotTamperingAreRejected (195 ms)
+[----------] 14 tests from SourceModuleContractsTest (2794 ms total)
 
 [----------] Global test environment tear-down
-[==========] 25 tests from 3 test suites ran. (9543 ms total)
+[==========] 25 tests from 3 test suites ran. (4704 ms total)
 [  PASSED  ] 25 tests.

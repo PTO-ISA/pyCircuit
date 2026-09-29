@@ -3,14 +3,14 @@ Running main() from /private/tmp/googletest-20250910-5249-qce8ci/googletest-1.17
 [----------] Global test environment set-up.
 [----------] 4 tests from MathIntAttrTest
 [ RUN      ] MathIntAttrTest.PreservesArbitraryPrecisionSignedDecimalValues
-[       OK ] MathIntAttrTest.PreservesArbitraryPrecisionSignedDecimalValues (0 ms)
+[       OK ] MathIntAttrTest.PreservesArbitraryPrecisionSignedDecimalValues (2 ms)
 [ RUN      ] MathIntAttrTest.MathematicalIdentityDoesNotDependOnHostBitWidth
 [       OK ] MathIntAttrTest.MathematicalIdentityDoesNotDependOnHostBitWidth (0 ms)
 [ RUN      ] MathIntAttrTest.InternalParserRejectsNonCanonicalDecimalSpellings
 [       OK ] MathIntAttrTest.InternalParserRejectsNonCanonicalDecimalSpellings (0 ms)
 [ RUN      ] MathIntAttrTest.AttributeAndTypeParsePrintRoundTrip
 [       OK ] MathIntAttrTest.AttributeAndTypeParsePrintRoundTrip (0 ms)
-[----------] 4 tests from MathIntAttrTest (0 ms total)
+[----------] 4 tests from MathIntAttrTest (3 ms total)
 
 [----------] 3 tests from SourceSpanContractTest
 [ RUN      ] SourceSpanContractTest.AcceptsPositiveOneBasedOrderedCoordinates
@@ -92,8 +92,8 @@ Running main() from /private/tmp/googletest-20250910-5249-qce8ci/googletest-1.17
 [       OK ] SourceTypeContractsTest.NestedListFailureReportsFieldAndElementContext (0 ms)
 [ RUN      ] SourceTypeContractsTest.AbsentDefaultResolvesTypeAndPresentMustMatch
 [       OK ] SourceTypeContractsTest.AbsentDefaultResolvesTypeAndPresentMustMatch (0 ms)
-[----------] 12 tests from SourceTypeContractsTest (1 ms total)
+[----------] 12 tests from SourceTypeContractsTest (0 ms total)
 
 [----------] Global test environment tear-down
-[==========] 36 tests from 7 test suites ran. (3 ms total)
+[==========] 36 tests from 7 test suites ran. (5 ms total)
 [  PASSED  ] 36 tests.

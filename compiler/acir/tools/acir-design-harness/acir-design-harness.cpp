@@ -162,7 +162,11 @@ bool publishNoClobberPair(llvm::StringRef primaryPath, llvm::StringRef primary,
   if (!publishNoClobber(primaryPath, primary))
     return false;
   if (!publishNoClobber(secondaryPath, secondary)) {
-    llvm::sys::fs::remove(primaryPath);
+    // Report a failed rollback instead of silently leaving the first role file
+    // behind while claiming the bundle was rejected.
+    if (std::error_code rollback = llvm::sys::fs::remove(primaryPath))
+      llvm::errs() << "error: failed to roll back partially published output '"
+                   << primaryPath << "': " << rollback.message() << '\n';
     return false;
   }
   return true;

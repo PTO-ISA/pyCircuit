@@ -3,12 +3,12 @@ Running main() from /private/tmp/googletest-20250910-5249-qce8ci/googletest-1.17
 [----------] Global test environment set-up.
 [----------] 1 test from ObservationGraphContractsTest
 [ RUN      ] ObservationGraphContractsTest.BuiltObservationGraphVerifiesAndRejectsMutation
-[       OK ] ObservationGraphContractsTest.BuiltObservationGraphVerifiesAndRejectsMutation (147 ms)
-[----------] 1 test from ObservationGraphContractsTest (147 ms total)
+[       OK ] ObservationGraphContractsTest.BuiltObservationGraphVerifiesAndRejectsMutation (76 ms)
+[----------] 1 test from ObservationGraphContractsTest (76 ms total)
 
 [----------] 5 tests from ObservationContractsTest
 [ RUN      ] ObservationContractsTest.CanonicalPrintLogAndReportParseAndVerify
-[       OK ] ObservationContractsTest.CanonicalPrintLogAndReportParseAndVerify (1 ms)
+[       OK ] ObservationContractsTest.CanonicalPrintLogAndReportParseAndVerify (0 ms)
 [ RUN      ] ObservationContractsTest.RequiredObservationRejectsDeleteAndDuplicate
 [       OK ] ObservationContractsTest.RequiredObservationRejectsDeleteAndDuplicate (0 ms)
 [ RUN      ] ObservationContractsTest.RedirectedValueAndWrongPathAreRejected
@@ -17,8 +17,8 @@ Running main() from /private/tmp/googletest-20250910-5249-qce8ci/googletest-1.17
 [       OK ] ObservationContractsTest.WrongScopeIdentitySpecAndRequiredListReject (0 ms)
 [ RUN      ] ObservationContractsTest.ReportRequiresNonnegativeIntegerDomain
 [       OK ] ObservationContractsTest.ReportRequiresNonnegativeIntegerDomain (0 ms)
-[----------] 5 tests from ObservationContractsTest (2 ms total)
+[----------] 5 tests from ObservationContractsTest (1 ms total)
 
 [----------] Global test environment tear-down
-[==========] 6 tests from 2 test suites ran. (150 ms total)
+[==========] 6 tests from 2 test suites ran. (78 ms total)
 [  PASSED  ] 6 tests.

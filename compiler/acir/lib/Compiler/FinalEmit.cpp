@@ -7,19 +7,46 @@ using namespace mlir;
 namespace acir::compiler {
 namespace {
 
+// The single definition of the emission discipline every final emitter must
+// follow: verify before, require an EmitReady program, verify after. Keeping it
+// in one place means a future change cannot silently apply to only some
+// emitters.
+class EmissionGuard {
+public:
+  EmissionGuard(const FinalProgram &program, ac::detail::EmitError emitError)
+      : program_(program), emitError_(emitError) {}
+
+  LogicalResult begin() {
+    if (failed(verifyFinalProgram(program_, emitError_)))
+      return failure();
+    if (!program_.isEmitReady())
+      return emitError_() << "final emitter requires an EmitReady FinalProgram";
+    return success();
+  }
+
+  LogicalResult finish() {
+    if (failed(verifyFinalProgram(program_, emitError_)))
+      return emitError_() << "final program changed during emission";
+    return success();
+  }
+
+private:
+  const FinalProgram &program_;
+  ac::detail::EmitError emitError_;
+};
+
 template <typename Emit>
 FailureOr<std::string> emitVerified(const FinalProgram &program,
                                     ac::detail::EmitError emitError,
                                     Emit emit) {
-  if (failed(verifyFinalProgram(program, emitError)))
+  EmissionGuard guard(program, emitError);
+  if (failed(guard.begin()))
     return failure();
-  if (!program.isEmitReady())
-    return emitError() << "final emitter requires an EmitReady FinalProgram";
   auto text = emit();
   if (failed(text))
     return failure();
-  if (failed(verifyFinalProgram(program, emitError)))
-    return emitError() << "final program changed during emission";
+  if (failed(guard.finish()))
+    return failure();
   return text;
 }
 
@@ -34,15 +61,14 @@ FailureOr<std::string> emitFinalCpp(const FinalProgram &program,
 FailureOr<FinalVerilogEmission>
 emitFinalVerilogParts(const FinalProgram &program,
                       ac::detail::EmitError emitError) {
-  if (failed(verifyFinalProgram(program, emitError)))
+  EmissionGuard guard(program, emitError);
+  if (failed(guard.begin()))
     return failure();
-  if (!program.isEmitReady())
-    return emitError() << "final emitter requires an EmitReady FinalProgram";
   auto parts = emitFinalVerilogPartsBody(program, emitError);
   if (failed(parts))
     return failure();
-  if (failed(verifyFinalProgram(program, emitError)))
-    return emitError() << "final program changed during emission";
+  if (failed(guard.finish()))
+    return failure();
   return parts;
 }
 

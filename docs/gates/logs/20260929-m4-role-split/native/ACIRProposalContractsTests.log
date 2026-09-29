@@ -3,25 +3,25 @@ Running main() from /private/tmp/googletest-20250910-5249-qce8ci/googletest-1.17
 [----------] Global test environment set-up.
 [----------] 9 tests from ProposalContractsTest
 [ RUN      ] ProposalContractsTest.DifferentTargetsRemainIndependentWithoutPolicy
-[       OK ] ProposalContractsTest.DifferentTargetsRemainIndependentWithoutPolicy (133 ms)
+[       OK ] ProposalContractsTest.DifferentTargetsRemainIndependentWithoutPolicy (76 ms)
 [ RUN      ] ProposalContractsTest.SourcePathValidAndProposalEnableStayDistinct
-[       OK ] ProposalContractsTest.SourcePathValidAndProposalEnableStayDistinct (126 ms)
+[       OK ] ProposalContractsTest.SourcePathValidAndProposalEnableStayDistinct (63 ms)
 [ RUN      ] ProposalContractsTest.AlwaysOverlappingWritersRemainSourceFactsUntilLinkAnalysis
-[       OK ] ProposalContractsTest.AlwaysOverlappingWritersRemainSourceFactsUntilLinkAnalysis (127 ms)
+[       OK ] ProposalContractsTest.AlwaysOverlappingWritersRemainSourceFactsUntilLinkAnalysis (64 ms)
 [ RUN      ] ProposalContractsTest.PossibleOverlapWithoutProofCarrierIsRejected
-[       OK ] ProposalContractsTest.PossibleOverlapWithoutProofCarrierIsRejected (127 ms)
+[       OK ] ProposalContractsTest.PossibleOverlapWithoutProofCarrierIsRejected (64 ms)
 [ RUN      ] ProposalContractsTest.ConstantFalseProposalDoesNotBlockTrueCommit
-[       OK ] ProposalContractsTest.ConstantFalseProposalDoesNotBlockTrueCommit (127 ms)
+[       OK ] ProposalContractsTest.ConstantFalseProposalDoesNotBlockTrueCommit (63 ms)
 [ RUN      ] ProposalContractsTest.VerifierRejectsContributionIdentityAndSsaExchange
-[       OK ] ProposalContractsTest.VerifierRejectsContributionIdentityAndSsaExchange (126 ms)
+[       OK ] ProposalContractsTest.VerifierRejectsContributionIdentityAndSsaExchange (63 ms)
 [ RUN      ] ProposalContractsTest.VerifierRejectsForgedConflictRecipes
-[       OK ] ProposalContractsTest.VerifierRejectsForgedConflictRecipes (128 ms)
+[       OK ] ProposalContractsTest.VerifierRejectsForgedConflictRecipes (64 ms)
 [ RUN      ] ProposalContractsTest.VerifierRejectsForgedCommitRecipes
-[       OK ] ProposalContractsTest.VerifierRejectsForgedCommitRecipes (128 ms)
+[       OK ] ProposalContractsTest.VerifierRejectsForgedCommitRecipes (64 ms)
 [ RUN      ] ProposalContractsTest.VerifierRejectsForgedGlobalPermit
-[       OK ] ProposalContractsTest.VerifierRejectsForgedGlobalPermit (126 ms)
-[----------] 9 tests from ProposalContractsTest (1153 ms total)
+[       OK ] ProposalContractsTest.VerifierRejectsForgedGlobalPermit (63 ms)
+[----------] 9 tests from ProposalContractsTest (586 ms total)
 
 [----------] Global test environment tear-down
-[==========] 9 tests from 1 test suite ran. (1153 ms total)
+[==========] 9 tests from 1 test suite ran. (586 ms total)
 [  PASSED  ] 9 tests.

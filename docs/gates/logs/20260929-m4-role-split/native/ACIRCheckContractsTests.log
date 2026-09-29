@@ -3,7 +3,7 @@ Running main() from /private/tmp/googletest-20250910-5249-qce8ci/googletest-1.17
 [----------] Global test environment set-up.
 [----------] 4 tests from CheckContractsTest
 [ RUN      ] CheckContractsTest.CanonicalAssertCheckParsesAndVerifies
-[       OK ] CheckContractsTest.CanonicalAssertCheckParsesAndVerifies (3 ms)
+[       OK ] CheckContractsTest.CanonicalAssertCheckParsesAndVerifies (2 ms)
 [ RUN      ] CheckContractsTest.RequiredCheckRejectsDeleteAndDuplicate
 loc("checks.py":9:9): error: 'ac.rule' op rule required checks must match actual source checks
 loc("checks.py":9:9): error: 'ac.rule' op rule required checks must match actual source checks
@@ -18,7 +18,7 @@ loc("checks.py":9:9): error: 'ac.expect' op range check requires exactly one sou
 loc("checks.py":9:9): error: 'ac.expect' op source check location must belong to its module source owner
 loc("checks.py":9:9): error: 'ac.rule' op rule required checks must match actual source checks
 [       OK ] CheckContractsTest.ScopeKindLocationAndRequiredMutationsReject (0 ms)
-[----------] 4 tests from CheckContractsTest (5 ms total)
+[----------] 4 tests from CheckContractsTest (4 ms total)
 
 [----------] 1 test from CheckGraphClosureTest
 [ RUN      ] CheckGraphClosureTest.PrivateCheckGraphApiIsRequired
@@ -27,18 +27,18 @@ loc("checks.py":9:9): error: 'ac.rule' op rule required checks must match actual
 
 [----------] 3 tests from PythonCheckGraphTest
 [ RUN      ] PythonCheckGraphTest.BindingFieldsAndActualBijectionRejectMutations
-[       OK ] PythonCheckGraphTest.BindingFieldsAndActualBijectionRejectMutations (140 ms)
+[       OK ] PythonCheckGraphTest.BindingFieldsAndActualBijectionRejectMutations (293 ms)
 [ RUN      ] PythonCheckGraphTest.HeaderBodyCheckProposalObservationAndLinkClosureSucceeds
-[       OK ] PythonCheckGraphTest.HeaderBodyCheckProposalObservationAndLinkClosureSucceeds (136 ms)
+[       OK ] PythonCheckGraphTest.HeaderBodyCheckProposalObservationAndLinkClosureSucceeds (71 ms)
 [ RUN      ] PythonCheckGraphTest.LinkRejectsMutatedAssertConditionPathAndRequired
-[       OK ] PythonCheckGraphTest.LinkRejectsMutatedAssertConditionPathAndRequired (127 ms)
-[----------] 3 tests from PythonCheckGraphTest (404 ms total)
+[       OK ] PythonCheckGraphTest.LinkRejectsMutatedAssertConditionPathAndRequired (62 ms)
+[----------] 3 tests from PythonCheckGraphTest (428 ms total)
 
 [----------] 1 test from TwoInstanceObservationGraphTest
 [ RUN      ] TwoInstanceObservationGraphTest.OwnerRefAndStableOrdinalIgnoreUnitInputOrder
-[       OK ] TwoInstanceObservationGraphTest.OwnerRefAndStableOrdinalIgnoreUnitInputOrder (256 ms)
-[----------] 1 test from TwoInstanceObservationGraphTest (257 ms total)
+[       OK ] TwoInstanceObservationGraphTest.OwnerRefAndStableOrdinalIgnoreUnitInputOrder (123 ms)
+[----------] 1 test from TwoInstanceObservationGraphTest (123 ms total)
 
 [----------] Global test environment tear-down
-[==========] 9 tests from 4 test suites ran. (666 ms total)
+[==========] 9 tests from 4 test suites ran. (556 ms total)
 [  PASSED  ] 9 tests.

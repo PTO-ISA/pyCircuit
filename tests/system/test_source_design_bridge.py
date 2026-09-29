@@ -468,6 +468,10 @@ def test_emit_splits_hardware_rtl_from_runtime_glue(tmp_path: Path) -> None:
     assert "module FinalModelSim(" in glue.read_text()
     assert "module FinalModel(" not in glue.read_text()
     assert "FinalModel dut(" in glue.read_text()
+    # A partial mis-split that moved only the observation block would leave the
+    # strobe/record text in the hardware role file.
+    assert "$strobe" not in rtl.read_text()
+    assert "AC_OBS" not in rtl.read_text()
 
 
 def test_glue_output_requires_verilog_emit_mode(tmp_path: Path) -> None:
@@ -683,3 +687,20 @@ def test_ported_module_root_is_rejected_until_the_dut_io_contract(
     assert completed.returncode != 0
     assert "unbound data formal" in completed.stderr
     assert not output.exists()
+
+
+def test_glue_output_path_alias_still_publishes_nothing(tmp_path: Path) -> None:
+    """The equal-path guard is string equality, so an aliased second path
+    reaches the rollback instead. Either way no half bundle may survive."""
+    _, program = _linked_m2_design(tmp_path)
+    rtl = tmp_path / "aliased.sv"
+    glue = tmp_path / "." / "aliased.sv"
+
+    result = _design_command(
+        program,
+        ["--target", "verilog", "--output", str(rtl), "--glue-output", str(glue)],
+    )
+
+    assert result.returncode != 0, result.stdout
+    assert not rtl.exists()
+    assert not glue.exists()

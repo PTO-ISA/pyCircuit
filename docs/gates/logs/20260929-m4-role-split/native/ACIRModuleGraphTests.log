@@ -3,17 +3,17 @@ Running main() from /private/tmp/googletest-20250910-5249-qce8ci/googletest-1.17
 [----------] Global test environment set-up.
 [----------] 5 tests from ModuleGraphTest
 [ RUN      ] ModuleGraphTest.HeaderOnlyParentAndCompleteBodiesAreAdmitted
-[       OK ] ModuleGraphTest.HeaderOnlyParentAndCompleteBodiesAreAdmitted (260 ms)
+[       OK ] ModuleGraphTest.HeaderOnlyParentAndCompleteBodiesAreAdmitted (138 ms)
 [ RUN      ] ModuleGraphTest.GraphHasRootOrderedChildrenOwnersAndPostOrder
-[       OK ] ModuleGraphTest.GraphHasRootOrderedChildrenOwnersAndPostOrder (253 ms)
+[       OK ] ModuleGraphTest.GraphHasRootOrderedChildrenOwnersAndPostOrder (124 ms)
 [ RUN      ] ModuleGraphTest.GraphOwnsThreeStatesAndRelayIsOneStateID
-[       OK ] ModuleGraphTest.GraphOwnsThreeStatesAndRelayIsOneStateID (250 ms)
+[       OK ] ModuleGraphTest.GraphOwnsThreeStatesAndRelayIsOneStateID (125 ms)
 [ RUN      ] ModuleGraphTest.BadControlAndRecursiveCalleeAreRejected
-[       OK ] ModuleGraphTest.BadControlAndRecursiveCalleeAreRejected (253 ms)
+[       OK ] ModuleGraphTest.BadControlAndRecursiveCalleeAreRejected (124 ms)
 [ RUN      ] ModuleGraphTest.ForeignAndMissingOrRepeatedActualsAreRejected
-[       OK ] ModuleGraphTest.ForeignAndMissingOrRepeatedActualsAreRejected (249 ms)
-[----------] 5 tests from ModuleGraphTest (1267 ms total)
+[       OK ] ModuleGraphTest.ForeignAndMissingOrRepeatedActualsAreRejected (125 ms)
+[----------] 5 tests from ModuleGraphTest (638 ms total)
 
 [----------] Global test environment tear-down
-[==========] 5 tests from 1 test suite ran. (1267 ms total)
+[==========] 5 tests from 1 test suite ran. (638 ms total)
 [  PASSED  ] 5 tests.
