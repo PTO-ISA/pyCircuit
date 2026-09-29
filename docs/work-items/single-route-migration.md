@@ -399,7 +399,35 @@ CLI 回归 60、masked-next 15，六条 lane 退出码均为 0。证据
 
 修复落在 `0b35b2a2`（代码+测试）与 `8d56bbb0`（证据）；独立测试作者更新了三处过期断言并
 新增一条 replace guard 端到端测试，driver lane 66 项（43 unit + 23 system）全绿，另
-3/3 变异被检出。第二轮复验已请求。
+3/3 变异被检出。
+
+### 独立审阅（第二轮）与处置
+
+第二轮对 `0b35b2a2` + `8d56bbb0` + `159ce16e` 再判 **FAIL**，但性质与第一轮不同：D1–D5
+全部确认已关闭/已修（D1 用包括 FIFO、拷贝来的 control 目录、只有 lock 没有 owner.json、
+control 路径为 symlink 或普通文件等绕过矩阵验证，均 exit 1 且产物逐字节保留），FAIL 来自
+**新发现 N1——我的"强制力声明"名不副实**。
+
+N1：guard 实际证明的只是"存在一个以该目标命名的 publication control 目录"，而**任何在该
+路径上失败过的命令都会留下这个目录**（C3-C §160 要求锁集合先 bootstrap 独占输出）。因此
+存在无需伪造的反例 (a)：先在该路径失败一次 → 用户把文件放在那里 → `--replace` 照样摧毁；
+(a′) 悬空符号链接因 `Path.exists()` 跟随符号链接而**跳过 guard**，被协议拒绝却留下 control
+目录，为同一破坏开路；(b) 手写 marker + 空 `lock` 即可打开 guard。我在 `159ce16e` 声明的
+"已发布路径上被改动的文件"这条本身准确，但它旁边那句"至少强制了该路径由本驱动发布"不成立。
+
+处置：**改声明，不改口径**。design 段改为陈述实际不变量（"refuse 任何没有 control 目录
+命名的目标"），并明说这是**防手误/防误撞的 guard，不是作者身份证明**；诊断改为
+`refusing to replace a path with no publication control directory: <path>`；guard 同时改为
+对 symlink 目标生效，从而**关闭 (a′)**（悬空链接被 guard 拒绝且不再留下 control 目录）。
+(a) 与 (b) 在 Python 内无法关闭——§158 把 control 目录的条目固定为七个名字，不能加"成功
+发布"标记，也没有 receipt 或 verify-only 入口——因此作为第三条残留与 owner、损坏产物两条
+并列声明。第二轮明确表示：这条改完即可翻 PASS。
+
+处置落在 `6228bcc4`（代码）与 `ddbf0449`（证据）。独立测试作者同步了断言，并把悬空符号
+链接分支补进同一条测试（这是促成修改的那个回归，原先无覆盖）；driver lane 仍 66 项
+（43 unit + 23 system）全绿，2/2 变异被检出（把 guard 条件退回 `destination.exists()`、
+把诊断退回夸大措辞，都会让测试失败）。六条 lane 在 `6228bcc4` 上重跑全部 exit 0，
+overlay 哈希按该提交字节重算。第三轮复验已请求。
 
 ## 全项目里程碑
 
