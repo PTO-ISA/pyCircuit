@@ -72,6 +72,7 @@ Python 采用用户明确选择的模块函数与嵌套 rule。R1 B 的既有 re
 | I25 W10 FinalProgram / bounded dual emit | implemented（hierarchical dual emit＋Numeric N0-A/B0/B1a/B1b/C1/D1–D3 accepted；W10仍request changes） | move-only FinalProgram、frozen FinalSystem/realization、private C++/Verilog emitters、原子backend harness、独立可执行oracle | Hierarchy/commit/observation与双backend三层执行已接受。C1完成input-add事务 lowering；D1完成sub和六类compare；D2完成exact and_bits与显式full-mask low_bits；D3完成单checked to_bits、range CheckBinding和guarded scf.if。所有包闭合source ownership、I/F/C/S、APInt domain、multi-rule rollback、root identity与幂等，独立Sol复审PASS。75/75 source-math、PM 19/19 ACIR targets，[C1复审](../reviews/20260929-n0-c1-scalar-lowering.md)、[D1–D3复审](../reviews/20260929-n0-d1-d3-numeric-closure.md)、[阶段复审](../reviews/20260929-w10-final-system-closure.md)。backend harness已删除静态JSON假证据并真实运行minimal C++/RTL；严格V41–V44当前1绿7红。仍缺Python算术/控制流producer、graph/final/backend numeric执行、完整Result/events与调度/源码重排；禁止进入W11 |
 | I26 Python numeric producer bridge | done（单输入unused-local子片） | 独立Sol实现与测试；Sol/high复审；PM整合private harness | Python add/sub与六类compare生成既有C1/D1 recipe、SourceRead/ValueID/proof_scope；private `--lower-numeric` 验证真实Python到finite SSA。32/32新系统测试、68/68相关frontend测试、19/19 ACIR通过，[验收](../reviews/20260929-python-numeric-bridge.md)。numeric next/use/yield绑定、条件流、Graph/Final/backend admission仍开放；下包N0-U1 masked next assignment |
 | I27 M4 私有 design 文件桥 | done（复审 FAIL 已修补；候选 `81fb596b` 已推送） | m4_program_bridge 实现、m4_program_tests 独立测试、独立 reviewer、PM CMake 整合/证据/验收 | 新增 `acir-design-harness`：把逐源显式 body/header 读盘、link 并物化为一支 verified final design 文件，另一进程重解析后交同一 final verifier 与两个 emitter；三种模式都拒绝既有输出（file/dir/symlink/dangling），且全部验证与 emit 先于建文件。`ProposalGraph` 按 `ac.stage` 选 `ac.logical_type`（final）/`ac.logical_element`（source）。产物按来源 Python 文件名命名（`test_increment.py` → `test_increment.ac`），不设保留标签。[证据](../gates/logs/20260929-m4-design-bridge/README.md)：355 native（20 binaries）+52 Python 通过，2 V44 deselected。独立复审对 `ede5aec7` 判 FAIL：生产代码无缺陷，但两个反例测试空转（既有输出使 no-clobber 先拒绝；`"logical"` 子串只匹配 tmp_path）。已修：改断言真实诊断与"未创建输出"、stage 校验提到每 view 一次、补 `!logical` 诊断、去弱断言；负向对照证明该 stage 修复是 load-bearing（回退后正向双后端 emit 失败）。**独立 design/testbench 交付尚未成立** |
+| I28 M4-D1 生成物角色拆分 | implemented（候选 `fcdb75e6` 已推送；独立复审待做） | PM 实现 emitter 角色拆分与私有 `--glue-output`；独立测试与证据 | 新增 `FinalVerilogEmission{rtl,runtimeGlue}` 与 `emitFinalVerilogParts`；`emitFinalVerilog` 保持签名并返回 `rtl+runtimeGlue`，既有调用点与合并字节完全不变。emitter 在 `FinalModel`/`FinalModelSim` 边界分流；私有 harness `--glue-output` 把 `runtime-glue` 写到第二个文件，非 emit 模式 / `--target cpp` / 与 `--output` 相同均 rc=2；双目标先校验后创建、第二个失败回滚第一个。C++ 不拆分（模型消费 gfsim runtime，无 `FinalModelSim` 对应物）。[证据](../gates/logs/20260929-m4-role-split/README.md)：355 native（20 binaries）+60 Python 通过，2 V44 deselected。**尚无 `generated.json` bundle writer**，公开 emit 入口与 role 清单仍属后续 |
 | 用户接口批准 | partial | 用户 | C1-C、C2-C、C3-C、C2-N1-C 与 R1-B/M1-C 联合实施包已批准；参数化/动态 collection、circular-buffer 库、外部 typed DUT、多时钟/CDC、四态 source 值及开放 RTL fault continuation 仍须后续合同 |
 
 所有 writer 使用互斥文件归属。U01 的 ODS/原生 importer/非安装 harness 与产品 CMake 由 governance_impl 负责，测试及测试 CMake 由 baseline_verification 负责；private transport 单独派发。实现期间 native build 由 governance_impl 操作，稳定后移交测试 owner，其他 lane 不用同一输出目录构建。PM 维护主 checkout 文档，不改 candidate 产品源码。
@@ -133,9 +134,9 @@ root 是带 stimulus/phase/check/report 的 `@system`，这些内容一并进入
 
 下一包（按依赖顺序，均不新增 op 或 role 属性）：
 
-1. M4-D1 生成物角色拆分：Verilog backend 把硬件 `FinalModel` 与
-   `FinalModelSim` observation wrapper 输出到不同 role 文件；同一 final IR 的
-   两个 emitter 语义不变，M2 回归保持绿。
+1. ~~M4-D1 生成物角色拆分~~：已完成（I28，`fcdb75e6`）；`rtl` 与 `runtime-glue`
+   已可分文件产出且合并字节不变。仍缺的是把它接进公开 emit 入口与
+   `generated.json` 角色清单。
 2. M4-D2 module-root design 产物：先交付无端口 DUT（产物名随源文件）与 system
    testbench 分离（不新增接口）；带 typed 端口/外部 testbench 的部分依赖
    **D05 修订 B 的用户批准**，未批准前 fail closed，不自行发明端口或 role。
