@@ -1,0 +1,26 @@
+============================= test session starts ==============================
+platform darwin -- Python 3.14.6, pytest-9.0.2, pluggy-1.6.0
+rootdir: /Users/zhoubot/.codex/worktrees/migration-capture/pyCircuit
+configfile: pyproject.toml
+collected 334 items
+
+tests/system/test_final_scalar_declarations.py ......................... [  7%]
+..............                                                           [ 11%]
+tests/system/test_cpp_source_parts.py .....                              [ 13%]
+tests/system/test_generic_multi_assignment.py .....                      [ 14%]
+tests/system/test_generic_assignment_roundtrip.py .......                [ 16%]
+tests/system/test_source_design_bridge.py .............................. [ 25%]
+...........                                                              [ 29%]
+tests/system/test_masked_next_register.py ...............                [ 33%]
+tests/system/test_source_unit_cmake_build.py .                           [ 33%]
+tests/unit/test_generated_bundle.py .................................... [ 44%]
+...........................                                              [ 52%]
+tests/unit/test_publication.py ......................................... [ 64%]
+.................................                                        [ 74%]
+tests/unit/test_publication_fs.py ............sss                        [ 79%]
+tests/unit/test_source_unit_files.py .........................           [ 86%]
+tests/unit/test_driver_commands.py ..................................... [ 97%]
+.......                                                                  [100%]
+
+- generated xml file: /Users/zhoubot/.codex/worktrees/migration-capture/pyCircuit/.pycircuit_out/m4-completion-probe/existing-regression.xml -
+================== 331 passed, 3 skipped in 64.81s (0:01:04) ===================

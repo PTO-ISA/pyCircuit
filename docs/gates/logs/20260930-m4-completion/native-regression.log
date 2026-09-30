@@ -1,0 +1,19 @@
+Test project /Users/zhoubot/.codex/worktrees/migration-capture/pyCircuit/.pycircuit_out/w10-pm/build
+    Start 11: ACIRFinalProgramTests
+1/7 Test #11: ACIRFinalProgramTests ...............   Passed    7.00 sec
+    Start 14: ACIRSystemLifecycleTests
+2/7 Test #14: ACIRSystemLifecycleTests ............   Passed    0.01 sec
+    Start 15: ACIRSimExecutorTests
+3/7 Test #15: ACIRSimExecutorTests ................   Passed    0.01 sec
+    Start 16: ACIRObservationTests
+4/7 Test #16: ACIRObservationTests ................   Passed    0.01 sec
+    Start 17: ACIRObservationContractsTests
+5/7 Test #17: ACIRObservationContractsTests .......   Passed    0.49 sec
+    Start 18: ACIRCheckContractsTests
+6/7 Test #18: ACIRCheckContractsTests .............   Passed    0.73 sec
+    Start 20: ACIRExecutableBackendClosureTests
+7/7 Test #20: ACIRExecutableBackendClosureTests ...   Passed    7.87 sec
+
+100% tests passed, 0 tests failed out of 7
+
+Total Test time (real) =  16.13 sec

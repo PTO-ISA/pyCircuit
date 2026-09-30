@@ -1,12 +1,77 @@
 # pyCircuit 单一路线重构与 GFSIM 迁移计划
 
-日期：2026-09-27。规划修订：6。状态：C1-C/C2-C/C3-C 已获用户批准，隔离候选实施中；正式产品切换尚未完成。最新进度见[执行账本](../work-items/single-route-migration.md)。
+日期：2026-09-29。规划修订：8。状态：按用户要求改为有界交付、按需补齐；正式产品切换尚未完成。C1-C/C2-C/C3-C 是已批准的历史基础，R1/M1 联合增补的审阅/授权单独记录。最新进度见[执行账本](../work-items/single-route-migration.md)。
 
-**目标只有一条产品编译路线：GFSIM 风格 Pythonic 源码 → 语法捕获 → MLIR 语义分析与 lowering → 经过验证的硬件 IR → GFSIM C++ 或 Verilog。** 优先迁移 GFSIM 已有设计与实现，以 hard break 退役 pyCircuit 的旧编译路线。
+**执行入口：[逐包 checklist](migration-agent-checklist.md) → [M1 C 合同](../rfcs/migration/c2-m1-module-system.md) → [verification matrix](migration-verification-matrix.md)。**
+后续 agent 只执行已绑定候选、文件与 Vxx 门槛的一个 Wxx 包。Python
+不出现 Queue/FIFO 或手写 Interface/effect/调度 API；MLIR 从普通函数、
+注解和真实读写推导 interface。Bluespec 仅提供效果/接口分析参考，
+不引入隐式整 rule 阻塞、默认仲裁或另一个编译器。
+
+2026-09-28 执行增补：用户已明确统一 `ac.reg`、无状态 rule proposal、
+Xfer 内 commit/discard、reg-only 模块数据连接与 SimQueue 退役方向。
+精确接口见 [C2-R1](../rfcs/migration/c2-r1-unified-register.md)，独立审阅与
+接口批准状态以该包及执行账本为准。下面的规划时点分析保留来源事实；
+后续普通状态和 Queue 任务按这一新方向分解，不继续扩大 SimQueue 路线。
+
+同日 module/system 增补：用户进一步明确实例树/连接在 ACIR link
+构建、system 驱动整树、Work 只算本地 rule、Xfer 执行 IR 提交，并已
+选择“模块函数＋嵌套 rule”的无 self 源表面。联合候选见
+[C2-M1](../rfcs/migration/c2-m1-module-system.md)。它替代目标设计中的
+module class/self 与递归生命周期方向；冻结 C1/C2/C3 文本及已验收的
+旧切片仍作为历史基线。M1 C 与执行交付包已获
+[独立 approval-ready](../reviews/20260928-interface-handoff.md)，具体实现
+派发仍按 W00 绑定精确授权和候选；设计审阅不作为实现证据。
+
+**目标只有一条产品编译路线：Pythonic 模块函数/嵌套 rule → 语法捕获 → MLIR 语义分析与 lowering → 经过验证的硬件 IR → GFSIM C++ 或 Verilog。** 复用 GFSIM 成立的寄存器/对象结构并适配 system 驱动，以 hard break 退役旧编译路线。
 
 用户最新要求取代上一版“保留 CAS、structural、Agentic 三种 authoring 路径”的前提。单一路线是已明确的架构方向，不再反复确认。具体 Python、IR、CLI、生成代码或 runtime 接口的改变，仍须先完成可审阅提案、独立技术审阅，再取得用户对精确修订的批准。**本规划不代替接口批准。**
 
 配套：[治理与调度](project-governance.md)、[验收规范](pycircuit-modernization-tests.md)、[独立审阅记录](pycircuit-modernization-review.md)。下文来源分析记录规划时点；已批准合同的基础实施与测试另见执行账本，完整决定与产品切换按 M5 完成。
+
+当前阶段：**M2 有界主干已验收**（132 项原生测试、27 项 Python/双后端测试通过）；
+后续进入一条 M4 可用流程，M3 按需补缺口。并行调度、完整 SDK 等仍为后续责任。
+验收范围与证据位置见 [M2 执行记录](../work-items/m2-closure-execution.md)。
+
+## 最新纠偏：硬件 design 与 testbench 分离
+
+用户明确要求设计产物与 testbench 分离，并追加命名规则：
+「ac应该是和python的文件名一致」——`.ac` 产物按来源 Python 文件名命名
+（`<stem>.ac`），不设保留标签；`design_top.ac` 只是 `design_top.py` 这一
+root 源文件的产物，`test_increment.py` 产出 `test_increment.ac`。这与 C3-C
+逐单元 `<stem>.ac` 的既有命名一致，C3-C 文本中的 `-o <program.ac>` 需按
+此规则修订。M2 已验收的是封闭系统
+回归范围，不是独立 DUT/testbench 的公开交付。M4 必须分别证明 design、
+testbench 与通用框架/runtime 的边界，不能把含 stimulus/checker 的
+测试 system 更名后当作 design。当前暂停进一步公开入口和 IR 扩展，
+先按 [边界与 primitive 授权审计](../reviews/20260929-design-testbench-ir-authority.md)
+收敛；已有精确批准继续适用，新增语义不得由代理自行批准。
+
+## 2026-09-29：交付范围收缩
+
+用户明确要求评估 M1–M7，不要求把所有能力实现完备，允许后续补充。
+本节和下面修订后的阶段出口优先于旧 W/V 清单中的全量前置条件。
+这是交付范围与顺序调整，不改变已支持功能的硬件语义，也不把未做的
+验证标成通过。
+
+当前问题是 M2 的“最小闭环”被细化为 V02–V48 全部适用门槛，提前
+吸收了 M4 的工具交付和 M6 的工程加固；M3、M5、M7 又重复要求完整
+能力表。因此任务持续扩面，阶段出口难以关闭。
+
+新的交付主线是：**M2 验证主干 → M3 按一个实际用例补缺口，与 M4
+可用入口并行 → M5 切换已声明的支持范围**。M6 持续加固；M7 可以先
+形成有明确限制的预览候选，不等待全部 M3/M6 backlog 清空。
+
+保持的底线：Pythonic 函数/嵌套 rule；MLIR 负责语义；统一 ac.reg；
+Work 不发布 Q、Xfer 才提交并丢弃 disabled proposal；模块连接不复制
+寄存器；同一 final IR 的双后端行为一致；不回旧编译器兜底。
+
+可以延期的是能力与覆盖广度：一般化整数/record/collection/参数化、
+FIFO 库、memory/CDC/多时钟/完整四态、实际并行调度、全平台 SDK、
+全面性能优化与穷举故障注入。新增能力按实际需求选择，并记录所属
+阶段、限制和测试；不因 backlog 存在而阻塞无依赖的当前阶段。
+已暴露入口仍须拒绝不支持的输入，已知会产生错误结果、错误提交或
+破坏既有输出的问题仍须修复。
 
 ## 分析结论与证据
 
@@ -35,7 +100,7 @@ GFSIM HEAD：`b852ed83fa0288d0be7406bba0ed47be4b2c0f63`。当前 dirty 内容仍
 
 | 优先迁移项 | donor 依据 | 必须适配或补齐 |
 | --- | --- | --- |
-| 普通 class/method/record，加 `module/rule/system` | `frontend/ObjectFrontendProposal.md` 修订 C；`docs/IR/approvals/object-frontend.md:14` | 本仓精确接口批准、现有例子的硬迁移；不再保留三套 DSL |
+| donor 普通 class/method/record，加 `module/rule/system` | `frontend/ObjectFrontendProposal.md` 修订 C；`docs/IR/approvals/object-frontend.md:14` | 作为来源基线；本仓按最新用户选择改为模块函数＋lexical rule，不移植 self/module class 表面 |
 | 仅 AST/literal/span capture | `frontend/python/gfsim_frontend/_capture.py:61`、`_emit.py:80` | 从 root capture 适配逐源 compilation/interface；不把语义分析搬回 Python |
 | MLIR Python import 和对象语义 | `compiler/acir/lib/ImportPython.cpp:176`、`PythonLower.cpp:560`、`PythonObjectSemantics.cpp` | `@system`、部分 collection、integer-format/check path 尚有未完成能力 |
 | 显式 current/next、owner、driver checks | `frontend/ObjectFrontendProposal.md:865`、`compiler/acir/lib/VerifyFinal.cpp:162` | 合入本仓需要的 clock/reset、四态、memory/CDC、事务义务；不足部分留在 MLIR 补齐 |
@@ -59,7 +124,7 @@ donor 源码迁入前登记文件来源、依赖和许可依据；当前检索�
 ### 一条语义链，两个生成目标
 
 ```text
-Pythonic source（GFSIM 对象式设计，精确接口待本仓批准）
+Pythonic source（模块函数、嵌套 rule、普通值/注解，无 Queue/Interface DSL）
   → capture：只保留语法、常量字面量、名称和源位置
   → MLIR import / name / type / effect / ownership analysis
   → 每源 semantic ACIR + source-owned interface
@@ -78,14 +143,18 @@ Pythonic source（GFSIM 对象式设计，精确接口待本仓批准）
 
 ### Pythonic 的具体要求
 
-目标优先采用 GFSIM 的普通 class、constructor、method、record、局部变量、函数调用、静态 `if/for`、规则内条件和标准类型注解。`module/rule/system` 是少量领域标记；不新增三种 authoring 风格的选择器。
+目标采用普通函数、record、局部变量、nonlocal、函数调用、静态
+`if/for`、规则内条件和标准类型注解。module/system 函数声明结构，
+嵌套 rule 计算；模块不写 self。module/rule/system 是少量领域标记，
+不增加 Queue、Reg、Interface、Input/Output 或调度 DSL。
 
-- constructor 表达静态连接、实例、状态初值与 rule 注册；capture 不执行 constructor/import/decorator 或用户代码。
+- module/system 的结构 scope 表达连接、实例、状态初值与 rule 注册；capture 不执行函数/import/decorator 或用户代码。
 - MLIR 按读写效果推导连接方向，不能从 `input_`、`output_` 等名字猜方向。
 - 普通局部变量是组合计算；实例成员的持久状态、current/next 和复位由静态分析明确。
 - “Pythonic”不意味着动态对象图、任意 Python 运行时或无法确定的整数位宽。finite type、静态结构、错误诊断必须明确。
-- FIFO/Queue 消费与普通多 reader state 不是同一种连接；精确源表达必须批准，不能用语法简化隐藏背压或额外存储。
-- CAS occurrence/cycle cursor、direct builder 和旧 function-style Agentic 接口列为退役对象。需要保留的流水线/寄存器能力改用唯一对象式接口表达；不默认移植整个 CAS 自动平衡系统。
+- Python 不公开队列协议；普通 list/head/tail/ready 名称不触发协议推断。未来缓冲库用普通 reg 算法表达，任何内部识别优化都需等价证明，不能添加隐藏背压或存储。
+- interface 由 MLIR 从实际 read/use、类型、controls 与 child bindings 导出；parent 用 header，link 用 bodies 独立重算。不让用户手写 effects 或优先级。
+- CAS occurrence/cycle cursor、direct builder 和旧 function-style Agentic 接口列为退役对象。需要保留的流水线/寄存器能力改用唯一 lexical module/rule 接口表达；不默认移植整个 CAS 自动平衡系统。
 
 整数是必须呈现给用户的实质差异：donor 采用数学整数与显式范围检查，当前 pyCircuit 有定宽运算/显式扩宽合同。不能暗中把 wrap 变成 trap，或用目标位宽静默截断。donor 当前单 symbol/单参数 tuple 与 pyCircuit finite-family 的差异也必须具体裁决。
 
@@ -137,6 +206,10 @@ C++ 优先迁移 GFSIM `CodeGen*.cpp`、Evaluate/Check/Drive 和 Work/Xfer 的�
 
 ## 必须先提交用户批准的合同包
 
+下表保留最初 C1/C2/C3 的责任划分；当前 source/storage/system/interface
+的精确替换以 R1 和 M1 C 联合增补为准。R1 的历史 approval-ready 或
+原 C1-C 的 class 例子不能授权执行者恢复旧作者形式。
+
 当前 AGENTS/Decision 0148 仍要求 CAS；用户最新方向已要求改变它。本轮先把需 supersede 的范围写清，不偷偷改现行决定的状态，更不因旧规范而保留三路线。以下三个包可分别准备；有依赖的语义必须一起审阅，用户可一次批准组合修订。
 
 | 批准包 | 具体内容 | 受影响决定/合同 |
@@ -162,67 +235,91 @@ C2 必须明确 MLIR 如何提取/发布 source interface 与读写 effects，�
 
 出口：用户批准的单一目标合同、没有未分类的切换能力、可重跑的基线与首个双后端切片。方向已明确，接口批准才是实现前的决策门槛。
 
-### M1：治理与 donor 准入，并行推进
+### M1：最少治理与迁移边界
 
-治理不是等全部文档完美才开始技术设计的长前置。PM 沿用 [调度方案](project-governance.md)，先启用文件 owner、候选冻结、独立测试/审查和轻量任务包。
+保留 G01–G03 编号用于追踪。只要求明确候选、模块归属、实现/测试/
+审阅责任和必要 donor 来源；现有机制足够后就结束本阶段。可选 agent
+adapter、完整资产普查、流程模板扩展均不阻塞开发。
 
-- G01：正式治理入口、project PM/design-review skills、任务/审阅模板；保持生成标记和现有未完成工作。
-- G02：迁移 donor source provenance、文件和依赖清单、一个 pass 一个职责、源文件规模 debt/ratchet。
-- G03：可选 DeepSeek adapter 独立包；新增 CLI/配置先批准，mock 失败路径先测；不阻塞核心 compiler 迁移。
+出口：任务能被有界派发、验证和集成。M1 不成为持续增加流程工作的队列。
 
-出口：真实任务试运行、真实模型绑定和 independent review 记录；不把配置文件存在当成调度可用。不继承 GFSIM full-core 的 PM 代批权限。
+### M2：可复现的最小双后端主干
 
-### M2：先打通唯一主干和双后端最小闭环
+保留 U01–U05，限定到已经选定的单级/两级 closed-system fixture：
 
-依赖：对应 C1/C2/C3 已批准。实现放隔离候选；不向正式产品增加第四个可选择前端。
+- 普通 Python module/system 函数和嵌套 rule 经逐源 body/header 编译、
+  link 和必要 MLIR lowering，形成可验证的共同硬件 IR。
+- 统一 ac.reg、真实实例/alias 连接、proposal 与 Xfer/discard；同拍只读
+  current，reset 正确，ports 不添加物理寄存器。
+- C++/Verilog 执行同一受支持程序，独立逐拍 oracle、物理 reg 数和
+  关键语义反例通过；保留当前用例需要的 assert/观察能力。
+- 从当前候选重建并用一个明确命令或脚本复现。可以使用现有私有
+  工具；完整公共 CLI、C ABI、SDK 和发布矩阵不作为 M2 前置条件。
 
-- U01：迁入 donor syntax capture 和 MLIR importer；按批准合同处理单 source 与 interface。
-- U02：迁入 donor source analysis/ACIR/verifier/passes；补齐首切片的精确类型、state owner、rule current/next、reset 和 driver checks。
-- U03：迁入 GFSIM C++ emission；同时为**同一 final IR**实现最小 RTL backend，可抽取现有 RTL emitter 所需部分，禁止调用旧 Python/QueueGraph semantic compiler。
-- U04：首包先实现 C1/C3 批准的最小 top/root 选择与逐源 composition 入口，不依赖后续完整 `system`/testbench，也不能用旧 frontend 补齐。独立 fixture 用新 Pythonic source 描述带条件 enable/reset 的计数叶模块，父模块实例化两次；增加单 Queue 的阻塞/收发场景。验证 source-unit producer、实例独立性、同拍 current、逐拍结果和两个 backend。
-- U05：检查标准 pipeline/driver 的完整 provenance；删除候选中该切片对旧 lowering 的依赖。首个闭环不过，不扩面。
+出口：上述有界程序的 source → IR → 两后端闭环和窄回归有当前候选
+证据，并完成该范围的独立审阅。不得要求 W11 全部完成后才验收 M2。
+新暴露的计算、提交、链接或双后端行为错误仍阻塞这个出口；未来能力
+或尚未交付入口的完整性不足登记到后续阶段。
 
-出口：新源码 → 逐源 semantic ACIR → linked final hardware IR → C++/Verilog 的可执行证明。不能先做完全部 C++ 再发现 RTL 无法表达。
+### M3：按实际用例补能力
 
-### M3：补齐批准能力，语义留在 MLIR
+H01–H05 保留为能力 backlog，不要求一轮全部实现。每轮选择一个实际
+用例，补齐它必须的整数操作、类型、集合、参数、库或模块能力，并在
+共同 MLIR 上验证；完成该用例就关闭本轮。消费者模型仍在消费者仓库。
 
-- H01：整数/record/collection/参数化，保留精确诊断和 source maps；donor 不支持项在新 MLIR 链补齐，不回旧 Python compiler。
-- H02：Queue、持久 state、memory、slot/多输出/多 lane（仅批准范围）的合法性、冲突与 atomic effect，明确 hold、backpressure、reset/failure。
-- H03：时钟复位、组合环、CDC、memory 时序、value/known/Z 和 RTL primitive selection；将适用现有算法作为新链 MLIR pass。
-- H04：source unit、headers、linker、实例与参数 identity；一个源 body 独立编译、生成 source group 并独立编译链接。
-- H05：补齐 source `system` 与通用 testbench、SDK 生命周期，保持 consumer-neutral；每项同时更新 C++/RTL coverage。
+FIFO/reg buffer 库、memory、CDC、多域、四态、复杂事务和外部 typed
+DUT ABI 按各自合同与需求进入后续轮次。没有明确用例的能力不抢占主线。
 
-出口：批准能力表每行都有新路线正反例与独立语义证据；与旧基线相同的语义比较结果，批准改变的语义按新 oracle 验收。未知项不以只测 C++、缺失 RTL 或 silently unsupported 通过。
+出口：所选用例及其声明支持范围通过，未支持项明确拒绝并可追踪。
+不是“全部能力表每行都已实现”。
 
-### M4：迁移使用面并准备一次切换
+### M4：让当前能力可用
 
-- X01：把 maintained examples、integration fixtures、testbench、文档示例改成唯一 Pythonic source；旧消费者迁移在其仓库对 pinned revision 进行。
-- X02：逐项替换 Python/MLIR/runtime/SDK tests，保留所需语义反例；给 retired API 添加明确拒绝测试。
-- X03：根 CMake、安装/export、CLI、Python bindings、wheel、gate/workflow 改用一个 driver、一套 pass registry 和唯一 C++ generator。
-- X04：先建 deletion manifest 和依赖反向搜索清单，冻结“新输入/输出/语义证据 + 被删接口/实现/测试/文档”的完整候选。
+X01–X04 首轮只交付一条文档化的使用流程、少量代表性例子，以及当前
+平台可用的构建入口。标准 compile/link/emit、source-owned C++ groups、
+独立 TU/CMake 和需要的 runner 在此收敛；不得以整系统生成后拆文件
+冒充逐源编译。C ABI、额外包装和分发形态仅在本轮使用流程确实需要时
+成为前置；实现时仍遵循既定 C3 同一执行器合同。
 
-出口：可以删除旧路线且没有活跃依赖；不允许“以后再迁某个 example”作为继续安装旧 frontend 的理由。
+若交付安装入口，当前平台必须在源码树外完成干净安装/import/run smoke；
+若交付 emit/发布入口，invalid final 必须正确拒绝并保留已有输出。
+这些基本保护随入口交付，不能延期到 M6。
 
-### M5：hard break 切换与结构清理
+出口：用户能从源码重复构建和运行当前支持的模型。不等待全部旧例子、
+全部消费者、wheel 形态或平台组合迁移完毕。
 
-- R01：按第 3 节删除旧 frontend/JIT/direct builder、Python semantic lowerer、ACPy 并行合同、QueueGraph 语义路径、旧 C++ emitters 及相应注册。
-- R02：移除旧 flags、模式开关、隐式 fallback、别名和安装资产；正式入口不可再选择旧路线。
-- R03：收拢新源码目录和 CMake ownership。仅整理最终存活的模块，不花大量时间给将删除的 8k/9k 行文件做长期重构。
-- R04：切换同一候选同步写入已批准决策的 supersession、AGENTS/skills、活跃语言/接口文档和 gate 改动；不能推迟到 M7。完成独立 code review、架构符合性、静态引用/动态执行路由/installed wheel 检查，以及能力矩阵全量验证。
+### M5：在明确支持范围内执行 hard break
 
-出口：一个 frontend lowering、一个共同 MLIR semantic pipeline、两个 backend（一个 C++，一个 Verilog）。旧参考 revision 仅作历史证据；产品树内没有兼容桥或第二个可执行 lowering 引擎。
+保留 R01–R04。切换前固定本次支持清单、明确暂不支持的能力及迁移
+说明；只要求当前交付范围的必要能力闭合，不要求 M3 backlog 全部完成。
+旧入口、fallback、重复语义引擎及其构建/安装引用按既定单路线目标退出；
+相应决策、活跃文档与 gate 同步更新。
 
-### M6：规模、性能和 SDK 收尾
+缺失能力不能靠旧 backend 补齐，也不能删除 oracle 冒充通过。尚未补齐
+的库/能力保留明确后续责任；历史基线可用于对照，不进入新产品路线。
+本次范围修订不执行源码删除或产品切换，实际切换仍须绑定具体候选。
 
-在正确性稳定后，测逐源并行编译、重复实例、相同/不同静态参数、增量失效、源码定位、输出发布失败与 root relocation。比较 stage time、RSS、生成代码规模、编译/仿真成本；采样与阈值由 M0 基线确定，不用文件变短宣称性能提升。
+出口：声明范围内只有一条产品路线，构建与运行确实走新链。
 
-出口：source-unit、SDK、构建图和平台证据对应同一 frozen candidate；必要性能退化有证据和明确处置，不能通过恢复旧 backend 解决。
+### M6：按风险持续加固
 
-### M7：规范切换与发布候选
+实际并行调度/重排验证、规模与增量性能、复杂故障注入、扩展
+relocation、平台扩展和完整 SDK 矩阵安排在这里，按交付需求分别关闭。
+在入口首次暴露时必须提供的基本校验和输出保护，仍由该入口所属阶段
+完成；不能把已知数据破坏或现有正确性回归推迟到这里。
 
-复核 M5 已同步切换的决策、AGENTS/skills、语言手册、唯一 frontend guide、IR/pipeline、gate/workflow 和 README，完成发布层面的闭环；不在此阶段才第一次废止旧合同。完整 release gates 迁移到新路线后仍保持语义覆盖，不保留旧 gate 命令只是为制造通过，也不删掉关键断言消除失败。
+出口：本轮明确的稳定性或性能目标有测量证据，不作为所有早期交付的
+全量前置。未实现并行时，不宣称已有并行执行能力。
 
-出口：独立审阅问题关闭、所有批准能力验证、安装包仅含新路线，发布候选按当时正式 upstream 流程验收。发布版本号、包名/ABI 和外部发布动作遵循 C3 及用户授权，本规划不直接发布。
+### M7：按声明范围验收候选
+
+同步文档和当前范围 release/smoke gates，先形成可复现、限制清晰的
+预览候选；正式稳定发布再满足其所承诺的平台、兼容和可靠性条件。
+不把预览候选称为整个迁移路线图完成，也不要求全部未来能力才能交付。
+外部发布仍按既定授权和 upstream 流程执行。
+
+出口：该候选实际承诺的能力、文档、构建和测试一致。剩余工作在
+backlog 中明确可见，不作为已完成能力。
 
 ## 并行、文件归属与关键路径
 
@@ -236,9 +333,12 @@ C2 必须明确 MLIR 如何提取/发布 source interface 与读写 effects，�
 | independent tests | 数学/状态机 oracle、非法 IR、两个 backend stimulus | 不从被测 emitter 反推唯一预期，不修改实现掩盖失败 |
 | integration/retirement | 根 CMake、driver/export/wheel、旧文件删除、gates | 单 writer，依赖检查之后切换；review 覆盖其新增差异 |
 
-当前最多 PM + 3 个原生子 agent；逻辑 lane 按阶段轮换。每个 task 在 ready 前列精确文件、候选、接口批准、测试命令和退出条件。不同 build 目录不隔离源码写入；候选冻结或使用正确 source overlay 的 worktree，从该 checkout 自行构建。
+并发上限读取当前宿主，不把历史 PM+3 当成永久配置。逻辑 lane 按
+阶段轮换；W00–W12 的包、文件归属与门槛见 checklist。每个 task 在
+ready 前列精确文件、候选、接口授权、实际测试 inventory 和退出条件。
+不同 build 目录不隔离源码写入；候选冻结后从本 checkout 自行构建。
 
-关键路径：**能力与接口批准 → 共享 MLIR 合同 → 同 IR 双后端最小闭环 → 必需能力闭合 → 使用面迁移 → 一次 hard break → 规模/发布验收**。治理和静态调查可并行，不把治理文件数量作为里程碑。
+关键路径：**已批准合同 → 最小双后端闭环 → 当前用例/可用入口 → 有界 hard break**。能力补齐与工程加固按需求滚动推进，预览交付不等待整个 backlog。
 
 开发可以分切片提交到隔离候选，但产品切换是一个完整 hard-break 变更序列/候选。旧发布在旧 revision；不向当前产品暴露两个 mode。回退撤回完整切换候选并从恢复源码重新构建，不在新 API 内嵌 旧路线 fallback，也不重置别人的 dirty 工作。
 
@@ -262,7 +362,7 @@ C2 必须明确 MLIR 如何提取/发布 source interface 与读写 effects，�
 | donor 未完成能力导致长期双模式 | `@system`/collection/check 等缺口用旧入口兜底 | 在新 MLIR 主干补齐或提交用户明确缩减；不通过兼容层延后删除 |
 | 并行导致错误通过 | review/hash 与实际构建不一致 | 单 writer、固定接口、候选冻结，变化后按影响重测/重审 |
 
-### 项目完成标准
+### 完整路线图的最终目标（不作为每次交付前置）
 
 1. 唯一 Pythonic source 合同以 GFSIM 为设计基线；语义分析/lowering 在 MLIR，Python 不执行模型或充当第二编译器。
 2. C++ 和 Verilog 从同一 verified hardware IR 出发，只有一个模型 C++ generator；目标专用 legalization 不成为第二语义权威。

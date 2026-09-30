@@ -1,0 +1,11 @@
+============================= test session starts ==============================
+platform darwin -- Python 3.12.12, pytest-9.1.1, pluggy-1.6.0
+rootdir: /Users/zhoubot/.codex/worktrees/migration-capture/pyCircuit
+configfile: pyproject.toml
+collected 27 items
+
+tests/system/test_m4_preview_workflow.py .................               [ 62%]
+tests/unit/test_m4_runner_protocol.py ..........                         [100%]
+
+- generated xml file: /Users/zhoubot/.codex/worktrees/migration-capture/pyCircuit/.pycircuit_out/m4-completion-tests/final.xml -
+======================== 27 passed in 61.62s (0:01:01) =========================

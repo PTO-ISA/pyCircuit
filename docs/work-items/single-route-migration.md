@@ -45,7 +45,7 @@ modernization plan 修订 8 的有界出口统计（本分支的计划副本仍�
 | M1 最少治理与迁移边界 | done（有界出口） | 文件归属、独立实现/测试/审阅和候选证据机制已运行；不再以流程扩建阻塞开发 |
 | M2 最小双后端主干 | accepted（有界核心） | 单级/两级 closed-system 的共同 IR、reg/alias、Work/Xfer 和双后端逐拍 oracle 已验收；不含公开 DUT ABI、SDK 或真实并行 |
 | M3 按实际用例补能力 | 当前用例已交付，后续按需 | 整数、masked-next、generic copy/constant 已有证据；FIFO、memory、CDC 等保留 backlog |
-| M4 让当前能力可用 | active（当前主线） | 公共逐源 compile/link、header-only、发布验证/恢复已交付；本轮显式 CMake/Ninja DAG 已验证并独立审阅通过；可执行源 C++ 分组、独立 TU/ODR 与双后端一致性已验证；标量声明源 headers 已完成本包实现与 scoped 验证；generated.json 和完整构建运行流程仍未交付 |
+| M4 让当前能力可用 | done（修订 8 有界出口） | 逐源 compile/link、源属 C++ TU、Verilator、标准 runner/外部 oracle、重建/发布保护和文档复现已通过；完整 C3 ABI/SDK/RTL 包装及公开 emit 切换另行交付 |
 | M5 声明范围内 hard break | pending | 旧路线退役、公开新 emit、活跃文档/构建/安装引用同步切换尚未完成 |
 | M6 按风险持续加固 | deferred / 按需 | 真实并行/V44、性能、平台和扩展故障矩阵未完成；已有正确性问题仍随所属入口修复 |
 | M7 按声明范围验收候选 | pending | 尚无迁移预览/发布验收；先验收明确支持范围，不要求未来 backlog 全清 |
@@ -188,3 +188,24 @@ Sol 独立审阅 APPROVE 并复跑全部 63 项。重复键/锁绕过变异均�
 这不是完整 generated bundle producer：当前私有 profile 只接纳空静态参数，
 不验证生成代码语义/ABI。M4 仍待真实 native 产物清单、dut.h ABI、生成构建
 链接/运行与 RTL 源归属；M5 的公开 emit/旧路线删除尚未切换。
+
+## 2026-09-30 M4 完整有界出口验证
+
+按用户已确认的修订 8，M4 的出口是可重复的源码构建运行流程，C ABI 仅在
+所选流程需要时成为前置。此前账本把完整 C3 ABI/RTL 包装一并列为 M4
+必需余项，范围过宽；这些责任保留在 C3 后续交付/M5–M6，不因此撤销。
+
+当前流程已贯通：checked-in Python 模块逐源 public compile/link，
+design_top.ac 保存重读，源属 C++ 独立 TU/CMake、Verilator 仿真适配、
+同一 SimExecutor/标准 runner，以及外置 oracle。17 项系统验收、10 项
+协议单测全部通过；既有回归 331 通过、3 项 Windows 跳过；native 116
+通过。fresh native 构建和文档空目录复现亦已通过。最终独立验收绑定见
+[M4 工作包](m4-completion-workflow.md)；[使用入口](../development/migration-preview.md)。
+
+公开新 emit 与旧路线退役尚未切换，完整 ABI/SDK 和 source-owned RTL
+发布不在本次有界完成声明中。SYSTEM/EXPECT B 仍未批准。
+
+M4 最终验收：Sol code review 与 Astra 架构/阶段出口审阅均 APPROVE，
+PM 已将 M4 标为 done（当前 macOS 源码预览范围）。源码、使用文档和
+独立证据同时绑定，见[验收包](../gates/logs/20260930-m4-completion/README.md)。
+下一主阶段为 M5 的明确范围 hard break；完整 C3/SDK 责任仍显式跟踪。

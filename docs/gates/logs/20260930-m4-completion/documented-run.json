@@ -1,0 +1,31 @@
+{
+  "cwd": "/Users/zhoubot/.codex/worktrees/migration-capture/pyCircuit",
+  "commands": [
+    [
+      "/Users/zhoubot/.codex/worktrees/migration-capture/pyCircuit/.pycircuit_out/m4-documented/model-cpp/pycircuit_system",
+      "--config",
+      "/Users/zhoubot/.codex/worktrees/migration-capture/pyCircuit/tests/integration/agentic-circuit/m4-preview/configs/three-ticks.json",
+      "--events",
+      "/Users/zhoubot/.codex/worktrees/migration-capture/pyCircuit/.pycircuit_out/m4-completion-probe/documented-cpp.jsonl"
+    ],
+    [
+      "/Users/zhoubot/.codex/worktrees/migration-capture/pyCircuit/.pycircuit_out/m4-documented/model-verilog/pycircuit_system",
+      "--config",
+      "/Users/zhoubot/.codex/worktrees/migration-capture/pyCircuit/tests/integration/agentic-circuit/m4-preview/configs/three-ticks.json",
+      "--events",
+      "/Users/zhoubot/.codex/worktrees/migration-capture/pyCircuit/.pycircuit_out/m4-completion-probe/documented-verilog.jsonl"
+    ],
+    [
+      "python3",
+      "/Users/zhoubot/.codex/worktrees/migration-capture/pyCircuit/tests/integration/agentic-circuit/m4-preview/oracle.py",
+      "/Users/zhoubot/.codex/worktrees/migration-capture/pyCircuit/.pycircuit_out/m4-completion-probe/documented-cpp.jsonl",
+      "/Users/zhoubot/.codex/worktrees/migration-capture/pyCircuit/.pycircuit_out/m4-completion-probe/documented-verilog.jsonl"
+    ]
+  ],
+  "exit_codes": [
+    0,
+    0,
+    0
+  ],
+  "oracle_stdout": "M4 preview oracle: PASS\n"
+}

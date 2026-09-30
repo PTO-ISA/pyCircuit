@@ -8,6 +8,7 @@ add_acir_library(ACIRSourceCompiler SOURCES
   FinalEmitCpp.cpp
   FinalEmitCppSystem.cpp
   FinalRuntimeMetadata.cpp
+  FinalRunnerEmission.cpp
   FinalEmitCppHierarchy.cpp
   FinalEmitVerilog.cpp
   FinalHardware.cpp

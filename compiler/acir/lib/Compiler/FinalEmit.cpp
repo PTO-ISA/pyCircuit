@@ -1,6 +1,7 @@
 #include "FinalEmitCpp.h"
 #include "FinalEmitVerilog.h"
 #include "FinalProgram.h"
+#include "FinalRunnerEmission.h"
 
 using namespace mlir;
 
@@ -50,6 +51,14 @@ FailureOr<Result> emitVerified(const FinalProgram &program,
 }
 
 } // namespace
+
+FailureOr<FinalRunnerParts>
+emitFinalRunnerParts(const FinalProgram &program,
+                     ac::detail::EmitError emitError) {
+  return emitVerified<FinalRunnerParts>(program, emitError, [&] {
+    return emitFinalRunnerPartsBody(program, emitError);
+  });
+}
 
 FailureOr<std::string> emitFinalCpp(const FinalProgram &program,
                                     ac::detail::EmitError emitError) {

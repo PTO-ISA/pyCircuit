@@ -1,0 +1,101 @@
+
+[31m │  ⚠  Warning from the Material for MkDocs team[0m
+[31m │[0m
+[31m │[0m  MkDocs 2.0, the underlying framework of Material for MkDocs,
+[31m │[0m  will introduce backward-incompatible changes, including:
+[31m │[0m
+[31m │  × [0mAll plugins will stop working – the plugin system has been removed
+[31m │  × [0mAll theme overrides will break – the theming system has been rewritten
+[31m │  × [0mNo migration path exists – existing projects cannot be upgraded
+[31m │  × [0mClosed contribution model – community members can't report bugs
+[31m │  × [0mCurrently unlicensed – unsuitable for production use
+[31m │[0m
+[31m │[0m  Our full analysis:
+[31m │[0m
+[31m │[0m  [4mhttps://squidfunk.github.io/mkdocs-material/blog/2026/02/18/mkdocs-2.0/[0m
+[0m
+INFO    -  Cleaning site directory
+INFO    -  Building documentation to directory: /Users/zhoubot/.codex/worktrees/migration-capture/pyCircuit/.pycircuit_out/m4-docs
+INFO    -  The following pages exist in the docs directory, but are not included in the "nav" configuration:
+  - development/migration-agent-checklist.md
+  - development/migration-verification-matrix.md
+  - reviews/20260928-c2-r1-unified-register.md
+  - reviews/20260928-interface-handoff.md
+  - reviews/20260929-design-testbench-ir-authority.md
+  - reviews/20260930-c2-decl-scalar-final-design-review.md
+  - rfcs/migration/c2-decl-scalar-final.md
+  - rfcs/migration/c2-m1-module-system.md
+  - rfcs/migration/c2-r1-unified-register.md
+  - rfcs/migration/approvals/c2-decl-scalar-final.md
+  - rfcs/migration/approvals/c2-r1-m1-interface.md
+  - rfcs/migration/approvals/m1-runner-default-sink.md
+  - work-items/m2-closure-execution.md
+  - work-items/m3-generic-multi-assignment-reconstruction.md
+  - work-items/m4-completion-workflow.md
+  - work-items/m4-cpp-source-parts.md
+  - work-items/m4-declaration-final-readiness.md
+  - work-items/m4-design-file-bridge.md
+  - work-items/m4-generated-bundle-validation.md
+  - work-items/m4-scalar-declaration-implementation.md
+  - work-items/m4-scalar-declaration-proposal.md
+  - work-items/m4-source-cmake-build.md
+  - work-items/source-unit-pair-validation.md
+INFO    -  Doc file 'development/pycircuit-modernization-review.md' contains a link to 'gates/logs/20260927-migration-intake/reviewed-plan-r6.txt' which is excluded from the built site.
+INFO    -  Doc file 'development/pycircuit-modernization-review.md' contains a link to 'gates/logs/20260927-migration-intake/reviewed-governance-r6.txt' which is excluded from the built site.
+INFO    -  Doc file 'development/pycircuit-modernization-review.md' contains a link to 'gates/logs/20260927-migration-intake/reviewed-tests-r6.txt' which is excluded from the built site.
+INFO    -  Doc file 'reviews/README.md' contains a link to 'gates/logs/20260927-migration-governance/independent-review.md' which is excluded from the built site.
+INFO    -  Doc file 'reviews/README.md' contains a link to 'gates/logs/20260927-c1-source-review/revision-a-review.md' which is excluded from the built site.
+INFO    -  Doc file 'reviews/README.md' contains a link to 'gates/logs/20260927-c1-source-review/revision-c-review.md' which is excluded from the built site.
+INFO    -  Doc file 'reviews/README.md' contains a link to 'gates/logs/20260927-c1-capture/review.md' which is excluded from the built site.
+INFO    -  Doc file 'reviews/README.md' contains a link to 'gates/logs/20260927-c2-review/revision-b-review.md' which is excluded from the built site.
+INFO    -  Doc file 'reviews/README.md' contains a link to 'gates/logs/20260927-c2-review/revision-c-review.md' which is excluded from the built site.
+INFO    -  Doc file 'reviews/README.md' contains a link to 'gates/logs/20260927-c3-review/revision-b-review.md' which is excluded from the built site.
+INFO    -  Doc file 'reviews/README.md' contains a link to 'gates/logs/20260927-c3-review/revision-c-review.md' which is excluded from the built site.
+INFO    -  Doc file 'reviews/README.md' contains a link to 'gates/logs/20260927-capability-inventory/revision-b-review.md' which is excluded from the built site.
+INFO    -  Doc file 'reviews/README.md' contains a link to 'gates/logs/20260927-c2-f01/review-b/summary.md' which is excluded from the built site.
+INFO    -  Doc file 'reviews/README.md' contains a link to 'gates/logs/20260927-c2-f01/integration/results.md' which is excluded from the built site.
+INFO    -  Doc file 'reviews/README.md' contains a link to 'gates/logs/20260927-c2-f02/review-b/summary.md' which is excluded from the built site.
+INFO    -  Doc file 'reviews/README.md' contains a link to 'gates/logs/20260927-c2-f02/integration/results.md' which is excluded from the built site.
+INFO    -  Doc file 'reviews/README.md' contains a link to 'gates/logs/20260927-c2-f03/review-b/summary.md' which is excluded from the built site.
+INFO    -  Doc file 'reviews/README.md' contains a link to 'gates/logs/20260927-c2-f03/integration/results.md' which is excluded from the built site.
+INFO    -  Doc file 'reviews/README.md' contains a link to 'gates/logs/20260927-u01-transport/review-b/summary.md' which is excluded from the built site.
+INFO    -  Doc file 'reviews/README.md' contains a link to 'gates/logs/20260927-u01-transport/integration/results.md' which is excluded from the built site.
+INFO    -  Doc file 'reviews/README.md' contains a link to 'gates/logs/20260927-u01-transport/review-c/summary.md' which is excluded from the built site.
+INFO    -  Doc file 'reviews/README.md' contains a link to 'gates/logs/20260927-u01-native/review-a/findings.md' which is excluded from the built site.
+INFO    -  Doc file 'reviews/README.md' contains a link to 'gates/logs/20260927-u01-native/test-a/results.md' which is excluded from the built site.
+INFO    -  Doc file 'reviews/README.md' contains a link to 'gates/logs/20260927-u01-native/review-c/summary.md' which is excluded from the built site.
+INFO    -  Doc file 'reviews/README.md' contains a link to 'gates/logs/20260927-u01-native/acceptance.md' which is excluded from the built site.
+INFO    -  Doc file 'reviews/README.md' contains a link to 'gates/logs/20260928-c2-n1-review/revision-b-review.md' which is excluded from the built site.
+INFO    -  Doc file 'reviews/README.md' contains a link to 'gates/logs/20260928-c2-n1-review/revision-c-review.md' which is excluded from the built site.
+INFO    -  Doc file 'reviews/20260928-c2-r1-unified-register.md' contains a link to 'gates/logs/20260928-c2-r1-review/revision-a.txt' which is excluded from the built site.
+INFO    -  Doc file 'reviews/20260928-c2-r1-unified-register.md' contains a link to 'gates/logs/20260928-c2-r1-review/revision-b.txt' which is excluded from the built site.
+INFO    -  Doc file 'rfcs/migration/c1-pythonic-source.md' contains a link to 'gates/logs/20260927-migration-intake/source-inventory.json' which is excluded from the built site.
+INFO    -  Doc file 'rfcs/migration/approvals/c1-pythonic-source.md' contains a link to 'gates/logs/20260927-c1-source-review/revision-c-review.md' which is excluded from the built site.
+INFO    -  Doc file 'rfcs/migration/approvals/c2-c3-foundation.md' contains a link to 'gates/logs/20260927-c2-review/revision-c-review.md' which is excluded from the built site.
+INFO    -  Doc file 'rfcs/migration/approvals/c2-c3-foundation.md' contains a link to 'gates/logs/20260927-c3-review/revision-c-review.md' which is excluded from the built site.
+INFO    -  Doc file 'rfcs/migration/approvals/c2-n1-namespaces.md' contains a link to 'gates/logs/20260928-c2-n1-review/revision-c-review.md' which is excluded from the built site.
+INFO    -  Doc file 'work-items/m3-generic-multi-assignment-reconstruction.md' contains a link to 'gates/logs/20260930-generic-multi-assignment/README.md' which is excluded from the built site.
+INFO    -  Doc file 'work-items/m4-cpp-source-parts.md' contains a link to 'gates/logs/20260930-m4-cpp-source-parts/README.md' which is excluded from the built site.
+INFO    -  Doc file 'work-items/m4-generated-bundle-validation.md' contains a link to 'gates/logs/20260930-generated-bundle-validation/README.md' which is excluded from the built site.
+INFO    -  Doc file 'work-items/m4-scalar-declaration-implementation.md' contains a link to 'gates/logs/20260930-c2-decl-scalar-final/candidate-sha256.json' which is excluded from the built site.
+INFO    -  Doc file 'work-items/m4-scalar-declaration-implementation.md' contains a link to 'gates/logs/20260930-c2-decl-scalar-final/README.md' which is excluded from the built site.
+INFO    -  Doc file 'work-items/m4-source-cmake-build.md' contains a link to 'gates/logs/20260930-m4-source-cmake/README.md' which is excluded from the built site.
+INFO    -  Doc file 'work-items/m4-source-cmake-build.md' contains a link to 'gates/logs/20260930-m4-source-cmake/review.md' which is excluded from the built site.
+INFO    -  Doc file 'work-items/migration-capabilities.md' contains a link to 'gates/logs/20260927-c1-capture/review.md' which is excluded from the built site.
+INFO    -  Doc file 'work-items/migration-capabilities.md' contains a link to 'gates/logs/20260927-c2-f01/integration/results.md' which is excluded from the built site.
+INFO    -  Doc file 'work-items/migration-capabilities.md' contains a link to 'gates/logs/20260927-c2-f02/integration/results.md' which is excluded from the built site.
+INFO    -  Doc file 'work-items/migration-capabilities.md' contains a link to 'gates/logs/20260927-u01-native/acceptance.md' which is excluded from the built site.
+INFO    -  Doc file 'work-items/single-route-migration.md' contains a link to 'gates/logs/20260927-migration-intake/source-inventory.json' which is excluded from the built site.
+INFO    -  Doc file 'work-items/single-route-migration.md' contains a link to 'gates/logs/20260927-capability-inventory/revision-b-review.md' which is excluded from the built site.
+INFO    -  Doc file 'work-items/single-route-migration.md' contains a link to 'gates/logs/20260927-c1-source-review/revision-c-review.md' which is excluded from the built site.
+INFO    -  Doc file 'work-items/single-route-migration.md' contains a link to 'gates/logs/20260927-c2-review/revision-c-review.md' which is excluded from the built site.
+INFO    -  Doc file 'work-items/single-route-migration.md' contains a link to 'gates/logs/20260927-c3-review/revision-c-review.md' which is excluded from the built site.
+INFO    -  Doc file 'work-items/single-route-migration.md' contains a link to 'gates/logs/20260927-c1-capture/review.md' which is excluded from the built site.
+INFO    -  Doc file 'work-items/single-route-migration.md' contains a link to 'gates/logs/20260927-c2-f01/integration/results.md' which is excluded from the built site.
+INFO    -  Doc file 'work-items/single-route-migration.md' contains a link to 'gates/logs/20260927-c2-f02/integration/results.md' which is excluded from the built site.
+INFO    -  Doc file 'work-items/single-route-migration.md' contains a link to 'gates/logs/20260927-c2-f03/integration/results.md' which is excluded from the built site.
+INFO    -  Doc file 'work-items/single-route-migration.md' contains a link to 'gates/logs/20260927-u01-native/acceptance.md' which is excluded from the built site.
+INFO    -  Doc file 'work-items/single-route-migration.md' contains a link to 'gates/logs/20260929-m2-core-closeout/README.md' which is excluded from the built site.
+INFO    -  Doc file 'work-items/single-route-migration.md' contains a link to 'gates/logs/20260927-migration-baseline/results.md' which is excluded from the built site.
+INFO    -  Doc file 'work-items/single-route-migration.md' contains a link to 'gates/logs/20260930-generated-bundle-validation/README.md' which is excluded from the built site.
+INFO    -  Documentation built in 1.49 seconds

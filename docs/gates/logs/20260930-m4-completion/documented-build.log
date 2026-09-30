@@ -1,0 +1,108 @@
+[0/2] Re-checking globbed directories...
+[1/7] Generating units/types/types.ac, units/types/types.interface.ac, units/types/unit.json
+[2/7] Generating units/counter/counter.ac, units/counter/counter.interface.ac, units/counter/unit.json
+[3/7] Generating units/design_top/design_top.ac, units/design_top/design_top.interface.ac, units/design_top/unit.json
+[4/7] Generating linked/design_top.ac
+[5/7] Generating preview-artifacts.stamp
+[5/7] cd /Users/zhoubot/.codex/worktrees/migration-capture/pyCircuit/.pycircuit_out/m4-documented && /opt/homebrew/bin/cmake -S /Users/zhoubot/.codex/worktrees/migration-capture/pyCircuit/.pycircuit_out/m4-documented/artifacts/cpp -B /Users/zhoubot/.codex/worktrees/migration-capture/pyCircuit/.pycircuit_out/m4-documented/model-cpp -G Ninja -DPYCIRCUIT_RUNTIME_ROOT=/Users/zhoubot/.codex/worktrees/migration-capture/pyCircuit/simulator/gfsim -DPYCIRCUIT_TEST_CONSUMER= -DCMAKE_EXPORT_COMPILE_COMMANDS=ON && /opt/homebrew/bin/cmake --build /Users/zhoubot/.codex/worktrees/migration-capture/pyCircuit/.pycircuit_out/m4-documented/model-cpp --parallel 4 && /opt/homebrew/bin/cmake -S /Users/zhoubot/.codex/worktrees/migration-capture/pyCircuit/.pycircuit_out/m4-documented/artifacts/verilog -B /Users/zhoubot/.codex/worktrees/migration-capture/pyCircuit/.pycircuit_out/m4-documented/model-verilog -G Ninja -DPYCIRCUIT_RUNTIME_ROOT=/Users/zhoubot/.codex/worktrees/migration-capture/pyCircuit/simulator/gfsim -DPYCIRCUIT_TEST_CONSUMER= -DCMAKE_EXPORT_COMPILE_COMMANDS=ON && /opt/homebrew/bin/cmake --build /Users/zhoubot/.codex/worktrees/migration-capture/pyCircuit/.pycircuit_out/m4-documented/model-verilog --parallel 4
+-- The CXX compiler identification is AppleClang 21.0.0.21000101
+-- Detecting CXX compiler ABI info
+-- Detecting CXX compiler ABI info - done
+-- Check for working CXX compiler: /usr/bin/c++ - skipped
+-- Detecting CXX compile features
+-- Detecting CXX compile features - done
+-- Configuring done (0.2s)
+-- Generating done (0.0s)
+-- Build files have been written to: /Users/zhoubot/.codex/worktrees/migration-capture/pyCircuit/.pycircuit_out/m4-documented/model-cpp
+[1/8] Building CXX object CMakeFiles/pyc6_runtime.dir/Users/zhoubot/.codex/worktrees/migration-capture/pyCircuit/simulator/gfsim/model_input.cpp.o
+[2/8] Building CXX object CMakeFiles/pycircuit_system.dir/runner_main.cpp.o
+[3/8] Building CXX object CMakeFiles/pyc6_runtime.dir/Users/zhoubot/.codex/worktrees/migration-capture/pyCircuit/simulator/gfsim/sim_executor.cpp.o
+[4/8] Building CXX object CMakeFiles/pyc6_runtime.dir/Users/zhoubot/.codex/worktrees/migration-capture/pyCircuit/simulator/gfsim/system_runner.cpp.o
+[5/8] Linking CXX static library libpyc6_runtime.a
+[6/8] Building CXX object CMakeFiles/pycircuit_system.dir/sources/preview/counter.cpp.o
+[7/8] Building CXX object CMakeFiles/pycircuit_system.dir/sources/preview/design_top.cpp.o
+[8/8] Linking CXX executable pycircuit_system
+-- The CXX compiler identification is AppleClang 21.0.0.21000101
+-- Detecting CXX compiler ABI info
+-- Detecting CXX compiler ABI info - done
+-- Check for working CXX compiler: /usr/bin/c++ - skipped
+-- Detecting CXX compile features
+-- Detecting CXX compile features - done
+-- Performing Test _faligned_new
+-- Performing Test _faligned_new - Success
+-- Performing Test _fbracket_depth_4096
+-- Performing Test _fbracket_depth_4096 - Success
+-- Performing Test _fcf_protection_none
+-- Performing Test _fcf_protection_none - Success
+-- Performing Test _Xclang
+-- Performing Test _Xclang - Success
+-- Performing Test _fno_pch_timestamp
+-- Performing Test _fno_pch_timestamp - Failed
+-- Performing Test _mno_cet
+-- Performing Test _mno_cet - Failed
+-- Performing Test _Qunused_arguments
+-- Performing Test _Qunused_arguments - Success
+-- Performing Test _Wno_bool_operation
+-- Performing Test _Wno_bool_operation - Success
+-- Performing Test _Wno_c__11_narrowing
+-- Performing Test _Wno_c__11_narrowing - Success
+-- Performing Test _Wno_constant_logical_operand
+-- Performing Test _Wno_constant_logical_operand - Success
+-- Performing Test _Wno_int_in_bool_context
+-- Performing Test _Wno_int_in_bool_context - Success
+-- Performing Test _Wno_non_pod_varargs
+-- Performing Test _Wno_non_pod_varargs - Success
+-- Performing Test _Wno_parentheses_equality
+-- Performing Test _Wno_parentheses_equality - Success
+-- Performing Test _Wno_shadow
+-- Performing Test _Wno_shadow - Success
+-- Performing Test _Wno_sign_compare
+-- Performing Test _Wno_sign_compare - Success
+-- Performing Test _Wno_subobject_linkage
+-- Performing Test _Wno_subobject_linkage - Failed
+-- Performing Test _Wno_tautological_bitwise_compare
+-- Performing Test _Wno_tautological_bitwise_compare - Success
+-- Performing Test _Wno_tautological_compare
+-- Performing Test _Wno_tautological_compare - Success
+-- Performing Test _Wno_uninitialized
+-- Performing Test _Wno_uninitialized - Success
+-- Performing Test _Wno_unused_but_set_parameter
+-- Performing Test _Wno_unused_but_set_parameter - Success
+-- Performing Test _Wno_unused_but_set_variable
+-- Performing Test _Wno_unused_but_set_variable - Success
+-- Performing Test _Wno_unused_parameter
+-- Performing Test _Wno_unused_parameter - Success
+-- Performing Test _Wno_unused_variable
+-- Performing Test _Wno_unused_variable - Success
+-- Performing Test _Wno_vla_cxx_extension
+-- Performing Test _Wno_vla_cxx_extension - Success
+-- Performing Test _mt
+-- Performing Test _mt - Failed
+-- Performing Test _pthread
+-- Performing Test _pthread - Success
+-- Performing Test _lpthread
+-- Performing Test _lpthread - Success
+-- Performing Test _latomic
+-- Performing Test _latomic - Failed
+-- Executing Verilator...
+-- Configuring done (2.3s)
+-- Generating done (0.0s)
+-- Build files have been written to: /Users/zhoubot/.codex/worktrees/migration-capture/pyCircuit/.pycircuit_out/m4-documented/model-verilog
+[1/7] Building CXX object CMakeFiles/pyc6_runtime.dir/Users/zhoubot/.codex/worktrees/migration-capture/pyCircuit/simulator/gfsim/model_input.cpp.o
+[2/7] Building CXX object CMakeFiles/pyc6_runtime.dir/Users/zhoubot/.codex/worktrees/migration-capture/pyCircuit/simulator/gfsim/sim_executor.cpp.o
+[3/7] Building CXX object CMakeFiles/pyc6_runtime.dir/Users/zhoubot/.codex/worktrees/migration-capture/pyCircuit/simulator/gfsim/system_runner.cpp.o
+[4/7] Linking CXX static library libpyc6_runtime.a
+[5/7] Generating CMakeFiles/pycircuit_system.dir/VPycircuitRunnerBridge.dir/VPycircuitRunnerBridge.cpp, CMakeFiles/pycircuit_system.dir/VPycircuitRunnerBridge.dir/VPycircuitRunnerBridge___024root__0.cpp, CMakeFiles/pycircuit_system.dir/VPycircuitRunnerBridge.dir/VPycircuitRunnerBridge___024root__Slow.cpp, CMakeFiles/pycircuit_system.dir/VPycircuitRunnerBridge.dir/VPycircuitRunnerBridge___024root__0__Slow.cpp, CMakeFiles/pycircuit_system.dir/VPycircuitRunnerBridge.dir/VPycircuitRunnerBridge__Syms__Slow.cpp, CMakeFiles/pycircuit_system.dir/VPycircuitRunnerBridge.dir/VPycircuitRunnerBridge.cmake
+- V e r i l a t i o n   R e p o r t: Verilator 5.044 2026-01-01 rev vUNKNOWN-built20260101
+- Verilator: Built from 0.047 MB sources in 5 modules, into 0.032 MB in 5 C++ files needing 0.000 MB
+- Verilator: Walltime 0.005 s (elab=0.000, cvt=0.002, bld=0.000); cpu 0.005 s on 1 threads; alloced 9.984 MB
+[6/7] Generating CMakeFiles/pycircuit_system.dir/VPycircuitRunnerBridge.dir/VPycircuitRunnerBridge_copy.cmake
+[1/15] Building CXX object CMakeFiles/pycircuit_system.dir/CMakeFiles/pycircuit_system.dir/VPycircuitRunnerBridge.dir/VPycircuitRunnerBridge___024root__0.cpp.o
+[2/15] Building CXX object CMakeFiles/pycircuit_system.dir/CMakeFiles/pycircuit_system.dir/VPycircuitRunnerBridge.dir/VPycircuitRunnerBridge___024root__Slow.cpp.o
+[3/15] Building CXX object CMakeFiles/pycircuit_system.dir/CMakeFiles/pycircuit_system.dir/VPycircuitRunnerBridge.dir/VPycircuitRunnerBridge.cpp.o
+[4/15] Building CXX object CMakeFiles/pycircuit_system.dir/runner_main.cpp.o
+[5/15] Building CXX object CMakeFiles/pycircuit_system.dir/CMakeFiles/pycircuit_system.dir/VPycircuitRunnerBridge.dir/VPycircuitRunnerBridge___024root__0__Slow.cpp.o
+[6/15] Building CXX object CMakeFiles/pycircuit_system.dir/CMakeFiles/pycircuit_system.dir/VPycircuitRunnerBridge.dir/VPycircuitRunnerBridge__Syms__Slow.cpp.o
+[7/15] Building CXX object CMakeFiles/pycircuit_system.dir/opt/homebrew/Cellar/verilator/5.044/share/verilator/include/verilated_threads.cpp.o
+[8/15] Building CXX object CMakeFiles/pycircuit_system.dir/opt/homebrew/Cellar/verilator/5.044/share/verilator/include/verilated.cpp.o
+[9/15] Linking CXX executable pycircuit_system

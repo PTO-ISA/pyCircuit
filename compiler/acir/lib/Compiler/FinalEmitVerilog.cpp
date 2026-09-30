@@ -157,6 +157,8 @@ emitFinalVerilogPartsBody(const FinalProgram &program,
           << "  logic obs_path_" << local->second << ";\n";
     }
     out << "  logic local_error;\n";
+    for (size_t local = 0; local < instance.checkOrdinals.size(); ++local)
+      out << "  logic check_failed_" << local << ";\n";
     for (auto [childPosition, child] :
          llvm::enumerate(instance.childOrdinals)) {
       (void)child;
@@ -173,8 +175,10 @@ emitFinalVerilogPartsBody(const FinalProgram &program,
           expressions.emit(check.condition, *check.owner, check.rule);
       if (failed(path) || failed(condition))
         return failure();
-      out << "    local_error = local_error | (" << *path << " & ~("
-          << *condition << "));\n";
+      const auto local = checkRanks[instance.ordinal].lookup(checkGlobal);
+      out << "    check_failed_" << local << " = (" << *path << " & ~("
+          << *condition << "));\n"
+          << "    local_error = local_error | check_failed_" << local << ";\n";
     }
 
     auto resolvePair = [&](DictionaryAttr stateID,

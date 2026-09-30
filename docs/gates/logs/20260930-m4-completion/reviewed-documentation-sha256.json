@@ -1,0 +1,19 @@
+{
+  "docs/development/migration-agent-checklist.md": "b440daa51a4fc6d297b2cb09d74e2ad893cfb9f882453079bc70169dac2056fa",
+  "docs/development/migration-preview.md": "395a4f135c140e43777e74822ad94427ebd01a1a1ac032331548c84c3d5059a8",
+  "docs/development/migration-verification-matrix.md": "c2a7fc8b5a3a50ae268bce849ecc8b132a872cfdcdba0bece9e5fb57282131a1",
+  "docs/development/pycircuit-modernization-plan.md": "5b2bec4445b1a24f0fa699b753b2dcd1f04381f5c90c291a5545f83b6fcaaae4",
+  "docs/gates/logs/20260928-c2-r1-review/revision-a.txt": "1bbb05f5382649446328f1e224721884cefec779309834dbd9575913b777f5c2",
+  "docs/gates/logs/20260928-c2-r1-review/revision-b.txt": "76283661bffba96aad544e31d2b4996f019135f448c4c8b685ebb02eab8edfba",
+  "docs/reviews/20260928-c2-r1-unified-register.md": "d11a6ee84bcabfc961d31f3cd5428dd51ea6626ecf3e05c1869844ad85316975",
+  "docs/reviews/20260928-interface-handoff.md": "02b449f41d6633bba3525775b55e76b3a955f16c15d6fded7149afc640b204a2",
+  "docs/reviews/20260929-design-testbench-ir-authority.md": "0d990ef71b30de4fa07c1bda460a55e02aee689c733e82ae1a1c5374b66068e2",
+  "docs/rfcs/migration/approvals/c2-r1-m1-interface.md": "49c874c3c8aa5090bdfc72df255beab471da4659c31934f8bb4d3a599043c093",
+  "docs/rfcs/migration/approvals/m1-runner-default-sink.md": "ec7705b89ea16400092ba3a3edfedfba91939badc2ed77e5d945f3f1f334205e",
+  "docs/rfcs/migration/c2-m1-module-system.md": "84b551ea84d6aa0956ea2342f520f4aafc63f7d741cc651500446a26f49c35cd",
+  "docs/rfcs/migration/c2-r1-unified-register.md": "76283661bffba96aad544e31d2b4996f019135f448c4c8b685ebb02eab8edfba",
+  "docs/work-items/m2-closure-execution.md": "31e45e0f842de46621c0cd2870dc5330ddd5c51d518a26f595c836d457e7d3b5",
+  "docs/work-items/m4-completion-workflow.md": "617651f9598c8e8d9acf0746c03afb27914fdf9223aeb7a27893d5f2bd37f0c6",
+  "docs/work-items/single-route-migration.md": "8b1f8c920ed6579dc5a19f48688e4c85f75b5c10e96b0e3c05781ff1aa702fdd",
+  "mkdocs.yml": "0a0d519d7d95503ec798874943fad5d982bfdcde49786b12dc9b849c36ac1c15"
+}

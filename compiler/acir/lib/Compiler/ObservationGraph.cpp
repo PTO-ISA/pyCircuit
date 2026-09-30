@@ -73,9 +73,9 @@ ArrayAttr internalValueConstraints(Builder &builder,
 LogicalResult rejectUnsupportedNumericProofs(ac::RuleOp rule,
                                              ac::detail::EmitError emitError) {
   // Generic provenance carriers (ac.value.binding / ac.value.use) are
-  // synthesized for ordinary direct-current and literal assignments too, so only
-  // an explicit numeric obligation may gate this closure. The shared classifier
-  // is the single definition of that test.
+  // synthesized for ordinary direct-current and literal assignments too, so
+  // only an explicit numeric obligation may gate this closure. The shared
+  // classifier is the single definition of that test.
   if (!ruleHasNumericObligation(rule))
     return success();
   if (ac::hasNumericCompositionContract(rule)) {
@@ -186,6 +186,37 @@ struct ActualObservation {
   size_t requiredIndex = 0;
 };
 
+struct ObservationReportIdentity {
+  DictionaryAttr ownerRef;
+  StringAttr kind;
+  DictionaryAttr spec;
+};
+
+LogicalResult
+validateUniqueReportNames(ArrayRef<ObservationReportIdentity> reports,
+                          MLIRContext *context,
+                          ac::detail::EmitError emitError) {
+  DenseSet<Attribute> names;
+  Builder builder(context);
+  for (const ObservationReportIdentity &report : reports) {
+    if (!report.kind || report.kind.getValue() != "report")
+      continue;
+    auto name =
+        report.spec ? report.spec.getAs<StringAttr>("name") : StringAttr();
+    if (!report.ownerRef || !report.spec || !name || name.getValue().empty())
+      return emitError()
+             << "report observation requires a static non-empty name";
+    auto key = builder.getDictionaryAttr({
+        builder.getNamedAttr("owner", report.ownerRef),
+        builder.getNamedAttr("kind", report.kind),
+        builder.getNamedAttr("name", name),
+    });
+    if (!names.insert(key).second)
+      return emitError() << "one module instance repeats a report name";
+  }
+  return success();
+}
+
 } // namespace
 
 FailureOr<ObservationGraph>
@@ -196,6 +227,7 @@ buildSourceObservationGraph(const ModuleGraph &modules,
   ObservationGraph graph;
   graph.modules = &modules;
   DenseSet<Attribute> identities;
+  SmallVector<ObservationReportIdentity> reportSites;
   Builder builder(modules.root->module.getContext());
 
   for (InstanceView *owner : modules.postOrder())
@@ -224,6 +256,7 @@ buildSourceObservationGraph(const ModuleGraph &modules,
         binding.path = observe.getPath();
         llvm::append_range(binding.values, observe.getValues());
         binding.observe = observe;
+        reportSites.push_back({binding.ownerRef, binding.kind, binding.spec});
         auto key = builder.getDictionaryAttr({
             builder.getNamedAttr("owner", binding.ownerRef),
             builder.getNamedAttr("id", binding.observationID),
@@ -239,6 +272,10 @@ buildSourceObservationGraph(const ModuleGraph &modules,
         return emitError()
                << "rule observations do not close required observations";
     }
+
+  if (failed(validateUniqueReportNames(
+          reportSites, modules.root->module.getContext(), emitError)))
+    return failure();
 
   llvm::sort(graph.bindings, [](const ObservationBinding &left,
                                 const ObservationBinding &right) {
@@ -257,6 +294,7 @@ LogicalResult verifySourceObservations(const ObservationGraph &graph,
   if (!graph.modules || !graph.modules->root)
     return emitError() << "observation graph requires a rooted ModuleGraph";
   SmallVector<ActualObservation> actual;
+  SmallVector<ObservationReportIdentity> reportSites;
   for (InstanceView *owner : graph.modules->postOrder())
     for (ac::RuleOp rule :
          owner->module.getBody().front().getOps<ac::RuleOp>()) {
@@ -264,8 +302,11 @@ LogicalResult verifySourceObservations(const ObservationGraph &graph,
         return failure();
       size_t index = 0;
       for (ac::SourceObserveOp observe :
-           rule.getBody().front().getOps<ac::SourceObserveOp>())
+           rule.getBody().front().getOps<ac::SourceObserveOp>()) {
         actual.push_back({owner, rule, observe, index++});
+        reportSites.push_back(
+            {owner->owner, observe.getKindAttr(), observe.getSpecAttr()});
+      }
       auto required =
           rule->getAttrOfType<ArrayAttr>("ac.required_observations");
       if ((required || index != 0) && (!required || required.size() != index))
@@ -275,6 +316,9 @@ LogicalResult verifySourceObservations(const ObservationGraph &graph,
   if (actual.size() != graph.bindings.size())
     return emitError()
            << "observation graph differs from actual observation count";
+  if (failed(validateUniqueReportNames(
+          reportSites, graph.modules->root->module.getContext(), emitError)))
+    return failure();
 
   llvm::sort(actual, [](const ActualObservation &left,
                         const ActualObservation &right) {

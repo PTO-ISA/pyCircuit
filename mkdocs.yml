@@ -109,6 +109,7 @@ nav:
       - Agentic Circuit Open Design Resolutions: development/agentic-circuit-open-designs.md
       - Implementation Guide: development/implementation-guide.md
       - Modernization Plan: development/pycircuit-modernization-plan.md
+      - Migration Preview: development/migration-preview.md
       - Project Governance: development/project-governance.md
       - Governance Proposal (Historical): development/project-governance-proposal.md
       - Modernization Test Strategy: development/pycircuit-modernization-tests.md
