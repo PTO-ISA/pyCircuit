@@ -1,0 +1,16 @@
+[1/9] Building CXX object compiler/acir/lib/Compiler/CMakeFiles/ACIRSourceCompiler.dir/ProposalGraph.cpp.o
+[2/9] Linking CXX static library compiler/acir/lib/Compiler/libACIRSourceCompiler.a
+[3/9] Linking CXX executable bin/acir-design-harness
+ld: warning: ignoring duplicate libraries: '/opt/homebrew/Cellar/llvm/22.1.8/lib/libMLIRArithDialect.a', '/opt/homebrew/Cellar/llvm/22.1.8/lib/libMLIRFuncDialect.a', '/opt/homebrew/Cellar/llvm/22.1.8/lib/libMLIRSupport.a', 'compiler/acir/lib/Dialect/ACIR/libACIRDialect.a'
+[4/9] Linking CXX executable bin/acir-cpp-source-parts-harness
+ld: warning: ignoring duplicate libraries: '/opt/homebrew/Cellar/llvm/22.1.8/lib/libMLIRArithDialect.a', '/opt/homebrew/Cellar/llvm/22.1.8/lib/libMLIRFuncDialect.a', '/opt/homebrew/Cellar/llvm/22.1.8/lib/libMLIRSupport.a', 'compiler/acir/lib/Dialect/ACIR/libACIRDialect.a'
+[5/9] Linking CXX executable bin/acir-backend-closure-harness
+ld: warning: ignoring duplicate libraries: '/opt/homebrew/Cellar/llvm/22.1.8/lib/libMLIRArithDialect.a', '/opt/homebrew/Cellar/llvm/22.1.8/lib/libMLIRFuncDialect.a', '/opt/homebrew/Cellar/llvm/22.1.8/lib/libMLIRSupport.a', 'compiler/acir/lib/Dialect/ACIR/libACIRDialect.a'
+[6/9] Linking CXX executable bin/acir-source-unit-harness
+ld: warning: ignoring duplicate libraries: '/opt/homebrew/Cellar/llvm/22.1.8/lib/libMLIRArithDialect.a', '/opt/homebrew/Cellar/llvm/22.1.8/lib/libMLIRFuncDialect.a', '/opt/homebrew/Cellar/llvm/22.1.8/lib/libMLIRSupport.a', 'compiler/acir/lib/Dialect/ACIR/libACIRDialect.a'
+[7/9] Linking CXX executable bin/ACIRProposalContractsTests
+ld: warning: ignoring duplicate libraries: '/opt/homebrew/Cellar/llvm/22.1.8/lib/libMLIRArithDialect.a', '/opt/homebrew/Cellar/llvm/22.1.8/lib/libMLIRSupport.a', 'compiler/acir/lib/Dialect/ACIR/libACIRDialect.a'
+[8/9] Linking CXX executable bin/ACIRExecutableBackendClosureTests
+ld: warning: ignoring duplicate libraries: '/opt/homebrew/Cellar/llvm/22.1.8/lib/libMLIRArithDialect.a', '/opt/homebrew/Cellar/llvm/22.1.8/lib/libMLIRSupport.a', 'compiler/acir/lib/Dialect/ACIR/libACIRDialect.a'
+[9/9] Linking CXX executable bin/ACIRFinalProgramTests
+ld: warning: ignoring duplicate libraries: '/opt/homebrew/Cellar/llvm/22.1.8/lib/libMLIRArithDialect.a', '/opt/homebrew/Cellar/llvm/22.1.8/lib/libMLIRSupport.a', 'compiler/acir/lib/Dialect/ACIR/libACIRDialect.a'

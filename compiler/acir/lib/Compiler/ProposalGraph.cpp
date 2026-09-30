@@ -110,13 +110,72 @@ LogicalResult verifySupportedNumericRule(ac::RuleOp rule,
 
 DictionaryAttr requiredUseTarget(ac::RuleOp rule, ac::ValueUseOp use) {
   auto required = rule->getAttrOfType<ArrayAttr>("ac.required_uses");
-  auto entry = required && required.size() == 1
-                   ? dyn_cast<DictionaryAttr>(required[0])
-                   : DictionaryAttr();
-  if (!entry || entry.getAs<DictionaryAttr>("id") != use.getIdAttr() ||
-      entry.getAs<DictionaryAttr>("value") != use.getSourceAttr())
+  if (!required)
     return {};
-  return entry.getAs<DictionaryAttr>("target");
+  DictionaryAttr target;
+  bool matched = false;
+  for (Attribute raw : required) {
+    auto entry = dyn_cast<DictionaryAttr>(raw);
+    if (!entry || entry.getAs<DictionaryAttr>("id") != use.getIdAttr())
+      continue;
+    if (matched || entry.size() != 3 ||
+        entry.getAs<DictionaryAttr>("value") != use.getSourceAttr())
+      return {};
+    target = entry.getAs<DictionaryAttr>("target");
+    matched = true;
+  }
+  return matched ? target : DictionaryAttr();
+}
+
+struct ValueUseOutput {
+  DictionaryAttr target;
+  size_t output = 0;
+  ac::YieldOp yield;
+};
+
+FailureOr<size_t> outputIndexForTarget(ac::RuleOp rule, DictionaryAttr target,
+                                       ac::detail::EmitError emitError) {
+  auto kind = target ? target.getAs<StringAttr>("kind") : StringAttr();
+  auto state =
+      target ? target.getAs<DictionaryAttr>("state") : DictionaryAttr();
+  auto bindings =
+      rule ? rule->getAttrOfType<ArrayAttr>("ac.output_bindings") : ArrayAttr();
+  auto types =
+      rule ? rule->getAttrOfType<ArrayAttr>("ac.output_types") : ArrayAttr();
+  if (!rule || !kind || kind.getValue() != "next_scalar" || !state ||
+      !bindings || !types || bindings.size() != rule.getTargets().size() ||
+      types.size() != rule.getTargets().size())
+    return emitError()
+           << "proposal target has no closed scalar output contract";
+  std::optional<size_t> output;
+  for (auto [index, binding] : llvm::enumerate(bindings)) {
+    if (binding != state)
+      continue;
+    if (output)
+      return emitError() << "proposal target matches repeated rule outputs";
+    output = index;
+  }
+  if (!output)
+    return emitError() << "proposal target has no rule output";
+  return *output;
+}
+
+FailureOr<ValueUseOutput> requiredUseOutput(ac::RuleOp rule, ac::ValueUseOp use,
+                                            ac::detail::EmitError emitError) {
+  if (!rule || !use || rule.getBody().getBlocks().size() != 1)
+    return emitError() << "ValueUse has no single-block rule body";
+  DictionaryAttr target = requiredUseTarget(rule, use);
+  if (!target)
+    return emitError() << "ValueUse has no unique exact RequiredUse target";
+  auto output = outputIndexForTarget(rule, target, emitError);
+  if (failed(output))
+    return failure();
+  auto yield = dyn_cast<ac::YieldOp>(rule.getBody().front().getTerminator());
+  if (!yield || yield.getValues().size() % 2 != 0 ||
+      yield.getValues().size() / 2 != rule.getTargets().size())
+    return emitError()
+           << "ValueUse rule has no exact finite yield pair per output";
+  return ValueUseOutput{target, *output, yield};
 }
 
 DictionaryAttr compositionUseTarget(ac::RuleOp rule, ac::ValueUseOp use) {
@@ -318,21 +377,10 @@ buildSourceProposalGraph(const ModuleGraph &modules, const CheckGraph *checks,
               Value valid, Value path, DictionaryAttr useID,
               DictionaryAttr sourceID, ac::SourceUseOp sourceUse,
               ac::ValueUseOp valueUse) -> LogicalResult {
-        auto kind = target.getAs<StringAttr>("kind");
+        auto output = outputIndexForTarget(rule, target, emitError);
+        if (failed(output))
+          return failure();
         auto state = target.getAs<DictionaryAttr>("state");
-        if (!kind || kind.getValue() != "next_scalar" || !state)
-          return emitError()
-                 << "proposal graph supports next_scalar SourceUse only";
-        std::optional<size_t> output;
-        for (auto [index, binding] : llvm::enumerate(bindings))
-          if (binding == state) {
-            if (output)
-              return emitError()
-                     << "SourceUse target matches repeated rule outputs";
-            output = index;
-          }
-        if (!output)
-          return emitError() << "SourceUse target has no rule output";
         auto id = modules.resolveState(*view, state, emitError);
         auto logical = dyn_cast<DictionaryAttr>(types[*output]);
         if (failed(id) || !logical || failed(addState(*id, logical)))
@@ -366,13 +414,14 @@ buildSourceProposalGraph(const ModuleGraph &modules, const CheckGraph *checks,
                                    use.getSource(), use, {})))
           return failure();
       for (ac::ValueUseOp use : body.getOps<ac::ValueUseOp>()) {
-        auto yield = dyn_cast<ac::YieldOp>(body.getTerminator());
-        DictionaryAttr target = requiredUseTarget(rule, use);
-        if (!yield || yield.getValues().size() != 2 || !target ||
-            failed(addContribution(target, yield.getValues()[0],
-                                   yield.getValues()[1], use.getValue(),
-                                   use.getValid(), use.getPath(), use.getId(),
-                                   use.getSource(), {}, use)))
+        auto targetOutput = requiredUseOutput(rule, use, emitError);
+        if (failed(targetOutput) ||
+            failed(addContribution(
+                targetOutput->target,
+                targetOutput->yield.getValues()[2 * targetOutput->output],
+                targetOutput->yield.getValues()[2 * targetOutput->output + 1],
+                use.getValue(), use.getValid(), use.getPath(), use.getId(),
+                use.getSource(), {}, use)))
           return failure();
       }
     }
@@ -577,6 +626,9 @@ LogicalResult verifySourceProposals(const ProposalGraph &graph,
         DictionaryAttr target =
             sourceUse ? sourceUse.getTarget()
                       : compositionUseTarget(actualRule, valueUse);
+        if (!target)
+          return emitError()
+                 << "compositional proposal row has no retained target";
         auto kind = target.getAs<StringAttr>("kind");
         auto relative = target.getAs<DictionaryAttr>("state");
         auto resolved = relative ? graph.modules->resolveState(
@@ -607,6 +659,7 @@ LogicalResult verifySourceProposals(const ProposalGraph &graph,
         actualUse ? actualUse.getOperation() : actualValueUse.getOperation();
     if (!contribution.owner || !owners.contains(contribution.owner) ||
         !actualRule || !actualOperation || (actualUse && actualValueUse) ||
+        actualRule.getBody().getBlocks().size() != 1 ||
         contribution.child != contribution.owner->placement ||
         actualRule->getParentOfType<ac::ModuleOp>() !=
             contribution.owner->module ||
@@ -617,10 +670,26 @@ LogicalResult verifySourceProposals(const ProposalGraph &graph,
       return emitError()
              << "proposal contribution owner/rule/use relationship is forged";
 
-    auto target = actualUse ? actualUse.getTarget()
-                            : requiredUseTarget(actualRule, actualValueUse);
-    auto kind = target.getAs<StringAttr>("kind");
-    auto relative = target.getAs<DictionaryAttr>("state");
+    DictionaryAttr target;
+    size_t outputIndex = 0;
+    ac::YieldOp actualYield;
+    if (actualUse) {
+      target = actualUse.getTarget();
+      auto output = outputIndexForTarget(actualRule, target, emitError);
+      if (failed(output))
+        return failure();
+      outputIndex = *output;
+    } else {
+      auto output = requiredUseOutput(actualRule, actualValueUse, emitError);
+      if (failed(output))
+        return failure();
+      target = output->target;
+      outputIndex = output->output;
+      actualYield = output->yield;
+    }
+    auto kind = target ? target.getAs<StringAttr>("kind") : StringAttr();
+    auto relative =
+        target ? target.getAs<DictionaryAttr>("state") : DictionaryAttr();
     auto resolved = [&]() -> FailureOr<DictionaryAttr> {
       if (!relative)
         return failure();
@@ -629,26 +698,14 @@ LogicalResult verifySourceProposals(const ProposalGraph &graph,
     }();
     auto bindings = actualRule->getAttrOfType<ArrayAttr>("ac.output_bindings");
     auto types = actualRule->getAttrOfType<ArrayAttr>("ac.output_types");
-    std::optional<size_t> output;
-    if (bindings)
-      for (auto [index, binding] : llvm::enumerate(bindings))
-        if (binding == relative) {
-          if (output)
-            return emitError()
-                   << "proposal target matches repeated rule outputs";
-          output = index;
-        }
-    auto logical = output && types && *output < types.size()
-                       ? dyn_cast<DictionaryAttr>(types[*output])
+    auto logical = types && outputIndex < types.size()
+                       ? dyn_cast<DictionaryAttr>(types[outputIndex])
                        : DictionaryAttr();
-    auto actualYield =
-        dyn_cast<ac::YieldOp>(actualRule.getBody().front().getTerminator());
-    if (actualValueUse && (!actualYield || actualYield.getValues().size() != 2))
-      return emitError() << "U1 proposal has no exact finite yield";
-    Value actualData =
-        actualUse ? actualUse.getData() : actualYield.getValues()[0];
-    Value actualEnabled =
-        actualUse ? actualUse.getEnabled() : actualYield.getValues()[1];
+    Value actualData = actualUse ? actualUse.getData()
+                                 : actualYield.getValues()[2 * outputIndex];
+    Value actualEnabled = actualUse
+                              ? actualUse.getEnabled()
+                              : actualYield.getValues()[2 * outputIndex + 1];
     Value actualValue =
         actualUse ? actualUse.getValue() : actualValueUse.getValue();
     Value actualValid =
@@ -660,8 +717,11 @@ LogicalResult verifySourceProposals(const ProposalGraph &graph,
     DictionaryAttr actualSourceID =
         actualUse ? actualUse.getSource() : actualValueUse.getSource();
     if (!kind || kind.getValue() != "next_scalar" || !relative ||
-        failed(resolved) || *resolved != contribution.stateID || !logical ||
-        logical != contribution.logicalType ||
+        failed(resolved) || *resolved != contribution.stateID || !bindings ||
+        !types || bindings.size() != actualRule.getTargets().size() ||
+        types.size() != actualRule.getTargets().size() ||
+        outputIndex >= bindings.size() || relative != bindings[outputIndex] ||
+        !logical || logical != contribution.logicalType ||
         contribution.useID != actualUseID ||
         contribution.sourceID != actualSourceID ||
         contribution.data != actualData ||

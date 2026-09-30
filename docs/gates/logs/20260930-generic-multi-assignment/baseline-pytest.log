@@ -1,0 +1,64 @@
+============================= test session starts ==============================
+platform darwin -- Python 3.14.6, pytest-9.0.2, pluggy-1.6.0
+rootdir: /Users/zhoubot/.codex/worktrees/migration-capture/pyCircuit
+configfile: pyproject.toml
+collected 4 items
+
+tests/system/test_generic_multi_assignment.py FFFF                       [100%]
+
+=================================== FAILURES ===================================
+____ test_multi_assignment_saved_final_cpp_and_rtl[persistent-current-next] ____
+tests/system/test_generic_multi_assignment.py:408: in test_multi_assignment_saved_final_cpp_and_rtl
+    final = _build_final(tmp_path, child_source, system_source)
+            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+tests/system/test_generic_multi_assignment.py:171: in _build_final
+    assert linked.returncode == 0, linked.stderr
+E   AssertionError: error: final hardware ProposalGraph reconstruction failed
+E     error: final hardware program view reconstruction failed
+E     error: linked design is not reconstructible by the emit path; this source shape is not supported yet
+E     
+E   assert 1 == 0
+E    +  where 1 = CompletedProcess(args=['/Users/zhoubot/.codex/worktrees/migration-capture/pyCircuit/.pycircuit_out/w10-pm/build/bin/ac...uction failed\nerror: linked design is not reconstructible by the emit path; this source shape is not supported yet\n').returncode
+_____ test_multi_assignment_saved_final_cpp_and_rtl[local-candidate-reuse] _____
+tests/system/test_generic_multi_assignment.py:408: in test_multi_assignment_saved_final_cpp_and_rtl
+    final = _build_final(tmp_path, child_source, system_source)
+            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+tests/system/test_generic_multi_assignment.py:171: in _build_final
+    assert linked.returncode == 0, linked.stderr
+E   AssertionError: error: final hardware ProposalGraph reconstruction failed
+E     error: final hardware program view reconstruction failed
+E     error: linked design is not reconstructible by the emit path; this source shape is not supported yet
+E     
+E   assert 1 == 0
+E    +  where 1 = CompletedProcess(args=['/Users/zhoubot/.codex/worktrees/migration-capture/pyCircuit/.pycircuit_out/w10-pm/build/bin/ac...uction failed\nerror: linked design is not reconstructible by the emit path; this source shape is not supported yet\n').returncode
+__ test_multi_assignment_use_proofs_fail_closed[redirect-second-target-False] __
+tests/system/test_generic_multi_assignment.py:439: in test_multi_assignment_use_proofs_fail_closed
+    final = _build_final(tmp_path)
+            ^^^^^^^^^^^^^^^^^^^^^^
+tests/system/test_generic_multi_assignment.py:171: in _build_final
+    assert linked.returncode == 0, linked.stderr
+E   AssertionError: error: final hardware ProposalGraph reconstruction failed
+E     error: final hardware program view reconstruction failed
+E     error: linked design is not reconstructible by the emit path; this source shape is not supported yet
+E     
+E   assert 1 == 0
+E    +  where 1 = CompletedProcess(args=['/Users/zhoubot/.codex/worktrees/migration-capture/pyCircuit/.pycircuit_out/w10-pm/build/bin/ac...uction failed\nerror: linked design is not reconstructible by the emit path; this source shape is not supported yet\n').returncode
+__ test_multi_assignment_use_proofs_fail_closed[duplicate-second-use-id-True] __
+tests/system/test_generic_multi_assignment.py:439: in test_multi_assignment_use_proofs_fail_closed
+    final = _build_final(tmp_path)
+            ^^^^^^^^^^^^^^^^^^^^^^
+tests/system/test_generic_multi_assignment.py:171: in _build_final
+    assert linked.returncode == 0, linked.stderr
+E   AssertionError: error: final hardware ProposalGraph reconstruction failed
+E     error: final hardware program view reconstruction failed
+E     error: linked design is not reconstructible by the emit path; this source shape is not supported yet
+E     
+E   assert 1 == 0
+E    +  where 1 = CompletedProcess(args=['/Users/zhoubot/.codex/worktrees/migration-capture/pyCircuit/.pycircuit_out/w10-pm/build/bin/ac...uction failed\nerror: linked design is not reconstructible by the emit path; this source shape is not supported yet\n').returncode
+- generated xml file: /Users/zhoubot/.codex/worktrees/migration-capture/pyCircuit/.pycircuit_out/multi-assignment-tests/baseline/result.xml -
+=========================== short test summary info ============================
+FAILED tests/system/test_generic_multi_assignment.py::test_multi_assignment_saved_final_cpp_and_rtl[persistent-current-next]
+FAILED tests/system/test_generic_multi_assignment.py::test_multi_assignment_saved_final_cpp_and_rtl[local-candidate-reuse]
+FAILED tests/system/test_generic_multi_assignment.py::test_multi_assignment_use_proofs_fail_closed[redirect-second-target-False]
+FAILED tests/system/test_generic_multi_assignment.py::test_multi_assignment_use_proofs_fail_closed[duplicate-second-use-id-True]
+============================== 4 failed in 0.71s ===============================

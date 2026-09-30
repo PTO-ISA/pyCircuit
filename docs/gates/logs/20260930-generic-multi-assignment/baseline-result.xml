@@ -1,0 +1,41 @@
+<?xml version="1.0" encoding="utf-8"?><testsuites name="pytest tests"><testsuite name="pytest" errors="0" failures="4" skipped="0" tests="4" time="0.709" timestamp="2026-09-30T12:37:23.977904+08:00" hostname="Zhoubot-MacBook-173.local"><testcase classname="tests.system.test_generic_multi_assignment" name="test_multi_assignment_saved_final_cpp_and_rtl[persistent-current-next]" time="0.198"><failure message="AssertionError: error: final hardware ProposalGraph reconstruction failed&#10;  error: final hardware program view reconstruction failed&#10;  error: linked design is not reconstructible by the emit path; this source shape is not supported yet&#10;  &#10;assert 1 == 0&#10; +  where 1 = CompletedProcess(args=['/Users/zhoubot/.codex/worktrees/migration-capture/pyCircuit/.pycircuit_out/w10-pm/build/bin/ac...uction failed\nerror: linked design is not reconstructible by the emit path; this source shape is not supported yet\n').returncode">tests/system/test_generic_multi_assignment.py:408: in test_multi_assignment_saved_final_cpp_and_rtl
+    final = _build_final(tmp_path, child_source, system_source)
+            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+tests/system/test_generic_multi_assignment.py:171: in _build_final
+    assert linked.returncode == 0, linked.stderr
+E   AssertionError: error: final hardware ProposalGraph reconstruction failed
+E     error: final hardware program view reconstruction failed
+E     error: linked design is not reconstructible by the emit path; this source shape is not supported yet
+E     
+E   assert 1 == 0
+E    +  where 1 = CompletedProcess(args=['/Users/zhoubot/.codex/worktrees/migration-capture/pyCircuit/.pycircuit_out/w10-pm/build/bin/ac...uction failed\nerror: linked design is not reconstructible by the emit path; this source shape is not supported yet\n').returncode</failure></testcase><testcase classname="tests.system.test_generic_multi_assignment" name="test_multi_assignment_saved_final_cpp_and_rtl[local-candidate-reuse]" time="0.149"><failure message="AssertionError: error: final hardware ProposalGraph reconstruction failed&#10;  error: final hardware program view reconstruction failed&#10;  error: linked design is not reconstructible by the emit path; this source shape is not supported yet&#10;  &#10;assert 1 == 0&#10; +  where 1 = CompletedProcess(args=['/Users/zhoubot/.codex/worktrees/migration-capture/pyCircuit/.pycircuit_out/w10-pm/build/bin/ac...uction failed\nerror: linked design is not reconstructible by the emit path; this source shape is not supported yet\n').returncode">tests/system/test_generic_multi_assignment.py:408: in test_multi_assignment_saved_final_cpp_and_rtl
+    final = _build_final(tmp_path, child_source, system_source)
+            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+tests/system/test_generic_multi_assignment.py:171: in _build_final
+    assert linked.returncode == 0, linked.stderr
+E   AssertionError: error: final hardware ProposalGraph reconstruction failed
+E     error: final hardware program view reconstruction failed
+E     error: linked design is not reconstructible by the emit path; this source shape is not supported yet
+E     
+E   assert 1 == 0
+E    +  where 1 = CompletedProcess(args=['/Users/zhoubot/.codex/worktrees/migration-capture/pyCircuit/.pycircuit_out/w10-pm/build/bin/ac...uction failed\nerror: linked design is not reconstructible by the emit path; this source shape is not supported yet\n').returncode</failure></testcase><testcase classname="tests.system.test_generic_multi_assignment" name="test_multi_assignment_use_proofs_fail_closed[redirect-second-target-False]" time="0.148"><failure message="AssertionError: error: final hardware ProposalGraph reconstruction failed&#10;  error: final hardware program view reconstruction failed&#10;  error: linked design is not reconstructible by the emit path; this source shape is not supported yet&#10;  &#10;assert 1 == 0&#10; +  where 1 = CompletedProcess(args=['/Users/zhoubot/.codex/worktrees/migration-capture/pyCircuit/.pycircuit_out/w10-pm/build/bin/ac...uction failed\nerror: linked design is not reconstructible by the emit path; this source shape is not supported yet\n').returncode">tests/system/test_generic_multi_assignment.py:439: in test_multi_assignment_use_proofs_fail_closed
+    final = _build_final(tmp_path)
+            ^^^^^^^^^^^^^^^^^^^^^^
+tests/system/test_generic_multi_assignment.py:171: in _build_final
+    assert linked.returncode == 0, linked.stderr
+E   AssertionError: error: final hardware ProposalGraph reconstruction failed
+E     error: final hardware program view reconstruction failed
+E     error: linked design is not reconstructible by the emit path; this source shape is not supported yet
+E     
+E   assert 1 == 0
+E    +  where 1 = CompletedProcess(args=['/Users/zhoubot/.codex/worktrees/migration-capture/pyCircuit/.pycircuit_out/w10-pm/build/bin/ac...uction failed\nerror: linked design is not reconstructible by the emit path; this source shape is not supported yet\n').returncode</failure></testcase><testcase classname="tests.system.test_generic_multi_assignment" name="test_multi_assignment_use_proofs_fail_closed[duplicate-second-use-id-True]" time="0.146"><failure message="AssertionError: error: final hardware ProposalGraph reconstruction failed&#10;  error: final hardware program view reconstruction failed&#10;  error: linked design is not reconstructible by the emit path; this source shape is not supported yet&#10;  &#10;assert 1 == 0&#10; +  where 1 = CompletedProcess(args=['/Users/zhoubot/.codex/worktrees/migration-capture/pyCircuit/.pycircuit_out/w10-pm/build/bin/ac...uction failed\nerror: linked design is not reconstructible by the emit path; this source shape is not supported yet\n').returncode">tests/system/test_generic_multi_assignment.py:439: in test_multi_assignment_use_proofs_fail_closed
+    final = _build_final(tmp_path)
+            ^^^^^^^^^^^^^^^^^^^^^^
+tests/system/test_generic_multi_assignment.py:171: in _build_final
+    assert linked.returncode == 0, linked.stderr
+E   AssertionError: error: final hardware ProposalGraph reconstruction failed
+E     error: final hardware program view reconstruction failed
+E     error: linked design is not reconstructible by the emit path; this source shape is not supported yet
+E     
+E   assert 1 == 0
+E    +  where 1 = CompletedProcess(args=['/Users/zhoubot/.codex/worktrees/migration-capture/pyCircuit/.pycircuit_out/w10-pm/build/bin/ac...uction failed\nerror: linked design is not reconstructible by the emit path; this source shape is not supported yet\n').returncode</failure></testcase></testsuite></testsuites>
