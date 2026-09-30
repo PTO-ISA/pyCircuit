@@ -399,3 +399,14 @@ review and final-candidate results. Source invalidation is selective; full emit
 still rebuilds all generated CPP targets. RSS/throughput, parallel simulation and
 broader platform/fault/SDK work remain open. M7 may next form a scoped preview
 candidate; no stable release or expanded profile is claimed.
+
+## 2026-10-01 M7-01 local preview acceptance
+
+The scoped macOS 26/arm64 preview is accepted in `4584ad0b`, with fresh native
+build/install, current presets, source-owned semantic closure including M6,
+Runtime/CompilerDev/model-ABI consumers and a disposable wheel. The
+[M7-01 evidence index](../work-items/m7-local-preview.md) records independent
+review, candidate binding and explicit skips/deselections. No public interface
+or release policy was changed. Stable release, formal platform/minimum-OS
+acceptance and the broader capability roadmap remain separate; existing
+`v6.1.0` points to older source and no publication was dispatched.
