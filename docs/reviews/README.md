@@ -18,6 +18,8 @@ approval. It is not approval of the interface or authorization to implement it.
 
 ## Completed reviews
 
+- [C2-DECL scalar final projection](20260930-c2-decl-scalar-final-design-review.md): independent Astra xhigh approval-ready, exact revision-A hash archived; precise user approval pending, no product implementation.
+
 - [Migration governance activation](../gates/logs/20260927-migration-governance/independent-review.md): independent code review passed; no product-interface approval.
 - [C1 source proposal revision A](../gates/logs/20260927-c1-source-review/revision-a-review.md): revise; superseded by the reviewed revision C below.
 

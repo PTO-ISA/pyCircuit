@@ -37,3 +37,11 @@ same final, owning declaration headers are reproducible, and no extra cpp is
 created for declaration-only sources. Invalid owner, duplicate authority and
 illegal source-phase residue must reject. No sidecar, fake implementation
 module or backend semantic authority is introduced.
+
+## Concrete proposal — 2026-09-30
+
+The gap now has an independently reviewed [C2-DECL revision A proposal](../rfcs/migration/c2-decl-scalar-final.md).
+It is approval-ready at SHA-256
+`38dd31d13cff150cf7b778e9c3df469f9ab1e0b55c8b2311f7c8d05d49b736b8`,
+with a separate [review archive](../reviews/20260930-c2-decl-scalar-final-design-review.md).
+This design completion does not approve or implement the new final admission.
