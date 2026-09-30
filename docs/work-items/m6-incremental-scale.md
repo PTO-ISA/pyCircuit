@@ -45,3 +45,10 @@ optimization and scheduling. M7 can next form a scoped preview acceptance
 candidate without claiming future capabilities or publishing a stable release.
 SYSTEM/EXPECT revision B remains unapproved. Other agents' planning edits remain
 outside this packet and are preserved.
+
+Planning validation: targeted hooks pass. This planning checkout's strict MkDocs
+build still aborts on 12 existing missing links: eleven in the unchanged
+`single-route-migration.md` ledger and one AGENTS link in the unchanged
+`20260929-design-testbench-ir-authority.md` review. The implementation checkout's
+strict build passes. This packet leaves unrelated planning links and the
+unapproved SYSTEM/EXPECT proposal files untouched.
