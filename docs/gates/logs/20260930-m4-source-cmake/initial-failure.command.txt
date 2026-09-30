@@ -1,0 +1,1 @@
+/opt/homebrew/Cellar/pytest/9.0.2_1/libexec/bin/python -m pytest tests/system/test_source_unit_cmake_build.py -m system -q --junitxml=.pycircuit_out/m4-source-cmake-tests/initial-failure.xml

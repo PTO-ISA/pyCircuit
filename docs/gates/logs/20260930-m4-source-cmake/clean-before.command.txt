@@ -1,0 +1,5 @@
+cwd=/Users/zhoubot/.codex/worktrees/migration-capture/pyCircuit
+Initial reproduction executed clean then rebuild:
+cmake --build '/Users/zhoubot/.codex/worktrees/migration-capture/pyCircuit/.pycircuit_out/source unit fixture smoke' --target clean
+cmake --build '/Users/zhoubot/.codex/worktrees/migration-capture/pyCircuit/.pycircuit_out/source unit fixture smoke' --target source-unit-all
+clean-before.log archives the repeated post-clean rebuild from the already-cleaned directory; exit 1. The fixture author had concurrently added BYPRODUCTS, and this archived retry includes CMake regeneration to that version without running clean again. It records the leftover-dir refusal, not a frozen pre-fix candidate run. clean-before-state.txt captures remaining depfiles and publication controls.

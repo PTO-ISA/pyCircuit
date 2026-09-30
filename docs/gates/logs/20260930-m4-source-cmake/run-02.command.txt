@@ -1,0 +1,4 @@
+cwd=/Users/zhoubot/.codex/worktrees/migration-capture/pyCircuit
+ACIR_SOURCE_UNIT_HARNESS=/Users/zhoubot/.codex/worktrees/migration-capture/pyCircuit/.pycircuit_out/w10-pm/build/bin/acir-source-unit-harness
+ACIR_DESIGN_HARNESS=/Users/zhoubot/.codex/worktrees/migration-capture/pyCircuit/.pycircuit_out/w10-pm/build/bin/acir-design-harness
+/opt/homebrew/Cellar/pytest/9.0.2_1/libexec/bin/python -m pytest tests/system/test_source_unit_cmake_build.py -m system -q --junitxml=/Users/zhoubot/.codex/worktrees/migration-capture/pyCircuit/docs/gates/logs/20260930-m4-source-cmake/run-02.xml

@@ -1,0 +1,8 @@
+cwd=/Users/zhoubot/.codex/worktrees/migration-capture/pyCircuit
+platform=macOS-26.6.2-arm64-arm-64bit-Mach-O
+cmake version 4.2.1
+
+CMake suite maintained and supported by Kitware (kitware.com/cmake).
+1.13.0.git.kitware.jobserver-pipe-1
+
+Native helpers: current checkout .pycircuit_out/w10-pm/build/bin/acir-source-unit-harness and acir-design-harness; no native source changes/rebuild in this slice.

@@ -1,0 +1,13 @@
+{
+  "base": "ffef119c21c001d866c7dba5bac4006d6f751493",
+  "files": {
+    "tests/integration/agentic-circuit/source-unit-build/CMakeLists.txt": "19cd27273f6c8852c37f24e491f5ff33dfc55c88dc739d7167dfeb1021741f33",
+    "tests/integration/agentic-circuit/source-unit-build/README.md": "dc1dae53929bf4839b735ede20e4338ede413ffa65e085dd94d1d7dfcb1a65ac",
+    "tests/integration/agentic-circuit/source-unit-build/prepare_unit_output.py": "6a6dc5cd43d03a4c4d5b23987fe8d29a4666e7b3666372594c9ef111d0ecbb14",
+    "tests/integration/agentic-circuit/source-unit-build/src/child.py": "fe1961f61ed94fa1b815a1eb463d0280b22b03925ed268224d6c553d9b9f2441",
+    "tests/integration/agentic-circuit/source-unit-build/src/independent.py": "ea57d648400eaff61e5af44a17c6989c56a6f773f0d9cbb60ce3bd7ecba80899",
+    "tests/integration/agentic-circuit/source-unit-build/src/parent.py": "78d8b75c6da4f2d19b1f48cda436c381924ab0ca0f1915ddf82338b3eab557b9",
+    "tests/integration/agentic-circuit/source-unit-build/src/types.py": "da471e7509385a78790bebd4f8c80320b1e55bd5345938ea2f9d2c57120e8e8e",
+    "tests/system/test_source_unit_cmake_build.py": "ef649cccf16f03efaeeda999a01150cf669deb77c3fcdc622fc4ecd106e50af8"
+  }
+}
