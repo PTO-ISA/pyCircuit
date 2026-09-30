@@ -39,7 +39,7 @@ the original read-only test designer.
 
 ## Results and reproduction
 
-The private `run_lanes.py` records exact argv, cwd and native helper environment
+The private runner (archived as `run-lanes.txt`) records argv, cwd and helper environment
 in each lane's command JSON. Toolchain: LLVM/MLIR 22.1.8, Apple arm64 C++20,
 Python 3.14.6 / pytest 9.0.2; all native helpers built in this checkout.
 `build-command.txt`, `full-05.log`, `native-06.log` record successful builds.
@@ -84,3 +84,6 @@ No full release, SDK/install, Windows or legacy full-toolchain build is claimed.
 M2 remains accepted; this closes scalar declaration headers within M4 only.
 Generated publication/manifest and full build/run delivery remain M4 work;
 public emit and hard-break route removal remain M5.
+
+Raw failing pytest logs preserve emitted trailing whitespace verbatim; source
+and documentation whitespace checks exclude these archived raw transcripts.
