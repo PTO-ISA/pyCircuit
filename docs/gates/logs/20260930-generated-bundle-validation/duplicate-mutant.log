@@ -1,0 +1,28 @@
+============================= test session starts ==============================
+platform darwin -- Python 3.14.6, pytest-9.0.2, pluggy-1.6.0
+rootdir: /Users/zhoubot/.codex/worktrees/migration-capture/pyCircuit
+configfile: pyproject.toml
+collected 3 items
+
+tests/unit/test_generated_bundle.py .FF                                  [100%]
+
+=================================== FAILURES ===================================
+_ test_malformed_utf8_and_nested_duplicate_keys_are_rejected[{"kind":"pycircuit-generated","kind":"pycircuit-generated","target":"cpp","entry":{"definition":"@\"demo.root.Root\"","arguments":[]},"entry_source":{"package":"demo","path":"root.py"},"files":[{"path":"a.data","role":"header"},{"path":"b.data","role":"source"},{"path":"c.data","role":"cmake"},{"path":"d.data","role":"rtl"},{"path":"e.data","role":"runtime-glue"},{"path":"f.data","role":"source-map"},{"path":"g.data","role":"header"}],"source_groups":[{"source":{"package":"demo","path":"types.py"},"files":["g.data"]},{"source":{"package":"demo","path":"root.py"},"files":["f.data","b.data","a.data"]}]}] _
+tests/unit/test_generated_bundle.py:301: in test_malformed_utf8_and_nested_duplicate_keys_are_rejected
+    _validate_or_fail(destination)
+tests/unit/test_generated_bundle.py:119: in _validate_or_fail
+    with pytest.raises(_PublicationError):
+         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E   Failed: DID NOT RAISE <class 'pycircuit._publication._PublicationError'>
+_ test_malformed_utf8_and_nested_duplicate_keys_are_rejected[{"kind":"pycircuit-generated","target":"cpp","entry":{"definition":"@\"demo.root.Root\"","definition":"@\"demo.root.Root\"","arguments":[]},"entry_source":{"package":"demo","path":"root.py"},"files":[{"path":"a.data","role":"header"},{"path":"b.data","role":"source"},{"path":"c.data","role":"cmake"},{"path":"d.data","role":"rtl"},{"path":"e.data","role":"runtime-glue"},{"path":"f.data","role":"source-map"},{"path":"g.data","role":"header"}],"source_groups":[{"source":{"package":"demo","path":"types.py"},"files":["g.data"]},{"source":{"package":"demo","path":"root.py"},"files":["f.data","b.data","a.data"]}]}] _
+tests/unit/test_generated_bundle.py:301: in test_malformed_utf8_and_nested_duplicate_keys_are_rejected
+    _validate_or_fail(destination)
+tests/unit/test_generated_bundle.py:119: in _validate_or_fail
+    with pytest.raises(_PublicationError):
+         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E   Failed: DID NOT RAISE <class 'pycircuit._publication._PublicationError'>
+- generated xml file: /Users/zhoubot/.codex/worktrees/migration-capture/pyCircuit/.pycircuit_out/generated-bundle-tests/duplicate-mutant.xml -
+=========================== short test summary info ============================
+FAILED tests/unit/test_generated_bundle.py::test_malformed_utf8_and_nested_duplicate_keys_are_rejected[{"kind":"pycircuit-generated","kind":"pycircuit-generated","target":"cpp","entry":{"definition":"@\"demo.root.Root\"","arguments":[]},"entry_source":{"package":"demo","path":"root.py"},"files":[{"path":"a.data","role":"header"},{"path":"b.data","role":"source"},{"path":"c.data","role":"cmake"},{"path":"d.data","role":"rtl"},{"path":"e.data","role":"runtime-glue"},{"path":"f.data","role":"source-map"},{"path":"g.data","role":"header"}],"source_groups":[{"source":{"package":"demo","path":"types.py"},"files":["g.data"]},{"source":{"package":"demo","path":"root.py"},"files":["f.data","b.data","a.data"]}]}]
+FAILED tests/unit/test_generated_bundle.py::test_malformed_utf8_and_nested_duplicate_keys_are_rejected[{"kind":"pycircuit-generated","target":"cpp","entry":{"definition":"@\"demo.root.Root\"","definition":"@\"demo.root.Root\"","arguments":[]},"entry_source":{"package":"demo","path":"root.py"},"files":[{"path":"a.data","role":"header"},{"path":"b.data","role":"source"},{"path":"c.data","role":"cmake"},{"path":"d.data","role":"rtl"},{"path":"e.data","role":"runtime-glue"},{"path":"f.data","role":"source-map"},{"path":"g.data","role":"header"}],"source_groups":[{"source":{"package":"demo","path":"types.py"},"files":["g.data"]},{"source":{"package":"demo","path":"root.py"},"files":["f.data","b.data","a.data"]}]}]
+========================= 2 failed, 1 passed in 0.04s ==========================

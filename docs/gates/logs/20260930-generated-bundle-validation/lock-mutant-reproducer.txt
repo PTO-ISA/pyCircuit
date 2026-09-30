@@ -1,0 +1,8 @@
+import sys
+from pathlib import Path
+sys.path.insert(0,str(Path.cwd()/"python/pycircuit/src"))
+sys.path.insert(0,str(Path.cwd()/"python/semantic-core/src"))
+import pytest
+import pycircuit._generated_bundle as m
+m._load_generated_bundle = lambda destination, *, owner, filesystem=None: m._read_generated_bundle(Path(destination),owner,filesystem or m._PublicationFileSystem())
+sys.exit(pytest.main(["tests/unit/test_generated_bundle.py::test_load_generated_bundle_reads_entire_snapshot_under_shared_lock","-q","--junitxml=.pycircuit_out/generated-bundle-tests/lock-mutant.xml"]))

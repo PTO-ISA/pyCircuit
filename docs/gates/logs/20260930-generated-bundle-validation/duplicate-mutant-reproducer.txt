@@ -1,0 +1,8 @@
+import sys
+from pathlib import Path
+sys.path.insert(0,str(Path.cwd()/"python/pycircuit/src"))
+sys.path.insert(0,str(Path.cwd()/"python/semantic-core/src"))
+import pytest
+import pycircuit._generated_bundle as m
+m._reject_duplicate_keys = lambda pairs: dict(pairs)
+sys.exit(pytest.main(["tests/unit/test_generated_bundle.py::test_malformed_utf8_and_nested_duplicate_keys_are_rejected","-q","--junitxml=.pycircuit_out/generated-bundle-tests/duplicate-mutant.xml"]))

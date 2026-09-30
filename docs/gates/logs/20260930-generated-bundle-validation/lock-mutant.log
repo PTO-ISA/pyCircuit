@@ -1,0 +1,29 @@
+============================= test session starts ==============================
+platform darwin -- Python 3.14.6, pytest-9.0.2, pluggy-1.6.0
+rootdir: /Users/zhoubot/.codex/worktrees/migration-capture/pyCircuit
+configfile: pyproject.toml
+collected 1 item
+
+tests/unit/test_generated_bundle.py F                                    [100%]
+
+=================================== FAILURES ===================================
+______ test_load_generated_bundle_reads_entire_snapshot_under_shared_lock ______
+tests/unit/test_generated_bundle.py:698: in test_load_generated_bundle_reads_entire_snapshot_under_shared_lock
+    snapshot = _load_generated_bundle(destination, owner=OWNER, filesystem=filesystem)
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+<string>:7: in <lambda>
+    ???
+python/pycircuit/src/pycircuit/_generated_bundle.py:250: in _read_generated_bundle
+    receipt = _read_regular_bytes(root / "generated.json", filesystem)
+              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+python/pycircuit/src/pycircuit/_generated_bundle.py:227: in _read_regular_bytes
+    return _read_stable_file_bytes(path)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+tests/unit/test_generated_bundle.py:692: in read_while_locked
+    assert filesystem.shared_lock_active
+E   assert False
+E    +  where False = <test_generated_bundle._ActiveReadFileSystem object at 0x109210050>.shared_lock_active
+- generated xml file: /Users/zhoubot/.codex/worktrees/migration-capture/pyCircuit/.pycircuit_out/generated-bundle-tests/lock-mutant.xml -
+=========================== short test summary info ============================
+FAILED tests/unit/test_generated_bundle.py::test_load_generated_bundle_reads_entire_snapshot_under_shared_lock
+============================== 1 failed in 0.03s ===============================

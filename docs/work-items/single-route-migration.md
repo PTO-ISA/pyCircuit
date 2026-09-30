@@ -175,3 +175,16 @@ MLIR 验证与 frozen snapshots，以及源属 C++ 声明头和统一范围/名�
 `docs/gates/logs/20260930-c2-decl-scalar-final/`。
 M4 尚待 generated publication/manifest 和完整构建运行交付；M5 公开 emit
 与 hard break 未切换；SYSTEM/EXPECT B 未获批准。M2 状态保持 accepted。
+
+## 2026-09-30 M4 生成清单校验与受管理读取
+
+已完成 C3-C 下的私有 generated.json 文件管理验证：严格字段/归属/路径和
+源组清单、目录内容闭合、持锁快照读取，复用已有发布与恢复协议。
+独立新测试 63 项通过，既有回归 155 项通过、3 项 Windows 专用跳过；
+Sol 独立审阅 APPROVE 并复跑全部 63 项。重复键/锁绕过变异均被测试检出。
+[任务包](m4-generated-bundle-validation.md)及
+[证据](../gates/logs/20260930-generated-bundle-validation/README.md)。
+
+这不是完整 generated bundle producer：当前私有 profile 只接纳空静态参数，
+不验证生成代码语义/ABI。M4 仍待真实 native 产物清单、dut.h ABI、生成构建
+链接/运行与 RTL 源归属；M5 的公开 emit/旧路线删除尚未切换。

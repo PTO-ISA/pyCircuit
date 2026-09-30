@@ -1,0 +1,14 @@
+{
+  "cwd": "/Users/zhoubot/.codex/worktrees/migration-capture/pyCircuit",
+  "argv": [
+    "/opt/homebrew/Cellar/pytest/9.0.2_1/libexec/bin/python",
+    "-m",
+    "pytest",
+    "tests/unit/test_publication.py",
+    "tests/unit/test_publication_fs.py",
+    "tests/unit/test_source_unit_files.py",
+    "tests/unit/test_driver_commands.py",
+    "-q",
+    "--junitxml=.pycircuit_out/generated-bundle-tests/existing.xml"
+  ]
+}

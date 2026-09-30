@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="utf-8"?><testsuites name="pytest tests"><testsuite name="pytest" errors="0" failures="1" skipped="0" tests="1" time="0.032" timestamp="2026-09-30T16:49:40.261537+08:00" hostname="Zhoubot-MacBook-173.local"><testcase classname="tests.unit.test_generated_bundle" name="test_load_generated_bundle_reads_entire_snapshot_under_shared_lock" time="0.005"><failure message="assert False&#10; +  where False = &lt;test_generated_bundle._ActiveReadFileSystem object at 0x109210050&gt;.shared_lock_active">tests/unit/test_generated_bundle.py:698: in test_load_generated_bundle_reads_entire_snapshot_under_shared_lock
+    snapshot = _load_generated_bundle(destination, owner=OWNER, filesystem=filesystem)
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+&lt;string&gt;:7: in &lt;lambda&gt;
+    ???
+python/pycircuit/src/pycircuit/_generated_bundle.py:250: in _read_generated_bundle
+    receipt = _read_regular_bytes(root / "generated.json", filesystem)
+              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+python/pycircuit/src/pycircuit/_generated_bundle.py:227: in _read_regular_bytes
+    return _read_stable_file_bytes(path)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+tests/unit/test_generated_bundle.py:692: in read_while_locked
+    assert filesystem.shared_lock_active
+E   assert False
+E    +  where False = &lt;test_generated_bundle._ActiveReadFileSystem object at 0x109210050&gt;.shared_lock_active</failure></testcase></testsuite></testsuites>
