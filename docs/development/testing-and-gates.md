@@ -1,8 +1,9 @@
 # Testing and gates
 
-Gate claims must match the exact candidate and the active pyCircuit route. The
-M5 cutover is still being integrated; the existence of a command or a test file
-does not mean the gate has passed. Record raw outcomes and candidate identity
+Gate claims must match the exact candidate and the active pyCircuit route.
+M5 is accepted for its declared profile. M6 hardening uses bounded packets;
+the existence of a command or a test file does not mean the gate has passed.
+Record raw outcomes and candidate identity
 under `docs/gates/logs/<run-id>/` for semantic or release-significant work.
 
 ## Contract under validation

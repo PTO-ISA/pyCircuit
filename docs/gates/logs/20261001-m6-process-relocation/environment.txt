@@ -1,0 +1,10 @@
+Date: 2026-10-01 Asia/Shanghai
+Checkout: /Users/zhoubot/.codex/worktrees/migration-capture/pyCircuit
+Baseline: d351079b4e4f2ba254cc57950f27d59c51dd7c38
+Native build: .pycircuit_out/m5-root; reconfigured from this checkout at baseline
+LLVM/MLIR: 22.1.8
+Verilator: 5.044
+PM gate Python: 3.14.6; pytest 9.0.2
+Independent alternate interpreter: Python 3.12.12; pytest 9.1.1
+Platform: macOS arm64
+No product/IR/runtime/ABI bytes changed in this packet.

@@ -28,7 +28,7 @@
 | 基础 portless root | 普通 module root 替代伪造 library top，带静态参数；只是首片 | C1-C/C2-C/C3-C 已批准 | 源 fixture 已捕获，完整编译/执行 UNRUN | frontend/integration；root 独立 producer、错误/reset/stats 与独立逐拍 oracle |
 | 外部 typed DUT/system/testbench | 保留完整 source system、真实 stimuli、输入输出、多 clock stepping；不能 portless-only 收尾 | 源/IR/runtime 扩展未批准 | 完整迁移阻断项 | architect + frontend/runtime/tests；真实外部输入、typed 端口、通用 testbench、reset/error/multi-clock |
 | 共同 final IR 与两个 backend | 旧 QueueGraph/PYC 两种 C++产品路线退役，采用 donor 一套 C++和 RTL 私有合法化 | C2-C/C3-C 基础合同已批准；扩展按各自行 | 未实现新完整闭环 | MLIR/C++/RTL；相同 final IR、相同 stimulus、独立 oracle；不能仅互相一致 |
-| runtime/SDK/发布与打包 | 0149/0232/0233/0265；0267/0268 的发布/身份条款按 C3 显式更新；一个库、ABI、driver | C3-C 已批准；consumer memory/ELF 不迁入 | 尚未实施新 runtime/driver/SDK | integration/runtime；完整状态机、crash/recovery、RTL raw 参数拒绝、relocation、Runtime-only TU、三平台 |
+| runtime/SDK/发布与打包 | 0149/0232/0233/0265；0267/0268 的发布/身份条款按 C3 显式更新；一个库、ABI、driver | C3-C 已批准；consumer memory/ELF 不迁入 | M5 已交付当前平台标量 profile 的统一 driver/runtime/安装；扩展故障、relocation 与多平台继续 M6 | integration/runtime；完整状态机、crash/recovery、RTL raw 参数拒绝、relocation、Runtime-only TU、三平台 |
 | 源位置与基础诊断 | 0242/0250；保留定位责任，采用 C2/C3 结构化来源/错误；不以位置作为模型身份 | C1-C/C2-C/C3-C 已批准 | 私有 capture span 与 F01 闭合来源记录校验通过；跨 pass/实例/ABI 诊断未验证 | frontend/MLIR/runtime；encoding/codepoint、expanded occurrences、精确 check target、错误不发布半成品 |
 | RTL primitive catalogs | 0282；保留 semantic primitive 与 RTL implementation 目录分离及目录验证，不能成为另一个语义引擎 | 迁入所需新绑定/接口尚未冻结 | 必需完整目标工作 | MLIR/RTL/integration；目录篡改拒绝、选择合法性、两 backend 相同语义 |
 | DFX/probes/trace 与观察配置 | 0140/0145/0121；通用观测能力必须迁移，consumer trace/schema 不迁入 | 新源/IR/runtime 配置合同未批准；现有能力不得默认删除 | 完整迁移阻断项 | architect + runtime/tests；选择/过滤/启停、稳定 source 路径、观察时点与 known/Z、无状态副作用 |

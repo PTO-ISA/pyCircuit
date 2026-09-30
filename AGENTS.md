@@ -1,8 +1,9 @@
 # pyCircuit agent instructions
 
-This repository is in the pyCircuit M5 hard-break cutover. Active product
-behavior is governed by the approved migration contracts and implemented
-candidate. Do not treat this file or any migration proposal as evidence that
+This repository has completed the pyCircuit M5 hard-break cutover for the
+declared scalar profile and is progressing through bounded M6 hardening.
+Active product behavior is governed by the approved migration contracts and
+the accepted implementation. Do not treat this file or any migration proposal as evidence that
 implementation or tests have passed.
 
 ## Read first

@@ -41,3 +41,11 @@ values, external typed DUT ports, complex static parameters, or parallel
 scheduling. These remain explicit capability work with independent semantic
 oracles. The [modernization plan](development/pycircuit-modernization-plan.md)
 tracks phase sequencing; it does not widen the currently approved profile.
+
+## M6 progress
+
+[M6-01](work-items/m6-publication-relocation.md) is accepted on 2026-10-01:
+real-process publication termination/recovery and complete moved-prefix use on
+macOS arm64. Production semantics and interfaces remain the M5 baseline.
+Broader fault/platform matrices, measured build/scale behavior and actual
+parallel scheduling remain later M6 packets; M7 release remains separate.

@@ -1,0 +1,42 @@
+{
+  "baseline": "d351079b4e4f2ba254cc57950f27d59c51dd7c38",
+  "sha256": "2d65e3c76ad557a3de030a0cdbbc53b4518fa5007c4705a789de4dce44f9dc45",
+  "files": [
+    {
+      "path": "tests/integration/agentic-circuit/m6-publication/crash_runner.py",
+      "sha256": "74bea858c17bdd09953325394c88d3892c70dc99c56854d93fec6d588303ec80"
+    },
+    {
+      "path": "tests/integration/agentic-circuit/m6-publication/new/root.py",
+      "sha256": "1fcdd65e008a412653442d28d4dd511fd65b5f686472488f330a9a9286369f53"
+    },
+    {
+      "path": "tests/integration/agentic-circuit/m6-publication/old/root.py",
+      "sha256": "4539a657d4da2c511e4f477e3bddff21a4cea4f6564f9fb1d5f469a1375345e6"
+    },
+    {
+      "path": "tests/integration/agentic-circuit/m6-relocation/counter.py",
+      "sha256": "ab414caf7cbe80f9358ce7b7b8ad25f908d768d9963ae52cd29b3257ab2716e2"
+    },
+    {
+      "path": "tests/integration/agentic-circuit/m6-relocation/design_top.py",
+      "sha256": "9221b3a64793454fd73cd60894fbea8d21a9341030a1e358a981702df93827e5"
+    },
+    {
+      "path": "tests/integration/agentic-circuit/m6-relocation/three-ticks.json",
+      "sha256": "45fb22373485aff3f41b51d89b0f9408efcd947a5cf8d8d9a0575bb3103b5577"
+    },
+    {
+      "path": "tests/integration/agentic-circuit/m6-relocation/types.py",
+      "sha256": "da471e7509385a78790bebd4f8c80320b1e55bd5345938ea2f9d2c57120e8e8e"
+    },
+    {
+      "path": "tests/system/test_m6_publication_process_recovery.py",
+      "sha256": "85138d31452b1135888dd6d9ae05f6b7440bf9753ba8a06e916823c05ee86c24"
+    },
+    {
+      "path": "tests/system/test_m6_relocated_compiler.py",
+      "sha256": "7599d813ef55129d701ffe77ed9f55eb41277c43e0090ae1ba805b817ece7bb5"
+    }
+  ]
+}
