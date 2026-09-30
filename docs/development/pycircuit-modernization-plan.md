@@ -380,3 +380,11 @@ The M5 implementation is `d351079b` on `codex/gfsim-source-units`; the planning
 checkout remains separate. See [the M5 acceptance index](../work-items/m5-cutover.md)
 for exact independent reviews, byte binding, gates and scope limits. M3 capability
 backlog and M6/M7 hardening/release work remain; no old-route fallback is retained.
+
+## 2026-10-01 M6-01 acceptance
+
+The first bounded M6 packet is accepted in `477beae8`: real-process C3
+publication recovery and complete moved-prefix compile/link/dual-emission plus
+Runtime execution on macOS arm64. [M6-01 evidence index](../work-items/m6-publication-relocation.md)
+binds independent review and results. It changes no product semantics or ABI;
+remaining M6/platform/performance/parallel and M7 release work remains open.
