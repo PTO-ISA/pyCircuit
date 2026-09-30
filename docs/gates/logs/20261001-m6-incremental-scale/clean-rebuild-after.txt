@@ -1,0 +1,7 @@
+[0/2] Re-checking globbed directories...
+[1/7] Generating units/types/types.ac, units/types/types.interface.ac, units/types/unit.json
+[2/7] Generating units/counter/counter.ac, units/counter/counter.interface.ac, units/counter/unit.json
+[3/7] Generating units/design_top/design_top.ac, units/design_top/design_top.interface.ac, units/design_top/unit.json
+[4/7] Generating design_top.ac
+[5/7] Generating verilog/generated.json
+[6/7] Generating cpp/generated.json

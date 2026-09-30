@@ -1,0 +1,11 @@
+============================= test session starts ==============================
+platform darwin -- Python 3.14.6, pytest-9.0.2, pluggy-1.6.0
+rootdir: /Users/zhoubot/.codex/worktrees/migration-capture/pyCircuit
+configfile: pyproject.toml
+collected 23 items
+
+tests/system/test_m5_public_emit.py ....                                 [ 17%]
+tests/system/test_m5_source_rtl.py .......                               [ 47%]
+tests/system/test_m5_model_abi.py ............                           [100%]
+
+============================= 23 passed in 34.34s ==============================

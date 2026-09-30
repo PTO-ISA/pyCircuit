@@ -17,3 +17,10 @@ cmake --build .pycircuit_out/counter/run -j 4
 Configure `verilog` instead of `cpp` to use the same final design with Verilator.
 The example has a portless module root and empty static arguments. It does not
 claim full testbench `@system` support.
+
+Ninja clean removes the declared unit depfiles and generated payload inventory;
+publication control locks remain. Rebuilding after clean uses the same public
+commands. Keep model build directories outside the generated bundle directories.
+Compiler/helper/Python/config files in a full prefix are build dependencies.
+For an immutable wheel prefix whose sole Python package sits outside the prefix,
+replace the wheel by reinstalling and reconfiguring the project.

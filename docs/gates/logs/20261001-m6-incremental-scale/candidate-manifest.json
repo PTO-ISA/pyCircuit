@@ -1,0 +1,57 @@
+{
+  "baseline": "477beae8ee51e6d6d393f2c658ba5d8343eeeff6",
+  "aggregate_sha256": "619fe3ae39b5624e7429080f9015b5143acc3f8c9f904b99da3d67c024ae5e4e",
+  "formula": "sorted path + NUL + file SHA-256 + newline",
+  "files": [
+    {
+      "path": "benchmarks/pycircuit/m6-source-units/generate.py",
+      "sha256": "c286d43f0d820a77b6da0e456831a3eaa9d53a43ba98577584929035887d0cc3",
+      "bytes": 9703
+    },
+    {
+      "path": "examples/pycircuit/counter/CMakeLists.txt",
+      "sha256": "10b1a4275f3a0483db38ee43c63859e46fbbdb7af5009acd526681db785e7be8",
+      "bytes": 4464
+    },
+    {
+      "path": "examples/pycircuit/counter/README.md",
+      "sha256": "a57d1ebf7a8da9fb59754220c7944f356078e7d1ad857aeffe68979dba901d14",
+      "bytes": 1309
+    },
+    {
+      "path": "examples/pycircuit/counter/prepare_output.py",
+      "sha256": "e8a5059c5a7eff8e8610ea4eabc2626ad178dce47e071eec4d081b3d6159ceee",
+      "bytes": 2517
+    },
+    {
+      "path": "flows/tools/measure_m6_build.py",
+      "sha256": "95988525b69b4db028b057b499eb4dad40c1002d7dfe4500b873f88c2fa93624",
+      "bytes": 33900
+    },
+    {
+      "path": "python/pycircuit/src/pycircuit/_emit.py",
+      "sha256": "939f8e610de6ffa665ec0e09af9594c08dd2aa52f573c655bbb7e844c0302519",
+      "bytes": 11300
+    },
+    {
+      "path": "tests/system/test_m6_example_build.py",
+      "sha256": "35d6aaa939be204439a48a6e76f82c0e270f169043f6e9990a8f0fd7e88c5989",
+      "bytes": 9592
+    },
+    {
+      "path": "tests/system/test_m6_incremental_build.py",
+      "sha256": "f70e957a39b29f490fce8328723b11587ff2fe4f5c9b355e423ef367ddecff3b",
+      "bytes": 19683
+    },
+    {
+      "path": "tests/unit/test_m6_measurement.py",
+      "sha256": "349834b56cca24049db0e9be45203d224b103599a3d7ec795a0e6fee7ec98810",
+      "bytes": 2658
+    },
+    {
+      "path": "tests/unit/test_m6_prepare_output.py",
+      "sha256": "55d8168a441454e84c02582688efa05ced434b24855af053c9ee703e2c9e44fb",
+      "bytes": 4394
+    }
+  ]
+}

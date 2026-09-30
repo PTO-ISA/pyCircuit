@@ -69,13 +69,48 @@ target_compile_definitions(pycircuit_dut PRIVATE AGENTIC_MODEL_BUILD)
 set_target_properties(pycircuit_dut PROPERTIES CXX_VISIBILITY_PRESET hidden VISIBILITY_INLINES_HIDDEN YES)
 """
     else:
-        text += """find_package(verilator REQUIRED)
+        text += r"""find_package(verilator REQUIRED)
+# Some Verilator packages serialize JSON lists as unquoted CMake text.
+# Preserve each element while configuring this target, then restore their helper.
+file(READ "${verilator_CONFIG}" _pyc_verilator_config)
+string(FIND "${_pyc_verilator_config}" "function(json_get_list " _pyc_list_start)
+if(_pyc_list_start GREATER_EQUAL 0)
+  string(SUBSTRING "${_pyc_verilator_config}" ${_pyc_list_start} -1 _pyc_list_tail)
+  string(FIND "${_pyc_list_tail}" "endfunction()" _pyc_list_end)
+  if(_pyc_list_end LESS 0)
+    message(FATAL_ERROR "Cannot preserve Verilator's JSON list helper")
+  endif()
+  math(EXPR _pyc_list_length "${_pyc_list_end} + 13")
+  string(SUBSTRING "${_pyc_list_tail}" 0 ${_pyc_list_length} _pyc_original_list)
+  function(json_get_list RET JSON SECTION VARIABLE)
+    string(JSON _length ERROR_VARIABLE _status LENGTH "${JSON}" ${SECTION} ${VARIABLE})
+    if(NOT "${_status}" STREQUAL "NOTFOUND" OR _length EQUAL 0)
+      set(${RET} "" PARENT_SCOPE)
+      return()
+    endif()
+    math(EXPR _last "${_length} - 1")
+    set(_arguments)
+    foreach(_index RANGE ${_last})
+      string(JSON _value GET "${JSON}" ${SECTION} ${VARIABLE} ${_index})
+      string(REPLACE "\\" "\\\\" _value "${_value}")
+      string(REPLACE "\"" "\\\"" _value "${_value}")
+      string(REPLACE "$" "\\$" _value "${_value}")
+      string(REPLACE ";" "\\;" _value "${_value}")
+      list(APPEND _arguments "\"${_value}\"")
+    endforeach()
+    list(JOIN _arguments " " _serialized)
+    set(${RET} "${_serialized}" PARENT_SCOPE)
+  endfunction()
+endif()
 target_compile_definitions(pycircuit_system PRIVATE PYCIRCUIT_RTL_RUNNER VL_TIME_CONTEXT)
 verilate(pycircuit_system SOURCES
 """
         text += "".join("  " + _cmake_quote(path) + "\n" for path in rtl_sources)
         text += """  TOP_MODULE PycircuitRunnerBridge PREFIX VPycircuitRunnerBridge
   VERILATOR_ARGS --Wno-fatal)
+if(DEFINED _pyc_original_list)
+  cmake_language(EVAL CODE "${_pyc_original_list}")
+endif()
 """
     return text
 

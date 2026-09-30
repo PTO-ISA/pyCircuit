@@ -1,0 +1,6 @@
+Change Dir: '/Users/zhoubot/.codex/worktrees/migration-capture/pyCircuit/.pycircuit_out/m6-02-measure/final-r2/distinct-32/source-build'
+
+Run Build Command(s): /opt/homebrew/bin/ninja -v -j 4 emit_verilog
+[0/2] /opt/homebrew/bin/cmake -P /Users/zhoubot/.codex/worktrees/migration-capture/pyCircuit/.pycircuit_out/m6-02-measure/final-r2/distinct-32/source-build/CMakeFiles/VerifyGlobs.cmake
+ninja: no work to do.
+

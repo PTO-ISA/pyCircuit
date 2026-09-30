@@ -1,0 +1,6 @@
+measured shared size=1; report: /Users/zhoubot/.codex/worktrees/migration-capture/pyCircuit/.pycircuit_out/m6-02-measure/final-r2/report.json
+measured shared size=16; report: /Users/zhoubot/.codex/worktrees/migration-capture/pyCircuit/.pycircuit_out/m6-02-measure/final-r2/report.json
+measured shared size=64; report: /Users/zhoubot/.codex/worktrees/migration-capture/pyCircuit/.pycircuit_out/m6-02-measure/final-r2/report.json
+measured distinct size=1; report: /Users/zhoubot/.codex/worktrees/migration-capture/pyCircuit/.pycircuit_out/m6-02-measure/final-r2/report.json
+measured distinct size=8; report: /Users/zhoubot/.codex/worktrees/migration-capture/pyCircuit/.pycircuit_out/m6-02-measure/final-r2/report.json
+measured distinct size=32; report: /Users/zhoubot/.codex/worktrees/migration-capture/pyCircuit/.pycircuit_out/m6-02-measure/final-r2/report.json

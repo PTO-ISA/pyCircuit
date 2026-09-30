@@ -1,0 +1,9 @@
+CMake Error at /opt/homebrew/share/verilator/verilator-config.cmake:682 (target_sources):
+  Cannot find source file:
+
+    /Users/zhoubot/.codex/worktrees/migration-capture/pyCircuit/.pycircuit_out/review-rtl-space-1790793539/source
+Call Stack (most recent call first):
+  CMakeLists.txt:9 (verilate)
+
+
+CMake Generate step failed.  Build files cannot be regenerated correctly.

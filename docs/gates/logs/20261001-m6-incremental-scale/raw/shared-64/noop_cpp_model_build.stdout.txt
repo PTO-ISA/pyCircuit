@@ -1,0 +1,5 @@
+Change Dir: '/Users/zhoubot/.codex/worktrees/migration-capture/pyCircuit/.pycircuit_out/m6-02-measure/final-r2/shared-64/cpp-build'
+
+Run Build Command(s): /opt/homebrew/bin/ninja -v -j 4 all
+ninja: no work to do.
+

@@ -1,0 +1,72 @@
+-- The C compiler identification is AppleClang 21.0.0.21000101
+-- The CXX compiler identification is AppleClang 21.0.0.21000101
+-- Detecting C compiler ABI info
+-- Detecting C compiler ABI info - done
+-- Check for working C compiler: /usr/bin/cc - skipped
+-- Detecting C compile features
+-- Detecting C compile features - done
+-- Detecting CXX compiler ABI info
+-- Detecting CXX compiler ABI info - done
+-- Check for working CXX compiler: /usr/bin/c++ - skipped
+-- Detecting CXX compile features
+-- Detecting CXX compile features - done
+-- Performing Test _faligned_new
+-- Performing Test _faligned_new - Success
+-- Performing Test _fbracket_depth_4096
+-- Performing Test _fbracket_depth_4096 - Success
+-- Performing Test _fcf_protection_none
+-- Performing Test _fcf_protection_none - Success
+-- Performing Test _Xclang
+-- Performing Test _Xclang - Success
+-- Performing Test _fno_pch_timestamp
+-- Performing Test _fno_pch_timestamp - Failed
+-- Performing Test _mno_cet
+-- Performing Test _mno_cet - Failed
+-- Performing Test _Qunused_arguments
+-- Performing Test _Qunused_arguments - Success
+-- Performing Test _Wno_bool_operation
+-- Performing Test _Wno_bool_operation - Success
+-- Performing Test _Wno_c__11_narrowing
+-- Performing Test _Wno_c__11_narrowing - Success
+-- Performing Test _Wno_constant_logical_operand
+-- Performing Test _Wno_constant_logical_operand - Success
+-- Performing Test _Wno_int_in_bool_context
+-- Performing Test _Wno_int_in_bool_context - Success
+-- Performing Test _Wno_non_pod_varargs
+-- Performing Test _Wno_non_pod_varargs - Success
+-- Performing Test _Wno_parentheses_equality
+-- Performing Test _Wno_parentheses_equality - Success
+-- Performing Test _Wno_shadow
+-- Performing Test _Wno_shadow - Success
+-- Performing Test _Wno_sign_compare
+-- Performing Test _Wno_sign_compare - Success
+-- Performing Test _Wno_subobject_linkage
+-- Performing Test _Wno_subobject_linkage - Failed
+-- Performing Test _Wno_tautological_bitwise_compare
+-- Performing Test _Wno_tautological_bitwise_compare - Success
+-- Performing Test _Wno_tautological_compare
+-- Performing Test _Wno_tautological_compare - Success
+-- Performing Test _Wno_uninitialized
+-- Performing Test _Wno_uninitialized - Success
+-- Performing Test _Wno_unused_but_set_parameter
+-- Performing Test _Wno_unused_but_set_parameter - Success
+-- Performing Test _Wno_unused_but_set_variable
+-- Performing Test _Wno_unused_but_set_variable - Success
+-- Performing Test _Wno_unused_parameter
+-- Performing Test _Wno_unused_parameter - Success
+-- Performing Test _Wno_unused_variable
+-- Performing Test _Wno_unused_variable - Success
+-- Performing Test _Wno_vla_cxx_extension
+-- Performing Test _Wno_vla_cxx_extension - Success
+-- Performing Test _mt
+-- Performing Test _mt - Failed
+-- Performing Test _pthread
+-- Performing Test _pthread - Success
+-- Performing Test _lpthread
+-- Performing Test _lpthread - Success
+-- Performing Test _latomic
+-- Performing Test _latomic - Failed
+-- Executing Verilator...
+-- Configuring done (2.5s)
+-- Generating done (0.0s)
+-- Build files have been written to: /Users/zhoubot/.codex/worktrees/migration-capture/pyCircuit/.pycircuit_out/m6-02-measure/final-r2/distinct-32/rtl-build

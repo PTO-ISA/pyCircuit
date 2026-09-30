@@ -1,0 +1,13 @@
+============================= test session starts ==============================
+platform darwin -- Python 3.12.12, pytest-9.1.1, pluggy-1.6.0
+cachedir: .pycircuit_out/m6-02-review-final-r2/pytest-cache
+rootdir: /Users/zhoubot/.codex/worktrees/migration-capture/pyCircuit
+configfile: pyproject.toml
+collected 10 items
+
+tests/system/test_m6_incremental_build.py ...                            [ 30%]
+tests/system/test_m6_example_build.py .                                  [ 40%]
+tests/unit/test_m6_measurement.py .                                      [ 50%]
+tests/unit/test_m6_prepare_output.py .....                               [100%]
+
+============================= 10 passed in 20.34s ==============================

@@ -33,7 +33,7 @@
 | RTL primitive catalogs | 0282；保留 semantic primitive 与 RTL implementation 目录分离及目录验证，不能成为另一个语义引擎 | 迁入所需新绑定/接口尚未冻结 | 必需完整目标工作 | MLIR/RTL/integration；目录篡改拒绝、选择合法性、两 backend 相同语义 |
 | DFX/probes/trace 与观察配置 | 0140/0145/0121；通用观测能力必须迁移，consumer trace/schema 不迁入 | 新源/IR/runtime 配置合同未批准；现有能力不得默认删除 | 完整迁移阻断项 | architect + runtime/tests；选择/过滤/启停、稳定 source 路径、观察时点与 known/Z、无状态副作用 |
 | 组合环与实例感知时序/逻辑深度 | 主计划保留现行 CheckClockDomains、组合环和 depth 分析；适用算法迁入 MLIR | 现有硬件合法性责任保留，新 IR pass 映射待架构闭合 | 必需完整目标工作 | architect + MLIR/tests；跨实例环、非法 feedback、层级深度与时序检查，不能只分析单 module |
-| 增量编译/稳定产物/规模性能 | 0141/0147 与 M6；保留增量失效、可复现产物和扩展性责任，不保留旧 JIT/compiler 实现 | C2/C3 来源/发布基础已批准；性能基线/阈值尚待测定，不豁免验收 | 必需完整目标工作 | integration/performance/tests；header/body 变动失效、并行 TU、重复实例、多特化、stage time/RSS/code size/build/sim |
+| 增量编译/稳定产物/规模性能 | 0141/0147 与 M6；保留增量失效、可复现产物和扩展性责任，不保留旧 JIT/compiler 实现 | C2/C3 来源/发布基础已批准；不承诺性能阈值，不豁免验收 | M6-02 已验证标量 source-unit 两轴规模、Ninja no-op/失效和双后端 oracle；RSS、吞吐、多特化、后端选择性重编仍开放 | integration/performance/tests；header/body 变动失效、并行 TU、重复实例、多特化、stage time/RSS/code size/build/sim |
 
 ## 旧路线退役责任
 

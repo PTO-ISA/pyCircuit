@@ -47,5 +47,13 @@ tracks phase sequencing; it does not widen the currently approved profile.
 [M6-01](work-items/m6-publication-relocation.md) is accepted on 2026-10-01:
 real-process publication termination/recovery and complete moved-prefix use on
 macOS arm64. Production semantics and interfaces remain the M5 baseline.
-Broader fault/platform matrices, measured build/scale behavior and actual
-parallel scheduling remain later M6 packets; M7 release remains separate.
+[M6-02](work-items/m6-incremental-scale.md) is also accepted: measured
+shared-definition 1/16/64 and distinct-source 1/8/32 builds, real Ninja no-op and
+invalidation, per-source C++ groups, and literal CPP/RTL oracles. Counter
+clean/rebuild, Python 3.12 helper execution and generated RTL CMake space paths
+were repaired within C3. Source recompilation is selective; full backend emit
+still rebuilds all generated C++ targets.
+
+Broader fault/platform/SDK matrices, backend build optimization and actual
+parallel scheduling remain later M6 packets; RSS and throughput are unmeasured.
+M7 release remains separate.
