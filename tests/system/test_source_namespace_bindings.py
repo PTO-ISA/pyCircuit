@@ -383,14 +383,12 @@ def test_module_facade_preserves_canonical_child_definition(tmp_path: Path) -> N
         "from pycircuit import module, rule\n"
         "Word = Annotated[int, range(256)]\n\n"
         "@module\n"
-        "class Pass:\n"
-        "    def __init__(self, source: Word, sink: Word):\n"
-        "        self.source = source\n"
-        "        self.sink = sink\n"
-        "        self.sink = self.forward(self.source)\n\n"
+        "def Pass(source: Word, sink: Word):\n"
         "    @rule\n"
-        "    def forward(self, value: Word) -> Word:\n"
-        "        return value\n",
+        "    def forward():\n"
+        "        nonlocal sink\n"
+        "        sink = source\n\n"
+        "    forward()\n",
     )
     provider = _compile(provider_source, root=root, output=tmp_path / "provider-out")
     assert provider.completed.returncode == 0, provider.completed.stderr
@@ -413,14 +411,13 @@ def test_module_facade_preserves_canonical_child_definition(tmp_path: Path) -> N
         "from pycircuit import module\n"
         "from .facade import Channel, Word\n\n"
         "@module\n"
-        "class Root:\n"
-        "    def __init__(self):\n"
-        "        self.a: Word = 1\n"
-        "        self.b: Word = 2\n"
-        "        self.x: Word = 0\n"
-        "        self.y: Word = 0\n"
-        "        self.left = Channel(self.a, self.x)\n"
-        "        self.right = Channel(self.b, self.y)\n",
+        "def Root():\n"
+        "    a: Word = 1\n"
+        "    b: Word = 2\n"
+        "    x: Word = 0\n"
+        "    y: Word = 0\n"
+        "    left = Channel(a, x)\n"
+        "    right = Channel(b, y)\n",
     )
     provider_source.unlink()
     facade_source.unlink()

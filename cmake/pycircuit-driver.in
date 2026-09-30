@@ -1,0 +1,9 @@
+#!/usr/bin/env python3
+from pathlib import Path
+import sys
+
+prefix = Path(__file__).resolve().parent.parent
+sys.path.insert(0, str(prefix / "@CMAKE_INSTALL_DATADIR@/pycircuit/python"))
+from pycircuit.cli import main
+
+raise SystemExit(main())

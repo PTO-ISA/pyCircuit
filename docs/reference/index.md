@@ -1,52 +1,30 @@
-# API Reference
+# Language and API reference
 
-The pyCircuit 6 product API is centered on CycleAwareSignal and lowers to the
-same `pyc` MLIR used by the structural module API.
+The only active source reference is the bounded function-module profile in the
+[language specification](language.md): portless `@module`, nested `@rule`,
+explicit registration, one default clock, finite scalar state, and empty static
+arguments. The public driver is `pycircuit compile`, `pycircuit link`, and
+`pycircuit emit`.
 
-## Cycle-aware design imports
+The older CycleAwareSignal, structural builder, testbench, PYC, sidecar, and
+Agentic Circuit reference pages are retained as short retirement records so
+historical links remain understandable. They contain no active recipes.
 
-```python
-from pycircuit import (
-    CycleAwareCircuit,
-    CycleAwareDomain,
-    CycleAwareSignal,
-    CycleAwareTb,
-    ForwardSignal,
-    Tb,
-    build_cycle_aware,
-    cas,
-    compile_cycle_aware,
-    mux,
-    submodule_input,
-    wire_of,
-)
-from pycircuit.design import probe, testbench
-```
+## Current pages
 
-Use `CycleAwareSignal` for scalar design values. Use `domain.signal()` to infer
-state, `domain.next()` to advance logical time, and `wire_of()` only at explicit
-I/O boundaries. `compile_cycle_aware()` always JIT-compiles to a hardened
-`Design`; `build_cycle_aware()` directly executes Python elaboration and returns
-a `CycleAwareCircuit` whose MLIR carries the same frontend contract.
+- [Language specification](language.md)
+- [Diagnostics and rejection boundary](diagnostics.md)
+- [Source and generated naming](name-mangling.md)
 
-## Structural library imports
+## Retired surfaces and backlog
 
-```python
-from pycircuit import Circuit, compile, const, function, module
-from pycircuit import ct, hierarchical, lib, logic, spec, structural, wiring
-```
+- Frontend builders, primitives, typed specs, collections, and `@const`:
+  retired API pages pending any separately approved replacement.
+- Testbench and sidecar schedule: retired; complete `@system`/EXPECT contract
+  remains unapproved.
+- PYC IR: retired as a public compiler route; the compiler's internal common
+  hardware representation is not a source-level user API.
 
-The structural surface is supported for explicit hierarchy, compile-time
-specialization, reusable library blocks, and static hardware generation. It
-does not define a competing timing model. Use `structural.mux()` for raw Wire
-selection; top-level `mux()` is CycleAware and always returns a CAS.
-
-## Reference documents
-
-- [V6 language specification](language.md)
-- [Source, MLIR, and generated C++ naming](name-mangling.md)
-- [Frontend API details](frontend-api.md)
-- [Testbench API](testbench.md)
-- [Primitive reference](primitives.md)
-- [IR specification](pyc-ir.md)
-- [Diagnostics](diagnostics.md)
+See the [M5 migration guide](../development/m5-migration.md) for unsupported
+capabilities and migration scope. Historical RFCS and ACIR records retain their
+own historical context and are not active support claims.

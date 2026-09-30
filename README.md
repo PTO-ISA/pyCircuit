@@ -1,397 +1,85 @@
-<p align="center">
-  <img src="docs/figures/pycircuit-logo.png" alt="pyCircuit" width="380">
-</p>
+# pyCircuit
 
-# pyCircuit 6
+pyCircuit captures a supported subset of ordinary Python hardware descriptions,
+checks their meaning in MLIR, and emits C++ or Verilog from one verified final
+design. The active product route is `pycircuit compile` → `pycircuit link` →
+`pycircuit emit`.
 
-<p align="center">
-  <strong>Python-first hardware construction and architecture modeling, backed by MLIR, deterministic C++ simulation, and Verilog generation.</strong>
-</p>
+The current M5 profile is intentionally bounded: one portless function
+`@module`, nested `@rule` definitions and explicit registrations, one default
+clock, no external input/output ports, and no static arguments. It supports
+closed designs with scalar state, explicit current/next updates, and nested
+modules within that profile. It does not provide queues, a full `@system`
+runner contract, memory/CDC, multiple clocks, four-state source values, or an
+external typed DUT interface. Unsupported constructs fail with diagnostics.
 
-<p align="center">
-  <a href="https://github.com/PTO-ISA/pyCircuit/actions/workflows/ci.yml"><img src="https://github.com/PTO-ISA/pyCircuit/actions/workflows/ci.yml/badge.svg?branch=main" alt="CI"></a>
-  <a href="https://github.com/PTO-ISA/pyCircuit/actions/workflows/release.yml"><img src="https://github.com/PTO-ISA/pyCircuit/actions/workflows/release.yml/badge.svg" alt="Release"></a>
-  <a href="https://github.com/PTO-ISA/pyCircuit/releases/latest"><img src="https://img.shields.io/github/v/release/PTO-ISA/pyCircuit?display_name=tag&sort=semver" alt="Latest release"></a>
-  <a href="LICENSE"><img src="https://img.shields.io/github/license/PTO-ISA/pyCircuit" alt="BSD 3-Clause license"></a>
-  <a href="docs/getting-started/installation.md"><img src="https://img.shields.io/badge/Python-3.10%2B-3776AB?logo=python&logoColor=white" alt="Python 3.10 or later"></a>
-  <a href="toolchains/agentic-circuit/llvm.lock.json"><img src="https://img.shields.io/badge/LLVM%2FMLIR-22.1.8-5C2D91" alt="LLVM and MLIR 22.1.8"></a>
-</p>
+## Install and build
 
----
-
-pyCircuit provides two complementary Python frontends in one versioned
-toolchain:
-
-- **`pycircuit`** constructs cycle-aware, synthesizable hardware from signals,
-  state, hierarchy, memories, and explicit logical cycles.
-- **`agentic_circuit`** models architecture-level processes, queues, resources,
-  scheduling, and committed state through ACPy and ACIR.
-
-Both paths converge on verified PYC MLIR when generating hardware. C++ and
-Verilog therefore share one semantic contract, rather than separate handwritten
-implementations.
-
-## Highlights
-
-- **Cycle-aware by construction.** Signal provenance tracks logical cycles, and
-  automatic pipeline balancing lowers to explicit PYC MLIR (Decision 0148).
-- **One verified contract.** Structural and cycle-aware authoring reach the same
-  verified PYC representation; semantics live in the dialect, passes, and
-  verifiers rather than in one backend.
-- **Deterministic output.** Preserved module hierarchy and deterministic
-  generated artifacts.
-- **Rich data model.** Exact-width values, typed structures, queues, tables, and
-  memories.
-- **Multiple backends.** C++ cycle simulation, gfsim architecture simulation,
-  and Verilog generation from one design.
-- **Reviewable change control.** Focused pull-request gates plus a reproducible
-  release closure.
-
-## Choose a frontend
-
-| You want to describe | Install | Import | Primary flow |
-| --- | --- | --- | --- |
-| Ports, signals, registers, memories, pipelines, and synthesizable hardware | `pycircuit-hisi` | `pycircuit` | Python → PYC → `pycc` → C++ / Verilog |
-| Processes, queues, resources, scheduling, and architecture state | `pycircuit-hisi` | `agentic_circuit` | Python → `acc.py` → verified ACIR → `acc` → C++ / bundle / Verilog |
-
-Read [Choose a Frontend](docs/getting-started/choose-a-frontend.md) for the
-supported authoring boundaries and examples.
-
-## Install
-
-One wheel installs both frontends and both compilers. No compiler build, no
-LLVM/MLIR checkout, and no CMake are involved:
+Install Python 3.11+, CMake, Ninja, a C++20 compiler, and LLVM/MLIR 22.1.8 for
+the compiler developer profile. The runtime-only CMake component has no
+LLVM/MLIR dependency. From a checkout:
 
 ```bash
-python3 -m pip install pycircuit-hisi
-```
-
-Use Python 3.11 or later. The `pycircuit` frontend alone runs on 3.10, but the
-native bridge bundled for the Agentic Circuit frontend targets the 3.11 stable
-ABI, so 3.11+ covers everything in the wheel.
-
-That one install provides:
-
-| Command | What it does |
-| --- | --- |
-| `pycircuit` | Emit PYC MLIR from a Python design, then drive the C++/Verilog backends |
-| `pycc` | Compile PYC MLIR to C++ or Verilog |
-| `acc.py` | Capture ACPy source into verified ACIR |
-| `acc` | Compile verified ACIR to C++, a C++ bundle, or Verilog |
-| `agentic-circuit` | Agentic Circuit workspace, catalog, and diagnostic commands |
-
-`import pycircuit`, `import agentic_circuit`, and `import _pycircuit_semantics`
-all resolve from that same install.
-
-Check the install:
-
-```bash
-pycircuit --help
-pycc --help
-acc.py --help
-```
-
-### Your first design
-
-Save this as `counter.py`. It needs nothing from this repository:
-
-```python
-from pycircuit import (
-    CycleAwareCircuit,
-    CycleAwareDomain,
-    cas,
-    mux,
-    wire_of,
-)
-
-
-def build(m: CycleAwareCircuit, domain: CycleAwareDomain) -> None:
-    enable = cas(domain, m.input("enable", width=1), cycle=0)
-    count = domain.signal(width=8, reset_value=0, name="count")
-
-    m.output("count", wire_of(count))
-
-    # Compute the next value in this logical cycle, then commit it.
-    count_next = mux(enable, count + 1, count)
-    domain.next()
-    count <<= count_next
-
-
-build.__pycircuit_name__ = "counter"
-```
-
-Emit PYC MLIR, then compile it to Verilog:
-
-```bash
-pycircuit emit counter.py -o counter.pyc
-pycc counter.pyc --verilog counter.v
-```
-
-`counter.v` declares `module counter` and needs no other input. Swap
-`--verilog counter.v` for `--cpp counter.cpp` to generate C++ instead.
-
-To build and run a design end to end, add `@testbench def tb(t: Tb)` to the same
-file and use `pycircuit build counter.py --out-dir out --target both`. That step
-also needs CMake, Ninja, and a C++ compiler on the host (`--target verilator`
-and simulation additionally need Verilator).
-
-### Platform notes
-
-| Platform | Install |
-| --- | --- |
-| macOS (Apple silicon), Windows (x86-64) | `python3 -m pip install pycircuit-hisi` |
-| Linux (x86-64) | `python3 -m pip install https://github.com/PTO-ISA/pyCircuit/releases/download/v6.1.0/pycircuit_hisi-6.1.0-py3-none-linux_x86_64.whl` |
-
-The Linux wheel is 140 MB, above PyPI's 100 MiB per-file limit, so it is
-installed from the release URL above until that limit is raised for the project;
-macOS and Windows install straight from PyPI.
-
-The wheel carries the toolchain and runtime libraries it needs. It requires
-glibc 2.39 or newer on Linux (Ubuntu 24.04 baseline), macOS 15 or newer, or
-Windows Server 2022 or newer, and it supports exactly the platforms listed in
-[the SDK release contract](docs/development/sdk-release-contract.md).
-
-### C++ and CMake consumers
-
-`pycc` and `acc` generate C++ that links against the released runtime. For that,
-use the platform SDK archive published with the same release:
-
-- `pycircuit-sdk-<version>-<platform>.tar.gz` plus its `.manifest.json` and
-  `.lock.json`, or
-- the matching container artifact
-  `ghcr.io/pto-isa/pyc-tools-<platform>:v<version>`.
-
-`<platform>` is one of `linux-x86_64`, `macos-arm64`, or `windows-x86_64`. The
-manifest records the platform's compiler, ABI, minimum OS, and exact file
-inventory; the lock records the release identity for a consumer.
-
-## Quick start (from source)
-
-The wheel above needs no build. The following source setup is for developing
-pyCircuit itself and for targets that are not part of a release.
-
-The integrated development setup requires Python 3.11 or later, CMake, Ninja,
-and LLVM/MLIR 22.1.8. pyCircuit-only frontend use supports Python 3.10 or later.
-
-```bash
-git clone https://github.com/PTO-ISA/pyCircuit.git
-cd pyCircuit
-
 python3 -m venv .venv
 source .venv/bin/activate
-python -m pip install -e "python/semantic-core"
-python -m pip install -e ".[dev,docs]"
-
-bash flows/scripts/pyc build
-export PYC_TOOLCHAIN_ROOT="$PWD/.pycircuit_out/toolchain/install"
+python -m pip install -e .
+cmake -S . -B .pycircuit_out/build -G Ninja \
+  -DPYC_BUILD_COMPILER_DEV=ON \
+  -DPYC_BUILD_TESTING=OFF \
+  -DPYC_BUILD_RUNTIME_LIB=ON
+cmake --build .pycircuit_out/build
+cmake --install .pycircuit_out/build --prefix .pycircuit_out/install
+export PATH="$PWD/.pycircuit_out/install/bin:$PATH"
 ```
 
-Build the counter example with the C++ and Verilog backends:
+See [installation](docs/getting-started/installation.md) for the two CMake
+profiles and [quickstart](docs/getting-started/quickstart.md) for a complete
+small design.
+
+## Compile, link, and emit
+
+Each Python source is compiled into its own published source unit. Link the
+complete unit closure to a final `design_top.ac`, then emit either backend:
 
 ```bash
-PYTHONPATH=python/pycircuit/src \
-python -m pycircuit.cli build \
-  examples/pycircuit/basics/counter/tb_counter.py \
-  --out-dir .pycircuit_out/quickstart/counter \
-  --target both \
-  --jobs 8
+mkdir -p .pycircuit_out/units
+pycircuit compile -c src/top.py --source-root src \
+  --package-prefix demo -o .pycircuit_out/units/top
+pycircuit link .pycircuit_out/units/top --top demo.top.Top \
+  -o .pycircuit_out/design_top.ac
+pycircuit emit .pycircuit_out/design_top.ac --target cpp \
+  -o .pycircuit_out/cpp
+pycircuit emit .pycircuit_out/design_top.ac --target verilog \
+  -o .pycircuit_out/verilog
 ```
 
-Add the architecture-modeling frontend when needed:
+For imported modules, compile every source independently and pass each
+published interface unit to its parent with `-I`; list all implementation and
+declaration units when linking. Generated CMake builds a `pycircuit_system`
+runner and `libpycircuit_dut` against the installed Runtime. Set a finite limit,
+for example `{"deadlock_window":null,"max_domain_cycles":{},"max_ticks":100,"schema":"agentic-model-config","version":"1"}`, in the runner
+configuration and invoke `pycircuit_system --config config.json`. Runtime
+execution is silent by default; pass `--events <path>` or `--events -` when
+event output is wanted.
 
-```bash
-python -m pip install -e "python/agentic-circuit[test]"
-agentic-circuit --help
+## CMake consumers
+
+A Runtime-only consumer needs just the installed runtime package:
+
+```cmake
+find_package(pycircuit CONFIG REQUIRED COMPONENTS Runtime)
+target_link_libraries(my_model PRIVATE pycircuit::pyc6_runtime)
 ```
 
-Continue with the [Quickstart](docs/getting-started/quickstart.md) or the
-[complete installation guide](docs/getting-started/installation.md).
+The Runtime component does not find LLVM. `CompilerDev` exports compiler
+development targets and requires exact LLVM/MLIR 22.1.8. See the [language
+reference](docs/reference/language.md), [frontend guide](docs/development/agent-frontend-guide.md),
+and [testing and gates](docs/development/testing-and-gates.md).
 
-## Write your first circuit
+## Hard break
 
-Each frontend has one authoring entry point, and both lower to verified PYC
-before any backend runs.
-
-### Cycle-aware hardware with `pycircuit`
-
-`CycleAwareSignal` is the primary authoring model. Compute the next value in the
-current logical cycle, call `domain.next()`, then commit the assignment; the
-frontend inserts delay registers wherever cycles must be balanced.
-
-```python
-from pycircuit import (
-    CycleAwareCircuit,
-    CycleAwareDomain,
-    build_cycle_aware,
-    cas,
-    mux,
-    wire_of,
-)
-
-
-def build(m: CycleAwareCircuit, domain: CycleAwareDomain, width: int = 8) -> None:
-    enable = cas(domain, m.input("enable", width=1), cycle=0)
-    count = domain.signal(width=width, reset_value=0, name="count")
-
-    m.output("count", wire_of(count))
-
-    # Compute next at cycle 0, then commit after domain.next().
-    count_next = mux(enable, count + 1, count)
-    domain.next()
-    count <<= count_next
-
-
-build.__pycircuit_name__ = "counter"
-
-print(build_cycle_aware(build, name="counter", width=8).emit_mlir())
-```
-
-The full design, testbench, and parameters live in
-[`examples/pycircuit/basics/counter`](examples/pycircuit/basics/counter), and the
-[pyCircuit 6 Tutorial](docs/getting-started/tutorial.md) covers testbenches,
-hierarchy, memories, and multi-cycle pipelines.
-
-### Transactional architecture with `agentic_circuit`
-
-Use Agentic Circuit when a design is better described as typed data moving
-through queues and atomic rules. Availability, backpressure, reservations,
-arbitration, and commit are compiler responsibilities, so the Python describes
-intent rather than hand-built handshakes.
-
-```python
-import agentic_circuit as ac
-
-
-@ac.struct
-class Entry:
-    index: ac.u2
-    value: ac.u8
-
-
-def increment(entry: Entry) -> Entry:
-    return entry.with_fields(value=entry.value + 1)
-
-
-@ac.rule
-def install(entries, incoming):
-    old = entries[incoming.index]
-    entries[incoming.index] = increment(incoming)
-    return old
-
-
-@ac.system
-def transaction_pipeline(incoming: Entry) -> Entry:
-    entries = ac.table[4, Entry](init=0)
-    outgoing = install(entries, incoming)
-    return outgoing
-```
-
-Every `@ac.rule` is one schedulable atomic transition. Here the Table
-replacement and the Queue transfers in `install` prepare together and publish at
-the same tick edge, so backpressure or a state conflict leaves the committed
-image unchanged; no reservation, check, or prepare/publish step appears in the
-Python.
-
-Runnable state examples, including explicit `ac.source()` and `ac.sink()`
-capture forms, multi-rule ROB scheduling, and slot ownership, live in
-[`examples/agentic-circuit/state`](examples/agentic-circuit/state). The
-[Agentic Circuit and ACIR](docs/acir/index.md) documentation covers ACPy,
-verified ACIR, ACC, QueueGraph, and gfsim, and the
-[Agent Frontend Guide](docs/development/agent-frontend-guide.md) states the
-authoring rules this example follows.
-
-## How the toolchain fits together
-
-```text
-agentic_circuit frontend -> acc.py -> verified ACIR -> acc
-                                                   |-> gfsim C++ / bundle
-                                                   `-> PYC -> pycc -> Verilog
-
-pycircuit frontend -> Cycle-Aware Signal -> PYC -> pycc -> pyc6 C++ / Verilog
-```
-
-ACIR remains an architecture-level dialect; PYC remains the shared hardware
-contract. The `pycircuit` and `agentic_circuit` Python namespaces are separate
-and are not compatibility aliases.
-
-## Documentation
-
-| Start here | Purpose |
-| --- | --- |
-| [Getting Started](docs/getting-started/index.md) | Install the toolchain and run the first design |
-| [Choose a Frontend](docs/getting-started/choose-a-frontend.md) | Select between `pycircuit` and `agentic_circuit` |
-| [pyCircuit 6 Tutorial](docs/getting-started/tutorial.md) | Learn cycle-aware authoring and testbenches |
-| [Language and API Reference](docs/reference/index.md) | Look up syntax, APIs, diagnostics, primitives, and PYC IR |
-| [Architecture](docs/architecture/overview.md) | Understand frontends, compiler stages, runtimes, and backends |
-| [Agentic Circuit and ACIR](docs/acir/index.md) | Learn ACPy, verified ACIR, ACC, QueueGraph, and gfsim |
-| [Development Guide](docs/development/index.md) | Build, test, contribute, and prepare pull requests |
-| [Agent Frontend Guide](docs/development/agent-frontend-guide.md) | Choose and apply a Pythonic authoring model for complex circuits |
-
-## Repository layout
-
-The tree is organized by responsibility:
-
-```text
-python/       Python distributions and shared semantics
-compiler/     PYC and ACIR dialects, passes, ACC, and generators
-library/      Stable pyCircuit C++ runtime and Verilog implementations
-simulator/    gfsim architecture-modeling runtime
-docs/         User, architecture, reference, and contributor documentation
-examples/     Small supported examples
-benchmarks/   Performance-only workloads and harnesses
-tests/        Unit, system, integration, MLIR, C++, Verilog, and golden tests
-tools/        User-facing and product-maintenance utilities
-flows/        Build, CI, gate, and release orchestration
-schemas/      Machine-readable contracts, inventories, and registries
-packaging/    SDK, archive, and wheel assembly
-toolchains/   Pinned compiler and dependency identities
-```
-
-See [Repository Layout](docs/development/repository-layout.md) for the complete
-ownership map, including `.github/`, `cmake/`, and `third_party/`. Complete CPU,
-NPU, accelerator, SoC, board, ISA, and product-specific testbench sources live
-in their owning consumer repositories.
-
-## Validate a change
-
-Run the lightweight repository checks first:
-
-```bash
-pre-commit run --all-files
-pytest tests/unit -m unit
-python tools/agentic-circuit/check-contracts.py
-mkdocs build --strict
-```
-
-Native compiler or runtime changes also require the narrowest affected MLIR,
-C++, simulation, or backend test. The full release matrix runs through the
-release workflow rather than every pull request.
-
-See [Testing and Gates](docs/development/testing-and-gates.md) for the exact
-change-to-gate mapping.
-
-## Project status
-
-[`PTO-ISA/pyCircuit`](https://github.com/PTO-ISA/pyCircuit) is the canonical
-source, issue tracker, and release authority. The latest published release is
-available from [GitHub Releases](https://github.com/PTO-ISA/pyCircuit/releases).
-The distribution name is `pycircuit-hisi`; the Python import remains
-`pycircuit`.
-
-The former standalone Agentic Circuit repository is archived provenance. Its
-consolidation record is preserved in the
-[historical repository record](docs/acir/spec/refs/history.md), not as an active
-development or compatibility path.
-
-## Contributing and security
-
-- [Contributing guide](CONTRIBUTING.md)
-- [Development workflow](docs/development/contributing-workflow.md)
-- [Review and merge requirements](docs/development/review-and-merge.md)
-- [Security policy](SECURITY.md)
-- [Code of conduct](CODE_OF_CONDUCT.md)
-
-## License
-
-pyCircuit and the integrated Agentic Circuit sources are licensed under the
-[BSD 3-Clause License](LICENSE).
+The prior CycleAwareSignal/JIT, structural builder, Agentic Circuit/QueueGraph,
+PYC C++ compiler and their command aliases are retired from the active product
+route. There is no fallback mode. The [M5 migration guide](docs/development/m5-migration.md)
+records the bounded replacement workflow and the capabilities that remain
+backlog. M5 is accepted for that profile; see the [candidate-bound review](docs/reviews/20261001-m5-cutover-review.md) and its verification evidence.

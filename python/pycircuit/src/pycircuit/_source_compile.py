@@ -27,12 +27,12 @@ from collections.abc import Callable, Mapping, Sequence
 from pathlib import Path
 
 from ._publication import (
+    _publication_lock_set,
+    _publication_owner_source_unit,
     _PublicationError,
     _PublicationInput,
     _PublicationOutput,
     _PublicationResult,
-    _publication_lock_set,
-    _publication_owner_source_unit,
     _publish_artifact,
 )
 from ._publication_fs import _PublicationFileSystem
@@ -207,7 +207,9 @@ def _compile_source_unit(
         stem = captured.path.stem
         owner = _publication_owner_source_unit(package=package, path=relative)
 
-        with tempfile.TemporaryDirectory(prefix="pycircuit-source-compile-") as scratch_name:
+        with tempfile.TemporaryDirectory(
+            prefix="pycircuit-source-compile-"
+        ) as scratch_name:
             scratch = Path(scratch_name)
             transport = scratch / f"{stem}.transport.mlir"
             transport.write_text(_emit_source_transport(captured), encoding="utf-8")
@@ -234,12 +236,18 @@ def _compile_source_unit(
             deps_path = scratch / "consumed.json"
             command = [
                 str(compiler),
-                "--capture", str(transport),
-                "--package", package,
-                "--path", relative,
-                "--body-out", str(body_path),
-                "--interface-out", str(interface_path),
-                "--deps-out", str(deps_path),
+                "--capture",
+                str(transport),
+                "--package",
+                package,
+                "--path",
+                relative,
+                "--body-out",
+                str(body_path),
+                "--interface-out",
+                str(interface_path),
+                "--deps-out",
+                str(deps_path),
             ]
             for header_path in header_paths:
                 command.extend(("--header", str(header_path)))

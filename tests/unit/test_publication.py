@@ -781,6 +781,42 @@ def test_lock_set_rejects_equal_and_ancestor_related_paths(tmp_path: Path) -> No
             pass
 
 
+def test_lock_set_rejects_artifact_control_region_overlap_before_bootstrap(
+    tmp_path: Path,
+) -> None:
+    final = tmp_path / "design.ac"
+    _publish(final, "baseline")
+    nested_output = _control(final) / "evil"
+    snapshot = {
+        path.relative_to(tmp_path): path.read_bytes()
+        for path in tmp_path.rglob("*")
+        if path.is_file()
+    }
+    managed_input = _PublicationInput(final, OWNER, _validate, _validate)
+
+    with pytest.raises(_PublicationError, match="ancestor-related"):
+        with _publication_lock_set(
+            inputs=[managed_input],
+            outputs=[_PublicationOutput(nested_output, _validate)],
+        ):
+            pass
+    with pytest.raises(_PublicationError, match="ancestor-related"):
+        with _publication_lock_set(
+            inputs=[_PublicationInput(nested_output, OWNER, _validate, _validate)],
+            outputs=[_PublicationOutput(final, _validate)],
+        ):
+            pass
+
+    current = {
+        path.relative_to(tmp_path): path.read_bytes()
+        for path in tmp_path.rglob("*")
+        if path.is_file()
+    }
+    assert current == snapshot
+    assert not nested_output.exists()
+    assert not _control(nested_output).exists()
+
+
 def test_command_lock_set_acquires_normalized_paths_in_sorted_order(
     tmp_path: Path,
 ) -> None:

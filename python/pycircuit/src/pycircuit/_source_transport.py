@@ -108,7 +108,7 @@ def _value(
         return '["bytes", ' + _mlir_string(value.hex()) + "]"
     if isinstance(value, str):
         return _mlir_string(value)
-    if isinstance(value, (list, tuple)):
+    if isinstance(value, list | tuple):
         return (
             "[" + ", ".join(_value(captured, item, inherited) for item in value) + "]"
         )

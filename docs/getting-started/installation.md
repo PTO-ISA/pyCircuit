@@ -1,230 +1,94 @@
 # Installation
 
-Choose the smallest installation profile that matches the work you need to do.
-
-To use pyCircuit without building anything, install the published wheel: one
-command, no CMake and no LLVM/MLIR checkout. See
-[Install the published wheel](#install-the-published-wheel).
+The active interface is one Python capture/driver package and one CMake Runtime
+component. The compiler developer tools are optional for consumers of generated
+C++ models.
 
 ## Requirements
 
-| Component | Frontend only | Full toolchain |
-| --- | --- | --- |
-| Operating system | Linux, macOS, or Windows | Linux, macOS, or Windows |
-| Python | 3.10+ | 3.11+ recommended |
-| C++ compiler | Not required | GCC 11+ on Linux; Clang or AppleClang elsewhere |
-| CMake and Ninja | Not required | Required |
-| LLVM/MLIR 22.1.8 | Not required | Required |
-| Verilator | Not required | Required for Verilog simulation |
+| Use | Requirements |
+| --- | --- |
+| Author and compile Python sources | Python 3.11+, pyCircuit Python package, native compiler installed from a CompilerDev build |
+| Build and run generated C++ | CMake 3.25+, Ninja, C++20 compiler, installed Runtime |
+| Develop the compiler | Above, plus LLVM and MLIR exactly 22.1.8 |
+| Emit Verilog | CompilerDev build; downstream Verilog simulation tools are separate |
 
-The full toolchain calls the floating-point overload of `std::to_chars` in
-`compiler/acir/lib/Bindings/Binding.cpp`. libstdc++ only implements that
-overload from GCC 11, so an older GCC fails late in the build with a template
-error. CMake rejects a GNU compiler older than 11 at configure time. Clang,
-AppleClang, and clang-cl use their own standard library and are not subject to
-this constraint.
+The supported M5 authoring profile is portless `@module` functions with nested
+`@rule`s, a default clock, and no static arguments. This is a bounded profile,
+not a claim that the later `@system`, external-port, queue, memory, CDC,
+multi-clock, or four-state contracts are implemented.
 
-On macOS, install the native dependencies with Homebrew:
+## Build and install from source
 
 ```bash
-brew install cmake ninja python@3 llvm@22 verilator
-export PATH="$(brew --prefix llvm@22)/bin:$PATH"
-```
-
-On Windows, compile with the clang-cl driver from the official LLVM 22.1.8
-Windows release archive, using the Visual Studio 2022 build tools for the MSVC
-v143 headers, libraries, and linker. `cl.exe` cannot build this tree: its front
-end aborts with an internal compiler error on the recursive generic lambdas in
-the ACIR codegen. Verilator is not generally available on Windows, so Verilog
-simulation belongs to the Linux or macOS hosts:
-
-```powershell
-winget install --id Kitware.CMake
-winget install --id Ninja-build.Ninja
-winget install --id Python.Python.3.11
-# Install Visual Studio 2022 with the "Desktop development with C++" workload,
-# then extract clang+llvm-22.1.8-x86_64-pc-windows-msvc.tar.xz and put its bin
-# directory on PATH. Point LLVM_ROOT at an install that also provides
-# lib\cmake\mlir: the LLVM release archive ships no MLIR, so MLIR must be built
-# from the pinned LLVM 22.1.8 source. Run from a Developer Command Prompt so
-# clang-cl finds INCLUDE, LIB, and link.exe.
-$env:CC = "clang-cl.exe"
-$env:CXX = "clang-cl.exe"
-pwsh -NoProfile -File flows/scripts/pyc.ps1 build --llvm-config "$env:LLVM_ROOT\bin\llvm-config.exe" --build-dir "$PWD\.pycircuit_out\toolchain\build" --install-prefix "$PWD\.pycircuit_out\toolchain\install"
-```
-
-Windows consumption is limited to the `windows-x86_64` SDK profile; the exact
-supported tuple is recorded in
-[the SDK release contract](../development/sdk-release-contract.md).
-
-On Ubuntu or Debian, install CMake, Ninja, Python, GCC 11 or newer (`g++`), and
-the LLVM 22 development packages from the
-[official LLVM package repository](https://apt.llvm.org/). Verify the selected
-toolchain before configuring the build:
-
-```bash
-LLVM_CONFIG="$(command -v llvm-config-22 || command -v llvm-config)"
-MLIR_OPT="$(command -v mlir-opt-22 || command -v mlir-opt)"
-"$LLVM_CONFIG" --version
-"$MLIR_OPT" --version
-python3 --version
-g++ --version   # must report 11 or newer
-```
-
-## Install the published wheel
-
-The release wheel carries both frontends and both compilers, so one install is
-enough:
-
-```bash
-python3 -m pip install pycircuit-hisi
-pycircuit --help
-pycc --help
-acc.py --help
-```
-
-`pycircuit`, `pycc`, `acc`, `acc.py`, and `agentic-circuit` are installed as
-commands, and `pycircuit`, `agentic_circuit`, and `_pycircuit_semantics` import
-from the same environment. Python 3.11 or later covers everything in the wheel.
-
-The Linux wheel is larger than PyPI's per-file limit, so it is installed from the
-release URL until that limit is raised:
-
-```bash
-python3 -m pip install https://github.com/PTO-ISA/pyCircuit/releases/download/v6.1.0/pycircuit_hisi-6.1.0-py3-none-linux_x86_64.whl
-```
-
-The [README](https://github.com/PTO-ISA/pyCircuit#install) has the same
-instructions with a first design to compile.
-
-## Frontend-only editable install
-
-Use this profile to author Python and emit PYC MLIR:
-
-```bash
-git clone https://github.com/PTO-ISA/pyCircuit.git
-cd pyCircuit
-
 python3 -m venv .venv
 source .venv/bin/activate
-python -m pip install --upgrade pip
-python -m pip install -e "python/semantic-core"
 python -m pip install -e .
+
+cmake -S . -B .pycircuit_out/build -G Ninja \
+  -DCMAKE_INSTALL_PREFIX="$PWD/.pycircuit_out/install" \
+  -DPYC_BUILD_COMPILER_DEV=ON \
+  -DPYC_BUILD_TESTING=OFF \
+  -DPYC_BUILD_RUNTIME_LIB=ON
+cmake --build .pycircuit_out/build
+cmake --install .pycircuit_out/build
+export PATH="$PWD/.pycircuit_out/install/bin:$PATH"
+pycircuit --help
 ```
 
-Verify the installation:
+`PYC_BUILD_COMPILER_DEV` enables the native source compiler and requires exact
+LLVM/MLIR 22.1.8. `PYC_BUILD_TESTING` controls native compiler test targets.
+`PYC_BUILD_RUNTIME_LIB` controls the generated-model runtime. The install prefix
+contains the `pycircuit` driver, Python capture package, CMake package metadata,
+and enabled native libraries.
+
+## Runtime-only install
+
+A consumer building generated C++ needs no compiler developer package or LLVM.
+Configure a Runtime-only install with:
 
 ```bash
-python -c "import pycircuit; print(pycircuit.__name__)"
-python -m pycircuit.cli --help
+cmake -S . -B .pycircuit_out/runtime-build -G Ninja \
+  -DCMAKE_INSTALL_PREFIX="$PWD/.pycircuit_out/runtime-install" \
+  -DPYC_BUILD_COMPILER_DEV=OFF \
+  -DPYC_BUILD_TESTING=OFF \
+  -DPYC_BUILD_RUNTIME_LIB=ON \
+  -DPYC_INSTALL_PYTHON=OFF
+cmake --build .pycircuit_out/runtime-build
+cmake --install .pycircuit_out/runtime-build
 ```
 
-The distribution name is `pycircuit-hisi`; the Python import is `pycircuit`.
-An editable frontend install does not place `pycc` on `PATH`.
+A CMake consumer links the one exported Runtime target:
 
-## Full source toolchain
-
-Install development and documentation dependencies, then run the canonical
-build wrapper:
-
-```bash
-python -m pip install -e "python/semantic-core"
-python -m pip install -e ".[dev,docs]"
-bash flows/scripts/pyc build
-
-export PYC_TOOLCHAIN_ROOT="$PWD/.pycircuit_out/toolchain/install"
-export PATH="$PYC_TOOLCHAIN_ROOT/bin:$PATH"
-pycc --version
+```cmake
+find_package(pycircuit CONFIG REQUIRED COMPONENTS Runtime)
+add_executable(model main.cpp)
+target_link_libraries(model PRIVATE pycircuit::pyc6_runtime)
 ```
 
-The build wrapper detects LLVM, configures Ninja, builds PYC plus the integrated
-ACIR/ACC/gfsim components, and stages the install tree under
-`.pycircuit_out/toolchain/install/`.
+The exported target is `pycircuit::pyc6_runtime`, backed by
+`libpyc6_runtime`. It carries runtime headers and libraries only and does not
+search for LLVM/MLIR.
 
-For manual configuration or constrained build hosts, see the
-[development guide](../development/index.md) and
-[testing matrix](../development/testing-and-gates.md).
+## Compiler developer component
 
-## Add Agentic Circuit
+Compiler authors can consume the exported native compiler targets using:
 
-Agentic Circuit is a separate distribution and import namespace in the same
-repository:
-
-```bash
-python -m pip install -e "python/agentic-circuit[test]"
-agentic-circuit --help
+```cmake
+find_package(pycircuit CONFIG REQUIRED COMPONENTS CompilerDev)
 ```
 
-The Python package provides authoring and `acc.py`. Native compilation uses
-the ACIR/ACC/gfsim tools built by the full source toolchain. Run the integrated
-gate once to validate the complete local environment:
+This component requires LLVM and MLIR `22.1.8` exactly. The Runtime and
+CompilerDev components are independently selectable; no retired PYC package,
+forwarding target, or fallback compiler is provided.
 
-```bash
-PYC_GATE_RUN_ID=local-ac-$(date +%Y%m%d-%H%M%S) \
-bash flows/scripts/run_agentic_circuit.sh
-```
+## Python package
 
-## Install a release wheel from a local file
+From a checkout, `python -m pip install -e .` installs the `pycircuit` package
+and its driver. The public commands are `pycircuit compile`, `pycircuit link`,
+and `pycircuit emit`. Historical commands including `acc.py`, `acc`, `pycc`,
+and `agentic-circuit` are retired and are not compatibility aliases.
 
-For an offline or air-gapped install, download the wheel for your platform from
-[GitHub Releases](https://github.com/PTO-ISA/pyCircuit/releases/latest) and
-install that file:
-
-```bash
-python3 -m pip install /path/to/pycircuit_hisi-6.1.0-*.whl
-pycc --version
-python3 -m pycircuit.cli --help
-```
-
-The platform wheel is self-contained: it ships both compilers (`pycc` and
-`acc`), both Python frontends (`pycircuit` and `agentic_circuit`), the shared
-semantic descriptors, and the compiled runtime assets. Use exactly the asset set
-published by one release; there is no second wheel to install.
-
-## Verify the setup
-
-```bash
-pytest tests/unit -m unit
-bash flows/scripts/run_examples.sh
-```
-
-System and Verilog simulation checks require the full toolchain and Verilator:
-
-```bash
-pytest tests/system -m system
-bash flows/scripts/run_sims.sh
-bash flows/scripts/run_semantic_regressions_v6.sh
-```
-
-## Troubleshooting
-
-### LLVM is not found
-
-Ensure `llvm-config` reports version 22.1.8 and export the package directories:
-
-```bash
-LLVM_CONFIG="$(command -v llvm-config-22 || command -v llvm-config)"
-export LLVM_DIR="$("$LLVM_CONFIG" --cmakedir)"
-export MLIR_DIR="$(dirname "$LLVM_DIR")/mlir"
-bash flows/scripts/pyc build
-```
-
-### `pycc` is not found
-
-Build the full toolchain and add its staged binary directory to `PATH`:
-
-```bash
-export PYC_TOOLCHAIN_ROOT="$PWD/.pycircuit_out/toolchain/install"
-export PATH="$PYC_TOOLCHAIN_ROOT/bin:$PATH"
-```
-
-### A build needs a clean reconfiguration
-
-Keep the existing checkout and ask CMake to rebuild the configured tree:
-
-```bash
-cmake --build .pycircuit_out/toolchain/build --clean-first --parallel
-```
-
-If configuration itself is stale, create a new ignored build directory instead
-of deleting source or evidence files.
+For a released wheel, use the project release page and install the wheel matching
+your platform. Release availability and platform support are properties of the
+specific release; this guide does not claim a current published M5 release.

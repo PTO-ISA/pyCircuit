@@ -62,9 +62,9 @@ def _compile(tmp_path: Path, source_text: str) -> subprocess.CompletedProcess[st
 
 def _assert_observation_diagnostic(result: subprocess.CompletedProcess[str]) -> None:
     diagnostic = result.stderr.lower()
-    assert any(term in diagnostic for term in ("observation", "log", "report")), (
-        result.stderr
-    )
+    assert any(
+        term in diagnostic for term in ("observation", "log", "report")
+    ), result.stderr
 
 
 def _module(rule_body: str) -> str:

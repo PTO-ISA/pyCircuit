@@ -1,224 +1,49 @@
-# Testing And Gates
+# Testing and gates
 
-This page defines the minimum validation expected for pyCircuit changes. Use the
-smallest gate set that proves the change, then widen only when behavior or risk
-demands it.
+Gate claims must match the exact candidate and the active pyCircuit route. The
+M5 cutover is still being integrated; the existence of a command or a test file
+does not mean the gate has passed. Record raw outcomes and candidate identity
+under `docs/gates/logs/<run-id>/` for semantic or release-significant work.
 
-## Gate tiers
+## Contract under validation
 
-- **Required PR CI** is intentionally lightweight: changed-file pre-commit,
-  repository-management checks, documentation, pyCircuit Python unit tests,
-  packaging-helper checks, one explicit API-hygiene pass, and Python-only
-  Agentic Circuit contract/frontend/CLI tests. CI skips the matching local
-  pre-commit hook so API hygiene does not run twice.
-- **Targeted author evidence** covers the narrow native, MLIR, runtime, or
-  backend behavior changed by a PR. Run the smallest relevant local command and
-  record it in the PR; do not substitute an unrelated broad lane.
-- **Release closure** is the only automatic full matrix. It builds one
-  integrated toolchain, reuses that build for AC G0/G1/G2, executes each
-  repository, example, simulation, and semantic gate once, validates packages
-  on Linux, macOS, and Windows, and blocks publication on failure.
-- **Nightly/manual diagnostics** run the heavy simulation tier to find costly
-  failures earlier without replaying the normal simulation or fixture lanes.
-  They are diagnostic signals, not PR merge or release authority.
+The current public workflow is one source per `pycircuit compile`, explicit
+unit closure through `pycircuit link`, and `pycircuit emit` to either backend
+from the verified final artifact. The bounded supported source profile is
+portless function `@module`, nested `@rule`, default clock, finite scalar
+state, and empty static arguments. Required boundaries include negative tests
+for unsupported sources and no fallback dispatch.
 
-## Shared rules
+## Focused validation map
 
-- Prefer a shared `PYC_GATE_RUN_ID=<run-id>` for multi-command validation so all
-  evidence lands under one directory.
-- Evidence root: `docs/gates/logs/<run-id>/`
-- Keep logs bounded. Capture only the lanes needed for review.
-- If a gate is skipped, say why in the PR.
-- Keep gate scripts composable: a product-specific script must not recursively
-  invoke repository-wide checks or another closure lane.
-- Structured hierarchy gates operate before and after the backend: every
-  implemented H1/H2/H3 module must own one direct CMake `acc.py` producer and
-  one `.ac` unit, the separately compiled `core.ac` must carry no child definition
-  bodies, and the generated C++/CMake graph must preserve the same ownership.
-  Whole-core compilation followed by AC or C++ splitting is a hard failure.
-
-## Gate ownership
-
-| Owner | Coverage | Intentionally excluded |
-| --- | --- | --- |
-| `.github/workflows/ci.yml` | Repository policy, changed-file formatting/lint, unit tests, docs, packaging helpers, API hygiene, Python-only AC checks | LLVM builds, CTest, Verilator, full examples and simulations |
-| `run_agentic_circuit.sh` | AC contracts, frontend/CLI, ACIR/ACC/gfsim native tests, ACC C++/bundle/Verilog integration | Root pyCircuit unit/API/docs/decision checks |
-| `run_examples.sh` | Every public example through emit/C++ compile plus focused project-build and artifact contracts | API hygiene, decision status, simulation and semantic lanes |
-| `run_sims.sh` | Normal-tier C++/Verilator execution plus `issq` and `regfile` fixtures | Heavy examples, the heavy `bypass_unit` fixture, and the three dedicated semantic cases |
-| `run_sims_nightly.sh` | Heavy-tier C++/Verilator execution plus the compile-intensive `bypass_unit` fixture | Normal examples and fast fixtures |
-| `run_semantic_regressions_v6.sh` | X/Z trace values, reset/invalidate ordering, net-resolution depth | General example and simulation sweeps |
-| `.github/workflows/release.yml` | One invocation of every closure owner against one exact candidate SHA | Recursive or repeated gate execution |
-
-## Core commands
-
-```bash
-pre-commit run --files <changed-file> [<changed-file> ...]
-pre-commit run --all-files
-pytest tests/unit -m unit
-pytest tests/system -m system
-python3 flows/tools/check_api_hygiene.py python/pycircuit/src/pycircuit examples/pycircuit docs README.md
-python3 tools/agentic-circuit/generate-diagnostic-catalog.py --check
-python3 flows/tools/check_decision_status.py --rfc docs/rfcs/pyc6-decisions.md --status docs/gates/decision_status_v6.md --out .pycircuit_out/gates/<run-id>/decision_status_report.json --require-no-deferred --require-all-verified --require-concrete-evidence --require-existing-evidence
-mkdocs build --strict
-bash flows/scripts/run_agentic_circuit.sh
-bash flows/scripts/run_examples.sh
-bash flows/scripts/run_sims.sh
-bash flows/scripts/run_sims_nightly.sh
-bash flows/scripts/run_semantic_regressions_v6.sh
-```
-
-`tests/unit/test_example_layout.py` keeps every tracked pyCircuit example in a
-named `basics`, `features`, or `applications` category, requires the canonical
-design/testbench/config triplet, and emits every public design through the
-Python frontend. Larger generic designs live under
-`tests/integration/pycircuit/fixtures`; performance-only workloads live under
-`benchmarks/` and cannot substitute for correctness gates.
-
-## Pull-request validation matrix
-
-The two required GitHub checks are `G0: Python Checks` and
-`G0: Agentic Python Checks`. Native and end-to-end commands below are targeted
-author evidence, not additional always-on CI jobs.
-
-| Change type | Targeted PR evidence |
+| Change | Evidence to collect |
 | --- | --- |
-| Docs-only, governance docs, PR or issue templates | Required PR CI is sufficient |
-| Frontend API, CLI orchestration, manifest generation, packaging, example discovery | Relevant unit test or smallest affected example in addition to required PR CI |
-| Examples, testbenches, simulation entrypoint behavior | Smallest affected example or simulation case; add `pytest tests/system -m system` only when its flow is touched |
-| MLIR dialect, passes, legality, runtime, codegen, observation semantics | Focused lit/CTest or semantic reproducer for the changed contract, plus decision ID and evidence path |
-| Agentic Circuit Python frontend, ACPy, schemas or CLI | Required Agentic Python check plus the changed focused test |
-| Shared I-JSON, epoch, MLIR escaping, or semantic primitive contracts | Agentic contract/frontend tests plus exhaustive primitive registry/PYC/ACIR/gfsim width checks |
-| Diagnostic codes, exception payloads, or native diagnostic adapters | Catalog generation check plus the smallest Python or native code-propagation test |
-| ACIR dialect, verifier, transformation, ACC or gfsim | Focused ACIR/ACC lit or C++ test |
-| AC package linking, hierarchy, or module codegen | Per-module `acc.py` CMake custom-command graph, AC inventory/link test, root-no-child-definition negative, post-split rejection, one-module-one-C++ map, parallel CMake compile/link, and executable DUT smoke |
-| ACIR-to-PYC, pyc6 runtime integration or synthesizable AC semantics | Focused AC G2 case proving the changed lowering/backend path |
-| Repository retirement or release-management changes | Repository-governance checks and workflow validation |
+| Capture/source semantics | Accepted module/rule fixtures, source provenance, range/type rejection, explicit registration, current/next and child-state identity |
+| Unit compile and link | One producer per source, published interface use, complete closure, duplicate/missing/mismatched unit rejection, verified final artifact |
+| C++ emit | Source-owned groups and CMake graph, generated `pycircuit_system` and `libpycircuit_dut`, Runtime-only consumer build, finite-run behavior |
+| Verilog emit | Same final artifact, source-owned RTL/map inventory, unsupported configuration rejection, target output preservation |
+| Runtime/package | Runtime-only install without LLVM discovery; CompilerDev install with LLVM/MLIR 22.1.8; exported target and external consumer smoke |
+| Hard break | Source, CLI, CMake, package and installed-payload scans show no active retired frontend/compiler/fallback |
+| Documentation | Active docs agree on profile, command path, unsupported contracts and M5 status |
 
-## Release validation matrix
+Run the narrowest check covering the changed behavior, then widen to candidate
+acceptance requirements. Do not delete an oracle because an implementation is
+missing. Historical baseline tests can remain migration evidence, but they do
+not define a second product path or automatically block the bounded profile.
 
-Every release runs all of the following once before package jobs may start:
+## Build profiles
 
-- one integrated LLVM/MLIR toolchain build, reused by AC native tests and G2;
-- AC contracts, frontend/CLI, ACIR/ACC/gfsim native tests, and G0/G1/G2;
-- every example compile contract, the normal simulation partition, the heavy
-  simulation partition, and dedicated V6 semantic regressions;
-- strict decision status, API hygiene, unit tests, pre-commit, repository
-  policy, and documentation checks; and
-- Linux, macOS, and Windows archive/wheel builds plus installed-wheel smoke tests.
+The root build exposes `PYC_BUILD_COMPILER_DEV`, `PYC_BUILD_TESTING`, and
+`PYC_BUILD_RUNTIME_LIB`. A Runtime-only package is configured with compiler dev
+off, runtime on, and testing off; it must not discover LLVM or MLIR. The
+CompilerDev profile requires exactly LLVM/MLIR 22.1.8. Runtime consumers use
+`find_package(pycircuit CONFIG REQUIRED COMPONENTS Runtime)` and
+`pycircuit::pyc6_runtime`.
 
-## Agentic Circuit gates
+## Reporting
 
-Agentic Circuit uses three stable gate classes. All commands run from the
-pyCircuit repository root and use generated output directories outside tracked
-source.
-
-### AC G0: frontend and contracts
-
-- install/import `agentic_circuit` (and `_pycircuit_semantics`) from the current
-  worktree;
-- validate ACPy golden serialization under
-  `tests/goldens/agentic-circuit/frontend/`;
-- run the contract checker plus Python contract, frontend, schema, and CLI
-  tests; and
-- verify that `agentic_circuit` remains separate from `pycircuit` exports.
-
-### AC G1: ACIR, ACC and gfsim
-
-- build `acir-opt`, `acc`, ACIR libraries and gfsim from the current worktree;
-- run ACIR parser, printer, verifier and ACC lit suites;
-- run the AC C++ unit suites; and
-- run at least one `acc.py -> verified ACIR -> acc -> C++ DUT` end-to-end case.
-- for structured designs, emit a directory-backed AC package and prove each
-  Python source unit parses, contains all of that file's requested definitions
-  and typed specializations, and the linked package resolves every instance exactly once,
-  and no whole-core fallback `.ac` is consumed by ACC.
-- exercise a separately compiled composite package with heterogeneous ports,
-  repeated child instances, child-to-child Queues, inferred fanout, a
-  multi-output child, parallel multi-TU CMake/Ninja compilation, and a typed DUT
-  runtime result. Python lowering alone is not composite backend evidence.
-
-### AC G2: pyCircuit 6 hardware integration
-
-- run the synthesizable ACIR subset through `acc -emit-verilog` and sibling
-  `pycc`;
-- compile and execute ACC-generated gfsim C++ DUTs;
-- generate and lint Verilog for the same canonical cases;
-- run `flows/tools/check_generated_rtl.py` on representative generated RTL,
-  including a two-clean-build byte comparison, JSON structural/expensive-op
-  audit, and colored HTML diff evidence; and
-- prove unsupported ACIR constructs fail at the intended verifier boundary.
-- compile module C++ sources as independent translation units with parallel
-  CMake/Ninja and link the selected root DUT; backend-only source splitting is
-  not accepted as AC package evidence.
-- compile a consumer translation unit against only `generated/dut.h` and the
-  generated target's PUBLIC include interface, then execute it; compiling the
-  generated static library alone is not a DUT gate.
-- compare ACPy-derived scalar bit primitives in typed gfsim and PYC C++ on the
-  same boundary-value sequence.
-
-Decision 0241 admits the bounded Table profile to G2 through an explicit
-`pyc.reg` bank. G2 evidence covers independent profile limits, typed and
-multidimensional initialization, old-state reads, field/masked/replace writes,
-multi-selection and accepted-only round-robin, arbitration, outputless rules,
-and PYC C++/Verilator parity. Out-of-profile Table state remains fail closed.
-
-AC G2 consumes current pyCircuit 6 contracts. A PR that changes ACIR-to-PYC
-provides a focused G2 reproducer; the release workflow provides the complete
-examples, normal/nightly simulation, V6 semantic, and strict decision-status
-closure. Product-specific compatibility and model-comparison gates run in the
-corresponding consumer repositories against a pinned pyCircuit revision; they
-are not pyCircuit release gates.
-
-Consumer-originated regressions must be reduced to vendor-neutral framework
-fixtures before entering this repository. Product designs, payload/trace
-adapters, reference models, and their gates run only in the owning consumer
-repository against a pinned pyCircuit revision.
-
-## When strict decision-status validation is required
-
-Run the strict form of `check_decision_status.py` as targeted author evidence
-when the change affects:
-
-- semantics or legality
-- decision-bearing examples
-- observation or reset contracts
-- contributor-facing statements about decision completion
-
-Docs-only changes that do not alter semantic claims can rely on required PR CI.
-Every release runs the strict form regardless of the release diff.
-
-## Evidence expectations
-
-Semantic or flow-significant changes should archive:
-
-- commands used
-- stdout and stderr for each gate lane
-- summary output when generated by the script
-- `decision_status_report.json` when decision validation is relevant
-
-Use `docs/gates/README.md` for the directory contract and naming.
-
-## Notes on local test commands
-
-- `pytest tests/unit -m unit` is the fast Python-only lane used by CI.
-- `pytest tests/system -m system` exercises end-to-end CLI smoke cases and
-  requires `PYC_TOOLCHAIN_ROOT` or `PYCC` plus `verilator`.
-- `pre-commit run --files <changed-file> ...` matches the CI pre-commit lane,
-  which runs against the PR or push diff. CI sets `SKIP=pyc-api-hygiene` and
-  executes API hygiene once as a separate, visible gate.
-- `pre-commit run --all-files` runs the full repo Python format/lint, markdown
-  lint, YAML sanity, and—unless skipped explicitly—the pyCircuit API-hygiene
-  hook.
-
-## Notes on simulation lanes
-
-- `run_examples.sh` compiles every public example but does not invoke other
-  gates. Run the affected simulation lane separately when execution changes.
-- `run_sims.sh` validates normal-tier examples plus the `issq` and `regfile`
-  fixtures. It leaves X/Z, reset/invalidate, and net-resolution cases to the
-  deeper semantic assertions below.
-- `run_sims_nightly.sh` exercises heavy-tier examples and the compile-intensive
-  `bypass_unit` fixture. Run it for heavy examples, bypass changes, or
-  simulation-orchestration changes.
-- `run_semantic_regressions_v6.sh` owns the X/Z trace,
-  reset/invalidate-ordering, and net-resolution-depth cases.
+For each gate, state the exact command, exit status, output/evidence path,
+candidate revision or content binding, and any skipped or unavailable checks.
+Do not report M5 completion from a documentation update, one passing lane, or
+the retired semantic closure. See the [M5 migration guide](m5-migration.md)
+for the bounded promise and unresolved caller classes.

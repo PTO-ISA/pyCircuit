@@ -12,7 +12,6 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[2]
 sys.path[:0] = [
     str(ROOT / "python/pycircuit/src"),
-    str(ROOT / "python/semantic-core/src"),
 ]
 
 from pycircuit._driver import _validate_published_program  # noqa: E402
@@ -92,7 +91,8 @@ add_library(pyc6_runtime STATIC
   "${PYCIRCUIT_RUNTIME_ROOT}/sim_executor.cpp"
   "${PYCIRCUIT_RUNTIME_ROOT}/system_runner.cpp")
 target_include_directories(pyc6_runtime PUBLIC "${PYCIRCUIT_RUNTIME_ROOT}/include")
-set_target_properties(pyc6_runtime PROPERTIES POSITION_INDEPENDENT_CODE ON)
+set_target_properties(pyc6_runtime PROPERTIES POSITION_INDEPENDENT_CODE ON
+  CXX_VISIBILITY_PRESET hidden VISIBILITY_INLINES_HIDDEN YES)
 function(configure_model target consumer)
 add_executable(${target} "${consumer}"
 """

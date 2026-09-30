@@ -1,0 +1,395 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="Darwin-c++"
+	tests="20"
+	failures="0"
+	disabled="0"
+	skipped="0"
+	hostname="Zhoubot-MacBook-173.local"
+	time="7"
+	timestamp="2026-10-01T00:43:19"
+	>
+	<testcase name="ACIRSourceContractsTests" classname="ACIRSourceContractsTests" time="0.0189684" status="run">
+		<properties/>
+		<system-out>Running main() from /private/tmp/googletest-20250910-5249-qce8ci/googletest-1.17.0/googletest/src/gtest_main.cc
+[==========] Running 36 tests from 7 test suites.
+[----------] Global test environment set-up.
+[----------] 4 tests from MathIntAttrTest
+[ RUN      ] MathIntAttrTest.PreservesArbitraryPrecisionSignedDecimalValues
+[       OK ] MathIntAttrTest.PreservesArbitraryPrecisionSignedDecimalValues (2 ms)
+[ RUN      ] MathIntAttrTest.MathematicalIdentityDoesNotDependOnHostBitWidth
+[       OK ] MathIntAttrTest.MathematicalIdentityDoesNotDependOnHostBitWidth (0 ms)
+[ RUN      ] MathIntAttrTest.InternalParserRejectsNonCanonicalDecimalSpellings
+[       OK ] MathIntAttrTest.InternalParserRejectsNonCanonicalDecimalSpellings (0 ms)
+[ RUN      ] MathIntAttrTest.AttributeAndTypeParsePrintRoundTrip
+[       OK ] MathIntAttrTest.AttributeAndTypeParsePrintRoundTrip (0 ms)
+[----------] 4 tests from MathIntAttrTest (3 ms total)
+
+[----------] 3 tests from SourceSpanContractTest
+[ RUN      ] SourceSpanContractTest.AcceptsPosit...
+[This part of the test output was removed since it exceeds the threshold of 1024 bytes.]
+</system-out>
+	</testcase>
+	<testcase name="ACIRSourceMathContractsTests" classname="ACIRSourceMathContractsTests" time="0.723048" status="run">
+		<properties/>
+		<system-out>Running main() from /private/tmp/googletest-20250910-5249-qce8ci/googletest-1.17.0/googletest/src/gtest_main.cc
+[==========] Running 91 tests from 15 test suites.
+[----------] Global test environment set-up.
+[----------] 13 tests from SourceMathContractsTest
+[ RUN      ] SourceMathContractsTest.ParsesPrintsAndVerifiesClosedFoundation
+[       OK ] SourceMathContractsTest.ParsesPrintsAndVerifiesClosedFoundation (8 ms)
+[ RUN      ] SourceMathContractsTest.KeepsMathematical255PlusOneAheadOfExplicitBoundaryConversion
+[       OK ] SourceMathContractsTest.KeepsMathematical255PlusOneAheadOfExplicitBoundaryConversion (0 ms)
+[ RUN      ] SourceMathContractsTest.AcceptsLinkedLocallyAndRejectsFinalMissingOriginAndUnknownLocation
+[       OK ] SourceMathContractsTest.AcceptsLinkedLocallyAndRejectsFinalMissingOriginAndUnknownLocation (0 ms)
+[ RUN      ] SourceMathContractsTest.RequiresRuleComputationOrValidatedSourceOwnedHelperContainment
+[       OK ] SourceMathContractsTest.RequiresRuleComputationOrValidatedSourceOwnedHelp...
+[This part of the test output was removed since it exceeds the threshold of 1024 bytes.]
+</system-out>
+	</testcase>
+	<testcase name="ACIRSourceUnitTests" classname="ACIRSourceUnitTests" time="1.13366" status="run">
+		<properties/>
+		<system-out>Running main() from /private/tmp/googletest-20250910-5249-qce8ci/googletest-1.17.0/googletest/src/gtest_main.cc
+[==========] Running 14 tests from 2 test suites.
+[----------] Global test environment set-up.
+[----------] 8 tests from SourceUnitHeaderTest
+[ RUN      ] SourceUnitHeaderTest.ExtraOrdinaryModuleMetadataIsAccepted
+[       OK ] SourceUnitHeaderTest.ExtraOrdinaryModuleMetadataIsAccepted (86 ms)
+[ RUN      ] SourceUnitHeaderTest.RequiredEnvelopeAttributesAreMandatoryAndTyped
+[       OK ] SourceUnitHeaderTest.RequiredEnvelopeAttributesAreMandatoryAndTyped (79 ms)
+[ RUN      ] SourceUnitHeaderTest.DefinitionsUseEnclosingOwnerAndSnapshotsKeepAuthority
+[       OK ] SourceUnitHeaderTest.DefinitionsUseEnclosingOwnerAndSnapshotsKeepAuthority (78 ms)
+[ RUN      ] SourceUnitHeaderTest.DeclarationAndConstructorKeysAreExact
+[       OK ] SourceUnitHeaderTest.DeclarationAndConstructorKeysAreExact (83 ms)
+[ RUN      ] SourceUnitHeaderTest.ParameterMetadataAndPhysicalSignatureMustAgree
+[       OK ] SourceUnitHeaderTe...
+[This part of the test output was removed since it exceeds the threshold of 1024 bytes.]
+</system-out>
+	</testcase>
+	<testcase name="ACIRNamespaceContractsTests" classname="ACIRNamespaceContractsTests" time="1.24793" status="run">
+		<properties/>
+		<system-out>Running main() from /private/tmp/googletest-20250910-5249-qce8ci/googletest-1.17.0/googletest/src/gtest_main.cc
+[==========] Running 15 tests from 3 test suites.
+[----------] Global test environment set-up.
+[----------] 9 tests from NamespaceContractsTest
+[ RUN      ] NamespaceContractsTest.GeneratedHeadersMatchIndependentBindingTables
+[       OK ] NamespaceContractsTest.GeneratedHeadersMatchIndependentBindingTables (88 ms)
+[ RUN      ] NamespaceContractsTest.ConstantsAreCanonicalDeclarationsWithCheckedStaticValues
+[       OK ] NamespaceContractsTest.ConstantsAreCanonicalDeclarationsWithCheckedStaticValues (190 ms)
+[ RUN      ] NamespaceContractsTest.MandatoryArraysAndClosedExportRecordsAreEnforced
+[       OK ] NamespaceContractsTest.MandatoryArraysAndClosedExportRecordsAreEnforced (80 ms)
+[ RUN      ] NamespaceContractsTest.NamespaceSitesMustBelongToTheHeaderOwner
+[       OK ] NamespaceContractsTest.NamespaceSitesMustBelongToTheHeaderOwner (79 ms)
+[ RUN      ] NamespaceContractsTest.ExportBindingsRejectEvery...
+[This part of the test output was removed since it exceeds the threshold of 1024 bytes.]
+</system-out>
+	</testcase>
+	<testcase name="ACIRSourceModuleContractsTests" classname="ACIRSourceModuleContractsTests" time="2.7831" status="run">
+		<properties/>
+		<system-out>Running main() from /private/tmp/googletest-20250910-5249-qce8ci/googletest-1.17.0/googletest/src/gtest_main.cc
+[==========] Running 25 tests from 3 test suites.
+[----------] Global test environment set-up.
+[----------] 10 tests from SourceBodySnapshotsTest
+[ RUN      ] SourceBodySnapshotsTest.CanonicalBodyMatchesSuppliedAuthorities
+[       OK ] SourceBodySnapshotsTest.CanonicalBodyMatchesSuppliedAuthorities (124 ms)
+[ RUN      ] SourceBodySnapshotsTest.SynchronizedBodyPortAndRuleMutationCannotReplaceHeaderAuthority
+[       OK ] SourceBodySnapshotsTest.SynchronizedBodyPortAndRuleMutationCannotReplaceHeaderAuthority (118 ms)
+[ RUN      ] SourceBodySnapshotsTest.SourceMathHelperSnapshotsRemainWithinVerifiedHelperClosure
+[       OK ] SourceBodySnapshotsTest.SourceMathHelperSnapshotsRemainWithinVerifiedHelperClosure (111 ms)
+[ RUN      ] SourceBodySnapshotsTest.SourceStageAndUnitKindAreFailClosed
+loc("accumulator_probe.py":5:1): error: 'ac.module' op source hardware op requires a source-stage implementation unit
+...
+[This part of the test output was removed since it exceeds the threshold of 1024 bytes.]
+</system-out>
+	</testcase>
+	<testcase name="ACIRSourceLinkAdmissionTests" classname="ACIRSourceLinkAdmissionTests" time="0.599911" status="run">
+		<properties/>
+		<system-out>Running main() from /private/tmp/googletest-20250910-5249-qce8ci/googletest-1.17.0/googletest/src/gtest_main.cc
+[==========] Running 5 tests from 1 test suite.
+[----------] Global test environment set-up.
+[----------] 5 tests from SourceLinkAdmissionTest
+[ RUN      ] SourceLinkAdmissionTest.CompleteUnitsAreOrderIndependent
+[       OK ] SourceLinkAdmissionTest.CompleteUnitsAreOrderIndependent (126 ms)
+[ RUN      ] SourceLinkAdmissionTest.MissingOrDuplicatePairsAreRejected
+[       OK ] SourceLinkAdmissionTest.MissingOrDuplicatePairsAreRejected (134 ms)
+[ RUN      ] SourceLinkAdmissionTest.MissingOrChangedOwnersAreRejected
+[       OK ] SourceLinkAdmissionTest.MissingOrChangedOwnersAreRejected (126 ms)
+[ RUN      ] SourceLinkAdmissionTest.StaleNamespaceBindingIsRejected
+[       OK ] SourceLinkAdmissionTest.StaleNamespaceBindingIsRejected (98 ms)
+[ RUN      ] SourceLinkAdmissionTest.BodyMetadataAndDeclarationSnapshotsMustMatch
+[       OK ] SourceLinkAdmissionTest.BodyMetadataAndDeclarationSnapshotsMustMatch (100 m...
+[This part of the test output was removed since it exceeds the threshold of 1024 bytes.]
+</system-out>
+	</testcase>
+	<testcase name="ACIRRegContractsTests" classname="ACIRRegContractsTests" time="0.561367" status="run">
+		<properties/>
+		<system-out>Running main() from /private/tmp/googletest-20250910-5249-qce8ci/googletest-1.17.0/googletest/src/gtest_main.cc
+[==========] Running 10 tests from 1 test suite.
+[----------] Global test environment set-up.
+[----------] 10 tests from RegContractsTest
+[ RUN      ] RegContractsTest.V08_RegUsesModuleClockResetAndRuleYieldsDEPair
+[       OK ] RegContractsTest.V08_RegUsesModuleClockResetAndRuleYieldsDEPair (34 ms)
+[ RUN      ] RegContractsTest.V08_RejectsForgedClockAndWrongProposalArity
+loc("counter.py":9:5): error: 'ac.reg' op source reg clock/reset must be enclosing module controls
+loc("counter.py":14:9): error: 'ac.source.use' op source use data and enabled must contribute to their target yield pair
+[       OK ] RegContractsTest.V08_RejectsForgedClockAndWrongProposalArity (37 ms)
+[ RUN      ] RegContractsTest.V08_RetiredDffSchemasDoNotParse
+loc("-":3:35): error: unknown  type `dff` in dialect `ac`
+loc("-":3:36): error: unknown  type `dffe` in dialect `ac`
+[       OK ] RegContractsTest.V08_RetiredDffSchemasDoNotP...
+[This part of the test output was removed since it exceeds the threshold of 1024 bytes.]
+</system-out>
+	</testcase>
+	<testcase name="ACIRSourceFactsTests" classname="ACIRSourceFactsTests" time="0.0106695" status="run">
+		<properties/>
+		<system-out>Running main() from /private/tmp/googletest-20250910-5249-qce8ci/googletest-1.17.0/googletest/src/gtest_main.cc
+[==========] Running 14 tests from 1 test suite.
+[----------] Global test environment set-up.
+[----------] 14 tests from SourceFactsTest
+[ RUN      ] SourceFactsTest.CanonicalReadAndNextUseCloseTheRuleYield
+[       OK ] SourceFactsTest.CanonicalReadAndNextUseCloseTheRuleYield (0 ms)
+[ RUN      ] SourceFactsTest.UseAndValueIdentitiesAreClosedAndTyped
+[       OK ] SourceFactsTest.UseAndValueIdentitiesAreClosedAndTyped (0 ms)
+[ RUN      ] SourceFactsTest.TwoTargetUsesOwnTheirCorrespondingYieldPairs
+[       OK ] SourceFactsTest.TwoTargetUsesOwnTheirCorrespondingYieldPairs (0 ms)
+[ RUN      ] SourceFactsTest.TwoTargetUsesRejectCrossPairFanoutAndSwap
+[       OK ] SourceFactsTest.TwoTargetUsesRejectCrossPairFanoutAndSwap (0 ms)
+[ RUN      ] SourceFactsTest.TwoTargetUseRejectsCombinerCrossTargetLeakage
+[       OK ] SourceFactsTest.TwoTargetUseRejectsCombinerCrossTargetLeakage (0 ms)
+[ RUN      ] SourceFacts...
+[This part of the test output was removed since it exceeds the threshold of 1024 bytes.]
+</system-out>
+	</testcase>
+	<testcase name="ACIRRuleEffectsTests" classname="ACIRRuleEffectsTests" time="0.251177" status="run">
+		<properties/>
+		<system-out>Running main() from /private/tmp/googletest-20250910-5249-qce8ci/googletest-1.17.0/googletest/src/gtest_main.cc
+[==========] Running 7 tests from 1 test suite.
+[----------] Global test environment set-up.
+[----------] 7 tests from RuleEffectsTest
+[ RUN      ] RuleEffectsTest.HeaderMatchesEffectsRecomputedFromActiveSourceFacts
+[       OK ] RuleEffectsTest.HeaderMatchesEffectsRecomputedFromActiveSourceFacts (34 ms)
+[ RUN      ] RuleEffectsTest.DeletedReadMarkerInvalidatesOwningHeader
+[       OK ] RuleEffectsTest.DeletedReadMarkerInvalidatesOwningHeader (33 ms)
+[ RUN      ] RuleEffectsTest.ForgedReadOriginInvalidatesOwningHeader
+[       OK ] RuleEffectsTest.ForgedReadOriginInvalidatesOwningHeader (32 ms)
+[ RUN      ] RuleEffectsTest.HeaderCannotDropOneRecomputedOrigin
+[       OK ] RuleEffectsTest.HeaderCannotDropOneRecomputedOrigin (33 ms)
+[ RUN      ] RuleEffectsTest.OneRuleRejectsDuplicateSourceReadOccurrence
+[       OK ] RuleEffectsTest.OneRuleRejectsDuplicateSourceReadOccurrence (34 ms)
+[ RUN      ] RuleEffe...
+[This part of the test output was removed since it exceeds the threshold of 1024 bytes.]
+</system-out>
+	</testcase>
+	<testcase name="ACIRModuleGraphTests" classname="ACIRModuleGraphTests" time="0.372991" status="run">
+		<properties/>
+		<system-out>Running main() from /private/tmp/googletest-20250910-5249-qce8ci/googletest-1.17.0/googletest/src/gtest_main.cc
+[==========] Running 5 tests from 1 test suite.
+[----------] Global test environment set-up.
+[----------] 5 tests from ModuleGraphTest
+[ RUN      ] ModuleGraphTest.HeaderOnlyParentAndCompleteBodiesAreAdmitted
+[       OK ] ModuleGraphTest.HeaderOnlyParentAndCompleteBodiesAreAdmitted (71 ms)
+[ RUN      ] ModuleGraphTest.GraphHasRootOrderedChildrenOwnersAndPostOrder
+[       OK ] ModuleGraphTest.GraphHasRootOrderedChildrenOwnersAndPostOrder (71 ms)
+[ RUN      ] ModuleGraphTest.GraphOwnsThreeStatesAndRelayIsOneStateID
+[       OK ] ModuleGraphTest.GraphOwnsThreeStatesAndRelayIsOneStateID (74 ms)
+[ RUN      ] ModuleGraphTest.BadControlAndRecursiveCalleeAreRejected
+[       OK ] ModuleGraphTest.BadControlAndRecursiveCalleeAreRejected (75 ms)
+[ RUN      ] ModuleGraphTest.ForeignAndMissingOrRepeatedActualsAreRejected
+[       OK ] ModuleGraphTest.ForeignAndMissingOrRepeatedActualsAreRejected (70 ms)
+[----------...
+[This part of the test output was removed since it exceeds the threshold of 1024 bytes.]
+</system-out>
+	</testcase>
+	<testcase name="ACIRFinalProgramTests" classname="ACIRFinalProgramTests" time="3.80968" status="run">
+		<properties/>
+		<system-out>Running main() from /private/tmp/googletest-20250910-5249-qce8ci/googletest-1.17.0/googletest/src/gtest_main.cc
+[==========] Running 54 tests from 7 test suites.
+[----------] Global test environment set-up.
+[----------] 2 tests from FinalGenericUsesTest
+[ RUN      ] FinalGenericUsesTest.FreshPackageRetainsOriginalUseLineageAndAllControlForms
+[       OK ] FinalGenericUsesTest.FreshPackageRetainsOriginalUseLineageAndAllControlForms (42 ms)
+[ RUN      ] FinalGenericUsesTest.RejectsMissingDuplicateRedirectedAndHiddenFacts
+loc("uses.py":15:5): error: 'ac.rule' op proof-scoped rule must retain ac.required_numeric
+loc("uses.py":15:5): error: 'ac.rule' op proof-scoped rule must retain ac.required_numeric
+loc("uses.py":17:22): error: 'ac.value.binding' op ProofScope must contain exactly 2 fields
+loc("uses.py":17:22): error: 'ac.value.binding' op rule proof_scope must match its registered occurrence
+loc("uses.py":17:22): error: 'ac.value.binding' op ValueBinding requires exact ID, domain and rule scope
+loc("uses.py":15...
+[This part of the test output was removed since it exceeds the threshold of 1024 bytes.]
+</system-out>
+	</testcase>
+	<testcase name="ACIRProposalContractsTests" classname="ACIRProposalContractsTests" time="0.396385" status="run">
+		<properties/>
+		<system-out>Running main() from /private/tmp/googletest-20250910-5249-qce8ci/googletest-1.17.0/googletest/src/gtest_main.cc
+[==========] Running 9 tests from 1 test suite.
+[----------] Global test environment set-up.
+[----------] 9 tests from ProposalContractsTest
+[ RUN      ] ProposalContractsTest.DifferentTargetsRemainIndependentWithoutPolicy
+[       OK ] ProposalContractsTest.DifferentTargetsRemainIndependentWithoutPolicy (42 ms)
+[ RUN      ] ProposalContractsTest.SourcePathValidAndProposalEnableStayDistinct
+[       OK ] ProposalContractsTest.SourcePathValidAndProposalEnableStayDistinct (43 ms)
+[ RUN      ] ProposalContractsTest.AlwaysOverlappingWritersRemainSourceFactsUntilLinkAnalysis
+[       OK ] ProposalContractsTest.AlwaysOverlappingWritersRemainSourceFactsUntilLinkAnalysis (36 ms)
+[ RUN      ] ProposalContractsTest.PossibleOverlapWithoutProofCarrierIsRejected
+[       OK ] ProposalContractsTest.PossibleOverlapWithoutProofCarrierIsRejected (41 ms)
+[ RUN      ] ProposalContractsTest.ConstantFalseProposalDoesNotBloc...
+[This part of the test output was removed since it exceeds the threshold of 1024 bytes.]
+</system-out>
+	</testcase>
+	<testcase name="ACIRRegRuntimeTests" classname="ACIRRegRuntimeTests" time="0.00195492" status="run">
+		<properties/>
+		<system-out>Running main() from /private/tmp/googletest-20250910-5249-qce8ci/googletest-1.17.0/googletest/src/gtest_main.cc
+[==========] Running 5 tests from 1 test suite.
+[----------] Global test environment set-up.
+[----------] 5 tests from RegRuntimeTest
+[ RUN      ] RegRuntimeTest.V10_DffePublishesOnlyEnabledWritesAtXfer
+[       OK ] RegRuntimeTest.V10_DffePublishesOnlyEnabledWritesAtXfer (0 ms)
+[ RUN      ] RegRuntimeTest.V11_ResetIsPendingAndWinsAtXfer
+[       OK ] RegRuntimeTest.V11_ResetIsPendingAndWinsAtXfer (0 ms)
+[ RUN      ] RegRuntimeTest.DuplicateWriteRejectsWithoutReplacingFirstPair
+[       OK ] RegRuntimeTest.DuplicateWriteRejectsWithoutReplacingFirstPair (0 ms)
+[ RUN      ] RegRuntimeTest.WriteAfterResetIsRejectedAndResetWinsAtXfer
+[       OK ] RegRuntimeTest.WriteAfterResetIsRejectedAndResetWinsAtXfer (0 ms)
+[ RUN      ] RegRuntimeTest.DiscardClearsPendingWriteAndPendingReset
+[       OK ] RegRuntimeTest.DiscardClearsPendingWriteAndPendingReset (0 ms)
+[----------] 5 tests from RegRuntimeTest (0 ms total)...
+[This part of the test output was removed since it exceeds the threshold of 1024 bytes.]
+</system-out>
+	</testcase>
+	<testcase name="ACIRSystemLifecycleTests" classname="ACIRSystemLifecycleTests" time="0.00582358" status="run">
+		<properties/>
+		<system-out>Running main() from /private/tmp/googletest-20250910-5249-qce8ci/googletest-1.17.0/googletest/src/gtest_main.cc
+[==========] Running 10 tests from 1 test suite.
+[----------] Global test environment set-up.
+[----------] 10 tests from SystemLifecycleTest
+[ RUN      ] SystemLifecycleTest.SystemOwnsFlatModuleLifecycle
+[       OK ] SystemLifecycleTest.SystemOwnsFlatModuleLifecycle (0 ms)
+[ RUN      ] SystemLifecycleTest.FinalizeBuildRunsOnceAfterEveryModuleBuild
+[       OK ] SystemLifecycleTest.FinalizeBuildRunsOnceAfterEveryModuleBuild (0 ms)
+[ RUN      ] SystemLifecycleTest.FailedFinalizeCannotBeRecoveredByReset
+[       OK ] SystemLifecycleTest.FailedFinalizeCannotBeRecoveredByReset (0 ms)
+[ RUN      ] SystemLifecycleTest.WorkReadsOldQAndPrecommitConsumesFrozenSlots
+[       OK ] SystemLifecycleTest.WorkReadsOldQAndPrecommitConsumesFrozenSlots (0 ms)
+[ RUN      ] SystemLifecycleTest.RejectedPrecommitDiscardsAllSlotsWithoutTransfer
+[       OK ] SystemLifecycleTest.RejectedPrecommitDiscardsAllSlotsWithoutTransfer (...
+[This part of the test output was removed since it exceeds the threshold of 1024 bytes.]
+</system-out>
+	</testcase>
+	<testcase name="ACIRSimExecutorTests" classname="ACIRSimExecutorTests" time="0.00205421" status="run">
+		<properties/>
+		<system-out>Running main() from /private/tmp/googletest-20250910-5249-qce8ci/googletest-1.17.0/googletest/src/gtest_main.cc
+[==========] Running 9 tests from 1 test suite.
+[----------] Global test environment set-up.
+[----------] 9 tests from SimExecutorTest
+[ RUN      ] SimExecutorTest.AdmissionStateRetryAndOutputPreservation
+[       OK ] SimExecutorTest.AdmissionStateRetryAndOutputPreservation (0 ms)
+[ RUN      ] SimExecutorTest.ConstructorRejectsBuildAndReportMetadataFailures
+[       OK ] SimExecutorTest.ConstructorRejectsBuildAndReportMetadataFailures (0 ms)
+[ RUN      ] SimExecutorTest.CanonicalConfigLimitsAndTiePriority
+[       OK ] SimExecutorTest.CanonicalConfigLimitsAndTiePriority (0 ms)
+[ RUN      ] SimExecutorTest.OldQCommitDiscardFailureAndResetRecovery
+[       OK ] SimExecutorTest.OldQCommitDiscardFailureAndResetRecovery (0 ms)
+[ RUN      ] SimExecutorTest.WorkExceptionUsesEvaluatePhaseAndResetRecovers
+[       OK ] SimExecutorTest.WorkExceptionUsesEvaluatePhaseAndResetRecovers (0 ms)
+[ RUN      ] SimExecutor...
+[This part of the test output was removed since it exceeds the threshold of 1024 bytes.]
+</system-out>
+	</testcase>
+	<testcase name="ACIRObservationTests" classname="ACIRObservationTests" time="0.00480504" status="run">
+		<properties/>
+		<system-out>Running main() from /private/tmp/googletest-20250910-5249-qce8ci/googletest-1.17.0/googletest/src/gtest_main.cc
+[==========] Running 7 tests from 1 test suite.
+[----------] Global test environment set-up.
+[----------] 7 tests from ObservationTest
+[ RUN      ] ObservationTest.ConfigureRequiresStableOrderAndUniqueDescriptors
+[       OK ] ObservationTest.ConfigureRequiresStableOrderAndUniqueDescriptors (0 ms)
+[ RUN      ] ObservationTest.SystemPublishesOldQInStableDescriptorOrder
+[       OK ] ObservationTest.SystemPublishesOldQInStableDescriptorOrder (0 ms)
+[ RUN      ] ObservationTest.EventBatchIsPerEpochAndFailureKeepsLastCommittedBatch
+[       OK ] ObservationTest.EventBatchIsPerEpochAndFailureKeepsLastCommittedBatch (0 ms)
+[ RUN      ] ObservationTest.PrecommitFailureDiscardsEventsAndGauges
+[       OK ] ObservationTest.PrecommitFailureDiscardsEventsAndGauges (0 ms)
+[ RUN      ] ObservationTest.CapacityOverflowFailsBeforeXfer
+[       OK ] ObservationTest.CapacityOverflowFailsBeforeXfer (0 ms)
+[ RUN      ] Obs...
+[This part of the test output was removed since it exceeds the threshold of 1024 bytes.]
+</system-out>
+	</testcase>
+	<testcase name="ACIRObservationContractsTests" classname="ACIRObservationContractsTests" time="0.04662" status="run">
+		<properties/>
+		<system-out>Running main() from /private/tmp/googletest-20250910-5249-qce8ci/googletest-1.17.0/googletest/src/gtest_main.cc
+[==========] Running 6 tests from 2 test suites.
+[----------] Global test environment set-up.
+[----------] 1 test from ObservationGraphContractsTest
+[ RUN      ] ObservationGraphContractsTest.BuiltObservationGraphVerifiesAndRejectsMutation
+[       OK ] ObservationGraphContractsTest.BuiltObservationGraphVerifiesAndRejectsMutation (36 ms)
+[----------] 1 test from ObservationGraphContractsTest (36 ms total)
+
+[----------] 5 tests from ObservationContractsTest
+[ RUN      ] ObservationContractsTest.CanonicalPrintLogAndReportParseAndVerify
+[       OK ] ObservationContractsTest.CanonicalPrintLogAndReportParseAndVerify (0 ms)
+[ RUN      ] ObservationContractsTest.RequiredObservationRejectsDeleteAndDuplicate
+[       OK ] ObservationContractsTest.RequiredObservationRejectsDeleteAndDuplicate (0 ms)
+[ RUN      ] ObservationContractsTest.RedirectedValueAndWrongPathAreRejected
+[       OK ] ObservationContractsTest...
+[This part of the test output was removed since it exceeds the threshold of 1024 bytes.]
+</system-out>
+	</testcase>
+	<testcase name="ACIRCheckContractsTests" classname="ACIRCheckContractsTests" time="0.195161" status="run">
+		<properties/>
+		<system-out>Running main() from /private/tmp/googletest-20250910-5249-qce8ci/googletest-1.17.0/googletest/src/gtest_main.cc
+[==========] Running 9 tests from 4 test suites.
+[----------] Global test environment set-up.
+[----------] 4 tests from CheckContractsTest
+[ RUN      ] CheckContractsTest.CanonicalAssertCheckParsesAndVerifies
+[       OK ] CheckContractsTest.CanonicalAssertCheckParsesAndVerifies (0 ms)
+[ RUN      ] CheckContractsTest.RequiredCheckRejectsDeleteAndDuplicate
+loc("checks.py":9:9): error: 'ac.rule' op rule required checks must match actual source checks
+loc("checks.py":9:9): error: 'ac.rule' op rule required checks must match actual source checks
+[       OK ] CheckContractsTest.RequiredCheckRejectsDeleteAndDuplicate (0 ms)
+[ RUN      ] CheckContractsTest.RedirectedConditionAndPathReject
+loc("checks.py":9:9): error: 'ac.expect' op source check condition must be an exact direct bool SourceRead
+loc("checks.py":9:9): error: 'ac.expect' op source check path cannot redirect its condition
+[       OK ] CheckContr...
+[This part of the test output was removed since it exceeds the threshold of 1024 bytes.]
+</system-out>
+	</testcase>
+	<testcase name="ACIRBackendClosureTests" classname="ACIRBackendClosureTests" time="1.17621" status="run">
+		<properties/>
+		<system-out>Running main() from /private/tmp/googletest-20250910-5249-qce8ci/googletest-1.17.0/googletest/src/gtest_main.cc
+[==========] Running 6 tests from 2 test suites.
+[----------] Global test environment set-up.
+[----------] 5 tests from BackendClosureTest
+[ RUN      ] BackendClosureTest.V31_OneVerifiedFinalGraphFeedsBothBackends
+[       OK ] BackendClosureTest.V31_OneVerifiedFinalGraphFeedsBothBackends (744 ms)
+[ RUN      ] BackendClosureTest.V31_ResidualSourceFactsRejectBeforePublication
+[       OK ] BackendClosureTest.V31_ResidualSourceFactsRejectBeforePublication (131 ms)
+[ RUN      ] BackendClosureTest.V31_ForgedStageProofAndTargetSwapReject
+[       OK ] BackendClosureTest.V31_ForgedStageProofAndTargetSwapReject (122 ms)
+[ RUN      ] BackendClosureTest.V29_PermitProjectionMustReachEveryCommit
+[       OK ] BackendClosureTest.V29_PermitProjectionMustReachEveryCommit (127 ms)
+[ RUN      ] BackendClosureTest.V30_ErrorCannotDependOnPostGatedEnable
+[       OK ] BackendClosureTest.V30_ErrorCannotDependOnPostGatedEnab...
+[This part of the test output was removed since it exceeds the threshold of 1024 bytes.]
+</system-out>
+	</testcase>
+	<testcase name="ACIRExecutableBackendClosureTests" classname="ACIRExecutableBackendClosureTests" time="6.7868" status="run">
+		<properties/>
+		<system-out>Running main() from /private/tmp/googletest-20250910-5249-qce8ci/googletest-1.17.0/googletest/src/gtest_main.cc
+[==========] Running 18 tests from 8 test suites.
+[----------] Global test environment set-up.
+[----------] 1 test from ExecutableBackendClosureTest
+[ RUN      ] ExecutableBackendClosureTest.SameEmitReadyProgramExecutesCppAndVerilogCycleOracle
+[       OK ] ExecutableBackendClosureTest.SameEmitReadyProgramExecutesCppAndVerilogCycleOracle (851 ms)
+[----------] 1 test from ExecutableBackendClosureTest (851 ms total)
+
+[----------] 4 tests from NumericNextBackendTest
+[ RUN      ] NumericNextBackendTest.GraphsAcceptOnlyTheExactValueUsePacket
+loc("counter.py":11:5): error: 'ac.rule' op U1 ValueUse does not bind the required boundary value
+error: source rule effects require verified numeric next-state closure
+loc("counter.py":11:5): error: 'ac.rule' op U1 YieldBinding is not the exact scalar contribution
+error: source rule effects require verified numeric next-state closure
+loc("counter.py":11:5): error: 'a...
+[This part of the test output was removed since it exceeds the threshold of 1024 bytes.]
+</system-out>
+	</testcase>
+</testsuite>

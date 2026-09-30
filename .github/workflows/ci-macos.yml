@@ -58,7 +58,7 @@ jobs:
           wheel="$(basename dist/pycircuit_hisi-*.whl)"
           [[ "${wheel}" == pycircuit_hisi-*-py3-none-*.whl ]]
 
-      - name: Check the single wheel carries both compilers and both frontends
+      - name: Check the wheel carries one source compiler and one runtime
         run: |
           python - <<'PY'
           import pathlib, zipfile
@@ -73,17 +73,21 @@ jobs:
 
           required = {
               "pycircuit/__init__.py",
-              "_pycircuit_semantics/__init__.py",
-              "agentic_circuit/__init__.py",
-              "pycircuit/_toolchain/bin/pycc",
-              "pycircuit/_toolchain/bin/acc",
+              "pycircuit/_toolchain/bin/acir-source-unit-harness",
+              "pycircuit/_toolchain/bin/acir-design-harness",
+              "pycircuit/_toolchain/bin/acir-cpp-source-parts-harness",
           }
           missing = sorted(name for name in required if name not in names)
           if missing:
               raise SystemExit(f"single wheel is missing {missing}")
-          for script in ("pyc-opt", "pycircuit", "pycc", "acc", "acc.py", "agentic-circuit"):
-              if f"\n{script} = " not in f"\n{entry_points}":
-                  raise SystemExit(f"single wheel does not provide the {script} console script")
+          if "\npycircuit = " not in f"\n{entry_points}":
+              raise SystemExit("wheel does not provide the pycircuit driver")
+          retired = ("pyc-opt", "pycc", "acc", "acc.py", "agentic-circuit")
+          if any(f"\n{name} = " in f"\n{entry_points}" for name in retired):
+              raise SystemExit("wheel provides a retired compiler entry point")
+          for name in ("agentic_circuit/", "_pycircuit_semantics/"):
+              if any(path.startswith(name) for path in names):
+                  raise SystemExit(f"wheel contains a retired Python package: {name}")
           PY
 
       - name: Run example compile gate
@@ -104,6 +108,9 @@ jobs:
           export PYC_USE_INSTALLED_PYTHON_PACKAGE=1
           unset PYCC
           bash flows/scripts/run_examples.sh
+
+      - name: Check installed toolchain retirement inventory
+        run: python flows/tools/check_m5_retirement.py --install-root "$PWD/.pycircuit_out/toolchain/install"
 
       - name: Upload wheel
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7

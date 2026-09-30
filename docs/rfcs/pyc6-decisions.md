@@ -12076,3 +12076,51 @@ acceptance fixture, no golden-file comparison standing in for determinism, and
 no claim that a tautological obligation assertion enforces the obligation at
 runtime. Unqualified, ambiguous, or out-of-range selections reject before
 backend emit.
+
+## Decision 0283: approved source-unit hardware cutover for the scalar profile
+
+**Status:** Accepted and verified for the declared M5 profile; see the 2026-10-01 M5 review.
+
+**Authority:** C1-C, C2-C/C3-C, C2-DECL A, R1 B, M1 C and C3-SM B user
+approvals under `docs/rfcs/migration/approvals/`. This entry consolidates those
+approvals; it adds no primitive, schema or source capability.
+
+The current product route captures one Python source without executing it,
+resolves source-owned interface headers in MLIR, links a verified common final
+hardware design, and emits source-owned C++ or Verilog. Persistent state is
+`ac.reg`; rules have no internal persistent state and propose next values.
+Only the system Xfer stage publishes state. Aliases share storage without
+relay/double registers. The Python surface is function `@module` and nested
+`@rule`, with compile-time `log`/`report`; no queues, builder/JIT or eager
+simulation fallback. `@system` full role/EXPECT revision B remains unapproved.
+
+Public commands are `pycircuit compile`, `link`, and `emit`; the recommended
+final artifact is `design_top.ac`. Generated CMake builds independent source
+TUs with one `pycircuit::pyc6_runtime`. Runtime consumers need no LLVM;
+CompilerDev requires LLVM/MLIR 22.1.8. Model ABI v1 remains, generator ABI is 2.
+Standard runner output is silent without explicit `--events`; source checks
+and report gauges still execute. Both backends use the same final semantics
+and serial SimExecutor/SystemRunner lifecycle. There is no second scheduler.
+
+Within the explicitly supported portless/default-clock/empty-static-argument
+scalar profile, this supersedes old source/engine/entrypoint clauses of 0136,
+0148, 0150, 0236, 0246–0247, 0252–0256, 0264, 0267, 0270 and 0274–0278.
+C3 nonsemantic receipt/journal ownership replaces 0267's manifest prohibition;
+no content hashes enter IR identity or generated names. C3-SM precisely replaces
+0250/0266 output-map guarantees with per-owner retained-origin inventories;
+source provenance preservation remains required. Detailed source-mapping
+precision limits and decision deltas are frozen in C3-SM B.
+
+Consumer neutrality (0158/0235), meaningful source diagnostics (0242), preserved
+ABI/SDK principles (0232/0233/0265), external release identity (0268), and
+semantic/implementation separation (0161/0282) remain applicable. Retiring an
+old implementation does not deliver unsupported memory, CDC, queues/buffer
+libraries, four-state logic, complex static parameters or parallel scheduling.
+Those require their M3/M6 capability work and independent oracles.
+
+Acceptance requires installed compile/link/emit/build/run, both backends on
+one saved final artifact, preservation on invalid input/replacement, exact
+source ownership, map validation, Runtime-only and CompilerDev consumers, and
+static plus dynamic proof of old-route retirement. See the M5 work item and
+retirement ledger for candidate evidence; historical gates are not current
+acceptance.

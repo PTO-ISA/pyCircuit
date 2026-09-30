@@ -21,7 +21,6 @@ from typing import Any
 ROOT = Path(__file__).resolve().parents[2]
 SDK_SCHEMA_NAMES = (
     "consumer-lock.schema.json",
-    "emitted-cost.schema.json",
     "release-index.schema.json",
     "sdk-manifest.schema.json",
     "sdk-version-map.schema.json",
@@ -619,14 +618,11 @@ def main() -> int:
             "distributions": version_map["distributions"],
             "abi": version_map["contracts"],
             "capabilities": [
-                "cycle-aware-signal",
-                "pyc-cpp",
-                "pyc-verilog",
-                "acc-source-to-ac",
-                "acc-cpp",
-                "acc-cpp-bundle",
-                "acc-verilog",
-                "gfsim-runtime-v1",
+                "pycircuit-pythonic-source",
+                "pycircuit-source-units",
+                "pycircuit-cpp",
+                "pycircuit-verilog",
+                "pyc6-runtime-v1",
             ],
             "runtime_dependencies": runtime_dependencies(stage, args.platform),
             "self_path": self_path,

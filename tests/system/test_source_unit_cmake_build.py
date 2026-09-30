@@ -24,11 +24,7 @@ pytestmark = pytest.mark.system
 
 _REPO = Path(__file__).resolve().parents[2]
 _FIXTURE = _REPO / "tests" / "integration" / "agentic-circuit" / "source-unit-build"
-_IMPORT_ROOTS = (
-    _REPO / "python" / "pycircuit" / "src",
-    _REPO / "python" / "semantic-core" / "src",
-    _REPO / "python" / "agentic-circuit" / "src",
-)
+_IMPORT_ROOTS = (_REPO / "python" / "pycircuit" / "src",)
 _CLI = "import sys; from pycircuit.cli import main; sys.exit(main(sys.argv[1:]))"
 _SOURCE_NAMES = ("types", "child", "parent", "independent")
 

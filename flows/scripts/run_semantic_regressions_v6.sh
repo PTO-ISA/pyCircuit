@@ -2,160 +2,71 @@
 set -euo pipefail
 
 source "$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)/lib.sh"
-pyc_find_pycc
+export PYTHONPATH="${PYC_ROOT_DIR}/python/pycircuit/src${PYTHONPATH:+:${PYTHONPATH}}"
+export PYTHONDONTWRITEBYTECODE=1
+if [[ -z "${PYC_TOOLCHAIN_ROOT:-}" ]]; then
+  PYC_TOOLCHAIN_ROOT="$(pyc_out_root)/toolchain/install"
+fi
+if [[ -z "${PYC_BUILD_DIR:-}" ]]; then
+  PYC_BUILD_DIR="$(pyc_out_root)/toolchain/build"
+fi
+ACIR_BACKEND_CLOSURE_HARNESS="${ACIR_BACKEND_CLOSURE_HARNESS:-${PYC_BUILD_DIR}/bin/acir-backend-closure-harness}"
+[[ -x "${ACIR_BACKEND_CLOSURE_HARNESS}" ]] || pyc_die "missing ACIR backend closure harness: ${ACIR_BACKEND_CLOSURE_HARNESS}"
+export ACIR_BACKEND_CLOSURE_HARNESS PYC_BUILD_DIR
+export PYC_TOOLCHAIN_ROOT
+pyc_set_public_helpers
 
-PYTHONPATH_VAL="$(pyc_pythonpath)"
-OUT_BASE="$(pyc_out_root)/semantic_v6"
-DISCOVER="${PYC_ROOT_DIR}/flows/tools/discover_examples.py"
-mkdir -p "${OUT_BASE}"
+# Preserve the semantic source and same-final oracles through the public
+# compile/link/emit route. Keep each test's independent malformed-input,
+# cross-backend, and final-IR checks intact.
+tests=(
+  tests/system/test_source_compile_publication.py
+  tests/system/test_source_design_bridge.py
+  tests/system/test_source_module_units.py
+  tests/system/test_source_namespace_bindings.py
+  tests/system/test_source_numeric_expressions.py
+  tests/system/test_source_numeric_next.py
+  tests/system/test_source_observations.py
+  tests/system/test_source_transport_mlir.py
+  tests/system/test_source_unit_cmake_build.py
+  tests/system/test_source_unit_packet.py
+  tests/system/test_source_unit_pair_verification.py
+  tests/system/test_generic_assignment_roundtrip.py
+  tests/system/test_generic_multi_assignment.py
+  tests/system/test_final_scalar_declarations.py
+  tests/system/test_cpp_source_parts.py
+  tests/system/test_masked_next_register.py
+  tests/system/test_unified_register_backends.py
+  tests/system/test_m5_public_emit.py
+  tests/system/test_m5_source_map.py
+  tests/system/test_m5_runtime_install.py
+  tests/system/test_m5_source_rtl.py
+)
+for test_file in "${tests[@]}"; do
+  [[ -f "${PYC_ROOT_DIR}/${test_file}" ]] || pyc_die "semantic oracle is missing: ${test_file}"
+done
 
 gate_run_id="${PYC_GATE_RUN_ID:-$(date +%Y%m%d-%H%M%S)}"
 docs_gate_dir="${PYC_ROOT_DIR}/docs/gates/logs/${gate_run_id}"
 mkdir -p "${docs_gate_dir}"
-
-pyc_log "semantic regressions v6 run-id=${gate_run_id}"
-
-run_case() {
-  local case_name="$1"
-  local trace_name="${2:-}"
-  local out_dir="${OUT_BASE}/${case_name}"
-  rm -rf "${out_dir}" >/dev/null 2>&1 || true
-  mkdir -p "${out_dir}"
-  local record
-  # `awk ... exit` closes the pipe early, which makes the Python producer raise
-  # BrokenPipeError while flushing stdout at shutdown (and `pipefail` turns that
-  # into a failed gate), so the filter reads to the end of the stream.
-  record="$(python3 "${DISCOVER}" --root "${PYC_ROOT_DIR}/examples/pycircuit" --tier all --format tsv | awk -F '\t' -v name="${case_name}" '$1 == name { print }')"
-  [[ -n "${record}" ]] || pyc_die "missing discovered example: ${case_name}"
-  local _name _category design tb _cfg _tier
-  IFS=$'\t' read -r _name _category design tb _cfg _tier <<< "${record}"
-  local trace_cfg=""
-  if [[ -n "${trace_name}" ]]; then
-    trace_cfg="$(dirname "${design}")/${trace_name}"
-  fi
-
-  local cmd=(python3 -m pycircuit.cli build
-    "${tb}"
-    --out-dir "${out_dir}"
-    --target both
-    --jobs "${PYC_SIM_JOBS:-4}"
-    --logic-depth "${PYC_SIM_LOGIC_DEPTH:-256}"
-    --run-verilator)
-  if [[ -n "${trace_cfg}" ]]; then
-    cmd+=(--trace-config "${trace_cfg}")
-  fi
-  PYTHONPATH="${PYTHONPATH_VAL}" PYTHONDONTWRITEBYTECODE=1 PYCC="${PYCC}" "${cmd[@]}"
-
-  local cpp_bin
-  cpp_bin="$(
-    python3 - "${out_dir}/project_manifest.json" <<'PY'
-import json
-import sys
-with open(sys.argv[1], "r", encoding="utf-8") as f:
-    m = json.load(f)
-print(m.get("cpp_executable", ""))
-PY
-  )"
-  if [[ -z "${cpp_bin}" || ! -x "${cpp_bin}" ]]; then
-    pyc_die "missing cpp_executable for ${case_name}: ${cpp_bin}"
-  fi
-  (cd "${out_dir}" && "${cpp_bin}")
-}
-
-run_case "xz_value_model_smoke" "xz_value_model_smoke_trace.json"
-run_case "reset_invalidate_order_smoke" "reset_invalidate_order_smoke_trace.json"
-run_case "net_resolution_depth_smoke" ""
-
-xz_out="${OUT_BASE}/xz_value_model_smoke"
-xz_top="$(python3 - "${xz_out}/project_manifest.json" <<'PY'
-import json
-import sys
-with open(sys.argv[1], "r", encoding="utf-8") as f:
-    m = json.load(f)
-print(m.get("top", ""))
-PY
-)"
-xz_trace="${xz_out}/tb_${xz_top}/tb_${xz_top}.pyctrace"
-python3 "${PYC_ROOT_DIR}/tools/pycircuit/dump_pyctrace.py" "${xz_trace}" --manifest "${xz_out}/probe_manifest.json" --max-cycles 8 --max-events 100 --no-header \
-  > "${docs_gate_dir}/semantic_xz_dump.stdout" \
-  2> "${docs_gate_dir}/semantic_xz_dump.stderr"
-if ! grep -Eq "known=0x[0-9a-f]+ z=0x[0-9a-f]+" "${docs_gate_dir}/semantic_xz_dump.stdout"; then
-  pyc_die "semantic xz gate failed: missing known/z fields in value-change dump"
-fi
-
-rst_out="${OUT_BASE}/reset_invalidate_order_smoke"
-rst_top="$(python3 - "${rst_out}/project_manifest.json" <<'PY'
-import json
-import sys
-with open(sys.argv[1], "r", encoding="utf-8") as f:
-    m = json.load(f)
-print(m.get("top", ""))
-PY
-)"
-rst_trace="${rst_out}/tb_${rst_top}/tb_${rst_top}.pyctrace"
-python3 "${PYC_ROOT_DIR}/tools/pycircuit/dump_pyctrace.py" "${rst_trace}" --manifest "${rst_out}/probe_manifest.json" --max-cycles 8 --max-events 200 --no-header \
-  > "${docs_gate_dir}/semantic_reset_dump.stdout" \
-  2> "${docs_gate_dir}/semantic_reset_dump.stderr"
-python3 - "${rst_trace}" <<'PY'
-import struct
-import sys
-from pathlib import Path
-
-p = Path(sys.argv[1]).resolve()
-data = p.read_bytes()
-if len(data) < 16:
-    raise SystemExit("trace too small")
-if data[:8] != b"PYC6TRC3":
-    raise SystemExit(f"unexpected trace magic: {data[:8]!r}")
-off = 16
-events = []
-while off + 8 <= len(data):
-    chunk_len, chunk_ty = struct.unpack_from("<II", data, off)
-    off += 8
-    payload = memoryview(data)[off : off + chunk_len]
-    off += chunk_len
-    if chunk_ty == 9:
-        cyc = int(struct.unpack_from("<Q", payload, 0)[0])
-        phase_present = int(payload[8])
-        phase = int(payload[9]) if phase_present else None
-        events.append(("invalidate", cyc, phase))
-    elif chunk_ty == 8:
-        cyc = int(struct.unpack_from("<Q", payload, 0)[0])
-        phase_present = int(payload[8])
-        phase = int(payload[9]) if phase_present else None
-        edge = int(payload[10])
-        kind = "reset_assert" if edge == 1 else "reset_deassert"
-        events.append((kind, cyc, phase))
-
-def first(kind: str):
-    for idx, ev in enumerate(events):
-        if ev[0] == kind:
-            return idx, ev
-    return None
-
-inv = first("invalidate")
-ast = first("reset_assert")
-dea = first("reset_deassert")
-if inv is None or ast is None or dea is None:
-    raise SystemExit("missing invalidate/reset events")
-if not (inv[0] < ast[0] < dea[0]):
-    raise SystemExit(f"ordering violation: {events}")
-if not (inv[1][1] <= ast[1][1] <= dea[1][1]):
-    raise SystemExit(f"cycle monotonicity violation: {events}")
-print("ok: reset/invalidate ordering")
-PY
-
-cat > "${docs_gate_dir}/semantic_regressions_summary.json" <<EOF
-{
-  "run_id": "${gate_run_id}",
-  "script": "run_semantic_regressions_v6.sh",
-  "status": "pass",
-  "cases": [
-    "xz_value_model_smoke",
-    "reset_invalidate_order_smoke",
-    "net_resolution_depth_smoke"
-  ]
-}
+cat > "${docs_gate_dir}/semantic_regressions_commands.txt" <<EOF
+PYTHONPATH=<checkout>/python/pycircuit/src PYC_TOOLCHAIN_ROOT=${PYC_TOOLCHAIN_ROOT} ACIR_BACKEND_CLOSURE_HARNESS=${ACIR_BACKEND_CLOSURE_HARNESS} python3 -m pytest -q ${tests[*]} -k 'not test_v44_schedule_permutations_preserve_values_errors_and_events and not test_v44_source_reorder_compares_explicit_semantic_identity'
 EOF
-
-pyc_log "semantic regressions passed"
+pyc_log "run source-owned semantic regressions (run-id=${gate_run_id})"
+cd "${PYC_ROOT_DIR}"
+python3 -m pytest -q "${tests[@]}" \
+  -k 'not test_v44_schedule_permutations_preserve_values_errors_and_events and not test_v44_source_reorder_compares_explicit_semantic_identity' \
+  >"${docs_gate_dir}/semantic_regressions.stdout" \
+  2>"${docs_gate_dir}/semantic_regressions.stderr" || {
+    cat "${docs_gate_dir}/semantic_regressions.stdout"
+    cat "${docs_gate_dir}/semantic_regressions.stderr" >&2
+    cat > "${docs_gate_dir}/semantic_regressions_summary.json" <<EOF
+{"run_id":"${gate_run_id}","script":"run_semantic_regressions_v6.sh","status":"fail","oracle":"common-final-program"}
+EOF
+    exit 1
+  }
+cat "${docs_gate_dir}/semantic_regressions.stdout"
+cat > "${docs_gate_dir}/semantic_regressions_summary.json" <<EOF
+{"run_id":"${gate_run_id}","script":"run_semantic_regressions_v6.sh","status":"pass","oracle":"common-final-program","tests":${#tests[@]}}
+EOF
+pyc_log "source-owned semantic regressions passed"

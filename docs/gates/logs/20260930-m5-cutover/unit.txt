@@ -1,0 +1,29 @@
+============================= test session starts ==============================
+platform darwin -- Python 3.14.6, pytest-9.0.2, pluggy-1.6.0
+rootdir: /Users/zhoubot/.codex/worktrees/migration-capture/pyCircuit
+configfile: pyproject.toml
+collected 391 items / 79 deselected / 312 selected
+
+tests/unit/test_artifact_verify.py ....                                  [  1%]
+tests/unit/test_documentation_layout.py ....                             [  2%]
+tests/unit/test_example_layout.py ...                                    [  3%]
+tests/unit/test_gate_topology.py .............                           [  7%]
+tests/unit/test_generated_bundle.py .................................... [ 19%]
+...........................                                              [ 27%]
+tests/unit/test_generated_rtl_audit.py ........                          [ 30%]
+tests/unit/test_m4_runner_protocol.py ..........                         [ 33%]
+tests/unit/test_primitive_catalog.py ...........                         [ 37%]
+tests/unit/test_publication.py ......................................... [ 50%]
+..................................                                       [ 61%]
+tests/unit/test_publication_fs.py ............sss                        [ 66%]
+tests/unit/test_release_evidence_and_platform_constraints.py ....        [ 67%]
+tests/unit/test_repository_layout.py .........                           [ 70%]
+tests/unit/test_sdk_verify_helpers.py .............                      [ 74%]
+tests/unit/test_source_capture.py ....................................   [ 85%]
+tests/unit/test_source_transport.py .............                        [ 90%]
+tests/unit/test_source_unit_files.py .........................           [ 98%]
+tests/unit/test_toolchain_compiler_requirements.py ....                  [ 99%]
+tests/unit/test_tutorial_snippets.py ..                                  [100%]
+
+- generated xml file: /Users/zhoubot/.codex/worktrees/migration-capture/pyCircuit/docs/gates/logs/20260930-m5-cutover/unit.xml -
+================ 309 passed, 3 skipped, 79 deselected in 6.27s =================

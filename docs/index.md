@@ -1,68 +1,50 @@
-# pyCircuit 6 Documentation
+# pyCircuit documentation
 
-pyCircuit 6 is a Python hardware construction language built around
-CycleAwareSignal. The frontend tracks logical-cycle provenance, lowers
-automatic pipeline balancing to explicit `pyc` MLIR, and emits C++ and Verilog
-from the same verified design.
+pyCircuit captures a bounded Python hardware description, verifies a common
+hardware design in MLIR, and emits C++ or Verilog from the saved final artifact.
+The active workflow has one route:
 
-The repository also hosts the separate `agentic_circuit` architecture-modeling
-frontend, ACIR dialect, ACC compiler, and gfsim runtime. Synthesizable ACIR models join
-the pyCircuit 6 flow at verified PYC; the Python and MLIR frontend namespaces do
-not collapse into one API.
+```text
+Python source units → verified final design → C++ or Verilog
+```
 
-## Documentation map
-
-| Directory | Audience and content |
-| --- | --- |
-| `getting-started/` | Installation, frontend selection, quickstart, and tutorial |
-| `reference/` | Normative language, API, PYC IR, diagnostics, and testbench contracts |
-| `architecture/` | Compiler, cycle balancing, and simulation design |
-| `acir/` | Agentic Circuit and ACIR specifications, designs, and historical provenance |
-| `development/` | Contributor workflows, gates, release contracts, and inventories |
-| `rfcs/` | Accepted decisions and active proposals |
-| `research/` | Comparative studies that inform, but do not define, the product contract |
-| `gates/` | Decision status plus immutable validation evidence |
-| `legal/` | Licensing and provenance records |
-
-Only `index.md` and the active `pyc6-plan.md` remain at the documentation root.
-Historical gate logs retain their original paths.
+The currently approved M5 source profile uses portless function `@module`
+definitions, nested `@rule` functions with explicit registration, one default
+clock, finite scalar state, and empty static arguments. This is the accepted
+contract; candidate verification and hard-break retirement remain in progress
+(Decision 0283).
 
 ## Start here
 
-- [Install pyCircuit](getting-started/installation.md)
-- [Choose between `pycircuit` and `agentic_circuit`](getting-started/choose-a-frontend.md)
-- [Follow the V6 tutorial](getting-started/tutorial.md)
-- [Read the V6 language specification](reference/language.md)
-- [Understand the software architecture](architecture/overview.md)
+- [Install](getting-started/installation.md)
+- [Quickstart](getting-started/quickstart.md)
+- [Current M5 profile and migration](development/m5-migration.md)
+- [Language reference](reference/language.md)
+- The source-owned counter example is at `examples/pycircuit/counter/`.
 
-## Core contracts
+The example builds from an installed prefix and demonstrates per-source
+compile, explicit link, both emit targets, and the generated Runtime runner.
 
-- CycleAwareSignal is the canonical scalar signal model.
-- `domain.next()` advances the authoring-time logical cycle.
-- `domain.signal()` plus `<<=` or `.assign()` infers state.
-- Mixed-cycle expressions are balanced with explicit delay registers.
-- MLIR defines semantics; C++ and Verilog must remain equivalent.
-- TICK-OBS and XFER-OBS define backend-stable observation points.
+## Documentation map
 
-## Reference
+| Section | Purpose |
+| --- | --- |
+| `getting-started/` | Installation and the current compile/link/emit workflow |
+| `reference/` | Current source contract plus explicit retirement notes for older APIs |
+| `architecture/` | Current pipeline overview and status of retired architecture features |
+| `development/` | Contributor workflow, gates, governance, and migration status |
+| `rfcs/` | Decision history and frozen contract proposals |
+| `acir/`, `research/` | Historical specifications and research records; not active product routes |
+| `gates/` | Decision register and candidate-bound evidence |
 
-- [Frontend API](reference/frontend-api.md)
-- [Testbench API](reference/testbench.md)
-- [Primitive reference](reference/primitives.md)
-- [IR specification](reference/pyc-ir.md)
-- [Diagnostics](reference/diagnostics.md)
-- [Sidecar schedule](reference/sidecar-schedule.md)
-- [Agentic Circuit and ACIR](acir/index.md)
-- [Historical repository record](acir/spec/refs/history.md)
+## Build profiles
 
-## Development and governance
+Compiler development requires exact LLVM/MLIR 22.1.8. Generated-model Runtime
+consumers use `find_package(pycircuit CONFIG REQUIRED COMPONENTS Runtime)` and
+`pycircuit::pyc6_runtime`; this profile does not require LLVM. See
+[installation](getting-started/installation.md).
 
-- [Development guide](development/index.md)
-- [Testing and gates](development/testing-and-gates.md)
-- [Repository management](development/repository-management.md)
-- [Repository layout](development/repository-layout.md)
-- [pyCircuit 6 decisions](rfcs/pyc6-decisions.md)
-- [pyCircuit 6 evolution plan](pyc6-plan.md)
-
-Historical gate logs and compatibility identifiers may retain earlier version
-labels. They are evidence and ABI names, not the current product version.
+Unsupported capabilities, including queues, a complete `@system` contract,
+memory/CDC, multiple clocks, four-state source values, and external typed
+ports, fail closed. They are backlog items requiring their own approved
+contracts, not implicit support in the scalar profile.

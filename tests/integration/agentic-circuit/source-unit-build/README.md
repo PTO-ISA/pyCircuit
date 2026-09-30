@@ -47,11 +47,11 @@ TOOLCHAIN="$REPO/.pycircuit_out/w10-pm/build"
 cmake -S "$FIXTURE" -B "$BUILD_DIR" -G Ninja \
   -DPYCIRCUIT_REPOSITORY_ROOT="$REPO" \
   -DPYCIRCUIT_PYTHON_EXECUTABLE="$(command -v python3)" \
-  "-DPYCIRCUIT_IMPORT_ROOTS=$REPO/python/pycircuit/src;$REPO/python/semantic-core/src;$REPO/python/agentic-circuit/src" \
+  "-DPYCIRCUIT_IMPORT_ROOTS=$REPO/python/pycircuit/src" \
   -DPYCIRCUIT_SOURCE_UNIT_HARNESS="$TOOLCHAIN/bin/acir-source-unit-harness" \
   -DPYCIRCUIT_DESIGN_HARNESS="$TOOLCHAIN/bin/acir-design-harness" \
   -DPYCIRCUIT_OUTPUT_ROOT="$BUILD_DIR/generated units" \
-  "-DPYCIRCUIT_TOOLCHAIN_CONFIG=$REPO/pyproject.toml;$REPO/python/semantic-core/pyproject.toml;$REPO/python/agentic-circuit/pyproject.toml;$TOOLCHAIN/pycircuitConfig.cmake;$TOOLCHAIN/toolchain-metadata.json"
+  "-DPYCIRCUIT_TOOLCHAIN_CONFIG=$REPO/pyproject.toml;$TOOLCHAIN/pycircuitConfig.cmake;$TOOLCHAIN/toolchain-metadata.json"
 
 cmake --build "$BUILD_DIR" --target source-unit-all
 ```
@@ -89,7 +89,7 @@ The custom commands above run these same public commands. They always pass
 same owner on a later build.
 
 ```sh
-export PYTHONPATH="$REPO/python/pycircuit/src:$REPO/python/semantic-core/src:$REPO/python/agentic-circuit/src"
+export PYTHONPATH="$REPO/python/pycircuit/src"
 export ACIR_SOURCE_UNIT_HARNESS="$TOOLCHAIN/bin/acir-source-unit-harness"
 export ACIR_DESIGN_HARNESS="$TOOLCHAIN/bin/acir-design-harness"
 

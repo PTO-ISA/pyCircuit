@@ -30,9 +30,7 @@ foreach(_helper _unit_helper _design_helper _parts_helper)
   endif()
 endforeach()
 set(_roots
-  "${PYCIRCUIT_REPOSITORY_ROOT}/python/pycircuit/src"
-  "${PYCIRCUIT_REPOSITORY_ROOT}/python/semantic-core/src"
-  "${PYCIRCUIT_REPOSITORY_ROOT}/python/agentic-circuit/src")
+  "${PYCIRCUIT_REPOSITORY_ROOT}/python/pycircuit/src")
 if(WIN32)
   set(_sep ";")
 else()

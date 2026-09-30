@@ -1,4 +1,3 @@
-#include "gfsim/observation.h"
 #include "gfsim/ObservationSlot.h"
 #include "gfsim/SimDFF.h"
 #include "gfsim/SimModule.h"
@@ -10,12 +9,6 @@
 #include <cstdlib>
 #include <new>
 #include <vector>
-
-#if __has_include("Compiler/ObservationGraph.h")
-#define ACIR_HAS_OBSERVATION_GRAPH 1
-#else
-#define ACIR_HAS_OBSERVATION_GRAPH 0
-#endif
 
 namespace {
 std::atomic<bool> trackAllocations{false};
@@ -35,15 +28,6 @@ void operator delete(void *storage, std::size_t) noexcept {
 }
 
 namespace {
-
-gfsim::EventProposal event(gfsim::ObjectId owner, std::string name,
-                           uint64_t value) {
-  return {.ownerId = owner,
-          .category = "log",
-          .name = std::move(name),
-          .phase = gfsim::TraceEventPhase::Instant,
-          .arguments = {{"value", value}}};
-}
 
 gfsim::ObservationDescriptor descriptor(uint32_t ordinal, uint64_t owner,
                                         uint64_t registration, uint64_t site,
@@ -128,49 +112,6 @@ private:
   bool Precommit(uint64_t) noexcept override { return allowPrecommit; }
   gfsim::ObservationSlots &slots_;
 };
-
-template <typename T>
-concept HasSinkApi = requires(T slots, gfsim::EventProposal proposal) {
-  slots.proposeObservation(std::move(proposal));
-};
-
-static_assert(!HasSinkApi<gfsim::ObservationSlots>,
-              "runtime slots must not own a host observation sink");
-
-TEST(ObservationTest, FailedPrecommitDropsOrdinaryEvents) {
-  gfsim::ObservationRecorder recorder;
-  ASSERT_TRUE(recorder.propose(event(7, "discarded", 3)));
-  EXPECT_EQ(recorder.pendingCount(7), 1u);
-  recorder.rejectOwner(7);
-  EXPECT_EQ(recorder.pendingCount(7), 0u);
-  EXPECT_TRUE(recorder.events().empty());
-}
-
-TEST(ObservationTest, SuccessfulCommitPublishesFrozenValueAtNextEpoch) {
-  gfsim::ObservationRecorder recorder;
-  ASSERT_TRUE(recorder.propose(event(3, "sample", 11)));
-  ASSERT_TRUE(recorder.commitOwner(3, gfsim::Epoch{1, 0}));
-  ASSERT_EQ(recorder.events().size(), 1u);
-  const gfsim::CommittedEvent &committed = recorder.events().front();
-  EXPECT_EQ(committed.ownerId, 3u);
-  EXPECT_EQ(committed.epoch, (gfsim::Epoch{1, 0}));
-  EXPECT_EQ(committed.localCommittedIndex, 0u);
-  ASSERT_EQ(committed.arguments.size(), 1u);
-  EXPECT_EQ(committed.arguments[0].value,
-            gfsim::ObservationValue(uint64_t{11}));
-}
-
-TEST(ObservationTest, SourceObservationGraphApiIsRequired) {
-#if ACIR_HAS_OBSERVATION_GRAPH
-  SUCCEED() << "Compiler/ObservationGraph.h is available for semantic tests";
-#else
-  FAIL() << "W09 RED: no compiler-private ObservationGraph API. It must bind "
-            "approved ac.observe operands to ValueID/path/site/registration, "
-            "enforce one-to-one required_observations, reject redirect/delete/"
-            "duplicate markers and preserve source checks when sinks are "
-            "removed or log presentation is disabled.";
-#endif
-}
 
 TEST(ObservationTest, ConfigureRequiresStableOrderAndUniqueDescriptors) {
   const std::array sorted{

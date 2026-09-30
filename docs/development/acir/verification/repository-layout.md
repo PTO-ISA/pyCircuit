@@ -1,10 +1,11 @@
-# Repository layout verification
+# Historical ACIR repository-layout verification
 
-## Enforce the release-owned layout {#VER-LAYOUT-001}
-<!-- ndf: kind=verif level=must layer=L3 status=stable verifies=ARC-RELEASE-001,ARC-LAYOUT-001,ARC-HISTORY-001 -->
+The gates on this page validate the retired Agentic Circuit and ACIR release
+layout. They are retained as historical evidence and do not prove that the M5
+hard break has removed old compiler sources, dependencies, installed commands,
+or gate registrations.
 
-`tools/agentic-circuit/check-release-layout.py` rejects tracked product-version
-and phase paths, consumer product-system classes under framework examples, and
-checks the required semantic roots. `tools/agentic-circuit/check-ndf.py` validates
-clause metadata, stable IDs, relationship targets, and L1 verification
-coverage. Repository contract tests execute both gates.
+Current retirement acceptance requires static and dynamic scans of source,
+build, install, and execution paths on the bound M5 candidate. See the
+[active testing guide](../../testing-and-gates.md) and
+[M5 migration guide](../../m5-migration.md).

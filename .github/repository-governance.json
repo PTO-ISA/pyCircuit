@@ -4,7 +4,7 @@
   "default_branch": "main",
   "branch_protection": {
     "required_status_checks": [
-      "G0: Agentic Python Checks",
+      "G0: Capture and Publication Unit Gates",
       "G0: Python Checks"
     ],
     "strict_status_checks": true,

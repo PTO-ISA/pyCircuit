@@ -1,29 +1,10 @@
-# Compile-time metaprogramming (`@const`)
+# Compile-time metaprogramming status
 
-`@const` is pyCircuit's explicit compile-time metaprogramming primitive.
+The former JIT `@const` API is retired. The current driver captures source and
+does not execute module functions, decorators, closures, imports, or
+compile-time Python callbacks as a model-building route.
 
-## Contract
-
-- `@const` executes during JIT elaboration.
-- It must emit zero IR operations.
-- It must not mutate module interface/build state.
-- Violations raise `JitError` with source-located diagnostics.
-
-## Allowed returns
-
-- `None`, `bool`, `int`, `str`, `LiteralValue`
-- containers (`list`, `tuple`, `dict`) of allowed values
-- immutable spec objects exposing `__pyc_template_value__()`
-- `@spec.valueclass` objects
-
-## Disallowed returns
-
-- `Wire`, `Reg`, `Signal`
-- `Connector`, `ConnectorBundle`, `ConnectorStruct`
-- mutable/opaque runtime objects without canonical template representation
-
-## Practical patterns
-
-- Build immutable `spec.StructSpec` / module-collection specs in `@const`.
-- Derive widths/masks/loop factors in `@const`.
-- Keep hardware emission in `@module` / `@function` only.
+Static arguments are empty in the active profile. Use ordinary source values
+and annotations supported by the compiler. Unsupported dynamic construction
+fails with a diagnostic. See the [language reference](language.md) and
+[M5 migration guide](../development/m5-migration.md).

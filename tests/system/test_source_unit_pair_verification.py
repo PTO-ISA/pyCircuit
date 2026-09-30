@@ -64,9 +64,9 @@ COUNTER_PORT_B = COUNTER_PORT_A.replace("incoming", "amount")
 def _tool(variable: str, name: str) -> str:
     configured = os.environ.get(variable)
     if configured:
-        assert Path(configured).is_file(), (
-            f"{variable} does not name a file: {configured}"
-        )
+        assert Path(
+            configured
+        ).is_file(), f"{variable} does not name a file: {configured}"
         return configured
     found = shutil.which(name)
     if not found:
@@ -171,9 +171,9 @@ def _assert_private_pair_rejected(body: Path, header: Path, scratch: Path) -> No
     result = _pair_result(body, header, report)
     assert result.returncode == 1, (result.returncode, result.stderr)
     assert "error:" in result.stderr, "native verifier returned no semantic diagnostic"
-    assert not report.exists(), (
-        "native verifier wrote owner evidence for a rejected pair"
-    )
+    assert (
+        not report.exists()
+    ), "native verifier wrote owner evidence for a rejected pair"
 
 
 @dataclass(frozen=True)

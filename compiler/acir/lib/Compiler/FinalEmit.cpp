@@ -74,6 +74,14 @@ emitFinalCppSourceParts(const FinalProgram &program,
   });
 }
 
+FailureOr<FinalVerilogSourceParts>
+emitFinalVerilogSourceParts(const FinalProgram &program,
+                            ac::detail::EmitError emitError) {
+  return emitVerified<FinalVerilogSourceParts>(program, emitError, [&] {
+    return emitFinalVerilogSourcePartsBody(program, emitError);
+  });
+}
+
 FailureOr<FinalVerilogEmission>
 emitFinalVerilogParts(const FinalProgram &program,
                       ac::detail::EmitError emitError) {

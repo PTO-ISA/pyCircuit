@@ -31,7 +31,6 @@ include_directories("${ACIR_SOURCE_DIR}/include" "${ACIR_BINARY_DIR}/include")
 add_definitions(${LLVM_DEFINITIONS})
 
 add_library(acir_project_options INTERFACE)
-add_library(AgenticCircuit::ProjectOptions ALIAS acir_project_options)
 target_compile_features(acir_project_options INTERFACE cxx_std_20)
 
 option(ACIR_BUILD_TESTING "Build isolated source-unit tests" OFF)

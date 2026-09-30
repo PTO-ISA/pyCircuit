@@ -9,14 +9,12 @@
 /SECURITY.md @zhoubot @xiekunpeng
 /CODE_OF_CONDUCT.md @zhoubot @xiekunpeng
 
-# Agentic Circuit ownership follows its implementation across the integrated
-# repository layout.
+# Current source compiler and Runtime ownership.
 /compiler/acir/ @zhoubot @xiekunpeng
-/python/agentic-circuit/ @zhoubot @xiekunpeng
-/python/semantic-core/ @zhoubot @xiekunpeng
 /schemas/agentic-circuit/ @zhoubot @xiekunpeng
 /simulator/gfsim/ @zhoubot @xiekunpeng
-/tools/agentic-circuit/ @zhoubot @xiekunpeng
 /tests/*/agentic-circuit/ @zhoubot @xiekunpeng
-/examples/agentic-circuit/ @zhoubot @xiekunpeng
 /docs/acir/ @zhoubot @xiekunpeng
+
+/python/pycircuit/ @zhoubot @xiekunpeng
+/examples/pycircuit/ @zhoubot @xiekunpeng

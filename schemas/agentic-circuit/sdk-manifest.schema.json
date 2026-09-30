@@ -109,14 +109,11 @@
     },
     "capabilities": {
       "const": [
-        "cycle-aware-signal",
-        "pyc-cpp",
-        "pyc-verilog",
-        "acc-source-to-ac",
-        "acc-cpp",
-        "acc-cpp-bundle",
-        "acc-verilog",
-        "gfsim-runtime-v1"
+        "pycircuit-pythonic-source",
+        "pycircuit-source-units",
+        "pycircuit-cpp",
+        "pycircuit-verilog",
+        "pyc6-runtime-v1"
       ]
     },
     "runtime_dependencies": {
@@ -224,7 +221,7 @@
           "const": "1"
         },
         "generator_abi": {
-          "const": "1"
+          "const": "2"
         },
         "runtime_abi": {
           "const": "1"

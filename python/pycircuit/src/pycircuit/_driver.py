@@ -16,26 +16,26 @@ import tempfile
 from collections.abc import Mapping, Sequence
 from pathlib import Path
 
+from . import _native_verify
 from ._publication import (
+    _paths_for,
+    _publication_lock_set,
+    _publication_owner_program,
     _PublicationError,
     _PublicationFileSystem,
     _PublicationInput,
     _PublicationOutput,
     _PublicationResult,
-    _paths_for,
-    _publication_lock_set,
-    _publication_owner_program,
     _publish_file,
     _require_initialized_control,
 )
-from ._source_compile import _SourceCompileResult, _compile_source_unit
+from ._publication_fs import _PublicationFileSystemError
+from ._source_compile import _compile_source_unit, _SourceCompileResult
 from ._source_unit_files import (
     _discover_source_unit_owner,
     _read_full_source_unit,
     _validate_full_source_unit,
 )
-from ._publication_fs import _PublicationFileSystemError
-from . import _native_verify
 
 # Each entry names the bundled executable and the environment override a
 # development tree uses when the toolchain bundle is not installed.
@@ -68,9 +68,7 @@ def _require_published_unit(directory: str | Path, *, role: str) -> Path:
         return path
     if not path.is_dir():
         raise _DriverError(f"{role} is not a directory: {path}")
-    raise _DriverError(
-        f"{role} is not a published source unit (no unit.json): {path}"
-    )
+    raise _DriverError(f"{role} is not a published source unit (no unit.json): {path}")
 
 
 def _managed_transaction_exists(path: Path) -> bool:
@@ -142,15 +140,9 @@ def _program_owner_from_report(report: object) -> dict[str, object]:
     package = source["package"]
     path = source["path"]
     definition = report["definition"]
-    if (
-        type(package) is not str
-        or type(path) is not str
-        or type(definition) is not str
-    ):
+    if type(package) is not str or type(path) is not str or type(definition) is not str:
         raise _DriverError("link helper entry owner report is not textual")
-    return _publication_owner_program(
-        package=package, path=path, definition=definition
-    )
+    return _publication_owner_program(package=package, path=path, definition=definition)
 
 
 def _validate_published_program(path: Path, owner: Mapping[str, object]) -> None:
@@ -271,7 +263,7 @@ def link_command(
                 body.write_text(view.body, encoding="utf-8")
                 header.write_text(view.interface, encoding="utf-8")
                 command += ["--body", str(body), "--header", str(header)]
-            program = scratch / "program.ac"
+            program = scratch / "design_top.ac"
             report = scratch / "entry-owner.json"
             command += [
                 "--top",

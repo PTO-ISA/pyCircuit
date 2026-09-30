@@ -91,9 +91,12 @@ def _compile(
     transport.write_text(_emit_source_transport(capture), encoding="utf-8")
     command = [
         str(_source_harness()),
-        "--capture", str(transport),
-        "--package", "demo",
-        "--path", source.relative_to(source_root).as_posix(),
+        "--capture",
+        str(transport),
+        "--package",
+        "demo",
+        "--path",
+        source.relative_to(source_root).as_posix(),
     ]
     for dependency in headers:
         command.extend(("--header", str(dependency)))
@@ -111,12 +114,15 @@ def _compile_counter(tmp_path: Path) -> tuple[SourceUnit, SourceUnit]:
     (source_root / "types.py").write_text(TYPES, encoding="utf-8")
     (source_root / "counter.py").write_text(COUNTER, encoding="utf-8")
     types = _compile(
-        source_root / "types.py", source_root=source_root,
+        source_root / "types.py",
+        source_root=source_root,
         output_dir=tmp_path / "units/types",
     )
     counter = _compile(
-        source_root / "counter.py", source_root=source_root,
-        output_dir=tmp_path / "units/counter", headers=(types.header,),
+        source_root / "counter.py",
+        source_root=source_root,
+        output_dir=tmp_path / "units/counter",
+        headers=(types.header,),
         lower_numeric=True,
     )
     return types, counter
@@ -134,9 +140,18 @@ def _link(
 
 def _emit(design: Path, target: str, output: Path) -> subprocess.CompletedProcess[str]:
     return subprocess.run(
-        [str(_design_harness()), "--design", str(design),
-         "--target", target, "--output", str(output)],
-        text=True, capture_output=True, check=False,
+        [
+            str(_design_harness()),
+            "--design",
+            str(design),
+            "--target",
+            target,
+            "--output",
+            str(output),
+        ],
+        text=True,
+        capture_output=True,
+        check=False,
     )
 
 
@@ -250,13 +265,24 @@ endmodule
     )
     binary = tmp_path / "counter.vvp"
     compiled = subprocess.run(
-        [str(iverilog), "-g2012", "-s", "tb", "-o", str(binary),
-         str(rtl), str(testbench)],
-        text=True, capture_output=True, check=False,
+        [
+            str(iverilog),
+            "-g2012",
+            "-s",
+            "tb",
+            "-o",
+            str(binary),
+            str(rtl),
+            str(testbench),
+        ],
+        text=True,
+        capture_output=True,
+        check=False,
     )
     assert compiled.returncode == 0, compiled.stderr
-    ran = subprocess.run([str(vvp), str(binary)], text=True,
-                         capture_output=True, check=False)
+    ran = subprocess.run(
+        [str(vvp), str(binary)], text=True, capture_output=True, check=False
+    )
     assert ran.returncode == 0, ran.stderr
     assert "MASKED_NEXT_OK 254" in ran.stdout, ran.stdout
 
@@ -311,9 +337,7 @@ def test_masked_next_rejects_redirected_witnesses(
 
 
 @pytest.mark.parametrize("dropped", ['"ac.numeric.proof"', '"ac.expect"'])
-def test_masked_next_rejects_dropped_obligations(
-    tmp_path: Path, dropped: str
-) -> None:
+def test_masked_next_rejects_dropped_obligations(tmp_path: Path, dropped: str) -> None:
     """Dropping a proof or a check must leave the lowered inventory unclosed."""
     _, design = _linked_counter(tmp_path)
     lines = design.read_text().splitlines(keepends=True)
@@ -330,19 +354,24 @@ def test_masked_next_rejects_dropped_obligations(
     assert not output.exists()
 
 
-def _linked_from_source(tmp_path: Path, counter_text: str) -> subprocess.CompletedProcess[str]:
+def _linked_from_source(
+    tmp_path: Path, counter_text: str
+) -> subprocess.CompletedProcess[str]:
     """Compile a Counter variant and link it, returning the link result."""
     source_root = tmp_path / "source"
     source_root.mkdir()
     (source_root / "types.py").write_text(TYPES, encoding="utf-8")
     (source_root / "counter.py").write_text(counter_text, encoding="utf-8")
     types = _compile(
-        source_root / "types.py", source_root=source_root,
+        source_root / "types.py",
+        source_root=source_root,
         output_dir=tmp_path / "units/types",
     )
     counter = _compile(
-        source_root / "counter.py", source_root=source_root,
-        output_dir=tmp_path / "units/counter", headers=(types.header,),
+        source_root / "counter.py",
+        source_root=source_root,
+        output_dir=tmp_path / "units/counter",
+        headers=(types.header,),
         lower_numeric=True,
     )
     return _link([types, counter], tmp_path / "counter.ac")
@@ -422,8 +451,11 @@ def test_numeric_obligation_cannot_be_downgraded_to_generic(
     text = design.read_text()
     mutated = text.replace("ac.required_numeric = [", "ac.required_unused = [", 1)
     if strip_proofs:
-        mutated = "".join(line for line in mutated.splitlines(keepends=True)
-                          if '"ac.numeric.proof"' not in line)
+        mutated = "".join(
+            line
+            for line in mutated.splitlines(keepends=True)
+            if '"ac.numeric.proof"' not in line
+        )
     assert mutated != text, "downgrade mutation did not apply"
 
     candidate = tmp_path / "downgraded.ac"
@@ -440,14 +472,18 @@ def test_numeric_obligation_cannot_be_downgraded_to_generic(
 # (fields, nonlocal names, body lines).
 SUPPORTED_SHAPES = {
     "unconditional": (
-        ["state: Word = 254"], ["state"], ["state = (state + 1) & 255"],
+        ["state: Word = 254"],
+        ["state"],
+        ["state = (state + 1) & 255"],
     ),
     "enable-guarded": (
-        ["state: Word = 254", "en: bool = True"], ["state"],
+        ["state: Word = 254", "en: bool = True"],
+        ["state"],
         ["if en:", "    state = (state + 1) & 255"],
     ),
     "conditional-comparison": (
-        ["state: Word = 254", "other: Word = 3"], ["state"],
+        ["state: Word = 254", "other: Word = 3"],
+        ["state"],
         ["if other == 0:", "    state = (state + 1) & 255"],
     ),
 }

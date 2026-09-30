@@ -81,7 +81,9 @@ def Broken():
 def _tool(variable: str, name: str) -> str:
     configured = os.environ.get(variable)
     if configured:
-        assert Path(configured).is_file(), f"{variable} does not name a file: {configured}"
+        assert Path(
+            configured
+        ).is_file(), f"{variable} does not name a file: {configured}"
         return configured
     found = shutil.which(name)
     if not found:
@@ -107,7 +109,9 @@ def cli_environment(harnesses: dict[str, str]) -> dict[str, str]:
     # caller relied on pytest's own pythonpath setting.
     roots = os.pathsep.join(str(root) for root in _SOURCE_ROOTS)
     inherited = environment.get("PYTHONPATH")
-    environment["PYTHONPATH"] = f"{roots}{os.pathsep}{inherited}" if inherited else roots
+    environment["PYTHONPATH"] = (
+        f"{roots}{os.pathsep}{inherited}" if inherited else roots
+    )
     return environment
 
 
@@ -128,9 +132,7 @@ def _ok(result: subprocess.CompletedProcess[str]) -> subprocess.CompletedProcess
     return result
 
 
-def _diagnostic(
-    result: subprocess.CompletedProcess[str], command: str
-) -> str:
+def _diagnostic(result: subprocess.CompletedProcess[str], command: str) -> str:
     """The documented failure shape: exit 1 and one prefixed line on stderr."""
 
     assert result.returncode == 1, (result.returncode, result.stderr)
@@ -403,9 +405,7 @@ def test_compile_rejects_an_interface_unit_that_is_not_published(
     unmanaged = workspace.units / "unmanaged"
     unmanaged.mkdir()
 
-    result = _compile(
-        cli_environment, workspace, "counter.py", interface=(unmanaged,)
-    )
+    result = _compile(cli_environment, workspace, "counter.py", interface=(unmanaged,))
 
     _diagnostic(result, "compile")
     _assert_nothing_published(workspace.units / "counter")
@@ -439,7 +439,9 @@ def test_compile_existing_destination_requires_replace(
     }
 
     # A different owner is not an acceptable replace target and changes nothing.
-    other = _compile(cli_environment, workspace, "types.py", prefix="other", replace=True)
+    other = _compile(
+        cli_environment, workspace, "types.py", prefix="other", replace=True
+    )
     assert "owner" in _diagnostic(other, "compile")
     assert {entry.name: entry.read_bytes() for entry in unit.iterdir()} == after
 
@@ -593,9 +595,7 @@ def test_published_program_is_admitted_by_both_backends(
     assert re.search(r"\balways\b", verilog_text), verilog_text
 
 
-@pytest.mark.parametrize(
-    "top", ["demo.types.Word", "Counter", "demo.other.Counter"]
-)
+@pytest.mark.parametrize("top", ["demo.types.Word", "Counter", "demo.other.Counter"])
 def test_link_top_must_name_the_linked_graph_root(
     workspace: _Workspace,
     cli_environment: dict[str, str],
@@ -645,7 +645,9 @@ def test_link_replace_republishes_a_genuinely_different_program(
     before = destination.read_bytes()
     assert "ac.initial_value = 0 : i8" in before.decode("utf-8")
 
-    rejected = _link(cli_environment, (types, counter), "demo.counter.Counter", destination)
+    rejected = _link(
+        cli_environment, (types, counter), "demo.counter.Counter", destination
+    )
     assert "already exists" in _diagnostic(rejected, "link")
     assert destination.read_bytes() == before
 
@@ -654,7 +656,11 @@ def test_link_replace_republishes_a_genuinely_different_program(
     (workspace.root / "counter.py").write_text(
         COUNTER.format(initial=9), encoding="utf-8"
     )
-    _ok(_compile(cli_environment, workspace, "counter.py", interface=(types,), replace=True))
+    _ok(
+        _compile(
+            cli_environment, workspace, "counter.py", interface=(types,), replace=True
+        )
+    )
     replaced = _link(
         cli_environment,
         (types, counter),
@@ -724,8 +730,9 @@ def test_link_replace_refuses_a_path_this_driver_did_not_publish(
     )
 
     diagnostic = _diagnostic(result, "link")
-    assert "refusing to replace a path without a publication control directory naming it" in (
-        diagnostic
+    assert (
+        "refusing to replace a path without a publication control directory naming it"
+        in (diagnostic)
     )
     assert str(foreign) in diagnostic
     # The user file is untouched and no publication control directory was
@@ -747,8 +754,9 @@ def test_link_replace_refuses_a_path_this_driver_did_not_publish(
         replace=True,
     )
     diagnostic = _diagnostic(result, "link")
-    assert "refusing to replace a path without a publication control directory naming it" in (
-        diagnostic
+    assert (
+        "refusing to replace a path without a publication control directory naming it"
+        in (diagnostic)
     )
     assert str(dangling) in diagnostic
     assert dangling.is_symlink()
@@ -954,9 +962,7 @@ def test_link_requires_the_full_body_closure_that_compile_does_not(
     assert destination.read_bytes() == published
 
     fresh = workspace.out / "fresh.ac"
-    rejected = _link(
-        cli_environment, (types, counter), "demo.counter.Counter", fresh
-    )
+    rejected = _link(cli_environment, (types, counter), "demo.counter.Counter", fresh)
     assert "file set is not closed" in _diagnostic(rejected, "link")
     _assert_nothing_published(fresh)
 

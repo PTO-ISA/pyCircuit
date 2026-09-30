@@ -21,6 +21,7 @@ from ._publication import _PublicationError
 _HELPERS: dict[str, tuple[str, str]] = {
     "source-unit": ("acir-source-unit-harness", "ACIR_SOURCE_UNIT_HARNESS"),
     "design": ("acir-design-harness", "ACIR_DESIGN_HARNESS"),
+    "emit": ("acir-cpp-source-parts-harness", "ACIR_CPP_SOURCE_PARTS_HARNESS"),
 }
 # Private acir-design-harness status; not exposed as a pycircuit CLI exit code.
 _SOURCE_UNIT_OWNER_MISMATCH_EXIT = 3
@@ -123,7 +124,9 @@ def verify_program_owner(path: Path) -> dict[str, object]:
     }
 
 
-def verify_source_unit_owners(body: Path, header: Path) -> tuple[dict[str, str], dict[str, str]]:
+def verify_source_unit_owners(
+    body: Path, header: Path
+) -> tuple[dict[str, str], dict[str, str]]:
     """Return the body and header owners of a natively verified source unit."""
 
     helper = native_helper("design")
@@ -145,9 +148,7 @@ def verify_source_unit_owners(body: Path, header: Path) -> tuple[dict[str, str],
             source_unit_owner_mismatch_exit=True,
         )
         if not report.is_file():
-            raise _PublicationError(
-                "source unit verification produced no owner report"
-            )
+            raise _PublicationError("source unit verification produced no owner report")
         value = _strict_object(
             json.loads(report.read_text(encoding="utf-8")),
             {"body", "header"},

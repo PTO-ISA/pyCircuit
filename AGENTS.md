@@ -1,116 +1,81 @@
-# pyCircuit 6 agent instructions
+# pyCircuit agent instructions
 
-This repository follows the pyCircuit 6 frontend contract. CycleAwareSignal is
-the primary authoring model, and the V6 documents are the current product source
-of truth.
+This repository is in the pyCircuit M5 hard-break cutover. Active product
+behavior is governed by the approved migration contracts and implemented
+candidate. Do not treat this file or any migration proposal as evidence that
+implementation or tests have passed.
 
 ## Read first
 
 - `docs/development/agent-frontend-guide.md`
 - `docs/reference/language.md`
-- `docs/rfcs/pyc6-decisions.md`
-- `docs/pyc6-plan.md`
 - `docs/development/contributing-workflow.md`
 - `docs/development/testing-and-gates.md`
 - `docs/development/review-and-merge.md`
+- `docs/development/m5-migration.md`
+- `docs/rfcs/migration/approvals/` for exact approved migration contracts
+- `docs/development/project-governance.md` and
+  `docs/development/pycircuit-modernization-plan.md` for modernization
+  ownership and phase expectations
 
-## Codex skills
+## Active contract
 
-- Apply `$pyc6` first for hard contracts and evidence expectations.
-- Use `$pyc-build-v60` when running builds or gate lanes.
-- Consumer-specific compatibility and design work runs in the owning consumer
-  repository, never in this framework tree (Decisions 0158 and 0235).
+The current bounded source profile is one portless function `@module` per
+implementation source, nested `@rule` definitions with explicit module-scope
+registration, one default clock, finite scalar state with current/next
+semantics, and empty static arguments. Each source compiles independently to a
+published unit. Link takes the explicit complete unit closure; C++ and Verilog
+emit from the same verified final artifact.
 
-## Modernization project management
+Python capture does not execute the design. MLIR owns source resolution,
+semantic checks, interface/effect derivation, and hardware lowering. Rule reads
+observe current state throughout the epoch; `nonlocal` writes propose next
+state. Use ordinary local candidates when a proposed value is needed again.
 
-- Follow `docs/development/project-governance.md` and
-  `docs/development/pycircuit-modernization-plan.md` for modernization work.
-- Use the repo-local `$pycircuit-project-manager` skill for planning,
-  dispatch, integration, and acceptance, and `$pycircuit-design-review` for an
-  independent approval-readiness review.
-- Governance activation does not approve an interface change or supersede a
-  decision. Every Python, CLI, IR, cross-module, generated C++, runtime,
-  schema, diagnostic, timing, ownership, or error-contract change requires the
-  user's precise approval before implementation.
-- Keep design and validation, implementation and independent tests, and author
-  and reviewer as independent instances. Preserve current semantic constraints
-  until an approved contract explicitly cuts them over.
+Unsupported uses must fail closed with a diagnostic. The current profile does
+not include a complete `@system` contract, queues, memory/CDC, multiple clocks,
+four-state source values, external typed ports/DUT ABI, dynamic collections, or
+nonempty static parameters. Do not fill gaps through retired routes.
 
-## Task mapping
+## Hard break and build contract
 
-- Complex circuit authoring: choose the frontend and decomposition pattern in
-  `docs/development/agent-frontend-guide.md` before writing implementation.
-- Issue fix or feature work: identify affected decision IDs, then map the change
-  to the required gates in `docs/development/testing-and-gates.md`.
-- Code review: prioritize semantic regressions, missing gate coverage,
-  incorrect evidence paths, and documentation drift before style issues.
-- PR preparation: include decision IDs, gate commands, evidence paths, doc
-  updates, and compatibility or risk notes.
-- Documentation updates: keep the V6 specification, contributor docs, README,
-  and actual repository workflow aligned.
+The active product route is `pycircuit compile`, `pycircuit link`, and
+`pycircuit emit --target cpp|verilog`. There is no fallback or compatibility
+mode for CycleAwareSignal/JIT, structural builders, Agentic Circuit/QueueGraph,
+`acc.py`, `acc`, or `pycc`.
 
-## Hard rules
+The CMake build options are `PYC_BUILD_COMPILER_DEV`, `PYC_BUILD_TESTING`, and
+`PYC_BUILD_RUNTIME_LIB`. Runtime-only consumers use
+`find_package(pycircuit CONFIG REQUIRED COMPONENTS Runtime)` and
+`pycircuit::pyc6_runtime`; that component must not require LLVM. CompilerDev
+requires exact LLVM/MLIR 22.1.8. Generated model CMake builds
+`pycircuit_system` and `libpycircuit_dut` against Runtime. Supply a finite
+runner configuration; event output is silent by default and requires explicit
+`--events`.
 
-- Author product behavior through the supported Python frontends. Handwritten
-  PYC or ACIR is valid as focused compiler test input, not as the implementation
-  of a user-facing circuit.
-- Keep CycleAwareSignal, CycleAwareDomain, and automatic cycle balancing as
-  first-class pyCircuit 6 design contracts (Decision 0148).
-- Add or tighten MLIR verifiers or passes before changing semantics.
-- Do not implement semantic fixes in only one backend. Semantics live in the
-  dialect, passes, and verifiers.
-- Build and test from the current checkout. Never copy staged toolchains,
-  shared libraries, or generated artifacts from another worktree.
-- Do not place temporary tests, scripts, examples, or design notes in the repo
-  root. Use the existing test, example, documentation, or disposable output
-  directories.
-- Treat public examples as product surface. New examples must provide
-  user-facing design coverage, compile-flow coverage, or semantic evidence.
-- Reference affected decision IDs and attach semantic or decision-bearing gate
-  evidence under `docs/gates/logs/<run-id>/`.
-- Keep the repository hard-break only. Do not restore removed compatibility
-  modes or label the current CycleAwareSignal API with a prior product version.
-- Structured Agentic Circuit output is a source-linked AC package. Every
-  executable H1/H2/H3 Python source must be compiled by its own CMake custom
-  command and direct `acc.py -c <source>.py -o <source>.ac` invocation before backend
-  codegen; the root is compiled separately from composition source. A
-  whole-core compile followed by either AC or C++ splitting is forbidden.
-- Preserve the AC unit boundary through C++: one generated source group per Python source
-  `.ac`, plus core/interface glue, compiled independently and linked by parallel
-  CMake/Ninja. Gate the AC tree, definition-to-file map, instance links, C++
-  tree, build graph, and executable DUT together.
-- Keep the active runtime and semantic-gate names on the pyCircuit 6 contract:
-  `libpyc6_runtime` and `run_semantic_regressions_v6.sh`. Serialized trace
-  formats are tooling artifacts, not public model or runtime ABIs.
-- Keep complete CPU/NPU/SoC/board designs, consumer testbenches, ISA decoders,
-  model-comparison scripts, consumer payload/trace schemas, and
-  consumer-specific runtime adapters out of this repository (Decisions 0158
-  and 0235). Framework semantics remain design-neutral.
-- Do not add AI co-author lines to commits or pull request text.
+Keep complete consumer designs, consumer testbenches, ISA decoders,
+model-comparison scripts, consumer schemas, and adapters in their owning
+repositories. Framework semantics stay design-neutral.
 
-## Repository authority
+## Modernization work
 
-- `PTO-ISA/pyCircuit` is the upstream source of truth and release authority.
-- Product decisions and reusable framework fixes land upstream. Consumer
-  compatibility gates run from the consumer checkout against a pinned
-  revision. Product design, source comparison, and reference-model validation
-  stay in the owning consumer checkout.
-- See `docs/development/repository-management.md` for branch, release, and fork
-  synchronization policy.
+Follow `docs/development/project-governance.md` and the modernization plan for
+bounded ownership, approved contracts, independent tests/reviews, candidate
+identity, and evidence. Do not modify frozen approval proposals or milestone
+status as part of implementation/documentation work unless that file is
+explicitly assigned.
 
-## When to stop and ask
+For any feature or bug fix, identify affected decisions/contracts and the
+smallest evidence needed. Build from this checkout; do not copy toolchains,
+shared libraries, or generated outputs from another worktree. Keep generated
+files and temporary artifacts out of the source tree. Update active behavior
+docs with behavior changes.
 
-- The requested change conflicts with an accepted pyc6 decision.
-- The work would change documented semantics without a clear decision update.
-- Unrelated user changes overlap the same files and the merge strategy is
-  ambiguous.
-- Required credentials or external tooling block required validation or
-  publishing.
+## Verification and reporting
 
-## Working expectations
-
-- Start with the smallest reproducer and narrowest gate lane that proves the
-  change; widen only as required by risk.
-- Keep generated logs bounded and archive only reviewable evidence.
-- Update behavior documentation in the same change as the behavior.
-- Report non-critical local validation gaps explicitly instead of hiding them.
+Use the narrowest relevant gate, then the applicable candidate acceptance
+checks. Bind semantic or decision-bearing evidence under
+`docs/gates/logs/<run-id>/` to exact candidate content and commands. Report
+commands, exit status, evidence paths, skipped checks, and remaining callers.
+A fixture or named test is not a passing result. A documentation-only update
+must not claim M5 implementation, acceptance, or completion.

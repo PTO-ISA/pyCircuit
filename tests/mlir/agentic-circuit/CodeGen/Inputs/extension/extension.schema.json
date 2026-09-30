@@ -1,1 +1,0 @@
-{"$schema":"https://json-schema.org/draft/2020-12/schema","additionalProperties":false,"properties":{"initial":{"minimum":0,"type":"integer"}},"required":["initial"],"title":"ac.test.Counter","type":"object"}

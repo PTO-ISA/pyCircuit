@@ -14,7 +14,6 @@ import sys
 from pathlib import Path
 
 import pytest
-
 from pycircuit._publication import _PublicationError
 from pycircuit._source_compile import _compile_source_unit
 from pycircuit._source_unit_files import _load_full_source_unit
@@ -41,19 +40,28 @@ open(body, "w", encoding="utf-8").write("// body " + owner + "\\n")
 open(interface, "w", encoding="utf-8").write("// interface " + owner + "\\n")
 """
 
-OK = WRITES_ARTIFACTS + """\
+OK = (
+    WRITES_ARTIFACTS
+    + """\
 open(value("--deps-out"), "w", encoding="utf-8").write("[]")
 """
+)
 
-CONSUMES_TYPES = WRITES_ARTIFACTS + """\
+CONSUMES_TYPES = (
+    WRITES_ARTIFACTS
+    + """\
 open(value("--deps-out"), "w", encoding="utf-8").write(
     '[{"package": "demo", "path": "types.py"}]')
 """
+)
 
-CONSUMES_UNSUPPLIED = WRITES_ARTIFACTS + """\
+CONSUMES_UNSUPPLIED = (
+    WRITES_ARTIFACTS
+    + """\
 open(value("--deps-out"), "w", encoding="utf-8").write(
     '[{"package": "demo", "path": "elsewhere.py"}]')
 """
+)
 
 EXITS_FAILING = """\
 sys.stderr.write("native compiler rejected the source\\n")
@@ -100,9 +108,7 @@ def Counter():
 
 def _fake_compiler(tmp_path: Path, behaviour: str, name: str = "fake-native") -> Path:
     compiler = tmp_path / name
-    compiler.write_text(
-        f"#!{sys.executable}\n" + PREFIX + behaviour, encoding="utf-8"
-    )
+    compiler.write_text(f"#!{sys.executable}\n" + PREFIX + behaviour, encoding="utf-8")
     compiler.chmod(compiler.stat().st_mode | stat.S_IEXEC)
     return compiler
 
@@ -175,11 +181,20 @@ def _workspace(tmp_path: Path) -> tuple[Path, Path]:
 
 
 def _publish_types(
-    root: Path, units: Path, compiler: Path, name: str = "types", *, replace: bool = False
+    root: Path,
+    units: Path,
+    compiler: Path,
+    name: str = "types",
+    *,
+    replace: bool = False,
 ):
     return _compile_source_unit(
-        root / "types.py", source_root=root, package="demo",
-        native_compiler=compiler, output=units / name, replace=replace,
+        root / "types.py",
+        source_root=root,
+        package="demo",
+        native_compiler=compiler,
+        output=units / name,
+        replace=replace,
     )
 
 
@@ -188,10 +203,15 @@ def test_declaration_unit_publishes_the_closed_four_file_set(tmp_path: Path) -> 
     result = _publish_types(root, units, _fake_compiler(tmp_path, OK))
 
     assert sorted(entry.name for entry in (units / "types").iterdir()) == [
-        "types.ac", "types.d", "types.interface.ac", "unit.json",
+        "types.ac",
+        "types.d",
+        "types.interface.ac",
+        "unit.json",
     ]
     assert (result.body, result.interface, result.depfile) == (
-        "types.ac", "types.interface.ac", "types.d"
+        "types.ac",
+        "types.interface.ac",
+        "types.d",
     )
     assert json.loads((units / "types" / "unit.json").read_text(encoding="utf-8")) == {
         "kind": "pycircuit-source-unit",
@@ -202,9 +222,10 @@ def test_declaration_unit_publishes_the_closed_four_file_set(tmp_path: Path) -> 
             "depfile": "types.d",
         },
     }
-    assert "ac.source_owner" in _load_full_source_unit(
-        units / "types", owner=result.owner
-    ).body
+    assert (
+        "ac.source_owner"
+        in _load_full_source_unit(units / "types", owner=result.owner).body
+    )
 
 
 def test_depfile_lists_only_consumed_interfaces(tmp_path: Path) -> None:
@@ -212,12 +233,17 @@ def test_depfile_lists_only_consumed_interfaces(tmp_path: Path) -> None:
     _publish_types(root, units, _fake_compiler(tmp_path, OK, "c1"))
     (root / "extra.py").write_text(DECLARATION, encoding="utf-8")
     _compile_source_unit(
-        root / "extra.py", source_root=root, package="demo",
-        native_compiler=_fake_compiler(tmp_path, OK, "c2"), output=units / "extra",
+        root / "extra.py",
+        source_root=root,
+        package="demo",
+        native_compiler=_fake_compiler(tmp_path, OK, "c2"),
+        output=units / "extra",
     )
 
     _compile_source_unit(
-        root / "counter.py", source_root=root, package="demo",
+        root / "counter.py",
+        source_root=root,
+        package="demo",
         native_compiler=_fake_compiler(tmp_path, CONSUMES_TYPES, "c3"),
         output=units / "counter",
         interface_units=[units / "types", units / "extra"],
@@ -242,8 +268,11 @@ def test_depfile_escapes_make_special_characters(tmp_path: Path) -> None:
     units.mkdir()
 
     _compile_source_unit(
-        root / "counter.py", source_root=root, package="demo",
-        native_compiler=_fake_compiler(tmp_path, OK), output=units / "counter",
+        root / "counter.py",
+        source_root=root,
+        package="demo",
+        native_compiler=_fake_compiler(tmp_path, OK),
+        output=units / "counter",
     )
 
     depfile = (units / "counter" / "counter.d").read_text(encoding="utf-8")
@@ -255,15 +284,16 @@ def test_native_failure_publishes_nothing_and_preserves_existing_bytes(
 ) -> None:
     root, units = _workspace(tmp_path)
     _publish_types(root, units, _fake_compiler(tmp_path, OK, "good"))
-    before = {
-        entry.name: entry.read_bytes() for entry in (units / "types").iterdir()
-    }
+    before = {entry.name: entry.read_bytes() for entry in (units / "types").iterdir()}
 
     with pytest.raises(_PublicationError, match="rejected the source"):
         _compile_source_unit(
-            root / "types.py", source_root=root, package="demo",
+            root / "types.py",
+            source_root=root,
+            package="demo",
             native_compiler=_fake_compiler(tmp_path, EXITS_FAILING, "bad"),
-            output=units / "types", replace=True,
+            output=units / "types",
+            replace=True,
         )
 
     assert {
@@ -275,7 +305,9 @@ def test_native_compiler_must_produce_both_artifacts(tmp_path: Path) -> None:
     root, units = _workspace(tmp_path)
     with pytest.raises(_PublicationError, match="did not produce both artifacts"):
         _compile_source_unit(
-            root / "types.py", source_root=root, package="demo",
+            root / "types.py",
+            source_root=root,
+            package="demo",
             native_compiler=_fake_compiler(tmp_path, WRITES_NOTHING),
             output=units / "types",
         )
@@ -290,7 +322,8 @@ def test_existing_output_requires_replace(tmp_path: Path) -> None:
         _publish_types(root, units, _fake_compiler(tmp_path, OK, "second"))
 
     replaced = _publish_types(
-        root, units,
+        root,
+        units,
         _fake_compiler(
             tmp_path, OK.replace('"// body "', '"// replaced body "'), "third"
         ),
@@ -310,8 +343,11 @@ def test_duplicate_interface_units_are_rejected(tmp_path: Path) -> None:
 
     with pytest.raises(_PublicationError, match="same source"):
         _compile_source_unit(
-            root / "counter.py", source_root=root, package="demo",
-            native_compiler=compiler, output=units / "counter",
+            root / "counter.py",
+            source_root=root,
+            package="demo",
+            native_compiler=compiler,
+            output=units / "counter",
             interface_units=[units / "types-a", units / "types-b"],
         )
 
@@ -330,7 +366,9 @@ def test_publication_refuses_a_unit_whose_internal_owner_disagrees(
 
     with pytest.raises(_PublicationError, match="internal owner does not match"):
         _compile_source_unit(
-            root / "types.py", source_root=root, package="demo",
+            root / "types.py",
+            source_root=root,
+            package="demo",
             native_compiler=_fake_compiler(tmp_path, WRITES_FOREIGN_OWNER),
             output=units / "types",
         )
@@ -343,23 +381,28 @@ def test_unmanaged_interface_unit_is_rejected(tmp_path: Path) -> None:
     unmanaged = units / "loose"
     unmanaged.mkdir()
     (unmanaged / "unit.json").write_text(
-        json.dumps({
-            "kind": "pycircuit-source-unit",
-            "source": {"package": "demo", "path": "types.py"},
-            "files": {
-                "body": "types.ac",
-                "interface": "types.interface.ac",
-                "depfile": "types.d",
-            },
-        }),
+        json.dumps(
+            {
+                "kind": "pycircuit-source-unit",
+                "source": {"package": "demo", "path": "types.py"},
+                "files": {
+                    "body": "types.ac",
+                    "interface": "types.interface.ac",
+                    "depfile": "types.d",
+                },
+            }
+        ),
         encoding="utf-8",
     )
     (unmanaged / "types.interface.ac").write_text("// loose\n", encoding="utf-8")
 
     with pytest.raises(_PublicationError, match="unmanaged publication input"):
         _compile_source_unit(
-            root / "counter.py", source_root=root, package="demo",
-            native_compiler=_fake_compiler(tmp_path, OK), output=units / "counter",
+            root / "counter.py",
+            source_root=root,
+            package="demo",
+            native_compiler=_fake_compiler(tmp_path, OK),
+            output=units / "counter",
             interface_units=[unmanaged],
         )
 
@@ -370,9 +413,12 @@ def test_consumed_but_unsupplied_interface_fails_closed(tmp_path: Path) -> None:
 
     with pytest.raises(_PublicationError, match="was not supplied"):
         _compile_source_unit(
-            root / "counter.py", source_root=root, package="demo",
+            root / "counter.py",
+            source_root=root,
+            package="demo",
             native_compiler=_fake_compiler(tmp_path, CONSUMES_UNSUPPLIED, "liar"),
-            output=units / "counter", interface_units=[units / "types"],
+            output=units / "counter",
+            interface_units=[units / "types"],
         )
     assert not (units / "counter").exists()
 
@@ -392,8 +438,11 @@ def test_header_only_provider_is_accepted_while_full_read_rejects_it(
         _load_full_source_unit(units / "types", owner=published.owner)
 
     dependent = _compile_source_unit(
-        root / "counter.py", source_root=root, package="demo",
-        native_compiler=compiler, output=units / "counter",
+        root / "counter.py",
+        source_root=root,
+        package="demo",
+        native_compiler=compiler,
+        output=units / "counter",
         interface_units=[units / "types"],
     )
     assert (units / "counter" / dependent.body).is_file()
@@ -415,8 +464,11 @@ def test_each_call_invokes_the_compiler_once_for_exactly_one_source(
 
     _publish_types(root, units, compiler)
     _compile_source_unit(
-        root / "counter.py", source_root=root, package="demo",
-        native_compiler=compiler, output=units / "counter",
+        root / "counter.py",
+        source_root=root,
+        package="demo",
+        native_compiler=compiler,
+        output=units / "counter",
         interface_units=[units / "types"],
     )
 

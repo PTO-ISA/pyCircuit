@@ -1,0 +1,2254 @@
+{
+  "baseline": "a21bb596",
+  "sha256": "8ae474b2a0c98d2909658d502f6c6763a20335b5754d7bba4d132bfaae8c1690",
+  "files": [
+    {
+      "path": "CMakeLists.txt",
+      "sha256": "4afe442e2cbda696b7df720f1247debadeb6957a5e6132fd1deb5c342745a5e3"
+    },
+    {
+      "path": "cmake/install_runtime_deps.cmake.in",
+      "sha256": "46912ac04287e14d5739473c71c2290778fc532dc84a32221033238471e3b661"
+    },
+    {
+      "path": "cmake/pycircuit-driver.in",
+      "sha256": "22238e0ab8eba3e3056ff129222f1d57eb11150dcbd33712d8b7ef07cfb1ceec"
+    },
+    {
+      "path": "cmake/pycircuitConfig.cmake.in",
+      "sha256": "ebc72fe55a024d1fd19b8617c7b39a446b1747327acae0daf3a0297a13695f58"
+    },
+    {
+      "path": "cmake/toolchain-metadata.json.in",
+      "sha256": "2bf73c7f502c821972d06e3259aee07743617057c6be09b84c07fef27c97c6f5"
+    },
+    {
+      "path": "compiler/acir/.clang-format",
+      "sha256": "1b2d59e65f7b6c363bbab45a7a1057d0f4a1be3adb307b8320c0951ac5721069"
+    },
+    {
+      "path": "compiler/acir/.clang-tidy",
+      "sha256": "e6a94b71f8a4c7b29853de913ea0f35e876fe68ea16c6f3bd5dcd8f0ca5db7b2"
+    },
+    {
+      "path": "compiler/acir/CMakeLists.txt",
+      "sha256": "6c1f0f3f224d024f12643dce0da7c52cede5385fc7a6997fa3f6862eeb6b211e"
+    },
+    {
+      "path": "compiler/acir/CMakePresets.json",
+      "sha256": "fff118e7a412961a70306d082bd6df9fb6291333a8b561cb9df0840ceb8b4190"
+    },
+    {
+      "path": "compiler/acir/bindings/python/CMakeLists.txt",
+      "sha256": "MISSING"
+    },
+    {
+      "path": "compiler/acir/bindings/python/NativeModule.cpp",
+      "sha256": "MISSING"
+    },
+    {
+      "path": "compiler/acir/bindings/python/agentic-circuit",
+      "sha256": "MISSING"
+    },
+    {
+      "path": "compiler/acir/bindings/python/resource-package-init.py",
+      "sha256": "MISSING"
+    },
+    {
+      "path": "compiler/acir/cmake/AgenticCircuitConfig.cmake.in",
+      "sha256": "MISSING"
+    },
+    {
+      "path": "compiler/acir/cmake/LLVMToolchain.cmake",
+      "sha256": "MISSING"
+    },
+    {
+      "path": "compiler/acir/cmake/modules/AddACIR.cmake",
+      "sha256": "4dd4dd24c963293ebf3a717a855df477c6f62d42a45f51822832d768f7149e3d"
+    },
+    {
+      "path": "compiler/acir/include/CMakeLists.txt",
+      "sha256": "19b5c2d2366f9132052baf1afdcdd5a6e6544f6007c70b796b88757863493814"
+    },
+    {
+      "path": "compiler/acir/include/acir/Analysis/ModelAnalysis.h",
+      "sha256": "MISSING"
+    },
+    {
+      "path": "compiler/acir/include/acir/Analysis/RuleEffectGraph.h",
+      "sha256": "MISSING"
+    },
+    {
+      "path": "compiler/acir/include/acir/Analysis/VariableAnalysis.h",
+      "sha256": "MISSING"
+    },
+    {
+      "path": "compiler/acir/include/acir/Analysis/WriterArbitrationAnalysis.h",
+      "sha256": "MISSING"
+    },
+    {
+      "path": "compiler/acir/include/acir/Bindings/Binding.h",
+      "sha256": "MISSING"
+    },
+    {
+      "path": "compiler/acir/include/acir/CMakeLists.txt",
+      "sha256": "f2c4b867dd1a0bb702f60ba39ea9624fe3b503c7046f7a167d852871208bc56d"
+    },
+    {
+      "path": "compiler/acir/include/acir/CodeGen/QueueBlockContract.h",
+      "sha256": "MISSING"
+    },
+    {
+      "path": "compiler/acir/include/acir/CodeGen/QueueGraphGenerator.h",
+      "sha256": "MISSING"
+    },
+    {
+      "path": "compiler/acir/include/acir/CodeGen/QueueGraphPlan.h",
+      "sha256": "MISSING"
+    },
+    {
+      "path": "compiler/acir/include/acir/CodeGen/QueueGraphPyc.h",
+      "sha256": "MISSING"
+    },
+    {
+      "path": "compiler/acir/include/acir/Compiler/Driver.h",
+      "sha256": "MISSING"
+    },
+    {
+      "path": "compiler/acir/include/acir/Dialect/ACIR/ACIRAttributes.h",
+      "sha256": "d6405b38d7575af50b5658a78de3b09f0640a959b15e08aed8586d75d6381d65"
+    },
+    {
+      "path": "compiler/acir/include/acir/Dialect/ACIR/ACIRAttributes.td",
+      "sha256": "b1166df0f62b6362dd6ab73d14574855a49fed9c61853b2657d51928ba3a91b5"
+    },
+    {
+      "path": "compiler/acir/include/acir/Dialect/ACIR/ACIRDialect.h",
+      "sha256": "e58647711aed95f12c35d0f7338f6914f94f0b1e6c4571c13b32bf1bc5cf4df8"
+    },
+    {
+      "path": "compiler/acir/include/acir/Dialect/ACIR/ACIRDialect.td",
+      "sha256": "35b9c2f5693d61ef0521ef7cca5480ada9c1450391dfea8decf46e6d9111c549"
+    },
+    {
+      "path": "compiler/acir/include/acir/Dialect/ACIR/ACIRInterfaces.td",
+      "sha256": "MISSING"
+    },
+    {
+      "path": "compiler/acir/include/acir/Dialect/ACIR/ACIROps.h",
+      "sha256": "6a804c7caf945175d4735126e1e1cc077ed3a8cb2b254744c6a76b20b78e0a9b"
+    },
+    {
+      "path": "compiler/acir/include/acir/Dialect/ACIR/ACIROps.td",
+      "sha256": "48ad23d644eac35fa675dde1dc663c3cf3bce75a65eab0fb6d438ad84eaba248"
+    },
+    {
+      "path": "compiler/acir/include/acir/Dialect/ACIR/ACIRResources.h",
+      "sha256": "MISSING"
+    },
+    {
+      "path": "compiler/acir/include/acir/Dialect/ACIR/ACIRTypes.h",
+      "sha256": "5b303c8c8df478689fb1c41555b34ba34f72ee49e36609e2742e95833cfcc498"
+    },
+    {
+      "path": "compiler/acir/include/acir/Dialect/ACIR/ACIRTypes.td",
+      "sha256": "f34890e84ef68e11da3273f172775e26b3163fc61d7046bf71cd0a2e0a4410c2"
+    },
+    {
+      "path": "compiler/acir/include/acir/Dialect/ACIR/CMakeLists.txt",
+      "sha256": "f5d1aa25da252e2dc2bda7d9295f2845ae724132a947ce1b04ca1c768d0b86f6"
+    },
+    {
+      "path": "compiler/acir/include/acir/Dialect/ACIR/GraphRegion.h",
+      "sha256": "MISSING"
+    },
+    {
+      "path": "compiler/acir/include/acir/Dialect/CMakeLists.txt",
+      "sha256": "5391984d7ce39e2ea859529255dad5b0d8adb616800d9e7ffddd60ca927f03e9"
+    },
+    {
+      "path": "compiler/acir/include/acir/InitAllDialects.h",
+      "sha256": "MISSING"
+    },
+    {
+      "path": "compiler/acir/include/acir/InitAllPasses.h",
+      "sha256": "MISSING"
+    },
+    {
+      "path": "compiler/acir/include/acir/Support/DirectoryPublication.h",
+      "sha256": "MISSING"
+    },
+    {
+      "path": "compiler/acir/include/acir/Support/PrimitiveWidths.h",
+      "sha256": "MISSING"
+    },
+    {
+      "path": "compiler/acir/include/acir/Transforms/CMakeLists.txt",
+      "sha256": "MISSING"
+    },
+    {
+      "path": "compiler/acir/include/acir/Transforms/Passes.h",
+      "sha256": "MISSING"
+    },
+    {
+      "path": "compiler/acir/include/acir/Transforms/Passes.td",
+      "sha256": "MISSING"
+    },
+    {
+      "path": "compiler/acir/lib/Analysis/CMakeLists.txt",
+      "sha256": "MISSING"
+    },
+    {
+      "path": "compiler/acir/lib/Analysis/ModelAnalysis.cpp",
+      "sha256": "MISSING"
+    },
+    {
+      "path": "compiler/acir/lib/Analysis/ModelAnalysisInternal.h",
+      "sha256": "MISSING"
+    },
+    {
+      "path": "compiler/acir/lib/Analysis/ModelAnalysisTestHooks.h",
+      "sha256": "MISSING"
+    },
+    {
+      "path": "compiler/acir/lib/Analysis/RuleEffectGraph.cpp",
+      "sha256": "MISSING"
+    },
+    {
+      "path": "compiler/acir/lib/Analysis/VariableAnalysis.cpp",
+      "sha256": "MISSING"
+    },
+    {
+      "path": "compiler/acir/lib/Analysis/VariableAnalysisTestHooks.h",
+      "sha256": "MISSING"
+    },
+    {
+      "path": "compiler/acir/lib/Analysis/WriterArbitrationAnalysis.cpp",
+      "sha256": "MISSING"
+    },
+    {
+      "path": "compiler/acir/lib/Bindings/Binding.cpp",
+      "sha256": "MISSING"
+    },
+    {
+      "path": "compiler/acir/lib/Bindings/BindingInternal.h",
+      "sha256": "MISSING"
+    },
+    {
+      "path": "compiler/acir/lib/Bindings/BindingTestHooks.h",
+      "sha256": "MISSING"
+    },
+    {
+      "path": "compiler/acir/lib/Bindings/CMakeLists.txt",
+      "sha256": "MISSING"
+    },
+    {
+      "path": "compiler/acir/lib/CMakeLists.txt",
+      "sha256": "ba71fef2cb809547f17a40669d2a6cb9c1c9d837e2d2eec4482334f031042003"
+    },
+    {
+      "path": "compiler/acir/lib/CodeGen/CMakeLists.txt",
+      "sha256": "MISSING"
+    },
+    {
+      "path": "compiler/acir/lib/CodeGen/QueueBlockContract.cpp",
+      "sha256": "MISSING"
+    },
+    {
+      "path": "compiler/acir/lib/CodeGen/QueueGraphCost.cpp",
+      "sha256": "MISSING"
+    },
+    {
+      "path": "compiler/acir/lib/CodeGen/QueueGraphGenerator.cpp",
+      "sha256": "MISSING"
+    },
+    {
+      "path": "compiler/acir/lib/CodeGen/QueueGraphPlan.cpp",
+      "sha256": "MISSING"
+    },
+    {
+      "path": "compiler/acir/lib/CodeGen/QueueGraphPyc.cpp",
+      "sha256": "MISSING"
+    },
+    {
+      "path": "compiler/acir/lib/Compiler/CMakeLists.txt",
+      "sha256": "849bdf275080c729b21b5443987b86e1dcbbf671d5330b8d2e4feb6ee38b123d"
+    },
+    {
+      "path": "compiler/acir/lib/Compiler/CheckGraph.cpp",
+      "sha256": "f13fdaf7bfffd0c8274a818cfcb5c1a06364652d4c4204de6f311b09add3bc89"
+    },
+    {
+      "path": "compiler/acir/lib/Compiler/CheckGraph.h",
+      "sha256": "6edc61802fe31ef6dfa39660af4de5b3b1130e7b9f7d2151d917716e947bb002"
+    },
+    {
+      "path": "compiler/acir/lib/Compiler/CompilerInternal.h",
+      "sha256": "MISSING"
+    },
+    {
+      "path": "compiler/acir/lib/Compiler/Driver.cpp",
+      "sha256": "MISSING"
+    },
+    {
+      "path": "compiler/acir/lib/Compiler/FinalComposedNumeric.cpp",
+      "sha256": "6ca63e181fbdcde3a0e6de457dd8d369f551aa6ae45d0e7637ca358721d0c794"
+    },
+    {
+      "path": "compiler/acir/lib/Compiler/FinalComposedNumeric.h",
+      "sha256": "321040132d16581e8ed23994ca1863f2d420ccdcbc882244598833d2f7c4c1c5"
+    },
+    {
+      "path": "compiler/acir/lib/Compiler/FinalCppDeclarations.cpp",
+      "sha256": "1894891dba523cb7547f4b45c0bb6657767cba1a895ed7af65d93ff4bbde0b86"
+    },
+    {
+      "path": "compiler/acir/lib/Compiler/FinalCppDeclarations.h",
+      "sha256": "dbbd23b1b6fd5012b5be298ed9d27d82bbd09ac42b709f5dda5a35392bfad27a"
+    },
+    {
+      "path": "compiler/acir/lib/Compiler/FinalCppEmission.cpp",
+      "sha256": "9a118cbd13fbe222bbe1734ac2d7ae184f4cacd618baff8d006f20c5b799bbe6"
+    },
+    {
+      "path": "compiler/acir/lib/Compiler/FinalCppEmission.h",
+      "sha256": "9403e320a1f78f79f643b42b21649f1984124ac30e5f9b7664279ac4ea8e2d4c"
+    },
+    {
+      "path": "compiler/acir/lib/Compiler/FinalCppNames.cpp",
+      "sha256": "f4d0b8f8ce68479f7c8d484c215bf1034e0a47762c99532902f7c0c5deb088e3"
+    },
+    {
+      "path": "compiler/acir/lib/Compiler/FinalCppNames.h",
+      "sha256": "f44783f500bd7056febcb25fab8b4fc9afeb8f74b6a59f55ed5008b891d32f0b"
+    },
+    {
+      "path": "compiler/acir/lib/Compiler/FinalCppSourceParts.cpp",
+      "sha256": "621fc37da4877ffffc2f8923132d060996e920990cd31fef4dfab0ac4e6d78a0"
+    },
+    {
+      "path": "compiler/acir/lib/Compiler/FinalCppSourceParts.h",
+      "sha256": "c665e950db209c3e391e90050b89014a82fa74a2d8055e3669daaca05144e455"
+    },
+    {
+      "path": "compiler/acir/lib/Compiler/FinalDeclarations.cpp",
+      "sha256": "f122269bb1cc7a9098dfeb487b52c5988056492c18e918a07e265c79aa50a338"
+    },
+    {
+      "path": "compiler/acir/lib/Compiler/FinalDeclarations.h",
+      "sha256": "d709d6815f5c0ab9711177b2773ca6286a2f9d14736f7c68b44022a8c8a7ddc1"
+    },
+    {
+      "path": "compiler/acir/lib/Compiler/FinalEmit.cpp",
+      "sha256": "b58813358fda3bd472fe69823071038a0d2508597139ad508451420afc4d0733"
+    },
+    {
+      "path": "compiler/acir/lib/Compiler/FinalEmitCpp.cpp",
+      "sha256": "4d62b569b1e2dd1412f05a9311cc78021454ca5e5a6a099e6146df4200c66b97"
+    },
+    {
+      "path": "compiler/acir/lib/Compiler/FinalEmitCpp.h",
+      "sha256": "2ecf69221baa14ea82c69eada904f5b0cb65b7043312aae48c8068c03bba505a"
+    },
+    {
+      "path": "compiler/acir/lib/Compiler/FinalEmitCppHierarchy.cpp",
+      "sha256": "16a07391729492935cdf8004cede0b5f76027c5f81876d5d51fbfa64aceb32cc"
+    },
+    {
+      "path": "compiler/acir/lib/Compiler/FinalEmitCppHierarchy.h",
+      "sha256": "8b06de4b96f31ff9c52a3400c75177a293e7fab6f1987cbc019e4a064a1ffc17"
+    },
+    {
+      "path": "compiler/acir/lib/Compiler/FinalEmitCppSupport.h",
+      "sha256": "f9bed0cbfaa3355373382370ef09388a95240080d052d21a13ee4b625941d3d7"
+    },
+    {
+      "path": "compiler/acir/lib/Compiler/FinalEmitCppSystem.cpp",
+      "sha256": "83652456c55852a61c45d455fdeebaf5e0eb8eb9a66467ac2c66f931e5f70f8d"
+    },
+    {
+      "path": "compiler/acir/lib/Compiler/FinalEmitCppSystem.h",
+      "sha256": "d55b7076195d2a26e0b59a83d6251b6b5727f9287e24f293fa91bde09a2215a6"
+    },
+    {
+      "path": "compiler/acir/lib/Compiler/FinalEmitVerilog.cpp",
+      "sha256": "3fbcfb7f8fcc8fd009e572e846b12b8c14b310433e31fdfb9ea2ddf79dbda7af"
+    },
+    {
+      "path": "compiler/acir/lib/Compiler/FinalEmitVerilog.h",
+      "sha256": "9ccaf1e1cf2495b7ee781b093c433448d1e828138c5a869c979cfe45e5ff74d8"
+    },
+    {
+      "path": "compiler/acir/lib/Compiler/FinalEmitVerilogSupport.h",
+      "sha256": "57ba7081d3a9338da76f75a4393cf874f66cb70427e0fa39302c3b51f5c7a406"
+    },
+    {
+      "path": "compiler/acir/lib/Compiler/FinalHardware.cpp",
+      "sha256": "bcdfc2b8714da9983f9170e1be14416f0eb2dd4cd66a9ceada4e07b93affefdf"
+    },
+    {
+      "path": "compiler/acir/lib/Compiler/FinalHardware.h",
+      "sha256": "bb42b38f8ebac9902beaf08b45969153c9110dce14b074148878e1a38a10b0d2"
+    },
+    {
+      "path": "compiler/acir/lib/Compiler/FinalHardwareProgram.cpp",
+      "sha256": "9a07cd75d548c42309fd8dd53f24a4cdc53890372daf26becbb40a6613d42acc"
+    },
+    {
+      "path": "compiler/acir/lib/Compiler/FinalHardwareProgram.h",
+      "sha256": "2b32dcb9c92a47eeeb14f026345fa640db76e3923ab90d1313ad48b8e6253a05"
+    },
+    {
+      "path": "compiler/acir/lib/Compiler/FinalModelAbi.cpp",
+      "sha256": "88eb7c884b6314259e8f18b31c595cb55bf6c28f6c52825a68321bb8937c357a"
+    },
+    {
+      "path": "compiler/acir/lib/Compiler/FinalModelAbi.h",
+      "sha256": "cf58bf0aee7beaf7b8a05f3020358b1699b5324e328f804de9e8c007c82e7f88"
+    },
+    {
+      "path": "compiler/acir/lib/Compiler/FinalNumeric.cpp",
+      "sha256": "f31d5e5ff240b1a7803de3932366dac6f92ea78885371a839e51b3277ba5d4cc"
+    },
+    {
+      "path": "compiler/acir/lib/Compiler/FinalNumeric.h",
+      "sha256": "ea329044cfe151edb4fe03148526090a491c4de4135d21ba7430f98c5899fccc"
+    },
+    {
+      "path": "compiler/acir/lib/Compiler/FinalProgram.cpp",
+      "sha256": "a301b3cac62287d081cd8e69a45d7c6b1d3f04cbab692094b991dfc5885b1989"
+    },
+    {
+      "path": "compiler/acir/lib/Compiler/FinalProgram.h",
+      "sha256": "b8bd730660c3d09462d6330287605c49bd4b26383cfca9f79ad645a2742dce6e"
+    },
+    {
+      "path": "compiler/acir/lib/Compiler/FinalRunnerEmission.cpp",
+      "sha256": "a84591486e0990093d0deec63ee31fa174090d0697e6b38011cc64b4306fd6cf"
+    },
+    {
+      "path": "compiler/acir/lib/Compiler/FinalRunnerEmission.h",
+      "sha256": "b6217d0b87e4bcf632ab5a0e29d0e32709e2be5cc6e8b2ede80c6e5e9cb9a578"
+    },
+    {
+      "path": "compiler/acir/lib/Compiler/FinalRuntimeMetadata.cpp",
+      "sha256": "46c0cb12d84d008d4f8b5b95add070b4ac19c3cc8789f266cb7c20bd29819d41"
+    },
+    {
+      "path": "compiler/acir/lib/Compiler/FinalRuntimeMetadata.h",
+      "sha256": "9412baf251e8dfd0bb9eec0c3b6135455cf5d3c594d9bc033403207067887ece"
+    },
+    {
+      "path": "compiler/acir/lib/Compiler/FinalSourceMap.cpp",
+      "sha256": "d51f28dd5c6cc782f2e04c80b53eb2aa4853528e44c3c77daef06101777f9f51"
+    },
+    {
+      "path": "compiler/acir/lib/Compiler/FinalSourceMap.h",
+      "sha256": "fbb311dc93d8af09ddbbc3db48d454a3b32a2c720f824b13c4b6b044cece3c7a"
+    },
+    {
+      "path": "compiler/acir/lib/Compiler/FinalUses.cpp",
+      "sha256": "7e65eacf192dd35e3299d3d61e98332229e49fd3342db2200de43dc80609c214"
+    },
+    {
+      "path": "compiler/acir/lib/Compiler/FinalUses.h",
+      "sha256": "da71bdd2754312599ec48662d511617633033fc75bd13c91b98420d8b4bb56d8"
+    },
+    {
+      "path": "compiler/acir/lib/Compiler/FinalVerilogSourceParts.h",
+      "sha256": "eb37118d6eb015c10731122ec19eaf0f8fb004f62e85bdabceaff2f92b519bc4"
+    },
+    {
+      "path": "compiler/acir/lib/Compiler/ModuleGraph.cpp",
+      "sha256": "2b174ac92eb2067b54e6dc92bcbe46c8ae4838b21bbde54cc81e61e81cdcf004"
+    },
+    {
+      "path": "compiler/acir/lib/Compiler/ModuleGraph.h",
+      "sha256": "932488d3aae628b57cfce505403176c8515fc35db70773e06041b58b4246793d"
+    },
+    {
+      "path": "compiler/acir/lib/Compiler/ObservationGraph.cpp",
+      "sha256": "821d3435fb4d43caf6ca52a3f533d232811778d8d899abc98930c460999159f9"
+    },
+    {
+      "path": "compiler/acir/lib/Compiler/ObservationGraph.h",
+      "sha256": "696b9cf6d7b558dd2fd90967f1f870df1429d1f9766d91bb6f597562e5b4527a"
+    },
+    {
+      "path": "compiler/acir/lib/Compiler/Passes/InferRuleEffects.cpp",
+      "sha256": "4f9fed22d10af49d62f8dc572075b11429102eec66eee5f14d6733505ca25f92"
+    },
+    {
+      "path": "compiler/acir/lib/Compiler/Passes/LowerExactInputAdd.cpp",
+      "sha256": "e344975b08b3a7063066cbf5566fa0ce48f106cb39c71f7b292538974b380166"
+    },
+    {
+      "path": "compiler/acir/lib/Compiler/Pipeline.cpp",
+      "sha256": "MISSING"
+    },
+    {
+      "path": "compiler/acir/lib/Compiler/ProposalGraph.cpp",
+      "sha256": "fdb538cdd9aad2d766c297413f45359f24b482d1a11691e5b9656237de6754f6"
+    },
+    {
+      "path": "compiler/acir/lib/Compiler/ProposalGraph.h",
+      "sha256": "6269d87b3200ebad998a98cfd2c2f0a91205342a6f103d83fd69b1a207ff674a"
+    },
+    {
+      "path": "compiler/acir/lib/Compiler/PythonImportAST.cpp",
+      "sha256": "65413956d8484abaf6f7f0d531079a29583adcc7e958bfc6fd747e190db06d82"
+    },
+    {
+      "path": "compiler/acir/lib/Compiler/PythonImportAST.h",
+      "sha256": "84c56a88cfc3387d5d820df7845ae6b68dcdb2ee3d84ebdda7ce8fa96a3b847b"
+    },
+    {
+      "path": "compiler/acir/lib/Compiler/PythonImportChecks.cpp",
+      "sha256": "c4fd9e44e4309220dc5c603997d5ad1692c3bdda9901938f6bedab1ad1e405bf"
+    },
+    {
+      "path": "compiler/acir/lib/Compiler/PythonImportChecks.h",
+      "sha256": "280118756ef5f788472ee578cd1db07c8cd6a9052bbc403c4b38126f654e5b00"
+    },
+    {
+      "path": "compiler/acir/lib/Compiler/PythonImportContext.cpp",
+      "sha256": "cd72a9b8df8fab13544d8d6f346d004eba4e0636f7e0215af2336591b11f1d6e"
+    },
+    {
+      "path": "compiler/acir/lib/Compiler/PythonImportContext.h",
+      "sha256": "c084f2e50848dd95a62c0de388cdfa5695faf7b304429322c85953e39bb928cf"
+    },
+    {
+      "path": "compiler/acir/lib/Compiler/PythonImportHelpers.cpp",
+      "sha256": "31740d97234477f5168b6de79d77f8acad84590de456921d7c9ee08ecad4afd0"
+    },
+    {
+      "path": "compiler/acir/lib/Compiler/PythonImportInternal.h",
+      "sha256": "3afded59eb6e21d90fa6471b7958767fb7a21bfd531b806f6fdcaf4a41cde1c8"
+    },
+    {
+      "path": "compiler/acir/lib/Compiler/PythonImportModuleAnalysis.cpp",
+      "sha256": "7cb4f42587a9fd6a2a514397997fc57e55fbf5dc575a3c5f01287189129f469f"
+    },
+    {
+      "path": "compiler/acir/lib/Compiler/PythonImportModuleBody.cpp",
+      "sha256": "7d75e18c8e9e7deb6ba667305200018df19ea91440a5d89784aad9ee4a0f5b94"
+    },
+    {
+      "path": "compiler/acir/lib/Compiler/PythonImportModules.cpp",
+      "sha256": "10983afcae2f4edb7b4431a306e7825299122c1fe566ea654a3be96e194fabc4"
+    },
+    {
+      "path": "compiler/acir/lib/Compiler/PythonImportModules.h",
+      "sha256": "586a69374828eca9d556058189bc4f78e9ac587285c42e70699ece1789cbd92e"
+    },
+    {
+      "path": "compiler/acir/lib/Compiler/PythonImportNumeric.cpp",
+      "sha256": "f5bf12505ff9740d85a7575519e61cdacc3135c27c2e82370e95a9d3a56c27f9"
+    },
+    {
+      "path": "compiler/acir/lib/Compiler/PythonImportNumeric.h",
+      "sha256": "a38fc7a03b7996b96d6bf633b168bd49d96f33e9eb33cea0bd64c68f6183d774"
+    },
+    {
+      "path": "compiler/acir/lib/Compiler/PythonImportNumericNext.cpp",
+      "sha256": "a37a0081d196d3e0b9857c4762b6189586f81a7ac89ee6e9f539e5a51ffd4d72"
+    },
+    {
+      "path": "compiler/acir/lib/Compiler/PythonImportNumericNext.h",
+      "sha256": "77763a85df21fa95c922ae8774896842d7688bd99e0639f38be8f400626e757e"
+    },
+    {
+      "path": "compiler/acir/lib/Compiler/PythonImportObservations.cpp",
+      "sha256": "1963ef22b7e6304770d608e458e98d032267c20947e32f939c4dcfe0479cd8c9"
+    },
+    {
+      "path": "compiler/acir/lib/Compiler/PythonImportObservations.h",
+      "sha256": "d78b38111e81f14d64b5bfeb6608589e4667b07febf7a8cc5d381577e2e3f7ce"
+    },
+    {
+      "path": "compiler/acir/lib/Compiler/PythonImportRecords.cpp",
+      "sha256": "eaf0d09d6bd7e96e34f8f3d0ce3322ca2b23fe04710a56db109db6b8e551264a"
+    },
+    {
+      "path": "compiler/acir/lib/Compiler/PythonImportRecords.h",
+      "sha256": "6ae56898452c15f205cdc99cfe3c8c3935c16ca7968660a4cb36ccc9a9b015d2"
+    },
+    {
+      "path": "compiler/acir/lib/Compiler/PythonImportRuleControl.cpp",
+      "sha256": "5a4972d4795f6117dd639ccd5f154ff59fda9066b019babee09c08e48f7ea2c4"
+    },
+    {
+      "path": "compiler/acir/lib/Compiler/PythonImportRuleControl.h",
+      "sha256": "83f85a3dd5e44ce36fcd58fb00cb61d15cbf6d8d05f9b4d2fd00be153dbc75b1"
+    },
+    {
+      "path": "compiler/acir/lib/Compiler/PythonImportRuleExpressions.cpp",
+      "sha256": "a31637da3344caa223afd88fcdc816527889c935fdb1ac4fbd51ef5ce90c4db1"
+    },
+    {
+      "path": "compiler/acir/lib/Compiler/PythonImportRuleExpressions.h",
+      "sha256": "91f2b30e31113199a996f67ebc0e4d7d3dc9d39537d3e58fec7c229ba2df7454"
+    },
+    {
+      "path": "compiler/acir/lib/Compiler/PythonImportRules.cpp",
+      "sha256": "fcd8b1f2ca20373ceca5ce76b2651458ca7ab81d7f0c0b9e359417766a2c0d49"
+    },
+    {
+      "path": "compiler/acir/lib/Compiler/PythonImportRules.h",
+      "sha256": "171569a00ea6f99785e0b0fac16f5dab7abcf6aa024e156d378e89febd0f28a5"
+    },
+    {
+      "path": "compiler/acir/lib/Compiler/PythonImportSignature.cpp",
+      "sha256": "100ebb715d7b0637c927282c1db50ca212ac23c9e78059acb54f8ab0fa6cc598"
+    },
+    {
+      "path": "compiler/acir/lib/Compiler/PythonImportSignature.h",
+      "sha256": "bb92c1d982aa3e73918f396e825011f06380647ddb2e7b77d45abc2fbc3a945c"
+    },
+    {
+      "path": "compiler/acir/lib/Compiler/RuleEffectView.h",
+      "sha256": "a984a0cc68bcaafc9f179e465971c0c6a0dc5e09046ef5836086e0d71c44ce7e"
+    },
+    {
+      "path": "compiler/acir/lib/Compiler/RuleInventory.h",
+      "sha256": "a72b574adcf16de5642595d2271d7eadb142904df4a927f7ecd59bf0c691d9b5"
+    },
+    {
+      "path": "compiler/acir/lib/Compiler/ScalarNumericCompositionLowering.cpp",
+      "sha256": "2b63300d1c968706f30668ba8d9e27809927a1179968b893cb40df4282f76d17"
+    },
+    {
+      "path": "compiler/acir/lib/Compiler/ScalarNumericExactLowering.cpp",
+      "sha256": "031c31e4fae779b091e001cc35d527bf4cde3ba40c5a8972468cd72f180173a8"
+    },
+    {
+      "path": "compiler/acir/lib/Compiler/ScalarNumericLowering.cpp",
+      "sha256": "91ea61ae24bf051c3499c609c06ede2202a9790676c07b70422466a804102cc7"
+    },
+    {
+      "path": "compiler/acir/lib/Compiler/ScalarNumericLowering.h",
+      "sha256": "61ea9fe94cb25b912f4ebbadb0207f117db70df13cfb8429e85246a5d6b772cb"
+    },
+    {
+      "path": "compiler/acir/lib/Compiler/ScalarNumericLoweringAnalysis.cpp",
+      "sha256": "2674b4819f25955b62cd962e3cc5193abc945df852c2dddef936d3db855420c4"
+    },
+    {
+      "path": "compiler/acir/lib/Compiler/ScalarNumericLoweringDetail.h",
+      "sha256": "e74f7548c02baa8134101e757b4ced18f096cd5a8958dbe01dc11ffc84e0e92a"
+    },
+    {
+      "path": "compiler/acir/lib/Compiler/ScalarNumericMaskLowering.cpp",
+      "sha256": "f6b1f9da2c643fbb7c61ccc78d7258817b8b37b65bf107d58f8979b20e11fa24"
+    },
+    {
+      "path": "compiler/acir/lib/Compiler/ScalarNumericNextUseLowering.cpp",
+      "sha256": "01e067f81847f2efd6d4e10e10b824cee5195eb6ed7b9f3d4af7357799dfd632"
+    },
+    {
+      "path": "compiler/acir/lib/Compiler/ScalarNumericRangeLowering.cpp",
+      "sha256": "a21608f927917a01ff35a6207cc2ba1d1e1640ccccdc0495de091750dbd434a6"
+    },
+    {
+      "path": "compiler/acir/lib/Compiler/SourceBodySnapshots.cpp",
+      "sha256": "4c4a46052a943ad252a12f816cea2224b1bbbf1ee39f1720d7857c50aa3ebc42"
+    },
+    {
+      "path": "compiler/acir/lib/Compiler/SourceHeaderHelpers.cpp",
+      "sha256": "53e40f473c331031c558a73f61d7959830fb4da383dcdfe6a298b36978dfea52"
+    },
+    {
+      "path": "compiler/acir/lib/Compiler/SourceHeaderHelpers.h",
+      "sha256": "ea1662c04c791a4682e09abc90b77ce572e8c533ebfe70fac2029005da302798"
+    },
+    {
+      "path": "compiler/acir/lib/Compiler/SourceHeaderRegistry.cpp",
+      "sha256": "6b418d247f73ac622657f9ff56ef51e930d5f41e9476f251e96774faa15d544f"
+    },
+    {
+      "path": "compiler/acir/lib/Compiler/SourceIdentifier.cpp",
+      "sha256": "d8790f27a737c2205f522a61c54d013ee5b1d03b4ccb7c2fd02aae9c0b4c7902"
+    },
+    {
+      "path": "compiler/acir/lib/Compiler/SourceIdentifier.h",
+      "sha256": "db1a15bfc19f3744ec8e561f029c10935d734579ccc85cc734727ae7dec7b18f"
+    },
+    {
+      "path": "compiler/acir/lib/Compiler/SourceIdentifierUnicodeData.LICENSE.txt",
+      "sha256": "a356a25466044bffa2b1f3ac2af2ae2e3c5b55546251295c28a50bf96d582bb0"
+    },
+    {
+      "path": "compiler/acir/lib/Compiler/SourceIdentifierUnicodeData.h",
+      "sha256": "2d3b4e123894b22c27c98d2a34ac369b0289b65c6b93593483ecd7b921e1de82"
+    },
+    {
+      "path": "compiler/acir/lib/Compiler/SourceLink.cpp",
+      "sha256": "1450fd209fc706e08ba74d596cc2e8a3050c73782e7fd516cbc72be122d61364"
+    },
+    {
+      "path": "compiler/acir/lib/Compiler/SourceLink.h",
+      "sha256": "9294f17717a84450fbf2d979895e728b0b8dd47cf45f63852f3f8fbff79a030d"
+    },
+    {
+      "path": "compiler/acir/lib/Compiler/SourceNamespace.cpp",
+      "sha256": "4903f9701dcc48524746ddffa2956c4a4cdd62539493c8436b7c11f1eed924f6"
+    },
+    {
+      "path": "compiler/acir/lib/Compiler/SourceNamespace.h",
+      "sha256": "dc2e3684dcd79922c7da984355f79ba4045e6e1fcff2ce398e28fce6b7dcd509"
+    },
+    {
+      "path": "compiler/acir/lib/Compiler/SourceUnit.cpp",
+      "sha256": "d4fdb1260db0801e5a55f9ceea8b20383ce273620ba3c675c358df4fc764c941"
+    },
+    {
+      "path": "compiler/acir/lib/Compiler/SourceUnit.h",
+      "sha256": "cd1fc1e1b36b6e0fa60f7cdf595499ac3f86777729f94bb0aa6136ec896eb32c"
+    },
+    {
+      "path": "compiler/acir/lib/Dialect/ACIR/ACIRConstantOps.cpp",
+      "sha256": "09e3085495b0a0dbe24870ad90b8b40c1f2774f52fa937591d5c4ccfd1b82dc4"
+    },
+    {
+      "path": "compiler/acir/lib/Dialect/ACIR/ACIRDialect.cpp",
+      "sha256": "4e7985f7c461c585dd17eb3554e81a0c581f64e3182da03956509a63780643a3"
+    },
+    {
+      "path": "compiler/acir/lib/Dialect/ACIR/ACIRFinalContracts.cpp",
+      "sha256": "e9f006cdefbaff27b7852a77d76a644c111b04f52bdfef47e6cb63361edba94c"
+    },
+    {
+      "path": "compiler/acir/lib/Dialect/ACIR/ACIRFinalContracts.h",
+      "sha256": "8c51fa3cab89f58d4b39c27670eededdc51417a11b576723ea48b3922fef8cd0"
+    },
+    {
+      "path": "compiler/acir/lib/Dialect/ACIR/ACIRFinalDeclarations.cpp",
+      "sha256": "f44acd907656f38b8bcc0b3a9e7cd5f920f484008d3ce0c37b9ffd97345bbee0"
+    },
+    {
+      "path": "compiler/acir/lib/Dialect/ACIR/ACIRFinalDeclarations.h",
+      "sha256": "bfcf3416955143124423cee3f6e2adf9af1233d27c9180089a0d79c487047174"
+    },
+    {
+      "path": "compiler/acir/lib/Dialect/ACIR/ACIRFinalInstanceContracts.cpp",
+      "sha256": "b626665e756a7079fc7958667952217fbd930df3b57dc07fb680630750c8d118"
+    },
+    {
+      "path": "compiler/acir/lib/Dialect/ACIR/ACIRFinalModuleRegion.cpp",
+      "sha256": "b50be317772f0ca71b59921ae3d7f3390d256ba9c67d36cf755e973592583193"
+    },
+    {
+      "path": "compiler/acir/lib/Dialect/ACIR/ACIRFinalUses.cpp",
+      "sha256": "ab9856bd41abfc4fc394defd3ecafacf1de5d1db8d81938602ba100a001f4bd3"
+    },
+    {
+      "path": "compiler/acir/lib/Dialect/ACIR/ACIRFinalUses.h",
+      "sha256": "604ff9a812a135b2438125a79813966e25910b2a68cab5530355a51ec2f011df"
+    },
+    {
+      "path": "compiler/acir/lib/Dialect/ACIR/ACIRHardwareClosure.cpp",
+      "sha256": "09a68b980612ed5de0ceb0e749ab5646ab5e135b871ce9c5b4cf417e0e379236"
+    },
+    {
+      "path": "compiler/acir/lib/Dialect/ACIR/ACIRHardwareClosure.h",
+      "sha256": "79e67ea6064b7dfb3e0708e60164be1246be6f08bf3157d973a52b1e624413dd"
+    },
+    {
+      "path": "compiler/acir/lib/Dialect/ACIR/ACIRHardwareClosureDetail.h",
+      "sha256": "edbb9671698f4dd27772ead9ad0cc487ef35f63df730f884fe55ff1b8eb6199b"
+    },
+    {
+      "path": "compiler/acir/lib/Dialect/ACIR/ACIRHardwareCommits.cpp",
+      "sha256": "f7d3bf6e93080c353215e8cedfa12ebf303a9273a66572f538db7af531f40612"
+    },
+    {
+      "path": "compiler/acir/lib/Dialect/ACIR/ACIRHardwareInstances.cpp",
+      "sha256": "5a8ee831075e71ed75cde430f99eed378e660b614c4ce12ecec7a6da105960ee"
+    },
+    {
+      "path": "compiler/acir/lib/Dialect/ACIR/ACIRHardwareRows.cpp",
+      "sha256": "61df8bea655c75ee1cb32af04cbd945a1554cdc53c518478373b9e05f18d3ad2"
+    },
+    {
+      "path": "compiler/acir/lib/Dialect/ACIR/ACIRIdentityContracts.cpp",
+      "sha256": "ab98764f5e0503230317d1f741262f85ac8538fb1025602e8ea1c7db130d5d9c"
+    },
+    {
+      "path": "compiler/acir/lib/Dialect/ACIR/ACIRInterfaces.cpp",
+      "sha256": "MISSING"
+    },
+    {
+      "path": "compiler/acir/lib/Dialect/ACIR/ACIRMathOps.cpp",
+      "sha256": "6a4ea8123ccbe71060c130fa4c671922cee9e694a602d35b9d3fee077a4c9a2d"
+    },
+    {
+      "path": "compiler/acir/lib/Dialect/ACIR/ACIRModuleContracts.cpp",
+      "sha256": "2ab6dbf32c8621deadb968d1dd0165e00f1680eb2f1d220c57231f638e1a30d2"
+    },
+    {
+      "path": "compiler/acir/lib/Dialect/ACIR/ACIRModuleOps.cpp",
+      "sha256": "d9ec73dc121fdfd0f03155b85cabb2054bdb6646bfff0af4521dbfecaaddf69d"
+    },
+    {
+      "path": "compiler/acir/lib/Dialect/ACIR/ACIRNumericComposition.cpp",
+      "sha256": "0c950c7ede9f30a26670d7a6033f0bc1734b6ebdc36c2029aeb982ab150816b0"
+    },
+    {
+      "path": "compiler/acir/lib/Dialect/ACIR/ACIRNumericComposition.h",
+      "sha256": "2bf11f7fa2024c5ace4e663f6243544caf33369513f9cde286f67ed7eeceb66e"
+    },
+    {
+      "path": "compiler/acir/lib/Dialect/ACIR/ACIRNumericCompositionDetail.h",
+      "sha256": "fa1c243e103509a9f459dab769e407f8f0095eed8bea69af3faf17c2e4253300"
+    },
+    {
+      "path": "compiler/acir/lib/Dialect/ACIR/ACIRNumericCompositionLowered.cpp",
+      "sha256": "0ce98825ead062e823d74d46244430233300ebbd371b6bb9b44865f906737472"
+    },
+    {
+      "path": "compiler/acir/lib/Dialect/ACIR/ACIRNumericCompositionSchema.cpp",
+      "sha256": "a93b763a46a1864775aec1d0633b6b97af939cab3715b33549fc0dd3906f6027"
+    },
+    {
+      "path": "compiler/acir/lib/Dialect/ACIR/ACIRNumericCompositionUses.cpp",
+      "sha256": "b44290d17cc2a2ba122b0e2acfd4b9c992530e22ef51e97c8cde93a7c1866461"
+    },
+    {
+      "path": "compiler/acir/lib/Dialect/ACIR/ACIRNumericExactAdd.cpp",
+      "sha256": "82e1b3847b2a61d29c41efcfa72e6501a296368f77da03989e079451cc8fb42c"
+    },
+    {
+      "path": "compiler/acir/lib/Dialect/ACIR/ACIRNumericExactAdd.h",
+      "sha256": "aa492fe1602fb8cb61cdc17d8be90b9b6030cb7897f6a5d96c1c799d9a2951bf"
+    },
+    {
+      "path": "compiler/acir/lib/Dialect/ACIR/ACIRNumericExactInputAdd.cpp",
+      "sha256": "b508b61d7cfb9cc7477dd9a3fe55d77631012696f04183cb53853edf4b59d685"
+    },
+    {
+      "path": "compiler/acir/lib/Dialect/ACIR/ACIRNumericExactInputAdd.h",
+      "sha256": "5c9f5ed5f2d10a5bc5b6a7aded7667c1d3652b9e491aaa4f7118d0f99fcee4ed"
+    },
+    {
+      "path": "compiler/acir/lib/Dialect/ACIR/ACIRNumericExactScalar.cpp",
+      "sha256": "2240bb170689ed6b9e18f3e3bf9e10a239d3632a755468eeb781fe95758fcd09"
+    },
+    {
+      "path": "compiler/acir/lib/Dialect/ACIR/ACIRNumericExactScalar.h",
+      "sha256": "05d910dfd929693ac957dd1a1f1d370048d018bb731088ab2597a073d5781326"
+    },
+    {
+      "path": "compiler/acir/lib/Dialect/ACIR/ACIRNumericMask.cpp",
+      "sha256": "86ec09e0a5d4a4d019e93c6e950e119d5ebc951e61abc62efc1f7ab86b022eca"
+    },
+    {
+      "path": "compiler/acir/lib/Dialect/ACIR/ACIRNumericMask.h",
+      "sha256": "86158962c6ec8e9ed1590dcb02ecebc33b2495e118c9ca3d237113066bd8ac36"
+    },
+    {
+      "path": "compiler/acir/lib/Dialect/ACIR/ACIRNumericNextUse.cpp",
+      "sha256": "015966c69c9c7620ce385ce69318c6797de5133b43566e3eccfa4b485914eeb8"
+    },
+    {
+      "path": "compiler/acir/lib/Dialect/ACIR/ACIRNumericNextUse.h",
+      "sha256": "484ba136fd6eba672369f7e5bc6af7bd7f59d4c2e6cd6c7364f6a900ab601e26"
+    },
+    {
+      "path": "compiler/acir/lib/Dialect/ACIR/ACIRNumericProof.h",
+      "sha256": "9e54a5f86fb6b642a3096a38231fc89aac57d49c757e4f2191f41b7d88a3f75a"
+    },
+    {
+      "path": "compiler/acir/lib/Dialect/ACIR/ACIRNumericProofOps.cpp",
+      "sha256": "a929461253a1498cde96e6057fbf7276578a67d28b540be647371efb191be5ef"
+    },
+    {
+      "path": "compiler/acir/lib/Dialect/ACIR/ACIRNumericRange.cpp",
+      "sha256": "93935d26d0de5070cc894c9d922b0a4935db734d96a10eb38b298d135c28af80"
+    },
+    {
+      "path": "compiler/acir/lib/Dialect/ACIR/ACIRNumericRange.h",
+      "sha256": "a827727e2a5ebb28d4590ffea8ec692aaf0d6db7306199dca175d07487b91e91"
+    },
+    {
+      "path": "compiler/acir/lib/Dialect/ACIR/ACIRNumericSourceClosure.cpp",
+      "sha256": "5ec957cd3223ee1eeefbdfdec37bf499fe075d8fd9784bf0baecea1498ef6cee"
+    },
+    {
+      "path": "compiler/acir/lib/Dialect/ACIR/ACIROps.cpp",
+      "sha256": "MISSING"
+    },
+    {
+      "path": "compiler/acir/lib/Dialect/ACIR/ACIROpsTestHooks.h",
+      "sha256": "MISSING"
+    },
+    {
+      "path": "compiler/acir/lib/Dialect/ACIR/ACIRPacketOps.cpp",
+      "sha256": "7ae683c62864398e0085b11909937bddd771691a1b7ee2714cb850facab2deee"
+    },
+    {
+      "path": "compiler/acir/lib/Dialect/ACIR/ACIRPacketTypes.cpp",
+      "sha256": "6f5c87f8b05467ff73060e485ec8f2e422c1239ebbf4e3240529cd37cb0a0d1b"
+    },
+    {
+      "path": "compiler/acir/lib/Dialect/ACIR/ACIRRegistration.cpp",
+      "sha256": "d75d6fbc3f0b63243c1146b96b730fe497f5005d40ccfd4dd0f927084b397e8b"
+    },
+    {
+      "path": "compiler/acir/lib/Dialect/ACIR/ACIRResources.cpp",
+      "sha256": "MISSING"
+    },
+    {
+      "path": "compiler/acir/lib/Dialect/ACIR/ACIRResourcesTestHooks.h",
+      "sha256": "MISSING"
+    },
+    {
+      "path": "compiler/acir/lib/Dialect/ACIR/ACIRSourceContracts.cpp",
+      "sha256": "6c52697f827a843068f981797d5f93afa42d3482f5df7666612c56f568460efd"
+    },
+    {
+      "path": "compiler/acir/lib/Dialect/ACIR/ACIRSourceContracts.h",
+      "sha256": "fdeba478c0d83954853ec1ed1f0b7bd7e7191dcccb2c560b775a2f905a68bd3c"
+    },
+    {
+      "path": "compiler/acir/lib/Dialect/ACIR/ACIRSourceOwnerCaseFoldData.h",
+      "sha256": "3c26adb816d6c1f7801efe873223ad6dd4bc39411a49c315e5ddb0752908e16e"
+    },
+    {
+      "path": "compiler/acir/lib/Dialect/ACIR/ACIRStaticContracts.cpp",
+      "sha256": "f4e244d029f0a376bcb93879f04bd52531bc15537cc4079a6094bd693998aba4"
+    },
+    {
+      "path": "compiler/acir/lib/Dialect/ACIR/ACIRStaticEvaluation.cpp",
+      "sha256": "58545e6ee53967ffd56d049526db3db829ca07deb7e0ecf856c765e3eba3823f"
+    },
+    {
+      "path": "compiler/acir/lib/Dialect/ACIR/ACIRStaticEvaluation.h",
+      "sha256": "0df84b06979a57868688221b672edd2c4d3fcb26e8322829399143d0b28e4977"
+    },
+    {
+      "path": "compiler/acir/lib/Dialect/ACIR/ACIRSystemOps.cpp",
+      "sha256": "609cc4fdcf376fc09944ab9b56d991a876af71a19f4a5ae1e323e86042315665"
+    },
+    {
+      "path": "compiler/acir/lib/Dialect/ACIR/ACIRTypes.cpp",
+      "sha256": "MISSING"
+    },
+    {
+      "path": "compiler/acir/lib/Dialect/ACIR/ACIRValueContracts.cpp",
+      "sha256": "bb43e383ac1536f2dd4710b103b53f1a52fdf51f1f8e151d020d735410a05517"
+    },
+    {
+      "path": "compiler/acir/lib/Dialect/ACIR/CMakeLists.txt",
+      "sha256": "f90d267bde2e1fcbd67a0c0c8b5a534b4d4e5758e9cc174db5c5a292d2bb0802"
+    },
+    {
+      "path": "compiler/acir/lib/Dialect/ACIR/GraphRegion.cpp",
+      "sha256": "MISSING"
+    },
+    {
+      "path": "compiler/acir/lib/Dialect/ACIR/ProcessLowerability.cpp",
+      "sha256": "MISSING"
+    },
+    {
+      "path": "compiler/acir/lib/Dialect/ACIR/ProcessLowerability.h",
+      "sha256": "MISSING"
+    },
+    {
+      "path": "compiler/acir/lib/Dialect/CMakeLists.txt",
+      "sha256": "5391984d7ce39e2ea859529255dad5b0d8adb616800d9e7ffddd60ca927f03e9"
+    },
+    {
+      "path": "compiler/acir/lib/Transforms/ArchitectureObligations.cpp",
+      "sha256": "MISSING"
+    },
+    {
+      "path": "compiler/acir/lib/Transforms/BuildRuleEffectGraph.cpp",
+      "sha256": "MISSING"
+    },
+    {
+      "path": "compiler/acir/lib/Transforms/CMakeLists.txt",
+      "sha256": "MISSING"
+    },
+    {
+      "path": "compiler/acir/lib/Transforms/CanonicalizeModel.cpp",
+      "sha256": "MISSING"
+    },
+    {
+      "path": "compiler/acir/lib/Transforms/FreezeTopology.cpp",
+      "sha256": "MISSING"
+    },
+    {
+      "path": "compiler/acir/lib/Transforms/InlinePureHelpers.cpp",
+      "sha256": "MISSING"
+    },
+    {
+      "path": "compiler/acir/lib/Transforms/LowerRules.cpp",
+      "sha256": "MISSING"
+    },
+    {
+      "path": "compiler/acir/lib/Transforms/LowerValueContracts.cpp",
+      "sha256": "MISSING"
+    },
+    {
+      "path": "compiler/acir/lib/Transforms/LowerVariables.cpp",
+      "sha256": "MISSING"
+    },
+    {
+      "path": "compiler/acir/lib/Transforms/NormalizeACIRFile.cpp",
+      "sha256": "MISSING"
+    },
+    {
+      "path": "compiler/acir/lib/Transforms/PruneInternalPayloads.cpp",
+      "sha256": "MISSING"
+    },
+    {
+      "path": "compiler/acir/lib/Transforms/VerifyACIRFile.cpp",
+      "sha256": "MISSING"
+    },
+    {
+      "path": "compiler/acir/lib/Transforms/VerifyModel.cpp",
+      "sha256": "MISSING"
+    },
+    {
+      "path": "compiler/acir/lib/Transforms/VerifyValueConstraints.cpp",
+      "sha256": "MISSING"
+    },
+    {
+      "path": "compiler/acir/tools/CMakeLists.txt",
+      "sha256": "d5ad7d362fad954098896c9be2dc80726d327639bf3ec159c0eb4db67c51087a"
+    },
+    {
+      "path": "compiler/acir/tools/acc/CMakeLists.txt",
+      "sha256": "MISSING"
+    },
+    {
+      "path": "compiler/acir/tools/acc/acc.cpp",
+      "sha256": "MISSING"
+    },
+    {
+      "path": "compiler/acir/tools/acir-backend-closure-harness/BackendPublication.cpp",
+      "sha256": "14b5cd1ddd1323ce38d664257f15848a217c75b2b2e8516e83c38c51327c9a49"
+    },
+    {
+      "path": "compiler/acir/tools/acir-backend-closure-harness/BackendPublication.h",
+      "sha256": "25f075a278556c4e6e40843945b17565f7ac2921d56395780f43e8b7ed10305b"
+    },
+    {
+      "path": "compiler/acir/tools/acir-backend-closure-harness/CMakeLists.txt",
+      "sha256": "d707fec37fd8b02202b4e22aa34fe0e883aa2ed550613600f4dd5f08adbed3be"
+    },
+    {
+      "path": "compiler/acir/tools/acir-backend-closure-harness/ComposedExecution.cpp",
+      "sha256": "13032ce80cd92296738dd53e4ff96a02eeca2347bbbbba39d94750bf8648f28b"
+    },
+    {
+      "path": "compiler/acir/tools/acir-backend-closure-harness/ComposedExecution.h",
+      "sha256": "614466f1abe427202808c875c075f0ee4413f5b61c60283cb185b7e9ed99c8ad"
+    },
+    {
+      "path": "compiler/acir/tools/acir-backend-closure-harness/ComposedFixture.cpp",
+      "sha256": "98323281c56efd2492c7cf93ac526ab9079164f2b08fea3296ff6c26ee63c149"
+    },
+    {
+      "path": "compiler/acir/tools/acir-backend-closure-harness/ComposedFixture.h",
+      "sha256": "5b44ac7c346fdc2be91e434e76287cb8a340fbedbb44d13f01ed7c33d712184c"
+    },
+    {
+      "path": "compiler/acir/tools/acir-backend-closure-harness/ComposedLifecycle.cpp",
+      "sha256": "19592a692be318c2181707fa29ffa639b7502d6d993edf9e1d671e905b68d363"
+    },
+    {
+      "path": "compiler/acir/tools/acir-backend-closure-harness/ComposedLifecycle.h",
+      "sha256": "9d99ab46c839804fbed5e9926a2c4c27bf94c661af38d23aa672bb9198ca5169"
+    },
+    {
+      "path": "compiler/acir/tools/acir-backend-closure-harness/ComposedObservations.cpp",
+      "sha256": "40927b1af92a9dc0afad973702049a9250b75bf577f41cebd2c4dc0105eba699"
+    },
+    {
+      "path": "compiler/acir/tools/acir-backend-closure-harness/ComposedObservations.h",
+      "sha256": "563b84237a9c140c820db4d46ce05279892df611239706f6e16e04433de31993"
+    },
+    {
+      "path": "compiler/acir/tools/acir-backend-closure-harness/GeneratedStorageInventory.cpp",
+      "sha256": "08935961a911db26801ec59433598e0168d83b311d48436d75e6a831f1ef96bc"
+    },
+    {
+      "path": "compiler/acir/tools/acir-backend-closure-harness/GeneratedStorageInventory.h",
+      "sha256": "f791b7792dddaeaa4e0b40c2d810a433b9209a9aeeb2e816b9f9562206bf89d5"
+    },
+    {
+      "path": "compiler/acir/tools/acir-backend-closure-harness/IdleExecution.cpp",
+      "sha256": "0ac5c5b59c243df2cf630356ef5e9587cb4ce2ebc8c2ba6355966d6d2a83f0fd"
+    },
+    {
+      "path": "compiler/acir/tools/acir-backend-closure-harness/IdleExecution.h",
+      "sha256": "dfe6af76f6fc11966f377591e1e7006cd768628752e739ef4433a93c6e311854"
+    },
+    {
+      "path": "compiler/acir/tools/acir-backend-closure-harness/acir-backend-closure-harness.cpp",
+      "sha256": "7aee4d8504900d0dd8031a9cd7c42de8f539da4a472f6dfe7138bf4e5c20dea9"
+    },
+    {
+      "path": "compiler/acir/tools/acir-cpp-source-parts-harness/CMakeLists.txt",
+      "sha256": "dbfc98a89fd07b098212c4080156b3cdf68d88c23f271796477d0c14c422c189"
+    },
+    {
+      "path": "compiler/acir/tools/acir-cpp-source-parts-harness/acir-cpp-source-parts-harness.cpp",
+      "sha256": "456026112328b8f121d44b1a38fbfa6a8206acf21f54e50fbfab2c87e1d3be45"
+    },
+    {
+      "path": "compiler/acir/tools/acir-design-harness/CMakeLists.txt",
+      "sha256": "4beecf31798035a4d822800e4905aa09dfaa6000b39d12ec8dde62749993f138"
+    },
+    {
+      "path": "compiler/acir/tools/acir-design-harness/acir-design-harness.cpp",
+      "sha256": "2b12a866ce6b4d81e41d69a971a5e3c14251c53dfd438590b3b5d840af6b4943"
+    },
+    {
+      "path": "compiler/acir/tools/acir-opcode-catalog/CMakeLists.txt",
+      "sha256": "MISSING"
+    },
+    {
+      "path": "compiler/acir/tools/acir-opcode-catalog/acir-opcode-catalog.cpp",
+      "sha256": "MISSING"
+    },
+    {
+      "path": "compiler/acir/tools/acir-opt/CMakeLists.txt",
+      "sha256": "MISSING"
+    },
+    {
+      "path": "compiler/acir/tools/acir-opt/acir-opt.cpp",
+      "sha256": "MISSING"
+    },
+    {
+      "path": "compiler/acir/tools/acir-queue-cxxgen/CMakeLists.txt",
+      "sha256": "MISSING"
+    },
+    {
+      "path": "compiler/acir/tools/acir-queue-cxxgen/acir-queue-cxxgen.cpp",
+      "sha256": "MISSING"
+    },
+    {
+      "path": "compiler/acir/tools/acir-queue-plan/CMakeLists.txt",
+      "sha256": "MISSING"
+    },
+    {
+      "path": "compiler/acir/tools/acir-queue-plan/acir-queue-plan.cpp",
+      "sha256": "MISSING"
+    },
+    {
+      "path": "compiler/acir/tools/acir-queue-pycgen/CMakeLists.txt",
+      "sha256": "MISSING"
+    },
+    {
+      "path": "compiler/acir/tools/acir-queue-pycgen/acir-queue-pycgen.cpp",
+      "sha256": "MISSING"
+    },
+    {
+      "path": "compiler/acir/tools/acir-source-unit-harness/CMakeLists.txt",
+      "sha256": "2f002f7d67dd63eb3dffd35e4b47721bd228708866eeb22941f711f463b9add1"
+    },
+    {
+      "path": "compiler/acir/tools/acir-source-unit-harness/acir-source-unit-harness.cpp",
+      "sha256": "7a17d362f5b3b473057b2036761536b1cf68f4220ff07ab47506061e6c39df17"
+    },
+    {
+      "path": "compiler/acir/tools/generate_source_owner_casefold.py",
+      "sha256": "f30f0ccc87a1ff273f629f9f7243614736ceb3e5f11eef0d7da3fe6e62fe1431"
+    },
+    {
+      "path": "compiler/acir/tools/pack-perfetto-trace.py",
+      "sha256": "MISSING"
+    },
+    {
+      "path": "compiler/acir/tools/perfetto_trace.py",
+      "sha256": "MISSING"
+    },
+    {
+      "path": "compiler/mlir/CMakeLists.txt",
+      "sha256": "MISSING"
+    },
+    {
+      "path": "compiler/mlir/README.md",
+      "sha256": "MISSING"
+    },
+    {
+      "path": "compiler/mlir/include/pyc/Dialect/PYC/PYCAttributes.h",
+      "sha256": "MISSING"
+    },
+    {
+      "path": "compiler/mlir/include/pyc/Dialect/PYC/PYCAttributes.td",
+      "sha256": "MISSING"
+    },
+    {
+      "path": "compiler/mlir/include/pyc/Dialect/PYC/PYCDialect.h",
+      "sha256": "MISSING"
+    },
+    {
+      "path": "compiler/mlir/include/pyc/Dialect/PYC/PYCDialect.td",
+      "sha256": "MISSING"
+    },
+    {
+      "path": "compiler/mlir/include/pyc/Dialect/PYC/PYCOps.h",
+      "sha256": "MISSING"
+    },
+    {
+      "path": "compiler/mlir/include/pyc/Dialect/PYC/PYCOps.td",
+      "sha256": "MISSING"
+    },
+    {
+      "path": "compiler/mlir/include/pyc/Dialect/PYC/PYCTypes.h",
+      "sha256": "MISSING"
+    },
+    {
+      "path": "compiler/mlir/include/pyc/Dialect/PYC/PYCTypes.td",
+      "sha256": "MISSING"
+    },
+    {
+      "path": "compiler/mlir/include/pyc/Emit/CppEmitter.h",
+      "sha256": "MISSING"
+    },
+    {
+      "path": "compiler/mlir/include/pyc/Emit/VerilogEmitter.h",
+      "sha256": "MISSING"
+    },
+    {
+      "path": "compiler/mlir/include/pyc/Support/Diagnostics.h",
+      "sha256": "MISSING"
+    },
+    {
+      "path": "compiler/mlir/include/pyc/Transforms/CombDepGraph.h",
+      "sha256": "MISSING"
+    },
+    {
+      "path": "compiler/mlir/include/pyc/Transforms/Passes.h",
+      "sha256": "MISSING"
+    },
+    {
+      "path": "compiler/mlir/include/pyc/Transforms/SourceProvenance.h",
+      "sha256": "MISSING"
+    },
+    {
+      "path": "compiler/mlir/lib/Dialect/PYC/PYCDialect.cpp",
+      "sha256": "MISSING"
+    },
+    {
+      "path": "compiler/mlir/lib/Dialect/PYC/PYCOps.cpp",
+      "sha256": "MISSING"
+    },
+    {
+      "path": "compiler/mlir/lib/Dialect/PYC/PYCTypes.cpp",
+      "sha256": "MISSING"
+    },
+    {
+      "path": "compiler/mlir/lib/Emit/CppEmitter.cpp",
+      "sha256": "MISSING"
+    },
+    {
+      "path": "compiler/mlir/lib/Emit/VerilogEmitter.cpp",
+      "sha256": "MISSING"
+    },
+    {
+      "path": "compiler/mlir/lib/Support/Diagnostics.cpp",
+      "sha256": "MISSING"
+    },
+    {
+      "path": "compiler/mlir/lib/Transforms/CheckClockDomainsPass.cpp",
+      "sha256": "MISSING"
+    },
+    {
+      "path": "compiler/mlir/lib/Transforms/CheckCombCyclesPass.cpp",
+      "sha256": "MISSING"
+    },
+    {
+      "path": "compiler/mlir/lib/Transforms/CheckFlatTypesPass.cpp",
+      "sha256": "MISSING"
+    },
+    {
+      "path": "compiler/mlir/lib/Transforms/CheckFrontendContractPass.cpp",
+      "sha256": "MISSING"
+    },
+    {
+      "path": "compiler/mlir/lib/Transforms/CheckHierarchyDisciplinePass.cpp",
+      "sha256": "MISSING"
+    },
+    {
+      "path": "compiler/mlir/lib/Transforms/CheckLogicDepthPass.cpp",
+      "sha256": "MISSING"
+    },
+    {
+      "path": "compiler/mlir/lib/Transforms/CheckNoDynamicPass.cpp",
+      "sha256": "MISSING"
+    },
+    {
+      "path": "compiler/mlir/lib/Transforms/CollectCompileStatsPass.cpp",
+      "sha256": "MISSING"
+    },
+    {
+      "path": "compiler/mlir/lib/Transforms/CombCanonicalizePass.cpp",
+      "sha256": "MISSING"
+    },
+    {
+      "path": "compiler/mlir/lib/Transforms/CombDepGraph.cpp",
+      "sha256": "MISSING"
+    },
+    {
+      "path": "compiler/mlir/lib/Transforms/EliminateDeadInstancesPass.cpp",
+      "sha256": "MISSING"
+    },
+    {
+      "path": "compiler/mlir/lib/Transforms/EliminateDeadStatePass.cpp",
+      "sha256": "MISSING"
+    },
+    {
+      "path": "compiler/mlir/lib/Transforms/EliminateWiresPass.cpp",
+      "sha256": "MISSING"
+    },
+    {
+      "path": "compiler/mlir/lib/Transforms/FlattenInstancesPass.cpp",
+      "sha256": "MISSING"
+    },
+    {
+      "path": "compiler/mlir/lib/Transforms/FuseCombPass.cpp",
+      "sha256": "MISSING"
+    },
+    {
+      "path": "compiler/mlir/lib/Transforms/InlineFunctionsPass.cpp",
+      "sha256": "MISSING"
+    },
+    {
+      "path": "compiler/mlir/lib/Transforms/LowerModuleFamiliesToFuncsPass.cpp",
+      "sha256": "MISSING"
+    },
+    {
+      "path": "compiler/mlir/lib/Transforms/LowerSCFToPYCStaticPass.cpp",
+      "sha256": "MISSING"
+    },
+    {
+      "path": "compiler/mlir/lib/Transforms/PackI1RegsPass.cpp",
+      "sha256": "MISSING"
+    },
+    {
+      "path": "compiler/mlir/lib/Transforms/PrunePortsPass.cpp",
+      "sha256": "MISSING"
+    },
+    {
+      "path": "compiler/mlir/lib/Transforms/SelectRtlPrimitivesPass.cpp",
+      "sha256": "MISSING"
+    },
+    {
+      "path": "compiler/mlir/lib/Transforms/SourceAwareCSEPass.cpp",
+      "sha256": "MISSING"
+    },
+    {
+      "path": "compiler/mlir/scripts/build_all.sh",
+      "sha256": "MISSING"
+    },
+    {
+      "path": "compiler/mlir/tools/pyc-opt.cpp",
+      "sha256": "MISSING"
+    },
+    {
+      "path": "compiler/mlir/tools/pycc.cpp",
+      "sha256": "MISSING"
+    },
+    {
+      "path": "library/cpp/CMakeLists.txt",
+      "sha256": "MISSING"
+    },
+    {
+      "path": "library/cpp/pyc_async_fifo.hpp",
+      "sha256": "MISSING"
+    },
+    {
+      "path": "library/cpp/pyc_bits.hpp",
+      "sha256": "MISSING"
+    },
+    {
+      "path": "library/cpp/pyc_byte_mem.hpp",
+      "sha256": "MISSING"
+    },
+    {
+      "path": "library/cpp/pyc_cdc_sync.hpp",
+      "sha256": "MISSING"
+    },
+    {
+      "path": "library/cpp/pyc_change_detect.hpp",
+      "sha256": "MISSING"
+    },
+    {
+      "path": "library/cpp/pyc_clock.hpp",
+      "sha256": "MISSING"
+    },
+    {
+      "path": "library/cpp/pyc_connector.hpp",
+      "sha256": "MISSING"
+    },
+    {
+      "path": "library/cpp/pyc_debug.hpp",
+      "sha256": "MISSING"
+    },
+    {
+      "path": "library/cpp/pyc_four_state.hpp",
+      "sha256": "MISSING"
+    },
+    {
+      "path": "library/cpp/pyc_ops.hpp",
+      "sha256": "MISSING"
+    },
+    {
+      "path": "library/cpp/pyc_primitives.hpp",
+      "sha256": "MISSING"
+    },
+    {
+      "path": "library/cpp/pyc_print.hpp",
+      "sha256": "MISSING"
+    },
+    {
+      "path": "library/cpp/pyc_probe_registry.hpp",
+      "sha256": "MISSING"
+    },
+    {
+      "path": "library/cpp/pyc_runtime.cpp",
+      "sha256": "MISSING"
+    },
+    {
+      "path": "library/cpp/pyc_runtime.hpp",
+      "sha256": "MISSING"
+    },
+    {
+      "path": "library/cpp/pyc_sim.hpp",
+      "sha256": "MISSING"
+    },
+    {
+      "path": "library/cpp/pyc_sync_mem.hpp",
+      "sha256": "MISSING"
+    },
+    {
+      "path": "library/cpp/pyc_tb.hpp",
+      "sha256": "MISSING"
+    },
+    {
+      "path": "library/cpp/pyc_tb_sidecar.hpp",
+      "sha256": "MISSING"
+    },
+    {
+      "path": "library/cpp/pyc_tb_sidecar_runtime.hpp",
+      "sha256": "MISSING"
+    },
+    {
+      "path": "library/cpp/pyc_trace_bin.hpp",
+      "sha256": "MISSING"
+    },
+    {
+      "path": "library/cpp/pyc_vcd.hpp",
+      "sha256": "MISSING"
+    },
+    {
+      "path": "library/verilog/licenses/BSD-3-Clause.txt",
+      "sha256": "321940059773d631ad73832bfa870431aa6cba545b38d4055641ce21275bb22c"
+    },
+    {
+      "path": "library/verilog/pyc_add.v",
+      "sha256": "fcad5fa29f36d7a9b8038022888a181a86e5d7d4d8248b90feca74920539e6d3"
+    },
+    {
+      "path": "library/verilog/pyc_and.v",
+      "sha256": "b18c72a58abb1c71d3be4f92fc6309da197f0719bd486eb5bf19108e625cc1f5"
+    },
+    {
+      "path": "library/verilog/pyc_async_fifo.v",
+      "sha256": "21fa1d5b1bc4c2d73345db2ccfdac22a24d211f535b533aeb61681a660209847"
+    },
+    {
+      "path": "library/verilog/pyc_byte_mem.v",
+      "sha256": "08485c0d027a014f8eb164895b7a8b0a45250bfb683192d5e40ddf71476e8ec9"
+    },
+    {
+      "path": "library/verilog/pyc_cdc_sync.v",
+      "sha256": "3e9c84b41d943975b5ca4fd91a77f1fcdd9bc897ecb7fbeed8b9286ce48b05d0"
+    },
+    {
+      "path": "library/verilog/pyc_count_zeros_primitive.v",
+      "sha256": "e76e61a22471572be163658f17b76efb1691cb242fdee0771d50384a811cc644"
+    },
+    {
+      "path": "library/verilog/pyc_fifo.v",
+      "sha256": "2e0dcaafad347a5fded59de9ceef72a103d9f328d457f5ae5f58436750c94a50"
+    },
+    {
+      "path": "library/verilog/pyc_mux.v",
+      "sha256": "ce41b2e1e46749a6bc79361ed8845535e0b1206e73134230b2dc8a46d777d575"
+    },
+    {
+      "path": "library/verilog/pyc_not.v",
+      "sha256": "a2b6fc3aa1104f1f36c99448c650eea4d98fb3a53a6bbb322a5270af9438f9b0"
+    },
+    {
+      "path": "library/verilog/pyc_or.v",
+      "sha256": "1549d9e210a64bd720973efec9ac5834e0fbefe2f5e1ad622df48a709178746f"
+    },
+    {
+      "path": "library/verilog/pyc_popcount_primitive.v",
+      "sha256": "e5ab6d5c1f5657d4b43f121ee05738f42160c66c7d997059fd2893fdb75ebce4"
+    },
+    {
+      "path": "library/verilog/pyc_priority_encode.v",
+      "sha256": "54d01766a023f77e8a91eef527fba4e9b997e58c241ca63c11c0ec7e865045fe"
+    },
+    {
+      "path": "library/verilog/pyc_priority_encode_tree.v",
+      "sha256": "7f2569ba7dc4ee936b6e04c66399d62efea9a8135cfe006e3dd5cb04446ad921"
+    },
+    {
+      "path": "library/verilog/pyc_reg.v",
+      "sha256": "9281b7dc957e918053dad38563de475c5b8099ba6fee8aa967222d5d9cb3941d"
+    },
+    {
+      "path": "library/verilog/pyc_rr_arbiter.v",
+      "sha256": "a6dc1e7c7923988ed2aa1841430b13db62591f86dded629745e11fc8665624c1"
+    },
+    {
+      "path": "library/verilog/pyc_sync_mem.v",
+      "sha256": "62c282424d9bf2a9807abbe1563b1393ccc0a01896739143c45dfe8ab3d43cc1"
+    },
+    {
+      "path": "library/verilog/pyc_sync_mem_dp.v",
+      "sha256": "6d933de29c6c33238d02d5b0e5350eb3990ab3081600cc2226cd7c1d791c587e"
+    },
+    {
+      "path": "library/verilog/pyc_xor.v",
+      "sha256": "4d720c7bae6560556af9ca07ff6df8076d21f4783a6c75c37885942d724460b9"
+    },
+    {
+      "path": "library/verilog/rtl_catalog.json",
+      "sha256": "50cae46bedc9b854b5b14aefb912c3c207c97caf84cb59b95c41e9a8d99b0fcf"
+    },
+    {
+      "path": "packaging/sdk/check_contract.py",
+      "sha256": "c1e817ece9b99d937eb8595c8094a0cfdccc6a933fefcc4f94cc0ac5e719c372"
+    },
+    {
+      "path": "packaging/sdk/create_platform_manifest.py",
+      "sha256": "039b5a7e73b0223998d02680cf128a54639b2db7439a081bb605ac52ab38a3fe"
+    },
+    {
+      "path": "packaging/sdk/examples/consumer-lock.example.json",
+      "sha256": "ab3dbe5fd603392eec6d60a2f17275363061e2a466481fb77008a726e713d3e1"
+    },
+    {
+      "path": "packaging/sdk/examples/emitted-cost.example.json",
+      "sha256": "MISSING"
+    },
+    {
+      "path": "packaging/sdk/examples/release-index.example.json",
+      "sha256": "091d0fd4124424f3908b61cc6796daf16c67de4ccb95e930e8b1f6945505dbda"
+    },
+    {
+      "path": "packaging/sdk/examples/sdk-platform-manifest.example.json",
+      "sha256": "451dd10b6bebbb0d39a705c264ad3ea3c198b25c351739d5c20b9d3beb4ee616"
+    },
+    {
+      "path": "packaging/sdk/release_candidate.py",
+      "sha256": "65e97ded39852c085b4eb95e0980291e9b315c334d7568d3614d7cbac0098cb8"
+    },
+    {
+      "path": "packaging/sdk/relocate_install.py",
+      "sha256": "388482eb7b8ff7af2be435245e6e8ea37a0fed6d633185ea82033e781e4d80f1"
+    },
+    {
+      "path": "packaging/sdk/verify_platform_candidate.py",
+      "sha256": "5e79726a83620a0398fc5ad7e050f798cd78e0c87b2646172ff6c0cb13f6d583"
+    },
+    {
+      "path": "packaging/sdk/version-map.json",
+      "sha256": "968524c138a41bc6a576adcbd11358354b7140a05414ed671b5b1783733634b2"
+    },
+    {
+      "path": "packaging/wheel/create_wheel.py",
+      "sha256": "9157067d0ef4597b4419046d0d85a656773f1267decd14d70d91f0a0230c004f"
+    },
+    {
+      "path": "packaging/wheel/get_wheel_plat_name.py",
+      "sha256": "120636209681a35413b8af9a0a87cb8d3c5a251da1ca424c56827547e4bfe083"
+    },
+    {
+      "path": "packaging/wheel/platform_tags.py",
+      "sha256": "677997e50f53110194d6ecf2a1122b3806de1b2c336fd2fe3b3a06dc5ca29a5d"
+    },
+    {
+      "path": "packaging/wheel/pyproject.toml",
+      "sha256": "dd2e3d99fb8ee5757eabfdec32d5b1245d5094bc65b2115ab4948fcd3390a927"
+    },
+    {
+      "path": "packaging/wheel/setup.py",
+      "sha256": "499c7cb2061c3018a15f3e832126d711746f94c40e17c4d559351ccf3d6d7b1e"
+    },
+    {
+      "path": "pyproject.toml",
+      "sha256": "5fd9110cb7aed78ce7e1ffd37e62bfb5564e67a0630fc9163f2a9ed6ec11934b"
+    },
+    {
+      "path": "python/agentic-circuit/CHANGELOG.md",
+      "sha256": "MISSING"
+    },
+    {
+      "path": "python/agentic-circuit/LICENSE",
+      "sha256": "MISSING"
+    },
+    {
+      "path": "python/agentic-circuit/README.md",
+      "sha256": "MISSING"
+    },
+    {
+      "path": "python/agentic-circuit/pyproject.toml",
+      "sha256": "MISSING"
+    },
+    {
+      "path": "python/agentic-circuit/requirements-dev.lock",
+      "sha256": "MISSING"
+    },
+    {
+      "path": "python/agentic-circuit/setup.py",
+      "sha256": "MISSING"
+    },
+    {
+      "path": "python/agentic-circuit/src/agentic_circuit/__init__.py",
+      "sha256": "MISSING"
+    },
+    {
+      "path": "python/agentic-circuit/src/agentic_circuit/_acc_py.py",
+      "sha256": "MISSING"
+    },
+    {
+      "path": "python/agentic-circuit/src/agentic_circuit/_acpy.py",
+      "sha256": "MISSING"
+    },
+    {
+      "path": "python/agentic-circuit/src/agentic_circuit/_api_inventory.py",
+      "sha256": "MISSING"
+    },
+    {
+      "path": "python/agentic-circuit/src/agentic_circuit/_canonical_json.py",
+      "sha256": "MISSING"
+    },
+    {
+      "path": "python/agentic-circuit/src/agentic_circuit/_capabilities.py",
+      "sha256": "MISSING"
+    },
+    {
+      "path": "python/agentic-circuit/src/agentic_circuit/_capture.py",
+      "sha256": "MISSING"
+    },
+    {
+      "path": "python/agentic-circuit/src/agentic_circuit/_capture_worker.py",
+      "sha256": "MISSING"
+    },
+    {
+      "path": "python/agentic-circuit/src/agentic_circuit/_cli.py",
+      "sha256": "MISSING"
+    },
+    {
+      "path": "python/agentic-circuit/src/agentic_circuit/_commands/__init__.py",
+      "sha256": "MISSING"
+    },
+    {
+      "path": "python/agentic-circuit/src/agentic_circuit/_commands/doctor.py",
+      "sha256": "MISSING"
+    },
+    {
+      "path": "python/agentic-circuit/src/agentic_circuit/_commands/explain.py",
+      "sha256": "MISSING"
+    },
+    {
+      "path": "python/agentic-circuit/src/agentic_circuit/_commands/init.py",
+      "sha256": "MISSING"
+    },
+    {
+      "path": "python/agentic-circuit/src/agentic_circuit/_commands/schema.py",
+      "sha256": "MISSING"
+    },
+    {
+      "path": "python/agentic-circuit/src/agentic_circuit/_data/__init__.py",
+      "sha256": "MISSING"
+    },
+    {
+      "path": "python/agentic-circuit/src/agentic_circuit/_definitions.py",
+      "sha256": "MISSING"
+    },
+    {
+      "path": "python/agentic-circuit/src/agentic_circuit/_diagnostics.py",
+      "sha256": "MISSING"
+    },
+    {
+      "path": "python/agentic-circuit/src/agentic_circuit/_exit_codes.py",
+      "sha256": "MISSING"
+    },
+    {
+      "path": "python/agentic-circuit/src/agentic_circuit/_families.py",
+      "sha256": "MISSING"
+    },
+    {
+      "path": "python/agentic-circuit/src/agentic_circuit/_frontend.py",
+      "sha256": "MISSING"
+    },
+    {
+      "path": "python/agentic-circuit/src/agentic_circuit/_naming.py",
+      "sha256": "MISSING"
+    },
+    {
+      "path": "python/agentic-circuit/src/agentic_circuit/_native_api.py",
+      "sha256": "MISSING"
+    },
+    {
+      "path": "python/agentic-circuit/src/agentic_circuit/_normalize.py",
+      "sha256": "MISSING"
+    },
+    {
+      "path": "python/agentic-circuit/src/agentic_circuit/_output.py",
+      "sha256": "MISSING"
+    },
+    {
+      "path": "python/agentic-circuit/src/agentic_circuit/_package_data.py",
+      "sha256": "MISSING"
+    },
+    {
+      "path": "python/agentic-circuit/src/agentic_circuit/_process.py",
+      "sha256": "MISSING"
+    },
+    {
+      "path": "python/agentic-circuit/src/agentic_circuit/_queue_compiler/__init__.py",
+      "sha256": "MISSING"
+    },
+    {
+      "path": "python/agentic-circuit/src/agentic_circuit/_queue_compiler/acir_text.py",
+      "sha256": "MISSING"
+    },
+    {
+      "path": "python/agentic-circuit/src/agentic_circuit/_queue_compiler/definitions.py",
+      "sha256": "MISSING"
+    },
+    {
+      "path": "python/agentic-circuit/src/agentic_circuit/_queue_compiler/endpoint_statements.py",
+      "sha256": "MISSING"
+    },
+    {
+      "path": "python/agentic-circuit/src/agentic_circuit/_queue_compiler/errors.py",
+      "sha256": "MISSING"
+    },
+    {
+      "path": "python/agentic-circuit/src/agentic_circuit/_queue_compiler/expressions.py",
+      "sha256": "MISSING"
+    },
+    {
+      "path": "python/agentic-circuit/src/agentic_circuit/_queue_compiler/graph_statements.py",
+      "sha256": "MISSING"
+    },
+    {
+      "path": "python/agentic-circuit/src/agentic_circuit/_queue_compiler/lower_acir.py",
+      "sha256": "MISSING"
+    },
+    {
+      "path": "python/agentic-circuit/src/agentic_circuit/_queue_compiler/memory_statements.py",
+      "sha256": "MISSING"
+    },
+    {
+      "path": "python/agentic-circuit/src/agentic_circuit/_queue_compiler/model.py",
+      "sha256": "MISSING"
+    },
+    {
+      "path": "python/agentic-circuit/src/agentic_circuit/_queue_compiler/modules.py",
+      "sha256": "MISSING"
+    },
+    {
+      "path": "python/agentic-circuit/src/agentic_circuit/_queue_compiler/normalize.py",
+      "sha256": "MISSING"
+    },
+    {
+      "path": "python/agentic-circuit/src/agentic_circuit/_queue_compiler/parser.py",
+      "sha256": "MISSING"
+    },
+    {
+      "path": "python/agentic-circuit/src/agentic_circuit/_queue_compiler/parser_context.py",
+      "sha256": "MISSING"
+    },
+    {
+      "path": "python/agentic-circuit/src/agentic_circuit/_queue_compiler/provenance.py",
+      "sha256": "MISSING"
+    },
+    {
+      "path": "python/agentic-circuit/src/agentic_circuit/_queue_compiler/source.py",
+      "sha256": "MISSING"
+    },
+    {
+      "path": "python/agentic-circuit/src/agentic_circuit/_queue_compiler/source_unit.py",
+      "sha256": "MISSING"
+    },
+    {
+      "path": "python/agentic-circuit/src/agentic_circuit/_queue_compiler/state_semantics.py",
+      "sha256": "MISSING"
+    },
+    {
+      "path": "python/agentic-circuit/src/agentic_circuit/_queue_compiler/state_statements.py",
+      "sha256": "MISSING"
+    },
+    {
+      "path": "python/agentic-circuit/src/agentic_circuit/_queue_compiler/statement_common.py",
+      "sha256": "MISSING"
+    },
+    {
+      "path": "python/agentic-circuit/src/agentic_circuit/_queue_compiler/static_types.py",
+      "sha256": "MISSING"
+    },
+    {
+      "path": "python/agentic-circuit/src/agentic_circuit/_queue_compiler/syntax.py",
+      "sha256": "MISSING"
+    },
+    {
+      "path": "python/agentic-circuit/src/agentic_circuit/_queue_compiler/type_rendering.py",
+      "sha256": "MISSING"
+    },
+    {
+      "path": "python/agentic-circuit/src/agentic_circuit/_queue_frontend.py",
+      "sha256": "MISSING"
+    },
+    {
+      "path": "python/agentic-circuit/src/agentic_circuit/_resolve.py",
+      "sha256": "MISSING"
+    },
+    {
+      "path": "python/agentic-circuit/src/agentic_circuit/_resources.py",
+      "sha256": "MISSING"
+    },
+    {
+      "path": "python/agentic-circuit/src/agentic_circuit/_schemas.py",
+      "sha256": "MISSING"
+    },
+    {
+      "path": "python/agentic-circuit/src/agentic_circuit/_scopes.py",
+      "sha256": "MISSING"
+    },
+    {
+      "path": "python/agentic-circuit/src/agentic_circuit/_source.py",
+      "sha256": "MISSING"
+    },
+    {
+      "path": "python/agentic-circuit/src/agentic_circuit/_source_closure.py",
+      "sha256": "MISSING"
+    },
+    {
+      "path": "python/agentic-circuit/src/agentic_circuit/_source_map.py",
+      "sha256": "MISSING"
+    },
+    {
+      "path": "python/agentic-circuit/src/agentic_circuit/_staging.py",
+      "sha256": "MISSING"
+    },
+    {
+      "path": "python/agentic-circuit/src/agentic_circuit/_static_eval.py",
+      "sha256": "MISSING"
+    },
+    {
+      "path": "python/agentic-circuit/src/agentic_circuit/_structs.py",
+      "sha256": "MISSING"
+    },
+    {
+      "path": "python/agentic-circuit/src/agentic_circuit/_types.py",
+      "sha256": "MISSING"
+    },
+    {
+      "path": "python/agentic-circuit/src/agentic_circuit/_validate.py",
+      "sha256": "MISSING"
+    },
+    {
+      "path": "python/agentic-circuit/src/agentic_circuit/_workspace.py",
+      "sha256": "MISSING"
+    },
+    {
+      "path": "python/agentic-circuit/src/agentic_circuit/bundle.py",
+      "sha256": "MISSING"
+    },
+    {
+      "path": "python/agentic-circuit/src/agentic_circuit/markers.py",
+      "sha256": "MISSING"
+    },
+    {
+      "path": "python/pycircuit/src/pycircuit/__init__.py",
+      "sha256": "13653019bfbc6694b37c8a968692e37db2325769e23182ada22498fc8929b619"
+    },
+    {
+      "path": "python/pycircuit/src/pycircuit/_driver.py",
+      "sha256": "50f10b029e0ff182a46a169c5e0910893e77bcfedeb9a364b90658c3beb30c59"
+    },
+    {
+      "path": "python/pycircuit/src/pycircuit/_emit.py",
+      "sha256": "41ccf8387158865cd014acce84fc6d69edc1a9caa54ef5fd5f6854c597129fdb"
+    },
+    {
+      "path": "python/pycircuit/src/pycircuit/_generated_bundle.py",
+      "sha256": "1b981bbd277c1279ce40cbd4caa781e57416a26037b2eae830635341d7b724cf"
+    },
+    {
+      "path": "python/pycircuit/src/pycircuit/_native_verify.py",
+      "sha256": "6d98681c12e8046ea6fe1ec13a6306bb3cfcd9097df0b0d1404fa6c50315704c"
+    },
+    {
+      "path": "python/pycircuit/src/pycircuit/_publication.py",
+      "sha256": "f460befac172e1a95603f067f96f285b6c9a4485c3c08f6af70b1ac6d29f48aa"
+    },
+    {
+      "path": "python/pycircuit/src/pycircuit/_publication_fs.py",
+      "sha256": "44a489a684538d8374183aff5555a576af7b972d5e2fdba9890d54ea3bb22491"
+    },
+    {
+      "path": "python/pycircuit/src/pycircuit/_source_capture.py",
+      "sha256": "c48c6e31f4d4b91b46e875144771dd00d82a8610b36a34c9a173911a2e442790"
+    },
+    {
+      "path": "python/pycircuit/src/pycircuit/_source_compile.py",
+      "sha256": "8ab4cf245e6b951a06e732fbdb650c3d5fd829d777f57834f39c9684e6a7d9fd"
+    },
+    {
+      "path": "python/pycircuit/src/pycircuit/_source_map.py",
+      "sha256": "73c23b0a3fadb52efe718d91d80a572e051a42353ce244d7f724c4986307ef0a"
+    },
+    {
+      "path": "python/pycircuit/src/pycircuit/_source_transport.py",
+      "sha256": "d3a0ca75c2c8a9d8d89dbb9446868551c6596b2a583fe12032cc8469e04777be"
+    },
+    {
+      "path": "python/pycircuit/src/pycircuit/_source_unit_files.py",
+      "sha256": "c22f3ab4abbb964c28f79a7a375c77c70b8201931e6d0b2899b5cf7a96bd3058"
+    },
+    {
+      "path": "python/pycircuit/src/pycircuit/api_contract.py",
+      "sha256": "MISSING"
+    },
+    {
+      "path": "python/pycircuit/src/pycircuit/bitfield.py",
+      "sha256": "MISSING"
+    },
+    {
+      "path": "python/pycircuit/src/pycircuit/bitmask.py",
+      "sha256": "MISSING"
+    },
+    {
+      "path": "python/pycircuit/src/pycircuit/cli.py",
+      "sha256": "fed3ab774e92f56c6a97a56476e3286544b3a6bcad3a6e7267839017a51b79d4"
+    },
+    {
+      "path": "python/pycircuit/src/pycircuit/connectors.py",
+      "sha256": "MISSING"
+    },
+    {
+      "path": "python/pycircuit/src/pycircuit/ct.py",
+      "sha256": "MISSING"
+    },
+    {
+      "path": "python/pycircuit/src/pycircuit/data.py",
+      "sha256": "MISSING"
+    },
+    {
+      "path": "python/pycircuit/src/pycircuit/design.py",
+      "sha256": "MISSING"
+    },
+    {
+      "path": "python/pycircuit/src/pycircuit/diagnostics.py",
+      "sha256": "MISSING"
+    },
+    {
+      "path": "python/pycircuit/src/pycircuit/dsl.py",
+      "sha256": "MISSING"
+    },
+    {
+      "path": "python/pycircuit/src/pycircuit/enums.py",
+      "sha256": "MISSING"
+    },
+    {
+      "path": "python/pycircuit/src/pycircuit/hierarchical.py",
+      "sha256": "MISSING"
+    },
+    {
+      "path": "python/pycircuit/src/pycircuit/hw.py",
+      "sha256": "MISSING"
+    },
+    {
+      "path": "python/pycircuit/src/pycircuit/jit.py",
+      "sha256": "MISSING"
+    },
+    {
+      "path": "python/pycircuit/src/pycircuit/jit_cache.py",
+      "sha256": "MISSING"
+    },
+    {
+      "path": "python/pycircuit/src/pycircuit/lib/__init__.py",
+      "sha256": "MISSING"
+    },
+    {
+      "path": "python/pycircuit/src/pycircuit/lib/cache.py",
+      "sha256": "MISSING"
+    },
+    {
+      "path": "python/pycircuit/src/pycircuit/lib/mem2port.py",
+      "sha256": "MISSING"
+    },
+    {
+      "path": "python/pycircuit/src/pycircuit/lib/picker.py",
+      "sha256": "MISSING"
+    },
+    {
+      "path": "python/pycircuit/src/pycircuit/lib/queue.py",
+      "sha256": "MISSING"
+    },
+    {
+      "path": "python/pycircuit/src/pycircuit/lib/regfile.py",
+      "sha256": "MISSING"
+    },
+    {
+      "path": "python/pycircuit/src/pycircuit/lib/sram.py",
+      "sha256": "MISSING"
+    },
+    {
+      "path": "python/pycircuit/src/pycircuit/lib/stream.py",
+      "sha256": "MISSING"
+    },
+    {
+      "path": "python/pycircuit/src/pycircuit/literals.py",
+      "sha256": "MISSING"
+    },
+    {
+      "path": "python/pycircuit/src/pycircuit/logic/__init__.py",
+      "sha256": "MISSING"
+    },
+    {
+      "path": "python/pycircuit/src/pycircuit/packaged_toolchain.py",
+      "sha256": "555de050704f970860f485e016f42f049fadde28cbe5da11659cb0c817d7f299"
+    },
+    {
+      "path": "python/pycircuit/src/pycircuit/path_shortening.py",
+      "sha256": "MISSING"
+    },
+    {
+      "path": "python/pycircuit/src/pycircuit/probe.py",
+      "sha256": "MISSING"
+    },
+    {
+      "path": "python/pycircuit/src/pycircuit/schedule_ir.py",
+      "sha256": "MISSING"
+    },
+    {
+      "path": "python/pycircuit/src/pycircuit/sidecar_sections.py",
+      "sha256": "MISSING"
+    },
+    {
+      "path": "python/pycircuit/src/pycircuit/spec/__init__.py",
+      "sha256": "MISSING"
+    },
+    {
+      "path": "python/pycircuit/src/pycircuit/spec/builders.py",
+      "sha256": "MISSING"
+    },
+    {
+      "path": "python/pycircuit/src/pycircuit/spec/dse.py",
+      "sha256": "MISSING"
+    },
+    {
+      "path": "python/pycircuit/src/pycircuit/spec/types.py",
+      "sha256": "MISSING"
+    },
+    {
+      "path": "python/pycircuit/src/pycircuit/structural.py",
+      "sha256": "MISSING"
+    },
+    {
+      "path": "python/pycircuit/src/pycircuit/tb.py",
+      "sha256": "MISSING"
+    },
+    {
+      "path": "python/pycircuit/src/pycircuit/testbench.py",
+      "sha256": "MISSING"
+    },
+    {
+      "path": "python/pycircuit/src/pycircuit/trace_dsl.py",
+      "sha256": "MISSING"
+    },
+    {
+      "path": "python/pycircuit/src/pycircuit/v6.py",
+      "sha256": "MISSING"
+    },
+    {
+      "path": "python/pycircuit/src/pycircuit/wiring/__init__.py",
+      "sha256": "MISSING"
+    },
+    {
+      "path": "python/pycircuit/src/pycircuit/wiring/connect.py",
+      "sha256": "MISSING"
+    },
+    {
+      "path": "python/semantic-core/pyproject.toml",
+      "sha256": "MISSING"
+    },
+    {
+      "path": "python/semantic-core/src/_pycircuit_semantics/__init__.py",
+      "sha256": "MISSING"
+    },
+    {
+      "path": "python/semantic-core/src/_pycircuit_semantics/bitfield.py",
+      "sha256": "MISSING"
+    },
+    {
+      "path": "python/semantic-core/src/_pycircuit_semantics/bitmask.py",
+      "sha256": "MISSING"
+    },
+    {
+      "path": "python/semantic-core/src/_pycircuit_semantics/constraints.py",
+      "sha256": "MISSING"
+    },
+    {
+      "path": "python/semantic-core/src/_pycircuit_semantics/primitive_widths.py",
+      "sha256": "MISSING"
+    },
+    {
+      "path": "python/semantic-core/src/_pycircuit_semantics/static_expr.py",
+      "sha256": "MISSING"
+    },
+    {
+      "path": "python/semantic-core/src/_pycircuit_semantics/types.py",
+      "sha256": "MISSING"
+    },
+    {
+      "path": "simulator/gfsim/CMakeLists.txt",
+      "sha256": "ecc1ce0eea2652ee35dbe4dc94a4374ba6281e687bf6f254638aec607c67732c"
+    },
+    {
+      "path": "simulator/gfsim/include/gfsim/ObservationSlot.h",
+      "sha256": "b9873c0d9b577fe0908af785220598779ef3f40143e08ca849ae3d20a6091576"
+    },
+    {
+      "path": "simulator/gfsim/include/gfsim/SimDFF.h",
+      "sha256": "ae18e05bb097b9ed62641e2ca8376607cd084f44ad570399e3d5e43cc39d2a07"
+    },
+    {
+      "path": "simulator/gfsim/include/gfsim/SimExecutor.h",
+      "sha256": "691e27fb4d9f0f12cdb98cbbba6469fe31364feada465120a2cd6a67df0d75d2"
+    },
+    {
+      "path": "simulator/gfsim/include/gfsim/SimModule.h",
+      "sha256": "174f3bdecfa6b0bc670f71658c7bac404aad9639721ce0ba1d8959c1c0ceb990"
+    },
+    {
+      "path": "simulator/gfsim/include/gfsim/SimSystem.h",
+      "sha256": "7e2c3c1b46ddb88ffcaa00a143c2edaf7c747daabbc71d380fe70fd7cab5386f"
+    },
+    {
+      "path": "simulator/gfsim/include/gfsim/SystemRunner.h",
+      "sha256": "4af5f8d872beed5b69321fc0a570dc03462cac0e11d48b95b1c6f1b36dcd2eb8"
+    },
+    {
+      "path": "simulator/gfsim/include/gfsim/bits.h",
+      "sha256": "MISSING"
+    },
+    {
+      "path": "simulator/gfsim/include/gfsim/components.h",
+      "sha256": "MISSING"
+    },
+    {
+      "path": "simulator/gfsim/include/gfsim/core.h",
+      "sha256": "MISSING"
+    },
+    {
+      "path": "simulator/gfsim/include/gfsim/count_zeros.h",
+      "sha256": "MISSING"
+    },
+    {
+      "path": "simulator/gfsim/include/gfsim/dispatch.h",
+      "sha256": "MISSING"
+    },
+    {
+      "path": "simulator/gfsim/include/gfsim/model_api.h",
+      "sha256": "bd0251a7c8201c0906419375d283ade576f6b1edd911235ac7a0c48e537423f4"
+    },
+    {
+      "path": "simulator/gfsim/include/gfsim/model_input.h",
+      "sha256": "070223ef48e03c49c5520384d228cc4c308e30d42d53a65549785295f45c54b0"
+    },
+    {
+      "path": "simulator/gfsim/include/gfsim/object.h",
+      "sha256": "MISSING"
+    },
+    {
+      "path": "simulator/gfsim/include/gfsim/observation.h",
+      "sha256": "MISSING"
+    },
+    {
+      "path": "simulator/gfsim/include/gfsim/packet.h",
+      "sha256": "MISSING"
+    },
+    {
+      "path": "simulator/gfsim/include/gfsim/popcount.h",
+      "sha256": "MISSING"
+    },
+    {
+      "path": "simulator/gfsim/include/gfsim/primitive_widths.h",
+      "sha256": "MISSING"
+    },
+    {
+      "path": "simulator/gfsim/include/gfsim/priority_encode.h",
+      "sha256": "MISSING"
+    },
+    {
+      "path": "simulator/gfsim/include/gfsim/process.h",
+      "sha256": "MISSING"
+    },
+    {
+      "path": "simulator/gfsim/include/gfsim/queue.h",
+      "sha256": "MISSING"
+    },
+    {
+      "path": "simulator/gfsim/include/gfsim/queue_blocks.h",
+      "sha256": "MISSING"
+    },
+    {
+      "path": "simulator/gfsim/include/gfsim/register.h",
+      "sha256": "MISSING"
+    },
+    {
+      "path": "simulator/gfsim/include/gfsim/resource.h",
+      "sha256": "MISSING"
+    },
+    {
+      "path": "simulator/gfsim/include/gfsim/showcase.h",
+      "sha256": "MISSING"
+    },
+    {
+      "path": "simulator/gfsim/include/gfsim/statistics.h",
+      "sha256": "MISSING"
+    },
+    {
+      "path": "simulator/gfsim/model_input.cpp",
+      "sha256": "494c6bd1ae74bb04ded74ce1f444e0654a3ae93daa48f91ad42e9004be83c099"
+    },
+    {
+      "path": "simulator/gfsim/observation.cpp",
+      "sha256": "MISSING"
+    },
+    {
+      "path": "simulator/gfsim/showcase.cpp",
+      "sha256": "MISSING"
+    },
+    {
+      "path": "simulator/gfsim/sim_executor.cpp",
+      "sha256": "c3afb42ce352889310674c0ce54dad14f6b5d39a123bcbc392f4d431557fa5c8"
+    },
+    {
+      "path": "simulator/gfsim/system.cpp",
+      "sha256": "MISSING"
+    },
+    {
+      "path": "simulator/gfsim/system_runner.cpp",
+      "sha256": "ff7516b3a3f4e6126b9bdcd8b4c142d9d40f72b7ec190267359f54c938624f9c"
+    }
+  ]
+}

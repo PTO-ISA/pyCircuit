@@ -1,0 +1,41 @@
+============================= test session starts ==============================
+platform darwin -- Python 3.14.6, pytest-9.0.2, pluggy-1.6.0
+rootdir: /Users/zhoubot/.codex/worktrees/migration-capture/pyCircuit
+configfile: pyproject.toml
+collected 408 items / 2 deselected / 406 selected
+
+tests/system/test_cpp_source_parts.py .....                              [  1%]
+tests/system/test_driver_compile_link.py .......................         [  6%]
+tests/system/test_final_scalar_declarations.py ......................... [ 13%]
+..............                                                           [ 16%]
+tests/system/test_generic_assignment_roundtrip.py .......                [ 18%]
+tests/system/test_generic_multi_assignment.py .....                      [ 19%]
+tests/system/test_lexical_module_units.py ....................           [ 24%]
+tests/system/test_m4_preview_workflow.py .................               [ 28%]
+tests/system/test_m5_model_abi.py ............                           [ 31%]
+tests/system/test_m5_public_emit.py ....                                 [ 32%]
+tests/system/test_m5_runtime_install.py ..                               [ 33%]
+tests/system/test_m5_source_map.py ..                                    [ 33%]
+tests/system/test_m5_source_rtl.py .......                               [ 35%]
+tests/system/test_m5_wheel_install.py .                                  [ 35%]
+tests/system/test_masked_next_register.py ...............                [ 39%]
+tests/system/test_source_compile_publication.py ......                   [ 40%]
+tests/system/test_source_design_bridge.py .............................. [ 48%]
+...........                                                              [ 50%]
+tests/system/test_source_module_units.py .......................         [ 56%]
+tests/system/test_source_namespace_bindings.py ......                    [ 57%]
+tests/system/test_source_numeric_expressions.py ........................ [ 63%]
+........                                                                 [ 65%]
+tests/system/test_source_numeric_next.py ......                          [ 67%]
+tests/system/test_source_observations.py ................                [ 71%]
+tests/system/test_source_transport_mlir.py ....                          [ 72%]
+tests/system/test_source_unit_cmake_build.py .                           [ 72%]
+tests/system/test_source_unit_packet.py ................................ [ 80%]
+...................                                                      [ 84%]
+tests/system/test_source_unit_pair_verification.py ...................   [ 89%]
+tests/system/test_unified_register_backends.py ..........                [ 92%]
+tests/system/test_v41_v42_source_fixtures.py ...........                 [ 94%]
+tests/unit/test_m5_source_map_validation.py .....................        [100%]
+
+- generated xml file: /Users/zhoubot/.codex/worktrees/migration-capture/pyCircuit/docs/gates/logs/20260930-m5-cutover/system.xml -
+================ 406 passed, 2 deselected in 164.90s (0:02:44) =================

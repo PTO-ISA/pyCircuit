@@ -7,6 +7,7 @@ from collections.abc import Mapping
 from dataclasses import dataclass
 from pathlib import Path
 
+from . import _native_verify
 from ._publication import (
     _Paths,
     _paths_for,
@@ -19,7 +20,6 @@ from ._publication import (
 )
 from ._publication_fs import _PublicationFileSystemError
 from ._source_capture import _read_stable_file_bytes
-from . import _native_verify
 
 
 @dataclass(frozen=True, slots=True)
@@ -168,9 +168,7 @@ def _read_full_source_unit(
     )
     declared = {"package": receipt.package, "path": receipt.path}
     if body_owner != declared or header_owner != declared:
-        raise _PublicationError(
-            "source-unit internal owner does not match its receipt"
-        )
+        raise _PublicationError("source-unit internal owner does not match its receipt")
     return _FullSourceUnit(
         receipt=receipt,
         body=_read_text(path / receipt.body, purpose="body"),

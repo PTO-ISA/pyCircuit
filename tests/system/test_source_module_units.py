@@ -22,16 +22,15 @@ from pycircuit import module, rule
 from .packet import Request, Word
 
 @module
-class AccumulatorProbe:
-    def __init__(self, request: Request, result: Word):
-        self.request = request
-        self.result = result
-        self.total: Word = 0
-        self.result = self.forward(self.request)
+def AccumulatorProbe(request: Request, result: Word):
+    total: Word = 0
 
     @rule
-    def forward(self, item: Request) -> Word:
-        return item.value
+    def forward():
+        nonlocal result
+        result = request.value
+
+    forward()
 """
 
 PROBE_ROOT = """\
@@ -40,11 +39,10 @@ from .packet import Request, Word
 from .accumulator_probe import AccumulatorProbe
 
 @module
-class ProbeRoot:
-    def __init__(self):
-        self.request: Request = Request(3, True)
-        self.result: Word = 0
-        self.child = AccumulatorProbe(self.request, self.result)
+def ProbeRoot():
+    request: Request = Request(3, True)
+    result: Word = 0
+    child = AccumulatorProbe(request, result)
 """
 
 
@@ -243,6 +241,27 @@ def test_real_packet_then_probe_emit_body_and_interface(tmp_path: Path) -> None:
     )
 
 
+def test_class_self_module_authoring_is_an_explicit_negative(tmp_path: Path) -> None:
+    source = _prepare(tmp_path)
+    retired = source / "retired.py"
+    retired.write_text(
+        "from pycircuit import module\n\n"
+        "@module\n"
+        "class Retired:\n"
+        "    def __init__(self):\n"
+        "        self.value: int = 0\n",
+        encoding="utf-8",
+    )
+    result = _compile(
+        retired,
+        root=source,
+        output=tmp_path / "retired-out",
+    )
+
+    assert result.completed.returncode != 0
+    assert "class/self authoring has been retired" in result.completed.stderr
+
+
 def test_probe_header_matches_the_approved_c2_module_contract(
     tmp_path: Path,
 ) -> None:
@@ -307,14 +326,14 @@ def test_rule_member_read_uses_member_identity_not_argument_index(
         "from pycircuit import module, rule\n"
         "from .packet import Word\n\n"
         "@module\n"
-        "class MemberReadProbe:\n"
-        "    def __init__(self, result: Word):\n"
-        "        self.result = result\n"
-        "        self.total: Word = 0\n"
-        "        self.result = self.forward(self.result)\n\n"
+        "def MemberReadProbe(result: Word):\n"
+        "    total: Word = 0\n"
+        "    alias = total\n\n"
         "    @rule\n"
-        "    def forward(self, item: Word) -> Word:\n"
-        "        return self.total\n",
+        "    def forward():\n"
+        "        nonlocal result\n"
+        "        result = alias\n\n"
+        "    forward()\n",
         encoding="utf-8",
     )
 
@@ -334,7 +353,7 @@ def test_rule_member_read_uses_member_identity_not_argument_index(
     assert 'parameter = "result"' not in input_bindings
 
 
-def test_rule_store_target_is_not_a_current_value_read(tmp_path: Path) -> None:
+def test_nonlocal_proposal_target_is_not_a_current_value_read(tmp_path: Path) -> None:
     source = _prepare(tmp_path)
     packet = _compile(source / "packet.py", root=source, output=tmp_path / "packet-out")
     assert packet.completed.returncode == 0, packet.completed.stderr
@@ -343,16 +362,13 @@ def test_rule_store_target_is_not_a_current_value_read(tmp_path: Path) -> None:
         "from pycircuit import module, rule\n"
         "from .packet import Request, Word\n\n"
         "@module\n"
-        "class StoreTargetProbe:\n"
-        "    def __init__(self, request: Request, result: Word):\n"
-        "        self.request = request\n"
-        "        self.result = result\n"
-        "        self.result = self.forward(self.request)\n\n"
+        "def StoreTargetProbe(request: Request, result: Word):\n"
         "    @rule\n"
-        "    def forward(self, item: Request) -> Word:\n"
-        "        if item.valid:\n"
-        "            self.result[self.request.value] = item.value\n"
-        "        return item.value\n",
+        "    def forward():\n"
+        "        nonlocal result\n"
+        "        if request.valid:\n"
+        "            result = request.value\n\n"
+        "    forward()\n",
         encoding="utf-8",
     )
 
@@ -363,9 +379,12 @@ def test_rule_store_target_is_not_a_current_value_read(tmp_path: Path) -> None:
         headers=(packet.interface,),
     )
 
-    assert result.completed.returncode != 0
-    assert "rule body supports one return statement" in result.completed.stderr
-    assert "input has no current DFFE handle" not in result.completed.stderr
+    assert result.completed.returncode == 0, result.completed.stderr
+    declaration = _operation_line(
+        result.interface.read_text(encoding="utf-8"), "ac.module.import"
+    )
+    assert 'read = true, write = false}], parameter = "request"' in declaration
+    assert 'read = false, write = true}], parameter = "result"' in declaration
 
 
 def test_probe_root_uses_headers_without_provider_source_or_body(
@@ -414,8 +433,11 @@ def test_malformed_unregistered_rules_are_rejected(
     source = _prepare(tmp_path)
     packet = _compile(source / "packet.py", root=source, output=tmp_path / "packet-out")
     assert packet.completed.returncode == 0, packet.completed.stderr
-    malformed = ACCUMULATOR_PROBE + (
-        "\n    @rule\n    def inactive(self, item: Request) -> Word:\n" + inactive_body
+    malformed = ACCUMULATOR_PROBE.replace(
+        "    forward()\n",
+        "    @rule\n    def inactive(item: Request) -> Word:\n"
+        + inactive_body
+        + "\n    forward()\n",
     )
     path = source / "inactive_probe.py"
     path.write_text(malformed, encoding="utf-8")
@@ -435,10 +457,9 @@ def test_valid_unregistered_rule_is_inactive(tmp_path: Path) -> None:
     source = _prepare(tmp_path)
     packet = _compile(source / "packet.py", root=source, output=tmp_path / "packet-out")
     assert packet.completed.returncode == 0, packet.completed.stderr
-    valid = ACCUMULATOR_PROBE + (
-        "\n    @rule\n"
-        "    def inactive(self, item: Request) -> Word:\n"
-        "        return self.result\n"
+    valid = ACCUMULATOR_PROBE.replace(
+        "    forward()\n",
+        "    @rule\n" "    def inactive():\n" "        return\n\n" "    forward()\n",
     )
     path = source / "inactive_probe.py"
     path.write_text(valid, encoding="utf-8")
@@ -456,7 +477,7 @@ def test_valid_unregistered_rule_is_inactive(tmp_path: Path) -> None:
     interface = result.interface.read_text(encoding="utf-8")
     declaration = _operation_line(interface, "ac.module.import")
     assert 'parameter = "result"' in declaration
-    assert declaration.count("read = false") == 1
+    assert declaration.count("read = true") == 1
     assert declaration.count("write = true") == 1
 
 
@@ -526,9 +547,9 @@ def test_wrong_nominal_record_reset_is_rejected(tmp_path: Path) -> None:
 @pytest.mark.parametrize(
     ("static_default", "call"),
     [
-        (False, "AccumulatorProbe(self.request, self.result)"),
-        (True, "AccumulatorProbe(self.request, self.result)"),
-        (False, "AccumulatorProbe(self.request, self.result, 4)"),
+        (False, "AccumulatorProbe(request, result)"),
+        (True, "AccumulatorProbe(request, result)"),
+        (False, "AccumulatorProbe(request, result, 4)"),
     ],
 )
 def test_child_static_parameters_never_lower_to_empty_static_args(
@@ -540,7 +561,7 @@ def test_child_static_parameters_never_lower_to_empty_static_args(
         tmp_path / "probe-static.interface.mlir",
         static_default=static_default,
     )
-    root_text = PROBE_ROOT.replace("AccumulatorProbe(self.request, self.result)", call)
+    root_text = PROBE_ROOT.replace("AccumulatorProbe(request, result)", call)
     result = _compile_root_source(
         tmp_path, source, packet, mutated, root_text, "static_parent"
     )
@@ -564,15 +585,15 @@ def test_connection_default_metadata_requires_an_explicit_handle(
     assert explicit.completed.returncode == 0, explicit.completed.stderr
 
     for stem, call in (
-        ("omitted_parent", "AccumulatorProbe(self.request)"),
-        ("literal_parent", "AccumulatorProbe(self.request, 0)"),
+        ("omitted_parent", "AccumulatorProbe(request)"),
+        ("literal_parent", "AccumulatorProbe(request, 0)"),
     ):
         result = _compile_root_source(
             tmp_path,
             source,
             packet,
             mutated,
-            PROBE_ROOT.replace("AccumulatorProbe(self.request, self.result)", call),
+            PROBE_ROOT.replace("AccumulatorProbe(request, result)", call),
             stem,
         )
         assert result.completed.returncode != 0

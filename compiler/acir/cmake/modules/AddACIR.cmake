@@ -12,7 +12,7 @@ function(add_acir_library target)
   target_link_libraries(
     ${target}
     PUBLIC
-      AgenticCircuit::ProjectOptions
+      acir_project_options
       MLIRIR
       ${ARG_LINK_LIBRARIES}
   )

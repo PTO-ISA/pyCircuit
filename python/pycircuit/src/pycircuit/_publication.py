@@ -248,11 +248,15 @@ def _lock_entries(
         )
     for index, left in enumerate(entries):
         for right in entries[index + 1 :]:
-            if _paths_conflict(left.paths.destination, right.paths.destination):
-                raise _PublicationError(
-                    "publication lock paths are equal or ancestor-related: "
-                    f"{left.paths.destination} and {right.paths.destination}"
-                )
+            # Control trees are reserved protocol storage, just like each
+            # artifact tree. Check all regions before any output bootstrap.
+            for left_path in (left.paths.destination, left.paths.control):
+                for right_path in (right.paths.destination, right.paths.control):
+                    if _paths_conflict(left_path, right_path):
+                        raise _PublicationError(
+                            "publication lock paths are equal or ancestor-related: "
+                            f"{left_path} and {right_path}"
+                        )
     return tuple(
         sorted(
             entries,
@@ -314,7 +318,7 @@ def _publish_file(
     filesystem: _PublicationFileSystem | None = None,
     locks: _PublicationLocks | None = None,
 ) -> _PublicationResult:
-    """Build and atomically publish one owned ``program.ac`` file."""
+    """Build and atomically publish one owned ``design_top.ac`` file."""
 
     expected_owner = _validate_owner(owner)
     if expected_owner["kind"] != "program":

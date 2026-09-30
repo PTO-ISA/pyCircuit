@@ -1,20 +1,17 @@
 {
   "abi": {
     "consumer_lock": "1",
-    "generator_abi": "1",
+    "generator_abi": "2",
     "release_index": "1",
     "runtime_abi": "1",
     "sdk_manifest": "1"
   },
   "capabilities": [
-    "cycle-aware-signal",
-    "pyc-cpp",
-    "pyc-verilog",
-    "acc-source-to-ac",
-    "acc-cpp",
-    "acc-cpp-bundle",
-    "acc-verilog",
-    "gfsim-runtime-v1"
+    "pycircuit-pythonic-source",
+    "pycircuit-source-units",
+    "pycircuit-cpp",
+    "pycircuit-verilog",
+    "pyc6-runtime-v1"
   ],
   "distributions": {
     "pycircuit-hisi": "6.1.0"
@@ -22,19 +19,19 @@
   "files": [
     {
       "kind": "tool",
-      "path": "bin/agentic-circuit"
+      "path": "bin/acir-cpp-source-parts-harness"
     },
     {
       "kind": "tool",
-      "path": "bin/acc"
+      "path": "bin/acir-design-harness"
     },
     {
       "kind": "tool",
-      "path": "bin/pycc"
+      "path": "bin/acir-source-unit-harness"
     },
     {
       "kind": "tool",
-      "path": "bin/acir-opt"
+      "path": "bin/pycircuit"
     },
     {
       "kind": "header",
@@ -42,23 +39,23 @@
     },
     {
       "kind": "library",
-      "path": "lib/libgfsim.a"
-    },
-    {
-      "kind": "cmake",
-      "path": "lib/cmake/AgenticCircuit/AgenticCircuitConfig.cmake"
+      "path": "lib/libpyc6_runtime.a"
     },
     {
       "kind": "wheel",
       "path": "python/wheelhouse/pycircuit_hisi-6.1.0-py3-none-linux_x86_64.whl"
     },
     {
-      "kind": "schema",
-      "path": "share/pycircuit/schemas/acpy.schema.json"
+      "kind": "cmake",
+      "path": "share/pycircuit/cmake/pycircuitConfig.cmake"
     },
     {
       "kind": "license",
       "path": "share/pycircuit/licenses/LICENSE"
+    },
+    {
+      "kind": "schema",
+      "path": "share/pycircuit/schemas/sdk-manifest.schema.json"
     }
   ],
   "platform": {

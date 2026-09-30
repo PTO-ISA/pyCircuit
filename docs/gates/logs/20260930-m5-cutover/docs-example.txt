@@ -1,0 +1,11 @@
+============================= test session starts ==============================
+platform darwin -- Python 3.14.6, pytest-9.0.2, pluggy-1.6.0
+rootdir: /Users/zhoubot/.codex/worktrees/migration-capture/pyCircuit
+configfile: pyproject.toml
+collected 7 items / 5 deselected / 2 selected
+
+tests/unit/test_example_layout.py .                                      [ 50%]
+tests/unit/test_tutorial_snippets.py .                                   [100%]
+
+- generated xml file: /Users/zhoubot/.codex/worktrees/migration-capture/pyCircuit/docs/gates/logs/20260930-m5-cutover/docs-example.xml -
+======================= 2 passed, 5 deselected in 1.22s ========================

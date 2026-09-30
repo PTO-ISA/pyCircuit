@@ -137,8 +137,13 @@ def _compile(
     header = output_dir / f"{source.stem}.interface.mlir"
     transport.write_text(_emit_source_transport(capture), encoding="utf-8")
     command = [
-        _source_harness(), "--capture", str(transport), "--package", "demo",
-        "--path", source.relative_to(source_root).as_posix(),
+        _source_harness(),
+        "--capture",
+        str(transport),
+        "--package",
+        "demo",
+        "--path",
+        source.relative_to(source_root).as_posix(),
     ]
     for dependency in headers:
         command.extend(("--header", str(dependency)))
@@ -148,20 +153,43 @@ def _compile(
     return SourceUnit(source, body, header)
 
 
-def _link(units: list[SourceUnit], output: Path, top: str) -> subprocess.CompletedProcess[str]:
+def _link(
+    units: list[SourceUnit], output: Path, top: str
+) -> subprocess.CompletedProcess[str]:
     command = [_design_harness()]
     for unit in units:
         command.extend(("--body", str(unit.body), "--header", str(unit.header)))
-    command.extend(("--top", top, "--target", "final", "--role", "testbench",
-                    "--output", str(output)))
+    command.extend(
+        (
+            "--top",
+            top,
+            "--target",
+            "final",
+            "--role",
+            "testbench",
+            "--output",
+            str(output),
+        )
+    )
     return subprocess.run(command, text=True, capture_output=True, check=False)
 
 
 def _emit(design: Path, target: str, output: Path) -> subprocess.CompletedProcess[str]:
     return subprocess.run(
-        [_design_harness(), "--design", str(design), "--target", target,
-         "--role", "testbench", "--output", str(output)],
-        text=True, capture_output=True, check=False,
+        [
+            _design_harness(),
+            "--design",
+            str(design),
+            "--target",
+            target,
+            "--role",
+            "testbench",
+            "--output",
+            str(output),
+        ],
+        text=True,
+        capture_output=True,
+        check=False,
     )
 
 
@@ -172,13 +200,23 @@ def _build_and_link(tmp_path: Path, child_text: str, bench_text: str) -> Path:
     (source_root / "types.py").write_text(TYPES, encoding="utf-8")
     (source_root / "holder.py").write_text(child_text, encoding="utf-8")
     (source_root / "test_holder.py").write_text(bench_text, encoding="utf-8")
-    types = _compile(source_root / "types.py", source_root=source_root,
-                     output_dir=tmp_path / "units/types")
-    holder = _compile(source_root / "holder.py", source_root=source_root,
-                      output_dir=tmp_path / "units/holder", headers=(types.header,))
-    bench = _compile(source_root / "test_holder.py", source_root=source_root,
-                     output_dir=tmp_path / "units/test_holder",
-                     headers=(types.header, holder.header))
+    types = _compile(
+        source_root / "types.py",
+        source_root=source_root,
+        output_dir=tmp_path / "units/types",
+    )
+    holder = _compile(
+        source_root / "holder.py",
+        source_root=source_root,
+        output_dir=tmp_path / "units/holder",
+        headers=(types.header,),
+    )
+    bench = _compile(
+        source_root / "test_holder.py",
+        source_root=source_root,
+        output_dir=tmp_path / "units/test_holder",
+        headers=(types.header, holder.header),
+    )
     design = tmp_path / "test_holder.ac"
     linked = _link([types, holder, bench], design, "demo.test_holder.TestHolder")
     assert linked.returncode == 0, linked.stderr
@@ -246,11 +284,15 @@ def _run_cpp(tmp_path: Path, model: Path) -> str:
     binary = tmp_path / "generic_cpp"
     compiled = subprocess.run(
         [cxx, "-std=c++20", "-I", str(GFSIM_INCLUDE), str(driver), "-o", str(binary)],
-        text=True, capture_output=True, check=False,
+        text=True,
+        capture_output=True,
+        check=False,
     )
     assert compiled.returncode == 0, compiled.stderr
     ran = subprocess.run([str(binary)], text=True, capture_output=True, check=False)
-    assert ran.returncode == 0, f"cpp run rc={ran.returncode}\n{ran.stdout}\n{ran.stderr}"
+    assert (
+        ran.returncode == 0
+    ), f"cpp run rc={ran.returncode}\n{ran.stdout}\n{ran.stderr}"
     return ran.stdout
 
 
@@ -262,17 +304,23 @@ def _run_verilog(tmp_path: Path, model: Path) -> str:
     binary = tmp_path / "generic.vvp"
     compiled = subprocess.run(
         [iverilog, "-g2012", "-s", "tb", "-o", str(binary), str(model), str(testbench)],
-        text=True, capture_output=True, check=False,
+        text=True,
+        capture_output=True,
+        check=False,
     )
     assert compiled.returncode == 0, compiled.stderr
-    ran = subprocess.run([vvp, str(binary)], text=True, capture_output=True, check=False)
+    ran = subprocess.run(
+        [vvp, str(binary)], text=True, capture_output=True, check=False
+    )
     assert ran.returncode == 0, ran.stderr
     return ran.stdout
 
 
 def _cpp_trace(stdout: str, tag: str) -> list[int]:
-    return [int(m.group(1)) for m in
-            re.finditer(rf"^{tag} EV \d+ (\d+)$", stdout, re.MULTILINE)]
+    return [
+        int(m.group(1))
+        for m in re.finditer(rf"^{tag} EV \d+ (\d+)$", stdout, re.MULTILINE)
+    ]
 
 
 def _rtl_trace(stdout: str) -> list[int]:
@@ -294,8 +342,9 @@ GENERIC_CASES = {
 @pytest.mark.parametrize("case", sorted(GENERIC_CASES))
 def test_generic_assignment_roundtrip_both_backends(tmp_path: Path, case: str) -> None:
     child, arguments, expected = GENERIC_CASES[case]
-    bench = BENCH.format(arguments=arguments, reset_value=expected[0],
-                         committed_value=expected[1])
+    bench = BENCH.format(
+        arguments=arguments, reset_value=expected[0], committed_value=expected[1]
+    )
     design = _build_and_link(tmp_path, child, bench)
 
     # Parent/child alias: the DUT writes the register the testbench owns, so the
@@ -323,7 +372,7 @@ def test_generic_assignment_roundtrip_both_backends(tmp_path: Path, case: str) -
     per_run = expected + [1]
     rtl_values = _rtl_trace(_run_verilog(tmp_path, verilog))
     assert rtl_values[: len(per_run)] == per_run, rtl_values
-    assert rtl_values[len(per_run): 2 * len(per_run)] == per_run, rtl_values
+    assert rtl_values[len(per_run) : 2 * len(per_run)] == per_run, rtl_values
 
 
 GENERIC_NEGATIVES = [
@@ -334,33 +383,45 @@ GENERIC_NEGATIVES = [
     ),
     (
         "redirect-data-operand",
-        lambda text: text.replace("data_operand = 0 : i32", "data_operand = 2 : i32", 1),
+        lambda text: text.replace(
+            "data_operand = 0 : i32", "data_operand = 2 : i32", 1
+        ),
         "generic final YieldBinding is stale or redirected",
     ),
     (
         "redirect-enable-operand",
-        lambda text: text.replace("enable_operand = 1 : i32", "enable_operand = 0 : i32", 1),
+        lambda text: text.replace(
+            "enable_operand = 1 : i32", "enable_operand = 0 : i32", 1
+        ),
         "generic final YieldBinding is stale or redirected",
     ),
     (
         "drop-value-use",
-        lambda text: "".join(line for line in text.splitlines(keepends=True)
-                             if '"ac.value.use"' not in line),
+        lambda text: "".join(
+            line
+            for line in text.splitlines(keepends=True)
+            if '"ac.value.use"' not in line
+        ),
         "generic final binding/use inventory has orphan entries",
     ),
 ]
 
 
 @pytest.mark.parametrize(
-    "label,apply,diagnostic", GENERIC_NEGATIVES, ids=[case[0] for case in GENERIC_NEGATIVES]
+    "label,apply,diagnostic",
+    GENERIC_NEGATIVES,
+    ids=[case[0] for case in GENERIC_NEGATIVES],
 )
-def test_generic_use_carriers_are_verified(tmp_path: Path, label: str, apply, diagnostic: str) -> None:
+def test_generic_use_carriers_are_verified(
+    tmp_path: Path, label: str, apply, diagnostic: str
+) -> None:
     """Generic acceptance must not mean unchecked acceptance: redirecting or
     dropping the source, use or yield carriers of a generic assignment is
     rejected with the specific generic-final diagnostic."""
     child, arguments, expected = GENERIC_CASES["register-copy"]
-    bench = BENCH.format(arguments=arguments, reset_value=expected[0],
-                         committed_value=expected[1])
+    bench = BENCH.format(
+        arguments=arguments, reset_value=expected[0], committed_value=expected[1]
+    )
     design = _build_and_link(tmp_path, child, bench)
     text = design.read_text()
     mutated = apply(text)
@@ -413,8 +474,11 @@ def test_system_root_generic_rules_link_and_emit(tmp_path: Path) -> None:
     source_root = tmp_path / "source"
     source_root.mkdir()
     (source_root / "generic.py").write_text(SYSTEM_GENERIC, encoding="utf-8")
-    unit = _compile(source_root / "generic.py", source_root=source_root,
-                    output_dir=tmp_path / "units/generic")
+    unit = _compile(
+        source_root / "generic.py",
+        source_root=source_root,
+        output_dir=tmp_path / "units/generic",
+    )
     design = tmp_path / "generic.ac"
 
     linked = _link([unit], design, "demo.generic.GenericUses")

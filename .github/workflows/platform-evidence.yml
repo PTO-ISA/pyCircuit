@@ -1,23 +1,10 @@
 name: Platform evidence (no publish)
 
-# Evidence-only lane for Decision 0265.
-#
-# Decision 0265 records windows-x86_64 as a supported SDK profile but keeps it
-# `implemented-unverified` until a real Windows runner proves the platform. The
-# release workflow cannot produce that proof: its platform lanes are
-# `needs: [full-validation]`, and full-validation runs
-# `check_decision_status.py --require-all-verified`, which fails while 0265 is
-# still unverified. That is a deliberate ordering rule, not a bug, so the
-# evidence is produced here instead.
-#
-# This workflow builds and verifies one platform candidate with exactly the
-# commands the release lanes use, and uploads the retained bytes plus the
-# verification attestation. It never tags, never publishes, never touches the
-# release environment, and never writes to the repository. After a successful
-# run, commit the attestation and a short summary under
-# `docs/gates/logs/<run-id>/`, point the Decision 0265 status row at those
-# paths, and mark it `implemented-verified`; only then can a release candidate
-# that contains the Windows profile be accepted.
+# Manual M6 platform diagnostics. M5 product and release evidence is limited to
+# macOS arm64; running Linux/Windows diagnostics does not declare those SDK
+# profiles supported or promote a decision status. This workflow never tags,
+# publishes, or writes to the repository. Any future platform promotion needs
+# its own accepted support scope and candidate-bound evidence.
 #
 # Keep the build and verify commands below aligned with
 # `.github/workflows/release.yml`.
@@ -51,7 +38,7 @@ env:
   LLVM_PACKAGE_VERSION: "22.1.8"
   # The official LLVM Windows release archive ships llvm/clang/lld CMake
   # packages but no MLIR at all (verified against the published 22.1.8 asset),
-  # and pyCircuit needs MLIR_DIR for pyc-opt/pycc. Windows therefore builds the
+  # and pyCircuit needs MLIR_DIR for its compiler helpers. Windows therefore builds the
   # pinned LLVM+MLIR source once and caches the install prefix. The option set
   # mirrors the RTTI/EH configuration of the known-good macOS lane, and
   # LLVM_WINDOWS_BUILD_ID salts the cache key so an option change starts a
@@ -441,7 +428,7 @@ jobs:
         run: |
           set -euxo pipefail
           python3 -m pip install jsonschema
-          python3 tools/agentic-circuit/check-sdk-contract.py --document "candidate/pycircuit-sdk-${{ inputs.version }}-${{ matrix.platform }}.manifest.json"
+          python3 packaging/sdk/check_contract.py --document "candidate/pycircuit-sdk-${{ inputs.version }}-${{ matrix.platform }}.manifest.json"
           python3 packaging/sdk/verify_platform_candidate.py \
             --archive "candidate/pycircuit-sdk-${{ inputs.version }}-${{ matrix.platform }}.tar.gz" \
             --manifest "candidate/pycircuit-sdk-${{ inputs.version }}-${{ matrix.platform }}.manifest.json" \
@@ -453,7 +440,7 @@ jobs:
         run: |
           $ErrorActionPreference = "Stop"
           python3 -m pip install jsonschema
-          python3 tools/agentic-circuit/check-sdk-contract.py --document "candidate/pycircuit-sdk-${{ inputs.version }}-${{ matrix.platform }}.manifest.json"
+          python3 packaging/sdk/check_contract.py --document "candidate/pycircuit-sdk-${{ inputs.version }}-${{ matrix.platform }}.manifest.json"
           python3 packaging/sdk/verify_platform_candidate.py --archive "candidate/pycircuit-sdk-${{ inputs.version }}-${{ matrix.platform }}.tar.gz" --manifest "candidate/pycircuit-sdk-${{ inputs.version }}-${{ matrix.platform }}.manifest.json" --forbidden-path "$env:GITHUB_WORKSPACE" --attestation "platform-evidence-${{ matrix.platform }}.json"
       - name: Show the attestation
         shell: bash

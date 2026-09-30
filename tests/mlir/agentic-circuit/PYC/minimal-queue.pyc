@@ -1,6 +1,0 @@
-module attributes {pyc.top = @queue_passthrough, pyc.frontend.contract = "pycircuit"} {
-  func.func @queue_passthrough(%clk: !pyc.clock, %rst: !pyc.reset, %in_valid: i1, %in_data: i64, %out_ready: i1) -> (i1, i64, i1) attributes {arg_names = ["clk", "rst", "in_valid", "in_data", "out_ready"], result_names = ["out_valid", "out_data", "in_ready"], pyc.value_params = [], pyc.value_param_types = [], pyc.kind = "module", pyc.inline = "false", pyc.params = "{}", pyc.base = "queue_passthrough", pyc.struct.metrics = "{\"ast_node_count\":0,\"collection_count\":0,\"collection_instance_count\":0,\"estimated_inline_cost\":0,\"hardware_call_count\":0,\"instance_count\":0,\"loop_count\":0,\"module_call_count\":0,\"module_family_collection_count\":0,\"repeat_pressure\":0,\"repeated_body_clusters\":[],\"source_loc\":0,\"state_alloc_count\":0,\"state_call_count\":0}", pyc.struct.collections = "[]"} {
-    %in_ready, %out_valid, %out_data = pyc.fifo %clk, %rst, %in_valid, %in_data, %out_ready {depth = 2} : i64
-    func.return %out_valid, %out_data, %in_ready : i1, i64, i1
-  }
-}

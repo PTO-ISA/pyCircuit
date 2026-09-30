@@ -39,9 +39,7 @@ jobs:
       - name: Install Python, LLVM, and simulation dependencies
         run: |
           set -euxo pipefail
-          python -m pip install -e "python/semantic-core"
           python -m pip install -e ".[dev,docs]"
-          python -m pip install -e "python/agentic-circuit[test]"
           sudo apt-get update
           sudo apt-get install -y wget gnupg software-properties-common cmake ninja-build clang iverilog libgtest-dev ripgrep
           wget --https-only https://apt.llvm.org/llvm.sh
@@ -58,15 +56,7 @@ jobs:
       - name: Build integrated toolchain
         run: |
           export PYC_PYTHON_EXECUTABLE="$(command -v python3)"
-          PYC_BUILD_AGENTIC_CIRCUIT_TESTS=ON bash flows/scripts/pyc build --llvm-config "/usr/lib/llvm-${LLVM_VERSION}/bin/llvm-config" --build-dir "$PWD/.pycircuit_out/toolchain/build" --install-prefix "$PWD/.pycircuit_out/toolchain/install"
-
-      - name: Agentic Circuit closure
-        id: ac
-        continue-on-error: true
-        run: |
-          export AC_GATE_BUILD_ROOT="$PWD/.pycircuit_out/toolchain/build"
-          export AC_GATE_TOOLCHAIN_ROOT="$PWD/.pycircuit_out/toolchain/install"
-          bash flows/scripts/run_agentic_circuit.sh
+          PYC_BUILD_TESTING=ON bash flows/scripts/pyc build --build-dir "$PWD/.pycircuit_out/toolchain/build" --install-prefix "$PWD/.pycircuit_out/toolchain/install"
 
       - name: Repository contract closure
         id: contracts
@@ -85,7 +75,6 @@ jobs:
         run: |
           export PYC_TOOLCHAIN_ROOT="$PWD/.pycircuit_out/toolchain/install"
           export PATH="$PYC_TOOLCHAIN_ROOT/bin:$PATH"
-          unset PYCC || true
           bash flows/scripts/run_examples.sh
 
       - name: pyCircuit closure (sims)
@@ -94,7 +83,6 @@ jobs:
         run: |
           export PYC_TOOLCHAIN_ROOT="$PWD/.pycircuit_out/toolchain/install"
           export PATH="$PYC_TOOLCHAIN_ROOT/bin:$PATH"
-          unset PYCC || true
           bash flows/scripts/run_sims.sh
 
       - name: pyCircuit closure (nightly sims)
@@ -103,7 +91,6 @@ jobs:
         run: |
           export PYC_TOOLCHAIN_ROOT="$PWD/.pycircuit_out/toolchain/install"
           export PATH="$PYC_TOOLCHAIN_ROOT/bin:$PATH"
-          unset PYCC || true
           bash flows/scripts/run_sims_nightly.sh
 
       - name: pyCircuit closure (semantic regressions)
@@ -112,7 +99,6 @@ jobs:
         run: |
           export PYC_TOOLCHAIN_ROOT="$PWD/.pycircuit_out/toolchain/install"
           export PATH="$PYC_TOOLCHAIN_ROOT/bin:$PATH"
-          unset PYCC || true
           bash flows/scripts/run_semantic_regressions_v6.sh
 
       - name: Upload probe gate logs
@@ -130,7 +116,6 @@ jobs:
           {
             echo "| step | outcome |"
             echo "| --- | --- |"
-            echo "| agentic-circuit | ${{ steps.ac.outcome }} |"
             echo "| repository-contracts | ${{ steps.contracts.outcome }} |"
             echo "| examples | ${{ steps.examples.outcome }} |"
             echo "| sims | ${{ steps.sims.outcome }} |"

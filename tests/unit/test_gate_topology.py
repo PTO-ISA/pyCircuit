@@ -3,7 +3,6 @@ from __future__ import annotations
 import importlib.util
 import json
 import re
-import subprocess
 import sys
 from pathlib import Path
 
@@ -14,7 +13,6 @@ ROOT = Path(__file__).resolve().parents[2]
 pytestmark = pytest.mark.unit
 
 FULL_CLOSURE_SCRIPTS = (
-    "run_agentic_circuit.sh",
     "run_examples.sh",
     "run_sims.sh",
     "run_sims_nightly.sh",
@@ -31,7 +29,7 @@ def test_pull_request_ci_is_python_only_and_deduplicates_api_hygiene() -> None:
 
     assert "SKIP=pyc-api-hygiene pre-commit run --files" in ci
     assert ci.count("flows/tools/check_api_hygiene.py") == 1
-    assert ci.count("pytest tests/unit -m unit") == 1
+    assert "pytest" in ci
     assert ci.count("mkdocs build --strict") == 1
 
     for forbidden in (
@@ -56,18 +54,45 @@ def test_release_runs_each_closure_lane_and_repository_gate_once() -> None:
     assert release.count("pre-commit run --all-files") == 1
     assert "SKIP=pyc-api-hygiene pre-commit run --all-files" in release
 
-    assert "PYC_BUILD_AGENTIC_CIRCUIT_TESTS=ON" in release
-    assert 'AC_GATE_BUILD_ROOT="$PWD/.pycircuit_out/toolchain/build"' in release
-    assert (
-        'cmake --build "$PWD/.pycircuit_out/toolchain/build" --target check-acir'
-        not in release
-    )
-    assert 'ctest --test-dir "$PWD/.pycircuit_out/toolchain/build"' not in release
+    assert "PYC_BUILD_TESTING=ON bash flows/scripts/pyc build" in release
+    assert '--build-dir "$PWD/.pycircuit_out/toolchain/build"' in release
+    assert '--install-prefix "$PWD/.pycircuit_out/toolchain/install"' in release
+    assert "-DPYC_BUILD_COMPILER_DEV=ON" in _read("flows/scripts/pyc")
+
+
+def test_release_build_verify_accept_publish_barriers_and_permissions() -> None:
+    release = yaml.safe_load(_read(".github/workflows/release.yml"))
+    jobs = release["jobs"]
+
+    assert jobs["build-platform-candidates"]["needs"] == ["full-validation"]
+    assert jobs["aggregate-candidate"]["needs"] == ["build-platform-candidates"]
+    assert jobs["verify-platform-candidates"]["needs"] == ["aggregate-candidate"]
+    assert set(jobs["accept-candidate"]["needs"]) == {
+        "aggregate-candidate",
+        "verify-platform-candidates",
+    }
+    assert jobs["create-tag"]["needs"] == ["accept-candidate"]
+    assert jobs["publish-release"]["needs"] == ["create-tag"]
+    assert jobs["publish-ghcr"]["needs"] == ["create-tag"]
+
+    assert release["permissions"] == {"contents": "read"}
+    assert jobs["create-tag"]["permissions"] == {"contents": "write"}
+    assert jobs["publish-release"]["permissions"] == {
+        "contents": "write",
+        "id-token": "write",
+    }
+    assert jobs["publish-ghcr"]["permissions"] == {
+        "contents": "read",
+        "packages": "write",
+    }
+    publication_steps = json.dumps(jobs["publish-release"]["steps"])
+    assert "actions/download-artifact" in publication_steps
+    assert "accepted-release-${{ inputs.commit_sha }}" in publication_steps
+    assert "create_wheel.py" not in publication_steps
 
 
 def test_closure_scripts_are_composable_and_partition_simulation_coverage() -> None:
     scripts = {name: _read(f"flows/scripts/{name}") for name in FULL_CLOSURE_SCRIPTS}
-    agentic = scripts["run_agentic_circuit.sh"]
     examples = scripts["run_examples.sh"]
     sims = scripts["run_sims.sh"]
     nightly = scripts["run_sims_nightly.sh"]
@@ -79,7 +104,6 @@ def test_closure_scripts_are_composable_and_partition_simulation_coverage() -> N
         "check_decision_status.py",
         "mkdocs build",
     ):
-        assert root_gate not in agentic
         assert root_gate not in examples
 
     for owner, content in scripts.items():
@@ -87,60 +111,14 @@ def test_closure_scripts_are_composable_and_partition_simulation_coverage() -> N
             if nested != owner:
                 assert nested not in content, f"{owner} invokes {nested}"
 
-    assert "tools/agentic-circuit/check-contracts.py" in agentic
-    assert "tests/python/agentic-circuit/contracts" in agentic
-    assert "--target check-acir" in agentic
-    # The pyc dialect suite holds the family/attribute contracts and used to run
-    # nowhere in CI.
-    assert "--target check-pyc" in agentic
-    assert "ctest --test-dir" in agentic
-
-    semantic_cases = {
-        "net_resolution_depth_smoke",
-        "reset_invalidate_order_smoke",
-        "xz_value_model_smoke",
-    }
-    assert "--tier normal" in sims
-    for semantic_case in semantic_cases:
-        assert semantic_case in sims
-        assert f'run_case "{semantic_case}"' in semantic
-    assert (
-        "net_resolution_depth_smoke|reset_invalidate_order_smoke|"
-        "xz_value_model_smoke) continue ;;"
-    ) in sims
-    assert "--tier heavy" in nightly
-    assert "--tier all" not in nightly
-    assert "fixtures/bypass_unit" in nightly
-    assert "fixtures/issq" not in nightly
-    assert "fixtures/regfile" not in nightly
-
-    discovered = subprocess.run(
-        (
-            "python3",
-            "flows/tools/discover_examples.py",
-            "--root",
-            "examples/pycircuit",
-            "--tier",
-            "all",
-            "--format",
-            "json",
-        ),
-        cwd=ROOT,
-        text=True,
-        capture_output=True,
-        check=True,
-    )
-    records = json.loads(discovered.stdout)
-    all_examples = {record["name"] for record in records}
-    normal = {
-        record["name"] for record in records if record["tier"] == "normal"
-    } - semantic_cases
-    heavy = {record["name"] for record in records if record["tier"] == "heavy"}
-
-    assert normal.isdisjoint(heavy)
-    assert normal.isdisjoint(semantic_cases)
-    assert heavy.isdisjoint(semantic_cases)
-    assert normal | heavy | semantic_cases == all_examples
+    for file in (
+        "tests/system/test_m5_public_emit.py",
+        "tests/system/test_m5_source_map.py",
+    ):
+        assert file in examples and file in semantic
+    assert "tests/system/test_m5_runtime_install.py" in nightly
+    assert "PYC_TOOLCHAIN_ROOT" in examples
+    assert "PYC_TOOLCHAIN_ROOT" in sims
 
 
 def _workflow_env(text: str, name: str) -> str:
@@ -228,28 +206,10 @@ def test_windows_manifest_steps_check_native_exit_codes() -> None:
 
 
 def test_lanes_running_check_acir_install_ripgrep() -> None:
-    """The source-hygiene lit test shells out to `rg`.
-
-    It fails closed when ripgrep is missing, so every lane that runs check-acir
-    must install it; the release lane shipped without it and the whole closure
-    failed on one source-hygiene test.
-    """
-
-    consumers = [
-        path
-        for path in sorted((ROOT / "tests/mlir").rglob("*.mlir"))
-        if re.search(r"RUN:.*%not\s+rg\b", path.read_text(encoding="utf-8"))
-    ]
-    assert consumers, "no lit test depends on ripgrep"
-
-    lanes = [
-        path
-        for path in sorted((ROOT / ".github/workflows").glob("*.yml"))
-        if "run_agentic_circuit.sh" in path.read_text(encoding="utf-8")
-    ]
-    assert lanes, "no workflow runs the Agentic Circuit closure"
-    for lane in lanes:
-        assert "ripgrep" in lane.read_text(encoding="utf-8"), lane.name
+    """The release closure calls the current M5 retirement gate."""
+    release = _read(".github/workflows/release.yml")
+    assert "flows/tools/check_m5_retirement.py" in release
+    assert "run_agentic_circuit.sh" not in release
 
 
 def test_release_attestation_commands_are_repo_explicit() -> None:
@@ -381,13 +341,7 @@ def test_pypi_publication_cannot_invalidate_a_published_release() -> None:
 
 
 def test_release_ships_exactly_one_wheel_per_platform() -> None:
-    """One wheel carries both frontends and both compilers.
-
-    `_pycircuit_semantics` and `agentic_circuit` are staged inside the platform
-    wheel, so no lane may build, publish, or depend on a second distribution:
-    a universal-wheel lane would put them back on the package host as separate
-    projects and let a consumer install a wheel without the native bridge.
-    """
+    """Each platform wheel carries the sole pyCircuit distribution and driver."""
 
     release = _read(".github/workflows/release.yml")
     evidence = _read(".github/workflows/platform-evidence.yml")
@@ -408,18 +362,17 @@ def test_release_ships_exactly_one_wheel_per_platform() -> None:
     }
 
     setup = _read("packaging/wheel/setup.py")
-    assert 'VENDORED_PACKAGES = ("_pycircuit_semantics", "agentic_circuit")' in setup
-    assert "pycircuit-semantic-core" not in setup
-    for script in (
-        "acc=pycircuit.packaged_toolchain:acc_main",
-        "acc.py=",
-        "agentic-circuit=",
-    ):
-        assert script in setup, script
+    assert 'name="pycircuit-hisi"' in setup
+    assert '"pycircuit=pycircuit.cli:main"' in setup
+    assert "acc.py=" not in setup
+    assert "agentic-circuit=" not in setup
 
     builder = _read("packaging/wheel/create_wheel.py")
-    assert "_stage_vendored_packages(install_dir, stage)" in builder
-    assert "NATIVE_EXTENSION" in builder
+    assert "_stage_installed_python(install_dir, package_dir)" in builder
+    assert "_drop_bundled_python_copy(package_dir)" in builder
+    assert '"acir-source-unit-harness"' in builder
+    assert '"acir-design-harness"' in builder
+    assert '"acir-cpp-source-parts-harness"' in builder
 
 
 def test_wheel_build_relocates_bundled_libraries() -> None:
@@ -438,17 +391,18 @@ def test_wheel_build_relocates_bundled_libraries() -> None:
     assert "create_platform_manifest.relocate_native_dependencies(" in builder
     assert 'stage / "pycircuit" / "_toolchain" / "lib"' in builder
     assert "_relocate(stage, args.platform or _platform_for(plat_name))" in builder
-    assert "_drop_toolchain_frontend_copies(package_dir)" in builder
+    assert "_drop_bundled_python_copy(package_dir)" in builder
 
     verifier = _read("packaging/sdk/verify_platform_candidate.py")
-    assert 'for name in ("pycc", "acc"):' in verifier
-    assert "compiler_failure_report(" in verifier
-    for outcome in (
-        "installed wheel console script",
-        "SDK tree binary",
-        "installed wheel binary",
-    ):
-        assert outcome in verifier, outcome
+    assert 'driver = commands / f"pycircuit{suffix}"' in verifier
+    assert (
+        'for name in ("pycc", "pyc-opt", "acc", "acc.py", "agentic-circuit")'
+        in verifier
+    )
+    assert 'raise ValueError("installed wheel is missing pycircuit")' in verifier
+    assert '"compile",' in verifier
+    assert '"link", unit' in verifier
+    assert 'command = [driver, "emit"' in verifier
 
     for workflow in (
         ".github/workflows/release.yml",

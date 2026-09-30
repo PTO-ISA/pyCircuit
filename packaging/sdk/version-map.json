@@ -10,7 +10,7 @@
   },
   "contracts": {
     "sdk_manifest": "1",
-    "generator_abi": "1",
+    "generator_abi": "2",
     "runtime_abi": "1",
     "consumer_lock": "1",
     "release_index": "1"

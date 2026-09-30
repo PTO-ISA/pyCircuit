@@ -72,92 +72,77 @@ nav:
   - Home: index.md
   - Getting Started:
       - Overview: getting-started/index.md
-      - Choose a Frontend: getting-started/choose-a-frontend.md
       - Installation: getting-started/installation.md
       - Quickstart: getting-started/quickstart.md
-      - Tutorial: getting-started/tutorial.md
-  - Language and API:
-      - Reference Overview: reference/index.md
-      - Language Specification: reference/language.md
-      - Naming and Mangling: reference/name-mangling.md
-      - Frontend API: reference/frontend-api.md
-      - Testbench API: reference/testbench.md
-      - Primitives: reference/primitives.md
-      - Structured Types: reference/spec-structures.md
-      - Collections: reference/spec-collections.md
-      - Const Metaprogramming: reference/const-metaprogramming.md
-      - PYC IR: reference/pyc-ir.md
+      - Choose the Active Frontend: getting-started/choose-a-frontend.md
+      - Counter Tutorial: getting-started/tutorial.md
+      - M5 Migration Guide: development/m5-migration.md
+  - Language Reference:
+      - Overview: reference/index.md
+      - Current Source Language: reference/language.md
       - Diagnostics: reference/diagnostics.md
-      - Sidecar Schedule: reference/sidecar-schedule.md
+      - Source Ownership and Names: reference/name-mangling.md
+      - Retired Frontend API: reference/frontend-api.md
+      - Retired Testbench API: reference/testbench.md
+      - Retired Primitive API: reference/primitives.md
+      - Retired Spec Structures: reference/spec-structures.md
+      - Retired Collections: reference/spec-collections.md
+      - Retired Const Metaprogramming: reference/const-metaprogramming.md
+      - Retired PYC IR: reference/pyc-ir.md
+      - Retired Sidecar Schedule: reference/sidecar-schedule.md
   - Architecture:
-      - Overview: architecture/overview.md
-      - Compiler Pipeline: architecture/compiler-pipeline.md
-      - Cycle Balancing: architecture/cycle-balancing.md
-      - Cycle-Balancing Design: architecture/cycle-balancing-design.md
-      - Simulation Runtimes: architecture/simulation.md
-  - Agentic Circuit:
-      - ACIR Architecture: acir/index.md
-      - Specification Index: acir/spec/README.md
-      - Language Specification: acir/spec/agentic-circuit.md
-      - 中文规范: acir/spec/agentic-circuit.zh-CN.md
-      - Verification: acir/spec/verification.md
-      - Repository Charter: acir/spec/00-charter/scope.md
-      - Historical Repository Record: acir/spec/refs/history.md
+      - Current Overview: architecture/overview.md
+      - Current Compiler Pipeline: architecture/compiler-pipeline.md
+      - Retired Cycle Balancing: architecture/cycle-balancing.md
+      - Cycle-Balancing Design History: architecture/cycle-balancing-design.md
+      - Generated-Model Runtime: architecture/simulation.md
   - Development:
       - Overview: development/index.md
       - Agent Frontend Guide: development/agent-frontend-guide.md
-      - Agentic Circuit Open Design Resolutions: development/agentic-circuit-open-designs.md
       - Implementation Guide: development/implementation-guide.md
-      - Modernization Plan: development/pycircuit-modernization-plan.md
-      - Migration Preview: development/migration-preview.md
-      - Project Governance: development/project-governance.md
-      - Governance Proposal (Historical): development/project-governance-proposal.md
-      - Modernization Test Strategy: development/pycircuit-modernization-tests.md
-      - Modernization Plan Review: development/pycircuit-modernization-review.md
-      - Modernization Work Items: work-items/README.md
-      - Migration Execution Ledger: work-items/single-route-migration.md
-      - Migration Capabilities: work-items/migration-capabilities.md
-      - C2 Contract Inventory: work-items/migration-c2-contract-gaps.md
-      - Modernization Reviews: reviews/README.md
       - Contributing Workflow: development/contributing-workflow.md
       - Testing and Gates: development/testing-and-gates.md
-      - Stable SDK Release Contract: development/sdk-release-contract.md
-      - Release Runbook: development/release-runbook.md
       - Review and Merge: development/review-and-merge.md
+      - M5 Migration Status: work-items/m5-cutover.md
+      - M5 Migration Guide: development/m5-migration.md
+      - Modernization Plan: development/pycircuit-modernization-plan.md
+      - Project Governance: development/project-governance.md
+      - SDK Release Contract (Historical): development/sdk-release-contract.md
+      - Release Runbook (Historical): development/release-runbook.md
       - Repository Management: development/repository-management.md
       - Repository Layout: development/repository-layout.md
-      - PYC IR Inventory: development/pyc-ir-inventory.md
-      - ACIR Support: development/acir/support.md
-      - ACIR IR Coverage: development/acir/verification/ir-coverage.md
-      - PYC/Verilog Backend: development/acir/verification/pyc-verilog-backend.md
-      - Repository Layout: development/acir/verification/repository-layout.md
-  - Research:
-      - ASL Data Types: research/asl-data-types.md
-      - ASL Alignment: research/asl-alignment.md
-  - Decisions:
-      - pyCircuit 6 Decisions: rfcs/pyc6-decisions.md
-      - Evolution Plan: pyc6-plan.md
-      - C1 Pythonic Source Proposal: rfcs/migration/c1-pythonic-source.md
-      - C1 Source Approval: rfcs/migration/approvals/c1-pythonic-source.md
-      - C2 MLIR Contract Proposal: rfcs/migration/c2-mlir-contract.md
-      - C2-N1 Namespace Binding Proposal: rfcs/migration/c2-n1-namespaces.md
-      - C2-N1 Namespace Binding Approval: rfcs/migration/approvals/c2-n1-namespaces.md
-      - C3 Driver Runtime Proposal: rfcs/migration/c3-driver-runtime.md
-      - C2 and C3 Foundation Approval: rfcs/migration/approvals/c2-c3-foundation.md
-      - Tier Annotation RFC: rfcs/tier_annotation.md
-      - Architecture Rule Compiler Extension: rfcs/architecture-rule-compiler-extension.md
-      - Architecture Rule RTL and Verification Checklist: rfcs/ac-architecture-rule-rtl-verification-extension-checklist.md
-      - AC Rule and SimQueue Atomic Lowering Checklist: rfcs/ac-rule-simqueue-atomic-lowering-checklist.md
-      - AC C++ Pointer-Owned Module Composition: rfcs/ac-cpp-pointer-owned-module-composition.md
-      - ACIR Block Model: rfcs/acir/D-BLOCK-MODEL-001.md
-      - ACIR Release Layout: rfcs/acir/D-RELEASE-LAYOUT-001.md
-      - ACIR Rule Lowering: rfcs/acir/D-RULE-LOWERING-001.md
+      - Gate Evidence Contract: gates/README.md
+  - Historical Specifications:
+      - ACIR Archive: acir/index.md
+      - ACIR Specification Index: acir/spec/README.md
+      - Agentic Circuit Language (Retired): acir/spec/agentic-circuit.md
+      - Agentic Circuit Language 中文 (Retired): acir/spec/agentic-circuit.zh-CN.md
+      - Historical ACIR Repository Record: acir/spec/refs/history.md
+      - Historical Repository Research: research/asl-alignment.md
+      - Historical Type Research: research/asl-data-types.md
+  - Decisions and Frozen Proposals:
+      - Decision Register: rfcs/pyc6-decisions.md
+      - Accepted Scalar Cutover: rfcs/pyc6-decisions.md
+      - Current Plan Status: pyc6-plan.md
+      - C1 Source Proposal (Frozen): rfcs/migration/c1-pythonic-source.md
+      - C1 Approval Record: rfcs/migration/approvals/c1-pythonic-source.md
+      - C2 MLIR Proposal (Frozen): rfcs/migration/c2-mlir-contract.md
+      - C2/C3 Foundation Approval: rfcs/migration/approvals/c2-c3-foundation.md
+      - C2 Module-System Proposal (Frozen): rfcs/migration/c2-m1-module-system.md
+      - C2 Register Proposal (Frozen): rfcs/migration/c2-r1-unified-register.md
+      - C2/R1/M1 Approval Record: rfcs/migration/approvals/c2-r1-m1-interface.md
+      - C2 Scalar Proposal (Frozen): rfcs/migration/c2-decl-scalar-final.md
+      - C2 Scalar Approval: rfcs/migration/approvals/c2-decl-scalar-final.md
+      - C2 Namespace Proposal (Frozen): rfcs/migration/c2-n1-namespaces.md
+      - C2 Namespace Approval: rfcs/migration/approvals/c2-n1-namespaces.md
+      - C3 Driver Proposal (Frozen): rfcs/migration/c3-driver-runtime.md
+      - C3 Source-Map Proposal (Frozen): rfcs/migration/c3-source-map.md
+      - C3 Source-Map Approval: rfcs/migration/approvals/c3-source-map.md
+      - M1 Runner Approval: rfcs/migration/approvals/m1-runner-default-sink.md
+      - Historical Architecture Proposals: rfcs/architecture-rule-compiler-extension.md
+      - Historical ACIR Proposals: rfcs/acir/D-RULE-LOWERING-001.md
   - Gates:
-      - Evidence Contract: gates/README.md
       - Decision Status: gates/decision_status_v6.md
-  - Legal:
-      - Agentic Circuit Relicensing: legal/AC-RELICENSE-BSD-3-CLAUSE.md
-
 # Plugins
 plugins:
   - search:

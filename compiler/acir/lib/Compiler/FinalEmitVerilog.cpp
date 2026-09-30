@@ -1,13 +1,15 @@
+#include "FinalCppNames.h"
 #include "FinalEmitVerilogSupport.h"
+#include "llvm/ADT/StringMap.h"
 #include "llvm/Support/raw_ostream.h"
 #include <tuple>
 
 using namespace mlir;
 
 namespace acir::compiler {
-FailureOr<FinalVerilogEmission>
-emitFinalVerilogPartsBody(const FinalProgram &program,
-                          ac::detail::EmitError emitError) {
+FailureOr<FinalVerilogSourceParts>
+emitFinalVerilogSourcePartsBody(const FinalProgram &program,
+                                ac::detail::EmitError emitError) {
   auto instances = program.instances();
   if (instances.empty() || program.rootInstanceOrdinal() >= instances.size() ||
       program.postOrderInstanceOrdinals().size() != instances.size())
@@ -19,6 +21,66 @@ emitFinalVerilogPartsBody(const FinalProgram &program,
   if (failed(familiesOr))
     return failure();
   SmallVector<Family, 0> families = std::move(*familiesOr);
+  struct SourceIdentity {
+    DictionaryAttr owner;
+    FlatSymbolRefAttr definition;
+    std::string path;
+    std::string moduleName;
+    ac::ModuleOp module;
+  };
+  SmallVector<SourceIdentity> sourceIdentities(families.size());
+  llvm::DenseMap<Attribute, size_t> familyByOwner;
+  llvm::StringMap<DictionaryAttr> ownerByPath;
+  llvm::StringMap<DictionaryAttr> ownerByModuleName;
+  for (auto [familyIndex, family] : llvm::enumerate(families)) {
+    const auto &instance = program.instances()[family.representative];
+    ac::ModuleOp module = instance.module;
+    DictionaryAttr owner =
+        module->getAttrOfType<DictionaryAttr>("ac.source_owner");
+    auto components = sourceOwnerComponents(owner, emitError);
+    if (failed(components))
+      return failure();
+    auto path = sourcePathName(components->filePath, ".sv", emitError);
+    if (failed(path))
+      return failure();
+
+    llvm::SmallVector<std::string> moduleParts;
+    for (StringRef component : components->namespaces) {
+      auto legalized = legalizeIdentifier(component, emitError);
+      if (failed(legalized))
+        return failure();
+      moduleParts.push_back(std::move(*legalized));
+    }
+    if (moduleParts.empty()) {
+      for (StringRef component : components->filePath) {
+        auto legalized = legalizeIdentifier(component, emitError);
+        if (failed(legalized))
+          return failure();
+        moduleParts.push_back(std::move(*legalized));
+      }
+    }
+    std::string moduleName = "ac_" + join(moduleParts, "_");
+    if (moduleName == "ac_")
+      return emitError() << "RTL SourceOwner has no source module path";
+
+    auto pathOwner = ownerByPath.find(*path);
+    if (pathOwner != ownerByPath.end() && pathOwner->second != owner)
+      return emitError() << "legalized RTL source paths collide";
+    ownerByPath.try_emplace(*path, owner);
+    auto moduleOwner = ownerByModuleName.find(moduleName);
+    if (moduleOwner != ownerByModuleName.end() && moduleOwner->second != owner)
+      return emitError() << "legalized RTL module family names collide";
+    ownerByModuleName.try_emplace(moduleName, owner);
+    auto priorFamily = familyByOwner.find(owner);
+    if (priorFamily != familyByOwner.end())
+      return emitError()
+             << "one RTL source owner contains multiple module families";
+    familyByOwner.try_emplace(owner, familyIndex);
+
+    family.name = moduleName;
+    sourceIdentities[familyIndex] = {owner, family.definition, std::move(*path),
+                                     std::move(moduleName), module};
+  }
   const size_t root = program.rootInstanceOrdinal();
   const Family &rootFamily = families[familyFor[root]];
   if (!rootFamily.current.empty() || !rootFamily.next.empty())
@@ -101,8 +163,6 @@ emitFinalVerilogPartsBody(const FinalProgram &program,
     return true;
   };
 
-  std::string text = "/* verilator lint_off MULTITOP */\n";
-  llvm::raw_string_ostream out(text);
   SmallVector<size_t> familyOrder(families.size());
   for (size_t index = 0; index < families.size(); ++index)
     familyOrder[index] = index;
@@ -116,8 +176,25 @@ emitFinalVerilogPartsBody(const FinalProgram &program,
     return families[left].name < families[right].name;
   });
 
+  FinalVerilogSourceParts result;
+  SmallVector<size_t> sourceGroupForFamily(families.size());
+  for (size_t familyIndex : familyOrder) {
+    const SourceIdentity &identity = sourceIdentities[familyIndex];
+    FinalVerilogSourceGroup group;
+    group.sourceOwner = identity.owner;
+    group.definitions.push_back(identity.definition);
+    group.path = identity.path;
+    group.moduleName = identity.moduleName;
+    sourceGroupForFamily[familyIndex] = result.sourceGroups.size();
+    result.sourceGroups.push_back(std::move(group));
+  }
+
   for (size_t familyIndex : familyOrder) {
     const Family &family = families[familyIndex];
+    if (failed(verifyRtlNames(program, family, emitError)))
+      return failure();
+    std::string moduleText;
+    llvm::raw_string_ostream out(moduleText);
     const auto &instance = instances[family.representative];
     ac::ModuleOp module = instance.module;
     if (instance.childOrdinals.size() && module.getBody().empty())
@@ -131,10 +208,11 @@ emitFinalVerilogPartsBody(const FinalProgram &program,
     out << "module " << family.name << "(input logic clk, input logic reset, "
         << "input logic root_commit_ok, output logic subtree_error";
     for (const Port &port : family.current)
-      out << ", input " << svType(port.width) << " " << port.parameter << "_q";
+      out << ", input " << svType(port.width) << " " << port.emittedName
+          << "_q";
     for (const Port &port : family.next)
-      out << ", output " << svType(port.width) << " " << port.parameter
-          << "_d, output logic " << port.parameter << "_e";
+      out << ", output " << svType(port.width) << " " << port.emittedName
+          << "_d, output logic " << port.emittedName << "_e";
     out << ");\n";
     for (auto [local, global] : llvm::enumerate(instance.ownedStateOrdinals)) {
       out << "  " << svType(carriers[global]->width) << " q" << local << ";\n  "
@@ -231,9 +309,9 @@ emitFinalVerilogPartsBody(const FinalProgram &program,
         for (const Port &port : *childPorts)
           if (port.role == "next" && port.stateID == stateID)
             return PairText{"child_" + std::to_string(childPosition) + "_" +
-                                port.parameter + "_d",
+                                port.emittedName + "_d",
                             "child_" + std::to_string(childPosition) + "_" +
-                                port.parameter + "_e"};
+                                port.emittedName + "_e"};
       }
       return emitError()
              << "RTL cannot route a descendant proposal through its "
@@ -253,8 +331,8 @@ emitFinalVerilogPartsBody(const FinalProgram &program,
       auto pair = resolvePair(port.stateID, instance.ordinal);
       if (failed(pair))
         return failure();
-      out << "    " << port.parameter << "_d = " << pair->data << ";\n"
-          << "    " << port.parameter << "_e = " << pair->enable << ";\n";
+      out << "    " << port.emittedName << "_d = " << pair->data << ";\n"
+          << "    " << port.emittedName << "_e = " << pair->enable << ";\n";
     }
     for (size_t observationGlobal : instance.observationOrdinals) {
       const size_t local =
@@ -300,8 +378,8 @@ emitFinalVerilogPartsBody(const FinalProgram &program,
       for (const Port &port : *childPorts)
         if (port.role == "next")
           out << "  " << svType(port.width) << " child_" << childPosition << "_"
-              << port.parameter << "_d;\n  logic child_" << childPosition << "_"
-              << port.parameter << "_e;\n";
+              << port.emittedName << "_d;\n  logic child_" << childPosition
+              << "_" << port.emittedName << "_e;\n";
       out << "  " << childFamily.name << " child_" << childPosition << "(\n"
           << "    .clk(clk), .reset(reset), .root_commit_ok(root_commit_ok),\n"
           << "    .subtree_error(child_" << childPosition << "_subtree_error)";
@@ -318,16 +396,17 @@ emitFinalVerilogPartsBody(const FinalProgram &program,
               expressions.emitStateHandle(actualHandle, *instance.view);
           if (failed(value))
             return failure();
-          out << ",\n    ." << port.parameter << "_q(" << *value << ")";
+          out << ",\n    ." << port.emittedName << "_q(" << *value << ")";
         }
       }
       if (currentInputIndex != placement.getInputs().size())
         return emitError() << "RTL child current formal arity changed";
       for (const Port &port : *childPorts)
         if (port.role == "next")
-          out << ",\n    ." << port.parameter << "_d(child_" << childPosition
-              << "_" << port.parameter << "_d), ." << port.parameter
-              << "_e(child_" << childPosition << "_" << port.parameter << "_e)";
+          out << ",\n    ." << port.emittedName << "_d(child_" << childPosition
+              << "_" << port.emittedName << "_d), ." << port.emittedName
+              << "_e(child_" << childPosition << "_" << port.emittedName
+              << "_e)";
       out << ");\n";
     }
     for (size_t local = 0; local < instance.ownedStateOrdinals.size(); ++local)
@@ -336,9 +415,15 @@ emitFinalVerilogPartsBody(const FinalProgram &program,
           << "    else if (q" << local << "_e) q" << local << " <= d" << local
           << ";\n  end\n";
     out << "endmodule\n\n";
+    out.flush();
+    result.sourceGroups[sourceGroupForFamily[familyIndex]].text =
+        std::move(moduleText);
   }
 
-  out << "module FinalModel(input logic clk, input logic reset);\n"
+  std::string coreText;
+  llvm::raw_string_ostream coreOut(coreText);
+  coreOut
+      << "module FinalModel(input logic clk, input logic reset);\n"
          "  logic root_commit_ok;\n  logic root_subtree_error;\n"
          "  assign root_commit_ok = ~root_subtree_error;\n"
       << "  " << families[familyFor[root]].name
@@ -347,16 +432,19 @@ emitFinalVerilogPartsBody(const FinalProgram &program,
          "  wire global_permit = root_commit_ok;\n";
   for (auto [local, global] :
        llvm::enumerate(instances[root].ownedStateOrdinals))
-    out << "  wire"
-        << (carriers[global]->width == 1
-                ? std::string()
-                : " [" + std::to_string(carriers[global]->width - 1) + ":0]")
-        << " q" << local << ";\n  assign q" << local << " = root_.q" << local
-        << ";\n";
+    coreOut << "  wire"
+            << (carriers[global]->width == 1
+                    ? std::string()
+                    : " [" + std::to_string(carriers[global]->width - 1) +
+                          ":0]")
+            << " q" << local << ";\n  assign q" << local << " = root_.q"
+            << local << ";\n";
   for (const ObservationBinding &observation : program.observations().bindings)
-    out << "  // observation " << observation.stableOrdinal
-        << " kind=" << observation.kind.getValue() << "\n";
-  out << "endmodule\n\n";
+    coreOut << "  // observation " << observation.stableOrdinal
+            << " kind=" << observation.kind.getValue() << "\n";
+  coreOut << "endmodule\n\n";
+  coreOut.flush();
+  result.core = std::move(coreText);
 
   struct Record {
     size_t binding = 0;
@@ -401,7 +489,6 @@ emitFinalVerilogPartsBody(const FinalProgram &program,
   // Role boundary: the hardware RTL artifact ends at the FinalModel top above.
   // Everything from here is the simulation observation wrapper that carries the
   // runtime-glue role and instantiates that top.
-  out.flush();
   std::string glueText;
   llvm::raw_string_ostream glueOut(glueText);
   glueOut << "module FinalModelSim(input logic clk, input logic reset);\n"
@@ -451,7 +538,21 @@ emitFinalVerilogPartsBody(const FinalProgram &program,
     glueOut << "      captured_valid_" << index << " = 1'b0;\n";
   glueOut << "    end\n  end\nendmodule\n";
   glueOut.flush();
-  return FinalVerilogEmission{std::move(text), std::move(glueText)};
+  result.runtimeGlue = std::move(glueText);
+  return result;
+}
+
+FailureOr<FinalVerilogEmission>
+emitFinalVerilogPartsBody(const FinalProgram &program,
+                          ac::detail::EmitError emitError) {
+  auto parts = emitFinalVerilogSourcePartsBody(program, emitError);
+  if (failed(parts))
+    return failure();
+  std::string rtl = "/* verilator lint_off MULTITOP */\n";
+  for (const FinalVerilogSourceGroup &group : parts->sourceGroups)
+    rtl += group.text;
+  rtl += parts->core;
+  return FinalVerilogEmission{std::move(rtl), std::move(parts->runtimeGlue)};
 }
 
 } // namespace acir::compiler

@@ -1,81 +1,71 @@
 # Quickstart
 
-Run these commands from the repository root. Generated output stays under
-`.pycircuit_out/quickstart/`.
+This quickstart uses the bounded M5 source profile: portless `@module`
+functions, nested `@rule`s, default clock, and empty static arguments. The
+example produces a closed model without external ports.
 
-## Prepare the checkout
+## Prepare a compiler installation
 
-```bash
-python3 -m venv .venv
-source .venv/bin/activate
-python -m pip install -e "python/semantic-core"
-python -m pip install -e ".[dev,docs]"
+Use Python 3.11+, CMake, Ninja, a C++20 compiler, and LLVM/MLIR 22.1.8. Build
+and install CompilerDev plus Runtime as described in
+[installation](installation.md), then make the installed `pycircuit` visible on
+`PATH`.
 
-bash flows/scripts/pyc build
-export PYC_TOOLCHAIN_ROOT="$PWD/.pycircuit_out/toolchain/install"
+## Write a source
+
+Create `src/counter.py`:
+
+```python
+from typing import Annotated
+from pycircuit import module, rule
+
+Word = Annotated[int, range(256)]
+
+@module
+def Counter():
+    count: Word = 0
+
+    @rule
+    def tick():
+        nonlocal count
+        count = (count + 1) & 255
+
+    tick()
 ```
 
-## Build the counter example
+The annotation is a supported scalar state declaration in this profile. The
+rule definition does not register itself; `tick()` in the module body is the
+explicit registration. A rule reads current state and assigns its next value
+through `nonlocal`.
+
+## Compile, link, and emit
 
 ```bash
-PYTHONPATH=python/pycircuit/src \
-python -m pycircuit.cli build \
-  examples/pycircuit/basics/counter/tb_counter.py \
-  --out-dir .pycircuit_out/quickstart/counter \
-  --target both \
-  --jobs 8
+mkdir -p .pycircuit_out/units
+pycircuit compile -c src/counter.py --source-root src \
+  --package-prefix demo -o .pycircuit_out/units/counter
+pycircuit link .pycircuit_out/units/counter --top demo.counter.Counter \
+  -o .pycircuit_out/design_top.ac
+pycircuit emit .pycircuit_out/design_top.ac --target cpp \
+  -o .pycircuit_out/cpp
+pycircuit emit .pycircuit_out/design_top.ac --target verilog \
+  -o .pycircuit_out/verilog
 ```
 
-This command emits the frontend manifest, PYC MLIR, C++ model and executable,
-Verilog, and Verilator inputs for one source design.
+The final artifact is shared input to both emitters. Compile imported source
+files separately, publish their unit directories, pass those directories as
+`-I` inputs when compiling parents, and provide the complete unit closure to
+`link`.
 
-## Inspect the frontend output
+Generated CMake provides the `pycircuit_system` executable and
+`libpycircuit_dut`. Set a finite limit, for example `{"deadlock_window":null,"max_domain_cycles":{},"max_ticks":100,"schema":"agentic-model-config","version":"1"}`, in
+the runner configuration and invoke `pycircuit_system --config config.json`.
+Without an explicit event sink it runs silently. Add `--events <new-file>` or
+`--events -` to capture events to a file or standard output.
 
-Emit canonical PYC without running the native backends:
+## Continue
 
-```bash
-mkdir -p .pycircuit_out/quickstart
-PYTHONPATH=python/pycircuit/src \
-python -m pycircuit.cli emit \
-  examples/pycircuit/basics/counter/counter.py \
-  -o .pycircuit_out/quickstart/counter.pyc
-```
-
-## Try Agentic Circuit
-
-Install the second frontend and generate verified ACIR plus gfsim C++ for the
-routed dependency example:
-
-```bash
-python -m pip install -e "python/agentic-circuit[test]"
-mkdir -p .pycircuit_out/quickstart/agentic
-
-PYTHONPATH=python/semantic-core/src:python/agentic-circuit/src \
-acc.py --project examples/agentic-circuit/agentic-circuit.toml \
-  -c "$PWD/examples/agentic-circuit/pipelines/routed_dependency_pipeline.py" \
-  -o .pycircuit_out/quickstart/agentic/routed_dependency.ac
-
-acc -c .pycircuit_out/quickstart/agentic/routed_dependency.ac \
-  -emit-cpp \
-  -o .pycircuit_out/quickstart/agentic/routed_dependency.cpp
-```
-
-Run `bash flows/scripts/run_agentic_circuit.sh` for the complete installed
-frontend, schema-resource, native compiler, and backend validation lane.
-
-## Run smoke gates
-
-```bash
-bash flows/scripts/run_examples.sh
-bash flows/scripts/run_sims.sh
-```
-
-The examples lane validates compilation and contracts. The simulation lane
-checks C++ and Verilator behavior.
-
-## Continue learning
-
-- [pyCircuit 6 tutorial](tutorial.md)
-- [Language and API reference](../reference/index.md)
-- [Agentic Circuit and ACIR](../acir/index.md)
+- [Language reference](../reference/language.md)
+- [Agent frontend guide](../development/agent-frontend-guide.md)
 - [Testing and gates](../development/testing-and-gates.md)
+- [M5 migration guide](../development/m5-migration.md)

@@ -1,15 +1,7 @@
-if(NOT EXISTS "${CMAKE_INSTALL_PREFIX}/@CMAKE_INSTALL_BINDIR@/pycc")
-  return()
-endif()
-
-set(_pyc_runtime_deps)
-set(_pyc_unresolved_deps)
-set(_pyc_execs
-  "${CMAKE_INSTALL_PREFIX}/@CMAKE_INSTALL_BINDIR@/pycc"
-)
-if(EXISTS "${CMAKE_INSTALL_PREFIX}/@CMAKE_INSTALL_BINDIR@/pyc-opt")
-  list(APPEND _pyc_execs "${CMAKE_INSTALL_PREFIX}/@CMAKE_INSTALL_BINDIR@/pyc-opt")
-endif()
+set(_pyc_execs)
+foreach(helper acir-source-unit-harness acir-design-harness acir-cpp-source-parts-harness)
+  list(APPEND _pyc_execs "${CMAKE_INSTALL_PREFIX}/@CMAKE_INSTALL_BINDIR@/${helper}@CMAKE_EXECUTABLE_SUFFIX@")
+endforeach()
 
 file(GET_RUNTIME_DEPENDENCIES
   EXECUTABLES ${_pyc_execs}
@@ -29,11 +21,31 @@ file(GET_RUNTIME_DEPENDENCIES
 )
 
 if(_pyc_unresolved_deps)
-  message(WARNING "pyc unresolved runtime dependencies: ${_pyc_unresolved_deps}")
+  message(FATAL_ERROR "pyc unresolved runtime dependencies: ${_pyc_unresolved_deps}")
 endif()
 
+set(_pyc_dependency_dir "@CMAKE_INSTALL_LIBDIR@")
+if(WIN32)
+  set(_pyc_dependency_dir "@CMAKE_INSTALL_BINDIR@")
+endif()
 foreach(_pyc_dep IN LISTS _pyc_runtime_deps)
   if(EXISTS "${_pyc_dep}")
-    file(INSTALL DESTINATION "${CMAKE_INSTALL_PREFIX}/@CMAKE_INSTALL_LIBDIR@" TYPE SHARED_LIBRARY FOLLOW_SYMLINK_CHAIN FILES "${_pyc_dep}")
+    file(INSTALL DESTINATION "${CMAKE_INSTALL_PREFIX}/${_pyc_dependency_dir}" TYPE SHARED_LIBRARY FOLLOW_SYMLINK_CHAIN FILES "${_pyc_dep}")
   endif()
 endforeach()
+
+# Reuse the SDK relocation implementation for the installed helper tree.
+if(APPLE)
+  set(_pyc_platform macos-arm64)
+elseif(WIN32)
+  set(_pyc_platform windows-x86_64)
+else()
+  set(_pyc_platform linux-x86_64)
+endif()
+execute_process(COMMAND "@Python3_EXECUTABLE@"
+  "@CMAKE_CURRENT_SOURCE_DIR@/packaging/sdk/relocate_install.py"
+  "${CMAKE_INSTALL_PREFIX}" "${_pyc_platform}"
+  RESULT_VARIABLE _pyc_relocation_result)
+if(NOT _pyc_relocation_result EQUAL 0)
+  message(FATAL_ERROR "pyCircuit native dependency relocation failed")
+endif()

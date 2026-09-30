@@ -13,7 +13,7 @@
     "contracts": {
       "const": {
         "consumer_lock": "1",
-        "generator_abi": "1",
+        "generator_abi": "2",
         "release_index": "1",
         "runtime_abi": "1",
         "sdk_manifest": "1"

@@ -110,7 +110,7 @@ buildComposedFixture(MLIRContext &context, bool pipeline,
 import sys
 from pathlib import Path
 repo = Path(sys.argv[1])
-sys.path[:0] = [str(repo / "python/semantic-core/src"), str(repo / "python/pycircuit/src")]
+sys.path[:0] = [str(repo / "python/pycircuit/src")]
 from pycircuit._source_capture import _capture_source_file
 from pycircuit._source_transport import _emit_source_transport
 root = Path(sys.argv[2])

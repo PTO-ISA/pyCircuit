@@ -1,146 +1,33 @@
-from . import ct, hierarchical, lib, logic, probe, spec, structural, testbench, wiring
-from .bitfield import BitfieldSignal, BitfieldSpec, BitfieldView
-from .connectors import (
-    Connector,
-    ConnectorBundle,
-    ConnectorError,
-    ConnectorStruct,
-    ModuleCollectionHandle,
-    ModuleInstanceHandle,
-    RegConnector,
-    WireConnector,
-)
-from .design import (
-    DesignError,
-    const,
-    function,
-    module,
-)
-from .diagnostics import DiagnosticError, PyCircuitError
-from .dsl import PriorityEncodeResult
-from .enums import EnumSignal, PycEnum, auto, enumeration
-from .hw import (
-    Bundle,
-    Circuit,
-    ClockDomain,
-    Pop,
-    Reg,
-    Wire,
-    sext,
-    trunc,
-    unsigned,
-    zext,
-)
-from .jit import JitError
-from .jit import compile as compile
-from .literals import LiteralValue, S, U, s, u
-from .probe import (
-    ProbeBuilder,
-    ProbeError,
-    ProbeRef,
-    ProbeView,
-    TbProbeHandle,
-    TbProbes,
-)
-from .tb import Tb, TbError, sva
-from .testbench import TestbenchProgram
-from .trace_dsl import TraceConfigError
-from .v6 import (
-    CycleAwareCircuit,
-    CycleAwareDomain,
-    CycleAwareSignal,
-    CycleAwareTb,
-    ForwardSignal,
-    build_cycle_aware,
-    cas,
-    cat,
-    compile_cycle_aware,
-    count_leading_zeros,
-    count_trailing_zeros,
-    mux,
-    popcount,
-    priority_encode,
-    submodule_input,
-    wire_of,
-)
+"""Compile-time Python declarations for pyCircuit hardware designs.
 
-# ``__all__`` is the wildcard-import surface.  A wildcard import MUST NOT bind
-# a Python builtin, so ``compile`` stays reachable only as the explicit
-# attribute ``pycircuit.compile`` and never appears here.  The redundant
-# ``compile as compile`` alias above marks that re-export as intentional.
-__all__ = [
-    "CycleAwareCircuit",
-    "CycleAwareDomain",
-    "CycleAwareSignal",
-    "CycleAwareTb",
-    "ForwardSignal",
-    "build_cycle_aware",
-    "cas",
-    "compile_cycle_aware",
-    "mux",
-    "submodule_input",
-    "wire_of",
-    "Connector",
-    "ConnectorBundle",
-    "ConnectorError",
-    "ConnectorStruct",
-    "BitfieldSignal",
-    "BitfieldSpec",
-    "BitfieldView",
-    "EnumSignal",
-    "PycEnum",
-    "auto",
-    "enumeration",
-    "Bundle",
-    "Circuit",
-    "ClockDomain",
-    "const",
-    "DesignError",
-    "DiagnosticError",
-    "hierarchical",
-    "JitError",
-    "LiteralValue",
-    "ModuleInstanceHandle",
-    "ModuleCollectionHandle",
-    "Pop",
-    "ProbeError",
-    "ProbeBuilder",
-    "ProbeRef",
-    "ProbeView",
-    "PriorityEncodeResult",
-    "PyCircuitError",
-    "Reg",
-    "RegConnector",
-    "S",
-    "Tb",
-    "TbError",
-    "TraceConfigError",
-    "TbProbeHandle",
-    "TbProbes",
-    "TestbenchProgram",
-    "U",
-    "Wire",
-    "WireConnector",
-    "cat",
-    "ct",
-    "count_leading_zeros",
-    "count_trailing_zeros",
-    "function",
-    "lib",
-    "logic",
-    "module",
-    "popcount",
-    "priority_encode",
-    "probe",
-    "spec",
-    "structural",
-    "testbench",
-    "wiring",
-    "s",
-    "sext",
-    "sva",
-    "trunc",
-    "u",
-    "unsigned",
-    "zext",
-]
+The compiler captures source syntax without executing Python models. Compile
+one source with ``pycircuit compile``; execute generated designs via the runtime.
+"""
+
+__all__ = ["module", "rule", "system", "log", "report"]
+__version__ = "6.1.0"
+
+
+def module(declaration):
+    """Declare a hardware module in compiler input."""
+    raise RuntimeError("pyCircuit declarations require pycircuit compile")
+
+
+def rule(declaration):
+    """Declare a stateless rule in compiler input."""
+    raise RuntimeError("pyCircuit declarations require pycircuit compile")
+
+
+def system(declaration):
+    """Declare a system in compiler input; capability checks happen in MLIR."""
+    raise RuntimeError("pyCircuit declarations require pycircuit compile")
+
+
+def log(level, event, *items):
+    """Declare a compiler-owned observation without host I/O."""
+    raise RuntimeError("pyCircuit observations require pycircuit compile")
+
+
+def report(name, value):
+    """Declare a compiler-owned gauge without host state."""
+    raise RuntimeError("pyCircuit observations require pycircuit compile")

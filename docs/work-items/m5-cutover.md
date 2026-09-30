@@ -1,6 +1,6 @@
 # M5 cutover and M4 remainder audit
 
-Status: active. Product baseline: `26e096c0`; planning baseline: `d6897e08`.
+Status: done for the revision-8 current profile (2026-10-01). Product baseline: `26e096c0`; planning baseline: `d6897e08`.
 Authorization: approved C1/C2/C3, R1/M1, and the user's request to start M5.
 No new source/IR/CLI/schema contract is inferred from milestone coordination.
 
@@ -113,5 +113,57 @@ global query symbol is rejected before C++ publication; nested names remain lega
 
 [Evidence](../gates/logs/20260930-m5-model-abi/README.md) binds the candidate;
 independent architecture and code reviews both APPROVE. **M5-A is done.**
-M5 as a whole remains active: this ABI prerequisite is not the public
-emit/install/deletion cutover.
+That ABI packet alone did not complete M5. The complete cutover is accepted below.
+
+## Full cutover candidate — 2026-09-30
+
+Baseline: `a21bb596`. Worktree: `codex/gfsim-source-units`. Status: accepted on 2026-10-01. All product work below is covered by C1/C2/C3/R1/M1 and the newly
+approved C3-SM B (hash and user quote in its approval record). SYSTEM/EXPECT B
+is excluded. The profile is portless function modules, scalar current/next,
+default clock, empty static arguments, zero/one scalar observation operand,
+and serial execution. Wider capabilities remain M3/M6 obligations.
+
+| Lane | Owner/model | Writable boundary | Verification |
+| --- | --- | --- | --- |
+| Source-owned RTL | unit_pair_fix, Luna high; PM integration | FinalEmitVerilog and structured result; PM guarded API/harness | Independent source_rtl real compile/run |
+| Source maps | m5_native_maps, Luna high; PM completion after interruption | FinalSourceMap; PM transport and publication | Independent final-only origin inventory and mutation tests |
+| Public emit / Runtime / SDK | PM; packaging unit_pair_fix Luna high | Driver, root CMake, runtime install, wheel, SDK | Installed dual backend, Runtime/CompilerDev, external wheel smoke |
+| Current documentation | m5_retirement_docs, Luna high | Active docs and AGENTS project section | Links, snippets, strict MkDocs |
+| Gates / retirement scanner | m5_gate_cutover, Luna high | CI, scripts, governance validator | Static plus installed-route checks; preserve release protections |
+| Independent product tests | m5_public_emit_tests, Luna high | Public/map/SDK and current-contract test files | Fresh pytest and real tools; no product edits |
+| Independent legacy oracle migration | m5_semantic_oracle_migration, Luna high | Superseded class-source tests to function-source equivalents | No weakening of supported source ownership/IR obligations |
+| Final acceptance | PM + independent Sol review | Frozen complete candidate | Candidate-bound tests and review, then commit/push |
+
+The early source-map design author was Astra xhigh; independent reviewer
+m5_map_design_review was Astra high, approval-ready on exact revision B.
+The earlier Sol high root-CMake review requested missing CompilerDev headers,
+fail-closed dependency relocation, and old-option retirement; these were fixed
+and verified in the final candidate review. Earlier review bindings remain historical.
+
+Accepted checklist:
+
+- [x] Public compile/link/emit, target-specific source groups and honest maps.
+- [x] One runtime and one model ABI export; Runtime-only has no LLVM requirement.
+- [x] CompilerDev exports its complete header/link dependency closure.
+- [x] Clean current-platform install and independent consumer run; wheel smoke.
+- [x] Old Python/native/QueueGraph routes, aliases, installed payloads retired.
+- [x] Active decisions, docs, examples, CI and meaningful oracles synchronized.
+- [x] Current candidate gates pass; M6 V44 permutations/reordering explicitly
+  remain deferred as in M4, not misrepresented as parallel execution evidence.
+- [x] Independent review resolves findings and PM records candidate acceptance.
+
+Required commands are in the checked-in gate scripts and evidence README when
+frozen. The [retirement ledger](m5-retirement-ledger.md) records removed-route
+oracles and their replacements/backlog. A larger passing count is not a proxy
+for preserving the supported assertions.
+
+## Acceptance
+
+Independent Sol high code review and Astra high architecture conformance both
+APPROVE product binding
+`8ae474b2a0c98d2909658d502f6c6763a20335b5754d7bba4d132bfaae8c1690`.
+[Review](../reviews/20261001-m5-cutover-review.md) and
+[evidence](../gates/logs/20260930-m5-cutover/README.md) record exact checks and
+remaining platform/capability limits. M4 has zero required remainder in its
+accepted profile; M5 is complete in its declared profile. M3 capability backlog
+and M6/M7 hardening/release work remain, without old-route fallback.

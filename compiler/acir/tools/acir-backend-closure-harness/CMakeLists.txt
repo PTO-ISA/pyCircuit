@@ -21,7 +21,7 @@ target_compile_definitions(acir-backend-closure-harness PRIVATE
   ACIR_BACKEND_VVP="${ACIR_BACKEND_VVP}"
 )
 target_link_libraries(acir-backend-closure-harness PRIVATE
-  AgenticCircuit::ProjectOptions
+  acir_project_options
   ACIRDialect
   ACIRSourceCompiler
   MLIRArithDialect

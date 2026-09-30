@@ -1,14 +1,15 @@
 #ifndef ACIR_LIB_COMPILER_FINALEMITVERILOGSUPPORT_H
 #define ACIR_LIB_COMPILER_FINALEMITVERILOGSUPPORT_H
 
+#include "FinalCppNames.h"
 #include "FinalEmitVerilog.h"
 #include "mlir/Dialect/Arith/IR/Arith.h"
 #include "llvm/ADT/DenseMap.h"
 #include "llvm/ADT/DenseSet.h"
 #include "llvm/ADT/STLExtras.h"
 #include "llvm/ADT/SmallString.h"
-
-#include <cctype>
+#include "llvm/ADT/StringMap.h"
+#include "llvm/ADT/StringSet.h"
 
 using namespace mlir;
 
@@ -18,6 +19,7 @@ namespace {
 struct Port {
   size_t index = 0;
   std::string parameter;
+  std::string emittedName;
   std::string role;
   DictionaryAttr formalState;
   DictionaryAttr stateID;
@@ -47,29 +49,6 @@ inline std::string svLiteral(const APInt &value, unsigned width) {
   return std::to_string(width) + "'d" + apIntLiteral(value);
 }
 
-inline std::string lowerSnake(StringRef input) {
-  std::string result;
-  for (size_t index = 0; index < input.size(); ++index) {
-    unsigned char current = input[index];
-    if (!std::isalnum(current)) {
-      if (!result.empty() && result.back() != '_')
-        result.push_back('_');
-      continue;
-    }
-    if (std::isupper(current) && !result.empty() && result.back() != '_' &&
-        (std::islower(static_cast<unsigned char>(result.back())) ||
-         std::isdigit(static_cast<unsigned char>(result.back()))))
-      result.push_back('_');
-    result.push_back(static_cast<char>(std::tolower(current)));
-  }
-  while (!result.empty() && result.back() == '_')
-    result.pop_back();
-  if (result.empty() ||
-      std::isdigit(static_cast<unsigned char>(result.front())))
-    result.insert(result.begin(), '_');
-  return "ac_" + result;
-}
-
 inline bool sameFormal(DictionaryAttr left, DictionaryAttr right) {
   return left && right && left.get("parameter") == right.get("parameter") &&
          left.get("ordinal") == right.get("ordinal");
@@ -96,6 +75,7 @@ inline FailureOr<SmallVector<Port>> portsFor(const FinalProgram &program,
       module.getBody().front().getNumArguments() != attrs.size() + 2)
     return emitError() << "RTL frozen formal argument layout is incomplete";
   SmallVector<Port> result;
+  llvm::StringMap<StringAttr> sourceByName;
   for (auto [index, raw] : llvm::enumerate(attrs)) {
     auto port = dyn_cast<DictionaryAttr>(raw);
     auto parameter = port ? port.getAs<StringAttr>("parameter") : StringAttr();
@@ -103,6 +83,12 @@ inline FailureOr<SmallVector<Port>> portsFor(const FinalProgram &program,
     if (!port || !parameter || !role ||
         (role.getValue() != "current" && role.getValue() != "next"))
       return emitError() << "RTL emitter found a malformed final port";
+    auto emittedName = legalizeIdentifier(parameter.getValue(), emitError);
+    if (failed(emittedName))
+      return failure();
+    auto [named, inserted] = sourceByName.try_emplace(*emittedName, parameter);
+    if (!inserted && named->second != parameter)
+      return emitError() << "legalized RTL connection parameter names collide";
     Value formalHandle = module.getBody().front().getArgument(index + 2);
     auto alias = llvm::find_if(program.stateAliases(), [&](const auto &entry) {
       return entry.view == instance.view && entry.handle == formalHandle;
@@ -114,10 +100,58 @@ inline FailureOr<SmallVector<Port>> portsFor(const FinalProgram &program,
     auto carrier = findCarrier(program, alias->stateID, emitError);
     if (failed(carrier))
       return failure();
-    result.push_back({index, parameter.getValue().str(), role.getValue().str(),
+    result.push_back({index, parameter.getValue().str(),
+                      std::move(*emittedName), role.getValue().str(),
                       alias->formalState, alias->stateID, (*carrier)->width});
   }
   return result;
+}
+
+inline LogicalResult verifyRtlNames(const FinalProgram &program,
+                                    const Family &family,
+                                    ac::detail::EmitError emitError) {
+  const auto &instance = program.instances()[family.representative];
+  llvm::StringSet<> names;
+  for (StringRef fixed :
+       {"clk", "reset", "root_commit_ok", "subtree_error", "local_error"})
+    names.insert(fixed);
+  for (size_t index = 0; index < instance.ownedStateOrdinals.size(); ++index) {
+    std::string suffix = std::to_string(index);
+    for (const std::string &name :
+         {"q" + suffix, "d" + suffix, "q" + suffix + "_e", "initial" + suffix})
+      names.insert(name);
+  }
+  for (size_t index = 0; index < instance.checkOrdinals.size(); ++index)
+    names.insert("check_failed_" + std::to_string(index));
+  for (size_t index = 0; index < instance.observationOrdinals.size(); ++index) {
+    names.insert("obs_value_" + std::to_string(index));
+    names.insert("obs_path_" + std::to_string(index));
+  }
+  for (auto [index, child] : llvm::enumerate(instance.childOrdinals)) {
+    std::string prefix = "child_" + std::to_string(index);
+    names.insert(prefix);
+    names.insert(prefix + "_subtree_error");
+    auto ports = portsFor(program, child, emitError);
+    if (failed(ports))
+      return failure();
+    for (const Port &port : *ports)
+      if (port.role == "next") {
+        names.insert(prefix + "_" + port.emittedName + "_d");
+        names.insert(prefix + "_" + port.emittedName + "_e");
+      }
+  }
+  for (const Port &port : family.current)
+    if (!names.insert(port.emittedName + "_q").second)
+      return emitError() << "legalized RTL identifier collides with a "
+                            "generated local or port";
+  for (const Port &port : family.next)
+    if (!names.insert(port.emittedName + "_d").second ||
+        !names.insert(port.emittedName + "_e").second)
+      return emitError() << "legalized RTL identifier collides with a "
+                            "generated local or port";
+  // Expression temporaries are v<ordinal>; formal names always carry _q/_d/_e
+  // and therefore cannot occupy that namespace.
+  return success();
 }
 
 inline FailureOr<SmallVector<Family, 0>>
@@ -134,10 +168,8 @@ buildFamilies(const FinalProgram &program, SmallVectorImpl<size_t> &familyFor,
       return family.definition == instance.definition;
     });
     if (found == families.end()) {
-      StringRef sourceName = instance.definition.getValue();
-      sourceName = sourceName.rsplit('.').second;
       families.push_back({instance.definition,
-                          lowerSnake(sourceName),
+                          instance.definition.getValue().str(),
                           instance.ordinal,
                           {},
                           {},
@@ -256,7 +288,7 @@ private:
       if (!formal)
         return emitError()
                << "RTL rule input formal has no current family port";
-      return formal->parameter + "_q";
+      return formal->emittedName + "_q";
     }
 
     auto owned = localOwned.find(resolved->stateID);

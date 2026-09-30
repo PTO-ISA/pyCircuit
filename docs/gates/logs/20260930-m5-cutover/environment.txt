@@ -1,0 +1,11 @@
+Run started 2026-09-30; closeout 2026-10-01 Asia/Shanghai.
+Checkout: /Users/zhoubot/.codex/worktrees/migration-capture/pyCircuit
+Baseline: a21bb596
+Python gate: /opt/homebrew/Cellar/pytest/9.0.2_1/libexec/bin/python (3.14.6)
+pytest: 9.0.2
+LLVM/MLIR: 22.1.8
+Verilator: 5.044
+Native build: .pycircuit_out/m5-root
+Install prefix: .pycircuit_out/m5-candidate-install
+Wheel smoke: temporary clean venv, --no-deps, no ambient source PYTHONPATH.
+Broader platforms and OS minimum-version compatibility are not certified by this macOS host run.

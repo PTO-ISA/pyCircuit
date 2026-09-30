@@ -10,6 +10,7 @@ add_acir_library(ACIRSourceCompiler SOURCES
   FinalRuntimeMetadata.cpp
   FinalRunnerEmission.cpp
   FinalModelAbi.cpp
+  FinalSourceMap.cpp
   FinalEmitCppHierarchy.cpp
   FinalEmitVerilog.cpp
   FinalHardware.cpp
@@ -63,5 +64,5 @@ add_acir_library(ACIRSourceCompiler SOURCES
 )
 target_include_directories(ACIRSourceCompiler PUBLIC
   "$<BUILD_INTERFACE:${ACIR_SOURCE_DIR}/lib>"
+  "$<INSTALL_INTERFACE:include>"
 )
-add_library(AgenticCircuit::SourceCompiler ALIAS ACIRSourceCompiler)

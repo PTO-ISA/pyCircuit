@@ -175,9 +175,9 @@ def _link(
     pairs: list[tuple[Path, Path]] | None = None,
     role: str | None = None,
 ) -> subprocess.CompletedProcess[str]:
-    selected = pairs if pairs is not None else [
-        (unit.body, unit.header) for unit in units
-    ]
+    selected = (
+        pairs if pairs is not None else [(unit.body, unit.header) for unit in units]
+    )
     command = [str(_design_harness())]
     for body, header in selected:
         command.extend(("--body", str(body), "--header", str(header)))
@@ -209,8 +209,10 @@ def _design_command(
 
 def _required_tool(env_name: str, candidates: tuple[str, ...]) -> str:
     configured = os.environ.get(env_name)
-    path = configured if configured else next(
-        (found for name in candidates if (found := shutil.which(name))), None
+    path = (
+        configured
+        if configured
+        else next((found for name in candidates if (found := shutil.which(name))), None)
     )
     if not path:
         raise AssertionError(f"system backend run requires {env_name} or {candidates}")
@@ -249,13 +251,23 @@ int main() {
     )
     shutil.copy2(cpp_model, tmp_path / "m2_model.hpp")
     cpp_compile = subprocess.run(
-        [cxx, "-std=c++20", "-I", str(GFSIM_INCLUDE), str(cpp_driver), "-o", str(cpp_binary)],
+        [
+            cxx,
+            "-std=c++20",
+            "-I",
+            str(GFSIM_INCLUDE),
+            str(cpp_driver),
+            "-o",
+            str(cpp_binary),
+        ],
         text=True,
         capture_output=True,
         check=False,
     )
     assert cpp_compile.returncode == 0, cpp_compile.stderr
-    cpp_run = subprocess.run([str(cpp_binary)], text=True, capture_output=True, check=False)
+    cpp_run = subprocess.run(
+        [str(cpp_binary)], text=True, capture_output=True, check=False
+    )
     assert cpp_run.returncode == 0, cpp_run.stderr
 
     verilog_driver = tmp_path / "m2_tb.sv"
@@ -281,13 +293,24 @@ endmodule
         encoding="utf-8",
     )
     rtl_compile = subprocess.run(
-        [iverilog, "-g2012", "-s", "tb", "-o", str(verilog_binary), str(verilog_model), str(verilog_driver)],
+        [
+            iverilog,
+            "-g2012",
+            "-s",
+            "tb",
+            "-o",
+            str(verilog_binary),
+            str(verilog_model),
+            str(verilog_driver),
+        ],
         text=True,
         capture_output=True,
         check=False,
     )
     assert rtl_compile.returncode == 0, rtl_compile.stderr
-    rtl_run = subprocess.run([vvp, str(verilog_binary)], text=True, capture_output=True, check=False)
+    rtl_run = subprocess.run(
+        [vvp, str(verilog_binary)], text=True, capture_output=True, check=False
+    )
     assert rtl_run.returncode == 0, rtl_run.stderr
     return cpp_run.stdout, rtl_run.stdout
 
@@ -318,7 +341,9 @@ def test_m2_source_design_file_is_one_input_to_both_emitters(
     assert linked.returncode == 0, linked.stderr
     serialized = program.read_text(encoding="utf-8")
     assert 'ac.source_owner = {package = "demo", path = "increment.py"}' in serialized
-    assert 'ac.source_owner = {package = "demo", path = "test_increment.py"}' in serialized
+    assert (
+        'ac.source_owner = {package = "demo", path = "test_increment.py"}' in serialized
+    )
     assert 'package = "demo"' in serialized
 
     # Each new process reparses the same final file and selects only its backend.
@@ -352,8 +377,11 @@ def test_link_rejects_duplicate_source_or_unequal_unit_pair_before_output(
         pairs[1] = (units[1].body, units[0].header)
     output = tmp_path / f"{invalid_pair}.design.ac"
     completed = _link(units, output, pairs=pairs, role="testbench")
-    expected = ("duplicate source link SourceOwner" if invalid_pair == "duplicate"
-                else "body/header SourceOwner mismatch")
+    expected = (
+        "duplicate source link SourceOwner"
+        if invalid_pair == "duplicate"
+        else "body/header SourceOwner mismatch"
+    )
     assert completed.returncode != 0, completed.stdout
     assert expected in completed.stderr
     assert not output.exists()
@@ -388,7 +416,9 @@ def test_emit_rejects_illegal_final_before_creating_output(
 
 
 @pytest.mark.parametrize("mode", ["link", "cpp", "verilog"])
-@pytest.mark.parametrize("existing_kind", ["file", "directory", "symlink", "dangling-symlink"])
+@pytest.mark.parametrize(
+    "existing_kind", ["file", "directory", "symlink", "dangling-symlink"]
+)
 def test_emit_refuses_any_existing_output_without_mutating_it(
     tmp_path: Path, existing_kind: str, mode: str
 ) -> None:
@@ -407,8 +437,11 @@ def test_emit_refuses_any_existing_output_without_mutating_it(
     else:
         output.symlink_to(tmp_path / "absent-target")
 
-    completed = (_link(units, output, role="testbench") if mode == "link"
-                 else _emit(program, mode, output, role="testbench"))
+    completed = (
+        _link(units, output, role="testbench")
+        if mode == "link"
+        else _emit(program, mode, output, role="testbench")
+    )
 
     assert completed.returncode != 0, completed.stdout
     assert "cannot create output" in completed.stderr
@@ -423,18 +456,28 @@ def test_emit_refuses_any_existing_output_without_mutating_it(
         assert not output.resolve(strict=False).exists()
 
 
-@pytest.mark.parametrize("arguments,diagnostic", [
-    (["--design", "unused", "--top", "x", "--target", "cpp"], "exactly one"),
-    (["--design", "unused"], "--target and --output are required"),
-    (["--design", "unused", "--target", "final"], "emit mode requires"),
-    (["--body", "unused", "--target", "final"], "matching nonempty"),
-    (["--design", "unused", "--target", "cpp", "--target", "verilog"], "duplicate --target"),
-    (["--unknown", "unused", "--target", "cpp"], "unknown option"),
-])
+@pytest.mark.parametrize(
+    "arguments,diagnostic",
+    [
+        (["--design", "unused", "--top", "x", "--target", "cpp"], "exactly one"),
+        (["--design", "unused"], "--target and --output are required"),
+        (["--design", "unused", "--target", "final"], "emit mode requires"),
+        (["--body", "unused", "--target", "final"], "matching nonempty"),
+        (
+            ["--design", "unused", "--target", "cpp", "--target", "verilog"],
+            "duplicate --target",
+        ),
+        (["--unknown", "unused", "--target", "cpp"], "unknown option"),
+    ],
+)
 def test_bridge_rejects_incomplete_or_mixed_modes(tmp_path, arguments, diagnostic):
     output = tmp_path / "must-not-exist"
-    result = subprocess.run([str(_design_harness()), *arguments, "--output", str(output)],
-                            text=True, capture_output=True, check=False)
+    result = subprocess.run(
+        [str(_design_harness()), *arguments, "--output", str(output)],
+        text=True,
+        capture_output=True,
+        check=False,
+    )
     assert result.returncode == 2
     assert diagnostic in result.stderr
     assert not output.exists()
@@ -467,8 +510,16 @@ def test_emit_splits_hardware_rtl_from_runtime_glue(tmp_path: Path) -> None:
     assert _emit(program, "verilog", combined, role="testbench").returncode == 0
     split = _design_command(
         program,
-        ["--target", "verilog", "--role", "testbench",
-         "--output", str(rtl), "--glue-output", str(glue)],
+        [
+            "--target",
+            "verilog",
+            "--role",
+            "testbench",
+            "--output",
+            str(rtl),
+            "--glue-output",
+            str(glue),
+        ],
     )
 
     assert split.returncode == 0, split.stderr
@@ -507,8 +558,18 @@ def test_glue_output_is_rejected_in_link_mode(tmp_path: Path) -> None:
     command = [str(_design_harness())]
     for unit in units:
         command.extend(("--body", str(unit.body), "--header", str(unit.header)))
-    command.extend(("--top", "demo.test_increment.TestIncrement", "--target", "final",
-                    "--output", str(output), "--glue-output", str(glue)))
+    command.extend(
+        (
+            "--top",
+            "demo.test_increment.TestIncrement",
+            "--target",
+            "final",
+            "--output",
+            str(output),
+            "--glue-output",
+            str(glue),
+        )
+    )
 
     result = subprocess.run(command, text=True, capture_output=True, check=False)
 
@@ -558,8 +619,16 @@ def test_glue_output_refuses_existing_paths_without_publishing(
 
     result = _design_command(
         program,
-        ["--target", "verilog", "--role", "testbench",
-         "--output", str(rtl), "--glue-output", str(glue)],
+        [
+            "--target",
+            "verilog",
+            "--role",
+            "testbench",
+            "--output",
+            str(rtl),
+            "--glue-output",
+            str(glue),
+        ],
     )
 
     assert result.returncode != 0, result.stdout
@@ -627,15 +696,19 @@ def _compile_design_and_testbench(tmp_path: Path):
     (source_root / "blinker.py").write_text(BLINKER, encoding="utf-8")
     (source_root / "test_blinker.py").write_text(TEST_BLINKER, encoding="utf-8")
     types = _compile_source(
-        source_root / "types.py", source_root=source_root,
+        source_root / "types.py",
+        source_root=source_root,
         output_dir=tmp_path / "units/types",
     )
     blinker = _compile_source(
-        source_root / "blinker.py", source_root=source_root,
-        output_dir=tmp_path / "units/blinker", headers=(types.header,),
+        source_root / "blinker.py",
+        source_root=source_root,
+        output_dir=tmp_path / "units/blinker",
+        headers=(types.header,),
     )
     bench = _compile_source(
-        source_root / "test_blinker.py", source_root=source_root,
+        source_root / "test_blinker.py",
+        source_root=source_root,
         output_dir=tmp_path / "units/test_blinker",
         headers=(types.header, blinker.header),
     )
@@ -653,8 +726,12 @@ def test_design_and_testbench_are_separate_artifacts(tmp_path: Path) -> None:
     # exist, be readable, or be part of the same link.
     design_link = _link([types, blinker], design, top="demo.blinker.Blinker")
     assert design_link.returncode == 0, design_link.stderr
-    bench_link = _link([types, blinker, bench], testbench,
-                       top="demo.test_blinker.TestBlinker", role="testbench")
+    bench_link = _link(
+        [types, blinker, bench],
+        testbench,
+        top="demo.test_blinker.TestBlinker",
+        role="testbench",
+    )
     assert bench_link.returncode == 0, bench_link.stderr
 
     design_text = design.read_text()
@@ -676,7 +753,8 @@ def test_design_and_testbench_are_separate_artifacts(tmp_path: Path) -> None:
     rtl = tmp_path / "blinker.rtl.sv"
     glue = tmp_path / "blinker.runtime-glue.sv"
     emitted = _design_command(
-        design, ["--target", "verilog", "--output", str(rtl), "--glue-output", str(glue)]
+        design,
+        ["--target", "verilog", "--output", str(rtl), "--glue-output", str(glue)],
     )
     assert emitted.returncode == 0, emitted.stderr
     assert "module FinalModel(" in rtl.read_text()
@@ -717,8 +795,16 @@ def test_glue_output_path_alias_still_publishes_nothing(tmp_path: Path) -> None:
 
     result = _design_command(
         program,
-        ["--target", "verilog", "--role", "testbench",
-         "--output", str(rtl), "--glue-output", aliased],
+        [
+            "--target",
+            "verilog",
+            "--role",
+            "testbench",
+            "--output",
+            str(rtl),
+            "--glue-output",
+            aliased,
+        ],
     )
 
     # An execution failure from the second exclusive create, not the argument
@@ -757,8 +843,10 @@ def test_module_root_rejects_the_testbench_role(tmp_path: Path) -> None:
     types, blinker, _ = _compile_design_and_testbench(tmp_path)
 
     mislabelled = _link(
-        [types, blinker], tmp_path / "mislabelled.ac",
-        top="demo.blinker.Blinker", role="testbench",
+        [types, blinker],
+        tmp_path / "mislabelled.ac",
+        top="demo.blinker.Blinker",
+        role="testbench",
     )
     assert mislabelled.returncode != 0
     assert "is a @module design" in mislabelled.stderr
@@ -780,9 +868,7 @@ def test_emit_rechecks_the_role_against_the_artifact(tmp_path: Path) -> None:
     assert "is declared @system" in unattributed.stderr
     assert not (tmp_path / "unattributed.sv").exists()
 
-    as_design = _emit(
-        program, "verilog", tmp_path / "as-design.sv", role="design"
-    )
+    as_design = _emit(program, "verilog", tmp_path / "as-design.sv", role="design")
     assert as_design.returncode != 0
     assert "is declared @system" in as_design.stderr
     assert not (tmp_path / "as-design.sv").exists()
@@ -846,7 +932,8 @@ def test_multi_value_observation_is_a_known_backend_capability_limit(
     source_root.mkdir()
     (source_root / "multi.py").write_text(MULTI_VALUE_OBSERVATION, encoding="utf-8")
     unit = _compile_source(
-        source_root / "multi.py", source_root=source_root,
+        source_root / "multi.py",
+        source_root=source_root,
         output_dir=tmp_path / "units/multi",
     )
     design = tmp_path / "multi.ac"

@@ -29,7 +29,6 @@ from dataclasses import dataclass
 from pathlib import Path
 
 import pytest
-
 from pycircuit import _driver, _native_verify
 from pycircuit.cli import main
 
@@ -499,7 +498,9 @@ def test_compile_receipt_follows_the_source_file_stem(
 
     root, units = _workspace(tmp_path)
     (root / "counter.py").write_text(COUNTER, encoding="utf-8")
-    monkeypatch.setenv("ACIR_SOURCE_UNIT_HARNESS", str(_fake_compiler(tmp_path, _COMPILE_OK)))
+    monkeypatch.setenv(
+        "ACIR_SOURCE_UNIT_HARNESS", str(_fake_compiler(tmp_path, _COMPILE_OK))
+    )
 
     cli = _publish(root, units, "counter.py")
     assert cli.code == 0, cli.stderr
@@ -537,7 +538,9 @@ def test_compile_default_package_prefix_is_empty(
 ) -> None:
     root, units = _workspace(tmp_path)
     (root / "types.py").write_text(DECLARATION, encoding="utf-8")
-    monkeypatch.setenv("ACIR_SOURCE_UNIT_HARNESS", str(_fake_compiler(tmp_path, _COMPILE_OK)))
+    monkeypatch.setenv(
+        "ACIR_SOURCE_UNIT_HARNESS", str(_fake_compiler(tmp_path, _COMPILE_OK))
+    )
 
     cli = _cli(
         "compile",
@@ -613,13 +616,17 @@ def test_compile_supplies_listed_interfaces_as_snapshot_headers(
     assert _publish(root, units, "types.py").code == 0
 
     log = tmp_path / "counter-invocations.jsonl"
-    consumer = _fake_compiler(tmp_path, _COMPILE_LOGS_INVOCATION, name="consumer", log=log)
+    consumer = _fake_compiler(
+        tmp_path, _COMPILE_LOGS_INVOCATION, name="consumer", log=log
+    )
     monkeypatch.setenv("ACIR_SOURCE_UNIT_HARNESS", str(consumer))
 
     cli = _publish(root, units, "counter.py", interface=(units / "types",))
 
     assert cli.code == 0, cli.stderr
-    (record,) = [json.loads(line) for line in log.read_text(encoding="utf-8").splitlines()]
+    (record,) = [
+        json.loads(line) for line in log.read_text(encoding="utf-8").splitlines()
+    ]
     assert record["package"] == "demo"
     assert record["path"] == "counter.py"
     assert record["capture_existed"] is True
@@ -641,7 +648,9 @@ def test_compile_rejects_a_consumed_but_unsupplied_interface(
     root, units = _workspace(tmp_path)
     (root / "types.py").write_text(DECLARATION, encoding="utf-8")
     (root / "counter.py").write_text(COUNTER, encoding="utf-8")
-    monkeypatch.setenv("ACIR_SOURCE_UNIT_HARNESS", str(_fake_compiler(tmp_path, _COMPILE_OK)))
+    monkeypatch.setenv(
+        "ACIR_SOURCE_UNIT_HARNESS", str(_fake_compiler(tmp_path, _COMPILE_OK))
+    )
     assert _publish(root, units, "types.py").code == 0
 
     liar = _fake_compiler(tmp_path, _COMPILE_CONSUMES_UNSUPPLIED, name="liar")
@@ -663,10 +672,20 @@ def test_compile_rejects_two_interface_units_with_the_same_source(
     monkeypatch.setenv("ACIR_SOURCE_UNIT_HARNESS", str(compiler))
     assert _publish(root, units, "types.py").code == 0
     assert _publish(root, units, "types.py").code == 1  # already published
-    assert _cli(
-        "compile", "-c", str(root / "types.py"), "--source-root", str(root),
-        "--package-prefix", "demo", "-o", str(units / "types-copy"),
-    ).code == 0
+    assert (
+        _cli(
+            "compile",
+            "-c",
+            str(root / "types.py"),
+            "--source-root",
+            str(root),
+            "--package-prefix",
+            "demo",
+            "-o",
+            str(units / "types-copy"),
+        ).code
+        == 0
+    )
 
     cli = _publish(
         root, units, "counter.py", interface=(units / "types", units / "types-copy")
@@ -682,7 +701,9 @@ def test_compile_rejects_an_interface_unit_that_is_not_published(
 ) -> None:
     root, units = _workspace(tmp_path)
     (root / "counter.py").write_text(COUNTER, encoding="utf-8")
-    monkeypatch.setenv("ACIR_SOURCE_UNIT_HARNESS", str(_fake_compiler(tmp_path, _COMPILE_OK)))
+    monkeypatch.setenv(
+        "ACIR_SOURCE_UNIT_HARNESS", str(_fake_compiler(tmp_path, _COMPILE_OK))
+    )
     interface = units / kind
     if kind == "unmanaged":
         interface.mkdir()
@@ -703,7 +724,9 @@ def test_compile_native_rejection_is_one_line_on_stderr(
 ) -> None:
     root, units = _workspace(tmp_path)
     (root / "counter.py").write_text(COUNTER, encoding="utf-8")
-    monkeypatch.setenv("ACIR_SOURCE_UNIT_HARNESS", str(_fake_compiler(tmp_path, _COMPILE_REJECTS)))
+    monkeypatch.setenv(
+        "ACIR_SOURCE_UNIT_HARNESS", str(_fake_compiler(tmp_path, _COMPILE_REJECTS))
+    )
 
     cli = _publish(root, units, "counter.py")
 
@@ -719,7 +742,8 @@ def test_compile_fails_closed_when_the_helper_produces_no_artifact(
     root, units = _workspace(tmp_path)
     (root / "counter.py").write_text(COUNTER, encoding="utf-8")
     monkeypatch.setenv(
-        "ACIR_SOURCE_UNIT_HARNESS", str(_fake_compiler(tmp_path, _COMPILE_WRITES_NOTHING))
+        "ACIR_SOURCE_UNIT_HARNESS",
+        str(_fake_compiler(tmp_path, _COMPILE_WRITES_NOTHING)),
     )
 
     cli = _publish(root, units, "counter.py")
@@ -760,11 +784,20 @@ def test_compile_rejects_a_source_that_escapes_the_source_root(
     root, units = _workspace(tmp_path)
     outside = tmp_path / "outside.py"
     outside.write_text(DECLARATION, encoding="utf-8")
-    monkeypatch.setenv("ACIR_SOURCE_UNIT_HARNESS", str(_fake_compiler(tmp_path, _COMPILE_OK)))
+    monkeypatch.setenv(
+        "ACIR_SOURCE_UNIT_HARNESS", str(_fake_compiler(tmp_path, _COMPILE_OK))
+    )
 
     cli = _cli(
-        "compile", "-c", str(outside), "--source-root", str(root),
-        "--package-prefix", "demo", "-o", str(units / "outside"),
+        "compile",
+        "-c",
+        str(outside),
+        "--source-root",
+        str(root),
+        "--package-prefix",
+        "demo",
+        "-o",
+        str(units / "outside"),
     )
 
     assert "escapes source root" in _reject(cli, "compile")
@@ -808,10 +841,16 @@ def test_publication_paths_that_traverse_a_symlink_are_a_diagnostic_not_a_traceb
 ) -> None:
     root, units = _workspace(tmp_path)
     (root / "types.py").write_text(DECLARATION, encoding="utf-8")
-    monkeypatch.setenv("ACIR_SOURCE_UNIT_HARNESS", str(_fake_compiler(tmp_path, _COMPILE_OK)))
+    monkeypatch.setenv(
+        "ACIR_SOURCE_UNIT_HARNESS", str(_fake_compiler(tmp_path, _COMPILE_OK))
+    )
     monkeypatch.setenv(
         "ACIR_DESIGN_HARNESS",
-        str(_fake_design(tmp_path, tmp_path / "record.json", _design_ok("// p\n", _OWNER_REPORT))),
+        str(
+            _fake_design(
+                tmp_path, tmp_path / "record.json", _design_ok("// p\n", _OWNER_REPORT)
+            )
+        ),
     )
     real = tmp_path / "real"
     real.mkdir()
@@ -820,14 +859,25 @@ def test_publication_paths_that_traverse_a_symlink_are_a_diagnostic_not_a_traceb
 
     if command == "compile":
         cli = _cli(
-            "compile", "-c", str(root / "types.py"), "--source-root", str(root),
-            "--package-prefix", "demo", "-o", str(alias / "types"),
+            "compile",
+            "-c",
+            str(root / "types.py"),
+            "--source-root",
+            str(root),
+            "--package-prefix",
+            "demo",
+            "-o",
+            str(alias / "types"),
         )
     else:
         assert _publish(root, units, "types.py").code == 0
         cli = _cli(
-            "link", str(units / "types"), "--top", "demo.types.Word",
-            "-o", str(alias / "program.ac"),
+            "link",
+            str(units / "types"),
+            "--top",
+            "demo.types.Word",
+            "-o",
+            str(alias / "program.ac"),
         )
 
     diagnostic = _reject(cli, command)
@@ -844,7 +894,9 @@ def _two_units(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> tuple[Path, P
     root, units = _workspace(tmp_path)
     (root / "types.py").write_text(DECLARATION, encoding="utf-8")
     (root / "counter.py").write_text(COUNTER, encoding="utf-8")
-    monkeypatch.setenv("ACIR_SOURCE_UNIT_HARNESS", str(_fake_compiler(tmp_path, _COMPILE_OK)))
+    monkeypatch.setenv(
+        "ACIR_SOURCE_UNIT_HARNESS", str(_fake_compiler(tmp_path, _COMPILE_OK))
+    )
     assert _publish(root, units, "types.py").code == 0
     assert _publish(root, units, "counter.py", interface=(units / "types",)).code == 0
     return root, units
@@ -857,15 +909,24 @@ def test_link_publishes_one_program_file_and_the_control_directory(
     record = tmp_path / "design-record.json"
     monkeypatch.setenv(
         "ACIR_DESIGN_HARNESS",
-        str(_fake_design(tmp_path, record, _design_ok("// linked program\n", _OWNER_REPORT))),
+        str(
+            _fake_design(
+                tmp_path, record, _design_ok("// linked program\n", _OWNER_REPORT)
+            )
+        ),
     )
     out = tmp_path / "out"
     out.mkdir()
     destination = out / "counter.program.ac"
 
     cli = _cli(
-        "link", str(units / "types"), str(units / "counter"),
-        "--top", "demo.counter.Counter", "-o", str(destination),
+        "link",
+        str(units / "types"),
+        str(units / "counter"),
+        "--top",
+        "demo.counter.Counter",
+        "-o",
+        str(destination),
     )
 
     assert cli.code == 0, cli.stderr
@@ -901,15 +962,22 @@ def test_link_publishes_the_helper_bytes_verbatim(
     not_mlir = "this is not MLIR at all\n{{{\n"
     monkeypatch.setenv(
         "ACIR_DESIGN_HARNESS",
-        str(_fake_design(
-            tmp_path, tmp_path / "record.json", _design_ok(not_mlir, _OWNER_REPORT)
-        )),
+        str(
+            _fake_design(
+                tmp_path, tmp_path / "record.json", _design_ok(not_mlir, _OWNER_REPORT)
+            )
+        ),
     )
     destination = tmp_path / "program.ac"
 
     cli = _cli(
-        "link", str(units / "types"), str(units / "counter"),
-        "--top", "demo.counter.Counter", "-o", str(destination),
+        "link",
+        str(units / "types"),
+        str(units / "counter"),
+        "--top",
+        "demo.counter.Counter",
+        "-o",
+        str(destination),
     )
 
     assert cli.code == 0, cli.stderr
@@ -930,8 +998,13 @@ def test_link_replace_refuses_a_program_verified_for_another_root(
     _, units = _two_units(tmp_path, monkeypatch)
     destination = tmp_path / "program.ac"
     first = _cli(
-        "link", str(units / "types"), str(units / "counter"),
-        "--top", "demo.counter.Counter", "-o", str(destination),
+        "link",
+        str(units / "types"),
+        str(units / "counter"),
+        "--top",
+        "demo.counter.Counter",
+        "-o",
+        str(destination),
     )
     assert first.code == 0, first.stderr
     before = destination.read_bytes()
@@ -951,8 +1024,14 @@ def test_link_replace_refuses_a_program_verified_for_another_root(
         ),
     )
     replaced = _cli(
-        "link", str(units / "types"), str(units / "counter"),
-        "--top", "demo.counter.Counter", "-o", str(destination), "--replace",
+        "link",
+        str(units / "types"),
+        str(units / "counter"),
+        "--top",
+        "demo.counter.Counter",
+        "-o",
+        str(destination),
+        "--replace",
     )
 
     diagnostic = _reject(replaced, "link")
@@ -967,15 +1046,22 @@ def test_link_hands_the_helper_in_lock_snapshot_copies(
     record_path = tmp_path / "design-record.json"
     monkeypatch.setenv(
         "ACIR_DESIGN_HARNESS",
-        str(_fake_design(
-            tmp_path, record_path, _design_ok("// linked\n", _OWNER_REPORT)
-        )),
+        str(
+            _fake_design(
+                tmp_path, record_path, _design_ok("// linked\n", _OWNER_REPORT)
+            )
+        ),
     )
     destination = tmp_path / "program.ac"
 
     cli = _cli(
-        "link", str(units / "types"), str(units / "counter"),
-        "--top", "demo.counter.Counter", "-o", str(destination),
+        "link",
+        str(units / "types"),
+        str(units / "counter"),
+        "--top",
+        "demo.counter.Counter",
+        "-o",
+        str(destination),
     )
     assert cli.code == 0, cli.stderr
 
@@ -1011,14 +1097,21 @@ def test_link_requires_the_helper_to_produce_both_outputs(
     destination = tmp_path / "program.ac"
 
     for label, behaviour in (
-        ("program-only", f"write_program('// p\\n')"),
+        ("program-only", "write_program('// p\\n')"),
         ("report-only", f"write_report({_OWNER_REPORT!r})"),
     ):
-        path = _fake_design(tmp_path, tmp_path / "record.json", behaviour + "\n", name=label)
+        path = _fake_design(
+            tmp_path, tmp_path / "record.json", behaviour + "\n", name=label
+        )
         monkeypatch.setenv("ACIR_DESIGN_HARNESS", str(path))
         cli = _cli(
-            "link", str(units / "types"), str(units / "counter"),
-            "--top", "demo.counter.Counter", "-o", str(destination),
+            "link",
+            str(units / "types"),
+            str(units / "counter"),
+            "--top",
+            "demo.counter.Counter",
+            "-o",
+            str(destination),
         )
         assert "no program or owner report" in _reject(cli, "link")
         _assert_nothing_published(destination)
@@ -1049,16 +1142,25 @@ def test_link_owner_is_the_reported_root_source_not_a_provider(
     _, units = _two_units(tmp_path, monkeypatch)
     monkeypatch.setenv(
         "ACIR_DESIGN_HARNESS",
-        str(_fake_design(
-            tmp_path, tmp_path / "record.json", _design_ok("// linked\n", _OWNER_REPORT)
-        )),
+        str(
+            _fake_design(
+                tmp_path,
+                tmp_path / "record.json",
+                _design_ok("// linked\n", _OWNER_REPORT),
+            )
+        ),
     )
     captured = _published_owners(monkeypatch)
     destination = tmp_path / "program.ac"
 
     cli = _cli(
-        "link", str(units / "types"), str(units / "counter"),
-        "--top", "demo.counter.Counter", "-o", str(destination),
+        "link",
+        str(units / "types"),
+        str(units / "counter"),
+        "--top",
+        "demo.counter.Counter",
+        "-o",
+        str(destination),
     )
 
     assert cli.code == 0, cli.stderr
@@ -1112,15 +1214,22 @@ def test_link_rejects_a_malformed_entry_owner_report(
     _, units = _two_units(tmp_path, monkeypatch)
     monkeypatch.setenv(
         "ACIR_DESIGN_HARNESS",
-        str(_fake_design(
-            tmp_path, tmp_path / "record.json", _design_ok("// linked\n", payload)
-        )),
+        str(
+            _fake_design(
+                tmp_path, tmp_path / "record.json", _design_ok("// linked\n", payload)
+            )
+        ),
     )
     destination = tmp_path / "program.ac"
 
     cli = _cli(
-        "link", str(units / "types"), str(units / "counter"),
-        "--top", "demo.counter.Counter", "-o", str(destination),
+        "link",
+        str(units / "types"),
+        str(units / "counter"),
+        "--top",
+        "demo.counter.Counter",
+        "-o",
+        str(destination),
     )
 
     diagnostic = _reject(cli, "link")
@@ -1139,16 +1248,20 @@ def test_link_rejects_a_unit_argument_that_is_not_a_directory(
 ) -> None:
     monkeypatch.setenv(
         "ACIR_DESIGN_HARNESS",
-        str(_fake_design(
-            tmp_path, tmp_path / "record.json", _design_ok("// p\n", _OWNER_REPORT)
-        )),
+        str(
+            _fake_design(
+                tmp_path, tmp_path / "record.json", _design_ok("// p\n", _OWNER_REPORT)
+            )
+        ),
     )
     unit = tmp_path / "unit"
     if unit_kind == "file":
         unit.write_text("not a directory\n", encoding="utf-8")
     destination = tmp_path / "program.ac"
 
-    cli = _cli("link", str(unit), "--top", "demo.counter.Counter", "-o", str(destination))
+    cli = _cli(
+        "link", str(unit), "--top", "demo.counter.Counter", "-o", str(destination)
+    )
 
     diagnostic = _reject(cli, "link")
     assert "is not a directory" in diagnostic, diagnostic
@@ -1163,15 +1276,19 @@ def test_link_rejects_a_directory_that_is_not_a_published_unit(
 ) -> None:
     monkeypatch.setenv(
         "ACIR_DESIGN_HARNESS",
-        str(_fake_design(
-            tmp_path, tmp_path / "record.json", _design_ok("// p\n", _OWNER_REPORT)
-        )),
+        str(
+            _fake_design(
+                tmp_path, tmp_path / "record.json", _design_ok("// p\n", _OWNER_REPORT)
+            )
+        ),
     )
     unit = tmp_path / "unmanaged"
     unit.mkdir()
     destination = tmp_path / "program.ac"
 
-    cli = _cli("link", str(unit), "--top", "demo.counter.Counter", "-o", str(destination))
+    cli = _cli(
+        "link", str(unit), "--top", "demo.counter.Counter", "-o", str(destination)
+    )
 
     diagnostic = _reject(cli, "link")
     assert "not a published source unit" in diagnostic, diagnostic
@@ -1183,12 +1300,24 @@ def test_link_rejects_two_units_declaring_the_same_source_before_linking(
 ) -> None:
     root, units = _workspace(tmp_path)
     (root / "types.py").write_text(DECLARATION, encoding="utf-8")
-    monkeypatch.setenv("ACIR_SOURCE_UNIT_HARNESS", str(_fake_compiler(tmp_path, _COMPILE_OK)))
+    monkeypatch.setenv(
+        "ACIR_SOURCE_UNIT_HARNESS", str(_fake_compiler(tmp_path, _COMPILE_OK))
+    )
     assert _publish(root, units, "types.py").code == 0
-    assert _cli(
-        "compile", "-c", str(root / "types.py"), "--source-root", str(root),
-        "--package-prefix", "demo", "-o", str(units / "types-again"),
-    ).code == 0
+    assert (
+        _cli(
+            "compile",
+            "-c",
+            str(root / "types.py"),
+            "--source-root",
+            str(root),
+            "--package-prefix",
+            "demo",
+            "-o",
+            str(units / "types-again"),
+        ).code
+        == 0
+    )
     record = tmp_path / "design-record.json"
     monkeypatch.setenv(
         "ACIR_DESIGN_HARNESS",
@@ -1197,8 +1326,13 @@ def test_link_rejects_two_units_declaring_the_same_source_before_linking(
     destination = tmp_path / "program.ac"
 
     cli = _cli(
-        "link", str(units / "types"), str(units / "types-again"),
-        "--top", "demo.types.Word", "-o", str(destination),
+        "link",
+        str(units / "types"),
+        str(units / "types-again"),
+        "--top",
+        "demo.types.Word",
+        "-o",
+        str(destination),
     )
 
     assert "same source" in _reject(cli, "link")
@@ -1213,15 +1347,22 @@ def test_link_requires_an_existing_destination_parent(
     _, units = _two_units(tmp_path, monkeypatch)
     monkeypatch.setenv(
         "ACIR_DESIGN_HARNESS",
-        str(_fake_design(
-            tmp_path, tmp_path / "record.json", _design_ok("// p\n", _OWNER_REPORT)
-        )),
+        str(
+            _fake_design(
+                tmp_path, tmp_path / "record.json", _design_ok("// p\n", _OWNER_REPORT)
+            )
+        ),
     )
     destination = tmp_path / "absent" / "program.ac"
 
     cli = _cli(
-        "link", str(units / "types"), str(units / "counter"),
-        "--top", "demo.counter.Counter", "-o", str(destination),
+        "link",
+        str(units / "types"),
+        str(units / "counter"),
+        "--top",
+        "demo.counter.Counter",
+        "-o",
+        str(destination),
     )
 
     assert "parent does not exist" in _reject(cli, "link")
@@ -1234,16 +1375,23 @@ def test_link_rejects_a_destination_that_is_a_directory(
     _, units = _two_units(tmp_path, monkeypatch)
     monkeypatch.setenv(
         "ACIR_DESIGN_HARNESS",
-        str(_fake_design(
-            tmp_path, tmp_path / "record.json", _design_ok("// p\n", _OWNER_REPORT)
-        )),
+        str(
+            _fake_design(
+                tmp_path, tmp_path / "record.json", _design_ok("// p\n", _OWNER_REPORT)
+            )
+        ),
     )
     destination = tmp_path / "out"
     destination.mkdir()
 
     cli = _cli(
-        "link", str(units / "types"), str(units / "counter"),
-        "--top", "demo.counter.Counter", "-o", str(destination),
+        "link",
+        str(units / "types"),
+        str(units / "counter"),
+        "--top",
+        "demo.counter.Counter",
+        "-o",
+        str(destination),
     )
 
     diagnostic = _reject(cli, "link")
@@ -1251,12 +1399,16 @@ def test_link_rejects_a_destination_that_is_a_directory(
     assert list(destination.iterdir()) == []
 
 
-def test_link_requires_at_least_one_unit(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_link_requires_at_least_one_unit(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     monkeypatch.setenv(
         "ACIR_DESIGN_HARNESS",
-        str(_fake_design(
-            tmp_path, tmp_path / "record.json", _design_ok("// p\n", _OWNER_REPORT)
-        )),
+        str(
+            _fake_design(
+                tmp_path, tmp_path / "record.json", _design_ok("// p\n", _OWNER_REPORT)
+            )
+        ),
     )
 
     with pytest.raises(_driver._DriverError, match="at least one"):
@@ -1278,8 +1430,14 @@ def test_link_rejects_non_empty_parameter_bindings_before_any_other_work(
     monkeypatch.setenv("ACIR_DESIGN_HARNESS", str(tmp_path / "also-absent"))
 
     cli = _cli(
-        "link", str(tmp_path / "no-such-unit"), "--top", "demo.types.Word",
-        "--parameters", str(bindings), "-o", str(tmp_path / "program.ac"),
+        "link",
+        str(tmp_path / "no-such-unit"),
+        "--top",
+        "demo.types.Word",
+        "--parameters",
+        str(bindings),
+        "-o",
+        str(tmp_path / "program.ac"),
     )
 
     diagnostic = _reject(cli, "link")
@@ -1307,18 +1465,26 @@ def test_link_rejects_parameters_that_are_not_an_empty_array(
     _, units = _two_units(tmp_path, monkeypatch)
     monkeypatch.setenv(
         "ACIR_DESIGN_HARNESS",
-        str(_fake_design(
-            tmp_path, tmp_path / "record.json", _design_ok("// p\n", _OWNER_REPORT)
-        )),
+        str(
+            _fake_design(
+                tmp_path, tmp_path / "record.json", _design_ok("// p\n", _OWNER_REPORT)
+            )
+        ),
     )
     bindings = tmp_path / "bindings.json"
     bindings.write_text(text, encoding="utf-8")
     destination = tmp_path / "program.ac"
 
     cli = _cli(
-        "link", str(units / "types"), str(units / "counter"),
-        "--top", "demo.counter.Counter", "--parameters", str(bindings),
-        "-o", str(destination),
+        "link",
+        str(units / "types"),
+        str(units / "counter"),
+        "--top",
+        "demo.counter.Counter",
+        "--parameters",
+        str(bindings),
+        "-o",
+        str(destination),
     )
 
     diagnostic = _reject(cli, "link")
@@ -1332,9 +1498,13 @@ def test_link_accepts_omitted_and_empty_parameter_bindings(
     _, units = _two_units(tmp_path, monkeypatch)
     monkeypatch.setenv(
         "ACIR_DESIGN_HARNESS",
-        str(_fake_design(
-            tmp_path, tmp_path / "record.json", _design_ok("// linked\n", _OWNER_REPORT)
-        )),
+        str(
+            _fake_design(
+                tmp_path,
+                tmp_path / "record.json",
+                _design_ok("// linked\n", _OWNER_REPORT),
+            )
+        ),
     )
     bindings = tmp_path / "bindings.json"
     bindings.write_text("[]", encoding="utf-8")
@@ -1342,13 +1512,24 @@ def test_link_accepts_omitted_and_empty_parameter_bindings(
     explicit = tmp_path / "explicit.ac"
 
     first = _cli(
-        "link", str(units / "types"), str(units / "counter"),
-        "--top", "demo.counter.Counter", "-o", str(omitted),
+        "link",
+        str(units / "types"),
+        str(units / "counter"),
+        "--top",
+        "demo.counter.Counter",
+        "-o",
+        str(omitted),
     )
     second = _cli(
-        "link", str(units / "types"), str(units / "counter"),
-        "--top", "demo.counter.Counter", "--parameters", str(bindings),
-        "-o", str(explicit),
+        "link",
+        str(units / "types"),
+        str(units / "counter"),
+        "--top",
+        "demo.counter.Counter",
+        "--parameters",
+        str(bindings),
+        "-o",
+        str(explicit),
     )
 
     assert first.code == 0, first.stderr

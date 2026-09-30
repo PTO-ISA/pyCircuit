@@ -323,7 +323,6 @@ add_test(NAME ACIRSimExecutorTests COMMAND ACIRSimExecutorTests)
 
 add_executable(ACIRObservationTests
   "${CMAKE_CURRENT_LIST_DIR}/../../Runtime/ObservationTest.cpp"
-  "${ACIR_REPO_ROOT}/simulator/gfsim/observation.cpp"
 )
 target_include_directories(ACIRObservationTests PRIVATE
   "${ACIR_SOURCE_DIR}/lib"

@@ -1,140 +1,43 @@
-# pyCircuit 6 Evolution Plan
+# pyCircuit plan status
 
-This is the active pyCircuit 6 implementation plan. Historical implementation
-details remain in Git history and archived gate evidence; they are not current
-product commitments.
+This page replaces the superseded CycleAwareSignal and Agentic Circuit delivery
+plan. The active product contract is the approved source-unit scalar profile
+consolidated in [Decision 0283](rfcs/pyc6-decisions.md#decision-0283-approved-source-unit-hardware-cutover-for-the-scalar-profile).
+M5 is accepted for that profile on 2026-10-01; see the [final review](reviews/20261001-m5-cutover-review.md).
 
-## Product boundary
+## Current route
 
-pyCircuit is a programming, compiler, runtime, and backend framework. It owns:
+The product path captures each Python source independently, resolves published
+source interfaces, links the explicit unit closure into a verified final
+hardware design, then emits C++ or Verilog from that saved artifact. The public
+commands are `pycircuit compile`, `pycircuit link`, and `pycircuit emit`.
 
-- the `pycircuit` and `agentic_circuit` authoring surfaces;
-- semantic types and primitives;
-- PYC and ACIR dialects, verifiers, and passes;
-- generic C++/Verilog/gfsim backends;
-- vendor-neutral examples and regression fixtures; and
-- compiler/runtime packaging and release gates.
+The supported authoring profile is portless function `@module`, nested
+`@rule`, explicit registration, one default clock, finite scalar state, and
+empty static arguments. Reads see current state for the whole epoch; `nonlocal`
+assignments propose next state; the system Xfer stage commits state. There are
+no queues, builder/JIT semantics, or eager-Python simulation fallback.
 
-Consumer designs, ISA/opcode catalogs, architectural payloads, ELF loaders,
-reference models, model-comparison tools, serialized workload traces, trace
-adapters, and product-specific testbenches are out of tree. There is no design
-exception. The generated-model ABI has no trace loading, trace cursor,
-trace-position, or trace/observation export surface (Decision 0235).
+Runtime-only consumers use the installed `pycircuit::pyc6_runtime` target
+without LLVM. CompilerDev requires LLVM/MLIR 22.1.8. Generated model CMake
+provides source-owned translation units, `pycircuit_system`, and
+`libpycircuit_dut`.
 
-## Current priorities
+## Acceptance boundary
 
-### Preserve the pyCircuit 6 language contract
+M5 acceptance evidence covers installed
+compile/link/emit/build/run, both backends from one saved final artifact,
+source ownership and maps, invalid-publication preservation, Runtime-only and
+CompilerDev consumers, and static plus dynamic retirement of old routes. See
+the [M5 work item](work-items/m5-cutover.md) and
+[retirement ledger](work-items/m5-retirement-ledger.md); historical gate runs
+do not satisfy current acceptance by themselves.
 
-- Keep `CycleAwareSignal`, `CycleAwareDomain`, timed-domain authoring, and
-  automatic cycle balancing as first-class contracts.
-- Keep structural and cycle-aware authoring on one verified PYC semantics path.
-- Enforce semantic changes in dialect verifiers or passes before backend code.
-- Keep canonical PYC vendor-neutral; implementation selection is backend-owned.
-- Preserve C++/Verilog equivalence at the documented observation boundaries.
+## Later capabilities
 
-### Complete generic Agentic Circuit semantics
-
-- Keep typed payloads, recursive aggregates, exact-width bit operations,
-  immutable updates, and nominal identity verified across ACPy and ACIR.
-- Decision 0236 is implemented-verified: `@ac.rule` remains the only public
-  scheduling boundary while the compiler forms complete Queue/Table/Reg/Slot
-  prepare/publish/no-fail commit groups for issue #28.
-- Decision 0237 is implemented-verified: same-field Table writers require a
-  committed-snapshot disjointness proof or explicit stable-identity priority;
-  QueueGraph and gfsim perform deterministic pre-prepare winner selection and
-  atomic loser suppression for issue #25.
-- Decision 0238 is implemented-verified across frontend, ACIR, QueueGraph,
-  typed gfsim, and canonical PYC for multidimensional shape, row-major
-  flattened indices, versioned typed initialization, projected mask domains,
-  reset, and C++/Verilog parity for issue #23.
-- Decision 0239 is implemented-verified across frontend, ACIR, QueueGraph,
-  typed gfsim, and canonical PYC for static-tuple multi-selection, typed
-  first/min/max/round-robin policies, once-per-attempt combinational
-  evaluation, accepted-only cursor advance, and atomic valid-prefix
-  consumption for issue #24.
-- Decision 0240 is implemented-verified for generic direct and one-to-one pure
-  transform Queue profiles: one typed Queue identity preserves lane ordinals,
-  whole-prefix backpressure, simultaneous dequeue/append, reset, and generated
-  gfsim/PYC C++/Verilator equivalence for issue #21. Other multi-lane PYC
-  topologies remain explicit fail-closed extensions.
-- Decision 0241 is implemented-verified for the bounded explicit-register-bank
-  Table profile, including independent admission limits and C++/Verilog parity
-  for issue #22.
-
-Decisions 0236 through 0241 are implemented-verified. The semantic train is
-closed; remaining release work is repository/platform evidence and publication.
-
-### Publish a consumer-neutral SDK
-
-- Provide installed `acc.py` and `acc` commands using the shared frontend,
-  verifier, and QueueGraph path.
-- Keep generated-source inventories deterministic and root-independent without
-  publishing byte-derived identity.
-- Split Runtime and CompilerDev package dependencies so ordinary generated
-  models do not require LLVM/MLIR development packages.
-- Keep the public runtime lifecycle limited to create, configure, reset, step,
-  statistics, and error reporting.
-- Validate the SDK with an external vendor-neutral fixture containing no ISA,
-  product, trace, or reference-model contract.
-- Decision 0232 repository support is implemented-verified with exactly one
-  release wheel per supported platform: a platform-specific `pycircuit-hisi`
-  wheel that carries both compilers (`pycc`, `acc`) and both frontends
-  (`pycircuit`, `agentic_circuit`, `_pycircuit_semantics`). The release instance still
-  requires the real Linux and macOS candidate jobs and relocated
-  installed-consumer evidence before tag creation.
-- Decision 0234 Part A is implemented-verified as one source-SHA-pinned
-  manual workflow whose single candidate-acceptance barrier gates annotated-tag
-  creation and every publish job. Repository tests parse the dependency DAG,
-  reject publication bypass/rebuild, and verify final attestation bindings.
-- Treat Decision 0234 Part B as the release-instance stop condition: redownload
-  stable GitHub Release URLs on both platforms, rerun the relocated consumer,
-  and record an immutable Actions/check-run attestation outside the release
-  asset set.
-
-### Keep framework gates independent
-
-- Required PR CI remains lightweight.
-- Native or semantic PRs attach the narrowest focused evidence.
-- Release closure runs the complete integrated AC/PYC matrix.
-- No framework gate checks out, imports, builds, or executes a consumer design
-  or reference model.
-- Consumer-originated failures must first be reduced to vendor-neutral fixtures.
-
-## Gate mapping
-
-Use the minimum applicable lanes from
-[`testing-and-gates.md`](development/testing-and-gates.md).
-
-| Change | Required evidence |
-| --- | --- |
-| Documentation or governance | changed-file checks, API hygiene, strict docs build |
-| Cycle-aware frontend or inference | unit tests, API hygiene, examples, semantic regressions |
-| MLIR semantics or legality | focused lit/CTest plus strict decision status |
-| C++ or Verilog behavior | focused backend execution and applicable equivalence evidence |
-| ACIR or Agentic Circuit | frontend contracts, ACIR/ACC tests, QueueGraph/gfsim, applicable PYC parity |
-| Packaging or installed SDK | schema/contract checks and relocated external consumer smoke |
-
-Use one `PYC_GATE_RUN_ID` for related semantic lanes. Record skipped gates and
-their risk in the pull request.
-
-## Completion criteria
-
-The pyCircuit 6.0.0 milestone is complete when:
-
-- active source, tests, examples, schemas, build files, and gates contain no
-  consumer or product implementation;
-- no public model/runtime ABI exposes trace input, cursor, position, or output;
-- Decisions 0222, 0229, and 0230 are superseded and Decision 0235 is verified;
-- issues #21, #22, #23, #24, #25, and #28 have implemented-verified evidence for
-  Decisions 0236–0241 and are closed;
-- Decisions 0232 and 0234 Part A have implemented-verified repository evidence,
-  the exact four-wheel candidate map, and a passing release-workflow DAG;
-- the generic frontend, verifier, QueueGraph/gfsim, PYC C++, Verilog, SDK, and
-  documentation gates pass from the final upstream source SHA;
-- annotated tag `v6.0.0` peels to that SHA and the non-draft,
-  non-prerelease release publishes only accepted bytes;
-- stable-URL post-download verification and the relocated generic consumer pass
-  on Linux x86_64 and macOS arm64, with an immutable external attestation; and
-- issue #61 closes with tag, source SHA, release index, hashes, supported
-  platforms, and post-download evidence, while consumer compatibility remains
-  in the consumer repository against a pinned pyCircuit revision.
+The scalar profile does not deliver a complete `@system`/EXPECT contract,
+queues and buffer libraries, memory, CDC, multiple clocks, four-state source
+values, external typed DUT ports, complex static parameters, or parallel
+scheduling. These remain explicit capability work with independent semantic
+oracles. The [modernization plan](development/pycircuit-modernization-plan.md)
+tracks phase sequencing; it does not widen the currently approved profile.

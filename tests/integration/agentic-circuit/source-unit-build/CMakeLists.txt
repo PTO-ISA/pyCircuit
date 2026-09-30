@@ -14,7 +14,7 @@ set(PYCIRCUIT_REPOSITORY_ROOT "${_default_repository_root}" CACHE PATH
 set(PYCIRCUIT_PYTHON_EXECUTABLE "${Python3_EXECUTABLE}" CACHE FILEPATH
     "Python interpreter used for pycircuit compile/link")
 set(PYCIRCUIT_IMPORT_ROOTS
-    "${PYCIRCUIT_REPOSITORY_ROOT}/python/pycircuit/src;${PYCIRCUIT_REPOSITORY_ROOT}/python/semantic-core/src;${PYCIRCUIT_REPOSITORY_ROOT}/python/agentic-circuit/src"
+    "${PYCIRCUIT_REPOSITORY_ROOT}/python/pycircuit/src"
     CACHE STRING "Python import roots passed to the public driver")
 set(PYCIRCUIT_SOURCE_UNIT_HARNESS "" CACHE FILEPATH
     "Path to acir-source-unit-harness")
@@ -23,7 +23,7 @@ set(PYCIRCUIT_DESIGN_HARNESS "" CACHE FILEPATH
 set(PYCIRCUIT_OUTPUT_ROOT "${CMAKE_BINARY_DIR}/generated units" CACHE PATH
     "Directory for source units and the linked program")
 set(PYCIRCUIT_TOOLCHAIN_CONFIG
-    "${PYCIRCUIT_REPOSITORY_ROOT}/pyproject.toml;${PYCIRCUIT_REPOSITORY_ROOT}/python/semantic-core/pyproject.toml;${PYCIRCUIT_REPOSITORY_ROOT}/python/agentic-circuit/pyproject.toml"
+    "${PYCIRCUIT_REPOSITORY_ROOT}/pyproject.toml"
     CACHE STRING
     "Additional compiler/toolchain configuration files to depend on")
 
@@ -58,8 +58,6 @@ endforeach()
 set(_compiler_dependencies
   ${_driver_sources}
   "${PYCIRCUIT_REPOSITORY_ROOT}/pyproject.toml"
-  "${PYCIRCUIT_REPOSITORY_ROOT}/python/semantic-core/pyproject.toml"
-  "${PYCIRCUIT_REPOSITORY_ROOT}/python/agentic-circuit/pyproject.toml"
   "${PYCIRCUIT_SOURCE_UNIT_HARNESS}"
   "${PYCIRCUIT_DESIGN_HARNESS}"
   ${PYCIRCUIT_TOOLCHAIN_CONFIG}

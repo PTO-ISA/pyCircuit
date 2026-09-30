@@ -1,124 +1,13 @@
-# Frontend API
+# Frontend API status
 
-pyCircuit 6 uses CycleAwareSignal as its primary scalar authoring model. The
-cycle-aware surface and structural library surface lower to the same verified
-`pyc` MLIR.
+This page formerly documented the CycleAwareSignal and structural builder
+Python APIs. Those surfaces are retired and are not supported entry points.
 
-## Cycle-aware imports
+The active Python source subset uses function `@module` declarations, nested
+`@rule` functions, explicit registration, finite scalar state, and ordinary
+Python expressions accepted by the compiler. The public driver is
+`pycircuit compile`, `pycircuit link`, and `pycircuit emit`.
 
-```python
-from pycircuit import (
-    CycleAwareCircuit,
-    CycleAwareDomain,
-    CycleAwareSignal,
-    CycleAwareTb,
-    ForwardSignal,
-    Tb,
-    build_cycle_aware,
-    cas,
-    compile_cycle_aware,
-    mux,
-    submodule_input,
-    wire_of,
-)
-from pycircuit.design import probe, testbench
-```
-
-Use `domain.signal()` plus `<<=` or `.assign()` to infer state. Use
-`domain.next()` to advance the logical cycle. See the
-[V6 specification](language.md) for the normative API and
-cycle-balancing rules.
-
-`compile_cycle_aware()` always uses the canonical JIT path and returns a
-hardened `Design`. `build_cycle_aware()` is the explicit direct-Python
-elaboration path; it returns `CycleAwareCircuit` and accepts `hierarchical=`.
-CAS method forms such as `.select()`, `.trunc()`, `.zext()`, `.sext()`, and
-`.as_unsigned()` are supported. The API-hygiene and JIT checks use receiver
-provenance to reject those spellings only on raw Wire or unknown receivers.
-Width-changing calls use keyword-only `width=...`. Named `.eq()` and `.lt()`
-methods are rejected on every receiver; use `==` and `<` operators.
-
-The Agentic Circuit Queue frontend expresses the same conversions as intrinsics
-that take the destination type positionally: `ac.zext(value, ac.uN)`,
-`ac.sext(value, ac.sN)`, and `ac.truncate(value, ac.uN)`. Integer widths never
-change implicitly there, so extend or truncate before arithmetic that needs a
-different width. See
-[the agent frontend guide](../development/agent-frontend-guide.md#convert-integer-widths-explicitly).
-
-`pycircuit.probe` and `pycircuit.testbench` are modules. Import the decorators
-from `pycircuit.design`, as shown above. `priority_encode(...)` and the matching
-Signal/Wire/CAS methods all return `PriorityEncodeResult[T]` with `.index` and
-`.valid` fields.
-
-## Structural decorators and library API
-
-The structural API remains supported for explicit hierarchy, static
-metaprogramming, and reusable libraries. It does not replace the V6
-CycleAwareSignal timing model.
-
-### Core decorators
-
-- `@module`: hierarchy-preserving boundary (materializes `pyc.instance`)
-  - boundary-dynamic value ports: `@module(value_params={"gain": "i8", "sel": "i1"})`
-  - `value_params` are runtime module IO values (not specialization params)
-- `@function`: inline helper (inlined into the caller)
-- `@const`: compile-time helper (pure; may not emit IR or mutate the module)
-- `@testbench`: host-side cycle test program lowered via a `.pyc` payload
-
-### Structural imports
-
-```python
-from pycircuit import Circuit, compile, const, function, module
-from pycircuit.design import probe, testbench
-from pycircuit import ct, spec, wiring, logic, lib, structural
-```
-
-### Circuit authoring API
-
-Declarations:
-
-- `m.clock(name)`, `m.reset(name)`
-- `m.input(name, width=..., signed=False)`
-- `m.output(name, value)`
-- `m.inputs(spec, prefix=...)` / `m.outputs(spec, values, prefix=...)`
-- `m.io(signature, prefix=...)` (directioned signature IO)
-
-State and pipeline:
-
-- `m.out(name, clk=..., rst=..., width=..., init=...)` (register)
-- `m.state(spec, clk=..., rst=..., init=..., en=..., prefix=...)`
-- `m.pipe(spec, src_values, clk=..., rst=..., en=..., flush=..., init=..., prefix=...)`
-
-Instantiation:
-
-- `m.new(fn, name=..., params=..., bind=...)`
-- `m.array(fn_or_collection, name=..., keys=..., per=..., params=..., bind=...)`
-
-Wiring:
-
-- `m.connect(dst, src, when=...)`
-- `wiring.bind(spec_or_sig, connector_bundle_or_struct)`
-- `wiring.ports(m, bind)`
-- `wiring.unbind(...)`, `wiring.unflatten(...)` (debug/inspection helpers)
-- `structural.mux(cond, true_value, false_value)` for raw Wire selection;
-  top-level `mux()` is CycleAware and returns `CycleAwareSignal`
-
-### `spec`, `logic`, and `lib`
-
-`spec` (compile-time shapes):
-
-- `spec.struct("name").field("a.b", width=...).build()`
-- `spec.bundle("name").field("x", width=...).build()`
-- `spec.signature(...)` for directioned IO leaves
-- `@spec.valueclass` for canonical compile-time config objects
-
-`logic`:
-
-- `logic.onehot_mux(sel, vals)`
-- `logic.priority_pick(bits, n=...)`
-- `logic.match_any(key, keys, valids=None)`
-
-`lib`:
-
-- `lib.StreamSig(...)` (ready/valid signature builder)
-- plus structural blocks under `pycircuit.lib.*`
+Use the [language reference](language.md) for the supported source contract and
+the [M5 migration guide](../development/m5-migration.md) for hard-break
+boundaries. No compatibility alias is provided.

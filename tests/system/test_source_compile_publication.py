@@ -8,18 +8,15 @@ backends actually run.
 
 from __future__ import annotations
 
-import json
 import os
 import shutil
 import subprocess
 from pathlib import Path
 
 import pytest
-
 from pycircuit._publication import _PublicationError
 from pycircuit._source_compile import _compile_source_unit
 from pycircuit._source_unit_files import _load_full_source_unit
-
 from test_generic_assignment_roundtrip import (
     BENCH,
     COPY_CHILD,
@@ -98,9 +95,13 @@ def _write(root: Path, name: str, text: str) -> Path:
 
 def _compile(root: Path, units: Path, name: str, *, interface_units=(), replace=False):
     return _compile_source_unit(
-        root / name, source_root=root, package="demo",
-        native_compiler=_native(), output=units / Path(name).stem,
-        interface_units=interface_units, replace=replace,
+        root / name,
+        source_root=root,
+        package="demo",
+        native_compiler=_native(),
+        output=units / Path(name).stem,
+        interface_units=interface_units,
+        replace=replace,
     )
 
 
@@ -111,7 +112,10 @@ def test_declaration_unit_closes_the_four_file_set(tmp_path: Path) -> None:
     result = _compile(root, units, "types.py")
 
     assert sorted(entry.name for entry in (units / "types").iterdir()) == [
-        "types.ac", "types.d", "types.interface.ac", "unit.json",
+        "types.ac",
+        "types.d",
+        "types.interface.ac",
+        "unit.json",
     ]
     loaded = _load_full_source_unit(units / "types", owner=result.owner)
     # a declaration unit is a real declarations unit: no fabricated module or
@@ -138,7 +142,10 @@ def test_parent_compiles_from_a_header_only_provider_with_hidden_child(
     dependent = _compile(root, units, "counter.py", interface_units=[units / "types"])
 
     assert sorted(entry.name for entry in (units / "counter").iterdir()) == [
-        "counter.ac", "counter.d", "counter.interface.ac", "unit.json",
+        "counter.ac",
+        "counter.d",
+        "counter.interface.ac",
+        "unit.json",
     ]
     depfile = (units / "counter" / dependent.depfile).read_text(encoding="utf-8")
     assert str(units / "types" / published.interface) in depfile
@@ -168,9 +175,7 @@ def test_same_owner_replace_updates_all_four_files(tmp_path: Path) -> None:
     root, units = _workspace(tmp_path)
     _write(root, "types.py", DECLARATION)
     first = _compile(root, units, "types.py")
-    before = {
-        entry.name: entry.read_bytes() for entry in (units / "types").iterdir()
-    }
+    before = {entry.name: entry.read_bytes() for entry in (units / "types").iterdir()}
 
     _write(root, "types.py", DECLARATION + "\nAlias = Word\n")
     second = _compile(root, units, "types.py", replace=True)
@@ -207,29 +212,47 @@ def test_published_units_drive_the_existing_link_and_both_backends(
     _write(root, "types.py", DECLARATION)
     _write(root, "holder.py", COPY_CHILD)
     _write(
-        root, "test_holder.py",
-        BENCH.format(arguments="other, state", reset_value=expected[0],
-                     committed_value=expected[1]),
+        root,
+        "test_holder.py",
+        BENCH.format(
+            arguments="other, state",
+            reset_value=expected[0],
+            committed_value=expected[1],
+        ),
     )
 
     _compile(root, units, "types.py")
     _compile(root, units, "holder.py", interface_units=[units / "types"])
     _compile(
-        root, units, "test_holder.py",
+        root,
+        units,
+        "test_holder.py",
         interface_units=[units / "types", units / "holder"],
     )
 
     design = tmp_path / "test_holder.ac"
     command = [_design_harness()]
     for stem in ("types", "holder", "test_holder"):
-        command.extend((
-            "--body", str(units / stem / f"{stem}.ac"),
-            "--header", str(units / stem / f"{stem}.interface.ac"),
-        ))
-    command.extend((
-        "--top", "demo.test_holder.TestHolder", "--target", "final",
-        "--role", "testbench", "--output", str(design),
-    ))
+        command.extend(
+            (
+                "--body",
+                str(units / stem / f"{stem}.ac"),
+                "--header",
+                str(units / stem / f"{stem}.interface.ac"),
+            )
+        )
+    command.extend(
+        (
+            "--top",
+            "demo.test_holder.TestHolder",
+            "--target",
+            "final",
+            "--role",
+            "testbench",
+            "--output",
+            str(design),
+        )
+    )
     linked = subprocess.run(command, text=True, capture_output=True, check=False)
     assert linked.returncode == 0, linked.stderr
 
@@ -237,9 +260,20 @@ def test_published_units_drive_the_existing_link_and_both_backends(
     verilog = tmp_path / "design.sv"
     for target, output in (("cpp", cpp), ("verilog", verilog)):
         emitted = subprocess.run(
-            [_design_harness(), "--design", str(design), "--target", target,
-             "--role", "testbench", "--output", str(output)],
-            text=True, capture_output=True, check=False,
+            [
+                _design_harness(),
+                "--design",
+                str(design),
+                "--target",
+                target,
+                "--role",
+                "testbench",
+                "--output",
+                str(output),
+            ],
+            text=True,
+            capture_output=True,
+            check=False,
         )
         assert emitted.returncode == 0, emitted.stderr
 
@@ -252,4 +286,4 @@ def test_published_units_drive_the_existing_link_and_both_backends(
     rtl_values = _rtl_trace(_run_verilog(run_dir, verilog))
     per_run = expected + [1]
     assert rtl_values[: len(per_run)] == per_run, rtl_values
-    assert rtl_values[len(per_run): 2 * len(per_run)] == per_run, rtl_values
+    assert rtl_values[len(per_run) : 2 * len(per_run)] == per_run, rtl_values

@@ -21,10 +21,9 @@ from collections.abc import Mapping
 from pathlib import Path
 
 import pytest
-
 from pycircuit._publication import (
-    _PublicationError,
     _publication_owner_source_unit,
+    _PublicationError,
     _publish_directory,
 )
 from pycircuit._publication_fs import _PublicationFileSystem
@@ -144,9 +143,9 @@ def test_owner_discovery_reads_the_validated_journal_of_an_unfinished_transactio
         "previous",
         "stage",
     }
-    assert json.loads((control / "journal.json").read_text(encoding="utf-8"))["phase"] == (
-        "prepared"
-    )
+    assert json.loads((control / "journal.json").read_text(encoding="utf-8"))[
+        "phase"
+    ] == ("prepared")
     snapshot = {
         str(entry.relative_to(control)): entry.read_bytes()
         for entry in sorted(control.rglob("*"))

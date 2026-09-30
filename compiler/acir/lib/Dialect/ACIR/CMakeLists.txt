@@ -55,4 +55,3 @@ target_include_directories(ACIRDialect PUBLIC
 target_include_directories(ACIRDialect PRIVATE
   "${ACIR_SOURCE_DIR}/lib"
 )
-add_library(AgenticCircuit::ACIRDialect ALIAS ACIRDialect)

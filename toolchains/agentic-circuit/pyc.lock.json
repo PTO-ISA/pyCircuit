@@ -1,9 +1,0 @@
-{
-  "frontend_contract": "pycircuit",
-  "llvm_version": "22.1.8",
-  "pyc_interface": "pyc6",
-  "pycircuit_commit": "repo-local",
-  "repository": "https://github.com/PTO-ISA/pyCircuit",
-  "schema": "agentic-circuit-pyc-toolchain-lock",
-  "version": "0.5"
-}

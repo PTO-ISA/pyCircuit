@@ -72,37 +72,27 @@ def test_release_evidence_directory_is_not_silently_ignored() -> None:
     assert _tracked("docs/gates/logs/20260921-windows-platform-evidence/summary.md")
 
 
-def test_pycc_includes_windows_h_before_psapi() -> None:
-    source = (ROOT / "compiler/mlir/tools/pycc.cpp").read_text(encoding="utf-8")
+def test_release_retirement_gate_checks_the_single_public_driver_contract() -> None:
+    source = (ROOT / "flows/tools/check_m5_retirement.py").read_text(encoding="utf-8")
+    wheel_builder = (ROOT / "packaging/wheel/create_wheel.py").read_text(
+        encoding="utf-8"
+    )
 
-    windows = source.index("#include <windows.h>")
-    psapi = source.index("#include <psapi.h>")
-    assert windows < psapi, "psapi.h needs the Windows base types first"
-    assert "#include <psapi.h>" in source
-
-
-def test_acc_tools_publish_directories_through_the_shared_helper() -> None:
-    for relative in (
-        "compiler/acir/tools/acc/acc.cpp",
-        "compiler/acir/tools/acir-queue-cxxgen/acir-queue-cxxgen.cpp",
+    assert 'expected_commands = {"compile", "link", "emit"}' in source
+    assert '"acir-cpp-source-parts-harness"' in source
+    for retired in ("acc.py", "pycc", "agentic-circuit"):
+        assert retired in source
+    assert "--install-root" in source
+    assert "PRIVATE_HELPERS = (" in wheel_builder
+    for helper in (
+        '"acir-source-unit-harness"',
+        '"acir-design-harness"',
+        '"acir-cpp-source-parts-harness"',
     ):
-        lines = (ROOT / relative).read_text(encoding="utf-8").splitlines()
-        # `fs::rename` cannot move a directory on Windows, so the bundle
-        # publication must go through the shared helper; single-file publication
-        # keeps using the LLVM call.
-        publishers = [
-            index
-            for index, line in enumerate(lines)
-            if "cannot publish generated bundle" in line
-        ]
-        assert publishers, relative
-        for index in publishers:
-            window = "\n".join(lines[max(0, index - 3) : index + 1])
-            assert "acir::publishDirectory(" in window, (relative, window)
-
-    helper = ROOT / "compiler/acir/include/acir/Support/DirectoryPublication.h"
-    text = helper.read_text(encoding="utf-8")
-    assert "MoveFileExW" in text
+        assert helper in wheel_builder
+    assert '"libpyc6_runtime.a"' in wheel_builder
+    assert '"pyc6_runtime.lib"' in wheel_builder
+    assert '"pycircuitRuntimeTargets.cmake"' in wheel_builder
 
 
 def test_sdk_verifier_does_not_use_the_unimported_platform_module() -> None:
