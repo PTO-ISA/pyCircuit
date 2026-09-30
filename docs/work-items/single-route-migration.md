@@ -535,7 +535,7 @@ lane 表中 driver system 为 47。审阅记录中该数字是审阅者在其用
 | M1 最少治理与迁移边界 | done（有界出口） | 文件归属、独立实现/测试/审阅和候选证据机制已运行；不再以流程扩建阻塞开发 |
 | M2 最小双后端主干 | accepted（有界核心） | 单级/两级 closed-system 的共同 IR、reg/alias、Work/Xfer 和双后端逐拍 oracle 已验收；不含公开 DUT ABI、SDK 或真实并行 |
 | M3 按实际用例补能力 | 当前用例已交付，后续按需 | 整数、masked-next、generic copy/constant 已有证据；FIFO、memory、CDC 等保留 backlog |
-| M4 让当前能力可用 | active（当前主线） | 公共逐源 compile/link、header-only、发布验证/恢复已交付；本轮显式 CMake/Ninja DAG 已验证并独立审阅通过；可执行源 C++ 分组、独立 TU/ODR 与双后端一致性已验证；标量声明源 headers 已完成本包实现与 scoped 验证；generated.json 和完整构建运行流程仍未交付 |
+| M4 让当前能力可用 | done（修订 8 有界出口） | 文档化源码流程、逐源 compile/link、源属 C++ TU/CMake、Verilator、共享标准 runner、外部 oracle、重建/发布保护已验收；完整 C3/ABI/SDK 与公开 emit 切换另行交付 |
 | M5 声明范围内 hard break | pending | 旧路线退役、公开新 emit、活跃文档/构建/安装引用同步切换尚未完成 |
 | M6 按风险持续加固 | deferred / 按需 | 真实并行/V44、性能、平台和扩展故障矩阵未完成；已有正确性问题仍随所属入口修复 |
 | M7 按声明范围验收候选 | pending | 尚无迁移预览/发布验收；先验收明确支持范围，不要求未来 backlog 全清 |
@@ -706,3 +706,15 @@ publication/manifest 和完整构建运行交付；M5 公开 emit 与 hard break
 本包只验证文件管理，当前私有 profile 要求空静态参数；不声称真实生成器
 已发布完整 bundle 或 ABI。M4 仍待 native 产物组装、dut.h ABI、生成构建
 链接/运行、RTL 源归属；M5 公开 emit 与旧路线删除尚未切换。M2 保持 accepted。
+
+## 2026-09-30 M4 完成
+
+产品提交 `26e096c0` 已完成修订 8 的 M4 出口，Sol 独立代码审阅和 Astra
+架构/阶段出口审阅均 APPROVE。17 项系统验收 + 10 项协议单测通过、零
+跳过；既有回归 331 通过、3 项 Windows 专用跳过；native 116 通过。
+从空目录构建 native 工具链、完整设计/两后端与外置 oracle 的文档流程亦
+已实跑通过。详见 [M4 验收记录](m4-completion-workflow.md)。
+
+此前账本把完整 C3 DUT ABI/RTL 包装列为 M4 必需前置，范围超过用户已
+确认的修订 8；本次按实际阶段出口纠正，相关责任保留给后续交付。下一
+主阶段为 M5 的明确范围 hard break，公开 emit/旧路线退役仍未切换。
