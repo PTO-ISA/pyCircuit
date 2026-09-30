@@ -371,3 +371,12 @@ ready 前列精确文件、候选、接口授权、实际测试 inventory 和退
 5. 逐源独立编译、source provenance、实例/参数 identity、硬件时序、reset、适用四态与原子性完整验收。
 6. 所有接口改变覆盖在用户批准的精确提案中；独立 Astra、独立测试、Sol review、集成与 PM 验收证据对应同一内容。
 7. required PR/semantic/release gates 已切到新路线且覆盖成立；未跑的门槛与未交付范围明确，不把计划审阅称作产品完成。
+
+## 2026-10-01 implementation status
+
+Revision-8 M4 and M5 are accepted for the declared current-platform scalar,
+portless-root, default-clock, empty-static-argument and serial-execution profile.
+The M5 implementation is `d351079b` on `codex/gfsim-source-units`; the planning
+checkout remains separate. See [the M5 acceptance index](../work-items/m5-cutover.md)
+for exact independent reviews, byte binding, gates and scope limits. M3 capability
+backlog and M6/M7 hardening/release work remain; no old-route fallback is retained.
