@@ -1,6 +1,6 @@
 # 单一路线迁移执行账本
 
-状态：active。开始：2026-09-27。PM：本会话。完整目标是按[修订 6 计划](../development/pycircuit-modernization-plan.md)使 pyCircuit 收敛为成熟、可验证的 GFSIM Pythonic → MLIR → 统一硬件 IR → C++/Verilog 框架；本账本不把目标缩成治理或样板。
+状态：active。开始：2026-09-27。PM：本会话。完整目标是按[修订 8 计划](../development/pycircuit-modernization-plan.md)使 pyCircuit 收敛为成熟、可验证的 GFSIM Pythonic → MLIR → 统一硬件 IR → C++/Verilog 框架；本账本不把目标缩成治理或样板。
 
 2026-09-28 最新设计方向：用户要求统一 ac.reg、无状态 rule proposal、
 原语内 Xfer commit/discard、reg-only 模块数据连接与 SimQueue 退役。
@@ -525,16 +525,30 @@ lane 表中 driver system 为 47。审阅记录中该数字是审阅者在其用
 
 ## 全项目里程碑
 
-| 阶段 | 状态 | 完成证据要求 |
+以下为 2026-09-30 的当前状态，按 modernization plan 修订 8 的有界出口统计；
+各工作包的历史记录保留其原验收时点。M3/M6 是按需推进的 backlog，不能用
+“七个阶段勾选比例”表示全部迁移完成度。
+
+| 阶段 | 当前状态 | 已交付与剩余出口 |
 | --- | --- | --- |
-| M0 合同、基线与准入 | active | B01–B03 及精确 C1/C2/C3 用户批准，能力无未分类行 |
-| M1 治理和 donor 准入 | active | 可执行治理/skills、试运行、独立审查；DeepSeek 可选接口另批准 |
-| M2 单主干双后端最小闭环 | active（出口未验收） | 新 capture/MLIR/source-unit/root/Cpp/RTL 同一 final IR 执行；R1 reg 首片与后续 FIFO 库各有出口，不能由旧链兜底 |
-| M3 完整批准能力 | pending | 整数/record/Queue/state/memory/CDC/四态/原子性等矩阵逐行验证 |
-| M4 使用面与删除准备 | pending | examples/tests/docs/driver/SDK 迁移、反向依赖/删除 manifest |
-| M5 hard break | pending | 旧源码/构建/安装路径退役；同候选更新决定、AGENTS、docs、gates |
-| M6 规模与 SDK | pending | 并行/增量编译、relocation、错误发布、性能基线与平台结果 |
-| M7 完整发布候选验收 | pending | 独立最终审查、完整 gate/能力/删除/接口批准审计；如发布则遵守外部授权 |
+| M0 合同、基线与准入 | 基础已具备，增补逐包批准 | C1/C2/C3 及 R1/M1 已有批准；一等 system/expect 修订 B 尚未批准，不能以 approval-ready 代替 |
+| M1 最少治理与迁移边界 | done（有界出口） | 文件归属、独立实现/测试/审阅和候选证据机制已运行；不再以流程扩建阻塞开发 |
+| M2 最小双后端主干 | accepted（有界核心） | 单级/两级 closed-system 的共同 IR、reg/alias、Work/Xfer 和双后端逐拍 oracle 已验收；不含公开 DUT ABI、SDK 或真实并行 |
+| M3 按实际用例补能力 | 当前用例已交付，后续按需 | 整数、masked-next、generic copy/constant 已有证据；FIFO、memory、CDC 等保留 backlog |
+| M4 让当前能力可用 | active（当前主线） | 公共逐源 compile/link、header-only、发布验证/恢复已交付；本轮显式 CMake/Ninja DAG 已验证并独立审阅通过；source-owned C++ groups、独立 TU、generated.json 和完整构建运行流程仍未交付 |
+| M5 声明范围内 hard break | pending | 旧路线退役、公开新 emit、活跃文档/构建/安装引用同步切换尚未完成 |
+| M6 按风险持续加固 | deferred / 按需 | 真实并行/V44、性能、平台和扩展故障矩阵未完成；已有正确性问题仍随所属入口修复 |
+| M7 按声明范围验收候选 | pending | 尚无迁移预览/发布验收；先验收明确支持范围，不要求未来 backlog 全清 |
+
+M2 依据：[有界验收记录](m2-closure-execution.md)。最新实现基线为产品分支
+`ffef119c`，source-unit pair 校验的证据见该分支
+`docs/gates/logs/20260930-source-unit-pair/`；这修复了 M4 的产物准入，
+不表示 M4 已全部完成。本轮工作见产品分支
+`docs/work-items/m4-source-cmake-build.md`。
+本轮 M4 AC 构建切片已集成到产品提交 `3a543802`：四源独立 CMake/Ninja
+producer、header-only compile、完整 link、增量与 clean/rebuild；真实集成测试
+1 项通过、0 skip，独立 Sol high 审阅 APPROVE。该结论不包含 C++ TU/emit
+或 M4 全部出口；证据位于产品分支 `docs/gates/logs/20260930-m4-source-cmake/`。
 
 任务 `verified` 需要对应当前内容的证据，`done` 由 PM 集成验收后设置。单个 agent 完成或一个小样板通过均不代表整体目标完成。
 
