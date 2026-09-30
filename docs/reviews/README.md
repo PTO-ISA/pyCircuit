@@ -18,6 +18,8 @@ approval. It is not approval of the interface or authorization to implement it.
 
 ## Completed reviews
 
+- [C2-DECL scalar final projection](20260930-c2-decl-scalar-final-design-review.md): independent Astra xhigh approval-ready, exact revision-A hash archived; precise user approval pending, no product implementation.
+
 - [Python numeric producer bridge](20260929-python-numeric-bridge.md): bounded real Python add/sub/comparison production through C1/D1 lowering accepted; 32 numeric and 68 combined system tests passed, with 19/19 ACIR targets. Numeric next-state and backend admission remain open.
 
 - [M1 C and agent handoff](20260928-interface-handoff.md): independent Astra/high approval-ready for the Pythonic/interface design, W00–W12 checklist and V00–V49 matrix. Source semantics, output transport and QUIESCENT closure reviewed; product implementation remains unverified.

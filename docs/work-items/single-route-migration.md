@@ -563,6 +563,12 @@ producer、header-only compile、完整 link、增量与 clean/rebuild；真实�
 产品分支 `docs/gates/logs/20260930-generic-multi-assignment/`。M4 后续声明头
 需先冻结声明单元的 final 投影，不新增 primitive，也不混入未批准的 system/expect B。
 
+2026-09-30 M4 声明头设计包已完成：C2-DECL 修订 A 经独立 Astra xhigh
+审阅为 approval-ready，SHA-256 `38dd31d13cff150cf7b778e9c3df469f9ab1e0b55c8b2311f7c8d05d49b736b8`。
+[精确提案](../rfcs/migration/c2-decl-scalar-final.md)包含 final envelope/投影、
+C++ 标量映射及 D1–D5 checklist；[审阅记录](../reviews/20260930-c2-decl-scalar-final-design-review.md)。
+待用户批准该精确合同；本轮仅文档，不把 approval-ready 标成实施或 M4 完成。
+
 任务 `verified` 需要对应当前内容的证据，`done` 由 PM 集成验收后设置。单个 agent 完成或一个小样板通过均不代表整体目标完成。
 
 ## 当前限制与下一步

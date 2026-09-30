@@ -1,0 +1,6 @@
+/Users/zhoubot/.codex/worktrees/migration-capture/pyCircuit/.pycircuit_out/w10-pm/build/bin/acir-cpp-source-parts-harness /Users/zhoubot/.codex/worktrees/migration-capture/pyCircuit/.pycircuit_out/declaration-final-design/proposal-unit-fragment.ac
+exit=1
+stdout=
+stderr=loc("/Users/zhoubot/.codex/worktrees/migration-capture/pyCircuit/.pycircuit_out/declaration-final-design/proposal-unit-fragment.ac":1:1): error: 'builtin.module' op final hardware SpecKey is malformed
+loc("/Users/zhoubot/.codex/worktrees/migration-capture/pyCircuit/.pycircuit_out/declaration-final-design/proposal-unit-fragment.ac":1:1): error: final hardware package envelope is not canonical
+error: final program rehydration requires verified final hardware
