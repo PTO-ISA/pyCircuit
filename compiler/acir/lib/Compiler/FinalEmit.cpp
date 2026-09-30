@@ -35,10 +35,9 @@ private:
   ac::detail::EmitError emitError_;
 };
 
-template <typename Emit>
-FailureOr<std::string> emitVerified(const FinalProgram &program,
-                                    ac::detail::EmitError emitError,
-                                    Emit emit) {
+template <typename Result, typename Emit>
+FailureOr<Result> emitVerified(const FinalProgram &program,
+                               ac::detail::EmitError emitError, Emit emit) {
   EmissionGuard guard(program, emitError);
   if (failed(guard.begin()))
     return failure();
@@ -54,8 +53,16 @@ FailureOr<std::string> emitVerified(const FinalProgram &program,
 
 FailureOr<std::string> emitFinalCpp(const FinalProgram &program,
                                     ac::detail::EmitError emitError) {
-  return emitVerified(program, emitError,
-                      [&] { return emitFinalCppBody(program, emitError); });
+  return emitVerified<std::string>(
+      program, emitError, [&] { return emitFinalCppBody(program, emitError); });
+}
+
+FailureOr<FinalCppSourceParts>
+emitFinalCppSourceParts(const FinalProgram &program,
+                        ac::detail::EmitError emitError) {
+  return emitVerified<FinalCppSourceParts>(program, emitError, [&] {
+    return emitFinalCppSourcePartsBody(program, emitError);
+  });
 }
 
 FailureOr<FinalVerilogEmission>

@@ -1,0 +1,144 @@
+[0/1] Re-running CMake...
+-- Using LLVMConfig.cmake in: /opt/homebrew/opt/llvm@22/lib/cmake/llvm
+-- Using MLIRConfig.cmake in: /opt/homebrew/opt/llvm@22/lib/cmake/mlir
+-- Building with -fPIC
+-- Found Python3: /opt/homebrew/Frameworks/Python.framework/Versions/3.14/bin/python3.14 (found version "3.14.6") found components: Interpreter
+-- Found Python3: /opt/homebrew/Frameworks/Python.framework/Versions/3.14/bin/python3.14 (found suitable version "3.14.6", minimum required is "3.11") found components: Interpreter
+-- Configuring done (0.6s)
+-- Generating done (0.1s)
+-- Build files have been written to: /Users/zhoubot/.codex/worktrees/migration-capture/pyCircuit/.pycircuit_out/w10-pm/build
+[1/16] Building CXX object compiler/acir/lib/Compiler/CMakeFiles/ACIRSourceCompiler.dir/FinalCppSourceParts.cpp.o
+FAILED: [code=1] compiler/acir/lib/Compiler/CMakeFiles/ACIRSourceCompiler.dir/FinalCppSourceParts.cpp.o 
+/usr/bin/c++  -I/Users/zhoubot/.codex/worktrees/migration-capture/pyCircuit/compiler/acir/include -I/Users/zhoubot/.codex/worktrees/migration-capture/pyCircuit/.pycircuit_out/w10-pm/build/compiler/acir/include -I/Users/zhoubot/.codex/worktrees/migration-capture/pyCircuit/compiler/acir/lib -isystem /opt/homebrew/Cellar/llvm/22.1.8/include -O3 -DNDEBUG -std=c++20 -arch arm64 -fPIC   -D__STDC_CONSTANT_MACROS -D__STDC_FORMAT_MACROS -D__STDC_LIMIT_MACROS -MD -MT compiler/acir/lib/Compiler/CMakeFiles/ACIRSourceCompiler.dir/FinalCppSourceParts.cpp.o -MF compiler/acir/lib/Compiler/CMakeFiles/ACIRSourceCompiler.dir/FinalCppSourceParts.cpp.o.d -o compiler/acir/lib/Compiler/CMakeFiles/ACIRSourceCompiler.dir/FinalCppSourceParts.cpp.o -c /Users/zhoubot/.codex/worktrees/migration-capture/pyCircuit/compiler/acir/lib/Compiler/FinalCppSourceParts.cpp
+In file included from /Users/zhoubot/.codex/worktrees/migration-capture/pyCircuit/compiler/acir/lib/Compiler/FinalCppSourceParts.cpp:1:
+In file included from /Users/zhoubot/.codex/worktrees/migration-capture/pyCircuit/compiler/acir/lib/Compiler/FinalCppSourceParts.h:4:
+In file included from /Users/zhoubot/.codex/worktrees/migration-capture/pyCircuit/compiler/acir/lib/Compiler/FinalProgram.h:4:
+In file included from /Users/zhoubot/.codex/worktrees/migration-capture/pyCircuit/compiler/acir/lib/Compiler/CheckGraph.h:4:
+In file included from /Users/zhoubot/.codex/worktrees/migration-capture/pyCircuit/compiler/acir/lib/Compiler/ModuleGraph.h:4:
+In file included from /Users/zhoubot/.codex/worktrees/migration-capture/pyCircuit/compiler/acir/lib/Compiler/SourceLink.h:4:
+In file included from /Users/zhoubot/.codex/worktrees/migration-capture/pyCircuit/compiler/acir/lib/Compiler/SourceUnit.h:4:
+In file included from /Users/zhoubot/.codex/worktrees/migration-capture/pyCircuit/compiler/acir/lib/Dialect/ACIR/ACIRSourceContracts.h:4:
+In file included from /Users/zhoubot/.codex/worktrees/migration-capture/pyCircuit/compiler/acir/include/acir/Dialect/ACIR/ACIRAttributes.h:4:
+In file included from /opt/homebrew/Cellar/llvm/22.1.8/include/mlir/IR/BuiltinAttributes.h:12:
+In file included from /opt/homebrew/Cellar/llvm/22.1.8/include/mlir/IR/BuiltinAttributeInterfaces.h:12:
+In file included from /opt/homebrew/Cellar/llvm/22.1.8/include/mlir/IR/AffineMap.h:17:
+In file included from /opt/homebrew/Cellar/llvm/22.1.8/include/mlir/IR/AffineExpr.h:21:
+/opt/homebrew/Cellar/llvm/22.1.8/include/llvm/ADT/SmallVector.h:1171:7: error: static assertion failed due to requirement 'sizeof(acir::compiler::CppSpecNames) <= 256': You are trying to use a default number of inlined elements for `SmallVector<T>` but `sizeof(T)` is really big! Please use an explicit number of inlined elements with `SmallVector<T, N>` to make sure you really want that much inline storage.
+ 1171 |       sizeof(T) <= 256,
+      |       ^~~~~~~~~~~~~~~~
+/opt/homebrew/Cellar/llvm/22.1.8/include/llvm/ADT/SmallVector.h:1203:24: note: in instantiation of template class 'llvm::CalculateSmallVectorDefaultInlinedElements<acir::compiler::CppSpecNames>' requested here
+ 1203 |           unsigned N = CalculateSmallVectorDefaultInlinedElements<T>::value>
+      |                        ^
+/Users/zhoubot/.codex/worktrees/migration-capture/pyCircuit/compiler/acir/lib/Compiler/FinalCppEmission.h:36:9: note: in instantiation of default argument for 'SmallVector<CppSpecNames>' required here
+   36 |   llvm::SmallVector<CppSpecNames> specs;
+      |         ^~~~~~~~~~~~~~~~~~~~~~~~~
+/opt/homebrew/Cellar/llvm/22.1.8/include/llvm/ADT/SmallVector.h:1171:17: note: expression evaluates to '328 <= 256'
+ 1171 |       sizeof(T) <= 256,
+      |       ~~~~~~~~~~^~~~~~
+1 error generated.
+[2/16] Building CXX object compiler/acir/lib/Compiler/CMakeFiles/ACIRSourceCompiler.dir/FinalCppEmission.cpp.o
+FAILED: [code=1] compiler/acir/lib/Compiler/CMakeFiles/ACIRSourceCompiler.dir/FinalCppEmission.cpp.o 
+/usr/bin/c++  -I/Users/zhoubot/.codex/worktrees/migration-capture/pyCircuit/compiler/acir/include -I/Users/zhoubot/.codex/worktrees/migration-capture/pyCircuit/.pycircuit_out/w10-pm/build/compiler/acir/include -I/Users/zhoubot/.codex/worktrees/migration-capture/pyCircuit/compiler/acir/lib -isystem /opt/homebrew/Cellar/llvm/22.1.8/include -O3 -DNDEBUG -std=c++20 -arch arm64 -fPIC   -D__STDC_CONSTANT_MACROS -D__STDC_FORMAT_MACROS -D__STDC_LIMIT_MACROS -MD -MT compiler/acir/lib/Compiler/CMakeFiles/ACIRSourceCompiler.dir/FinalCppEmission.cpp.o -MF compiler/acir/lib/Compiler/CMakeFiles/ACIRSourceCompiler.dir/FinalCppEmission.cpp.o.d -o compiler/acir/lib/Compiler/CMakeFiles/ACIRSourceCompiler.dir/FinalCppEmission.cpp.o -c /Users/zhoubot/.codex/worktrees/migration-capture/pyCircuit/compiler/acir/lib/Compiler/FinalCppEmission.cpp
+In file included from /Users/zhoubot/.codex/worktrees/migration-capture/pyCircuit/compiler/acir/lib/Compiler/FinalCppEmission.cpp:1:
+In file included from /Users/zhoubot/.codex/worktrees/migration-capture/pyCircuit/compiler/acir/lib/Compiler/FinalCppEmission.h:4:
+In file included from /Users/zhoubot/.codex/worktrees/migration-capture/pyCircuit/compiler/acir/lib/Compiler/FinalEmitCppHierarchy.h:4:
+In file included from /Users/zhoubot/.codex/worktrees/migration-capture/pyCircuit/compiler/acir/lib/Compiler/FinalProgram.h:4:
+In file included from /Users/zhoubot/.codex/worktrees/migration-capture/pyCircuit/compiler/acir/lib/Compiler/CheckGraph.h:4:
+In file included from /Users/zhoubot/.codex/worktrees/migration-capture/pyCircuit/compiler/acir/lib/Compiler/ModuleGraph.h:4:
+In file included from /Users/zhoubot/.codex/worktrees/migration-capture/pyCircuit/compiler/acir/lib/Compiler/SourceLink.h:4:
+In file included from /Users/zhoubot/.codex/worktrees/migration-capture/pyCircuit/compiler/acir/lib/Compiler/SourceUnit.h:4:
+In file included from /Users/zhoubot/.codex/worktrees/migration-capture/pyCircuit/compiler/acir/lib/Dialect/ACIR/ACIRSourceContracts.h:4:
+In file included from /Users/zhoubot/.codex/worktrees/migration-capture/pyCircuit/compiler/acir/include/acir/Dialect/ACIR/ACIRAttributes.h:4:
+In file included from /opt/homebrew/Cellar/llvm/22.1.8/include/mlir/IR/BuiltinAttributes.h:12:
+In file included from /opt/homebrew/Cellar/llvm/22.1.8/include/mlir/IR/BuiltinAttributeInterfaces.h:12:
+In file included from /opt/homebrew/Cellar/llvm/22.1.8/include/mlir/IR/AffineMap.h:17:
+In file included from /opt/homebrew/Cellar/llvm/22.1.8/include/mlir/IR/AffineExpr.h:21:
+/opt/homebrew/Cellar/llvm/22.1.8/include/llvm/ADT/SmallVector.h:1171:7: error: static assertion failed due to requirement 'sizeof(acir::compiler::CppSpecNames) <= 256': You are trying to use a default number of inlined elements for `SmallVector<T>` but `sizeof(T)` is really big! Please use an explicit number of inlined elements with `SmallVector<T, N>` to make sure you really want that much inline storage.
+ 1171 |       sizeof(T) <= 256,
+      |       ^~~~~~~~~~~~~~~~
+/opt/homebrew/Cellar/llvm/22.1.8/include/llvm/ADT/SmallVector.h:1203:24: note: in instantiation of template class 'llvm::CalculateSmallVectorDefaultInlinedElements<acir::compiler::CppSpecNames>' requested here
+ 1203 |           unsigned N = CalculateSmallVectorDefaultInlinedElements<T>::value>
+      |                        ^
+/Users/zhoubot/.codex/worktrees/migration-capture/pyCircuit/compiler/acir/lib/Compiler/FinalCppEmission.h:36:9: note: in instantiation of default argument for 'SmallVector<CppSpecNames>' required here
+   36 |   llvm::SmallVector<CppSpecNames> specs;
+      |         ^~~~~~~~~~~~~~~~~~~~~~~~~
+/opt/homebrew/Cellar/llvm/22.1.8/include/llvm/ADT/SmallVector.h:1171:17: note: expression evaluates to '328 <= 256'
+ 1171 |       sizeof(T) <= 256,
+      |       ~~~~~~~~~~^~~~~~
+In file included from /Users/zhoubot/.codex/worktrees/migration-capture/pyCircuit/compiler/acir/lib/Compiler/FinalCppEmission.cpp:1:
+In file included from /Users/zhoubot/.codex/worktrees/migration-capture/pyCircuit/compiler/acir/lib/Compiler/FinalCppEmission.h:4:
+In file included from /Users/zhoubot/.codex/worktrees/migration-capture/pyCircuit/compiler/acir/lib/Compiler/FinalEmitCppHierarchy.h:4:
+In file included from /Users/zhoubot/.codex/worktrees/migration-capture/pyCircuit/compiler/acir/lib/Compiler/FinalProgram.h:4:
+In file included from /Users/zhoubot/.codex/worktrees/migration-capture/pyCircuit/compiler/acir/lib/Compiler/CheckGraph.h:4:
+In file included from /Users/zhoubot/.codex/worktrees/migration-capture/pyCircuit/compiler/acir/lib/Compiler/ModuleGraph.h:4:
+In file included from /Users/zhoubot/.codex/worktrees/migration-capture/pyCircuit/compiler/acir/lib/Compiler/SourceLink.h:4:
+In file included from /Users/zhoubot/.codex/worktrees/migration-capture/pyCircuit/compiler/acir/lib/Compiler/SourceUnit.h:4:
+In file included from /Users/zhoubot/.codex/worktrees/migration-capture/pyCircuit/compiler/acir/lib/Dialect/ACIR/ACIRSourceContracts.h:4:
+In file included from /Users/zhoubot/.codex/worktrees/migration-capture/pyCircuit/compiler/acir/include/acir/Dialect/ACIR/ACIRAttributes.h:4:
+In file included from /opt/homebrew/Cellar/llvm/22.1.8/include/mlir/IR/BuiltinAttributes.h:12:
+In file included from /opt/homebrew/Cellar/llvm/22.1.8/include/mlir/IR/BuiltinAttributeInterfaces.h:12:
+In file included from /opt/homebrew/Cellar/llvm/22.1.8/include/mlir/IR/AffineMap.h:17:
+In file included from /opt/homebrew/Cellar/llvm/22.1.8/include/mlir/IR/AffineExpr.h:17:
+In file included from /opt/homebrew/Cellar/llvm/22.1.8/include/mlir/IR/Visitors.h:16:
+In file included from /opt/homebrew/Cellar/llvm/22.1.8/include/mlir/Support/LLVM.h:27:
+/opt/homebrew/Cellar/llvm/22.1.8/include/llvm/Support/LogicalResult.h:85:22: error: type 'std::optional<acir::compiler::CppEmissionNames>' is not a direct or virtual base of 'llvm::FailureOr<acir::compiler::CppEmissionNames>'
+   85 |   FailureOr(T &&Y) : std::optional<T>(std::forward<T>(Y)) {}
+      |                      ^~~~~~~~~~~~~~~~
+/Users/zhoubot/.codex/worktrees/migration-capture/pyCircuit/compiler/acir/lib/Compiler/FinalCppEmission.cpp:532:10: note: in instantiation of member function 'llvm::FailureOr<acir::compiler::CppEmissionNames>::FailureOr' requested here
+  532 |   return result;
+      |          ^
+2 errors generated.
+[3/16] Building CXX object compiler/acir/lib/Compiler/CMakeFiles/ACIRSourceCompiler.dir/FinalEmit.cpp.o
+[4/16] Building CXX object compiler/acir/lib/Compiler/CMakeFiles/ACIRSourceCompiler.dir/FinalEmitCpp.cpp.o
+FAILED: [code=1] compiler/acir/lib/Compiler/CMakeFiles/ACIRSourceCompiler.dir/FinalEmitCpp.cpp.o 
+/usr/bin/c++  -I/Users/zhoubot/.codex/worktrees/migration-capture/pyCircuit/compiler/acir/include -I/Users/zhoubot/.codex/worktrees/migration-capture/pyCircuit/.pycircuit_out/w10-pm/build/compiler/acir/include -I/Users/zhoubot/.codex/worktrees/migration-capture/pyCircuit/compiler/acir/lib -isystem /opt/homebrew/Cellar/llvm/22.1.8/include -O3 -DNDEBUG -std=c++20 -arch arm64 -fPIC   -D__STDC_CONSTANT_MACROS -D__STDC_FORMAT_MACROS -D__STDC_LIMIT_MACROS -MD -MT compiler/acir/lib/Compiler/CMakeFiles/ACIRSourceCompiler.dir/FinalEmitCpp.cpp.o -MF compiler/acir/lib/Compiler/CMakeFiles/ACIRSourceCompiler.dir/FinalEmitCpp.cpp.o.d -o compiler/acir/lib/Compiler/CMakeFiles/ACIRSourceCompiler.dir/FinalEmitCpp.cpp.o -c /Users/zhoubot/.codex/worktrees/migration-capture/pyCircuit/compiler/acir/lib/Compiler/FinalEmitCpp.cpp
+In file included from /Users/zhoubot/.codex/worktrees/migration-capture/pyCircuit/compiler/acir/lib/Compiler/FinalEmitCpp.cpp:1:
+In file included from /Users/zhoubot/.codex/worktrees/migration-capture/pyCircuit/compiler/acir/lib/Compiler/FinalEmitCpp.h:4:
+In file included from /Users/zhoubot/.codex/worktrees/migration-capture/pyCircuit/compiler/acir/lib/Compiler/FinalCppSourceParts.h:4:
+In file included from /Users/zhoubot/.codex/worktrees/migration-capture/pyCircuit/compiler/acir/lib/Compiler/FinalProgram.h:4:
+In file included from /Users/zhoubot/.codex/worktrees/migration-capture/pyCircuit/compiler/acir/lib/Compiler/CheckGraph.h:4:
+In file included from /Users/zhoubot/.codex/worktrees/migration-capture/pyCircuit/compiler/acir/lib/Compiler/ModuleGraph.h:4:
+In file included from /Users/zhoubot/.codex/worktrees/migration-capture/pyCircuit/compiler/acir/lib/Compiler/SourceLink.h:4:
+In file included from /Users/zhoubot/.codex/worktrees/migration-capture/pyCircuit/compiler/acir/lib/Compiler/SourceUnit.h:4:
+In file included from /Users/zhoubot/.codex/worktrees/migration-capture/pyCircuit/compiler/acir/lib/Dialect/ACIR/ACIRSourceContracts.h:4:
+In file included from /Users/zhoubot/.codex/worktrees/migration-capture/pyCircuit/compiler/acir/include/acir/Dialect/ACIR/ACIRAttributes.h:4:
+In file included from /opt/homebrew/Cellar/llvm/22.1.8/include/mlir/IR/BuiltinAttributes.h:12:
+In file included from /opt/homebrew/Cellar/llvm/22.1.8/include/mlir/IR/BuiltinAttributeInterfaces.h:12:
+In file included from /opt/homebrew/Cellar/llvm/22.1.8/include/mlir/IR/AffineMap.h:17:
+In file included from /opt/homebrew/Cellar/llvm/22.1.8/include/mlir/IR/AffineExpr.h:21:
+/opt/homebrew/Cellar/llvm/22.1.8/include/llvm/ADT/SmallVector.h:1171:7: error: static assertion failed due to requirement 'sizeof(acir::compiler::CppSpecNames) <= 256': You are trying to use a default number of inlined elements for `SmallVector<T>` but `sizeof(T)` is really big! Please use an explicit number of inlined elements with `SmallVector<T, N>` to make sure you really want that much inline storage.
+ 1171 |       sizeof(T) <= 256,
+      |       ^~~~~~~~~~~~~~~~
+/opt/homebrew/Cellar/llvm/22.1.8/include/llvm/ADT/SmallVector.h:1203:24: note: in instantiation of template class 'llvm::CalculateSmallVectorDefaultInlinedElements<acir::compiler::CppSpecNames>' requested here
+ 1203 |           unsigned N = CalculateSmallVectorDefaultInlinedElements<T>::value>
+      |                        ^
+/Users/zhoubot/.codex/worktrees/migration-capture/pyCircuit/compiler/acir/lib/Compiler/FinalCppEmission.h:36:9: note: in instantiation of default argument for 'SmallVector<CppSpecNames>' required here
+   36 |   llvm::SmallVector<CppSpecNames> specs;
+      |         ^~~~~~~~~~~~~~~~~~~~~~~~~
+/opt/homebrew/Cellar/llvm/22.1.8/include/llvm/ADT/SmallVector.h:1171:17: note: expression evaluates to '328 <= 256'
+ 1171 |       sizeof(T) <= 256,
+      |       ~~~~~~~~~~^~~~~~
+In file included from /Users/zhoubot/.codex/worktrees/migration-capture/pyCircuit/compiler/acir/lib/Compiler/FinalEmitCpp.cpp:1:
+In file included from /Users/zhoubot/.codex/worktrees/migration-capture/pyCircuit/compiler/acir/lib/Compiler/FinalEmitCpp.h:4:
+In file included from /Users/zhoubot/.codex/worktrees/migration-capture/pyCircuit/compiler/acir/lib/Compiler/FinalCppSourceParts.h:4:
+In file included from /Users/zhoubot/.codex/worktrees/migration-capture/pyCircuit/compiler/acir/lib/Compiler/FinalProgram.h:4:
+In file included from /Users/zhoubot/.codex/worktrees/migration-capture/pyCircuit/compiler/acir/lib/Compiler/CheckGraph.h:4:
+In file included from /Users/zhoubot/.codex/worktrees/migration-capture/pyCircuit/compiler/acir/lib/Compiler/ModuleGraph.h:4:
+In file included from /Users/zhoubot/.codex/worktrees/migration-capture/pyCircuit/compiler/acir/lib/Compiler/SourceLink.h:4:
+In file included from /Users/zhoubot/.codex/worktrees/migration-capture/pyCircuit/compiler/acir/lib/Compiler/SourceUnit.h:4:
+In file included from /Users/zhoubot/.codex/worktrees/migration-capture/pyCircuit/compiler/acir/lib/Dialect/ACIR/ACIRSourceContracts.h:4:
+In file included from /Users/zhoubot/.codex/worktrees/migration-capture/pyCircuit/compiler/acir/include/acir/Dialect/ACIR/ACIRAttributes.h:4:
+In file included from /opt/homebrew/Cellar/llvm/22.1.8/include/mlir/IR/BuiltinAttributes.h:12:
+In file included from /opt/homebrew/Cellar/llvm/22.1.8/include/mlir/IR/BuiltinAttributeInterfaces.h:12:
+In file included from /opt/homebrew/Cellar/llvm/22.1.8/include/mlir/IR/AffineMap.h:17:
+In file included from /opt/homebrew/Cellar/llvm/22.1.8/include/mlir/IR/AffineExpr.h:17:
+In file included from /opt/homebrew/Cellar/llvm/22.1.8/include/mlir/IR/Visitors.h:16:
+In file included from /opt/homebrew/Cellar/llvm/22.1.8/include/mlir/Support/LLVM.h:27:
+/opt/homebrew/Cellar/llvm/22.1.8/include/llvm/Support/LogicalResult.h:85:22: error: type 'std::optional<acir::compiler::CppEmissionPlan>' is not a direct or virtual base of 'llvm::FailureOr<acir::compiler::CppEmissionPlan>'
+   85 |   FailureOr(T &&Y) : std::optional<T>(std::forward<T>(Y)) {}
+      |                      ^~~~~~~~~~~~~~~~
+/Users/zhoubot/.codex/worktrees/migration-capture/pyCircuit/compiler/acir/lib/Compiler/FinalEmitCpp.cpp:518:10: note: in instantiation of member function 'llvm::FailureOr<acir::compiler::CppEmissionPlan>::FailureOr' requested here
+  518 |   return plan;
+      |          ^
+2 errors generated.
+ninja: build stopped: subcommand failed.

@@ -6,6 +6,8 @@
 
 namespace acir::compiler {
 
+struct CppEmissionNames;
+
 struct SpecGroup {
   mlir::FlatSymbolRefAttr definition;
   mlir::ArrayAttr staticArguments;
@@ -44,6 +46,7 @@ childReadBinding(const FinalProgram &program, size_t parentOrdinal,
                  const InputPort &childInput, mlir::Value actualHandle,
                  llvm::ArrayRef<InputPort> parentInputs,
                  llvm::DenseMap<mlir::Attribute, size_t> parentOwned,
+                 const CppEmissionNames &names, size_t parentDefinition,
                  ac::detail::EmitError emitError);
 mlir::FailureOr<llvm::SmallVector<ChildReadBinding>>
 childReadBindings(const FinalProgram &program, size_t parentOrdinal,
@@ -52,6 +55,7 @@ childReadBindings(const FinalProgram &program, size_t parentOrdinal,
                   llvm::ArrayRef<mlir::Value> actualHandles,
                   llvm::ArrayRef<InputPort> parentInputs,
                   llvm::DenseMap<mlir::Attribute, size_t> parentOwned,
+                  const CppEmissionNames &names, size_t parentDefinition,
                   ac::detail::EmitError emitError);
 
 } // namespace acir::compiler

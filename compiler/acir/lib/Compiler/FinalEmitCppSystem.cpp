@@ -5,6 +5,7 @@
 namespace acir::compiler {
 mlir::LogicalResult emitFinalCppSystem(const FinalProgram &program,
                                        llvm::raw_ostream &out,
+                                       const CppEmissionNames &names,
                                        ac::detail::EmitError emitError) {
   auto instances = program.instances();
   size_t root = program.rootInstanceOrdinal();
@@ -57,12 +58,12 @@ mlir::LogicalResult emitFinalCppSystem(const FinalProgram &program,
           static_cast<size_t>(actualPos - actualParent.childOrdinals.begin());
       if (childPosition >= rep.childOrdinals.size())
         return emitError() << "instance child is absent from SpecKey layout";
-      result += ".child_" + std::to_string(childPosition) + "_";
+      result += "." + names.child(defByInstance[parent], childPosition);
     }
     return result;
   };
   const size_t rootDef = defByInstance[root];
-  out << "using FinalModel = FinalModuleDef" << rootDef
+  out << "using FinalModel = " << names.qualifiedType(rootDef)
       << ";\n"
          "class FinalSystem final : public gfsim::SimSystem {\npublic:\n"
          "  FinalSystem() : root_(nullptr, \"root\") {\n    if "
@@ -133,10 +134,14 @@ mlir::LogicalResult emitFinalCppSystem(const FinalProgram &program,
     auto ownerPath = objectPath(owner);
     if (localState == stateRanks[owner].end() || failed(ownerPath))
       return emitError() << "owned state is outside its frozen local slice";
+    const size_t ownerDef = defByInstance[owner];
+    const auto dName = names.state(ownerDef, "d", localState->second);
+    const auto qName = names.state(ownerDef, "q", localState->second);
+    const auto eName = names.state(ownerDef, "e", localState->second);
     if (state.commit.kind == CommitPairKind::Hold) {
-      out << "    " << *ownerPath << ".d" << localState->second
-          << "_ = " << *ownerPath << ".q" << localState->second << "_.Read(); "
-          << *ownerPath << ".e" << localState->second << "_ = false;\n";
+      out << "    " << *ownerPath << "." << dName << " = " << *ownerPath << "."
+          << qName << ".Read(); " << *ownerPath << "." << eName
+          << " = false;\n";
     } else if (state.commit.kind == CommitPairKind::Forward) {
       if (state.commit.contributions.size() != 1)
         return emitError() << "Forward commit requires one contribution";
@@ -155,11 +160,10 @@ mlir::LogicalResult emitFinalCppSystem(const FinalProgram &program,
       if (localContribution == contributionRanks[producer].end() ||
           failed(producerPath))
         return emitError() << "Forward contribution is outside producer slice";
-      out << "    " << *ownerPath << ".d" << localState->second
-          << "_ = " << *producerPath << ".proposal_"
-          << localContribution->second << "_.data; " << *ownerPath << ".e"
-          << localState->second << "_ = " << *producerPath << ".proposal_"
-          << localContribution->second << "_.enable;\n";
+      out << "    " << *ownerPath << "." << dName << " = " << *producerPath
+          << ".proposal_" << localContribution->second << "_.data; "
+          << *ownerPath << "." << eName << " = " << *producerPath
+          << ".proposal_" << localContribution->second << "_.enable;\n";
     } else {
       return emitError() << "C++ emitter does not support ExclusiveMerge";
     }
@@ -176,8 +180,8 @@ mlir::LogicalResult emitFinalCppSystem(const FinalProgram &program,
          "    if (phase == gfsim::SimFailurePhase::Check && "
          "!source_failure_.code.empty()) return source_failure_;\n"
          "    return gfsim::SimSystem::DescribeFailure(phase);\n  }\n"
-         "private:\n  gfsim::SimFailureInfo source_failure_;\n  FinalModuleDef"
-      << rootDef << " root_;\n};\n";
+         "private:\n  gfsim::SimFailureInfo source_failure_;\n  "
+      << names.qualifiedType(rootDef) << " root_;\n};\n";
   return success();
 }
 } // namespace acir::compiler

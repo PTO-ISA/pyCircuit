@@ -1,4 +1,5 @@
 #include "FinalEmitCpp.h"
+#include "FinalCppEmission.h"
 #include "FinalEmitCppSupport.h"
 #include "FinalEmitCppSystem.h"
 
@@ -16,8 +17,9 @@ using namespace mlir;
 
 namespace acir::compiler {
 
-FailureOr<std::string> emitFinalCppBody(const FinalProgram &program,
-                                        ac::detail::EmitError emitError) {
+FailureOr<CppEmissionPlan>
+buildCppEmissionPlan(const FinalProgram &program, bool sourceOwned,
+                     ac::detail::EmitError emitError) {
   auto instances = program.instances();
   if (instances.empty() || program.rootInstanceOrdinal() >= instances.size() ||
       program.postOrderInstanceOrdinals().size() != instances.size())
@@ -29,6 +31,14 @@ FailureOr<std::string> emitFinalCppBody(const FinalProgram &program,
   if (failed(groupsOr))
     return failure();
   auto groups = std::move(*groupsOr);
+  auto namesOr = buildCppEmissionNames(program, groups, defByInstance,
+                                       sourceOwned, emitError);
+  if (failed(namesOr))
+    return failure();
+  CppEmissionPlan plan;
+  plan.names = std::move(*namesOr);
+  plan.rootDefinition = plan.names.defByInstance[program.rootInstanceOrdinal()];
+  plan.definitions.resize(groups.size());
   auto descriptorsOr = buildObservationDescriptors(program, emitError);
   if (failed(descriptorsOr))
     return failure();
@@ -82,8 +92,7 @@ FailureOr<std::string> emitFinalCppBody(const FinalProgram &program,
   if (failed(verifySpecGroupLayouts(program, groups, defByInstance, emitError)))
     return failure();
 
-  std::string text;
-  llvm::raw_string_ostream out(text);
+  llvm::raw_string_ostream out(plan.support);
   size_t eventCapacity =
       llvm::count_if(descriptors, [](const auto &item) { return !item.gauge; });
   out << "#include \"gfsim/ObservationSlot.h\"\n"
@@ -120,10 +129,12 @@ FailureOr<std::string> emitFinalCppBody(const FinalProgram &program,
   }
   out << "}};\nclass FinalSystem;\n";
   for (size_t def = 0; def < groups.size(); ++def)
-    out << "class FinalModuleDef" << def << ";\n";
+    if (!sourceOwned)
+      out << "class FinalModuleDef" << def << ";\n";
 
   SmallVector<size_t> defPostOrder =
       definitionPostOrder(program, defByInstance, groups.size());
+  plan.definitionPostOrder = defPostOrder;
   SmallVector<SmallVector<size_t>> parentDefs(groups.size());
   for (size_t def = 0; def < groups.size(); ++def) {
     const auto &representative = instances[groups[def].instances.front()];
@@ -134,34 +145,47 @@ FailureOr<std::string> emitFinalCppBody(const FinalProgram &program,
     }
   }
 
+  out.flush();
   for (size_t def : defPostOrder) {
+    llvm::raw_string_ostream out(plan.definitions[def].declaration);
     const auto &representative = instances[groups[def].instances.front()];
     auto inputs = inputPorts(program, representative.ordinal, emitError);
     if (failed(inputs))
       return failure();
-    out << "class FinalModuleDef" << def
-        << " final : public gfsim::SimModule {\nprivate:\n"
-           "  friend class FinalSystem;\n";
+    StringRef classType = plan.names.methodType(def);
+    if (sourceOwned)
+      out << "template<> class " << plan.names.family(def) << "<>";
+    else
+      out << "class " << classType;
+    out << " final : public gfsim::SimModule {\nprivate:\n"
+           "  friend class ";
+    out << (sourceOwned ? "::FinalSystem" : "FinalSystem") << ";\n";
     for (size_t parentDef : parentDefs[def])
-      out << "  friend class FinalModuleDef" << parentDef << ";\n";
+      out << "  friend class "
+          << (sourceOwned ? plan.names.qualifiedType(parentDef)
+                          : plan.names.methodType(parentDef))
+          << ";\n";
     out << "  gfsim::SimModule *const parent_;\n"
            "  const std::string instance_path_;\n";
-    out << "  FinalModuleDef" << def << "(const FinalModuleDef" << def
+    StringRef constructorName =
+        sourceOwned ? plan.names.family(def) : classType;
+    out << "  " << constructorName << "(const " << classType
         << " &) = delete;\n"
-           "  FinalModuleDef"
-        << def << " &operator=(const FinalModuleDef" << def
+           "  "
+        << classType << " &operator=(const " << classType
         << " &) = delete;\n"
-           "  FinalModuleDef"
-        << def << "(FinalModuleDef" << def
+           "  "
+        << constructorName << "(" << classType
         << " &&) = delete;\n"
-           "  FinalModuleDef"
-        << def << " &operator=(FinalModuleDef" << def
+           "  "
+        << classType << " &operator=(" << classType
         << " &&) = delete;\n"
-           "  explicit FinalModuleDef"
-        << def << "(gfsim::SimModule *parent, std::string instancePath";
+           "  explicit "
+        << constructorName
+        << "(gfsim::SimModule *parent, std::string instancePath";
     for (const InputPort &input : *inputs)
-      out << ", ReadView<" << cppType(input.width) << "> input_"
-          << input.portIndex;
+      out << ", ReadView<" << cppType(input.width) << "> "
+          << plan.names.inputParameter(def, input.portIndex);
     out << ");\n"
            "  void Build() override;\n"
            "  void Work(std::uint64_t epoch) override;\n"
@@ -180,15 +204,17 @@ FailureOr<std::string> emitFinalCppBody(const FinalProgram &program,
     for (size_t state = 0; state < representative.ownedStateOrdinals.size();
          ++state) {
       size_t global = representative.ownedStateOrdinals[state];
-      out << "  gfsim::SimDFFE<" << cppType(carriers[global]->width) << "> q"
-          << state << "_{" << initials[global] << "};\n"
-          << "  " << cppType(carriers[global]->width) << " d" << state
-          << "_{}; bool e" << state << "_ = false; bool frozen_e" << state
-          << "_ = false;\n";
+      out << "  gfsim::SimDFFE<" << cppType(carriers[global]->width) << "> "
+          << plan.names.state(def, "q", state) << "{" << initials[global]
+          << "};\n"
+          << "  " << cppType(carriers[global]->width) << " "
+          << plan.names.state(def, "d", state) << "{}; bool "
+          << plan.names.state(def, "e", state) << " = false; bool "
+          << plan.names.state(def, "frozen_e", state) << " = false;\n";
     }
     for (const InputPort &input : *inputs)
-      out << "  ReadView<" << cppType(input.width) << "> input_"
-          << input.portIndex << "_;\n";
+      out << "  ReadView<" << cppType(input.width) << "> "
+          << plan.names.input(def, input.portIndex) << ";\n";
     for (size_t contribution = 0;
          contribution < representative.proposalContributionOrdinals.size();
          ++contribution) {
@@ -212,8 +238,11 @@ FailureOr<std::string> emitFinalCppBody(const FinalProgram &program,
     for (size_t childPosition = 0;
          childPosition < representative.childOrdinals.size(); ++childPosition) {
       size_t childOrdinal = representative.childOrdinals[childPosition];
-      out << "  FinalModuleDef" << defByInstance[childOrdinal] << " child_"
-          << childPosition << "_;\n";
+      size_t childDef = defByInstance[childOrdinal];
+      out << "  "
+          << (sourceOwned ? plan.names.qualifiedType(childDef)
+                          : plan.names.methodType(childDef))
+          << " " << plan.names.child(def, childPosition) << ";\n";
     }
     if (def == defByInstance[root] && !inputs->empty())
       return emitError() << "root C++ class has unbound formal read inputs";
@@ -226,20 +255,24 @@ FailureOr<std::string> emitFinalCppBody(const FinalProgram &program,
   }
 
   for (size_t def : defPostOrder) {
+    llvm::raw_string_ostream out(plan.definitions[def].constructor);
     const auto &representative = instances[groups[def].instances.front()];
     auto inputs = inputPorts(program, representative.ordinal, emitError);
     if (failed(inputs))
       return failure();
-    out << "FinalModuleDef" << def << "::FinalModuleDef" << def
+    StringRef classType = plan.names.methodType(def);
+    StringRef constructorName =
+        sourceOwned ? plan.names.family(def) : classType;
+    out << classType << "::" << constructorName
         << "(gfsim::SimModule *parent, std::string instancePath";
     for (const InputPort &input : *inputs)
-      out << ", ReadView<" << cppType(input.width) << "> input_"
-          << input.portIndex;
+      out << ", ReadView<" << cppType(input.width) << "> "
+          << plan.names.inputParameter(def, input.portIndex);
     out << ") : gfsim::SimModule(instancePath), parent_(parent), "
            "instance_path_(std::move(instancePath))";
     for (const InputPort &input : *inputs)
-      out << ", input_" << input.portIndex << "_(input_" << input.portIndex
-          << ")";
+      out << ", " << plan.names.input(def, input.portIndex) << "("
+          << plan.names.inputParameter(def, input.portIndex) << ")";
     DenseMap<Attribute, size_t> parentOwned;
     for (auto [local, global] :
          llvm::enumerate(representative.ownedStateOrdinals))
@@ -254,16 +287,17 @@ FailureOr<std::string> emitFinalCppBody(const FinalProgram &program,
         return emitError() << "C++ child placement/input snapshot is missing";
       SmallVector<Value> actualHandles(placement.getInputs().begin(),
                                        placement.getInputs().end());
-      auto bindings = childReadBindings(
-          program, representative.ordinal, childPosition, childOrdinal,
-          *childInputs, actualHandles, *inputs, parentOwned, emitError);
+      auto bindings =
+          childReadBindings(program, representative.ordinal, childPosition,
+                            childOrdinal, *childInputs, actualHandles, *inputs,
+                            parentOwned, plan.names, def, emitError);
       if (failed(bindings))
         return failure();
       auto childName = frozenPlacementName(instances[childOrdinal], emitError);
       if (failed(childName))
         return failure();
-      out << ", child_" << childPosition << "_(this, instance_path_ + \"/\" + "
-          << cppStringLiteral(*childName);
+      out << ", " << plan.names.child(def, childPosition)
+          << "(this, instance_path_ + \"/\" + " << cppStringLiteral(*childName);
       for (const ChildReadBinding &binding : *bindings)
         out << ", " << binding.constructorExpression;
       out << ")";
@@ -276,6 +310,7 @@ FailureOr<std::string> emitFinalCppBody(const FinalProgram &program,
   }
 
   for (size_t def : defPostOrder) {
+    llvm::raw_string_ostream out(plan.definitions[def].methods);
     const auto &representative = instances[groups[def].instances.front()];
     auto inputs = inputPorts(program, representative.ordinal, emitError);
     if (failed(inputs))
@@ -285,17 +320,20 @@ FailureOr<std::string> emitFinalCppBody(const FinalProgram &program,
          llvm::enumerate(representative.ownedStateOrdinals))
       localOwned.try_emplace(program.proposals().states[global].stateID, local);
     CppExpressionEmitter expressions(program, representative.ordinal, *inputs,
-                                     std::move(localOwned), out, emitError);
-    out << "void FinalModuleDef" << def
+                                     std::move(localOwned), plan.names, def,
+                                     out, emitError);
+    StringRef classType = plan.names.methodType(def);
+    out << "void " << classType
         << "::Build() {}\n"
-           "void FinalModuleDef"
-        << def
+           "void "
+        << classType
         << "::ClearScratch() noexcept {\n"
            "  work_valid_ = false; commit_frozen_ = false;\n";
     for (size_t state = 0; state < representative.ownedStateOrdinals.size();
          ++state)
-      out << "  d" << state << "_ = {}; e" << state << "_ = false; frozen_e"
-          << state << "_ = false;\n";
+      out << "  " << plan.names.state(def, "d", state) << " = {}; "
+          << plan.names.state(def, "e", state) << " = false; "
+          << plan.names.state(def, "frozen_e", state) << " = false;\n";
     for (size_t contribution = 0;
          contribution < representative.proposalContributionOrdinals.size();
          ++contribution)
@@ -307,7 +345,7 @@ FailureOr<std::string> emitFinalCppBody(const FinalProgram &program,
       out << "  observation_" << observation << "_value_ = {}; "
           << "observation_" << observation << "_path_ = false; "
           << "observation_" << observation << "_completed_ = false;\n";
-    out << "}\nvoid FinalModuleDef" << def
+    out << "}\nvoid " << classType
         << "::Work(std::uint64_t epoch) {\n  ClearScratch(); work_epoch_ = "
            "epoch;\n";
     for (auto [local, global] :
@@ -348,46 +386,49 @@ FailureOr<std::string> emitFinalCppBody(const FinalProgram &program,
           << "; observation_" << local << "_completed_ = true;\n";
     }
     out << "  work_valid_ = true;\n}\n";
-    out << "void FinalModuleDef" << def
+    out << "void " << classType
         << "::Xfer() noexcept {\n"
            "  if (resetting_) {\n";
     for (size_t state = 0; state < representative.ownedStateOrdinals.size();
          ++state)
-      out << "    q" << state << "_.Xfer();\n";
+      out << "    " << plan.names.state(def, "q", state) << ".Xfer();\n";
     out << "    resetting_ = false; ClearScratch(); return;\n  }\n"
            "  if (!commit_frozen_) std::terminate();\n";
     for (size_t state = 0; state < representative.ownedStateOrdinals.size();
          ++state)
-      out << "  if (q" << state << "_.HasPending() || !q" << state
-          << "_.Write(d" << state << "_, frozen_e" << state
-          << "_)) std::terminate();\n";
+      out << "  if (" << plan.names.state(def, "q", state)
+          << ".HasPending() || !" << plan.names.state(def, "q", state)
+          << ".Write(" << plan.names.state(def, "d", state) << ", "
+          << plan.names.state(def, "frozen_e", state)
+          << ")) std::terminate();\n";
     for (size_t state = 0; state < representative.ownedStateOrdinals.size();
          ++state)
-      out << "  q" << state << "_.Xfer();\n";
+      out << "  " << plan.names.state(def, "q", state) << ".Xfer();\n";
     out << "  ClearScratch();\n}\n"
-           "void FinalModuleDef"
-        << def << "::DiscardNext() noexcept {\n";
+           "void "
+        << classType << "::DiscardNext() noexcept {\n";
     for (size_t state = 0; state < representative.ownedStateOrdinals.size();
          ++state)
-      out << "  q" << state << "_.DiscardNext();\n";
-    out << "  ClearScratch();\n}\nvoid FinalModuleDef" << def
+      out << "  " << plan.names.state(def, "q", state) << ".DiscardNext();\n";
+    out << "  ClearScratch();\n}\nvoid " << classType
         << "::Reset() noexcept {\n  DiscardNext();\n";
     for (size_t state = 0; state < representative.ownedStateOrdinals.size();
          ++state)
-      out << "  q" << state << "_.Reset();\n";
-    out << "  resetting_ = true;\n}\nvoid FinalModuleDef" << def
-        << "::ReportStat() {}\nbool FinalModuleDef" << def
+      out << "  " << plan.names.state(def, "q", state) << ".Reset();\n";
+    out << "  resetting_ = true;\n}\nvoid " << classType
+        << "::ReportStat() {}\nbool " << classType
         << "::HasWork() const noexcept { return "
         << (representative.ruleOrdinals.empty() ? "false" : "true")
         << "; }\n"
-           "bool FinalModuleDef"
-        << def
+           "bool "
+        << classType
         << "::Validate(std::uint64_t epoch) const noexcept {\n"
            "  if (!objects_frozen_ || !work_valid_ || work_epoch_ != epoch) "
            "return false;\n";
     for (size_t state = 0; state < representative.ownedStateOrdinals.size();
          ++state)
-      out << "  if (q" << state << "_.HasPending()) return false;\n";
+      out << "  if (" << plan.names.state(def, "q", state)
+          << ".HasPending()) return false;\n";
     for (size_t contribution = 0;
          contribution < representative.proposalContributionOrdinals.size();
          ++contribution)
@@ -399,27 +440,27 @@ FailureOr<std::string> emitFinalCppBody(const FinalProgram &program,
           << "_completed_) return false;\n";
     for (size_t childPosition = 0;
          childPosition < representative.childOrdinals.size(); ++childPosition) {
-      out << "  if (!child_" << childPosition
-          << "_.Validate(epoch)) return false;\n";
+      out << "  if (!" << plan.names.child(def, childPosition)
+          << ".Validate(epoch)) return false;\n";
     }
-    out << "  return true;\n}\nbool FinalModuleDef" << def
+    out << "  return true;\n}\nbool " << classType
         << "::ChecksPass() const noexcept {\n";
     for (size_t check = 0; check < representative.checkOrdinals.size(); ++check)
       out << "  if (!check_ok_" << check << "_) return false;\n";
     for (size_t childPosition = 0;
          childPosition < representative.childOrdinals.size(); ++childPosition) {
-      out << "  if (!child_" << childPosition
-          << "_.ChecksPass()) return false;\n";
+      out << "  if (!" << plan.names.child(def, childPosition)
+          << ".ChecksPass()) return false;\n";
     }
-    out << "  return true;\n}\nbool FinalModuleDef" << def
+    out << "  return true;\n}\nbool " << classType
         << "::RegisterAll(gfsim::SimSystem &system) noexcept {\n"
            "  if (!system.AddModule(*this)) return false;\n";
     for (size_t childPosition = 0;
          childPosition < representative.childOrdinals.size(); ++childPosition) {
-      out << "  if (!child_" << childPosition
-          << "_.RegisterAll(system)) return false;\n";
+      out << "  if (!" << plan.names.child(def, childPosition)
+          << ".RegisterAll(system)) return false;\n";
     }
-    out << "  return true;\n}\nbool FinalModuleDef" << def
+    out << "  return true;\n}\nbool " << classType
         << "::FreezeObjects(gfsim::SimModule *expectedParent, const "
            "std::string &expectedPath) noexcept {\n"
            "  if (objects_frozen_ || parent_ != expectedParent || "
@@ -442,28 +483,51 @@ FailureOr<std::string> emitFinalCppBody(const FinalProgram &program,
       auto childName = frozenPlacementName(instances[childOrdinal], emitError);
       if (failed(childName))
         return failure();
-      auto bindings = childReadBindings(
-          program, representative.ordinal, childPosition, childOrdinal,
-          *childInputs, actualHandles, *inputs, parentOwned, emitError);
+      auto bindings =
+          childReadBindings(program, representative.ordinal, childPosition,
+                            childOrdinal, *childInputs, actualHandles, *inputs,
+                            parentOwned, plan.names, def, emitError);
       if (failed(bindings))
         return failure();
       for (const ChildReadBinding &binding : *bindings)
         out << "  if (!" << binding.freezeExpression << ") return false;\n";
-      out << "  if (!child_" << childPosition
-          << "_.FreezeObjects(this, instance_path_ + \"/\" + "
+      out << "  if (!" << plan.names.child(def, childPosition)
+          << ".FreezeObjects(this, instance_path_ + \"/\" + "
           << cppStringLiteral(*childName) << ")) return false;\n";
     }
     out << "  objects_frozen_ = true; return true;\n}\n"
-           "void FinalModuleDef"
-        << def << "::FreezeOwned(bool permit) noexcept {\n";
+           "void "
+        << classType << "::FreezeOwned(bool permit) noexcept {\n";
     for (size_t state = 0; state < representative.ownedStateOrdinals.size();
          ++state)
-      out << "  frozen_e" << state << "_ = e" << state << "_ && permit;\n";
+      out << "  " << plan.names.state(def, "frozen_e", state) << " = "
+          << plan.names.state(def, "e", state) << " && permit;\n";
     out << "  commit_frozen_ = true;\n}\n";
   }
 
-  if (failed(emitFinalCppSystem(program, out, emitError)))
+  out.flush();
+  llvm::raw_string_ostream system(plan.system);
+  if (failed(emitFinalCppSystem(program, system, plan.names, emitError)))
     return failure();
+  system.flush();
+  return plan;
+}
+
+FailureOr<std::string> emitFinalCppBody(const FinalProgram &program,
+                                        ac::detail::EmitError emitError) {
+  auto plan = buildCppEmissionPlan(program, /*sourceOwned=*/false, emitError);
+  if (failed(plan))
+    return failure();
+  std::string text;
+  llvm::raw_string_ostream out(text);
+  out << plan->support << plan->legacyForwardDeclarations;
+  for (size_t definition : plan->definitionPostOrder)
+    out << plan->definitions[definition].declaration;
+  for (size_t definition : plan->definitionPostOrder)
+    out << plan->definitions[definition].constructor;
+  for (size_t definition : plan->definitionPostOrder)
+    out << plan->definitions[definition].methods;
+  out << plan->system;
   out.flush();
   return text;
 }

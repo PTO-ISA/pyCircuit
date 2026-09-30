@@ -1,0 +1,3 @@
+error: final hardware ProposalGraph reconstruction failed
+error: final hardware program view reconstruction failed
+error: linked design is not reconstructible by the emit path; this source shape is not supported yet

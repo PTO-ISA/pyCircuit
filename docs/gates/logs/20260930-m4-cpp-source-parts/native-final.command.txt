@@ -1,0 +1,6 @@
+cwd=/Users/zhoubot/.codex/worktrees/migration-capture/pyCircuit
+ACIR_SOURCE_UNIT_HARNESS=/Users/zhoubot/.codex/worktrees/migration-capture/pyCircuit/.pycircuit_out/w10-pm/build/bin/acir-source-unit-harness
+ACIR_DESIGN_HARNESS=/Users/zhoubot/.codex/worktrees/migration-capture/pyCircuit/.pycircuit_out/w10-pm/build/bin/acir-design-harness
+ACIR_BACKEND_CLOSURE_HARNESS=/Users/zhoubot/.codex/worktrees/migration-capture/pyCircuit/.pycircuit_out/w10-pm/build/bin/acir-backend-closure-harness
+/Users/zhoubot/.codex/worktrees/migration-capture/pyCircuit/.pycircuit_out/w10-pm/build/bin/ACIRFinalProgramTests --gtest_output=xml:/Users/zhoubot/.codex/worktrees/migration-capture/pyCircuit/.pycircuit_out/m4-cpp-source-parts/ACIRFinalProgramTests-final.xml
+/Users/zhoubot/.codex/worktrees/migration-capture/pyCircuit/.pycircuit_out/w10-pm/build/bin/ACIRExecutableBackendClosureTests --gtest_output=xml:/Users/zhoubot/.codex/worktrees/migration-capture/pyCircuit/.pycircuit_out/m4-cpp-source-parts/ACIRExecutableBackendClosureTests-final.xml

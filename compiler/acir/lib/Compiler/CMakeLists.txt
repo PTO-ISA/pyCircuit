@@ -1,6 +1,8 @@
 add_acir_library(ACIRSourceCompiler SOURCES
   CheckGraph.cpp
   FinalEmit.cpp
+  FinalCppEmission.cpp
+  FinalCppSourceParts.cpp
   FinalEmitCpp.cpp
   FinalEmitCppSystem.cpp
   FinalRuntimeMetadata.cpp

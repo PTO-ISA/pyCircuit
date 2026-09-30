@@ -45,7 +45,7 @@ modernization plan 修订 8 的有界出口统计（本分支的计划副本仍�
 | M1 最少治理与迁移边界 | done（有界出口） | 文件归属、独立实现/测试/审阅和候选证据机制已运行；不再以流程扩建阻塞开发 |
 | M2 最小双后端主干 | accepted（有界核心） | 单级/两级 closed-system 的共同 IR、reg/alias、Work/Xfer 和双后端逐拍 oracle 已验收；不含公开 DUT ABI、SDK 或真实并行 |
 | M3 按实际用例补能力 | 当前用例已交付，后续按需 | 整数、masked-next、generic copy/constant 已有证据；FIFO、memory、CDC 等保留 backlog |
-| M4 让当前能力可用 | active（当前主线） | 公共逐源 compile/link、header-only、发布验证/恢复已交付；本轮显式 CMake/Ninja DAG 已验证并独立审阅通过；source-owned C++ groups、独立 TU、generated.json 和完整构建运行流程仍未交付 |
+| M4 让当前能力可用 | active（当前主线） | 公共逐源 compile/link、header-only、发布验证/恢复已交付；本轮显式 CMake/Ninja DAG 已验证并独立审阅通过；可执行源 C++ 分组、独立 TU/ODR 与双后端一致性已验证；声明源 headers、generated.json 和完整构建运行流程仍未交付 |
 | M5 声明范围内 hard break | pending | 旧路线退役、公开新 emit、活跃文档/构建/安装引用同步切换尚未完成 |
 | M6 按风险持续加固 | deferred / 按需 | 真实并行/V44、性能、平台和扩展故障矩阵未完成；已有正确性问题仍随所属入口修复 |
 | M7 按声明范围验收候选 | pending | 尚无迁移预览/发布验收；先验收明确支持范围，不要求未来 backlog 全清 |
@@ -55,6 +55,13 @@ M2 依据：[有界验收证据](../gates/logs/20260929-m2-core-closeout/README.
 `docs/gates/logs/20260930-source-unit-pair/`；这修复了 M4 的产物准入，
 不表示 M4 已全部完成。本轮工作见产品分支
 `docs/work-items/m4-source-cmake-build.md`。
+
+2026-09-30 后续 M4 包已验收：可执行源直接生成 hpp/cpp，复用同一结构化
+生成器；68 项 Python/system、69 项 native 通过，新分组 5 项最终复验及
+独立 reviewer 重跑通过。产品分支证据：
+`docs/gates/logs/20260930-m4-cpp-source-parts/`；范围与余项：
+`docs/work-items/m4-cpp-source-parts.md`。纯声明单元目前仍未保留到 final，
+不伪造声明头或把本包称为完整 C3 bundle。原有多赋值 final 重建拒绝单列 M3。
 
 任务 `verified` 需要对应当前内容的证据，`done` 由 PM 集成验收后设置。单个 agent 完成或一个小样板通过均不代表整体目标完成。
 

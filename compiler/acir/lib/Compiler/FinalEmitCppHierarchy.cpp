@@ -1,4 +1,5 @@
 #include "FinalEmitCppHierarchy.h"
+#include "FinalCppEmission.h"
 
 #include "llvm/ADT/STLExtras.h"
 #include "llvm/ADT/SmallString.h"
@@ -230,6 +231,7 @@ FailureOr<ChildReadBinding> childReadBinding(
     const FinalProgram &program, size_t parentOrdinal, size_t childPosition,
     size_t childOrdinal, const InputPort &childInput, Value actualHandle,
     ArrayRef<InputPort> parentInputs, DenseMap<Attribute, size_t> parentOwned,
+    const CppEmissionNames &names, size_t parentDefinition,
     ac::detail::EmitError emitError) {
   const auto &parent = program.instances()[parentOrdinal];
   if (childPosition >= parent.childOrdinals.size() ||
@@ -245,10 +247,14 @@ FailureOr<ChildReadBinding> childReadBinding(
   if (failed(width) || *width != childInput.width)
     return emitError() << "C++ child formal width disagrees with carrier";
 
-  const std::string childMember =
-      "child_" + std::to_string(childPosition) + "_";
+  const std::string childMember = names.child(parentDefinition, childPosition);
+  if (childMember.empty())
+    return emitError() << "C++ child has no emitted source member name";
   const std::string childInputMember =
-      childMember + ".input_" + std::to_string(childInput.portIndex) + "_";
+      childMember + "." +
+      names.input(names.defByInstance[childOrdinal], childInput.portIndex);
+  if (childInputMember == childMember + ".")
+    return emitError() << "C++ child input has no emitted source member name";
   if ((*alias)->formalState) {
     const InputPort *parentInput = nullptr;
     for (const InputPort &input : parentInputs) {
@@ -261,15 +267,19 @@ FailureOr<ChildReadBinding> childReadBinding(
     if (!parentInput || parentInput->width != childInput.width)
       return emitError()
              << "C++ placement actual formal has no compatible current input";
-    return ChildReadBinding{"input_" + std::to_string(parentInput->portIndex) +
-                                "_",
-                            childInputMember + ".SameBinding(input_" +
-                                std::to_string(parentInput->portIndex) + "_)"};
+    std::string parentInputName =
+        names.input(parentDefinition, parentInput->portIndex);
+    if (parentInputName.empty())
+      return emitError()
+             << "C++ parent input has no emitted source member name";
+    return ChildReadBinding{parentInputName, childInputMember +
+                                                 ".SameBinding(" +
+                                                 parentInputName + ")"};
   }
   auto owned = parentOwned.find((*alias)->stateID);
   if (owned == parentOwned.end())
     return emitError() << "C++ placement actual is not parent-owned/readable";
-  const std::string storage = "q" + std::to_string(owned->second) + "_";
+  const std::string storage = names.state(parentDefinition, "q", owned->second);
   return ChildReadBinding{
       "ReadView<" + cppType(childInput.width) + ">(&" + storage + ".Read())",
       childInputMember + ".IsBoundTo(&" + storage + ".Read())"};
@@ -279,14 +289,16 @@ FailureOr<SmallVector<ChildReadBinding>> childReadBindings(
     const FinalProgram &program, size_t parentOrdinal, size_t childPosition,
     size_t childOrdinal, ArrayRef<InputPort> childInputs,
     ArrayRef<Value> actualHandles, ArrayRef<InputPort> parentInputs,
-    DenseMap<Attribute, size_t> parentOwned, ac::detail::EmitError emitError) {
+    DenseMap<Attribute, size_t> parentOwned, const CppEmissionNames &names,
+    size_t parentDefinition, ac::detail::EmitError emitError) {
   if (actualHandles.size() != childInputs.size())
     return emitError() << "C++ child placement input arity changed";
   SmallVector<ChildReadBinding> result;
   for (auto [index, input] : llvm::enumerate(childInputs)) {
-    auto binding = childReadBinding(program, parentOrdinal, childPosition,
-                                    childOrdinal, input, actualHandles[index],
-                                    parentInputs, parentOwned, emitError);
+    auto binding =
+        childReadBinding(program, parentOrdinal, childPosition, childOrdinal,
+                         input, actualHandles[index], parentInputs, parentOwned,
+                         names, parentDefinition, emitError);
     if (failed(binding))
       return failure();
     result.push_back(std::move(*binding));

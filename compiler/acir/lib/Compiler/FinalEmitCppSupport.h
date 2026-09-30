@@ -1,6 +1,7 @@
 #ifndef ACIR_LIB_COMPILER_FINALEMITCPPSUPPORT_H
 #define ACIR_LIB_COMPILER_FINALEMITCPPSUPPORT_H
 
+#include "FinalCppEmission.h"
 #include "FinalEmitCpp.h"
 #include "FinalEmitCppHierarchy.h"
 #include "mlir/Dialect/Arith/IR/Arith.h"
@@ -185,10 +186,12 @@ public:
   CppExpressionEmitter(const FinalProgram &program, size_t instanceOrdinal,
                        ArrayRef<InputPort> inputs,
                        DenseMap<Attribute, size_t> localOwned,
+                       const CppEmissionNames &names, size_t definitionIndex,
                        llvm::raw_ostream &statements,
                        ac::detail::EmitError emitError)
       : program(program), instanceOrdinal(instanceOrdinal), inputs(inputs),
-        localOwned(std::move(localOwned)), statements(statements),
+        localOwned(std::move(localOwned)), names(names),
+        definitionIndex(definitionIndex), statements(statements),
         emitError(emitError) {}
 
   FailureOr<std::string> emit(Value value, InstanceView &owner,
@@ -225,12 +228,15 @@ private:
       if (!formal)
         return emitError()
                << "C++ rule input formal has no current family port";
-      return "input_" + std::to_string(formal->portIndex) + "_.Read()";
+      std::string inputName = names.input(definitionIndex, formal->portIndex);
+      if (inputName.empty())
+        return emitError() << "C++ rule input has no emitted source name";
+      return inputName + ".Read()";
     }
 
     auto owned = localOwned.find(resolved->stateID);
     if (owned != localOwned.end())
-      return "q" + std::to_string(owned->second) + "_.Read()";
+      return names.state(definitionIndex, "q", owned->second) + ".Read()";
     return emitError()
            << "SpecKey rule input is neither owned nor a formal view";
   }
@@ -370,6 +376,8 @@ private:
   size_t instanceOrdinal;
   ArrayRef<InputPort> inputs;
   DenseMap<Attribute, size_t> localOwned;
+  const CppEmissionNames &names;
+  size_t definitionIndex;
   llvm::raw_ostream &statements;
   ac::detail::EmitError emitError;
   DenseMap<Value, std::string> cache;

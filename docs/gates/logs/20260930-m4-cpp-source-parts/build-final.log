@@ -1,0 +1,20 @@
+[1/14] Building CXX object compiler/acir/lib/Compiler/CMakeFiles/ACIRSourceCompiler.dir/FinalEmit.cpp.o
+[2/14] Building CXX object compiler/acir/lib/Compiler/CMakeFiles/ACIRSourceCompiler.dir/FinalCppSourceParts.cpp.o
+[3/14] Building CXX object compiler/acir/lib/Compiler/CMakeFiles/ACIRSourceCompiler.dir/FinalCppEmission.cpp.o
+[4/14] Building CXX object compiler/acir/lib/Compiler/CMakeFiles/ACIRSourceCompiler.dir/FinalEmitCpp.cpp.o
+[5/14] Building CXX object compiler/acir/lib/Compiler/CMakeFiles/ACIRSourceCompiler.dir/FinalEmitCppHierarchy.cpp.o
+[6/14] Building CXX object compiler/acir/lib/Compiler/CMakeFiles/ACIRSourceCompiler.dir/FinalEmitCppSystem.cpp.o
+[7/14] Linking CXX static library compiler/acir/lib/Compiler/libACIRSourceCompiler.a
+[8/14] Linking CXX executable bin/acir-source-unit-harness
+ld: warning: ignoring duplicate libraries: '/opt/homebrew/Cellar/llvm/22.1.8/lib/libMLIRArithDialect.a', '/opt/homebrew/Cellar/llvm/22.1.8/lib/libMLIRFuncDialect.a', '/opt/homebrew/Cellar/llvm/22.1.8/lib/libMLIRSupport.a', 'compiler/acir/lib/Dialect/ACIR/libACIRDialect.a'
+[9/14] Linking CXX executable bin/acir-cpp-source-parts-harness
+ld: warning: ignoring duplicate libraries: '/opt/homebrew/Cellar/llvm/22.1.8/lib/libMLIRArithDialect.a', '/opt/homebrew/Cellar/llvm/22.1.8/lib/libMLIRFuncDialect.a', '/opt/homebrew/Cellar/llvm/22.1.8/lib/libMLIRSupport.a', 'compiler/acir/lib/Dialect/ACIR/libACIRDialect.a'
+[10/14] Linking CXX executable bin/acir-design-harness
+ld: warning: ignoring duplicate libraries: '/opt/homebrew/Cellar/llvm/22.1.8/lib/libMLIRArithDialect.a', '/opt/homebrew/Cellar/llvm/22.1.8/lib/libMLIRFuncDialect.a', '/opt/homebrew/Cellar/llvm/22.1.8/lib/libMLIRSupport.a', 'compiler/acir/lib/Dialect/ACIR/libACIRDialect.a'
+[11/14] Linking CXX executable bin/ACIRFinalProgramTests
+ld: warning: ignoring duplicate libraries: '/opt/homebrew/Cellar/llvm/22.1.8/lib/libMLIRArithDialect.a', '/opt/homebrew/Cellar/llvm/22.1.8/lib/libMLIRSupport.a', 'compiler/acir/lib/Dialect/ACIR/libACIRDialect.a'
+[12/14] Linking CXX executable bin/ACIRExecutableBackendClosureTests
+ld: warning: ignoring duplicate libraries: '/opt/homebrew/Cellar/llvm/22.1.8/lib/libMLIRArithDialect.a', '/opt/homebrew/Cellar/llvm/22.1.8/lib/libMLIRSupport.a', 'compiler/acir/lib/Dialect/ACIR/libACIRDialect.a'
+[13/14] Building CXX object compiler/acir/tools/acir-backend-closure-harness/CMakeFiles/acir-backend-closure-harness.dir/ComposedExecution.cpp.o
+[14/14] Linking CXX executable bin/acir-backend-closure-harness
+ld: warning: ignoring duplicate libraries: '/opt/homebrew/Cellar/llvm/22.1.8/lib/libMLIRArithDialect.a', '/opt/homebrew/Cellar/llvm/22.1.8/lib/libMLIRFuncDialect.a', '/opt/homebrew/Cellar/llvm/22.1.8/lib/libMLIRSupport.a', 'compiler/acir/lib/Dialect/ACIR/libACIRDialect.a'

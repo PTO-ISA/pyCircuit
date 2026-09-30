@@ -1,0 +1,1 @@
+cmake --build .pycircuit_out/w10-pm/build --target acir-cpp-source-parts-harness acir-design-harness acir-backend-closure-harness ACIRFinalProgramTests ACIRExecutableBackendClosureTests -j 4

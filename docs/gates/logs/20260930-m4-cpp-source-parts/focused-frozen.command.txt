@@ -1,0 +1,1 @@
+/opt/homebrew/Cellar/pytest/9.0.2_1/libexec/bin/python -m pytest tests/system/test_cpp_source_parts.py -q --junitxml=/Users/zhoubot/.codex/worktrees/migration-capture/pyCircuit/.pycircuit_out/m4-cpp-source-parts/focused-frozen.xml

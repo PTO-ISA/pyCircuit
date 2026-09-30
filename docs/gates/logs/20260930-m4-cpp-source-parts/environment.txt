@@ -1,0 +1,11 @@
+cwd=/Users/zhoubot/.codex/worktrees/migration-capture/pyCircuit
+cmake version 4.2.1
+
+CMake suite maintained and supported by Kitware (kitware.com/cmake).
+Apple clang version 21.0.0 (clang-2100.1.1.101)
+Target: arm64-apple-darwin25.6.0
+Thread model: posix
+InstalledDir: /Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin
+22.1.8
+
+Build directory: .pycircuit_out/w10-pm/build; all helpers built from this checkout.
