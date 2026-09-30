@@ -1,0 +1,11 @@
+{
+  "compiler/acir/lib/Compiler/SourceBodySnapshots.cpp": "4c4a46052a943ad252a12f816cea2224b1bbbf1ee39f1720d7857c50aa3ebc42",
+  "compiler/acir/lib/Compiler/SourceHeaderHelpers.h": "ea1662c04c791a4682e09abc90b77ce572e8c533ebfe70fac2029005da302798",
+  "compiler/acir/lib/Compiler/SourceHeaderRegistry.cpp": "6b418d247f73ac622657f9ff56ef51e930d5f41e9476f251e96774faa15d544f",
+  "compiler/acir/lib/Compiler/SourceNamespace.cpp": "4903f9701dcc48524746ddffa2956c4a4cdd62539493c8436b7c11f1eed924f6",
+  "compiler/acir/lib/Compiler/SourceNamespace.h": "dc2e3684dcd79922c7da984355f79ba4045e6e1fcff2ce398e28fce6b7dcd509",
+  "compiler/acir/lib/Compiler/SourceUnit.h": "cd1fc1e1b36b6e0fa60f7cdf595499ac3f86777729f94bb0aa6136ec896eb32c",
+  "compiler/acir/tools/acir-design-harness/acir-design-harness.cpp": "2b12a866ce6b4d81e41d69a971a5e3c14251c53dfd438590b3b5d840af6b4943",
+  "python/pycircuit/src/pycircuit/_native_verify.py": "4328acb21bc4c07f4bc33757c446b9b308ca3da0671e8b17509bcc30539dae3e",
+  "tests/system/test_source_unit_pair_verification.py": "5950faabbe621a014a5176d417bc5830531659ad6dce7d0b7d7b5b214f79a0be"
+}

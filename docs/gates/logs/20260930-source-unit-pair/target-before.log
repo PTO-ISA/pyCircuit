@@ -1,0 +1,48 @@
+============================= test session starts ==============================
+platform darwin -- Python 3.14.6, pytest-9.0.2, pluggy-1.6.0
+rootdir: /Users/zhoubot/.codex/worktrees/migration-capture/pyCircuit
+configfile: pyproject.toml
+collected 19 items / 15 deselected / 4 selected
+
+tests/system/test_source_unit_pair_verification.py FFFF                  [100%]
+
+=================================== FAILURES ===================================
+__ test_private_verify_rejects_both_exports_retargeted_to_missing_definition ___
+tests/system/test_source_unit_pair_verification.py:586: in test_private_verify_rejects_both_exports_retargeted_to_missing_definition
+    _assert_private_pair_rejected(
+tests/system/test_source_unit_pair_verification.py:172: in _assert_private_pair_rejected
+    assert result.returncode != 0, "native --verify-only accepted an incoherent pair"
+E   AssertionError: native --verify-only accepted an incoherent pair
+E   assert 0 != 0
+E    +  where 0 = CompletedProcess(args=['/Users/zhoubot/.codex/worktrees/migration-capture/pyCircuit/.pycircuit_out/w10-pm/build/bin/ac.../T/pytest-of-zhoubot/pytest-1256/test_private_verify_rejects_bo0/unit-owner.json'], returncode=0, stdout='', stderr='').returncode
+_____ test_replace_preserves_both_exports_retargeted_to_missing_definition _____
+tests/system/test_source_unit_pair_verification.py:600: in test_replace_preserves_both_exports_retargeted_to_missing_definition
+    _assert_replace_rejected_without_touching_unit(workspace, unit)
+tests/system/test_source_unit_pair_verification.py:554: in _assert_replace_rejected_without_touching_unit
+    assert result.returncode == 1, result.stderr
+E   AssertionError:
+E   assert 0 == 1
+E    +  where 0 = CompletedProcess(args=['/opt/homebrew/Cellar/pytest/9.0.2_1/libexec/bin/python', '-c', 'import sys; from pycircuit.cli...f-zhoubot/pytest-1256/test_replace_preserves_both_ex0/units/counter', '--replace'], returncode=0, stdout='', stderr='').returncode
+_ test_private_verify_rejects_both_import_bindings_retargeted_to_missing_type __
+tests/system/test_source_unit_pair_verification.py:612: in test_private_verify_rejects_both_import_bindings_retargeted_to_missing_type
+    _assert_private_pair_rejected(
+tests/system/test_source_unit_pair_verification.py:172: in _assert_private_pair_rejected
+    assert result.returncode != 0, "native --verify-only accepted an incoherent pair"
+E   AssertionError: native --verify-only accepted an incoherent pair
+E   assert 0 != 0
+E    +  where 0 = CompletedProcess(args=['/Users/zhoubot/.codex/worktrees/migration-capture/pyCircuit/.pycircuit_out/w10-pm/build/bin/ac.../T/pytest-of-zhoubot/pytest-1256/test_private_verify_rejects_bo1/unit-owner.json'], returncode=0, stdout='', stderr='').returncode
+____ test_replace_preserves_both_import_bindings_retargeted_to_missing_type ____
+tests/system/test_source_unit_pair_verification.py:626: in test_replace_preserves_both_import_bindings_retargeted_to_missing_type
+    _assert_replace_rejected_without_touching_unit(workspace, unit)
+tests/system/test_source_unit_pair_verification.py:554: in _assert_replace_rejected_without_touching_unit
+    assert result.returncode == 1, result.stderr
+E   AssertionError:
+E   assert 0 == 1
+E    +  where 0 = CompletedProcess(args=['/opt/homebrew/Cellar/pytest/9.0.2_1/libexec/bin/python', '-c', 'import sys; from pycircuit.cli...f-zhoubot/pytest-1256/test_replace_preserves_both_im0/units/counter', '--replace'], returncode=0, stdout='', stderr='').returncode
+- generated xml file: /Users/zhoubot/.codex/worktrees/migration-capture/pyCircuit/.pycircuit_out/unit-pair-fix/target-before.xml -
+=========================== short test summary info ============================
+FAILED tests/system/test_source_unit_pair_verification.py::test_private_verify_rejects_both_exports_retargeted_to_missing_definition
+FAILED tests/system/test_source_unit_pair_verification.py::test_replace_preserves_both_exports_retargeted_to_missing_definition
+FAILED tests/system/test_source_unit_pair_verification.py::test_private_verify_rejects_both_import_bindings_retargeted_to_missing_type
+FAILED tests/system/test_source_unit_pair_verification.py::test_replace_preserves_both_import_bindings_retargeted_to_missing_type
+======================= 4 failed, 15 deselected in 0.87s =======================

@@ -1,0 +1,153 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuites tests="6" failures="5" disabled="0" errors="0" time="0." timestamp="2026-09-30T10:17:11.600" name="AllTests">
+  <testsuite name="BackendClosureTest" tests="5" failures="5" disabled="0" skipped="0" errors="0" time="0." timestamp="2026-09-30T10:17:11.600">
+    <testcase name="V31_OneVerifiedFinalGraphFeedsBothBackends" file="/Users/zhoubot/.codex/worktrees/migration-capture/pyCircuit/tests/cpp/agentic-circuit/Dialect/ACIR/BackendClosureTest.cpp" line="144" status="run" result="completed" time="0." timestamp="2026-09-30T10:17:11.600" classname="BackendClosureTest">
+      <failure message="/Users/zhoubot/.codex/worktrees/migration-capture/pyCircuit/tests/cpp/agentic-circuit/Dialect/ACIR/BackendClosureTest.cpp:108&#x0A;Failed&#x0A;W10 RED: set ACIR_BACKEND_CLOSURE_HARNESS to the private verified-final materializer and dual-backend test harness; the legacy QueueGraph/PYC emitter is not an admissible substitute&#x0A;" type=""><![CDATA[/Users/zhoubot/.codex/worktrees/migration-capture/pyCircuit/tests/cpp/agentic-circuit/Dialect/ACIR/BackendClosureTest.cpp:108
+Failed
+W10 RED: set ACIR_BACKEND_CLOSURE_HARNESS to the private verified-final materializer and dual-backend test harness; the legacy QueueGraph/PYC emitter is not an admissible substitute
+]]></failure>
+      <failure message="/Users/zhoubot/.codex/worktrees/migration-capture/pyCircuit/tests/cpp/agentic-circuit/Dialect/ACIR/BackendClosureTest.cpp:146&#x0A;Value of: harness.empty()&#x0A;  Actual: true&#x0A;Expected: false&#x0A;" type=""><![CDATA[/Users/zhoubot/.codex/worktrees/migration-capture/pyCircuit/tests/cpp/agentic-circuit/Dialect/ACIR/BackendClosureTest.cpp:146
+Value of: harness.empty()
+  Actual: true
+Expected: false
+]]></failure>
+    </testcase>
+    <testcase name="V31_ResidualSourceFactsRejectBeforePublication" file="/Users/zhoubot/.codex/worktrees/migration-capture/pyCircuit/tests/cpp/agentic-circuit/Dialect/ACIR/BackendClosureTest.cpp" line="163" status="run" result="completed" time="0." timestamp="2026-09-30T10:17:11.600" classname="BackendClosureTest">
+      <failure message="/Users/zhoubot/.codex/worktrees/migration-capture/pyCircuit/tests/cpp/agentic-circuit/Dialect/ACIR/BackendClosureTest.cpp:108&#x0A;Failed&#x0A;W10 RED: set ACIR_BACKEND_CLOSURE_HARNESS to the private verified-final materializer and dual-backend test harness; the legacy QueueGraph/PYC emitter is not an admissible substitute&#x0A;Google Test trace:&#x0A;/Users/zhoubot/.codex/worktrees/migration-capture/pyCircuit/tests/cpp/agentic-circuit/Dialect/ACIR/BackendClosureTest.cpp:167: residual-source-read&#x0A;" type=""><![CDATA[/Users/zhoubot/.codex/worktrees/migration-capture/pyCircuit/tests/cpp/agentic-circuit/Dialect/ACIR/BackendClosureTest.cpp:108
+Failed
+W10 RED: set ACIR_BACKEND_CLOSURE_HARNESS to the private verified-final materializer and dual-backend test harness; the legacy QueueGraph/PYC emitter is not an admissible substitute
+Google Test trace:
+/Users/zhoubot/.codex/worktrees/migration-capture/pyCircuit/tests/cpp/agentic-circuit/Dialect/ACIR/BackendClosureTest.cpp:167: residual-source-read
+]]></failure>
+      <failure message="/Users/zhoubot/.codex/worktrees/migration-capture/pyCircuit/tests/cpp/agentic-circuit/Dialect/ACIR/BackendClosureTest.cpp:123&#x0A;Value of: harness.empty()&#x0A;  Actual: true&#x0A;Expected: false&#x0A;Google Test trace:&#x0A;/Users/zhoubot/.codex/worktrees/migration-capture/pyCircuit/tests/cpp/agentic-circuit/Dialect/ACIR/BackendClosureTest.cpp:167: residual-source-read&#x0A;" type=""><![CDATA[/Users/zhoubot/.codex/worktrees/migration-capture/pyCircuit/tests/cpp/agentic-circuit/Dialect/ACIR/BackendClosureTest.cpp:123
+Value of: harness.empty()
+  Actual: true
+Expected: false
+Google Test trace:
+/Users/zhoubot/.codex/worktrees/migration-capture/pyCircuit/tests/cpp/agentic-circuit/Dialect/ACIR/BackendClosureTest.cpp:167: residual-source-read
+]]></failure>
+      <failure message="/Users/zhoubot/.codex/worktrees/migration-capture/pyCircuit/tests/cpp/agentic-circuit/Dialect/ACIR/BackendClosureTest.cpp:108&#x0A;Failed&#x0A;W10 RED: set ACIR_BACKEND_CLOSURE_HARNESS to the private verified-final materializer and dual-backend test harness; the legacy QueueGraph/PYC emitter is not an admissible substitute&#x0A;Google Test trace:&#x0A;/Users/zhoubot/.codex/worktrees/migration-capture/pyCircuit/tests/cpp/agentic-circuit/Dialect/ACIR/BackendClosureTest.cpp:167: residual-source-use&#x0A;" type=""><![CDATA[/Users/zhoubot/.codex/worktrees/migration-capture/pyCircuit/tests/cpp/agentic-circuit/Dialect/ACIR/BackendClosureTest.cpp:108
+Failed
+W10 RED: set ACIR_BACKEND_CLOSURE_HARNESS to the private verified-final materializer and dual-backend test harness; the legacy QueueGraph/PYC emitter is not an admissible substitute
+Google Test trace:
+/Users/zhoubot/.codex/worktrees/migration-capture/pyCircuit/tests/cpp/agentic-circuit/Dialect/ACIR/BackendClosureTest.cpp:167: residual-source-use
+]]></failure>
+      <failure message="/Users/zhoubot/.codex/worktrees/migration-capture/pyCircuit/tests/cpp/agentic-circuit/Dialect/ACIR/BackendClosureTest.cpp:123&#x0A;Value of: harness.empty()&#x0A;  Actual: true&#x0A;Expected: false&#x0A;Google Test trace:&#x0A;/Users/zhoubot/.codex/worktrees/migration-capture/pyCircuit/tests/cpp/agentic-circuit/Dialect/ACIR/BackendClosureTest.cpp:167: residual-source-use&#x0A;" type=""><![CDATA[/Users/zhoubot/.codex/worktrees/migration-capture/pyCircuit/tests/cpp/agentic-circuit/Dialect/ACIR/BackendClosureTest.cpp:123
+Value of: harness.empty()
+  Actual: true
+Expected: false
+Google Test trace:
+/Users/zhoubot/.codex/worktrees/migration-capture/pyCircuit/tests/cpp/agentic-circuit/Dialect/ACIR/BackendClosureTest.cpp:167: residual-source-use
+]]></failure>
+      <failure message="/Users/zhoubot/.codex/worktrees/migration-capture/pyCircuit/tests/cpp/agentic-circuit/Dialect/ACIR/BackendClosureTest.cpp:108&#x0A;Failed&#x0A;W10 RED: set ACIR_BACKEND_CLOSURE_HARNESS to the private verified-final materializer and dual-backend test harness; the legacy QueueGraph/PYC emitter is not an admissible substitute&#x0A;Google Test trace:&#x0A;/Users/zhoubot/.codex/worktrees/migration-capture/pyCircuit/tests/cpp/agentic-circuit/Dialect/ACIR/BackendClosureTest.cpp:167: residual-source-observe&#x0A;" type=""><![CDATA[/Users/zhoubot/.codex/worktrees/migration-capture/pyCircuit/tests/cpp/agentic-circuit/Dialect/ACIR/BackendClosureTest.cpp:108
+Failed
+W10 RED: set ACIR_BACKEND_CLOSURE_HARNESS to the private verified-final materializer and dual-backend test harness; the legacy QueueGraph/PYC emitter is not an admissible substitute
+Google Test trace:
+/Users/zhoubot/.codex/worktrees/migration-capture/pyCircuit/tests/cpp/agentic-circuit/Dialect/ACIR/BackendClosureTest.cpp:167: residual-source-observe
+]]></failure>
+      <failure message="/Users/zhoubot/.codex/worktrees/migration-capture/pyCircuit/tests/cpp/agentic-circuit/Dialect/ACIR/BackendClosureTest.cpp:123&#x0A;Value of: harness.empty()&#x0A;  Actual: true&#x0A;Expected: false&#x0A;Google Test trace:&#x0A;/Users/zhoubot/.codex/worktrees/migration-capture/pyCircuit/tests/cpp/agentic-circuit/Dialect/ACIR/BackendClosureTest.cpp:167: residual-source-observe&#x0A;" type=""><![CDATA[/Users/zhoubot/.codex/worktrees/migration-capture/pyCircuit/tests/cpp/agentic-circuit/Dialect/ACIR/BackendClosureTest.cpp:123
+Value of: harness.empty()
+  Actual: true
+Expected: false
+Google Test trace:
+/Users/zhoubot/.codex/worktrees/migration-capture/pyCircuit/tests/cpp/agentic-circuit/Dialect/ACIR/BackendClosureTest.cpp:167: residual-source-observe
+]]></failure>
+    </testcase>
+    <testcase name="V31_ForgedStageProofAndTargetSwapReject" file="/Users/zhoubot/.codex/worktrees/migration-capture/pyCircuit/tests/cpp/agentic-circuit/Dialect/ACIR/BackendClosureTest.cpp" line="172" status="run" result="completed" time="0." timestamp="2026-09-30T10:17:11.601" classname="BackendClosureTest">
+      <failure message="/Users/zhoubot/.codex/worktrees/migration-capture/pyCircuit/tests/cpp/agentic-circuit/Dialect/ACIR/BackendClosureTest.cpp:108&#x0A;Failed&#x0A;W10 RED: set ACIR_BACKEND_CLOSURE_HARNESS to the private verified-final materializer and dual-backend test harness; the legacy QueueGraph/PYC emitter is not an admissible substitute&#x0A;Google Test trace:&#x0A;/Users/zhoubot/.codex/worktrees/migration-capture/pyCircuit/tests/cpp/agentic-circuit/Dialect/ACIR/BackendClosureTest.cpp:175: forged-final-stage&#x0A;" type=""><![CDATA[/Users/zhoubot/.codex/worktrees/migration-capture/pyCircuit/tests/cpp/agentic-circuit/Dialect/ACIR/BackendClosureTest.cpp:108
+Failed
+W10 RED: set ACIR_BACKEND_CLOSURE_HARNESS to the private verified-final materializer and dual-backend test harness; the legacy QueueGraph/PYC emitter is not an admissible substitute
+Google Test trace:
+/Users/zhoubot/.codex/worktrees/migration-capture/pyCircuit/tests/cpp/agentic-circuit/Dialect/ACIR/BackendClosureTest.cpp:175: forged-final-stage
+]]></failure>
+      <failure message="/Users/zhoubot/.codex/worktrees/migration-capture/pyCircuit/tests/cpp/agentic-circuit/Dialect/ACIR/BackendClosureTest.cpp:123&#x0A;Value of: harness.empty()&#x0A;  Actual: true&#x0A;Expected: false&#x0A;Google Test trace:&#x0A;/Users/zhoubot/.codex/worktrees/migration-capture/pyCircuit/tests/cpp/agentic-circuit/Dialect/ACIR/BackendClosureTest.cpp:175: forged-final-stage&#x0A;" type=""><![CDATA[/Users/zhoubot/.codex/worktrees/migration-capture/pyCircuit/tests/cpp/agentic-circuit/Dialect/ACIR/BackendClosureTest.cpp:123
+Value of: harness.empty()
+  Actual: true
+Expected: false
+Google Test trace:
+/Users/zhoubot/.codex/worktrees/migration-capture/pyCircuit/tests/cpp/agentic-circuit/Dialect/ACIR/BackendClosureTest.cpp:175: forged-final-stage
+]]></failure>
+      <failure message="/Users/zhoubot/.codex/worktrees/migration-capture/pyCircuit/tests/cpp/agentic-circuit/Dialect/ACIR/BackendClosureTest.cpp:108&#x0A;Failed&#x0A;W10 RED: set ACIR_BACKEND_CLOSURE_HARNESS to the private verified-final materializer and dual-backend test harness; the legacy QueueGraph/PYC emitter is not an admissible substitute&#x0A;Google Test trace:&#x0A;/Users/zhoubot/.codex/worktrees/migration-capture/pyCircuit/tests/cpp/agentic-circuit/Dialect/ACIR/BackendClosureTest.cpp:175: forged-proof&#x0A;" type=""><![CDATA[/Users/zhoubot/.codex/worktrees/migration-capture/pyCircuit/tests/cpp/agentic-circuit/Dialect/ACIR/BackendClosureTest.cpp:108
+Failed
+W10 RED: set ACIR_BACKEND_CLOSURE_HARNESS to the private verified-final materializer and dual-backend test harness; the legacy QueueGraph/PYC emitter is not an admissible substitute
+Google Test trace:
+/Users/zhoubot/.codex/worktrees/migration-capture/pyCircuit/tests/cpp/agentic-circuit/Dialect/ACIR/BackendClosureTest.cpp:175: forged-proof
+]]></failure>
+      <failure message="/Users/zhoubot/.codex/worktrees/migration-capture/pyCircuit/tests/cpp/agentic-circuit/Dialect/ACIR/BackendClosureTest.cpp:123&#x0A;Value of: harness.empty()&#x0A;  Actual: true&#x0A;Expected: false&#x0A;Google Test trace:&#x0A;/Users/zhoubot/.codex/worktrees/migration-capture/pyCircuit/tests/cpp/agentic-circuit/Dialect/ACIR/BackendClosureTest.cpp:175: forged-proof&#x0A;" type=""><![CDATA[/Users/zhoubot/.codex/worktrees/migration-capture/pyCircuit/tests/cpp/agentic-circuit/Dialect/ACIR/BackendClosureTest.cpp:123
+Value of: harness.empty()
+  Actual: true
+Expected: false
+Google Test trace:
+/Users/zhoubot/.codex/worktrees/migration-capture/pyCircuit/tests/cpp/agentic-circuit/Dialect/ACIR/BackendClosureTest.cpp:175: forged-proof
+]]></failure>
+      <failure message="/Users/zhoubot/.codex/worktrees/migration-capture/pyCircuit/tests/cpp/agentic-circuit/Dialect/ACIR/BackendClosureTest.cpp:108&#x0A;Failed&#x0A;W10 RED: set ACIR_BACKEND_CLOSURE_HARNESS to the private verified-final materializer and dual-backend test harness; the legacy QueueGraph/PYC emitter is not an admissible substitute&#x0A;Google Test trace:&#x0A;/Users/zhoubot/.codex/worktrees/migration-capture/pyCircuit/tests/cpp/agentic-circuit/Dialect/ACIR/BackendClosureTest.cpp:175: same-type-target-swap&#x0A;" type=""><![CDATA[/Users/zhoubot/.codex/worktrees/migration-capture/pyCircuit/tests/cpp/agentic-circuit/Dialect/ACIR/BackendClosureTest.cpp:108
+Failed
+W10 RED: set ACIR_BACKEND_CLOSURE_HARNESS to the private verified-final materializer and dual-backend test harness; the legacy QueueGraph/PYC emitter is not an admissible substitute
+Google Test trace:
+/Users/zhoubot/.codex/worktrees/migration-capture/pyCircuit/tests/cpp/agentic-circuit/Dialect/ACIR/BackendClosureTest.cpp:175: same-type-target-swap
+]]></failure>
+      <failure message="/Users/zhoubot/.codex/worktrees/migration-capture/pyCircuit/tests/cpp/agentic-circuit/Dialect/ACIR/BackendClosureTest.cpp:123&#x0A;Value of: harness.empty()&#x0A;  Actual: true&#x0A;Expected: false&#x0A;Google Test trace:&#x0A;/Users/zhoubot/.codex/worktrees/migration-capture/pyCircuit/tests/cpp/agentic-circuit/Dialect/ACIR/BackendClosureTest.cpp:175: same-type-target-swap&#x0A;" type=""><![CDATA[/Users/zhoubot/.codex/worktrees/migration-capture/pyCircuit/tests/cpp/agentic-circuit/Dialect/ACIR/BackendClosureTest.cpp:123
+Value of: harness.empty()
+  Actual: true
+Expected: false
+Google Test trace:
+/Users/zhoubot/.codex/worktrees/migration-capture/pyCircuit/tests/cpp/agentic-circuit/Dialect/ACIR/BackendClosureTest.cpp:175: same-type-target-swap
+]]></failure>
+    </testcase>
+    <testcase name="V29_PermitProjectionMustReachEveryCommit" file="/Users/zhoubot/.codex/worktrees/migration-capture/pyCircuit/tests/cpp/agentic-circuit/Dialect/ACIR/BackendClosureTest.cpp" line="180" status="run" result="completed" time="0." timestamp="2026-09-30T10:17:11.601" classname="BackendClosureTest">
+      <failure message="/Users/zhoubot/.codex/worktrees/migration-capture/pyCircuit/tests/cpp/agentic-circuit/Dialect/ACIR/BackendClosureTest.cpp:108&#x0A;Failed&#x0A;W10 RED: set ACIR_BACKEND_CLOSURE_HARNESS to the private verified-final materializer and dual-backend test harness; the legacy QueueGraph/PYC emitter is not an admissible substitute&#x0A;Google Test trace:&#x0A;/Users/zhoubot/.codex/worktrees/migration-capture/pyCircuit/tests/cpp/agentic-circuit/Dialect/ACIR/BackendClosureTest.cpp:183: permit-disconnected&#x0A;" type=""><![CDATA[/Users/zhoubot/.codex/worktrees/migration-capture/pyCircuit/tests/cpp/agentic-circuit/Dialect/ACIR/BackendClosureTest.cpp:108
+Failed
+W10 RED: set ACIR_BACKEND_CLOSURE_HARNESS to the private verified-final materializer and dual-backend test harness; the legacy QueueGraph/PYC emitter is not an admissible substitute
+Google Test trace:
+/Users/zhoubot/.codex/worktrees/migration-capture/pyCircuit/tests/cpp/agentic-circuit/Dialect/ACIR/BackendClosureTest.cpp:183: permit-disconnected
+]]></failure>
+      <failure message="/Users/zhoubot/.codex/worktrees/migration-capture/pyCircuit/tests/cpp/agentic-circuit/Dialect/ACIR/BackendClosureTest.cpp:123&#x0A;Value of: harness.empty()&#x0A;  Actual: true&#x0A;Expected: false&#x0A;Google Test trace:&#x0A;/Users/zhoubot/.codex/worktrees/migration-capture/pyCircuit/tests/cpp/agentic-circuit/Dialect/ACIR/BackendClosureTest.cpp:183: permit-disconnected&#x0A;" type=""><![CDATA[/Users/zhoubot/.codex/worktrees/migration-capture/pyCircuit/tests/cpp/agentic-circuit/Dialect/ACIR/BackendClosureTest.cpp:123
+Value of: harness.empty()
+  Actual: true
+Expected: false
+Google Test trace:
+/Users/zhoubot/.codex/worktrees/migration-capture/pyCircuit/tests/cpp/agentic-circuit/Dialect/ACIR/BackendClosureTest.cpp:183: permit-disconnected
+]]></failure>
+      <failure message="/Users/zhoubot/.codex/worktrees/migration-capture/pyCircuit/tests/cpp/agentic-circuit/Dialect/ACIR/BackendClosureTest.cpp:108&#x0A;Failed&#x0A;W10 RED: set ACIR_BACKEND_CLOSURE_HARNESS to the private verified-final materializer and dual-backend test harness; the legacy QueueGraph/PYC emitter is not an admissible substitute&#x0A;Google Test trace:&#x0A;/Users/zhoubot/.codex/worktrees/migration-capture/pyCircuit/tests/cpp/agentic-circuit/Dialect/ACIR/BackendClosureTest.cpp:183: permit-inverted&#x0A;" type=""><![CDATA[/Users/zhoubot/.codex/worktrees/migration-capture/pyCircuit/tests/cpp/agentic-circuit/Dialect/ACIR/BackendClosureTest.cpp:108
+Failed
+W10 RED: set ACIR_BACKEND_CLOSURE_HARNESS to the private verified-final materializer and dual-backend test harness; the legacy QueueGraph/PYC emitter is not an admissible substitute
+Google Test trace:
+/Users/zhoubot/.codex/worktrees/migration-capture/pyCircuit/tests/cpp/agentic-circuit/Dialect/ACIR/BackendClosureTest.cpp:183: permit-inverted
+]]></failure>
+      <failure message="/Users/zhoubot/.codex/worktrees/migration-capture/pyCircuit/tests/cpp/agentic-circuit/Dialect/ACIR/BackendClosureTest.cpp:123&#x0A;Value of: harness.empty()&#x0A;  Actual: true&#x0A;Expected: false&#x0A;Google Test trace:&#x0A;/Users/zhoubot/.codex/worktrees/migration-capture/pyCircuit/tests/cpp/agentic-circuit/Dialect/ACIR/BackendClosureTest.cpp:183: permit-inverted&#x0A;" type=""><![CDATA[/Users/zhoubot/.codex/worktrees/migration-capture/pyCircuit/tests/cpp/agentic-circuit/Dialect/ACIR/BackendClosureTest.cpp:123
+Value of: harness.empty()
+  Actual: true
+Expected: false
+Google Test trace:
+/Users/zhoubot/.codex/worktrees/migration-capture/pyCircuit/tests/cpp/agentic-circuit/Dialect/ACIR/BackendClosureTest.cpp:183: permit-inverted
+]]></failure>
+      <failure message="/Users/zhoubot/.codex/worktrees/migration-capture/pyCircuit/tests/cpp/agentic-circuit/Dialect/ACIR/BackendClosureTest.cpp:108&#x0A;Failed&#x0A;W10 RED: set ACIR_BACKEND_CLOSURE_HARNESS to the private verified-final materializer and dual-backend test harness; the legacy QueueGraph/PYC emitter is not an admissible substitute&#x0A;Google Test trace:&#x0A;/Users/zhoubot/.codex/worktrees/migration-capture/pyCircuit/tests/cpp/agentic-circuit/Dialect/ACIR/BackendClosureTest.cpp:183: commit-enable-bypass&#x0A;" type=""><![CDATA[/Users/zhoubot/.codex/worktrees/migration-capture/pyCircuit/tests/cpp/agentic-circuit/Dialect/ACIR/BackendClosureTest.cpp:108
+Failed
+W10 RED: set ACIR_BACKEND_CLOSURE_HARNESS to the private verified-final materializer and dual-backend test harness; the legacy QueueGraph/PYC emitter is not an admissible substitute
+Google Test trace:
+/Users/zhoubot/.codex/worktrees/migration-capture/pyCircuit/tests/cpp/agentic-circuit/Dialect/ACIR/BackendClosureTest.cpp:183: commit-enable-bypass
+]]></failure>
+      <failure message="/Users/zhoubot/.codex/worktrees/migration-capture/pyCircuit/tests/cpp/agentic-circuit/Dialect/ACIR/BackendClosureTest.cpp:123&#x0A;Value of: harness.empty()&#x0A;  Actual: true&#x0A;Expected: false&#x0A;Google Test trace:&#x0A;/Users/zhoubot/.codex/worktrees/migration-capture/pyCircuit/tests/cpp/agentic-circuit/Dialect/ACIR/BackendClosureTest.cpp:183: commit-enable-bypass&#x0A;" type=""><![CDATA[/Users/zhoubot/.codex/worktrees/migration-capture/pyCircuit/tests/cpp/agentic-circuit/Dialect/ACIR/BackendClosureTest.cpp:123
+Value of: harness.empty()
+  Actual: true
+Expected: false
+Google Test trace:
+/Users/zhoubot/.codex/worktrees/migration-capture/pyCircuit/tests/cpp/agentic-circuit/Dialect/ACIR/BackendClosureTest.cpp:183: commit-enable-bypass
+]]></failure>
+    </testcase>
+    <testcase name="V30_ErrorCannotDependOnPostGatedEnable" file="/Users/zhoubot/.codex/worktrees/migration-capture/pyCircuit/tests/cpp/agentic-circuit/Dialect/ACIR/BackendClosureTest.cpp" line="188" status="run" result="completed" time="0." timestamp="2026-09-30T10:17:11.601" classname="BackendClosureTest">
+      <failure message="/Users/zhoubot/.codex/worktrees/migration-capture/pyCircuit/tests/cpp/agentic-circuit/Dialect/ACIR/BackendClosureTest.cpp:108&#x0A;Failed&#x0A;W10 RED: set ACIR_BACKEND_CLOSURE_HARNESS to the private verified-final materializer and dual-backend test harness; the legacy QueueGraph/PYC emitter is not an admissible substitute&#x0A;" type=""><![CDATA[/Users/zhoubot/.codex/worktrees/migration-capture/pyCircuit/tests/cpp/agentic-circuit/Dialect/ACIR/BackendClosureTest.cpp:108
+Failed
+W10 RED: set ACIR_BACKEND_CLOSURE_HARNESS to the private verified-final materializer and dual-backend test harness; the legacy QueueGraph/PYC emitter is not an admissible substitute
+]]></failure>
+      <failure message="/Users/zhoubot/.codex/worktrees/migration-capture/pyCircuit/tests/cpp/agentic-circuit/Dialect/ACIR/BackendClosureTest.cpp:123&#x0A;Value of: harness.empty()&#x0A;  Actual: true&#x0A;Expected: false&#x0A;" type=""><![CDATA[/Users/zhoubot/.codex/worktrees/migration-capture/pyCircuit/tests/cpp/agentic-circuit/Dialect/ACIR/BackendClosureTest.cpp:123
+Value of: harness.empty()
+  Actual: true
+Expected: false
+]]></failure>
+    </testcase>
+  </testsuite>
+  <testsuite name="FinalBackendEntryApiAvailability" tests="1" failures="0" disabled="0" skipped="0" errors="0" time="0." timestamp="2026-09-30T10:17:11.601">
+    <testcase name="EmitsOnlyFromFinalProgram" file="/Users/zhoubot/.codex/worktrees/migration-capture/pyCircuit/tests/cpp/agentic-circuit/Dialect/ACIR/BackendClosureTest.cpp" line="193" status="run" result="completed" time="0." timestamp="2026-09-30T10:17:11.601" classname="FinalBackendEntryApiAvailability" />
+  </testsuite>
+</testsuites>

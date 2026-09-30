@@ -2,6 +2,7 @@
 #include "Compiler/ModuleGraph.h"
 #include "Compiler/ScalarNumericLowering.h"
 #include "Compiler/SourceLink.h"
+#include "Compiler/SourceUnit.h"
 #include "acir/Dialect/ACIR/ACIRDialect.h"
 
 #include "mlir/Dialect/Arith/IR/Arith.h"
@@ -18,6 +19,10 @@
 #include <vector>
 
 namespace {
+
+// Private machine-readable status consumed by _native_verify.py. The public
+// pycircuit CLI still reports its normal exit code and publication diagnostic.
+constexpr int kSourceUnitOwnerMismatchExitCode = 3;
 
 struct Options {
   std::vector<std::string> bodies;
@@ -559,7 +564,9 @@ mlir::LogicalResult runEmit(const Options &options, mlir::MLIRContext &context,
 // reuses the same native verifier the link and emit paths use, so "valid" means
 // the shared verifier accepted the artifact rather than that Python guessed.
 mlir::LogicalResult runVerify(const Options &options,
-                              mlir::MLIRContext &context) {
+                              mlir::MLIRContext &context,
+                              bool &sourceUnitOwnerMismatch) {
+  sourceUnitOwnerMismatch = false;
   auto emitError = [&] {
     return mlir::emitError(mlir::UnknownLoc::get(&context));
   };
@@ -603,13 +610,25 @@ mlir::LogicalResult runVerify(const Options &options,
     return mlir::failure();
   }
   auto kind = (*body)->getAttrOfType<mlir::StringAttr>("ac.unit_kind");
-  if (kind && kind.getValue() == "implementation" &&
+  auto stage = (*body)->getAttrOfType<mlir::StringAttr>("ac.stage");
+  if (!kind ||
+      (kind.getValue() != "implementation" &&
+       kind.getValue() != "declarations") ||
+      !stage || stage.getValue() != "source")
+    return emitError() << "unit body stage/unit_kind is invalid";
+  if (mlir::failed(acir::compiler::verifyIntrinsicSourceUnitOwnerPair(
+          *body, *header, sourceUnitOwnerMismatch, emitError)))
+    return emitError() << "unit body/interface owner preflight failed";
+  if (kind.getValue() == "implementation" &&
       mlir::failed(acir::compiler::lowerExactInputAddTransactional(*body)))
     return emitError() << "unit body exact-input numeric lowering failed";
   if (mlir::failed(mlir::verify(*body)))
     return emitError() << "unit body failed native verification";
   if (mlir::failed(mlir::verify(*header)))
     return emitError() << "unit header failed native verification";
+  if (mlir::failed(acir::compiler::verifyIntrinsicSourceUnitPair(*body, *header,
+                                                                 emitError)))
+    return emitError() << "unit body/interface integrity verification failed";
   if (options.unitOwnerOutput) {
     auto bodyOwner =
         (*body)->getAttrOfType<mlir::DictionaryAttr>("ac.source_owner");
@@ -638,11 +657,14 @@ int main(int argc, char **argv) {
 
   std::string result;
   std::string glueResult;
+  bool sourceUnitOwnerMismatch = false;
   mlir::LogicalResult status =
       options.verifyOnly
-          ? runVerify(options, context)
+          ? runVerify(options, context, sourceUnitOwnerMismatch)
           : (options.design ? runEmit(options, context, result, glueResult)
                             : runLink(options, context, result));
+  if (mlir::failed(status) && sourceUnitOwnerMismatch)
+    return kSourceUnitOwnerMismatchExitCode;
   if (mlir::failed(status))
     return 1;
   if (options.verifyOnly)

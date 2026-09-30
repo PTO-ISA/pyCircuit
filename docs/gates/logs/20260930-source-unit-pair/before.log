@@ -1,0 +1,91 @@
+============================= test session starts ==============================
+platform darwin -- Python 3.14.6, pytest-9.0.2, pluggy-1.6.0
+rootdir: /Users/zhoubot/.codex/worktrees/migration-capture/pyCircuit
+configfile: pyproject.toml
+collected 12 items
+
+tests/system/test_source_unit_pair_verification.py FFFFFF.FF..F          [100%]
+
+=================================== FAILURES ===================================
+______ test_private_verify_only_reads_body_and_header_with_the_same_owner ______
+tests/system/test_source_unit_pair_verification.py:235: in test_private_verify_only_reads_body_and_header_with_the_same_owner
+    _assert_private_pair_rejected(body, header, tmp_path)
+tests/system/test_source_unit_pair_verification.py:167: in _assert_private_pair_rejected
+    assert result.returncode != 0, "native --verify-only accepted an incoherent pair"
+E   AssertionError: native --verify-only accepted an incoherent pair
+E   assert 0 != 0
+E    +  where 0 = CompletedProcess(args=['/Users/zhoubot/.codex/worktrees/migration-capture/pyCircuit/.pycircuit_out/w10-pm/build/bin/ac.../T/pytest-of-zhoubot/pytest-1249/test_private_verify_only_reads0/unit-owner.json'], returncode=0, stdout='', stderr='').returncode
+______ test_private_verify_only_rejects_same_symbol_changed_port_snapshot ______
+tests/system/test_source_unit_pair_verification.py:258: in test_private_verify_only_rejects_same_symbol_changed_port_snapshot
+    _assert_private_pair_rejected(body, header, tmp_path)
+tests/system/test_source_unit_pair_verification.py:167: in _assert_private_pair_rejected
+    assert result.returncode != 0, "native --verify-only accepted an incoherent pair"
+E   AssertionError: native --verify-only accepted an incoherent pair
+E   assert 0 != 0
+E    +  where 0 = CompletedProcess(args=['/Users/zhoubot/.codex/worktrees/migration-capture/pyCircuit/.pycircuit_out/w10-pm/build/bin/ac.../T/pytest-of-zhoubot/pytest-1249/test_private_verify_only_rejec0/unit-owner.json'], returncode=0, stdout='', stderr='').returncode
+_______ test_private_verify_only_rejects_stage_swaps[interface-as-body] ________
+tests/system/test_source_unit_pair_verification.py:276: in test_private_verify_only_rejects_stage_swaps
+    _assert_private_pair_rejected(wrong_stage, wrong_stage, tmp_path)
+tests/system/test_source_unit_pair_verification.py:167: in _assert_private_pair_rejected
+    assert result.returncode != 0, "native --verify-only accepted an incoherent pair"
+E   AssertionError: native --verify-only accepted an incoherent pair
+E   assert 0 != 0
+E    +  where 0 = CompletedProcess(args=['/Users/zhoubot/.codex/worktrees/migration-capture/pyCircuit/.pycircuit_out/w10-pm/build/bin/ac.../T/pytest-of-zhoubot/pytest-1249/test_private_verify_only_rejec1/unit-owner.json'], returncode=0, stdout='', stderr='').returncode
+_______ test_private_verify_only_rejects_stage_swaps[body-as-interface] ________
+tests/system/test_source_unit_pair_verification.py:276: in test_private_verify_only_rejects_stage_swaps
+    _assert_private_pair_rejected(wrong_stage, wrong_stage, tmp_path)
+tests/system/test_source_unit_pair_verification.py:167: in _assert_private_pair_rejected
+    assert result.returncode != 0, "native --verify-only accepted an incoherent pair"
+E   AssertionError: native --verify-only accepted an incoherent pair
+E   assert 0 != 0
+E    +  where 0 = CompletedProcess(args=['/Users/zhoubot/.codex/worktrees/migration-capture/pyCircuit/.pycircuit_out/w10-pm/build/bin/ac.../T/pytest-of-zhoubot/pytest-1249/test_private_verify_only_rejec2/unit-owner.json'], returncode=0, stdout='', stderr='').returncode
+_ test_private_verify_only_rejects_empty_builtin_body_metadata[owner-only-empty-builtin] _
+tests/system/test_source_unit_pair_verification.py:303: in test_private_verify_only_rejects_empty_builtin_body_metadata
+    _assert_private_pair_rejected(body, header, tmp_path)
+tests/system/test_source_unit_pair_verification.py:167: in _assert_private_pair_rejected
+    assert result.returncode != 0, "native --verify-only accepted an incoherent pair"
+E   AssertionError: native --verify-only accepted an incoherent pair
+E   assert 0 != 0
+E    +  where 0 = CompletedProcess(args=['/Users/zhoubot/.codex/worktrees/migration-capture/pyCircuit/.pycircuit_out/w10-pm/build/bin/ac.../T/pytest-of-zhoubot/pytest-1249/test_private_verify_only_rejec3/unit-owner.json'], returncode=0, stdout='', stderr='').returncode
+_ test_private_verify_only_rejects_empty_builtin_body_metadata[missing-stage] __
+tests/system/test_source_unit_pair_verification.py:303: in test_private_verify_only_rejects_empty_builtin_body_metadata
+    _assert_private_pair_rejected(body, header, tmp_path)
+tests/system/test_source_unit_pair_verification.py:167: in _assert_private_pair_rejected
+    assert result.returncode != 0, "native --verify-only accepted an incoherent pair"
+E   AssertionError: native --verify-only accepted an incoherent pair
+E   assert 0 != 0
+E    +  where 0 = CompletedProcess(args=['/Users/zhoubot/.codex/worktrees/migration-capture/pyCircuit/.pycircuit_out/w10-pm/build/bin/ac.../T/pytest-of-zhoubot/pytest-1249/test_private_verify_only_rejec4/unit-owner.json'], returncode=0, stdout='', stderr='').returncode
+______ test_private_verify_only_rejects_changed_retained_export_snapshot _______
+tests/system/test_source_unit_pair_verification.py:319: in test_private_verify_only_rejects_changed_retained_export_snapshot
+    _assert_private_pair_rejected(body, header, tmp_path)
+tests/system/test_source_unit_pair_verification.py:167: in _assert_private_pair_rejected
+    assert result.returncode != 0, "native --verify-only accepted an incoherent pair"
+E   AssertionError: native --verify-only accepted an incoherent pair
+E   assert 0 != 0
+E    +  where 0 = CompletedProcess(args=['/Users/zhoubot/.codex/worktrees/migration-capture/pyCircuit/.pycircuit_out/w10-pm/build/bin/ac.../T/pytest-of-zhoubot/pytest-1249/test_private_verify_only_rejec6/unit-owner.json'], returncode=0, stdout='', stderr='').returncode
+__ test_private_verify_only_rejects_changed_retained_import_binding_snapshot ___
+tests/system/test_source_unit_pair_verification.py:340: in test_private_verify_only_rejects_changed_retained_import_binding_snapshot
+    _assert_private_pair_rejected(body, header, tmp_path)
+tests/system/test_source_unit_pair_verification.py:167: in _assert_private_pair_rejected
+    assert result.returncode != 0, "native --verify-only accepted an incoherent pair"
+E   AssertionError: native --verify-only accepted an incoherent pair
+E   assert 0 != 0
+E    +  where 0 = CompletedProcess(args=['/Users/zhoubot/.codex/worktrees/migration-capture/pyCircuit/.pycircuit_out/w10-pm/build/bin/ac.../T/pytest-of-zhoubot/pytest-1249/test_private_verify_only_rejec7/unit-owner.json'], returncode=0, stdout='', stderr='').returncode
+_____ test_compile_replace_preserves_corrupted_pair_and_publication_state ______
+tests/system/test_source_unit_pair_verification.py:409: in test_compile_replace_preserves_corrupted_pair_and_publication_state
+    assert result.returncode == 1, result.stderr
+E   AssertionError:
+E   assert 0 == 1
+E    +  where 0 = CompletedProcess(args=['/opt/homebrew/Cellar/pytest/9.0.2_1/libexec/bin/python', '-c', 'import sys; from pycircuit.cli...f-zhoubot/pytest-1249/test_compile_replace_preserves0/units/counter', '--replace'], returncode=0, stdout='', stderr='').returncode
+- generated xml file: /Users/zhoubot/.codex/worktrees/migration-capture/pyCircuit/.pycircuit_out/unit-pair-fix/before.xml -
+=========================== short test summary info ============================
+FAILED tests/system/test_source_unit_pair_verification.py::test_private_verify_only_reads_body_and_header_with_the_same_owner
+FAILED tests/system/test_source_unit_pair_verification.py::test_private_verify_only_rejects_same_symbol_changed_port_snapshot
+FAILED tests/system/test_source_unit_pair_verification.py::test_private_verify_only_rejects_stage_swaps[interface-as-body]
+FAILED tests/system/test_source_unit_pair_verification.py::test_private_verify_only_rejects_stage_swaps[body-as-interface]
+FAILED tests/system/test_source_unit_pair_verification.py::test_private_verify_only_rejects_empty_builtin_body_metadata[owner-only-empty-builtin]
+FAILED tests/system/test_source_unit_pair_verification.py::test_private_verify_only_rejects_empty_builtin_body_metadata[missing-stage]
+FAILED tests/system/test_source_unit_pair_verification.py::test_private_verify_only_rejects_changed_retained_export_snapshot
+FAILED tests/system/test_source_unit_pair_verification.py::test_private_verify_only_rejects_changed_retained_import_binding_snapshot
+FAILED tests/system/test_source_unit_pair_verification.py::test_compile_replace_preserves_corrupted_pair_and_publication_state
+========================= 9 failed, 3 passed in 1.71s ==========================

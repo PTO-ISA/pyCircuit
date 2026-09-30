@@ -1,0 +1,31 @@
+============================= test session starts ==============================
+platform darwin -- Python 3.14.6, pytest-9.0.2, pluggy-1.6.0
+rootdir: /Users/zhoubot/.codex/worktrees/migration-capture/pyCircuit
+configfile: pyproject.toml
+collected 239 items
+
+tests/unit/test_artifact_verify.py ....                                  [  1%]
+tests/unit/test_driver_commands.py ..................................... [ 17%]
+.......                                                                  [ 20%]
+tests/unit/test_source_compile.py ............                           [ 25%]
+tests/unit/test_source_unit_files.py .........................           [ 35%]
+tests/unit/test_publication.py ......................................... [ 52%]
+.................................                                        [ 66%]
+tests/unit/test_publication_fs.py ............sss                        [ 72%]
+tests/system/test_artifact_verify_recovery.py .............F..........   [ 82%]
+tests/system/test_driver_compile_link.py .......................         [ 92%]
+tests/system/test_source_compile_publication.py ......                   [ 94%]
+tests/system/test_source_unit_pair_verification.py ............          [100%]
+
+=================================== FAILURES ===================================
+__________ test_compile_replace_refuses_a_unit_whose_owner_disagrees ___________
+tests/system/test_artifact_verify_recovery.py:944: in test_compile_replace_refuses_a_unit_whose_owner_disagrees
+    _owner_mismatch(result, "compile")
+tests/system/test_artifact_verify_recovery.py:219: in _owner_mismatch
+    assert _OWNER_MISMATCH in diagnostic, diagnostic
+E   AssertionError: pycircuit compile: published source unit failed native verification: error: source body/interface SourceOwner mismatch error: unit body/interface integrity verification failed
+E   assert 'owner does not match' in 'pycircuit compile: published source unit failed native verification: error: source body/interface SourceOwner mismatch error: unit body/interface integrity verification failed'
+- generated xml file: /Users/zhoubot/.codex/worktrees/migration-capture/pyCircuit/.pycircuit_out/unit-pair-fix/regressions.xml -
+=========================== short test summary info ============================
+FAILED tests/system/test_artifact_verify_recovery.py::test_compile_replace_refuses_a_unit_whose_owner_disagrees
+============= 1 failed, 235 passed, 3 skipped in 70.40s (0:01:10) ==============

@@ -18,6 +18,17 @@ struct SourceUnitArtifacts {
   mlir::OwningOpRef<mlir::ModuleOp> interface;
 };
 
+// Check the integrity of one retained source body/interface pair without
+// admitting its interface as link-wide authority. Full source-link admission
+// still validates declarations against the complete supplied header set.
+mlir::LogicalResult verifyIntrinsicSourceUnitOwnerPair(
+    mlir::ModuleOp body, mlir::ModuleOp interface, bool &ownerMismatch,
+    ac::detail::EmitError emitError);
+
+mlir::LogicalResult
+verifyIntrinsicSourceUnitPair(mlir::ModuleOp body, mlir::ModuleOp interface,
+                              ac::detail::EmitError emitError);
+
 class SourceHeaderRegistry {
 public:
   static mlir::FailureOr<SourceHeaderRegistry>

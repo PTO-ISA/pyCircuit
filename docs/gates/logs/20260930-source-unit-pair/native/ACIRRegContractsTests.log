@@ -1,0 +1,42 @@
+Running main() from /private/tmp/googletest-20250910-5249-qce8ci/googletest-1.17.0/googletest/src/gtest_main.cc
+[==========] Running 10 tests from 1 test suite.
+[----------] Global test environment set-up.
+[----------] 10 tests from RegContractsTest
+[ RUN      ] RegContractsTest.V08_RegUsesModuleClockResetAndRuleYieldsDEPair
+[       OK ] RegContractsTest.V08_RegUsesModuleClockResetAndRuleYieldsDEPair (63 ms)
+[ RUN      ] RegContractsTest.V08_RejectsForgedClockAndWrongProposalArity
+[       OK ] RegContractsTest.V08_RejectsForgedClockAndWrongProposalArity (63 ms)
+[ RUN      ] RegContractsTest.V08_RetiredDffSchemasDoNotParse
+[       OK ] RegContractsTest.V08_RetiredDffSchemasDoNotParse (62 ms)
+[ RUN      ] RegContractsTest.V08_RuleSourceOwnerMustMatchItsModuleAuthority
+[       OK ] RegContractsTest.V08_RuleSourceOwnerMustMatchItsModuleAuthority (62 ms)
+[ RUN      ] RegContractsTest.V09_RejectsSameWidthButDifferentLogicalType
+[       OK ] RegContractsTest.V09_RejectsSameWidthButDifferentLogicalType (63 ms)
+[ RUN      ] RegContractsTest.V16_ConcreteListMaterializesExactlyThreeRegElements
+[       OK ] RegContractsTest.V16_ConcreteListMaterializesExactlyThreeRegElements (129 ms)
+[ RUN      ] RegContractsTest.V16_RejectsEmptyCollectionInitializer
+[       OK ] RegContractsTest.V16_RejectsEmptyCollectionInitializer (123 ms)
+[ RUN      ] RegContractsTest.V16_RejectsElementTypeAndRangeViolations
+[       OK ] RegContractsTest.V16_RejectsElementTypeAndRangeViolations (185 ms)
+[ RUN      ] RegContractsTest.V16_RejectsCollectionAuthorityDivergence
+[       OK ] RegContractsTest.V16_RejectsCollectionAuthorityDivergence (126 ms)
+[ RUN      ] RegContractsTest.V17_ScalarElementIsEmptyAndBoolIndexIsRejected
+[       OK ] RegContractsTest.V17_ScalarElementIsEmptyAndBoolIndexIsRejected (63 ms)
+[----------] 10 tests from RegContractsTest (944 ms total)
+
+[----------] Global test environment tear-down
+[==========] 10 tests from 1 test suite ran. (944 ms total)
+[  PASSED  ] 10 tests.
+loc("counter.py":9:5): error: 'ac.reg' op source reg clock/reset must be enclosing module controls
+loc("counter.py":14:9): error: 'ac.source.use' op source use data and enabled must contribute to their target yield pair
+loc("-":3:35): error: unknown  type `dff` in dialect `ac`
+loc("-":3:36): error: unknown  type `dffe` in dialect `ac`
+loc("counter.py":12:5): error: 'ac.rule' op SourceOwner must contain exactly 2 fields
+loc("counter.py":12:5): error: 'ac.rule' op rule must belong to its enclosing source module
+loc("counter.py":12:5): error: 'ac.rule' op owned rule input does not match its source reg
+loc("counter.py":12:5): error: 'ac.rule' op rule input binding/type mismatch
+loc("mutation_bank.py":8:1): error: 'ac.module' op source reg declaration repeats an element
+loc("mutation_bank.py":8:1): error: 'ac.module' op source reg declaration has missing concrete elements
+loc("mutation_bank.py":8:1): error: 'ac.module' op source reg elements disagree on declaration shape or reset
+loc("counter.py":9:5): error: 'ac.reg' op source reg element must be a u64 IntegerAttr
+loc("counter.py":9:5): error: 'ac.reg' op source reg element is outside its concrete shape

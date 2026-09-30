@@ -1,0 +1,182 @@
+[
+  {
+    "name": "ACIRSourceContractsTests",
+    "exit": 0,
+    "tests": 36,
+    "failures": 0,
+    "errors": 0,
+    "disabled": 0,
+    "skipped": 0
+  },
+  {
+    "name": "ACIRSourceMathContractsTests",
+    "exit": 0,
+    "tests": 91,
+    "failures": 0,
+    "errors": 0,
+    "disabled": 0,
+    "skipped": 0
+  },
+  {
+    "name": "ACIRSourceUnitTests",
+    "exit": 0,
+    "tests": 14,
+    "failures": 0,
+    "errors": 0,
+    "disabled": 0,
+    "skipped": 0
+  },
+  {
+    "name": "ACIRNamespaceContractsTests",
+    "exit": 0,
+    "tests": 15,
+    "failures": 0,
+    "errors": 0,
+    "disabled": 0,
+    "skipped": 0
+  },
+  {
+    "name": "ACIRSourceModuleContractsTests",
+    "exit": 0,
+    "tests": 25,
+    "failures": 0,
+    "errors": 0,
+    "disabled": 0,
+    "skipped": 0
+  },
+  {
+    "name": "ACIRSourceLinkAdmissionTests",
+    "exit": 0,
+    "tests": 5,
+    "failures": 0,
+    "errors": 0,
+    "disabled": 0,
+    "skipped": 0
+  },
+  {
+    "name": "ACIRRegContractsTests",
+    "exit": 0,
+    "tests": 10,
+    "failures": 0,
+    "errors": 0,
+    "disabled": 0,
+    "skipped": 0
+  },
+  {
+    "name": "ACIRSourceFactsTests",
+    "exit": 0,
+    "tests": 14,
+    "failures": 0,
+    "errors": 0,
+    "disabled": 0,
+    "skipped": 0
+  },
+  {
+    "name": "ACIRRuleEffectsTests",
+    "exit": 0,
+    "tests": 7,
+    "failures": 0,
+    "errors": 0,
+    "disabled": 0,
+    "skipped": 0
+  },
+  {
+    "name": "ACIRModuleGraphTests",
+    "exit": 0,
+    "tests": 5,
+    "failures": 0,
+    "errors": 0,
+    "disabled": 0,
+    "skipped": 0
+  },
+  {
+    "name": "ACIRFinalProgramTests",
+    "exit": 0,
+    "tests": 51,
+    "failures": 0,
+    "errors": 0,
+    "disabled": 0,
+    "skipped": 0
+  },
+  {
+    "name": "ACIRProposalContractsTests",
+    "exit": 0,
+    "tests": 9,
+    "failures": 0,
+    "errors": 0,
+    "disabled": 0,
+    "skipped": 0
+  },
+  {
+    "name": "ACIRRegRuntimeTests",
+    "exit": 0,
+    "tests": 5,
+    "failures": 0,
+    "errors": 0,
+    "disabled": 0,
+    "skipped": 0
+  },
+  {
+    "name": "ACIRSystemLifecycleTests",
+    "exit": 0,
+    "tests": 10,
+    "failures": 0,
+    "errors": 0,
+    "disabled": 0,
+    "skipped": 0
+  },
+  {
+    "name": "ACIRSimExecutorTests",
+    "exit": 0,
+    "tests": 9,
+    "failures": 0,
+    "errors": 0,
+    "disabled": 0,
+    "skipped": 0
+  },
+  {
+    "name": "ACIRObservationTests",
+    "exit": 0,
+    "tests": 10,
+    "failures": 0,
+    "errors": 0,
+    "disabled": 0,
+    "skipped": 0
+  },
+  {
+    "name": "ACIRObservationContractsTests",
+    "exit": 0,
+    "tests": 6,
+    "failures": 0,
+    "errors": 0,
+    "disabled": 0,
+    "skipped": 0
+  },
+  {
+    "name": "ACIRCheckContractsTests",
+    "exit": 0,
+    "tests": 9,
+    "failures": 0,
+    "errors": 0,
+    "disabled": 0,
+    "skipped": 0
+  },
+  {
+    "name": "ACIRBackendClosureTests",
+    "exit": 0,
+    "tests": 6,
+    "failures": 0,
+    "errors": 0,
+    "disabled": 0,
+    "skipped": 0
+  },
+  {
+    "name": "ACIRExecutableBackendClosureTests",
+    "exit": 0,
+    "tests": 18,
+    "failures": 0,
+    "errors": 0,
+    "disabled": 0,
+    "skipped": 0
+  }
+]

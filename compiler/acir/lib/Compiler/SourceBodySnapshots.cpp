@@ -1,7 +1,10 @@
 #include "RuleEffectView.h"
 #include "SourceHeaderHelpers.h"
+#include "SourceNamespace.h"
 #include "SourceUnit.h"
 
+#include "mlir/Dialect/Func/IR/FuncOps.h"
+#include "mlir/IR/OperationSupport.h"
 #include "mlir/IR/SymbolTable.h"
 #include "llvm/ADT/DenseSet.h"
 #include "llvm/ADT/STLExtras.h"
@@ -11,7 +14,6 @@ using namespace mlir;
 
 namespace acir::compiler {
 namespace {
-
 LogicalResult verifyModulePortsAgainstHeader(ac::ModuleOp module,
                                              ac::ModuleImportOp declaration,
                                              ac::detail::EmitError emitError) {
@@ -175,11 +177,10 @@ verifyModuleEffectsAgainstHeader(ac::ModuleOp module,
   return success();
 }
 
-} // namespace
-
-static LogicalResult
+template <typename LookupDeclaration>
+LogicalResult
 verifyBodySnapshotsAgainstAuthority(ModuleOp body, ModuleOp owningHeader,
-                                    const SourceHeaderRegistry &authority,
+                                    LookupDeclaration lookupDeclaration,
                                     ac::detail::EmitError emitError) {
   if (!body || !owningHeader)
     return emitError() << "source body and owning header are both required";
@@ -213,13 +214,26 @@ verifyBodySnapshotsAgainstAuthority(ModuleOp body, ModuleOp owningHeader,
           symbol ? FlatSymbolRefAttr::get(body.getContext(), symbol.getValue())
                  : FlatSymbolRefAttr();
       Operation *declaration =
-          canonical ? authority.lookupDeclaration(canonical) : nullptr;
+          canonical ? lookupDeclaration(canonical) : nullptr;
       auto moduleDeclaration =
           dyn_cast_or_null<ac::ModuleImportOp>(declaration);
-      if (!moduleDeclaration || declaration->getAttrOfType<DictionaryAttr>(
-                                    "ac.source_owner") != owner)
+      auto declarationRole = moduleDeclaration
+                                 ? moduleDeclaration->getAttrOfType<StringAttr>(
+                                       "ac.declaration_role")
+                                 : StringAttr();
+      if (!moduleDeclaration ||
+          declaration->getAttrOfType<DictionaryAttr>("ac.source_owner") !=
+              owner ||
+          !declarationRole || declarationRole.getValue() != "definition")
         return emitError()
                << "source module has no matching owning header declaration";
+      if (module->getAttr("ac.root_kind") !=
+              moduleDeclaration->getAttr("ac.root_kind") ||
+          module->getAttr("ac.control_ports") !=
+              moduleDeclaration->getAttr("ac.control_ports"))
+        return emitError()
+               << "source module root/control contract differs from its "
+                  "owning header";
       if (failed(verifyModulePortsAgainstHeader(module, moduleDeclaration,
                                                 emitError)))
         return failure();
@@ -237,7 +251,7 @@ verifyBodySnapshotsAgainstAuthority(ModuleOp body, ModuleOp owningHeader,
       return emitError() << "source body contains an unverified declaration";
     auto canonical =
         FlatSymbolRefAttr::get(body.getContext(), symbol.getValue());
-    Operation *definition = authority.lookupDeclaration(canonical);
+    Operation *definition = lookupDeclaration(canonical);
     if (!definition ||
         definition->getAttrOfType<DictionaryAttr>("ac.source_owner") !=
             snapshotOwner ||
@@ -253,6 +267,172 @@ verifyBodySnapshotsAgainstAuthority(ModuleOp body, ModuleOp owningHeader,
       failed(verifyModuleEffectsAgainstHeader(
           executableModule, executableDeclaration, emitError)))
     return failure();
+  return success();
+}
+
+LogicalResult
+validateIntrinsicHeader(ModuleOp header, DictionaryAttr owner,
+                        llvm::StringMap<Operation *> &declarations,
+                        ac::detail::EmitError emitError) {
+  auto interfaces = header->getAttrOfType<ArrayAttr>("ac.interfaces");
+  auto exports = header->getAttrOfType<ArrayAttr>("ac.exports");
+  auto importBindings = header->getAttrOfType<ArrayAttr>("ac.import_bindings");
+  if (!interfaces || interfaces.empty() || !exports || !importBindings)
+    return emitError() << "source interface metadata is incomplete";
+  llvm::DenseSet<Attribute> interfaceOwners;
+  DictionaryAttr previousDependency;
+  for (auto [index, raw] : llvm::enumerate(interfaces)) {
+    auto interfaceOwner = dyn_cast<DictionaryAttr>(raw);
+    auto package = interfaceOwner ? interfaceOwner.getAs<StringAttr>("package")
+                                  : StringAttr();
+    auto path = interfaceOwner ? interfaceOwner.getAs<StringAttr>("path")
+                               : StringAttr();
+    auto previousPackage = previousDependency
+                               ? previousDependency.getAs<StringAttr>("package")
+                               : StringAttr();
+    auto previousPath = previousDependency
+                            ? previousDependency.getAs<StringAttr>("path")
+                            : StringAttr();
+    if (!interfaceOwner ||
+        failed(ac::detail::verifySourceOwner(interfaceOwner, emitError)) ||
+        !interfaceOwners.insert(interfaceOwner).second ||
+        (index == 0 && interfaceOwner != owner) ||
+        (index != 0 && (interfaceOwner == owner || !package || !path ||
+                        (previousDependency &&
+                         (package.getValue() < previousPackage.getValue() ||
+                          (package == previousPackage &&
+                           path.getValue() <= previousPath.getValue()))))))
+      return emitError() << "source interface owner list is malformed";
+    if (index != 0)
+      previousDependency = interfaceOwner;
+  }
+
+  if (failed(detail::verifyNamespaceRecordShapes(header, emitError)))
+    return failure();
+
+  for (Operation &operation : header.getBody()->getOperations()) {
+    auto symbol = dyn_cast<SymbolOpInterface>(&operation);
+    auto name =
+        operation.getAttrOfType<StringAttr>(SymbolTable::getSymbolAttrName());
+    auto role = operation.getAttrOfType<StringAttr>("ac.declaration_role");
+    auto declarationOwner =
+        operation.getAttrOfType<DictionaryAttr>("ac.source_owner");
+    auto origin = operation.getAttrOfType<DictionaryAttr>("ac.origin");
+    if (!symbol || !name || name.getValue().empty() || !role ||
+        !declarationOwner ||
+        failed(ac::detail::verifySourceOwner(declarationOwner, emitError)) ||
+        !origin || failed(ac::detail::verifyOccurrence(origin, emitError)) ||
+        failed(detail::verifyOriginDefinition(
+            origin,
+            FlatSymbolRefAttr::get(header.getContext(), name.getValue()),
+            "interface declaration", emitError)) ||
+        !isa<ac::TypeAliasOp, ac::ConstantOp, ac::StructOp, ac::ModuleImportOp,
+             func::FuncOp>(operation))
+      return emitError()
+             << "source interface declaration envelope is malformed";
+    if (role.getValue() == "definition") {
+      if (declarationOwner != owner)
+        return emitError()
+               << "source interface definition has a foreign SourceOwner";
+    } else if (role.getValue() == "import_snapshot") {
+      if (declarationOwner == owner)
+        return emitError()
+               << "source interface import snapshot has its owning SourceOwner";
+      if (!interfaceOwners.contains(declarationOwner))
+        return emitError() << "source interface snapshot owner is absent from "
+                              "ac.interfaces";
+    } else {
+      return emitError() << "source interface declaration role is invalid";
+    }
+    if (!detail::hasQualifiedDeclarationIdentityForOwner(&operation,
+                                                         declarationOwner))
+      return emitError()
+             << "source interface declaration symbol does not match its "
+                "SourceOwner";
+    if (!declarations.try_emplace(name.getValue(), &operation).second)
+      return emitError() << "duplicate source interface declaration symbol @"
+                         << name.getValue();
+  }
+  if (failed(detail::verifyRetainedNamespaceTargets(header, declarations,
+                                                    emitError)))
+    return failure();
+  return success();
+}
+} // namespace
+
+LogicalResult verifyIntrinsicSourceUnitPair(ModuleOp body, ModuleOp interface,
+                                            ac::detail::EmitError emitError) {
+  if (!body || !interface)
+    return emitError() << "source body and interface are both required";
+
+  auto owner = interface->getAttrOfType<DictionaryAttr>("ac.source_owner");
+  auto bodyOwner = body->getAttrOfType<DictionaryAttr>("ac.source_owner");
+  auto interfaceKind = interface->getAttrOfType<StringAttr>("ac.unit_kind");
+  auto interfaceStage = interface->getAttrOfType<StringAttr>("ac.stage");
+  auto bodyKind = body->getAttrOfType<StringAttr>("ac.unit_kind");
+  auto bodyStage = body->getAttrOfType<StringAttr>("ac.stage");
+  if (failed(ac::detail::verifySourceOwner(owner, emitError)) ||
+      failed(ac::detail::verifySourceOwner(bodyOwner, emitError)) ||
+      owner != bodyOwner)
+    return emitError() << "source body/interface SourceOwner mismatch";
+  if (!interfaceKind || interfaceKind.getValue() != "interface" ||
+      !interfaceStage || interfaceStage.getValue() != "source")
+    return emitError() << "source interface stage/unit_kind is invalid";
+  if (!bodyKind ||
+      (bodyKind.getValue() != "implementation" &&
+       bodyKind.getValue() != "declarations") ||
+      !bodyStage || bodyStage.getValue() != "source")
+    return emitError() << "source body stage/unit_kind is invalid";
+  for (StringRef name : {"ac.interfaces", "ac.exports", "ac.import_bindings"})
+    if (!interface->getAttr(name) ||
+        interface->getAttr(name) != body->getAttr(name))
+      return emitError() << "source body/interface metadata differs for "
+                         << name;
+
+  llvm::StringMap<Operation *> declarations;
+  if (failed(
+          validateIntrinsicHeader(interface, owner, declarations, emitError)))
+    return failure();
+  auto lookup = [&declarations](FlatSymbolRefAttr canonical) {
+    if (!canonical)
+      return static_cast<Operation *>(nullptr);
+    auto found = declarations.find(canonical.getValue());
+    return found == declarations.end() ? static_cast<Operation *>(nullptr)
+                                       : found->second;
+  };
+  return verifyBodySnapshotsAgainstAuthority(body, interface, lookup,
+                                             emitError);
+}
+
+LogicalResult
+verifyIntrinsicSourceUnitOwnerPair(ModuleOp body, ModuleOp interface,
+                                   bool &ownerMismatch,
+                                   ac::detail::EmitError emitError) {
+  ownerMismatch = false;
+  if (!body || !interface)
+    return emitError() << "source body and interface are both required";
+
+  auto interfaceKind = interface->getAttrOfType<StringAttr>("ac.unit_kind");
+  auto interfaceStage = interface->getAttrOfType<StringAttr>("ac.stage");
+  auto bodyKind = body->getAttrOfType<StringAttr>("ac.unit_kind");
+  auto bodyStage = body->getAttrOfType<StringAttr>("ac.stage");
+  if (!interfaceKind || interfaceKind.getValue() != "interface" ||
+      !interfaceStage || interfaceStage.getValue() != "source")
+    return emitError() << "source interface stage/unit_kind is invalid";
+  if (!bodyKind ||
+      (bodyKind.getValue() != "implementation" &&
+       bodyKind.getValue() != "declarations") ||
+      !bodyStage || bodyStage.getValue() != "source")
+    return emitError() << "source body stage/unit_kind is invalid";
+
+  auto owner = interface->getAttrOfType<DictionaryAttr>("ac.source_owner");
+  auto bodyOwner = body->getAttrOfType<DictionaryAttr>("ac.source_owner");
+  if (failed(ac::detail::verifySourceOwner(owner, emitError)) ||
+      failed(ac::detail::verifySourceOwner(bodyOwner, emitError)))
+    return failure();
+  ownerMismatch = owner != bodyOwner;
+  if (ownerMismatch)
+    return emitError() << "source body/interface SourceOwner mismatch";
   return success();
 }
 
@@ -275,7 +455,10 @@ LogicalResult SourceHeaderRegistry::verifyBodySnapshots(
       return emitError()
              << "owning header does not match the header admitted for its "
                 "SourceOwner";
-    return verifyBodySnapshotsAgainstAuthority(body, owningHeader, *this,
+    auto lookup = [this](FlatSymbolRefAttr canonical) {
+      return lookupDeclaration(canonical);
+    };
+    return verifyBodySnapshotsAgainstAuthority(body, owningHeader, lookup,
                                                emitError);
   }
 
@@ -284,7 +467,10 @@ LogicalResult SourceHeaderRegistry::verifyBodySnapshots(
   auto authority = SourceHeaderRegistry::create(completeHeaders, emitError);
   if (failed(authority))
     return failure();
-  return verifyBodySnapshotsAgainstAuthority(body, owningHeader, *authority,
+  auto lookup = [&authority](FlatSymbolRefAttr canonical) {
+    return authority->lookupDeclaration(canonical);
+  };
+  return verifyBodySnapshotsAgainstAuthority(body, owningHeader, lookup,
                                              emitError);
 }
 

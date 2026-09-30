@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuites tests="9" failures="0" disabled="0" errors="0" time="0.32" timestamp="2026-09-30T10:17:11.165" name="AllTests">
+  <testsuite name="CheckContractsTest" tests="4" failures="0" disabled="0" skipped="0" errors="0" time="0.001" timestamp="2026-09-30T10:17:11.165">
+    <testcase name="CanonicalAssertCheckParsesAndVerifies" file="/Users/zhoubot/.codex/worktrees/migration-capture/pyCircuit/tests/cpp/agentic-circuit/Dialect/ACIR/CheckContractsTest.cpp" line="197" status="run" result="completed" time="0.001" timestamp="2026-09-30T10:17:11.165" classname="CheckContractsTest" />
+    <testcase name="RequiredCheckRejectsDeleteAndDuplicate" file="/Users/zhoubot/.codex/worktrees/migration-capture/pyCircuit/tests/cpp/agentic-circuit/Dialect/ACIR/CheckContractsTest.cpp" line="205" status="run" result="completed" time="0." timestamp="2026-09-30T10:17:11.167" classname="CheckContractsTest" />
+    <testcase name="RedirectedConditionAndPathReject" file="/Users/zhoubot/.codex/worktrees/migration-capture/pyCircuit/tests/cpp/agentic-circuit/Dialect/ACIR/CheckContractsTest.cpp" line="232" status="run" result="completed" time="0." timestamp="2026-09-30T10:17:11.167" classname="CheckContractsTest" />
+    <testcase name="ScopeKindLocationAndRequiredMutationsReject" file="/Users/zhoubot/.codex/worktrees/migration-capture/pyCircuit/tests/cpp/agentic-circuit/Dialect/ACIR/CheckContractsTest.cpp" line="258" status="run" result="completed" time="0." timestamp="2026-09-30T10:17:11.167" classname="CheckContractsTest" />
+  </testsuite>
+  <testsuite name="CheckGraphClosureTest" tests="1" failures="0" disabled="0" skipped="0" errors="0" time="0." timestamp="2026-09-30T10:17:11.167">
+    <testcase name="PrivateCheckGraphApiIsRequired" file="/Users/zhoubot/.codex/worktrees/migration-capture/pyCircuit/tests/cpp/agentic-circuit/Dialect/ACIR/CheckContractsTest.cpp" line="293" status="run" result="completed" time="0." timestamp="2026-09-30T10:17:11.167" classname="CheckGraphClosureTest" />
+  </testsuite>
+  <testsuite name="PythonCheckGraphTest" tests="3" failures="0" disabled="0" skipped="0" errors="0" time="0.193" timestamp="2026-09-30T10:17:11.167">
+    <testcase name="BindingFieldsAndActualBijectionRejectMutations" file="/Users/zhoubot/.codex/worktrees/migration-capture/pyCircuit/tests/cpp/agentic-circuit/Dialect/ACIR/CheckContractsTest.cpp" line="456" status="run" result="completed" time="0.065" timestamp="2026-09-30T10:17:11.167" classname="PythonCheckGraphTest" />
+    <testcase name="HeaderBodyCheckProposalObservationAndLinkClosureSucceeds" file="/Users/zhoubot/.codex/worktrees/migration-capture/pyCircuit/tests/cpp/agentic-circuit/Dialect/ACIR/CheckContractsTest.cpp" line="549" status="run" result="completed" time="0.064" timestamp="2026-09-30T10:17:11.233" classname="PythonCheckGraphTest" />
+    <testcase name="LinkRejectsMutatedAssertConditionPathAndRequired" file="/Users/zhoubot/.codex/worktrees/migration-capture/pyCircuit/tests/cpp/agentic-circuit/Dialect/ACIR/CheckContractsTest.cpp" line="589" status="run" result="completed" time="0.063" timestamp="2026-09-30T10:17:11.297" classname="PythonCheckGraphTest" />
+  </testsuite>
+  <testsuite name="TwoInstanceObservationGraphTest" tests="1" failures="0" disabled="0" skipped="0" errors="0" time="0.125" timestamp="2026-09-30T10:17:11.361">
+    <testcase name="OwnerRefAndStableOrdinalIgnoreUnitInputOrder" file="/Users/zhoubot/.codex/worktrees/migration-capture/pyCircuit/tests/cpp/agentic-circuit/Dialect/ACIR/CheckContractsTest.cpp" line="612" status="run" result="completed" time="0.125" timestamp="2026-09-30T10:17:11.361" classname="TwoInstanceObservationGraphTest" />
+  </testsuite>
+</testsuites>

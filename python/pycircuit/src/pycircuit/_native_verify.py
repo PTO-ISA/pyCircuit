@@ -22,6 +22,8 @@ _HELPERS: dict[str, tuple[str, str]] = {
     "source-unit": ("acir-source-unit-harness", "ACIR_SOURCE_UNIT_HARNESS"),
     "design": ("acir-design-harness", "ACIR_DESIGN_HARNESS"),
 }
+# Private acir-design-harness status; not exposed as a pycircuit CLI exit code.
+_SOURCE_UNIT_OWNER_MISMATCH_EXIT = 3
 
 
 def native_helper(kind: str) -> Path:
@@ -58,9 +60,21 @@ def _owner_object(value: object, what: str) -> dict[str, str]:
     return {"package": package, "path": path}
 
 
-def _run(arguments: list[str], what: str) -> None:
+def _run(
+    arguments: list[str],
+    what: str,
+    *,
+    source_unit_owner_mismatch_exit: bool = False,
+) -> None:
     completed = subprocess.run(arguments, text=True, capture_output=True, check=False)
     if completed.returncode != 0:
+        if (
+            source_unit_owner_mismatch_exit
+            and completed.returncode == _SOURCE_UNIT_OWNER_MISMATCH_EXIT
+        ):
+            raise _PublicationError(
+                "source-unit internal owner does not match its receipt"
+            )
         # The native tools report over several lines; the driver's diagnostic
         # contract is one line, so the detail is folded into one.
         detail = " ".join(
@@ -128,6 +142,7 @@ def verify_source_unit_owners(body: Path, header: Path) -> tuple[dict[str, str],
                 str(report),
             ],
             "published source unit",
+            source_unit_owner_mismatch_exit=True,
         )
         if not report.is_file():
             raise _PublicationError(

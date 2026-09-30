@@ -1,6 +1,8 @@
 #include "SourceNamespace.h"
 #include "SourceIdentifier.h"
 
+#include "mlir/IR/OperationSupport.h"
+#include "mlir/IR/SymbolTable.h"
 #include "llvm/ADT/STLExtras.h"
 
 #include <algorithm>
@@ -150,6 +152,16 @@ LogicalResult verifyTargetCategory(FlatSymbolRefAttr target,
     return emitError()
            << "namespace target has no canonical declaration authority: "
            << target;
+  return verifyNamespaceTargetCategory(declaration, target, emitError);
+}
+
+} // namespace
+
+LogicalResult verifyNamespaceTargetCategory(Operation *declaration,
+                                            FlatSymbolRefAttr target,
+                                            ac::detail::EmitError emitError) {
+  if (!declaration || !target)
+    return emitError() << "namespace target has no declaration: " << target;
   if (isa<ac::TypeAliasOp, ac::ConstantOp, ac::StructOp, ac::ModuleImportOp>(
           declaration))
     return success();
@@ -166,37 +178,146 @@ LogicalResult verifyTargetCategory(FlatSymbolRefAttr target,
          << target;
 }
 
-} // namespace
+LogicalResult verifyNamespaceRecordShapes(ModuleOp header,
+                                          ac::detail::EmitError emitError) {
+  auto owner = header ? header->getAttrOfType<DictionaryAttr>("ac.source_owner")
+                      : DictionaryAttr();
+  auto interfaces =
+      header ? header->getAttrOfType<ArrayAttr>("ac.interfaces") : ArrayAttr();
+  auto exports =
+      header ? header->getAttrOfType<ArrayAttr>("ac.exports") : ArrayAttr();
+  auto importBindings =
+      header ? header->getAttrOfType<ArrayAttr>("ac.import_bindings")
+             : ArrayAttr();
+  if (!owner || !interfaces || !exports || !importBindings)
+    return emitError() << "interface namespace metadata is incomplete";
 
-FailureOr<SmallVector<NamespaceExportBinding>>
-readNamespaceExports(ModuleOp header, const SourceHeaderRegistry &registry,
-                     ac::detail::EmitError emitError) {
-  auto entries = header->getAttrOfType<ArrayAttr>("ac.exports");
-  auto owner = header->getAttrOfType<DictionaryAttr>("ac.source_owner");
-  if (!entries)
-    return emitError() << "interface requires ArrayAttr ac.exports";
-  SmallVector<NamespaceExportBinding> result;
-  StringAttr previousName;
-  for (auto [index, raw] : llvm::enumerate(entries)) {
+  StringAttr previousExport;
+  for (auto [index, raw] : llvm::enumerate(exports)) {
     auto entry = dyn_cast<DictionaryAttr>(raw);
     auto name = entry ? entry.getAs<StringAttr>("name") : StringAttr();
     auto target =
         entry ? entry.getAs<FlatSymbolRefAttr>("target") : FlatSymbolRefAttr();
     auto site = entry ? entry.getAs<DictionaryAttr>("site") : DictionaryAttr();
-    if (!entry || entry.size() != 3 || !name || !target || !site)
+    if (!entry || entry.size() != 3 || !name || !target || !site ||
+        failed(verifyPythonAstIdentifier(name.getValue(), true, emitError)) ||
+        failed(verifyNamespaceSite(site, owner, emitError)))
       return emitError() << "ac.exports[" << index
-                         << "] must be a closed ExportBinding with StringAttr "
+                         << "] must be a closed ExportBinding with valid "
                             "name, target, and site";
-    if (failed(verifyPythonAstIdentifier(name.getValue(), true, emitError)))
-      return failure();
-    if (failed(verifyNamespaceSite(site, owner, emitError)) ||
-        failed(verifyTargetCategory(target, registry, emitError)))
-      return failure();
-    if (previousName &&
-        compareBytes(previousName.getValue(), name.getValue()) >= 0)
+    if (previousExport &&
+        compareBytes(previousExport.getValue(), name.getValue()) >= 0)
       return emitError()
              << "ac.exports must be unique and sorted by UTF-8 name bytes";
-    previousName = name;
+    previousExport = name;
+  }
+
+  SmallVector<ImportBinding> bindings;
+  llvm::StringMap<FlatSymbolRefAttr> targetsByProviderName;
+  for (auto [index, raw] : llvm::enumerate(importBindings)) {
+    auto entry = dyn_cast<DictionaryAttr>(raw);
+    auto source =
+        entry ? entry.getAs<DictionaryAttr>("source") : DictionaryAttr();
+    auto name = entry ? entry.getAs<StringAttr>("name") : StringAttr();
+    auto target =
+        entry ? entry.getAs<FlatSymbolRefAttr>("target") : FlatSymbolRefAttr();
+    auto site = entry ? entry.getAs<DictionaryAttr>("site") : DictionaryAttr();
+    if (!entry || entry.size() != 4 || !source || !name || !target || !site ||
+        failed(ac::detail::verifySourceOwner(source, emitError)) ||
+        !llvm::is_contained(interfaces, source) ||
+        failed(verifyPythonAstIdentifier(name.getValue(), false, emitError)) ||
+        failed(verifyNamespaceSite(site, owner, emitError)))
+      return emitError() << "ac.import_bindings[" << index
+                         << "] must be a closed ImportBindingUse with valid "
+                            "source/name/target/site";
+    std::string key = (Twine(source.getAs<StringAttr>("package").getValue()) +
+                       "::" + source.getAs<StringAttr>("path").getValue() +
+                       "::" + name.getValue())
+                          .str();
+    auto existing = targetsByProviderName.find(key);
+    if (existing != targetsByProviderName.end() && existing->second != target)
+      return emitError() << "one producer records different targets for the "
+                            "same provider/name";
+    targetsByProviderName.try_emplace(key, target);
+    bindings.push_back({source, name, target, site});
+  }
+  for (size_t index = 1; index < bindings.size(); ++index)
+    if (compareImportBinding(bindings[index - 1], bindings[index]) >= 0)
+      return emitError()
+             << "ac.import_bindings must be unique and structurally ordered";
+  return success();
+}
+
+LogicalResult
+verifyRetainedNamespaceTargets(ModuleOp header,
+                               const llvm::StringMap<Operation *> &declarations,
+                               ac::detail::EmitError emitError) {
+  auto owner = header ? header->getAttrOfType<DictionaryAttr>("ac.source_owner")
+                      : DictionaryAttr();
+  auto exports =
+      header ? header->getAttrOfType<ArrayAttr>("ac.exports") : ArrayAttr();
+  auto importBindings =
+      header ? header->getAttrOfType<ArrayAttr>("ac.import_bindings")
+             : ArrayAttr();
+  if (!owner || !exports || !importBindings)
+    return emitError() << "interface retained namespace targets are incomplete";
+
+  for (auto [index, raw] : llvm::enumerate(exports)) {
+    auto entry = dyn_cast<DictionaryAttr>(raw);
+    auto target =
+        entry ? entry.getAs<FlatSymbolRefAttr>("target") : FlatSymbolRefAttr();
+    Operation *declaration =
+        target ? declarations.lookup(target.getValue()) : nullptr;
+    if (!declaration)
+      return emitError() << "namespace target has no retained declaration: "
+                         << target;
+    if (failed(verifyNamespaceTargetCategory(declaration, target, emitError)))
+      return failure();
+  }
+  for (auto [index, raw] : llvm::enumerate(importBindings)) {
+    auto entry = dyn_cast<DictionaryAttr>(raw);
+    auto target =
+        entry ? entry.getAs<FlatSymbolRefAttr>("target") : FlatSymbolRefAttr();
+    Operation *declaration =
+        target ? declarations.lookup(target.getValue()) : nullptr;
+    auto role =
+        declaration
+            ? declaration->getAttrOfType<StringAttr>("ac.declaration_role")
+            : StringAttr();
+    auto targetOwner =
+        declaration
+            ? declaration->getAttrOfType<DictionaryAttr>("ac.source_owner")
+            : DictionaryAttr();
+    if (!declaration)
+      return emitError()
+             << "import binding target has no retained declaration: " << target;
+    if (!role || role.getValue() != "import_snapshot" || !targetOwner ||
+        targetOwner == owner)
+      return emitError()
+             << "import binding target must be an external retained snapshot: "
+             << target;
+    if (failed(verifyNamespaceTargetCategory(declaration, target, emitError)))
+      return failure();
+  }
+  return success();
+}
+
+FailureOr<SmallVector<NamespaceExportBinding>>
+readNamespaceExports(ModuleOp header, const SourceHeaderRegistry &registry,
+                     ac::detail::EmitError emitError) {
+  auto entries = header->getAttrOfType<ArrayAttr>("ac.exports");
+  if (!entries)
+    return emitError() << "interface requires ArrayAttr ac.exports";
+  if (failed(verifyNamespaceRecordShapes(header, emitError)))
+    return failure();
+  SmallVector<NamespaceExportBinding> result;
+  for (Attribute raw : entries) {
+    auto entry = dyn_cast<DictionaryAttr>(raw);
+    auto name = entry ? entry.getAs<StringAttr>("name") : StringAttr();
+    auto target =
+        entry ? entry.getAs<FlatSymbolRefAttr>("target") : FlatSymbolRefAttr();
+    if (failed(verifyTargetCategory(target, registry, emitError)))
+      return failure();
     result.push_back({name, target});
   }
   return result;
@@ -209,10 +330,10 @@ LogicalResult verifyNamespaceImports(ModuleOp header,
   auto owner = header->getAttrOfType<DictionaryAttr>("ac.source_owner");
   if (!entries)
     return emitError() << "interface requires ArrayAttr ac.import_bindings";
+  if (failed(verifyNamespaceRecordShapes(header, emitError)))
+    return failure();
   auto localInterfaces = registry.interfacesForModule(moduleName(owner));
-  SmallVector<ImportBinding> bindings;
-  llvm::StringMap<FlatSymbolRefAttr> targetsByProviderName;
-  for (auto [index, raw] : llvm::enumerate(entries)) {
+  for (Attribute raw : entries) {
     auto entry = dyn_cast<DictionaryAttr>(raw);
     auto source =
         entry ? entry.getAs<DictionaryAttr>("source") : DictionaryAttr();
@@ -220,14 +341,6 @@ LogicalResult verifyNamespaceImports(ModuleOp header,
     auto target =
         entry ? entry.getAs<FlatSymbolRefAttr>("target") : FlatSymbolRefAttr();
     auto site = entry ? entry.getAs<DictionaryAttr>("site") : DictionaryAttr();
-    if (!entry || entry.size() != 4 || !source || !name || !target || !site ||
-        failed(ac::detail::verifySourceOwner(source, emitError)) ||
-        failed(verifyNamespaceSite(site, owner, emitError)))
-      return emitError() << "ac.import_bindings[" << index
-                         << "] must be a closed ImportBindingUse with valid "
-                            "source/name/site";
-    if (failed(verifyPythonAstIdentifier(name.getValue(), false, emitError)))
-      return failure();
     std::string providerModule = moduleName(source);
     auto explicitProvider = registry.ownerForModule(providerModule);
     if (!explicitProvider || explicitProvider != source ||
@@ -255,18 +368,7 @@ LogicalResult verifyNamespaceImports(ModuleOp header,
                   << "': expected " << target << ", published " << published;
       return failure();
     }
-    std::string key = (Twine(providerModule) + "::" + name.getValue()).str();
-    auto existing = targetsByProviderName.find(key);
-    if (existing != targetsByProviderName.end() && existing->second != target)
-      return emitError() << "one producer records different targets for the "
-                            "same provider/name";
-    targetsByProviderName.try_emplace(key, target);
-    bindings.push_back({source, name, target, site});
   }
-  for (size_t index = 1; index < bindings.size(); ++index)
-    if (compareImportBinding(bindings[index - 1], bindings[index]) >= 0)
-      return emitError()
-             << "ac.import_bindings must be unique and structurally ordered";
   return success();
 }
 

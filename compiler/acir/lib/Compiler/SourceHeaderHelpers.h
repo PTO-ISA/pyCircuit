@@ -5,6 +5,9 @@
 
 namespace acir::compiler::detail {
 
+bool hasQualifiedDeclarationIdentityForOwner(mlir::Operation *operation,
+                                             mlir::DictionaryAttr owner);
+
 bool sameDeclaration(mlir::Operation *definition, mlir::Operation *snapshot);
 
 mlir::LogicalResult verifyOriginDefinition(mlir::DictionaryAttr origin,

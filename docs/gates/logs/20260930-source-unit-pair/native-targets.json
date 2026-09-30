@@ -1,0 +1,22 @@
+[
+  "ACIRSourceContractsTests",
+  "ACIRSourceMathContractsTests",
+  "ACIRSourceUnitTests",
+  "ACIRNamespaceContractsTests",
+  "ACIRSourceModuleContractsTests",
+  "ACIRSourceLinkAdmissionTests",
+  "ACIRRegContractsTests",
+  "ACIRSourceFactsTests",
+  "ACIRRuleEffectsTests",
+  "ACIRModuleGraphTests",
+  "ACIRFinalProgramTests",
+  "ACIRProposalContractsTests",
+  "ACIRRegRuntimeTests",
+  "ACIRSystemLifecycleTests",
+  "ACIRSimExecutorTests",
+  "ACIRObservationTests",
+  "ACIRObservationContractsTests",
+  "ACIRCheckContractsTests",
+  "ACIRBackendClosureTests",
+  "ACIRExecutableBackendClosureTests"
+]

@@ -1,0 +1,21 @@
+============================= test session starts ==============================
+platform darwin -- Python 3.14.6, pytest-9.0.2, pluggy-1.6.0
+rootdir: /Users/zhoubot/.codex/worktrees/migration-capture/pyCircuit
+configfile: pyproject.toml
+collected 246 items
+
+tests/unit/test_artifact_verify.py ....                                  [  1%]
+tests/unit/test_driver_commands.py ..................................... [ 16%]
+.......                                                                  [ 19%]
+tests/unit/test_source_compile.py ............                           [ 24%]
+tests/unit/test_source_unit_files.py .........................           [ 34%]
+tests/unit/test_publication.py ......................................... [ 51%]
+.................................                                        [ 64%]
+tests/unit/test_publication_fs.py ............sss                        [ 70%]
+tests/system/test_artifact_verify_recovery.py ........................   [ 80%]
+tests/system/test_driver_compile_link.py .......................         [ 89%]
+tests/system/test_source_compile_publication.py ......                   [ 92%]
+tests/system/test_source_unit_pair_verification.py ...................   [100%]
+
+- generated xml file: /Users/zhoubot/.codex/worktrees/migration-capture/pyCircuit/.pycircuit_out/unit-pair-fix/regressions-final.xml -
+================== 243 passed, 3 skipped in 67.65s (0:01:07) ===================

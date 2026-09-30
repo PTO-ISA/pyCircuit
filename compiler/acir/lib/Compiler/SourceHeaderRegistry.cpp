@@ -150,6 +150,13 @@ LogicalResult verifyCommonDeclaration(Operation *operation,
 
 } // namespace
 
+bool detail::hasQualifiedDeclarationIdentityForOwner(Operation *operation,
+                                                     DictionaryAttr owner) {
+  StringRef name = symbolName(operation);
+  return !name.empty() &&
+         hasQualifiedDeclarationIdentity(operation, name, moduleName(owner));
+}
+
 FailureOr<SourceHeaderRegistry>
 SourceHeaderRegistry::create(ArrayRef<ModuleOp> headers,
                              ac::detail::EmitError emitError) {
@@ -232,9 +239,8 @@ SourceHeaderRegistry::create(ArrayRef<ModuleOp> headers,
       DictionaryAttr identityOwner =
           role && role.getValue() == "import_snapshot" ? declarationOwner
                                                        : enclosingOwner;
-      std::string declarationModule = moduleName(identityOwner);
-      if (name.empty() ||
-          !hasQualifiedDeclarationIdentity(&operation, name, declarationModule))
+      if (name.empty() || !detail::hasQualifiedDeclarationIdentityForOwner(
+                              &operation, identityOwner))
         return emitError() << "declaration qualified identity does not match "
                               "its SourceOwner: "
                            << name;
