@@ -388,3 +388,14 @@ publication recovery and complete moved-prefix compile/link/dual-emission plus
 Runtime execution on macOS arm64. [M6-01 evidence index](../work-items/m6-publication-relocation.md)
 binds independent review and results. It changes no product semantics or ABI;
 remaining M6/platform/performance/parallel and M7 release work remains open.
+
+## 2026-10-01 M6-02 acceptance
+
+The second bounded M6 packet is accepted in `25152f9c`: measured shared-definition
+1/16/64 and distinct-source 1/8/32 source-unit builds, real Ninja no-op/invalidation,
+independent CPP/RTL oracles and C3 build-integration repairs. The
+[M6-02 evidence index](../work-items/m6-incremental-scale.md) binds independent
+review and final-candidate results. Source invalidation is selective; full emit
+still rebuilds all generated CPP targets. RSS/throughput, parallel simulation and
+broader platform/fault/SDK work remain open. M7 may next form a scoped preview
+candidate; no stable release or expanded profile is claimed.
