@@ -557,6 +557,12 @@ producer、header-only compile、完整 link、增量与 clean/rebuild；真实�
 `docs/work-items/m4-cpp-source-parts.md`。纯声明单元目前仍未保留到 final，
 不伪造声明头或把本包称为完整 C3 bundle。原有多赋值 final 重建拒绝单列 M3。
 
+2026-09-30 M3 多赋值重建缺口已关闭（产品提交 `a3df1ade`）：仅 ProposalGraph 改为按精确 use/value
+与唯一输出 target 选择 data/enable pair，保留旧 Q 与局部候选复用的区别。
+新 5 项、现有 Python 68 项、native 78 项通过，独立审阅 APPROVE；证据见
+产品分支 `docs/gates/logs/20260930-generic-multi-assignment/`。M4 后续声明头
+需先冻结声明单元的 final 投影，不新增 primitive，也不混入未批准的 system/expect B。
+
 任务 `verified` 需要对应当前内容的证据，`done` 由 PM 集成验收后设置。单个 agent 完成或一个小样板通过均不代表整体目标完成。
 
 ## 当前限制与下一步
