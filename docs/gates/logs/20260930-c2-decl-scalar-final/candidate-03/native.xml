@@ -1,0 +1,49 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="Darwin-c++"
+	tests="2"
+	failures="0"
+	disabled="0"
+	skipped="0"
+	hostname="Zhoubot-MacBook-173.local"
+	time="12"
+	timestamp="2026-09-30T15:58:06"
+	>
+	<testcase name="ACIRFinalProgramTests" classname="ACIRFinalProgramTests" time="5.84136" status="run">
+		<properties/>
+		<system-out>Running main() from /private/tmp/googletest-20250910-5249-qce8ci/googletest-1.17.0/googletest/src/gtest_main.cc
+[==========] Running 54 tests from 7 test suites.
+[----------] Global test environment set-up.
+[----------] 2 tests from FinalGenericUsesTest
+[ RUN      ] FinalGenericUsesTest.FreshPackageRetainsOriginalUseLineageAndAllControlForms
+[       OK ] FinalGenericUsesTest.FreshPackageRetainsOriginalUseLineageAndAllControlForms (61 ms)
+[ RUN      ] FinalGenericUsesTest.RejectsMissingDuplicateRedirectedAndHiddenFacts
+loc("uses.py":15:5): error: 'ac.rule' op proof-scoped rule must retain ac.required_numeric
+loc("uses.py":15:5): error: 'ac.rule' op proof-scoped rule must retain ac.required_numeric
+loc("uses.py":17:22): error: 'ac.value.binding' op ProofScope must contain exactly 2 fields
+loc("uses.py":17:22): error: 'ac.value.binding' op rule proof_scope must match its registered occurrence
+loc("uses.py":17:22): error: 'ac.value.binding' op ValueBinding requires exact ID, domain and rule scope
+loc("uses.py":15...
+[This part of the test output was removed since it exceeds the threshold of 1024 bytes.]
+</system-out>
+	</testcase>
+	<testcase name="ACIRExecutableBackendClosureTests" classname="ACIRExecutableBackendClosureTests" time="6.23257" status="run">
+		<properties/>
+		<system-out>Running main() from /private/tmp/googletest-20250910-5249-qce8ci/googletest-1.17.0/googletest/src/gtest_main.cc
+[==========] Running 18 tests from 8 test suites.
+[----------] Global test environment set-up.
+[----------] 1 test from ExecutableBackendClosureTest
+[ RUN      ] ExecutableBackendClosureTest.SameEmitReadyProgramExecutesCppAndVerilogCycleOracle
+[       OK ] ExecutableBackendClosureTest.SameEmitReadyProgramExecutesCppAndVerilogCycleOracle (590 ms)
+[----------] 1 test from ExecutableBackendClosureTest (590 ms total)
+
+[----------] 4 tests from NumericNextBackendTest
+[ RUN      ] NumericNextBackendTest.GraphsAcceptOnlyTheExactValueUsePacket
+loc("counter.py":11:5): error: 'ac.rule' op U1 ValueUse does not bind the required boundary value
+error: source rule effects require verified numeric next-state closure
+loc("counter.py":11:5): error: 'ac.rule' op U1 YieldBinding is not the exact scalar contribution
+error: source rule effects require verified numeric next-state closure
+loc("counter.py":11:5): error: 'a...
+[This part of the test output was removed since it exceeds the threshold of 1024 bytes.]
+</system-out>
+	</testcase>
+</testsuite>

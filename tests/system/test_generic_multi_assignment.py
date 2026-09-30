@@ -349,7 +349,16 @@ def _run_grouped_cpp(tmp_path: Path, final: Path) -> str:
     )
     groups = payload["source_groups"]
     owners = [(group["source"]["package"], group["source"]["path"]) for group in groups]
-    assert sorted(owners) == [("demo", "counter.py"), ("demo", "test_counters.py")]
+    assert sorted(owners) == [
+        ("demo", "counter.py"),
+        ("demo", "test_counters.py"),
+        ("demo", "types.py"),
+    ]
+    declaration_group = next(
+        group for group in groups if group["source"]["path"] == "types.py"
+    )
+    assert declaration_group["source_path"] is None
+    assert declaration_group["implementation"] is None
     child_group = next(
         group for group in groups if group["source"]["path"] == "counter.py"
     )
@@ -357,12 +366,18 @@ def _run_grouped_cpp(tmp_path: Path, final: Path) -> str:
     assert "q_outgoing_" not in child_group["header"]
     for group in groups:
         for key in ("header_path", "source_path"):
+            if group[key] is None:
+                assert key == "source_path" and group["implementation"] is None
+                continue
             relative = Path(group[key])
             assert not relative.is_absolute() and ".." not in relative.parts
         for key, field in (
             ("header_path", "header"),
             ("source_path", "implementation"),
         ):
+            if group[key] is None:
+                assert field == "implementation" and group[field] is None
+                continue
             path = output / group[key]
             path.parent.mkdir(parents=True, exist_ok=True)
             path.write_text(group[field], encoding="utf-8")
@@ -370,6 +385,9 @@ def _run_grouped_cpp(tmp_path: Path, final: Path) -> str:
     cxx = _tool("CXX", "clang++")
     objects = []
     for index, group in enumerate(groups):
+        if group["source_path"] is None:
+            assert group["implementation"] is None
+            continue
         source = output / group["source_path"]
         obj = tmp_path / f"group-{index}.o"
         compiled = subprocess.run(

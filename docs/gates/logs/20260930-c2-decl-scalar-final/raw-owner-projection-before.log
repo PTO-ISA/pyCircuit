@@ -1,0 +1,18 @@
+============================= test session starts ==============================
+platform darwin -- Python 3.14.6, pytest-9.0.2, pluggy-1.6.0
+rootdir: /Users/zhoubot/.codex/worktrees/migration-capture/pyCircuit
+configfile: pyproject.toml
+collected 39 items / 38 deselected / 1 selected
+
+tests/system/test_final_scalar_declarations.py F                         [100%]
+
+=================================== FAILURES ===================================
+______________ test_projection_rejects_casefolded_raw_init_owners ______________
+tests/system/test_final_scalar_declarations.py:911: in test_projection_rejects_casefolded_raw_init_owners
+    assert result.returncode == 1, result.stderr
+E   AssertionError: 
+E   assert 0 == 1
+E    +  where 0 = CompletedProcess(args=['/Users/zhoubot/.codex/worktrees/migration-capture/pyCircuit/.pycircuit_out/w10-pm/build/bin/ac...ubot/pytest-1287/test_projection_rejects_casefo0/rejected.ac', '--role', 'design'], returncode=0, stdout='', stderr='').returncode
+=========================== short test summary info ============================
+FAILED tests/system/test_final_scalar_declarations.py::test_projection_rejects_casefolded_raw_init_owners
+======================= 1 failed, 38 deselected in 0.12s =======================

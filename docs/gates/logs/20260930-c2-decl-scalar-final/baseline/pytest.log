@@ -1,0 +1,38 @@
+============================= test session starts ==============================
+platform darwin -- Python 3.14.6, pytest-9.0.2, pluggy-1.6.0
+rootdir: /Users/zhoubot/.codex/worktrees/migration-capture/pyCircuit
+configfile: pyproject.toml
+collected 2 items
+
+tests/system/test_final_scalar_declarations.py FF                        [100%]
+
+=================================== FAILURES ===================================
+______ test_complete_owning_inventory_survives_final_and_unit_reordering _______
+tests/system/test_final_scalar_declarations.py:188: in test_complete_owning_inventory_survives_final_and_unit_reordering
+    assert set(units) == {("demo", path) for path in sources}
+E   AssertionError: assert {('demo', 'root.py')} == {('demo', 'em...o', 'std.py')}
+E     
+E     Extra items in the right set:
+E     ('demo', 'provider.py')
+E     ('demo', 'facade.py')
+E     ('demo', 'empty.py')
+E     ('demo', 'std.py')
+E     ('demo', 'pkg/__init__.py')
+E     Use -v to get more diff
+__ test_final_only_headers_are_standalone_and_constants_have_one_odr_address ___
+tests/system/test_final_scalar_declarations.py:230: in test_final_only_headers_are_standalone_and_constants_have_one_odr_address
+    assert set(by_path) == {
+E   AssertionError: assert {'root.py'} == {'empty.py', ...py', 'std.py'}
+E     
+E     Extra items in the right set:
+E     'facade.py'
+E     'empty.py'
+E     'provider.py'
+E     'std.py'
+E     'pkg/__init__.py'
+E     Use -v to get more diff
+- generated xml file: /Users/zhoubot/.codex/worktrees/migration-capture/pyCircuit/.pycircuit_out/decl-tests/baseline/results.xml -
+=========================== short test summary info ============================
+FAILED tests/system/test_final_scalar_declarations.py::test_complete_owning_inventory_survives_final_and_unit_reordering
+FAILED tests/system/test_final_scalar_declarations.py::test_final_only_headers_are_standalone_and_constants_have_one_odr_address
+============================== 2 failed in 0.30s ===============================

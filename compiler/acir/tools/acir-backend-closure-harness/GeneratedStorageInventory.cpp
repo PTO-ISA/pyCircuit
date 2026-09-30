@@ -23,7 +23,8 @@ generatedStorageInventory(llvm::StringRef text, bool cpp,
       break;
     remainder = remainder.drop_front(position);
     auto firstLine = remainder.take_front(remainder.find('\n'));
-    if (cpp && !firstLine.contains(" final : public gfsim::SimModule {")) {
+    if (cpp && !firstLine.contains(" final : public gfsim::SimModule {") &&
+        !firstLine.contains(" final : public ::gfsim::SimModule {")) {
       remainder = remainder.drop_front(start.size());
       continue;
     }

@@ -36,7 +36,7 @@ mlir::LogicalResult emitFinalCppSystem(const FinalProgram &program,
       stateOwner.try_emplace(program.proposals().states[state].stateID,
                              instance.ordinal);
   }
-  auto objectPath = [&](size_t target) -> FailureOr<std::string> {
+  auto objectPath = [&](size_t target) -> FailureOr<::std::string> {
     SmallVector<size_t> path;
     for (size_t cursor = target; cursor != root;) {
       path.push_back(cursor);
@@ -44,7 +44,7 @@ mlir::LogicalResult emitFinalCppSystem(const FinalProgram &program,
         return emitError() << "instance path is detached from frozen root";
       cursor = *instances[cursor].parentOrdinal;
     }
-    std::string result = "root_";
+    ::std::string result = "root_";
     for (auto it = path.rbegin(); it != path.rend(); ++it) {
       size_t child = *it;
       size_t parent = *instances[child].parentOrdinal;
@@ -65,19 +65,19 @@ mlir::LogicalResult emitFinalCppSystem(const FinalProgram &program,
   const size_t rootDef = defByInstance[root];
   out << "using FinalModel = " << names.qualifiedType(rootDef)
       << ";\n"
-         "class FinalSystem final : public gfsim::SimSystem {\npublic:\n"
+         "class FinalSystem final : public ::gfsim::SimSystem {\npublic:\n"
          "  FinalSystem() : root_(nullptr, \"root\") {\n    if "
          "(!root_.RegisterAll(*this) || "
-         "!AttachObservations(root_.observations_)) std::terminate();\n  }\n"
+         "!AttachObservations(root_.observations_)) ::std::terminate();\n  }\n"
          "  FinalSystem(const FinalSystem &) = delete;\n"
          "  FinalSystem &operator=(const FinalSystem &) = delete;\n"
          "  FinalSystem(FinalSystem &&) = delete;\n"
          "  FinalSystem &operator=(FinalSystem &&) = delete;\n"
-         "  gfsim::ObservationSlots &Observations() noexcept { return "
+         "  ::gfsim::ObservationSlots &Observations() noexcept { return "
          "root_.observations_; }\nprotected:\n"
          "  bool FinalizeBuild() noexcept override { return "
          "root_.FreezeObjects(nullptr, \"root\"); }\n"
-         "  bool Precommit(std::uint64_t epoch) noexcept override {\n"
+         "  bool Precommit(::std::uint64_t epoch) noexcept override {\n"
          "    source_failure_ = {};\n"
          "    if (!root_.Validate(epoch) || !root_.observations_configured_) "
          "return false;\n";
@@ -92,11 +92,11 @@ mlir::LogicalResult emitFinalCppSystem(const FinalProgram &program,
     if (local == checkRanks[owner->second].end() || failed(path) ||
         failed(location) || failed(id))
       return failure();
-    std::string ownerText;
+    ::std::string ownerText;
     llvm::raw_string_ostream ownerStream(ownerText);
     ownerStream << check.ownerRef;
     out << "    if (!" << *path << ".check_ok_" << local->second << "_) {\n"
-        << "      source_failure_ = {gfsim::SimFailurePhase::Check, "
+        << "      source_failure_ = {::gfsim::SimFailurePhase::Check, "
            "\"source_check_failed\", \"source "
         << check.kind.getValue() << " check failed\", "
         << cppStringLiteral(ownerText) << ", " << cppStringLiteral(*location)
@@ -175,12 +175,12 @@ mlir::LogicalResult emitFinalCppSystem(const FinalProgram &program,
     out << "    " << *path << ".FreezeOwned(true);\n";
   }
   out << "    return true;\n  }\n"
-         "  gfsim::SimFailureInfo DescribeFailure(gfsim::SimFailurePhase "
+         "  ::gfsim::SimFailureInfo DescribeFailure(::gfsim::SimFailurePhase "
          "phase) const noexcept override {\n"
-         "    if (phase == gfsim::SimFailurePhase::Check && "
+         "    if (phase == ::gfsim::SimFailurePhase::Check && "
          "!source_failure_.code.empty()) return source_failure_;\n"
-         "    return gfsim::SimSystem::DescribeFailure(phase);\n  }\n"
-         "private:\n  gfsim::SimFailureInfo source_failure_;\n  "
+         "    return ::gfsim::SimSystem::DescribeFailure(phase);\n  }\n"
+         "private:\n  ::gfsim::SimFailureInfo source_failure_;\n  "
       << names.qualifiedType(rootDef) << " root_;\n};\n";
   return success();
 }

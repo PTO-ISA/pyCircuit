@@ -50,9 +50,13 @@ int main(int argc, char **argv) {
         {"source", llvm::json::Object{{"package", package.getValue()},
                                       {"path", path.getValue()}}},
         {"header_path", group.headerPath},
-        {"source_path", group.sourcePath},
+        {"source_path", group.sourcePath.empty()
+                            ? llvm::json::Value(nullptr)
+                            : llvm::json::Value(group.sourcePath)},
         {"header", group.header},
-        {"implementation", group.source}});
+        {"implementation", group.sourcePath.empty()
+                               ? llvm::json::Value(nullptr)
+                               : llvm::json::Value(group.source)}});
   }
   llvm::json::Object result{{"support_header", parts->supportHeader},
                             {"system_header", parts->systemHeader},

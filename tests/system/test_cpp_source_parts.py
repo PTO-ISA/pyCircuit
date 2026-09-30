@@ -128,6 +128,7 @@ def _compile_source(
     source_root: Path,
     output_dir: Path,
     headers: tuple[Path, ...] = (),
+    package: str = "demo",
 ) -> SourceUnit:
     output_dir.mkdir(parents=True, exist_ok=True)
     capture = _capture_source_file(source, source_root=source_root)
@@ -140,7 +141,7 @@ def _compile_source(
         "--capture",
         str(transport),
         "--package",
-        "demo",
+        package,
         "--path",
         source.relative_to(source_root).as_posix(),
     ]
@@ -274,14 +275,18 @@ def _write_parts(tmp_path: Path, payload: dict) -> tuple[Path, list[dict]]:
     groups = payload["source_groups"]
     for group in groups:
         for key in ("header_path", "source_path"):
+            if group[key] is None:
+                assert key == "source_path" and group["implementation"] is None
+                continue
             relative = Path(group[key])
             assert not relative.is_absolute() and ".." not in relative.parts
         header_path = output / group["header_path"]
-        source_path = output / group["source_path"]
         header_path.parent.mkdir(parents=True, exist_ok=True)
-        source_path.parent.mkdir(parents=True, exist_ok=True)
         header_path.write_text(group["header"], encoding="utf-8")
-        source_path.write_text(group["implementation"], encoding="utf-8")
+        if group["source_path"] is not None:
+            source_path = output / group["source_path"]
+            source_path.parent.mkdir(parents=True, exist_ok=True)
+            source_path.write_text(group["implementation"], encoding="utf-8")
     return output, groups
 
 
@@ -317,6 +322,9 @@ def _compile_groups(output: Path, groups: list[dict], tmp_path: Path) -> list[Pa
 
     objects: list[Path] = []
     for index, group in enumerate(groups):
+        if group["source_path"] is None:
+            assert group["implementation"] is None
+            continue
         source = output / group["source_path"]
         object_file = tmp_path / f"source-group-{index}.o"
         compiled = subprocess.run(
@@ -592,11 +600,21 @@ def test_source_parts_preserve_per_source_cpp_tus_and_behavior(tmp_path: Path) -
 
     output, groups = _write_parts(tmp_path, payload)
     owners = [(group["source"]["package"], group["source"]["path"]) for group in groups]
-    assert sorted(owners) == [("demo", "counter.py"), ("demo", "test_counters.py")]
+    assert sorted(owners) == [
+        ("demo", "counter.py"),
+        ("demo", "test_counters.py"),
+        ("demo", "types.py"),
+    ]
     assert len({group["header_path"] for group in groups}) == len(groups)
-    assert len({group["source_path"] for group in groups}) == len(groups)
+    executable_groups = [group for group in groups if group["source_path"] is not None]
+    assert len({group["source_path"] for group in executable_groups}) == 2
     assert all(group["header_path"].endswith(".hpp") for group in groups)
-    assert all(group["source_path"].endswith(".cpp") for group in groups)
+    assert all(group["source_path"].endswith(".cpp") for group in executable_groups)
+    declaration_group = next(
+        group for group in groups if group["source"]["path"] == "types.py"
+    )
+    assert declaration_group["source_path"] is None
+    assert declaration_group["implementation"] is None
 
     child_groups = [
         group for group in groups if group["source"]["path"] == "counter.py"
@@ -642,7 +660,9 @@ def test_source_parts_preserve_per_source_cpp_tus_and_behavior(tmp_path: Path) -
     # owner object to produce a method-symbol link error.
     driver = tmp_path / "source_parts_driver.cpp"
     child_index = next(
-        i for i, group in enumerate(groups) if group["source"]["path"] == "counter.py"
+        i
+        for i, group in enumerate(executable_groups)
+        if group["source"]["path"] == "counter.py"
     )
     omitted = subprocess.run(
         [

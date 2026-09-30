@@ -45,7 +45,7 @@ modernization plan 修订 8 的有界出口统计（本分支的计划副本仍�
 | M1 最少治理与迁移边界 | done（有界出口） | 文件归属、独立实现/测试/审阅和候选证据机制已运行；不再以流程扩建阻塞开发 |
 | M2 最小双后端主干 | accepted（有界核心） | 单级/两级 closed-system 的共同 IR、reg/alias、Work/Xfer 和双后端逐拍 oracle 已验收；不含公开 DUT ABI、SDK 或真实并行 |
 | M3 按实际用例补能力 | 当前用例已交付，后续按需 | 整数、masked-next、generic copy/constant 已有证据；FIFO、memory、CDC 等保留 backlog |
-| M4 让当前能力可用 | active（当前主线） | 公共逐源 compile/link、header-only、发布验证/恢复已交付；本轮显式 CMake/Ninja DAG 已验证并独立审阅通过；可执行源 C++ 分组、独立 TU/ODR 与双后端一致性已验证；声明源 headers、generated.json 和完整构建运行流程仍未交付 |
+| M4 让当前能力可用 | active（当前主线） | 公共逐源 compile/link、header-only、发布验证/恢复已交付；本轮显式 CMake/Ninja DAG 已验证并独立审阅通过；可执行源 C++ 分组、独立 TU/ODR 与双后端一致性已验证；标量声明源 headers 已完成本包实现与 scoped 验证；generated.json 和完整构建运行流程仍未交付 |
 | M5 声明范围内 hard break | pending | 旧路线退役、公开新 emit、活跃文档/构建/安装引用同步切换尚未完成 |
 | M6 按风险持续加固 | deferred / 按需 | 真实并行/V44、性能、平台和扩展故障矩阵未完成；已有正确性问题仍随所属入口修复 |
 | M7 按声明范围验收候选 | pending | 尚无迁移预览/发布验收；先验收明确支持范围，不要求未来 backlog 全清 |
@@ -73,7 +73,7 @@ M2 依据：[有界验收证据](../gates/logs/20260929-m2-core-closeout/README.
 审阅为 approval-ready，SHA-256 `38dd31d13cff150cf7b778e9c3df469f9ab1e0b55c8b2311f7c8d05d49b736b8`。
 [精确提案](../rfcs/migration/c2-decl-scalar-final.md)包含 final envelope/投影、
 C++ 标量映射及 D1–D5 checklist；[审阅记录](../reviews/20260930-c2-decl-scalar-final-design-review.md)。
-待用户批准该精确合同；本轮仅文档，不把 approval-ready 标成实施或 M4 完成。
+该精确合同随后已获用户批准，原提案字节保持冻结；批准记录见 `docs/rfcs/migration/approvals/c2-decl-scalar-final.md`。
 
 任务 `verified` 需要对应当前内容的证据，`done` 由 PM 集成验收后设置。单个 agent 完成或一个小样板通过均不代表整体目标完成。
 
@@ -163,3 +163,15 @@ U02 必须为 fixture 中的数学加法和 mask 建立已批准 source-math IR�
 module/rule/DFFE 扩展沿同一 compilePythonSourceUnit 和共享 context 推进。模块构造器参数、owned state、注册调用与 rule body 的 Site.definition 使用 enclosing module class；相对路径包含 class body 内的方法与语句位置。record constructor 仍以真实 func helper 为锚。不要为模块静态构造器或 rule 方法制造假 func；registration occurrence 与 body occurrence 分开。保留 source-Module 绝对 AST path 供 N1 NamespaceSite 使用，从私有 anchor/root view 派生 definition-relative path，不破坏原路径。这是现有 C2 的 producer 约定，不是新增 header AST-path 白名单。
 
 frontend lane 独占 context/signature/Records/Helpers/后续 Modules/Rules；registry lane 独占 header authority/N1 验证；测试 lane 独立写 oracle。SourceUnit.h、ODS、注册和 CMake 由单个 integration owner 串行修改。实际 Accumulator/Core 不能用 stub rule body 或旧 lowering 宣称完成。
+
+## 2026-09-30 C2-DECL 实施进展
+
+按已批准修订 A 实施 final scalar declarations、完整源 owner 清单、共同
+MLIR 验证与 frozen snapshots，以及源属 C++ 声明头和统一范围/名字检查。
+新 39 项、既有回归 73 项、native 54 + 18 项通过；扩展 source/driver lane
+48 项通过、一条既有 class/self 旧 fixture 失败，未隐藏。独立 Astra 架构
+符合性与 Sol code review 均 APPROVE，验收与集成见
+[实施包](m4-scalar-declaration-implementation.md)和产品分支证据
+`docs/gates/logs/20260930-c2-decl-scalar-final/`。
+M4 尚待 generated publication/manifest 和完整构建运行交付；M5 公开 emit
+与 hard break 未切换；SYSTEM/EXPECT B 未获批准。M2 状态保持 accepted。

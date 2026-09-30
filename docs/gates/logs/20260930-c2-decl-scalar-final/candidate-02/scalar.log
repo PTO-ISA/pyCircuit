@@ -1,0 +1,11 @@
+============================= test session starts ==============================
+platform darwin -- Python 3.14.6, pytest-9.0.2, pluggy-1.6.0
+rootdir: /Users/zhoubot/.codex/worktrees/migration-capture/pyCircuit
+configfile: pyproject.toml
+collected 39 items
+
+tests/system/test_final_scalar_declarations.py ......................... [ 64%]
+..............                                                           [100%]
+
+- generated xml file: /Users/zhoubot/.codex/worktrees/migration-capture/pyCircuit/.pycircuit_out/decl-tests/candidate-02/scalar.xml -
+============================== 39 passed in 8.58s ==============================

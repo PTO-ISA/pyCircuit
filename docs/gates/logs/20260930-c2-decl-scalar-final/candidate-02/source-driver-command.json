@@ -1,0 +1,20 @@
+{
+  "cwd": "/Users/zhoubot/.codex/worktrees/migration-capture/pyCircuit",
+  "command": [
+    "/opt/homebrew/Cellar/pytest/9.0.2_1/libexec/bin/python",
+    "-m",
+    "pytest",
+    "tests/system/test_source_unit_pair_verification.py",
+    "tests/system/test_source_namespace_bindings.py",
+    "tests/system/test_driver_compile_link.py",
+    "tests/system/test_source_unit_cmake_build.py",
+    "-q",
+    "--junitxml=/Users/zhoubot/.codex/worktrees/migration-capture/pyCircuit/.pycircuit_out/decl-tests/candidate-02/source-driver.xml"
+  ],
+  "env": {
+    "ACIR_SOURCE_UNIT_HARNESS": "/Users/zhoubot/.codex/worktrees/migration-capture/pyCircuit/.pycircuit_out/w10-pm/build/bin/acir-source-unit-harness",
+    "ACIR_DESIGN_HARNESS": "/Users/zhoubot/.codex/worktrees/migration-capture/pyCircuit/.pycircuit_out/w10-pm/build/bin/acir-design-harness",
+    "ACIR_CPP_SOURCE_PARTS_HARNESS": "/Users/zhoubot/.codex/worktrees/migration-capture/pyCircuit/.pycircuit_out/w10-pm/build/bin/acir-cpp-source-parts-harness",
+    "ACIR_BACKEND_CLOSURE_HARNESS": "/Users/zhoubot/.codex/worktrees/migration-capture/pyCircuit/.pycircuit_out/w10-pm/build/bin/acir-backend-closure-harness"
+  }
+}

@@ -4,6 +4,7 @@
 #include "Dialect/ACIR/ACIRHardwareClosure.h"
 #include "Dialect/ACIR/ACIRNumericNextUse.h"
 #include "Dialect/ACIR/ACIRStaticEvaluation.h"
+#include "FinalDeclarations.h"
 #include "FinalHardware.h"
 #include "FinalHardwareProgram.h"
 #include "FinalUses.h"
@@ -596,6 +597,8 @@ freezeOperation(Operation *operation, InstanceView *owner, ac::RuleOp rule) {
   snapshot.rule = rule;
   snapshot.name = operation->getName().getStringRef().str();
   snapshot.attributes = operationAttributes(operation);
+  snapshot.properties = operation->getPropertiesAsAttribute();
+  snapshot.location = operation->getLoc();
   snapshot.operands.append(operation->operand_begin(),
                            operation->operand_end());
   snapshot.resultTypes.append(operation->getResultTypes().begin(),
@@ -609,7 +612,10 @@ bool sameOperation(const FinalProgram::OperationSnapshot &expected) {
   Operation *operation = expected.operation;
   if (!operation || operation->getName().getStringRef() != expected.name ||
       operationAttributes(operation) != expected.attributes ||
+      operation->getPropertiesAsAttribute() != expected.properties ||
+      operation->getLoc() != expected.location ||
       operation->getParentOp() != expected.parent ||
+      operation->getBlock() != expected.block ||
       operation->getNumOperands() != expected.operands.size() ||
       operation->getNumResults() != expected.resultTypes.size())
     return false;
@@ -1004,6 +1010,22 @@ LogicalResult freezeEmitReadySnapshots(
     program.unitSnapshot_.push_back(
         {unit.header, operationAttributes(unit.header)});
   }
+  program.finalDeclarationUnitSnapshot_.clear();
+  for (Operation &child : program.hardware().getBody()->getOperations()) {
+    auto unit = dyn_cast<ModuleOp>(child);
+    if (!unit || !unit->hasAttr("ac.unit_kind"))
+      continue;
+    FinalProgram::FinalDeclarationUnitSnapshot snapshot;
+    snapshot.unit = unit;
+    snapshot.attributes = operationAttributes(unit);
+    for (Operation &operation : unit.getBody()->getOperations()) {
+      snapshot.children.push_back(&operation);
+      if (isa<ac::TypeAliasOp, ac::ConstantOp>(operation))
+        snapshot.declarations.push_back(
+            freezeOperation(&operation, nullptr, {}));
+    }
+    program.finalDeclarationUnitSnapshot_.push_back(std::move(snapshot));
+  }
   return success();
 }
 
@@ -1079,6 +1101,11 @@ materializeFinalProgram(FinalProgram &&program,
            << "cloned final program does not preserve analysis closure";
   program = std::move(*cloned);
   program.ownedUnits_ = std::move(ownedUnits);
+
+  auto declarationProjections =
+      projectFinalDeclarations(program.units_, *program.registry_, emitError);
+  if (failed(declarationProjections))
+    return emitError() << "final scalar declaration projection failed";
 
   auto numericEvidence = freezeFinalNumericEvidence(
       *program.modules_, *program.proposals_, *program.checks_, emitError);
@@ -1289,7 +1316,8 @@ materializeFinalProgram(FinalProgram &&program,
   }
   program.registry_.reset();
   auto hardware = materializeFinalHardwarePackage(
-      program.ownedUnits_, program.units_, *program.modules_, emitError);
+      program.ownedUnits_, program.units_, *program.modules_,
+      *declarationProjections, emitError);
   if (failed(hardware))
     return emitError() << "global final hardware materialization failed";
   program.finalHardware_ = std::move(*hardware);
@@ -1436,6 +1464,42 @@ LogicalResult verifyFinalProgram(const FinalProgram &program,
           operationAttributes(actual) != snapshot.attributes)
         return emitError() << "EmitReady source-unit metadata changed";
     }
+    size_t finalUnitIndex = 0;
+    for (Operation &child : program.hardware().getBody()->getOperations()) {
+      auto unit = dyn_cast<ModuleOp>(child);
+      if (!unit || !unit->hasAttr("ac.unit_kind"))
+        continue;
+      if (finalUnitIndex >= program.finalDeclarationUnitSnapshot_.size())
+        return emitError() << "EmitReady final declaration unit inventory grew";
+      const auto &snapshot =
+          program.finalDeclarationUnitSnapshot_[finalUnitIndex++];
+      if (snapshot.unit != unit ||
+          operationAttributes(unit) != snapshot.attributes ||
+          unit.getBody()->getOperations().size() != snapshot.children.size())
+        return emitError() << "EmitReady final declaration unit changed";
+      size_t childIndex = 0;
+      size_t declarationIndex = 0;
+      for (Operation &operation : unit.getBody()->getOperations()) {
+        if (&operation != snapshot.children[childIndex++])
+          return emitError()
+                 << "EmitReady final unit child placement/order changed";
+        if (!isa<ac::TypeAliasOp, ac::ConstantOp>(operation))
+          continue;
+        if (declarationIndex >= snapshot.declarations.size() ||
+            snapshot.declarations[declarationIndex++].operation != &operation)
+          return emitError() << "EmitReady final declaration inventory changed";
+      }
+      if (declarationIndex != snapshot.declarations.size())
+        return emitError() << "EmitReady final declaration inventory shrank";
+      for (const FinalProgram::OperationSnapshot &declaration :
+           snapshot.declarations)
+        if (!sameOperation(declaration))
+          return emitError()
+                 << "EmitReady final declaration attributes/value/location "
+                    "changed";
+    }
+    if (finalUnitIndex != program.finalDeclarationUnitSnapshot_.size())
+      return emitError() << "EmitReady final declaration unit inventory shrank";
     for (const FinalProgram::OperationSnapshot &snapshot :
          program.placementSnapshot_) {
       bool linkedPlacement =

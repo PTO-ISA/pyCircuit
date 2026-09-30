@@ -23,19 +23,27 @@ struct CppSpecNames {
   llvm::SmallVector<std::string> childNames;
 };
 
+struct CppDeclarationNames {
+  std::string symbolName;
+  std::string text;
+};
+
 struct CppSourceOwnerNames {
   mlir::DictionaryAttr sourceOwner;
+  std::string rawNameSpace;
+  std::string nameSpace;
   std::string headerPath;
   std::string sourcePath;
   llvm::SmallVector<size_t> definitions;
   llvm::SmallVector<std::string> childHeaders;
+  llvm::SmallVector<CppDeclarationNames> declarations;
 };
 
 struct CppEmissionNames {
   bool sourceOwned = false;
   llvm::SmallVector<CppSpecNames, 0> specs;
   llvm::SmallVector<size_t> defByInstance;
-  llvm::SmallVector<CppSourceOwnerNames> sourceGroups;
+  llvm::SmallVector<CppSourceOwnerNames, 0> sourceGroups;
 
   llvm::StringRef methodType(size_t definition) const;
   llvm::StringRef qualifiedType(size_t definition) const;
@@ -61,6 +69,7 @@ struct CppEmissionPlan {
   llvm::SmallVector<CppDefinitionEmission> definitions;
   llvm::SmallVector<size_t> definitionPostOrder;
   std::string system;
+  std::string declarations;
 };
 
 mlir::FailureOr<CppEmissionNames>

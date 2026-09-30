@@ -311,6 +311,7 @@ FailureOr<ArrayAttr> instanceBindings(const ModuleGraph &modules,
 FailureOr<OwningOpRef<ModuleOp>> materializeFinalHardwarePackage(
     SmallVectorImpl<OwningOpRef<ModuleOp>> &ownedUnits,
     ArrayRef<SourceLinkUnit> units, const ModuleGraph &modules,
+    SmallVectorImpl<FinalDeclarationProjection> &declarations,
     ac::detail::EmitError emitError) {
   if (!modules.root || modules.views.empty())
     return emitError() << "final hardware package requires one rooted graph";
@@ -322,10 +323,39 @@ FailureOr<OwningOpRef<ModuleOp>> materializeFinalHardwarePackage(
     return failure();
 
   SmallVector<ModuleOp> implementations;
+  SmallVector<ModuleOp> declarationUnits;
   DenseMap<Operation *, OwningOpRef<ModuleOp> *> owners;
+  DenseMap<Attribute, FinalDeclarationProjection *> projectionByOwner;
+  DenseMap<Operation *, FinalDeclarationProjection *> projectionByUnit;
   for (OwningOpRef<ModuleOp> &owned : ownedUnits)
     if (owned)
       owners.try_emplace((*owned).getOperation(), &owned);
+  for (FinalDeclarationProjection &projection : declarations) {
+    if (!projection.sourceOwner || !projection.sourceUnitKind ||
+        !projection.declarations ||
+        !projectionByOwner.try_emplace(projection.sourceOwner, &projection)
+             .second)
+      return emitError() << "final declaration projection inventory is invalid";
+    projectionByUnit.try_emplace((*projection.declarations).getOperation(),
+                                 &projection);
+    if (projection.sourceUnitKind.getValue() == "declarations") {
+      declarationUnits.push_back(*projection.declarations);
+      Builder unitBuilder(projection.declarations->getContext());
+      (*projection.declarations)
+          ->setAttrs(unitBuilder.getDictionaryAttr({
+              unitBuilder.getNamedAttr("ac.source_owner",
+                                       projection.sourceOwner),
+              unitBuilder.getNamedAttr("ac.stage",
+                                       unitBuilder.getStringAttr("final")),
+              unitBuilder.getNamedAttr(
+                  "ac.unit_kind", unitBuilder.getStringAttr("declarations")),
+          }));
+      continue;
+    }
+    if (projection.sourceUnitKind.getValue() != "implementation")
+      return emitError()
+             << "final declaration projection has an unsupported unit kind";
+  }
   DenseSet<Operation *> seen;
   for (SourceLinkUnit unit : units) {
     auto kind = unit.body ? unit.body->getAttrOfType<StringAttr>("ac.unit_kind")
@@ -351,6 +381,47 @@ FailureOr<OwningOpRef<ModuleOp>> materializeFinalHardwarePackage(
 
   SmallVector<ac::ModuleOp> definitions;
   for (ModuleOp unit : implementations) {
+    auto owner = unit->getAttrOfType<DictionaryAttr>("ac.source_owner");
+    auto projection = projectionByOwner.lookup(owner);
+    if (!projection ||
+        projection->sourceUnitKind.getValue() != "implementation")
+      return emitError()
+             << "final implementation lacks its declaration projection";
+
+    ac::ModuleOp module;
+    for (Operation &child : unit.getBody()->getOperations()) {
+      auto candidate = dyn_cast<ac::ModuleOp>(child);
+      if (!candidate)
+        return emitError()
+               << "source implementation contains unexpected post-cleanup op";
+      if (module)
+        return emitError() << "source implementation repeats its direct module";
+      module = candidate;
+    }
+    if (!module)
+      return emitError() << "source implementation has no direct module";
+
+    SmallVector<Operation *> selectedDeclarations;
+    for (Operation &declaration :
+         projection->declarations->getBody()->getOperations()) {
+      if (!isa<ac::TypeAliasOp, ac::ConstantOp>(declaration))
+        return emitError() << "declaration projection contains a non-scalar op";
+      selectedDeclarations.push_back(&declaration);
+    }
+    for (Operation *declaration : selectedDeclarations)
+      declaration->moveBefore(module);
+    SmallVector<Operation *> projectedChildren;
+    for (Operation &child : unit.getBody()->getOperations())
+      projectedChildren.push_back(&child);
+    if (projectedChildren.size() != selectedDeclarations.size() + 1 ||
+        !llvm::equal(ArrayRef<Operation *>(projectedChildren)
+                         .take_front(selectedDeclarations.size()),
+                     selectedDeclarations) ||
+        projectedChildren.back() != module)
+      return emitError()
+             << "final implementation does not match its scalar declaration "
+                "projection";
+
     Builder unitBuilder(unit.getContext());
     unit->setAttrs(unitBuilder.getDictionaryAttr({
         unitBuilder.getNamedAttr("ac.source_owner",
@@ -360,7 +431,7 @@ FailureOr<OwningOpRef<ModuleOp>> materializeFinalHardwarePackage(
         unitBuilder.getNamedAttr("ac.unit_kind",
                                  unitBuilder.getStringAttr("implementation")),
     }));
-    unit->walk([&](ac::ModuleOp module) { definitions.push_back(module); });
+    definitions.push_back(module);
   }
   for (InstanceView *view : modules.views)
     if (!view->staticArguments || !view->staticArguments.empty())
@@ -378,6 +449,23 @@ FailureOr<OwningOpRef<ModuleOp>> materializeFinalHardwarePackage(
   for (ac::ModuleOp module : definitions)
     if (failed(closeModule(module, definitions, emitError)))
       return failure();
+
+  SmallVector<ModuleOp> finalUnits(implementations.begin(),
+                                   implementations.end());
+  llvm::append_range(finalUnits, declarationUnits);
+  if (finalUnits.size() != declarations.size())
+    return emitError()
+           << "final unit inventory does not match declaration projections";
+  llvm::sort(finalUnits, [](ModuleOp left, ModuleOp right) {
+    return ac::detail::compareClosedSourceStructure(
+               left->getAttr("ac.source_owner"),
+               right->getAttr("ac.source_owner")) < 0;
+  });
+  for (size_t index = 1; index < finalUnits.size(); ++index)
+    if (ac::detail::compareClosedSourceStructure(
+            finalUnits[index - 1]->getAttr("ac.source_owner"),
+            finalUnits[index]->getAttr("ac.source_owner")) == 0)
+      return emitError() << "final package repeats one source owner";
 
   MLIRContext *context = modules.root->module.getContext();
   auto package =
@@ -398,11 +486,20 @@ FailureOr<OwningOpRef<ModuleOp>> materializeFinalHardwarePackage(
   systemState.addAttribute("domain", builder.getStringAttr("default"));
   OpBuilder packageBuilder = OpBuilder::atBlockBegin(package->getBody());
   packageBuilder.create(systemState);
-  for (ModuleOp unit : implementations) {
-    auto owner = owners.find(unit);
-    if (owner == owners.end() || !*owner->second)
-      return emitError() << "final implementation ownership changed";
-    package->getBody()->push_back(owner->second->release());
+  for (ModuleOp unit : finalUnits) {
+    auto kind = unit->getAttrOfType<StringAttr>("ac.unit_kind");
+    if (kind && kind.getValue() == "implementation") {
+      auto owner = owners.find(unit);
+      if (owner == owners.end() || !*owner->second)
+        return emitError() << "final implementation ownership changed";
+      package->getBody()->push_back(owner->second->release());
+      continue;
+    }
+    auto projection = projectionByUnit.find(unit.getOperation());
+    if (projection == projectionByUnit.end() ||
+        !projection->second->declarations)
+      return emitError() << "final declarations unit lost its projection owner";
+    package->getBody()->push_back(projection->second->declarations.release());
   }
 
   if (failed(ac::verifyFinalHardware(*package)))

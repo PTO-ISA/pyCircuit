@@ -2,6 +2,8 @@ add_acir_library(ACIRSourceCompiler SOURCES
   CheckGraph.cpp
   FinalEmit.cpp
   FinalCppEmission.cpp
+  FinalCppDeclarations.cpp
+  FinalCppNames.cpp
   FinalCppSourceParts.cpp
   FinalEmitCpp.cpp
   FinalEmitCppSystem.cpp
@@ -9,6 +11,7 @@ add_acir_library(ACIRSourceCompiler SOURCES
   FinalEmitCppHierarchy.cpp
   FinalEmitVerilog.cpp
   FinalHardware.cpp
+  FinalDeclarations.cpp
   FinalHardwareProgram.cpp
   FinalUses.cpp
   FinalNumeric.cpp

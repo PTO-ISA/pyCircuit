@@ -1,0 +1,24 @@
+============================= test session starts ==============================
+platform darwin -- Python 3.14.6, pytest-9.0.2, pluggy-1.6.0
+rootdir: /Users/zhoubot/.codex/worktrees/migration-capture/pyCircuit
+configfile: pyproject.toml
+collected 49 items
+
+tests/system/test_source_unit_pair_verification.py ...................   [ 38%]
+tests/system/test_source_namespace_bindings.py .....F                    [ 51%]
+tests/system/test_driver_compile_link.py .......................         [ 97%]
+tests/system/test_source_unit_cmake_build.py .                           [100%]
+
+=================================== FAILURES ===================================
+___________ test_module_facade_preserves_canonical_child_definition ____________
+tests/system/test_source_namespace_bindings.py:396: in test_module_facade_preserves_canonical_child_definition
+    assert provider.completed.returncode == 0, provider.completed.stderr
+E   AssertionError: error: @module and @system require function definitions; class/self authoring has been retired
+E     
+E   assert 1 == 0
+E    +  where 1 = CompletedProcess(args=['/Users/zhoubot/.codex/worktrees/migration-capture/pyCircuit/.pycircuit_out/w10-pm/build/bin/ac..., stdout='', stderr='error: @module and @system require function definitions; class/self authoring has been retired\n').returncode
+E    +    where CompletedProcess(args=['/Users/zhoubot/.codex/worktrees/migration-capture/pyCircuit/.pycircuit_out/w10-pm/build/bin/ac..., stdout='', stderr='error: @module and @system require function definitions; class/self authoring has been retired\n') = Unit(completed=CompletedProcess(args=['/Users/zhoubot/.codex/worktrees/migration-capture/pyCircuit/.pycircuit_out/w10-...dz1mdt25h0000gn/T/pytest-of-zhoubot/pytest-1289/test_module_facade_preserves_c0/provider-out/provider.interface.mlir')).completed
+- generated xml file: /Users/zhoubot/.codex/worktrees/migration-capture/pyCircuit/.pycircuit_out/decl-tests/candidate-02/source-driver.xml -
+=========================== short test summary info ============================
+FAILED tests/system/test_source_namespace_bindings.py::test_module_facade_preserves_canonical_child_definition
+======================== 1 failed, 48 passed in 14.80s =========================

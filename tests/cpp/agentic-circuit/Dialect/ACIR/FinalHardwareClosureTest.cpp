@@ -253,6 +253,8 @@ TEST_F(FinalHardwareClosureTest,
     EXPECT_EQ(unit->getAttrOfType<mlir::StringAttr>("ac.unit_kind").getValue(),
               "implementation");
     EXPECT_EQ(llvm::range_size(unit.getOps<ac::ModuleImportOp>()), 0u);
+    EXPECT_EQ(llvm::range_size(unit.getOps<ac::TypeAliasOp>()), 1u)
+        << "each implementation source retains its own Word alias";
   }
   EXPECT_TRUE(std::is_sorted(paths.begin(), paths.end()));
   auto rows =

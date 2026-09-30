@@ -211,10 +211,18 @@ public:
     ac::RuleOp rule;
     std::string name;
     mlir::DictionaryAttr attributes;
+    mlir::Attribute properties;
+    mlir::LocationAttr location;
     llvm::SmallVector<mlir::Value> operands;
     llvm::SmallVector<mlir::Type> resultTypes;
     mlir::Operation *parent = nullptr;
     mlir::Block *block = nullptr;
+  };
+  struct FinalDeclarationUnitSnapshot {
+    mlir::ModuleOp unit;
+    mlir::DictionaryAttr attributes;
+    llvm::SmallVector<mlir::Operation *> children;
+    llvm::SmallVector<OperationSnapshot, 0> declarations;
   };
 
 private:
@@ -237,6 +245,8 @@ private:
   llvm::SmallVector<CheckSnapshot> checkSnapshot_;
   llvm::SmallVector<ObservationSnapshot> observationSnapshot_;
   llvm::SmallVector<UnitSnapshot> unitSnapshot_;
+  llvm::SmallVector<FinalDeclarationUnitSnapshot, 0>
+      finalDeclarationUnitSnapshot_;
   llvm::SmallVector<FinalNumericRuleSnapshot, 0> numericRuleSnapshot_;
   llvm::SmallVector<RuleSnapshot, 0> ruleSnapshot_;
   llvm::SmallVector<OperationSnapshot, 0> expressionSnapshot_;

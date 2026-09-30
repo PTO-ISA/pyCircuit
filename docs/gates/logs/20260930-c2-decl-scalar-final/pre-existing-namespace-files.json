@@ -1,0 +1,4 @@
+{
+  "tests/system/test_source_namespace_bindings.py": "db7410dbb33862a4605a72cf9175050b7cc98db4106c4cec5fb3748435b4efef",
+  "compiler/acir/lib/Compiler/PythonImportModuleAnalysis.cpp": "7cb4f42587a9fd6a2a514397997fc57e55fbf5dc575a3c5f01287189129f469f"
+}

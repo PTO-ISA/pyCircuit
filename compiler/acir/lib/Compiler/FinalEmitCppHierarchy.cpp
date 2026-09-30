@@ -11,7 +11,7 @@ namespace acir::compiler {
 namespace {
 
 std::string cppType(unsigned width) {
-  return width == 1 ? "bool" : "std::uint64_t";
+  return width == 1 ? "bool" : "::std::uint64_t";
 }
 
 FailureOr<const FinalProgram::StateAliasSnapshot *>
@@ -281,7 +281,7 @@ FailureOr<ChildReadBinding> childReadBinding(
     return emitError() << "C++ placement actual is not parent-owned/readable";
   const std::string storage = names.state(parentDefinition, "q", owned->second);
   return ChildReadBinding{
-      "ReadView<" + cppType(childInput.width) + ">(&" + storage + ".Read())",
+      "::ReadView<" + cppType(childInput.width) + ">(&" + storage + ".Read())",
       childInputMember + ".IsBoundTo(&" + storage + ".Read())"};
 }
 

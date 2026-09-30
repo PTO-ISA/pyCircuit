@@ -7,8 +7,9 @@
 
 namespace acir::compiler {
 
-// Private, in-memory backend result for the currently supported executable
-// source profile. This is not the C3 generated.json publication contract.
+// Private in-memory backend result for verified source-owned final units.
+// Header-only groups leave sourcePath/source empty. This is not the C3
+// generated.json publication contract.
 struct FinalCppSourceGroup {
   mlir::DictionaryAttr sourceOwner;
   std::string headerPath;

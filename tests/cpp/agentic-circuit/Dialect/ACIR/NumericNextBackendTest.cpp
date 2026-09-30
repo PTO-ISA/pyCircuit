@@ -273,7 +273,7 @@ TEST_F(NumericNextBackendTest, SameProgramExecutesCppAndRtlModuloCounter) {
   ASSERT_TRUE(mlir::succeeded(rtl));
   ASSERT_EQ(ready->stateCarriers().size(), 1u);
   EXPECT_EQ(ready->stateCarriers().front().width, 8u);
-  EXPECT_EQ(count(*cpp, "gfsim::SimDFFE<std::uint64_t> q0_"), 1u);
+  EXPECT_EQ(count(*cpp, "::gfsim::SimDFFE<::std::uint64_t> q0_"), 1u);
   EXPECT_EQ(cpp->find(" q1_"), std::string::npos);
   EXPECT_NE(cpp->find("& UINT64_C(255)"), std::string::npos);
   EXPECT_EQ(count(*rtl, "logic [7:0] q0;"), 1u);

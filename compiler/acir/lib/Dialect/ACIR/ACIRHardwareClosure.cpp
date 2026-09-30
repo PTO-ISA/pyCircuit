@@ -1,12 +1,29 @@
 #include "ACIRHardwareClosure.h"
+#include "ACIRFinalDeclarations.h"
 
 #include "ACIRHardwareClosureDetail.h"
 
 #include "llvm/ADT/STLExtras.h"
+#include "llvm/ADT/StringMap.h"
+
+#include <algorithm>
 
 using namespace mlir;
 
 namespace acir::ac::hardware_detail {
+
+namespace {
+int compareUTF8(StringRef left, StringRef right) {
+  size_t count = std::min(left.size(), right.size());
+  for (size_t index = 0; index < count; ++index) {
+    auto lhs = static_cast<unsigned char>(left[index]);
+    auto rhs = static_cast<unsigned char>(right[index]);
+    if (lhs != rhs)
+      return lhs < rhs ? -1 : 1;
+  }
+  return left.size() == right.size() ? 0 : left.size() < right.size() ? -1 : 1;
+}
+} // namespace
 
 FailureOr<DictionaryAttr> specKey(Attribute raw, Operation *owner) {
   // `dyn_cast` requires a non-null attribute; a package without `ac.entry`
@@ -58,6 +75,9 @@ LogicalResult inspectEnvelope(Closure &closure,
 
   Builder builder(package.getContext());
   DictionaryAttr previousOwner;
+  DenseSet<Attribute> caseFoldedOwners;
+  llvm::StringMap<DictionaryAttr> ownerByImportModule;
+  DenseSet<Attribute> canonicalSymbols;
   for (Operation &nested : package.getBody()->getOperations()) {
     if (nested.getName().getStringRef() == "ac.system") {
       if (closure.system)
@@ -72,28 +92,88 @@ LogicalResult inspectEnvelope(Closure &closure,
         unit ? unit->getAttrOfType<StringAttr>("ac.unit_kind") : StringAttr();
     auto owner = unit ? unit->getAttrOfType<DictionaryAttr>("ac.source_owner")
                       : DictionaryAttr();
-    if (!unit || !unitStage || unitStage.getValue() != "final" || !kind ||
-        kind.getValue() != "implementation" ||
+    if (!unit || unit->getNumRegions() != 1 ||
+        !unit.getBodyRegion().hasOneBlock() ||
+        unit.getBody()->getNumArguments() != 0 || !unitStage ||
+        unitStage.getValue() != "final" || !kind ||
+        (kind.getValue() != "implementation" &&
+         kind.getValue() != "declarations") ||
         failed(detail::verifySourceOwner(owner, emitError)) ||
         unit->getAttrs().size() != 3 ||
         (previousOwner &&
          detail::compareClosedSourceStructure(previousOwner, owner) >= 0))
       return emitError()
-             << "final package child is not a source-owned implementation";
-    previousOwner = owner;
-    SmallVector<ModuleOp> modules(unit.getBody()->getOps<ModuleOp>());
-    if (modules.size() != 1)
+             << "final package child is not a canonical source-owned unit";
+    auto caseFoldedOwner =
+        final_detail::sourceOwnerCaseFoldIdentity(owner, emitError);
+    if (failed(caseFoldedOwner))
+      return failure();
+    if (!caseFoldedOwners.insert(*caseFoldedOwner).second)
+      return emitError() << "final package repeats a case-folded SourceOwner";
+    auto importModule =
+        final_detail::sourceImportModuleIdentity(owner, emitError);
+    if (failed(importModule))
+      return failure();
+    if (!ownerByImportModule.try_emplace(*importModule, owner).second)
       return emitError()
-             << "final implementation unit must own one module definition";
-    ModuleOp module = modules.front();
-    auto definition =
-        FlatSymbolRefAttr::get(package.getContext(), module.getSymName());
-    auto key = builder.getDictionaryAttr({
-        builder.getNamedAttr("definition", definition),
-        builder.getNamedAttr("arguments", builder.getArrayAttr({})),
-    });
-    if (!closure.definitions.try_emplace(key, Definition{module, key}).second)
-      return emitError() << "final package repeats a module definition";
+             << "final package repeats a case-folded import-module identity";
+    previousOwner = owner;
+    bool implementation = kind.getValue() == "implementation";
+    bool sawModule = false;
+    size_t moduleCount = 0;
+    StringRef previousDeclaration;
+    for (Operation &child : unit.getBody()->getOperations()) {
+      if (isa<TypeAliasOp, ConstantOp>(child)) {
+        if (sawModule)
+          return emitError()
+                 << "final declarations must precede their module definition";
+        auto symbol = final_detail::verifyFinalScalarDeclaration(&child, owner,
+                                                                 emitError);
+        if (failed(symbol))
+          return failure();
+        StringRef name = symbol->getValue();
+        if (!previousDeclaration.empty()) {
+          int order = compareUTF8(previousDeclaration, name);
+          if (order == 0)
+            return emitError()
+                   << "final package repeats scalar declaration symbol "
+                   << *symbol;
+          if (order > 0)
+            return emitError()
+                   << "final scalar declarations are not sorted by symbol";
+        }
+        previousDeclaration = name;
+        if (!canonicalSymbols.insert(*symbol).second)
+          return emitError()
+                 << "final package repeats canonical symbol " << *symbol;
+        continue;
+      }
+      auto module = dyn_cast<ModuleOp>(child);
+      if (!module || !implementation || sawModule)
+        return emitError()
+               << "final source unit contains an unsupported direct child";
+      sawModule = true;
+      ++moduleCount;
+      if (failed(final_detail::verifyFinalQualifiedSymbol(
+              owner, module.getSymName(), emitError)))
+        return failure();
+      FlatSymbolRefAttr definition =
+          FlatSymbolRefAttr::get(package.getContext(), module.getSymName());
+      if (!canonicalSymbols.insert(definition).second)
+        return emitError() << "final package repeats canonical symbol "
+                           << definition;
+      auto key = builder.getDictionaryAttr({
+          builder.getNamedAttr("definition", definition),
+          builder.getNamedAttr("arguments", builder.getArrayAttr({})),
+      });
+      if (!closure.definitions.try_emplace(key, Definition{module, key}).second)
+        return emitError() << "final package repeats a module definition";
+    }
+    if (implementation != (moduleCount == 1))
+      return emitError()
+             << (implementation
+                     ? "final implementation unit must own one module"
+                     : "final declarations unit cannot contain a module");
   }
   if (!closure.system || closure.definitions.empty())
     return emitError() << "final package lacks system or definitions";

@@ -1,0 +1,5 @@
+cwd=/Users/zhoubot/.codex/worktrees/migration-capture/pyCircuit
+cmake --build .pycircuit_out/w10-pm/build --target acir-source-unit-harness acir-design-harness acir-cpp-source-parts-harness acir-backend-closure-harness ACIRFinalProgramTests ACIRExecutableBackendClosureTests -j 4
+exit=0; log=full-05.log
+cmake --build .pycircuit_out/w10-pm/build --target ACIRExecutableBackendClosureTests -j 4
+exit=0; log=native-06.log

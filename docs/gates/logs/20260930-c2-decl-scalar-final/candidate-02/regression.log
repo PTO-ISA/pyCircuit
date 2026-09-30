@@ -1,0 +1,15 @@
+============================= test session starts ==============================
+platform darwin -- Python 3.14.6, pytest-9.0.2, pluggy-1.6.0
+rootdir: /Users/zhoubot/.codex/worktrees/migration-capture/pyCircuit
+configfile: pyproject.toml
+collected 73 items
+
+tests/system/test_cpp_source_parts.py .....                              [  6%]
+tests/system/test_generic_multi_assignment.py .....                      [ 13%]
+tests/system/test_generic_assignment_roundtrip.py .......                [ 23%]
+tests/system/test_source_design_bridge.py .............................. [ 64%]
+...........                                                              [ 79%]
+tests/system/test_masked_next_register.py ...............                [100%]
+
+- generated xml file: /Users/zhoubot/.codex/worktrees/migration-capture/pyCircuit/.pycircuit_out/decl-tests/candidate-02/regression.xml -
+============================= 73 passed in 26.34s ==============================

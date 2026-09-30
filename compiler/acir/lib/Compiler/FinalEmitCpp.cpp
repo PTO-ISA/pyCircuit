@@ -30,19 +30,33 @@ buildCppEmissionPlan(const FinalProgram &program, bool sourceOwned,
   auto groupsOr = buildSpecGroups(program, defByInstance, emitError);
   if (failed(groupsOr))
     return failure();
-  auto groups = std::move(*groupsOr);
+  auto groups = ::std::move(*groupsOr);
   auto namesOr = buildCppEmissionNames(program, groups, defByInstance,
                                        sourceOwned, emitError);
   if (failed(namesOr))
     return failure();
   CppEmissionPlan plan;
-  plan.names = std::move(*namesOr);
+  plan.names = ::std::move(*namesOr);
   plan.rootDefinition = plan.names.defByInstance[program.rootInstanceOrdinal()];
+  {
+    llvm::raw_string_ostream declarations(plan.declarations);
+    for (const auto &owner : plan.names.sourceGroups) {
+      if (owner.declarations.empty())
+        continue;
+      if (!owner.nameSpace.empty())
+        declarations << "namespace " << owner.nameSpace << " {\n";
+      for (const auto &declaration : owner.declarations)
+        declarations << declaration.text;
+      if (!owner.nameSpace.empty())
+        declarations << "} // namespace " << owner.nameSpace << "\n";
+    }
+    declarations.flush();
+  }
   plan.definitions.resize(groups.size());
   auto descriptorsOr = buildObservationDescriptors(program, emitError);
   if (failed(descriptorsOr))
     return failure();
-  auto descriptors = std::move(*descriptorsOr);
+  auto descriptors = ::std::move(*descriptorsOr);
   if (groups.empty() ||
       descriptors.size() != program.observations().bindings.size())
     return emitError() << "C++ emitter found an incomplete frozen graph";
@@ -74,7 +88,7 @@ buildCppEmissionPlan(const FinalProgram &program, bool sourceOwned,
     instanceOrdinals.try_emplace(instance.view, instance.ordinal);
 
   SmallVector<const FinalProgram::StateCarrierSnapshot *> carriers;
-  SmallVector<std::string> initials;
+  SmallVector<::std::string> initials;
   for (const StateProposals &state : program.proposals().states) {
     auto carrier = findCarrier(program, state.stateID, emitError);
     if (failed(carrier))
@@ -110,21 +124,21 @@ buildCppEmissionPlan(const FinalProgram &program, bool sourceOwned,
          "private:\n  const T *value_;\n};\n"
          "template<class T> struct ProposalSlot { T data{}; bool enable = "
          "false; bool completed = false; };\n"
-         "static constexpr std::int64_t SignExtend(std::uint64_t value, "
+         "static constexpr ::std::int64_t SignExtend(::std::uint64_t value, "
          "unsigned width) noexcept {\n"
-         "  if (width == 64) return std::bit_cast<std::int64_t>(value);\n"
-         "  const std::uint64_t mask = (UINT64_C(1) << width) - 1;\n"
-         "  const std::uint64_t sign = UINT64_C(1) << (width - 1);\n"
+         "  if (width == 64) return ::std::bit_cast<::std::int64_t>(value);\n"
+         "  const ::std::uint64_t mask = (UINT64_C(1) << width) - 1;\n"
+         "  const ::std::uint64_t sign = UINT64_C(1) << (width - 1);\n"
          "  value &= mask; if (value & sign) value |= ~mask;\n"
-         "  return std::bit_cast<std::int64_t>(value);\n}\n"
-         "static constexpr std::array<gfsim::ObservationDescriptor, "
+         "  return ::std::bit_cast<::std::int64_t>(value);\n}\n"
+         "static constexpr ::std::array<::gfsim::ObservationDescriptor, "
       << descriptors.size() << "> kObservationDescriptors{{\n";
   for (const auto &descriptor : descriptors) {
     const auto &observation =
         program.observations().bindings[descriptor.bindingIndex];
     out << "  {" << observation.stableOrdinal << ", " << descriptor.ownerKey
         << ", " << descriptor.registrationKey << ", " << descriptor.siteKey
-        << ", gfsim::ObservationKind::"
+        << ", ::gfsim::ObservationKind::"
         << (descriptor.gauge ? "Gauge" : "Event") << "},\n";
   }
   out << "}};\nclass FinalSystem;\n";
@@ -157,16 +171,16 @@ buildCppEmissionPlan(const FinalProgram &program, bool sourceOwned,
       out << "template<> class " << plan.names.family(def) << "<>";
     else
       out << "class " << classType;
-    out << " final : public gfsim::SimModule {\nprivate:\n"
+    out << " final : public ::gfsim::SimModule {\nprivate:\n"
            "  friend class ";
-    out << (sourceOwned ? "::FinalSystem" : "FinalSystem") << ";\n";
+    out << "::FinalSystem;\n";
     for (size_t parentDef : parentDefs[def])
       out << "  friend class "
           << (sourceOwned ? plan.names.qualifiedType(parentDef)
                           : plan.names.methodType(parentDef))
           << ";\n";
-    out << "  gfsim::SimModule *const parent_;\n"
-           "  const std::string instance_path_;\n";
+    out << "  ::gfsim::SimModule *const parent_;\n"
+           "  const ::std::string instance_path_;\n";
     StringRef constructorName =
         sourceOwned ? plan.names.family(def) : classType;
     out << "  " << constructorName << "(const " << classType
@@ -182,29 +196,29 @@ buildCppEmissionPlan(const FinalProgram &program, bool sourceOwned,
         << " &&) = delete;\n"
            "  explicit "
         << constructorName
-        << "(gfsim::SimModule *parent, std::string instancePath";
+        << "(::gfsim::SimModule *parent, ::std::string instancePath";
     for (const InputPort &input : *inputs)
-      out << ", ReadView<" << cppType(input.width) << "> "
+      out << ", ::ReadView<" << cppType(input.width) << "> "
           << plan.names.inputParameter(def, input.portIndex);
     out << ");\n"
            "  void Build() override;\n"
-           "  void Work(std::uint64_t epoch) override;\n"
+           "  void Work(::std::uint64_t epoch) override;\n"
            "  void Xfer() noexcept override;\n"
            "  void DiscardNext() noexcept override;\n"
            "  void Reset() noexcept override;\n"
            "  void ReportStat() override;\n"
            "  bool HasWork() const noexcept override;\n"
            "  void ClearScratch() noexcept;\n"
-           "  bool Validate(std::uint64_t epoch) const noexcept;\n"
+           "  bool Validate(::std::uint64_t epoch) const noexcept;\n"
            "  bool ChecksPass() const noexcept;\n"
-           "  bool RegisterAll(gfsim::SimSystem &system) noexcept;\n"
-           "  bool FreezeObjects(gfsim::SimModule *expectedParent, const "
-           "std::string &expectedPath) noexcept;\n"
+           "  bool RegisterAll(::gfsim::SimSystem &system) noexcept;\n"
+           "  bool FreezeObjects(::gfsim::SimModule *expectedParent, const "
+           "::std::string &expectedPath) noexcept;\n"
            "  void FreezeOwned(bool permit) noexcept;\n";
     for (size_t state = 0; state < representative.ownedStateOrdinals.size();
          ++state) {
       size_t global = representative.ownedStateOrdinals[state];
-      out << "  gfsim::SimDFFE<" << cppType(carriers[global]->width) << "> "
+      out << "  ::gfsim::SimDFFE<" << cppType(carriers[global]->width) << "> "
           << plan.names.state(def, "q", state) << "{" << initials[global]
           << "};\n"
           << "  " << cppType(carriers[global]->width) << " "
@@ -213,7 +227,7 @@ buildCppEmissionPlan(const FinalProgram &program, bool sourceOwned,
           << plan.names.state(def, "frozen_e", state) << " = false;\n";
     }
     for (const InputPort &input : *inputs)
-      out << "  ReadView<" << cppType(input.width) << "> "
+      out << "  ::ReadView<" << cppType(input.width) << "> "
           << plan.names.input(def, input.portIndex) << ";\n";
     for (size_t contribution = 0;
          contribution < representative.proposalContributionOrdinals.size();
@@ -224,14 +238,14 @@ buildCppEmissionPlan(const FinalProgram &program, bool sourceOwned,
       if (!type || type.getWidth() == 0 || type.getWidth() > 64)
         return emitError()
                << "C++ emitter supports scalar proposals up to 64 bits";
-      out << "  ProposalSlot<" << cppType(type.getWidth()) << "> proposal_"
+      out << "  ::ProposalSlot<" << cppType(type.getWidth()) << "> proposal_"
           << contribution << "_;\n";
     }
     for (size_t check = 0; check < representative.checkOrdinals.size(); ++check)
       out << "  bool check_ok_" << check << "_ = false;\n";
     for (size_t observation = 0;
          observation < representative.observationOrdinals.size(); ++observation)
-      out << "  gfsim::SlotValue observation_" << observation
+      out << "  ::gfsim::SlotValue observation_" << observation
           << "_value_{}; bool observation_" << observation
           << "_path_ = false; bool observation_" << observation
           << "_completed_ = false;\n";
@@ -247,9 +261,9 @@ buildCppEmissionPlan(const FinalProgram &program, bool sourceOwned,
     if (def == defByInstance[root] && !inputs->empty())
       return emitError() << "root C++ class has unbound formal read inputs";
     if (def == defByInstance[root])
-      out << "  gfsim::ObservationSlots observations_;\n"
+      out << "  ::gfsim::ObservationSlots observations_;\n"
              "  bool observations_configured_ = false;\n";
-    out << "  std::uint64_t work_epoch_ = 0; bool work_valid_ = false;\n"
+    out << "  ::std::uint64_t work_epoch_ = 0; bool work_valid_ = false;\n"
            "  bool commit_frozen_ = false; bool resetting_ = false;\n"
            "  bool objects_frozen_ = false;\n};\n";
   }
@@ -264,12 +278,12 @@ buildCppEmissionPlan(const FinalProgram &program, bool sourceOwned,
     StringRef constructorName =
         sourceOwned ? plan.names.family(def) : classType;
     out << classType << "::" << constructorName
-        << "(gfsim::SimModule *parent, std::string instancePath";
+        << "(::gfsim::SimModule *parent, ::std::string instancePath";
     for (const InputPort &input : *inputs)
-      out << ", ReadView<" << cppType(input.width) << "> "
+      out << ", ::ReadView<" << cppType(input.width) << "> "
           << plan.names.inputParameter(def, input.portIndex);
-    out << ") : gfsim::SimModule(instancePath), parent_(parent), "
-           "instance_path_(std::move(instancePath))";
+    out << ") : ::gfsim::SimModule(instancePath), parent_(parent), "
+           "instance_path_(::std::move(instancePath))";
     for (const InputPort &input : *inputs)
       out << ", " << plan.names.input(def, input.portIndex) << "("
           << plan.names.inputParameter(def, input.portIndex) << ")";
@@ -305,7 +319,7 @@ buildCppEmissionPlan(const FinalProgram &program, bool sourceOwned,
     out << " {\n";
     if (def == defByInstance[root])
       out << "  observations_configured_ = observations_.Configure("
-          << "kObservationDescriptors, " << eventCapacity << ");\n";
+          << "::kObservationDescriptors, " << eventCapacity << ");\n";
     out << "}\n";
   }
 
@@ -320,7 +334,7 @@ buildCppEmissionPlan(const FinalProgram &program, bool sourceOwned,
          llvm::enumerate(representative.ownedStateOrdinals))
       localOwned.try_emplace(program.proposals().states[global].stateID, local);
     CppExpressionEmitter expressions(program, representative.ordinal, *inputs,
-                                     std::move(localOwned), plan.names, def,
+                                     ::std::move(localOwned), plan.names, def,
                                      out, emitError);
     StringRef classType = plan.names.methodType(def);
     out << "void " << classType
@@ -346,7 +360,7 @@ buildCppEmissionPlan(const FinalProgram &program, bool sourceOwned,
           << "observation_" << observation << "_path_ = false; "
           << "observation_" << observation << "_completed_ = false;\n";
     out << "}\nvoid " << classType
-        << "::Work(std::uint64_t epoch) {\n  ClearScratch(); work_epoch_ = "
+        << "::Work(::std::uint64_t epoch) {\n  ClearScratch(); work_epoch_ = "
            "epoch;\n";
     for (auto [local, global] :
          llvm::enumerate(representative.proposalContributionOrdinals)) {
@@ -393,14 +407,14 @@ buildCppEmissionPlan(const FinalProgram &program, bool sourceOwned,
          ++state)
       out << "    " << plan.names.state(def, "q", state) << ".Xfer();\n";
     out << "    resetting_ = false; ClearScratch(); return;\n  }\n"
-           "  if (!commit_frozen_) std::terminate();\n";
+           "  if (!commit_frozen_) ::std::terminate();\n";
     for (size_t state = 0; state < representative.ownedStateOrdinals.size();
          ++state)
       out << "  if (" << plan.names.state(def, "q", state)
           << ".HasPending() || !" << plan.names.state(def, "q", state)
           << ".Write(" << plan.names.state(def, "d", state) << ", "
           << plan.names.state(def, "frozen_e", state)
-          << ")) std::terminate();\n";
+          << ")) ::std::terminate();\n";
     for (size_t state = 0; state < representative.ownedStateOrdinals.size();
          ++state)
       out << "  " << plan.names.state(def, "q", state) << ".Xfer();\n";
@@ -422,7 +436,7 @@ buildCppEmissionPlan(const FinalProgram &program, bool sourceOwned,
         << "; }\n"
            "bool "
         << classType
-        << "::Validate(std::uint64_t epoch) const noexcept {\n"
+        << "::Validate(::std::uint64_t epoch) const noexcept {\n"
            "  if (!objects_frozen_ || !work_valid_ || work_epoch_ != epoch) "
            "return false;\n";
     for (size_t state = 0; state < representative.ownedStateOrdinals.size();
@@ -453,7 +467,7 @@ buildCppEmissionPlan(const FinalProgram &program, bool sourceOwned,
           << ".ChecksPass()) return false;\n";
     }
     out << "  return true;\n}\nbool " << classType
-        << "::RegisterAll(gfsim::SimSystem &system) noexcept {\n"
+        << "::RegisterAll(::gfsim::SimSystem &system) noexcept {\n"
            "  if (!system.AddModule(*this)) return false;\n";
     for (size_t childPosition = 0;
          childPosition < representative.childOrdinals.size(); ++childPosition) {
@@ -461,8 +475,8 @@ buildCppEmissionPlan(const FinalProgram &program, bool sourceOwned,
           << ".RegisterAll(system)) return false;\n";
     }
     out << "  return true;\n}\nbool " << classType
-        << "::FreezeObjects(gfsim::SimModule *expectedParent, const "
-           "std::string &expectedPath) noexcept {\n"
+        << "::FreezeObjects(::gfsim::SimModule *expectedParent, const "
+           "::std::string &expectedPath) noexcept {\n"
            "  if (objects_frozen_ || parent_ != expectedParent || "
            "instance_path_ != expectedPath) "
            "return false;\n";
@@ -513,14 +527,14 @@ buildCppEmissionPlan(const FinalProgram &program, bool sourceOwned,
   return plan;
 }
 
-FailureOr<std::string> emitFinalCppBody(const FinalProgram &program,
-                                        ac::detail::EmitError emitError) {
+FailureOr<::std::string> emitFinalCppBody(const FinalProgram &program,
+                                          ac::detail::EmitError emitError) {
   auto plan = buildCppEmissionPlan(program, /*sourceOwned=*/false, emitError);
   if (failed(plan))
     return failure();
-  std::string text;
+  ::std::string text;
   llvm::raw_string_ostream out(text);
-  out << plan->support << plan->legacyForwardDeclarations;
+  out << plan->support << plan->declarations << plan->legacyForwardDeclarations;
   for (size_t definition : plan->definitionPostOrder)
     out << plan->definitions[definition].declaration;
   for (size_t definition : plan->definitionPostOrder)

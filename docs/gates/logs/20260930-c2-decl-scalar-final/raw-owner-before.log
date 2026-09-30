@@ -1,0 +1,20 @@
+============================= test session starts ==============================
+platform darwin -- Python 3.14.6, pytest-9.0.2, pluggy-1.6.0
+rootdir: /Users/zhoubot/.codex/worktrees/migration-capture/pyCircuit
+configfile: pyproject.toml
+collected 38 items / 33 deselected / 5 selected
+
+tests/system/test_final_scalar_declarations.py ....F                     [100%]
+
+=================================== FAILURES ===================================
+______ test_empty_unit_owners_cannot_alias_import_module_identity[paths4] ______
+tests/system/test_final_scalar_declarations.py:527: in test_empty_unit_owners_cannot_alias_import_module_identity
+    _reject_final(invalid, r"owner|module|case|ambig|collision")
+tests/system/test_final_scalar_declarations.py:344: in _reject_final
+    assert checked.returncode == 1, checked.stderr
+E   AssertionError: 
+E   assert 0 == 1
+E    +  where 0 = CompletedProcess(args=['/Users/zhoubot/.codex/worktrees/migration-capture/pyCircuit/.pycircuit_out/w10-pm/build/bin/ac...-zhoubot/pytest-1286/test_empty_unit_owners_cannot_4/invalid.ac', '--verify-only'], returncode=0, stdout='', stderr='').returncode
+=========================== short test summary info ============================
+FAILED tests/system/test_final_scalar_declarations.py::test_empty_unit_owners_cannot_alias_import_module_identity[paths4]
+================== 1 failed, 4 passed, 33 deselected in 0.52s ==================

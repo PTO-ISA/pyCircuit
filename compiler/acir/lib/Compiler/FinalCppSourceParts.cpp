@@ -48,16 +48,25 @@ emitFinalCppSourcePartsBody(const FinalProgram &program,
     group.sourcePath = owner.sourcePath;
     llvm::raw_string_ostream header(group.header);
     llvm::raw_string_ostream source(group.source);
-    header << "#pragma once\n#include \"pycircuit_support.hpp\"\n";
-    for (const auto &dependency : owner.childHeaders)
-      header << "#include \"" << dependency << "\"\n";
-    source << "#include \"" << owner.headerPath << "\"\n";
+    header << "#pragma once\n#include <cstdint>\n";
+    if (!owner.definitions.empty()) {
+      header << "#include \"pycircuit_support.hpp\"\n";
+      for (const auto &dependency : owner.childHeaders)
+        header << "#include \"" << dependency << "\"\n";
+      source << "#include \"" << owner.headerPath << "\"\n";
+    }
+    if (!owner.declarations.empty()) {
+      openNamespace(header, owner.nameSpace);
+      for (const auto &declaration : owner.declarations)
+        header << declaration.text;
+      closeNamespace(header, owner.nameSpace);
+    }
 
     // Own primary templates and parent friend families need declarations.
     // Parents must not be included here: their by-value members already require
     // this child header, so doing so would create an include cycle.
-    std::set<size_t> forwards(owner.definitions.begin(),
-                              owner.definitions.end());
+    ::std::set<size_t> forwards(owner.definitions.begin(),
+                                owner.definitions.end());
     for (const auto &instance : program.instances()) {
       for (size_t child : instance.childOrdinals) {
         size_t childDef = names.defByInstance[child];
@@ -84,7 +93,9 @@ emitFinalCppSourcePartsBody(const FinalProgram &program,
     }
     header.flush();
     source.flush();
-    result.sourceGroups.push_back(std::move(group));
+    if (group.sourcePath.empty())
+      group.source.clear();
+    result.sourceGroups.push_back(::std::move(group));
   }
 
   size_t root = names.defByInstance[program.rootInstanceOrdinal()];
