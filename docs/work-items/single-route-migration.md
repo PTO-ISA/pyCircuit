@@ -536,7 +536,7 @@ lane 表中 driver system 为 47。审阅记录中该数字是审阅者在其用
 | M2 最小双后端主干 | accepted（有界核心） | 单级/两级 closed-system 的共同 IR、reg/alias、Work/Xfer 和双后端逐拍 oracle 已验收；不含公开 DUT ABI、SDK 或真实并行 |
 | M3 按实际用例补能力 | 当前用例已交付，后续按需 | 整数、masked-next、generic copy/constant 已有证据；FIFO、memory、CDC 等保留 backlog |
 | M4 让当前能力可用 | done（修订 8 有界出口） | 文档化源码流程、逐源 compile/link、源属 C++ TU/CMake、Verilator、共享标准 runner、外部 oracle、重建/发布保护已验收；完整 C3/ABI/SDK 与公开 emit 切换另行交付 |
-| M5 声明范围内 hard break | pending | 旧路线退役、公开新 emit、活跃文档/构建/安装引用同步切换尚未完成 |
+| M5 声明范围内 hard break | active（ABI 前置包已完成） | 旧路线退役、公开新 emit、活跃文档/构建/安装引用同步切换尚未完成 |
 | M6 按风险持续加固 | deferred / 按需 | 真实并行/V44、性能、平台和扩展故障矩阵未完成；已有正确性问题仍随所属入口修复 |
 | M7 按声明范围验收候选 | pending | 尚无迁移预览/发布验收；先验收明确支持范围，不要求未来 backlog 全清 |
 
@@ -718,3 +718,11 @@ publication/manifest 和完整构建运行交付；M5 公开 emit 与 hard break
 此前账本把完整 C3 DUT ABI/RTL 包装列为 M4 必需前置，范围超过用户已
 确认的修订 8；本次按实际阶段出口纠正，相关责任保留给后续交付。下一
 主阶段为 M5 的明确范围 hard break，公开 emit/旧路线退役仍未切换。
+
+## 2026-09-30 M5 启动
+
+M4 复核确认其修订 8 验收范围没有未关闭的必需项；完整 C3/SDK 产品化
+仍有四组责任，已在 [M5 执行清单](m5-cutover.md)区分阶段和依赖。
+产品提交 `a21bb596` 完成首个 ABI 前置包：dut.h/共享 DUT 直接复用现有
+SimExecutor，C11/ctypes/异常/名字冲突等与回归共 141 项通过、零跳过；
+Sol 和 Astra 均 APPROVE。公开 emit、旧路线删除和统一安装尚未切换。
