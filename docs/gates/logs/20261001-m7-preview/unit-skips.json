@@ -1,0 +1,14 @@
+[
+  {
+    "test": "test_windows_real_rename_replace_and_directory_flush",
+    "reason": "requires real Windows filesystem APIs"
+  },
+  {
+    "test": "test_windows_real_reparse_metadata_open_is_rejected",
+    "reason": "requires Windows reparse-point support"
+  },
+  {
+    "test": "test_windows_directory_flush_rejects_handle_identity_change",
+    "reason": "requires real Windows directory handles"
+  }
+]

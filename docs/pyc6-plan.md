@@ -57,3 +57,16 @@ still rebuilds all generated C++ targets.
 Broader fault/platform/SDK matrices, backend build optimization and actual
 parallel scheduling remain later M6 packets; RSS and throughput are unmeasured.
 M7 release remains separate.
+
+## M7 preview progress
+
+[M7-01](work-items/m7-local-preview.md) is accepted on 2026-10-01 for a local
+macOS 26/arm64 preview of the unchanged scalar profile. Fresh native/installed
+SDK, source-owned semantic closure, earlier M6 gates, current presets and a
+disposable wheel all pass with independent review and explicit skip/deselection
+limits. The release runbook now records the current local recipe.
+
+No release workflow, public tag/index or publication was dispatched. Existing
+`v6.1.0` identifies an older source revision; formal platform/minimum-OS and stable
+release acceptance remain separate work. This does not close the wider M3/M6
+capability backlog or the entire migration roadmap.

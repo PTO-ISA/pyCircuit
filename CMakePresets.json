@@ -2,7 +2,7 @@
   "version": 3,
   "cmakeMinimumRequired": {
     "major": 3,
-    "minor": 20,
+    "minor": 25,
     "patch": 0
   },
   "configurePresets": [
@@ -14,7 +14,10 @@
       "cacheVariables": {
         "CMAKE_BUILD_TYPE": "Release",
         "CMAKE_INSTALL_PREFIX": "${sourceDir}/.pycircuit_out/toolchain/install",
-        "PYC_BUILD_MLIR_TOOLS": "ON",
+        "PYC_BUILD_COMPILER_DEV": "ON",
+        "PYC_BUILD_TESTING": "ON",
+        "PYC_BUILD_RUNTIME_LIB": "ON",
+        "PYC_INSTALL_PYTHON": "ON",
         "LLVM_DIR": "$env{LLVM_DIR}",
         "MLIR_DIR": "$env{MLIR_DIR}"
       }
@@ -24,7 +27,12 @@
     {
       "name": "release-tools",
       "configurePreset": "release",
-      "targets": ["pycc", "pyc-opt"]
+      "targets": [
+        "acir-source-unit-harness",
+        "acir-design-harness",
+        "acir-cpp-source-parts-harness",
+        "pyc6_runtime"
+      ]
     }
   ]
 }

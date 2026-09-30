@@ -1,0 +1,43 @@
+============================= test session starts ==============================
+platform darwin -- Python 3.14.6, pytest-9.0.2, pluggy-1.6.0
+rootdir: /Users/zhoubot/.codex/worktrees/migration-capture/pyCircuit
+configfile: pyproject.toml
+collected 405 items / 79 deselected / 326 selected
+
+tests/unit/test_artifact_verify.py ....                                  [  1%]
+tests/unit/test_documentation_layout.py ....                             [  2%]
+tests/unit/test_example_layout.py ...                                    [  3%]
+tests/unit/test_gate_topology.py .............                           [  7%]
+tests/unit/test_generated_bundle.py .................................... [ 18%]
+...........................                                              [ 26%]
+tests/unit/test_generated_rtl_audit.py ........                          [ 29%]
+tests/unit/test_m4_runner_protocol.py ..........                         [ 32%]
+tests/unit/test_m6_measurement.py .                                      [ 32%]
+tests/unit/test_m6_prepare_output.py .....                               [ 34%]
+tests/unit/test_m7_retirement_presets.py ........                        [ 36%]
+tests/unit/test_primitive_catalog.py ...........                         [ 39%]
+tests/unit/test_publication.py ......................................... [ 52%]
+..................................                                       [ 62%]
+tests/unit/test_publication_fs.py ............sss                        [ 67%]
+tests/unit/test_release_evidence_and_platform_constraints.py ....        [ 68%]
+tests/unit/test_repository_layout.py .F.......                           [ 71%]
+tests/unit/test_sdk_verify_helpers.py .............                      [ 75%]
+tests/unit/test_source_capture.py ....................................   [ 86%]
+tests/unit/test_source_transport.py .............                        [ 90%]
+tests/unit/test_source_unit_files.py .........................           [ 98%]
+tests/unit/test_toolchain_compiler_requirements.py ....                  [ 99%]
+tests/unit/test_tutorial_snippets.py ..                                  [100%]
+
+=================================== FAILURES ===================================
+_______________ test_flow_and_product_tools_have_distinct_roots ________________
+tests/unit/test_repository_layout.py:61: in test_flow_and_product_tools_have_distinct_roots
+    assert flow_tools == FLOW_TOOLS
+E   AssertionError: assert {'check_api_h...uild.py', ...} == {'check_api_h..._ppa.py', ...}
+E     
+E     Extra items in the left set:
+E     'measure_m6_build.py'
+E     Use -v to get more diff
+- generated xml file: /Users/zhoubot/.codex/worktrees/migration-capture/pyCircuit/.pycircuit_out/m7-01-unit-final.xml -
+=========================== short test summary info ============================
+FAILED tests/unit/test_repository_layout.py::test_flow_and_product_tools_have_distinct_roots
+=========== 1 failed, 322 passed, 3 skipped, 79 deselected in 6.12s ============

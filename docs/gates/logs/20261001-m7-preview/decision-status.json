@@ -1,0 +1,2011 @@
+{
+  "checks": {
+    "require_all_verified": true,
+    "require_concrete_evidence": true,
+    "require_existing_evidence": true,
+    "require_no_deferred": true
+  },
+  "decisions": [
+    {
+      "decision": "0001",
+      "evidence": "docs/gates/logs/20260303-closure-v40-r2/summary.json, docs/gates/logs/20260303-closure-v40-r2/decision_status_report.json",
+      "next_action": "Keep gates green; refresh evidence on behavior changes",
+      "owner": "pyc4-core",
+      "status": "implemented-verified"
+    },
+    {
+      "decision": "0002",
+      "evidence": "docs/gates/logs/20260303-closure-v40-r2/summary.json, docs/gates/logs/20260303-closure-v40-r2/decision_status_report.json",
+      "next_action": "Keep gates green; refresh evidence on behavior changes",
+      "owner": "pyc4-core",
+      "status": "implemented-verified"
+    },
+    {
+      "decision": "0003",
+      "evidence": "docs/gates/logs/20260303-closure-v40-r2/summary.json, docs/gates/logs/20260303-closure-v40-r2/decision_status_report.json",
+      "next_action": "Keep gates green; refresh evidence on behavior changes",
+      "owner": "pyc4-core",
+      "status": "implemented-verified"
+    },
+    {
+      "decision": "0004",
+      "evidence": "docs/gates/logs/20260303-closure-v40-r2/summary.json, docs/gates/logs/20260303-closure-v40-r2/decision_status_report.json",
+      "next_action": "Keep gates green; refresh evidence on behavior changes",
+      "owner": "pyc4-core",
+      "status": "implemented-verified"
+    },
+    {
+      "decision": "0005",
+      "evidence": "docs/gates/logs/20260303-closure-v40-r2/summary.json, docs/gates/logs/20260303-closure-v40-r2/decision_status_report.json",
+      "next_action": "Keep gates green; refresh evidence on behavior changes",
+      "owner": "pyc4-core",
+      "status": "implemented-verified"
+    },
+    {
+      "decision": "0006",
+      "evidence": "docs/gates/logs/20260303-closure-v40-r2/summary.json, docs/gates/logs/20260303-closure-v40-r2/decision_status_report.json",
+      "next_action": "Keep gates green; refresh evidence on behavior changes",
+      "owner": "pyc4-core",
+      "status": "implemented-verified"
+    },
+    {
+      "decision": "0007",
+      "evidence": "docs/gates/logs/20260303-closure-v40-r2/summary.json, docs/gates/logs/20260303-closure-v40-r2/decision_status_report.json",
+      "next_action": "Keep gates green; refresh evidence on behavior changes",
+      "owner": "pyc4-core",
+      "status": "implemented-verified"
+    },
+    {
+      "decision": "0008",
+      "evidence": "docs/gates/logs/20260303-closure-v40-r2/summary.json, docs/gates/logs/20260303-closure-v40-r2/decision_status_report.json",
+      "next_action": "Keep gates green; refresh evidence on behavior changes",
+      "owner": "pyc4-core",
+      "status": "implemented-verified"
+    },
+    {
+      "decision": "0009",
+      "evidence": "docs/gates/logs/20260303-closure-v40-r2/summary.json, docs/gates/logs/20260303-closure-v40-r2/decision_status_report.json",
+      "next_action": "Keep gates green; refresh evidence on behavior changes",
+      "owner": "pyc4-core",
+      "status": "implemented-verified"
+    },
+    {
+      "decision": "0010",
+      "evidence": "docs/gates/logs/20260303-closure-v40-r2/summary.json, docs/gates/logs/20260303-closure-v40-r2/decision_status_report.json",
+      "next_action": "Historical closure only; superseded by Decision 0148",
+      "owner": "pyc4-core",
+      "status": "implemented-verified"
+    },
+    {
+      "decision": "0011",
+      "evidence": "docs/gates/logs/20260303-closure-v40-r2/summary.json, docs/gates/logs/20260303-closure-v40-r2/decision_status_report.json",
+      "next_action": "Keep gates green; refresh evidence on behavior changes",
+      "owner": "pyc4-core",
+      "status": "implemented-verified"
+    },
+    {
+      "decision": "0012",
+      "evidence": "docs/gates/logs/20260303-closure-v40-r2/summary.json, docs/gates/logs/20260303-closure-v40-r2/decision_status_report.json",
+      "next_action": "Keep gates green; refresh evidence on behavior changes",
+      "owner": "pyc4-core",
+      "status": "implemented-verified"
+    },
+    {
+      "decision": "0013",
+      "evidence": "docs/gates/logs/20260303-closure-v40-r2/summary.json, docs/gates/logs/20260303-closure-v40-r2/decision_status_report.json",
+      "next_action": "Keep gates green; refresh evidence on behavior changes",
+      "owner": "pyc4-runtime",
+      "status": "implemented-verified"
+    },
+    {
+      "decision": "0014",
+      "evidence": "docs/gates/logs/20260303-closure-v40-r2/summary.json, docs/gates/logs/20260303-closure-v40-r2/decision_status_report.json",
+      "next_action": "Keep gates green; refresh evidence on behavior changes",
+      "owner": "pyc4-runtime",
+      "status": "implemented-verified"
+    },
+    {
+      "decision": "0015",
+      "evidence": "docs/gates/logs/20260303-closure-v40-r2/summary.json, docs/gates/logs/20260303-closure-v40-r2/decision_status_report.json",
+      "next_action": "Keep gates green; refresh evidence on behavior changes",
+      "owner": "pyc4-core",
+      "status": "implemented-verified"
+    },
+    {
+      "decision": "0016",
+      "evidence": "docs/gates/logs/20260303-closure-v40-r2/summary.json, docs/gates/logs/20260303-closure-v40-r2/decision_status_report.json",
+      "next_action": "Keep gates green; refresh evidence on behavior changes",
+      "owner": "pyc4-core",
+      "status": "implemented-verified"
+    },
+    {
+      "decision": "0017",
+      "evidence": "docs/gates/logs/20260303-closure-v40-r2/summary.json, docs/gates/logs/20260303-closure-v40-r2/decision_status_report.json",
+      "next_action": "Keep gates green; refresh evidence on behavior changes",
+      "owner": "pyc4-core",
+      "status": "implemented-verified"
+    },
+    {
+      "decision": "0018",
+      "evidence": "docs/gates/logs/20260303-closure-v40-r2/summary.json, docs/gates/logs/20260303-closure-v40-r2/decision_status_report.json",
+      "next_action": "Keep gates green; refresh evidence on behavior changes",
+      "owner": "pyc4-core",
+      "status": "implemented-verified"
+    },
+    {
+      "decision": "0019",
+      "evidence": "docs/gates/logs/20260303-closure-v40-r2/summary.json, docs/gates/logs/20260303-closure-v40-r2/decision_status_report.json",
+      "next_action": "Keep gates green; refresh evidence on behavior changes",
+      "owner": "pyc4-core",
+      "status": "implemented-verified"
+    },
+    {
+      "decision": "0020",
+      "evidence": "docs/gates/logs/20260303-closure-v40-r2/summary.json, docs/gates/logs/20260303-closure-v40-r2/decision_status_report.json",
+      "next_action": "Keep gates green; refresh evidence on behavior changes",
+      "owner": "pyc4-core",
+      "status": "implemented-verified"
+    },
+    {
+      "decision": "0021",
+      "evidence": "docs/gates/logs/20260303-closure-v40-r2/summary.json, docs/gates/logs/20260303-closure-v40-r2/decision_status_report.json",
+      "next_action": "Keep gates green; refresh evidence on behavior changes",
+      "owner": "pyc4-core",
+      "status": "implemented-verified"
+    },
+    {
+      "decision": "0022",
+      "evidence": "docs/gates/logs/20260303-closure-v40-r2/summary.json, docs/gates/logs/20260303-closure-v40-r2/decision_status_report.json",
+      "next_action": "Keep gates green; refresh evidence on behavior changes",
+      "owner": "pyc4-core",
+      "status": "implemented-verified"
+    },
+    {
+      "decision": "0023",
+      "evidence": "docs/gates/logs/20260303-closure-v40-r2/summary.json, docs/gates/logs/20260303-closure-v40-r2/decision_status_report.json",
+      "next_action": "Keep gates green; refresh evidence on behavior changes",
+      "owner": "pyc4-core",
+      "status": "implemented-verified"
+    },
+    {
+      "decision": "0024",
+      "evidence": "docs/gates/logs/20260303-closure-v40-r2/summary.json, docs/gates/logs/20260303-closure-v40-r2/decision_status_report.json",
+      "next_action": "Keep gates green; refresh evidence on behavior changes",
+      "owner": "pyc4-core",
+      "status": "implemented-verified"
+    },
+    {
+      "decision": "0025",
+      "evidence": "docs/gates/logs/20260303-closure-v40-r2/summary.json, docs/gates/logs/20260303-closure-v40-r2/decision_status_report.json",
+      "next_action": "Keep gates green; refresh evidence on behavior changes",
+      "owner": "pyc4-core",
+      "status": "implemented-verified"
+    },
+    {
+      "decision": "0026",
+      "evidence": "docs/gates/logs/20260303-closure-v40-r2/summary.json, docs/gates/logs/20260303-closure-v40-r2/decision_status_report.json",
+      "next_action": "Keep gates green; refresh evidence on behavior changes",
+      "owner": "pyc4-core",
+      "status": "implemented-verified"
+    },
+    {
+      "decision": "0027",
+      "evidence": "docs/gates/logs/20260303-closure-v40-r2/summary.json, docs/gates/logs/20260303-closure-v40-r2/decision_status_report.json",
+      "next_action": "Keep gates green; refresh evidence on behavior changes",
+      "owner": "pyc4-core",
+      "status": "implemented-verified"
+    },
+    {
+      "decision": "0028",
+      "evidence": "docs/gates/logs/20260303-closure-v40-r2/summary.json, docs/gates/logs/20260303-closure-v40-r2/decision_status_report.json",
+      "next_action": "Keep gates green; refresh evidence on behavior changes",
+      "owner": "pyc4-core",
+      "status": "implemented-verified"
+    },
+    {
+      "decision": "0029",
+      "evidence": "docs/gates/logs/20260303-closure-v40-r2/summary.json, docs/gates/logs/20260303-closure-v40-r2/decision_status_report.json",
+      "next_action": "Keep gates green; refresh evidence on behavior changes",
+      "owner": "pyc4-core",
+      "status": "implemented-verified"
+    },
+    {
+      "decision": "0030",
+      "evidence": "docs/gates/logs/20260303-closure-v40-r2/summary.json, docs/gates/logs/20260303-closure-v40-r2/decision_status_report.json",
+      "next_action": "Keep gates green; refresh evidence on behavior changes",
+      "owner": "pyc4-core",
+      "status": "implemented-verified"
+    },
+    {
+      "decision": "0031",
+      "evidence": "docs/gates/logs/20260303-closure-v40-r2/summary.json, docs/gates/logs/20260303-closure-v40-r2/decision_status_report.json",
+      "next_action": "Keep gates green; refresh evidence on behavior changes",
+      "owner": "pyc4-core",
+      "status": "implemented-verified"
+    },
+    {
+      "decision": "0032",
+      "evidence": "docs/gates/logs/20260303-closure-v40-r2/summary.json, docs/gates/logs/20260303-closure-v40-r2/decision_status_report.json",
+      "next_action": "Keep gates green; refresh evidence on behavior changes",
+      "owner": "pyc4-core",
+      "status": "implemented-verified"
+    },
+    {
+      "decision": "0033",
+      "evidence": "docs/gates/logs/20260303-closure-v40-r2/summary.json, docs/gates/logs/20260303-closure-v40-r2/decision_status_report.json",
+      "next_action": "Keep gates green; refresh evidence on behavior changes",
+      "owner": "pyc4-core",
+      "status": "implemented-verified"
+    },
+    {
+      "decision": "0034",
+      "evidence": "docs/gates/logs/20260303-closure-v40-r2/summary.json, docs/gates/logs/20260303-closure-v40-r2/decision_status_report.json",
+      "next_action": "Keep gates green; refresh evidence on behavior changes",
+      "owner": "pyc4-core",
+      "status": "implemented-verified"
+    },
+    {
+      "decision": "0035",
+      "evidence": "docs/gates/logs/20260303-closure-v40-r2/summary.json, docs/gates/logs/20260303-closure-v40-r2/decision_status_report.json",
+      "next_action": "Keep gates green; refresh evidence on behavior changes",
+      "owner": "pyc4-core",
+      "status": "implemented-verified"
+    },
+    {
+      "decision": "0036",
+      "evidence": "docs/gates/logs/20260303-closure-v40-r2/summary.json, docs/gates/logs/20260303-closure-v40-r2/decision_status_report.json",
+      "next_action": "Keep gates green; refresh evidence on behavior changes",
+      "owner": "pyc4-core",
+      "status": "implemented-verified"
+    },
+    {
+      "decision": "0037",
+      "evidence": "docs/gates/logs/20260303-closure-v40-r2/summary.json, docs/gates/logs/20260303-closure-v40-r2/decision_status_report.json",
+      "next_action": "Keep gates green; refresh evidence on behavior changes",
+      "owner": "pyc4-core",
+      "status": "implemented-verified"
+    },
+    {
+      "decision": "0038",
+      "evidence": "docs/gates/logs/20260303-closure-v40-r2/summary.json, docs/gates/logs/20260303-closure-v40-r2/decision_status_report.json",
+      "next_action": "Keep gates green; refresh evidence on behavior changes",
+      "owner": "pyc4-core",
+      "status": "implemented-verified"
+    },
+    {
+      "decision": "0039",
+      "evidence": "docs/gates/logs/20260303-closure-v40-r2/summary.json, docs/gates/logs/20260303-closure-v40-r2/decision_status_report.json",
+      "next_action": "Keep gates green; refresh evidence on behavior changes",
+      "owner": "pyc4-core",
+      "status": "implemented-verified"
+    },
+    {
+      "decision": "0040",
+      "evidence": "docs/gates/logs/20260303-closure-v40-r2/summary.json, docs/gates/logs/20260303-closure-v40-r2/decision_status_report.json",
+      "next_action": "Keep gates green; refresh evidence on behavior changes",
+      "owner": "pyc4-core",
+      "status": "implemented-verified"
+    },
+    {
+      "decision": "0041",
+      "evidence": "docs/gates/logs/20260303-closure-v40-r2/summary.json, docs/gates/logs/20260303-closure-v40-r2/decision_status_report.json",
+      "next_action": "Keep gates green; refresh evidence on behavior changes",
+      "owner": "pyc4-core",
+      "status": "implemented-verified"
+    },
+    {
+      "decision": "0042",
+      "evidence": "docs/gates/logs/20260303-closure-v40-r2/summary.json, docs/gates/logs/20260303-closure-v40-r2/decision_status_report.json",
+      "next_action": "Keep gates green; refresh evidence on behavior changes",
+      "owner": "pyc4-core",
+      "status": "implemented-verified"
+    },
+    {
+      "decision": "0043",
+      "evidence": "docs/gates/logs/20260303-closure-v40-r2/summary.json, docs/gates/logs/20260303-closure-v40-r2/decision_status_report.json",
+      "next_action": "Keep gates green; refresh evidence on behavior changes",
+      "owner": "pyc4-core",
+      "status": "implemented-verified"
+    },
+    {
+      "decision": "0044",
+      "evidence": "docs/gates/logs/20260303-closure-v40-r2/summary.json, docs/gates/logs/20260303-closure-v40-r2/decision_status_report.json",
+      "next_action": "Keep gates green; refresh evidence on behavior changes",
+      "owner": "pyc4-core",
+      "status": "implemented-verified"
+    },
+    {
+      "decision": "0045",
+      "evidence": "docs/gates/logs/20260303-closure-v40-r2/summary.json, docs/gates/logs/20260303-closure-v40-r2/decision_status_report.json",
+      "next_action": "Keep gates green; refresh evidence on behavior changes",
+      "owner": "pyc4-core",
+      "status": "implemented-verified"
+    },
+    {
+      "decision": "0046",
+      "evidence": "docs/gates/logs/20260303-closure-v40-r2/summary.json, docs/gates/logs/20260303-closure-v40-r2/decision_status_report.json",
+      "next_action": "Keep gates green; refresh evidence on behavior changes",
+      "owner": "pyc4-core",
+      "status": "implemented-verified"
+    },
+    {
+      "decision": "0047",
+      "evidence": "docs/gates/logs/20260303-closure-v40-r2/summary.json, docs/gates/logs/20260303-closure-v40-r2/decision_status_report.json",
+      "next_action": "Keep gates green; refresh evidence on behavior changes",
+      "owner": "pyc4-core",
+      "status": "implemented-verified"
+    },
+    {
+      "decision": "0048",
+      "evidence": "docs/gates/logs/20260303-closure-v40-r2/summary.json, docs/gates/logs/20260303-closure-v40-r2/decision_status_report.json",
+      "next_action": "Keep gates green; refresh evidence on behavior changes",
+      "owner": "pyc4-core",
+      "status": "implemented-verified"
+    },
+    {
+      "decision": "0049",
+      "evidence": "docs/gates/logs/20260303-closure-v40-r2/summary.json, docs/gates/logs/20260303-closure-v40-r2/decision_status_report.json",
+      "next_action": "Keep gates green; refresh evidence on behavior changes",
+      "owner": "pyc4-core",
+      "status": "implemented-verified"
+    },
+    {
+      "decision": "0050",
+      "evidence": "docs/gates/logs/20260303-closure-v40-r2/summary.json, docs/gates/logs/20260303-closure-v40-r2/decision_status_report.json",
+      "next_action": "Keep gates green; refresh evidence on behavior changes",
+      "owner": "pyc4-core",
+      "status": "implemented-verified"
+    },
+    {
+      "decision": "0051",
+      "evidence": "docs/gates/logs/20260303-closure-v40-r2/summary.json, docs/gates/logs/20260303-closure-v40-r2/decision_status_report.json",
+      "next_action": "Keep gates green; refresh evidence on behavior changes",
+      "owner": "pyc4-core",
+      "status": "implemented-verified"
+    },
+    {
+      "decision": "0052",
+      "evidence": "docs/gates/logs/20260303-closure-v40-r2/summary.json, docs/gates/logs/20260303-closure-v40-r2/decision_status_report.json",
+      "next_action": "Keep gates green; refresh evidence on behavior changes",
+      "owner": "pyc4-core",
+      "status": "implemented-verified"
+    },
+    {
+      "decision": "0053",
+      "evidence": "docs/gates/logs/20260303-closure-v40-r2/summary.json, docs/gates/logs/20260303-closure-v40-r2/decision_status_report.json",
+      "next_action": "Keep gates green; refresh evidence on behavior changes",
+      "owner": "pyc4-core",
+      "status": "implemented-verified"
+    },
+    {
+      "decision": "0054",
+      "evidence": "docs/gates/logs/20260303-closure-v40-r2/summary.json, docs/gates/logs/20260303-closure-v40-r2/decision_status_report.json",
+      "next_action": "Keep gates green; refresh evidence on behavior changes",
+      "owner": "pyc4-core",
+      "status": "implemented-verified"
+    },
+    {
+      "decision": "0055",
+      "evidence": "docs/gates/logs/20260303-closure-v40-r2/summary.json, docs/gates/logs/20260303-closure-v40-r2/decision_status_report.json",
+      "next_action": "Keep gates green; refresh evidence on behavior changes",
+      "owner": "pyc4-core",
+      "status": "implemented-verified"
+    },
+    {
+      "decision": "0056",
+      "evidence": "docs/gates/logs/20260303-closure-v40-r2/summary.json, docs/gates/logs/20260303-closure-v40-r2/decision_status_report.json",
+      "next_action": "Keep gates green; refresh evidence on behavior changes",
+      "owner": "pyc4-semantic-lane",
+      "status": "implemented-verified"
+    },
+    {
+      "decision": "0057",
+      "evidence": "docs/gates/logs/20260303-closure-v40-r2/summary.json, docs/gates/logs/20260303-closure-v40-r2/decision_status_report.json",
+      "next_action": "Keep gates green; refresh evidence on behavior changes",
+      "owner": "pyc4-semantic-lane",
+      "status": "implemented-verified"
+    },
+    {
+      "decision": "0058",
+      "evidence": "docs/gates/logs/20260303-closure-v40-r2/summary.json, docs/gates/logs/20260303-closure-v40-r2/decision_status_report.json",
+      "next_action": "Keep gates green; refresh evidence on behavior changes",
+      "owner": "pyc4-semantic-lane",
+      "status": "implemented-verified"
+    },
+    {
+      "decision": "0059",
+      "evidence": "docs/gates/logs/20260303-closure-v40-r2/summary.json, docs/gates/logs/20260303-closure-v40-r2/decision_status_report.json",
+      "next_action": "Keep gates green; refresh evidence on behavior changes",
+      "owner": "pyc4-semantic-lane",
+      "status": "implemented-verified"
+    },
+    {
+      "decision": "0060",
+      "evidence": "docs/gates/logs/20260303-closure-v40-r2/summary.json, docs/gates/logs/20260303-closure-v40-r2/decision_status_report.json",
+      "next_action": "Keep gates green; refresh evidence on behavior changes",
+      "owner": "pyc4-semantic-lane",
+      "status": "implemented-verified"
+    },
+    {
+      "decision": "0061",
+      "evidence": "docs/gates/logs/20260303-closure-v40-r2/summary.json, docs/gates/logs/20260303-closure-v40-r2/decision_status_report.json",
+      "next_action": "Keep gates green; refresh evidence on behavior changes",
+      "owner": "pyc4-semantic-lane",
+      "status": "implemented-verified"
+    },
+    {
+      "decision": "0062",
+      "evidence": "docs/gates/logs/20260303-closure-v40-r2/summary.json, docs/gates/logs/20260303-closure-v40-r2/decision_status_report.json",
+      "next_action": "Keep gates green; refresh evidence on behavior changes",
+      "owner": "pyc4-semantic-lane",
+      "status": "implemented-verified"
+    },
+    {
+      "decision": "0063",
+      "evidence": "docs/gates/logs/20260303-closure-v40-r2/summary.json, docs/gates/logs/20260303-closure-v40-r2/decision_status_report.json",
+      "next_action": "Keep gates green; refresh evidence on behavior changes",
+      "owner": "pyc4-semantic-lane",
+      "status": "implemented-verified"
+    },
+    {
+      "decision": "0064",
+      "evidence": "docs/gates/logs/20260303-closure-v40-r2/summary.json, docs/gates/logs/20260303-closure-v40-r2/decision_status_report.json",
+      "next_action": "Keep gates green; refresh evidence on behavior changes",
+      "owner": "pyc4-semantic-lane",
+      "status": "implemented-verified"
+    },
+    {
+      "decision": "0065",
+      "evidence": "docs/gates/logs/20260303-closure-v40-r2/summary.json, docs/gates/logs/20260303-closure-v40-r2/decision_status_report.json",
+      "next_action": "Keep gates green; refresh evidence on behavior changes",
+      "owner": "pyc4-semantic-lane",
+      "status": "implemented-verified"
+    },
+    {
+      "decision": "0066",
+      "evidence": "docs/gates/logs/20260303-closure-v40-r2/summary.json, docs/gates/logs/20260303-closure-v40-r2/decision_status_report.json",
+      "next_action": "Keep gates green; refresh evidence on behavior changes",
+      "owner": "pyc4-semantic-lane",
+      "status": "implemented-verified"
+    },
+    {
+      "decision": "0067",
+      "evidence": "docs/gates/logs/20260303-closure-v40-r2/summary.json, docs/gates/logs/20260303-closure-v40-r2/decision_status_report.json",
+      "next_action": "Keep gates green; refresh evidence on behavior changes",
+      "owner": "pyc4-semantic-lane",
+      "status": "implemented-verified"
+    },
+    {
+      "decision": "0068",
+      "evidence": "docs/gates/logs/20260303-closure-v40-r2/summary.json, docs/gates/logs/20260303-closure-v40-r2/decision_status_report.json",
+      "next_action": "Keep gates green; refresh evidence on behavior changes",
+      "owner": "pyc4-semantic-lane",
+      "status": "implemented-verified"
+    },
+    {
+      "decision": "0069",
+      "evidence": "docs/gates/logs/20260303-closure-v40-r2/summary.json, docs/gates/logs/20260303-closure-v40-r2/decision_status_report.json",
+      "next_action": "Keep gates green; refresh evidence on behavior changes",
+      "owner": "pyc4-semantic-lane",
+      "status": "implemented-verified"
+    },
+    {
+      "decision": "0070",
+      "evidence": "docs/gates/logs/20260303-closure-v40-r2/summary.json, docs/gates/logs/20260303-closure-v40-r2/decision_status_report.json",
+      "next_action": "Keep gates green; refresh evidence on behavior changes",
+      "owner": "pyc4-semantic-lane",
+      "status": "implemented-verified"
+    },
+    {
+      "decision": "0071",
+      "evidence": "docs/gates/logs/20260303-closure-v40-r2/summary.json, docs/gates/logs/20260303-closure-v40-r2/decision_status_report.json",
+      "next_action": "Keep gates green; refresh evidence on behavior changes",
+      "owner": "pyc4-semantic-lane",
+      "status": "implemented-verified"
+    },
+    {
+      "decision": "0072",
+      "evidence": "docs/gates/logs/20260303-closure-v40-r2/summary.json, docs/gates/logs/20260303-closure-v40-r2/decision_status_report.json",
+      "next_action": "Keep gates green; refresh evidence on behavior changes",
+      "owner": "pyc4-semantic-lane",
+      "status": "implemented-verified"
+    },
+    {
+      "decision": "0073",
+      "evidence": "docs/gates/logs/20260303-closure-v40-r2/summary.json, docs/gates/logs/20260303-closure-v40-r2/decision_status_report.json",
+      "next_action": "Keep gates green; refresh evidence on behavior changes",
+      "owner": "pyc4-semantic-lane",
+      "status": "implemented-verified"
+    },
+    {
+      "decision": "0074",
+      "evidence": "docs/gates/logs/20260303-closure-v40-r2/summary.json, docs/gates/logs/20260303-closure-v40-r2/decision_status_report.json",
+      "next_action": "Keep gates green; refresh evidence on behavior changes",
+      "owner": "pyc4-semantic-lane",
+      "status": "implemented-verified"
+    },
+    {
+      "decision": "0075",
+      "evidence": "docs/gates/logs/20260303-closure-v40-r2/summary.json, docs/gates/logs/20260303-closure-v40-r2/decision_status_report.json",
+      "next_action": "Keep gates green; refresh evidence on behavior changes",
+      "owner": "pyc4-semantic-lane",
+      "status": "implemented-verified"
+    },
+    {
+      "decision": "0076",
+      "evidence": "docs/gates/logs/20260303-closure-v40-r2/summary.json, docs/gates/logs/20260303-closure-v40-r2/decision_status_report.json",
+      "next_action": "Keep gates green; refresh evidence on behavior changes",
+      "owner": "pyc4-semantic-lane",
+      "status": "implemented-verified"
+    },
+    {
+      "decision": "0077",
+      "evidence": "docs/gates/logs/20260303-closure-v40-r2/summary.json, docs/gates/logs/20260303-closure-v40-r2/decision_status_report.json",
+      "next_action": "Keep gates green; refresh evidence on behavior changes",
+      "owner": "pyc4-semantic-lane",
+      "status": "implemented-verified"
+    },
+    {
+      "decision": "0078",
+      "evidence": "docs/gates/logs/20260303-closure-v40-r2/summary.json, docs/gates/logs/20260303-closure-v40-r2/decision_status_report.json",
+      "next_action": "Keep gates green; refresh evidence on behavior changes",
+      "owner": "pyc4-semantic-lane",
+      "status": "implemented-verified"
+    },
+    {
+      "decision": "0079",
+      "evidence": "docs/gates/logs/20260303-closure-v40-r2/summary.json, docs/gates/logs/20260303-closure-v40-r2/decision_status_report.json",
+      "next_action": "Keep gates green; refresh evidence on behavior changes",
+      "owner": "pyc4-semantic-lane",
+      "status": "implemented-verified"
+    },
+    {
+      "decision": "0080",
+      "evidence": "docs/gates/logs/20260303-closure-v40-r2/summary.json, docs/gates/logs/20260303-closure-v40-r2/decision_status_report.json",
+      "next_action": "Keep gates green; refresh evidence on behavior changes",
+      "owner": "pyc4-semantic-lane",
+      "status": "implemented-verified"
+    },
+    {
+      "decision": "0081",
+      "evidence": "docs/gates/logs/20260303-closure-v40-r2/summary.json, docs/gates/logs/20260303-closure-v40-r2/decision_status_report.json",
+      "next_action": "Keep gates green; refresh evidence on behavior changes",
+      "owner": "pyc4-semantic-lane",
+      "status": "implemented-verified"
+    },
+    {
+      "decision": "0082",
+      "evidence": "docs/gates/logs/20260303-closure-v40-r2/summary.json, docs/gates/logs/20260303-closure-v40-r2/decision_status_report.json",
+      "next_action": "Keep gates green; refresh evidence on behavior changes",
+      "owner": "pyc4-semantic-lane",
+      "status": "implemented-verified"
+    },
+    {
+      "decision": "0083",
+      "evidence": "docs/gates/logs/20260303-closure-v40-r2/summary.json, docs/gates/logs/20260303-closure-v40-r2/decision_status_report.json",
+      "next_action": "Keep gates green; refresh evidence on behavior changes",
+      "owner": "pyc4-semantic-lane",
+      "status": "implemented-verified"
+    },
+    {
+      "decision": "0084",
+      "evidence": "docs/gates/logs/20260303-closure-v40-r2/summary.json, docs/gates/logs/20260303-closure-v40-r2/decision_status_report.json",
+      "next_action": "Keep gates green; refresh evidence on behavior changes",
+      "owner": "pyc4-semantic-lane",
+      "status": "implemented-verified"
+    },
+    {
+      "decision": "0085",
+      "evidence": "docs/gates/logs/20260303-closure-v40-r2/summary.json, docs/gates/logs/20260303-closure-v40-r2/decision_status_report.json",
+      "next_action": "Keep gates green; refresh evidence on behavior changes",
+      "owner": "pyc4-core",
+      "status": "implemented-verified"
+    },
+    {
+      "decision": "0086",
+      "evidence": "docs/gates/logs/20260303-closure-v40-r2/summary.json, docs/gates/logs/20260303-closure-v40-r2/decision_status_report.json",
+      "next_action": "Keep gates green; refresh evidence on behavior changes",
+      "owner": "pyc4-core",
+      "status": "implemented-verified"
+    },
+    {
+      "decision": "0087",
+      "evidence": "docs/gates/logs/20260303-closure-v40-r2/summary.json, docs/gates/logs/20260303-closure-v40-r2/decision_status_report.json",
+      "next_action": "Keep gates green; refresh evidence on behavior changes",
+      "owner": "pyc4-core",
+      "status": "implemented-verified"
+    },
+    {
+      "decision": "0088",
+      "evidence": "docs/gates/logs/20260303-closure-v40-r2/summary.json, docs/gates/logs/20260303-closure-v40-r2/decision_status_report.json",
+      "next_action": "Keep gates green; refresh evidence on behavior changes",
+      "owner": "pyc4-core",
+      "status": "implemented-verified"
+    },
+    {
+      "decision": "0089",
+      "evidence": "docs/gates/logs/20260303-closure-v40-r2/summary.json, docs/gates/logs/20260303-closure-v40-r2/decision_status_report.json",
+      "next_action": "Keep gates green; refresh evidence on behavior changes",
+      "owner": "pyc4-core",
+      "status": "implemented-verified"
+    },
+    {
+      "decision": "0090",
+      "evidence": "docs/gates/logs/20260303-closure-v40-r2/summary.json, docs/gates/logs/20260303-closure-v40-r2/decision_status_report.json",
+      "next_action": "Keep gates green; refresh evidence on behavior changes",
+      "owner": "pyc4-core",
+      "status": "implemented-verified"
+    },
+    {
+      "decision": "0091",
+      "evidence": "docs/gates/logs/20260303-closure-v40-r2/summary.json, docs/gates/logs/20260303-closure-v40-r2/decision_status_report.json",
+      "next_action": "Keep gates green; refresh evidence on behavior changes",
+      "owner": "pyc4-core",
+      "status": "implemented-verified"
+    },
+    {
+      "decision": "0092",
+      "evidence": "docs/gates/logs/20260303-closure-v40-r2/summary.json, docs/gates/logs/20260303-closure-v40-r2/decision_status_report.json",
+      "next_action": "Keep gates green; refresh evidence on behavior changes",
+      "owner": "pyc4-core",
+      "status": "implemented-verified"
+    },
+    {
+      "decision": "0093",
+      "evidence": "docs/gates/logs/20260303-closure-v40-r2/summary.json, docs/gates/logs/20260303-closure-v40-r2/decision_status_report.json",
+      "next_action": "Keep gates green; refresh evidence on behavior changes",
+      "owner": "pyc4-core",
+      "status": "implemented-verified"
+    },
+    {
+      "decision": "0094",
+      "evidence": "docs/gates/logs/20260303-closure-v40-r2/summary.json, docs/gates/logs/20260303-closure-v40-r2/decision_status_report.json",
+      "next_action": "Keep gates green; refresh evidence on behavior changes",
+      "owner": "pyc4-core",
+      "status": "implemented-verified"
+    },
+    {
+      "decision": "0095",
+      "evidence": "docs/gates/logs/20260303-closure-v40-r2/summary.json, docs/gates/logs/20260303-closure-v40-r2/decision_status_report.json",
+      "next_action": "Keep gates green; refresh evidence on behavior changes",
+      "owner": "pyc4-core",
+      "status": "implemented-verified"
+    },
+    {
+      "decision": "0096",
+      "evidence": "docs/gates/logs/20260303-closure-v40-r2/summary.json, docs/gates/logs/20260303-closure-v40-r2/decision_status_report.json",
+      "next_action": "Keep gates green; refresh evidence on behavior changes",
+      "owner": "pyc4-core",
+      "status": "implemented-verified"
+    },
+    {
+      "decision": "0097",
+      "evidence": "docs/gates/logs/20260303-closure-v40-r2/summary.json, docs/gates/logs/20260303-closure-v40-r2/decision_status_report.json",
+      "next_action": "Keep gates green; refresh evidence on behavior changes",
+      "owner": "pyc4-core",
+      "status": "implemented-verified"
+    },
+    {
+      "decision": "0098",
+      "evidence": "docs/gates/logs/20260303-closure-v40-r2/summary.json, docs/gates/logs/20260303-closure-v40-r2/decision_status_report.json",
+      "next_action": "Keep gates green; refresh evidence on behavior changes",
+      "owner": "pyc4-core",
+      "status": "implemented-verified"
+    },
+    {
+      "decision": "0099",
+      "evidence": "docs/gates/logs/20260303-closure-v40-r2/summary.json, docs/gates/logs/20260303-closure-v40-r2/decision_status_report.json",
+      "next_action": "Keep gates green; refresh evidence on behavior changes",
+      "owner": "pyc4-core",
+      "status": "implemented-verified"
+    },
+    {
+      "decision": "0100",
+      "evidence": "docs/gates/logs/20260303-closure-v40-r2/summary.json, docs/gates/logs/20260303-closure-v40-r2/decision_status_report.json",
+      "next_action": "Keep gates green; refresh evidence on behavior changes",
+      "owner": "pyc4-core",
+      "status": "implemented-verified"
+    },
+    {
+      "decision": "0101",
+      "evidence": "docs/gates/logs/20260303-closure-v40-r2/summary.json, docs/gates/logs/20260303-closure-v40-r2/decision_status_report.json",
+      "next_action": "Keep gates green; refresh evidence on behavior changes",
+      "owner": "pyc4-core",
+      "status": "implemented-verified"
+    },
+    {
+      "decision": "0102",
+      "evidence": "docs/gates/logs/20260303-closure-v40-r2/summary.json, docs/gates/logs/20260303-closure-v40-r2/decision_status_report.json",
+      "next_action": "Keep gates green; refresh evidence on behavior changes",
+      "owner": "pyc4-core",
+      "status": "implemented-verified"
+    },
+    {
+      "decision": "0103",
+      "evidence": "docs/gates/logs/20260303-closure-v40-r2/summary.json, docs/gates/logs/20260303-closure-v40-r2/decision_status_report.json",
+      "next_action": "Keep gates green; refresh evidence on behavior changes",
+      "owner": "pyc4-core",
+      "status": "implemented-verified"
+    },
+    {
+      "decision": "0104",
+      "evidence": "docs/gates/logs/20260303-closure-v40-r2/summary.json, docs/gates/logs/20260303-closure-v40-r2/decision_status_report.json",
+      "next_action": "Keep gates green; refresh evidence on behavior changes",
+      "owner": "pyc4-core",
+      "status": "implemented-verified"
+    },
+    {
+      "decision": "0105",
+      "evidence": "docs/gates/logs/20260303-closure-v40-r2/summary.json, docs/gates/logs/20260303-closure-v40-r2/decision_status_report.json",
+      "next_action": "Keep gates green; refresh evidence on behavior changes",
+      "owner": "pyc4-core",
+      "status": "implemented-verified"
+    },
+    {
+      "decision": "0106",
+      "evidence": "docs/gates/logs/20260303-closure-v40-r2/summary.json, docs/gates/logs/20260303-closure-v40-r2/decision_status_report.json",
+      "next_action": "Keep gates green; refresh evidence on behavior changes",
+      "owner": "pyc4-core",
+      "status": "implemented-verified"
+    },
+    {
+      "decision": "0107",
+      "evidence": "docs/gates/logs/20260303-closure-v40-r2/summary.json, docs/gates/logs/20260303-closure-v40-r2/decision_status_report.json",
+      "next_action": "Keep gates green; refresh evidence on behavior changes",
+      "owner": "pyc4-core",
+      "status": "implemented-verified"
+    },
+    {
+      "decision": "0108",
+      "evidence": "docs/gates/logs/20260303-closure-v40-r2/summary.json, docs/gates/logs/20260303-closure-v40-r2/decision_status_report.json",
+      "next_action": "Keep gates green; refresh evidence on behavior changes",
+      "owner": "pyc4-core",
+      "status": "implemented-verified"
+    },
+    {
+      "decision": "0109",
+      "evidence": "docs/gates/logs/20260303-closure-v40-r2/summary.json, docs/gates/logs/20260303-closure-v40-r2/decision_status_report.json",
+      "next_action": "Keep gates green; refresh evidence on behavior changes",
+      "owner": "pyc4-core",
+      "status": "implemented-verified"
+    },
+    {
+      "decision": "0110",
+      "evidence": "docs/gates/logs/20260303-closure-v40-r2/summary.json, docs/gates/logs/20260303-closure-v40-r2/decision_status_report.json",
+      "next_action": "Keep gates green; refresh evidence on behavior changes",
+      "owner": "pyc4-core",
+      "status": "implemented-verified"
+    },
+    {
+      "decision": "0111",
+      "evidence": "docs/gates/logs/20260303-closure-v40-r2/summary.json, docs/gates/logs/20260303-closure-v40-r2/decision_status_report.json",
+      "next_action": "Keep gates green; refresh evidence on behavior changes",
+      "owner": "pyc4-core",
+      "status": "implemented-verified"
+    },
+    {
+      "decision": "0112",
+      "evidence": "docs/gates/logs/20260303-closure-v40-r2/summary.json, docs/gates/logs/20260303-closure-v40-r2/decision_status_report.json",
+      "next_action": "Keep gates green; refresh evidence on behavior changes",
+      "owner": "pyc4-core",
+      "status": "implemented-verified"
+    },
+    {
+      "decision": "0113",
+      "evidence": "docs/gates/logs/20260303-closure-v40-r2/summary.json, docs/gates/logs/20260303-closure-v40-r2/decision_status_report.json",
+      "next_action": "Keep gates green; refresh evidence on behavior changes",
+      "owner": "pyc4-core",
+      "status": "implemented-verified"
+    },
+    {
+      "decision": "0114",
+      "evidence": "docs/gates/logs/20260303-closure-v40-r2/summary.json, docs/gates/logs/20260303-closure-v40-r2/decision_status_report.json",
+      "next_action": "Keep gates green; refresh evidence on behavior changes",
+      "owner": "pyc4-core",
+      "status": "implemented-verified"
+    },
+    {
+      "decision": "0115",
+      "evidence": "docs/gates/logs/20260303-closure-v40-r2/summary.json, docs/gates/logs/20260303-closure-v40-r2/decision_status_report.json",
+      "next_action": "Keep gates green; refresh evidence on behavior changes",
+      "owner": "pyc4-core",
+      "status": "implemented-verified"
+    },
+    {
+      "decision": "0116",
+      "evidence": "docs/gates/logs/20260303-closure-v40-r2/summary.json, docs/gates/logs/20260303-closure-v40-r2/decision_status_report.json",
+      "next_action": "Keep gates green; refresh evidence on behavior changes",
+      "owner": "pyc4-semantic-lane",
+      "status": "implemented-verified"
+    },
+    {
+      "decision": "0117",
+      "evidence": "docs/gates/logs/20260303-closure-v40-r2/summary.json, docs/gates/logs/20260303-closure-v40-r2/decision_status_report.json",
+      "next_action": "Keep gates green; refresh evidence on behavior changes",
+      "owner": "pyc4-semantic-lane",
+      "status": "implemented-verified"
+    },
+    {
+      "decision": "0118",
+      "evidence": "docs/gates/logs/20260303-closure-v40-r2/summary.json, docs/gates/logs/20260303-closure-v40-r2/decision_status_report.json",
+      "next_action": "Keep gates green; refresh evidence on behavior changes",
+      "owner": "pyc4-semantic-lane",
+      "status": "implemented-verified"
+    },
+    {
+      "decision": "0119",
+      "evidence": "docs/gates/logs/20260303-closure-v40-r2/summary.json, docs/gates/logs/20260303-closure-v40-r2/decision_status_report.json",
+      "next_action": "Keep gates green; refresh evidence on behavior changes",
+      "owner": "pyc4-semantic-lane",
+      "status": "implemented-verified"
+    },
+    {
+      "decision": "0120",
+      "evidence": "docs/gates/logs/20260303-closure-v40-r2/summary.json, docs/gates/logs/20260303-closure-v40-r2/decision_status_report.json",
+      "next_action": "Keep gates green; refresh evidence on behavior changes",
+      "owner": "pyc4-semantic-lane",
+      "status": "implemented-verified"
+    },
+    {
+      "decision": "0121",
+      "evidence": "docs/gates/logs/20260303-closure-v40-r2/summary.json, docs/gates/logs/20260303-closure-v40-r2/decision_status_report.json",
+      "next_action": "Keep gates green; refresh evidence on behavior changes",
+      "owner": "pyc4-semantic-lane",
+      "status": "implemented-verified"
+    },
+    {
+      "decision": "0122",
+      "evidence": "docs/gates/logs/20260303-closure-v40-r2/summary.json, docs/gates/logs/20260303-closure-v40-r2/decision_status_report.json",
+      "next_action": "Keep gates green; refresh evidence on behavior changes",
+      "owner": "pyc4-semantic-lane",
+      "status": "implemented-verified"
+    },
+    {
+      "decision": "0123",
+      "evidence": "docs/gates/logs/20260303-closure-v40-r2/summary.json, docs/gates/logs/20260303-closure-v40-r2/decision_status_report.json",
+      "next_action": "Keep gates green; refresh evidence on behavior changes",
+      "owner": "pyc4-semantic-lane",
+      "status": "implemented-verified"
+    },
+    {
+      "decision": "0124",
+      "evidence": "docs/gates/logs/20260303-closure-v40-r2/summary.json, docs/gates/logs/20260303-closure-v40-r2/decision_status_report.json",
+      "next_action": "Keep gates green; refresh evidence on behavior changes",
+      "owner": "pyc4-semantic-lane",
+      "status": "implemented-verified"
+    },
+    {
+      "decision": "0125",
+      "evidence": "docs/gates/logs/20260303-closure-v40-r2/summary.json, docs/gates/logs/20260303-closure-v40-r2/decision_status_report.json",
+      "next_action": "Keep gates green; refresh evidence on behavior changes",
+      "owner": "pyc4-semantic-lane",
+      "status": "implemented-verified"
+    },
+    {
+      "decision": "0126",
+      "evidence": "docs/gates/logs/20260303-closure-v40-r2/summary.json, docs/gates/logs/20260303-closure-v40-r2/decision_status_report.json",
+      "next_action": "Keep gates green; refresh evidence on behavior changes",
+      "owner": "pyc4-semantic-lane",
+      "status": "implemented-verified"
+    },
+    {
+      "decision": "0127",
+      "evidence": "docs/gates/logs/20260303-closure-v40-r2/summary.json, docs/gates/logs/20260303-closure-v40-r2/decision_status_report.json",
+      "next_action": "Keep gates green; refresh evidence on behavior changes",
+      "owner": "pyc4-semantic-lane",
+      "status": "implemented-verified"
+    },
+    {
+      "decision": "0128",
+      "evidence": "docs/gates/logs/20260303-closure-v40-r2/summary.json, docs/gates/logs/20260303-closure-v40-r2/decision_status_report.json",
+      "next_action": "Keep gates green; refresh evidence on behavior changes",
+      "owner": "pyc4-semantic-lane",
+      "status": "implemented-verified"
+    },
+    {
+      "decision": "0129",
+      "evidence": "docs/gates/logs/20260303-closure-v40-r2/summary.json, docs/gates/logs/20260303-closure-v40-r2/decision_status_report.json",
+      "next_action": "Keep gates green; refresh evidence on behavior changes",
+      "owner": "pyc4-semantic-lane",
+      "status": "implemented-verified"
+    },
+    {
+      "decision": "0130",
+      "evidence": "docs/gates/logs/20260303-closure-v40-r2/summary.json, docs/gates/logs/20260303-closure-v40-r2/decision_status_report.json",
+      "next_action": "Keep gates green; refresh evidence on behavior changes",
+      "owner": "pyc4-semantic-lane",
+      "status": "implemented-verified"
+    },
+    {
+      "decision": "0131",
+      "evidence": "docs/gates/logs/20260303-closure-v40-r2/summary.json, docs/gates/logs/20260303-closure-v40-r2/decision_status_report.json",
+      "next_action": "Keep gates green; refresh evidence on behavior changes",
+      "owner": "pyc4-semantic-lane",
+      "status": "implemented-verified"
+    },
+    {
+      "decision": "0132",
+      "evidence": "docs/gates/logs/20260303-closure-v40-r2/summary.json, docs/gates/logs/20260303-closure-v40-r2/decision_status_report.json",
+      "next_action": "Keep gates green; refresh evidence on behavior changes",
+      "owner": "pyc4-core",
+      "status": "implemented-verified"
+    },
+    {
+      "decision": "0133",
+      "evidence": "docs/gates/logs/20260303-closure-v40-r2/summary.json, docs/gates/logs/20260303-closure-v40-r2/decision_status_report.json",
+      "next_action": "Keep gates green; refresh evidence on behavior changes",
+      "owner": "pyc4-core",
+      "status": "implemented-verified"
+    },
+    {
+      "decision": "0134",
+      "evidence": "docs/gates/logs/20260303-closure-v40-r2/summary.json, docs/gates/logs/20260303-closure-v40-r2/decision_status_report.json",
+      "next_action": "Keep gates green; refresh evidence on behavior changes",
+      "owner": "pyc4-core",
+      "status": "implemented-verified"
+    },
+    {
+      "decision": "0135",
+      "evidence": "docs/gates/logs/20260303-closure-v40-r2/summary.json, docs/gates/logs/20260303-closure-v40-r2/decision_status_report.json",
+      "next_action": "Keep gates green; refresh evidence on behavior changes",
+      "owner": "pyc4-core",
+      "status": "implemented-verified"
+    },
+    {
+      "decision": "0136",
+      "evidence": "docs/gates/logs/20260303-closure-v40-r2/summary.json, docs/gates/logs/20260303-closure-v40-r2/decision_status_report.json",
+      "next_action": "Keep gates green; refresh evidence on behavior changes",
+      "owner": "pyc4-core",
+      "status": "implemented-verified"
+    },
+    {
+      "decision": "0137",
+      "evidence": "docs/gates/logs/20260303-closure-v40-r2/summary.json, docs/gates/logs/20260303-closure-v40-r2/decision_status_report.json",
+      "next_action": "Keep gates green; refresh evidence on behavior changes",
+      "owner": "pyc4-core",
+      "status": "implemented-verified"
+    },
+    {
+      "decision": "0138",
+      "evidence": "docs/gates/logs/20260303-closure-v40-r2/summary.json, docs/gates/logs/20260303-closure-v40-r2/decision_status_report.json",
+      "next_action": "Keep gates green; refresh evidence on behavior changes",
+      "owner": "pyc4-core",
+      "status": "implemented-verified"
+    },
+    {
+      "decision": "0139",
+      "evidence": "docs/gates/logs/20260303-closure-v40-r2/summary.json, docs/gates/logs/20260303-closure-v40-r2/decision_status_report.json",
+      "next_action": "Keep gates green; refresh evidence on behavior changes",
+      "owner": "pyc4-core",
+      "status": "implemented-verified"
+    },
+    {
+      "decision": "0140",
+      "evidence": "docs/gates/logs/20260303-closure-v40-r2/summary.json, docs/gates/logs/20260303-closure-v40-r2/decision_status_report.json",
+      "next_action": "Keep gates green; refresh evidence on behavior changes",
+      "owner": "pyc4-core",
+      "status": "implemented-verified"
+    },
+    {
+      "decision": "0141",
+      "evidence": "docs/gates/logs/20260303-closure-v40-r2/summary.json, docs/gates/logs/20260303-closure-v40-r2/decision_status_report.json",
+      "next_action": "Keep gates green; refresh evidence on behavior changes",
+      "owner": "pyc4-core",
+      "status": "implemented-verified"
+    },
+    {
+      "decision": "0142",
+      "evidence": "docs/gates/logs/20260303-closure-v40-r2/summary.json, docs/gates/logs/20260303-closure-v40-r2/decision_status_report.json",
+      "next_action": "Historical consumer cosim closure; superseded by Decision 0158",
+      "owner": "pyc4-core",
+      "status": "implemented-verified"
+    },
+    {
+      "decision": "0143",
+      "evidence": "docs/gates/logs/20260303-closure-v40-r2/summary.json, docs/gates/logs/20260303-closure-v40-r2/decision_status_report.json",
+      "next_action": "Keep gates green; refresh evidence on behavior changes",
+      "owner": "pyc4-core",
+      "status": "implemented-verified"
+    },
+    {
+      "decision": "0144",
+      "evidence": "docs/gates/logs/20260303-closure-v40-r2/summary.json, docs/gates/logs/20260303-closure-v40-r2/decision_status_report.json",
+      "next_action": "Keep gates green; refresh evidence on behavior changes",
+      "owner": "pyc4-core",
+      "status": "implemented-verified"
+    },
+    {
+      "decision": "0145",
+      "evidence": "docs/gates/logs/20260303-closure-v40-r2/summary.json, docs/gates/logs/20260303-closure-v40-r2/decision_status_report.json",
+      "next_action": "Keep gates green; refresh evidence on behavior changes",
+      "owner": "pyc4-core",
+      "status": "implemented-verified"
+    },
+    {
+      "decision": "0146",
+      "evidence": "docs/gates/logs/20260303-closure-v40-r2/summary.json, docs/gates/logs/20260303-closure-v40-r2/decision_status_report.json",
+      "next_action": "Historical consumer commit-bundle closure; superseded by Decision 0158",
+      "owner": "pyc4-core",
+      "status": "implemented-verified"
+    },
+    {
+      "decision": "0147",
+      "evidence": "docs/gates/logs/20260303-closure-v40-r2/summary.json, docs/gates/logs/20260303-closure-v40-r2/decision_status_report.json",
+      "next_action": "Keep gates green; refresh evidence on behavior changes",
+      "owner": "pyc4-core",
+      "status": "implemented-verified"
+    },
+    {
+      "decision": "0148",
+      "evidence": "docs/gates/logs/20260930-m5-cutover/retired-evidence.md, docs/gates/logs/pyc6-unification/pyc6_migration_summary.md, docs/gates/logs/pyc6-unification/semantic_regressions_summary.json, docs/gates/logs/20260907-issue40-p0-provenance/summary.json, docs/gates/logs/20260907-issue40-p1-facade/summary.json, docs/gates/logs/20260908-issue40-p1-compile/summary.json, docs/gates/logs/20260908-issue40-p1-cas-boundary/summary.json, docs/gates/logs/20260908-issue40-p1-api-hygiene/summary.json, docs/gates/logs/20260908-issue40-p1-phantom-params/summary.json, docs/gates/logs/20260911-api-hygiene-98-99/summary.json",
+      "next_action": "Historical baseline evidence; current applicability and verification follow Decision 0283 and the M5 retirement ledger",
+      "owner": "pyc6-frontend",
+      "status": "implemented-verified"
+    },
+    {
+      "decision": "0149",
+      "evidence": "CMakeLists.txt, docs/gates/logs/20260930-m5-cutover/retired-evidence.md, docs/gates/logs/pyc6-unification/pyc6_migration_summary.md, docs/gates/logs/pyc6-unification/summary.json",
+      "next_action": "Historical baseline evidence; current applicability and verification follow Decision 0283 and the M5 retirement ledger",
+      "owner": "pyc6-runtime",
+      "status": "implemented-verified"
+    },
+    {
+      "decision": "0150",
+      "evidence": "docs/gates/logs/20260905-agentic-retirement/summary.md, docs/gates/logs/20260831-agentic-consolidation-r2/agentic_circuit_summary.json, docs/gates/logs/20260831-agentic-consolidation-r2/summary.json, docs/gates/logs/20260831-agentic-consolidation-r2/run_sims_summary.json, docs/gates/logs/20260831-agentic-consolidation-r2/run_sims_nightly_summary.json, docs/gates/logs/20260831-agentic-consolidation-r2/semantic_regressions_summary.json, docs/gates/logs/20260831-agentic-consolidation-r2/migration_closure.md, docs/gates/logs/20260911-api-hygiene-98-99/summary.json, docs/gates/logs/20260911-issues-100-101-docs-hierarchy/summary.json",
+      "next_action": "Keep the Agentic Python boundary, installed/source resource discovery, and consolidated AC/PYC release closure green",
+      "owner": "acir-integration",
+      "status": "implemented-verified"
+    },
+    {
+      "decision": "0151",
+      "evidence": "docs/gates/logs/20260903-ac-table-stack-closure-r5/closure_summary.md, docs/gates/logs/20260903-ac-table-stack-closure-r5/agentic_circuit_summary.json, docs/gates/logs/20260903-ac-table-stack-closure-r5/decision_status_report.json",
+      "next_action": "Historical prototype boundary; Decision 0241 supersedes it for the bounded explicit-register-bank profile",
+      "owner": "acir-table",
+      "status": "implemented-verified"
+    },
+    {
+      "decision": "0152",
+      "evidence": "docs/gates/logs/20260903-ac-table-stack-closure-r5/closure_summary.md, docs/gates/logs/20260903-ac-table-stack-closure-r5/agentic_circuit_summary.json, docs/gates/logs/20260903-ac-table-stack-closure-r5/decision_status_report.json",
+      "next_action": "Keep focused G0/G1 and native/direct runtime parity green under the Decision 0241 backend profile",
+      "owner": "acir-table",
+      "status": "implemented-verified"
+    },
+    {
+      "decision": "0153",
+      "evidence": "docs/gates/logs/20260903-ac-table-stack-closure-r5/closure_summary.md, docs/gates/logs/20260903-ac-table-stack-closure-r5/agentic_circuit_summary.json, docs/gates/logs/20260903-ac-table-stack-closure-r5/decision_status_report.json",
+      "next_action": "Keep focused G0/G1, native/direct runtime parity, scalar regression, and bounded PYC admission green",
+      "owner": "acir-table",
+      "status": "implemented-verified"
+    },
+    {
+      "decision": "0154",
+      "evidence": "docs/rfcs/pyc6-decisions.md, docs/gates/logs/20260930-m5-cutover/retired-evidence.md, docs/gates/logs/20260915-issue126-iterative-proof/summary.json, docs/gates/logs/20260903-ac-table-stack-closure-r5/closure_summary.md, docs/gates/logs/20260903-ac-table-stack-closure-r5/agentic_circuit_summary.json, docs/gates/logs/20260903-ac-table-stack-closure-r5/decision_status_report.json, docs/gates/logs/20260915-issue129-static-field-writes/summary.md, docs/gates/logs/20260916-issue129-mixed-field-writes/summary.md",
+      "next_action": "Historical baseline evidence; current applicability and verification follow Decision 0283 and the M5 retirement ledger",
+      "owner": "acir-table",
+      "status": "implemented-verified"
+    },
+    {
+      "decision": "0155",
+      "evidence": "docs/gates/logs/20260903-ac-table-stack-closure-r5/closure_summary.md, docs/gates/logs/20260903-ac-table-stack-closure-r5/agentic_circuit_summary.json, docs/gates/logs/20260903-ac-table-stack-closure-r5/decision_status_report.json, docs/gates/logs/20260908-issue63-opt04-priority-find/summary.json, docs/gates/logs/20260908-issue63-opt05-table-borrow/summary.json, docs/gates/logs/20260908-issue63-opt03-match-fusion/summary.json",
+      "next_action": "Keep shared SSA provenance, once-per-attempt evaluation, scalar first-choice priority encoding, lexical aggregate observation borrowing, value materialization boundaries, same-snapshot pure-match fusion, independent masks, exact effect fallback semantics, and gfsim/PYC parity green",
+      "owner": "acir-table",
+      "status": "implemented-verified"
+    },
+    {
+      "decision": "0156",
+      "evidence": "docs/gates/logs/20260903-ac-table-stack-closure-r5/closure_summary.md, docs/gates/logs/20260903-ac-table-stack-closure-r5/agentic_circuit_summary.json, docs/gates/logs/20260903-ac-table-stack-closure-r5/decision_status_report.json",
+      "next_action": "Keep replace-mode verification, allocation-wins commit ordering, and direct/native/PYC parity green",
+      "owner": "acir-table",
+      "status": "implemented-verified"
+    },
+    {
+      "decision": "0157",
+      "evidence": "docs/gates/logs/20260903-layout-hard-break/layout_summary.json, docs/gates/logs/20260911-issues-100-101-docs-hierarchy/summary.json, docs/gates/logs/20260912-examples-designs-layout/summary.json, docs/gates/logs/20260912-repository-layout-followup/summary.json, docs/gates/logs/20260912-repo-professionalization/summary.json, docs/gates/logs/20260930-m5-cutover/retired-evidence.md, tests/unit/test_documentation_layout.py, tests/unit/test_example_layout.py, tests/unit/test_repository_layout.py, CMakeLists.txt",
+      "next_action": "Historical baseline evidence; current applicability and verification follow Decision 0283 and the M5 retirement ledger",
+      "owner": "repository-layout",
+      "status": "implemented-verified"
+    },
+    {
+      "decision": "0158",
+      "evidence": "docs/gates/logs/20260904-framework-boundary-r1/boundary_summary.md, docs/gates/logs/20260908-issue40-p2-fm16-boundary/summary.json, docs/gates/logs/20260912-repo-professionalization/summary.json, docs/gates/logs/20260930-m5-cutover/retired-evidence.md, tests/unit/test_repository_layout.py, CMakeLists.txt",
+      "next_action": "Historical baseline evidence; current applicability and verification follow Decision 0283 and the M5 retirement ledger",
+      "owner": "repository-layout",
+      "status": "implemented-verified"
+    },
+    {
+      "decision": "0159",
+      "evidence": "docs/gates/logs/20260904-pr-release-gate-tiering-r1/summary.md, docs/gates/logs/20260911-issues-100-101-docs-hierarchy/summary.json, .github/workflows/ci.yml, .github/workflows/release.yml, .github/workflows/ci-macos.yml, docs/gates/logs/20260930-m5-cutover/retired-evidence.md",
+      "next_action": "Historical baseline evidence; current applicability and verification follow Decision 0283 and the M5 retirement ledger",
+      "owner": "repository-management",
+      "status": "implemented-verified"
+    },
+    {
+      "decision": "0160",
+      "evidence": "docs/gates/logs/20260905-ac-uint-widths-r1/summary.md, docs/gates/logs/20260930-m5-cutover/retired-evidence.md",
+      "next_action": "Historical baseline evidence; current applicability and verification follow Decision 0283 and the M5 retirement ledger",
+      "owner": "acir-types",
+      "status": "implemented-verified"
+    },
+    {
+      "decision": "0161",
+      "evidence": "docs/gates/logs/20260905-pyc-priority-rtl-r1/summary.md, docs/gates/logs/20260908-issue63-opt04-priority-find/summary.json, docs/gates/logs/20260911-api-hygiene-98-99/summary.json, docs/gates/logs/20260911-issues-100-101-docs-hierarchy/summary.json, docs/gates/logs/20260930-m5-cutover/retired-evidence.md",
+      "next_action": "Historical baseline evidence; current applicability and verification follow Decision 0283 and the M5 retirement ledger",
+      "owner": "pyc-primitives",
+      "status": "implemented-verified"
+    },
+    {
+      "decision": "0162",
+      "evidence": "docs/gates/logs/20260905-ac-commit-groups-r1/summary.md, docs/gates/logs/20260930-m5-cutover/retired-evidence.md",
+      "next_action": "Historical baseline evidence; current applicability and verification follow Decision 0283 and the M5 retirement ledger",
+      "owner": "acir-runtime",
+      "status": "implemented-verified"
+    },
+    {
+      "decision": "0163",
+      "evidence": "docs/gates/logs/20260905-ac-stateful-rule-r1/summary.md, docs/gates/logs/20260930-m5-cutover/retired-evidence.md",
+      "next_action": "Historical baseline evidence; current applicability and verification follow Decision 0283 and the M5 retirement ledger",
+      "owner": "acir-rules",
+      "status": "implemented-verified"
+    },
+    {
+      "decision": "0164",
+      "evidence": "docs/gates/logs/20260905-pyc-popcount-rtl-r1/summary.md, docs/gates/logs/20260911-issues-100-101-docs-hierarchy/summary.json, docs/gates/logs/20260930-m5-cutover/retired-evidence.md",
+      "next_action": "Historical baseline evidence; current applicability and verification follow Decision 0283 and the M5 retirement ledger",
+      "owner": "pyc-primitives",
+      "status": "implemented-verified"
+    },
+    {
+      "decision": "0165",
+      "evidence": "docs/gates/logs/20260905-pyc-count-leading-zeros-r1/summary.md, docs/gates/logs/20260911-issues-100-101-docs-hierarchy/summary.json, docs/gates/logs/20260930-m5-cutover/retired-evidence.md",
+      "next_action": "Historical baseline evidence; current applicability and verification follow Decision 0283 and the M5 retirement ledger",
+      "owner": "pyc-primitives",
+      "status": "implemented-verified"
+    },
+    {
+      "decision": "0166",
+      "evidence": "docs/gates/logs/20260905-pyc-zero-count-family-r1/summary.md, docs/gates/logs/20260911-issues-100-101-docs-hierarchy/summary.json, docs/gates/logs/20260930-m5-cutover/retired-evidence.md",
+      "next_action": "Historical baseline evidence; current applicability and verification follow Decision 0283 and the M5 retirement ledger",
+      "owner": "pyc-primitives",
+      "status": "implemented-verified"
+    },
+    {
+      "decision": "0167",
+      "evidence": "docs/gates/logs/20260930-m5-cutover/retired-evidence.md",
+      "next_action": "Historical baseline evidence; current applicability and verification follow Decision 0283 and the M5 retirement ledger",
+      "owner": "acir-rules",
+      "status": "implemented-verified"
+    },
+    {
+      "decision": "0168",
+      "evidence": "docs/gates/logs/20260930-m5-cutover/retired-evidence.md",
+      "next_action": "Historical baseline evidence; current applicability and verification follow Decision 0283 and the M5 retirement ledger",
+      "owner": "acir-rules",
+      "status": "implemented-verified"
+    },
+    {
+      "decision": "0169",
+      "evidence": "docs/gates/logs/20260930-m5-cutover/retired-evidence.md",
+      "next_action": "Historical baseline evidence; current applicability and verification follow Decision 0283 and the M5 retirement ledger",
+      "owner": "acir-analysis",
+      "status": "implemented-verified"
+    },
+    {
+      "decision": "0170",
+      "evidence": "compiler/acir/include/acir/Dialect/ACIR/ACIROps.td, docs/gates/logs/20260930-m5-cutover/retired-evidence.md",
+      "next_action": "Historical baseline evidence; current applicability and verification follow Decision 0283 and the M5 retirement ledger",
+      "owner": "acir-variables",
+      "status": "implemented-verified"
+    },
+    {
+      "decision": "0171",
+      "evidence": "docs/gates/logs/20260930-m5-cutover/retired-evidence.md",
+      "next_action": "Historical baseline evidence; current applicability and verification follow Decision 0283 and the M5 retirement ledger",
+      "owner": "acir-boundaries",
+      "status": "implemented-verified"
+    },
+    {
+      "decision": "0172",
+      "evidence": "compiler/acir/include/acir/Dialect/ACIR/ACIROps.td, docs/gates/logs/20260930-m5-cutover/retired-evidence.md",
+      "next_action": "Historical baseline evidence; current applicability and verification follow Decision 0283 and the M5 retirement ledger",
+      "owner": "acir-variables",
+      "status": "implemented-verified"
+    },
+    {
+      "decision": "0173",
+      "evidence": "docs/gates/logs/20260930-m5-cutover/retired-evidence.md",
+      "next_action": "Historical baseline evidence; current applicability and verification follow Decision 0283 and the M5 retirement ledger",
+      "owner": "acir-runtime",
+      "status": "implemented-verified"
+    },
+    {
+      "decision": "0174",
+      "evidence": "docs/gates/logs/20260930-m5-cutover/retired-evidence.md",
+      "next_action": "Historical baseline evidence; current applicability and verification follow Decision 0283 and the M5 retirement ledger",
+      "owner": "acir-analysis",
+      "status": "implemented-verified"
+    },
+    {
+      "decision": "0175",
+      "evidence": "compiler/acir/include/acir/Dialect/ACIR/ACIROps.td, docs/gates/logs/20260930-m5-cutover/retired-evidence.md",
+      "next_action": "Historical baseline evidence; current applicability and verification follow Decision 0283 and the M5 retirement ledger",
+      "owner": "acir-rules",
+      "status": "implemented-verified"
+    },
+    {
+      "decision": "0176",
+      "evidence": "docs/gates/logs/20260906-circular-rob/summary.md, docs/gates/logs/20260930-m5-cutover/retired-evidence.md",
+      "next_action": "Historical baseline evidence; current applicability and verification follow Decision 0283 and the M5 retirement ledger",
+      "owner": "acir-rules",
+      "status": "implemented-verified"
+    },
+    {
+      "decision": "0177",
+      "evidence": "docs/gates/logs/20260906-circular-rob/summary.md, docs/gates/logs/20260930-m5-cutover/retired-evidence.md",
+      "next_action": "Historical baseline evidence; current applicability and verification follow Decision 0283 and the M5 retirement ledger",
+      "owner": "acir-rob",
+      "status": "implemented-verified"
+    },
+    {
+      "decision": "0178",
+      "evidence": "docs/gates/logs/20260906-queue-module-freeze/summary.md, docs/gates/logs/20260930-m5-cutover/retired-evidence.md",
+      "next_action": "Historical baseline evidence; current applicability and verification follow Decision 0283 and the M5 retirement ledger",
+      "owner": "acir-queue-modules",
+      "status": "implemented-verified"
+    },
+    {
+      "decision": "0179",
+      "evidence": "docs/gates/logs/20260906-stateful-module-reuse/summary.md, compiler/acir/include/acir/Dialect/ACIR/ACIROps.td, docs/gates/logs/20260930-m5-cutover/retired-evidence.md",
+      "next_action": "Historical baseline evidence; current applicability and verification follow Decision 0283 and the M5 retirement ledger",
+      "owner": "acir-queue-modules",
+      "status": "implemented-verified"
+    },
+    {
+      "decision": "0180",
+      "evidence": "docs/gates/logs/20260906-multi-rule-module-reuse/summary.md, docs/gates/logs/20260930-m5-cutover/retired-evidence.md",
+      "next_action": "Historical baseline evidence; current applicability and verification follow Decision 0283 and the M5 retirement ledger",
+      "owner": "acir-queue-modules",
+      "status": "implemented-verified"
+    },
+    {
+      "decision": "0181",
+      "evidence": "docs/gates/logs/20260906-multi-owner-module-reuse/summary.md, docs/gates/logs/20260930-m5-cutover/retired-evidence.md",
+      "next_action": "Historical baseline evidence; current applicability and verification follow Decision 0283 and the M5 retirement ledger",
+      "owner": "acir-queue-modules",
+      "status": "implemented-verified"
+    },
+    {
+      "decision": "0182",
+      "evidence": "docs/gates/logs/20260906-combined-module-reuse/summary.md, docs/gates/logs/20260930-m5-cutover/retired-evidence.md",
+      "next_action": "Historical baseline evidence; current applicability and verification follow Decision 0283 and the M5 retirement ledger",
+      "owner": "acir-queue-modules",
+      "status": "implemented-verified"
+    },
+    {
+      "decision": "0183",
+      "evidence": "docs/gates/logs/20260906-nested-module-reuse/summary.md, docs/gates/logs/20260930-m5-cutover/retired-evidence.md",
+      "next_action": "Historical baseline evidence; current applicability and verification follow Decision 0283 and the M5 retirement ledger",
+      "owner": "acir-queue-modules",
+      "status": "implemented-verified"
+    },
+    {
+      "decision": "0184",
+      "evidence": "docs/gates/logs/20260906-internal-queue-module/summary.md, docs/gates/logs/20260909-release-preflight-structural-instances/summary.json, docs/gates/logs/20260930-m5-cutover/retired-evidence.md, compiler/acir/include/acir/Dialect/ACIR/ACIROps.td",
+      "next_action": "Historical baseline evidence; current applicability and verification follow Decision 0283 and the M5 retirement ledger",
+      "owner": "acir-queue-modules",
+      "status": "implemented-verified"
+    },
+    {
+      "decision": "0185",
+      "evidence": "docs/gates/logs/20260906-python-module-lowering/summary.md, docs/gates/logs/20260930-m5-cutover/retired-evidence.md",
+      "next_action": "Historical baseline evidence; current applicability and verification follow Decision 0283 and the M5 retirement ledger",
+      "owner": "acir-python-modules",
+      "status": "implemented-verified"
+    },
+    {
+      "decision": "0186",
+      "evidence": "docs/gates/logs/20260906-python-nested-module/summary.md, docs/gates/logs/20260930-m5-cutover/retired-evidence.md",
+      "next_action": "Historical baseline evidence; current applicability and verification follow Decision 0283 and the M5 retirement ledger",
+      "owner": "acir-python-modules",
+      "status": "implemented-verified"
+    },
+    {
+      "decision": "0187",
+      "evidence": "docs/gates/logs/20260906-python-stateful-module/summary.md, compiler/acir/include/acir/Dialect/ACIR/ACIROps.td, docs/gates/logs/20260930-m5-cutover/retired-evidence.md",
+      "next_action": "Historical baseline evidence; current applicability and verification follow Decision 0283 and the M5 retirement ledger",
+      "owner": "acir-python-modules",
+      "status": "implemented-verified"
+    },
+    {
+      "decision": "0188",
+      "evidence": "docs/gates/logs/20260906-python-multi-state-module/summary.md, docs/gates/logs/20260930-m5-cutover/retired-evidence.md",
+      "next_action": "Historical baseline evidence; current applicability and verification follow Decision 0283 and the M5 retirement ledger",
+      "owner": "acir-python-modules",
+      "status": "implemented-verified"
+    },
+    {
+      "decision": "0189",
+      "evidence": "docs/gates/logs/20260906-reusable-circular-rob/summary.md, docs/gates/logs/20260930-m5-cutover/retired-evidence.md",
+      "next_action": "Historical baseline evidence; current applicability and verification follow Decision 0283 and the M5 retirement ledger",
+      "owner": "acir-rob",
+      "status": "implemented-verified"
+    },
+    {
+      "decision": "0190",
+      "evidence": "docs/gates/logs/20260906-queuegraph-activation/summary.md, docs/gates/logs/20260930-m5-cutover/retired-evidence.md",
+      "next_action": "Historical baseline evidence; current applicability and verification follow Decision 0283 and the M5 retirement ledger",
+      "owner": "acir-runtime",
+      "status": "implemented-verified"
+    },
+    {
+      "decision": "0191",
+      "evidence": "docs/gates/logs/20260906-mlir-rule-activation/summary.md, compiler/acir/include/acir/Dialect/ACIR/ACIRAttributes.td, docs/gates/logs/20260930-m5-cutover/retired-evidence.md",
+      "next_action": "Historical baseline evidence; current applicability and verification follow Decision 0283 and the M5 retirement ledger",
+      "owner": "acir-analysis",
+      "status": "implemented-verified"
+    },
+    {
+      "decision": "0192",
+      "evidence": "docs/gates/logs/20260906-nested-activation/summary.md, docs/gates/logs/20260930-m5-cutover/retired-evidence.md",
+      "next_action": "Historical baseline evidence; current applicability and verification follow Decision 0283 and the M5 retirement ledger",
+      "owner": "acir-runtime",
+      "status": "implemented-verified"
+    },
+    {
+      "decision": "0193",
+      "evidence": "docs/gates/logs/20260906-work-xfer-closure/summary.md, docs/gates/logs/20260930-m5-cutover/retired-evidence.md",
+      "next_action": "Historical baseline evidence; current applicability and verification follow Decision 0283 and the M5 retirement ledger",
+      "owner": "acir-runtime",
+      "status": "implemented-verified"
+    },
+    {
+      "decision": "0194",
+      "evidence": "docs/gates/logs/20260906-host-result-boundary/summary.md, docs/gates/logs/20260930-m5-cutover/retired-evidence.md",
+      "next_action": "Historical baseline evidence; current applicability and verification follow Decision 0283 and the M5 retirement ledger",
+      "owner": "acir-boundaries",
+      "status": "implemented-verified"
+    },
+    {
+      "decision": "0195",
+      "evidence": "docs/gates/logs/20260906-table-semantic-activation/summary.md, docs/gates/logs/20260930-m5-cutover/retired-evidence.md",
+      "next_action": "Historical baseline evidence; current applicability and verification follow Decision 0283 and the M5 retirement ledger",
+      "owner": "acir-runtime",
+      "status": "implemented-verified"
+    },
+    {
+      "decision": "0196",
+      "evidence": "docs/gates/logs/20260906-rob-tick-equivalence/summary.md, docs/gates/logs/20260930-m5-cutover/retired-evidence.md",
+      "next_action": "Historical baseline evidence; current applicability and verification follow Decision 0283 and the M5 retirement ledger",
+      "owner": "acir-rob",
+      "status": "implemented-verified"
+    },
+    {
+      "decision": "0197",
+      "evidence": "docs/gates/logs/20260906-reusable-oldest-ready-isq/summary.md, docs/gates/logs/20260930-m5-cutover/retired-evidence.md, compiler/acir/include/acir/Dialect/ACIR/ACIROps.td",
+      "next_action": "Historical baseline evidence; current applicability and verification follow Decision 0283 and the M5 retirement ledger",
+      "owner": "acir-isq",
+      "status": "implemented-verified"
+    },
+    {
+      "decision": "0198",
+      "evidence": "docs/gates/logs/20260906-isq-tick-equivalence/summary.md, docs/gates/logs/20260930-m5-cutover/retired-evidence.md",
+      "next_action": "Historical baseline evidence; current applicability and verification follow Decision 0283 and the M5 retirement ledger",
+      "owner": "acir-isq",
+      "status": "implemented-verified"
+    },
+    {
+      "decision": "0199",
+      "evidence": "docs/gates/logs/20260906-typed-rule-summary/summary.md, compiler/acir/include/acir/Dialect/ACIR/ACIRAttributes.td, docs/gates/logs/20260930-m5-cutover/retired-evidence.md",
+      "next_action": "Historical baseline evidence; current applicability and verification follow Decision 0283 and the M5 retirement ledger",
+      "owner": "acir-rules",
+      "status": "implemented-verified"
+    },
+    {
+      "decision": "0200",
+      "evidence": "docs/gates/logs/20260906-ssa-rule-presence/summary.md, compiler/acir/include/acir/Dialect/ACIR/ACIROps.td, docs/gates/logs/20260930-m5-cutover/retired-evidence.md",
+      "next_action": "Historical baseline evidence; current applicability and verification follow Decision 0283 and the M5 retirement ledger",
+      "owner": "acir-rules",
+      "status": "implemented-verified"
+    },
+    {
+      "decision": "0201",
+      "evidence": "docs/gates/logs/20260906-conditional-rule-effects/summary.md, docs/gates/logs/20260930-m5-cutover/retired-evidence.md, compiler/acir/include/acir/Dialect/ACIR/ACIROps.td",
+      "next_action": "Historical baseline evidence; current applicability and verification follow Decision 0283 and the M5 retirement ledger",
+      "owner": "acir-rules",
+      "status": "implemented-verified"
+    },
+    {
+      "decision": "0202",
+      "evidence": "docs/gates/logs/20260906-state-snapshot-reservations/summary.md, docs/gates/logs/20260930-m5-cutover/retired-evidence.md, compiler/acir/include/acir/Dialect/ACIR/ACIROps.td",
+      "next_action": "Historical baseline evidence; current applicability and verification follow Decision 0283 and the M5 retirement ledger",
+      "owner": "acir-analysis",
+      "status": "implemented-verified"
+    },
+    {
+      "decision": "0203",
+      "evidence": "docs/gates/logs/20260906-snapshot-set-isq/summary.md, docs/gates/logs/20260930-m5-cutover/retired-evidence.md, compiler/acir/include/acir/Dialect/ACIR/ACIROps.td",
+      "next_action": "Historical baseline evidence; current applicability and verification follow Decision 0283 and the M5 retirement ledger",
+      "owner": "acir-analysis",
+      "status": "implemented-verified"
+    },
+    {
+      "decision": "0204",
+      "evidence": "docs/gates/logs/20260906-choose-key-snapshot-set/summary.md, docs/gates/logs/20260930-m5-cutover/retired-evidence.md, compiler/acir/include/acir/Dialect/ACIR/ACIROps.td",
+      "next_action": "Historical baseline evidence; current applicability and verification follow Decision 0283 and the M5 retirement ledger",
+      "owner": "acir-analysis",
+      "status": "implemented-verified"
+    },
+    {
+      "decision": "0205",
+      "evidence": "docs/gates/logs/20260906-field-snapshot-reservations/summary.md, docs/gates/logs/20260930-m5-cutover/retired-evidence.md, compiler/acir/include/acir/Dialect/ACIR/ACIROps.td",
+      "next_action": "Historical baseline evidence; current applicability and verification follow Decision 0283 and the M5 retirement ledger",
+      "owner": "acir-analysis",
+      "status": "implemented-verified"
+    },
+    {
+      "decision": "0206",
+      "evidence": "docs/gates/logs/20260906-serial-guard-chain/summary.md, docs/gates/logs/20260930-m5-cutover/retired-evidence.md",
+      "next_action": "Historical baseline evidence; current applicability and verification follow Decision 0283 and the M5 retirement ledger",
+      "owner": "acir-rules",
+      "status": "implemented-verified"
+    },
+    {
+      "decision": "0207",
+      "evidence": "docs/gates/logs/20260906-branch-local-effects/summary.md, docs/gates/logs/20260930-m5-cutover/retired-evidence.md",
+      "next_action": "Historical baseline evidence; current applicability and verification follow Decision 0283 and the M5 retirement ledger",
+      "owner": "acir-rules",
+      "status": "implemented-verified"
+    },
+    {
+      "decision": "0208",
+      "evidence": "docs/gates/logs/20260906-same-owner-branch-join/summary.md, compiler/acir/include/acir/Dialect/ACIR/ACIROps.td, docs/gates/logs/20260930-m5-cutover/retired-evidence.md",
+      "next_action": "Historical baseline evidence; current applicability and verification follow Decision 0283 and the M5 retirement ledger",
+      "owner": "acir-rules",
+      "status": "implemented-verified"
+    },
+    {
+      "decision": "0209",
+      "evidence": "docs/gates/logs/20260906-indexed-branch-join/summary.md, docs/gates/logs/20260930-m5-cutover/retired-evidence.md",
+      "next_action": "Historical baseline evidence; current applicability and verification follow Decision 0283 and the M5 retirement ledger",
+      "owner": "acir-rules",
+      "status": "implemented-verified"
+    },
+    {
+      "decision": "0210",
+      "evidence": "docs/gates/logs/20260906-optional-output-presence/summary.md, docs/gates/logs/20260908-issue48-state-guard-snapshot/summary.json, docs/gates/logs/20260930-m5-cutover/retired-evidence.md",
+      "next_action": "Historical baseline evidence; current applicability and verification follow Decision 0283 and the M5 retirement ledger",
+      "owner": "acir-rules",
+      "status": "implemented-verified"
+    },
+    {
+      "decision": "0211",
+      "evidence": "docs/gates/logs/20260906-bitfield-spec/summary.md, docs/gates/logs/20260930-m5-cutover/retired-evidence.md, compiler/acir/include/acir/Dialect/ACIR/ACIROps.td",
+      "next_action": "Historical baseline evidence; current applicability and verification follow Decision 0283 and the M5 retirement ledger",
+      "owner": "acir-types",
+      "status": "implemented-verified"
+    },
+    {
+      "decision": "0212",
+      "evidence": "docs/gates/logs/20260906-recursive-type-descriptor/summary.md, docs/gates/logs/20260930-m5-cutover/retired-evidence.md, compiler/acir/include/acir/Dialect/ACIR/ACIRTypes.td",
+      "next_action": "Historical baseline evidence; current applicability and verification follow Decision 0283 and the M5 retirement ledger",
+      "owner": "acir-types",
+      "status": "implemented-verified"
+    },
+    {
+      "decision": "0213",
+      "evidence": "docs/gates/logs/20260906-nested-payload/summary.md, docs/gates/logs/20260930-m5-cutover/retired-evidence.md",
+      "next_action": "Historical baseline evidence; current applicability and verification follow Decision 0283 and the M5 retirement ledger",
+      "owner": "acir-types",
+      "status": "implemented-verified"
+    },
+    {
+      "decision": "0214",
+      "evidence": "docs/gates/logs/20260906-enum-payload/summary.md, docs/gates/logs/20260907-issue48-persistent-enum/summary.json, docs/gates/logs/20260930-m5-cutover/retired-evidence.md, compiler/acir/include/acir/Dialect/ACIR/ACIROps.td",
+      "next_action": "Historical baseline evidence; current applicability and verification follow Decision 0283 and the M5 retirement ledger",
+      "owner": "acir-types",
+      "status": "implemented-verified"
+    },
+    {
+      "decision": "0215",
+      "evidence": "docs/gates/logs/20260906-aggregate-payload/summary.md, docs/gates/logs/20260930-m5-cutover/retired-evidence.md, compiler/acir/include/acir/Dialect/ACIR/ACIROps.td",
+      "next_action": "Historical baseline evidence; current applicability and verification follow Decision 0283 and the M5 retirement ledger",
+      "owner": "acir-types",
+      "status": "implemented-verified"
+    },
+    {
+      "decision": "0216",
+      "evidence": "docs/gates/logs/20260906-queue-descriptor-migration/summary.md, docs/gates/logs/20260930-m5-cutover/retired-evidence.md",
+      "next_action": "Historical baseline evidence; current applicability and verification follow Decision 0283 and the M5 retirement ledger",
+      "owner": "acir-types",
+      "status": "implemented-verified"
+    },
+    {
+      "decision": "0217",
+      "evidence": "docs/gates/logs/20260906-bounded-constraints/summary.md, docs/gates/logs/20260930-m5-cutover/retired-evidence.md",
+      "next_action": "Historical baseline evidence; current applicability and verification follow Decision 0283 and the M5 retirement ledger",
+      "owner": "acir-analysis",
+      "status": "implemented-verified"
+    },
+    {
+      "decision": "0218",
+      "evidence": "docs/gates/logs/20260906-issue39-closure-r3/summary.md, docs/gates/logs/20260930-m5-cutover/retired-evidence.md, compiler/acir/include/acir/Dialect/ACIR/ACIROps.td",
+      "next_action": "Historical baseline evidence; current applicability and verification follow Decision 0283 and the M5 retirement ledger",
+      "owner": "acir-types",
+      "status": "implemented-verified"
+    },
+    {
+      "decision": "0219",
+      "evidence": "docs/gates/logs/20260907-issue41-primitive-cleanup/summary.md, compiler/acir/include/acir/Dialect/ACIR/ACIRAttributes.td, compiler/acir/include/acir/Dialect/ACIR/ACIROps.td, compiler/acir/include/acir/Dialect/ACIR/ACIRTypes.td, docs/gates/logs/20260930-m5-cutover/retired-evidence.md, docs/gates/logs/20260930-m5-cutover/retired-evidence.md",
+      "next_action": "Historical baseline evidence; current applicability and verification follow Decision 0283 and the M5 retirement ledger",
+      "owner": "acir-pyc-primitives",
+      "status": "implemented-verified"
+    },
+    {
+      "decision": "0220",
+      "evidence": "docs/gates/logs/20260907-issue42-scalar-pyc/summary.md, docs/gates/logs/20260930-m5-cutover/retired-evidence.md, docs/gates/logs/20260930-m5-cutover/retired-evidence.md",
+      "next_action": "Historical baseline evidence; current applicability and verification follow Decision 0283 and the M5 retirement ledger",
+      "owner": "pyc-scalar-aggregate",
+      "status": "implemented-verified"
+    },
+    {
+      "decision": "0221",
+      "evidence": "docs/rfcs/pyc6-decisions.md, docs/gates/logs/20260930-m5-cutover/retired-evidence.md, docs/gates/logs/20260907-issue44-review-closure/summary.json",
+      "next_action": "Historical baseline evidence; current applicability and verification follow Decision 0283 and the M5 retirement ledger",
+      "owner": "acir-typed-jit",
+      "status": "implemented-verified"
+    },
+    {
+      "decision": "0222",
+      "evidence": "docs/rfcs/pyc6-decisions.md, docs/gates/logs/20260907-davincioo-hierarchy-checklist/summary.json",
+      "next_action": "Historical closure only; superseded by Decision 0235 and removed from the active tree",
+      "owner": "historical-design-governance",
+      "status": "implemented-verified"
+    },
+    {
+      "decision": "0223",
+      "evidence": "docs/rfcs/pyc6-decisions.md, docs/gates/logs/20260930-m5-cutover/retired-evidence.md, docs/gates/logs/20260907-issue46-multi-output/summary.json",
+      "next_action": "Historical baseline evidence; current applicability and verification follow Decision 0283 and the M5 retirement ledger",
+      "owner": "acir-multi-output",
+      "status": "implemented-verified"
+    },
+    {
+      "decision": "0224",
+      "evidence": "docs/rfcs/pyc6-decisions.md, docs/acir/spec/agentic-circuit.md, docs/acir/spec/agentic-circuit.zh-CN.md, docs/gates/logs/20260930-m5-cutover/retired-evidence.md, compiler/acir/include/acir/Dialect/ACIR/ACIROps.td, docs/gates/logs/20260907-issue48-aggregate-invariants/summary.json",
+      "next_action": "Historical baseline evidence; current applicability and verification follow Decision 0283 and the M5 retirement ledger",
+      "owner": "acir-value-contracts",
+      "status": "implemented-verified"
+    },
+    {
+      "decision": "0225",
+      "evidence": "docs/rfcs/pyc6-decisions.md, docs/acir/spec/agentic-circuit.md, docs/acir/spec/agentic-circuit.zh-CN.md, docs/gates/logs/20260930-m5-cutover/retired-evidence.md, docs/gates/logs/20260908-issue63-opt01-invariant-composition/summary.json",
+      "next_action": "Historical baseline evidence; current applicability and verification follow Decision 0283 and the M5 retirement ledger",
+      "owner": "acir-value-contracts",
+      "status": "implemented-verified"
+    },
+    {
+      "decision": "0226",
+      "evidence": "docs/rfcs/pyc6-decisions.md, docs/acir/spec/agentic-circuit.md, docs/acir/spec/agentic-circuit.zh-CN.md, docs/gates/logs/20260930-m5-cutover/retired-evidence.md, docs/gates/logs/20260908-issue63-opt02-rule-capture/summary.json, docs/gates/logs/20260911-issue105-inferred-rule-capture/summary.json",
+      "next_action": "Historical baseline evidence; current applicability and verification follow Decision 0283 and the M5 retirement ledger",
+      "owner": "acir-rules",
+      "status": "implemented-verified"
+    },
+    {
+      "decision": "0227",
+      "evidence": "docs/rfcs/pyc6-decisions.md, docs/acir/spec/agentic-circuit.md, docs/acir/spec/agentic-circuit.zh-CN.md, docs/gates/logs/20260930-m5-cutover/retired-evidence.md, docs/gates/logs/20260908-issue63-opt06-static-queue-array/summary.json",
+      "next_action": "Historical baseline evidence; current applicability and verification follow Decision 0283 and the M5 retirement ledger",
+      "owner": "acir-collections",
+      "status": "implemented-verified"
+    },
+    {
+      "decision": "0228",
+      "evidence": "docs/rfcs/pyc6-decisions.md, docs/gates/logs/20260908-issue7-readable-symbols/summary.json",
+      "next_action": "Historical closure only; the ACSim code generator was removed by Decision 0267",
+      "owner": "historical-acsim-codegen",
+      "status": "implemented-verified"
+    },
+    {
+      "decision": "0229",
+      "evidence": "docs/rfcs/pyc6-decisions.md, docs/gates/logs/20260908-issue17-trace-oracle/summary.json",
+      "next_action": "Historical closure only; superseded by Decision 0235 and removed from the active tree",
+      "owner": "historical-consumer-trace",
+      "status": "implemented-verified"
+    },
+    {
+      "decision": "0230",
+      "evidence": "docs/rfcs/pyc6-decisions.md, docs/gates/logs/20260930-m5-cutover/retired-evidence.md, docs/gates/logs/20260908-issue18-pto-payload-abi/summary.json",
+      "next_action": "Historical baseline evidence; current applicability and verification follow Decision 0283 and the M5 retirement ledger",
+      "owner": "historical-consumer-abi",
+      "status": "implemented-verified"
+    },
+    {
+      "decision": "0231",
+      "evidence": "docs/rfcs/pyc6-decisions.md, docs/acir/spec/agentic-circuit.md, docs/acir/spec/agentic-circuit.zh-CN.md, docs/gates/logs/20260930-m5-cutover/retired-evidence.md, docs/gates/logs/20260909-issue19-schedule-v2/summary.json",
+      "next_action": "Historical baseline evidence; current applicability and verification follow Decision 0283 and the M5 retirement ledger",
+      "owner": "acir-schedule-v2",
+      "status": "implemented-verified"
+    },
+    {
+      "decision": "0232",
+      "evidence": "docs/rfcs/pyc6-decisions.md, docs/development/sdk-release-contract.md, packaging/sdk/version-map.json, packaging/sdk/create_platform_manifest.py, packaging/sdk/verify_platform_candidate.py, schemas/agentic-circuit/sdk-version-map.schema.json, schemas/agentic-circuit/sdk-manifest.schema.json, schemas/agentic-circuit/release-index.schema.json, schemas/agentic-circuit/consumer-lock.schema.json, docs/gates/logs/20260930-m5-cutover/retired-evidence.md, docs/gates/logs/20260910-issue61-release-workflow/summary.json, docs/gates/logs/20260911-release-readiness/summary.json",
+      "next_action": "Historical baseline evidence; current applicability and verification follow Decision 0283 and the M5 retirement ledger",
+      "owner": "sdk-release",
+      "status": "implemented-verified"
+    },
+    {
+      "decision": "0233",
+      "evidence": "docs/rfcs/pyc6-decisions.md, docs/gates/logs/20260909-issue61-model-plan/summary.json, docs/gates/logs/20260909-framework-boundary-cleanup/summary.md",
+      "next_action": "Historical closure only; model plan/emit interchange was removed by Decision 0267",
+      "owner": "historical-sdk-model-api",
+      "status": "implemented-verified"
+    },
+    {
+      "decision": "0234",
+      "evidence": "docs/rfcs/pyc6-decisions.md, docs/development/sdk-release-contract.md, packaging/sdk/release_candidate.py, packaging/sdk/verify_platform_candidate.py, packaging/sdk/examples/release-index.example.json, schemas/agentic-circuit/release-index.schema.json, .github/workflows/release.yml, .github/scripts/validate_repo_management.py, docs/gates/logs/20260930-m5-cutover/retired-evidence.md, docs/gates/logs/20260910-issue61-release-workflow/summary.json, docs/gates/logs/20260911-release-readiness/summary.json",
+      "next_action": "Historical baseline evidence; current applicability and verification follow Decision 0283 and the M5 retirement ledger",
+      "owner": "sdk-release",
+      "status": "implemented-verified"
+    },
+    {
+      "decision": "0235",
+      "evidence": "docs/rfcs/pyc6-decisions.md, docs/pyc6-plan.md, AGENTS.md, docs/gates/logs/20260930-m5-cutover/retired-evidence.md, tests/unit/test_repository_layout.py, simulator/gfsim/include/gfsim/model_api.h, docs/gates/logs/20260909-framework-boundary-cleanup/summary.md, docs/gates/logs/20260909-framework-boundary-cleanup/decision_status_report.json, docs/gates/logs/20260912-repo-professionalization/summary.json",
+      "next_action": "Historical baseline evidence; current applicability and verification follow Decision 0283 and the M5 retirement ledger",
+      "owner": "repository-boundary",
+      "status": "implemented-verified"
+    },
+    {
+      "decision": "0236",
+      "evidence": "docs/rfcs/pyc6-decisions.md, docs/gates/logs/20260930-m5-cutover/retired-evidence.md, docs/gates/logs/20260905-ac-stateful-rule-r1/summary.md, docs/gates/logs/20260905-ac-multi-input-rule-r1/summary.md, docs/gates/logs/20260906-branch-local-effects/summary.md, docs/gates/logs/20260906-work-xfer-closure/summary.md, docs/gates/logs/20260910-issue28-atomic-rule/summary.md, docs/gates/logs/20260911-issue103-field-assignment/summary.json, docs/gates/logs/20260915-issue129-static-field-writes/summary.md, docs/gates/logs/20260916-issue129-mixed-field-writes/summary.md",
+      "next_action": "Historical baseline evidence; current applicability and verification follow Decision 0283 and the M5 retirement ledger",
+      "owner": "acir-rules",
+      "status": "implemented-verified"
+    },
+    {
+      "decision": "0237",
+      "evidence": "docs/rfcs/pyc6-decisions.md, docs/acir/spec/agentic-circuit.md, docs/acir/spec/agentic-circuit.zh-CN.md, docs/gates/logs/20260910-issue25-writer-arbitration/summary.json, docs/gates/logs/20260910-issue25-writer-arbitration/summary.md, docs/gates/logs/20260910-issue25-writer-arbitration/decision_status_report.json, docs/gates/logs/20260911-issue22-table-pyc/summary.json",
+      "next_action": "Keep committed-snapshot disjointness proof, typed stable-identity priority, cross-owner cycle rejection, deterministic pre-prepare winner selection, atomic loser suppression, and gfsim/PYC C++/Verilog parity green",
+      "owner": "acir-table-arbitration",
+      "status": "implemented-verified"
+    },
+    {
+      "decision": "0238",
+      "evidence": "docs/rfcs/pyc6-decisions.md, docs/acir/spec/agentic-circuit.md, docs/acir/spec/agentic-circuit.zh-CN.md, docs/gates/logs/20260910-issue23-table-layout/summary.json, docs/gates/logs/20260910-issue23-table-layout/summary.md, docs/gates/logs/20260910-issue23-table-layout/decision_status_report.json, docs/gates/logs/20260911-issue22-table-pyc/summary.json",
+      "next_action": "Keep frontend/ACIR/QueueGraph/gfsim/PYC shape, row-major index, typed image, projection, bounds, structural schema validation, reset, and C++/Verilog parity gates green",
+      "owner": "acir-table-layout",
+      "status": "implemented-verified"
+    },
+    {
+      "decision": "0239",
+      "evidence": "docs/rfcs/pyc6-decisions.md, docs/acir/spec/agentic-circuit.md, docs/acir/spec/agentic-circuit.zh-CN.md, docs/gates/logs/20260910-issue21-24-prefix-transactions/summary.json, docs/gates/logs/20260910-issue21-24-prefix-transactions/summary.md, docs/gates/logs/20260911-issue22-table-pyc/summary.json",
+      "next_action": "Keep static 2N result segments, typed first/min/max/round-robin policies, once-per-attempt key evaluation, atomic valid-prefix consumers, accepted-only cursor advance, fail-closed partial/mixed uses, and C++/Verilog parity green",
+      "owner": "acir-table-selection",
+      "status": "implemented-verified"
+    },
+    {
+      "decision": "0240",
+      "evidence": "docs/rfcs/pyc6-decisions.md, docs/acir/spec/agentic-circuit.md, docs/acir/spec/agentic-circuit.zh-CN.md, docs/gates/logs/20260910-issue21-24-prefix-transactions/summary.json, docs/gates/logs/20260910-issue21-24-prefix-transactions/summary.md",
+      "next_action": "Keep one typed Queue identity, canonical lane ordinals, exact-prefix batch commit, simultaneous dequeue/append, direct and one-to-one transform admission, and generated gfsim/PYC C++/Verilator parity green; other multi-lane PYC topologies remain fail closed",
+      "owner": "acir-queue-lanes",
+      "status": "implemented-verified"
+    },
+    {
+      "decision": "0241",
+      "evidence": "docs/rfcs/pyc6-decisions.md, docs/gates/logs/20260930-m5-cutover/retired-evidence.md, docs/gates/logs/20260911-issue22-table-pyc/summary.json",
+      "next_action": "Historical baseline evidence; current applicability and verification follow Decision 0283 and the M5 retirement ledger",
+      "owner": "acir-table-pyc",
+      "status": "implemented-verified"
+    },
+    {
+      "decision": "0242",
+      "evidence": "docs/rfcs/pyc6-decisions.md, docs/gates/logs/20260930-m5-cutover/retired-evidence.md, docs/gates/logs/20260911-issue95-diagnostics/summary.json, docs/gates/logs/20260911-issues-100-101-docs-hierarchy/summary.json, docs/gates/logs/20260912-repo-professionalization/summary.json",
+      "next_action": "Historical baseline evidence; current applicability and verification follow Decision 0283 and the M5 retirement ledger",
+      "owner": "diagnostics",
+      "status": "implemented-verified"
+    },
+    {
+      "decision": "0243",
+      "evidence": "docs/rfcs/pyc6-decisions.md, docs/acir/spec/agentic-circuit.md, docs/acir/spec/agentic-circuit.zh-CN.md, docs/gates/logs/20260930-m5-cutover/retired-evidence.md, docs/gates/logs/20260912-issue104-pure-helpers/summary.json, docs/gates/logs/20260915-structured-helper-defer/summary.json, docs/gates/logs/20260916-issue129-mixed-field-writes/summary.md",
+      "next_action": "Historical baseline evidence; current applicability and verification follow Decision 0283 and the M5 retirement ledger",
+      "owner": "acir-pure-helpers",
+      "status": "implemented-verified"
+    },
+    {
+      "decision": "0244",
+      "evidence": "docs/rfcs/pyc6-decisions.md, docs/acir/spec/agentic-circuit.md, docs/acir/spec/agentic-circuit.zh-CN.md, docs/gates/logs/20260930-m5-cutover/retired-evidence.md, docs/gates/logs/20260912-issue106-readable-transitions/summary.json",
+      "next_action": "Historical baseline evidence; current applicability and verification follow Decision 0283 and the M5 retirement ledger",
+      "owner": "queuegraph-provenance",
+      "status": "implemented-verified"
+    },
+    {
+      "decision": "0245",
+      "evidence": "docs/rfcs/pyc6-decisions.md, docs/gates/logs/20260930-m5-cutover/retired-evidence.md, docs/gates/logs/20260913-issue126-127-r7/summary.json, docs/gates/logs/20260915-issue126-snapshot-worklist/summary.json",
+      "next_action": "Historical baseline evidence; current applicability and verification follow Decision 0283 and the M5 retirement ledger",
+      "owner": "acir-analysis",
+      "status": "implemented-verified"
+    },
+    {
+      "decision": "0246",
+      "evidence": "docs/rfcs/pyc6-decisions.md, docs/acir/spec/agentic-circuit.md, docs/acir/spec/agentic-circuit.zh-CN.md, docs/gates/logs/20260930-m5-cutover/retired-evidence.md, docs/gates/logs/20260913-issue126-127-r7/summary.json",
+      "next_action": "Historical baseline evidence; current applicability and verification follow Decision 0283 and the M5 retirement ledger",
+      "owner": "acir-types",
+      "status": "implemented-verified"
+    },
+    {
+      "decision": "0247",
+      "evidence": "docs/rfcs/pyc6-decisions.md, docs/acir/spec/agentic-circuit.md, docs/acir/spec/agentic-circuit.zh-CN.md, docs/gates/logs/20260930-m5-cutover/retired-evidence.md, compiler/acir/include/acir/Dialect/ACIR/ACIROps.td, docs/gates/logs/20260913-issue128-p0-r7/summary.json",
+      "next_action": "Historical baseline evidence; current applicability and verification follow Decision 0283 and the M5 retirement ledger",
+      "owner": "acir-integer-primitives",
+      "status": "implemented-verified"
+    },
+    {
+      "decision": "0248",
+      "evidence": "docs/rfcs/pyc6-decisions.md, docs/acir/spec/agentic-circuit.md, docs/acir/spec/agentic-circuit.zh-CN.md, docs/gates/logs/20260930-m5-cutover/retired-evidence.md, compiler/acir/include/acir/Dialect/ACIR/ACIROps.td, docs/gates/logs/20260913-issue128-runtime-row-r4/agentic_circuit_summary.json",
+      "next_action": "Historical baseline evidence; current applicability and verification follow Decision 0283 and the M5 retirement ledger",
+      "owner": "acir-table-runtime-row",
+      "status": "implemented-verified"
+    },
+    {
+      "decision": "0249",
+      "evidence": "docs/rfcs/pyc6-decisions.md, docs/acir/spec/agentic-circuit.md, docs/acir/spec/agentic-circuit.zh-CN.md, docs/reference/language.md, docs/development/agent-frontend-guide.md, docs/gates/logs/20260930-m5-cutover/retired-evidence.md, docs/gates/logs/20260913-issue128-config-projection-r2/agentic_circuit_summary.json, docs/gates/logs/20260913-issue128-config-projection-r2/summary.json",
+      "next_action": "Historical baseline evidence; current applicability and verification follow Decision 0283 and the M5 retirement ledger",
+      "owner": "acir-types",
+      "status": "implemented-verified"
+    },
+    {
+      "decision": "0250",
+      "evidence": "docs/rfcs/pyc6-decisions.md, docs/acir/spec/agentic-circuit.md, docs/acir/spec/agentic-circuit.zh-CN.md, docs/gates/logs/20260930-m5-cutover/retired-evidence.md, docs/gates/logs/20260913-issue128-source-provenance-r2/agentic_circuit_summary.json",
+      "next_action": "Historical baseline evidence; current applicability and verification follow Decision 0283 and the M5 retirement ledger",
+      "owner": "source-provenance",
+      "status": "implemented-verified"
+    },
+    {
+      "decision": "0251",
+      "evidence": "docs/rfcs/pyc6-decisions.md, docs/acir/spec/agentic-circuit.md, docs/acir/spec/agentic-circuit.zh-CN.md, docs/reference/language.md, docs/gates/logs/20260930-m5-cutover/retired-evidence.md, compiler/acir/include/acir/Dialect/ACIR/ACIRTypes.td, compiler/acir/include/acir/Dialect/ACIR/ACIROps.td, docs/gates/logs/20260914-issue128-bounded-range-r7/agentic_circuit_summary.json",
+      "next_action": "Historical baseline evidence; current applicability and verification follow Decision 0283 and the M5 retirement ledger",
+      "owner": "acir-bounded-range",
+      "status": "implemented-verified"
+    },
+    {
+      "decision": "0252",
+      "evidence": "docs/rfcs/pyc6-decisions.md, docs/acir/spec/agentic-circuit.md, docs/acir/spec/agentic-circuit.zh-CN.md, docs/reference/language.md, docs/gates/logs/20260930-m5-cutover/retired-evidence.md, compiler/acir/include/acir/Dialect/ACIR/ACIROps.td, docs/gates/logs/20260914-issue128-array-update-r2/agentic_circuit_summary.json",
+      "next_action": "Historical baseline evidence; current applicability and verification follow Decision 0283 and the M5 retirement ledger",
+      "owner": "acir-array-update",
+      "status": "implemented-verified"
+    },
+    {
+      "decision": "0253",
+      "evidence": "docs/rfcs/pyc6-decisions.md, docs/acir/spec/agentic-circuit.md, docs/acir/spec/agentic-circuit.zh-CN.md, docs/reference/language.md, docs/development/agent-frontend-guide.md, docs/gates/logs/20260930-m5-cutover/retired-evidence.md, docs/gates/logs/20260914-issue128-array-map-r1/agentic_circuit_summary.json",
+      "next_action": "Historical baseline evidence; current applicability and verification follow Decision 0283 and the M5 retirement ledger",
+      "owner": "acir-array-map-zip",
+      "status": "implemented-verified"
+    },
+    {
+      "decision": "0254",
+      "evidence": "docs/rfcs/pyc6-decisions.md, docs/acir/spec/agentic-circuit.md, docs/acir/spec/agentic-circuit.zh-CN.md, docs/reference/language.md, docs/development/agent-frontend-guide.md, docs/gates/logs/20260930-m5-cutover/retired-evidence.md, docs/gates/logs/20260914-issue128-array-reduce-scan-r1/agentic_circuit_summary.json",
+      "next_action": "Historical baseline evidence; current applicability and verification follow Decision 0283 and the M5 retirement ledger",
+      "owner": "acir-array-reduce-scan",
+      "status": "implemented-verified"
+    },
+    {
+      "decision": "0255",
+      "evidence": "docs/rfcs/pyc6-decisions.md, docs/acir/spec/agentic-circuit.md, docs/acir/spec/agentic-circuit.zh-CN.md, docs/reference/language.md, docs/development/agent-frontend-guide.md, docs/gates/logs/20260930-m5-cutover/retired-evidence.md, compiler/acir/include/acir/Dialect/ACIR/ACIROps.td, docs/gates/logs/20260914-issue128-enum-r3/agentic_circuit_summary.json",
+      "next_action": "Historical baseline evidence; current applicability and verification follow Decision 0283 and the M5 retirement ledger",
+      "owner": "acir-enum-classification",
+      "status": "implemented-verified"
+    },
+    {
+      "decision": "0256",
+      "evidence": "docs/rfcs/pyc6-decisions.md, docs/acir/spec/agentic-circuit.md, docs/acir/spec/agentic-circuit.zh-CN.md, docs/reference/language.md, docs/development/agent-frontend-guide.md, docs/gates/logs/20260930-m5-cutover/retired-evidence.md, compiler/acir/include/acir/Dialect/ACIR/ACIROps.td, docs/gates/logs/20260914-issue128-record-projection-r2/agentic_circuit_summary.json",
+      "next_action": "Historical baseline evidence; current applicability and verification follow Decision 0283 and the M5 retirement ledger",
+      "owner": "acir-record-projection",
+      "status": "implemented-verified"
+    },
+    {
+      "decision": "0257",
+      "evidence": "docs/rfcs/pyc6-decisions.md, docs/acir/spec/agentic-circuit.md, docs/acir/spec/agentic-circuit.zh-CN.md, docs/reference/language.md, docs/development/agent-frontend-guide.md, docs/gates/logs/20260930-m5-cutover/retired-evidence.md, docs/gates/logs/20260914-issue128-payload-pruning-r4/agentic_circuit_summary.json",
+      "next_action": "Historical baseline evidence; current applicability and verification follow Decision 0283 and the M5 retirement ledger",
+      "owner": "acir-private-payload-pruning",
+      "status": "implemented-verified"
+    },
+    {
+      "decision": "0258",
+      "evidence": "docs/rfcs/pyc6-decisions.md, docs/gates/logs/20260930-m5-cutover/retired-evidence.md, docs/gates/logs/20260914-issue128-emitted-cost-r1/agentic_circuit_summary.json",
+      "next_action": "Historical baseline evidence; current applicability and verification follow Decision 0283 and the M5 retirement ledger",
+      "owner": "acir-emitted-cost",
+      "status": "implemented-verified"
+    },
+    {
+      "decision": "0259",
+      "evidence": "docs/rfcs/pyc6-decisions.md, docs/gates/logs/20260930-m5-cutover/retired-evidence.md, docs/gates/logs/20260914-issue128-gfsim-preflight-r1/agentic_circuit_summary.json",
+      "next_action": "Historical baseline evidence; current applicability and verification follow Decision 0283 and the M5 retirement ledger",
+      "owner": "gfsim-firing-preflight",
+      "status": "implemented-verified"
+    },
+    {
+      "decision": "0260",
+      "evidence": "docs/rfcs/pyc6-decisions.md, docs/development/sdk-release-contract.md, docs/gates/logs/20260930-m5-cutover/retired-evidence.md, docs/gates/logs/20260914-issue128-sink-activation-r1/agentic_circuit_summary.json",
+      "next_action": "Historical baseline evidence; current applicability and verification follow Decision 0283 and the M5 retirement ledger",
+      "owner": "gfsim-sink-activation",
+      "status": "implemented-verified"
+    },
+    {
+      "decision": "0261",
+      "evidence": "docs/rfcs/pyc6-decisions.md, docs/acir/spec/agentic-circuit.md, docs/gates/logs/20260930-m5-cutover/retired-evidence.md, docs/gates/logs/20260915-issue126-field-order-canonical/summary.json, docs/gates/logs/20260916-issue129-mixed-field-writes/summary.md",
+      "next_action": "Historical baseline evidence; current applicability and verification follow Decision 0283 and the M5 retirement ledger",
+      "owner": "acir-analysis",
+      "status": "implemented-verified"
+    },
+    {
+      "decision": "0262",
+      "evidence": "docs/rfcs/pyc6-decisions.md, docs/acir/spec/agentic-circuit.md, docs/acir/spec/agentic-circuit.zh-CN.md, docs/gates/logs/20260930-m5-cutover/retired-evidence.md, compiler/acir/include/acir/Dialect/ACIR/ACIROps.td, docs/gates/logs/20260915-ac-slot-rule-transactions/summary.md",
+      "next_action": "Historical baseline evidence; current applicability and verification follow Decision 0283 and the M5 retirement ledger",
+      "owner": "acir-slot-transactions",
+      "status": "implemented-verified"
+    },
+    {
+      "decision": "0263",
+      "evidence": "docs/rfcs/pyc6-decisions.md, docs/acir/spec/agentic-circuit.md, docs/acir/spec/agentic-circuit.zh-CN.md, docs/reference/language.md, docs/development/agent-frontend-guide.md, docs/gates/logs/20260930-m5-cutover/retired-evidence.md, docs/gates/logs/20260915-issue136-explicit-table-state/summary.md, docs/gates/logs/20260915-issue136-explicit-table-state/agentic_circuit_summary.json, docs/gates/logs/20260915-issue129-static-field-writes/summary.md, docs/gates/logs/20260916-issue129-mixed-field-writes/summary.md",
+      "next_action": "Historical baseline evidence; current applicability and verification follow Decision 0283 and the M5 retirement ledger",
+      "owner": "acir-explicit-table-state",
+      "status": "implemented-verified"
+    },
+    {
+      "decision": "0264",
+      "evidence": "docs/rfcs/pyc6-decisions.md, docs/gates/logs/20260930-m5-cutover/retired-evidence.md, docs/gates/logs/20260916-per-module-acir-multitu/summary.md",
+      "next_action": "Historical baseline evidence; current applicability and verification follow Decision 0283 and the M5 retirement ledger",
+      "owner": "acir-var-reset-units",
+      "status": "implemented-verified"
+    },
+    {
+      "decision": "0265",
+      "evidence": "docs/rfcs/pyc6-decisions.md, packaging/sdk/version-map.json, packaging/sdk/create_platform_manifest.py, packaging/sdk/verify_platform_candidate.py, packaging/sdk/release_candidate.py, packaging/sdk/examples/release-index.example.json, schemas/agentic-circuit/sdk-version-map.schema.json, schemas/agentic-circuit/sdk-manifest.schema.json, schemas/agentic-circuit/release-index.schema.json, schemas/agentic-circuit/consumer-lock.schema.json, toolchains/agentic-circuit/llvm.lock.json, .github/workflows/release.yml, flows/scripts/pyc.ps1, docs/gates/logs/20260930-m5-cutover/retired-evidence.md, docs/gates/logs/20260918-windows-platform-evidence/summary.md, docs/gates/logs/20260918-windows-platform-evidence/platform-evidence-windows-x86_64.json, docs/gates/logs/20260921-windows-platform-evidence/summary.md, docs/gates/logs/20260921-windows-platform-evidence/platform-evidence-windows-x86_64.json",
+      "next_action": "Historical baseline evidence; current applicability and verification follow Decision 0283 and the M5 retirement ledger",
+      "owner": "sdk-release",
+      "status": "implemented-verified"
+    },
+    {
+      "decision": "0266",
+      "evidence": "docs/rfcs/pyc6-decisions.md, docs/reference/name-mangling.md, docs/gates/logs/20260918-acc-naming-contract/summary.md",
+      "next_action": "Historical closure only; content-derived identity clauses are superseded by Decision 0267",
+      "owner": "acc-stable-naming",
+      "status": "implemented-verified"
+    },
+    {
+      "decision": "0267",
+      "evidence": "docs/rfcs/pyc6-decisions.md, docs/reference/name-mangling.md, docs/development/sdk-release-contract.md, docs/gates/logs/20260930-m5-cutover/retired-evidence.md, packaging/sdk/create_platform_manifest.py, packaging/sdk/verify_platform_candidate.py, library/verilog/rtl_catalog.json, tests/unit/test_primitive_catalog.py, docs/gates/logs/20260919-zero-content-identity/summary.md",
+      "next_action": "Historical baseline evidence; current applicability and verification follow Decision 0283 and the M5 retirement ledger",
+      "owner": "acc-structural-identity",
+      "status": "implemented-verified"
+    },
+    {
+      "decision": "0268",
+      "evidence": "docs/rfcs/pyc6-decisions.md, docs/acir/spec/agentic-circuit.md, docs/development/sdk-release-contract.md, docs/gates/logs/20260930-m5-cutover/retired-evidence.md, packaging/sdk/version-map.json, docs/gates/logs/20260919-external-release-identity/summary.md",
+      "next_action": "Historical baseline evidence; current applicability and verification follow Decision 0283 and the M5 retirement ledger",
+      "owner": "external-release-identity",
+      "status": "implemented-verified"
+    },
+    {
+      "decision": "0269",
+      "evidence": "docs/rfcs/pyc6-decisions.md, docs/gates/logs/20260919-acc-composite-modules/summary.md",
+      "next_action": "Historical closure only; the implemented source-owned package/link contract is refined and superseded by Decision 0270",
+      "owner": "historical-modular-ac-package",
+      "status": "implemented-verified"
+    },
+    {
+      "decision": "0270",
+      "evidence": "docs/rfcs/pyc6-decisions.md, docs/gates/logs/20260919-acc-composite-modules/summary.md",
+      "next_action": "Keep one public module per implementation source, source-owned declaration headers, High ACIR source units, package link verification, and composite activation-scheduler evidence green",
+      "owner": "high-acir-module-headers",
+      "status": "implemented-verified"
+    },
+    {
+      "decision": "0271",
+      "evidence": "docs/rfcs/pyc6-decisions.md, docs/rfcs/architecture-rule-compiler-extension.md, docs/rfcs/ac-architecture-rule-rtl-verification-extension-checklist.md, docs/gates/logs/20260920-arch-rule-f1/summary.md, docs/gates/logs/20260920-arch-rule-f2/summary.md",
+      "next_action": "Keep F1 exact-summary and F2 whole-design graph gates green; F3 Architecture Obligation IR remains a separate Decision 0272 implementation",
+      "owner": "architecture-rule-effects",
+      "status": "implemented-verified"
+    },
+    {
+      "decision": "0272",
+      "evidence": "docs/rfcs/pyc6-decisions.md, docs/rfcs/architecture-rule-compiler-extension.md, docs/rfcs/ac-architecture-rule-rtl-verification-extension-checklist.md, docs/gates/logs/20260920-arch-rule-f3/summary.md, docs/gates/logs/20260921-f5-verified-codegen/summary.md",
+      "next_action": "Keep exact cpp/gfsim/SVA materializations, shared conditions and IDs, synchronous sampling, C++ counters/trace probes, SVA coverage, liveness rejection, and synthesis-admission separation green",
+      "owner": "architecture-obligations",
+      "status": "implemented-verified"
+    },
+    {
+      "decision": "0273",
+      "evidence": "docs/rfcs/pyc6-decisions.md, docs/rfcs/ac-architecture-rule-rtl-verification-extension-checklist.md, docs/gates/logs/20260921-f6-sram-four-state/summary.md",
+      "next_action": "Keep exact value/known/Z parity, static live-window N=1, one-cycle Q lifetime, NBA-safe capture, active knownness checks, inactive gating, old-data read-during-write, and synthesis isolation green",
+      "owner": "four-state-sram-verification",
+      "status": "implemented-verified"
+    },
+    {
+      "decision": "0274",
+      "evidence": "docs/rfcs/pyc6-decisions.md, docs/rfcs/ac-cpp-pointer-owned-module-composition.md, docs/rfcs/ac-rule-simqueue-atomic-lowering-checklist.md, docs/gates/logs/20260920-f4-atomic-composition/summary.md",
+      "next_action": "Keep atomic prepare/publish/cancel, parent-owned Queue storage, pointer-wired unique child instances, immutable wide payload ownership, source-owned AC/C++ shards, and separately linked translation units green",
+      "owner": "pointer-owned-composition",
+      "status": "implemented-verified"
+    },
+    {
+      "decision": "0275",
+      "evidence": "docs/rfcs/pyc6-decisions.md, docs/rfcs/ac-cpp-pointer-owned-module-composition.md, docs/rfcs/ac-rule-simqueue-atomic-lowering-checklist.md, docs/rfcs/ac-architecture-rule-rtl-verification-extension-checklist.md, docs/reference/name-mangling.md, docs/development/agent-frontend-guide.md, docs/gates/logs/20260920-f4-static-parameter-decision/summary.md, docs/gates/logs/20260920-f4-atomic-composition/summary.md",
+      "next_action": "Keep source-owned ordered typed declarations, exact constraints, finite cases, typed QueueGraph plans, and one-family C++/RTL emission green",
+      "owner": "static-parameter-families",
+      "status": "implemented-verified"
+    },
+    {
+      "decision": "0276",
+      "evidence": "docs/rfcs/pyc6-decisions.md, docs/rfcs/ac-cpp-pointer-owned-module-composition.md, docs/rfcs/ac-rule-simqueue-atomic-lowering-checklist.md, docs/rfcs/ac-architecture-rule-rtl-verification-extension-checklist.md, docs/reference/name-mangling.md, docs/development/agent-frontend-guide.md, docs/gates/logs/20260920-f4-module-case-decision/summary.md, docs/gates/logs/20260920-f4-atomic-composition/summary.md",
+      "next_action": "Keep one family symbol with ordered concrete High ACIR case regions, complete typed header/link/QueueGraph/PYC coverage, and one-family C++/RTL materialization green",
+      "owner": "finite-module-case-bodies",
+      "status": "implemented-verified"
+    },
+    {
+      "decision": "0277",
+      "evidence": "docs/rfcs/pyc6-decisions.md, docs/rfcs/ac-cpp-pointer-owned-module-composition.md, docs/rfcs/ac-rule-simqueue-atomic-lowering-checklist.md, docs/rfcs/ac-architecture-rule-rtl-verification-extension-checklist.md, docs/rfcs/architecture-rule-compiler-extension.md, docs/reference/name-mangling.md, docs/development/agent-frontend-guide.md, docs/gates/logs/20260920-f4-family-schema-decision/summary.md, docs/gates/logs/20260920-f4-atomic-composition/summary.md",
+      "next_action": "Keep the tuple-literal Python API, typed ACIR AttrDefs and family/case operations, typed QueueGraph plans, and verified PYC logical-to-physical family carrier green; direct-body and dictionary compatibility stay absent",
+      "owner": "exact-finite-family-schema",
+      "status": "implemented-verified"
+    },
+    {
+      "decision": "0278",
+      "evidence": "docs/rfcs/pyc6-decisions.md, docs/rfcs/ac-cpp-pointer-owned-module-composition.md, docs/rfcs/ac-rule-simqueue-atomic-lowering-checklist.md, docs/rfcs/ac-architecture-rule-rtl-verification-extension-checklist.md, docs/rfcs/architecture-rule-compiler-extension.md, docs/reference/name-mangling.md, docs/development/agent-frontend-guide.md, docs/gates/logs/20260920-f4-dependent-schema-decision/summary.md, docs/gates/logs/20260920-f4-atomic-composition/summary.md",
+      "next_action": "Keep arbitrary-precision dependent values, explicit-width integer expressions, nominal argument validation, and exact PYC projection/layout/control/shared-ready mappings green",
+      "owner": "exact-dependent-family-mapping",
+      "status": "implemented-verified"
+    },
+    {
+      "decision": "0279",
+      "evidence": "docs/rfcs/pyc6-decisions.md, docs/rfcs/ac-architecture-rule-rtl-verification-extension-checklist.md, docs/reference/language.md, docs/reference/pyc-ir.md, compiler/acir/include/acir/Dialect/ACIR/ACIRTypes.td, compiler/acir/include/acir/Dialect/ACIR/ACIROps.td, docs/gates/logs/20260930-m5-cutover/retired-evidence.md, docs/gates/logs/20260921-f7-recovery-versioned-identity/summary.md",
+      "next_action": "Historical baseline evidence; current applicability and verification follow Decision 0283 and the M5 retirement ledger",
+      "owner": "recovery-versioned-identity",
+      "status": "implemented-verified"
+    },
+    {
+      "decision": "0280",
+      "evidence": "docs/rfcs/pyc6-decisions.md, docs/rfcs/ac-architecture-rule-rtl-verification-extension-checklist.md, docs/reference/language.md, docs/reference/pyc-ir.md, compiler/acir/include/acir/Dialect/ACIR/ACIRAttributes.td, compiler/acir/include/acir/Dialect/ACIR/ACIROps.td, docs/gates/logs/20260930-m5-cutover/retired-evidence.md, docs/gates/logs/20260921-f8-multilane-transaction/summary.md",
+      "next_action": "Historical baseline evidence; current applicability and verification follow Decision 0283 and the M5 retirement ledger",
+      "owner": "multi-lane-transaction-algebra",
+      "status": "implemented-verified"
+    },
+    {
+      "decision": "0281",
+      "evidence": "docs/rfcs/pyc6-decisions.md, docs/rfcs/ac-architecture-rule-rtl-verification-extension-checklist.md, docs/reference/language.md, docs/reference/pyc-ir.md, compiler/acir/include/acir/Dialect/ACIR/ACIRAttributes.td, compiler/acir/include/acir/Dialect/ACIR/ACIROps.td, docs/gates/logs/20260930-m5-cutover/retired-evidence.md, docs/gates/logs/20260921-f9-memory-ordering/summary.md",
+      "next_action": "Historical baseline evidence; current applicability and verification follow Decision 0283 and the M5 retirement ledger",
+      "owner": "core-local-memory-ordering",
+      "status": "implemented-verified"
+    },
+    {
+      "decision": "0282",
+      "evidence": "docs/rfcs/pyc6-decisions.md, docs/rfcs/ac-architecture-rule-rtl-verification-extension-checklist.md, docs/acir/spec/agentic-circuit.md, schemas/primitives/acir_semantic_registry.json, library/verilog/rtl_catalog.json, library/verilog/pyc_priority_encode_tree.v, docs/gates/logs/20260930-m5-cutover/retired-evidence.md, flows/tools/report_primitive_ppa.py, tests/system/priority_variant_parity_tb.sv, tests/unit/test_primitive_catalog.py, tests/unit/test_repository_layout.py, docs/gates/logs/20260921-f10-primitive-variants/summary.md, docs/gates/logs/20260921-f10-primitive-variants/ppa_report.json",
+      "next_action": "Historical baseline evidence; current applicability and verification follow Decision 0283 and the M5 retirement ledger",
+      "owner": "semantic-primitive-catalog-separation",
+      "status": "implemented-verified"
+    },
+    {
+      "decision": "0283",
+      "evidence": "docs/gates/logs/20260930-m5-cutover/README.md, docs/gates/logs/20260930-m5-cutover/product-manifest.json, docs/reviews/20261001-m5-cutover-review.md",
+      "next_action": "M5 accepted for declared profile; M3/M6 capability and M7 release work remains",
+      "owner": "migration-pm",
+      "status": "implemented-verified"
+    }
+  ],
+  "deferred_decisions": [],
+  "empty_evidence_decisions": [],
+  "extra_decisions": [],
+  "gap_in_scope_decisions": [],
+  "invalid_status_decisions": [],
+  "missing_decisions": [],
+  "missing_evidence_paths": {},
+  "non_verified_decisions": [],
+  "ok": true,
+  "placeholder_evidence_decisions": [],
+  "rfc_path": "/Users/zhoubot/.codex/worktrees/migration-capture/pyCircuit/docs/rfcs/pyc6-decisions.md",
+  "rows": 283,
+  "status_counts": {
+    "deferred": 0,
+    "gap-in-scope": 0,
+    "implemented-unverified": 0,
+    "implemented-verified": 283
+  },
+  "status_path": "/Users/zhoubot/.codex/worktrees/migration-capture/pyCircuit/docs/gates/decision_status_v6.md",
+  "total_decisions": 283
+}

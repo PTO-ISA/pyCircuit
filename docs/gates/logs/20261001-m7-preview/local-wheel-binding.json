@@ -1,0 +1,13 @@
+{
+  "wheel": "/Users/zhoubot/.codex/worktrees/migration-capture/pyCircuit/.pycircuit_out/m7-01-local-wheel/pycircuit_hisi-6.1.0-py3-none-macosx_26_0_arm64.whl",
+  "sha256": "9707a2dbbf05960ae574f4905a364b86f948a6a654a33b827f3f604909ac35e8",
+  "size_bytes": 80712288,
+  "source_metadata": {
+    "pyc_version": "6.1.0",
+    "git_sha": "25152f9c630de6d7d019edcd6c9ed09ce1bebbfc",
+    "platform": "Darwin",
+    "arch": "arm64",
+    "llvm_version": "22.1.8"
+  },
+  "scope": "Disposable installation smoke on macOS 26.6.2 arm64 only; explicit26.0tag, no official SDK minimum-OS/platform/release acceptance"
+}

@@ -2,7 +2,7 @@
 
 日期：2026-09-27。规划修订：6。状态：测试设计；不表示产品测试已执行。
 
-配套：[主计划](pycircuit-modernization-plan.md)、[治理方案](project-governance.md)。目标是验证 GFSIM Pythonic source → MLIR → 同一硬件 IR → C++/Verilog，并证明旧路线从产品中消失。三种旧 authoring 继续可用、PYC C++ 继续运行，不再是新版本的验收条件。
+配套：[主计划](pycircuit-modernization-plan.md)、[治理方案](project-governance.md)。当前产品路线是 pyCircuit Python source → MLIR → 同一硬件 IR → C++/Verilog；旧路线仅保留适用的历史 oracle、回归责任和负例，不再作为可用 authoring、编译或运行入口。
 
 ## 先冻结验收依据
 
@@ -59,6 +59,8 @@ syntax capture 验证完整 AST/literal/span 和静态 import 输入，source im
 
 ### 首个双后端端到端切片
 
+以下 queue、external-port、reset 和 `@system` 场景属于更广的产品能力义务，不能推断为当前 M5 标量 profile 已支持；应由对应批准工作包与 gate 关闭。
+
 由独立测试作者写逐拍期望：普通对象式叶模块有 typed integer、非零 reset、conditional enable，父模块实例化两次；另加单 Queue 的阻塞与同时 pop/push。不同实例不共享状态，同拍读旧 Q，未允许提交不改变输出或消费输入。
 
 从唯一 Pythonic source 经逐源产物/link/final verify 同时生成 GFSIM C++ 和 Verilog，编译运行；再篡改 captured type、owner 或 driver 元数据，验证失败发生在规定 MLIR 边界。不能手写 generated C++ 来实现缺失逻辑。
@@ -69,29 +71,31 @@ syntax capture 验证完整 AST/literal/span 和静态 import 输入，source im
 
 保存 capture、semantic/source-unit ACIR、linked/final IR、backend source inventory 和 gate-local observations，报告首个不同点。禁止为诊断向公开 ABI 加 consumer trace/cursor/ISA 接口。
 
-## 基线命令与切换后的命令
+## 当前路线命令
 
-当前命令用于 M0 基线及本轮文档验证。它们不是最终路线必须保留的接口。新 driver、测试注册、gate implementation 在 C3 批准后按实际实现更新；未实现时不虚构新“统一检查命令”。
+下列检查使用现行 source-unit compile/link/emit 和 common-final runtime。测试目录中保留的旧语义 oracle 仍可作为映射后的回归证据，但旧 CLI、脚本、CMake target 和 frontend 不再是运行入口。
 
 ```sh
 pre-commit run --files <changed-files>
+pytest tests/unit -m unit
 python3 flows/tools/check_api_hygiene.py python/pycircuit/src/pycircuit examples/pycircuit docs README.md
+python3 flows/tools/check_decision_status.py --rfc docs/rfcs/pyc6-decisions.md --status docs/gates/decision_status_v6.md --out .pycircuit_out/preview/decision_status.json --require-no-deferred --require-all-verified --require-concrete-evidence --require-existing-evidence
 mkdocs build --strict
 git diff --check
 
-pytest tests/unit -m unit
-python3 tools/agentic-circuit/check-contracts.py
-python3 -m unittest discover -s tests/python/agentic-circuit/python_frontend -p 'test_*.py'
-python3 tools/agentic-circuit/generate-diagnostic-catalog.py --check
-
-cmake --build <current-checkout-build> --target check-acir
-cmake --build <current-checkout-build> --target check-pyc
-ctest --test-dir <current-checkout-build> -R '<selected-test-regex>' --output-on-failure
+PYC_BUILD_TESTING=ON bash flows/scripts/pyc build --build-dir "$PWD/.pycircuit_out/toolchain/build" --install-prefix "$PWD/.pycircuit_out/toolchain/install"
+export PYC_TOOLCHAIN_ROOT="$PWD/.pycircuit_out/toolchain/install"
+export PYC_BUILD_DIR="$PWD/.pycircuit_out/toolchain/build"
+bash flows/scripts/run_examples.sh
+bash flows/scripts/run_sims.sh
+bash flows/scripts/run_sims_nightly.sh
+bash flows/scripts/run_semantic_regressions_v6.sh
+python3 flows/tools/check_m5_retirement.py --install-root "$PYC_TOOLCHAIN_ROOT"
 ```
 
-`<...>` 是工作包必须填写的真实参数。先记录实际 test inventory，拒绝空匹配当作通过。选择已有 `tests/mlir/agentic-circuit/`、`tests/cpp/agentic-circuit/`、`tests/integration/agentic-circuit/e2e/fixtures/` 中有语义价值的用例；新目录布局由批准方案与集成 owner 决定。
+These commands are validation entry points, not a claim that the gates passed. Bind captured output and statuses to the exact candidate before reporting evidence. The historical `tests/mlir/agentic-circuit/` and `tests/cpp/agentic-circuit/` inventories may retain semantic obligations while they are mapped to the current implementation; they do not imply an active `agentic-circuit` compiler route.
 
-当前完整 closure 的责任集合：`run_agentic_circuit.sh`、`run_examples.sh`、`run_sims.sh`、`run_sims_nightly.sh`、`run_semantic_regressions_v6.sh`、strict decision-status、installed SDK/platform/release gates。迁移保留所需责任，不强行保留旧实现和 API；切换同一候选同步更新检查、决策状态和规范，不能先禁 gate 再声称全绿。
+当前本地/CI closure 的路线 gate 包括 strict decision-status、unit/API/documentation checks、`run_examples.sh`、`run_sims.sh`、`run_sims_nightly.sh`、`run_semantic_regressions_v6.sh` 和 installed-payload retirement check。`run_agentic_circuit.sh` 已从当前 gate topology 移除；保留的语义断言应由当前 tests 与 gates 承担，而不是继续调用旧 runner。
 
 donor 定向源到生成结果测试名称已核对，包括 `frontend_capture_syntax`、`acir_object_scalar`、`acir_object_records`、`acir_fixed_collections`、`acir_integer_codegen`、`acir_verify_final_driver_checks`。需在 donor 精确源码重新构建后运行，结果只用于该组件准入；不借用其二进制验证 pyCircuit。
 

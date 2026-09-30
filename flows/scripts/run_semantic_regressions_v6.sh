@@ -41,6 +41,11 @@ tests=(
   tests/system/test_m5_source_map.py
   tests/system/test_m5_runtime_install.py
   tests/system/test_m5_source_rtl.py
+  tests/system/test_m6_publication_process_recovery.py
+  tests/system/test_m6_relocated_compiler.py
+  tests/system/test_m6_incremental_build.py
+  tests/system/test_m6_example_build.py
+  tests/system/test_m7_cmake_presets.py
 )
 for test_file in "${tests[@]}"; do
   [[ -f "${PYC_ROOT_DIR}/${test_file}" ]] || pyc_die "semantic oracle is missing: ${test_file}"

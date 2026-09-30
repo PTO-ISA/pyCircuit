@@ -1,0 +1,26 @@
+{
+  "checkout": "/Users/zhoubot/.codex/worktrees/migration-capture/pyCircuit",
+  "baseline": "25152f9c630de6d7d019edcd6c9ed09ce1bebbfc",
+  "candidate_aggregate": "8b5e7c857bae3abad72e1d2495e9e21f19dbe0d809672756d0f794368b105250",
+  "platform": "macOS-26.6.2-arm64-arm-64bit-Mach-O",
+  "native_build": "/Users/zhoubot/.codex/worktrees/migration-capture/pyCircuit/.pycircuit_out/m7-01-root",
+  "install_prefix": "/Users/zhoubot/.codex/worktrees/migration-capture/pyCircuit/.pycircuit_out/m7-01-install",
+  "versions": {
+    "cmake": "cmake version 4.2.1\n\nCMake suite maintained and supported by Kitware (kitware.com/cmake).",
+    "ninja": "1.13.0.git.kitware.jobserver-pipe-1",
+    "llvm": "22.1.8",
+    "mlir_opt": "Homebrew LLVM version 22.1.8\n  Optimized build.",
+    "verilator": "Verilator 5.044 2026-01-01 rev vUNKNOWN-built20260101",
+    "cxx": "Apple clang version 21.0.0 (clang-2100.1.1.101)\nTarget: arm64-apple-darwin25.6.0\nThread model: posix\nInstalledDir: /Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin",
+    "pytest": "pytest 9.1.1"
+  },
+  "unit_python": "/opt/homebrew/Cellar/pytest/9.0.2_1/libexec/bin/python (3.14.6)",
+  "semantic_python": "/Users/zhoubot/.codex/worktrees/migration-capture/pyCircuit/.venv/bin/python (3.12.12)",
+  "native_metadata": {
+    "pyc_version": "6.1.0",
+    "git_sha": "25152f9c630de6d7d019edcd6c9ed09ce1bebbfc",
+    "platform": "Darwin",
+    "arch": "arm64",
+    "llvm_version": "22.1.8"
+  }
+}

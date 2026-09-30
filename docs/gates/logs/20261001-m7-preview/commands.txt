@@ -1,0 +1,35 @@
+Working directory: /Users/zhoubot/.codex/worktrees/migration-capture/pyCircuit
+Baseline: 25152f9c630de6d7d019edcd6c9ed09ce1bebbfc; fourteen-file overlay in candidate-manifest.json.
+
+Fresh build (exit 0):
+LLVM_DIR=/opt/homebrew/opt/llvm@22/lib/cmake/llvm MLIR_DIR=/opt/homebrew/opt/llvm@22/lib/cmake/mlir PYC_PYTHON_EXECUTABLE="$PWD/.venv/bin/python" PYC_BUILD_TESTING=ON CMAKE_BUILD_PARALLEL_LEVEL=4 bash flows/scripts/pyc build --build-dir "$PWD/.pycircuit_out/m7-01-root" --install-prefix "$PWD/.pycircuit_out/m7-01-install"
+Corrected real preset build (exit 0):
+cmake --build --preset release-tools --parallel 4
+
+Common gate selections:
+export PYC_TOOLCHAIN_ROOT="$PWD/.pycircuit_out/m7-01-install"
+export PYC_BUILD_DIR="$PWD/.pycircuit_out/m7-01-root"
+export PYCIRCUIT_NATIVE_BUILD="$PYC_BUILD_DIR"
+export PYCIRCUIT_COMPILER_INSTALL="$PYC_TOOLCHAIN_ROOT"
+export PYCIRCUIT_M6_PREFIX="$PYC_TOOLCHAIN_ROOT"
+export MLIR_OPT=/opt/homebrew/opt/llvm@22/bin/mlir-opt
+export PATH="$PWD/.venv/bin:$PATH"
+export PYC_GATE_RUN_ID=20261001-m7-preview
+bash flows/scripts/run_semantic_regressions_v6.sh  # R3 exit0,311passed/2deselected
+ctest --test-dir "$PYC_BUILD_DIR" -R ACIR --output-on-failure # exit0,20/20
+/opt/homebrew/Cellar/pytest/9.0.2_1/libexec/bin/python -m pytest tests/unit -m unit -q --junitxml=.pycircuit_out/m7-01-unit-r2.xml # exit0,324passed/3skipped/79deselected
+.venv/bin/python -m pytest tests/system/test_m7_cmake_presets.py tests/unit/test_m7_retirement_presets.py tests/unit/test_repository_layout.py -q # exit0,19passed
+.venv/bin/python -m pytest tests/system/test_m5_public_emit.py tests/system/test_m5_runtime_install.py tests/system/test_m5_model_abi.py -q # exit0,25passed
+.venv/bin/python -m pytest tests/system/test_m6_relocated_compiler.py -q # exit0,1passed
+python3 flows/tools/check_m5_retirement.py --install-root "$PYC_TOOLCHAIN_ROOT"
+python3 .github/scripts/validate_repo_management.py
+python3 flows/tools/check_decision_status.py --rfc docs/rfcs/pyc6-decisions.md --status docs/gates/decision_status_v6.md --out .pycircuit_out/m7-01-decision-status.json --require-no-deferred --require-all-verified --require-concrete-evidence --require-existing-evidence
+pre-commit run --all-files
+mkdocs build --strict
+
+Disposable packaging tools, no product dependency modification:
+.venv/bin/python -m venv .pycircuit_out/m7-01-packaging-venv
+.pycircuit_out/m7-01-packaging-venv/bin/python -m pip install 'setuptools>=68' 'wheel>=0.41'
+.pycircuit_out/m7-01-packaging-venv/bin/python packaging/wheel/create_wheel.py --install-dir .pycircuit_out/m7-01-install --out-dir .pycircuit_out/m7-01-local-wheel --build-root .pycircuit_out/m7-01-wheel-stage --platform macos-arm64 --wheel-plat-name macosx_26_0_arm64
+export PYCIRCUIT_M5_WHEEL="$PWD/.pycircuit_out/m7-01-local-wheel/pycircuit_hisi-6.1.0-py3-none-macosx_26_0_arm64.whl"
+.venv/bin/python -m pytest tests/system/test_m5_wheel_install.py -q # exit0,1passed

@@ -1,0 +1,18 @@
+============================= test session starts ==============================
+platform darwin -- Python 3.12.12, pytest-9.1.1, pluggy-1.6.0
+cachedir: .pycircuit_out/m7-01-review/pytest-cache
+rootdir: /Users/zhoubot/.codex/worktrees/migration-capture/pyCircuit
+configfile: pyproject.toml
+collected 9 items
+
+tests/unit/test_m7_retirement_presets.py ........                        [ 88%]
+tests/system/test_m7_cmake_presets.py F                                  [100%]
+
+=================================== FAILURES ===================================
+_____ test_release_presets_configure_in_isolation_and_select_live_targets ______
+tests/system/test_m7_cmake_presets.py:117: in test_release_presets_configure_in_isolation_and_select_live_targets
+    dry_run = _checked(
+E   TypeError: _checked() got an unexpected keyword argument 'timeout'
+=========================== short test summary info ============================
+FAILED tests/system/test_m7_cmake_presets.py::test_release_presets_configure_in_isolation_and_select_live_targets
+========================= 1 failed, 8 passed in 1.53s ==========================

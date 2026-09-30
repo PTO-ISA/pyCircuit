@@ -41,7 +41,7 @@ env:
 
 jobs:
   full-validation:
-    name: "Release: Full AC/PYC Closure"
+    name: "Release: Source-unit compiler closure"
     if: github.repository == 'PTO-ISA/pyCircuit'
     runs-on: ubuntu-24.04
     timeout-minutes: 240

@@ -41,6 +41,7 @@ pyc_set_public_helpers() {
   export ACIR_CPP_SOURCE_PARTS_HARNESS="${ACIR_CPP_SOURCE_PARTS_HARNESS:-${root}/bin/acir-cpp-source-parts-harness}"
   export PYCIRCUIT_NATIVE_BUILD="${PYCIRCUIT_NATIVE_BUILD:-${build}}"
   export PYCIRCUIT_COMPILER_INSTALL="${PYCIRCUIT_COMPILER_INSTALL:-${root}}"
+  export PYCIRCUIT_M6_PREFIX="${PYCIRCUIT_M6_PREFIX:-${root}}"
   export PYCIRCUIT_M5_TEST_OUTPUT="${PYCIRCUIT_M5_TEST_OUTPUT:-$(pyc_out_root)/m5-gate-consumers}"
   export PATH="${root}/bin:${build}/bin:${PATH}"
   for helper in "${ACIR_SOURCE_UNIT_HARNESS}" "${ACIR_DESIGN_HARNESS}" "${ACIR_CPP_SOURCE_PARTS_HARNESS}"; do

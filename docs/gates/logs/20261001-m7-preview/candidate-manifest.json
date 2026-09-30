@@ -1,0 +1,77 @@
+{
+  "baseline": "25152f9c630de6d7d019edcd6c9ed09ce1bebbfc",
+  "aggregate_sha256": "8b5e7c857bae3abad72e1d2495e9e21f19dbe0d809672756d0f794368b105250",
+  "formula": "sorted path + NUL + file SHA-256 + newline",
+  "files": [
+    {
+      "path": ".github/workflows/publish-pypi.yml",
+      "sha256": "be5e5aa7d3fcea7d97d0857a5427543bb7ebc007b2140b026579ed62bdd3ffd2",
+      "bytes": 9296
+    },
+    {
+      "path": ".github/workflows/release.yml",
+      "sha256": "738d5f8fc3e6507fd5d4058ac70dcf089bde75214fd7e6a37b5db61f88a81f80",
+      "bytes": 45037
+    },
+    {
+      "path": "CMakePresets.json",
+      "sha256": "bf810794d8028e52cca6021772c64efd518ef75fc4f831b3d4285314521a636f",
+      "bytes": 941
+    },
+    {
+      "path": "docs/development/pycircuit-modernization-tests.md",
+      "sha256": "4c748610c0ead143c28f34c8555fee328d0160e08dffb60ed93df45b20620c00",
+      "bytes": 12120
+    },
+    {
+      "path": "docs/development/release-runbook.md",
+      "sha256": "64e5b4e0054995a24c864b4eb9b77ca821686e69e847261ffc3586103a5b4d94",
+      "bytes": 6205
+    },
+    {
+      "path": "docs/development/repository-management.md",
+      "sha256": "b6eb0536a62232c27cdea051c1226ec161d96fb04d9a1c4b2b452802987706ba",
+      "bytes": 5876
+    },
+    {
+      "path": "flows/scripts/lib.sh",
+      "sha256": "7a133d471731e38df8b9fae04c0c07e716e6b6e6c0c822325e555e84e86e1387",
+      "bytes": 2066
+    },
+    {
+      "path": "flows/scripts/run_semantic_regressions_v6.sh",
+      "sha256": "337636887c1b892ac4a23edb54a5f9c11809a3cfbcd4e3accfba5150b06c9f36",
+      "bytes": 3820
+    },
+    {
+      "path": "flows/tools/check_m5_retirement.py",
+      "sha256": "d9bf31d1141e1fd1fd573b5ea2e911969fd9ababb4b614b692c830157c7954f9",
+      "bytes": 11852
+    },
+    {
+      "path": "packaging/sdk/create_platform_manifest.py",
+      "sha256": "c39af4a7409bf793d0e8853e164325770f7a809264b20d2f93623e0fdc274b20",
+      "bytes": 24449
+    },
+    {
+      "path": "tests/system/test_m6_relocated_compiler.py",
+      "sha256": "c0639443aee2f8f1518f08570a832292b52f0f429b91e02c3e0e7558883058cf",
+      "bytes": 17325
+    },
+    {
+      "path": "tests/system/test_m7_cmake_presets.py",
+      "sha256": "4e2abb5afed15cdd0c854e0daff8587142fb79e111ce1bd04f6f142ca77af3b5",
+      "bytes": 4994
+    },
+    {
+      "path": "tests/unit/test_m7_retirement_presets.py",
+      "sha256": "3fc1ac8af505bd59ef11f30af03738085d52a4e3bbf6c3110ee9699fba7e2748",
+      "bytes": 2790
+    },
+    {
+      "path": "tests/unit/test_repository_layout.py",
+      "sha256": "99eccea46ff67e8d0c04f94497a7ea166b3fe90271dfc1d9ab484dfd4cc2e7b8",
+      "bytes": 9467
+    }
+  ]
+}

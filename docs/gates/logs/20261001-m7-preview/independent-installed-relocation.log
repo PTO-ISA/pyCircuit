@@ -1,0 +1,9 @@
+============================= test session starts ==============================
+platform darwin -- Python 3.12.12, pytest-9.1.1, pluggy-1.6.0
+rootdir: /Users/zhoubot/.codex/worktrees/migration-capture/pyCircuit
+configfile: pyproject.toml
+collected 1 item
+
+tests/system/test_m6_relocated_compiler.py .                             [100%]
+
+============================== 1 passed in 11.66s ==============================

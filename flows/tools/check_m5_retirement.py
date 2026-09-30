@@ -16,6 +16,7 @@ PRODUCTION_ROOTS = (
     ROOT / "python/pycircuit/src/pycircuit",
     ROOT / "compiler/acir",
     ROOT / "CMakeLists.txt",
+    ROOT / "CMakePresets.json",
     ROOT / "cmake",
     ROOT / "packaging/wheel",
     ROOT / "packaging/sdk/examples",
@@ -87,6 +88,48 @@ REQUIRED_TOOLS = {
 }
 
 
+def scan_cmake_presets(path: Path) -> list[str]:
+    """Check structured references that the CMake line scan cannot see."""
+    try:
+        document = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, UnicodeError, ValueError) as error:
+        return [f"cannot read CMake presets: {error}"]
+    if not isinstance(document, dict):
+        return ["CMake presets must be a JSON object"]
+    retired_options = {"PYC_BUILD_MLIR_TOOLS", "PYC_BUILD_AGENTIC_CIRCUIT_TESTS"}
+    failures: list[str] = []
+    for section in ("configurePresets", "buildPresets"):
+        presets = document.get(section, [])
+        if not isinstance(presets, list):
+            failures.append(f"invalid CMake preset section: {section}")
+            continue
+        for preset in presets:
+            if not isinstance(preset, dict):
+                failures.append(f"invalid CMake preset in {section}")
+                continue
+            name = preset.get("name", "<unnamed>")
+            if section == "configurePresets":
+                variables = preset.get("cacheVariables", {})
+                if not isinstance(variables, dict):
+                    failures.append(f"invalid cacheVariables in CMake preset {name}")
+                    continue
+                for option in sorted(retired_options.intersection(variables)):
+                    failures.append(f"CMake preset {name}: retired option {option}")
+            else:
+                targets = preset.get("targets", [])
+                if isinstance(targets, str):
+                    targets = [targets]
+                if not isinstance(targets, list) or not all(
+                    isinstance(target, str) for target in targets
+                ):
+                    failures.append(f"invalid targets in CMake preset {name}")
+                    continue
+                for target in targets:
+                    if target in RETIRED_INSTALL_NAMES:
+                        failures.append(f"CMake preset {name}: retired target {target}")
+    return failures
+
+
 def production_files() -> list[Path]:
     files: list[Path] = []
     for item in PRODUCTION_ROOTS:
@@ -106,7 +149,7 @@ def production_files() -> list[Path]:
 
 
 def scan_production() -> list[str]:
-    failures: list[str] = []
+    failures = scan_cmake_presets(ROOT / "CMakePresets.json")
     for path in production_files():
         try:
             content = path.read_text(encoding="utf-8")

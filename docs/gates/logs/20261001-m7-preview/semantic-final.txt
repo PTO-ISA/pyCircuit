@@ -1,0 +1,40 @@
+[pyc] run source-owned semantic regressions (run-id=20261001-m7-preview)
+============================= test session starts ==============================
+platform darwin -- Python 3.12.12, pytest-9.1.1, pluggy-1.6.0
+rootdir: /Users/zhoubot/.codex/worktrees/migration-capture/pyCircuit
+configfile: pyproject.toml
+collected 313 items / 2 deselected / 311 selected
+
+tests/system/test_source_compile_publication.py ......                   [  1%]
+tests/system/test_source_design_bridge.py .............................. [ 11%]
+...........                                                              [ 15%]
+tests/system/test_source_module_units.py .......................         [ 22%]
+tests/system/test_source_namespace_bindings.py ......                    [ 24%]
+tests/system/test_source_numeric_expressions.py ........................ [ 32%]
+........                                                                 [ 34%]
+tests/system/test_source_numeric_next.py ......                          [ 36%]
+tests/system/test_source_observations.py ................                [ 41%]
+tests/system/test_source_transport_mlir.py ....                          [ 43%]
+tests/system/test_source_unit_cmake_build.py .                           [ 43%]
+tests/system/test_source_unit_packet.py ................................ [ 53%]
+...................                                                      [ 59%]
+tests/system/test_source_unit_pair_verification.py ...................   [ 65%]
+tests/system/test_generic_assignment_roundtrip.py .......                [ 68%]
+tests/system/test_generic_multi_assignment.py .....                      [ 69%]
+tests/system/test_final_scalar_declarations.py ......................... [ 77%]
+..............                                                           [ 82%]
+tests/system/test_cpp_source_parts.py .....                              [ 83%]
+tests/system/test_masked_next_register.py ...............                [ 88%]
+tests/system/test_unified_register_backends.py ..........                [ 91%]
+tests/system/test_m5_public_emit.py ....                                 [ 93%]
+tests/system/test_m5_source_map.py ..                                    [ 93%]
+tests/system/test_m5_runtime_install.py ..                               [ 94%]
+tests/system/test_m5_source_rtl.py .......                               [ 96%]
+tests/system/test_m6_publication_process_recovery.py ....                [ 98%]
+tests/system/test_m6_relocated_compiler.py .                             [ 98%]
+tests/system/test_m6_incremental_build.py ...                            [ 99%]
+tests/system/test_m6_example_build.py .                                  [ 99%]
+tests/system/test_m7_cmake_presets.py .                                  [100%]
+
+================ 311 passed, 2 deselected in 128.60s (0:02:08) =================
+[pyc] source-owned semantic regressions passed

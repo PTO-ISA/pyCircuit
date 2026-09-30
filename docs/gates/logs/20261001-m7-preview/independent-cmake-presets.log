@@ -1,0 +1,11 @@
+============================= test session starts ==============================
+platform darwin -- Python 3.12.12, pytest-9.1.1, pluggy-1.6.0
+rootdir: /Users/zhoubot/.codex/worktrees/migration-capture/pyCircuit
+configfile: pyproject.toml
+collected 19 items
+
+tests/unit/test_m7_retirement_presets.py .........                       [ 47%]
+tests/unit/test_repository_layout.py .........                           [ 94%]
+tests/system/test_m7_cmake_presets.py .                                  [100%]
+
+============================== 19 passed in 1.84s ==============================

@@ -17,8 +17,14 @@ pytestmark = pytest.mark.system
 
 ROOT = Path(__file__).resolve().parents[2]
 FIXTURE = ROOT / "tests/integration/agentic-circuit/m6-relocation"
-NATIVE_BUILD = ROOT / ".pycircuit_out/m5-root"
+DEFAULT_NATIVE_BUILD = ROOT / ".pycircuit_out/m5-root"
 SOURCES = ("types.py", "counter.py", "design_top.py")
+
+
+def _native_build() -> Path:
+    return Path(
+        os.environ.get("PYCIRCUIT_NATIVE_BUILD", DEFAULT_NATIVE_BUILD)
+    ).resolve()
 
 
 def _checked(
@@ -94,11 +100,12 @@ def _clean_environment(
 
 
 def _install_compiler_sdk(original_prefix: Path, env: dict[str, str]) -> None:
-    cache = NATIVE_BUILD / "CMakeCache.txt"
-    metadata = NATIVE_BUILD / "toolchain-metadata.json"
+    native_build = _native_build()
+    cache = native_build / "CMakeCache.txt"
+    metadata = native_build / "toolchain-metadata.json"
     if not cache.is_file() or not metadata.is_file():
         pytest.fail(
-            f"build the current checkout with CompilerDev first: {NATIVE_BUILD}"
+            f"build the current checkout with CompilerDev first: {native_build}"
         )
     identity = json.loads(metadata.read_text(encoding="utf-8"))
     assert (
@@ -112,7 +119,7 @@ def _install_compiler_sdk(original_prefix: Path, env: dict[str, str]) -> None:
     assert identity["arch"] == platform.machine()
 
     _checked(
-        ["cmake", "--install", str(NATIVE_BUILD), "--prefix", str(original_prefix)],
+        ["cmake", "--install", str(native_build), "--prefix", str(original_prefix)],
         cwd=ROOT,
         env=env,
     )
@@ -123,6 +130,7 @@ def _install_compiler_sdk(original_prefix: Path, env: dict[str, str]) -> None:
 def _assert_macos_native_dependencies_relocated(
     prefix: Path, old_prefix: Path, env: dict[str, str]
 ) -> None:
+    native_build = _native_build()
     if sys.platform != "darwin":
         return
     otool = shutil.which("otool")
@@ -148,7 +156,7 @@ def _assert_macos_native_dependencies_relocated(
             [otool, "-L", str(binary)], cwd=prefix, env=env, timeout=30
         ).stdout
         assert str(old_prefix) not in dependencies, dependencies
-        assert str(NATIVE_BUILD) not in dependencies, dependencies
+        assert str(native_build) not in dependencies, dependencies
         assert str(ROOT) not in dependencies, dependencies
         own_install_name: str | None = None
         if binary.suffix == ".dylib":
@@ -158,7 +166,7 @@ def _assert_macos_native_dependencies_relocated(
             assert len(install_names) == 1, install_names
             own_install_name = install_names[0].strip()
             assert str(old_prefix) not in own_install_name
-            assert str(NATIVE_BUILD) not in own_install_name
+            assert str(native_build) not in own_install_name
             assert str(ROOT) not in own_install_name
             assert own_install_name.startswith(
                 ("@rpath/", "@loader_path/", "@executable_path/")
@@ -168,7 +176,7 @@ def _assert_macos_native_dependencies_relocated(
             [otool, "-l", str(binary)], cwd=prefix, env=env, timeout=30
         ).stdout
         assert str(old_prefix) not in rpaths, rpaths
-        assert str(NATIVE_BUILD) not in rpaths, rpaths
+        assert str(native_build) not in rpaths, rpaths
         assert str(ROOT) not in rpaths, rpaths
 
         binary_rpaths: list[str] = []
@@ -446,7 +454,7 @@ def test_compiler_sdk_compiles_links_emits_and_runs_after_prefix_move(
         assert str(moved_prefix) in generated_graph
         assert "libpyc6_runtime" in generated_graph
         assert str(original_prefix) not in generated_graph
-        assert str(NATIVE_BUILD) not in generated_graph
+        assert str(_native_build()) not in generated_graph
         _checked(
             [cmake, "--build", str(build), "--parallel", "4"], cwd=tmp_path, env=env
         )

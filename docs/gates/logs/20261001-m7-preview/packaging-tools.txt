@@ -1,0 +1,14 @@
+Collecting setuptools>=68
+  Using cached setuptools-84.0.0-py3-none-any.whl.metadata (6.6 kB)
+Collecting wheel>=0.41
+  Downloading wheel-0.48.0-py3-none-any.whl.metadata (2.3 kB)
+Collecting packaging>=24.0 (from wheel>=0.41)
+  Using cached packaging-26.3-py3-none-any.whl.metadata (3.5 kB)
+Using cached setuptools-84.0.0-py3-none-any.whl (818 kB)
+Downloading wheel-0.48.0-py3-none-any.whl (33 kB)
+Using cached packaging-26.3-py3-none-any.whl (129 kB)
+Installing collected packages: setuptools, packaging, wheel
+Successfully installed packaging-26.3 setuptools-84.0.0 wheel-0.48.0
+
+[notice] A new release of pip is available: 25.0.1 -> 26.2.1
+[notice] To update, run: /Users/zhoubot/.codex/worktrees/migration-capture/pyCircuit/.pycircuit_out/m7-01-packaging-venv/bin/python -m pip install --upgrade pip

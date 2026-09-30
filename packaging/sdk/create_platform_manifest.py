@@ -548,8 +548,9 @@ def main() -> int:
         )
     else:
         hisi_wheel_pattern = rf"^pycircuit_hisi-{re.escape(product)}-py3-none-macosx_[0-9]+_[0-9]+_arm64\.whl$"
-    # Each platform ships exactly one wheel. It carries both frontends and both
-    # compilers, so there is no second distribution to place in the wheelhouse.
+    # Each platform ships one wheel with the pycircuit Python driver and its
+    # bundled CompilerDev/Runtime toolchain prefix; no second distribution is
+    # needed for the current compile/link/emit route.
     wheel_patterns = {
         "pycircuit-hisi": hisi_wheel_pattern,
     }
