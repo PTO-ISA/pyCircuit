@@ -81,6 +81,8 @@ int main(int argc, char **argv) {
     result["runner"] =
         llvm::json::Object{{"metadata_header", runner->metadataHeader},
                            {"main_source", runner->mainSource},
+                           {"abi_header", runner->abiHeader},
+                           {"abi_source", runner->abiSource},
                            {"rtl_hardware", rtl->rtl},
                            {"rtl_bridge", runner->rtlBridge},
                            {"rtl_adapter", runner->rtlAdapter}};

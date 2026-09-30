@@ -85,7 +85,7 @@ output replacements are refused. Damaged receipts, missing/extra files and unsaf
 receipt validation does not authenticate generated code contents.
 
 This preview deliberately uses non-installed native helpers. Public new `emit`,
-old-route retirement, the full C3 `dut.h` ABI/source maps, source-owned RTL
+old-route retirement, complete C3 source maps, source-owned RTL
 packaging and installed SDK remain later work. The old public `emit` route is
 not used anywhere in this workflow. No model main, Work/Xfer traversal or fixture
 algorithm must be hand-written by the user.
@@ -94,3 +94,16 @@ Acceptance and current evidence are tracked in the
 [M4 completion work item](../work-items/m4-completion-workflow.md).
 The [default-sink clarification](../rfcs/migration/approvals/m1-runner-default-sink.md)
 records the user's explicit silent-default selection.
+
+## M5 ABI prerequisite
+
+The C++ preview now also builds `model-cpp/libpycircuit_dut.dylib` on macOS
+(`libpycircuit_dut.so` on Linux) and generates `artifacts/cpp/dut.h`.
+The header exposes the approved v1 model function table through Runtime headers;
+its opaque handles use the same SimExecutor as the standalone runner. ABI
+`configure_json("{}")` permits an unlimited session; the standalone runner still
+requires a finite execution limit. No installed SDK or public emit cutover is
+implied by this source-tree shared library.
+
+Progress and remaining cutover tasks are tracked in the
+[M5 work item](../work-items/m5-cutover.md).

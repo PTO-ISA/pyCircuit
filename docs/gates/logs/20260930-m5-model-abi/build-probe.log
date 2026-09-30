@@ -1,0 +1,60 @@
+[0/2] Re-checking globbed directories...
+[1/2] Re-running CMake...
+-- Configuring done (0.1s)
+-- Generating done (0.0s)
+-- Build files have been written to: /Users/zhoubot/.codex/worktrees/migration-capture/pyCircuit/.pycircuit_out/m4-preview-main
+[0/4] Re-checking globbed directories...
+[1/9] Generating units/types/types.ac, units/types/types.interface.ac, units/types/unit.json
+[2/9] Generating units/counter/counter.ac, units/counter/counter.interface.ac, units/counter/unit.json
+[3/9] Generating units/design_top/design_top.ac, units/design_top/design_top.interface.ac, units/design_top/unit.json
+[4/9] Generating linked/design_top.ac
+[5/9] Generating preview-artifacts.stamp
+[5/9] cd /Users/zhoubot/.codex/worktrees/migration-capture/pyCircuit/.pycircuit_out/m4-preview-main && /opt/homebrew/bin/cmake -S /Users/zhoubot/.codex/worktrees/migration-capture/pyCircuit/.pycircuit_out/m4-preview-main/artifacts/cpp -B /Users/zhoubot/.codex/worktrees/migration-capture/pyCircuit/.pycircuit_out/m4-preview-main/model-cpp -G Ninja -DPYCIRCUIT_RUNTIME_ROOT=/Users/zhoubot/.codex/worktrees/migration-capture/pyCircuit/simulator/gfsim -DPYCIRCUIT_TEST_CONSUMER= -DCMAKE_EXPORT_COMPILE_COMMANDS=ON && /opt/homebrew/bin/cmake --build /Users/zhoubot/.codex/worktrees/migration-capture/pyCircuit/.pycircuit_out/m4-preview-main/model-cpp --parallel 4 && /opt/homebrew/bin/cmake -S /Users/zhoubot/.codex/worktrees/migration-capture/pyCircuit/.pycircuit_out/m4-preview-main/artifacts/verilog -B /Users/zhoubot/.codex/worktrees/migration-capture/pyCircuit/.pycircuit_out/m4-preview-main/model-verilog -G Ninja -DPYCIRCUIT_RUNTIME_ROOT=/Users/zhoubot/.codex/worktrees/migration-capture/pyCircuit/simulator/gfsim -DPYCIRCUIT_TEST_CONSUMER= -DCMAKE_EXPORT_COMPILE_COMMANDS=ON && /opt/homebrew/bin/cmake --build /Users/zhoubot/.codex/worktrees/migration-capture/pyCircuit/.pycircuit_out/m4-preview-main/model-verilog --parallel 4
+-- Configuring done (0.0s)
+-- Generating done (0.0s)
+-- Build files have been written to: /Users/zhoubot/.codex/worktrees/migration-capture/pyCircuit/.pycircuit_out/m4-preview-main/model-cpp
+[1/12] Building CXX object CMakeFiles/pyc6_runtime.dir/Users/zhoubot/.codex/worktrees/migration-capture/pyCircuit/simulator/gfsim/model_input.cpp.o
+[2/12] Building CXX object CMakeFiles/pycircuit_system.dir/runner_main.cpp.o
+[3/12] Building CXX object CMakeFiles/pyc6_runtime.dir/Users/zhoubot/.codex/worktrees/migration-capture/pyCircuit/simulator/gfsim/sim_executor.cpp.o
+[4/12] Building CXX object CMakeFiles/pyc6_runtime.dir/Users/zhoubot/.codex/worktrees/migration-capture/pyCircuit/simulator/gfsim/system_runner.cpp.o
+[5/12] Linking CXX static library libpyc6_runtime.a
+[6/12] Building CXX object CMakeFiles/pycircuit_system.dir/sources/preview/counter.cpp.o
+[7/12] Building CXX object CMakeFiles/pycircuit_system.dir/sources/preview/design_top.cpp.o
+[8/12] Linking CXX executable pycircuit_system
+[9/12] Building CXX object CMakeFiles/pycircuit_dut.dir/model_api.cpp.o
+[10/12] Building CXX object CMakeFiles/pycircuit_dut.dir/sources/preview/counter.cpp.o
+[11/12] Building CXX object CMakeFiles/pycircuit_dut.dir/sources/preview/design_top.cpp.o
+[12/12] Linking CXX shared library libpycircuit_dut.dylib
+CMake Warning (dev) at CMakeLists.txt:19 (find_package):
+  Policy CMP0144 is not set: find_package uses upper-case <PACKAGENAME>_ROOT
+  variables.  Run "cmake --help-policy CMP0144" for policy details.  Use the
+  cmake_policy command to set the policy and suppress this warning.
+
+  CMake variable VERILATOR_ROOT is set to:
+
+    /opt/homebrew/share/verilator
+
+  For compatibility, find_package is ignoring the variable, but code in a
+  .cmake module might still use it.
+Call Stack (most recent call first):
+  CMakeLists.txt:25 (configure_model)
+This warning is for project developers.  Use -Wno-dev to suppress it.
+
+-- Configuring done (0.0s)
+-- Generating done (0.0s)
+-- Build files have been written to: /Users/zhoubot/.codex/worktrees/migration-capture/pyCircuit/.pycircuit_out/m4-preview-main/model-verilog
+[1/7] Building CXX object CMakeFiles/pyc6_runtime.dir/Users/zhoubot/.codex/worktrees/migration-capture/pyCircuit/simulator/gfsim/model_input.cpp.o
+[2/7] Building CXX object CMakeFiles/pyc6_runtime.dir/Users/zhoubot/.codex/worktrees/migration-capture/pyCircuit/simulator/gfsim/sim_executor.cpp.o
+[3/7] Building CXX object CMakeFiles/pyc6_runtime.dir/Users/zhoubot/.codex/worktrees/migration-capture/pyCircuit/simulator/gfsim/system_runner.cpp.o
+[4/7] Linking CXX static library libpyc6_runtime.a
+[5/7] Generating CMakeFiles/pycircuit_system.dir/VPycircuitRunnerBridge.dir/VPycircuitRunnerBridge.cpp, CMakeFiles/pycircuit_system.dir/VPycircuitRunnerBridge.dir/VPycircuitRunnerBridge___024root__0.cpp, CMakeFiles/pycircuit_system.dir/VPycircuitRunnerBridge.dir/VPycircuitRunnerBridge___024root__Slow.cpp, CMakeFiles/pycircuit_system.dir/VPycircuitRunnerBridge.dir/VPycircuitRunnerBridge___024root__0__Slow.cpp, CMakeFiles/pycircuit_system.dir/VPycircuitRunnerBridge.dir/VPycircuitRunnerBridge__Syms__Slow.cpp, CMakeFiles/pycircuit_system.dir/VPycircuitRunnerBridge.dir/VPycircuitRunnerBridge.cmake
+- V e r i l a t i o n   R e p o r t: Verilator 5.044 2026-01-01 rev vUNKNOWN-built20260101
+- Verilator: Built from 0.047 MB sources in 5 modules, into 0.032 MB in 5 C++ files needing 0.000 MB
+- Verilator: Walltime 0.011 s (elab=0.001, cvt=0.004, bld=0.000); cpu 0.011 s on 1 threads; alloced 10.000 MB
+[1/12] Building CXX object CMakeFiles/pycircuit_system.dir/CMakeFiles/pycircuit_system.dir/VPycircuitRunnerBridge.dir/VPycircuitRunnerBridge___024root__Slow.cpp.o
+[2/12] Building CXX object CMakeFiles/pycircuit_system.dir/CMakeFiles/pycircuit_system.dir/VPycircuitRunnerBridge.dir/VPycircuitRunnerBridge___024root__0.cpp.o
+[3/12] Building CXX object CMakeFiles/pycircuit_system.dir/CMakeFiles/pycircuit_system.dir/VPycircuitRunnerBridge.dir/VPycircuitRunnerBridge.cpp.o
+[4/12] Building CXX object CMakeFiles/pycircuit_system.dir/runner_main.cpp.o
+[5/12] Building CXX object CMakeFiles/pycircuit_system.dir/CMakeFiles/pycircuit_system.dir/VPycircuitRunnerBridge.dir/VPycircuitRunnerBridge___024root__0__Slow.cpp.o
+[6/12] Building CXX object CMakeFiles/pycircuit_system.dir/CMakeFiles/pycircuit_system.dir/VPycircuitRunnerBridge.dir/VPycircuitRunnerBridge__Syms__Slow.cpp.o
+[7/12] Linking CXX executable pycircuit_system

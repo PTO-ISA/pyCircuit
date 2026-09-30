@@ -50,7 +50,8 @@ typedef struct AgenticModelApiV1 {
   /* Created -> Configured. Accepts canonical {} or agentic-model-config v1. */
   AgenticModelStatusV1 (*configure_json)(AgenticModelV1 *model,
                                          const uint8_t *data, uint64_t size);
-  /* Configured/Ready/Completed -> Ready and restores deterministic state. */
+  /* Configured/Ready/Completed/Failed -> Ready and restores deterministic
+   * state. */
   AgenticModelStatusV1 (*reset)(AgenticModelV1 *model);
   AgenticModelStatusV1 (*step)(AgenticModelV1 *model,
                                AgenticModelStepResultV1 *result);

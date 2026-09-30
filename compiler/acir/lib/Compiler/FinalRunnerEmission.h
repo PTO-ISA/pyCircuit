@@ -10,6 +10,8 @@ struct FinalRunnerParts {
   std::string mainSource;
   std::string rtlBridge;
   std::string rtlAdapter;
+  std::string abiHeader;
+  std::string abiSource;
 };
 
 mlir::FailureOr<FinalRunnerParts>

@@ -92,6 +92,7 @@ add_library(pyc6_runtime STATIC
   "${PYCIRCUIT_RUNTIME_ROOT}/sim_executor.cpp"
   "${PYCIRCUIT_RUNTIME_ROOT}/system_runner.cpp")
 target_include_directories(pyc6_runtime PUBLIC "${PYCIRCUIT_RUNTIME_ROOT}/include")
+set_target_properties(pyc6_runtime PROPERTIES POSITION_INDEPENDENT_CODE ON)
 function(configure_model target consumer)
 add_executable(${target} "${consumer}"
 """
@@ -112,6 +113,16 @@ configure_model(pycircuit_system runner_main.cpp)
 if(PYCIRCUIT_TEST_CONSUMER)
   configure_model(m4_reset_replay "${PYCIRCUIT_TEST_CONSUMER}")
 endif()
+"""
+    if not rtl:
+        text += "add_library(pycircuit_dut SHARED model_api.cpp\n"
+        text += "".join(f"  {quote(source)}\n" for source in sources)
+        text += """)
+target_include_directories(pycircuit_dut PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}")
+target_link_libraries(pycircuit_dut PRIVATE pyc6_runtime)
+target_compile_definitions(pycircuit_dut PRIVATE AGENTIC_MODEL_BUILD)
+set_target_properties(pycircuit_dut PROPERTIES
+  CXX_VISIBILITY_PRESET hidden VISIBILITY_INLINES_HIDDEN YES)
 """
     return text
 
@@ -134,6 +145,8 @@ def preview_files(payload: dict, *, rtl: bool):
         )
         # Private aggregate simulation input; never falsely assign it to root.
     else:
+        files["dut.h"] = (runner["abi_header"], "header")
+        files["model_api.cpp"] = (runner["abi_source"], "runtime-glue")
         files["pycircuit_support.hpp"] = (payload["support_header"], "runtime-glue")
         files["pycircuit_system.hpp"] = (payload["system_header"], "runtime-glue")
         for group in payload["source_groups"]:

@@ -37,7 +37,8 @@ LogicalResult verifyGlobalSourceFamily(StringRef nameSpace,
                                        ac::detail::EmitError emitError) {
   if (!nameSpace.empty())
     return success();
-  if (familyName == "std" || familyName == "gfsim")
+  if (familyName == "std" || familyName == "gfsim" ||
+      familyName == "agentic_model_query_v1")
     return emitError() << "C++ source module occupies reserved global scope ::"
                        << familyName;
   if (familyName == "FinalSystem" || familyName == "FinalModel" ||
@@ -413,6 +414,10 @@ buildCppEmissionNames(const FinalProgram &program, ArrayRef<SpecGroup> groups,
       (void)rawComponent;
     }
     StringRef legalizedNamespace = *nameSpace;
+    if (legalizedNamespace == "agentic_model_query_v1" ||
+        legalizedNamespace.starts_with("agentic_model_query_v1::"))
+      return emitError()
+             << "C++ source namespace collides with model ABI entry point";
     if (legalizedNamespace.starts_with("std") &&
         (legalizedNamespace.size() == 3 ||
          legalizedNamespace.drop_front(3).starts_with("::")))
@@ -461,7 +466,8 @@ buildCppEmissionNames(const FinalProgram &program, ArrayRef<SpecGroup> groups,
         return emitError() << "C++ declaration/module name collision: "
                            << qualified;
       if (nameSpace->empty()) {
-        if (qualified == "std" || qualified == "gfsim")
+        if (qualified == "std" || qualified == "gfsim" ||
+            qualified == "agentic_model_query_v1")
           return emitError() << "C++ declaration occupies reserved global "
                                 "scope ::"
                              << qualified;

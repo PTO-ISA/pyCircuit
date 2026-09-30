@@ -1,0 +1,16 @@
+============================= test session starts ==============================
+platform darwin -- Python 3.14.6, pytest-9.0.2, pluggy-1.6.0
+rootdir: /Users/zhoubot/.codex/worktrees/migration-capture/pyCircuit
+configfile: pyproject.toml
+collected 141 items
+
+tests/system/test_m5_model_abi.py ............                           [  8%]
+tests/system/test_m4_preview_workflow.py .................               [ 20%]
+tests/unit/test_m4_runner_protocol.py ..........                         [ 27%]
+tests/system/test_final_scalar_declarations.py ......................... [ 45%]
+..............                                                           [ 55%]
+tests/unit/test_generated_bundle.py .................................... [ 80%]
+...........................                                              [100%]
+
+- generated xml file: /Users/zhoubot/.codex/worktrees/migration-capture/pyCircuit/.pycircuit_out/m5-abi/final.xml -
+======================== 141 passed in 79.88s (0:01:19) ========================

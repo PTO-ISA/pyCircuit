@@ -1,0 +1,14 @@
+{
+  "compiler/acir/lib/Compiler/CMakeLists.txt": "4a1d5223ea97268daf365917a9b860196e324827cc04620af48cd052a76b2fa7",
+  "compiler/acir/lib/Compiler/FinalCppEmission.cpp": "9a118cbd13fbe222bbe1734ac2d7ae184f4cacd618baff8d006f20c5b799bbe6",
+  "compiler/acir/lib/Compiler/FinalModelAbi.cpp": "88eb7c884b6314259e8f18b31c595cb55bf6c28f6c52825a68321bb8937c357a",
+  "compiler/acir/lib/Compiler/FinalModelAbi.h": "cf58bf0aee7beaf7b8a05f3020358b1699b5324e328f804de9e8c007c82e7f88",
+  "compiler/acir/lib/Compiler/FinalRunnerEmission.cpp": "a84591486e0990093d0deec63ee31fa174090d0697e6b38011cc64b4306fd6cf",
+  "compiler/acir/lib/Compiler/FinalRunnerEmission.h": "b6217d0b87e4bcf632ab5a0e29d0e32709e2be5cc6e8b2ede80c6e5e9cb9a578",
+  "compiler/acir/tools/acir-cpp-source-parts-harness/acir-cpp-source-parts-harness.cpp": "2216af135af9dcf81c5bf340b9665c694523954148905d35c8177c4953cabbb5",
+  "flows/tools/materialize_m4_preview.py": "e7229216d6311931237bf85c15c08ecc3a0914188553a2753899d5afa6650af1",
+  "simulator/gfsim/include/gfsim/model_api.h": "bd0251a7c8201c0906419375d283ade576f6b1edd911235ac7a0c48e537423f4",
+  "tests/integration/agentic-circuit/m5-model-abi/consumer.c": "35ddbd0f94d9042662943a607ab09d74499737a5d9161cf208d0357985c7811c",
+  "tests/system/test_m4_preview_workflow.py": "363b3422bbd189489f32d520e2383791e4a0f1d4ba85ce5965f9a91283d41330",
+  "tests/system/test_m5_model_abi.py": "b9e287339652a988c9f6a9764702d2430fe45eb7d9f01d45b25734ebfd508129"
+}

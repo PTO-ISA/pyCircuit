@@ -1,0 +1,14 @@
+{
+  "revision": "26e096c0",
+  "checks": {
+    "candidate-sha256.json": {
+      "checked": 35,
+      "matches": 35
+    },
+    "accepted-documentation-sha256.json": {
+      "checked": 17,
+      "matches": 17
+    }
+  },
+  "scope": "revision-8 M4 macOS source-tree workflow; not full C3 productization"
+}

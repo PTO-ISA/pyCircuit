@@ -1,6 +1,8 @@
 #include "FinalRunnerEmission.h"
 #include "FinalEmitCppSupport.h"
+#include "FinalModelAbi.h"
 #include "FinalRuntimeMetadata.h"
+#include <utility>
 
 namespace acir::compiler {
 namespace {
@@ -63,6 +65,9 @@ emitFinalRunnerPartsBody(const FinalProgram &program,
   if (failed(descriptors))
     return failure();
   FinalRunnerParts result;
+  auto abi = buildFinalModelAbiParts();
+  result.abiHeader = std::move(abi.header);
+  result.abiSource = std::move(abi.source);
   llvm::raw_string_ostream metadata(result.metadataHeader);
   llvm::raw_string_ostream bridge(result.rtlBridge);
   llvm::raw_string_ostream adapter(result.rtlAdapter);

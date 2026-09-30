@@ -46,7 +46,7 @@ modernization plan 修订 8 的有界出口统计（本分支的计划副本仍�
 | M2 最小双后端主干 | accepted（有界核心） | 单级/两级 closed-system 的共同 IR、reg/alias、Work/Xfer 和双后端逐拍 oracle 已验收；不含公开 DUT ABI、SDK 或真实并行 |
 | M3 按实际用例补能力 | 当前用例已交付，后续按需 | 整数、masked-next、generic copy/constant 已有证据；FIFO、memory、CDC 等保留 backlog |
 | M4 让当前能力可用 | done（修订 8 有界出口） | 逐源 compile/link、源属 C++ TU、Verilator、标准 runner/外部 oracle、重建/发布保护和文档复现已通过；完整 C3 ABI/SDK/RTL 包装及公开 emit 切换另行交付 |
-| M5 声明范围内 hard break | pending | 旧路线退役、公开新 emit、活跃文档/构建/安装引用同步切换尚未完成 |
+| M5 声明范围内 hard break | active（ABI 前置包已完成） | 旧路线退役、公开新 emit、活跃文档/构建/安装引用同步切换尚未完成 |
 | M6 按风险持续加固 | deferred / 按需 | 真实并行/V44、性能、平台和扩展故障矩阵未完成；已有正确性问题仍随所属入口修复 |
 | M7 按声明范围验收候选 | pending | 尚无迁移预览/发布验收；先验收明确支持范围，不要求未来 backlog 全清 |
 
@@ -209,3 +209,19 @@ M4 最终验收：Sol code review 与 Astra 架构/阶段出口审阅均 APPROVE
 PM 已将 M4 标为 done（当前 macOS 源码预览范围）。源码、使用文档和
 独立证据同时绑定，见[验收包](../gates/logs/20260930-m4-completion/README.md)。
 下一主阶段为 M5 的明确范围 hard break；完整 C3/SDK 责任仍显式跟踪。
+
+## 2026-09-30 M5 启动与 M4 余项复核
+
+复核 M4 接收提交 26e096c0 的 35 个源码/测试及 17 个文档 blob 全部匹配。
+修订 8 的 M4 必需项没有未关闭项；公开切换、完整产物/RTL 映射、统一
+安装/SDK 等产品化责任仍按 M5/M6 跟踪，不能把源码预览当成全产品完成。
+
+M5-A 已完成：生成 dut.h 和模型 ABI 薄层，七个既定函数入口直接复用
+同一个 SimExecutor，并将源属 TU 链接为共享 DUT；不增加另一执行策略。
+纯 C/ctypes、生命周期、失败/异常、独立句柄和名字冲突等 12 项新验收
+与 M4/scalar/receipt 回归合计 141 项通过、零跳过；Sol 与 Astra 均 APPROVE。
+[执行清单](m5-cutover.md)记录旧路线引用和下一步；
+[证据](../gates/logs/20260930-m5-model-abi/README.md)。
+公开 emit、旧入口/实现/安装资产删除、Runtime/CompilerDev 合同统一和
+活跃 docs/gates 切换尚未完成。source-map payload 需先完成批准映射，
+不复用已退役的 QueueGraph 语义 schema 伪造新产物。

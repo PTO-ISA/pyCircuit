@@ -551,8 +551,18 @@ def test_from_source_compile_link_emit_and_both_runners_share_one_final(
     rtl_compiled_files = [Path(entry["file"]).name for entry in rtl_compile_database]
     for source in ("counter.cpp", "design_top.cpp"):
         assert (
-            cpp_compiled_files.count(source) == 2
-        ), f"the source-owned TU should compile once into each consuming executable: {source}"
+            cpp_compiled_files.count(source) == 3
+        ), f"the source-owned TU should compile once into each consumer: {source}"
+        for target in ("pycircuit_system", "m4_reset_replay", "pycircuit_dut"):
+            assert (
+                sum(
+                    Path(entry["file"]).name == source
+                    and f"CMakeFiles/{target}.dir/" in entry["command"]
+                    for entry in cpp_compile_database
+                )
+                == 1
+            )
+    assert cpp_compiled_files.count("model_api.cpp") == 1
     assert cpp_compiled_files.count("runner_main.cpp") == 1
     assert cpp_compiled_files.count("reset_replay.cpp") == 1
     assert rtl_compiled_files.count("runner_main.cpp") == 1
