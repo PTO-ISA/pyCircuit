@@ -690,3 +690,19 @@ source/driver lane 48 项通过，一条既有 class/self 旧 fixture 失败并�
 本包没有新 primitive、公共 CLI/schema/runtime/ABI。M4 仍待 generated
 publication/manifest 和完整构建运行交付；M5 公开 emit 与 hard break 尚未
 切换；SYSTEM/EXPECT B 不在此次批准范围。M2 保持 accepted。
+
+## 2026-09-30 M4 生成清单校验与受管理读取
+
+产品分支 `codex/gfsim-source-units` 提交 `ce4fbbff` 完成 C3-C 已批准范围内
+的私有 generated.json 校验和持锁快照读取：精确字段/owner/路径/源组及目录
+清单验证，复用已有发布、替换保护与恢复。独立新测试 63 项、既有回归
+155 项通过，3 项 Windows 专用测试跳过；Sol 独立审阅 APPROVE 并复跑全部
+63 项。重复键检测和持锁读取的进程内变异分别触发预期失败。
+
+实现/测试为两个独立 Luna 实例；Astra 校验范围，Sol 独立验收。产品分支
+任务包 `docs/work-items/m4-generated-bundle-validation.md`，证据目录
+`docs/gates/logs/20260930-generated-bundle-validation/`。
+
+本包只验证文件管理，当前私有 profile 要求空静态参数；不声称真实生成器
+已发布完整 bundle 或 ABI。M4 仍待 native 产物组装、dut.h ABI、生成构建
+链接/运行、RTL 源归属；M5 公开 emit 与旧路线删除尚未切换。M2 保持 accepted。
