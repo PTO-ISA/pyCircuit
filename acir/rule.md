@@ -4,7 +4,7 @@
 
 ## 基本模型
 
-Module 包含连接、持久状态和运行时控制逻辑，Work 根据条件调用 rule。Module 不是原子事务，多个独立 rule 可以分别成功或失败。
+Module 包含连接、持久状态和运行时控制逻辑，Work 根据本 tick 的 current 状态选择并调用 rule。Module 不是原子事务，多个独立 rule 可以分别成功或失败。Module 控制流不读取 delta 内变化的仲裁资格；同一 tick 只执行一次 Work，记录选中的 rule 调用与参数，后续 delta 只重试受影响的 rule Work。
 
 Rule 包含组合计算和控制流。由实际分支选中的输入消费、输出产生与内部状态修改构成一个原子 firing；所有实际操作一起成功，否则不提交。
 
@@ -38,7 +38,7 @@ def select(left_entries, right_entries, control, left, right):
 | Rule 读取消息输入 Queue 的 payload，包括分支条件 | 安全读取旧队首；前端为实际读取路径生成一次 pop 需求，仅在 firing 成功时消费 |
 | Rule 读取 Module 持有的寄存器 Queue | 只读当前值，不生成 pop |
 | Module 读取寄存器 Queue 并向 Rule 传 `var` | 传递组合值，不生成 pop；Module 不预读 Rule 的消息输入 payload |
-| Module 查询 Queue 的空、满等状态 | 只读资源状态，不读取 payload，也不生成 pop |
+| Module 查询 Queue 的当前空、满等状态 | 只读 current，不读取 payload，也不生成 pop；不读取 accepted pop 等可变仲裁资格 |
 | `return value` | 对绑定输出 Queue 的 push proposal |
 | `return None` | 当前路径不产生该位置输出，正常完成 |
 | `if/elif/else` | 选择调用、计算和实际 proposal |

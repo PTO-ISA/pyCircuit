@@ -16,10 +16,11 @@ Module 对应 SimObject，rule 是其函数和独立事务，不要求独立 Sim
 ## 全局执行流程
 
 ```text
-取出本批次激活的 modules
+取出本批次收到通知的 modules
     ↓
-并行 module.Work
-    ├─ 按控制流调用 rule
+并行处理各 module
+    ├─ 本 tick 首次激活：执行一次 module.Work，记录选中的 rule 调用与参数
+    ├─ 后续 delta：只重试记录中受影响、尚未获准的 rule Work
     ├─ 在 ruleSlots[RuleId] 写本次动态信息
     └─ 只把实际尝试的 RuleId 加入本批列表
     ↓ 全局屏障
@@ -77,11 +78,11 @@ std::map<std::pair<Tick, Delta>, std::set<ModuleId>> scheduledModules;
 
 ## Module Work 与 Rule 仲裁收尾
 
-调度器执行 module.Work，由控制流选择实际调用的 rule。Module 每 delta 至多 Work 一次；同一 RuleId 在该 delta 至多尝试一次，本 tick 至多获准一次。未被调用的 rule 不进入本批仲裁集合；再激活时跳过已获准实例，保留其 accepted proposal。
+Module 首次在本 tick 被激活时，调度器执行一次 `module.Work()`，由控制流选择实际调用的 rule，并保存 rule 调用描述及参数。Module Work 只观察 current，因此本 tick 内选择不变；后续 delta 的通知只重试记录中受影响的 rule Work，不重跑 Module Work。同一 RuleId 在该 delta 至多尝试一次，本 tick 至多获准一次。未被选中的 rule 不进入本批仲裁集合；再通知时跳过已获准实例，保留其 accepted proposal。
 
 Work 全局屏障后，按本批 RuleId 列表仲裁，包括未 complete 与无 proposal 的尝试。失败只清理该 Rule 的 proposal 和唤醒请求。`RuleSlot` 按 ID 固定存储，下次尝试才清空动态字段；本批 RuleId 列表在仲裁后清空。无需每 delta 或每 tick 扫描重置全部槽位。具体调用与复用见 [rule.md](rule.md)。
 
-不同 module 的 Work 可并行；初版不默认并行展开同一 module 的内部控制流。本批 RuleId 先按 Module 或工作线程局部登记，屏障后合并与排序，避免并行追加同一个列表。每个 RuleId 在同一 delta 只由其所属 Module Work 写入槽位。
+不同 module 的首次 Work 与后续 rule Work 可并行；初版不默认并行展开同一 module 的内部控制流。本批 RuleId 先按 Module 或工作线程局部登记，屏障后合并与排序，避免并行追加同一个列表。每个 RuleId 在同一 delta 只由其所属 Module 的调用写入槽位。
 
 ## 方案 A：不复用同拍 pop 的空间
 
@@ -119,10 +120,10 @@ Push 容量只看 current，不使用本拍其他 rule 的获准 pop。Queue 在
 
 ### Accepted pop 与下一 delta
 
-整条 rule 成功后，将可能利用空间的直接生产者所属 ModuleId 加入下一 delta。重新执行其 module Work，尝试尚未获准的 rule，不保留失败 proposal 或详细阻塞原因表。
+整条 rule 成功后，将可能利用空间的直接生产者所属 ModuleId 加入下一 delta。目标 Module 若在本 tick 尚未执行 Work，则首次执行并记录选择；若已执行，则只重试记录中可能向该 Queue push、尚未获准的 rule。失败 proposal 当批清理，不保留详细阻塞原因表；已保存的调用描述及参数在本 tick 内有效。
 
 ```text
-取出本 delta 的 modules 并行 Work
+取出本 delta 收到通知的 modules：首次运行 Work，或重试受影响 rule Work
     → 屏障
     → 所有尝试进入仲裁收尾
     → 完整候选按消费先行拓扑序预约并确认
@@ -130,18 +131,18 @@ Push 容量只看 current，不使用本拍其他 rule 的获准 pop。Queue 在
     → 同 tick 任务耗尽后统一 Xfer
 ```
 
-不在仲裁中途递归执行新 module，不在 delta 边界 Xfer。再次执行读取的仍是本拍旧数据，不会形成零周期数据传递。
+不在仲裁中途递归执行新 module，不在 delta 边界 Xfer。重试的 rule 读取的仍是本拍旧数据，不会形成零周期数据传递。Module 的控制流不得读取 delta 内变化的仲裁资格，否则本 tick 只执行一次 Work 的前提不成立。
 
 例如 Q1/Q2 开始时已满，C 所属 module 首先被唤醒：
 
 ```text
 (t,0)：C 获准 pop Q2，通知 B 的 module。
-(t,1)：B 的 module Work；B 利用 Q2 资格获准，pop Q1。
-(t,2)：A 的 module Work；A 利用 Q1 资格获准。
+(t,1)：B 的 module 首次 Work，或直接重试已选中的 B；B 利用 Q2 资格获准，pop Q1。
+(t,2)：A 的 module 首次 Work，或直接重试已选中的 A；A 利用 Q1 资格获准。
 tick 结束：统一提交。
 ```
 
-如果 A/B/C 在同一个 module，通知仍可再次激活该 module；已获准者跳过，其他 rule 可以重新尝试。如果它们同一 delta 已有完整候选，则直接按 `C → B → A` 仲裁。
+如果 A/B/C 在同一个 module，通知仍可再次指向该 module，但不重新执行其 Work；已获准者跳过，记录中受影响的 rule 可以重新尝试。如果它们同一 delta 已有完整候选，则直接按 `C → B → A` 仲裁。
 
 ### 容量提示与终止
 
@@ -151,7 +152,7 @@ canPush = !pushOccupied && (!currentFull || hasAcceptedPop);
 
 这是资格提示，不替代整体预约。CurrentFull 本 tick 内不变，临时 pop 不属于 hasAcceptedPop。一个 pop 不提供第二个 push 或第二个消费机会。本拍新 push 的数据始终不可读。
 
-为支持 B，不能仅因 current.full 就在 module Work 排除全部生产候选。允许按最终仲裁失败，不要求 Work 提前算出完整 fire。
+为支持 B，不能仅因 current.full 就在 module Work 排除全部生产候选，也不能让 Module 控制流读取 accepted pop 等可变仲裁资格。允许生产候选在首次仲裁时因容量不足失败，下一 delta 按保存的调用重新执行 rule Work，不要求 Work 提前算出完整 fire。
 
 只有整体 accepted pop 引起本 tick 后续通知，失败本身不重排。每条 rule 本 tick 至多获准一次；同一 delta 去重。有限规则和连接下，该事件推进不会因失败自行无限循环，但不求解无起点的循环空间依赖，也不保证最大获准集合或公平性。
 
@@ -166,7 +167,7 @@ canPush = !pushOccupied && (!currentFull || hasAcceptedPop);
 
 初始化登记：Queue 到相关 module、Queue 到可能生产者所属 module、RuleId 到所属 module 和仲裁入口。必须包含 module 控制条件的读取、内部流水线 Queue 和只读 Queue，不能只登记上次选中分支的实际依赖。来源注册不替代读取依赖登记。
 
-时间相关控制需要明确的事件，不能等待无关 Queue 恰好变化。通知仅安排重新计算，不保证 rule 会 fire。
+时间相关控制需要明确的事件，不能等待无关 Queue 恰好变化。通知安排目标 Module 首次执行 Work，或重试此前选中的受影响 rule；不保证 rule 会 fire。
 
 ## 调度记录与生命周期
 
@@ -183,19 +184,19 @@ Rule 注册表绑定 RuleId、所属 ModuleId 与仲裁入口。`ruleSlots[RuleI
 | 项目 | A | B |
 | --- | --- | --- |
 | 使用其他 rule 本拍获准 pop 的空间 | 不使用 | 使用 |
-| Work 批次 | 一批 module Work | 多个 delta 的 module Work |
+| Work 批次 | 每个激活的 module 本 tick 最多一次 Work | 每个激活的 module 本 tick 最多一次 Work；后续 delta 可重试选中的 rule Work |
 | 完整候选仲裁 | 固定竞争顺序 | 消费先行拓扑序，无依赖者按固定优先级 |
 | 上游 module 再激活 | 下一 tick | accepted pop 后下一 delta |
-| 实现代价 | 调度和容量判断简单 | 依赖排序、额外 Work、delta 与屏障 |
+| 实现代价 | 调度和容量判断简单 | 依赖排序、rule 调用记录与重试、delta 与屏障 |
 | 原子性 | 每条 rule，统一 Xfer | 相同 |
 
 两者不是逐 tick 等价的性能替换。Module Work 不承担整体原子性；调用顺序和返回不表示提交成功。自身 pop/push 的局部空间政策、来源 0 外部驱动的竞争优先级、字段冲突、公平性和具体建图保持原支持边界，不在本轮扩展。
 
 ## 验收标准
 
-- [ ] 多个 Queue 更新只触发同 delta 的一次 module Work。
+- [ ] 多个 Queue 通知只触发同 tick 的一次 module Work；后续 delta 不重算控制流。
 - [ ] 内部流水线和 module 控制读取变化不漏唤醒。
-- [ ] 同一 module 再激活不重复提交已获准 rule，剩余 rule 可重试。
+- [ ] 同一 module 再通知时只重试已选中且受影响的 rule，不重复提交已获准 rule；调用参数在本 tick 内有效。
 - [ ] A 的满 Queue push 等待下一 tick；B 利用整条 rule 获准 pop 的空间。
 - [ ] B 跨 module 消费先行仲裁，delta 无数据穿透，失败不无限自行重排。
 - [ ] 相同 payload 交接与端口重置通知不遗漏。

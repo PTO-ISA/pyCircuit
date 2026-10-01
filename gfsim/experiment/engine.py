@@ -1,11 +1,11 @@
-"""Single-threaded scheduling experiment; callbacks must be pure except proposals."""
+"""Runtime for explicit generated methods and preconstructed ID-indexed tables."""
 
 from collections import Counter
-from heapq import heappop, heappush
+from dataclasses import dataclass, field
 
 
 class NeedInput(Exception):
-    """A required current element is absent; this attempt is incomplete."""
+    """A required current element is absent."""
 
 
 def immutable(value):
@@ -25,44 +25,112 @@ def same_value(left, right):
     return left == right
 
 
-class Proposal:
-    def __init__(self):
-        self.pop = False
-        self.push = self.revise = None
-        self.status = "pending"
+class IdList:
+    """Fixed ID buffer and membership tags; clear advances a generation."""
+    def __init__(self, capacity):
+        self.ids, self.tags = [0] * capacity, [0] * capacity
+        self.count, self.generation = 0, 1
+
+    def __bool__(self):
+        return self.count != 0
+
+    def __iter__(self):
+        return (self.ids[i] for i in range(self.count))
+
+    def __contains__(self, identity):
+        return self.tags[identity] == self.generation
+
+    def add(self, identity):
+        if identity not in self:
+            self.tags[identity] = self.generation
+            self.ids[self.count] = identity
+            self.count += 1
+
+    def extend(self, identities):
+        for identity in identities:
+            self.add(identity)
+
+    def clear(self):
+        self.count = 0
+        self.generation += 1
+
+    def sort(self, key=None):
+        self.ids[:self.count] = sorted(self, key=key)
+
+
+@dataclass(frozen=True)
+class RuleEntry:
+    module_id: int
+    work: object
+    arbitrate: object
+    pops: tuple = ()
+    pushes: tuple = ()
+    revises: tuple = ()
+
+
+@dataclass(frozen=True)
+class StaticTables:
+    module_work: tuple
+    rules: tuple                 # rules[0] is unused; RuleId is the index.
+    producers: tuple             # QueueId -> tuple of possible push RuleIds.
+    rank: tuple                  # RuleId -> fixed arbitration priority.
+
+
+@dataclass
+class ModuleRecord:
+    worked_tick: int = -1
+    read_gen: int = 0
+    reads: set = field(default_factory=set)
+    selected: list = field(default_factory=list)
+    previous_selected: list = field(default_factory=list)
+    collecting: bool = False
+
+
+@dataclass
+class RuleRecord:
+    deps: dict = field(default_factory=dict)
+    participants: list = field(default_factory=list)
+    args: tuple = ()
+    call_args: tuple = ()
+    selected_tick: int = -1
+    complete: bool = False
+    executing: bool = False
+    prepared_epoch: object = None
+    accepted_tick: int = -1
+    waiting: object = None
+    waiting_position: int = -1
+
+
+@dataclass
+class ProposalSlot:
+    pop: bool = False
+    push: object = None
+    revise: object = None
+    status: str = "empty"
+
+
+def clear_slot(slot):
+    slot.pop, slot.push, slot.revise, slot.status = False, None, None, "empty"
 
 
 class Queue:
-    def __init__(self, sim, capacity, initial, name):
+    def __init__(self, capacity=1, initial=()):
         if type(capacity) is not int or capacity < 1 or len(initial) > capacity:
             raise ValueError("invalid queue capacity or initial contents")
-        self.sim, self.capacity, self.name = sim, capacity, name
-        self._current = [immutable(v) for v in initial]
+        self.capacity, self._current = capacity, [immutable(v) for v in initial]
+        self.engine, self.qid = None, -1
+        self.source_index, self.allowed_ops, self.slots = {}, (), []
         self.state_version = 0
-        self.readers, self.proposals = {}, {}
-        self.producers, self.waiters = set(), set()
+        self.readers, self.waiters = {}, []
         self.owners = dict.fromkeys(("pop", "push", "revise"))
         self.accepted = []
+        self.used_tick = -1
 
     @property
     def current(self):
-        if self.sim.current_module is not None:
-            raise RuntimeError("Work must use tracked queue reads")
         return tuple(self._current)
 
-    def _read(self):
-        module = self.sim.current_module
-        if module is None:
-            raise RuntimeError("queue reads require a Work context")
-        module.reads.add(self)
-        if not module.collecting:
-            self.readers[module] = module.read_gen
-        rule = self.sim.current_rule
-        if rule is not None:
-            rule.deps[self] = self.state_version
-
     def try_peek(self):
-        self._read()
         return self._current[0] if self._current else None
 
     def peek(self):
@@ -72,7 +140,6 @@ class Queue:
         return value
 
     def size(self):
-        self._read()
         return len(self._current)
 
     def empty(self):
@@ -81,76 +148,90 @@ class Queue:
     def full(self):
         return self.size() == self.capacity
 
-    def _propose(self, operation, value):
-        rule = self.sim.current_rule
-        if rule is None or self not in rule.resources[operation]:
-            raise RuntimeError("operation must belong to a declared Rule resource")
+    def proposal(self, rule_id):
+        return self.slots[self.source_index[rule_id]]
+
+    def _propose(self, rule_id, operation, value):
+        if rule_id not in self.source_index:
+            raise RuntimeError("undeclared Queue source")
+        index = self.source_index[rule_id]
+        record = self.engine.rule_records[rule_id]
+        if not record.executing or operation not in self.allowed_ops[index]:
+            raise RuntimeError("operation must belong to an executing, declared Rule")
         if operation != "push":
-            self._read()  # pop/revise targets are also computation dependencies.
+            mid = self.engine.tables.rules[rule_id].module_id
+            self.engine.record_read(mid, self.qid, rule_id)  # Target dependency.
             if not self._current:
                 raise NeedInput()
-        if rule not in self.proposals:
-            self.proposals[rule] = Proposal()
-            rule.participants.append(self)
-        proposal = self.proposals[rule]
-        already_set = proposal.pop if operation == "pop" else getattr(proposal, operation) is not None
+        slot = self.slots[index]
+        if slot.status == "empty":
+            slot.status = "pending"
+            record.participants.append(self.qid)
+        already_set = slot.pop if operation == "pop" else (
+            slot.push is not None if operation == "push" else slot.revise is not None)
         if already_set:
             raise ValueError("duplicate operation on the same queue")
-        setattr(proposal, operation, value)
+        if operation == "pop":
+            slot.pop = True
+        elif operation == "push":
+            slot.push = value
+        else:
+            slot.revise = value
 
-    def pop(self):
-        self._propose("pop", True)
+    def propose_pop(self, rule_id):
+        self._propose(rule_id, "pop", True)
 
-    def push(self, value):
-        self._propose("push", immutable(value))
+    def propose_push(self, rule_id, value):
+        self._propose(rule_id, "push", immutable(value))
 
-    def revise(self, value):
-        self._propose("revise", immutable(value))
+    def propose_revise(self, rule_id, value):
+        self._propose(rule_id, "revise", immutable(value))
 
-    def reserve(self, rule):
-        self.sim.stats["reservation_checks"] += 1
-        proposal = self.proposals[rule]
-        operations = [op for op in self.owners
-                      if (proposal.pop if op == "pop" else getattr(proposal, op) is not None)]
+    def reserve(self, rule_id):
+        self.engine.stats["reservation_checks"] += 1
+        slot = self.proposal(rule_id)
+        operations = [op for op, present in zip(self.owners,
+                      (slot.pop, slot.push is not None, slot.revise is not None)) if present]
         if len(self._current) == 1 and (
-            (proposal.pop and proposal.revise is not None)
-            or (proposal.pop and self.owners["revise"] is not None)
-            or (proposal.revise is not None and self.owners["pop"] is not None)
+            (slot.pop and slot.revise is not None)
+            or (slot.pop and self.owners["revise"] is not None)
+            or (slot.revise is not None and self.owners["pop"] is not None)
         ):
             raise ValueError("revise/pop of the same old element is unsupported")
         if any(self.owners[op] is not None for op in operations):
             return False
         pop_owner = self.owners["pop"]
-        accepted_pop = (pop_owner is not None
-                        and self.proposals[pop_owner].status == "accepted")
-        if proposal.push is not None and not (
-            len(self._current) < self.capacity or proposal.pop or accepted_pop
+        accepted_pop = pop_owner is not None and self.proposal(pop_owner).status == "accepted"
+        if slot.push is not None and not (
+            len(self._current) < self.capacity or slot.pop or accepted_pop
         ):
             return False
         for op in operations:
-            self.owners[op] = rule
-        proposal.status = "reserved"
-        self.sim.stats["reservations"] += 1
+            self.owners[op] = rule_id
+        slot.status = "reserved"
+        self.engine.stats["reservations"] += 1
         return True
 
-    def release(self, rule):
-        proposal = self.proposals.get(rule)
-        if proposal is not None and proposal.status == "reserved":
+    def release(self, rule_id):
+        slot = self.proposal(rule_id)
+        if slot.status == "reserved":
             for op, owner in self.owners.items():
-                if owner is rule:
+                if owner == rule_id:
                     self.owners[op] = None
-            proposal.status = "pending"
+            slot.status = "pending"
 
-    def accept(self, rule):
-        assert self.proposals[rule].status == "reserved"
-        self.proposals[rule].status = "accepted"
-        self.accepted.append(rule)
-        self.sim.used_queues.add(self)
+    def accept(self, rule_id):
+        assert self.proposal(rule_id).status == "reserved"
+        self.proposal(rule_id).status = "accepted"
+        self.accepted.append(rule_id)
+        if self.used_tick != self.engine.tick:
+            self.used_tick = self.engine.tick
+            self.engine.used_queues.append(self.qid)
 
     def xfer(self):
         changed = False
-        for rule in self.accepted:
-            value = self.proposals[rule].revise
+        for rule_id in self.accepted:
+            value = self.proposal(rule_id).revise
             if value is not None:
                 changed |= not same_value(self._current[-1], value)
                 self._current[-1] = value
@@ -158,268 +239,259 @@ class Queue:
             self._current.pop(0)
             changed = True
         if self.owners["push"] is not None:
-            self._current.append(self.proposals[self.owners["push"]].push)
-            changed = True  # Element identity changes even for equal payloads.
+            self._current.append(self.proposal(self.owners["push"]).push)
+            changed = True  # Equal payloads still replace element identity.
         assert len(self._current) <= self.capacity
         self.state_version += bool(changed)
-        for rule in self.accepted:
-            del self.proposals[rule]
+        for rule_id in self.accepted:
+            clear_slot(self.proposal(rule_id))
         self.accepted.clear()
         self.owners = dict.fromkeys(self.owners)
         return changed
 
 
-class Module:
-    def __init__(self, sim, work, name):
-        self.sim, self.work, self.name = sim, work, name
-        self.index = len(sim.modules)
-        self.read_gen, self.worked_tick = 0, -1
-        self.reads, self.selected = set(), {}
-        self.collecting = False
+class Simulator:
+    def __init__(self, queues, tables, module_records, rule_records, reference=False):
+        self.queues, self.tables = tuple(queues), tables
+        self.module_records, self.rule_records = module_records, rule_records
+        self.reference, self.tick, self.delta = reference, 0, 0
+        self.next_modules = IdList(len(module_records))
+        self.next_modules.extend(range(len(module_records)))
+        self.module_tasks = (IdList(len(module_records)), IdList(len(module_records)))
+        self.rule_tasks = (IdList(len(rule_records)), IdList(len(rule_records)))
+        self.used_queues, self.stats = [], Counter()
+        for qid, queue in enumerate(queues):
+            queue.engine, queue.qid = self, qid
 
-    def run(self):
-        old_selected = self.selected
-        self.reads, self.selected = set(), {}
-        self.worked_tick = self.sim.tick
-        self.sim.stats["module_work"] += 1
-        self.collecting, self.sim.current_module = True, self
-        try:
-            self.work()
-        except NeedInput:
-            self.sim.stats["module_incomplete"] += 1
-        finally:
-            self.collecting, self.sim.current_module = False, None
-        for rule in old_selected.keys() - self.selected.keys():
-            rule.discard()
-        generation = self.read_gen + 1
-        for queue in self.reads:
-            queue.readers[self] = generation
-        self.read_gen = generation
+    def record_read(self, module_id, queue_id, rule_id=None):
+        module, queue = self.module_records[module_id], self.queues[queue_id]
+        if module.worked_tick != self.tick:
+            raise RuntimeError("read belongs to an inactive Module")
+        if rule_id is not None:
+            if self.tables.rules[rule_id].module_id != module_id:
+                raise ValueError("read belongs to another Module's Rule")
+            self.rule_records[rule_id].deps[queue_id] = queue.state_version
+        module.reads.add(queue_id)
+        if not module.collecting:
+            queue.readers[module_id] = module.read_gen
 
+    def _unwait(self, rule_id):
+        record = self.rule_records[rule_id]
+        if record.waiting is not None:
+            waiters = self.queues[record.waiting].waiters
+            last = waiters.pop()
+            if record.waiting_position < len(waiters):
+                waiters[record.waiting_position] = last
+                self.rule_records[last].waiting_position = record.waiting_position
+            record.waiting = None
+            record.waiting_position = -1
 
-class Rule:
-    def __init__(self, module, work, name, pops, pushes, revises):
-        self.module, self.sim, self.work, self.name = module, module.sim, work, name
-        self.pops, self.pushes, self.revises = map(frozenset, (pops, pushes, revises))
-        self.resources = dict(zip(("pop", "push", "revise"), (self.pops, self.pushes, self.revises)))
-        self.deps, self.participants = {}, []
-        self.candidate, self.args, self.waiting = False, (), None
-        self.accepted_tick, self.prepared_epoch = -1, None
+    def _discard(self, rule_id):
+        record = self.rule_records[rule_id]
+        self._unwait(rule_id)
+        for qid in record.participants:
+            queue = self.queues[qid]
+            assert queue.proposal(rule_id).status != "accepted"
+            queue.release(rule_id)
+            clear_slot(queue.proposal(rule_id))
+        record.participants.clear()
+        record.deps.clear()
+        record.complete = record.executing = False
 
-    def __call__(self, *args):
-        if self.sim.current_module is not self.module or self.sim.current_rule is not None:
-            raise RuntimeError("only the owning Module Work may call a Rule")
+    def begin_rule(self, rule_id, args=()):
+        self.stats["rule_entries"] += 1
         immutable(args)
-        if self in self.module.selected:
-            if not same_value(args, self.module.selected[self]):
-                raise ValueError("one Rule instance cannot have multiple calls/parameters")
-            return
-        self.module.selected[self] = args
-        self.prepare(args)
-
-    def unwait(self):
-        if self.waiting is not None:
-            self.waiting.waiters.remove(self)
-            self.waiting = None
-
-    def discard(self):
-        self.unwait()
-        for queue in self.participants:
-            proposal = queue.proposals.get(self)
-            assert proposal is None or proposal.status != "accepted"
-            queue.release(self)
-            queue.proposals.pop(self, None)
-        self.participants.clear()
-        self.deps.clear()
-        self.candidate = False
-
-    def prepare(self, args):
-        self.prepared_epoch = (self.sim.tick, self.sim.delta)
-        valid = self.candidate and same_value(args, self.args) and not self.sim.reference
+        record = self.rule_records[rule_id]
+        mid = self.tables.rules[rule_id].module_id
+        module = self.module_records[mid]
+        selected = record.selected_tick == self.tick
+        if module.worked_tick != self.tick or (not module.collecting and not selected):
+            raise RuntimeError("Rule was not selected by an active Module")
+        if selected and not same_value(args, record.call_args):
+            raise ValueError("one Rule instance cannot have multiple calls/parameters")
+        if not selected:
+            module.selected.append(rule_id)
+            record.selected_tick, record.call_args = self.tick, args
+        epoch = (self.tick, self.delta)
+        if record.accepted_tick == self.tick or record.prepared_epoch == epoch:
+            return False
+        record.prepared_epoch = epoch
+        candidate = record.complete and bool(record.participants)
+        valid = candidate and same_value(args, record.args) and not self.reference
         if valid:
-            for queue, version in self.deps.items():
-                self.sim.stats["version_checks"] += 1
-                if queue.state_version != version:
+            for qid, version in record.deps.items():
+                self.stats["version_checks"] += 1
+                if self.queues[qid].state_version != version:
                     valid = False
                     break
         if valid:
-            self.sim.stats["cache_hits"] += 1
-            self.module.reads.update(self.deps)
-            if not self.module.collecting:
-                for queue in self.deps:
-                    queue.readers[self.module] = self.module.read_gen
-            return
-        if self.candidate and not self.sim.reference:
-            self.sim.stats["cache_invalidations"] += 1
-        self.discard()
-        self.args = args
-        self.sim.stats["rule_work"] += 1
-        old_module = self.sim.current_module
-        self.sim.current_module, self.sim.current_rule = self.module, self
-        try:
-            self.work(*args)
-            self.candidate = bool(self.participants)
-        except NeedInput:
-            self.sim.stats["incomplete"] += 1
-            self.discard()  # Module already collected even the failed read.
-        except Exception:
-            self.discard()
-            raise
-        finally:
-            self.sim.current_module, self.sim.current_rule = old_module, None
-
-    def arbitrate(self):
-        self.sim.stats["arbitrations"] += 1
-        self.unwait()
-        try:
-            for queue in self.participants:
-                if not queue.reserve(self):
-                    for participant in self.participants:
-                        participant.release(self)
-                    self.waiting = queue
-                    queue.waiters.add(self)
-                    return False
-        except Exception:
-            for queue in self.participants:
-                queue.release(self)
-            raise
-        for queue in self.participants:
-            queue.accept(self)
-        self.accepted_tick = self.sim.tick
-        self.sim.stats["accepted"] += 1
+            self.stats["cache_hits"] += 1
+            for qid in record.deps:
+                self.record_read(mid, qid)
+            return False
+        if candidate and not self.reference:
+            self.stats["cache_invalidations"] += 1
+        self._discard(rule_id)
+        record.args, record.executing = args, True
+        self.stats["rule_work"] += 1
         return True
 
+    def complete_rule(self, rule_id):
+        record = self.rule_records[rule_id]
+        if not record.executing:
+            raise RuntimeError("Rule is not executing")
+        record.complete, record.executing = True, False
 
-class Simulator:
-    def __init__(self, reference=False):
-        self.reference = reference
-        self.queues, self.modules, self.rules = [], [], []
-        self.tick, self.delta = 0, 0
-        self.current_module = self.current_rule = None
-        self.next_modules, self.used_queues = set(), set()
-        self.stats, self.rank = Counter(), None
+    def abort_rule(self, rule_id):
+        self.stats["incomplete"] += 1
+        self._discard(rule_id)  # Module's collected reads survive cancellation.
 
-    def _register(self, collection, obj):
-        if self.rank is not None:
-            raise RuntimeError("registration is frozen after the first step")
-        collection.append(obj)
-        return obj
+    def _closed(self, rule_id):
+        if self.rule_records[rule_id].executing:
+            self._discard(rule_id)
+            raise RuntimeError("generated Rule must complete or abort before returning")
 
-    def queue(self, capacity=1, initial=(), name=None):
-        return self._register(self.queues, Queue(self, capacity, initial, name or f"q{len(self.queues)}"))
+    def _run_module(self, mid):
+        module = self.module_records[mid]
+        module.selected, module.previous_selected = module.previous_selected, module.selected
+        module.selected.clear()
+        module.reads.clear()
+        module.worked_tick, module.collecting = self.tick, True
+        self.stats["module_work"] += 1
+        try:
+            self.tables.module_work[mid]()
+        except NeedInput:
+            self.stats["module_incomplete"] += 1
+        except Exception:
+            for rid in module.selected:
+                if self.rule_records[rid].executing:
+                    self._discard(rid)
+            raise
+        finally:
+            module.collecting = False
+        for rid in module.selected:
+            self._closed(rid)
+        for rid in module.previous_selected:
+            if self.rule_records[rid].selected_tick != self.tick:
+                self._discard(rid)
+        module.previous_selected.clear()
+        generation = module.read_gen + 1
+        for qid in module.reads:
+            self.queues[qid].readers[mid] = generation
+        module.read_gen = generation
 
-    def module(self, work=None, name=None):
-        return self._register(self.modules, Module(self, work, name or f"m{len(self.modules)}"))
+    def arbitrate_rule(self, rule_id):
+        record = self.rule_records[rule_id]
+        if not record.complete or not record.participants or record.accepted_tick == self.tick:
+            return False
+        self.stats["arbitrations"] += 1
+        self._unwait(rule_id)
+        try:
+            for qid in record.participants:
+                if not self.queues[qid].reserve(rule_id):
+                    for participant in record.participants:
+                        self.queues[participant].release(rule_id)
+                    record.waiting = qid
+                    record.waiting_position = len(self.queues[qid].waiters)
+                    self.queues[qid].waiters.append(rule_id)
+                    return False
+        except Exception:
+            for qid in record.participants:
+                self.queues[qid].release(rule_id)
+            raise
+        for qid in record.participants:
+            self.queues[qid].accept(rule_id)
+        record.accepted_tick = self.tick
+        self.stats["accepted"] += 1
+        return True
 
-    def rule(self, module, work, *, pops=(), pushes=(), revises=(), name=None):
-        if module.sim is not self:
-            raise ValueError("Module belongs to another simulator")
-        rule = Rule(module, work, name or f"r{len(self.rules)}", pops, pushes, revises)
-        if any(q.sim is not self for q in rule.pops | rule.pushes | rule.revises):
-            raise ValueError("Queue belongs to another simulator")
-        self._register(self.rules, rule)
-        for queue in rule.pushes:
-            queue.producers.add(rule)
-        return rule
-
-    def _freeze(self):
-        edges = [set() for _ in self.rules]
-        indegree = [0] * len(self.rules)
-        indices = {rule: i for i, rule in enumerate(self.rules)}
-        for i, consumer in enumerate(self.rules):
-            for queue in consumer.pops:
-                for producer in queue.producers:
-                    j = indices[producer]
-                    if i != j and j not in edges[i]:
-                        edges[i].add(j)
-                        indegree[j] += 1
-        ready, order = [], []
-        for i, degree in enumerate(indegree):
-            if degree == 0:
-                heappush(ready, i)
-        while ready:
-            i = heappop(ready)
-            order.append(self.rules[i])
-            for j in edges[i]:
-                indegree[j] -= 1
-                if indegree[j] == 0:
-                    heappush(ready, j)
-        if len(order) != len(self.rules):
-            raise ValueError("cyclic static capacity dependencies are unsupported")
-        self.rank = {rule: i for i, rule in enumerate(order)}
-        self.next_modules.update(self.modules)
-
-    def _readers(self, queue):
+    def _readers(self, qid):
         if self.reference:
-            self.stats["module_scans"] += len(self.modules)
-            return {m for m in self.modules if queue in m.reads}
-        self.stats["reader_checks"] += len(queue.readers)
-        return {m for m, gen in queue.readers.items() if gen == m.read_gen}
+            self.stats["module_scans"] += len(self.module_records)
+            return [mid for mid, m in enumerate(self.module_records) if qid in m.reads]
+        readers = self.queues[qid].readers
+        self.stats["reader_checks"] += len(readers)
+        return [mid for mid, gen in readers.items() if gen == self.module_records[mid].read_gen]
 
-    def _waiters(self, queue):
+    def _waiters(self, qid):
         if self.reference:
-            self.stats["rule_scans"] += len(self.rules)
-            return {r for r in self.rules if r.waiting is queue}
-        self.stats["waiter_checks"] += len(queue.waiters)
-        return queue.waiters
+            self.stats["rule_scans"] += len(self.rule_records) - 1
+            return [rid for rid, r in enumerate(self.rule_records[1:], 1) if r.waiting == qid]
+        waiters = self.queues[qid].waiters
+        self.stats["waiter_checks"] += len(waiters)
+        return waiters
 
-    def _producers(self, queue):
+    def _producers(self, qid):
         if self.reference:
-            self.stats["rule_scans"] += len(self.rules)
-            return {r for r in self.rules if queue in r.pushes}
-        self.stats["producer_checks"] += len(queue.producers)
-        return queue.producers
+            self.stats["rule_scans"] += len(self.tables.rules) - 1
+            return [rid for rid, r in enumerate(self.tables.rules[1:], 1) if qid in r.pushes]
+        producers = self.tables.producers[qid]
+        self.stats["producer_checks"] += len(producers)
+        return producers
 
     def step(self, wake=()):
-        wake = set(wake)
-        if any(module.sim is not self for module in wake):
-            raise ValueError("wake target belongs to another simulator")
-        if self.rank is None:
-            self._freeze()
-        modules, rules = self.next_modules | wake, set()
-        self.next_modules = set()
+        wake = tuple(wake)
+        if any(type(mid) is not int or not 0 <= mid < len(self.module_records) for mid in wake):
+            raise ValueError("invalid ModuleId")
+        modules, spare_modules = self.module_tasks
+        rules, spare_rules = self.rule_tasks
+        for tasks in (*self.module_tasks, *self.rule_tasks):
+            tasks.clear()
+        modules.extend(self.next_modules)
+        modules.extend(wake)
+        self.next_modules.clear()
         self.delta, accepted = 0, []
         while modules or rules:
             self.stats["deltas"] += 1
-            batch_modules, modules = modules, set()
-            batch_rules, rules = rules, set()
-            for module in sorted(batch_modules, key=lambda m: m.index):
+            batch_modules, modules = modules, spare_modules
+            batch_rules, rules = rules, spare_rules
+            modules.clear()
+            rules.clear()
+            batch_modules.sort()
+            for mid in batch_modules:
+                module = self.module_records[mid]
                 if module.worked_tick != self.tick:
-                    module.run()
-                    batch_rules.update(module.selected)
-            for rule in sorted(batch_rules, key=self.rank.__getitem__):
-                if rule.accepted_tick == self.tick or rule not in rule.module.selected:
+                    self._run_module(mid)
+                    batch_rules.extend(module.selected)
+            batch_rules.sort(key=self.tables.rank.__getitem__)
+            for rid in batch_rules:
+                entry, record = self.tables.rules[rid], self.rule_records[rid]
+                if record.accepted_tick == self.tick or record.selected_tick != self.tick:
                     continue
-                if rule.prepared_epoch != (self.tick, self.delta):
-                    rule.prepare(rule.module.selected[rule])
-                if not rule.candidate or not rule.arbitrate():
+                if record.prepared_epoch != (self.tick, self.delta):
+                    entry.work(*record.call_args)
+                    self._closed(rid)
+                if not record.complete or not record.participants or not entry.arbitrate():
                     continue
-                accepted.append(rule)
-                for queue in rule.pops & set(rule.participants):
-                    if not queue.proposals[rule].pop:
+                assert record.accepted_tick == self.tick
+                accepted.append(rid)
+                for qid in record.participants:
+                    if not self.queues[qid].proposal(rid).pop:
                         continue
-                    for producer in self._producers(queue):
-                        module = producer.module
-                        if module.worked_tick != self.tick:
-                            modules.add(module)
-                        elif (producer not in batch_rules and producer in module.selected
-                              and producer.candidate and producer.accepted_tick != self.tick):
+                    for producer in self._producers(qid):
+                        mid = self.tables.rules[producer].module_id
+                        m, r = self.module_records[mid], self.rule_records[producer]
+                        if m.worked_tick != self.tick:
+                            modules.add(mid)
+                        elif (producer not in batch_rules and r.selected_tick == self.tick and r.complete
+                              and r.participants and r.accepted_tick != self.tick):
                             rules.add(producer)
+            spare_modules, spare_rules = batch_modules, batch_rules
             self.delta += 1
-        changed = {queue for queue in self.used_queues if queue.xfer()}
-        # Work never runs during Xfer; publish notifications after all commits.
-        for queue in changed:
-            self.next_modules.update(self._readers(queue))
-        for queue in self.used_queues:
-            self.next_modules.update(rule.module for rule in self._waiters(queue))
-        for rule in accepted:
-            rule.candidate = False
-            rule.participants.clear()
-            rule.deps.clear()
+        changed = [qid for qid in self.used_queues if self.queues[qid].xfer()]
+        for qid in changed:  # Publish only after every Queue has committed.
+            self.next_modules.extend(self._readers(qid))
+        for qid in self.used_queues:
+            self.next_modules.extend(self.tables.rules[rid].module_id for rid in self._waiters(qid))
+        for rid in accepted:
+            record = self.rule_records[rid]
+            record.complete = False
+            record.participants.clear()
+            record.deps.clear()
         self.used_queues.clear()
         self.tick += 1
         self.stats["ticks"] += 1
-        return tuple(rule.name for rule in accepted)
+        return tuple(accepted)
 
     def snapshot(self):
         return tuple(queue.current for queue in self.queues)

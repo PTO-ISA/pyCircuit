@@ -5,64 +5,48 @@ import json
 from statistics import median
 from time import perf_counter
 
-from engine import Simulator
-
-
-def mover(sim, source, target, work=0):
-    module = sim.module()
-    def compute():
-        value = source.peek()
-        result = sum((value * 17 + i) % 97 for i in range(work)) if work else value
-        source.pop()
-        target.push(result)
-    rule = sim.rule(module, compute, pops=(source,), pushes=(target,))
-    module.work = rule
-    return module
-
-
-def sink(sim, queue, period=1):
-    module = sim.module()
-    rule = sim.rule(module, queue.pop, pops=(queue,))
-    module.work = lambda: rule() if sim.tick % period == 0 else None
-    return module
+from construction import assemble
+from engine import Queue, RuleEntry
+from models import Drain, Move, Revise
 
 
 def pipeline(reference, args):
-    sim = Simulator(reference)
-    source = sim.queue(args.ticks + 2, tuple(range(args.ticks + 2)))
-    stages = [sim.queue(initial=(i,)) for i in range(args.size)]
-    for left, right in zip((source, *stages), stages):
-        mover(sim, left, right)
-    return sim, (sink(sim, stages[-1]),)
+    queues = [Queue(args.ticks + 2, tuple(range(args.ticks + 2)))]
+    queues.extend(Queue(initial=(i,)) for i in range(args.size))
+    modules = [Move(i, i + 1, queues[i], queues[i + 1]) for i in range(args.size)]
+    rules = [None] + [RuleEntry(i, m.work_move, m.arbitrate_move, pops=(i,), pushes=(i + 1,))
+                      for i, m in enumerate(modules)]
+    sink = Drain(args.size, args.size + 1, queues[-1])
+    modules.append(sink)
+    rules.append(RuleEntry(sink.mid, sink.work_drain, sink.arbitrate_drain, pops=(args.size,)))
+    return assemble(queues, modules, rules, reference), (sink.mid,)
 
 
 def backpressure(reference, args):
-    sim = Simulator(reference)
-    source = sim.queue(args.ticks + 2, tuple(range(args.ticks + 2)))
-    target, control = sim.queue(initial=(0,)), sim.queue(initial=(0,))
-    module = mover(sim, source, target, args.work)
-    compute = module.work
-    def controlled():
-        if control.peek() >= 0:
-            compute()
-    module.work = controlled
-    driver = sim.module()
-    toggle = sim.rule(driver, control.revise, revises=(control,))
-    driver.work = lambda: toggle(sim.tick % 2)
-    return sim, (driver, sink(sim, target, period=20))
+    source = Queue(args.ticks + 2, tuple(range(args.ticks + 2)))
+    target, control = Queue(initial=(0,)), Queue(initial=(0,))
+    compute = Move(0, 1, source, target, control=control, iterations=args.work)
+    driver = Revise(1, 2, (control,), lambda tick: (tick % 2,))
+    sink = Drain(2, 3, target, lambda tick: tick % 20 == 0)
+    rules = [None,
+        RuleEntry(0, compute.work_move, compute.arbitrate_move, pops=(0,), pushes=(1,)),
+        RuleEntry(1, driver.work_revise, driver.arbitrate_revise, revises=(2,)),
+        RuleEntry(2, sink.work_drain, sink.arbitrate_drain, pops=(1,))]
+    return assemble([source, target, control], [compute, driver, sink], rules, reference), (1, 2)
 
 
 def sparse(reference, args):
-    sim = Simulator(reference)
-    for _ in range(args.idle):
-        queue = sim.queue()
-        module = sim.module()
-        rule = sim.rule(module, queue.pop, pops=(queue,))
-        module.work = rule  # Empty reads subscribe once, then sleep.
-    source = sim.queue(args.ticks + 2, tuple(range(args.ticks + 2)))
-    target = sim.queue(initial=(-1,))
-    mover(sim, source, target)
-    return sim, (sink(sim, target),)
+    queues = [Queue() for _ in range(args.idle)]
+    modules = [Drain(i, i + 1, queue) for i, queue in enumerate(queues)]
+    rules = [None] + [RuleEntry(i, m.work_drain, m.arbitrate_drain, pops=(i,))
+                      for i, m in enumerate(modules)]
+    source, target = Queue(args.ticks + 2, tuple(range(args.ticks + 2))), Queue(initial=(-1,))
+    mover = Move(args.idle, args.idle + 1, source, target)
+    sink = Drain(args.idle + 1, args.idle + 2, target)
+    rules.extend((RuleEntry(mover.mid, mover.work_move, mover.arbitrate_move,
+                            pops=(args.idle,), pushes=(args.idle + 1,)),
+                  RuleEntry(sink.mid, sink.work_drain, sink.arbitrate_drain, pops=(args.idle + 1,))))
+    return assemble([*queues, source, target], [*modules, mover, sink], rules, reference), (sink.mid,)
 
 
 def measure(builder, reference, args):

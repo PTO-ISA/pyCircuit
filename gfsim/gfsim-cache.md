@@ -124,7 +124,7 @@ Tick 表示硬件周期。Delta 表示同一 tick 内的执行和仲裁推进批
 delta 0：直接被唤醒的 C 执行 Work 并整体获准 pop Q2
     → Q2 的仲裁资格更新，通知等待者 B
 
-delta 1：B 有有效候选则重试仲裁，否则先 Work
+delta 1：B 有有效候选则重试仲裁；否则若所属 Module 本 tick 尚未 Work，先执行一次 Module Work；已 Work 则重试记录中的 rule Work
     → B 整体获准 pop Q1，通知等待者 A
 
 delta 2：A 使用 Q1 的仲裁资格，尝试整体获准
@@ -133,7 +133,7 @@ delta 2：A 使用 Q1 的仲裁资格，尝试整体获准
     → 所有涉及 Queue 统一 Xfer
 ```
 
-每个 delta 可以有并行 module Work 批次，屏障后按所选方案的顺序仲裁；方案 B 仍要求消费先行拓扑序，无依赖候选按固定竞争优先级。后续 delta 只查询新仲裁资格，仍读取同一份 current。每个 Queue 每 tick 只 Xfer 一次，顺序为 revise → pop → push；全部 Xfer 完成后才开始读取新 current。
+每个 delta 可以并行处理首次 Module Work 和已选中的 rule 重试，屏障后按所选方案的顺序仲裁；同一 Module 本 tick 只执行一次 Work。方案 B 仍要求消费先行拓扑序，无依赖候选按固定竞争优先级。后续 delta 只查询新仲裁资格，仍读取同一份 current。每个 Queue 每 tick 只 Xfer 一次，顺序为 revise → pop → push；全部 Xfer 完成后才开始读取新 current。
 
 不在每个 delta 执行 Xfer，否则新 push 数据和 revise 值会被后续 rule 同拍读取，缓存依据也会改变。
 
