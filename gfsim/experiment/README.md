@@ -1,157 +1,125 @@
-# Python GFSim 调度实验
+# GFSim 调度实验
 
-实验模拟编译器生成后的 Module 成员函数、静态表和运行记录，验证调度及记录生命周期。仅依赖 Python 3.11 标准库。
+按照当前 [spec](../spec.md)实现单线程调度，模拟编译器生成后的成员函数、静态表和记录。Rule 是 Module 成员函数，运行前显式构造连接；运行期间不分析函数体。
 
-设计文档已采用 [简化记录方案](../scheduler-records.md)。本实验代码尚未同步以下简化：Module 不保存正向读取集合；端口重置按静态来源和 waitingQueueId 筛选，不维护等待者列表和位置；同 tick 后续 delta 直接重试仲裁，不再进入 Rule Work 的缓存保护入口。下面描述的是当前代码，本次提交只更新设计文档。
+验收全部使用完整电路，从输入请求运行到输出结果或预期的动态环错误。测试不直接构造候选、调用内部仲裁或修改 runtime 状态推进电路。实现和实验结论见 [实验报告](report.md)，未决语义仍见 [open-questions](../open-questions.md)。
 
-## 运行和代码入口
+## 运行与阅读入口
 
-从仓库根目录执行：
+仅依赖 Python 3.11 标准库，从仓库根目录执行：
 
 ```bash
 python3 -m unittest discover -s gfsim/experiment -v
 python3 gfsim/experiment/bench.py
 ```
 
-- `engine.py`：约 500 行，包含纯数据记录、固定任务缓冲区、Queue 和调度引擎。
-- `construction.py`：运行前构造函数表、静态关系、仲裁顺序和固定槽位。
-- `models.py`：普通 Module 类，展示显式的生成代码入口和读取登记。
-- `test_engine.py` / `bench.py`：定向测试、随机对比和三类性能负载。
+完整测试包含 1100 级满流水从初始状态排空，运行约一分钟以上；其他电路测试通常一秒左右完成。基准输出 JSON，[results.json](results.json)保存本次默认参数运行结果。
 
-原来使用 Rule 可调用对象的实验已保存在提交 `96242be`。
+## 文件组织
 
-## 模拟生成的成员函数
-
-以 `models.Move` 为例，`Work()` 直接调用 `self.work_move()`。Rule 的计算入口明确写出：
-
-```python
-def work_move(self):
-    e = self.engine
-    if not e.begin_rule(self.rid):
-        return  # 去重或缓存命中。
-    try:
-        e.record_read(self.mid, self.source.qid, self.rid)
-        value = self.source.peek()
-        self.source.propose_pop(self.rid)
-        self.target.propose_push(self.rid, value)
-    except NeedInput:
-        e.abort_rule(self.rid)
-        return
-    e.complete_rule(self.rid)
-
-def arbitrate_move(self):
-    return self.engine.arbitrate_rule(self.rid)
-```
-
-正常业务提前返回也须先调用 `complete_rule`；必要读取失败调用 `abort_rule`。引擎检查函数是否完成收尾，漏写会报错。无 proposal 的完整计算不产生 firing。Module 必要读取失败只停止其后续调用，已经选中的独立 Rule 仍可提交。
-
-Queue 的 `peek/try_peek/empty/full/size` 是纯读。每次业务读取前，生成函数显式调用 `record_read(mid, qid, rid)`；Module 控制条件的读取省略 `rid`。读空也要登记。提出 pop/revise 时，Queue 的公共实现另外登记目标依赖和实际参与者。纯 push 不引入输出旧内容依赖。
-
-Rule 缓存命中时仍调用成员函数并执行 `begin_rule`；其后的业务计算被跳过。缓存依赖重新合入 Module 本轮读取集合。
-
-## 运行前的静态构造
-
-固定 ModuleId、QueueId 从 0 开始，RuleId 从 1 开始，规则表下标 0 留空。以下代码在该目录下运行，或先将该目录加入 Python 导入路径：
-
-```python
-from construction import assemble
-from engine import Queue, RuleEntry
-from models import Move
-
-queues = [Queue(initial=(7,)), Queue()]
-module = Move(0, 1, queues[0], queues[1])
-rules = (None, RuleEntry(0, module.work_move, module.arbitrate_move,
-                         pops=(0,), pushes=(1,)))
-sim = assemble(queues, [module], rules)
-print(sim.step())      # (1,)：实际获准的 RuleId。
-print(sim.snapshot())  # ((), (7,))
-```
-
-`RuleEntry` 是静态数据记录，绑定所属 Module、Work／仲裁成员函数及所有可能分支的修改资源。读取集合由显式生成代码在运行时登记。
-
-`assemble` 只进行机械构造：Queue 的可能生产者、来源索引、允许操作、固定 proposal 槽位；消费先行的拓扑顺序；Module／Rule 记录数组；成员函数入口表。它不分析函数体，也不使用方法发现、装饰器或 Rule 执行包装。构造完成后才创建 Simulator，`step` 不建图或注册来源。
-
-静态表及资源声明由测试视作编译器输出，运行期间保持不变。`Simulator` 也可以直接接收预构造的 Queue、StaticTables 和记录数组。
-
-## 记录和调度
-
-| 记录 | 内容及用途 |
-| --- | --- |
-| `ModuleRecord` | 本 tick 是否已 Work、读取代号、实际读取 QueueId 集合、本轮／上轮选中 RuleId 列表；`collecting` 标记本轮订阅尚未发布 |
-| `RuleRecord` | 依赖版本、实际参与 QueueId、候选参数、本轮调用参数、选中 tick、完整性、准备时间戳、获准 tick、阻塞 QueueId 及等待位置；`executing` 检查生成函数收尾 |
-| Queue | current、版本、ModuleId → 读取代号、固定 proposal 槽位、端口归属、accepted RuleId 列表、等待 RuleId 列表、used tick |
-
-Proposal 的值只存在 Queue 槽位。RuleRecord 不保存 payload 副本。Proposal 状态为 empty → pending → reserved → accepted；失败预约回到 pending，废弃或提交后槽位原地清空，来源索引及槽位身份持续保留。
-
-### 对齐 C++ 的记录布局
-
-- Module／Rule 的 delta 任务使用两组交替的 `IdList`；下一 tick 的 Module 任务另有一组。每组在运行前分配固定容量 ID 数组和代号数组，使用有效长度，插入时按 ID 去重，清空只推进代号。当前批次与下一批次分别保存标记。
-- `used_queues` 使用 QueueId 列表，通过 Queue 的 `used_tick` 去重。
-- Module 的选择记录使用两个交替列表，RuleRecord 的 `selected_tick` 判断是否选中；本轮 `call_args` 与缓存候选的 `args` 分开，参数变化仍会使缓存失效。
-- Queue 的等待者使用 RuleId 列表，RuleRecord 保存位置。删除时把最后一个等待者移到空位并更新其位置，插入和删除均为 O(1)（追加按摊销计算）；遍历通知仍为 O(等待者数量)。
-- Rule 的参与 Queue 列表继续通过固定 proposal 槽位去重。
-
-普通列表对应 C++ 的可复用 vector，Python 不模拟其容量保留。`IdList` 的底层数组身份和长度保持不变；Python 排序仍会产生临时列表。读取集合、依赖版本和 Queue 读者表暂保留 set/dict；静态构造也仍可使用集合。进一步固定读取关系需要补充编译期可能读取的元数据，不展开 Module × Queue 的稠密表。
-
-调度顺序：
+按完整电路例子组织。每个例子的组件行为与连接写在同一个 `model.py`，参考行为和端到端测试放在相邻文件中。
 
 ```text
-取出本 delta 的 Module / RuleId 任务
-  → 首次激活的 Module 执行 Work，收集实际选择和读取
-  → 清理未选中的旧候选，发布新读取代号
-  → 按静态顺序调用本批选中 Rule 的仲裁成员函数
-  → 获准 pop 通知下一 delta
-没有同 tick 任务
-  → 所有 used Queue 统一 Xfer
-  → 发布下一 tick 的读取变化及端口重置通知
+experiment/
+  engine.py                 # 通用调度核心
+  construction.py           # 通用静态表和记录初始化
+  reference.py              # 通用参考调度器，行为函数由例子传入
+  bench.py                  # 性能测试入口
+  examples/
+    common.py               # 共用 Module、Source、Sink、Config、Merge 及 Netlist
+    reference_common.py     # 共用组件的独立参考行为
+    testing.py              # 共用逐拍比较和记录检查
+    pipeline/
+      model.py              # Compute 行为、pipeline() 电路连接
+      reference.py          # 本例的独立参考行为
+      test_model.py         # 本例输入、运行及输出断言
+    packets/                # 以下目录均采用相同的三文件结构
+    pairs/
+    memory/
+    feedback/
+    lookup/
+    retry/
 ```
 
-同一 Module 每 tick 至多 Work 一次，Rule 每 tick 至多获准一次。后续 delta 使用静态 Work 入口和保存的参数重试，入口按版本复用候选。缓存失效时清理旧候选及等待关系后重算。
-
-用户未写仲裁规则却产生端口竞争，视为用户模型错误；引擎不报错，也不保证哪个候选获胜。当前内部排序及激活批次可能影响获胜者，不构成用户可依赖的优先级规则。竞争仍须满足端口容量限制和整条 Rule 的原子性。
-
-每条 Rule 逐 Queue 预约，失败则释放全部临时预约、保留完整候选，并等待第一个失败 Queue。全部成功后统一 accept，获准 pop 才公开其容量效果。下一 delta 查静态生产者；下一 tick 的读取通知只认读取代号匹配的 Module。端口重置也通知等待者，即使 Queue 值未变。
-
-Xfer 顺序为 revise 旧队尾 → pop 旧队首 → push 新元素。数据或元素身份变化推进 Queue 版本；无变化的 revise 不推进。Pending 候选可跨 tick 保留；已提交候选清除。不逐 tick 扫描全部记录重置。
-
-## 范围和约束
-
-- 平级 Module、单线程、B 容量策略、单 pop／单 push／单整值 revise；允许自身 pop/push 复用满 Queue 的空间。
-- 所有 Work 读取同一份 current，新 push 的数据下一 tick 才可读。静态容量环及同一旧元素的 revise/pop 组合报错。
-- 值和参数限于整数、布尔值、递归不可变 tuple。Rule 业务计算只依赖登记的 Queue、参数及固定配置，使用值语义，不修改外部状态。
-- 测试通过 `step(wake=(module_id, ...))` 显式驱动 tick。时间值由被显式唤醒的 Module 作为 Rule 参数传入；Rule 业务计算不直接读取时间。
-- 不包含字段修改、子 Module、定时事件、并行执行或编译器接入。模型错误终止运行，不支持异常后恢复。
-
-## 验证和性能计数
-
-28 项测试包含原有预期结果测试，以及同一 Module 的多个 Rule、相同成员函数代码的不同实例、固定槽位身份、纯读接口及显式入口收尾的检查。任务数组复用用例检查空 tick 后重复唤醒仍只执行一次；等待者用例检查中间删除、位置更新和后续取消／获准。跨 delta 端口竞争用例只检查合法提交和原子性，不要求特定获胜者。随机测试用 12 个固定种子，各运行 100 tick，逐 tick 比较获准序列、Queue 状态、版本、实际读取集合和下一 tick 激活集合。
-
-另有独立的 pop/push 原子提交模型：用固定种子生成 300 组随机连接，各运行 10 tick，全量激活 Module，用整组约束判断和函数式状态更新比较获准序列、Queue 状态及版本；不调用引擎的预约、回滚或 Xfer 实现。它覆盖空输入、多个参与 Queue、端口竞争、容量依赖和跨 tick 候选缓存，不覆盖 revise、选择性唤醒或全局优先级。
-
-`reference=True` 使用同样的成员函数入口和仲裁顺序，关闭候选缓存，扫描正向记录寻找通知对象。它与索引模式共享预约和提交代码；这些共享部分由定向预期测试检查。
-
-| 计数 | 含义 |
-| --- | --- |
-| `module_work` / `rule_entries` / `rule_work` | Module Work 次数 / Rule 进入 begin_rule 次数（含去重、缓存命中）/ Rule 实际业务计算次数 |
-| `cache_hits` / `cache_invalidations` / `version_checks` | 候选复用次数 / 参数或依赖失效次数 / 实际版本比较次数 |
-| `reader_checks` / `producer_checks` / `waiter_checks` | 索引通知遍历的条目数 |
-| `module_scans` / `rule_scans` | 参考通知查询遍历的对象数 |
-| `arbitrations` / `reservation_checks` / `reservations` | Rule 仲裁次数 / Queue 预约检查次数 / 成功预约次数 |
-| `accepted` / `deltas` / `ticks` | 获准次数 / 有任务的 delta 批次数 / 推进 tick 数 |
-| `incomplete` / `module_incomplete` | Rule / Module 必要读取不足次数 |
-
-性能参数：`--ticks 200 --size 32 --idle 1000 --work 2000 --repeat 3`。初次订阅前的构造阶段及首 tick 不计入耗时，重复运行取中位数。每组实验检查两种模式的获准序列和最终状态一致。
-
-三类负载分别测量满流水链、每 20 tick 解除一次输出背压的较重计算，以及 1000 个休眠 Module 配少量活动 Queue。背压负载让 Module 读取不断变化的控制 Queue，但 Rule 的输入在等待期间保持稳定，测量计算复用。
-
-2026-09-30 固定任务数组版本，本机 Python 3.11.16、上述默认参数的一次结果（三次运行取中位数）：
-
-| 负载 | 索引模式 | 参考模式 | 参考 / 索引 |
+| 例子 | 模型与连接 | 参考行为 | 端到端测试 |
 | --- | --- | --- | --- |
-| 32 级满流水链 | 144.55 ms | 197.00 ms | 1.36 |
-| 长期背压，计算循环 2000 次 | 13.52 ms | 55.35 ms | 4.09 |
-| 1000 个休眠 Module | 11.80 ms | 148.35 ms | 12.57 |
+| 弹性计算流水 | [model.py](examples/pipeline/model.py) | [reference.py](examples/pipeline/reference.py) | [test_model.py](examples/pipeline/test_model.py) |
+| 可配置包处理网络 | [model.py](examples/packets/model.py) | [reference.py](examples/packets/reference.py) | [test_model.py](examples/packets/test_model.py) |
+| 双输入原子处理 | [model.py](examples/pairs/model.py) | [reference.py](examples/pairs/reference.py) | [test_model.py](examples/pairs/test_model.py) |
+| 分 bank 存储 | [model.py](examples/memory/model.py) | [reference.py](examples/memory/reference.py) | [test_model.py](examples/memory/test_model.py) |
+| 反馈网络 | [model.py](examples/feedback/model.py) | [reference.py](examples/feedback/reference.py) | [test_model.py](examples/feedback/test_model.py) |
+| 在线系数查表 | [model.py](examples/lookup/model.py) | [reference.py](examples/lookup/reference.py) | [test_model.py](examples/lookup/test_model.py) |
+| 重试缓冲 | [model.py](examples/retry/model.py) | [reference.py](examples/retry/reference.py) | [test_model.py](examples/retry/test_model.py) |
 
-背压负载两种模式都进入 Rule 函数 410 次，实际计算为索引模式 220 次、参考模式 410 次，缓存命中 190 次。稀疏负载读取通知从扫描 400800 个 Module 降到检查 400 个读者条目；两种模式的计算和获准次数一致。
+阅读一个例子时，先看它的 `model.py` 中的组件和电路构造函数，再看同目录 `test_model.py` 的输入与断言；需要核对独立行为时看该目录的 `reference.py`。共用组件定义见 [common.py](examples/common.py)。新增例子时增加一个目录，并由该例的 `Netlist(reference, evaluate)` 显式传入参考行为；无需修改通用调度器或维护集中式例子分发表。
 
-耗时仅描述这些 Python 负载，不设速度门槛，不据此推导 C++ 的运行性能。
+例如，只运行存储例子的测试：
+
+```bash
+python3 -m unittest discover -s gfsim/experiment -k examples.memory -v
+```
+
+若要审阅调度本身，从 [engine.py](engine.py) 的 `step` 开始，依次看 `_work`、`begin_rule`、`_visit` 和 Queue 的 `xfer`。
+
+核心 `engine.py` 为 428 行，静态构造为 27 行，包含空行和注释。其余文件负责组件、电路、参考模型、测试和基准。
+
+## 接口与执行过程
+
+`assemble(queues, modules, rules, cache=True)` 接收显式 ID 表，分配每个 Queue 的来源槽位和 Module 读者数组，绑定唯一 pop/push Rule。来源 0 保留但未提供外部驱动入口。
+
+`step()` 执行一拍并返回获准 RuleId；第一次调用自动激活全部 Module。后续激活只来自状态通知和获准 Rule 的事件。`snapshot()` 供观察器读取结果。旧 `step(wake=...)` 已移除，测试驱动改成电路内的 Source/Config 组件。
+
+```text
+到期事件及 tick 0 初始化
+  → 全部激活 Module Work
+  → 验证、复用或重算候选，取消未再选中的候选
+  → 显式栈 DFS：实际消费者先仲裁
+  → 检查全部 Queue 后整体 accept，发布未来事件
+  → 获准 pop 激活唯一生产者的现存候选
+  → revise / pop / push 统一 Xfer
+  → 变化 Queue 按读取代号登记下一 tick 事件
+```
+
+`Module.read(queue, rid)` 是显式 `record_read + peek` 的便捷写法；Module 控制读取省略 rid。它不推断依赖。Queue 读接口本身纯读，pop/revise 自动登记目标依赖。
+
+Rule 使用 `begin_rule(rid, args)`，返回 false 时跳过计算。正常结束调用 `complete_rule`；必要读取失败调用 `abort_rule`。不完整路径清理 proposal 和未发布事件，Module 已登记订阅保留。
+
+`request_wakeup(rid, moduleId, delay)` 只保存候选请求，整体获准时才按获准 tick 发布。Source 的等待分支和 Sink 的就绪时间控制使用纯事件 Rule；PairALU 的请求与多个 Queue 效果共同确认。
+
+Source ROM 保存 `(最早发送tick, payload)`，Source 显式把当前 tick 作为 Rule 参数。存储服务的 due 值也是明确参数计算的持久状态；只有 busy 为空时创建事务，因此它的启动 Rule 不受输出容量阻塞，后续响应可独立等待。电路不把事件到期解释成隐式硬件状态变化。
+
+## 与 C++ 的对应
+
+| Python 表达 | C++ 对应与成本 |
+| --- | --- |
+| 固定 ID、读者和任务数组 | `std::vector<T>(N)` 或 `std::array<T, N>`，下标访问 |
+| Queue data/head/count | 固定容量环形 FIFO，pop/push 为 O(1) |
+| Rule deps/participants/events | 可复用 vector，仅记录实际访问；deps 线性去重，d 个不同读取最坏 O(d²) |
+| 排序的来源 ID 和槽位 | 小型静态表，二分查询 O(log S)，不按全局 RuleCount 分配 |
+| DFS `(rid, cursor)` 栈 | `vector<Frame>`，不依赖语言递归深度 |
+| 事件最小堆 | `priority_queue`，登记和取出为 O(log E)；到期后按 ModuleId 去重 |
+| 不可变 tuple | 按值的固定 aggregate；数字字段路径对应生成的成员路径 |
+| 成员函数绑定 | 实例句柄和生成函数入口 |
+
+运行核心不使用 set/dict 存储动态依赖。构造阶段可以用集合归并静态来源；独立参考模型可以使用字典和集合。Python 的 list.clear 不保证像 C++ vector 一样保留底层容量，本实验只验证固定数组和槽位身份及记录生命周期。
+
+结构体用固定形状 tuple 表示；字段修改路径是生成的常量。整数业务运算由组件显式截断，不实现完整 AC 类型库或 C++ ABI。时间戳使用 Python 整数，本实验不决定有限位宽回绕。
+
+## 完整电路与独立对比
+
+- 弹性流水：数据源、多级计算和间歇接收端，验证逐拍延迟、吞吐、背压和计算复用。
+- 包处理网络：两条独立通路、在线配置、显式汇流和正常丢包，验证 Module 与 Rule 的控制分支。
+- 双输入处理：到达时间不同的两个源，原子输出到两个队列，由同一个接收 Rule 消费。
+- 分 bank 存储：请求分发、动态寻址、字段写入、延迟服务、响应汇流和最终存储状态。
+- 在线系数查表：配置和表项更新发生在输出阻塞期间，验证参数、实际依赖及旧订阅替换。
+- 反馈与重试：静态环有空位、分支退出、自身 pop/push、相同 payload 替换、revise/pop，以及真实动态容量环。
+
+各例子目录下的 `reference.py` 独立描述该例的组件事务，共用组件的参考行为见 [reference_common.py](examples/reference_common.py)，均不调用被测 Module/Rule 函数。[reference.py](reference.py) 使用前向读取集合、每次激活重算、反复扫描的固定点许可和独立提交；用 Kahn 消除检查剩余动态环，不复用核心 DFS、缓存、版本通知或 Queue 存储代码。
+
+逐拍比较获准集合、全部 Queue 数据和版本、未来事件、Module 激活次数及有效读取关系。额外 scoreboard 根据输入独立核对结果、顺序、最终存储和完成性。不规定无依赖 Rule 的仲裁顺序。长链用确定的输出序列和深度计数验收，避免再运行一个规模相同的参考引擎。
+
+## 范围
+
+每个 Queue 的 pop/push 分别只有一个 Rule 来源，配置选择由用户代码表达；不检测或保证竞争行为。执行异常终止本次仿真，不支持恢复。
+
+已实现基础事件、纯事件 Rule、静态字段修改和 Queue array。父子 Module 激活、独立 Cell、已发布事件取消、来源 0 外部驱动、代号回绕、并行执行和最终 C++ ABI 未实现，也不由实验补充语义。

@@ -1,0 +1,154 @@
+{
+  "python": "3.11.16",
+  "machine": "aarch64",
+  "parameters": {
+    "ticks": 150,
+    "length": 16,
+    "depth": 512,
+    "work": 2000,
+    "repeat": 3
+  },
+  "workloads": {
+    "full_pipeline": {
+      "cached": {
+        "seconds_median": 0.059321659966371953,
+        "counters": {
+          "module_work": 2700,
+          "rule_work": 2700,
+          "cache_hits": 0,
+          "version_checks": 0,
+          "dep_searches": 2700,
+          "reader_checks": 51300,
+          "dfs_visits": 2700,
+          "capacity_edges": 2550,
+          "queue_checks": 5400,
+          "accepted": 2700,
+          "events": 2700,
+          "due_events": 2700,
+          "max_stack": 18
+        }
+      },
+      "uncached": {
+        "seconds_median": 0.05922007898334414,
+        "counters": {
+          "module_work": 2700,
+          "rule_work": 2700,
+          "cache_hits": 0,
+          "version_checks": 0,
+          "dep_searches": 2700,
+          "reader_checks": 51300,
+          "dfs_visits": 2700,
+          "capacity_edges": 2550,
+          "queue_checks": 5400,
+          "accepted": 2700,
+          "events": 2700,
+          "due_events": 2700,
+          "max_stack": 18
+        }
+      },
+      "uncached_over_cached": 0.9982876240636995,
+      "layout": {
+        "modules": 18,
+        "rules": 19,
+        "queues": 19,
+        "reader_slots": 342,
+        "reader_bytes_if_uint64": 2736
+      },
+      "completed_outputs": 151
+    },
+    "backpressure_compute": {
+      "cached": {
+        "seconds_median": 0.01713924901559949,
+        "counters": {
+          "module_work": 624,
+          "rule_work": 344,
+          "cache_hits": 280,
+          "version_checks": 280,
+          "dep_searches": 486,
+          "reader_checks": 2946,
+          "dfs_visits": 631,
+          "capacity_edges": 316,
+          "queue_checks": 1246,
+          "accepted": 341,
+          "events": 790,
+          "due_events": 788,
+          "max_stack": 3
+        }
+      },
+      "uncached": {
+        "seconds_median": 0.09374005696736276,
+        "counters": {
+          "module_work": 624,
+          "rule_work": 624,
+          "cache_hits": 0,
+          "version_checks": 0,
+          "dep_searches": 766,
+          "reader_checks": 2946,
+          "dfs_visits": 631,
+          "capacity_edges": 316,
+          "queue_checks": 1246,
+          "accepted": 341,
+          "events": 790,
+          "due_events": 788,
+          "max_stack": 3
+        }
+      },
+      "uncached_over_cached": 5.469321140152882,
+      "layout": {
+        "modules": 6,
+        "rules": 7,
+        "queues": 8,
+        "reader_slots": 48,
+        "reader_bytes_if_uint64": 384
+      },
+      "completed_outputs": 7
+    },
+    "sparse_banked_table": {
+      "cached": {
+        "seconds_median": 0.012287765042856336,
+        "counters": {
+          "module_work": 447,
+          "rule_work": 548,
+          "cache_hits": 0,
+          "version_checks": 21,
+          "dep_searches": 679,
+          "reader_checks": 2916,
+          "dfs_visits": 662,
+          "capacity_edges": 81,
+          "queue_checks": 967,
+          "accepted": 505,
+          "events": 582,
+          "due_events": 576,
+          "max_stack": 3
+        }
+      },
+      "uncached": {
+        "seconds_median": 0.012145414017140865,
+        "counters": {
+          "module_work": 447,
+          "rule_work": 548,
+          "cache_hits": 0,
+          "version_checks": 0,
+          "dep_searches": 679,
+          "reader_checks": 2916,
+          "dfs_visits": 662,
+          "capacity_edges": 81,
+          "queue_checks": 967,
+          "accepted": 505,
+          "events": 582,
+          "due_events": 576,
+          "max_stack": 3
+        }
+      },
+      "uncached_over_cached": 0.9884152223598849,
+      "layout": {
+        "modules": 6,
+        "rules": 11,
+        "queues": 1034,
+        "reader_slots": 6204,
+        "reader_bytes_if_uint64": 49632
+      },
+      "completed_outputs": 48
+    }
+  }
+}

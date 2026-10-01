@@ -1,16 +1,14 @@
 # Module、Rule 与 Queue 的编译设计
 
-本文记录拟采用的编译契约，不表示当前框架已经实现。GFSim 对象结构见 [../gfsim/module.md](../gfsim/module.md)，rule 执行与原子提交见 [../gfsim/rule.md](../gfsim/rule.md)，Queue 接口见 [../gfsim/queue.md](../gfsim/queue.md)，A/B 调度备选见 [../gfsim/schedule.md](../gfsim/schedule.md)。
+本文规定编译输入与中间表示所需保留的信息，不表示当前编译器已经实现。GFSim 运行时契约统一见 [框架 spec](../gfsim/spec.md)，尚未确定的能力见 [待决问题](../gfsim/open-questions.md)。
 
 ## 基本模型
 
-Module 包含连接、持久状态和运行时控制逻辑，Work 根据本 tick 的 current 状态选择并调用 rule。Module 不是原子事务，多个独立 rule 可以分别成功或失败。Module 控制流不读取 delta 内变化的仲裁资格；同一 tick 只执行一次 Work，记录选中的 rule 调用与参数，后续 delta 对已有完整候选只重试仲裁，不重跑 rule Work。跨 tick 复用时比较调用参数和实际 Queue 依赖版本，见 [GFSim 记录方案](../gfsim/scheduler-records.md)。
+编译器保留两层控制流：Module 选择调用哪些 Rule；Rule 的实际分支决定读取和修改哪些资源。每条 Rule 的实际修改构成原子 firing。调度与快照语义见 [执行模型](../gfsim/spec.md#model) 和 [Work 语义](../gfsim/spec.md#work)。
 
-Rule 包含组合计算和控制流。由实际分支选中的输入消费、输出产生与内部状态修改构成一个原子 firing；所有实际操作一起成功，否则不提交。
+当前状态资源是 Queue，包括 FIFO 和用受限 Queue 表示的寄存器。资源身份与读取出的 SSA 值分开，连线两端共享同一资源；独立 Cell 尚未定义。
 
-Queue 是唯一的电路持久状态对象。FIFO 使用多元素 Queue，寄存器使用容量 1 且初始化为占用的 Queue，通过 revise 更新。Queue 的资源身份与其读出的 SSA 值分开，连线两端共享资源。
-
-所有计算读取当前 tick 的快照。状态修改由增量 proposal 表达，获准后统一 Xfer，顺序为 revise → pop → push。Accepted 不让新值在本 tick 被其他 Work 读取。
+GFSim 本版约束每个 Queue 的 pop 来源至多一个 Rule，push 来源至多一个 Rule；二者可以相同或不同，覆盖所有分支和 tick。当前不检测，由用户代码遵守，违反时不保证运行结果。多个处理路径由相应 Rule 的控制流表达。
 
 ## Python 作者语义
 
@@ -116,7 +114,7 @@ ac.rule @select
 
 Observe 表达符号化的数据需求，不表示无条件取出空 Queue 的 payload。图中的 `propose_pop` 由前端按消息输入角色和实际读取路径生成，不要求 Python 作者显式调用 pop。Propose 明确区分消费、输出和 revise；每个操作保留资源、参数、路径条件和来源。动态下标的值是运行时计算，资源定位受对应分支限制。
 
-Module 的实际调用也必须表达或绑定明确的选择条件。未调用的 rule 不形成 attempt，不能只因内部条件满足就自动 fire。
+Module 对 Rule 的选择必须表达或绑定明确的条件。未被选中的 Rule 不形成候选，不能只因内部条件满足就自动 fire。GFSim 可以保留最近一次 Module Work 选中的完整 pending 候选，跨 tick 直接仲裁；不要求本 tick 再次调用 Rule Work，见 [spec 候选生命周期](../gfsim/spec.md#commit)。
 
 ## Frozen ACIR：安全读取与 complete
 
@@ -164,13 +162,15 @@ ac.rule @select ... {
 
 Control 有值但选中输入缺失时，示意 IR 可能已经提出 control pop，但 complete=false。这个 proposal 必须随整条尝试被拒绝并清理，不能独立消费 control。后端也可安全地延后纯 proposal 构造，不能改变上述语义。
 
-Frozen 明确资源操作契约：pop 需要旧队首及单消费许可；push 需要容量和单写入许可；revise 需要合法旧目标及已支持的修改范围。未活动操作没有需求。
+Frozen 明确资源操作契约：pop 需要旧队首；push 需要容量；revise 需要合法旧目标及已支持的修改范围。未活动操作没有需求。
 
 Frozen 不必预先生成一个全局资源 can_fire 表达式；必须保留足以完整推导它的信息。它不能只留下业务条件，要求 RTL 后端凭经验补全漏失的资源需求。
 
 ## GFSim 映射
 
-Frozen ACIR 保留 module 选择、受 guard 保护的实际 Queue 读取、proposal、正常完成条件与原子边界。Rule 请求的延迟唤醒若进入该语言，HIR/ACIR 还须保留其目标时间、ModuleId 和路径 guard，不能在 Work 中直接入调度队列；GFSim 只在整条 Rule 获准后发布。具体调用、取消与接受契约见 [GFSim Rule 文档](../gfsim/rule.md)。Proposal 数据仍由 Queue 来源槽位保存，不通过 ACIR 增加整个状态阵列的临时事务值。
+Frozen ACIR 保留 Module 选择、受 guard 保护的读取、proposal、正常完成条件与原子边界。生成成员函数、读取登记和静态记录所需的信息见 [spec 第 2 节](../gfsim/spec.md#construction)。运行时候选准备、仲裁和清理统一遵循 spec，不在编译文档另设一套生命周期。
+
+Proposal 表达增量，不通过 ACIR 增加整个状态阵列的临时事务值。Rule 的未来唤醒请求保留目标 ModuleId、delay、路径 guard 和原子边界；GFSim 在整条 Rule 获准后计算到期 tick 并登记事件，允许纯事件 Rule。运行时语义见 [事件登记](../gfsim/spec.md#events)。
 
 ## RTL 的完整 fire
 
@@ -182,15 +182,15 @@ fire = module_selected && complete && AND(operation_ok_i)
 operation_enable_i = fire && guard_i
 ```
 
-Module_selected 表示该 rule 被 module 本拍控制路径调用。Complete 表示必要观察和正常路径计算完整，RTL 中为组合条件。Grant 表示真实容量、端口和已支持竞争策略下的许可，不是无条件的 ready。
+Module_selected 表示当前 Module 控制条件选择该 Rule；GFSim 保留的选择在相关状态或事件激活 Module Work 时更新，不以本 tick 是否实际调用 Work 判断 firing 资格。Complete 表示必要观察和正常路径计算完整，RTL 中为组合条件。Grant 表示实际操作的资源许可，不是无条件的 ready。GFSim 本版不处理多 revise 等资源端口竞争，出现时不保证运行结果。
 
 未产生的输出不要求容量，未选择的输入不要求 available。每项许可被共享路径条件门控，不需为每种提交组合分别构造一条 firing。复杂度随实际 guarded 操作和共享条件图增长，不主动枚举全部路径组合。
 
-A/B 必须使用对应容量语义：A 不能因 pop_enable 预计为真而给其他 rule 空间；B 可以使用消费者整条 fire 已确定后的 pop 许可，并按容量依赖方向计算。不能把某个孤立 pop 意愿当作最终获准 pop。
+RTL 必须保持 [Queue 的 push 容量语义](../gfsim/spec.md#arbitration)：同 tick 有合法 pop 就可以复用其空间，包括同一 Rule 的 pop/push。来自其他 Rule 的空间必须以消费者整条 fire 已确定为前提，按容量依赖方向计算；同一 Rule 的 pop/push 共同受完整 fire 约束。不能把某个孤立 pop 意愿当作最终获准 pop。
 
 ## 依赖与身份信息
 
-保留 Queue 到观察者 module 的依赖，包括 module 控制读取、rule 只读状态和内部流水线。保留 Queue 到可能生产者 module 的依赖，支持 B 的获准 pop 下一 delta 唤醒。
+生成代码支持 Module 控制读取、Rule 实际读取及 pop/revise 目标的显式登记。编译期保存 Queue 的 proposal 来源槽位及唯一 popRuleId/pushRuleId；动态读取关系与这些静态记录分开，定义见 [静态构造](../gfsim/spec.md#construction) 和 [运行记录](../gfsim/spec.md#records)。
 
 规则原子身份不绑定源码函数名，资源身份不绑定 SSA 打印名称。重复函数使用或未来独立实例能够分配独立身份，无需改变 complete、proposal 或原子边界的定义。静态展开设计本轮不讨论。
 
@@ -198,7 +198,7 @@ A/B 必须使用对应容量语义：A 不能因 pop_enable 预计为真而给�
 
 ## 支持边界与验收
 
-A/B 容量策略都保留，尚未选择。自身 pop/push、来源 0 外部驱动、字段竞争和依赖建图的边界沿用 GFSim 文档。初版不求解循环容量依赖，也不因本讨论增加大量竞争 verifier。
+运行时支持边界和未决问题统一见 GFSim spec 与问题记录。本文中的 IR 为语义示意，具体 Python 声明语法、op 名和类型语法尚未固化；静态构造与循环展开也未在本文定义。
 
 - [ ] Python 的状态资源、输入与输出在 Raw/Frozen 中都有明确绑定。
 - [ ] Module 运行时控制与 rule 内部嵌套分支均被保留为正确的活动条件。
