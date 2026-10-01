@@ -1,0 +1,19 @@
+{
+  "product_baseline": "4584ad0b68e94cd77e301c63f3aa5ca3932e2486",
+  "planning_baseline": "be68c6b368eecd24da4563a92af651c02155463f",
+  "scope": "Plan-only approval; no productinterface approval or implementation/test completion",
+  "files": [
+    {
+      "path": "docs/work-items/m3-m6-expansion-plan.md",
+      "sha256": "f0a0639cf5f695d007fcd18a7b8c8bfcddb5426bdfdf11c2f0855dbf07dcccec"
+    },
+    {
+      "path": "docs/work-items/m3-contract-admission.md",
+      "sha256": "827d8e9db4f811334d065e62af82c02476653f485da48ddd2a5e5936d7b4593c"
+    },
+    {
+      "path": "docs/work-items/m6-first-publication-expansion.md",
+      "sha256": "70f52aff8ac3f414c486814d3c97b31a56e852bdd936dc2d56dd78e821ff5e25"
+    }
+  ]
+}

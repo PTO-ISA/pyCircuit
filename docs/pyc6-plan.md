@@ -70,3 +70,12 @@ No release workflow, public tag/index or publication was dispatched. Existing
 `v6.1.0` identifies an older source revision; formal platform/minimum-OS and stable
 release acceptance remain separate work. This does not close the wider M3/M6
 capability backlog or the entire migration roadmap.
+
+## M3/M6 extension roadmap
+
+The [expanded roadmap](work-items/m3-m6-expansion-plan.md) separates new
+capability use cases from existing-contract hardening. The next preparation
+lanes are M3-P01 contract/evidence reconciliation and M6-03 first-publication
+fault coverage, followed by M6-04 resource/run measurement. Bank static carriers,
+SYSTEM/EXPECT B and any new interfaces require their precise approval gates;
+this roadmap does not widen the current scalar profile.

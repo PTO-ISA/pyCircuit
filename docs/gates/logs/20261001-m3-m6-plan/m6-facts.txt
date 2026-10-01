@@ -1,0 +1,119 @@
+# M3/M6 follow-up facts
+
+Read-only planning note for checkout `4584ad0b68e94cd77e301c63f3aa5ca3932e2486`.
+The source worktree was clean when inspected. This note recommends follow-up
+packets; it does not change product scope, accepted contracts, release metadata,
+or M3/M6 status.
+
+## Accepted baseline and boundaries
+
+- M6-01 is accepted for its bounded macOS-arm64 packet at product baseline
+  `d351079b`. It covers replacement crash recovery across compile/link/both
+  emits, five reachable first-publication compile interruptions, recovery
+  interruption, lock behavior, and moved-prefix clean-environment execution.
+  Its own boundary says first-publication of final programs and generated
+  bundles remains open, and Linux/Windows plus actual parallel simulation are
+  not claimed. See [M6-01](../docs/work-items/m6-publication-relocation.md:3)
+  and its [accepted evidence](../docs/gates/logs/20261001-m6-process-relocation/README.md:1).
+- M6-02 is accepted for macOS arm64 at baseline `477beae8`. It measured six
+  source-unit scale cases, deterministic rebuilds, no-op, leaf/type/toolchain
+  invalidation, both emits and an actual distinct-32 RTL run. The report says
+  edits conservatively re-emit all generated files and rebuild all C++ targets;
+  RSS, throughput, and parallel simulation were not measured. It records a
+  Verilator 5.044 Unicode generated-source/build-directory limitation and makes
+  no arbitrary Unicode path claim. The accepted run's shared-64 compile/link and
+  CPP build were 0.577/0.706 seconds; distinct-32 compile/link, CPP/RTL emits,
+  and CPP model build were 2.164/1.107/1.114/6.151 seconds, with four jobs and
+  process startup included. They are host observations, not thresholds. See
+  [M6-02](../docs/work-items/m6-incremental-scale.md:3)
+  and [measurement evidence](../docs/gates/logs/20261001-m6-incremental-scale/README.md:1).
+- M7-01 is accepted for a local macOS 26/arm64 preview at `4584ad0b`. The
+  support profile remains portless root, default clock, empty static arguments,
+  and serial simulation. The semantic lane passed 311 tests while explicitly
+  deselecting the two V44 scheduling/reordering cases. Its local wheel was tagged
+  macOS 26; Linux/Windows and formal macOS 15 minimum are not proven. No stable
+  release was published. See [M7 acceptance](../docs/gates/logs/20261001-m7-preview/README.md:1).
+- Approved C3-C already defines the driver, source-unit ownership, publication
+  journal/recovery protocol, single Runtime ABI, and SDK contracts. The exact
+  approval record authorizes implementation within those bytes and says new
+  interface changes still require approval. See [C2/C3 approval](../docs/rfcs/migration/approvals/c2-c3-foundation.md:14).
+- C2-R1/M1 is also approved. It specifies isolated per-worker proposal buffers,
+  join/check/barrier before Xfer, no source scheduling API, and serial Xfer as
+  the initial valid implementation. Real parallel Xfer needs evidence for
+  disjoint owners and a full-tree observation barrier. See
+  [C2-R1 parallel boundary](../docs/rfcs/migration/c2-r1-unified-register.md:232)
+  and [approval](../docs/rfcs/migration/approvals/c2-r1-m1-interface.md:1).
+- M3 remains use-case driven: choose one concrete workload, close only its
+  required approved capability, and leave unrelated backlog visible. FIFO,
+  memory/CDC, multi-domain, four-state, external typed DUT and complete
+  SYSTEM/EXPECT B still need separate design/approval. See [M3 plan](../docs/development/pycircuit-modernization-plan.md:264)
+  and [capability ownership](../docs/work-items/migration-capabilities.md:25).
+
+The old stage summary in `single-route-migration.md` still marks M5 active and
+M7 pending, which conflicts with the newer accepted M5/M6/M7 packet records.
+Use the candidate-bound acceptance packets for those bounded statuses; reconcile
+that ledger separately rather than reopening already accepted packet evidence.
+The M7 acceptance packet also records the stable-release identity blocker:
+`pyproject.toml` and `version-map.json` still name 6.1.0/v6.1.0, while that tag
+peels to older `d4926615…`, not this candidate. `release.yml` requires the
+project version, candidate tag and exact commit to agree, then refuses a
+pre-existing tag; this M7 preview cannot be published under the current tag.
+
+## Ranked follow-up packets
+
+| Rank | Packet | Existing-contract lane or gate | Approval boundary |
+| --- | --- | --- | --- |
+| 0, conditional on a stable-release request | Resolve version/source identity and stable-release readiness. `pyproject.toml` and `version-map.json` still name `6.1.0`/`v6.1.0`; the tag resolves to older commit `d4926615`, and `release.yml` requires a new version/commit pair and rejects a pre-existing tag. The current M7 candidate is local preview evidence only. | First reconcile the active workflow, exact version/tag, current fresh toolchain SHA and declared platform identities. The stable workflow owns full validation, the Linux/macOS-15/Windows candidate matrix, manifest aggregation, platform verification, acceptance, and only then tagging/publication. Do not substitute local tests for those jobs. | Version selection, new tag, workflow dispatch and publication are release-authority actions. Do not choose a version, create a tag, or dispatch as a planning convenience. See [release identity checks](../.github/workflows/release.yml:57) and [platform matrix](../.github/workflows/release.yml:459). |
+| 1 | Complete first-publication fault coverage for C3 artifact kinds. M6-01 already tests first publication for source-unit compile only; replacement coverage spans four public routes. Add first-publish interruption/recovery for linked final programs and CPP/RTL generated bundles, using existing private fault points and C3 state tables. | Test-only unless a failure reveals a product defect. Reuse real owned-process termination; assert path/journal layout, destination absence or committed bytes, recovery idempotence, publication-control/lock identity and no partially valid reader input. Run the focused M6 recovery test and existing publication unit regressions on each required OS. | No new fault flag, journal field, output owner or ABI. Any protocol/state-table change is outside the test-only packet and requires a precise C3 proposal/review/approval. |
+| 2 | Platform evidence for the declared package matrix. M6-01/02 evidence is macOS arm64 only; M7 uses macOS 26 while the release identity says macOS 15. Linux x86_64 and Windows x86_64 are unproven by these accepted local packets. Windows additionally needs real reparse/lock/replacement tests rather than relying on POSIX skips. | Run a fresh current-checkout CompilerDev/Runtime build and installed-consumer/source-unit/RTL gates on Linux 24.04, macOS 15, and Windows 2022. Bind `toolchain-metadata.json`, compiler/SDK identity, platform manifest, relocated-prefix result, C++/RTL run, skip list, and exact candidate SHA on each runner. The existing `release.yml` matrix can later provide stable-candidate evidence after Rank 0 is resolved. | Exercising the existing C3 contract is a verification packet. Adding or widening a published OS/SDK/deployment-target guarantee changes the supported-platform promise and must be reviewed/approved as a product release-profile change. |
+| 3 | Unicode generated-source/build path compatibility. M6-02 documents a Verilator 5.044 JSON-octal path failure; M6-01's Unicode moved-install-prefix result is a separate claim and does not cover Unicode CMake source/build directories. | First reproduce with the existing `measure_m6_build.py` scale generator under a Unicode output root and capture CMake/Ninja/Verilator versions plus the first failing command. Compare the locally pinned 5.044 path against CI's 5.048 tool and both output bytes. Add a focused clean/build/run fixture only after identifying the failing serialization boundary. | A C3 build-integration fix can proceed if it preserves exact receipt ownership/publication. A new rule that rejects Unicode directories or a new diagnostic/support promise changes the error/support contract and needs review/approval. A pinned Verilator change also needs explicit dependency/platform review. |
+| 4 | Demand-gated M3 use-case packet. Prefer one missing but already approved capability with a real consumer need: (a) the approved C2-N1 named-import/re-export classes, where header-only coverage does not close source/link/final/dual-emit behavior; (b) one finite nonempty static-parameter/multispecialization workload, whose Bank 2/4 oracle is defined but backend evidence is unrun; or (c) one fixed owned/reference collection use case. Do not combine these into an omnibus feature round. | PM first identifies the consumer/use case and maps it to one capability row, independent oracle, current public compile/link/emit tests, same-final CPP/RTL checks, and exact acceptance boundary. Keep consumer model/tests in the consumer repository. | C2-N1 and the stated static/fixed-collection semantics have approved bounded contracts, so exact implementations can use those contracts. Any broader arrays/tuples, dependent port shapes, external typed DUT, memory/CDC, multiclock, four-state or SYSTEM/EXPECT B extension is a design and explicit user-approval gate, not an implementation shortcut. |
+| 5 | Measure memory and runtime throughput without converting the M6-02 baseline into a performance promise. Current timings are whole-command wall time, include process/CMake/Ninja startup, and the three-cycle runner result is startup plus execution. | Keep the accepted six-case build report reproducible with the existing command below. For a new profile packet, first define isolated per-command/child RSS and a sustained-cycle workload; collect environment, compiler, workload, repetitions, warm/cold distinction, raw logs and observed variation. Report values and uncertainty without a pass/fail ceiling. | Developer-only measurement can proceed within C3. A promised throughput/RSS ceiling or a public benchmark contract is a product claim and needs proposal/approval. The existing measurement tool does not provide RSS or steady-state throughput; do not claim that it does. |
+| 6 | Assess selective C++ TU rebuilds after the above measurements. M6-02 observed that one leaf edit leaves independent source units intact, but full emit republishes the generated bundle and recompiles every generated C++ target TU. | Reproduce through the public measurement tool and `tests/system/test_m6_incremental_build.py`; preserve separate CPP source groups and exact receipt/depfile/byproduct inventories. A bounded design should separately measure body edit, interface edit, toolchain touch, and no-op, and must preserve atomic managed publication. | There is no current cache or selective-backend-rebuild guarantee. Internal CMake dependency improvements that keep C3 ownership/transaction behavior can be reviewed within C3; any new stable-file identity, content-key cache, partial publication protocol or public cache promise needs an independent design packet and approval. |
+| 7 | Resume V44 Work/Xfer/order evidence. The two tests already exist, but current regression script explicitly excludes them and the backend-closure harness reports their fixture execution unavailable. They are not passing evidence. | The current diagnostic selection is `python3 -m pytest -q tests/system/test_unified_register_backends.py -k 'test_v44_schedule_permutations_preserve_values_errors_and_events or test_v44_source_reorder_compares_explicit_semantic_identity'` with `ACIR_BACKEND_CLOSURE_HARNESS` set to the current build helper. The harness currently rejects both fixture names before publishing results. After the harness supports them, run baseline vs reversed Work vs reversed Xfer vs actual worker parallelism, and source reorder compared only through explicit semantic identity. Preserve Q, error, event identity/order, and cycle/commit epochs; use a real concurrency sanitizer/test when execution is actually concurrent. | The C2-R1/M1 semantics are approved; faithful internal implementation and tests can proceed without a new user API. A scheduler knob, changed winner/order/error/observation semantics, or using an unapproved source-level SYSTEM/EXPECT interface is a design/approval gate. M7's `-k` deselections and Ninja `-j4` compilation are not V44 evidence. |
+
+Ranks are scheduling guidance, not milestone claims. If no consumer asks for a new M3 capability and no stable release is authorized, the test-only C3 fault and platform evidence packets are the lowest-risk next work; performance, cache and V44 work remain separately scoped.
+
+## Reproducible command and evidence matrix
+
+All commands below are existing repository entry points. The first two reproduce
+accepted M6 baselines; future packets must use a fresh output directory and
+rebuild/install from the candidate checkout. Do not mix a prefix from another
+worktree.
+
+| Purpose | Command / evidence | Current limitation |
+| --- | --- | --- |
+| Fresh CompilerDev + Runtime candidate | `PYC_BUILD_TESTING=ON bash flows/scripts/pyc build --build-dir "$PWD/.pycircuit_out/m6-next-root" --install-prefix "$PWD/.pycircuit_out/m6-next-install"`; retain installed `share/pycircuit/toolchain-metadata.json` and assert its full SHA matches the checkout. | LLVM/MLIR must be exactly 22.1.8. |
+| Current C3 scale/invalidation baseline | After the fresh install: `export PYC_TOOLCHAIN_ROOT="$PWD/.pycircuit_out/m6-next-install"; M6_MEASURE_DIR="$(mktemp -d "$PWD/.pycircuit_out/m6-measure.XXXXXX")"; python3 flows/tools/measure_m6_build.py --prefix "$PYC_TOOLCHAIN_ROOT" --output-dir "$M6_MEASURE_DIR"`; archive `report.json`, logs, toolchain identity, no-op bytes/mtimes, command counts and oracles. | Measures six cases, no RSS or sustained throughput; it does not establish a threshold. |
+| C3 source graph and public example | Export `PYC_TOOLCHAIN_ROOT="$PWD/.pycircuit_out/m6-next-install"`, `PYC_BUILD_DIR="$PWD/.pycircuit_out/m6-next-root"`, `PYCIRCUIT_NATIVE_BUILD="$PYC_BUILD_DIR"`, `PYCIRCUIT_M6_PREFIX="$PYC_TOOLCHAIN_ROOT"`, and `ACIR_SOURCE_UNIT_HARNESS="$PYC_BUILD_DIR/bin/acir-source-unit-harness"`, `ACIR_DESIGN_HARNESS="$PYC_BUILD_DIR/bin/acir-design-harness"`, `ACIR_CPP_SOURCE_PARTS_HARNESS="$PYC_BUILD_DIR/bin/acir-cpp-source-parts-harness"`; run `python3 -m pytest tests/system/test_m6_incremental_build.py tests/system/test_m6_example_build.py tests/unit/test_m6_measurement.py tests/unit/test_m6_prepare_output.py -q`. | Verifies existing CMake/Ninja invalidation, receipt ownership, clean/rebuild and oracle behavior. |
+| M3 named-import/module use case | `bash flows/scripts/run_semantic_regressions_v6.sh` is the existing public source/link/final/dual-backend entry point and includes namespace/module tests. A selected C2-N1 case still needs a new independent positive/negative oracle before it can count as implemented evidence. | Header-only or generic namespace tests do not close the approved five declaration classes, and a broad regression pass cannot stand in for the selected consumer case. |
+| Publication failure and moved prefix | With `PYCIRCUIT_NATIVE_BUILD="$PYC_BUILD_DIR"` and the three helper paths exported as above, run `python3 -m pytest tests/system/test_m6_publication_process_recovery.py tests/system/test_m6_relocated_compiler.py -q` and `python3 -m pytest tests/unit/test_publication.py tests/unit/test_publication_fs.py tests/unit/test_driver_commands.py -q`. | M6-01 first-publication expansion beyond source compile remains open; prior Windows-only skips are not Windows evidence. |
+| Current source/runtime/RTL closure | `bash flows/scripts/run_examples.sh`, `bash flows/scripts/run_sims.sh`, `bash flows/scripts/run_sims_nightly.sh`, and `bash flows/scripts/run_semantic_regressions_v6.sh`; preserve each script's exact test inventory, exclusions, exits and raw outputs. | The semantic script currently deselects V44; other backend fixtures explicitly return “execution is unavailable.” |
+| Unicode generated/build directory probe | With `PYC_TOOLCHAIN_ROOT` set: `M6_MEASURE_DIR="$(mktemp -d "$PWD/.pycircuit_out/m6-unicode-路径.XXXXXX")"; python3 flows/tools/measure_m6_build.py --prefix "$PYC_TOOLCHAIN_ROOT" --output-dir "$M6_MEASURE_DIR" --sizes small`; archive the first failing CMake/Ninja/Verilator command and versions. | This probe is expected to reproduce the documented 5.044 limitation until fixed; do not count failure as a support rejection contract. |
+| Stable platform release evidence | Inspect/run the existing `.github/workflows/release.yml` only after version/source identity is authorized and the workflow is reconciled with the current route; it owns exact-SHA validation, Linux/macOS-15/Windows candidates, verification and later publication. | `v6.1.0` peels to `d4926615…`, not `4584ad0b`; the current version map also names 6.1.0, so the stable-version decision is unresolved. No local M6/M7 preview replaces the matrix. |
+
+For every new packet bind: candidate SHA/dirty overlay, exact command and exit,
+platform/architecture/OS SDK, Python/CMake/Ninja/LLVM/MLIR/Verilator identities,
+selected tests/skips, independent oracle, and raw evidence directory. For
+performance include repetitions and instrumentation method, but no threshold
+unless separately approved. For fault tests include expected C3 journal/path
+state and exact byte/control-lock comparisons. For parallel tests record the
+actual schedule/workers, sanitizer outcome, Q/error/event trace and test oracle.
+
+## Concurrent ownership and stop boundaries
+
+- PM freezes the candidate; unit-test authors own only their fixtures/tests;
+  one implementation owner per importer/pass/runtime/build-generator file.
+  ACIR ODS/registry, root CMake, CMake presets and release workflow each need a
+  single integration owner.
+- Per-platform runs use independent current-checkout build/install directories.
+  Never share compiler prefixes across jobs, copy artifacts between worktrees,
+  or let CI matrix jobs mutate the same output directory.
+- M6 measurement logs and outputs stay in fresh `.pycircuit_out/<packet>/`
+  directories. A change to the workload, measurement parser or build graph
+  invalidates its corresponding baseline/report binding.
+- Stop and request the required design/user review if implementation needs a
+  new source/IR/CLI/runtime/schema/ABI/error/timing/ownership contract, a new
+  public support promise, a scheduler/user control, or an external version/tag/
+  publication action. Existing approved C1/C2/C3/R1/M1 semantics authorize no
+  silent expansion beyond their exact frozen text.

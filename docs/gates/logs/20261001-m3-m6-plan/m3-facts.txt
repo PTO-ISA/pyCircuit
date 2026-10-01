@@ -1,0 +1,154 @@
+# M3 plan facts: source capability, approvals, and existing evidence
+
+Audit target: implementation checkout `codex/gfsim-source-units`, HEAD `4584ad0b`.
+This is a read-only evidence note; it does not change the declared product profile.
+
+## Current public profile
+
+The accepted M5 public profile is deliberately narrower than the migration
+contracts and lower-level tests. The [M5 migration guide](../docs/development/m5-migration.md:10)
+limits it to portless function `@module`s, nested registered `@rule`s, finite
+scalar current/next state under one default clock, nested explicitly compiled
+source units, empty static arguments, and no external data ports. It expressly
+places nonempty static arguments, parameter-dependent interface shapes, and
+dynamic collections outside the profile and requires fail-closed behavior
+([guide lines 83–97](../docs/development/m5-migration.md:83)). The M5 record says
+acceptance is for this bounded profile, not framework completion
+([M5 work item lines 1–12](../docs/work-items/m5-cutover.md:1)).
+
+This is backed by executable current-route negatives: `test_link_parameter_binding_rules`
+rejects a nonempty `--parameters` array with “static parameter bindings are not
+implemented yet”, verifies no output publication, and verifies a failed replace
+preserves old bytes ([driver test lines 777–862](../tests/system/test_driver_compile_link.py:777)).
+`test_child_static_parameters_never_lower_to_empty_static_args` rejects a child
+with static parameters instead of silently erasing them
+([source-module test lines 547–571](../tests/system/test_source_module_units.py:547));
+the native Verilog family test asserts its current cases have empty static args
+([native family test lines 235–247](../tests/cpp/agentic-circuit/Dialect/ACIR/MultiInstanceVerilogTest.cpp:235)).
+
+## Contract approvals and remaining carrier boundary
+
+C1 revision C is exactly approved, including its fixed owned/reference
+collection and ordinary static-parameter source rules, but that source approval
+does not approve an IR/header/CLI carrier. Its approval explicitly excludes
+unspecified IR attributes, CLI flags, headers/schema, generated APIs, and
+runtime ABI ([C1 approval lines 9–19](../docs/rfcs/migration/approvals/c1-pythonic-source.md:9)).
+C2-C/C3-C are also exactly approved; they authorize source-owned headers,
+static specialization, ordinary state, and both backends, but expressly leave
+extensions outside those exact texts to separate design/approval
+([C2/C3 approval lines 9–24](../docs/rfcs/migration/approvals/c2-c3-foundation.md:9)).
+
+The more specific C2-R1/M1 approval does **not** erase this gap: lines 44–48
+explicitly withhold automatic approval for an unfrozen parameterized/dynamic
+collection carrier, requiring fail-closed behavior ([R1/M1 approval](../docs/rfcs/migration/approvals/c2-r1-m1-interface.md:42)).
+The current M3 plan therefore correctly makes Bank E02 conditional on checking
+the nonempty `--parameters` carrier and specialization header/receipt shape
+([plan lines 102–114](../docs/work-items/m3-m6-expansion-plan.md:102)). Do not
+change the public profile or mark Bank supported based only on the C1 source
+contract, C2 schema text, or native ACIR coverage.
+
+The C1 approved source contract defines positive fixed-list lengths, static
+reference-list ordinals, bounds-checked owned-list indices, negative-index and
+bool-index rejection, no reshape/append, and static reset inputs
+([C1 lines 132–154](../docs/rfcs/migration/c1-pythonic-source.md:132)). Its Bank
+example uses `cells: list[Word] = [initial for _ in range(entries)]`, specializes
+one source at `(entries=2, initial=0)` and `(entries=4, initial=5)`, and expects
+first/second outputs `(0,5)` then `(9,13)`; it rejects runtime-valued shape/reset,
+`initial=256`, and `entries=0` ([C1 lines 156–198](../docs/rfcs/migration/c1-pythonic-source.md:156)).
+C2-C requires specialization-time exact list length/type/order/range checking,
+and names `entries=257` as the case where `Word(range(256))` produces invalid
+value 256; that is a value-range negative, not a blanket rejection of a
+257-element repeated-zero list ([C2 lines 314–318](../docs/rfcs/migration/c2-mlir-contract.md:314)).
+It also requires same-source body/header compilation, exact effect rederivation,
+source-unit ownership, and both emitters against independent behavior
+([C2 Bank example lines 370–436](../docs/rfcs/migration/c2-mlir-contract.md:370)).
+
+## Record/helper evidence
+
+The capability ledger calls the current record evidence a **subset**: U01
+proves source-owned record headers, direct constructor assignment, defaults,
+binding, and field reads; general helper computation and two-backend behavior
+remain unverified ([ledger lines 11–16](../docs/work-items/migration-capabilities.md:11)).
+The U01 acceptance says a real `Packet` source is compiled, then a consumer
+compiles through its header after provider source and body are removed; it
+proves constructor/default/binding/field-read nominal identity and order, while
+explicitly excluding general helper computation, module/rule execution, link,
+publication, and C++/Verilog execution ([U01 acceptance lines 33–59](../docs/gates/logs/20260927-u01-native/acceptance.md:33)).
+
+The source-level path is
+[`test_source_unit_packet.py`](../tests/system/test_source_unit_packet.py:125):
+the canonical migration packet emits body/header (125–142); a header-only
+consumer exercises defaults, keyword construction and field reads after the
+provider body/source are removed (144–175); constructor negatives cover unknown,
+duplicate, extra-positional and missing arguments (178–211). The namespace test
+fixture contains a `Make() -> Payload` value helper
+([source namespace fixture lines 87–112](../tests/system/test_source_namespace_bindings.py:87)),
+and namespace tests exercise header-based import/re-export/value availability;
+that is not an end-to-end stateful helper/backend oracle.
+
+Native ACIR `SourceTypeContractsTest.cpp` accepts nested record/static-list
+schemas and rejects malformed/nonpositive list types and unresolved, cyclic or
+wrong-authority record declarations ([static-type cases](../tests/cpp/agentic-circuit/Dialect/ACIR/SourceTypeContractsTest.cpp:329)).
+`SourceStaticMatchingTest.cpp` checks exact nested-list lengths, element types,
+integer ranges, bool/integer distinction, and defaults ([matching cases](../tests/cpp/agentic-circuit/Dialect/ACIR/SourceStaticMatchingTest.cpp:152)).
+These are schema/value-matcher checks; they do not compile a Python Bank through
+specialization, link, runtime, and both emitters.
+
+## Collection and Bank evidence
+
+There are three distinct current evidence levels:
+
+1. **Approved contract/oracle, not implementation pass.** The retained
+   `migration_c1` fixtures are capture-only. Their README says backend
+   registration was waiting for the C2/C3 implementation and the Python files
+   do not claim a passing new pipeline ([fixture README lines 1–25](../tests/integration/pycircuit/fixtures/migration_c1/README.md:1)).
+   `expected.json` records the Bank scalar-output oracle (first `(0,5)`, next
+   `(9,13)`), independent sizes 2/4, and separate reset images; it marks backend
+   status UNRUN ([oracle lines 1–55](../tests/integration/pycircuit/fixtures/migration_c1/expected.json:1)).
+   The fixture source is the older approved C1 class/method spelling
+   ([bank.py](../tests/integration/pycircuit/fixtures/migration_c1/bank.py:1),
+   [bank_core.py](../tests/integration/pycircuit/fixtures/migration_c1/bank_core.py:1));
+   it is not the current M5 function-module public profile.
+2. **Python importer/native source-to-IR subset.**
+   `RegContractsTest.V16_ConcreteListMaterializesExactlyThreeRegElements`
+   compiles `cells: list[Word] = [3, 7, 11]` and checks three reg elements,
+   exact reset order, shape, ownership, and no queue op
+   ([lines 284–350](../tests/cpp/agentic-circuit/Dialect/ACIR/RegContractsTest.cpp:284)).
+   Neighboring tests reject an empty list initializer and wrong element type or
+   range ([lines 352–399](../tests/cpp/agentic-circuit/Dialect/ACIR/RegContractsTest.cpp:352)).
+   This is a concrete literal-list importer test, not a parameterized shape,
+   Bank output oracle, link, or C++/RTL execution.
+3. **Reusable hierarchy lower-level behavior.** The native reusable-family C++
+   test validates repeated child instances have independent hidden state and
+   asserts every current specialization key is empty
+   ([ReusableFamilyCppTest.cpp lines 247–285](../tests/cpp/agentic-circuit/Dialect/ACIR/ReusableFamilyCppTest.cpp:247));
+   the RTL family path similarly states its scope is empty static arguments
+   ([MultiInstanceVerilogTest.cpp lines 235–247](../tests/cpp/agentic-circuit/Dialect/ACIR/MultiInstanceVerilogTest.cpp:235).
+   These establish empty-key hierarchy behavior, not Bank 2/4 nonempty
+   specialization.
+
+Concrete approved Bank negatives include: nonpositive entries; runtime-valued
+`entries`/`initial`; initializer outside `Word`; out-of-bounds and negative
+indices; `bool` as an index; malformed list length/order/type; and duplicate
+write aliases. C1 states index, alias/effect and positive-size rules
+([C1 lines 74–85](../docs/rfcs/migration/c1-pythonic-source.md:74),
+[lines 138–148](../docs/rfcs/migration/c1-pythonic-source.md:138)); C2-C adds
+exact reset-expression length/order/range checks, `entries=257`/value-256, bool
+versus integer, reordered elements, and reset-restores-all-elements cases
+([C2 lines 314–318](../docs/rfcs/migration/c2-mlir-contract.md:314)). Existing
+fixture oracle has explicit negative index, bool-index, and zero-length vectors
+([expected.json lines 137–149](../tests/integration/pycircuit/fixtures/migration_c1/expected.json:137)),
+and R/W alias outcomes ([lines 111–135](../tests/integration/pycircuit/fixtures/migration_c1/expected.json:111));
+these vectors are data/oracle evidence, not passing current end-to-end tests.
+
+## Planning implication
+
+Keep three columns separate in the plan: (a) exact contract approval, (b)
+source/importer/native partial evidence, and (c) accepted public profile plus
+end-to-end CPP/RTL evidence. The present state is: C1/C2-C/C3-C semantics
+approved for the stated scope; R1/M1 explicitly withholds the unfrozen
+parameterized/dynamic collection carrier; M5 public profile rejects nonempty
+static arguments and supports only finite scalar state; Bank behavior has an
+independent frozen oracle but no current source→specialization→link→both-backend
+execution proof. The M3 plan's contract-check prerequisite is therefore real,
+not already closed by lower-level tests.

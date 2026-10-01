@@ -1,6 +1,6 @@
 # pyCircuit 单一路线重构与 GFSIM 迁移计划
 
-日期：2026-09-29。规划修订：8。状态：按用户要求改为有界交付、按需补齐；正式产品切换尚未完成。C1-C/C2-C/C3-C 是已批准的历史基础，R1/M1 联合增补的审阅/授权单独记录。最新进度见[执行账本](../work-items/single-route-migration.md)。
+日期：2026-09-29。规划修订：8。状态：有界交付、按需补齐；M4/M5 的声明范围与 M7 本地预览已验收，完整能力/平台/稳定发布仍开放。C1-C/C2-C/C3-C 是已批准的历史基础，R1/M1 联合增补的审阅/授权单独记录。最新进度见[执行账本](../work-items/single-route-migration.md)。
 
 **执行入口：[逐包 checklist](migration-agent-checklist.md) → [M1 C 合同](../rfcs/migration/c2-m1-module-system.md) → [verification matrix](migration-verification-matrix.md)。**
 后续 agent 只执行已绑定候选、文件与 Vxx 门槛的一个 Wxx 包。Python
@@ -371,3 +371,11 @@ ready 前列精确文件、候选、接口授权、实际测试 inventory 和退
 5. 逐源独立编译、source provenance、实例/参数 identity、硬件时序、reset、适用四态与原子性完整验收。
 6. 所有接口改变覆盖在用户批准的精确提案中；独立 Astra、独立测试、Sol review、集成与 PM 验收证据对应同一内容。
 7. required PR/semantic/release gates 已切到新路线且覆盖成立；未跑的门槛与未交付范围明确，不把计划审阅称作产品完成。
+
+## 2026-10-01 M3/M6 扩展执行顺序
+
+[M3/M6 扩展计划](../work-items/m3-m6-expansion-plan.md)将剩余能力、真实
+故障/资源测量、后端增量、Unicode、平台和并行分别拆包，保留精确批准
+边界与 checklist/oracle。近期并行准备 M3-P01 合同/证据核对和 M6-03
+首次发布故障扩面；M6-04 独立测量准备随后推进。新接口的计划通过不是
+产品批准，当前 accepted profile 不由这些未执行的包自动扩大。
