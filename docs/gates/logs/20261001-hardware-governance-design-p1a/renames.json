@@ -1,0 +1,30 @@
+{
+  "packet": "1a",
+  "replacements": {
+    "FinalHardwareProgram.h": "FinalHardwareDesign.h",
+    "FinalHardwareProgramView": "FinalHardwareDesignView",
+    "rebuildFinalHardwareProgram": "rebuildFinalHardwareDesign",
+    "ACIR_LIB_COMPILER_FINALHARDWAREPROGRAM_H": "ACIR_LIB_COMPILER_FINALHARDWAREDESIGN_H"
+  },
+  "files": [
+    {
+      "original": "compiler/acir/lib/Compiler/FinalHardwareProgram.h",
+      "renamed": "compiler/acir/lib/Compiler/FinalHardwareDesign.h",
+      "before_sha256": "2b32dcb9c92a47eeeb14f026345fa640db76e3923ab90d1313ad48b8e6253a05",
+      "after_sha256": "9b5019467e6e4007924bc7dc73f97ab5ffc21e1662a2b17317e6531afe36f31e"
+    },
+    {
+      "original": "compiler/acir/lib/Compiler/FinalHardwareProgram.cpp",
+      "renamed": "compiler/acir/lib/Compiler/FinalHardwareDesign.cpp",
+      "before_sha256": "9a07cd75d548c42309fd8dd53f24a4cdc53890372daf26becbb40a6613d42acc",
+      "after_sha256": "9558641896bed405880203b7757deba46b8856189d3c1ad8fa126d116fe917b5"
+    },
+    {
+      "original": "compiler/acir/lib/Compiler/FinalProgram.cpp",
+      "renamed": "compiler/acir/lib/Compiler/FinalProgram.cpp",
+      "before_sha256": "b40a2981642d75f893cb51b3a51c8773319016d011be3b3bbebb9f458020f15e",
+      "after_sha256": "b71e4283e4aea4cb889c220de4bdcb5794bcce444e524b9a2e16e1d6d69c9700"
+    }
+  ],
+  "scope": "Naming only; unchanged reconstruction and source authority behavior."
+}

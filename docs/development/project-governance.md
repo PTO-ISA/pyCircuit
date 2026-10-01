@@ -60,13 +60,13 @@ and code review must use independent instances.
 | Responsibility | Default model | Effort and boundary |
 | --- | --- | --- |
 | PM | Current main session | Do not switch the user's main model merely for this program. |
-| Architecture design | `gpt-6-astra` | `high` or `xhigh`; record a reason when critical semantics warrant `ultra`. |
+| Architecture design | `gpt-6-astra` | Actual `architect` preset at `xhigh`; record any supported host configuration change explicitly. |
 | Independent design validation and validation strategy | `gpt-6-astra` | Match risk; use an independent instance that does not write the reviewed implementation. |
-| Decomposition, code review, and build integration | `gpt-5.6-sol` | `low`, `medium`, or `high` according to risk; a reviewer does not author the reviewed diff. |
-| Implementation | `gpt-6-luna` | `low`, `medium`, or `high`; bounded file ownership. |
-| Independent tests | `gpt-6-luna` | A different instance from implementation; derive expectations from the approved contract. |
-| Cross-layer debugging and performance | `gpt-5.6-sol` | Use `high` for difficult cross-layer failures; begin with a minimal reproducer. |
-| Documentation and contract cross-check | `gpt-6-luna` | May report inconsistency but cannot approve semantics. |
+| Decomposition, code review, and build integration | `gpt-6.1-sol` | `low`, `medium`, or `high` according to risk; a reviewer does not author the reviewed diff. |
+| Implementation | `gpt-6.1-sol` | `low`, `medium`, or `high`; bounded file ownership. |
+| Independent tests | `gpt-6.1-sol` | A different instance from implementation; derive expectations from the approved contract. |
+| Cross-layer debugging and performance | `gpt-6.1-sol` | Use `high` for difficult cross-layer failures; begin with a minimal reproducer. |
+| Documentation and contract cross-check | `gpt-6.1-sol` | May report inconsistency but cannot approve semantics. |
 | Optional DSH `deepseek-flash` task | Provider-confirmed model | Read-only by default; never substitutes for Astra validation, independent tests, or Sol review. |
 
 Complexity determines the smallest valid organization:
@@ -75,7 +75,7 @@ Complexity determines the smallest valid organization:
 | --- | --- | --- |
 | Simple | Repository facts, wording, low-risk mechanical work | PM or one bounded investigator. |
 | Local | Repair within one accepted contract | PM decomposition, implementation, independent test, Sol review. |
-| Complex | Cross-module, build, or generated-code interface | Sol decomposition/integration, bounded implementation and test lanes, plus Astra when design is involved. |
+| Complex | Cross-module, build, or generated-code interface | Actual architect, separate decomposition agent, bounded implementation/test lanes, independent review and PM integration. |
 | Critical semantic | New IR/API, timing, ownership, atomicity, or cross-backend behavior | Precise design, independent Astra review, user approval, implementation and independent tests, Sol review, and architecture conformance. |
 
 If the requested model is unavailable, record the missing responsibility and
@@ -86,20 +86,51 @@ debugging lane rather than repeat indefinitely.
 
 ## Native dispatch bindings
 
-The table above names logical responsibilities, not native `agent_type` presets.
-Use `agent_type="default"` with explicit `model` and supported `reasoning_effort`
-and bounded context when assigning Luna implementation, test, or documentation
-work. For example, a Luna test task uses `model="gpt-6-luna"`; selecting the
-fixed `test-engineer` preset does not select Luna.
+Architecture must use the actual `architect` preset, currently
+`gpt-6-astra` / `xhigh`. A complex design then goes to a separate decomposition
+agent before implementation. The decomposer fixes small task boundaries and
+files; an executor cannot absorb architectural decisions into an implementation
+packet. Independent review checks that the decomposition preserves the design.
 
-On the current host, `executor` and `test-engineer` are fixed to
-`gpt-5.6-sol` / `medium`; `writer` and `code-reviewer` are fixed to
-`gpt-5.6-sol` / `high`; `architect` is `gpt-6-astra` / `xhigh`.
-A different intended model/effort uses explicit supported configuration rather
-than a conflicting preset. Verify availability before dispatch and record the
-actual configuration. The initial governance/bootstrap and baseline lanes used
-those fixed Sol presets before this canonical routing was activated; their
-work-item records preserve that fact and do not describe them as Luna work.
+For implementation, independent tests and code review, the user-selected default
+is `gpt-6.1-sol`. Use explicit supported model/effort with the appropriate logical
+role prompt when a fixed preset would select a different model. Record actual
+configuration; do not infer it from a role name or claim a previous Sol/Luna
+instance ran on the new default. Native `planner` and `explore` presets may be
+used for their matching bounded responsibilities, with their actual models
+recorded. Do not modify provider role definitions or pretend a default child
+is the architect preset.
+
+## No hardcoding, no shims
+
+**HARDCODE is prohibited in framework semantics and admission.** An example's
+width, literal, reset value, name, node count or statement shape must not become
+a product rule. Types, SSA dataflow, effects, register ownership and the approved
+operation contract determine legality. Source-design constants, oracle literals
+and fixed hardware primitive signatures are legitimate; recognizing a counter
+recipe instead of compiling its operations is not.
+
+**SHIM is prohibited.** No old API alias, fallback compiler, duplicate semantic
+engine, backend semantic workaround or proxy that bypasses the common hardware
+IR. Hard-break renames update definitions and callers together and reject old
+spellings. Adapters required at an approved phase boundary must implement that
+boundary directly; they must not hide an alternate semantic route. A temporary
+workaround does not become acceptable because a test passes.
+
+The mandatory sequence for complex work is:
+
+1. Architect defines the reusable hardware design and approved semantic boundary.
+2. An independent decomposition agent creates small tasks with exclusive files,
+   dependencies, hardware acceptance behavior and the smallest useful gates.
+3. Executors implement those bounded tasks; PM alone integrates shared registries.
+4. Independent tests and review check hardware behavior and adherence to design.
+
+If implementation exposes a design gap, return it to the architect/decomposer;
+do not add another scenario, shim, profile or primitive to keep the current
+fixture green. Delete or replace obsolete recipe tests as the owning route is
+retired. Keep hardware ownership/types, old-Q, enabled Xfer/discard/reset,
+zero-commit failure, source ownership and publication-safety evidence. A test
+count or one passing fixture cannot substitute for reusable hardware behavior.
 
 ## Task dispatch and file ownership
 

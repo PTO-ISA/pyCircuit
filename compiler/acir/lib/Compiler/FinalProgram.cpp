@@ -6,7 +6,7 @@
 #include "Dialect/ACIR/ACIRStaticEvaluation.h"
 #include "FinalDeclarations.h"
 #include "FinalHardware.h"
-#include "FinalHardwareProgram.h"
+#include "FinalHardwareDesign.h"
 #include "FinalUses.h"
 
 #include "mlir/Dialect/Arith/IR/Arith.h"
@@ -1469,7 +1469,7 @@ buildFinalProgramFromHardware(ModuleOp package,
     return emitError() << "cloned final hardware failed native verification";
 
   auto rebuilt =
-      rebuildFinalHardwareProgram(*program.finalHardware_, emitError);
+      rebuildFinalHardwareDesign(*program.finalHardware_, emitError);
   if (failed(rebuilt))
     return emitError() << "final hardware program view reconstruction failed";
   program.modules_ = std::move(rebuilt->modules);

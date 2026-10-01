@@ -15,7 +15,7 @@ add_acir_library(ACIRSourceCompiler SOURCES
   FinalEmitVerilog.cpp
   FinalHardware.cpp
   FinalDeclarations.cpp
-  FinalHardwareProgram.cpp
+  FinalHardwareDesign.cpp
   FinalUses.cpp
   FinalNumeric.cpp
   FinalComposedNumeric.cpp

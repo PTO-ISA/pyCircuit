@@ -1,7 +1,7 @@
 # pyCircuit agent instructions
 
-This repository has completed the pyCircuit M5 hard-break cutover for the
-declared scalar profile and is progressing through bounded M6 hardening.
+pyCircuit is a hardware design language. M5 retired the old compilation routes;
+that bounded cutover does not mean the intended hardware language is complete.
 Active product behavior is governed by the approved migration contracts and
 the accepted implementation. Do not treat this file or any migration proposal as evidence that
 implementation or tests have passed.
@@ -19,12 +19,14 @@ implementation or tests have passed.
   `docs/development/pycircuit-modernization-plan.md` for modernization
   ownership and phase expectations
 
-## Active contract
+## Hardware semantics and implementation coverage
 
-The current bounded source profile is one portless function `@module` per
-implementation source, nested `@rule` definitions with explicit module-scope
-registration, one default clock, finite scalar state with current/next
-semantics, and empty static arguments. Each source compiles independently to a
+Source modules are ordinary `@module` functions with nested stateless `@rule`
+functions and explicit registrations. Internal child parameters reference
+parent-owned registers; MLIR infers their effects and connections. The current
+implementation covers one default clock and finite integer/boolean register
+values. Its selected root is currently required to be portless and its static
+argument list empty; these are implementation gaps, not HDL invariants. Each source compiles independently to a
 published unit. Link takes the explicit complete unit closure; C++ and Verilog
 emit from the same verified final artifact.
 
@@ -33,8 +35,8 @@ semantic checks, interface/effect derivation, and hardware lowering. Rule reads
 observe current state throughout the epoch; `nonlocal` writes propose next
 state. Use ordinary local candidates when a proposed value is needed again.
 
-Unsupported uses must fail closed with a diagnostic. The current profile does
-not include a complete `@system` contract, queues, memory/CDC, multiple clocks,
+Unsupported uses must fail closed with a diagnostic. The current implementation does
+not yet provide a complete `@system` contract, queues, memory/CDC, multiple clocks,
 four-state source values, external typed ports/DUT ABI, dynamic collections, or
 nonempty static parameters. Do not fill gaps through retired routes.
 
@@ -71,6 +73,37 @@ smallest evidence needed. Build from this checkout; do not copy toolchains,
 shared libraries, or generated outputs from another worktree. Keep generated
 files and temporary artifacts out of the source tree. Update active behavior
 docs with behavior changes.
+
+## Hardware design and task boundaries
+
+- pyCircuit is a hardware design language. Designs, modules, register references,
+  stateless rules and test systems are the product concepts. A selected test
+  fixture or an unfinished implementation slice is not the language definition.
+- **NO HARDCODE:** do not use an example's name, width, initial value, increment,
+  mask, node count, statement layout or number of ports to decide product
+  semantics or admission. Derive behavior from declared types, actual SSA,
+  effects, register ownership and approved operation semantics. Hardware source
+  constants, independently derived oracle values and fixed primitive contracts
+  are legitimate; scenario recognition as a compiler rule is not.
+- **NO SHIM:** no compatibility aliases, old-route fallback, parallel semantic
+  compiler, backend-only semantic patch, or adapter that bypasses common IR
+  inference/verification. Rename or replace the owning implementation and its
+  callers together. A temporary workaround needs removal before acceptance;
+  calling it internal does not exempt it.
+- For a complex change, a real `architect` agent establishes the design and an
+  independent decomposition agent splits it into small tasks before execution.
+  Each task fixes its inputs, exclusive files, dependencies, expected hardware
+  behavior, minimal gates and removal scope. Executors implement those tasks;
+  they do not redesign the framework while chasing a failing test.
+- PM integrates shared registries and CMake. Implementation, independent tests
+  and review use separate instances. Default implementation and code-review
+  model is `gpt-6.1-sol`; record the actual role/model/effort. Use the real
+  architect preset for architecture, not another role described as architect.
+- Remove tests that freeze incidental recipes or duplicate another gate.
+  Preserve meaningful ownership, type/range, old-Q, Xfer/hold/discard/reset,
+  zero-commit-on-failure, source-unit and output-protection oracles. Never weaken
+  hardware semantics to make an example pass, or claim broad migration from
+  one or two small examples.
 
 ## Verification and reporting
 

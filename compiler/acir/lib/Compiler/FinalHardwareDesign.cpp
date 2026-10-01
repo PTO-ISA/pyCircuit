@@ -1,4 +1,4 @@
-#include "FinalHardwareProgram.h"
+#include "FinalHardwareDesign.h"
 
 #include "Dialect/ACIR/ACIRHardwareClosure.h"
 #include "Dialect/ACIR/ACIRHardwareClosureDetail.h"
@@ -141,12 +141,12 @@ rebuildFinalModuleGraphFromHardware(ModuleOp package,
   return graph;
 }
 
-FailureOr<FinalHardwareProgramView>
-rebuildFinalHardwareProgram(ModuleOp package, ac::detail::EmitError emitError) {
+FailureOr<FinalHardwareDesignView>
+rebuildFinalHardwareDesign(ModuleOp package, ac::detail::EmitError emitError) {
   auto modules = rebuildFinalModuleGraphFromHardware(package, emitError);
   if (failed(modules))
     return failure();
-  FinalHardwareProgramView result;
+  FinalHardwareDesignView result;
   result.modules = std::make_unique<ModuleGraph>(std::move(*modules));
 
   auto checks = buildSourceCheckGraph(*result.modules, emitError);
