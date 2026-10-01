@@ -427,3 +427,11 @@ acceptance and the broader capability roadmap remain separate; existing
 record final投影精确design/oracle，重用已批准行为，不开放 Bank 或两份 B。
 M6 对final/CPP/RTL的15个首次发布可达中断点已有真实证据，保留原协议。
 这不是完整M3/M6完成；各capability、平台与性能包继续按扩展计划推进。
+
+## 2026-10-01 record 精确批准与 M6-04 完成
+
+产品提交 `1efec35e` 归档用户对 C2-DECL-R 修订 B 的精确批准和独立oracle，
+[record实施顺序](../work-items/m3-record-implementation.md)从共享final声明/验证
+开始；本次设计步骤不声称record已执行。M6-04 的四组selected尺寸/32phase/
+24CABIrun和独立测试已通过，见[资源/长运行验收](../work-items/m6-resource-runtime-baseline.md)。
+采样RSS/摊销速率有明确限制，不证明exact/isolated峰值、RTL吞吐或全部M6。

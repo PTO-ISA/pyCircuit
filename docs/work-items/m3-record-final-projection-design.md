@@ -1,6 +1,6 @@
 # M3-E01：record final 投影设计/独立 oracle 包
 
-状态：ready-for-design，未批准产品实现。日期：2026-10-01。
+状态：design complete，精确修订 B 已批准；产品实现/验收尚未完成。日期：2026-10-01。
 依据：[M3-P01 准入结论](m3-contract-admission.md)及独立 Astra 核对。
 目标用例：一个 portless 模块，immutable 两字段 record `(lo, hi)`，初值 `(3,17)`，
 基于同拍旧 Q 提出 `(hi, lo+1)`，Xfer 后 `(17,4)`、再 `(4,18)`；reset 重跑。
@@ -47,3 +47,14 @@ Luna 实现、独立 Luna tests、Sol code review；不存在当前 active imple
 
 完成出口：精确 design/oracle 获独立 approval-ready，缺口与复用语义各有明确边界。
 这不是 record 产品实现或新 public profile 的验收。
+
+## 精确批准与下一包
+
+用户在2026-10-01明确批准 [C2-DECL-R B](../rfcs/migration/approvals/c2-decl-record-final.md)，
+SHA-256 `ea242da0d85de4f51c439051c80c2e7ce12c17dca5ef9a63b8743f0f280a0043`。
+产品提交 `1efec35e` 归档两轮独立设计review和最终oracle，已经授权按B实现，
+不再重复请求同一批准。下一步 [S1–S4实施顺序](m3-record-implementation.md)。
+record产品代码/backend验收未在设计步骤完成；其他未批准扩展不随此开放。
+
+- [完整设计审阅](https://github.com/PTO-ISA/pyCircuit/blob/1efec35e/docs/reviews/20261001-m3-record-final-design-review.md)
+- [Oracle与原始审阅](https://github.com/PTO-ISA/pyCircuit/blob/1efec35e/docs/gates/logs/20261001-m3-record-design/README.md)
