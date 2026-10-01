@@ -14,9 +14,10 @@ class CapacityCycle(RuntimeError):
 
 
 def value_copy(value):
-    if type(value) not in (int, bool, tuple):
+    record = isinstance(value, tuple) and isinstance(getattr(type(value), '_fields', None), tuple)
+    if type(value) not in (int, bool, tuple) and not record:
         raise TypeError("expected a scalar or fixed immutable aggregate")
-    if type(value) is tuple:
+    if isinstance(value, tuple):
         for item in value:
             value_copy(item)
     return value  # Immutable aggregates have C++ value semantics without copying.
@@ -25,7 +26,7 @@ def value_copy(value):
 def same_value(a, b):
     if type(a) is not type(b):
         return False
-    if type(a) is tuple:
+    if isinstance(a, tuple):
         return len(a) == len(b) and all(same_value(x, y) for x, y in zip(a, b))
     return a == b
 
@@ -36,7 +37,7 @@ def assign_field(old, path, value):
         return value
     fields = list(old)
     fields[path[0]] = assign_field(fields[path[0]], path[1:], value)
-    return tuple(fields)
+    return tuple(fields) if type(old) is tuple else type(old)(*fields)
 
 
 class IdTasks:
@@ -252,11 +253,15 @@ class Simulator:
         # Per-object counters are observation only, never drive scheduling.
         self.module_calls, self.rule_calls = [0] * len(modules), [0] * len(entries)
         self.last_accepted = ()
+        self.failed = False
+        self.observer = None  # Optional review trace; never consulted by scheduling.
 
     def record_read(self, mid, qid, rid=None):
         if mid != self.active_module:
             raise RuntimeError("read outside owning Module Work")
         queue, module = self.queues[qid], self.modules[mid]
+        if self.observer is not None:
+            self.observer.read(mid, qid, rid)
         queue.readers[mid] = module.read_gen + 1
         if rid is not None:
             record = self.rules[rid]
@@ -292,10 +297,14 @@ class Simulator:
                     valid = False
                     break
         if valid:
+            if self.observer is not None:
+                self.observer.rule_call(rid, True)
             self.stats.cache_hits += 1
             for qid, _ in record.deps:
                 self.record_read(entry.module_id, qid)
             return False
+        if self.observer is not None:
+            self.observer.rule_call(rid, False)
         self._discard(rid)
         record.candidate_args, record.executing = args, True
         self.stats.rule_work += 1
@@ -375,6 +384,8 @@ class Simulator:
                         or not queue.proposal(child).pop):
                     continue
                 self.stats.capacity_edges += 1
+                if self.observer is not None:
+                    self.observer.capacity_edge(rid, child, queue.qid)
                 if self.visited[child] == self.tick:
                     if self.visiting[child]:
                         raise CapacityCycle(f"tick {self.tick}: capacity cycle {stack} -> {child}")
@@ -384,6 +395,8 @@ class Simulator:
                 continue
             self.stats.dfs_visits += 1
             success = self.entries[rid].arbitrate()
+            if self.observer is not None:
+                self.observer.decision(rid, success)
             self.visiting[rid] = False
             stack.pop()
             if success:
@@ -397,6 +410,22 @@ class Simulator:
                         self.rule_tasks.add(producer)
 
     def step(self):
+        if self.failed:
+            raise RuntimeError("simulation has failed; continuation is forbidden")
+        try:
+            if self.observer is not None:
+                self.observer.start()
+            result = self._step()
+            if self.observer is not None:
+                self.observer.finish()
+            return result
+        except Exception as error:
+            self.failed = True
+            if self.observer is not None:
+                self.observer.finish(error)
+            raise
+
+    def _step(self):
         if self.tick == 0:
             for mid in range(len(self.modules)):
                 self.module_tasks.add(mid)
@@ -406,6 +435,8 @@ class Simulator:
             self.module_tasks.add(mid)
         while self.module_tasks:
             self._work(self.module_tasks.take())
+        if self.observer is not None:
+            self.observer.prepared()
         accepted = []
         while self.rule_tasks:
             self._visit(self.rule_tasks.take(), accepted)

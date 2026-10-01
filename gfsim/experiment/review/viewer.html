@@ -1,0 +1,87 @@
+<!doctype html>
+<html lang="zh-CN">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>GFSim review</title>
+<style>
+:root{font:14px system-ui,sans-serif;color:#d8e2f0;background:#0e1624;color-scheme:dark}
+body{margin:24px auto;max-width:1500px;padding:0 20px}h1{font-size:25px}h2{font-size:18px;margin:22px 0 12px}
+p,.muted{color:#9cabc0;line-height:1.6}button,input{font:inherit;padding:6px;background:#1a283d;color:inherit;border:1px solid #405371;border-radius:5px}
+button{cursor:pointer}input[type=range]{flex:1;min-width:100px}.bar{display:flex;align-items:center;gap:10px;flex-wrap:wrap;position:sticky;top:0;background:#0e1624;padding:12px 0;z-index:3}
+section,.panel{background:#142034;border:1px solid #283a54;border-radius:8px;padding:14px;margin:12px 0}.scroll{overflow:auto;max-height:430px}
+table{border-collapse:collapse;width:100%;text-align:left}th,td{padding:7px 10px;border-bottom:1px solid #2a3950;vertical-align:top}th{position:sticky;top:0;background:#1b2a40;z-index:1}td:first-child{white-space:nowrap}
+.timeline td{padding:3px;min-width:24px;text-align:center;cursor:pointer}.timeline th:first-child{left:0;z-index:2}.timeline td:first-child{position:sticky;left:0;background:#1b2a40;min-width:145px;text-align:left;font-size:12px}.selected{outline:2px solid white;outline-offset:-2px}
+.accepted{background:#24674b}.cached{background:#365997}.work{background:#785b28}.pending{background:#544277}.idle{color:#657893}.failed{background:#853e4d}.pill{padding:3px 7px;border-radius:4px;display:inline-block;margin:2px}
+.columns{display:grid;grid-template-columns:1fr 1fr;gap:16px}pre{white-space:pre-wrap;overflow-wrap:anywhere;font:12px/1.5 ui-monospace,monospace;margin:6px 0}summary{cursor:pointer}svg{width:100%;min-width:660px}svg text{fill:#d8e2f0;font:13px system-ui}svg rect{fill:#203551;stroke:#516987}svg path{stroke:#e7b264;fill:none;stroke-width:2}svg marker path{fill:#e7b264;stroke:none}
+@media(max-width:850px){.columns{grid-template-columns:1fr}body{padding:0 10px}}
+</style>
+<h1 id="title"></h1>
+<p>Work → 仲裁 → Xfer。Queue 值显示拍初 / 拍末；容量依赖 A → B 表示 A 的 push 需要先批准 B 的 pop。轨迹来自实际运行，未完成的 Rule 不推断业务停顿原因。</p>
+<div class="bar"><button id="prev">←</button><button id="next">→</button><strong id="tick"></strong><input id="slider" type="range" min="0" value="0"><label>Queue / Rule 筛选 <input id="filter" placeholder="名称、ID、字段内容"></label></div>
+<div id="summary"></div>
+<h2>Rule 时间线</h2>
+<p><span class="pill accepted">✓ 获准</span><span class="pill work">W 重算</span><span class="pill cached">C 缓存命中</span><span class="pill pending">P 保留候选</span> · 无候选；W✓ / C✓ / P✓ 区分获准前是否执行 Work。点击任意格查看该拍。</p>
+<div class="scroll" id="timeline"></div>
+<div class="columns"><section><h2>Module 激活与订阅</h2><div id="modules"></div></section><section><h2>实际容量依赖 / 仲裁顺序</h2><div class="scroll" id="graph"></div><div id="decisions"></div></section></div>
+<h2>Rule 候选（全部 Module Work 完成后，仲裁前）</h2><div id="rules"></div>
+<h2>Queue 状态与连接</h2>
+<label><input id="onlyChanged" type="checkbox" checked> 只看本拍变化的 Queue</label>
+<p>连接来自静态 proposal 绑定；Module 读者是本拍有效订阅，可能沿用之前的 Work。未来唤醒目标由变化 Queue 的有效读者确定。</p>
+<div class="scroll" id="queues"></div>
+<details class="panel"><summary>事件队列与统计</summary><pre id="events"></pre></details>
+<script id="trace" type="application/json">/*TRACE_DATA*/null</script>
+<script>
+'use strict';
+const D=JSON.parse(document.getElementById('trace').textContent), $=id=>document.getElementById(id);
+const esc=s=>String(s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const pretty=x=>esc(JSON.stringify(x,null,2)), qname=i=>D.queues[i].name, rname=i=>i==null?'—':D.rules[i].name;
+const table=(heads,rows)=>'<table><thead><tr>'+heads.map(h=>'<th>'+esc(h)+'</th>').join('')+'</tr></thead><tbody>'+rows.map(r=>'<tr>'+r.map(c=>'<td>'+c+'</td>').join('')+'</tr>').join('')+'</tbody></table>';
+let index=0;
+$('title').textContent=D.title;document.title=D.title;$('slider').max=Math.max(0,D.frames.length-1);
+function state(f,rid){
+ const c=f.calls.find(c=>c.rid===rid), r=f.rules?.[rid], decision=f.decisions.find(d=>d[0]===rid);
+ const pending=r?.complete&&(r.proposals.length||r.events.length);
+ const label=c?(c.reuse?'C':'W'):(pending?'P':'·');
+ return [label+(decision?(decision[1]?'✓':'×'):''),decision?.[1]?'accepted':c?(c.reuse?'cached':'work'):pending?'pending':'idle'];
+}
+function timeline(){
+ $('timeline').innerHTML='<table class="timeline"><thead><tr><th>Rule / tick</th>'+D.frames.map(f=>'<th>'+f.tick+'</th>').join('')+'</tr></thead><tbody>'+D.rules.slice(1).map((r,k)=>'<tr><td>'+esc(D.modules[r.module]+' / R'+(k+1))+'</td>'+D.frames.map((f,i)=>{const [label,cls]=state(f,k+1);return '<td data-i="'+i+'" class="'+cls+'" title="tick '+f.tick+': '+esc(label)+'">'+label+'</td>';}).join('')+'</tr>').join('')+'</tbody></table>';
+}
+function render(){
+ if(!D.frames.length){$('summary').textContent='尚无执行记录';return;}
+ const f=D.frames[index], filter=$('filter').value.toLowerCase(), matches=x=>JSON.stringify(x).toLowerCase().includes(filter);
+ $('slider').value=index;$('tick').textContent='tick '+f.tick;
+ document.querySelectorAll('[data-i]').forEach(e=>e.classList.toggle('selected',Number(e.dataset.i)===index));
+ $('summary').innerHTML=f.error?'<section class="failed">'+esc(f.error)+'<p>本拍失败，可能尚未 Xfer；拍末仅为失败现场，不能视为已提交状态。</p></section>':'<p>Module Work '+f.worked.length+' 次 · Rule Work '+f.stats.rule_work+' 次 · 缓存命中 '+f.stats.cache_hits+' 次 · 获准 '+f.decisions.filter(d=>d[1]).length+' 条 · Queue 变化 '+f.changes.length+' 个</p>';
+ $('modules').innerHTML=table(['Module','本拍','readGen','到期激活'],D.modules.map((name,mid)=>[esc(name),f.worked.includes(mid)?'Work':'休眠',f.generations[mid],f.tick===0?'初始化':f.due.filter(e=>e[1]===mid).map(e=>'@'+e[0]).join(', ')||'—']));
+ const edges=f.edges, height=Math.max(65,edges.length*66+10);
+ $('graph').innerHTML=edges.length?'<svg viewBox="0 0 690 '+height+'" role="img" aria-label="实际容量依赖"><defs><marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M 0 0 L 10 5 L 0 10 z"/></marker></defs>'+edges.map(([a,b,q],i)=>{
+  const y=10+i*66;
+  return '<rect x="5" y="'+y+'" width="200" height="44" rx="6"/><text x="15" y="'+(y+27)+'">'+esc(rname(a))+'</text><path d="M205 '+(y+28)+' H465" marker-end="url(#arrow)"/><text x="225" y="'+(y+17)+'">'+esc(qname(q))+'</text><rect x="475" y="'+y+'" width="205" height="44" rx="6"/><text x="485" y="'+(y+27)+'">'+esc(rname(b))+'</text>';
+ }).join('')+'</svg>':'<p>本拍未沿容量依赖访问其他 Rule。</p>';
+ $('decisions').innerHTML='<p>实际仲裁顺序：</p>'+f.decisions.map(([rid,ok])=>'<span class="pill '+(ok?'accepted':'pending')+'">'+esc(rname(rid))+(ok?' ✓':' ×')+'</span>').join('');
+ $('rules').innerHTML=f.rules?D.rules.slice(1).map((meta,k)=>{
+  const rid=k+1,r=f.rules[rid],c=f.calls.find(c=>c.rid===rid),[label,cls]=state(f,rid);
+  const proposals=r.proposals.map(p=>({...p,queue:qname(p.qid)}));
+  const deps=r.deps.map(([qid,version])=>({queue:qname(qid),recordedVersion:version}));
+  if(!matches([meta.name,D.modules[meta.module],proposals,deps]))return '';
+  const actualReads=f.reads.filter(x=>x[2]===rid).map(([,qid,,version])=>({queue:qname(qid),version}));
+  return '<details class="panel"><summary><span class="pill '+cls+'">'+label+'</span> '+esc(D.modules[meta.module]+' / '+meta.name)+' — '+esc(c?c.reason:'本拍未调用')+'；'+(r.complete?'候选完整':'候选未完成 / 无候选')+'</summary><pre>'+pretty({args:r.args,actualReads,retainedDependencies:deps,proposals,eventRequests:r.events.map(([mid,delay])=>({target:D.modules[mid],delay}))})+'</pre></details>';
+ }).join(''):'<p>执行未到达仲裁前的记录点。</p>';
+ const before=D.initial.slice();for(let i=0;i<index;i++)for(const [qid,v] of D.frames[i].changes)before[qid]=v;
+ const after=before.slice(), changed=new Set(f.changes.map(([qid,v])=>{after[qid]=v;return qid;}));
+ const rows=D.queues.map((q,qid)=>{
+  const rev=D.rules.slice(1).flatMap((r,k)=>r.revises.includes(qid)?[rname(k+1)]:[]);
+  if(($('onlyChanged').checked&&!changed.has(qid))||!matches([q.name,before[qid],after[qid]]))return null;
+  return [esc(q.name)+'<br><small>capacity '+q.capacity+'</small>',esc('push: '+rname(q.push))+'<br>'+esc('pop: '+rname(q.pop))+'<br>'+esc('revise: '+(rev.join(', ')||'—')),esc(before[qid].version+' → '+after[qid].version),'<pre>'+pretty(before[qid].values)+'</pre>','<pre>'+pretty(after[qid].values)+'</pre>',f.readers[qid].map(mid=>esc(D.modules[mid])+(changed.has(qid)&&!f.error?' → @'+(f.tick+1):'')).join('<br>')||'—'];
+ }).filter(Boolean);
+ $('queues').innerHTML=table(['Queue','静态连接','版本','拍初 current','拍末 current','有效 Module 读者 / 变化通知'],rows);
+ $('events').textContent=JSON.stringify({due:f.due.map(([tick,mid])=>({tick,module:D.modules[mid]})),future:f.future.map(([tick,mid])=>({tick,module:D.modules[mid]})),stats:f.stats,maxStackSoFar:f.max_stack_so_far},null,2);
+}
+$('prev').onclick=()=>{index=Math.max(0,index-1);render();};$('next').onclick=()=>{index=Math.min(D.frames.length-1,index+1);render();};
+$('slider').oninput=e=>{index=Number(e.target.value);render();};$('filter').oninput=render;$('onlyChanged').onchange=render;
+$('timeline').onclick=e=>{const cell=e.target.closest('[data-i]');if(cell){index=Number(cell.dataset.i);render();}};
+document.addEventListener('keydown',e=>{if(['INPUT','SELECT'].includes(e.target.tagName))return;if(e.key==='ArrowLeft')$('prev').click();if(e.key==='ArrowRight')$('next').click();});
+timeline();render();
+</script>
+</html>

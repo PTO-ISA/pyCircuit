@@ -1,6 +1,6 @@
 # GFSim 框架规格
 
-本文汇总当前已确认的设计契约，供编译器生成代码、C++ runtime 实现和调度实验共同使用。它不表示 C++ 框架已经实现。未确定的内容集中在 [待决问题](open-questions.md)，不由本文补齐。
+本文汇总当前已确认的设计契约，供编译器生成代码、C++ runtime 实现和调度实验共同使用。单线程 C++20 核心已在 [cpp](cpp/README.md) 实现；编译器及其他未决能力不据此视为完成。未确定的内容集中在 [待决问题](open-questions.md)，不由本文补齐。
 
 核心方案：**Work 更新候选，DFS 解决容量依赖，Xfer 提交状态。读取状态变化或明确事件驱动 Module Work；获准 pop 只通知已有完整候选的唯一生产者仲裁。候选可以跨 tick 保留，只有 Module 再次调用 Rule 时才检查参数及实际依赖版本。**
 
@@ -123,8 +123,11 @@ Rule 计算只依赖登记的 Queue、调用参数及固定配置。时间或其
 | 访问 | 是否生成消费 proposal |
 | --- | --- |
 | Rule 实际读取消息输入 payload，包括分支条件 | 另行生成一次 pop，只有整条 Rule 获准才消费 |
+| Rule 读取绑定输出 Queue 或只读状态引用的 payload | 不生成 pop，仍登记读取依赖 |
 | 寄存器读取、Queue 状态查询 | 不生成 pop |
 | Module 向 Rule 传递普通组合值 | 不生成 pop |
+
+消息 input Queue 的 payload 不支持只观察而不消费：实际读到 payload 就形成 pop proposal，即使该路径最终不产生输出；必要读取失败或整条 Rule 未获准时仍不消费。消费角色由当前 Rule 的资源绑定确定，不能仅根据 `peek()` 调用生成 pop。同一 Queue 可以是 EX Rule 的 output、MEM Rule 的 input：EX 观察旧输出进行前递只登记依赖，MEM 实际读取后生成 pop。Module 的读取范围仍遵守第 3.1 节。
 
 同一输入在路径中反复读取只生成一个消费需求；资源别名也按 QueueId 归一化。未选中输入、未产生输出不参与本次资源许可。底层重复 proposePop/proposePush 不能靠覆盖槽位静默成为合法操作。
 
@@ -193,7 +196,7 @@ Empty → Pending → Accepted → Xfer 后 Empty
 未获准候选 cancel → Empty
 ```
 
-来源 0 是合法来源编号，“无 Rule 来源”须使用 optional 或有效位。时间戳也须能表示 tick 0；代号溢出与重启边界见 [Q11](open-questions.md#q11)。
+来源 0 是合法来源编号，“无 Rule 来源”须使用 optional 或有效位。时间戳使用 optional 区分未发生与 tick 0；C++ 计数器使用 uint64，递增及时间加法在溢出前报错并终止该仿真实例，不回绕。重启边界见 [Q11](open-questions.md#q11)。
 
 ### 4.4 调度记录
 
@@ -637,7 +640,7 @@ current 的容器、队首删除方式、字段动作存储以及 DFS 前驱查�
 | 固定读者记录 | 每个 Queue 读者数组长度为 ModuleCount；反复切换动态下标只覆盖代号，不增加槽位；未登记的 0 不产生通知 |
 | 固定任务及实际依赖 | 任务缓冲复用、proposal 槽位身份稳定；Rule deps 和 participants 只保存实际 QueueId |
 
-子 Module、已登记事件的取消／覆盖和 C++ runtime 接口等尚有待决问题；不能仅靠上述核心场景通过宣称框架整体能力已经验收。
+子 Module、已登记事件的取消／覆盖、并行执行和跨版本 ABI 等仍有待决问题；不能仅靠上述核心场景通过宣称这些能力已经验收。单线程 C++ 源码接口见第 11.3 节。
 
 ### 11.2 Python experiment
 
@@ -648,3 +651,28 @@ current 的容器、队首删除方式、字段动作存储以及 DFS 前驱查�
 验收通过真实 Module/Rule 组成的流水、包处理、双输入原子处理、分 bank 存储、在线查表、反馈与重试电路完成。独立参考模型重新描述组件事务，用固定点许可与独立状态提交逐拍核对，不调用被测成员函数或核心 DFS。实验不保证端口竞争行为。
 
 实验仍是单线程、平级 Module 的 Python 模型，未实现编译器接入、父子激活、Cell、已发布事件取消、外部来源 0 协议、代号回绕和最终 C++ ABI。完整框架的未决项仍见 [open-questions](open-questions.md)，不能仅因核心电路通过而关闭。
+
+### 11.3 C++20 核心
+
+[cpp/README.md](cpp/README.md) 给出独立 CMake 构建、CTest、安装、生成式 Module 全例、生命周期与成本；库目标为 `gfsim::gfsim`。核心调度实现于普通 `.cpp`，异构 Queue 的元素与 proposal 为 `Queue<T>`，通过小型 `QueueBase` 接口统一调度。
+
+| 实际接口 | 用途 |
+| --- | --- |
+| `Simulator::addModule(object, Work)` / `addModule<&Class::Work>(object)` | 绑定稳定实例与 Module Work 入口 |
+| `addRule(owner, Arbitrate)` | 分配 RuleId；可绑定生成仲裁入口，省略时调用标准原子仲裁 |
+| `addQueue(queue)` / `bind(rule, queue, operations)` / `freeze()` | 建立显式身份、全部可能分支的来源绑定、固定槽位与读者数组，结束构造 |
+| `recordRead(mid, queue, optionalRid)` | 显式订阅，Rule 读取另外登记实际 deps；底层 Queue 查询仍是纯读 |
+| `beginRule(rid)` / `beginRule(rid, ParameterCache<Args>&, args)` | 无参数或强类型参数的重复调用去重、版本验证及缓存复用 |
+| `completeRule(rid)` / `abortRule(rid)` | 正常完成或显式取消部分 proposal/未发布事件 |
+| `requestWakeup(rid, mid, delay)` | 候选事件请求，以获准 tick 起算 |
+| `Queue<T>::proposePop/Push/Revise<Path...>` | 强类型增量操作；pop/revise 自动登记目标依赖 |
+| `step()` | 完成一拍，返回获准 RuleId 的只读 span；下次 step 前有效 |
+| `module/rule/stats/events`、Queue `at/stateVersion/readers` | 只读观察记录、内容、版本和订阅 |
+
+Queue 仲裁、确认、取消与 Xfer 接口属于调度器内部，生成业务代码不能自行提交。必要读取失败通过 `tryPeek()` 结果显式 abort/return；`peek()` 读空是编程错误而非自动取消协议。调用方拥有 Queue/Module，须保持地址和生命周期；冻结后禁止新增或修改身份与连接。Rule Work 仍由 Module 成员函数直接调用，不需要将异构参数擦除成统一 Work ABI。
+
+参数缓存由生成类中的 `ParameterCache<Args>` 保存，当前调用参数作为强类型实参传入，按 `operator==` 比较，不做字节比较。参数记录与 runtime 的 complete/deps/participants 分开；已清理候选的旧参数值不构成有效候选。`std::function` 仅用于保存已计算的字段赋值，元素支持标准整数、bool、array 和可复制可比较的嵌套 struct；AC 任意位宽类型库尚未接入。
+
+版本、tick、读取代号、任务标记及观察计数器均采用 uint64，溢出前报错。Work、仲裁或 Xfer 的执行异常、实际容量动态环会使实例永久 failed，后续执行拒绝继续；不提供回滚。恢复和重启仍见 Q11。
+
+七组 C++ 完整电路使用与 Python 独立参考相同的激励，缓存开关均逐拍核对获准集合、Queue 内容与版本、事件、Module 激活及有效订阅，并复用结果顺序、数值、完成性和最终存储验收。现有 14 项场景中的 1100 级满流水在原生测试中排空并检验显式栈深度，其余由参考对照驱动。额外原生组件测试覆盖 Module 中途读空保留此前 Rule、嵌套字段/array 修改及异常/溢出边界。测量方法和本机验证结果见 [C++ 验收报告](cpp/report.md)。

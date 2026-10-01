@@ -34,6 +34,7 @@ def select(left_entries, right_entries, control, left, right):
 | 局部变量赋值 | 组合值计算 |
 | 持久状态赋值 | 对相应 Queue 的 revise proposal |
 | Rule 读取消息输入 Queue 的 payload，包括分支条件 | 安全读取旧队首；前端为实际读取路径生成一次 pop 需求，仅在 firing 成功时消费 |
+| Rule 读取绑定输出 Queue 或只读状态引用的 payload | 只读 current 并登记依赖，不生成 pop；可用于前递 |
 | Rule 读取 Module 持有的寄存器 Queue | 只读当前值，不生成 pop |
 | Module 读取寄存器 Queue 并向 Rule 传 `var` | 传递组合值，不生成 pop；Module 不预读 Rule 的消息输入 payload |
 | Module 查询 Queue 的当前空、满等状态 | 只读 current，不读取 payload，也不生成 pop；不读取 accepted pop 等可变仲裁资格 |
@@ -46,6 +47,8 @@ Rule 输出数量和类型预先固定，多输出的每个正常出口保持同
 本例始终读取并消费 control；左路径只使用 left 和左侧状态，右路径只使用 right 和右侧状态。左路径 emit=false 时仍消费 control/left 并更新左侧状态，不使用输出容量。
 
 消息输入 Queue 的角色由 Rule 绑定确定，内部 FIFO 作为消息输入时同样适用。一个消息输入在同一路径反复读取，不代表多次消费；前端归一化为该 Queue 的单个消费需求。不同参数绑定同一 Queue 时需按资源身份处理，不能仅按参数名重复生成操作。寄存器读取和 Queue 状态查询不产生消费需求；底层 `peek` 本身始终是纯读。
+
+消息 input 的 payload 不支持只观察而不消费：实际读取即生成受路径条件保护的 pop，即使正常返回没有输出；必要读取失败或 firing 未获准时不消费。输出或只读状态观察不生成 pop，但必须记录依赖。前端按当前 Rule 的绑定角色区分这些访问；例如 EX 观察自己的 EX_MEM 输出进行前递，消费 EX_MEM 的 pop 由 MEM Rule 的 input 读取生成。
 
 ## 编译流程
 

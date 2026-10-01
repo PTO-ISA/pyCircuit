@@ -1,0 +1,117 @@
+{
+  "ticks": 1000,
+  "repeat": 5,
+  "iterations": 20000,
+  "depth": 512,
+  "workloads": {
+    "full_pipeline": {
+      "cached": {
+        "seconds_median": 0.006736326,
+        "completed_outputs": 1001,
+        "counters": {
+          "module_work": 18000,
+          "rule_work": 18000,
+          "cache_hits": 0,
+          "version_checks": 0,
+          "reader_checks": 342000,
+          "dfs_visits": 18000,
+          "queue_checks": 36000,
+          "accepted": 18000,
+          "events": 18000
+        }
+      },
+      "uncached": {
+        "seconds_median": 0.006693175,
+        "completed_outputs": 1001,
+        "counters": {
+          "module_work": 18000,
+          "rule_work": 18000,
+          "cache_hits": 0,
+          "version_checks": 0,
+          "reader_checks": 342000,
+          "dfs_visits": 18000,
+          "queue_checks": 36000,
+          "accepted": 18000,
+          "events": 18000
+        }
+      },
+      "uncached_over_cached": 0.99359428,
+      "reader_bytes": 2736
+    },
+    "backpressure_compute": {
+      "cached": {
+        "seconds_median": 0.00433641,
+        "completed_outputs": 50,
+        "counters": {
+          "module_work": 4151,
+          "rule_work": 2255,
+          "cache_hits": 1896,
+          "version_checks": 1896,
+          "reader_checks": 19536,
+          "dfs_visits": 4201,
+          "queue_checks": 8302,
+          "accepted": 2255,
+          "events": 5254
+        }
+      },
+      "uncached": {
+        "seconds_median": 0.062934056,
+        "completed_outputs": 50,
+        "counters": {
+          "module_work": 4151,
+          "rule_work": 4151,
+          "cache_hits": 0,
+          "version_checks": 0,
+          "reader_checks": 19536,
+          "dfs_visits": 4201,
+          "queue_checks": 8302,
+          "accepted": 2255,
+          "events": 5254
+        }
+      },
+      "uncached_over_cached": 14.51294,
+      "reader_bytes": 384
+    },
+    "sparse_banked_table": {
+      "cached": {
+        "seconds_median": 0.001275078,
+        "completed_outputs": 331,
+        "counters": {
+          "module_work": 2994,
+          "rule_work": 3662,
+          "cache_hits": 0,
+          "version_checks": 162,
+          "reader_checks": 19050,
+          "dfs_visits": 4486,
+          "queue_checks": 6488,
+          "accepted": 3338,
+          "events": 3838
+        }
+      },
+      "uncached": {
+        "seconds_median": 0.001270599,
+        "completed_outputs": 331,
+        "counters": {
+          "module_work": 2994,
+          "rule_work": 3662,
+          "cache_hits": 0,
+          "version_checks": 0,
+          "reader_checks": 19050,
+          "dfs_visits": 4486,
+          "queue_checks": 6488,
+          "accepted": 3338,
+          "events": 3838
+        }
+      },
+      "uncached_over_cached": 0.99648727,
+      "reader_bytes": 49632
+    }
+  },
+  "environment": {
+    "machine": "aarch64",
+    "compiler": "Clang 22.1.8",
+    "build": "Release (-O3 -DNDEBUG)",
+    "date": "2026-10-01",
+    "command": "gfsim-benchmark 1000 5 20000 512"
+  }
+}
