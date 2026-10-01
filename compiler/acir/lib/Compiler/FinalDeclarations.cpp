@@ -93,14 +93,17 @@ projectFinalDeclarations(ArrayRef<SourceLinkUnit> units,
       if (owner != bodyOwner)
         return emitError()
                << "owning interface definition has a foreign SourceOwner";
-      if (!isa<ac::TypeAliasOp, ac::ConstantOp>(operation))
+      if (!isa<ac::TypeAliasOp, ac::ConstantOp, ac::StructOp>(operation))
         continue;
 
-      auto canonical = ac::final_detail::verifyFinalScalarDeclaration(
-          &operation, bodyOwner, emitError);
+      auto canonical = isa<ac::StructOp>(operation)
+                           ? ac::final_detail::verifyFinalRecordDeclaration(
+                                 &operation, bodyOwner, emitError)
+                           : ac::final_detail::verifyFinalScalarDeclaration(
+                                 &operation, bodyOwner, emitError);
       if (failed(canonical))
-        return emitError() << "owning interface contains an unsupported scalar "
-                              "declaration";
+        return emitError()
+               << "owning interface contains an unsupported final declaration";
       if (registry.lookupDeclaration(*canonical) != &operation)
         return emitError()
                << "owning interface declaration is not canonical authority";

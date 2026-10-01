@@ -93,7 +93,10 @@ observations passed. No production protocol or interface changed.
 ## Record approval and resource baseline
 
 C2-DECL-R revision B is precisely approved; [record implementation slices](work-items/m3-record-implementation.md)
-are ready for decomposition, while record product support remains unimplemented.
+have completed [S1 final declarations](work-items/m3-record-s1-final-declarations.md).
+S2 helper/value/use closure is next; record state and executable product support
+remain unimplemented. Shared emission stays closed until S4; the three reproduced
+baseline SourceMath/APInt failures remain explicit validation debt.
 [M6-04](work-items/m6-resource-runtime-baseline.md) closes selected developer
 resource/finite-C-ABI measurements on macOS with honest sampled-RSS and timing
 limits. Existing scalar runtime/source contracts and all other unapproved

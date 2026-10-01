@@ -404,8 +404,9 @@ FailureOr<OwningOpRef<ModuleOp>> materializeFinalHardwarePackage(
     SmallVector<Operation *> selectedDeclarations;
     for (Operation &declaration :
          projection->declarations->getBody()->getOperations()) {
-      if (!isa<ac::TypeAliasOp, ac::ConstantOp>(declaration))
-        return emitError() << "declaration projection contains a non-scalar op";
+      if (!isa<ac::TypeAliasOp, ac::ConstantOp, ac::StructOp>(declaration))
+        return emitError()
+               << "declaration projection contains an unsupported op";
       selectedDeclarations.push_back(&declaration);
     }
     for (Operation *declaration : selectedDeclarations)

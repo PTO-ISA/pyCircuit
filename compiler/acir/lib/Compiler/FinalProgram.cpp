@@ -11,6 +11,7 @@
 
 #include "mlir/Dialect/Arith/IR/Arith.h"
 #include "mlir/Dialect/Func/IR/FuncOps.h"
+#include "mlir/IR/SymbolTable.h"
 #include "mlir/IR/Verifier.h"
 #include "llvm/ADT/DenseSet.h"
 #include "llvm/Support/raw_ostream.h"
@@ -94,6 +95,114 @@ struct FrozenRegControls {
 
 namespace {
 
+LogicalResult verifyErasableRecordConstructor(ac::StructOp record,
+                                              func::FuncOp constructor,
+                                              ac::detail::EmitError emitError) {
+  if (!record || !constructor)
+    return emitError() << "record has no registered constructor";
+  auto recordName = record.getSymNameAttr();
+  auto expectedName = FlatSymbolRefAttr::get(
+      record.getContext(), (Twine(recordName.getValue()) + ".__init__").str());
+  auto constructorName = constructor.getSymNameAttr();
+  auto helperKind = constructor->getAttrOfType<StringAttr>("ac.helper_kind");
+  auto declaredRecord =
+      constructor->getAttrOfType<FlatSymbolRefAttr>("ac.record");
+  auto parameters = constructor->getAttrOfType<ArrayAttr>("ac.parameters");
+  auto returnForm = constructor->getAttrOfType<StringAttr>("ac.return_form");
+  auto resultConstraints =
+      constructor->getAttrOfType<ArrayAttr>("ac.result_constraints");
+  if (!recordName || !constructorName ||
+      constructorName.getValue() != expectedName.getValue() ||
+      record.getConstructorAttr() != expectedName || !helperKind ||
+      helperKind.getValue() != "record_constructor" ||
+      declaredRecord !=
+          FlatSymbolRefAttr::get(record.getContext(), recordName.getValue()) ||
+      !parameters || !returnForm || returnForm.getValue() != "single" ||
+      !resultConstraints || resultConstraints.size() != 1 ||
+      constructor.isExternal() || constructor.getBody().getBlocks().size() != 1)
+    return emitError() << "record constructor cannot be safely erased";
+
+  Block &body = constructor.getBody().front();
+  if (body.getNumArguments() != parameters.size() + 1 ||
+      !body.getArgument(parameters.size()).getType().isInteger(1) ||
+      body.getOperations().size() != 2)
+    return emitError()
+           << "record constructor is not a direct two-operation body";
+  auto created = dyn_cast<ac::StructCreateOp>(body.front());
+  auto returned = dyn_cast<func::ReturnOp>(body.back());
+  auto recordType = dyn_cast<ac::StructType>(constructor.getResultTypes()[0]);
+  auto resultType = recordType ? recordType.getName() : StringAttr();
+  auto nominal =
+      FlatSymbolRefAttr::get(record.getContext(), recordName.getValue());
+  if (!created || !returned || !resultType ||
+      resultType.getValue() != nominal.getValue() || created->getNumRegions() ||
+      !created->getAttrs().empty() ||
+      created.getResult().getType() != constructor.getResultTypes()[0] ||
+      returned.getNumOperands() != 2 ||
+      returned.getOperand(0) != created.getResult() ||
+      returned.getOperand(1) != body.getArgument(parameters.size()) ||
+      created.getValues().size() != record.getFields().size())
+    return emitError() << "record constructor return/create closure is invalid";
+
+  for (auto [index, pair] :
+       llvm::enumerate(llvm::zip(created.getValues(), record.getFields()))) {
+    auto argument = dyn_cast<BlockArgument>(std::get<0>(pair));
+    auto field = dyn_cast<DictionaryAttr>(std::get<1>(pair));
+    auto logical =
+        field ? field.getAs<DictionaryAttr>("type") : DictionaryAttr();
+    if (!argument || argument.getOwner() != &body ||
+        argument.getArgNumber() >= parameters.size())
+      return emitError() << "record constructor field[" << index
+                         << "] does not use a direct data argument";
+    auto parameter =
+        dyn_cast<DictionaryAttr>(parameters[argument.getArgNumber()]);
+    auto constraint = parameter ? parameter.getAs<DictionaryAttr>("constraint")
+                                : DictionaryAttr();
+    auto parameterType = constraint ? constraint.getAs<DictionaryAttr>("type")
+                                    : DictionaryAttr();
+    if (!logical || !parameterType || parameterType != logical)
+      return emitError() << "record constructor field[" << index
+                         << "] is not directly bound to a matching parameter";
+  }
+  return success();
+}
+
+LogicalResult verifyErasableRecordCarrier(Operation *operation,
+                                          const SourceHeaderRegistry &registry,
+                                          ac::detail::EmitError emitError) {
+  if (auto record = dyn_cast<ac::StructOp>(operation)) {
+    auto name = record.getSymNameAttr();
+    auto role = record->getAttrOfType<StringAttr>("ac.declaration_role");
+    auto authority = name ? registry.lookupRecord(FlatSymbolRefAttr::get(
+                                record.getContext(), name.getValue()))
+                          : ac::StructOp();
+    if (!authority || !role ||
+        (role.getValue() != "definition" &&
+         role.getValue() != "import_snapshot") ||
+        record.getConstructorAttr() != authority.getConstructorAttr())
+      return emitError() << "record source carrier has no explicit authority";
+    return success();
+  }
+  auto constructor = dyn_cast<func::FuncOp>(operation);
+  if (!constructor)
+    return emitError() << "source record carrier is not a declaration";
+  auto name = constructor.getSymNameAttr();
+  if (!name || !name.getValue().ends_with(".__init__"))
+    return emitError() << "ordinary source helper is not materializable in S1";
+  FlatSymbolRefAttr recordName = FlatSymbolRefAttr::get(
+      constructor.getContext(), name.getValue().drop_back(9));
+  auto record = registry.lookupRecord(recordName);
+  auto authority = registry.lookupHelper(
+      name ? FlatSymbolRefAttr::get(constructor.getContext(), name.getValue())
+           : FlatSymbolRefAttr());
+  if (!record || !authority ||
+      record.getConstructorAttr() !=
+          FlatSymbolRefAttr::get(constructor.getContext(), name.getValue()))
+    return emitError()
+           << "source record constructor has no canonical authority";
+  return verifyErasableRecordConstructor(record, constructor, emitError);
+}
+
 bool containsSourceAttribute(Attribute attribute) {
   std::string text;
   llvm::raw_string_ostream(text) << attribute;
@@ -150,6 +259,7 @@ LogicalResult preflightMaterialization(const FinalProgram &program,
 }
 
 LogicalResult preflightUnitCarriers(ArrayRef<SourceLinkUnit> units,
+                                    const SourceHeaderRegistry &registry,
                                     ac::detail::EmitError emitError) {
   LogicalResult result = success();
   auto inspect = [&](ModuleOp unit) {
@@ -157,12 +267,15 @@ LogicalResult preflightUnitCarriers(ArrayRef<SourceLinkUnit> units,
       if (failed(result))
         return;
       StringRef name = operation->getName().getStringRef();
-      if (isa<ac::StructOp, mlir::func::FuncOp>(operation) ||
-          name.starts_with("ac.math.") ||
+      if (isa<ac::StructOp, mlir::func::FuncOp>(operation)) {
+        result = verifyErasableRecordCarrier(operation, registry, emitError);
+        return;
+      }
+      if (name.starts_with("ac.math.") ||
           operation->hasAttr("ac.check_template")) {
         result = emitError()
-                 << "final program cannot materialize record, helper, math or "
-                    "numeric-proof source units";
+                 << "final program cannot materialize math or numeric-proof "
+                    "source units";
         return;
       }
       for (Type type : operation->getOperandTypes())
@@ -1020,7 +1133,7 @@ LogicalResult freezeEmitReadySnapshots(
     snapshot.attributes = operationAttributes(unit);
     for (Operation &operation : unit.getBody()->getOperations()) {
       snapshot.children.push_back(&operation);
-      if (isa<ac::TypeAliasOp, ac::ConstantOp>(operation))
+      if (isa<ac::TypeAliasOp, ac::ConstantOp, ac::StructOp>(operation))
         snapshot.declarations.push_back(
             freezeOperation(&operation, nullptr, {}));
     }
@@ -1080,7 +1193,8 @@ materializeFinalProgram(FinalProgram &&program,
   if (program.state_ != FinalProgramState::AnalysisClosed ||
       failed(verifyFinalProgram(program, emitError)) ||
       failed(preflightMaterialization(program, emitError)) ||
-      failed(preflightUnitCarriers(program.units_, emitError)))
+      failed(
+          preflightUnitCarriers(program.units_, *program.registry_, emitError)))
     return emitError()
            << "final program is not a materializable analysis closure";
 
@@ -1302,14 +1416,19 @@ materializeFinalProgram(FinalProgram &&program,
         continue;
       SmallVector<ac::ModuleImportOp> imports;
       SmallVector<Operation *> declarations;
+      SmallVector<func::FuncOp> constructors;
       sourceUnit->walk(
           [&](ac::ModuleImportOp import) { imports.push_back(import); });
       sourceUnit->walk([&](Operation *operation) {
-        if (isa<ac::TypeAliasOp, ac::ConstantOp>(operation))
+        if (isa<ac::TypeAliasOp, ac::ConstantOp, ac::StructOp>(operation))
           declarations.push_back(operation);
+        else if (auto function = dyn_cast<func::FuncOp>(operation))
+          constructors.push_back(function);
       });
       for (ac::ModuleImportOp import : llvm::reverse(imports))
         import.erase();
+      for (func::FuncOp constructor : llvm::reverse(constructors))
+        constructor.erase();
       for (Operation *declaration : llvm::reverse(declarations))
         declaration->erase();
     }
@@ -1483,7 +1602,7 @@ LogicalResult verifyFinalProgram(const FinalProgram &program,
         if (&operation != snapshot.children[childIndex++])
           return emitError()
                  << "EmitReady final unit child placement/order changed";
-        if (!isa<ac::TypeAliasOp, ac::ConstantOp>(operation))
+        if (!isa<ac::TypeAliasOp, ac::ConstantOp, ac::StructOp>(operation))
           continue;
         if (declarationIndex >= snapshot.declarations.size() ||
             snapshot.declarations[declarationIndex++].operation != &operation)
@@ -1777,6 +1896,11 @@ LogicalResult verifyFinalProgram(const FinalProgram &program,
         return emitError() << "EmitReady observation closure changed";
     }
     bool residual = hasAnyFinalResidual(program);
+    DenseSet<Operation *> admittedFinalRecords;
+    for (const auto &unit : program.finalDeclarationUnitSnapshot_)
+      for (const auto &declaration : unit.declarations)
+        if (isa<ac::StructOp>(declaration.operation))
+          admittedFinalRecords.insert(declaration.operation);
     auto inspectResidual = [&](ModuleOp unit) {
       unit->walk([&](Operation *operation) {
         StringRef name = operation->getName().getStringRef();
@@ -1786,7 +1910,9 @@ LogicalResult verifyFinalProgram(const FinalProgram &program,
         bool retainedUse = rule && ac::hasGenericFinalUses(rule) &&
                            isa<ac::ValueBindingOp, ac::ValueUseOp>(operation);
         residual |= isa<ac::SourceReadOp, ac::SourceUseOp, ac::ModuleImportOp,
-                        ac::StructOp, mlir::func::FuncOp>(operation) ||
+                        mlir::func::FuncOp>(operation) ||
+                    (isa<ac::StructOp>(operation) &&
+                     !admittedFinalRecords.contains(operation)) ||
                     name.starts_with("ac.math.") ||
                     ((name == "ac.numeric.proof" ||
                       name == "ac.value.binding" || name == "ac.value.use") &&

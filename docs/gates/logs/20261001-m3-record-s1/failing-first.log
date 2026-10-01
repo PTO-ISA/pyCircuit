@@ -1,0 +1,60 @@
+============================= test session starts ==============================
+platform darwin -- Python 3.12.12, pytest-9.1.1, pluggy-1.6.0
+rootdir: /Users/zhoubot/.codex/worktrees/migration-capture/pyCircuit
+configfile: pyproject.toml
+collected 10 items
+
+tests/system/test_final_record_declarations.py F.FF..FF.F                [100%]
+
+=================================== FAILURES ===================================
+_________ test_two_field_declarations_are_owned_ordered_and_final_only _________
+tests/system/test_final_record_declarations.py:242: in test_two_field_declarations_are_owned_ordered_and_final_only
+    assert linked.returncode == 0, linked.stderr
+E   AssertionError: error: final program cannot materialize record, helper, math or numeric-proof source units
+E     error: final program is not a materializable analysis closure
+E     
+E   assert 1 == 0
+E    +  where 1 = CompletedProcess(args=['/Users/zhoubot/.codex/worktrees/migration-capture/pyCircuit/.pycircuit_out/m3-s1-baseline-extr...e record, helper, math or numeric-proof source units\nerror: final program is not a materializable analysis closure\n').returncode
+_________ test_final_record_authority_and_shape_mutations_fail_closed __________
+tests/system/test_final_record_declarations.py:360: in test_final_record_authority_and_shape_mutations_fail_closed
+    assert linked.returncode == 0, linked.stderr
+E   AssertionError: error: final program cannot materialize record, helper, math or numeric-proof source units
+E     error: final program is not a materializable analysis closure
+E     
+E   assert 1 == 0
+E    +  where 1 = CompletedProcess(args=['/Users/zhoubot/.codex/worktrees/migration-capture/pyCircuit/.pycircuit_out/m3-s1-baseline-extr...e record, helper, math or numeric-proof source units\nerror: final program is not a materializable analysis closure\n').returncode
+___ test_record_declaration_final_emit_is_explicitly_not_backend_acceptance ____
+tests/system/test_final_record_declarations.py:424: in test_record_declaration_final_emit_is_explicitly_not_backend_acceptance
+    assert linked.returncode == 0, linked.stderr
+E   AssertionError: error: final program cannot materialize record, helper, math or numeric-proof source units
+E     error: final program is not a materializable analysis closure
+E     
+E   assert 1 == 0
+E    +  where 1 = CompletedProcess(args=['/Users/zhoubot/.codex/worktrees/migration-capture/pyCircuit/.pycircuit_out/m3-s1-baseline-extr...e record, helper, math or numeric-proof source units\nerror: final program is not a materializable analysis closure\n').returncode
+_ test_unused_constructor_requires_direct_complete_projection[wrong-validity-path-demo.provider.Pair.__init__-return %0, %arg2-return %0, %arg0-record constructor return/create closure is invalid] _
+tests/system/test_final_record_declarations.py:515: in test_unused_constructor_requires_direct_complete_projection
+    assert diagnostic in linked.stderr
+E   AssertionError: assert 'record constructor return/create closure is invalid' in 'error: final program cannot materialize record, helper, math or numeric-proof source units\nerror: final program is not a materializable analysis closure\n'
+E    +  where 'error: final program cannot materialize record, helper, math or numeric-proof source units\nerror: final program is not a materializable analysis closure\n' = CompletedProcess(args=['/Users/zhoubot/.codex/worktrees/migration-capture/pyCircuit/.pycircuit_out/m3-s1-baseline-extr...e record, helper, math or numeric-proof source units\nerror: final program is not a materializable analysis closure\n').stderr
+_ test_unused_constructor_requires_direct_complete_projection[computed-field-value-demo.provider.Wide.__init__-    %0 = ac.struct.create(%arg1, %arg0) : (i64, i64)-    %computed = arith.addi %arg1, %arg1 : i64\n    %0 = ac.struct.create(%computed, %arg0) : (i64, i64)-record constructor is not a direct two-operation body] _
+tests/system/test_final_record_declarations.py:515: in test_unused_constructor_requires_direct_complete_projection
+    assert diagnostic in linked.stderr
+E   AssertionError: assert 'record constructor is not a direct two-operation body' in 'error: final program cannot materialize record, helper, math or numeric-proof source units\nerror: final program is not a materializable analysis closure\n'
+E    +  where 'error: final program cannot materialize record, helper, math or numeric-proof source units\nerror: final program is not a materializable analysis closure\n' = CompletedProcess(args=['/Users/zhoubot/.codex/worktrees/migration-capture/pyCircuit/.pycircuit_out/m3-s1-baseline-extr...e record, helper, math or numeric-proof source units\nerror: final program is not a materializable analysis closure\n').stderr
+_ test_public_compile_link_publishes_final_declarations_and_emit_fails_closed __
+tests/system/test_final_record_declarations.py:616: in test_public_compile_link_publishes_final_declarations_and_emit_fails_closed
+    assert linked.returncode == 0, linked.stderr
+E   AssertionError: pycircuit link: native link rejected the unit set: error: final program cannot materialize record, helper, math or numeric-proof source units
+E     error: final program is not a materializable analysis closure
+E     
+E   assert 1 == 0
+E    +  where 1 = CompletedProcess(args=['/Users/zhoubot/.codex/worktrees/migration-capture/pyCircuit/.venv/bin/python', '-c', 'import s...e record, helper, math or numeric-proof source units\nerror: final program is not a materializable analysis closure\n').returncode
+- generated xml file: /Users/zhoubot/.codex/worktrees/migration-capture/pyCircuit/.pycircuit_out/m3-s1-failing-first-final.xml -
+=========================== short test summary info ============================
+FAILED tests/system/test_final_record_declarations.py::test_two_field_declarations_are_owned_ordered_and_final_only
+FAILED tests/system/test_final_record_declarations.py::test_final_record_authority_and_shape_mutations_fail_closed
+FAILED tests/system/test_final_record_declarations.py::test_record_declaration_final_emit_is_explicitly_not_backend_acceptance
+FAILED tests/system/test_final_record_declarations.py::test_unused_constructor_requires_direct_complete_projection[wrong-validity-path-demo.provider.Pair.__init__-return %0, %arg2-return %0, %arg0-record constructor return/create closure is invalid]
+FAILED tests/system/test_final_record_declarations.py::test_unused_constructor_requires_direct_complete_projection[computed-field-value-demo.provider.Wide.__init__-    %0 = ac.struct.create(%arg1, %arg0) : (i64, i64)-    %computed = arith.addi %arg1, %arg1 : i64\n    %0 = ac.struct.create(%computed, %arg0) : (i64, i64)-record constructor is not a direct two-operation body]
+FAILED tests/system/test_final_record_declarations.py::test_public_compile_link_publishes_final_declarations_and_emit_fails_closed
+========================= 6 failed, 4 passed in 3.42s ==========================

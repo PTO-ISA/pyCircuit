@@ -1,0 +1,318 @@
+[1/120] Building ACIRDialect.h.inc...
+[2/120] Building ACIRDialect.cpp.inc...
+[3/120] Building ACIREnums.cpp.inc...
+[4/120] Building ACIRAttributes.cpp.inc...
+[5/120] Building ACIREnums.h.inc...
+[6/120] Building ACIRAttributes.h.inc...
+[7/120] Building ACIRTypes.cpp.inc...
+[8/120] Building ACIRTypes.h.inc...
+[9/120] Building ACIROps.cpp.inc...
+[10/120] Building ACIROps.h.inc...
+[11/120] Building CXX object compiler/acir/lib/Dialect/ACIR/CMakeFiles/ACIRDialect.dir/ACIRDialect.cpp.o
+[12/120] Building CXX object compiler/acir/lib/Dialect/ACIR/CMakeFiles/ACIRDialect.dir/ACIRConstantOps.cpp.o
+[13/120] Building CXX object compiler/acir/lib/Dialect/ACIR/CMakeFiles/ACIRDialect.dir/ACIRFinalDeclarations.cpp.o
+[14/120] Building CXX object compiler/acir/lib/Dialect/ACIR/CMakeFiles/ACIRDialect.dir/ACIRFinalContracts.cpp.o
+[15/120] Building CXX object compiler/acir/lib/Dialect/ACIR/CMakeFiles/ACIRDialect.dir/ACIRFinalInstanceContracts.cpp.o
+[16/120] Building CXX object compiler/acir/lib/Dialect/ACIR/CMakeFiles/ACIRDialect.dir/ACIRFinalModuleRegion.cpp.o
+[17/120] Building CXX object compiler/acir/lib/Dialect/ACIR/CMakeFiles/ACIRDialect.dir/ACIRFinalUses.cpp.o
+[18/120] Building CXX object compiler/acir/lib/Dialect/ACIR/CMakeFiles/ACIRDialect.dir/ACIRHardwareClosure.cpp.o
+[19/120] Building CXX object compiler/acir/lib/Dialect/ACIR/CMakeFiles/ACIRDialect.dir/ACIRHardwareInstances.cpp.o
+[20/120] Building CXX object compiler/acir/lib/Dialect/ACIR/CMakeFiles/ACIRDialect.dir/ACIRHardwareRows.cpp.o
+[21/120] Building CXX object compiler/acir/lib/Dialect/ACIR/CMakeFiles/ACIRDialect.dir/ACIRSystemOps.cpp.o
+[22/120] Building CXX object compiler/acir/lib/Dialect/ACIR/CMakeFiles/ACIRDialect.dir/ACIRIdentityContracts.cpp.o
+[23/120] Building CXX object compiler/acir/lib/Dialect/ACIR/CMakeFiles/ACIRDialect.dir/ACIRHardwareCommits.cpp.o
+[24/120] Building CXX object compiler/acir/lib/Dialect/ACIR/CMakeFiles/ACIRDialect.dir/ACIRMathOps.cpp.o
+[25/120] Building CXX object compiler/acir/lib/Dialect/ACIR/CMakeFiles/ACIRDialect.dir/ACIRNumericExactAdd.cpp.o
+[26/120] Building CXX object compiler/acir/lib/Dialect/ACIR/CMakeFiles/ACIRDialect.dir/ACIRNumericExactInputAdd.cpp.o
+[27/120] Building CXX object compiler/acir/lib/Dialect/ACIR/CMakeFiles/ACIRDialect.dir/ACIRNumericExactScalar.cpp.o
+[28/120] Building CXX object compiler/acir/lib/Dialect/ACIR/CMakeFiles/ACIRDialect.dir/ACIRNumericMask.cpp.o
+[29/120] Building CXX object compiler/acir/lib/Dialect/ACIR/CMakeFiles/ACIRDialect.dir/ACIRNumericComposition.cpp.o
+[30/120] Building CXX object compiler/acir/lib/Dialect/ACIR/CMakeFiles/ACIRDialect.dir/ACIRNumericCompositionSchema.cpp.o
+[31/120] Building CXX object compiler/acir/lib/Dialect/ACIR/CMakeFiles/ACIRDialect.dir/ACIRNumericCompositionLowered.cpp.o
+[32/120] Building CXX object compiler/acir/lib/Dialect/ACIR/CMakeFiles/ACIRDialect.dir/ACIRNumericCompositionUses.cpp.o
+[33/120] Building CXX object compiler/acir/lib/Dialect/ACIR/CMakeFiles/ACIRDialect.dir/ACIRNumericNextUse.cpp.o
+[34/120] Building CXX object compiler/acir/lib/Dialect/ACIR/CMakeFiles/ACIRDialect.dir/ACIRNumericSourceClosure.cpp.o
+[35/120] Building CXX object compiler/acir/lib/Dialect/ACIR/CMakeFiles/ACIRDialect.dir/ACIRNumericRange.cpp.o
+[36/120] Building CXX object compiler/acir/lib/Dialect/ACIR/CMakeFiles/ACIRDialect.dir/ACIRModuleContracts.cpp.o
+[37/120] Building CXX object compiler/acir/lib/Dialect/ACIR/CMakeFiles/ACIRDialect.dir/ACIRPacketTypes.cpp.o
+[38/120] Building CXX object compiler/acir/lib/Dialect/ACIR/CMakeFiles/ACIRDialect.dir/ACIRPacketOps.cpp.o
+[39/120] Building CXX object compiler/acir/lib/Dialect/ACIR/CMakeFiles/ACIRDialect.dir/ACIRNumericProofOps.cpp.o
+[40/120] Building CXX object compiler/acir/lib/Dialect/ACIR/CMakeFiles/ACIRDialect.dir/ACIRModuleOps.cpp.o
+[41/120] Building CXX object compiler/acir/lib/Dialect/ACIR/CMakeFiles/ACIRDialect.dir/ACIRSourceContracts.cpp.o
+[42/120] Building CXX object compiler/acir/lib/Dialect/ACIR/CMakeFiles/ACIRDialect.dir/ACIRStaticContracts.cpp.o
+[43/120] Building CXX object compiler/acir/lib/Dialect/ACIR/CMakeFiles/ACIRDialect.dir/ACIRStaticEvaluation.cpp.o
+/Users/zhoubot/.codex/worktrees/migration-capture/pyCircuit/.pycircuit_out/m3-s1-baseline-source/compiler/acir/lib/Dialect/ACIR/ACIRStaticEvaluation.cpp:65:29: warning: 'make_scope_exit<(lambda at /Users/zhoubot/.codex/worktrees/migration-capture/pyCircuit/.pycircuit_out/m3-s1-baseline-source/compiler/acir/lib/Dialect/ACIR/ACIRStaticEvaluation.cpp:65:45)>' is deprecated: Prefer calling the constructor of llvm::scope_exit directly. [-Wdeprecated-declarations]
+   65 |   auto removeActive = llvm::make_scope_exit([&] { active.erase(callee); });
+      |                             ^~~~~~~~~~~~~~~
+      |                             scope_exit
+/opt/homebrew/Cellar/llvm/22.1.8/include/llvm/ADT/ScopeExit.h:56:1: note: 'make_scope_exit<(lambda at /Users/zhoubot/.codex/worktrees/migration-capture/pyCircuit/.pycircuit_out/m3-s1-baseline-source/compiler/acir/lib/Dialect/ACIR/ACIRStaticEvaluation.cpp:65:45)>' has been explicitly marked deprecated here
+   56 | LLVM_DEPRECATED("Prefer calling the constructor of llvm::scope_exit directly.",
+      | ^
+/opt/homebrew/Cellar/llvm/22.1.8/include/llvm/Support/Compiler.h:250:50: note: expanded from macro 'LLVM_DEPRECATED'
+  250 | #define LLVM_DEPRECATED(MSG, FIX) __attribute__((deprecated(MSG, FIX)))
+      |                                                  ^
+1 warning generated.
+[44/120] Building CXX object compiler/acir/lib/Dialect/ACIR/CMakeFiles/ACIRDialect.dir/ACIRValueContracts.cpp.o
+[45/120] Building CXX object compiler/acir/lib/Dialect/ACIR/CMakeFiles/ACIRDialect.dir/ACIRRegistration.cpp.o
+[46/120] Linking CXX static library compiler/acir/lib/Dialect/ACIR/libACIRDialect.a
+[47/120] Building CXX object compiler/acir/lib/Compiler/CMakeFiles/ACIRSourceCompiler.dir/CheckGraph.cpp.o
+[48/120] Building CXX object compiler/acir/lib/Compiler/CMakeFiles/ACIRSourceCompiler.dir/FinalEmit.cpp.o
+[49/120] Building CXX object compiler/acir/lib/Compiler/CMakeFiles/ACIRSourceCompiler.dir/FinalCppDeclarations.cpp.o
+[50/120] Building CXX object compiler/acir/lib/Compiler/CMakeFiles/ACIRSourceCompiler.dir/FinalCppNames.cpp.o
+[51/120] Building CXX object compiler/acir/lib/Compiler/CMakeFiles/ACIRSourceCompiler.dir/FinalCppEmission.cpp.o
+[52/120] Building CXX object compiler/acir/lib/Compiler/CMakeFiles/ACIRSourceCompiler.dir/FinalCppSourceParts.cpp.o
+[53/120] Building CXX object compiler/acir/lib/Compiler/CMakeFiles/ACIRSourceCompiler.dir/FinalRuntimeMetadata.cpp.o
+[54/120] Building CXX object compiler/acir/lib/Compiler/CMakeFiles/ACIRSourceCompiler.dir/FinalModelAbi.cpp.o
+[55/120] Building CXX object compiler/acir/lib/Compiler/CMakeFiles/ACIRSourceCompiler.dir/FinalEmitCppSystem.cpp.o
+[56/120] Building CXX object compiler/acir/lib/Compiler/CMakeFiles/ACIRSourceCompiler.dir/FinalEmitCpp.cpp.o
+[57/120] Building CXX object compiler/acir/lib/Compiler/CMakeFiles/ACIRSourceCompiler.dir/FinalRunnerEmission.cpp.o
+[58/120] Building CXX object compiler/acir/lib/Compiler/CMakeFiles/ACIRSourceCompiler.dir/FinalEmitCppHierarchy.cpp.o
+[59/120] Building CXX object compiler/acir/lib/Compiler/CMakeFiles/ACIRSourceCompiler.dir/FinalSourceMap.cpp.o
+[60/120] Building CXX object compiler/acir/lib/Compiler/CMakeFiles/ACIRSourceCompiler.dir/FinalEmitVerilog.cpp.o
+[61/120] Building CXX object compiler/acir/lib/Compiler/CMakeFiles/ACIRSourceCompiler.dir/FinalDeclarations.cpp.o
+[62/120] Building CXX object compiler/acir/lib/Compiler/CMakeFiles/ACIRSourceCompiler.dir/FinalHardware.cpp.o
+[63/120] Building CXX object compiler/acir/lib/Compiler/CMakeFiles/ACIRSourceCompiler.dir/FinalHardwareProgram.cpp.o
+[64/120] Building CXX object compiler/acir/lib/Compiler/CMakeFiles/ACIRSourceCompiler.dir/FinalUses.cpp.o
+[65/120] Building CXX object compiler/acir/lib/Compiler/CMakeFiles/ACIRSourceCompiler.dir/FinalComposedNumeric.cpp.o
+[66/120] Building CXX object compiler/acir/lib/Compiler/CMakeFiles/ACIRSourceCompiler.dir/FinalNumeric.cpp.o
+[67/120] Building CXX object compiler/acir/lib/Compiler/CMakeFiles/ACIRSourceCompiler.dir/ModuleGraph.cpp.o
+[68/120] Building CXX object compiler/acir/lib/Compiler/CMakeFiles/ACIRSourceCompiler.dir/FinalProgram.cpp.o
+[69/120] Building CXX object compiler/acir/lib/Compiler/CMakeFiles/ACIRSourceCompiler.dir/ObservationGraph.cpp.o
+[70/120] Building CXX object compiler/acir/lib/Compiler/CMakeFiles/ACIRSourceCompiler.dir/ProposalGraph.cpp.o
+[71/120] Building CXX object compiler/acir/lib/Compiler/CMakeFiles/ACIRSourceCompiler.dir/ScalarNumericLowering.cpp.o
+[72/120] Building CXX object compiler/acir/lib/Compiler/CMakeFiles/ACIRSourceCompiler.dir/ScalarNumericLoweringAnalysis.cpp.o
+[73/120] Building CXX object compiler/acir/lib/Compiler/CMakeFiles/ACIRSourceCompiler.dir/ScalarNumericExactLowering.cpp.o
+[74/120] Building CXX object compiler/acir/lib/Compiler/CMakeFiles/ACIRSourceCompiler.dir/ScalarNumericMaskLowering.cpp.o
+[75/120] Building CXX object compiler/acir/lib/Compiler/CMakeFiles/ACIRSourceCompiler.dir/ScalarNumericCompositionLowering.cpp.o
+[76/120] Building CXX object compiler/acir/lib/Compiler/CMakeFiles/ACIRSourceCompiler.dir/ScalarNumericNextUseLowering.cpp.o
+[77/120] Building CXX object compiler/acir/lib/Compiler/CMakeFiles/ACIRSourceCompiler.dir/PythonImportAST.cpp.o
+[78/120] Building CXX object compiler/acir/lib/Compiler/CMakeFiles/ACIRSourceCompiler.dir/ScalarNumericRangeLowering.cpp.o
+[79/120] Building CXX object compiler/acir/lib/Compiler/CMakeFiles/ACIRSourceCompiler.dir/PythonImportChecks.cpp.o
+[80/120] Building CXX object compiler/acir/lib/Compiler/CMakeFiles/ACIRSourceCompiler.dir/PythonImportContext.cpp.o
+[81/120] Building CXX object compiler/acir/lib/Compiler/CMakeFiles/ACIRSourceCompiler.dir/PythonImportModuleAnalysis.cpp.o
+[82/120] Building CXX object compiler/acir/lib/Compiler/CMakeFiles/ACIRSourceCompiler.dir/PythonImportHelpers.cpp.o
+/Users/zhoubot/.codex/worktrees/migration-capture/pyCircuit/.pycircuit_out/m3-s1-baseline-source/compiler/acir/lib/Compiler/PythonImportHelpers.cpp:312:10: warning: 'create' is deprecated: Use OpTy::create instead [-Wdeprecated-declarations]
+  312 |         .create<arith::ConstantOp>(
+      |          ^
+/opt/homebrew/Cellar/llvm/22.1.8/include/mlir/IR/Builders.h:506:8: note: 'create' has been explicitly marked deprecated here
+  506 |   OpTy create(Location location, Args &&...args) {
+      |        ^
+/Users/zhoubot/.codex/worktrees/migration-capture/pyCircuit/.pycircuit_out/m3-s1-baseline-source/compiler/acir/lib/Compiler/PythonImportHelpers.cpp:312:10: warning: 'create<mlir::arith::ConstantOp, mlir::Type &, mlir::BoolAttr &>' is deprecated: Use OpTy::create instead [-Wdeprecated-declarations]
+  312 |         .create<arith::ConstantOp>(
+      |          ^
+/opt/homebrew/Cellar/llvm/22.1.8/include/mlir/IR/Builders.h:505:5: note: 'create<mlir::arith::ConstantOp, mlir::Type &, mlir::BoolAttr &>' has been explicitly marked deprecated here
+  505 |   [[deprecated("Use OpTy::create instead")]]
+      |     ^
+/Users/zhoubot/.codex/worktrees/migration-capture/pyCircuit/.pycircuit_out/m3-s1-baseline-source/compiler/acir/lib/Compiler/PythonImportHelpers.cpp:321:8: warning: 'create' is deprecated: Use OpTy::create instead [-Wdeprecated-declarations]
+  321 |       .create<arith::ConstantOp>(
+      |        ^
+/opt/homebrew/Cellar/llvm/22.1.8/include/mlir/IR/Builders.h:506:8: note: 'create' has been explicitly marked deprecated here
+  506 |   OpTy create(Location location, Args &&...args) {
+      |        ^
+/Users/zhoubot/.codex/worktrees/migration-capture/pyCircuit/.pycircuit_out/m3-s1-baseline-source/compiler/acir/lib/Compiler/PythonImportHelpers.cpp:321:8: warning: 'create<mlir::arith::ConstantOp, mlir::IntegerAttr>' is deprecated: Use OpTy::create instead [-Wdeprecated-declarations]
+  321 |       .create<arith::ConstantOp>(
+      |        ^
+/opt/homebrew/Cellar/llvm/22.1.8/include/mlir/IR/Builders.h:505:5: note: 'create<mlir::arith::ConstantOp, mlir::IntegerAttr>' has been explicitly marked deprecated here
+  505 |   [[deprecated("Use OpTy::create instead")]]
+      |     ^
+/Users/zhoubot/.codex/worktrees/migration-capture/pyCircuit/.pycircuit_out/m3-s1-baseline-source/compiler/acir/lib/Compiler/PythonImportHelpers.cpp:343:20: warning: 'create' is deprecated: Use OpTy::create instead [-Wdeprecated-declarations]
+  343 |     auto call = at.create<func::CallOp>(
+      |                    ^
+/opt/homebrew/Cellar/llvm/22.1.8/include/mlir/IR/Builders.h:506:8: note: 'create' has been explicitly marked deprecated here
+  506 |   OpTy create(Location location, Args &&...args) {
+      |        ^
+/Users/zhoubot/.codex/worktrees/migration-capture/pyCircuit/.pycircuit_out/m3-s1-baseline-source/compiler/acir/lib/Compiler/PythonImportHelpers.cpp:343:20: warning: 'create<mlir::func::CallOp, mlir::FlatSymbolRefAttr &, llvm::ArrayRef<mlir::Type>, mlir::ValueRange>' is deprecated: Use OpTy::create instead [-Wdeprecated-declarations]
+  343 |     auto call = at.create<func::CallOp>(
+      |                    ^
+/opt/homebrew/Cellar/llvm/22.1.8/include/mlir/IR/Builders.h:505:5: note: 'create<mlir::func::CallOp, mlir::FlatSymbolRefAttr &, llvm::ArrayRef<mlir::Type>, mlir::ValueRange>' has been explicitly marked deprecated here
+  505 |   [[deprecated("Use OpTy::create instead")]]
+      |     ^
+/Users/zhoubot/.codex/worktrees/migration-capture/pyCircuit/.pycircuit_out/m3-s1-baseline-source/compiler/acir/lib/Compiler/PythonImportHelpers.cpp:425:14: warning: 'create' is deprecated: Use OpTy::create instead [-Wdeprecated-declarations]
+  425 |           at.create<arith::ConstantOp>(function.getLoc(), physical, boolean));
+      |              ^
+/opt/homebrew/Cellar/llvm/22.1.8/include/mlir/IR/Builders.h:506:8: note: 'create' has been explicitly marked deprecated here
+  506 |   OpTy create(Location location, Args &&...args) {
+      |        ^
+/Users/zhoubot/.codex/worktrees/migration-capture/pyCircuit/.pycircuit_out/m3-s1-baseline-source/compiler/acir/lib/Compiler/PythonImportHelpers.cpp:425:14: warning: 'create<mlir::arith::ConstantOp, mlir::Type &, mlir::BoolAttr &>' is deprecated: Use OpTy::create instead [-Wdeprecated-declarations]
+  425 |           at.create<arith::ConstantOp>(function.getLoc(), physical, boolean));
+      |              ^
+/opt/homebrew/Cellar/llvm/22.1.8/include/mlir/IR/Builders.h:505:5: note: 'create<mlir::arith::ConstantOp, mlir::Type &, mlir::BoolAttr &>' has been explicitly marked deprecated here
+  505 |   [[deprecated("Use OpTy::create instead")]]
+      |     ^
+/Users/zhoubot/.codex/worktrees/migration-capture/pyCircuit/.pycircuit_out/m3-s1-baseline-source/compiler/acir/lib/Compiler/PythonImportHelpers.cpp:432:27: warning: 'create' is deprecated: Use OpTy::create instead [-Wdeprecated-declarations]
+  432 |       values.push_back(at.create<arith::ConstantOp>(
+      |                           ^
+/opt/homebrew/Cellar/llvm/22.1.8/include/mlir/IR/Builders.h:506:8: note: 'create' has been explicitly marked deprecated here
+  506 |   OpTy create(Location location, Args &&...args) {
+      |        ^
+/Users/zhoubot/.codex/worktrees/migration-capture/pyCircuit/.pycircuit_out/m3-s1-baseline-source/compiler/acir/lib/Compiler/PythonImportHelpers.cpp:432:27: warning: 'create<mlir::arith::ConstantOp, mlir::IntegerAttr>' is deprecated: Use OpTy::create instead [-Wdeprecated-declarations]
+  432 |       values.push_back(at.create<arith::ConstantOp>(
+      |                           ^
+/opt/homebrew/Cellar/llvm/22.1.8/include/mlir/IR/Builders.h:505:5: note: 'create<mlir::arith::ConstantOp, mlir::IntegerAttr>' has been explicitly marked deprecated here
+  505 |   [[deprecated("Use OpTy::create instead")]]
+      |     ^
+/Users/zhoubot/.codex/worktrees/migration-capture/pyCircuit/.pycircuit_out/m3-s1-baseline-source/compiler/acir/lib/Compiler/PythonImportHelpers.cpp:437:18: warning: 'create' is deprecated: Use OpTy::create instead [-Wdeprecated-declarations]
+  437 |   auto call = at.create<func::CallOp>(
+      |                  ^
+/opt/homebrew/Cellar/llvm/22.1.8/include/mlir/IR/Builders.h:506:8: note: 'create' has been explicitly marked deprecated here
+  506 |   OpTy create(Location location, Args &&...args) {
+      |        ^
+/Users/zhoubot/.codex/worktrees/migration-capture/pyCircuit/.pycircuit_out/m3-s1-baseline-source/compiler/acir/lib/Compiler/PythonImportHelpers.cpp:437:18: warning: 'create<mlir::func::CallOp, mlir::FlatSymbolRefAttr, llvm::ArrayRef<mlir::Type>, mlir::ValueRange>' is deprecated: Use OpTy::create instead [-Wdeprecated-declarations]
+  437 |   auto call = at.create<func::CallOp>(
+      |                  ^
+/opt/homebrew/Cellar/llvm/22.1.8/include/mlir/IR/Builders.h:505:5: note: 'create<mlir::func::CallOp, mlir::FlatSymbolRefAttr, llvm::ArrayRef<mlir::Type>, mlir::ValueRange>' has been explicitly marked deprecated here
+  505 |   [[deprecated("Use OpTy::create instead")]]
+      |     ^
+/Users/zhoubot/.codex/worktrees/migration-capture/pyCircuit/.pycircuit_out/m3-s1-baseline-source/compiler/acir/lib/Compiler/PythonImportHelpers.cpp:470:12: warning: 'create' is deprecated: Use OpTy::create instead [-Wdeprecated-declarations]
+  470 |           .create<ac::StructGetOp>(
+      |            ^
+/opt/homebrew/Cellar/llvm/22.1.8/include/mlir/IR/Builders.h:506:8: note: 'create' has been explicitly marked deprecated here
+  506 |   OpTy create(Location location, Args &&...args) {
+      |        ^
+/Users/zhoubot/.codex/worktrees/migration-capture/pyCircuit/.pycircuit_out/m3-s1-baseline-source/compiler/acir/lib/Compiler/PythonImportHelpers.cpp:470:12: warning: 'create<acir::ac::StructGetOp, mlir::Type &, mlir::Value &, llvm::StringRef &>' is deprecated: Use OpTy::create instead [-Wdeprecated-declarations]
+  470 |           .create<ac::StructGetOp>(
+      |            ^
+/opt/homebrew/Cellar/llvm/22.1.8/include/mlir/IR/Builders.h:505:5: note: 'create<acir::ac::StructGetOp, mlir::Type &, mlir::Value &, llvm::StringRef &>' has been explicitly marked deprecated here
+  505 |   [[deprecated("Use OpTy::create instead")]]
+      |     ^
+/Users/zhoubot/.codex/worktrees/migration-capture/pyCircuit/.pycircuit_out/m3-s1-baseline-source/compiler/acir/lib/Compiler/PythonImportHelpers.cpp:534:6: warning: 'create' is deprecated: Use OpTy::create instead [-Wdeprecated-declarations]
+  534 |   at.create<func::ReturnOp>(function.getLoc(), ValueRange{*value, liveValid});
+      |      ^
+/opt/homebrew/Cellar/llvm/22.1.8/include/mlir/IR/Builders.h:506:8: note: 'create' has been explicitly marked deprecated here
+  506 |   OpTy create(Location location, Args &&...args) {
+      |        ^
+/Users/zhoubot/.codex/worktrees/migration-capture/pyCircuit/.pycircuit_out/m3-s1-baseline-source/compiler/acir/lib/Compiler/PythonImportHelpers.cpp:534:6: warning: 'create<mlir::func::ReturnOp, mlir::ValueRange>' is deprecated: Use OpTy::create instead [-Wdeprecated-declarations]
+  534 |   at.create<func::ReturnOp>(function.getLoc(), ValueRange{*value, liveValid});
+      |      ^
+/opt/homebrew/Cellar/llvm/22.1.8/include/mlir/IR/Builders.h:505:5: note: 'create<mlir::func::ReturnOp, mlir::ValueRange>' has been explicitly marked deprecated here
+  505 |   [[deprecated("Use OpTy::create instead")]]
+      |     ^
+16 warnings generated.
+[83/120] Building CXX object compiler/acir/lib/Compiler/CMakeFiles/ACIRSourceCompiler.dir/PythonImportModuleBody.cpp.o
+[84/120] Building CXX object compiler/acir/lib/Compiler/CMakeFiles/ACIRSourceCompiler.dir/PythonImportModules.cpp.o
+[85/120] Building CXX object compiler/acir/lib/Compiler/CMakeFiles/ACIRSourceCompiler.dir/PythonImportNumeric.cpp.o
+[86/120] Building CXX object compiler/acir/lib/Compiler/CMakeFiles/ACIRSourceCompiler.dir/PythonImportNumericNext.cpp.o
+[87/120] Building CXX object compiler/acir/lib/Compiler/CMakeFiles/ACIRSourceCompiler.dir/PythonImportObservations.cpp.o
+[88/120] Building CXX object compiler/acir/lib/Compiler/CMakeFiles/ACIRSourceCompiler.dir/PythonImportRecords.cpp.o
+/Users/zhoubot/.codex/worktrees/migration-capture/pyCircuit/.pycircuit_out/m3-s1-baseline-source/compiler/acir/lib/Compiler/PythonImportRecords.cpp:508:21: warning: 'create' is deprecated: Use OpTy::create instead [-Wdeprecated-declarations]
+  508 |   auto created = at.create<ac::StructCreateOp>(function.getLoc(), recordType,
+      |                     ^
+/opt/homebrew/Cellar/llvm/22.1.8/include/mlir/IR/Builders.h:506:8: note: 'create' has been explicitly marked deprecated here
+  506 |   OpTy create(Location location, Args &&...args) {
+      |        ^
+/Users/zhoubot/.codex/worktrees/migration-capture/pyCircuit/.pycircuit_out/m3-s1-baseline-source/compiler/acir/lib/Compiler/PythonImportRecords.cpp:508:21: warning: 'create<acir::ac::StructCreateOp, acir::ac::StructType &, mlir::ValueRange>' is deprecated: Use OpTy::create instead [-Wdeprecated-declarations]
+  508 |   auto created = at.create<ac::StructCreateOp>(function.getLoc(), recordType,
+      |                     ^
+/opt/homebrew/Cellar/llvm/22.1.8/include/mlir/IR/Builders.h:505:5: note: 'create<acir::ac::StructCreateOp, acir::ac::StructType &, mlir::ValueRange>' has been explicitly marked deprecated here
+  505 |   [[deprecated("Use OpTy::create instead")]]
+      |     ^
+/Users/zhoubot/.codex/worktrees/migration-capture/pyCircuit/.pycircuit_out/m3-s1-baseline-source/compiler/acir/lib/Compiler/PythonImportRecords.cpp:510:6: warning: 'create' is deprecated: Use OpTy::create instead [-Wdeprecated-declarations]
+  510 |   at.create<func::ReturnOp>(
+      |      ^
+/opt/homebrew/Cellar/llvm/22.1.8/include/mlir/IR/Builders.h:506:8: note: 'create' has been explicitly marked deprecated here
+  506 |   OpTy create(Location location, Args &&...args) {
+      |        ^
+/Users/zhoubot/.codex/worktrees/migration-capture/pyCircuit/.pycircuit_out/m3-s1-baseline-source/compiler/acir/lib/Compiler/PythonImportRecords.cpp:510:6: warning: 'create<mlir::func::ReturnOp, mlir::ValueRange>' is deprecated: Use OpTy::create instead [-Wdeprecated-declarations]
+  510 |   at.create<func::ReturnOp>(
+      |      ^
+/opt/homebrew/Cellar/llvm/22.1.8/include/mlir/IR/Builders.h:505:5: note: 'create<mlir::func::ReturnOp, mlir::ValueRange>' has been explicitly marked deprecated here
+  505 |   [[deprecated("Use OpTy::create instead")]]
+      |     ^
+4 warnings generated.
+[89/120] Building CXX object compiler/acir/lib/Compiler/CMakeFiles/ACIRSourceCompiler.dir/PythonImportRuleExpressions.cpp.o
+[90/120] Building CXX object compiler/acir/lib/Compiler/CMakeFiles/ACIRSourceCompiler.dir/PythonImportRuleControl.cpp.o
+[91/120] Building CXX object compiler/acir/lib/Compiler/CMakeFiles/ACIRSourceCompiler.dir/PythonImportSignature.cpp.o
+[92/120] Building CXX object compiler/acir/lib/Compiler/CMakeFiles/ACIRSourceCompiler.dir/PythonImportRules.cpp.o
+/Users/zhoubot/.codex/worktrees/migration-capture/pyCircuit/.pycircuit_out/m3-s1-baseline-source/compiler/acir/lib/Compiler/PythonImportRules.cpp:605:21: warning: 'create' is deprecated: Use OpTy::create instead [-Wdeprecated-declarations]
+  605 |     return Value(at.create<arith::ConstantOp>(
+      |                     ^
+/opt/homebrew/Cellar/llvm/22.1.8/include/mlir/IR/Builders.h:506:8: note: 'create' has been explicitly marked deprecated here
+  506 |   OpTy create(Location location, Args &&...args) {
+      |        ^
+/Users/zhoubot/.codex/worktrees/migration-capture/pyCircuit/.pycircuit_out/m3-s1-baseline-source/compiler/acir/lib/Compiler/PythonImportRules.cpp:605:21: warning: 'create<mlir::arith::ConstantOp, mlir::IntegerType, mlir::BoolAttr>' is deprecated: Use OpTy::create instead [-Wdeprecated-declarations]
+  605 |     return Value(at.create<arith::ConstantOp>(
+      |                     ^
+/opt/homebrew/Cellar/llvm/22.1.8/include/mlir/IR/Builders.h:505:5: note: 'create<mlir::arith::ConstantOp, mlir::IntegerType, mlir::BoolAttr>' has been explicitly marked deprecated here
+  505 |   [[deprecated("Use OpTy::create instead")]]
+      |     ^
+/Users/zhoubot/.codex/worktrees/migration-capture/pyCircuit/.pycircuit_out/m3-s1-baseline-source/compiler/acir/lib/Compiler/PythonImportRules.cpp:887:27: warning: 'create' is deprecated: Use OpTy::create instead [-Wdeprecated-declarations]
+  887 |       Value inverted = at.create<arith::XOrIOp>(
+      |                           ^
+/opt/homebrew/Cellar/llvm/22.1.8/include/mlir/IR/Builders.h:506:8: note: 'create' has been explicitly marked deprecated here
+  506 |   OpTy create(Location location, Args &&...args) {
+      |        ^
+/Users/zhoubot/.codex/worktrees/migration-capture/pyCircuit/.pycircuit_out/m3-s1-baseline-source/compiler/acir/lib/Compiler/PythonImportRules.cpp:887:27: warning: 'create<mlir::arith::XOrIOp, mlir::Value &, mlir::Value &>' is deprecated: Use OpTy::create instead [-Wdeprecated-declarations]
+  887 |       Value inverted = at.create<arith::XOrIOp>(
+      |                           ^
+/opt/homebrew/Cellar/llvm/22.1.8/include/mlir/IR/Builders.h:505:5: note: 'create<mlir::arith::XOrIOp, mlir::Value &, mlir::Value &>' has been explicitly marked deprecated here
+  505 |   [[deprecated("Use OpTy::create instead")]]
+      |     ^
+4 warnings generated.
+[93/120] Building CXX object compiler/acir/lib/Compiler/CMakeFiles/ACIRSourceCompiler.dir/Passes/LowerExactInputAdd.cpp.o
+[94/120] Building CXX object compiler/acir/lib/Compiler/CMakeFiles/ACIRSourceCompiler.dir/Passes/InferRuleEffects.cpp.o
+[95/120] Building CXX object compiler/acir/lib/Compiler/CMakeFiles/ACIRSourceCompiler.dir/SourceHeaderRegistry.cpp.o
+[96/120] Building CXX object compiler/acir/lib/Compiler/CMakeFiles/ACIRSourceCompiler.dir/SourceHeaderHelpers.cpp.o
+[97/120] Building CXX object compiler/acir/lib/Compiler/CMakeFiles/ACIRSourceCompiler.dir/SourceBodySnapshots.cpp.o
+[98/120] Building CXX object compiler/acir/lib/Compiler/CMakeFiles/ACIRSourceCompiler.dir/SourceLink.cpp.o
+[99/120] Building CXX object compiler/acir/lib/Compiler/CMakeFiles/ACIRSourceCompiler.dir/SourceNamespace.cpp.o
+[100/120] Building CXX object compiler/acir/lib/Compiler/CMakeFiles/ACIRSourceCompiler.dir/SourceIdentifier.cpp.o
+[101/120] Building CXX object compiler/acir/lib/Compiler/CMakeFiles/ACIRSourceCompiler.dir/SourceUnit.cpp.o
+[102/120] Linking CXX static library compiler/acir/lib/Compiler/libACIRSourceCompiler.a
+[103/120] Building CXX object compiler/acir/tools/acir-source-unit-harness/CMakeFiles/acir-source-unit-harness.dir/acir-source-unit-harness.cpp.o
+[104/120] Linking CXX executable bin/acir-source-unit-harness
+ld: warning: ignoring duplicate libraries: '/opt/homebrew/Cellar/llvm/22.1.8/lib/libMLIRArithDialect.a', '/opt/homebrew/Cellar/llvm/22.1.8/lib/libMLIRFuncDialect.a', '/opt/homebrew/Cellar/llvm/22.1.8/lib/libMLIRSupport.a', 'compiler/acir/lib/Dialect/ACIR/libACIRDialect.a'
+[105/120] Building CXX object compiler/acir/tests/source-unit/CMakeFiles/ACIRSourceMathContractsTests.dir/NumericProofContractsTest.cpp.o
+[106/120] Building CXX object compiler/acir/tests/source-unit/CMakeFiles/ACIRSourceMathContractsTests.dir/SourceMathContractsTest.cpp.o
+[107/120] Building CXX object compiler/acir/tests/source-unit/CMakeFiles/ACIRSourceMathContractsTests.dir/NumericExactAddProofContractsTest.cpp.o
+[108/120] Building CXX object compiler/acir/tests/source-unit/CMakeFiles/ACIRSourceMathContractsTests.dir/NumericExactProofContractsTest.cpp.o
+/Users/zhoubot/.codex/worktrees/migration-capture/pyCircuit/.pycircuit_out/m3-s1-baseline-source/tests/cpp/agentic-circuit/Dialect/ACIR/NumericExactProofContractsTest.cpp:556:45: warning: 'create' is deprecated: Use OpTy::create instead [-Wdeprecated-declarations]
+  556 |                          auto sum = builder.create<mlir::arith::AddIOp>(
+      |                                             ^
+/opt/homebrew/Cellar/llvm/22.1.8/include/mlir/IR/Builders.h:506:8: note: 'create' has been explicitly marked deprecated here
+  506 |   OpTy create(Location location, Args &&...args) {
+      |        ^
+/Users/zhoubot/.codex/worktrees/migration-capture/pyCircuit/.pycircuit_out/m3-s1-baseline-source/tests/cpp/agentic-circuit/Dialect/ACIR/NumericExactProofContractsTest.cpp:556:45: warning: 'create<mlir::arith::AddIOp, mlir::Value, mlir::Value>' is deprecated: Use OpTy::create instead [-Wdeprecated-declarations]
+  556 |                          auto sum = builder.create<mlir::arith::AddIOp>(
+      |                                             ^
+/opt/homebrew/Cellar/llvm/22.1.8/include/mlir/IR/Builders.h:505:5: note: 'create<mlir::arith::AddIOp, mlir::Value, mlir::Value>' has been explicitly marked deprecated here
+  505 |   [[deprecated("Use OpTy::create instead")]]
+      |     ^
+2 warnings generated.
+[109/120] Building CXX object compiler/acir/tests/source-unit/CMakeFiles/ACIRSourceMathContractsTests.dir/NumericExactScalarProofContractsTest.cpp.o
+[110/120] Building CXX object compiler/acir/tests/source-unit/CMakeFiles/ACIRSourceMathContractsTests.dir/NumericMaskProofContractsTest.cpp.o
+[111/120] Building CXX object compiler/acir/tests/source-unit/CMakeFiles/ACIRSourceMathContractsTests.dir/NumericCompositionAdversarialTest.cpp.o
+[112/120] Building CXX object compiler/acir/tests/source-unit/CMakeFiles/ACIRSourceMathContractsTests.dir/NumericCompositionContractsTest.cpp.o
+[113/120] Building CXX object compiler/acir/tests/source-unit/CMakeFiles/ACIRSourceMathContractsTests.dir/NumericNextUseContractsTest.cpp.o
+[114/120] Building CXX object compiler/acir/tests/source-unit/CMakeFiles/ACIRSourceMathContractsTests.dir/NumericRangeProofContractsTest.cpp.o
+[115/120] Building CXX object compiler/acir/tests/source-unit/CMakeFiles/ACIRSourceMathContractsTests.dir/NumericVariableAddProofContractsTest.cpp.o
+/Users/zhoubot/.codex/worktrees/migration-capture/pyCircuit/.pycircuit_out/m3-s1-baseline-source/tests/cpp/agentic-circuit/Dialect/ACIR/NumericVariableAddProofContractsTest.cpp:359:11: warning: 'create' is deprecated: Use OpTy::create instead [-Wdeprecated-declarations]
+  359 |   builder.create<YieldOp>(location, mlir::ValueRange{});
+      |           ^
+/opt/homebrew/Cellar/llvm/22.1.8/include/mlir/IR/Builders.h:506:8: note: 'create' has been explicitly marked deprecated here
+  506 |   OpTy create(Location location, Args &&...args) {
+      |        ^
+/Users/zhoubot/.codex/worktrees/migration-capture/pyCircuit/.pycircuit_out/m3-s1-baseline-source/tests/cpp/agentic-circuit/Dialect/ACIR/NumericVariableAddProofContractsTest.cpp:359:11: warning: 'create<acir::ac::YieldOp, mlir::ValueRange>' is deprecated: Use OpTy::create instead [-Wdeprecated-declarations]
+  359 |   builder.create<YieldOp>(location, mlir::ValueRange{});
+      |           ^
+/opt/homebrew/Cellar/llvm/22.1.8/include/mlir/IR/Builders.h:505:5: note: 'create<acir::ac::YieldOp, mlir::ValueRange>' has been explicitly marked deprecated here
+  505 |   [[deprecated("Use OpTy::create instead")]]
+      |     ^
+/Users/zhoubot/.codex/worktrees/migration-capture/pyCircuit/.pycircuit_out/m3-s1-baseline-source/tests/cpp/agentic-circuit/Dialect/ACIR/NumericVariableAddProofContractsTest.cpp:361:11: warning: 'create' is deprecated: Use OpTy::create instead [-Wdeprecated-declarations]
+  361 |   builder.create<YieldOp>(location, mlir::ValueRange{});
+      |           ^
+/opt/homebrew/Cellar/llvm/22.1.8/include/mlir/IR/Builders.h:506:8: note: 'create' has been explicitly marked deprecated here
+  506 |   OpTy create(Location location, Args &&...args) {
+      |        ^
+/Users/zhoubot/.codex/worktrees/migration-capture/pyCircuit/.pycircuit_out/m3-s1-baseline-source/tests/cpp/agentic-circuit/Dialect/ACIR/NumericVariableAddProofContractsTest.cpp:361:11: warning: 'create<acir::ac::YieldOp, mlir::ValueRange>' is deprecated: Use OpTy::create instead [-Wdeprecated-declarations]
+  361 |   builder.create<YieldOp>(location, mlir::ValueRange{});
+      |           ^
+/opt/homebrew/Cellar/llvm/22.1.8/include/mlir/IR/Builders.h:505:5: note: 'create<acir::ac::YieldOp, mlir::ValueRange>' has been explicitly marked deprecated here
+  505 |   [[deprecated("Use OpTy::create instead")]]
+      |     ^
+4 warnings generated.
+[116/120] Building CXX object compiler/acir/tests/source-unit/CMakeFiles/ACIRSourceMathContractsTests.dir/ScalarNumericExactLoweringTest.cpp.o
+[117/120] Building CXX object compiler/acir/tests/source-unit/CMakeFiles/ACIRSourceMathContractsTests.dir/ScalarNumericRangeLoweringTest.cpp.o
+[118/120] Building CXX object compiler/acir/tests/source-unit/CMakeFiles/ACIRSourceMathContractsTests.dir/ScalarNumericLoweringTest.cpp.o
+[119/120] Building CXX object compiler/acir/tests/source-unit/CMakeFiles/ACIRSourceMathContractsTests.dir/ScalarNumericNextUseLoweringTest.cpp.o
+[120/120] Linking CXX executable bin/ACIRSourceMathContractsTests
+ld: warning: ignoring duplicate libraries: '/opt/homebrew/Cellar/llvm/22.1.8/lib/libMLIRArithDialect.a', '/opt/homebrew/Cellar/llvm/22.1.8/lib/libMLIRAsmParser.a', '/opt/homebrew/Cellar/llvm/22.1.8/lib/libMLIRIR.a', '/opt/homebrew/Cellar/llvm/22.1.8/lib/libMLIRPass.a', '/opt/homebrew/Cellar/llvm/22.1.8/lib/libMLIRSCFDialect.a', 'compiler/acir/lib/Dialect/ACIR/libACIRDialect.a'

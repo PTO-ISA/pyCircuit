@@ -1,0 +1,71 @@
+{
+  "status": "PASS",
+  "final_input_sha256": "d122f7210ae42bc257cbaacb94e21f87bf3f1da19023a45795eb8b71aeff6494",
+  "cases": [
+    {
+      "case": "field-expansion",
+      "argv": [
+        "/Users/zhoubot/.codex/worktrees/migration-capture/pyCircuit/.pycircuit_out/m3-s1-install/bin/acir-design-harness",
+        "--design",
+        "/Users/zhoubot/.codex/worktrees/migration-capture/pyCircuit/.pycircuit_out/m3-s1-provenance-probes/field-expansion.ac",
+        "--verify-only"
+      ],
+      "exit": 1,
+      "stdout": "",
+      "stderr": "error: final record field provenance is not source-owned\nerror: cannot parse artifact '/Users/zhoubot/.codex/worktrees/migration-capture/pyCircuit/.pycircuit_out/m3-s1-provenance-probes/field-expansion.ac'\n",
+      "input_sha256": "f9ae625c5e85932508c2e7934361af8e3505e51d06d831be6f2f1ecf1751fbab"
+    },
+    {
+      "case": "record-expansion",
+      "argv": [
+        "/Users/zhoubot/.codex/worktrees/migration-capture/pyCircuit/.pycircuit_out/m3-s1-install/bin/acir-design-harness",
+        "--design",
+        "/Users/zhoubot/.codex/worktrees/migration-capture/pyCircuit/.pycircuit_out/m3-s1-provenance-probes/record-expansion.ac",
+        "--verify-only"
+      ],
+      "exit": 1,
+      "stdout": "",
+      "stderr": "error: final record origin is not canonical source provenance\nerror: cannot parse artifact '/Users/zhoubot/.codex/worktrees/migration-capture/pyCircuit/.pycircuit_out/m3-s1-provenance-probes/record-expansion.ac'\n",
+      "input_sha256": "f2fd60fbd0663e4aa5f7d34d5cab324b524113dea56645d7423957e08461d4c3"
+    },
+    {
+      "case": "duplicate-field-ast",
+      "argv": [
+        "/Users/zhoubot/.codex/worktrees/migration-capture/pyCircuit/.pycircuit_out/m3-s1-install/bin/acir-design-harness",
+        "--design",
+        "/Users/zhoubot/.codex/worktrees/migration-capture/pyCircuit/.pycircuit_out/m3-s1-provenance-probes/duplicate-field-ast.ac",
+        "--verify-only"
+      ],
+      "exit": 1,
+      "stdout": "",
+      "stderr": "error: final record field origins must have distinct AST paths\nerror: cannot parse artifact '/Users/zhoubot/.codex/worktrees/migration-capture/pyCircuit/.pycircuit_out/m3-s1-provenance-probes/duplicate-field-ast.ac'\n",
+      "input_sha256": "184c22502737174f46b74bb1820cf003995d680146a2cfeaaab834b25e359231"
+    },
+    {
+      "case": "record-origin-definition",
+      "argv": [
+        "/Users/zhoubot/.codex/worktrees/migration-capture/pyCircuit/.pycircuit_out/m3-s1-install/bin/acir-design-harness",
+        "--design",
+        "/Users/zhoubot/.codex/worktrees/migration-capture/pyCircuit/.pycircuit_out/m3-s1-provenance-probes/record-origin-definition.ac",
+        "--verify-only"
+      ],
+      "exit": 1,
+      "stdout": "",
+      "stderr": "error: final record origin is not canonical source provenance\nerror: cannot parse artifact '/Users/zhoubot/.codex/worktrees/migration-capture/pyCircuit/.pycircuit_out/m3-s1-provenance-probes/record-origin-definition.ac'\n",
+      "input_sha256": "7b99939b7dad9adcb537dbdc898a45074888afcd321804df57408fc50181109f"
+    },
+    {
+      "case": "final-snapshot-role",
+      "argv": [
+        "/Users/zhoubot/.codex/worktrees/migration-capture/pyCircuit/.pycircuit_out/m3-s1-install/bin/acir-design-harness",
+        "--design",
+        "/Users/zhoubot/.codex/worktrees/migration-capture/pyCircuit/.pycircuit_out/m3-s1-provenance-probes/final-snapshot-role.ac",
+        "--verify-only"
+      ],
+      "exit": 1,
+      "stdout": "",
+      "stderr": "error: final record declaration envelope is not canonical\nerror: cannot parse artifact '/Users/zhoubot/.codex/worktrees/migration-capture/pyCircuit/.pycircuit_out/m3-s1-provenance-probes/final-snapshot-role.ac'\n",
+      "input_sha256": "0d334c402bd40506dcaff9b2995f65244f32be74e5354761551c0c0ed2c596d7"
+    }
+  ]
+}

@@ -1,0 +1,15 @@
+============================= test session starts ==============================
+platform darwin -- Python 3.12.12, pytest-9.1.1, pluggy-1.6.0
+rootdir: /Users/zhoubot/.codex/worktrees/migration-capture/pyCircuit
+configfile: pyproject.toml
+collected 119 items
+
+tests/system/test_final_scalar_declarations.py ......................... [ 21%]
+..............                                                           [ 32%]
+tests/system/test_source_unit_packet.py ................................ [ 59%]
+...................                                                      [ 75%]
+tests/system/test_source_namespace_bindings.py ......                    [ 80%]
+tests/system/test_driver_compile_link.py .......................         [100%]
+
+- generated xml file: /Users/zhoubot/.codex/worktrees/migration-capture/pyCircuit/.pycircuit_out/m3-s1-final-regressions.xml -
+============================= 119 passed in 38.10s =============================

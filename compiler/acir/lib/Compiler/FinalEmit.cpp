@@ -8,6 +8,17 @@ using namespace mlir;
 namespace acir::compiler {
 namespace {
 
+LogicalResult
+rejectUnemittableRecordDeclarations(const FinalProgram &program,
+                                    ac::detail::EmitError emitError) {
+  bool foundRecord = false;
+  program.hardware().walk([&](ac::StructOp) { foundRecord = true; });
+  if (foundRecord)
+    return emitError()
+           << "final record declarations are not yet supported by emitters";
+  return success();
+}
+
 // The single definition of the emission discipline every final emitter must
 // follow: verify before, require an EmitReady program, verify after. Keeping it
 // in one place means a future change cannot silently apply to only some
@@ -22,11 +33,15 @@ public:
       return failure();
     if (!program_.isEmitReady())
       return emitError_() << "final emitter requires an EmitReady FinalProgram";
+    if (failed(rejectUnemittableRecordDeclarations(program_, emitError_)))
+      return failure();
     return success();
   }
 
   LogicalResult finish() {
     if (failed(verifyFinalProgram(program_, emitError_)))
+      return emitError_() << "final program changed during emission";
+    if (failed(rejectUnemittableRecordDeclarations(program_, emitError_)))
       return emitError_() << "final program changed during emission";
     return success();
   }

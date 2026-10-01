@@ -1,0 +1,57 @@
+{
+  "CMAKE_BUILD_TYPE": {
+    "candidate": "",
+    "baseline": "",
+    "equal": true
+  },
+  "CMAKE_CXX_COMPILER": {
+    "candidate": "/usr/bin/c++",
+    "baseline": "/usr/bin/c++",
+    "equal": true
+  },
+  "CMAKE_CXX_FLAGS": {
+    "candidate": "",
+    "baseline": "",
+    "equal": true
+  },
+  "CMAKE_CXX_FLAGS_DEBUG": {
+    "candidate": "-g",
+    "baseline": "-g",
+    "equal": true
+  },
+  "CMAKE_CXX_FLAGS_RELEASE": {
+    "candidate": "-O3 -DNDEBUG",
+    "baseline": "-O3 -DNDEBUG",
+    "equal": true
+  },
+  "CMAKE_OSX_ARCHITECTURES": {
+    "candidate": "",
+    "baseline": "",
+    "equal": true
+  },
+  "LLVM_DIR": {
+    "candidate": "/opt/homebrew/opt/llvm@22/lib/cmake/llvm",
+    "baseline": "/opt/homebrew/opt/llvm@22/lib/cmake/llvm",
+    "equal": true
+  },
+  "MLIR_DIR": {
+    "candidate": "/opt/homebrew/opt/llvm@22/lib/cmake/mlir",
+    "baseline": "/opt/homebrew/opt/llvm@22/lib/cmake/mlir",
+    "equal": true
+  },
+  "PYC_BUILD_TESTING": {
+    "candidate": "ON",
+    "baseline": "ON",
+    "equal": true
+  },
+  "PYC_BUILD_COMPILER_DEV": {
+    "candidate": "ON",
+    "baseline": "ON",
+    "equal": true
+  },
+  "PYC_BUILD_RUNTIME_LIB": {
+    "candidate": "ON",
+    "baseline": "ON",
+    "equal": true
+  }
+}

@@ -379,3 +379,13 @@ ready 前列精确文件、候选、接口授权、实际测试 inventory 和退
 边界与 checklist/oracle。近期并行准备 M3-P01 合同/证据核对和 M6-03
 首次发布故障扩面；M6-04 独立测量准备随后推进。新接口的计划通过不是
 产品批准，当前 accepted profile 不由这些未执行的包自动扩大。
+
+## 2026-10-01 M3-E01 S1 验收
+
+[S1 final record 声明投影](../work-items/m3-record-s1-final-declarations.md)
+按已批准 C2-DECL-R B 完成，独立 Sol APPROVE、Astra CONFORMANT。
+完整 owner inventory、constructor provenance、source-header 准入和冻结验证
+已闭合；record state/helper/value 与双后端生成仍在 S2–S4，产品 profile 不扩大。
+下一步按[有界实施顺序](../work-items/m3-record-implementation.md)分解 S2。
+SourceMath 的三个 APInt 断言已在相同选项的 pristine baseline 复现，作为明确
+数值验证缺口保留；不声称整个原生门槛通过或完整 M3 已完成。

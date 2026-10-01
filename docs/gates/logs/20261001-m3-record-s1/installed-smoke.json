@@ -1,0 +1,193 @@
+{
+  "status": "PASS",
+  "checkout": "/Users/zhoubot/.codex/worktrees/migration-capture/pyCircuit",
+  "prefix": "/Users/zhoubot/.codex/worktrees/migration-capture/pyCircuit/.pycircuit_out/m3-s1-install",
+  "fixture": "/Users/zhoubot/.codex/worktrees/migration-capture/pyCircuit/.pycircuit_out/m3-s1-installed-smoke-an13i5gm",
+  "claims": [
+    "installed scalar CPP/RTL emit",
+    "parent compile with provider source/body absent",
+    "record final fresh verify without source/unit artifacts",
+    "both record emit targets reject and preserve valid published scalar bundles"
+  ],
+  "commands": [
+    {
+      "argv": [
+        "/Users/zhoubot/.codex/worktrees/migration-capture/pyCircuit/.pycircuit_out/m3-s1-install/bin/pycircuit",
+        "compile",
+        "-c",
+        "/Users/zhoubot/.codex/worktrees/migration-capture/pyCircuit/.pycircuit_out/m3-s1-installed-smoke-an13i5gm/source/root.py",
+        "--source-root",
+        "/Users/zhoubot/.codex/worktrees/migration-capture/pyCircuit/.pycircuit_out/m3-s1-installed-smoke-an13i5gm/source",
+        "--package-prefix",
+        "demo",
+        "-o",
+        "/Users/zhoubot/.codex/worktrees/migration-capture/pyCircuit/.pycircuit_out/m3-s1-installed-smoke-an13i5gm/scalar-unit"
+      ],
+      "exit": 0,
+      "stdout": "",
+      "stderr": ""
+    },
+    {
+      "argv": [
+        "/Users/zhoubot/.codex/worktrees/migration-capture/pyCircuit/.pycircuit_out/m3-s1-install/bin/pycircuit",
+        "link",
+        "/Users/zhoubot/.codex/worktrees/migration-capture/pyCircuit/.pycircuit_out/m3-s1-installed-smoke-an13i5gm/scalar-unit",
+        "--top",
+        "demo.root.Top",
+        "-o",
+        "/Users/zhoubot/.codex/worktrees/migration-capture/pyCircuit/.pycircuit_out/m3-s1-installed-smoke-an13i5gm/scalar.ac"
+      ],
+      "exit": 0,
+      "stdout": "",
+      "stderr": ""
+    },
+    {
+      "argv": [
+        "/Users/zhoubot/.codex/worktrees/migration-capture/pyCircuit/.pycircuit_out/m3-s1-install/bin/pycircuit",
+        "emit",
+        "/Users/zhoubot/.codex/worktrees/migration-capture/pyCircuit/.pycircuit_out/m3-s1-installed-smoke-an13i5gm/scalar.ac",
+        "--target",
+        "cpp",
+        "-o",
+        "/Users/zhoubot/.codex/worktrees/migration-capture/pyCircuit/.pycircuit_out/m3-s1-installed-smoke-an13i5gm/cpp"
+      ],
+      "exit": 0,
+      "stdout": "",
+      "stderr": ""
+    },
+    {
+      "argv": [
+        "/Users/zhoubot/.codex/worktrees/migration-capture/pyCircuit/.pycircuit_out/m3-s1-install/bin/pycircuit",
+        "emit",
+        "/Users/zhoubot/.codex/worktrees/migration-capture/pyCircuit/.pycircuit_out/m3-s1-installed-smoke-an13i5gm/scalar.ac",
+        "--target",
+        "verilog",
+        "-o",
+        "/Users/zhoubot/.codex/worktrees/migration-capture/pyCircuit/.pycircuit_out/m3-s1-installed-smoke-an13i5gm/verilog"
+      ],
+      "exit": 0,
+      "stdout": "",
+      "stderr": ""
+    },
+    {
+      "argv": [
+        "/Users/zhoubot/.codex/worktrees/migration-capture/pyCircuit/.pycircuit_out/m3-s1-install/bin/pycircuit",
+        "compile",
+        "-c",
+        "/Users/zhoubot/.codex/worktrees/migration-capture/pyCircuit/.pycircuit_out/m3-s1-installed-smoke-an13i5gm/source/provider.py",
+        "--source-root",
+        "/Users/zhoubot/.codex/worktrees/migration-capture/pyCircuit/.pycircuit_out/m3-s1-installed-smoke-an13i5gm/source",
+        "--package-prefix",
+        "demo",
+        "-o",
+        "/Users/zhoubot/.codex/worktrees/migration-capture/pyCircuit/.pycircuit_out/m3-s1-installed-smoke-an13i5gm/provider-unit"
+      ],
+      "exit": 0,
+      "stdout": "",
+      "stderr": ""
+    },
+    {
+      "argv": [
+        "/Users/zhoubot/.codex/worktrees/migration-capture/pyCircuit/.pycircuit_out/m3-s1-install/bin/pycircuit",
+        "compile",
+        "-c",
+        "/Users/zhoubot/.codex/worktrees/migration-capture/pyCircuit/.pycircuit_out/m3-s1-installed-smoke-an13i5gm/source/root.py",
+        "--source-root",
+        "/Users/zhoubot/.codex/worktrees/migration-capture/pyCircuit/.pycircuit_out/m3-s1-installed-smoke-an13i5gm/source",
+        "--package-prefix",
+        "demo",
+        "-I",
+        "/Users/zhoubot/.codex/worktrees/migration-capture/pyCircuit/.pycircuit_out/m3-s1-installed-smoke-an13i5gm/provider-unit",
+        "-o",
+        "/Users/zhoubot/.codex/worktrees/migration-capture/pyCircuit/.pycircuit_out/m3-s1-installed-smoke-an13i5gm/root-unit"
+      ],
+      "exit": 0,
+      "stdout": "",
+      "stderr": ""
+    },
+    {
+      "argv": [
+        "/Users/zhoubot/.codex/worktrees/migration-capture/pyCircuit/.pycircuit_out/m3-s1-install/bin/pycircuit",
+        "link",
+        "/Users/zhoubot/.codex/worktrees/migration-capture/pyCircuit/.pycircuit_out/m3-s1-installed-smoke-an13i5gm/provider-unit",
+        "/Users/zhoubot/.codex/worktrees/migration-capture/pyCircuit/.pycircuit_out/m3-s1-installed-smoke-an13i5gm/root-unit",
+        "--top",
+        "demo.root.Top",
+        "-o",
+        "/Users/zhoubot/.codex/worktrees/migration-capture/pyCircuit/.pycircuit_out/m3-s1-installed-smoke-an13i5gm/design_top.ac"
+      ],
+      "exit": 0,
+      "stdout": "",
+      "stderr": ""
+    },
+    {
+      "argv": [
+        "/Users/zhoubot/.codex/worktrees/migration-capture/pyCircuit/.pycircuit_out/m3-s1-install/bin/acir-design-harness",
+        "--design",
+        "/Users/zhoubot/.codex/worktrees/migration-capture/pyCircuit/.pycircuit_out/m3-s1-installed-smoke-an13i5gm/design_top.ac",
+        "--verify-only"
+      ],
+      "exit": 0,
+      "stdout": "",
+      "stderr": ""
+    },
+    {
+      "argv": [
+        "/Users/zhoubot/.codex/worktrees/migration-capture/pyCircuit/.pycircuit_out/m3-s1-install/bin/pycircuit",
+        "emit",
+        "/Users/zhoubot/.codex/worktrees/migration-capture/pyCircuit/.pycircuit_out/m3-s1-installed-smoke-an13i5gm/design_top.ac",
+        "--target",
+        "cpp",
+        "-o",
+        "/Users/zhoubot/.codex/worktrees/migration-capture/pyCircuit/.pycircuit_out/m3-s1-installed-smoke-an13i5gm/cpp",
+        "--replace"
+      ],
+      "exit": 1,
+      "stdout": "",
+      "stderr": "pycircuit emit: native emit rejected final design: error: final record declarations are not yet supported by emitters\n"
+    },
+    {
+      "argv": [
+        "/Users/zhoubot/.codex/worktrees/migration-capture/pyCircuit/.pycircuit_out/m3-s1-install/bin/pycircuit",
+        "emit",
+        "/Users/zhoubot/.codex/worktrees/migration-capture/pyCircuit/.pycircuit_out/m3-s1-installed-smoke-an13i5gm/design_top.ac",
+        "--target",
+        "cpp",
+        "-o",
+        "/Users/zhoubot/.codex/worktrees/migration-capture/pyCircuit/.pycircuit_out/m3-s1-installed-smoke-an13i5gm/cpp-record"
+      ],
+      "exit": 1,
+      "stdout": "",
+      "stderr": "pycircuit emit: native emit rejected final design: error: final record declarations are not yet supported by emitters\n"
+    },
+    {
+      "argv": [
+        "/Users/zhoubot/.codex/worktrees/migration-capture/pyCircuit/.pycircuit_out/m3-s1-install/bin/pycircuit",
+        "emit",
+        "/Users/zhoubot/.codex/worktrees/migration-capture/pyCircuit/.pycircuit_out/m3-s1-installed-smoke-an13i5gm/design_top.ac",
+        "--target",
+        "verilog",
+        "-o",
+        "/Users/zhoubot/.codex/worktrees/migration-capture/pyCircuit/.pycircuit_out/m3-s1-installed-smoke-an13i5gm/verilog",
+        "--replace"
+      ],
+      "exit": 1,
+      "stdout": "",
+      "stderr": "pycircuit emit: native emit rejected final design: error: final record declarations are not yet supported by emitters\n"
+    },
+    {
+      "argv": [
+        "/Users/zhoubot/.codex/worktrees/migration-capture/pyCircuit/.pycircuit_out/m3-s1-install/bin/pycircuit",
+        "emit",
+        "/Users/zhoubot/.codex/worktrees/migration-capture/pyCircuit/.pycircuit_out/m3-s1-installed-smoke-an13i5gm/design_top.ac",
+        "--target",
+        "verilog",
+        "-o",
+        "/Users/zhoubot/.codex/worktrees/migration-capture/pyCircuit/.pycircuit_out/m3-s1-installed-smoke-an13i5gm/verilog-record"
+      ],
+      "exit": 1,
+      "stdout": "",
+      "stderr": "pycircuit emit: native emit rejected final design: error: final record declarations are not yet supported by emitters\n"
+    }
+  ]
+}

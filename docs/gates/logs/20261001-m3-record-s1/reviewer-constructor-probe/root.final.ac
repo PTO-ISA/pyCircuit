@@ -1,0 +1,38 @@
+#loc1 = loc("root.py":14:1)
+module attributes {ac.entry = {arguments = [], definition = @demo.root.Top}, ac.instance_bindings = [{key = {arguments = [], definition = @demo.root.Top}, owner = {instance_path = []}, ports = []}], ac.stage = "final"} {
+  "ac.system"() <{domain = "default", entry = {arguments = [], definition = @demo.root.Top}}> {ac.origin = {expansion = [], site = {ast_path = [], definition = @demo.root.Top}}, ac.source_owner = {package = "demo", path = "root.py"}} : () -> () loc(#loc1)
+  module attributes {ac.source_owner = {package = "demo", path = "empty.py"}, ac.stage = "final", ac.unit_kind = "declarations"} {
+  } loc(#loc2)
+  module attributes {ac.source_owner = {package = "demo", path = "facade.py"}, ac.stage = "final", ac.unit_kind = "declarations"} {
+  } loc(#loc3)
+  module attributes {ac.source_owner = {package = "demo", path = "provider.py"}, ac.stage = "final", ac.unit_kind = "declarations"} {
+    ac.type_alias "demo.provider.BitWord" target {interpretation = "unsigned", kind = "integer", lower = #ac.math_int<0>, storage = i64, upper = #ac.math_int<18446744073709551616>} {ac.declaration_role = "definition", ac.origin = {expansion = [], site = {ast_path = [], definition = @demo.provider.BitWord}}, ac.source_owner = {package = "demo", path = "provider.py"}} loc(#loc5)
+    ac.struct "demo.provider.Pair" fields [{location = {column = 5 : i64, end_column = 13 : i64, end_line = 7 : i64, line = 7 : i64, path = "provider.py"}, name = "lo", origin = {expansion = [], site = {ast_path = [{kind = "field", name = "body"}, {kind = "index", value = 0 : i64}], definition = @demo.provider.Pair}}, type = {interpretation = "unsigned", kind = "integer", lower = #ac.math_int<0>, storage = i8, upper = #ac.math_int<256>}}, {location = {column = 5 : i64, end_column = 13 : i64, end_line = 8 : i64, line = 8 : i64, path = "provider.py"}, name = "hi", origin = {expansion = [], site = {ast_path = [{kind = "field", name = "body"}, {kind = "index", value = 1 : i64}], definition = @demo.provider.Pair}}, type = {kind = "bool", storage = i1}}] constructor @demo.provider.Pair.__init__ {ac.declaration_role = "definition", ac.origin = {expansion = [], site = {ast_path = [], definition = @demo.provider.Pair}}, ac.source_owner = {package = "demo", path = "provider.py"}} loc(#loc6)
+    ac.struct "demo.provider.Wide" fields [{location = {column = 5 : i64, end_column = 17 : i64, end_line = 15 : i64, line = 15 : i64, path = "provider.py"}, name = "low", origin = {expansion = [], site = {ast_path = [{kind = "field", name = "body"}, {kind = "index", value = 0 : i64}], definition = @demo.provider.Wide}}, type = {interpretation = "unsigned", kind = "integer", lower = #ac.math_int<0>, storage = i64, upper = #ac.math_int<18446744073709551616>}}, {location = {column = 5 : i64, end_column = 18 : i64, end_line = 16 : i64, line = 16 : i64, path = "provider.py"}, name = "high", origin = {expansion = [], site = {ast_path = [{kind = "field", name = "body"}, {kind = "index", value = 1 : i64}], definition = @demo.provider.Wide}}, type = {interpretation = "unsigned", kind = "integer", lower = #ac.math_int<0>, storage = i64, upper = #ac.math_int<18446744073709551616>}}] constructor @demo.provider.Wide.__init__ {ac.declaration_role = "definition", ac.origin = {expansion = [], site = {ast_path = [], definition = @demo.provider.Wide}}, ac.source_owner = {package = "demo", path = "provider.py"}} loc(#loc7)
+    ac.type_alias "demo.provider.Word" target {interpretation = "unsigned", kind = "integer", lower = #ac.math_int<0>, storage = i8, upper = #ac.math_int<256>} {ac.declaration_role = "definition", ac.origin = {expansion = [], site = {ast_path = [], definition = @demo.provider.Word}}, ac.source_owner = {package = "demo", path = "provider.py"}} loc(#loc8)
+    ac.struct "demo.provider._Private" fields [{location = {column = 5 : i64, end_column = 16 : i64, end_line = 23 : i64, line = 23 : i64, path = "provider.py"}, name = "first", origin = {expansion = [], site = {ast_path = [{kind = "field", name = "body"}, {kind = "index", value = 0 : i64}], definition = @demo.provider._Private}}, type = {kind = "bool", storage = i1}}, {location = {column = 5 : i64, end_column = 17 : i64, end_line = 24 : i64, line = 24 : i64, path = "provider.py"}, name = "second", origin = {expansion = [], site = {ast_path = [{kind = "field", name = "body"}, {kind = "index", value = 1 : i64}], definition = @demo.provider._Private}}, type = {interpretation = "unsigned", kind = "integer", lower = #ac.math_int<0>, storage = i8, upper = #ac.math_int<256>}}] constructor @demo.provider._Private.__init__ {ac.declaration_role = "definition", ac.origin = {expansion = [], site = {ast_path = [], definition = @demo.provider._Private}}, ac.source_owner = {package = "demo", path = "provider.py"}} loc(#loc9)
+  } loc(#loc4)
+  module attributes {ac.source_owner = {package = "demo", path = "root.py"}, ac.stage = "final", ac.unit_kind = "implementation"} {
+    ac.struct "demo.root.LocalPair" fields [{location = {column = 5 : i64, end_column = 16 : i64, end_line = 6 : i64, line = 6 : i64, path = "root.py"}, name = "first", origin = {expansion = [], site = {ast_path = [{kind = "field", name = "body"}, {kind = "index", value = 0 : i64}], definition = @demo.root.LocalPair}}, type = {kind = "bool", storage = i1}}, {location = {column = 5 : i64, end_column = 17 : i64, end_line = 7 : i64, line = 7 : i64, path = "root.py"}, name = "second", origin = {expansion = [], site = {ast_path = [{kind = "field", name = "body"}, {kind = "index", value = 1 : i64}], definition = @demo.root.LocalPair}}, type = {interpretation = "unsigned", kind = "integer", lower = #ac.math_int<0>, storage = i8, upper = #ac.math_int<256>}}] constructor @demo.root.LocalPair.__init__ {ac.declaration_role = "definition", ac.origin = {expansion = [], site = {ast_path = [], definition = @demo.root.LocalPair}}, ac.source_owner = {package = "demo", path = "root.py"}} loc(#loc11)
+    "ac.module"() <{name = "Top", sym_name = "demo.root.Top"}> ({
+    ^bb0(%arg0: i1 loc("root.py":14:1), %arg1: i1 loc("root.py":14:1)):
+      %0 = "ac.reg"(%arg0, %arg1) <{name = "scalar"}> {ac.declaration = {expansion = [], site = {ast_path = [{kind = "field", name = "body"}, {kind = "index", value = 0 : i64}], definition = @demo.root.Top}}, ac.domain = "default", ac.element = [], ac.initial_value = 11 : i8, ac.logical_type = {interpretation = "unsigned", kind = "integer", lower = #ac.math_int<0>, storage = i8, upper = #ac.math_int<256>}, ac.source_owner = {package = "demo", path = "root.py"}} : (i1, i1) -> !ac.reg<i8> loc(#loc12)
+      %c11_i8 = arith.constant 11 : i8 loc(#loc1)
+      %false = arith.constant false loc(#loc1)
+      "ac.yield"(%c11_i8, %false) : (i8, i1) -> () loc(#loc1)
+    }) {ac.commit_targets = [{declaration = {expansion = [], site = {ast_path = [{kind = "field", name = "body"}, {kind = "index", value = 0 : i64}], definition = @demo.root.Top}}, element = [], kind = "owned"}], ac.control_ports = {clock = 0 : i32, reset = 1 : i32}, ac.declaration_role = "definition", ac.origin = {expansion = [], site = {ast_path = [], definition = @demo.root.Top}}, ac.ports = [], ac.source_owner = {package = "demo", path = "root.py"}} : () -> () loc(#loc1)
+  } loc(#loc10)
+} loc(#loc)
+#loc = loc(unknown)
+#loc2 = loc("empty.py":1:1)
+#loc3 = loc("facade.py":1:1)
+#loc4 = loc("provider.py":1:1)
+#loc5 = loc("provider.py":4:1)
+#loc6 = loc("provider.py":6:1)
+#loc7 = loc("provider.py":14:1)
+#loc8 = loc("provider.py":3:1)
+#loc9 = loc("provider.py":22:1)
+#loc10 = loc("root.py":1:1)
+#loc11 = loc("root.py":5:1)
+#loc12 = loc("root.py":15:5)
+

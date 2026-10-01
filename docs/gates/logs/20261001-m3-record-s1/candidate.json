@@ -1,0 +1,17 @@
+{
+  "baseline": "1efec35eaa19eab2315797340904def88b24a640",
+  "binding_algorithm": "SHA256 of sorted path + NUL + sha256hex + LF entries",
+  "aggregate": "3405b937fb6ddce11a21214c6ec3722a73a15455087a33101705ea72a55e1159",
+  "files": {
+    "compiler/acir/lib/Compiler/FinalDeclarations.cpp": "f53725189c45fe46405ba8a7a8572f2e34ae920036ed69a4d2656cb5b8edffce",
+    "compiler/acir/lib/Compiler/FinalEmit.cpp": "038e8d8fccd791c233facbcf75408ec66f06d4d3eed934409f6350aa7e073c6d",
+    "compiler/acir/lib/Compiler/FinalHardware.cpp": "ed419d96a528a00bdf2a31f177a7b86282a1a09fe60839400affd33b4e675ad8",
+    "compiler/acir/lib/Compiler/FinalProgram.cpp": "b40a2981642d75f893cb51b3a51c8773319016d011be3b3bbebb9f458020f15e",
+    "compiler/acir/lib/Dialect/ACIR/ACIRFinalDeclarations.cpp": "0e4acb8c72442c75aed63c1bc43911bf9acf3a9ae4c66266387de61fa9a8b2dc",
+    "compiler/acir/lib/Dialect/ACIR/ACIRFinalDeclarations.h": "0c62cfb33d511d190a0d420b6a6b55763b46bef593dabea5ec8848a9bfdc4f1e",
+    "compiler/acir/lib/Dialect/ACIR/ACIRHardwareClosure.cpp": "4370410872db3b8f7360f9ebffd609d66d3712c74a65ba92fee8fc11cec4fe58",
+    "tests/cpp/agentic-circuit/Dialect/ACIR/CMakeLists.txt": "60c6e8061369a01ffa94e28801fb9966f253baac51b53605c165c0e63ad26979",
+    "tests/cpp/agentic-circuit/Dialect/ACIR/FinalRecordDeclarationsTest.cpp": "6015f5d5c60b33397a479fc11a0e5bc7da67c4e7002eb32142f8ff38a260311e",
+    "tests/system/test_final_record_declarations.py": "7145be705c19474138503b60098e5b71d5a19a5176af6a23ab0fd116d04edddf"
+  }
+}

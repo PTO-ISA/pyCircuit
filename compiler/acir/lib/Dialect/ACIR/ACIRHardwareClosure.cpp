@@ -23,6 +23,14 @@ int compareUTF8(StringRef left, StringRef right) {
   }
   return left.size() == right.size() ? 0 : left.size() < right.size() ? -1 : 1;
 }
+
+bool containsRecordPayload(Type type) {
+  if (isa<StructType>(type))
+    return true;
+  if (auto reg = dyn_cast<RegType>(type))
+    return containsRecordPayload(reg.getElementType());
+  return false;
+}
 } // namespace
 
 FailureOr<DictionaryAttr> specKey(Attribute raw, Operation *owner) {
@@ -78,6 +86,7 @@ LogicalResult inspectEnvelope(Closure &closure,
   DenseSet<Attribute> caseFoldedOwners;
   llvm::StringMap<DictionaryAttr> ownerByImportModule;
   DenseSet<Attribute> canonicalSymbols;
+  DenseSet<Operation *> recordDeclarations;
   for (Operation &nested : package.getBody()->getOperations()) {
     if (nested.getName().getStringRef() == "ac.system") {
       if (closure.system)
@@ -123,24 +132,27 @@ LogicalResult inspectEnvelope(Closure &closure,
     size_t moduleCount = 0;
     StringRef previousDeclaration;
     for (Operation &child : unit.getBody()->getOperations()) {
-      if (isa<TypeAliasOp, ConstantOp>(child)) {
+      if (isa<TypeAliasOp, ConstantOp, StructOp>(child)) {
         if (sawModule)
           return emitError()
                  << "final declarations must precede their module definition";
-        auto symbol = final_detail::verifyFinalScalarDeclaration(&child, owner,
-                                                                 emitError);
+        auto symbol = isa<StructOp>(child)
+                          ? final_detail::verifyFinalRecordDeclaration(
+                                &child, owner, emitError)
+                          : final_detail::verifyFinalScalarDeclaration(
+                                &child, owner, emitError);
         if (failed(symbol))
           return failure();
+        if (isa<StructOp>(child))
+          recordDeclarations.insert(&child);
         StringRef name = symbol->getValue();
         if (!previousDeclaration.empty()) {
           int order = compareUTF8(previousDeclaration, name);
           if (order == 0)
             return emitError()
-                   << "final package repeats scalar declaration symbol "
-                   << *symbol;
+                   << "final package repeats declaration symbol " << *symbol;
           if (order > 0)
-            return emitError()
-                   << "final scalar declarations are not sorted by symbol";
+            return emitError() << "final declarations are not sorted by symbol";
         }
         previousDeclaration = name;
         if (!canonicalSymbols.insert(*symbol).second)
@@ -177,6 +189,44 @@ LogicalResult inspectEnvelope(Closure &closure,
   }
   if (!closure.system || closure.definitions.empty())
     return emitError() << "final package lacks system or definitions";
+  LogicalResult recordClosure = success();
+  package.walk([&](Operation *operation) {
+    if (failed(recordClosure))
+      return;
+    if (isa<StructOp>(operation)) {
+      if (!recordDeclarations.contains(operation))
+        recordClosure = operation->emitError()
+                        << "ac.struct must be a direct final declaration";
+      return;
+    }
+    if (isa<StructCreateOp, StructGetOp>(operation)) {
+      recordClosure = operation->emitError()
+                      << "record value operations are not admitted in S1";
+      return;
+    }
+    for (Type type : operation->getOperandTypes())
+      if (containsRecordPayload(type)) {
+        recordClosure = operation->emitError()
+                        << "record payloads are not admitted in S1";
+        return;
+      }
+    for (Type type : operation->getResultTypes())
+      if (containsRecordPayload(type)) {
+        recordClosure = operation->emitError()
+                        << "record payloads are not admitted in S1";
+        return;
+      }
+    for (Region &region : operation->getRegions())
+      for (Block &block : region)
+        for (BlockArgument argument : block.getArguments())
+          if (containsRecordPayload(argument.getType())) {
+            recordClosure = operation->emitError()
+                            << "record payloads are not admitted in S1";
+            return;
+          }
+  });
+  if (failed(recordClosure))
+    return failure();
   Operation *system = closure.system;
   auto systemEntry = specKey(system->getAttr("entry"), system);
   auto owner = system->getAttrOfType<DictionaryAttr>("ac.source_owner");

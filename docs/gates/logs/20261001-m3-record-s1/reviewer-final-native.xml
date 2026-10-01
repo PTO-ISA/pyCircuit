@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuites tests="4" failures="0" disabled="0" errors="0" time="0.615" timestamp="2026-10-01T12:32:36.028" name="AllTests">
+  <testsuite name="FinalRecordDeclarationsTest" tests="4" failures="0" disabled="0" skipped="0" errors="0" time="0.615" timestamp="2026-10-01T12:32:36.028">
+    <testcase name="FrozenUnusedRecordFieldRenameIsRejectedButFreshFinalIsValid" file="/Users/zhoubot/.codex/worktrees/migration-capture/pyCircuit/tests/cpp/agentic-circuit/Dialect/ACIR/FinalRecordDeclarationsTest.cpp" line="170" status="run" result="completed" time="0.204" timestamp="2026-10-01T12:32:36.028" classname="FinalRecordDeclarationsTest" />
+    <testcase name="FrozenUnusedRecordDeletionIsRejectedButFreshFinalIsValid" file="/Users/zhoubot/.codex/worktrees/migration-capture/pyCircuit/tests/cpp/agentic-circuit/Dialect/ACIR/FinalRecordDeclarationsTest.cpp" line="194" status="run" result="completed" time="0.143" timestamp="2026-10-01T12:32:36.233" classname="FinalRecordDeclarationsTest" />
+    <testcase name="FrozenRecordOperationLocationEditIsRejectedButFreshFinalIsValid" file="/Users/zhoubot/.codex/worktrees/migration-capture/pyCircuit/tests/cpp/agentic-circuit/Dialect/ACIR/FinalRecordDeclarationsTest.cpp" line="206" status="run" result="completed" time="0.138" timestamp="2026-10-01T12:32:36.376" classname="FinalRecordDeclarationsTest" />
+    <testcase name="FrozenRecordConstructorMutationIsRejectedByFrozenAndFreshReaders" file="/Users/zhoubot/.codex/worktrees/migration-capture/pyCircuit/tests/cpp/agentic-circuit/Dialect/ACIR/FinalRecordDeclarationsTest.cpp" line="218" status="run" result="completed" time="0.128" timestamp="2026-10-01T12:32:36.515" classname="FinalRecordDeclarationsTest" />
+  </testsuite>
+</testsuites>

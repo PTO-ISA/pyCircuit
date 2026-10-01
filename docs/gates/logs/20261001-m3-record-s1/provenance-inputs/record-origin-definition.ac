@@ -1,0 +1,24 @@
+#loc1 = loc("root.py":4:1)
+module attributes {ac.entry = {arguments = [], definition = @demo.root.Top}, ac.instance_bindings = [{key = {arguments = [], definition = @demo.root.Top}, owner = {instance_path = []}, ports = []}], ac.stage = "final"} {
+  "ac.system"() <{domain = "default", entry = {arguments = [], definition = @demo.root.Top}}> {ac.origin = {expansion = [], site = {ast_path = [], definition = @demo.root.Top}}, ac.source_owner = {package = "demo", path = "root.py"}} : () -> () loc(#loc1)
+  module attributes {ac.source_owner = {package = "demo", path = "provider.py"}, ac.stage = "final", ac.unit_kind = "declarations"} {
+    ac.struct "demo.provider.Pair" fields [{location = {column = 5 : i64, end_column = 13 : i64, end_line = 4 : i64, line = 4 : i64, path = "provider.py"}, name = "lo", origin = {expansion = [], site = {ast_path = [{kind = "field", name = "body"}, {kind = "index", value = 0 : i64}], definition = @demo.provider.Pair}}, type = {interpretation = "unsigned", kind = "integer", lower = #ac.math_int<0>, storage = i8, upper = #ac.math_int<256>}}, {location = {column = 5 : i64, end_column = 13 : i64, end_line = 5 : i64, line = 5 : i64, path = "provider.py"}, name = "hi", origin = {expansion = [], site = {ast_path = [{kind = "field", name = "body"}, {kind = "index", value = 1 : i64}], definition = @demo.provider.Pair}}, type = {kind = "bool", storage = i1}}] constructor @demo.provider.Pair.__init__ {ac.declaration_role = "definition", ac.origin = {expansion = [], site = {ast_path = [], definition = @demo.provider.Foreign}}, ac.source_owner = {package = "demo", path = "provider.py"}} loc(#loc3)
+    ac.type_alias "demo.provider.Word" target {interpretation = "unsigned", kind = "integer", lower = #ac.math_int<0>, storage = i8, upper = #ac.math_int<256>} {ac.declaration_role = "definition", ac.origin = {expansion = [], site = {ast_path = [], definition = @demo.provider.Word}}, ac.source_owner = {package = "demo", path = "provider.py"}} loc(#loc4)
+  } loc(#loc2)
+  module attributes {ac.source_owner = {package = "demo", path = "root.py"}, ac.stage = "final", ac.unit_kind = "implementation"} {
+    "ac.module"() <{name = "Top", sym_name = "demo.root.Top"}> ({
+    ^bb0(%arg0: i1 loc("root.py":4:1), %arg1: i1 loc("root.py":4:1)):
+      %0 = "ac.reg"(%arg0, %arg1) <{name = "scalar"}> {ac.declaration = {expansion = [], site = {ast_path = [{kind = "field", name = "body"}, {kind = "index", value = 0 : i64}], definition = @demo.root.Top}}, ac.domain = "default", ac.element = [], ac.initial_value = 7 : i8, ac.logical_type = {interpretation = "unsigned", kind = "integer", lower = #ac.math_int<0>, storage = i8, upper = #ac.math_int<256>}, ac.source_owner = {package = "demo", path = "root.py"}} : (i1, i1) -> !ac.reg<i8> loc(#loc6)
+      %c7_i8 = arith.constant 7 : i8 loc(#loc1)
+      %false = arith.constant false loc(#loc1)
+      "ac.yield"(%c7_i8, %false) : (i8, i1) -> () loc(#loc1)
+    }) {ac.commit_targets = [{declaration = {expansion = [], site = {ast_path = [{kind = "field", name = "body"}, {kind = "index", value = 0 : i64}], definition = @demo.root.Top}}, element = [], kind = "owned"}], ac.control_ports = {clock = 0 : i32, reset = 1 : i32}, ac.declaration_role = "definition", ac.origin = {expansion = [], site = {ast_path = [], definition = @demo.root.Top}}, ac.ports = [], ac.source_owner = {package = "demo", path = "root.py"}} : () -> () loc(#loc1)
+  } loc(#loc5)
+} loc(#loc)
+#loc = loc(unknown)
+#loc2 = loc("provider.py":1:1)
+#loc3 = loc("provider.py":3:1)
+#loc4 = loc("provider.py":2:1)
+#loc5 = loc("root.py":1:1)
+#loc6 = loc("root.py":5:5)
+

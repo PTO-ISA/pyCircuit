@@ -1,0 +1,6 @@
+[1/4] Building CXX object compiler/acir/tools/acir-cpp-source-parts-harness/CMakeFiles/acir-cpp-source-parts-harness.dir/acir-cpp-source-parts-harness.cpp.o
+[2/4] Building CXX object compiler/acir/tools/acir-design-harness/CMakeFiles/acir-design-harness.dir/acir-design-harness.cpp.o
+[3/4] Linking CXX executable bin/acir-cpp-source-parts-harness
+ld: warning: ignoring duplicate libraries: '/opt/homebrew/Cellar/llvm/22.1.8/lib/libMLIRArithDialect.a', '/opt/homebrew/Cellar/llvm/22.1.8/lib/libMLIRFuncDialect.a', '/opt/homebrew/Cellar/llvm/22.1.8/lib/libMLIRSupport.a', 'compiler/acir/lib/Dialect/ACIR/libACIRDialect.a'
+[4/4] Linking CXX executable bin/acir-design-harness
+ld: warning: ignoring duplicate libraries: '/opt/homebrew/Cellar/llvm/22.1.8/lib/libMLIRArithDialect.a', '/opt/homebrew/Cellar/llvm/22.1.8/lib/libMLIRFuncDialect.a', '/opt/homebrew/Cellar/llvm/22.1.8/lib/libMLIRSupport.a', 'compiler/acir/lib/Dialect/ACIR/libACIRDialect.a'

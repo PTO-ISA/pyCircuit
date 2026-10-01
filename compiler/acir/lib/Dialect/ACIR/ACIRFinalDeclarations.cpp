@@ -4,6 +4,7 @@
 #include "mlir/IR/Builders.h"
 #include "mlir/IR/SymbolTable.h"
 #include "llvm/ADT/SmallVector.h"
+#include "llvm/ADT/StringSet.h"
 
 #include <algorithm>
 #include <iterator>
@@ -234,6 +235,94 @@ verifyFinalScalarDeclaration(Operation *operation,
             [&] { return operation->emitOpError(); })))
       return emitError() << "final scalar constant value is invalid";
   }
+  return canonical;
+}
+
+FailureOr<FlatSymbolRefAttr>
+verifyFinalRecordDeclaration(Operation *operation,
+                             DictionaryAttr enclosingOwner,
+                             detail::EmitError emitError) {
+  auto record = dyn_cast_or_null<StructOp>(operation);
+  if (!record)
+    return emitError() << "final declaration is not an ac.struct";
+  auto name =
+      record->getAttrOfType<StringAttr>(SymbolTable::getSymbolAttrName());
+  auto owner = record->getAttrOfType<DictionaryAttr>("ac.source_owner");
+  auto origin = record->getAttrOfType<DictionaryAttr>("ac.origin");
+  auto role = record->getAttrOfType<StringAttr>("ac.declaration_role");
+  auto properties =
+      dyn_cast<DictionaryAttr>(record->getPropertiesAsAttribute());
+  if (!name || name.getValue().empty() || !owner ||
+      failed(detail::verifySourceOwner(owner, emitError)) ||
+      owner != enclosingOwner || !origin ||
+      failed(detail::verifyOccurrence(origin, emitError)) || !role ||
+      role.getValue() != "definition" || record->getNumOperands() ||
+      record->getNumResults() || record->getNumRegions() ||
+      record->getDiscardableAttrDictionary().size() != 3 || !properties ||
+      properties.size() != 3 ||
+      properties.getAs<StringAttr>("sym_name") != name ||
+      properties.getAs<ArrayAttr>("fields") != record.getFields() ||
+      properties.getAs<FlatSymbolRefAttr>("constructor") !=
+          record.getConstructorAttr() ||
+      failed(verifyFinalQualifiedSymbol(owner, name.getValue(), emitError)))
+    return emitError() << "final record declaration envelope is not canonical";
+
+  FlatSymbolRefAttr canonical =
+      FlatSymbolRefAttr::get(operation->getContext(), name.getValue());
+  auto expectedConstructor = FlatSymbolRefAttr::get(
+      operation->getContext(), (Twine(name.getValue()) + ".__init__").str());
+  auto originSite = origin.getAs<DictionaryAttr>("site");
+  if (!originSite ||
+      originSite.getAs<FlatSymbolRefAttr>("definition") != canonical ||
+      !origin.getAs<ArrayAttr>("expansion").empty())
+    return emitError()
+           << "final record origin is not canonical source provenance";
+  if (record.getConstructorAttr() != expectedConstructor)
+    return emitError()
+           << "final record constructor provenance is not canonical";
+
+  auto ownerPath = owner.getAs<StringAttr>("path");
+  if (!ownerPath)
+    return emitError() << "final record SourceOwner has no source path";
+
+  ArrayAttr fields = record.getFields();
+  if (!fields || fields.size() != 2)
+    return emitError() << "final record must have exactly two flat fields";
+  llvm::StringSet<> names;
+  SmallVector<DictionaryAttr, 2> fieldSites;
+  for (auto [index, raw] : llvm::enumerate(fields)) {
+    auto field = dyn_cast<DictionaryAttr>(raw);
+    auto fieldName = field ? field.getAs<StringAttr>("name") : StringAttr();
+    auto type = field ? field.getAs<DictionaryAttr>("type") : DictionaryAttr();
+    auto fieldOrigin =
+        field ? field.getAs<DictionaryAttr>("origin") : DictionaryAttr();
+    auto span =
+        field ? field.getAs<DictionaryAttr>("location") : DictionaryAttr();
+    if (!field || field.size() != 4 || !fieldName ||
+        fieldName.getValue().empty() ||
+        !names.insert(fieldName.getValue()).second || !type || !fieldOrigin ||
+        !span ||
+        failed(detail::verifyLogicalTypeStructure(
+            type, [&] { return operation->emitOpError(); })) ||
+        failed(detail::verifyOccurrence(fieldOrigin, emitError)) ||
+        failed(detail::verifySourceSpan(span, emitError)))
+      return emitError() << "final record field[" << index << "] is malformed";
+    auto kind = type.getAs<StringAttr>("kind");
+    if (!kind || (kind.getValue() != "bool" && kind.getValue() != "integer"))
+      return emitError() << "final record fields must be finite bool/integer";
+    auto fieldSite = fieldOrigin.getAs<DictionaryAttr>("site");
+    auto fieldPath = span.getAs<StringAttr>("path");
+    if (!fieldSite ||
+        fieldSite.getAs<FlatSymbolRefAttr>("definition") != canonical ||
+        !fieldOrigin.getAs<ArrayAttr>("expansion").empty() || !fieldPath ||
+        fieldPath != ownerPath)
+      return emitError() << "final record field provenance is not source-owned";
+    fieldSites.push_back(fieldSite);
+  }
+  if (fieldSites[0].getAs<ArrayAttr>("ast_path") ==
+      fieldSites[1].getAs<ArrayAttr>("ast_path"))
+    return emitError()
+           << "final record field origins must have distinct AST paths";
   return canonical;
 }
 

@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuites tests="6" failures="0" disabled="0" errors="0" time="1.869" timestamp="2026-10-01T12:26:55.032" name="AllTests">
+  <testsuite name="BackendClosureTest" tests="5" failures="0" disabled="0" skipped="0" errors="0" time="1.869" timestamp="2026-10-01T12:26:55.032">
+    <testcase name="V31_OneVerifiedFinalGraphFeedsBothBackends" file="/Users/zhoubot/.codex/worktrees/migration-capture/pyCircuit/tests/cpp/agentic-circuit/Dialect/ACIR/BackendClosureTest.cpp" line="144" status="run" result="completed" time="0.827" timestamp="2026-10-01T12:26:55.032" classname="BackendClosureTest" />
+    <testcase name="V31_ResidualSourceFactsRejectBeforePublication" file="/Users/zhoubot/.codex/worktrees/migration-capture/pyCircuit/tests/cpp/agentic-circuit/Dialect/ACIR/BackendClosureTest.cpp" line="163" status="run" result="completed" time="0.311" timestamp="2026-10-01T12:26:55.860" classname="BackendClosureTest" />
+    <testcase name="V31_ForgedStageProofAndTargetSwapReject" file="/Users/zhoubot/.codex/worktrees/migration-capture/pyCircuit/tests/cpp/agentic-circuit/Dialect/ACIR/BackendClosureTest.cpp" line="172" status="run" result="completed" time="0.305" timestamp="2026-10-01T12:26:56.172" classname="BackendClosureTest" />
+    <testcase name="V29_PermitProjectionMustReachEveryCommit" file="/Users/zhoubot/.codex/worktrees/migration-capture/pyCircuit/tests/cpp/agentic-circuit/Dialect/ACIR/BackendClosureTest.cpp" line="180" status="run" result="completed" time="0.318" timestamp="2026-10-01T12:26:56.477" classname="BackendClosureTest" />
+    <testcase name="V30_ErrorCannotDependOnPostGatedEnable" file="/Users/zhoubot/.codex/worktrees/migration-capture/pyCircuit/tests/cpp/agentic-circuit/Dialect/ACIR/BackendClosureTest.cpp" line="188" status="run" result="completed" time="0.106" timestamp="2026-10-01T12:26:56.795" classname="BackendClosureTest" />
+  </testsuite>
+  <testsuite name="FinalBackendEntryApiAvailability" tests="1" failures="0" disabled="0" skipped="0" errors="0" time="0." timestamp="2026-10-01T12:26:56.902">
+    <testcase name="EmitsOnlyFromFinalProgram" file="/Users/zhoubot/.codex/worktrees/migration-capture/pyCircuit/tests/cpp/agentic-circuit/Dialect/ACIR/BackendClosureTest.cpp" line="193" status="run" result="completed" time="0." timestamp="2026-10-01T12:26:56.902" classname="FinalBackendEntryApiAvailability" />
+  </testsuite>
+</testsuites>
