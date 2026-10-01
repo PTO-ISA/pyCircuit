@@ -1,6 +1,6 @@
 # M6-03：首次发布故障矩阵扩面
 
-状态：ready-for-existing-contract-tests。日期：2026-10-01。
+状态：done, bounded macOS/POSIX first-publication coverage。日期：2026-10-01。
 依据：[M3/M6 扩展计划](m3-m6-expansion-plan.md)、C3-C 精确批准、M6-01。
 输入基线 `4584ad0b`；派发前重新绑定实际 HEAD/dirty 内容与工具链。
 本包先写独立测试，产品实现仅在实测缺陷出现后由 PM 另给 bounded repair ownership。
@@ -45,20 +45,20 @@ pytest case 数。原 source-unit 五点/四路 replacement 作为回归，独�
 
 ## Checklist / verification
 
-- [ ] 每项 real owned child self-SIGKILL，返回 `-SIGKILL`、确实到达指定点；不是抛异常自动 rollback。
-- [ ] 中断后先验 phase、stage/destination/previous、source owner/control/lock 布局；不先恢复后猜状态。
-- [ ] final reader 使用 verified emit，bundle reader 使用对应 public managed replacement/read 校验；
+- [x] 每项 real owned child self-SIGKILL，返回 `-SIGKILL`、确实到达指定点；不是抛异常自动 rollback。
+- [x] 中断后先验 phase、stage/destination/previous、source owner/control/lock 布局；不先恢复后猜状态。
+- [x] final reader 使用 verified emit，bundle reader 使用对应 public managed replacement/read 校验；
   malformed/partial output 不能成为有效输入，非零原因/阶段必须匹配，不靠“任意失败”。
-- [ ] commit 前恢复 absent，随后正常首次发布成功；commit 后保留原新 artifact，重复恢复 idempotent。
-- [ ] bundle 的 public writer 在恢复后可能立即重发布；在已有 test-only pause/fault
+- [x] commit 前恢复 absent，随后正常首次发布成功；commit 后保留原新 artifact，重复恢复 idempotent。
+- [x] bundle 的 public writer 在恢复后可能立即重发布；在已有 test-only pause/fault
   checkpoint（例如下一事务的 after_journal_preparing）先观察 restored absence，
   再继续重试。不能由最终成功 replacement 推断中间已正确 rollback。
-- [ ] first/replace 可达点分开，shared-reader cleanup 与 writer cleanup 不强行等同。
-- [ ] 恢复中断、缺失/篡改 journal、owner mismatch 和等待 reader/writer 保持已有 C3 错误语义。
-- [ ] 既有 compile/link/CPP/RTL replacement、source first、reentrant recovery 和锁案例仍通过。
-- [ ] 原先同 owner 与合法 stale≠corrupt 行为不被“加安全校验”误拒绝；现有数据保护不放宽。
-- [ ] 新矩阵给 failing-first/coverage evidence，artifact bytes 与合法 native parse/manifest验证绑定。
-- [ ] 实测无产品 bug 时只提交测试；发现 bug 修复后刷新相关 gates、独立 review 与候选 manifest。
+- [x] first/replace 可达点分开，shared-reader cleanup 与 writer cleanup 不强行等同。
+- [x] 恢复中断、缺失/篡改 journal、owner mismatch 和等待 reader/writer 保持已有 C3 错误语义。
+- [x] 既有 compile/link/CPP/RTL replacement、source first、reentrant recovery 和锁案例仍通过。
+- [x] 原先同 owner 与合法 stale≠corrupt 行为不被“加安全校验”误拒绝；现有数据保护不放宽。
+- [x] 新矩阵给 failing-first/coverage evidence，artifact bytes 与合法 native parse/manifest验证绑定。
+- [x] 实测无产品 bug 时只提交测试；发现 bug 修复后刷新相关 gates、独立 review 与候选 manifest。
 
 ## 精确 gate 模板
 
@@ -83,3 +83,27 @@ python3 -m pytest tests/unit/test_publication.py tests/unit/test_publication_fs.
 command/exit/owner/bytes/lock/recovery 次数逐项留档；failed/unreachable/skipped 分列。
 任何“15/15”必须指上述真实可达条目，不能由一行 pytest summary 推导。
 完成出口：三类首次发布缺口关闭，已有 protocol/范围 unchanged，无额外 schema/ABI 承诺。
+
+## 本轮派发 — 2026-10-01
+
+产品基线 `5b0d610d`，派发前工作树干净；授权来自用户“好的，开始计划”
+及本包已有精确范围。PM 唯一写 docs/build/integration。M6 独立测试为
+`m5_semantic_oracle_migration` / Luna high，Sol high 实例
+`m6_03_independent_review` 只读验证。M3 契约作者为
+`m3_contract_admission_author` / Astra high；其产物完成后，另一个 Astra
+实例独立核对，不能作者自证准入。
+
+Fresh build/install：`.pycircuit_out/m6-03-root`/`m6-03-install`，本 checkout
+自行构建，不借旧 M7 cache/其他 worktree。M3 只读输入与他人未提交提案字节
+单独绑定并保护；不将方向选择或 draft/approval-ready 当产品批准。
+
+## 验收
+
+独立 Sol APPROVE，两个测试文件最终字节见
+[审阅](../reviews/20261001-m6-first-publication-review.md)与
+[证据](../gates/logs/20261001-m6-first-publication/README.md)。
+最终 PM system 5 passed；regression 131 passed、3Windows-only skips；独立
+Python3.12 system5passed。15个新首发场景及10次follow-up writer中断恢复
+真实执行，既有 replacement/source-first/reentrant/lock assertions保留。
+未发现产品缺陷；production source/接口/协议无修改，只有测试扩面。
+本包关闭macOS三类首发缺口；Windows/network FS/power-loss和整体M6仍开放。

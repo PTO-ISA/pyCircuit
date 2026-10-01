@@ -1,0 +1,49 @@
+# M6-03 independent review
+
+- Verdict: approve for PM integration.
+- Baseline: `5b0d610d798fca8be7188ec10674355e07dbab47`.
+- Reviewed test SHA-256: `ddf8282d495386c09f3be1e201c5befcbbc70185d4a0d7c8e27d18ab5e20d73a`.
+- Reviewed launcher SHA-256: `3eca8995532644fa2e67cdff1bcf7e2c526ac2aa2a4feef883bed3ed949e72bf`.
+- Product-source diff: none.
+
+The new matrix executes 15 first-publication child self-SIGKILL scenarios:
+linked final, CPP bundle, and RTL bundle at the five reachable checkpoints.
+`after_previous_saved` is excluded as unreachable for `had_previous=false`.
+Every crash asserts the exact point marker, `-SIGKILL`, journal phase and owner,
+stage/destination/previous bytes, control owner bytes, and stable lock identity.
+
+Linked-final precommit recovery is observed through public `emit`: it must fail
+with the specific missing stable-artifact diagnostic, leave the final and emit
+output absent, and clear the transaction before a clean first republish. The
+committed row preserves the expected final bytes and emits the expected CPP
+bundle.
+
+CPP and RTL use a second public writer paused at its next
+`after_journal_preparing`. The test inspects the recovered state before any new
+stage is built: absent destination for four precommit rows and the original
+committed bytes for the commit row, with no stage/previous and unchanged
+control/lock identity. It then SIGKILLs that paused writer and proves a third
+public writer recovers and republishes the expected bundle bytes. This adds ten
+pause/kill/recovery sequences without counting them as the 15 matrix rows.
+
+Independent command, using the fresh candidate build explicitly:
+
+```text
+PYCIRCUIT_NATIVE_BUILD=$PWD/.pycircuit_out/m6-03-root \
+ACIR_SOURCE_UNIT_HARNESS=$PWD/.pycircuit_out/m6-03-root/bin/acir-source-unit-harness \
+ACIR_DESIGN_HARNESS=$PWD/.pycircuit_out/m6-03-root/bin/acir-design-harness \
+ACIR_CPP_SOURCE_PARTS_HARNESS=$PWD/.pycircuit_out/m6-03-root/bin/acir-cpp-source-parts-harness \
+.venv/bin/python -m pytest tests/system/test_m6_publication_process_recovery.py -q
+```
+
+Result: `5 passed in 20.41s` on Darwin, Python 3.12.12, pytest 9.1.1.
+This includes the existing 24 replacement crash rows, five source-first rows,
+three interrupted-recovery rows, and waiting reader/writer lock test.
+
+The unchanged publication unit suite was also independently run against the
+same fresh build before the final formatting-only change: `131 passed, 3
+skipped in 27.48s`. The three skips require real Windows filesystem APIs.
+
+Limits: the real process lane is POSIX/macOS evidence only. It does not prove
+Windows SIGKILL/flock behavior, Windows filesystem APIs, network filesystems,
+or power-loss atomicity.

@@ -79,3 +79,13 @@ lanes are M3-P01 contract/evidence reconciliation and M6-03 first-publication
 fault coverage, followed by M6-04 resource/run measurement. Bank static carriers,
 SYSTEM/EXPECT B and any new interfaces require their precise approval gates;
 this roadmap does not widen the current scalar profile.
+
+## Current extension execution
+
+M3-P01 admission is complete: records require a narrow final-declaration
+projection addendum, with existing C1/C2/R1 semantics preserved. The
+[next E01 packet](work-items/m3-record-final-projection-design.md) is design-only;
+Bank and SYSTEM/EXPECT B have no new implementation approval.
+[M6-03](work-items/m6-first-publication-expansion.md) is accepted for macOS/POSIX:
+15 new first-publication interruptions plus bundle recovery-before-republish
+observations passed. No production protocol or interface changed.

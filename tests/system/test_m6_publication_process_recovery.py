@@ -203,6 +203,10 @@ def _crash_at(
         f"fault point {point} did not self-SIGKILL (status {result.returncode})\n"
         f"stdout:\n{result.stdout}\nstderr:\n{result.stderr}"
     )
+    assert f"crashed-at:{point}" in result.stdout, (
+        f"child did not report reaching fault point {point}\n"
+        f"stdout:\n{result.stdout}\nstderr:\n{result.stderr}"
+    )
     return result
 
 
@@ -535,6 +539,213 @@ def _read_line(process: subprocess.Popen[bytes], timeout: float) -> bytes:
     line = process.stdout.readline()
     assert line, f"process closed marker pipe; status={process.poll()}"
     return line
+
+
+def _assert_first_publication_crash_shape(
+    destination: Path,
+    *,
+    artifact: str,
+    target: str | None,
+    point: str,
+    new_bytes: dict[str, bytes],
+    lock_identity: tuple[int, int],
+    owner_bytes: bytes,
+) -> dict[str, object]:
+    journal = _journal(destination)
+    assert journal["kind"] == "pycircuit-publication"
+    assert journal["artifact"] == artifact
+    assert journal["destination"] == destination.name
+    assert journal["had_previous"] is False
+    owner = journal["owner"]
+    assert owner["kind"] == artifact
+    if artifact == "generated":
+        assert owner["target"] == target
+
+    stage, previous, _journal_path = _recovery_paths(destination)
+    if point in {"after_journal_preparing", "after_stage_complete"}:
+        assert journal["phase"] == "preparing"
+    elif point == "after_journal_committed":
+        assert journal["phase"] == "committed"
+    else:
+        assert journal["phase"] == "prepared"
+
+    if point == "after_journal_preparing":
+        assert _snapshot(destination) is None
+        assert _snapshot(stage) is None
+    elif point == "after_stage_complete":
+        assert _snapshot(destination) is None
+        assert _snapshot(stage) == new_bytes
+    elif point == "after_journal_prepared":
+        assert _snapshot(destination) is None
+        assert _snapshot(stage) == new_bytes
+    elif point == "after_destination_installed":
+        assert _snapshot(destination) == new_bytes
+        assert _snapshot(stage) is None
+    else:
+        assert point == "after_journal_committed"
+        assert _snapshot(destination) == new_bytes
+        assert _snapshot(stage) is None
+    assert _snapshot(previous) is None
+    assert (_control(destination) / "owner.json").read_bytes() == owner_bytes
+    assert _lock_identity(destination) == lock_identity
+    return journal
+
+
+def _pause_public_writer(
+    command: list[str], point: str, *, env: dict[str, str], cwd: Path
+) -> subprocess.Popen[bytes]:
+    process = subprocess.Popen(
+        _runner("--pause-at", point, *_public_arguments(command)),
+        cwd=cwd,
+        env=env,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+    )
+    assert _read_line(process, 120) == f"paused-at:{point}\n".encode()
+    return process
+
+
+def _kill_paused_writer(process: subprocess.Popen[bytes]) -> None:
+    os.kill(process.pid, signal.SIGKILL)
+    _stdout, stderr = process.communicate(timeout=30)
+    assert process.returncode == -signal.SIGKILL, stderr.decode(errors="replace")
+
+
+def test_first_final_and_generated_publications_recover_five_reachable_crashes(
+    tmp_path: Path,
+) -> None:
+    """Cover final, CPP and RTL first publication at each reachable checkpoint."""
+    env = _environment()
+    state = _prepare_snapshots(tmp_path, env)
+    unit = state["units"]["new"]
+    program = state["programs"]["new"]
+    expected_program = state["program_bytes"]["new"]
+    generated_bytes = state["generated_bytes"]
+    assert expected_program is not None
+
+    # M6-03's first-publication matrix has no previous-save checkpoint. Running
+    # these five points for final, CPP and RTL is 15 independent child SIGKILLs.
+    cases = (("program", None), ("generated", "cpp"), ("generated", "verilog"))
+    for artifact, target in cases:
+        expected = (
+            expected_program
+            if artifact == "program"
+            else generated_bytes[("new", target)]
+        )
+        assert expected is not None
+        for point in FIRST_PUBLISH_POINTS:
+            destination = tmp_path / f"first-{artifact}-{target or 'final'}-{point}"
+            if artifact == "program":
+                command = _link(unit, destination)
+            else:
+                assert target is not None
+                command = _emit(program, target, destination)
+
+            assert not destination.exists()
+            assert not _control(destination).exists()
+            _crash_at(command, point, env=env, cwd=tmp_path)
+            lock_identity = _lock_identity(destination)
+            owner_path = _control(destination) / "owner.json"
+            owner_bytes = owner_path.read_bytes()
+            owner_record = json.loads(owner_bytes)
+            assert owner_record == {
+                "kind": "pycircuit-publication-control",
+                "destination": destination.name,
+            }
+            first_journal = _assert_first_publication_crash_shape(
+                destination,
+                artifact=artifact,
+                target=target,
+                point=point,
+                new_bytes=expected,
+                lock_identity=lock_identity,
+                owner_bytes=owner_bytes,
+            )
+
+            committed = point == "after_journal_committed"
+            if artifact == "program":
+                assert first_journal["owner"]["definition"] == '@"m6.root.Root"'
+                assert first_journal["owner"]["source"] == {
+                    "package": "m6",
+                    "path": "root.py",
+                }
+                verified_output = tmp_path / f"read-final-{point}.cpp"
+                result = subprocess.run(
+                    _emit(destination, "cpp", verified_output),
+                    cwd=tmp_path,
+                    env=env,
+                    text=True,
+                    capture_output=True,
+                    check=False,
+                    timeout=900,
+                )
+                if committed:
+                    assert result.returncode == 0, result.stdout + result.stderr
+                    assert _snapshot(destination) == expected
+                    assert _snapshot(verified_output) == generated_bytes[("new", "cpp")]
+                    assert _journal(destination)["phase"] == "committed"
+                    _checked(_replace(_link(unit, destination)), env=env, cwd=tmp_path)
+                else:
+                    assert (
+                        result.returncode != 0
+                    ), "verified emit must reject the rolled-back absent final"
+                    assert (
+                        "published stable artifact is missing or unsafe"
+                        in result.stderr
+                    )
+                    assert _snapshot(destination) is None
+                    assert _snapshot(verified_output) is None
+                    assert not (_control(destination) / "journal.json").exists()
+                    _checked(command, env=env, cwd=tmp_path)
+                assert _snapshot(destination) == expected
+                _assert_control_clean(destination, lock_identity)
+            else:
+                assert target is not None
+                assert first_journal["owner"]["definition"] == '@"m6.root.Root"'
+
+                # A public emit to this same managed bundle both recovers and
+                # starts a new publish. Pause at its existing preparing hook so
+                # a precommit rollback's required absence is directly visible.
+                resume_command = _emit(
+                    program,
+                    target,
+                    destination,
+                    replace=committed,
+                )
+                paused = _pause_public_writer(
+                    resume_command,
+                    "after_journal_preparing",
+                    env=env,
+                    cwd=tmp_path,
+                )
+                try:
+                    resumed_journal = _journal(destination)
+                    assert resumed_journal["phase"] == "preparing"
+                    assert resumed_journal["artifact"] == "generated"
+                    assert resumed_journal["had_previous"] is committed
+                    assert resumed_journal["owner"] == first_journal["owner"]
+                    assert (
+                        _control(destination) / "owner.json"
+                    ).read_bytes() == owner_bytes
+                    assert _lock_identity(destination) == lock_identity
+                    stage, previous, _journal_path = _recovery_paths(destination)
+                    assert _snapshot(stage) is None
+                    assert _snapshot(previous) is None
+                    assert _snapshot(destination) == (expected if committed else None)
+                    if not committed:
+                        assert not (_control(destination) / "journal.json.tmp").exists()
+                finally:
+                    _kill_paused_writer(paused)
+
+                # The paused follow-up transaction is itself precommit. A new
+                # public writer must recover it and then publish valid bytes.
+                _checked(resume_command, env=env, cwd=tmp_path)
+                assert _snapshot(destination) == expected
+                assert (
+                    _control(destination) / "owner.json"
+                ).read_bytes() == owner_bytes
+                assert _lock_identity(destination) == lock_identity
+                _assert_control_clean(destination, lock_identity)
 
 
 def test_killed_writer_releases_lock_to_a_waiting_public_reader(tmp_path: Path) -> None:

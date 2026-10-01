@@ -1,0 +1,22 @@
+[
+  {
+    "path": "/Users/zhoubot/linx-isa/tools/pyCircuit/docs/reviews/20260929-system-role-expect-design-review.md",
+    "sha256": "9fd012eebaef3dc2bd0462fc718fd6ad0357d699120fb37df10624b2a0861cfc"
+  },
+  {
+    "path": "/Users/zhoubot/linx-isa/tools/pyCircuit/docs/rfcs/migration/c2-expect-schema.md",
+    "sha256": "e8f287e76180c701648dfb2dc8aa08a877ee347da351ebc1fbab4ae24c400b3b"
+  },
+  {
+    "path": "/Users/zhoubot/linx-isa/tools/pyCircuit/docs/reviews/20260930-revision-b-independent-review-archive.md",
+    "sha256": "6f7667a46f8d776488d21d793758933797473a15e55c841e6603a352f117a424"
+  },
+  {
+    "path": "/Users/zhoubot/linx-isa/tools/pyCircuit/docs/rfcs/migration/c2-system-definition-role.md",
+    "sha256": "db81dbc85e54346a0b8f953b6162c7b88d0ed5c5368b1cdbe26a2b4ccda79448"
+  },
+  {
+    "path": "/Users/zhoubot/linx-isa/tools/pyCircuit/docs/work-items/deepseek-review-followup-m1-m7.md",
+    "sha256": "d7e9a6100ebe51058034406a2a6a8545797b3aa2e4dd97e18e6e5b39c40a2861"
+  }
+]

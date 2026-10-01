@@ -1,0 +1,13 @@
+{
+  "baseline": "5b0d610d798fca8be7188ec10674355e07dbab47",
+  "files": [
+    {
+      "path": "tests/system/test_m6_publication_process_recovery.py",
+      "sha256": "ddf8282d495386c09f3be1e201c5befcbbc70185d4a0d7c8e27d18ab5e20d73a"
+    },
+    {
+      "path": "tests/integration/agentic-circuit/m6-publication/crash_runner.py",
+      "sha256": "3eca8995532644fa2e67cdff1bcf7e2c526ac2aa2a4feef883bed3ed949e72bf"
+    }
+  ]
+}

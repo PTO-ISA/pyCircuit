@@ -39,6 +39,7 @@ def main() -> int:
             os.write(sys.stdout.fileno(), f"paused-at:{point}\n".encode())
             os.kill(os.getpid(), signal.SIGSTOP)
         else:
+            os.write(sys.stdout.fileno(), f"crashed-at:{point}\n".encode())
             os.kill(os.getpid(), signal.SIGKILL)
 
     if action is not None:

@@ -1,0 +1,46 @@
+{
+  "baseline": "5b0d610d798fca8be7188ec10674355e07dbab47",
+  "admission_sha256": "09b14608ce0bba511a10e4eade220b961c38a9bbce5d561743442379ad33a7c4",
+  "original_inputs": [
+    {
+      "path": "docs/rfcs/migration/c1-pythonic-source.md",
+      "sha256": "5768e1571e56eb1a5963ff5d40dff1087de38ee997e9c52b5ef91f520da90dfc"
+    },
+    {
+      "path": "docs/rfcs/migration/c2-mlir-contract.md",
+      "sha256": "387cf52b129f864b87a1b2a388213a3fe36d81c330d94ced0e6696522b58a322"
+    },
+    {
+      "path": "docs/rfcs/migration/c3-driver-runtime.md",
+      "sha256": "0c476ced27519cf93427a89f77b9348d388e96db57fb183790144d24118b1170"
+    },
+    {
+      "path": "docs/rfcs/migration/c2-r1-unified-register.md",
+      "sha256": "76283661bffba96aad544e31d2b4996f019135f448c4c8b685ebb02eab8edfba"
+    },
+    {
+      "path": "docs/rfcs/migration/c2-m1-module-system.md",
+      "sha256": "84b551ea84d6aa0956ea2342f520f4aafc63f7d741cc651500446a26f49c35cd"
+    },
+    {
+      "path": "docs/rfcs/migration/c2-decl-scalar-final.md",
+      "sha256": "38dd31d13cff150cf7b778e9c3df469f9ab1e0b55c8b2311f7c8d05d49b736b8"
+    },
+    {
+      "path": "docs/rfcs/migration/c2-n1-namespaces.md",
+      "sha256": "ac7d56a403e21ac03186f17c2f75f9c8eb53a00dcb74677c5286219dc5f1e6c3"
+    },
+    {
+      "path": "approved-checklist.txt",
+      "sha256": "7e7791e3524a0a9feca11ce63afb9fb6bcf50f2a1d95dabda2b8042fed34fe44"
+    },
+    {
+      "path": "approved-matrix.txt",
+      "sha256": "6f82ce4c2cc124bd4597a54809816628fc6795bded10e54c90fcf97616b216ea"
+    },
+    {
+      "path": "approved-m1.txt",
+      "sha256": "84b551ea84d6aa0956ea2342f520f4aafc63f7d741cc651500446a26f49c35cd"
+    }
+  ]
+}
