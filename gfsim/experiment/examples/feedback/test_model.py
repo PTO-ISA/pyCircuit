@@ -23,3 +23,6 @@ class FeedbackTests(CircuitTestCase):
                 with self.assertRaises(CapacityCycle):
                     c.sim.step()
                 self.assertEqual(c.output.current, ())
+                if not reference:
+                    with self.assertRaisesRegex(RuntimeError, 'continuation is forbidden'):
+                        c.sim.step()
