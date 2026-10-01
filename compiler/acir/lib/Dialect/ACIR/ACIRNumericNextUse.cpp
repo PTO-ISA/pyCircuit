@@ -1,6 +1,7 @@
 #include "ACIRNumericNextUse.h"
 
 #include "ACIRFinalContracts.h"
+#include "ACIRFinalRecordUses.h"
 #include "ACIRFinalUses.h"
 #include "ACIRNumericComposition.h"
 #include "ACIRSourceContracts.h"
@@ -585,6 +586,15 @@ LogicalResult ValueUseOp::verify() {
       failed(detail::verifyValueID(getSourceAttr(),
                                    [&] { return emitOpError(); })))
     return emitOpError() << "ValueUse requires exact rule-scoped identity";
+  if (hasFinalRecordUses(rule))
+    return verifyFinalRecordUses(rule);
+  if (isa<StructType>(getValue().getType()))
+    return emitOpError()
+           << "record ValueUse requires ac.required_records final closure";
+  auto scalarType = dyn_cast<IntegerType>(getValue().getType());
+  if (!scalarType || !scalarType.isSignless())
+    return emitOpError()
+           << "ValueUse value must be signless integer or verified record";
   if (hasGenericFinalUses(rule))
     return verifyGenericFinalUses(rule);
   if (hasNumericCompositionContract(rule))

@@ -1,5 +1,6 @@
 #include "acir/Dialect/ACIR/ACIROps.h"
 
+#include "Dialect/ACIR/ACIRFinalDeclarations.h"
 #include "Dialect/ACIR/ACIRSourceContracts.h"
 #include "mlir/IR/BuiltinOps.h"
 #include "mlir/IR/SymbolTable.h"
@@ -36,6 +37,15 @@ StructOp lookupStruct(Operation *operation, StructType type) {
   auto file = operation->getParentOfType<mlir::ModuleOp>();
   if (!file)
     return {};
+  auto stage = file->getAttrOfType<StringAttr>("ac.stage");
+  if (stage && stage.getValue() == "final") {
+    auto resolved = final_detail::resolveFinalRecordDeclaration(
+        operation,
+        FlatSymbolRefAttr::get(operation->getContext(),
+                               type.getName().getValue()),
+        [&] { return operation->emitOpError(); });
+    return succeeded(resolved) ? *resolved : StructOp();
+  }
   auto symbol = FlatSymbolRefAttr::get(operation->getContext(), type.getName());
   return dyn_cast_or_null<StructOp>(SymbolTable::lookupSymbolIn(file, symbol));
 }

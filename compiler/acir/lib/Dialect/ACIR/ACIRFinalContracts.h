@@ -11,6 +11,10 @@ mlir::LogicalResult verifyFinalModule(ModuleOp op);
 mlir::LogicalResult verifyFinalModuleRegion(ModuleOp op);
 mlir::LogicalResult verifyFinalRule(RuleOp op);
 mlir::LogicalResult verifyFinalRuleRegion(RuleOp op);
+mlir::LogicalResult verifyFinalRuleHandle(RuleOp rule, mlir::Value actual,
+                                          mlir::DictionaryAttr state,
+                                          mlir::DictionaryAttr logical,
+                                          llvm::StringRef role);
 mlir::LogicalResult verifyFinalExpect(SourceExpectOp op);
 mlir::LogicalResult verifyFinalObserve(SourceObserveOp op);
 mlir::LogicalResult verifyFinalInstance(InstanceOp op);

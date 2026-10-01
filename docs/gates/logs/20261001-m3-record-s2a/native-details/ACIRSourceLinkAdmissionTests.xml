@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuites tests="5" failures="0" disabled="0" errors="0" time="0.795" timestamp="2026-10-01T15:10:38.904" name="AllTests">
+  <testsuite name="SourceLinkAdmissionTest" tests="5" failures="0" disabled="0" skipped="0" errors="0" time="0.795" timestamp="2026-10-01T15:10:38.904">
+    <testcase name="CompleteUnitsAreOrderIndependent" file="/Users/zhoubot/.codex/worktrees/migration-capture/pyCircuit/tests/cpp/agentic-circuit/Dialect/ACIR/SourceLinkAdmissionTest.cpp" line="242" status="run" result="completed" time="0.167" timestamp="2026-10-01T15:10:38.904" classname="SourceLinkAdmissionTest" />
+    <testcase name="MissingOrDuplicatePairsAreRejected" file="/Users/zhoubot/.codex/worktrees/migration-capture/pyCircuit/tests/cpp/agentic-circuit/Dialect/ACIR/SourceLinkAdmissionTest.cpp" line="251" status="run" result="completed" time="0.157" timestamp="2026-10-01T15:10:39.072" classname="SourceLinkAdmissionTest" />
+    <testcase name="MissingOrChangedOwnersAreRejected" file="/Users/zhoubot/.codex/worktrees/migration-capture/pyCircuit/tests/cpp/agentic-circuit/Dialect/ACIR/SourceLinkAdmissionTest.cpp" line="272" status="run" result="completed" time="0.156" timestamp="2026-10-01T15:10:39.229" classname="SourceLinkAdmissionTest" />
+    <testcase name="StaleNamespaceBindingIsRejected" file="/Users/zhoubot/.codex/worktrees/migration-capture/pyCircuit/tests/cpp/agentic-circuit/Dialect/ACIR/SourceLinkAdmissionTest.cpp" line="302" status="run" result="completed" time="0.156" timestamp="2026-10-01T15:10:39.386" classname="SourceLinkAdmissionTest" />
+    <testcase name="BodyMetadataAndDeclarationSnapshotsMustMatch" file="/Users/zhoubot/.codex/worktrees/migration-capture/pyCircuit/tests/cpp/agentic-circuit/Dialect/ACIR/SourceLinkAdmissionTest.cpp" line="339" status="run" result="completed" time="0.156" timestamp="2026-10-01T15:10:39.543" classname="SourceLinkAdmissionTest" />
+  </testsuite>
+</testsuites>

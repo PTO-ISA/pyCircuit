@@ -239,6 +239,8 @@ add_test(NAME ACIRModuleGraphTests COMMAND ACIRModuleGraphTests)
 add_executable(ACIRFinalProgramTests
   FinalGenericUsesTest.cpp
   FinalRecordDeclarationsTest.cpp
+  FinalRecordValueContractsTest.cpp
+  FinalRecordValueEdgeContractsTest.cpp
   FinalScalarDeclarationsTest.cpp
   FinalHardwareClosureTest.cpp
   FinalRealizationClosureTest.cpp

@@ -1,0 +1,390 @@
+Running main() from /private/tmp/googletest-20250910-5249-qce8ci/googletest-1.17.0/googletest/src/gtest_main.cc
+[==========] Running 91 tests from 15 test suites.
+[----------] Global test environment set-up.
+[----------] 13 tests from SourceMathContractsTest
+[ RUN      ] SourceMathContractsTest.ParsesPrintsAndVerifiesClosedFoundation
+[       OK ] SourceMathContractsTest.ParsesPrintsAndVerifiesClosedFoundation (2 ms)
+[ RUN      ] SourceMathContractsTest.KeepsMathematical255PlusOneAheadOfExplicitBoundaryConversion
+[       OK ] SourceMathContractsTest.KeepsMathematical255PlusOneAheadOfExplicitBoundaryConversion (0 ms)
+[ RUN      ] SourceMathContractsTest.AcceptsLinkedLocallyAndRejectsFinalMissingOriginAndUnknownLocation
+[       OK ] SourceMathContractsTest.AcceptsLinkedLocallyAndRejectsFinalMissingOriginAndUnknownLocation (0 ms)
+[ RUN      ] SourceMathContractsTest.RequiresRuleComputationOrValidatedSourceOwnedHelperContainment
+[       OK ] SourceMathContractsTest.RequiresRuleComputationOrValidatedSourceOwnedHelperContainment (0 ms)
+[ RUN      ] SourceMathContractsTest.AcceptsValueAndRecordConstructorHelperCalculationBodies
+[       OK ] SourceMathContractsTest.AcceptsValueAndRecordConstructorHelperCalculationBodies (0 ms)
+[ RUN      ] SourceMathContractsTest.HelperFromBitsRequiresAuthoritativeOwnerParameterAndSsa
+[       OK ] SourceMathContractsTest.HelperFromBitsRequiresAuthoritativeOwnerParameterAndSsa (0 ms)
+[ RUN      ] SourceMathContractsTest.ImportSnapshotOwnerMustComeFromDeclaredInterfaceClosure
+[       OK ] SourceMathContractsTest.ImportSnapshotOwnerMustComeFromDeclaredInterfaceClosure (0 ms)
+[ RUN      ] SourceMathContractsTest.PreservesSignedI1IntegerMeaningAndRejectsBoolDomainSubstitution
+[       OK ] SourceMathContractsTest.PreservesSignedI1IntegerMeaningAndRejectsBoolDomainSubstitution (0 ms)
+[ RUN      ] SourceMathContractsTest.AcceptsRealOwnedRegAndRejectsRedirectedOwnedHandle
+[       OK ] SourceMathContractsTest.AcceptsRealOwnedRegAndRejectsRedirectedOwnedHandle (0 ms)
+[ RUN      ] SourceMathContractsTest.RejectsForgedRuleDomainsPortsAndUnknownSsaProducers
+[       OK ] SourceMathContractsTest.RejectsForgedRuleDomainsPortsAndUnknownSsaProducers (0 ms)
+[ RUN      ] SourceMathContractsTest.RejectsUnsupportedOperatorsAndChecksOnSafeFoundationOperators
+[       OK ] SourceMathContractsTest.RejectsUnsupportedOperatorsAndChecksOnSafeFoundationOperators (0 ms)
+[ RUN      ] SourceMathContractsTest.RejectsDomainTypeDriftAndMalformedRangeCheckTemplates
+[       OK ] SourceMathContractsTest.RejectsDomainTypeDriftAndMalformedRangeCheckTemplates (0 ms)
+[ RUN      ] SourceMathContractsTest.RejectsNonI1ValidityAndNonMathOperands
+[       OK ] SourceMathContractsTest.RejectsNonI1ValidityAndNonMathOperands (0 ms)
+[----------] 13 tests from SourceMathContractsTest (6 ms total)
+
+[----------] 9 tests from NumericProofContractsTest
+[ RUN      ] NumericProofContractsTest.AdmitsSubtractionInClosedMathBinaryFoundation
+[       OK ] NumericProofContractsTest.AdmitsSubtractionInClosedMathBinaryFoundation (0 ms)
+[ RUN      ] NumericProofContractsTest.RequiresCompareOperationForApprovedPredicates
+[       OK ] NumericProofContractsTest.RequiresCompareOperationForApprovedPredicates (0 ms)
+[ RUN      ] NumericProofContractsTest.MathCompareAcceptsAllClosedPredicatesAndProducesExactBool
+[       OK ] NumericProofContractsTest.MathCompareAcceptsAllClosedPredicatesAndProducesExactBool (0 ms)
+[ RUN      ] NumericProofContractsTest.MathCompareRejectsPredicateDomainAndResultTypeDrift
+[       OK ] NumericProofContractsTest.MathCompareRejectsPredicateDomainAndResultTypeDrift (0 ms)
+[ RUN      ] NumericProofContractsTest.MathBinaryRejectsMismatchedBitDomainAndMathematicalDomainAttribute
+[       OK ] NumericProofContractsTest.MathBinaryRejectsMismatchedBitDomainAndMathematicalDomainAttribute (0 ms)
+[ RUN      ] NumericProofContractsTest.MathFromBitsAcceptsOnlyRuleInputSourceReadProvenance
+[       OK ] NumericProofContractsTest.MathFromBitsAcceptsOnlyRuleInputSourceReadProvenance (0 ms)
+[ RUN      ] NumericProofContractsTest.MathFromBitsRejectsSourceReadFromAnotherNestedBlock
+[       OK ] NumericProofContractsTest.MathFromBitsRejectsSourceReadFromAnotherNestedBlock (0 ms)
+[ RUN      ] NumericProofContractsTest.MathFromBitsRejectsForgedUseAndSourceReadFromAnotherOwner
+[       OK ] NumericProofContractsTest.MathFromBitsRejectsForgedUseAndSourceReadFromAnotherOwner (0 ms)
+[ RUN      ] NumericProofContractsTest.KeepsMathFromBitsDomainAndBoundedWidthExactAfterSourceRead
+[       OK ] NumericProofContractsTest.KeepsMathFromBitsDomainAndBoundedWidthExactAfterSourceRead (0 ms)
+[----------] 9 tests from NumericProofContractsTest (1 ms total)
+
+[----------] 3 tests from ConstantExactProofContractsTest
+[ RUN      ] ConstantExactProofContractsTest.ExactSingletonConstantProofClosesRuleScopeAndBinding
+[       OK ] ConstantExactProofContractsTest.ExactSingletonConstantProofClosesRuleScopeAndBinding (1 ms)
+[ RUN      ] ConstantExactProofContractsTest.RejectsIntegerDomainsBeyondTheApprovedSixtyFourBitCapability
+loc("demo.py":7:3): error: 'ac.value.binding' op LogicalType integer storage must be signless iN for N in [1, 64]
+loc("demo.py":7:3): error: 'ac.value.binding' op LogicalType integer storage must be signless iN for N in [1, 64]
+[       OK ] ConstantExactProofContractsTest.RejectsIntegerDomainsBeyondTheApprovedSixtyFourBitCapability (0 ms)
+[ RUN      ] ConstantExactProofContractsTest.RejectsEachExactWitnessContractMutationIndependently
+[       OK ] ConstantExactProofContractsTest.RejectsEachExactWitnessContractMutationIndependently (5 ms)
+[----------] 3 tests from ConstantExactProofContractsTest (7 ms total)
+
+[----------] 5 tests from NumericExactAddProofContractsTest
+[ RUN      ] NumericExactAddProofContractsTest.AcceptsExactConstantAdditionAcrossFiniteWidth
+[       OK ] NumericExactAddProofContractsTest.AcceptsExactConstantAdditionAcrossFiniteWidth (1 ms)
+[ RUN      ] NumericExactAddProofContractsTest.RejectsAddWitnessMutations
+[       OK ] NumericExactAddProofContractsTest.RejectsAddWitnessMutations (6 ms)
+[ RUN      ] NumericExactAddProofContractsTest.RejectsUnsupportedRecipes
+[       OK ] NumericExactAddProofContractsTest.RejectsUnsupportedRecipes (0 ms)
+[ RUN      ] NumericExactAddProofContractsTest.RejectsUnrepresentableAndNarrowingResults
+[       OK ] NumericExactAddProofContractsTest.RejectsUnrepresentableAndNarrowingResults (0 ms)
+[ RUN      ] NumericExactAddProofContractsTest.CommutativeAddAcceptsSwappedActualOperands
+[       OK ] NumericExactAddProofContractsTest.CommutativeAddAcceptsSwappedActualOperands (0 ms)
+[----------] 5 tests from NumericExactAddProofContractsTest (9 ms total)
+
+[----------] 4 tests from NumericExactScalarProofContractsTest
+[ RUN      ] NumericExactScalarProofContractsTest.AcceptsSubtractionAndAllComparisonProfiles
+[       OK ] NumericExactScalarProofContractsTest.AcceptsSubtractionAndAllComparisonProfiles (3 ms)
+[ RUN      ] NumericExactScalarProofContractsTest.ExhaustiveSmallDomainOracle
+[       OK ] NumericExactScalarProofContractsTest.ExhaustiveSmallDomainOracle (0 ms)
+[ RUN      ] NumericExactScalarProofContractsTest.RejectsSSAAndProofMutations
+[       OK ] NumericExactScalarProofContractsTest.RejectsSSAAndProofMutations (1 ms)
+[ RUN      ] NumericExactScalarProofContractsTest.RejectsSwappedSubBadExtensionAndCapabilityProfiles
+[       OK ] NumericExactScalarProofContractsTest.RejectsSwappedSubBadExtensionAndCapabilityProfiles (0 ms)
+[----------] 4 tests from NumericExactScalarProofContractsTest (7 ms total)
+
+[----------] 8 tests from NumericMaskProofContractsTest
+[ RUN      ] NumericMaskProofContractsTest.ExactMaskSignedOracleAndBindings
+[       OK ] NumericMaskProofContractsTest.ExactMaskSignedOracleAndBindings (2 ms)
+[ RUN      ] NumericMaskProofContractsTest.LowBitsModuloOracleAndNoIntermediateBinding
+[       OK ] NumericMaskProofContractsTest.LowBitsModuloOracleAndNoIntermediateBinding (3 ms)
+[ RUN      ] NumericMaskProofContractsTest.Width64AndArbitraryConstantResidue
+[       OK ] NumericMaskProofContractsTest.Width64AndArbitraryConstantResidue (1 ms)
+[ RUN      ] NumericMaskProofContractsTest.RejectsSourceMutationsTransactionally
+loc("mask.py":7:3): error: 'ac.rule' op mask MathConstant disagrees with its recipe
+loc("mask.py":7:3): error: N0-C1 transactional clone lowering failed verification
+loc("mask.py":7:3): error: 'ac.rule' op source numeric closure requires the N0-C1 profile
+loc("mask.py":7:3): error: N0-C1 input unit does not verify
+loc("mask.py":7:3): error: 'ac.rule' op source numeric closure requires one read/F/C/scalar operation and no evidence
+loc("mask.py":7:3): error: N0-C1 input unit does not verify
+loc("mask.py":7:3): error: 'ac.math.binary' op operand #1 must be Temporary arbitrary-precision source mathematical integer, but got 'i8'
+loc("mask.py":7:3): error: N0-C1 input unit does not verify
+loc("mask.py":7:3): error: 'ac.rule' op rule required checks must match actual source checks
+loc("mask.py":7:3): error: N0-C1 input unit does not verify
+loc("mask.py":7:3): error: 'ac.rule' op mask source input domain is invalid
+loc("mask.py":7:3): error: N0-C1 transactional clone lowering failed verification
+[       OK ] NumericMaskProofContractsTest.RejectsSourceMutationsTransactionally (3 ms)
+[ RUN      ] NumericMaskProofContractsTest.RejectsDamagedWitnessShapes
+loc("mask.py":7:3): error: 'ac.numeric.proof' op low_bits width must be in 1..64
+loc("mask.py":7:3): error: 'ac.numeric.proof' op low_bits requires k>=0 and mask=2^w-1
+loc("mask.py":7:3): error: 'ac.numeric.proof' op low_bits width must be in 1..64
+loc("mask.py":7:3): error: 'ac.rule' op numeric proof rule ports/bindings do not match B0/B1b profile
+loc("mask.py":7:3): error: 'ac.numeric.proof' op exact mask SSA/extension chain is invalid
+[       OK ] NumericMaskProofContractsTest.RejectsDamagedWitnessShapes (3 ms)
+[ RUN      ] NumericMaskProofContractsTest.PlainU64PlusOneRemainsRejected
+loc("mask.py":7:3): error: 'ac.math.binary' op numeric interval requires unsupported i65 storage
+loc("mask.py":7:3): error: N0-C1 transactional clone lowering failed verification
+[       OK ] NumericMaskProofContractsTest.PlainU64PlusOneRemainsRejected (0 ms)
+[ RUN      ] NumericMaskProofContractsTest.RejectsProofProvenanceMutations
+loc("wrong.py":7:3): error: 'ac.numeric.proof' op mask proof requires its source-owned FileLineColLoc
+loc("mask.py":7:3): error: 'ac.rule' op rule must belong to its enclosing source module
+loc("mask.py":7:3): error: 'ac.numeric.proof' op mask proof origin must be a direct enclosing module Site with empty expansion
+loc("mask.py":7:3): error: 'ac.numeric.proof' op mask proof origin must be a direct enclosing module Site with empty expansion
+loc("wrong.py":7:3): error: 'ac.numeric.proof' op mask proof requires its source-owned FileLineColLoc
+loc("mask.py":7:3): error: 'ac.rule' op rule must belong to its enclosing source module
+loc("mask.py":7:3): error: 'ac.numeric.proof' op mask proof origin must be a direct enclosing module Site with empty expansion
+loc("mask.py":7:3): error: 'ac.numeric.proof' op mask proof origin must be a direct enclosing module Site with empty expansion
+[       OK ] NumericMaskProofContractsTest.RejectsProofProvenanceMutations (4 ms)
+[ RUN      ] NumericMaskProofContractsTest.TransactionIdentityIdempotenceAndRollback
+loc("mask.py":7:3): error: 'ac.rule' op mask source constants must be nonnegative
+loc("mask.py":7:3): error: N0-C1 transactional clone lowering failed verification
+[       OK ] NumericMaskProofContractsTest.TransactionIdentityIdempotenceAndRollback (5 ms)
+[----------] 8 tests from NumericMaskProofContractsTest (26 ms total)
+
+[----------] 2 tests from NumericCompositionAdversarialTest
+[ RUN      ] NumericCompositionAdversarialTest.RejectsCoherentRecipeSsaAndProofCorruption
+/Users/zhoubot/.codex/worktrees/migration-capture/pyCircuit/tests/cpp/agentic-circuit/Dialect/ACIR/NumericCompositionAdversarialTest.cpp:138: Failure
+Failed
+Assertion failed: (bitPosition < getBitWidth() && "Bit position out of bounds!"), function operator[], file APInt.h, line 1045.
+
+
+/Users/zhoubot/.codex/worktrees/migration-capture/pyCircuit/tests/cpp/agentic-circuit/Dialect/ACIR/NumericCompositionAdversarialTest.cpp:187: Failure
+Value of: original
+  Actual: false
+Expected: true
+
+[  FAILED  ] NumericCompositionAdversarialTest.RejectsCoherentRecipeSsaAndProofCorruption (71 ms)
+[ RUN      ] NumericCompositionAdversarialTest.RejectsConstantRightAndBoundaryAuthorityBypass
+/Users/zhoubot/.codex/worktrees/migration-capture/pyCircuit/tests/cpp/agentic-circuit/Dialect/ACIR/NumericCompositionAdversarialTest.cpp:138: Failure
+Failed
+Assertion failed: (bitPosition < getBitWidth() && "Bit position out of bounds!"), function operator[], file APInt.h, line 1045.
+
+
+/Users/zhoubot/.codex/worktrees/migration-capture/pyCircuit/tests/cpp/agentic-circuit/Dialect/ACIR/NumericCompositionAdversarialTest.cpp:269: Failure
+Value of: original
+  Actual: false
+Expected: true
+
+[  FAILED  ] NumericCompositionAdversarialTest.RejectsConstantRightAndBoundaryAuthorityBypass (68 ms)
+[----------] 2 tests from NumericCompositionAdversarialTest (140 ms total)
+
+[----------] 2 tests from NumericCompositionContractsTest
+[ RUN      ] NumericCompositionContractsTest.SourceClosesProofLocalInputsPolarityChecksAndMergedWrites
+loc("composition.py":15:21): error: 'ac.math.from_bits' op from_bits SourceRead must precede it in the same rule
+loc("composition.py":13:22): error: 'ac.math.from_bits' op LogicalType integer storage width must be minimal: i7
+loc("composition.py":13:22): error: 'ac.math.from_bits' op domain must be a closed LogicalType.Integer
+loc("composition.py":11:5): error: 'ac.rule' op composition from_bits input recipe is invalid
+loc("composition.py":11:5): error: 'ac.rule' op composition numeric use redirects evaluation path
+loc("composition.py":11:5): error: 'ac.rule' op composition numeric use redirects evaluation path
+loc("composition.py":11:5): error: 'ac.rule' op composition checks differ from retained requirements
+loc("composition.py":11:5): error: 'ac.rule' op composition binary/compare SSA control is invalid
+[       OK ] NumericCompositionContractsTest.SourceClosesProofLocalInputsPolarityChecksAndMergedWrites (72 ms)
+[ RUN      ] NumericCompositionContractsTest.LoweredClosureRejectsInputProofAndArithmeticMutation
+/Users/zhoubot/.codex/worktrees/migration-capture/pyCircuit/tests/cpp/agentic-circuit/Dialect/ACIR/NumericCompositionContractsTest.cpp:316: Failure
+Expected equality of these values:
+  compiled.status
+    Which is: -2
+  0
+Assertion failed: (bitPosition < getBitWidth() && "Bit position out of bounds!"), function operator[], file APInt.h, line 1045.
+
+
+[  FAILED  ] NumericCompositionContractsTest.LoweredClosureRejectsInputProofAndArithmeticMutation (69 ms)
+[----------] 2 tests from NumericCompositionContractsTest (141 ms total)
+
+[----------] 5 tests from NumericNextUseContractsTest
+[ RUN      ] NumericNextUseContractsTest.SourceInventoryOwnsOneAssignmentUseAndYieldBinding
+[       OK ] NumericNextUseContractsTest.SourceInventoryOwnsOneAssignmentUseAndYieldBinding (59 ms)
+[ RUN      ] NumericNextUseContractsTest.LoweredInventoryOwnsTwoProofsOneCheckAndOneValueUse
+[       OK ] NumericNextUseContractsTest.LoweredInventoryOwnsTwoProofsOneCheckAndOneValueUse (59 ms)
+[ RUN      ] NumericNextUseContractsTest.MissingOrDuplicateProofCheckAndRequiredUseAreRejected
+loc("counter.py":8:5): error: 'ac.rule' op U1 lowered inventory is not closed
+loc("counter.py":8:5): error: 'ac.rule' op U1 requires six numeric nodes and one use/yield/check
+loc("counter.py":8:5): error: 'ac.rule' op exact numeric proof requires one or three nodes and one proof
+loc("counter.py":8:5): error: 'ac.rule' op U1 requires six numeric nodes and one use/yield/check
+[       OK ] NumericNextUseContractsTest.MissingOrDuplicateProofCheckAndRequiredUseAreRejected (60 ms)
+[ RUN      ] NumericNextUseContractsTest.SwappedYieldDataEnableAndForgedTargetAreRejected
+loc("counter.py":8:5): error: 'ac.rule' op U1 yield is not the exact ValueUse data/enable binding
+loc("counter.py":8:5): error: 'ac.rule' op U1 YieldBinding is not the exact scalar contribution
+[       OK ] NumericNextUseContractsTest.SwappedYieldDataEnableAndForgedTargetAreRejected (58 ms)
+[ RUN      ] NumericNextUseContractsTest.WrongValueUseIdentityIsRejected
+loc("counter.py":8:5): error: 'ac.rule' op U1 ValueUse does not bind the required boundary value
+[       OK ] NumericNextUseContractsTest.WrongValueUseIdentityIsRejected (56 ms)
+[----------] 5 tests from NumericNextUseContractsTest (294 ms total)
+
+[----------] 6 tests from NumericRangeProofContractsTest
+[ RUN      ] NumericRangeProofContractsTest.AcceptsDomainsAndEndpointOracle
+[       OK ] NumericRangeProofContractsTest.AcceptsDomainsAndEndpointOracle (0 ms)
+[ RUN      ] NumericRangeProofContractsTest.DemandSafetyTruthTableIsExact
+[       OK ] NumericRangeProofContractsTest.DemandSafetyTruthTableIsExact (0 ms)
+[ RUN      ] NumericRangeProofContractsTest.RejectsSafetyAndCheckMutations
+[       OK ] NumericRangeProofContractsTest.RejectsSafetyAndCheckMutations (1 ms)
+[ RUN      ] NumericRangeProofContractsTest.RejectsTruncatedEvidenceCrossRuleAndSequentialChecks
+[       OK ] NumericRangeProofContractsTest.RejectsTruncatedEvidenceCrossRuleAndSequentialChecks (0 ms)
+[ RUN      ] NumericRangeProofContractsTest.RejectsGuardedConversionMutations
+[       OK ] NumericRangeProofContractsTest.RejectsGuardedConversionMutations (0 ms)
+[ RUN      ] NumericRangeProofContractsTest.RejectsProofProvenanceMutations
+[       OK ] NumericRangeProofContractsTest.RejectsProofProvenanceMutations (0 ms)
+[----------] 6 tests from NumericRangeProofContractsTest (3 ms total)
+
+[----------] 4 tests from NumericVariableAddProofContractsTest
+[ RUN      ] NumericVariableAddProofContractsTest.AcceptsCanonicalIntervalCases
+[       OK ] NumericVariableAddProofContractsTest.AcceptsCanonicalIntervalCases (1 ms)
+[ RUN      ] NumericVariableAddProofContractsTest.ExhaustivelyMatchesSmallIntervalOracle
+[       OK ] NumericVariableAddProofContractsTest.ExhaustivelyMatchesSmallIntervalOracle (1 ms)
+[ RUN      ] NumericVariableAddProofContractsTest.RejectsBoundedInputMutations
+[       OK ] NumericVariableAddProofContractsTest.RejectsBoundedInputMutations (8 ms)
+[ RUN      ] NumericVariableAddProofContractsTest.RejectsUnrepresentableAndUnsupportedInputs
+[       OK ] NumericVariableAddProofContractsTest.RejectsUnrepresentableAndUnsupportedInputs (0 ms)
+[----------] 4 tests from NumericVariableAddProofContractsTest (11 ms total)
+
+[----------] 6 tests from ScalarNumericExactLoweringTest
+[ RUN      ] ScalarNumericExactLoweringTest.HelperLowersAllOperatorsIdempotently
+[       OK ] ScalarNumericExactLoweringTest.HelperLowersAllOperatorsIdempotently (10 ms)
+[ RUN      ] ScalarNumericExactLoweringTest.RegisteredPassUsesTheSameTransaction
+[       OK ] ScalarNumericExactLoweringTest.RegisteredPassUsesTheSameTransaction (4 ms)
+[ RUN      ] ScalarNumericExactLoweringTest.ActualSSAExhaustsSignedAndUnsignedDomains
+[       OK ] ScalarNumericExactLoweringTest.ActualSSAExhaustsSignedAndUnsignedDomains (6 ms)
+[ RUN      ] ScalarNumericExactLoweringTest.TwoRuleSuccessAndLaterFailureAreAtomic
+loc("d1.py":7:3): error: 'ac.math.constant' op scalar interval requires unsupported storage above i64
+loc("d1.py":7:3): error: N0-C1 transactional clone lowering failed verification
+[       OK ] ScalarNumericExactLoweringTest.TwoRuleSuccessAndLaterFailureAreAtomic (1 ms)
+[ RUN      ] ScalarNumericExactLoweringTest.RejectsInvalidSourceWithoutMutation
+loc("d1.py":7:3): error: 'ac.rule' op source numeric obligation order must be from_bits/C/scalar
+loc("d1.py":7:3): error: N0-C1 input unit does not verify
+loc("d1.py":7:3): error: 'ac.rule' op source numeric closure SSA/control graph is not exact
+loc("d1.py":7:3): error: N0-C1 input unit does not verify
+loc("d1.py":7:3): error: 'ac.math.binary' op operator 'mul' is not implemented by the source-math foundation
+loc("d1.py":7:3): error: N0-C1 input unit does not verify
+loc("d1.py":7:3): error: 'ac.rule' op scalar source permits only operation control constants
+loc("d1.py":7:3): error: N0-C1 transactional clone lowering failed verification
+loc("d1.py":7:3): error: 'ac.rule' op rule bindings and logical types must match handles
+loc("d1.py":7:3): error: N0-C1 input unit does not verify
+loc("d1.py":7:3): error: 'ac.rule' op rule required checks must match actual source checks
+loc("d1.py":7:3): error: N0-C1 input unit does not verify
+[       OK ] ScalarNumericExactLoweringTest.RejectsInvalidSourceWithoutMutation (2 ms)
+[ RUN      ] ScalarNumericExactLoweringTest.DamagedAndMixedUnitsRejectUnchanged
+loc("d1.py":7:3): error: 'ac.rule' op numeric proof result ID must be the final recipe node
+loc("d1.py":7:3): error: N0-C1 input unit does not verify
+loc("d1.py":7:3): error: N0-C1 rejects mixed source and lowered inventory
+[       OK ] ScalarNumericExactLoweringTest.DamagedAndMixedUnitsRejectUnchanged (2 ms)
+[----------] 6 tests from ScalarNumericExactLoweringTest (27 ms total)
+
+[----------] 6 tests from ScalarNumericRangeLoweringTest
+[ RUN      ] ScalarNumericRangeLoweringTest.HelperLowersExactContractIdempotently
+[       OK ] ScalarNumericRangeLoweringTest.HelperLowersExactContractIdempotently (7 ms)
+[ RUN      ] ScalarNumericRangeLoweringTest.RegisteredPassLowersRangeSource
+[       OK ] ScalarNumericRangeLoweringTest.RegisteredPassLowersRangeSource (0 ms)
+[ RUN      ] ScalarNumericRangeLoweringTest.EndpointTruthTableIsIndependent
+[       OK ] ScalarNumericRangeLoweringTest.EndpointTruthTableIsIndependent (0 ms)
+[ RUN      ] ScalarNumericRangeLoweringTest.TwoRuleSuccessAndLaterRollback
+loc("range.py":7:3): error: 'ac.rule' op statically demanded checked value is always out of range
+loc("range.py":7:3): error: N0-C1 transactional clone lowering failed verification
+[       OK ] ScalarNumericRangeLoweringTest.TwoRuleSuccessAndLaterRollback (2 ms)
+[ RUN      ] ScalarNumericRangeLoweringTest.RejectsSourceCheckMutationsUnchanged
+loc("range.py":7:3): error: 'ac.rule' op D3 source recipe/inventory is not closed
+loc("range.py":7:3): error: N0-C1 input unit does not verify
+loc("range.py":7:3): error: 'ac.rule' op D3 source recipe/inventory is not closed
+loc("range.py":7:3): error: N0-C1 input unit does not verify
+loc("range.py":7:3): error: 'ac.expect' op range check is not tied to its to_bits template/ValueID
+loc("range.py":7:3): error: N0-C1 input unit does not verify
+loc("range.py":7:3): error: 'ac.expect' op range check is not tied to its to_bits template/ValueID
+loc("range.py":7:3): error: N0-C1 input unit does not verify
+loc("range.py":7:3): error: 'ac.rule' op D3 source recipe/inventory is not closed
+loc("range.py":7:3): error: 'ac.expect' op source range check must use to_bits valid/path
+loc("range.py":7:3): error: N0-C1 input unit does not verify
+[       OK ] ScalarNumericRangeLoweringTest.RejectsSourceCheckMutationsUnchanged (2 ms)
+[ RUN      ] ScalarNumericRangeLoweringTest.DamagedAndMixedOutputRejectUnchanged
+loc("range.py":7:3): error: 'ac.expect' op lowered range check is outside its numeric proof seam
+loc("range.py":7:3): error: N0-C1 input unit does not verify
+loc("range.py":7:3): error: N0-C1 rejects mixed source and lowered inventory
+[       OK ] ScalarNumericRangeLoweringTest.DamagedAndMixedOutputRejectUnchanged (2 ms)
+[----------] 6 tests from ScalarNumericRangeLoweringTest (14 ms total)
+
+[----------] 11 tests from ScalarNumericLoweringTest
+[ RUN      ] ScalarNumericLoweringTest.TransactionalHelperLowersAndIsIdempotent
+[       OK ] ScalarNumericLoweringTest.TransactionalHelperLowersAndIsIdempotent (1 ms)
+[ RUN      ] ScalarNumericLoweringTest.RemovesOnlyDeadSplitTrueControls
+[       OK ] ScalarNumericLoweringTest.RemovesOnlyDeadSplitTrueControls (1 ms)
+[ RUN      ] ScalarNumericLoweringTest.RegisteredPassLowersFrozenSourceRecipe
+[       OK ] ScalarNumericLoweringTest.RegisteredPassLowersFrozenSourceRecipe (0 ms)
+[ RUN      ] ScalarNumericLoweringTest.SourceNoOpUnitRemainsByteEquivalent
+[       OK ] ScalarNumericLoweringTest.SourceNoOpUnitRemainsByteEquivalent (0 ms)
+[ RUN      ] ScalarNumericLoweringTest.AcceptedIntervalsMatchIndependentFiniteSSAOracle
+[       OK ] ScalarNumericLoweringTest.AcceptedIntervalsMatchIndependentFiniteSSAOracle (2 ms)
+[ RUN      ] ScalarNumericLoweringTest.RejectsSourceInventoryAndRecipeMutations
+loc("demo.py":7:3): error: 'ac.rule' op proof_scope has no required_numeric witness packet
+loc("demo.py":7:3): error: N0-C1 input unit does not verify
+loc("demo.py":7:3): error: 'ac.rule' op N0-C1 rule proof scope is not canonical
+loc("demo.py":7:3): error: N0-C1 transactional clone lowering failed verification
+loc("demo.py":7:3): error: 'ac.rule' op source ValueIDs must use their producer origins
+loc("demo.py":7:3): error: N0-C1 transactional clone lowering failed verification
+loc("demo.py":7:3): error: 'ac.rule' op source ValueIDs must use their producer origins
+loc("demo.py":7:3): error: N0-C1 transactional clone lowering failed verification
+loc("demo.py":7:3): error: 'ac.rule' op source numeric closure SSA/control graph is not exact
+loc("demo.py":7:3): error: N0-C1 input unit does not verify
+loc("demo.py":7:3): error: 'ac.rule' op source numeric obligation order must be from_bits/C/scalar
+loc("demo.py":7:3): error: N0-C1 input unit does not verify
+loc("demo.py":7:3): error: 'ac.rule' op source numeric closure requires one read/F/C/scalar operation and no evidence
+loc("demo.py":7:3): error: N0-C1 input unit does not verify
+[       OK ] ScalarNumericLoweringTest.RejectsSourceInventoryAndRecipeMutations (3 ms)
+[ RUN      ] ScalarNumericLoweringTest.RejectsCapabilityWithoutChangingCallerIR
+loc("demo.py":7:3): error: 'ac.math.binary' op numeric interval requires unsupported i65 storage
+loc("demo.py":7:3): error: N0-C1 transactional clone lowering failed verification
+loc("demo.py":7:3): error: 'ac.math.binary' op N0-C1 exact result rejects narrowing and i65
+loc("demo.py":7:3): error: N0-C1 transactional clone lowering failed verification
+[       OK ] ScalarNumericLoweringTest.RejectsCapabilityWithoutChangingCallerIR (1 ms)
+[ RUN      ] ScalarNumericLoweringTest.LowersTwoValidRulesInOneTransaction
+[       OK ] ScalarNumericLoweringTest.LowersTwoValidRulesInOneTransaction (1 ms)
+[ RUN      ] ScalarNumericLoweringTest.LaterRuleCapabilityFailureRollsBackWholeVerifiedUnit
+loc("demo.py":7:3): error: 'ac.math.constant' op numeric interval requires unsupported i65 storage
+loc("demo.py":7:3): error: 'ac.math.binary' op numeric interval requires unsupported i65 storage
+loc("demo.py":7:3): error: N0-C1 transactional clone lowering failed verification
+[       OK ] ScalarNumericLoweringTest.LaterRuleCapabilityFailureRollsBackWholeVerifiedUnit (1 ms)
+[ RUN      ] ScalarNumericLoweringTest.RejectsDamagedLoweredWitnessUnchanged
+loc("demo.py":7:3): error: 'ac.rule' op numeric proof result ID must be the final recipe node
+loc("demo.py":7:3): error: N0-C1 input unit does not verify
+[       OK ] ScalarNumericLoweringTest.RejectsDamagedLoweredWitnessUnchanged (0 ms)
+[ RUN      ] ScalarNumericLoweringTest.RejectsMixedSourceAndB0EvidenceUnchanged
+loc("demo.py":7:3): error: N0-C1 rejects mixed source and lowered inventory
+[       OK ] ScalarNumericLoweringTest.RejectsMixedSourceAndB0EvidenceUnchanged (0 ms)
+[----------] 11 tests from ScalarNumericLoweringTest (14 ms total)
+
+[----------] 7 tests from ScalarNumericNextUseLoweringTest
+[ RUN      ] ScalarNumericNextUseLoweringTest.HelperLowersAll256ValuesAndExactUseYieldAssociation
+[       OK ] ScalarNumericNextUseLoweringTest.HelperLowersAll256ValuesAndExactUseYieldAssociation (57 ms)
+[ RUN      ] ScalarNumericNextUseLoweringTest.PassPathIsEquivalentAndSecondLoweringIsIdempotent
+[       OK ] ScalarNumericNextUseLoweringTest.PassPathIsEquivalentAndSecondLoweringIsIdempotent (117 ms)
+[ RUN      ] ScalarNumericNextUseLoweringTest.InvalidSourceMaskRollsBackTheWholeUnitByteForByte
+loc("counter.py":8:5): error: 'ac.rule' op U1 source SSA/identity chain is invalid
+loc("counter.py":1:1): error: N0-C1 input unit does not verify
+[       OK ] ScalarNumericNextUseLoweringTest.InvalidSourceMaskRollsBackTheWholeUnitByteForByte (53 ms)
+[ RUN      ] ScalarNumericNextUseLoweringTest.ForgedValueEnableMaskDomainAndValueIDAreRejected
+loc("counter.py":8:5): error: 'ac.rule' op U1 ValueUse does not bind the required boundary value
+loc("counter.py":8:5): error: 'ac.rule' op U1 yield is not the exact ValueUse data/enable binding
+loc("counter.py":8:5): error: 'ac.rule' op U1 finite mask constant is invalid
+loc("counter.py":8:5): error: 'ac.rule' op U1 lowered binding domains or input authority are invalid
+loc("counter.py":8:5): error: 'ac.rule' op U1 ValueUse does not bind the required boundary value
+[       OK ] ScalarNumericNextUseLoweringTest.ForgedValueEnableMaskDomainAndValueIDAreRejected (57 ms)
+[ RUN      ] ScalarNumericNextUseLoweringTest.ProofLocationOriginScopeSegmentsAndDomainsAreAuthoritative
+error: 'ac.numeric.proof' op U1 proof provenance is outside its source module
+loc("counter.py":10:17): error: 'ac.numeric.proof' op U1 proof provenance is outside its source module
+loc("counter.py":10:17): error: 'ac.numeric.proof' op U1 proof provenance is outside its source module
+loc("counter.py":10:18): error: 'ac.value.binding' op B0 proof_scope requires the enclosing module's empty SpecKey
+loc("counter.py":10:18): error: 'ac.value.binding' op ValueBinding requires exact ID, domain and rule scope
+loc("counter.py":8:5): error: 'ac.rule' op U1 requires exact low_bits and boundary witnesses
+loc("counter.py":8:5): error: 'ac.rule' op U1 requires exact low_bits and boundary witnesses
+[       OK ] ScalarNumericNextUseLoweringTest.ProofLocationOriginScopeSegmentsAndDomainsAreAuthoritative (58 ms)
+[ RUN      ] ScalarNumericNextUseLoweringTest.FlagsReadSubstitutionConstantDomainAndExtraOpsAreRejected
+loc("counter.py":8:5): error: 'ac.rule' op U1 finite add SSA is invalid
+loc("counter.py":8:5): error: 'ac.rule' op U1 lowered binding domains or input authority are invalid
+loc("counter.py":8:5): error: 'ac.rule' op U1 lowered binding domains or input authority are invalid
+loc("counter.py":8:5): error: 'ac.rule' op U1 lowered binding domains or input authority are invalid
+loc("counter.py":8:5): error: 'ac.rule' op U1 lowered constant is malformed or unused
+[       OK ] ScalarNumericNextUseLoweringTest.FlagsReadSubstitutionConstantDomainAndExtraOpsAreRejected (57 ms)
+[ RUN      ] ScalarNumericNextUseLoweringTest.SourceValidityChainCannotBeReplacedByLiteralTrue
+loc("counter.py":8:5): error: 'ac.rule' op U1 source arithmetic validity chain is invalid
+[       OK ] ScalarNumericNextUseLoweringTest.SourceValidityChainCannotBeReplacedByLiteralTrue (53 ms)
+[----------] 7 tests from ScalarNumericNextUseLoweringTest (455 ms total)
+
+[----------] Global test environment tear-down
+[==========] 91 tests from 15 test suites ran. (1162 ms total)
+[  PASSED  ] 88 tests.
+[  FAILED  ] 3 tests, listed below:
+[  FAILED  ] NumericCompositionAdversarialTest.RejectsCoherentRecipeSsaAndProofCorruption
+[  FAILED  ] NumericCompositionAdversarialTest.RejectsConstantRightAndBoundaryAuthorityBypass
+[  FAILED  ] NumericCompositionContractsTest.LoweredClosureRejectsInputProofAndArithmeticMutation
+
+ 3 FAILED TESTS

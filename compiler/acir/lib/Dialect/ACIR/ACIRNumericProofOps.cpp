@@ -1,4 +1,5 @@
 #include "ACIRFinalContracts.h"
+#include "ACIRFinalRecordUses.h"
 #include "ACIRFinalUses.h"
 #include "ACIRNumericComposition.h"
 #include "ACIRNumericExactInputAdd.h"
@@ -374,6 +375,16 @@ LogicalResult ValueBindingOp::verify() {
       !domain || (*this)->getAttrs().size() != 2)
     return emitOpError()
            << "ValueBinding requires exact ID, domain and rule scope";
+  const bool recordValue = isa<StructType>(getValue().getType());
+  if (hasFinalRecordUses(rule))
+    return verifyFinalRecordUses(rule);
+  if (recordValue)
+    return emitOpError()
+           << "record ValueBinding requires ac.required_records final closure";
+  auto scalarType = dyn_cast<IntegerType>(getValue().getType());
+  if (!scalarType || !scalarType.isSignless())
+    return emitOpError()
+           << "ValueBinding value must be signless integer or verified record";
   if (hasGenericFinalUses(rule))
     return verifyGenericFinalUses(rule);
   if (hasNumericCompositionContract(rule))

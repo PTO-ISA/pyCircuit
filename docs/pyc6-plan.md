@@ -97,6 +97,12 @@ have completed [S1 final declarations](work-items/m3-record-s1-final-declaration
 S2 helper/value/use closure is next; record state and executable product support
 remain unimplemented. Shared emission stays closed until S4; the three reproduced
 baseline SourceMath/APInt failures remain explicit validation debt.
+
+[S2A shared finite record verifier](work-items/m3-record-s2a-value-verifier.md) is
+accepted for the intermediate rule/op packet. Read/get/create requirements,
+actual SSA and one normalized selector are checked without global record
+admission. S2B source/helper expansion and threaded paths are next; S2C/S3/S4
+and executable record support remain open.
 [M6-04](work-items/m6-resource-runtime-baseline.md) closes selected developer
 resource/finite-C-ABI measurements on macOS with honest sampled-RSS and timing
 limits. Existing scalar runtime/source contracts and all other unapproved

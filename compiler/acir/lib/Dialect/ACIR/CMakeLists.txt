@@ -3,6 +3,7 @@ add_acir_library(ACIRDialect SOURCES
   ACIRDialect.cpp
   ACIRFinalContracts.cpp
   ACIRFinalDeclarations.cpp
+  ACIRFinalRecordUses.cpp
   ACIRFinalUses.cpp
   ACIRFinalInstanceContracts.cpp
   ACIRFinalModuleRegion.cpp
@@ -30,6 +31,7 @@ add_acir_library(ACIRDialect SOURCES
   ACIRPacketOps.cpp
   ACIRPacketTypes.cpp
   ACIRRegistration.cpp
+  ACIRRecordSelector.cpp
   ACIRSourceContracts.cpp
   ACIRStaticContracts.cpp
   ACIRStaticEvaluation.cpp

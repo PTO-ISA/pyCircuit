@@ -6,4 +6,5 @@ def ACIR_Dialect : Dialect {
   let summary = "Agentic Circuit architecture dialect";
   let useDefaultAttributePrinterParser = 1;
   let useDefaultTypePrinterParser = 1;
+  let hasOperationAttrVerify = 1;
 }

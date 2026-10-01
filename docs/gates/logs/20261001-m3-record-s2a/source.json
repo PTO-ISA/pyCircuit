@@ -1,0 +1,22 @@
+{
+  "base": "4c3a4be690f30453acdc551e224e9ef258291ee1",
+  "algorithm": "sha256(sorted path + NUL + file sha256hex + LF)",
+  "files": {
+    "compiler/acir/include/acir/Dialect/ACIR/ACIRDialect.td": "f15a1ad68076e804ba4c0ecb1a1124e08aea3842ba0b1b48c19fa812ebcfac8e",
+    "compiler/acir/include/acir/Dialect/ACIR/ACIROps.td": "8ea97f21fd14ea6b15ec416f7647c08bbca1fb4ffb083493bde1fbb4668496fb",
+    "compiler/acir/lib/Dialect/ACIR/ACIRDialect.cpp": "49a9c95907c80e50f3d5fb057d76d53569602b572d7cf67d77a1a87a83b8e11a",
+    "compiler/acir/lib/Dialect/ACIR/ACIRFinalContracts.cpp": "b6c579bc773822b4c363577d76c9f37bf37951dd2d436ca10ce5c9d02f410bf3",
+    "compiler/acir/lib/Dialect/ACIR/ACIRFinalContracts.h": "24910f7dbaa584dc38aa5cb78a941dd8459466490cb532cdb3304763501f6ed5",
+    "compiler/acir/lib/Dialect/ACIR/ACIRFinalDeclarations.cpp": "4f03f0064f3921a79287222544f45258a5c3b8c497b4130e95fce3491a274425",
+    "compiler/acir/lib/Dialect/ACIR/ACIRFinalDeclarations.h": "6e998fb52801189878a39225e9b7240756acb28a92113872583e23eb2958ab1c",
+    "compiler/acir/lib/Dialect/ACIR/ACIRFinalRecordUses.cpp": "be0162ad6b7d6bad1234d1c573796c5af9ecc36c213279b18eececb338ded6da",
+    "compiler/acir/lib/Dialect/ACIR/ACIRFinalRecordUses.h": "f860c11e81879e6a3bdef9657900264abc0aadfa5d2f35c4a4f354995f30a399",
+    "compiler/acir/lib/Dialect/ACIR/ACIRNumericNextUse.cpp": "e0178981c6a5dacb7543f726cdc463f23f9e7442ee2405e52978c516e64f99c6",
+    "compiler/acir/lib/Dialect/ACIR/ACIRNumericProofOps.cpp": "bfb868f1a4cf26d7cdda3625e6601707730814f024042b74443f97a7b8e8544c",
+    "compiler/acir/lib/Dialect/ACIR/ACIRPacketOps.cpp": "e1bb52b41197da7c258a27e0236abdbbd615c39b09471e02ef678d51e4ba115c",
+    "compiler/acir/lib/Dialect/ACIR/ACIRRecordSelector.cpp": "c7973216d8def7e2fdbc24d0631682a9e65e9ffa8706ef94792f6f8026be6b2a",
+    "compiler/acir/lib/Dialect/ACIR/ACIRRecordSelector.h": "3c3c0f1e4460c8b3abdcce0d40c4861cec6d5b073828a3f7df8aa8e17131b963",
+    "compiler/acir/lib/Dialect/ACIR/CMakeLists.txt": "93620f6ff7fd38f8324ecf3f06bca2f373a0874e41e975543dc9efe84aee25bb"
+  },
+  "aggregate": "95e3469d0cb433ce0b510c263b179d4e860da0227837de22f34fdd68d5032238"
+}

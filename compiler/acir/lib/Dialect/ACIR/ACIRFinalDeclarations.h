@@ -31,6 +31,11 @@ verifyFinalRecordDeclaration(mlir::Operation *operation,
                              mlir::DictionaryAttr enclosingOwner,
                              detail::EmitError emitError);
 
+mlir::FailureOr<StructOp>
+resolveFinalRecordDeclaration(mlir::Operation *anchor,
+                              mlir::FlatSymbolRefAttr symbol,
+                              detail::EmitError emitError);
+
 } // namespace acir::ac::final_detail
 
 #endif // ACIR_LIB_DIALECT_ACIR_ACIRFINALDECLARATIONS_H

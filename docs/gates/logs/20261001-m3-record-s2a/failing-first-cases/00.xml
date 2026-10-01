@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuites tests="1" failures="1" disabled="0" errors="0" time="0." timestamp="2026-10-01T15:16:19.440" name="AllTests">
+  <testsuite name="FinalRecordValueAttributePlacement" tests="1" failures="1" disabled="0" skipped="0" errors="0" time="0." timestamp="2026-10-01T15:16:19.440">
+    <testcase name="RequiredRecordsIsRuleOnlyMetadata" file="/Users/zhoubot/.codex/worktrees/migration-capture/pyCircuit/.pycircuit_out/m3-s2a-baseline-source/tests/cpp/agentic-circuit/Dialect/ACIR/FinalRecordValueContractsTest.cpp" line="8" status="run" result="completed" time="0." timestamp="2026-10-01T15:16:19.440" classname="FinalRecordValueAttributePlacement">
+      <failure message="/Users/zhoubot/.codex/worktrees/migration-capture/pyCircuit/.pycircuit_out/m3-s2a-baseline-source/tests/cpp/agentic-circuit/Dialect/ACIR/FinalRecordValueContractsTest.cpp:19&#x0A;Value of: failed(mlir::verify(constant))&#x0A;  Actual: false&#x0A;Expected: true&#x0A;" type=""><![CDATA[/Users/zhoubot/.codex/worktrees/migration-capture/pyCircuit/.pycircuit_out/m3-s2a-baseline-source/tests/cpp/agentic-circuit/Dialect/ACIR/FinalRecordValueContractsTest.cpp:19
+Value of: failed(mlir::verify(constant))
+  Actual: false
+Expected: true
+]]></failure>
+    </testcase>
+  </testsuite>
+</testsuites>

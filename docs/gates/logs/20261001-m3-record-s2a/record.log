@@ -1,0 +1,127 @@
+Running main() from /private/tmp/googletest-20250910-5249-qce8ci/googletest-1.17.0/googletest/src/gtest_main.cc
+Note: Google Test filter = FinalRecordValue*
+[==========] Running 11 tests from 2 test suites.
+[----------] Global test environment set-up.
+[----------] 1 test from FinalRecordValueAttributePlacement
+[ RUN      ] FinalRecordValueAttributePlacement.RequiredRecordsIsRuleOnlyMetadata
+error: ac.required_records is only valid on ac.rule
+[       OK ] FinalRecordValueAttributePlacement.RequiredRecordsIsRuleOnlyMetadata (1 ms)
+[----------] 1 test from FinalRecordValueAttributePlacement (1 ms total)
+
+[----------] 10 tests from FinalRecordValueContractsTest
+[ RUN      ] FinalRecordValueContractsTest.ExistingFinalRuleRegionAdmitsTheExactFiniteRecordValuePacket
+loc("root.py":5:5): error: record payloads are not admitted in S1
+loc("root.py":5:5): error: record payloads are not admitted in S1
+[       OK ] FinalRecordValueContractsTest.ExistingFinalRuleRegionAdmitsTheExactFiniteRecordValuePacket (142 ms)
+[ RUN      ] FinalRecordValueContractsTest.RequiredRecordsCannotBeAttachedToAnUnrelatedScalarOperation
+loc("root.py":10:9): error: ac.required_records is only valid on ac.rule
+[       OK ] FinalRecordValueContractsTest.RequiredRecordsCannotBeAttachedToAnUnrelatedScalarOperation (130 ms)
+[ RUN      ] FinalRecordValueContractsTest.RecordMetadataAndActualSSARejectIndependentTampering
+loc("root.py":8:5): error: 'ac.value.binding' op generic final use supports bool/integer scalar values
+loc("root.py":8:5): error: 'ac.rule' op generic final value binding is missing or invalid
+loc("root.py":8:5): error: 'ac.rule' op nonnumeric final target rule lacks generic use authority
+loc("root.py":8:5): error: 'ac.value.binding' op record ValueBinding requires ac.required_records final closure
+loc("root.py":8:5): error: 'ac.rule' op record value requirement array must be nonempty
+loc("root.py":8:5): error: 'ac.rule' op record value requirement array must be nonempty
+loc("root.py":8:5): error: 'ac.rule' op record value requirements are malformed or unsorted
+loc("root.py":8:5): error: 'ac.rule' op record value requirements are malformed or unsorted
+loc("root.py":8:5): error: 'ac.rule' op record value requirement has an unknown variant
+loc("root.py":8:5): error: 'ac.rule' op record value requirement has an unknown variant
+loc("root.py":8:5): error: 'ac.struct.create' op source record create differs from its ordered obligation
+loc("root.py":8:5): error: 'ac.struct.create' op source record create differs from its ordered obligation
+loc("root.py":8:5): error: 'ac.struct.get' op source record get differs from its obligation
+loc("root.py":8:5): error: 'ac.struct.get' op source record get differs from its obligation
+loc("root.py":8:5): error: 'ac.rule' op record bindings have invalid type, validity or path
+loc("root.py":8:5): error: 'ac.rule' op record bindings have invalid type, validity or path
+loc("root.py":8:5): error: 'ac.rule' op S2A ValueUse does not consume the source create
+loc("root.py":8:5): error: 'ac.rule' op S2A ValueUse does not consume the source create
+loc("root.py":8:5): error: 'arith.select' op S2A scalar selector is malformed
+loc("root.py":8:5): error: 'arith.select' op S2A scalar selector is malformed
+loc("root.py":8:5): error: 'arith.select' op S2A scalar selector is malformed
+loc("root.py":8:5): error: 'arith.select' op S2A scalar selector is malformed
+loc("root.py":8:5): error: 'arith.select' op S2A selector false value must be its typed zero leaf
+loc("root.py":8:5): error: 'arith.select' op S2A selector false value must be its typed zero leaf
+loc("root.py":8:5): error: 'ac.rule' op S2A record body contains an extra or missing operation
+loc("root.py":8:5): error: 'ac.rule' op S2A record body contains an extra or missing operation
+loc("root.py":8:5): error: 'ac.struct.get' op synthetic selector get is malformed
+loc("root.py":8:5): error: 'ac.struct.get' op synthetic selector get is malformed
+loc("root.py":8:5): error: 'ac.rule' op record bindings have invalid type, validity or path
+loc("root.py":8:5): error: 'ac.rule' op record bindings have invalid type, validity or path
+loc("root.py":8:5): error: 'ac.value.binding' op record value binding identity or attributes are invalid
+loc("root.py":8:5): error: 'ac.value.binding' op record value binding identity or attributes are invalid
+loc("root.py":8:5): error: 'ac.rule' op source and selector record operations are incomplete
+loc("root.py":8:5): error: 'ac.rule' op source and selector record operations are incomplete
+loc("root.py":8:5): error: 'ac.rule' op source and selector record operations are incomplete
+loc("root.py":8:5): error: 'ac.rule' op source and selector record operations are incomplete
+loc("root.py":8:5): error: 'ac.rule' op S2A ValueUse does not consume the source create
+loc("root.py":8:5): error: 'ac.rule' op S2A ValueUse does not consume the source create
+[       OK ] FinalRecordValueContractsTest.RecordMetadataAndActualSSARejectIndependentTampering (137 ms)
+[ RUN      ] FinalRecordValueContractsTest.SameTypedIntegerFieldsStillUseDeclarationOrder
+loc("root.py":8:5): error: 'ac.struct.create' op source record create differs from its ordered obligation
+loc("root.py":8:5): error: 'ac.struct.create' op source record create differs from its ordered obligation
+[       OK ] FinalRecordValueContractsTest.SameTypedIntegerFieldsStillUseDeclarationOrder (134 ms)
+[ RUN      ] FinalRecordValueContractsTest.SortedRequiredRecordsMayReferenceLaterIDs
+[       OK ] FinalRecordValueContractsTest.SortedRequiredRecordsMayReferenceLaterIDs (135 ms)
+[ RUN      ] FinalRecordValueContractsTest.RequiredRecordGraphRejectsDanglingCyclesUnknownFieldsAndUnsortedIDs
+loc("root.py":8:5): error: 'ac.rule' op record requirements are not a closed read/get/create DAG
+loc("root.py":8:5): error: 'ac.rule' op record requirements are not a closed read/get/create DAG
+loc("root.py":8:5): error: 'ac.rule' op record requirements are not a closed read/get/create DAG
+loc("root.py":8:5): error: 'ac.rule' op record requirements are not a closed read/get/create DAG
+loc("root.py":8:5): error: 'ac.rule' op record value requirements are malformed or unsorted
+loc("root.py":8:5): error: 'ac.rule' op record value requirements are malformed or unsorted
+loc("root.py":8:5): error: 'ac.rule' op record get requirement is malformed
+loc("root.py":8:5): error: 'ac.rule' op record get requirement is malformed
+[       OK ] FinalRecordValueContractsTest.RequiredRecordGraphRejectsDanglingCyclesUnknownFieldsAndUnsortedIDs (133 ms)
+[ RUN      ] FinalRecordValueContractsTest.RecordIdentityAndOwnershipCannotBeRedirectedOrDuplicated
+loc("root.py":8:5): error: 'ac.rule' op record requirements are not a closed read/get/create DAG
+loc("root.py":8:5): error: 'ac.rule' op record requirements are not a closed read/get/create DAG
+loc("root.py":8:5): error: 'ac.rule' op S2A record input and target must be the same owned state
+loc("root.py":8:5): error: 'ac.rule' op S2A record input and target must be the same owned state
+loc("root.py":8:5): error: 'ac.rule' op S2A RequiredRecord state or field order is invalid
+loc("root.py":8:5): error: 'ac.rule' op S2A RequiredRecord state or field order is invalid
+loc("root.py":8:5): error: 'ac.rule' op final record declaration must precede its module
+loc("root.py":8:5): error: 'ac.rule' op final record declaration must precede its module
+loc("root.py":8:5): error: 'ac.rule' op final record symbol appears outside a direct source unit
+loc("root.py":8:5): error: 'ac.rule' op final record symbol appears outside a direct source unit
+loc("root.py":8:5): error: 'ac.rule' op final record declaration must precede its module
+loc("root.py":8:5): error: 'ac.rule' op final record declaration must precede its module
+[       OK ] FinalRecordValueContractsTest.RecordIdentityAndOwnershipCannotBeRedirectedOrDuplicated (135 ms)
+[ RUN      ] FinalRecordValueContractsTest.ProviderImplementationDeclaresRecordsBeforeItsModule
+[       OK ] FinalRecordValueContractsTest.ProviderImplementationDeclaresRecordsBeforeItsModule (133 ms)
+[ RUN      ] FinalRecordValueContractsTest.SyntheticSelectorsAndResetPlaceholdersHaveExactUses
+loc("root.py":8:5): error: 'arith.select' op S2A scalar selector is malformed
+loc("root.py":8:5): error: 'arith.select' op S2A scalar selector is malformed
+loc("root.py":8:5): error: 'ac.rule' op S2A record value bindings must close required records
+loc("root.py":8:5): error: 'ac.rule' op S2A record value bindings must close required records
+loc("root.py":8:5): error: 'arith.select' op S2A selector false value must be its typed zero leaf
+loc("root.py":8:5): error: 'arith.select' op S2A selector false value must be its typed zero leaf
+loc("root.py":8:5): error: 'ac.rule' op record bindings have invalid type, validity or path
+loc("root.py":8:5): error: 'ac.rule' op record bindings have invalid type, validity or path
+loc("root.py":8:5): error: 'ac.struct.get' op synthetic selector get is malformed
+loc("root.py":8:5): error: 'ac.struct.get' op synthetic selector get is malformed
+[       OK ] FinalRecordValueContractsTest.SyntheticSelectorsAndResetPlaceholdersHaveExactUses (134 ms)
+[ RUN      ] FinalRecordValueContractsTest.RecordEvidenceRemainsWithinTheApprovedFiniteRuleSlice
+loc("root.py":8:5): error: 'ac.rule' op S2A rule metadata contains unsupported semantics
+loc("root.py":8:5): error: 'ac.rule' op S2A rule metadata contains unsupported semantics
+loc("root.py":8:5): error: 'ac.rule' op source and selector record operations are incomplete
+loc("root.py":8:5): error: 'ac.rule' op source and selector record operations are incomplete
+loc("root.py":8:5): error: 'ac.rule' op S2A record body contains an extra or missing operation
+loc("root.py":8:5): error: 'ac.rule' op S2A record body contains an extra or missing operation
+loc("root.py":8:5): error: 'ac.rule' op S2A record body contains an extra or missing operation
+loc("root.py":8:5): error: 'ac.rule' op S2A record body contains an extra or missing operation
+loc("root.py":8:5): error: 'ac.rule' op S2A record value packet rejects numeric, check, source, helper and observation evidence
+loc("root.py":8:5): error: 'ac.rule' op S2A record rule body or evidence is unsupported
+loc("root.py":8:5): error: 'ac.rule' op S2A record value packet rejects numeric, check, source, helper and observation evidence
+loc("root.py":8:5): error: 'ac.rule' op S2A record rule body or evidence is unsupported
+loc("root.py":8:5): error: 'ac.rule' op S2A record value packet rejects numeric, check, source, helper and observation evidence
+loc("root.py":8:5): error: 'ac.rule' op S2A record rule body or evidence is unsupported
+loc("root.py":8:5): error: 'ac.rule' op S2A record value packet rejects numeric, check, source, helper and observation evidence
+loc("root.py":8:5): error: 'ac.rule' op S2A record rule body or evidence is unsupported
+loc("root.py":8:5): error: 'ac.rule' op S2A RequiredUse does not name the record target
+loc("root.py":8:5): error: 'ac.rule' op S2A RequiredUse does not name the record target
+[       OK ] FinalRecordValueContractsTest.RecordEvidenceRemainsWithinTheApprovedFiniteRuleSlice (132 ms)
+[----------] 10 tests from FinalRecordValueContractsTest (1349 ms total)
+
+[----------] Global test environment tear-down
+[==========] 11 tests from 2 test suites ran. (1350 ms total)
+[  PASSED  ] 11 tests.

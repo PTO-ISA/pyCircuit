@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuites tests="7" failures="0" disabled="0" errors="0" time="0.366" timestamp="2026-10-01T15:10:42.782" name="AllTests">
+  <testsuite name="RuleEffectsTest" tests="7" failures="0" disabled="0" skipped="0" errors="0" time="0.366" timestamp="2026-10-01T15:10:42.782">
+    <testcase name="HeaderMatchesEffectsRecomputedFromActiveSourceFacts" file="/Users/zhoubot/.codex/worktrees/migration-capture/pyCircuit/tests/cpp/agentic-circuit/Dialect/ACIR/RuleEffectsTest.cpp" line="306" status="run" result="completed" time="0.06" timestamp="2026-10-01T15:10:42.782" classname="RuleEffectsTest" />
+    <testcase name="DeletedReadMarkerInvalidatesOwningHeader" file="/Users/zhoubot/.codex/worktrees/migration-capture/pyCircuit/tests/cpp/agentic-circuit/Dialect/ACIR/RuleEffectsTest.cpp" line="325" status="run" result="completed" time="0.051" timestamp="2026-10-01T15:10:42.843" classname="RuleEffectsTest" />
+    <testcase name="ForgedReadOriginInvalidatesOwningHeader" file="/Users/zhoubot/.codex/worktrees/migration-capture/pyCircuit/tests/cpp/agentic-circuit/Dialect/ACIR/RuleEffectsTest.cpp" line="338" status="run" result="completed" time="0.051" timestamp="2026-10-01T15:10:42.894" classname="RuleEffectsTest" />
+    <testcase name="HeaderCannotDropOneRecomputedOrigin" file="/Users/zhoubot/.codex/worktrees/migration-capture/pyCircuit/tests/cpp/agentic-circuit/Dialect/ACIR/RuleEffectsTest.cpp" line="348" status="run" result="completed" time="0.05" timestamp="2026-10-01T15:10:42.945" classname="RuleEffectsTest" />
+    <testcase name="OneRuleRejectsDuplicateSourceReadOccurrence" file="/Users/zhoubot/.codex/worktrees/migration-capture/pyCircuit/tests/cpp/agentic-circuit/Dialect/ACIR/RuleEffectsTest.cpp" line="377" status="run" result="completed" time="0.05" timestamp="2026-10-01T15:10:42.996" classname="RuleEffectsTest" />
+    <testcase name="ScalarStateAndNumericAstPathUseStructuralOrdering" file="/Users/zhoubot/.codex/worktrees/migration-capture/pyCircuit/tests/cpp/agentic-circuit/Dialect/ACIR/RuleEffectsTest.cpp" line="395" status="run" result="completed" time="0.051" timestamp="2026-10-01T15:10:43.047" classname="RuleEffectsTest" />
+    <testcase name="UnsupportedOriginAttributeFailsBeforeEffectSorting" file="/Users/zhoubot/.codex/worktrees/migration-capture/pyCircuit/tests/cpp/agentic-circuit/Dialect/ACIR/RuleEffectsTest.cpp" line="449" status="run" result="completed" time="0.05" timestamp="2026-10-01T15:10:43.098" classname="RuleEffectsTest" />
+  </testsuite>
+</testsuites>

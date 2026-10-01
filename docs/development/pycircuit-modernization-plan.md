@@ -389,3 +389,11 @@ ready 前列精确文件、候选、接口授权、实际测试 inventory 和退
 下一步按[有界实施顺序](../work-items/m3-record-implementation.md)分解 S2。
 SourceMath 的三个 APInt 断言已在相同选项的 pristine baseline 复现，作为明确
 数值验证缺口保留；不声称整个原生门槛通过或完整 M3 已完成。
+
+## 2026-10-01 M3-E01 S2A 验收
+
+[共享有限 record packet 验证 S2A](../work-items/m3-record-s2a-value-verifier.md)
+完成 approved read/get/create/actual SSA/单项 selector 及 AnyType/属性落点约束。
+独立 Sol APPROVE、Astra CONFORMANT；11 新 native、19 binaries/279 cases 和
+129 回归通过。三个 SourceMath/APInt 基线失败单列，整包 record 执行/生成仍关闭。
+下一步 S2B source/helper 展开和 live-path 证明；S2C/S3/S4 与完整 E01 仍开放。

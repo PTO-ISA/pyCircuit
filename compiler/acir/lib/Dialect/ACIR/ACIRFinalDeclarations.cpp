@@ -2,7 +2,9 @@
 #include "ACIRSourceOwnerCaseFoldData.h"
 
 #include "mlir/IR/Builders.h"
+#include "mlir/IR/BuiltinOps.h"
 #include "mlir/IR/SymbolTable.h"
+#include "llvm/ADT/DenseSet.h"
 #include "llvm/ADT/SmallVector.h"
 #include "llvm/ADT/StringSet.h"
 
@@ -324,6 +326,97 @@ verifyFinalRecordDeclaration(Operation *operation,
     return emitError()
            << "final record field origins must have distinct AST paths";
   return canonical;
+}
+
+FailureOr<StructOp> resolveFinalRecordDeclaration(Operation *anchor,
+                                                  FlatSymbolRefAttr symbol,
+                                                  detail::EmitError emitError) {
+  auto emit = [&] { return emitError(); };
+  auto unit =
+      anchor ? anchor->getParentOfType<mlir::ModuleOp>() : mlir::ModuleOp();
+  auto package = unit ? dyn_cast_or_null<mlir::ModuleOp>(unit->getParentOp())
+                      : mlir::ModuleOp();
+  auto packageStage =
+      package ? package->getAttrOfType<StringAttr>("ac.stage") : StringAttr();
+  if (!anchor || !symbol || symbol.getValue().empty() || !unit || !package ||
+      unit->getParentOp() != package.getOperation() || !packageStage ||
+      packageStage.getValue() != "final" || package->hasAttr("ac.unit_kind") ||
+      !package->hasAttr("ac.entry") ||
+      !package->hasAttr("ac.instance_bindings") ||
+      !llvm::hasSingleElement(package.getBody()->getOps<SystemOp>()))
+    return emit() << "final record lookup requires a direct final source unit";
+
+  DenseSet<Attribute> owners;
+  DenseSet<Attribute> foldedOwners;
+  DenseSet<Attribute> importModules;
+  DenseSet<Operation *> directRecords;
+  StructOp selected;
+  for (Operation &child : package.getBody()->getOperations()) {
+    auto candidateUnit = dyn_cast<mlir::ModuleOp>(&child);
+    if (!candidateUnit)
+      continue;
+    auto stage = candidateUnit->getAttrOfType<StringAttr>("ac.stage");
+    auto kind = candidateUnit->getAttrOfType<StringAttr>("ac.unit_kind");
+    auto owner =
+        candidateUnit->getAttrOfType<DictionaryAttr>("ac.source_owner");
+    if (!stage || stage.getValue() != "final" || !kind || !owner ||
+        (kind.getValue() != "implementation" &&
+         kind.getValue() != "declarations") ||
+        failed(detail::verifySourceOwner(owner, emitError)) ||
+        !owners.insert(owner).second)
+      return emit() << "final package has a malformed or repeated source unit";
+    auto folded = sourceOwnerCaseFoldIdentity(owner, emitError);
+    auto importModule = sourceImportModuleIdentity(owner, emitError);
+    if (failed(folded) || failed(importModule) ||
+        !foldedOwners.insert(*folded).second ||
+        !importModules
+             .insert(StringAttr::get(anchor->getContext(), *importModule))
+             .second)
+      return emit() << "final package repeats a source or import owner";
+
+    auto consider = [&](Operation *operation) -> LogicalResult {
+      auto name = operation->getAttrOfType<StringAttr>(
+          SymbolTable::getSymbolAttrName());
+      if (!name || name.getValue() != symbol.getValue())
+        return success();
+      auto record = dyn_cast<StructOp>(operation);
+      if (!record || selected)
+        return emit()
+               << "final record symbol is missing, duplicated, or not a struct";
+      directRecords.insert(operation);
+      if (failed(verifyFinalRecordDeclaration(operation, owner, emitError)))
+        return failure();
+      selected = record;
+      return success();
+    };
+
+    unsigned moduleCount = 0;
+    for (Operation &bodyOperation : candidateUnit.getBody()->getOperations()) {
+      if (isa<acir::ac::ModuleOp>(bodyOperation)) {
+        ++moduleCount;
+        continue;
+      }
+      if (moduleCount && isa<StructOp>(bodyOperation))
+        return emit() << "final record declaration must precede its module";
+      if (failed(consider(&bodyOperation)))
+        return failure();
+    }
+    if (moduleCount != (kind.getValue() == "implementation" ? 1u : 0u))
+      return emit() << "final source unit has an invalid direct module count";
+  }
+  bool nested = false;
+  package.walk([&](StructOp record) {
+    auto name =
+        record->getAttrOfType<StringAttr>(SymbolTable::getSymbolAttrName());
+    if (name && name.getValue() == symbol.getValue() &&
+        !directRecords.contains(record.getOperation()))
+      nested = true;
+  });
+  if (nested)
+    return emit() << "final record symbol appears outside a direct source unit";
+  if (!selected)
+    return emit() << "final package has no unique direct record provider";
+  return selected;
 }
 
 } // namespace acir::ac::final_detail

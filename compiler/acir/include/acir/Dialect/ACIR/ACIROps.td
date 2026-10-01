@@ -33,14 +33,14 @@ def ACIR_MathConstantOp : ACIR_Op<"math.constant"> {
 
 def ACIR_ValueBindingOp : ACIR_Op<"value.binding"> {
   let summary = "Bind one proof-scoped ValueID to actual SSA and controls";
-  let arguments = (ins AnySignlessInteger:$value, I1:$valid, I1:$path,
+  let arguments = (ins AnyType:$value, I1:$valid, I1:$path,
       DictionaryAttr:$id, DictionaryAttr:$domain);
   let hasVerifier = 1;
 }
 
 def ACIR_ValueUseOp : ACIR_Op<"value.use"> {
   let summary = "Bind one proof-scoped source use to verified finite SSA";
-  let arguments = (ins AnySignlessInteger:$value, I1:$valid, I1:$path,
+  let arguments = (ins AnyType:$value, I1:$valid, I1:$path,
       DictionaryAttr:$id, DictionaryAttr:$source);
   let hasVerifier = 1;
 }

@@ -1,0 +1,43 @@
+Test project /Users/zhoubot/.codex/worktrees/migration-capture/pyCircuit/.pycircuit_out/m3-s2a-build
+      Start  1: ACIRSourceContractsTests
+ 1/19 Test  #1: ACIRSourceContractsTests ............   Passed    0.83 sec
+      Start  3: ACIRSourceUnitTests
+ 2/19 Test  #3: ACIRSourceUnitTests .................   Passed    2.45 sec
+      Start  4: ACIRNamespaceContractsTests
+ 3/19 Test  #4: ACIRNamespaceContractsTests .........   Passed    2.56 sec
+      Start  5: ACIRSourceModuleContractsTests
+ 4/19 Test  #5: ACIRSourceModuleContractsTests ......   Passed    4.67 sec
+      Start  6: ACIRSourceLinkAdmissionTests
+ 5/19 Test  #6: ACIRSourceLinkAdmissionTests ........   Passed    1.61 sec
+      Start  7: ACIRRegContractsTests
+ 6/19 Test  #7: ACIRRegContractsTests ...............   Passed    1.54 sec
+      Start  8: ACIRSourceFactsTests
+ 7/19 Test  #8: ACIRSourceFactsTests ................   Passed    0.77 sec
+      Start  9: ACIRRuleEffectsTests
+ 8/19 Test  #9: ACIRRuleEffectsTests ................   Passed    1.13 sec
+      Start 10: ACIRModuleGraphTests
+ 9/19 Test #10: ACIRModuleGraphTests ................   Passed    1.33 sec
+      Start 11: ACIRFinalProgramTests
+10/19 Test #11: ACIRFinalProgramTests ...............   Passed    8.69 sec
+      Start 12: ACIRProposalContractsTests
+11/19 Test #12: ACIRProposalContractsTests ..........   Passed    1.30 sec
+      Start 13: ACIRRegRuntimeTests
+12/19 Test #13: ACIRRegRuntimeTests .................   Passed    0.36 sec
+      Start 14: ACIRSystemLifecycleTests
+13/19 Test #14: ACIRSystemLifecycleTests ............   Passed    0.37 sec
+      Start 15: ACIRSimExecutorTests
+14/19 Test #15: ACIRSimExecutorTests ................   Passed    0.37 sec
+      Start 16: ACIRObservationTests
+15/19 Test #16: ACIRObservationTests ................   Passed    0.37 sec
+      Start 17: ACIRObservationContractsTests
+16/19 Test #17: ACIRObservationContractsTests .......   Passed    0.86 sec
+      Start 18: ACIRCheckContractsTests
+17/19 Test #18: ACIRCheckContractsTests .............   Passed    1.09 sec
+      Start 19: ACIRBackendClosureTests
+18/19 Test #19: ACIRBackendClosureTests .............   Passed    3.81 sec
+      Start 20: ACIRExecutableBackendClosureTests
+19/19 Test #20: ACIRExecutableBackendClosureTests ...   Passed    8.26 sec
+
+100% tests passed, 0 tests failed out of 19
+
+Total Test time (real) =  42.40 sec

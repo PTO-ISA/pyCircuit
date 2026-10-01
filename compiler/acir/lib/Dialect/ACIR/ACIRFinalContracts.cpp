@@ -1,5 +1,6 @@
 #include "ACIRFinalContracts.h"
 
+#include "ACIRFinalRecordUses.h"
 #include "ACIRFinalUses.h"
 #include "ACIRNumericComposition.h"
 #include "ACIRNumericProof.h"
@@ -292,6 +293,12 @@ LogicalResult identity(SourceExpectOp op, RuleOp rule) {
 
 } // namespace
 
+LogicalResult verifyFinalRuleHandle(RuleOp rule, Value actual,
+                                    DictionaryAttr state,
+                                    DictionaryAttr logical, StringRef role) {
+  return handle(actual, state, logical, role, rule);
+}
+
 bool isFinalImplementation(Operation *operation) {
   auto file = operation ? operation->getParentOfType<mlir::ModuleOp>()
                         : mlir::ModuleOp();
@@ -421,6 +428,8 @@ LogicalResult verifyFinalRuleRegion(RuleOp op) {
   auto emit = [&] { return op.emitOpError(); };
   if (op.getBody().getBlocks().size() != 1)
     return emit() << "final rule requires one block";
+  if (hasFinalRecordUses(op))
+    return verifyFinalRecordUses(op);
   Block &body = op.getBody().front();
   if (body.getNumArguments() != op.getInputs().size())
     return emit() << "final rule block arguments differ from inputs";

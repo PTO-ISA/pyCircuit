@@ -1,0 +1,129 @@
+{
+  "base": "4c3a4be690f30453acdc551e224e9ef258291ee1",
+  "tests": [
+    {
+      "test": "FinalRecordValueAttributePlacement.RequiredRecordsIsRuleOnlyMetadata",
+      "argv": [
+        "/Users/zhoubot/.codex/worktrees/migration-capture/pyCircuit/.pycircuit_out/m3-s2a-baseline-build/bin/ACIRFinalProgramTests",
+        "--gtest_filter=FinalRecordValueAttributePlacement.RequiredRecordsIsRuleOnlyMetadata",
+        "--gtest_output=xml:/Users/zhoubot/.codex/worktrees/migration-capture/pyCircuit/.pycircuit_out/m3-s2a-failing-first-cases/00.xml"
+      ],
+      "exit": 1,
+      "log": ".pycircuit_out/m3-s2a-failing-first-cases/00.log",
+      "xml": ".pycircuit_out/m3-s2a-failing-first-cases/00.xml"
+    },
+    {
+      "test": "FinalRecordValueContractsTest.ExistingFinalRuleRegionAdmitsTheExactFiniteRecordValuePacket",
+      "argv": [
+        "/Users/zhoubot/.codex/worktrees/migration-capture/pyCircuit/.pycircuit_out/m3-s2a-baseline-build/bin/ACIRFinalProgramTests",
+        "--gtest_filter=FinalRecordValueContractsTest.ExistingFinalRuleRegionAdmitsTheExactFiniteRecordValuePacket",
+        "--gtest_output=xml:/Users/zhoubot/.codex/worktrees/migration-capture/pyCircuit/.pycircuit_out/m3-s2a-failing-first-cases/01.xml"
+      ],
+      "exit": -6,
+      "log": ".pycircuit_out/m3-s2a-failing-first-cases/01.log",
+      "xml": null
+    },
+    {
+      "test": "FinalRecordValueContractsTest.RequiredRecordsCannotBeAttachedToAnUnrelatedScalarOperation",
+      "argv": [
+        "/Users/zhoubot/.codex/worktrees/migration-capture/pyCircuit/.pycircuit_out/m3-s2a-baseline-build/bin/ACIRFinalProgramTests",
+        "--gtest_filter=FinalRecordValueContractsTest.RequiredRecordsCannotBeAttachedToAnUnrelatedScalarOperation",
+        "--gtest_output=xml:/Users/zhoubot/.codex/worktrees/migration-capture/pyCircuit/.pycircuit_out/m3-s2a-failing-first-cases/02.xml"
+      ],
+      "exit": 1,
+      "log": ".pycircuit_out/m3-s2a-failing-first-cases/02.log",
+      "xml": ".pycircuit_out/m3-s2a-failing-first-cases/02.xml"
+    },
+    {
+      "test": "FinalRecordValueContractsTest.RecordMetadataAndActualSSARejectIndependentTampering",
+      "argv": [
+        "/Users/zhoubot/.codex/worktrees/migration-capture/pyCircuit/.pycircuit_out/m3-s2a-baseline-build/bin/ACIRFinalProgramTests",
+        "--gtest_filter=FinalRecordValueContractsTest.RecordMetadataAndActualSSARejectIndependentTampering",
+        "--gtest_output=xml:/Users/zhoubot/.codex/worktrees/migration-capture/pyCircuit/.pycircuit_out/m3-s2a-failing-first-cases/03.xml"
+      ],
+      "exit": -6,
+      "log": ".pycircuit_out/m3-s2a-failing-first-cases/03.log",
+      "xml": null
+    },
+    {
+      "test": "FinalRecordValueContractsTest.SameTypedIntegerFieldsStillUseDeclarationOrder",
+      "argv": [
+        "/Users/zhoubot/.codex/worktrees/migration-capture/pyCircuit/.pycircuit_out/m3-s2a-baseline-build/bin/ACIRFinalProgramTests",
+        "--gtest_filter=FinalRecordValueContractsTest.SameTypedIntegerFieldsStillUseDeclarationOrder",
+        "--gtest_output=xml:/Users/zhoubot/.codex/worktrees/migration-capture/pyCircuit/.pycircuit_out/m3-s2a-failing-first-cases/04.xml"
+      ],
+      "exit": -6,
+      "log": ".pycircuit_out/m3-s2a-failing-first-cases/04.log",
+      "xml": null
+    },
+    {
+      "test": "FinalRecordValueContractsTest.SortedRequiredRecordsMayReferenceLaterIDs",
+      "argv": [
+        "/Users/zhoubot/.codex/worktrees/migration-capture/pyCircuit/.pycircuit_out/m3-s2a-baseline-build/bin/ACIRFinalProgramTests",
+        "--gtest_filter=FinalRecordValueContractsTest.SortedRequiredRecordsMayReferenceLaterIDs",
+        "--gtest_output=xml:/Users/zhoubot/.codex/worktrees/migration-capture/pyCircuit/.pycircuit_out/m3-s2a-failing-first-cases/05.xml"
+      ],
+      "exit": -6,
+      "log": ".pycircuit_out/m3-s2a-failing-first-cases/05.log",
+      "xml": null
+    },
+    {
+      "test": "FinalRecordValueContractsTest.RequiredRecordGraphRejectsDanglingCyclesUnknownFieldsAndUnsortedIDs",
+      "argv": [
+        "/Users/zhoubot/.codex/worktrees/migration-capture/pyCircuit/.pycircuit_out/m3-s2a-baseline-build/bin/ACIRFinalProgramTests",
+        "--gtest_filter=FinalRecordValueContractsTest.RequiredRecordGraphRejectsDanglingCyclesUnknownFieldsAndUnsortedIDs",
+        "--gtest_output=xml:/Users/zhoubot/.codex/worktrees/migration-capture/pyCircuit/.pycircuit_out/m3-s2a-failing-first-cases/06.xml"
+      ],
+      "exit": -6,
+      "log": ".pycircuit_out/m3-s2a-failing-first-cases/06.log",
+      "xml": null
+    },
+    {
+      "test": "FinalRecordValueContractsTest.RecordIdentityAndOwnershipCannotBeRedirectedOrDuplicated",
+      "argv": [
+        "/Users/zhoubot/.codex/worktrees/migration-capture/pyCircuit/.pycircuit_out/m3-s2a-baseline-build/bin/ACIRFinalProgramTests",
+        "--gtest_filter=FinalRecordValueContractsTest.RecordIdentityAndOwnershipCannotBeRedirectedOrDuplicated",
+        "--gtest_output=xml:/Users/zhoubot/.codex/worktrees/migration-capture/pyCircuit/.pycircuit_out/m3-s2a-failing-first-cases/07.xml"
+      ],
+      "exit": -6,
+      "log": ".pycircuit_out/m3-s2a-failing-first-cases/07.log",
+      "xml": null
+    },
+    {
+      "test": "FinalRecordValueContractsTest.ProviderImplementationDeclaresRecordsBeforeItsModule",
+      "argv": [
+        "/Users/zhoubot/.codex/worktrees/migration-capture/pyCircuit/.pycircuit_out/m3-s2a-baseline-build/bin/ACIRFinalProgramTests",
+        "--gtest_filter=FinalRecordValueContractsTest.ProviderImplementationDeclaresRecordsBeforeItsModule",
+        "--gtest_output=xml:/Users/zhoubot/.codex/worktrees/migration-capture/pyCircuit/.pycircuit_out/m3-s2a-failing-first-cases/08.xml"
+      ],
+      "exit": -6,
+      "log": ".pycircuit_out/m3-s2a-failing-first-cases/08.log",
+      "xml": null
+    },
+    {
+      "test": "FinalRecordValueContractsTest.SyntheticSelectorsAndResetPlaceholdersHaveExactUses",
+      "argv": [
+        "/Users/zhoubot/.codex/worktrees/migration-capture/pyCircuit/.pycircuit_out/m3-s2a-baseline-build/bin/ACIRFinalProgramTests",
+        "--gtest_filter=FinalRecordValueContractsTest.SyntheticSelectorsAndResetPlaceholdersHaveExactUses",
+        "--gtest_output=xml:/Users/zhoubot/.codex/worktrees/migration-capture/pyCircuit/.pycircuit_out/m3-s2a-failing-first-cases/09.xml"
+      ],
+      "exit": -6,
+      "log": ".pycircuit_out/m3-s2a-failing-first-cases/09.log",
+      "xml": null
+    },
+    {
+      "test": "FinalRecordValueContractsTest.RecordEvidenceRemainsWithinTheApprovedFiniteRuleSlice",
+      "argv": [
+        "/Users/zhoubot/.codex/worktrees/migration-capture/pyCircuit/.pycircuit_out/m3-s2a-baseline-build/bin/ACIRFinalProgramTests",
+        "--gtest_filter=FinalRecordValueContractsTest.RecordEvidenceRemainsWithinTheApprovedFiniteRuleSlice",
+        "--gtest_output=xml:/Users/zhoubot/.codex/worktrees/migration-capture/pyCircuit/.pycircuit_out/m3-s2a-failing-first-cases/10.xml"
+      ],
+      "exit": -6,
+      "log": ".pycircuit_out/m3-s2a-failing-first-cases/10.log",
+      "xml": null
+    }
+  ],
+  "passed": 0,
+  "failed": 2,
+  "signal_terminated": 9
+}
