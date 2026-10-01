@@ -1,6 +1,6 @@
 # M3-E01：已批准 record 的有界实施顺序
 
-状态：ready-for-bounded-decomposition；尚未写产品代码。日期：2026-10-01。
+状态：S1 已验收；S2 ready-for-bounded-decomposition，S3/S4 尚未实施。日期：2026-10-01。
 精确授权：[C2-DECL-R B 批准](../rfcs/migration/approvals/c2-decl-record-final.md)，
 proposal SHA-256 `ea242da0d85de4f51c439051c80c2e7ce12c17dca5ef9a63b8743f0f280a0043`。
 准入/设计/oracle已闭合；本包不是重新请求批准，也不是 record profile 已实现。
@@ -36,6 +36,10 @@ supported profile。已批准接口同一范围内的普通实现/修复无需�
 - S4最终验收后才扩大当前profile到这个two-fieldrecord slice，更新语言/guide/decision/
   gate/例子与source/group/ABI依赖图；未支持features保留精确拒绝与backlog。
 
-下一次实现从 S1 的实际class/file依赖核对开始，禁止一次发起四个共享文件writer。
+S1 的[声明投影/准入与验收](m3-record-s1-final-declarations.md)已经完成。
+下一次从 S2 的实际 importer/helper/value/use 文件依赖核对开始，冻结独占文件
+与独立 oracle；不同时发起四个共享文件 writer。S1 的 shared emit guard 仍
+拒绝 record 包，只有 S4 双后端/源属声明完成后才能移除。三个已确认的基线
+SourceMath/APInt 失败单列为验证缺口，不能把 S1 说成全原生 suite 通过。
 本顺序只实现用户已批准record范围，不授权Bank、SYSTEM/EXPECT B、recordchildports、
 record多contribution/writer、typedDUT、四态/memory/CDC或runtimeAPI变化。

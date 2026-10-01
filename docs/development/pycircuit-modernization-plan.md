@@ -435,3 +435,12 @@ M6 对final/CPP/RTL的15个首次发布可达中断点已有真实证据，保�
 开始；本次设计步骤不声称record已执行。M6-04 的四组selected尺寸/32phase/
 24CABIrun和独立测试已通过，见[资源/长运行验收](../work-items/m6-resource-runtime-baseline.md)。
 采样RSS/摊销速率有明确限制，不证明exact/isolated峰值、RTL吞吐或全部M6。
+
+## 2026-10-01 M3-E01 S1 完成
+
+产品提交 `4c3a4be6` 完成[S1 final record 声明投影](../work-items/m3-record-s1-final-declarations.md)，
+独立 Sol APPROVE、Astra CONFORMANT；code/test 候选和 raw evidence 已归档。
+10 system、4 record native、19 CTest binaries/268 cases、119 回归与安装 CLI
+验证通过。三个 APInt 数值变异失败在相同选项的精确基线复现，作为验证缺口保留，
+不声称整个原生门槛通过。下一步[有界 S2 实施](../work-items/m3-record-implementation.md)。
+S1 仍共同拒绝 record 后端生成；S2–S4 和完整 record 执行未完成。
