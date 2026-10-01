@@ -419,3 +419,11 @@ acceptance and the broader capability roadmap remain separate; existing
 独立 Astra high 通过计划与适用性核对，不批准新接口，也不将未来 checklist记为实现。
 原能力表/执行账本的历史状态保留，顶部当前范围与已验收包同步；完整能力/平台/
 稳定发布仍按需求推进，不重开 M2 或恢复旧路线。
+
+## 2026-10-01 首轮 M3/M6 扩展执行完成
+
+产品提交 `9ff015a2` 完成 [M3-P01](../work-items/m3-contract-admission.md)
+与 [M6-03](../work-items/m6-first-publication-expansion.md)。M3 选择下一步
+record final投影精确design/oracle，重用已批准行为，不开放 Bank 或两份 B。
+M6 对final/CPP/RTL的15个首次发布可达中断点已有真实证据，保留原协议。
+这不是完整M3/M6完成；各capability、平台与性能包继续按扩展计划推进。
