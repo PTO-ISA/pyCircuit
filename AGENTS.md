@@ -36,6 +36,37 @@ of truth.
   and reviewer as independent instances. Preserve current semantic constraints
   until an approved contract explicitly cuts them over.
 
+## Hardware design and task boundaries
+
+- pyCircuit is a hardware design language. Designs, modules, register references,
+  stateless rules and test systems are the product concepts. A selected test
+  fixture or an unfinished implementation slice is not the language definition.
+- **NO HARDCODE:** do not use an example's name, width, initial value, increment,
+  mask, node count, statement layout or number of ports to decide product
+  semantics or admission. Derive behavior from declared types, actual SSA,
+  effects, register ownership and approved operation semantics. Hardware source
+  constants, independently derived oracle values and fixed primitive contracts
+  are legitimate; scenario recognition as a compiler rule is not.
+- **NO SHIM:** no compatibility aliases, old-route fallback, parallel semantic
+  compiler, backend-only semantic patch, or adapter that bypasses common IR
+  inference/verification. Rename or replace the owning implementation and its
+  callers together. A temporary workaround needs removal before acceptance;
+  calling it internal does not exempt it.
+- For a complex change, a real `architect` agent establishes the design and an
+  independent decomposition agent splits it into small tasks before execution.
+  Each task fixes its inputs, exclusive files, dependencies, expected hardware
+  behavior, minimal gates and removal scope. Executors implement those tasks;
+  they do not redesign the framework while chasing a failing test.
+- PM integrates shared registries and CMake. Implementation, independent tests
+  and review use separate instances. Default implementation and code-review
+  model is `gpt-6.1-sol`; record the actual role/model/effort. Use the real
+  architect preset for architecture, not another role described as architect.
+- Remove tests that freeze incidental recipes or duplicate another gate.
+  Preserve meaningful ownership, type/range, old-Q, Xfer/hold/discard/reset,
+  zero-commit-on-failure, source-unit and output-protection oracles. Never weaken
+  hardware semantics to make an example pass, or claim broad migration from
+  one or two small examples.
+
 ## Task mapping
 
 - Complex circuit authoring: choose the frontend and decomposition pattern in

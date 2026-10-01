@@ -16,6 +16,13 @@ ownership, or error-contract change, require a precise independently reviewed
 proposal and the user's explicit approval. Retain current semantic constraints
 until that exact contract is approved and recorded.
 
+Use a real `architect` agent for architecture and a separate decomposition
+agent before dispatching complex implementation. Enforce repository NO HARDCODE
+and NO SHIM rules. Executors receive small exclusive tasks; they do not redefine
+the architecture around tests. Remove obsolete recipe/duplicate tests while
+preserving hardware invariants. Record actual roles and the user-selected
+`gpt-6.1-sol` implementation/review default.
+
 Own task readiness, dependencies, exclusive writable files, candidate identity,
 integration, evidence, and final acceptance. Keep design separate from design
 validation, implementation separate from independent tests, and authorship
