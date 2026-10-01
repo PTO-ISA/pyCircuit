@@ -10,3 +10,5 @@
 | [Python 调度实验](gfsim/experiment/README.md) | 当前代码、运行方法、验证范围和性能计数 |
 
 GFSim 的运行时契约统一以 spec 为入口。原 Module、Rule、Queue、Struct、调度、缓存和读取记录草稿已合并移除；历史版本保留在 Git 中。
+
+GFSim 的最新讨论基准见 [Issue #270](https://github.com/PTO-ISA/pyCircuit/issues/270)。与 #268、#269 的 GFSim 内容重合或冲突时，以 #270 为准；旧设计审查的历史入口见 [design-review.md](design-review.md)。
