@@ -4,7 +4,7 @@
 
 ## 基本模型
 
-Module 包含连接、持久状态和运行时控制逻辑，Work 根据本 tick 的 current 状态选择并调用 rule。Module 不是原子事务，多个独立 rule 可以分别成功或失败。Module 控制流不读取 delta 内变化的仲裁资格；同一 tick 只执行一次 Work，记录选中的 rule 调用与参数，后续 delta 只重试受影响的 rule Work。
+Module 包含连接、持久状态和运行时控制逻辑，Work 根据本 tick 的 current 状态选择并调用 rule。Module 不是原子事务，多个独立 rule 可以分别成功或失败。Module 控制流不读取 delta 内变化的仲裁资格；同一 tick 只执行一次 Work，记录选中的 rule 调用与参数，后续 delta 对已有完整候选只重试仲裁，不重跑 rule Work。跨 tick 复用时比较调用参数和实际 Queue 依赖版本，见 [GFSim 记录方案](../gfsim/scheduler-records.md)。
 
 Rule 包含组合计算和控制流。由实际分支选中的输入消费、输出产生与内部状态修改构成一个原子 firing；所有实际操作一起成功，否则不提交。
 

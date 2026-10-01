@@ -2,6 +2,8 @@
 
 ## 概述
 
+本文按当前简化记录方案描述 B 调度，记录详见 [scheduler-records.md](scheduler-records.md)。跨 tick 由 Module 订阅激活、Rule 参数和依赖版本判断复用；同 tick 已有完整候选只重试仲裁。未写仲裁规则的端口竞争不报错、不保证获胜者。
+
 一条 Rule 能否在本拍提交，有时取决于另一条 Rule 本拍是否获准。这是硬件中真实存在的仲裁依赖，不取决于状态用 Queue 还是寄存器表示。例如：
 
 - **单项寄存器流水级**：`valid=1` 表示这一格已满。若下游本拍取走旧数据，上游便可在同一拍写入新数据；上游能否写入，取决于下游的取走操作是否获准。参见 [Chisel Queue 的流水选项](https://www.chisel-lang.org/api/latest/chisel3/util/Queue.html)。
@@ -48,7 +50,8 @@ void ModuleBC::Work() {
 }
 
 void ModuleBC::work_B() {
-    beginCandidateForCurrentTick(); // 旧 proposal 失效；complete = false
+    if (!prepareCandidateForCurrentTick())
+        return; // 完整候选的参数和依赖版本匹配：复用并重新登记 Module 订阅。
     if (mode.peek() == Mode::FromQ1) {
         const auto* value = q1.tryPeek();
         if (!value) return;
@@ -93,7 +96,7 @@ Input Queue 的 push 在 tick 末通过 Xfer 提交，并在下一 tick 唤醒�
 
 Output Queue 的 pop 获准后，会在同一 tick 的下一 delta 唤醒可能向该 Queue push 的上游 rule。若上游 Module 本 tick 尚未运行，先执行一次 Module Work 和选中的 Rule Work；若候选已生成，则只重试仲裁。
 
-同一 tick 内，所有 Work 看到的 current state 不变。因此，每个 Module 只需执行一次 `Work()`，缓存选中的 rule 路径和调用参数；每条被选中的 rule 也只需执行一次 `work_<rule>()`，以本 tick 的计算结果覆盖旧 proposal。同 tick 后续变化的是 Queue 的 push/pop 仲裁资格，而不是业务计算的结果。
+同一 tick 内，所有 Work 看到的 current state 不变。每个 Module 执行一次 `Work()`，记录选择和参数；首次选择 Rule 时检查跨 tick 候选，参数和实际依赖版本匹配则复用，否则清理旧候选后计算。后续 delta 已有完整候选直接重试仲裁，不进入 Rule Work，也不重复版本或参数比较。
 
 ## 静态图与当前 tick 的激活图
 
@@ -154,67 +157,61 @@ flowchart TB
 
 ## 调度伪代码
 
-`take_all()` 取出并清空待处理集合；循环中新加入的对象留到下一 delta。`producers_of[queue]` 是编译期建立的静态依赖索引，但唤醒时只查询本次实际获准 pop 的 Queue。`module.work()` 内调用的每个 `work_<rule>()` 都先为当前 tick 开始一个新候选，使旧 proposal 失效；只有执行到 `markComplete()` 的候选才能仲裁。
+任务以 ID 列表和入队标记去重；take_all 取当前批次，循环中新增任务留到下一 delta。run_module_once 包含 Module 选择、候选验证或计算、订阅发布和旧候选取消，不分析函数体。
 
 ```python
 def run_tick(tick, initial_modules):
-    worked_modules = set()       # 本 tick 已执行过 Work 的 Module
-    accepted_rules = set()        # 本 tick 已获准的 Rule
-    modules_to_work = set(initial_modules)
-    rules_to_arbitrate = set()
+    module_tasks.enqueue_all(initial_modules)
+    accepted = []
+    while module_tasks or rule_tasks:
+        batch_modules = module_tasks.take_all()
+        batch_rules = rule_tasks.take_all()
+        for mid in batch_modules:
+            if modules[mid].worked_tick != tick:
+                run_module_once(mid, tick)
+                batch_rules.enqueue_all(modules[mid].selected_rules)
 
-    while modules_to_work or rules_to_arbitrate:
-        # Module Work 读取固定的 current state；本 tick 每个 Module 只运行一次。
-        for module in take_all(modules_to_work):
-            if module in worked_modules:
+        for rid in downstream_first(batch_rules):
+            r = rules[rid]
+            if r.selected_tick != tick or r.accepted_tick == tick:
                 continue
-
-            worked_modules.add(module)
-            for rule in module.work():
-                # 选中的 work_<rule>() 覆盖旧候选；提前退出则候选不完整。
-                if rule.candidate_complete_at(tick):
-                    rules_to_arbitrate.add(rule)
-
-        # 消费者先仲裁，生产者后仲裁；pop 获准才可能给 push 腾空间。
-        for rule in downstream_first(take_all(rules_to_arbitrate)):
-            if rule in accepted_rules or not rule.candidate_complete_at(tick):
+            if not r.complete or not r.participants:
                 continue
-
-            if not rule.arbitrate():
-                # 释放临时预约，保留本 tick 的候选，供后续 delta 重试。
+            if not arbitrate(rid):
+                # 释放全部临时预约，保留候选，保存第一个 waiting_queue。
                 continue
+            accepted.append(rid)
+            for qid in actual_accepted_pops(rid):
+                for upstream in producers_of[qid]:
+                    m, r = owner_module(upstream), rules[upstream]
+                    if m.worked_tick != tick:
+                        module_tasks.enqueue(m.id)
+                    elif (r.selected_tick == tick and r.complete and r.participants
+                          and r.accepted_tick != tick and upstream not in batch_rules):
+                        rule_tasks.enqueue(upstream)  # 直接仲裁，不调用 Work
 
-            accepted_rules.add(rule)
-
-            # 只沿本次实际获准 pop 的 Queue 传播，不遍历未选中的分支。
-            for queue in rule.accepted_pops:
-                for upstream in producers_of[queue]:
-                    if upstream.module not in worked_modules:
-                        # Module 尚未运行：先执行 Work，确定是否选中 upstream。
-                        modules_to_work.add(upstream.module)
-                    elif (upstream in upstream.module.selected_rules
-                          and upstream.candidate_complete_at(tick)):
-                        # 已有本 tick 的候选：下一 delta 只重试仲裁。
-                        rules_to_arbitrate.add(upstream)
-
-    # Xfer 只提交本 tick 已获准的 proposal，更新 Queue 的 current state。
-    changed_queues = set()
-    for queue in queues:
-        if queue.xfer(tick):
-            changed_queues.add(queue)
-
-    # 提交后的变化在下一 tick 唤醒读取这些 Queue 的 Module。
-    schedule_next_tick(changed_queues)
+    changed = xfer_all_used_queues()  # revise → pop → push；仅清理 accepted
+    for qid in changed:
+        for mid, saved_gen in readers_of[qid]:
+            if saved_gen == modules[mid].read_gen:
+                next_tick_modules.enqueue(mid)
+    for qid in used_queues:
+        for rid in sources_of[qid]:
+            if rules[rid].waiting_queue == qid:
+                next_tick_modules.enqueue(owner_module(rid).id)
+    clear_committed_candidates(accepted)
 ```
 
-例如 B 可能 pop Q1 或 Q2，但本次仅 pop Q2，则 B 获准后只查询 `producers_of[Q2]`，点亮 C；A 不会因此被点亮。
+只查询实际获准 pop 的 Queue，未选中的静态分支不传播。已在当前批次中的生产者按消费先行顺序稍后检查容量，不重复安排下一 delta。
 
-## proposal 的跨 tick 生命周期
+## 跨 tick 候选和读取关系
 
-初版不在 tick 边界逐条清空候选，采用“本 tick 首次 Work 覆盖旧候选”的规则。`beginCandidateForCurrentTick()` 使该 rule 的旧 proposal 逻辑失效，并将 `complete` 设为 false；新提出的 Queue proposal 标记当前 tick。只有 `markComplete()` 执行后，`candidate_complete_at(tick)` 才为 true。即使 Work 提前返回，旧分支留下的 proposal 也不会参与仲裁。
+Module Work 开始准备新读取代号；实际读取及复用 Rule.deps 都登记 Queue 的 Module 读者条目；结束后发布 readGen。旧条目代号不匹配则失效。读空也登记，子 Module 的读取登记到自己名下。
 
-- Module 本 tick 首次被激活时执行 `Work()`；被选中的 `work_<rule>()` 用当前状态重新生成候选。即使它因 `tryPeek()` 失败而没有完整候选，也要使旧候选失效。
-- 同 tick 后续 delta 再激活该 rule 时，current state 未变，直接用本 tick 的候选重试仲裁。
-- 候选一旦获准，便属于这一次 firing；tick 末 Xfer 后不能在下一 tick 再次仲裁。未获准的旧候选可以留在存储中，但在下一 tick 首次 Work 覆盖它之前，不具备仲裁资格。
+Rule 保存实际读取 Queue 的版本及 pop/revise 目标版本。纯 push 不依赖输出旧内容。只有完整且有 proposal 的未获准候选，在参数和所有依赖版本匹配时才复用。Module 未选中的旧 Rule 取消；必要读取失败清理部分 proposal，但保留 Module 订阅。
 
-因此，“不清空”仅指可以复用存储空间，不代表默认跨 tick 复用旧计算结果。上述调度伪代码每 tick 新建 `worked_modules` 和 `accepted_rules`，并在 Module 本 tick 首次 Work 后才把选中的 rule 加入仲裁集合。将来如果要直接复用上个 tick 未获准的候选，需要另行验证 Module 选择条件、Rule 读过的状态和 proposal 指向的元素身份都未改变；每 tick 的仲裁资格仍需重新检查。
+完整仲裁失败只释放预约，候选可跨 tick 保留；获准候选在 Xfer 后清空，不能下一 tick 再次提交。无变化 revise 不推进版本，但端口重置仍通知 waiting_queue 匹配的 Rule 所属 Module。
+
+不增加 Rule.ruleGen、dirty 或 Queue 的 Rule 读者／等待者表。Rule 只保存单个 waiting_queue；端口重置按静态 sources 筛选，不扫描全部 Rule。静态 sources 包含所有可能修改操作，不限于 push。
+
+同 tick 重试只调用仲裁入口，不重新 Work。静态容量环、公平性、最大获准集合及其他未扩展边界仍见 [schedule.md](schedule.md)。

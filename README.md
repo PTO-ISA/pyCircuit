@@ -10,12 +10,14 @@ Queue 状态或事件激活 module
     → Work 屏障
     → 所有被调用 rule 进入 Arbitrate 收尾
         complete=false：取消本次 proposal
-        complete=true 且有 proposal：预约实际资源，整体 accept 或 cancel
+        complete=true 且有 proposal：预约实际资源，整体 accept；失败释放预约并保留候选
         complete=true 且无 proposal：正常结束，不产生 firing
     → tick 结束，Queue 统一 Xfer
 ```
 
 Module 和 rule 都可以表达控制流。Module 不承担整体原子提交，rule 是原子单位。所有 Work 读取同一份 current，Queue 按 `revise → pop → push` 提交。
+
+当前采用的记录方案：Queue 状态变化按 Module.readGen 激活下一 tick；Rule 跨 tick 首次被选中时比较参数和实际依赖版本；同 tick 已有完整候选直接重试仲裁。Rule 只保存单个 waitingQueueId，端口重置时扫描 Queue 的静态来源，不维护反向等待列表。
 
 ## 文档分工
 
@@ -27,7 +29,9 @@ Module 和 rule 都可以表达控制流。Module 不承担整体原子提交，
 | [调度](gfsim/schedule.md) | 激活、执行阶段、仲裁收尾、A/B 容量策略与 delta |
 | [Queue](gfsim/queue.md) | 元素、来源槽位、资源接口、预约摘要与 Xfer |
 | [Struct](gfsim/struct.md) | 嵌套数据、编译期成员路径和延迟字段赋值 |
-| [缓存优化讨论](gfsim/gfsim-cache.md) | 独立的候选缓存与按需重试优化，不属于基础方案 |
+| [完整记录方案](gfsim/scheduler-records.md) | 静态表、Module 订阅、Rule 依赖与候选生命周期 |
+| [读取与版本匹配](gfsim/read-tracking-draft.md) | 读取代号、实际依赖和跨 tick 缓存判断 |
+| [候选复用](gfsim/gfsim-cache.md) | 跨 tick 复用、同 tick 仲裁及单个等待标记 |
 
 [设计审查记录](design-review.md)标明已解决的矛盾和尚未收敛的语义缺口，并列出验收场景。
 
@@ -35,7 +39,7 @@ Module 和 rule 都可以表达控制流。Module 不承担整体原子提交，
 
 Module 负责连接和控制，Rule 负责本次原子状态转移，Queue 保存持久状态与 proposal；调度器按 module 激活、按 rule 仲裁、按 Queue Xfer。Rule Work 的 complete、失败清理、资源身份和去重统一见 [Rule 文档](gfsim/rule.md)。
 
-每个 RuleId 对应一个可复用的 RuleSlot，记录本次 complete、实际参与的 Queue 和未来唤醒请求；本批只收集实际尝试的 RuleId。请求成功后才进入调度队列，失败则清除。
+每个 RuleId 对应一个可复用的 RuleSlot，记录 complete、实际读取及参与的 Queue、参数和阻塞 Queue；完整候选预约失败只释放预约，可以跨 tick 保留。未来唤醒请求如支持则保留在候选中，只在整体获准后进入调度队列，候选取消时清除。
 
 底层 Queue `peek` 始终纯读。Rule 读取消息输入 payload 时，编译器另行生成在该 rule 成功时提交的 pop proposal；读取寄存器和 Queue 状态不消费。Module 可读自己的寄存器并传普通 `var`，不预读 Rule 的消息输入。生成的电路状态修改均归属 RuleId；来源 0 仅供外部驱动或隔离测试。
 

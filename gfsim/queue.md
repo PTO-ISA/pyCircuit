@@ -6,6 +6,8 @@ Queue 是电路持久状态的基础对象。一个 Queue 对应一个 SimQueue�
 
 Current 是本 tick 的状态快照，Work 只读，统一 Xfer 才修改它。Proposal、临时预约和 accepted 记录是 Queue 的运行时管理信息。
 
+读取订阅与候选生命周期采用 [scheduler-records.md](scheduler-records.md) 的简化方案：Queue 状态变化通知 Module，Rule 自行比较实际依赖版本；完整候选预约失败仅释放预约，不清空 proposal。
+
 ## 操作定义
 
 | 操作 | 读取或修改目标 | 发生阶段 |
@@ -32,6 +34,8 @@ output.registerSource(ruleId);
 ```
 
 Queue 只注册可能操作自己的来源，同一来源重复注册不增加槽位。初始化结束后，来源索引和槽位地址在执行期间保持稳定，不按全局 rule 总数分配。
+
+编译器同时建立两种静态 RuleId 索引：sources 包含可能 pop/push/revise 的生成 Rule，producers 只包含可能 push 的生成 Rule。获准 pop 查 producers；tick 边界端口重置查 sources，筛选 waitingQueueId 匹配者。来源 0 的外部驱动不作为普通生成 Rule 查询 ownerModule。
 
 每个 Queue 保留来源 0，供外部驱动或隔离测试使用；无 ID 的便利 propose 接口若保留，也只能用于该边界。生成的 Module/Rule Work 的所有状态修改都必须使用 RuleId（从 1 开始），不能借来源 0 绕过完整尝试和原子仲裁。不同 Queue 的来源 0 是独立来源，不自动成为跨 Queue 原子事务。来源 0 仍需仲裁和确认，不能隐式参加 Xfer；独立驱动入口及与 Rule 来源竞争时的优先级另行确定。并行来源不能无保护共用 0。
 
@@ -62,6 +66,9 @@ class SimQueue {
     std::vector<SlotIndex> acceptedSlots_;
     std::optional<SourceId> acceptedPopOwner_;
     std::optional<SourceId> acceptedPushOwner_;
+    uint64_t stateVersion_ = 0;
+    std::vector<RuleId> ruleSources_; // 静态可能修改来源，RuleId 从 1 开始。
+    std::vector<RuleId> producers_;   // 静态可能 push 来源。
     // 临时预约归属另外保存，不等于 accepted 摘要。
 };
 ```
@@ -85,10 +92,11 @@ Queue 每 tick 最多批准一个 pop 和一个 push，不合并多个 pop。重
 | `hasProposal(id)` | 查询候选操作是否非空 |
 | `arbitrate(id)` | 检查该来源整组操作；成功时取得临时预约，返回 bool |
 | `accept(id)` | 确认预约，记录 accepted 槽位和摘要 |
+| `release(id)` | 释放本来源临时预约，保留完整 pending proposal |
 | `cancel(id)` | 清理本来源本次候选并释放临时预约 |
-| `Xfer()` | 执行 accepted 操作，清理本轮记录 |
+| `Xfer()` | 执行 accepted 操作并清理端口、accepted 摘要，保留其他 pending |
 
-Propose 不检查整条 firing 是否能成功，不预约、不更新 current。生成的 Rule Work 必须用自身 RuleId 调用 propose；Module Work 不直接提出状态修改。寄存器模式拒绝 pop/push，只接受合法 revise。基础方案 cancel 不保留失败候选；槽位注册信息与可复用缓冲容量保留。
+Propose 不检查整条 firing 是否能成功，不预约、不更新 current。生成的 Rule Work 必须用自身 RuleId 调用 propose；Module Work 不直接提出状态修改。寄存器模式拒绝 pop/push，只接受合法 revise。完整候选预约失败调用 release；必要读取失败、依赖失效或未被选中时调用 cancel。槽位注册信息与可复用缓冲容量保留。
 
 空槽位的 arbitrate 可以作为无操作返回 true，accept/cancel 可以无操作；这些不替代 [rule 的 complete 判定](rule.md)。非法状态转移必须与空操作区分。Accepted 不属于可取消候选，本 tick 不撤回。
 
@@ -128,6 +136,8 @@ registerQueue.proposeRevise<>(ruleId, nextRegisterValue);
 
 `Queue::accept(source)` 确认预约，在原槽位标记 Accepted、将槽位索引加入 acceptedSlots，并更新 acceptedPopOwner/acceptedPushOwner。`Queue::cancel(source)` 释放该来源的临时预约，清空本次未获准操作；不能撤销其他来源或已获准操作。确认阶段必须保证不再失败。
 
+`Queue::release(source)` 只释放 Reserved 预约，回到 Pending；不清理 payload。整条 Rule 的任意 Queue 失败时，调用方对所有 participants 释放预约，并保存第一个 waitingQueueId。
+
 ```cpp
 bool hasSpaceA = !full();
 bool hasSpaceB = !full() || acceptedPopOwner_.has_value();
@@ -161,7 +171,7 @@ void Xfer() {
         current_.push_back(std::move(*p.push));
     }
 
-    clearCycleRecords();
+    clearAcceptedSlotsAndPorts(); // 不清空其他来源的 Pending。
 }
 ```
 
@@ -171,9 +181,13 @@ Current 为空时不能消费本拍新 push 的数据。所有 Work 都已经读
 
 ## 生命周期与支持边界
 
-失败 proposal 在其来源的仲裁中清理；accepted 内容跨多个 delta 保留到统一 Xfer。Queue 可在来源槽位首次被本 tick 触及时，把槽位索引加入 `touchedSlots_`；同一 tick 后续 delta 重试复用槽位，不重复加入。Xfer 处理 accepted 操作后，仅遍历本 tick 触及的槽位，释放捕获值并清空状态与临时预约，再清空 acceptedSlots、获准端口摘要和 touchedSlots；来源注册与可复用缓冲保留。即使所有尝试都失败、没有 accepted 操作，触及的 Queue 仍需执行收尾。
+不完整或被取消的 proposal 立即清理。完整候选仲裁失败回到 Pending，跨 delta、跨 tick 保留；accepted 内容保留到统一 Xfer。Xfer 仅清理 accepted 槽位及本拍端口摘要，不清空其他 pending。候选取消和重新计算前仍须释放实际保存的捕获值。
 
-`touchedSlots_` 可用槽位的 `lastTouchedTick` 去重，比较当前 tick 而不用每 tick 扫描全部注册来源重置标志。若采用惰性失效标签，也必须确保过期 proposal 不被仲裁或 Xfer 读取，并处理捕获值长期占用内存；仅比较时间戳不能代替这些清理。Xfer 期间不执行 Work；调度器可遍历全部 Queue，或按本 tick 的 touchedQueues 调用收尾。
+使用 usedTick 将实际获准操作涉及的 QueueId 去重加入 usedQueues，避免逐 tick 扫描全部 Queue。失败预约必须已经释放；只有 pending 的 Queue 不因 tick 边界被统一清空。Xfer 期间不执行 Work。
+
+current 的数据或元素身份变化推进 stateVersion；pop 后 push 相同 payload 也推进。无变化的 revise、端口重置及 tick 推进不改变版本。反向读者保存 [ModuleId, readGen]，实际读取时登记，状态变化后只通知代号匹配的 Module。不维护 Rule 读取订阅或 Queue.waiters；端口重置通知用静态 sources 筛选 Rule.waitingQueueId。
+
+Queue array 的读取记录和反向订阅按实际表项稀疏建立，可放在 array 的独立订阅表中，不要求每个表项内嵌一个读者哈希表，也不分配 Module × Queue 的矩阵。旧代号懒失效记录仍需后续清理。
 
 初版支持单 pop、单 push、嵌套 struct 与不重叠字段 revise。同字段多写、父子字段重叠、整值与字段修改重叠、revise/pop 指向同一旧元素，初版不保证结果。Opaque lambda 不自动提供字段冲突信息。
 
@@ -186,6 +200,8 @@ Current 为空时不能消费本拍新 push 的数据。所有 Work 都已经读
 - [ ] 来源 0 是合法来源，不充当 accepted 摘要的空标记。
 - [ ] 生成的 Module/Rule Work 不使用来源 0；寄存器始终占用，只能 revise，容量 1 FIFO 仍可 pop/push。
 - [ ] 当前 Queue 的预约失败或取消不影响其他来源及 Accepted 内容。
+- [ ] 完整预约失败 release 保留候选，Xfer 不清空其他 pending；取消清理实际捕获值。
 - [ ] 标量、普通 struct、嵌套字段和不重叠 revise 保持 AC 值语义。
 - [ ] Xfer 仅执行获准操作，依次 revise → pop → push，再清理本轮记录。
+- [ ] 状态／元素身份变化推进版本；无变化 revise 仍按静态来源通知端口等待者。
 - [ ] 空、满、容量 1 和同拍 pop/push 在 A/B 策略下分别验证。
