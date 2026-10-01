@@ -89,3 +89,12 @@ Bank and SYSTEM/EXPECT B have no new implementation approval.
 [M6-03](work-items/m6-first-publication-expansion.md) is accepted for macOS/POSIX:
 15 new first-publication interruptions plus bundle recovery-before-republish
 observations passed. No production protocol or interface changed.
+
+## Record approval and resource baseline
+
+C2-DECL-R revision B is precisely approved; [record implementation slices](work-items/m3-record-implementation.md)
+are ready for decomposition, while record product support remains unimplemented.
+[M6-04](work-items/m6-resource-runtime-baseline.md) closes selected developer
+resource/finite-C-ABI measurements on macOS with honest sampled-RSS and timing
+limits. Existing scalar runtime/source contracts and all other unapproved
+capability boundaries remain unchanged.

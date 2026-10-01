@@ -26,7 +26,9 @@ repos:
     rev: v0.18.1
     hooks:
       - id: markdownlint-cli2
-        exclude: ^(docs/gates/logs/|docs/rfcs/migration/c2-n1-namespaces\.md$|third_party/references/|docs/acir/spec/|docs/development/acir/|docs/simulation\.md$|examples/agentic-circuit/|python/agentic-circuit/|tests/(python|mlir|cpp|integration|goldens)/agentic-circuit/|docs/cycle_balance_improvement.*\.md$)
+        # Keep exact approved proposal bytes; constructor provenance spelling
+        # in C2-DECL-R is interpreted as Markdown emphasis by the style checker.
+        exclude: ^(docs/gates/logs/|docs/rfcs/migration/(c2-n1-namespaces|c2-decl-record-final)\.md$|third_party/references/|docs/acir/spec/|docs/development/acir/|docs/simulation\.md$|examples/agentic-circuit/|python/agentic-circuit/|tests/(python|mlir|cpp|integration|goldens)/agentic-circuit/|docs/cycle_balance_improvement.*\.md$)
 
   - repo: local
     hooks:

@@ -1,0 +1,27 @@
+# C2-DECL-R revision B independent design review
+
+Date: 2026-10-01. Reviewer: `/root/m3_m6_plan_validation`, independent Astra/high validation instance. Product baseline: `9ff015a2acff537338f76b8bbc44c5229ccf7ae9`. Read-only proposal/product inspection; no compiler/build/runtime probes.
+
+Verdict: **approval-ready** for the precise proposal, not user approval or implementation authority.
+
+Proposal: `docs/rfcs/migration/c2-decl-record-final.md`.
+SHA-256: `ea242da0d85de4f51c439051c80c2e7ce12c17dca5ef9a63b8743f0f280a0043`.
+
+## Revision A findings closed
+
+1. Section 6.2 now binds return value/valid to the returned ValueID while independently validating the return use path as the helper exit live path. The specified `P_call`, `P_exit`, `V_call` and caller-continuation equations preserve a failed assertion even when the returned record's original binding remains valid. R06 explicitly requires assert-then-return-existing-record and suppressed later caller evaluation/observation.
+2. Sections 5 and 6.4 now define the rule/module contribution selection precisely: one source contribution per record target, at most one record rule writer, two typed projections, two same-enable scalar selects, and one aggregate create; inactive payload is all-zero bits. Exact-use, type, nominal, placement and provenance restrictions distinguish compiler-generated selectors from source obligations. No-writer module state has its own closed zero-data/false-enable case. Multiple contributions/writers explicitly reject even if guards are exclusive, preserving the broader C2 contract as later capability work rather than inventing priority. R05/R08 cover selector/zero/enable tampering and invalid observation of synthetic values.
+
+## Scope and coherence
+
+The proposal reuses approved C1/C2/R1 semantics and explicitly identifies the new final projection, record reset dictionary, value-operand widening, required-record relation attribute and helper-origin acceptance. The read/get/create relation table has an independent source-extraction point and actual-SSA checks; it neither executes nor replaces numeric proofs, existing use targets, effects or scheduling. Canonical constructor references remain provenance-only after executable helper removal, with explicit standalone-final trust limits.
+
+Both backends use the same verified declaration/state/value representation and derived leaf layout. A record retains one StateID, one D/E and one no-fail transfer. The proposed array payload conforms to the current SimDFFE no-throw copy-assignment requirement. The generated native record declaration is explicitly distinct from packed RTL layout and model ABI. Source-owned headers/groups, authority, supplied-unit rejection, name collision handling, output preservation and rollback boundaries are covered.
+
+The slice excludes record ports, nonempty static parameters, collection shape, multi-writer records, SYSTEM/EXPECT B, typed DUT and new queue/runtime APIs. The proposal's tests independently specify old-Q/proposal/Xfer/reset values and common-verifier rejection cases; no execution is claimed.
+
+## Supporting oracle follow-up
+
+At review time the independent oracle still had MD hash `de997c99552d55cdc173e1244fe77792ef8c146a83ad1cec0ec3aa1376c8e626` and JSON hash `83f784aaf9df5673e7183c6cc5f73f5f5979a1bb604c7026ec34b745c51f2ed8`. Its child-port/alias A06 positive is broader than B. Align it with R12: distinct local owners/local value aliases remain tests; record child-port forwarding is an explicit rejection and later capability. Add the independent R06 and R05/R08 counterexamples to that inventory before implementation dispatch. This is a supporting test-artifact alignment item; the proposal already specifies the correct scope and counterexamples and requires no product-contract change to address it.
+
+No blocking proposal findings remain. PM may request the user's exact approval of these bytes. Any proposal mutation invalidates this content binding; changes to the independent oracle require its own new hash. No product files were changed, no tests executed, and no implementation/profile PASS is asserted.

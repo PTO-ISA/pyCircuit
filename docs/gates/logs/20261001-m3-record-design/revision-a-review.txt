@@ -1,0 +1,27 @@
+# C2-DECL-R revision A independent design review
+
+Date: 2026-10-01. Reviewer: `/root/m3_m6_plan_validation`, independent Astra/high design-validation instance. No proposal or product edits; no execution probe. Product baseline: `9ff015a2acff537338f76b8bbc44c5229ccf7ae9`.
+
+Verdict: **revise**.
+
+Proposal: `docs/rfcs/migration/c2-decl-record-final.md`.
+SHA-256: `28f6d168b938e5796b53ccf8a51482db2f37495b5c35562521399804cc470437`.
+
+Independent oracle reviewed: `.pycircuit_out/m3-e01/oracle.md`, SHA-256 `de997c99552d55cdc173e1244fe77792ef8c146a83ad1cec0ec3aa1376c8e626`; JSON SHA-256 `83f784aaf9df5673e7183c6cc5f73f5f5979a1bb604c7026ec34b745c51f2ed8`.
+
+## Must fix
+
+1. **Separate helper-return use path from value-binding path** (proposal lines 308–312). The proposal requires return value/valid/path to equal the returned binding. Frozen C2-C lines 275–277 require only value/valid equality; use.path is the separately validated threaded source-use path. For a helper that asserts a condition and then returns an unchanged record argument, the original read binding retains its earlier path while the return must use the post-assert live path. Requiring equality either rejects the explicitly admitted helper or loses failure gating. Define return use.path and caller continuation from the verified helper exit path, without manufacturing a fresh state read. Add an assert-then-return-existing-record test followed by an independent unsafe argument/observation; failure must suppress that continuation and all commit. Current scalar tests already distinguish use.path from binding.path (`tests/system/test_source_numeric_next.py:210–215`).
+
+2. **Close rule-level record contribution merge and zero-placeholder representation** (proposal lines 241–245, 288–292, 340–346). C2-C lines 279–286 require per-use Ei, OR(Ei), a verified value merge and an unobservable zero-bit placeholder when no contribution is active. Revision A permits synthetic zero-record construction only at module scope; rule create requires source origin and a RequiredRecord, and next data/E are specified as directly equal to one binding/use. This leaves the promised guarded hold without a defined rule-level fallback, and mutually exclusive contributions without an exact aggregate merge representation. Freeze the accepted rule/module selector shape, synthetic placeholder placement/attributes/use restrictions, relationship to retained source obligations, OR/overlap checks and common-verifier reconstruction. Alternatively explicitly exclude multi-contribution record writes in this slice, but still define the guard-false fallback and its validation. Do not let either backend invent this choice. Add guard false/true and selector/placeholder tamper cases against the same saved final.
+
+## Nonblocking scope alignment
+
+- Independent oracle A06's record child-port/alias positive is broader than the proposal's explicit local-state/no-record-ports scope. Keep distinct local record owners as an E01 case; mark child-port forwarding for a later packet and retain E01 rejection. Do not implement ports merely to satisfy the oracle.
+- R06 should name a demonstrably supported unsafe scalar operation or use the admitted range/assert failure path. Its division wording must not force an unadvertised scalar operator expansion; baseline compiler/validator inventories and exact test selection should settle applicability before dispatch.
+
+## Supported design choices
+
+The proposal correctly identifies the scalar C2-DECL projection boundary without reopening approved C1/C2/R1 record behavior. It explicitly proposes the widened value operands, closed reset dictionary, new required-record relations and helper-origin acceptance. Constructor provenance is explicitly non-callable; fresh-final authority and self-consistent-edit limits are stated. The new relations preserve source read/get/create correspondence rather than introducing an executable graph or scheduling authority. Whole-record ownership and no-fail transfer are retained; the proposed two-uint64 array satisfies the existing SimDFFE copy-assignment requirement. CPP/RTL consume one verified nominal/bit-layout view; the exported C++ aggregate is clearly separate from packed hardware and runtime ABI. Source-owned files, private/facade records, failure-before-publication, current commands, hard break, and bounded independent gates are covered.
+
+This verdict is not product approval or implementation/test evidence. Material edits require independent review of a new exact hash.

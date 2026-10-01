@@ -15,6 +15,8 @@ FLOW_TOOLS = {
     "check_generated_rtl.py",
     "check_m5_retirement.py",
     "measure_m6_build.py",
+    "m6_process_usage.py",
+    "measure_m6_resources.py",
     "materialize_m4_preview.py",
     "report_primitive_ppa.py",
     "summarize_gate_run.py",

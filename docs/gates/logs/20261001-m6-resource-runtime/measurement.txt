@@ -1,0 +1,2 @@
+M6 resource report: /Users/zhoubot/.codex/worktrees/migration-capture/pyCircuit/.pycircuit_out/m6-04-selected-accepted/report.json
+SHA-256: 8b013fc93bc1309710230ac64525a8725d63026719da86f87ad291915aa2c274

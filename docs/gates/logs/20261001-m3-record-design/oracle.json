@@ -1,0 +1,166 @@
+{
+  "artifact_kind": "developer-design-fixture",
+  "artifact_version": 1,
+  "task": "M3-E01",
+  "status": "design-preparation-only",
+  "candidate": {
+    "worktree": "/Users/zhoubot/.codex/worktrees/migration-capture/pyCircuit",
+    "head": "9ff015a2acff537338f76b8bbc44c5229ccf7ae9",
+    "initial_worktree_clean": true
+  },
+  "authority": {
+    "contracts": [
+      {
+        "id": "C1-C",
+        "sha256": "5768e1571e56eb1a5963ff5d40dff1087de38ee997e9c52b5ef91f520da90dfc",
+        "role": "nominal immutable record values, constructor binding, old-Q rule semantics, finite mathematical integer/range behavior"
+      },
+      {
+        "id": "R1-B",
+        "sha256": "76283661bffba96aad544e31d2b4996f019135f448c4c8b685ebb02eab8edfba",
+        "role": "single whole-record register StateID/owner/reset image, full-record D/E, reset priority, Xfer proposal discard"
+      },
+      {
+        "id": "C2-DECL-A",
+        "sha256": "38dd31d13cff150cf7b778e9c3df469f9ab1e0b55c8b2311f7c8d05d49b736b8",
+        "role": "scalar-only final declaration projection; record/helper final projection remains out of scope pending precise addendum"
+      },
+      {
+        "id": "C2-C",
+        "sha256": "387cf52b129f864b87a1b2a388213a3fe36d81c330d94ced0e6696522b58a322",
+        "role": "common semantic verification before backend emission"
+      },
+      {
+        "id": "C3-C",
+        "sha256": "0c476ced27519cf93427a89f77b9348d388e96db57fb183790144d24118b1170",
+        "role": "per-source compilation, source-owned generated groups, saved-final consumers"
+      }
+    ],
+    "admission": "docs/gates/logs/20261001-m3-admission/admission.txt"
+  },
+  "fixture": {
+    "module_form": "currently supported function-form @module",
+    "value_record": "ordinary undecorated immutable nominal class Pair(lo: Word, hi: Word)",
+    "word": "Annotated[int, range(256)]",
+    "reset": {"lo": 3, "hi": 17},
+    "rule": "Pair(old_q.hi, old_q.lo + 1)",
+    "field_order": ["lo", "hi"],
+    "observation": "two existing scalar field projections via existing report mechanism; no record-valued public report/trace/ABI"
+  },
+  "oracle": {
+    "initial_reset": [3, 17],
+    "enabled_steps": [
+      {
+        "q_before": [3, 17],
+        "proposal_d": [17, 4],
+        "enable": true,
+        "q_before_xfer": [3, 17],
+        "q_after_xfer": [17, 4]
+      },
+      {
+        "q_before": [17, 4],
+        "proposal_d": [4, 18],
+        "enable": true,
+        "q_before_xfer": [17, 4],
+        "q_after_xfer": [4, 18]
+      }
+    ],
+    "disabled_hold": {
+      "q_before": [4, 18],
+      "enable": false,
+      "d_observable": false,
+      "q_after_xfer": [4, 18],
+      "next_enabled_proposal": [18, 5]
+    },
+    "reset_with_pending_proposal": {
+      "pending_proposal_is_discarded": true,
+      "q_after_reset": [3, 17],
+      "ordinary_rules_run_during_reset": false,
+      "first_enabled_proposal_after_reset": [17, 4]
+    },
+    "arithmetic": {
+      "mathematical_before_range_check": true,
+      "u8_wrap_allowed": false,
+      "statically_known_out_of_range": "compile-time rejection",
+      "runtime_out_of_range": "precommit failure with no tree-wide state publication"
+    }
+  },
+  "boundaries": {
+    "record_is_module": false,
+    "class_decorated_as_module": "reject",
+    "record_field_update_in_place": "reject",
+    "record_register_payload": "whole nominal value, one StateID/owner/reset image",
+    "independent_owned_registers": "distinct StateIDs and reset images",
+    "local_immutable_value_alias": "reuses an existing immutable value; adds no storage or StateID",
+    "record_child_ports": "unsupported by proposal B; record-valued module connections and child forwarding reject",
+    "scalar_child_alias": "existing scalar StateID contract is a separate baseline, not record-port evidence",
+    "constructor_provenance": "proposal B retains canonical <record>.__init__ as non-callable provenance only; source/header still resolve the executable constructor, while fresh final does not lookup a final func",
+    "fresh_final_source_authentication": "none unless an approved retained authority/inventory provides it; standalone final checks present internal consistency, not historical source bytes",
+    "helpers_in_final": "executable helper bodies removed",
+    "new_public_record_abi_or_report": false,
+    "ir_syntax": "follow proposal B exactly: ac.required_records is its only added attribute name; synthetic aggregate selectors use the specified existing struct and scalar selector operations"
+  },
+  "proposal_candidate": {
+    "path": "docs/rfcs/migration/c2-decl-record-final.md",
+    "revision": "B",
+    "sha256": "ea242da0d85de4f51c439051c80c2e7ce12c17dca5ef9a63b8743f0f280a0043",
+    "approval_status": "pending independent review and user approval; no product acceptance claimed",
+    "oracle_alignment": ["finite helper-return threaded path", "single-contribution rule/module aggregate selector and inactive zero placeholder"]
+  },
+  "adversarial_cases": [
+    {"id": "A01", "category": "positive", "case": "baseline transformation", "expected": "both backends match independent Q/proposal/Xfer/reset oracle"},
+    {"id": "A02", "category": "positive", "case": "multiple fields use same old-Q snapshot", "expected": "proposal (17,4), not mixed current/next values"},
+    {"id": "A03", "category": "positive", "case": "reread owner after proposing", "expected": "read remains committed old Q"},
+    {"id": "A04", "category": "positive", "case": "disabled proposal then enabled evaluation", "expected": "hold then recompute from Q; no stale D replay"},
+    {"id": "A05", "category": "positive", "case": "reset while a proposal is pending", "expected": "full reset image, skip ordinary rules, discard pending, deterministic replay"},
+    {"id": "A06", "category": "mixed", "case": "two owned registers, local immutable value aliases/helper rebindings, and record-valued child-port forwarding", "expected": "owned declarations have distinct StateIDs; local value aliases add no storage; record ports/forwarding reject; scalar child aliases remain separate baseline"},
+    {"id": "A07", "category": "negative", "case": "same-shaped but different nominal record", "expected": "reject nominal mismatch"},
+    {"id": "A08", "category": "mixed", "case": "field order/name/type differs between source/header and producer snapshot; compare with coherent standalone final reorder", "expected": "reject source/header/snapshot mismatch; standalone final is judged for present ordering/type/use consistency, with no claim to recover historical order"},
+    {"id": "A09", "category": "mixed", "case": "remove executable constructor body and fresh-emit; then tamper retained constructor provenance", "expected": "fresh emit works without Python/header/helper body; constructor must equal sym_name + .__init__ as non-callable provenance, with no final function lookup"},
+    {"id": "A10", "category": "mixed", "case": "field missing/duplicate/reordered/type-changed against source/header or frozen producer snapshot; separately coherent standalone edit", "expected": "reject source/snapshot disagreement and intrinsic malformed final; a self-consistent standalone change may define a different final artifact"},
+    {"id": "A11", "category": "negative", "case": "owner/symbol association tamper", "expected": "common final verifier rejects"},
+    {"id": "A12", "category": "mixed", "case": "origin tamper including origin definition only", "expected": "reject internally inconsistent origin/symbol relation and producer snapshot mismatch; coherent standalone rewrite is not proof of original source"},
+    {"id": "A13", "category": "mixed", "case": "reset image incomplete/ill-typed/out-of-range, plus a coherent in-range standalone reset edit", "expected": "reject invalid image and producer-side changed snapshot; a different internally valid standalone image may be accepted"},
+    {"id": "A14", "category": "negative", "case": "assert-then-return original record parameter, followed by caller range-unsafe actual/observation", "expected": "helper return-use exit path remains distinct from binding path; failed assert suppresses caller continuation and all next commits; false guard skips helper"},
+    {"id": "A15", "category": "negative", "case": "record class decorated @module or record field mutation", "expected": "reject frontend boundary violation"},
+    {"id": "A16", "category": "negative", "case": "unsupported record/helper final declaration outside approved projection", "expected": "explicit rejection; no silent drop or preflight removal"},
+    {"id": "A17", "category": "boundary", "case": "record-valued public report/trace/typed ABI", "expected": "not introduced; observe two scalar fields through existing mechanism"},
+    {"id": "A18", "category": "negative", "case": "failed emit with existing output sentinel", "expected": "sentinel bytes remain unchanged"},
+    {"id": "A19", "category": "positive", "case": "single-contribution guard/path false, including a field range that excludes zero", "expected": "rule and module selectors produce typed zero-bit aggregate placeholder with E=false and Q holds; true case selects both fields from the same source aggregate"},
+    {"id": "A20", "category": "negative", "case": "tamper rule/module selector condition, scalar get, true/false operands, zero bits/type, aggregate create/target, or add placeholder use/origin", "expected": "common verify-only and both emits reject malformed exact-use/placement shape before publication"}
+  ],
+  "planned_gates": [
+    {
+      "id": "G1-source-units",
+      "status": "planned-after-approval",
+      "checks": ["pycircuit compile -c <source> --source-root <root> --package-prefix <pkg> -o <unit-dir> once per source, with published dependency unit dirs passed via -I", "pycircuit link <unit-dirs...> --top <pkg.top.Top> -o design_top.ac", "top source is compiled as its own unit; no whole-core compile/split", "one source producer/group per Python source", "source/header/import/link constructor provenance disposition checked"]
+    },
+    {
+      "id": "G2-final-save-and-reparse",
+      "status": "planned-after-approval",
+      "checks": ["save exact linked final", "hide Python/header/dependency/helper body", "fresh process runs pycircuit emit <design_top.ac> --target cpp or verilog -o <output-dir>", "each backend reparses final independently and consumes same nominal value/state semantics", "does not assert historical-source authentication"]
+    },
+    {
+      "id": "G3-cpp",
+      "status": "planned-after-approval",
+      "checks": ["per-source generated groups plus glue compile separately", "execute generated DUT", "cycle-by-cycle scalar field observations match oracle", "one whole-record owner/reset/D/E"]
+    },
+    {
+      "id": "G4-verilog",
+      "status": "planned-after-approval",
+      "checks": ["emit from saved final in fresh process", "simulate reset and transfer edges", "same ordered field observations as independent oracle", "StateID/enable inventory agrees with common final"]
+    },
+    {
+      "id": "G5-common-negative-and-publication",
+      "status": "planned-after-approval",
+      "checks": ["malformed final rejected by verify-only and both backends", "rejection precedes output publication", "output sentinels preserved", "existing scalar-only and supplied record/helper preflight negatives retained"]
+    }
+  ],
+  "existing_test_patterns": [
+    "tests/system/test_source_unit_packet.py",
+    "tests/system/test_source_numeric_next.py",
+    "tests/system/test_generic_multi_assignment.py",
+    "tests/system/test_final_scalar_declarations.py"
+  ],
+  "evidence_boundary": "No compiler/test/backend command was run. This is a design oracle, not a feature PASS."
+}

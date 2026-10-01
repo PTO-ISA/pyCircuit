@@ -1,6 +1,6 @@
 # M3-E01：record final 投影设计/独立 oracle 包
 
-状态：ready-for-design，未批准产品实现。日期：2026-10-01。
+状态：design complete，精确修订 B 已批准；产品实现/验收尚未完成。日期：2026-10-01。
 依据：[M3-P01 准入结论](m3-contract-admission.md)及独立 Astra 核对。
 目标用例：一个 portless 模块，immutable 两字段 record `(lo, hi)`，初值 `(3,17)`，
 基于同拍旧 Q 提出 `(hi, lo+1)`，Xfer 后 `(17,4)`、再 `(4,18)`；reset 重跑。
@@ -33,17 +33,26 @@ Luna 实现、独立 Luna tests、Sol code review；不存在当前 active imple
 
 ## Checklist / verification
 
-- [ ] 真实 source forms/profile、字段表、类型/布局、阶段不变量、owner/错误契约完整。
-- [ ] source/header/saved-final 再解析仍保持 nominal identity 与原型/constructor引用。
-- [ ] provider body/source 移除后 parent 仅 header 编译；一 source一 producer/file group。
-- [ ] literal Q/Work/Proposal/Xfer/reset oracle逐阶段定义，不把两 backend 一致当独立正确。
-- [ ] defaults/kwargs、同形不同 nominal、字段交换/range/reset/proof篡改反例对应具体 verifier。
-- [ ] helper local candidate 与重新读 enclosing reg 的旧 Q 分开；unsafe demanded path失败
+- [x] 真实 source forms/profile、字段表、类型/布局、阶段不变量、owner/错误契约完整。
+- [x] source/header/saved-final 再解析仍保持 nominal identity 与原型/constructor引用。
+- [x] provider body/source 移除后 parent 仅 header 编译；一 source一 producer/file group。
+- [x] literal Q/Work/Proposal/Xfer/reset oracle逐阶段定义，不把两 backend 一致当独立正确。
+- [x] defaults/kwargs、同形不同 nominal、字段交换/range/reset/proof篡改反例对应具体 verifier。
+- [x] helper local candidate 与重新读 enclosing reg 的旧 Q 分开；unsafe demanded path失败
   保持全树零提交，不需要 unsafe 表达式运行后再补 expect。
-- [ ] 明确物理 storage/StateID、整 record D/E、alias与来源；不偷偷复制 state或新增 latency。
-- [ ] 使用既有标量 field projection观察/独立测试，不新增 public record report/typed ABI。
-- [ ] common IR 双后端、源属 CPP declaration、codegen名称碰撞/输出保护和retirement责任明确。
-- [ ] 独立设计审阅绑定原字节，PM 提交精确用户批准请求；设计通过不记为实现 PASS。
+- [x] 明确物理 storage/StateID、整 record D/E、alias与来源；不偷偷复制 state或新增 latency。
+- [x] 使用既有标量 field projection观察/独立测试，不新增 public record report/typed ABI。
+- [x] common IR 双后端、源属 CPP declaration、codegen名称碰撞/输出保护和retirement责任明确。
+- [x] 独立设计审阅绑定原字节，PM 提交精确用户批准请求；设计通过不记为实现 PASS。
 
 完成出口：精确 design/oracle 获独立 approval-ready，缺口与复用语义各有明确边界。
 这不是 record 产品实现或新 public profile 的验收。
+
+## 设计关闭与实施准入
+
+独立 Astra approval-ready，用户已明确批准修订 B，精确字节见
+[批准记录](../rfcs/migration/approvals/c2-decl-record-final.md)。
+[设计审阅](../reviews/20261001-m3-record-final-design-review.md)与
+[oracle/两轮审阅证据](../gates/logs/20261001-m3-record-design/README.md)留档。
+本表勾选表示设计材料覆盖上述验证要求，不表示未来producttests运行通过。
+[S1–S4 实施顺序](m3-record-implementation.md)已准备；B范围内实现不再请求同一批准。

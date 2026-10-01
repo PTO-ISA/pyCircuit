@@ -1,0 +1,198 @@
+[
+  {
+    "axis": "shared",
+    "size": 1,
+    "phase_rss_peak_kib": {
+      "configure_source_graph": 15280,
+      "source_compile_link": 12592,
+      "emit_cpp": 12752,
+      "emit_verilog": 12800,
+      "configure_generated_cpp_model": 19248,
+      "build_cpp_model_translation_units": 13568,
+      "compile_standalone_c_abi_consumer": 5040,
+      "three_cycle_cpp_runner": 32
+    },
+    "long_samples": [
+      {
+        "epochs": 1000,
+        "callback_step_epoch_rates": [
+          13888888.888888888,
+          14084507.04225352
+        ],
+        "wall_epoch_rates": [
+          4500.904115738571,
+          132330.55882467172
+        ]
+      },
+      {
+        "epochs": 10000,
+        "callback_step_epoch_rates": [
+          15649452.269170579,
+          16863406.408094436
+        ],
+        "wall_epoch_rates": [
+          1403299.50796811,
+          1382090.443584001
+        ]
+      },
+      {
+        "epochs": 100000,
+        "callback_step_epoch_rates": [
+          15850372.483753366,
+          14166312.508853946
+        ],
+        "wall_epoch_rates": [
+          12309238.34802882,
+          11343709.462190764
+        ]
+      }
+    ]
+  },
+  {
+    "axis": "shared",
+    "size": 16,
+    "phase_rss_peak_kib": {
+      "configure_source_graph": 28672,
+      "source_compile_link": 12560,
+      "emit_cpp": 12736,
+      "emit_verilog": 12688,
+      "configure_generated_cpp_model": 59632,
+      "build_cpp_model_translation_units": 13472,
+      "compile_standalone_c_abi_consumer": 21184,
+      "three_cycle_cpp_runner": 32
+    },
+    "long_samples": [
+      {
+        "epochs": 1000,
+        "callback_step_epoch_rates": [
+          1176470.5882352942,
+          1223990.2080783353
+        ],
+        "wall_epoch_rates": [
+          1782.695705967996,
+          106620.46446539833
+        ]
+      },
+      {
+        "epochs": 10000,
+        "callback_step_epoch_rates": [
+          1245485.1164528586,
+          1348617.6668914363
+        ],
+        "wall_epoch_rates": [
+          1069147.0879106193,
+          1054622.8734518467
+        ]
+      },
+      {
+        "epochs": 100000,
+        "callback_step_epoch_rates": [
+          1384926.4604049523,
+          1400089.605734767
+        ],
+        "wall_epoch_rates": [
+          1248859.1203613328,
+          1289226.3971863769
+        ]
+      }
+    ]
+  },
+  {
+    "axis": "distinct",
+    "size": 1,
+    "phase_rss_peak_kib": {
+      "configure_source_graph": 26768,
+      "source_compile_link": 12592,
+      "emit_cpp": 12768,
+      "emit_verilog": 12704,
+      "configure_generated_cpp_model": 30656,
+      "build_cpp_model_translation_units": 13536,
+      "compile_standalone_c_abi_consumer": 16944,
+      "three_cycle_cpp_runner": 32
+    },
+    "long_samples": [
+      {
+        "epochs": 1000,
+        "callback_step_epoch_rates": [
+          15384615.384615386,
+          14285714.285714287
+        ],
+        "wall_epoch_rates": [
+          2169.2917046848142,
+          120433.86299142662
+        ]
+      },
+      {
+        "epochs": 10000,
+        "callback_step_epoch_rates": [
+          14492753.623188406,
+          14245014.245014245
+        ],
+        "wall_epoch_rates": [
+          1233876.016682991,
+          1186747.0497913372
+        ]
+      },
+      {
+        "epochs": 100000,
+        "callback_step_epoch_rates": [
+          15389350.569405971,
+          16069419.893941829
+        ],
+        "wall_epoch_rates": [
+          11924250.957308676,
+          12880580.914199231
+        ]
+      }
+    ]
+  },
+  {
+    "axis": "distinct",
+    "size": 8,
+    "phase_rss_peak_kib": {
+      "configure_source_graph": 29040,
+      "source_compile_link": 12864,
+      "emit_cpp": 13024,
+      "emit_verilog": 13088,
+      "configure_generated_cpp_model": 30704,
+      "build_cpp_model_translation_units": 13776,
+      "compile_standalone_c_abi_consumer": 4944,
+      "three_cycle_cpp_runner": 32
+    },
+    "long_samples": [
+      {
+        "epochs": 1000,
+        "callback_step_epoch_rates": [
+          2352941.1764705884,
+          2610966.057441253
+        ],
+        "wall_epoch_rates": [
+          2927.198559379229,
+          125120.56148102206
+        ]
+      },
+      {
+        "epochs": 10000,
+        "callback_step_epoch_rates": [
+          2336994.624912363,
+          2387774.594078319
+        ],
+        "wall_epoch_rates": [
+          1248848.717588473,
+          1258567.4620162765
+        ]
+      },
+      {
+        "epochs": 100000,
+        "callback_step_epoch_rates": [
+          2506140.043105609,
+          2482683.284093448
+        ],
+        "wall_epoch_rates": [
+          2260189.2325353427,
+          2260621.38830411
+        ]
+      }
+    ]
+  }
+]

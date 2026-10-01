@@ -1,0 +1,12 @@
+============================= test session starts ==============================
+platform darwin -- Python 3.14.6, pytest-9.0.2, pluggy-1.6.0
+rootdir: /Users/zhoubot/.codex/worktrees/migration-capture/pyCircuit
+configfile: pyproject.toml
+collected 39 items
+
+tests/unit/test_m6_process_usage.py .............................        [ 74%]
+tests/system/test_m6_resource_runtime.py .                               [ 76%]
+tests/unit/test_repository_layout.py .........                           [100%]
+
+- generated xml file: /Users/zhoubot/.codex/worktrees/migration-capture/pyCircuit/.pycircuit_out/m6-04-tests-final.xml -
+============================= 39 passed in 12.81s ==============================

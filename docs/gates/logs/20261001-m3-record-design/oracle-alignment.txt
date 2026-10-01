@@ -1,0 +1,19 @@
+# C2-DECL-R B final independent oracle alignment
+
+Date: 2026-10-01. Reviewer: `/root/m3_m6_plan_validation`, independent Astra/high validation instance.
+
+Verdict: **aligned**. The supporting-oracle follow-up from the revision-B independent design review is closed. This is documentation/test-strategy alignment, not a new interface approval or execution result.
+
+Verified content bindings:
+
+- Approved proposal `docs/rfcs/migration/c2-decl-record-final.md`: `ea242da0d85de4f51c439051c80c2e7ce12c17dca5ef9a63b8743f0f280a0043` (unchanged).
+- Independent oracle `.pycircuit_out/m3-e01/oracle.md`: `ce0acc1f0a8a6be9d8b76a877fa0e607f8d031efb95837742683a29393ae0d97`.
+- Independent oracle inventory `.pycircuit_out/m3-e01/oracle.json`: `b9b6b4069312fb317aed2b9cca4c81d087150bb668bdef91f3be816b14c412c6`.
+
+The recorded user approval in `docs/rfcs/migration/approvals/c2-decl-record-final.md` names the same precise proposal hash and preserves its exclusions. No change to approved proposal bytes was observed.
+
+MD and JSON agree on A06: separate local record owners remain independent; immutable local value aliases add no storage; record-valued child ports/forwarding reject. Existing scalar child-alias evidence is not recast as record-port support. A14 distinguishes return-use exit path from the original binding path and requires failed helper assertion to suppress caller continuation, observations and commit. A19/A20 cover the exact single-contribution rule/module selector, inactive zero placeholders even outside logical field range, and rejection of malformed conditions, field/target connections, bits/types, extra uses and forged origins before publication.
+
+The independent literal `(3,17) -> (17,4) -> (4,18)` old-Q/Xfer/reset oracle, active per-source compile/link/emit path, non-callable constructor provenance and producer-vs-standalone-final trust limits remain intact. No outstanding supporting-oracle alignment findings remain. Implementation and execution evidence belong to the separately frozen implementation candidate.
+
+No product/repository document was edited by this review. Only this disposable review note was written; no product tool or executable validation probe was run.

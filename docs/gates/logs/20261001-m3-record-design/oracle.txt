@@ -1,0 +1,225 @@
+# M3-E01 independent oracle and adversarial test strategy
+
+Status: design preparation only. This artifact defines expected behavior and
+tests aligned to proposal revision B; it does not approve implementation or
+claim the new record-final feature runs. It adds no carrier beyond that exact
+proposal.
+
+## Authority and candidate
+
+Prepared read-only against `/Users/zhoubot/.codex/worktrees/migration-capture/pyCircuit`
+at HEAD `9ff015a2acff537338f76b8bbc44c5229ccf7ae9`; the initial worktree was
+clean. Relevant decision bindings recorded by the M3-P01 admission are:
+
+| Contract | Frozen bytes SHA-256 | Scope relevant here |
+| --- | --- | --- |
+| C1-C | `5768e1571e56eb1a5963ff5d40dff1087de38ee997e9c52b5ef91f520da90dfc` | Finite nominal records, complete immutable construction, field reads, helper expansion, mathematical integer/range rules, old-Q rule semantics. |
+| R1-B | `76283661bffba96aad544e31d2b4996f019135f448c4c8b685ebb02eab8edfba` | Whole-record `ac.reg` payload, one physical StateID/owner/reset image, full-record D/E, synchronous reset priority, and proposal discard at Xfer/reset. |
+| C2-DECL-A | `38dd31d13cff150cf7b778e9c3df469f9ab1e0b55c8b2311f7c8d05d49b736b8` | Exact scalar-only final declaration projection. Record/helper final projection is excluded and needs a precise addendum. |
+| C2-C | `387cf52b129f864b87a1b2a388213a3fe36d81c330d94ced0e6696522b58a322` | Common IR authority and semantic checks belong before backend emission. |
+| C3-C | `0c476ced27519cf93427a89f77b9348d388e96db57fb183790144d24118b1170` | Per-source compile/link and source-owned generated files; final consumers reparse saved output. |
+
+The exact approvals and boundaries are recorded in
+`docs/rfcs/migration/approvals/c1-pythonic-source.md`,
+`docs/rfcs/migration/approvals/c2-r1-m1-interface.md`, and
+`docs/rfcs/migration/approvals/c2-decl-scalar-final.md`. The admission record
+is `docs/gates/logs/20261001-m3-admission/admission.txt`. C1/C2/R1 record and
+register semantics remain approved; this package concerns only the missing
+final nominal-record declaration projection and its tests.
+
+The current proposal candidate is `docs/rfcs/migration/c2-decl-record-final.md`,
+revision B, SHA-256 `ea242da0d85de4f51c439051c80c2e7ce12c17dca5ef9a63b8743f0f280a0043`.
+It remains pending independent review and user approval. The cases below align
+to its `ac.required_records` source obligations, finite helper-return path,
+explicitly unsupported record ports, and §6.4 normalized single-contribution
+selector; they do not convert proposal text into product acceptance.
+
+## Canonical behavior oracle
+
+Use one finite nominal record with ordered fields `lo`, `hi`, both `Word =
+Annotated[int, range(256)]`. One portless executable module owns one whole
+record register with reset image `(3, 17)`. A pure rule/helper calculation
+constructs a complete new record from the same cycle-start Q:
+
+```text
+proposal(Q) = Pair(Q.hi, Q.lo + 1)
+```
+
+The table gives field observations through the existing scalar field
+projections. `Q` is committed state; proposal values are not observable through
+`Q` before Xfer.
+
+| Event | Q before event | Proposal / reset image | Q after event |
+| --- | --- | --- | --- |
+| Reset transfer | any prior Q | reset image `(3,17)`; ordinary rule evaluation skipped | `(3,17)` |
+| Enabled rule evaluation, before Xfer | `(3,17)` | `(17,4)` | `(3,17)` |
+| Enabled Xfer | `(3,17)` | prior enabled proposal | `(17,4)` |
+| Next enabled evaluation, before Xfer | `(17,4)` | `(4,18)` | `(17,4)` |
+| Next enabled Xfer | `(17,4)` | prior enabled proposal | `(4,18)` |
+| Disabled evaluation and Xfer | `(4,18)` | `E=false`; D is unobservable | `(4,18)` |
+| Enabled evaluation after disabled cycle | `(4,18)` | `(18,5)` recomputed from Q | `(4,18)` before Xfer, `(18,5)` after Xfer |
+
+Run the same sequence after reset. A pending enabled proposal followed by reset
+must restore `(3,17)` and discard the pending value; the following enabled
+evaluation proposes `(17,4)` from reset Q, and its Xfer commits that value.
+After any successful Xfer, enabled or disabled, the old proposal is consumed:
+no later Xfer may replay it. On each normal enabled transfer the complete
+record is the D value and E is true; on hold E is false. Reset has priority.
+
+The arithmetic is mathematical before the destination range check. `lo + 1`
+is in range for this oracle. Add a separate field-boundary negative where a
+field value would become 256: a statically known invalid value must be rejected
+before execution; a runtime-invalid evaluated path must fail before any
+tree-wide commit. No modulo wrap is allowed.
+
+## Source and representation boundary
+
+The record is an ordinary undecorated Python class used as an immutable value
+constructor. Its complete constructor initializes both nominal fields. It is
+not a module class. The executable design uses the currently supported
+function-form `@module` authoring surface; decorating a Python class with
+`@module` is a negative case. Avoid changing the active module frontend to
+make the value record work.
+
+The executable record update always constructs a complete `Pair(lo, hi)`
+value. In-place field mutation, missing fields, `None`, extra fields, a
+runtime-computed field set, or constructor arguments of a different nominal
+record type are rejected. Positional and keyword binding follow the ordinary
+constructor signature; duplicate, missing, unknown, or excessive arguments
+are rejected. The current ordinary-record constructor subset evidenced by
+`test_source_unit_packet.py` is direct parameter-to-field assignment. Any
+broader constructor calculation or helper-body acceptance must be stated
+precisely by the author proposal; this oracle does not infer it from successful
+header capture.
+
+Final output preserves the source-owned nominal declaration and canonical
+`<record>.__init__` provenance reference after executable helper definitions
+are removed. Proposal B makes that reference non-callable provenance, not a
+SymbolUser and not a lookup of an executable final function. Source/header
+validation still resolves the actual constructor definition. Fresh-final
+emission works without Python, source headers, or helper bodies and verifies
+the canonical provenance relationship from the final declaration alone.
+
+Fresh-final verification checks the artifact's present internal consistency.
+When the producer still has source/header authority or a frozen projection
+snapshot, source/header/projection disagreement and post-link frozen-object
+mutation must be rejected. A standalone final does not authenticate historical
+source bytes: a self-consistent edit to an otherwise legal field order,
+declaration, origin/symbol pair, or in-range reset image may describe a
+different valid final artifact and must not be claimed detectable without an
+approved retained authority/inventory. The proposal must state which checks
+are producer/source comparisons and which are standalone final invariants.
+
+Record reset image and whole-record D/E must remain complete values. Do not
+scalarize the record into multiple independently owned registers: that would
+change the approved one-StateID reset/commit contract unless a proposal
+explicitly showed how the current R1 carrier represents the same one logical
+owner. Two separately declared record registers require distinct StateIDs and
+independent reset images. Local immutable record-value aliases and helper
+parameter/local rebindings reuse existing values and add no storage or
+StateIDs. Record-valued module connections/ports and child-port forwarding are
+outside proposal B and must reject in this package. Existing scalar child
+aliases retain their separate approved StateID contract; that evidence is not
+a record-port pass.
+
+No public record-valued `report`, log schema, trace field, model ABI, runtime
+wrapper, `Queue`, interface DSL, or new `PythonReg` is part of this work.
+Observe `lo` and `hi` by two existing scalar field projections through the
+current report mechanism. In the output oracle, report ordered scalar pairs:
+`(3,17)`, `(17,4)`, `(4,18)`, holds, and reset replay as applicable.
+
+## Adversarial matrix
+
+| ID | Mutation or sequence | Required outcome / evidence |
+| --- | --- | --- |
+| A01 | Correct baseline fixture | Both backends match the Q/proposal/Xfer/reset oracle above using scalar field observations. |
+| A02 | Rule uses `old = q`, then constructs `(old.hi, old.lo + 1)` | Second field is `4`; constructor inputs share the original Q snapshot. |
+| A03 | Rule proposes record then reads the owning register again | Read is old Q, not the just-proposed record. A local candidate can be reused only as a local value. |
+| A04 | Disabled proposal followed by enabled cycle | Disabled Xfer holds. Enabled proposal is recomputed from unchanged Q; no stale D is committed. |
+| A05 | Reset while proposal pending, then evaluate again | Reset restores full `(3,17)`, drops pending proposal, skips ordinary evaluation, and replay begins from reset Q. |
+| A06 | Two owned registers of the same nominal type; local immutable value aliases/helper parameter rebindings; separately attempt record-valued child-port forwarding | Owned declarations have distinct StateIDs/reset images. Local value aliases add no storage or StateID. Record child-port/connection forwarding is an explicit unsupported negative; scalar child aliases are only a separate existing baseline. |
+| A07 | Same-shape record with a different nominal definition | Reject at constructor/field/type binding; structural shape equality is insufficient. |
+| A08 | Swap field order/name/type in source/header after capture or after producer snapshot; separately create a self-consistent standalone final with a legal reordered record | Reject source/header/snapshot disagreement. A legal standalone final is checked for its own field ordering/type/use consistency; do not claim its historical order can be recovered. A reordered source definition compiled from scratch is a distinct nominal definition. |
+| A09 | Remove executable constructor helper body, then emit from saved final; separately tamper retained constructor provenance | Fresh-final emit succeeds without Python/header/helper body. Verify `constructor == sym_name + ".__init__"` as non-callable provenance, not a SymbolUser or final function lookup; malformed/foreign references reject. |
+| A10 | Remove, duplicate, reorder, or change a field while source/header or frozen producer snapshot remains available; separately mutate standalone final coherently | Producer rejects any source/header/snapshot mismatch and malformed incomplete fields. Standalone final rejects only intrinsic inconsistency (duplicate/missing required declaration data, invalid types, stale uses); a self-consistent edit may define a different artifact and is not historical-source proof. |
+| A11 | Change final declaration owner while retaining symbol, or symbol while retaining owner | Reject owner/symbol association mismatch in common final verification. |
+| A12 | Tamper `origin`, including only its definition reference | Reject an internally inconsistent origin/symbol relation and producer snapshot mismatch. A coherent standalone rewrite of both is not proof of original source identity. |
+| A13 | Remove a reset field, change its type, exceed its declared range, or coherently replace the standalone reset image with another in-range value | Reject incomplete, ill-typed, or out-of-range reset images. A different self-consistent in-range standalone image may be accepted; producer-side snapshot comparison must detect a changed projected reset image. |
+| A14 | Helper asserts after receiving the original record binding, returns that same record, and caller continuation evaluates a separate range-unsafe actual/observation | Preserve helper entry/binding path separately from return-use exit path. When the assertion fails, caller continuation is not evaluated or published and no next commits; when its guard is false, the helper is not evaluated. Validate the retained actual path equation from source checks/call occurrences. |
+| A15 | Record class is decorated `@module`; constructor mutates an existing record field | Reject as unsupported module-class frontend and immutable-record mutation respectively. |
+| A16 | Supply record alias/constant in a location outside the proposed supported final declaration projection | Reject explicitly; do not silently drop it or remove existing record/helper preflight to force closure. |
+| A17 | Observe whole record with new report/trace or typed ABI | Test must not add this API; observe each field using existing scalar projections. |
+| A18 | Output/build fails after an earlier successful artifact exists | Follow existing output protection: failed verify/emission does not replace previously published bytes. |
+| A19 | Single record contribution has guard/path false, including fields whose logical range excludes zero | Rule and module data are the proposal's typed zero-bit aggregate placeholders with E=false; Q holds. For E=true, both fields come from the same source candidate and one aggregate is committed. Zero is allowed only in the inactive synthetic branch. |
+| A20 | Tamper the normalized selector condition, field get, true/false scalar operands, zero bits/type, aggregate create operands, target connection, or add placeholder observation/use/origin | Common verify-only and both emitters reject before publication. Synthetic nodes must match the exact §6.4 rule/module selector shape and use closures; no output sentinel is replaced. |
+
+Keep source compile/link/snapshot checks distinct from fresh-final
+internal-consistency checks. Producer comparisons catch source/header/snapshot
+disagreement; standalone final checks the artifact's present invariants and
+does not authenticate historical source bytes. Backend agreement alone is not
+the independent oracle; expected values above are independently calculated.
+
+## Independent two-backend gate plan
+
+These are planned gates only. Do not run them against the current implementation
+as evidence for an unimplemented feature, and do not claim PASS before the
+candidate is approved and built. The precise harness executable/command and
+reviewed implementation hooks must be frozen by the implementation packet.
+
+1. Create the fixture in an existing system-test fixture/temp tree. Use one
+   ordinary record declaration source and one executable module source. Use
+   the active Decision 0283 route: `pycircuit compile -c <one-source.py>
+   --source-root <root> --package-prefix <pkg> [-I <published-unit-dir>]
+   -o <unit-dir>` once per source, then `pycircuit link <unit-dirs...>
+   --top <pkg.top.Top> -o <design_top.ac>`. The selected top source is itself
+   compiled as its own unit. Do not use retired `acc.py` commands or whole-core
+   compile/split. Record every unit's `.ac` and published interface ownership.
+2. Validate source/header/import/link and the proposal-defined constructor
+   provenance disposition. Assert
+   the implementation source has one final source unit, the record's
+   declaration remains source-owned in that unit (or a separately owned
+   declaration unit only if the approved existing rules require one), and
+   removed helper bodies do not become executable final definitions.
+3. Save the final artifact. Delete or move source, source-owned headers,
+   dependency Python files, and helper bodies out of reach. In fresh processes,
+   reparse the saved final independently for C++ and Verilog using the active
+   `pycircuit emit <design_top.ac> --target cpp|verilog -o <output-dir>` route.
+   This proves the final artifact carries enough nominal value/state semantics
+   for both backends without historical-source lookup. It does not prove that
+   standalone final edits match original source bytes.
+4. C++ gate: build generated per-source C++ groups plus core/glue as separate
+   source groups, execute the DUT, and compare scalar `lo`/`hi` observations
+   cycle-by-cycle against the table. Assert one physical record state owner,
+   reset image, D/E, and no helper body/source lookup at emit time.
+5. Verilog gate: emit RTL from the same saved final in a separate fresh
+   process, simulate reset/evaluation/Xfer-equivalent edges, and compare the
+   same ordered field observations and whole-record hold/reset outcomes. Check
+   generated state inventory/commit enables against the final StateID; do not
+   let RTL recompute scheduling or field updates independently.
+6. Run malformed/internally inconsistent final inputs through common
+   verify-only and both emit selections; each rejects before returning or
+   publishing outputs and preserves sentinels. Separately mutate producer-side
+   source/header inputs and the frozen projection object to check comparison
+   failures. Keep scalar-only C2-DECL rejection cases and supplied record/helper
+   preflight rejections in the regression set. Do not treat a self-consistent
+   standalone final edit as a detectable source mismatch.
+7. Bind every run to the exact candidate commit/content hash, clean overlay,
+   current-checkout-built toolchain, exact command/exit status, and bounded
+   output under a new `docs/gates/logs/<run-id>/`. An approval-ready design or
+   test-plan pass is not a product feature PASS.
+
+Current test patterns to adapt after approval: `tests/system/test_source_unit_packet.py`
+for ordinary record construction and constructor rejection;
+`tests/system/test_source_numeric_next.py` for source/use/range evidence;
+`tests/system/test_generic_multi_assignment.py` for per-source compile, saved
+final, fresh-process backend emission, and reset traces; and
+`tests/system/test_final_scalar_declarations.py` for final tamper/reparse and
+fail-before-output patterns. These are design references, not proof that E01
+currently works end-to-end.
+
+## Bounded case inventory
+
+The JSON sibling is a machine-readable inventory for the design/review task,
+not a public schema or runtime manifest. It records expected behaviors,
+adversarial cases, and planned gates; IDs may be referenced by a proposal test
+mapping, while final product tests can use repository naming conventions.
