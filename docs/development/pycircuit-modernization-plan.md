@@ -444,3 +444,11 @@ M6 对final/CPP/RTL的15个首次发布可达中断点已有真实证据，保�
 验证通过。三个 APInt 数值变异失败在相同选项的精确基线复现，作为验证缺口保留，
 不声称整个原生门槛通过。下一步[有界 S2 实施](../work-items/m3-record-implementation.md)。
 S1 仍共同拒绝 record 后端生成；S2–S4 和完整 record 执行未完成。
+
+## 2026-10-01 M3-E01 S2A 完成
+
+产品提交 `114b1ae1` 完成[共享有限 record 值验证](../work-items/m3-record-s2a-value-verifier.md)，
+按批准 B 验证 read/get/create 来源义务、实际 SSA/handle 与 normalized selector。
+独立 Sol APPROVE、Astra CONFORMANT；新 native 11、19 binaries/279 cases 与
+129 回归通过，三个 SourceMath/APInt 基线失败保留。Scope 为中间 rule/op seam，
+没有开通整包 record 状态或双后端生成。下一步 S2B source/helper 展开。
