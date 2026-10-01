@@ -18,9 +18,28 @@ Queue/FIFO 或手写 Interface 概念。MLIR 自动推导摘要与关系，禁�
 按名称/list 形状猜协议。派发与验证分别见 W00–W12 checklist 和
 V00–V49 matrix；以下状态不因文档交付自动变成 implemented。
 
-合同批准、实现、执行证据分别记录。当前已独立验证私有单文件捕获/transport，以及 C2-F01/F02/F03 基础 MLIR 属性、类型、静态值、记录匹配和结构化身份；尚无新编译主干的完整执行闭环。现有旧路线的基线不证明新路线已保留该能力。下表每行都必须在完整迁移验收前关闭，未批准扩展不能因为 donor 缺失就默认退役或延期。
+合同批准、实现和执行证据分别记录。下方旧矩阵保留迁移初期的行为义务、
+carrier 退役分类和历史状态；其中“未实现/待批准”的状态列不是当前产品状态，
+不得据此重开已验收主干或自行派发接口实现。当前范围按 Decision 0283 与候选
+验收包判断，后续能力见 [M3/M6 扩展计划](m3-m6-expansion-plan.md)。
 
-## 能力与证据责任
+## 2026-10-01 当前范围与后续 owner
+
+| 能力 | 当前已验收范围 | 仍开放/下一包 |
+| --- | --- | --- |
+| Pythonic 前端、reg/rule/层级、逐源 compile/link/双 emit | M5 标量、portless root、单默认 clock、empty static args；R1/M1 方向已有精确批准 | 完整集合/非空 static/record helper 先 M3-P01 核对，再 E01/E02；不恢复旧作者路线 |
+| source checks、观察、standard runner/模型 ABI | 当前支持的标量检查/观察和同一执行器已验收，默认 events 静默 | EXPECT 字段冻结、一等 SYSTEM 和 artifact role 仍是各自未批准 B；M3-E03 |
+| SDK/安装/退役路线 | M5 当前平台交付；M6-01 moved prefix；M7-01 macOS26 本地 wheel 预览 | M6-07/08/09/11：真实 Linux/Windows、formal macOS15/完整 SDK；不是已发布稳定版本 |
+| 发布保护/故障恢复 | 首次暴露的基本保护已交付，M6-01 四路 replacement/源单元 first-publish 有证据 | M6-03：new final/new CPP/new RTL 首次发布可达状态矩阵 |
+| 增量/规模 | M6-02 shared1/16/64、distinct1/8/32，实际 Ninja no-op/失效和 CPP/RTL oracle | M6-04 RSS/长运行；M6-05 保持原子发布的选择性 TU 方案；完整 emit 仍全重编 |
+| 并行仿真/源码重排 | 当前明确串行；两个 V44 case 被 deselect，harness fixture 执行尚不可用 | M6-10：真实并行、barrier/race、两类 identity/oracle；不能把脚手架当 PASS |
+| reg buffer、typed DUT、memory、CDC、多域、四态、资源事务/扩展值类型 | 不在当前 accepted public profile；局部 native/capture 数据不能扩大支持承诺 | M3-E04–E10 按单个实际用例，先精确合同，再共用 IR/双后端独立 oracle |
+
+依据：[M5](m5-cutover.md)、[M6-01](m6-publication-relocation.md)、
+[M6-02](m6-incremental-scale.md)、[M7-01](m7-local-preview.md)。
+这张当前表没有永久退役未交付能力；它明确 bounded acceptance 与完整目标的区别。
+
+## 历史能力义务与证据责任（保留初始审计记录）
 
 | 能力 | 现行依据与迁移处置 | 合同/批准状态 | 实现/证据状态 | 验收与 owner |
 | --- | --- | --- | --- | --- |

@@ -1,6 +1,6 @@
 # pyCircuit 单一路线重构与 GFSIM 迁移计划
 
-日期：2026-09-29。规划修订：8。状态：按用户要求改为有界交付、按需补齐；正式产品切换尚未完成。C1-C/C2-C/C3-C 是已批准的历史基础，R1/M1 联合增补的审阅/授权单独记录。最新进度见[执行账本](../work-items/single-route-migration.md)。
+日期：2026-09-29。规划修订：8。状态：有界交付、按需补齐；M4/M5 的声明范围与 M7 本地预览已验收，完整能力/平台/稳定发布仍开放。C1-C/C2-C/C3-C 是已批准的历史基础，R1/M1 联合增补的审阅/授权单独记录。最新进度见[执行账本](../work-items/single-route-migration.md)。
 
 **执行入口：[逐包 checklist](migration-agent-checklist.md) → [M1 C 合同](../rfcs/migration/c2-m1-module-system.md) → [verification matrix](migration-verification-matrix.md)。**
 后续 agent 只执行已绑定候选、文件与 Vxx 门槛的一个 Wxx 包。Python
@@ -410,3 +410,12 @@ review, candidate binding and explicit skips/deselections. No public interface
 or release policy was changed. Stable release, formal platform/minimum-OS
 acceptance and the broader capability roadmap remain separate; existing
 `v6.1.0` points to older source and no publication was dispatched.
+
+## 2026-10-01 M3/M6 扩展计划
+
+产品/规划文档包 `5b0d610d` 补齐 [M3/M6 扩展路线](../work-items/m3-m6-expansion-plan.md)，
+并给出 [M3-P01 合同准入](../work-items/m3-contract-admission.md)与
+[M6-03 首次发布故障扩面](../work-items/m6-first-publication-expansion.md)两个近期包。
+独立 Astra high 通过计划与适用性核对，不批准新接口，也不将未来 checklist记为实现。
+原能力表/执行账本的历史状态保留，顶部当前范围与已验收包同步；完整能力/平台/
+稳定发布仍按需求推进，不重开 M2 或恢复旧路线。

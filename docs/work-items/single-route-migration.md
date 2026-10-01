@@ -525,9 +525,9 @@ lane 表中 driver system 为 47。审阅记录中该数字是审阅者在其用
 
 ## 全项目里程碑
 
-以下为 2026-09-30 的当前状态，按 modernization plan 修订 8 的有界出口统计；
-各工作包的历史记录保留其原验收时点。M3/M6 是按需推进的 backlog，不能用
-“七个阶段勾选比例”表示全部迁移完成度。
+以下为 2026-10-01 的当前有界状态，按 modernization plan 修订 8 判断。
+历史包保留各自候选与验收时点；M3/M6 是按需求推进的 backlog，不能用七个
+阶段的勾选比例宣称全部能力完成。后续任务见 [M3/M6 扩展计划](m3-m6-expansion-plan.md)。
 
 | 阶段 | 当前状态 | 已交付与剩余出口 |
 | --- | --- | --- |
@@ -535,10 +535,15 @@ lane 表中 driver system 为 47。审阅记录中该数字是审阅者在其用
 | M1 最少治理与迁移边界 | done（有界出口） | 文件归属、独立实现/测试/审阅和候选证据机制已运行；不再以流程扩建阻塞开发 |
 | M2 最小双后端主干 | accepted（有界核心） | 单级/两级 closed-system 的共同 IR、reg/alias、Work/Xfer 和双后端逐拍 oracle 已验收；不含公开 DUT ABI、SDK 或真实并行 |
 | M3 按实际用例补能力 | 当前用例已交付，后续按需 | 整数、masked-next、generic copy/constant 已有证据；FIFO、memory、CDC 等保留 backlog |
-| M4 让当前能力可用 | done（修订 8 有界出口） | 文档化源码流程、逐源 compile/link、源属 C++ TU/CMake、Verilator、共享标准 runner、外部 oracle、重建/发布保护已验收；完整 C3/ABI/SDK 与公开 emit 切换另行交付 |
-| M5 声明范围内 hard break | active（ABI 前置包已完成） | 旧路线退役、公开新 emit、活跃文档/构建/安装引用同步切换尚未完成 |
-| M6 按风险持续加固 | deferred / 按需 | 真实并行/V44、性能、平台和扩展故障矩阵未完成；已有正确性问题仍随所属入口修复 |
-| M7 按声明范围验收候选 | pending | 尚无迁移预览/发布验收；先验收明确支持范围，不要求未来 backlog 全清 |
+| M4 让当前能力可用 | done（修订 8 有界出口） | 逐源流程、独立 TU、standard runner/两 backend 已验收；其后公开产品化已由 M5 交付 |
+| M5 声明范围内 hard break | accepted（标量 profile） | [M5](m5-cutover.md)：公开 compile/link/emit、CPP/RTL/runtime/ABI/安装与旧路线退役已验收 |
+| M6 按风险持续加固 | active；01/02 done | [恢复/迁移](m6-publication-relocation.md)与[规模/增量](m6-incremental-scale.md)已有证据；M6-03 起扩展故障、RSS/长运行、平台及真实并行仍开放 |
+| M7 按声明范围验收候选 | local preview accepted | [M7-01](m7-local-preview.md)：macOS26 标量本地预览通过；稳定版本/发布/正式平台矩阵未完成 |
+
+### 后续条目的历史时间口径
+
+以下“最新/本轮/尚未完成”按条目原写入时点理解，不表示当前 HEAD 或本表状态。
+历史实现修订、失败和证据保留，不覆盖上方当前验收状态。
 
 M2 依据：[有界验收记录](m2-closure-execution.md)。最新实现基线为产品分支
 `ffef119c`，source-unit pair 校验的证据见该分支
