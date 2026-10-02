@@ -111,3 +111,13 @@ Queue Xfer 后沿固定链接调用 `_wakeup(mid, tick + 1, changed_slot=slot)`�
 wakeup 封装的额外差值较小，不能排除计时噪声。这些 CPU 配置全部为零缓存命中，测到的是入口和通知成本，未测得无效果缓存的性能收益。begin_rule 仍为 32 行；逻辑优化未显著减少代码行数。此结果不代表 C++ 性能，也没有重新运行原生 Ripes 对照。
 
 [begin-rule-results.json](begin-rule-results.json) 保存原始样本、统计、轨迹哈希、源文件哈希、两个版本补丁和完整测量脚本。复现时从本提交复制 experiment 为 before/begin/combined 三份；before 反向应用 combined 补丁，begin 在 before 上应用 begin 补丁，combined 保持原样。将 JSON 中的 worker.py、evaluate.py 写到三个目录的同级，再运行 evaluate.py。正式测试新增不影响计时模型；源文件哈希区分本次各个检查点。
+
+<a id="signals"></a>
+
+## Signal 扩展（2026-10-02）
+
+新增纯 helper 派生的只读 Signal，全部 Queue Xfer 后去重求值；Module 控制读取和 Rule 直接读取共用局部资源槽位、wakeup 和 dirty 位图。Queue 仍仅由 Rule 修改。没有增加 Module delta Work，也没有扩展容量仲裁。
+
+核心 engine 净增 71 行、构造净增 26 行（含空行与注释）；原 39 项加新增 8 项测试共 47 项通过。旧 CPU 36 组配置与 `c811811` 逐拍状态、获准集合及事件一致；新流式电路 8 组完整执行与独立时钟模型一致。
+
+无 Signal CPU 的新／旧耗时比中位数为 1.0070；新电路 1200 拍，稀疏／频繁配置变化分别求值 678／2377 次，全量每拍计算的次数为 2402。完整测量方法、限制、原始数据及可视化入口见 [signals 示例报告](examples/signals/README.md)。未移植 C++，未重新验收原生 Ripes。

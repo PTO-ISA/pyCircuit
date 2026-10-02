@@ -17,11 +17,12 @@ def value_json(value):
 
 
 class ReviewTrace:
-    def __init__(self, sim, *, title='GFSim review', queue_names=None):
+    def __init__(self, sim, *, title='GFSim review', queue_names=None, signal_names=None):
         if sim.observer is not None:
             raise ValueError('a review observer is already attached')
         self.sim, self.frame = sim, None
         names = queue_names or {}
+        signal_names = signal_names or {}
         self.data = {
             'title': title,
             'modules': [f'M{i} {type(m).__name__}' for i, m in enumerate(sim.module_objects)],
@@ -33,6 +34,9 @@ class ReviewTrace:
                         'capacity': q.capacity, 'pop': q.pop_rule, 'push': q.push_rule}
                        for q in sim.queues],
             'initial': [self.queue_state(q) for q in sim.queues],
+            'signals': [{'name': f'S{s.sid} {signal_names.get(s.sid, s.helper.__name__)}',
+                         'resource': s.resource_id, 'possible_inputs': s.input_qids}
+                        for s in sim.signals],
             'frames': [],
         }
         sim.observer = self
@@ -40,6 +44,11 @@ class ReviewTrace:
     @staticmethod
     def queue_state(queue):
         return {'version': queue.state_version, 'values': value_json(queue.current)}
+
+    @staticmethod
+    def signal_state(signal):
+        return {'version': signal.state_version, 'initialized': signal.initialized,
+                'value': value_json(signal._value)}
 
     def start(self):
         s = self.sim
@@ -49,14 +58,24 @@ class ReviewTrace:
         self.seen_reads = set()
         self.frame = {'tick': s.tick, 'calls': [], 'edges': [], 'decisions': [],
                       'reads': [], 'invalidations': [],
+                      'signal_evaluations': [],
+                      'signals_before': [self.signal_state(signal) for signal in s.signals],
                       'due': sorted(event for event in s.events if event[0] <= s.tick),
                       'rules': None, 'error': None}
 
-    def read(self, mid, qid, rid):
-        key = (mid, qid, rid)
+    def read(self, mid, resource_id, rid):
+        key = (mid, resource_id, rid)
         if key not in self.seen_reads:
             self.seen_reads.add(key)
-            self.frame['reads'].append([mid, qid, rid, self.sim.queues[qid].state_version])
+            self.frame['reads'].append([mid, resource_id, rid, self.sim.resources[resource_id].state_version])
+
+    def signal_eval(self, sid, changed):
+        signal = self.sim.signals[sid]
+        self.frame['signal_evaluations'].append({
+            'sid': sid, 'initial': signal.read_gen == 1, 'changed': changed,
+            'inputs': [qid for qid, gen in zip(signal.input_qids, signal.input_reads)
+                       if gen == signal.read_gen],
+            'value': value_json(signal._value)})
 
     def rule_call(self, rid, reused):
         r = self.sim.rules[rid]
@@ -67,24 +86,24 @@ class ReviewTrace:
         elif not r.complete:
             reason = '无可复用的完整候选'
         else:
-            reason = '参数或实际读取的 Queue 变化'
+            reason = '参数或实际读取的资源变化'
         self.frame['calls'].append({'rid': rid, 'reuse': reused, 'dirty': self.sim.is_dirty(rid), 'reason': reason})
 
-    def invalidate(self, mid, qid):
+    def invalidate(self, mid, resource_id):
         s = self.sim
         module = s.modules[mid]
-        slot = module.resource_qids.index(qid)
+        slot = module.resource_ids.index(resource_id)
         readers = [rid for rid in module.rule_ids
                    if module.rule_readers[slot * module.word_count + s.rules[rid].word_index]
                    & s.rules[rid].bit]
-        self.frame['invalidations'].append({'mid': mid, 'qid': qid, 'rules': readers})
+        self.frame['invalidations'].append({'mid': mid, 'resource': resource_id, 'rules': readers})
 
     def prepared(self):
         s = self.sim
         self.frame['rules'] = [None] + [
             {'complete': r.complete, 'selected': r.selected_tick == s.tick,
              'args': value_json(r.candidate_args), 'dirty': s.is_dirty(rid),
-             'deps': [s.modules[s.entries[rid].module_id].resource_qids[slot]
+             'deps': [s.modules[s.entries[rid].module_id].resource_ids[slot]
                       for slot in r.read_slots],
              'events': list(r.wake_requests),
              'proposals': [
@@ -109,6 +128,9 @@ class ReviewTrace:
         f['generations'] = [m.read_gen for m in s.modules]
         f['readers'] = [[mid for mid, slot in zip(q.readers, q.reader_slots)
                          if s.is_reader(mid, slot)] for q in s.queues]
+        f['signals_after'] = [self.signal_state(signal) for signal in s.signals]
+        f['signal_readers'] = [[mid for mid, slot in zip(signal.readers, signal.reader_slots)
+                               if s.is_reader(mid, slot)] for signal in s.signals]
         f['changes'] = [[i, self.queue_state(q)] for i, q in enumerate(s.queues)
                         if (q.state_version, q.current) != self.before[i]]
         f['future'] = sorted(s.events)

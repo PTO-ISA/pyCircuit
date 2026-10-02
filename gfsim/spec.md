@@ -1,14 +1,14 @@
 # GFSim 框架规格
 
-本文汇总当前已确认的设计契约，供编译器生成代码、C++ runtime 实现和调度实验共同使用。本轮动态读者位图与 dirty 机制已在 [Python experiment](experiment/README.md) 实现；[C++20 核心](cpp/README.md) 保留上一版版本检查机制，尚未迁移。编译器及其他未决能力不据此视为完成。未确定的内容集中在 [待决问题](open-questions.md)，不由本文补齐。
+本文汇总当前已确认的设计契约，供编译器生成代码、C++ runtime 实现和调度实验共同使用。本轮动态读者位图、dirty 机制与 Signal 已在 [Python experiment](experiment/README.md) 实现；[C++20 核心](cpp/README.md) 保留上一版版本检查机制，尚未迁移。编译器及其他未决能力不据此视为完成。未确定的内容集中在 [待决问题](open-questions.md)，不由本文补齐。
 
-核心方案：**Work 更新候选，DFS 解决容量依赖，Xfer 提交状态。读取状态变化或明确事件驱动 Module Work；获准 pop 只通知已有完整候选的唯一生产者仲裁。候选可以跨 tick 保留；Queue 变化经 Module 的实际读者位图标记 Rule dirty，调用参数变化也标记同一个 dirty 位。缓存命中不扫描 Queue 版本、不续订读取。**
+核心方案：**Work 更新候选，DFS 解决容量依赖，Xfer 提交状态。读取状态变化或明确事件驱动 Module Work；获准 pop 只通知已有完整候选的唯一生产者仲裁。候选可以跨 tick 保留；Queue／Signal 变化经 Module 的实际读者位图标记 Rule dirty，调用参数变化也标记同一个 dirty 位。缓存命中不扫描 Queue 版本、不续订读取。**
 
 同 tick 仲裁采用带访问标记的 DFS：按实际容量依赖先处理消费者，再仲裁生产者。不预生成全局拓扑顺序，不因静态关系有环拒绝模型；实际必需的容量依赖形成动态环时才报错。
 
 Queue 支持同 tick 的 pop/push：有合法 pop 就可以复用释放的空间，包括同一 Rule 的 pop/push。本文中的伪代码和 C++ 示例表达职责与生命周期，不规定最终 ABI。
 
-每个 Queue 保存固定的可能读者 Module 链接；每个 Module 保存局部资源表、动态 Rule 读者位图和 dirty 位图。静态声明决定可访问范围，实际读取决定通知范围。
+Queue 与 Signal 各自保存固定的可能读者 Module 链接；每个 Module 保存局部资源表、动态 Rule 读者位图和 dirty 位图。静态声明决定可访问范围，实际读取决定通知范围。
 
 每个 Queue 的 pop 来源至多一个 Rule，push 来源至多一个 Rule；二者可以不同，也可以是同一个 Rule。该约束针对所有可能分支和 tick 的 Rule 来源，不只是本 tick 实际调用的数量；选择逻辑写在相应 Rule 的控制流中。当前不加检测，默认用户代码遵守，违反时不保证运行结果。多 revise 等资源端口竞争也不在本版范围。下文调度和原子性契约以没有这类竞争为前提。
 
@@ -35,6 +35,7 @@ Queue 支持同 tick 的 pop/push：有合法 pop 就可以复用释放的空间
 | Module | 保存连接、内部状态对象和控制逻辑，选择本轮调用的 Rule | 激活和 Work 单位，使用 ModuleId |
 | Rule | 计算 Queue proposal 和未来唤醒请求，整体确认本次效果 | Module 的成员函数，使用独立 RuleId |
 | Queue | 保存持久状态、来源 proposal、端口及订阅记录 | 状态和 Xfer 单位，使用 QueueId |
+| Signal | 纯 helper 从 Queue current 派生的只读组合值；不持有 proposal | 使用 SignalId，Xfer 末尾更新缓存 |
 | 调度器 | 执行 Module Work，调用 Rule 仲裁，传播容量通知，统一提交 | 管理 tick、eventQueue、DFS 和任务列表 |
 
 一个 Module 实例对应一个 SimObject。Rule 不需要独立 SimObject；编译器生成 `work_<rule>(...)` 和 `arbitrate_<rule>()`，两者绑定同一 RuleId。不同实例可复用函数代码，但记录相互独立。
@@ -43,16 +44,18 @@ Queue 支持同 tick 的 pop/push：有合法 pop 就可以复用释放的空间
 
 Module 有自己的控制流，Rule 内也有控制流。Module 不是原子事务：它调用的不同 Rule 可以分别成功或失败；每条 Rule 本次实际提出的 Queue 修改和未来唤醒请求构成原子单位。嵌套 Rule 和跨 Rule 联合原子组不在本规格的支持范围。
 
-tick 是电路周期。全部 Work 读取本 tick 不变的 Queue `current`；Work 完成后候选固定，仲裁阶段只推进容量许可。任务耗尽后统一 Xfer，下一 tick 才看到新状态。不再划分 delta 仲裁批次。
+tick 是电路周期。全部 Work 读取本 tick 不变的 Queue `current` 和 Signal `value`；Work 完成后候选固定，仲裁阶段只推进容量许可。任务耗尽后统一 Xfer，下一 tick 才看到新状态。不再划分 delta 仲裁批次。
 
 ```text
-初始化／eventQueue 到期事件 → tick 开始完成激活的 Module Work
+首次初始化 Signal／eventQueue 到期事件 → tick 开始完成激活的 Module Work
     → 新准备的候选与已有候选的仲裁任务合并
     → DFS 先处理容量前驱，再原子仲裁
         获准 pop → 通知唯一生产者
         获准未来唤醒请求 → 登记 eventQueue
     → 任务耗尽 → 全部 Queue Xfer
-        状态变化 → wakeup(M, tick + 1) → eventQueue
+        Queue 变化 → 通知 Module／Rule，同时收集受影响的 Signal
+    → 求值受影响的 Signal；值变化 → 通知 Module／Rule
+        两类通知均经 wakeup(M, tick + 1) → eventQueue
 ```
 
 每个 Module 每 tick 至多 Work 一次，每个 Rule 每 tick 至多获准一次。Accepted 本 tick 不撤回；新 push 的数据不能同 tick 转发给其他 Work。
@@ -69,17 +72,20 @@ Module 本 tick 可以不 Work，继续保留最近一次 Work 的选择和完�
 
 | 静态记录 | 内容及用途 |
 | --- | --- |
-| Module 表 | ModuleId → 实例及 Work 入口、可访问 QueueId 表、所属 RuleId 表 |
-| Queue 可能读者链接 | 排序的 `(ModuleId, moduleResourceSlot)`；运行前固定，供变化通知遍历 |
-| Queue 槽位映射 | `moduleSlots[ModuleId]` 直接定位局部资源槽位，未声明为 -1；不代表实际订阅 |
+| Module 表 | ModuleId → 实例及 Work 入口、可访问 Queue／Signal 的局部资源表、所属 RuleId 表 |
+| Queue／Signal 可能读者链接 | 排序的 `(ModuleId, moduleResourceSlot)`；运行前固定，供变化通知遍历 |
+| Queue／Signal 槽位映射 | `moduleSlots[ModuleId]` 直接定位局部资源槽位，未声明为 -1；不代表实际订阅 |
 | Rule 表 | RuleId → 所属 Module、Work、仲裁入口、可能修改资源及允许操作 |
+| Signal 表 | SignalId → helper、排序的可能输入 QueueId 表；Queue 保存 `(SignalId, inputSlot)` 反向通知链接 |
 | Queue 来源索引 | SourceId → 固定 proposal 槽位，只注册可能操作该 Queue 的来源 |
 | `Q.popRuleId` | 唯一可能向 Q pop 的 Rule，可为空；供 DFS 查找容量前驱 |
 | `Q.pushRuleId` | 唯一可能向 Q push 的 Rule，可为空；供获准 pop 通知生产者 |
 
 静态记录覆盖全部可能分支和动态下标。Python `assemble(..., module_queues=...)` 显式声明每个 Module 可访问的 Queue，含私有状态、输入、输出和只读引用；同 Queue 别名合并。省略时为兼容旧例子允许全部 Queue，生成代码应提供精确表。实际读者位图、participants 和通知由执行路径确定。运行前不要求建立或保存静态容量图、全局拓扑顺序。可能连接形成静态环不拒绝构造；仲裁时结合实际 proposal 和 Queue 容量判断动态依赖，见第 7 节。
 
-ModuleId、QueueId 标识资源实例；RuleId 从 1 开始，同时作为 Queue 的 SourceId。身份不能依赖函数名、参数名或 SSA 打印名称。引用同一 Queue 的别名按同一资源处理。
+ModuleId、QueueId、SignalId 分别标识实例；RuleId 从 1 开始，同时作为 Queue 的 SourceId。身份不能依赖函数名、参数名或 SSA 打印名称。引用同一 Queue 的别名按同一资源处理。
+
+Python 构造接口增加 `signals`、`module_signals`、`signal_queues`。使用 Signal 时显式提供后两张声明表；无 Signal 的旧调用不变。内部统一 ResourceId 仅用于读取：Queue 仍占原 QueueId 区间，Signal 位于后续区间；两类对象及更新职责保持独立，proposal 的 participants 仍只保存 QueueId。同一对象的别名共享身份，不能重复注册成不同资源。
 
 来源索引、槽位地址和对象句柄在运行期间保持稳定。同一来源重复注册不增加槽位；不为每个 Queue 按全局 Rule 总数分配槽位。
 
@@ -114,7 +120,7 @@ Rule Work 沿实际分支计算，读取 current、提出 Queue proposal 和未�
 | 完整且无 Queue proposal、无事件请求 | 不形成 firing，不更新 acceptedTick |
 | 完整且有 Queue proposal 或事件请求 | 进入后续原子仲裁；可以只有 pop，也可以只有事件请求 |
 
-Rule 计算只依赖登记的 Queue、调用参数及固定配置。时间或其他可变外部值必须明确表达为输入或参数；未来唤醒请求只保存目标 ModuleId 和延迟，时间语义见 [事件登记](#events)。
+Rule 计算只依赖登记的 Queue／Signal、调用参数及固定配置。时间或其他可变外部值必须明确表达为输入或参数；未来唤醒请求只保存目标 ModuleId 和延迟，时间语义见 [事件登记](#events)。
 
 ### 3.3 读取与消费
 
@@ -135,6 +141,18 @@ Rule 计算只依赖登记的 Queue、调用参数及固定配置。时间或其
 
 Module 和选中 Rule 凡实际读取 current，包括读空，都登记为所属 Module 的订阅。Rule 的读取在 Module 的资源读者位图设置该 Rule 位，Rule 保存实际 readSlots；pop/revise 目标也登记依赖。纯 push 不自动依赖输出旧内容，但若显式查询过输出状态，该查询仍是依赖。
 
+### 3.4 Signal 纯组合计算
+
+`Signal(helper)` 保存纯函数的计算缓存，通过只读 `.value` 访问。Module 与 Rule 均可直接读取，按当前 Work 上下文登记控制读取或 Rule 读取；不必经 args 中转。Module 若只把结果作为 args 传入，则仍由参数比较判断 Rule 是否重算。
+
+helper 只能依赖声明范围内实际读取的 Queue current 和不可变构造参数，不依赖 tick、仲裁许可、未登记可变成员或其他 Signal。不修改 Queue、不提出 proposal、不请求事件。读取 Queue 是旁路观察，包括 payload、空满及读空；不自动产生 pop，也不代替消息消费 Rule 的显式 pop。Queue 仍只由获准 Rule 修改，不读取或计算 Signal。
+
+返回值沿用标量／固定不可变 aggregate 的值语义。空输入应使用 `try_peek()` 等接口显式计算有效位与值；helper 抛出的异常不表示无候选，而是终止实例。跨 Signal 读取和未声明输入报错；Python 不分析函数体以自动证明纯性，生成代码须遵守契约。
+
+初始化在首次 `step()`、所有 Module Work 之前计算全部 Signal；初始化前访问 `.value` 报错。之后只在全部 Queue Xfer 完成后，重算受变化输入影响的 Signal，每个 Signal 本阶段至多一次。以完整新 Queue 状态求值，不能穿插在各 Queue 的提交之间。
+
+Signal 的新值与旧值按类型及内容比较，相同则不通知读者；无论值是否变化，每次成功求值均替换实际输入依赖。下一 tick 同时看到 Q[t+1] 与 `Signal[t+1] = helper(Q[t+1])`，不增加一拍延迟。整个 Module Work／仲裁期间 Signal 不变，不引入 delta Work。
+
 <a id="records"></a>
 
 ## 4. 运行记录
@@ -146,7 +164,7 @@ Module 和选中 Rule 凡实际读取 current，包括读空，都登记为所�
 | 字段 | 用途 |
 | --- | --- |
 | `workedTick` | 同 tick Work 去重 |
-| `resourceQids` / `ruleIds` | 固定局部资源表、所属 Rule 表 |
+| `resourceIds` / `ruleIds` | 固定局部资源表、所属 Rule 表 |
 | `readGen` / `controlReads[slot]` | 仅用于 Module 控制读取的已发布代号与每资源代号 |
 | `ruleReaders[slot][word]` | 当前实际读取此资源的本 Module Rule 位图 |
 | `dirtyWords[word]` | 本 Module 各 Rule 是否需要重新计算 |
@@ -182,12 +200,27 @@ readSlots 与 participants 独立：只读资源可以没有 proposal，纯 push
 | accepted 摘要及槽位列表 | 本拍获准操作及 hasAcceptedPop |
 | `popRuleId` / `pushRuleId` | 唯一可能 pop/push 来源 |
 | `usedTick` | 有获准操作的 Queue 加入 usedQueues 时去重 |
+| `signalReaders` | 固定的 `(SignalId, inputSlot)`；输入更新时检查 Signal 的实际读取代号 |
 
 槽位生命周期为 `Empty → Pending → Accepted → Xfer 后 Empty`；取消未获准候选也回到 Empty。来源 0 是合法保留编号，无来源使用 optional／有效位。C++ 时间与代号溢出终止策略见 [Q11](open-questions.md#q11)。Python 使用任意精度整数。
 
-### 4.4 调度记录
+### 4.4 SignalRecord
 
-调度器持有 `activeModule` 与 `activeRule` 两个临时执行上下文，不属于电路持久状态。只有真正执行 Rule body 时设置 activeRule，complete/abort 后恢复 Module 上下文；缓存命中不进入 Rule 上下文。Module Work 所有退出路径（含异常）均清除上下文；嵌套 Rule 执行报错。
+| 字段 | 用途 |
+| --- | --- |
+| `helper` / `value` / `initialized` | 纯计算入口、缓存结果及是否已有初值 |
+| `inputQids` | 排序、去重的可能输入 QueueId 数组 |
+| `readGen` / `inputReads[slot]` | 已发布的输入读取代号与各槽位代号 |
+| `readers` / `readerSlots` / `moduleSlots` | 与 Queue 相同的 Module 读者链接和槽位映射 |
+| `stateVersion` | 初始化或值变化的观察计数；不用于缓存判断 |
+
+helper 读 Q 时，二分定位自己的 inputSlot，写 `inputReads[slot] = readGen + 1`；完成后推进 readGen。Queue 变化通知仅接受 `inputReads[slot] == readGen` 的 Signal。固定反向链接不随运行增长；不为每对 Queue／Signal 分配完整映射。
+
+### 4.5 调度记录
+
+调度器持有 `activeModule`、`activeRule` 与 `activeSignal` 临时执行上下文，不属于电路持久状态。只有真正执行 Rule body 时设置 activeRule，complete/abort 后恢复 Module 上下文；缓存命中不进入 Rule 上下文。Module Work 所有退出路径（含异常）均清除上下文；嵌套 Rule 执行报错。
+
+helper 求值时设置 activeSignal，Queue 读取仅登记到该 Signal；成功或异常退出都清除上下文。受影响 Signal 用固定容量 ID 任务数组去重，初始化与各 Xfer 求值阶段分别使用新任务代号。
 
 调度器持有当前 tick 和 eventQueue。eventQueue 保存 `(wakeTick, ModuleId)`，提供按 wakeTick 取出到期事件的操作；既承接状态变化后的下一 tick 激活，也承接 Rule 获准后的未来唤醒。
 
@@ -211,7 +244,7 @@ Pop/revise 即使没有先 peek 也登记目标依赖，已登记时以位测试
 
 Python 直接读取构造好的 `Q.moduleSlots[mid]`，未声明访问报错；登记实际 Rule 读者用位测试去重。Rule 读取关系持续有效，直到重算或取消，不能受 Module 控制 readGen 推进影响。
 
-### 5.2 Queue 变化通知
+### 5.2 Queue／Signal 变化通知
 
 全部 Queue Xfer 后，对每个变化 Queue 的可能读者链接调用带资源槽位的 wakeup 入口：
 
@@ -220,11 +253,11 @@ for mid, slot in Q.readerLinks:
     wakeup(mid, tick + 1, changedSlot=slot)
 ```
 
-wakeup 在通知当下将该资源的实际 Rule 读者位 OR 到 Module.dirtyWords；有实际 Rule 读取或有效控制读取才登记未来激活。只有实际读者被标记，不按静态可访问范围标记全部 Rule。无变化 revise 不通知；pop 后 push 相同 payload 仍是变化。多资源同时通知均须先合并 dirty，不能因已安排 Module 激活而跳过后续资源；到期 Work 按 ModuleId 去重。完整入口见第 7.5 节。
+wakeup 在通知当下将该资源的实际 Rule 读者位 OR 到 Module.dirtyWords；有实际 Rule 读取或有效控制读取才登记未来激活。只有实际读者被标记，不按静态可访问范围标记全部 Rule。无变化 revise 不通知；pop 后 push 相同 payload 仍是变化。多资源同时通知均须先合并 dirty，不能因已安排 Module 激活而跳过后续资源；到期 Work 按 ModuleId 去重。Signal 值变化使用同一读者链接和 wakeup 入口；它没有 pop／push／容量通知。Signal 值未变不标脏下游 Rule，即使其输入 Queue 已改变。完整入口见第 7.5 节。
 
 ### 5.3 Module 再次调用 Rule
 
-同 tick 首次调用登记选择并保存 callArgs；未 dirty 时按值比较参数，变化时置本 Rule dirty。已 dirty 时必定重算，跳过参数比较并在重算前保存新参数。参数变化与 Queue 变化使用同一 dirty 位，不为普通 var 建 slot。值比较必须保留 AC 类型语义；不以对象地址或二进制 padding 比较。
+同 tick 首次调用登记选择并保存 callArgs；未 dirty 时按值比较参数，变化时置本 Rule dirty。已 dirty 时必定重算，跳过参数比较并在重算前保存新参数。参数变化与 Queue／Signal 变化使用同一 dirty 位，不为普通 var 建 slot。值比较必须保留 AC 类型语义；不以对象地址或二进制 padding 比较。
 
 ```python
 if not dirty(R) and not sameParameters(R.candidateArgs, args):
@@ -247,9 +280,9 @@ Module Work 结束时，对旧选择中未再选中的 Rule 同时清候选、�
 
 ### 5.4 容量通知直接仲裁
 
-获准 pop 只安排唯一生产者的已有完整、未 dirty 候选仲裁，不标记 dirty、不运行 Work、不比较参数、不续订。不存在完整候选时跳过。该机制依赖全部 Module Work 先于仲裁的屏障；此前 Queue 变化通知已让相应 Module 重算或取消。仲裁入口也拒绝 dirty 候选。
+获准 pop 只安排唯一生产者的已有完整、未 dirty 候选仲裁，不标记 dirty、不运行 Work、不比较参数、不续订。不存在完整候选时跳过。该机制依赖全部 Module Work 先于仲裁的屏障；此前 Queue／Signal 变化通知已让相应 Module 重算或取消。仲裁入口也拒绝 dirty 候选。
 
-本轮只支持同一 Module Work 向成员 Rule 传普通 var 参数。Module→Module var 传播、因果顺序与 delta Work 留待下一步，不引入新纯组合 Module 类型。
+普通 var 参数仍限于同一 Module Work 向成员 Rule 传值。跨 Module 可共享只读 Signal，但其值仅由 Queue 状态派生；任意 Module→Module var 传播、Signal 间依赖与 delta Work 留待后续，不引入纯组合 Module 类型。
 
 <a id="arbitration"></a>
 
@@ -414,6 +447,8 @@ Visiting 表示仍在递归栈上；沿实际必需的容量依赖再次遇到 V
 ```python
 def runTick(tick, initialModules):
     scheduler.tick = tick
+    if tick == 0:
+        evaluateAllSignals()  # 首次 Work 前建立初值与实际输入依赖
     moduleWorkTasks.enqueueAll(initialModules)
     for event in eventQueue.popDue(tick):
         moduleWorkTasks.enqueue(event.moduleId)
@@ -431,6 +466,8 @@ def runTick(tick, initialModules):
     changedQueues = xferAll(usedQueues)  # 全部提交后，才安排下一 tick
     for qid in changedQueues:
         notifyChanged(qid)  # 按实际 Rule 读者置 dirty，并唤醒有实际读取的 Module
+        enqueueActualSignalReaders(qid)  # 匹配读取代号，SignalId 去重
+    evaluateQueuedSignals()  # 替换输入依赖；结果改变才 notifyChanged(signalResourceId)
     clearCommittedCandidates(acceptedRules)
     usedQueues.clear()  # 保留列表容量，usedTick 以 tick 区分下一轮
     ruleTasks.clear()  # 保留缓冲区，下个 tick 使用新的入队代号
@@ -466,7 +503,7 @@ def wakeup(moduleId, targetTick, changedSlot=None):
     eventQueue.add(targetTick, moduleId)
 ```
 
-wakeup 不立即执行 Work。Queue 变化通过 changedSlot 在通知当下标记 dirty，再登记未来激活；不把失效处理推迟到事件到期。普通定时事件不带 changedSlot，只登记激活，不将 Rule 标脏。调度器可因 Queue 状态变化等原因自行调用；其他主动请求只能来自获准 Rule，Module Work 不直接调用此入口。
+wakeup 不立即执行 Work。Queue／Signal 变化通过 changedSlot 在通知当下标记 dirty，再登记未来激活；不把失效处理推迟到事件到期。普通定时事件不带 changedSlot，只登记激活，不将 Rule 标脏。调度器可因 Queue 状态变化等原因自行调用；其他主动请求只能来自获准 Rule，Module Work 不直接调用此入口。
 
 到期事件全部取出，Module Work 列表按 ModuleId 去重，同一 Module 同一 tick 只 Work 一次；不同 tick 的事件分别保存。到期事件不会在本 tick 仲裁中插入 Work。已登记事件的取消／覆盖策略仍见 [Q06](open-questions.md#q06)。
 
@@ -565,20 +602,24 @@ Queue array 是普通 Queue 引用的数组，每个表项都是独立、有 Que
 
 每个表项分别构造来源绑定、proposal 槽位和读者数组，分别遵守唯一 pop/push 来源约束。读取登记到实际 QueueId，proposal 保存在该 Queue 的槽位，参与者也记录实际 QueueId；调度、取消和提交沿用普通 Queue 的流程。QueueCount 包含全部数组表项。
 
-设 A_M 为 Module 可访问资源数，R_M 为所属 Rule 数，W_M=ceil(R_M/64)。固定元数据包括每条可能 Queue→Module 链接、每 Module 的 A_M 个控制读取代号、A_M×W_M 个 Rule 读者字和 W_M 个 dirty 字。另外增加 QueueCount×ModuleCount 个槽位映射项，以空间换取读取时直接索引；变化通知仍只遍历可能读者链接。空间不因历次动态路径累计增长；实际 readSlots 仅保存最近尝试路径。静态声明很宽、Module 的 Rule 很多时，位图空间与扫描成本仍须测量。
+设 A_M 为 Module 可访问资源数，R_M 为所属 Rule 数，W_M=ceil(R_M/64)。固定元数据包括每条可能 Queue／Signal→Module 链接、每 Module 的 A_M 个控制读取代号、A_M×W_M 个 Rule 读者字和 W_M 个 dirty 字。A_M 包含可访问 Queue 和 Signal；两类资源均保存 Module 可能读者链接。另外增加 (QueueCount + SignalCount)×ModuleCount 个槽位映射项，以空间换取读取时直接索引；变化通知仍只遍历可能读者链接。空间不因历次动态路径累计增长；实际 readSlots 仅保存最近尝试路径。静态声明很宽、Module 的 Rule 很多时，位图空间与扫描成本仍须测量。
 
 | 操作 | 遍历范围 |
 | --- | --- |
 | Rule 缓存命中 | 未 dirty 时比较参数，再做 complete/dirty 固定检查；不扫描读取 |
 | Rule 实际读取登记 | 固定数组直接定位槽位 O(1)，位测试去重 O(1) |
 | Rule 重算／取消读取 | 上次实际读取槽位 d，逐位清除 |
-| 状态变化通知 | 变化 Queue 的 K 个可能读者，每个读取其 W_M 个字 |
+| 状态变化通知 | 变化 Queue／Signal 的 K 个可能 Module 读者，每个读取其 W_M 个字 |
+| Signal 输入读取 | 二分定位 A_S 个可能 Queue 输入，O(log A_S)；写读取代号 O(1) |
+| Queue 通知 Signal | 遍历该 Queue 的固定可能 Signal 读者，代号匹配后去重入队 |
 | 候选许可／确认／清理 | 实际 participants p，另加 Queue 局部成本 |
 | DFS | 每条被访问 Rule 本 tick 至多一次，扫描实际 participants |
 | 获准 pop 传播 | 唯一 pushRuleId 的候选检查 |
 | 事件及 Xfer | 获准事件／到期事件、usedQueues 及其 accepted 操作 |
 
 纯 push 的容量变化不自动成为计算依赖；显式读取 output current 时仍是普通动态依赖。Queue array 的动态下标只登记实际表项，下标来自 var 则参与参数比较，来自 Queue 则登记该 Queue。
+
+Signal 输入额外空间为各 Signal 的可能输入数之和（输入 ID、代号及 Queue 反向链接）与 SignalCount 大小的任务缓冲；没有 QueueCount×SignalCount 的全量表。每次 helper 求值成本取决于其业务计算；输出值比较取决于 aggregate 大小。
 
 取消候选与取消读取均不是 O(1)。位图降低缓存命中路径成本，但会增加每次读取、重算和通知的操作，不能由表示方式直接断言实际提速；[实验报告](experiment/report.md)记录 Python 测量。C++ 性能留待实际实现后验证。
 
@@ -607,13 +648,17 @@ Queue array 是普通 Queue 引用的数组，每个表项都是独立、有 Que
 | 无变化 revise | 不推进版本，不产生状态变化通知或端口重置仲裁任务 |
 | 跨 tick 候选 | Pending 可直接重试仲裁，不要求 selectedTick 等于当前 tick；Queue 变化预先标记 dirty，调用时比较参数 |
 | Work 屏障与旧候选 | 先完成全部 Module Work；DFS 不提交被取消候选，替换的候选按新记录仲裁 |
-| 初始激活 | tick 0 所有 Module 各 Work 一次，包括读空订阅；全部 Work 完成后才仲裁 |
+| 初始激活 | 先求值全部 Signal，再在 tick 0 让所有 Module 各 Work 一次，包括读空订阅；全部 Work 完成后才仲裁 |
 | 容量通知但没有完整候选 | 跳过，不运行 Module／Rule Work，不复活已提交候选 |
 | 纯事件 Rule | 无 participants 也可确认并发布事件，每 tick 至多一次；既无 proposal 又无事件请求则不 firing |
 | 事件与原子确认 | 任一 Queue 检查失败不发布事件；重算、取消或读取失败清理未发布请求 |
 | 延迟与跨 tick 候选 | 延迟以获准 tick 为起点；如 tick 10 计算、tick 20 获准、delay=3，则在 tick 23 激活 |
 | 事件与 Work 屏障 | 仅允许未来 tick；到期事件在 Work 前处理；同 Module 同 tick 的事件及状态通知只 Work 一次 |
 | 固定读者记录 | 可能读者链接固定；动态下标替换读者位；别名去重；70 条 Rule 跨字不串位；无实际读取不通知 |
+| Signal 稳定快照 | 全部 Queue Xfer 后去重求值，下一 tick 看到一致的 Queue／Signal；Module 顺序不影响结果 |
+| Signal 实际输入 | 动态选择替换读取，值相同也更新依赖，旧输入变化不再触发求值 |
+| Signal 读者通知 | 值相同不通知；控制读取只唤醒，Rule 读取精确标脏；与 Queue 通知合并仍一次 Work |
+| Signal 与反压候选 | 变化后旧候选不得被容量传播批准；下一次 Work 重算或取消 |
 | 固定任务及实际依赖 | 任务缓冲复用、proposal 槽位身份稳定；Rule readSlots 和 participants 只保存实际资源 |
 
 子 Module、已登记事件的取消／覆盖、并行执行和跨版本 ABI 等仍有待决问题；不能仅靠上述核心场景通过宣称这些能力已经验收。单线程 C++ 源码接口见第 11.3 节。
@@ -626,8 +671,10 @@ Python 已实现上述动态位图、参数 dirty、持久读取关系、固定�
 
 旧 pipeline、packets、pairs、memory、feedback、lookup、retry Python examples 及专用参考辅助代码已移除。ripes5 保留原文件，本轮未重新验收原生 Ripes 对照。Module 间 var、C++ 移植、编译器生成、层级、Cell、事件取消等未据此完成。
 
+Signal 实现及端到端流式电路见 [signals 示例](experiment/examples/signals/README.md)。核心、CPU、诊断与 Signal 电路共通过 47 项测试；无 Signal 的 CPU 36 组逐拍 Queue、获准集合和事件与改动前一致。性能及核心增量见示例报告。
+
 ### 11.3 C++20 核心（待迁移）
 
 [现有 C++ 库](cpp/README.md)及[历史报告](cpp/report.md)对应上一版设计：Queue 保存 ModuleCount 个读取代号，Rule 保存 Queue 版本依赖，缓存命中重登订阅。本轮没有修改 C++ runtime 或执行其测试。随旧 Python examples 删除，移除依赖它们的 Python/C++ 对比脚本和 CMake 注册；原生测试及 C++ examples 保留。
 
-后续迁移需要实现局部资源表、读者／dirty 位图及本规格生命周期，重新运行原生测试和端到端对照，不能以历史 CTest 成功声称当前新方案已经在 C++ 验收。
+后续迁移需要实现局部资源表、读者／dirty 位图、Signal 及本规格生命周期，重新运行原生测试和端到端对照，不能以历史 CTest 成功声称当前新方案已经在 C++ 验收。

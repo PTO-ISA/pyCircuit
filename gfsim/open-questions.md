@@ -7,7 +7,8 @@
 ## Q02. 父子 Module 的构造、调用与激活
 
 - 本轮范围：平级 Module 通过 Queue 交换持久效果；同一 Module 可以向成员 Rule 传普通 var，按值比较并标记 dirty。
-- 下一步：Module→Module var 的传播顺序、动态依赖、delta Work 与环检测尚未定义；本轮未实现，不能把它视为已有接口。
+- 已实现：Signal 从 Queue current 派生，全部 Xfer 后求值；Module／Rule 均可只读访问，值变化使用资源槽位唤醒与标脏。不属于 Module 向 Module 直接写 var，也不引入 delta Work。
+- 下一步：Signal 之间的依赖，以及 Module→Module var 的传播顺序、动态依赖、delta Work 与环检测尚未定义；本轮未实现，不能把它视为已有接口。
 - 未决：父 Module 调用子 Module 是构造连接、直接执行 Work，还是提交激活任务？父控制分支是否限制子 Module 本 tick 的独立 Queue 唤醒？
 - 影响：父子 Module 的 workedTick、Work 屏障和控制选择。现有平级调度实验没有覆盖这些语义。
 
@@ -66,6 +67,7 @@
 - 已确定：Queue 保存固定可能读者链接用于通知；新增按 ModuleId 索引的 module_slots 数组，直接定位局部资源槽位，未声明为 -1。所有映射在构造时确定。
 - 已实现：Module 控制读取保留代号；Rule 实际读取用每资源位图、Rule readSlots 和 Module dirtyWords 管理。缓存命中不续订；重算／未选中才删除旧 Rule 读取关系；提交／abort 保留。
 - 正确性条件：可访问资源声明覆盖所有分支和动态数组表项，别名归一；实际通知依据运行时读者位，不能静态标脏全部 Rule。省略 Python module_queues 时保守允许全部 Queue，用于兼容旧例子。
-- 成本：每 Module A 个资源、R 条 Rule 时，需要 A×ceil(R/64) 个读者字，另有 A 个控制代号、ceil(R/64) 个 dirty 字及固定链接。本次选择直接数组映射，额外增加 QueueCount×ModuleCount 个槽位项，需计入空间，不能再宣称总元数据完全稀疏。大资源表／多 Rule 的稠密位图成本需要后续负载测量。
+- 成本：每 Module A 个资源、R 条 Rule 时，需要 A×ceil(R/64) 个读者字，另有 A 个控制代号、ceil(R/64) 个 dirty 字及固定链接。本次选择直接数组映射，额外增加 (QueueCount + SignalCount)×ModuleCount 个槽位项，需计入空间，不能再宣称总元数据完全稀疏。大资源表／多 Rule 的稠密位图成本需要后续负载测量。
 - 已实现：读取接口根据 activeModule/activeRule 自动登记依赖，读取与消费仍分离；见 [两项改进报告](experiment/read-tracking.md)。
+- 已实现：Signal 复用 Module 的资源槽位与 Rule 读者位图；Signal 自己的 Queue 输入使用固定链接和读取代号，额外空间随可能连接数增长，不增加 QueueCount×SignalCount 全量映射。
 - 待办：C++ 移植、真实性能与进一步布局优化。本轮 Python riscv 功能对齐，但计时比旧实现慢，见 [实验报告](experiment/report.md)，不预设 C++ 性能结论。

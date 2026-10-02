@@ -1,0 +1,75 @@
+{
+  "python": "3.11.16",
+  "machine": "aarch64",
+  "scope": "Only sim.step loop; counters on; observer off; one warmup",
+  "workloads": {
+    "sparse": {
+      "cycles": 1200,
+      "samples_ns": [
+        81896107,
+        82209310,
+        82799983,
+        82308191,
+        82467322,
+        83045725,
+        83414708
+      ],
+      "median_ns": 82467322,
+      "stats": {
+        "module_work": 3152,
+        "rule_work": 3450,
+        "cache_hits": 0,
+        "reader_lookups": 3270,
+        "read_registrations": 1973,
+        "read_clears": 1970,
+        "change_notifications": 1770,
+        "dirty_marks": 3421,
+        "reader_checks": 2373,
+        "dfs_visits": 3838,
+        "capacity_edges": 348,
+        "queue_checks": 2809,
+        "accepted": 3218,
+        "events": 4168,
+        "due_events": 4168,
+        "max_stack": 2,
+        "signal_work": 678,
+        "signal_changes": 479
+      },
+      "unconditional_evaluations": 2402
+    },
+    "frequent": {
+      "cycles": 1200,
+      "samples_ns": [
+        135412248,
+        135925802,
+        137413322,
+        138596981,
+        137912866,
+        137506043,
+        138037207
+      ],
+      "median_ns": 137506043,
+      "stats": {
+        "module_work": 3747,
+        "rule_work": 4045,
+        "cache_hits": 0,
+        "reader_lookups": 6042,
+        "read_registrations": 4148,
+        "read_clears": 4145,
+        "change_notifications": 3353,
+        "dirty_marks": 4017,
+        "reader_checks": 3958,
+        "dfs_visits": 4263,
+        "capacity_edges": 522,
+        "queue_checks": 4643,
+        "accepted": 3221,
+        "events": 5751,
+        "due_events": 5751,
+        "max_stack": 2,
+        "signal_work": 2377,
+        "signal_changes": 1073
+      },
+      "unconditional_evaluations": 2402
+    }
+  }
+}

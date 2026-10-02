@@ -80,7 +80,7 @@ class ModuleRecord:
     read_gen: int = 0
     selected: list = field(default_factory=list)
     previous: list = field(default_factory=list)
-    resource_qids: tuple = ()
+    resource_ids: tuple = ()
     rule_ids: tuple = ()
     control_reads: list = field(default_factory=list)
     rule_readers: list = field(default_factory=list)  # Flat [resource][64-bit word].
@@ -136,10 +136,44 @@ class Stats:
     events: int = 0
     due_events: int = 0
     max_stack: int = 0
+    signal_work: int = 0
+    signal_changes: int = 0
 
 
-class Queue:
+class ReadResource:
+    """Shared read metadata; only Queue owns storage/proposal operations."""
+    def __init__(self):
+        self.resource_id, self.engine, self.state_version = -1, None, 0
+        self.readers, self.reader_slots, self.module_slots = [], [], []
+
+    def _record_read(self):
+        e = self.engine
+        if e is not None:
+            if e.active_signal is not None:
+                e._record_signal_read(self.resource_id)
+            elif e.active_module is not None:
+                e.record_read(e.active_module, self.resource_id, e.active_rule)
+
+
+class Signal(ReadResource):
+    """A cached pure function of Queue current; immutable throughout Work."""
+    def __init__(self, helper):
+        super().__init__()
+        self.helper, self.sid = helper, -1
+        self.input_qids, self.input_reads, self.read_gen = (), [], 0
+        self._value, self.initialized = None, False
+
+    @property
+    def value(self):
+        self._record_read()
+        if not self.initialized:
+            raise RuntimeError("Signal read before initialization")
+        return self._value
+
+
+class Queue(ReadResource):
     def __init__(self, capacity=1, initial=()):
+        super().__init__()
         if capacity < 1 or len(initial) > capacity:
             raise ValueError("invalid Queue capacity")
         self.capacity = capacity
@@ -147,10 +181,9 @@ class Queue:
         for i, value in enumerate(initial):
             self.data[i] = value_copy(value)
         self.head, self.count = 0, len(initial)
-        self.qid, self.engine, self.state_version = -1, None, 0
-        self.readers, self.sources, self.slots = [], [], []
-        self.reader_slots = []  # Parallel to sorted reader ModuleIds; fixed at construction.
-        self.module_slots = []  # ModuleId -> local resource slot; -1 means undeclared.
+        self.qid = -1
+        self.sources, self.slots = [], []
+        self.signal_readers = []  # Fixed (SignalId, Signal input slot) links.
         self.pop_rule, self.push_rule = None, None
         self.accepted, self.accepted_pop, self.used_tick = [], False, -1
 
@@ -158,11 +191,6 @@ class Queue:
     def current(self):
         self._record_read()
         return tuple(self.data[(self.head + i) % self.capacity] for i in range(self.count))
-
-    def _record_read(self):
-        e = self.engine
-        if e is not None and e.active_module is not None:
-            e.record_read(e.active_module, self.qid, e.active_rule)
 
     def empty(self):
         self._record_read()
@@ -266,8 +294,9 @@ class Queue:
 
 
 class Simulator:
-    def __init__(self, queues, modules, entries, cache=True):
+    def __init__(self, queues, modules, entries, cache=True, *, signals=()):
         self.queues, self.module_objects, self.entries = queues, modules, entries
+        self.signals, self.resources = list(signals), list(queues) + list(signals)
         self.modules = [ModuleRecord() for _ in modules]
         self.rules = [None] + [RuleRecord() for _ in entries[1:]]
         self.module_tasks, self.rule_tasks = IdTasks(len(modules)), IdTasks(len(entries))
@@ -275,6 +304,8 @@ class Simulator:
         self.used_queues, self.events = [], []
         self.tick, self.active_module, self.cache = 0, None, cache
         self.active_rule = None  # Work context only; never a persistent model signal.
+        self.active_signal = None
+        self.signal_tasks = IdTasks(len(signals))
         self.stats = Stats()
         # Per-object counters are observation only, never drive scheduling.
         self.module_calls, self.rule_calls = [0] * len(modules), [0] * len(entries)
@@ -282,16 +313,16 @@ class Simulator:
         self.failed = False
         self.observer = None  # Optional review trace; never consulted by scheduling.
 
-    def record_read(self, mid, qid, rid=None):
+    def record_read(self, mid, resource_id, rid=None):
         if mid != self.active_module:
             raise RuntimeError("read outside owning Module Work")
-        queue, module = self.queues[qid], self.modules[mid]
+        resource, module = self.resources[resource_id], self.modules[mid]
         self.stats.reader_lookups += 1
-        slot = queue.module_slots[mid]
+        slot = resource.module_slots[mid]
         if slot < 0:
-            raise ValueError("undeclared Module Queue access")
+            raise ValueError(f"undeclared Module {type(resource).__name__} access")
         if self.observer is not None:
-            self.observer.read(mid, qid, rid)
+            self.observer.read(mid, resource_id, rid)
         if rid is None:
             module.control_reads[slot] = module.read_gen + 1
         else:
@@ -339,11 +370,41 @@ class Simulator:
         record = self.rules[rid]
         self.modules[self.entries[rid].module_id].dirty_words[record.word_index] &= ~record.bit
 
-    def _notify_changed(self, qid):
-        queue = self.queues[qid]
-        for mid, slot in zip(queue.readers, queue.reader_slots):
+    def _notify_changed(self, resource_id):
+        resource = self.resources[resource_id]
+        for mid, slot in zip(resource.readers, resource.reader_slots):
             self.stats.reader_checks += 1
             self._wakeup(mid, self.tick + 1, changed_slot=slot)
+
+    def _record_signal_read(self, qid):
+        if qid >= len(self.queues):
+            raise RuntimeError("Signal helpers cannot read another Signal")
+        signal = self.signals[self.active_signal]
+        slot = bisect_left(signal.input_qids, qid)
+        if slot == len(signal.input_qids) or signal.input_qids[slot] != qid:
+            raise ValueError("undeclared Signal Queue access")
+        signal.input_reads[slot] = signal.read_gen + 1
+
+    def _eval_signals(self):
+        while self.signal_tasks:
+            sid = self.signal_tasks.take()
+            signal = self.signals[sid]
+            self.active_signal = sid
+            try:
+                value = value_copy(signal.helper())
+            finally:
+                self.active_signal = None
+            changed = not signal.initialized or not same_value(signal._value, value)
+            self.stats.signal_work += 1
+            signal.read_gen += 1  # Replace inputs even when the result is unchanged.
+            if changed:
+                signal._value, signal.initialized = value, True
+                signal.state_version += 1
+                self.stats.signal_changes += 1
+                self._notify_changed(signal.resource_id)
+            if self.observer is not None:
+                self.observer.signal_eval(sid, changed)
+        self.signal_tasks.clear()
 
     def begin_rule(self, rid, args=()):
         record, entry = self.rules[rid], self.entries[rid]
@@ -411,7 +472,7 @@ class Simulator:
                 return
             self.stats.change_notifications += 1
             if self.observer is not None:
-                self.observer.invalidate(mid, module.resource_qids[changed_slot])
+                self.observer.invalidate(mid, module.resource_ids[changed_slot])
         heappush(self.events, (tick, mid))
         self.stats.events += 1
 
@@ -520,6 +581,10 @@ class Simulator:
 
     def _step(self):
         if self.tick == 0:
+            for sid in range(len(self.signals)):
+                self.signal_tasks.add(sid)
+            if self.signals:
+                self._eval_signals()
             for mid in range(len(self.modules)):
                 self.module_tasks.add(mid)
         while self.events and self.events[0][0] <= self.tick:
@@ -536,6 +601,12 @@ class Simulator:
         changed = [qid for qid in self.used_queues if self.queues[qid].xfer()]
         for qid in changed:
             self._notify_changed(qid)
+            for sid, slot in self.queues[qid].signal_readers:
+                signal = self.signals[sid]
+                if signal.input_reads[slot] == signal.read_gen:
+                    self.signal_tasks.add(sid)
+        if self.signal_tasks:
+            self._eval_signals()
         for rid in accepted:
             self._clear_candidate(rid)
         self.used_queues.clear()
