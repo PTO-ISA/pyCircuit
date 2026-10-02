@@ -63,17 +63,16 @@ CLI 在退休时调用独立解释器比对；`CPU.run()` 只运行 CPU，适合
 | [execute.py](execute.py) | 前递优先级、ALU、分支和 HALT |
 | [memory.py](memory.py) | 数据 Queue array、延迟请求和完成 |
 | [writeback.py](writeback.py) | 寄存器写回、退休记录 |
-| [stage.py](stage.py) | 共享的 begin/complete/abort 和显式读取辅助函数 |
 | [records.py](records.py) | 有字段名的固定不可变记录，对应 C++ struct |
 | [isa.py](isa.py) | 汇编器和流水 CPU 译码器 |
 | [reference.py](reference.py) | 独立顺序解释器，直接解析指令字 |
 | [test_model.py](test_model.py) | 完整程序、退休比对和流水时序断言 |
 
-五个阶段共 5 条 Rule。它们通过 `Stage.Work()` 进入各自的 `work_stage()` 成员函数。除了 MEM 显式接收当前 tick 参数，其他阶段只依赖读取的 Queue 和固定配置。调度器不分析这些函数。
+五个阶段共 5 条 Rule，均为普通类。`Work()` 直接调用 `work_fetch`、`work_decode` 等成员函数，Rule 显式调用 `begin_rule`、Queue 读取／proposal、`complete_rule`／`abort_rule`；读取接口自动登记依赖，不再写 record_read；没有共享 Stage 或 observe/take 包装层。
 
-`observe(q)` 登记实际依赖后纯读 current；`take(q)` 在输入存在时提出 pop，空输入返回 None。两者都不提前改变状态。`work_stage()` 用布尔返回值显式报告候选是否准备完成：False 调用 abort，True 调用 complete；是否获准仍由后续仲裁决定。输入存在但操作数未就绪，是普通的 `if not ready: return False`；丢弃错误路径指令则在提出 pop 后返回 True。
+[model.py](model.py) 显式声明每阶段可访问资源，包含输入、输出、只读前递、内部状态和动态数组可能表项。Queue 内部根据当前执行的 Module／Rule，直接索引构造好的槽位并设置读者位图；只有实际执行到的读取才订阅，Queue 变化将相关 Rule 置 dirty。MEM 显式接收当前 tick 参数；参数按值比较后也使用同一 dirty 位。其他阶段只依赖 Queue 与固定配置。
 
-这个布尔值是模拟生成代码的 Work 完成状态，不是未来 ACPy Rule 的业务返回值，也不是 CPU 的额外信号或持久状态。正常完成且没有 proposal 的路径仍然不 firing。具体调用均在阶段文件中可见。
+消息输入读取后提出 pop，空输入或操作数未就绪显式 abort，清部分效果但保留读取订阅；错误路径丢弃在提出 pop 后 complete。此次展开保留原有就绪判断与微架构，不新增前端业务返回语义。容量许可仍由随后仲裁决定。
 
 ## 指令与执行边界
 
@@ -107,10 +106,14 @@ MEM 延迟 1 时直接完成。延迟 L>1 时，开始事务消费 EX/MEM 请求
 
 ## 验收
 
-14 个 CPU 测试方法均从汇编程序运行到 HALT 或明确错误；含 64 种依赖窗口、8 个随机种子、1/3/5 拍访存和缓存／构造顺序对照。
+15 个 CPU 测试方法（保留原有 14 个，并增加完整快照矩阵）均从汇编程序运行到 HALT 或明确错误；含 64 种依赖窗口、8 个随机种子、1/3/5 拍访存和缓存／构造顺序对照。
 
 顺序解释器自行解析位域和执行算术，不调用 CPU 的 decoder、ALU、Rule、Queue 或调度器。每次退休比较 PC、指令、写寄存器和 store 效果，并检查全部寄存器。存储可能在 MEM 先于退休更新，因此全部内存只在程序结束时比较。
 
 时序断言另行覆盖首条延迟、连续吞吐、load-use、分支冲刷和长访存的 busy 生命周期。缓存开启／关闭结果与退休拍数一致；背压测试还确认存在未重新 Work 而直接获准的候选。汇编器另有已知编码的端到端断言。
 
 问题、实现修正及仍未定义的前端行为见 [findings.md](findings.md)。
+
+新增矩阵使用 ALU、求和、跳转与访存混合程序，覆盖延迟 1/3/5 × 缓存开关 × Module 正反序共 36 组，比较每拍 Queue、获准集合和未来事件；顺序反转的事件 ModuleId 映射回阶段编号。改造前后对比见 [实验报告](../../report.md)。
+
+读取登记的前后代码、执行上下文和本轮分步测量见 [读取登记说明](../../read-tracking.md)。

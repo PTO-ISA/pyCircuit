@@ -241,6 +241,23 @@ class PipelineCPUTests(unittest.TestCase):
                 with self.assertRaisesRegex(RuntimeError, 'continuation is forbidden'):
                     cpu.step()
 
+    def test_full_snapshot_cache_and_module_order_matrix(self):
+        from bench import PROGRAMS, capture
+        for name, source in PROGRAMS.items():
+            for latency in (1, 3, 5):
+                expected = None
+                for cache, reverse in product((True, False), repeat=2):
+                    with self.subTest(program=name, latency=latency, cache=cache, reverse=reverse):
+                        rows = capture(source, latency=latency, cache=cache, reverse=reverse)
+                        # ModuleIds reverse at construction; translate events to stage IDs.
+                        for row in rows:
+                            row['events'] = sorted((tick, 4 - mid if reverse else mid)
+                                                   for tick, mid in row['events'])
+                        if expected is None:
+                            expected = rows
+                        else:
+                            self.assertEqual(rows, expected)
+
     def test_fixed_seed_random_programs(self):
         for seed in range(8):
             rng = random.Random(seed)

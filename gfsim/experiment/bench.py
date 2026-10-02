@@ -1,77 +1,115 @@
-"""End-to-end workloads; cache on/off, identical inputs and activation semantics."""
+"""RISC-V end-to-end traces and isolated Python simulation-loop timing."""
 
-import argparse
+from pathlib import Path
 from dataclasses import asdict
+import argparse
+import hashlib
 import json
 import platform
-from statistics import median
-from time import perf_counter
+import statistics
+import time
+import engine
+from examples.riscv.model import build_cpu
+from examples.riscv.reference import Interpreter
 
-from examples.pipeline.model import pipeline
-from examples.memory.model import memory
-from engine import Stats
+PROGRAMS = {
+    'alu': 'addi x1,x0,1\n' + 'addi x1,x1,1\nadd x2,x1,x1\n' * 24 + 'halt',
+    'sum': (Path(__file__).parent / 'examples/riscv/programs/sum.s').read_text(),
+    'control': '''
+addi x1,x0,7
+sw x1,0(x0)
+lw x2,0(x0)
+add x3,x2,x1
+beq x3,x1,wrong
+jal x5,func
+sw x3,8(x0)
+jal x0,done
+wrong:
+sw x1,4(x0)
+func:
+addi x3,x3,1
+jalr x0,0(x5)
+done:
+halt
+''',
+}
+
+def capture(program, *, latency, cache, reverse):
+    cpu = build_cpu(program, memory_latency=latency, data_words=64, cache=cache, reverse=reverse)
+    oracle = Interpreter(cpu.words, data_words=64)
+    rows = [{'queues': cpu.sim.snapshot(), 'accepted': [], 'events': []}]
+    for _ in range(5000):
+        inst = cpu.step()
+        if inst is not None:
+            assert inst == oracle.step()
+            assert cpu.register_values() == tuple(oracle.registers)
+        rows.append({'queues': cpu.sim.snapshot(), 'accepted': sorted(cpu.sim.last_accepted),
+                     'events': sorted(cpu.sim.events)})
+        if cpu.halted:
+            break
+    assert cpu.halted and oracle.halted and cpu.memory_values() == tuple(oracle.memory)
+    return rows
 
 
-def measure(build, ticks, repeat):
-    modes, signatures = {}, []
-    for cache in (True, False):
-        elapsed, signature = [], None
-        for _ in range(repeat):
-            circuit = build(cache)
-            sim = circuit.sim
-            sim.step()  # Construction and initial subscription are outside the timing.
-            sim.stats = Stats()
-            start = perf_counter()
-            trace = []
-            for _ in range(ticks):
-                trace.append(tuple(sorted(sim.step())))
-            elapsed.append(perf_counter() - start)
-            current = (trace, sim.snapshot(), sorted(sim.events))
-            if signature is not None:
-                assert signature == current
-            signature = current
-        signatures.append(signature)
-        modes["cached" if cache else "uncached"] = {
-            "seconds_median": median(elapsed), "counters": asdict(sim.stats),
-        }
-    assert signatures[0] == signatures[1]
-    modes["uncached_over_cached"] = (modes["uncached"]["seconds_median"] /
-                                      modes["cached"]["seconds_median"])
-    modes["layout"] = {"modules": len(sim.modules), "rules": len(sim.rules) - 1,
-                        "queues": len(sim.queues),
-                        "reader_slots": len(sim.modules) * len(sim.queues),
-                        "reader_bytes_if_uint64": len(sim.modules) * len(sim.queues) * 8}
-    modes["completed_outputs"] = circuit.output.size()
-    return modes
+def collect(repeat=5):
+    traces, results = {}, {}
+    for name, program in PROGRAMS.items():
+        for latency in (1, 3, 5):
+            for cache in (True, False):
+                for reverse in (False, True):
+                    tag = f'{name}-lat{latency}-cache{int(cache)}-reverse{int(reverse)}'
+                    traces[tag] = capture(program, latency=latency, cache=cache, reverse=reverse)
+                    samples = []
+                    for _ in range(repeat):
+                        cpu = build_cpu(program, memory_latency=latency, data_words=64, cache=cache, reverse=reverse)
+                        start = time.perf_counter_ns()
+                        for tick in range(5000):
+                            cpu.sim.step()
+                            if cpu.halted:
+                                break
+                        samples.append(time.perf_counter_ns() - start)
+                        assert cpu.halted
+                    results[tag] = {'samples_ns': samples, 'median_ns': statistics.median(samples), 'cycles': cpu.sim.tick, 'stats': asdict(cpu.sim.stats)}
+    return traces, results
+
+def compare_traces(expected, actual):
+    if expected.keys() != actual.keys():
+        raise AssertionError('configuration sets differ')
+    for tag, rows in expected.items():
+        if len(rows) != len(actual[tag]):
+            raise AssertionError(f'{tag}: cycle count {len(rows)} != {len(actual[tag])}')
+        for tick, (old, new) in enumerate(zip(rows, actual[tag])):
+            if old != new:
+                fields = [key for key in old if old[key] != new[key]]
+                raise AssertionError(f'{tag}: first difference at snapshot {tick}, fields {fields}: '
+                                     f'old={old!r}, new={new!r}')
 
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--ticks", type=int, default=150)
-    parser.add_argument("--length", type=int, default=16)
-    parser.add_argument("--depth", type=int, default=512)
-    parser.add_argument("--work", type=int, default=2000)
-    parser.add_argument("--repeat", type=int, default=3)
+    parser.add_argument('--output', type=Path, default=Path(__file__).parent / 'review-output/dirty')
+    parser.add_argument('--compare', type=Path, help='previous traces.json')
+    parser.add_argument('--repeat', type=int, default=5)
     args = parser.parse_args()
-    if min(args.ticks, args.length, args.depth, args.repeat) < 1 or args.work < 0:
-        parser.error("sizes and repeat must be positive; work must be nonnegative")
-    values = tuple(range(args.ticks + 10))
-    requests = tuple((i, (i * 17) % (2 * args.depth), i % 2 == 0, i)
-                     for i in range(args.ticks))
-    workloads = {
-        "full_pipeline": lambda cache: pipeline(values, length=args.length, period=1,
-                                                  prefill=True, cache=cache),
-        "backpressure_compute": lambda cache: pipeline(values, length=2, period=20,
-             iterations=args.work, control=tuple(range(args.ticks + 2)), cache=cache),
-        "sparse_banked_table": lambda cache: memory(requests, depth=args.depth,
-                                                      latency=4, period=3, cache=cache),
+    if args.repeat < 1:
+        parser.error('--repeat must be positive')
+    args.output.mkdir(parents=True, exist_ok=True)
+    traces, results = collect(args.repeat)
+    encoded = json.dumps(traces)
+    (args.output / 'traces.json').write_text(encoded + '\n')
+    report = {
+        'python': platform.python_version(), 'machine': platform.machine(),
+        'engine_sha256': hashlib.sha256(Path(engine.__file__).read_bytes()).hexdigest(),
+        'scope': f'{args.repeat} samples; construction, snapshots, oracle and JSON outside timer; '
+                 'clock loop plus HALT check inside timer; built-in counters enabled',
+        'workloads': results,
     }
-    report = {"python": platform.python_version(), "machine": platform.machine(),
-              "parameters": vars(args), "workloads": {}}
-    for name, build in workloads.items():
-        report["workloads"][name] = measure(build, args.ticks, args.repeat)
-    print(json.dumps(report, indent=2))
+    (args.output / 'timing.json').write_text(json.dumps(report, indent=2) + '\n')
+    if args.compare:
+        compare_traces(json.loads(args.compare.read_text()), json.loads(encoded))
+        print(f'All {len(traces)} configurations match previous snapshots, accepted Rules and events.')
+    print(f'Saved {len(traces)} configurations to {args.output}')
 
 
-if __name__ == "__main__":
+if __name__ == '__main__':
     main()

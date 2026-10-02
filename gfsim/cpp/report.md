@@ -1,4 +1,6 @@
-# C++ 核心验收与性能报告
+# C++ 核心验收与性能报告（历史记录）
+
+以下记录上一版引擎的测试，未覆盖现行 spec 的动态 dirty 方案。本轮不迁移／测试 C++；旧 Python examples 与跨语言脚本、CMake 注册已移除，原生测试保留。
 
 验证日期：2026-10-01。环境：aarch64，Clang 22.1.8，Python 3.11.16；独立共享库及外部消费另用 GCC 10.3.1 验证。核心不链接 Python 或 LLVM。
 
@@ -16,7 +18,7 @@ LeakSanitizer 在受 ptrace 限制的沙箱中无法完成退出检查，因此�
 
 ## 完整模型与参考
 
-[compare.py](tests/compare.py) 复用 Python experiment 的七组模型、原始输入及输出断言。13 项测试内的所有子场景分别运行缓存开启/关闭的 C++ 模型，逐拍与独立 Python Reference 对照：
+历史 `tests/compare.py`（已移除） 复用 Python experiment 的七组模型、原始输入及输出断言。13 项测试内的所有子场景分别运行缓存开启/关闭的 C++ 模型，逐拍与独立 Python Reference 对照：
 
 - 获准 RuleId 集合及无重复 firing。
 - 所有 Queue 的逻辑内容与版本。

@@ -1,26 +1,40 @@
-"""IF: sequential fetch, EX redirects, and a fixed instruction ROM."""
+"""Fetch: explicit generated-style Rule and runtime calls."""
 
-from .stage import Stage
 from .records import Fetched, u32
 
 
-class Fetch(Stage):
+class Fetch:
     def __init__(self, mid, rid, rom, pc, control, redirect, output):
-        super().__init__(mid, rid)
-        self.rom, self.pc, self.control = rom, pc, control
-        self.redirect, self.output = redirect, output
+        self.mid, self.rid, self.engine = mid, rid, None
+        self.rom = rom
+        self.pc = pc
+        self.control = control
+        self.redirect = redirect
+        self.output = output
 
-    def work_stage(self):
-        control = self.observe(self.control)
+    def Work(self):
+        self.work_fetch()
+
+    def work_fetch(self):
+        e, rid = self.engine, self.rid
+        if not e.begin_rule(rid):
+            return
+
+        control = self.control.peek()
         if control.stopped:
-            return True
-        redirect = self.observe(self.redirect)
-        pc = self.observe(self.pc)
+            e.complete_rule(rid)
+            return
+        redirect = self.redirect.try_peek()
+        pc = self.pc.peek()
         if redirect is not None:
-            pc = self.take(self.redirect).pc
-        # Invalid fetches travel as illegal instructions; wrong-path fetches must
-        # not fail before an older branch has resolved.
+            self.redirect.propose_pop(rid)
+            pc = redirect.pc
+        # Invalid wrong-path fetches must survive until an older branch resolves.
         word = self.rom[pc // 4] if pc % 4 == 0 and 0 <= pc // 4 < len(self.rom) else 0
-        self.output.propose_push(self.rid, Fetched(pc, word, control.epoch))
-        self.pc.propose_revise(self.rid, u32(pc + 4))
-        return True
+        self.output.propose_push(rid, Fetched(pc, word, control.epoch))
+        self.pc.propose_revise(rid, u32(pc + 4))
+
+        e.complete_rule(rid)
+
+    def arbitrate_fetch(self):
+        return self.engine.arbitrate_rule(self.rid)

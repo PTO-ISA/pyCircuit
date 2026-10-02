@@ -1,154 +1,2156 @@
 {
-  "python": "3.11.16",
-  "machine": "aarch64",
-  "parameters": {
-    "ticks": 150,
-    "length": 16,
-    "depth": 512,
-    "work": 2000,
-    "repeat": 3
+  "baseline_commit": "90ebc8dd56966c099688bb281c7321c5cfac1eb0",
+  "scope": "Python before/after engine and riscv generated-style refactor; no C++ timing",
+  "trace_comparison": {
+    "configurations": 36,
+    "equal": true,
+    "fields": [
+      "initial and per-tick Queue contents",
+      "accepted Rule sets",
+      "future events"
+    ],
+    "baseline_sha256": "39271c90ba72a5a5644a97c3973638b7a8a7dea9e8d1d2a50e226509b2db31bf"
   },
-  "workloads": {
-    "full_pipeline": {
-      "cached": {
-        "seconds_median": 0.059321659966371953,
-        "counters": {
-          "module_work": 2700,
-          "rule_work": 2700,
+  "before": {
+    "python": "3.11.16",
+    "machine": "aarch64",
+    "engine_sha256": "3ff46b2f4de7509f146d9e4e0f5f4d150cdee30f893eea1f5877cf0b0526f24a",
+    "scope": "5 samples; construction, snapshots, oracle and JSON outside timer; clock loop plus HALT check inside timer; built-in counters enabled",
+    "workloads": {
+      "alu-lat1-cache1-reverse0": {
+        "samples_ns": [
+          9484495,
+          9457025,
+          9476375,
+          9526796,
+          9510016
+        ],
+        "median_ns": 9484495,
+        "cycles": 54,
+        "stats": {
+          "module_work": 263,
+          "rule_work": 263,
           "cache_hits": 0,
           "version_checks": 0,
-          "dep_searches": 2700,
-          "reader_checks": 51300,
-          "dfs_visits": 2700,
-          "capacity_edges": 2550,
-          "queue_checks": 5400,
-          "accepted": 2700,
-          "events": 2700,
-          "due_events": 2700,
-          "max_stack": 18
+          "dep_searches": 1793,
+          "reader_checks": 1795,
+          "dfs_visits": 255,
+          "capacity_edges": 199,
+          "queue_checks": 558,
+          "accepted": 255,
+          "events": 530,
+          "due_events": 528,
+          "max_stack": 5
         }
       },
-      "uncached": {
-        "seconds_median": 0.05922007898334414,
-        "counters": {
-          "module_work": 2700,
-          "rule_work": 2700,
+      "alu-lat1-cache1-reverse1": {
+        "samples_ns": [
+          9228014,
+          9253483,
+          9263134,
+          9246763,
+          9275544
+        ],
+        "median_ns": 9253483,
+        "cycles": 54,
+        "stats": {
+          "module_work": 263,
+          "rule_work": 263,
           "cache_hits": 0,
           "version_checks": 0,
-          "dep_searches": 2700,
-          "reader_checks": 51300,
-          "dfs_visits": 2700,
-          "capacity_edges": 2550,
-          "queue_checks": 5400,
-          "accepted": 2700,
-          "events": 2700,
-          "due_events": 2700,
-          "max_stack": 18
+          "dep_searches": 1793,
+          "reader_checks": 1795,
+          "dfs_visits": 255,
+          "capacity_edges": 0,
+          "queue_checks": 558,
+          "accepted": 255,
+          "events": 530,
+          "due_events": 528,
+          "max_stack": 1
         }
       },
-      "uncached_over_cached": 0.9982876240636995,
-      "layout": {
-        "modules": 18,
-        "rules": 19,
-        "queues": 19,
-        "reader_slots": 342,
-        "reader_bytes_if_uint64": 2736
+      "alu-lat1-cache0-reverse0": {
+        "samples_ns": [
+          9390114,
+          9545575,
+          9449345,
+          9423395,
+          9454445
+        ],
+        "median_ns": 9449345,
+        "cycles": 54,
+        "stats": {
+          "module_work": 263,
+          "rule_work": 263,
+          "cache_hits": 0,
+          "version_checks": 0,
+          "dep_searches": 1793,
+          "reader_checks": 1795,
+          "dfs_visits": 255,
+          "capacity_edges": 199,
+          "queue_checks": 558,
+          "accepted": 255,
+          "events": 530,
+          "due_events": 528,
+          "max_stack": 5
+        }
       },
-      "completed_outputs": 151
+      "alu-lat1-cache0-reverse1": {
+        "samples_ns": [
+          9244593,
+          9319994,
+          9240523,
+          9325874,
+          9263823
+        ],
+        "median_ns": 9263823,
+        "cycles": 54,
+        "stats": {
+          "module_work": 263,
+          "rule_work": 263,
+          "cache_hits": 0,
+          "version_checks": 0,
+          "dep_searches": 1793,
+          "reader_checks": 1795,
+          "dfs_visits": 255,
+          "capacity_edges": 0,
+          "queue_checks": 558,
+          "accepted": 255,
+          "events": 530,
+          "due_events": 528,
+          "max_stack": 1
+        }
+      },
+      "alu-lat3-cache1-reverse0": {
+        "samples_ns": [
+          9443055,
+          9511875,
+          9424205,
+          9449175,
+          9426564
+        ],
+        "median_ns": 9443055,
+        "cycles": 54,
+        "stats": {
+          "module_work": 263,
+          "rule_work": 263,
+          "cache_hits": 0,
+          "version_checks": 0,
+          "dep_searches": 1793,
+          "reader_checks": 1795,
+          "dfs_visits": 255,
+          "capacity_edges": 199,
+          "queue_checks": 558,
+          "accepted": 255,
+          "events": 530,
+          "due_events": 528,
+          "max_stack": 5
+        }
+      },
+      "alu-lat3-cache1-reverse1": {
+        "samples_ns": [
+          9187103,
+          9213753,
+          9249693,
+          9252893,
+          9246574
+        ],
+        "median_ns": 9246574,
+        "cycles": 54,
+        "stats": {
+          "module_work": 263,
+          "rule_work": 263,
+          "cache_hits": 0,
+          "version_checks": 0,
+          "dep_searches": 1793,
+          "reader_checks": 1795,
+          "dfs_visits": 255,
+          "capacity_edges": 0,
+          "queue_checks": 558,
+          "accepted": 255,
+          "events": 530,
+          "due_events": 528,
+          "max_stack": 1
+        }
+      },
+      "alu-lat3-cache0-reverse0": {
+        "samples_ns": [
+          9502935,
+          9431045,
+          9419934,
+          9381174,
+          9438874
+        ],
+        "median_ns": 9431045,
+        "cycles": 54,
+        "stats": {
+          "module_work": 263,
+          "rule_work": 263,
+          "cache_hits": 0,
+          "version_checks": 0,
+          "dep_searches": 1793,
+          "reader_checks": 1795,
+          "dfs_visits": 255,
+          "capacity_edges": 199,
+          "queue_checks": 558,
+          "accepted": 255,
+          "events": 530,
+          "due_events": 528,
+          "max_stack": 5
+        }
+      },
+      "alu-lat3-cache0-reverse1": {
+        "samples_ns": [
+          9152722,
+          9266644,
+          9247324,
+          9339644,
+          9270494
+        ],
+        "median_ns": 9266644,
+        "cycles": 54,
+        "stats": {
+          "module_work": 263,
+          "rule_work": 263,
+          "cache_hits": 0,
+          "version_checks": 0,
+          "dep_searches": 1793,
+          "reader_checks": 1795,
+          "dfs_visits": 255,
+          "capacity_edges": 0,
+          "queue_checks": 558,
+          "accepted": 255,
+          "events": 530,
+          "due_events": 528,
+          "max_stack": 1
+        }
+      },
+      "alu-lat5-cache1-reverse0": {
+        "samples_ns": [
+          9454925,
+          9464375,
+          9491885,
+          9413205,
+          9456605
+        ],
+        "median_ns": 9456605,
+        "cycles": 54,
+        "stats": {
+          "module_work": 263,
+          "rule_work": 263,
+          "cache_hits": 0,
+          "version_checks": 0,
+          "dep_searches": 1793,
+          "reader_checks": 1795,
+          "dfs_visits": 255,
+          "capacity_edges": 199,
+          "queue_checks": 558,
+          "accepted": 255,
+          "events": 530,
+          "due_events": 528,
+          "max_stack": 5
+        }
+      },
+      "alu-lat5-cache1-reverse1": {
+        "samples_ns": [
+          9429655,
+          9320084,
+          9291994,
+          9287134,
+          9288044
+        ],
+        "median_ns": 9291994,
+        "cycles": 54,
+        "stats": {
+          "module_work": 263,
+          "rule_work": 263,
+          "cache_hits": 0,
+          "version_checks": 0,
+          "dep_searches": 1793,
+          "reader_checks": 1795,
+          "dfs_visits": 255,
+          "capacity_edges": 0,
+          "queue_checks": 558,
+          "accepted": 255,
+          "events": 530,
+          "due_events": 528,
+          "max_stack": 1
+        }
+      },
+      "alu-lat5-cache0-reverse0": {
+        "samples_ns": [
+          9501555,
+          9485205,
+          9501175,
+          9487115,
+          9395835
+        ],
+        "median_ns": 9487115,
+        "cycles": 54,
+        "stats": {
+          "module_work": 263,
+          "rule_work": 263,
+          "cache_hits": 0,
+          "version_checks": 0,
+          "dep_searches": 1793,
+          "reader_checks": 1795,
+          "dfs_visits": 255,
+          "capacity_edges": 199,
+          "queue_checks": 558,
+          "accepted": 255,
+          "events": 530,
+          "due_events": 528,
+          "max_stack": 5
+        }
+      },
+      "alu-lat5-cache0-reverse1": {
+        "samples_ns": [
+          9226453,
+          9267104,
+          9220993,
+          9191943,
+          9268114
+        ],
+        "median_ns": 9226453,
+        "cycles": 54,
+        "stats": {
+          "module_work": 263,
+          "rule_work": 263,
+          "cache_hits": 0,
+          "version_checks": 0,
+          "dep_searches": 1793,
+          "reader_checks": 1795,
+          "dfs_visits": 255,
+          "capacity_edges": 0,
+          "queue_checks": 558,
+          "accepted": 255,
+          "events": 530,
+          "due_events": 528,
+          "max_stack": 1
+        }
+      },
+      "sum-lat1-cache1-reverse0": {
+        "samples_ns": [
+          22529514,
+          22696736,
+          22802107,
+          22762366,
+          22886777
+        ],
+        "median_ns": 22762366,
+        "cycles": 148,
+        "stats": {
+          "module_work": 687,
+          "rule_work": 687,
+          "cache_hits": 0,
+          "version_checks": 0,
+          "dep_searches": 4698,
+          "reader_checks": 4505,
+          "dfs_visits": 595,
+          "capacity_edges": 351,
+          "queue_checks": 1274,
+          "accepted": 585,
+          "events": 1311,
+          "due_events": 1309,
+          "max_stack": 5
+        }
+      },
+      "sum-lat1-cache1-reverse1": {
+        "samples_ns": [
+          22034471,
+          22421654,
+          22429824,
+          22324303,
+          22448914
+        ],
+        "median_ns": 22421654,
+        "cycles": 148,
+        "stats": {
+          "module_work": 687,
+          "rule_work": 687,
+          "cache_hits": 0,
+          "version_checks": 0,
+          "dep_searches": 4698,
+          "reader_checks": 4505,
+          "dfs_visits": 595,
+          "capacity_edges": 0,
+          "queue_checks": 1274,
+          "accepted": 585,
+          "events": 1311,
+          "due_events": 1309,
+          "max_stack": 1
+        }
+      },
+      "sum-lat1-cache0-reverse0": {
+        "samples_ns": [
+          22490955,
+          22687965,
+          22666586,
+          22756176,
+          22541585
+        ],
+        "median_ns": 22666586,
+        "cycles": 148,
+        "stats": {
+          "module_work": 687,
+          "rule_work": 687,
+          "cache_hits": 0,
+          "version_checks": 0,
+          "dep_searches": 4698,
+          "reader_checks": 4505,
+          "dfs_visits": 595,
+          "capacity_edges": 351,
+          "queue_checks": 1274,
+          "accepted": 585,
+          "events": 1311,
+          "due_events": 1309,
+          "max_stack": 5
+        }
+      },
+      "sum-lat1-cache0-reverse1": {
+        "samples_ns": [
+          22306553,
+          22227132,
+          22316243,
+          22334003,
+          22292882
+        ],
+        "median_ns": 22306553,
+        "cycles": 148,
+        "stats": {
+          "module_work": 687,
+          "rule_work": 687,
+          "cache_hits": 0,
+          "version_checks": 0,
+          "dep_searches": 4698,
+          "reader_checks": 4505,
+          "dfs_visits": 595,
+          "capacity_edges": 0,
+          "queue_checks": 1274,
+          "accepted": 585,
+          "events": 1311,
+          "due_events": 1309,
+          "max_stack": 1
+        }
+      },
+      "sum-lat3-cache1-reverse0": {
+        "samples_ns": [
+          25258063,
+          25353364,
+          25340904,
+          25032232,
+          25333234
+        ],
+        "median_ns": 25333234,
+        "cycles": 190,
+        "stats": {
+          "module_work": 772,
+          "rule_work": 772,
+          "cache_hits": 0,
+          "version_checks": 120,
+          "dep_searches": 5322,
+          "reader_checks": 4730,
+          "dfs_visits": 666,
+          "capacity_edges": 358,
+          "queue_checks": 1396,
+          "accepted": 606,
+          "events": 1420,
+          "due_events": 1418,
+          "max_stack": 5
+        }
+      },
+      "sum-lat3-cache1-reverse1": {
+        "samples_ns": [
+          24632509,
+          24674429,
+          24759870,
+          24741090,
+          24708600
+        ],
+        "median_ns": 24708600,
+        "cycles": 190,
+        "stats": {
+          "module_work": 772,
+          "rule_work": 772,
+          "cache_hits": 0,
+          "version_checks": 120,
+          "dep_searches": 5322,
+          "reader_checks": 4730,
+          "dfs_visits": 666,
+          "capacity_edges": 30,
+          "queue_checks": 1396,
+          "accepted": 606,
+          "events": 1420,
+          "due_events": 1418,
+          "max_stack": 1
+        }
+      },
+      "sum-lat3-cache0-reverse0": {
+        "samples_ns": [
+          25176803,
+          24899841,
+          25066462,
+          24942041,
+          24939931
+        ],
+        "median_ns": 24942041,
+        "cycles": 190,
+        "stats": {
+          "module_work": 772,
+          "rule_work": 772,
+          "cache_hits": 0,
+          "version_checks": 0,
+          "dep_searches": 5322,
+          "reader_checks": 4730,
+          "dfs_visits": 666,
+          "capacity_edges": 358,
+          "queue_checks": 1396,
+          "accepted": 606,
+          "events": 1420,
+          "due_events": 1418,
+          "max_stack": 5
+        }
+      },
+      "sum-lat3-cache0-reverse1": {
+        "samples_ns": [
+          24822450,
+          24741689,
+          24865020,
+          24520438,
+          24667429
+        ],
+        "median_ns": 24741689,
+        "cycles": 190,
+        "stats": {
+          "module_work": 772,
+          "rule_work": 772,
+          "cache_hits": 0,
+          "version_checks": 0,
+          "dep_searches": 5322,
+          "reader_checks": 4730,
+          "dfs_visits": 666,
+          "capacity_edges": 30,
+          "queue_checks": 1396,
+          "accepted": 606,
+          "events": 1420,
+          "due_events": 1418,
+          "max_stack": 1
+        }
+      },
+      "sum-lat5-cache1-reverse0": {
+        "samples_ns": [
+          25304073,
+          25473085,
+          25266774,
+          25326294,
+          25104282
+        ],
+        "median_ns": 25304073,
+        "cycles": 232,
+        "stats": {
+          "module_work": 772,
+          "rule_work": 772,
+          "cache_hits": 0,
+          "version_checks": 120,
+          "dep_searches": 5322,
+          "reader_checks": 4730,
+          "dfs_visits": 666,
+          "capacity_edges": 358,
+          "queue_checks": 1396,
+          "accepted": 606,
+          "events": 1420,
+          "due_events": 1418,
+          "max_stack": 5
+        }
+      },
+      "sum-lat5-cache1-reverse1": {
+        "samples_ns": [
+          25100292,
+          25025182,
+          25122522,
+          24927501,
+          24766860
+        ],
+        "median_ns": 25025182,
+        "cycles": 232,
+        "stats": {
+          "module_work": 772,
+          "rule_work": 772,
+          "cache_hits": 0,
+          "version_checks": 120,
+          "dep_searches": 5322,
+          "reader_checks": 4730,
+          "dfs_visits": 666,
+          "capacity_edges": 30,
+          "queue_checks": 1396,
+          "accepted": 606,
+          "events": 1420,
+          "due_events": 1418,
+          "max_stack": 1
+        }
+      },
+      "sum-lat5-cache0-reverse0": {
+        "samples_ns": [
+          25230013,
+          25205933,
+          25116172,
+          25047332,
+          24996161
+        ],
+        "median_ns": 25116172,
+        "cycles": 232,
+        "stats": {
+          "module_work": 772,
+          "rule_work": 772,
+          "cache_hits": 0,
+          "version_checks": 0,
+          "dep_searches": 5322,
+          "reader_checks": 4730,
+          "dfs_visits": 666,
+          "capacity_edges": 358,
+          "queue_checks": 1396,
+          "accepted": 606,
+          "events": 1420,
+          "due_events": 1418,
+          "max_stack": 5
+        }
+      },
+      "sum-lat5-cache0-reverse1": {
+        "samples_ns": [
+          24566438,
+          24758950,
+          24745840,
+          24721350,
+          24835870
+        ],
+        "median_ns": 24745840,
+        "cycles": 232,
+        "stats": {
+          "module_work": 772,
+          "rule_work": 772,
+          "cache_hits": 0,
+          "version_checks": 0,
+          "dep_searches": 5322,
+          "reader_checks": 4730,
+          "dfs_visits": 666,
+          "capacity_edges": 30,
+          "queue_checks": 1396,
+          "accepted": 606,
+          "events": 1420,
+          "due_events": 1418,
+          "max_stack": 1
+        }
+      },
+      "control-lat1-cache1-reverse0": {
+        "samples_ns": [
+          2930280,
+          2919070,
+          2925590,
+          2957190,
+          2908940
+        ],
+        "median_ns": 2925590,
+        "cycles": 22,
+        "stats": {
+          "module_work": 96,
+          "rule_work": 96,
+          "cache_hits": 0,
+          "version_checks": 0,
+          "dep_searches": 483,
+          "reader_checks": 595,
+          "dfs_visits": 76,
+          "capacity_edges": 39,
+          "queue_checks": 160,
+          "accepted": 75,
+          "events": 158,
+          "due_events": 156,
+          "max_stack": 5
+        }
+      },
+      "control-lat1-cache1-reverse1": {
+        "samples_ns": [
+          2867269,
+          2850680,
+          2897420,
+          2907020,
+          2834190
+        ],
+        "median_ns": 2867269,
+        "cycles": 22,
+        "stats": {
+          "module_work": 96,
+          "rule_work": 96,
+          "cache_hits": 0,
+          "version_checks": 0,
+          "dep_searches": 483,
+          "reader_checks": 595,
+          "dfs_visits": 76,
+          "capacity_edges": 0,
+          "queue_checks": 160,
+          "accepted": 75,
+          "events": 158,
+          "due_events": 156,
+          "max_stack": 1
+        }
+      },
+      "control-lat1-cache0-reverse0": {
+        "samples_ns": [
+          2925701,
+          2953811,
+          2931160,
+          2942680,
+          2933650
+        ],
+        "median_ns": 2933650,
+        "cycles": 22,
+        "stats": {
+          "module_work": 96,
+          "rule_work": 96,
+          "cache_hits": 0,
+          "version_checks": 0,
+          "dep_searches": 483,
+          "reader_checks": 595,
+          "dfs_visits": 76,
+          "capacity_edges": 39,
+          "queue_checks": 160,
+          "accepted": 75,
+          "events": 158,
+          "due_events": 156,
+          "max_stack": 5
+        }
+      },
+      "control-lat1-cache0-reverse1": {
+        "samples_ns": [
+          2892250,
+          2868650,
+          2862300,
+          2867979,
+          2865200
+        ],
+        "median_ns": 2867979,
+        "cycles": 22,
+        "stats": {
+          "module_work": 96,
+          "rule_work": 96,
+          "cache_hits": 0,
+          "version_checks": 0,
+          "dep_searches": 483,
+          "reader_checks": 595,
+          "dfs_visits": 76,
+          "capacity_edges": 0,
+          "queue_checks": 160,
+          "accepted": 75,
+          "events": 158,
+          "due_events": 156,
+          "max_stack": 1
+        }
+      },
+      "control-lat3-cache1-reverse0": {
+        "samples_ns": [
+          3213422,
+          3216662,
+          3250752,
+          3263003,
+          3225972
+        ],
+        "median_ns": 3225972,
+        "cycles": 26,
+        "stats": {
+          "module_work": 107,
+          "rule_work": 107,
+          "cache_hits": 0,
+          "version_checks": 12,
+          "dep_searches": 557,
+          "reader_checks": 625,
+          "dfs_visits": 83,
+          "capacity_edges": 39,
+          "queue_checks": 173,
+          "accepted": 78,
+          "events": 170,
+          "due_events": 168,
+          "max_stack": 5
+        }
+      },
+      "control-lat3-cache1-reverse1": {
+        "samples_ns": [
+          3187022,
+          3172832,
+          3171542,
+          3149212,
+          3141291
+        ],
+        "median_ns": 3171542,
+        "cycles": 26,
+        "stats": {
+          "module_work": 107,
+          "rule_work": 107,
+          "cache_hits": 0,
+          "version_checks": 12,
+          "dep_searches": 557,
+          "reader_checks": 625,
+          "dfs_visits": 83,
+          "capacity_edges": 1,
+          "queue_checks": 173,
+          "accepted": 78,
+          "events": 170,
+          "due_events": 168,
+          "max_stack": 1
+        }
+      },
+      "control-lat3-cache0-reverse0": {
+        "samples_ns": [
+          3223302,
+          3204332,
+          3185441,
+          3210002,
+          3205102
+        ],
+        "median_ns": 3205102,
+        "cycles": 26,
+        "stats": {
+          "module_work": 107,
+          "rule_work": 107,
+          "cache_hits": 0,
+          "version_checks": 0,
+          "dep_searches": 557,
+          "reader_checks": 625,
+          "dfs_visits": 83,
+          "capacity_edges": 39,
+          "queue_checks": 173,
+          "accepted": 78,
+          "events": 170,
+          "due_events": 168,
+          "max_stack": 5
+        }
+      },
+      "control-lat3-cache0-reverse1": {
+        "samples_ns": [
+          3144722,
+          3145882,
+          3242322,
+          3196652,
+          3177752
+        ],
+        "median_ns": 3177752,
+        "cycles": 26,
+        "stats": {
+          "module_work": 107,
+          "rule_work": 107,
+          "cache_hits": 0,
+          "version_checks": 0,
+          "dep_searches": 557,
+          "reader_checks": 625,
+          "dfs_visits": 83,
+          "capacity_edges": 1,
+          "queue_checks": 173,
+          "accepted": 78,
+          "events": 170,
+          "due_events": 168,
+          "max_stack": 1
+        }
+      },
+      "control-lat5-cache1-reverse0": {
+        "samples_ns": [
+          3314433,
+          3286632,
+          3255063,
+          3248342,
+          3256652
+        ],
+        "median_ns": 3256652,
+        "cycles": 32,
+        "stats": {
+          "module_work": 107,
+          "rule_work": 107,
+          "cache_hits": 0,
+          "version_checks": 12,
+          "dep_searches": 557,
+          "reader_checks": 625,
+          "dfs_visits": 86,
+          "capacity_edges": 38,
+          "queue_checks": 179,
+          "accepted": 78,
+          "events": 170,
+          "due_events": 168,
+          "max_stack": 5
+        }
+      },
+      "control-lat5-cache1-reverse1": {
+        "samples_ns": [
+          3184622,
+          3213642,
+          3207822,
+          3238172,
+          3182332
+        ],
+        "median_ns": 3207822,
+        "cycles": 32,
+        "stats": {
+          "module_work": 107,
+          "rule_work": 107,
+          "cache_hits": 0,
+          "version_checks": 12,
+          "dep_searches": 557,
+          "reader_checks": 625,
+          "dfs_visits": 86,
+          "capacity_edges": 3,
+          "queue_checks": 179,
+          "accepted": 78,
+          "events": 170,
+          "due_events": 168,
+          "max_stack": 1
+        }
+      },
+      "control-lat5-cache0-reverse0": {
+        "samples_ns": [
+          3283022,
+          3262822,
+          3268022,
+          3286412,
+          3287023
+        ],
+        "median_ns": 3283022,
+        "cycles": 32,
+        "stats": {
+          "module_work": 107,
+          "rule_work": 107,
+          "cache_hits": 0,
+          "version_checks": 0,
+          "dep_searches": 557,
+          "reader_checks": 625,
+          "dfs_visits": 86,
+          "capacity_edges": 38,
+          "queue_checks": 179,
+          "accepted": 78,
+          "events": 170,
+          "due_events": 168,
+          "max_stack": 5
+        }
+      },
+      "control-lat5-cache0-reverse1": {
+        "samples_ns": [
+          3165562,
+          3179732,
+          3254482,
+          3192901,
+          3203682
+        ],
+        "median_ns": 3192901,
+        "cycles": 32,
+        "stats": {
+          "module_work": 107,
+          "rule_work": 107,
+          "cache_hits": 0,
+          "version_checks": 0,
+          "dep_searches": 557,
+          "reader_checks": 625,
+          "dfs_visits": 86,
+          "capacity_edges": 3,
+          "queue_checks": 179,
+          "accepted": 78,
+          "events": 170,
+          "due_events": 168,
+          "max_stack": 1
+        }
+      }
+    }
+  },
+  "after": {
+    "python": "3.11.16",
+    "machine": "aarch64",
+    "engine_sha256": "efa214e32bdd75e7981a87a7b0fab396711d1c459a7f112b5bb6c3e0fce37850",
+    "scope": "5 samples; construction, snapshots, oracle and JSON outside timer; clock loop plus HALT check inside timer; built-in counters enabled",
+    "workloads": {
+      "alu-lat1-cache1-reverse0": {
+        "samples_ns": [
+          10967546,
+          11111766,
+          11099656,
+          11104486,
+          11009456
+        ],
+        "median_ns": 11099656,
+        "cycles": 54,
+        "stats": {
+          "module_work": 263,
+          "rule_work": 263,
+          "cache_hits": 0,
+          "reader_lookups": 1244,
+          "read_registrations": 839,
+          "read_clears": 832,
+          "change_notifications": 530,
+          "dirty_marks": 260,
+          "reader_checks": 719,
+          "dfs_visits": 255,
+          "capacity_edges": 199,
+          "queue_checks": 558,
+          "accepted": 255,
+          "events": 530,
+          "due_events": 528,
+          "max_stack": 5
+        }
+      },
+      "alu-lat1-cache1-reverse1": {
+        "samples_ns": [
+          10887924,
+          10810154,
+          10902475,
+          10896165,
+          10906925
+        ],
+        "median_ns": 10896165,
+        "cycles": 54,
+        "stats": {
+          "module_work": 263,
+          "rule_work": 263,
+          "cache_hits": 0,
+          "reader_lookups": 1244,
+          "read_registrations": 839,
+          "read_clears": 832,
+          "change_notifications": 530,
+          "dirty_marks": 260,
+          "reader_checks": 719,
+          "dfs_visits": 255,
+          "capacity_edges": 0,
+          "queue_checks": 558,
+          "accepted": 255,
+          "events": 530,
+          "due_events": 528,
+          "max_stack": 1
+        }
+      },
+      "alu-lat1-cache0-reverse0": {
+        "samples_ns": [
+          11038805,
+          10991755,
+          11096916,
+          11031906,
+          11053186
+        ],
+        "median_ns": 11038805,
+        "cycles": 54,
+        "stats": {
+          "module_work": 263,
+          "rule_work": 263,
+          "cache_hits": 0,
+          "reader_lookups": 1244,
+          "read_registrations": 839,
+          "read_clears": 832,
+          "change_notifications": 530,
+          "dirty_marks": 260,
+          "reader_checks": 719,
+          "dfs_visits": 255,
+          "capacity_edges": 199,
+          "queue_checks": 558,
+          "accepted": 255,
+          "events": 530,
+          "due_events": 528,
+          "max_stack": 5
+        }
+      },
+      "alu-lat1-cache0-reverse1": {
+        "samples_ns": [
+          10808204,
+          10941435,
+          10906725,
+          10924484,
+          10908225
+        ],
+        "median_ns": 10908225,
+        "cycles": 54,
+        "stats": {
+          "module_work": 263,
+          "rule_work": 263,
+          "cache_hits": 0,
+          "reader_lookups": 1244,
+          "read_registrations": 839,
+          "read_clears": 832,
+          "change_notifications": 530,
+          "dirty_marks": 260,
+          "reader_checks": 719,
+          "dfs_visits": 255,
+          "capacity_edges": 0,
+          "queue_checks": 558,
+          "accepted": 255,
+          "events": 530,
+          "due_events": 528,
+          "max_stack": 1
+        }
+      },
+      "alu-lat3-cache1-reverse0": {
+        "samples_ns": [
+          11138496,
+          11059476,
+          10977195,
+          11213346,
+          11026986
+        ],
+        "median_ns": 11059476,
+        "cycles": 54,
+        "stats": {
+          "module_work": 263,
+          "rule_work": 263,
+          "cache_hits": 0,
+          "reader_lookups": 1244,
+          "read_registrations": 839,
+          "read_clears": 832,
+          "change_notifications": 530,
+          "dirty_marks": 260,
+          "reader_checks": 719,
+          "dfs_visits": 255,
+          "capacity_edges": 199,
+          "queue_checks": 558,
+          "accepted": 255,
+          "events": 530,
+          "due_events": 528,
+          "max_stack": 5
+        }
+      },
+      "alu-lat3-cache1-reverse1": {
+        "samples_ns": [
+          10790604,
+          10971335,
+          10869425,
+          10974845,
+          10904064
+        ],
+        "median_ns": 10904064,
+        "cycles": 54,
+        "stats": {
+          "module_work": 263,
+          "rule_work": 263,
+          "cache_hits": 0,
+          "reader_lookups": 1244,
+          "read_registrations": 839,
+          "read_clears": 832,
+          "change_notifications": 530,
+          "dirty_marks": 260,
+          "reader_checks": 719,
+          "dfs_visits": 255,
+          "capacity_edges": 0,
+          "queue_checks": 558,
+          "accepted": 255,
+          "events": 530,
+          "due_events": 528,
+          "max_stack": 1
+        }
+      },
+      "alu-lat3-cache0-reverse0": {
+        "samples_ns": [
+          11111666,
+          11009555,
+          11123946,
+          11070006,
+          11130917
+        ],
+        "median_ns": 11111666,
+        "cycles": 54,
+        "stats": {
+          "module_work": 263,
+          "rule_work": 263,
+          "cache_hits": 0,
+          "reader_lookups": 1244,
+          "read_registrations": 839,
+          "read_clears": 832,
+          "change_notifications": 530,
+          "dirty_marks": 260,
+          "reader_checks": 719,
+          "dfs_visits": 255,
+          "capacity_edges": 199,
+          "queue_checks": 558,
+          "accepted": 255,
+          "events": 530,
+          "due_events": 528,
+          "max_stack": 5
+        }
+      },
+      "alu-lat3-cache0-reverse1": {
+        "samples_ns": [
+          11065516,
+          11001495,
+          10929965,
+          10928975,
+          10961025
+        ],
+        "median_ns": 10961025,
+        "cycles": 54,
+        "stats": {
+          "module_work": 263,
+          "rule_work": 263,
+          "cache_hits": 0,
+          "reader_lookups": 1244,
+          "read_registrations": 839,
+          "read_clears": 832,
+          "change_notifications": 530,
+          "dirty_marks": 260,
+          "reader_checks": 719,
+          "dfs_visits": 255,
+          "capacity_edges": 0,
+          "queue_checks": 558,
+          "accepted": 255,
+          "events": 530,
+          "due_events": 528,
+          "max_stack": 1
+        }
+      },
+      "alu-lat5-cache1-reverse0": {
+        "samples_ns": [
+          11077186,
+          11019405,
+          11103626,
+          11101386,
+          11028626
+        ],
+        "median_ns": 11077186,
+        "cycles": 54,
+        "stats": {
+          "module_work": 263,
+          "rule_work": 263,
+          "cache_hits": 0,
+          "reader_lookups": 1244,
+          "read_registrations": 839,
+          "read_clears": 832,
+          "change_notifications": 530,
+          "dirty_marks": 260,
+          "reader_checks": 719,
+          "dfs_visits": 255,
+          "capacity_edges": 199,
+          "queue_checks": 558,
+          "accepted": 255,
+          "events": 530,
+          "due_events": 528,
+          "max_stack": 5
+        }
+      },
+      "alu-lat5-cache1-reverse1": {
+        "samples_ns": [
+          10823944,
+          10793554,
+          10826744,
+          10933685,
+          10889235
+        ],
+        "median_ns": 10826744,
+        "cycles": 54,
+        "stats": {
+          "module_work": 263,
+          "rule_work": 263,
+          "cache_hits": 0,
+          "reader_lookups": 1244,
+          "read_registrations": 839,
+          "read_clears": 832,
+          "change_notifications": 530,
+          "dirty_marks": 260,
+          "reader_checks": 719,
+          "dfs_visits": 255,
+          "capacity_edges": 0,
+          "queue_checks": 558,
+          "accepted": 255,
+          "events": 530,
+          "due_events": 528,
+          "max_stack": 1
+        }
+      },
+      "alu-lat5-cache0-reverse0": {
+        "samples_ns": [
+          11009385,
+          11061265,
+          11013185,
+          11058956,
+          11057146
+        ],
+        "median_ns": 11057146,
+        "cycles": 54,
+        "stats": {
+          "module_work": 263,
+          "rule_work": 263,
+          "cache_hits": 0,
+          "reader_lookups": 1244,
+          "read_registrations": 839,
+          "read_clears": 832,
+          "change_notifications": 530,
+          "dirty_marks": 260,
+          "reader_checks": 719,
+          "dfs_visits": 255,
+          "capacity_edges": 199,
+          "queue_checks": 558,
+          "accepted": 255,
+          "events": 530,
+          "due_events": 528,
+          "max_stack": 5
+        }
+      },
+      "alu-lat5-cache0-reverse1": {
+        "samples_ns": [
+          10875465,
+          10841264,
+          10872094,
+          10987265,
+          11037696
+        ],
+        "median_ns": 10875465,
+        "cycles": 54,
+        "stats": {
+          "module_work": 263,
+          "rule_work": 263,
+          "cache_hits": 0,
+          "reader_lookups": 1244,
+          "read_registrations": 839,
+          "read_clears": 832,
+          "change_notifications": 530,
+          "dirty_marks": 260,
+          "reader_checks": 719,
+          "dfs_visits": 255,
+          "capacity_edges": 0,
+          "queue_checks": 558,
+          "accepted": 255,
+          "events": 530,
+          "due_events": 528,
+          "max_stack": 1
+        }
+      },
+      "sum-lat1-cache1-reverse0": {
+        "samples_ns": [
+          26870574,
+          26829183,
+          26526472,
+          26737923,
+          26659173
+        ],
+        "median_ns": 26737923,
+        "cycles": 148,
+        "stats": {
+          "module_work": 687,
+          "rule_work": 687,
+          "cache_hits": 0,
+          "reader_lookups": 3099,
+          "read_registrations": 2171,
+          "read_clears": 2164,
+          "change_notifications": 1311,
+          "dirty_marks": 684,
+          "reader_checks": 1830,
+          "dfs_visits": 595,
+          "capacity_edges": 351,
+          "queue_checks": 1274,
+          "accepted": 585,
+          "events": 1311,
+          "due_events": 1309,
+          "max_stack": 5
+        }
+      },
+      "sum-lat1-cache1-reverse1": {
+        "samples_ns": [
+          26202610,
+          26306681,
+          26248960,
+          26200170,
+          26284390
+        ],
+        "median_ns": 26248960,
+        "cycles": 148,
+        "stats": {
+          "module_work": 687,
+          "rule_work": 687,
+          "cache_hits": 0,
+          "reader_lookups": 3099,
+          "read_registrations": 2171,
+          "read_clears": 2164,
+          "change_notifications": 1311,
+          "dirty_marks": 684,
+          "reader_checks": 1830,
+          "dfs_visits": 595,
+          "capacity_edges": 0,
+          "queue_checks": 1274,
+          "accepted": 585,
+          "events": 1311,
+          "due_events": 1309,
+          "max_stack": 1
+        }
+      },
+      "sum-lat1-cache0-reverse0": {
+        "samples_ns": [
+          26826534,
+          26525741,
+          26823604,
+          26768684,
+          26697163
+        ],
+        "median_ns": 26768684,
+        "cycles": 148,
+        "stats": {
+          "module_work": 687,
+          "rule_work": 687,
+          "cache_hits": 0,
+          "reader_lookups": 3099,
+          "read_registrations": 2171,
+          "read_clears": 2164,
+          "change_notifications": 1311,
+          "dirty_marks": 684,
+          "reader_checks": 1830,
+          "dfs_visits": 595,
+          "capacity_edges": 351,
+          "queue_checks": 1274,
+          "accepted": 585,
+          "events": 1311,
+          "due_events": 1309,
+          "max_stack": 5
+        }
+      },
+      "sum-lat1-cache0-reverse1": {
+        "samples_ns": [
+          26178960,
+          26312250,
+          26389010,
+          26694543,
+          26451321
+        ],
+        "median_ns": 26389010,
+        "cycles": 148,
+        "stats": {
+          "module_work": 687,
+          "rule_work": 687,
+          "cache_hits": 0,
+          "reader_lookups": 3099,
+          "read_registrations": 2171,
+          "read_clears": 2164,
+          "change_notifications": 1311,
+          "dirty_marks": 684,
+          "reader_checks": 1830,
+          "dfs_visits": 595,
+          "capacity_edges": 0,
+          "queue_checks": 1274,
+          "accepted": 585,
+          "events": 1311,
+          "due_events": 1309,
+          "max_stack": 1
+        }
+      },
+      "sum-lat3-cache1-reverse0": {
+        "samples_ns": [
+          29865235,
+          29788594,
+          29758624,
+          29750544,
+          29914985
+        ],
+        "median_ns": 29788594,
+        "cycles": 190,
+        "stats": {
+          "module_work": 772,
+          "rule_work": 772,
+          "cache_hits": 0,
+          "reader_lookups": 3469,
+          "read_registrations": 2429,
+          "read_clears": 2422,
+          "change_notifications": 1399,
+          "dirty_marks": 769,
+          "reader_checks": 1926,
+          "dfs_visits": 666,
+          "capacity_edges": 358,
+          "queue_checks": 1396,
+          "accepted": 606,
+          "events": 1420,
+          "due_events": 1418,
+          "max_stack": 5
+        }
+      },
+      "sum-lat3-cache1-reverse1": {
+        "samples_ns": [
+          29160249,
+          29539983,
+          29319441,
+          29243051,
+          29241081
+        ],
+        "median_ns": 29243051,
+        "cycles": 190,
+        "stats": {
+          "module_work": 772,
+          "rule_work": 772,
+          "cache_hits": 0,
+          "reader_lookups": 3469,
+          "read_registrations": 2429,
+          "read_clears": 2422,
+          "change_notifications": 1399,
+          "dirty_marks": 769,
+          "reader_checks": 1926,
+          "dfs_visits": 666,
+          "capacity_edges": 30,
+          "queue_checks": 1396,
+          "accepted": 606,
+          "events": 1420,
+          "due_events": 1418,
+          "max_stack": 1
+        }
+      },
+      "sum-lat3-cache0-reverse0": {
+        "samples_ns": [
+          29540073,
+          29836084,
+          29705804,
+          29612662,
+          29927135
+        ],
+        "median_ns": 29705804,
+        "cycles": 190,
+        "stats": {
+          "module_work": 772,
+          "rule_work": 772,
+          "cache_hits": 0,
+          "reader_lookups": 3469,
+          "read_registrations": 2429,
+          "read_clears": 2422,
+          "change_notifications": 1399,
+          "dirty_marks": 769,
+          "reader_checks": 1926,
+          "dfs_visits": 666,
+          "capacity_edges": 358,
+          "queue_checks": 1396,
+          "accepted": 606,
+          "events": 1420,
+          "due_events": 1418,
+          "max_stack": 5
+        }
+      },
+      "sum-lat3-cache0-reverse1": {
+        "samples_ns": [
+          29084850,
+          29311111,
+          29226051,
+          29371781,
+          29211840
+        ],
+        "median_ns": 29226051,
+        "cycles": 190,
+        "stats": {
+          "module_work": 772,
+          "rule_work": 772,
+          "cache_hits": 0,
+          "reader_lookups": 3469,
+          "read_registrations": 2429,
+          "read_clears": 2422,
+          "change_notifications": 1399,
+          "dirty_marks": 769,
+          "reader_checks": 1926,
+          "dfs_visits": 666,
+          "capacity_edges": 30,
+          "queue_checks": 1396,
+          "accepted": 606,
+          "events": 1420,
+          "due_events": 1418,
+          "max_stack": 1
+        }
+      },
+      "sum-lat5-cache1-reverse0": {
+        "samples_ns": [
+          29624123,
+          29731154,
+          29918925,
+          29783414,
+          29980835
+        ],
+        "median_ns": 29783414,
+        "cycles": 232,
+        "stats": {
+          "module_work": 772,
+          "rule_work": 772,
+          "cache_hits": 0,
+          "reader_lookups": 3469,
+          "read_registrations": 2429,
+          "read_clears": 2422,
+          "change_notifications": 1399,
+          "dirty_marks": 769,
+          "reader_checks": 1926,
+          "dfs_visits": 666,
+          "capacity_edges": 358,
+          "queue_checks": 1396,
+          "accepted": 606,
+          "events": 1420,
+          "due_events": 1418,
+          "max_stack": 5
+        }
+      },
+      "sum-lat5-cache1-reverse1": {
+        "samples_ns": [
+          29598463,
+          29671393,
+          29699564,
+          29743794,
+          29664123
+        ],
+        "median_ns": 29671393,
+        "cycles": 232,
+        "stats": {
+          "module_work": 772,
+          "rule_work": 772,
+          "cache_hits": 0,
+          "reader_lookups": 3469,
+          "read_registrations": 2429,
+          "read_clears": 2422,
+          "change_notifications": 1399,
+          "dirty_marks": 769,
+          "reader_checks": 1926,
+          "dfs_visits": 666,
+          "capacity_edges": 30,
+          "queue_checks": 1396,
+          "accepted": 606,
+          "events": 1420,
+          "due_events": 1418,
+          "max_stack": 1
+        }
+      },
+      "sum-lat5-cache0-reverse0": {
+        "samples_ns": [
+          30007945,
+          29917145,
+          29944445,
+          29800664,
+          29769694
+        ],
+        "median_ns": 29917145,
+        "cycles": 232,
+        "stats": {
+          "module_work": 772,
+          "rule_work": 772,
+          "cache_hits": 0,
+          "reader_lookups": 3469,
+          "read_registrations": 2429,
+          "read_clears": 2422,
+          "change_notifications": 1399,
+          "dirty_marks": 769,
+          "reader_checks": 1926,
+          "dfs_visits": 666,
+          "capacity_edges": 358,
+          "queue_checks": 1396,
+          "accepted": 606,
+          "events": 1420,
+          "due_events": 1418,
+          "max_stack": 5
+        }
+      },
+      "sum-lat5-cache0-reverse1": {
+        "samples_ns": [
+          29267821,
+          29337581,
+          29456782,
+          29709114,
+          29491802
+        ],
+        "median_ns": 29456782,
+        "cycles": 232,
+        "stats": {
+          "module_work": 772,
+          "rule_work": 772,
+          "cache_hits": 0,
+          "reader_lookups": 3469,
+          "read_registrations": 2429,
+          "read_clears": 2422,
+          "change_notifications": 1399,
+          "dirty_marks": 769,
+          "reader_checks": 1926,
+          "dfs_visits": 666,
+          "capacity_edges": 30,
+          "queue_checks": 1396,
+          "accepted": 606,
+          "events": 1420,
+          "due_events": 1418,
+          "max_stack": 1
+        }
+      },
+      "control-lat1-cache1-reverse0": {
+        "samples_ns": [
+          3438944,
+          3416593,
+          3439743,
+          3450124,
+          3432193
+        ],
+        "median_ns": 3438944,
+        "cycles": 22,
+        "stats": {
+          "module_work": 96,
+          "rule_work": 96,
+          "cache_hits": 0,
+          "reader_lookups": 370,
+          "read_registrations": 259,
+          "read_clears": 252,
+          "change_notifications": 158,
+          "dirty_marks": 93,
+          "reader_checks": 242,
+          "dfs_visits": 76,
+          "capacity_edges": 39,
+          "queue_checks": 160,
+          "accepted": 75,
+          "events": 158,
+          "due_events": 156,
+          "max_stack": 5
+        }
+      },
+      "control-lat1-cache1-reverse1": {
+        "samples_ns": [
+          3357293,
+          3400783,
+          3402023,
+          3436714,
+          3390714
+        ],
+        "median_ns": 3400783,
+        "cycles": 22,
+        "stats": {
+          "module_work": 96,
+          "rule_work": 96,
+          "cache_hits": 0,
+          "reader_lookups": 370,
+          "read_registrations": 259,
+          "read_clears": 252,
+          "change_notifications": 158,
+          "dirty_marks": 93,
+          "reader_checks": 242,
+          "dfs_visits": 76,
+          "capacity_edges": 0,
+          "queue_checks": 160,
+          "accepted": 75,
+          "events": 158,
+          "due_events": 156,
+          "max_stack": 1
+        }
+      },
+      "control-lat1-cache0-reverse0": {
+        "samples_ns": [
+          3412053,
+          3453763,
+          3423024,
+          3415024,
+          3386733
+        ],
+        "median_ns": 3415024,
+        "cycles": 22,
+        "stats": {
+          "module_work": 96,
+          "rule_work": 96,
+          "cache_hits": 0,
+          "reader_lookups": 370,
+          "read_registrations": 259,
+          "read_clears": 252,
+          "change_notifications": 158,
+          "dirty_marks": 93,
+          "reader_checks": 242,
+          "dfs_visits": 76,
+          "capacity_edges": 39,
+          "queue_checks": 160,
+          "accepted": 75,
+          "events": 158,
+          "due_events": 156,
+          "max_stack": 5
+        }
+      },
+      "control-lat1-cache0-reverse1": {
+        "samples_ns": [
+          3378913,
+          3372283,
+          3375953,
+          3332963,
+          3385433
+        ],
+        "median_ns": 3375953,
+        "cycles": 22,
+        "stats": {
+          "module_work": 96,
+          "rule_work": 96,
+          "cache_hits": 0,
+          "reader_lookups": 370,
+          "read_registrations": 259,
+          "read_clears": 252,
+          "change_notifications": 158,
+          "dirty_marks": 93,
+          "reader_checks": 242,
+          "dfs_visits": 76,
+          "capacity_edges": 0,
+          "queue_checks": 160,
+          "accepted": 75,
+          "events": 158,
+          "due_events": 156,
+          "max_stack": 1
+        }
+      },
+      "control-lat3-cache1-reverse0": {
+        "samples_ns": [
+          3761836,
+          3742925,
+          3757826,
+          3760725,
+          3781526
+        ],
+        "median_ns": 3760725,
+        "cycles": 26,
+        "stats": {
+          "module_work": 107,
+          "rule_work": 107,
+          "cache_hits": 0,
+          "reader_lookups": 415,
+          "read_registrations": 290,
+          "read_clears": 283,
+          "change_notifications": 167,
+          "dirty_marks": 104,
+          "reader_checks": 256,
+          "dfs_visits": 83,
+          "capacity_edges": 39,
+          "queue_checks": 173,
+          "accepted": 78,
+          "events": 170,
+          "due_events": 168,
+          "max_stack": 5
+        }
+      },
+      "control-lat3-cache1-reverse1": {
+        "samples_ns": [
+          3688285,
+          3717245,
+          3729595,
+          3703535,
+          3740236
+        ],
+        "median_ns": 3717245,
+        "cycles": 26,
+        "stats": {
+          "module_work": 107,
+          "rule_work": 107,
+          "cache_hits": 0,
+          "reader_lookups": 415,
+          "read_registrations": 290,
+          "read_clears": 283,
+          "change_notifications": 167,
+          "dirty_marks": 104,
+          "reader_checks": 256,
+          "dfs_visits": 83,
+          "capacity_edges": 1,
+          "queue_checks": 173,
+          "accepted": 78,
+          "events": 170,
+          "due_events": 168,
+          "max_stack": 1
+        }
+      },
+      "control-lat3-cache0-reverse0": {
+        "samples_ns": [
+          3771926,
+          3774486,
+          3741416,
+          3776736,
+          3782546
+        ],
+        "median_ns": 3774486,
+        "cycles": 26,
+        "stats": {
+          "module_work": 107,
+          "rule_work": 107,
+          "cache_hits": 0,
+          "reader_lookups": 415,
+          "read_registrations": 290,
+          "read_clears": 283,
+          "change_notifications": 167,
+          "dirty_marks": 104,
+          "reader_checks": 256,
+          "dfs_visits": 83,
+          "capacity_edges": 39,
+          "queue_checks": 173,
+          "accepted": 78,
+          "events": 170,
+          "due_events": 168,
+          "max_stack": 5
+        }
+      },
+      "control-lat3-cache0-reverse1": {
+        "samples_ns": [
+          3707695,
+          3740425,
+          3719725,
+          3725545,
+          3775716
+        ],
+        "median_ns": 3725545,
+        "cycles": 26,
+        "stats": {
+          "module_work": 107,
+          "rule_work": 107,
+          "cache_hits": 0,
+          "reader_lookups": 415,
+          "read_registrations": 290,
+          "read_clears": 283,
+          "change_notifications": 167,
+          "dirty_marks": 104,
+          "reader_checks": 256,
+          "dfs_visits": 83,
+          "capacity_edges": 1,
+          "queue_checks": 173,
+          "accepted": 78,
+          "events": 170,
+          "due_events": 168,
+          "max_stack": 1
+        }
+      },
+      "control-lat5-cache1-reverse0": {
+        "samples_ns": [
+          3807066,
+          3875926,
+          3834466,
+          3851927,
+          3833337
+        ],
+        "median_ns": 3834466,
+        "cycles": 32,
+        "stats": {
+          "module_work": 107,
+          "rule_work": 107,
+          "cache_hits": 0,
+          "reader_lookups": 415,
+          "read_registrations": 290,
+          "read_clears": 283,
+          "change_notifications": 167,
+          "dirty_marks": 104,
+          "reader_checks": 256,
+          "dfs_visits": 86,
+          "capacity_edges": 38,
+          "queue_checks": 179,
+          "accepted": 78,
+          "events": 170,
+          "due_events": 168,
+          "max_stack": 5
+        }
+      },
+      "control-lat5-cache1-reverse1": {
+        "samples_ns": [
+          3785726,
+          3802886,
+          3779906,
+          3774336,
+          3792716
+        ],
+        "median_ns": 3785726,
+        "cycles": 32,
+        "stats": {
+          "module_work": 107,
+          "rule_work": 107,
+          "cache_hits": 0,
+          "reader_lookups": 415,
+          "read_registrations": 290,
+          "read_clears": 283,
+          "change_notifications": 167,
+          "dirty_marks": 104,
+          "reader_checks": 256,
+          "dfs_visits": 86,
+          "capacity_edges": 3,
+          "queue_checks": 179,
+          "accepted": 78,
+          "events": 170,
+          "due_events": 168,
+          "max_stack": 1
+        }
+      },
+      "control-lat5-cache0-reverse0": {
+        "samples_ns": [
+          3779116,
+          3821437,
+          3774316,
+          3799016,
+          3902767
+        ],
+        "median_ns": 3799016,
+        "cycles": 32,
+        "stats": {
+          "module_work": 107,
+          "rule_work": 107,
+          "cache_hits": 0,
+          "reader_lookups": 415,
+          "read_registrations": 290,
+          "read_clears": 283,
+          "change_notifications": 167,
+          "dirty_marks": 104,
+          "reader_checks": 256,
+          "dfs_visits": 86,
+          "capacity_edges": 38,
+          "queue_checks": 179,
+          "accepted": 78,
+          "events": 170,
+          "due_events": 168,
+          "max_stack": 5
+        }
+      },
+      "control-lat5-cache0-reverse1": {
+        "samples_ns": [
+          3834076,
+          3819606,
+          3787676,
+          3780746,
+          3782786
+        ],
+        "median_ns": 3787676,
+        "cycles": 32,
+        "stats": {
+          "module_work": 107,
+          "rule_work": 107,
+          "cache_hits": 0,
+          "reader_lookups": 415,
+          "read_registrations": 290,
+          "read_clears": 283,
+          "change_notifications": 167,
+          "dirty_marks": 104,
+          "reader_checks": 256,
+          "dfs_visits": 86,
+          "capacity_edges": 3,
+          "queue_checks": 179,
+          "accepted": 78,
+          "events": 170,
+          "due_events": 168,
+          "max_stack": 1
+        }
+      }
+    }
+  },
+  "comparison": {
+    "alu-lat1-cache1-reverse0": {
+      "cycles_equal": true,
+      "new_over_old": 1.1702948865490466
     },
-    "backpressure_compute": {
-      "cached": {
-        "seconds_median": 0.01713924901559949,
-        "counters": {
-          "module_work": 624,
-          "rule_work": 344,
-          "cache_hits": 280,
-          "version_checks": 280,
-          "dep_searches": 486,
-          "reader_checks": 2946,
-          "dfs_visits": 631,
-          "capacity_edges": 316,
-          "queue_checks": 1246,
-          "accepted": 341,
-          "events": 790,
-          "due_events": 788,
-          "max_stack": 3
-        }
-      },
-      "uncached": {
-        "seconds_median": 0.09374005696736276,
-        "counters": {
-          "module_work": 624,
-          "rule_work": 624,
-          "cache_hits": 0,
-          "version_checks": 0,
-          "dep_searches": 766,
-          "reader_checks": 2946,
-          "dfs_visits": 631,
-          "capacity_edges": 316,
-          "queue_checks": 1246,
-          "accepted": 341,
-          "events": 790,
-          "due_events": 788,
-          "max_stack": 3
-        }
-      },
-      "uncached_over_cached": 5.469321140152882,
-      "layout": {
-        "modules": 6,
-        "rules": 7,
-        "queues": 8,
-        "reader_slots": 48,
-        "reader_bytes_if_uint64": 384
-      },
-      "completed_outputs": 7
+    "alu-lat1-cache1-reverse1": {
+      "cycles_equal": true,
+      "new_over_old": 1.1775203996160148
     },
-    "sparse_banked_table": {
-      "cached": {
-        "seconds_median": 0.012287765042856336,
-        "counters": {
-          "module_work": 447,
-          "rule_work": 548,
-          "cache_hits": 0,
-          "version_checks": 21,
-          "dep_searches": 679,
-          "reader_checks": 2916,
-          "dfs_visits": 662,
-          "capacity_edges": 81,
-          "queue_checks": 967,
-          "accepted": 505,
-          "events": 582,
-          "due_events": 576,
-          "max_stack": 3
-        }
-      },
-      "uncached": {
-        "seconds_median": 0.012145414017140865,
-        "counters": {
-          "module_work": 447,
-          "rule_work": 548,
-          "cache_hits": 0,
-          "version_checks": 0,
-          "dep_searches": 679,
-          "reader_checks": 2916,
-          "dfs_visits": 662,
-          "capacity_edges": 81,
-          "queue_checks": 967,
-          "accepted": 505,
-          "events": 582,
-          "due_events": 576,
-          "max_stack": 3
-        }
-      },
-      "uncached_over_cached": 0.9884152223598849,
-      "layout": {
-        "modules": 6,
-        "rules": 11,
-        "queues": 1034,
-        "reader_slots": 6204,
-        "reader_bytes_if_uint64": 49632
-      },
-      "completed_outputs": 48
+    "alu-lat1-cache0-reverse0": {
+      "cycles_equal": true,
+      "new_over_old": 1.1682084842917684
+    },
+    "alu-lat1-cache0-reverse1": {
+      "cycles_equal": true,
+      "new_over_old": 1.1775079251838036
+    },
+    "alu-lat3-cache1-reverse0": {
+      "cycles_equal": true,
+      "new_over_old": 1.171175641781182
+    },
+    "alu-lat3-cache1-reverse1": {
+      "cycles_equal": true,
+      "new_over_old": 1.1792545000991719
+    },
+    "alu-lat3-cache0-reverse0": {
+      "cycles_equal": true,
+      "new_over_old": 1.1782009310739159
+    },
+    "alu-lat3-cache0-reverse1": {
+      "cycles_equal": true,
+      "new_over_old": 1.182847317756029
+    },
+    "alu-lat5-cache1-reverse0": {
+      "cycles_equal": true,
+      "new_over_old": 1.171370275061716
+    },
+    "alu-lat5-cache1-reverse1": {
+      "cycles_equal": true,
+      "new_over_old": 1.1651690692008625
+    },
+    "alu-lat5-cache0-reverse0": {
+      "cycles_equal": true,
+      "new_over_old": 1.1654908789447582
+    },
+    "alu-lat5-cache0-reverse1": {
+      "cycles_equal": true,
+      "new_over_old": 1.1787265377063103
+    },
+    "sum-lat1-cache1-reverse0": {
+      "cycles_equal": true,
+      "new_over_old": 1.1746548227895115
+    },
+    "sum-lat1-cache1-reverse1": {
+      "cycles_equal": true,
+      "new_over_old": 1.1706968629522156
+    },
+    "sum-lat1-cache0-reverse0": {
+      "cycles_equal": true,
+      "new_over_old": 1.180975555824772
+    },
+    "sum-lat1-cache0-reverse1": {
+      "cycles_equal": true,
+      "new_over_old": 1.1830160401743828
+    },
+    "sum-lat3-cache1-reverse0": {
+      "cycles_equal": true,
+      "new_over_old": 1.175870163280377
+    },
+    "sum-lat3-cache1-reverse1": {
+      "cycles_equal": true,
+      "new_over_old": 1.1835171154982476
+    },
+    "sum-lat3-cache0-reverse0": {
+      "cycles_equal": true,
+      "new_over_old": 1.1909933112530766
+    },
+    "sum-lat3-cache0-reverse1": {
+      "cycles_equal": true,
+      "new_over_old": 1.181247205879922
+    },
+    "sum-lat5-cache1-reverse0": {
+      "cycles_equal": true,
+      "new_over_old": 1.1770205531733962
+    },
+    "sum-lat5-cache1-reverse1": {
+      "cycles_equal": true,
+      "new_over_old": 1.1856614269578538
+    },
+    "sum-lat5-cache0-reverse0": {
+      "cycles_equal": true,
+      "new_over_old": 1.1911506657941346
+    },
+    "sum-lat5-cache0-reverse1": {
+      "cycles_equal": true,
+      "new_over_old": 1.1903730889717221
+    },
+    "control-lat1-cache1-reverse0": {
+      "cycles_equal": true,
+      "new_over_old": 1.1754702470270955
+    },
+    "control-lat1-cache1-reverse1": {
+      "cycles_equal": true,
+      "new_over_old": 1.1860704384555478
+    },
+    "control-lat1-cache0-reverse0": {
+      "cycles_equal": true,
+      "new_over_old": 1.1640870587834269
+    },
+    "control-lat1-cache0-reverse1": {
+      "cycles_equal": true,
+      "new_over_old": 1.1771191490593202
+    },
+    "control-lat3-cache1-reverse0": {
+      "cycles_equal": true,
+      "new_over_old": 1.1657649229441545
+    },
+    "control-lat3-cache1-reverse1": {
+      "cycles_equal": true,
+      "new_over_old": 1.1720623595714639
+    },
+    "control-lat3-cache0-reverse0": {
+      "cycles_equal": true,
+      "new_over_old": 1.1776492604603535
+    },
+    "control-lat3-cache0-reverse1": {
+      "cycles_equal": true,
+      "new_over_old": 1.1723838109455993
+    },
+    "control-lat5-cache1-reverse0": {
+      "cycles_equal": true,
+      "new_over_old": 1.1774257734630535
+    },
+    "control-lat5-cache1-reverse1": {
+      "cycles_equal": true,
+      "new_over_old": 1.1801546345152567
+    },
+    "control-lat5-cache0-reverse0": {
+      "cycles_equal": true,
+      "new_over_old": 1.1571704362626873
+    },
+    "control-lat5-cache0-reverse1": {
+      "cycles_equal": true,
+      "new_over_old": 1.1862804390114194
     }
   }
 }

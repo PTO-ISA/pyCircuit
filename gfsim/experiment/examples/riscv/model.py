@@ -89,9 +89,22 @@ def build_cpu(program, memory_latency=1, data_words=256, cache=True, reverse=Fal
     for mid, stage in enumerate(modules):
         stage.mid = mid
     entries = [None]
-    for stage, (pops, pushes, revises) in zip(stages, bindings):
-        entries.append(RuleEntry(stage.mid, stage.work_stage, stage.arbitrate,
+    methods = ((stages[0].work_fetch, stages[0].arbitrate_fetch),
+               (stages[1].work_decode, stages[1].arbitrate_decode),
+               (stages[2].work_execute, stages[2].arbitrate_execute),
+               (stages[3].work_memory, stages[3].arbitrate_memory),
+               (stages[4].work_writeback, stages[4].arbitrate_writeback))
+    for stage, (work, arbitrate), (pops, pushes, revises) in zip(stages, methods, bindings):
+        entries.append(RuleEntry(stage.mid, work, arbitrate,
                                  tuple(q.qid for q in pops), tuple(q.qid for q in pushes),
                                  tuple(q.qid for q in revises)))
-    sim = assemble_netlist(queues, modules, entries, cache)
+    resources = ((pc, control, redirect, if_id),
+                 (if_id, id_ex, control, mem_wb) + registers,
+                 (id_ex, ex_mem, control, redirect, busy, mem_wb),
+                 (ex_mem, mem_wb, busy) + data,
+                 (mem_wb, retirement) + registers)
+    module_queues = [None] * len(modules)
+    for stage, bound in zip(stages, resources):
+        module_queues[stage.mid] = tuple(q.qid for q in bound)
+    sim = assemble_netlist(queues, modules, entries, cache, module_queues=module_queues)
     return CPU(words, sim, stages, links, registers, data, busy, retirement)

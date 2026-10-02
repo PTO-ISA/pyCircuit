@@ -46,7 +46,7 @@ Rule 输出数量和类型预先固定，多输出的每个正常出口保持同
 
 本例始终读取并消费 control；左路径只使用 left 和左侧状态，右路径只使用 right 和右侧状态。左路径 emit=false 时仍消费 control/left 并更新左侧状态，不使用输出容量。
 
-消息输入 Queue 的角色由 Rule 绑定确定，内部 FIFO 作为消息输入时同样适用。一个消息输入在同一路径反复读取，不代表多次消费；前端归一化为该 Queue 的单个消费需求。不同参数绑定同一 Queue 时需按资源身份处理，不能仅按参数名重复生成操作。寄存器读取和 Queue 状态查询不产生消费需求；底层 `peek` 本身始终是纯读。
+消息输入 Queue 的角色由 Rule 绑定确定，内部 FIFO 作为消息输入时同样适用。一个消息输入在同一路径反复读取，不代表多次消费；前端归一化为该 Queue 的单个消费需求。不同参数绑定同一 Queue 时需按资源身份处理，不能仅按参数名重复生成操作。寄存器读取和 Queue 状态查询不产生消费需求；底层 `peek` 不消费元素，在 GFSim Work 中自动登记读取依赖。
 
 消息 input 的 payload 不支持只观察而不消费：实际读取即生成受路径条件保护的 pop，即使正常返回没有输出；必要读取失败或 firing 未获准时不消费。输出或只读状态观察不生成 pop，但必须记录依赖。前端按当前 Rule 的绑定角色区分这些访问；例如 EX 观察自己的 EX_MEM 输出进行前递，消费 EX_MEM 的 pop 由 MEM Rule 的 input 读取生成。
 
@@ -193,7 +193,15 @@ RTL 必须保持 [Queue 的 push 容量语义](../gfsim/spec.md#arbitration)：�
 
 ## 依赖与身份信息
 
-生成代码支持 Module 控制读取、Rule 实际读取及 pop/revise 目标的显式登记。编译期保存 Queue 的 proposal 来源槽位及唯一 popRuleId/pushRuleId；动态读取关系与这些静态记录分开，定义见 [静态构造](../gfsim/spec.md#construction) 和 [运行记录](../gfsim/spec.md#records)。
+生成代码保留 Module 控制读取、Rule 实际读取及 pop/revise 目标；Python runtime 在相应 Queue 操作内自动登记，不要求生成代码另写 record_read。编译期保存 Queue 的 proposal 来源槽位及唯一 popRuleId/pushRuleId；动态读取关系与这些静态记录分开，定义见 [静态构造](../gfsim/spec.md#construction) 和 [运行记录](../gfsim/spec.md#records)。
+
+编译器为每个 Module 显式声明全部可访问 Queue（包含输入、输出、私有状态和只读引用），为所属 Rule 分配局部位号，并构造 Queue→Module 的固定可能读者链接以及按 ModuleId 索引的局部槽位表（未声明为 -1）。别名合并为同一 QueueId；动态数组须声明全部可能表项。声明只限制可访问范围，不能把静态可能读取当成实际读取。
+
+Module 控制读取按代号登记；Rule 的实际读取（含读空、pop/revise 目标）设置所属 Module 的资源读者位，并记录实际 readSlots。Queue 变化通过位图标记实际读者 Rule dirty；生成代码传入的普通 var 按值比较，变化时标记同一 dirty 位。Rule 既可依赖 input Queue，也可读取 Module 内部 Queue，两者使用同一动态登记机制。
+
+生成 `work_<rule>(args)` 使用显式 begin/complete/abort 核心接口，runtime 据此维护 activeModule/activeRule。Queue 查询在 Work 内按该上下文登记，读空也登记；complete/abort 恢复 Module 上下文，Module 退出时清除，Work 外观察不订阅。生成代码直接写 peek/try_peek 等接口，消息 input 的 pop 仍显式生成，不由 peek 自动消费。显式 record_read 保留兼容，不应在新生成代码中重复插入。完整候选未 dirty 时直接复用，不扫描 Queue 版本、不重新登记读取。重算清旧候选和旧读者位；abort 与提交只清候选，保留已经尝试的读取；Module 不再选择 Rule 时才同时清候选与读者位。具体生命周期统一见 [spec 第 5 节](../gfsim/spec.md#prepare)。
+
+本轮实验模拟生成代码，不实现编译器。普通 Module 类和成员 Rule 无需 Stage 公共基类、observe/take/put 包装层；上文 ACIR 示意操作不是新增 Python 引擎 API。Module→Module var 的因果传播和 delta Work 本轮不定义。
 
 规则原子身份不绑定源码函数名，资源身份不绑定 SSA 打印名称。重复函数使用或未来独立实例能够分配独立身份，无需改变 complete、proposal 或原子边界的定义。静态展开设计本轮不讨论。
 
@@ -209,5 +217,6 @@ RTL 必须保持 [Queue 的 push 容量语义](../gfsim/spec.md#arbitration)：�
 - [ ] 正常 None 出口与读取不足出口区分，部分 proposal 不会独立提交。
 - [ ] 未使用输入、未产生输出不参与资源许可。
 - [ ] Rule 的消息输入 payload 读取生成一次成功提交时的消费；寄存器读取、Queue 状态查询及 Module 传入的 `var` 均不消费。
+- [ ] Module 可访问资源、局部 Rule 位号、实际动态读取、var 参数值比较和候选生命周期均可显式生成。
 - [ ] Frozen 足以生成 GFSim 原子仲裁以及 RTL 完整 fire，无需重新分析 Python。
 - [ ] 条件共享、不枚举分支组合，实例与资源身份不依赖显示命名。

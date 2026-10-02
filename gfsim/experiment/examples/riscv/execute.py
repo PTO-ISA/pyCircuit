@@ -1,51 +1,61 @@
-"""EX: operand forwarding, ALU, branch resolution and front-end invalidation."""
+"""Execute: explicit generated-style Rule and runtime calls."""
 
-from .stage import Stage
 from .isa import sources
 from .records import (INVALID, ADD, ADDI, SUB, AND, OR, XOR, SLT, LUI, LW, SW,
                       BEQ, BNE, JAL, JALR, HALT, LOAD, STORE, NO_MEMORY,
                       Executed, FrontControl, Redirect, ModelError, u32, signed)
 
 
-class Execute(Stage):
+class Execute:
     def __init__(self, mid, rid, source, output, control, redirect, busy, writeback):
-        super().__init__(mid, rid)
-        self.source, self.output, self.control, self.redirect = source, output, control, redirect
-        self.busy, self.writeback = busy, writeback
+        self.mid, self.rid, self.engine = mid, rid, None
+        self.source = source
+        self.output = output
+        self.control = control
+        self.redirect = redirect
+        self.busy = busy
+        self.writeback = writeback
 
-    def operand(self, rs, captured):
-        if rs == 0:
-            return True, 0
-        newest = self.observe(self.output)
-        if newest is not None and newest.rd == rs:
-            if newest.memory == LOAD:
-                return False, 0
-            return True, newest.result
-        busy = self.observe(self.busy)
-        if busy.valid and busy.instruction.rd == rs:
-            return False, 0                # A load is still inside the memory unit.
-        wb = self.observe(self.writeback)
-        if wb is not None and wb.rd == rs:
-            return True, wb.value
-        return True, captured
+    def Work(self):
+        self.work_execute()
 
-    def work_stage(self):
-        decoded = self.take(self.source)
+    def work_execute(self):
+        e, rid = self.engine, self.rid
+        if not e.begin_rule(rid):
+            return
+
+        decoded = self.source.try_peek()
         if decoded is None:
-            return False
-        control = self.observe(self.control)
+            e.abort_rule(rid)
+            return
+        self.source.propose_pop(rid)
+        control = self.control.peek()
         if decoded.epoch != control.epoch:
-            return True
+            e.complete_rule(rid)
+            return
         inst, pc = decoded.instruction, decoded.pc
         if inst.op == INVALID:
             raise ModelError(f'illegal instruction 0x{inst.word:08x} at PC 0x{pc:x}')
         rs1, rs2 = sources(inst)
-        ready, a = self.operand(rs1, decoded.left)
-        if not ready:
-            return False
-        ready, b = self.operand(rs2, decoded.right)
-        if not ready:
-            return False
+        values = []
+        for rs, captured in ((rs1, decoded.left), (rs2, decoded.right)):
+            if rs == 0:
+                values.append(0)
+                continue
+            newest = self.output.try_peek()
+            if newest is not None and newest.rd == rs:
+                if newest.memory == LOAD:
+                    e.abort_rule(rid)
+                    return
+                values.append(newest.result)
+                continue
+            busy = self.busy.peek()
+            if busy.valid and busy.instruction.rd == rs:
+                e.abort_rule(rid)
+                return
+            wb = self.writeback.try_peek()
+            values.append(wb.value if wb is not None and wb.rd == rs else captured)
+        a, b = values
         result, memory, address, target = 0, NO_MEMORY, 0, None
         if inst.op == ADD: result = a + b
         elif inst.op == ADDI: result = a + inst.immediate
@@ -66,10 +76,14 @@ class Execute(Stage):
         if target is not None:
             if target % 4:
                 raise ModelError(f'unaligned instruction target 0x{target:x}')
-            self.redirect.propose_push(self.rid, Redirect(target, control.epoch + 1))
-            self.control.propose_revise(self.rid, FrontControl(control.epoch + 1, False))
+            self.redirect.propose_push(rid, Redirect(target, control.epoch + 1))
+            self.control.propose_revise(rid, FrontControl(control.epoch + 1, False))
         if inst.op == HALT:
-            self.control.propose_revise(self.rid, FrontControl(control.epoch + 1, True))
-        self.output.propose_push(self.rid, Executed(
+            self.control.propose_revise(rid, FrontControl(control.epoch + 1, True))
+        self.output.propose_push(rid, Executed(
             pc, inst.word, inst.rd, u32(result), memory, address, b, inst.op == HALT))
-        return True
+
+        e.complete_rule(rid)
+
+    def arbitrate_execute(self):
+        return self.engine.arbitrate_rule(self.rid)

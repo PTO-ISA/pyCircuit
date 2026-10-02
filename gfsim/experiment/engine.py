@@ -80,11 +80,19 @@ class ModuleRecord:
     read_gen: int = 0
     selected: list = field(default_factory=list)
     previous: list = field(default_factory=list)
+    resource_qids: tuple = ()
+    rule_ids: tuple = ()
+    control_reads: list = field(default_factory=list)
+    rule_readers: list = field(default_factory=list)  # Flat [resource][64-bit word].
+    dirty_words: list = field(default_factory=list)
+    word_count: int = 0
 
 
 @dataclass
 class RuleRecord:
-    deps: list = field(default_factory=list)
+    read_slots: list = field(default_factory=list)
+    word_index: int = 0
+    bit: int = 0
     participants: list = field(default_factory=list)
     wake_requests: list = field(default_factory=list)
     candidate_args: tuple = ()
@@ -115,8 +123,11 @@ class Stats:
     module_work: int = 0
     rule_work: int = 0
     cache_hits: int = 0
-    version_checks: int = 0
-    dep_searches: int = 0
+    reader_lookups: int = 0
+    read_registrations: int = 0
+    read_clears: int = 0
+    change_notifications: int = 0
+    dirty_marks: int = 0
     reader_checks: int = 0
     dfs_visits: int = 0
     capacity_edges: int = 0
@@ -138,27 +149,40 @@ class Queue:
         self.head, self.count = 0, len(initial)
         self.qid, self.engine, self.state_version = -1, None, 0
         self.readers, self.sources, self.slots = [], [], []
+        self.reader_slots = []  # Parallel to sorted reader ModuleIds; fixed at construction.
+        self.module_slots = []  # ModuleId -> local resource slot; -1 means undeclared.
         self.pop_rule, self.push_rule = None, None
         self.accepted, self.accepted_pop, self.used_tick = [], False, -1
 
     @property
     def current(self):
+        self._record_read()
         return tuple(self.data[(self.head + i) % self.capacity] for i in range(self.count))
 
+    def _record_read(self):
+        e = self.engine
+        if e is not None and e.active_module is not None:
+            e.record_read(e.active_module, self.qid, e.active_rule)
+
     def empty(self):
+        self._record_read()
         return self.count == 0
 
     def full(self):
+        self._record_read()
         return self.count == self.capacity
 
     def size(self):
+        self._record_read()
         return self.count
 
     def try_peek(self):
-        return None if self.empty() else self.data[self.head]
+        self._record_read()
+        return None if self.count == 0 else self.data[self.head]
 
     def peek(self):
-        if self.empty():
+        self._record_read()
+        if self.count == 0:
             raise NeedInput()
         return self.data[self.head]
 
@@ -170,11 +194,11 @@ class Queue:
 
     def _prepare(self, rid, reads_target=False):
         e, record = self.engine, self.engine.rules[rid]
-        if not record.executing:
+        if not record.executing or e.active_rule != rid:
             raise RuntimeError("proposal outside Rule Work")
         if reads_target:
             e.record_read(e.entries[rid].module_id, self.qid, rid)
-            if self.empty():
+            if self.count == 0:
                 raise NeedInput()
         slot = self.proposal(rid)
         if slot.status == 0:
@@ -198,11 +222,12 @@ class Queue:
         self._prepare(rid, True).revises.append((path, value_copy(value)))
 
     def has_push_space(self, slot):
-        return not self.full() or self.accepted_pop or (slot.pop and not self.empty())
+        # Arbitration inspects storage directly; it does not subscribe to current.
+        return self.count < self.capacity or self.accepted_pop or (slot.pop and self.count != 0)
 
     def can_accept(self, rid):
         slot = self.proposal(rid)
-        return (slot.status == 1 and (not (slot.pop or slot.revises) or not self.empty())
+        return (slot.status == 1 and (not (slot.pop or slot.revises) or self.count != 0)
                 and (slot.push is None or self.has_push_space(slot)))
 
     def accept(self, rid):
@@ -249,6 +274,7 @@ class Simulator:
         self.visited, self.visiting = [-1] * len(entries), [False] * len(entries)
         self.used_queues, self.events = [], []
         self.tick, self.active_module, self.cache = 0, None, cache
+        self.active_rule = None  # Work context only; never a persistent model signal.
         self.stats = Stats()
         # Per-object counters are observation only, never drive scheduling.
         self.module_calls, self.rule_calls = [0] * len(modules), [0] * len(entries)
@@ -260,69 +286,132 @@ class Simulator:
         if mid != self.active_module:
             raise RuntimeError("read outside owning Module Work")
         queue, module = self.queues[qid], self.modules[mid]
+        self.stats.reader_lookups += 1
+        slot = queue.module_slots[mid]
+        if slot < 0:
+            raise ValueError("undeclared Module Queue access")
         if self.observer is not None:
             self.observer.read(mid, qid, rid)
-        queue.readers[mid] = module.read_gen + 1
-        if rid is not None:
+        if rid is None:
+            module.control_reads[slot] = module.read_gen + 1
+        else:
             record = self.rules[rid]
-            for old_qid, _ in record.deps:
-                self.stats.dep_searches += 1
-                if old_qid == qid:
-                    return
-            record.deps.append((qid, queue.state_version))
+            if self.entries[rid].module_id != mid or not record.executing or self.active_rule != rid:
+                raise RuntimeError("read outside owning Rule Work")
+            offset = slot * module.word_count + record.word_index
+            if not module.rule_readers[offset] & record.bit:
+                module.rule_readers[offset] |= record.bit
+                record.read_slots.append(slot)
+                self.stats.read_registrations += 1
 
-    def _discard(self, rid):
+    def is_dirty(self, rid):
+        record = self.rules[rid]
+        return bool(self.modules[self.entries[rid].module_id].dirty_words[record.word_index]
+                    & record.bit)
+
+    def is_reader(self, mid, slot):
+        module = self.modules[mid]
+        generation = module.control_reads[slot]
+        if generation and generation == module.read_gen:
+            return True
+        start = slot * module.word_count
+        return any(module.rule_readers[start + word] for word in range(module.word_count))
+
+    def _clear_reads(self, rid):
+        record = self.rules[rid]
+        module = self.modules[self.entries[rid].module_id]
+        for slot in record.read_slots:
+            module.rule_readers[slot * module.word_count + record.word_index] &= ~record.bit
+            self.stats.read_clears += 1
+        record.read_slots.clear()
+
+    def _clear_candidate(self, rid):
         record = self.rules[rid]
         for qid in record.participants:
             self.queues[qid].proposal(rid).clear()
-        record.deps.clear()
         record.participants.clear()
         record.wake_requests.clear()
         record.complete = record.executing = False
+
+    def _cancel_rule(self, rid):
+        self._clear_candidate(rid)
+        self._clear_reads(rid)
+        record = self.rules[rid]
+        self.modules[self.entries[rid].module_id].dirty_words[record.word_index] &= ~record.bit
+
+    def _notify_changed(self, qid):
+        queue = self.queues[qid]
+        for mid, slot in zip(queue.readers, queue.reader_slots):
+            self.stats.reader_checks += 1
+            self._wakeup(mid, self.tick + 1, changed_slot=slot)
 
     def begin_rule(self, rid, args=()):
         record, entry = self.rules[rid], self.entries[rid]
         if entry.module_id != self.active_module:
             raise RuntimeError("Rule outside owning Module Work")
+        if self.active_rule is not None:
+            raise RuntimeError("nested Rule Work is not supported")
         if record.selected_tick == self.tick:
             return False  # Same-Rule, same-tick arguments are a model precondition.
         record.selected_tick, record.call_args = self.tick, value_copy(args)
-        self.modules[entry.module_id].selected.append(rid)
-        valid = (self.cache and record.complete and record.has_effects()
-                 and same_value(args, record.candidate_args))
-        if valid:
-            for qid, version in record.deps:
-                self.stats.version_checks += 1
-                if self.queues[qid].state_version != version:
-                    valid = False
-                    break
+        module = self.modules[entry.module_id]
+        module.selected.append(rid)
+        dirty = module.dirty_words[record.word_index] & record.bit
+        if not dirty and not same_value(args, record.candidate_args):
+            self.stats.dirty_marks += 1
+            module.dirty_words[record.word_index] |= record.bit
+            dirty = record.bit
+        valid = self.cache and record.complete and not dirty
         if valid:
             if self.observer is not None:
                 self.observer.rule_call(rid, True)
             self.stats.cache_hits += 1
-            for qid, _ in record.deps:
-                self.record_read(entry.module_id, qid)
             return False
         if self.observer is not None:
             self.observer.rule_call(rid, False)
-        self._discard(rid)
+        self._clear_candidate(rid)
+        self._clear_reads(rid)
+        module.dirty_words[record.word_index] &= ~record.bit
         record.candidate_args, record.executing = args, True
+        self.active_rule = rid
         self.stats.rule_work += 1
         self.rule_calls[rid] += 1
         return True
 
     def complete_rule(self, rid):
+        if self.active_rule != rid:
+            raise RuntimeError("complete outside owning Rule Work")
         self.rules[rid].complete, self.rules[rid].executing = True, False
+        self.active_rule = None
 
     def abort_rule(self, rid):
-        self._discard(rid)
+        if self.active_rule != rid:
+            raise RuntimeError("abort outside owning Rule Work")
+        self._clear_candidate(rid)
+        self.active_rule = None
 
     def request_wakeup(self, rid, mid, delay):
         if not self.rules[rid].executing or delay < 1:
             raise ValueError("future event requires executing Rule and positive delay")
         self.rules[rid].wake_requests.append((mid, delay))
 
-    def _wakeup(self, mid, tick):
+    def _wakeup(self, mid, tick, changed_slot=None):
+        if changed_slot is not None:
+            module = self.modules[mid]
+            generation = module.control_reads[changed_slot]
+            live = bool(generation and generation == module.read_gen)
+            start = changed_slot * module.word_count
+            for word in range(module.word_count):
+                readers = module.rule_readers[start + word]
+                if readers:
+                    live = True
+                    self.stats.dirty_marks += (readers & ~module.dirty_words[word]).bit_count()
+                    module.dirty_words[word] |= readers
+            if not live:
+                return
+            self.stats.change_notifications += 1
+            if self.observer is not None:
+                self.observer.invalidate(mid, module.resource_qids[changed_slot])
         heappush(self.events, (tick, mid))
         self.stats.events += 1
 
@@ -337,22 +426,26 @@ class Simulator:
             self.module_objects[mid].Work()
         except NeedInput:
             pass  # Prior independent Rules survive; attempted reads remain subscribed.
-        self.active_module = None
+        finally:
+            self.active_rule = self.active_module = None
         for rid in module.selected:
             if self.rules[rid].executing:
                 raise RuntimeError("generated Rule omitted complete/abort")
             self.rule_tasks.add(rid)
         for rid in module.previous:
             if self.rules[rid].selected_tick != self.tick:
-                self._discard(rid)
+                self._cancel_rule(rid)
         module.previous.clear()
         module.read_gen += 1
 
     def _pending(self, rid):
         record = self.rules[rid]
-        return record.complete and record.has_effects() and record.accepted_tick != self.tick
+        return (record.complete and record.has_effects() and record.accepted_tick != self.tick
+                and not self.is_dirty(rid))
 
     def arbitrate_rule(self, rid):
+        if not self._pending(rid):
+            return False
         record = self.rules[rid]
         for qid in record.participants:
             self.stats.queue_checks += 1
@@ -442,12 +535,9 @@ class Simulator:
             self._visit(self.rule_tasks.take(), accepted)
         changed = [qid for qid in self.used_queues if self.queues[qid].xfer()]
         for qid in changed:
-            for mid, generation in enumerate(self.queues[qid].readers):
-                self.stats.reader_checks += 1
-                if generation and generation == self.modules[mid].read_gen:
-                    self._wakeup(mid, self.tick + 1)
+            self._notify_changed(qid)
         for rid in accepted:
-            self._discard(rid)
+            self._clear_candidate(rid)
         self.used_queues.clear()
         self.module_tasks.clear()
         self.rule_tasks.clear()

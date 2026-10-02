@@ -1,6 +1,6 @@
 # GFSim C++20
 
-独立的单线程电路仿真库，导出 CMake 目标 `gfsim::gfsim`。调度语义以 [spec](../spec.md) 为准。核心不依赖 Python、LLVM、MLIR 或第三方测试框架；Python 3.11 仅用于独立参考验收。
+独立的单线程电路仿真库，导出 CMake 目标 `gfsim::gfsim`。当前代码对应上一版调度语义，尚未迁移 [spec](../spec.md) 的动态读者／dirty 位图方案。本轮只做 Python 实验，未修改或重新验收 C++ runtime。核心不依赖 Python、LLVM、MLIR 或第三方测试框架。
 
 ## 构建、测试与安装
 
@@ -17,7 +17,7 @@ cmake --build /tmp/gfsim-consumer
 /tmp/gfsim-consumer/consumer
 ```
 
-只构建库时设置 `-DBUILD_TESTING=OFF -DGFSIM_BUILD_EXAMPLES=OFF`，完全不查找 Python。保留原生测试但跳过参考测试时设置 `-DGFSIM_REFERENCE_TESTS=OFF`。常规完整验收需要保留参考测试；缺少 Python 会在配置时明确失败。
+只构建库时设置 `-DBUILD_TESTING=OFF -DGFSIM_BUILD_EXAMPLES=OFF`。旧 Python examples 已移除，相应跨语言脚本及 `GFSIM_REFERENCE_TESTS` 选项也已删除；当前构建与原生测试不查找 Python。
 
 内存检查使用 GCC 或 Clang，Debug 配置保留符号并为 sanitizer 测试采用 `-O1`，避免 1100 级流水的读者扫描在完全无优化时耗时过长：
 
@@ -141,21 +141,9 @@ tick、版本、读代号、任务标记和工作计数采用 uint64。tick 最�
 
 ## 完整电路验收
 
-七组 C++ 组件和连接分别位于：
+C++ 的 pipeline、packets、pairs、memory、feedback、lookup、retry examples 保留在本目录，未迁移 dirty 机制。原 Python 对照脚本 `tests/compare.py` 及 CMake `reference-circuits` 注册已随旧 Python examples 删除；历史结果见 [报告](report.md)，不能作为新 spec 的验收。
 
-| 模型 | C++ 组件与连接 | 复用的激励、验收与独立参考 |
-| --- | --- | --- |
-| 弹性流水 | [pipeline/model.hpp](examples/pipeline/model.hpp) | [pipeline](../experiment/examples/pipeline/test_model.py) |
-| 包处理 | [packets/model.hpp](examples/packets/model.hpp) | [packets](../experiment/examples/packets/test_model.py) |
-| 双输入原子处理 | [pairs/model.hpp](examples/pairs/model.hpp) | [pairs](../experiment/examples/pairs/test_model.py) |
-| 分 bank 存储 | [memory/model.hpp](examples/memory/model.hpp) | [memory](../experiment/examples/memory/test_model.py) |
-| 反馈 | [feedback/model.hpp](examples/feedback/model.hpp) | [feedback](../experiment/examples/feedback/test_model.py) |
-| 在线查表 | [lookup/model.hpp](examples/lookup/model.hpp) | [lookup](../experiment/examples/lookup/test_model.py) |
-| 重试缓冲 | [retry/model.hpp](examples/retry/model.hpp) | [retry](../experiment/examples/retry/test_model.py) |
-
-[compare.py](tests/compare.py) 复用现有 13 项电路测试的同一份输入和独立输出断言，将输入通过文本协议传给 C++ runner；每拍比较获准集合、全部 Queue 内容与版本、事件、Module 激活次数及有效订阅。参考模型通过独立事务描述与固定点许可实现，不调用 C++ 或 Python 被测组件函数。缓存开关两种 C++ 执行均逐拍对照；缓存开启时另与 Python engine 比较 Rule Work 次数和缓存命中数，确保复用不是仅靠最终输出推断。
-
-第 14 项 [1100 级满流水](examples/pipeline/test.cpp) 在原生测试中完整排空，正向与反向 Module 顺序均检查输出序列，正向深度要求超过 1000。其余随机流水和存储沿用固定种子 0–5；存储主场景使用种子 41。控制分支、动态下标、部分 proposal 取消、跨 tick 直接仲裁、缓存订阅重登、事件原子性及动态环均纳入上述完整模型。
+[1100 级满流水](examples/pipeline/test.cpp) 在原生测试中完整排空，正向与反向 Module 顺序均检查输出序列，正向深度要求超过 1000。历史跨语言测试还覆盖随机流水和存储、分支、动态下标、候选及事件生命周期，现需在未来 C++ 迁移时重新建立验收。
 
 额外 [原生组件测试](tests/native.cpp) 连接 Source、包含独立 Rule 的 Module 和 Sink，验证 Module 中途读空保留此前 Rule，以及 bool、标准整数、array、嵌套字段修改和无变化 revise。窄边界覆盖计数器溢出、Work/Xfer 异常、缺失 complete/abort、重复 pop、非法延迟和异常后拒绝继续。任务、读者数组及 proposal 槽位地址也受稳定性检查。
 

@@ -48,7 +48,7 @@ class ReviewTrace:
         self.stats = asdict(s.stats)
         self.seen_reads = set()
         self.frame = {'tick': s.tick, 'calls': [], 'edges': [], 'decisions': [],
-                      'reads': [],
+                      'reads': [], 'invalidations': [],
                       'due': sorted(event for event in s.events if event[0] <= s.tick),
                       'rules': None, 'error': None}
 
@@ -61,20 +61,31 @@ class ReviewTrace:
     def rule_call(self, rid, reused):
         r = self.sim.rules[rid]
         if reused:
-            reason = '参数与读取版本匹配'
+            reason = '候选完整且 dirty 未置位'
         elif not self.sim.cache:
             reason = '缓存已关闭'
-        elif not r.complete or not r.has_effects():
+        elif not r.complete:
             reason = '无可复用的完整候选'
         else:
-            reason = '参数或读取版本变化'
-        self.frame['calls'].append({'rid': rid, 'reuse': reused, 'reason': reason})
+            reason = '参数或实际读取的 Queue 变化'
+        self.frame['calls'].append({'rid': rid, 'reuse': reused, 'dirty': self.sim.is_dirty(rid), 'reason': reason})
+
+    def invalidate(self, mid, qid):
+        s = self.sim
+        module = s.modules[mid]
+        slot = module.resource_qids.index(qid)
+        readers = [rid for rid in module.rule_ids
+                   if module.rule_readers[slot * module.word_count + s.rules[rid].word_index]
+                   & s.rules[rid].bit]
+        self.frame['invalidations'].append({'mid': mid, 'qid': qid, 'rules': readers})
 
     def prepared(self):
         s = self.sim
         self.frame['rules'] = [None] + [
             {'complete': r.complete, 'selected': r.selected_tick == s.tick,
-             'args': value_json(r.candidate_args), 'deps': list(r.deps),
+             'args': value_json(r.candidate_args), 'dirty': s.is_dirty(rid),
+             'deps': [s.modules[s.entries[rid].module_id].resource_qids[slot]
+                      for slot in r.read_slots],
              'events': list(r.wake_requests),
              'proposals': [
                  {'qid': qid, 'pop': s.queues[qid].proposal(rid).pop,
@@ -96,8 +107,8 @@ class ReviewTrace:
         f['error'] = None if error is None else f'{type(error).__name__}: {error}'
         f['worked'] = [i for i, count in enumerate(s.module_calls) if count != self.calls[i]]
         f['generations'] = [m.read_gen for m in s.modules]
-        f['readers'] = [[i for i, gen in enumerate(q.readers)
-                         if gen and gen == s.modules[i].read_gen] for q in s.queues]
+        f['readers'] = [[mid for mid, slot in zip(q.readers, q.reader_slots)
+                         if s.is_reader(mid, slot)] for q in s.queues]
         f['changes'] = [[i, self.queue_state(q)] for i, q in enumerate(s.queues)
                         if (q.state_version, q.current) != self.before[i]]
         f['future'] = sorted(s.events)
