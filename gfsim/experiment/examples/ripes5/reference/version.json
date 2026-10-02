@@ -1,0 +1,15 @@
+{
+  "repository": "https://github.com/mortbopet/Ripes.git",
+  "ripes": "5b8a616edcb6f0a2ddb07e78951348b72497f1e1",
+  "submodules": {
+    "external/VSRTL": "8497dd14fe80e57efcff4c424a9a3b6363d93eb7"
+  },
+  "fetchcontent": {
+    "elfio": "79fcd11595d0793dec593e9072e36c7923c57c1a",
+    "libelfin": "c06ecb09c0d2145091119d15b911c54d2d378ea7",
+    "magic-enum": "e046b69a3736d314fad813e159b1c192eaef92cd",
+    "signals": "17881fb92ec314bb43549cc2cc8acfac24916f91",
+    "cereal": "ebef1e929807629befafbb2918ea1a08c7194554"
+  },
+  "qt": "6.8.3"
+}

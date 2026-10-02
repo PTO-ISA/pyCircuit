@@ -1,0 +1,109 @@
+{
+  "reference": {
+    "ripes": "5b8a616edcb6f0a2ddb07e78951348b72497f1e1",
+    "vsrtl": "8497dd14fe80e57efcff4c424a9a3b6363d93eb7"
+  },
+  "binary_sha256": "d29aa6fbdad4605eb46abd77f62f59024713ee3520f953ae424c6b2a335fe4bf",
+  "results": [
+    {
+      "name": "alu",
+      "cycles": 15,
+      "retired": 11,
+      "configurations": 4
+    },
+    {
+      "name": "forward_priority",
+      "cycles": 12,
+      "retired": 8,
+      "configurations": 4
+    },
+    {
+      "name": "wb_id_store",
+      "cycles": 15,
+      "retired": 11,
+      "configurations": 4
+    },
+    {
+      "name": "array_sum",
+      "cycles": 120,
+      "retired": 80,
+      "configurations": 4
+    },
+    {
+      "name": "jumps_branches",
+      "cycles": 31,
+      "retired": 15,
+      "configurations": 4
+    },
+    {
+      "name": "load_branch_wrong_path",
+      "cycles": 25,
+      "retired": 13,
+      "configurations": 4
+    },
+    {
+      "name": "jalr_forwarded",
+      "cycles": 17,
+      "retired": 8,
+      "configurations": 4
+    },
+    {
+      "name": "no_false_load_use",
+      "cycles": 11,
+      "retired": 7,
+      "configurations": 4
+    },
+    {
+      "name": "initial_and_x0_load",
+      "cycles": 14,
+      "retired": 8,
+      "configurations": 4
+    },
+    {
+      "name": "mixed_7",
+      "cycles": 179,
+      "retired": 130,
+      "configurations": 4
+    },
+    {
+      "name": "mixed_42",
+      "cycles": 156,
+      "retired": 114,
+      "configurations": 4
+    },
+    {
+      "name": "mixed_2026",
+      "cycles": 167,
+      "retired": 117,
+      "configurations": 4
+    }
+  ],
+  "generated_style_refactor": {
+    "before_after_configurations": 48,
+    "rows_compared": 3096,
+    "all_fields_equal": true,
+    "before_source_sha256": {
+      "stages.py": "addda03eef8ad68bcb5c224e4b9e489844b1a518a1632cf7ff6883a63e58da71",
+      "model.py": "c11f5300ba39a9aca08e59751015a99aef9f28aa01922747f5bd42be1287b0b1",
+      "logic.py": "412f0550c3c843cb0d187a19a380fbc5ba02fae2e3f47793d971acd844ccbb1a"
+    },
+    "after_source_sha256": {
+      "stages.py": "398333b79cfe24d3148af86c88d5bc3b7d97e61e034405ecac41158afc70a8cb",
+      "model.py": "5e252817d740937178e5e75301b8e9316966f80cf6ae62d5dde248ce52343656",
+      "logic.py": "412f0550c3c843cb0d187a19a380fbc5ba02fae2e3f47793d971acd844ccbb1a"
+    },
+    "regression": {
+      "tests": 34,
+      "skipped": 0,
+      "seconds": 84.86,
+      "native_required": true
+    },
+    "visualization": {
+      "program": "array_sum",
+      "configurations": 4,
+      "frames_per_configuration": 120
+    },
+    "artifacts": "review-output/generated-style/",
+    "pipeline_storage": "nonempty singleton Queues updated by revise; consuming FIFO and backpressure remain unimplemented"
+  }
+}

@@ -10,6 +10,7 @@
 | --- | --- |
 | 调度引擎 | [engine.py](engine.py)：从 `step` 开始，看 `_work`、`begin_rule`、`_visit`、Queue 的 `xfer`；静态绑定在 [construction.py](construction.py) |
 | 一个完整硬件模型 | [examples/](examples/) 下每个目录是一个模型，行为、连接、独立参考和端到端测试放在一起 |
+| Ripes 固定五级对照 | [ripes5 README](examples/ripes5/README.md)：原版 RV32_5S、统一 JSONL、四配置逐拍验收 |
 | 五级 CPU | [CPU README](examples/riscv/README.md) → [model.py](examples/riscv/model.py) → 五个阶段；实现限制见 [findings.md](examples/riscv/findings.md) |
 | 运行轨迹可视化 | [review/](review/)：通用观察器与页面，接入方法见下文；模型相关入口放在各模型目录 |
 | 验证结论和性能数据 | [report.md](report.md)、[results.json](results.json) |
@@ -55,6 +56,7 @@ experiment/
     feedback/
     lookup/
     retry/
+    ripes5/                 # 固定 Ripes 原版对照，独立的同步五级流水
     riscv/                  # 五个阶段各一文件；汇编器、顺序解释器和完整程序
 ```
 
