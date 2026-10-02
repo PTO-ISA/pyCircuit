@@ -18,6 +18,13 @@ class Slot(NamedTuple):
     stalled: bool = False
 
 
+class ExResult(NamedTuple):
+    next_slot: Slot
+    redirect: bool
+    forward_a: int
+    forward_b: int
+
+
 class Event(NamedTuple):
     sequence: int = 0
     pc: int = 0
@@ -75,13 +82,19 @@ def execute(ex, mem, wb):
         result = 0
     else:
         raise ValueError(f'unsupported instruction {ex.word:#x}')
-    return u32(result), b, bool(redirect), fa, fb
+    return ExResult(ex._replace(result=u32(result), right=b), bool(redirect), fa, fb)
+
+
+def load_use_stall(id_slot, ex):
+    dec, ins = decode(id_slot.word), decode(ex.word)
+    return ins.op == LW and ins.rd != 0 and ins.rd in (dec.rs1, dec.rs2)
 
 
 def control(id_slot, ex, mem, wb):
-    dec, ins = decode(id_slot.word), decode(ex.word)
-    stall = ins.op == LW and ins.rd != 0 and ins.rd in (dec.rs1, dec.rs2)
-    target, _, redirect, fa, fb = execute(ex, mem, wb)
-    return dict(stall=stall, flush_ifid=redirect, flush_idex=redirect or stall,
+    # Pure observation also works at tick zero, before Signal initialization.
+    stall = load_use_stall(id_slot, ex)
+    result = execute(ex, mem, wb)
+    return dict(stall=stall, flush_ifid=result.redirect, flush_idex=result.redirect or stall,
                 pc_enable=not stall, idex_enable=True, exmem_clear=False,
-                target=target if redirect else None, forward_a=fa, forward_b=fb)
+                target=result.next_slot.result if result.redirect else None,
+                forward_a=result.forward_a, forward_b=result.forward_b)

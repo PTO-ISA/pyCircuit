@@ -29,7 +29,8 @@ def run_python(case, cache=True, reverse=False, html=None):
     observer = None
     if html:
         from review import ReviewTrace
-        observer = ReviewTrace(cpu.sim, title=f'Ripes5 / {case["name"]}', queue_names=cpu.names)
+        observer = ReviewTrace(cpu.sim, title=f'Ripes5 / {case["name"]}', queue_names=cpu.names,
+                               signal_names={0: 'ex_result', 1: 'load_use_stall'})
     rows = [cpu.snapshot()]
     try:
         for _ in range(case['max_cycles']):

@@ -1,19 +1,19 @@
 """Plain generated-style Modules; each Rule spells out its runtime operations.
 
 Pipeline links still model registers with revise, not consuming FIFO inputs.
-All persistent state is bound explicitly; combinational helpers receive values.
+All persistent state and the two shared Signals are bound explicitly.
 """
 from ..riscv.isa import decode
 from ..riscv.records import LW, SW, JAL, JALR, u32
-from .logic import Slot, Event, Store, control, execute, writer
+from .logic import Slot, Event, Store, writer
 
 
 class Fetch:
-    def __init__(self, mid, rid, *, pc, if_id, id_ex, ex_mem, mem_wb, words):
+    def __init__(self, mid, rid, *, pc, if_id, ex_result, load_use_stall, words):
         self.mid, self.rid, self.engine = mid, rid, None
         self.pc = pc
-        self.if_id, self.id_ex = if_id, id_ex
-        self.ex_mem, self.mem_wb = ex_mem, mem_wb
+        self.if_id = if_id
+        self.ex_result, self.load_use_stall = ex_result, load_use_stall
         self.words = words
 
     def Work(self):
@@ -24,36 +24,12 @@ class Fetch:
         if not e.begin_rule(rid):
             return
 
-        e.record_read(self.mid, self.if_id.qid, rid)
-        id_slot = self.if_id.try_peek()
-        if id_slot is None:
-            e.abort_rule(rid)
-            return
-        e.record_read(self.mid, self.id_ex.qid, rid)
-        ex = self.id_ex.try_peek()
-        if ex is None:
-            e.abort_rule(rid)
-            return
-        e.record_read(self.mid, self.ex_mem.qid, rid)
-        mem = self.ex_mem.try_peek()
-        if mem is None:
-            e.abort_rule(rid)
-            return
-        e.record_read(self.mid, self.mem_wb.qid, rid)
-        wb = self.mem_wb.try_peek()
-        if wb is None:
-            e.abort_rule(rid)
-            return
-        c = control(id_slot, ex, mem, wb)
-
-        e.record_read(self.mid, self.pc.qid, rid)
-        pc = self.pc.try_peek()
-        if pc is None:
-            e.abort_rule(rid)
-            return
-        if c['pc_enable']:
-            self.pc.propose_revise(rid, c['target'] if c['target'] is not None else u32(pc + 4))
-            if c['flush_ifid']:
+        ex = self.ex_result.value
+        stall = self.load_use_stall.value
+        pc = self.pc.peek()
+        if not stall:
+            self.pc.propose_revise(rid, ex.next_slot.result if ex.redirect else u32(pc + 4))
+            if ex.redirect:
                 new = Slot()
             else:
                 if pc % 4:
@@ -62,8 +38,6 @@ class Fetch:
                 new = Slot(True, pc, word)
             self.if_id.propose_revise(rid, new)
 
-        # Explicit clock events also cover unchanged values and stable loops.
-        e.request_wakeup(rid, self.mid, 1)
         e.complete_rule(rid)
 
     def arbitrate_fetch(self):
@@ -71,10 +45,11 @@ class Fetch:
 
 
 class Decode:
-    def __init__(self, mid, rid, *, if_id, id_ex, ex_mem, mem_wb, registers):
+    def __init__(self, mid, rid, *, if_id, id_ex, mem_wb, registers, ex_result, load_use_stall):
         self.mid, self.rid, self.engine = mid, rid, None
         self.if_id, self.id_ex = if_id, id_ex
-        self.ex_mem, self.mem_wb = ex_mem, mem_wb
+        self.mem_wb = mem_wb
+        self.ex_result, self.load_use_stall = ex_result, load_use_stall
         self.registers = registers
 
     def Work(self):
@@ -85,46 +60,22 @@ class Decode:
         if not e.begin_rule(rid):
             return
 
-        e.record_read(self.mid, self.if_id.qid, rid)
-        old = self.if_id.try_peek()
-        if old is None:
-            e.abort_rule(rid)
-            return
-        e.record_read(self.mid, self.id_ex.qid, rid)
-        ex = self.id_ex.try_peek()
-        if ex is None:
-            e.abort_rule(rid)
-            return
-        e.record_read(self.mid, self.ex_mem.qid, rid)
-        mem = self.ex_mem.try_peek()
-        if mem is None:
-            e.abort_rule(rid)
-            return
-        e.record_read(self.mid, self.mem_wb.qid, rid)
-        wb = self.mem_wb.try_peek()
-        if wb is None:
-            e.abort_rule(rid)
-            return
-        # This Rule independently recomputes control from registered current.
-        c = control(old, ex, mem, wb)
-
-        if c['flush_idex']:
-            new = Slot(stalled=c['stall'])
+        ex = self.ex_result.value
+        stall = self.load_use_stall.value
+        if ex.redirect or stall:
+            new = Slot(stalled=stall)
         else:
+            old = self.if_id.peek()
+            wb = self.mem_wb.peek()
             ins = decode(old.word)
             values = []
             for idx in (ins.rs1, ins.rs2):
                 queue = self.registers[idx]
-                e.record_read(self.mid, queue.qid, rid)
-                value = queue.try_peek()
-                if value is None:
-                    e.abort_rule(rid)
-                    return
+                value = queue.peek()
                 values.append(wb.value if idx and idx == writer(wb) else value)
             new = Slot(old.valid, old.pc, old.word, *values)
         self.id_ex.propose_revise(rid, new)
 
-        e.request_wakeup(rid, self.mid, 1)
         e.complete_rule(rid)
 
     def arbitrate_decode(self):
@@ -132,9 +83,9 @@ class Decode:
 
 
 class Execute:
-    def __init__(self, mid, rid, *, id_ex, ex_mem, mem_wb):
+    def __init__(self, mid, rid, *, ex_mem, ex_result):
         self.mid, self.rid, self.engine = mid, rid, None
-        self.id_ex, self.ex_mem, self.mem_wb = id_ex, ex_mem, mem_wb
+        self.ex_mem, self.ex_result = ex_mem, ex_result
 
     def Work(self):
         self.work_execute()
@@ -144,26 +95,8 @@ class Execute:
         if not e.begin_rule(rid):
             return
 
-        e.record_read(self.mid, self.id_ex.qid, rid)
-        ex = self.id_ex.try_peek()
-        if ex is None:
-            e.abort_rule(rid)
-            return
-        e.record_read(self.mid, self.ex_mem.qid, rid)
-        mem = self.ex_mem.try_peek()
-        if mem is None:
-            e.abort_rule(rid)
-            return
-        e.record_read(self.mid, self.mem_wb.qid, rid)
-        wb = self.mem_wb.try_peek()
-        if wb is None:
-            e.abort_rule(rid)
-            return
+        self.ex_mem.propose_revise(rid, self.ex_result.value.next_slot)
 
-        result, data, _, _, _ = execute(ex, mem, wb)
-        self.ex_mem.propose_revise(rid, ex._replace(result=result, right=data))
-
-        e.request_wakeup(rid, self.mid, 1)
         e.complete_rule(rid)
 
     def arbitrate_execute(self):
@@ -184,11 +117,7 @@ class Memory:
         if not e.begin_rule(rid):
             return
 
-        e.record_read(self.mid, self.ex_mem.qid, rid)
-        mem = self.ex_mem.try_peek()
-        if mem is None:
-            e.abort_rule(rid)
-            return
+        mem = self.ex_mem.peek()
         ins = decode(mem.word)
         value = u32(mem.pc + 4) if ins.op in (JAL, JALR) else mem.result
         if ins.op in (LW, SW):
@@ -197,22 +126,13 @@ class Memory:
                 raise ValueError(f'data access outside aligned data region: {mem.result:#x}')
             queue = self.data[index]
             if ins.op == LW:
-                e.record_read(self.mid, queue.qid, rid)
-                value = queue.try_peek()
-                if value is None:
-                    e.abort_rule(rid)
-                    return
+                value = queue.peek()
             else:
                 queue.propose_revise(rid, mem.right)
-                e.record_read(self.mid, self.store.qid, rid)
-                old = self.store.try_peek()
-                if old is None:
-                    e.abort_rule(rid)
-                    return
+                old = self.store.peek()
                 self.store.propose_revise(rid, Store(old.sequence + 1, mem.result, mem.right))
         self.mem_wb.propose_revise(rid, mem._replace(value=value))
 
-        e.request_wakeup(rid, self.mid, 1)
         e.complete_rule(rid)
 
     def arbitrate_memory(self):
@@ -233,24 +153,15 @@ class Writeback:
         if not e.begin_rule(rid):
             return
 
-        e.record_read(self.mid, self.mem_wb.qid, rid)
-        wb = self.mem_wb.try_peek()
-        if wb is None:
-            e.abort_rule(rid)
-            return
+        wb = self.mem_wb.peek()
         rd = writer(wb)
         if rd:
             self.registers[rd].propose_revise(rid, wb.value)
         if wb.valid and wb.pc % 4 == 0 and 0 <= wb.pc < self.code_size:
-            e.record_read(self.mid, self.retirement.qid, rid)
-            old = self.retirement.try_peek()
-            if old is None:
-                e.abort_rule(rid)
-                return
+            old = self.retirement.peek()
             self.retirement.propose_revise(rid, Event(old.sequence + 1, wb.pc, wb.word,
                                                      rd, wb.value if rd else 0))
 
-        e.request_wakeup(rid, self.mid, 1)
         e.complete_rule(rid)
 
     def arbitrate_writeback(self):

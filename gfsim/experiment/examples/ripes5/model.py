@@ -1,7 +1,7 @@
 """Explicit singleton Queue state and generated-style static resource bindings."""
-from engine import Queue, RuleEntry
+from engine import Queue, Signal, RuleEntry
 from construction import assemble
-from .logic import Slot, Event, Store, control
+from .logic import Slot, Event, Store, control, execute, load_use_stall
 from .programs import validate
 from .stages import Fetch, Decode, Execute, Memory, Writeback
 
@@ -31,16 +31,20 @@ class CPU:
         for qid, queue in enumerate(self.queues):
             queue.qid = qid
 
-        fetch = Fetch(0, 1, pc=self.pc, if_id=self.if_id, id_ex=self.id_ex,
-                      ex_mem=self.ex_mem, mem_wb=self.mem_wb, words=self.words)
-        decode = Decode(1, 2, if_id=self.if_id, id_ex=self.id_ex, ex_mem=self.ex_mem,
-                        mem_wb=self.mem_wb, registers=self.registers)
-        execute = Execute(2, 3, id_ex=self.id_ex, ex_mem=self.ex_mem, mem_wb=self.mem_wb)
+        self.ex_result = Signal(self.evaluate_ex_result)
+        self.load_use_stall = Signal(self.evaluate_load_use_stall)
+        self.signals = (self.ex_result, self.load_use_stall)
+        fetch = Fetch(0, 1, pc=self.pc, if_id=self.if_id, words=self.words,
+                      ex_result=self.ex_result, load_use_stall=self.load_use_stall)
+        decode = Decode(1, 2, if_id=self.if_id, id_ex=self.id_ex,
+                        mem_wb=self.mem_wb, registers=self.registers,
+                        ex_result=self.ex_result, load_use_stall=self.load_use_stall)
+        execute_stage = Execute(2, 3, ex_mem=self.ex_mem, ex_result=self.ex_result)
         memory = Memory(3, 4, ex_mem=self.ex_mem, mem_wb=self.mem_wb, data=self.data,
                         data_base=self.data_base, store=self.store)
         writeback = Writeback(4, 5, mem_wb=self.mem_wb, registers=self.registers,
                               retirement=self.retirement, code_size=4 * len(self.words))
-        self.stages = (fetch, decode, execute, memory, writeback)
+        self.stages = (fetch, decode, execute_stage, memory, writeback)
         modules = list(reversed(self.stages)) if reverse else list(self.stages)
         for mid, module in enumerate(modules):
             module.mid = mid
@@ -52,7 +56,7 @@ class CPU:
                       pops=(), pushes=(), revises=(self.pc.qid, self.if_id.qid)),
             RuleEntry(decode.mid, decode.work_decode, decode.arbitrate_decode,
                       pops=(), pushes=(), revises=(self.id_ex.qid,)),
-            RuleEntry(execute.mid, execute.work_execute, execute.arbitrate_execute,
+            RuleEntry(execute_stage.mid, execute_stage.work_execute, execute_stage.arbitrate_execute,
                       pops=(), pushes=(), revises=(self.ex_mem.qid,)),
             RuleEntry(memory.mid, memory.work_memory, memory.arbitrate_memory,
                       pops=(), pushes=(), revises=(self.mem_wb.qid, self.store.qid)
@@ -61,7 +65,29 @@ class CPU:
                       pops=(), pushes=(), revises=(self.retirement.qid,)
                       + tuple(q.qid for q in self.registers[1:])),
         ]
-        self.sim = assemble(self.queues, modules, rules, cache)
+        # Include read and revise targets, but no transitive Signal inputs.
+        bindings = [
+            (self.pc, self.if_id),
+            (self.if_id, self.id_ex, self.mem_wb, *self.registers),
+            (self.ex_mem,),
+            (self.ex_mem, self.mem_wb, self.store, *self.data),
+            (self.mem_wb, self.retirement, *self.registers[1:]),
+        ]
+        module_queues, module_signals = [()] * 5, [()] * 5
+        for stage, queues, sids in zip(self.stages, bindings, ((0, 1), (0, 1), (0,), (), ())):
+            module_queues[stage.mid] = tuple(q.qid for q in queues)
+            module_signals[stage.mid] = sids
+        self.sim = assemble(self.queues, modules, rules, cache,
+                            module_queues=module_queues, signals=self.signals,
+                            module_signals=module_signals,
+                            signal_queues=[(self.id_ex.qid, self.ex_mem.qid, self.mem_wb.qid),
+                                           (self.if_id.qid, self.id_ex.qid)])
+
+    def evaluate_ex_result(self):
+        return execute(self.id_ex.peek(), self.ex_mem.peek(), self.mem_wb.peek())
+
+    def evaluate_load_use_stall(self):
+        return load_use_stall(self.if_id.peek(), self.id_ex.peek())
 
     def executable(self, pc):
         return pc % 4 == 0 and 0 <= pc < 4 * len(self.words)

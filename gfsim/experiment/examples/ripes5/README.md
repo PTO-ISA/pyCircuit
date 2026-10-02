@@ -2,7 +2,7 @@
 
 本目录独立表达固定版本 Ripes 的五级流水。原有 `../riscv/` 弹性 CPU 和通用调度器均未修改。参考端是原版 `vsrtl::core::RV5S<uint32_t>`，不是 Python 参考流水线。
 
-当前已完成生成式写法重构，保持寄存器表达的逐拍行为。四个级间 Queue 仍通过 `revise` 更新，不消费、不产生容量背压；本次验收不代表消费型级间队列验证完成。后续需要独立解决输入读取形成 pop、背压及 load-use 停顿在编译契约下的表达。
+当前使用两个独立 Signal 共享组合计算，五个普通阶段类保留显式 Rule，由实际读取的 Queue／Signal 变化唤醒，保持寄存器表达的逐拍行为。四个级间 Queue 仍通过 `revise` 更新，不消费、不产生容量背压；本次验收不代表消费型级间队列验证完成。后续需要独立解决输入读取形成 pop、背压及 load-use 停顿在编译契约下的表达。
 
 ## 构建与运行
 
@@ -48,13 +48,18 @@ PYTHONPATH=gfsim/experiment python3 -m examples.ripes5.run
 - 每个程序的 `input.json` 和未经改写的 `ripes.raw.jsonl`、stderr。
 - 四份 GFSim JSONL；不匹配时的 `*.mismatch.json` 包含首个差异字段、前后三拍、完整指令字和汇编。
 - `summary.json` 保存版本、二进制 SHA256、周期与退休计数。
-- 可选的通用 HTML 页面展示 Queue 和 Rule；这不是性能计时路径。
+- 可选的通用 HTML 页面展示 Queue、Rule，以及 `ex_result`／`load_use_stall` 的输入、求值、变化和读者通知；这不是性能计时路径。
 
 验收和耗时入口：
 
 ```bash
 RIPES5_REQUIRE_NATIVE=1 python3 -m unittest discover -s gfsim/experiment -v
+# 保存 56fe061 源码，并逐拍比较旧 Python、新 Python 和原生 Ripes
+PYTHONPATH=gfsim/experiment python3 -m examples.ripes5.evidence
+# 默认三个程序、每组一次预热和七次采样；自动选择一个可用 CPU
 PYTHONPATH=gfsim/experiment python3 -m examples.ripes5.bench
+# 单独生成包含两个 Signal 的四配置可视化
+PYTHONPATH=gfsim/experiment python3 -m examples.ripes5.run --case array_sum --html
 ```
 
 原版未构建时常规 unittest 明确 skip 原版测试；`RIPES5_REQUIRE_NATIVE=1` 将其变为失败。`run`、`bench` 均要求真实参考存在且版本匹配，绝不自动替换参考。
@@ -72,48 +77,42 @@ PYTHONPATH=gfsim/experiment python3 -m examples.ripes5.bench
 
 对应上游文件位于 `src/processors/RISC-V/rv5s/rv5s.h`、`rv5s_hazardunit.h`、`rv5s_forwardingunit.h`、`../rv_registerfile.h` 及 VSRTL `vsrtl_register.h`。`RegisterClEn` 先判 enable，再判 clear；本范围没有 ECALL，ID/EX 总使能，EX/MEM 不清零，MEM/WB 总前进。ID/EX 的 stalled 独立于 clear 保存，然后逐级传递。
 
-`model.py` 显式构造每个资源、五个阶段实例及五条 `RuleEntry`，列出空的 `pops/pushes` 和唯一 `revises` 来源。PC、四个流水寄存器、32 个寄存器、每个数据字、退休和存储事件计数都用容量为 1 的非空 Queue。valid 为 `Slot` 字段，不将流水气泡建成空 Queue。每阶段一个 Module、一个普通成员 Rule；共享 `logic.control()` 和 `logic.execute()` 只接受不可变值。规则不能看到其他规则的 proposal。
+`model.py` 显式构造每个资源、五个阶段实例及五条 `RuleEntry`，列出空的 `pops/pushes` 和唯一 `revises` 来源。PC、四个流水寄存器、32 个寄存器、每个数据字、退休和存储事件计数都用容量为 1 的非空 Queue。valid 为 `Slot` 字段，气泡不清空 Queue。规则不能看到其他规则的 proposal。
 
-Fetch 和 Decode 各自登记四个流水 current 并调用一次 `control()`；两者各调用一次 `execute()`，Execute Rule 再独立调用一次，共每拍三次 EX 组合计算。没有隐藏缓存。每个 Rule 显式请求下一拍事件，使稳定自循环和重复值也有时钟。调度器契约未改变；由此带来的 Queue 通知、重复计算和事件成本均属于本模型表达，未试图优化为 RTL 门级求值。
+## 阶段和 Signal 的阅读顺序
 
-## 生成式代码的阅读顺序
+[stages.py](stages.py) 保留 Fetch、Decode、Execute、Memory、Writeback 五个普通类，不使用基类、装饰器或提交包装。每条 Rule 明确展示 `begin_rule → peek/Signal.value → propose_revise → complete_rule`。`peek()` 自动登记实际读取，`propose_revise()` 自动登记目标依赖。阶段不再请求下一拍自唤醒。Queue／Signal 变化通过实际读者依赖安排下一 tick 的 Work；获准 revise 同值不通知，依赖稳定时可以省略重复计算。store／退休的事件计数每次实际发生时递增，重复值写入也会保留事件并产生相应依赖通知。
 
-[stages.py](stages.py) 的 Fetch、Decode、Execute、Memory、Writeback 是五个独立普通类，不继承 example 公共基类。构造参数明确传入 Queue 和固定配置；阶段不持有整个 CPU，不通过回调访问资源。`Work()` 直接调用相应 `work_<阶段>()`，`arbitrate_<阶段>()` 直接调用核心仲裁入口。
+[model.py](model.py) 的两个普通成员 helper 直接读取 Queue 并调用 [logic.py](logic.py) 的纯值函数，再绑定现有通用 `Signal`：
 
-每条 Rule 自行展示 `begin_rule → record_read/try_peek → propose_revise → request_wakeup → complete_rule`。必要读取为空时显式 `abort_rule`；普通业务分支不被改写成撤销。依赖登记只位于实际读取路径上；同一 Rule 内已经读取的值可用局部变量复用。revise 目标依赖由核心 `propose_revise` 自行登记。没有 `observe/put/controls` 等额外调度接口。
+| Signal | 输入 Queue | 固定返回类型 | 阶段读者 |
+| --- | --- | --- | --- |
+| `ex_result` | ID_EX、EX_MEM、MEM_WB | `ExResult(next_slot, redirect, forward_a, forward_b)` | Fetch、Decode、Execute |
+| `load_use_stall` | IF_ID、ID_EX | bool | Fetch、Decode |
 
-例如，下面是 Writeback 的实际 Rule；读取、寄存器修改和退休事件归属同一 Rule，直到仲裁获准才一起提交：
+两个 Signal 互不依赖。`ExResult` 和 `Slot` 都是不可变 NamedTuple，分支目标直接取 `next_slot.result`，没有可空目标或字典返回值。`module_queues` 只列出阶段实际可能读取或 revise 的 Queue；`module_signals` 与 `signal_queues` 也精确列出。Module 反序时绑定按实际 mid 重排。
 
-```python
-def work_writeback(self):
-    e, rid = self.engine, self.rid
-    if not e.begin_rule(rid):
-        return
+Fetch 读取两个 Signal 和 PC，先判断 enable，再处理 clear；Decode 按 redirect/stall 插入气泡，否则读取 IF_ID、寄存器及 WB→ID 旁路；Execute 只提交 `ex_result.next_slot`。Memory 和 Writeback 保留原业务及同沿副作用。没有增加 valid 过滤、手动补唤醒、隐藏缓存或直接状态写入。调度器、仲裁、原版 Ripes 都未修改。
 
-    e.record_read(self.mid, self.mem_wb.qid, rid)
-    wb = self.mem_wb.try_peek()
-    if wb is None:
-        e.abort_rule(rid)
-        return
-    rd = writer(wb)
-    if rd:
-        self.registers[rd].propose_revise(rid, wb.value)
-    if wb.valid and wb.pc % 4 == 0 and 0 <= wb.pc < self.code_size:
-        e.record_read(self.mid, self.retirement.qid, rid)
-        old = self.retirement.try_peek()
-        if old is None:
-            e.abort_rule(rid)
-            return
-        self.retirement.propose_revise(rid, Event(old.sequence + 1, wb.pc, wb.word,
-                                                 rd, wb.value if rd else 0))
+Signal 在首个 `step()` 的 Work 之前初始化；随后每个 Signal 每次 Xfer 最多求值一次。阶段 Rule 不再调用 EX 组合计算。观测仍从 Queue 用纯值 `control()` 生成全部字段，因此第 0 拍不读取未初始化 Signal，也不提前推进时钟。观测会额外进行纯值计算，但完全排除在仿真循环计时之外。
 
-    e.request_wakeup(rid, self.mid, 1)
-    e.complete_rule(rid)
-```
+## 基线、验收和测速证据
 
-`logic.py` 中的 payload／事件记录对应固定数据结构；译码、ALU、前递和控制函数只计算值，不访问 Queue 或调度器。这是手写的生成式代码样例，尚非编译器自动生成产物。已有核心 API 和 `construction.assemble` 足以支持本轮写法，无需增加新接口。
+当前依赖驱动版本的证据在被 Git 忽略的 `review-output/dependency-wakeup/`：
 
-本次重构证据保存在 `review-output/generated-style/`：`before/` 保存旧源码、SHA256 和 48 组旧轨迹，`after/` 保存相同输入的新轨迹与原生参考原始输出，`before-after.json` 记录逐字段比较，`regression.log` 保存全量测试输出，`visualization/array_sum/` 保存四配置 HTML。
+- `before/source/`：从 `56fe061` 导出的实验源码，`before/identity.json` 保存提交及源码 SHA256。旧模型仍使用原有自唤醒；当前模型依靠 Queue／Signal 依赖。
+- `before/traces/`、`after/`：13 程序 × 4 配置的旧／新 JSONL，新目录另含原生原始输出；`comparison.json` 记录三方逐字段通过结果、轨迹散列及源码行数。
+- `after/array_sum/*.html`：四份通用 review，包含两个 Signal 的输入、求值和通知。
+- `regression.log`：引擎、CPU、Signal、review 全量回归。
+- `timing.json`：正式三方计时，包括全部样本、预热、执行顺序、CPU affinity、每拍耗时、Rule／Module／Signal 计数、资源变化通知及事件计数、源码和二进制散列。已跟踪的副本见 [timing.json](timing.json)，验收摘要见 [results.json](results.json)。
+
+`evidence` 可重复导出固定提交；若保留的源码被改动则报错，不覆盖异内容。它用当前输入同时运行固定提交模型与当前模型，比较器保持原实现，报告首个差异周期及上下文。
+
+`bench` 默认测 `array_sum`、`mixed_2026`、`memory_loop_256`。每个程序有原生 C++ 一组、旧／新 Python 各四组；绑定同一可用 CPU，子进程串行运行，每组一次预热、七次正式采样，各轮轮换顺序。`--cpu N`、`--repeats N`、重复的 `--case NAME`、`--runner`、`--evidence` 和 `--output` 可覆盖配置。
+
+循环计时保留原结束检查、地址范围检查与内建计数，排除构造、快照、JSON 和 review。Python 第一次 `step()` 的 Signal 初始化计入循环；整个进程计时另含解释器／动态库启动、导入、输入、构造、结果输出及退出。旧／新 Python 共用同一个 worker 与解释器，只切换源码导入路径。Python／C++ 比值描述不同语言的完整模型，不能解释为调度器性能差距。C++ 没有 GFSim Rule／Signal 计数。
+
+此前保留阶段自唤醒的 Signal 简化版本保存在 `review-output/simplification/`，其中 `after-source/` 保存该版本的模型源码、报告和正式计时；这批数据属于历史。最初旧工具的计时位于其中的 `before/preliminary-timing.json`。历史的生成式写法重构证据仍在 `review-output/generated-style/`，迁移证据在 `review-output/migration/`；[baseline.json](baseline.json) 是更早版本的历史计时，不代表 `56fe061` 或当前版本。
 
 ## 输入与观察接口
 
@@ -131,6 +130,6 @@ JSONL 第 0 行是初始化并完成组合传播后的状态。第 n 行是第 n
 
 ## 程序与结论
 
-`programs.py` 保存可读汇编、三个有界固定种子混合程序和统一机器字生成入口。程序覆盖顺序吞吐、连续覆盖前递优先级、x0、WB→ID、store 数据前递、数组填充求和、load-use、分支循环、跳转链接、load 后分支及错误路径写入。
+`programs.py` 保存可读汇编、三个有界固定种子混合程序和统一机器字生成入口。新增 `memory_loop_256` 进行 256 次有界访存累计，每次含 load-use、store 和条件分支，最终写入 768，运行 2,054 拍。程序覆盖顺序吞吐、连续覆盖前递优先级、x0、WB→ID、store 数据前递、数组填充求和、load-use、分支循环、跳转链接、load 后分支及错误路径写入。
 
-验收结果与成本限制见 [findings.md](findings.md)。后续 C++ GFSim CPU 和编译器版本应复用本 JSON 输入及逐拍接口；本轮没有实现这两项，也没有做正式调度性能比较。
+验收结果与成本限制见 [findings.md](findings.md)。后续 C++ GFSim CPU 和编译器版本应复用本 JSON 输入及逐拍接口；本轮没有实现这两项，当前耗时对照也不等同于调度器性能比较。

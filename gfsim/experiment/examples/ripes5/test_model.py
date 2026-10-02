@@ -5,6 +5,10 @@ import os
 from pathlib import Path
 import tempfile
 import unittest
+from unittest.mock import patch
+from .model import CPU
+from .logic import execute
+from review import ReviewTrace
 from .programs import suite, make_case
 from .run import (DEFAULT_RUNNER, run_python, run_reference, compare, verify_runner)
 
@@ -31,6 +35,11 @@ class RipesFiveStageTests(unittest.TestCase):
                 elif case['name'] == 'array_sum':
                     self.assertEqual(final['data'][:9], [1, 2, 3, 4, 5, 6, 7, 8, 36])
                     self.assertEqual(sum(r['control']['stall'] for r in rows), 8)
+                elif case['name'] == 'memory_loop_256':
+                    self.assertEqual(final['cycle'], 2054)
+                    self.assertEqual(final['data'], [3, 768])
+                    self.assertEqual(sum(r['control']['stall'] for r in rows), 256)
+                    self.assertEqual(sum(r['store'] is not None for r in rows), 256)
                 elif case['name'] == 'jumps_branches':
                     self.assertEqual(final['registers'][5:10], [24, 25, 26, 40, 66])
                     self.assertEqual(final['registers'][20:22], [0, 0])
@@ -48,6 +57,68 @@ class RipesFiveStageTests(unittest.TestCase):
                 elif case['name'] == 'initial_and_x0_load':
                     self.assertEqual(sum(r['control']['stall'] for r in rows), 2)
                     self.assertEqual(final['registers'][7], 0x80000001)
+
+    def test_signal_evaluation_bound_and_rule_separation(self):
+        for case in suite():
+            for cache in (True, False):
+                for reverse in (False, True):
+                    with self.subTest(case=case['name'], cache=cache, reverse=reverse):
+                        cpu = CPU(case, cache=cache, reverse=reverse)
+                        initial = cpu.snapshot()
+                        self.assertEqual(initial['cycle'], 0)
+                        self.assertTrue(all(not s.initialized for s in cpu.signals))
+                        self.assertEqual(cpu.sim.stats.signal_work, 0)
+
+                        def checked_execute(*values):
+                            self.assertIsNone(cpu.sim.active_rule)
+                            self.assertEqual(cpu.sim.active_signal, cpu.ex_result.sid)
+                            return execute(*values)
+
+                        # Pipeline activity must come from tracked resource changes.
+                        def dependency_wakeup(mid, tick, changed_slot=None):
+                            self.assertIsNotNone(changed_slot, 'unexpected timer wakeup')
+                            return original_wakeup(mid, tick, changed_slot)
+
+                        original_wakeup = cpu.sim._wakeup
+                        with patch.object(cpu.sim, '_wakeup', side_effect=dependency_wakeup), \
+                             patch('examples.ripes5.model.execute', side_effect=checked_execute) as helper:
+                            for tick in range(case['max_cycles']):
+                                before = [s.read_gen for s in cpu.signals]
+                                row = cpu.step()
+                                for signal, count in zip(cpu.signals, before):
+                                    delta = signal.read_gen - count
+                                    # First step includes one initialization plus its Xfer.
+                                    self.assertLessEqual(delta, 2 if tick == 0 else 1)
+                                    self.assertGreaterEqual(signal.read_gen, 1)
+                                if row['retire'] and row['retire']['pc'] == case['end_pc']:
+                                    break
+                            else:
+                                self.fail('end marker missing')
+                            self.assertEqual(helper.call_count, cpu.ex_result.read_gen)
+                        self.assertEqual(cpu.sim.stats.signal_work, sum(s.read_gen for s in cpu.signals))
+
+    def test_review_signal_inputs_evaluations_and_notifications(self):
+        case = next(c for c in suite() if c['name'] == 'array_sum')
+        for cache in (True, False):
+            for reverse in (False, True):
+                cpu = CPU(case, cache=cache, reverse=reverse)
+                trace = ReviewTrace(cpu.sim)
+                rows = [cpu.snapshot()]
+                for _ in range(case['max_cycles']):
+                    rows.append(cpu.step())
+                    if (rows[-1]['retire'] or {}).get('pc') == case['end_pc']:
+                        break
+                self.assertEqual(rows, run_python(case, cache, reverse))
+                for sid, inputs in ((0, [2, 3, 4]), (1, [1, 2])):
+                    evaluations = [e for f in trace.data['frames'] for e in f['signal_evaluations']
+                                   if e['sid'] == sid]
+                    self.assertEqual(sum(e['initial'] for e in evaluations), 1)
+                    self.assertTrue(all(e['inputs'] == inputs for e in evaluations))
+                    for frame in trace.data['frames']:
+                        self.assertLessEqual(sum(e['sid'] == sid and not e['initial']
+                                                 for e in frame['signal_evaluations']), 1)
+                    self.assertTrue(any(i['resource'] == cpu.signals[sid].resource_id
+                                        for f in trace.data['frames'] for i in f['invalidations']))
 
     def test_native_ripes_all_configurations(self):
         runner = Path(os.environ.get('RIPES5_RUNNER', DEFAULT_RUNNER))

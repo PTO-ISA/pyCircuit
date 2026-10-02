@@ -192,4 +192,15 @@ def suite():
                 lines.append(f'{rng.choice(("add", "sub", "and", "or", "xor", "slt"))} x{d},x{a},x{b}')
         cases.append(make_case(f'mixed_{seed}', '\n'.join(lines),
                                data=[rng.getrandbits(32) for _ in range(64)]))
+    cases.append(make_case('memory_loop_256', '''
+        lui x10,1
+        addi x1,x0,256
+        addi x2,x0,0
+    accumulate:
+        lw x3,0(x10)
+        add x2,x2,x3
+        sw x2,4(x10)
+        addi x1,x1,-1
+        bne x1,x0,accumulate
+    ''', data=[3, 0], max_cycles=3000))
     return cases
