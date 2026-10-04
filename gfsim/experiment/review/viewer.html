@@ -28,7 +28,7 @@ table{border-collapse:collapse;width:100%;text-align:left}th,td{padding:7px 10px
 <label><input id="onlyChanged" type="checkbox" checked> 只看本拍变化的 Queue</label>
 <p>连接来自静态 proposal 绑定；Module 读者是本拍有效订阅，可能沿用之前的 Work。未来唤醒目标由变化 Queue 的有效读者确定。</p>
 <div class="scroll" id="queues"></div>
-<h2>Signal 求值与通知</h2><div class="scroll" id="signals"></div>
+<h2>Signal 求值与通知</h2><p>输入和下游均为静态声明；仅输出变化时通知。Rule 依赖记录同时包含动态 Queue 读取与静态 Signal 绑定。</p><div class="scroll" id="signals"></div>
 <details class="panel"><summary>事件队列与统计</summary><pre id="events"></pre></details>
 <script id="trace" type="application/json">/*TRACE_DATA*/null</script>
 <script>
@@ -78,7 +78,7 @@ function render(){
   return [esc(q.name)+'<br><small>capacity '+q.capacity+'</small>',esc('push: '+rname(q.push))+'<br>'+esc('pop: '+rname(q.pop))+'<br>'+esc('revise: '+(rev.join(', ')||'—')),esc(before[qid].version+' → '+after[qid].version),'<pre>'+pretty(before[qid].values)+'</pre>','<pre>'+pretty(after[qid].values)+'</pre>',f.readers[qid].map(mid=>esc(D.modules[mid])+(changed.has(qid)&&!f.error?' → @'+(f.tick+1):'')).join('<br>')||'—'];
  }).filter(Boolean);
  $('queues').innerHTML=table(['Queue','静态连接','版本','拍初 current','拍末 current','有效 Module 读者 / 变化通知'],rows);
- $('signals').innerHTML=table(['Signal','拍初 / 拍末','本拍求值（初始化或 Xfer 后）','有效 Module 读者'],(D.signals||[]).map((signal,sid)=>{
+ $('signals').innerHTML=table(['Signal','拍初 / 拍末','本拍求值（初始化或 Xfer 后）','静态关联 Module'],(D.signals||[]).map((signal,sid)=>{
   const evaluations=(f.signal_evaluations||[]).filter(e=>e.sid===sid).map(e=>({...e,inputs:e.inputs.map(qname)}));
   if(!matches([signal.name,evaluations,f.signals_after[sid]]))return null;
   return [esc(signal.name),'<pre>'+pretty([f.signals_before[sid],f.signals_after[sid]])+'</pre>','<pre>'+pretty(evaluations)+'</pre>',f.signal_readers[sid].map(mid=>esc(D.modules[mid])).join('<br>')||'—'];

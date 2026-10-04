@@ -17,8 +17,10 @@ MODEL_FILES = ('stages.py', 'model.py', 'logic.py')
 
 
 def fingerprint(root):
-    files = ('engine.py', 'construction.py', 'examples/riscv/isa.py',
-             'examples/riscv/records.py', 'examples/ripes5/programs.py')
+    # The pinned baseline predates the move of ISA support into Ripes5.
+    isa_dir = 'examples/ripes5' if (root / 'examples/ripes5/isa.py').exists() else 'examples/riscv'
+    files = ('engine.py', 'construction.py', isa_dir + '/isa.py',
+             isa_dir + '/records.py', 'examples/ripes5/programs.py')
     files += tuple('examples/ripes5/' + name for name in MODEL_FILES)
     return {name: hashlib.sha256((root / name).read_bytes()).hexdigest() for name in files}
 

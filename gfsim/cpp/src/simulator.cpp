@@ -2,11 +2,16 @@
 #include <string>
 
 namespace gfsim {
+thread_local Simulator *Simulator::active_ = nullptr;
 namespace {
-void bump(Tick &counter) {
-    counter = checkedAdd(counter, 1);
-}
+void bump(Tick &counter) { counter = checkedAdd(counter, 1); }
 } // namespace
+Simulator::~Simulator() {
+    for (auto *q : queues_)
+        q->sim_ = nullptr;
+    for (auto *s : signals_)
+        s->sim_ = nullptr;
+}
 void Simulator::constructing() const {
     if (frozen_ || failed_)
         throw std::logic_error("Simulator construction is closed");
@@ -23,7 +28,8 @@ RuleId Simulator::addRule(ModuleId owner, Arbitrate arbitrate) {
     constructing();
     if (owner >= modules_.size())
         throw std::out_of_range("Rule owner");
-    entries_.push_back({owner, arbitrate});
+    entries_.push_back({owner, arbitrate, modules_[owner].rules.size()});
+    modules_[owner].rules.push_back(rules_.size());
     rules_.emplace_back();
     return rules_.size() - 1;
 }
@@ -31,16 +37,57 @@ QueueId Simulator::addQueue(QueueBase &q) {
     constructing();
     if (q.sim_)
         throw std::logic_error("Queue already attached");
-    q.id_ = queues_.size();
+    q.id_ = q.resourceId_ = queues_.size();
     queues_.push_back(&q);
     q.sim_ = this;
     return q.id_;
+}
+SignalId Simulator::addSignal(SignalBase &s) {
+    constructing();
+    if (s.sim_)
+        throw std::logic_error("Signal already attached");
+    s.id_ = signals_.size();
+    signals_.push_back(&s);
+    s.sim_ = this;
+    return s.id_;
+}
+void Simulator::declareResource(ModuleId m, ResourceBase &resource) {
+    if (auto *signal = dynamic_cast<SignalBase *>(&resource)) {
+        declareResource(m, *signal);
+        return;
+    }
+    constructing();
+    if (m >= modules_.size() || resource.sim_ != this)
+        throw std::invalid_argument("invalid Module resource declaration");
+    auto &resources = modules_[m].resources;
+    if (std::find(resources.begin(), resources.end(), &resource) == resources.end())
+        resources.push_back(&resource);
+}
+void Simulator::declareResource(ModuleId m, SignalBase &s) {
+    constructing();
+    if (m >= modules_.size() || s.sim_ != this)
+        throw std::invalid_argument("invalid Module Signal declaration");
+    s.moduleBindings_.push_back(m);
+}
+void Simulator::declareInput(RuleId r, SignalBase &s) {
+    constructing();
+    if (!r || r >= rules_.size() || s.sim_ != this)
+        throw std::invalid_argument("invalid Rule Signal declaration");
+    declareResource(entries_[r].owner, s);
+    s.ruleBindings_.push_back(r);
+}
+void Simulator::declareInput(SignalBase &s, QueueBase &q) {
+    constructing();
+    if (s.sim_ != this || q.sim_ != this)
+        throw std::invalid_argument("invalid Signal input declaration");
+    s.inputs_.push_back(q.id_);
 }
 void Simulator::bind(RuleId r, QueueBase &q, unsigned ops) {
     constructing();
     if (!r || r >= rules_.size() || q.sim_ != this || !ops || (ops & ~7U))
         throw std::invalid_argument("invalid binding");
     q.registerSource(r, ops);
+    bindings_.push_back({r, &q});
     // Unique pop/push sources are a model precondition, not a port arbiter.
     if (ops & Pop)
         q.popRule_ = r;
@@ -51,9 +98,55 @@ void Simulator::freeze() {
     constructing();
     try {
         for (auto *q : queues_) {
-            q->readers_.resize(modules_.size());
+            q->moduleSlots_.assign(modules_.size(), noSlot);
             q->freeze();
         }
+        for (auto *s : signals_) {
+            s->resourceId_ = queues_.size() + s->id_;
+            s->moduleSlots_.assign(modules_.size(), noSlot);
+            std::sort(s->inputs_.begin(), s->inputs_.end());
+            s->inputs_.erase(std::unique(s->inputs_.begin(), s->inputs_.end()), s->inputs_.end());
+            for (auto qid : s->inputs_)
+                queues_[qid]->signalReaders_.push_back(s->id_);
+        }
+        for (ModuleId mid = 0; mid < modules_.size(); ++mid) {
+            auto &m = modules_[mid];
+            std::sort(m.resources.begin(), m.resources.end(),
+                      [](auto *a, auto *b) { return a->resourceId_ < b->resourceId_; });
+            m.wordCount = (m.rules.size() + 63) / 64;
+            m.controlReads.resize(m.resources.size());
+            m.ruleReaders.resize(m.resources.size() * m.wordCount);
+            m.dirtyWords.resize(m.wordCount);
+            m.selected.reserve(m.rules.size());
+            m.previous.reserve(m.rules.size());
+            for (std::size_t i = 0; i < m.resources.size(); ++i) {
+                auto &resource = *m.resources[i];
+                resource.moduleSlots_[mid] = i;
+                resource.readers_.push_back({mid, i});
+            }
+        }
+        for (auto *s : signals_) {
+            auto &bindings = s->moduleBindings_;
+            std::sort(bindings.begin(), bindings.end());
+            bindings.erase(std::unique(bindings.begin(), bindings.end()), bindings.end());
+            for (auto mid : bindings) {
+                s->moduleSlots_[mid] = s->dependents_.size();
+                s->dependents_.push_back({mid, {}});
+            }
+            for (auto rid : s->ruleBindings_) {
+                const auto &entry = entries_[rid];
+                auto &mask = s->dependents_[s->moduleSlots_[entry.owner]].dirtyMask;
+                mask.resize(modules_[entry.owner].wordCount);
+                mask[entry.local / 64] |= std::uint64_t{1} << (entry.local % 64);
+            }
+            // Repeated Rule declarations collapse into the fixed masks.
+            s->moduleBindings_.clear();
+            s->ruleBindings_.clear();
+        }
+        for (auto binding : bindings_)
+            if (binding.queue->moduleSlots_[entries_[binding.rule].owner] == noSlot)
+                throw std::logic_error("bound Queue missing Module resource declaration");
+        signalTasks_.init(signals_.size());
         moduleTasks_.init(modules_.size());
         ruleTasks_.init(rules_.size());
         visited_.resize(rules_.size());
@@ -72,42 +165,147 @@ void Simulator::executing(RuleId r) const {
     if (failed_ || phase_ != Phase::Work || activeRule_ != r || !rules_.at(r).executing)
         throw std::logic_error("operation outside executing Rule");
 }
-void Simulator::recordRead(ModuleId m, QueueBase &q, std::optional<RuleId> r) {
-    if (failed_ || phase_ != Phase::Work || activeModule_ != m || q.sim_ != this)
-        throw std::logic_error("read outside owning Module Work");
-    q.readers_[m] = checkedAdd(modules_[m].readGen, 1);
-    if (r) {
-        executing(*r);
-        auto &deps = rules_[*r].deps;
-        for (const auto &d : deps) {
-            bump(stats_.depSearches);
-            if (d.queue == q.id_)
-                return;
+void ResourceBase::observe() const {
+    if (Simulator::active_)
+        Simulator::active_->observe(*this);
+    else if (sim_ && sim_->failed_)
+        throw std::logic_error("read on failed Simulator");
+}
+void Simulator::observe(const ResourceBase &resource) {
+    if (failed_)
+        throw std::logic_error("read on failed Simulator");
+    if (resource.sim_ != this)
+        throw std::logic_error("read of unregistered or foreign resource");
+    if (phase_ == Phase::Signal) {
+        if (resource.resourceId_ >= queues_.size())
+            throw std::logic_error("Signal helper cannot read another Signal");
+#ifndef NDEBUG
+        const auto &s = *signals_[*activeSignal_];
+        if (!std::binary_search(s.inputs_.begin(), s.inputs_.end(), resource.resourceId_))
+            throw std::logic_error("undeclared Signal input");
+#endif
+        return;
+    }
+    if (phase_ != Phase::Work)
+        return; // Testbench and scheduler observation.
+    if (!activeModule_)
+        throw std::logic_error("read outside Module context");
+    if (resource.resourceId_ >= queues_.size()) {
+#ifndef NDEBUG
+        const auto &s = *signals_[resource.resourceId_ - queues_.size()];
+        const auto slot = s.moduleSlots_[*activeModule_];
+        if (slot == noSlot)
+            throw std::logic_error("undeclared Module Signal");
+        if (activeRule_) {
+            const auto local = entries_[*activeRule_].local;
+            const auto &mask = s.dependents_[slot].dirtyMask;
+            if (mask.empty() || !(mask[local / 64] & (std::uint64_t{1} << (local % 64))))
+                throw std::logic_error("undeclared Rule Signal");
         }
-        deps.push_back({q.id_, q.version_});
+#endif
+        return; // Signal reads never change dynamic Queue subscriptions.
+    }
+    auto &m = modules_[*activeModule_];
+    auto slot = resource.moduleSlots_[*activeModule_];
+    if (slot == noSlot)
+        throw std::logic_error("undeclared Module resource");
+    if (!activeRule_) {
+        m.controlReads[slot] = m.readGen;
+        return;
+    }
+    const auto local = entries_[*activeRule_].local;
+    const auto bit = std::uint64_t{1} << (local % 64);
+    auto &word = m.ruleReaders[slot * m.wordCount + local / 64];
+    if (!(word & bit)) {
+        word |= bit;
+        rules_[*activeRule_].readSlots.push_back(slot);
     }
 }
-void QueueBase::prepare(RuleId r, bool readsTarget) {
+bool Simulator::reads(ModuleId mid, const ResourceBase &resource) const {
+    if (!frozen_ || resource.sim_ != this)
+        return false;
+    auto slot = resource.moduleSlots_.at(mid);
+    if (slot == noSlot)
+        return false;
+    if (resource.resourceId_ >= queues_.size())
+        return true; // Static Signal activation relation, even before first Work.
+    const auto &m = modules_[mid];
+    if (m.readGen && m.controlReads[slot] == m.readGen)
+        return true;
+    for (std::size_t w = 0; w < m.wordCount; ++w)
+        if (m.ruleReaders[slot * m.wordCount + w])
+            return true;
+    return false;
+}
+bool Simulator::dirty(RuleId r) const {
+    const auto &entry = entries_.at(r);
+    if (!r || !frozen_)
+        throw std::logic_error("invalid Rule dirty query");
+    return (modules_[entry.owner].dirtyWords[entry.local / 64] >> (entry.local % 64)) & 1;
+}
+void Simulator::clearReads(RuleId r) {
+    const auto &entry = entries_[r];
+    auto &m = modules_[entry.owner];
+    const auto mask = ~(std::uint64_t{1} << (entry.local % 64));
+    for (auto slot : rules_[r].readSlots)
+        m.ruleReaders[slot * m.wordCount + entry.local / 64] &= mask;
+    rules_[r].readSlots.clear();
+    m.dirtyWords[entry.local / 64] &= mask;
+}
+void Simulator::notifyChanged(ResourceBase &resource) {
+    bump(stats_.changeNotifications);
+    for (auto reader : resource.readers_) {
+        auto &m = modules_[reader.module];
+        bool live = m.readGen && m.controlReads[reader.slot] == m.readGen;
+        for (std::size_t w = 0; w < m.wordCount; ++w) {
+            bump(stats_.readerChecks);
+            auto word = m.ruleReaders[reader.slot * m.wordCount + w];
+            m.dirtyWords[w] |= word;
+            live |= word != 0;
+        }
+        if (live)
+            wakeup(reader.module, tick_ + 1);
+    }
+}
+void Simulator::evaluate(SignalId id, bool initial) {
+    auto &s = *signals_[id];
+    bump(s.evaluations_);
+    phase_ = Phase::Signal;
+    activeSignal_ = id;
+    bump(stats_.signalWork);
+    bool changed = s.evaluate();
+    activeSignal_.reset();
+    if (changed && !initial) {
+        bump(stats_.changeNotifications);
+        for (const auto &dependent : s.dependents_) {
+            auto &m = modules_[dependent.module];
+            for (std::size_t w = 0; w < dependent.dirtyMask.size(); ++w) {
+                bump(stats_.readerChecks);
+                m.dirtyWords[w] |= dependent.dirtyMask[w];
+            }
+            wakeup(dependent.module, tick_ + 1);
+        }
+    }
+}
+void QueueBase::prepare(RuleId r, bool readsTarget, bool first) {
     if (!sim_)
         throw std::logic_error("unattached Queue");
-    sim_->prepare(r, *this, readsTarget);
+    sim_->prepare(r, *this, readsTarget, first);
 }
-void Simulator::prepare(RuleId r, QueueBase &q, bool readsTarget) {
+void Simulator::prepare(RuleId r, QueueBase &q, bool readsTarget, bool first) {
     executing(r);
     if (readsTarget) {
-        recordRead(entries_[r].owner, q, r);
+        observe(q);
         if (q.empty())
-            throw std::logic_error("empty target; generated code must abort explicitly");
+            throw NeedInput();
     }
-    auto &participants = rules_[r].participants;
-    if (std::find(participants.begin(), participants.end(), q.id_) == participants.end())
-        participants.push_back(q.id_);
+    if (first)
+        rules_[r].participants.push_back(q.id_);
 }
 void Simulator::discard(RuleId r) {
     auto &record = rules_[r];
     for (auto q : record.participants)
         queues_[q]->cancel(r);
-    record.deps.clear();
     record.participants.clear();
     record.wakeRequests.clear();
     record.complete = record.executing = false;
@@ -121,22 +319,17 @@ bool Simulator::begin(RuleId r, bool sameArgs) {
         return false;
     record.selectedTick = tick_;
     modules_[entries_[r].owner].selected.push_back(r);
-    bool valid = cache_ && record.complete && record.hasEffects() && sameArgs;
-    if (valid)
-        for (auto d : record.deps) {
-            bump(stats_.versionChecks);
-            if (queues_[d.queue]->version_ != d.version) {
-                valid = false;
-                break;
-            }
-        }
-    if (valid) {
+    if (!sameArgs) {
+        const auto &entry = entries_[r];
+        modules_[entry.owner].dirtyWords[entry.local / 64] |= std::uint64_t{1}
+                                                              << (entry.local % 64);
+    }
+    if (cache_ && record.complete && !dirty(r)) {
         bump(stats_.cacheHits);
-        for (auto d : record.deps)
-            recordRead(entries_[r].owner, *queues_[d.queue]);
         return false;
     }
     discard(r);
+    clearReads(r);
     record.executing = true;
     activeRule_ = r;
     bump(stats_.ruleWork);
@@ -166,28 +359,35 @@ void Simulator::wakeup(ModuleId m, Tick time) {
 }
 void Simulator::work(ModuleId m) {
     auto &record = modules_[m];
-    checkedAdd(record.readGen, 1);
+    bump(record.readGen);
     record.previous.swap(record.selected);
     record.selected.clear();
     record.workedTick = tick_;
     activeModule_ = m;
     bump(stats_.moduleWork);
     bump(record.calls);
-    moduleEntries_[m].work(moduleEntries_[m].object);
+    try {
+        moduleEntries_[m].work(moduleEntries_[m].object);
+    } catch (const NeedInput &) {
+        if (activeRule_)
+            throw std::logic_error("Rule must catch NeedInput and abort explicitly");
+        // Missing Module control input stops selection, preserving earlier Rules.
+    }
     if (activeRule_)
         throw std::logic_error("generated Rule omitted complete/abort");
     activeModule_.reset();
     for (auto r : record.selected)
         ruleTasks_.add(r, tick_ + 1);
     for (auto r : record.previous)
-        if (rules_[r].selectedTick != tick_)
+        if (rules_[r].selectedTick != tick_) {
             discard(r);
+            clearReads(r);
+        }
     record.previous.clear();
-    bump(record.readGen);
 }
 bool Simulator::pending(RuleId r) const {
     const auto &record = rules_[r];
-    return record.complete && record.hasEffects() && record.acceptedTick != tick_;
+    return record.complete && record.hasEffects() && record.acceptedTick != tick_ && !dirty(r);
 }
 bool Simulator::arbitrateRule(RuleId r) {
     if (failed_ || phase_ != Phase::Arbitration || arbitrating_ != r)
@@ -275,15 +475,19 @@ void Simulator::visit(RuleId root) {
     }
 }
 std::span<const RuleId> Simulator::step() {
-    if (!frozen_ || failed_ || phase_ != Phase::Idle)
+    if (!frozen_ || failed_ || phase_ != Phase::Idle || active_)
         throw std::logic_error("Simulator is not runnable");
+    active_ = this;
     try {
         checkedAdd(tick_, 1);
         accepted_.clear();
         changed_.clear();
-        if (!tick_)
+        if (!tick_) {
+            for (SignalId s = 0; s < signals_.size(); ++s)
+                evaluate(s, true);
             for (ModuleId m = 0; m < modules_.size(); ++m)
                 moduleTasks_.add(m, tick_ + 1);
+        }
         while (!events_.empty() && events_.top().first <= tick_) {
             moduleTasks_.add(events_.top().second, tick_ + 1);
             events_.pop();
@@ -299,13 +503,14 @@ std::span<const RuleId> Simulator::step() {
         for (auto q : used_)
             if (queues_[q]->xfer())
                 changed_.push_back(q);
-        for (auto q : changed_)
-            for (ModuleId m = 0; m < modules_.size(); ++m) {
-                bump(stats_.readerChecks);
-                auto gen = queues_[q]->readers_[m];
-                if (gen && gen == modules_[m].readGen)
-                    wakeup(m, tick_ + 1);
-            }
+        for (auto q : changed_) {
+            notifyChanged(*queues_[q]);
+            for (auto sid : queues_[q]->signalReaders_)
+                signalTasks_.add(sid, tick_ + 1);
+        }
+        while (signalTasks_.pending())
+            evaluate(signalTasks_.take(), false);
+        signalTasks_.clear();
         for (auto r : accepted_)
             discard(r);
         used_.clear();
@@ -313,8 +518,13 @@ std::span<const RuleId> Simulator::step() {
         ruleTasks_.clear();
         ++tick_;
         phase_ = Phase::Idle;
+        active_ = nullptr;
         return accepted_;
     } catch (...) {
+        active_ = nullptr;
+        activeSignal_.reset();
+        activeRule_.reset();
+        activeModule_.reset();
         failed_ = true;
         throw;
     }

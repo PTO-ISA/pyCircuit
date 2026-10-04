@@ -3,8 +3,8 @@
 Pipeline links still model registers with revise, not consuming FIFO inputs.
 All persistent state and the two shared Signals are bound explicitly.
 """
-from ..riscv.isa import decode
-from ..riscv.records import LW, SW, JAL, JALR, u32
+from .isa import decode
+from .records import LW, SW, JAL, JALR, u32
 from .logic import Slot, Event, Store, writer
 
 

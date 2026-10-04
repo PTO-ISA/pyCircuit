@@ -1,163 +1,120 @@
-# GFSim C++20
+# GFSim C++20 后端框架
 
-独立的单线程电路仿真库，导出 CMake 目标 `gfsim::gfsim`。当前代码对应上一版调度语义，尚未迁移 [spec](../spec.md) 的动态读者／dirty 位图方案。本轮只做 Python 实验，未修改或重新验收 C++ runtime。核心不依赖 Python、LLVM、MLIR 或第三方测试框架。
+独立、可安装的单线程 C++20 库，导出 `gfsim::gfsim`，核心只依赖标准库。语义以 [spec](../spec.md) 为准。实现包括 Queue、Signal、参数缓存、实际读者位图、跨 tick 候选、显式栈容量 DFS 与统一 Xfer。
 
-## 构建、测试与安装
+本目录公开模型是 [手写 Ripes5](examples/ripes5/README.md)。五个 Module 提供代码生成的目标样例；独立 [ACPy 编译器](../../pycircuit/README.md) 已用同一 GFSim 接口生成完整模型，并复用本目录的宿主 runner 和回归。已有 Python 实验及工作区设计清理保留。
+
+## 构建、验收和安装
 
 从仓库根目录执行：
 
 ```bash
-cmake -S gfsim/cpp -B /tmp/gfsim-release -DCMAKE_BUILD_TYPE=Release
-cmake --build /tmp/gfsim-release -j3
-ctest --test-dir /tmp/gfsim-release --output-on-failure
-cmake --install /tmp/gfsim-release --prefix /tmp/gfsim-install
-cmake -S gfsim/cpp/examples/external -B /tmp/gfsim-consumer \
+cmake -S gfsim/cpp -B /tmp/gfsim-cpp-release -DCMAKE_BUILD_TYPE=Release
+cmake --build /tmp/gfsim-cpp-release -j4
+ctest --test-dir /tmp/gfsim-cpp-release --output-on-failure
+cmake --install /tmp/gfsim-cpp-release --prefix /tmp/gfsim-install
+cmake -S gfsim/cpp/tests/external -B /tmp/gfsim-consumer \
   -DCMAKE_PREFIX_PATH=/tmp/gfsim-install
 cmake --build /tmp/gfsim-consumer
 /tmp/gfsim-consumer/consumer
 ```
 
-只构建库时设置 `-DBUILD_TESTING=OFF -DGFSIM_BUILD_EXAMPLES=OFF`。旧 Python examples 已移除，相应跨语言脚本及 `GFSIM_REFERENCE_TESTS` 选项也已删除；当前构建与原生测试不查找 Python。
+正式 CTest 包括 13 程序 × 缓存开关 × Module 正反序的三方逐拍验收。测试工具需要 Python 3；原生 Ripes 的固定版本和构建方法见 [参考说明](../experiment/examples/ripes5/README.md)。可用 `-DGFSIM_RIPES_REFERENCE=/absolute/path/ripes5-reference` 指定 runner。参考缺失或 Ripes/VSRTL commit 不符会失败，不会跳过或以 Python 替代。
 
-内存检查使用 GCC 或 Clang，Debug 配置保留符号并为 sanitizer 测试采用 `-O1`，避免 1100 级流水的读者扫描在完全无优化时耗时过长：
+只构建库使用 `-DBUILD_TESTING=OFF -DGFSIM_BUILD_EXAMPLES=OFF`，无需 Python、Qt、LLVM 或原生参考。`-DBUILD_SHARED_LIBS=ON` 可构建共享库。`install-and-link` 将安装 prefix 搬迁，再用独立工程查找、链接及执行，验证 CMake 包可迁移。
 
 ```bash
-cmake -S gfsim/cpp -B /tmp/gfsim-asan -DCMAKE_BUILD_TYPE=Debug \
-  -DCMAKE_CXX_COMPILER=clang++ -DGFSIM_SANITIZERS=ON
-cmake --build /tmp/gfsim-asan -j3
+cmake -S gfsim/cpp -B /tmp/gfsim-cpp-clang-asan \
+  -DCMAKE_BUILD_TYPE=Debug -DCMAKE_CXX_COMPILER=clang++ -DGFSIM_SANITIZERS=ON
+cmake --build /tmp/gfsim-cpp-clang-asan -j4
 ASAN_OPTIONS=detect_leaks=1:halt_on_error=1 UBSAN_OPTIONS=halt_on_error=1 \
-  ctest --test-dir /tmp/gfsim-asan --output-on-failure
+  ctest --test-dir /tmp/gfsim-cpp-clang-asan --output-on-failure
 ```
 
-LeakSanitizer 需要不受 ptrace 限制的运行环境。`install-and-link` 测试将安装目录迁移到新路径后，以独立 CMake 工程查找、链接并运行生成式 Module，验证导出包不依赖源码或原构建目录。
+Sanitizer 构建使用 `-O1 -g`，保留完整 1100 级链和三方验收。需要编译器配套的 sanitizer 库；本机 GCC 10 缺少该库，内存验收使用已安装的 Clang 22。LeakSanitizer 需要允许其进程检查的环境。
 
-## 完整生成式 Module
+## 编译操作对应
 
-以下代码也是验收中的 [外部链接示例](examples/external/main.cpp)。Module 是普通 class，Rule 是成员函数；参数缓存保存在生成类中，调度记录由 Simulator 保存。Work 返回不表示提交。
+| ACIR 信息或操作 | 生成的 C++ |
+| --- | --- |
+| Module 实例、选择与分支 | 普通 class、`Work()`；`addModule` 绑定实例指针和函数入口 |
+| Rule 原子边界、参数 | `work_rule(args)`、独立 `ParameterCache<Args>`、`beginRule` |
+| 正常完成／必要读取失败 | `completeRule`／显式检查 `tryPeek` 后 `abortRule`；`NeedInput` 捕获为兼容路径 |
+| 持久寄存器、消息 FIFO | `Queue<T>(1, {initial}, true)`／`Queue<T>(capacity, initial)` |
+| 实际读取 current | `peek/tryPeek/at/size/empty/full`，按当前上下文自动登记 |
+| 消息消费、输出、状态修改 | 显式 `proposePop/proposePush/proposeRevise<Path...>` |
+| 组合共享计算 | 纯 helper 与 `Signal<T>`；通过 `value()` 读取缓存 |
+| 固定资源身份和访问范围 | `addQueue/addSignal/declareResource/declareInput/bind/freeze` |
+| Queue array 动态索引 | 固定 Queue 引用数组，先取实际表项再调用普通接口 |
+| 未来事件 | Rule 内 `requestWakeup(rid, target, delay)`；获准时发布 |
+| Rule 仲裁入口 | `arbitrate_rule()` 调用 `sim.arbitrateRule(rid)` |
+
+Module 可变组合值必须作为 args 传入 Rule。标量使用 bool、标准定宽整数；aggregate 使用 `std::array` 或嵌套值 struct，并生成字段式 `operator==`。没有 `std::any`、memcmp 或反射。业务中的定宽溢出须由 lowering 正确表达，例如 uint32 运算；runtime 不实现任意位宽整数。
+
+读取保留原分支，未选路径不预读。消息输入实际读取后另行生成一次 pop；寄存器、Signal helper 和旁路观察不消费。输出容量交给仲裁，不用 current.full() 提前排除本应参加仲裁的生产者。
+
+## 最小 Rule 与构造接口
+
+完整独立链接测试见 [tests/external/main.cpp](tests/external/main.cpp)。Rule 的典型主体是：
 
 ```cpp
-#include <cstdint>
-#include <gfsim/queue.hpp>
-
-// Ordinary generated class: business methods and scheduling records are separate.
-class Increment {
-  public:
-    gfsim::Simulator &sim;
-    gfsim::Queue<std::uint32_t> &input;
-    gfsim::Queue<std::uint32_t> &output;
-    gfsim::ModuleId mid{};
-    gfsim::RuleId rid{};
-    gfsim::ParameterCache<std::uint32_t> arguments;
-
-    void Work() { workIncrement(7); }
-    void workIncrement(std::uint32_t bias) {
-        if (!sim.beginRule(rid, arguments, bias))
-            return;
-        sim.recordRead(mid, input, rid);
-        const auto *value = input.tryPeek();
-        if (!value) {
-            sim.abortRule(rid);
-            return;
-        }
-        input.proposePop(rid);
-        output.proposePush(rid, *value + bias);
-        sim.completeRule(rid);
+void work_transfer(std::uint32_t bias) {
+    if (!sim.beginRule(rid, arguments, bias)) return;
+    const auto* value = input.tryPeek();
+    if (!value) {
+        sim.abortRule(rid);
+        return;
     }
-    bool arbitrate() { return sim.arbitrateRule(rid); }
-};
-int main() {
-    gfsim::Queue<std::uint32_t> input(2, {10, 20}), output(2);
-    gfsim::Simulator sim;
-    Increment module{sim, input, output};
-    module.mid = sim.addModule<&Increment::Work>(module);
-    module.rid = sim.addRule(module.mid, [](void *object, gfsim::Simulator &, gfsim::RuleId) {
-        return static_cast<Increment *>(object)->arbitrate();
-    });
-    sim.addQueue(input);
-    sim.addQueue(output);
-    sim.bind(module.rid, input, gfsim::Pop);
-    sim.bind(module.rid, output, gfsim::Push);
-    sim.freeze();
-    sim.step();
-    sim.step();
-    return output.size() == 2 && output.at(0) == 17 && output.at(1) == 27 ? 0 : 1;
+    input.proposePop(rid);
+    output.proposePush(rid, *value + bias);
+    sim.completeRule(rid);
 }
 ```
 
-`addModule`、`addRule`、`addQueue`、`bind` 在运行前建立 ID 表和所有可能分支的资源绑定；`freeze()` 分配读者、任务及槽位数组，关闭构造。ModuleId/QueueId 从 0 开始，RuleId 从 1 开始。每个 Queue 留有来源 0 槽位，但没有外部提交接口。模型必须保证唯一 pop/push 来源；绑定检查操作声明，不检测或仲裁多个来源的端口竞争。
+运行前依次注册 Module、Rule、Queue、Signal，声明每个 Module 的全部可能资源、每个 Signal 的全部 Queue 输入、每条 Rule 的 Signal 依赖，并绑定 Rule 的全部可能操作。静态声明必须覆盖所有分支和数组项；别名声明会合并。`bind` 不代替 Queue 的 `declareResource`。`declareInput(ruleId, signal)` 同时建立静态 Rule dirty 与所属 Module 激活关系；`declareResource(moduleId, signal)` 只激活 Module。Signal 的实际访问声明在 Debug 校验，Release 依赖构造保证完整性。
 
-Simulator 不拥有 Module 或 Queue，调用方必须保持实例地址稳定，并保证其生命周期覆盖整个仿真。可以像七组例子一样通过 `unique_ptr` 保存 Queue、通过独立对象保存 Module。冻结后不移动 Queue/Simulator，不重新绑定。业务方法和库之间用实例指针与普通函数入口连接，没有运行时函数体分析。
+`freeze()` 机械建立来源槽位、局部资源表、资源到 Module 的固定链接与直接槽位映射、读者位图以及固定任务数组。来源 0 保留但没有外部提交接口。ModuleId、QueueId、SignalId 从 0 开始，RuleId 从 1 开始。pop/push 各自唯一来源仍为生成模型的前提，多来源竞争不在本版范围。
 
-每个有参数的 Rule 使用独立 `ParameterCache<Args>`；`Args` 可以是整数、bool、`std::array` 或嵌套 struct，使用 `operator==` 按值比较。成员指针字段路径和参数缓存完全静态定型，没有 `std::any`、字节比较或统一动态值。无参数 Rule 使用 `beginRule(rid)`。同 tick 同 Rule 的重复调用仅准备一次，参数一致是模型前提。
+Simulator 保存非拥有引用。Queue/Signal 地址必须稳定且存活到 Simulator 析构完成；Module 实例及入口须在整个执行期有效。冻结后不得增加资源、改连线或移动实例。Simulator 析构解除资源的回调绑定；不定义重新注册、重启或状态恢复。嵌套 `step()` 被拒绝；执行上下文按线程隔离，但同一实例不支持并行执行。
 
-`recordRead(mid, queue, rid)` 登记 Rule 的实际读取及 Module 订阅，省略 rid 表示 Module 控制读取。`tryPeek()`、`peek()`、`at()`、`size()`、`empty()`、`full()` 本身只是只读 current，不自动登记。必要读取为空时，生成代码必须 `abortRule` 并返回；不能把空 `peek()` 抛出的逻辑错误当成普通控制流。Module 中途必要读取失败直接返回，先前完成的独立 Rule 保留。消息 payload 的读取与 pop 分开生成，重复读取不应重复 proposePop。
+## 读取、候选与提交
 
-`beginRule` 返回 false 表示同 tick 已调用或完整候选缓存命中。命中会重登 deps 订阅。返回 true 后必须以 `completeRule` 或 `abortRule` 结束；发生部分 proposal 后 abort 会清理全部 participants 和未发布事件。空效果 complete 不 firing。旧候选没有重新 Work 时，合法 pop 的容量通知可以直接安排其仲裁，无需重新计算。
+Queue 读取在 Module/Rule Work 中自动记录实际依赖；Signal `value()` 和 helper 内的 Queue 读取不登记动态依赖；外部 testbench 读取不订阅。未注册、其他 Simulator 或未声明的资源读取会报错。`tryPeek()` 对空队列返回空指针；必要 `peek()` 抛 `NeedInput`。生成代码应使用 `tryPeek()` 和显式分支处理正常缺输入：Module 控制读空直接返回，保留已准备的独立 Rule；Rule 先 abort，再返回。兼容的 `peek()` 调用若可能读空，仍必须在 Rule 内捕获 `NeedInput` 并 abort。
 
-整条 Rule 的所有 Queue 检查通过后才确认并发布事件。`requestWakeup(rid, mid, delay)` 要求正延迟，以获准 tick 为起点；可构造纯事件 Rule。调用方通过 `step()` 决定推进多少拍，业务完成条件在调用方判断。
+检查保留在实际操作及其分支内。没有前置非空证明的 pop／revise 也须先检查目标；输出满由仲裁处理。`abortRule()` 撤销整条候选的部分效果但保留实际读取，不能以简单 return 代替。Signal 必须显式计算空输入对应的值，其异常仍终止实例。ACPy 固定的生成契约和测试见 [编译器说明](../../pycircuit/README.md#gfsim-生成范式必要输入)。
 
-## 字段修改与 current
+`beginRule` 同 tick 去重。未 dirty 时比较类型化参数；完整且未 dirty 则复用，包含无效果候选。命中不扫描版本、不重登读取。重算清旧 proposal 和读者位；abort/提交保留读取，未再选中的 Rule 清候选、读取及 dirty。纯 push 不依赖输出 current；pop/revise 自动记录目标依赖。
 
-`Queue<T>` 使用固定容量 `vector<optional<T>>` 环形 FIFO，读接口仅返回 const 元素；`at(i)` 按当前逻辑顺序观察元素。current 的指针和引用不能跨 Xfer 保存，需要保留的组合值应按值复制。Work 始终读取旧状态，Xfer 统一执行所有 revise、再 pop、再 push。pop/push 相同 payload 仍推进版本；无变化 revise 不推进。寄存器使用 `Queue<T>(1, {initial}, true)`，此模式只允许 revise。
+一个 tick 先完成全部 Module Work，再固定候选进行显式栈 DFS。只有满 Queue 上实际必需的容量依赖才递归访问消费者。先检查全部 participants，再整体 accept；pop 只通知已有完整候选，不运行 Work。静态环可运行，实际容量环使实例终止。事件延迟从整体获准 tick 起算。
+
+所有 Queue 按 revise → pop → push 提交。按值保存的字段修改只在 Xfer 赋给旧队尾，不重读 Queue 或捕获局部引用：
 
 ```cpp
-struct Meta {
-    bool valid{};
-    std::array<std::int16_t, 3> lanes{};
-    bool operator==(const Meta&) const = default;
-};
-struct Entry {
-    Meta meta{};
-    std::uint64_t count{};
-    bool operator==(const Entry&) const = default;
-};
-// 位于成功 beginRule 和已检查非空的生成式 Rule 中：
-queue.proposeRevise<&Entry::meta, &Meta::valid>(rid, true);
-queue.proposeRevise<&Entry::meta, &Meta::lanes>(rid, std::array<std::int16_t, 3>{1, -2, 3});
-queue.proposeRevise<&Entry::count>(rid, std::uint64_t{9});
-queue.proposeRevise<>(rid, replacement); // 整值替换，也支持标量
+queue.proposeRevise<&Entry::meta, &Meta::epoch>(rid, next_epoch);
+queue.proposeRevise<&Entry::value>(rid, next_value);
+queue.proposeRevise<>(rid, replacement);
 ```
 
-字段动作通过 `std::function` 按目标字段类型保存已计算的值，Xfer 时赋到旧队尾并判断变化，不重读输入，不捕获 Work 局部引用。动态 Queue array 下标先定位实际 Queue；不是动态 struct 字段路径。整数使用标准 C++ 宽度，示例业务显式使用无符号运算或掩码；库不提供 AC 任意位宽类型。
+current 的 const 指针/引用不得跨 Xfer 保存。pop 后 push 相同 payload 仍推进元素版本；最终无变化 revise 不推进。字段路径不支持 bit-field、动态数组字段下标或指针解引用；动态 Queue array 索引是另一种操作。
 
-## 生命周期、存储与观察
+Queue 变化立即标记实际 Rule 读者 dirty，并登记下一 tick 事件。任一声明输入 Queue 变化都会将关联 Signal 去重入队，包括未选分支。全部 Queue 提交后，每个 Signal 每轮至多求值一次。只有返回值改变才按固定 Rule 掩码标脏，并激活静态关联 Module；提交、取消或未读分支均不删除连接。helper 只读取声明的 Queue 和固定配置；跨 Signal、proposal、事件请求均被拒绝。任意未登记宿主状态的纯性仍由生成器保证。
 
-| 记录 | 存储和生命周期 |
-| --- | --- |
-| Queue current | 固定容量环形数组；元素与 proposal 都强类型，pop/push O(1) |
-| Queue 来源槽位 | 只按该 Queue 实际绑定的来源分配，另含来源 0；freeze 后地址固定，二分查询 |
-| Queue readers | 每个 Queue 固定 `ModuleCount` 个 uint64；新 Work 覆盖读取代号，旧代号失效，无历史列表 |
-| Module | 固定 ID 表、实例和 Work 入口；selected/previous vector 循环复用；readGen 仅在 Work 后推进 |
-| Rule | 固定 owner/仲裁入口，实际 deps/participants/wakeRequests 使用可复用 vector；deps 线性去重 |
-| 参数 | 生成类内的 `ParameterCache<Args>` 保存候选参数；complete=false 时旧参数值不参与缓存有效性判断 |
-| 任务/DFS | 预分配 ID 数组、tick 标记和显式 DFS 栈；队列、栈及获准列表容量复用 |
-| 事件 | `(wakeTick, ModuleId)` 最小堆；同 tick Module 到期去重，已发布事件独立于候选 |
+## 布局、观察与边界
 
-读者数组主要成本为 `QueueCount × ModuleCount × 8` 字节。来源槽位与强类型 payload 成本取决于各 Queue 的绑定数；不按全局 RuleCount 扩展。deps/participants 的线性去重可能产生 O(d²)/O(p²) 准备成本；容量 DFS 按实际 participants 遍历。状态通知只扫描实际改变的 Queue 的读者数组。`std::function`、vector 和事件堆允许标准库分配，不实现专用内存池。
+Queue 是固定容量环形 `vector<optional<T>>`，来源槽位按该 Queue 的绑定数分配，并二分定位。任务 ID 数组、访问代号及位图在 freeze 后固定；实际 participants/readSlots/事件请求使用可复用 vector。字段赋值捕获使用 `std::function`；事件使用最小堆，允许标准库动态分配。
 
-`step()` 返回的 `span<const RuleId>` 在下一次 step 前有效，顺序是仲裁顺序，不是无依赖 Rule 的额外契约。`module()`、`rule()`、`stats()`、`Queue::stateVersion/readers` 提供只读观察；`events()` 返回排序后的副本。观测序列化只存在于 examples，不进入核心或基准计时区。
+每 Module 的可访问 Queue 数为 A、Rule 数为 R，读者位图占 A×ceil(R/64) 个 uint64，控制读取占 A 个代号。每资源另有 ModuleCount 个槽位映射项；可能读者链接只含静态声明的连接。Signal 的输入 ID、Queue 反向链接及静态下游关系按声明分配；每个有 Rule 绑定的下游 Module 保存 ceil(R/64) 个掩码字，Module-only 掩码为空，无 QueueCount×SignalCount 全量表。
 
-tick、版本、读代号、任务标记和工作计数采用 uint64。tick 最大值无法再推进时、计数递增或事件时间相加溢出时，抛出 `overflow_error`，禁止回绕。Work、仲裁、Xfer 异常或实际容量动态环错误都会将实例标为 failed，后续 step/执行接口拒绝继续；失败不提供回滚、恢复或可提交快照。`TestAccess` 仅供窄边界测试注入接近溢出的值，不是模型操作接口。
+缓存命中没有依赖扫描；读取登记直接定位位，清理只遍历上次实际 readSlots，通知遍历可能读者及其 Rule 字。`step()` 返回的获准 Rule span 在下一 step 前有效。`module/rule/stats/reads/events`、Queue 版本及 Signal 求值次数供 testbench 只读观察。`reads(module, signal)` 查询静态激活关系，`reads(module, queue)` 仍查询动态读取。Release 的 Signal 输入读取没有二分查找或依赖登记；Debug 保留声明检查。
 
-## 完整电路验收
+tick、读代号、状态版本和计数使用 uint64，溢出报错而不回绕。Work、helper、仲裁、Xfer 异常及动态容量环终止实例，后续执行拒绝继续，不承诺回滚。窄边界、异常、延迟值捕获、静态存储地址和资源析构检查见 [tests](tests/native.cpp)。
 
-C++ 的 pipeline、packets、pairs、memory、feedback、lookup、retry examples 保留在本目录，未迁移 dirty 机制。原 Python 对照脚本 `tests/compare.py` 及 CMake `reference-circuits` 注册已随旧 Python examples 删除；历史结果见 [报告](report.md)，不能作为新 spec 的验收。
+## 验证、性能和阅读顺序
 
-[1100 级满流水](examples/pipeline/test.cpp) 在原生测试中完整排空，正向与反向 Module 顺序均检查输出序列，正向深度要求超过 1000。历史跨语言测试还覆盖随机流水和存储、分支、动态下标、候选及事件生命周期，现需在未来 C++ 迁移时重新建立验收。
+建议按 [logic.hpp](examples/ripes5/logic.hpp) → [stages.hpp](examples/ripes5/stages.hpp) → [model.hpp](examples/ripes5/model.hpp) → [runner.cpp](examples/ripes5/runner.cpp) 阅读：分别是纯组合逻辑、五阶段业务、静态连接、宿主 testbench。调度能力补充电路位于 `tests/circuits`，边界断言位于 `tests/semantics.cpp`。
 
-额外 [原生组件测试](tests/native.cpp) 连接 Source、包含独立 Rule 的 Module 和 Sink，验证 Module 中途读空保留此前 Rule，以及 bool、标准整数、array、嵌套字段修改和无变化 revise。窄边界覆盖计数器溢出、Work/Xfer 异常、缺失 complete/abort、重复 pop、非法延迟和异常后拒绝继续。任务、读者数组及 proposal 槽位地址也受稳定性检查。
+[验收报告](report.md) 包含 Release、ASan/UBSan、安装链接、52 配置结果及核心/模型/工具/测试代码量。Ripes5 的 [benchmark](examples/ripes5/bench.py) 使用三个既有程序、同一 CPU、串行子进程、一次预热和七次轮换采样；排除构造、轨迹与 JSON，保留调度计数，不预设速度比。
 
-## 性能基准
+尚未实现父子 Module 激活、独立 Cell、来源 0 驱动、事件取消、快照恢复或并行调度；源码级接口不承诺稳定二进制 ABI。语义缺口保留在 [open-questions](../open-questions.md)。
 
-```bash
-/tmp/gfsim-release/gfsim-benchmark 1000 5 20000 512
-# 参数：计时 ticks、重复次数、每级计算迭代数、每 bank 表深度
-```
-
-三类负载为满流水、重计算背压和稀疏 Queue array。每类先在计时区外逐拍验证缓存开关的获准集合、数据、版本、事件、激活和订阅一致，然后独立构造每次测量；构造、首拍初始化、观察序列化都不计时。计时区只调用 step，报告多次中位数、工作计数、完成输出数和读者数组成本。默认 1000 拍是固定窗口，不声称基准窗口内已经排空。
-
-结果见 [results.json](results.json) 和 [验收报告](report.md)。缓存关闭只禁止 Module 再次调用时复用业务计算；未激活 Module 的完整 Pending 仍遵守跨 tick 直接仲裁契约。满流水和稀疏存储可能没有缓存命中，速度比接近 1 或有波动；收益不预设下限。
-
-## 当前边界
-
-实现平级、单线程 Module 调度。编译器接入、父子 Module 激活、独立 Cell、外部来源 0 协议、已发布事件取消/覆盖、快照恢复及并行执行仍未实现。当前公开的是可编译链接的 C++20 源码接口，不承诺跨版本二进制 ABI。待决语义保留在 [open-questions](../open-questions.md)。
+Signal 静态依赖调整会改变旧版本的求值和激活计数。验收仍要求架构参考及各配置逐拍一致，见 [本次验证与同核对照](signal-static-report.md)。

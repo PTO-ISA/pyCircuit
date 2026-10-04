@@ -1,6 +1,6 @@
 # Module、Rule 与 Queue 的编译设计
 
-本文规定编译输入与中间表示所需保留的信息，不表示当前编译器已经实现。GFSim 运行时契约统一见 [框架 spec](../gfsim/spec.md)，尚未确定的能力见 [待决问题](../gfsim/open-questions.md)。
+本文规定编译输入与中间表示所需保留的信息；下文 IR 为契约示意，最小实现和实际 JSON 格式见 [独立 ACPy 编译器](../pycircuit/README.md)。GFSim 运行时契约统一见 [框架 spec](../gfsim/spec.md)，尚未确定的能力见 [待决问题](../gfsim/open-questions.md)。
 
 ## 基本模型
 
@@ -201,7 +201,7 @@ Module 控制读取按代号登记；Rule 的实际读取（含读空、pop/revi
 
 生成 `work_<rule>(args)` 使用显式 begin/complete/abort 核心接口，runtime 据此维护 activeModule/activeRule。Queue 查询在 Work 内按该上下文登记，读空也登记；complete/abort 恢复 Module 上下文，Module 退出时清除，Work 外观察不订阅。生成代码直接写 peek/try_peek 等接口，消息 input 的 pop 仍显式生成，不由 peek 自动消费。显式 record_read 保留兼容，不应在新生成代码中重复插入。完整候选未 dirty 时直接复用，不扫描 Queue 版本、不重新登记读取。重算清旧候选和旧读者位；abort 与提交只清候选，保留已经尝试的读取；Module 不再选择 Rule 时才同时清候选与读者位。具体生命周期统一见 [spec 第 5 节](../gfsim/spec.md#prepare)。
 
-本轮实验模拟生成代码，不实现编译器。普通 Module 类和成员 Rule 无需 Stage 公共基类、observe/take/put 包装层；上文 ACIR 示意操作不是新增 Python 引擎 API。Module→Module var 的因果传播和 delta Work 本轮不定义。
+原 GFSim 实验模拟生成代码；独立编译器现已复用该接口。普通 Module 类和成员 Rule 无需 Stage 公共基类、observe/take/put 包装层；上文 ACIR 示意操作不是新增 Python 引擎 API。Module→Module var 的因果传播和 delta Work 本轮不定义。
 
 规则原子身份不绑定源码函数名，资源身份不绑定 SSA 打印名称。重复函数使用或未来独立实例能够分配独立身份，无需改变 complete、proposal 或原子边界的定义。静态展开设计本轮不讨论。
 

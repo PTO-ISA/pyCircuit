@@ -1,6 +1,6 @@
 # Ripes RV32_5S 逐拍对照
 
-本目录独立表达固定版本 Ripes 的五级流水。原有 `../riscv/` 弹性 CPU 和通用调度器均未修改。参考端是原版 `vsrtl::core::RV5S<uint32_t>`，不是 Python 参考流水线。
+本目录独立表达固定版本 Ripes 的五级流水。模型、汇编器与译码器均在本目录，使用上层通用调度器。参考端是原版 `vsrtl::core::RV5S<uint32_t>`，不是 Python 参考流水线。
 
 当前使用两个独立 Signal 共享组合计算，五个普通阶段类保留显式 Rule，由实际读取的 Queue／Signal 变化唤醒，保持寄存器表达的逐拍行为。四个级间 Queue 仍通过 `revise` 更新，不消费、不产生容量背压；本次验收不代表消费型级间队列验证完成。后续需要独立解决输入读取形成 pop、背压及 load-use 停顿在编译契约下的表达。
 
@@ -36,6 +36,8 @@ ripes5/
 迁移已有 CMake 构建树后运行 `build.py --fresh`，重新生成绝对路径，并复用已校验的 `_deps/*-src` checkout。
 
 通过 `CMAKE_PROJECT_Ripes_INCLUDE` 添加本目录的 C++ 观察器目标，原版源码没有补丁。观察器只装载初始状态、读取公开端口、调用 `clockUnguarded()`，不替换译码、前递、冒险、存储或状态提交。
+
+当前适配器默认通过公共接口关闭端口变化通知、时钟观察通知，并保持反向历史为 0；`INPUT.json --observe` 恢复两种通知以核对轨迹。新增 `INPUT.json --benchmark-fixed K N`：先执行 K 拍，再仅计时 N 次时钟调用，最后输出状态和退休增量。旧轨迹及 `--benchmark` 调用仍有效。统一 GCC 14 构建、通知切换验收、五类长程序和三方同批计时见 [ACPy Ripes5 测速说明](../../../../pycircuit/examples/ripes5/README.md)。历史计时文件保留各自原有口径。
 
 单命令比较全部程序（原版轨迹每个程序只生成一次）：
 
@@ -98,21 +100,20 @@ Signal 在首个 `step()` 的 Work 之前初始化；随后每个 Signal 每次 
 
 ## 基线、验收和测速证据
 
-当前依赖驱动版本的证据在被 Git 忽略的 `review-output/dependency-wakeup/`：
+运行 `evidence`／`bench` 后，证据生成到被 Git 忽略的 `review-output/dependency-wakeup/`：
 
 - `before/source/`：从 `56fe061` 导出的实验源码，`before/identity.json` 保存提交及源码 SHA256。旧模型仍使用原有自唤醒；当前模型依靠 Queue／Signal 依赖。
 - `before/traces/`、`after/`：13 程序 × 4 配置的旧／新 JSONL，新目录另含原生原始输出；`comparison.json` 记录三方逐字段通过结果、轨迹散列及源码行数。
 - `after/array_sum/*.html`：四份通用 review，包含两个 Signal 的输入、求值和通知。
-- `regression.log`：引擎、CPU、Signal、review 全量回归。
 - `timing.json`：正式三方计时，包括全部样本、预热、执行顺序、CPU affinity、每拍耗时、Rule／Module／Signal 计数、资源变化通知及事件计数、源码和二进制散列。已跟踪的副本见 [timing.json](timing.json)，验收摘要见 [results.json](results.json)。
 
 `evidence` 可重复导出固定提交；若保留的源码被改动则报错，不覆盖异内容。它用当前输入同时运行固定提交模型与当前模型，比较器保持原实现，报告首个差异周期及上下文。
 
 `bench` 默认测 `array_sum`、`mixed_2026`、`memory_loop_256`。每个程序有原生 C++ 一组、旧／新 Python 各四组；绑定同一可用 CPU，子进程串行运行，每组一次预热、七次正式采样，各轮轮换顺序。`--cpu N`、`--repeats N`、重复的 `--case NAME`、`--runner`、`--evidence` 和 `--output` 可覆盖配置。
 
-循环计时保留原结束检查、地址范围检查与内建计数，排除构造、快照、JSON 和 review。Python 第一次 `step()` 的 Signal 初始化计入循环；整个进程计时另含解释器／动态库启动、导入、输入、构造、结果输出及退出。旧／新 Python 共用同一个 worker 与解释器，只切换源码导入路径。Python／C++ 比值描述不同语言的完整模型，不能解释为调度器性能差距。C++ 没有 GFSim Rule／Signal 计数。
+循环计时保留原结束检查、地址范围检查与内建计数，排除构造、快照、JSON 和 review。Python 第一次 `step()` 的 Signal 初始化计入循环；整个进程计时另含解释器／动态库启动、导入、输入、构造、结果输出及退出。旧／新 Python 共用同一个 worker 与解释器，只切换源码导入路径。Python／C++ 比值描述不同语言的完整模型，不能解释为调度器性能差距。这里测量的原生 Ripes C++ 没有 GFSim Rule／Signal 计数。
 
-此前保留阶段自唤醒的 Signal 简化版本保存在 `review-output/simplification/`，其中 `after-source/` 保存该版本的模型源码、报告和正式计时；这批数据属于历史。最初旧工具的计时位于其中的 `before/preliminary-timing.json`。历史的生成式写法重构证据仍在 `review-output/generated-style/`，迁移证据在 `review-output/migration/`；[baseline.json](baseline.json) 是更早版本的历史计时，不代表 `56fe061` 或当前版本。
+过期生成目录及早期 `baseline.json` 已清理。`results.json`、`timing.json` 保留最近一次正式记录，对应源码身份以文件内散列为准。2026-10-03 将 ISA 支持文件从旧 riscv 示例移入本目录；重新运行工具会记录新的路径和散列，不改写原有测量。固定提交 `56fe061` 的旧源码仍可由 `evidence` 从 Git 导出。
 
 ## 输入与观察接口
 
@@ -132,4 +133,4 @@ JSONL 第 0 行是初始化并完成组合传播后的状态。第 n 行是第 n
 
 `programs.py` 保存可读汇编、三个有界固定种子混合程序和统一机器字生成入口。新增 `memory_loop_256` 进行 256 次有界访存累计，每次含 load-use、store 和条件分支，最终写入 768，运行 2,054 拍。程序覆盖顺序吞吐、连续覆盖前递优先级、x0、WB→ID、store 数据前递、数组填充求和、load-use、分支循环、跳转链接、load 后分支及错误路径写入。
 
-验收结果与成本限制见 [findings.md](findings.md)。后续 C++ GFSim CPU 和编译器版本应复用本 JSON 输入及逐拍接口；本轮没有实现这两项，当前耗时对照也不等同于调度器性能比较。
+Python 验收结果与成本限制见 [findings.md](findings.md)。[C++ GFSim 后端](../../../cpp/examples/ripes5/README.md) 已复用本 JSON 输入、13 个程序和逐拍接口，另有 C++／当前 Python／原生 Ripes 的完整验收及测速。[独立 ACPy 编译器](../../../../pycircuit/README.md) 进一步生成完整模型并加入五方对照；完整模型的耗时对照不等同于调度器性能比较。

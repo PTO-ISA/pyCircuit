@@ -1,7 +1,7 @@
 """Pure combinational logic. Inputs are values, never Queues or proposals."""
 from typing import NamedTuple
-from ..riscv.isa import decode
-from ..riscv.records import (ADD, ADDI, SUB, AND, OR, XOR, SLT, LUI, LW,
+from .isa import decode
+from .records import (ADD, ADDI, SUB, AND, OR, XOR, SLT, LUI, LW,
                              SW, BEQ, BNE, JAL, JALR, INVALID, u32, signed)
 
 WRITES = (ADD, ADDI, SUB, AND, OR, XOR, SLT, LUI, LW, JAL, JALR)

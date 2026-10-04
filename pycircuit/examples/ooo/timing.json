@@ -1,0 +1,1666 @@
+{
+  "cpu": 0,
+  "machine": "aarch64",
+  "method": "serial, one warm-up, seven rotated samples; steady_clock inside runner tick loop",
+  "includes": "sim.step, terminal Queue observation, first Signal initialization",
+  "excludes": "input, construction, snapshots, JSON",
+  "acceptance_sha256": "c9b84052cabf016c623d25cb7e75a3fe2867b60b03c1f0e322e1e50c69470ad0",
+  "results": [
+    {
+      "program": "congestion",
+      "binary": "compiled",
+      "cache": true,
+      "reverse": false,
+      "cycles": 232,
+      "ipc": 0.23706896551724138,
+      "median_ns_per_cycle": 6261.163793103448,
+      "min_ns_per_cycle": 6179.439655172414,
+      "max_ns_per_cycle": 6600.991379310345,
+      "samples": [
+        {
+          "cycles": 232,
+          "retired": 55,
+          "construct_ns": 245602,
+          "run_ns": 1451910,
+          "cache_hits": 0,
+          "rule_work": 872
+        },
+        {
+          "cycles": 232,
+          "retired": 55,
+          "construct_ns": 233442,
+          "run_ns": 1531430,
+          "cache_hits": 0,
+          "rule_work": 872
+        },
+        {
+          "cycles": 232,
+          "retired": 55,
+          "construct_ns": 233802,
+          "run_ns": 1452590,
+          "cache_hits": 0,
+          "rule_work": 872
+        },
+        {
+          "cycles": 232,
+          "retired": 55,
+          "construct_ns": 232732,
+          "run_ns": 1433630,
+          "cache_hits": 0,
+          "rule_work": 872
+        },
+        {
+          "cycles": 232,
+          "retired": 55,
+          "construct_ns": 239432,
+          "run_ns": 1476030,
+          "cache_hits": 0,
+          "rule_work": 872
+        },
+        {
+          "cycles": 232,
+          "retired": 55,
+          "construct_ns": 233752,
+          "run_ns": 1453790,
+          "cache_hits": 0,
+          "rule_work": 872
+        },
+        {
+          "cycles": 232,
+          "retired": 55,
+          "construct_ns": 234582,
+          "run_ns": 1436460,
+          "cache_hits": 0,
+          "rule_work": 872
+        }
+      ]
+    },
+    {
+      "program": "congestion",
+      "binary": "compiled",
+      "cache": true,
+      "reverse": true,
+      "cycles": 232,
+      "ipc": 0.23706896551724138,
+      "median_ns_per_cycle": 6199.827586206897,
+      "min_ns_per_cycle": 6091.939655172414,
+      "max_ns_per_cycle": 6574.228448275862,
+      "samples": [
+        {
+          "cycles": 232,
+          "retired": 55,
+          "construct_ns": 232982,
+          "run_ns": 1438360,
+          "cache_hits": 0,
+          "rule_work": 872
+        },
+        {
+          "cycles": 232,
+          "retired": 55,
+          "construct_ns": 234252,
+          "run_ns": 1434070,
+          "cache_hits": 0,
+          "rule_work": 872
+        },
+        {
+          "cycles": 232,
+          "retired": 55,
+          "construct_ns": 233192,
+          "run_ns": 1525221,
+          "cache_hits": 0,
+          "rule_work": 872
+        },
+        {
+          "cycles": 232,
+          "retired": 55,
+          "construct_ns": 234582,
+          "run_ns": 1441410,
+          "cache_hits": 0,
+          "rule_work": 872
+        },
+        {
+          "cycles": 232,
+          "retired": 55,
+          "construct_ns": 235581,
+          "run_ns": 1423410,
+          "cache_hits": 0,
+          "rule_work": 872
+        },
+        {
+          "cycles": 232,
+          "retired": 55,
+          "construct_ns": 233292,
+          "run_ns": 1463250,
+          "cache_hits": 0,
+          "rule_work": 872
+        },
+        {
+          "cycles": 232,
+          "retired": 55,
+          "construct_ns": 233611,
+          "run_ns": 1413330,
+          "cache_hits": 0,
+          "rule_work": 872
+        }
+      ]
+    },
+    {
+      "program": "congestion",
+      "binary": "compiled",
+      "cache": false,
+      "reverse": false,
+      "cycles": 232,
+      "ipc": 0.23706896551724138,
+      "median_ns_per_cycle": 6201.853448275862,
+      "min_ns_per_cycle": 6171.077586206897,
+      "max_ns_per_cycle": 6335.862068965517,
+      "samples": [
+        {
+          "cycles": 232,
+          "retired": 55,
+          "construct_ns": 235141,
+          "run_ns": 1469920,
+          "cache_hits": 0,
+          "rule_work": 872
+        },
+        {
+          "cycles": 232,
+          "retired": 55,
+          "construct_ns": 233531,
+          "run_ns": 1435960,
+          "cache_hits": 0,
+          "rule_work": 872
+        },
+        {
+          "cycles": 232,
+          "retired": 55,
+          "construct_ns": 259612,
+          "run_ns": 1438830,
+          "cache_hits": 0,
+          "rule_work": 872
+        },
+        {
+          "cycles": 232,
+          "retired": 55,
+          "construct_ns": 233601,
+          "run_ns": 1432310,
+          "cache_hits": 0,
+          "rule_work": 872
+        },
+        {
+          "cycles": 232,
+          "retired": 55,
+          "construct_ns": 235182,
+          "run_ns": 1444310,
+          "cache_hits": 0,
+          "rule_work": 872
+        },
+        {
+          "cycles": 232,
+          "retired": 55,
+          "construct_ns": 233551,
+          "run_ns": 1431690,
+          "cache_hits": 0,
+          "rule_work": 872
+        },
+        {
+          "cycles": 232,
+          "retired": 55,
+          "construct_ns": 235091,
+          "run_ns": 1448341,
+          "cache_hits": 0,
+          "rule_work": 872
+        }
+      ]
+    },
+    {
+      "program": "congestion",
+      "binary": "compiled",
+      "cache": false,
+      "reverse": true,
+      "cycles": 232,
+      "ipc": 0.23706896551724138,
+      "median_ns_per_cycle": 6187.629310344828,
+      "min_ns_per_cycle": 6085.732758620689,
+      "max_ns_per_cycle": 6450.3448275862065,
+      "samples": [
+        {
+          "cycles": 232,
+          "retired": 55,
+          "construct_ns": 236762,
+          "run_ns": 1493700,
+          "cache_hits": 0,
+          "rule_work": 872
+        },
+        {
+          "cycles": 232,
+          "retired": 55,
+          "construct_ns": 231132,
+          "run_ns": 1421690,
+          "cache_hits": 0,
+          "rule_work": 872
+        },
+        {
+          "cycles": 232,
+          "retired": 55,
+          "construct_ns": 233282,
+          "run_ns": 1425930,
+          "cache_hits": 0,
+          "rule_work": 872
+        },
+        {
+          "cycles": 232,
+          "retired": 55,
+          "construct_ns": 233962,
+          "run_ns": 1496480,
+          "cache_hits": 0,
+          "rule_work": 872
+        },
+        {
+          "cycles": 232,
+          "retired": 55,
+          "construct_ns": 233822,
+          "run_ns": 1435530,
+          "cache_hits": 0,
+          "rule_work": 872
+        },
+        {
+          "cycles": 232,
+          "retired": 55,
+          "construct_ns": 236172,
+          "run_ns": 1411890,
+          "cache_hits": 0,
+          "rule_work": 872
+        },
+        {
+          "cycles": 232,
+          "retired": 55,
+          "construct_ns": 233552,
+          "run_ns": 1473430,
+          "cache_hits": 0,
+          "rule_work": 872
+        }
+      ]
+    },
+    {
+      "program": "congestion",
+      "binary": "emitted",
+      "cache": true,
+      "reverse": false,
+      "cycles": 232,
+      "ipc": 0.23706896551724138,
+      "median_ns_per_cycle": 6202.672413793103,
+      "min_ns_per_cycle": 6112.931034482759,
+      "max_ns_per_cycle": 7956.564655172414,
+      "samples": [
+        {
+          "cycles": 232,
+          "retired": 55,
+          "construct_ns": 234522,
+          "run_ns": 1418200,
+          "cache_hits": 0,
+          "rule_work": 872
+        },
+        {
+          "cycles": 232,
+          "retired": 55,
+          "construct_ns": 232202,
+          "run_ns": 1510020,
+          "cache_hits": 0,
+          "rule_work": 872
+        },
+        {
+          "cycles": 232,
+          "retired": 55,
+          "construct_ns": 232662,
+          "run_ns": 1439020,
+          "cache_hits": 0,
+          "rule_work": 872
+        },
+        {
+          "cycles": 232,
+          "retired": 55,
+          "construct_ns": 232682,
+          "run_ns": 1434380,
+          "cache_hits": 0,
+          "rule_work": 872
+        },
+        {
+          "cycles": 232,
+          "retired": 55,
+          "construct_ns": 232072,
+          "run_ns": 1845923,
+          "cache_hits": 0,
+          "rule_work": 872
+        },
+        {
+          "cycles": 232,
+          "retired": 55,
+          "construct_ns": 233751,
+          "run_ns": 1458351,
+          "cache_hits": 0,
+          "rule_work": 872
+        },
+        {
+          "cycles": 232,
+          "retired": 55,
+          "construct_ns": 233602,
+          "run_ns": 1424000,
+          "cache_hits": 0,
+          "rule_work": 872
+        }
+      ]
+    },
+    {
+      "program": "congestion",
+      "binary": "emitted",
+      "cache": true,
+      "reverse": true,
+      "cycles": 232,
+      "ipc": 0.23706896551724138,
+      "median_ns_per_cycle": 6143.448275862069,
+      "min_ns_per_cycle": 6073.103448275862,
+      "max_ns_per_cycle": 6428.362068965517,
+      "samples": [
+        {
+          "cycles": 232,
+          "retired": 55,
+          "construct_ns": 232642,
+          "run_ns": 1425280,
+          "cache_hits": 0,
+          "rule_work": 872
+        },
+        {
+          "cycles": 232,
+          "retired": 55,
+          "construct_ns": 232711,
+          "run_ns": 1416719,
+          "cache_hits": 0,
+          "rule_work": 872
+        },
+        {
+          "cycles": 232,
+          "retired": 55,
+          "construct_ns": 230882,
+          "run_ns": 1423640,
+          "cache_hits": 0,
+          "rule_work": 872
+        },
+        {
+          "cycles": 232,
+          "retired": 55,
+          "construct_ns": 232071,
+          "run_ns": 1429390,
+          "cache_hits": 0,
+          "rule_work": 872
+        },
+        {
+          "cycles": 232,
+          "retired": 55,
+          "construct_ns": 234041,
+          "run_ns": 1449071,
+          "cache_hits": 0,
+          "rule_work": 872
+        },
+        {
+          "cycles": 232,
+          "retired": 55,
+          "construct_ns": 231892,
+          "run_ns": 1491380,
+          "cache_hits": 0,
+          "rule_work": 872
+        },
+        {
+          "cycles": 232,
+          "retired": 55,
+          "construct_ns": 233311,
+          "run_ns": 1408960,
+          "cache_hits": 0,
+          "rule_work": 872
+        }
+      ]
+    },
+    {
+      "program": "congestion",
+      "binary": "emitted",
+      "cache": false,
+      "reverse": false,
+      "cycles": 232,
+      "ipc": 0.23706896551724138,
+      "median_ns_per_cycle": 6195.172413793103,
+      "min_ns_per_cycle": 6150.431034482759,
+      "max_ns_per_cycle": 6538.193965517241,
+      "samples": [
+        {
+          "cycles": 232,
+          "retired": 55,
+          "construct_ns": 233672,
+          "run_ns": 1428970,
+          "cache_hits": 0,
+          "rule_work": 872
+        },
+        {
+          "cycles": 232,
+          "retired": 55,
+          "construct_ns": 233972,
+          "run_ns": 1426900,
+          "cache_hits": 0,
+          "rule_work": 872
+        },
+        {
+          "cycles": 232,
+          "retired": 55,
+          "construct_ns": 232602,
+          "run_ns": 1481470,
+          "cache_hits": 0,
+          "rule_work": 872
+        },
+        {
+          "cycles": 232,
+          "retired": 55,
+          "construct_ns": 232652,
+          "run_ns": 1433890,
+          "cache_hits": 0,
+          "rule_work": 872
+        },
+        {
+          "cycles": 232,
+          "retired": 55,
+          "construct_ns": 232441,
+          "run_ns": 1437280,
+          "cache_hits": 0,
+          "rule_work": 872
+        },
+        {
+          "cycles": 232,
+          "retired": 55,
+          "construct_ns": 234012,
+          "run_ns": 1447700,
+          "cache_hits": 0,
+          "rule_work": 872
+        },
+        {
+          "cycles": 232,
+          "retired": 55,
+          "construct_ns": 234502,
+          "run_ns": 1516861,
+          "cache_hits": 0,
+          "rule_work": 872
+        }
+      ]
+    },
+    {
+      "program": "congestion",
+      "binary": "emitted",
+      "cache": false,
+      "reverse": true,
+      "cycles": 232,
+      "ipc": 0.23706896551724138,
+      "median_ns_per_cycle": 6210.818965517241,
+      "min_ns_per_cycle": 6144.612068965517,
+      "max_ns_per_cycle": 6633.9698275862065,
+      "samples": [
+        {
+          "cycles": 232,
+          "retired": 55,
+          "construct_ns": 233482,
+          "run_ns": 1466580,
+          "cache_hits": 0,
+          "rule_work": 872
+        },
+        {
+          "cycles": 232,
+          "retired": 55,
+          "construct_ns": 232561,
+          "run_ns": 1440910,
+          "cache_hits": 0,
+          "rule_work": 872
+        },
+        {
+          "cycles": 232,
+          "retired": 55,
+          "construct_ns": 233231,
+          "run_ns": 1427540,
+          "cache_hits": 0,
+          "rule_work": 872
+        },
+        {
+          "cycles": 232,
+          "retired": 55,
+          "construct_ns": 234621,
+          "run_ns": 1539081,
+          "cache_hits": 0,
+          "rule_work": 872
+        },
+        {
+          "cycles": 232,
+          "retired": 55,
+          "construct_ns": 234322,
+          "run_ns": 1496550,
+          "cache_hits": 0,
+          "rule_work": 872
+        },
+        {
+          "cycles": 232,
+          "retired": 55,
+          "construct_ns": 232791,
+          "run_ns": 1425550,
+          "cache_hits": 0,
+          "rule_work": 872
+        },
+        {
+          "cycles": 232,
+          "retired": 55,
+          "construct_ns": 247682,
+          "run_ns": 1438440,
+          "cache_hits": 0,
+          "rule_work": 872
+        }
+      ]
+    },
+    {
+      "program": "latency",
+      "binary": "compiled",
+      "cache": true,
+      "reverse": false,
+      "cycles": 18,
+      "ipc": 0.3888888888888889,
+      "median_ns_per_cycle": 17064.0,
+      "min_ns_per_cycle": 16826.222222222223,
+      "max_ns_per_cycle": 19697.333333333332,
+      "samples": [
+        {
+          "cycles": 18,
+          "retired": 7,
+          "construct_ns": 234002,
+          "run_ns": 306552,
+          "cache_hits": 0,
+          "rule_work": 140
+        },
+        {
+          "cycles": 18,
+          "retired": 7,
+          "construct_ns": 234462,
+          "run_ns": 307172,
+          "cache_hits": 0,
+          "rule_work": 140
+        },
+        {
+          "cycles": 18,
+          "retired": 7,
+          "construct_ns": 234512,
+          "run_ns": 354552,
+          "cache_hits": 0,
+          "rule_work": 140
+        },
+        {
+          "cycles": 18,
+          "retired": 7,
+          "construct_ns": 234632,
+          "run_ns": 303192,
+          "cache_hits": 0,
+          "rule_work": 140
+        },
+        {
+          "cycles": 18,
+          "retired": 7,
+          "construct_ns": 235622,
+          "run_ns": 307492,
+          "cache_hits": 0,
+          "rule_work": 140
+        },
+        {
+          "cycles": 18,
+          "retired": 7,
+          "construct_ns": 235882,
+          "run_ns": 302872,
+          "cache_hits": 0,
+          "rule_work": 140
+        },
+        {
+          "cycles": 18,
+          "retired": 7,
+          "construct_ns": 233701,
+          "run_ns": 307152,
+          "cache_hits": 0,
+          "rule_work": 140
+        }
+      ]
+    },
+    {
+      "program": "latency",
+      "binary": "compiled",
+      "cache": true,
+      "reverse": true,
+      "cycles": 18,
+      "ipc": 0.3888888888888889,
+      "median_ns_per_cycle": 17039.555555555555,
+      "min_ns_per_cycle": 16754.0,
+      "max_ns_per_cycle": 17150.666666666668,
+      "samples": [
+        {
+          "cycles": 18,
+          "retired": 7,
+          "construct_ns": 329762,
+          "run_ns": 308162,
+          "cache_hits": 0,
+          "rule_work": 140
+        },
+        {
+          "cycles": 18,
+          "retired": 7,
+          "construct_ns": 232582,
+          "run_ns": 308712,
+          "cache_hits": 0,
+          "rule_work": 140
+        },
+        {
+          "cycles": 18,
+          "retired": 7,
+          "construct_ns": 235851,
+          "run_ns": 306712,
+          "cache_hits": 0,
+          "rule_work": 140
+        },
+        {
+          "cycles": 18,
+          "retired": 7,
+          "construct_ns": 231102,
+          "run_ns": 304772,
+          "cache_hits": 0,
+          "rule_work": 140
+        },
+        {
+          "cycles": 18,
+          "retired": 7,
+          "construct_ns": 231051,
+          "run_ns": 307033,
+          "cache_hits": 0,
+          "rule_work": 140
+        },
+        {
+          "cycles": 18,
+          "retired": 7,
+          "construct_ns": 233192,
+          "run_ns": 304062,
+          "cache_hits": 0,
+          "rule_work": 140
+        },
+        {
+          "cycles": 18,
+          "retired": 7,
+          "construct_ns": 233532,
+          "run_ns": 301572,
+          "cache_hits": 0,
+          "rule_work": 140
+        }
+      ]
+    },
+    {
+      "program": "latency",
+      "binary": "compiled",
+      "cache": false,
+      "reverse": false,
+      "cycles": 18,
+      "ipc": 0.3888888888888889,
+      "median_ns_per_cycle": 17011.777777777777,
+      "min_ns_per_cycle": 16944.555555555555,
+      "max_ns_per_cycle": 17175.166666666668,
+      "samples": [
+        {
+          "cycles": 18,
+          "retired": 7,
+          "construct_ns": 265851,
+          "run_ns": 309153,
+          "cache_hits": 0,
+          "rule_work": 140
+        },
+        {
+          "cycles": 18,
+          "retired": 7,
+          "construct_ns": 235831,
+          "run_ns": 308522,
+          "cache_hits": 0,
+          "rule_work": 140
+        },
+        {
+          "cycles": 18,
+          "retired": 7,
+          "construct_ns": 234291,
+          "run_ns": 306212,
+          "cache_hits": 0,
+          "rule_work": 140
+        },
+        {
+          "cycles": 18,
+          "retired": 7,
+          "construct_ns": 233681,
+          "run_ns": 306553,
+          "cache_hits": 0,
+          "rule_work": 140
+        },
+        {
+          "cycles": 18,
+          "retired": 7,
+          "construct_ns": 235022,
+          "run_ns": 306112,
+          "cache_hits": 0,
+          "rule_work": 140
+        },
+        {
+          "cycles": 18,
+          "retired": 7,
+          "construct_ns": 236382,
+          "run_ns": 305342,
+          "cache_hits": 0,
+          "rule_work": 140
+        },
+        {
+          "cycles": 18,
+          "retired": 7,
+          "construct_ns": 233902,
+          "run_ns": 305002,
+          "cache_hits": 0,
+          "rule_work": 140
+        }
+      ]
+    },
+    {
+      "program": "latency",
+      "binary": "compiled",
+      "cache": false,
+      "reverse": true,
+      "cycles": 18,
+      "ipc": 0.3888888888888889,
+      "median_ns_per_cycle": 16994.0,
+      "min_ns_per_cycle": 16795.11111111111,
+      "max_ns_per_cycle": 18540.666666666668,
+      "samples": [
+        {
+          "cycles": 18,
+          "retired": 7,
+          "construct_ns": 234302,
+          "run_ns": 333732,
+          "cache_hits": 0,
+          "rule_work": 140
+        },
+        {
+          "cycles": 18,
+          "retired": 7,
+          "construct_ns": 232652,
+          "run_ns": 302312,
+          "cache_hits": 0,
+          "rule_work": 140
+        },
+        {
+          "cycles": 18,
+          "retired": 7,
+          "construct_ns": 229632,
+          "run_ns": 307042,
+          "cache_hits": 0,
+          "rule_work": 140
+        },
+        {
+          "cycles": 18,
+          "retired": 7,
+          "construct_ns": 235972,
+          "run_ns": 307442,
+          "cache_hits": 0,
+          "rule_work": 140
+        },
+        {
+          "cycles": 18,
+          "retired": 7,
+          "construct_ns": 233252,
+          "run_ns": 305592,
+          "cache_hits": 0,
+          "rule_work": 140
+        },
+        {
+          "cycles": 18,
+          "retired": 7,
+          "construct_ns": 234022,
+          "run_ns": 303062,
+          "cache_hits": 0,
+          "rule_work": 140
+        },
+        {
+          "cycles": 18,
+          "retired": 7,
+          "construct_ns": 234071,
+          "run_ns": 305892,
+          "cache_hits": 0,
+          "rule_work": 140
+        }
+      ]
+    },
+    {
+      "program": "latency",
+      "binary": "emitted",
+      "cache": true,
+      "reverse": false,
+      "cycles": 18,
+      "ipc": 0.3888888888888889,
+      "median_ns_per_cycle": 16990.11111111111,
+      "min_ns_per_cycle": 16804.0,
+      "max_ns_per_cycle": 17135.11111111111,
+      "samples": [
+        {
+          "cycles": 18,
+          "retired": 7,
+          "construct_ns": 233271,
+          "run_ns": 305822,
+          "cache_hits": 0,
+          "rule_work": 140
+        },
+        {
+          "cycles": 18,
+          "retired": 7,
+          "construct_ns": 231902,
+          "run_ns": 306072,
+          "cache_hits": 0,
+          "rule_work": 140
+        },
+        {
+          "cycles": 18,
+          "retired": 7,
+          "construct_ns": 232591,
+          "run_ns": 306312,
+          "cache_hits": 0,
+          "rule_work": 140
+        },
+        {
+          "cycles": 18,
+          "retired": 7,
+          "construct_ns": 234532,
+          "run_ns": 302472,
+          "cache_hits": 0,
+          "rule_work": 140
+        },
+        {
+          "cycles": 18,
+          "retired": 7,
+          "construct_ns": 232422,
+          "run_ns": 305172,
+          "cache_hits": 0,
+          "rule_work": 140
+        },
+        {
+          "cycles": 18,
+          "retired": 7,
+          "construct_ns": 236341,
+          "run_ns": 302842,
+          "cache_hits": 0,
+          "rule_work": 140
+        },
+        {
+          "cycles": 18,
+          "retired": 7,
+          "construct_ns": 232632,
+          "run_ns": 308432,
+          "cache_hits": 0,
+          "rule_work": 140
+        }
+      ]
+    },
+    {
+      "program": "latency",
+      "binary": "emitted",
+      "cache": true,
+      "reverse": true,
+      "cycles": 18,
+      "ipc": 0.3888888888888889,
+      "median_ns_per_cycle": 16807.88888888889,
+      "min_ns_per_cycle": 16647.333333333332,
+      "max_ns_per_cycle": 17232.88888888889,
+      "samples": [
+        {
+          "cycles": 18,
+          "retired": 7,
+          "construct_ns": 234382,
+          "run_ns": 302552,
+          "cache_hits": 0,
+          "rule_work": 140
+        },
+        {
+          "cycles": 18,
+          "retired": 7,
+          "construct_ns": 232422,
+          "run_ns": 310192,
+          "cache_hits": 0,
+          "rule_work": 140
+        },
+        {
+          "cycles": 18,
+          "retired": 7,
+          "construct_ns": 229252,
+          "run_ns": 299652,
+          "cache_hits": 0,
+          "rule_work": 140
+        },
+        {
+          "cycles": 18,
+          "retired": 7,
+          "construct_ns": 232972,
+          "run_ns": 301742,
+          "cache_hits": 0,
+          "rule_work": 140
+        },
+        {
+          "cycles": 18,
+          "retired": 7,
+          "construct_ns": 234691,
+          "run_ns": 305502,
+          "cache_hits": 0,
+          "rule_work": 140
+        },
+        {
+          "cycles": 18,
+          "retired": 7,
+          "construct_ns": 250132,
+          "run_ns": 301712,
+          "cache_hits": 0,
+          "rule_work": 140
+        },
+        {
+          "cycles": 18,
+          "retired": 7,
+          "construct_ns": 231402,
+          "run_ns": 302542,
+          "cache_hits": 0,
+          "rule_work": 140
+        }
+      ]
+    },
+    {
+      "program": "latency",
+      "binary": "emitted",
+      "cache": false,
+      "reverse": false,
+      "cycles": 18,
+      "ipc": 0.3888888888888889,
+      "median_ns_per_cycle": 16906.777777777777,
+      "min_ns_per_cycle": 16695.666666666668,
+      "max_ns_per_cycle": 17952.38888888889,
+      "samples": [
+        {
+          "cycles": 18,
+          "retired": 7,
+          "construct_ns": 233761,
+          "run_ns": 301422,
+          "cache_hits": 0,
+          "rule_work": 140
+        },
+        {
+          "cycles": 18,
+          "retired": 7,
+          "construct_ns": 232911,
+          "run_ns": 303152,
+          "cache_hits": 0,
+          "rule_work": 140
+        },
+        {
+          "cycles": 18,
+          "retired": 7,
+          "construct_ns": 234421,
+          "run_ns": 305872,
+          "cache_hits": 0,
+          "rule_work": 140
+        },
+        {
+          "cycles": 18,
+          "retired": 7,
+          "construct_ns": 233551,
+          "run_ns": 304322,
+          "cache_hits": 0,
+          "rule_work": 140
+        },
+        {
+          "cycles": 18,
+          "retired": 7,
+          "construct_ns": 235192,
+          "run_ns": 308542,
+          "cache_hits": 0,
+          "rule_work": 140
+        },
+        {
+          "cycles": 18,
+          "retired": 7,
+          "construct_ns": 233861,
+          "run_ns": 323143,
+          "cache_hits": 0,
+          "rule_work": 140
+        },
+        {
+          "cycles": 18,
+          "retired": 7,
+          "construct_ns": 236232,
+          "run_ns": 300522,
+          "cache_hits": 0,
+          "rule_work": 140
+        }
+      ]
+    },
+    {
+      "program": "latency",
+      "binary": "emitted",
+      "cache": false,
+      "reverse": true,
+      "cycles": 18,
+      "ipc": 0.3888888888888889,
+      "median_ns_per_cycle": 16880.722222222223,
+      "min_ns_per_cycle": 16702.88888888889,
+      "max_ns_per_cycle": 18617.88888888889,
+      "samples": [
+        {
+          "cycles": 18,
+          "retired": 7,
+          "construct_ns": 233042,
+          "run_ns": 303612,
+          "cache_hits": 0,
+          "rule_work": 140
+        },
+        {
+          "cycles": 18,
+          "retired": 7,
+          "construct_ns": 230782,
+          "run_ns": 300652,
+          "cache_hits": 0,
+          "rule_work": 140
+        },
+        {
+          "cycles": 18,
+          "retired": 7,
+          "construct_ns": 248072,
+          "run_ns": 304822,
+          "cache_hits": 0,
+          "rule_work": 140
+        },
+        {
+          "cycles": 18,
+          "retired": 7,
+          "construct_ns": 233241,
+          "run_ns": 303853,
+          "cache_hits": 0,
+          "rule_work": 140
+        },
+        {
+          "cycles": 18,
+          "retired": 7,
+          "construct_ns": 236382,
+          "run_ns": 303122,
+          "cache_hits": 0,
+          "rule_work": 140
+        },
+        {
+          "cycles": 18,
+          "retired": 7,
+          "construct_ns": 230432,
+          "run_ns": 335122,
+          "cache_hits": 0,
+          "rule_work": 140
+        },
+        {
+          "cycles": 18,
+          "retired": 7,
+          "construct_ns": 234642,
+          "run_ns": 307152,
+          "cache_hits": 0,
+          "rule_work": 140
+        }
+      ]
+    },
+    {
+      "program": "mixed_2026",
+      "binary": "compiled",
+      "cache": true,
+      "reverse": false,
+      "cycles": 530,
+      "ipc": 0.42452830188679247,
+      "median_ns_per_cycle": 11275.475471698113,
+      "min_ns_per_cycle": 11136.324528301886,
+      "max_ns_per_cycle": 11358.777358490566,
+      "samples": [
+        {
+          "cycles": 530,
+          "retired": 225,
+          "construct_ns": 263682,
+          "run_ns": 6015242,
+          "cache_hits": 0,
+          "rule_work": 3831
+        },
+        {
+          "cycles": 530,
+          "retired": 225,
+          "construct_ns": 231191,
+          "run_ns": 5976002,
+          "cache_hits": 0,
+          "rule_work": 3831
+        },
+        {
+          "cycles": 530,
+          "retired": 225,
+          "construct_ns": 234952,
+          "run_ns": 6020152,
+          "cache_hits": 0,
+          "rule_work": 3831
+        },
+        {
+          "cycles": 530,
+          "retired": 225,
+          "construct_ns": 230971,
+          "run_ns": 5960782,
+          "cache_hits": 0,
+          "rule_work": 3831
+        },
+        {
+          "cycles": 530,
+          "retired": 225,
+          "construct_ns": 244382,
+          "run_ns": 5926801,
+          "cache_hits": 0,
+          "rule_work": 3831
+        },
+        {
+          "cycles": 530,
+          "retired": 225,
+          "construct_ns": 232582,
+          "run_ns": 6014522,
+          "cache_hits": 0,
+          "rule_work": 3831
+        },
+        {
+          "cycles": 530,
+          "retired": 225,
+          "construct_ns": 230701,
+          "run_ns": 5902252,
+          "cache_hits": 0,
+          "rule_work": 3831
+        }
+      ]
+    },
+    {
+      "program": "mixed_2026",
+      "binary": "compiled",
+      "cache": true,
+      "reverse": true,
+      "cycles": 530,
+      "ipc": 0.42452830188679247,
+      "median_ns_per_cycle": 11180.492452830189,
+      "min_ns_per_cycle": 11063.850943396226,
+      "max_ns_per_cycle": 11278.532075471698,
+      "samples": [
+        {
+          "cycles": 530,
+          "retired": 225,
+          "construct_ns": 231282,
+          "run_ns": 5896421,
+          "cache_hits": 0,
+          "rule_work": 3831
+        },
+        {
+          "cycles": 530,
+          "retired": 225,
+          "construct_ns": 231621,
+          "run_ns": 5977622,
+          "cache_hits": 0,
+          "rule_work": 3831
+        },
+        {
+          "cycles": 530,
+          "retired": 225,
+          "construct_ns": 231992,
+          "run_ns": 5868561,
+          "cache_hits": 0,
+          "rule_work": 3831
+        },
+        {
+          "cycles": 530,
+          "retired": 225,
+          "construct_ns": 233092,
+          "run_ns": 5972531,
+          "cache_hits": 0,
+          "rule_work": 3831
+        },
+        {
+          "cycles": 530,
+          "retired": 225,
+          "construct_ns": 231372,
+          "run_ns": 5925661,
+          "cache_hits": 0,
+          "rule_work": 3831
+        },
+        {
+          "cycles": 530,
+          "retired": 225,
+          "construct_ns": 232581,
+          "run_ns": 5960272,
+          "cache_hits": 0,
+          "rule_work": 3831
+        },
+        {
+          "cycles": 530,
+          "retired": 225,
+          "construct_ns": 233211,
+          "run_ns": 5863841,
+          "cache_hits": 0,
+          "rule_work": 3831
+        }
+      ]
+    },
+    {
+      "program": "mixed_2026",
+      "binary": "compiled",
+      "cache": false,
+      "reverse": false,
+      "cycles": 530,
+      "ipc": 0.42452830188679247,
+      "median_ns_per_cycle": 11177.26603773585,
+      "min_ns_per_cycle": 11023.284905660377,
+      "max_ns_per_cycle": 11306.305660377358,
+      "samples": [
+        {
+          "cycles": 530,
+          "retired": 225,
+          "construct_ns": 231832,
+          "run_ns": 5910051,
+          "cache_hits": 0,
+          "rule_work": 3831
+        },
+        {
+          "cycles": 530,
+          "retired": 225,
+          "construct_ns": 231522,
+          "run_ns": 5954151,
+          "cache_hits": 0,
+          "rule_work": 3831
+        },
+        {
+          "cycles": 530,
+          "retired": 225,
+          "construct_ns": 234172,
+          "run_ns": 5923951,
+          "cache_hits": 0,
+          "rule_work": 3831
+        },
+        {
+          "cycles": 530,
+          "retired": 225,
+          "construct_ns": 230772,
+          "run_ns": 5842341,
+          "cache_hits": 0,
+          "rule_work": 3831
+        },
+        {
+          "cycles": 530,
+          "retired": 225,
+          "construct_ns": 231042,
+          "run_ns": 5890001,
+          "cache_hits": 0,
+          "rule_work": 3831
+        },
+        {
+          "cycles": 530,
+          "retired": 225,
+          "construct_ns": 232452,
+          "run_ns": 5954871,
+          "cache_hits": 0,
+          "rule_work": 3831
+        },
+        {
+          "cycles": 530,
+          "retired": 225,
+          "construct_ns": 232522,
+          "run_ns": 5992342,
+          "cache_hits": 0,
+          "rule_work": 3831
+        }
+      ]
+    },
+    {
+      "program": "mixed_2026",
+      "binary": "compiled",
+      "cache": false,
+      "reverse": true,
+      "cycles": 530,
+      "ipc": 0.42452830188679247,
+      "median_ns_per_cycle": 11214.645283018868,
+      "min_ns_per_cycle": 11053.190566037736,
+      "max_ns_per_cycle": 11270.49433962264,
+      "samples": [
+        {
+          "cycles": 530,
+          "retired": 225,
+          "construct_ns": 231062,
+          "run_ns": 5966171,
+          "cache_hits": 0,
+          "rule_work": 3831
+        },
+        {
+          "cycles": 530,
+          "retired": 225,
+          "construct_ns": 231512,
+          "run_ns": 5909141,
+          "cache_hits": 0,
+          "rule_work": 3831
+        },
+        {
+          "cycles": 530,
+          "retired": 225,
+          "construct_ns": 230782,
+          "run_ns": 5858191,
+          "cache_hits": 0,
+          "rule_work": 3831
+        },
+        {
+          "cycles": 530,
+          "retired": 225,
+          "construct_ns": 229792,
+          "run_ns": 5901681,
+          "cache_hits": 0,
+          "rule_work": 3831
+        },
+        {
+          "cycles": 530,
+          "retired": 225,
+          "construct_ns": 232572,
+          "run_ns": 5973362,
+          "cache_hits": 0,
+          "rule_work": 3831
+        },
+        {
+          "cycles": 530,
+          "retired": 225,
+          "construct_ns": 231562,
+          "run_ns": 5957041,
+          "cache_hits": 0,
+          "rule_work": 3831
+        },
+        {
+          "cycles": 530,
+          "retired": 225,
+          "construct_ns": 232611,
+          "run_ns": 5943762,
+          "cache_hits": 0,
+          "rule_work": 3831
+        }
+      ]
+    },
+    {
+      "program": "mixed_2026",
+      "binary": "emitted",
+      "cache": true,
+      "reverse": false,
+      "cycles": 530,
+      "ipc": 0.42452830188679247,
+      "median_ns_per_cycle": 11223.456603773586,
+      "min_ns_per_cycle": 11150.437735849056,
+      "max_ns_per_cycle": 11424.475471698113,
+      "samples": [
+        {
+          "cycles": 530,
+          "retired": 225,
+          "construct_ns": 233681,
+          "run_ns": 5948602,
+          "cache_hits": 0,
+          "rule_work": 3831
+        },
+        {
+          "cycles": 530,
+          "retired": 225,
+          "construct_ns": 231161,
+          "run_ns": 5923122,
+          "cache_hits": 0,
+          "rule_work": 3831
+        },
+        {
+          "cycles": 530,
+          "retired": 225,
+          "construct_ns": 232591,
+          "run_ns": 5909732,
+          "cache_hits": 0,
+          "rule_work": 3831
+        },
+        {
+          "cycles": 530,
+          "retired": 225,
+          "construct_ns": 250092,
+          "run_ns": 5934761,
+          "cache_hits": 0,
+          "rule_work": 3831
+        },
+        {
+          "cycles": 530,
+          "retired": 225,
+          "construct_ns": 232431,
+          "run_ns": 5979982,
+          "cache_hits": 0,
+          "rule_work": 3831
+        },
+        {
+          "cycles": 530,
+          "retired": 225,
+          "construct_ns": 250202,
+          "run_ns": 5948432,
+          "cache_hits": 0,
+          "rule_work": 3831
+        },
+        {
+          "cycles": 530,
+          "retired": 225,
+          "construct_ns": 230702,
+          "run_ns": 6054972,
+          "cache_hits": 0,
+          "rule_work": 3831
+        }
+      ]
+    },
+    {
+      "program": "mixed_2026",
+      "binary": "emitted",
+      "cache": true,
+      "reverse": true,
+      "cycles": 530,
+      "ipc": 0.42452830188679247,
+      "median_ns_per_cycle": 11199.945283018867,
+      "min_ns_per_cycle": 11131.945283018867,
+      "max_ns_per_cycle": 11397.607547169811,
+      "samples": [
+        {
+          "cycles": 530,
+          "retired": 225,
+          "construct_ns": 228111,
+          "run_ns": 6040732,
+          "cache_hits": 0,
+          "rule_work": 3831
+        },
+        {
+          "cycles": 530,
+          "retired": 225,
+          "construct_ns": 228182,
+          "run_ns": 5935971,
+          "cache_hits": 0,
+          "rule_work": 3831
+        },
+        {
+          "cycles": 530,
+          "retired": 225,
+          "construct_ns": 235291,
+          "run_ns": 6019802,
+          "cache_hits": 0,
+          "rule_work": 3831
+        },
+        {
+          "cycles": 530,
+          "retired": 225,
+          "construct_ns": 230622,
+          "run_ns": 5935861,
+          "cache_hits": 0,
+          "rule_work": 3831
+        },
+        {
+          "cycles": 530,
+          "retired": 225,
+          "construct_ns": 230981,
+          "run_ns": 5903162,
+          "cache_hits": 0,
+          "rule_work": 3831
+        },
+        {
+          "cycles": 530,
+          "retired": 225,
+          "construct_ns": 232271,
+          "run_ns": 5899931,
+          "cache_hits": 0,
+          "rule_work": 3831
+        },
+        {
+          "cycles": 530,
+          "retired": 225,
+          "construct_ns": 230242,
+          "run_ns": 5970272,
+          "cache_hits": 0,
+          "rule_work": 3831
+        }
+      ]
+    },
+    {
+      "program": "mixed_2026",
+      "binary": "emitted",
+      "cache": false,
+      "reverse": false,
+      "cycles": 530,
+      "ipc": 0.42452830188679247,
+      "median_ns_per_cycle": 11320.683018867925,
+      "min_ns_per_cycle": 11141.24716981132,
+      "max_ns_per_cycle": 11432.362264150943,
+      "samples": [
+        {
+          "cycles": 530,
+          "retired": 225,
+          "construct_ns": 231392,
+          "run_ns": 5904861,
+          "cache_hits": 0,
+          "rule_work": 3831
+        },
+        {
+          "cycles": 530,
+          "retired": 225,
+          "construct_ns": 230352,
+          "run_ns": 6015692,
+          "cache_hits": 0,
+          "rule_work": 3831
+        },
+        {
+          "cycles": 530,
+          "retired": 225,
+          "construct_ns": 234292,
+          "run_ns": 6059152,
+          "cache_hits": 0,
+          "rule_work": 3831
+        },
+        {
+          "cycles": 530,
+          "retired": 225,
+          "construct_ns": 232722,
+          "run_ns": 6018122,
+          "cache_hits": 0,
+          "rule_work": 3831
+        },
+        {
+          "cycles": 530,
+          "retired": 225,
+          "construct_ns": 230341,
+          "run_ns": 5999962,
+          "cache_hits": 0,
+          "rule_work": 3831
+        },
+        {
+          "cycles": 530,
+          "retired": 225,
+          "construct_ns": 233552,
+          "run_ns": 5979002,
+          "cache_hits": 0,
+          "rule_work": 3831
+        },
+        {
+          "cycles": 530,
+          "retired": 225,
+          "construct_ns": 231331,
+          "run_ns": 5941102,
+          "cache_hits": 0,
+          "rule_work": 3831
+        }
+      ]
+    },
+    {
+      "program": "mixed_2026",
+      "binary": "emitted",
+      "cache": false,
+      "reverse": true,
+      "cycles": 530,
+      "ipc": 0.42452830188679247,
+      "median_ns_per_cycle": 11173.549056603773,
+      "min_ns_per_cycle": 11077.756603773585,
+      "max_ns_per_cycle": 11297.475471698113,
+      "samples": [
+        {
+          "cycles": 530,
+          "retired": 225,
+          "construct_ns": 230341,
+          "run_ns": 5906942,
+          "cache_hits": 0,
+          "rule_work": 3831
+        },
+        {
+          "cycles": 530,
+          "retired": 225,
+          "construct_ns": 250901,
+          "run_ns": 5939692,
+          "cache_hits": 0,
+          "rule_work": 3831
+        },
+        {
+          "cycles": 530,
+          "retired": 225,
+          "construct_ns": 231032,
+          "run_ns": 5921981,
+          "cache_hits": 0,
+          "rule_work": 3831
+        },
+        {
+          "cycles": 530,
+          "retired": 225,
+          "construct_ns": 233581,
+          "run_ns": 5910722,
+          "cache_hits": 0,
+          "rule_work": 3831
+        },
+        {
+          "cycles": 530,
+          "retired": 225,
+          "construct_ns": 229082,
+          "run_ns": 5941531,
+          "cache_hits": 0,
+          "rule_work": 3831
+        },
+        {
+          "cycles": 530,
+          "retired": 225,
+          "construct_ns": 228821,
+          "run_ns": 5871211,
+          "cache_hits": 0,
+          "rule_work": 3831
+        },
+        {
+          "cycles": 530,
+          "retired": 225,
+          "construct_ns": 230662,
+          "run_ns": 5987662,
+          "cache_hits": 0,
+          "rule_work": 3831
+        }
+      ]
+    }
+  ]
+}

@@ -4,7 +4,7 @@ from engine import Proposal, Simulator
 
 
 def assemble(queues, modules, rules, cache=True, *, module_queues=None,
-             signals=(), module_signals=None, signal_queues=None):
+             signals=(), module_signals=None, signal_queues=None, rule_signals=None):
     if not rules or rules[0] is not None:
         raise ValueError("RuleId zero is reserved")
     if module_queues is None:
@@ -22,14 +22,18 @@ def assemble(queues, modules, rules, cache=True, *, module_queues=None,
         raise ValueError("one resource declaration per Module and Signal required")
     if any(sid < 0 or sid >= len(signals) for sids in module_signals for sid in sids):
         raise ValueError("unknown Signal in Module resources")
+    rule_signals = rule_signals if rule_signals is not None else [() for _ in rules]
+    if len(rule_signals) != len(rules) or rule_signals[0]:
+        raise ValueError("one Signal declaration per Rule required; zero is reserved")
+    if any(sid < 0 or sid >= len(signals) for sids in rule_signals for sid in sids):
+        raise ValueError("unknown Signal in Rule inputs")
     inputs = [tuple(sorted(set(qids))) for qids in signal_queues]
     if any(qid < 0 or qid >= len(queues) for qids in inputs for qid in qids):
         raise ValueError("unknown Queue in Signal inputs")
     objects = list(queues) + list(signals)
     if len({id(obj) for obj in objects}) != len(objects):
         raise ValueError("duplicate resource instance; aliases must share one ID")
-    resources = [qids + tuple(len(queues) + sid for sid in sorted(set(sids)))
-                 for qids, sids in zip(queue_resources, module_signals)]
+    resources = queue_resources
     local_rules = [[] for _ in modules]
     sources = [set((0,)) for _ in queues]
     for rid, entry in enumerate(rules[1:], 1):
@@ -64,7 +68,7 @@ def assemble(queues, modules, rules, cache=True, *, module_queues=None,
     for resource_id, resource in enumerate(objects):
         resource.resource_id, resource.engine = resource_id, sim
         resource.readers, resource.reader_slots = [], []
-        resource.module_slots = [-1] * len(modules)
+        resource.module_slots = [-1] * len(modules) if resource_id < len(queues) else []
     for mid, resource_ids in enumerate(resources):
         for slot, resource_id in enumerate(resource_ids):
             resource = objects[resource_id]
@@ -73,9 +77,18 @@ def assemble(queues, modules, rules, cache=True, *, module_queues=None,
             resource.module_slots[mid] = slot
     for sid, signal in enumerate(signals):
         signal.sid, signal.input_qids = sid, inputs[sid]
-        signal.input_reads = [0] * len(signal.input_qids)
-        for slot, qid in enumerate(signal.input_qids):
-            queues[qid].signal_readers.append((sid, slot))
+        signal.dependents = {mid: [] for mid, sids in enumerate(module_signals) if sid in sids}
+        for qid in signal.input_qids:
+            queues[qid].signal_readers.append(sid)
+    for rid, sids in enumerate(rule_signals[1:], 1):
+        mid, record = rules[rid].module_id, sim.rules[rid]
+        for sid in set(sids):
+            mask = signals[sid].dependents.get(mid)
+            if not mask:
+                mask = signals[sid].dependents[mid] = [0] * sim.modules[mid].word_count
+            mask[record.word_index] |= record.bit
+    for signal in signals:
+        signal.dependents = {mid: tuple(mask) for mid, mask in sorted(signal.dependents.items())}
     for mid, module in enumerate(modules):
         if module.mid != mid:
             raise ValueError("ModuleId must match static table index")

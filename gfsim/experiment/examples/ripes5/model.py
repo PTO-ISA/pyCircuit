@@ -80,6 +80,7 @@ class CPU:
         self.sim = assemble(self.queues, modules, rules, cache,
                             module_queues=module_queues, signals=self.signals,
                             module_signals=module_signals,
+                            rule_signals=[(), (0, 1), (0, 1), (0,), (), ()],
                             signal_queues=[(self.id_ex.qid, self.ex_mem.qid, self.mem_wb.qid),
                                            (self.if_id.qid, self.id_ex.qid)])
 

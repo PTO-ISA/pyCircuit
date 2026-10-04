@@ -1,5 +1,6 @@
-#include "../examples/common.hpp"
 #include "check.hpp"
+#include "circuits/common.hpp"
+#include <gfsim/signal.hpp>
 #include <limits>
 using namespace circuits;
 namespace gfsim {
@@ -8,6 +9,8 @@ struct TestAccess {
     static void tick(Simulator &s, Tick t) { s.tick_ = t; }
     static void generation(Simulator &s, ModuleId m, Tick t) { s.modules_[m].readGen = t; }
     static void version(QueueBase &q, Tick t) { q.version_ = t; }
+    static void signalEvaluations(SignalBase &s, Tick t) { s.evaluations_ = t; }
+    static void counter(Simulator &s, Tick t) { s.stats_.moduleWork = t; }
     static auto tasks(const Simulator &s) {
         return std::pair{s.moduleTasks_.ids.data(), s.ruleTasks_.ids.data()};
     }
@@ -23,12 +26,8 @@ struct Nested {
     std::uint64_t count{};
     bool operator==(const Nested &) const = default;
 };
-void json(std::ostream &o, const NestedMeta &m) {
-    jsonList(o, m.valid, m.lanes);
-}
-void json(std::ostream &o, const Nested &n) {
-    jsonList(o, n.meta, n.count);
-}
+void json(std::ostream &o, const NestedMeta &m) { jsonList(o, m.valid, m.lanes); }
+void json(std::ostream &o, const Nested &n) { jsonList(o, n.meta, n.count); }
 // One Module invokes two independent Rules with a required control read between.
 struct PartialModule : Module {
     RuleId first{}, second{};
@@ -38,7 +37,9 @@ struct PartialModule : Module {
     Queue<Nested> &reg;
     ParameterCache<Nested> args;
     PartialModule(Queue<Word> &i, Queue<Word> &g, Queue<Word> &o, Queue<Nested> &r)
-        : input(i), gate(g), output(o), reg(r) {}
+        : input(i), gate(g), output(o), reg(r) {
+        resources.push_back(&g);
+    }
     void Work() {
         workFirst();
         auto p = read(gate);
@@ -89,10 +90,14 @@ void testComponents() {
     auto tasks = TestAccess::tasks(*n.sim);
     const auto *inputSlots = TestAccess::slots(input);
     const auto *registerSlots = TestAccess::slots(reg);
-    std::vector<const Tick *> readerAddresses;
+    std::vector<const Tick *> controlAddresses;
+    std::vector<const std::uint64_t *> bitmapAddresses;
+    for (ModuleId i = 0; i < n.sim->moduleCount(); ++i) {
+        controlAddresses.push_back(n.sim->module(i).controlReads.data());
+        bitmapAddresses.push_back(n.sim->module(i).ruleReaders.data());
+    }
     std::vector<std::size_t> slots;
     for (auto &q : n.queues) {
-        readerAddresses.push_back(q->readers().data());
         slots.push_back(q->sourceCount());
     }
     for (int t = 0; t < 12; ++t) {
@@ -112,8 +117,11 @@ void testComponents() {
     CHECK(tasks == TestAccess::tasks(*n.sim));
     CHECK(inputSlots == TestAccess::slots(input));
     CHECK(registerSlots == TestAccess::slots(reg));
+    for (ModuleId i = 0; i < n.sim->moduleCount(); ++i) {
+        CHECK(controlAddresses[i] == n.sim->module(i).controlReads.data());
+        CHECK(bitmapAddresses[i] == n.sim->module(i).ruleReaders.data());
+    }
     for (std::size_t i = 0; i < n.queues.size(); ++i) {
-        CHECK(readerAddresses[i] == n.queues[i]->readers().data());
         CHECK(slots[i] == n.queues[i]->sourceCount());
     }
     throws<std::logic_error>([&] { n.sim->bind(m.first, input, Pop); });
@@ -149,7 +157,7 @@ struct Boundary : Module {
 };
 void testBoundaries() {
     const Tick max = std::numeric_limits<Tick>::max();
-    for (int mode = 0; mode < 8; ++mode) {
+    for (int mode = 0; mode < 9; ++mode) {
         Netlist n;
         auto &q = n.queue<Word>(1, {1});
         auto &m = n.module<Boundary>(q, mode);
@@ -163,6 +171,8 @@ void testBoundaries() {
             TestAccess::tick(*n.sim, max);
         if (mode == 7)
             TestAccess::generation(*n.sim, m.mid, max);
+        if (mode == 8)
+            TestAccess::counter(*n.sim, max);
         throws<std::exception>([&] { n.sim->step(); });
         CHECK(n.sim->failed());
         throws<std::logic_error>([&] { n.sim->step(); });
@@ -195,9 +205,7 @@ struct ThrowValue {
     }
     bool operator==(const ThrowValue &) const = default;
 };
-void json(std::ostream &o, const ThrowValue &v) {
-    o << v.value;
-}
+void json(std::ostream &o, const ThrowValue &v) { o << v.value; }
 struct ThrowXfer : Module {
     RuleId rid{};
     Queue<ThrowValue> &q;
@@ -222,13 +230,43 @@ void testXferException() {
     CHECK(n.sim->failed());
     throws<std::logic_error>([&] { n.sim->step(); });
 }
+struct SignalLifetime {
+    Queue<Word> q{1, {3}, true};
+    Signal<Word> value{this, [](void *p) { return static_cast<SignalLifetime *>(p)->q.peek(); }};
+};
+void testLifetimes() {
+    SignalLifetime resources;
+    {
+        Simulator sim;
+        sim.addQueue(resources.q);
+        sim.addSignal(resources.value);
+        sim.declareInput(resources.value, resources.q);
+        sim.freeze();
+        sim.step();
+        CHECK(resources.value.value() == 3);
+    }
+    // Resource observation after runtime destruction has no dangling callback.
+    CHECK(resources.q.peek() == 3 && resources.value.value() == 3);
+    SignalLifetime overflow;
+    Simulator sim;
+    sim.addQueue(overflow.q);
+    sim.addSignal(overflow.value);
+    sim.declareInput(overflow.value, overflow.q);
+    sim.freeze();
+    TestAccess::signalEvaluations(overflow.value, std::numeric_limits<Tick>::max());
+    throws<std::overflow_error>([&] { sim.step(); });
+    CHECK(sim.failed());
+}
 void testLongPipeline();
+void testSemantics();
 int main() {
     try {
         testComponents();
         testBoundaries();
         testXferException();
+        testLifetimes();
         testLongPipeline();
+        testSemantics();
         std::cout << "native component, boundary, and 1100-stage tests passed\n";
     } catch (const std::exception &e) {
         std::cerr << e.what() << '\n';

@@ -31,7 +31,7 @@
 
 全量回归 `RIPES5_REQUIRE_NATIVE=1 python3 -m unittest discover -s gfsim/experiment -v`：52 项全部通过，零跳过，16.127 秒。包括引擎、原有 CPU、Signal、review，以及新增长循环断言、逐拍 Signal 求值上界、EX 仅在 Signal 上下文执行，以及所有唤醒必须带有变化资源槽位的检查。
 
-四份 `review-output/dependency-wakeup/after/array_sum/*.html` 由通用 ReviewTrace 生成，展示两个 Signal 的输入、求值和读者通知。测试确认每个 Signal 初始化一次、每次 Xfer 最多求值一次；开启观察器的全部行与未观察运行一致。初始化与首次 Xfer 可能同在第一个 review frame，计数分别标记。
+当次四份 HTML 由通用 ReviewTrace 生成；临时输出已清理，可通过 README 中的命令重新生成，展示两个 Signal 的输入、求值和读者通知。测试确认每个 Signal 初始化一次、每次 Xfer 最多求值一次；开启观察器的全部行与未观察运行一致。初始化与首次 Xfer 可能同在第一个 review frame，计数分别标记。
 
 ## 正式耗时
 
@@ -80,6 +80,6 @@
 
 原生 Ripes `5b8a616edcb6f0a2ddb07e78951348b72497f1e1`，VSRTL `8497dd14fe80e57efcff4c424a9a3b6363d93eb7`；完整源码／二进制 SHA256、Python 版本、主机、CPU affinity、输入散列及轮换顺序均记录在正式 JSON 中。
 
-历史记录：`baseline.json` 是生成式写法重构之前的五次初步样本；`review-output/generated-style/` 是之前的 48 组对照；`review-output/migration/` 是参考路径迁移验证。它们不代表当前模型。上一轮保留五阶段定时自唤醒的 Signal 版本保存在 `review-output/simplification/`，其源码、报告及正式计时另保存在 `after-source/`；该版本的 52 组轨迹散列与当前版本完全相同。旧的“阶段自唤醒为必需”说明已修正。`review-output/simplification/before/preliminary-timing.json` 是本轮动手前旧工具的七次单程序计时，未绑定 CPU、未预热；上面的正式结果使用统一 worker 重新测量 `56fe061` 与当前源码。
+目录清理说明（2026-10-03）：早期 baseline、迁移、自唤醒版本及其他临时轨迹已删除；本报告与 results.json／timing.json 保留上述测量的历史身份。ISA 支持已移入 Ripes5，重跑工具会记录当前源码路径和散列。
 
 本轮没有发现实现阻碍或需要修改框架的缺口。这个结论仅适用于当前寄存器 Queue + revise 表达：没有验证消费型队列、容量背压、可变访存延迟、完整 ISA、压缩指令、异常、系统调用或非对齐地址。保留固定版本 Ripes 对 JALR 的 ADD 行为，未作 ISA 修正。覆盖是有界程序验证，不是穷举证明。

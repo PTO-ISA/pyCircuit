@@ -150,7 +150,7 @@ class ReadResource:
         e = self.engine
         if e is not None:
             if e.active_signal is not None:
-                e._record_signal_read(self.resource_id)
+                e._check_signal_input(self.resource_id)
             elif e.active_module is not None:
                 e.record_read(e.active_module, self.resource_id, e.active_rule)
 
@@ -160,7 +160,8 @@ class Signal(ReadResource):
     def __init__(self, helper):
         super().__init__()
         self.helper, self.sid = helper, -1
-        self.input_qids, self.input_reads, self.read_gen = (), [], 0
+        self.input_qids, self.evaluations = (), 0
+        self.dependents = {}  # Fixed Module -> Rule dirty mask (empty for Work only).
         self._value, self.initialized = None, False
 
     @property
@@ -183,7 +184,7 @@ class Queue(ReadResource):
         self.head, self.count = 0, len(initial)
         self.qid = -1
         self.sources, self.slots = [], []
-        self.signal_readers = []  # Fixed (SignalId, Signal input slot) links.
+        self.signal_readers = []  # Fixed SignalId links.
         self.pop_rule, self.push_rule = None, None
         self.accepted, self.accepted_pop, self.used_tick = [], False, -1
 
@@ -317,6 +318,20 @@ class Simulator:
         if mid != self.active_module:
             raise RuntimeError("read outside owning Module Work")
         resource, module = self.resources[resource_id], self.modules[mid]
+        if rid is not None:
+            record = self.rules[rid]
+            if self.entries[rid].module_id != mid or not record.executing or self.active_rule != rid:
+                raise RuntimeError("read outside owning Rule Work")
+        if isinstance(resource, Signal):
+            if mid not in resource.dependents:
+                raise ValueError("undeclared Module Signal access")
+            if rid is not None:
+                mask = resource.dependents[mid]
+                if not mask or not mask[record.word_index] & record.bit:
+                    raise ValueError("undeclared Rule Signal access")
+            if self.observer is not None:
+                self.observer.read(mid, resource_id, rid)
+            return
         self.stats.reader_lookups += 1
         slot = resource.module_slots[mid]
         if slot < 0:
@@ -326,9 +341,6 @@ class Simulator:
         if rid is None:
             module.control_reads[slot] = module.read_gen + 1
         else:
-            record = self.rules[rid]
-            if self.entries[rid].module_id != mid or not record.executing or self.active_rule != rid:
-                raise RuntimeError("read outside owning Rule Work")
             offset = slot * module.word_count + record.word_index
             if not module.rule_readers[offset] & record.bit:
                 module.rule_readers[offset] |= record.bit
@@ -372,20 +384,23 @@ class Simulator:
 
     def _notify_changed(self, resource_id):
         resource = self.resources[resource_id]
+        if isinstance(resource, Signal):
+            for mid in resource.dependents:
+                self._wakeup(mid, self.tick + 1, changed_signal=resource_id)
+            return
         for mid, slot in zip(resource.readers, resource.reader_slots):
             self.stats.reader_checks += 1
             self._wakeup(mid, self.tick + 1, changed_slot=slot)
 
-    def _record_signal_read(self, qid):
+    def _check_signal_input(self, qid):
         if qid >= len(self.queues):
             raise RuntimeError("Signal helpers cannot read another Signal")
         signal = self.signals[self.active_signal]
         slot = bisect_left(signal.input_qids, qid)
         if slot == len(signal.input_qids) or signal.input_qids[slot] != qid:
             raise ValueError("undeclared Signal Queue access")
-        signal.input_reads[slot] = signal.read_gen + 1
 
-    def _eval_signals(self):
+    def _eval_signals(self, initial=False):
         while self.signal_tasks:
             sid = self.signal_tasks.take()
             signal = self.signals[sid]
@@ -396,12 +411,13 @@ class Simulator:
                 self.active_signal = None
             changed = not signal.initialized or not same_value(signal._value, value)
             self.stats.signal_work += 1
-            signal.read_gen += 1  # Replace inputs even when the result is unchanged.
+            signal.evaluations += 1  # Observation only.
             if changed:
                 signal._value, signal.initialized = value, True
                 signal.state_version += 1
                 self.stats.signal_changes += 1
-                self._notify_changed(signal.resource_id)
+                if not initial:
+                    self._notify_changed(signal.resource_id)
             if self.observer is not None:
                 self.observer.signal_eval(sid, changed)
         self.signal_tasks.clear()
@@ -456,7 +472,16 @@ class Simulator:
             raise ValueError("future event requires executing Rule and positive delay")
         self.rules[rid].wake_requests.append((mid, delay))
 
-    def _wakeup(self, mid, tick, changed_slot=None):
+    def _wakeup(self, mid, tick, changed_slot=None, *, changed_signal=None):
+        if changed_signal is not None:
+            module = self.modules[mid]
+            for word, readers in enumerate(self.resources[changed_signal].dependents[mid]):
+                self.stats.reader_checks += 1
+                self.stats.dirty_marks += (readers & ~module.dirty_words[word]).bit_count()
+                module.dirty_words[word] |= readers
+            self.stats.change_notifications += 1
+            if self.observer is not None:
+                self.observer.invalidate(mid, changed_signal)
         if changed_slot is not None:
             module = self.modules[mid]
             generation = module.control_reads[changed_slot]
@@ -584,7 +609,7 @@ class Simulator:
             for sid in range(len(self.signals)):
                 self.signal_tasks.add(sid)
             if self.signals:
-                self._eval_signals()
+                self._eval_signals(initial=True)
             for mid in range(len(self.modules)):
                 self.module_tasks.add(mid)
         while self.events and self.events[0][0] <= self.tick:
@@ -601,10 +626,8 @@ class Simulator:
         changed = [qid for qid in self.used_queues if self.queues[qid].xfer()]
         for qid in changed:
             self._notify_changed(qid)
-            for sid, slot in self.queues[qid].signal_readers:
-                signal = self.signals[sid]
-                if signal.input_reads[slot] == signal.read_gen:
-                    self.signal_tasks.add(sid)
+            for sid in self.queues[qid].signal_readers:
+                self.signal_tasks.add(sid)
         if self.signal_tasks:
             self._eval_signals()
         for rid in accepted:

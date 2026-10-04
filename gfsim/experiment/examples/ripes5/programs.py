@@ -1,7 +1,7 @@
 """Complete bounded programs; marker is ADDI x0,x0,2047, followed by a safe loop."""
 import random
-from ..riscv.isa import assemble, decode
-from ..riscv.records import INVALID, HALT
+from .isa import assemble, decode
+from .records import INVALID, HALT
 
 MARKER = 0x7ff00013
 DATA_BASE = 0x1000

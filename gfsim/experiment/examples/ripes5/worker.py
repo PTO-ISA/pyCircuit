@@ -34,7 +34,7 @@ def main():
     else:
         raise TimeoutError('benchmark marker missing')
     run_ns = time.perf_counter_ns() - start
-    signals = {s.helper.__name__: dict(initial=1, xfer=s.read_gen - 1, total=s.read_gen)
+    signals = {s.helper.__name__: dict(initial=1, xfer=s.evaluations - 1, total=s.evaluations)
                for s in cpu.sim.signals}
     print(json.dumps(dict(cycles=cpu.sim.tick, run_ns=run_ns, construct_ns=construct_ns,
                           rule_calls=cpu.sim.rule_calls[1:], module_calls=cpu.sim.module_calls,

@@ -1,0 +1,344 @@
+{
+  "date_utc": "2026-10-03T06:52:57.355138+00:00",
+  "workload": {
+    "program": "mixed_2026",
+    "loop_iterations": 1000,
+    "simulated_cycles": 137906,
+    "committed_instructions": 55014,
+    "reference_final_registers_and_memory_match": true
+  },
+  "measurement": {
+    "binary": "/tmp/acpy-ooo-build/examples/ooo/acpy-ooo-compiled",
+    "compiler": "GCC 10.3.1, -O3 -DNDEBUG",
+    "perf_cpu": 2,
+    "perf_samples": 4392,
+    "perf_lost_samples": 0,
+    "perf_event": "cycles:u",
+    "perf_call_graph": "dwarf,8192",
+    "includes": "Whole process sampling; long sim loop dominates. Timings use unmodified runner loop.",
+    "counter_probe": "Separate host linked to unchanged generated model and runtime archives; GNU --wrap delegates operations unchanged. Only sim.step is counted.",
+    "new_count_scope": "Direct operator new references from executable/static archives; shared-library internal allocations are not fully counted.",
+    "percentage_caveat": "Inclusive percentages overlap. Symbol-level categories are approximate due to inlining and incomplete unwind chains."
+  },
+  "timing": [
+    {
+      "cpu": 0,
+      "cache": true,
+      "repeats": 3,
+      "median_wall_ns_per_tick": 20754.723137499455,
+      "median_cpu_ns_per_tick": 10535.82150160254,
+      "involuntary_switches": [
+        100,
+        98,
+        99
+      ]
+    },
+    {
+      "cpu": 0,
+      "cache": false,
+      "repeats": 3,
+      "median_wall_ns_per_tick": 20679.241410816063,
+      "median_cpu_ns_per_tick": 10466.46266297333,
+      "involuntary_switches": [
+        95,
+        100,
+        101
+      ]
+    },
+    {
+      "cpu": 2,
+      "cache": true,
+      "repeats": 3,
+      "median_wall_ns_per_tick": 10353.199911533944,
+      "median_cpu_ns_per_tick": 10372.195553492955,
+      "involuntary_switches": [
+        3,
+        5,
+        2
+      ]
+    },
+    {
+      "cpu": 2,
+      "cache": false,
+      "repeats": 3,
+      "median_wall_ns_per_tick": 10381.654924368773,
+      "median_cpu_ns_per_tick": 10399.018171798183,
+      "involuntary_switches": [
+        3,
+        2,
+        3
+      ]
+    }
+  ],
+  "hardware_counters": {
+    "runs": 3,
+    "user_cycles": 11004758370,
+    "user_instructions": 21230168086,
+    "host_ipc": 1.929180757287268,
+    "host_instructions_per_sim_tick": 51315.55331409317,
+    "branch_misses": 77302130,
+    "generic_cache_references": 7768779472,
+    "generic_cache_misses": 87500994
+  },
+  "hotspots": [
+    {
+      "inclusive_percent": 31.55,
+      "self_percent": 0.09,
+      "dso": "libstdc++.so.6.0.28",
+      "symbol": "[.] __cxa_throw"
+    },
+    {
+      "inclusive_percent": 32.15,
+      "self_percent": 0.3,
+      "dso": "libgcc_s-10.3.1.so.1",
+      "symbol": "[.] _Unwind_RaiseException"
+    },
+    {
+      "inclusive_percent": 12.2,
+      "self_percent": 12.2,
+      "dso": "acpy-ooo-compiled",
+      "symbol": "[.] gfsim::Simulator::observe"
+    },
+    {
+      "inclusive_percent": 88.23,
+      "self_percent": 5.58,
+      "dso": "acpy-ooo-compiled",
+      "symbol": "[.] gfsim::Simulator::step"
+    },
+    {
+      "inclusive_percent": 13.95,
+      "self_percent": 3.06,
+      "dso": "acpy-ooo-compiled",
+      "symbol": "[.] gfsim::Simulator::visit"
+    },
+    {
+      "inclusive_percent": 4.28,
+      "self_percent": 3.26,
+      "dso": "acpy-ooo-compiled",
+      "symbol": "[.] gfsim::Simulator::notifyChanged"
+    },
+    {
+      "inclusive_percent": 9.1,
+      "self_percent": 4.16,
+      "dso": "acpy-ooo-compiled",
+      "symbol": "[.] ac_generated::Module_wake::work_wake"
+    },
+    {
+      "inclusive_percent": 8.5,
+      "self_percent": 0.07,
+      "dso": "acpy-ooo-compiled",
+      "symbol": "[.] gfsim::Signal<ac_generated::Pick>::evaluate"
+    },
+    {
+      "inclusive_percent": 0.85,
+      "self_percent": 0.85,
+      "dso": "acpy-ooo-compiled",
+      "symbol": "[.] ac_generated::decode"
+    }
+  ],
+  "counters": {
+    "cycles": 137906,
+    "retired": 55014,
+    "queues": 188,
+    "module_work": 987551,
+    "rule_work": 977550,
+    "cache_hits": 0,
+    "signal_work": 348783,
+    "reader_checks": 3690264,
+    "change_notifications": 1470153,
+    "events": 1963181,
+    "due_events": 1963162,
+    "dfs_visits": 801602,
+    "queue_checks": 2084206,
+    "accepted": 785614,
+    "capacity_edges": 163932,
+    "max_stack": 3,
+    "resource_observe_calls": 14399162,
+    "new_calls": 1011918,
+    "new_bytes": 63876176,
+    "operand_revises": 670850,
+    "operand_changes": 108942,
+    "signal_evaluations": [
+      112919,
+      119932,
+      115932
+    ],
+    "rules": [
+      {
+        "id": 1,
+        "name": "fetch",
+        "calls": 112919,
+        "aborts": 0,
+        "allocations": 5,
+        "allocation_bytes": 80,
+        "observations": 445688
+      },
+      {
+        "id": 2,
+        "name": "dispatch",
+        "calls": 108905,
+        "aborts": 1,
+        "allocations": 96961,
+        "allocation_bytes": 9306320,
+        "observations": 1105081
+      },
+      {
+        "id": 3,
+        "name": "wakeup",
+        "calls": 117931,
+        "aborts": 0,
+        "allocations": 670868,
+        "allocation_bytes": 42935280,
+        "observations": 2619029
+      },
+      {
+        "id": 4,
+        "name": "int_issue",
+        "calls": 81009,
+        "aborts": 0,
+        "allocations": 14,
+        "allocation_bytes": 400,
+        "observations": 309029
+      },
+      {
+        "id": 5,
+        "name": "mem_issue",
+        "calls": 40953,
+        "aborts": 0,
+        "allocations": 14,
+        "allocation_bytes": 400,
+        "observations": 124857
+      },
+      {
+        "id": 6,
+        "name": "integer",
+        "calls": 81008,
+        "aborts": 24004,
+        "allocations": 4,
+        "allocation_bytes": 48,
+        "observations": 251020
+      },
+      {
+        "id": 7,
+        "name": "memory",
+        "calls": 99941,
+        "aborts": 40989,
+        "allocations": 56970,
+        "allocation_bytes": 3190096,
+        "observations": 349788
+      },
+      {
+        "id": 8,
+        "name": "int_writeback",
+        "calls": 80008,
+        "aborts": 24004,
+        "allocations": 53016,
+        "allocation_bytes": 2544480,
+        "observations": 351025
+      },
+      {
+        "id": 9,
+        "name": "mem_writeback",
+        "calls": 37977,
+        "aborts": 18989,
+        "allocations": 18012,
+        "allocation_bytes": 864304,
+        "observations": 129953
+      },
+      {
+        "id": 10,
+        "name": "commit",
+        "calls": 78993,
+        "aborts": 0,
+        "allocations": 116044,
+        "allocation_bytes": 5033696,
+        "observations": 458008
+      },
+      {
+        "id": 11,
+        "name": "clock",
+        "calls": 137906,
+        "aborts": 0,
+        "allocations": 4,
+        "allocation_bytes": 64,
+        "observations": 413718
+      }
+    ],
+    "allocation_sizes": {
+      "8": 22,
+      "16": 22,
+      "24": 55014,
+      "32": 6086,
+      "48": 71003,
+      "56": 56964,
+      "64": 725871,
+      "96": 96930,
+      "128": 3,
+      "256": 2,
+      "512": 1
+    },
+    "struct_sizes": {
+      "Entry": 96,
+      "Operands": 64,
+      "Completion": 48,
+      "Pending": 56
+    }
+  },
+  "derived": {
+    "empty_input_aborts": 107987,
+    "aborts_per_tick": 0.7830478731889838,
+    "resource_observations_per_tick": 104.4128754368918,
+    "new_calls_per_tick": 7.337737299319826,
+    "unchanged_operand_revises": 561908,
+    "unchanged_operand_fraction": 0.8376060222106283,
+    "wakeup_allocation_fraction": 0.6629667621289472,
+    "events_per_tick": 14.235646019752584,
+    "queue_checks_per_tick": 15.113236552434266
+  },
+  "conclusions": [
+    "Empty Queue inputs use C++ exceptions as routine control flow: 107987 aborts, about 32% inclusive exception/unwind samples.",
+    "Wakeup revises every live slot even when operands did not change; 83.76% of its 670850 revisions leave the Queue value unchanged.",
+    "Type-erased revise callbacks capture 64-byte Operands by value and allocate; Wakeup accounts for 66.3% of the counted new calls.",
+    "Resource observation is invoked about 104 times per simulated tick; Simulator::observe alone accounts for 12.2% self samples.",
+    "Notifications enqueue about 14 wake events per tick; module work runs about 7 times per tick. Deduplication happens after heap insertion.",
+    "Rule cache hits remain zero in both the short and long workload. Cache on/off produces identical deterministic counters.",
+    "CPU 0 is currently preempted substantially. CPU 2 steady measurements are about 10.35 microseconds/tick, close to the original short-run result."
+  ],
+  "optimization_priorities": [
+    "Model-only: avoid unchanged operand revisions while preserving wakeup independence and exact cycle traces.",
+    "Compiler/runtime follow-up: represent expected missing input through a non-throwing path with identical dependency recording and Rule abort semantics.",
+    "Runtime follow-up: avoid heap allocation for fixed typed revise payloads; reduce redundant resource observation and duplicate wake heap entries.",
+    "Optimize oldest-ready scans after these measured costs; their inclusive sampled cost is about 8.5%, not the leading hot path."
+  ],
+  "artifacts": {
+    "counters-cache0.json": "020c11c31ce4c7d821988b7b0b34d562a1c68d385c1eb9cabdfd35c95d68afbe",
+    "counters-cache1.json": "020c11c31ce4c7d821988b7b0b34d562a1c68d385c1eb9cabdfd35c95d68afbe",
+    "counters-detailed.json": "86d28e2aaf077b83123c1e4ca809b5872fea04b1f63267cc5317de221600da76",
+    "long-cache0.input.txt": "e16c76b23523bc8b9758acadda7b860f9ec1f0cf213ec97ca54e7753f0c78fbf",
+    "long-cache1.input.txt": "ca4055ce9fd0a16751db2de35e9cfcc27d87ffd592928b541c2d2ddc44b08e17",
+    "long-reference.json": "802ef977e33a6840fb0af536e8372e99f908188c1dddffd7d4a35edf20274a5b",
+    "long-timing.json": "6a5dc9876cdf3584394e9a39f16556c0692c75cfb2bc8f3b40d254fac32a825e",
+    "measure.py": "dff8688def8f65f975031e206d09257ec41dd1e37454013c8f743c4ca43402ed",
+    "mixed_2026_long.s": "936b81486ffcf4dde359ada16ecccb813d18b660d682c97cc2a9ddc3c437eaa7",
+    "perf-cpu2-inclusive.txt": "2f485d794436c3569aae8210ecf78f1cd044366a34967d934755ac5a0b52f561",
+    "perf-cpu2-run.json": "0d8a20ddcb6a0f9e63441f5d5464eaab6aad51f1ae1d8f1f6bbcbf94cba34419",
+    "perf-cpu2-self.txt": "248383172ff5b7a39e69f93ee97311c7fe506e636baefd18397c0e2a1068a7de",
+    "perf-final-inclusive.txt": "841de5c35af2225ea95345672bfbd37d9f5cb074d9fadc3be6e680f0a9d852d7",
+    "perf-final-run.jsonl": "123cec3328960dc75bdd9cc93142cd64d0841922c1271093ed1c992b9e167a6f",
+    "perf-final-self.txt": "bd9d964fedd0e8c74724be45e8ab5cd6d4992948cb13df892e40fcc02e7f92d6",
+    "perf-final-stat-runs.jsonl": "7a89afba731c5b910ee5b1d79a278373f06032f322fa36f9f76e20732b237268",
+    "perf-final-stat.txt": "22ec3e1e8e1d48cc1b91d78cac09d4c3749d584c9649dbb0e728e9b9fbca69b7",
+    "perf-run.json": "97e01e81f2a335caae7601369bde1c2666b431b0175f8e0c677b06ef9ec0917d",
+    "perf-self.txt": "6654221815011ea84943a8a3d3a2c6bd0b3e022fe98b8a436aab0f3305827ead",
+    "perf-stat.txt": "bb6f0540719a2e917a90ae42b8e59b0874f00050c5709ae6e7092a439d89c5a8",
+    "probe.cpp": "574626b86f30290c889eab2b43626c26350bbe5867bba65855aba3f323db44e9",
+    "record.sh": "ec0042dea31078fa32ddedd21f4100ef4cc915a7da494e84d92b1406ec45c280",
+    "summarize.py": "1dc67e0c1b0c0069987af27f7b7b88522c43a3c4b5767e051ed36806bf2df783"
+  },
+  "source_fingerprints": {
+    "/tmp/acpy-ooo-build/examples/ooo/acpy-ooo-compiled": "c579f72817acae6673a15fe6d4215cfae62378a7014a6ee7bd812d60f93ee8da",
+    "/home/lc/tmp/gfsim/cpp/src/simulator.cpp": "d9b53a6bd2f67f1c6d45ea86ae449b81f92213683b30666fab2712ecdad7081c",
+    "/home/lc/tmp/gfsim/cpp/include/gfsim/queue.hpp": "4cb4caa8a5a57ec3d98207d1c96118e224f74015755f90f26de8db7904693b05",
+    "/home/lc/tmp/pycircuit/examples/ooo/issue.py": "aa0080c98b8bd6267e501e227cbdfaf7508c71a4135bcb192fa8fd41d75ac1ee"
+  }
+}

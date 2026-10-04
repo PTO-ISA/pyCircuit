@@ -30,6 +30,8 @@ def main():
     parser.add_argument('--qt-prefix', type=Path, default=Path('/tmp/gfsim-ripes-qt'))
     parser.add_argument('--cxx', default='/home/lc/opt/gcc14/bin/aarch64-conda-linux-gnu-g++')
     parser.add_argument('-j', type=int, default=8)
+    parser.add_argument('--release-flags', default='-O3 -DNDEBUG')
+    parser.add_argument('--reference-only', action='store_true')
     parser.add_argument('--fresh', action='store_true', help='discard CMake configuration cache before configuring')
     args = parser.parse_args()
     lock = json.loads((HERE / 'version.json').read_text())
@@ -52,13 +54,17 @@ def main():
     command('cmake', *(['--fresh'] if args.fresh else []), '-S', args.source, '-B', args.build,
             '-DCMAKE_BUILD_TYPE=Release', f'-DCMAKE_PREFIX_PATH={args.qt_prefix}',
             f'-DCMAKE_CXX_COMPILER={args.cxx}',
+            f'-DCMAKE_CXX_FLAGS_RELEASE={args.release_flags}',
+            '-DCMAKE_CXX_EXTENSIONS=OFF', '-DCMAKE_INTERPROCEDURAL_OPTIMIZATION=OFF',
             f'-DCMAKE_PROJECT_Ripes_INCLUDE={HERE / "inject.cmake"}', *dependencies)
     for name, sha in lock['fetchcontent'].items():
         verify(args.build / '_deps' / f'{name}-src', sha)
     env = os.environ.copy()
     env.setdefault('CCACHE_DIR', '/tmp/gfsim-ripes-ccache')
-    command('cmake', '--build', args.build, '--target', 'Ripes', 'ripes5-reference', '-j', args.j, env=env)
-    print(f'Built original CLI: {args.build / "Ripes"}')
+    targets = ['ripes5-reference'] if args.reference_only else ['Ripes', 'ripes5-reference']
+    command('cmake', '--build', args.build, '--target', *targets, '-j', args.j, env=env)
+    if not args.reference_only:
+        print(f'Built original CLI: {args.build / "Ripes"}')
     print(f'Built reference: {args.build / "ripes5-reference"}')
 
 

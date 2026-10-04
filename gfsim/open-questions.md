@@ -7,7 +7,7 @@
 ## Q02. 父子 Module 的构造、调用与激活
 
 - 本轮范围：平级 Module 通过 Queue 交换持久效果；同一 Module 可以向成员 Rule 传普通 var，按值比较并标记 dirty。
-- 已实现：Signal 从 Queue current 派生，全部 Xfer 后求值；Module／Rule 均可只读访问，值变化使用资源槽位唤醒与标脏。不属于 Module 向 Module 直接写 var，也不引入 delta Work。
+- 已实现：Signal 从 Queue current 派生，全部 Xfer 后求值；Module／Rule 均可只读访问，输出变化使用静态 Module 关系与 Rule 掩码唤醒和标脏。不属于 Module 向 Module 直接写 var，也不引入 delta Work。
 - 下一步：Signal 之间的依赖，以及 Module→Module var 的传播顺序、动态依赖、delta Work 与环检测尚未定义；本轮未实现，不能把它视为已有接口。
 - 未决：父 Module 调用子 Module 是构造连接、直接执行 Work，还是提交激活任务？父控制分支是否限制子 Module 本 tick 的独立 Queue 唤醒？
 - 影响：父子 Module 的 workedTick、Work 屏障和控制选择。现有平级调度实验没有覆盖这些语义。
@@ -39,7 +39,7 @@
 - 未决：来源 0 如何完成 proposal、仲裁、确认和提交，外部状态输入如何进入仿真。
 - 已确定：获准 pop 只通知已有完整候选的唯一生产者仲裁。候选提交后已清空时，这类通知不为源 Module 运行 Work。
 - 已确定：来源 0 不绕过原子规则，不自动组成跨 Queue 事务；每个 Queue 的 pop/push 来源分别至多一个 Rule，当前不加检测，违反时不保证运行结果。多 revise 等端口竞争不在本版范围。
-- 影响：外部更新须统一遵守 current/Xfer/通知边界。当前 riscv 实验通过程序 ROM 执行指令输入工作负载，未提供来源 0 外部驱动协议；旧 `step(wake=...)` 已移除。
+- 影响：外部更新须统一遵守 current/Xfer/通知边界。当前 Ripes5 实验通过程序 ROM 执行指令输入工作负载，未提供来源 0 外部驱动协议；旧 `step(wake=...)` 已移除。
 
 <a id="q11"></a>
 
@@ -62,12 +62,26 @@
 
 <a id="q14"></a>
 
-## Q14. 读者布局与成本（Python 方案已确定，C++ 待迁移）
+## Q14. 读者布局与成本（Python 与 C++ 已实现）
 
 - 已确定：Queue 保存固定可能读者链接用于通知；新增按 ModuleId 索引的 module_slots 数组，直接定位局部资源槽位，未声明为 -1。所有映射在构造时确定。
 - 已实现：Module 控制读取保留代号；Rule 实际读取用每资源位图、Rule readSlots 和 Module dirtyWords 管理。缓存命中不续订；重算／未选中才删除旧 Rule 读取关系；提交／abort 保留。
 - 正确性条件：可访问资源声明覆盖所有分支和动态数组表项，别名归一；实际通知依据运行时读者位，不能静态标脏全部 Rule。省略 Python module_queues 时保守允许全部 Queue，用于兼容旧例子。
-- 成本：每 Module A 个资源、R 条 Rule 时，需要 A×ceil(R/64) 个读者字，另有 A 个控制代号、ceil(R/64) 个 dirty 字及固定链接。本次选择直接数组映射，额外增加 (QueueCount + SignalCount)×ModuleCount 个槽位项，需计入空间，不能再宣称总元数据完全稀疏。大资源表／多 Rule 的稠密位图成本需要后续负载测量。
-- 已实现：读取接口根据 activeModule/activeRule 自动登记依赖，读取与消费仍分离；见 [两项改进报告](experiment/read-tracking.md)。
-- 已实现：Signal 复用 Module 的资源槽位与 Rule 读者位图；Signal 自己的 Queue 输入使用固定链接和读取代号，额外空间随可能连接数增长，不增加 QueueCount×SignalCount 全量映射。
-- 待办：C++ 移植、真实性能与进一步布局优化。本轮 Python riscv 功能对齐，但计时比旧实现慢，见 [实验报告](experiment/report.md)，不预设 C++ 性能结论。
+- 成本：每 Module A 个 Queue、R 条 Rule 时，需要 A×ceil(R/64) 个读者字，另有 A 个控制代号、ceil(R/64) 个 dirty 字及固定链接。本次选择直接数组映射，额外增加 (QueueCount + SignalCount)×ModuleCount 个槽位项，需计入空间，不能再宣称总元数据完全稀疏。大资源表／多 Rule 的稠密位图成本需要后续负载测量。
+- 已实现：读取接口根据 activeModule/activeRule 自动登记依赖，读取与消费仍分离。
+- 已实现：Signal 独立保存按 Module 分组的固定 Rule dirty 掩码；Signal 自己的 Queue 输入使用固定链接，不登记实际输入代号，额外空间随可能连接数增长，不增加 QueueCount×SignalCount 全量映射。
+- 已实现：C++ 自动登记、Module 局部位图、跨 64 位读者、Signal 静态输入与输出过滤及无效果候选缓存。固定槽位映射、来源槽位和任务缓冲在 freeze 后地址稳定；缓存命中不扫描版本或重新登记读取。
+- 已实现：C++、当前 Python、固定原生 Ripes 的三方逐拍验收与同 CPU 串行测速，入口见 [C++ Ripes5](cpp/examples/ripes5/README.md)。具体结果见 [报告](cpp/report.md)，不预设普遍加速比。
+- 待办：更多编译器负载下的布局成本和性能测量，以及进一步的稀疏布局优化。
+
+<a id="q15"></a>
+
+## Q15. 前端 lowering 与 C++ 值类型的边界
+
+- 本轮交付：可安装 runtime 和按未来输出形态手写的 Ripes5；实际 pyCircuit 前端／代码生成器接入另行完成。静态绑定表、普通 Module/Rule 成员函数、Signal helper 与宿主 testbench 已分开，见 [操作映射](cpp/README.md#编译操作对应)。
+- 已支持：bool、标准定宽整数、std::array、嵌套值 struct；字段式比较，成员指针路径按值捕获并在 Xfer 赋值。Queue array 每项独立注册，构造后固定身份。
+- 未决：AC 任意位宽整数、bit-field、动态 struct 数组字段路径和指针／可选对象路径如何 lowering；当前不能映射为已有成员指针接口，也没有新增动态路径 ABI。
+- 生成要求：C++ 的有符号溢出和部分整数提升不能直接当成硬件位宽运算；当前模型使用 uint32 与显式符号位比较。前端须给出完整位宽转换规则。
+- 未决：同一候选重叠字段 revise 的源码语义及诊断责任。当前样例使用不重叠字段或单次整值替换，不把延迟动作的插入顺序提升为 ACIR 冲突语义。
+- 已实现检查：未注册／其他实例的资源读取、Signal 之间读取、helper 修改或请求事件均报错；Signal 声明完整性由构造保证，Debug 检查实际访问，Release 不逐次查找输入声明表。无法通过 runtime 证明 helper 没有读取普通可变宿主成员；纯性仍须由生成器保证。
+- 生命周期约束：资源对象不移动，Queue/Signal 必须存活到 Simulator 析构完成；runtime 解除回调绑定，不提供重新 attach、快照恢复或模块析构通知协议。

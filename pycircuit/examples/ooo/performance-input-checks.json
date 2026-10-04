@@ -1,0 +1,249 @@
+{
+  "date_utc": "2026-10-03T07:42:04.846815+00:00",
+  "change": "ACPy backend uses guarded tryPeek and explicit Rule abort / Module return for required inputs; standalone pop/revise check nonempty unless already proven in the same path. GFSim implementation and CPU model unchanged.",
+  "compatibility": "NeedInput catch remains for legacy resource helper calls. Unguarded Signal reads retain fatal-error semantics.",
+  "verification": {
+    "ctest_tests": 13,
+    "ctest_failures": 0,
+    "compiler_contract_tests": 18,
+    "full_cycle_traces_matching_before": 160,
+    "ooo_acir_unchanged": true,
+    "runtime_and_cpu_sources_unchanged": true,
+    "long_cycles": 137906,
+    "long_commits": 55014,
+    "independent_reference_final_state_match": true,
+    "all_scheduler_counters_match": true,
+    "rule_aborts_before": 107987,
+    "rule_aborts_after": 107987,
+    "need_input_throws_after_by_cache": [
+      0,
+      0
+    ],
+    "full_cycle_trace_sha256": {
+      "congestion": "584986ab9128639f8cf4f1ba46e0808002654520938e3f0879642dc7b3dc283b",
+      "dual_issue": "efab3ed407990b7eaee4b50d9e8464d5a2f8a16abf4ced43146e8fe8e07e4e91",
+      "fetch_bounds": "92950a556a2716e3e5ebab1f062e24f86e19507c47237db514c13e9c1c1a9d08",
+      "fetch_fault": "9fa4244ab35ce4c2589076381178e3346531b06a05be60512d45a57f47920fb4",
+      "inflight": "42e8c3959ba571e8a08564b1cc5cdbaed8087315b131e2c363f7375dcfc007c6",
+      "invalid": "8d6d156ac0fe00351fe038ac8400c13c094405ba847b52d42bb81dd29efb9f19",
+      "isa": "455e50ef3943719e28f37d8e441bbf7731a30700d808f29484724b02e53bd9ce",
+      "latency": "46db6cb1b37a68e452ed3b907356b6f4c9bd0638b9e8888e9f6314460509c218",
+      "memory": "fc4ed158ae4b142e9f7407b2f466341cc99aa887a6ccd36e469a8de6fdd459fa",
+      "mixed_2026": "ec936ad7c3172cfb08896b56d11ded64a7590485d0c09cc1f9cc0c19fcb34ac3",
+      "mixed_65537": "22e35e47e39fbb301f81bc475e2bb69fbc72c8c1dda8224306af656ee58f8fc6",
+      "mixed_7": "849a772c460969ecb68423bca533557c31a3d54f607794572137f317ab1159a5",
+      "precise_load_fault": "b4238ad5399967ef46381a5c4b51e6199ae6b4ab22758412169e01acad12265a",
+      "precise_store_fault": "5b59bbdd1edc118fa890d010d928a679edf5251fccefc0d748341923b07e3c76",
+      "recovery": "dfe23c736b521832e6f9b7e267e6f340ab6d10a28398f835122525abe9b6a6bd",
+      "rename": "547ce4414759bd336599e5de9f61d3ec8a517ff10ed609ca34f9ddbf2398ae60",
+      "memory_blocked": "2d4f4f8c356e00ec136abbb8f821a535b01904b85712083064e25df0ddd0f30d",
+      "mixed_2026_blocked": "d15dd4fa7c7f417f23d074b0023a583e32691417a54240e096e86f7b2481d98d",
+      "recovery_blocked": "1f5253a232ff82fe3d93e77814a168c65d75b462931a6f848b6e6a4330164691",
+      "rename_blocked": "d85ab043d666135db22398a388a805e02b81896dc5767691849d21e8dfe3fc4b"
+    }
+  },
+  "measurement": {
+    "workload": "mixed_2026 with 1000 loop iterations",
+    "cpu": 2,
+    "compiler": "GCC 10.3.1, C++20, -O3 -DNDEBUG",
+    "warmups_per_configuration": 1,
+    "serial_rotated_samples_per_configuration": 7,
+    "timing": "Uninstrumented original runners, simulation loop only; construction, snapshots and JSON excluded. Process CPU time is separately recorded and includes startup.",
+    "diagnostic": "Separate observational host linked to the generated model and unchanged runtime; GNU wrappers delegate every operation and count NeedInput throws. Instrumented timing is not used.",
+    "input_sha256": {
+      "cache0": "e16c76b23523bc8b9758acadda7b860f9ec1f0cf213ec97ca54e7753f0c78fbf",
+      "cache1": "ca4055ce9fd0a16751db2de35e9cfcc27d87ffd592928b541c2d2ddc44b08e17"
+    }
+  },
+  "timing": [
+    {
+      "variant": "before",
+      "cache": false,
+      "repeats": 7,
+      "median_ns_per_tick": 10377.065240091077,
+      "median_process_cpu_ns_per_tick": 10395.124215045034,
+      "binary_sha256": "c579f72817acae6673a15fe6d4215cfae62378a7014a6ee7bd812d60f93ee8da"
+    },
+    {
+      "variant": "before",
+      "cache": true,
+      "repeats": 7,
+      "median_ns_per_tick": 10469.265775238206,
+      "median_process_cpu_ns_per_tick": 10484.373413774596,
+      "binary_sha256": "c579f72817acae6673a15fe6d4215cfae62378a7014a6ee7bd812d60f93ee8da"
+    },
+    {
+      "variant": "after",
+      "cache": false,
+      "repeats": 7,
+      "median_ns_per_tick": 6422.310769654692,
+      "median_process_cpu_ns_per_tick": 6445.397589662523,
+      "binary_sha256": "43702d799cfa95669c6292bc7aea456151c5cc98eb2007797502bdd81d466922"
+    },
+    {
+      "variant": "after",
+      "cache": true,
+      "repeats": 7,
+      "median_ns_per_tick": 6470.344256232506,
+      "median_process_cpu_ns_per_tick": 6495.641959015561,
+      "binary_sha256": "43702d799cfa95669c6292bc7aea456151c5cc98eb2007797502bdd81d466922"
+    }
+  ],
+  "speedups": [
+    {
+      "cache": false,
+      "speedup": 1.615783728361843,
+      "time_reduction": 0.381105291229881,
+      "before_ticks_per_second": 96366.35954995916,
+      "after_ticks_per_second": 155707.19572229093
+    },
+    {
+      "cache": true,
+      "speedup": 1.6180384475144072,
+      "time_reduction": 0.3819677143419078,
+      "before_ticks_per_second": 95517.6820866645,
+      "after_ticks_per_second": 154551.28203368132
+    }
+  ],
+  "diagnostic_counts": {
+    "resource_observe_calls": {
+      "before": 14399162,
+      "after": 15477906
+    },
+    "new_calls": {
+      "before": 1011918,
+      "after": 1011918
+    },
+    "new_bytes": {
+      "before": 63876176,
+      "after": 63876176
+    }
+  },
+  "note": "Explicit checks for revise targets add resource observations. The existing conservative proof only removes checks dominated by an unconditional or identical-guard check. Other measured performance issues are unchanged.",
+  "source_sha256": {
+    "pycircuit/backend.py": "5d0a67182bbd92bce66b9d8a73fff46c7e3b1b887bb46ba9489660554e26daf3",
+    "pycircuit/support.hpp": "69e6fe1fcc7759d96852e1cb8e9b586b78c1fb86b30b8d7db77e13d583a8219a",
+    "pycircuit/tests/test_compiler.py": "9eabf6f1582b5089c7c895f9177853ac5808db370cb44d0f10f4e12c6c1e3730",
+    "pycircuit/tests/circuits.py": "b80db9dc892ecb43ef8d577636f6b8b0c76d9a32745368e626d30f4e2e61fb28",
+    "pycircuit/examples/ooo/runner.cpp": "25a157456480c9f72cd3bebebf6096f1c25e7c3dc699bc756f235008e17527e7",
+    "gfsim/cpp/include/gfsim/queue.hpp": "4cb4caa8a5a57ec3d98207d1c96118e224f74015755f90f26de8db7904693b05",
+    "gfsim/cpp/include/gfsim/signal.hpp": "a07f9c21fe0e42f201cd41b25322e18b91b97a303ebf191be5f26e13ff0f3ccb",
+    "gfsim/cpp/include/gfsim/simulator.hpp": "09c6b2c23cbbb54fd838e7c51771fa55648ebf0b83500a46a8dbff3a0911c158",
+    "gfsim/cpp/src/simulator.cpp": "d9b53a6bd2f67f1c6d45ea86ae449b81f92213683b30666fab2712ecdad7081c",
+    "pycircuit/examples/ooo/model.py": "c3594f54e9b3c246a63cf2ba06c5ebf0846d8acf9d15664f814f1a652a202d95",
+    "pycircuit/examples/ooo/types.py": "49f2e7e63fc198d8080562817e9431edce5f14398638b72f23ffd435c2fe882f",
+    "pycircuit/examples/ooo/frontend.py": "a8a84e0155a4f67547ed466f1cc4963e78a1732a1ee70f1d44eb4fe21049b97f",
+    "pycircuit/examples/ooo/issue.py": "aa0080c98b8bd6267e501e227cbdfaf7508c71a4135bcb192fa8fd41d75ac1ee",
+    "pycircuit/examples/ooo/execute.py": "0c3da8c4f8861354955b742c1c427da98a2bdfbab748efe9f0b49d3a8aa6a40c",
+    "pycircuit/examples/ooo/commit.py": "fa20463a8bdd94808cae7f27cf9bfc3bb3b40ed298f3092389e05df85bd74772"
+  },
+  "backend_before_sha256": "18522306433093ca25c9638c55599552e543b552de6245e0739cea29658d5a38",
+  "artifacts_sha256": {
+    "/tmp/acpy-input-lowering-ctest.xml": "5196d34a0c86105ef4223404d148a6fad04d93daa22b579445d0aedfb90dae79",
+    "/home/lc/tmp/pycircuit/examples/ooo/output/input-lowering/measure.py": "b8a02554956920031d1f530a204c11a811715970e903efb362d1e596ce01d58a",
+    "/home/lc/tmp/pycircuit/examples/ooo/output/input-lowering/timing.json": "2fc35dd22e30496593bd3a861a5ed6268632dd0948589d2f0eff083fe3a90a11",
+    "/home/lc/tmp/pycircuit/examples/ooo/output/input-lowering/counters-cache1.json": "223fbefd8e0f3fedae18608a68bdd5d22bb68e13ec003799742841463dbad1fc",
+    "/home/lc/tmp/pycircuit/examples/ooo/output/input-lowering/throws.cpp": "b0c8690d9d6890833219de448d88e40991bd3b228f78baa1c74da6052b1a722f"
+  },
+  "post_change_profile": {
+    "date_utc": "2026-10-03T07:51:26.000015+00:00",
+    "runs": 5,
+    "cpu": 2,
+    "event": "cycles:u",
+    "frequency": 997,
+    "samples": 4536,
+    "lost_samples": 0,
+    "note": "Uninstrumented binary, whole-process sampling; simulation loop dominates. Inclusive percentages overlap. Counters are from the separate diagnostic run of the same binary model.",
+    "hotspots": [
+      {
+        "symbol": "gfsim::Simulator::step",
+        "self_percent": 8.89,
+        "inclusive_percent": 85.38
+      },
+      {
+        "symbol": "gfsim::Simulator::visit",
+        "self_percent": 4.24,
+        "inclusive_percent": 22.83
+      },
+      {
+        "symbol": "gfsim::Simulator::observe",
+        "self_percent": 19.83,
+        "inclusive_percent": 19.83
+      },
+      {
+        "symbol": "ac_generated::Module_wake::work_wake",
+        "self_percent": 6.62,
+        "inclusive_percent": 14.0
+      },
+      {
+        "symbol": "gfsim::Signal<ac_generated::Pick>::evaluate",
+        "self_percent": 0.09,
+        "inclusive_percent": 11.37
+      },
+      {
+        "symbol": "gfsim::Simulator::notifyChanged",
+        "self_percent": 4.7,
+        "inclusive_percent": 6.64
+      },
+      {
+        "symbol": "gfsim::Simulator::wakeup",
+        "self_percent": 1.94,
+        "inclusive_percent": 1.94
+      },
+      {
+        "symbol": "operator new",
+        "self_percent": 0.18,
+        "inclusive_percent": 1.59
+      },
+      {
+        "symbol": "cfree",
+        "self_percent": 0.68,
+        "inclusive_percent": 1.55
+      },
+      {
+        "symbol": "malloc",
+        "self_percent": 1.22,
+        "inclusive_percent": 1.22
+      },
+      {
+        "symbol": "ac_generated::decode",
+        "self_percent": 1.04,
+        "inclusive_percent": 1.04
+      }
+    ],
+    "observations_per_tick": 112.23518918683742,
+    "operand_revisions": 670850,
+    "unchanged_operand_revisions": 561908,
+    "new_calls": 1011918,
+    "new_calls_scope": "Direct references from executable and static archives; shared-library internal allocations are not fully counted.",
+    "wakeup_share_of_new_calls": 0.6629667621289472,
+    "wake_events_per_tick": 14.235646019752584,
+    "module_work_per_tick": 7.161044479573042,
+    "cache_hits": 0,
+    "artifact_sha256": {
+      "pycircuit/examples/ooo/output/input-lowering/profile-current.sh": "ac111d3a0330ec124478d4d873a77745a4ab7896fd6c80864fb5b6d53e3c4efa",
+      "pycircuit/examples/ooo/output/input-lowering/perf-current.data": "5b88a6f08ab26889df7ca8219d58ca87e4d1cc6a39f64fd09c15df39a6545db8",
+      "pycircuit/examples/ooo/output/input-lowering/perf-current-self.txt": "3799ae1db213ce49042e758504fccc48b662158f696f5fff3ccfeb19a02c49a0",
+      "pycircuit/examples/ooo/output/input-lowering/perf-current-inclusive.txt": "9543e091812e09b73ddef672f9f29a7deeab340d9d4f230cc128f924692861dd"
+    }
+  },
+  "resource_observation_breakdown": {
+    "scope": "Wrapped ResourceBase::observe entries inside sim.step only. Identity is the actual resource pointer; uniqueness is per simulated tick. Rule grouping uses begin/complete/abort wrappers. Direct Simulator::observe calls are outside this count. Timing from this diagnostic is not used.",
+    "cycles": 137906,
+    "total_queues": 188,
+    "average_distinct_queues_per_tick": 31.468855597290908,
+    "max_distinct_queues_per_tick": 43,
+    "average_queue_observations_per_tick": 109.82912273577654,
+    "average_signal_observations_per_tick": 2.4060664510608674,
+    "average_distinct_signals_per_tick": 1.703196380142996,
+    "average_all_observations_per_tick": 112.23518918683742,
+    "repeated_observations_within_same_rule_and_tick": 2833144,
+    "repeated_observations_within_same_rule_and_tick_per_tick": 20.544022740127332,
+    "caveat": "Repeated observations are not all redundant: different Rule/Signal readers need separate dependencies, and runtime checks contribute even inside one Rule. Scheduler observations can enter observe without recording Work dependencies.",
+    "matches_previous_observation_total_and_architectural_state": true,
+    "artifact_sha256": {
+      "pycircuit/examples/ooo/output/input-lowering/unique-probe.cpp": "df34a9fa83dbfd6d519691c7895ae309990a7e5190aa227a0f6cef54ea730218",
+      "pycircuit/examples/ooo/output/input-lowering/unique-observations.json": "dd79b86ff9c59eda8444aeabdb983e8ecc6e70261dac50f252e4622a1a2b0358"
+    }
+  }
+}

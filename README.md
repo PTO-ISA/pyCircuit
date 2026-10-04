@@ -4,11 +4,12 @@
 
 | 文档 | 用途 |
 | --- | --- |
-| [GFSim 框架 spec](gfsim/spec.md) | 对象职责、生成代码、记录布局、跨 tick 激活与复用、同 tick 仲裁、Queue 提交及验收要求 |
+| [GFSim 框架 spec](gfsim/spec.md) | 对象职责、生成代码、记录布局、跨 tick 激活与复用、同 tick 仲裁、Queue 提交 |
 | [GFSim 待决问题](gfsim/open-questions.md) | 尚未确定的语义、现有设计缺口和实现边界；不作为已支持能力 |
 | [ACIR 编译契约](acir/rule.md) | Python/HIR/ACIR 的资源与路径表示，以及 GFSim、RTL 后端所需信息 |
+| [独立 ACPy 编译器](pycircuit/README.md) | AST → 类型化 HIR → 可重载 ACIR → GFSim C++；完整 Ripes5 及消息电路验收 |
 | [C++20 GFSim 核心](gfsim/cpp/README.md) | 独立构建安装、生成式接口、完整电路参考对照、原生验收及性能基准 |
-| [Python 调度实验](gfsim/experiment/README.md) | 当前代码、运行方法、验证范围和性能计数 |
+| [Python 调度实验](gfsim/experiment/README.md) | 通用引擎与 Ripes5 示例、运行方法和性能计数 |
 
 GFSim 的运行时契约统一以 spec 为入口。原 Module、Rule、Queue、Struct、调度、缓存和读取记录草稿已合并移除；历史版本保留在 Git 中。
 

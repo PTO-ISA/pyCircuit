@@ -17,7 +17,7 @@ template <class T> class Queue final : public QueueBase {
         enum Status { Empty, Pending, Accepted } status{Empty};
         bool pop{};
         std::optional<T> push;
-        std::vector<std::function<bool(T &)>> revises;
+        std::vector<std::function<void(T &)>> revises;
         void clear() {
             pop = false;
             push.reset();
@@ -42,7 +42,7 @@ template <class T> class Queue final : public QueueBase {
         auto &s = slot(r);
         if (!(s.allowed & op))
             throw std::logic_error("undeclared Queue operation");
-        prepare(r, op != Push);
+        prepare(r, op != Push, s.status == Slot::Empty);
         s.status = Slot::Pending;
         return s;
     }
@@ -102,9 +102,17 @@ template <class T> class Queue final : public QueueBase {
     }
     bool xfer() override {
         bool modified = false;
+        std::optional<T> oldTail;
+        for (auto index : accepted_)
+            if (!slots_[index].revises.empty()) {
+                oldTail = *data_[(head_ + count_ - 1) % capacity()];
+                break;
+            }
         for (auto index : accepted_)
             for (const auto &revise : slots_[index].revises)
-                modified |= revise(*data_[(head_ + count_ - 1) % capacity()]);
+                revise(*data_[(head_ + count_ - 1) % capacity()]);
+        if (oldTail)
+            modified = !(*oldTail == *data_[(head_ + count_ - 1) % capacity()]);
         if (acceptedPop_) {
             data_[head_].reset();
             head_ = (head_ + 1) % capacity();
@@ -137,15 +145,19 @@ template <class T> class Queue final : public QueueBase {
             data_[i] = std::move(initial[i]);
     }
     std::size_t capacity() const override { return data_.size(); }
-    std::size_t size() const override { return count_; }
+    std::size_t size() const override {
+        observe();
+        return count_;
+    }
     std::size_t sourceCount() const override { return slots_.size(); }
     const T *tryPeek() const { return empty() ? nullptr : &*data_[head_]; }
     const T &peek() const {
         if (empty())
-            throw std::logic_error("peek on empty Queue; generated code must abort explicitly");
+            throw NeedInput();
         return *data_[head_];
     }
     const T &at(std::size_t i) const {
+        observe();
         if (i >= count_)
             throw std::out_of_range("Queue current index");
         return *data_[(head_ + i) % capacity()];
@@ -173,14 +185,9 @@ template <class T> class Queue final : public QueueBase {
         }();
         s.revises.emplace_back([saved = std::move(save)](T &target) {
             if constexpr (sizeof...(Path) == 0) {
-                bool changed = !(target == saved);
                 target = saved;
-                return changed;
             } else {
-                auto &field = fieldAt<Path...>(target);
-                bool changed = !(field == saved);
-                field = saved;
-                return changed;
+                fieldAt<Path...>(target) = saved;
             }
         });
     }

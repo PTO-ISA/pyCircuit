@@ -75,27 +75,28 @@ class RipesFiveStageTests(unittest.TestCase):
                             return execute(*values)
 
                         # Pipeline activity must come from tracked resource changes.
-                        def dependency_wakeup(mid, tick, changed_slot=None):
-                            self.assertIsNotNone(changed_slot, 'unexpected timer wakeup')
-                            return original_wakeup(mid, tick, changed_slot)
+                        def dependency_wakeup(mid, tick, changed_slot=None, *, changed_signal=None):
+                            self.assertTrue(changed_slot is not None or changed_signal is not None,
+                                            'unexpected timer wakeup')
+                            return original_wakeup(mid, tick, changed_slot, changed_signal=changed_signal)
 
                         original_wakeup = cpu.sim._wakeup
                         with patch.object(cpu.sim, '_wakeup', side_effect=dependency_wakeup), \
                              patch('examples.ripes5.model.execute', side_effect=checked_execute) as helper:
                             for tick in range(case['max_cycles']):
-                                before = [s.read_gen for s in cpu.signals]
+                                before = [s.evaluations for s in cpu.signals]
                                 row = cpu.step()
                                 for signal, count in zip(cpu.signals, before):
-                                    delta = signal.read_gen - count
+                                    delta = signal.evaluations - count
                                     # First step includes one initialization plus its Xfer.
                                     self.assertLessEqual(delta, 2 if tick == 0 else 1)
-                                    self.assertGreaterEqual(signal.read_gen, 1)
+                                    self.assertGreaterEqual(signal.evaluations, 1)
                                 if row['retire'] and row['retire']['pc'] == case['end_pc']:
                                     break
                             else:
                                 self.fail('end marker missing')
-                            self.assertEqual(helper.call_count, cpu.ex_result.read_gen)
-                        self.assertEqual(cpu.sim.stats.signal_work, sum(s.read_gen for s in cpu.signals))
+                            self.assertEqual(helper.call_count, cpu.ex_result.evaluations)
+                        self.assertEqual(cpu.sim.stats.signal_work, sum(s.evaluations for s in cpu.signals))
 
     def test_review_signal_inputs_evaluations_and_notifications(self):
         case = next(c for c in suite() if c['name'] == 'array_sum')

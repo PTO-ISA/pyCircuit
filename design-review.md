@@ -4,7 +4,7 @@
 
 - [GFSim 框架 spec](gfsim/spec.md)：已确认的对象、记录、调度、事件和提交契约。
 - [GFSim 待决问题](gfsim/open-questions.md)：尚未确定的语义与实现边界。
-- [端到端实验报告](gfsim/experiment/report.md)：验证覆盖、性能结果和限制。
+- [Ripes5 实验](gfsim/experiment/examples/ripes5/README.md)：逐拍对照、性能测量和限制。
 - [ACIR 编译契约](acir/rule.md)：编译器需要保留的资源、路径和原子边界。
 
 GFSim 的最新讨论基准是 [Issue #270](https://github.com/PTO-ISA/pyCircuit/issues/270)。与 #268、#269 的 GFSim 内容重合或冲突时，以 #270 为准。

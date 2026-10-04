@@ -15,8 +15,13 @@ using Tick = std::uint64_t;
 using ModuleId = std::size_t;
 using RuleId = std::size_t;
 using QueueId = std::size_t;
+using SignalId = std::size_t;
+inline constexpr std::size_t noSlot = std::numeric_limits<std::size_t>::max();
 struct CapacityCycle : std::runtime_error {
     using runtime_error::runtime_error;
+};
+struct NeedInput : std::runtime_error {
+    NeedInput() : runtime_error("required Queue input is empty") {}
 };
 inline Tick checkedAdd(Tick a, Tick b) {
     if (b > std::numeric_limits<Tick>::max() - a)
@@ -24,25 +29,48 @@ inline Tick checkedAdd(Tick a, Tick b) {
     return a + b;
 }
 struct Stats {
-    Tick moduleWork{}, ruleWork{}, cacheHits{}, versionChecks{}, depSearches{}, readerChecks{};
+    Tick moduleWork{}, ruleWork{}, cacheHits{}, readerChecks{}, signalWork{}, changeNotifications{};
     Tick dfsVisits{}, capacityEdges{}, queueChecks{}, accepted{}, events{}, dueEvents{}, maxStack{};
-};
-struct ReadDep {
-    QueueId queue;
-    Tick version;
 };
 struct WakeRequest {
     ModuleId module;
     Tick delay;
 };
+class Simulator;
+struct TestAccess;
+class ResourceBase {
+  public:
+    ResourceBase() = default;
+    virtual ~ResourceBase() = default;
+    ResourceBase(const ResourceBase &) = delete;
+    ResourceBase &operator=(const ResourceBase &) = delete;
+
+  protected:
+    void observe() const;
+
+  private:
+    friend class Simulator;
+    friend class QueueBase;
+    struct Reader {
+        ModuleId module;
+        std::size_t slot;
+    };
+    Simulator *sim_{};
+    std::size_t resourceId_{};
+    std::vector<std::size_t> moduleSlots_;
+    std::vector<Reader> readers_;
+};
 struct ModuleRecord {
     std::optional<Tick> workedTick;
-    Tick readGen{};
-    std::vector<RuleId> selected, previous;
-    Tick calls{};
+    Tick readGen{}, calls{};
+    std::vector<RuleId> selected, previous, rules;
+    std::vector<ResourceBase *> resources;
+    std::vector<Tick> controlReads;
+    std::vector<std::uint64_t> ruleReaders, dirtyWords;
+    std::size_t wordCount{};
 };
 struct RuleRecord {
-    std::vector<ReadDep> deps;
+    std::vector<std::size_t> readSlots;
     std::vector<QueueId> participants;
     std::vector<WakeRequest> wakeRequests;
     bool complete{}, executing{};
@@ -53,17 +81,10 @@ struct RuleRecord {
 template <class T> struct ParameterCache {
     std::optional<T> candidate;
 };
-class Simulator;
-struct TestAccess; // Narrow boundary tests; no runtime mutation API.
-class QueueBase {
+class QueueBase : public ResourceBase {
   public:
-    QueueBase() = default;
-    virtual ~QueueBase() = default;
-    QueueBase(const QueueBase &) = delete;
-    QueueBase &operator=(const QueueBase &) = delete;
     QueueId id() const { return id_; }
     Tick stateVersion() const { return version_; }
-    std::span<const Tick> readers() const { return readers_; }
     std::optional<RuleId> popRule() const { return popRule_; }
     std::optional<RuleId> pushRule() const { return pushRule_; }
     virtual std::size_t size() const = 0;
@@ -73,18 +94,17 @@ class QueueBase {
     virtual std::size_t sourceCount() const = 0;
 
   protected:
-    void prepare(RuleId, bool readsTarget);
+    void prepare(RuleId, bool readsTarget, bool first);
     void changed() { version_ = checkedAdd(version_, 1); }
 
   private:
     friend class Simulator;
     friend struct TestAccess;
-    Simulator *sim_{};
     QueueId id_{};
     Tick version_{};
-    std::vector<Tick> readers_;
     std::optional<RuleId> popRule_, pushRule_;
     std::optional<Tick> usedTick_;
+    std::vector<SignalId> signalReaders_;
     virtual void registerSource(RuleId, unsigned) = 0;
     virtual void freeze() = 0;
     virtual bool pendingPop(RuleId) const = 0;
@@ -96,6 +116,26 @@ class QueueBase {
     virtual void cancel(RuleId) = 0;
     virtual bool xfer() = 0;
 };
+class SignalBase : public ResourceBase {
+  public:
+    SignalId id() const { return id_; }
+    Tick evaluations() const { return evaluations_; }
+
+  private:
+    friend class Simulator;
+    friend struct TestAccess;
+    SignalId id_{};
+    Tick evaluations_{}; // Observation only; never used for scheduling.
+    std::vector<QueueId> inputs_;
+    std::vector<ModuleId> moduleBindings_;
+    std::vector<RuleId> ruleBindings_;
+    struct Dependent {
+        ModuleId module;
+        std::vector<std::uint64_t> dirtyMask; // Empty for Module-only activation.
+    };
+    std::vector<Dependent> dependents_;
+    virtual bool evaluate() = 0;
+};
 enum Operation : unsigned { Pop = 1, Push = 2, Revise = 4 };
 
 class Simulator {
@@ -103,6 +143,7 @@ class Simulator {
     using Work = void (*)(void *);
     using Arbitrate = bool (*)(void *, Simulator &, RuleId);
     explicit Simulator(bool cache = true) : cache_(cache) {}
+    ~Simulator(); // Registered resources must outlive the Simulator.
     Simulator(const Simulator &) = delete;
     Simulator &operator=(const Simulator &) = delete;
     ModuleId addModule(void *object, Work work);
@@ -111,19 +152,28 @@ class Simulator {
     }
     RuleId addRule(ModuleId owner, Arbitrate arbitrate = nullptr);
     QueueId addQueue(QueueBase &queue);
+    SignalId addSignal(SignalBase &signal);
+    void declareResource(ModuleId, ResourceBase &);
+    // Signal declarations are permanent. Module-only links never dirty Rules.
+    void declareResource(ModuleId, SignalBase &);
+    void declareInput(SignalBase &, QueueBase &);
+    void declareInput(RuleId, SignalBase &); // Also activates the owning Module.
     void bind(RuleId rule, QueueBase &queue, unsigned operations);
     void freeze();
-    std::span<const RuleId> step(); // Valid until next step; no allocation for returned IDs.
+    std::span<const RuleId> step();
     bool beginRule(RuleId rule) { return begin(rule, true); }
     template <class T> bool beginRule(RuleId rule, ParameterCache<T> &storage, const T &args) {
-        bool execute = begin(rule, storage.candidate && *storage.candidate == args);
+        if (rules_.at(rule).selectedTick == tick_)
+            return begin(rule, true);
+        // Dirty candidates do not inspect stale parameters or scan dependencies.
+        bool execute =
+            begin(rule, dirty(rule) || (storage.candidate && *storage.candidate == args));
         if (execute)
             storage.candidate = args;
         return execute;
     }
     void completeRule(RuleId);
     void abortRule(RuleId);
-    void recordRead(ModuleId, QueueBase &, std::optional<RuleId> = {});
     void requestWakeup(RuleId, ModuleId, Tick delay);
     bool arbitrateRule(RuleId);
     Tick tick() const { return tick_; }
@@ -135,9 +185,12 @@ class Simulator {
     std::span<QueueBase *const> queues() const { return queues_; }
     std::size_t moduleCount() const { return modules_.size(); }
     std::size_t ruleCount() const { return rules_.size() - 1; }
+    bool reads(ModuleId, const ResourceBase &) const;
+    bool dirty(RuleId) const;
     std::vector<std::pair<Tick, ModuleId>> events() const;
 
   private:
+    friend class ResourceBase;
     friend class QueueBase;
     friend struct TestAccess;
     struct ModuleEntry {
@@ -147,6 +200,11 @@ class Simulator {
     struct RuleEntry {
         ModuleId owner;
         Arbitrate arbitrate;
+        std::size_t local;
+    };
+    struct Binding {
+        RuleId rule;
+        QueueBase *queue;
     };
     struct Tasks {
         std::vector<std::size_t> ids;
@@ -170,13 +228,15 @@ class Simulator {
         RuleId rule;
         std::size_t cursor;
     };
-    enum class Phase { Idle, Work, Arbitration, Xfer };
+    enum class Phase { Idle, Work, Arbitration, Xfer, Signal };
     std::vector<ModuleEntry> moduleEntries_;
-    std::vector<RuleEntry> entries_{{}}; // Source 0 is reserved.
+    std::vector<RuleEntry> entries_{{}};
     std::vector<ModuleRecord> modules_;
     std::vector<RuleRecord> rules_{1};
     std::vector<QueueBase *> queues_;
-    Tasks moduleTasks_, ruleTasks_;
+    std::vector<SignalBase *> signals_;
+    std::vector<Binding> bindings_;
+    Tasks moduleTasks_, ruleTasks_, signalTasks_;
     std::vector<Tick> visited_;
     std::vector<bool> visiting_;
     std::vector<QueueId> used_, changed_;
@@ -186,15 +246,21 @@ class Simulator {
     std::priority_queue<Event, std::vector<Event>, std::greater<Event>> events_;
     std::optional<ModuleId> activeModule_;
     std::optional<RuleId> activeRule_, arbitrating_;
+    std::optional<SignalId> activeSignal_;
     Tick tick_{};
     bool cache_, frozen_{}, failed_{};
     Phase phase_{Phase::Idle};
     Stats stats_;
+    static thread_local Simulator *active_;
     void constructing() const;
     void executing(RuleId) const;
-    void prepare(RuleId, QueueBase &, bool);
+    void observe(const ResourceBase &);
+    void prepare(RuleId, QueueBase &, bool, bool);
     bool begin(RuleId, bool sameArgs);
     void discard(RuleId);
+    void clearReads(RuleId);
+    void notifyChanged(ResourceBase &);
+    void evaluate(SignalId, bool initial);
     bool pending(RuleId) const;
     void work(ModuleId);
     void visit(RuleId);

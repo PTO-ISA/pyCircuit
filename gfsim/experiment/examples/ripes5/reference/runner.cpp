@@ -7,12 +7,21 @@
 #include <QJsonDocument>
 #include <QJsonObject>
 #include <chrono>
+#include <charconv>
 #include <iostream>
 #include <stdexcept>
 
 using CPU = vsrtl::core::RV5S<uint32_t>;
 static QJsonValue number(uint64_t n) { return double(n); }
 static uint32_t as_u32(const QJsonValue &v) { return uint32_t(v.toDouble()); }
+static uint64_t argument(const char *text) {
+  const std::string token(text);
+  uint64_t value{};
+  auto [end, error] = std::from_chars(token.data(), token.data() + token.size(), value);
+  if (error != std::errc{} || end != token.data() + token.size())
+    throw std::invalid_argument("invalid unsigned cycle argument");
+  return value;
+}
 static void emitJson(const QJsonObject &o) {
   std::cout << QJsonDocument(o).toJson(QJsonDocument::Compact).constData() << '\n';
 }
@@ -63,13 +72,17 @@ static QJsonObject snapshot(CPU &p, uint32_t base, int count,
 int main(int argc, char **argv) {
   QCoreApplication app(argc, argv);
   try {
-    if (argc < 2 || argc > 3)
-      throw std::runtime_error("usage: ripes5-reference INPUT.json [--benchmark]");
-    if (std::string(argv[1]) == "--identity") {
+    if (argc == 2 && std::string(argv[1]) == "--identity") {
       emitJson({{"ripes", RIPES_SHA}, {"vsrtl", VSRTL_SHA}});
       return 0;
     }
     bool benchmark = argc == 3 && std::string(argv[2]) == "--benchmark";
+    const bool fixed = argc == 5 && std::string(argv[2]) == "--benchmark-fixed";
+    const bool observe = argc == 3 && std::string(argv[2]) == "--observe";
+    if (argc != 2 && !benchmark && !fixed && !observe)
+      throw std::runtime_error("usage: ripes5-reference INPUT.json [--benchmark | --benchmark-fixed K N | --observe]");
+    const auto warmup = fixed ? argument(argv[3]) : 0;
+    const auto measured = fixed ? argument(argv[4]) : 0;
     QFile file(argv[1]);
     if (!file.open(QIODevice::ReadOnly)) throw std::runtime_error("cannot read input");
     QJsonParseError error;
@@ -83,6 +96,10 @@ int main(int argc, char **argv) {
     int limit = input["max_cycles"].toInt();
     if (regs.size() != 32 || words.isEmpty() || limit < 1 || as_u32(regs[0]) != 0)
       throw std::runtime_error("invalid input dimensions");
+    if (fixed && (!measured || warmup > uint64_t(limit) || measured > uint64_t(limit) - warmup))
+      throw std::invalid_argument("fixed window requires N > 0 and K + N <= max_cycles");
+    using Clock = std::chrono::steady_clock;
+    const auto construct_start = Clock::now();
     CPU p({}); // RV32I, no optional extensions.
     p.isExecutableAddress = [&](Ripes::AInt pc) {
       return pc % 4 == 0 && pc < uint64_t(words.size()) * 4;
@@ -90,11 +107,32 @@ int main(int argc, char **argv) {
     p.trapHandler = [] { throw std::runtime_error("syscall outside comparison scope"); };
     p.postConstruct();
     p.setMaxReverseCycles(0);
+    // Public observation controls only; circuit propagation and retirement stay intact.
+    p.setEnableSignals(observe);
+    p.setEnableClockedSignals(observe);
     p.resetProcessor();
     for (int i = 0; i < words.size(); ++i) p.getMemory().writeMem(i * 4, as_u32(words[i]), 4);
     for (int i = 0; i < data.size(); ++i) p.getMemory().writeMem(base + i * 4, as_u32(data[i]), 4);
     for (unsigned i = 1; i < 32; ++i) p.setRegister(Ripes::RVISA::GPR, i, as_u32(regs[i]));
     p.setProgramCounter(0); // Propagate after all external initialization.
+    const auto construct_ns = std::chrono::duration_cast<std::chrono::nanoseconds>(Clock::now() - construct_start).count();
+    if (fixed) {
+      for (uint64_t i = 0; i < warmup; ++i) p.clockUnguarded();
+      const auto before = p.getInstructionsRetired();
+      const auto start = Clock::now();
+      for (uint64_t i = 0; i < measured; ++i) p.clockUnguarded();
+      const auto stop = Clock::now();
+      const auto ns = std::chrono::duration_cast<std::chrono::nanoseconds>(stop - start).count();
+      emitJson({{"cycles", number(p.getCycleCount())}, {"warmup_cycles", number(warmup)},
+                {"measured_cycles", number(measured)}, {"run_ns", number(ns)},
+                {"construct_ns", number(construct_ns)}, {"retired_before", number(before)},
+                {"retired", number(p.getInstructionsRetired())},
+                {"retired_delta", number(p.getInstructionsRetired() - before)},
+                {"final_state", snapshot(p, base, data.size())},
+                {"port_notifications", p.signalsEnabled()},
+                {"clock_notifications", p.clockedSignalsEnabled()}, {"reverse_history", false}});
+      return 0;
+    }
     if (!benchmark) emitJson(snapshot(p, base, data.size()));
     auto start = std::chrono::steady_clock::now();
     bool done = false;

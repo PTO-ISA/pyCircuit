@@ -1,0 +1,169 @@
+{
+  "date": "2026-10-04",
+  "cpu_status": "blocked_on_expression",
+  "cpu_end_to_end": false,
+  "gfsim_skyzh_benchmark": null,
+  "integration_blockers": [
+    "E01: output Queue reference",
+    "E02: independent output capacities"
+  ],
+  "other_expression_findings": [
+    "E03: C++ keyword escaping; component uses is_unsigned"
+  ],
+  "expression_checks": [
+    {
+      "name": "output_feedback",
+      "status": "blocked",
+      "error_type": "CompileError"
+    },
+    {
+      "name": "output_capacities",
+      "status": "blocked",
+      "error_type": "TypeError"
+    },
+    {
+      "name": "cpp_keyword",
+      "status": "blocked",
+      "error_type": "ValueError"
+    }
+  ],
+  "component_checks": [
+    {
+      "component": "ExecutionCheck",
+      "variant": "compiled",
+      "requests": 857,
+      "outputs": 807,
+      "configurations": 4,
+      "held_cycles": 4440,
+      "same_tick_replacements": 3124
+    },
+    {
+      "component": "ExecutionCheck",
+      "variant": "emitted",
+      "requests": 857,
+      "outputs": 807,
+      "configurations": 4,
+      "held_cycles": 4440,
+      "same_tick_replacements": 3124
+    },
+    {
+      "component": "MemoryHelpers",
+      "variant": "compiled",
+      "memory_helper_cases": 42
+    },
+    {
+      "component": "MemoryHelpers",
+      "variant": "emitted",
+      "memory_helper_cases": 42
+    }
+  ],
+  "native_reference": {
+    "commit": "8989a09c357a69b68612f653380d60816f5176c2",
+    "binary_sha256": "25a199ab562fb8e14dbd2cdd2c328d3fcc5b9fffa5eb26bbda8534e06cc5f1ce",
+    "rob_usable": 7,
+    "memory_bytes": 4194304,
+    "passed": 9,
+    "total": 12,
+    "programs": [
+      {
+        "name": "auipc",
+        "status": "reference_mismatch",
+        "mismatches": [
+          "registers",
+          "memory_changes"
+        ]
+      },
+      {
+        "name": "branches",
+        "status": "pass",
+        "mismatches": []
+      },
+      {
+        "name": "integer",
+        "status": "reference_mismatch",
+        "mismatches": [
+          "registers"
+        ]
+      },
+      {
+        "name": "memory",
+        "status": "reference_mismatch",
+        "mismatches": [
+          "registers"
+        ]
+      },
+      {
+        "name": "window",
+        "status": "pass",
+        "mismatches": []
+      },
+      {
+        "name": "control-hazard-1",
+        "status": "pass",
+        "mismatches": []
+      },
+      {
+        "name": "control-hazard-2",
+        "status": "pass",
+        "mismatches": []
+      },
+      {
+        "name": "control-hazard-3",
+        "status": "pass",
+        "mismatches": []
+      },
+      {
+        "name": "data-hazard-1",
+        "status": "pass",
+        "mismatches": []
+      },
+      {
+        "name": "data-hazard-2",
+        "status": "pass",
+        "mismatches": []
+      },
+      {
+        "name": "out-of-order-3",
+        "status": "pass",
+        "mismatches": []
+      },
+      {
+        "name": "rename-register-1",
+        "status": "pass",
+        "mismatches": []
+      }
+    ],
+    "excluded_inputs": {
+      "out-of-order-1": "intentional infinite Fibonacci loop",
+      "out-of-order-2": "no termination Store; falls past program text"
+    },
+    "fixed_window": {
+      "status": "pass",
+      "program": "window",
+      "cycles": 671,
+      "timing": "fixed"
+    }
+  },
+  "source_sha256": {
+    "assemble.py": "674828b1243d337c5bd82d2b656db0bc1847516f0dbda8380a42a8b24a78e7fd",
+    "check_components.py": "d28c57a67c1dcee22e32b819747595472dd268dba62e3c3914f7567e3d92c4b6",
+    "checks/execution.py": "e31abe1d5ec777b83574c64425c3ba959d9ada718113b5ec6484be0f9adc8079",
+    "checks/memory_runner.cpp": "106ca7bb1219ab37e6b9fc57f29c599bc58d70db786c2859fb346564436bf719",
+    "checks/runner.cpp": "2ced79780ea33bc9d80032e3097a33880927600bcd0e803fb42da794383f0194",
+    "diagnose.py": "6b8cdbf99c8df4626713b5d0734a2a2945a5c054f95e7b252b12e95533666b76",
+    "execute.py": "a05b81d8e6a1706fde343207562651800eb8f92440f1e974cb420d756f976049",
+    "logic.py": "10550ff18c3101e019c393bde1f2a7cdfaec3c393f37ba28369ce820db33a316",
+    "oracle.py": "11169c8265c700eab22462c66d84acd312360db8e36edd4fcbd1a4a60b03deb1",
+    "programs/auipc.s": "8dc8ade0b1d01723b4b313a9bc2de24c938074ee6ad398e87cf888c1fc326db3",
+    "programs/branches.s": "444811de75f13fd5d7ef47e77e703cca59f65e98edf8bac3cf9cff85c6fb4bd8",
+    "programs/integer.s": "a69a17a823477a5e84700bc124439c1d5e6d80d9b4f312488a3ca490d250779b",
+    "programs/memory.s": "64153273f8bad6cad4a93331cc88c9cc9b7c43ff25b4ae08d795e29e51d50480",
+    "programs/window.s": "b5aba43e746264d97a9abee800da486a38f37e5e603c63ced9d1699bb7eee55f",
+    "reference/build.py": "1a9c9f8844715429b0eebdd9ba59ddcd630310e0dc3aba505f746ac690ee1e0f",
+    "reference/runner.cpp": "581fdcf744c5168b3af3d3ca140d3ae7b9f72890c0763201207eb800f4eae838",
+    "repro/cpp_keyword.py": "9f2b5ee8db6cf8bcb67056eff5e9e8723e7786ae99750198dafb8122d4c08b0b",
+    "repro/output_capacities.py": "4206b2d816c3ec2b330ba7c7e7eec297a7b5dd08ee9c004f07592f21544fbcfc",
+    "repro/output_feedback.py": "468483c7f70bbab672182ac74bb633d1d2963718aa42216539a87a96f81abc9c",
+    "verify_reference.py": "250122ddaeff86e4f338ca3538c94da745c6a1eb36222be4b0195a1d0fd94e01"
+  }
+}
