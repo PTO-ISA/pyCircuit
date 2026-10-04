@@ -9,7 +9,7 @@ def signed(value, bits=32):
     return value - (1 << bits) if value & (1 << (bits - 1)) else value
 
 
-def load_image(path, size=0x40000):
+def load_image(path, size=0x400000):
     path = Path(path)
     memory, address = bytearray(size), 0
     for token in path.read_text().split():

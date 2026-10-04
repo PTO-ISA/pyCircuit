@@ -19,7 +19,7 @@ ctest --test-dir /tmp/acpy-ooo-build --output-on-failure
 `run.py` 使用已有 Ripes5 汇编器，逐条对照独立顺序解释器，保存 JSONL 轨迹和
 摘要到 `output/custom/`。默认 x31=4096，其他寄存器为零；数据区为 64 个字，
 初值 `[7, 23, 2, 3, ..., 63]`。可通过 `--data` 和 `--registers` 提供 JSON 数组。
-使用 `--no-cache`、`--reverse` 切换调度配置。支持 ADD/ADDI/SUB/AND/OR/XOR/SLT、
+使用 `--reverse` 切换 Module 注册顺序。支持 ADD/ADDI/SUB/AND/OR/XOR/SLT、
 LUI、LW/SW、BEQ/BNE、JAL/JALR 及 `halt`（0x00100073）；JALR 清除目标地址 bit 0。
 
 模型构造一次即可运行不同程序。`halt` 只有到达提交头才终止；取指错误、非法指令
@@ -128,17 +128,17 @@ Store 在执行时仅算地址和记录值，提交时才写内存。Load 必须
 
 ## 验收与证据
 
-16 个汇编程序加 4 个反压重跑，共 20 场景。每个场景运行缓存开关、Module 正反序，
-再在 ACIR 独立重载模型上重复，共 160 次。固定种子混合程序保存为 `.s`，
+16 个汇编程序加 4 个反压重跑，共 20 场景。每个场景运行 Module 正反序，
+再在 ACIR 独立重载模型上重复，共 80 次。固定种子混合程序保存为 `.s`，
 生成器同时校验文件与种子一致，避免测试时悄悄改变输入。
 
 逐条比较提交 PC、指令、寄存器写入和 Store，并逐拍比较架构寄存器和内存。
 此外检查最老就绪选择、一次发射／完成、提交顺序、两路执行周期、非流水访存、
 反压下的候选保留及操作数保持；显式要求乱序、双发射、满窗口、错误路径访存错误、
-带在途消息清空和多次槽位复用确实发生。八配置的完整模型轨迹必须逐拍一致。
+带在途消息清空和多次槽位复用确实发生。四配置的完整模型轨迹必须逐拍一致。
 失败时 `*.mismatch.json` 保存首个差异前后周期和参考提交上下文。
 
-[results.json](results.json) 和 [report.md](report.md) 记录验收、代码量及回归结果；
+[results.json](results.json) 和 [report.md](report.md) 记录历史验收、代码量及回归结果；当前静态调度验收见 [GFSim 报告](../../../gfsim/cpp/report.md)。
 [timing.json](timing.json) 保存固定 CPU、一次预热和七次轮换采样。
 完整输入、逐拍轨迹及回归日志在忽略版本管理的 `output/` 目录。
 已发现的前端限制和最小复现见 [findings.md](findings.md)。
@@ -148,7 +148,7 @@ Store 在执行时仅算地址和记录值，提交时才写内存。Load 必须
 GFSim 实现和 CPU 模型不变，160 条完整轨迹与修改前一致；137,906 拍长程序仍有
 107,987 次 Rule 中止，正常缺输入的 `NeedInput` 抛出次数为零。同核七次交替采样，
 缓存开启时每拍中位耗时由 10.47 μs 降至 6.47 μs，吞吐约为原来的 1.62 倍。
-生成契约见 [编译器说明](../../README.md#gfsim-生成范式必要输入)；历史测量文件保留原指纹与口径。
+生成契约见 [编译器说明](../../README.md#前端范式)；历史测量文件保留原指纹与口径。
 
 ```bash
 python3 pycircuit/examples/ooo/bench.py \

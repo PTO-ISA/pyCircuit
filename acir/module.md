@@ -20,24 +20,24 @@
 - 资源和实例声明只依赖构造参数，创建和初始化一次。运行时分支只影响计算、Rule 选择和效果。
 - 子 Module 调用先只表示静态实例化与连接；构造后的各 Module 由调度器独立激活。
 - Module Work 保留控制流，直接选择调用 Rule；Module 本身不是原子事务。
-- Queue array 的每项有独立 QueueId；动态下标定位实际 Queue，读取和 proposal 都登记到该项。
+- Queue array 的每项有独立 QueueId；动态下标定位实际 Queue，读取和 proposal 作用于该项，静态声明覆盖全部可能项。
 
 ## 3. Rule 身份与参数
 
 - Rule 可以定义在 Module 内部或外部。同一个 Module 实例内，同名 Rule 只生成一个成员函数和一个 RuleId；不同调用位置共享记录，不同 Module 实例的记录独立。
 - 资源参数和普通参数可以在 `def` 中显式声明，也可以根据调用实参静态推断；认为调用格式正确。两者统一为同一种参数描述，使用相同编译路径。
 - 资源参数保留资源身份，Rule 执行到读取处才读取；Module 调用时不预读消息输入 payload。
-- 普通参数按值传入并参与候选缓存比较。若调用时资源实参发生变化，其资源身份也参与比较，避免复用旧绑定的候选。
+- 普通参数按值传入。每次 Module 激活都会重新执行选中的 Rule，不保存或比较候选参数。
 - 捕获的资源、固定配置和本次 Work 的组合值分别按资源绑定、构造配置和普通参数处理。同一 RuleId 同 tick 重复调用仍遵守 GFSim 的参数一致约束。
 
 ## 4. Queue 访问与效果
 
 | 前端行为 | 生成操作 |
 | --- | --- |
-| 实际读取 Rule 的消息输入 payload | 读取并登记依赖，同时提出一次 pop |
+| 实际读取 Rule 的消息输入 payload | 读取，同时提出一次 pop |
 | `return value` | 向固定绑定的输出 Queue 提出 push |
 | `return None` | 正常完成，不为该位置提出 push |
-| 在 Rule 内直接观察内部 Queue 或只读引用 | 读取并登记依赖，不消费 |
+| 在 Rule 内直接观察内部 Queue 或只读引用 | 读取，不消费 |
 | 对 Queue 或其字段赋值 | 提出 revise，修改已有旧队尾 |
 | 普通局部赋值 | 即时组合计算 |
 
@@ -45,7 +45,7 @@
 
 读取保留实际分支，未选路径不预读。Rule 的效果由 GFSim 整体仲裁并在 Xfer 提交；必要读取失败时 abort，正常路径 complete。调用返回不表示效果已经生效。
 
-Signal 显式输入只绑定 Queue，固定配置从构造期捕获；由 runtime 初始化，并在全部 Queue Xfer 后按全部声明输入更新缓存，输出变化后才按固定关系通知 Module／Rule。Module 和 Rule 均可读取 Signal。
+Signal 显式输入绑定 Queue 或 Signal，固定配置从构造期捕获。编译器检查 Signal 组合依赖无环；runtime 在 freeze 时建立拓扑序，按此顺序初始化，并在全部 Queue Xfer 后重算受影响的 Signal。输出变化才通知下游 Signal 与 Module，串联不增加流水拍。Module 和 Rule 均可读取 Signal。
 
 ## 5. 统一编译路径
 
@@ -55,7 +55,7 @@ ACPy AST → ACIR MLIR → EmitC → C++ 成员函数与静态绑定表 → GFSi
 
 ACIR 的 func/cf 保留 Module、Rule 控制流和运行时循环；注册的 acir 操作保留类型、资源身份、实际路径读取和效果，通用 pass 展开正常完成条件及原子边界。不同 Rule 都按这些通用操作生成，不按输入／输出数量或状态组合增加专用编译路线。
 
-编译器生成 Module 可访问资源、Signal 全部输入、Rule 静态 Signal 依赖及可能修改的 Queue 和操作等静态声明。实际读取、dirty、唤醒、候选复用、容量 DFS 和 Xfer 由 GFSim 管理。
+编译器生成 Module 可访问资源、Signal 全部输入、Module 静态 Signal 依赖及可能修改的 Queue 和操作等静态声明。GFSim 沿静态连接激活 Module，以 delta 仲裁传播容量，再统一 Xfer；没有动态订阅、参数缓存或 DFS。
 
 首版以用户代码满足约束为前提，只做生成所需的解析、类型处理和绑定，不增加安全性证明、冲突检测或自动纠错。每个 Queue 的 pop／push 来源分别至多一个 Rule，覆盖所有分支和 tick，由用户保证。
 

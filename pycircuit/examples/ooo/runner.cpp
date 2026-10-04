@@ -18,15 +18,15 @@ std::uint64_t number(std::uint64_t max = UINT64_MAX) {
 struct Input {
     std::uint64_t cycles;
     std::uint32_t base, period, closed;
-    bool cache, reverse;
+    bool reverse;
     std::vector<std::uint32_t> words, data;
     std::array<std::uint32_t, 32> regs;
 };
 Input readInput() {
-    if (number(1) != 1) throw std::invalid_argument("unsupported protocol");
+    if (number(2) != 2) throw std::invalid_argument("unsupported protocol");
     Input i{};
     i.cycles = number(1000000); i.base = number(UINT32_MAX);
-    i.cache = number(1); i.reverse = number(1);
+    i.reverse = number(1);
     i.period = number(10000); i.closed = number(10000);
     auto nw = number(1 << 20), nd = number(1 << 20);
     if (!nw || !nd || !i.cycles) throw std::invalid_argument("empty dimensions");
@@ -156,7 +156,7 @@ int main(int argc, char **argv) {
         using Clock = std::chrono::steady_clock;
         auto start = Clock::now();
         CPU cpu(input.words, input.base, input.regs, input.data, input.period, input.closed,
-                input.cache, input.reverse);
+                input.reverse);
         auto construct = std::chrono::duration_cast<std::chrono::nanoseconds>(Clock::now() - start).count();
         Previous previous;
         if (!benchmark) snapshot(cpu, previous);
@@ -171,7 +171,7 @@ int main(int argc, char **argv) {
             const auto &s = cpu.sim.stats();
             std::cout << "{\"cycles\":" << cpu.sim.tick() << ",\"retired\":" << cpu.retirement.peek().count
                       << ",\"construct_ns\":" << construct << ",\"run_ns\":" << ns
-                      << ",\"cache_hits\":" << s.cacheHits << ",\"rule_work\":" << s.ruleWork << "}\n";
+                      << ",\"rule_work\":" << s.ruleWork << "}\n";
         }
     } catch (const std::exception &e) { std::cerr << e.what() << '\n'; return 1; }
 }

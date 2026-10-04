@@ -1,4 +1,5 @@
-"""ODS verification, observable reads, and the standalone registered pass pipeline."""
+"""ODS verification, conservative read effects, and the standalone registered pass pipeline."""
+import copy
 import os
 from pathlib import Path
 import subprocess
@@ -20,7 +21,7 @@ class MLIRTests(unittest.TestCase):
         source.write_text(text)
         return subprocess.run([self.opt, str(source), *flags], capture_output=True, text=True, timeout=30)
 
-    def test_reads_and_queries_are_observable(self):
+    def test_reads_and_queries_keep_conservative_effects(self):
         result = self.optimize('''module {
   func.func @observe(%q: !acir.queue<i32>, %condition: i1) {
     cf.cond_br %condition, ^yes, ^done
@@ -61,3 +62,27 @@ class MLIRTests(unittest.TestCase):
         self.assertIn('abortRule', result.stdout)
         self.assertIn('completeRule', result.stdout)
         self.assertNotIn('"acir.', result.stdout)
+
+    def test_signal_graph_validation_after_reload(self):
+        # Static ports count even when a helper never reads them. This also
+        # checks graphs supplied through saved MLIR rather than Python syntax.
+        model = compile_source(Path(__file__).with_name('signal_circuits.py'), 'SignalDAG')
+        path = self.path / 'signals.mlir'
+        save(model, path)
+        text = path.read_text()
+        result = self.optimize(text, '--acir-analyze-resources')
+        self.assertEqual(result.returncode, 0, result.stderr)
+        # Replace the constant helper's otherwise unused port with a self edge,
+        # or an edge closing a longer cycle through the root's declared inputs.
+        for resource, inputs, diagnostic in [
+            ('unused', ['unused'], 'Signal dependency cycle'),
+            ('z_root_output', ['a_join'], 'Signal dependency cycle'),
+            ('unused', ['missing'], 'unknown Signal input resource'),
+        ]:
+            with self.subTest(resource=resource, inputs=inputs):
+                invalid = copy.deepcopy(model)
+                next(r for r in invalid['resources'] if r['name'] == resource)['inputs'] = inputs
+                save(invalid, path)
+                result = self.optimize(path.read_text(), '--acir-analyze-resources')
+                self.assertNotEqual(result.returncode, 0)
+                self.assertIn(diagnostic, result.stderr)

@@ -267,6 +267,8 @@ class Frontend:
                 pending.remove(stmt); progress = True
             self.predeclare_outputs(runtime, env, local_defs, mod, builder)
             if not progress and pending:
+                if any((fn := function(stmt.value)) and decorator(fn) == 'signal' for stmt in pending):
+                    self.error(pending[0], 'unresolved static Signal connection; check for a Signal dependency cycle or undefined input')
                 self.error(pending[0], 'static connection/type cycle; add a Queue or Rule return type annotation')
         self.predeclare_outputs(runtime, env, local_defs, mod, builder)
         for name, val in env.items():
@@ -558,8 +560,8 @@ class Frontend:
                 args = [builder.expr(x) if isinstance(x, ast.AST) else x for x in args]
                 if decorator(fn) == 'module':
                     return self.instantiate(fn, args, name, builder)
-                if any(not isinstance(v, Value) or not v.type.startswith(('queue<', 'qarray<')) for v in args):
-                    self.error(node, 'Signal arguments must be Queues; capture configuration in the enclosing Module')
+                if any(not isinstance(v, Value) or not v.type.startswith(('queue<', 'qarray<', 'signal<')) for v in args):
+                    self.error(node, 'Signal arguments must be Queues or Signals; capture configuration in the enclosing Module')
                 lower = Lower(self, 'signal', name + '_evaluate', {**builder.env, **dict(zip((a.arg for a in fn.args.args), args))}, builder=builder)
                 if fn.returns:
                     lower.expected_return = self.annotation(fn.returns)
@@ -750,8 +752,6 @@ class Lower:
             if node.attr == 'value' and resource(val.type):
                 self.accesses.update(val.targets)
                 if val.type.startswith('signal<'):
-                    if self.kind == 'signal':
-                        self.f.error(node, 'Signals may read Queue inputs, not other Signals')
                     return self.op('signal.read', element(val.type), [val], node=node)
                 if not val.type.startswith('queue<'):
                     self.f.error(node, 'index Queue arrays before reading')
@@ -906,7 +906,7 @@ class Lower:
                 consume = resource(typ) and not (p.annotation and spelling(p.annotation.value if isinstance(p.annotation, ast.Subscript) else p.annotation) == 'ac.ref')
                 pv = lower.param(p.arg, typ, v.targets, consume)
                 lower.bind(p.arg, pv)
-            # Work locals used by closure become explicit value/resource cache arguments.
+            # Work locals used by closure become explicit value/resource arguments.
             used = {x.id for x in ast.walk(fn) if isinstance(x, ast.Name) and isinstance(x.ctx, ast.Load)}
             assigned = {x.id for x in ast.walk(fn) if isinstance(x, ast.Name) and isinstance(x.ctx, ast.Store)}
             captures = sorted((used & (getattr(self, 'locals', set()) | self.module.get('_vars', {}).keys())) - {p.arg for p in fn.args.args} - assigned)
@@ -1038,6 +1038,18 @@ class Lower:
                 else:
                     self.f.error(node, 'runtime range accepts one or two bounds')
                 assigned = {n.id for stmt in node.body for n in ast.walk(stmt) if isinstance(n, ast.Name) and isinstance(n.ctx, ast.Store)}
+                # A local aggregate field/index update creates a new SSA value
+                # for its root, just like assigning the whole local. Carry that
+                # value around the loop; Queue revisions remain resource effects.
+                for stmt in node.body:
+                    for target in ast.walk(stmt):
+                        if not isinstance(target, (ast.Attribute, ast.Subscript)) or not isinstance(target.ctx, ast.Store):
+                            continue
+                        root = target
+                        while isinstance(root, (ast.Attribute, ast.Subscript)):
+                            root = root.value
+                        if isinstance(root, ast.Name) and isinstance(self.env.get(root.id), Value) and not resource(self.env[root.id].type):
+                            assigned.add(root.id)
                 names = sorted((assigned & self.env.keys()) - {node.target.id})
                 initial = [self.lookup(n, node) for n in names] + [start]
                 names.append(node.target.id)

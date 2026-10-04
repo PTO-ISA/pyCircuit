@@ -67,7 +67,7 @@ template<class T> struct QueueArray {
     }
 };
 // Borrow stable Module resource tables; own only explicit temporary lists.
-// Copies across CFG edges, Rule parameters and caches keep the same identities
+// Copies across CFG edges, Rule parameters keep the same identities
 // without copying a potentially large table of Queue pointers.
 template<class T> class QueueRefs {
     using Pointer = gfsim::Queue<T>*;

@@ -35,12 +35,12 @@ class CompilerTests(unittest.TestCase):
     def tearDownClass(cls):
         cls.temporary.cleanup()
 
-    def circuit(self, top, body, source=None, monitor_missing=False, model=None):
+    def circuit(self, top, body, source=None, monitor_missing=False, model=None, optimize=True):
         directory = self.path / top
         directory.mkdir(exist_ok=True)
         model = model or compile_source(source or HERE / 'circuits.py', top)
         save(model, directory / 'model.acir.mlir')
-        emit(load(directory / 'model.acir.mlir'), directory)
+        emit(load(directory / 'model.acir.mlir'), directory, optimize=optimize)
         # Count actual throws from generated code and the unchanged runtime. This
         # is an ELF linker probe, not a modified Queue implementation or mock.
         probe = '''
@@ -62,9 +62,9 @@ extern "C" [[noreturn]] void __wrap___cxa_throw(void* value, void* info, void(*d
 
     def test_pipeline(self):
         self.circuit('Pipeline', '''
-for(bool cache:{false,true}) for(bool reverse:{false,true}) {
+for(bool reverse:{false,true}) {
     for(const auto& values : {std::vector<std::uint32_t>{1,2,3,4,5}, std::vector<std::uint32_t>{0,0xffffffff,42}, std::vector<std::uint32_t>{}}) {
-        Pipeline m(values, cache, reverse);
+        Pipeline m(values, reverse);
         CHECK(m.sim.moduleCount()==3);
         std::vector<std::uint32_t> observed;
         for(int i=0;i<40;++i) {
@@ -84,8 +84,8 @@ for(bool cache:{false,true}) for(bool reverse:{false,true}) {
 
     def test_atomic_backpressure_and_alias(self):
         model = self.circuit('Atomic', '''
-for(bool cache:{false,true}) for(bool reverse:{false,true}) {
-    Atomic m(cache,reverse);
+for(bool reverse:{false,true}) {
+    Atomic m(reverse);
     m.sim.step();
     CHECK(m.controls.size()==2 && m.left.size()==1);
     auto rid=m.top.rid_route;
@@ -95,7 +95,7 @@ for(bool cache:{false,true}) for(bool reverse:{false,true}) {
     const auto calls=m.sim.rule(rid).calls;
     m.sim.step(); m.sim.step();
     CHECK(m.controls.size()==2 && m.left.size()==1);
-    if(cache) CHECK(m.sim.rule(rid).calls==calls);
+    CHECK(m.sim.rule(rid).calls==calls+2); // Clock changes activate the whole Module.
     m.sim.step();
     CHECK(m.controls.size()==1 && m.left.empty());
     CHECK(m.total.peek()==10 && m.count.peek()==1);
@@ -110,8 +110,8 @@ for(bool cache:{false,true}) for(bool reverse:{false,true}) {
 
     def test_parameter_identity_and_value(self):
         self.circuit('Parameters', '''
-for(bool cache:{false,true}) for(bool reverse:{false,true}) {
-    Parameters m(cache,reverse);
+for(bool reverse:{false,true}) {
+    Parameters m(reverse);
     std::vector<std::uint32_t> observed;
     for(int i=0;i<20;++i) {
         auto count=m.count.peek(), sum=m.total.peek(); m.sim.step();
@@ -125,9 +125,9 @@ for(bool cache:{false,true}) for(bool reverse:{false,true}) {
 
     def test_struct_dynamic_array_signal(self):
         self.circuit('Configured', '''
-for(bool cache:{false,true}) for(bool reverse:{false,true}) {
+for(bool reverse:{false,true}) {
     std::vector<std::uint8_t> values{255,2,10};
-    Configured m(values,2,cache,reverse);
+    Configured m(values,2,reverse);
     for(int i=0;i<16;++i) m.sim.step();
     for(std::size_t i=0;i<values.size();++i) {
         CHECK(m.entries.refs[i]->size()==1);
@@ -146,24 +146,81 @@ for(bool cache:{false,true}) for(bool reverse:{false,true}) {
         model = compile_source(source, 'StaticSignals')
         source.unlink()
         self.circuit('StaticSignals', '''
-for(bool cache:{false,true}) for(bool reverse:{false,true}) {
-    StaticSignals m(cache, reverse);
+for(bool reverse:{false,true}) {
+    StaticSignals m(reverse);
     for(int i=0;i<5;++i) m.sim.step();
     CHECK(m.left.evaluations()==1 && m.right.evaluations()==5);
     CHECK(m.stable.evaluations()==5 && m.stable.value()==9);
     CHECK(m.sim.module(m.observer.mid).calls==5);
     for(auto rid:{m.observer.rid_conditional, m.observer.rid_selected, m.observer.rid_captured}) {
         CHECK(m.sim.rule(rid).calls==5); // Never read Signal on any executed path.
-        CHECK(m.sim.rule(rid).readSlots.empty());
     }
-    CHECK(m.sim.rule(m.observer.rid_ordinary).calls==(cache ? 1 : 5));
+    CHECK(m.sim.rule(m.observer.rid_ordinary).calls==5);
 }''', model=model)
         generated = (self.path / 'StaticSignals/model.cpp').read_text()
-        for rule in ('conditional', 'selected'):
-            for signal in ('left', 'right'):
-                self.assertIn(f'sim.declareInput(observer.rid_{rule}, {signal});', generated)
-        self.assertIn('sim.declareInput(observer.rid_captured, right);', generated)
-        self.assertNotIn('sim.declareInput(observer.rid_ordinary,', generated)
+        for signal in ('left', 'right'):
+            self.assertIn(f'sim.declareResource(observer.mid, {signal});', generated)
+        self.assertNotIn('ParameterCache', (self.path / 'StaticSignals/model.hpp').read_text())
+        self.assertNotIn('arbitrate_', generated)
+
+    def test_signal_dag_and_source_free_reload(self):
+        source = self.path / 'signal_dag.py'
+        source.write_text((HERE / 'signal_circuits.py').read_text())
+        model = compile_source(source, 'SignalDAG')
+        source.unlink()
+        for optimize in (False, True):
+            with self.subTest(optimize=optimize):
+                self.circuit('SignalDAG', '''
+for(bool reverse:{false,true}) {
+    SignalDAG m(reverse);
+    m.sim.step();
+    CHECK(m.a_join.value()==34 && m.seen.peek()==20);
+    CHECK(m.c_capture.value()==10 && m.o_tail.value()==101);
+    m.sim.step();
+    CHECK(m.a_join.value()==42 && m.seen.peek()==34);
+    CHECK(m.c_capture.value()==14);
+    m.sim.step(); m.sim.step();
+    CHECK(m.seen.peek()==42);
+    CHECK(m.z_root_output.evaluations()==3);
+    for(auto* s:{&m.a_join, &m.b_left, &m.b_right, &m.p_parity, &m.c_capture, &m.unused})
+        CHECK(s->evaluations()==3);
+    CHECK(m.o_tail.evaluations()==1);
+    CHECK(m.sim.module(m.filtered.mid).calls==1);
+    CHECK(m.sim.events().empty());
+}''', model=model, optimize=optimize)
+                generated = (self.path / 'SignalDAG/model.cpp').read_text()
+                self.assertIn('sim.declareInput(c_capture, z_root_output);', generated)
+                self.assertIn('sim.declareInput(unused, z_root_output);', generated)
+
+    def test_signal_connection_diagnostics(self):
+        for top, diagnostic in [('SignalCycle', 'Signal dependency cycle'),
+                                ('InvalidSignalArgument', 'Queues or Signals')]:
+            with self.subTest(top=top), self.assertRaisesRegex(CompileError, diagnostic):
+                compile_source(HERE / 'signal_circuits.py', top)
+
+    def test_original_signal_composition_probes(self):
+        source = HERE / 'fixtures/skyzh/modular.py'
+        for top, output, expected in [('SignalChain', 'selected', 8),
+                                      ('CapturedSignal', 'result', 7)]:
+            with self.subTest(top=top):
+                self.circuit(top, f'''
+for(bool reverse:{{false,true}}) {{
+    {top} m(reverse);
+    m.sim.step(); m.sim.step();
+    CHECK(m.{output}.value()=={expected});
+    CHECK(m.{output}.evaluations()==1 && m.decoded.evaluations()==1);
+}}''', source)
+
+    def test_loop_carried_aggregate_fields(self):
+        for optimize in (False, True):
+            with self.subTest(optimize=optimize):
+                self.circuit('AggregateLoop', '''
+for(unsigned n:{0U,1U,5U}) {
+    AggregateLoop m(n); m.sim.step();
+    const auto &p=m.output.value();
+    CHECK(p.tag==n);
+    for(unsigned j=0;j<4;++j) CHECK(p.lanes[j]==n*(n-1)/2+(j==2 ? 0 : n*j));
+}''', HERE / 'mlir_circuits.py', optimize=optimize)
 
     def test_module_multi_output_and_capacity(self):
         model = self.circuit('Composed', """
@@ -179,8 +236,8 @@ for(std::size_t i=0;i<4;++i) CHECK(m.array.refs[i]->peek()==i);
 
     def test_event_only(self):
         self.circuit('Events', '''
-for(bool cache:{false,true}) {
-    Events m(cache);
+for(bool reverse:{false,true}) {
+    Events m(reverse);
     for(int i=0;i<11;++i) m.sim.step();
     CHECK(m.sim.module(m.top.mid).calls==4);
     CHECK(m.sim.stats().events==4 && m.sim.stats().dueEvents==3);
@@ -189,24 +246,22 @@ for(bool cache:{false,true}) {
 
     def test_short_circuit_early_return(self):
         self.circuit('ShortCircuit', '''
-for(bool cache:{false,true}) for(bool reverse:{false,true}) {
-ShortCircuit m(cache,reverse); for(int i=0;i<5;++i) m.sim.step();
+for(bool reverse:{false,true}) {
+ShortCircuit m(reverse); for(int i=0;i<5;++i) m.sim.step();
 CHECK(m.counter.peek()==7 && m.empty.empty());
 CHECK(m.sim.rule(m.top.rid_guarded).calls==1);
-CHECK(!m.sim.reads(m.top.mid,m.empty));
 }
 ''', monitor_missing=True)
 
     def test_missing_input_aborts_without_throwing(self):
         self.circuit('MissingInput', '''
-for(bool cache:{false,true}) for(bool reverse:{false,true}) {
-    MissingInput m(cache,reverse);
+for(bool reverse:{false,true}) {
+    MissingInput m(reverse);
     for(int i=0;i<3;++i) {
         m.sim.step();
         CHECK(m.first.size()==2 && m.state.peek()==0);
         CHECK(m.marker.peek()==1); // The Rule after take still runs.
         CHECK(!m.sim.rule(m.worker.rid_take).complete);
-        CHECK(m.sim.reads(m.worker.mid,m.second_produce_out0));
         for(auto event:m.sim.events()) CHECK(event.first<20);
     }
     m.sim.step();
@@ -220,15 +275,13 @@ for(bool cache:{false,true}) for(bool reverse:{false,true}) {
 
     def test_missing_input_checks_follow_the_active_branch(self):
         self.circuit('ConditionalInput', '''
-for(bool cache:{false,true}) for(bool reverse:{false,true}) {
-    ConditionalInput m(cache,reverse);
+for(bool reverse:{false,true}) {
+    ConditionalInput m(reverse);
     for(int busy=1;busy>=0;--busy) {
         m.sim.step();
         CHECK(m.busy.peek()==unsigned(busy) && m.result.peek()==0);
-        CHECK(!m.sim.reads(m.worker.mid,m.input_produce_out0));
     }
     m.sim.step();
-    CHECK(m.sim.reads(m.worker.mid,m.input_produce_out0));
     CHECK(m.result.peek()==0);
     m.sim.step();
     CHECK(m.result.peek()==10 && m.input_produce_out0.empty());
@@ -237,12 +290,11 @@ for(bool cache:{false,true}) for(bool reverse:{false,true}) {
 
     def test_empty_revise_aborts_without_a_payload_read(self):
         self.circuit('EmptyRevise', '''
-for(bool cache:{false,true}) for(bool reverse:{false,true}) {
-    EmptyRevise m(cache,reverse);
+for(bool reverse:{false,true}) {
+    EmptyRevise m(reverse);
     for(int i=0;i<3;++i) {
         m.sim.step();
         CHECK(m.state.peek()==0 && !m.sim.rule(m.worker.rid_assign).complete);
-        CHECK(m.sim.reads(m.worker.mid,m.input_produce_out0));
         for(auto event:m.sim.events()) CHECK(event.first<20);
     }
     m.sim.step();
@@ -254,13 +306,12 @@ for(bool cache:{false,true}) for(bool reverse:{false,true}) {
 
     def test_missing_control_keeps_earlier_rule_candidates(self):
         self.circuit('MissingControl', '''
-for(bool cache:{false,true}) for(bool reverse:{false,true}) {
-    MissingControl m(cache,reverse);
+for(bool reverse:{false,true}) {
+    MissingControl m(reverse);
     for(int i=1;i<=3;++i) {
         m.sim.step();
         CHECK(m.before.peek()==unsigned(i) && m.after.peek()==0);
         CHECK(m.sim.rule(m.worker.rid_late).calls==0);
-        CHECK(m.sim.reads(m.worker.mid,m.input_produce_out0));
     }
     m.sim.step();
     CHECK(m.before.peek()==4 && m.after.peek()==10);
@@ -279,13 +330,12 @@ for(bool cache:{false,true}) for(bool reverse:{false,true}) {
         read = next(o for o in ops if o['op'] == 'queue.read' and o['args'] == [b])
         read.update(op='zero', args=[])
         self.circuit('MissingInput', '''
-for(bool cache:{false,true}) for(bool reverse:{false,true}) {
-    MissingInput m(cache,reverse);
+for(bool reverse:{false,true}) {
+    MissingInput m(reverse);
     for(int i=0;i<3;++i) {
         m.sim.step();
         CHECK(m.first.size()==2 && m.state.peek()==0);
         CHECK(!m.sim.rule(m.worker.rid_take).complete);
-        CHECK(m.sim.reads(m.worker.mid,m.second_produce_out0));
     }
     m.sim.step();
     CHECK(m.first.size()==1 && m.state.peek()==1);
@@ -295,16 +345,16 @@ for(bool cache:{false,true}) for(bool reverse:{false,true}) {
 
     def test_signal_empty_input_is_explicit_or_fatal(self):
         self.circuit('OptionalSignal', '''
-for(bool cache:{false,true}) for(bool reverse:{false,true}) {
-    OptionalSignal m(cache,reverse);
+for(bool reverse:{false,true}) {
+    OptionalSignal m(reverse);
     m.sim.step(); CHECK(m.value.value()==0);
     m.sim.step(); CHECK(m.value.value()==0);
     m.sim.step(); CHECK(m.value.value()==10);
 }
 ''', monitor_missing=True)
         self.circuit('InvalidSignal', '''
-for(bool cache:{false,true}) for(bool reverse:{false,true}) {
-    InvalidSignal m(cache,reverse);
+for(bool reverse:{false,true}) {
+    InvalidSignal m(reverse);
     bool failed=false;
     try { m.sim.step(); } catch(const gfsim::NeedInput&) { failed=true; }
     CHECK(failed);
@@ -357,8 +407,8 @@ CHECK(ac_detail::div<std::int32_t>(INT32_MIN,-1)==INT32_MIN);
     def test_mlir_static_outputs_arrays_and_keywords(self):
         source = HERE / 'mlir_circuits.py'
         self.circuit('Forward', """
-for(bool cache:{false,true}) for(bool reverse:{false,true}) {
-  Forward m(cache,reverse); m.sim.step();
+for(bool reverse:{false,true}) {
+  Forward m(reverse); m.sim.step();
   CHECK(m.rob.capacity()==12 && m.station.capacity()==1);
   CHECK(m.rob.peek()==3 && m.station.peek()==3 && m.source.size()==2);
   for(int i=0;i<4;++i) m.sim.step(); CHECK(m.source.size()==2);
@@ -366,8 +416,8 @@ for(bool cache:{false,true}) for(bool reverse:{false,true}) {
 """, source)
         self.circuit('Implicit', "Implicit m; m.sim.step(); CHECK(m.top_allocate_out0.peek()==9 && m.source.empty());", source)
         self.circuit('Arrays', """
-for(bool cache:{false,true}) for(bool reverse:{false,true}) {
-  Arrays m(2,cache,reverse); m.sim.step();
+for(bool reverse:{false,true}) {
+  Arrays m(2,reverse); m.sim.step();
   for(unsigned i=0;i<4;++i) CHECK(m.slots.refs[i]->peek().lanes[2]==100+i);
   for(auto* q:m.empty_slots.refs) CHECK(q->empty() && q->capacity()==1);
   CHECK(m.record.at(0).lanes[2]==3);
@@ -379,8 +429,8 @@ for(bool cache:{false,true}) for(bool reverse:{false,true}) {
         self.circuit('Keywords', "Keywords m(5); m.sim.step(); CHECK(m.ac_py_737769746368.peek()==12);", source)
         self.circuit('StaticPorts', 'StaticPorts m; for(int i=0;i<3;++i) m.sim.step(); CHECK(m.observed.value()==7 && m.observed.evaluations()==4);', source)
         self.circuit('TemporaryRefs', """
-for(bool cache:{false,true}) for(bool reverse:{false,true}) {
-  TemporaryRefs m(cache,reverse);
+for(bool reverse:{false,true}) {
+  TemporaryRefs m(reverse);
   for(int i=0;i<3;++i) m.sim.step();
   CHECK(!m.left.empty() && !m.right.empty() && m.output.peek()==1);
   for(int i=0;i<3;++i) m.sim.step();

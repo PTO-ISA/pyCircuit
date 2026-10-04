@@ -9,11 +9,10 @@ class Increment {
     gfsim::Queue<std::uint32_t> &output;
     gfsim::ModuleId mid{};
     gfsim::RuleId rid{};
-    gfsim::ParameterCache<std::uint32_t> arguments;
 
     void Work() { workIncrement(7); }
     void workIncrement(std::uint32_t bias) {
-        if (!sim.beginRule(rid, arguments, bias))
+        if (!sim.beginRule(rid))
             return;
         const auto *value = input.tryPeek();
         if (!value) {
@@ -24,16 +23,13 @@ class Increment {
         output.proposePush(rid, *value + bias);
         sim.completeRule(rid);
     }
-    bool arbitrate() { return sim.arbitrateRule(rid); }
 };
 int main() {
     gfsim::Queue<std::uint32_t> input(2, {10, 20}), output(2);
     gfsim::Simulator sim;
     Increment module{sim, input, output};
     module.mid = sim.addModule<&Increment::Work>(module);
-    module.rid = sim.addRule(module.mid, [](void *object, gfsim::Simulator &, gfsim::RuleId) {
-        return static_cast<Increment *>(object)->arbitrate();
-    });
+    module.rid = sim.addRule(module.mid);
     sim.addQueue(input);
     sim.addQueue(output);
     sim.bind(module.rid, input, gfsim::Pop);

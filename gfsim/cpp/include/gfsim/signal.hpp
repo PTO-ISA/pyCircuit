@@ -2,7 +2,8 @@
 #include "simulator.hpp"
 
 namespace gfsim {
-// The helper entry and instance are immutable wiring; only runtime owns the cache.
+// The helper entry and instance are immutable wiring. Queue/Signal inputs are
+// declared before freeze(); runtime evaluates the static DAG after Queue Xfer.
 template <class T> class Signal final : public SignalBase {
     using Helper = T (*)(void *);
     void *object_;
@@ -21,7 +22,6 @@ template <class T> class Signal final : public SignalBase {
             throw std::invalid_argument("null Signal helper");
     }
     const T &value() const {
-        observe();
         if (!value_)
             throw std::logic_error("Signal read before initialization");
         return *value_;

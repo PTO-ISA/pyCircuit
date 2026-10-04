@@ -50,16 +50,14 @@ def main():
         cycles = native[-1]['cycle']
         jobs = [('native', [str(args.runner.resolve()), str((directory / 'input.json').resolve()), '--benchmark'], env, None)]
         # Equivalence before timing for every measured configuration.
-        for cache in (True, False):
-            for reverse in (False, True):
-                tag = f'cache{int(cache)}-reverse{int(reverse)}'
-                compare(case, native, run_python(case, cache, reverse), directory / f'{tag}.python-mismatch.json')
-                compare(case, native, run_cpp(case, args.cpp_runner, cache, reverse), directory / f'{tag}.cpp-mismatch.json')
-                jobs.append((f'cpp-{tag}', [str(args.cpp_runner.resolve()), '--benchmark'], env, numeric_input(case, cache, reverse)))
-                command = [sys.executable, str(worker), str(directory / 'input.json')]
-                if not cache: command.append('--no-cache')
-                if reverse: command.append('--reverse')
-                jobs.append((f'python-{tag}', command, python_env, None))
+        for reverse in (False, True):
+            tag = f'reverse{int(reverse)}'
+            compare(case, native, run_python(case, reverse), directory / f'{tag}.python-mismatch.json')
+            compare(case, native, run_cpp(case, args.cpp_runner, reverse), directory / f'{tag}.cpp-mismatch.json')
+            jobs.append((f'cpp-{tag}', [str(args.cpp_runner.resolve()), '--benchmark'], env, numeric_input(case, reverse)))
+            command = [sys.executable, str(worker), str(directory / 'input.json')]
+            if reverse: command.append('--reverse')
+            jobs.append((f'python-{tag}', command, python_env, None))
         warmup = {tag: measure(cmd, env, cycles, stdin) for tag, cmd, env, stdin in jobs}
         samples = {tag: [] for tag, *_ in jobs}
         orders = []
@@ -73,7 +71,7 @@ def main():
                              median_run_ns=statistics.median(s['run_ns'] for s in samples[tag]))
                         for tag, cmd, *_ in jobs]
         programs.append(dict(name=name, cycles=cycles, orders=orders, measurements=measurements))
-        print(f'{name}: {cycles} cycles; 9 groups, one warmup + seven samples', flush=True)
+        print(f'{name}: {cycles} cycles; 5 groups, one warmup + seven samples', flush=True)
     report = dict(reference=identity, cpp_binary_sha256=hashlib.sha256(args.cpp_runner.read_bytes()).hexdigest(),
                   native_binary_sha256=hashlib.sha256(args.runner.read_bytes()).hexdigest(), source_sha256=fingerprint(),
                   host=platform.platform(), python=sys.version, python_executable=sys.executable,

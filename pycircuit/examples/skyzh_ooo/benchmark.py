@@ -1,78 +1,86 @@
-"""Verified, serial fixed-tick comparisons with the unmodified pinned skyzh core."""
+"""Clock-equivalent, serial fixed-tick benchmarks against the pinned native core."""
 import argparse
 import json
 import os
 from pathlib import Path
 import platform
 from pycircuit.benchmark_migration import measured, summarize, sha
-from .assemble import assemble
-from .oracle import interpret, load_image
-from .verify import check
-from .reference.build import COMMIT
+from .tests.assemble import assemble
+from .tests.oracle import interpret, load_image
+from .tests.verify import run, compare, inspect, architectural_commits
+from .tests.reference import COMMIT
 
 HERE = Path(__file__).resolve().parent
 
 
 def main():
-    p = argparse.ArgumentParser(description=__doc__)
-    p.add_argument('--generated', type=Path, required=True)
-    p.add_argument('--reference', type=Path, required=True)
-    p.add_argument('--output', type=Path, required=True)
-    p.add_argument('--repeats', type=int, default=7)
-    p.add_argument('--cpu', type=int)
-    a = p.parse_args()
-    cpu = min(os.sched_getaffinity(0)) if a.cpu is None else a.cpu
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument('--generated', type=Path, required=True)
+    parser.add_argument('--reference', type=Path, required=True)
+    parser.add_argument('--output', type=Path, required=True)
+    parser.add_argument('--repeats', type=int, default=7)
+    parser.add_argument('--iterations', type=int, default=4096)
+    parser.add_argument('--cpu', type=int)
+    args = parser.parse_args()
+    if args.repeats < 1 or not 1 <= args.iterations <= 65535:
+        parser.error('positive repeats and 1..65535 iterations required')
+    cpu = min(os.sched_getaffinity(0)) if args.cpu is None else args.cpu
     os.sched_setaffinity(0, {cpu})
-    a.output.mkdir(parents=True, exist_ok=True)
-    binaries = dict(generated=a.generated.resolve(), reference=a.reference.resolve())
-    reference_build = json.loads((a.reference.parent/'build.json').read_text())
-    assert reference_build['commit'] == COMMIT and reference_build['binary_sha256'] == sha(a.reference)
-    flags = (a.generated.parent/'CMakeFiles/acpy-skyzh-model-compiled.dir/flags.make').read_text()
-    expected_flags = {'-std=gnu++20', '-O3', '-DNDEBUG'}
-    generated_flags = next(line.split('=', 1)[1].split() for line in flags.splitlines() if line.startswith('CXX_FLAGS ='))
+    args.output.mkdir(parents=True, exist_ok=True)
+    binaries = dict(generated=args.generated.resolve(), reference=args.reference.resolve())
+    manifest = json.loads(args.reference.with_name('build.json').read_text())
+    assert manifest['commit'] == COMMIT and manifest['binary_sha256'] == sha(args.reference)
+    flags = (args.generated.parent / 'CMakeFiles/acpy-skyzh-model-compiled.dir/flags.make').read_text()
+    expected = {'-std=gnu++20', '-O3', '-DNDEBUG'}
+    compiled_flags = next(line.split('=',1)[1].split() for line in flags.splitlines() if line.startswith('CXX_FLAGS ='))
     compiler = next(line.removeprefix('# compile CXX with ') for line in flags.splitlines() if line.startswith('# compile CXX with '))
-    assert set(generated_flags) == expected_flags, 'benchmark requires the uniform Release configuration'
-    assert compiler == reference_build['command'][0] and expected_flags <= set(reference_build['command']), 'nonuniform reference compiler/flags'
-    source = a.generated.parent/'compiled'
-    result = dict(host=platform.platform(), cpu=cpu, repeats=a.repeats, reference_build=reference_build,
-                  generated_flags=flags, generated_sources_sha256={n: sha(source/n) for n in ('model.cpp','model.hpp','ac_support.hpp','model.acir.mlir')},
-                  binaries_sha256={k: sha(b) for k,b in binaries.items()},
-                  scope='Fixed N calls to step()/tick(), from initial state (K=0). Construction, image loading, host termination tests and observations excluded; first Signal initialization included. RSS is whole-process peak.',
-                  microarchitecture=dict(generated=dict(rob=12, memory_bytes=262144), reference=dict(rob=7, memory_bytes=4194304)), programs=[])
-    for name, original in [('window', 'addi x2, x0, 64'), ('branches', 'addi x2, x0, 32')]:
-        source = a.output/(name+'.s')
-        source.write_text((HERE/'programs'/source.name).read_text().replace(original, 'lui x2, 1'))
-        image = assemble(source, a.output/(name+'.hex'))
-        oracle = interpret(load_image(image), trace=True)
-        text, _ = measured([binaries['generated'], image, '1000000'])
-        rows = [json.loads(line) for line in text.splitlines()]
-        check(rows, oracle)
-        cycles = {'generated': rows[-1]['cycles']}
-        text, _ = measured([binaries['reference'], image, '1000000'])
-        native = json.loads(text)
-        for key in ('registers','memory_changes'): assert native[key] == oracle[key], (name,key)
-        assert native['stopped']
-        cycles['reference'] = native['cycles']
-        def sample(label):
-            command = [binaries[label], image, '1000000', '--fixed', cycles[label]]
-            if label=='generated': command.append('--benchmark')
-            text, metrics = measured(command)
+    assert set(compiled_flags) == expected
+    assert compiler == manifest['command'][0] and expected <= set(manifest['command'])
+    report = dict(host=platform.platform(), cpu=cpu, repeats=args.repeats,
+                  compiler=manifest['compiler'], generated_flags=flags, reference_build=manifest,
+                  scope='Same preverified N ticks from initial state. Construction, image loading, termination checks and trace/observation excluded. First Signal initialization included. RSS is process peak.',
+                  microarchitecture=dict(rob_slots=8,rob_usable=7,alu_stations=4,load_stations=3,store_stations=3,memory_bytes=0x400000),
+                  binaries_sha256={k:sha(v) for k,v in binaries.items()},programs=[])
+    generated = args.generated.parent / 'compiled'
+    report['generated_code'] = {p.name:dict(bytes=p.stat().st_size,sha256=sha(p)) for p in
+                                (generated/'model.cpp',generated/'model.hpp',generated/'model.acir.mlir')}
+    for case, old in [('window','addi x2, x0, 64'), ('branches','addi x2, x0, 32')]:
+        source = args.output / f'{case}.s'
+        source.write_text((HERE/'tests/programs'/f'{case}.s').read_text().replace(old, f'li x2, {args.iterations}'))
+        image = assemble(source,args.output/f'{case}.hex')
+        oracle = interpret(load_image(image),limit=1000000,trace=True)
+        paths = {k:args.output/f'{case}-{k}.jsonl' for k in binaries}
+        for name, binary in binaries.items():
+            run(binary,image,paths[name])
+        trace_hash = compare(paths['generated'],paths['reference'])
+        final, raw, coverage = inspect(paths['reference'])
+        commits = architectural_commits(raw)
+        assert len(commits) == oracle['instructions']
+        assert all(all(a[k] == b[k] for k in a) for a,b in zip(commits,oracle['commits']))
+        for key in ('registers','memory_changes'): assert final[key] == oracle[key]
+        cycles, instructions = final['cycles'],oracle['instructions']
+        def sample(name):
+            text, metrics = measured([binaries[name],image,'1000000','--fixed',cycles,'--benchmark'])
             row = json.loads(text)
-            assert row['stopped'] and row['cycles'] == cycles[label]
-            for key in ('registers','memory_changes'): assert row[key] == oracle[key], (name,label,key)
-            ns = row['run_ns'] if label=='generated' else row['elapsed_ns']
-            return dict(metrics, run_ns=ns, ns_per_tick=ns/cycles[label],
-                        instructions_per_second=oracle['instructions']*1e9/ns)
-        for label in binaries: sample(label)
-        samples = {k: [] for k in binaries}
-        for i in range(a.repeats):
-            for label in (list(binaries) if i%2==0 else list(reversed(binaries))): samples[label].append(sample(label))
-        report = dict(program=name, iterations=4096, instructions=oracle['instructions'], cycles=cycles,
-                      ipc={k: oracle['instructions']/n for k,n in cycles.items()}, image_sha256=sha(image),
-                      samples=samples, median={k:summarize(s) for k,s in samples.items()})
-        result['programs'].append(report)
-        print(name, report['median'], flush=True)
-    (a.output/'results.json').write_text(json.dumps(result, indent=2)+'\n')
+            for key in ('cycles','stopped','registers','memory_changes','predictor_history_hash','predictor_counters_hash'):
+                assert row[key] == final[key], (case,name,key)
+            return dict(metrics,run_ns=row['run_ns'],construct_ns=row['construct_ns'],
+                        ns_per_tick=row['run_ns']/cycles,instructions_per_second=instructions*1e9/row['run_ns'])
+        for name in binaries: sample(name)
+        samples = {name:[] for name in binaries}
+        for repeat in range(args.repeats):
+            for name in (list(binaries) if repeat%2==0 else list(reversed(binaries))):
+                samples[name].append(sample(name))
+        medians = {name:summarize(values) for name,values in samples.items()}
+        result = dict(program=case,iterations=args.iterations,cycles=cycles,instructions=instructions,
+                      ipc=instructions/cycles,trace_sha256=trace_hash,coverage=coverage,
+                      median=medians,samples=samples,
+                      slowdown=medians['generated']['ns_per_tick']/medians['reference']['ns_per_tick'])
+        report['programs'].append(result)
+        print(f'{case}: {cycles} identical clocks, IPC={result["ipc"]:.4f}, '
+              f'generated={medians["generated"]["ns_per_tick"]:.1f} ns/tick, '
+              f'native={medians["reference"]["ns_per_tick"]:.1f}, ratio={result["slowdown"]:.2f}',flush=True)
+    (args.output/'results.json').write_text(json.dumps(report,indent=2)+'\n')
 
 
 if __name__ == '__main__':

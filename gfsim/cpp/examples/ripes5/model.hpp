@@ -45,8 +45,8 @@ struct CPU {
     Writeback writeback;
 
     CPU(std::vector<Word> code, Word base, std::span<const Word> regs,
-        std::span<const Word> initial_data, bool cache = true, bool reverse = false)
-        : words(std::move(code)), data_base(base), registers(regs), data(initial_data), sim(cache),
+        std::span<const Word> initial_data, bool reverse = false)
+        : words(std::move(code)), data_base(base), registers(regs), data(initial_data), sim(),
           fetch{{sim}, pc, if_id, ex_result, load_use_stall, words},
           decode_stage{{sim}, if_id, id_ex, mem_wb, registers.refs, ex_result, load_use_stall},
           execute_stage{{sim}, ex_mem, ex_result},
@@ -66,27 +66,19 @@ struct CPU {
             Stage *record;
             void *object;
             gfsim::Simulator::Work work;
-            gfsim::Simulator::Arbitrate arbitrate;
         };
         std::array<ModuleBinding, 5> modules{
-            {{&fetch, &fetch, [](void *p) { static_cast<Fetch *>(p)->Work(); },
-              [](void *p, auto &, auto) { return static_cast<Fetch *>(p)->arbitrate_fetch(); }},
-             {&decode_stage, &decode_stage, [](void *p) { static_cast<Decode *>(p)->Work(); },
-              [](void *p, auto &, auto) { return static_cast<Decode *>(p)->arbitrate_decode(); }},
-             {&execute_stage, &execute_stage, [](void *p) { static_cast<Execute *>(p)->Work(); },
-              [](void *p, auto &, auto) { return static_cast<Execute *>(p)->arbitrate_execute(); }},
-             {&memory, &memory, [](void *p) { static_cast<Memory *>(p)->Work(); },
-              [](void *p, auto &, auto) { return static_cast<Memory *>(p)->arbitrate_memory(); }},
-             {&writeback, &writeback, [](void *p) { static_cast<Writeback *>(p)->Work(); },
-              [](void *p, auto &, auto) {
-                  return static_cast<Writeback *>(p)->arbitrate_writeback();
-              }}}};
+            {{&fetch, &fetch, [](void *p) { static_cast<Fetch *>(p)->Work(); }},
+             {&decode_stage, &decode_stage, [](void *p) { static_cast<Decode *>(p)->Work(); }},
+             {&execute_stage, &execute_stage, [](void *p) { static_cast<Execute *>(p)->Work(); }},
+             {&memory, &memory, [](void *p) { static_cast<Memory *>(p)->Work(); }},
+             {&writeback, &writeback, [](void *p) { static_cast<Writeback *>(p)->Work(); }}}};
         for (std::size_t i = 0; i < modules.size(); ++i) {
             auto &m = modules[reverse ? modules.size() - 1 - i : i];
             m.record->mid = sim.addModule(m.object, m.work);
         }
         for (auto &m : modules)
-            m.record->rid = sim.addRule(m.record->mid, m.arbitrate);
+            m.record->rid = sim.addRule(m.record->mid);
         for (gfsim::QueueBase *q :
              std::initializer_list<gfsim::QueueBase *>{&pc, &if_id, &id_ex, &ex_mem, &mem_wb})
             sim.addQueue(*q);
@@ -117,11 +109,6 @@ struct CPU {
             sim.declareInput(ex_result, *q);
         for (auto *q : {&if_id, &id_ex})
             sim.declareInput(load_use_stall, *q);
-        for (auto rid : {fetch.rid, decode_stage.rid}) {
-            sim.declareInput(rid, ex_result);
-            sim.declareInput(rid, load_use_stall);
-        }
-        sim.declareInput(execute_stage.rid, ex_result);
         sim.bind(fetch.rid, pc, gfsim::Revise);
         sim.bind(fetch.rid, if_id, gfsim::Revise);
         sim.bind(decode_stage.rid, id_ex, gfsim::Revise);

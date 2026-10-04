@@ -49,7 +49,8 @@ def ACIR_ConfigOp : ACIR_Op<"config", [Pure]> {
   let results = (outs AnyType:$value);
 }
 
-// A read/query observes current state AND writes the GFSim dependency log.
+// Reads/queries observe current state and may abort on missing input.
+// Keep conservative effects so optimization cannot move them across branches.
 // In particular these ops must never acquire Pure/AlwaysSpeculatable traits.
 def ACIR_ReadOp : ACIR_Op<"read", [MemoryEffects<[MemRead, MemWrite]>]> {
   let arguments = (ins ACIR_ResourceRef:$resource);

@@ -7,7 +7,6 @@ struct Lookup : Module {
     Queue<Value> &output;
     Queue<Word> &selector;
     std::vector<Queue<Word> *> table;
-    ParameterCache<Word> args;
     Lookup(Queue<Value> &i, Queue<Value> &o, Queue<Word> &s, std::vector<Queue<Word> *> t)
         : input(i), output(o), selector(s), table(std::move(t)) {
         resources.push_back(&s);
@@ -19,7 +18,7 @@ struct Lookup : Module {
             workLookup(*p);
     }
     void workLookup(Word index) {
-        if (!e->beginRule(rid, args, index))
+        if (!e->beginRule(rid))
             return;
         auto p = read(input, rid);
         if (!p) {
@@ -39,7 +38,7 @@ struct Lookup : Module {
 inline std::unique_ptr<Netlist>
 lookup(const std::vector<Word> &values, const std::vector<Timed<Word>> &indices,
        const std::vector<std::pair<std::size_t, std::vector<Timed<Word>>>> &updates,
-       Tick period = 11, std::size_t depth = 64, bool cache = true, bool reverse = false) {
+       Tick period = 11, std::size_t depth = 64, bool reverse = false) {
     auto n = std::make_unique<Netlist>();
     auto &b = *n;
     auto &input = b.queue<Value>();
@@ -59,7 +58,7 @@ lookup(const std::vector<Word> &values, const std::vector<Timed<Word>> &indices,
     m.rid = b.rule(m, {&input}, {&target});
     auto &out = b.queue<Receipt<Value, 1>>(values.size() + 1);
     sink(b, std::array{&target}, out, period);
-    b.finish(cache, reverse);
+    b.finish(reverse);
     return n;
 }
 } // namespace circuits

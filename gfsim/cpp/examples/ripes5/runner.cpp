@@ -36,18 +36,17 @@ std::uint64_t number(std::uint64_t max = UINT64_MAX) {
 struct Input {
     gfsim::Tick max_cycles;
     Word end_pc, data_base;
-    bool cache, reverse;
+    bool reverse;
     std::vector<Word> words, data;
     std::array<Word, 32> registers;
 };
 Input readInput() {
-    if (number(1) != 1)
+    if (number(2) != 2)
         throw std::invalid_argument("unsupported input protocol");
     Input i{};
     i.max_cycles = number();
     i.end_pc = number(UINT32_MAX);
     i.data_base = number(UINT32_MAX);
-    i.cache = number(1);
     i.reverse = number(1);
     // Bound allocations before reading untrusted counts. Python validates the ISA/schema.
     auto nw = number(1U << 20), nd = number(1U << 20);
@@ -75,7 +74,9 @@ Input readInput() {
             throw std::invalid_argument("unsupported instruction");
     return i;
 }
-bool executable(const CPU &cpu, Word pc) { return pc % 4 == 0 && pc / 4 < cpu.words.size(); }
+bool executable(const CPU &cpu, Word pc) {
+    return pc % 4 == 0 && pc / 4 < cpu.words.size();
+}
 void stage(const CPU &cpu, bool valid, Word pc) {
     valid = valid && executable(cpu, pc);
     std::cout << "{\"valid\":" << valid << ",\"pc\":";
@@ -157,15 +158,13 @@ void counters(const CPU &cpu, std::int64_t construct_ns, std::int64_t run_ns,
     }
     std::cout << "\"cycles\":" << cpu.sim.tick() << ",\"construct_ns\":" << construct_ns
               << ",\"run_ns\":" << run_ns << ",\"module_work\":" << s.moduleWork
-              << ",\"rule_work\":" << s.ruleWork << ",\"cache_hits\":" << s.cacheHits
-              << ",\"signal_work\":" << s.signalWork << ",\"events\":" << s.events
-              << ",\"due_events\":" << s.dueEvents
+              << ",\"rule_work\":" << s.ruleWork << ",\"signal_work\":" << s.signalWork
+              << ",\"events\":" << s.events << ",\"due_events\":" << s.dueEvents
               << ",\"change_notifications\":" << s.changeNotifications
-              << ",\"reader_checks\":" << s.readerChecks << ",\"dfs_visits\":" << s.dfsVisits
-              << ",\"capacity_edges\":" << s.capacityEdges << ",\"queue_checks\":" << s.queueChecks
-              << ",\"accepted\":" << s.accepted << ",\"max_stack\":" << s.maxStack
-              << ",\"signal_evaluations\":[" << cpu.ex_result.evaluations() << ','
-              << cpu.load_use_stall.evaluations() << "]}\n";
+              << ",\"arbitration_attempts\":" << s.arbitrationAttempts
+              << ",\"delta_rounds\":" << s.deltaRounds << ",\"queue_checks\":" << s.queueChecks
+              << ",\"accepted\":" << s.accepted << ",\"signal_evaluations\":["
+              << cpu.ex_result.evaluations() << ',' << cpu.load_use_stall.evaluations() << "]}\n";
 }
 } // namespace
 int main(int argc, char **argv) {
@@ -173,16 +172,17 @@ int main(int argc, char **argv) {
         const bool benchmark = argc == 2 && std::string(argv[1]) == "--benchmark";
         const bool fixed = argc == 4 && std::string(argv[1]) == "--benchmark-fixed";
         if (argc != 1 && !benchmark && !fixed)
-            throw std::invalid_argument("usage: gfsim-ripes5 [--benchmark | --benchmark-fixed K N] < numeric-input");
+            throw std::invalid_argument(
+                "usage: gfsim-ripes5 [--benchmark | --benchmark-fixed K N] < numeric-input");
         const auto warmup = fixed ? argument(argv[2]) : 0;
         const auto measured = fixed ? argument(argv[3]) : 0;
         const auto input = readInput();
-        if (fixed && (!measured || warmup > input.max_cycles || measured > input.max_cycles - warmup))
+        if (fixed &&
+            (!measured || warmup > input.max_cycles || measured > input.max_cycles - warmup))
             throw std::invalid_argument("fixed window requires N > 0 and K + N <= max_cycles");
         using Clock = std::chrono::steady_clock;
         auto start = Clock::now();
-        CPU cpu(input.words, input.data_base, input.registers, input.data, input.cache,
-                input.reverse);
+        CPU cpu(input.words, input.data_base, input.registers, input.data, input.reverse);
         auto construct_ns =
             std::chrono::duration_cast<std::chrono::nanoseconds>(Clock::now() - start).count();
         if (fixed) {
@@ -193,7 +193,8 @@ int main(int argc, char **argv) {
             for (std::uint64_t i = 0; i < measured; ++i)
                 cpu.sim.step();
             const auto stop = Clock::now();
-            const auto ns = std::chrono::duration_cast<std::chrono::nanoseconds>(stop - start).count();
+            const auto ns =
+                std::chrono::duration_cast<std::chrono::nanoseconds>(stop - start).count();
             counters(cpu, construct_ns, ns, warmup, measured, before);
             return 0;
         }

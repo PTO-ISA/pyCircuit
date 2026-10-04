@@ -56,8 +56,12 @@ template <class T> void json(std::ostream &o, const std::vector<T> &v) {
     }
     o << ']';
 }
-inline void json(std::ostream &o, const Value &v) { jsonList(o, v.seq, v.value); }
-template <class T> void json(std::ostream &o, const Timed<T> &v) { jsonList(o, v.due, v.value); }
+inline void json(std::ostream &o, const Value &v) {
+    jsonList(o, v.seq, v.value);
+}
+template <class T> void json(std::ostream &o, const Timed<T> &v) {
+    jsonList(o, v.due, v.value);
+}
 template <class T, std::size_t N> void json(std::ostream &o, const Receipt<T, N> &v) {
     jsonList(o, v.tick, v.values);
 }
@@ -74,14 +78,12 @@ struct Module {
     template <class T> const T *read(Queue<T> &q, std::optional<RuleId> = {}) {
         return q.tryPeek();
     }
-    bool arbitrate(RuleId r) { return e->arbitrateRule(r); }
 };
 struct Netlist {
     struct Entry {
         Module *module;
         void *object;
         Simulator::Work work;
-        Simulator::Arbitrate arbitrate;
     };
     struct Binding {
         RuleId rule;
@@ -116,10 +118,7 @@ struct Netlist {
         auto *p = obj.get();
         p->mid = modules.size();
         objects.push_back(obj);
-        modules.push_back({p, p, [](void *instance) { static_cast<T *>(instance)->Work(); },
-                           [](void *instance, Simulator &, RuleId r) {
-                               return static_cast<T *>(instance)->arbitrate(r);
-                           }});
+        modules.push_back({p, p, [](void *instance) { static_cast<T *>(instance)->Work(); }});
         return *p;
     }
     RuleId rule(Module &m, std::vector<QueueBase *> pops = {}, std::vector<QueueBase *> pushes = {},
@@ -134,17 +133,16 @@ struct Netlist {
             bindings.push_back({r, q, Revise});
         return r;
     }
-    void finish(bool cache = true, bool reverse = false) {
-        sim = std::make_unique<Simulator>(cache);
+    void finish(bool reverse = false) {
+        sim = std::make_unique<Simulator>();
         if (reverse)
             std::reverse(modules.begin(), modules.end());
         for (auto &entry : modules) {
             entry.module->mid = sim->addModule(entry.object, entry.work);
             entry.module->e = sim.get();
         }
-        // The generated arbitration trampoline dispatches through the ordinary Module instance.
         for (auto *owner : owners)
-            sim->addRule(owner->mid, modules[owner->mid].arbitrate);
+            sim->addRule(owner->mid);
         for (auto &q : queues)
             sim->addQueue(*q);
         for (auto b : bindings) {
@@ -196,24 +194,10 @@ struct Netlist {
         o << "],\"rules\":[0";
         for (RuleId i = 1; i <= sim->ruleCount(); ++i)
             o << ',' << sim->rule(i).calls;
-        o << "],\"reads\":[";
-        for (ModuleId m = 0; m < modules.size(); ++m) {
-            if (m)
-                o << ',';
-            o << '[';
-            first = true;
-            for (const auto &q : queues)
-                if (sim->reads(m, *q)) {
-                    if (!first)
-                        o << ',';
-                    first = false;
-                    o << q->id();
-                }
-            o << ']';
-        }
         const auto &s = sim->stats();
-        o << "],\"stats\":{\"rule_work\":" << s.ruleWork << ",\"cache_hits\":" << s.cacheHits
-          << ",\"max_stack\":" << s.maxStack << "}}";
+        o << "],\"stats\":{\"rule_work\":" << s.ruleWork
+          << ",\"arbitration_attempts\":" << s.arbitrationAttempts
+          << ",\"delta_rounds\":" << s.deltaRounds << "}}";
         return o.str();
     }
 };
@@ -221,11 +205,10 @@ template <class T> struct Source : Module {
     RuleId rid{};
     Queue<Timed<T>> &rom;
     Queue<T> &output;
-    ParameterCache<Tick> args;
     Source(Queue<Timed<T>> &r, Queue<T> &o) : rom(r), output(o) {}
     void Work() { workSend(e->tick()); }
     void workSend(Tick now) {
-        if (!e->beginRule(rid, args, now))
+        if (!e->beginRule(rid))
             return;
         auto p = read(rom, rid);
         if (!p) {
@@ -252,14 +235,13 @@ template <class T, std::size_t N> struct Sink : Module {
     std::array<Queue<T> *, N> inputs;
     Queue<Receipt<T, N>> &output;
     Tick period;
-    ParameterCache<Tick> receiveArgs, timerArgs;
     Sink(std::array<Queue<T> *, N> in, Queue<Receipt<T, N>> &out, Tick p)
         : inputs(in), output(out), period(p) {}
     void Work() {
         Tick now = e->tick();
         if (now % period) {
             auto delay = period - now % period;
-            if (e->beginRule(timer, timerArgs, delay)) {
+            if (e->beginRule(timer)) {
                 e->requestWakeup(timer, mid, delay);
                 e->completeRule(timer);
             }
@@ -267,7 +249,7 @@ template <class T, std::size_t N> struct Sink : Module {
             workReceive(now);
     }
     void workReceive(Tick now) {
-        if (!e->beginRule(rid, receiveArgs, now))
+        if (!e->beginRule(rid))
             return;
         Receipt<T, N> result;
         result.tick = now;

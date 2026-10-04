@@ -1,5 +1,7 @@
 # Signal 静态依赖验证与性能对照
 
+> 本文保留静态调度重构前的实现／测量记录。当前 C++ 调度契约见 [GFSim spec](../spec.md)；Python 实验引擎不随本次重构迁移。
+
 2026-10-03。实现与调度契约见 [spec](../spec.md)，原始样本、输入、源文件和二进制指纹见 [signal-static-results.json](signal-static-results.json)。本次基线取自修改前的工作区快照 `/tmp/signal-static-before/source.tar`，包含原有未提交工作，不使用 Git HEAD 代替基线。
 
 ## 实现

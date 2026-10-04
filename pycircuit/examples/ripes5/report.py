@@ -26,16 +26,16 @@ def tests(path):
 
 def benchmark_report(path):
     timing = json.loads(path.read_text())
-    if timing['schema'] != 2 or not timing['acceptance']['full_acceptance'] or timing['acceptance']['configurations'] != 52:
+    if timing['schema'] != 2 or not timing['acceptance']['full_acceptance'] or timing['acceptance']['configurations'] != 26:
         raise AssertionError('requires fixed-window timing and full acceptance')
     if not timing['acceptance']['fixed_runner']['passed']:
         raise AssertionError('fixed-window checks failed')
     names = dict(generated='ACPy 生成版', handwritten='手写 GFSim', native='原生 Ripes5')
     parts = ['# Ripes5 三方同批性能对比', '',
              f'采样时间：{timing["timestamp_utc"]}。CPU affinity：{timing["affinity"]["selected"]}。', '',
-             '13 程序 × 四配置逐拍验收通过；五个长程序逐拍比较生成版、手写版和原生版，且原生通知开／关轨迹（包括 raw 诊断）完全一致。各长程序另核对独立计算的完整寄存器和内存结果。每次预热与正式采样均核对总周期、退休增量和最终状态。未通过门槛的程序不进入汇总。', '',
+             '13 程序 × 两种 Module 顺序逐拍验收通过；五个长程序逐拍比较生成版、手写版和原生版，且原生通知开／关轨迹（包括 raw 诊断）完全一致。各长程序另核对独立计算的完整寄存器和内存结果。每次预热与正式采样均核对总周期、退休增量和最终状态。未通过门槛的程序不进入汇总。', '',
              f'统一 GCC {timing["build_configuration"]["compiler_version"].splitlines()[0]}，C++20，'
-             f'`{timing["build_configuration"]["flags"]}`，关闭 LTO。GFSim 使用缓存开、Module 正序。'
+             f'`{timing["build_configuration"]["flags"]}`，关闭 LTO。GFSim 使用静态调度、Module 正序。'
              '原生版通过 `setEnableSignals(false)`、`setEnableClockedSignals(false)` 关闭观察通知，反向历史为 0；上游模型源码未修改。', '',
              f'每个进程从相同输入重新构造，先执行 K 拍；仅计时随后 N=T−K 次 `step()`／`clockUnguarded()`，截至结束 marker 提交。'
              f'每版完整预热一次，三方轮换顺序串行采样 {timing["repeats"]} 次。构造、装载、K 拍预热、宿主地址检查、结束判断和快照不计入核心耗时。模型内部必要检查和统计保留。', '',
@@ -82,7 +82,7 @@ def main():
     if a.build is None or a.asan_build is None:
         p.error('--build and --asan-build are required for the compiler regression report')
     comparison = json.loads((HERE / 'output/Release/comparison.json').read_text())
-    if not comparison['full_acceptance'] or comparison['configurations'] != 52:
+    if not comparison['full_acceptance'] or comparison['configurations'] != 26:
         raise AssertionError('requires full native acceptance')
     timing = json.loads((HERE / 'timing.json').read_text())
     package = ROOT / 'pycircuit'
@@ -115,9 +115,9 @@ def main():
         table.append(f'| {program["name"]} | {program["cycles"]} | {generated:.1f} | {manual:.1f} | {generated/manual:.3f} |')
     parts = ['# ACPy 编译链验收报告', '',
              '当前三方性能结果见 [同批固定周期报告](benchmark-report.md)。下面的七次短程序计时保留历史口径。', '',
-             '生成版、仅 ACIR 重载生成版、手写 C++、当前 Python、固定原生 Ripes：13 程序 × 四配置，共 52 配置逐拍通过。使用同一输入和周期边界，不移动轨迹。原生版本验证为强制门槛。', '',
+             '生成版、仅 ACIR 重载生成版、手写 C++、当前 Python、固定原生 Ripes：13 程序 × 两种 Module 顺序，共 26 配置逐拍通过。使用同一输入和周期边界，不移动轨迹。原生版本验证为强制门槛。', '',
              'Release 与 Clang ASan/UBSan/LeakSanitizer 均通过全部 8 项 CTest，其中包含 12 项编译器测试及原有 GFSim 回归。现有 Python GFSim 的 28 项测试也在强制原生参考模式下全部通过。LeakSanitizer 在受 ptrace 限制的沙箱内无法运行，正式内存验收在获准的沙箱外执行。', '',
-             '编译器测试覆盖完整消息序列、分支消费、别名去重、必要读失败原子清理、背压与候选保留、共享 RuleId／输出、资源身份和普通参数缓存、整值／嵌套字段 revise、动态资源阵列、Signal 过滤与共享读取、事件、短路／提前返回、定宽运算和固定数组。临时源码删除后，保存的 ACIR 可独立生成并运行。Ripes5 两种入口生成的三个 C++ 文件逐字相同。', '',
+             '编译器测试覆盖完整消息序列、分支消费、别名去重、必要读失败原子清理、背压与候选保留、共享 RuleId／输出、资源身份和普通参数传递、整值／嵌套字段 revise、动态资源阵列、Signal 过滤与共享读取、事件、短路／提前返回、定宽运算和固定数组。临时源码删除后，保存的 ACIR 可独立生成并运行。Ripes5 两种入口生成的三个 C++ 文件逐字相同。', '',
              '## 代码量', '', '| 类别 | 物理行数 | 非空行数 |', '| --- | ---: | ---: |']
     labels = dict(compiler='独立 Python 编译器', value_support='通用 C++ 值／存储支持', acpy_ripes5='ACPy Ripes5',
                   generated_model='生成模型头文件及实现', tests='编译器测试及补充电路', pipeline_example='ACPy 消息流水示例',

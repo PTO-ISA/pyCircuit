@@ -10,7 +10,7 @@ ACPy 使用 Python 的函数、控制流和赋值语法，由编译器区分静�
 | --- | --- |
 | `@ac.module def ...` | 定义 Module 的资源、固定连接、控制流、组合计算及 Rule 调用 |
 | `@ac.rule def ...` | 定义具有原子状态效果的计算 |
-| `@ac.signal def ...` | 从 Queue 计算全局共享的只读组合值 |
+| `@ac.signal def ...` | 从 Queue／Signal 计算全局共享的只读组合值 |
 | `ac.queue` | 持有持久状态，可作为 FIFO 或寄存器使用 |
 | `ac.var` | 普通组合值，包括 Signal 输出、Module 局部值和 Rule 参数 |
 
@@ -21,7 +21,7 @@ ACPy 使用 Python 的函数、控制流和赋值语法，由编译器区分静�
 - 用 `@ac.module` 修饰的 `def` 定义一个 Module。
 - 运行时输入可以是 Queue 或 var。Queue 参数保留资源身份，不在调用处预先转换成 payload。
 - Module 的运行时 var 输入来自第三方 Signal；Module 之间不直接传递普通动态 var。
-- 输出为固定的 Queue 连接，由 Module 的 `return` 导出；Module 不输出 var。
+- 输出为固定的 Queue 或 Signal 连接，由 Module 的 `return` 导出。导出内部 Signal 不增加流水拍；不能直接导出 Work 中计算的普通局部 var。
 - Module 的 var 输入保留与 Signal 的静态绑定，表示其当前值，不能在构造时取一次值后当作常量。
 
 ### 2.2 函数体
@@ -35,6 +35,8 @@ Module 函数体可以直接包含：
 
 已移除 `@ac.work`，Module 函数体直接表达 Work。编译器从 Module 函数体提取运行逻辑，生成 Module Work。
 Module Work 选择本次调用哪些 Rule，并计算传给 Rule 的普通参数。Module 本身不是原子事务。
+
+Queue/Signal 的全部可能访问在构造时建立静态连接，状态变化激活下一拍 Module Work。每次激活重新执行选中的 Rule，不保存参数缓存。未激活 Module 的完整 pending proposal 可跨拍保留；容量释放只触发 delta 重仲裁。
 
 资源声明与运行逻辑可以写在同一个函数体中，但编译后职责分开：
 
@@ -87,13 +89,13 @@ Rule 的调用与赋值都不立即修改 Queue current。同一轮 Work 的后�
 ### 4.1 定义与连接
 
 - 用 `@ac.signal` 修饰的 `def` 定义纯组合函数。
-- 输入全部是 Queue。读取 payload、查询空满均不消费 Queue。
-- 函数可以有控制流和组合计算，不修改状态、不调用 Rule，不以其他 Signal 为输入。
+- 输入可以是 Queue、固定 Queue 阵列或 Signal，保留资源身份；普通配置从构造期捕获。读取 payload、查询空满均不消费 Queue。
+- 函数可以有控制流和组合计算，不修改状态、不调用 Rule；通过 `.value` 读取上游 Signal，也可捕获外层 Signal。
 - `return` 产生一个 var。每个静态绑定的 Signal 实例持有一个全局共享、只读的当前值。
-- 同一个 Signal 函数可绑定不同 Queue，形成独立实例；函数定义本身不是一个唯一的全局值。
+- 同一个 Signal 函数可绑定不同资源，形成独立实例；函数定义本身不是一个唯一的全局值。
 
-Signal 的输入 Queue 以及使用其值的 Module、Rule，均按照静态连接建立依赖。
-某个 Queue 即使在本轮分支中没有被读取，作为静态输入发生变化时，仍触发该 Signal 重算。
+Signal 的输入 Queue／Signal 以及使用其值的 Module、Rule，均按照静态连接建立依赖。
+某个绑定输入即使在本轮分支中没有被读取，发生变化时仍触发该 Signal 重算。
 Signal 不维护本轮实际读取集合。
 
 ```python
@@ -110,15 +112,17 @@ output = Stage(input_queue, can_issue)
 
 ### 4.2 更新与通知
 
-首次 Module Work 前，先初始化全部 Signal。之后每轮更新顺序为：
+Signal→Signal 依赖必须构成 DAG，组合环报错。首次 Module Work 前，按静态拓扑序初始化全部 Signal。之后每轮更新顺序为：
 
 1. 全部 Queue 完成 Xfer。
-2. 静态输入中有 Queue 状态变化的 Signal 各重新计算一次。
-3. Signal 返回值与旧值不同，才通知静态下游；返回值相同则不通知。
-4. 激活相关 Module，标脏直接依赖该 Signal 的 Rule，并激活这些 Rule 所属的 Module。
+2. 按固定拓扑序，重算静态输入有变化的 Signal，每个最多一次。
+3. Signal 返回值与旧值不同，才通知静态下游 Signal，在同一轮的后续拓扑位置计算；返回值相同则不继续传播。
+4. 输出变化同时激活关联 Module，包括使用该 Signal 的 Rule 所属 Module。
 
 被激活的 Module 在下一 tick 执行 Work。Signal 值在本轮 Work 和仲裁期间保持不变，
 不引入 Module 之间的同拍 var 传播或 delta Work。
+
+串联本身不增加流水拍：全部上游在下游计算前完成更新，菱形汇合只计算一次。经 Queue 回到 Signal 的反馈具有 Queue 状态边界，不属于组合环。
 
 ## 5. Queue
 

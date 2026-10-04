@@ -33,25 +33,24 @@ def verify(generated, emitted, handwritten, runner, output, case_name=None, acir
         directory = output / case['name']
         native = v.run_reference(case, runner, directory)
         configs = []
-        for cache in (True, False):
-            for reverse in (False, True):
-                tag = f'cache{int(cache)}-reverse{int(reverse)}'
-                (directory / f'{tag}.input.txt').write_text(v.numeric_input(case, cache, reverse))
-                traces = {'python': v.run_python(case, cache, reverse)}
-                for name, binary in (('handwritten', handwritten), ('generated', generated), ('emitted', emitted)):
-                    traces[name] = v.run_cpp(case, binary, cache, reverse)
-                hashes = {}
-                for name, trace in traces.items():
-                    path = directory / f'{tag}.{name}.jsonl'
-                    v.write_jsonl(path, trace)
-                    v.compare(case, native, trace, directory / f'{tag}.native-{name}-mismatch.json')
-                    hashes[name] = sha(path)
-                # Explicitly compare both generated paths to the same handwritten model.
-                for name in ('generated', 'emitted'):
-                    v.compare(case, traces['handwritten'], traces[name], directory / f'{tag}.cpp-{name}-mismatch.json')
-                configs.append(dict(cache=cache, reverse=reverse, rows=len(native), traces_sha256=hashes))
+        for reverse in (False, True):
+            tag = f'reverse{int(reverse)}'
+            (directory / f'{tag}.input.txt').write_text(v.numeric_input(case, reverse))
+            traces = {'python': v.run_python(case, reverse)}
+            for name, binary in (('handwritten', handwritten), ('generated', generated), ('emitted', emitted)):
+                traces[name] = v.run_cpp(case, binary, reverse)
+            hashes = {}
+            for name, trace in traces.items():
+                path = directory / f'{tag}.{name}.jsonl'
+                v.write_jsonl(path, trace)
+                v.compare(case, native, trace, directory / f'{tag}.native-{name}-mismatch.json')
+                hashes[name] = sha(path)
+            # Explicitly compare both generated paths to the same handwritten model.
+            for name in ('generated', 'emitted'):
+                v.compare(case, traces['handwritten'], traces[name], directory / f'{tag}.cpp-{name}-mismatch.json')
+            configs.append(dict(reverse=reverse, rows=len(native), traces_sha256=hashes))
         reports.append(dict(name=case['name'], cycles=native[-1]['cycle'], configurations=configs))
-        print(f'{case["name"]}: five implementations matched, four configurations', flush=True)
+        print(f'{case["name"]}: five implementations matched, two configurations', flush=True)
     report = dict(full_acceptance=case_name is None, configurations=sum(len(r['configurations']) for r in reports),
                   reference=identity, binaries_sha256={name: sha(binary) for name, binary in
                     (('generated', generated), ('emitted', emitted), ('handwritten', handwritten), ('native', runner))},

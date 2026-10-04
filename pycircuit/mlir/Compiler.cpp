@@ -161,7 +161,7 @@ static string valueSourceType(Value value) {
   return sourceType(value.getType());
 }
 struct Analysis {
-  std::map<string, Strings> accesses, signals;
+  std::map<string, Strings> accesses;
   std::map<string, std::map<string, Strings>> effects;
   DenseMap<Value, Strings> origins;
   std::map<string, func::FuncOp> rules;
@@ -232,8 +232,6 @@ struct Analysis {
       auto name = f.getSymName().str();
       auto s = origins[o->getOperand(0)];
       accesses[name].insert(s.begin(), s.end());
-      if (sourceType(o->getOperand(0).getType()).starts_with("signal<"))
-        signals[name].insert(s.begin(), s.end());
       string e = isa<acir::PopOp>(o)      ? "Pop"
                  : isa<acir::PushOp>(o)   ? "Push"
                  : isa<acir::ReviseOp>(o) ? "Revise"
@@ -287,6 +285,55 @@ namespace acir {
 } // namespace acir
 struct AnalyzeResourcesPass
     : acir::impl::AnalyzeResourcesBase<AnalyzeResourcesPass> {
+  LogicalResult verifySignals(ModuleOp module, const Analysis &analysis) {
+    std::map<string, acir::ResourceOp> resources;
+    std::map<string, std::size_t> indegree;
+    std::map<string, Strings> readers;
+    for (auto r : module.getOps<acir::ResourceOp>()) {
+      auto name = get(r, "name");
+      resources[name] = r;
+      if (get(r, "kind") == "signal")
+        indegree[name] = 0;
+    }
+    for (auto &[name, degree] : indegree) {
+      auto r = resources.at(name);
+      auto function = get(r, "evaluate_fn");
+      auto f = module.lookupSymbol<func::FuncOp>(function);
+      if (!f || get(f->getAttrOfType<Dict>("acir.function"), "kind") != "signal")
+        return r.emitOpError("expected Signal evaluate_fn");
+      auto inputs = analysis.accesses.find(function);
+      if (inputs == analysis.accesses.end())
+        continue;
+      for (auto &input : inputs->second) {
+        auto bracket = input.find('[');
+        auto source = resources.find(input.substr(0, bracket));
+        if (source == resources.end())
+          return f.emitError() << "unknown Signal input resource: " << input;
+        auto kind = get(source->second, "kind");
+        if (bracket != string::npos && kind != "qarray")
+          return f.emitError() << "indexed Signal input must be a Queue array: " << input;
+        if (kind == "signal") {
+          readers[input].insert(name);
+          ++degree;
+        }
+      }
+    }
+    std::vector<string> order;
+    for (auto &[name, degree] : indegree)
+      if (!degree)
+        order.push_back(name);
+    for (std::size_t i = 0; i < order.size(); ++i)
+      for (auto &reader : readers[order[i]])
+        if (!--indegree[reader])
+          order.push_back(reader);
+    if (order.size() != indegree.size()) {
+      for (auto &[name, degree] : indegree)
+        if (degree)
+          return resources.at(name).emitOpError()
+                 << "Signal dependency cycle reaches '" << name << "'";
+    }
+    return success();
+  }
   void runOnOperation() override {
     auto module = getOperation();
     auto model = module->getAttrOfType<Dict>("acir.model");
@@ -303,6 +350,10 @@ struct AnalyzeResourcesPass
         return;
       }
     Analysis analysis(module);
+    if (failed(verifySignals(module, analysis))) {
+      signalPassFailure();
+      return;
+    }
     OpBuilder b(module.getContext());
     auto list = [&](const Strings &values) {
       SmallVector<Attribute> a;
@@ -313,7 +364,6 @@ struct AnalyzeResourcesPass
     for (auto f : module.getOps<func::FuncOp>()) {
       string name = f.getSymName().str();
       f->setAttr("acir.accesses", list(analysis.accesses[name]));
-      f->setAttr("acir.signals", list(analysis.signals[name]));
       SmallVector<NamedAttribute> effects;
       for (auto &[q, es] : analysis.effects[name])
         effects.push_back(b.getNamedAttr(q, list(es)));
@@ -376,7 +426,7 @@ struct LowerGFSimPass : acir::impl::LowerGFSimBase<LowerGFSimPass> {
             first,
             [&] {
               runtime("start", {}, {});
-              return runtime("begin", b.getI1Type(), f.getArguments(), "bool")
+              return runtime("begin", b.getI1Type(), {}, "bool")
                   .getResult(0);
             },
             false);
@@ -506,19 +556,7 @@ struct Layout {
         auto r = cast<Dict>(ra), f = functions.at(get(r, "function"));
         auto rn = ident(get(r, "name"));
         h << "  gfsim::RuleId rid_" << rn << "{};\n";
-        if (!arr(f, "params").empty()) {
-          h << "  struct Args_" << rn << " {\n";
-          for (auto pa : arr(f, "params")) {
-            auto p = cast<Dict>(pa);
-            h << "    " << cpp(get(p, "type")) << " " << ident(get(p, "name"))
-              << ";\n";
-          }
-          h << "    bool operator==(const Args_" << rn
-            << "&) const = default;\n  };\n  gfsim::ParameterCache<Args_" << rn
-            << "> cache_" << rn << ";\n";
-        }
-        h << "  void work_" << rn << "(" << signature(f)
-          << ");\n  bool arbitrate_" << rn << "();\n";
+        h << "  void work_" << rn << "(" << signature(f) << ");\n";
       }
       h << "};\n";
     }
@@ -585,20 +623,10 @@ struct Layout {
                         : cpp(t)) +
                    " arg_" + ident(get(p, "name")));
     }
-    ps.push_back(defaults ? "bool cache = true" : "bool cache");
     ps.push_back(defaults ? "bool reverse = false" : "bool reverse");
     return join(ps);
   }
   void constructor(std::ostream &s) {
-    for (auto ma : arr(model, "modules")) {
-      auto m = cast<Dict>(ma);
-      auto n = ident(get(m, "name"));
-      for (auto ra : arr(m, "rules")) {
-        auto rn = ident(get(cast<Dict>(ra), "name"));
-        s << "bool Module_" << n << "::arbitrate_" << rn
-          << "() { return model.sim.arbitrateRule(rid_" << rn << "); }\n";
-      }
-    }
     std::vector<string> inits;
     for (auto pa : arr(model, "config")) {
       auto p = cast<Dict>(pa);
@@ -609,7 +637,7 @@ struct Layout {
                            : "") +
                       ")");
     }
-    inits.push_back("sim(cache)");
+    inits.push_back("sim()");
     s << top << "::" << top << "(" << constructorSignature(false)
       << ") : " << join(inits) << " {\n";
     std::vector<string> setup;
@@ -631,8 +659,7 @@ struct Layout {
       for (auto ra : arr(m, "rules")) {
         auto rn = ident(get(cast<Dict>(ra), "name"));
         s << "  " << n << ".rid_" << rn << " = sim.addRule(" << n
-          << ".mid, [](void* p, auto&, auto) { return static_cast<Module_" << n
-          << "*>(p)->arbitrate_" << rn << "(); });\n";
+          << ".mid);\n";
       }
     }
     for (auto op : module.getOps<acir::ResourceOp>()) {
@@ -660,8 +687,6 @@ struct Layout {
       for (auto ra : arr(m, "rules")) {
         auto r = cast<Dict>(ra);
         auto f = get(r, "function"), rid = n + ".rid_" + ident(get(r, "name"));
-        for (auto &q : analysis.signals[f])
-          s << "  sim.declareInput(" << rid << ", " << ident(q) << ");\n";
         for (auto &[q, effects] : analysis.effects[f]) {
           std::vector<string> es;
           for (auto &e : effects)
@@ -881,24 +906,9 @@ struct Lowering {
           auto action = get(decl, "acir.runtime");
           if (action == "start")
             verbatim("ac_detail::Pops pops;");
-          else if (action == "begin") {
-            if (args.empty())
-              v = call("bool", "model.sim.beginRule", {}, {rid});
-            else {
-              std::vector<string> fields, parameters;
-              for (unsigned i = 0; i < args.size(); ++i) {
-                fields.push_back("a" + std::to_string(i));
-                parameters.push_back("auto " + fields.back());
-              }
-              auto rn = ident(get(meta, "rule"));
-              v = call("bool",
-                       "[&](" + join(parameters) +
-                           ") { return model.sim.beginRule(" + rid +
-                           ", cache_" + rn + ", Args_" + rn + "{" +
-                           join(fields) + "}); }",
-                       args);
-            }
-          } else if (action == "abort" || action == "complete")
+          else if (action == "begin")
+            v = call("bool", "model.sim.beginRule", {}, {rid});
+          else if (action == "abort" || action == "complete")
             call("void", "model.sim." + action + "Rule", {}, {rid});
           else if (!action.empty())
             v = call(t, "ac_detail::" + action, args);

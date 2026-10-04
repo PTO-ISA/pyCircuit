@@ -1,61 +1,48 @@
-# 表达与参考实现问题
+# 表达能力与原生参考差异
 
-E01–E03 来自迁移前的自然写法探针，已在通用 MLIR 编译链中修复。R01–R05 保留固定原生参考的独立发现。
+本例对齐未修改的 skyzh 提交 `8989a09c357a69b68612f653380d60816f5176c2`。模型、时序验收和计时入口见 [README](README.md)。参考一致不能代替独立 ISA 检查。
 
-## E01：输出 Queue 前向引用（已修复）
+## 通用编译能力
 
-Module 静态构造先预声明全部 Rule 输出，再编译 Work/Rule，因此 Rule 可以观察自己绑定的输出。
-复现 [output_feedback.py](repro/output_feedback.py) 现在可编译，完整小电路测试检查实际运行与消费。
+原输出前向引用、独立输出容量、C++ 关键字问题均已修复，最小输入迁至 [编译器 fixtures](../../tests/fixtures/skyzh/)。隐式输出容量仍是 1；需要其他容量时显式声明 Queue。
 
-## E02：独立输出容量（已修复）
+<a id="modular-probes"></a>
 
-分别显式声明 ROB=12 和保留站=1，再以 `rob, reservation = allocate(...)` 绑定同一 Rule 的输出。
-原子性保持不变。复现 [output_capacities.py](repro/output_capacities.py) 已改用确定的声明语法；
-原探针的 `capacity=(12, 1)` 不是语言接口。隐式输出仍默认容量 1、初始为空。
+### Signal 组合与 entry Queue
 
-## E03：C++ 关键字（已修复）
+Signal 的显式 Queue/Signal 输入和捕获依赖形成静态 DAG。GFSim 在初始化及 Queue Xfer 后按拓扑序重算受影响节点，输出变化才通知下游，组合环报错。链式组合不增加流水拍。正式回归在 [signal_circuits.py](../../tests/signal_circuits.py)、[test_compiler.py](../../tests/test_compiler.py)。
 
-通用符号映射转义 `unsigned`、`switch` 等关键字以及转义命名前缀，应用于参数、字段、函数和资源。
-[cpp_keyword.py](repro/cpp_keyword.py) 与编译器 Keywords 电路共同覆盖生成和执行。
+Module 可以导出内部 Signal 的固定引用。完成广播被多个状态所属 Module 同拍读取；新分派条目在写入自己的 Queue 前应用旁路。普通 Work 局部值不能直接成为 Module 的组合输出，应定义 Signal。Rule 返回的 Queue 始终构成时序边界。
 
-`python3 -m pycircuit.examples.skyzh_ooo.diagnose` 重新检查三个表达探针；完整 CPU 验收由 verify 负责。
+Signal 的 valid 表示组合条件满足，不表示另一个 Rule 已被仲裁接受。若生产事务可能受反压阻塞，必须显式表达 ready/firing 协议。本 CPU 的分派 Signal 先检查全部旧空槽和 ROB 空间，各槽位只有一个更新 Rule，提交 flush 具有统一优先级。
 
-## R01：skyzh 的 ROB 容量以源码为准
+ROB 现已改为 8 个独立容量 1 的 Queue，每项一个状态更新 Module。正常退役和 flush 使用该项的同一 pop 来源，flush 一次 Xfer 清空全部占用。无需单 FIFO clear 或整核 Rule。原最小探针在 [rob_entries.py](../../tests/fixtures/skyzh/rob_entries.py)，完整 CPU 已覆盖分派、完成和恢复并发。
 
-固定提交：`8989a09c357a69b68612f653380d60816f5176c2`。
-README 写 12 项；实际 `src/Pipeline/OoOExecute.h` 定义 `ROB_SIZE = 8`，
-指针使用 1…8，`next(rear) == front` 判满，可用容量为 7。
-新模型采用 12 个可用项，两者是不同配置，不进行逐拍等价声明。
+历史探针及旧模型保存在 `reference/benchmarks/skyzh-before-alignment/`；保留的本机探针脚本已指向 fixtures。最小 Signal 案例可单独编译：
 
-## R02：AUIPC 无法进入对应发射路径
+```bash
+LD_LIBRARY_PATH=/home/lc/opt/gcc14/lib \
+ACPY_MLIR_COMPILER="$PWD/reference/builds/skyzh-aligned-release/mlir/acir-compile" \
+python3 -m pycircuit compile pycircuit/tests/fixtures/skyzh/modular.py \
+  --top SignalChain --output reference/benchmarks/signal-dag-probes/manual
+```
 
-`src/Pipeline/Issue.cpp` 中 LUI 与 AUIPC 的分派条件都写为 `0b0110111`。
-AUIPC 的正确 opcode 是 `0b0010111`。原参考未打补丁；该指令不能作为原版一致性验收条件。
-后续架构正确性以独立解释器为准，参考差异单独报告。
+### 循环内聚合值更新（本次修复）
 
-## R03：不同宽度重叠访存出现架构结果差异
+自然写法 `result.lanes[i] = value`、`result.field += value` 必须把局部结构体/数组作为循环携带的 SSA 值。此前前端只识别直接赋给变量名的目标，导致字段更新没有带入下一轮，甚至被优化删掉。现在沿 Attribute/Subscript 赋值目标找到普通值的根变量并携带；Queue revise 仍是资源效果。独立回归 `test_loop_carried_aggregate_fields` 覆盖零次迭代、嵌套循环、条件更新和优化开关。CPU 不需要强制展开扫描来绕过此问题。
 
-`LoadStoreUnit::no_store_in_rob` 只比较较老 Store 的 `Dest` 与 Load 地址是否相等。
-完整程序 [memory.s](programs/memory.s) 中，较老 `SH` 应将高半字写为 `0xfffe`，
-随后的 `LW x10` 应获得 `0xfffe8034`，原参考实际得到 `0x80ff8034`。
-最终内存与解释器一致，但 x10 保留旧高半字。此结果差异已复现；地址相等判定不足以
-识别重叠依赖是源码分析，尚未用内部 Load/Store 时序 trace 单独证明具体发生周期。
-未知 Store 地址的问题仍待确认。
+## 原生行为与已知错误
 
-## R04：SRAI 选择了逻辑右移
+| 编号 | 固定原生实现 | 本例处理 |
+| --- | --- | --- |
+| R01 | `ROB_SIZE=8`，1…8 环形指针，保留一格，实际可用 7 项；上游 README 的 12 项不符 | 与源码同配置，验收确实填满 7 项 |
+| R02 | `Issue.cpp` 的 AUIPC 条件重复写成 LUI opcode | AUIPC 同样停滞；固定观察 40 拍，不计作程序完成 |
+| R03 | Load 只检查较老 Store 的 `Dest == load_address`，未检查宽度重叠 | 保留判定；`memory.s` 要求复现错误，并单独报告 ISA 不通过 |
+| R04 | SRAI 分派检查立即数 bit 9，应为 bit 10 | 保留原错误移位选择；`integer.s` 要求复现 |
+| R05 | LB 用 plain `char` 转换，当前 aarch64/Clang 的 char 为 unsigned | 当前宿主对齐为零扩展；其他 char 符号平台需重新验证 |
 
-[integer.s](programs/integer.s) 的 `srai x18, x1, 3`，x1 为 -16：
-应得到 `0xfffffffe`，原参考得到 `0x1ffffffe`。
-`Issue.cpp` 的立即数移位分派检查 `inst.imm & (1 << 9)`；SRAI 的区别位实际在立即数位 10。
+具体复现：`integer.s` 对 -16 执行 `srai ...,3`，应为 `0xfffffffe`，原生和本例均为 `0x1ffffffe`。`memory.s` 的 LB 读 `0xff` 得到 `0x000000ff`；较老 SH 与随后 LW 地址不同但范围重叠，LW 得到旧高半字。测试不把这些结果当作 RV32I 正确答案。
 
-## R05：LB 依赖宿主 char 的符号
+原生 ROB 的 `Dest` 在退役/flush 后保留，而且新 Store 分配不初始化它。在 Store 地址计算完成前，该旧值仍会参与 Load 依赖判断。为严格复现这一行为，每个 entry 另有一个 `retained_dest` 状态 Queue；占用仍完全由 ROB entry Queue 空满表示，观察器逐拍核对此字段。JALR 的两个微操作也分别保留，ISA 检查器只在比较架构提交时合并它们。
 
-同一 [memory.s](programs/memory.s) 中，`LB` 读到 `0xff` 应得到 `0xffffffff`，
-当前 aarch64 宿主上的原参考得到 `0x000000ff`。
-`LoadStoreUnit.cpp` 使用 `(char)`，而当前编译器的 plain char 为 unsigned。
-该问题与宿主有关，不能推广成所有平台上同样失败。
-
-## 运行状态
-
-完整 Queue CPU 已连接，逐条提交对照独立解释器，并对优化、缓存、Module 顺序和 MLIR 重载变体进行逐拍对照。
-复现命令及双模型 benchmark 口径见 [README](README.md)，本次验证数据见 [MLIR 报告](../../mlir/results.md)。
+目前输入限定为参考支持的 RV32I 子集、4 MiB 范围内对齐访存和对齐取指。未实现 CSR、特权态、M/A/C 扩展。程序通过向 `0x30004` 写入非零字节结束，停止检测由宿主在计时窗口外进行。没有为原生未定义的越界/非对齐 C++ 访存建立等价性声明。

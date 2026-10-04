@@ -38,7 +38,7 @@ inline std::unique_ptr<Netlist> pipeline(const std::vector<Word> &values, int le
                                          Tick period = 5, unsigned iterations = 0,
                                          const std::vector<Word> &control = {},
                                          bool prefill = false, std::size_t capacity = 1,
-                                         bool cache = true, bool reverse = false) {
+                                         bool reverse = false) {
     auto n = std::make_unique<Netlist>();
     auto &b = *n;
     std::vector<Queue<Value> *> links;
@@ -64,7 +64,7 @@ inline std::unique_ptr<Netlist> pipeline(const std::vector<Word> &values, int le
     }
     auto &out = b.queue<Receipt<Value, 1>>(values.size() + length + 16);
     sink(b, std::array{links.back()}, out, period);
-    b.finish(cache, reverse);
+    b.finish(reverse);
     return n;
 }
 } // namespace circuits

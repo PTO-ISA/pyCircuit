@@ -1,66 +1,113 @@
-# Queue 版 skyzh 乱序 CPU
+# 与原生 skyzh 逐拍对齐的 ACPy CPU
 
-完整 ACPy CPU 在 [model.py](model.py)，由 MLIR 编译链生成 GFSim C++。它使用 Queue 空满表示占用，pop/push 表示分配、发射、流水传递及反压。架构正确性以[独立 RV32I 解释器](oracle.py)为准；固定 skyzh 上游的已知错误继续记录在 [findings.md](findings.md)。
+[model.py](model.py) 用 Queue 保存状态与槽位占用，Signal 表达译码、分派、执行广播和提交控制，23 个独立 Module 分别更新自己拥有的状态。全部硬件行为由 ACPy 经 MLIR 生成；测试 runner 只装载程序、驱动和观察。
 
-## 结构
+目标参考是未修改的 skyzh `out-of-order` 提交 `8989a09c357a69b68612f653380d60816f5176c2`。本例保留该版本的微架构行为及已知错误，因此**参考逐拍一致与 RV32I 正确是两项独立检查**，见 [findings.md](findings.md)。
 
-- 12 个可用项的 ROB FIFO，10 个容量 1 的保留站 Queue（4 整数、3 Load、3 Store）。
-- 单条原子分配 Rule 同时消耗前端输入、push ROB 和选中槽位，并更新 RAT。
-- 寄存器重命名、结果表唤醒、各执行通路选择最老就绪指令，允许乱序发射／完成；ROB 顺序提交。
-- Load 使用地址、读取、返回三阶段。所有较老 Store 提交之后才读内存，不做访存推测或 Store 转发。
-- 分支在提交时恢复；epoch 标记旧路径，原消费者清理旧消息。64 项局部预测表，每项两位历史、四个两位计数器。
-- 默认 256 KiB 数据内存，小端字节／半字／字访问；非对齐访问记 fault。测试通过 EBREAK 或 `0x30004` MMIO Store 停机。
-- 不实现 CSR、特权态、M/A/C 扩展或缓存。
+## 目录与结构
 
-[runner.cpp](runner.cpp) 只负责装载机器码、驱动、观察和计时；译码与全部硬件行为来自 ACPy。没有专用于 CPU 的编译 pass。
+| 文件 | 职责 |
+| --- | --- |
+| [types.py](types.py)、[logic.py](logic.py) | 数据类型、译码、定宽 ALU 和分支判断 |
+| [frontend.py](frontend.py) | 取指、源操作数、空槽选择、分派和 PC 更新 |
+| [execution.py](execution.py) | 4 路 ALU、3 个 Store / 3 个 Load 站的独立执行、广播、提交控制 |
+| [storage.py](storage.py) | ROB entry、保留站、指针、RAT/RF、内存及预测器的状态更新 |
+| [model.py](model.py) | Queue、Signal 和 Module 的静态连接 |
+| [tests/](tests/) | 两个独立模型的观察适配、汇编输入、逐拍比较、独立 ISA 解释器 |
+| [benchmark.py](benchmark.py) | 先验证时序，再串行交替计时 |
+
+ROB 是 8 个容量 1 的 Queue，环形 head/tail 保留一格，可用 7 项。10 个保留站各有容量 1 的 Queue。内存和预测器均与参考同规模：4 MiB 内存、4 MiB 历史字节、4 MiB 计数器，按 256 字节地址页组织 Queue；运行时扫描保留为循环。
+
+```mermaid
+flowchart LR
+  PC[PC / 内存 Queue] --> F[取指 Signal]
+  RF[RAT / RF / ROB Queue] --> O[源操作数 Signal]
+  F --> D[分派 Signal]
+  O --> D
+  RS[保留站 Queue] --> D
+  RS --> E[ALU / LSU Signal]
+  E --> B[完成广播 Signal]
+  ROB[ROB Queue] --> C[提交 Signal]
+  D --> U[各状态所属 Module]
+  B --> U
+  C --> U
+  U --> X[统一 Xfer]
+```
+
+Signal 链在初始化和 Queue Xfer 后按静态拓扑序计算，不增加流水拍。每拍只使用旧占用/ready 状态选择分派、执行和提交：
+
+- 当拍释放的 ROB/保留站不能立即再分配；当拍新完成的 ROB 下一拍才能提交。
+- 广播同时唤醒已有条目和当拍新分派条目；新就绪操作数下一拍才能执行。
+- 同拍重命名与提交写同一寄存器时，先考虑新 tag，再决定是否清除 RAT Busy。
+- Load 分为地址、读内存、完成三个阶段；Store 分为地址、数据完成两个阶段。
+- 分支误预测和 JALR 在提交拍恢复，一次 Xfer 清空各 entry Queue 并复位指针/LSU 阶段，覆盖当拍分派。
+- JALR 原子占用两个 ALU 站和两个 ROB 项，分别计算链接值与目标地址。
 
 ## 构建与验收
 
-先按[编译器说明](../../README.md)构建。LLVM 汇编器需要 `clang`、`ld.lld`、`llvm-objcopy`。
+需要 [编译器工具链](../../README.md) 和固定原生参考；以下命令从仓库根目录执行。已有参考仓库时跳过 clone。
 
 ```bash
-ctest --test-dir /tmp/acpy-mlir-build -R acpy-skyzh-queue-cpu --output-on-failure
-# 同一检查可独立运行：
-python3 -m pycircuit.examples.skyzh_ooo.verify \
-  --compiled /tmp/acpy-mlir-build/examples/skyzh_ooo/acpy-skyzh-compiled \
-  --emitted /tmp/acpy-mlir-build/examples/skyzh_ooo/acpy-skyzh-emitted \
-  --no-opt /tmp/acpy-mlir-build/examples/skyzh_ooo/acpy-skyzh-noopt \
-  --output /tmp/acpy-skyzh-evidence
+git clone --branch out-of-order https://github.com/skyzh/RISCV-Simulator.git reference/skyzh-riscv-reference
+git -C reference/skyzh-riscv-reference checkout 8989a09c357a69b68612f653380d60816f5176c2
+export LD_LIBRARY_PATH=/home/lc/opt/gcc14/lib${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}
+cmake -S pycircuit -B reference/builds/skyzh-aligned-release -DCMAKE_BUILD_TYPE=Release \
+  -DCMAKE_C_COMPILER=/home/lc/opt/pycircuit-dev/bin/cc \
+  -DCMAKE_CXX_COMPILER=/home/lc/opt/pycircuit-dev/bin/c++ \
+  -DMLIR_DIR=/home/lc/opt/llvm-22.1.8/lib/cmake/mlir
+cmake --build reference/builds/skyzh-aligned-release -j6
+ctest --test-dir reference/builds/skyzh-aligned-release --output-on-failure -j4
 ```
 
-5 个完整程序，每次提交核对 PC、指令、寄存器写入、Store、下一 PC 和 fault，最终核对全部架构寄存器及所有变化的内存字节。每程序再运行写回周期性阻塞变体；三个生成版本 × 缓存开关 × Module 正反序共 120 次完整运行，要求逐拍轨迹一致。
-
-验收明确断言 ROB 填满、乱序发射与完成、槽位反复复用，以及恢复时存在在途消息。语义测试还覆盖输出前向引用、独立容量、别名消费去重、部分效果撤销、动态字段 revise、Signal 通知和同拍 pop/push。
-
-旧表达缺口保留自然写法作为回归：
+CMake 构建原生适配器并检查参考版本和工作区未修改；可用 `-DSKYZH_REFERENCE_SOURCE=/path/to/checkout` 指定位置。单独运行 CPU 验收：
 
 ```bash
-export ACPY_MLIR_COMPILER=/tmp/acpy-mlir-build/mlir/acir-compile
-export ACPY_CXX=/home/lc/opt/pycircuit-dev/bin/c++
-python3 -m pycircuit.examples.skyzh_ooo.diagnose
-python3 -m pycircuit.examples.skyzh_ooo.check_components
+python3 -m pycircuit.examples.skyzh_ooo.tests.verify \
+  --compiled reference/builds/skyzh-aligned-release/examples/skyzh_ooo/acpy-skyzh-compiled \
+  --emitted reference/builds/skyzh-aligned-release/examples/skyzh_ooo/acpy-skyzh-emitted \
+  --no-opt reference/builds/skyzh-aligned-release/examples/skyzh_ooo/acpy-skyzh-noopt \
+  --reference reference/builds/skyzh-aligned-release/examples/skyzh_ooo/reference/skyzh-reference \
+  --output reference/benchmarks/skyzh-alignment/check
 ```
 
-## 原生参考与性能
+每个程序比较直接编译、MLIR 重载、关闭优化三版及 Module 正反序，共 42 次生成模型运行。逐拍核对 PC、ROB 指针和占用、有效 ROB/RS 字段、RAT、RF、LSU 阶段、程序范围内预测器与每条提交；最终核对全部内存变化和完整预测器哈希。空槽和未就绪值等无效字段归零后比较。原生适配始终调用 `Session::tick()`，没有复刻其调度。
 
-参考固定于 `8989a09c357a69b68612f653380d60816f5176c2`，不修改上游核心。
+正常程序另逐条提交对照独立 RV32I 解释器；三个已知错误程序要求复现参考偏差，避免误报 ISA 通过。覆盖断言包括 ROB 满、同拍多路完成、槽位复用、Load 三阶段、JALR 双分派、分派/提交重命名冲突、分派旁路和在途 flush。
+
+| 程序 | ACPy / 原生周期 | 独立 ISA |
+| --- | ---: | --- |
+| alignment | 83 / 83 | 通过 |
+| full_window | 29 / 29 | 通过 |
+| window | 671 / 671 | 通过 |
+| branches | 136 / 136 | 通过 |
+| integer | 27 / 27 | 预期复现 SRAI 错误 |
+| memory | 23 / 23 | 预期复现 LB / 重叠访存错误 |
+| auipc | 40 / 40（固定观察窗口） | 预期停滞，未完成程序 |
+
+2026-10-04 验收：Release 与 ASan/UBSan（含 leak 检查）均为 14/14 通过。对应构建在 `reference/builds/skyzh-aligned-release/`、`reference/builds/skyzh-aligned-asan/`；各自 `ctest.xml` 保存完整测试输出，CPU 轨迹和摘要在 `examples/skyzh_ooo/evidence/`。
+
+## 性能比较
 
 ```bash
-git clone --branch out-of-order https://github.com/skyzh/RISCV-Simulator.git /tmp/skyzh-riscv-reference
-git -C /tmp/skyzh-riscv-reference checkout 8989a09c357a69b68612f653380d60816f5176c2
-python3 -m pycircuit.examples.skyzh_ooo.reference.build \
-  --source /tmp/skyzh-riscv-reference --output /tmp/skyzh-mlir-reference \
-  --cxx /home/lc/opt/pycircuit-dev/bin/c++
-python3 -m pycircuit.examples.skyzh_ooo.verify_reference \
-  --runner /tmp/skyzh-mlir-reference/skyzh-reference --source /tmp/skyzh-riscv-reference
 python3 -m pycircuit.examples.skyzh_ooo.benchmark \
-  --generated /tmp/acpy-mlir-build/examples/skyzh_ooo/acpy-skyzh-compiled \
-  --reference /tmp/skyzh-mlir-reference/skyzh-reference \
-  --output /tmp/acpy-skyzh-benchmark
+  --generated reference/builds/skyzh-aligned-release/examples/skyzh_ooo/acpy-skyzh-compiled \
+  --reference reference/builds/skyzh-aligned-release/examples/skyzh_ooo/reference/skyzh-reference \
+  --output reference/benchmarks/skyzh-aligned --repeats 7 --iterations 4096
 ```
 
-`verify_reference` 对 AUIPC、SRAI、LB、重叠访存的已知差异报告失败，这些差异不定义新 CPU 的预期语义。benchmark 仅采用双模型都通过独立解释器的 window/branches 程序，循环扩展到 4096 次。
+仅使用两边都通过 ISA 检查的 window/branches。先比较扩展程序完整逐拍轨迹，再计时同一固定 N 次 `step()/tick()`。两边统一 Clang 22、C++20、`-O3 -DNDEBUG`，绑定同一 CPU，各预热一个进程，然后串行交替七轮。构造、装载、停止检查、快照和 JSON 均在计时外；GFSim 首次 Signal 初始化计入。报告周期、IPC、ns/tick、架构指令/秒及七轮原始样本，构造耗时和进程峰值 RSS 另列。
 
-两边统一 Clang 22、C++20、`-O3 -DNDEBUG`，只计时预先验证的固定 N 次 `step()/tick()`，构造、装载、宿主结束检查和快照都在计时外。K=0，两边都从初态开始；新模型首次 Signal 初始化计入。每版先预热一个进程，再串行轮换七次，固定 CPU，报告周期、IPC、ns/tick、架构指令/秒和进程峰值 RSS。
+测量结果写入 `reference/benchmarks/skyzh-aligned/results.json`，包含源码/二进制指纹和编译参数。旧 CPU 的流水、ROB 容量和内存配置不同，其性能数字不能直接当成本次模型的前后优化比。
 
-上游 ROB 实际可用容量是 7，内存为 4 MiB；新模型为 12 和 256 KiB，流水结构也不同。因此结果是两个完整 CPU 模型的比较，不能据此推导 GFSim 调度器自身的加速比。验收摘要见 [results.json](results.json)，本次记录见 [MLIR 报告](../../mlir/results.md)。
+2026-10-04，当前 aarch64 主机 CPU 0，4096 次循环、七轮中位数：
+
+| 程序 | 两边共同周期 | 共同 IPC | ACPy ns/tick | 原生 ns/tick | 耗时倍数 |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| window | 40,991 | 0.9994 | 14,662.3 | 297.6 | 49.26× |
+| branches | 12,328 | 0.9979 | 13,315.8 | 316.8 | 42.03× |
+
+window 共提交 40,967 条架构指令，模拟耗时 601.02 ms / 12.20 ms，吞吐 6.82 万 / 335.80 万条每秒（ACPy / 原生）；branches 共 12,302 条，164.16 ms / 3.91 ms，吞吐 7.49 万 / 315.00 万条每秒。七轮 ACPy ns/tick 范围分别为 14,580–14,732、13,245–13,511；原生为 297–299、313–319。
+
+构造函数中位耗时约 86 ms / 2.68 ms，进程峰值 RSS 约 66.6 MiB / 18.7 MiB；这些值没有混入上述模拟计时。生成 `model.cpp` 为 265,616 字节，`model.hpp` 为 12,179 字节。时序已对齐，但速度仍相差约 42–49 倍，当前差距不能由模拟周期数差异解释；这组数据本身尚不能区分生成 C++ 与调度运行时各自占比。
+
+旧模型和实验已归档到 `reference/benchmarks/skyzh-before-alignment/`；通用表达探针移到 [编译器 fixtures](../../tests/fixtures/skyzh/)。示例目录只保留当前模型、验收及 benchmark 入口。

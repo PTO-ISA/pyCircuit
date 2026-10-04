@@ -5,12 +5,13 @@ struct Mode {
     Word mode{}, bias{}, epoch{};
     bool operator==(const Mode &) const = default;
 };
-inline void json(std::ostream &o, const Mode &m) { jsonList(o, m.mode, m.bias, m.epoch); }
+inline void json(std::ostream &o, const Mode &m) {
+    jsonList(o, m.mode, m.bias, m.epoch);
+}
 struct PacketLanes : Module {
     std::array<RuleId, 2> rules{};
     Queue<Mode> &control;
     std::array<Queue<Value> *, 2> inputs, outputs;
-    std::array<ParameterCache<Word>, 2> args;
     PacketLanes(Queue<Mode> &c, std::array<Queue<Value> *, 2> i, std::array<Queue<Value> *, 2> o)
         : control(c), inputs(i), outputs(o) {
         resources.push_back(&c);
@@ -26,7 +27,7 @@ struct PacketLanes : Module {
     }
     void workLane(std::size_t lane, Word bias) {
         auto r = rules[lane];
-        if (!e->beginRule(r, args[lane], bias))
+        if (!e->beginRule(r))
             return;
         auto p = read(*inputs[lane], r);
         if (!p) {
@@ -41,7 +42,7 @@ struct PacketLanes : Module {
 };
 inline std::unique_ptr<Netlist> packets(const std::array<std::vector<Word>, 2> &lanes,
                                         const std::vector<Timed<Mode>> &changes, Tick period = 7,
-                                        bool cache = true, bool reverse = false) {
+                                        bool reverse = false) {
     auto n = std::make_unique<Netlist>();
     auto &b = *n;
     std::array<Queue<Value> *, 2> inputs{&b.queue<Value>(), &b.queue<Value>()},
@@ -61,7 +62,7 @@ inline std::unique_ptr<Netlist> packets(const std::array<std::vector<Word>, 2> &
     merge(b, std::vector<Queue<Value> *>{outputs.begin(), outputs.end()}, merged);
     auto &out = b.queue<Receipt<Value, 1>>(lanes[0].size() + lanes[1].size() + 1);
     sink(b, std::array{&merged}, out, period);
-    b.finish(cache, reverse);
+    b.finish(reverse);
     return n;
 }
 } // namespace circuits

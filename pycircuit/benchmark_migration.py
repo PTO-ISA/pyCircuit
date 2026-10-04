@@ -1,4 +1,4 @@
-"""Compare a preserved pre-MLIR checkout/build with this build on identical Ripes5 programs."""
+"""Compare a preserved checkout/build with this build on identical Ripes5 programs."""
 import argparse
 import hashlib
 import json
@@ -65,24 +65,27 @@ def main():
                   repeats=a.repeats, compilation={}, programs=[])
     for label, root in dict(before=a.baseline_source.resolve(), mlir=ROOT).items():
         out = a.output / label
-        env = dict(os.environ, ACPY_MLIR_COMPILER=str(a.build.resolve() / 'mlir/acir-compile'))
+        build = a.baseline_build if label == 'before' else a.build
+        env = dict(os.environ, ACPY_MLIR_COMPILER=str(build.resolve() / 'mlir/acir-compile'))
         command = [sys.executable, '-m', 'pycircuit', 'compile', str(root / 'pycircuit/examples/ripes5/model.py'), '--top', 'CPU', '--output', str(out.resolve())]
         samples = []
         for _ in range(3):
             _, front = measured(command, cwd=root, env=env)
-            _, cpp = measured([a.cxx, '-std=gnu++20', '-O3', '-DNDEBUG', '-I', ROOT/'gfsim/cpp/include', '-c', out/'model.cpp', '-o', out/'model.o'])
+            _, cpp = measured([a.cxx, '-std=gnu++20', '-O3', '-DNDEBUG', '-I', root/'gfsim/cpp/include', '-c', out/'model.cpp', '-o', out/'model.o'])
             samples.append(dict(frontend_and_emission_ns=front['process_ns'], cpp_compile_ns=cpp['process_ns'],
                                 frontend_rss_kib=front['max_rss_kib'], cpp_rss_kib=cpp['max_rss_kib']))
         files = [out / n for n in ('model.cpp','model.hpp','ac_support.hpp')]
         result['compilation'][label] = dict(samples=samples, median=summarize(samples),
                                             generated_bytes=sum(f.stat().st_size for f in files), files={f.name: sha(f) for f in files})
     for case in suite(a.iterations):
-        payload = v.numeric_input(case)
+        tokens = v.numeric_input(case).split()
+        # Protocol v1 has a candidate-cache flag; current runners use v2.
+        payloads = dict(mlir=' '.join(tokens), before=' '.join(['1', *tokens[1:4], '1', *tokens[4:]]))
         gates = {}
         for label, binary in binaries.items():
             # Bounded-memory gate: retain only boundary/final state and a trace digest.
             with tempfile.TemporaryFile(mode='w+t') as source, tempfile.TemporaryFile(mode='w+t') as errors:
-                source.write(payload); source.seek(0)
+                source.write(payloads[label]); source.seek(0)
                 proc = subprocess.Popen([str(binary)], stdin=source, stdout=subprocess.PIPE, stderr=errors, text=True)
                 digest = hashlib.sha256(); boundary = final = None
                 for line in proc.stdout:
@@ -99,11 +102,14 @@ def main():
         n = final['cycle'] - 1024
         assert n > 0 and boundary is not None
         def sample(label):
-            text, metrics = measured([binaries[label], '--benchmark-fixed', '1024', str(n)], input=payload)
+            text, metrics = measured([binaries[label], '--benchmark-fixed', '1024', str(n)], input=payloads[label])
             data = json.loads(text)
             assert state(data['final_state']) == state(final)
             assert data['measured_cycles'] == n and data['retired_delta'] == final['retired']-boundary['retired']
-            return dict(metrics, run_ns=data['run_ns'], ns_per_tick=data['run_ns']/n,
+            counters = {k: data[k] for k in ('construct_ns', 'module_work', 'rule_work', 'queue_checks',
+                        'arbitration_attempts', 'delta_rounds', 'accepted', 'events', 'due_events',
+                        'cache_hits', 'reader_checks', 'dfs_visits') if k in data}
+            return dict(metrics, run_ns=data['run_ns'], ns_per_tick=data['run_ns']/n, **counters,
                         instructions_per_second=data['retired_delta']*1e9/data['run_ns'])
         for label in binaries: sample(label)
         samples = {k: [] for k in binaries}

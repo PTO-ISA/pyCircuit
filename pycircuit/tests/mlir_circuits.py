@@ -6,6 +6,30 @@ class Packet:
     tag: ac.u32 = 0
 
 
+def accumulate(count: ac.u32) -> Packet:
+    result = Packet()
+    for i in range(count):
+        for j in range(4):
+            if j != 2:
+                result.lanes[j] = result.lanes[j] + i + j
+        result.tag = result.tag + 1
+    return result
+
+
+@ac.signal
+def aggregate_signal(count) -> Packet:
+    result = accumulate(count.value)
+    for i in range(count.value):
+        result.lanes[2] = result.lanes[2] + i
+    return result
+
+
+@ac.module
+def AggregateLoop(count: ac.u32):
+    iterations = ac.queue[ac.u32](initial=count)
+    output = aggregate_signal(iterations)
+
+
 def initial(index: ac.u32) -> Packet:
     return Packet(lanes=[index, index + 1, index + 2, index + 3])
 

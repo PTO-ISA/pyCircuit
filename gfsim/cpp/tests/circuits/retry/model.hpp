@@ -31,7 +31,7 @@ struct Retry : Module {
         e->completeRule(rid);
     }
 };
-inline std::unique_ptr<Netlist> retry(Word attempts = 6, bool cache = true, bool reverse = false) {
+inline std::unique_ptr<Netlist> retry(Word attempts = 6, bool reverse = false) {
     auto n = std::make_unique<Netlist>();
     auto &b = *n;
     auto &token = b.queue<Value>(1, {{8, 42}});
@@ -41,7 +41,7 @@ inline std::unique_ptr<Netlist> retry(Word attempts = 6, bool cache = true, bool
     m.rid = b.rule(m, {&token}, {&token, &ready}, {&token, &budget});
     auto &out = b.queue<Receipt<Value, 1>>();
     sink(b, std::array{&ready}, out);
-    b.finish(cache, reverse);
+    b.finish(reverse);
     return n;
 }
 } // namespace circuits

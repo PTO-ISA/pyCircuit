@@ -18,7 +18,6 @@ def main():
     p.add_argument('--registers', type=Path, help='JSON array of 32 initial registers; x0 must be zero')
     p.add_argument('--data-base', type=int, default=4096)
     p.add_argument('--max-cycles', type=int, default=12000)
-    p.add_argument('--no-cache', action='store_true')
     p.add_argument('--reverse', action='store_true')
     p.add_argument('--wb-period', type=int, default=0)
     p.add_argument('--wb-closed', type=int, default=0)
@@ -32,7 +31,7 @@ def main():
     case = dict(words=assemble(args.program.read_text()), registers=regs, data=data, base=args.data_base,
                 max_cycles=args.max_cycles, wb_period=args.wb_period, wb_closed=args.wb_closed)
     try:
-        rows = run(args.runner, case, not args.no_cache, args.reverse)
+        rows = run(args.runner, case, args.reverse)
     except AssertionError as error:
         rows = error.rows
         (args.output / 'trace.jsonl').write_text(''.join(json.dumps(row) + '\n' for row in rows))

@@ -25,7 +25,7 @@ struct Feedback : Module {
     }
 };
 inline std::unique_ptr<Netlist> feedback(const std::vector<Value> &tokens, bool selfLoop = false,
-                                         bool cache = true, bool reverse = false) {
+                                         bool reverse = false) {
     auto n = std::make_unique<Netlist>();
     auto &b = *n;
     std::size_t count = selfLoop ? 1 : 2;
@@ -43,7 +43,7 @@ inline std::unique_ptr<Netlist> feedback(const std::vector<Value> &tokens, bool 
     auto &out = b.queue<Receipt<Value, 1>>(tokens.size() + 1);
     merge(b, exits, merged);
     sink(b, std::array{&merged}, out);
-    b.finish(cache, reverse);
+    b.finish(reverse);
     return n;
 }
 } // namespace circuits

@@ -1,4 +1,4 @@
-set(SKYZH_SOURCES model.py logic.py execute.py)
+set(SKYZH_SOURCES model.py types.py logic.py frontend.py execution.py storage.py)
 foreach(variant IN ITEMS compiled emitted noopt)
   set(dir "${CMAKE_CURRENT_BINARY_DIR}/${variant}")
   if(variant STREQUAL "compiled")
@@ -24,12 +24,23 @@ foreach(variant IN ITEMS compiled emitted noopt)
   add_dependencies(acpy-skyzh-model-${variant} acpy-skyzh-generate-${variant})
   target_include_directories(acpy-skyzh-model-${variant} PUBLIC "${dir}")
   target_link_libraries(acpy-skyzh-model-${variant} PUBLIC gfsim::gfsim)
-  add_executable(acpy-skyzh-${variant} runner.cpp)
+  add_executable(acpy-skyzh-${variant} tests/runner.cpp)
   target_link_libraries(acpy-skyzh-${variant} PRIVATE acpy-skyzh-model-${variant})
 endforeach()
+set(SKYZH_REFERENCE_SOURCE "${REPO}/reference/skyzh-riscv-reference" CACHE PATH "Clean pinned native skyzh checkout")
+set(SKYZH_REFERENCE_BINARY "${CMAKE_CURRENT_BINARY_DIR}/reference/skyzh-reference")
+file(GLOB_RECURSE SKYZH_NATIVE_INPUTS "${SKYZH_REFERENCE_SOURCE}/src/*.cpp" "${SKYZH_REFERENCE_SOURCE}/src/*.h" "${SKYZH_REFERENCE_SOURCE}/src/*.hpp")
+add_custom_command(OUTPUT "${SKYZH_REFERENCE_BINARY}" "${CMAKE_CURRENT_BINARY_DIR}/reference/build.json"
+  COMMAND ${Python3_EXECUTABLE} -m pycircuit.examples.skyzh_ooo.tests.reference
+    --source "${SKYZH_REFERENCE_SOURCE}" --output "${CMAKE_CURRENT_BINARY_DIR}/reference"
+    --cxx "${CMAKE_CXX_COMPILER}"
+  DEPENDS ${SKYZH_NATIVE_INPUTS} tests/reference.py tests/reference.cpp tests/observer.hpp
+  WORKING_DIRECTORY "${REPO}" VERBATIM)
+add_custom_target(acpy-skyzh-reference ALL DEPENDS "${SKYZH_REFERENCE_BINARY}")
 if(BUILD_TESTING)
-  add_test(NAME acpy-skyzh-queue-cpu COMMAND ${Python3_EXECUTABLE} -m pycircuit.examples.skyzh_ooo.verify
+  add_test(NAME acpy-skyzh-queue-cpu COMMAND ${Python3_EXECUTABLE} -m pycircuit.examples.skyzh_ooo.tests.verify
     --compiled $<TARGET_FILE:acpy-skyzh-compiled> --emitted $<TARGET_FILE:acpy-skyzh-emitted>
-    --no-opt $<TARGET_FILE:acpy-skyzh-noopt> --output "${CMAKE_CURRENT_BINARY_DIR}/evidence")
+    --no-opt $<TARGET_FILE:acpy-skyzh-noopt> --reference "${SKYZH_REFERENCE_BINARY}"
+    --output "${CMAKE_CURRENT_BINARY_DIR}/evidence")
   set_tests_properties(acpy-skyzh-queue-cpu PROPERTIES WORKING_DIRECTORY "${REPO}" TIMEOUT 900)
 endif()

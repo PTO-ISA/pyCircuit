@@ -1,4 +1,4 @@
-"""Commit oracle, microarchitecture invariants, and eight-way cycle parity."""
+"""Commit oracle, microarchitecture invariants, and four-way cycle parity."""
 import argparse
 import hashlib
 import json
@@ -13,16 +13,16 @@ from pycircuit.examples.ooo.programs import suite
 from pycircuit.examples.ooo.reference import interpret
 
 
-def numeric_input(case, cache=True, reverse=False):
-    values = [1, case['max_cycles'], case['base'], int(cache), int(reverse),
+def numeric_input(case, reverse=False):
+    values = [2, case['max_cycles'], case['base'], int(reverse),
               case['wb_period'], case['wb_closed'], len(case['words']), len(case['data']),
               *case['words'], *case['registers'], *case['data']]
     return ' '.join(map(str, values)) + '\n'
 
 
-def run(binary, case, cache=True, reverse=False, benchmark=False):
+def run(binary, case, reverse=False, benchmark=False):
     cmd = [str(binary)] + (['--benchmark'] if benchmark else [])
-    proc = subprocess.run(cmd, input=numeric_input(case, cache, reverse), capture_output=True,
+    proc = subprocess.run(cmd, input=numeric_input(case, reverse), capture_output=True,
                           text=True, timeout=60)
     rows = [json.loads(line) for line in proc.stdout.splitlines()]
     if proc.returncode:
@@ -188,29 +188,28 @@ def verify(compiled, emitted, output, case_name=None):
         directory.mkdir(parents=True, exist_ok=True)
         baseline, configs = None, []
         for binary_name, binary in (('compiled', compiled), ('emitted', emitted)):
-            for cache in (True, False):
-                for reverse in (False, True):
-                    name = f'{binary_name}-cache{int(cache)}-reverse{int(reverse)}'
-                    (directory / (name + '.input.txt')).write_text(numeric_input(case, cache, reverse))
-                    mismatch = directory / (name + '.mismatch.json')
-                    try:
-                        rows = run(binary, case, cache, reverse)
-                    except AssertionError as error:
-                        context(mismatch, error.rows, len(error.rows) - 1, str(error))
-                        raise
-                    trace_path = directory / (name + '.jsonl')
-                    trace_path.write_text(''.join(json.dumps(r, separators=(',', ':')) + '\n' for r in rows))
-                    retired_count = architecture(case, rows, mismatch)
-                    coverage = microarchitecture(rows, mismatch)
-                    if baseline is None:
-                        baseline = rows
-                        for k, v in coverage.items():
-                            total[k] = max(total.get(k, 0), v) if k == 'max_occupancy' else total.get(k, 0) + v
-                    elif baseline != rows:
-                        index = next((i for i, (a, b) in enumerate(zip(baseline, rows)) if a != b), min(len(baseline), len(rows)))
-                        context(mismatch, rows, index, 'cycle parity failed', baseline[max(0, index - 3):index + 4])
-                        raise AssertionError(f'{case["name"]}/{name}: cycle {index} differs')
-                    configs.append(dict(binary=binary_name, cache=cache, reverse=reverse, trace_sha256=sha(trace_path)))
+            for reverse in (False, True):
+                name = f'{binary_name}-reverse{int(reverse)}'
+                (directory / (name + '.input.txt')).write_text(numeric_input(case, reverse))
+                mismatch = directory / (name + '.mismatch.json')
+                try:
+                    rows = run(binary, case, reverse)
+                except AssertionError as error:
+                    context(mismatch, error.rows, len(error.rows) - 1, str(error))
+                    raise
+                trace_path = directory / (name + '.jsonl')
+                trace_path.write_text(''.join(json.dumps(r, separators=(',', ':')) + '\n' for r in rows))
+                retired_count = architecture(case, rows, mismatch)
+                coverage = microarchitecture(rows, mismatch)
+                if baseline is None:
+                    baseline = rows
+                    for k, v in coverage.items():
+                        total[k] = max(total.get(k, 0), v) if k == 'max_occupancy' else total.get(k, 0) + v
+                elif baseline != rows:
+                    index = next((i for i, (a, b) in enumerate(zip(baseline, rows)) if a != b), min(len(baseline), len(rows)))
+                    context(mismatch, rows, index, 'cycle parity failed', baseline[max(0, index - 3):index + 4])
+                    raise AssertionError(f'{case["name"]}/{name}: cycle {index} differs')
+                configs.append(dict(binary=binary_name, reverse=reverse, trace_sha256=sha(trace_path)))
         if case['name'] == 'latency':
             issue_cycles = {e['pc']: r['cycle'] for r in baseline for lane in ('issue_int', 'issue_mem') for e in r[lane]}
             complete_cycles = {e['pc']: r['cycle'] for r in baseline for lane in ('complete_int', 'complete_mem') for e in r[lane]}
@@ -219,7 +218,7 @@ def verify(compiled, emitted, output, case_name=None):
         report = dict(name=case['name'], cycles=baseline[-1]['cycle'], retired=retired_count,
                       ipc=retired_count / baseline[-1]['cycle'], coverage=coverage, configurations=configs)
         reports.append(report)
-        print(f'{case["name"]}: {report["cycles"]} cycles, {retired_count} commits; eight traces match', flush=True)
+        print(f'{case["name"]}: {report["cycles"]} cycles, {retired_count} commits; four traces match', flush=True)
     if case_name is None:
         missing = [k for k, count in total.items() if not count]
         assert not missing, f'uncovered behaviors: {missing}'

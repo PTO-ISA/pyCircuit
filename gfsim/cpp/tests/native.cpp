@@ -6,16 +6,65 @@ using namespace circuits;
 namespace gfsim {
 struct TestAccess {
     template <class T> static auto slots(const Queue<T> &q) { return q.slots_.data(); }
+    static auto sourceSlots(const QueueBase &q) { return q.sourceSlots_; }
+    static auto slotIndex(const QueueBase &q, RuleId rule) { return q.slotIndex(rule); }
     static void tick(Simulator &s, Tick t) { s.tick_ = t; }
-    static void generation(Simulator &s, ModuleId m, Tick t) { s.modules_[m].readGen = t; }
     static void version(QueueBase &q, Tick t) { q.version_ = t; }
     static void signalEvaluations(SignalBase &s, Tick t) { s.evaluations_ = t; }
     static void counter(Simulator &s, Tick t) { s.stats_.moduleWork = t; }
     static auto tasks(const Simulator &s) {
-        return std::pair{s.moduleTasks_.ids.data(), s.ruleTasks_.ids.data()};
+        return std::tuple{s.moduleTasks_.ids.capacity(), s.ruleTasks_.ids.capacity(),
+                          s.nextRules_.ids.capacity(), s.signalTasks_.ids.capacity()};
     }
 };
 } // namespace gfsim
+void testSourceSlots() {
+    struct Model {
+        Queue<Word> a{1, {0}}, c{1, {0}}, unused;
+        Queue<std::array<Word, 2>> b{1, {{0, 0}}};
+        Simulator sim;
+        RuleId first{}, last{};
+        void Work() {
+            if (sim.beginRule(first)) {
+                b.proposeReviseWith(first, [](auto &value) { value[0] = 10; });
+                sim.completeRule(first);
+            }
+            if (sim.beginRule(last)) {
+                a.proposeRevise(last, Word{1});
+                b.proposeReviseWith(last, [](auto &value) { value[1] = 2; });
+                c.proposeRevise(last, Word{3});
+                sim.completeRule(last);
+            }
+        }
+    } m;
+    auto mid = m.sim.addModule<&Model::Work>(m);
+    // Leave gaps in the global RuleIds and register sources out of order.
+    m.sim.addRule(mid);
+    m.first = m.sim.addRule(mid);
+    auto missing = m.sim.addRule(mid);
+    m.last = m.sim.addRule(mid);
+    for (auto *q : std::array<QueueBase *, 4>{&m.a, &m.b, &m.c, &m.unused})
+        m.sim.addQueue(*q);
+    m.sim.bind(m.last, m.a, Revise);
+    m.sim.bind(m.last, m.b, Revise);
+    m.sim.bind(m.first, m.b, Revise);
+    m.sim.bind(m.last, m.c, Revise);
+    m.sim.bind(m.last, m.b, Revise); // Repeated declarations share one slot.
+    m.sim.freeze();
+    CHECK(TestAccess::slotIndex(m.a, m.last) == 1);
+    CHECK(TestAccess::slotIndex(m.b, m.last) == 2);
+    CHECK(TestAccess::sourceSlots(m.a) == TestAccess::sourceSlots(m.c));
+    CHECK(TestAccess::sourceSlots(m.a)->indices.size() == 1);
+    CHECK(TestAccess::slotIndex(m.unused, 0) == 0);
+    for (auto invalid : {RuleId{1}, missing, m.last + 1, std::numeric_limits<RuleId>::max()})
+        throws<std::logic_error>([&] { TestAccess::slotIndex(m.b, invalid); });
+    throws<std::logic_error>([&] { TestAccess::slotIndex(m.unused, m.last); });
+    for (int tick = 0; tick < 3; ++tick) {
+        m.sim.step();
+        CHECK(m.a.peek() == 1 && m.b.peek() == std::array<Word, 2>{10, 2} && m.c.peek() == 3);
+        CHECK(m.sim.rule(m.last).participants.empty());
+    }
+}
 struct NestedMeta {
     bool valid{};
     std::array<std::int16_t, 3> lanes{};
@@ -26,8 +75,12 @@ struct Nested {
     std::uint64_t count{};
     bool operator==(const Nested &) const = default;
 };
-void json(std::ostream &o, const NestedMeta &m) { jsonList(o, m.valid, m.lanes); }
-void json(std::ostream &o, const Nested &n) { jsonList(o, n.meta, n.count); }
+void json(std::ostream &o, const NestedMeta &m) {
+    jsonList(o, m.valid, m.lanes);
+}
+void json(std::ostream &o, const Nested &n) {
+    jsonList(o, n.meta, n.count);
+}
 // One Module invokes two independent Rules with a required control read between.
 struct PartialModule : Module {
     RuleId first{}, second{};
@@ -35,7 +88,6 @@ struct PartialModule : Module {
     Queue<Word> &gate;
     Queue<Word> &output;
     Queue<Nested> &reg;
-    ParameterCache<Nested> args;
     PartialModule(Queue<Word> &i, Queue<Word> &g, Queue<Word> &o, Queue<Nested> &r)
         : input(i), gate(g), output(o), reg(r) {
         resources.push_back(&g);
@@ -60,7 +112,7 @@ struct PartialModule : Module {
         e->completeRule(first);
     }
     void workSecond(Nested value) {
-        if (!e->beginRule(second, args, value))
+        if (!e->beginRule(second))
             return;
         auto p = read(reg, second);
         if (!p) {
@@ -90,12 +142,6 @@ void testComponents() {
     auto tasks = TestAccess::tasks(*n.sim);
     const auto *inputSlots = TestAccess::slots(input);
     const auto *registerSlots = TestAccess::slots(reg);
-    std::vector<const Tick *> controlAddresses;
-    std::vector<const std::uint64_t *> bitmapAddresses;
-    for (ModuleId i = 0; i < n.sim->moduleCount(); ++i) {
-        controlAddresses.push_back(n.sim->module(i).controlReads.data());
-        bitmapAddresses.push_back(n.sim->module(i).ruleReaders.data());
-    }
     std::vector<std::size_t> slots;
     for (auto &q : n.queues) {
         slots.push_back(q->sourceCount());
@@ -117,10 +163,6 @@ void testComponents() {
     CHECK(tasks == TestAccess::tasks(*n.sim));
     CHECK(inputSlots == TestAccess::slots(input));
     CHECK(registerSlots == TestAccess::slots(reg));
-    for (ModuleId i = 0; i < n.sim->moduleCount(); ++i) {
-        CHECK(controlAddresses[i] == n.sim->module(i).controlReads.data());
-        CHECK(bitmapAddresses[i] == n.sim->module(i).ruleReaders.data());
-    }
     for (std::size_t i = 0; i < n.queues.size(); ++i) {
         CHECK(slots[i] == n.queues[i]->sourceCount());
     }
@@ -157,7 +199,7 @@ struct Boundary : Module {
 };
 void testBoundaries() {
     const Tick max = std::numeric_limits<Tick>::max();
-    for (int mode = 0; mode < 9; ++mode) {
+    for (int mode : {0, 1, 2, 3, 4, 5, 6, 8}) {
         Netlist n;
         auto &q = n.queue<Word>(1, {1});
         auto &m = n.module<Boundary>(q, mode);
@@ -169,8 +211,6 @@ void testBoundaries() {
             n.sim->step(); // tick 0 + max is legal; tick 1 + max must fail.
         if (mode == 6)
             TestAccess::tick(*n.sim, max);
-        if (mode == 7)
-            TestAccess::generation(*n.sim, m.mid, max);
         if (mode == 8)
             TestAccess::counter(*n.sim, max);
         throws<std::exception>([&] { n.sim->step(); });
@@ -205,7 +245,9 @@ struct ThrowValue {
     }
     bool operator==(const ThrowValue &) const = default;
 };
-void json(std::ostream &o, const ThrowValue &v) { o << v.value; }
+void json(std::ostream &o, const ThrowValue &v) {
+    o << v.value;
+}
 struct ThrowXfer : Module {
     RuleId rid{};
     Queue<ThrowValue> &q;
@@ -262,6 +304,7 @@ void testSemantics();
 int main() {
     try {
         testComponents();
+        testSourceSlots();
         testBoundaries();
         testXferException();
         testLifetimes();

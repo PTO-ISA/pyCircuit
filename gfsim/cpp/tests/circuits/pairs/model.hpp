@@ -29,7 +29,7 @@ struct PairALU : Module {
     }
 };
 inline std::unique_ptr<Netlist> pairs(const std::vector<Word> &left, const std::vector<Word> &right,
-                                      Tick period = 9, bool cache = true, bool reverse = false) {
+                                      Tick period = 9, bool reverse = false) {
     auto n = std::make_unique<Netlist>();
     auto &b = *n;
     std::array<Queue<Value> *, 2> inputs{&b.queue<Value>(), &b.queue<Value>()},
@@ -45,7 +45,7 @@ inline std::unique_ptr<Netlist> pairs(const std::vector<Word> &left, const std::
     m.rid = b.rule(m, {inputs.begin(), inputs.end()}, {outputs.begin(), outputs.end()});
     auto &out = b.queue<Receipt<Value, 2>>(left.size() + 1);
     sink(b, outputs, out, period);
-    b.finish(cache, reverse);
+    b.finish(reverse);
     return n;
 }
 } // namespace circuits

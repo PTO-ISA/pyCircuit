@@ -73,7 +73,7 @@ def main():
                   measurement_sources={name: sha(Path(__file__).with_name(name)) for name in
                                        ('bench_signals.py', 'benchmark_programs.py', 'benchmark_support.py')},
                   scope='Times cover N step() calls after 1024 warmup ticks. Counters include initialization and warmup. '
-                        'Cache enabled, forward Module order; alternating serial runs on one CPU. '
+                        'Static scheduling, forward Module order; alternating serial runs on one CPU. '
                         'Each long trace matches pinned Ripes, each sample checks final state. No cross-version scheduling-counter equality assumed.',
                   programs=[])
     # Verify traces first; keep this separate from timed, pinned serial sampling.

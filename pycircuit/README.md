@@ -23,7 +23,7 @@ ctest --test-dir /tmp/acpy-mlir-build --output-on-failure -j4
 
 `compile` 与 `emit` 共用 C++ 后端，输出 `model.acir.mlir`、`model.emitc.mlir`、`model.hpp`、`model.cpp`、`ac_support.hpp`。`emit` 只读取保存的 MLIR；删除源码后仍可生成。`--no-opt` 关闭 canonicalize/CSE，保留同一语义展开与转换路径。
 
-原生 Ripes 参考必须存在且符合固定版本；可用 `-DGFSIM_RIPES_REFERENCE=/path/to/ripes5-reference` 指定，构建见[参考说明](../gfsim/experiment/examples/ripes5/README.md)。
+原生 Ripes 参考必须存在且符合固定版本；可用 `-DGFSIM_RIPES_REFERENCE=/path/to/ripes5-reference` 指定，构建见[参考说明](../gfsim/experiment/examples/ripes5/README.md)。skyzh 参考默认在 `reference/skyzh-riscv-reference/`，也可用 `-DSKYZH_REFERENCE_SOURCE=/path/to/checkout` 指定；版本和准备命令见 [CPU 示例](examples/skyzh_ooo/README.md)。新构建与 benchmark 请放在 `reference/builds/`、`reference/benchmarks/`。
 
 ## 前端范式
 
@@ -44,9 +44,11 @@ def Example(initial: ac.u32):
     return out
 ```
 
-Module 函数体直接表达 Work，不再支持 `@ac.work`。前端先收集资源、子 Module、Signal、Rule 输出及固定连接，再编译运行逻辑。条件内绑定的输出始终存在，可在调用前或 Rule 内引用；显式 Queue 决定容量、初值，隐式输出默认容量 1、初始为空。同 Module 的同一 Rule 共享身份、固定输出及参数缓存。
+Module 函数体直接表达 Work，不再支持 `@ac.work`。前端先收集资源、子 Module、Signal、Rule 输出及固定连接，再编译运行逻辑。条件内绑定的输出始终存在，可在调用前或 Rule 内引用；显式 Queue 决定容量、初值，隐式输出默认容量 1、初始为空。同 Module 的同一 Rule 共享身份与固定输出。
 
-Queue/Signal 参数保留资源身份；Module 的 `ac.var[T]` 运行时输入必须绑定 Signal。其他构造参数保持不可变。Signal 的显式输入只接受 Queue（包括固定 Queue 阵列），配置通过外层 Module 捕获；输入变化、输出变化过滤、静态通知遵循 GFSim。
+Queue/Signal 参数保留资源身份；Module 的 `ac.var[T]` 运行时输入必须绑定 Signal。其他构造参数保持不可变。Signal 的显式输入接受 Queue（包括固定 Queue 阵列）或 Signal，也可捕获外层 Signal，配置通过外层 Module 捕获。全部 Queue Xfer 后，按静态 Signal DAG 的拓扑序重算受影响节点；初始化也按此顺序。输出变化才通知下游，组合链不增加流水拍，组合环报错。示例与回归见 [signal_circuits.py](tests/signal_circuits.py)。
+
+Module 可以导出内部 Signal 的固定引用，供多个独立 Module 同拍读取；不能直接导出 Work 的普通局部值。并行完成广播、新分派条目的同拍旁路及当前组合接口限制，见 [模块化表达实测](examples/skyzh_ooo/findings.md#modular-probes)。
 
 Rule 的消息输入实际读 payload 才生成 pop；返回 payload 生成 push；给 Queue 数据赋值生成 revise。观察捕获资源及 `ac.ref[T]` 参数不消费。别名重复消费在运行时按 Queue 身份去重；所有效果原子提交，读空撤销当前 Rule 的部分效果。Module 读空只退出当前 Work；Signal 无保护读空仍是模型错误。
 
@@ -54,7 +56,7 @@ Rule 的消息输入实际读 payload 才生成 pop；返回 payload 生成 push
 
 资源数组写作 `ac.array(ac.queue[T], shape=(N,), capacity=..., initial=...)`，首版一维，长度构造时固定，可动态索引。省略 initial 时各元素为空；纯初始化 helper 接收元素下标。既有 Queue 列表／推导仍可用于固定构造。支持普通聚合值的字段与索引更新，以及 `q.value.field[index] = value`：索引和值在 Work 捕获，Xfer 修改旧队尾。嵌套 tuple/list 输出逐个叶子绑定；`None` 只省略对应 push。
 
-当前不支持运行时资源构造、while/break/continue、跨 Signal 依赖、任意整数位宽或多维资源数组。源码报错含位置。不同消费者负责同一阵列的不同范围时，用固定元素列表连接各自端口；静态分析不推导任意整数路径条件。用户仍需满足 GFSim 每个 Queue 的 pop/push 唯一来源约束，以及同 tick 同 Rule 重复调用参数一致的约束。完整语义见 [ACPy spec](../acpy/spec.md)。
+当前不支持运行时资源构造、while/break/continue、任意整数位宽或多维资源数组。源码报错含位置。不同消费者负责同一阵列的不同范围时，用固定元素列表连接各自端口；静态分析不推导任意整数路径条件。用户仍需满足 GFSim 每个 Queue 的 pop/push 唯一来源约束，以及同 tick 同 Rule 重复调用参数一致的约束。完整语义见 [ACPy spec](../acpy/spec.md)。
 
 ## Dialect 与 pass
 
@@ -71,18 +73,21 @@ Rule 的消息输入实际读 payload 才生成 pop；返回 payload 生成 push
   --acir-lower-gfsim --acir-convert-to-emitc -o /tmp/model.emitc.mlir
 ```
 
-Queue `read/query` 同时观察状态和登记依赖，声明 `MemRead + MemWrite`，没有 `Pure` 或可推测执行属性。必要读取检查保留在实际分支中；Rule 入口比较参数并 `beginRule`，正常出口 `completeRule`，读空出口 `abortRule`。详见 [ACIR 保存格式](acir.md)。
+Queue `read/query` 保留保守效果，声明 `MemRead + MemWrite`，没有 `Pure` 或可推测执行属性。必要读取检查保留在实际分支中；Rule 入口调用 `beginRule`，正常出口 `completeRule`，读空出口 `abortRule`。详见 [ACIR 保存格式](acir.md)。
+
+GFSim 用静态 Queue/Signal→Module 连接激活下一拍 Work；Module 激活时重新执行选中的 Rule，没有参数缓存。完整 pending 跨拍保留，容量释放通过 delta 只重仲裁，统一 Xfer。事件堆只接收显式延迟请求。生成模型构造函数末尾为 `bool reverse=false`，已删除 cache 参数。
 
 ## 验收与性能
 
-CTest 覆盖小电路、ODS 拒绝非法 IR、优化不能删除读取依赖、删源码后重载、Ripes5 五方逐拍对照、既有 OoO，以及[完整 Queue CPU](examples/skyzh_ooo/README.md)。Queue CPU 的 5 个完整程序逐条提交对照独立 RV32I 解释器，比较优化开关、缓存开关、Module 正反序和直接／重载生成；另有写回阻塞变体使 ROB 确实填满。
+CTest 覆盖小电路、ODS 拒绝非法 IR、读取的保守效果与分支位置、删源码后重载、Ripes5 五方逐拍对照、既有 OoO，以及[与原生 skyzh 逐拍对齐的 Queue CPU](examples/skyzh_ooo/README.md)。该 CPU 的 7 个程序分别比较优化开关、Module 正反序和直接／重载生成，共 42 次运行；独立 RV32I 解释器检查正常程序，另外明确要求复现三个原生已知错误案例。覆盖 ROB 填满、乱序完成、分派旁路、同拍重命名/提交和在途 flush。
 
 Sanitizer 使用同一工程：
 
 ```bash
 cmake -S pycircuit -B /tmp/acpy-mlir-asan -DCMAKE_BUILD_TYPE=Debug \
   -DCMAKE_C_COMPILER=/home/lc/opt/pycircuit-dev/bin/cc \
-  -DCMAKE_CXX_COMPILER=/home/lc/opt/pycircuit-dev/bin/c++ -DGFSIM_SANITIZERS=ON
+  -DCMAKE_CXX_COMPILER=/home/lc/opt/pycircuit-dev/bin/c++ -DGFSIM_SANITIZERS=ON \
+  -DMLIR_DIR=/home/lc/opt/llvm-22.1.8/lib/cmake/mlir
 cmake --build /tmp/acpy-mlir-asan -j6
 ASAN_OPTIONS=detect_leaks=1:halt_on_error=1 UBSAN_OPTIONS=halt_on_error=1 \
   ctest --test-dir /tmp/acpy-mlir-asan --output-on-failure -j4
@@ -97,4 +102,4 @@ python3 -m pycircuit.benchmark_migration \
   --output /tmp/acpy-migration-benchmark
 ```
 
-结果报告编译时间、生成字节数、峰值 RSS、固定 tick 区间耗时和架构吞吐。历史 Ripes5/OoO 报告保留各自版本指纹，不能视为本次 MLIR 的结果；本次证据见 [MLIR 验收记录](mlir/results.md)。
+结果报告编译时间、生成字节数、峰值 RSS、固定 tick 区间耗时和架构吞吐。历史 Ripes5/OoO 报告保留各自版本指纹，不能视为本次 MLIR 的结果；MLIR 迁移历史见 [记录](mlir/results.md)，当前静态调度结果见 [GFSim 报告](../gfsim/cpp/report.md)。

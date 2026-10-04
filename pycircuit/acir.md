@@ -24,13 +24,13 @@ Module Work、Rule、Signal、helper 和初始化函数统一是 `func.func`。`
 
 普通整数计算复用 `arith`，helper 调用复用 `func.call`。越宽移位、带符号整除和溢出边界使用带 intrinsic 属性的 helper 声明，避免错误赋予 MLIR poison 语义。转换也接受优化产生的 `arith.select` 与整数扩展／截断。
 
-`read/query` 不能是 Pure：即使结果未使用，也必须保留 GFSim 实际依赖登记。ODS 使用标准 `MemoryEffectOpInterface` 的读写效果。聚合索引没有状态效果，但可能报告越界，因此不可推测执行。源码 `loc` 保留到 ACIR；最终 EmitC 工件保留函数位置。
+`read/query` 本轮保留保守效果，不标记 Pure；缺输入检查和读取必须留在实际分支内。运行时不再登记依赖。ODS 使用标准 `MemoryEffectOpInterface` 的读写效果。聚合索引没有状态效果，但可能报告越界，因此不可推测执行。源码 `loc` 保留到 ACIR；最终 EmitC 工件保留函数位置。
 
 ## 三组 pass
 
-1. `acir-analyze-resources`：沿参数、别名、CFG 边和动态索引传播可能资源集合，生成 `acir.accesses/signals/effects`。常量下标和固定子列表保留元素身份；动态索引静态声明覆盖该输入视图的全部可能元素，运行时只登记实际元素。生成端使用轻量资源视图，临时列表共享持有指针表，避免在 Work/Rule 传参时复制整张资源表。
-2. `acir-lower-gfsim`：Rule 入口生成参数比较与 begin，正常返回 complete，必要读取在原位置分裂 CFG，空时 abort；Module 读空仅返回，Signal 读空保持错误语义，静态依赖包含全部绑定输入。pop 在适配层按实际资源去重。
-3. `acir-convert-to-emitc`：将类型与行为转换为 EmitC 调用、标准函数和分支。类声明、资源构造、参数缓存、注册表和 proposal 绑定来自同一份静态信息。MLIR `translateToCpp` 输出函数体。
+1. `acir-analyze-resources`：沿参数、别名、CFG 边和动态索引传播可能资源集合，生成 `acir.accesses/effects`。Signal 输入包含全部绑定端口与捕获依赖，允许 Queue 或 Signal；检查 Signal DAG 无环，保存的 MLIR 重载也执行此检查。常量下标和固定子列表保留元素身份；动态索引静态声明覆盖该输入视图的全部可能元素，运行时只操作实际元素。生成端使用轻量资源视图，临时列表共享持有指针表，避免在 Work/Rule 传参时复制整张资源表。
+2. `acir-lower-gfsim`：Rule 入口生成 begin，正常返回 complete，必要读取在原位置分裂 CFG，空时 abort；Module 读空仅返回，Signal 读空保持错误语义，静态依赖包含全部绑定输入。pop 在适配层按实际资源去重。
+3. `acir-convert-to-emitc`：将类型与行为转换为 EmitC 调用、标准函数和分支。类声明、资源构造、注册表和 proposal 绑定来自同一份静态信息。MLIR `translateToCpp` 输出函数体。
 
 这些 pass 不识别 CPU、ROB、RS 或其他组件名称。`acir-compile` 默认在资源分析之后执行 canonicalize/CSE，`--no-opt` 关闭它们。`acir-opt` 可分别执行上述 pass；完整模型编译命令会一并输出头文件及构造注册代码。
 

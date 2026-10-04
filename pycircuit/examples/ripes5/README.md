@@ -8,7 +8,7 @@
 # 统一 GCC 14、C++20、-O3 -DNDEBUG、armv8-a/generic，关闭 LTO。
 python3 pycircuit/examples/ripes5/build_benchmark.py
 
-# 包括旧输入测试、13 程序 × 四配置，以及新增固定周期边界测试。
+# 包括旧输入测试、13 程序 × 两种 Module 顺序，以及新增固定周期边界测试。
 ctest --test-dir pycircuit/examples/ripes5/output/fair-build \
   --output-on-failure \
   --output-junit /home/lc/tmp/pycircuit/examples/ripes5/output/fair-build/ctest.xml
@@ -37,14 +37,14 @@ python3 pycircuit/examples/ripes5/report.py --benchmark-only
 | load_use | 四组紧邻 load→use | 固定初值乘迭代次数 |
 | consecutive_memory | 连续地址加载、累加、存储 | 四个内存字及对应寄存器累计值 |
 
-全套 13 程序 × 四配置仍比较生成 C++、ACIR 重载 C++、手写 C++、Python 和原生版。长程序对比三方逐拍状态、控制、退休及 store 事件；另同时运行原生 `--observe`，核对观察通知开启和关闭的所有字段（包括 raw）。流式读取四个子进程，只保留三拍历史、当前拍及首个差异后三拍，成功仅保存摘要、散列及 K/T 边界。临时 stderr 使用文件，超时会终止生产者。
+全套 13 程序 × 两种 Module 顺序仍比较生成 C++、ACIR 重载 C++、手写 C++、Python 和原生版。长程序对比三方逐拍状态、控制、退休及 store 事件；另同时运行原生 `--observe`，核对观察通知开启和关闭的所有字段（包括 raw）。流式读取四个子进程，只保留三拍历史、当前拍及首个差异后三拍，成功仅保存摘要、散列及 K/T 边界。临时 stderr 使用文件，超时会终止生产者。
 
 短程序测试覆盖旧调用、通知切换、K=0／不同 K、第一拍／流水填充／marker 前一拍／marker 提交边界，以及负数、非整数、溢出、N=0、超出输入 max_cycles 和参数个数错误。每次固定模式采样再核对总周期、窗口退休增量以及最终流水线、寄存器和内存状态。
 
 ## 计时接口
 
 ```bash
-# GFSim 共用 runner：缓存和 Module 顺序由数字输入指定。
+# GFSim 共用 runner：Module 顺序由 v2 数字输入指定。
 acpy-ripes5-compiled --benchmark-fixed K N < input.txt
 gfsim-ripes5 --benchmark-fixed K N < input.txt
 
@@ -57,13 +57,13 @@ N 必须大于 0，K≥0，K+N≤输入 max_cycles。固定模式执行恰好 K+
 
 JSON 输出包含 `warmup_cycles`、`measured_cycles`、`cycles`、`retired_before`、`retired`、`retired_delta`、`run_ns`、`construct_ns` 和 `final_state`。GFSim 保留调度统计，原生输出通知设置。`construct_ns` 包括模型构造与装载，不含输入解析。`run_ns` 只含 N 拍核心执行。脚本的 `process_ns` 是另外测量的子进程耗时，包含进程启动、输入、构造、预热、输出及退出。
 
-每版先从相同初态完整执行一次预热；再重新启动进程采样 15 次，按三方循环轮换的顺序串行执行。主表仅缓存开、Module 正序。退休吞吐使用 `retired_delta / run_ns`，不把 K 拍的退休数计入。报告给出中位数和 [Q1,Q3]（inclusive 线性插值），速度比为同批中位耗时之比。
+每版先从相同初态完整执行一次预热；再重新启动进程采样 15 次，按三方循环轮换的顺序串行执行。主表使用 Module 正序。退休吞吐使用 `retired_delta / run_ns`，不把 K 拍的退休数计入。报告给出中位数和 [Q1,Q3]（inclusive 线性插值），速度比为同批中位耗时之比。
 
 ## 证据位置与历史口径
 
 - `output/fair-build/build-manifest.json`：有效编译、链接命令及构建身份。
 - `output/fair-build/ctest.xml`：当前构建回归结果。
-- `output/fair-benchmark/acceptance/`：13×4 完整验收及短程序轨迹。
+- `output/fair-benchmark/acceptance/`：13×2 完整验收及短程序轨迹。
 - `output/fair-benchmark/<程序>/`：长程序 JSON／数字输入、流式验证摘要；失败时首个差异。
 - `output/fair-benchmark/fixed-runner-tests.json`：固定周期接口验收。
 - `timing-fixed.json`：本批输入、源码和二进制散列、原始样本、预热、顺序、统计和比值。

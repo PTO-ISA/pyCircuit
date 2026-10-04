@@ -1,5 +1,7 @@
 # MLIR 迁移验收与性能
 
+> 本文保留静态调度重构前的实现／测量记录。当前 C++ 调度契约见 [GFSim spec](../../gfsim/spec.md)；Python 实验引擎不随本次重构迁移。
+
 记录日期：2026-10-04。环境：aarch64、Clang/LLVM/MLIR 22.1.8、GCC 14 sysroot、Python 3.11。
 
 ## 实现与验证

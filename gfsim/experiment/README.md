@@ -1,5 +1,7 @@
 # GFSim Python 调度实验
 
+> 本文保留静态调度重构前的实现／测量记录。当前 C++ 调度契约见 [GFSim spec](../spec.md)；Python 实验引擎不随本次重构迁移。
+
 实现 [GFSim spec](../spec.md) 的读取依赖、dirty、候选复用、容量 DFS、事件与 Signal 调度。唯一的完整模型示例是 [Ripes5 五级流水](examples/ripes5/README.md)，使用普通 Module 类、Rule 成员函数和显式资源绑定。
 
 ## 运行

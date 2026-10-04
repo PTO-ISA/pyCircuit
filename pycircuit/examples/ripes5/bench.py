@@ -77,7 +77,7 @@ def main():
     os.environ['RIPES_QT_PREFIX'] = manifest['qt_prefix']
     identity = v.verify_runner(a.runner)
     a.evidence.mkdir(parents=True, exist_ok=True)
-    # All historical 13 x 4 configurations remain a mandatory prerequisite.
+    # All 13 programs x 2 Module orders remain a mandatory prerequisite.
     emitted = Path(manifest['binaries']['emitted']['path'])
     if sha(emitted) != manifest['binaries']['emitted']['sha256']:
         raise AssertionError('emitted runner changed since build')
@@ -98,7 +98,7 @@ def main():
     report = dict(schema=2, reference=identity, host=platform.platform(),
                   affinity=dict(available=available, selected=cpu),
                   timestamp_utc=time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime()),
-                  warmups=1, repeats=a.repeats, gf_config=dict(cache=True, reverse=False),
+                  warmups=1, repeats=a.repeats, gf_config=dict(reverse=False),
                   native_config=dict(port_notifications=False, clock_notifications=False, reverse_history=False),
                   binaries_sha256={k: sha(b) for k, b in binaries.items()},
                   compiler_source_sha256=fingerprint(), existing_source_sha256=v.fingerprint(),

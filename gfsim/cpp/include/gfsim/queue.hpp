@@ -31,13 +31,7 @@ template <class T> class Queue final : public QueueBase {
     std::vector<std::size_t> accepted_;
     bool acceptedPop_{}, frozen_{}, registerOnly_{};
     Slot &slot(RuleId r) { return const_cast<Slot &>(std::as_const(*this).slot(r)); }
-    const Slot &slot(RuleId r) const {
-        auto it = std::lower_bound(slots_.begin(), slots_.end(), r,
-                                   [](const Slot &s, RuleId id) { return s.source < id; });
-        if (it == slots_.end() || it->source != r)
-            throw std::logic_error("undeclared Queue source");
-        return *it;
-    }
+    const Slot &slot(RuleId r) const { return slots_[slotIndex(r)]; }
     Slot &proposal(RuleId r, unsigned op) {
         auto &s = slot(r);
         if (!(s.allowed & op))
@@ -65,6 +59,11 @@ template <class T> class Queue final : public QueueBase {
         registerSource(0, 0);
         std::sort(slots_.begin(), slots_.end(),
                   [](const Slot &a, const Slot &b) { return a.source < b.source; });
+        std::vector<RuleId> sources;
+        sources.reserve(slots_.size());
+        for (const auto &s : slots_)
+            sources.push_back(s.source);
+        bindSlots(std::move(sources));
         accepted_.reserve(slots_.size());
         frozen_ = true;
     }
@@ -72,17 +71,7 @@ template <class T> class Queue final : public QueueBase {
         const auto &s = slot(r);
         return s.status == Slot::Accepted && s.pop;
     }
-    bool pendingPop(RuleId r) const override {
-        const auto &s = slot(r);
-        return s.status == Slot::Pending && s.pop;
-    }
-    bool pendingPush(RuleId r) const override {
-        const auto &s = slot(r);
-        return s.status == Slot::Pending && s.push.has_value();
-    }
-    bool pushSpace(RuleId r) const override {
-        return !full() || acceptedPop_ || (slot(r).pop && !empty());
-    }
+    bool pushSpace(RuleId r) const { return !full() || acceptedPop_ || (slot(r).pop && !empty()); }
     bool canAccept(RuleId r) const override {
         const auto &s = slot(r);
         return s.status == Slot::Pending && (!(s.pop || !s.revises.empty()) || !empty()) &&
@@ -145,10 +134,7 @@ template <class T> class Queue final : public QueueBase {
             data_[i] = std::move(initial[i]);
     }
     std::size_t capacity() const override { return data_.size(); }
-    std::size_t size() const override {
-        observe();
-        return count_;
-    }
+    std::size_t size() const override { return count_; }
     std::size_t sourceCount() const override { return slots_.size(); }
     const T *tryPeek() const { return empty() ? nullptr : &*data_[head_]; }
     const T &peek() const {
@@ -157,7 +143,6 @@ template <class T> class Queue final : public QueueBase {
         return *data_[head_];
     }
     const T &at(std::size_t i) const {
-        observe();
         if (i >= count_)
             throw std::out_of_range("Queue current index");
         return *data_[(head_ + i) % capacity()];

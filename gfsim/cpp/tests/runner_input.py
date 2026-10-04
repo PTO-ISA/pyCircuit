@@ -27,8 +27,8 @@ class InputTests(unittest.TestCase):
         self.rejected('')
         self.rejected(' '.join(tokens[:-1]))
         self.rejected(valid + ' 1')
-        for index, bad in ((0, '2'), (1, '0'), (2, '-1'), (4, '2'), (6, str(2**64)),
-                           (7, str(2**21)), (8, str(2**32)), (8, 'hello')):
+        for index, bad in ((0, '1'), (1, '0'), (2, '-1'), (4, '2'), (5, str(2**64)),
+                           (6, str(2**21)), (7, str(2**32)), (7, 'hello')):
             changed = tokens.copy()
             changed[index] = bad
             self.rejected(' '.join(changed))

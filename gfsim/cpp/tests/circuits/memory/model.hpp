@@ -27,9 +27,15 @@ struct Busy {
 inline void json(std::ostream &o, const Request &r) {
     jsonList(o, r.seq, r.address, r.write, r.data);
 }
-inline void json(std::ostream &o, const Meta &m) { jsonList(o, m.valid, m.count); }
-inline void json(std::ostream &o, const CellValue &c) { jsonList(o, c.meta, c.data); }
-inline void json(std::ostream &o, const Busy &b) { jsonList(o, b.due, b.seq, b.data); }
+inline void json(std::ostream &o, const Meta &m) {
+    jsonList(o, m.valid, m.count);
+}
+inline void json(std::ostream &o, const CellValue &c) {
+    jsonList(o, c.meta, c.data);
+}
+inline void json(std::ostream &o, const Busy &b) {
+    jsonList(o, b.due, b.seq, b.data);
+}
 struct Dispatch : Module {
     RuleId rid{};
     Queue<Request> &input;
@@ -58,7 +64,6 @@ struct Bank : Module {
     Queue<Value> &output;
     std::size_t banks;
     Tick latency;
-    ParameterCache<Tick> serviceArgs, finishArgs;
     Bank(Queue<Request> &r, std::vector<Queue<CellValue> *> c, Queue<Busy> &b, Queue<Value> &o,
          std::size_t count, Tick delay)
         : requests(r), cells(std::move(c)), busy(b), output(o), banks(count), latency(delay) {}
@@ -72,7 +77,7 @@ struct Bank : Module {
     }
     void workService(Tick now) {
         auto r = service;
-        if (!e->beginRule(r, serviceArgs, now))
+        if (!e->beginRule(r))
             return;
         auto p = read(requests, r);
         if (!p) {
@@ -107,7 +112,7 @@ struct Bank : Module {
     }
     void workFinish(Tick now) {
         auto r = finish;
-        if (!e->beginRule(r, finishArgs, now))
+        if (!e->beginRule(r))
             return;
         auto p = read(busy, r);
         if (!p) {
@@ -125,7 +130,7 @@ struct Bank : Module {
 };
 inline std::unique_ptr<Netlist> memory(const std::vector<Request> &requests, std::size_t banks = 2,
                                        std::size_t depth = 8, Tick latency = 4, Tick period = 5,
-                                       bool cache = true, bool reverse = false) {
+                                       bool reverse = false) {
     auto n = std::make_unique<Netlist>();
     auto &b = *n;
     auto &front = b.queue<Request>();
@@ -155,7 +160,7 @@ inline std::unique_ptr<Netlist> memory(const std::vector<Request> &requests, std
     merge(b, responses, merged);
     auto &out = b.queue<Receipt<Value, 1>>(requests.size() + 1);
     sink(b, std::array{&merged}, out, period);
-    b.finish(cache, reverse);
+    b.finish(reverse);
     return n;
 }
 } // namespace circuits

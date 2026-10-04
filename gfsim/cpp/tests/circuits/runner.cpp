@@ -18,8 +18,8 @@ int main() {
     try {
         std::string kind;
         std::size_t ticks;
-        bool cache, reverse;
-        std::cin >> kind >> ticks >> cache >> reverse;
+        bool reverse;
+        std::cin >> kind >> ticks >> reverse;
         std::unique_ptr<Netlist> c;
         if (kind == "pipeline") {
             int length;
@@ -29,8 +29,7 @@ int main() {
             std::size_t capacity;
             std::cin >> length >> period >> iterations >> prefill >> capacity;
             auto values = readWords(std::cin), control = readWords(std::cin);
-            c = pipeline(values, length, period, iterations, control, prefill, capacity, cache,
-                         reverse);
+            c = pipeline(values, length, period, iterations, control, prefill, capacity, reverse);
         } else if (kind == "packets") {
             Tick period;
             std::cin >> period;
@@ -40,12 +39,12 @@ int main() {
             std::vector<Timed<Mode>> changes(n);
             for (auto &x : changes)
                 std::cin >> x.due >> x.value.mode >> x.value.bias >> x.value.epoch;
-            c = packets(lanes, changes, period, cache, reverse);
+            c = packets(lanes, changes, period, reverse);
         } else if (kind == "pairs") {
             Tick period;
             std::cin >> period;
             auto left = readWords(std::cin), right = readWords(std::cin);
-            c = pairs(left, right, period, cache, reverse);
+            c = pairs(left, right, period, reverse);
         } else if (kind == "memory") {
             std::size_t banks, depth, n;
             Tick latency, period;
@@ -53,7 +52,7 @@ int main() {
             std::vector<Request> requests(n);
             for (auto &r : requests)
                 std::cin >> r.seq >> r.address >> r.write >> r.data;
-            c = memory(requests, banks, depth, latency, period, cache, reverse);
+            c = memory(requests, banks, depth, latency, period, reverse);
         } else if (kind == "feedback") {
             bool loop;
             std::size_t n;
@@ -61,7 +60,7 @@ int main() {
             std::vector<Value> tokens(n);
             for (auto &x : tokens)
                 std::cin >> x.seq >> x.value;
-            c = feedback(tokens, loop, cache, reverse);
+            c = feedback(tokens, loop, reverse);
         } else if (kind == "lookup") {
             Tick period;
             std::size_t depth;
@@ -76,31 +75,18 @@ int main() {
                 std::cin >> index;
                 updates.emplace_back(index, readChanges());
             }
-            c = lookup(values, indices, updates, period, depth, cache, reverse);
+            c = lookup(values, indices, updates, period, depth, reverse);
         } else if (kind == "retry") {
             Word attempts;
             std::cin >> attempts;
-            c = retry(attempts, cache, reverse);
+            c = retry(attempts, reverse);
         } else
             throw std::invalid_argument("unknown scenario");
         if (!std::cin)
             throw std::invalid_argument("invalid stimulus");
         for (std::size_t t = 0; t < ticks; ++t) {
-            try {
-                auto accepted = c->sim->step();
-                std::cout << c->trace(accepted) << '\n';
-            } catch (const CapacityCycle &) {
-                bool rejected = false;
-                try {
-                    c->sim->step();
-                } catch (const std::logic_error &) {
-                    rejected = true;
-                }
-                if (!c->sim->failed() || !rejected)
-                    throw;
-                std::cout << "{\"cycle\":true}\n";
-                break;
-            }
+            auto accepted = c->sim->step();
+            std::cout << c->trace(accepted) << '\n';
         }
         return 0;
     } catch (const std::exception &e) {

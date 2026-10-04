@@ -43,7 +43,6 @@ struct Fetch : Stage {
             sim.abortRule(rid);
         }
     }
-    bool arbitrate_fetch() { return sim.arbitrateRule(rid); }
 };
 struct Decode : Stage {
     Queue<Slot> &if_id, &id_ex, &mem_wb;
@@ -74,7 +73,6 @@ struct Decode : Stage {
             sim.abortRule(rid);
         }
     }
-    bool arbitrate_decode() { return sim.arbitrateRule(rid); }
 };
 struct Execute : Stage {
     Queue<Slot> &ex_mem;
@@ -90,7 +88,6 @@ struct Execute : Stage {
             sim.abortRule(rid);
         }
     }
-    bool arbitrate_execute() { return sim.arbitrateRule(rid); }
 };
 struct Memory : Stage {
     Queue<Slot> &ex_mem, &mem_wb;
@@ -125,7 +122,6 @@ struct Memory : Stage {
             sim.abortRule(rid);
         }
     }
-    bool arbitrate_memory() { return sim.arbitrateRule(rid); }
 };
 struct Writeback : Stage {
     Queue<Slot> &mem_wb;
@@ -150,6 +146,5 @@ struct Writeback : Stage {
             sim.abortRule(rid);
         }
     }
-    bool arbitrate_writeback() { return sim.arbitrateRule(rid); }
 };
 } // namespace ripes5

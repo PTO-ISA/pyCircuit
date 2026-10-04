@@ -65,9 +65,9 @@ def main():
     (HERE / 'results.json').write_text(json.dumps(result, indent=2) + '\n')
     text = ['# 乱序 CPU 验收报告', '',
         f"记录时间：{result['date_utc']}。详细指纹和配置见 [results.json](results.json)。", '',
-        f"20 场景 × 4 个调度配置 × 2 条生成路径 = {acceptance['runs']} 次 Release 运行，"
+        f"20 场景 × 2 个调度配置 × 2 条生成路径 = {acceptance['runs']} 次 Release 运行，"
         f"另有 {sanitizer['runs']} 次 ASan/UBSan 运行。每次均逐条对照独立顺序解释器，"
-        '同一构建的八份完整轨迹逐拍一致；两个编译器构建的完整轨迹另行逐拍比对。', '',
+        '同一构建的四份完整轨迹逐拍一致；两个编译器构建的完整轨迹另行逐拍比对。', '',
         f"现有工程完整 CTest：{result['gates']['release']['tests']}/"
         f"{result['gates']['release']['tests']} 通过。Sanitizer 下新示例 CTest："
         f"{result['gates']['sanitizers']['tests']}/{result['gates']['sanitizers']['tests']} 通过。", '',
@@ -75,18 +75,18 @@ def main():
     for row in acceptance['results']:
         text.append(f"| {row['name']} | {row['cycles']} | {row['retired']} | {row['ipc']:.3f} |")
     text += ['', '提交数包含 halt 或导致停止的精确错误事件。', '', '## 实际触发的行为', '',
-             '以下计数只汇总每个场景的一份基准轨迹，未将八种配置重复累加。', '',
+             '以下计数只汇总每个场景的一份基准轨迹，未将四种配置重复累加。', '',
              '| 轨迹证据 | 次数／周期数 |', '| --- | ---: |']
     for name, count in acceptance['coverage'].items():
         text.append(f'| {name} | {count} |')
     text += ['', '## 宿主计时', '',
              f"机器 {timing['machine']}，固定 CPU {timing['cpu']}，一次预热、七次串行轮换采样。"
              '只计 tick 循环（含结束检查和首次 Signal 初始化），排除构造、输入、快照和 JSON。', '',
-             '下表选取直接生成、Module 正序的中位数；完整 24 组及全部样本见 [timing.json](timing.json)。', '',
-             '| 程序 | 缓存 | ns / cycle |', '| --- | --- | ---: |']
+             '下表选取直接生成、Module 正序的中位数；完整 12 组及全部样本见 [timing.json](timing.json)。', '',
+             '| 程序 | ns / cycle |', '| --- | ---: |']
     for row in timing['results']:
         if row['binary'] == 'compiled' and not row['reverse']:
-            text.append(f"| {row['program']} | {'开' if row['cache'] else '关'} | {row['median_ns_per_cycle']:.1f} |")
+            text.append(f"| {row['program']} | {row['median_ns_per_cycle']:.1f} |")
     text += ['', '短程序的每周期开销包含首次初始化，不能将这组数值视为硬件周期时间。', '',
              '## 代码量与限制', '', '| 项目 | 行／字节 |', '| --- | ---: |']
     for name, count in counts.items():

@@ -27,22 +27,22 @@ def main():
     for case in suite():
         if case['name'] not in ('latency', 'congestion', 'mixed_2026'):
             continue
-        configs = [(name, binary, cache, reverse) for name, binary in
+        configs = [(name, binary, reverse) for name, binary in
                    (('compiled', args.compiled), ('emitted', args.emitted))
-                   for cache in (True, False) for reverse in (False, True)]
+                   for reverse in (False, True)]
         samples = [[] for _ in configs]
-        for name, binary, cache, reverse in configs:
-            rows = run(binary, case, cache, reverse)
+        for name, binary, reverse in configs:
+            rows = run(binary, case, reverse)
             architecture(case, rows, HERE / 'output/timing-mismatch.json')
-            run(binary, case, cache, reverse, benchmark=True)  # warm-up
+            run(binary, case, reverse, benchmark=True)  # warm-up
         for repeat in range(7):
             # Rotate execution order while remaining strictly serial on one CPU.
             for index in [(repeat + n) % len(configs) for n in range(len(configs))]:
-                name, binary, cache, reverse = configs[index]
-                samples[index].append(run(binary, case, cache, reverse, benchmark=True)[0])
-        for (name, binary, cache, reverse), values in zip(configs, samples):
+                name, binary, reverse = configs[index]
+                samples[index].append(run(binary, case, reverse, benchmark=True)[0])
+        for (name, binary, reverse), values in zip(configs, samples):
             per_cycle = [v['run_ns'] / v['cycles'] for v in values]
-            results.append(dict(program=case['name'], binary=name, cache=cache, reverse=reverse,
+            results.append(dict(program=case['name'], binary=name, reverse=reverse,
                                 cycles=values[0]['cycles'], ipc=values[0]['retired'] / values[0]['cycles'],
                                 median_ns_per_cycle=statistics.median(per_cycle),
                                 min_ns_per_cycle=min(per_cycle), max_ns_per_cycle=max(per_cycle), samples=values))
