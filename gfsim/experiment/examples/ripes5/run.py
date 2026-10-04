@@ -9,7 +9,8 @@ from .model import CPU
 from .programs import suite, validate
 
 HERE = Path(__file__).resolve().parent
-DEFAULT_RUNNER = HERE / 'reference' / 'build' / 'ripes5-reference'
+ROOT = HERE.parents[3]
+DEFAULT_RUNNER = ROOT / 'reference/builds/ripes-reference/ripes5-reference'
 
 
 def native_env():
@@ -109,7 +110,7 @@ def verify_runner(runner):
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--runner', type=Path, default=DEFAULT_RUNNER)
-    parser.add_argument('--output', type=Path, default=HERE / 'review-output')
+    parser.add_argument('--output', type=Path, default=ROOT / 'reference/benchmarks/ripes5-python')
     parser.add_argument('--case', help='one built-in program name')
     parser.add_argument('--input', type=Path, help='custom input using the same JSON schema')
     parser.add_argument('--html', action='store_true')

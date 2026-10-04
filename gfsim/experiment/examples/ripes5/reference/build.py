@@ -6,6 +6,7 @@ import os
 import subprocess
 
 HERE = Path(__file__).resolve().parent
+ROOT = HERE.parents[4]
 
 
 def command(*args, **kwargs):
@@ -25,8 +26,8 @@ def verify(path, sha):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('--source', type=Path, default=HERE / 'upstream' / 'Ripes')
-    parser.add_argument('--build', type=Path, default=HERE / 'build')
+    parser.add_argument('--source', type=Path, default=ROOT / 'reference/ripes-reference')
+    parser.add_argument('--build', type=Path, default=ROOT / 'reference/builds/ripes-reference')
     parser.add_argument('--qt-prefix', type=Path, default=Path('/tmp/gfsim-ripes-qt'))
     parser.add_argument('--cxx', default='/home/lc/opt/gcc14/bin/aarch64-conda-linux-gnu-g++')
     parser.add_argument('-j', type=int, default=8)

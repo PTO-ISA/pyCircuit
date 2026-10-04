@@ -41,12 +41,11 @@ if(BUILD_TESTING)
 endif()
 if(BUILD_TESTING AND GFSIM_BUILD_EXAMPLES)
   find_package(Python3 REQUIRED COMPONENTS Interpreter)
-  set(GFSIM_RIPES_REFERENCE "${CMAKE_CURRENT_SOURCE_DIR}/../experiment/examples/ripes5/reference/build/ripes5-reference" CACHE FILEPATH "Pinned native Ripes reference, required for formal acceptance")
-  get_filename_component(evidence_tag "${CMAKE_CURRENT_BINARY_DIR}" NAME)
+  set(GFSIM_RIPES_REFERENCE "${CMAKE_CURRENT_SOURCE_DIR}/../../reference/builds/ripes-reference/ripes5-reference" CACHE FILEPATH "Pinned native Ripes reference, required for formal acceptance")
   add_test(NAME ripes5-three-way COMMAND ${Python3_EXECUTABLE}
     ${CMAKE_CURRENT_SOURCE_DIR}/examples/ripes5/verify.py
     --cpp-runner $<TARGET_FILE:gfsim-ripes5> --runner ${GFSIM_RIPES_REFERENCE}
-    --output ${CMAKE_CURRENT_SOURCE_DIR}/examples/ripes5/output/${evidence_tag})
+    --output ${CMAKE_CURRENT_BINARY_DIR}/ripes5-evidence)
   set_tests_properties(ripes5-three-way PROPERTIES TIMEOUT 300)
   add_test(NAME runner-input-and-reference-gates COMMAND ${Python3_EXECUTABLE}
     ${CMAKE_CURRENT_SOURCE_DIR}/tests/runner_input.py $<TARGET_FILE:gfsim-ripes5>)

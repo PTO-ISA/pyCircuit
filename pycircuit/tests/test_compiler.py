@@ -80,7 +80,7 @@ for(bool reverse:{false,true}) {
         CHECK(m.total.peek()==expected); CHECK(m.count.peek()==values.size());
         CHECK(m.source_produce_out0.empty()); CHECK(m.transformed_double_out0.empty());
     }
-}''', ROOT / 'pycircuit/examples/pipeline/model.py')
+}''', HERE / 'fixtures/pipeline.py')
 
     def test_atomic_backpressure_and_alias(self):
         model = self.circuit('Atomic', '''
@@ -446,7 +446,7 @@ for(bool reverse:{false,true}) {
                 compile_source(path, 'Bad')
 
     def test_historical_expression_regressions(self):
-        repro = ROOT / 'pycircuit/examples/ooo/repro'
+        repro = HERE / 'fixtures/aggregates'
         self.circuit('Probe', 'Probe m; m.sim.step(); CHECK(m.original.value()==2 && m.workaround.value()==2);', repro / 'guarded_constant.py')
         self.circuit('Probe', 'Probe m; m.sim.step(); CHECK(!m.rows.peek()[0].done && m.rows.peek()[1].done);', repro / 'dynamic_payload.py')
 

@@ -8,17 +8,17 @@ Python 只解析 AST、静态构造和类型推导，不执行硬件函数。行
 
 ```bash
 export LD_LIBRARY_PATH=/home/lc/opt/gcc14/lib${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}
-cmake -S pycircuit -B /tmp/acpy-mlir-build -DCMAKE_BUILD_TYPE=Release \
+cmake -S pycircuit -B reference/builds/acpy-release -DCMAKE_BUILD_TYPE=Release \
   -DCMAKE_C_COMPILER=/home/lc/opt/pycircuit-dev/bin/cc \
   -DCMAKE_CXX_COMPILER=/home/lc/opt/pycircuit-dev/bin/c++ \
   -DMLIR_DIR=/home/lc/opt/llvm-22.1.8/lib/cmake/mlir
-cmake --build /tmp/acpy-mlir-build -j6
-export ACPY_MLIR_COMPILER=/tmp/acpy-mlir-build/mlir/acir-compile
+cmake --build reference/builds/acpy-release -j6
+export ACPY_MLIR_COMPILER="$PWD/reference/builds/acpy-release/mlir/acir-compile"
 python3 -m pycircuit compile pycircuit/examples/ripes5/model.py \
-  --top CPU --output /tmp/acpy-compiled
-python3 -m pycircuit emit /tmp/acpy-compiled/model.acir.mlir \
-  --output /tmp/acpy-emitted
-ctest --test-dir /tmp/acpy-mlir-build --output-on-failure -j4
+  --top CPU --output reference/benchmarks/acpy-compiled
+python3 -m pycircuit emit reference/benchmarks/acpy-compiled/model.acir.mlir \
+  --output reference/benchmarks/acpy-emitted
+ctest --test-dir reference/builds/acpy-release --output-on-failure -j4
 ```
 
 `compile` 与 `emit` 共用 C++ 后端，输出 `model.acir.mlir`、`model.emitc.mlir`、`model.hpp`、`model.cpp`、`ac_support.hpp`。`emit` 只读取保存的 MLIR；删除源码后仍可生成。`--no-opt` 关闭 canonicalize/CSE，保留同一语义展开与转换路径。
@@ -68,9 +68,9 @@ Rule 的消息输入实际读 payload 才生成 pop；返回 payload 生成 push
 可以独立观察 pass 输出：
 
 ```bash
-/tmp/acpy-mlir-build/mlir/acir-opt /tmp/acpy-compiled/model.acir.mlir \
+reference/builds/acpy-release/mlir/acir-opt reference/benchmarks/acpy-compiled/model.acir.mlir \
   --acir-analyze-resources --canonicalize --cse \
-  --acir-lower-gfsim --acir-convert-to-emitc -o /tmp/model.emitc.mlir
+  --acir-lower-gfsim --acir-convert-to-emitc -o reference/benchmarks/model.emitc.mlir
 ```
 
 Queue `read/query` 保留保守效果，声明 `MemRead + MemWrite`，没有 `Pure` 或可推测执行属性。必要读取检查保留在实际分支中；Rule 入口调用 `beginRule`，正常出口 `completeRule`，读空出口 `abortRule`。详见 [ACIR 保存格式](acir.md)。
@@ -79,27 +79,18 @@ GFSim 用静态 Queue/Signal→Module 连接激活下一拍 Work；Module 激活
 
 ## 验收与性能
 
-CTest 覆盖小电路、ODS 拒绝非法 IR、读取的保守效果与分支位置、删源码后重载、Ripes5 五方逐拍对照、既有 OoO，以及[与原生 skyzh 逐拍对齐的 Queue CPU](examples/skyzh_ooo/README.md)。该 CPU 的 7 个程序分别比较优化开关、Module 正反序和直接／重载生成，共 42 次运行；独立 RV32I 解释器检查正常程序，另外明确要求复现三个原生已知错误案例。覆盖 ROB 填满、乱序完成、分派旁路、同拍重命名/提交和在途 flush。
+CTest 覆盖小电路、ODS 拒绝非法 IR、读取的保守效果与分支位置、删源码后重载、Ripes5 五方逐拍对照，以及[与原生 skyzh 逐拍对齐的 Queue CPU](examples/skyzh_ooo/README.md)。该 CPU 的 7 个程序分别比较优化开关、Module 正反序和直接／重载生成，共 42 次运行；独立 RV32I 解释器检查正常程序，另外明确要求复现三个原生已知错误案例。覆盖 ROB 填满、乱序完成、分派旁路、同拍重命名/提交和在途 flush。
 
 Sanitizer 使用同一工程：
 
 ```bash
-cmake -S pycircuit -B /tmp/acpy-mlir-asan -DCMAKE_BUILD_TYPE=Debug \
+cmake -S pycircuit -B reference/builds/acpy-asan -DCMAKE_BUILD_TYPE=Debug \
   -DCMAKE_C_COMPILER=/home/lc/opt/pycircuit-dev/bin/cc \
   -DCMAKE_CXX_COMPILER=/home/lc/opt/pycircuit-dev/bin/c++ -DGFSIM_SANITIZERS=ON \
   -DMLIR_DIR=/home/lc/opt/llvm-22.1.8/lib/cmake/mlir
-cmake --build /tmp/acpy-mlir-asan -j6
+cmake --build reference/builds/acpy-asan -j6
 ASAN_OPTIONS=detect_leaks=1:halt_on_error=1 UBSAN_OPTIONS=halt_on_error=1 \
-  ctest --test-dir /tmp/acpy-mlir-asan --output-on-failure -j4
+  ctest --test-dir reference/builds/acpy-asan --output-on-failure -j4
 ```
 
-重构前快照及构建分别保存在 `/tmp/acpy-mlir-baseline`、`/tmp/acpy-before-mlir`。可重复的新旧同模型对比：
-
-```bash
-python3 -m pycircuit.benchmark_migration \
-  --baseline-source /tmp/acpy-mlir-baseline --baseline-build /tmp/acpy-before-mlir \
-  --build /tmp/acpy-mlir-build --cxx /home/lc/opt/pycircuit-dev/bin/c++ \
-  --output /tmp/acpy-migration-benchmark
-```
-
-结果报告编译时间、生成字节数、峰值 RSS、固定 tick 区间耗时和架构吞吐。历史 Ripes5/OoO 报告保留各自版本指纹，不能视为本次 MLIR 的结果；MLIR 迁移历史见 [记录](mlir/results.md)，当前静态调度结果见 [GFSim 报告](../gfsim/cpp/report.md)。
+端到端示例只保留 [Ripes5](examples/ripes5/README.md) 和 [skyzh OoO](examples/skyzh_ooo/README.md)，各自提供原生参考对照及可重复的固定周期 benchmark。小电路和历史表达缺口放在 `tests/`，不作为独立示例。新结果统一写入 `reference/benchmarks/`；过期迁移报告和测速快照已删除，历史可从 Git 查询。

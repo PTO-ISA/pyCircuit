@@ -51,22 +51,22 @@ Signal 链在初始化和 Queue Xfer 后按静态拓扑序计算，不增加流�
 git clone --branch out-of-order https://github.com/skyzh/RISCV-Simulator.git reference/skyzh-riscv-reference
 git -C reference/skyzh-riscv-reference checkout 8989a09c357a69b68612f653380d60816f5176c2
 export LD_LIBRARY_PATH=/home/lc/opt/gcc14/lib${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}
-cmake -S pycircuit -B reference/builds/skyzh-aligned-release -DCMAKE_BUILD_TYPE=Release \
+cmake -S pycircuit -B reference/builds/acpy-release -DCMAKE_BUILD_TYPE=Release \
   -DCMAKE_C_COMPILER=/home/lc/opt/pycircuit-dev/bin/cc \
   -DCMAKE_CXX_COMPILER=/home/lc/opt/pycircuit-dev/bin/c++ \
   -DMLIR_DIR=/home/lc/opt/llvm-22.1.8/lib/cmake/mlir
-cmake --build reference/builds/skyzh-aligned-release -j6
-ctest --test-dir reference/builds/skyzh-aligned-release --output-on-failure -j4
+cmake --build reference/builds/acpy-release -j6
+ctest --test-dir reference/builds/acpy-release --output-on-failure -j4
 ```
 
 CMake 构建原生适配器并检查参考版本和工作区未修改；可用 `-DSKYZH_REFERENCE_SOURCE=/path/to/checkout` 指定位置。单独运行 CPU 验收：
 
 ```bash
 python3 -m pycircuit.examples.skyzh_ooo.tests.verify \
-  --compiled reference/builds/skyzh-aligned-release/examples/skyzh_ooo/acpy-skyzh-compiled \
-  --emitted reference/builds/skyzh-aligned-release/examples/skyzh_ooo/acpy-skyzh-emitted \
-  --no-opt reference/builds/skyzh-aligned-release/examples/skyzh_ooo/acpy-skyzh-noopt \
-  --reference reference/builds/skyzh-aligned-release/examples/skyzh_ooo/reference/skyzh-reference \
+  --compiled reference/builds/acpy-release/examples/skyzh_ooo/acpy-skyzh-compiled \
+  --emitted reference/builds/acpy-release/examples/skyzh_ooo/acpy-skyzh-emitted \
+  --no-opt reference/builds/acpy-release/examples/skyzh_ooo/acpy-skyzh-noopt \
+  --reference reference/builds/acpy-release/examples/skyzh_ooo/reference/skyzh-reference \
   --output reference/benchmarks/skyzh-alignment/check
 ```
 
@@ -84,14 +84,14 @@ python3 -m pycircuit.examples.skyzh_ooo.tests.verify \
 | memory | 23 / 23 | 预期复现 LB / 重叠访存错误 |
 | auipc | 40 / 40（固定观察窗口） | 预期停滞，未完成程序 |
 
-2026-10-04 验收：Release 与 ASan/UBSan（含 leak 检查）均为 14/14 通过。对应构建在 `reference/builds/skyzh-aligned-release/`、`reference/builds/skyzh-aligned-asan/`；各自 `ctest.xml` 保存完整测试输出，CPU 轨迹和摘要在 `examples/skyzh_ooo/evidence/`。
+CTest 完整输出可用 `--output-junit ctest.xml` 保存在构建目录；CPU 轨迹和摘要在该构建的 `examples/skyzh_ooo/evidence/`。Sanitizer 构建命令见 [编译器说明](../../README.md)。
 
 ## 性能比较
 
 ```bash
 python3 -m pycircuit.examples.skyzh_ooo.benchmark \
-  --generated reference/builds/skyzh-aligned-release/examples/skyzh_ooo/acpy-skyzh-compiled \
-  --reference reference/builds/skyzh-aligned-release/examples/skyzh_ooo/reference/skyzh-reference \
+  --generated reference/builds/acpy-release/examples/skyzh_ooo/acpy-skyzh-compiled \
+  --reference reference/builds/acpy-release/examples/skyzh_ooo/reference/skyzh-reference \
   --output reference/benchmarks/skyzh-aligned --repeats 7 --iterations 4096
 ```
 
@@ -109,5 +109,7 @@ python3 -m pycircuit.examples.skyzh_ooo.benchmark \
 window 共提交 40,967 条架构指令，模拟耗时 601.02 ms / 12.20 ms，吞吐 6.82 万 / 335.80 万条每秒（ACPy / 原生）；branches 共 12,302 条，164.16 ms / 3.91 ms，吞吐 7.49 万 / 315.00 万条每秒。七轮 ACPy ns/tick 范围分别为 14,580–14,732、13,245–13,511；原生为 297–299、313–319。
 
 构造函数中位耗时约 86 ms / 2.68 ms，进程峰值 RSS 约 66.6 MiB / 18.7 MiB；这些值没有混入上述模拟计时。生成 `model.cpp` 为 265,616 字节，`model.hpp` 为 12,179 字节。时序已对齐，但速度仍相差约 42–49 倍，当前差距不能由模拟周期数差异解释；这组数据本身尚不能区分生成 C++ 与调度运行时各自占比。
+
+后续采样与 A/B 实验已记录在 [性能问题记录](findings.md#performance-findings)：生成 C++ 的多余清零／聚合值拷贝和无变化 revise 是已确认的优化项。实验合并后耗时下降约 59%–61%，仍保留 17–19 倍差距；这些修改尚未应用到正式实现。
 
 旧模型和实验已归档到 `reference/benchmarks/skyzh-before-alignment/`；通用表达探针移到 [编译器 fixtures](../../tests/fixtures/skyzh/)。示例目录只保留当前模型、验收及 benchmark 入口。

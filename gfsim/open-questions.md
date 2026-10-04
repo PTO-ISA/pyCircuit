@@ -42,7 +42,7 @@ C++20 runtime 是单线程源码接口，可独立安装并通过 `gfsim::gfsim`
 
 ## Q14. 静态连接成本（本轮已简化）
 
-资源只保存实际声明的 Module 和 Signal 邻接表，Queue 另保存唯一 pop/push 来源。构造追加、freeze 排序去重；Signal 拓扑序只建立一次，没有动态读取登记、Rule dirty、参数缓存或资源×全部 Module 的映射。有 Signal 待更新时扫描固定拓扑序，只求值受影响节点；通知范围保守，可能增加 Work 次数。Queue 已使用固定 proposal 槽位与共享 RuleId 直接索引。性能证据见 [C++ 报告](cpp/report.md)。
+资源只保存实际声明的 Module 和 Signal 邻接表，Queue 另保存唯一 pop/push 来源。构造追加、freeze 排序去重；Signal 拓扑序只建立一次，没有动态读取登记、Rule dirty、参数缓存或资源×全部 Module 的映射。有 Signal 待更新时扫描固定拓扑序，只求值受影响节点；通知范围保守，可能增加 Work 次数。Queue 已使用固定 proposal 槽位与共享 RuleId 直接索引。完整模型的测量方法见 [skyzh OoO](../pycircuit/examples/skyzh_ooo/README.md)。
 
 <a id="q15"></a>
 

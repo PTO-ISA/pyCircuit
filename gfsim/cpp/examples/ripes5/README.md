@@ -8,14 +8,12 @@
 
 ```bash
 python3 gfsim/cpp/examples/ripes5/verify.py \
-  --cpp-runner /tmp/gfsim-cpp-release/gfsim-ripes5
-python3 gfsim/cpp/examples/ripes5/bench.py \
-  --cpp-runner /tmp/gfsim-cpp-release/gfsim-ripes5
+  --cpp-runner reference/builds/gfsim-release/gfsim-ripes5
 ```
 
 验收依赖固定原生参考，不提供跳过参考的正式成功模式。`--runner` 可指定其路径；`--case` 只用于定位问题，报告会标为部分验收。
 
-默认结果保存在本目录 `output/`：每个程序包含 JSON 输入、数值输入、C++/Python JSONL、原生原始 JSONL 和 stderr。每个输入测试 Module 正/反序，共 26 配置；Python 历史引擎使用其默认缓存模式作参考。比较周期、五阶段、前递、stall/flush、寄存器、数据、退休及 store；只移除原生 `raw` 诊断字段，不移动周期。失败文件保存第一个不同字段、相邻三拍和完整输入指令。
+默认结果保存在根目录 `reference/benchmarks/ripes5-handwritten/`：每个程序包含 JSON 输入、数值输入、C++/Python JSONL、原生原始 JSONL 和 stderr。每个输入测试 Module 正/反序，共 26 配置；Python 历史引擎使用其默认缓存模式作参考。比较周期、五阶段、前递、stall/flush、寄存器、数据、退休及 store；只移除原生 `raw` 诊断字段，不移动周期。失败文件保存第一个不同字段、相邻三拍和完整输入指令。
 
 `runner.cpp` 只依赖标准库，从 stdin 接受十进制无符号数流：
 
@@ -27,10 +25,6 @@ data[data_count]
 ```
 
 首个数是协议版本。两个区域各限制至 2^20 个元素，所有字值为 uint32；runner 拒绝截断、超范围、尾随内容和不合法 marker。默认输出逐拍 JSONL；`--benchmark` 只输出一条计时/计数 JSON。Python 在转换前调用共享 `validate()`。
-
-`bench.py` 固定三个既有程序：array_sum、mixed_2026、memory_loop_256。C++ 和当前 Python 各测两种 Module 顺序，另测原生 Ripes，共五组；先逐拍验证，再在同一 CPU 串行执行。每组一次预热、七次采样，轮换顺序。`run_ns` 包含 clock loop、结束 marker 检查、runtime 计数及首次 Signal 初始化；不包含构造、快照、JSON 和进程启动。完整样本、CPU affinity、二进制及源码指纹保存在 [timing.json](timing.json)。
-
-历史结果见 timing.json；当前摘要见 [后端验收报告](../../report.md)。原始 output 不纳入版本控制，可由上述命令重建。
 
 ## 固定周期三方测速
 

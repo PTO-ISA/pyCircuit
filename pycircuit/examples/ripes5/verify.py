@@ -66,7 +66,7 @@ def main():
     p.add_argument('--emitted-runner', type=Path, required=True)
     p.add_argument('--cpp-runner', type=Path, required=True)
     p.add_argument('--runner', type=Path, default=v.DEFAULT_RUNNER)
-    p.add_argument('--output', type=Path, default=HERE / 'output')
+    p.add_argument('--output', type=Path, default=ROOT / 'reference/benchmarks/ripes5-acceptance')
     p.add_argument('--case')
     p.add_argument('--acir', type=Path)
     a = p.parse_args()

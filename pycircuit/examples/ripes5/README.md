@@ -1,27 +1,28 @@
-# Ripes5 三方公平性能对比
+# 端到端 ACPy Ripes5
 
-比较 ACPy 生成版、手写 GFSim C++ 与固定原生 Ripes5 的完整模型执行效率。当前结果见 [benchmark-report.md](benchmark-report.md)，原始样本见 [timing-fixed.json](timing-fixed.json)。模型、调度器及上游流水线实现不因测速改变。
+[model.py](model.py) 表达 Fetch、Decode、Execute、Memory、Writeback 五个阶段，Queue 保存流水和寄存器状态，Signal 共享 EX 计算和 load-use 控制。[logic.py](logic.py) 保存纯译码与运算；C++ 由 ACPy → MLIR → EmitC 生成，宿主 runner 只装载、驱动和观察。
+
+`verify.py` 将直接编译、MLIR 重载、手写 GFSim C++、Python 参考与固定原生 Ripes 做逐拍对照。编译器正常构建和验收见 [使用说明](../../README.md)；下面是统一编译选项的三方 benchmark 入口。
 
 从仓库根目录执行以下命令。本机使用现有 GCC 14 和 `/tmp/gfsim-ripes-qt`；首次安装原生依赖见 [参考构建说明](../../../gfsim/experiment/examples/ripes5/README.md)。
 
 ```bash
 # 统一 GCC 14、C++20、-O3 -DNDEBUG、armv8-a/generic，关闭 LTO。
+export LD_LIBRARY_PATH=/home/lc/opt/gcc14/lib${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}
 python3 pycircuit/examples/ripes5/build_benchmark.py
 
-# 包括旧输入测试、13 程序 × 两种 Module 顺序，以及新增固定周期边界测试。
-ctest --test-dir pycircuit/examples/ripes5/output/fair-build \
+# 包括输入协议、13 程序 × 两种 Module 顺序和固定周期边界测试。
+ctest --test-dir reference/builds/ripes5-benchmark \
   --output-on-failure \
-  --output-junit /home/lc/tmp/pycircuit/examples/ripes5/output/fair-build/ctest.xml
+  --output-junit ctest.xml
 
 # 自动重做短程序验收和五个长程序逐拍检查，再串行轮换测速。
 python3 pycircuit/examples/ripes5/bench.py \
-  --generated-runner pycircuit/examples/ripes5/output/fair-build/acpy-ripes5-compiled \
-  --cpp-runner pycircuit/examples/ripes5/output/fair-build/gfsim/gfsim-ripes5
-
-python3 pycircuit/examples/ripes5/report.py --benchmark-only
+  --generated-runner reference/builds/ripes5-benchmark/acpy-ripes5-compiled \
+  --cpp-runner reference/builds/ripes5-benchmark/gfsim/gfsim-ripes5
 ```
 
-`build_benchmark.py --build PATH --native-build PATH --cxx PATH --qt-prefix PATH -j N` 可覆盖路径及并发数。默认复用已固定、校验为干净的原生源码和依赖；不修改上游源码。构建清单保存实际编译及链接命令、编译器版本、翻译单元与二进制散列。测速会核对清单和原生提交身份；统一构建后运行，不能拿其他构建的二进制替换。
+`build_benchmark.py --build PATH --native-build PATH --cxx PATH --qt-prefix PATH -j N` 可覆盖路径及并发数。原生源码默认在 `reference/ripes-reference/`，原生构建在 `reference/builds/ripes-reference/`；复用固定且校验为干净的源码和依赖；不修改上游源码。构建清单保存实际编译及链接命令、编译器版本、翻译单元与二进制散列。测速会核对清单和原生提交身份；统一构建后运行，不能拿其他构建的二进制替换。
 
 `bench.py --verify-only` 完成同样的全部正确性门槛，只写验证摘要。`--runner` 指定原生二进制，`--manifest` 指定统一构建清单，`--cpu` 选择允许 affinity 内的 CPU，`--warmup-cycles` 改 K，`--repeats` 改采样次数（默认 15），`--evidence` 和 `--output` 改结果位置。正式默认 K=1024；每个窗口要求 N≥100,000。运行失败不会产生新的性能汇总；已有文件应按其中时间和散列识别。
 
@@ -59,14 +60,13 @@ JSON 输出包含 `warmup_cycles`、`measured_cycles`、`cycles`、`retired_befo
 
 每版先从相同初态完整执行一次预热；再重新启动进程采样 15 次，按三方循环轮换的顺序串行执行。主表使用 Module 正序。退休吞吐使用 `retired_delta / run_ns`，不把 K 拍的退休数计入。报告给出中位数和 [Q1,Q3]（inclusive 线性插值），速度比为同批中位耗时之比。
 
-## 证据位置与历史口径
+## 结果位置
 
-- `output/fair-build/build-manifest.json`：有效编译、链接命令及构建身份。
-- `output/fair-build/ctest.xml`：当前构建回归结果。
-- `output/fair-benchmark/acceptance/`：13×2 完整验收及短程序轨迹。
-- `output/fair-benchmark/<程序>/`：长程序 JSON／数字输入、流式验证摘要；失败时首个差异。
-- `output/fair-benchmark/fixed-runner-tests.json`：固定周期接口验收。
-- `timing-fixed.json`：本批输入、源码和二进制散列、原始样本、预热、顺序、统计和比值。
-- `benchmark-report.md`：本批报告。
+- `reference/builds/ripes5-benchmark/build-manifest.json`：实际编译、链接参数及构建身份。
+- `reference/builds/ripes5-benchmark/ctest.xml`：本次构建回归结果。
+- `reference/benchmarks/ripes5/acceptance/`：13×2 完整验收及短程序轨迹。
+- `reference/benchmarks/ripes5/<程序>/`：长程序输入、流式验证摘要，失败时保存首个差异。
+- `reference/benchmarks/ripes5/fixed-runner-tests.json`：固定周期接口验收。
+- `reference/benchmarks/ripes5/timing-fixed.json`：源码与二进制散列、原始样本、顺序及统计结果。
 
-历史 [timing.json](timing.json) 与 [report.md](report.md) 保留短程序、七次采样、含结束检查和首次 Signal 初始化的测量口径。原生观察通知设置也与历史不同，不能用跨批数字推算当前三方速度比。新结果描述完整模型；调度器各部分性能归因留待后续剖析。
+结果按实际源码和二进制重新生成，示例目录不保存历史测速快照。固定参考的行为范围、输入格式及 JALR 差异见 [参考说明](../../../gfsim/experiment/examples/ripes5/README.md)。

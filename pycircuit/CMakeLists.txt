@@ -52,7 +52,7 @@ if(BUILD_TESTING)
       --cpp-runner $<TARGET_FILE:gfsim-ripes5>
       --runner "${GFSIM_RIPES_REFERENCE}"
       --acir "${GENERATED}/model.acir.mlir"
-      --output "${CMAKE_CURRENT_SOURCE_DIR}/examples/ripes5/output/${CMAKE_BUILD_TYPE}")
+      --output "${CMAKE_CURRENT_BINARY_DIR}/ripes5-evidence")
     set_tests_properties(acpy-ripes5-five-way PROPERTIES TIMEOUT 300)
     add_test(NAME acpy-runner-input-gates COMMAND ${Python3_EXECUTABLE}
       "${REPO}/gfsim/cpp/tests/runner_input.py" $<TARGET_FILE:acpy-ripes5-compiled>)
@@ -61,12 +61,11 @@ if(BUILD_TESTING)
       --generated-runner $<TARGET_FILE:acpy-ripes5-compiled>
       --cpp-runner $<TARGET_FILE:gfsim-ripes5>
       --runner "${GFSIM_RIPES_REFERENCE}"
-      --output "${CMAKE_CURRENT_SOURCE_DIR}/examples/ripes5/output/${CMAKE_BUILD_TYPE}/fixed-runner-tests.json")
+      --output "${CMAKE_CURRENT_BINARY_DIR}/ripes5-evidence/fixed-runner-tests.json")
     set_tests_properties(acpy-ripes5-fixed-window PROPERTIES TIMEOUT 180)
     add_test(NAME acpy-ripes5-streaming-gates COMMAND ${Python3_EXECUTABLE}
       "${CMAKE_CURRENT_SOURCE_DIR}/examples/ripes5/test_benchmark_tools.py")
   endif()
 endif()
 
-add_subdirectory(examples/ooo)
 add_subdirectory(examples/skyzh_ooo)

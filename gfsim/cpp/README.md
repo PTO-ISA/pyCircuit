@@ -2,21 +2,21 @@
 
 独立、可安装的单线程 C++20 库，导出 `gfsim::gfsim`，核心只依赖标准库。语义以 [spec](../spec.md) 为准。实现包括 Queue、Signal、固定资源激活图、跨 tick pending、delta 容量仲裁与统一 Xfer。
 
-本目录公开模型是 [手写 Ripes5](examples/ripes5/README.md)。五个 Module 提供代码生成的目标样例；独立 [ACPy 编译器](../../pycircuit/README.md) 已用同一 GFSim 接口生成完整模型，并复用本目录的宿主 runner 和回归。已有 Python 实验及工作区设计清理保留。
+本目录公开模型是 [手写 Ripes5](examples/ripes5/README.md)。五个 Module 提供代码生成的目标样例；独立 [ACPy 编译器](../../pycircuit/README.md) 已用同一 GFSim 接口生成完整模型，并复用本目录的宿主 runner 和回归。Python 模型作为 Ripes5 的独立轨迹参考保留。
 
 ## 构建、验收和安装
 
 从仓库根目录执行：
 
 ```bash
-cmake -S gfsim/cpp -B /tmp/gfsim-cpp-release -DCMAKE_BUILD_TYPE=Release
-cmake --build /tmp/gfsim-cpp-release -j4
-ctest --test-dir /tmp/gfsim-cpp-release --output-on-failure
-cmake --install /tmp/gfsim-cpp-release --prefix /tmp/gfsim-install
-cmake -S gfsim/cpp/tests/external -B /tmp/gfsim-consumer \
-  -DCMAKE_PREFIX_PATH=/tmp/gfsim-install
-cmake --build /tmp/gfsim-consumer
-/tmp/gfsim-consumer/consumer
+cmake -S gfsim/cpp -B reference/builds/gfsim-release -DCMAKE_BUILD_TYPE=Release
+cmake --build reference/builds/gfsim-release -j4
+ctest --test-dir reference/builds/gfsim-release --output-on-failure
+cmake --install reference/builds/gfsim-release --prefix reference/builds/gfsim-install
+cmake -S gfsim/cpp/tests/external -B reference/builds/gfsim-consumer \
+  -DCMAKE_PREFIX_PATH=reference/builds/gfsim-install
+cmake --build reference/builds/gfsim-consumer
+reference/builds/gfsim-consumer/consumer
 ```
 
 正式 CTest 包括 13 程序 × Module 正反序的三方逐拍验收。测试工具需要 Python 3；原生 Ripes 的固定版本和构建方法见 [参考说明](../experiment/examples/ripes5/README.md)。可用 `-DGFSIM_RIPES_REFERENCE=/absolute/path/ripes5-reference` 指定 runner。参考缺失或 Ripes/VSRTL commit 不符会失败，不会跳过或以 Python 替代。
@@ -24,11 +24,11 @@ cmake --build /tmp/gfsim-consumer
 只构建库使用 `-DBUILD_TESTING=OFF -DGFSIM_BUILD_EXAMPLES=OFF`，无需 Python、Qt、LLVM 或原生参考。`-DBUILD_SHARED_LIBS=ON` 可构建共享库。`install-and-link` 将安装 prefix 搬迁，再用独立工程查找、链接及执行，验证 CMake 包可迁移。
 
 ```bash
-cmake -S gfsim/cpp -B /tmp/gfsim-cpp-clang-asan \
+cmake -S gfsim/cpp -B reference/builds/gfsim-asan \
   -DCMAKE_BUILD_TYPE=Debug -DCMAKE_CXX_COMPILER=clang++ -DGFSIM_SANITIZERS=ON
-cmake --build /tmp/gfsim-cpp-clang-asan -j4
+cmake --build reference/builds/gfsim-asan -j4
 ASAN_OPTIONS=detect_leaks=1:halt_on_error=1 UBSAN_OPTIONS=halt_on_error=1 \
-  ctest --test-dir /tmp/gfsim-cpp-clang-asan --output-on-failure
+  ctest --test-dir reference/builds/gfsim-asan --output-on-failure
 ```
 
 Sanitizer 构建使用 `-O1 -g`，保留完整 1100 级链和三方验收。需要编译器配套的 sanitizer 库；本机 GCC 10 缺少该库，内存验收使用已安装的 Clang 22。LeakSanitizer 需要允许其进程检查的环境。
@@ -74,4 +74,4 @@ Queue/Signal 须保持地址稳定，并活到 Simulator 析构结束；构造�
 
 CTest 包含静态激活、跨拍 pending、delta 容量链、部分效果撤销、分支替换／未选中清理、Signal 拓扑初始化与 Xfer 屏障、菱形汇合、值过滤与组合环、显式事件、1100 级满链、Module 正反序及独立安装链接。Ripes5 采用 13 程序 × 两种 Module 顺序，Python 历史引擎只作为架构轨迹参考。
 
-本次静态化结果、源码指纹与基线对比记录在 [report.md](report.md)。[旧 Signal 调整报告](signal-static-report.md) 保留原版本数字，不代表当前实现。完整 CPU 的验收和 benchmark 入口见 [Queue OoO](../../pycircuit/examples/skyzh_ooo/README.md)。
+完整 CPU 的验收和固定周期 benchmark 入口见 [Ripes5](../../pycircuit/examples/ripes5/README.md) 与 [skyzh OoO](../../pycircuit/examples/skyzh_ooo/README.md)。输出统一写入根目录 `reference/`；旧性能快照和报告已删除。

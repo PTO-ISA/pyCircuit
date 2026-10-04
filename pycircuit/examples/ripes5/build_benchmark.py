@@ -32,8 +32,8 @@ def build_record(directory, compiler):
 
 def main():
     p = argparse.ArgumentParser(description=__doc__)
-    p.add_argument('--build', type=Path, default=HERE / 'output/fair-build')
-    p.add_argument('--native-build', type=Path, default=REFERENCE / 'build')
+    p.add_argument('--build', type=Path, default=ROOT / 'reference/builds/ripes5-benchmark')
+    p.add_argument('--native-build', type=Path, default=ROOT / 'reference/builds/ripes-reference')
     p.add_argument('--cxx', type=Path, default=Path('/home/lc/opt/gcc14/bin/aarch64-conda-linux-gnu-g++'))
     p.add_argument('--qt-prefix', type=Path, default=Path('/tmp/gfsim-ripes-qt'))
     p.add_argument('-j', type=int, default=4)

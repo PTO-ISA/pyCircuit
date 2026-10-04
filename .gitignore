@@ -1,2 +1,3 @@
 # Local upstream checkouts, benchmark builds and measurements.
 /reference/
+__pycache__/

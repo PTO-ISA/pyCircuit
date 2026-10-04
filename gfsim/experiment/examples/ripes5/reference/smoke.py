@@ -3,14 +3,14 @@ import argparse
 import json
 from pathlib import Path
 import subprocess
-from ..run import DEFAULT_RUNNER, native_env
+from ..run import DEFAULT_RUNNER, ROOT, native_env
 
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--ripes', type=Path, default=DEFAULT_RUNNER.with_name('Ripes'))
     parser.add_argument('--output', type=Path,
-                        default=Path(__file__).resolve().parents[1] / 'review-output' / 'cli-smoke.json')
+                        default=ROOT / 'reference/benchmarks/ripes5-native/cli-smoke.json')
     args = parser.parse_args()
     env = native_env()
     # QApplication/QSettings must not write to the user's desktop configuration.

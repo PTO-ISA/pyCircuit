@@ -48,7 +48,7 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--cpp-runner', type=Path, required=True)
     parser.add_argument('--runner', type=Path, default=DEFAULT_RUNNER)
-    parser.add_argument('--output', type=Path, default=HERE / 'output')
+    parser.add_argument('--output', type=Path, default=CPP.parents[1] / 'reference/benchmarks/ripes5-handwritten')
     parser.add_argument('--case')
     args = parser.parse_args()
     identity = verify_runner(args.runner)  # Missing/wrong native reference is a hard failure.
