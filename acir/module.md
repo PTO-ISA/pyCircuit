@@ -45,18 +45,18 @@
 
 读取保留实际分支，未选路径不预读。Rule 的效果由 GFSim 整体仲裁并在 Xfer 提交；必要读取失败时 abort，正常路径 complete。调用返回不表示效果已经生效。
 
-Signal 只读取 Queue 和固定配置；由 runtime 初始化，并在全部 Queue Xfer 后按全部声明输入更新缓存，输出变化后才按固定关系通知 Module／Rule。Module 和 Rule 均可读取 Signal。
+Signal 显式输入只绑定 Queue，固定配置从构造期捕获；由 runtime 初始化，并在全部 Queue Xfer 后按全部声明输入更新缓存，输出变化后才按固定关系通知 Module／Rule。Module 和 Rule 均可读取 Signal。
 
 ## 5. 统一编译路径
 
 ```text
-ACPy AST → Typed HIR → ACIR → C++ 成员函数与静态绑定表 → GFSim
+ACPy AST → ACIR MLIR → EmitC → C++ 成员函数与静态绑定表 → GFSim
 ```
 
-HIR 保留 Module、Rule 的控制流；ACIR 保留类型、资源身份、共享谓词、受条件保护的读取和效果、正常完成条件及原子边界。不同 Rule 都按这些通用操作生成，不按输入／输出数量或状态组合增加专用编译路线。
+ACIR 的 func/cf 保留 Module、Rule 控制流和运行时循环；注册的 acir 操作保留类型、资源身份、实际路径读取和效果，通用 pass 展开正常完成条件及原子边界。不同 Rule 都按这些通用操作生成，不按输入／输出数量或状态组合增加专用编译路线。
 
 编译器生成 Module 可访问资源、Signal 全部输入、Rule 静态 Signal 依赖及可能修改的 Queue 和操作等静态声明。实际读取、dirty、唤醒、候选复用、容量 DFS 和 Xfer 由 GFSim 管理。
 
 首版以用户代码满足约束为前提，只做生成所需的解析、类型处理和绑定，不增加安全性证明、冲突检测或自动纠错。每个 Queue 的 pop／push 来源分别至多一个 Rule，覆盖所有分支和 tick，由用户保证。
 
-首个端到端目标是从 ACPy 编译生成现有 Ripes5 模型，并复用已有程序和逐拍对照验证。具体接口拼写留待实现前细化。
+Ripes5、既有 OoO 和完整 Queue 版 skyzh CPU 均通过此路径编译；构建、接口和验收见编译器说明。

@@ -13,9 +13,7 @@ def Fetch(control, front, words):
             front.value = Front(ctl.epoch, current + 4)
             return Fetched(ctl.epoch, current, word, 0 if valid else 1)
         return None
-    @ac.work
-    def work():
-        fetched = fetch()
+    fetched = fetch()
     return fetched
 
 @ac.signal
@@ -74,9 +72,7 @@ def Dispatch(fetched, control, tail, has_room, entries, rename, registers, int_r
                     rename[entry.ins.rd].value = entry.tag
                 tail.value = Tail(ctl.epoch, end.sequence + 1)
 
-    @ac.work
-    def work():
-        # Do not consume a current-epoch fetch when full. A redirect changes epoch
-        # and resets tail before dispatch resumes; stale fetches are then drained.
-        if tail.value.epoch != control.value.epoch or has_room.value:
-            dispatch(fetched)
+    # Do not consume a current-epoch fetch when full. A redirect changes epoch
+    # and resets tail before dispatch resumes; stale fetches are then drained.
+    if tail.value.epoch != control.value.epoch or has_room.value:
+        dispatch(fetched)

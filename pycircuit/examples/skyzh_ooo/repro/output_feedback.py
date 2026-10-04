@@ -11,9 +11,7 @@ def Dispatch(source):
             return message.value, None
         return None, message.value
 
-    @ac.work
-    def work():
-        first, second = allocate(source)
+    first, second = allocate(source)
 
     return first, second
 

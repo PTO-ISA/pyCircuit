@@ -12,9 +12,7 @@ def Source(values: ac.vector[ac.u32]):
             return values[i]
         return None
 
-    @ac.work
-    def work():
-        out = produce()
+    out = produce()
 
     return out
 
@@ -24,9 +22,7 @@ def double(message):
 
 @ac.module
 def Transform(message):
-    @ac.work
-    def work():
-        out = double(message)
+    out = double(message)
     return out
 
 @ac.module
@@ -36,9 +32,7 @@ def Sink(message, total, count):
         total.value = total.value + value.value
         count.value = count.value + 1
 
-    @ac.work
-    def work():
-        accept(message)
+    accept(message)
 
 @ac.module
 def Pipeline(values: ac.vector[ac.u32]):

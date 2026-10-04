@@ -24,7 +24,7 @@ def diagnose(cxx):
                 emit(model, Path(directory) / name)
                 if name == 'output_capacities':
                     constants = {op['id']: op.get('value') for op in model['construction']}
-                    capacities = [constants[r['capacity']] for r in model['resources'] if '_out' in r['name']]
+                    capacities = [constants[r['capacity']] for r in model['resources'] if r['name'] in ('rob', 'reservation')]
                     if capacities != [12, 1]:
                         raise ValueError(f'expected separate capacities [12, 1], got {capacities}')
                 generated = Path(directory) / name
@@ -33,11 +33,11 @@ def diagnose(cxx):
                 result = subprocess.run(command, text=True, capture_output=True)
                 if result.returncode:
                     raise ValueError('\n'.join(result.stderr.replace(str(generated), '<generated>').splitlines()[:12]))
-                row.update(status='emitted', note='Requires simulation validation before closing the finding.')
+                row.update(status='emitted', note='Simulation regressions are in pycircuit/tests/test_compiler.py.')
             except Exception as error:
                 row.update(status='blocked', error_type=type(error).__name__, error=str(error))
             results.append(row)
-    return dict(cpu_status='not_integrated', probes=results)
+    return dict(cpu_status='see_verify_for_full_cpu_acceptance', probes=results)
 
 
 def main():

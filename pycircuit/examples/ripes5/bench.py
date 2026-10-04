@@ -82,7 +82,7 @@ def main():
     if sha(emitted) != manifest['binaries']['emitted']['sha256']:
         raise AssertionError('emitted runner changed since build')
     acceptance = verify(a.generated_runner, emitted, a.cpp_runner, a.runner,
-                        a.evidence / 'acceptance', acir=a.generated_runner.parent / 'compiled/model.acir.json')
+                        a.evidence / 'acceptance', acir=a.generated_runner.parent / 'compiled/model.acir.mlir')
     fixed = verify_fixed(binaries, a.evidence / 'fixed-runner-tests.json')
     reports = []
     for case in suite():

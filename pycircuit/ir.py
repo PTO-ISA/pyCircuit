@@ -1,9 +1,8 @@
-"""Small, serializable typed data-flow IR. There are no Python AST nodes here."""
+"""Frontend value identities and atomic MLIR artifact I/O."""
 from dataclasses import dataclass, field
-import json
 from pathlib import Path
 
-VERSION = 1
+VERSION = 2
 SCALARS = {'bool', 'u8', 'u16', 'u32', 'u64', 'i8', 'i16', 'i32', 'i64'}
 
 
@@ -33,11 +32,15 @@ class CompileError(ValueError):
 
 
 def save(model, path):
-    Path(path).write_text(json.dumps(model, indent=2, ensure_ascii=False) + '\n')
+    from .mlir_text import serialize
+    import os
+    import tempfile
+    path = Path(path)
+    with tempfile.NamedTemporaryFile(mode='w', dir=path.parent, delete=False) as stream:
+        stream.write(model if isinstance(model, str) else serialize(model))
+        temporary = stream.name
+    os.replace(temporary, path)
 
 
 def load(path):
-    model = json.loads(Path(path).read_text())
-    if model.get('version') != VERSION:
-        raise CompileError('unsupported ACIR version')
-    return model
+    return Path(path).read_text()

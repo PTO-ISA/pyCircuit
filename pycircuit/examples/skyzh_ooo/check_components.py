@@ -54,11 +54,11 @@ def check(output, cxx):
         compiled = output / top / 'compiled'
         model = compile_source(HERE / 'checks/execution.py', top)
         emit(model, compiled)
-        save(model, compiled / 'model.acir.json')
+        save(model, compiled / 'model.acir.mlir')
         for variant in ('compiled', 'emitted'):
             directory = output / top / variant
             if variant == 'emitted':
-                emit(load(compiled / 'model.acir.json'), directory)
+                emit(load(compiled / 'model.acir.mlir'), directory)
             binary = directory / 'run'
             subprocess.run([*compiler, '-std=c++20', '-O2', '-I', str(include), '-I', str(directory),
                             str(directory / 'model.cpp'), str(HERE / 'checks' / runner), str(runtime),
@@ -66,7 +66,7 @@ def check(output, cxx):
             result = subprocess.run([str(binary)], input=input_text, text=True, capture_output=True, check=True)
             results.append(dict(component=top, variant=variant, **json.loads(result.stdout)))
             print(top, variant, result.stdout.strip())
-    report = dict(cpu_status='blocked_on_expression', component_checks=results, cpu_end_to_end=False)
+    report = dict(cpu_status='see_verify_for_full_cpu_acceptance', component_checks=results, cpu_end_to_end=False)
     (output / 'results.json').write_text(json.dumps(report, indent=2) + '\n')
     return report
 

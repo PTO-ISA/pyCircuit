@@ -32,7 +32,7 @@ LUI、LW/SW、BEQ/BNE、JAL/JALR 及 `halt`（0x00100073）；JALR 清除目标�
 ```bash
 python3 -m pycircuit compile pycircuit/examples/ooo/model.py \
   --top CPU --output /tmp/ooo-compiled
-python3 -m pycircuit emit /tmp/ooo-compiled/model.acir.json --output /tmp/ooo-emitted
+python3 -m pycircuit emit /tmp/ooo-compiled/model.acir.mlir --output /tmp/ooo-emitted
 ctest --test-dir /tmp/acpy-ooo-build -R acpy-ooo --output-on-failure
 ```
 

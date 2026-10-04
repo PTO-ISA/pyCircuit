@@ -1,4 +1,4 @@
-"""Capability request, NOT existing syntax: atomic outputs of sizes 12 and 1."""
+"""Independent capacities with a single atomic Rule transaction."""
 from pycircuit import ac
 
 
@@ -6,11 +6,12 @@ from pycircuit import ac
 def Probe():
     source = ac.queue[ac.u32](initial=7)
 
-    @ac.rule(capacity=(12, 1))
+    rob = ac.queue[ac.u32](capacity=12)
+    reservation = ac.queue[ac.u32](capacity=1)
+
+    @ac.rule
     def allocate(message):
         value = message.value
         return value, value
 
-    @ac.work
-    def work():
-        rob, reservation = allocate(source)
+    rob, reservation = allocate(source)

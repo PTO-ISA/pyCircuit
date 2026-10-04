@@ -13,8 +13,6 @@ def Integer(requests, control):
         # The same consumer discards old-path messages, without producing output.
         return None
 
-    @ac.work
-    def work():
-        completed = execute(requests)
+    completed = execute(requests)
 
     return completed

@@ -5,6 +5,6 @@ int main() {
     probe.sim.step();
     std::cout << "natural=" << probe.original.value()
               << " hoisted=" << probe.workaround.value() << " expected=2\n";
-    // The model workaround is a gate; the diagnostic remains useful after a fix.
-    return probe.workaround.value() == 2 ? 0 : 1;
+    // Both the natural spelling and historical workaround must agree.
+    return probe.original.value() == 2 && probe.workaround.value() == 2 ? 0 : 1;
 }

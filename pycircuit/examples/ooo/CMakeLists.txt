@@ -1,15 +1,15 @@
 set(OOO_SOURCES model.py types.py frontend.py issue.py execute.py commit.py)
 set(OOO_COMPILED "${CMAKE_CURRENT_BINARY_DIR}/compiled")
 set(OOO_EMITTED "${CMAKE_CURRENT_BINARY_DIR}/emitted")
-add_custom_command(OUTPUT "${OOO_COMPILED}/model.cpp" "${OOO_COMPILED}/model.hpp" "${OOO_COMPILED}/model.acir.json" "${OOO_COMPILED}/ac_support.hpp"
-  COMMAND ${Python3_EXECUTABLE} -m pycircuit compile "${CMAKE_CURRENT_SOURCE_DIR}/model.py" --top CPU --output "${OOO_COMPILED}"
+add_custom_command(OUTPUT "${OOO_COMPILED}/model.cpp" "${OOO_COMPILED}/model.hpp" "${OOO_COMPILED}/model.acir.mlir" "${OOO_COMPILED}/ac_support.hpp"
+  COMMAND ${CMAKE_COMMAND} -E env "ACPY_MLIR_COMPILER=$<TARGET_FILE:acir-compile>" ${Python3_EXECUTABLE} -m pycircuit compile "${CMAKE_CURRENT_SOURCE_DIR}/model.py" --top CPU --output "${OOO_COMPILED}"
   WORKING_DIRECTORY "${REPO}"
-  DEPENDS ${COMPILER_INPUTS} ${OOO_SOURCES} "${CMAKE_CURRENT_SOURCE_DIR}/../ripes5/logic.py" VERBATIM)
+  DEPENDS acir-compile ${COMPILER_INPUTS} ${OOO_SOURCES} "${CMAKE_CURRENT_SOURCE_DIR}/../ripes5/logic.py" VERBATIM)
 add_custom_target(acpy-ooo-compile DEPENDS "${OOO_COMPILED}/model.cpp" "${OOO_COMPILED}/model.hpp")
-add_custom_command(OUTPUT "${OOO_EMITTED}/model.cpp" "${OOO_EMITTED}/model.hpp" "${OOO_EMITTED}/model.acir.json" "${OOO_EMITTED}/ac_support.hpp"
-  COMMAND ${Python3_EXECUTABLE} -m pycircuit emit "${OOO_COMPILED}/model.acir.json" --output "${OOO_EMITTED}"
+add_custom_command(OUTPUT "${OOO_EMITTED}/model.cpp" "${OOO_EMITTED}/model.hpp" "${OOO_EMITTED}/model.acir.mlir" "${OOO_EMITTED}/ac_support.hpp"
+  COMMAND ${CMAKE_COMMAND} -E env "ACPY_MLIR_COMPILER=$<TARGET_FILE:acir-compile>" ${Python3_EXECUTABLE} -m pycircuit emit "${OOO_COMPILED}/model.acir.mlir" --output "${OOO_EMITTED}"
   WORKING_DIRECTORY "${REPO}"
-  DEPENDS ${COMPILER_INPUTS} "${OOO_COMPILED}/model.acir.json" VERBATIM)
+  DEPENDS acir-compile ${COMPILER_INPUTS} "${OOO_COMPILED}/model.acir.mlir" VERBATIM)
 add_custom_target(acpy-ooo-emit DEPENDS "${OOO_EMITTED}/model.cpp" "${OOO_EMITTED}/model.hpp")
 add_dependencies(acpy-ooo-emit acpy-ooo-compile)
 foreach(variant IN ITEMS compiled emitted)

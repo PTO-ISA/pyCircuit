@@ -1,5 +1,6 @@
 cmake_minimum_required(VERSION 3.20)
-project(acpy_gfsim LANGUAGES CXX)
+project(acpy_gfsim LANGUAGES C CXX)
+add_subdirectory(mlir)
 include(CTest)
 find_package(Python3 REQUIRED COMPONENTS Interpreter)
 get_filename_component(REPO "${CMAKE_CURRENT_SOURCE_DIR}/.." ABSOLUTE)
@@ -8,18 +9,18 @@ file(GLOB COMPILER_INPUTS CONFIGURE_DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/*.py" "
 set(MODEL_SOURCE "${CMAKE_CURRENT_SOURCE_DIR}/examples/ripes5/model.py")
 set(GENERATED "${CMAKE_CURRENT_BINARY_DIR}/compiled")
 set(RELOADED "${CMAKE_CURRENT_BINARY_DIR}/emitted")
-add_custom_command(OUTPUT "${GENERATED}/model.cpp" "${GENERATED}/model.hpp" "${GENERATED}/model.acir.json" "${GENERATED}/ac_support.hpp"
-  COMMAND ${Python3_EXECUTABLE} -m pycircuit compile "${MODEL_SOURCE}" --top CPU --output "${GENERATED}"
+add_custom_command(OUTPUT "${GENERATED}/model.cpp" "${GENERATED}/model.hpp" "${GENERATED}/model.acir.mlir" "${GENERATED}/ac_support.hpp"
+  COMMAND ${CMAKE_COMMAND} -E env "ACPY_MLIR_COMPILER=$<TARGET_FILE:acir-compile>" ${Python3_EXECUTABLE} -m pycircuit compile "${MODEL_SOURCE}" --top CPU --output "${GENERATED}"
   WORKING_DIRECTORY "${REPO}"
-  DEPENDS ${COMPILER_INPUTS} "${MODEL_SOURCE}" "${CMAKE_CURRENT_SOURCE_DIR}/examples/ripes5/logic.py"
+  DEPENDS acir-compile ${COMPILER_INPUTS} "${MODEL_SOURCE}" "${CMAKE_CURRENT_SOURCE_DIR}/examples/ripes5/logic.py"
   VERBATIM)
-add_custom_target(acpy-compile DEPENDS "${GENERATED}/model.cpp" "${GENERATED}/model.hpp" "${GENERATED}/model.acir.json" "${GENERATED}/ac_support.hpp")
-add_custom_command(OUTPUT "${RELOADED}/model.cpp" "${RELOADED}/model.hpp" "${RELOADED}/model.acir.json" "${RELOADED}/ac_support.hpp"
-  COMMAND ${Python3_EXECUTABLE} -m pycircuit emit "${GENERATED}/model.acir.json" --output "${RELOADED}"
+add_custom_target(acpy-compile DEPENDS "${GENERATED}/model.cpp" "${GENERATED}/model.hpp" "${GENERATED}/model.acir.mlir" "${GENERATED}/ac_support.hpp")
+add_custom_command(OUTPUT "${RELOADED}/model.cpp" "${RELOADED}/model.hpp" "${RELOADED}/model.acir.mlir" "${RELOADED}/ac_support.hpp"
+  COMMAND ${CMAKE_COMMAND} -E env "ACPY_MLIR_COMPILER=$<TARGET_FILE:acir-compile>" ${Python3_EXECUTABLE} -m pycircuit emit "${GENERATED}/model.acir.mlir" --output "${RELOADED}"
   WORKING_DIRECTORY "${REPO}"
-  DEPENDS ${COMPILER_INPUTS} "${GENERATED}/model.acir.json"
+  DEPENDS acir-compile ${COMPILER_INPUTS} "${GENERATED}/model.acir.mlir"
   VERBATIM)
-add_custom_target(acpy-emit DEPENDS "${RELOADED}/model.cpp" "${RELOADED}/model.hpp" "${RELOADED}/model.acir.json" "${RELOADED}/ac_support.hpp")
+add_custom_target(acpy-emit DEPENDS "${RELOADED}/model.cpp" "${RELOADED}/model.hpp" "${RELOADED}/model.acir.mlir" "${RELOADED}/ac_support.hpp")
 add_dependencies(acpy-emit acpy-compile)
 foreach(variant IN ITEMS compiled emitted)
   set(dir "${CMAKE_CURRENT_BINARY_DIR}/${variant}")
@@ -40,7 +41,7 @@ if(BUILD_TESTING)
   if(GFSIM_SANITIZERS)
     string(APPEND ACPY_TEST_CXX " -fsanitize=address,undefined -fno-omit-frame-pointer")
   endif()
-  add_test(NAME acpy-language-and-circuits COMMAND ${CMAKE_COMMAND} -E env "ACPY_CXX=${ACPY_TEST_CXX}"
+  add_test(NAME acpy-language-and-circuits COMMAND ${CMAKE_COMMAND} -E env "ACPY_CXX=${ACPY_TEST_CXX}" "ACPY_MLIR_OPT=$<TARGET_FILE:acir-opt>" "ACPY_MLIR_COMPILER=$<TARGET_FILE:acir-compile>"
     ${Python3_EXECUTABLE} -m unittest discover -s pycircuit/tests -v)
   set_tests_properties(acpy-language-and-circuits PROPERTIES WORKING_DIRECTORY "${REPO}" TIMEOUT 300)
   if(GFSIM_BUILD_EXAMPLES)
@@ -50,7 +51,7 @@ if(BUILD_TESTING)
       --emitted-runner $<TARGET_FILE:acpy-ripes5-emitted>
       --cpp-runner $<TARGET_FILE:gfsim-ripes5>
       --runner "${GFSIM_RIPES_REFERENCE}"
-      --acir "${GENERATED}/model.acir.json"
+      --acir "${GENERATED}/model.acir.mlir"
       --output "${CMAKE_CURRENT_SOURCE_DIR}/examples/ripes5/output/${CMAKE_BUILD_TYPE}")
     set_tests_properties(acpy-ripes5-five-way PROPERTIES TIMEOUT 300)
     add_test(NAME acpy-runner-input-gates COMMAND ${Python3_EXECUTABLE}
@@ -68,3 +69,4 @@ if(BUILD_TESTING)
 endif()
 
 add_subdirectory(examples/ooo)
+add_subdirectory(examples/skyzh_ooo)

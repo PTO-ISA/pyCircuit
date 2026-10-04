@@ -46,7 +46,7 @@ def main():
                   repro_sources=sum(lines(p) for p in (HERE / 'repro').iterdir() if p.suffix in ('.py', '.cpp')),
                   assembly=sum(lines(p) for p in (HERE / 'programs').glob('*.s')),
                   generated_cpp=lines(generated / 'model.cpp'), generated_hpp=lines(generated / 'model.hpp'),
-                  acir_bytes=(generated / 'model.acir.json').stat().st_size)
+                  acir_bytes=(generated / 'model.acir.mlir').stat().st_size)
     evidence = HERE / 'output/gates'
     evidence.mkdir(exist_ok=True)
     for name, source in [('release.xml', args.build / 'ctest.xml'), ('sanitizers.xml', args.asan_build / 'ctest.xml')]:
@@ -61,7 +61,7 @@ def main():
                   line_counts=counts, timing_sha256=sha(HERE / 'timing.json'),
                   example_sources_sha256={str(f.relative_to(ROOT)): sha(f) for f in source_paths},
                   compiler_and_runtime_sha256={str(f.relative_to(ROOT)): sha(f) for f in compiler_paths + runtime_paths},
-                  generated_sha256={name: sha(generated / name) for name in ('model.cpp', 'model.hpp', 'model.acir.json')})
+                  generated_sha256={name: sha(generated / name) for name in ('model.cpp', 'model.hpp', 'model.acir.mlir')})
     (HERE / 'results.json').write_text(json.dumps(result, indent=2) + '\n')
     text = ['# 乱序 CPU 验收报告', '',
         f"记录时间：{result['date_utc']}。详细指纹和配置见 [results.json](results.json)。", '',

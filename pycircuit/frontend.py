@@ -1,11 +1,10 @@
-"""AST-only elaboration and typed HIR lowering to guarded SSA operations.
+"""AST-only static elaboration and typed MLIR control-flow construction.
 
 Construction is symbolic: host configuration values are constructor arguments,
 never evaluated by Python. Only literal construction loops are expanded here.
 """
 import ast
 from pathlib import Path
-from .hir import Block, Branch, Operation
 from .ir import CompileError, SCALARS, VERSION, Value, element, resource, wrapped
 
 
@@ -94,7 +93,7 @@ class Frontend:
                 self.error(fn, 'variadic, keyword-only and positional-only signatures are unsupported')
             for dec in fn.decorator_list:
                 kind = spelling(dec.func if isinstance(dec, ast.Call) else dec)
-                if kind not in ('ac.module', 'ac.rule', 'ac.signal', 'ac.work'):
+                if kind not in ('ac.module', 'ac.rule', 'ac.signal'):
                     self.error(dec, 'unsupported decorator')
                 if isinstance(dec, ast.Call) and (dec.args or any(k.arg != 'capacity' or kind != 'ac.rule' for k in dec.keywords)):
                     self.error(dec, 'only Rule output capacity is configurable')
@@ -144,9 +143,11 @@ class Frontend:
         # All call sites have now contributed possible resource identities.
         for mod in self.model['modules']:
             for rule in mod['rules']:
-                lower = rule.pop('_lower')
-                lower.finish_bindings()
+                rule.pop('_lower')
             mod['resources'] = sorted(set(mod.pop('_resources')))
+            mod.pop('_outputs', None)
+            mod.pop('_pending_outputs', None)
+            mod.pop('_vars', None)
         return self.model
 
     def expand_loops(self, body):
@@ -187,82 +188,327 @@ class Frontend:
 
     def instantiate(self, node, args, prefix, builder):
         env = dict(zip((a.arg for a in node.args.args), args))
-        mod = dict(name=prefix or 'top', source_name=node.name, rules=[], resources=[], _resources=set())
-        local_defs = {}
-        work = None
-        outputs = None
-        return_node = None
-        implicit_work = []
-        builder.env = env
-        for stmt in self.expand_loops(node.body):
-            if isinstance(stmt, ast.FunctionDef):
-                if decorator(stmt) == 'work':
-                    work = stmt
-                else:
-                    local_defs[stmt.name] = stmt
-            elif isinstance(stmt, ast.Return):
-                return_node = stmt
-            elif isinstance(stmt, (ast.Assign, ast.AnnAssign)):
-                target = stmt.targets[0] if isinstance(stmt, ast.Assign) else stmt.target
-                if isinstance(target, (ast.Tuple, ast.List)):
-                    value = self.construct_value(stmt.value, (prefix or 'top') + '_connection' + str(len(self.model['resources'])), builder, local_defs)
-                    if not isinstance(value, list) or len(value) != len(target.elts) or any(not isinstance(t, ast.Name) for t in target.elts):
-                        self.error(stmt, 'Module output destructuring requires matching names')
-                    env.update({t.id: v for t, v in zip(target.elts, value)})
-                    builder.env = env
-                    continue
-                if not isinstance(target, ast.Name):
-                    self.error(stmt, 'construction assignment requires a name')
-                name = target.id
-                value = stmt.value
-                key = f'{prefix}_{name}' if prefix else name
-                fn = local_defs.get(spelling(value.func), self.defs.get(spelling(value.func))) if isinstance(value, ast.Call) else None
-                is_rule = fn is not None and decorator(fn) == 'rule'
-                if is_rule or any(isinstance(n, ast.Attribute) and n.attr == 'value' for n in ast.walk(value)):
-                    implicit_work.append(stmt)
-                    continue
-                env[name] = self.construct_value(value, key, builder, local_defs)
-                if isinstance(stmt, ast.AnnAssign):
-                    env[name] = builder.cast(env[name], self.annotation(stmt.annotation), stmt)
-                if not prefix and isinstance(env[name], Value) and env[name].targets:
-                    self.model['exports'][name] = sorted(env[name].targets)[0]
-                builder.env = env
-            elif isinstance(stmt, ast.If):
-                implicit_work.append(stmt)
-            elif isinstance(stmt, ast.Expr) and isinstance(stmt.value, ast.Call):
-                called = local_defs.get(spelling(stmt.value.func), self.defs.get(spelling(stmt.value.func)))
-                if called and decorator(called) == 'rule':
-                    implicit_work.append(stmt)
-                    continue
-                self.construct_value(stmt.value, f'{prefix}_m{len(self.model["modules"])}', builder, local_defs)
-                builder.env = env
-            elif isinstance(stmt, ast.Expr) and isinstance(stmt.value, ast.Constant) and isinstance(stmt.value.value, str):
-                pass
+        var_inputs = {}
+        for parameter, value in zip(node.args.args, args):
+            if isinstance(parameter.annotation, ast.Subscript) and spelling(parameter.annotation.value) == 'ac.var':
+                expected = self.annotation(parameter.annotation)
+                if not isinstance(value, Value) or value.type != wrapped('signal', expected):
+                    self.error(parameter, 'Module var inputs must bind a Signal of the annotated type')
+                var_inputs[parameter.arg] = expected
+        mod = dict(name=prefix or 'top', source_name=node.name, rules=[], resources=[], _resources=set(), _vars=var_inputs)
+        local_defs = {s.name: s for s in node.body if isinstance(s, ast.FunctionDef)}
+        def function(call):
+            return local_defs.get(spelling(call.func), self.defs.get(spelling(call.func))) if isinstance(call, ast.Call) else None
+        def resource_declaration(n):
+            return isinstance(n, ast.Call) and (isinstance(n.func, ast.Subscript) and spelling(n.func.value) == 'ac.queue' or spelling(n.func) == 'ac.array')
+        def static_instance(n):
+            fn = function(n)
+            return resource_declaration(n) or fn is not None and decorator(fn) in ('module', 'signal')
+        body = []
+        for stmt in node.body:
+            if isinstance(stmt, ast.For) and any(static_instance(n) for n in ast.walk(stmt)):
+                body.extend(self.expand_loops([stmt]))
             else:
-                self.error(stmt, 'Module construction supports bindings, declarations, instances and @ac.work')
-        # A construction-only wrapper has no Work and no scheduler entry.
-        if work or implicit_work:
+                body.append(stmt)
+        runtime, pending = [], []
+        return_node = None
+        runtime_names = set()
+        def runtime_expr(value):
+            for n in ast.walk(value):
+                if isinstance(n, ast.Name) and n.id in runtime_names: return True
+                if isinstance(n, ast.Attribute) and n.attr in ('value', 'empty', 'full', 'size'): return True
+                fn = function(n)
+                if fn and decorator(fn) == 'rule': return True
+            return False
+        for stmt in body:
+            if isinstance(stmt, ast.FunctionDef):
+                continue
+            if isinstance(stmt, ast.Return) and stmt.value is not None:
+                return_node = stmt
+                continue
+            if isinstance(stmt, ast.Expr) and isinstance(stmt.value, ast.Constant) and isinstance(stmt.value.value, str):
+                continue
+            if isinstance(stmt, (ast.Assign, ast.AnnAssign, ast.Expr)):
+                value = stmt.value
+                if static_instance(value) or isinstance(value, (ast.ListComp, ast.List)) and any(resource_declaration(n) for n in ast.walk(value)):
+                    pending.append(stmt)
+                    continue
+                if not runtime_expr(value) and not isinstance(stmt, ast.Expr):
+                    # Pure bindings whose inputs are already static are constructor values.
+                    names = {n.id for n in ast.walk(value) if isinstance(n, ast.Name) and isinstance(n.ctx, ast.Load)}
+                    if names <= env.keys() | self.defs.keys() | self.types.keys() | self.constants.keys() | {'ac', 'range', 'len', 'bool'}:
+                        pending.append(stmt)
+                        continue
+            runtime.append(stmt)
+            runtime_names.update(n.id for n in ast.walk(stmt) if isinstance(n, ast.Name) and isinstance(n.ctx, ast.Store))
+        def bind(target, value):
+            if isinstance(target, ast.Name): env[target.id] = value
+            elif isinstance(target, (ast.Tuple, ast.List)) and isinstance(value, list) and len(target.elts) == len(value):
+                for t, v in zip(target.elts, value): bind(t, v)
+            else: self.error(target, 'static connections require matching names or tuples')
+        # Resolve static declarations/instances to a fixed point. Output resources
+        # are available to both sibling instances and Work before behavior lowering.
+        while pending:
+            progress = False
+            for stmt in pending[:]:
+                value = stmt.value
+                loaded = {n.id for n in ast.walk(value) if isinstance(n, ast.Name) and isinstance(n.ctx, ast.Load)}
+                provided = env.keys() | self.defs.keys() | local_defs.keys() | self.types.keys() | self.constants.keys() | {'ac', 'range', 'len', 'bool'}
+                if isinstance(value, ast.ListComp): provided |= {g.target.id for g in value.generators}
+                if loaded - provided: continue
+                target = stmt.targets[0] if isinstance(stmt, ast.Assign) else stmt.target if isinstance(stmt, ast.AnnAssign) else None
+                name = target.id if isinstance(target, ast.Name) else 'connection' + str(len(self.model['resources']))
+                key = (prefix + '_' if prefix else '') + name if target else f'{prefix}_m{len(self.model["modules"])}'
+                builder.env = env
+                val = self.construct_value(value, key, builder, local_defs)
+                builder.env = env
+                if isinstance(stmt, ast.AnnAssign): val = builder.cast(val, self.annotation(stmt.annotation), stmt)
+                if target: bind(target, val)
+                pending.remove(stmt); progress = True
+            self.predeclare_outputs(runtime, env, local_defs, mod, builder)
+            if not progress and pending:
+                self.error(pending[0], 'static connection/type cycle; add a Queue or Rule return type annotation')
+        self.predeclare_outputs(runtime, env, local_defs, mod, builder)
+        for name, val in env.items():
+            if not prefix and isinstance(val, Value) and val.targets:
+                self.model['exports'][name] = sorted(val.targets)[0]
+        outputs = None
+        if runtime:
             self.model['modules'].append(mod)
             lower = Lower(self, 'work', mod['name'] + '_Work', env, builder=builder, module=mod, defs=local_defs)
-            lower.statements(implicit_work + (work.body if work else []))
-            mod['work'] = lower.function()
+            lower.statements(runtime)
+            # Module return exports static connections independently of Work paths.
             if return_node:
-                outputs = lower.expr(return_node.value)
-                def fixed(v):
-                    if isinstance(v, list):
-                        return [fixed(x) for x in v]
-                    if v is None:
-                        return None
-                    if len(v.targets) != 1:
-                        self.error(return_node, 'Module returns fixed resource connections')
+                def connection(n):
+                    if isinstance(n, (ast.Tuple, ast.List)): return [connection(x) for x in n.elts]
+                    if isinstance(n, ast.Constant) and n.value is None: return None
+                    if not isinstance(n, ast.Name): self.error(n, 'Module returns fixed resource connections')
+                    v = lower.env.get(n.id, env.get(n.id))
+                    if isinstance(v, list): return v
+                    if v is None: return None
+                    if len(v.targets) != 1: self.error(n, 'Module returns fixed resource connections')
                     key = next(iter(v.targets))
-                    return builder.op('resource', v.type, name=key, targets={key}, node=return_node)
-                outputs = fixed(outputs)
+                    return builder.op('resource', v.type, name=key, targets={key}, node=n)
+                outputs = connection(return_node.value)
+            mod['work'] = lower.function()
         elif return_node:
+            builder.env = env
             outputs = builder.expr(return_node.value)
         return outputs
 
+    def output_shape(self, fn):
+        if fn.returns and self.annotation(fn.returns) != 'void': return 0
+        def shape(node, counter):
+            if isinstance(node, (ast.Tuple, ast.List)):
+                return [shape(x, counter) for x in node.elts]
+            index = counter[0]
+            counter[0] += 1
+            return index
+        found = None
+        for ret in (n for n in ast.walk(fn) if isinstance(n, ast.Return)):
+            if ret.value is None or isinstance(ret.value, ast.Constant) and ret.value.value is None: continue
+            current = shape(ret.value, [0])
+            if found is not None and current != found:
+                self.error(ret, 'Rule returns must have one fixed output structure')
+            found = current
+        return found
+
+    def reshape_outputs(self, values, shape):
+        if shape is None: return None
+        if isinstance(shape, list): return [self.reshape_outputs(values, s) for s in shape]
+        return values[shape] if shape < len(values) else None
+
+    def infer_outputs(self, fn, arguments, captures):
+        """Monotone type discovery; it never executes an ACPy function."""
+        env = dict(captures)
+        env.update({p.arg: self.annotation(p.annotation) if p.annotation else t for p, t in zip(fn.args.args, arguments)})
+        outputs = []
+        def expression(n, scope):
+            if n is None or isinstance(n, ast.Constant) and n.value is None:
+                return None
+            if isinstance(n, ast.Name):
+                if n.id in self.constants:
+                    return 'bool' if isinstance(self.constants[n.id], bool) else 'u32'
+                return scope[n.id]
+            if isinstance(n, ast.Constant):
+                return 'bool' if isinstance(n.value, bool) else 'u32'
+            if isinstance(n, ast.Tuple):
+                return [expression(x, scope) for x in n.elts]
+            if isinstance(n, ast.List):
+                e = expression(n.elts[0], scope)
+                return wrapped('qarray', element(e)) if e.startswith('queue<') else wrapped('vector', e)
+            if isinstance(n, ast.Attribute):
+                t = expression(n.value, scope)
+                if n.attr == 'value' and resource(t):
+                    return element(t)
+                return next(f['type'] for f in self.types[t] if f['name'] == n.attr)
+            if isinstance(n, ast.Subscript):
+                t = expression(n.value, scope)
+                return wrapped('queue', element(t)) if t.startswith('qarray<') else element(t)
+            if isinstance(n, (ast.Compare, ast.BoolOp)) or isinstance(n, ast.UnaryOp) and isinstance(n.op, ast.Not):
+                return 'bool'
+            if isinstance(n, ast.UnaryOp):
+                return expression(n.operand, scope)
+            if isinstance(n, ast.BinOp):
+                return expression(n.right if isinstance(n.left, ast.Constant) else n.left, scope)
+            if isinstance(n, ast.IfExp):
+                return expression(n.body, scope) or expression(n.orelse, scope)
+            if isinstance(n, ast.Call):
+                name = spelling(n.func).removeprefix('ac.')
+                if name in SCALARS or name in self.types:
+                    return name
+                if name == 'len' or isinstance(n.func, ast.Attribute) and n.func.attr == 'size':
+                    return 'u32'
+                if isinstance(n.func, ast.Attribute) and n.func.attr in ('empty', 'full'):
+                    return 'bool'
+                if isinstance(n.func, ast.Subscript) and spelling(n.func.value) == 'ac.var':
+                    return self.annotation(n.func.slice)
+                helper = self.defs.get(name)
+                if helper and helper.returns:
+                    return self.annotation(helper.returns)
+            raise KeyError(ast.unparse(n))
+        def assign(target, t, scope):
+            if isinstance(target, ast.Name): scope[target.id] = t
+            elif isinstance(target, (ast.Tuple, ast.List)) and isinstance(t, list):
+                for a, b in zip(target.elts, t): assign(a, b, scope)
+        def visit(body, scope):
+            for stmt in body:
+                if isinstance(stmt, (ast.Assign, ast.AnnAssign)):
+                    t = self.annotation(stmt.annotation) if isinstance(stmt, ast.AnnAssign) else expression(stmt.value, scope)
+                    for target in stmt.targets if isinstance(stmt, ast.Assign) else [stmt.target]: assign(target, t, scope)
+                elif isinstance(stmt, ast.If):
+                    a, b = dict(scope), dict(scope)
+                    visit(stmt.body, a); visit(stmt.orelse, b)
+                    scope.update({n: a[n] for n in a.keys() & b.keys() if a[n] == b[n]})
+                elif isinstance(stmt, ast.For):
+                    scope[stmt.target.id] = 'u32'
+                    visit(stmt.body, scope)
+                elif isinstance(stmt, ast.Return):
+                    def leaves(n):
+                        if isinstance(n, (ast.Tuple, ast.List)) and decorator(fn) == 'rule':
+                            return [v for child in n.elts for v in leaves(child)]
+                        value = expression(n, scope)
+                        return value if isinstance(value, list) else [value]
+                    values = leaves(stmt.value)
+                    while len(outputs) < len(values): outputs.append(None)
+                    for i, t in enumerate(values):
+                        if t is not None:
+                            if outputs[i] is not None and outputs[i] != t:
+                                self.error(stmt, 'inconsistent Rule output types')
+                            outputs[i] = t
+        if fn.returns:
+            t = self.annotation(fn.returns)
+            if t != 'void': return [t]
+        visit(fn.body, env)
+        return outputs
+
+    def predeclare_outputs(self, body, env, defs, mod, builder):
+        def nodes(body):
+            for stmt in body:
+                if isinstance(stmt, ast.FunctionDef):
+                    continue
+                yield stmt
+                if isinstance(stmt, ast.If):
+                    yield from nodes(stmt.body); yield from nodes(stmt.orelse)
+                elif isinstance(stmt, ast.For): yield from nodes(stmt.body)
+        calls = []
+        for stmt in nodes(body):
+            value = stmt.value if isinstance(stmt, (ast.Assign, ast.AnnAssign, ast.Expr)) else None
+            fn = defs.get(spelling(value.func), self.defs.get(spelling(value.func))) if isinstance(value, ast.Call) else None
+            if fn and decorator(fn) == 'rule':
+                target = stmt.targets[0] if isinstance(stmt, ast.Assign) else stmt.target if isinstance(stmt, ast.AnnAssign) else None
+                calls.append((fn, value, target))
+        mod.setdefault('_outputs', {})
+        def type_of(v): return [type_of(x) for x in v] if isinstance(v, list) else v.type if isinstance(v, Value) else None
+        pending = list(calls)
+        while pending:
+            progress = False
+            for fn, call, target in pending[:]:
+                try:
+                    # Infer ordinary Work values as well as fixed construction bindings.
+                    scope = {n: type_of(v) for n, v in env.items()}
+                    fake = ast.FunctionDef(name='inference', args=ast.arguments(posonlyargs=[],args=[],kwonlyargs=[],kw_defaults=[],defaults=[]), body=[], decorator_list=[])
+                    # Parameter types are commonly explicit or fixed resource arguments.
+                    arguments = []
+                    supplied = self.bind_args(fn, call.args, {k.arg: k.value for k in call.keywords})
+                    for param, value in zip(fn.args.args, supplied):
+                        if param.annotation: arguments.append(self.annotation(param.annotation))
+                        else:
+                            probe = ast.FunctionDef(name='probe', args=fake.args, body=[ast.Return(value)], decorator_list=[], returns=None)
+                            arguments.append(self.infer_outputs(probe, [], scope)[0])
+                    types = self.infer_outputs(fn, arguments, scope)
+                except (KeyError, StopIteration):
+                    continue
+                outputs = mod['_outputs'].get(fn.name)
+                if outputs is None:
+                    outputs = []
+                    def leaves(t):
+                        return [x for child in t.elts for x in leaves(child)] if isinstance(t, (ast.Tuple, ast.List)) else [t]
+                    targets = leaves(target)
+                    for i, t in enumerate(types):
+                        binding = targets[i] if i < len(targets) else None
+                        old = env.get(binding.id) if isinstance(binding, ast.Name) else None
+                        if t is None and isinstance(old, Value) and old.type.startswith('queue<'): t = element(old.type)
+                        if t is None:
+                            outputs.append(None); continue
+                        if isinstance(old, Value) and old.type.startswith('queue<'):
+                            if element(old.type) != t: self.error(call, 'output payload does not match explicit Queue type')
+                            out = dict(name=next(iter(old.targets)), type=t, reference=old.id, targets=sorted(old.targets))
+                        else:
+                            name = mod['name'] + '_' + fn.name + '_out' + str(i)
+                            cap = 1
+                            for dec in fn.decorator_list:
+                                if isinstance(dec, ast.Call):
+                                    cap = next((self.literal(k.value) for k in dec.keywords if k.arg == 'capacity'), 1)
+                            if not isinstance(cap, int) or cap < 1: self.error(call, 'Rule default capacity must be a positive integer; declare separate output Queues for different capacities')
+                            out = dict(name=name, kind='queue', type=t, capacity=builder.const(cap).id, initial=[], sequence=False)
+                            self.model['resources'].append(out)
+                        outputs.append(out)
+                    mod['_outputs'][fn.name] = outputs
+                vals = [Value(r['reference'], wrapped('queue', r['type']), set(r['targets'])) if r and 'reference' in r else builder.op('resource', wrapped('queue', r['type']), name=r['name'], targets={r['name']}, node=call) if r else None for r in outputs]
+                def bind(target, value):
+                    if isinstance(target, ast.Name): env[target.id] = value
+                    elif isinstance(target, (ast.Tuple, ast.List)):
+                        if not isinstance(value, list) or len(target.elts) != len(value): self.error(target, 'Rule output arity mismatch')
+                        for a, b in zip(target.elts, value): bind(a, b)
+                if target: bind(target, self.reshape_outputs(vals, self.output_shape(fn)))
+                pending.remove((fn, call, target)); progress = True
+            if not progress:
+                # A later Work capture can be typed during Work lowering; true output
+                # cycles need an explicit return or Queue annotation.
+                mod['_pending_outputs'] = pending
+                break
+
     def construct_value(self, node, name, builder, defs):
+        if isinstance(node, ast.Call) and spelling(node.func) == 'ac.array':
+            if len(node.args) != 1 or not isinstance(node.args[0], ast.Subscript) or spelling(node.args[0].value) != 'ac.queue':
+                self.error(node, 'resource arrays use ac.array(ac.queue[T], shape=(N,), ...)')
+            kw = {k.arg: k.value for k in node.keywords}
+            if set(kw) - {'shape', 'capacity', 'initial'} or 'shape' not in kw:
+                self.error(node, 'Queue array requires shape= and accepts capacity= and initial=')
+            shape = kw['shape']
+            if not isinstance(shape, ast.Tuple) or len(shape.elts) != 1:
+                self.error(shape, 'resource arrays currently require one fixed dimension')
+            typ = self.annotation(node.args[0].slice)
+            iterable = builder.op('range', 'vector<u32>', [builder.expr(shape.elts[0], 'u32')], node=node)
+            cap = builder.expr(kw['capacity']) if 'capacity' in kw else builder.const(1)
+            init = Lower(self, 'initializer', name + '_init')
+            index = init.param('index', 'u32')
+            init.bind('index', index)
+            initial = kw.get('initial')
+            if isinstance(initial, ast.Name) and initial.id in self.defs:
+                fn = self.defs[initial.id]
+                result_type = self.helper(fn)
+                value = init.op('call', result_type, [index], name=fn.name, node=node)
+            elif initial is not None:
+                value = init.expr(initial, typ)
+            else:
+                value = init.op('zero', typ, node=node)
+            value = init.cast(value, typ, node)
+            init.op('return', 'void', [value], node=node)
+            self.model['resources'].append(dict(name=name, kind='qarray', type=typ, iterable=iterable.id,
+                                               capacity=cap.id, initializer=init.function(), empty_initial=initial is None))
+            return builder.op('resource', wrapped('qarray', typ), name=name, targets={name}, node=node)
         if isinstance(node, ast.Call) and isinstance(node.func, ast.Subscript) and spelling(node.func.value) == 'ac.queue':
             typ = self.annotation(node.func.slice)
             kw = {x.arg: x.value for x in node.keywords}
@@ -312,13 +558,16 @@ class Frontend:
                 args = [builder.expr(x) if isinstance(x, ast.AST) else x for x in args]
                 if decorator(fn) == 'module':
                     return self.instantiate(fn, args, name, builder)
+                if any(not isinstance(v, Value) or not v.type.startswith(('queue<', 'qarray<')) for v in args):
+                    self.error(node, 'Signal arguments must be Queues; capture configuration in the enclosing Module')
                 lower = Lower(self, 'signal', name + '_evaluate', {**builder.env, **dict(zip((a.arg for a in fn.args.args), args))}, builder=builder)
                 if fn.returns:
                     lower.expected_return = self.annotation(fn.returns)
                 lower.statements(fn.body)
                 typ = self.annotation(fn.returns) if fn.returns else lower.return_type
+                inputs = lower.accesses | set().union(*(v.targets for v in args))
                 self.model['resources'].append(dict(name=name, kind='signal', type=typ,
-                                                    function=lower.function(), inputs=sorted(lower.accesses)))
+                                                    function=lower.function(), inputs=sorted(inputs)))
                 return builder.op('resource', wrapped('signal', typ), name=name, targets={name}, node=node)
         return builder.expr(node)
 
@@ -344,9 +593,8 @@ class Lower:
         self.env = dict(env or {})
         self.builder, self.module, self.defs = builder, module, defs or {}
         self.ops, self.params = [], []
-        self.hir = Block()
-        self.block = self.hir
-        self.guard = None
+        self.blocks = [dict(label="entry", params=[], ops=[])]
+        self.block = self.blocks[0]
         self.serial = 0
         self.accesses = set()
         self.return_type = 'void'
@@ -360,14 +608,36 @@ class Lower:
     def op(self, op, typ, args=(), node=None, targets=(), consume=False, **attrs):
         self.serial += 1
         value = Value(f'v{self.serial}', typ, set(targets), consume)
-        operation = Operation(op, value.id, typ, [a.id for a in args], self.guard, self.loc(node), attrs)
-        self.block.nodes.append(operation)
-        self.ops.append(operation.freeze())
+        operation = dict(op=op, id=value.id, type=typ, args=[a.id for a in args], loc=self.loc(node), **attrs)
+        self.block['ops'].append(operation)
+        self.ops.append(operation)
         return value
 
+    def terminated(self):
+        return bool(self.block['ops'] and self.block['ops'][-1]['op'] in ('br', 'cond_br', 'return'))
+
+    def new_block(self, values=()):
+        block = dict(label='bb' + str(len(self.blocks)), params=[], ops=[])
+        self.blocks.append(block)
+        for v in values:
+            self.serial += 1
+            block['params'].append(Value('v' + str(self.serial), v.type, set(v.targets), v.consume))
+        return block
+
+    def jump(self, block, values=()):
+        self.op('br', 'void', values, dest=block['label'])
+
+    def conditional(self, cond, yes, no):
+        self.op('cond_br', 'void', [cond], yes=yes['label'], no=no['label'])
+
     def function(self, result=None):
+        if self.kind != 'construction' and not self.terminated():
+            if self.kind in ('helper', 'signal', 'initializer'):
+                self.op('unreachable', 'void')
+            self.op('return', 'void')
         return dict(name=self.name, kind=self.kind, params=self.params,
-                    result=result or self.return_type, ops=self.hir.freeze())
+                    result=result or self.return_type,
+                    blocks=[dict(label=b['label'], params=[vars(p) | {'targets': sorted(p.targets)} for p in b['params']], ops=b['ops']) for b in self.blocks])
 
     def const(self, value, typ=None, node=None):
         if typ is None:
@@ -380,6 +650,8 @@ class Lower:
         return value
 
     def imported(self, val):
+        if isinstance(val, list):
+            return [self.imported(v) for v in val]
         if not isinstance(val, Value) or self.builder is None:
             return val
         if val.id not in self.imports:
@@ -389,8 +661,14 @@ class Lower:
             for aid in source['args']:
                 a = next(x for x in self.builder.ops if x['id'] == aid)
                 inputs.append(self.imported(Value(aid, a['type'], {a['name']} if a['op'] == 'resource' else set())))
-            attrs = {k: v for k, v in source.items() if k not in ('op', 'id', 'type', 'args', 'guard', 'loc')}
+            attrs = {k: v for k, v in source.items() if k not in ('op', 'id', 'type', 'args', 'loc')}
+            current = self.block
+            self.block = self.blocks[0]
+            tail = self.block['ops'].pop() if self.terminated() else None
             self.imports[val.id] = self.op(source['op'], val.type, inputs, targets=val.targets, **attrs)
+            if tail:
+                self.block['ops'].append(tail)
+            self.block = current
         return self.imports[val.id]
 
     def lookup(self, name, node):
@@ -399,9 +677,16 @@ class Lower:
             # Imported construction bindings are replaced once in this environment.
             if self.builder and name not in getattr(self, 'locals', set()):
                 val = self.imported(val)
+            if self.kind == 'work' and name in self.module.get('_vars', {}):
+                self.accesses.update(val.targets)
+                return self.op('signal.read', element(val.type), [val], node=node)
             return val
         if name in self.f.constants:
             return self.const(self.f.constants[name], node=node)
+        if self.module:
+            for _, _, target in self.module.get('_pending_outputs', []):
+                if target is not None and any(isinstance(n, ast.Name) and n.id == name for n in ast.walk(target)):
+                    self.f.error(node, f'cannot infer output {name} in a connection/type cycle; add an explicit Queue or Rule return type annotation')
         self.f.error(node, f'unknown name: {name}')
 
     def bind(self, name, val):
@@ -417,24 +702,26 @@ class Lower:
             return self.op('cast', typ, [value], node=node)
         self.f.error(node, f'type mismatch: {value.type} → {typ}')
 
-    def predicate(self, left, right, negate=False):
-        old = self.guard
-        self.guard = None
-        if negate:
-            right = self.op('unary', 'bool', [right], operator='not')
-        if left is not None:
-            right = self.op('binary', 'bool', [Value(left, 'bool'), right], operator='and')
-        self.guard = old
-        return right.id
-
-    def merge_guard(self, a, b):
-        if a is None or b is None:
-            return None
-        old = self.guard
-        self.guard = None
-        out = self.op('binary', 'bool', [Value(a, 'bool'), Value(b, 'bool')], operator='or')
-        self.guard = old
-        return out.id
+    def choose(self, condition, yes_fn, no_fn, node):
+        yes, no = self.new_block(), self.new_block()
+        self.conditional(condition, yes, no)
+        self.block = yes
+        a = yes_fn()
+        yes_end = self.block
+        self.block = no
+        b = no_fn()
+        b = self.cast(b, a.type, node)
+        no_end = self.block
+        if resource(a.type) and a.consume != b.consume:
+            self.f.error(node, 'resource selection must preserve message/observation roles; branch around the reads')
+        merged = Value('', a.type, a.targets | b.targets, a.consume)
+        join = self.new_block([merged])
+        self.block = yes_end
+        self.jump(join, [a])
+        self.block = no_end
+        self.jump(join, [b])
+        self.block = join
+        return join['params'][0]
 
     def expr(self, node, expected=None):
         if node is None:
@@ -500,22 +787,14 @@ class Lower:
             return self.op('unary', 'bool' if isinstance(node.op, ast.Not) else a.type,
                            [a], operator=operators[type(node.op)], node=node)
         if isinstance(node, ast.BoolOp):
-            outer = self.guard
             out = self.cast(self.expr(node.values[0]), 'bool', node)
             for rhs in node.values[1:]:
-                self.guard = self.predicate(outer, out, isinstance(node.op, ast.Or))
-                other = self.cast(self.expr(rhs), 'bool', rhs)
-                self.guard = outer
-                fallback = self.const(isinstance(node.op, ast.Or))
-                out = self.op('select', 'bool', [out, fallback, other] if isinstance(node.op, ast.Or)
-                              else [out, other, fallback], node=node)
+                evaluate = lambda: self.cast(self.expr(rhs), 'bool', rhs)
+                out = self.choose(out, lambda: self.const(True), evaluate, node) if isinstance(node.op, ast.Or) else self.choose(out, evaluate, lambda: self.const(False), node)
             return out
         if isinstance(node, ast.Compare):
-            a = self.expr(node.left)
-            outer, out = self.guard, None
-            for op, rhs in zip(node.ops, node.comparators):
-                if out:
-                    self.guard = self.predicate(outer, out)
+            def compare(a, index):
+                op, rhs = node.ops[index], node.comparators[index]
                 if isinstance(op, (ast.In, ast.NotIn)):
                     if not isinstance(rhs, (ast.Tuple, ast.List)):
                         self.f.error(rhs, 'membership requires a literal tuple/list')
@@ -525,6 +804,7 @@ class Lower:
                         value = self.op('binary', 'bool', [value, part], operator='or', node=node)
                     if isinstance(op, ast.NotIn):
                         value = self.op('unary', 'bool', [value], operator='not', node=node)
+                    b = a
                 else:
                     b = self.expr(rhs, a.type)
                     typ = self.common(a, b, node)
@@ -532,22 +812,13 @@ class Lower:
                     if type(op) not in ops:
                         self.f.error(node, 'unsupported comparison')
                     value = self.op('binary', 'bool', [self.cast(a, typ), self.cast(b, typ)], operator=ops[type(op)], node=node)
-                    a = b
-                self.guard = outer
-                out = value if out is None else self.op('binary', 'bool', [out, value], operator='and', node=node)
-            return out
+                if index + 1 < len(node.ops):
+                    return self.choose(value, lambda: compare(b, index + 1), lambda: self.const(False), node)
+                return value
+            return compare(self.expr(node.left), 0)
         if isinstance(node, ast.IfExp):
             c = self.cast(self.expr(node.test), 'bool', node)
-            outer = self.guard
-            self.guard = self.predicate(outer, c)
-            a = self.expr(node.body, expected)
-            self.guard = self.predicate(outer, c, True)
-            b = self.expr(node.orelse, expected or a.type)
-            self.guard = outer
-            if resource(a.type) and a.consume != b.consume:
-                self.f.error(node, 'resource selection must preserve message/observation roles; branch around the reads')
-            return self.op('select', a.type, [c, a, self.cast(b, a.type)], node=node,
-                           targets=a.targets | b.targets, consume=a.consume or b.consume)
+            return self.choose(c, lambda: self.expr(node.body, expected), lambda: self.expr(node.orelse, expected), node)
         if isinstance(node, ast.Call):
             return self.call(node, expected)
         self.f.error(node, f'unsupported expression: {type(node).__name__}')
@@ -624,7 +895,7 @@ class Lower:
     def rule_call(self, fn, args, node):
         rule = next((r for r in self.module['rules'] if r['name'] == fn.name), None)
         if rule is None:
-            rule = dict(name=fn.name, outputs=[], bindings={}, _lower=None)
+            rule = dict(name=fn.name, shape=self.f.output_shape(fn), outputs=self.module.get('_outputs', {}).get(fn.name, []), bindings={}, _lower=None)
             self.module['rules'].append(rule)
             captured = {k: v for k, v in self.env.items() if k not in getattr(self, 'locals', set())}
             lower = Lower(self.f, 'rule', self.module['name'] + '_' + fn.name, captured,
@@ -637,46 +908,24 @@ class Lower:
                 lower.bind(p.arg, pv)
             # Work locals used by closure become explicit value/resource cache arguments.
             used = {x.id for x in ast.walk(fn) if isinstance(x, ast.Name) and isinstance(x.ctx, ast.Load)}
-            captures = sorted(used & getattr(self, 'locals', set()) - {p.arg for p in fn.args.args})
+            assigned = {x.id for x in ast.walk(fn) if isinstance(x, ast.Name) and isinstance(x.ctx, ast.Store)}
+            captures = sorted((used & (getattr(self, 'locals', set()) | self.module.get('_vars', {}).keys())) - {p.arg for p in fn.args.args} - assigned)
             rule['captures'] = captures
             for name in captures:
-                v = self.env[name]
+                v = self.lookup(name, node)
                 lower.bind(name, lower.param(name, v.type, v.targets, False))
             lower.statements(fn.body)
-            lower.op('complete', 'void', node=fn)
             rule['function'] = lower.function()
             rule['_lower'] = lower
         lower = rule['_lower']
-        vals = args + [self.env[n] for n in rule['captures']]
+        vals = args + [self.lookup(n, node) for n in rule['captures']]
         for p, v in zip(lower.params, vals):
             p['targets'] = sorted(set(p['targets']) | v.targets)
             lower.env[p['name']].targets.update(v.targets)
         vals = [self.cast(v, p['type'], node) for p, v in zip(lower.params, vals)]
         self.op('rule.call', 'void', vals, name=fn.name, node=node)
-        outs = [self.op('resource', wrapped('queue', r['type']), name=r['name'], targets={r['name']}, node=node) if r else None for r in rule['outputs']]
-        return outs[0] if len(outs) == 1 else outs if outs else None
-
-    def finish_bindings(self):
-        # Propagate provenance after all calls, including dynamic indexing/selection.
-        origins = {}
-        params = {p['id']: set(p['targets']) for p in self.params}
-        reads = set()
-        bindings = {}
-        for op in self.ops:
-            sources = set().union(*(origins.get(a, set()) for a in op['args']))
-            if op['op'] == 'resource':
-                sources = {op['name']}
-            if op['op'] == 'param':
-                sources = params[op['id']]
-            origins[op['id']] = sources if resource(op['type']) else set()
-            if op['op'].startswith(('queue.', 'signal.')):
-                reads.update(sources)
-                effect = {'queue.pop': 'Pop', 'queue.push': 'Push', 'queue.revise': 'Revise'}.get(op['op'])
-                if effect:
-                    for target in sources:
-                        bindings.setdefault(target, set()).add(effect)
-        self.rule['bindings'] = {k: sorted(v) for k, v in bindings.items()}
-        self.module['_resources'].update(reads)
+        outs = [self.imported(Value(r['reference'], wrapped('queue', r['type']), set(r['targets']))) if r and 'reference' in r else self.op('resource', wrapped('queue', r['type']), name=r['name'], targets={r['name']}, node=node) if r else None for r in rule['outputs']]
+        return self.f.reshape_outputs(outs, rule['shape'])
 
     def target_type(self, target):
         if isinstance(target, ast.Name):
@@ -704,38 +953,34 @@ class Lower:
             for t, v in zip(target.elts, value):
                 self.assignment(t, v, node)
             return
-        if isinstance(target, ast.Attribute):
-            path, base = [], target
-            while isinstance(base, ast.Attribute):
-                path.insert(0, base.attr)
-                base = base.value
-            q = self.expr(base)
-            if q.type.startswith('queue<') and path and path[0] == 'value':
-                if self.kind != 'rule':
-                    self.f.error(node, 'Queue updates are Rule effects')
-                self.op('queue.revise', 'void', [q, value], path=path[1:], node=node)
-                self.effects.append((q, 'Revise'))
-                return
-            # Ordinary struct update produces a new SSA value.
-            path, base = [], target
-            while isinstance(base, ast.Attribute):
-                path.insert(0, base.attr)
-                base = base.value
-            if not isinstance(base, ast.Name):
-                self.f.error(node, 'local field update requires a named struct')
-            val = self.lookup(base.id, node)
-            result = self.op('update', val.type, [val, value], path=path, node=node)
+        if isinstance(target, (ast.Attribute, ast.Subscript)):
+            path, indices, base = [], [], target
+            while isinstance(base, (ast.Attribute, ast.Subscript)):
+                if isinstance(base, ast.Attribute):
+                    if base.attr == 'value' and self.target_type(base.value).startswith('queue<'):
+                        q = self.expr(base.value)
+                        if self.kind != 'rule': self.f.error(node, 'Queue updates are Rule effects')
+                        indices = [self.expr(n) for n in indices]
+                        self.op('queue.revise', 'void', [q, value, *indices], path=path, node=node)
+                        return
+                    path.insert(0, base.attr)
+                    base = base.value
+                else:
+                    path.insert(0, None)
+                    indices.insert(0, base.slice)
+                    base = base.value
+            if not isinstance(base, ast.Name): self.f.error(node, 'local updates require a named aggregate')
+            original = self.lookup(base.id, node)
+            indices = [self.expr(n) for n in indices]
+            result = self.op('update', original.type, [original, value, *indices], path=path, node=node)
             self.bind(base.id, result)
-            return
-        if isinstance(target, ast.Subscript) and isinstance(target.value, ast.Name):
-            old = self.lookup(target.value.id, node)
-            idx = self.expr(target.slice)
-            self.bind(target.value.id, self.op('array.update', old.type, [old, idx, value], node=node))
             return
         self.f.error(node, 'unsupported assignment target')
 
     def statements(self, statements):
-        for node in self.f.expand_loops(statements):
+        for node in statements:
+            if self.terminated():
+                break
             if isinstance(node, (ast.Assign, ast.AnnAssign)):
                 targets = node.targets if isinstance(node, ast.Assign) else [node.target]
                 typ = self.f.annotation(node.annotation) if isinstance(node, ast.AnnAssign) else None
@@ -756,77 +1001,103 @@ class Lower:
                 self.assignment(node.target, val, node)
             elif isinstance(node, ast.If):
                 cond = self.cast(self.expr(node.test), 'bool', node)
-                outer, before = self.guard, dict(self.env)
-                parent = self.block
-                branch = Branch(cond.id, self.loc(node))
-                parent.nodes.append(branch)
-                self.block = branch.yes
-                locals_before = set(getattr(self, 'locals', set()))
-                self.guard = self.predicate(outer, cond)
-                self.statements(node.body)
-                yes, yes_guard, yes_locals = dict(self.env), self.guard, set(getattr(self, 'locals', set()))
-                self.env, self.locals = dict(before), set(locals_before)
-                self.block = branch.no
-                self.guard = self.predicate(outer, cond, True)
-                self.statements(node.orelse)
-                no, no_guard = dict(self.env), self.guard
-                self.block = parent
-                self.guard = self.merge_guard(yes_guard, no_guard)
-                self.env = dict(before)
-                for name in sorted(yes.keys() & no.keys()):
-                    a, b = yes[name], no[name]
-                    if not isinstance(a, Value) or not isinstance(b, Value):
-                        continue
-                    if a.id == b.id:
-                        self.env[name] = a
-                    elif name in yes_locals or name in self.locals:
-                        # Construction values used only on one branch must be imported before merging.
-                        if name not in yes_locals and self.builder:
-                            a = self.imported(a)
-                        if name not in self.locals and self.builder:
-                            b = self.imported(b)
-                        if resource(a.type) and a.consume != b.consume:
-                            self.f.error(node, 'resource merge must preserve message/observation roles; branch around the reads')
-                        self.bind(name, self.op('select', a.type, [cond, a, self.cast(b, a.type)], node=node,
-                                               targets=a.targets | b.targets, consume=a.consume or b.consume))
-                self.locals |= yes_locals
-            elif isinstance(node, ast.Return):
-                val = self.expr(node.value)
-                if self.kind == 'work':
-                    if val is not None:
-                        self.f.error(node, 'Work returns no payload; Module construction exports resources')
-                    self.guard = self.predicate(self.guard, self.const(False))
+                before, locals_before = dict(self.env), set(getattr(self, 'locals', set()))
+                yes, no = self.new_block(), self.new_block()
+                self.conditional(cond, yes, no)
+                ends = []
+                for block, body in ((yes, node.body), (no, node.orelse)):
+                    self.block, self.env, self.locals = block, dict(before), set(locals_before)
+                    self.statements(body)
+                    if not self.terminated():
+                        ends.append((self.block, dict(self.env), set(self.locals)))
+                if not ends:
                     continue
-                if self.kind == 'rule':
-                    values = val if isinstance(val, list) else [val]
-                    for index, v in enumerate(values):
-                        if v is None:
-                            continue
-                        while len(self.rule['outputs']) <= index:
-                            self.rule['outputs'].append(None)
+                names = sorted(set.intersection(*(set(e) for _, e, _ in ends)))
+                changed = [n for n in names if any(n in ls for _, _, ls in ends) and all(isinstance(e[n], Value) for _, e, _ in ends)]
+                values = []
+                for n in changed:
+                    vs = [e[n] if n in ls else self.imported(e[n]) for _, e, ls in ends]
+                    if any(v.type != vs[0].type or v.consume != vs[0].consume for v in vs):
+                        self.f.error(node, 'branch values must have the same type and resource role')
+                    values.append(Value('', vs[0].type, set().union(*(v.targets for v in vs)), vs[0].consume))
+                join = self.new_block(values)
+                for end, env, ls in ends:
+                    self.block = end
+                    self.jump(join, [env[n] if n in ls else self.imported(env[n]) for n in changed])
+                self.block, self.env, self.locals = join, dict(before), set(locals_before)
+                for n, v in zip(changed, join['params']):
+                    self.bind(n, v)
+            elif isinstance(node, ast.For):
+                if node.orelse or not isinstance(node.target, ast.Name) or not isinstance(node.iter, ast.Call) or spelling(node.iter.func) != 'range':
+                    self.f.error(node, 'runtime loops require for name in range(...) without else')
+                args = [self.expr(x, 'u32') for x in node.iter.args]
+                if len(args) == 1:
+                    start, stop, step = self.const(0), args[0], self.const(1)
+                elif len(args) == 2:
+                    start, stop, step = args[0], args[1], self.const(1)
+                else:
+                    self.f.error(node, 'runtime range accepts one or two bounds')
+                assigned = {n.id for stmt in node.body for n in ast.walk(stmt) if isinstance(n, ast.Name) and isinstance(n.ctx, ast.Store)}
+                names = sorted((assigned & self.env.keys()) - {node.target.id})
+                initial = [self.lookup(n, node) for n in names] + [start]
+                names.append(node.target.id)
+                head = self.new_block(initial)
+                self.jump(head, initial)
+                self.block = head
+                for n, v in zip(names, head['params']):
+                    self.bind(n, v)
+                header_env, header_locals = dict(self.env), set(self.locals)
+                cond = self.op('binary', 'bool', [self.env[node.target.id], stop], operator='<', node=node)
+                body, end = self.new_block(), self.new_block()
+                self.conditional(cond, body, end)
+                self.block = body
+                self.statements(node.body)
+                if not self.terminated():
+                    self.bind(node.target.id, self.op('binary', 'u32', [self.lookup(node.target.id, node), step], operator='+', node=node))
+                    self.jump(head, [self.lookup(n, node) for n in names])
+                self.block, self.env, self.locals = end, header_env, header_locals
+            elif isinstance(node, ast.Return):
+                if self.kind == 'work':
+                    if node.value is not None:
+                        self.f.error(node, 'Work returns no payload; Module return exports connections')
+                    self.op('return', 'void', node=node)
+                elif self.kind == 'rule':
+                    def flatten(n):
+                        return [x for child in n.elts for x in flatten(child)] if isinstance(n, (ast.Tuple, ast.List)) else [n]
+                    leaves = flatten(node.value) if isinstance(self.rule['shape'], list) else [node.value]
+                    def push(expr, index):
+                        if expr is None or isinstance(expr, ast.Constant) and expr.value is None: return
+                        if isinstance(expr, ast.IfExp):
+                            cond = self.cast(self.expr(expr.test), 'bool', expr)
+                            yes, no, end = self.new_block(), self.new_block(), self.new_block()
+                            self.conditional(cond, yes, no)
+                            self.block = yes
+                            push(expr.body, index)
+                            self.jump(end)
+                            self.block = no
+                            push(expr.orelse, index)
+                            self.jump(end)
+                            self.block = end
+                            return
+                        expected = self.rule['outputs'][index]['type'] if index < len(self.rule['outputs']) and self.rule['outputs'][index] else None
+                        v = self.expr(expr, expected)
+                        while len(self.rule['outputs']) <= index: self.rule['outputs'].append(None)
                         out = self.rule['outputs'][index]
                         if out is None:
                             name = self.name + f'_out{index}'
-                            cap = 1
-                            fn = self.defs.get(self.rule['name'], self.f.defs.get(self.rule['name']))
-                            for dec in fn.decorator_list:
-                                if isinstance(dec, ast.Call):
-                                    cap = next((self.f.literal(k.value) for k in dec.keywords if k.arg == 'capacity'), 1)
-                            c = self.builder.const(cap)
-                            out = dict(name=name, kind='queue', type=v.type, capacity=c.id, initial=[], sequence=False)
+                            out = dict(name=name, kind='queue', type=v.type, capacity=self.builder.const(1).id, initial=[], sequence=False)
                             self.f.model['resources'].append(out)
                             self.rule['outputs'][index] = out
-                        q = self.op('resource', wrapped('queue', v.type), name=out['name'], targets={out['name']}, node=node)
+                        q = self.imported(Value(out['reference'], wrapped('queue', out['type']), set(out['targets']))) if 'reference' in out else self.op('resource', wrapped('queue', v.type), name=out['name'], targets={out['name']}, node=node)
                         self.op('queue.push', 'void', [q, self.cast(v, out['type'])], node=node)
-                    self.guard = self.predicate(self.guard, self.const(False))
+                    for index, expr in enumerate(leaves): push(expr, index)
+                    self.op('return', 'void', node=node)
                 else:
-                    if val is None or isinstance(val, list):
-                        self.f.error(node, 'helpers and Signals return one typed value')
-                    if getattr(self, 'expected_return', None):
-                        val = self.cast(val, self.expected_return, node)
+                    val = self.expr(node.value)
+                    if val is None or isinstance(val, list): self.f.error(node, 'helpers and Signals return one typed value')
+                    if getattr(self, 'expected_return', None): val = self.cast(val, self.expected_return, node)
                     self.return_type = val.type
                     self.op('return', 'void', [val], node=node)
-                    self.guard = self.predicate(self.guard, self.const(False))
             elif isinstance(node, ast.Expr):
                 if isinstance(node.value, ast.Constant) and isinstance(node.value.value, str):
                     continue

@@ -174,6 +174,11 @@ template <class T> class Queue final : public QueueBase {
             throw std::logic_error("duplicate push");
         s.push = std::move(value);
     }
+    // The compiler captures every index and replacement by value at proposal time.
+    // Xfer applies the update to the old tail, just like member-pointer revise.
+    template <class Update> void proposeReviseWith(RuleId r, Update update) {
+        proposal(r, Revise).revises.emplace_back(std::move(update));
+    }
     template <auto... Path, class Value> void proposeRevise(RuleId r, Value value) {
         auto &s = proposal(r, Revise);
         auto save = [&]() {

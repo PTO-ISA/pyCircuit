@@ -9,9 +9,7 @@ def Integer(requests, control):
         if req.tag.epoch == control.value.epoch and not control.value.stopped:
             return calculate(req)
         return None
-    @ac.work
-    def work():
-        completed = execute(requests)
+    completed = execute(requests)
     return completed
 
 @ac.module
@@ -43,9 +41,7 @@ def Memory(requests, control, pending, data, data_base):
                 # Accept, wait, publish: three execution ticks; no overlapping job.
                 pending.value = Pending(2, result)
         return None
-    @ac.work
-    def work():
-        completed = execute(requests)
+    completed = execute(requests)
     return completed
 
 @ac.module
@@ -56,8 +52,6 @@ def Writeback(completed, control, entries, results, clock, wb_period, wb_closed)
         if result.tag.epoch == control.value.epoch and not control.value.stopped:
             if same(entries[slot(result.tag)].value.tag, result.tag):
                 results[slot(result.tag)].value = result
-    @ac.work
-    def work():
-        # Optional deterministic test port for completion backpressure.
-        if wb_period == 0 or clock.value % ac.u64(wb_period) >= ac.u64(wb_closed):
-            writeback(completed)
+    # Optional deterministic test port for completion backpressure.
+    if wb_period == 0 or clock.value % ac.u64(wb_period) >= ac.u64(wb_closed):
+        writeback(completed)

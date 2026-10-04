@@ -1,38 +1,54 @@
-# ACIR JSON v1
+# ACIR MLIR v2
 
-文件保存 `version`、`top`、`types`、常量、`config`、`resources`、`modules`、纯 `functions`、`construction` 及资源导出名。它是类型化的数据流表示，不含 Python AST、源码函数体文本或交给后端解释的 Python 表达式。
+保存入口是 `model.acir.mlir`。它是注册 dialect 的可验证 MLIR，不包含 JSON、Python AST 或需要重新解释的源码。`module` 的 `acir.model` 字典记录 `format_version = 2`、顶层构造参数、结构体字段、声明顺序、Module/Rule 身份和导出连接。初始化表达式也编译成 `func.func`，因此重载不依赖源文件。
 
-构造参数和资源声明保存为显式类型；Queue 保存容量及初值操作的 SSA 引用，Queue 阵列保存 iterable 和初始化函数，Signal 保存 helper 函数及全部可能 Queue 输入。Module 保存 Work、Rule 定义和资源访问表。每条 Rule 保存参数类型、全部可能资源身份、固定输出、操作绑定及函数体。
+## 类型与函数
 
-函数的 `ops` 是线性序列。每项包含：
+整数使用 MLIR `i1/i8/i16/i32/i64`。ACPy 有符号性保存在 `acir.source_type`、函数参数元数据和块参数 NameLoc；比较谓词本身区分 signed/unsigned。canonicalize 丢弃普通整数属性时，转换通过位宽、比较谓词、接口签名和显式转换保持语义。
 
-```json
-{
-  "op": "queue.read",
-  "id": "v5",
-  "type": "u32",
-  "args": ["v2"],
-  "guard": "v4",
-  "loc": {"file": "example.py", "line": 12, "column": 8}
+ODS 类型为 `!acir.queue<T>`、`!acir.signal<T>`、`!acir.qarray<T>`、`!acir.struct<"Name">`、`!acir.array<T, N>` 和构造配置用 `!acir.vector<T>`。结构体的字段类型来自模型字典。操作类型约束和补充 verifier 见 [ACIR.td](mlir/ACIR.td)、[Dialect.cpp](mlir/Dialect.cpp)。
+
+Module Work、Rule、Signal、helper 和初始化函数统一是 `func.func`。`acir.function` 属性记录角色、所属实例、普通参数和结果类型。普通值是 SSA，分支和提前返回使用 `cf.br/cf.cond_br/func.return`，运行时循环是带参数的 CFG 回边，不展开 ROB/RS 扫描。
+
+## 操作
+
+| 操作 | 含义 |
+| --- | --- |
+| `acir.resource` / `acir.get` | 静态资源声明／获取身份 |
+| `acir.read` / `acir.query` | 读取 payload/Signal，查询 empty/full/size |
+| `acir.pop/push/revise` | 当前路径的 proposal；revise 的 path/indices 捕获旧尾更新位置 |
+| `acir.invoke` / `acir.event` | Module 选择 Rule／事务内请求未来激活 |
+| `acir.aggregate/extract/update/length` | 聚合值构造、读取、按值更新、长度 |
+| `acir.config/range` | 固定配置与初始化序列 |
+| `acir.cast/unary/compare/check/unreachable` | 定宽转换、前端值操作、断言／非法路径适配 |
+
+普通整数计算复用 `arith`，helper 调用复用 `func.call`。越宽移位、带符号整除和溢出边界使用带 intrinsic 属性的 helper 声明，避免错误赋予 MLIR poison 语义。转换也接受优化产生的 `arith.select` 与整数扩展／截断。
+
+`read/query` 不能是 Pure：即使结果未使用，也必须保留 GFSim 实际依赖登记。ODS 使用标准 `MemoryEffectOpInterface` 的读写效果。聚合索引没有状态效果，但可能报告越界，因此不可推测执行。源码 `loc` 保留到 ACIR；最终 EmitC 工件保留函数位置。
+
+## 三组 pass
+
+1. `acir-analyze-resources`：沿参数、别名、CFG 边和动态索引传播可能资源集合，生成 `acir.accesses/signals/effects`。常量下标和固定子列表保留元素身份；动态索引静态声明覆盖该输入视图的全部可能元素，运行时只登记实际元素。生成端使用轻量资源视图，临时列表共享持有指针表，避免在 Work/Rule 传参时复制整张资源表。
+2. `acir-lower-gfsim`：Rule 入口生成参数比较与 begin，正常返回 complete，必要读取在原位置分裂 CFG，空时 abort；Module 读空仅返回，Signal 读空保持错误语义，静态依赖包含全部绑定输入。pop 在适配层按实际资源去重。
+3. `acir-convert-to-emitc`：将类型与行为转换为 EmitC 调用、标准函数和分支。类声明、资源构造、参数缓存、注册表和 proposal 绑定来自同一份静态信息。MLIR `translateToCpp` 输出函数体。
+
+这些 pass 不识别 CPU、ROB、RS 或其他组件名称。`acir-compile` 默认在资源分析之后执行 canonicalize/CSE，`--no-opt` 关闭它们。`acir-opt` 可分别执行上述 pass；完整模型编译命令会一并输出头文件及构造注册代码。
+
+## 示例片段
+
+以下为合法的 dialect 函数片段（完整 emit 还需模型、角色和资源元数据）：
+
+```mlir
+func.func @transfer(%input: !acir.queue<i32>, %output: !acir.queue<i32>, %enable: i1) {
+  cf.cond_br %enable, ^selected, ^done
+^selected:
+  %value = "acir.read"(%input) : (!acir.queue<i32>) -> i32
+  "acir.pop"(%input) : (!acir.queue<i32>) -> ()
+  "acir.push"(%output, %value) : (!acir.queue<i32>, i32) -> ()
+  cf.br ^done
+^done:
+  return
 }
 ```
 
-`guard: null` 表示无条件；否则只在该 bool SSA 值为真时执行。值只在有效路径使用，未选路径不读取资源。临时值在 C++ 中默认初始化，使组合谓词可以安全表达非活动域，但这不会执行非活动资源读取。`select` 合并 SSA 值；Rule 中必要 `queue.read` 失败时必须登记实际依赖并中止整条候选。C++ 后端以 `tryPeek()` 加 `abortRule()`／返回表达，不以异常处理正常缺输入。Module 控制读取失败只停止后续选择；Signal 无保护的必要读取失败仍是错误。`complete` 表示正常返回，包括无输出和提前返回路径。
-
-| 操作 | 内容 |
-| --- | --- |
-| `const / zero / param / config / resource` | 字面量、值初始化、函数参数、构造配置、固定资源身份 |
-| `binary / unary / cast` | 显式类型的算术、比较、布尔和转换 |
-| `aggregate / field / update / array.update` | 值构造、字段访问、按值更新 |
-| `index / length / range / select` | 数组与构造序列、SSA 合并 |
-| `call / return / check` | 普通 helper 调用、值返回、断言 |
-| `queue.read / empty / full / size` | 当前 Queue 的实际读取 |
-| `queue.pop / push / revise` | 受 guard 保护的原子效果；revise 保存静态字段路径 |
-| `signal.read` | runtime Signal 结果读取 |
-| `rule.call / event / complete` | Module 选择 Rule、未来唤醒请求、正常完成 |
-
-后端为同一 Rule 的所有 `queue.pop` 使用有界局部指针表去重，覆盖实参别名。该表在每次候选重算时重新建立。静态绑定和实际读取分开：Module 访问表／Signal 输入表／Rule 操作表覆盖所有分支及资源阵列元素，Queue 的动态订阅由 GFSim 登记实际执行路径；Signal 两侧关系均静态建立。后端从现有参数 `targets`（所有调用位置的并集）和资源值 SSA 引用追踪到 `signal.read`，生成 `declareInput(ruleId, signal)`，guard 不缩小绑定。普通值不传播资源身份，Work 读取后传普通参数仍由参数比较决定 Rule 重算。独立 ACIR 重载走同一生成路径，无需增加格式字段。
-
-`queue.pop`／`queue.revise` 本身也要求目标非空，即使前面没有 `queue.read`。后端在相应 guard 内检查；只有同一 Queue 已在无条件路径或相同 guard 下通过检查时才省略。`queue.push` 不增加空满检查，输出容量始终交由 GFSim 仲裁。完整代码生成契约见 [GFSim 生成范式](README.md#gfsim-生成范式必要输入)。
-
-所有函数，包括子 Module 的函数，使用相同操作集和后端。`emit` 不需要前端的名称表、HIR 或任何输入源码文件。源码位置为诊断信息，不参与代码重解释。
+未选择路径不会预读 input，也不会产生 pop/push。正常 None 返回只缺少 push；必要读取失败则由生命周期 pass 撤销整条候选。

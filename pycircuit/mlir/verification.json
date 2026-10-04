@@ -1,0 +1,378 @@
+{
+  "date": "2026-10-04",
+  "baseline_commit": "1f5edc0179a475c55f99f1d325170f5db79c9079",
+  "release": {
+    "passed": 14,
+    "total": 14,
+    "language_methods": 25,
+    "log": "/tmp/acpy-mlir-ctest-accepted.log",
+    "log_sha256": "da754cc1af16794d3dfc159ab19a41b6bf707ae75919939c318793208176b96e"
+  },
+  "sanitizer": {
+    "passed": 14,
+    "total": 14,
+    "language_methods": 25,
+    "options": "address,undefined; detect_leaks=1; halt_on_error=1",
+    "log": "/tmp/acpy-mlir-asan-ctest-accepted.log",
+    "log_sha256": "849f43c38cf8ca87f3a12d4e14da4ebbc308fe215ffce89491fca902483abdbb"
+  },
+  "cpu_release": {
+    "passed": true,
+    "oracle": "independent RV32I interpreter",
+    "reports": [
+      {
+        "program": "auipc",
+        "wb_period": 0,
+        "wb_closed": 0,
+        "cycles": 13,
+        "instructions": 5,
+        "variants": 12,
+        "trace_sha256": "1055dadf8d4f90f90dc12e7228009f164b8a194b225a8cbefec564b990ffd9c9",
+        "max_rob": 7,
+        "issued": 10,
+        "issue_ooo": true,
+        "completion_ooo": true,
+        "recovery_inflight": false
+      },
+      {
+        "program": "auipc",
+        "wb_period": 13,
+        "wb_closed": 10,
+        "cycles": 38,
+        "instructions": 5,
+        "variants": 12,
+        "trace_sha256": "adeef94f24102b6192e047c74051a033da7605cfffa02c8d1af06c4f8123a30c",
+        "max_rob": 9,
+        "issued": 10,
+        "issue_ooo": true,
+        "completion_ooo": true,
+        "recovery_inflight": false
+      },
+      {
+        "program": "branches",
+        "wb_period": 0,
+        "wb_closed": 0,
+        "cycles": 278,
+        "instructions": 110,
+        "variants": 12,
+        "trace_sha256": "14df42bd0a782e996e048cca9f09641ac60248bcf557ff29591b8b6d8882999c",
+        "max_rob": 8,
+        "issued": 156,
+        "issue_ooo": true,
+        "completion_ooo": true,
+        "recovery_inflight": true
+      },
+      {
+        "program": "branches",
+        "wb_period": 13,
+        "wb_closed": 10,
+        "cycles": 597,
+        "instructions": 110,
+        "variants": 12,
+        "trace_sha256": "a0f25d7995ff16b684d6326b4a362671965955024fed56232bbb5ef005d6810a",
+        "max_rob": 9,
+        "issued": 148,
+        "issue_ooo": true,
+        "completion_ooo": true,
+        "recovery_inflight": true
+      },
+      {
+        "program": "integer",
+        "wb_period": 0,
+        "wb_closed": 0,
+        "cycles": 35,
+        "instructions": 24,
+        "variants": 12,
+        "trace_sha256": "fb14e5f66d1a674249ddbcc79128928561799b045f67b1a0113440b582ba87de",
+        "max_rob": 9,
+        "issued": 30,
+        "issue_ooo": true,
+        "completion_ooo": true,
+        "recovery_inflight": false
+      },
+      {
+        "program": "integer",
+        "wb_period": 13,
+        "wb_closed": 10,
+        "cycles": 116,
+        "instructions": 24,
+        "variants": 12,
+        "trace_sha256": "229b79eb90f6d1bf277b9464c0d97edb6d6ab2c9a0004ebdee3203b112368064",
+        "max_rob": 7,
+        "issued": 27,
+        "issue_ooo": true,
+        "completion_ooo": false,
+        "recovery_inflight": false
+      },
+      {
+        "program": "memory",
+        "wb_period": 0,
+        "wb_closed": 0,
+        "cycles": 41,
+        "instructions": 17,
+        "variants": 12,
+        "trace_sha256": "0bf7de0e0ab88ada4efc96a4eb40c2f6b036f1666c11139b3051e5b92d602533",
+        "max_rob": 12,
+        "issued": 28,
+        "issue_ooo": true,
+        "completion_ooo": true,
+        "recovery_inflight": false
+      },
+      {
+        "program": "memory",
+        "wb_period": 13,
+        "wb_closed": 10,
+        "cycles": 106,
+        "instructions": 17,
+        "variants": 12,
+        "trace_sha256": "79a9faca5cc467b75752b1168f042cec9a5777867d005ec8a3a3c022e39935a1",
+        "max_rob": 12,
+        "issued": 21,
+        "issue_ooo": true,
+        "completion_ooo": true,
+        "recovery_inflight": false
+      },
+      {
+        "program": "window",
+        "wb_period": 0,
+        "wb_closed": 0,
+        "cycles": 1006,
+        "instructions": 647,
+        "variants": 12,
+        "trace_sha256": "a414e8673e72663b7118a1f94327ef1c4cef322194f25bef5d61293983171a4e",
+        "max_rob": 12,
+        "issued": 683,
+        "issue_ooo": true,
+        "completion_ooo": true,
+        "recovery_inflight": true
+      },
+      {
+        "program": "window",
+        "wb_period": 13,
+        "wb_closed": 10,
+        "cycles": 3015,
+        "instructions": 647,
+        "variants": 12,
+        "trace_sha256": "2d4d7e8fa3e28c6c01184fa74a2fe3df33bfd56879f9a82a6a60bbf9f413d62b",
+        "max_rob": 12,
+        "issued": 672,
+        "issue_ooo": true,
+        "completion_ooo": true,
+        "recovery_inflight": true
+      }
+    ],
+    "binaries": {
+      "compiled": {
+        "path": "/tmp/acpy-mlir-build/examples/skyzh_ooo/acpy-skyzh-compiled",
+        "sha256": "222d92dfa2a3bc96f03698939c9f012aef04b2b48f5b2c15674819d711dd340f"
+      },
+      "emitted": {
+        "path": "/tmp/acpy-mlir-build/examples/skyzh_ooo/acpy-skyzh-emitted",
+        "sha256": "222d92dfa2a3bc96f03698939c9f012aef04b2b48f5b2c15674819d711dd340f"
+      },
+      "no-opt": {
+        "path": "/tmp/acpy-mlir-build/examples/skyzh_ooo/acpy-skyzh-noopt",
+        "sha256": "ca76e4ae7bbced49c22b5b15969c4ce00b76a35516c949deaed7a24142e62f38"
+      }
+    }
+  },
+  "cpu_sanitizer": {
+    "passed": true,
+    "oracle": "independent RV32I interpreter",
+    "reports": [
+      {
+        "program": "auipc",
+        "wb_period": 0,
+        "wb_closed": 0,
+        "cycles": 13,
+        "instructions": 5,
+        "variants": 12,
+        "trace_sha256": "1055dadf8d4f90f90dc12e7228009f164b8a194b225a8cbefec564b990ffd9c9",
+        "max_rob": 7,
+        "issued": 10,
+        "issue_ooo": true,
+        "completion_ooo": true,
+        "recovery_inflight": false
+      },
+      {
+        "program": "auipc",
+        "wb_period": 13,
+        "wb_closed": 10,
+        "cycles": 38,
+        "instructions": 5,
+        "variants": 12,
+        "trace_sha256": "adeef94f24102b6192e047c74051a033da7605cfffa02c8d1af06c4f8123a30c",
+        "max_rob": 9,
+        "issued": 10,
+        "issue_ooo": true,
+        "completion_ooo": true,
+        "recovery_inflight": false
+      },
+      {
+        "program": "branches",
+        "wb_period": 0,
+        "wb_closed": 0,
+        "cycles": 278,
+        "instructions": 110,
+        "variants": 12,
+        "trace_sha256": "14df42bd0a782e996e048cca9f09641ac60248bcf557ff29591b8b6d8882999c",
+        "max_rob": 8,
+        "issued": 156,
+        "issue_ooo": true,
+        "completion_ooo": true,
+        "recovery_inflight": true
+      },
+      {
+        "program": "branches",
+        "wb_period": 13,
+        "wb_closed": 10,
+        "cycles": 597,
+        "instructions": 110,
+        "variants": 12,
+        "trace_sha256": "a0f25d7995ff16b684d6326b4a362671965955024fed56232bbb5ef005d6810a",
+        "max_rob": 9,
+        "issued": 148,
+        "issue_ooo": true,
+        "completion_ooo": true,
+        "recovery_inflight": true
+      },
+      {
+        "program": "integer",
+        "wb_period": 0,
+        "wb_closed": 0,
+        "cycles": 35,
+        "instructions": 24,
+        "variants": 12,
+        "trace_sha256": "fb14e5f66d1a674249ddbcc79128928561799b045f67b1a0113440b582ba87de",
+        "max_rob": 9,
+        "issued": 30,
+        "issue_ooo": true,
+        "completion_ooo": true,
+        "recovery_inflight": false
+      },
+      {
+        "program": "integer",
+        "wb_period": 13,
+        "wb_closed": 10,
+        "cycles": 116,
+        "instructions": 24,
+        "variants": 12,
+        "trace_sha256": "229b79eb90f6d1bf277b9464c0d97edb6d6ab2c9a0004ebdee3203b112368064",
+        "max_rob": 7,
+        "issued": 27,
+        "issue_ooo": true,
+        "completion_ooo": false,
+        "recovery_inflight": false
+      },
+      {
+        "program": "memory",
+        "wb_period": 0,
+        "wb_closed": 0,
+        "cycles": 41,
+        "instructions": 17,
+        "variants": 12,
+        "trace_sha256": "0bf7de0e0ab88ada4efc96a4eb40c2f6b036f1666c11139b3051e5b92d602533",
+        "max_rob": 12,
+        "issued": 28,
+        "issue_ooo": true,
+        "completion_ooo": true,
+        "recovery_inflight": false
+      },
+      {
+        "program": "memory",
+        "wb_period": 13,
+        "wb_closed": 10,
+        "cycles": 106,
+        "instructions": 17,
+        "variants": 12,
+        "trace_sha256": "79a9faca5cc467b75752b1168f042cec9a5777867d005ec8a3a3c022e39935a1",
+        "max_rob": 12,
+        "issued": 21,
+        "issue_ooo": true,
+        "completion_ooo": true,
+        "recovery_inflight": false
+      },
+      {
+        "program": "window",
+        "wb_period": 0,
+        "wb_closed": 0,
+        "cycles": 1006,
+        "instructions": 647,
+        "variants": 12,
+        "trace_sha256": "a414e8673e72663b7118a1f94327ef1c4cef322194f25bef5d61293983171a4e",
+        "max_rob": 12,
+        "issued": 683,
+        "issue_ooo": true,
+        "completion_ooo": true,
+        "recovery_inflight": true
+      },
+      {
+        "program": "window",
+        "wb_period": 13,
+        "wb_closed": 10,
+        "cycles": 3015,
+        "instructions": 647,
+        "variants": 12,
+        "trace_sha256": "2d4d7e8fa3e28c6c01184fa74a2fe3df33bfd56879f9a82a6a60bbf9f413d62b",
+        "max_rob": 12,
+        "issued": 672,
+        "issue_ooo": true,
+        "completion_ooo": true,
+        "recovery_inflight": true
+      }
+    ],
+    "binaries": {
+      "compiled": {
+        "path": "/tmp/acpy-mlir-asan/examples/skyzh_ooo/acpy-skyzh-compiled",
+        "sha256": "57f446781761a98c01858cd437f4270694b712e2ca87d9be451ee39710a64d0b"
+      },
+      "emitted": {
+        "path": "/tmp/acpy-mlir-asan/examples/skyzh_ooo/acpy-skyzh-emitted",
+        "sha256": "10316443d113b5e30ec5976c66b0109fde6b22818dd2eb29ae5842f96532531c"
+      },
+      "no-opt": {
+        "path": "/tmp/acpy-mlir-asan/examples/skyzh_ooo/acpy-skyzh-noopt",
+        "sha256": "9107f5715f4510bf8c524b989379ab8d74aea7027d4de650d753cce6fc4c7ac5"
+      }
+    }
+  },
+  "source_sha256": {
+    "gfsim/cpp/include/gfsim/queue.hpp": "c9b03d6c1985b9426c2326cbde854a08088844076261858ad01a0dc29747e8e6",
+    "pycircuit/__init__.py": "1a7e466ac273109a9861758dca5c672d9a3303ea883e6a615c7c8172faccc4c1",
+    "pycircuit/__main__.py": "2d1007f7ef2e778eabc3ac509941252adccb3d2b0dbd651b8e346991949ea099",
+    "pycircuit/backend.py": "760a3c51e04bc2427fa17cc5f7b79a1af780c796100337526190235d42d1c3d3",
+    "pycircuit/benchmark_migration.py": "40431dee6a3ea1110dcdd6204eac8a58f1715face5a7e2c0e82f2ac786795f33",
+    "pycircuit/examples/skyzh_ooo/assemble.py": "674828b1243d337c5bd82d2b656db0bc1847516f0dbda8380a42a8b24a78e7fd",
+    "pycircuit/examples/skyzh_ooo/benchmark.py": "01a492cc1c0fbbf9113cac9e901feb957c513b6ce555866c39db45da895facec",
+    "pycircuit/examples/skyzh_ooo/check_components.py": "82c897df4cb66f3c6d43d81d44d94beefb4192c24de6834640c291b7ace2d0dd",
+    "pycircuit/examples/skyzh_ooo/diagnose.py": "178f3d3348a56d77d395b0fef874df36be093ba275b34a886331f5f76f9beb29",
+    "pycircuit/examples/skyzh_ooo/execute.py": "f10d9c115685bde1aafdb1c061a5bd98f758027bba30f3855048cfb70cc4a158",
+    "pycircuit/examples/skyzh_ooo/logic.py": "10550ff18c3101e019c393bde1f2a7cdfaec3c393f37ba28369ce820db33a316",
+    "pycircuit/examples/skyzh_ooo/model.py": "5b6bd18016e9452d62b3055795d42fc5e08cf041a2a3ae6fec8ed52a84f1efb8",
+    "pycircuit/examples/skyzh_ooo/oracle.py": "11169c8265c700eab22462c66d84acd312360db8e36edd4fcbd1a4a60b03deb1",
+    "pycircuit/examples/skyzh_ooo/runner.cpp": "2c7b445e749ca885017c01d004a0b6de2ea9b49a4c41d19e70d597fe17711c6c",
+    "pycircuit/examples/skyzh_ooo/verify.py": "67589879a88fe8cfb0631e30aab358529adc0df5bee53189c51511d36e23c337",
+    "pycircuit/examples/skyzh_ooo/verify_reference.py": "9bf37a15fc27dfd61c5bf05fe4df3435ca1e52b1ea3939e11c5fe137071f8df0",
+    "pycircuit/frontend.py": "7cccb0d7a5012680ed95c94e4d5deb6fe7bda131cf267b7c997963a4d97f8d80",
+    "pycircuit/ir.py": "3459d917705e1a1b92ab84900adc3a4f9ff5b09e126242790b3b1f17adad4e21",
+    "pycircuit/mlir/ACIR.td": "fd304356e02478f811c8caa882e9921027df3a529dc7cdb666ed7e27ac169b8e",
+    "pycircuit/mlir/Compiler.cpp": "3d50d3b219ec39e187418513a99b6bfdaa1f929df9bd5316cfd0cbadbab581f0",
+    "pycircuit/mlir/Dialect.cpp": "67aed0178148269b6abeb51e7e9ef26c05e9dac643d310a501109c5ee9a8a57d",
+    "pycircuit/mlir/Dialect.h": "babb6a49718343f7803eac4559980e75ce261aeca55c1c8c907be6a4f23c212e",
+    "pycircuit/mlir/Driver.cpp": "df3853d8d2e961795ae10ab6070e00c10007038c6fd3a2d970e514b4e10c2586",
+    "pycircuit/mlir/Opt.cpp": "634bf2c6e370bbfac4d1e2e5ccac6837cd6d5c9bdcbf0bf299e918f5c53bf9c1",
+    "pycircuit/mlir/Passes.h": "671e55774d6e74b98ad197592755787073a6e35e93e2e2f2b92327dcc638dba0",
+    "pycircuit/mlir/Passes.td": "0ac18e7a345e5e06d648f19b0e9faac90054ed918a05e459510ba9f6c58360f7",
+    "pycircuit/mlir_text.py": "c3006b5ed4b48ebe341b5e57be6bd4ed2da77f087f8bb2888f8bdc23f921c0cf",
+    "pycircuit/support.hpp": "d13b3c2c009cb489ec511a592ed093fcef3c3302ee629df2668b34c60292bbb0"
+  },
+  "tools_sha256": {
+    "acir-opt": "de43f4a8aea4d19d9997b2fb29e761d725fb5f47d0e9d6253d1ce6d1c8e5c06f",
+    "acir-compile": "d5b5ce661a37b9a9a8f739c0c476c028bd774ffbd45528c1390330822e2c2858"
+  },
+  "standalone_pass_pipeline": "passed: analyze-resources, canonicalize, cse, lower-gfsim, convert-to-emitc",
+  "benchmark_files": {
+    "migration-benchmark.json": "a7191488cfc429942b08d7ca925e94ef0968c1de5f22e0ee551d67cf963501cc",
+    "skyzh-benchmark.json": "d57e49cab9e99fd697f2cf27eb28a82551f69648418fb16117a20cd25a30ccd2"
+  }
+}

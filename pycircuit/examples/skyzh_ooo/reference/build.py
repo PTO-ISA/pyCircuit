@@ -23,7 +23,7 @@ def build(source, output, cxx):
     output.mkdir(parents=True, exist_ok=True)
     runner = Path(__file__).with_name('runner.cpp')
     binary = output / 'skyzh-reference'
-    command = [*shlex.split(cxx), '-std=c++20', '-O3', '-DNDEBUG', '-I', str(source / 'src'),
+    command = [*shlex.split(cxx), '-std=gnu++20', '-O3', '-DNDEBUG', '-I', str(source / 'src'),
                *(str(source / 'src' / name) for name in SOURCES), str(runner), '-o', str(binary)]
     subprocess.run(command, check=True)
     manifest = dict(commit=COMMIT, source=str(source), command=command,

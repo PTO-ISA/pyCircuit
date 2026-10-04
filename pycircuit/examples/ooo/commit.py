@@ -34,9 +34,7 @@ def Commit(control, entries, int_results, mem_results, registers, data, data_bas
                     ctl.target = result.target
                     flush.value = Flush(flush.value.count + 1, tag, result.target)
                 control.value = ctl
-    @ac.work
-    def work():
-        commit()
+    commit()
 
 @ac.module
 def Clock(control, clock):
@@ -44,6 +42,4 @@ def Clock(control, clock):
     def tick():
         if not control.value.stopped:
             clock.value = clock.value + 1
-    @ac.work
-    def work():
-        tick()
+    tick()

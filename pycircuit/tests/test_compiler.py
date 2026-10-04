@@ -39,8 +39,8 @@ class CompilerTests(unittest.TestCase):
         directory = self.path / top
         directory.mkdir(exist_ok=True)
         model = model or compile_source(source or HERE / 'circuits.py', top)
-        save(model, directory / 'model.acir.json')
-        emit(load(directory / 'model.acir.json'), directory)
+        save(model, directory / 'model.acir.mlir')
+        emit(load(directory / 'model.acir.mlir'), directory)
         # Count actual throws from generated code and the unchanged runtime. This
         # is an ELF linker probe, not a modified Queue implementation or mock.
         probe = '''
@@ -272,10 +272,11 @@ for(bool cache:{false,true}) for(bool reverse:{false,true}) {
         model = compile_source(HERE / 'circuits.py', 'MissingInput')
         worker = next(m for m in model['modules'] if m['name'] == 'worker')
         take = next(r for r in worker['rules'] if r['name'] == 'take')['function']
-        b = next(o['id'] for o in take['ops'] if o['op'] == 'param' and o['name'] == 'b')
+        b = next(p['id'] for p in take['params'] if p['name'] == 'b')
+        ops = [o for block in take['blocks'] for o in block['ops']]
         # ACIR may consume an element without using its payload. The backend must
         # still check the pop itself, independently of frontend read/pop pairing.
-        read = next(o for o in take['ops'] if o['op'] == 'queue.read' and o['args'] == [b])
+        read = next(o for o in ops if o['op'] == 'queue.read' and o['args'] == [b])
         read.update(op='zero', args=[])
         self.circuit('MissingInput', '''
 for(bool cache:{false,true}) for(bool reverse:{false,true}) {
@@ -344,14 +345,48 @@ CHECK(ac_detail::div<std::int32_t>(INT32_MIN,-1)==INT32_MIN);
         source = directory / 'source.py'
         source.write_text('from pycircuit import ac\n@ac.module\ndef Saved():\n    q=ac.queue[ac.u32](initial=7)\n    @ac.rule\n    def r():\n        q.value=9\n    r()\n')
         model = compile_source(source, 'Saved')
-        save(model, directory / 'only.acir.json')
+        save(model, directory / 'only.acir.mlir')
         source.unlink()
-        run([os.sys.executable, '-m', 'pycircuit', 'emit', directory / 'only.acir.json', '--output', directory / 'out'], cwd=ROOT)
+        run([os.sys.executable, '-m', 'pycircuit', 'emit', directory / 'only.acir.mlir', '--output', directory / 'out'], cwd=ROOT)
         harness = directory / 'main.cpp'
         harness.write_text('#include "model.hpp"\nint main(){ac_generated::Saved s; s.sim.step(); return s.q.peek()!=9;}\n')
         run([*CXX, '-std=c++20', '-O2', '-I', self.include, '-I', directory / 'out', directory / 'out/model.cpp', harness, self.runtime, '-o', directory / 'run'])
         run([directory / 'run'])
         self.assertNotIn('ast', json.dumps(model).lower())
+
+    def test_mlir_static_outputs_arrays_and_keywords(self):
+        source = HERE / 'mlir_circuits.py'
+        self.circuit('Forward', """
+for(bool cache:{false,true}) for(bool reverse:{false,true}) {
+  Forward m(cache,reverse); m.sim.step();
+  CHECK(m.rob.capacity()==12 && m.station.capacity()==1);
+  CHECK(m.rob.peek()==3 && m.station.peek()==3 && m.source.size()==2);
+  for(int i=0;i<4;++i) m.sim.step(); CHECK(m.source.size()==2);
+}
+""", source)
+        self.circuit('Implicit', "Implicit m; m.sim.step(); CHECK(m.top_allocate_out0.peek()==9 && m.source.empty());", source)
+        self.circuit('Arrays', """
+for(bool cache:{false,true}) for(bool reverse:{false,true}) {
+  Arrays m(2,cache,reverse); m.sim.step();
+  for(unsigned i=0;i<4;++i) CHECK(m.slots.refs[i]->peek().lanes[2]==100+i);
+  for(auto* q:m.empty_slots.refs) CHECK(q->empty() && q->capacity()==1);
+  CHECK(m.record.at(0).lanes[2]==3);
+  CHECK(m.record.at(1).lanes[2]==99 && m.record.at(1).tag==5);
+}
+""", source)
+        self.circuit('SignalVar', 'SignalVar m; m.sim.step(); CHECK(m.source.empty() && m.seen.peek()==42);', source)
+        self.circuit('NestedOutputs', 'NestedOutputs m; m.sim.step(); CHECK(m.first.peek()==4 && m.second.empty() && m.third.peek()==5 && m.source.empty());', source)
+        self.circuit('Keywords', "Keywords m(5); m.sim.step(); CHECK(m.ac_py_737769746368.peek()==12);", source)
+        self.circuit('StaticPorts', 'StaticPorts m; for(int i=0;i<3;++i) m.sim.step(); CHECK(m.observed.value()==7 && m.observed.evaluations()==4);', source)
+        self.circuit('TemporaryRefs', """
+for(bool cache:{false,true}) for(bool reverse:{false,true}) {
+  TemporaryRefs m(cache,reverse);
+  for(int i=0;i<3;++i) m.sim.step();
+  CHECK(!m.left.empty() && !m.right.empty() && m.output.peek()==1);
+  for(int i=0;i<3;++i) m.sim.step();
+  CHECK(m.left.empty() && m.right.empty() && m.output.empty() && m.total.peek()==31);
+}
+""", source)
 
     def test_unsupported_syntax_has_location(self):
         path = self.path / 'invalid.py'
@@ -359,6 +394,17 @@ CHECK(ac_detail::div<std::int32_t>(INT32_MIN,-1)==INT32_MIN);
             path.write_text('from pycircuit import ac\n@ac.module\ndef Bad():\n    @ac.rule\n    def bad():\n        ' + statement + '\n    bad()\n')
             with self.assertRaisesRegex(CompileError, r'invalid.py:6:'):
                 compile_source(path, 'Bad')
+
+    def test_historical_expression_regressions(self):
+        repro = ROOT / 'pycircuit/examples/ooo/repro'
+        self.circuit('Probe', 'Probe m; m.sim.step(); CHECK(m.original.value()==2 && m.workaround.value()==2);', repro / 'guarded_constant.py')
+        self.circuit('Probe', 'Probe m; m.sim.step(); CHECK(!m.rows.peek()[0].done && m.rows.peek()[1].done);', repro / 'dynamic_payload.py')
+
+    def test_output_type_cycle_diagnostic(self):
+        path = self.path / 'cycle.py'
+        path.write_text('from pycircuit import ac\n@ac.module\ndef Cycle():\n    @ac.rule\n    def produce():\n        return out.value\n    out = produce()\n')
+        with self.assertRaisesRegex(CompileError, r'cycle.py:6:.*return type annotation'):
+            compile_source(path, 'Cycle')
 
 
 if __name__ == '__main__':

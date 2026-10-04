@@ -25,9 +25,7 @@ def Fetch(pc, if_id, ex_result, load_use_stall, words):
                 next_slot = Slot(True, current, word)
             if_id.value = next_slot
 
-    @ac.work
-    def work():
-        fetch()
+    fetch()
 
 @ac.module
 def Decode(if_id, id_ex, mem_wb, registers, ex_result, load_use_stall):
@@ -49,9 +47,7 @@ def Decode(if_id, id_ex, mem_wb, registers, ex_result, load_use_stall):
             next_slot = Slot(old.valid, old.pc, old.word, left, right)
         id_ex.value = next_slot
 
-    @ac.work
-    def work():
-        decode_stage()
+    decode_stage()
 
 @ac.module
 def Execute(ex_mem, ex_result):
@@ -59,9 +55,7 @@ def Execute(ex_mem, ex_result):
     def execute_stage():
         ex_mem.value = ex_result.value.next_slot
 
-    @ac.work
-    def work():
-        execute_stage()
+    execute_stage()
 
 @ac.module
 def Memory(ex_mem, mem_wb, data, data_base, store):
@@ -83,9 +77,7 @@ def Memory(ex_mem, mem_wb, data, data_base, store):
         mem.value = value
         mem_wb.value = mem
 
-    @ac.work
-    def work():
-        memory()
+    memory()
 
 @ac.module
 def Writeback(mem_wb, registers, retirement, code_size):
@@ -98,9 +90,7 @@ def Writeback(mem_wb, registers, retirement, code_size):
         if wb.valid and wb.pc % 4 == 0 and wb.pc < code_size:
             retirement.value = Event(retirement.value.sequence + ac.u64(1), wb.pc, wb.word, rd, wb.value if rd else 0)
 
-    @ac.work
-    def work():
-        writeback()
+    writeback()
 
 @ac.module
 def CPU(words: ac.vector[ac.u32], data_base: ac.u32,

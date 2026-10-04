@@ -15,9 +15,7 @@ def Clock(limit, clock):
     def tick():
         if clock.value < limit:
             clock.value = clock.value + 1
-    @ac.work
-    def work():
-        tick()
+    tick()
 
 @ac.module
 def Atomic():
@@ -41,11 +39,9 @@ def Atomic():
         total.value = total.value + a.value
         count.value = count.value + b.value
 
-    @ac.work
-    def work():
-        out, side = route(controls, left, left, right)
-        if clock.value >= 4:
-            consume(out, side)
+    out, side = route(controls, left, left, right)
+    if clock.value >= 4:
+        consume(out, side)
 
 @ac.module
 def Parameters():
@@ -64,16 +60,14 @@ def Parameters():
         total.value = total.value + q.value
         count.value = count.value + 1
 
-    @ac.work
-    def work():
-        phase = clock.value
-        # Two sites share choose's RuleId and its fixed output Queue.
-        if phase < 2:
-            output = choose(entries[0], phase)
-        else:
-            output = choose(entries[phase % 3], phase)
-        if phase >= 4:
-            consume(output)
+    phase = clock.value
+    # Two sites share choose's RuleId and its fixed output Queue.
+    if phase < 2:
+        output = choose(entries[0], phase)
+    else:
+        output = choose(entries[phase % 3], phase)
+    if phase >= 4:
+        consume(output)
 
 @ac.signal
 def parity(entries) -> ac.u32:
@@ -85,9 +79,7 @@ def Observer(shared, observed, shared_again):
     def observe():
         observed.value = shared.value
         shared_again.value = shared.value
-    @ac.work
-    def work():
-        observe()
+    observe()
 
 @ac.module
 def Configured(initial: ac.vector[ac.u8], amount: ac.u8):
@@ -104,11 +96,9 @@ def Configured(initial: ac.vector[ac.u8], amount: ac.u8):
         target.value.meta.epoch = target.value.meta.epoch + 1
         target.value.value = target.value.value + delta
 
-    @ac.work
-    def work():
-        n = clock.value
-        if n < 6:
-            revise(entries[n % len(entries)], amount)
+    n = clock.value
+    if n < 6:
+        revise(entries[n % len(entries)], amount)
 
 @ac.module
 def Events():
@@ -116,9 +106,7 @@ def Events():
     @ac.rule
     def pulse(delay: ac.u64):
         ac.wakeup(delay)
-    @ac.work
-    def work():
-        pulse(ac.u64(3))
+    pulse(ac.u64(3))
 
 @ac.module
 def ShortCircuit():
@@ -132,11 +120,9 @@ def ShortCircuit():
             counter.value = 7
         return None
         counter.value = q.value
-    @ac.work
-    def work():
-        if counter.value == 7:
-            return
-        guarded(empty)
+    if counter.value == 7:
+        return
+    guarded(empty)
 
 @ac.module
 def HelperState(value):
@@ -168,10 +154,8 @@ def Closure():
     @ac.rule
     def use_local():
         result.value = local_value
-    @ac.work
-    def work():
-        local_value = clock.value + 10
-        use_local()
+    local_value = clock.value + 10
+    use_local()
 
 @ac.module
 def Arithmetic():
@@ -186,9 +170,7 @@ def Arithmetic():
         out.meta.epoch = ac.u16(ac.i16(-7) % ac.i16(3))
         result.value = out
         fixed.value = lanes
-    @ac.work
-    def work():
-        calculate()
+    calculate()
 
 @ac.module
 def PairSource():
@@ -196,9 +178,7 @@ def PairSource():
     def pair():
         ac.wakeup(1)
         return None, ac.u8(7)
-    @ac.work
-    def work():
-        unused, out = pair()
+    unused, out = pair()
     return unused, out
 
 @ac.module
@@ -207,9 +187,7 @@ def PairSink(message):
     @ac.rule
     def accept(q):
         total.value = total.value + ac.u32(q.value)
-    @ac.work
-    def work():
-        accept(message)
+    accept(message)
 
 @ac.module
 def Composed():
@@ -225,9 +203,7 @@ def DelayedInput(clock):
         if clock.value == 2:
             return ac.u32(10)
         return None
-    @ac.work
-    def work():
-        out = produce()
+    out = produce()
     return out
 
 @ac.module
@@ -240,11 +216,9 @@ def AtomicWaiter(first, second, state, marker):
     @ac.rule
     def independent():
         marker.value = 1
-    @ac.work
-    def work():
-        out = take(first, second)
-        # An aborted Rule must not stop the rest of Module Work.
-        independent()
+    out = take(first, second)
+    # An aborted Rule must not stop the rest of Module Work.
+    independent()
     return out
 
 @ac.module
@@ -265,9 +239,7 @@ def ConditionalWaiter(input, busy, result):
             busy.value = busy.value - 1
         else:
             result.value = message.value
-    @ac.work
-    def work():
-        advance(input)
+    advance(input)
 
 @ac.module
 def ConditionalInput():
@@ -287,9 +259,7 @@ def ReviseWaiter(input, state):
             ac.wakeup(20)
             # No payload read dominates this required revise.
             target.value = 42
-    @ac.work
-    def work():
-        assign(input)
+    assign(input)
 
 @ac.module
 def EmptyRevise():
@@ -307,12 +277,10 @@ def ControlWaiter(input, before, after):
     @ac.rule
     def late(value: ac.u32):
         after.value = value
-    @ac.work
-    def work():
-        early()
-        # Stop selection here, preserving early's complete candidate.
-        value = input.value
-        late(value)
+    early()
+    # Stop selection here, preserving early's complete candidate.
+    value = input.value
+    late(value)
 
 @ac.module
 def MissingControl():
@@ -368,21 +336,23 @@ def StaticObserver(a, b, phase):
     def ordinary(value: ac.u32):
         assert value == 0
 
-    @ac.work
-    def work():
-        if phase.value < 2:
-            conditional(a, False)
-        else:
-            conditional(b, False)
-        alias = a if phase.value < 2 else b
-        selected(alias, False)
-        captured(False)
-        ordinary(b.value & 0)
+    if phase.value < 2:
+        conditional(a, False)
+    else:
+        conditional(b, False)
+    alias = a if phase.value < 2 else b
+    selected(alias, False)
+    captured(False)
+    ordinary(b.value & 0)
 
-@ac.signal
-def static_branch(selector, entries, bias: ac.u32) -> ac.u32:
-    alias = entries[0] if selector.value == 7 else entries[1]
-    return alias.value + bias
+@ac.module
+def static_branch(selector, entries, bias: ac.u32):
+    @ac.signal
+    def evaluate(selector, entries) -> ac.u32:
+        alias = entries[0] if selector.value == 7 else entries[1]
+        return alias.value + bias
+    output = evaluate(selector, entries)
+    return output
 
 @ac.module
 def StaticSignals():

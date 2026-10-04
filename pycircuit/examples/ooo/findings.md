@@ -1,71 +1,25 @@
 # ACPy 表达记录
 
-本轮只添加示例、宿主工具、验收和构建入口。没有修改编译器、GFSim、生成 C++ 或调度语义。
+以下两项是旧编译路径中的表达问题，MLIR 迁移保留最小复现并加入执行回归。
 
-## F1：循环内首次受条件控制的构造常量被错误复用
+## F1：分支内首次引用构造常量（已修复）
 
-想表达：同一 Signal 扫描固定槽位，根据构造参数选择整数或访存候选。
-自然写法是 `ready and memory_op(entry.ins.op) == is_memory`，其中
-`is_memory` 在实例化 Signal 时传入 `True` 或 `False`。
+自然写法在 Signal 循环内比较 `ready and value == wanted`。旧 guard 展平路径把首次受条件控制的常量初始化错误复用，第一项未启用时后续项看到默认值，曾输出 `natural=0 hoisted=2 expected=2`。
 
-[最小复现](repro/guarded_constant.py) 将窗口缩成两个 Queue：
+[guarded_constant.py](repro/guarded_constant.py) 已迁移至 Signal 只接受 Queue、配置由构造期捕获的范式。新的 SSA/CFG 导入在函数入口物化构造值，运行时循环保留实际控制流。自然写法和历史显式转换写法都应返回 2，runner 与编译器回归会同时检查两者。
 
-```python
-@ac.signal
-def natural(enabled, values, wanted) -> ac.u32:
-    selected = ac.u32(0)
-    for i in range(2):
-        if enabled[i].value and values[i].value == wanted:
-            selected = i + 1
-    return selected
-```
+## F2：动态 payload 字段 revise（已支持）
 
-`enabled=[False, True]`、`values=[False, True]`、`wanted=True` 时应返回 2，
-当前编译链返回 0。生成代码在第一次受 guard 保护的位置初始化 `wanted` 的
-局部常量，之后展开的迭代复用它；第一次 guard 为假时，该值仍为默认 `false`。
-在最初的 CPU 轨迹里，访存选择器因此错误选择了已经走整数路的 ADDI。
-仅比较最终架构状态不足以捕获这个错误；“每条只发射一次”和“最老就绪且通路匹配”
-的逐拍检查能直接捕获。
+[dynamic_payload.py](repro/dynamic_payload.py) 的 `rows.value[index.value].done = True` 现在通过通用 `acir.revise` path/indices 转换。Work 捕获下标与新值，Xfer 更新旧队尾；回归检查只修改指定元素。
 
-可用现有语法表达相同硬件：在循环前写 `lane = ac.u32(is_memory)`，
-循环内比较 `ac.u32(memory_op(...)) == lane`。该转换使构造参数在无条件区域
-物化，未增加 Queue、拍延迟或调度约束。可读性代价是一行显式转换。
-[Issue](issue.py) 使用此写法；完整模型不被阻塞，编译器缺陷仍然存在。
+当前 OoO 模型仍保留独立 Queue 阵列表达，状态拆分是模型选择，不再是字段 revise 的编译限制。
 
-复现命令（从仓库根目录运行，先完成 README 的构建）：
+## 重现
 
 ```bash
-python3 -m pycircuit compile pycircuit/examples/ooo/repro/guarded_constant.py \
-  --top Probe --output /tmp/acpy-ooo-repro
-c++ -std=c++20 -O2 -I gfsim/cpp/include -I /tmp/acpy-ooo-repro \
-  /tmp/acpy-ooo-repro/model.cpp pycircuit/examples/ooo/repro/runner.cpp \
-  /tmp/acpy-ooo-build/gfsim/libgfsim.a -o /tmp/acpy-ooo-repro/run
-/tmp/acpy-ooo-repro/run
+export ACPY_MLIR_COMPILER=/tmp/acpy-mlir-build/mlir/acir-compile
+export ACPY_CXX=/home/lc/opt/pycircuit-dev/bin/c++
+python3 -m unittest pycircuit.tests.test_compiler.CompilerTests.test_historical_expression_regressions -v
 ```
 
-本次输出：`natural=0 hoisted=2 expected=2`。宿主只读取两个 Signal。
-复现不会把错误输出定义为应当长期保持的语义；退出码只检查替代写法。
-
-## F2：动态 payload 字段 revise 的已知边界
-
-自然的集中状态写法是 `rob.value[index].done = True`；当前前端文档明确不支持
-动态下标的 Queue payload 字段 revise。本模型用固定的独立 Queue 阵列，并将
-ROB 元数据、操作数、发射标记和两路完成结果拆开。动态选择
-`entries[index].value` 是现有受支持接口，示例和语言回归已覆盖。
-边界复现见 [dynamic_payload.py](repro/dynamic_payload.py)：
-`rows.value[index.value].done = True` 编译失败，诊断为
-`local field update requires a named struct`（第 12 行）。
-
-```bash
-python3 -m pycircuit compile pycircuit/examples/ooo/repro/dynamic_payload.py \
-  --top Probe --output /tmp/acpy-ooo-payload-repro
-```
-
-影响：顶层连接数量增加，但每份状态只有一个写入 Rule，完成和唤醒可以独立推进；
-无需改变编译器或时序。非阻塞。
-
-## 结论与剩余边界
-
-计划内能力均已在当前接口上实现。精确错误以提交事件的 fault 编码和 stopped 状态
-报告，不提供 trap/CSR。64 位代号与序号的溢出不在有界测试范围内。访存采用保守顺序，
-没有 Store 转发、缓存或访存推测。F1 应由后续编译器工作单独修复。
+本模型仍不提供 trap/CSR；64 位 epoch/序号溢出不在有界测试范围内。访存使用保守顺序，没有 Store 转发、缓存或访存推测。

@@ -16,9 +16,7 @@ def Source(requests):
             return requests[position]
         return None
 
-    @ac.work
-    def work():
-        out = produce()
+    out = produce()
     return out
 
 
@@ -29,10 +27,8 @@ def Sink(completed, clock, count, last):
         last.value = message.value
         count.value = count.value + 1
 
-    @ac.work
-    def work():
-        if clock.value % 7 >= 4:
-            consume(completed)
+    if clock.value % 7 >= 4:
+        consume(completed)
 
 
 @ac.module
@@ -40,9 +36,7 @@ def Timer(clock):
     @ac.rule
     def tick():
         clock.value = clock.value + 1
-    @ac.work
-    def work():
-        tick()
+    tick()
 
 
 @ac.module
@@ -65,6 +59,4 @@ def MemoryHelpers(word: ac.u32, address: ac.u32, width: ac.u32, value: ac.u32, i
     def calculate():
         loaded.value = load_value(word, address, width, is_unsigned)
         stored.value = store_value(word, address, width, value)
-    @ac.work
-    def work():
-        calculate()
+    calculate()

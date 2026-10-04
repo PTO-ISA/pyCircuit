@@ -10,6 +10,4 @@ def Probe(unsigned: bool):
     def update():
         result.value = unsigned
 
-    @ac.work
-    def work():
-        update()
+    update()

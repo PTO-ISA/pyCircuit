@@ -39,7 +39,7 @@ def verify(runner, source, output):
             row.update(status='error', error=str(error))
         rows.append(row)
         print(image.stem, row['status'])
-    report = dict(cpu_status='blocked_on_expression', reference_build=manifest, reference_cases=rows,
+    report = dict(cpu_status='see_verify_for_full_cpu_acceptance', reference_build=manifest, reference_cases=rows,
                   excluded_upstream_inputs={'out-of-order-1': 'intentional infinite Fibonacci loop',
                                             'out-of-order-2': 'no termination Store; falls past program text'},
                   passed=sum(r['status'] == 'pass' for r in rows), total=len(rows))
