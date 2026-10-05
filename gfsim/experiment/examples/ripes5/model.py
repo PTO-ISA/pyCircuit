@@ -2,7 +2,7 @@
 from engine import Queue, Signal, RuleEntry
 from construction import assemble
 from .logic import Slot, Event, Store, control, execute, load_use_stall
-from .programs import validate
+from .tools.input import validate
 from .stages import Fetch, Decode, Execute, Memory, Writeback
 
 

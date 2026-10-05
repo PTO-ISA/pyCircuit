@@ -5,10 +5,10 @@ import importlib.util
 import json
 from pathlib import Path
 
-HERE = Path(__file__).resolve().parent
+HERE = Path(__file__).resolve().parent.parent
 ROOT = HERE.parents[2]
 CPP_EXAMPLE = ROOT / 'gfsim/cpp/examples/ripes5'
-spec = importlib.util.spec_from_file_location('handwritten_verify', CPP_EXAMPLE / 'verify.py')
+spec = importlib.util.spec_from_file_location('handwritten_verify', CPP_EXAMPLE / 'tests/verify.py')
 v = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(v)
 

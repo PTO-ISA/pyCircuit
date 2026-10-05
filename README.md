@@ -14,6 +14,8 @@ Python 前端解析 ACPy 并输出类型明确的 MLIR ACIR；C++ pass 展开执
 
 `pycircuit/examples/` 只保留 `ripes5` 和 `skyzh_ooo`。小电路与表达回归位于 `pycircuit/tests/` 和 `gfsim/cpp/tests/`；手写 C++ Ripes5 及 [Python 参考模型](gfsim/experiment/README.md) 供端到端验收使用。
 
+每个示例的根目录保留微架构描述、模型辅助代码和 README；`tests/` 保存程序、宿主 runner 与对照测试，`tools/` 保存构建和 benchmark，`docs/` 保存分析记录。原生参考适配器与版本锁放在相应子目录，构建和测试结果统一输出到 `reference/`。
+
 ## 本地参考、构建与结果
 
 外部参考源码、构建、benchmark 统一放在根目录 `reference/`（本机 `/home/lc/tmp/reference`），不纳入 Git。

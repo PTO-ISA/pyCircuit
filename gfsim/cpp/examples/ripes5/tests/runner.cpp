@@ -1,7 +1,7 @@
 #ifdef ACPY_GENERATED_MODEL
 #include <model.hpp>
 #else
-#include "model.hpp"
+#include "../model.hpp"
 #endif
 #include <charconv>
 #include <chrono>

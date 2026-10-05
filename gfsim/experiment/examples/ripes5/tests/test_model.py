@@ -6,8 +6,8 @@ from pathlib import Path
 import tempfile
 import unittest
 from unittest.mock import patch
-from .model import CPU
-from .logic import execute
+from ..model import CPU
+from ..logic import execute
 from review import ReviewTrace
 from .programs import suite, make_case
 from .run import (DEFAULT_RUNNER, run_python, run_reference, compare, verify_runner)

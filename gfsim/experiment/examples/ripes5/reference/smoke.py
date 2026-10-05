@@ -3,7 +3,7 @@ import argparse
 import json
 from pathlib import Path
 import subprocess
-from ..run import DEFAULT_RUNNER, ROOT, native_env
+from ..tests.run import DEFAULT_RUNNER, ROOT, native_env
 
 
 def main():

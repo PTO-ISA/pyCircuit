@@ -48,7 +48,7 @@ Module 函数体直接表达 Work，不再支持 `@ac.work`。前端先收集资
 
 Queue/Signal 参数保留资源身份；Module 的 `ac.var[T]` 运行时输入必须绑定 Signal。其他构造参数保持不可变。Signal 的显式输入接受 Queue（包括固定 Queue 阵列）或 Signal，也可捕获外层 Signal，配置通过外层 Module 捕获。全部 Queue Xfer 后，按静态 Signal DAG 的拓扑序重算受影响节点；初始化也按此顺序。输出变化才通知下游，组合链不增加流水拍，组合环报错。示例与回归见 [signal_circuits.py](tests/signal_circuits.py)。
 
-Module 可以导出内部 Signal 的固定引用，供多个独立 Module 同拍读取；不能直接导出 Work 的普通局部值。并行完成广播、新分派条目的同拍旁路及当前组合接口限制，见 [模块化表达实测](examples/skyzh_ooo/findings.md#modular-probes)。
+Module 可以导出内部 Signal 的固定引用，供多个独立 Module 同拍读取；不能直接导出 Work 的普通局部值。并行完成广播、新分派条目的同拍旁路及当前组合接口限制，见 [模块化表达实测](examples/skyzh_ooo/docs/findings.md#modular-probes)。
 
 Rule 的消息输入实际读 payload 才生成 pop；返回 payload 生成 push；给 Queue 数据赋值生成 revise。观察捕获资源及 `ac.ref[T]` 参数不消费。别名重复消费在运行时按 Queue 身份去重；所有效果原子提交，读空撤销当前 Rule 的部分效果。Module 读空只退出当前 Work；Signal 无保护读空仍是模型错误。
 

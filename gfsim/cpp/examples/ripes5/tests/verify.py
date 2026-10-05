@@ -6,12 +6,12 @@ from pathlib import Path
 import subprocess
 import sys
 
-HERE = Path(__file__).resolve().parent
+HERE = Path(__file__).resolve().parent.parent
 CPP = HERE.parents[1]
 EXPERIMENT = CPP.parent / 'experiment'
 sys.path.insert(0, str(EXPERIMENT))
-from examples.ripes5.programs import suite, validate
-from examples.ripes5.run import (DEFAULT_RUNNER, verify_runner, run_reference, run_python as _run_python,
+from examples.ripes5.tests.programs import suite, validate
+from examples.ripes5.tests.run import (DEFAULT_RUNNER, verify_runner, run_reference, run_python as _run_python,
                                  compare, write_jsonl)
 
 
@@ -40,7 +40,8 @@ def fingerprint():
     paths = sorted(p for p in CPP.rglob('*') if p.is_file() and p.suffix in ('.hpp', '.cpp', '.py')
                    and not any(part in ('output', '__pycache__', 'build', 'build-asan') for part in p.relative_to(CPP).parts))
     paths += [EXPERIMENT / 'engine.py', EXPERIMENT / 'construction.py']
-    paths += sorted((EXPERIMENT / 'examples/ripes5').glob('*.py'))
+    paths += sorted(p for p in (EXPERIMENT / 'examples/ripes5').rglob('*.py')
+                    if '__pycache__' not in p.parts)
     return {str(p.relative_to(CPP.parent)): hashlib.sha256(p.read_bytes()).hexdigest() for p in paths}
 
 

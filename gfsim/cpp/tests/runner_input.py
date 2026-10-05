@@ -9,7 +9,7 @@ import unittest
 
 RUNNER = Path(sys.argv.pop(1)).resolve()
 HERE = Path(__file__).resolve().parent
-spec = importlib.util.spec_from_file_location('ripes_verify', HERE.parent / 'examples/ripes5/verify.py')
+spec = importlib.util.spec_from_file_location('ripes_verify', HERE.parent / 'examples/ripes5/tests/verify.py')
 v = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(v)
 

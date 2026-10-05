@@ -6,7 +6,7 @@ from pathlib import Path
 import shlex
 import subprocess
 import sys
-from verify import HERE, ROOT, sha, v, fingerprint
+from ..tests.verify import ROOT, sha, v, fingerprint
 
 REFERENCE = ROOT / 'gfsim/experiment/examples/ripes5/reference'
 FLAGS = '-O3 -DNDEBUG -march=armv8-a -mtune=generic -fno-lto'

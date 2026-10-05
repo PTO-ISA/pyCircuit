@@ -7,8 +7,8 @@ import subprocess
 import tempfile
 import threading
 import time
-from verify import v
-from examples.ripes5.run import differences, native_env
+from ..tests.verify import v
+from examples.ripes5.tests.run import differences, native_env
 
 
 def normalized(row):

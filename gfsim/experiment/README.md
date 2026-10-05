@@ -13,7 +13,7 @@
 
 ```bash
 RIPES5_REQUIRE_NATIVE=1 python3 -m unittest discover -s gfsim/experiment -v
-PYTHONPATH=gfsim/experiment python3 -m examples.ripes5.run --case array_sum --html
+PYTHONPATH=gfsim/experiment python3 -m examples.ripes5.tests.run --case array_sum --html
 ```
 
 原生参考准备见 [Ripes5 说明](examples/ripes5/README.md)。没有原生二进制时，普通 Python unittest 会明确跳过对应检查；上面的环境变量将缺失变为失败。C++/ACPy 正式验收一直要求真实原生参考存在。

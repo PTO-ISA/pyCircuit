@@ -4,9 +4,9 @@ import json
 from pathlib import Path
 import subprocess
 import tempfile
-from verify import v
-from benchmark_support import fixed_sample, prepare
-from examples.ripes5.run import native_env
+from .verify import v
+from ..tools.benchmark_support import fixed_sample, prepare
+from examples.ripes5.tests.run import native_env
 
 
 def verify(binaries, output):

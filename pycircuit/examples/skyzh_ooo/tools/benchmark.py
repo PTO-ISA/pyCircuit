@@ -5,12 +5,12 @@ import os
 from pathlib import Path
 import platform
 from pycircuit.benchmark_support import measured, summarize, sha
-from .tests.assemble import assemble
-from .tests.oracle import interpret, load_image
-from .tests.verify import run, compare, inspect, architectural_commits
-from .tests.reference import COMMIT
+from ..tests.assemble import assemble
+from ..tests.oracle import interpret, load_image
+from ..tests.verify import run, compare, inspect, architectural_commits
+from ..tests.reference import COMMIT
 
-HERE = Path(__file__).resolve().parent
+HERE = Path(__file__).resolve().parent.parent
 
 
 def main():

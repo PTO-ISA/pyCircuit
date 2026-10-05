@@ -22,7 +22,7 @@ configure_package_config_file(cmake/gfsimConfig.cmake.in ${CMAKE_CURRENT_BINARY_
 write_basic_package_version_file(${CMAKE_CURRENT_BINARY_DIR}/gfsimConfigVersion.cmake VERSION ${PROJECT_VERSION} COMPATIBILITY SameMajorVersion)
 install(FILES ${CMAKE_CURRENT_BINARY_DIR}/gfsimConfig.cmake ${CMAKE_CURRENT_BINARY_DIR}/gfsimConfigVersion.cmake DESTINATION ${CMAKE_INSTALL_LIBDIR}/cmake/gfsim)
 if(GFSIM_BUILD_EXAMPLES)
-  add_executable(gfsim-ripes5 examples/ripes5/runner.cpp)
+  add_executable(gfsim-ripes5 examples/ripes5/tests/runner.cpp)
   target_link_libraries(gfsim-ripes5 PRIVATE gfsim::gfsim)
   target_compile_options(gfsim-ripes5 PRIVATE -Wall -Wextra -Wpedantic)
 endif()
@@ -43,7 +43,7 @@ if(BUILD_TESTING AND GFSIM_BUILD_EXAMPLES)
   find_package(Python3 REQUIRED COMPONENTS Interpreter)
   set(GFSIM_RIPES_REFERENCE "${CMAKE_CURRENT_SOURCE_DIR}/../../reference/builds/ripes-reference/ripes5-reference" CACHE FILEPATH "Pinned native Ripes reference, required for formal acceptance")
   add_test(NAME ripes5-three-way COMMAND ${Python3_EXECUTABLE}
-    ${CMAKE_CURRENT_SOURCE_DIR}/examples/ripes5/verify.py
+    ${CMAKE_CURRENT_SOURCE_DIR}/examples/ripes5/tests/verify.py
     --cpp-runner $<TARGET_FILE:gfsim-ripes5> --runner ${GFSIM_RIPES_REFERENCE}
     --output ${CMAKE_CURRENT_BINARY_DIR}/ripes5-evidence)
   set_tests_properties(ripes5-three-way PROPERTIES TIMEOUT 300)

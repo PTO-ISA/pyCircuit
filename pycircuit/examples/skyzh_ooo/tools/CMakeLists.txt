@@ -1,8 +1,10 @@
+get_filename_component(SKYZH_MODEL_DIR "${CMAKE_CURRENT_SOURCE_DIR}/.." ABSOLUTE)
 set(SKYZH_SOURCES model.py types.py logic.py frontend.py execution.py storage.py)
+list(TRANSFORM SKYZH_SOURCES PREPEND "${SKYZH_MODEL_DIR}/")
 foreach(variant IN ITEMS compiled emitted noopt)
   set(dir "${CMAKE_CURRENT_BINARY_DIR}/${variant}")
   if(variant STREQUAL "compiled")
-    set(action compile "${CMAKE_CURRENT_SOURCE_DIR}/model.py" --top CPU)
+    set(action compile "${SKYZH_MODEL_DIR}/model.py" --top CPU)
     set(input ${SKYZH_SOURCES})
   else()
     set(action emit "${CMAKE_CURRENT_BINARY_DIR}/compiled/model.acir.mlir")
@@ -24,7 +26,7 @@ foreach(variant IN ITEMS compiled emitted noopt)
   add_dependencies(acpy-skyzh-model-${variant} acpy-skyzh-generate-${variant})
   target_include_directories(acpy-skyzh-model-${variant} PUBLIC "${dir}")
   target_link_libraries(acpy-skyzh-model-${variant} PUBLIC gfsim::gfsim)
-  add_executable(acpy-skyzh-${variant} tests/runner.cpp)
+  add_executable(acpy-skyzh-${variant} "${SKYZH_MODEL_DIR}/tests/runner.cpp")
   target_link_libraries(acpy-skyzh-${variant} PRIVATE acpy-skyzh-model-${variant})
 endforeach()
 set(SKYZH_REFERENCE_SOURCE "${REPO}/reference/skyzh-riscv-reference" CACHE PATH "Clean pinned native skyzh checkout")
@@ -34,7 +36,8 @@ add_custom_command(OUTPUT "${SKYZH_REFERENCE_BINARY}" "${CMAKE_CURRENT_BINARY_DI
   COMMAND ${Python3_EXECUTABLE} -m pycircuit.examples.skyzh_ooo.tests.reference
     --source "${SKYZH_REFERENCE_SOURCE}" --output "${CMAKE_CURRENT_BINARY_DIR}/reference"
     --cxx "${CMAKE_CXX_COMPILER}"
-  DEPENDS ${SKYZH_NATIVE_INPUTS} tests/reference.py tests/reference.cpp tests/observer.hpp
+  DEPENDS ${SKYZH_NATIVE_INPUTS} "${SKYZH_MODEL_DIR}/tests/reference.py"
+    "${SKYZH_MODEL_DIR}/tests/reference.cpp" "${SKYZH_MODEL_DIR}/tests/observer.hpp"
   WORKING_DIRECTORY "${REPO}" VERBATIM)
 add_custom_target(acpy-skyzh-reference ALL DEPENDS "${SKYZH_REFERENCE_BINARY}")
 if(BUILD_TESTING)

@@ -2,7 +2,7 @@
 
 [model.py](model.py) 用 Queue 保存状态与槽位占用，Signal 表达译码、分派、执行广播和提交控制，23 个独立 Module 分别更新自己拥有的状态。全部硬件行为由 ACPy 经 MLIR 生成；测试 runner 只装载程序、驱动和观察。
 
-目标参考是未修改的 skyzh `out-of-order` 提交 `8989a09c357a69b68612f653380d60816f5176c2`。本例保留该版本的微架构行为及已知错误，因此**参考逐拍一致与 RV32I 正确是两项独立检查**，见 [findings.md](findings.md)。
+目标参考是未修改的 skyzh `out-of-order` 提交 `8989a09c357a69b68612f653380d60816f5176c2`。本例保留该版本的微架构行为及已知错误，因此**参考逐拍一致与 RV32I 正确是两项独立检查**，见 [分析记录](docs/findings.md)。
 
 ## 目录与结构
 
@@ -14,7 +14,8 @@
 | [storage.py](storage.py) | ROB entry、保留站、指针、RAT/RF、内存及预测器的状态更新 |
 | [model.py](model.py) | Queue、Signal 和 Module 的静态连接 |
 | [tests/](tests/) | 两个独立模型的观察适配、汇编输入、逐拍比较、独立 ISA 解释器 |
-| [benchmark.py](benchmark.py) | 先验证时序，再串行交替计时 |
+| [tools/](tools/) | CMake 构建接入；benchmark 先验证时序，再串行交替计时 |
+| [docs/](docs/) | 模型边界、性能问题与参考兼容行为记录 |
 
 ROB 是 8 个容量 1 的 Queue，环形 head/tail 保留一格，可用 7 项。10 个保留站各有容量 1 的 Queue。内存和预测器均与参考同规模：4 MiB 内存、4 MiB 历史字节、4 MiB 计数器，按 256 字节地址页组织 Queue；运行时扫描保留为循环。
 
@@ -89,7 +90,7 @@ CTest 完整输出可用 `--output-junit ctest.xml` 保存在构建目录；CPU 
 ## 性能比较
 
 ```bash
-python3 -m pycircuit.examples.skyzh_ooo.benchmark \
+python3 -m pycircuit.examples.skyzh_ooo.tools.benchmark \
   --generated reference/builds/acpy-release/examples/skyzh_ooo/acpy-skyzh-compiled \
   --reference reference/builds/acpy-release/examples/skyzh_ooo/reference/skyzh-reference \
   --output reference/benchmarks/skyzh-aligned --repeats 7 --iterations 4096
@@ -99,17 +100,17 @@ python3 -m pycircuit.examples.skyzh_ooo.benchmark \
 
 测量结果写入 `reference/benchmarks/skyzh-aligned/results.json`，包含源码/二进制指纹和编译参数。旧 CPU 的流水、ROB 容量和内存配置不同，其性能数字不能直接当成本次模型的前后优化比。
 
-2026-10-04，当前 aarch64 主机 CPU 0，4096 次循环、七轮中位数：
+**时序对齐：**7 个短程序 × 3 种生成方式 × 2 种 Module 顺序，共 42 次运行逐拍一致；下面两个长程序的完整逐拍状态和架构提交也与原生一致，并通过独立 RV32I 检查。AUIPC、SRAI、LB 等参考已知错误仍按上面的验收表单独记录。
+
+**运行速度：**2026-10-04，aarch64 CPU 0，Clang 22.1.8、`-O3 -DNDEBUG`、无 LTO；每个程序循环 4096 次，串行交替七轮取中位数。ns/tick 越低越快，耗时倍数为 ACPy / 原生：
 
 | 程序 | 两边共同周期 | 共同 IPC | ACPy ns/tick | 原生 ns/tick | 耗时倍数 |
 | --- | ---: | ---: | ---: | ---: | ---: |
 | window | 40,991 | 0.9994 | 14,662.3 | 297.6 | 49.26× |
 | branches | 12,328 | 0.9979 | 13,315.8 | 316.8 | 42.03× |
 
-window 共提交 40,967 条架构指令，模拟耗时 601.02 ms / 12.20 ms，吞吐 6.82 万 / 335.80 万条每秒（ACPy / 原生）；branches 共 12,302 条，164.16 ms / 3.91 ms，吞吐 7.49 万 / 315.00 万条每秒。七轮 ACPy ns/tick 范围分别为 14,580–14,732、13,245–13,511；原生为 297–299、313–319。
+当前生成模型的模拟耗时约为原生的 **42–49 倍**，两边模拟周期数相同。构造、装载及轨迹输出不在计时范围内；原始样本、源码指纹和额外指标保存在本地 `reference/benchmarks/skyzh-aligned/results.json`，测量产物不纳入 Git。
 
-构造函数中位耗时约 86 ms / 2.68 ms，进程峰值 RSS 约 66.6 MiB / 18.7 MiB；这些值没有混入上述模拟计时。生成 `model.cpp` 为 265,616 字节，`model.hpp` 为 12,179 字节。时序已对齐，但速度仍相差约 42–49 倍，当前差距不能由模拟周期数差异解释；这组数据本身尚不能区分生成 C++ 与调度运行时各自占比。
-
-后续采样与 A/B 实验已记录在 [性能问题记录](findings.md#performance-findings)：生成 C++ 的多余清零／聚合值拷贝和无变化 revise 是已确认的优化项。实验合并后耗时下降约 59%–61%，仍保留 17–19 倍差距；这些修改尚未应用到正式实现。
+后续采样与 A/B 实验已记录在 [性能问题记录](docs/findings.md#performance-findings)：生成 C++ 的多余清零／聚合值拷贝和无变化 revise 是已确认的优化项。实验合并后耗时下降约 59%–61%，仍保留 17–19 倍差距；这些修改尚未应用到正式实现。
 
 旧模型和实验已归档到 `reference/benchmarks/skyzh-before-alignment/`；通用表达探针移到 [编译器 fixtures](../../tests/fixtures/skyzh/)。示例目录只保留当前模型、验收及 benchmark 入口。

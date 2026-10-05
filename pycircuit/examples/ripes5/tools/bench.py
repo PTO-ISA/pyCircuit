@@ -7,10 +7,10 @@ import platform
 import shlex
 import statistics
 import time
-from verify import HERE, ROOT, v, sha, fingerprint, verify
-from benchmark_programs import suite, check_result
-from benchmark_support import fixed_sample, stream_verify
-from test_benchmark import verify as verify_fixed
+from ..tests.verify import ROOT, v, sha, fingerprint, verify
+from ..tests.benchmark_programs import suite, check_result
+from .benchmark_support import fixed_sample, stream_verify
+from ..tests.test_benchmark import verify as verify_fixed
 
 
 def summary(samples):

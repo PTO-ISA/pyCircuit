@@ -4,8 +4,8 @@ from pathlib import Path
 import sys
 import tempfile
 import unittest
-from benchmark_support import stream_verify
-from verify import v
+from ..tools.benchmark_support import stream_verify
+from .verify import v
 
 
 class StreamTests(unittest.TestCase):

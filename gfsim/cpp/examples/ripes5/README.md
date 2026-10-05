@@ -4,10 +4,10 @@
 
 `ex_result` 和 `load_use_stall` 是 runtime Signal，helper 只读取声明的 Queue。`logic.hpp` 为纯译码/计算，`stages.hpp` 为受分支保护的业务读取和 proposal，`model.hpp` 只构造状态与绑定。资源数量在构造后固定；每个数组项都有独立 QueueId。业务方法只读 current、提出 proposal。
 
-本目录保留手写参考模型；完整 [ACPy 生成版](../../../../pycircuit/README.md) 与它独立比较。汇编、输入验证、轨迹、终止条件与计时属于 testbench；`runner.cpp` 通过编译宏选择手写或生成模型，观察逻辑共用。复用 Python 的汇编器、13 个程序和比较器；支持范围与 [Python Ripes5](../../../experiment/examples/ripes5/README.md) 相同，包括固定版本 Ripes 的 JALR 行为。
+本目录根部保留 `model.hpp`、`stages.hpp`、`logic.hpp` 三个微架构描述文件；完整 [ACPy 生成版](../../../../pycircuit/README.md) 与它独立比较。[tests/](tests/) 保存宿主 runner 和对照工具。汇编、输入验证、轨迹、终止条件与计时属于 testbench；`tests/runner.cpp` 通过编译宏选择手写或生成模型，观察逻辑共用。复用 Python 的汇编器、13 个程序和比较器；支持范围与 [Python Ripes5](../../../experiment/examples/ripes5/README.md) 相同，包括固定版本 Ripes 的 JALR 行为。
 
 ```bash
-python3 gfsim/cpp/examples/ripes5/verify.py \
+python3 gfsim/cpp/examples/ripes5/tests/verify.py \
   --cpp-runner reference/builds/gfsim-release/gfsim-ripes5
 ```
 

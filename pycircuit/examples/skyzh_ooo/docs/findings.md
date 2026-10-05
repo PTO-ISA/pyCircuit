@@ -1,6 +1,6 @@
 # skyzh 模型边界、性能问题与参考兼容行为
 
-本例对齐未修改的 skyzh 提交 `8989a09c357a69b68612f653380d60816f5176c2`。模型、时序验收和计时入口见 [README](README.md)。参考一致不能代替独立 ISA 检查。
+本例对齐未修改的 skyzh 提交 `8989a09c357a69b68612f653380d60816f5176c2`。模型、时序验收和计时入口见 [README](../README.md)。参考一致不能代替独立 ISA 检查。
 
 <a id="modular-probes"></a>
 
@@ -10,7 +10,7 @@ Signal 的 Queue/Signal 输入和捕获依赖形成静态 DAG，在初始化及 
 
 Signal 的 valid 表示组合条件满足。若生产事务可能受反压阻塞，必须显式表达 ready/firing 协议。本 CPU 的分派 Signal 先检查全部旧空槽和 ROB 空间，各槽位只有一个更新 Rule，提交 flush 具有统一优先级。
 
-ROB 使用 8 个独立容量 1 的 Queue，每项一个状态更新 Module。正常退役和 flush 使用该项的同一 pop 来源；flush 一次 Xfer 清空全部占用。语言及组合能力回归在 [编译器测试](../../tests/test_compiler.py)，小电路输入在 [fixtures](../../tests/fixtures/skyzh/)。
+ROB 使用 8 个独立容量 1 的 Queue，每项一个状态更新 Module。正常退役和 flush 使用该项的同一 pop 来源；flush 一次 Xfer 清空全部占用。语言及组合能力回归在 [编译器测试](../../../tests/test_compiler.py)，小电路输入在 [fixtures](../../../tests/fixtures/skyzh/)。
 
 当前模型的模块间组合数据与控制主要由 Signal 传递，包含实际 payload：
 
@@ -40,15 +40,15 @@ Queue 保存跨拍状态和槽位占用，包括 PC、ROB、RS、LSU 阶段、RA
 
 已确认的问题：
 
-1. **生成 C++ 的临时对象处理。** [Compiler.cpp](../../mlir/Compiler.cpp) 给 payload 字段生成默认初始化，EmitC 函数中的大量聚合临时对象因此发生多余清零。一个 ROB 更新函数进入 `beginRule` 前的指令数从 233 降到 18。聚合值的字段／下标更新和提取还保留整数组拷贝，汇编确认 `-O3` 未消除。仅去掉多余清零降低整体耗时约 31%–33%，加上聚合值拷贝调整后约为 40%。实验保留显式构造的初始化；正式修复应在保证 SSA 定义与真实默认值语义的前提下处理临时变量。
-2. **无变化的 Queue 事务。** [storage.py](storage.py) 中 RAT 每拍 revise 31 项，ROB 保留目标、占用 ROB 和等待 RS 也有重复写入。每拍约 48–51 个 Queue 进入 Xfer，实际只有 11–12 个变化，约 76%–77% 无变化。变化检测在 Xfer 才发生，之前已经支付 proposal、仲裁、回调等成本。实验只在 RAT、保留目标、ROB 和等待 RS 四处增加值变化判断，耗时下降约 18%–19%；不能据此无条件省略任意多次／部分字段 revise。
+1. **生成 C++ 的临时对象处理。** [Compiler.cpp](../../../mlir/Compiler.cpp) 给 payload 字段生成默认初始化，EmitC 函数中的大量聚合临时对象因此发生多余清零。一个 ROB 更新函数进入 `beginRule` 前的指令数从 233 降到 18。聚合值的字段／下标更新和提取还保留整数组拷贝，汇编确认 `-O3` 未消除。仅去掉多余清零降低整体耗时约 31%–33%，加上聚合值拷贝调整后约为 40%。实验保留显式构造的初始化；正式修复应在保证 SSA 定义与真实默认值语义的前提下处理临时变量。
+2. **无变化的 Queue 事务。** [storage.py](../storage.py) 中 RAT 每拍 revise 31 项，ROB 保留目标、占用 ROB 和等待 RS 也有重复写入。每拍约 48–51 个 Queue 进入 Xfer，实际只有 11–12 个变化，约 76%–77% 无变化。变化检测在 Xfer 才发生，之前已经支付 proposal、仲裁、回调等成本。实验只在 RAT、保留目标、ROB 和等待 RS 四处增加值变化判断，耗时下降约 18%–19%；不能据此无条件省略任意多次／部分字段 revise。
 3. **广播激活与通用事务开销。** 23 个 Module 和 7 个 Signal 几乎每拍都运行；每拍仅 1 轮 delta、0 个延迟事件，没有反复重算。当前已经没有动态依赖登记和候选缓存，Queue 来源槽位也已直接映射。原版约 42%–43% 的平坦采样落在 GFSim 调度与 Queue 函数，合并实验后约为 56%；Module 函数还包含内联事务代码，不能把其样本都算成纯 CPU 逻辑。原版 Signal 计算函数约占 12%–13%，不能单独解释整体差距。
 
 合并实验保持原来的 23 个 Module、Queue/Signal 边界和 GFSim 库，耗时降低约 59%–61%，相对原生的差距由 42–49 倍缩小到 17–19 倍。四版通过 7 个短程序 × 两种 Module 顺序（56 次）及两个长程序（8 次）的逐拍对照。不同实验的改善比例不能当作互不重叠的耗时占比。
 
 **以上是诊断实验，正式编译器、模型和 GFSim 尚未应用这些优化。** 聚合值实验在生成 C++ 中去掉 payload 字段默认初始化、将 `OperandView` 构造改成原地填充，并折叠 47 处单次使用的字段／下标提取；这还不是通用编译 pass。后续优先处理临时对象与聚合值 lowering，再消除无效 revise，随后利用静态连接与容量信息简化 Queue 事务路径。
 
-本地原始证据保存在 [`reference/benchmarks/skyzh-profile-aligned/`](../../../reference/benchmarks/skyzh-profile-aligned/)：`analysis.json` 汇总归因，`variants.json` 保存七轮样本，`profile.json` 和 `after-combined/profile.json` 保存前后采样，`assembly-comparison.json` 保存汇编对比，`validation/` 保存逐拍验收。复现脚本为 `prepare.py`、`measure.py`、`diagnostics.py`、`variants.py`、`compare_variants.py` 和 `summarize.py`；脚本内记录工具链与本次构建路径，均只在 benchmark 目录写实验副本。这些本地测量产物不随源码提交，本节保留问题与测量摘要。
+本地原始证据保存在 [`reference/benchmarks/skyzh-profile-aligned/`](../../../../reference/benchmarks/skyzh-profile-aligned/)：`analysis.json` 汇总归因，`variants.json` 保存七轮样本，`profile.json` 和 `after-combined/profile.json` 保存前后采样，`assembly-comparison.json` 保存汇编对比，`validation/` 保存逐拍验收。复现脚本为 `prepare.py`、`measure.py`、`diagnostics.py`、`variants.py`、`compare_variants.py` 和 `summarize.py`；脚本内记录工具链与本次构建路径，均只在 benchmark 目录写实验副本。这些本地测量产物不随源码提交，本节保留问题与测量摘要。
 
 ## 原生行为与已知错误
 

@@ -9,7 +9,7 @@ import unittest
 from engine import CapacityCycle
 from test_engine import cyclic_circuit
 from examples.ripes5.model import CPU
-from examples.ripes5.programs import suite
+from examples.ripes5.tests.programs import suite
 from review import ReviewTrace
 
 

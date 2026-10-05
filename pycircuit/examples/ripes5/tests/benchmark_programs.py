@@ -1,6 +1,6 @@
 """Bounded throughput workloads, with independently calculated architectural results."""
-from verify import v  # Install the existing example/assembler import path.
-from examples.ripes5.programs import DATA_BASE, make_case
+from .verify import v  # Install the existing example/assembler import path.
+from examples.ripes5.tests.programs import DATA_BASE, make_case
 
 
 def suite(iterations=12000):

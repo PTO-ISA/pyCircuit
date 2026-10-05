@@ -2,6 +2,8 @@
 
 本目录提供 Ripes5 验收使用的 Python 独立模型、汇编器、13 个程序、轨迹比较器和原生观察适配器。Python 引擎保留历史实现，仅用于轨迹对照；当前编译器示例和性能入口在 [ACPy Ripes5](../../../../pycircuit/examples/ripes5/README.md)，GFSim 运行时契约见 [spec](../../../spec.md)。
 
+根目录的 `model.py`、`stages.py`、`logic.py`、`records.py` 和 `isa.py` 描述微架构、状态与译码。测试程序、汇编器、运行观察和测试放在 [tests/](tests/)；宿主输入协议检查放在 [tools/](tools/)；原生源码的构建、版本锁与观察适配器放在 [reference/](reference/)。
+
 ## 原生参考构建
 
 [reference/version.json](reference/version.json) 固定 Ripes `5b8a616edcb6f0a2ddb07e78951348b72497f1e1`、VSRTL `8497dd14fe80e57efcff4c424a9a3b6363d93eb7` 和 FetchContent 依赖。源码默认位于根目录 `reference/ripes-reference/`，构建位于 `reference/builds/ripes-reference/`；适配器、版本锁和构建脚本由本仓库保存。
@@ -22,7 +24,7 @@ PYTHONPATH=gfsim/experiment python3 -m examples.ripes5.reference.smoke
 ## 验收
 
 ```bash
-PYTHONPATH=gfsim/experiment python3 -m examples.ripes5.run
+PYTHONPATH=gfsim/experiment python3 -m examples.ripes5.tests.run
 RIPES5_REQUIRE_NATIVE=1 python3 -m unittest discover -s gfsim/experiment -v
 ```
 

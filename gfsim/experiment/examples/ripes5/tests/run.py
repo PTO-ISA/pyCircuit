@@ -5,10 +5,10 @@ import json
 import os
 from pathlib import Path
 import subprocess
-from .model import CPU
+from ..model import CPU
 from .programs import suite, validate
 
-HERE = Path(__file__).resolve().parent
+HERE = Path(__file__).resolve().parent.parent
 ROOT = HERE.parents[3]
 DEFAULT_RUNNER = ROOT / 'reference/builds/ripes-reference/ripes5-reference'
 
