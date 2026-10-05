@@ -6,34 +6,50 @@
 
 ## 目录与结构
 
+按硬件组件组织：组件文件同时包含自己的组合计算和状态更新。顶层先声明固定 Queue，再连接组件；组件通过 `return` 导出内部 Signal 的固定引用。
+
 | 文件 | 职责 |
 | --- | --- |
-| [types.py](types.py)、[logic.py](logic.py) | 数据类型、译码、定宽 ALU 和分支判断 |
-| [frontend.py](frontend.py) | 取指、源操作数、空槽选择、分派和 PC 更新 |
-| [execution.py](execution.py) | 4 路 ALU、3 个 Store / 3 个 Load 站的独立执行、广播、提交控制 |
-| [storage.py](storage.py) | ROB entry、保留站、指针、RAT/RF、内存及预测器的状态更新 |
-| [model.py](model.py) | Queue、Signal 和 Module 的静态连接 |
-| [tests/](tests/) | 两个独立模型的观察适配、汇编输入、逐拍比较、独立 ISA 解释器 |
-| [tools/](tools/) | CMake 构建接入；benchmark 先验证时序，再串行交替计时 |
-| [docs/](docs/) | 模型边界、性能问题与参考兼容行为记录 |
+| [model.py](model.py) | CPU 资源声明及组件连接；对外共享 `allocation`、`completion`、`retirement` 三类 Signal |
+| [frontend.py](frontend.py) | 取指、源操作数、资源选择、分派和 PC 更新；导出 `Dispatch` |
+| [execution.py](execution.py) | ALU/LSU 计算、保留站分配与释放、操作数广播；导出 `Completion` |
+| [reorder_buffer.py](reorder_buffer.py) | ROB entry 分配、结果／Store 地址更新、退役／flush 与环形指针 |
+| [commit.py](commit.py) | 从旧 ROB head 决定提交、跳转和恢复；导出 `Retirement` |
+| [register_file.py](register_file.py) | RF/RAT 更新，处理同拍重命名与提交的优先关系 |
+| [memory.py](memory.py)、[predictor.py](predictor.py) | 提交时写内存、训练预测器 |
+| [types.py](types.py)、[logic.py](logic.py) | 公共状态／端口类型，以及纯译码、定宽 ALU、分支判断函数 |
+| [tests/](tests/)、[tools/](tools/) | 端到端逐拍验收、独立 ISA 检查和 benchmark |
+| [docs/](docs/) | 模型边界、表达问题与性能记录 |
 
-ROB 是 8 个容量 1 的 Queue，环形 head/tail 保留一格，可用 7 项。10 个保留站各有容量 1 的 Queue。内存和预测器均与参考同规模：4 MiB 内存、4 MiB 历史字节、4 MiB 计数器，按 256 字节地址页组织 Queue；运行时扫描保留为循环。
+建议从 `model.py` 看连线，再依次阅读 Frontend → ExecutionCluster → ReorderBuffer → CommitControl，最后查看寄存器、内存和预测器更新。
 
 ```mermaid
 flowchart LR
-  PC[PC / 内存 Queue] --> F[取指 Signal]
-  RF[RAT / RF / ROB Queue] --> O[源操作数 Signal]
-  F --> D[分派 Signal]
-  O --> D
-  RS[保留站 Queue] --> D
-  RS --> E[ALU / LSU Signal]
-  E --> B[完成广播 Signal]
-  ROB[ROB Queue] --> C[提交 Signal]
-  D --> U[各状态所属 Module]
-  B --> U
-  C --> U
-  U --> X[统一 Xfer]
+  F[Frontend] -- Dispatch --> E[ExecutionCluster]
+  F -- Dispatch --> R[ReorderBuffer]
+  E -- Completion --> R
+  R -- Xfer --> Q[(ROB Queue)]
+  Q -- current --> C[CommitControl]
+  C -- Retirement --> F
+  C -- Retirement --> E
+  C -- Retirement --> R
+  F -- Dispatch --> RF[RegisterFile]
+  C -- Retirement --> RF
+  C -- Retirement --> M[Memory]
+  C -- Retirement --> P[Predictor]
 ```
+
+图中的组合连线不增加流水拍。PC、RS、LSU 阶段、RF/RAT、内存和预测器也通过各自 Queue 保存跨拍状态；这些固定资源在顶层声明，传给负责更新和观察的组件。ROB 是 8 个容量 1 的 Queue，环形 head/tail 保留一格，可用 7 项；10 个保留站也各有容量 1 的 Queue。
+
+| 公共 Signal | 主要字段与使用者 |
+| --- | --- |
+| `Dispatch` | 最多两个分配请求（站号、ROB tag、待写 RS／ROB payload）、重命名信息、下一 PC／tail；执行簇、ROB、RF/RAT 使用 |
+| `Completion` | 10 路完成标志、ROB tag、结果，以及 Store 地址更新标志／地址；ROB 和执行簇内部操作数广播使用 |
+| `Retirement` | 旧 head 的提交条目、RF／Store／预测器更新标志、flush 及目标 PC；各状态组件使用 |
+
+取指和全部源操作数视图是 Frontend 内部 Signal；ALU 结果和 LSU 推进信息是 ExecutionCluster 内部 Signal。LSU 的 `advance`、`phase`、`buffer` 不通过公共完成总线传播。组件分组保留 23 个独立状态更新 Module 和 7 个 Signal，ROB／保留站每槽仍有独立 Rule；CommitControl 只导出组合 Signal，没有状态提交 Rule。
+
+内存和预测器均与参考同规模：4 MiB 内存、4 MiB 历史字节、4 MiB 计数器，按 256 字节地址页组织 Queue；运行时扫描保留为循环。
 
 Signal 链在初始化和 Queue Xfer 后按静态拓扑序计算，不增加流水拍。每拍只使用旧占用/ready 状态选择分派、执行和提交：
 
@@ -109,8 +125,21 @@ python3 -m pycircuit.examples.skyzh_ooo.tools.benchmark \
 | window | 40,991 | 0.9994 | 14,662.3 | 297.6 | 49.26× |
 | branches | 12,328 | 0.9979 | 13,315.8 | 316.8 | 42.03× |
 
-当前生成模型的模拟耗时约为原生的 **42–49 倍**，两边模拟周期数相同。构造、装载及轨迹输出不在计时范围内；原始样本、源码指纹和额外指标保存在本地 `reference/benchmarks/skyzh-aligned/results.json`，测量产物不纳入 Git。
+2026-10-04 的生成模型模拟耗时约为原生的 **42–49 倍**，两边模拟周期数相同。构造、装载及轨迹输出不在计时范围内；原始样本、源码指纹和额外指标保存在本地 `reference/benchmarks/skyzh-aligned/results.json`，测量产物不纳入 Git。
 
 后续采样与 A/B 实验已记录在 [性能问题记录](docs/findings.md#performance-findings)：生成 C++ 的多余清零／聚合值拷贝和无变化 revise 是已确认的优化项。实验合并后耗时下降约 59%–61%，仍保留 17–19 倍差距；这些修改尚未应用到正式实现。
 
 旧模型和实验已归档到 `reference/benchmarks/skyzh-before-alignment/`；通用表达探针移到 [编译器 fixtures](../../tests/fixtures/skyzh/)。示例目录只保留当前模型、验收及 benchmark 入口。
+
+## 可读性重构测量（2026-10-05）
+
+按上述组件结构整理前后，在同一工具链、同一 CPU 上各运行七轮，window/branches 均循环 4096 次。沿用前述逐拍验证和计时方法；本次同时缩小公共完成总线，LSU 阶段信息保留在执行簇内部。
+
+| 程序 | 重构前 ns/tick | 重构后 ns/tick | 每拍耗时下降 |
+| --- | ---: | ---: | ---: |
+| window | 14,764.0 | 13,487.2 | 8.6% |
+| branches | 13,319.3 | 12,216.5 | 8.3% |
+
+构造耗时前后约 86 ms，进程峰值 RSS 前后约 66.6 MiB。重构后的七个短程序 × 三种生成方式 × 两种 Module 顺序共 42 次逐拍对照通过；两个长程序分别为 40,991／12,328 拍，也与原生逐拍一致并通过独立 ISA 检查。编译器和 GFSim 调度引擎沿用现有实现。
+
+本地证据在 [`reference/benchmarks/skyzh-readability/`](../../../reference/benchmarks/skyzh-readability/)：`baseline-validation/`、`hierarchy-validation/`、`final-validation/` 保存迁移前、中、后的轨迹，`baseline/`、`after/` 保存七轮测量和长程序验收，`comparison.json` 汇总变化。测量产物不纳入 Git。

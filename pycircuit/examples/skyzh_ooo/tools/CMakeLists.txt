@@ -1,5 +1,5 @@
 get_filename_component(SKYZH_MODEL_DIR "${CMAKE_CURRENT_SOURCE_DIR}/.." ABSOLUTE)
-set(SKYZH_SOURCES model.py types.py logic.py frontend.py execution.py storage.py)
+set(SKYZH_SOURCES model.py types.py logic.py frontend.py execution.py commit.py reorder_buffer.py register_file.py memory.py predictor.py)
 list(TRANSFORM SKYZH_SOURCES PREPEND "${SKYZH_MODEL_DIR}/")
 foreach(variant IN ITEMS compiled emitted noopt)
   set(dir "${CMAKE_CURRENT_BINARY_DIR}/${variant}")

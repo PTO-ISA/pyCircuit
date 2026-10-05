@@ -1,5 +1,6 @@
-"""Fetch, dispatch and operand views; all resource tests use old state."""
-from .logic import *
+"""Fetch, operand preparation, dispatch and PC update. Export only Dispatch."""
+from .types import ac, Instruction, Operand, OperandView, Dispatch, Station, ROBEntry, Allocation, ADD
+from .logic import decode, alu_op, next_rob
 
 
 @ac.signal
@@ -98,10 +99,16 @@ def dispatch(pc, instruction, values, head, tail, stations, predictor) -> Dispat
 
 
 @ac.module
-def Frontend(pc, allocation, retirement):
+def Frontend(pc, memory, rename, registers, rob, head, tail, stations, predictor, retirement):
+    instruction = fetch(pc, memory)
+    sources = operands(rename, registers, rob)
+    allocation = dispatch(pc, instruction, sources, head, tail, stations, predictor)
+
     @ac.rule
     def advance():
         issue = allocation.value
         commit = retirement.value
         pc.value = commit.next_pc if commit.flush else issue.next_pc
     advance()
+
+    return allocation

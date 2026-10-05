@@ -1,5 +1,5 @@
 """Pure decode/ALU functions. Intentional reference quirks are documented."""
-from .types import *
+from .types import ac, Instruction, ADD, SUB, SLT, SLTU, XOR, OR, AND, SLL, SRL, SRA
 
 
 def sign_extend(value: ac.u32, bits: ac.u32) -> ac.u32:

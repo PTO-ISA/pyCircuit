@@ -16,9 +16,10 @@ ROB 使用 8 个独立容量 1 的 Queue，每项一个状态更新 Module。正
 
 | Signal | 传递的信息 |
 | --- | --- |
-| `instruction`、`sources` | 译码指令和源操作数值／依赖 tag，供分派使用 |
+| Frontend 内部的 `instruction`、`sources` | 译码指令和源操作数值／依赖 tag，供分派使用 |
 | `allocation` | 分派目标、待写 ROB／RS 条目、重命名信息及下一 PC／tail |
-| `integer`、`memory_lanes` → `execution` | 各执行单元的完成值、ROB tag、地址和 LSU 阶段更新，汇合后广播给状态更新 Module |
+| ExecutionCluster 内部的 `integer`、`memory_lanes` | ALU 完成值与 LSU 推进信息；阶段更新仅供执行簇内部使用 |
+| `completion` | 各执行单元完成值、ROB tag 和 Store 地址更新，导出给 ROB；同拍广播也供执行簇内已有／新分派条目使用 |
 | `retirement` | 提交条目、寄存器／内存写入、分支结果及 flush 控制 |
 
 Queue 保存跨拍状态和槽位占用，包括 PC、ROB、RS、LSU 阶段、RAT/RF、内存和预测器。Module/Rule 读取 Signal 后提出 Queue 变更，统一在 Xfer 提交。因此逻辑关系是「Queue 当前状态 → Signal 组合网 → Module/Rule 下一状态 proposal → Queue Xfer」。Signal 串联不增加流水拍，也不提供消息排队或消费语义；需要等待或保留的信息由 Queue 承担。这个分工对应当前 skyzh 微架构，其他流水模型仍可用 Queue 传递带缓冲的消息。
@@ -27,7 +28,7 @@ Queue 保存跨拍状态和槽位占用，包括 PC、ROB、RS、LSU 阶段、RA
 
 ## 性能问题记录（2026-10-04，待修复）
 
-对当前逐拍对齐模型进行了硬件采样、计数插桩及四组 A/B 实验。aarch64 CPU 0，Clang 22、C++20、`-O3 -DNDEBUG`、无 LTO；同一固定周期循环，串行交替七次取中位数，构造与轨迹输出不计入。window 为 40,991 拍，branches 为 12,328 拍。
+对组件重构前的逐拍对齐模型进行了硬件采样、计数插桩及四组 A/B 实验。aarch64 CPU 0，Clang 22、C++20、`-O3 -DNDEBUG`、无 LTO；同一固定周期循环，串行交替七次取中位数，构造与轨迹输出不计入。window 为 40,991 拍，branches 为 12,328 拍。
 
 | 版本 | window：ns/tick | branches：ns/tick |
 | --- | ---: | ---: |
@@ -41,7 +42,7 @@ Queue 保存跨拍状态和槽位占用，包括 PC、ROB、RS、LSU 阶段、RA
 已确认的问题：
 
 1. **生成 C++ 的临时对象处理。** [Compiler.cpp](../../../mlir/Compiler.cpp) 给 payload 字段生成默认初始化，EmitC 函数中的大量聚合临时对象因此发生多余清零。一个 ROB 更新函数进入 `beginRule` 前的指令数从 233 降到 18。聚合值的字段／下标更新和提取还保留整数组拷贝，汇编确认 `-O3` 未消除。仅去掉多余清零降低整体耗时约 31%–33%，加上聚合值拷贝调整后约为 40%。实验保留显式构造的初始化；正式修复应在保证 SSA 定义与真实默认值语义的前提下处理临时变量。
-2. **无变化的 Queue 事务。** [storage.py](../storage.py) 中 RAT 每拍 revise 31 项，ROB 保留目标、占用 ROB 和等待 RS 也有重复写入。每拍约 48–51 个 Queue 进入 Xfer，实际只有 11–12 个变化，约 76%–77% 无变化。变化检测在 Xfer 才发生，之前已经支付 proposal、仲裁、回调等成本。实验只在 RAT、保留目标、ROB 和等待 RS 四处增加值变化判断，耗时下降约 18%–19%；不能据此无条件省略任意多次／部分字段 revise。
+2. **无变化的 Queue 事务。** [RegisterFile](../register_file.py)、[ROB](../reorder_buffer.py) 和 [执行簇](../execution.py) 中 RAT 每拍 revise 31 项，ROB 保留目标、占用 ROB 和等待 RS 也有重复写入。每拍约 48–51 个 Queue 进入 Xfer，实际只有 11–12 个变化，约 76%–77% 无变化。变化检测在 Xfer 才发生，之前已经支付 proposal、仲裁、回调等成本。实验只在 RAT、保留目标、ROB 和等待 RS 四处增加值变化判断，耗时下降约 18%–19%；不能据此无条件省略任意多次／部分字段 revise。
 3. **广播激活与通用事务开销。** 23 个 Module 和 7 个 Signal 几乎每拍都运行；每拍仅 1 轮 delta、0 个延迟事件，没有反复重算。当前已经没有动态依赖登记和候选缓存，Queue 来源槽位也已直接映射。原版约 42%–43% 的平坦采样落在 GFSim 调度与 Queue 函数，合并实验后约为 56%；Module 函数还包含内联事务代码，不能把其样本都算成纯 CPU 逻辑。原版 Signal 计算函数约占 12%–13%，不能单独解释整体差距。
 
 合并实验保持原来的 23 个 Module、Queue/Signal 边界和 GFSim 库，耗时降低约 59%–61%，相对原生的差距由 42–49 倍缩小到 17–19 倍。四版通过 7 个短程序 × 两种 Module 顺序（56 次）及两个长程序（8 次）的逐拍对照。不同实验的改善比例不能当作互不重叠的耗时占比。

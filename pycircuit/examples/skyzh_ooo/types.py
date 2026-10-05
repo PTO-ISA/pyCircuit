@@ -91,18 +91,16 @@ class Dispatch:
     rename_tag: ac.u32 = 0
 
 
-class LaneEffect:
+class CompletionLane:
     complete: bool = False
     rob: ac.u32 = 0
     value: ac.u32 = 0
     address_valid: bool = False
     address: ac.u32 = 0
-    advance: bool = False
-    state: LSUState
 
 
-class Execution:
-    lanes: ac.array[LaneEffect, 10]
+class Completion:
+    lanes: ac.array[CompletionLane, 10]
 
 
 class Retirement:

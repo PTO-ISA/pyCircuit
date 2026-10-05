@@ -3,9 +3,14 @@
 Queues contain state and occupancy; Signals form the combinational network.
 All state owners commit at the same Xfer boundary. No extra pipeline Queues.
 """
-from .frontend import *
-from .execution import *
-from .storage import *
+from .types import ac, MemoryPage, ROBEntry, Station, LSUState, RenameEntry, PredictorPage
+from .frontend import Frontend
+from .execution import ExecutionCluster
+from .commit import CommitControl
+from .reorder_buffer import ReorderBuffer
+from .register_file import RegisterFile
+from .memory import Memory
+from .predictor import Predictor
 
 
 @ac.module
@@ -22,20 +27,13 @@ def CPU(image: ac.vector[MemoryPage]):
     memory = [ac.queue[MemoryPage](initial=page) for page in image]
     predictor = ac.array(ac.queue[PredictorPage], shape=(16384,), initial=PredictorPage())
 
-    instruction = fetch(pc, memory)
-    sources = operands(rename, registers, rob)
-    allocation = dispatch(pc, instruction, sources, head, tail, stations, predictor)
-    integer = alu(stations)
-    memory_lanes = lsu(stations, stages, rob, head, memory)
-    execution = broadcast(integer, memory_lanes)
-    retirement = retire(rob, head)
+    # The three shared combinational buses. Queue feedback adds the state boundary.
+    retirement = CommitControl(rob, head)
+    allocation = Frontend(pc, memory, rename, registers, rob, head, tail,
+                          stations, predictor, retirement)
+    completion = ExecutionCluster(stations, stages, rob, head, memory, allocation, retirement)
 
-    frontend = Frontend(pc, allocation, retirement)
-    pointers = ROBPointers(head, tail, allocation, retirement)
+    reorder_buffer = ReorderBuffer(rob, retained_dest, head, tail, allocation, completion, retirement)
     register_file = RegisterFile(rename, registers, allocation, retirement)
     memory_unit = Memory(memory, retirement)
     branch_predictor = Predictor(predictor, retirement)
-    for i in range(8):
-        ROBSlot(rob[i], retained_dest[i], i + 1, allocation, execution, retirement)
-    for i in range(10):
-        ReservationStation(stations[i], stages[i], i, allocation, execution, retirement)
