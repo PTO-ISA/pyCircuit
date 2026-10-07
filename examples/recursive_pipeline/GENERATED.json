@@ -1,0 +1,63 @@
+{
+  "schema": "pycircuit-generated-example-v1",
+  "example": "recursive_pipeline",
+  "entry": {
+    "arguments": [],
+    "definition": "@\"example_recursive_pipeline.recursive_pipeline.RecursivePipeline\""
+  },
+  "verification": {
+    "schema": "pycircuit-example-verification-v1",
+    "inputs": {
+      "source/CMakeLists.txt": "5f56248c42017f4a8a53d52947948f305a1bd8d8bf78275450317aab8fd5c469",
+      "source/config.json": "e3f9c7dd813e920f0f9988bccf6d6a8cbc71226b3f475a09f5338b93176c9aa3",
+      "source/driver.cpp": "9ef4c1c2f74ff5ff902b1ee2ef470dde4d964d6787a3ad4f267b0c5ece754a38",
+      "source/recursive_pipeline.py": "e91364c372dc19795f1604e0f017bba0f0075ff32012006a6ce27dc4b04308bc",
+      "source/rtl_tb.sv": "48cc42cbe43adcd83f317ea88354e61793f3a451c3e1b6b396ea249af44bbb9b",
+      "build/cpp/generated.json": "7c3b8927bb3b472d476db35333ed5e63c16bd171c7ceaa8173f336585e5553df",
+      "build/cpp/CMakeLists.txt": "4d8447477a3d3c1e23dc97db5976571d0a50c1b5099dcb6b2e92a0f85cae471d",
+      "build/cpp/pycircuit_support.hpp": "69a18b16d30ae76e342f1feb4d4be75d947a89640d9271821e5f9dbc9f6256b7",
+      "build/cpp/pycircuit_system.hpp": "051bf6a20601960e93fbd087ac3ee368a28a32fe2b0950ed09508bc324d29835",
+      "build/cpp/sources/example_recursive_pipeline/recursive_pipeline.cpp": "a53040c3a33b02d2fc00073cfba913ad68095719842fdcf9559706d8251c3d44",
+      "build/cpp/sources/example_recursive_pipeline/recursive_pipeline.hpp": "25e09164e991fbae906baaad7a0c58247403201d26e18fee32f79cc2ed3fff33",
+      "build/cpp/sources/example_recursive_pipeline/recursive_pipeline.source-map.json": "bc9da2042886a4bef576103be399564cfec9c3d82809a342d19d3beacd613c8f",
+      "build/verilog/generated.json": "7955ebb6bebf94a4f5106be2a73a6baa3646c428c58f87d3cbaa3c21a9f1e8b3",
+      "build/verilog/CMakeLists.txt": "6e36c759d050a34246f0de2065f45be73c239b5efe4a99520bc1597ce4a89309",
+      "build/verilog/design_top.sv": "a099af32752c607d8e13b2c513218ef2074105c41c4c012a147795f17394b58f",
+      "build/verilog/sources/example_recursive_pipeline/recursive_pipeline.source-map.json": "24de124f95ddaa8273c8f4e7a6fbde1935648b1a8f42f72d5330a7601df15343",
+      "build/verilog/sources/example_recursive_pipeline/recursive_pipeline.v": "feacd1e3599f10b7de5796e091c1a27daa2af6e965b4ff05069dcee95ebbe0ab",
+      "build/recursive_pipeline.ac": "f9356bae55ed2cad49b878c4647d442577d3b3f206c99c3ca65b78886a458634",
+      "runtime-rtl/byte_mem.v": "dfc3f0fa362196fcfaa7bd771d4f85f26acade0e1dfeb0bc00a24d4161987cd2",
+      "runtime-rtl/dff.v": "325fb9039af507df3c94a26515dfcd8bb73f3812c1264df7b72bfe1af918bbb8",
+      "runtime-rtl/dffe.v": "1fc0bdac0c411ea87c00fc93127ebfba8ca12684a8fecee012a23362e0f8b89c",
+      "runtime-rtl/fifo.v": "8b2f0796fdd7c0f4aee3f20bd52226ccb532c827c8618afd9fbef99e2713f97f",
+      "runtime-rtl/sync_mem.v": "75731fcc0df8a01891e53589e75debc4cda9ec384262937047f21b11de7d7637",
+      "runtime-rtl/sync_mem_dp.v": "16ad11aa53d5f60291136b82a47bef9e21b312cd46ee8b8dfb338bb01c6bc3cc",
+      "runner": "bb6856bf8e4af43afe389f6e795bbd13989e5a09c0983243382e0edb488c0fc2"
+    },
+    "execution_sha256": "ffd9ac352e69f8ab8c163623b901aca842a455c8b22e2262776c1861e2f32421",
+    "work_samples": 235,
+    "workers": [
+      1,
+      2
+    ],
+    "rtl": "verilator",
+    "trace_sha256": "8c2104dbf33c1a86a20af8ddbe81d5898bf1af4febc42ed567b74716cca6c037"
+  },
+  "excerpts": [
+    {
+      "path": "recursive_pipeline.ac",
+      "line": 4,
+      "sha256": "f9356bae55ed2cad49b878c4647d442577d3b3f206c99c3ca65b78886a458634"
+    },
+    {
+      "path": "cpp/sources/example_recursive_pipeline/recursive_pipeline.hpp",
+      "line": 62,
+      "sha256": "25e09164e991fbae906baaad7a0c58247403201d26e18fee32f79cc2ed3fff33"
+    },
+    {
+      "path": "verilog/sources/example_recursive_pipeline/recursive_pipeline.v",
+      "line": 1,
+      "sha256": "feacd1e3599f10b7de5796e091c1a27daa2af6e965b4ff05069dcee95ebbe0ab"
+    }
+  ]
+}

@@ -1,0 +1,63 @@
+{
+  "schema": "pycircuit-generated-example-v1",
+  "example": "obs_points",
+  "entry": {
+    "arguments": [],
+    "definition": "@\"example_obs_points.obs_points.ObsPoints\""
+  },
+  "verification": {
+    "schema": "pycircuit-example-verification-v1",
+    "inputs": {
+      "source/CMakeLists.txt": "5ff02f8808f0123e8c83f187a0e59a0a3dfb60eae00213b550964d011641f59e",
+      "source/config.json": "2c83cf4c931dcd103a18a690763d485d39012eaac121873450c7ae77e107d553",
+      "source/driver.cpp": "23ff403d69fb81ce1f3c7e3c82b2335c3da7cb774d373eb2410fffd91b791c9d",
+      "source/obs_points.py": "5ecd9bdd3de3d4d1ce4053541610d09aaef16e23f10af39625216074975ba654",
+      "source/rtl_tb.sv": "45a9c1311b338fe6f6d65342e80cd39f5a5f1d161ad986b7dbdfe01a6baa8118",
+      "build/cpp/generated.json": "5f3e4961f27e36e1d92a9d1accd50bad5cfd6709df3b41100bb79f17d63cabe6",
+      "build/cpp/CMakeLists.txt": "883bd9be16639caf4b8141b5a03b9d731a3bb4ab19fed87e7f643788ffa9323a",
+      "build/cpp/pycircuit_support.hpp": "071c056e473c5b5f209d463c6af702b0aa22231bbf03cd286d28878bda9ee291",
+      "build/cpp/pycircuit_system.hpp": "7adbbd57699fa8c3e40084113030fe1f985a55a613b63f2bfd34656b49c81ac8",
+      "build/cpp/sources/example_obs_points/obs_points.cpp": "16b6db778811da63944dafc25be33d79842cf917a069ddb1ae97ddeed78200fb",
+      "build/cpp/sources/example_obs_points/obs_points.hpp": "225e976c6b43a73274ec763caeacd105f4fd194ec69ca52ffba1cfbd8733e6a1",
+      "build/cpp/sources/example_obs_points/obs_points.source-map.json": "e965993178ee67b8b04bc9860c06f15264a38b49670fb54432808c7bacf678fb",
+      "build/verilog/generated.json": "c97b43aa0a5fefd16e65d2f1fb8067abc511465b33d4bb7e599b5623c6d765a2",
+      "build/verilog/CMakeLists.txt": "a2a915810aa2447c2b85ac46127b3b722283c6ff58e8fa9d56f3510a19714c63",
+      "build/verilog/design_top.sv": "e30b34a5018900e9139e3a1db66fff5d838d40c08d830437685e4b86713a7a9f",
+      "build/verilog/sources/example_obs_points/obs_points.source-map.json": "9ecf0c453e1946af4b0bf3a5d81b198091194708601a7f59e41b89a09d1e6d89",
+      "build/verilog/sources/example_obs_points/obs_points.v": "fb2fdaa49fc310cdc5956042b17930ab4172d8656afc65b8e7d72bce205f7e15",
+      "build/obs_points.ac": "fb5e56dd71ee70bf23bd503542930ede3f66f620297efcbbfa260f25aa31ce00",
+      "runtime-rtl/byte_mem.v": "33bd9f73dd7cd17f3531cfd8c321762c214ad5df23b5376add212dadd38c47c2",
+      "runtime-rtl/dff.v": "e4f604bd03b9f1651ddbcd71e9ebb1cd8af45018caeab341728b35c14ec0f553",
+      "runtime-rtl/dffe.v": "9ae323530b72d152d10628de94923eaefa411b29e13c647de21bed8b0d73833b",
+      "runtime-rtl/fifo.v": "2dc4086ad3085bd67504caaac0565a3e676f87ce5411cc019fe8ef3a3bc43b23",
+      "runtime-rtl/sync_mem.v": "207b0fe22f029828ac90b50d2ce0aabbb01763231cd153883f31b581d03d68b7",
+      "runtime-rtl/sync_mem_dp.v": "44672a092661f3c218f71534d0d656a2d7d0bfdb03bc6b7a3394e2f13eea86d4",
+      "runner": "b3d0d46ccd21baa3a2d30636c92385eb036ca9bf1417d81f8e3b46e8250b58b6"
+    },
+    "execution_sha256": "7a508be35061ea51f3ac559856f20788707308cfd8d56b39d3916461c9fc64fd",
+    "work_samples": 532,
+    "workers": [
+      1,
+      2
+    ],
+    "rtl": "verilator",
+    "trace_sha256": "db991442db062ca05ff700f8869ec190770f08b6d6e939d4297285b5a1fc8f65"
+  },
+  "excerpts": [
+    {
+      "path": "obs_points.ac",
+      "line": 6,
+      "sha256": "fb5e56dd71ee70bf23bd503542930ede3f66f620297efcbbfa260f25aa31ce00"
+    },
+    {
+      "path": "cpp/sources/example_obs_points/obs_points.hpp",
+      "line": 21,
+      "sha256": "225e976c6b43a73274ec763caeacd105f4fd194ec69ca52ffba1cfbd8733e6a1"
+    },
+    {
+      "path": "verilog/sources/example_obs_points/obs_points.v",
+      "line": 1,
+      "sha256": "fb2fdaa49fc310cdc5956042b17930ab4172d8656afc65b8e7d72bce205f7e15"
+    }
+  ]
+}

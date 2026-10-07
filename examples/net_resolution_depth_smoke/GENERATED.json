@@ -1,0 +1,63 @@
+{
+  "schema": "pycircuit-generated-example-v1",
+  "example": "net_resolution_depth_smoke",
+  "entry": {
+    "arguments": [],
+    "definition": "@\"example_net_resolution_depth_smoke.net_resolution_depth_smoke.NetResolutionDepthSmoke\""
+  },
+  "verification": {
+    "schema": "pycircuit-example-verification-v1",
+    "inputs": {
+      "source/CMakeLists.txt": "b92b3f144bd3c920a4f14aab18f7da728e14d587d9b8a8ee01c1babe5f7536dd",
+      "source/config.json": "2c83cf4c931dcd103a18a690763d485d39012eaac121873450c7ae77e107d553",
+      "source/driver.cpp": "9dc815e8fc39f92bfdd5edd5adcb4b3a15e460483ffab72ccb0658da0a5bae8f",
+      "source/net_resolution_depth_smoke.py": "b6dc3c7bd998c8879d419fec63e666be312513a9db380263622926ec1d5d7114",
+      "source/rtl_tb.sv": "c3ae598e0370bfb2a1fda5284ef88496f4593f75b7ca03d8b5333f79e98a24b3",
+      "build/cpp/generated.json": "167d808bccdcd64e3ab00ec1406ad268f9366bf3a4d2fb2268a9ff054d885c70",
+      "build/cpp/CMakeLists.txt": "3b90e0e522ea45c8c5330572cd2b24838cede6e31a489f7bcb1230eaf0d48de5",
+      "build/cpp/pycircuit_support.hpp": "39d9af4f11b79dec281ad785b35c73ab4cd7afb7d41612c3430d51a9ff2002aa",
+      "build/cpp/pycircuit_system.hpp": "1f78dd5d8362095bf232f0d46b10013ded94559d49f037c133affa54a74fad14",
+      "build/cpp/sources/example_net_resolution_depth_smoke/net_resolution_depth_smoke.cpp": "50326445393471e98fca48fdb22ef6d6b5a2ea07ae778f936f7daa98295e1ed7",
+      "build/cpp/sources/example_net_resolution_depth_smoke/net_resolution_depth_smoke.hpp": "926c22421946481de3673e7c0174271ecefea26dfd78ea08e080429765e80663",
+      "build/cpp/sources/example_net_resolution_depth_smoke/net_resolution_depth_smoke.source-map.json": "dc0585d6f35cda81ed072944551c6514fbc47d3aaf9ceb292e5bad749525d306",
+      "build/verilog/generated.json": "e22717988b63925aa61951c581bae21cd53db4dfe7b712afeb5e5a0dceeb10c1",
+      "build/verilog/CMakeLists.txt": "4a9228f5c90a0925101c27266400a66d04174734587549e2b208f3c11726e690",
+      "build/verilog/design_top.sv": "0629c831331088ce84e0f14e128675bfb231b593453ffb8a2d5aa3ffeab73998",
+      "build/verilog/sources/example_net_resolution_depth_smoke/net_resolution_depth_smoke.source-map.json": "9bbdaa853184e6e68ef78a9bedf1684f492ceacb5510f41aac788be612c11178",
+      "build/verilog/sources/example_net_resolution_depth_smoke/net_resolution_depth_smoke.v": "6cd8f5f6c1f1f55cd005b2d20a7d63a68f4f3c8aa7d123f477b692a406ee6888",
+      "build/net_resolution_depth_smoke.ac": "ad9e7e8f0e649a5f2a6961101339da73f90f954d4c8e7c515f18579382eefcc5",
+      "runtime-rtl/byte_mem.v": "33bd9f73dd7cd17f3531cfd8c321762c214ad5df23b5376add212dadd38c47c2",
+      "runtime-rtl/dff.v": "e4f604bd03b9f1651ddbcd71e9ebb1cd8af45018caeab341728b35c14ec0f553",
+      "runtime-rtl/dffe.v": "9ae323530b72d152d10628de94923eaefa411b29e13c647de21bed8b0d73833b",
+      "runtime-rtl/fifo.v": "2dc4086ad3085bd67504caaac0565a3e676f87ce5411cc019fe8ef3a3bc43b23",
+      "runtime-rtl/sync_mem.v": "207b0fe22f029828ac90b50d2ce0aabbb01763231cd153883f31b581d03d68b7",
+      "runtime-rtl/sync_mem_dp.v": "44672a092661f3c218f71534d0d656a2d7d0bfdb03bc6b7a3394e2f13eea86d4",
+      "runner": "e4a1f945fedc3ec5a1d11b81c62948f74035c0fc96a8c235567e4bbd9ced39d1"
+    },
+    "execution_sha256": "e7631757db5f17680b2ac5d5aabffd06c4e6a1cec3f7bf64087d7865fe0a8728",
+    "work_samples": 532,
+    "workers": [
+      1,
+      2
+    ],
+    "rtl": "verilator",
+    "trace_sha256": "df443687a810a7f3d2a27c208f71a750b1966c4ef2be6e273a669ac662a98721"
+  },
+  "excerpts": [
+    {
+      "path": "net_resolution_depth_smoke.ac",
+      "line": 6,
+      "sha256": "ad9e7e8f0e649a5f2a6961101339da73f90f954d4c8e7c515f18579382eefcc5"
+    },
+    {
+      "path": "cpp/sources/example_net_resolution_depth_smoke/net_resolution_depth_smoke.hpp",
+      "line": 21,
+      "sha256": "926c22421946481de3673e7c0174271ecefea26dfd78ea08e080429765e80663"
+    },
+    {
+      "path": "verilog/sources/example_net_resolution_depth_smoke/net_resolution_depth_smoke.v",
+      "line": 1,
+      "sha256": "6cd8f5f6c1f1f55cd005b2d20a7d63a68f4f3c8aa7d123f477b692a406ee6888"
+    }
+  ]
+}

@@ -1,0 +1,63 @@
+{
+  "schema": "pycircuit-generated-example-v1",
+  "example": "digital_filter",
+  "entry": {
+    "arguments": [],
+    "definition": "@\"example_digital_filter.digital_filter.DigitalFilter\""
+  },
+  "verification": {
+    "schema": "pycircuit-example-verification-v1",
+    "inputs": {
+      "source/CMakeLists.txt": "ee5a87e841fe25150b20e7684b883801340a08713703783ea5c24902777b3dc4",
+      "source/config.json": "e3f9c7dd813e920f0f9988bccf6d6a8cbc71226b3f475a09f5338b93176c9aa3",
+      "source/digital_filter.py": "989e67b1f010b6c661087beb76f773ba8b42c48499d8a82723c7359cf5028417",
+      "source/driver.cpp": "d5492134f9beb0b62e5c81d2ec99f025c5cfaaef61658c1c73f34496580deeab",
+      "source/rtl_tb.sv": "9bdf958980e5163f88750ae8e10e8a55758a8198463d8d5ffdf0aa4a35c7ed52",
+      "build/cpp/generated.json": "1c2fd3367bbee09caeeff2fce395d704a6e212b6d183c2cb02deb441ea290823",
+      "build/cpp/CMakeLists.txt": "22af35d05433392457566173f96669d9613049bace14ea5382ee83f0f67f93cf",
+      "build/cpp/pycircuit_support.hpp": "2bce45f391f425904d3ba19b2183cff3f563a698d86d02e6965cf820539126d8",
+      "build/cpp/pycircuit_system.hpp": "9c05a81916cfae9a5d6c61ebfc273755493682cac1c7a62fe37cac97d83a963d",
+      "build/cpp/sources/example_digital_filter/digital_filter.cpp": "f0ba802c181632015fa3f794b0c11b884eafa9a3a4452cdcc52a755eccee98d8",
+      "build/cpp/sources/example_digital_filter/digital_filter.hpp": "5f99fd0d41c605c78645ba39803c53f25ecb35c12fb5a026a62111c2aa806d2f",
+      "build/cpp/sources/example_digital_filter/digital_filter.source-map.json": "c80aec71b4ea5d67c4f355da492cc976a7f0dd4d3039ea65be792afc4fa1df97",
+      "build/verilog/generated.json": "51fe57329307b8d0b18d67985b22e320b4b8527d3045c71fbc8e1b0b3dab1ab3",
+      "build/verilog/CMakeLists.txt": "5e4ba0d9fc468d734f460afa719303e945bf4d26da359606c5826f9204fcaaf2",
+      "build/verilog/design_top.sv": "c4188ca165c56196d5427bb9daff1c2dce229e3ea83b310c8f0de5b030a88e5f",
+      "build/verilog/sources/example_digital_filter/digital_filter.source-map.json": "68ac77466b8b8f034d3da45db191bdb42c00b189c724c3b06f9bb7db55e2c848",
+      "build/verilog/sources/example_digital_filter/digital_filter.v": "0402803736253fb58e59ce32b6ea113184bf617eb2a45c2de670b7daef443271",
+      "build/digital_filter.ac": "c10e73ebd4b4d7bce8e0879989b6be4afefae23f5d3fcedcf8b48a1dd4b2b0b2",
+      "runtime-rtl/byte_mem.v": "33bd9f73dd7cd17f3531cfd8c321762c214ad5df23b5376add212dadd38c47c2",
+      "runtime-rtl/dff.v": "e4f604bd03b9f1651ddbcd71e9ebb1cd8af45018caeab341728b35c14ec0f553",
+      "runtime-rtl/dffe.v": "9ae323530b72d152d10628de94923eaefa411b29e13c647de21bed8b0d73833b",
+      "runtime-rtl/fifo.v": "2dc4086ad3085bd67504caaac0565a3e676f87ce5411cc019fe8ef3a3bc43b23",
+      "runtime-rtl/sync_mem.v": "207b0fe22f029828ac90b50d2ce0aabbb01763231cd153883f31b581d03d68b7",
+      "runtime-rtl/sync_mem_dp.v": "44672a092661f3c218f71534d0d656a2d7d0bfdb03bc6b7a3394e2f13eea86d4",
+      "runner": "70cb5068ec957c14d5a45cc5c767c14d1ce9fcdba1b23a2226f2f0aa7388ea91"
+    },
+    "execution_sha256": "d9e046ff435b646ec75d4a106fbeba4bffa38e4f3868952afb75e0a10462fc73",
+    "work_samples": 378,
+    "workers": [
+      1,
+      2
+    ],
+    "rtl": "verilator",
+    "trace_sha256": "babd1e8ff5a5acac33e56976299c846a90f6ef7188d9496af3418549ec91bd99"
+  },
+  "excerpts": [
+    {
+      "path": "digital_filter.ac",
+      "line": 6,
+      "sha256": "c10e73ebd4b4d7bce8e0879989b6be4afefae23f5d3fcedcf8b48a1dd4b2b0b2"
+    },
+    {
+      "path": "cpp/sources/example_digital_filter/digital_filter.hpp",
+      "line": 50,
+      "sha256": "5f99fd0d41c605c78645ba39803c53f25ecb35c12fb5a026a62111c2aa806d2f"
+    },
+    {
+      "path": "verilog/sources/example_digital_filter/digital_filter.v",
+      "line": 1,
+      "sha256": "0402803736253fb58e59ce32b6ea113184bf617eb2a45c2de670b7daef443271"
+    }
+  ]
+}

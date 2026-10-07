@@ -148,7 +148,7 @@ def main() -> int:
     require(
         isinstance(protection, dict)
         and protection.get("required_status_checks")
-        == ["G0: Agentic Python Checks", "G0: Python Checks"]
+        == ["G0: Capture and Publication Unit Gates", "G0: Python Checks"]
         and protection.get("strict_status_checks") is True
         and protection.get("required_approving_reviews") == 1
         and protection.get("require_code_owner_reviews") is True
@@ -203,13 +203,12 @@ def main() -> int:
     for command in (
         "pre-commit run --files",
         "SKIP=pyc-api-hygiene",
-        "pytest tests/unit -m unit",
         "mkdocs build",
         "check_api_hygiene.py",
         "validate_repo_management.py",
-        "tools/agentic-circuit/check-contracts.py",
-        "tests/python/agentic-circuit/python_frontend",
-        "tests/python/agentic-circuit/cli",
+        "tests/unit/test_source_capture.py",
+        "tests/unit/test_publication.py",
+        "Capture and Publication Unit Gates",
     ):
         require(command in ci, f"CI is missing required gate: {command}", errors)
     for forbidden in (
@@ -217,7 +216,7 @@ def main() -> int:
         "flows/scripts/pyc build",
         "setup-verilator",
         "run_examples.sh",
-        "run_sims.sh",
+        "run_api_tests.sh",
     ):
         require(
             forbidden not in ci,
@@ -232,18 +231,14 @@ def main() -> int:
         release_document = None
     errors.extend(validate_release_graph(release_document))
     for command in (
-        "PYC_BUILD_AGENTIC_CIRCUIT_TESTS=ON",
-        "run_agentic_circuit.sh",
+        "PYC_BUILD_TESTING=ON",
         "run_examples.sh",
-        "run_sims.sh",
-        "run_sims_nightly.sh",
-        "run_semantic_regressions_v6.sh",
+        "run_api_tests.sh",
         "pytest tests/unit -m unit",
         "check_api_hygiene.py",
-        "check_decision_status.py",
         "pre-commit run --all-files",
-        "--require-all-verified",
         "mkdocs build --strict",
+        "check_frontend_retirement.py",
     ):
         require(
             command in release,
@@ -251,14 +246,10 @@ def main() -> int:
             errors,
         )
     for command in (
-        "run_agentic_circuit.sh",
         "run_examples.sh",
-        "run_sims.sh",
-        "run_sims_nightly.sh",
-        "run_semantic_regressions_v6.sh",
+        "run_api_tests.sh",
         "pytest tests/unit -m unit",
         "flows/tools/check_api_hygiene.py",
-        "flows/tools/check_decision_status.py",
         "mkdocs build --strict",
     ):
         require(
@@ -341,17 +332,17 @@ def main() -> int:
         "LLVM/MLIR 22" in contributing, "CONTRIBUTING must require LLVM/MLIR 22", errors
     )
     require(
-        "pyc6" in contributing.lower(),
-        "CONTRIBUTING must describe the pyc6 surface",
+        "pycircuit" in contributing.lower(),
+        "CONTRIBUTING must describe the pyCircuit source surface",
         errors,
     )
     for path in (
-        "docs/rfcs/pyc6-decisions.md",
-        "docs/pyc6-plan.md",
-        "docs/gates/decision_status_v6.md",
+        "docs/reference/language.md",
+        "docs/development/known-limitations.md",
+        "docs/development/testing-and-gates.md",
     ):
         require(
-            (ROOT / path).is_file(), f"missing pyc6 source of truth: {path}", errors
+            (ROOT / path).is_file(), f"missing current product documentation: {path}", errors
         )
 
     security = read("SECURITY.md")

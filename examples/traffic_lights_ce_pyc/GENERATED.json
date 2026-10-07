@@ -1,0 +1,66 @@
+{
+  "schema": "pycircuit-generated-example-v1",
+  "example": "traffic_lights_ce_pyc",
+  "entry": {
+    "arguments": [],
+    "definition": "@\"example_traffic_lights_ce_pyc.traffic_lights_ce_pyc.TopTrafficLights\""
+  },
+  "verification": {
+    "schema": "pycircuit-example-verification-v1",
+    "inputs": {
+      "source/CMakeLists.txt": "4cc6899eb0e3a9bb45ead9d2b1df5c08e07c5e72b830282bae45154d326c5a86",
+      "source/config.json": "e3f9c7dd813e920f0f9988bccf6d6a8cbc71226b3f475a09f5338b93176c9aa3",
+      "source/driver.cpp": "0e6cbaeea833b339e1d63b8b093571186435a365e599c722281195219ac170c4",
+      "source/encoder_driver.cpp": "aacb90fd4cc99d45745a8a46d86c18673922ac44e5ea1ce50f65f435d1c91a4b",
+      "source/encoder_tb.sv": "05cc21bbf2552fabf66f00fed832683b803a875d3abf98b48500321349e50b09",
+      "source/rtl_tb.sv": "fc3f130b0a0414de8fc19505f0b31ae6a48a9c0ab09c1a233f0dd76131bdf2a4",
+      "source/traffic_lights_ce_pyc.py": "c0046c3bcb2c8fcfa311e5b3afa2b9fdb5827d8fe1388e7dd2148289605eb8fe",
+      "source/verify_encoder.py": "90298e4770b6ea0aa8302a6fcd2be49a7c590ae9feda364e7ec826c2baed2835",
+      "build/cpp/generated.json": "fe717f9e25c6bf8e723c8c4c9914638a70d7a53b4d4e1289e5c057b7783e8464",
+      "build/cpp/CMakeLists.txt": "af1806d84bcf6aea0cc2f29d4027f71aa2d3bcff0dc5f1f3cd23672d7cc39c94",
+      "build/cpp/pycircuit_support.hpp": "0be77acb9625b3bb177dd60de21552eade6b6191e7060bf1d56ab9f3cbc03036",
+      "build/cpp/pycircuit_system.hpp": "e79af969a5eb8d5c06df7ff4cda9c1bb95333f15935413d4f171892bf91d044b",
+      "build/cpp/sources/example_traffic_lights_ce_pyc/traffic_lights_ce_pyc.cpp": "cf52a85722ddfd776c0cc5435de9356b06b83840f95641d3635e7b81b3a4a141",
+      "build/cpp/sources/example_traffic_lights_ce_pyc/traffic_lights_ce_pyc.hpp": "2eab6fa7c4f58e9d66a072f2d307784ff25702e35421d0a4bc1bc0231bfc71a0",
+      "build/cpp/sources/example_traffic_lights_ce_pyc/traffic_lights_ce_pyc.source-map.json": "9e927bec3e812f3a99d9869bb4adf759651cb542906fabde86691bbbe010c284",
+      "build/verilog/generated.json": "efd8a865d3831349046795df97ef97f3aa8cd4f206e676ef100132c6082d19eb",
+      "build/verilog/CMakeLists.txt": "71b7f299b1625aeb7de4ac1bd6ab0e2cdefc86fd8c52eccfc5f46a13d5f2ea53",
+      "build/verilog/design_top.sv": "2d650a978fa716db1ee3762ae1de77aef5e56e2df7c0da0fac34b3fef6c5c4e7",
+      "build/verilog/sources/example_traffic_lights_ce_pyc/traffic_lights_ce_pyc.source-map.json": "8a288b84b89ca6f215f3c978d8109b039e3ab90a7d475a828c4203e20accae14",
+      "build/verilog/sources/example_traffic_lights_ce_pyc/traffic_lights_ce_pyc.v": "5ec64974eacf65a00a69b2931e73ba1aa49757f9afac3971336c404e39ab022d",
+      "build/traffic_lights_ce_pyc.ac": "429acfbef420a608559138e923c0ea7abd514e4bb3e30e0128879ac6c4df6936",
+      "runtime-rtl/byte_mem.v": "33bd9f73dd7cd17f3531cfd8c321762c214ad5df23b5376add212dadd38c47c2",
+      "runtime-rtl/dff.v": "e4f604bd03b9f1651ddbcd71e9ebb1cd8af45018caeab341728b35c14ec0f553",
+      "runtime-rtl/dffe.v": "9ae323530b72d152d10628de94923eaefa411b29e13c647de21bed8b0d73833b",
+      "runtime-rtl/fifo.v": "2dc4086ad3085bd67504caaac0565a3e676f87ce5411cc019fe8ef3a3bc43b23",
+      "runtime-rtl/sync_mem.v": "207b0fe22f029828ac90b50d2ce0aabbb01763231cd153883f31b581d03d68b7",
+      "runtime-rtl/sync_mem_dp.v": "44672a092661f3c218f71534d0d656a2d7d0bfdb03bc6b7a3394e2f13eea86d4",
+      "runner": "860c82a2ad8f699230d2da7f3b895a1feb2c51b7689e368251bf3c0f21b8e6d7"
+    },
+    "execution_sha256": "54246d61bc36f357108246af1e114fa2df05bc857096fc7ce76136c766d0cc90",
+    "work_samples": 431,
+    "workers": [
+      1,
+      2
+    ],
+    "rtl": "verilator",
+    "trace_sha256": "56543498fae96936eb808b8ca680bffc9b8e4fa721a7971eda3b3ed31fa3054d"
+  },
+  "excerpts": [
+    {
+      "path": "traffic_lights_ce_pyc.ac",
+      "line": 9,
+      "sha256": "429acfbef420a608559138e923c0ea7abd514e4bb3e30e0128879ac6c4df6936"
+    },
+    {
+      "path": "cpp/sources/example_traffic_lights_ce_pyc/traffic_lights_ce_pyc.hpp",
+      "line": 12,
+      "sha256": "2eab6fa7c4f58e9d66a072f2d307784ff25702e35421d0a4bc1bc0231bfc71a0"
+    },
+    {
+      "path": "verilog/sources/example_traffic_lights_ce_pyc/traffic_lights_ce_pyc.v",
+      "line": 1,
+      "sha256": "5ec64974eacf65a00a69b2931e73ba1aa49757f9afac3971336c404e39ab022d"
+    }
+  ]
+}

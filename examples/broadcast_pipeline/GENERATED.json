@@ -1,0 +1,64 @@
+{
+  "schema": "pycircuit-generated-example-v1",
+  "example": "broadcast_pipeline",
+  "entry": {
+    "arguments": [],
+    "definition": "@\"example_broadcast_pipeline.broadcast_pipeline.BroadcastPipeline\""
+  },
+  "verification": {
+    "schema": "pycircuit-example-verification-v1",
+    "inputs": {
+      "source/CMakeLists.txt": "7479f21594b829128632041aaa80e6ee75379cd9476387d4c750ab6ab85b516b",
+      "source/broadcast_pipeline.py": "58d6fac4ae412b25b3393edd0ff319fd2f54a61f6dab59a6df5a9c988a4f228e",
+      "source/config.json": "e12c7c04c0ff7db6e0641b52783076954fec63d87eda1b9569dadc5d99a42383",
+      "source/driver.cpp": "d93d97f2b2e3c371d092ab309a7b1beca604a9af80c12bce8aef322d660276dc",
+      "source/four_state.py": "e2e099c88c65c1503e7c14ff7a775c4daaf034d72b23210d111acf8d25b5583c",
+      "source/rtl_tb.sv": "7a4abe63e7e725114910d796f999c5ec1717b954cf7c21db783fe9b070f66d9b",
+      "build/cpp/generated.json": "abe458420755540893fc46ad89bf6aadc2dcbf23c2a4baa6509b9967526f3d46",
+      "build/cpp/CMakeLists.txt": "191c2114710ecb3770790e5c11b03c56f75d0a4a5c8e992bef87adaf4fde53ea",
+      "build/cpp/pycircuit_support.hpp": "af9f9bd7cec44e2bdf5a0ab04adca14c20a94d2ea43973c6c545492823f685da",
+      "build/cpp/pycircuit_system.hpp": "c081db89c0de54c460776b649d3ca2b0cbdc73dae400e8fbdf75a31988fffe40",
+      "build/cpp/sources/example_broadcast_pipeline/broadcast_pipeline.cpp": "28497e692ed37a9cca0b693075c4acc78f8a480af81a8227e9fce9b6714a346e",
+      "build/cpp/sources/example_broadcast_pipeline/broadcast_pipeline.hpp": "4e86d01716f48cf98137eaa31fec46930778bb48c2a15b957173f7eafa7eba71",
+      "build/cpp/sources/example_broadcast_pipeline/broadcast_pipeline.source-map.json": "d8d61f0dd672b26d2169ac2600c54b550dfcdedab143d9cfb7bdebe577abcbfc",
+      "build/verilog/generated.json": "148d425a03e4afd132f7bda2e56154890eee01f7ba3efabeb5e7cb6ef7e213e9",
+      "build/verilog/CMakeLists.txt": "9ae8bc0782cf03e3b44fad2e4161cb5c669e0e0abf295b679c7a150254db744e",
+      "build/verilog/design_top.sv": "6be72b3e5364c7917236c395b0431de0351a4835e01d1de2cd21be1e8ff2c6ea",
+      "build/verilog/sources/example_broadcast_pipeline/broadcast_pipeline.source-map.json": "51019c186ec3a2528124574e217e1a0a07be3e77f553da6264f61ddfd0986583",
+      "build/verilog/sources/example_broadcast_pipeline/broadcast_pipeline.v": "11e2dd58646064589b5c47977b32553761016c13650d01895daf31b8de8e0408",
+      "build/broadcast_pipeline.ac": "bf09bfdde4f7c6728125716d528d5c79b60ca3dbd9a56fc8f6dd6082a02401a9",
+      "runtime-rtl/byte_mem.v": "33bd9f73dd7cd17f3531cfd8c321762c214ad5df23b5376add212dadd38c47c2",
+      "runtime-rtl/dff.v": "e4f604bd03b9f1651ddbcd71e9ebb1cd8af45018caeab341728b35c14ec0f553",
+      "runtime-rtl/dffe.v": "9ae323530b72d152d10628de94923eaefa411b29e13c647de21bed8b0d73833b",
+      "runtime-rtl/fifo.v": "2dc4086ad3085bd67504caaac0565a3e676f87ce5411cc019fe8ef3a3bc43b23",
+      "runtime-rtl/sync_mem.v": "207b0fe22f029828ac90b50d2ce0aabbb01763231cd153883f31b581d03d68b7",
+      "runtime-rtl/sync_mem_dp.v": "44672a092661f3c218f71534d0d656a2d7d0bfdb03bc6b7a3394e2f13eea86d4",
+      "runner": "6cbccafe88c74bac1d31a82eae1005f00c4ac42fbcfa484b838414f0a9dd75b2"
+    },
+    "execution_sha256": "f37b0008c6aa92744e1151c380e05bb9fb9b38b09844e9b0de65d1d894e35a44",
+    "work_samples": 1885,
+    "workers": [
+      1,
+      2
+    ],
+    "rtl": "verilator",
+    "trace_sha256": "7774e1d63379e9b4e8ee4451659c75b99bcc66f4978b2645af4189a8b5c5a5ef"
+  },
+  "excerpts": [
+    {
+      "path": "broadcast_pipeline.ac",
+      "line": 4,
+      "sha256": "bf09bfdde4f7c6728125716d528d5c79b60ca3dbd9a56fc8f6dd6082a02401a9"
+    },
+    {
+      "path": "cpp/sources/example_broadcast_pipeline/broadcast_pipeline.hpp",
+      "line": 82,
+      "sha256": "4e86d01716f48cf98137eaa31fec46930778bb48c2a15b957173f7eafa7eba71"
+    },
+    {
+      "path": "verilog/sources/example_broadcast_pipeline/broadcast_pipeline.v",
+      "line": 1,
+      "sha256": "11e2dd58646064589b5c47977b32553761016c13650d01895daf31b8de8e0408"
+    }
+  ]
+}

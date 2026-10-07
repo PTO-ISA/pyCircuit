@@ -1,0 +1,5 @@
+# REQUIRES: verilator, iverilog, vvp
+# S3a declaration/import, S3b values, S3c tuple binding and genuine four-state RTL.
+# RUN: %python %S/Inputs/enum-source.py --repo %src --source-compiler %pycircuit_source_unit --linker %pycircuit_link --optimizer %pycircuit_opt --emitter %pycircuit_emit --cxx %cxx --verilator %verilator --iverilog %iverilog --vvp %vvp --semantics --scratch %t.dir
+# Same vector/driver owner, selected Table query family; no separate runner.
+# RUN: %python %S/Inputs/enum-source.py --repo %src --source-compiler %pycircuit_source_unit --linker %pycircuit_link --optimizer %pycircuit_opt --emitter %pycircuit_emit --cxx %cxx --verilator %verilator --iverilog %iverilog --vvp %vvp --semantics --case-family table-query --scratch %t.queries.dir

@@ -1,0 +1,63 @@
+{
+  "schema": "pycircuit-generated-example-v1",
+  "example": "arith",
+  "entry": {
+    "arguments": [],
+    "definition": "@\"example_arith.arith.Arith\""
+  },
+  "verification": {
+    "schema": "pycircuit-example-verification-v1",
+    "inputs": {
+      "source/CMakeLists.txt": "d4ee4ea40b5f3b76ce97eaea4e0ab669030d0c96c6deaa714e52edb3247bcbc2",
+      "source/arith.py": "cc15f2e9f440b8a9117e58cc2cd5843434934d3c1502025a4e4739a56cae8f6c",
+      "source/config.json": "38e5d2da344eb7f507a1e944caa3116e6e3919df4377719dccbf5f5e0dd96aa6",
+      "source/driver.cpp": "ee835217976f30182d2eb52331718207806db7a6b3f63248997e283870df4e26",
+      "source/rtl_tb.sv": "f8bad2d99df2d97c5357aac2c40fa18608fc814f863a56c0ce82c3fb6296a047",
+      "build/cpp/generated.json": "60487ed208abd6f27db336c4d549a9a3639cada6b752116e70cd4d95444c5520",
+      "build/cpp/CMakeLists.txt": "bff49f3ccfd5c32275ff7c6128b5f35e97c5df0b1c79888f94b63ce60ce56b8f",
+      "build/cpp/pycircuit_support.hpp": "dd33f6226a6cd414e265211eef94ce63ea9af3977a837ba05a07949eb003c62d",
+      "build/cpp/pycircuit_system.hpp": "80c44460f9c5738babffe3cb5c48b6ba7ebd5dcc142408ce0ce9f7cd6f2abc95",
+      "build/cpp/sources/example_arith/arith.cpp": "226b78ca02b6c16ce261abd4006ed6859a5e2ad4e8abe4ad88b9e3213b8b94b0",
+      "build/cpp/sources/example_arith/arith.hpp": "48aee2b98a20c9142e8e3771176fcb1ae6b52a1b9d5fac2381edbe849767bd96",
+      "build/cpp/sources/example_arith/arith.source-map.json": "59bf99afe2d2ca6c0c709e6d4b19717dcac49fad923293d9827f272a0753eb6b",
+      "build/verilog/generated.json": "7d81427b4f61bb7f2865c0f359185331095087cc2990a03c626707c7f833b51d",
+      "build/verilog/CMakeLists.txt": "fc6ebb82e4056ff486db429e44568b2793f2ac345e25ab9980fd0a0fe3d4ee3f",
+      "build/verilog/design_top.sv": "00778d23c7068565e32872fa70ec901969e4a3f79e12dca7fa84040b91a5be6b",
+      "build/verilog/sources/example_arith/arith.source-map.json": "d7f2a3cdfd128b7b7b8fc1c80c16d949d5dfcf59b6e8adf28fd55cfa4e0e7daf",
+      "build/verilog/sources/example_arith/arith.v": "b474a8f22b93c1306f3e5e8274db79b2d73ca3e38195d34bac9c8d30c2fe0205",
+      "build/arith.ac": "22818587c10e4b086a744ed1d45349fdac6f3462e636d5066ac41db231f79dad",
+      "runtime-rtl/byte_mem.v": "33bd9f73dd7cd17f3531cfd8c321762c214ad5df23b5376add212dadd38c47c2",
+      "runtime-rtl/dff.v": "e4f604bd03b9f1651ddbcd71e9ebb1cd8af45018caeab341728b35c14ec0f553",
+      "runtime-rtl/dffe.v": "9ae323530b72d152d10628de94923eaefa411b29e13c647de21bed8b0d73833b",
+      "runtime-rtl/fifo.v": "2dc4086ad3085bd67504caaac0565a3e676f87ce5411cc019fe8ef3a3bc43b23",
+      "runtime-rtl/sync_mem.v": "207b0fe22f029828ac90b50d2ce0aabbb01763231cd153883f31b581d03d68b7",
+      "runtime-rtl/sync_mem_dp.v": "44672a092661f3c218f71534d0d656a2d7d0bfdb03bc6b7a3394e2f13eea86d4",
+      "runner": "a6dea9801a0e7f5910875871ce09a23527a60983f18ffa1d6c00fabcf20c8eed"
+    },
+    "execution_sha256": "36992e4cfae2886b67c5e88d64d0dc1431acc9eb4c31be911cca97bb875f1c3c",
+    "work_samples": 10,
+    "workers": [
+      1,
+      2
+    ],
+    "rtl": "verilator",
+    "trace_sha256": "02bae165431eef5c358df43598114c31f6b06b135a35ed330dee6a47e458a873"
+  },
+  "excerpts": [
+    {
+      "path": "arith.ac",
+      "line": 4,
+      "sha256": "22818587c10e4b086a744ed1d45349fdac6f3462e636d5066ac41db231f79dad"
+    },
+    {
+      "path": "cpp/sources/example_arith/arith.hpp",
+      "line": 13,
+      "sha256": "48aee2b98a20c9142e8e3771176fcb1ae6b52a1b9d5fac2381edbe849767bd96"
+    },
+    {
+      "path": "verilog/sources/example_arith/arith.v",
+      "line": 1,
+      "sha256": "b474a8f22b93c1306f3e5e8274db79b2d73ca3e38195d34bac9c8d30c2fe0205"
+    }
+  ]
+}

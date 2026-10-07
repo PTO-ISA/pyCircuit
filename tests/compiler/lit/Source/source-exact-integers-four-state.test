@@ -1,0 +1,2 @@
+# REQUIRES: iverilog, vvp
+# RUN: %python %S/Inputs/source_exact_integers.py --repo %src --source-compiler %pycircuit_source_unit --linker %pycircuit_link --emitter %pycircuit_emit --cxx %cxx --four-state --iverilog %iverilog --vvp %vvp --scratch %t.dir

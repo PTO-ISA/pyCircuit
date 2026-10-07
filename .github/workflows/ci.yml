@@ -29,9 +29,7 @@ jobs:
           python-version: "3.11"
 
       - name: Install Python check deps
-        run: |
-          python -m pip install -e python/semantic-core
-          python -m pip install -e ".[dev,docs]"
+        run: python -m pip install -e ".[dev,docs]"
 
       - name: Run repository management checks
         run: python .github/scripts/validate_repo_management.py
@@ -52,9 +50,6 @@ jobs:
             SKIP=pyc-api-hygiene pre-commit run --files "${changed_files[@]}"
           fi
 
-      - name: Run pyCircuit Python unit tests
-        run: pytest tests/unit -m unit
-
       - name: Build documentation
         run: mkdocs build --strict
 
@@ -74,10 +69,10 @@ jobs:
             flows/tools/summarize_gate_run.py
 
       - name: Run API hygiene gate
-        run: python flows/tools/check_api_hygiene.py python/pycircuit/src/pycircuit examples/pycircuit docs README.md
+        run: python flows/tools/check_api_hygiene.py python/pycircuit/src/pycircuit examples docs README.md
 
-  agentic-python-checks:
-    name: "G0: Agentic Python Checks"
+  capture-publication-gates:
+    name: "G0: Capture and Publication Unit Gates"
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
@@ -88,19 +83,16 @@ jobs:
         with:
           python-version: "3.11"
 
-      - name: Install Agentic Circuit test dependencies
-        run: |
-          python -m pip install -e python/semantic-core
-          python -m pip install -e "python/agentic-circuit[test]"
+      - name: Install Python check dependencies
+        run: python -m pip install -e ".[dev]"
 
-      - name: Run contracts, frontend, and CLI tests
-        shell: bash
-        run: |
-          set -euo pipefail
-          export AC_PYTHON_ONLY=1
-          export PYTHONPATH="$PWD/python/semantic-core/src:$PWD/python/agentic-circuit/src:$PWD/tests/python/agentic-circuit"
-          python tools/agentic-circuit/check-contracts.py
-          python -m unittest discover -s tests/python/agentic-circuit/contracts -p 'test_*.py'
-          python -m unittest discover -s tests/python/agentic-circuit/python_frontend -p 'test_*.py'
-          python -m unittest discover -s tests/python/agentic-circuit/cli -p 'test_all_commands.py'
-          python -m unittest discover -s tests/python/agentic-circuit/cli -p 'test_workspace.py'
+      - name: Run bounded source capture and publication tests
+        run: >-
+          pytest -q
+          tests/unit/test_source_capture.py
+          tests/unit/test_source_compile.py
+          tests/unit/test_source_transport.py
+          tests/unit/test_source_unit_files.py
+          tests/unit/test_publication.py
+          tests/unit/test_publication_fs.py
+          tests/unit/test_driver_commands.py

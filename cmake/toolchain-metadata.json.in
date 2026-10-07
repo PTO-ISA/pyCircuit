@@ -3,5 +3,5 @@
   "git_sha": "@PYC_TOOLCHAIN_GIT_SHA@",
   "platform": "@CMAKE_SYSTEM_NAME@",
   "arch": "@CMAKE_SYSTEM_PROCESSOR@",
-  "llvm_version": "@PYC_LLVM_VERSION@"
+  "llvm_version": @PYC_LLVM_VERSION_JSON@
 }

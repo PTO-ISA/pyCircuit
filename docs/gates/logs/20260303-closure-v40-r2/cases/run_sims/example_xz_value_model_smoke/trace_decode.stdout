@@ -1,6 +1,0 @@
-cycle 0: 5 value-change events, 2 write events
-  - (tick) WRITE[reg] dut:dbg__value_smoke_q_lane0_smoke data=0x12
-  - (comb) dut:clk = 0x0 known=0x1 z=0x0
-  ... (4 more)
-  - (tick) RESET_ASSERT domain=global kind=warm
-  - (tick) INVALIDATE domain=global scope=global reason=warm_reset text=tb.reset

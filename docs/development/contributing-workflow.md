@@ -1,78 +1,56 @@
-# Contributing Workflow
+# Contributing workflow
 
-pyCircuit is a hardware design and compile-flow repository. Changes are expected
-to preserve semantic contracts, keep gate evidence current, and stay aligned
-with the current pyCircuit 6 CycleAwareSignal authoring contract.
+Contributions target the single active pyCircuit source and compile route:
+Python source units → verified final design → C++ or Verilog. The current
+bounded profile and its unsupported capabilities are specified in the
+[language reference](../reference/language.md).
 
-## Core principles
+## Standard change loop
 
-- Read the decision corpus before changing semantics:
-  - `docs/rfcs/pyc6-decisions.md`
-- Follow gate-first development. If semantics change, add or tighten the MLIR
-  verifier or pass path before relying on backend behavior.
-- Build and validate from the current worktree. Never copy toolchains or shared
-  libraries from another checkout.
-- Keep the repo hard-break only. Do not add compatibility shims for removed
-  APIs or reclassify CycleAwareSignal as a removed surface.
+1. Identify the public contract and affected decision records.
+2. Keep the change within the approved source, IR, CLI, runtime, or build
+   contract. If a contract is not approved, prepare a proposal rather than
+   implementing a new public behavior.
+3. Update behavior and workflow documentation with the implementation.
+4. Run the narrowest relevant check, followed by the required candidate gates.
+5. Save reviewable evidence under `docs/gates/logs/<run-id>/` when behavior,
+   compile flow, package ownership, or a release claim changes.
+6. Report changed files, commands and outcomes, candidate identity, and known
+   limits in the review description.
 
-## Standard development loop
+Build and validate from the current checkout. Do not copy compilers, libraries,
+or generated artifacts from another worktree. Keep temporary scripts and
+outputs under tests, examples, docs, or disposable `.pycircuit_out/` paths.
 
-1. Identify the user-visible contract or decision IDs touched by the change.
-2. Localize the change to the smallest affected subsystem.
-3. Update documentation if behavior, workflow, or contributor expectations
-   change.
-4. Run the minimum gate set required by the change class.
-5. Archive evidence under `docs/gates/logs/<run-id>/` when the change affects
-   semantics, flow behavior, or merge-significant examples.
-6. Summarize the change, gates, evidence, and residual risk in the PR.
+## Active interface boundaries
 
-Required PR automation is deliberately lightweight. It covers repository and
-Python contracts; it does not build the LLVM/MLIR toolchain or run the full
-simulation matrix. Native or semantic changes therefore include a focused
-local reproducer in the PR evidence. The release workflow is the sole
-automatic full-closure authority and must pass before publication.
+The current module profile uses typed ports, nested stateless `@rule`, explicit
+standard storage leaves and Work/Xfer. See the language reference for supported
+source expressions and the typed C++ DUT. Complete `@system`, source collection
+authoring, general arithmetic and multi-clock driving remain unfinished.
+Unsupported uses must fail clearly; retired frontends are not fallback
+implementations. Existing user authorization remains valid for its scope.
 
-## Blocking vs non-blocking problems
+Runtime-only consumers should be able to use the exported
+`pycircuit::pyc6_runtime` target without LLVM. CompilerDev is tied to LLVM/MLIR
+22.1.8. Keep those package profiles independent. CompilerDev installs the active
+Compiler header closure explicitly; retained migration references are not SDK
+interfaces. When an active header adds a dependency, update the install list and
+verify it through an installed consumer.
 
-Stop and ask for direction when:
+## Documentation and examples
 
-- the requested change conflicts with the decision corpus
-- the work requires changing semantics without a clear decision update path
-- unrelated local edits overlap the same files and the correct merge strategy is
-  unclear
-- required credentials or external infrastructure are missing
+Update active user docs when source behavior, commands, output ownership,
+installation, or gate expectations change. Treat examples as product claims:
+only label a source as supported after compiling it through the active
+compile/link/emit path and recording its evidence. Legacy callers awaiting
+migration must be identified as such, not silently presented as current
+examples.
 
-Proceed and document clearly when the problem is non-blocking, such as a missing
-optional gate in the local environment or a known unrelated CI failure.
+## Review and merge
 
-## Documentation expectations
-
-Update docs in the same change when you alter:
-
-- contributor workflow
-- gate expectations
-- user-facing CLI or compile-flow behavior
-- example structure or supported testbench behavior
-
-Documentation belongs under `docs/`. Do not create standalone Markdown files in
-the repo root for design notes or temporary proposals.
-
-## Tests, examples, and temporary artifacts
-
-- Tests validate correctness and regressions.
-- Examples demonstrate supported usage and product-facing flows.
-- Docs explain behavior and workflow.
-
-Do not add temporary scripts like `test_quick.py`, scratch examples, or one-off
-Markdown notes. Keep experimental artifacts outside the repo or under disposable
-output directories such as `.pycircuit_out/`.
-
-## Commit preparation
-
-Before opening a PR:
-
-- review the final diff for unrelated churn
-- ensure the two lightweight required checks and relevant focused test ran
-- collect evidence paths
-- note any compatibility or rollout impact
-- use a focused commit message, preferably `type(scope): description`
+Review semantic behavior, rejection cases, both backend outputs, package
+boundaries, and build/install references before style. Do not claim full source-unit cutover
+acceptance until its cutover candidate has independent tests, reviews, and
+acceptance evidence. No compatibility aliases or forwarding targets should be
+added to ease migration.

@@ -1,69 +1,41 @@
-# Development Guide
+# Development guide
 
-pyCircuit 6 development is decision-driven and gate-first. CycleAwareSignal and
-automatic cycle balancing are current product contracts, not compatibility
-surfaces.
+Development targets the approved source-unit pipeline: capture each Python
+source, resolve published interfaces and verify the linked final design in
+MLIR, then emit C++ or Verilog from that same artifact. Current support and
+remaining language limitations are documented independently of historical
+migration completion.
 
-The same repository also owns Agentic Circuit, ACIR/ACC, and gfsim. Changes
-under the AC module roots defined by Decision 0157 follow the AC G0/G1/G2
-matrix and keep the separate frontend and IR boundaries defined by Decision
-0150.
+## Current contract and workflow
 
-## Core references
+- [source-unit workflow](source-unit-workflow.md): historical cutover and public flow.
+- [Agent frontend guide](agent-frontend-guide.md): source decomposition and
+  ownership rules.
+- [Language reference](../reference/language.md): typed modules, ordinary
+  variables, rules, structs/tables, Enum, branches and rejection boundaries.
+- [Current limitations](known-limitations.md):
+  post-Enum/match priorities across Python, MLIR, codegen, runner and examples.
+- [Contributing workflow](contributing-workflow.md): change process and scope.
+- [Testing and gates](testing-and-gates.md): candidate-bound validation.
+- [Review and merge](review-and-merge.md): semantic and evidence review.
 
-- [Pythonic frontend guide for coding agents](agent-frontend-guide.md)
-- [V6 language specification](../reference/language.md)
-- [pyCircuit 6 decisions](../rfcs/pyc6-decisions.md)
-- [pyCircuit 6 evolution plan](../pyc6-plan.md)
-- [Decision status](../gates/decision_status_v6.md)
-- [Evidence contract](../gates/README.md)
+## Toolchain profiles
 
-## Contributor workflow
+CompilerDev requires exact LLVM and MLIR 22.1.8. Runtime-only consumers use
+`find_package(pycircuit CONFIG REQUIRED COMPONENTS Runtime)` and
+`pycircuit::pyc6_runtime` without LLVM discovery. Generated model builds expose
+source-owned `pycircuit_modules`; host drivers use typed `pyc_dut` and the shared
+SystemRunner. The former generated system/shared-library profile is historical.
 
-- [Contributing workflow](contributing-workflow.md)
-- [Testing and gates](testing-and-gates.md)
-- [Stable SDK release contract](sdk-release-contract.md)
-- [Review and merge](review-and-merge.md)
-- [Repository management](repository-management.md)
-- [Repository layout](repository-layout.md)
+## Project governance
 
-## Build and gate commands
+[Project governance](project-governance.md) describes bounded ownership,
+independent review and validation. Use descriptive responsibility names in
+active code and docs. Local migration packets and logs are ignored. Frozen
+approval proposals remain records of contract authority, not runtime evidence.
 
-```bash
-bash flows/scripts/pyc build
-bash flows/scripts/run_examples.sh
-bash flows/scripts/run_sims.sh
-bash flows/scripts/run_sims_nightly.sh
-bash flows/scripts/run_agentic_circuit.sh
-python3 flows/tools/summarize_gate_run.py --run-id <run-id>
+## Legacy documentation
 
-On Windows, use the PowerShell entry point for the same build:
-`pwsh -NoProfile -File flows/scripts/pyc.ps1 build --llvm-config "$env:LLVM_ROOT\bin\llvm-config.exe"`.
-```
-
-GitHub Actions runs the configured pull request lanes. The nightly workflow
-exercises only heavy-tier simulations; normal and semantic simulations have
-separate owners. Use the same `PYC_GATE_RUN_ID` across related local lanes so
-evidence lands in one reviewable directory.
-
-## Local environment
-
-After building the toolchain:
-
-```bash
-export PYC_TOOLCHAIN_ROOT="$PWD/.pycircuit_out/toolchain/install"
-export PATH="$PYC_TOOLCHAIN_ROOT/bin:$PATH"
-export PYC_GATE_RUN_ID="local-$(date +%Y%m%d-%H%M%S)"
-bash flows/scripts/run_examples.sh
-bash flows/scripts/run_sims.sh
-```
-
-## Repository layout
-
-The repository is organized by responsibility rather than by one build flow.
-See [Repository Layout](repository-layout.md) for the complete ownership map,
-placement checklist, and automated layout contracts.
-
-Use the repository's GitHub issue and pull request surfaces only when enabled by
-the PTO-ISA organization. Do not document unofficial support channels as
-maintained project infrastructure.
+Pages about CycleAwareSignal/cycle balancing, structural builders, Agentic
+Circuit/QueueGraph, PYC IR, and sidecar schedules are labeled as retired or
+historical. They must not be used as build instructions or support claims.

@@ -1,0 +1,64 @@
+{
+  "schema": "pycircuit-generated-example-v1",
+  "example": "barrier_pipeline",
+  "entry": {
+    "arguments": [],
+    "definition": "@\"example_barrier_pipeline.barrier_pipeline.BarrierPipeline\""
+  },
+  "verification": {
+    "schema": "pycircuit-example-verification-v1",
+    "inputs": {
+      "source/CMakeLists.txt": "e7a0d424a13290cefe4b8eba187199a9cee1b763d56996499d588b2b06861e06",
+      "source/barrier_pipeline.py": "bbe162190fbf43afb7677f38bb124c5388796332c9ea77bcbb65dc6e0d9c0b2a",
+      "source/config.json": "5130e736467addf0df6ad8d4b8490cf6afbf299828702897e132d8df266349d8",
+      "source/driver.cpp": "b1eb5218f8c457745542649c8572d864429dc0abd651e62b15f3be7618e14ff6",
+      "source/four_state.py": "ae03ceb6f7f57251a67d0e2eb6b4f7fc847007e3f3d4445a0d885c8e2e0f520c",
+      "source/rtl_tb.sv": "48c8d3d805545c8eea29e9675a7bcedae746ed5e592eb0f773680969ab5a9022",
+      "build/cpp/generated.json": "64912909376431a977cd9c13e26efb972431de1d92d0bf8051de566e71dbb5c6",
+      "build/cpp/CMakeLists.txt": "fc28fff102d6271469dde123418346b94784a1a0be3c6106d9219d396f126b45",
+      "build/cpp/pycircuit_support.hpp": "380a5b6f304e57d031734f56271c5278fe45b0979beede4be6a0a8d7733c0f7e",
+      "build/cpp/pycircuit_system.hpp": "96c0a9c9b116da1f882d9b671c839bbba0c40d46dc35943fcdae17d1d31c9712",
+      "build/cpp/sources/example_barrier_pipeline/barrier_pipeline.cpp": "82ff6171de8b19ffe38c56e0434ad5b7aed53ddf30f63af29d631043abf418c6",
+      "build/cpp/sources/example_barrier_pipeline/barrier_pipeline.hpp": "6f3fe983f18e631e3feaf4769c618ecd0afe1cede74aac1ebea358cb7ca6c74d",
+      "build/cpp/sources/example_barrier_pipeline/barrier_pipeline.source-map.json": "dc58c4b8223bb422f4d84239d3c729a4c90f4b3dbb82e7bfb03ce4bf2f1f759e",
+      "build/verilog/generated.json": "19fe508006c420ddfefeb6ddefb5a81385f15e78af53065dcecd02f21af14fea",
+      "build/verilog/CMakeLists.txt": "09b094e657a047d54a40b42883fc8c96c1fe11f003abc12e10ef888f94a24aa3",
+      "build/verilog/design_top.sv": "901486e45835026be3e0924fef8a88302a1a461a772ebb3aa55eae69965e4557",
+      "build/verilog/sources/example_barrier_pipeline/barrier_pipeline.source-map.json": "7b3803612f7bedbe24326cfe481f4b3de14f539809a8f3d67cefb1b8fefd1619",
+      "build/verilog/sources/example_barrier_pipeline/barrier_pipeline.v": "dd560463b06d5ffe2b3865c489135f64b27435194ef5095f407def313323d1a7",
+      "build/barrier_pipeline.ac": "093d020c403cabe4b5541586c27b62dfb6c6e92baebb9c7a498e48cfcb7f6322",
+      "runtime-rtl/byte_mem.v": "33bd9f73dd7cd17f3531cfd8c321762c214ad5df23b5376add212dadd38c47c2",
+      "runtime-rtl/dff.v": "e4f604bd03b9f1651ddbcd71e9ebb1cd8af45018caeab341728b35c14ec0f553",
+      "runtime-rtl/dffe.v": "9ae323530b72d152d10628de94923eaefa411b29e13c647de21bed8b0d73833b",
+      "runtime-rtl/fifo.v": "2dc4086ad3085bd67504caaac0565a3e676f87ce5411cc019fe8ef3a3bc43b23",
+      "runtime-rtl/sync_mem.v": "207b0fe22f029828ac90b50d2ce0aabbb01763231cd153883f31b581d03d68b7",
+      "runtime-rtl/sync_mem_dp.v": "44672a092661f3c218f71534d0d656a2d7d0bfdb03bc6b7a3394e2f13eea86d4",
+      "runner": "202ef3347f140814173b31ec6ab901bcacc332c67fb5f38aa2efd9ff46fa5fd6"
+    },
+    "execution_sha256": "3353059a19816c2132b61751e4816ff3e303092d458bfa78fcd3d97fcc0ff674",
+    "work_samples": 699,
+    "workers": [
+      1,
+      2
+    ],
+    "rtl": "verilator",
+    "trace_sha256": "3cf6fceb8294669804f0aa49f69124a61e8edd20f7316b8f7ec401307bc6ecdf"
+  },
+  "excerpts": [
+    {
+      "path": "barrier_pipeline.ac",
+      "line": 6,
+      "sha256": "093d020c403cabe4b5541586c27b62dfb6c6e92baebb9c7a498e48cfcb7f6322"
+    },
+    {
+      "path": "cpp/sources/example_barrier_pipeline/barrier_pipeline.hpp",
+      "line": 63,
+      "sha256": "6f3fe983f18e631e3feaf4769c618ecd0afe1cede74aac1ebea358cb7ca6c74d"
+    },
+    {
+      "path": "verilog/sources/example_barrier_pipeline/barrier_pipeline.v",
+      "line": 1,
+      "sha256": "dd560463b06d5ffe2b3865c489135f64b27435194ef5095f407def313323d1a7"
+    }
+  ]
+}

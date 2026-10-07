@@ -1,0 +1,3 @@
+# REQUIRES: verilator, iverilog, vvp
+# Independent immutable snapshots and exact native/RTL four-state transport.
+# RUN: %python %S/Inputs/record-projection-simplification.py --repo %src --source-compiler %pycircuit_source_unit --linker %pycircuit_link --emitter %pycircuit_emit --cxx %cxx --verilator %verilator --iverilog %iverilog --vvp %vvp --scratch %t.dir

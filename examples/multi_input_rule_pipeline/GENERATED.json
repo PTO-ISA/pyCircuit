@@ -1,0 +1,64 @@
+{
+  "schema": "pycircuit-generated-example-v1",
+  "example": "multi_input_rule_pipeline",
+  "entry": {
+    "arguments": [],
+    "definition": "@\"example_multi_input_rule_pipeline.multi_input_rule_pipeline.MultiInputRulePipeline\""
+  },
+  "verification": {
+    "schema": "pycircuit-example-verification-v1",
+    "inputs": {
+      "source/CMakeLists.txt": "c7ba15702d3d20cca52feb33c41473ab695e39c46231d55c4cb5f5a8f0260d83",
+      "source/config.json": "82b121d6ac01f49ed85fa0b5b6c5e584a43721ded154c457417dad82d4c37145",
+      "source/driver.cpp": "5142dadf5a94e31e1da9b2d979c55ef0ae573dc5e0e0ba4cc53776b213bf84c0",
+      "source/four_state.py": "f35edcdb55321af2563cdb444b4c61e70ea35c7ec5c03cdbc726c282a6488a6c",
+      "source/multi_input_rule_pipeline.py": "f41c2e699ae9593e4eaaf8416e2c0280ffaad4525d5576283b56baa8effb75b2",
+      "source/rtl_tb.sv": "9bcdd6add7f3c3e1ce2f4bf6cc2e54247fbf3ff18bd10b802256a503859f02f8",
+      "build/cpp/generated.json": "11a9c0acc7d30b86d6963748e3ffb00481ce9768b4f704f7c16f4874b2bb82b4",
+      "build/cpp/CMakeLists.txt": "53def62bc13b6998efe4156cee89e2c150a93d5d6319f9d1c67417351e058659",
+      "build/cpp/pycircuit_support.hpp": "b321f2031d887d3ffcb7e8ac384c0017928404bbc2340f88278a562a3e345544",
+      "build/cpp/pycircuit_system.hpp": "0df85468cfe6d4409236f986c4d05c5acf0f683d52cb9ed41500ad14c4215d3a",
+      "build/cpp/sources/example_multi_input_rule_pipeline/multi_input_rule_pipeline.cpp": "99de4eec02ea1af8fe10003390d47aac7ba1780287933940e0b0835cb93b96c9",
+      "build/cpp/sources/example_multi_input_rule_pipeline/multi_input_rule_pipeline.hpp": "ac36bfabafc527fd9bc8528013ffedada7a11d20569686779091be7b0103c64a",
+      "build/cpp/sources/example_multi_input_rule_pipeline/multi_input_rule_pipeline.source-map.json": "7d26138822ae1b4629dd2eef7e81334482a04a35f1d52eb3b2d67961ddf8e22d",
+      "build/verilog/generated.json": "83b8f5ebdc8730b8fa3e7c1a86e7afa1289c87c0bc1e1b4857d4ae6e7ff46a9f",
+      "build/verilog/CMakeLists.txt": "00bd392242e86aa78643c21c2d6dec3e9b7fcf5435758991a4cbc313189c6e80",
+      "build/verilog/design_top.sv": "6d751d1b799be591360abb38a073cf37123e77ae205b4c710f4a3465f9d0c105",
+      "build/verilog/sources/example_multi_input_rule_pipeline/multi_input_rule_pipeline.source-map.json": "1c59ffdf2b57545e28dccba23e4ab4aff512bb2f65a1f724866372668e7de22f",
+      "build/verilog/sources/example_multi_input_rule_pipeline/multi_input_rule_pipeline.v": "966b136aff6bd85a3573574fca370f0fa45f4e30625fcd9e6c0afa78749d91ce",
+      "build/multi_input_rule_pipeline.ac": "3468b68eeb8df2a1e9825b7cd642dbe69f56c7c12feb5d8ffe51f0cbcb3f386f",
+      "runtime-rtl/byte_mem.v": "33bd9f73dd7cd17f3531cfd8c321762c214ad5df23b5376add212dadd38c47c2",
+      "runtime-rtl/dff.v": "e4f604bd03b9f1651ddbcd71e9ebb1cd8af45018caeab341728b35c14ec0f553",
+      "runtime-rtl/dffe.v": "9ae323530b72d152d10628de94923eaefa411b29e13c647de21bed8b0d73833b",
+      "runtime-rtl/fifo.v": "2dc4086ad3085bd67504caaac0565a3e676f87ce5411cc019fe8ef3a3bc43b23",
+      "runtime-rtl/sync_mem.v": "207b0fe22f029828ac90b50d2ce0aabbb01763231cd153883f31b581d03d68b7",
+      "runtime-rtl/sync_mem_dp.v": "44672a092661f3c218f71534d0d656a2d7d0bfdb03bc6b7a3394e2f13eea86d4",
+      "runner": "975abfffa8c24cad6f83ddcf23c25d5c8e163c08c7367795c7a1db47a2490394"
+    },
+    "execution_sha256": "e15fe01e4fb566822e70411c65244cca89e564b4a62eb2a9f8f4aad0dc9fce4f",
+    "work_samples": 8751,
+    "workers": [
+      1,
+      2
+    ],
+    "rtl": "verilator",
+    "trace_sha256": "b185e759a72c0314cb973a98d979cd7958817c94d4e14668f6300ea998247c58"
+  },
+  "excerpts": [
+    {
+      "path": "multi_input_rule_pipeline.ac",
+      "line": 4,
+      "sha256": "3468b68eeb8df2a1e9825b7cd642dbe69f56c7c12feb5d8ffe51f0cbcb3f386f"
+    },
+    {
+      "path": "cpp/sources/example_multi_input_rule_pipeline/multi_input_rule_pipeline.hpp",
+      "line": 51,
+      "sha256": "ac36bfabafc527fd9bc8528013ffedada7a11d20569686779091be7b0103c64a"
+    },
+    {
+      "path": "verilog/sources/example_multi_input_rule_pipeline/multi_input_rule_pipeline.v",
+      "line": 1,
+      "sha256": "966b136aff6bd85a3573574fca370f0fa45f4e30625fcd9e6c0afa78749d91ce"
+    }
+  ]
+}

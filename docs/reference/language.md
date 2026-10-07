@@ -1,987 +1,807 @@
-# PyCircuit V6 语言规范（Specification）
+# Python source language reference
 
-版本：6.0
+The [complete language and execution specification](language-specification.md)
+connects these source details to MLIR, codegen, Runtime and independent acceptance.
 
-**适用代码基线**：`pyCircuit` 主仓库 `main` 分支（含标量 `Data` 信号体系、Sidecar 测试调度、层次化 MLIR 发射）。
+The active source route captures Python syntax without executing design code,
+compiles each source to a published unit, links an explicit closure, and emits
+C++ or Verilog from one verified hardware artifact. The current module source
+contract and complete example are documented in the
+[agent frontend guide](../development/agent-frontend-guide.md).
 
-> **包名**：Python 包为 **`pycircuit`**（全小写）。不要使用 `pyCircuit` 作为 import 目标。
->
-> **当前契约**：V6 以周期感知（Cycle-Aware）信号模型与层次化组合为正式语言设计，并统一类型化数据体系、Sidecar 测试调度、双编译路径以及存储 / FIFO / CDC 原语。Decision 0148 取代了早期移除全局周期感知模型的方向。
->
-> **Agentic Circuit 边界**：Python 以简单的 `@ac.rule` 作为唯一显式调度边界，MLIR pass 负责类型/effect 推导、检查、握手、调度与 marker 消除。Decision 0241 的有界 Table profile 已通过显式 `pyc.reg` bank 贯通 QueueGraph/gfsim、PYC C++ 与 Verilog；Decision 0262 允许 module/system 中声明的 `ac.slot` 作为 rule 前置资源参数或 nested capture，并以无参数 `slot.release()` 参与同一 GFSim 原子事务。Decision 0279 的 recovery、versioned identity、checkpoint 与 retained-result profile 仍是 compiler-owned internal contract：Python 不公开 slot/generation/epoch/attempt 或手写 stale predicate API。Decision 0280 的 multi-lane transaction algebra 同样是 compiler-owned internal contract：Python 不公开 reservation/commit、transaction-group policy、allocator、age-select、dependency-set 或 terminal-transaction API。Decision 0281 的 Core-local memory ordering 也是 compiler-owned internal contract：Python 不公开 ordering edge、load disposition、alias/disjoint 证明掩码或 stale-response 处理 API；地址/别名函数、store-buffer 深度、coherence 与 ISA memory consistency model 都留在 consumer，framework 只消费 typed mask。Slot 仍不进入 PYC/RTL profile。超出 rank、entry、位宽、总容量或 writer 上限的状态仍在 backend admission 边界 fail closed。release compatibility 由外部 package/Git revision 决定，不编码进 IR。
+Python Enum declarations with explicit encoding widths, nominal annotations,
+imports/reexports, members, equality, selection, defaults and explicit bit
+conversions are supported. `decoded, valid = ac.enum_from_bits[Current limitations](../development/known-limitations.md)` binds
+the raw nominal carrier and separate Boolean membership to two ordinary local
+names. Declaration-only, empty and facade files use the ordinary independent
+compile/link flow. See [nominal enums](spec-enums.md) for exact boundaries.
 
----
+## Behavioral variables and rules
 
-## 概述与设计哲学
+The behavioral slice uses `import pycircuit as ac`, unsigned `ac.bits[W]`
+and `ac.u1` through `ac.u64`, and same-source `@ac.struct` declarations.
+Struct fields are ordered, nominal and immutable values. Same-source constructors
+may omit fields: explicit keywords override declared static defaults; omitted
+fields without a default recursively become zero. An omitted nested struct uses
+all-zero leaves; a declaration such as `inner: Inner = Inner()` explicitly opts
+into Inner's declared defaults. Every declared default must be valid even if
+unused or overridden. Defaults cannot depend on a caller's runtime bindings.
+Unknown/duplicate fields and invalid types or ranges diagnose.
 
-PyCircuit 是嵌入在 Python 中的硬件描述语言（HDL）。设计者用普通 Python 函数描述电路，前端将其编译为 MLIR（`pyc` 方言），后端 `pycc` 再生成可综合 Verilog 与周期精确的 C++ 仿真模型。
+Module-scope annotated variables allocate persistent storage.
+`entries = ac.table[Current limitations](../development/known-limitations.md)` allocates a fixed one-dimensional table
+of persistent entries. Contextual zero initializes each field recursively,
+ignoring nonzero constructor defaults. `init=Entry()` instead constructs an
+element using its defaults and broadcasts that value to independent owners.
+Initializers must be compile-time values; inputs and existing state are not
+initialization expressions in this slice.
 
-V6 的核心概念：
+A same-source top-level `@ac.rule` takes these variables as ordinary parameters.
+Assignments inside the rule follow sequential local value semantics; a read
+after an assignment sees that rule's computed value. Rebinding a parameter
+connected to a module-owned variable proposes an update to that owner. Rebinding
+a pure input or local changes only the local value. The module can return the
+rule's typed struct result or existing named result mapping directly. A local
+`result = Result()` allocates no storage; `result.field = value` reconstructs
+its SSA value, including nested field paths. Previously saved values remain
+snapshots. Persistent field updates participate in the root owner's write set
+and alias checks, and untouched fields retain their previous value.
+An indexed field assignment such as `entries[index].payload.tag = value`
+updates only that field or Struct subtree. Even with an X/Z index, other fields
+retain the current rule-local candidate, including earlier updates in that rule.
+The existing full-width index equality selects the target data; it does not
+become a new storage enable. An explicit RHS read such as `entries[index].a`
+still follows unknown-index read semantics, and whole-element assignment still
+selects the entire replacement value.
+The [ROB example](https://github.com/PTO-ISA/pyCircuit/blob/main/examples/rob/rob.py)
+shows table entries, pointers and occupancy updated together.
 
-- **周期感知信号（`CycleAwareSignal`，简称 CAS）**：设计中流动的唯一信号类型。每个信号携带「逻辑周期」标签，编译器根据周期差**自动插入 DFF** 完成流水线对齐。
-- **前向声明寄存器（`domain.signal()` + `<<=`）**：先声明后赋值，读写周期差决定寄存器级数——寄存器是**推导**出来的，不是手写的。
-- **层次化组合（`domain.call()`）**：Python 函数调用链即硬件模块层次；每个模块既能独立编译，又能被父模块组合。
-- **标量类型体系（`Data` / `Wire[DT]`）**：`Bits` / `Clock` / `Reset` 由统一的 `Wire[DT]` 句柄承载。普通 Python list/tuple 用于静态重复结构；canonical PYC 不包含向量值或隐式逐元素运算。
-- **周期精确仿真**：同一 MLIR 同时生成 Verilog 和 C++ 仿真器，测试台（`CycleAwareTb`）用与设计对称的 `next()` 模型编写。
+The source-lowering MLIR pass infers storage and write enables using existing
+rule, instance, collection, struct, table and bits operations. A table remains
+one collection of storage leaves; indexed updates are compact table maps.
+All state proposals prepare during Work and commit together through the existing
+whole-system Xfer boundary. Failure discards pending data and clock history.
+Missing branch assignments hold the existing value. Outputs describe the rule's
+local computation during Work; they do not imply that Xfer reevaluates outputs.
 
-### 标准导入
+Bits arithmetic is fixed-width unsigned: addition, subtraction and multiplication
+wrap modulo 2^W. This differs from the exact finite Integer expressions of the
+existing `Annotated` source spelling below. Struct and table values retain
+their aggregate types; scalar leaves are `!ac.bits`. This slice does not add a
+new arith-dialect normalization pipeline.
+
+Unsigned fixed bits support explicit static slices, with bit zero denoting the
+least significant bit. `value[low:high]` returns `bits[high-low]`; omitted bounds
+mean zero and the source width. The bounds must be static Integers satisfying
+`0 <= low < high <= width`. A step may be omitted or a static Integer equal to
+one. Selected value/known/Z bits are preserved, including slices across native
+word boundaries. For example, `addr: ac.u40` permits `addr[12:40]` and
+`packet.data[:8]` explicitly selects a low byte.
+
+There is no clamping or negative-index normalization. Empty, reversed, dynamic,
+Boolean and out-of-range bounds, nonunit steps, scalar bit indexing and slice
+assignment diagnose. Boolean and mathematical Integer values must not acquire
+fixed-bit semantics through slicing. Table indexing accepts a proven nonnegative
+half-open value interval within the declared depth, or the existing complete-width
+proof. Closed Integer literals and fixed-bit remainder by a positive static
+Integer carry bounded intervals; aliases and rule captures preserve those facts.
+Wrapping arithmetic does not inherit an earlier remainder bound. This is not
+constant or known-bit authority: high X/Z index bits are retained, and runtime
+divisors do not gain a remainder bound. Table slicing is unsupported. A narrower declaration still cannot
+silently truncate: use an explicit slice at that boundary.
+
+`ac.concat(first, second, ...)` joins one or more unsigned fixed-bit values,
+with the first operand in the most significant positions. A singleton preserves
+its operand. Each operand retains its own width; the result width is their sum.
+Existing destination conversion happens afterward, so a wider destination
+zero-extends the completed result and a narrower destination requires a slice.
+Concatenation preserves every value, known and Z bit, including payload bits
+under unknown masks. It adds no storage or sampling boundary.
+
+Use existing slices to replace static bit ranges. For a 32-bit word,
+`ac.concat(word[12:32], replacement, word[:4])` replaces bits 4 through 11 when
+replacement has type `ac.u8`. Omit empty end segments; a full replacement is simply
+the replacement value. Slice assignment and dynamic insertion remain unsupported.
+
+Operands must already be fixed-bit values: Integer/Boolean literals and values,
+raw Enum, Struct and Table values do not convert implicitly. Use
+`ac.enum_to_bits` explicitly for an enum carrier. Qualified and aliased imports
+resolve by their bindings, and ordinary fixed aliases and rule captures retain
+their type authority. Empty calls, keyword/starred arguments, subscription and
+unresolved or overflowing widths diagnose. Concatenation is an ordinary source
+expression; it does not add a static initializer evaluator or expand observation
+emission support.
+
+`ac.popcount(value)` counts set bits in one unsigned fixed-bit operand. For
+input width W, its natural result width is `bit_width(W)` (equivalently
+`floor(log2(W)) + 1`), before destination conversion. Zero returns zero and
+all ones returns W. The result remains fixed bits, including at width one.
+
+The singleton reduction is identity: a one-bit operand preserves its complete
+value/known/Z planes. For wider operands, any X/Z makes the whole natural count
+X, with no Z; the value plane underneath that computed X is unspecified.
+Destination widening zero-extends the natural count afterward. This distinction
+preserves the original bit-count reduction semantics.
+
+The source call accepts exactly one positional fixed-bit value, including
+ordinary aliases, captures and explicit `enum_to_bits` results. Logical
+Integer/Boolean values and raw Enum or aggregate values do not convert
+implicitly, even when their physical width fits. Keywords, star expansion,
+subscription, unresolved/nonpositive widths and implicit narrowing diagnose.
+This expression adds no state or static-initializer evaluator. It lowers through
+existing bit operations with a logarithmic number of IR operations and compact
+scalar literals; runtime work still scales with W and existing emission capacity
+limits apply. Maximum representable width is not a practical allocation promise.
+
+`ac.count_leading_zeros(value)` and `ac.count_trailing_zeros(value)` count
+consecutive zero bits from the most- or least-significant end. They share
+popcount's one-positional-operand fixed-bit authority and positive resolved-width
+requirements. Their natural result is unsigned `bits[bit_width(W)]`, with range
+0 through W; an all-zero input returns W. Destination widening happens afterward,
+and narrowing requires an explicit slice. The helpers add no storage or sampling
+boundary and reuse existing common bits operations in an O(log W) graph.
+
+Their four-state behavior preserves the historical zero-count trees. Starting
+at the selected endpoint, let d be the position of the first known one, or W
+if there is none. A known-zero prefix returns known d. If only the endpoint is
+X/Z and positions 1 through d−1 are known zero, the lowest `bit_width(d)` result
+bits are X and higher natural bits are known zero. Any other X/Z before that
+first known one makes the natural result all-X. Unknown suffix bits after the
+known one do not affect the result. Results contain no Z, and latent computed
+value bits under X are unspecified. For example, four-bit leading count maps
+`1xxx→000`, `x111→00x`, `x011→0xx` and `00x1→xxx`. At W=1 both helpers are
+logical complement: `0→1`, `1→0`, and `X/Z→X`. Widening adds known-zero high bits.
+These expressions retain existing observation-emission limitations and emission
+capacity checks; representable enormous widths do not imply executable payloads.
+
+Priority encoding uses fixed-result unpacking:
 
 ```python
-from pycircuit import (
-    # ── V6 核心（周期感知模型）──
-    CycleAwareCircuit,    # 顶层电路
-    CycleAwareDomain,     # 周期感知时钟域
-    CycleAwareSignal,     # 周期感知信号（唯一信号类型）
-    ForwardSignal,        # domain.signal() 的返回类型
-    build_cycle_aware,    # 直接 Python elaboration
-    cas,                  # Wire → CycleAwareSignal
-    compile_cycle_aware,  # canonical JIT → Design
-    mux,                  # 多路选择器
-    submodule_input,      # 双模输入辅助
-    wire_of,              # 边界提取 Wire（仅用于 m.output()）
-    # ── 测试 ──
-    Tb, CycleAwareTb,
-    # ── 位操作辅助 ──
-    cat, zext, sext, trunc,
+index, valid = ac.priority_encode(value, order="low")
+index, valid, conflict = ac.onehot_encode(value, order="high")
+```
+
+Both accept one authoritative unsigned fixed-bit operand, as for popcount.
+The optional keyword-only `order` is the literal `"low"` (default) or `"high"`.
+Low order chooses the least-significant asserted bit; high chooses the most
+significant. The natural index is fixed `bits[max(1, bit_width(W-1))]`.
+Zero input returns index zero and false valid. Valid and conflict are logical
+Boolean values; conflict means more than one asserted bit. Destination widening
+happens after natural-width computation; narrowing requires an explicit slice.
+
+Four-state index behavior is an ordered pure conditional fold: start with zero,
+visit positions from lowest to highest priority, and select that position's
+index when its input bit is true. An X/Z condition merges equal result bits and
+makes differing bits X. Valid is the OR reduction. Conflict follows popcount
+greater than one, becoming X if any input bit is X/Z, including at W=1.
+For example, high-order `x100` returns index `1x`, valid true and conflict X;
+low-order `x100` returns index `10` and valid true. At W=1 the index is always
+fixed zero, while valid and conflict preserve their distinct Boolean semantics.
+Computed outputs contain no Z; latent values under computed X are unspecified.
+Historical procedural encoder variants disagreed on unknown inputs; their
+procedural skipping of X/Z does not define these helpers.
+
+The operand is evaluated once. Unpack into exactly two or three distinct ordinary
+names under existing binding and branch rules; all destinations are checked
+before any result binding is published. Whole-result assignment, immediate
+`.index`/`.valid`/`.conflict` projection, indexing, direct producer return or
+observation, chained/aggregate targets and direct owner writes diagnose. Store
+named results in an ordinary declared struct for later field access. Existing
+explicit u1 field/storage conversion creates a fresh fixed wire from a Boolean;
+it does not change the original flag or its aliases into fixed bits. Raw flags
+therefore cannot be operands to popcount or another fixed-bit helper.
+
+The helpers share Enum's fixed-result binding and existing bit operations. Their
+IR graph is O(log² W), with compact scalar literals and no new IR or Runtime
+primitive. Existing backend capacity and observation-emission limits still apply;
+huge-width compile/link support is not a runtime allocation guarantee.
+
+Unsigned fixed bits also support `value << count` and `value >> count` with a
+proven static, nonnegative Integer count. Both results retain the input width.
+Retained value/known/Z bits move unchanged and vacated positions become known
+zero. A zero count is identity; a count at least the input width produces known
+zero. Counts are compared at their full precision, including beyond 64 bits,
+before lowering; they never wrap modulo the input width.
+
+Destination conversion happens after the shift. For `a: ac.u8` equal to 128,
+`wide: ac.u16 = a << 1` yields zero. Explicitly widening `a` to a u16 local
+before shifting yields 256. Boolean inputs/counts, negative or runtime counts,
+unproved input widths and missing unsigned source authority diagnose. A local
+alias, singleton runtime interval or unresolved parameter default is not static
+count proof. Mathematical Integer right shift keeps its separate exact-value
+contract below; runtime mathematical left shift remains unsupported.
+
+For an unsigned fixed `bits[W]` numerator, `value // divisor` and
+`value % divisor` accept a proven static Integer divisor satisfying
+`1 <= divisor < 2**W`. Each result retains W; an explicit destination conversion
+occurs afterward. The compiler derives an exact widened reciprocal product and
+extracts the quotient, then uses multiplication/subtraction for a requested
+remainder. It reuses existing common bits operations without adding a division
+primitive. Any X/Z bit in the numerator makes the entire arithmetic result X,
+including division or remainder by one and powers of two.
+
+A runtime divisor is also accepted when both operands already have authoritative
+unsigned fixed-bit types of the same positive, resolved width. `//` and `%` are
+combinational operations: they insert no state, handshake or extra sampling
+cycle. Generated gfsim uses the existing CPU arithmetic for machine widths and
+multiword arithmetic above them; Verilog uses unsigned division/remainder.
+For fully known operands with a nonzero divisor, results are unsigned quotient
+and remainder. A runtime zero divisor or any X/Z bit in either operand makes the
+whole result X, following native four-state RTL arithmetic. The simulator checks
+these conditions before using CPU division, so it never invokes host division
+by zero. Consumer-specific total arithmetic policies belong in their wrappers:
+for example, PR151's PTO quotient0/remainder=dividend convention is not the
+semantics of the generic bits operator.
+
+Proven static Integer zero, negative or too-wide divisors still diagnose.
+Runtime Boolean/Integer divisors and differing fixed widths are not implicitly
+converted. Register initializers, ordinary Integer aliases, singleton intervals
+and unresolved parameter defaults do not establish a static divisor; an
+explicitly fixed-bit register or value may instead use the runtime operation.
+Runtime mathematical Integer division/remainder and wholly static source `//`/`%`
+expressions remain unsupported; the common mathematical evaluator's separate
+floor/modulo and zero-error semantics are unchanged. The PR's iterative
+ready/valid divider is a separate module integration, not an alternative timing
+interpretation of these ordinary expressions.
+
+Persistent behavioral modules and modules containing queues receive generated physical `pyc_clk` and
+`pyc_rst` inputs through the existing model signature. These names are reserved
+and absent from Python authoring. The host runner drives them through the typed
+DUT interface. One Step remains one sampling epoch, not a complete clock period.
+
+A behavioral module may register multiple state-writing rules when their write
+sets are proven disjoint: different persistent declarations, different nested
+Struct fields, different direct-literal elements of one Table, or disjoint fields
+of a one-dimensional Table element even when its indices are dynamic. All rules read the same old state; call
+order does not introduce state forwarding or write priority. Ordinary local
+assignments, if/else, struct defaults/construction/projection and proven table
+indices retain their existing semantics. Overlapping writable parameter aliases
+reject; read-only duplicate bindings are permitted. Unproved index ranges,
+general loops, automatic arbitration between overlapping writers, cross-source
+behavioral rules, Table-in-Struct and cross-domain transactions remain unsupported.
+
+The registered MLIR pass `ac-analyze-rule-writes` analyzes source capture
+before lowering. It retains declaration/registration identity and assignment
+paths, including identity writes. Lowering consumes that cached analysis and uses
+existing `ac.value.merge` to combine disjoint proposals. For a one-dimensional
+Table of Bits, Enum or recursively nested Struct values, existing `ac.table.map`
+combines complete candidates against old Q. Parent fields expand into unique
+scalar leaves; distinct static elements may therefore update a parent field and
+a child field without presenting overlapping paths to the common verifier.
+The storage owner is bound once with its original rule-owner enables and poison.
+
+Capture-time index disjointness recognizes direct Integer literals. Lowering can
+also prove different closed index constants from actual SSA, including folded
+arithmetic and aliases; a spelling or range annotation alone is not a proof.
+Thus `entries[0].a` and `entries[2].a` may compose, while writes to
+`entries[i].a` and `entries[j].a` still reject when their separation is unproved.
+Dynamic `entries[i].a` and `entries[j].b` can compose because their fields differ.
+Whole-element/field, identity and alias conflicts remain checked. Table-of-Table,
+Table-in-Struct and a second index level remain unsupported. Overlapping writers
+may use mutually exclusive whole-owner grants or the explicit address-separation
+proof described below. Neither supplies implicit arbitration.
+
+When source expressions supply mutually exclusive complete owner enables, rules
+may write the same scalar, overlapping Struct paths or overlapping Table domains:
+
+```python
+grant_a = request_a
+grant_b = request_b & ~grant_a
+write_a(state, data_a, grant_a)
+write_b(state, data_b, grant_b)
+```
+
+The compiler must prove that both final owner enables cannot be known one at
+once. It traces real rule captures/yields and uses bounded necessary facts for
+one-bit constants, NOT/AND/OR, four-state selects, and exact typed
+constant comparisons. Unsupported producers remain opaque; unproved overlaps
+reject. Identical names, default values and expression spelling do not establish
+identity. The proof does not rewrite executable enables: `p & ~p` still produces
+X for unknown input and retains the existing unknown-enable failure behavior.
+A rule that conditionally writes one field but unconditionally writes another
+has an enabled owner; its inner field condition is not a whole-owner grant.
+
+For overlapping indexed paths, ordinary source expressions can permit both
+writers when their addresses separate:
+
+```python
+grant_a = request_a
+grant_b = request_b & (~grant_a | (index_a != index_b))
+write_a(entries, index_a, data_a, grant_a)
+write_b(entries, index_b, data_b, grant_b)
+```
+
+The equivalent conditional expression is also supported. The proof uses exact
+assignment-time index SSA, not the index variable's final value. It checks every
+overlapping path pair. Under both whole-owner enables being known one, the sets
+of ordinals whose full-width equality is not known zero must be disjoint. Thus
+partial X/Z indices with a known differing bit can separate; two masks merely
+being unable to both equal known one is insufficient.
+
+The compiler transports private equality-mask Tables through existing Rule and
+TableMap results and merges only each leaf's retained write domain. Original
+owner enables and poison remain outside those masks. Explicit guards determine
+policy; the proof does not rewrite the executable expressions. General select
+proof includes the case where an X/Z selector has two arms with the same known
+result. Unknown enables still cause existing whole-system failure/discard.
+
+Different dynamic widths needing new widening-equivalence reasoning,
+arithmetic/range-only separation, implicit selection provenance and per-assignment
+branch exclusion remain unproved unless whole-owner exclusion already suffices.
+Whole-table replacement needs whole-owner exclusion; indexed whole-element
+updates may use address proof. Analysis errors and exhausted budgets reject.
+
+Capture analysis now distinguishes a valid plan from completed overlap proof.
+`ac-analyze-rule-writes` reports pending overlapping pairs; its successful plan
+construction alone is not source admission. Lowering proves every pending pair
+before binding proposals for a module and checks the whole-source discharge
+ledger before publication. Cached plans remain immutable. Analysis work and
+proof depth/queries/facts/pairs are bounded; exhaustion rejects with a diagnostic.
+The CompilerDev analysis exposes `isPlanValid()` and pending queries; the former
+`isValid()` name has been removed.
+
+Selected candidates use both their write domain and original owner enable, so a
+disabled overlapping candidate cannot restore old Q over an active update.
+Registration order supplies no priority. The source must apply its intended
+grant to all transaction effects, including input acceptance and output valid;
+this support does not infer a winner, cancel effects or supply a scheduler.
+
+Module-scope statement calls can register rules without dummy result values.
+Fallthrough, final bare return and `-> None` rules have no source outputs; a
+`-> None` rule cannot return a non-None value. A typed return may be ignored without
+dropping its updates/checks. Void rules reject in value contexts. Existing
+unannotated value-return rules retain their contract; early or conditional
+returns and nested rule registration are not added by this support.
+
+Within one rule, assignment order and its effective owner enable are unchanged.
+Across rules, a known-enabled writer must not mask an unknown-enabled sibling
+writer to another field of the same owner: the combined storage enable remains
+unknown and standard storage checking rejects the epoch. Unknown data under a
+known enable remains legal. In particular, one rule's unknown conditional field
+write followed by an unconditional sibling-field write retains its previous
+known-owner-enable/possibly-unknown-data behavior. Unknown enables
+that reach standard storage use its existing failure semantics; complete checks
+for masked unknown controls and pure no-write paths remain unfinished.
+
+## Table queries
+
+Use pure callbacks to select from an existing positive, closed, one-dimensional Table:
+
+```python
+free_index, free_valid = entries.first(where=lambda entry: not entry.valid)
+issue_index, issue_valid = entries.argmin(
+    where=lambda entry: entry.valid and ready_tags[entry.tag],
+    key=lambda entry: entry.age,
 )
-from pycircuit.design import probe, testbench
 ```
 
----
+Both calls require exactly two distinct ordinary result names. `where` and `key`
+are required keyword arguments; callbacks are one-argument expression lambdas,
+without defaults or variadic arguments. Existing scalar expressions and pure
+intrinsics retain their ordinary type rules. Captures are immutable SSA snapshots;
+row-dependent reads of captured Tables retain normal index-admission checks.
+Named-def callbacks, nested queries, allocation, module/rule calls, instrumentation
+and mutation are unsupported, including inside a callback's dead branch. General
+lambda values or tuple results are not introduced.
 
-## 信号类型纪律
+For extent N, index has fixed type `bits[max(1, ceil(log2(N)))]`, and valid has
+fixed type `bits[1]`. No match returns index zero and valid zero. Index's known-value
+range is `[Current limitations](../development/known-limitations.md)
+    return BufferResult(input_ready=ready, output_valid=available,
+                        output_data=value)
+```
 
-PyCircuit V6 强制单一信号类型。以下规则**不可违反**：
+The signature is `ac.queue[Current limitations](../development/known-limitations.md)`. The three inputs may be positional
+or named. Configuration is static and keyword-only. Controls accept Boolean
+or authoritative fixed one-bit values through the existing predicate rules;
+mathematical Integer `0/1` does not become a predicate. Payloads use existing
+fixed-bit, nominal and admitted one-dimensional table types.
 
-| 规则 | 说明 |
-|------|------|
-| **所有标量信号都是 `CycleAwareSignal`** | 设计中流动的每个标量值必须是 `CycleAwareSignal`（或 `ForwardSignal`，其读侧委托给 CAS）。 |
-| **`domain.state()` 不存在** | 创建寄存器的唯一方式是 `domain.signal()` + `<<=` / `.assign()`。 |
-| **`.wire` / `.w` 不可访问** | 所有算术、比较、mux、切片直接在 CAS 上进行。设计代码中读取 `.wire` 是错误。 |
-| **`wire_of()` 是唯一的 Wire 提取方式** | 仅在 `m.output()` 边界调用。 |
-| **`cas()` 包装裸 Wire** | `m.input()` 和 `m.const` 助手返回裸 `Wire`，必须用 `cas(domain, w, cycle=0)` 或 `submodule_input()` 包装后才能参与 CAS 表达式。`u(w,v)` / `s(w,v)` 字面量是 `LiteralValue`，CAS 运算符 / `mux()` / `cas()` 可直接消费，无需手动包装。 |
-| **输出 dict 存 CAS** | 子模块返回的 dict 值必须是 `CycleAwareSignal`（保留 cycle 来源信息）。 |
-| **重复结构用 Python 容器** | 多 lane 或多 entry 结构使用普通 Python list/tuple 和静态循环生成标量信号；typed aggregate 由 Agentic/ACIR 在 PYC 前打包。 |
+The allocation must be one direct module-body assignment to three distinct,
+fresh names. Result bindings cannot be reassigned or mutated through fields or
+indices. A future queue result can supply a connection: each result keeps its
+own ordinal, while input expressions bind once at the lexical call position.
+Existing common analysis checks the completed graph, including unused inputs
+and cycles. Dynamic, nested-expression or rule-local queue allocation rejects.
+
+Default ready depends only on available capacity. Explicit
+`ready_policy="downstream_pop"` permits a full queue to pop and replace its head
+on one edge when its old head is available. There is no empty flow-through.
+`latency=L` is a positive static integer fitting u64: a token captured on edge
+E0 becomes available after edge E(L-1) commits and can first be consumed on EL.
+Waiting tokens occupy the declared depth; latency never adds token slots. An
+initialized queue with no available head returns known-zero valid/data even when
+occupied. With latency one, depth one has half-rate throughput under the local
+policy; larger latency also constrains throughput. See the
+[queue contract](spec-queues.md) for reset, four-state, capacity and Work/Xfer
+semantics. Queue owners reuse existing whole-system commit/discard and do not
+introduce writes to unrelated source variable owners.
+
+Clock/reset and transaction proposals remain compiler-owned. Queue presence
+propagates a hidden physical domain through ordinary module calls, including
+imported stateless parents. This does not add behavioral static parameters,
+Table-in-Struct or general source collection allocation.
+
+## Branches and binding boundaries
+
+Ordinary `assert predicate` with an optional static string message is captured
+inside behavioral and registered structural rules. Its condition observes the
+statement's SSA value, and its source path includes preceding assertion
+continuation. If/match joins select continuations along with values and enables;
+they do not combine gated paths with an OR that would introduce spurious X.
+Predicates use the Boolean or authoritative fixed-one-bit boundary below.
+Check IDs, ordered obligations and condition/path result pairs are verified in
+the same source-unit and common hardware flow, including under Python `-O`.
+This is source/IR support: both emitters still reject `ac.expect` until the
+execution packet is complete. Compilation or linking does not establish runtime
+assertion checking. See source-check progress (historical local record).
+
+Statement `if` in behavioral rules and conditional expressions (`a if test else
+b`) share predicate and value-join rules. A condition must be Boolean or an
+authoritative fixed `bits[1]/u1` value. Integer values, including `1` and a
+one-bit `Annotated[int, range(1 << 1)]` input, are not conditions. A one-bit
+representation without source authority is insufficient. Using a fixed one-bit value as a predicate leaves its original fixed-width numeric meaning
+available to later expressions. Comparisons produce Boolean values.
+
+`and`, `or` and logical `not` use the same predicate checks. All-Boolean `and/or`
+operands produce Boolean; mixing Boolean and fixed one-bit operands produces
+fixed `u1` in either order, including longer operand lists. `not` preserves the
+operand's Boolean or fixed-one-bit kind. These operations use the existing
+four-state bit logic; they do not add Python's operand-returning or short-circuit
+runtime-check behavior. Bitwise inversion retains its separate contract.
+
+Each statement branch starts from the same incoming local values and owner
+proposal enables. Assignments then execute sequentially within that branch.
+At the join, a branch that omits an assignment inherits the incoming value and
+enable, including proposals made before the `if`. `pass` changes neither.
+For example, within a behavioral rule:
 
 ```python
-# ✅ 正确
-pc = domain.signal(width=64, reset_value=0, name="pc")
-enable = cas(domain, m.input("en", width=1), cycle=0)
-result = pc + enable            # CAS + CAS → CAS（自动周期对齐）
-m.output("pc", wire_of(pc))     # wire_of() 仅在边界
-
-# ❌ 禁止
-st = domain.state(...)          # 不存在
-raw = pc.wire                   # 不可访问
-outs["result"] = wire_of(r)     # dict 里必须存 CAS
-x = a.wire + b.wire             # 直接在 CAS 上运算
+state = state + 1
+if update:
+    state = state + 2
+else:
+    pass
 ```
 
----
+The else path retains the preceding `state + 1` proposal and its write enable.
+The join selects both values and enables. A known condition preserves the chosen
+value's X/Z bits. An unknown condition preserves common known bits and common Z
+bits, producing X elsewhere. An effective unknown enable retains standard
+storage failure and whole-system discard semantics.
 
-## 核心类型与数据类型体系
+A new local is usable after a branch only when both paths bind it. A one-sided
+local can be used inside its branch, and a later unconditional assignment can
+bind it for subsequent use. An explicit annotation on a partial binding still
+constrains that later assignment; it does not create an initial value. Returns
+inside branches remain unsupported.
 
-PyCircuit 的 canonical PYC 数据路径是 scalar-only。`Data` 描述标量位宽、
-时钟或复位语义，`Wire[DT]` 承载一个标量 SSA、端口或状态值。
+An ordinary inferred Integer local keeps its Integer kind but may grow or change
+its representation: `n = 1; n = n + 1` and branches assigning `n = 0` or `n = 2`
+retain exact values. Inferred Boolean and fixed-width locals retain their kind
+and type. Persistent owners and explicitly annotated locals keep their original
+logical type and range/width boundary through initialization, assignment and
+joins. Boolean bindings require Boolean values; Integer `0/1` and fixed `u1` do
+not become Boolean merely because they fit one bit.
 
-### Data 类型层级
+An unannotated non-owner Integer rule formal keeps the call's original physical
+representation, source interval and constant facts. Its representation is not an
+unsigned range: capturing `0 - 1` and computing `n + 2` can produce `1`.
+Reassigning that formal cannot enlarge its bound representation, although a new
+expression or local may have a wider one. An explicitly annotated Integer formal
+must match the actual's logical kind and type and satisfy its declared range.
+A formal bound to persistent state retains the owner's original contract.
+
+Reannotation cannot replace an owner, formal or earlier explicit local contract.
+If a new local has an explicit annotation in one branch and an inferred binding
+in the other, that declaration constrains both values before joining. Explicit
+declarations in both branches must agree. Adding an annotation to an inferred
+local constrains subsequent assignments without changing earlier SSA aliases.
+
+Integer/Integer joins retain exact source kind and the interval hull, using a
+complete common representation before selection, including negative and wide
+values. Boolean/Boolean remains Boolean; Boolean/Integer rejects. Two fixed
+branches require equal hardware widths. With exactly one fixed `bits[W]` branch,
+the other can convert only when it is a proven closed source Integer in
+`0 <= value < 2**W`, or a proven closed Boolean with `W == 1`. This rule is
+symmetric in arm order and applies to both statement and expression joins.
+The conversion creates a fixed-width SSA value; it does not relabel the original
+Integer or Boolean producer. Aggregate joins retain existing nominal/shape rules.
+
+Closed source proof comes from supported static Integer/Boolean values and pure
+source operations whose required operands are all proven closed. Aliases and
+rule captures preserve that proof. Thus a literal, `1 + 1`, or an alias to that
+closed expression can meet a fixed branch peer. Runtime inputs, current state,
+singleton runtime intervals, unbound parameters and expressions such as
+`runtime * 0` do not supply the proof. A known initializer is not proof about a
+later state read. This branch-join proof does not expand static admission for
+shift counts, divisors, widths, parameters or declared defaults; ordinary aliases
+in those positions retain their existing restrictions.
+
+## Match statements
+
+Behavioral rules support Python `match` statements using the same values, binding
+boundaries and owner write enables as `if`. For example, inside a rule:
+
+```python
+value: ac.u4 = 7
+match selector:
+    case 0:
+        value = 1
+    case 1:
+        pass
+    case _:
+        value = 9
+```
+
+For known selector 1, `value` remains 7. The subject is evaluated once. Every
+arm starts from the same incoming environment, then follows normal sequential
+statement semantics. First-match priority selects an entire arm, including all
+owner write enables. A selected arm that omits a write retains any proposal made
+before the match; it does not replace it with a fresh read or a new write.
+
+Supported selectors are Boolean, authoritative fixed bits with a closed width,
+nominal Enum, and the existing nonnegative bit-backed Integer comparison profile.
+Boolean selectors use `True`/`False` patterns, fixed/Integer selectors use exact
+Integer literals, and Enum selectors use canonical members such as `State.IDLE`.
+Boolean and one-bit fixed values do not interchange pattern kinds. Integer keys
+must fit without truncation; `-0` is zero, while a negative value cannot match an
+unsigned selector. OR-patterns combine supported atoms. A catch-all `_` must be
+the final arm and cannot appear inside an OR-pattern.
+
+Duplicate alternatives inside one arm reject after canonical normalization, so
+`0 | -0` is a duplicate. Repeated or fully shadowed keys in later arms produce
+nonfatal diagnostics but remain in the four-state selection. X/Z follows existing
+equality, OR and select semantics, including preservation of common known bits
+and common Z. Neither known-code coverage nor Enum member coverage eliminates
+physical fallthrough or proves that a selector is valid or known.
+
+Without `_`, unmatched values retain the incoming environment. A new local still
+needs a value on every retained path before use, even when cases cover every known
+code. Existing locals can be initialized before the match; a later unconditional
+assignment can also initialize an unused partial local. Joins retain existing
+ordered binary typing rather than inferring a new type from all arms together.
+
+Nested `if`/`match`, ordinary field/table updates and admitted two-name Enum
+conversion bindings reuse their existing rules. Returns within arms, allocation,
+module/rule calls and external effects remain unsupported. Capture/as, class,
+sequence, mapping, starred and guarded patterns reject. Whole struct/table
+selectors, masked patterns, unbound widths/type parameters and signed or
+mathematical comparison selectors remain outside this profile; struct/table
+payloads and updates are supported.
+
+Native warnings and remarks are forwarded to the public compiler's stderr;
+successful diagnostics do not change stdout or source-unit artifacts.
+
+## Direct module composition
+
+Same-source modules with typed struct returns can be called directly in module
+scope: `first = Child(request)` followed by `second = Child(first)`. The returned
+values connect through existing SSA and whole-struct ports. Each static call
+occurrence owns a separate instance; reusing `first` only fans out its value.
+Nested calls in one expression are sibling instances in the enclosing module;
+calls in a callee's body establish child hierarchy. Source order does not add
+cycles, registers or commit priority.
+
+A direct call may read a later module result or its fields. The later name must
+have exactly one unannotated simple assignment whose right-hand side is a direct
+module call, with no other assignment, field/index mutation or shadow. This
+restriction applies when looking up a name before its declaration; ordinary
+sequential local rebinding and field updates remain available without forward
+lookup. Inputs, state and already-bound locals take precedence over future names.
+
+Call arguments bind where that call appears in source order. For example:
+
+```python
+x = first
+a = A(b.field, x)
+x = second
+b = B(x)
+```
+
+Here A receives `first` as its second argument and B receives `second`. Reading
+`b.field` early does not evaluate B's arguments early. Each nested or identical
+call occurrence, including a zero-argument call, still creates its own instance.
+Reusing one result creates no additional instance.
+
+Opposing connections between module results are permitted when their individual
+field dependencies are acyclic. Existing common hardware analysis checks the
+completed graph, including unused connections and storage inputs. Storage Q
+provides its existing temporal boundary; true combinational cycles diagnose.
+General forward reads of ordinary local expressions remain unsupported.
+
+The compiler resolves the call graph before finalizing signatures and propagates
+hidden sampling/reset requirements through stateless parents. Recursive module
+graphs, dynamic or rule-local instance creation, and annotated module-call result
+bindings diagnose. Use an unannotated result local; its type comes from the
+callee, avoiding ambiguity with persistent variable declarations.
+
+Typed struct results use one existing physical output, normally named `result`;
+the compiler resolves a collision with an input name deterministically. Python
+does not name that physical output or repeat a dictionary of field names.
+Direct typed-struct calls also accept independently published module declarations
+through from-imports, aliases and facade reexports. Their interfaces explicitly
+carry source argument kinds, result form and hidden-domain mapping. Consumer
+compilation uses those validated interfaces; link compares the complete contract
+against the real provider body. It does not read provider source or infer a
+hidden domain from port names. Source formals remain required and no static/type
+arguments are admitted for this call form.
+
+Boolean and Integer formals retain their declared source-kind requirements;
+equal physical widths do not make fixed bits logical values. Fixed-bit formals
+use the existing unsigned destination conversion, including fitting Integer
+values and Boolean-to-`u1`, while preserving the original producer's kind.
+Same-source and imported calls use this same binding boundary.
+
+An imported Struct may annotate a returned value. Imported construction and
+omitted-default constructors remain unsupported; defaults still require
+same-source declarations. Existing cross-source structural modules retain their
+current flow when no ordinary source-call contract is declared.
+
+## Structural modules, instances and rules
+
+- `@module` declares a reusable definition, typed positional inputs and a named
+  output-type mapping. The selected root may have explicit ports.
+- A structural call such as `child = Child()` creates an instance. A call to
+  that instance inside a registered `@rule` binds its complete input signature.
+- Nested `@rule` functions are stateless Work computations. Defining a rule is
+  inert until its explicit registration in the module body.
+- Storage is explicit: `dff(T=...)`, `dffe(T=...)` and the standard memory leaves
+  own state. Ordinary modules and wires add no register delay.
+- Reads observe current Q throughout Work; Xfer commits prepared data and clock
+  history. `nonlocal` state proposal syntax belongs to the retired source model.
+- Outputs may use input/child values, literals and supported pure bitwise,
+  comparison or selection expressions in the structural return mapping.
+  Proven integer arithmetic is also supported as described below. Expressions
+  reuse ordinary combinational SSA; they add no rule or register.
+  Missing/repeated bindings and incompatible types diagnose.
+
+The current source tests cover `bool`, inline
+`Annotated[int, range(1 << WIDTH)]`, keyword-only integer defaults and type
+arguments for standard leaves. Source location differences do not change
+hardware type meaning. Bool literals become known width-appropriate bits;
+width/range mismatches remain errors.
+
+## Immutable local wires
+
+A structural module body may name an existing pure expression with a single
+assignment, such as `next_value = (x + 1) & 255`, then reuse it in an output mapping and registered
+rule. The name refers to the same SSA value. It adds no register, assignment-time
+sample, implicit narrowing or range check. The computation runs during Work
+from current inputs and old Q; existing output/input boundaries perform their
+usual type and range checks. Alias chains retain source kind, interval and
+mathematical provenance, including when captured by a rule.
+
+Local names are immutable in this structural slice. They cannot shadow inputs, static
+formals, instances, rules, definitions, imports (including local import aliases)
+or active intrinsic grammar names. Direct right-hand references must already
+exist. Output mapping string keys do not declare variables, so a local and its
+output key may share a name. Locals after registration but before Return are
+available to deferred rule lowering; new pure locals after Return diagnose.
+
+Only a Call resolved to an existing module or trusted leaf declares an instance;
+a lexical shadow cannot redirect constructor lookup to an outer definition.
+Rebinding, tuple/attribute/subscript targets, AnnAssign, rule-local assignments,
+general forward references and arbitrary calls remain unsupported.
+
+Naming does not add static-alias evaluation for counts, widths or parameters.
+A captured singleton interval is not proof of a literal mask. Compute a complete
+masked candidate before capture when its boundary needs that proof. Ordinary
+same-width wire/bitwise uses retain their existing behavior. Both capture paths
+preserve numeric facts, but source instrumentation emission remains unsupported.
+
+## Exact integer expressions
+
+Local finite Integer values support `+`, `-` and `*`. Lowering derives finite
+intervals, widens operands before arithmetic and converts only at a completed
+module-output or instance-input boundary proven to fit. Use an explicit known
+nonnegative mask, for example `(a + b) & 255`, for modular arithmetic. An
+unmasked sum that might overflow its declared output is rejected. Intermediates
+may be wider than 64 bits; high X/Z bits remain significant until after the
+arithmetic operation. A zero mask produces known zero.
+
+Runtime `a >> k` accepts an Integer input with a proven nonnegative interval
+and an actually known nonnegative static Integer count. It extracts from the
+complete SSA representation: zero count preserves all bits, a count at or above
+the actual width produces known zero, and other counts retain the upper bits
+including their X/Z state. Discarded low X/Z do not contaminate retained bits.
+Arithmetic still precedes extraction; `(a + 1) >> 8` with eight-bit a=255 yields
+one from the nine-bit sum. A narrow or singleton mathematical interval does not
+justify discarding high physical X/Z bits before the shift.
+
+Runtime signed inputs, dynamic counts and unresolved formal counts diagnose.
+A parameter default or singleton runtime interval is not proof of a static
+count. Fully static expressions keep the existing exact evaluator, including
+signed floor right shift where admitted: `((0 - 7) >> 1) & 255` yields 252.
+Boolean input/count and negative counts remain errors.
+
+Statement and expression choices use the shared
+[branch and binding rules](#branches-and-binding-boundaries). All-Integer choices
+combine branch intervals and retain complete representations before destination
+conversion, including negative and mathematical intermediates.
+Bitwise `&`, `|` and `^` on two Boolean values preserve Boolean meaning. Mixing
+a Boolean and fixed `bits[1]/u1` produces a fixed `u1` result in either operand
+order, preserving the common four-state semantics. That result can be used as
+a predicate or in fixed-width arithmetic without changing either input's kind.
+An explicitly unsigned destination may widen an authoritative unsigned fixed
+value: for example, `wide: ac.u32 = small` in a rule zero-extends a `u4` value.
+The same boundary applies to declared unsigned struct fields, scalar table
+elements and behavioral module arguments/results. Low value/known/Z bits are
+preserved and added bits are known zero. Narrowing is rejected; arithmetic
+still requires equal-width operands, so convert before combining widths.
+Equivalent widths preserve the value even when constant width expressions
+differ. Boolean-to-wider-bits and fixed-to-wider-mathematical-Integer conversions
+are not admitted by this rule. Rule formal/owner bindings and structural
+module bindings retain their existing exact-type requirements.
+For Integer `a`, `((a + 1) if flag else 1023) & 255` keeps both Integer
+representations intact until after selection. Fixed-peer coercion must satisfy
+the closed-source proof and fit checks above; it cannot silently truncate a
+branch to the destination width. `True` and `False` remain Boolean values with
+intrinsic one-bit representation.
+
+Boolean and Integer remain distinct even at width one. Known mixed kinds and
+Integer conditions diagnose. Local annotations and standard leaf type arguments
+provide kind information. Validated ordinary source-call contracts also carry
+Boolean, Integer and fixed-bit authority across source units. Declarations
+without that contract do not establish new mathematical conversion facts;
+their existing pure wire connections remain available.
+
+Pure same-width bitwise expressions retain parameterized constants without
+treating a default as the only possible binding. Arithmetic requires actual
+range/static proofs. Comparisons containing mathematical intermediates,
+unknown imported mathematical kinds or conditions, unproved bounds and required
+dynamic range checks currently diagnose. Some numerically equal widths with
+different static expression trees also require future type normalization; no
+invalid equal-width resize is emitted. This is not arbitrary Python execution.
+
+## Commands and files
 
 ```text
-Data (ABC)
-├── Bits(bitwidth: int)  → iN
-├── Clock                → !pyc.clock
-└── Reset                → !pyc.reset
+pycircuit compile -c <source.py> --source-root <root>
+  [--package-prefix <prefix>] [-I <published-interface-unit>]...
+  -o <unit-directory> [--replace]
+pycircuit link <complete-unit-closure> --top <qualified-module>
+  -o <root-source-basename.ac> [--replace]
+pycircuit emit <final.ac> --target cpp|verilog
+  -o <generated-directory> [--replace]
 ```
 
-递归 struct/enum/tuple/fixed array 属于 semantic-core 与 ACIR 的高层
-aggregate contract。它们按 descriptor/source 顺序、MSB-first 打包成一个
-精确宽度 scalar integer 后才进入 canonical PYC。拓扑集合 `!ac.array` 与
-elaboration-time Python list 也不构成 PYC 向量值；Agentic Circuit 的 indexed
-persistent state 必须显式声明为 `ac.table`。
-
-Rule 对显式 Table 的顶层字段赋值使用静态 footprint：
-`entries[index].field = value`，以及可证明由同一 Table、同一 AST 等价 index 的 committed
-read 生成的 `old.with_fields(...)`，会降低为 `ac.table.propose mode "field"`。字段集合按
-Entry 声明顺序规范化；同一基本块的连续更新合并并对重复字段采用最后一次值。不能证明
-来源、不同 owner/index、input-rooted 值和完整 Entry 赋值保持 `mode "replace"`。每条
-proposal 独立保留 index、presence、mode 与字段集合；同一 firing 可按源码顺序包含不同字段
-schema。索引可证不同、presence 可证互斥，或同为 field mode 且字段集合不相交时可共存；
-潜在同字段重叠以及 replace 与其他潜在同 index 写入继续 fail closed。普通 helper、
-`@ac.inline` helper、system Table 与 module-local Table 使用相同的来源证明。每条 rule 读取
-tick-start state，提交时同一 Entry 的不相交字段原子合并。普通 Python
-list 始终只是静态 elaboration collection，不参与该状态语义。动态 disjoint assertion 和
-运行时 conflict obligation 不属于当前切片。
-
-### Wire[DT] —— 标量信号句柄
-
-`Wire` 只承载一个标量 `Bits`、`Clock` 或 `Reset`。算术、逻辑、比较、
-选择、位片段与移位都生成 scalar PYC operation。重复结构直接使用普通
-Python list/tuple 与静态循环：
-
-```python
-lanes = [m.input(f"lane_{i}", width=8) for i in range(4)]
-biased = [lane + 1 for lane in lanes]
-any_set = biased[0] != 0
-for lane in biased[1:]:
-    any_set = any_set | (lane != 0)
-```
-
-这段代码生成四组明确的 scalar SSA，而不是一个隐式逐 lane instruction。
-
-### CycleAwareCircuit
-
-顶层电路对象，`Circuit` 的子类。
-
-```python
-m = CycleAwareCircuit("my_circuit")
-```
-
-| 方法 | 说明 |
-|------|------|
-| `create_domain(name)` | 创建 `CycleAwareDomain` |
-| `input(name, *, width, signed=False)` | 标量输入端口，返回 `Wire[Bits]`（需 `cas()` 包装后参与周期感知运算） |
-| `output(name, value)` | 注册标量输出端口（周期感知信号通过 `wire_of(sig)` 提取） |
-| `const(value, *, width)` | 常量 `Wire`（用 `cas()` 包装后参与 CAS 表达式） |
-| `cat(parts)` | 将若干标量按 MSB-first 拼成一个 packed `Wire[Bits]` |
-| `emit_mlir()` | 生成 MLIR 文本。层次化编译时输出含所有子模块的多模块 `Design` |
-
-### CycleAwareDomain
-
-管理一个时钟域的逻辑周期状态。
-
-```python
-domain = m.create_domain("clk")
-```
-
-| 方法 | 说明 |
-|------|------|
-| `signal(*, width, reset_value=0, name="")` | **前向声明标量寄存器**——创建状态的唯一方式；返回 `ForwardSignal` |
-| `cycle(sig, reset_value=None, name="")` | 对信号插入单级 DFF，返回 source occurrence + 1 的 CAS；不按调用时 cursor 重标记已有 CAS |
-| `next()` / `prev()` | 推进 / 回退当前逻辑周期 |
-| `push()` / `pop()` | 周期计数器压栈 / 出栈（必须配对） |
-| `call(fn, *, inputs=None, **kwargs)` | 调用子模块并自动 push/pop 隔离周期。扁平模式内联；层次化模式发射 `pyc.instance` |
-| `delay_to(w, *, from_cycle, to_cycle, width)` | 显式打拍对齐（自动平衡的底层机制） |
-| `create_signal(name, *, width, signed=False)` | 创建标量输入端口，返回当前 occurrence 的 CAS |
-| `create_const(value, *, width, signed=False)` | 返回当前 occurrence 的常量 CAS |
-| `create_reset()` | 返回当前 occurrence 的有效高复位 CAS（i1） |
-| `cycle_index` | 属性：当前逻辑周期索引 |
-
-多时钟域：
-
-```python
-cpu_clk = m.create_domain("CPU_CLK")
-rtc_clk = m.create_domain("RTC_CLK")
-```
-
-跨时钟域信号**必须**经显式 CDC 原语（`cdc_sync` / `async_fifo`）传递；后端 `pyc-check-clock-domains` 检查违例并报错。
-当前 frontend 不接受未下沉到 IR 的频率描述或复位极性参数；时钟频率与外部
-reset polarity 属于集成约束。
-
-### CycleAwareSignal
-
-唯一的标量信号类型。包含底层线网（内部管理）、`cycle`、`domain`。
-
-**属性**：`cycle`、`domain`、`name`、`signed`。
-
-**运算符**（所有输入输出均为 CAS，自动周期对齐）：
-
-```python
-r = a + b;  r = a - b;  r = a * b          # 算术
-r = a & b;  r = a | b;  r = a ^ b;  r = ~a  # 位运算
-r = a == b; r = a != b                      # 比较
-r = a < b;  r = a > b;  r = a <= b; r = a >= b
-r = a << k; r = a >> k                      # 移位
-low = data[0:8];  bit5 = data[5]            # 切片 / 索引
-```
-
-**方法**：
-
-| 方法 | 说明 |
-|------|------|
-| `select(t, f)` | 条件选择（等价 `mux(self, t, f)`） |
-| `trunc(width=w)` / `zext(width=w)` / `sext(width=w)` | 关键字参数形式的宽度变换 |
-| `slice(high, low)` | 位片段 |
-| `priority_encode(order="low")` | 返回统一的 `PriorityEncodeResult[CycleAwareSignal]`（`.index` / `.valid`） |
-| `named(name)` | 调试名称 |
-| `as_signed()` / `as_unsigned()` | 符号标记（影响比较与右移语义） |
-
-> CAS **禁止**作为 Python `bool` 使用（`if sig:` 报错）——硬件条件必须用 `mux` / `select` 表达。
-
-### ForwardSignal
-
-`domain.signal()` 的返回类型。每次读都以当前 `domain.cycle_index` 构造唯一
-CAS view；`.cycle`、`.as_cas()`、运算符、method helper 和 module-level helper
-共享这一条 coercion 路径。写侧额外提供：
-
-```python
-sig <<= expr                     # 无条件赋值（连接 D 端）
-sig.assign(expr, when=cond)      # 条件赋值（寄存器使能）
-```
-
----
-
-## Forward Signal 与寄存器推导
-
-**核心思想：先声明后赋值，编译器根据读写周期差推导寄存器。**
-
-```python
-# 1. 声明（cycle 0）：Q 端立即可读
-counter = domain.signal(width=8, reset_value=0, name="counter")
-
-# 2. 组合逻辑（cycle 0）
-count_next = mux(enable, counter + 1, counter)
-m.output("count", wire_of(counter))
-
-# 3. 推进周期
-domain.next()                    # → cycle 1
-
-# 4. 赋值：写周期 1 > 读周期 0 → 推导出一级反馈寄存器
-counter <<= count_next
-```
-
-### 周期推导规则
-
-| 读周期 | 写周期 | 推导结果 |
-|--------|--------|----------|
-| 0 | 1 | 一级反馈寄存器（DFF）——最常见 |
-| 0 | 0 | 组合赋值（无寄存器） |
-| 0 | N≥2 | N 级流水反馈（罕见，需明确意图） |
-| N | < N | **编译错误**：不能向过去赋值 |
-
----
-
-## 全局函数
-
-### cas()
-
-```python
-x = cas(domain, m.input("x", width=8), cycle=0)
-```
-
-将裸 `Wire`（来自 `m.input()` 或 `u(w,v)` 字面量）包装为 CAS。是端口层与 CAS 类型系统之间的唯一桥梁。
-
-### mux()
-
-```python
-result = mux(condition, true_value, false_value)
-```
-
-至少一个参数必须是 CAS/Forward/State 以确定 domain；其余参数可为裸
-`Wire` 或 int 字面量。返回值始终是 CAS，并自动周期对齐。纯 Wire 结构选择
-使用 `pycircuit.structural.mux()`，返回值始终是 `Wire`。
-
-### wire_of()
-
-```python
-m.output("result", wire_of(outs["result"]))
-```
-
-从 CAS / `ForwardSignal` / 裸 `Wire` / `Reg` 中提取裸 `Wire`。**仅**允许出现在 `m.output()` 调用中。
-
-### submodule_input()
-
-双模输入解析：
-
-```python
-pc = submodule_input(inputs, "pc", m, domain, prefix="fe", width=32)
-```
-
-| `inputs` 状态 | 行为 |
-|---------------|------|
-| `None`（独立模式） | 创建 `m.input(f"{prefix}_{key}", width=W)` 并 `cas()` 包装 |
-| dict 含 `key` | 规范化成 CAS；显式 CAS 保留 cycle，Forward/State 读取当前 occurrence |
-| dict 不含 `key` | 立即抛出 `KeyError`，禁止创建隐式顶层端口 |
-
-参数：`io, key, m, domain, *, prefix, width, cycle=0`。
-composed 输入必须属于同一个 domain 且位宽完全一致；`domain.call()` 还会拒绝
-未被子模块消费的额外 key。
-
----
-
-## 周期管理与自动周期平衡
-
-### next() / prev()
-
-```python
-domain.next()   # 逻辑周期 +1，标记时序分界点
-domain.prev()   # 回退，用于补充同周期逻辑
-```
-
-### push() / pop() / call()
-
-`domain.call()` 自动包裹 push/pop，保证**周期隔离**：
-
-```python
-print(domain.cycle_index)          # 0
-domain.next()                      # → 1
-child_out = domain.call(child_fn, inputs={...})   # 子函数内部任意 next()
-print(domain.cycle_index)          # 1 ← 恢复，不受子函数影响
-```
-
-隔离由 push/pop 栈 + `try/finally` 保证（子函数抛异常也会恢复）。**注意**：隔离的是父函数的周期计数器，**不改变**返回信号自身携带的 cycle 值（cycle provenance）。
-
-### 自动周期平衡
-
-组合不同周期的信号时：**输出周期 = max(输入周期)**，较早的信号自动插入 DFF 延迟链。
-
-```python
-# sig_a 在 cycle 0，sig_b 在 cycle 2
-result = sig_a + sig_b
-# → result 在 cycle 2；sig_a 自动延迟 2 拍
-```
-
-生成的 MLIR：
-
-```mlir
-%a_d1 = pyc.reg %clk, %rst, %en, %a,    %init : i8
-%a_d2 = pyc.reg %clk, %rst, %en, %a_d1, %init : i8
-%r    = pyc.add %a_d2, %b : i8
-```
-
----
-
-## 模块签名与层次化组合
-
-### 标准模块签名
-
-每个 V6 模块是一个普通 Python 函数：
-
-```python
-def my_module(
-    m: CycleAwareCircuit,          # ① 共享电路对象
-    domain: CycleAwareDomain,      # ② 共享时钟域
-    *,
-    inputs: dict | None = None,    # ③ None=独立模式；dict=被组合
-    width: int = 64,               # ④ 配置参数（keyword-only）
-    prefix: str = "mod",           # ⑤ 端口/寄存器名前缀
-) -> dict:                          # ⑥ 输出信号字典（值为 CAS）
-    ...
-
-my_module.__pycircuit_name__ = "my_module"   # 注册 RTL 模块名
-```
-
-### 双模运行
-
-| 模式 | `inputs` | 输入 | 输出 | 用途 |
-|------|----------|------|------|------|
-| 独立 | `None` | `m.input()` 创建端口 | `m.output()` 发射端口 | 单元测试 / 独立综合 |
-| 组合 | `{...}` | 从父模块 dict 读取 CAS | 仅返回 dict | 集成到父模块 |
-
-### 子模块调用六步法
-
-1. **声明自身输入**：`_in = submodule_input; a = _in(inputs, "a", m, domain, prefix=prefix, width=W)`
-2. **构造子模块 inputs dict**：key 必须与子模块 `submodule_input()` 的 key **完全一致**，值必须是 CAS
-3. **调用**：`child_out = domain.call(child_fn, inputs={...}, **config, prefix=f"{prefix}_ch")`
-4. **读取输出**：`child_out["result"]`——CAS，cycle 保留子模块内部赋值时的值
-5. **级联**：前一个子模块的输出直接作为下一个子模块的输入
-6. **顶层收集**：`if inputs is None: m.output(f"{prefix}_{k}", wire_of(v))`
-
-### 命名约定
-
-前缀层次级联，避免冲突：
-
-| 元素 | 模式 | 示例 |
-|------|------|------|
-| 输入 / 输出端口 | `{prefix}_{name}` | `fe_bpu_pc` |
-| 状态寄存器 | `{prefix}_{name}` | `fe_fetch_pc` |
-| 子模块前缀 | `{parent_prefix}_{child}` | `soc_cpu_fe` |
-
-### 常见错误
-
-| 错误 | 后果 | 纠正 |
-|------|------|------|
-| dict 值传 `Wire` 而非 CAS | 丢失 cycle 信息 / 类型错误 | 先 `cas()` 包装 |
-| 输出 dict 存 `wire_of(x)` | 父模块无法周期对齐 | 存 CAS 本体 |
-| key 拼写不匹配 | 静默创建多余端口 | key 与子模块 `_in` 完全一致 |
-| 子模块共用 prefix | 端口 / 寄存器名冲突 | 每个 call 独立 prefix |
-| 独立模式忘记 `m.output()` | 逻辑被 DCE 删光 | `if inputs is None:` 分支发射输出 |
-
-### 层次化 MLIR 发射
-
-```python
-# 扁平（默认）：单一 func.func
-circ = build_cycle_aware(top, name="top")
-
-# 层次化：每个 domain.call() 边界保留为独立模块
-circ = build_cycle_aware(top, name="top", hierarchical=True)
-```
-
-层次化模式下每个子模块编译为独立 `func.func`，父模块发射 `pyc.instance` 引用；输出的 MLIR 为多模块 `Design`（`module attributes {pyc.top = @top}`）。子模块内部的 `domain.call()` 递归处理。
-
----
-
-## 存储 / FIFO / CDC 原语
-
-`Circuit`（`CycleAwareCircuit` 继承）提供以下原语，直接映射到 `pyc` 方言 op，并由后端提供匹配的 Verilog 原语模块与 C++ 模型：
-
-| 前端方法 | MLIR op | 语义 |
-|----------|---------|------|
-| `m.fifo(...)` | `pyc.fifo` | 单时钟 ready/valid FIFO（attr `depth`） |
-| `m.byte_mem(...)` | `pyc.byte_mem` | 异步读、同步写、字节使能存储 |
-| `m.sync_mem(...)` | `pyc.sync_mem` | 同步 1R1W（读数据打拍） |
-| `m.sync_mem_dp(...)` | `pyc.sync_mem_dp` | 同步 2R1W |
-| `m.async_fifo(...)` | `pyc.async_fifo` | 双时钟异步 FIFO |
-| `m.cdc_sync(...)` | `pyc.cdc_sync` | 多级同步器（attr `stages`，默认 2） |
-| `m.rv_queue(...)` | 组合原语 | ready/valid 队列；`pop()` 返回 `Pop(valid, data, fire)` |
-
-同步 SRAM 固定使用 `live_window = 1` 的 aggressive verification profile：Q
-初始为未知，enabled read 后只在一个 live-use cycle 内有效，连续读刷新窗口，未继续
-读则在下一 edge 失效。`pycircuit.lib.sram.SRAM` 自动生成 always-capture register，
-并用当前 `ren` 在 live Q 与 captured Q 之间做 NBA-safe 选择。该 X/knownness 逻辑仅
-属于验证 profile；综合 primitive 仍保持技术无关。
-
-跨时钟域数据**必须**经 `cdc_sync` / `async_fifo`；`pyc-check-clock-domains` 强制检查。
-
----
-
-## 仿真与测试
-
-### Tb（周期编号模型）
-
-```python
-from pycircuit import Tb
-from pycircuit.design import testbench
-
-@testbench
-def tb(t: Tb) -> None:
-    t.clock("clk")
-    t.reset("rst", cycles_asserted=2, cycles_deasserted=1)
-    t.timeout(64)
-    t.drive("enable", 1, at=1)
-    t.expect("count", 1, at=2, phase="post")
-    t.finish(at=10)
-```
-
-- `phase="pre"`：时钟沿计算后、提交前观测（TICK-OBS）
-- `phase="post"`（默认）：提交后观测（XFER-OBS）
-- 其余 API：`print` / `print_every` / `sva_assert` / `random`
-
-### CycleAwareTb（隐式周期推进）
-
-将 `at=cycle` 替换为与设计对称的 `tb.next()`：
-
-```python
-from pycircuit import CycleAwareTb, Tb
-from pycircuit.design import testbench
-
-@testbench
-def tb(t: Tb) -> None:
-    tb = CycleAwareTb(t)
-    tb.clock("clk")
-    tb.reset("rst", cycles_asserted=2, cycles_deasserted=1)
-    tb.timeout(64)
-
-    tb.drive("enable", 0)
-    tb.expect("count", 0)
-
-    tb.next()                  # → cycle 1
-    tb.drive("enable", 1)
-    tb.expect("count", 0)      # 时钟沿后才更新
-
-    tb.next()                  # → cycle 2
-    tb.expect("count", 1)
-    tb.finish()
-```
-
-| 方法 | 说明 |
-|------|------|
-| `CycleAwareTb(t)` | 包装 `Tb` |
-| `next()` / `cycle` | 推进 / 读当前周期 |
-| `drive(port, value)` | 当前周期驱动 |
-| `expect(port, value, *, phase="post", msg=None)` | 当前周期检查 |
-| `finish(*, at=None)` / `print(...)` / `timeout(n)` | 结束 / 打印 / 超时 |
-| `clock` / `reset` / `sva_assert` / `random` | 透传 `Tb` |
-
-### 测试调度：inline 与 sidecar
-
-测试事件（drive/expect）有两种下发方式（`pycircuit build --tb-schedule-mode {inline,sidecar}`）：
-
-| 模式 | 机制 | 适用 |
-|------|------|------|
-| `inline`（默认） | 事件编入生成的 C++ 源码 | 短测试 |
-| `sidecar` | 事件序列化为二进制 **SIDECAR 容器**，运行时由稳定 runner 加载 | 长测试（避免 C++ 编译膨胀；改激励不必重编） |
-
-Sidecar 容器（魔数 `SIDECAR\n`）含五个 section：`string_table`、`port_table`、`event_table`、`frame_table`、`pattern_table`。周期性反压（如 ready 口按固定模式起伏）自动压缩为 `periodic_drive` pattern。
-
-检查工具：
-
-```bash
-pycircuit sidecar inspect out/tb.sidecar        # 打印容器内容
-pycircuit sidecar verify  out/tb.sidecar        # 校验结构
-```
-
----
-
-## 编译入口
-
-### 公共诊断
-
-pyCircuit 6 的 cycle-aware 公共 authoring 入口，以及 Design、JIT、probe、
-testbench、trace 和 connector 边界的失败都属于 `PyCircuitError`，并携带结构化
-`diagnostic` 以及便捷的 `code`、`message`、`location` 属性。参数类型、参数值和查找错误分别仍可被标准
-`TypeError`、`ValueError`、`KeyError` 捕获；调用方无需解析异常字符串。Python
-诊断使用独立的 `PYC-PY-*` 码族，native PYC 诊断继续使用注册的 `PYCnnn`
-码族，两者不与 Agentic Circuit 的 `AC*` 码族混用（Decision 0242）。
-
-```python
-try:
-    build_cycle_aware(module, unexpected=True)
-except PyCircuitError as error:
-    print(error.code, error.message, error.location)
-```
-
-### compile_cycle_aware()（canonical JIT）
-
-```python
-def compile_cycle_aware(
-    fn,
-    *,
-    name: str | None = None,       # 模块名
-    domain_name: str = "clk",      # 时钟域名
-    **jit_params,                  # 仅允许 runtime value_params；静态参数 fail closed
-) -> Design
-```
-
-```python
-design = compile_cycle_aware(my_module, name="my_module")
-mlir_text = design.emit_mlir()
-```
-
-`compile_cycle_aware()` 始终经 AST/JIT 编译并返回 hardened `Design`。函数不再
-用布尔参数切换返回类型；`structural` 与 `value_params` 只由装饰器元数据定义。
-
-**静态几何属于源码，不属于调用方。** pyCircuit 6 移除了 caller-inferred
-specialization：模块的位宽、深度、lane 数等几何量写成模块内的 Python 常量，
-调用方不能再通过 `jit_params`/`build_params` 覆盖。任何静态参数（包括
-`width: int = 16` 这样的默认值）被当作编译参数传入时，入口一律 fail closed：
-
-```text
-PYC-PY-TYPE: static build arguments require an explicit source-owned finite-family
-declaration; caller-inferred specialization is forbidden: width
-```
-
-`pycircuit emit` / `pycircuit build` 会对入口函数上带默认值的静态参数报同一个
-错误，因此可编译的设计不要在入口函数上声明几何参数；需要多种几何时在源码里
-各写一个常量，或使用 Agentic Circuit 的 typed finite-family 声明
-（`ac.module_decl(..., finite_cases=...)`）。唯一的例外是运行期 `value_params`：
-它们由装饰器声明为 instance 端口，而不是特化键。
-
-### build_cycle_aware()（显式 Python elaboration）
-
-```python
-def build_cycle_aware(
-    fn,
-    *,
-    name: str | None = None,
-    domain_name: str = "clk",
-    hierarchical: bool = False,
-    **build_params,             # 同上：几何常量不可由调用方覆盖
-) -> CycleAwareCircuit
-```
-
-`build_cycle_aware()` 直接执行 Python 函数体，返回 `CycleAwareCircuit`；其
-`emit_mlir()` 同样包含完整 hardened frontend attributes。Python `if`/`for` 仅
-用于 elaboration-time 元编程；运行时硬件选择使用 `mux()`。`hierarchical=True`
-保留 `domain.call()` 边界。Builder 保留 decorator 的 `structural=True`，但不支持
-runtime `value_params`；此类模块必须使用 `compile_cycle_aware()`。
-
-`domain.call()` 在层次化模式下只接受 `inputs=` 与 `prefix=`；传入
-`width=`/`pc_width=` 等特化参数会以同一 fail-closed 诊断被拒绝。
-
-### @module JIT 路径（结构化库接口）
-
-```python
-from pycircuit import module, compile, Circuit
-
-@module
-def build(m: Circuit): ...
-
-design = compile(build)
-```
-
-`@module` 边界产生 `pyc.instance`；`@function` 内联；`@const` 为编译期纯元编程（禁发 IR）。`pycircuit emit` / `pycircuit build` CLI 走此入口。
-
-### CLI
-
-```bash
-# 生成 MLIR
-pycircuit emit design.py -o design.pyc [--param k=v ...]
-
-# 一键构建 + 仿真（多 .pyc → pycc → CMake/Verilator）
-pycircuit build tb_design.py --out-dir build/ \
-    [--target {cpp,verilator,both}] [--jobs N] [--profile {dev,release}] \
-    [--logic-depth N] [--tb-schedule-mode {inline,sidecar}] \
-    [--run-verilator] [--param k=v ...]
-
-# Sidecar 工具
-pycircuit sidecar inspect FILE [--strict]
-pycircuit sidecar verify FILE
-```
-
----
-
-## MLIR 映射参考
-
-### 类型
-
-| Python | MLIR |
-| --- | --- |
-| `Bits(W)` | `iW` |
-| Clock | `!pyc.clock` |
-| Reset | `!pyc.reset` |
-| ACIR aggregate payload | 进入 PYC 前按 descriptor 打包为精确宽度 `iW` |
-
-### 运算
-
-| Python | MLIR |
-| --- | --- |
-| arithmetic | `pyc.add/sub/mul/udiv/urem/sdiv/srem` |
-| bitwise | `pyc.and/or/xor/not` |
-| compare | `pyc.cmp` with predicate `eq`, `ult`, or `slt` |
-| `mux(c, a, b)` | `pyc.select` |
-| cast/extract/shift/concat | 对应 scalar PYC primitive |
-
-Agentic Circuit 的无符号位向量支持 exact-width `//` 与 `%`；除数为零时结果为
-零，与 PYC/GFSim 保持一致。常量 2 的幂除法/取余在 canonicalization 中转为
-shift/mask。使用 `ac.zext`、`ac.sext`、`ac.truncate` 显式改变位宽，使用
-`ac.literal(value, ac.uN)` / `ac.zero(ac.uN)` 构造精确类型常量。错误方向、
-runtime width、bool/enum 隐式混用和超范围 literal 均拒绝。
-
-位宽转换的第二个参数是**位置参数**的具体目标类型（`ac.uN` / `ac.sN` /
-`ac.bits[N]`），不是 `width=` 关键字；`ac.zext`/`ac.sext` 要求目标严格更宽，
-`ac.truncate` 要求目标严格更窄，其余形状以 `ACPY-CAST-001` 拒绝。有符号
-运算前必须用 `ac.sext` 扩展：`ac.zext` 对负值补零会改变数值。位宽不会隐式
-变化，声明为更宽返回类型的模块必须显式转换，否则以 `ACPY-MODULE-001` 拒绝。
-
-`ac.static_assert(condition, message=...)` 在 finite-family case 的 typed static
-arguments 绑定后求值，只允许直接出现在 case body，并在 verified ACIR 前消失；
-失败诊断保留相对源码位置。
-
-Agentic Circuit 的声明式 bounded integer 使用 Python 半开区间：
-
-```python
-wrapped = ac.wrap(raw, ac.index[5])
-clamped = ac.saturate(raw, ac.range[4, 9])
-checked = ac.checked(raw, ac.index[5])
-strict = ac.refine(proven_small_value, ac.index[5])
-selected = values[checked.value]
-```
-
-存储保留原数值，位宽为 `max(1, (upper - 1).bit_length())`。外部输入不能仅靠
-annotation 获得范围证明，包含 nested bounded leaf 的输入同样必须先以 bits 进入，
-再显式选择 wrap、saturate、checked 或 verifier 证明安全的 refine。`checked.value`
-在 invalid 时返回目标下界，`checked.valid` 不会隐式控制 rule firing。bounded 加减
-生成数学结果域且不环绕，跨域比较按 unsigned 数值语义执行。固定 value-array 支持
-verifier 证明安全的动态读取，以及返回新数组的
-`values.with_element(index, replacement)` 函数式更新。动态读在 PYC 使用平衡选择树，
-更新对每个 lane 并行选择后 concat；GFSim 复制 packed words 后只覆盖目标元素区间。
-replacement 的 integer/tuple/list literal 由目标元素 descriptor 提供上下文，但递归
-leaf 仍执行精确类型检查，`bool` 与 `ac.u1` 不互换。QueueGraph cost metadata 分别记录
-PYC DCE 前节点数、选择树深度与 `pyc-check-logic-depth` 的 unit-cost depth，并计入窄
-index zero-extension。verified ACIR 使用 inclusive
-`!ac.range<lo, hi - 1>`，QueueGraph 独立复算转换、算术和索引证明后才在
-GFSim/PYC 中擦除 refinement。
-
-固定 value-array 提供 method 形式的 `values.map(callback)` 与
-`values.zip(other, ...)`，不会与 topology `ac.map({...})` 混用。map 对每个静态 lane
-调用一个单参数 lambda 或 exact typed pure helper，并返回同长度同质 array；callback
-的 deferred capture 在外层词法作用域 materialize，所有参数、分支与 aggregate leaf
-保持 exact descriptor。zip 只接受完全等长的一个或多个 array，返回按 operand 顺序组成
-tuple 的 array，不采用 Python 内置 `zip` 的最短截断语义。两者在 verified ACIR 前展开为
-现有 element/callback/tuple/array op，嵌套展开共享 4096-lane 上限。
-
-bool array 支持 `all()`、`any()` 和返回 `ac.range[0, N + 1]` 的 `count()`。
-`fold(kind=...)` 只接受按元素类型封闭裁决的 associative kind，并使用相邻 pairwise
-平衡树。`first(where=...)` 与 `argmin(key=..., where=...)` 返回 `.index/.valid`；无
-匹配时为 `0/False`，相同 key 选择低 ordinal。`scan(callback, initial=...)` 是从左到右
-的 inclusive scan，输出每次 callback 后的 accumulator，不做平衡重排。count 的范围
-由 `range[0,2]` contribution 和 balanced `range_add` 证明；所有后端消费同一展开图。
-当前 persistent/module state 的 bounded scalar 必须包含零并以零初始化；非零下界
-state 在 typed reset image 扩展前 fail closed。
-
-嵌套 `@ac.config` 可以通过 `static_config(ConfigType)` 作为 dependent type 的
-typed root。每个 config 都是 source-owned、nominal、immutable、无继承的闭合记录；
-字段顺序属于 schema。dependent field record 显式保存 root static parameter 与有序
-field path，例如参数 `cfg` 的 `geometry.entries` 保存为 root `cfg` 和 path
-`["geometry", "entries"]`，不能退化为 dotted string、Python object identity 或
-dictionary lookup。每个 declared case 都携带完整 typed config value；verifier 逐字段
-核对 nominal type、顺序、值和 dependent projection 后才 materialize concrete type。
-
-### Agentic module 组合
-
-每个可执行 Python implementation source 只定义一个 public `@ac.module`。父模块通过
-source-owned `@ac.module_decl(source="relative/child.py")` header 编译，不读取 child
-implementation body：
-
-```python
-@ac.module_decl(source="pipeline/decode.py")
-def decode(value: ac.u8) -> ac.u16:
-    ...
-
-@ac.module_decl(source="pipeline/execute.py")
-def execute(value: ac.u16) -> tuple[ac.u32, ac.u1]:
-    ...
-
-@ac.module_decl(source="examples/module.py")
-def pipeline(value: ac.u8) -> tuple[ac.u32, ac.u1]:
-    ...
-
-pipeline_decl = pipeline
-
-@ac.module(declaration=pipeline_decl)
-def pipeline(value: ac.u8) -> tuple[ac.u32, ac.u1]:
-    decoded = decode(value)
-    result, accepted = execute(decoded)
-    return result, accepted
-```
-
-Composite module 支持零个或多个异构 runtime input/output、多个 child、重复 instance、
-child-to-child internal Queue、typed finite-family case 以及同一 value 多消费者时的
-compiler-owned atomic fanout。所有运行时 value 必须使用具名 SSA local，产生的每个
-Queue value 必须被 child 或 parent return 消费；动态 control flow 和隐式 feedback cycle
-拒绝。跨 child 的 requester/responder 通信环尚未接纳；既有 `ac.feedback` 只表示有界
-single-block iteration，不能作为跨 module 协议回边。
-
-参数化 module 使用唯一的 finite-family authoring surface：
-
-```python
-@ac.module_decl(
-    source="pipeline/stage.py",
-    parameters=(
-        ac.static_parameter("width", ac.static_int(width=8, signed=False)),
-    ),
-    finite_cases=(
-        ac.case(("width", 8)),
-        ac.case(("width", 9)),
-    ),
-)
-def stage(value: ac.bits[width]) -> ac.bits[width]:
-    ...
-
-stage_decl = stage
-
-@ac.module(declaration=stage_decl)
-def stage(value: ac.bits[width]) -> ac.bits[width]:
-    return value
-
-@ac.system
-def core(value: ac.u8) -> ac.u8:
-    return stage(value, static=ac.case(("width", 8)))
-```
-
-`parameters`、`constraints`、`finite_cases` 和每个 `case(...)` binding 都必须是
-源码顺序的 tuple literal。参数化 child call 必须通过 `static=ac.case(...)` 提供完整
-有序 typed arguments；dictionary、computed collection、普通 keyword argument、
-caller-observed case 和 runtime static selection 均拒绝。零参数 module 规范化为零个
-static declarations 和唯一的 `case()`。
-
-每个 implementation source 发布一个 source-named `.ac`、一个 source-owned interface
-shard，以及一个 `ac.module` family symbol。family 按声明顺序包含 non-symbol
-`ac.module.case` regions；case 不是 symbol、source unit、文件或第二 lookup namespace。
-parent 只消费 interface shard，不读取 child implementation body。package linker 核对完整
-family schema、所有 case 和 materialized signature，包括未被 caller 使用的 case。
-
-High ACIR 的 `ac.module` 只是 family container：它没有 function type、block arguments、
-直接 executable operations 或直接 `ac.return`。每个 `ac.module.case` 拥有完整 ordered
-typed arguments、concrete function type、case-local state/resource/rule/proof/obligation 和
-唯一 `ac.return`。`ac.module.import` 携带完整 family schema，`ac.instance` 携带完整 ordered
-typed arguments；两者都引用 family symbol，不引用 concrete case 名称或 ordinal。
-
-PYC 保留同样的 `pyc.module` / `pyc.module.case` carrier，而不是先 flatten 为无关的
-`pyc.func`。每个 case 的 typed mapping 显式连接 logical interface 与 physical carriers：
-aggregate port 的 projection/layout 必须完整且无重叠；Queue 的每个 lane 按序映射一组
-`queue_valid`/`queue_data`，所有 lane 共用一个位于反方向的 `queue_ready`；physical input
-index 0/1 分别是带 explicit `implicit` origin 的 clock/reset。C++ 与 RTL backend 只消费
-这个 verified carrier，不从宽度、string、suffix 或 `pyc.params` 重建语义。
-
-生成文件保持 source ownership：一个 implementation source 对应一个 readable
-`<source_stem>.hpp`/`<source_stem>.cpp` group 和一个
-`<source_stem>_interface.hpp` shard。不存在 `.h` duplicate、per-case class/file/RTL module、
-parameter-bearing alias、whole-core authority、post-split flow 或 fallback path。
-
-### Agentic source map
-
-Agentic frontend 在 closure flattening 前记录每个 Python AST 节点的工程相对 `.py`
-文件、从 1 开始的行列。helper inline、module instance、family case、record
-spread 和 Table projection 会把来源组织成有序 stack；CSE 或 constant folding 合并
-等价值时保留多个独立 origin。生成 `.pyc`/`.mlir` 的 parser 位置和绝对 checkout
-路径不会进入这个来源合同。
-
-verified ACIR 的 `ac.source_provenance`、QueueGraph 的 `source_provenance`、PYC op 的
-MLIR location、module 上经过 verifier 检查的 `pyc.source_map`，以及 ACC bundle 的
-`share/generated/source-map.json` 表示同一组来源。bundle inventory 记录 source map 的
-schema 与相对路径，不派生内容身份。生成 GFSim 对 primary frame 使用 `#line`，完整 inline stack
-和其他 origin 仍以 JSON source map 为准。来源元数据不参与 topology、family、case 或
-instance identity。
-
-### Aggregate lowering boundary
-
-ACIR `!ac.struct`、`!ac.enum`、builtin tuple 与 `!ac.value_array` 在
-QueueGraph-to-PYC 中按稳定 MSB-first layout 变成 scalar integer。
-canonical/backend PYC 中出现 builtin vector type 或 `pyc.v_*` 是硬错误。
-
-Agentic Circuit 的 finite-family dependent type 仍遵守这个边界：
-
-```python
-@ac.module_decl(
-    source="entry.py",
-    parameters=(
-        ac.static_parameter("entries", ac.static_int(width=16, signed=False)),
-    ),
-    finite_cases=(ac.case(("entries", 128)),),
-)
-def select(index: ac.bits[ac.index_width(entries)]) -> ac.u16:
-    ...
-```
-
-显式的 typed finite-family case 将该 interface leaf materialize 为 `i7`。固定 array
-长度使用同一参数机制。表达式仅允许任意精度整数 literal、参数、nominal config field、
-`+`、`-`、`*`、`index_width` 与 `count_width`；array/tuple 内部的 dependent
-leaf 同样保留 verifier provenance。nominal application 显式携带 declaration symbol 和
-完整有序 typed arguments。不同 typed arguments 即使得到相同位宽也不会共享 nominal
-identity；相同 application 跨 module interface 保持同一 identity。直接作为 interface
-的 dependent scalar 携带 concrete type check；aggregate 还会验证完整 projection、layout
-和 physical carrier mapping。
-record 的 `**` spread
-只按精确字段名和递归类型完成
-构造或 immutable replacement；`@ac.encoding(width=N)` Enum 保留显式协议编码；
-`ac.onehot_encode(...)` 返回 `.index/.valid/.conflict`，并 lowering 为既有 scalar
-priority-encode、popcount 和比较操作。
-
-enum 的 Pythonic helper 保持所有协议歧义显式：`value.is_one_of(...)` 只接受同一
-nominal enum 的成员常量；`ac.checked(raw, EnumType, fallback=...)` 返回
-`.value/.valid` 并保留 sparse encoding；`ac.onehot_enum(...)` 强制声明
-`members=`、`empty=` 和 `conflict=`，返回 `.value/.present/.conflict`。
-`ac.match_enum(selector, {member: value, ...}, invalid=...)` 要求 dict literal 恰好
-覆盖每个已声明 member，所有结果递归类型完全一致。`invalid=` 不能省略，因为 raw
-enum 输入的物理 bits 仍可能不是任何声明 encoding。Raw ACIR 的
-`ac.var.enum_match` verifier 复核 coverage 后，统一 lowering 为 enum equality、
-balanced OR 和 select；verified ACIR/PYC 不保留高层 match 或 `scf.*`。
-
-record subset 使用 `value.project(TargetStruct)` 显式构造。TargetStruct 必须是
-nominal `@ac.struct`，它的声明决定 exact-name 字段集合和顺序；所有递归 descriptor
-必须一致，源中的其他字段被省略。projection 是新的 immutable value，不是 structural
-subtype、borrow 或 owner alias。更新必须通过 `source.with_fields(**projected_patch)`
-重建源类型并显式写回 owner。前端 lowering 只产生既有 `ac.var.get/record`，局部
-canonicalization 可把字段需求穿透 record/with/select；通用跨 Queue payload pruning
-仍保留给 I03/L06。
-
-`private_transform_tuple_v1` 会在 freeze 前对可证明安全的私有
-Transform→Transform Queue 做 field-liveness：单 producer/consumer、unit lane/rate、
-纯逻辑、非空真子集 direct field use。物理 carrier 是 exact tuple，逻辑 Struct 与
-Queue 名称、depth、latency、token 语义保持不变。ACIR 与 QueueGraph 分别重算 paired
-metadata、递归 descriptor、字段顺序/类型和 whole-value escape；公开/trace/module/
-owner/state/feedback/memory 边界一律不裁剪。JSON 同时报告 logical/carrier bits 和
-removed bits，不能把 storage 缩窄直接表述为性能提升。
-
-## Tier 分层标注（3D 堆叠扩展，Proposed）
-
-> **状态:Proposed**(尚未实现;完整提案与实现草图见 `docs/rfcs/tier_annotation.md`)。本节先行纳入规范,冻结语法形态与语义边界。
-
-面向 3D 堆叠(细粒度逻辑折叠:设计折叠到 2–3 层垂直堆叠的裸片)的源码级层指派。信号携带第二种元数据 **`.tier`**(裸片层号),与 `.cycle` 并列。
-
-**术语纪律:分层维度一律用 tier(裸片层),不用 layer**(后者指金属布线层)。
-
-### 与 `.cycle` 的语义对照
-
-| | `.cycle` | `.tier` |
-|---|---|---|
-| 语义地位 | **行为语义**,切错位置行为就变 | **物理提示**,不产生/不修改任何硬件 |
-| 传播规则 | max 规则 + 自动周期平衡(插 DFF) | 继承规则,零电路效应 |
-| 验证影响 | 必须过功能等价验证 | 逻辑恒等,功能验证无感 |
-
-两套传播机制共存于同一次 elaboration,互不干扰。
-
-### 语法
-
-```python
-a  = cas(domain, m.input("a", width=8), tier=0)          # 定义处显式
-pc = domain.signal(width=64, name="pc", tier=0)           # 前向声明处显式
-s1 = a + 1                                                # 隐式:继承输入的 tier
-s2 = jump_tier(s1 * 3, to=1)                              # 强制跳层(声明一个键合点)
-hot = cas(domain, m.input("b", width=8), tier=1,
-          tier_lock=True)                                 # 锁定:下游 EDA 不得改写
-tmp = cas(domain, m.input("c", width=8))                  # 未指派:tier=None,EDA 全权
-outs = domain.call(alu, inputs={...}, tier=1)             # 模块级缺省 tier
-```
-
-### 语义规则
-
-1. **传播:** 运算结果的 tier 由输入继承(全部/多数同层继承之;混层取主导方向),强度记为推断;
-2. **反馈信号:** `domain.signal()` 的 tier 在声明处确定,`<<=` 赋值不改变它;跨层反馈须用 `jump_tier` 显式表达;
-3. **自动周期平衡插入的对齐 DFF 继承驱动信号的 tier**(平衡不引入额外跨层);
-4. **`jump_tier(expr, to=k)`:** 返回新 CAS,`.tier == k`、`.cycle` 不变、零硬件效应;`to` 须为编译期常量;
-5. **强度三态与 EDA 契约:** free(未指派,分割器全权)/ hint(显式与推断,可改写但必须输出结构化 diff)/ locked(必须服从,不可满足报错)。分割器结果写入以稳定 ID 为键的 sidecar tier 表,不回写源码。
-
-### IR 与发射
-
-- MLIR 可选属性:`pyc.tier`(int)、`pyc.tier_strength`(`"hint"|"locked"`)、模块级 `pyc.tier_default`;无标注即无属性,**完全向后兼容**;
-- Verilog 三条冗余通道:`(* pyc_tier = 1 *)` 属性、层次化命名编码、sidecar tier 指派表(主通道);三者不一致构成流程告警;
-- C++ 仿真后端忽略 tier(功能无关),可选地在 DFX 元数据中携带以便按层聚合统计。
-
-## API 参考表
-
-### CycleAwareCircuit
-
-| 方法 | 说明 |
-|------|------|
-| `CycleAwareCircuit(name)` | 创建顶层电路 |
-| `create_domain(name, ...)` | 时钟域 |
-| `input(name, *, width, signed=False)` | 标量输入端口（`Wire[Bits]`） |
-| `output(name, value)` | 输出端口 |
-| `const(value, *, width)` | 常量 |
-| `cat(parts)` | scalar bit 拼接 |
-| `fifo / byte_mem / sync_mem / sync_mem_dp / async_fifo / cdc_sync / rv_queue` | 原语 |
-| `emit_mlir()` | 导出 MLIR |
-
-### CycleAwareDomain
-
-| 方法 | 说明 |
-|------|------|
-| `signal(*, width, reset_value=0, name="")` | 前向声明寄存器（唯一方式） |
-| `cycle(sig, ...)` | 单级 DFF |
-| `next()` / `prev()` | 推进 / 回退周期 |
-| `push()` / `pop()` | 周期栈 |
-| `call(fn, *, inputs=None, **kwargs)` | 子模块调用（自动隔离） |
-| `delay_to(w, *, from_cycle, to_cycle, width)` | 显式打拍 |
-| `create_signal / create_const / create_reset` | 当前 occurrence 的端口 / 常量 / 复位 CAS |
-| `cycle_index` | 当前逻辑周期 |
-
-### 全局函数
-
-| 函数 | 说明 |
-|------|------|
-| `cas(domain, wire, cycle=N)` | Wire → CAS |
-| `mux(cond, t, f)` | CycleAware 多路选择，稳定返回 CAS（自动对齐） |
-| `structural.mux(cond, t, f)` | 纯 Wire 多路选择，稳定返回 Wire |
-| `submodule_input(io, key, m, domain, *, prefix, width, cycle=0)` | 双模输入 |
-| `wire_of(sig)` | 提取 Wire（仅 `m.output()`） |
-| `cat / zext / sext / trunc` | 位操作辅助；宽度变换使用关键字参数 `width=` |
-| `priority_encode(value, order="low")` | 返回统一的 `PriorityEncodeResult[CycleAwareSignal]` |
-
-### ForwardSignal
-
-| 接口 | 说明 |
-|------|------|
-| `sig <<= expr` | 无条件赋值 |
-| `sig.assign(expr, when=cond)` | 条件赋值（使能） |
-| 其余读侧接口 | 与 CAS 相同 |
-
-### 编译入口
-
-| 接口 | 稳定返回类型 | 说明 |
-|------|--------------|------|
-| `compile_cycle_aware(fn, *, name, domain_name, **params)` | `Design` | canonical AST/JIT 编译；CLI 使用此入口 |
-| `build_cycle_aware(fn, *, name, domain_name, hierarchical, **params)` | `CycleAwareCircuit` | 直接 Python elaboration；可保留 `domain.call()` 层次 |
-
-### CycleAwareTb
-
-| 方法 | 说明 |
-|------|------|
-| `CycleAwareTb(t)` / `next()` / `cycle` | 包装 / 推进 / 读周期 |
-| `drive(port, value)` / `expect(port, value, *, phase, msg)` | 激励 / 检查 |
-| `clock / reset / timeout / finish / print / sva_assert / random` | 配置与控制 |
-
----
-
-**Copyright © 2024-2026 Liao Heng / PyCircuit Contributors. All rights reserved.**
+A source may contain several definitions. Parent compilation consumes published
+interfaces, and link verifies their authority against the supplied bodies.
+The compiler lowers the capture through its owning source MLIR pass and runs the registered
+`ac-extract-source-interface` MLIR pass on a clone. The pass derives
+module declarations and dependency summaries from the intact body SSA; it does
+not read provider source or execute Python. Dialect-owned source structure checks
+validate its input/output. Registry-backed body/interface checks independently
+recompute summaries and verify supplied provider/builtin authority before
+publication. A structurally valid interface alone is not trusted authority.
+Definition and source ownership are independent of instance placement. Generated
+files retain source basenames. Invalid inputs leave previously published outputs
+intact.
+
+## Execution boundary
+
+Generated modules use `wire<T>` and Work/Xfer. C++ provides a typed `pyc_dut`;
+a host testbench supplies input values and explicit clock levels through the
+shared SystemRunner. One Step counts a sampling epoch. `sample()` observes the
+successful Work output, not a second evaluation after Xfer. Independent subtrees
+may run concurrently; whole-system checking precedes all state commits.
+
+The first loop builds a native runner and executes the same IR as RTL against
+independent values. It does not add a shared-library port C ABI. Host Reset is
+not a clocked reset pulse or a promise to clear memory.
+
+## Remaining source capabilities
+
+IR support for [Table/collections](spec-collections.md), packed structs and
+memory does not establish a Python authoring API for every operation. Beyond the
+bounded behavioral slice above, complete `@system`, general collection authoring,
+remaining source arithmetic,
+additional queue flow/head-read policies, automatic clock-domain scheduling and CDC still need bounded implementation
+and evidence. Source observations/assertions currently diagnose at emission;
+they must not be silently dropped.
+
+Dynamic hardware creation, host I/O inside designs, arbitrary Python execution,
+legacy CycleAwareSignal/JIT/builders, QueueGraph, `acc.py`, `acc` and `pycc` are
+not alternate compilation paths. Historical examples remain migration references
+until their original behavior runs through this route.

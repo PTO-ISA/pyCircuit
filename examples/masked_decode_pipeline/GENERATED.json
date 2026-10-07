@@ -1,0 +1,64 @@
+{
+  "schema": "pycircuit-generated-example-v1",
+  "example": "masked_decode_pipeline",
+  "entry": {
+    "arguments": [],
+    "definition": "@\"example_masked_decode_pipeline.masked_decode_pipeline.MaskedDecodePipeline\""
+  },
+  "verification": {
+    "schema": "pycircuit-example-verification-v1",
+    "inputs": {
+      "source/CMakeLists.txt": "14456e0309444c94b340c6fd3ebc0db673d8df2ba678fe5aaa880f93ffec21c1",
+      "source/config.json": "0310a5734bfce94c7b1e7781b62d02f3c33ce2f817a375a6257a0aaa8e450006",
+      "source/driver.cpp": "9a92c3770993d21a94406bb72d4285989ee8aef7e92faf4078e347729c605271",
+      "source/four_state.py": "214c7018d15941f950c999d494e2e2331adb4b0fb8d2c9ea8debae57ce19847e",
+      "source/masked_decode_pipeline.py": "167b6a07b27156ee0e582d6c952ba7a707a5c6aa033a2b624553786c0509619b",
+      "source/rtl_tb.sv": "62ac9e8fc10de5f1d1705360689a65e555471da85a2712c7c97ca2252647b9cb",
+      "build/cpp/generated.json": "3e3b9a35837ee80bcbfe7adf75cac485316ae515304f8ffdd8d175bb5fecebcd",
+      "build/cpp/CMakeLists.txt": "b2af5fcdfe9a3ef281201543b509ded16fba4c090bc65cd0f071c75e5362d083",
+      "build/cpp/pycircuit_support.hpp": "886641dd077603d92ab07a424abf86e75ff743e8ea0e7cba5a9b07eb2193a344",
+      "build/cpp/pycircuit_system.hpp": "f76f3635b484d5f4ded48112e8da31ff121aa4a4e3929b03e42846a2ad729080",
+      "build/cpp/sources/example_masked_decode_pipeline/masked_decode_pipeline.cpp": "cc7779571f946b4c98177fda1f9abd99b60da0b37c5e7369c74cc3020a63b7e7",
+      "build/cpp/sources/example_masked_decode_pipeline/masked_decode_pipeline.hpp": "8b6d83c31d0643392dc74d817ef8f309ac57bc788aa9e77503a6d54e750553b2",
+      "build/cpp/sources/example_masked_decode_pipeline/masked_decode_pipeline.source-map.json": "5f8d7271cea1730da8423bc3dc80b25eb2d0af7e788722d995ccbbfea8fc56cc",
+      "build/verilog/generated.json": "f2417e327308b048c14dda927df6d01bbe45465e86b08c249ea6bd1faa68e6fe",
+      "build/verilog/CMakeLists.txt": "401a84658f40e03a26311ac03326f1da61fa267718db5aa7aed02f62311b044d",
+      "build/verilog/design_top.sv": "ef79434c26461f08ece022ddedddf80271423889eb18e322966e7cf6dcc2674a",
+      "build/verilog/sources/example_masked_decode_pipeline/masked_decode_pipeline.source-map.json": "2578dcb1d5d1bf817a2868eb1c047192d34d0a4fc0b49217eeb1a8b40a674e92",
+      "build/verilog/sources/example_masked_decode_pipeline/masked_decode_pipeline.v": "dd308ef8a2024bd49a18031d145469143044352f6c8d29365868451061bb05bc",
+      "build/masked_decode_pipeline.ac": "0a5d5417494227168ac2b52b60d850505936325f978cc4bc68f7c65bd8edc443",
+      "runtime-rtl/byte_mem.v": "33bd9f73dd7cd17f3531cfd8c321762c214ad5df23b5376add212dadd38c47c2",
+      "runtime-rtl/dff.v": "e4f604bd03b9f1651ddbcd71e9ebb1cd8af45018caeab341728b35c14ec0f553",
+      "runtime-rtl/dffe.v": "9ae323530b72d152d10628de94923eaefa411b29e13c647de21bed8b0d73833b",
+      "runtime-rtl/fifo.v": "2dc4086ad3085bd67504caaac0565a3e676f87ce5411cc019fe8ef3a3bc43b23",
+      "runtime-rtl/sync_mem.v": "207b0fe22f029828ac90b50d2ce0aabbb01763231cd153883f31b581d03d68b7",
+      "runtime-rtl/sync_mem_dp.v": "44672a092661f3c218f71534d0d656a2d7d0bfdb03bc6b7a3394e2f13eea86d4",
+      "runner": "ca5676f62c9a8a3b0d40b5e46aba66a8338af1862d51e7e38db1fb919df2efe3"
+    },
+    "execution_sha256": "df46f9916fce354d34aab95db0f0033444f74948564323ce4614ba86d157eddd",
+    "work_samples": 97,
+    "workers": [
+      1,
+      2
+    ],
+    "rtl": "verilator",
+    "trace_sha256": "628a0c42e75586af7d6e747d3560afd6f6b310486f9d5f01cc19a48745da7c2d"
+  },
+  "excerpts": [
+    {
+      "path": "masked_decode_pipeline.ac",
+      "line": 6,
+      "sha256": "0a5d5417494227168ac2b52b60d850505936325f978cc4bc68f7c65bd8edc443"
+    },
+    {
+      "path": "cpp/sources/example_masked_decode_pipeline/masked_decode_pipeline.hpp",
+      "line": 38,
+      "sha256": "8b6d83c31d0643392dc74d817ef8f309ac57bc788aa9e77503a6d54e750553b2"
+    },
+    {
+      "path": "verilog/sources/example_masked_decode_pipeline/masked_decode_pipeline.v",
+      "line": 1,
+      "sha256": "dd308ef8a2024bd49a18031d145469143044352f6c8d29365868451061bb05bc"
+    }
+  ]
+}

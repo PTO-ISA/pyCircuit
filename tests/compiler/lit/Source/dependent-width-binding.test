@@ -1,0 +1,4 @@
+# Independent source-intent negatives for resolved dependent widths plus native
+# two-instance identity evidence. The C++ driver is built inside the harness;
+# no extra executable target is registered.
+# RUN: %python %S/Inputs/dependent-width-binding.py --repo %src --source-compiler %pycircuit_source_unit --linker %pycircuit_link --emitter %pycircuit_emit --opt %pycircuit_opt --cxx %cxx --scratch %t.dir

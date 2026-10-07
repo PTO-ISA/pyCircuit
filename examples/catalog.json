@@ -1,0 +1,414 @@
+{
+  "schema": "pycircuit-example-catalog",
+  "examples": [
+    {
+      "name": "hello_counter",
+      "folder": "examples/hello_counter",
+      "source": "hello_counter.py",
+      "system": "HelloCounter"
+    },
+    {
+      "name": "module_loop",
+      "folder": "examples/module_loop",
+      "source": "module_loop.py",
+      "generated": "GENERATED.json"
+    },
+    {
+      "name": "wire_ops",
+      "folder": "examples/wire_ops",
+      "source": "wire_ops.py",
+      "generated": "GENERATED.json"
+    },
+    {
+      "name": "arith",
+      "folder": "examples/arith",
+      "source": "arith.py",
+      "generated": "GENERATED.json"
+    },
+    {
+      "name": "counter",
+      "folder": "examples/counter",
+      "source": "counter.py",
+      "generated": "GENERATED.json"
+    },
+    {
+      "name": "hier_modules",
+      "folder": "examples/hier_modules",
+      "source": "hier_modules.py",
+      "generated": "GENERATED.json"
+    },
+    {
+      "name": "boundary_value_ports",
+      "folder": "examples/boundary_value_ports",
+      "source": "boundary_value_ports.py",
+      "generated": "GENERATED.json"
+    },
+    {
+      "name": "net_resolution_depth_smoke",
+      "folder": "examples/net_resolution_depth_smoke",
+      "source": "net_resolution_depth_smoke.py",
+      "generated": "GENERATED.json"
+    },
+    {
+      "name": "cache_params",
+      "folder": "examples/cache_params",
+      "source": "cache_params.py",
+      "generated": "GENERATED.json"
+    },
+    {
+      "name": "multiclock_regs",
+      "folder": "examples/multiclock_regs",
+      "source": "multiclock_regs.py",
+      "generated": "GENERATED.json"
+    },
+    {
+      "name": "multiclock_domain_isolation",
+      "folder": "examples/multiclock_domain_isolation",
+      "source": "multiclock_domain_isolation.py"
+    },
+    {
+      "name": "obs_points",
+      "folder": "examples/obs_points",
+      "source": "obs_points.py",
+      "generated": "GENERATED.json"
+    },
+    {
+      "name": "decode_rules",
+      "folder": "examples/decode_rules",
+      "source": "decode_rules.py",
+      "generated": "GENERATED.json"
+    },
+    {
+      "name": "jit_control_flow",
+      "folder": "examples/jit_control_flow",
+      "source": "jit_control_flow.py",
+      "generated": "GENERATED.json"
+    },
+    {
+      "name": "rob",
+      "folder": "examples/rob",
+      "source": "rob.py",
+      "generated": "GENERATED.json"
+    },
+    {
+      "name": "struct_transform",
+      "folder": "examples/struct_transform",
+      "source": "struct_transform.py",
+      "generated": "GENERATED.json"
+    },
+    {
+      "name": "pipeline_builder",
+      "folder": "examples/pipeline_builder",
+      "source": "pipeline_builder.py",
+      "generated": "GENERATED.json"
+    },
+    {
+      "name": "jit_pipeline_vec",
+      "folder": "examples/jit_pipeline_vec",
+      "source": "jit_pipeline_vec.py",
+      "generated": "GENERATED.json"
+    },
+    {
+      "name": "fastfwd",
+      "folder": "examples/fastfwd",
+      "source": "fastfwd.py",
+      "generated": "GENERATED.json"
+    },
+    {
+      "name": "digital_filter",
+      "folder": "examples/digital_filter",
+      "source": "digital_filter.py",
+      "generated": "GENERATED.json"
+    },
+    {
+      "name": "traffic_lights_ce_pyc",
+      "folder": "examples/traffic_lights_ce_pyc",
+      "source": "traffic_lights_ce_pyc.py",
+      "generated": "GENERATED.json"
+    },
+    {
+      "name": "digital_clock",
+      "folder": "examples/digital_clock",
+      "source": "digital_clock.py",
+      "generated": "GENERATED.json"
+    },
+    {
+      "name": "bit_widths",
+      "folder": "examples/bit_widths",
+      "source": "bit_widths.py",
+      "generated": "GENERATED.json"
+    },
+    {
+      "name": "record_projection",
+      "folder": "examples/record_projection",
+      "source": "record_projection.py",
+      "generated": "GENERATED.json"
+    },
+    {
+      "name": "record_projection_update",
+      "folder": "examples/record_projection_update",
+      "source": "record_projection_update.py",
+      "generated": "GENERATED.json"
+    },
+    {
+      "name": "record_spread_pipeline",
+      "folder": "examples/record_spread_pipeline",
+      "source": "record_spread_pipeline.py",
+      "generated": "GENERATED.json"
+    },
+    {
+      "name": "encoded_enum_pipeline",
+      "folder": "examples/encoded_enum_pipeline",
+      "source": "encoded_enum_pipeline.py",
+      "generated": "GENERATED.json"
+    },
+    {
+      "name": "enum_payload_pipeline",
+      "folder": "examples/enum_payload_pipeline",
+      "source": "enum_payload_pipeline.py",
+      "generated": "GENERATED.json"
+    },
+    {
+      "name": "masked_decode_pipeline",
+      "folder": "examples/masked_decode_pipeline",
+      "source": "masked_decode_pipeline.py",
+      "generated": "GENERATED.json"
+    },
+    {
+      "name": "bitfield_scalar_pipeline",
+      "folder": "examples/bitfield_scalar_pipeline",
+      "source": "bitfield_scalar_pipeline.py"
+    },
+    {
+      "name": "bitfield_decode_pipeline",
+      "folder": "examples/bitfield_decode_pipeline",
+      "source": "bitfield_decode_pipeline.py"
+    },
+    {
+      "name": "inferred_boundary_pipeline",
+      "folder": "examples/inferred_boundary_pipeline",
+      "source": "inferred_boundary_pipeline.py"
+    },
+    {
+      "name": "nested_payload_pipeline",
+      "folder": "examples/nested_payload_pipeline",
+      "source": "nested_payload_pipeline.py",
+      "generated": "GENERATED.json"
+    },
+    {
+      "name": "rule_pipeline",
+      "folder": "examples/rule_pipeline",
+      "source": "rule_pipeline.py",
+      "generated": "GENERATED.json"
+    },
+    {
+      "name": "popcount_pipeline",
+      "folder": "examples/popcount_pipeline",
+      "source": "popcount_pipeline.py",
+      "generated": "GENERATED.json"
+    },
+    {
+      "name": "queue_pipeline",
+      "folder": "examples/queue_pipeline",
+      "source": "queue_pipeline.py",
+      "generated": "GENERATED.json"
+    },
+    {
+      "name": "struct_pipeline",
+      "folder": "examples/struct_pipeline",
+      "source": "struct_pipeline.py"
+    },
+    {
+      "name": "rule_pair_pipeline",
+      "folder": "examples/rule_pair_pipeline",
+      "source": "rule_pair_pipeline.py",
+      "generated": "GENERATED.json"
+    },
+    {
+      "name": "multi_input_rule_pipeline",
+      "folder": "examples/multi_input_rule_pipeline",
+      "source": "multi_input_rule_pipeline.py",
+      "generated": "GENERATED.json"
+    },
+    {
+      "name": "latency_pipeline",
+      "folder": "examples/latency_pipeline",
+      "source": "latency_pipeline.py",
+      "generated": "GENERATED.json"
+    },
+    {
+      "name": "fifo_loopback",
+      "folder": "examples/fifo_loopback",
+      "source": "fifo_loopback.py",
+      "generated": "GENERATED.json"
+    },
+    {
+      "name": "fork_pipeline",
+      "folder": "examples/fork_pipeline",
+      "source": "fork_pipeline.py",
+      "generated": "GENERATED.json"
+    },
+    {
+      "name": "barrier_pipeline",
+      "folder": "examples/barrier_pipeline",
+      "source": "barrier_pipeline.py",
+      "generated": "GENERATED.json"
+    },
+    {
+      "name": "broadcast_pipeline",
+      "folder": "examples/broadcast_pipeline",
+      "source": "broadcast_pipeline.py",
+      "generated": "GENERATED.json"
+    },
+    {
+      "name": "conditional_pipeline",
+      "folder": "examples/conditional_pipeline",
+      "source": "conditional_pipeline.py",
+      "generated": "GENERATED.json"
+    },
+    {
+      "name": "count_zeros_pipeline",
+      "folder": "examples/count_zeros_pipeline",
+      "source": "count_zeros_pipeline.py",
+      "generated": "GENERATED.json"
+    },
+    {
+      "name": "bit_primitive_pipeline",
+      "folder": "examples/bit_primitive_pipeline",
+      "source": "bit_primitive_pipeline.py"
+    },
+    {
+      "name": "onehot_encode",
+      "folder": "examples/onehot_encode",
+      "source": "onehot_encode.py",
+      "generated": "GENERATED.json"
+    },
+    {
+      "name": "frontend_composition_pipeline",
+      "folder": "examples/frontend_composition_pipeline",
+      "source": "frontend_composition_pipeline.py"
+    },
+    {
+      "name": "select_pipeline",
+      "folder": "examples/select_pipeline",
+      "source": "select_pipeline.py"
+    },
+    {
+      "name": "enum_helpers",
+      "folder": "examples/enum_helpers",
+      "source": "enum_helpers.py"
+    },
+    {
+      "name": "feedback_pipeline",
+      "folder": "examples/feedback_pipeline",
+      "source": "feedback_pipeline.py"
+    },
+    {
+      "name": "loop_control_pipeline",
+      "folder": "examples/loop_control_pipeline",
+      "source": "loop_control_pipeline.py"
+    },
+    {
+      "name": "table_rule",
+      "folder": "examples/table_rule",
+      "source": "table_rule.py"
+    },
+    {
+      "name": "issue_queue_2picker",
+      "folder": "examples/issue_queue_2picker",
+      "source": "issue_queue_2picker.py",
+      "generated": "GENERATED.json"
+    },
+    {
+      "name": "recursive_pipeline",
+      "folder": "examples/recursive_pipeline",
+      "source": "recursive_pipeline.py",
+      "generated": "GENERATED.json"
+    },
+    {
+      "name": "bounded_full_u64",
+      "folder": "examples/bounded_full_u64",
+      "source": "bounded_full_u64.py",
+      "generated": "GENERATED.json"
+    },
+    {
+      "name": "dodgeball_game",
+      "folder": "examples/dodgeball_game",
+      "source": "dodgeball_game.py",
+      "generated": "GENERATED.json"
+    },
+    {
+      "name": "bf16_fmac",
+      "folder": "examples/bf16_fmac",
+      "source": "bf16_fmac.py",
+      "generated": "GENERATED.json"
+    },
+    {
+      "name": "calculator",
+      "folder": "examples/calculator",
+      "source": "calculator.py"
+    },
+    {
+      "name": "dma",
+      "folder": "examples/dma",
+      "source": "dma.py",
+      "generated": "GENERATED.json"
+    },
+    {
+      "name": "memory_banks",
+      "folder": "examples/memory_banks",
+      "source": "memory_banks.py",
+      "generated": "GENERATED.json"
+    }
+  ],
+  "api_coverage": [
+    {
+      "name": "inferred_module_pipeline",
+      "owner": "tests/compiler/lit/Source/Inputs/direct-call-graph.py"
+    },
+    {
+      "name": "inferred_nested_module_pipeline",
+      "owner": "tests/compiler/lit/Source/Inputs/direct-call-graph.py"
+    },
+    {
+      "name": "inferred_nested_rule",
+      "owner": "tests/compiler/lit/Source/Inputs/direct-call-graph.py"
+    },
+    {
+      "name": "inferred_stateful_module",
+      "owner": "tests/compiler/lit/Source/Inputs/direct-call-graph.py"
+    },
+    {
+      "name": "mem_rdw_olddata",
+      "owner": "tests/compiler/lit/Source/Inputs/pythonic-memory.py"
+    },
+    {
+      "name": "memory_busy",
+      "owner": "tests/compiler/lit/Source/Inputs/pythonic-memory.py"
+    },
+    {
+      "name": "memory_pipeline",
+      "owner": "tests/compiler/lit/Source/Inputs/pythonic-memory.py"
+    },
+    {
+      "name": "memory_simple",
+      "owner": "tests/compiler/lit/Source/Inputs/pythonic-memory.py"
+    },
+    {
+      "name": "reorder_pipeline",
+      "owner": "tests/compiler/lit/Source/Inputs/queue-source.py"
+    },
+    {
+      "name": "route_merge_pipeline",
+      "owner": "tests/compiler/lit/Source/Inputs/queue-source.py"
+    },
+    {
+      "name": "sync_mem_init_zero",
+      "owner": "tests/compiler/lit/Source/Inputs/pythonic-memory.py"
+    },
+    {
+      "name": "typed_integer_operations",
+      "owner": "tests/compiler/lit/Source/Inputs/static-divrem.py"
+    }
+  ]
+}

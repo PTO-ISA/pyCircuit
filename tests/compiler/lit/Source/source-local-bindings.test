@@ -1,0 +1,2 @@
+# REQUIRES: verilator
+# RUN: %python %S/Inputs/source_local_bindings.py --repo %src --source-compiler %pycircuit_source_unit --linker %pycircuit_link --emitter %pycircuit_emit --cxx %cxx --verilator %verilator --scratch %t.dir

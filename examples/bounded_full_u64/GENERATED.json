@@ -1,0 +1,63 @@
+{
+  "schema": "pycircuit-generated-example-v1",
+  "example": "bounded_full_u64",
+  "entry": {
+    "arguments": [],
+    "definition": "@\"example_bounded_full_u64.bounded_full_u64.BoundedFullU64\""
+  },
+  "verification": {
+    "schema": "pycircuit-example-verification-v1",
+    "inputs": {
+      "source/CMakeLists.txt": "7be2840d6e5f7d71f54e0012d659ec75a27a846b976d9b8e4c51b3ee1e3bd217",
+      "source/bounded_full_u64.py": "6ee8490c66cef242c1ebad1b3e840b798bd21d8b2145d1c19df8e4027b07a7db",
+      "source/config.json": "e3f9c7dd813e920f0f9988bccf6d6a8cbc71226b3f475a09f5338b93176c9aa3",
+      "source/driver.cpp": "1aa4afd492b9edd5f446d09d5fada6cb069fc69e8d3e718b3f180d6703fb0443",
+      "source/rtl_tb.sv": "1842e8b0f5c1b5803380cf2f471b8cebb1c0f0ecd9d8749f40f92bd6c0869136",
+      "build/cpp/generated.json": "557064e75f8c42b8cd54bd7dde41eb4f6a0835647ef69b7eca5cf83fc0aba7ec",
+      "build/cpp/CMakeLists.txt": "1c67d1b6057689d0eb795bf0535f7dda59a5e22b5cd9b101c73e2f69404b6249",
+      "build/cpp/pycircuit_support.hpp": "b951d0cc816466510812619659c5c69e30e099521fd0c0d69615bfc32780e53e",
+      "build/cpp/pycircuit_system.hpp": "39b1f36631efdb102b61bfd6022b1594e73ac38aadf7d611e09b129f88d44443",
+      "build/cpp/sources/example_bounded_full_u64/bounded_full_u64.cpp": "7da8b70cfd6fe349e075c0511351906a0a331fe6e2bb0fc4a27dd887d1a0c463",
+      "build/cpp/sources/example_bounded_full_u64/bounded_full_u64.hpp": "1cec9c6571239a13c4319401bad16d9377545a4f3014f342f33e82714cafbc8a",
+      "build/cpp/sources/example_bounded_full_u64/bounded_full_u64.source-map.json": "40817493993980f737c992c7efb559aace96db66aa718938b67167ba100a998b",
+      "build/verilog/generated.json": "0409b1d62e5a31a782a8f710185beb9706c302adfa44dbf92e0da6e00f9e803c",
+      "build/verilog/CMakeLists.txt": "864eee65efb62ada000be8ea3d57aa0289b8ee23ce810b3a82339ef5268e4bf8",
+      "build/verilog/design_top.sv": "14ce5aff99de13c5be51dd8e2e6cff8dd654d887163e5acbe1e98ed80929c995",
+      "build/verilog/sources/example_bounded_full_u64/bounded_full_u64.source-map.json": "d8ce01d746a45a4ed457aa082393f0e460bf4a0b8e85b9c6e8bfc0341efe0d6b",
+      "build/verilog/sources/example_bounded_full_u64/bounded_full_u64.v": "b48b81bfd4b20838240636e30f07ec8c6591e7d148e4ac21b06660f94d6616c7",
+      "build/bounded_full_u64.ac": "8db155e22c753c255c2036d92e1d3eff63833beda4a076a10250900528217591",
+      "runtime-rtl/byte_mem.v": "dfc3f0fa362196fcfaa7bd771d4f85f26acade0e1dfeb0bc00a24d4161987cd2",
+      "runtime-rtl/dff.v": "325fb9039af507df3c94a26515dfcd8bb73f3812c1264df7b72bfe1af918bbb8",
+      "runtime-rtl/dffe.v": "1fc0bdac0c411ea87c00fc93127ebfba8ca12684a8fecee012a23362e0f8b89c",
+      "runtime-rtl/fifo.v": "8b2f0796fdd7c0f4aee3f20bd52226ccb532c827c8618afd9fbef99e2713f97f",
+      "runtime-rtl/sync_mem.v": "75731fcc0df8a01891e53589e75debc4cda9ec384262937047f21b11de7d7637",
+      "runtime-rtl/sync_mem_dp.v": "16ad11aa53d5f60291136b82a47bef9e21b312cd46ee8b8dfb338bb01c6bc3cc",
+      "runner": "b97a445780ce4bf57856ab16e2627f56b6319ee44c6351c59aaaaf65ef40fe68"
+    },
+    "execution_sha256": "81cf9eca4cf57183e92002b5f6ec6ea647be2b19a71e51882f0f36ea57d43a22",
+    "work_samples": 299,
+    "workers": [
+      1,
+      2
+    ],
+    "rtl": "verilator",
+    "trace_sha256": "886f6a7374be72e03ba3aec903bcf45c0c3f2d8e4a083e69d52272f24ff75f70"
+  },
+  "excerpts": [
+    {
+      "path": "bounded_full_u64.ac",
+      "line": 4,
+      "sha256": "8db155e22c753c255c2036d92e1d3eff63833beda4a076a10250900528217591"
+    },
+    {
+      "path": "cpp/sources/example_bounded_full_u64/bounded_full_u64.hpp",
+      "line": 76,
+      "sha256": "1cec9c6571239a13c4319401bad16d9377545a4f3014f342f33e82714cafbc8a"
+    },
+    {
+      "path": "verilog/sources/example_bounded_full_u64/bounded_full_u64.v",
+      "line": 1,
+      "sha256": "b48b81bfd4b20838240636e30f07ec8c6591e7d148e4ac21b06660f94d6616c7"
+    }
+  ]
+}

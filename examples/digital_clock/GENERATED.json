@@ -1,0 +1,66 @@
+{
+  "schema": "pycircuit-generated-example-v1",
+  "example": "digital_clock",
+  "entry": {
+    "arguments": [],
+    "definition": "@\"example_digital_clock.digital_clock.DigitalClock\""
+  },
+  "verification": {
+    "schema": "pycircuit-example-verification-v1",
+    "inputs": {
+      "source/CMakeLists.txt": "d07f1a4c2783f8d66e3c9173c0461e80866d57cae843fd86c2605c3e530175e6",
+      "source/config.json": "0572beea398584958ae25e802eb4787be5e193b8e8dc408b71b26dd96b15b230",
+      "source/digital_clock.py": "9148f84e0c377a4576150a9c834ad1ae0a0cbfb73f4a1949eeda664f4e62f351",
+      "source/driver.cpp": "0ff7eb98e2912443a0a87a451f779358cb5890684cdb8b29254d126ac92561d1",
+      "source/encoder_driver.cpp": "3a9048841d81c99bf70263a26db466c7ae21925d62aa902d8fb133fae6599c88",
+      "source/encoder_tb.sv": "fea781840bdc1a3dc114032126880d31aa3622d5b37d37b3421827e41533759c",
+      "source/rtl_tb.sv": "6009e821951299bcb705b98ad40da0d387dbb924a67726b90a9c72c83a4f9bfe",
+      "source/verify_encoder.py": "760ebb258fe1b687b6d721dd5ccc6c5b22495f50ef450565621c2e35176016a0",
+      "build/cpp/generated.json": "a0b9a84e50c985dca5e89d126017b08d871641f9b26335806f588b3249856699",
+      "build/cpp/CMakeLists.txt": "2e3a77a2efedd8f46de468d790fc5b8728a337850e61141a69920c880f2cb55c",
+      "build/cpp/pycircuit_support.hpp": "2f7fdbbff9a26b161d68bf55729a51c61d5139ed5e88373f9ae072830b4dea8f",
+      "build/cpp/pycircuit_system.hpp": "caa0f81a134edd3a3fa19c84ec6d4e44ef4bf3b3f0c021945af22b9de593127f",
+      "build/cpp/sources/example_digital_clock/digital_clock.cpp": "3aaa1642453d833191f2921458f9c138e73c132e68655404a8487fbda3c6f7ec",
+      "build/cpp/sources/example_digital_clock/digital_clock.hpp": "de7b7aaa719233899d2edf8debae53c77594fb1d0569b3ae0f83f587ca1b9880",
+      "build/cpp/sources/example_digital_clock/digital_clock.source-map.json": "7916a9baa2c9623b22f67e69dde229e3acc5a5abdd5fbad0067503c09bd1615b",
+      "build/verilog/generated.json": "e5918dd79efbd73fb1bc4ec8866a77d5d654660b866b434a856406d33bae390a",
+      "build/verilog/CMakeLists.txt": "a8f0206c1c5841bbc576ca3459ff8dc71f597cce341b58db0cc17ab598bf595b",
+      "build/verilog/design_top.sv": "e0fafa8b89ee898d0cb247b7f24e79e9e7f2faf322860e6e2373bc48a12d4f28",
+      "build/verilog/sources/example_digital_clock/digital_clock.source-map.json": "5b5b6bcd110008919c070636d0d9e2c92e8cf94d86f35294aaf79913d926eef4",
+      "build/verilog/sources/example_digital_clock/digital_clock.v": "4967f770d83fefa8bc0ab33c491df000422c08e0abdaf5b446f1a2357c3e6c37",
+      "build/digital_clock.ac": "142cce91c1c3dd51ec75993cd68470c3725166c9972824b3fdcd3e478059c766",
+      "runtime-rtl/byte_mem.v": "33bd9f73dd7cd17f3531cfd8c321762c214ad5df23b5376add212dadd38c47c2",
+      "runtime-rtl/dff.v": "e4f604bd03b9f1651ddbcd71e9ebb1cd8af45018caeab341728b35c14ec0f553",
+      "runtime-rtl/dffe.v": "9ae323530b72d152d10628de94923eaefa411b29e13c647de21bed8b0d73833b",
+      "runtime-rtl/fifo.v": "2dc4086ad3085bd67504caaac0565a3e676f87ce5411cc019fe8ef3a3bc43b23",
+      "runtime-rtl/sync_mem.v": "207b0fe22f029828ac90b50d2ce0aabbb01763231cd153883f31b581d03d68b7",
+      "runtime-rtl/sync_mem_dp.v": "44672a092661f3c218f71534d0d656a2d7d0bfdb03bc6b7a3394e2f13eea86d4",
+      "runner": "d23455c1860d9eec5f251d0438b2ef2b3b222d82458646685bcf048034e2fae7"
+    },
+    "execution_sha256": "fb172d6b050fa4b93fa3358d421979605e609bde0961a53cf3b405edd77d7d36",
+    "work_samples": 546,
+    "workers": [
+      1,
+      2
+    ],
+    "rtl": "verilator",
+    "trace_sha256": "93d9d6d72885f02e5bdc19264d6b4612165aca8a19365b2cf1d581f8902babdb"
+  },
+  "excerpts": [
+    {
+      "path": "digital_clock.ac",
+      "line": 9,
+      "sha256": "142cce91c1c3dd51ec75993cd68470c3725166c9972824b3fdcd3e478059c766"
+    },
+    {
+      "path": "cpp/sources/example_digital_clock/digital_clock.hpp",
+      "line": 12,
+      "sha256": "de7b7aaa719233899d2edf8debae53c77594fb1d0569b3ae0f83f587ca1b9880"
+    },
+    {
+      "path": "verilog/sources/example_digital_clock/digital_clock.v",
+      "line": 1,
+      "sha256": "4967f770d83fefa8bc0ab33c491df000422c08e0abdaf5b446f1a2357c3e6c37"
+    }
+  ]
+}

@@ -1,0 +1,65 @@
+{
+  "schema": "pycircuit-generated-example-v1",
+  "example": "memory_banks",
+  "entry": {
+    "arguments": [],
+    "definition": "@\"example_memory_banks.memory_banks.MemoryBanks\""
+  },
+  "verification": {
+    "schema": "pycircuit-example-verification-v1",
+    "inputs": {
+      "source/CMakeLists.txt": "1c697430515b3e47e9a82ba1544411da96dcac68e0f95bfc296ce1ea4230a61e",
+      "source/config.json": "82b121d6ac01f49ed85fa0b5b6c5e584a43721ded154c457417dad82d4c37145",
+      "source/driver.cpp": "c6771e4391fbfe1cbf10fc960cc4c847a7c25cd71b4566b6c59798fa89d67d37",
+      "source/memory_banks.py": "f9977b88d5544bb37e9f7fb0e780e49d9b3523c721851c6daa8a954410cd7cf1",
+      "source/rtl_tb.sv": "c439d4ddc5041585fdbd9cacfa791bebbda55bf66512277c8f7043b05fc0bf84",
+      "build/cpp/generated.json": "c90935f398a44b03b4ad32120f96c874f53ccc0474b75de3b5f619c1fcd2381d",
+      "build/cpp/CMakeLists.txt": "652343f0e0083fec6242f804e7925e769b2e060cca00e9c31e24c3f96864a5d9",
+      "build/cpp/pycircuit_support.hpp": "b3d4a7f11f41d63ddd685805331583a76c6f60d2c5460d3a8b2e333dc596e1e4",
+      "build/cpp/pycircuit_system.hpp": "a3f49f310dfdf650dae1024186af5428c226fac7c8e68de661c1bb31556578ea",
+      "build/cpp/sources/example_memory_banks/memory_banks.cpp": "1e2f720f332100468efc326b815a71dfbc8671807d5ae839c449a6797a21e365",
+      "build/cpp/sources/example_memory_banks/memory_banks.hpp": "eb6aa0ada9ea9e807562e31a5ceeffca0b4406259733a7b44f5ff51acc5da6ae",
+      "build/cpp/sources/example_memory_banks/memory_banks.source-map.json": "3201609963c3987eb0061e194968c709b0d796149868e8dde1e8e14f369577a8",
+      "build/verilog/generated.json": "322cb344e0332e943207822a88158fe72e0d0ead6f4c74532c08ea4172a6cd66",
+      "build/verilog/CMakeLists.txt": "81fb89ddfcb23d36ee04bca00f9b255090a4451862ab96f03a6687136876c7db",
+      "build/verilog/design_top.sv": "776139b4ffc34a7cb47b530c2baf0cc9c0ecf7c0d8f12f6d3214b547005b1433",
+      "build/verilog/sources/example_memory_banks/memory_banks.source-map.json": "958e52f5c385c0b158c3df438e72414c5a86f1af535ebf23c6a93bfb0abfadf0",
+      "build/verilog/sources/example_memory_banks/memory_banks.v": "7b07a5a8986d0a0135cfcab80328766c140b8fa363c3a105b5caa7406c19066d",
+      "build/memory_banks.ac": "947b818c9aa62c21efe639e286e56bed78054d557370b00c3bcfb0b01a202aa1",
+      "runtime-rtl/byte_mem.v": "dfc3f0fa362196fcfaa7bd771d4f85f26acade0e1dfeb0bc00a24d4161987cd2",
+      "runtime-rtl/dff.v": "325fb9039af507df3c94a26515dfcd8bb73f3812c1264df7b72bfe1af918bbb8",
+      "runtime-rtl/dffe.v": "1fc0bdac0c411ea87c00fc93127ebfba8ca12684a8fecee012a23362e0f8b89c",
+      "runtime-rtl/fifo.v": "8b2f0796fdd7c0f4aee3f20bd52226ccb532c827c8618afd9fbef99e2713f97f",
+      "runtime-rtl/sync_mem.v": "75731fcc0df8a01891e53589e75debc4cda9ec384262937047f21b11de7d7637",
+      "runtime-rtl/sync_mem_dp.v": "16ad11aa53d5f60291136b82a47bef9e21b312cd46ee8b8dfb338bb01c6bc3cc",
+      "runner": "c0b73593bae6b15c573cc6afbe7529451471fdde8d5f10a33e14aacbfcb86219"
+    },
+    "execution_sha256": "057e65a57ddaaae0261647e1f660300c9f811903d9621dcc9ae74ebc802b9f6a",
+    "work_samples": 883,
+    "native_check_records": 2,
+    "native_check_sha256": "be58c4b5b4206388b289441e3bca212b3557636c175cd98dd2deab01391f43d0",
+    "workers": [
+      1,
+      2
+    ],
+    "rtl": "verilator",
+    "trace_sha256": "854f1a4a783a1f8eac0f8fd6c7fbba261defe85d098d8b9c8c2a6a0e95f650ca"
+  },
+  "excerpts": [
+    {
+      "path": "memory_banks.ac",
+      "line": 11,
+      "sha256": "947b818c9aa62c21efe639e286e56bed78054d557370b00c3bcfb0b01a202aa1"
+    },
+    {
+      "path": "cpp/sources/example_memory_banks/memory_banks.hpp",
+      "line": 57,
+      "sha256": "eb6aa0ada9ea9e807562e31a5ceeffca0b4406259733a7b44f5ff51acc5da6ae"
+    },
+    {
+      "path": "verilog/sources/example_memory_banks/memory_banks.v",
+      "line": 1,
+      "sha256": "7b07a5a8986d0a0135cfcab80328766c140b8fa363c3a105b5caa7406c19066d"
+    }
+  ]
+}

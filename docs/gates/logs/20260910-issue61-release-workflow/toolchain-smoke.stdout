@@ -1,7 +1,0 @@
-usage: agentic-circuit model [-h] {plan,emit-cpp} ...
-
-positional arguments:
-  {plan,emit-cpp}
-
-options:
-  -h, --help       show this help message and exit

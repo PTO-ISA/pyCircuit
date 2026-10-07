@@ -1,1 +1,0 @@
-{"entities":[{"definition":null,"id":"e0","kind":"system","parent":null,"properties":[],"schema_ref":null,"scope":"Architecture","source":{"end_column":1,"end_line":2,"file":"architecture.py","start_column":1,"start_line":1},"type":null,"uses":[]}],"entry":"e0","schema":"agentic-circuit-acpy","sources":[{"path":"architecture.py"}],"version":"0.1"}

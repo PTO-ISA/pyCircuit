@@ -1,0 +1,63 @@
+{
+  "schema": "pycircuit-generated-example-v1",
+  "example": "hier_modules",
+  "entry": {
+    "arguments": [],
+    "definition": "@\"example_hier_modules.hier_modules.HierModules\""
+  },
+  "verification": {
+    "schema": "pycircuit-example-verification-v1",
+    "inputs": {
+      "source/CMakeLists.txt": "ac351abadf34d5439f310d25a4424b0793607964041499b7a260707ebc554727",
+      "source/config.json": "38e5d2da344eb7f507a1e944caa3116e6e3919df4377719dccbf5f5e0dd96aa6",
+      "source/driver.cpp": "d96de0768087841785e8be2b962629017c0e116eb0b448699b5dfdeb48a395c2",
+      "source/hier_modules.py": "fdf2fcb0c73fd7b67c91e61bcb72a42114f53c9f95b99503d2865cb5c12fa715",
+      "source/rtl_tb.sv": "cbbdfb40ffa771c1824e1bb8fd1321acd2154b6e5fcd54e818363971fceffec5",
+      "build/cpp/generated.json": "b6b9e25d433d0a23c805ee67a220e810fc0327bc00a19fd77cba997fbb09a490",
+      "build/cpp/CMakeLists.txt": "ba9c8efe221f996291ea389e0212326e0fb308ccbb724a9b83f661acf60b663b",
+      "build/cpp/pycircuit_support.hpp": "a20f9374c2721cb4fa779f0362dd59a4faefd4aef1b7bb2139b2017c220ddc26",
+      "build/cpp/pycircuit_system.hpp": "d9da92b8c0619a6625df595c6ee17422ec470cb580f4e5368fb621dc7e8573fa",
+      "build/cpp/sources/example_hier_modules/hier_modules.cpp": "b1bb1d40ffb4c7e6f638de5957750e91fbcd84f7408b2cc2bab8d8d90268ff5a",
+      "build/cpp/sources/example_hier_modules/hier_modules.hpp": "70fa645fdfb3f6be1503bdaa967b03913b999c16a48468291817f5de93d809a9",
+      "build/cpp/sources/example_hier_modules/hier_modules.source-map.json": "2a1d29ea3b173277f9c2e0c71216a39d49efd70e5710f8bbe252542c516a3551",
+      "build/verilog/generated.json": "c040b88e9f1bb10d8e731d1a9bd72e1d9c5858a0171541b86e8a603adba6249d",
+      "build/verilog/CMakeLists.txt": "4f6676545c216cb294c495a5adab8f4eb0ecc384aaabc6acb45d360bdb5e3909",
+      "build/verilog/design_top.sv": "71e6a17660b6932bd40a02de7be53bb807b9d774b83a8bebbbef3c348ade4e4a",
+      "build/verilog/sources/example_hier_modules/hier_modules.source-map.json": "0dd3997860caec52704a9d8547856704e0e461390fcf2daaf2bd0cfa7ad90a60",
+      "build/verilog/sources/example_hier_modules/hier_modules.v": "407d10df29e84d504d986d05c051ff8fcf6a159bc4f4e4f29998736e9919d5bd",
+      "build/hier_modules.ac": "ceca14e215657b30d000ae038fe8714b9c0a632b03fc63cff10b5becbfcbb048",
+      "runtime-rtl/byte_mem.v": "33bd9f73dd7cd17f3531cfd8c321762c214ad5df23b5376add212dadd38c47c2",
+      "runtime-rtl/dff.v": "e4f604bd03b9f1651ddbcd71e9ebb1cd8af45018caeab341728b35c14ec0f553",
+      "runtime-rtl/dffe.v": "9ae323530b72d152d10628de94923eaefa411b29e13c647de21bed8b0d73833b",
+      "runtime-rtl/fifo.v": "2dc4086ad3085bd67504caaac0565a3e676f87ce5411cc019fe8ef3a3bc43b23",
+      "runtime-rtl/sync_mem.v": "207b0fe22f029828ac90b50d2ce0aabbb01763231cd153883f31b581d03d68b7",
+      "runtime-rtl/sync_mem_dp.v": "44672a092661f3c218f71534d0d656a2d7d0bfdb03bc6b7a3394e2f13eea86d4",
+      "runner": "82ec9037f6573dbfc22be58f0f4da16557a117e577f906964f3c3597aceab6d2"
+    },
+    "execution_sha256": "7721cfe2217dd8299add9a5741be1cc5da779b4c74ab6e4e0eae68394bac49b1",
+    "work_samples": 12,
+    "workers": [
+      1,
+      2
+    ],
+    "rtl": "verilator",
+    "trace_sha256": "99b3d0988bbc2b42de2f0014e8e2fe4a66d7fbea9d1d95b3123f533404ebe2ed"
+  },
+  "excerpts": [
+    {
+      "path": "hier_modules.ac",
+      "line": 5,
+      "sha256": "ceca14e215657b30d000ae038fe8714b9c0a632b03fc63cff10b5becbfcbb048"
+    },
+    {
+      "path": "cpp/sources/example_hier_modules/hier_modules.hpp",
+      "line": 12,
+      "sha256": "70fa645fdfb3f6be1503bdaa967b03913b999c16a48468291817f5de93d809a9"
+    },
+    {
+      "path": "verilog/sources/example_hier_modules/hier_modules.v",
+      "line": 1,
+      "sha256": "407d10df29e84d504d986d05c051ff8fcf6a159bc4f4e4f29998736e9919d5bd"
+    }
+  ]
+}

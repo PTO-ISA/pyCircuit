@@ -1,13 +1,7 @@
-# pyCircuit Tools
+# Compiler maintenance tools
 
-| Tool | Purpose |
-| --- | --- |
-| `check-pyc-inventory.py` | Verify that PYC ODS, producers, coverage, and the generated inventory ledger agree |
-| `generate-semantic-primitive-registry.py` | Validate the semantic primitive registry and emit its C++ table |
-| `dump_pyctrace.py` | Inspect binary pyc6 traces with optional manifest decoding |
-| `pyc_module_graph.py` | Extract and inspect the module/instance graph from PYC MLIR |
-| `schematic_view.py` | Render a schematic from generated Verilog |
-| `visualize_cpp.py` | Render a schematic from generated C++ model headers |
+- `generate_source_identifier_unicode.py`: pinned source-identifier tables.
+- `generate-semantic-primitive-registry.py`: declarative primitive tables for
+  future implementation selection; this is not an alternate source compiler.
 
-Run tools from the repository root. Use `--help` for command-specific options
-and write generated output under `.pycircuit_out/`.
+The supported user commands are `pycircuit compile`, `link`, and `emit`.

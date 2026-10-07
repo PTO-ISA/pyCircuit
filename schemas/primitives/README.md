@@ -1,25 +1,12 @@
-# PYC primitive registries
+# Primitive reference data
 
-This directory separates language semantics from replaceable backend
-implementations:
+The retained vendor-neutral semantic registries and RTL implementation catalog separate
+semantic intent from implementation choices. They are reference data for
+future library/selection work, not another compiler or a claim of supported
+primitive selection in the current value profile.
 
-- `semantic_registry.json` is the stable, vendor-neutral PYC contract.
-- `pyc_ir_inventory.yaml` is the exact registered PYC operation/type surface;
-  its generated ledger records producer, verifier/folder, backend, test, and
-  Agentic Circuit mapping coverage.
-- `pyc_ir_coverage.json` is the generated machine-readable per-op/type ledger,
-  including stage, status, replacement, producers, verifier/folder and
-  canonicalization, both emitters, qualified RTL selection, positive/negative
-  MLIR, examples, tests, and end-to-end coverage.
-- `library/verilog/rtl_catalog.json` contains qualified implementation choices.
-
-The format split is intentional: the small hand-maintained inventory uses YAML;
-machine-consumed registries and generated coverage use canonical JSON. Every
-document declares a versioned `schema` identity, and
-`python3 tools/pycircuit/check-pyc-inventory.py` validates the exact
-ODS/inventory/ledger
-relationship.
-
-Python and canonical PYC may reference only semantic IDs.  Vendor module,
-parameter, port, source, provenance, and license data enter IR only in
-the Verilog-only `pyc-select-rtl-primitives` pass.
+`tools/pycircuit/generate-semantic-primitive-registry.py` validates and renders
+the declarative primitive table. Licensed RTL implementations remain under
+`library/verilog/`; the current final emitter does not install an alternate
+PYC selection pipeline. The retired PYC inventory/coverage gate is available
+only through Git history.

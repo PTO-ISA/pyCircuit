@@ -1,224 +1,187 @@
-# Testing And Gates
+# Testing and gates
 
-This page defines the minimum validation expected for pyCircuit changes. Use the
-smallest gate set that proves the change, then widen only when behavior or risk
-demands it.
+Gate claims must match the exact candidate and active pyCircuit route.
+Record raw outcomes and candidate identity under the ignored local directory
+`docs/gates/logs/<run-id>/`; CI uploads these files as workflow artifacts.
+A command, test file or historical acceptance entry is not a passing result.
 
-## Gate tiers
+## API tests and examples are separate
 
-- **Required PR CI** is intentionally lightweight: changed-file pre-commit,
-  repository-management checks, documentation, pyCircuit Python unit tests,
-  packaging-helper checks, one explicit API-hygiene pass, and Python-only
-  Agentic Circuit contract/frontend/CLI tests. CI skips the matching local
-  pre-commit hook so API hygiene does not run twice.
-- **Targeted author evidence** covers the narrow native, MLIR, runtime, or
-  backend behavior changed by a PR. Run the smallest relevant local command and
-  record it in the PR; do not substitute an unrelated broad lane.
-- **Release closure** is the only automatic full matrix. It builds one
-  integrated toolchain, reuses that build for AC G0/G1/G2, executes each
-  repository, example, simulation, and semantic gate once, validates packages
-  on Linux, macOS, and Windows, and blocks publication on failure.
-- **Nightly/manual diagnostics** run the heavy simulation tier to find costly
-  failures earlier without replaying the normal simulation or fixture lanes.
-  They are diagnostic signals, not PR merge or release authority.
-
-## Shared rules
-
-- Prefer a shared `PYC_GATE_RUN_ID=<run-id>` for multi-command validation so all
-  evidence lands under one directory.
-- Evidence root: `docs/gates/logs/<run-id>/`
-- Keep logs bounded. Capture only the lanes needed for review.
-- If a gate is skipped, say why in the PR.
-- Keep gate scripts composable: a product-specific script must not recursively
-  invoke repository-wide checks or another closure lane.
-- Structured hierarchy gates operate before and after the backend: every
-  implemented H1/H2/H3 module must own one direct CMake `acc.py` producer and
-  one `.ac` unit, the separately compiled `core.ac` must carry no child definition
-  bodies, and the generated C++/CMake graph must preserve the same ownership.
-  Whole-core compilation followed by AC or C++ splitting is a hard failure.
-
-## Gate ownership
-
-| Owner | Coverage | Intentionally excluded |
-| --- | --- | --- |
-| `.github/workflows/ci.yml` | Repository policy, changed-file formatting/lint, unit tests, docs, packaging helpers, API hygiene, Python-only AC checks | LLVM builds, CTest, Verilator, full examples and simulations |
-| `run_agentic_circuit.sh` | AC contracts, frontend/CLI, ACIR/ACC/gfsim native tests, ACC C++/bundle/Verilog integration | Root pyCircuit unit/API/docs/decision checks |
-| `run_examples.sh` | Every public example through emit/C++ compile plus focused project-build and artifact contracts | API hygiene, decision status, simulation and semantic lanes |
-| `run_sims.sh` | Normal-tier C++/Verilator execution plus `issq` and `regfile` fixtures | Heavy examples, the heavy `bypass_unit` fixture, and the three dedicated semantic cases |
-| `run_sims_nightly.sh` | Heavy-tier C++/Verilator execution plus the compile-intensive `bypass_unit` fixture | Normal examples and fast fixtures |
-| `run_semantic_regressions_v6.sh` | X/Z trace values, reset/invalidate ordering, net-resolution depth | General example and simulation sweeps |
-| `.github/workflows/release.yml` | One invocation of every closure owner against one exact candidate SHA | Recursive or repeated gate execution |
-
-## Core commands
+Use two entry points over the existing CTest, lit, pytest and example verifier:
 
 ```bash
-pre-commit run --files <changed-file> [<changed-file> ...]
-pre-commit run --all-files
-pytest tests/unit -m unit
-pytest tests/system -m system
-python3 flows/tools/check_api_hygiene.py python/pycircuit/src/pycircuit examples/pycircuit docs README.md
-python3 tools/agentic-circuit/generate-diagnostic-catalog.py --check
-python3 flows/tools/check_decision_status.py --rfc docs/rfcs/pyc6-decisions.md --status docs/gates/decision_status_v6.md --out .pycircuit_out/gates/<run-id>/decision_status_report.json --require-no-deferred --require-all-verified --require-concrete-evidence --require-existing-evidence
-mkdocs build --strict
-bash flows/scripts/run_agentic_circuit.sh
-bash flows/scripts/run_examples.sh
-bash flows/scripts/run_sims.sh
-bash flows/scripts/run_sims_nightly.sh
-bash flows/scripts/run_semantic_regressions_v6.sh
+bash flows/scripts/run_api_tests.sh --tier gate
+bash flows/scripts/run_examples.sh --tier gate
+# Full registered coverage, including the gate subset:
+bash flows/scripts/run_api_tests.sh --tier nightly
+bash flows/scripts/run_examples.sh --tier nightly
 ```
 
-`tests/unit/test_example_layout.py` keeps every tracked pyCircuit example in a
-named `basics`, `features`, or `applications` category, requires the canonical
-design/testbench/config triplet, and emits every public design through the
-Python frontend. Larger generic designs live under
-`tests/integration/pycircuit/fixtures`; performance-only workloads live under
-`benchmarks/` and cannot substitute for correctness gates.
+For an existing nondefault build/install pair, export both paths before running
+these scripts (the examples and package tests use the installed toolchain):
 
-## Pull-request validation matrix
+```bash
+export PYC_BUILD_DIR=/absolute/path/to/build
+export PYC_TOOLCHAIN_ROOT=/absolute/path/to/install
+cmake --build "$PYC_BUILD_DIR" --parallel 4
+cmake --install "$PYC_BUILD_DIR" --prefix "$PYC_TOOLCHAIN_ROOT"
+bash flows/scripts/run_api_tests.sh --tier gate
+```
 
-The two required GitHub checks are `G0: Python Checks` and
-`G0: Agentic Python Checks`. Native and end-to-end commands below are targeted
-author evidence, not additional always-on CI jobs.
+Both default to `gate`; `--list` reports the CTest selection without building or
+claiming a pass. Set `PYC_BUILD_DIR` to this checkout's CompilerDev testing build
+and `PYC_TOOLCHAIN_ROOT` to its installation. Reinstall after changing compiler,
+Runtime or shared example helpers. `PYC_PYTHON_EXECUTABLE` selects Python for
+package tests and receipts. No new native executable is needed for this split.
 
-| Change type | Targeted PR evidence |
+| Entry point | Gate | Additional nightly coverage |
+| --- | --- | --- |
+| API/framework | Native API/runtime GTests; IR/pass lit; source interface/check diagnostics and output protection | Remaining source/codegen matrices, native source-check execution, Runtime/CompilerDev install, public emit/source maps, incremental builds, relocation, publication recovery and presets |
+| Examples | `module_loop`, `counter`, `arith`, `wire_ops`, `rob`, `table_rule`, each compile/link/dual emit and workers 1/2/RTL | Every registered example, including full-duration `digital_clock` and BF16 checks |
+
+The example registry is explicit. Gate configures only its six smoke designs,
+so it does not compile the full nightly set first. Direct aggregate CMake builds
+default to the full `nightly` registry. Standalone example builds remain supported.
+Examples demonstrate complete designs; API fixtures test compiler/runtime
+contracts and rejection boundaries. An example pass does not substitute for API
+coverage of unsupported historical designs.
+
+`check-pycircuit` runs native/lit API tests only, selecting the cached
+`PYC_TEST_TIER` (`gate` by default). The API script explicitly sets this on every
+invocation and additionally runs its explicitly listed public-flow/package tests for nightly.
+Uncovered historical API drafts have been removed. Retained semantic tests and
+independent oracles remain in their existing owners. CTest labels `api`
+and `examples` describe ownership; `gate` and `nightly` describe selection. Gate
+entries also carry `nightly`. Complementary lit filters partition the inventory
+without duplicating cases. Source-check capacity limits stay separate from the
+long execution test. Python-only unit/hygiene/docs gates remain independent CI
+checks and do not require the compiler toolchain.
+
+Each executed entry point records its selected CTest names and count under
+`docs/gates/logs/<run-id>/`, with distinct category/tier summary filenames.
+A failed or empty run cannot publish a pass; `--list` publishes no pass summary.
+Nightly and release run each category once with `--tier nightly`. A focused gate
+result must not be reported as a full nightly result.
+
+## Oracle ownership and scheduled coverage
+
+User direction (2026-10-07): keep independent oracle models and framework
+coverage outside hardware design sources. `tests/compiler/oracles/` contains
+reference models/checkers; DUT fixtures describe hardware, and existing lit
+owners retain public compile/link/emit, generated-model builds and drivers.
+Do not add a second test runner or product compilation path.
+
+Queue reference models are separated from `queue-source-vectors.py` serialization.
+The existing nightly `Source/queue-source.test` adds `--oracle-checks` and reuses
+its generated artifacts for the existing independent checkers. Reorder's causal
+checks may not be skipped while reporting complete success. Generated native
+observation coverage also belongs to the existing nightly filter; inexpensive
+Runtime/source diagnostic coverage remains in gate.
+
+Long coverage, differential/reference-model and mutation matrices run when
+nightly is requested or scheduled. Ordinary authoring/review does not require
+running them immediately. The current review explicitly defers their execution;
+record NOT-RUN rather than advancing acceptance from syntax or file moves.
+
+## Contract under validation
+
+The current public workflow is one source per `pycircuit compile`, explicit
+unit closure through `pycircuit link`, and `pycircuit emit` to either backend
+from the verified final artifact. The source profile includes typed structural
+modules and the bounded behavioral variable/struct/table slice with multiple
+same-source state-writing rule calls on disjoint declarations or Struct fields. Both lower to the same standard storage
+leaves. The typed C++ DUT and host-driven runner use Work/Xfer sampling epochs.
+Required boundaries include negative tests for unsupported sources and no
+fallback dispatch. The language reference records the current source surface.
+
+## Focused validation map
+
+| Change | Evidence to collect |
 | --- | --- |
-| Docs-only, governance docs, PR or issue templates | Required PR CI is sufficient |
-| Frontend API, CLI orchestration, manifest generation, packaging, example discovery | Relevant unit test or smallest affected example in addition to required PR CI |
-| Examples, testbenches, simulation entrypoint behavior | Smallest affected example or simulation case; add `pytest tests/system -m system` only when its flow is touched |
-| MLIR dialect, passes, legality, runtime, codegen, observation semantics | Focused lit/CTest or semantic reproducer for the changed contract, plus decision ID and evidence path |
-| Agentic Circuit Python frontend, ACPy, schemas or CLI | Required Agentic Python check plus the changed focused test |
-| Shared I-JSON, epoch, MLIR escaping, or semantic primitive contracts | Agentic contract/frontend tests plus exhaustive primitive registry/PYC/ACIR/gfsim width checks |
-| Diagnostic codes, exception payloads, or native diagnostic adapters | Catalog generation check plus the smallest Python or native code-propagation test |
-| ACIR dialect, verifier, transformation, ACC or gfsim | Focused ACIR/ACC lit or C++ test |
-| AC package linking, hierarchy, or module codegen | Per-module `acc.py` CMake custom-command graph, AC inventory/link test, root-no-child-definition negative, post-split rejection, one-module-one-C++ map, parallel CMake compile/link, and executable DUT smoke |
-| ACIR-to-PYC, pyc6 runtime integration or synthesizable AC semantics | Focused AC G2 case proving the changed lowering/backend path |
-| Repository retirement or release-management changes | Repository-governance checks and workflow validation |
+| Capture/source semantics | Accepted module/rule fixtures, source provenance, range/type rejection, explicit registration, current/next and child-state identity |
+| Unit compile and link | One producer per source, published interface use, complete closure, duplicate/missing/mismatched unit rejection, verified final artifact |
+| C++ emit | Source-owned module groups and `pycircuit_modules` CMake target, bound root arguments, Runtime-only consumer build and explicit test drivers |
+| Verilog emit | Same final artifact, source-owned RTL/map inventory, unsupported configuration rejection, target output preservation |
+| Runtime/package | Runtime-only install without LLVM discovery; CompilerDev install with LLVM/MLIR 22.1.8; exported target and external consumer smoke |
+| Hard break | Source, CLI, CMake, package and installed-payload scans show no active retired frontend/compiler/fallback |
+| Documentation | Active docs agree on profile, command path, unsupported contracts and current test selection |
 
-## Release validation matrix
+Source interface extraction has a standalone MLIR boundary:
+`pycircuit-opt --ac-extract-source-interface`. Its direct tests cover
+all-definition inference before replacement, exact signatures/metadata,
+Table/Collection dependencies, temporal Q cuts and rollback after input,
+analysis or staged-interface failure. Shared structural validators are tested
+separately from provider/canonical-builtin authority. Keep owning-summary
+tampering and public failed-replacement oracles; a range failure in the importer
+does not prove failure originating in the pass.
 
-Every release runs all of the following once before package jobs may start:
+Record optimization has a separate native gate for declaration-based forwarding,
+exact result types, dominance, source metadata, untouched scalar/effect operations,
+all-module preflight and dependency equality. Public-flow tests check saved
+snapshots and four-state transport. Existing defaults, branches, state lifecycle
+and provider-authority tests remain required; smaller IR does not prove these
+semantics. The common-pass smoke test exercises explicitly registered upstream
+canonicalization and CSE on func/arith IR, without adding either to the source
+pipeline. Wide-fixture measurements use unchanged source/testbench bytes and
+report retained size separately from transient importer cost.
 
-- one integrated LLVM/MLIR toolchain build, reused by AC native tests and G2;
-- AC contracts, frontend/CLI, ACIR/ACC/gfsim native tests, and G0/G1/G2;
-- every example compile contract, the normal simulation partition, the heavy
-  simulation partition, and dedicated V6 semantic regressions;
-- strict decision status, API hygiene, unit tests, pre-commit, repository
-  policy, and documentation checks; and
-- Linux, macOS, and Windows archive/wheel builds plus installed-wheel smoke tests.
+Behavioral-source validation includes the generated ROB runner and a separate
+eight-lane table fixture with different field widths and initial values. Preserve
+sequential assignment, value-snapshot versus owner binding, alias rejection,
+full-width index proofs, modular arithmetic, no-write clock sampling, failure
+without a successful sample, and discard/retry checks. Packed struct source
+tests verify current schema extraction and authority under field-type, nominal
+identity and owner tampering. No new IR interface is required by this slice.
 
-## Agentic Circuit gates
+The defaults/composition gate additionally checks static defaults even when
+unused or overridden, nested zero/default distinctions, immutable field updates,
+typed struct results, and hidden-domain propagation through stateless parents.
+Separate child instances, result fanout and sequential data dependencies use
+independent native/RTL oracles. Preserve the ROB's original 569-sample stimulus
+and scoreboard when changing its output transport to a packed struct; only the
+test's observation access should change.
 
-Agentic Circuit uses three stable gate classes. All commands run from the
-pyCircuit repository root and use generated output directories outside tracked
-source.
+The grant extension additionally distinguishes pending capture plans from final
+SSA proof, checks every pair across all source modules, and verifies complementary
+and explicit priority grants in both registration orders. Native tests cover
+unknown-grant failure and whole-state/clock discard; Icarus grant tests cover X/Z
+payload transport, not a separate proof of RTL unknown-enable rollback. Private
+resource caps and source-level cycles fail closed with publication protection.
 
-### AC G0: frontend and contracts
+The `multi-rule-writes.test` gate checks the registered capture-analysis pass,
+write-intent conflicts, natural void registrations, nested-field merging, old-Q
+reads, rule-order independence and whole-system data/clock discard. It also
+preserves single-rule unknown-control semantics. Public native workers 1/2 and
+RTL share the final IR; native/Icarus checks provide four-state evidence.
 
-- install/import `agentic_circuit` (and `_pycircuit_semantics`) from the current
-  worktree;
-- validate ACPy golden serialization under
-  `tests/goldens/agentic-circuit/frontend/`;
-- run the contract checker plus Python contract, frontend, schema, and CLI
-  tests; and
-- verify that `agentic_circuit` remains separate from `pycircuit` exports.
+Run the narrowest check covering the change. Preserve supported behavior and
+rejection oracles. Incomplete historical examples/API drafts were removed at
+the delivery cutoff; this is a scope reduction, not a passing test result.
 
-### AC G1: ACIR, ACC and gfsim
+`examples/CMakeLists.txt` registers executable designs, documented in
+`examples/catalog.json`. The installed helper compiles each source, links its
+closure and emits both targets. Per-design assertions and worker/RTL comparison
+validate hardware behavior. Use CTest with `--no-tests=error`; an empty registry
+is not execution evidence. No example or test may require local migration logs.
 
-- build `acir-opt`, `acc`, ACIR libraries and gfsim from the current worktree;
-- run ACIR parser, printer, verifier and ACC lit suites;
-- run the AC C++ unit suites; and
-- run at least one `acc.py -> verified ACIR -> acc -> C++ DUT` end-to-end case.
-- for structured designs, emit a directory-backed AC package and prove each
-  Python source unit parses, contains all of that file's requested definitions
-  and typed specializations, and the linked package resolves every instance exactly once,
-  and no whole-core fallback `.ac` is consumed by ACC.
-- exercise a separately compiled composite package with heterogeneous ports,
-  repeated child instances, child-to-child Queues, inferred fanout, a
-  multi-output child, parallel multi-TU CMake/Ninja compilation, and a typed DUT
-  runtime result. Python lowering alone is not composite backend evidence.
+## Build profiles
 
-### AC G2: pyCircuit 6 hardware integration
+The root build exposes `PYC_BUILD_COMPILER_DEV`, `PYC_BUILD_TESTING`, and
+`PYC_BUILD_RUNTIME_LIB`. A Runtime-only package is configured with compiler dev
+off, runtime on, and testing off; it must not discover LLVM or MLIR. The
+CompilerDev profile requires exactly LLVM/MLIR 22.1.8. Runtime consumers use
+`find_package(pycircuit CONFIG REQUIRED COMPONENTS Runtime)` and
+`pycircuit::pyc6_runtime`.
 
-- run the synthesizable ACIR subset through `acc -emit-verilog` and sibling
-  `pycc`;
-- compile and execute ACC-generated gfsim C++ DUTs;
-- generate and lint Verilog for the same canonical cases;
-- run `flows/tools/check_generated_rtl.py` on representative generated RTL,
-  including a two-clean-build byte comparison, JSON structural/expensive-op
-  audit, and colored HTML diff evidence; and
-- prove unsupported ACIR constructs fail at the intended verifier boundary.
-- compile module C++ sources as independent translation units with parallel
-  CMake/Ninja and link the selected root DUT; backend-only source splitting is
-  not accepted as AC package evidence.
-- compile a consumer translation unit against only `generated/dut.h` and the
-  generated target's PUBLIC include interface, then execute it; compiling the
-  generated static library alone is not a DUT gate.
-- compare ACPy-derived scalar bit primitives in typed gfsim and PYC C++ on the
-  same boundary-value sequence.
+When Runtime is configured, `check-pycircuit` builds its archive before running
+the source gates that compile and execute generated DUTs. A fresh build directory
+uses the same gate command; it does not require a separate Runtime build first.
 
-Decision 0241 admits the bounded Table profile to G2 through an explicit
-`pyc.reg` bank. G2 evidence covers independent profile limits, typed and
-multidimensional initialization, old-state reads, field/masked/replace writes,
-multi-selection and accepted-only round-robin, arbitration, outputless rules,
-and PYC C++/Verilator parity. Out-of-profile Table state remains fail closed.
+## Reporting
 
-AC G2 consumes current pyCircuit 6 contracts. A PR that changes ACIR-to-PYC
-provides a focused G2 reproducer; the release workflow provides the complete
-examples, normal/nightly simulation, V6 semantic, and strict decision-status
-closure. Product-specific compatibility and model-comparison gates run in the
-corresponding consumer repositories against a pinned pyCircuit revision; they
-are not pyCircuit release gates.
-
-Consumer-originated regressions must be reduced to vendor-neutral framework
-fixtures before entering this repository. Product designs, payload/trace
-adapters, reference models, and their gates run only in the owning consumer
-repository against a pinned pyCircuit revision.
-
-## When strict decision-status validation is required
-
-Run the strict form of `check_decision_status.py` as targeted author evidence
-when the change affects:
-
-- semantics or legality
-- decision-bearing examples
-- observation or reset contracts
-- contributor-facing statements about decision completion
-
-Docs-only changes that do not alter semantic claims can rely on required PR CI.
-Every release runs the strict form regardless of the release diff.
-
-## Evidence expectations
-
-Semantic or flow-significant changes should archive:
-
-- commands used
-- stdout and stderr for each gate lane
-- summary output when generated by the script
-- `decision_status_report.json` when decision validation is relevant
-
-Use `docs/gates/README.md` for the directory contract and naming.
-
-## Notes on local test commands
-
-- `pytest tests/unit -m unit` is the fast Python-only lane used by CI.
-- `pytest tests/system -m system` exercises end-to-end CLI smoke cases and
-  requires `PYC_TOOLCHAIN_ROOT` or `PYCC` plus `verilator`.
-- `pre-commit run --files <changed-file> ...` matches the CI pre-commit lane,
-  which runs against the PR or push diff. CI sets `SKIP=pyc-api-hygiene` and
-  executes API hygiene once as a separate, visible gate.
-- `pre-commit run --all-files` runs the full repo Python format/lint, markdown
-  lint, YAML sanity, and—unless skipped explicitly—the pyCircuit API-hygiene
-  hook.
-
-## Notes on simulation lanes
-
-- `run_examples.sh` compiles every public example but does not invoke other
-  gates. Run the affected simulation lane separately when execution changes.
-- `run_sims.sh` validates normal-tier examples plus the `issq` and `regfile`
-  fixtures. It leaves X/Z, reset/invalidate, and net-resolution cases to the
-  deeper semantic assertions below.
-- `run_sims_nightly.sh` exercises heavy-tier examples and the compile-intensive
-  `bypass_unit` fixture. Run it for heavy examples, bypass changes, or
-  simulation-orchestration changes.
-- `run_semantic_regressions_v6.sh` owns the X/Z trace,
-  reset/invalidate-ordering, and net-resolution-depth cases.
+For each gate, state the exact command, exit status, output/evidence path,
+candidate revision or content binding, and any skipped or unavailable checks.
+Do not infer implementation or complete coverage from documentation, one
+passing lane or an older candidate. See the [source-unit workflow](source-unit-workflow.md)
+for build ownership and the [language reference](../reference/language.md) for
+unsupported capabilities.

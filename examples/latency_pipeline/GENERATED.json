@@ -1,0 +1,64 @@
+{
+  "schema": "pycircuit-generated-example-v1",
+  "example": "latency_pipeline",
+  "entry": {
+    "arguments": [],
+    "definition": "@\"example_latency_pipeline.latency_pipeline.LatencyPipeline\""
+  },
+  "verification": {
+    "schema": "pycircuit-example-verification-v1",
+    "inputs": {
+      "source/CMakeLists.txt": "a185b020f3e926c9a14ade48d676b4efdec78d3338e39fca7a7fd34f426b48c6",
+      "source/config.json": "e12c7c04c0ff7db6e0641b52783076954fec63d87eda1b9569dadc5d99a42383",
+      "source/driver.cpp": "77807f7ee6edbdebeb8da7d29bc46846002ad82806699d6d9b33e4ba27c72505",
+      "source/four_state.py": "e7648a8d54608c23b6d29c3c4158a206f893137bb1ac8a6db3852f933033825f",
+      "source/latency_pipeline.py": "647f98c8023989bcebd9db4cd37a100cf743f3f47c58259df3a02ea76aa0ef5d",
+      "source/rtl_tb.sv": "5075ae92c6fbb1e8bd101625bdd23a4b740c78534b0feee380c5926f2b339e42",
+      "build/cpp/generated.json": "9d52e633354a183f9d1cbe0bc6970043bba210102e6d9d2cf7ec170d98c125f9",
+      "build/cpp/CMakeLists.txt": "63ab16e16d3fbd3df60b3a85062ab7b29f06149cb8ea4d579ac8bc6fe9ac185a",
+      "build/cpp/pycircuit_support.hpp": "02778d66316f66518a30085e1ceee731e06262d63cc39f4710ffe78e0d6619e9",
+      "build/cpp/pycircuit_system.hpp": "527bbe01ea1825f9cb8c8385a35829624d063b4edc49fec131260d5e2a769e41",
+      "build/cpp/sources/example_latency_pipeline/latency_pipeline.cpp": "069e4bc3cf38ea46c40821950b6f2eb2e2a7061df156a4ac9d8fec9b4f22e28b",
+      "build/cpp/sources/example_latency_pipeline/latency_pipeline.hpp": "0937927d62b8417170c8a9eb84d0fe25319fd4b966c21351f9d59402674df01c",
+      "build/cpp/sources/example_latency_pipeline/latency_pipeline.source-map.json": "7ff66cd27547d7c5772004be800abf9bcad03f247b6bb115009f5a530f785fb3",
+      "build/verilog/generated.json": "520628d74b94e3968356f4a47ddd7449f6ccc1420f28669d2485c0ca06e1f8e1",
+      "build/verilog/CMakeLists.txt": "e5c12decd7ebdac96462cb2197de88aaa8ef8a4397eacc9948404707a54530cc",
+      "build/verilog/design_top.sv": "d4373cd01ef2ed902cacb71b843ccb29d80aee4f8108ece15e1449d50062bd7a",
+      "build/verilog/sources/example_latency_pipeline/latency_pipeline.source-map.json": "84c73a44d1d5bbd33c7f45d24bcdd7e4a2658cc59113700a9ad2c9a14e815bb8",
+      "build/verilog/sources/example_latency_pipeline/latency_pipeline.v": "ea454a44f895d415cc7205dd803dfbb4af91c8b65e99967efdd7b3391809f424",
+      "build/latency_pipeline.ac": "7dc9f36eb7028645ad9f20187b57099ad2161c4517a17e0de4b00e55f1c23850",
+      "runtime-rtl/byte_mem.v": "33bd9f73dd7cd17f3531cfd8c321762c214ad5df23b5376add212dadd38c47c2",
+      "runtime-rtl/dff.v": "e4f604bd03b9f1651ddbcd71e9ebb1cd8af45018caeab341728b35c14ec0f553",
+      "runtime-rtl/dffe.v": "9ae323530b72d152d10628de94923eaefa411b29e13c647de21bed8b0d73833b",
+      "runtime-rtl/fifo.v": "2dc4086ad3085bd67504caaac0565a3e676f87ce5411cc019fe8ef3a3bc43b23",
+      "runtime-rtl/sync_mem.v": "207b0fe22f029828ac90b50d2ce0aabbb01763231cd153883f31b581d03d68b7",
+      "runtime-rtl/sync_mem_dp.v": "44672a092661f3c218f71534d0d656a2d7d0bfdb03bc6b7a3394e2f13eea86d4",
+      "runner": "81f71ca21d1d0b5ed7dd1aed53ddea8e830ee1bf4f84308c1e145a75bb52e94f"
+    },
+    "execution_sha256": "20ac9ba4fec464f3bc6e3669f0a4e05e3513953412d222e440fb2f97d2dd18ea",
+    "work_samples": 555,
+    "workers": [
+      1,
+      2
+    ],
+    "rtl": "verilator",
+    "trace_sha256": "1a16f34e29aa67108201433316d3eaf8e655440864720f0ad67ae66e3a42f8c0"
+  },
+  "excerpts": [
+    {
+      "path": "latency_pipeline.ac",
+      "line": 4,
+      "sha256": "7dc9f36eb7028645ad9f20187b57099ad2161c4517a17e0de4b00e55f1c23850"
+    },
+    {
+      "path": "cpp/sources/example_latency_pipeline/latency_pipeline.hpp",
+      "line": 38,
+      "sha256": "0937927d62b8417170c8a9eb84d0fe25319fd4b966c21351f9d59402674df01c"
+    },
+    {
+      "path": "verilog/sources/example_latency_pipeline/latency_pipeline.v",
+      "line": 1,
+      "sha256": "ea454a44f895d415cc7205dd803dfbb4af91c8b65e99967efdd7b3391809f424"
+    }
+  ]
+}

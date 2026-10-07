@@ -1,0 +1,63 @@
+{
+  "schema": "pycircuit-generated-example-v1",
+  "example": "jit_control_flow",
+  "entry": {
+    "arguments": [],
+    "definition": "@\"example_jit_control_flow.jit_control_flow.JitControlFlow\""
+  },
+  "verification": {
+    "schema": "pycircuit-example-verification-v1",
+    "inputs": {
+      "source/CMakeLists.txt": "662658839499f60644727708ecb272b30672d409145a48b0e7408c5cfb8495d1",
+      "source/config.json": "3926419054e3547db55c695b04d0bf32ac2e9709755567d1a14b45609a2394e3",
+      "source/driver.cpp": "6e37520def3cebbfa822fdecd12aa72b12b80493c9b17c84f862a5b79a59ec1c",
+      "source/jit_control_flow.py": "799bbb13fbace85f410e92bdc00cef1520d236197951e5e4996cbe85cf308fa8",
+      "source/rtl_tb.sv": "9d615b23fbd185bb22f6f74724228c2f4f996be5b1b2b010d1898e7d0d929398",
+      "build/cpp/generated.json": "2fa3821725eb7deda163d24f7ff1f48a6728b9d628f9632ca8a528c567a49e6b",
+      "build/cpp/CMakeLists.txt": "33d4862c57d54105c12642a5ffa4247a1849bb611b683b0172b5d04587434874",
+      "build/cpp/pycircuit_support.hpp": "3278dae751f261158c7e6a899181974887a57a9fab95a3f0d587cf1545c2b015",
+      "build/cpp/pycircuit_system.hpp": "3b49ddfcdbdeaacfa3e373f5ed543980ce58c4912fba9c42ddda158d11a1ee8e",
+      "build/cpp/sources/example_jit_control_flow/jit_control_flow.cpp": "258ab9a280875cce9c90035ee65c2eaf3b77e241720c4a6466bcb264f10d1808",
+      "build/cpp/sources/example_jit_control_flow/jit_control_flow.hpp": "69a0857f033fdce2418aa8866d5987bda4ebddf6e4dccc14fcc9caa74ce42979",
+      "build/cpp/sources/example_jit_control_flow/jit_control_flow.source-map.json": "62e113a5715a3bc268bcb00ed52861fa398b7f69f514ade94ddaeceb6fbbda1e",
+      "build/verilog/generated.json": "7fa1a12dda16657a1854142f93599d32ae59b388a4db53ceb7c474fe60963669",
+      "build/verilog/CMakeLists.txt": "12c92c0b31073237ea005f232124f0c930f88c6d828a51bfa3d8011c9ba81c05",
+      "build/verilog/design_top.sv": "20cfa3ca1bac70f756dba3c2fdbeffc5550d9e14bac995b8538325e76b9cbc46",
+      "build/verilog/sources/example_jit_control_flow/jit_control_flow.source-map.json": "497fd3cf85f997686fac580fa6c474791d398b7fc1c0ee377e18abb0f55b10a0",
+      "build/verilog/sources/example_jit_control_flow/jit_control_flow.v": "f2c2b683c45538d6e5f2d851638504ef7a82db7b6d75e5b7e8b28622dc545111",
+      "build/jit_control_flow.ac": "7c262ac33a0e928c3e3fa172ec88478680956a636d013ececab2c21b6df65460",
+      "runtime-rtl/byte_mem.v": "33bd9f73dd7cd17f3531cfd8c321762c214ad5df23b5376add212dadd38c47c2",
+      "runtime-rtl/dff.v": "e4f604bd03b9f1651ddbcd71e9ebb1cd8af45018caeab341728b35c14ec0f553",
+      "runtime-rtl/dffe.v": "9ae323530b72d152d10628de94923eaefa411b29e13c647de21bed8b0d73833b",
+      "runtime-rtl/fifo.v": "2dc4086ad3085bd67504caaac0565a3e676f87ce5411cc019fe8ef3a3bc43b23",
+      "runtime-rtl/sync_mem.v": "207b0fe22f029828ac90b50d2ce0aabbb01763231cd153883f31b581d03d68b7",
+      "runtime-rtl/sync_mem_dp.v": "44672a092661f3c218f71534d0d656a2d7d0bfdb03bc6b7a3394e2f13eea86d4",
+      "runner": "49beb7fa09169585d085d1ae684ee6cf8be495a14a0df209aa56a733429385db"
+    },
+    "execution_sha256": "a304963b76a30b5238fd2f66ed52a1668ba10f798ed96ba8969db27aa5310001",
+    "work_samples": 65,
+    "workers": [
+      1,
+      2
+    ],
+    "rtl": "verilator",
+    "trace_sha256": "ebeca885d3a6531763ca70a55844d23240695fb758027d3a0ae18a8f4682cb9b"
+  },
+  "excerpts": [
+    {
+      "path": "jit_control_flow.ac",
+      "line": 4,
+      "sha256": "7c262ac33a0e928c3e3fa172ec88478680956a636d013ececab2c21b6df65460"
+    },
+    {
+      "path": "cpp/sources/example_jit_control_flow/jit_control_flow.hpp",
+      "line": 14,
+      "sha256": "69a0857f033fdce2418aa8866d5987bda4ebddf6e4dccc14fcc9caa74ce42979"
+    },
+    {
+      "path": "verilog/sources/example_jit_control_flow/jit_control_flow.v",
+      "line": 1,
+      "sha256": "f2c2b683c45538d6e5f2d851638504ef7a82db7b6d75e5b7e8b28622dc545111"
+    }
+  ]
+}

@@ -1,7 +1,0 @@
-[llvm-mc] /Users/zhoubot/linx-isa/emulator/qemu/tests/linxisa/mcopy_mset_basic.s
-[qemu] commit trace: /var/folders/dw/zd1zl_y14dndg0ydz1mdt25h0000gn/T//linx-diff.6Tlp3s/qemu.jsonl
-[pyc] commit trace: /var/folders/dw/zd1zl_y14dndg0ydz1mdt25h0000gn/T//linx-diff.6Tlp3s/pyc.jsonl
-[pyc] primary flow did not emit commit trace; trying LinxCore fallback
-[diff]
-[diff] using fallback-prefix mode (limit=6)
-ok: traces match (6 commits)

@@ -1,5 +1,0 @@
-project: agentic-circuit
-release_model: git-release
-layers: L0,L1,L2,L3
-clause_heading: "## Title {#CLAUSE-ID}"
-metadata_comment: "<!-- ndf: key=value ... -->"

@@ -1,52 +1,17 @@
-# API Reference
+# Language reference
 
-The pyCircuit 6 product API is centered on CycleAwareSignal and lowers to the
-same `pyc` MLIR used by the structural module API.
+The public Python package is `pycircuit`. All designs use the same source-unit
+compiler and the `pycircuit compile`, `link` and `emit` commands. Import aliases
+such as `pyc` and `ac` do not select a different frontend.
 
-## Cycle-aware design imports
-
-```python
-from pycircuit import (
-    CycleAwareCircuit,
-    CycleAwareDomain,
-    CycleAwareSignal,
-    CycleAwareTb,
-    ForwardSignal,
-    Tb,
-    build_cycle_aware,
-    cas,
-    compile_cycle_aware,
-    mux,
-    submodule_input,
-    wire_of,
-)
-from pycircuit.design import probe, testbench
-```
-
-Use `CycleAwareSignal` for scalar design values. Use `domain.signal()` to infer
-state, `domain.next()` to advance logical time, and `wire_of()` only at explicit
-I/O boundaries. `compile_cycle_aware()` always JIT-compiles to a hardened
-`Design`; `build_cycle_aware()` directly executes Python elaboration and returns
-a `CycleAwareCircuit` whose MLIR carries the same frontend contract.
-
-## Structural library imports
-
-```python
-from pycircuit import Circuit, compile, const, function, module
-from pycircuit import ct, hierarchical, lib, logic, spec, structural, wiring
-```
-
-The structural surface is supported for explicit hierarchy, compile-time
-specialization, reusable library blocks, and static hardware generation. It
-does not define a competing timing model. Use `structural.mux()` for raw Wire
-selection; top-level `mux()` is CycleAware and always returns a CAS.
-
-## Reference documents
-
-- [V6 language specification](language.md)
-- [Source, MLIR, and generated C++ naming](name-mangling.md)
-- [Frontend API details](frontend-api.md)
-- [Testbench API](testbench.md)
-- [Primitive reference](primitives.md)
-- [IR specification](pyc-ir.md)
+- [Python source language](language.md)
+- [Language and execution semantics](language-specification.md)
 - [Diagnostics](diagnostics.md)
+- [Source ownership and generated names](name-mangling.md)
+- [Tables and collections](spec-collections.md)
+- [Enums](spec-enums.md)
+- [Queues](spec-queues.md)
+
+Source admission and internal IR capabilities have distinct boundaries. See
+[known limitations](../development/known-limitations.md) before relying on a
+feature outside the documented source subset.

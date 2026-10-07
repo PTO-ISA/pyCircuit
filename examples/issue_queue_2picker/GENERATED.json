@@ -1,0 +1,63 @@
+{
+  "schema": "pycircuit-generated-example-v1",
+  "example": "issue_queue_2picker",
+  "entry": {
+    "arguments": [],
+    "definition": "@\"example_issue_queue_2picker.issue_queue_2picker.IssueQueue2Picker\""
+  },
+  "verification": {
+    "schema": "pycircuit-example-verification-v1",
+    "inputs": {
+      "source/CMakeLists.txt": "251397455a71dc45f91dfcec09f45c40c7195803c22bbffd10082447fa6e67af",
+      "source/config.json": "e3f9c7dd813e920f0f9988bccf6d6a8cbc71226b3f475a09f5338b93176c9aa3",
+      "source/driver.cpp": "16d2567ddc2391874fac36aee8a251a23c0bb9d17dccd65a51a4e509920c95ba",
+      "source/issue_queue_2picker.py": "40a91de04a0875c7d2753faad496a0799c16d29a75529e34bbbc1526aea16ad8",
+      "source/rtl_tb.sv": "268611586d6542204735c65c8c4c5623cf8c4e5aa8db6f62c5b72dfbeced9451",
+      "build/cpp/generated.json": "4262fe5ca7ebc63c3d357ff38519ef9a964222b635fcc32003fd24e8e43087cf",
+      "build/cpp/CMakeLists.txt": "88af6549133a955062c20065fdcc65365e1682d6e6dca087b00ceba42ec05e5c",
+      "build/cpp/pycircuit_support.hpp": "54bd9a88385e079df6e5ad376247d6b0790c8a730e77466f8a0ba453a6ff512c",
+      "build/cpp/pycircuit_system.hpp": "971de9b441437efe377360d496faa569d54f4d1f3f78132ba0d45dcf7682424c",
+      "build/cpp/sources/example_issue_queue_2picker/issue_queue_2picker.cpp": "a0e34dfef61255a07569e3ae44c8e7b83e67d6682e283081eb8e06ca1da3e715",
+      "build/cpp/sources/example_issue_queue_2picker/issue_queue_2picker.hpp": "8d4aa0f1ab834eead70ee68aef6bd29f8dd01f604b3c28472282097a75e8352b",
+      "build/cpp/sources/example_issue_queue_2picker/issue_queue_2picker.source-map.json": "d86a5f3ee2f66844c34c674802107fee08172224e0dc7c962ad0e42932c0f399",
+      "build/verilog/generated.json": "1b2c5c6bc31d196767721b2ea39f35cccc20b21cad8cf72d1c73d80cb9b5fe03",
+      "build/verilog/CMakeLists.txt": "a5904275092af7e60219d475599f78c6b32263a472d3fba0fca9d8870b23d78f",
+      "build/verilog/design_top.sv": "d9780a65dd593667c71b912e664b29394c679ac8c010f41cd85d2d5b0c3770e6",
+      "build/verilog/sources/example_issue_queue_2picker/issue_queue_2picker.source-map.json": "be6949154ca854ead05af3f70d05e7c77f6086d21b81e88a5abe121d573a6348",
+      "build/verilog/sources/example_issue_queue_2picker/issue_queue_2picker.v": "500834f7d328bbb15f546dcfa60977933ea2eaa5fb7d0e7e20638d7d79afc8bc",
+      "build/issue_queue_2picker.ac": "0dd032e0c18fae90de170437169904d764a35a3c2e624c01178ffb45bf248733",
+      "runtime-rtl/byte_mem.v": "dfc3f0fa362196fcfaa7bd771d4f85f26acade0e1dfeb0bc00a24d4161987cd2",
+      "runtime-rtl/dff.v": "325fb9039af507df3c94a26515dfcd8bb73f3812c1264df7b72bfe1af918bbb8",
+      "runtime-rtl/dffe.v": "1fc0bdac0c411ea87c00fc93127ebfba8ca12684a8fecee012a23362e0f8b89c",
+      "runtime-rtl/fifo.v": "8b2f0796fdd7c0f4aee3f20bd52226ccb532c827c8618afd9fbef99e2713f97f",
+      "runtime-rtl/sync_mem.v": "75731fcc0df8a01891e53589e75debc4cda9ec384262937047f21b11de7d7637",
+      "runtime-rtl/sync_mem_dp.v": "16ad11aa53d5f60291136b82a47bef9e21b312cd46ee8b8dfb338bb01c6bc3cc",
+      "runner": "c92952d4547c0a4190d94af47eea74ff88149f26626448519ede4007f76fc414"
+    },
+    "execution_sha256": "073ac930dc616e04a0c0163c247e54f5eb5146476da9a9b59a6d26712eb60f20",
+    "work_samples": 177,
+    "workers": [
+      1,
+      2
+    ],
+    "rtl": "verilator",
+    "trace_sha256": "60ad0595f0e7c67bcdc179da68fe8fb540354b6ab7db6f59320f4a120e9fa2fc"
+  },
+  "excerpts": [
+    {
+      "path": "issue_queue_2picker.ac",
+      "line": 7,
+      "sha256": "0dd032e0c18fae90de170437169904d764a35a3c2e624c01178ffb45bf248733"
+    },
+    {
+      "path": "cpp/sources/example_issue_queue_2picker/issue_queue_2picker.hpp",
+      "line": 47,
+      "sha256": "8d4aa0f1ab834eead70ee68aef6bd29f8dd01f604b3c28472282097a75e8352b"
+    },
+    {
+      "path": "verilog/sources/example_issue_queue_2picker/issue_queue_2picker.v",
+      "line": 1,
+      "sha256": "500834f7d328bbb15f546dcfa60977933ea2eaa5fb7d0e7e20638d7d79afc8bc"
+    }
+  ]
+}

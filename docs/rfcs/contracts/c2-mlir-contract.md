@@ -1,0 +1,438 @@
+# C2：逐源 MLIR 与共同硬件 IR 合同
+
+修订：C。状态：根据独立审阅补齐合同，待复审与用户批准。依据[已批准的 C1-C](approvals/c1-pythonic-source.md)，本包不重新改变其源语义。C3 driver/发布/runtime 接口单列。
+
+本设计由独立架构 author `interface_design`（Astra xhigh）补齐，PM 整理。目标是一个 MLIR 语义链，不能把 Python compiler、QueueGraph 或 backend interpreter 留作替代路线。实现可以分阶段，本文已定义的能力不能因 M2 尚未实现就永久退役。
+
+## 单元、名称与声明权威
+
+一个 source invocation 发布一个目录，含 `<stem>.ac`、`<stem>.interface.ac`、`<stem>.d`。两个 AC 文件的顶层都是 builtin `module`，必须有：
+
+| 属性 | 精确类型和值 |
+| --- | --- |
+| `ac.source_owner` | `SourceOwner`，定义见下文 |
+| `ac.unit_kind` | StringAttr：`implementation`、`interface` 或 `declarations` |
+| `ac.stage` | StringAttr：此阶段为 `source`，只用于诊断，不是验证证书 |
+| `ac.interfaces` | 有序 `Array<SourceOwner>`，先本单元 owner，再按结构排序的实际依赖，禁止重复 |
+
+interface 文件为 `interface`；有一个 public module 的 body 为 `implementation`；只有类型、常量和值 helper 的源为 `declarations`。后者的 body 可以只有单元/依赖信息，不需要伪造 module/root。parent 和 selected root 分别编译，不能整系统捕获后拆分。
+
+`SourceOwner={package:StringAttr,path:StringAttr}`。package 是配置的 dotted source-root prefix，可为空；path 是该 root 内规范化 POSIX 相对 `.py` 路径。禁止绝对路径、空/点/父目录组件、反斜杠、NUL、逃逸 root 的 symlink，以及大小写折叠后歧义的 ownership。definition 为 prefix + import-module 路径 + source 名字，如 `@"demo.bank.Bank"`；import alias 不改身份。`foo.py` 与 `foo/__init__.py` 解析成同一模块时拒绝。
+
+所有 exported declaration 必须带 `sym_name`、`ac.source_owner`、`ac.origin:Occurrence`、MLIR `loc`、`ac.declaration_role`。role 为 `definition` 或 `import_snapshot`；snapshot 保留原 owner，不能成为新 owner。
+
+owning interface 是 record、alias、constant、value-helper 和 module signature 的唯一 exported declaration authority；body 是 executable module 的唯一实现 authority。implementation 不再定义与自有 module 同名的 import symbol。nominal/value declaration 的必要副本标为 snapshot；link 先解析一个 owner/header authority、比较和去重，再合成普通 MLIR symbol table，不能把完全相同的副本当作多个 owner。
+
+无内容派生的模型身份、随机 generation ID 或兼容版本分支；schema 由所选 toolchain 合同决定。source/release 版本只在外部构建/发布记录中。
+
+## 闭合记录
+
+除明确可选的字段外，未知/缺失字段拒绝。以下 `u32/u64` 表示非负且在相应范围的 IntegerAttr；SourceSpan 的行列从 1 开始，ordinal/index 从 0 开始。
+
+```text
+MathInt = #ac.math_int<canonical signed decimal>
+SourceOwner = {package:StringAttr,path:StringAttr}
+SourceSpan = {path:StringAttr,line:u64,column:u64,end_line:u64,end_column:u64}
+PathComponent = {kind="field",name:StringAttr} | {kind="index",value:u64}
+Site = {definition:FlatSymbolRefAttr,ast_path:Array<PathComponent>}
+Occurrence = {site:Site,expansion:Array<ExpansionFrame>}
+ExpansionFrame = {kind="call",site:Site,callee:FlatSymbolRefAttr}
+               | {kind="iteration",site:Site,ordinal:u64,value:StaticValue}
+```
+
+MathInt 是任意精度数学整数属性，和 BoolAttr 不同；相等性按数学值，不按文本或宿主位宽。ast_path 按 source AST 字段/列表结构定位；空路径代表 declaration 本身。frames 保持外到内展开次序；来源位置不建立语义身份或调度优先级。
+
+SourceSpan 采用一基 Unicode codepoint 列，end exclusive。CPython AST 给出 UTF-8 byte offset：按该源码行的 UTF-8 byte prefix 严格解码后计数并加一；越界或切断 codepoint 拒绝，不把 byte/display columns 当作同一件事。
+
+```text
+LogicalType = {kind="bool",storage=TypeAttr(i1)}
+            | {kind="integer",storage=TypeAttr(iN),lower:MathInt,upper:MathInt,
+               interpretation="unsigned"|"signed"}
+            | {kind="record",symbol:FlatSymbolRefAttr}
+            | {kind="list",element:Bool|Integer|Record,length:u64}
+StaticType = {kind="bool"} | {kind="integer"}
+           | {kind="integer",lower:MathInt,upper:MathInt}
+           | {kind="record",symbol:FlatSymbolRefAttr}
+           | {kind="list",element:StaticType,length:u64}
+StaticValue = {kind="bool",value:BoolAttr} | {kind="integer",value:MathInt}
+            | {kind="record",symbol:FlatSymbolRefAttr,fields:Array<StaticValue>}
+            | {kind="list",values:Array<StaticValue>}
+Default = {present=false} | {present=true,value:StaticValue}
+```
+
+整数 lower inclusive、upper exclusive；N 为 C1 定义的最小存储宽度，初始执行 profile 1..64。list 长度为正；record field/value 按声明顺序、arity/type 精确，禁止 null 或缺字段。bounds 成对出现；bool true 不等于 integer 1。LogicalType 是声明合同，不能单凭 metadata 就证明运行值符合范围。
+
+## Header 与 helper
+
+`ac.module.import` 无 operands/results/regions，属性为上述 declaration 公共字段，以及：
+
+```text
+ac.contract = {parameters:Array<Parameter>,connections:Array<Connection>}
+Parameter = {name:StringAttr,
+             binding="positional_only"|"positional_or_keyword"|"keyword_only",
+             category="static"|"connection",type:StaticType|LogicalType,
+             default:Default,origin:Occurrence,location:SourceSpan}
+Connection = {parameter:StringAttr,elements:Array<ElementEffect>}
+ElementEffect = {ordinal:UnitAttr|u64,read:BoolAttr,write:BoolAttr,
+                 precision="exact"|"conservative",origins:Array<Occurrence>}
+```
+
+parameters 是 constructor 原顺序；connections 只列 connection 参数，按同一顺序；scalar/record 恰有一个 UnitAttr ordinal，list 恰有 length 个递增 ordinal。state field projection 读视作读整个 record，写遵守完整 record next。unused element 可暂有 R=false/W=false；完整接纳由 specialization 后 exact effects 及 C1 规则判定。connection default 不分配隐含 state，不能用数据 literal default 替代必需 reference。
+
+保留 donor `ac.struct`、`!ac.struct<"qualified.name">`、pure `ac.struct.create/get/with`。source/header 的 `ac.struct.fields` 是有序 `{name,type:LogicalType,origin,location}`，增加 `constructor:FlatSymbolRefAttr`。layout 从声明取得，不由类型名猜测。
+
+新增无 region/operand/result 的 `ac.type_alias`（必需 `target:LogicalType`）与 `ac.constant`（必需 `type:StaticType,value:StaticValue`）。二者使用 declaration 公共字段；alias 透明，record 保持 nominal。re-export 不改 owner。
+
+record constructor 和普通 value helper 使用 source-owned `func.func`，保留 declaration 公共字段，并要求：
+
+```text
+ac.helper_kind="record_constructor"|"value"
+ac.parameters:Array<HelperParameter>
+ac.return_form="none"|"single"|"tuple"
+ac.result_constraints:Array<ValueConstraint>
+ac.check_templates:Array<CheckTemplate>
+HelperParameter={name:StringAttr,
+  binding="positional_only"|"positional_or_keyword"|"keyword_only",
+  constraint:ValueConstraint,default:Default,origin:Occurrence,location:SourceSpan}
+ValueConstraint={kind="logical",type:LogicalType}
+              | {kind="mathematical_integer"}
+              | {kind="static_list",type:StaticType.List}
+```
+
+physical signature 为 `(constraint representations..., evaluation_path:i1) -> (result representations..., valid:i1)`。logical 映射到有限存储类型，数学整数用临时 `!ac.math_int`，static list 递归映射固定 builtin tuple、仅编译期使用。数学 helper 的运行时值在 inline 后必须获得有限且证明有效的位宽，不产生 bigint ABI。
+
+none/single/tuple 分别要求零/一/声明的固定 flat 数量 data results。constructor 必须 single、唯一 nominal-record logical result，并有 `ac.record` 指向该 record；value helper 禁止该属性。hidden path/valid 是 compiler controls，不是源字段。绑定 positional/keyword/default 后，实参按 Python source order 求值、按声明顺序传入。
+
+helper 可以有经过验证的 arith、scf.if、source-math、record 操作、verified helper calls 和 check templates。它是 **state-effect-free，不等于可随意删除或提前执行**。禁止 state/resource handle、current/next、topology、driver ac.assert、logging/runtime call/递归；验证完整调用 DAG。defaults/reset 用同一个 MLIR 常量 evaluator 求值，失败在编译时报出。
+
+constructor 字段初始化形成 source-order SSA，最终 ac.struct.create 按字段声明顺序；成功返回必须完整。headers 可以携带这些必要的值定义，但不能含 child module、rule 或 state 实现。link 比较 helper body 时允许 SSA alpha-renaming，保留 operation/order/operands/types/domains/defaults/check templates；忽略诊断位置，不能用未证明的语义等价替代比较。
+
+## 静态表达式、结构控制与特化
+
+`#ac.static_expr` 是唯一 MLIR 编译期表达式树，每节点包含 origin 和 location，没有 runtime SSA、Python callback 或源代码字符串：
+
+```text
+literal(value:StaticValue) | reference(ref:StaticRef)
+unary(operator,operand:StaticExpr)
+binary(operator,lhs:StaticExpr,rhs:StaticExpr)
+select(condition:StaticExpr,yes:StaticExpr,no:StaticExpr)
+list(elements:Array<StaticExpr>) | field(base:StaticExpr,name:StringAttr)
+element(base:StaticExpr,index:StaticExpr) | length(base:StaticExpr)
+call(callee:FlatSymbolRefAttr,arguments:Array<StaticArgument>)
+comprehension(binder:Occurrence,iterable:StaticIterable,value:StaticExpr)
+StaticArgument={kind="positional",value:StaticExpr}
+              | {kind="keyword",name:StringAttr,value:StaticExpr}
+StaticIterable={kind="range",start:StaticExpr,stop:StaticExpr,step:StaticExpr}
+              | {kind="sequence",value:StaticExpr}
+StaticRef={kind="parameter",owner:FlatSymbolRefAttr,name:StringAttr}
+         | {kind="binding",id:Occurrence}
+         | {kind="induction",loop:Occurrence}
+         | {kind="export",symbol:FlatSymbolRefAttr}
+StaticBinding={id:Occurrence,value:StaticExpr}
+```
+
+每个 expression/iterable 都带 origin/location。每个 lexical scope 有 `ac.static_bindings:Array<StaticBinding>`；重赋值创建新的 binding occurrence，不查找可变名字。依赖必须无环；parameter 在显式 owner 环境解析，induction 在所属 loop/comprehension 解析，export 来自已验证 header constant。
+
+unary 集合：neg/invert/not/to_int。binary 集合：add/sub/mul/floordiv/mod/and_bits/or_bits/xor_bits/shl/shr/eq/ne/lt/le/gt/ge/and_bool/or_bool。operand/result kinds、arity 精确；Boolean/select 短路；求值路径上的零除数/负 shift 拒绝。所有整数操作用数学 APInt 语义，不能经 i64/index 提前截断。
+
+field 只接受 nominal record；element 只接受 fixed list 与非 bool 非负整数 index，先检查 bounds；length 只接受 fixed list。call 只指向已验证 header-owned constructor/value helper：依签名绑定，实参按源顺序求值，再以同一个 MLIR 常量 evaluator 执行其 body。record construction 不能绕过 constructor 的计算/检查。递归、runtime SSA、external call、state effects 拒绝。空 range 迭代合法；本包 storage/reference list 仍要求正长度。
+
+- source `ac.instance` 有 `ac.static_args:Array<StaticExpr>`，按 static 参数声明顺序。
+- `ac.static.eval` 无 operands，属性 expression，一个 index result；用于结构 cardinality，先证明正数/可实现容量再转换。
+- source state 的初始化由下文 InitialSpec 定义；final 拒绝 StaticExpr。
+
+### 静态控制 frame
+
+```text
+FrameLayout={locals:Array<{name:StringAttr,origin:Occurrence}>,
+             return_arity:u32,loop_stack:Array<Occurrence>}
+```
+
+locals 名称在 function frame 内唯一。令 n 为 locals 数、r 为 return_arity；frame 恰为 `3*n+3*r+5` 个 SSA 值：先 n 个 local triples `(binding:!ac.local,defined:i1,valid:i1)`，再 r 个同形 return triples，最后 `(normal,returning,breaking,continuing,failed):i1`。五个 flags 至多一个 true，全 false 表示 inactive。函数入口 normal=true，return slots unbound/undefined；failed 仅表示停止源求值，不是硬件状态。
+
+`ac.static.if` 要求 condition:StaticExpr、frame:FrameLayout、origin 和 loc；operands/results 各一个完整同形 frame。then/else 为单 block regions，参数为 frame，均 yield 完整 frame。允许 lexical SSA capture，但 runtime 值不能进入 StaticExpr。specialization 只替换选中 region；未选中源码仍验证 C1 scope/type/subset，不执行 runtime 求值。
+
+`ac.static.for` 要求 iterable:StaticIterable、frame、scope=statement|comprehension、target_slot:u32|UnitAttr、origin/loc。statement 要求 target_slot<n，comprehension 要求 UnitAttr。operands/results 为一个 frame；body 参数先 packed iteration `!ac.local`，再完整 frame，终结 yield frame。body loop_stack 为外层 stack 追加本 loop occurrence。range 值是 math integer，sequence 值保留 StaticValue kind。
+
+每个 active statement iteration 进入 body 前写 target_slot 并设 defined=true；body 最后的重绑定保留。零次迭代保留输入 frame，包括原 unbound 状态；comprehension binding 不泄露。break/continue 必须有最近 loop，最近 loop 消费其 flag：break 恢复 loop 后 normal，continue 进入下一轮。return/failed 穿透所有 loop；return 只能在全部表达式成功、required return slots defined/valid 后设置。需要返回值的可达 normal 函数出口拒绝。
+
+这些 frame 不要求 runtime interpreter；有限展开变为普通 SSA/guarded control，final 前全部消除。静态 bounds 不依赖 runtime SSA，body 可以处理 runtime current；容量限制报 compile-limit，不能截断迭代。
+
+### 特化与绑定解析
+
+source body 每 source 一个 generic ac.module。以下 key 也用于 final IR：
+
+```text
+SpecKey={definition:FlatSymbolRefAttr,arguments:Array<StaticValue>}
+```
+
+`ac.specialization` 无 operands/results，是 non-symbol SymbolTable，要求 key:SpecKey、ac.source_owner；单 block 恰含一个 concrete ac.module，sym_name 等于 key.definition、owner 一致。以 definition 和 ordered tagged arguments 精确相等解析；不依赖调用顺序、名字后缀或 finite-case 列表。相同 key 复用代码，不复用状态；所有变体仍属原 source group。**保留 concrete arguments，只消除 symbolic parameter operations/expressions。**
+
+### 静态选择后的局部类型
+
+新增临时 `!ac.local`，仅承载由 static control 决定 kind 的 source SSA binding，没有 runtime tag/union/storage/ABI。可包含 source math_int、source bool 或已接纳 nominal/value type，禁止 compiler control、state/resource handle 和 pointer。
+
+```text
+ac.local.pack(value:T) -> !ac.local
+ac.local.unbound() -> !ac.local
+ac.local.require(binding,path:i1,defined:i1,valid:i1) -> (T,i1)
+  expected: LocalKind, origin:Occurrence
+ac.local.to_int(binding,path:i1,defined:i1,valid:i1) -> (math_int,i1)
+ac.local.field(binding,path:i1,defined:i1,valid:i1) -> (local,i1)
+  field:StringAttr, origin:Occurrence
+LocalKind={kind="integer"}|{kind="bool"}|{kind="record",symbol:FlatSymbolRefAttr}
+```
+
+全部 local ops 带 origin/loc。require 是类型义务，不是转换；to_int 只实现源显式 `int(...)`，bool→0/1，integer恒等，其他kind拒绝；field 在静态选择后按 nominal layout 解析并保留逻辑domain。
+
+`if static_flag: x=True; else: x=3; y=int(x)` 的 generic branch 可以返回不同 packed kind；specialize 后 to_int 变为 from_bool 或 integer identity，不产生 runtime union。loop每次可有不同静态kind，最后binding遵守 C1/Python locals规则。
+
+carrier若遇到存活runtime control，把使用下推到已有分支中逐臂校验/求值，再合并普通typed结果；不能引入runtime type tag或隐式bool算术。可达非法kind仍编译失败。reachable unbound不能用valid=false掩盖。unit verifier记录deferred type义务，specialization全部关闭；final hardware中任何 local type/op均拒绝。
+
+## 数学值到有界硬件
+
+新增临时 `!ac.math_int`，只允许 source/linked semantic 阶段，无运行时表示或 ABI。state/module/record 的有限存储形式沿用 donor；math values 只在 rule/helper 计算中出现。
+
+| Op | operands → results；必需属性 |
+| --- | --- |
+| ac.math.constant | () → math；value:MathInt |
+| ac.math.static | () → math；expression:StaticExpr，必须求得整数 |
+| ac.math.from_bits | iN → math；domain:LogicalType.Integer，源 domain 必须由 state/interface/check 证明 |
+| ac.math.from_bool | source bool i1 → math；精确 0/1，不能误用 compiler control |
+| ac.math.unary | path,value,valid → math,valid；operator=neg/invert |
+| ac.math.binary | path,lhs,lhs_valid,rhs,rhs_valid → math,valid；上述 C1 数学/位移二元算子 |
+| ac.math.compare | 与 binary 同输入 → bool,valid；predicate=eq/ne/lt/le/gt/ge |
+| ac.math.to_bits | path,value,valid → iN,valid；domain:LogicalType.Integer |
+| ac.math.to_index | path,value,valid → index,valid；extent:StaticExpr，必须为正 |
+
+所有 op 带 origin/loc；可能失败者带 check templates，不标成可投机 Pure。valid 等于 demanded path、operand validity 和 local safety 的合取；inactive/invalid 只产生不可观察 placeholder。signed i1 的位 1 提升为 -1，source bool true 经 from_bool 提升为 +1。
+
+特化/静态展开/值 helper inlining 后，才重算 APInt 区间并选硬件位宽。常量区间 `[c,c+1)`；join 取保守包络，只用可独立证明的 dominating predicates/checks 细化。运算前扩展，to_bits 先范围检查再缩窄；runtime 值及实际 runtime 中间量最终须在 1..64 profile 内。静态计算没有该上限。
+
+危险操作只在 `scf.if(path && demanded_valid && safety)` 内执行；错误路径为 `path && demanded_valid && !safety`，不能换成 rule fire/next enable。保留 source short-circuit、Python floor correction、大右移 sign fill、先 bounds 后 index conversion。final legalization 以显式 unsigned width 消除 index。
+
+必须分别验证：完整 u64+1 未证明 i65 则 capability rejection；已证明 x<=MAX-1 可 i64；显式 `(x+1)&((1<<64)-1)` 可用低位等价证明；赋给 u64 本身不批准截断。mask 不得移除 demanded 子树的除零/index 错误。
+
+参数参与 runtime 算术经 math.static 插入，不再以“未设计”搁置；实现 coverage 可分阶段，但完整 C1 验收必须关闭它。
+
+## 错误、值与数值证明义务
+
+helper 中 ac.expect 必须有 evaluation_path，携带 `ac.check_template={leaf:Site,kind,obligation:u64,location}`；kind 为 assert/division/shift/index/range。函数的 ac.check_templates 恰好枚举这些模板。inline 后追加 call/iteration frame，形成结构化 `CheckID={registration:Occurrence,check:Occurrence,obligation:u64}`，作为 ac.check_id 的闭合 DictionaryAttr。registration 是注册调用 occurrence，check 是展开后的检查 occurrence；obligation 是该 occurrence 优化前固定义务 slot，在所有 check kinds 间统一分配，而不是每 kind 从零编号。合并 index bounds 是一个 slot；调用边界 range checks 使用参数声明 ordinal。相等与排序按结构，不按打印文本。
+
+owning rule 的 `ac.required_checks:Array<RequiredCheck>` 中每项恰有 `{id:CheckID,kind,location:SourceSpan}`；ID唯一且恰好对应一个 final ac.expect。kind与模板/numeric binding一致。没有 rule owner 的 runtime check 拒绝；source assert 不需要 NumericNode owner。
+
+runtime ac.expect 的 condition 是 safety，path 是 source path 与 demanded operand validity；unsafe producer 受 path&&safety 支配。每个 rule/helper 按 source order 维护 SSA live evaluation path：表达式在 P 求值、返回 V 后，`live_after=live_before && (!P || V)`。operands 与 positional/keyword actual 从左到右求值；失败抑制该源路径后续参数、表达式和语句，即使它们没有数据依赖。assert以条件成功更新live；短路/条件只合并被选择的路径，未求值臂的false valid不能污染另一臂。helper失败传回caller。独立rule仍可安全收集检查，但全树失败禁止全部DriveNext。
+
+失败值不能进入 observable next 或 log；numeric witness 必须匹配这一 threaded path，而非只匹配 operand-valid 或 fire。静态调用中求值失败编译拒绝。
+
+新增无结果、无运行效果的 `ac.value.binding(value,valid,path)`，属性 `id:ValueID,domain:LogicalType`，把 source value 绑定到实际有限 SSA。ValueID 为 `{origin:Occurrence,slot:u32}`。每个 final rule 必须有 `ac.proof_scope:ProofScope`，其中 `ProofScope={specialization:SpecKey,registration:Occurrence}`；registration 等于该 rule 展开后的注册 occurrence。ValueID 只在此 scope 内解析且唯一，经合法 CSE 的不同 ID 可绑定同一 SSA。重复实例复用 code-local IDs，运行证据另带 OwnerRef；不同注册或特化不能互相满足义务。
+
+新增无结果 witness：
+
+```text
+ac.numeric.proof(path,input_values...,input_valids...,actual_result,actual_valid,
+                 check_conditions...,check_paths...)
+attrs: mode="exact"|"low_bits", result_domain:LogicalType, input_ids:Array<ValueID>,
+       input_domains:Array<LogicalType>, result_id:ValueID,
+       obligations:Array<NumericNode>, checks:Array<CheckBinding>,
+       operand_segment_sizes:DenseI32ArrayAttr, origin:Occurrence
+low_bits additionally: width:u32 in 1..64; exact forbids width
+NumericNode={id:ValueID,operator:ClosedNumericOperator,
+             operands:Array<NumericRef>,target:NumericTarget}
+NumericRef={kind="input",index:u32}|{kind="node",index:u32}
+          |{kind="constant",value:MathInt}
+CheckBinding={id:CheckID,owner:ValueID,kind="division"|"shift"|"index"|"range",
+              operand_ordinal:u32}
+```
+
+`NumericTarget` 为闭合 variant：`{kind="none"}`、`{kind="integer_boundary",domain:LogicalType.Integer}`、`{kind="index",extent:MathInt,storage:TypeAttr(iN)}`。to_bits 必须 integer_boundary，to_index 必须 index，其余 op 必须 none。index extent>0，`N=max(1,ceil(log2(extent)))` 且N<=64，先bounds后转换。比较的 result 为source bool，boundary/index的result精确匹配storage。
+
+operand_segment_sizes 必须 `[1,n,n,1,1,c,c]`；input_ids/input_domains 长度n，checks长度c；所有controls是对应role的i1。每个input的值/valid/domain匹配其binding。actual_result、actual_valid、path 和 result_domain 必须逐项等于 result_id 唯一 binding 的实际 SSA/control/domain。check operand ordinal是0..c-1的排列，对应成对condition/path；只能列本witness节点拥有的checks，外部leaf的checks单独留在rule义务中。
+
+obligations非空；node refs只能引用更早节点，input ref<n，无duplicate ID；每node贡献给末node或明确保留的demanded-error义务，末node ID=result_id。ClosedNumericOperator 恰为 constant/from_bits/from_bool/neg/invert/add/sub/mul/floordiv/mod/and_bits/or_bits/xor_bits/shl/shr/eq/ne/lt/le/gt/ge/to_bits/to_index；constant 使用一个 MathInt constant ref，from_bool 只接受经证明的 source bool input。static specialization 后的 math.static 已替换成 constant。
+
+source math lowering 前捕获 rule.ac.required_numeric 的 ordered node 列表；每个 required node 恰好由一个 witness 覆盖，消除的中间节点仍在 obligation tree。
+
+exact verifier 独立重算 domain/宽度，识别实际 SSA 的正确扩展、算子/谓词、安全 guard、转换和 valid 方程；不能调用 emitter 生成答案再比较。low_bits 只识别非负 leaves 的 add/sub/mul 树及明确的 `2^width-1` mask，将实际 graph 与该模运算树和 APInt 常量约减匹配。危险外部 leaves 仍保留自身 check/valid dependencies。
+
+只容许 SSA rename、相同安全 producer 的 CSE、constant folding、明确可交换算子的 operand exchange。其他优化须有已验证 rewrite 或更新 witness；不识别不能跳过校验。CheckBinding 对应的 condition/path 必须就是相同 ac.check_id 的 ac.expect operands，并与 recipe 独立重算结果一致。proof/binding 保留到最后共同 IR 验证，emission 只忽略这些无运行效果的证据，绝不运行 bigint interpreter。
+
+### 实际 use 与 commit 绑定
+
+```text
+UseID={origin:Occurrence,role="helper_return"|"next",slot:u32}
+RequiredUse={id:UseID,value:ValueID,target:UseTarget}
+UseTarget={kind="next_scalar",state:StateRef}
+         | {kind="next_selection",states:Array<StateRef>,index:ValueID}
+         | {kind="helper_return",call:Occurrence,ordinal:u32}
+ac.value.use(value,valid,path) {id:UseID,source:ValueID}
+ac.yield_bindings:Array<{
+  data_operand:u32,enable_operand:u32,target:StateRef,
+  contributions:Array<{use:UseID,selection_ordinal:UnitAttr|u64}>
+}>
+```
+
+specialization 后、list scalarization/numeric lowering 前，从实际 source next-assignment/return-target operations 独立提取 `ac.required_uses:Array<RequiredUse>` 并保留；不能从 final yield 反推源目标。UseID.role 必须匹配 target kind。next_selection.states 是 source collection ordinal 顺序的完整非空有限目标表；index 指该次下标求值/已验证 bounds 转换的 ValueID，不能重算或替换。
+
+展开到 ProofScope 后 required uses 与 `ac.value.use` 一对一匹配；marker 的 id/source 等于 RequiredUse.id/value，其 value/valid 等于 binding，path 是 threaded-path/检查图验证过的源 use path。helper inline 后仍保留 helper-return marker，匹配 call/ordinal。
+
+final rule yield_bindings 第 j 项恰指 operands 2j/2j+1，target 必须结构等于唯一 physical output `ac.output_bindings[j]`；不靠重复 output bindings 表示互斥写。contributions 非空，每项通过 UseID 取得 RequiredUse 的原始目标和值：
+
+- next_scalar：selection_ordinal=unit，target 等于原始源 state；候选 data 是 RequiredUse.value binding 的实际 SSA。
+- next_selection：selection_ordinal=k，0<=k<states.size，target=states[k]；候选 data 仍是同一次 RequiredUse.value 的实际 SSA；要求同一个已验证 index==k。
+
+每项 Ei 等于其 ac.value.use 的 threaded path AND validity，selection 再 AND 同一 index==k。final enable 必须等于 OR(Ei)，data 是按 Ei 选择各实际 binding.value 的已验证 SSA merge；无 active contribution 时只允许类型正确、不可观察的 zero-bit placeholder。每对可能同时 active 的 Ei 必须有 C1 要求的静态互斥证明或 precommit overlap check，不能把 select 顺序当优先级。
+
+每个 scalar RequiredUse 在本 rule contributions 中恰出现一次；每个 selection RequiredUse 的每个 k 恰出现一次，本版全部保留，不可达项 Ei=false。互斥分支写保留多个 source uses，合并成一个 next/enable；不能删除原始 uses 后以合成 ValueID 自证。module 层继续按同样冲突合同合并不同 rule/child drivers。
+
+scalarization 不重复求值 replacement/index，不产生新 owner，不改源 ordinal 映射；dynamic owner 不在此形式内。所有 next-use marker 必须被 yield bindings 消费。link 将每个实例的 StateRef 经 ac.instance_bindings 解析成 StateID，复核实际 operand handle/commit 指向相同目标；两个 formal 在某实例偶然 alias 不能授权交换模板目标。
+
+module commit 只能由验证过的 rule outputs 和 child next results 构造；冲突检查后的 merge 按实际 enables 选择。verifier 沿真实 SSA edges 验证，其他位置的孤立 proof 不授权写入。必须拒绝：两个同型同 enable 的已证结果交换 outputs（即使同时交换旧 ValueID 标记）、good proof 配 redirected yield、changed binding、cross-scope proof、dropped bound arguments、forged ownership map、altered child operand、stale helper-return binding。此为 compiler transformation 正确性合同，不声称认证任意篡改全部源语义及义务记录的输入。
+
+## 状态、端口与实例归属
+
+```text
+OwnerRef={instance_path:Array<Occurrence>}
+StateID={owner:OwnerRef,declaration:Occurrence,element:Array<u64>}
+StateRef={kind="owned",declaration:Occurrence,element:Array<u64>}
+        | {kind="formal",parameter:StringAttr,ordinal:UnitAttr|u64}
+PortSlot={parameter:StringAttr,ordinal:UnitAttr|u64,role="current"|"next",
+          type:LogicalType,origin:Occurrence,location:SourceSpan}
+PortBinding={port:u32,target:StateRef}
+InitialSpec={kind="scalar",value:StaticExpr}
+           | {kind="repeat",value:StaticExpr}
+           | {kind="elements",values:Array<StaticExpr>}
+           | {kind="expression",value:StaticExpr}
+```
+
+StateRef 为 module-relative，StateID 为 instance-resolved。owned scalar 的 element=[]，list 元素为 [i]，record fields 不各自获得 owner。
+
+本 profile 唯一普通存储为 `ac.dffe` / `!ac.dffe<T>`；source、linked、final 均拒绝 `ac.dff` / `!ac.dff<T>`。无条件更新使用 enable=true，无写保持 current。后端可以消除恒真 enable 的硬件逻辑，不能改变共同 IR arity。
+
+source/final module 要求 `ac.ports:Array<PortSlot>`，先 current 再 next，每组按 constructor parameter/element 顺序；body 每 slot 一个 DFFE-handle 参数。RW 两个端点共享一个逻辑 state identity。
+
+每个 source state 要求 `ac.source_owner`、`ac.declaration:Occurrence`、`ac.logical_element:LogicalType`、`ac.shape:Array<StaticExpr>`（scalar [] 或 list [length]）、`ac.initial_value:InitialSpec`、`ac.domain="default"`。scalar 使用 scalar initializer，list 使用 repeat/elements/expression；特化后 count/arity 一致。register-list scalarize 为 DFFEs 与 bounds-checked select/demux，不推断 SRAM。
+
+expression 只用于求完整静态 list，不能当成重复首项。特化先求 ac.shape[0] 的正整数 N，再在同一参数环境中求 expression 恰一次；结果必须为 StaticValue.list，长度恰 N。按源顺序检查每项的 declared LogicalType：整数范围、bool/int 区别、record nominal identity、完整字段和不可空。长度、类型、范围或求值错误在发布 final IR 前拒绝；禁止补齐、截断、排序、回绕。
+
+`[i for i in range(entries)]` 使用 comprehension(binder=B,iterable=range(0,parameter(entries),1),value=reference(induction(B)))。entries=2/4 分别产生 [0,1]/[0,1,2,3]；scalarization 把第 k 项精确写入 element[k] 的 payload initializer。Build 和每次 Reset 恢复同一向量，不能因 donor repeated-entry 限制改为全零。新增 gate 覆盖同源两种参数的逐元素初值与 Reset，以及错误长度、entries=257 导致 Word(range256) 第256项越界、bool 冒充 int、重排列表、Reset 只恢复首项等反例；不引入 SRAM 推断。
+
+final DFFE 保留 source owner/declaration、`ac.element:Array<u64>`、concrete `ac.logical_type`、payload-typed `ac.initial_value`、domain；移除 symbolic shape/initializer。
+
+### 普通状态 rule 与 module
+
+r 个 rule inputs、w 个 scalar outputs 的精确合同：
+
+- operands 恰 r+w 个 handles，先 inputs 后 outputs；`ac.input_bindings:Array<StateRef>` 长 r，`ac.output_bindings` 长 w；`ac.input_types/ac.output_types` 是相应 LogicalTypes。
+- computation block 恰 r 个 current-payload args；body yield 恰 2*w 个 `(data,enable)`。
+- source rule 无 op results，final rule 有 2*w 个 results；readiness/conditions/admission regions 在本 profile 为空，不能隐藏 Queue admission。
+- source table read/propose 保持 lexical table ops，scalarization 后生成上述显式 final bindings。
+
+final module yield 按 declaration/expanded element 顺序列全部 owned DFFE pairs，再按 ac.ports 列 borrowed next pairs。`ac.commit_targets:Array<StateRef>` 每 pair 一项，每个 owned state 恰出现一次。无 writer 的 owned state 使用 `(reset_image,false)`；global failure 禁止全部 commit。s 个 owned、q 个 borrowed next yields 恰 2*(s+q) 项；instance 只返回 borrowed suffix，即 2*q 项。
+
+rule yield、final rule results、module commit、instance next results 全部统一 **data,enable**。donor `BindQueueNext.cpp:349–360` module yield 当前是 enable,payload，必须同时适配 verifier、binding pass 与两个 backend，不能称原样复用。
+
+### Final instance 与全树闭包
+
+final `ac.instance` 要求 name:StringAttr、callee:SpecKey、ac.origin、`ac.port_bindings:Array<PortBinding>`。operands 恰为 callee port count，bindings indices 恰 0..p-1，按同顺序；binding 必须匹配实际 operand 的 owned/formal handle，不只是打印名。results 为每 next port 的 data/enable。
+
+linked root 要求：
+
+```text
+ac.entry:SpecKey
+ac.instance_bindings:Array<{
+  owner:OwnerRef,key:SpecKey,ports:Array<{port:u32,state:StateID}>
+}>
+```
+
+rows 按 instance-path 顺序枚举 root 和每个结构实例。verifier 从实际 SSA/instance bindings/declarations 重建并要求相等。这是可验证的 MLIR 归属信息，不是另一执行 graph。拒绝 missing/duplicate SpecKey、参数 category/arity 错误、递归、signature/owner 不匹配。donor `CodeGenDriver.cpp:151–187` 目前按 symbol 索引；两个后端必须使用同一 composite resolver，按 SourceOwner 分组生成。
+
+## 元数据与独立验证
+
+rule 每个 data argument/yield 与上述 logical type/binding 唯一关联；evaluation_path/valid/enable 是各自角色，不能因某 i1 被用作 control 就证明它是 source bool。已证明 source bool 的 SSA 可同时用于 control，无需复制。
+
+helper args/results 依 ValueConstraint 对应 physical representation，constructor 可执行定义在 final 删除，construction Site 保留。
+
+producer 从 registered rules、children 和 verified headers 重算 effects。只剔除 StaticExpr 求值证明不可达的路径，不依赖优化强弱；保留参数/字段声明顺序，origins 结构排序去重。未知 static choice 或 child uncertainty 导致 conservative union，不能假定只读。
+
+link 在特化前自底向上重算 generic summaries 并比较所有 import snapshots；特化后重算 exact effects、materialize physical endpoints，再关闭 alias/driver 义务。exact 必须相等；conservative 是上界，不能替代最终许可。R/R 与 R/W 可别名；两个 W-capable ordinal 的同 identity 在 exact closure 时拒绝。
+
+unit verifier 不要求 root/link，不伪造零端口顶层。linked/final verifier 才要求唯一 selected entry、完整 owner/instance closure；一个错误 stage 字符串不能绕过它们。
+
+## 共同硬件出口
+
+保留经过上述 schema 适配的 donor module/DFFE/rule/record 形式及必要 guarded scf.if。消除 symbolic parameter operations、StaticExpr、interface imports、static control、local carriers、source-math 和 helper executable definitions；保留 concrete SpecKey、ordered bound arguments、source ownership、ProofScope 和验证所需 binding/witness。DFFE next 是 declaration order 的 data+enable；读 current，不读另一 rule 的候选。
+
+每个 state 带 `ac.domain`，foundation 值只能是 `default`：rising edge、active-high synchronous reset。声明的 reset image 与数学/driver/check 义务明确。两个 backend 都对同一 IR 运行 final verifier；RTL-private legalization 将 guards 变为等价有界方程再消除高层控制，不能自己设计仲裁/状态。
+
+source precommit 失败在全树 DriveNext 前被报告，Step failed 后必须 whole-tree Reset；这不是多资源事务原子性的替代证明。Queue/Slot、多 lane、一般 memory/CDC、四态、多 clock/reset、dependent port types、external DUT 与完整 system 的扩展仍必须逐项完成，不能据此 foundation 宣称框架迁移完成。
+
+## Bank 逐源与特化示例
+
+以下是 record/operation notation，不声称为已实现 parser 的输出。缩写展开成上述闭合记录；源位置和 occurrence 依 C1 Bank 示例中的实际 AST 取得。
+
+```text
+S={package:"demo",path:"bank.py"}
+W={kind:"integer",storage:i8,lower:0,upper:256,interpretation:"unsigned"}
+D=@demo.bank.Bank
+C=Bank.__init__.body[2] 的 declaration occurrence
+R=Bank.__init__.body[3].value 的 registration occurrence
+I(v)={kind:"integer",value:MathInt(v)}
+K2={definition:D,arguments:[I(2),I(0)]}
+K4={definition:D,arguments:[I(4),I(5)]}
+```
+
+header 为 owner S 的 ac.module.import D，携带透明 Word→W alias；无 Bank body。parameters 按 incoming/outgoing/entries/initial 顺序：前两项是 required connection W，后两项是 static integer，initial default I(0)。connections 分别 scalar R-only、W-only，precision exact。ports 0=incoming/current/W，1=outgoing/next/W。每项均带原声明 origin/location、positional_or_keyword binding。
+
+```text
+ac.module D(incoming:!ac.dffe<i8>,outgoing:!ac.dffe<i8>)
+  ac.ports = header ports
+  n = ac.static.eval(reference(parameter(D,"entries"))) : index
+  ac.table n
+    name="cells",kind="dffe",entry_type=!ac.dffe<i8>
+    ac.source_owner=S,ac.declaration=C,ac.logical_element=W
+    ac.shape=[reference(parameter(D,"entries"))]
+    ac.initial_value=repeat(reference(parameter(D,"initial")))
+    ac.domain="default"
+  ac.rule registration=R
+    inputs=[incoming],outputs=[outgoing]
+    input_bindings=[formal("incoming",scalar)]
+    output_bindings=[formal("outgoing",scalar)]
+    input_types=[W],output_types=[W]
+    body(x:i8):
+      previous = ac.table.get cells[0]
+      ac.table.propose cells[0] = x,enable=true
+      ac.yield previous,true
+  ac.yield
+```
+
+table operations 仍带 source occurrence/location；entries 解析并证明 >0 后静态检查 index 0。K2 最终拥有 cells[0..1]，reset 0；K4 拥有 cells[0..3]，reset 5。各 final rule 的 input/output bindings 与 types：
+
+```text
+inputs=[formal("incoming",scalar),owned(C,[0])]
+outputs=[formal("outgoing",scalar),owned(C,[0])]
+input_types=output_types=[W,W]
+body(x:i8,old:i8): ac.yield old,true,x,true
+results=(out_data,out_enable,cell_data,cell_enable)
+```
+
+rule 的 proof_scope/value/use/yield bindings 必须遵守前述实际 SSA 绑定合同，此结构示例未列出的证明不能在实现中省略。module commit 精确为：
+
+```text
+K2: cell_data,cell_enable, 0,false, out_data,out_enable
+  targets=[owned(C,[0]),owned(C,[1]),formal("outgoing",scalar)]
+K4: cell_data,cell_enable, 5,false, 5,false, 5,false,
+    out_data,out_enable
+  targets=[owned(C,[0]),owned(C,[1]),owned(C,[2]),owned(C,[3]),
+           formal("outgoing",scalar)]
+```
+
+root 两个 instances 的 callee 分别 K2/K4，operands 为各自 input/output handles，port bindings 为 0→input、1→output。concrete key 共享代码规则与物理 owner 分离：两个 instance_path 不同。输入 9/13 时，第一拍输出 (0,5)，第二拍 (9,13)，与独立 C1 oracle 一致。
+
+## 准入、删除与验证
+
+本包拟 hard break 旧 source/interface micro-schema、Python 语义 lowering、QueueGraph planner/text conversion 与旧 PYC C++ 路线。现有适用 MLIR 分析和 RTL assets 可迁入新链。旧 source-unit 架构保留，旧 op 同名不等于 schema 兼容。
+
+必需证据包括：parent 缺 child body 时编译；Request() defaults/kwargs 仅凭 header；Bank 2/4；static/runtime math 与 loop locals；header range/effect/default/body tampering；重复 nominal owner/W ordinal；错 stage；遗漏 source check；低位 proof 算子/输入/mask篡改；source→AC→TU 所有权；同 final IR 的 C++/Verilog独立行为。范围和完整回归见迁移验收规范。
+
+本提案尚未批准或实现；接口审阅必须解决所有未闭合字段，再请求用户批准，不能用“之后再完善”跳过 exact contract。

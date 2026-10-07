@@ -30,11 +30,7 @@ classifiers = [
     "Topic :: Software Development :: Code Generators",
     "Topic :: Electronic Design Automation (EDA)",
 ]
-dependencies = [
-    "click>=8.0.0",
-    "pyyaml>=6.0",
-    "pycircuit-semantic-core==6.1.0",
-]
+dependencies = []
 
 [project.urls]
 Homepage = "https://github.com/PTO-ISA/pyCircuit"
@@ -81,40 +77,15 @@ select = ["E", "F", "W", "I", "N", "UP", "B", "A", "C4", "T20"]
 ignore = ["E501"]
 
 [tool.ruff.lint.per-file-ignores]
+"tools/pycircuit/generate_source_identifier_unicode.py" = ["T201"]
 "python/pycircuit/src/pycircuit/__init__.py" = ["A004"]
 "python/pycircuit/src/pycircuit/cli.py" = ["A004", "T201"]
-"python/pycircuit/src/pycircuit/design.py" = ["UP038"]
-"python/pycircuit/src/pycircuit/dsl.py" = ["UP038"]
-"python/pycircuit/src/pycircuit/hw.py" = ["A002", "B905", "C401", "C416", "E731", "I001", "UP007", "UP035", "UP037", "UP038"]
-"python/pycircuit/src/pycircuit/hierarchical.py" = ["E721", "F841"]
-"python/pycircuit/src/pycircuit/jit.py" = ["A001", "B009", "B905", "I001", "N818", "UP035", "UP037", "UP038"]
-"python/pycircuit/src/pycircuit/lib/*.py" = ["N802"]
-"python/pycircuit/src/pycircuit/logic/__init__.py" = ["B905"]
-"python/pycircuit/src/pycircuit/literals.py" = ["N802"]
-"python/pycircuit/src/pycircuit/path_shortening.py" = ["B008"]
-"python/pycircuit/src/pycircuit/probe.py" = ["C401", "UP038"]
-"python/pycircuit/src/pycircuit/sidecar_sections.py" = ["B905"]
-"python/pycircuit/src/pycircuit/spec/builders.py" = ["N807", "UP038"]
-"python/pycircuit/src/pycircuit/spec/dse.py" = ["A001", "B905", "UP038"]
-"python/pycircuit/src/pycircuit/spec/types.py" = ["C416", "E741", "UP038"]
-"python/pycircuit/src/pycircuit/tb.py" = ["N801", "UP038"]
-"python/pycircuit/src/pycircuit/testbench.py" = ["B905"]
-"python/pycircuit/src/pycircuit/v6.py" = ["A002", "B010", "I001", "N801", "N816", "UP007", "UP037", "UP038"]
-"python/pycircuit/src/pycircuit/wiring/connect.py" = ["C416", "UP038"]
-"tests/integration/pycircuit/fixtures/bypass_unit/*.py" = ["A004", "T201"]
-"tests/integration/pycircuit/fixtures/issq/*.py" = ["N999", "T201"]
 "tests/integration/pycircuit/fixtures/**/*.py" = ["I001", "T201"]
-"tests/integration/pycircuit/applications/*.py" = ["T201"]
-"examples/pycircuit/**/*.py" = ["F401", "F841", "I001", "N803", "N806", "N999", "T201"]
-"benchmarks/**/*.py" = ["T201"]
+"examples/**/*.py" = ["F401", "F841", "I001", "N803", "N806", "N999", "T201"]
 "flows/tools/*.py" = ["T201"]
-"tools/pycircuit/pyc_module_graph.py" = ["C408"]
-"tools/pycircuit/schematic_view.py" = ["B007"]
+"cmake/prepare_output.py" = ["T201"]
+"cmake/verify_example.py" = ["T201"]
 "packaging/wheel/get_wheel_plat_name.py" = ["T201"]
-"tests/test_lane_slice.py" = ["F841"]
-"tests/test_pyc_enum.py" = ["B018", "N803", "N806"]
-"tools/*.py" = ["T201"]
-"examples/pycircuit/applications/digital_filter/digital_filter.py" = ["N803", "N806"]
 
 [tool.mypy]
 python_version = "3.10"
@@ -125,9 +96,7 @@ disallow_untyped_defs = false
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 pythonpath = [
-    "python/semantic-core/src",
     "python/pycircuit/src",
-    "python/agentic-circuit/src",
     ".",
 ]
 python_files = ["test_*.py"]
@@ -136,5 +105,5 @@ python_functions = ["test_*"]
 addopts = "-v --tb=short"
 markers = [
     "unit: fast Python-only tests",
-    "system: end-to-end smoke tests that require pycc and simulation tools",
+    "system: end-to-end compiler and simulation tests",
 ]

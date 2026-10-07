@@ -21,7 +21,6 @@ from typing import Any
 ROOT = Path(__file__).resolve().parents[2]
 SDK_SCHEMA_NAMES = (
     "consumer-lock.schema.json",
-    "emitted-cost.schema.json",
     "release-index.schema.json",
     "sdk-manifest.schema.json",
     "sdk-version-map.schema.json",
@@ -549,8 +548,9 @@ def main() -> int:
         )
     else:
         hisi_wheel_pattern = rf"^pycircuit_hisi-{re.escape(product)}-py3-none-macosx_[0-9]+_[0-9]+_arm64\.whl$"
-    # Each platform ships exactly one wheel. It carries both frontends and both
-    # compilers, so there is no second distribution to place in the wheelhouse.
+    # Each platform ships one wheel with the pycircuit Python driver and its
+    # bundled CompilerDev/Runtime toolchain prefix; no second distribution is
+    # needed for the current compile/link/emit route.
     wheel_patterns = {
         "pycircuit-hisi": hisi_wheel_pattern,
     }
@@ -580,7 +580,7 @@ def main() -> int:
         schema_root = stage / "share/pycircuit/schemas"
         schema_root.mkdir(parents=True, exist_ok=True)
         for name in SDK_SCHEMA_NAMES:
-            shutil.copyfile(ROOT / "schemas/agentic-circuit" / name, schema_root / name)
+            shutil.copyfile(ROOT / "schemas/pycircuit" / name, schema_root / name)
         license_path = stage / "share/pycircuit/licenses/LICENSE"
         license_path.parent.mkdir(parents=True, exist_ok=True)
         shutil.copyfile(ROOT / "LICENSE", license_path)
@@ -619,14 +619,11 @@ def main() -> int:
             "distributions": version_map["distributions"],
             "abi": version_map["contracts"],
             "capabilities": [
-                "cycle-aware-signal",
-                "pyc-cpp",
-                "pyc-verilog",
-                "acc-source-to-ac",
-                "acc-cpp",
-                "acc-cpp-bundle",
-                "acc-verilog",
-                "gfsim-runtime-v1",
+                "pycircuit-pythonic-source",
+                "pycircuit-source-units",
+                "pycircuit-cpp",
+                "pycircuit-verilog",
+                "pyc6-runtime-v1",
             ],
             "runtime_dependencies": runtime_dependencies(stage, args.platform),
             "self_path": self_path,

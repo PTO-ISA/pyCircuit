@@ -1,4 +1,0 @@
-bash flows/scripts/run_examples.sh
-python3 flows/tools/check_api_hygiene.py compiler/frontend/pycircuit designs/examples docs README.md
-python3 flows/tools/check_decision_status.py --status docs/gates/decision_status_v40.md --out .pycircuit_out/gates/20260303-pyc40-refresh/decision_status_report.json --require-no-deferred --require-all-verified --require-concrete-evidence --require-existing-evidence
-PYC_GATE_RUN_ID=20260303-pyc40-refresh bash flows/scripts/run_semantic_regressions_v40.sh

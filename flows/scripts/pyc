@@ -3,152 +3,83 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 ROOT_DIR="$(cd -- "${SCRIPT_DIR}/../.." && pwd)"
-
 # shellcheck source=lib.sh
 source "${SCRIPT_DIR}/lib.sh"
 
-PYC_REQUIRED_LLVM_MAJOR=22
-
 usage() {
-  cat <<EOF
-Usage: flows/scripts/pyc <command>
+  cat <<'EOF'
+Usage: flows/scripts/pyc <build|smoke>
 
-Commands:
-  build        Configure+build+install pycc/pyc-opt into a staged toolchain
-  smoke        Run compiler smoke (emit+pycc) and a small simulation smoke set
+build configures and installs the pyCircuit source compiler and pyc6 runtime.
+The compiler requires LLVM/MLIR 22.1.8 exactly. Set LLVM_DIR and MLIR_DIR, or
+provide llvm-config-22 (or LLVM_CONFIG) from that installation.
 
-Env:
-  LLVM_DIR, MLIR_DIR        Optional. If unset, flows/scripts/pyc infers them via llvm-config-22.
-  PYC_BUILD_DIR             Optional build directory override.
-  PYC_INSTALL_PREFIX        Optional install prefix override.
-  PYC_BUILD_AGENTIC_CIRCUIT_TESTS Build the integrated ACIR test targets (default: OFF).
-  PYC_PYTHON_EXECUTABLE   Optional exact Python interpreter for installed SDK packages.
-  PYCC                      Path to pycc (overrides auto-detect).
+Environment:
+  PYC_BUILD_DIR             Build directory (default: .pycircuit_out/toolchain/build)
+  PYC_INSTALL_PREFIX        Install prefix (default: .pycircuit_out/toolchain/install)
+  PYC_BUILD_TESTING         Native compiler tests, ON by default for this gate
+  PYC_PYTHON_EXECUTABLE     Python interpreter used by CMake
 EOF
 }
 
 find_llvm_config() {
-  if command -v "llvm-config-${PYC_REQUIRED_LLVM_MAJOR}" >/dev/null 2>&1; then
-    command -v "llvm-config-${PYC_REQUIRED_LLVM_MAJOR}"
-    return 0
+  if [[ -n "${LLVM_CONFIG:-}" && -x "${LLVM_CONFIG}" ]]; then
+    printf '%s\n' "${LLVM_CONFIG}"
+  elif command -v llvm-config-22 >/dev/null 2>&1; then
+    command -v llvm-config-22
+  elif command -v llvm-config >/dev/null 2>&1 && [[ "$(llvm-config --version)" == "22.1.8" ]]; then
+    command -v llvm-config
+  else
+    return 1
   fi
-  if command -v llvm-config >/dev/null 2>&1; then
-    local candidate
-    candidate="$(command -v llvm-config)"
-    if [[ "$("${candidate}" --version 2>/dev/null | cut -d. -f1)" == "${PYC_REQUIRED_LLVM_MAJOR}" ]]; then
-      printf '%s\n' "${candidate}"
-      return 0
-    fi
-  fi
-  return 1
 }
 
 cmd="${1:-help}"
 shift || true
-
 case "${cmd}" in
-  -h|--help|help)
-    usage
-    ;;
-
+  -h|--help|help) usage ;;
   build)
     build_dir="${PYC_BUILD_DIR:-${ROOT_DIR}/.pycircuit_out/toolchain/build}"
     install_prefix="${PYC_INSTALL_PREFIX:-${ROOT_DIR}/.pycircuit_out/toolchain/install}"
-    llvm_config="${LLVM_CONFIG:-}"
-
-    while [[ $# -gt 0 ]]; do
+    while (($#)); do
       case "$1" in
-        --build-dir)
-          build_dir="${2:?missing value for --build-dir}"
-          shift 2
-          ;;
-        --install-prefix)
-          install_prefix="${2:?missing value for --install-prefix}"
-          shift 2
-          ;;
-        --llvm-config)
-          llvm_config="${2:?missing value for --llvm-config}"
-          shift 2
-          ;;
-        *)
-          pyc_die "unknown build option: $1"
-          ;;
+        --build-dir) build_dir="${2:?missing value for --build-dir}"; shift 2 ;;
+        --install-prefix) install_prefix="${2:?missing value for --install-prefix}"; shift 2 ;;
+        *) pyc_die "unknown build option: $1" ;;
       esac
     done
 
-    mkdir -p "${build_dir}" "${install_prefix}"
-
     if [[ -z "${LLVM_DIR:-}" || -z "${MLIR_DIR:-}" ]]; then
-      if [[ -z "${llvm_config}" ]] && llvm_config="$(find_llvm_config)"; then
-        :
-      fi
-      if [[ -n "${llvm_config}" ]]; then
-        local_llvm_major="$("${llvm_config}" --version 2>/dev/null | cut -d. -f1)"
-        if [[ "${local_llvm_major}" != "${PYC_REQUIRED_LLVM_MAJOR}" ]]; then
-          pyc_die "LLVM ${PYC_REQUIRED_LLVM_MAJOR} is required, but ${llvm_config} reports version $("${llvm_config}" --version 2>/dev/null || echo unknown)"
-        fi
-        pyc_log "inferring LLVM_DIR/MLIR_DIR via ${llvm_config}"
-        LLVM_DIR="$("${llvm_config}" --cmakedir)"
-        MLIR_DIR="$(dirname "${LLVM_DIR}")/mlir"
-        export LLVM_DIR MLIR_DIR
-      else
-        pyc_die "set LLVM_DIR and MLIR_DIR (or provide llvm-config-${PYC_REQUIRED_LLVM_MAJOR}) before building"
-      fi
+      llvm_config="$(find_llvm_config)" || pyc_die "set LLVM_DIR and MLIR_DIR for LLVM/MLIR 22.1.8"
+      version="$("${llvm_config}" --version)"
+      [[ "${version}" == "22.1.8" ]] || pyc_die "LLVM 22.1.8 is required; ${llvm_config} reports ${version}"
+      LLVM_DIR="$("${llvm_config}" --cmakedir)"
+      MLIR_DIR="$(dirname "${LLVM_DIR}")/mlir"
+      export LLVM_DIR MLIR_DIR
     fi
 
-    pyc_log "configure (${build_dir})"
-
-    # IMPORTANT: Avoid mixing compilers when linking against the pinned LLVM/MLIR build.
-    # On Windows/MSYS2, a pinned LLVM/MLIR may be built with MinGW GCC.
-    # If pyCircuit is built with Clang while linking GCC-built static libs, we can hit
-    # COFF/COMDAT ODR issues (multiple definitions of inline guard vars, etc.).
-    # Force GCC/G++ here for MSYS2 MinGW environments.
-    uname_s="$(uname -s 2>/dev/null || true)"
-    cmake_args=(
-      -G Ninja
-      -S "${ROOT_DIR}"
-      -B "${build_dir}"
-      -DCMAKE_BUILD_TYPE=Release
-      -DCMAKE_INSTALL_PREFIX="${install_prefix}"
-      -DLLVM_DIR="${LLVM_DIR}"
-      -DMLIR_DIR="${MLIR_DIR}"
-      -DPYC_BUILD_AGENTIC_CIRCUIT_TESTS="${PYC_BUILD_AGENTIC_CIRCUIT_TESTS:-OFF}"
-    )
-    if [[ -n "${PYC_PYTHON_EXECUTABLE:-}" ]]; then
-      cmake_args+=(
-        -DPython3_EXECUTABLE="${PYC_PYTHON_EXECUTABLE}"
-      )
-    fi
-    if [[ "${MSYSTEM:-}" == MINGW64* || "${uname_s}" == MINGW* || "${uname_s}" == MSYS* ]]; then
-      cmake_args+=(
-        -DCMAKE_C_COMPILER=gcc
-        -DCMAKE_CXX_COMPILER=g++
-      )
-    fi
-
-    cmake "${cmake_args[@]}"
-
-    pyc_log "build pycc + runtime (${build_dir})"
-    ninja -C "${build_dir}" pycc pyc6_runtime
-    pyc_log "build integrated ACIR/ACC/gfsim toolchain"
-    ninja -C "${build_dir}" all
-    ninja -C "${build_dir}" pyc-opt 2>/dev/null || true
+    python_exec="${PYC_PYTHON_EXECUTABLE:-$(command -v python3)}"
+    cmake -S "${ROOT_DIR}" -B "${build_dir}" -G Ninja \
+      -DCMAKE_BUILD_TYPE=Release \
+      -DCMAKE_INSTALL_PREFIX="${install_prefix}" \
+      -DPYC_BUILD_COMPILER_DEV=ON \
+      -DPYC_BUILD_TESTING="${PYC_BUILD_TESTING:-ON}" \
+      -DPYC_BUILD_RUNTIME_LIB=ON \
+      -DPYC_INSTALL_PYTHON=ON \
+      -DPython3_EXECUTABLE="${python_exec}" \
+      -DLLVM_DIR="${LLVM_DIR}" -DMLIR_DIR="${MLIR_DIR}"
+    cmake --build "${build_dir}" --parallel
     cmake --install "${build_dir}" --prefix "${install_prefix}"
     export PYC_TOOLCHAIN_ROOT="${install_prefix}"
-    export PYCC="${install_prefix}/bin/pycc"
-    pyc_log "ok: ${install_prefix}/bin/pycc"
+    pyc_log "installed source compiler helpers and pyc6_runtime in ${install_prefix}"
     ;;
-
   smoke)
-    pyc_find_pycc
-    pyc_log "run example compile smoke"
-    PYCC="${PYCC}" PYC_TOOLCHAIN_ROOT="${PYC_TOOLCHAIN_ROOT:-}" bash "${ROOT_DIR}/flows/scripts/run_examples.sh"
-    pyc_log "run simulation smoke"
-    PYCC="${PYCC}" PYC_TOOLCHAIN_ROOT="${PYC_TOOLCHAIN_ROOT:-}" bash "${ROOT_DIR}/flows/scripts/run_sims.sh"
-    pyc_log "ok: smoke passed"
+    if [[ -z "${PYC_TOOLCHAIN_ROOT:-}" ]]; then
+      PYC_TOOLCHAIN_ROOT="${ROOT_DIR}/.pycircuit_out/toolchain/install"
+    fi
+    [[ -x "${PYC_TOOLCHAIN_ROOT}/bin/pycircuit" ]] || pyc_die "missing installed pycircuit driver under ${PYC_TOOLCHAIN_ROOT}"
+    export PYC_TOOLCHAIN_ROOT
+    bash "${ROOT_DIR}/flows/scripts/run_examples.sh" --tier gate
     ;;
-
-  *)
-    pyc_die "unknown command: ${cmd} (run: flows/scripts/pyc help)"
-    ;;
+  *) pyc_die "unknown command: ${cmd} (run: flows/scripts/pyc help)" ;;
 esac

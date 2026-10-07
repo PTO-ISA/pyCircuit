@@ -1,0 +1,65 @@
+{
+  "schema": "pycircuit-generated-example-v1",
+  "example": "bf16_fmac",
+  "entry": {
+    "arguments": [],
+    "definition": "@\"example_bf16_fmac.bf16_fmac.BF16Fmac\""
+  },
+  "verification": {
+    "schema": "pycircuit-example-verification-v1",
+    "inputs": {
+      "source/CMakeLists.txt": "2ad3c82255a2a23103e3b26387cffdf6637b59f9179c466843a98484b94e4a34",
+      "source/bf16_fmac.py": "1b37d3912e5f28c4d1efde7cc2a82b2ec747bae3478e636af4524d1c034b9c97",
+      "source/config.json": "e3f9c7dd813e920f0f9988bccf6d6a8cbc71226b3f475a09f5338b93176c9aa3",
+      "source/driver.cpp": "ce21c9684b680863c055fc0ed5af396531a8db44ae5061a401ad0954ce2c2226",
+      "source/rtl_tb.sv": "aafe9665d80cc31b877f5bc103e82317268c553a4b973ab7d9d2cb406ba0022f",
+      "build/cpp/generated.json": "e7a3613421792d57c28cbc40a620301a65bff0d240c03b5e69f12df7e5af8cb7",
+      "build/cpp/CMakeLists.txt": "0a6fcda3af4a5eafb78b49e944fb04a900259c44a625ad1f20456a94fe582905",
+      "build/cpp/pycircuit_support.hpp": "73e91c11890e80485ce6ac32b2b868ed2e338b3a785236e5a9fd4ac121609262",
+      "build/cpp/pycircuit_system.hpp": "a34c89cf9567a22d56a539681fb80f5e003e11a4f32d5952195ab2eefac1b099",
+      "build/cpp/sources/example_bf16_fmac/bf16_fmac.cpp": "4f855aede9f779e345a013a35930839f7173ab5c33fe2c45713689cbb12cadd3",
+      "build/cpp/sources/example_bf16_fmac/bf16_fmac.hpp": "ac754b62c02a40c0143d6fcea3ef89962aa810bafe87c0a95d945d3d23f605b0",
+      "build/cpp/sources/example_bf16_fmac/bf16_fmac.source-map.json": "74b3481acc24457ea82463b4f40575b1bd81a9f4d6f94d3e8d0a77f00beda1fd",
+      "build/verilog/generated.json": "2349bc488fa8cf4eeb22b18f7cc5ea0b0fa6a4d010dcde2d48818b0741c4dece",
+      "build/verilog/CMakeLists.txt": "fe883c6b8ac125aa3a5c1442840750f911b6fa5578bae8607bd7033aef2cfa33",
+      "build/verilog/design_top.sv": "4719f92a6a9c03aa8d408ed5d736b6a36b7faa03ec467396f9e1a79c52fc1b86",
+      "build/verilog/sources/example_bf16_fmac/bf16_fmac.source-map.json": "45fbf695a102692c7705631a3809d7fdfec0bad1f10652a68ea42864171fea3a",
+      "build/verilog/sources/example_bf16_fmac/bf16_fmac.v": "5fd603dace14a9bae57a491dc7ef6082de564a6b91f72007a9bc2e4d5beee2df",
+      "build/bf16_fmac.ac": "6b11271e9099a664d47dad181af22ec3c97b7f925521043ac84b098788843652",
+      "runtime-rtl/byte_mem.v": "dfc3f0fa362196fcfaa7bd771d4f85f26acade0e1dfeb0bc00a24d4161987cd2",
+      "runtime-rtl/dff.v": "325fb9039af507df3c94a26515dfcd8bb73f3812c1264df7b72bfe1af918bbb8",
+      "runtime-rtl/dffe.v": "1fc0bdac0c411ea87c00fc93127ebfba8ca12684a8fecee012a23362e0f8b89c",
+      "runtime-rtl/fifo.v": "8b2f0796fdd7c0f4aee3f20bd52226ccb532c827c8618afd9fbef99e2713f97f",
+      "runtime-rtl/sync_mem.v": "75731fcc0df8a01891e53589e75debc4cda9ec384262937047f21b11de7d7637",
+      "runtime-rtl/sync_mem_dp.v": "16ad11aa53d5f60291136b82a47bef9e21b312cd46ee8b8dfb338bb01c6bc3cc",
+      "runner": "4d3f90f037971366f52250427532d944daea85156882d180be6a7254ff1dc0db"
+    },
+    "execution_sha256": "3184d5bb84dfe7dc108bb43ad6fbffa7a3fae4b719b633a5e4f75fd6554142a5",
+    "work_samples": 169,
+    "native_check_records": 501,
+    "native_check_sha256": "d6781244bec082cd66e07ad22e4dc46ac67be307a96779fb3955c8fc7e6b61f3",
+    "workers": [
+      1,
+      2
+    ],
+    "rtl": "verilator",
+    "trace_sha256": "1a6e71effc88fe71891e6d9cb37d40daf950f3a8b51107b1f947caf84539d992"
+  },
+  "excerpts": [
+    {
+      "path": "bf16_fmac.ac",
+      "line": 26,
+      "sha256": "6b11271e9099a664d47dad181af22ec3c97b7f925521043ac84b098788843652"
+    },
+    {
+      "path": "cpp/sources/example_bf16_fmac/bf16_fmac.hpp",
+      "line": 54,
+      "sha256": "ac754b62c02a40c0143d6fcea3ef89962aa810bafe87c0a95d945d3d23f605b0"
+    },
+    {
+      "path": "verilog/sources/example_bf16_fmac/bf16_fmac.v",
+      "line": 1,
+      "sha256": "5fd603dace14a9bae57a491dc7ef6082de564a6b91f72007a9bc2e4d5beee2df"
+    }
+  ]
+}

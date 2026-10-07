@@ -3,6 +3,7 @@
 #include <charconv>
 #include <cstdint>
 #include <limits>
+#include <locale>
 #include <sstream>
 
 namespace gfsim {
@@ -66,8 +67,7 @@ public:
     while (cursor_ < input_.size() && input_[cursor_] >= '0' &&
            input_[cursor_] <= '9')
       ++cursor_;
-    if (start == cursor_ ||
-        (cursor_ - start > 1 && input_[start] == '0'))
+    if (start == cursor_ || (cursor_ - start > 1 && input_[start] == '0'))
       return false;
     const char *begin = input_.data() + start;
     const char *end = input_.data() + cursor_;
@@ -130,6 +130,7 @@ private:
 
 std::string quote(std::string_view value) {
   std::ostringstream output;
+  output.imbue(std::locale::classic());
   output << '"';
   for (const unsigned char character : value) {
     switch (character) {
@@ -178,6 +179,7 @@ bool optionalUnsigned(Parser &parser, std::optional<uint64_t> &result) {
 
 std::string canonicalConfig(const RuntimeLimits &limits) {
   std::ostringstream output;
+  output.imbue(std::locale::classic());
   output << "{\"deadlock_window\":";
   if (limits.deadlockWindow)
     output << *limits.deadlockWindow;
@@ -196,7 +198,7 @@ std::string canonicalConfig(const RuntimeLimits &limits) {
     output << *limits.maxTicks;
   else
     output << "null";
-  output << ",\"schema\":\"agentic-model-config\",\"version\":\"1\"}";
+  output << ",\"schema\":\"pycircuit-model-config\",\"version\":\"1\"}";
   return output.str();
 }
 
@@ -241,7 +243,7 @@ bool parseModelConfigJson(std::string_view input, RuntimeLimits &limits,
   }
   if (!parser.take(",\"max_ticks\":") ||
       !optionalUnsigned(parser, limits.maxTicks) ||
-      !parser.take(",\"schema\":\"agentic-model-config\",\"version\":\"1\"}") ||
+      !parser.take(",\"schema\":\"pycircuit-model-config\",\"version\":\"1\"}") ||
       !parser.finish() || canonicalConfig(limits) != input) {
     error = "model config is not canonical v1 JSON";
     return false;

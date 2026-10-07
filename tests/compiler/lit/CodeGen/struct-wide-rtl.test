@@ -1,0 +1,5 @@
+# REQUIRES: verilator
+# RUN: %pycircuit_emit %inputs/struct-wide.mlir --target verilog --format source > %t.sv
+# RUN: %verilator --binary --timing -Wno-fatal --top-module tb --Mdir %t.dir -I%include/verilog %t.sv %include/verilog/dff.v %inputs/struct_wide.sv > %t.build.log 2>&1
+# RUN: %t.dir/Vtb
+# Known data only; four-state RTL requires an independently capable tool.

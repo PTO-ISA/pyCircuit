@@ -1,0 +1,69 @@
+{
+  "schema": "pycircuit-generated-example-v1",
+  "example": "module_loop",
+  "entry": {
+    "arguments": [],
+    "definition": "@\"example_loop.module_loop.Top\""
+  },
+  "verification": {
+    "schema": "pycircuit-example-verification-v1",
+    "inputs": {
+      "source/CMakeLists.txt": "1ffe12beb23b45e07782e38d92b91a251cda15686996b39fc5ac3bcad2377ac9",
+      "source/child.py": "65b7b75b85ef138495519be6e0792d137bab19c087cb99cd09c1309c5f270080",
+      "source/config.json": "38e5d2da344eb7f507a1e944caa3116e6e3919df4377719dccbf5f5e0dd96aa6",
+      "source/driver.cpp": "3f7122a9a4feee3aedcac9b958a05494e7ea6f2c177c08fecd2a0a2ae775f500",
+      "source/module_loop.py": "6dd131ba6d54b044b49d5bef838c5a2a178998bf75be4386f18c99ab4583ccfd",
+      "source/rtl_tb.sv": "c644d470ffb853650b29d9ba8f0ff13663e3fa6fd50bc38a023694ea7f64ef96",
+      "build/cpp/generated.json": "2ae26e41923456ee61407a5a89370dc0894186831dc57380dec22eef9d71e850",
+      "build/cpp/CMakeLists.txt": "7c5df9fd939516ecb8f2216e912160fc28b04019ebf67bfb0bfcce30ac8969f4",
+      "build/cpp/pycircuit_support.hpp": "a0566293ad328a5931c1a911d5b5f4c8d876a6fd78c34dce9d4ee97102fb1a63",
+      "build/cpp/pycircuit_system.hpp": "9de3d0923ff213d189e4d8478836a84f65912fce061988556874087920b88767",
+      "build/cpp/sources/example_loop/child.cpp": "257cdcd9850fff292bd6cbaf16c5b7f126439d995f731fc02814b1db64d636d9",
+      "build/cpp/sources/example_loop/child.hpp": "17786c40df7434209829cacdeff67e74930cb60886a383e607ff7c1b401e1844",
+      "build/cpp/sources/example_loop/child.source-map.json": "639a05de8ff68efabd8d93070ba120282ccffcacd4e120cf61e07fcbcb5bbb9d",
+      "build/cpp/sources/example_loop/module_loop.cpp": "989e2a3a33e64693c2bac3a9f08decd3690ebf0dbed03b0c87bd3f831d102c31",
+      "build/cpp/sources/example_loop/module_loop.hpp": "a4c755054467e8593658a996fe8be4d925010e912940aa7aff1aecbacf559930",
+      "build/cpp/sources/example_loop/module_loop.source-map.json": "7b1189155185d6cb1744834c1b1cf4afade76fc690ac6dfddc565262c47de299",
+      "build/verilog/generated.json": "d6e6dca367694f7dc7b166898271bfa8bc1be9a6461cad476d6c1af677820ab9",
+      "build/verilog/CMakeLists.txt": "9ef62767e89fae9606541d0cf3bcf9bbfea8b7fd61e73be45add49b66329db3d",
+      "build/verilog/design_top.sv": "62f4c7f576d0a4cdbfee0fe5a87bee266ec199de71c146a3ded1dbf82f16ee45",
+      "build/verilog/sources/example_loop/child.source-map.json": "7270c1b1dc1ff2e432ee2cfaba0abece3c400345eab8bd318ee672e6eec0c904",
+      "build/verilog/sources/example_loop/child.v": "96f70f4d97dfb36c9cbe13d1091f5a19422dfdb12ad4ae384e841a2e31a75ae1",
+      "build/verilog/sources/example_loop/module_loop.source-map.json": "cf3e7e86318be8c1d992b3184d7535859d4422ff6b484e755769cfd016072837",
+      "build/verilog/sources/example_loop/module_loop.v": "539156f543ddf188fbce6ceaafe8870627ce54ac6a88dffe56a51df2901fe2bd",
+      "build/module_loop.ac": "5ed2b16e6a59d3f3ae3ed8a9e6cf83b5bc1379f2ed139d728617264a87aa0209",
+      "runtime-rtl/byte_mem.v": "33bd9f73dd7cd17f3531cfd8c321762c214ad5df23b5376add212dadd38c47c2",
+      "runtime-rtl/dff.v": "e4f604bd03b9f1651ddbcd71e9ebb1cd8af45018caeab341728b35c14ec0f553",
+      "runtime-rtl/dffe.v": "9ae323530b72d152d10628de94923eaefa411b29e13c647de21bed8b0d73833b",
+      "runtime-rtl/fifo.v": "2dc4086ad3085bd67504caaac0565a3e676f87ce5411cc019fe8ef3a3bc43b23",
+      "runtime-rtl/sync_mem.v": "207b0fe22f029828ac90b50d2ce0aabbb01763231cd153883f31b581d03d68b7",
+      "runtime-rtl/sync_mem_dp.v": "44672a092661f3c218f71534d0d656a2d7d0bfdb03bc6b7a3394e2f13eea86d4",
+      "runner": "bd4071e475930b5412a3a5049e49b0106ca5432ba575b0796bd65c6dd932e24b"
+    },
+    "execution_sha256": "f142b0c1962145085a89d89e1cf672bf5132b27ad1bbbc57dd8793b20611effb",
+    "work_samples": 11,
+    "workers": [
+      1,
+      2
+    ],
+    "rtl": "verilator",
+    "trace_sha256": "28081dcfde18d652cb60cef8018f0b3ad8e61e1d9cf427dcd7a257e77dbd67bd"
+  },
+  "excerpts": [
+    {
+      "path": "module_loop.ac",
+      "line": 8,
+      "sha256": "5ed2b16e6a59d3f3ae3ed8a9e6cf83b5bc1379f2ed139d728617264a87aa0209"
+    },
+    {
+      "path": "cpp/sources/example_loop/module_loop.hpp",
+      "line": 23,
+      "sha256": "a4c755054467e8593658a996fe8be4d925010e912940aa7aff1aecbacf559930"
+    },
+    {
+      "path": "verilog/sources/example_loop/module_loop.v",
+      "line": 1,
+      "sha256": "539156f543ddf188fbce6ceaafe8870627ce54ac6a88dffe56a51df2901fe2bd"
+    }
+  ]
+}

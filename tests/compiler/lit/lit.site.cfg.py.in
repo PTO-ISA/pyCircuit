@@ -1,0 +1,10 @@
+config.pycircuit_src_root = "@PYCIRCUIT_REPO_ROOT@"
+config.pycircuit_obj_root = "@CMAKE_BINARY_DIR@"
+config.pycircuit_opt = "@CMAKE_BINARY_DIR@/bin/pycircuit-opt"
+config.pycircuit_emit = "@CMAKE_BINARY_DIR@/bin/pycircuit-emit"
+config.pycircuit_source_unit = "@CMAKE_BINARY_DIR@/bin/pycircuit-source-unit"
+config.pycircuit_link = "@CMAKE_BINARY_DIR@/bin/pycircuit-link"
+config.filecheck = "@PYCIRCUIT_FILECHECK@"
+config.cxx = "@CMAKE_CXX_COMPILER@"
+config.python = "@Python3_EXECUTABLE@"
+lit_config.load_config(config, "@PYCIRCUIT_REPO_ROOT@/tests/compiler/lit/lit.cfg.py")

@@ -1,0 +1,2 @@
+# RUN: %python %inputs/publication_protection.py %src %pycircuit_emit %inputs/two-leaves.mlir %S/../IR/combinational-cycle.mlir cpp %t.cpp
+# RUN: %python %inputs/publication_protection.py %src %pycircuit_emit %inputs/two-leaves.mlir %S/../IR/combinational-cycle.mlir verilog %t.rtl

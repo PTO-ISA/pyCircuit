@@ -1,0 +1,1 @@
+# RUN: %python %inputs/collection_root_glue.py %src %pycircuit_emit resource %t.dir

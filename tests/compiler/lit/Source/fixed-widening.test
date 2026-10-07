@@ -1,0 +1,5 @@
+# REQUIRES: verilator
+# Widening is limited to explicit unsigned behavioral boundaries; structural named returns stay rejected.
+# A mixed fixed/Boolean IfExp must retain its missing-provenance rejection.
+# Native X/Z runs unconditionally; Icarus X/Z also runs when iverilog/vvp are available.
+# RUN: %python %S/Inputs/fixed-widening.py --repo %src --source-compiler %pycircuit_source_unit --linker %pycircuit_link --emitter %pycircuit_emit --cxx %cxx --verilator %verilator --scratch %t.dir

@@ -1,81 +1,61 @@
 # Quickstart
 
-Run these commands from the repository root. Generated output stays under
-`.pycircuit_out/quickstart/`.
+pyCircuit turns a small Python hardware description into C++ and Verilog through
+one compiler flow. This complete counter is the smallest stateful example:
 
-## Prepare the checkout
+```python
+from pycircuit import bits, log, rule, system
 
-```bash
-python3 -m venv .venv
-source .venv/bin/activate
-python -m pip install -e "python/semantic-core"
-python -m pip install -e ".[dev,docs]"
 
-bash flows/scripts/pyc build
-export PYC_TOOLCHAIN_ROOT="$PWD/.pycircuit_out/toolchain/install"
+@rule
+def increment(count):
+    log("info", "count", count)
+    count = count + 1
+
+
+@system
+def HelloCounter():
+    count: bits[8] = 0
+    increment(count)
 ```
 
-## Build the counter example
+`count` is persistent eight-bit storage. Its rule logs the current value and
+proposes an increment modulo 256. Clock/reset and storage write enables are
+compiler-owned, and `@system` selects a closed executable simulation.
 
-```bash
-PYTHONPATH=python/pycircuit/src \
-python -m pycircuit.cli build \
-  examples/pycircuit/basics/counter/tb_counter.py \
-  --out-dir .pycircuit_out/quickstart/counter \
-  --target both \
-  --jobs 8
+## Run
+
+After [installing pyCircuit](installation.md), the checked-in example runs with:
+
+```sh
+pycircuit run examples/hello_counter --cycles 5
+pycircuit run examples/hello_counter --target verilog --cycles 5
 ```
 
-This command emits the frontend manifest, PYC MLIR, C++ model and executable,
-Verilog, and Verilator inputs for one source design.
+The two commands generate their own simulation harnesses. No C++ driver, RTL
+testbench or runtime configuration needs to be authored.
 
-## Inspect the frontend output
+## Compile and emit
 
-Emit canonical PYC without running the native backends:
-
-```bash
-mkdir -p .pycircuit_out/quickstart
-PYTHONPATH=python/pycircuit/src \
-python -m pycircuit.cli emit \
-  examples/pycircuit/basics/counter/counter.py \
-  -o .pycircuit_out/quickstart/counter.pyc
-```
-
-## Try Agentic Circuit
-
-Install the second frontend and generate verified ACIR plus gfsim C++ for the
-routed dependency example:
+After [installing pyCircuit](installation.md), save the source as
+`hello_counter.py` and run:
 
 ```bash
-python -m pip install -e "python/agentic-circuit[test]"
-mkdir -p .pycircuit_out/quickstart/agentic
-
-PYTHONPATH=python/semantic-core/src:python/agentic-circuit/src \
-acc.py --project examples/agentic-circuit/agentic-circuit.toml \
-  -c "$PWD/examples/agentic-circuit/pipelines/routed_dependency_pipeline.py" \
-  -o .pycircuit_out/quickstart/agentic/routed_dependency.ac
-
-acc -c .pycircuit_out/quickstart/agentic/routed_dependency.ac \
-  -emit-cpp \
-  -o .pycircuit_out/quickstart/agentic/routed_dependency.cpp
+mkdir -p .pycircuit_out/hello_counter/units
+pycircuit compile -c hello_counter.py --source-root . \
+  --package-prefix hello -o .pycircuit_out/hello_counter/units/hello_counter
+pycircuit link .pycircuit_out/hello_counter/units/hello_counter \
+  --top hello.hello_counter.HelloCounter \
+  -o .pycircuit_out/hello_counter/hello_counter.ac
+pycircuit emit .pycircuit_out/hello_counter/hello_counter.ac \
+  --target cpp -o .pycircuit_out/hello_counter/cpp
+pycircuit emit .pycircuit_out/hello_counter/hello_counter.ac \
+  --target verilog -o .pycircuit_out/hello_counter/verilog
 ```
 
-Run `bash flows/scripts/run_agentic_circuit.sh` for the complete installed
-frontend, schema-resource, native compiler, and backend validation lane.
+Compilation publishes one independently reusable source unit. Linking verifies
+the complete design, and both emit commands consume that same verified artifact.
+Generated files stay in `.pycircuit_out`.
 
-## Run smoke gates
-
-```bash
-bash flows/scripts/run_examples.sh
-bash flows/scripts/run_sims.sh
-```
-
-The examples lane validates compilation and contracts. The simulation lane
-checks C++ and Verilator behavior.
-
-## Continue learning
-
-- [pyCircuit 6 tutorial](tutorial.md)
-- [Language and API reference](../reference/index.md)
-- [Agentic Circuit and ACIR](../acir/index.md)
-- [Testing and gates](../development/testing-and-gates.md)
+For the complete generated C++ and RTL run, continue with the
+[hello counter tutorial](tutorial.md).

@@ -1,0 +1,63 @@
+# Native generated-model observation coverage is scheduled in the existing nightly tier.
+# Native observation emission.
+#
+# A design that contains `log`/`report` must compile, link and emit C++;
+# the generated `pyc_dut` must configure a real descriptor table that satisfies
+# `ObservationSlots::Configure`'s ordering and uniqueness rules; the real
+# generated DUT must publish `commit_epoch == evaluation_epoch + 1` over two
+# epochs; and a failed epoch must keep the previously committed event batch
+# without advancing any gauge.
+#
+# The fixture and the native driver are written into the test directory so this
+# owner reuses the original source/driver with the oracle readable separately.
+# The test directory is reused between runs, and a published source unit is
+# never overwritten in place, so start from a clean directory.
+# RUN: rm -rf %t.dir
+# RUN: mkdir -p %t.dir
+# RUN: cp %S/Inputs/source-observation-native.py %t.dir/observation_native.py
+# RUN: cp %S/../../oracles/source_observation_native.cpp %t.dir/observation_native_driver.cpp
+
+# RUN: env PYTHONPATH=%src/python/pycircuit/src PYCIRCUIT_SOURCE_COMPILER=%pycircuit_source_unit PYCIRCUIT_LINKER=%pycircuit_link PYCIRCUIT_EMITTER=%pycircuit_emit %python -m pycircuit.cli compile -c %t.dir/observation_native.py --source-root %t.dir --package-prefix native -o %t.dir/unit
+# RUN: env PYTHONPATH=%src/python/pycircuit/src PYCIRCUIT_SOURCE_COMPILER=%pycircuit_source_unit PYCIRCUIT_LINKER=%pycircuit_link PYCIRCUIT_EMITTER=%pycircuit_emit %python -m pycircuit.cli link %t.dir/unit --top native.observation_native.Top -o %t.dir/design.ac
+# RUN: env PYTHONPATH=%src/python/pycircuit/src PYCIRCUIT_SOURCE_COMPILER=%pycircuit_source_unit PYCIRCUIT_LINKER=%pycircuit_link PYCIRCUIT_EMITTER=%pycircuit_emit %python -m pycircuit.cli emit %t.dir/design.ac --target cpp -o %t.dir/cpp
+
+# These properties hold textually as well as at run time: the emitted DUT configures the
+# generated table, and the table maps `report` to Gauge and `log` to Event.
+# CHECK: static constexpr gfsim::ObservationDescriptor pyc_observation_descriptors[5] = {
+# CHECK-NEXT: {0, 0, 0, 0, gfsim::ObservationKind::Gauge},
+# CHECK-NEXT: {1, 0, 0, 1, gfsim::ObservationKind::Gauge},
+# CHECK-NEXT: {2, 0, 0, 2, gfsim::ObservationKind::Event},
+# CHECK-NEXT: {3, 0, 0, 2, gfsim::ObservationKind::Event},
+# CHECK-NEXT: {4, 0, 0, 3, gfsim::ObservationKind::Event},
+# CHECK: observations_.Configure(pyc_observation_descriptors, 3)
+# CHECK-NOT: observations_.Configure({}, 0)
+# RUN: %FileCheck %s --check-prefix=CHECK < %t.dir/cpp/pycircuit_system.hpp
+
+# The observation staging entry point is emitted inside the module Work path.
+# RUN: %FileCheck %s --check-prefix=STAGE < %t.dir/cpp/sources/native/observation_native.hpp
+# STAGE: __pyc_stage_observation
+# STAGE: pyc_sink_->slots->Stage(
+
+# Build the generated DUT and run the native driver against it.
+# RUN: RTLIB=$(dirname %pycircuit_source_unit)/../simulator/gfsim/libpyc6_runtime.a; test -f "$RTLIB" || RTLIB=$(dirname %pycircuit_source_unit)/../lib/libpyc6_runtime.a; %cxx -std=c++20 -O1 -I%src/include -I%t.dir/cpp %t.dir/observation_native_driver.cpp %t.dir/cpp/sources/native/observation_native.cpp "$RTLIB" -o %t.dir/observation_native_driver
+# RUN: %t.dir/observation_native_driver | %FileCheck %s --check-prefix=NATIVE
+# NATIVE: ok   five descriptors configured
+# NATIVE: ok   descriptors strictly increase by key
+# NATIVE: ok   stable ordinals are globally unique
+# NATIVE: ok   report maps to Gauge
+# NATIVE: ok   log maps to Event
+# NATIVE: ok   commit_epoch == evaluation_epoch + 1 == 1
+# NATIVE: ok   gauge_a advanced to 0x34 at epoch 2
+# NATIVE: ok   event batch is the epoch 2 batch with commit_epoch 2
+# NATIVE: ok   failure phase is Check, so Work staged its observations first
+# NATIVE: ok   Events keeps the previously committed batch
+# NATIVE: ok   Gauge lastUpdate did not advance
+# NATIVE: ok   slot 0 is no longer pending, so DiscardNext cleared the batch
+# NATIVE: OBSERVATION-DRIVER-OK
+
+# The RTL target still has no observation channel, so it must keep naming the op
+# instead of silently dropping the site.
+# RUN: if env PYTHONPATH=%src/python/pycircuit/src PYCIRCUIT_SOURCE_COMPILER=%pycircuit_source_unit PYCIRCUIT_LINKER=%pycircuit_link PYCIRCUIT_EMITTER=%pycircuit_emit %python -m pycircuit.cli emit %t.dir/design.ac --target verilog -o %t.dir/sv > %t.dir/verilog.log 2>&1; then echo "unexpected verilog success"; exit 1; fi
+# RUN: %FileCheck %s --check-prefix=VERILOG-CLOSED < %t.dir/verilog.log
+# VERILOG-CLOSED: ac.observe
+# VERILOG-CLOSED: hardware instrumentation emission is not implemented

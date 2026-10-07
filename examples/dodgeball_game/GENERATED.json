@@ -1,0 +1,63 @@
+{
+  "schema": "pycircuit-generated-example-v1",
+  "example": "dodgeball_game",
+  "entry": {
+    "arguments": [],
+    "definition": "@\"example_dodgeball_game.dodgeball_game.DodgeballGame\""
+  },
+  "verification": {
+    "schema": "pycircuit-example-verification-v1",
+    "inputs": {
+      "source/CMakeLists.txt": "e141d0051ecf6cdb88d89e178f6fdb1ca3cb9d40ac420e165d0cae3dc5864eb1",
+      "source/config.json": "1d3c48736bbf264ed9af74a1cdeeb3fccc3b42533b94b804a7a55dde78e438a5",
+      "source/dodgeball_game.py": "10be48d19b8c2771523de1cae1844e6cf4840d0b8c1760fedd8c6c35445c0aa6",
+      "source/driver.cpp": "ec100116047edf3f4eee7776a48b21390cb04e33c35a0500aeeead2dceddd29c",
+      "source/rtl_tb.sv": "ea235dbb9edf52878977369904f0bdedfce890b743d6a79e1b2602d5d2f8a721",
+      "build/cpp/generated.json": "298a32703f91b189f761d8122a7d319fdda25d0907e42459abc27916bad4db73",
+      "build/cpp/CMakeLists.txt": "4c5b026f2606b93d6a46b2b3f375f9a27d5557424bd6033bae928c57e6e0287b",
+      "build/cpp/pycircuit_support.hpp": "5c731af384f9d31f6545b0670dfa5c7581b4f0d395f1be5ce953eb95b4c975bb",
+      "build/cpp/pycircuit_system.hpp": "f1be8a690f389a0aac7bcf14d88909f52d1dcaa649983cedb9be56e4de893a45",
+      "build/cpp/sources/example_dodgeball_game/dodgeball_game.cpp": "b10779148f69e4805b8d04e385a06b8f7b31d480b23b84ee3f80a9c56aa92862",
+      "build/cpp/sources/example_dodgeball_game/dodgeball_game.hpp": "630f94d5e30d5fd9b8345c6b63a04561fdfbe948518a5778fce618f775a81571",
+      "build/cpp/sources/example_dodgeball_game/dodgeball_game.source-map.json": "6c6cbf85faecdb746e3d8ef486ea4bf43fb3bb462de143e7d7150556b61164d2",
+      "build/verilog/generated.json": "e3f4cf61b96afb2982b72174c8379c6eee1d8c28fa5fba47a0688cdc5fc9079f",
+      "build/verilog/CMakeLists.txt": "20b38074d8961e7911695cea1153d6c87bfb0ab2656495026efa58dc5149cadf",
+      "build/verilog/design_top.sv": "73e91bdfdac0c53908c8ea56498eba03e27be8defda2a16aaadd9b1c0b50d0be",
+      "build/verilog/sources/example_dodgeball_game/dodgeball_game.source-map.json": "4de3cc9be5fa7e2491f52a259a7a6ba47bcabffee5d8531f6367145ba145e9ae",
+      "build/verilog/sources/example_dodgeball_game/dodgeball_game.v": "1dbd3b44303883cfea3cf6d8e9c8c5c58b5d6576bfb5619ad342421cfbe4ab1a",
+      "build/dodgeball_game.ac": "6e94425d241db0ee7c644ed54d1a3dcc8a374ec92ae0324c8e448f0ff1420558",
+      "runtime-rtl/byte_mem.v": "dfc3f0fa362196fcfaa7bd771d4f85f26acade0e1dfeb0bc00a24d4161987cd2",
+      "runtime-rtl/dff.v": "325fb9039af507df3c94a26515dfcd8bb73f3812c1264df7b72bfe1af918bbb8",
+      "runtime-rtl/dffe.v": "1fc0bdac0c411ea87c00fc93127ebfba8ca12684a8fecee012a23362e0f8b89c",
+      "runtime-rtl/fifo.v": "8b2f0796fdd7c0f4aee3f20bd52226ccb532c827c8618afd9fbef99e2713f97f",
+      "runtime-rtl/sync_mem.v": "75731fcc0df8a01891e53589e75debc4cda9ec384262937047f21b11de7d7637",
+      "runtime-rtl/sync_mem_dp.v": "16ad11aa53d5f60291136b82a47bef9e21b312cd46ee8b8dfb338bb01c6bc3cc",
+      "runner": "62b4e995af0ae6e8cb02def6bcaa24fb4fb9596bf78daceb4374c394a62e5af2"
+    },
+    "execution_sha256": "634c3cf775b54bb340915c470cbdb9288a61be977a55848c39cf69cf2ac038b1",
+    "work_samples": 8005,
+    "workers": [
+      1,
+      2
+    ],
+    "rtl": "verilator",
+    "trace_sha256": "d3dec2879f771c61836f7730ddc8b77033b6bff7bf2fa35cdc48246476d1f666"
+  },
+  "excerpts": [
+    {
+      "path": "dodgeball_game.ac",
+      "line": 6,
+      "sha256": "6e94425d241db0ee7c644ed54d1a3dcc8a374ec92ae0324c8e448f0ff1420558"
+    },
+    {
+      "path": "cpp/sources/example_dodgeball_game/dodgeball_game.hpp",
+      "line": 117,
+      "sha256": "630f94d5e30d5fd9b8345c6b63a04561fdfbe948518a5778fce618f775a81571"
+    },
+    {
+      "path": "verilog/sources/example_dodgeball_game/dodgeball_game.v",
+      "line": 1,
+      "sha256": "1dbd3b44303883cfea3cf6d8e9c8c5c58b5d6576bfb5619ad342421cfbe4ab1a"
+    }
+  ]
+}

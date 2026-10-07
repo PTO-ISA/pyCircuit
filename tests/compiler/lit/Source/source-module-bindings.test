@@ -1,0 +1,1 @@
+# RUN: %python %S/Inputs/source_module_bindings.py --repo %src --source-compiler %pycircuit_source_unit --linker %pycircuit_link --emitter %pycircuit_emit --scratch %t.dir

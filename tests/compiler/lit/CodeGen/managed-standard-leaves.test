@@ -1,0 +1,4 @@
+# Registers and FIFO: memory/all selectors remain explicit failures until T2 expands.
+# RUN: %python %S/Inputs/managed-standard-leaves.py --repo %src --scratch %t.dir --iverilog %iverilog --vvp %vvp --verilator %verilator --case registers
+
+# RUN: %python %S/Inputs/managed-standard-leaves.py --repo %src --scratch %t.fifo.dir --iverilog %iverilog --vvp %vvp --verilator %verilator --cxx %cxx --case fifo

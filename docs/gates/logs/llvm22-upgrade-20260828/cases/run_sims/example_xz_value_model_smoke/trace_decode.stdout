@@ -1,6 +1,0 @@
-cycle 0: 4 value-change events, 1 write events
-  - (tick) WRITE[reg] dut:y data=0x12
-  - (comb) dut:clk = 0x0 known=0x1 z=0x0
-  ... (3 more)
-  - (tick) RESET_ASSERT domain=global kind=warm
-  - (tick) INVALIDATE domain=global scope=global reason=warm_reset text=tb.reset

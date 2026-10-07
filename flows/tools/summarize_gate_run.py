@@ -18,11 +18,10 @@ def _repo_root() -> Path:
 
 
 KNOWN_SUMMARIES: tuple[tuple[str, str, str], ...] = (
-    # (filename, gate name, level)
-    ("summary.json", "run_examples", "G1"),
-    ("semantic_regressions_summary.json", "semantic_regressions_v6", "G1"),
-    ("run_sims_summary.json", "run_sims", "G2"),
-    ("run_sims_nightly_summary.json", "run_sims_nightly", "G3"),
+    ("api-gate-summary.json", "api-gate", "gate"),
+    ("api-nightly-summary.json", "api-nightly", "nightly"),
+    ("examples-gate-summary.json", "examples-gate", "gate"),
+    ("examples-nightly-summary.json", "examples-nightly", "nightly"),
 )
 
 
@@ -33,6 +32,10 @@ def _status_from_json(path: Path) -> tuple[str, str]:
         return "unknown", f"unreadable: {exc}"
     status = str(data.get("status") or data.get("result") or "unknown")
     note = str(data.get("note") or "")
+    if "ctest_count" in data:
+        note = f"{data['ctest_count']} CTest entries; {data.get('scope', '')}"
+        if data.get("package_tests"):
+            note += "; package installation tests"
     if "results" in data and isinstance(data["results"], dict):
         # Aggregate matrix-style summary.json used by closure runs.
         results = data["results"]
@@ -101,7 +104,6 @@ def collect_rows(
     for stem, gate, level in (
         ("api_hygiene", "check_api_hygiene", "G0/G1"),
         ("decision_status", "check_decision_status", "G1"),
-        ("semantic_regressions", "semantic_regressions_v6", "G1"),
     ):
         if gate in seen:
             continue

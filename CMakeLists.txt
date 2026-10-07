@@ -1,175 +1,136 @@
-cmake_minimum_required(VERSION 3.20)
+cmake_minimum_required(VERSION 3.25)
 project(pycircuit VERSION 6.1.0 LANGUAGES C CXX)
-
 include(CMakePackageConfigHelpers)
 include(GNUInstallDirs)
 
-# compiler/acir/lib/Bindings/Binding.cpp uses the floating-point overload of
-# std::to_chars, which libstdc++ only implements from GCC 11. Fail here, at
-# configure time, instead of letting an older GCC surface a template error
-# dozens of LLVM-linked targets into the build. Clang and AppleClang use their
-# own standard library and are not subject to the libstdc++ constraint.
-if(CMAKE_CXX_COMPILER_ID STREQUAL "GNU" AND
-   CMAKE_CXX_COMPILER_VERSION VERSION_LESS 11)
-  message(FATAL_ERROR
-    "pyCircuit requires GCC 11 or newer, but found GCC "
-    "${CMAKE_CXX_COMPILER_VERSION}. compiler/acir/lib/Bindings/Binding.cpp "
-    "calls the floating-point overload of std::to_chars, which libstdc++ "
-    "implements from GCC 11; see docs/getting-started/installation.md.")
-endif()
-
-option(PYC_BUILD_MLIR_TOOLS "Build MLIR-based pyc tools" ON)
-option(PYC_BUILD_RUNTIME_LIB "Build pyc6 runtime library" ON)
-option(PYC_BUILD_AGENTIC_CIRCUIT_TESTS "Build Agentic Circuit tests" OFF)
-option(PYC_RUNTIME_ENABLE_ZLIB_TRACE "Enable gzip trace output in runtime (optional)" OFF)
-option(PYC_RUNTIME_BUILD_SHARED "Build shared pyc6 runtime library" OFF)
-option(PYC_INSTALL_TEMPLATES "Install runtime template libraries" ON)
-option(PYC_INSTALL_PYTHON "Install Python frontend sources (for binary packages)" ON)
+option(PYC_BUILD_COMPILER_DEV "Build the native source compiler" ON)
+option(PYC_BUILD_RUNTIME_LIB "Build the pyc6 simulation runtime" ON)
+option(PYC_BUILD_TESTING "Build native compiler tests" OFF)
+option(PYC_INSTALL_PYTHON "Install the Python capture and driver" "${PYC_BUILD_COMPILER_DEV}")
 option(PYC_INSTALL_CMAKE_PACKAGE "Install pycircuit CMake package metadata" ON)
-option(PYC_PACKAGE_BUNDLE_RUNTIME_DEPS "Bundle non-system runtime deps for installed pyc tools" ON)
-
-if(PYC_BUILD_AGENTIC_CIRCUIT_TESTS)
+option(PYC_PACKAGE_BUNDLE_RUNTIME_DEPS "Bundle native compiler runtime dependencies" ON)
+set(CMAKE_CXX_STANDARD 20)
+set(CMAKE_CXX_STANDARD_REQUIRED ON)
+set(CMAKE_POSITION_INDEPENDENT_CODE ON)
+if(APPLE)
+  set(CMAKE_INSTALL_RPATH "@loader_path/../${CMAKE_INSTALL_LIBDIR}")
+else()
+  set(CMAKE_INSTALL_RPATH "$ORIGIN/../${CMAKE_INSTALL_LIBDIR}")
+endif()
+if(PYC_BUILD_TESTING)
   include(CTest)
   enable_testing()
 endif()
-
-if(APPLE)
-  set(PYC_INSTALL_RPATH "@loader_path/../${CMAKE_INSTALL_LIBDIR}")
-else()
-  set(PYC_INSTALL_RPATH "\$ORIGIN/../${CMAKE_INSTALL_LIBDIR}")
-endif()
-
-set(PYC_LLVM_VERSION "unknown")
-set(PYC_TOOLCHAIN_GIT_SHA "unknown")
-if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/.git")
-  execute_process(
-    COMMAND git rev-parse HEAD
-    WORKING_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}"
-    OUTPUT_VARIABLE PYC_TOOLCHAIN_GIT_SHA
-    OUTPUT_STRIP_TRAILING_WHITESPACE
-    ERROR_QUIET
-  )
-  if(NOT PYC_TOOLCHAIN_GIT_SHA)
-    set(PYC_TOOLCHAIN_GIT_SHA "unknown")
-  endif()
-endif()
-
-# ACIR is not optional: the pyc dialect embeds ACIR attributes and operations,
-# so pycc cannot be built or run without it. The integrated toolchain therefore
-# always needs the repo-local MLIR tools and runtime library.
-if(NOT PYC_BUILD_MLIR_TOOLS OR NOT PYC_BUILD_RUNTIME_LIB)
-  message(FATAL_ERROR
-    "The integrated Agentic Circuit subsystem is always built and requires "
-    "PYC_BUILD_MLIR_TOOLS=ON and PYC_BUILD_RUNTIME_LIB=ON so ACIR-to-PYC uses "
-    "the repo-local pyc6 toolchain")
-endif()
-
-# Discover LLVM/MLIR in the common parent scope so the PYC and ACIR sibling
-# subprojects share one imported target graph.
-find_package(LLVM 22.1.8 EXACT CONFIG REQUIRED)
-find_package(MLIR 22.1.8 EXACT CONFIG REQUIRED)
-
-if(PYC_BUILD_MLIR_TOOLS)
-  add_subdirectory(compiler/mlir)
-endif()
-
 if(PYC_BUILD_RUNTIME_LIB)
-  add_subdirectory(library/cpp)
+  add_subdirectory(simulator/gfsim)
 endif()
-
-set(ACIR_BUILD_TESTING "${PYC_BUILD_AGENTIC_CIRCUIT_TESTS}" CACHE BOOL
-  "Build Agentic Circuit tests" FORCE)
-add_subdirectory(compiler/acir)
-
-if(PYC_INSTALL_TEMPLATES)
-  install(
-    DIRECTORY library/cpp
+if(PYC_BUILD_COMPILER_DEV)
+  find_package(Python3 REQUIRED COMPONENTS Interpreter)
+  find_package(LLVM 22.1.8 EXACT CONFIG REQUIRED)
+  find_package(MLIR 22.1.8 EXACT CONFIG REQUIRED)
+  set(PYCIRCUIT_BUILD_TESTING "${PYC_BUILD_TESTING}" CACHE BOOL "Build native tests" FORCE)
+  add_subdirectory(compiler)
+  install(TARGETS ACIRDialect ACIRSourceCompiler ACIRCodegen ACIRTransforms pycircuit_project_options
+    EXPORT pycircuitCompilerTargets
+    ARCHIVE DESTINATION "${CMAKE_INSTALL_LIBDIR}"
+    LIBRARY DESTINATION "${CMAKE_INSTALL_LIBDIR}")
+  install(TARGETS pycircuit-source-unit pycircuit-link pycircuit-emit pycircuit-opt
+    RUNTIME DESTINATION "${CMAKE_INSTALL_BINDIR}")
+  install(DIRECTORY compiler/include/pycircuit
     DESTINATION "${CMAKE_INSTALL_INCLUDEDIR}"
-    PATTERN "CMakeLists.txt" EXCLUDE
-    PATTERN "*.cpp" EXCLUDE
-  )
-  install(DIRECTORY library/verilog DESTINATION "${CMAKE_INSTALL_INCLUDEDIR}")
-  if(PYC_BUILD_RUNTIME_LIB)
-    set(PYC_RUNTIME_INSTALL_TARGETS pyc6_runtime)
-    if(PYC_RUNTIME_BUILD_SHARED)
-      list(APPEND PYC_RUNTIME_INSTALL_TARGETS pyc6_runtime_shared)
-    endif()
-    install(TARGETS ${PYC_RUNTIME_INSTALL_TARGETS}
-      EXPORT pycircuitTargets
-      ARCHIVE DESTINATION "${CMAKE_INSTALL_LIBDIR}"
-      LIBRARY DESTINATION "${CMAKE_INSTALL_LIBDIR}"
-      RUNTIME DESTINATION "${CMAKE_INSTALL_BINDIR}"
-    )
-  endif()
+    FILES_MATCHING PATTERN "*.h" PATTERN "*.td")
+  install(DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/compiler/include/pycircuit"
+    DESTINATION "${CMAKE_INSTALL_INCLUDEDIR}" FILES_MATCHING PATTERN "*.inc")
+  install(DIRECTORY compiler/lib/Dialect/ACIR
+    DESTINATION "${CMAKE_INSTALL_INCLUDEDIR}/Dialect" FILES_MATCHING PATTERN "*.h")
+  # Install the active Compiler interface closure, not every historical header
+  # kept for future semantic migration. An unbuilt header is not an SDK API.
+  set(_pyc_compiler_headers
+    FinalCppNames.h
+    FinalCppSourceParts.h
+    FinalEmitCpp.h
+    FinalEmitVerilog.h
+    FinalSourceMap.h
+    FinalVerilogSourceParts.h
+    HardwareEmitCommon.h
+    PythonImportAST.h
+    PythonImportContext.h
+    PythonImportEnumSyntax.h
+    PythonImportRecords.h
+    SourceHeaderHelpers.h
+    SourceDeclarationContext.h
+    SourceMemoryBindings.h
+    SourceIdentifierUnicodeData.h
+    SourceLink.h
+    SourceNamespace.h
+    SourceRuleWrites.h
+    SourceUnit.h
+    SourceIdentifierUnicodeData.LICENSE.txt)
+  list(TRANSFORM _pyc_compiler_headers PREPEND "compiler/lib/Compiler/")
+  install(FILES ${_pyc_compiler_headers}
+    DESTINATION "${CMAKE_INSTALL_INCLUDEDIR}/Compiler")
 endif()
-
 if(PYC_INSTALL_PYTHON)
-  install(
-    DIRECTORY python/pycircuit/src/pycircuit
+  install(DIRECTORY python/pycircuit/src/pycircuit
     DESTINATION "${CMAKE_INSTALL_DATADIR}/pycircuit/python"
-    PATTERN "__pycache__" EXCLUDE
-    PATTERN "*.pyc" EXCLUDE
-  )
-  install(FILES pyproject.toml DESTINATION "${CMAKE_INSTALL_DATADIR}/pycircuit")
+    PATTERN "__pycache__" EXCLUDE PATTERN "*.pyc" EXCLUDE)
+  configure_file(cmake/pycircuit-driver.in "${CMAKE_CURRENT_BINARY_DIR}/pycircuit" @ONLY)
+  install(PROGRAMS "${CMAKE_CURRENT_BINARY_DIR}/pycircuit"
+    DESTINATION "${CMAKE_INSTALL_BINDIR}")
 endif()
-
 install(FILES LICENSE README.md DESTINATION "${CMAKE_INSTALL_DATADIR}/pycircuit")
 
-set(PYC_TOOLCHAIN_METADATA_PATH "${CMAKE_CURRENT_BINARY_DIR}/toolchain-metadata.json")
-configure_file(
-  "${CMAKE_CURRENT_SOURCE_DIR}/cmake/toolchain-metadata.json.in"
-  "${PYC_TOOLCHAIN_METADATA_PATH}"
-  @ONLY
-)
-install(FILES "${PYC_TOOLCHAIN_METADATA_PATH}" DESTINATION "${CMAKE_INSTALL_DATADIR}/pycircuit")
-
-if(PYC_INSTALL_CMAKE_PACKAGE AND PYC_BUILD_RUNTIME_LIB)
-  set(PYCIRCUIT_INSTALL_CONFIGDIR "${CMAKE_INSTALL_DATADIR}/pycircuit/cmake")
-  set(PYCIRCUIT_PYCC_EXECUTABLE_RELATIVE "${CMAKE_INSTALL_BINDIR}/pycc")
-  set(PYCIRCUIT_RUNTIME_INCLUDE_DIR_RELATIVE "${CMAKE_INSTALL_INCLUDEDIR}")
-  set(PYCIRCUIT_PRIMITIVES_DIR_RELATIVE "${CMAKE_INSTALL_INCLUDEDIR}/verilog")
-  set(PYCIRCUIT_PYTHON_DIR_RELATIVE "${CMAKE_INSTALL_DATADIR}/pycircuit/python")
-
-  configure_package_config_file(
-    "${CMAKE_CURRENT_SOURCE_DIR}/cmake/pycircuitConfig.cmake.in"
-    "${CMAKE_CURRENT_BINARY_DIR}/pycircuitConfig.cmake"
-    INSTALL_DESTINATION "${PYCIRCUIT_INSTALL_CONFIGDIR}"
-    NO_SET_AND_CHECK_MACRO
-    NO_CHECK_REQUIRED_COMPONENTS_MACRO
-  )
-  write_basic_package_version_file(
-    "${CMAKE_CURRENT_BINARY_DIR}/pycircuitConfigVersion.cmake"
-    VERSION "${PROJECT_VERSION}"
-    COMPATIBILITY SameMajorVersion
-  )
-
-  install(EXPORT pycircuitTargets
-    FILE pycircuitTargets.cmake
-    NAMESPACE pycircuit::
-    DESTINATION "${PYCIRCUIT_INSTALL_CONFIGDIR}"
-  )
-  install(
-    FILES
-      "${CMAKE_CURRENT_BINARY_DIR}/pycircuitConfig.cmake"
-      "${CMAKE_CURRENT_BINARY_DIR}/pycircuitConfigVersion.cmake"
-    DESTINATION "${PYCIRCUIT_INSTALL_CONFIGDIR}"
-  )
+set(PYC_TOOLCHAIN_GIT_SHA "" CACHE STRING "External source revision for archive builds")
+if(NOT PYC_TOOLCHAIN_GIT_SHA)
+  execute_process(COMMAND git rev-parse HEAD WORKING_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}"
+    OUTPUT_VARIABLE PYC_TOOLCHAIN_GIT_SHA OUTPUT_STRIP_TRAILING_WHITESPACE ERROR_QUIET)
 endif()
+if(NOT PYC_TOOLCHAIN_GIT_SHA)
+  set(PYC_TOOLCHAIN_GIT_SHA "unknown")
+elseif(NOT PYC_TOOLCHAIN_GIT_SHA MATCHES "^[0-9a-f]+$")
+  message(FATAL_ERROR "Source revision must be a lowercase Git commit SHA")
+else()
+  string(LENGTH "${PYC_TOOLCHAIN_GIT_SHA}" _revision_length)
+  if(NOT _revision_length EQUAL 40)
+    message(FATAL_ERROR "Source revision must be a full 40-character Git commit SHA")
+  endif()
+endif()
+set(PYC_LLVM_VERSION_JSON "null")
+if(PYC_BUILD_COMPILER_DEV)
+  set(PYC_LLVM_VERSION_JSON "\"${LLVM_PACKAGE_VERSION}\"")
+endif()
+configure_file(cmake/toolchain-metadata.json.in toolchain-metadata.json @ONLY)
+install(FILES "${CMAKE_CURRENT_BINARY_DIR}/toolchain-metadata.json"
+  DESTINATION "${CMAKE_INSTALL_DATADIR}/pycircuit")
 
-if(PYC_PACKAGE_BUNDLE_RUNTIME_DEPS AND PYC_BUILD_MLIR_TOOLS)
-  configure_file(
-    "${CMAKE_CURRENT_SOURCE_DIR}/cmake/install_runtime_deps.cmake.in"
-    "${CMAKE_CURRENT_BINARY_DIR}/install_runtime_deps.cmake"
-    @ONLY
-  )
+if(PYC_INSTALL_CMAKE_PACKAGE)
+  set(PYCIRCUIT_INSTALL_CONFIGDIR "${CMAKE_INSTALL_DATADIR}/pycircuit/cmake")
+  configure_package_config_file(cmake/pycircuitConfig.cmake.in
+    "${CMAKE_CURRENT_BINARY_DIR}/pycircuitConfig.cmake"
+    INSTALL_DESTINATION "${PYCIRCUIT_INSTALL_CONFIGDIR}")
+  write_basic_package_version_file("${CMAKE_CURRENT_BINARY_DIR}/pycircuitConfigVersion.cmake"
+    VERSION "${PROJECT_VERSION}" COMPATIBILITY SameMajorVersion)
+  if(PYC_BUILD_RUNTIME_LIB)
+    install(EXPORT pycircuitRuntimeTargets NAMESPACE pycircuit::
+      DESTINATION "${PYCIRCUIT_INSTALL_CONFIGDIR}")
+  endif()
+  if(PYC_BUILD_COMPILER_DEV)
+    install(EXPORT pycircuitCompilerTargets NAMESPACE pycircuit::
+      DESTINATION "${PYCIRCUIT_INSTALL_CONFIGDIR}")
+  endif()
+  install(FILES "${CMAKE_CURRENT_BINARY_DIR}/pycircuitConfig.cmake"
+    "${CMAKE_CURRENT_BINARY_DIR}/pycircuitConfigVersion.cmake"
+    cmake/PycircuitExamples.cmake cmake/prepare_output.py cmake/verify_example.py
+    DESTINATION "${PYCIRCUIT_INSTALL_CONFIGDIR}")
+endif()
+if(PYC_PACKAGE_BUNDLE_RUNTIME_DEPS AND PYC_BUILD_COMPILER_DEV)
+  configure_file(cmake/install_runtime_deps.cmake.in install_runtime_deps.cmake @ONLY)
   install(SCRIPT "${CMAKE_CURRENT_BINARY_DIR}/install_runtime_deps.cmake")
 endif()
-
-# Packaging (binary tarball via CPack).
-set(CPACK_PACKAGE_NAME "pycircuit" CACHE STRING "CPack package name")
-set(CPACK_PACKAGE_VENDOR "pyCircuit" CACHE STRING "CPack package vendor")
-set(CPACK_PACKAGE_DESCRIPTION_SUMMARY "pyCircuit: Python -> PYC (MLIR) -> Verilog/C++" CACHE STRING "CPack summary")
-set(CPACK_PACKAGE_VERSION "${PROJECT_VERSION}" CACHE STRING "CPack package version")
+set(CPACK_PACKAGE_NAME "pycircuit")
+set(CPACK_PACKAGE_VENDOR "pyCircuit")
+set(CPACK_PACKAGE_DESCRIPTION_SUMMARY "pyCircuit: Python to common ACIR to C++/Verilog")
+set(CPACK_PACKAGE_VERSION "${PROJECT_VERSION}")
 set(CPACK_RESOURCE_FILE_LICENSE "${CMAKE_CURRENT_SOURCE_DIR}/LICENSE")
-set(CPACK_GENERATOR "TGZ" CACHE STRING "CPack generator")
+set(CPACK_GENERATOR "TGZ")
 include(CPack)

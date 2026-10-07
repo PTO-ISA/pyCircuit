@@ -1,0 +1,64 @@
+{
+  "schema": "pycircuit-generated-example-v1",
+  "example": "enum_payload_pipeline",
+  "entry": {
+    "arguments": [],
+    "definition": "@\"example_enum_payload_pipeline.enum_payload_pipeline.EnumPayloadPipeline\""
+  },
+  "verification": {
+    "schema": "pycircuit-example-verification-v1",
+    "inputs": {
+      "source/CMakeLists.txt": "b333e5e1a5a79a252f64e9bc917913cd426c098a958b926c0a84480732c1a9e4",
+      "source/config.json": "b31a83dbb4bd3ada5c57757904a58b9b9710544f1fb78fa80eb4ee2a82d2a840",
+      "source/driver.cpp": "12b094b78c81fe30f9a99959736d2211acf65d9a32d2cfcab69f8f0d35516b38",
+      "source/enum_payload_pipeline.py": "9b84f02f13c5b7cc275ca1bb0ae197b212083567a2c0c79b7568b7eaefffd03a",
+      "source/four_state.py": "83b1ca23655398ff860dbbe0d4fc34fb6e8301707c238e928d8f1d2012c8f2e3",
+      "source/rtl_tb.sv": "545ef21a3a6cd57e59d50febb65ed99b0a1228721d20a2c09c45826fd65de212",
+      "build/cpp/generated.json": "fa7f5081f688619e84c2052679432e13dc99c553ea1ffd2ff81846aa1276dc7c",
+      "build/cpp/CMakeLists.txt": "2088a0c1a541aa449c38a226e29a94af08efdca82decfa71c6fc9fdf70bc6655",
+      "build/cpp/pycircuit_support.hpp": "e983a564830f44216ef3e0bfdc8b6e3063c0de9bd048d1e60fd787f8d954a2c5",
+      "build/cpp/pycircuit_system.hpp": "2dbaa72262634a1da5f829617e834968e03422777ff004537c7954bac838201c",
+      "build/cpp/sources/example_enum_payload_pipeline/enum_payload_pipeline.cpp": "4a5434e86f9cca7345d8d1dcc5d47823dffd4f7a767f6dd3e70b3df01145c173",
+      "build/cpp/sources/example_enum_payload_pipeline/enum_payload_pipeline.hpp": "fdcea586776197911ef3657ca1a995e0042530c1d1be8c93ce09eb2bf6d2cf7b",
+      "build/cpp/sources/example_enum_payload_pipeline/enum_payload_pipeline.source-map.json": "513e03076dd3357f6654e6e5bf345ad45efa44e9f2ac99d309c6d20ebd9d4b7d",
+      "build/verilog/generated.json": "3ae03a71a1a048feb22998ed6cc3b605e32634473466a4b77b183a32b2191bed",
+      "build/verilog/CMakeLists.txt": "5853aa0b512a8e879e6de134dbe8d20298971bb8e03cac8b6fca935f1d955014",
+      "build/verilog/design_top.sv": "ba977a94618f13d85241c0725602ae7faf9556f442e5333ad6ddc62a48463d99",
+      "build/verilog/sources/example_enum_payload_pipeline/enum_payload_pipeline.source-map.json": "d77a4c9e0f6ee86e43f3b06ee9d285739121977a23678bc65822fe43abed2a8e",
+      "build/verilog/sources/example_enum_payload_pipeline/enum_payload_pipeline.v": "f3a90bb18ce8706d09d73b9466cabba39a4080a67b45d5d7ebbc90ab6124cf16",
+      "build/enum_payload_pipeline.ac": "457d8d345e22527e327df5b4b7f15d9337af9bfde4a4d079f2d1202287f16adc",
+      "runtime-rtl/byte_mem.v": "33bd9f73dd7cd17f3531cfd8c321762c214ad5df23b5376add212dadd38c47c2",
+      "runtime-rtl/dff.v": "e4f604bd03b9f1651ddbcd71e9ebb1cd8af45018caeab341728b35c14ec0f553",
+      "runtime-rtl/dffe.v": "9ae323530b72d152d10628de94923eaefa411b29e13c647de21bed8b0d73833b",
+      "runtime-rtl/fifo.v": "2dc4086ad3085bd67504caaac0565a3e676f87ce5411cc019fe8ef3a3bc43b23",
+      "runtime-rtl/sync_mem.v": "207b0fe22f029828ac90b50d2ce0aabbb01763231cd153883f31b581d03d68b7",
+      "runtime-rtl/sync_mem_dp.v": "44672a092661f3c218f71534d0d656a2d7d0bfdb03bc6b7a3394e2f13eea86d4",
+      "runner": "d981430b767516aac276e42cf647eb97b5c136ce0d064568283221a6b5d7b200"
+    },
+    "execution_sha256": "4bd61b0e81fd3eeacdd27c92bfa8d499fb3a10c43af5e99811ef27c154c5f890",
+    "work_samples": 603,
+    "workers": [
+      1,
+      2
+    ],
+    "rtl": "verilator",
+    "trace_sha256": "1c0c865e026e566154da83e5329984dc41f4e96c9db914f6fa5c9afacc2b6058"
+  },
+  "excerpts": [
+    {
+      "path": "enum_payload_pipeline.ac",
+      "line": 8,
+      "sha256": "457d8d345e22527e327df5b4b7f15d9337af9bfde4a4d079f2d1202287f16adc"
+    },
+    {
+      "path": "cpp/sources/example_enum_payload_pipeline/enum_payload_pipeline.hpp",
+      "line": 38,
+      "sha256": "fdcea586776197911ef3657ca1a995e0042530c1d1be8c93ce09eb2bf6d2cf7b"
+    },
+    {
+      "path": "verilog/sources/example_enum_payload_pipeline/enum_payload_pipeline.v",
+      "line": 1,
+      "sha256": "f3a90bb18ce8706d09d73b9466cabba39a4080a67b45d5d7ebbc90ab6124cf16"
+    }
+  ]
+}

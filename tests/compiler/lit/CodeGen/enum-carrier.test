@@ -1,0 +1,3 @@
+# REQUIRES: verilator, iverilog, vvp
+# Common-IR execution only: this does not admit Python enum/source-unit syntax.
+# RUN: %python %S/Inputs/enum_carrier.py --repo %src --opt %pycircuit_opt --emitter %pycircuit_emit --cxx %cxx --verilator %verilator --iverilog %iverilog --vvp %vvp --scratch %t.dir

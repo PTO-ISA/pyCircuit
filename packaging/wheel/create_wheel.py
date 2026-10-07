@@ -2,7 +2,6 @@
 from __future__ import annotations
 
 import argparse
-import importlib.machinery
 import os
 import shutil
 import subprocess
@@ -25,25 +24,35 @@ except ModuleNotFoundError:  # pragma: no cover - Python 3.11+ in CI; 3.10 needs
         ) from exc
 
 
-# Helper scripts staged into the wheel's `_tools` directory, as paths relative
-# to the repository root. `tests/unit/test_repository_layout.py` asserts that
-# every entry still exists, so a relocation cannot leave the wheel build
-# referencing a moved file.
-WHEEL_TOOL_SOURCES = (
-    Path("flows") / "tools" / "gen_cmake_from_manifest.py",
-    Path("tools") / "pycircuit" / "pyc_module_graph.py",
+WHEEL_TOOL_SOURCES = ()
+
+PRIVATE_HELPERS = (
+    "pycircuit-source-unit",
+    "pycircuit-link",
+    "pycircuit-emit",
+    "pycircuit-opt",
 )
-
-# The frontend packages the toolchain install tree carries in its own Python
-# environment. They are staged at the wheel root, so one wheel installs
-# `pycircuit`, `_pycircuit_semantics`, and `agentic_circuit` together and no
-# consumer needs a second distribution. The toolchain's own copy is dropped from
-# the wheel: it would be a second copy of the same files inside one artifact.
-VENDORED_PACKAGES = ("_pycircuit_semantics", "agentic_circuit")
-
-# The Agentic Circuit native compiler bridge. A wheel without it would install
-# a frontend that cannot compile, so the build refuses to produce one.
-NATIVE_EXTENSION = "_native"
+RUNTIME_HEADERS = (
+    "gfsim/model_api.h",
+    "gfsim/model_input.h",
+    "gfsim/dff.h",
+    "gfsim/fifo.h",
+    "gfsim/SimModule.h",
+    "gfsim/SimSystem.h",
+    "gfsim/ObservationSlot.h",
+    "gfsim/SimExecutor.h",
+    "gfsim/SystemRunner.h",
+)
+RUNTIME_CMAKE_FILES = (
+    "pycircuitConfig.cmake",
+    "pycircuitConfigVersion.cmake",
+    "pycircuitRuntimeTargets.cmake",
+)
+RETIRED_PYTHON_TREES = ("_pycircuit_semantics", "agentic_circuit")
+BUILD_HELPER_SCRIPTS = frozenset({
+    "share/pycircuit/cmake/prepare_output.py",
+    "share/pycircuit/cmake/verify_example.py",
+})
 
 # The wheel is relocated for the platform it is built on, so its bundled
 # libraries are found relative to the installed tree instead of at the builder's
@@ -78,58 +87,92 @@ def _copy_file(src: Path, dst: Path) -> None:
     shutil.copy2(src, dst)
 
 
-def _toolchain_site_packages(install_dir: Path) -> Path:
-    """Return the single bundled `lib/python<X>/site-packages` environment."""
-    matches = sorted(
-        (
-            path
-            for path in (install_dir / "lib").glob("python*/site-packages")
-            if path.is_dir()
-        ),
-        key=lambda path: path.as_posix(),
+def _runtime_library(install_dir: Path) -> Path:
+    filename = "pyc6_runtime.lib" if os.name == "nt" else "libpyc6_runtime.a"
+    return install_dir / "lib" / filename
+
+
+def _helper_suffix() -> str:
+    return ".exe" if os.name == "nt" else ""
+
+
+def _validate_toolchain_files(install_dir: Path) -> None:
+    """Reject incomplete compiler/runtime prefixes before producing a wheel."""
+    for retired in ("pycc", "pyc-opt", "acc", "acc.py", "agentic-circuit", "acir-opt"):
+        for suffix in ("", ".exe"):
+            if (install_dir / "bin" / (retired + suffix)).exists():
+                raise SystemExit(f"toolchain contains a retired public tool: {retired}")
+    for retired in ("lib/cmake/AgenticCircuit", "include/cpp", "include/gfsim/queue.h"):
+        if (install_dir / retired).exists():
+            raise SystemExit(f"toolchain contains a retired runtime asset: {retired}")
+    for helper in PRIVATE_HELPERS:
+        path = install_dir / "bin" / f"{helper}{_helper_suffix()}"
+        if not path.is_file() or not os.access(path, os.X_OK):
+            raise SystemExit(f"toolchain is missing executable helper: {path}")
+    runtime = _runtime_library(install_dir)
+    if not runtime.is_file():
+        raise SystemExit(f"toolchain is missing the unified runtime: {runtime}")
+    for header in RUNTIME_HEADERS:
+        path = install_dir / "include" / header
+        if not path.is_file():
+            raise SystemExit(f"toolchain is missing runtime header: {path}")
+    cmake_dir = install_dir / "share" / "pycircuit" / "cmake"
+    for config in RUNTIME_CMAKE_FILES:
+        path = cmake_dir / config
+        if not path.is_file():
+            raise SystemExit(
+                f"toolchain is missing unified Runtime package file: {path}"
+            )
+    if not any(cmake_dir.glob("pycircuitRuntimeTargets-*.cmake")):
+        raise SystemExit("toolchain is missing unified Runtime configuration targets")
+
+
+def _stage_installed_python(install_dir: Path, package_dir: Path) -> None:
+    """Use the installed public package as the wheel's one Python copy."""
+    source = install_dir / "share" / "pycircuit" / "python" / "pycircuit"
+    if not source.is_dir() or not (source / "cli.py").is_file():
+        raise SystemExit(f"toolchain is missing installed pycircuit Python: {source}")
+    _copytree(source, package_dir)
+
+
+def _drop_bundled_python_copy(package_dir: Path) -> None:
+    """Avoid shipping the install prefix's Python source a second time."""
+    duplicate = package_dir / "_toolchain" / "share" / "pycircuit" / "python"
+    if not duplicate.is_dir():
+        raise SystemExit(
+            f"bundled toolchain is missing its Python install tree: {duplicate}"
+        )
+    shutil.rmtree(duplicate)
+    # The prefix-local CMake launcher must locate the wheel's sole package,
+    # even when CMake is launched outside the wheel's Python environment.
+    launcher = package_dir / "_toolchain" / "bin" / "pycircuit"
+    launcher.write_text(
+        "#!/usr/bin/env python3\n"
+        "from pathlib import Path\nimport sys\n"
+        "sys.path.insert(0, str(Path(__file__).resolve().parents[3]))\n"
+        "from pycircuit.cli import main\n"
+        "raise SystemExit(main())\n",
+        encoding="utf-8",
     )
-    if len(matches) != 1:
-        raise SystemExit(
-            f"expected exactly one bundled python environment under {install_dir}/lib, "
-            f"found {[path.name for path in matches]}"
-        )
-    return matches[0]
 
-
-def _stage_vendored_packages(install_dir: Path, stage: Path) -> None:
-    """Stage the frontend packages so one wheel imports without a second one."""
-    site_packages = _toolchain_site_packages(install_dir)
-    for package in VENDORED_PACKAGES:
-        source = site_packages / package
-        if not source.is_dir():
-            raise SystemExit(f"bundled toolchain is missing {package}: {source}")
-        _copytree(source, stage / package)
-    native = [
-        path
-        for path in (stage / "agentic_circuit").glob(f"{NATIVE_EXTENSION}.*")
-        if path.suffix in importlib.machinery.EXTENSION_SUFFIXES
+    bundle = package_dir / "_toolchain"
+    # These installed build utilities are separate from the sole public
+    # pycircuit package. All other Python payloads remain forbidden here.
+    extra_python = [
+        path for path in bundle.rglob("*.py")
+        if path.relative_to(bundle).as_posix() not in BUILD_HELPER_SCRIPTS
     ]
-    if len(native) != 1:
+    if extra_python:
         raise SystemExit(
-            "bundled agentic_circuit must carry exactly one native extension; "
-            f"found {[path.name for path in native]}"
+            "bundled toolchain contains unexpected or duplicate Python sources: "
+            f"{[str(path.relative_to(bundle)) for path in extra_python[:8]]}"
         )
-
-
-def _drop_toolchain_frontend_copies(package_dir: Path) -> None:
-    """Keep one copy of each frontend package inside the wheel.
-
-    The staged tree already carries them at the wheel root, so the copies under
-    the bundled toolchain environment would only duplicate files (including the
-    native bridge) inside a single artifact.
-    """
-    for site_packages in (package_dir / "_toolchain" / "lib").glob(
-        "python*/site-packages"
-    ):
-        for package in VENDORED_PACKAGES:
-            duplicate = site_packages / package
-            if duplicate.is_dir():
-                shutil.rmtree(duplicate)
+    for retired in RETIRED_PYTHON_TREES:
+        matches = [path for path in bundle.rglob(retired) if path.is_dir()]
+        if matches:
+            raise SystemExit(
+                f"bundled toolchain contains retired Python tree {retired}: {matches}"
+            )
 
 
 def _relocate(stage: Path, platform: str) -> None:
@@ -194,6 +237,12 @@ def main(argv: list[str] | None = None) -> int:
     out_dir = Path(args.out_dir).resolve()
     if not install_dir.is_dir():
         raise SystemExit(f"--install-dir does not exist: {install_dir}")
+    _validate_toolchain_files(install_dir)
+    python_source = install_dir / "share" / "pycircuit" / "python" / "pycircuit"
+    if not python_source.is_dir():
+        raise SystemExit(
+            f"toolchain is missing installed pycircuit Python: {python_source}"
+        )
 
     version = args.wheel_version or _project_version(repo_root)
     build_root = (
@@ -207,13 +256,10 @@ def main(argv: list[str] | None = None) -> int:
     with tempfile.TemporaryDirectory(prefix="stage.", dir=build_root) as tmp:
         stage = Path(tmp)
         package_dir = stage / "pycircuit"
-        _copytree(repo_root / "python" / "pycircuit" / "src" / "pycircuit", package_dir)
+        _stage_installed_python(install_dir, package_dir)
         _copytree(install_dir, package_dir / "_toolchain")
-        _stage_vendored_packages(install_dir, stage)
-        _drop_toolchain_frontend_copies(package_dir)
-        bundled_python = package_dir / "_toolchain" / "share" / "pycircuit" / "python"
-        if bundled_python.is_dir():
-            shutil.rmtree(bundled_python)
+        _drop_bundled_python_copy(package_dir)
+        _validate_toolchain_files(package_dir / "_toolchain")
         tools_dir = package_dir / "_tools"
         for tool_source in WHEEL_TOOL_SOURCES:
             _copy_file(repo_root / tool_source, tools_dir / tool_source.name)
