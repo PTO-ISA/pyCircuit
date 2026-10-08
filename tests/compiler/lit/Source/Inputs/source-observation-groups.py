@@ -49,6 +49,11 @@ ARITHMETIC_ROWS = (
     (1, 1, 115, 224, False, 93, 119),
     (16, 16, 100, 254, False, 93, 119),
 )
+ONLY_OBSERVATION_ROWS = (
+    (17, 7, False, 34),
+    (20, 8, True, 37),
+    (23, 9, False, 40),
+)
 
 
 def expected_epoch(epoch):
@@ -143,6 +148,47 @@ def arithmetic_observations(stdout, instance):
     return records, events
 
 
+def only_observations(stdout, epochs, symbol):
+    records = [json.loads(line) for line in stdout.splitlines() if line.startswith("{")]
+    events = [record for record in records if record["kind"] != "result"]
+    assert len(events) == epochs * 3, events
+    identities = None
+    for epoch in range(epochs):
+        row = ONLY_OBSERVATION_ROWS[epoch // 2]
+        expected = [
+            (
+                "root",
+                "log",
+                log_spec("only_log", "old", 0, 0, False, 0),
+                [value(item) for item in row],
+            ),
+            ("root", "log", log_spec("only_literal", "unchanged"), []),
+            ("root", "report", {"name": "observation_sample"}, [value(row[0])]),
+        ]
+        actual = events[epoch * 3 : (epoch + 1) * 3]
+        assert [
+            (item["instance"], item["kind"], item["spec"], item["values"])
+            for item in actual
+        ] == expected, (epoch, actual)
+        current = [(item["registration"], item["site"]) for item in actual]
+        assert len({site for _, site in current}) == 3, current
+        assert current[0][0] == current[1][0] != current[2][0], current
+        if identities is None:
+            identities = current
+        assert current == identities, (epoch, current, identities)
+        for item in actual:
+            assert int(item["evaluation_epoch"]) == epoch
+            assert int(item["commit_epoch"]) == epoch + 1
+            for field in ("registration", "site"):
+                identity = json.loads(item[field])
+                assert identity["site"]["definition"].startswith(
+                    "observation_groups.source_observation_groups." + symbol
+                ), identity
+                assert identity["site"]["ast_path"], identity
+                assert "expansion" in identity, identity
+    return records, events
+
+
 def main():
     parser = argparse.ArgumentParser()
     for name in (
@@ -233,12 +279,16 @@ def main():
     )
     cases = []
     successful_prefix = None
+    only_successful_prefix = None
     for symbol, failing, check_count, cycles, arithmetic in (
         ("ObservationGroups", False, 2, 3, False),
         ("ObservationGroupsFailure", True, 3, 3, False),
         ("ArithmeticObservationGroups", False, 1, 7, True),
         ("CapturedArithmeticObservationGroups", False, 1, 7, True),
+        ("OnlyObservationGroups", False, 0, 3, False),
+        ("OnlyObservationGroupsFailure", True, 1, 3, False),
     ):
+        observation_only = symbol.startswith("OnlyObservationGroups")
         output = work / symbol
         output.mkdir()
         entry = "observation_groups.source_observation_groups." + symbol
@@ -314,7 +364,9 @@ def main():
                     failure=failing,
                 )
                 records, events = (
-                    arithmetic_observations(
+                    only_observations(result.stdout, 4 if failing else cycles * 2, symbol)
+                    if observation_only
+                    else arithmetic_observations(
                         result.stdout,
                         "root" if symbol.startswith("Captured") else "root/dut",
                     )
@@ -334,15 +386,26 @@ def main():
                         assert terminal[0]["error"]["phase"] == "check"
                         assert terminal[0]["error"]["code"] == "source_check_failed"
                         assert terminal[0]["error"]["message"] == "grouped failure"
+                        if observation_only:
+                            gauge = [
+                                item
+                                for item in terminal[0]["statistics"]
+                                if item["name"] == "observation_sample"
+                            ]
+                            assert len(gauge) == 1 and int(gauge[0]["value"]) == 20
                     else:
+                        gauge_name = (
+                            "observation_sample"
+                            if observation_only
+                            else "arithmetic_progress" if arithmetic else "ticks"
+                        )
                         gauge = [
                             item
                             for item in terminal[0]["statistics"]
-                            if item["name"]
-                            == ("arithmetic_progress" if arithmetic else "ticks")
+                            if item["name"] == gauge_name
                         ]
                         assert len(gauge) == 1 and int(gauge[0]["value"]) == (
-                            16 if arithmetic else 2
+                            23 if observation_only else 16 if arithmetic else 2
                         )
                 else:
                     assert "check failed at epoch 4" in result.stdout + result.stderr
@@ -363,7 +426,12 @@ def main():
             for record in transcripts[0][:28]
         ]
         if failing:
-            assert semantic_prefix == successful_prefix
+            if observation_only:
+                assert semantic_prefix == only_successful_prefix
+            else:
+                assert semantic_prefix == successful_prefix
+        elif observation_only:
+            only_successful_prefix = semantic_prefix[:12]
         elif not arithmetic:
             successful_prefix = semantic_prefix
         cases.append(
@@ -375,6 +443,7 @@ def main():
                 "native_workers": [1, 2],
                 "rtl": "pass",
                 "complete_observations_equal": True,
+                "observation_only_rules": observation_only,
             }
         )
     protected_paths = [
@@ -438,6 +507,80 @@ def main():
             )
         finally:
             source_path.write_text(original_source)
+    log_statement = (
+        '        log("info", "only_log", "old", sample, phase + 7, '
+        'sample == 20, 17 + sample)'
+    )
+    report_statement = '        report("observation_sample", sample)'
+    for label, original, replacement, diagnostic in (
+        (
+            "nested-malformed-report",
+            report_statement,
+            '        report("", sample)',
+            "report name must be a nonempty static string",
+        ),
+        (
+            "nested-captured-report",
+            report_statement,
+            '        saved = report("observation_sample", sample)\n'
+            + report_statement,
+            "structural rule-local assignments are unsupported",
+        ),
+        (
+            "nested-empty-rule",
+            log_statement + '\n        log("info", "only_literal", "unchanged")',
+            "        pass",
+            "registered structural rule has no hardware behavior",
+        ),
+        (
+            "nested-conditional-log",
+            log_statement,
+            "        if phase == 0:\n    " + log_statement,
+            "unsupported expression statement in pure rule",
+        ),
+        (
+            "nested-unknown-call",
+            log_statement,
+            "        missing_observation(sample)",
+            "unsupported expression statement in pure rule",
+        ),
+    ):
+        assert original_source.count(original) == 2, (label, original)
+        source_path.write_text(original_source.replace(original, replacement, 1))
+        try:
+            result = run(
+                "reject-" + label,
+                [
+                    sys.executable,
+                    "-m",
+                    "pycircuit.cli",
+                    "compile",
+                    "-c",
+                    source_path,
+                    "--source-root",
+                    source,
+                    "--package-prefix",
+                    "observation_groups",
+                    "-o",
+                    unit,
+                    "--replace",
+                ],
+                failure=True,
+            )
+            assert diagnostic in result.stderr, (label, result.stderr)
+            assert "Traceback" not in result.stderr, (label, result.stderr)
+            if label != "nested-empty-rule":
+                assert "has no hardware behavior" not in result.stderr, result.stderr
+            assert published == {str(path): digest(path) for path in protected_paths}
+            rejected.append(
+                {
+                    "case": label,
+                    "diagnostic": result.stderr,
+                    "publication_preserved": True,
+                }
+            )
+        finally:
+            source_path.write_text(original_source)
     assert input_hashes == {str(path): digest(path) for path in inputs}
     (work / "evidence.json").write_text(
         json.dumps(
@@ -460,7 +603,7 @@ def main():
         + "\n"
     )
     print(
-        "PASS: typed distinct grouped values, separate child occurrences, full failed-Work prefix, arithmetic boundaries and protected refusals; native workers1/2 and RTL"
+        "PASS: typed distinct grouped values, separate child occurrences, full failed-Work prefix, arithmetic boundaries, observation-only nested rules and protected refusals; native workers1/2 and RTL"
     )  # noqa: T201 - standalone gate receipt
 
 

@@ -218,3 +218,48 @@ def CapturedArithmeticObservationGroups():
     inspect()
     next_sample(x, phase)
     advance(phase)
+
+
+@rule
+def advance_observation_sample(phase, sample):
+    phase = phase + 1
+    sample = sample + 3
+
+
+@system
+def OnlyObservationGroups():
+    phase: u8 = 0
+    sample: u8 = 17
+
+    @rule
+    def inspect_log():
+        log("info", "only_log", "old", sample, phase + 7, sample == 20, 17 + sample)
+        log("info", "only_literal", "unchanged")
+
+    @rule
+    def inspect_report():
+        report("observation_sample", sample)
+
+    advance_observation_sample(phase, sample)
+    inspect_log()
+    inspect_report()
+
+
+@system
+def OnlyObservationGroupsFailure():
+    phase: u8 = 0
+    sample: u8 = 17
+
+    @rule
+    def inspect_log():
+        log("info", "only_log", "old", sample, phase + 7, sample == 20, 17 + sample)
+        log("info", "only_literal", "unchanged")
+
+    @rule
+    def inspect_report():
+        report("observation_sample", sample)
+
+    advance_observation_sample(phase, sample)
+    inspect_log()
+    inspect_report()
+    check_window(phase)

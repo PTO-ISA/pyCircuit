@@ -951,10 +951,16 @@ LogicalResult Importer::emitBehavioral(ModuleDecl &decl) {
     evaluation.structural = true;
     evaluation.instances = &structuralInstances;
     size_t checkCount = countSourceAssertions(rule, "body");
+    size_t observationCount = 0;
     for (size_t i = 0; i < rule.array("body").size(); ++i) {
       auto stmt = rule.item("body", i);
       auto call = stmt.kind() == "Expr" ? stmt.child("value") : AstNode();
       auto function = call.kind() == "Call" ? call.child("func") : AstNode();
+      if (call.kind() == "Call" &&
+          (intrinsic(function, "log") || intrinsic(function, "report"))) {
+        ++observationCount;
+        continue;
+      }
       if (function.kind() != "Name")
         continue;
       auto found = structuralInstances.find(function.string("id"));
@@ -966,7 +972,7 @@ LogicalResult Importer::emitBehavioral(ModuleDecl &decl) {
                           "binding";
       evaluation.structuralTargets.push_back(found->second);
     }
-    if (evaluation.structuralTargets.empty() && !checkCount)
+    if (evaluation.structuralTargets.empty() && !checkCount && !observationCount)
       return error() << "registered structural rule has no hardware behavior";
     SmallVector<Value> captures;
     for (const auto &item : values)
