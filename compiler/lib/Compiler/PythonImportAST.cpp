@@ -3,6 +3,7 @@
 #include "mlir/IR/Builders.h"
 #include "mlir/IR/Location.h"
 #include "llvm/ADT/STLExtras.h"
+#include "llvm/ADT/StringSet.h"
 
 using namespace mlir;
 
@@ -207,7 +208,8 @@ LogicalResult verifyCapturedNode(Attribute raw,
                 "Attribute", "Subscript", "Starred", "Name", "List", "Tuple"},
             bodyKind))
       return emitError() << "captured Lambda body must be an expression";
-    if (failed(validateTableQueryLambda(AstNode{node, {}}, emitError)))
+    if (failed(validateTableQueryLambda(AstNode{node, {}}, emitError,
+                                        std::nullopt)))
       return failure();
   } else if (form == "arguments") {
     if (failed(verifyRequiredArray(fields, "posonlyargs", form, emitError)) ||
@@ -450,28 +452,39 @@ bool sourceBindingShadowed(const CapturedSource &source, const AstNode &node,
 }
 
 LogicalResult validateTableQueryLambda(const AstNode &node,
-                                       ac::detail::EmitError emitError) {
+                                       ac::detail::EmitError emitError,
+                                       std::optional<size_t> arity) {
   if (node.kind() != "Lambda")
     return emitError() << "Table query callback requires an expression Lambda";
   auto args = node.child("args");
   if (args.kind() != "arguments" || !node.child("body"))
     return emitError() << "captured Lambda shape is malformed";
-  auto positional = args.array("args"), positionalOnly = args.array("posonlyargs");
+  auto positional = args.array("args"),
+       positionalOnly = args.array("posonlyargs");
   auto keywords = args.array("kwonlyargs"), defaults = args.array("defaults");
   auto keywordDefaults = args.array("kw_defaults");
   if (!positional || !positionalOnly || !keywords || !defaults ||
       !keywordDefaults || !args.get("vararg") || !args.get("kwarg") ||
-      positional.size() + positionalOnly.size() != 1 || !keywords.empty() ||
-      !defaults.empty() || !keywordDefaults.empty() || args.child("vararg") ||
-      args.child("kwarg") || !isa<UnitAttr>(args.get("vararg")) ||
-      !isa<UnitAttr>(args.get("kwarg")))
-    return emitError() << "Table query Lambda requires exactly one positional "
-                         "argument without defaults or variadic/keyword arguments";
-  auto argument = positional.empty() ? args.item("posonlyargs", 0)
-                                    : args.item("args", 0);
-  if (argument.kind() != "arg" || argument.string("arg").empty() ||
-      !isa_and_nonnull<UnitAttr>(argument.get("annotation")))
-    return emitError() << "Table query Lambda argument must be unannotated";
+      (arity && positional.size() + positionalOnly.size() != *arity) ||
+      !keywords.empty() || !defaults.empty() || !keywordDefaults.empty() ||
+      args.child("vararg") || args.child("kwarg") ||
+      !isa<UnitAttr>(args.get("vararg")) || !isa<UnitAttr>(args.get("kwarg")))
+    return emitError()
+           << (arity && *arity == 1
+                   ? "Table query Lambda requires exactly one positional "
+                     "argument without defaults or variadic/keyword arguments"
+                   : "Table map Lambda requires one positional argument per "
+                     "input without defaults or variadic/keyword arguments");
+  llvm::StringSet<> names;
+  for (StringRef field : {"posonlyargs", "args"})
+    for (size_t i = 0; i < args.array(field).size(); ++i) {
+      auto argument = args.item(field, i);
+      if (argument.kind() != "arg" || argument.string("arg").empty() ||
+          !isa_and_nonnull<UnitAttr>(argument.get("annotation")))
+        return emitError() << "Table query Lambda argument must be unannotated";
+      if (!names.insert(argument.string("arg")).second)
+        return emitError() << "Table query Lambda arguments must be distinct";
+    }
   return success();
 }
 

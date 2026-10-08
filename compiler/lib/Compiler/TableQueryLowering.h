@@ -66,6 +66,11 @@ public:
   mlir::FailureOr<llvm::SmallVector<mlir::Value>>
   stage(mlir::Block &scalar, mlir::Value row, mlir::Value receiver,
         mlir::ValueRange outputs);
+  mlir::FailureOr<llvm::SmallVector<mlir::Value>>
+  stage(mlir::Block &scalar, mlir::ValueRange rows, mlir::ValueRange receivers,
+        mlir::ValueRange outputs, bool mapAggregates = false);
+  mlir::FailureOr<mlir::Value> fold(mlir::Value table, llvm::StringRef kind);
+  mlir::FailureOr<mlir::Value> count(mlir::Value table, mlir::Type result);
   mlir::FailureOr<llvm::SmallVector<mlir::Value>> choose(mlir::Value predicates,
                                                          mlir::Value keys = {});
 

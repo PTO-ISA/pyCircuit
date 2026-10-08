@@ -159,11 +159,12 @@ bool TableQueryLowering::describe(Operation *operation, uint64_t rows,
     fits &= succeeded(weight) && TableQueryBudget::addProduct(
                                      charge, TableQueryResource::PayloadWords,
                                      succeeded(weight) ? *weight : 0, 3);
-    if (!isa<ac::TableType>(type))
-      fits &= succeeded(weight) &&
-              TableQueryBudget::addProduct(
-                  charge, TableQueryResource::PayloadWords,
-                  succeeded(weight) ? *weight : 0, 3 * (rows - 1));
+    // A Table projected from a scalar Struct lane is a lane-local temporary,
+    // so its nested extent is replicated just like every other payload.
+    fits &= succeeded(weight) &&
+            TableQueryBudget::addProduct(
+                charge, TableQueryResource::PayloadWords,
+                succeeded(weight) ? *weight : 0, 3 * (rows - 1));
     if (isa<ac::BitsConstantOp>(operation))
       fits &= succeeded(weight) &&
               TableQueryBudget::addProduct(charge,
@@ -250,6 +251,55 @@ Value TableQueryLowering::widen(OpBuilder &builder, Value value, Type type) {
       op(builder, ac::BitsResizeOp::getOperationName(), {value}, {type},
          {builder.getNamedAttr("mode", builder.getStringAttr("zext"))});
   return operation ? operation->getResult(0) : Value();
+}
+FailureOr<Value> TableQueryLowering::fold(Value table, StringRef kind) {
+  auto type = cast<ac::TableType>(table.getType());
+  auto size = analysis.getTableSize(type, {}, package);
+  if (failed(size) || !*size)
+    return failure();
+  OperationState state(loc, ac::TableFoldOp::getOperationName());
+  state.addOperands(table);
+  state.addTypes(type.getElementType());
+  state.addAttribute("kind", at.getStringAttr(kind));
+  auto operation = Operation::create(state);
+  TableQueryCharge reservation;
+  auto treeWords = words(type);
+  // C++ materializes a full N-element V/K/Z tree; RTL has N-1 combine
+  // intermediates. The separately described scalar result is not this tree.
+  bool fits =
+      succeeded(treeWords) &&
+      TableQueryBudget::addProduct(reservation,
+                                   TableQueryResource::PayloadWords,
+                                   succeeded(treeWords) ? *treeWords : 0, 3) &&
+      TableQueryBudget::add(reservation, TableQueryResource::Work, *size - 1) &&
+      describe(operation, 1, reservation);
+  std::string reason;
+  if (!fits || !budget.reserve(reservation, reason)) {
+    operation->destroy();
+    return emitError(loc)
+           << (fits ? reason
+                    : "Table query fold tree/storage budget exhausted");
+  }
+  at.insert(operation);
+  return operation->getResult(0);
+}
+FailureOr<Value> TableQueryLowering::count(Value table, Type result) {
+  auto type = cast<ac::TableType>(table.getType());
+  auto sizes = analysis.getTableShape(type, {}, package);
+  if (failed(sizes))
+    return failure();
+  auto widened =
+      map({table}, {}, *sizes, TypeRange{result},
+          [&](OpBuilder &inside,
+              ValueRange arguments) -> FailureOr<SmallVector<Value>> {
+            auto value = widen(inside, arguments[1], result);
+            if (!value)
+              return failure();
+            return SmallVector<Value>{value};
+          });
+  if (failed(widened))
+    return failure();
+  return fold(widened->front(), "add");
 }
 FailureOr<Value> TableQueryLowering::splat(Value input,
                                            ArrayRef<uint64_t> sizes) {

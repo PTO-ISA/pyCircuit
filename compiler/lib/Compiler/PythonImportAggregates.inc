@@ -6,7 +6,7 @@ std::optional<Import> Importer::lookupBinding(const AstNode &node) const {
   if (node.kind() == "Name") {
     StringRef name = node.string("id");
     auto found = names.find(name);
-    if (found != names.end() && name == queryArgument)
+    if (found != names.end() && queryBound(name))
       return std::nullopt;
     if (found != names.end() && lexicallyShadowed(node, name)) {
       error() << "source binding is shadowed in its lexical scope: '" << name
@@ -50,7 +50,7 @@ Importer::resolveEnumMember(const AstNode &node) const {
   auto base = node.child("value");
   if (base.kind() == "Name") {
     auto global = names.find(base.string("id"));
-    if (global != names.end() && base.string("id") != queryArgument &&
+    if (global != names.end() && !queryBound(base.string("id")) &&
         global->second.category == BindingCategory::Enum &&
         lexicallyShadowed(base, base.string("id")))
       return error()

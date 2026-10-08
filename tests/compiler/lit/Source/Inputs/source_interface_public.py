@@ -152,6 +152,14 @@ if args.query_checks:
     archive.mkdir(exist_ok=True)
     if args.query_checks == "syntax":
         positives, negatives = syntax_cases()
+        # Capture transports ordinary lambda parameter lists independently of a
+        # typed receiver. first/argmin/map enforce their arity during compile.
+        for name in ("zero-args", "two-args"):
+            positives[name] = negatives.pop(name)
+        positives["multi-input-map"] = positives["ordinary"].replace(
+            "entries.first(where=lambda row: Write(state))",
+            "entries.map(lambda lane, other: lane, entries)",
+        )
         for accepted, cases in ((True, positives), (False, negatives)):
             for name, text in cases.items():
                 filename = "query_" + name.replace("-", "_") + ".py"
@@ -202,6 +210,41 @@ if args.query_checks:
         cases = (
             admission_cases() if args.query_checks == "admission" else resource_cases()
         )
+        if args.query_checks == "admission":
+            original = "entries.first(where=lambda row: row.valid)"
+            for label, predicate, key in (
+                ("zero", "lambda: True", "lambda: 0"),
+                ("two", "lambda row, other: row.valid", "lambda row, other: row.key"),
+                ("default", "lambda row=0: row.valid", "lambda row=0: row.key"),
+                ("varargs", "lambda *row: True", "lambda *row: 0"),
+            ):
+                cases["typed-first-" + label] = CONTROL.replace(
+                    original, f"entries.first(where={predicate})"
+                )
+                cases["typed-argmin-where-" + label] = CONTROL.replace(
+                    original,
+                    f"entries.argmin(where={predicate}, key=lambda row: row.key)",
+                )
+                cases["typed-argmin-key-" + label] = CONTROL.replace(
+                    original, f"entries.argmin(where=lambda row: row.valid, key={key})"
+                )
+            map_control = CONTROL.replace(
+                "class Result:\n    index: ac.u3\n    valid: ac.u1",
+                "class Result:\n    value: ac.table[3, Entry]",
+            ).replace(
+                "    index, valid = "
+                + original
+                + "\n    return Result(index=index, valid=valid)",
+                "    return Result(value=entries.map(lambda row: row))",
+            )
+            for label, call in (
+                ("zero", "entries.map(lambda: 0)"),
+                ("two", "entries.map(lambda row, other: row)"),
+                ("missing-zip-parameter", "entries.map(lambda row: row, entries)"),
+            ):
+                cases["typed-map-" + label] = map_control.replace(
+                    "entries.map(lambda row: row)", call
+                )
         for name, text in cases.items():
             path.write_text(text)
             (archive / (name + ".py")).write_text(text)
@@ -210,6 +253,10 @@ if args.query_checks:
             assert not absent.exists()
             if args.query_checks == "resources":
                 assert "budget" in result.stderr.lower(), result.stderr
+            if name.startswith("typed-"):
+                assert (
+                    "Lambda" in result.stderr or "captured" in result.stderr
+                ), result.stderr
             compile_unit(path.name, unit, replace=True, accepted=False)
             assert snapshot(unit) == before_unit and final.read_bytes() == before_final
             assert all(

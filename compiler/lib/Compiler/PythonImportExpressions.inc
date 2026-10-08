@@ -1,3 +1,8 @@
+if (node.kind() == "Call" && node.child("func").kind() == "Attribute" &&
+    llvm::is_contained(
+        ArrayRef<StringRef>{"map", "fold", "all", "any", "count"},
+        node.child("func").string("attr")))
+  return tableValueCall(node, at, ownerSymbol, values, instances);
 auto member = resolveEnumMember(node);
 if (failed(member))
   return failure();
@@ -104,7 +109,7 @@ if (node.kind() == "Constant" && expected && !isa<ac::BitsType>(*expected)) {
 }
 if (node.kind() == "Attribute" &&
     !(node.child("value").kind() == "Name" &&
-      node.child("value").string("id") != queryArgument &&
+      !queryBound(node.child("value").string("id")) &&
       instances.contains(node.child("value").string("id")))) {
   auto base = expression(node.child("value"), at, ownerSymbol, values,
                          instances, {}, captures);

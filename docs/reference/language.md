@@ -383,6 +383,57 @@ known-owner-enable/possibly-unknown-data behavior. Unknown enables
 that reach standard storage use its existing failure semantics; complete checks
 for masked unknown controls and pure no-write paths remain unfinished.
 
+## Table transformations and reductions
+
+Positive, closed one-dimensional Table values support pure mapping and the
+existing fixed-bit reductions:
+
+```python
+incremented = values.map(lambda value: value + 1)
+paired = values.map(lambda value, tag: Pair(value=value, tag=tag), tags)
+total = values.fold(kind="add")
+flags = values.map(lambda value: value != 0)
+complete = flags.all()
+present = flags.any()
+count = flags.count()
+```
+
+Every additional map input has the same extent as its receiver. An expression
+lambda has one required ordinary parameter per input, in receiver/input order.
+Results are finite Bits, Boolean, Enum or nominal Struct values. Struct results
+may contain admitted Table fields, including same-source constructors with
+contextual tuple/list fields, static defaults and recursive zero initialization.
+Imported nominal values retain their published identity; map does not broaden
+imported constructor/default admission inside callbacks.
+
+Captures are immutable call-time Bits/Enum/Struct snapshots. A captured Struct
+may contain Tables; explicitly indexed reads of captured Tables use the existing
+index proofs and query staging. A bare Table cannot become an implicit scalar
+capture or a callback result. Named helpers, nested method/lambda callbacks,
+allocation, effects and general tuple/list results remain unsupported, including
+in dead branches. Capture validates ordinary lambda syntax; each method checks
+its own parameter count during source lowering.
+
+`fold` requires one literal `kind`: `add`, `mul`, `and`, `or`, `xor`, `min` or
+`max`. Elements are unsigned fixed bits and the result keeps their width.
+Reduction combines adjacent pairs in a balanced tree, carrying an odd final
+element to the next level. Extent one is identity, including its value/known/Z
+planes. Arithmetic wraps at the declared width and retains existing four-state
+semantics. No callback or initial value is accepted by `fold`.
+
+`all`, `any` and `count` require physical one-bit Bits/Boolean elements;
+one-bit Enum carriers reject. The first two use
+the existing `and`/`or` folds. Count widens elements before summing, returns
+`bits[max(1, ceil(log2(N+1)))]`, and records the known-value interval `[0, N+1)`.
+That interval does not establish known physical bits or permit indexing an
+N-element Table with a possible count of N.
+
+These methods lower to existing TableMap/Fold and scalar operations. The
+source-wide budget includes replicated capture planes, Table-valued scalar
+temporaries and fold-tree storage before publishing IR. Ordered scans and pure
+named helper calls remain separate migration work; balanced reduction does not
+implement nonassociative prefix scans.
+
 ## Table queries
 
 Use pure callbacks to select from an existing positive, closed, one-dimensional Table:

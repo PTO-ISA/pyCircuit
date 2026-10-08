@@ -125,10 +125,29 @@ TEST_F(TableQuerySourceBoundary, CapturedOneArgumentLambdaPreservesSourceSite) {
   EXPECT_TRUE(succeeded(capture(*positionalOnly)));
 }
 
-TEST_F(TableQuerySourceBoundary, RejectsInvalidArityDefaultsAndAnnotations) {
+TEST_F(TableQuerySourceBoundary, OrdinaryLambdaArityIsTransportedForTypedMethods) {
+  // Capture validates ordinary lambda structure. Receiver shape and callback
+  // arity belong to typed first/argmin/map admission, exercised publicly.
+  auto zero = lambda(arguments(), integer("1"));
+  auto two = lambda(arguments({argument("lane"), argument("tag")}), name("tag"));
+  auto mapped = call(attribute("values", "map"), {two, name("other")});
+  auto input = transport({node("Expr", {field("value", zero)}),
+                          node("Expr", {field("value", mapped)})});
+  auto source = capture(*input);
+  ASSERT_TRUE(succeeded(source));
+  auto zeroArgs = source->module.item("body", 0).child("value").child("args");
+  EXPECT_EQ(zeroArgs.array("args").size(), 0u);
+  auto callback = source->module.item("body", 1).child("value").item("args", 0);
+  EXPECT_EQ(callback.child("args").array("args").size(), 2u);
+  auto body = callback.child("body");
+  EXPECT_TRUE(detail::sourceBindingShadowed(*source, body, "lane"));
+  EXPECT_TRUE(detail::sourceBindingShadowed(*source, body, "tag"));
+  auto otherInput = source->module.item("body", 1).child("value").item("args", 1);
+  EXPECT_FALSE(detail::sourceBindingShadowed(*source, otherInput, "tag"));
+}
+
+TEST_F(TableQuerySourceBoundary, RejectsInvalidDefaultsAndAnnotations) {
   auto valid = arguments({argument()});
-  rejects(lambda(arguments(), name("row")));
-  rejects(lambda(arguments({argument(), argument("other")}), name("row")));
   rejects(lambda(change(valid, "defaults", b.getArrayAttr({integer("1")})), name("row")));
   rejects(lambda(change(valid, "kwonlyargs", b.getArrayAttr({argument("extra")})), name("row")));
   rejects(lambda(change(valid, "kw_defaults", b.getArrayAttr({integer("1")})), name("row")));

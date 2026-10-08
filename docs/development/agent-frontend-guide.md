@@ -67,6 +67,16 @@ ordering, unknown-index caveats and unsupported callback forms. The compiler
 stages existing scalar SSA into compact Table operations; cross-Table reads may
 still cost N×M logical work/storage and are charged to source-wide budgets.
 
+Typed Tables also support same-extent `values.map(lambda ..., *other_tables)`,
+the seven closed unsigned `fold(kind=...)` reductions, and one-bit
+`all()`/`any()`/`count()`. Map types one pure expression body and lowers it through
+the existing Table operations; it does not execute Python per element. Count
+widens before summing and retains its `[0, N+1)` range proof. Captures preserve
+call-time values, including nominal Structs containing Tables. See
+[Table transformations](../reference/language.md#table-transformations-and-reductions)
+for exact result, callback, four-state and resource boundaries. Named helpers
+and ordered scans remain unsupported.
+
 Use `ready, valid, data = ac.queue[T](valid, data, take, depth=N)`
 for a complete-token FIFO. Allocation is module-scoped, with three fresh immutable
 result names; Python does not expose clocks, reset or proposal wires. The default

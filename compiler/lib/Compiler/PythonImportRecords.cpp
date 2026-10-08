@@ -806,9 +806,15 @@ private:
   tableQueryResults(const AstNode &call, OpBuilder &at,
                     FlatSymbolRefAttr symbol, llvm::StringMap<Value> &values,
                     llvm::StringMap<Instance *> &instances);
+  FailureOr<Value> tableValueCall(const AstNode &call, OpBuilder &at,
+                                  FlatSymbolRefAttr symbol,
+                                  llvm::StringMap<Value> &values,
+                                  llvm::StringMap<Instance *> &instances);
   LogicalResult preflightQueryCallback(const AstNode &callback,
                                        const llvm::StringMap<Value> &values,
-                                       SmallVectorImpl<StringRef> &captures);
+                                       SmallVectorImpl<StringRef> &captures,
+                                       size_t arity = 1,
+                                       bool mapAggregates = false);
   bool queueCall(const AstNode &node) const;
   bool moduleCall(const AstNode &node) const;
   FailureOr<SmallVector<StringRef, 3>>
@@ -1080,7 +1086,12 @@ private:
   SmallVector<OwnerProposal> ownerProposals;
   std::unique_ptr<OwnerEnableProof> grantProof;
   TableQueryBudget queryBudget;
-  std::string queryArgument;
+  SmallVector<SmallVector<StringRef>> queryArguments;
+  bool queryBound(StringRef name) const {
+    return llvm::any_of(queryArguments, [&](const auto &frame) {
+      return llvm::is_contained(frame, name);
+    });
+  }
   llvm::DenseSet<size_t> dischargedPairs;
   SmallVector<MemoryCallPlan, 0> memoryPlans;
   SmallVector<ModuleDomainPlan, 0> domainPlans;
@@ -3164,7 +3175,7 @@ FailureOr<Type> Importer::expressionType(const AstNode &node,
   }
   if (node.kind() == "Attribute") {
     if (node.child("value").kind() == "Name" &&
-        node.child("value").string("id") != queryArgument) {
+        !queryBound(node.child("value").string("id"))) {
       auto found = instances.find(node.child("value").string("id"));
       if (found != instances.end()) {
         for (const Port &port : found->second->outputs)
@@ -4413,23 +4424,24 @@ LogicalResult Importer::preflightProposals(const AstNode &module) {
   return success();
 }
 
-LogicalResult
-Importer::preflightQueryCallback(const AstNode &callback,
-                                 const llvm::StringMap<Value> &values,
-                                 SmallVectorImpl<StringRef> &captures) {
+LogicalResult Importer::preflightQueryCallback(
+    const AstNode &callback, const llvm::StringMap<Value> &values,
+    SmallVectorImpl<StringRef> &captures, size_t arity, bool mapAggregates) {
   auto diagnostic = [&] {
     return mlir::emitError(callback.location(b.getContext(), source.path));
   };
-  if (failed(validateTableQueryLambda(callback, diagnostic)))
+  if (failed(validateTableQueryLambda(callback, diagnostic, arity)))
     return failure();
   auto args = callback.child("args");
-  auto parameter = args.array("args").empty() ? args.item("posonlyargs", 0)
-                                              : args.item("args", 0);
-  auto savedArgument =
-      std::exchange(queryArgument, parameter.string("arg").str());
-  auto restore = llvm::scope_exit([&] { queryArgument = savedArgument; });
+  SmallVector<StringRef> parameters;
+  for (StringRef field : {"posonlyargs", "args"})
+    for (size_t i = 0; i < args.array(field).size(); ++i)
+      parameters.push_back(args.item(field, i).string("arg"));
+  queryArguments.push_back(parameters);
+  auto restore = llvm::scope_exit([&] { queryArguments.pop_back(); });
   llvm::StringSet<> captured;
-  auto visit = [&](auto &&self, const AstNode &node) -> LogicalResult {
+  auto visit = [&](auto &&self, const AstNode &node,
+                   Type context) -> LogicalResult {
     std::string reason;
     if (!queryBudget.enter(reason))
       return diagnostic() << reason;
@@ -4437,7 +4449,7 @@ Importer::preflightQueryCallback(const AstNode &callback,
     TableQueryCharge charge;
     TableQueryBudget::add(charge, TableQueryResource::Work, 1);
     StringRef name = node.kind() == "Name" ? node.string("id") : StringRef();
-    bool capture = !name.empty() && name != queryArgument &&
+    bool capture = !name.empty() && !llvm::is_contained(parameters, name) &&
                    values.contains(name) && !captured.contains(name);
     if (capture) {
       TableQueryBudget::add(charge, TableQueryResource::Work, 1);
@@ -4458,7 +4470,11 @@ Importer::preflightQueryCallback(const AstNode &callback,
       captured.insert(name);
       captures.push_back(name);
     }
-    if (llvm::is_contained(ArrayRef<StringRef>{"NamedExpr", "Lambda", "Await",
+    bool tableLiteral = mapAggregates &&
+                        isa_and_nonnull<ac::TableType>(context) &&
+                        (node.kind() == "Tuple" || node.kind() == "List");
+    if (!tableLiteral &&
+        llvm::is_contained(ArrayRef<StringRef>{"NamedExpr", "Lambda", "Await",
                                                "Yield", "YieldFrom", "ListComp",
                                                "SetComp", "DictComp",
                                                "GeneratorExp", "List", "Set",
@@ -4480,22 +4496,255 @@ Importer::preflightQueryCallback(const AstNode &callback,
                << "Table query callback call must resolve to a pure scalar "
                   "intrinsic";
     }
+    auto childContext = [&](StringRef field, const AstNode &child) -> Type {
+      if (!mapAggregates)
+        return {};
+      if (node.kind() == "keyword" && field == "value")
+        return context;
+      if (node.kind() == "IfExp" && (field == "body" || field == "orelse"))
+        return context;
+      if (tableLiteral && field == "elts")
+        return cast<ac::TableType>(context).getElementType();
+      if (node.kind() == "Call" && field == "keywords") {
+        auto function = node.child("func");
+        auto binding = lookupBinding(function);
+        if (binding && binding->category == BindingCategory::Struct &&
+            structs.contains(function.string("id")))
+          for (Attribute raw : structFields[function.string("id")]) {
+            auto declaration = cast<DictionaryAttr>(raw);
+            if (declaration.getAs<StringAttr>("name").getValue() ==
+                child.string("arg"))
+              return declaration.getAs<TypeAttr>("type").getValue();
+          }
+      }
+      return {};
+    };
     for (NamedAttribute field : node.fields()) {
       auto name = field.getName().getValue();
       if (auto child = dyn_cast<DictionaryAttr>(field.getValue())) {
+        auto site = node.child(name);
         if (child.getAs<StringAttr>("kind") &&
-            failed(self(self, node.child(name))))
+            failed(self(self, site, childContext(name, site))))
           return failure();
       } else if (auto children = dyn_cast<ArrayAttr>(field.getValue()))
-        for (size_t i = 0; i < children.size(); ++i)
+        for (size_t i = 0; i < children.size(); ++i) {
+          auto site = node.item(name, i);
           if (auto child = dyn_cast<DictionaryAttr>(children[i]);
               child && child.getAs<StringAttr>("kind") &&
-              failed(self(self, node.item(name, i))))
+              failed(self(self, site, childContext(name, site))))
             return failure();
+        }
     }
     return success();
   };
-  return visit(visit, callback.child("body"));
+  return visit(visit, callback.child("body"), Type());
+}
+
+FailureOr<Value> Importer::tableValueCall(
+    const AstNode &call, OpBuilder &at, FlatSymbolRefAttr symbol,
+    llvm::StringMap<Value> &values, llvm::StringMap<Instance *> &instances) {
+  auto diagnostic = [&] {
+    return mlir::emitError(call.location(b.getContext(), source.path));
+  };
+  auto function = call.child("func");
+  StringRef method = function.string("attr");
+  StringRef kind;
+  if (method == "map") {
+    if (call.array("args").empty() || !call.array("keywords").empty())
+      return diagnostic()
+             << "Table map requires a positional expression Lambda "
+                "and positional same-shape Tables";
+  } else if (method == "fold") {
+    if (!call.array("args").empty() || call.array("keywords").size() != 1 ||
+        call.item("keywords", 0).string("arg") != "kind")
+      return diagnostic()
+             << "Table fold requires exactly one literal kind keyword";
+    auto value = call.item("keywords", 0).child("value");
+    auto spelling = value.kind() == "Constant"
+                        ? dyn_cast_or_null<StringAttr>(value.get("value"))
+                        : StringAttr();
+    if (!spelling ||
+        !llvm::is_contained(
+            ArrayRef<StringRef>{"add", "mul", "and", "or", "xor", "min", "max"},
+            spelling.getValue()))
+      return diagnostic()
+             << "Table fold kind must be one of add/mul/and/or/xor/min/max";
+    kind = spelling.getValue();
+  } else if (!call.array("args").empty() || !call.array("keywords").empty())
+    return diagnostic() << "Table " << method << " does not accept arguments";
+  TableQueryCharge occurrence;
+  std::string reason;
+  bool fits =
+      TableQueryBudget::add(occurrence, TableQueryResource::Occurrences, 1) &&
+      TableQueryBudget::add(occurrence, TableQueryResource::Slots,
+                            method == "map" ? call.array("args").size() : 1);
+  if (!fits || !queryBudget.reserve(occurrence, reason))
+    return diagnostic() << (fits ? reason
+                                 : "Table query binding budget exhausted");
+  auto receiver =
+      expression(function.child("value"), at, symbol, values, instances);
+  if (failed(receiver))
+    return failure();
+  auto type = dyn_cast<ac::TableType>(receiver->getType());
+  ac::HardwareAnalysis analysis(*body);
+  auto extent = type ? analysis.getTableShape(type, {}, body->getOperation())
+                     : FailureOr<SmallVector<uint64_t>>(failure());
+  if (failed(extent) || extent->size() != 1 || !extent->front())
+    return diagnostic() << "Table value method requires a positive closed "
+                           "one-dimensional Table";
+  TableQueryHooks hooks{
+      [&](uint64_t value) { return literal(value, call, symbol); },
+      [&](uint64_t width) { return bits(width, call, symbol); },
+      [&](Value guard, Value yes, Value no, OpBuilder &inside) {
+        return select(guard, yes, no, call, inside, symbol);
+      },
+      [&](Value value, Type type, OpBuilder &inside) {
+        return boundaryBitsIdentity(value, type, call, inside, symbol);
+      },
+      [&](Value original, Value mapped) {
+        auto info = valueInfo(original);
+        remember(mapped, info.sourceKind, info.interval,
+                 info.closedSourceConstant);
+        if (fixedValues.contains(original))
+          fixedValues.insert(mapped);
+        if (arithmeticValues.contains(original))
+          arithmeticValues.insert(mapped);
+      },
+      [&](Value value) {
+        numericValues.erase(value);
+        fixedValues.erase(value);
+        arithmeticValues.erase(value);
+      }};
+  TableQueryLowering lowering(at, call.location(b.getContext(), source.path),
+                              *body, queryBudget, hooks);
+  if (failed(lowering.capture(*receiver)))
+    return failure();
+  if (method != "map") {
+    if (!isa<ac::BitsType>(type.getElementType()))
+      return diagnostic() << "Table reduction requires unsigned bits elements";
+    if (method != "fold") {
+      auto width = analysis.getPackedWidth(type.getElementType(), {},
+                                           body->getOperation());
+      if (failed(width) || *width != 1)
+        return diagnostic()
+               << "Table " << method << " requires physical one-bit elements";
+    }
+    FailureOr<Value> result = failure();
+    if (method == "count") {
+      // The capture reservation bounds N before N+1 arithmetic or allocation.
+      uint64_t bound = extent->front() + 1;
+      auto resultType =
+          bits(std::max(1u, llvm::Log2_64_Ceil(bound)), call, symbol);
+      result = lowering.count(*receiver, resultType);
+      if (succeeded(result))
+        remember(*result, std::nullopt,
+                 IntegerInterval{llvm::APSInt::getUnsigned(0),
+                                 llvm::APSInt::getUnsigned(bound)});
+    } else
+      result = lowering.fold(*receiver, method == "all"   ? "and"
+                                        : method == "any" ? "or"
+                                                          : kind);
+    if (failed(result))
+      return failure();
+    fixedValues.insert(*result);
+    return *result;
+  }
+  SmallVector<Value> tables{*receiver};
+  for (size_t i = 1; i < call.array("args").size(); ++i) {
+    auto other =
+        expression(call.item("args", i), at, symbol, values, instances);
+    if (failed(other))
+      return failure();
+    auto otherType = dyn_cast<ac::TableType>(other->getType());
+    auto otherShape =
+        otherType ? analysis.getTableShape(otherType, {}, body->getOperation())
+                  : FailureOr<SmallVector<uint64_t>>(failure());
+    if (failed(otherShape) || *otherShape != *extent)
+      return diagnostic() << "Table map inputs require the same positive "
+                             "closed one-dimensional shape";
+    if (failed(lowering.capture(*other)))
+      return failure();
+    tables.push_back(*other);
+  }
+  auto lambda = call.item("args", 0);
+  SmallVector<StringRef> captures;
+  if (failed(preflightQueryCallback(lambda, values, captures, tables.size(),
+                                    true)))
+    return failure();
+  auto args = lambda.child("args");
+  SmallVector<StringRef> parameters;
+  for (StringRef field : {"posonlyargs", "args"})
+    for (size_t i = 0; i < args.array(field).size(); ++i)
+      parameters.push_back(args.item(field, i).string("arg"));
+  auto loc = lambda.location(b.getContext(), source.path);
+  auto temporary =
+      createOp(at, loc, ac::RuleOp::getOperationName(), {}, {}, {}, 1);
+  auto block = new Block();
+  temporary->getRegion(0).push_back(block);
+  auto cleanup = llvm::scope_exit([&] {
+    for (Value value : block->getArguments())
+      hooks.forgetFacts(value);
+    for (Operation &operation : *block)
+      for (Value value : operation.getResults())
+        hooks.forgetFacts(value);
+    temporary->erase();
+  });
+  TableQueryCharge binding;
+  fits =
+      TableQueryBudget::add(binding, TableQueryResource::Work, tables.size()) &&
+      TableQueryBudget::add(binding, TableQueryResource::Slots, tables.size());
+  if (!fits || !queryBudget.reserve(binding, reason))
+    return diagnostic() << (fits ? reason
+                                 : "Table query binding budget exhausted");
+  llvm::StringMap<Value> environment;
+  for (StringRef name : captures)
+    environment.try_emplace(name, values.lookup(name));
+  SmallVector<Value> rows;
+  for (auto [parameter, table] : llvm::zip(parameters, tables)) {
+    auto row = block->addArgument(
+        cast<ac::TableType>(table.getType()).getElementType(), loc);
+    if (isa<ac::BitsType>(row.getType()))
+      fixedValues.insert(row);
+    rows.push_back(row);
+    environment.try_emplace(parameter, row);
+  }
+  queryArguments.push_back(parameters);
+  auto restore = llvm::scope_exit([&] { queryArguments.pop_back(); });
+  auto inside = OpBuilder::atBlockEnd(block);
+  auto result =
+      expression(lambda.child("body"), inside, symbol, environment, instances);
+  if (failed(result))
+    return failure();
+  if (!isa<ac::BitsType, ac::EnumType, ac::StructType>(result->getType()) ||
+      (isa<ac::BitsType>(result->getType()) && !fixedValues.contains(*result) &&
+       valueInfo(*result).sourceKind != ac::detail::ValueKind::Boolean))
+    return diagnostic() << "Table map callback requires a finite Bits, Enum or "
+                           "Struct result";
+  // Validate the typed uses before staging can hoist a row-independent
+  // constructor or splat. A raw Table snapshot is available only through the
+  // existing index-proven TableGet route, never as a hidden whole-Table input.
+  llvm::DenseSet<Value> rawTables;
+  for (StringRef name : captures) {
+    auto value = values.lookup(name);
+    if (isa<ac::TableType>(value.getType()))
+      rawTables.insert(value);
+  }
+  for (Operation &operation : *block)
+    for (auto [index, input] : llvm::enumerate(operation.getOperands()))
+      if (rawTables.contains(input) &&
+          !(isa<ac::TableGetOp>(operation) && index == 0))
+        return diagnostic()
+               << "Table map raw Table captures require a proven indexed read";
+  // Indexed captures also retain their source planes when the index is
+  // constant and staging hoists the read instead of constructing a gather.
+  llvm::DenseSet<Value> chargedTables(tables.begin(), tables.end());
+  for (Value table : rawTables)
+    if (chargedTables.insert(table).second && failed(lowering.capture(table)))
+      return failure();
+  auto staged = lowering.stage(*block, rows, tables, {*result}, true);
+  if (failed(staged))
+    return failure();
+  return staged->front();
 }
 
 FailureOr<SmallVector<Value>> Importer::tableQueryResults(
@@ -4608,9 +4857,8 @@ FailureOr<SmallVector<Value>> Importer::tableQueryResults(
     for (StringRef name : captures)
       environment.try_emplace(name, values.lookup(name));
     environment.try_emplace(parameter.string("arg"), row);
-    auto savedArgument =
-        std::exchange(queryArgument, parameter.string("arg").str());
-    auto restore = llvm::scope_exit([&] { queryArgument = savedArgument; });
+    queryArguments.push_back({parameter.string("arg")});
+    auto restore = llvm::scope_exit([&] { queryArguments.pop_back(); });
     auto inside = OpBuilder::atBlockEnd(block);
     auto result = expression(lambda.child("body"), inside, symbol, environment,
                              instances);

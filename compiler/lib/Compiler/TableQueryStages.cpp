@@ -76,10 +76,21 @@ FailureOr<SmallVector<Value>> TableQueryLowering::map(
   }
   for (Value capture : captures) {
     auto weight = words(capture.getType());
-    fits &= succeeded(weight) &&
+    TableQueryCharge planes;
+    bool captureFits =
+        succeeded(weight) &&
+        TableQueryBudget::addProduct(planes, TableQueryResource::PayloadWords,
+                                     succeeded(weight) ? *weight : 0, 3);
+    uint64_t planeWords =
+        planes.amounts[static_cast<unsigned>(TableQueryResource::PayloadWords)];
+    // Capture snapshots retain their base planes; region block arguments also
+    // materialize a full V/K/Z copy for every row in the common C++ emitter.
+    fits &= captureFits &&
+            TableQueryBudget::add(reservation, TableQueryResource::PayloadWords,
+                                  planeWords) &&
             TableQueryBudget::addProduct(reservation,
-                                         TableQueryResource::PayloadWords,
-                                         succeeded(weight) ? *weight : 0, 3);
+                                         TableQueryResource::PayloadWords, rows,
+                                         planeWords);
   }
   for (Operation &operation : *block)
     fits &= describe(&operation, rows, reservation);
@@ -118,12 +129,19 @@ FailureOr<SmallVector<Value>> TableQueryLowering::stage(Block &scalar,
                                                         Value row,
                                                         Value receiver,
                                                         ValueRange outputs) {
-  auto size = analysis.getTableSize(cast<ac::TableType>(receiver.getType()), {},
-                                    package);
+  return stage(scalar, ValueRange{row}, ValueRange{receiver}, outputs);
+}
+FailureOr<SmallVector<Value>>
+TableQueryLowering::stage(Block &scalar, ValueRange rows, ValueRange receivers,
+                          ValueRange outputs, bool mapAggregates) {
+  auto size = analysis.getTableSize(
+      cast<ac::TableType>(receivers.front().getType()), {}, package);
   if (failed(size))
     return failure();
   for (Operation &operation : scalar)
-    if (!isa<ac::TableGetOp, ac::BitsConstantOp, ac::BitsUnaryOp,
+    if (!(mapAggregates &&
+          isa<ac::TableCreateOp, ac::TableSplatOp>(operation)) &&
+        !isa<ac::TableGetOp, ac::BitsConstantOp, ac::BitsUnaryOp,
              ac::BitsBinaryOp, ac::BitsCompareOp, ac::BitsSelectOp,
              ac::BitsConcatOp, ac::BitsExtractOp, ac::BitsResizeOp,
              ac::StructCreateOp, ac::StructGetOp, ac::EnumCreateOp,
@@ -132,8 +150,10 @@ FailureOr<SmallVector<Value>> TableQueryLowering::stage(Block &scalar,
              << "Table query scalar template is unsupported";
   llvm::DenseMap<Value, Value> tables, scalars;
   llvm::DenseSet<Value> dependent;
-  tables[row] = receiver;
-  dependent.insert(row);
+  for (auto [row, receiver] : llvm::zip(rows, receivers)) {
+    tables[row] = receiver;
+    dependent.insert(row);
+  }
   SmallVector<Operation *> pending;
   auto flush = [&]() -> LogicalResult {
     if (pending.empty())
@@ -211,10 +231,20 @@ FailureOr<SmallVector<Value>> TableQueryLowering::stage(Block &scalar,
     return success();
   };
   for (Operation &operation : scalar) {
-    bool depends = llvm::any_of(operation.getOperands(), [&](Value value) {
-      return dependent.contains(value);
-    });
-    if (auto get = dyn_cast<ac::TableGetOp>(operation); get && depends) {
+    // Keep admitted Table-valued scalar temporaries inside the map region.
+    // Hoisting a constructor or Struct field projection would create a raw
+    // Table capture, outside the scalar capture contract.
+    bool laneTable = mapAggregates &&
+                     llvm::any_of(operation.getResultTypes(), [](Type type) {
+                       return isa<ac::TableType>(type);
+                     });
+    bool depends =
+        laneTable || llvm::any_of(operation.getOperands(), [&](Value value) {
+          return dependent.contains(value);
+        });
+    if (auto get = dyn_cast<ac::TableGetOp>(operation);
+        get && depends &&
+        !(mapAggregates && dependent.contains(get.getInput()))) {
       if (failed(flush()))
         return failure();
       Value source = scalars.lookup(get.getInput());
@@ -229,7 +259,10 @@ FailureOr<SmallVector<Value>> TableQueryLowering::stage(Block &scalar,
       tables[get.getValue()] = *gathered;
       dependent.insert(get.getValue());
     } else if (depends) {
-      if (!isa<ac::BitsConstantOp, ac::BitsUnaryOp, ac::BitsBinaryOp,
+      if (!(mapAggregates &&
+            isa<ac::TableGetOp, ac::TableCreateOp, ac::TableSplatOp>(
+                operation)) &&
+          !isa<ac::BitsConstantOp, ac::BitsUnaryOp, ac::BitsBinaryOp,
                ac::BitsCompareOp, ac::BitsSelectOp, ac::BitsConcatOp,
                ac::BitsExtractOp, ac::BitsResizeOp, ac::StructCreateOp,
                ac::StructGetOp, ac::EnumCreateOp, ac::EnumToBitsOp,

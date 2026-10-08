@@ -48,7 +48,8 @@ bool sourceBindingShadowed(const CapturedSource &source, const AstNode &node,
                            llvm::StringRef name);
 
 mlir::LogicalResult validateTableQueryLambda(const AstNode &node,
-                                            ac::detail::EmitError emitError);
+                                             ac::detail::EmitError emitError,
+                                             std::optional<size_t> arity = 1);
 
 mlir::FailureOr<CapturedSource>
 readSingleCapture(mlir::ModuleOp transport, ac::detail::EmitError emitError);
