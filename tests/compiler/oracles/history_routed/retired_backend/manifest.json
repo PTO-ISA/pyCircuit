@@ -1,0 +1,11 @@
+{
+  "purpose": "Inert exact retired lowering authority for independent policy comparison; never import/compile/run retired code.",
+  "assets": [
+    {
+      "revision": "b3e52fb22061350d61b23089c8bed36913650245",
+      "path": "compiler/acir/lib/CodeGen/QueueGraphPyc.cpp",
+      "asset": "QueueGraphPyc.cpp.txt",
+      "sha256": "f94562143c46ad01ee507ea3859d5d9e553cb988a4eeaebefff3353dc4ce9392"
+    }
+  ]
+}

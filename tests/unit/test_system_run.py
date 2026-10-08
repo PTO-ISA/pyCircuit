@@ -2,6 +2,10 @@
 
 import hashlib
 import json
+import os
+import subprocess
+import sys
+import time
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from threading import Barrier, Lock
@@ -13,6 +17,44 @@ from pycircuit.cli import main
 
 pytestmark = pytest.mark.unit
 MAX_CYCLES = (2**63 - 1) // 2
+
+
+@pytest.mark.skipif(
+    not sys.platform.startswith("linux"), reason="Linux descendant process-state check"
+)
+def test_timeout_stops_owned_build_children_and_preserves_unrelated_process(tmp_path):
+    pid_file = tmp_path / "compiler.pid"
+    script = (
+        "import pathlib,subprocess,sys,time; "
+        "child=subprocess.Popen([sys.executable,'-c','import time; time.sleep(60)']); "
+        f"pathlib.Path({str(pid_file)!r}).write_text(str(child.pid)); "
+        "time.sleep(60)"
+    )
+    command = [sys.executable, "-c", script]
+    unrelated = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(60)"])
+    try:
+        with pytest.raises(subprocess.TimeoutExpired) as error:
+            _run._invoke(command, timeout=1, env=dict(os.environ))
+        assert error.value.cmd == command
+        assert error.value.timeout == 1
+        assert unrelated.poll() is None
+        child_pid = int(pid_file.read_text())
+        # A killed grandchild can remain a zombie until the OS reaps it. Both
+        # disappearance and a zombie establish it cannot keep compiling.
+        deadline = time.monotonic() + 2
+        while time.monotonic() < deadline:
+            try:
+                state = Path(f"/proc/{child_pid}/stat").read_text().split(") ", 1)[1][0]
+            except FileNotFoundError:
+                break
+            if state == "Z":
+                break
+            time.sleep(0.01)
+        else:
+            pytest.fail("owned compiler child remained running after timeout")
+    finally:
+        unrelated.kill()
+        unrelated.wait(timeout=5)
 
 
 def _arguments(source: Path, prefix: Path, build: Path) -> dict:

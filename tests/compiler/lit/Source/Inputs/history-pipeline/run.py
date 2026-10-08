@@ -23,14 +23,32 @@ def digest(path):
 
 def main():
     parser = argparse.ArgumentParser()
-    for name in ("repo", "source-compiler", "linker", "emitter", "scratch"):
+    for name in (
+        "repo",
+        "source-compiler",
+        "linker",
+        "emitter",
+        "cxx",
+        "verilator",
+        "scratch",
+    ):
         parser.add_argument("--" + name, required=True)
     args = parser.parse_args()
     repo = Path(args.repo).resolve()
     fixtures = Path(__file__).resolve().parent
     scratch = Path(args.scratch).resolve()
     scratch.mkdir(parents=True, exist_ok=True)
+    (scratch / "receipt.json").unlink(missing_ok=True)
     prefix = Path(args.source_compiler).resolve().parent.parent
+    runtime = next(
+        path
+        for path in (
+            prefix / "simulator/gfsim/libpyc6_runtime.a",
+            prefix / "lib/libpyc6_runtime.a",
+        )
+        if path.is_file()
+    )
+    runtime_hash = digest(runtime)
     env = dict(
         os.environ,
         PYTHONPATH=str(repo / "python/pycircuit/src"),
@@ -74,6 +92,7 @@ def main():
         provider,
         oracle_path,
         models_path,
+        repo / "cmake/verify_example.py",
     )
     input_hashes = {str(path.relative_to(repo)): digest(path) for path in input_paths}
     helper_paths = (Path(args.source_compiler), Path(args.linker), Path(args.emitter))
@@ -169,7 +188,7 @@ def main():
         )
         traces = []
         for backend in ("cpp", "verilog"):
-            generated, build = folder / backend, folder / (backend + "-build")
+            generated = folder / backend
             cli(
                 symbol + "-emit-" + backend,
                 "emit",
@@ -180,24 +199,45 @@ def main():
                 generated,
                 "--replace",
             )
-            run(
-                symbol + "-configure-" + backend,
-                [
-                    "cmake",
-                    "-S",
-                    generated,
-                    "-B",
-                    build,
-                    "-G",
-                    "Ninja",
-                    "-DCMAKE_PREFIX_PATH=" + str(prefix),
-                ],
-            )
-            run(
-                symbol + "-build-" + backend,
-                ["cmake", "--build", build, "--target", "pycircuit_sim", "-j", "2"],
-            )
-            executable = build / "bin/pycircuit_sim"
+            executable = folder / ("simulation-" + backend)
+            if backend == "cpp":
+                manifest = json.loads((generated / "generated.json").read_text())
+                sources = [
+                    generated / item["path"]
+                    for item in manifest["files"]
+                    if item["path"].endswith(".cpp")
+                ]
+                run(
+                    symbol + "-build-cpp",
+                    [
+                        args.cxx,
+                        "-O2",
+                        "-std=c++20",
+                        "-pthread",
+                        "-I" + str(repo / "include"),
+                        "-I" + str(generated),
+                        *sources,
+                        runtime,
+                        "-o",
+                        executable,
+                    ],
+                )
+            else:
+                run(
+                    symbol + "-build-verilog",
+                    [
+                        sys.executable,
+                        repo / "cmake/verify_example.py",
+                        "--compile-system",
+                        generated,
+                        "--output",
+                        executable,
+                        "--include",
+                        repo / "include",
+                        "--verilator",
+                        args.verilator,
+                    ],
+                )
             for workers in (1, 2) if backend == "cpp" else (1,):
                 label = f"{symbol}-{backend}-workers{workers}"
                 options = (
@@ -250,10 +290,12 @@ def main():
         for path in input_paths
     )
     assert all(digest(path) == helper_hashes[str(path)] for path in helper_paths)
+    assert digest(runtime) == runtime_hash
     receipt = {
         "cases": receipts,
         "candidate_inputs": input_hashes,
         "native_helpers": helper_hashes,
+        "runtime_archive": {"path": str(runtime), "sha256": runtime_hash},
         "expectation_ledgers": {
             mode: {key: value for key, value in contract.items() if key != "rows"}
             for mode, contract in expectations.items()

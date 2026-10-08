@@ -69,12 +69,13 @@ def catalog(repo: Path) -> dict:
             raise ValueError(f"API coverage owner is unsafe: {row['name']}")
         if not (repo / owner).is_file():
             raise ValueError(f"API coverage owner is missing: {row['name']}")
-        if row.get("system"):
-            if not isinstance(row["system"], str) or not all(
-                part.isidentifier() for part in row["system"].split(".")
+        root = row.get("system", row.get("root"))
+        if root:
+            if not isinstance(root, str) or not all(
+                part.isidentifier() for part in root.split(".")
             ):
                 raise ValueError(f"API system root is invalid: {row['name']}")
-            source = Path(row.get("system_source", ""))
+            source = Path(row.get("system_source", row.get("root_source", "")))
             if (
                 source.is_absolute()
                 or ".." in source.parts
@@ -83,7 +84,9 @@ def catalog(repo: Path) -> dict:
                 or source.suffix != ".py"
                 or not (repo / source).is_file()
             ):
-                raise ValueError(f"API system source is missing or unsafe: {row['name']}")
+                raise ValueError(
+                    f"API system source is missing or unsafe: {row['name']}"
+                )
     return data
 
 
@@ -149,14 +152,14 @@ def navigation(repo: Path) -> str:
         "",
         "These cases are covered by their current compiler test owners.",
         "",
-        "| Case | Test owner | System root |",
+        "| Case | Test owner | Source root |",
         "| --- | --- | --- |",
     ]
     for row in api_rows:
         system = (
             f"[{row['system']}](../{row['system_source']})"
             if row.get("system")
-            else "—"
+            else f"[{row['root']}](../{row['root_source']})" if row.get("root") else "—"
         )
         lines.append(f"| {row['name']} | [test](../{row['owner']}) | {system} |")
     lines += [

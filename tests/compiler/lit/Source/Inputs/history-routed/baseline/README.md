@@ -1,0 +1,1 @@
+Exact historical assets retained for independent contract and oracle review. These files are inert and are never imported or executed through retired compilation routes. Recovery is not a current compiler or runtime passing result.

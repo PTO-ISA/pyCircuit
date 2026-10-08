@@ -816,8 +816,11 @@ memory does not establish a Python authoring API for every operation. Beyond the
 bounded behavioral slice above, complete `@system`, general collection authoring,
 remaining source arithmetic,
 additional queue flow/head-read policies, automatic clock-domain scheduling and CDC still need bounded implementation
-and evidence. Source observations/assertions currently diagnose at emission;
-they must not be silently dropped.
+and evidence. Closed systems execute reachable source assertions and publish
+supported source observations after successful epochs. Ordinary modules with
+reachable assertions require the managed RTL lifecycle described in
+[system execution](../architecture/system-execution.md); ordinary-module RTL
+observations still diagnose. Unsupported effects must not be silently dropped.
 
 Dynamic hardware creation, host I/O inside designs, arbitrary Python execution,
 legacy CycleAwareSignal/JIT/builders, QueueGraph, `acc.py`, `acc` and `pycc` are

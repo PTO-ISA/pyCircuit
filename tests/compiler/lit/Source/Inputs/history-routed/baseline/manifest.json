@@ -1,0 +1,29 @@
+{
+  "assets": [
+    {
+      "revision": "8887e6dec7b4cc530a9967c860dc6a224d79a4ab",
+      "path": "examples/agentic-circuit/pipelines/routed_dependency_pipeline.py",
+      "asset": "routed_dependency_pipeline.py.txt",
+      "sha256": "82bbd9b3d30cd9e00aef419a83b96e4cd2532b76d596c01b7547a14c47bf2d56"
+    },
+    {
+      "revision": "b3e52fb22061350d61b23089c8bed36913650245",
+      "path": "tests/integration/agentic-circuit/e2e/test_queue_codegen.py",
+      "asset": "test_queue_codegen.py.txt",
+      "sha256": "ad9d841beb668737cde2f8e509e8ad4249d9b2a949973f91368859666ce6e33e"
+    },
+    {
+      "revision": "b3e52fb22061350d61b23089c8bed36913650245",
+      "path": "tests/integration/agentic-circuit/e2e/test_pyc_backend.py",
+      "asset": "test_pyc_backend.py.txt",
+      "sha256": "4755159e8bb4bf7d8765be93cdcc5d451729dbaa9583e4f2dcc1fe565d317d8e"
+    },
+    {
+      "revision": "b3e52fb22061350d61b23089c8bed36913650245",
+      "path": "simulator/gfsim/include/gfsim/queue_blocks.h",
+      "asset": "queue_blocks.h.txt",
+      "sha256": "11f8a82d53bfb23bfcdefdf05d8eac35585b5f3b08449b210a20f8d0511d0e47"
+    }
+  ],
+  "purpose": "Inert exact baseline full graph, strong tests and legacy block semantics; never execute retired routes."
+}

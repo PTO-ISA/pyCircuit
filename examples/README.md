@@ -1,7 +1,7 @@
 # Examples navigation
 
 Examples use the single Python → MLIR → C++/Verilog → runner flow.
-The current catalog contains **62** runnable examples and **15** API-owned coverage cases.
+The current catalog contains **62** runnable examples and **25** API-owned coverage cases.
 
 - [Writing and verification standard](STANDARD.md)
 - [System execution](../docs/architecture/system-execution.md)
@@ -79,7 +79,7 @@ The current catalog contains **62** runnable examples and **15** API-owned cover
 
 These cases are covered by their current compiler test owners.
 
-| Case | Test owner | System root |
+| Case | Test owner | Source root |
 | --- | --- | --- |
 | inferred_module_pipeline | [test](../tests/compiler/lit/Source/Inputs/direct-call-graph.py) | — |
 | inferred_nested_module_pipeline | [test](../tests/compiler/lit/Source/Inputs/direct-call-graph.py) | — |
@@ -93,9 +93,19 @@ These cases are covered by their current compiler test owners.
 | route_merge_pipeline | [test](../tests/compiler/lit/Source/Inputs/queue-source.py) | — |
 | sync_mem_init_zero | [test](../tests/compiler/lit/Source/Inputs/pythonic-memory.py) | — |
 | typed_integer_operations | [test](../tests/compiler/lit/Source/Inputs/static-divrem.py) | — |
-| reset_invalidate_order_smoke | [test](../tests/compiler/lit/Source/source-historical-features.test) | [history_features.reset_invalidate_order_smoke.ResetInvalidateOrder](../tests/compiler/lit/Source/Inputs/history-features/reset_invalidate_order_smoke.py) |
-| trace_dsl_smoke | [test](../tests/compiler/lit/Source/source-historical-features.test) | [history_features.trace_dsl_smoke.TraceDsl](../tests/compiler/lit/Source/Inputs/history-features/trace_dsl_smoke.py) |
-| xz_value_model_smoke | [test](../tests/compiler/lit/Source/source-historical-features.test) | [history_features.xz_value_model_smoke.XzValueModel](../tests/compiler/lit/Source/Inputs/history-features/xz_value_model_smoke.py) |
+| reset_invalidate_order_smoke | [test](../tests/compiler/lit/Source/source-historical-features.test) | [history_features.bench.ResetInvalidateOrderSystem](../tests/compiler/lit/Source/Inputs/history-features/bench.py) |
+| trace_dsl_smoke | [test](../tests/compiler/lit/Source/source-historical-features.test) | [history_features.bench.TraceDslSystem](../tests/compiler/lit/Source/Inputs/history-features/bench.py) |
+| xz_value_model_smoke | [test](../tests/compiler/lit/Source/source-historical-features.test) | [history_features.bench.XzValueModelSystem](../tests/compiler/lit/Source/Inputs/history-features/bench.py) |
+| gfsim_expect_pipeline | [test](../tests/compiler/lit/Source/source-historical-pipelines.test) | [history_pipeline.gfsim_expect_pipeline.gfsim_expect_pipeline](../tests/compiler/lit/Source/Inputs/history-pipeline/gfsim_expect_pipeline.py) |
+| credit_pipeline | [test](../tests/compiler/lit/Source/source-historical-pipelines.test) | [history_pipeline.pyc_credit_pipeline.pyc_credit_pipeline](../tests/compiler/lit/Source/Inputs/history-pipeline/pyc_credit_pipeline.py) |
+| reusable_circular_rob | [test](../tests/compiler/lit/Source/source-historical-residents.test) | [history_resident.resident_systems.reusable_circular_rob](../tests/compiler/lit/Source/Inputs/history-resident/resident_systems.py) |
+| reusable_oldest_ready_isq | [test](../tests/compiler/lit/Source/source-historical-residents.test) | [history_resident.resident_systems.reusable_oldest_ready_isq](../tests/compiler/lit/Source/Inputs/history-resident/resident_systems.py) |
+| dependency_pipeline | [test](../tests/compiler/lit/Source/source-historical-scheduling.test) | [history_scheduling.scheduling_systems.pyc_dependency_pipeline](../tests/compiler/lit/Source/Inputs/history-scheduling/scheduling_systems.py) |
+| schedule_v2 | [test](../tests/compiler/lit/Source/source-historical-scheduling.test) | [history_scheduling.scheduling_systems.schedule_v2](../tests/compiler/lit/Source/Inputs/history-scheduling/scheduling_systems.py) |
+| scalar_parameterized_types | [test](../tests/compiler/lit/Source/source-historical-scalar-parameterized.test) | [history_scalar_parameterized.bench.ScalarParameterizedTypesSystem](../tests/compiler/lit/Source/Inputs/history-scalar-parameterized-types/bench.py) |
+| slot_rule_mailbox | [test](../tests/compiler/lit/Source/source-historical-slot-issue.test) | [history_slot_issue.systems.slot_rule_mailbox](../tests/compiler/lit/Source/Inputs/history-slot-issue/systems.py) |
+| issue | [test](../tests/compiler/lit/Source/source-historical-slot-issue.test) | [history_slot_issue.systems.resident_issue](../tests/compiler/lit/Source/Inputs/history-slot-issue/systems.py) |
+| routed_dependency_pipeline | [test](../tests/compiler/lit/Source/source-historical-routed.test) | [history_routed.routed_systems.routed_dependency_pipeline](../tests/compiler/lit/Source/Inputs/history-routed/routed_systems.py) |
 
 ## Build and run
 

@@ -1,12 +1,15 @@
-# ruff: noqa: N802,F841
-from pycircuit import module
-
-from .counter import Counter
-from .types import Word
+from measurement_relocated.counter import Counter
+from pycircuit import bits, rule, system
 
 
-@module
-def DesignTop():
-    incoming: Word = 7
-    outgoing: Word = 99
+@rule
+def transfer_output(outgoing, count):
+    outgoing = count  # noqa: F841
+
+
+@system
+def DesignTop():  # noqa: N802
+    incoming: bits[8] = 7
+    outgoing: bits[8] = 99
     counter = Counter(incoming, outgoing)
+    transfer_output(outgoing, counter.count)

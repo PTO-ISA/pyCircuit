@@ -94,9 +94,7 @@ def materialize(name, destination):
             (
                 str((value >> bit) & 1)
                 if (known >> bit) & 1
-                else "z"
-                if (z >> bit) & 1
-                else "x"
+                else "z" if (z >> bit) & 1 else "x"
             )
             for bit in reversed(range(width))
         )

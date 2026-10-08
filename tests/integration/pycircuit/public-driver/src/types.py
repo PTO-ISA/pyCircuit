@@ -1,5 +1,6 @@
-from typing import Annotated
+from pycircuit import bits, struct
 
-Word = Annotated[int, range(256)]
-UnusedWord = Annotated[int, range(17)]
-_PrivateWord = Annotated[int, range(13)]
+
+@struct
+class CounterResult:
+    count: bits[8]

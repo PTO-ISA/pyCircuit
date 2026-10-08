@@ -771,6 +771,21 @@ for top, kind, width, address_width, depth, scenario in cases:
             defines += ["-DSHARED_PROTOCOL"]
     rowfile = output / "rows.txt"
     rowfile.write_text("".join(" ".join(map(str, row)) + "\n" for row in frames))
+    rtl_rowfile = rowfile
+    if kind == 3:
+        # Decimal scanf can saturate full-width unsigned values at INT64_MAX.
+        # Keep native decimal rows and encode the identical RTL wanted/mask bits.
+        rtl_rowfile = output / "rtl-rows.txt"
+        rtl_rowfile.write_text(
+            "".join(
+                " ".join(
+                    format(value, "x") if column in (8, 9) else str(value)
+                    for column, value in enumerate(row)
+                )
+                + "\n"
+                for row in frames
+            )
+        )
     final = output / "design_top.ac"
     cli(
         "link",
@@ -846,7 +861,7 @@ for top, kind, width, address_width, depth, scenario in cases:
             fixtures / "pythonic-memory.sv",
         ]
     )
-    result = run([rtl_build / "Vmemory", "+rows=" + str(rowfile)]).stdout
+    result = run([rtl_build / "Vmemory", "+rows=" + str(rtl_rowfile)]).stdout
     (output / "rtl.stdout").write_text(result)
     assert [line for line in result.splitlines() if line.startswith("WORK ")] == native[
         0
@@ -867,7 +882,7 @@ for top, kind, width, address_width, depth, scenario in cases:
                 fixtures / "pythonic-memory.sv",
             ]
         )
-        result = run([args.vvp, binary, "+rows=" + str(rowfile)]).stdout
+        result = run([args.vvp, binary, "+rows=" + str(rtl_rowfile)]).stdout
         (output / "rtl-four-state.stdout").write_text(result)
         assert [
             line for line in result.splitlines() if line.startswith("WORK ")

@@ -1,0 +1,3 @@
+# Complete finite scheduler histories, independently modeled outside DUT sources.
+# REQUIRES: verilator
+# RUN: %python %S/Inputs/history-scheduling/run.py --repo %src --source-compiler %pycircuit_source_unit --linker %pycircuit_link --emitter %pycircuit_emit --scratch %t.dir

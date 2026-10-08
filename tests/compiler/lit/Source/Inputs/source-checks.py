@@ -1,4 +1,4 @@
-"""Independent source-check SSA and source-unit authority gates; no DUT execution."""
+"""Independent source-check SSA, authority, and public managed lifecycle gates."""
 
 import argparse
 import ast
@@ -331,6 +331,8 @@ def main():
         "linker",
         "optimizer",
         "emitter",
+        "cxx",
+        "verilator",
         "scratch",
     ):
         parser.add_argument("--" + name, required=True)
@@ -584,8 +586,20 @@ def main():
     )
     assert protected(final) == before_final
 
-    # Source-unit checks fail before either backend publishes checked products.
+    checked_products = []
+    # Checked ordinary roots now publish through the verified reachable plan.
+    # Preserve cross-owner output protection independently of check admission.
     for target in ("cpp", "verilog"):
+        checked = root / ("checked-parent-" + target)
+        cli("emit", final, "--target", target, "-o", checked)
+        checked_receipt = json.loads((checked / "generated.json").read_text())
+        assert checked_receipt["entry"] == {
+            "definition": '@"checks.parent.Top"',
+            "arguments": [],
+        }
+        names = {row["path"] for row in checked_receipt["files"]}
+        assert ("pycircuit_system.hpp" if target == "cpp" else "design_top.sv") in names
+        checked_products.append(checked)
         published = root / ("published-" + target)
         cli("emit", root / "unchecked.ac", "--target", target, "-o", published)
         before = protected(published)
@@ -598,7 +612,7 @@ def main():
             published,
             "--replace",
             code=1,
-            diagnostic="ac.expect",
+            diagnostic="generated.json entry does not match its owner",
         )
         assert protected(published) == before
 
@@ -695,6 +709,14 @@ def main():
     assert '"ac.expect"' in checked_final.read_text()
     assert 'opcode = "udiv"' in checked_final.read_text()
     for target in ("cpp", "verilog"):
+        admitted = root / ("checked-divisor-" + target)
+        cli("emit", checked_final, "--target", target, "-o", admitted)
+        admitted_receipt = json.loads((admitted / "generated.json").read_text())
+        assert admitted_receipt["entry"] == {
+            "definition": '@"checks.matrix.Top"',
+            "arguments": [],
+        }
+        checked_products.append(admitted)
         published = root / ("published-" + target)
         before = protected(published)
         cli(
@@ -706,7 +728,7 @@ def main():
             published,
             "--replace",
             code=1,
-            diagnostic="ac.expect",
+            diagnostic="generated.json entry does not match its owner",
         )
         assert protected(published) == before
     (source / "matrix.py").write_text(baseline)
@@ -840,8 +862,207 @@ def main():
     assert protected(parent_unit) == parent_before
     header.write_bytes(original_header)
 
+    # Reuse the existing independent lifecycle caller against the public
+    # emitter, rather than the test-only prepared backend entrance.
+    lifecycle = root / "public-managed-lifecycle"
+    lifecycle.mkdir()
+    for target in ("cpp", "verilog"):
+        cli("emit", root / "matrix.ac", "--target", target, "-o", lifecycle / target)
+    cpp = lifecycle / "cpp"
+    emitted = json.loads((cpp / "generated.json").read_text())
+    sources = [
+        cpp / row["path"] for row in emitted["files"] if row["path"].endswith(".cpp")
+    ]
+    runtime_root = Path(args.source_compiler).resolve().parent.parent
+    runtime = next(
+        path
+        for path in (
+            runtime_root / "simulator/gfsim/libpyc6_runtime.a",
+            runtime_root / "lib/libpyc6_runtime.a",
+        )
+        if path.is_file()
+    )
+    native = lifecycle / "native"
+    run(
+        [
+            args.cxx,
+            "-std=c++20",
+            "-pthread",
+            "-DT3_CASE=0",
+            "-I" + str(repo / "include"),
+            "-I" + str(cpp),
+            Path(__file__).with_name("source-check-execution.cpp"),
+            *sources,
+            runtime,
+            "-o",
+            native,
+        ]
+    )
+    syntax = ast.parse((source / "matrix.py").read_text())
+    nodes = list(ast_paths(syntax))
+    check, check_path = next(
+        (node, path) for node, path in nodes if isinstance(node, ast.Assert)
+    )
+    _, registration_path = next(
+        (node, path)
+        for node, path in nodes
+        if isinstance(node, ast.Call)
+        and isinstance(node.func, ast.Name)
+        and node.func.id == "inspect"
+    )
+
+    def source_occurrence(path):
+        return {
+            "site": {
+                "definition": "checks.matrix.Top",
+                "ast_path": [
+                    (
+                        {"kind": "index", "value": item}
+                        if isinstance(item, int)
+                        else {"kind": "field", "name": item}
+                    )
+                    for item in path
+                ],
+            },
+            "expansion": [],
+        }
+
+    expected_id = {
+        "registration": source_occurrence(registration_path),
+        "check": source_occurrence(check_path),
+        "obligation": 0,
+    }
+    expected_span = {
+        "path": "matrix.py",
+        "line": check.lineno,
+        "column": check.col_offset + 1,
+        "end_line": check.end_lineno,
+        "end_column": check.end_col_offset + 1,
+    }
+
+    def decode(token):
+        return "" if token == "-" else bytes.fromhex(token).decode()
+
+    def rows(stdout):
+        parsed = {}
+        for line in stdout.splitlines():
+            if not line.startswith("ROW "):
+                continue
+            parts = line.split()
+            assert len(parts) == 12 and parts[1] not in parsed, line
+            parsed[parts[1]] = {
+                "status": int(parts[2]),
+                "epoch": int(parts[3]),
+                "phase": int(parts[4]),
+                "code": decode(parts[5]),
+                "message": decode(parts[6]),
+                "instance": decode(parts[7]),
+                "source": json.loads(decode(parts[8])) if parts[8] != "-" else None,
+                "id": json.loads(decode(parts[9])) if parts[9] != "-" else None,
+                "available": bool(int(parts[10])),
+                "output": parts[11],
+            }
+        return parsed
+
+    def success(row, output):
+        assert row["status"] == 1 and row["epoch"] == 1 and row["phase"] == 0, row
+        assert row["code"] == "" and row["available"] and row["output"] == output, row
+
+    def failure(row, epoch=0):
+        assert row["status"] == 3 and row["epoch"] == epoch and row["phase"] == 3, row
+        assert row["code"] == "source_check_failed" and not row["available"], row
+        assert row["message"] == check.msg.value and row["instance"] == "root", row
+        assert row["id"] == expected_id and row["source"] == expected_span, row
+
+    config = lifecycle / "runner-config.json"
+    config.write_text(
+        json.dumps(
+            {
+                "schema": "pycircuit-model-config",
+                "version": "1",
+                "max_ticks": 8,
+                "max_domain_cycles": {},
+                "deadlock_window": None,
+            },
+            sort_keys=True,
+            separators=(",", ":"),
+        )
+        + "\n"
+    )
+    native_traces, runner_traces = [], []
+    for workers in (1, 2):
+        stdout = run([native, workers]).stdout
+        (lifecycle / f"native-{workers}.stdout").write_text(stdout)
+        native_traces.append(stdout)
+        actual = rows(stdout)
+        for path, condition in itertools.product("01xz", repeat=2):
+            label = "matrix-" + path + condition
+            if and_bit(path, inv(condition)) == "0":
+                success(actual[label], condition)
+            else:
+                failure(actual[label])
+                failure(actual[label + "-retry"])
+                success(actual[label + "-reset"], "1")
+        events = lifecycle / f"runner-{workers}.jsonl"
+        stdout = run([native, workers, config, events]).stdout
+        (lifecycle / f"runner-{workers}.stdout").write_text(stdout)
+        runner_traces.append(stdout)
+        actual = rows(stdout)
+        failure(actual["runner-failure"], 1)
+        failure(actual["runner-retry"], 1)
+        assert "RUNNER initialized=1 drives=2 samples=1 bounded=8" in stdout
+        records = [json.loads(line) for line in events.read_text().splitlines()]
+        assert len(records) == 1
+        result = records[0]
+        assert (
+            result["kind"] == "result"
+            and result["status"] == "FAILED"
+            and result["epoch_time"] == "1"
+        ), result
+        assert result["error"] == {
+            "phase": "check",
+            "code": "source_check_failed",
+            "message": check.msg.value,
+            "instance": "root",
+            "source": expected_span,
+            "check_id": expected_id,
+        }, result
+    assert native_traces[0] == native_traces[1]
+    assert runner_traces[0] == runner_traces[1]
+    rtl = lifecycle / "verilog"
+    emitted = json.loads((rtl / "generated.json").read_text())
+    sources = [rtl / row["path"] for row in emitted["files"] if row["role"] == "rtl"]
+    rtl_build = lifecycle / "verilated"
+    run(
+        [
+            args.verilator,
+            "--binary",
+            "--timing",
+            "--top-module",
+            "tb",
+            "--Mdir",
+            rtl_build,
+            "-j",
+            "2",
+            "-Wno-fatal",
+            "-CFLAGS",
+            "-std=c++20",
+            *sources,
+            Path(__file__).with_name("source-checks-managed.sv"),
+        ]
+    )
+    stdout = run([rtl_build / "Vtb"]).stdout
+    (lifecycle / "rtl.stdout").write_text(stdout)
+    assert [line for line in stdout.splitlines() if line.startswith("MATRIX ")] == [
+        "MATRIX 00 0",
+        "MATRIX 01 0",
+        "MATRIX 10 1",
+        "MATRIX 11 0",
+    ]
+    assert "MANAGED_CHECKED_MODULE_OK" in stdout.splitlines()
+
     results_record = {
-        "scope": "source capture/SSA/source-unit; no native or RTL execution acceptance",
+        "scope": "source capture/SSA/source-unit and public checked ordinary-module lifecycle",
         "artifact_directory": str(root),
         "fixtures": {
             p.name: hashlib.sha256(p.read_bytes()).hexdigest()
@@ -854,12 +1075,19 @@ def main():
         "ir_negatives": list(mutants),
         "existing_range_binding_verified": True,
         "explicit_provider_closure": True,
-        "backend_checked_rejection": ["cpp", "verilog"],
-        "observation_emission_rejected": ["cpp", "verilog"],
+        "backend_checked_admission": ["cpp", "verilog"],
+        "checked_products": [str(path) for path in checked_products],
+        "native_public_matrix_frames": 16,
+        "native_public_workers": [1, 2],
+        "managed_lifecycle_directory": str(lifecycle),
+        "rtl_public_known_matrix_frames": 4,
+        "observation_fresh_admission": ["cpp"],
+        "observation_emission_rejected": ["verilog"],
+        "cross_owner_replacement_rejected": ["cpp", "verilog"],
     }
     (evidence / "results.json").write_text(json.dumps(results_record, indent=2) + "\n")
     print(
-        "PASS: source-check IDs/suffix/snapshots/continuation, -O, provider closure and protected rejections; no DUT acceptance"
+        "PASS: source-check IDs/SSA/-O/provider closure/protected rejections; public checked native lifecycle workers1/2 and known RTL matrix"
     )  # noqa: T201 - standalone gate PASS receipt
 
 

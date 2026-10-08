@@ -1,6 +1,6 @@
 #include "PythonImportRecords.h"
-#include "SourceRuleWrites.h"
 #include "SourceDeclarationContext.h"
+#include "SourceRuleWrites.h"
 
 #include "FixedUnsignedDivRemLowering.h"
 #include "NumericLowering.h"
@@ -19,9 +19,9 @@
 #include "llvm/ADT/DenseMap.h"
 #include "llvm/ADT/DenseSet.h"
 #include "llvm/ADT/STLExtras.h"
+#include "llvm/ADT/ScopeExit.h"
 #include "llvm/ADT/StringMap.h"
 #include "llvm/ADT/StringSet.h"
-#include "llvm/ADT/ScopeExit.h"
 #include "llvm/Support/MathExtras.h"
 
 #include <limits>
@@ -269,8 +269,8 @@ public:
       return failure();
     return together.kind == Result::Impossible;
   }
-  FailureOr<bool> disjointAtAddress(Value first, Value second,
-                                    Value firstIndex, Value secondIndex) {
+  FailureOr<bool> disjointAtAddress(Value first, Value second, Value firstIndex,
+                                    Value secondIndex) {
     auto left = canonical(firstIndex, 0), right = canonical(secondIndex, 0);
     if (failed(left) || failed(right))
       return failure();
@@ -472,7 +472,8 @@ private:
     // lossless padding while never truncating an unknown or a high bit.
     return llvm::APSInt::compareValues(
                llvm::APSInt(cast<ac::MathIntAttr>(a.value).getCanonicalValue()),
-               llvm::APSInt(cast<ac::MathIntAttr>(c.value).getCanonicalValue())) == 0;
+               llvm::APSInt(
+                   cast<ac::MathIntAttr>(c.value).getCanonicalValue())) == 0;
   }
   FailureOr<bool> sameAddress(Value value, Value endpoint, unsigned depth) {
     auto resolved = canonical(value, depth);
@@ -589,7 +590,8 @@ private:
     if (failed(resolved))
       return fail("owner-enable proof normalization failed");
     Value value = *resolved;
-    auto key = std::make_pair(collision, std::make_pair(value, unsigned(polarity)));
+    auto key =
+        std::make_pair(collision, std::make_pair(value, unsigned(polarity)));
     auto found = cache.find(key);
     if (found != cache.end()) {
       if (!charge(found->second.facts.size()))
@@ -674,7 +676,8 @@ private:
           // An X/Z selector also produces a known result when both arms are
           // known and equal. Keep this alternative, including its failures.
           auto common = conjunction(yesFacts, noFacts);
-          result = alternatives(alternatives(selectedTrue, selectedFalse), common);
+          result =
+              alternatives(alternatives(selectedTrue, selectedFalse), common);
         }
       }
     } else if (auto compare = value.getDefiningOp<ac::BitsCompareOp>();
@@ -722,7 +725,8 @@ private:
   std::string reason;
   llvm::DenseMap<Value, Value> normalized;
   llvm::DenseSet<Value> normalizing;
-  using QueryKey = std::pair<std::pair<Value, Value>, std::pair<Value, unsigned>>;
+  using QueryKey =
+      std::pair<std::pair<Value, Value>, std::pair<Value, unsigned>>;
   std::pair<Value, Value> collision;
   llvm::DenseMap<QueryKey, Result> cache;
   llvm::DenseSet<QueryKey> visiting;
@@ -735,11 +739,17 @@ public:
            const SourceRuleWritesAnalysis &ruleWrites,
            std::function<InFlightDiagnostic()> error)
       : source(source), owner(owner), headers(headers), ruleWrites(ruleWrites),
-        error([this, error = std::move(error)] { diagnosticFailed = true; return error(); }), b(owner.getContext()), prefix(moduleName(owner)) {}
+        error([this, error = std::move(error)] {
+          diagnosticFailed = true;
+          return error();
+        }),
+        b(owner.getContext()), prefix(moduleName(owner)) {}
   LogicalResult prepare() override;
   FailureOr<OwningOpRef<ModuleOp>> lower() override;
   ArrayRef<MemoryCallPlan> memoryCalls() const override { return memoryPlans; }
-  ArrayRef<ModuleDomainPlan> moduleDomains() const override { return domainPlans; }
+  ArrayRef<ModuleDomainPlan> moduleDomains() const override {
+    return domainPlans;
+  }
 
 private:
   LogicalResult scanImports();
@@ -792,11 +802,13 @@ private:
                                    llvm::StringMap<BindingBoundary> *boundaries,
                                    const llvm::StringSet<> &forbidden,
                                    bool immutable);
-  FailureOr<SmallVector<Value>> tableQueryResults(
-      const AstNode &call, OpBuilder &at, FlatSymbolRefAttr symbol,
-      llvm::StringMap<Value> &values, llvm::StringMap<Instance *> &instances);
+  FailureOr<SmallVector<Value>>
+  tableQueryResults(const AstNode &call, OpBuilder &at,
+                    FlatSymbolRefAttr symbol, llvm::StringMap<Value> &values,
+                    llvm::StringMap<Instance *> &instances);
   LogicalResult preflightQueryCallback(const AstNode &callback,
-      const llvm::StringMap<Value> &values, SmallVectorImpl<StringRef> &captures);
+                                       const llvm::StringMap<Value> &values,
+                                       SmallVectorImpl<StringRef> &captures);
   bool queueCall(const AstNode &node) const;
   bool moduleCall(const AstNode &node) const;
   FailureOr<SmallVector<StringRef, 3>>
@@ -814,13 +826,17 @@ private:
   StringRef memoryReference(const AstNode &node) const;
   StringRef memoryKind(const AstNode &call) const;
   LogicalResult prepareMemoryBindings();
-  const MemoryCallPlan *memoryPlan(const AstNode &call, FlatSymbolRefAttr symbol);
-  LogicalResult bindMemoryInputs(const MemoryCallPlan &plan, Operation *instance,
-      OpBuilder &at, FlatSymbolRefAttr symbol, llvm::StringMap<Value> &values,
-      llvm::StringMap<Instance *> &instances);
+  const MemoryCallPlan *memoryPlan(const AstNode &call,
+                                   FlatSymbolRefAttr symbol);
+  LogicalResult bindMemoryInputs(const MemoryCallPlan &plan,
+                                 Operation *instance, OpBuilder &at,
+                                 FlatSymbolRefAttr symbol,
+                                 llvm::StringMap<Value> &values,
+                                 llvm::StringMap<Instance *> &instances);
   FailureOr<bool> bindMemoryResults(const AstNode &statement, OpBuilder &at,
-      FlatSymbolRefAttr symbol, llvm::StringMap<Value> &values,
-      llvm::StringMap<Instance *> &instances);
+                                    FlatSymbolRefAttr symbol,
+                                    llvm::StringMap<Value> &values,
+                                    llvm::StringMap<Instance *> &instances);
   llvm::StringMap<unsigned> sourceNameWrites(const AstNode &module) const;
   LogicalResult predeclareDirectCalls(ModuleDecl &decl, OpBuilder &at);
   FailureOr<Value> forwardModuleValue(StringRef name, FlatSymbolRefAttr symbol);
@@ -837,8 +853,8 @@ private:
                  llvm::StringMap<Value> &values, ArrayRef<StateOwner> states,
                  bool statementCall = false);
   LogicalResult bindProposals(ArrayRef<StateOwner> states, OpBuilder &at,
-                               llvm::StringMap<Value> &values,
-                               FlatSymbolRefAttr symbol);
+                              llvm::StringMap<Value> &values,
+                              FlatSymbolRefAttr symbol);
   LogicalResult preflightProposals(const AstNode &module);
   void bindState(const StateOwner &state, Value next, Value en, OpBuilder &at,
                  llvm::StringMap<Value> &values);
@@ -879,8 +895,9 @@ private:
                                const AstNode &node, OpBuilder &at,
                                FlatSymbolRefAttr owner,
                                std::optional<size_t> domainSlot = std::nullopt);
-  FailureOr<std::optional<size_t>> addressDomainSlot(
-      StringRef formal, const AstNode &assignment, const AstNode &index);
+  FailureOr<std::optional<size_t>> addressDomainSlot(StringRef formal,
+                                                     const AstNode &assignment,
+                                                     const AstNode &index);
   LogicalResult proveIndex(Value table, Value index, const AstNode &node);
   FailureOr<Value> unsignedBoundary(Value value, Type target,
                                     const AstNode &node, OpBuilder &at,
@@ -1089,9 +1106,9 @@ ArrayAttr portNames(OpBuilder &b, ArrayRef<Port> ports);
 #include "PythonImportAssignments.inc"
 #include "PythonImportBehavior.inc"
 #include "PythonImportComposition.inc"
-#include "PythonImportMemoryPreparation.inc"
-#include "PythonImportMemoryCalls.inc"
 #include "PythonImportDefaults.inc"
+#include "PythonImportMemoryCalls.inc"
+#include "PythonImportMemoryPreparation.inc"
 #include "PythonImportQueues.inc"
 #include "PythonImportRuleCall.inc"
 #include "PythonImportSourceCalls.inc"
@@ -1180,11 +1197,12 @@ FailureOr<bool> Importer::equivalentBoundaryTypes(Type actual, Type declared,
 Value Importer::boundaryBitsIdentity(Value value, Type target,
                                      const AstNode &node, OpBuilder &at,
                                      FlatSymbolRefAttr ownerSymbol) {
-  auto result = createOp(at, node.location(b.getContext(), source.path),
-                         ac::BitsExtractOp::getOperationName(), {value},
-                         TypeRange{target},
-                         {at.getNamedAttr("low", literal(0, node, ownerSymbol))})
-                    ->getResult(0);
+  auto result =
+      createOp(at, node.location(b.getContext(), source.path),
+               ac::BitsExtractOp::getOperationName(), {value},
+               TypeRange{target},
+               {at.getNamedAttr("low", literal(0, node, ownerSymbol))})
+          ->getResult(0);
   auto info = valueInfo(value);
   info.value = result;
   numericValues[result] = std::move(info);
@@ -1220,8 +1238,8 @@ FailureOr<Value> Importer::boundary(Value value, const Port &destination,
                         "and destination kinds";
     if (*equivalent && isa<ac::BitsType>(destination.type) &&
         !ac::areEquivalentHardwareTypes(value.getType(), destination.type)) {
-      value = boundaryBitsIdentity(value, destination.type, node, at,
-                                   ownerSymbol);
+      value =
+          boundaryBitsIdentity(value, destination.type, node, at, ownerSymbol);
       info = valueInfo(value);
     }
     auto converted =
@@ -2675,15 +2693,17 @@ FailureOr<Value> Importer::expression(
           return error() << "runtime unsigned division/remainder operand "
                             "hardware types differ";
         Value rhsValue = *rhs;
-        if (!ac::areEquivalentHardwareTypes(rhsValue.getType(), input->getType()))
+        if (!ac::areEquivalentHardwareTypes(rhsValue.getType(),
+                                            input->getType()))
           rhsValue = boundaryBitsIdentity(rhsValue, input->getType(),
                                           node.child("right"), at, ownerSymbol);
         Value result =
             createOp(at, node.location(b.getContext(), source.path),
                      ac::BitsBinaryOp::getOperationName(), {*input, rhsValue},
                      TypeRange{input->getType()},
-                     {at.getNamedAttr("opcode", at.getStringAttr(
-                         form == "FloorDiv" ? "udiv" : "urem"))})
+                     {at.getNamedAttr(
+                         "opcode", at.getStringAttr(
+                                       form == "FloorDiv" ? "udiv" : "urem"))})
                 ->getResult(0);
         fixedValues.insert(result);
         return result;
@@ -3286,8 +3306,7 @@ size_t Importer::countSourceChecks(const AstNode &parent, StringRef field) {
     StringRef observationKind;
     if (call.kind() == "Call" && intrinsic(call.child("func"), "log"))
       observationKind = "log";
-    else if (call.kind() == "Call" &&
-             intrinsic(call.child("func"), "report"))
+    else if (call.kind() == "Call" && intrinsic(call.child("func"), "report"))
       observationKind = "report";
     if (observationKind.empty())
       continue;
@@ -3415,8 +3434,7 @@ LogicalResult Importer::captureRuleObservation(const AstNode &rule,
     capture.observationRule = rule;
     capture.observationValues = groups;
     capture.observationCarriesValue = index < values.size();
-    capture.condition =
-        capture.observationCarriesValue ? values[index] : *path;
+    capture.condition = capture.observationCarriesValue ? values[index] : *path;
     checks.insert(checks.begin() + activeRule->observationEntries++, capture);
   }
   return success();
@@ -3452,9 +3470,9 @@ LogicalResult Importer::publishSourceChecks(Operation *rule,
       required.push_back(at.getDictionaryAttr(
           {at.getNamedAttr("id", identity), at.getNamedAttr("kind", kind),
            at.getNamedAttr("location", location)}));
-      SmallVector<NamedAttribute> attrs{at.getNamedAttr("kind", kind),
-                                        at.getNamedAttr("location", location),
-                                        at.getNamedAttr("ac.check_id", identity)};
+      SmallVector<NamedAttribute> attrs{
+          at.getNamedAttr("kind", kind), at.getNamedAttr("location", location),
+          at.getNamedAttr("ac.check_id", identity)};
       if (check.message)
         attrs.push_back(at.getNamedAttr("ac.message", check.message));
       createOp(at, check.statement.location(b.getContext(), source.path),
@@ -3569,8 +3587,7 @@ LogicalResult Importer::buildObservation(const AstNode &statement,
   observationKind = {};
   if (call.kind() == "Call" && intrinsic(call.child("func"), "log"))
     observationKind = "log";
-  else if (call.kind() == "Call" &&
-           intrinsic(call.child("func"), "report"))
+  else if (call.kind() == "Call" && intrinsic(call.child("func"), "report"))
     observationKind = "report";
   if (observationKind.empty())
     return error() << "unsupported rule instrumentation statement";
@@ -3696,6 +3713,11 @@ LogicalResult Importer::emitInstrumentation(
       yields.push_back(*value);
     }
   }
+  // Type discovery supplies admission hints, while ordinary expression
+  // lowering owns the resolved payload type (for example, literal + u8).
+  // Publish those actual yielded types, as the behavioral check path does.
+  for (auto [result, yielded] : llvm::zip(ruleOp->getResults(), yields))
+    result.setType(yielded.getType());
   createOp(inside, statement.location(b.getContext(), source.path),
            ac::YieldOp::getOperationName(), yields, {}, {});
 
@@ -4081,9 +4103,9 @@ LogicalResult Importer::emitModule(ModuleDecl &decl) {
       return error() << "registered rule has no hardware behavior";
     if (target && target->bound)
       return error() << "each instance requires one complete binding rule";
-    // Declared before the binding block because the module-level instrumentation
-    // pass below must still see which observation sites the rule-body walker
-    // deferred to it.
+    // Declared before the binding block because the module-level
+    // instrumentation pass below must still see which observation sites the
+    // rule-body walker deferred to it.
     RuleEvaluation evaluation;
     if (target || checkCount) {
       SmallVector<Value> captures;
@@ -4179,9 +4201,8 @@ LogicalResult Importer::emitModule(ModuleDecl &decl) {
         ++instrumentationOrdinal;
         continue;
       }
-      if (value.kind() != "Call" ||
-          (!intrinsic(value.child("func"), "log") &&
-           !intrinsic(value.child("func"), "report")))
+      if (value.kind() != "Call" || (!intrinsic(value.child("func"), "log") &&
+                                     !intrinsic(value.child("func"), "report")))
         continue;
       if (failed(emitInstrumentation(decl, rule, statement,
                                      instrumentationOrdinal++, at, values,
@@ -4260,7 +4281,8 @@ LogicalResult Importer::preflightProposals(const AstNode &module) {
           !sameSourceSite(witness.assignment, path.assignment) ||
           path.selectors.empty() ||
           path.selectors.front().kind != SourceWriteSelector::Kind::Index ||
-          !sameSourceSite(witness.occurrence, path.selectors.front().occurrence))
+          !sameSourceSite(witness.occurrence,
+                          path.selectors.front().occurrence))
         return nullptr;
       found = &witness;
     }
@@ -4277,12 +4299,14 @@ LogicalResult Importer::preflightProposals(const AstNode &module) {
         if (!witnessFor(proposal, pathIndex)) {
           if (!grantProof->failureReason().empty())
             return error() << grantProof->failureReason();
-          return error() << "missing or invalid exact assignment-time address witness";
+          return error()
+                 << "missing or invalid exact assignment-time address witness";
         }
       }
     }
     if (proposal.domains.size() != indexedPaths)
-      return error() << "address witness count differs from retained indexed paths";
+      return error()
+             << "address witness count differs from retained indexed paths";
     auto call = site(proposal.callPlan->call),
          owner = site(proposal.write->owner);
     if (!call || !owner)
@@ -4322,13 +4346,15 @@ LogicalResult Importer::preflightProposals(const AstNode &module) {
     if (failed(proof))
       return error() << grantProof->failureReason();
     if (!*proof) {
-      // Source Phase A already removed structurally/static-disjoint owner pairs.
-      // Recheck its path relation here for each pair, including all later writes.
+      // Source Phase A already removed structurally/static-disjoint owner
+      // pairs. Recheck its path relation here for each pair, including all
+      // later writes.
       if (!grantProof->chargeProduct(first->write->paths.size(),
                                      second->write->paths.size()))
         return error() << grantProof->failureReason();
       for (auto [firstIndex, left] : llvm::enumerate(first->write->paths))
-        for (auto [secondIndex, right] : llvm::enumerate(second->write->paths)) {
+        for (auto [secondIndex, right] :
+             llvm::enumerate(second->write->paths)) {
           if (!grantProof->charge(left.selectors.size()) ||
               !grantProof->charge(right.selectors.size()))
             return error() << grantProof->failureReason();
@@ -4362,9 +4388,10 @@ LogicalResult Importer::preflightProposals(const AstNode &module) {
             continue;
           auto diagnostic = mlir::emitError(
               right.assignment.location(b.getContext(), source.path));
-          diagnostic << "overlapping state writes across rule registrations: owner "
-                        "enables are not proven mutually exclusive and addresses "
-                        "are not proven separated";
+          diagnostic
+              << "overlapping state writes across rule registrations: owner "
+                 "enables are not proven mutually exclusive and addresses "
+                 "are not proven separated";
           diagnostic.attachNote(
               left.assignment.location(b.getContext(), source.path))
               << "previous overlapping write is here";
@@ -4681,12 +4708,14 @@ LogicalResult Importer::prepare() {
     return failure();
   for (const ModuleDecl &decl : modules)
     domainPlans.push_back({decl.node, decl.symbol, decl.type,
-                          decl.sourceCallAttrs, decl.needsDomain});
-  if (failed(verify(body->getOperation()))) return failure();
+                           decl.sourceCallAttrs, decl.needsDomain});
+  if (failed(verify(body->getOperation())))
+    return failure();
   return success(!diagnosticFailed);
 }
 FailureOr<OwningOpRef<ModuleOp>> Importer::lower() {
-  grantProof = std::make_unique<OwnerEnableProof>(*body, ruleWrites.spentWork());
+  grantProof =
+      std::make_unique<OwnerEnableProof>(*body, ruleWrites.spentWork());
   for (ModuleDecl &decl : modules)
     if (failed(emitModule(decl)))
       return failure();
@@ -4772,9 +4801,7 @@ public:
       : owner(owner), headers(&headers) {}
   LowerPythonSourcePass(const LowerPythonSourcePass &other)
       : PassWrapper(other), owner(other.owner), headers(other.headers) {}
-  StringRef getArgument() const final {
-    return "ac-lower-python-source";
-  }
+  StringRef getArgument() const final { return "ac-lower-python-source"; }
   void getDependentDialects(DialectRegistry &registry) const override {
     registry.insert<ac::ACIRDialect>();
   }

@@ -1,7 +1,8 @@
 # Counter module
 
-Each instance owns one `count` register. On a registered tick, it reports the
-current count and proposes the previous count on the parent-owned output, then
-captures the current input for the next cycle. The log observes the output's
-old value. Two instances exercise source-owned module reuse with distinct
-instance state.
+Each instance owns one eight-bit `count` register. Its stateless rule logs the
+incoming value of the parent's output register, reports the old private count,
+returns that count in `CounterResult`, and proposes the input as the next count.
+The parent writes its own output register from the returned old count. Two
+actual module instances exercise source-owned reuse with distinct instance
+state and observation paths.

@@ -8,6 +8,7 @@ pycircuit_add_example(digital_clock PACKAGE example_digital_clock
   SYSTEM_TOP example_digital_clock.bench.ExerciseDigitalClock
   SYSTEM_ENTRY_SOURCE bench
   SYSTEM_CYCLES 100000001
+  SYSTEM_TIMEOUT_SECONDS 1800
   SYSTEM_SOURCES digital_clock.py bench.py)
 if(PYC_EXAMPLE_VERIFY)
 

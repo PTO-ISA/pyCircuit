@@ -194,7 +194,9 @@ def sections_of(epochs):
     folded = runs[:8] + [runs[8] + [epochs[boundaries[9]]] + runs[9]] + runs[10:]
     assert len(folded) == len(SECTION_NAMES), (len(folded), len(SECTION_NAMES))
     out = {}
-    for name, run in zip(SECTION_NAMES, folded):  # noqa: B905 - preserve the extracted reference algorithm
+    for name, run in zip(
+        SECTION_NAMES, folded
+    ):  # noqa: B905 - preserve the extracted reference algorithm
         out[name] = [dict(entry, local=index + 1) for index, entry in enumerate(run)]
     return out
 
@@ -374,9 +376,9 @@ def stream_contract(record):
     # (e) clause 6 negative half: a hole WAITS.  T2 offers 5,3,4 before 0 exists
     #     and nothing may leave before the edge key 0 becomes releasable.
     t2 = sections["T2_hole_then_fill"]
-    assert all(not entry["available"] for entry in t2 if entry["local"] <= 6), (
-        "T2 released something before key 0 was available"
-    )
+    assert all(
+        not entry["available"] for entry in t2 if entry["local"] <= 6
+    ), "T2 released something before key 0 was available"
     assert sinks(t2) and min(sinks(t2)) == 7, sinks(t2)
     ok(
         "T6-hole-waits",
@@ -1128,14 +1130,18 @@ def mutant_check(
         )
         differing = [
             index
-            for index, (a, b) in enumerate(zip(words, reference))  # noqa: B905 - preserve the extracted reference algorithm
+            for index, (a, b) in enumerate(
+                zip(words, reference)
+            )  # noqa: B905 - preserve the extracted reference algorithm
             if a is not None and b is not None and (a ^ b) & keep
         ]
         assert [word is None for word in words] == [
             word is None for word in reference
         ], label
         assert not differing, (label, differing[:8])
-        changed = sum(1 for a, b in zip(words, reference) if a != b)  # noqa: B905 - preserve the extracted reference algorithm
+        changed = sum(
+            1 for a, b in zip(words, reference) if a != b
+        )  # noqa: B905 - preserve the extracted reference algorithm
         assert changed, f"{label}: the mutation changed nothing at all"
         ok(
             f"V7-{label}",

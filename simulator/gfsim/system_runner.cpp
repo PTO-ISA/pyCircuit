@@ -91,6 +91,15 @@ void appendValue(std::ostringstream &output, SlotValue value) {
   output << '}';
 }
 
+bool sameObservationGroup(const RunnerObservation &first,
+                          const RunnerObservation &entry, std::size_t index) {
+  return entry.groupIndex == index && entry.groupSize == first.groupSize &&
+         entry.kind == first.kind && entry.instance == first.instance &&
+         entry.registration == first.registration && entry.site == first.site &&
+         entry.specJson == first.specJson &&
+         entry.reportName == first.reportName;
+}
+
 bool metadataMatches(std::span<const RunnerObservation> metadata,
                      std::span<const ObservationDescriptor> descriptors,
                      std::vector<ReportGaugeDescriptor> &reports) {
@@ -99,6 +108,7 @@ bool metadataMatches(std::span<const RunnerObservation> metadata,
   reports.clear();
   reports.reserve(metadata.size());
   std::vector<bool> seen(metadata.size(), false);
+  std::vector<const RunnerObservation *> ordered(metadata.size(), nullptr);
   for (const RunnerObservation &entry : metadata) {
     if (entry.instance.empty() || entry.registration.empty() ||
         entry.site.empty() || entry.specJson.empty())
@@ -114,6 +124,7 @@ bool metadataMatches(std::span<const RunnerObservation> metadata,
     if (seen[index])
       return false;
     seen[index] = true;
+    ordered[index] = &entry;
     const bool isReport = entry.kind == "report";
     if ((!isReport && entry.kind != "print" && entry.kind != "log") ||
         (isReport != (descriptor->kind == ObservationKind::Gauge)) ||
@@ -128,6 +139,26 @@ bool metadataMatches(std::span<const RunnerObservation> metadata,
       return false;
     }
   }
+  for (std::size_t begin = 0; begin < ordered.size();) {
+    const RunnerObservation &first = *ordered[begin];
+    if (first.groupIndex != 0 || first.groupSize == 0 ||
+        first.groupSize > ordered.size() - begin ||
+        (first.kind == "report" && first.groupSize != 1))
+      return false;
+    for (std::size_t index = 0; index < first.groupSize; ++index) {
+      const RunnerObservation &entry = *ordered[begin + index];
+      const ObservationDescriptor &descriptor = descriptors[begin + index];
+      const ObservationDescriptor &groupDescriptor = descriptors[begin];
+      if (!sameObservationGroup(first, entry, index) ||
+          descriptor.ownerKey != groupDescriptor.ownerKey ||
+          descriptor.registrationKey != groupDescriptor.registrationKey ||
+          descriptor.siteKey != groupDescriptor.siteKey ||
+          descriptor.kind != groupDescriptor.kind ||
+          (first.groupSize > 1 && !entry.hasValue))
+        return false;
+    }
+    begin += first.groupSize;
+  }
   return std::all_of(seen.begin(), seen.end(),
                      [](bool value) { return value; });
 }
@@ -139,17 +170,16 @@ struct OutputItem {
   const GaugeSnapshot *gauge;
 };
 
-std::string eventRecord(const OutputItem &item) {
+std::uint64_t observationEpoch(const OutputItem &item) {
+  return item.event ? item.event->epoch : item.gauge->lastUpdate;
+}
+
+std::string eventRecord(std::span<const OutputItem> group) {
+  const OutputItem &item = group.front();
   const RunnerObservation &metadata = *item.metadata;
-  const std::uint64_t committedEpoch =
-      item.event ? item.event->epoch : item.gauge->lastUpdate;
+  const std::uint64_t committedEpoch = observationEpoch(item);
   const std::uint64_t evaluationEpoch =
       committedEpoch == 0 ? 0 : committedEpoch - 1;
-  const SlotValue value = item.event ? item.event->value : item.gauge->value;
-  if (value.kind != SlotValueKind::Bool &&
-      value.kind != SlotValueKind::Signed &&
-      value.kind != SlotValueKind::Unsigned)
-    throw std::runtime_error("observation has an unsupported value kind");
 
   std::ostringstream output;
   output.imbue(std::locale::classic());
@@ -166,8 +196,20 @@ std::string eventRecord(const OutputItem &item) {
   output << ",\"commit_epoch\":";
   appendString(output, std::to_string(committedEpoch));
   output << ",\"spec\":" << metadata.specJson << ",\"values\":[";
-  if (metadata.hasValue)
+  bool hasValue = false;
+  for (const OutputItem &lane : group) {
+    if (!lane.metadata->hasValue)
+      continue;
+    const SlotValue value = lane.event ? lane.event->value : lane.gauge->value;
+    if (value.kind != SlotValueKind::Bool &&
+        value.kind != SlotValueKind::Signed &&
+        value.kind != SlotValueKind::Unsigned)
+      throw std::runtime_error("observation has an unsupported value kind");
+    if (hasValue)
+      output << ',';
     appendValue(output, value);
+    hasValue = true;
+  }
   output << "]}\n";
   return output.str();
 }
@@ -240,14 +282,16 @@ bool exclusiveCreate(const std::string &path, std::FILE *&file) noexcept {
 SystemRunner::SystemRunner(int argc, char **argv)
     : SystemRunner(argc, argv, {}) {}
 
-SystemRunner::SystemRunner(int argc, char **argv, std::string_view embeddedConfig) {
+SystemRunner::SystemRunner(int argc, char **argv,
+                           std::string_view embeddedConfig) {
   std::string configPath;
   std::string eventPath;
   bool hasConfig = false;
   bool hasEvents = false;
   bool hasWorkers = false;
   if (!argv || argc < 1) {
-    fail("usage: pycircuit_system --config PATH [--events PATH| -] [--workers N]");
+    fail("usage: pycircuit_system --config PATH [--events PATH| -] [--workers "
+         "N]");
     return;
   }
   for (int index = 1; index < argc;) {
@@ -272,9 +316,9 @@ SystemRunner::SystemRunner(int argc, char **argv, std::string_view embeddedConfi
         std::string_view(argv[index]) == "--config" ||
         std::string_view(argv[index]) == "--events" ||
         std::string_view(argv[index]) == "--workers") {
-      fail(configOption ? "expected --config PATH"
-                        : workersOption ? "expected --workers N"
-                                        : "expected --events PATH or --events -");
+      fail(configOption    ? "expected --config PATH"
+           : workersOption ? "expected --workers N"
+                           : "expected --events PATH or --events -");
       return;
     }
     if (configOption) {
@@ -505,8 +549,34 @@ int SystemRunner::Run(SimSystem &system, ObservationSlots &observations,
                   [](const OutputItem &left, const OutputItem &right) {
                     return left.descriptorOrder < right.descriptorOrder;
                   });
-        for (const OutputItem &item : outputItems)
-          if (!writeRecord(eventRecord(item))) {
+        // Validate and serialize every active group before publishing any
+        // event from this epoch. An incomplete later group cannot leak an
+        // earlier scalar event. Entirely inactive groups produce no slots.
+        std::vector<std::string> records;
+        for (std::size_t begin = 0; begin < outputItems.size();) {
+          const OutputItem &first = outputItems[begin];
+          const std::size_t count = first.metadata->groupSize;
+          if (first.metadata->groupIndex != 0 || count == 0 ||
+              count > outputItems.size() - begin) {
+            fail("observation group is incomplete");
+            return 2;
+          }
+          for (std::size_t index = 0; index < count; ++index) {
+            const OutputItem &entry = outputItems[begin + index];
+            if (!sameObservationGroup(*first.metadata, *entry.metadata,
+                                      index) ||
+                entry.descriptorOrder != first.descriptorOrder + index ||
+                observationEpoch(entry) != committedEpoch) {
+              fail("observation group is incomplete or inconsistent");
+              return 2;
+            }
+          }
+          records.push_back(eventRecord(
+              std::span<const OutputItem>(outputItems).subspan(begin, count)));
+          begin += count;
+        }
+        for (const std::string &record : records)
+          if (!writeRecord(record)) {
             fail("events sink write failed");
             return 1;
           }

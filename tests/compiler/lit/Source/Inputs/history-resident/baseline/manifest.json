@@ -1,0 +1,23 @@
+{
+  "assets": [
+    {
+      "revision": "8887e6dec7b4cc530a9967c860dc6a224d79a4ab",
+      "path": "examples/agentic-circuit/state/reusable_circular_rob.py",
+      "asset": "reusable_circular_rob.py.txt",
+      "sha256": "a9dd165046fde87dd6422c1b2e9be6996e6bf65bfb9db7057c2d7e85c6d6a87b"
+    },
+    {
+      "revision": "8887e6dec7b4cc530a9967c860dc6a224d79a4ab",
+      "path": "examples/agentic-circuit/state/reusable_oldest_ready_isq.py",
+      "asset": "reusable_oldest_ready_isq.py.txt",
+      "sha256": "7c4541fceb0ac05e78ba32f416355c19649459b4d018e950cf6f24dffb22bc75"
+    },
+    {
+      "revision": "b3e52fb22061350d61b23089c8bed36913650245",
+      "path": "tests/integration/agentic-circuit/e2e/test_queue_codegen.py",
+      "asset": "test_queue_codegen.py.txt",
+      "sha256": "ad9d841beb668737cde2f8e509e8ad4249d9b2a949973f91368859666ce6e33e"
+    }
+  ],
+  "purpose": "Inert exact baseline hardware algorithms and strong tests; never execute retired compilation routes."
+}

@@ -645,23 +645,121 @@
     {
       "name": "reset_invalidate_order_smoke",
       "owner": "tests/compiler/lit/Source/source-historical-features.test",
-      "system": "history_features.reset_invalidate_order_smoke.ResetInvalidateOrder",
-      "system_source": "tests/compiler/lit/Source/Inputs/history-features/reset_invalidate_order_smoke.py",
-      "system_scope": "original-numerical-oracle-and-native-four-state; legacy-probe-window-unverified"
+      "root": "history_features.reset_invalidate_order_smoke.ResetInvalidateOrder",
+      "root_source": "tests/compiler/lit/Source/Inputs/history-features/reset_invalidate_order_smoke.py",
+      "root_scope": "original-known-pre-post-and-two-reset-cycles; unknown-clock-reset-unverified",
+      "system": "history_features.bench.ResetInvalidateOrderSystem",
+      "system_source": "tests/compiler/lit/Source/Inputs/history-features/bench.py",
+      "system_cycles": 3,
+      "system_scope": "original-two-known-input-edges-plus-held-drain; physical-reset-order-covered-by-module-driver"
     },
     {
       "name": "trace_dsl_smoke",
       "owner": "tests/compiler/lit/Source/source-historical-features.test",
-      "system": "history_features.trace_dsl_smoke.TraceDsl",
-      "system_source": "tests/compiler/lit/Source/Inputs/history-features/trace_dsl_smoke.py",
-      "system_scope": "original-numerical-oracle-and-native-four-state; legacy-probe-window-unverified"
+      "root": "history_features.trace_dsl_smoke.TraceDsl",
+      "root_source": "tests/compiler/lit/Source/Inputs/history-features/trace_dsl_smoke.py",
+      "root_scope": "original-known-pre-post-and-two-reset-cycles; legacy-probe-tags-filter-window-unverified",
+      "system": "history_features.bench.TraceDslSystem",
+      "system_source": "tests/compiler/lit/Source/Inputs/history-features/bench.py",
+      "system_cycles": 4,
+      "system_scope": "original-three-known-input-edges-plus-held-drain; legacy-probe-tags-filter-window-unverified"
     },
     {
       "name": "xz_value_model_smoke",
       "owner": "tests/compiler/lit/Source/source-historical-features.test",
-      "system": "history_features.xz_value_model_smoke.XzValueModel",
-      "system_source": "tests/compiler/lit/Source/Inputs/history-features/xz_value_model_smoke.py",
-      "system_scope": "original-numerical-oracle-and-native-four-state; legacy-probe-window-unverified"
+      "root": "history_features.xz_value_model_smoke.XzValueModel",
+      "root_source": "tests/compiler/lit/Source/Inputs/history-features/xz_value_model_smoke.py",
+      "root_scope": "original-known-pre-post-and-two-reset-cycles-plus-extra-native-host-X-Z-capture; source-four-state-constructors-and-RTL-X-Z-unverified",
+      "system": "history_features.bench.XzValueModelSystem",
+      "system_source": "tests/compiler/lit/Source/Inputs/history-features/bench.py",
+      "system_cycles": 3,
+      "system_scope": "original-two-known-input-edges-plus-held-drain; extra-native-host-X-Z-only-in-module-driver"
+    },
+    {
+      "name": "gfsim_expect_pipeline",
+      "owner": "tests/compiler/lit/Source/source-historical-pipelines.test",
+      "system": "history_pipeline.gfsim_expect_pipeline.gfsim_expect_pipeline",
+      "system_source": "tests/compiler/lit/Source/Inputs/history-pipeline/gfsim_expect_pipeline.py",
+      "system_cycles": 70,
+      "system_scope": "full-authored-positive-system; physical-failure-recovery-unverified"
+    },
+    {
+      "name": "credit_pipeline",
+      "owner": "tests/compiler/lit/Source/source-historical-pipelines.test",
+      "system": "history_pipeline.pyc_credit_pipeline.pyc_credit_pipeline",
+      "system_source": "tests/compiler/lit/Source/Inputs/history-pipeline/pyc_credit_pipeline.py",
+      "system_cycles": 20,
+      "system_scope": "full-authored-positive-system; physical-failure-recovery-unverified"
+    },
+    {
+      "name": "reusable_circular_rob",
+      "owner": "tests/compiler/lit/Source/source-historical-residents.test",
+      "system": "history_resident.resident_systems.reusable_circular_rob",
+      "system_source": "tests/compiler/lit/Source/Inputs/history-resident/resident_systems.py",
+      "system_cycles": 61,
+      "system_scope": "full-ordinary-authored-history; paired-module-original-and-reservation-drivers-retained"
+    },
+    {
+      "name": "reusable_oldest_ready_isq",
+      "owner": "tests/compiler/lit/Source/source-historical-residents.test",
+      "system": "history_resident.resident_systems.reusable_oldest_ready_isq",
+      "system_source": "tests/compiler/lit/Source/Inputs/history-resident/resident_systems.py",
+      "system_cycles": 81,
+      "system_scope": "full-ordinary-authored-history; original-exceptional-host-commits-covered-by-paired-module-driver"
+    },
+    {
+      "name": "dependency_pipeline",
+      "owner": "tests/compiler/lit/Source/source-historical-scheduling.test",
+      "system": "history_scheduling.scheduling_systems.pyc_dependency_pipeline",
+      "system_source": "tests/compiler/lit/Source/Inputs/history-scheduling/scheduling_systems.py",
+      "system_cycles": 32,
+      "system_scope": "original-streaming-history; three-direct-batch-preloads-and-custom-domain-invalid-predecessors-model-only"
+    },
+    {
+      "name": "schedule_v2",
+      "owner": "tests/compiler/lit/Source/source-historical-scheduling.test",
+      "system": "history_scheduling.scheduling_systems.schedule_v2",
+      "system_source": "tests/compiler/lit/Source/Inputs/history-scheduling/scheduling_systems.py",
+      "system_cycles": 20,
+      "system_scope": "original-streaming-history; three-direct-batch-preloads-and-custom-domain-invalid-predecessors-model-only"
+    },
+    {
+      "name": "scalar_parameterized_types",
+      "owner": "tests/compiler/lit/Source/source-historical-scalar-parameterized.test",
+      "root": "history_scalar_parameterized.scalar_parameterized_types.scalar_parameterized_types",
+      "root_source": "tests/compiler/lit/Source/Inputs/history-scalar-parameterized-types/scalar_parameterized_types.py",
+      "root_scope": "keyword-default17-identity-with-helper-inlining; exact-formal-return-width-and-native-host-X-Z-covered; param-int-and-nonempty-CLI-bindings-unsupported",
+      "system": "history_scalar_parameterized.bench.ScalarParameterizedTypesSystem",
+      "system_source": "tests/compiler/lit/Source/Inputs/history-scalar-parameterized-types/bench.py",
+      "system_cycles": 8,
+      "system_scope": "default17-known-identity-vectors-0-1-65535-65536-131071-87381-43690-0; nested-keep-expression-and-general-parameter-binding-unsupported"
+    },
+    {
+      "name": "slot_rule_mailbox",
+      "owner": "tests/compiler/lit/Source/source-historical-slot-issue.test",
+      "system": "history_slot_issue.systems.slot_rule_mailbox",
+      "system_source": "tests/compiler/lit/Source/Inputs/history-slot-issue/systems.py",
+      "system_cycles": 7,
+      "system_scope": "Generated literal schedules: reset-reachable original body7 and backpressure22. tests/compiler/lit/Source/Inputs/history-slot-issue/run.py generates only stimulus functions; complete54-bit before/Work/after states, controls and counters checked. Original host-initialized6-epoch trace remains reference-only; execution of the tracked raw default template is not claimed."
+    },
+    {
+      "name": "issue",
+      "owner": "tests/compiler/lit/Source/source-historical-slot-issue.test",
+      "system": "history_slot_issue.systems.resident_issue",
+      "system_source": "tests/compiler/lit/Source/Inputs/history-slot-issue/systems.py",
+      "system_cycles": 42,
+      "system_scope": "Generated literal schedules: reset-reachable original body42, wakeup11, no-forward12, full-slots30, ties14, fields9 and replacement12. tests/compiler/lit/Source/Inputs/history-slot-issue/run.py generates only stimulus functions; complete250-bit before/Work/after states, controls and counters checked. Original host-initialized30-epoch trace remains reference-only; tracked seven-epoch default template is not the full42 case."
+    },
+    {
+      "name": "routed_dependency_pipeline",
+      "owner": "tests/compiler/lit/Source/source-historical-routed.test",
+      "root": "history_routed.routed_dependency_pipeline.pipeline",
+      "root_source": "tests/compiler/lit/Source/Inputs/history-routed/routed_dependency_pipeline.py",
+      "root_scope": "Complete fourteen-queue, four-route, 106-bit graph; eleven independent module histories totaling 1792 attempts per native workers 1/2 and RTL, complete 21934-bit before/after states and actual transfer/observer ledgers, protected failures and explicit host reset. Historical full-root assets were topology/artifact/build tests; runtime vectors are new independent coverage. Selected native/spec policy; retired PYC first-slot/u8-key equivalence unclaimed.",
+      "system": "history_routed.routed_systems.routed_dependency_pipeline",
+      "system_source": "tests/compiler/lit/Source/Inputs/history-routed/routed_systems.py",
+      "system_cycles": 81,
+      "system_scope": "Both genuine roots passed native workers 1/2 and RTL: history_routed.routed_systems.routed_dependency_pipeline (81 cycles) and history_routed.routed_systems.routed_full_topology_backpressure (727 cycles). Full literal histories, 36 bench assertions plus 10 reachable child checks, ordered low/high logs. Other nine histories and host reset recovery are module coverage. Four seeded/overflow/clock-control references remain nonexecutable; no complete X/Z or physical clock-control matrix claim."
     }
   ]
 }

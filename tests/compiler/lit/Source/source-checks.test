@@ -1,2 +1,3 @@
-# Source capture/lowering and explicit provider closure only; no DUT acceptance.
-# RUN: %python %S/Inputs/source-checks.py --repo %src --source-compiler %pycircuit_source_unit --linker %pycircuit_link --optimizer %pycircuit_opt --emitter %pycircuit_emit --scratch %t.dir
+# REQUIRES: verilator
+# Source authority plus public managed ordinary-module lifecycle acceptance.
+# RUN: %python %S/Inputs/source-checks.py --repo %src --source-compiler %pycircuit_source_unit --linker %pycircuit_link --optimizer %pycircuit_opt --emitter %pycircuit_emit --cxx %cxx --verilator %verilator --scratch %t.dir

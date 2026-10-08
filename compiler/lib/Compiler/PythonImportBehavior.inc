@@ -660,7 +660,19 @@ LogicalResult Importer::emitBehavioral(ModuleDecl &decl) {
         ModuleDecl &target = modules[found->second];
         OperationState state(module->getLoc(),
                              ac::ModuleImportOp::getOperationName());
-        state.addAttribute("parameters", b.getArrayAttr({}));
+        SmallVector<Attribute> targetParams;
+        for (const Parameter &parameter : target.parameters) {
+          ac::StaticExprAttr defaultValue;
+          if (parameter.value) {
+            auto value = staticExpr(*parameter.value, target.symbol);
+            if (failed(value))
+              return failure();
+            defaultValue = *value;
+          }
+          targetParams.push_back(
+              ac::getStaticParameterAttr(b, parameter.name, defaultValue));
+        }
+        state.addAttribute("parameters", b.getArrayAttr(targetParams));
         state.addAttribute("type_parameters", b.getArrayAttr({}));
         state.addAttribute("input_names", portNames(b, target.inputs));
         state.addAttribute("output_names", portNames(b, target.outputs));
@@ -686,12 +698,28 @@ LogicalResult Importer::emitBehavioral(ModuleDecl &decl) {
       instance.node = stmt;
       instance.callee = binding->symbol;
       instance.declaration = binding->declaration;
-      for (auto [name, type] : llvm::zip(inputNames, signature.getInputs()))
+      auto parameters = bindParameters(callee, call, decl.symbol);
+      auto typeArguments = bindTypeArguments(callee, call, decl.symbol);
+      if (failed(parameters) || failed(typeArguments))
+        return failure();
+      instance.parameters = std::move(*parameters);
+      instance.typeArguments = std::move(*typeArguments);
+      for (auto [name, formalType] : llvm::zip(inputNames, signature.getInputs())) {
+        auto type = substitute(formalType, callee, instance.parameters,
+                               instance.typeArguments);
+        if (failed(type))
+          return failure();
         instance.inputs.push_back(
-            {cast<StringAttr>(name).getValue().str(), type, stmt});
-      for (auto [name, type] : llvm::zip(outputNames, signature.getResults()))
+            {cast<StringAttr>(name).getValue().str(), *type, stmt});
+      }
+      for (auto [name, formalType] : llvm::zip(outputNames, signature.getResults())) {
+        auto type = substitute(formalType, callee, instance.parameters,
+                               instance.typeArguments);
+        if (failed(type))
+          return failure();
         instance.outputs.push_back(
-            {cast<StringAttr>(name).getValue().str(), type, stmt});
+            {cast<StringAttr>(name).getValue().str(), *type, stmt});
+      }
       if (auto domain =
               callee->getAttrOfType<DictionaryAttr>("ac.domain_inputs")) {
         instance.clockInput =
@@ -707,8 +735,8 @@ LogicalResult Importer::emitBehavioral(ModuleDecl &decl) {
           ac::InstanceOp::getOperationName(), {}, resultTypes,
           {at.getNamedAttr("instance_name", at.getStringAttr(instance.name)),
            at.getNamedAttr("callee", instance.callee),
-           at.getNamedAttr("parameters", at.getArrayAttr({})),
-           at.getNamedAttr("type_arguments", at.getArrayAttr({})),
+           at.getNamedAttr("parameters", at.getArrayAttr(instance.parameters)),
+           at.getNamedAttr("type_arguments", at.getArrayAttr(instance.typeArguments)),
            at.getNamedAttr("occurrence", occurrence(at, decl.symbol, stmt))});
       structuralCallSites.insert(occurrence(at, decl.symbol, call));
       structuralStorage.push_back(std::move(instance));
@@ -769,7 +797,8 @@ LogicalResult Importer::emitBehavioral(ModuleDecl &decl) {
     auto memory = bindMemoryResults(stmt, at, decl.symbol, values, noInstances);
     if (failed(memory)) return failure();
     if (*memory) continue;
-    auto queued = bindQueueResults(stmt, at, decl.symbol, values, noInstances);
+    auto queued = bindQueueResults(stmt, at, decl.symbol, values,
+                                   structuralInstances);
     if (failed(queued))
       return failure();
     if (*queued)

@@ -4,8 +4,8 @@
 #include "gfsim/ObservationSlot.h"
 #include "gfsim/SimSystem.h"
 
-#include <cstdint>
 #include <cstddef>
+#include <cstdint>
 #include <cstdio>
 #include <span>
 #include <string>
@@ -23,6 +23,10 @@ struct RunnerObservation {
   bool hasValue = false;
   // Populated for report observations from the validated spec.name field.
   std::string reportName;
+  // One source site may use several scalar slots. Defaults preserve ordinary
+  // scalar callers; grouping is explicit, never inferred from display names.
+  std::uint32_t groupIndex = 0;
+  std::uint32_t groupSize = 1;
 };
 
 // Host callbacks borrow their context for Run. Initial drive precedes Reset;

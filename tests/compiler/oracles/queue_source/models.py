@@ -470,9 +470,9 @@ def _route_merge(payload_bits, depths, adds):
     # (ii) the vector set must be able to tell strict priority from round robin;
     #      the same custom as saw_full_policy_difference above.
     rival, _, _ = _route_merge_trace(payload_bits, depths, adds, "round_robin")
-    assert [row["expected"] for row in rival] != [row["expected"] for row in rows], (
-        "vector set cannot distinguish priority from round_robin"
-    )
+    assert [row["expected"] for row in rival] != [
+        row["expected"] for row in rows
+    ], "vector set cannot distinguish priority from round_robin"
     return {
         "input_bits": payload_bits,
         "output_bits": payload_bits + 2,
@@ -781,9 +781,9 @@ def _route_merge_independent():
         and not entry["mg_ready"]
     ]
     assert arbitrated, "T6: no edge has both inputs valid with merge capacity"
-    assert all(entry["winner"] == 0 for entry in arbitrated), (
-        "priority must always serve inputs[0] = left_done on an arbitrated edge"
-    )
+    assert all(
+        entry["winner"] == 0 for entry in arbitrated
+    ), "priority must always serve inputs[0] = left_done on an arbitrated edge"
     assert vacuous, "stimulus should also show the vacuous co-valid-but-blocked edges"
 
     # (iv) a single branch is half rate: depth-one local-occupancy result queues
@@ -797,7 +797,9 @@ def _route_merge_independent():
     right_served = [edge for edge, side in served if side == 1]
     assert right_served, "T7: the right branch was never served"
     for name, series in (("left", left_served), ("right", right_served)):
-        assert all(b - a != 1 for a, b in zip(series, series[1:])), (  # noqa: B905 - preserve the extracted reference algorithm
+        assert all(
+            b - a != 1 for a, b in zip(series, series[1:])
+        ), (  # noqa: B905 - preserve the extracted reference algorithm
             f"T5: the {name} branch was served on consecutive edges, which a "
             "depth-one local-occupancy queue cannot do"
         )
@@ -900,7 +902,9 @@ def _route_merge_independent():
         _route_merge_independent_model(rival_rows, **kwargs)
         differing = sum(
             1
-            for ours, theirs in zip(rows, rival_rows)  # noqa: B905 - preserve the extracted reference algorithm
+            for ours, theirs in zip(
+                rows, rival_rows
+            )  # noqa: B905 - preserve the extracted reference algorithm
             if ours["expected"] != theirs["expected"]
         )
         assert differing, (
@@ -1572,7 +1576,9 @@ def _a25():
     #       section (RT-04), and only the two illegal-key sections ever fault.
     for section in program:
         sequences = [sequence for sequence, _ in witness[section["name"]]["sink_order"]]
-        assert all(a < b for a, b in zip(sequences, sequences[1:])), (  # noqa: B905 - preserve the extracted reference algorithm
+        assert all(
+            a < b for a, b in zip(sequences, sequences[1:])
+        ), (  # noqa: B905 - preserve the extracted reference algorithm
             f"{section['name']}: release is not strictly increasing"
         )
     faults = [name for name in witness if witness[name]["fault"]]
@@ -3416,9 +3422,9 @@ def historical_expect_contracts():
         cases[mode] = {
             "rows": rows,
             "first_failure": first_failure,
-            "first_failure_edge": first_failure // 2
-            if first_failure is not None
-            else None,
+            "first_failure_edge": (
+                first_failure // 2 if first_failure is not None else None
+            ),
             "accepted": accepted,
             "rejected": rejected,
             "consumed": consumed,
@@ -3462,9 +3468,11 @@ def execution_record(record):
                 {
                     "row": index,
                     "operation": "HOST_RESET",
-                    "reason": "explicit independent section"
-                    if index in explicit
-                    else "recover failed execution",
+                    "reason": (
+                        "explicit independent section"
+                        if index in explicit
+                        else "recover failed execution"
+                    ),
                 }
             )
         elif not physical_reset:

@@ -109,8 +109,17 @@ reset/discard, latency and token-ledger matrices remain unchanged. Physical
 held-level and midstream-reset scenarios still require those original module
 oracles; this system does not claim complete physical-scenario equivalence.
 
-The full 1,829-cycle source fixture currently compiles, but selected-root linking
-exceeds the compiler's source-check dependency analysis work budget. Sharing
-typed zero values and using an 11-bit fixture counter preserve every stimulus
-and expected value without resolving that analysis limit. The existing module
-oracles remain available while this compiler limitation is addressed.
+The complete 1,829-cycle system passes native workers 1 and 2 and Verilator.
+Each run produces 3,658 evaluation epochs and 18,290 scalar observations; all
+five public values at every epoch match the retained independent native oracle.
+All five source assertions remain active. The native runs use the same compiled
+artifact, and their execution inputs, source files and compiler helpers were
+verified unchanged across the runs. The final receipts and complete compressed
+traces are in `docs/gates/logs/20261008-pr271-select-full`.
+
+The source-check dependency analysis issue is resolved without reducing the
+fixture or increasing its work budget. The generated native fixture header is
+14 MB; GCC `-O3` compilation exceeded the build timeout, and a Clang `-O1`
+attempt was cancelled during compilation. Clang 22 with `-O0` completed the
+native build and both full runs. These build choices leave the stimulus,
+expected values, cycle count and original module oracles unchanged.

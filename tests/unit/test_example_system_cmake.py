@@ -167,3 +167,50 @@ def test_generated_system_runner_has_no_authored_module_oracle(cmake_case):
     assert test["name"] == "model_system"
     assert "--system" in test["command"]
     assert test["command"][test["command"].index("--cycles") + 1] == "3"
+
+
+@pytest.mark.parametrize("authored_driver", [True, False])
+def test_system_budget_is_independent_of_original_module_budget(
+    cmake_case, authored_driver
+):
+    _, build, configure, tools = cmake_case
+    system_args = (
+        "SYSTEM_TOP sample.bench.Bench SYSTEM_ENTRY_SOURCE bench "
+        "SYSTEM_SOURCES model.py bench.py SYSTEM_CYCLES 7 "
+        if authored_driver
+        else ""
+    )
+    result = configure(
+        system_args=system_args + "SYSTEM_TIMEOUT_SECONDS 17",
+        authored_driver=authored_driver,
+    )
+    assert result.returncode == 0, result.stderr
+    result = subprocess.run(
+        [tools["ctest"], "--test-dir", str(build), "--show-only=json-v1"],
+        capture_output=True,
+        text=True,
+        check=True,
+        timeout=10,
+    )
+    tests = {row["name"]: row for row in json.loads(result.stdout)["tests"]}
+    selected = tests["model_system"]
+    assert selected["command"][selected["command"].index("--timeout") + 1] == "17"
+    properties = {row["name"]: row["value"] for row in selected["properties"]}
+    assert properties["TIMEOUT"] == 81
+    if authored_driver:
+        original = tests["model"]
+        assert original["command"][original["command"].index("--timeout") + 1] == "9"
+        properties = {row["name"]: row["value"] for row in original["properties"]}
+        assert properties["TIMEOUT"] == 66
+
+
+@pytest.mark.parametrize("value", ["", "0", "-1", "1.5", "seconds"])
+def test_invalid_system_timeout_rejects_without_requiring_secondary_root(
+    cmake_case, value
+):
+    _, _, configure, _ = cmake_case
+    result = configure(
+        system_args=f"SYSTEM_TIMEOUT_SECONDS {value}", authored_driver=False
+    )
+    assert result.returncode != 0
+    assert "SYSTEM_TIMEOUT_SECONDS requires a positive integer" in result.stderr

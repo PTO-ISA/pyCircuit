@@ -46,7 +46,8 @@ FIFO_RTL = re.compile(
     r"fifo\s*#\(\s*\.T\(logic \[\((\d+)\)-1:0\]\)\s*,"
     r"\s*\.DEPTH\((\d+)\)\s*,"
     r"\s*\.READY_POLICY\((\d+)\)\s*,"
-    r"\s*\.AVAILABILITY_LATENCY\(64'd(\d+)\)\s*\)"
+    r"\s*\.AVAILABILITY_LATENCY\(64'd(\d+)\)\s*,"
+    r"\s*\.pyc_managed\(1'b([01])\)\s*\)"
 )
 FIFO_CPP = re.compile(
     r"pyc_queue_pyc_[0-9a-f]+_state\(std::make_shared<"
@@ -74,7 +75,7 @@ def check_text(design_ac, rtl_dir, cpp_dir):
             fifos.append(tuple(int(group) for group in match.groups()))
     if not fifos:
         raise AssertionError(f"no `fifo #(...)` instantiation found under {rtl_dir}")
-    widths, depths, policies, latencies = zip(
+    widths, depths, policies, latencies, managed = zip(
         *fifos
     )  # noqa: B905 - preserve the extracted reference algorithm
     if depths != EXPECTED_DEPTHS:
@@ -87,11 +88,15 @@ def check_text(design_ac, rtl_dir, cpp_dir):
         )
     if set(latencies) != {EXPECTED_AVAILABILITY_LATENCY}:
         raise AssertionError(f"RTL availability latencies {set(latencies)} != {{1}}")
+    if set(managed) != {1}:
+        raise AssertionError(
+            f"RTL checked-root fifo management {set(managed)} != {{1}}"
+        )
     ok(
         "V08-2",
         f"{len(fifos)} RTL fifos in source order, DEPTH {depths}, "
         f"payload 64-bit, READY_POLICY {set(policies)}, "
-        f"AVAILABILITY_LATENCY {set(latencies)}",
+        f"AVAILABILITY_LATENCY {set(latencies)}, all managed",
     )
 
     cpp = []

@@ -84,6 +84,12 @@ Observations use a shared occurrence layout for both backends. The system
 publishes them only after a successful epoch, in deterministic instance/rule/
 site order. C++ worker count must not change that order. Unsupported payloads
 or independently driven domains fail explicitly rather than losing effects.
+One authored log with several supported scalar operands produces one event
+whose `values` array retains their order. A literal-only log has an empty array;
+a report retains its scalar statistic. An entire inactive log emits nothing.
+Partially active, incomplete or inconsistent operand groups reject before any
+observations from that epoch are published. This grouping does not extend the
+supported scalar widths or introduce four-state observation transport.
 
 ## Acceptance and example adaptation
 

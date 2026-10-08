@@ -1,0 +1,17 @@
+{
+  "assets": [
+    {
+      "revision": "8887e6dec7b4cc530a9967c860dc6a224d79a4ab",
+      "path": "examples/agentic-circuit/types/scalar_parameterized_types.py",
+      "asset": "scalar_parameterized_types.py.txt",
+      "sha256": "6b41927e326bf49acbb1bc7579a06e3f81f299d2d57abb36b9d25665dbd9015e"
+    },
+    {
+      "revision": "b3e52fb22061350d61b23089c8bed36913650245",
+      "path": "tests/integration/agentic-circuit/e2e/test_frontend_composition_features.py",
+      "asset": "test_frontend_composition_features.py.txt",
+      "sha256": "0dfa8d408a0dc117e5b26efa3345f75266869d4e3d701afd4f2ae157c0bfdcfa"
+    }
+  ],
+  "scope": "Original width17 case compiles/generates/lints and checks emitted and plan types. It supplies no scalar runtime stimulus oracle. Active independent identity vectors and host four-state checks are additional evidence; default17 authoring does not restore param[int] or CLI binding."
+}

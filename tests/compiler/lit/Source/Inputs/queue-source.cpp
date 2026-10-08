@@ -109,19 +109,25 @@ void checkedRows(pyc_dut &dut, Context &context) {
               configuration.size()) == PYCIRCUIT_MODEL_STATUS_V1_OK);
   require(Context::drive(&context, 0));
   require(executor.Reset() == PYCIRCUIT_MODEL_STATUS_V1_OK);
+  bool failed = false;
   for (unsigned index = 0; index < std::size(rows); ++index) {
     require(Context::drive(&context, index));
     if (rows[index].host_reset) {
       // Recovery is a separately labeled host operation. The physical row and
       // its original pre-reset oracle value are retained in the vector record.
       require(executor.Reset() == PYCIRCUIT_MODEL_STATUS_V1_OK);
+      failed = false;
       std::cout << "HOST_RESET " << index << '\n';
     }
     const auto before = executor.cycles();
     PycircuitModelStepResultV1 result{sizeof(result)};
     const auto status = executor.Step(&result);
     if (rows[index].execution_failure) {
-      require(status == PYCIRCUIT_MODEL_STATUS_V1_RUNTIME_FAILURE);
+      // The first failed Step reports runtime failure. Later API calls reject
+      // the already failed execution without evaluating another Work.
+      require(status == (failed ? PYCIRCUIT_MODEL_STATUS_V1_INVALID_STATE
+                                : PYCIRCUIT_MODEL_STATUS_V1_RUNTIME_FAILURE));
+      failed = true;
       require(executor.cycles() == before && dut.system().cycle() == before);
       const auto info = dut.system().failureInfo();
       require(info.phase == gfsim::SimFailurePhase::Check);
@@ -137,6 +143,7 @@ void checkedRows(pyc_dut &dut, Context &context) {
       require(unavailable);
       std::cout << "FAILED " << index << '\n';
     } else {
+      require(!failed);
       require(status == PYCIRCUIT_MODEL_STATUS_V1_OK);
       context.compare(index);
       std::cout << "WORK " << index << '\n';

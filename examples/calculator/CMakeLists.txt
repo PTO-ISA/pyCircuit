@@ -10,4 +10,4 @@ pycircuit_add_example(calculator PACKAGE example_calculator
   SYSTEM_TOP example_calculator.bench.ExerciseCalculator
   SYSTEM_ENTRY_SOURCE bench
   SYSTEM_CYCLES 237
-  SYSTEM_SOURCES calculator.py TIMEOUT_SECONDS 120 bench.py)
+  SYSTEM_SOURCES calculator.py bench.py)

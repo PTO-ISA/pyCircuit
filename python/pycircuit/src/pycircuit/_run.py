@@ -5,6 +5,7 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+import signal
 import subprocess
 from pathlib import Path
 
@@ -13,7 +14,21 @@ from .packaged_toolchain import _installed_prefix_root, bundled_toolchain_root
 
 
 def _invoke(command: list[str], *, timeout: int, env: dict[str, str]) -> None:
-    result = subprocess.run(command, env=env, timeout=timeout, check=False)
+    if os.name == "posix":
+        # CMake and build tools spawn compilers. Own a separate process group so
+        # a timed-out build cannot leave those children consuming resources.
+        with subprocess.Popen(command, env=env, start_new_session=True) as result:
+            try:
+                result.wait(timeout=timeout)
+            except (subprocess.TimeoutExpired, KeyboardInterrupt):
+                try:
+                    os.killpg(result.pid, signal.SIGKILL)
+                except ProcessLookupError:
+                    pass
+                result.wait()
+                raise
+    else:
+        result = subprocess.run(command, env=env, timeout=timeout, check=False)
     if result.returncode:
         raise _DriverError(f"command failed ({result.returncode}): {' '.join(command)}")
 

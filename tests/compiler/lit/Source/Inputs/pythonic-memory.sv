@@ -20,7 +20,9 @@ module tb;
     file=$fopen(rows,"r");if(!file)$fatal(1,"cannot open rows");
     #1;pyc_7079635f636c6b=1;#1;pyc_7079635f636c6b=0;#1;
     while(!$feof(file))begin
-      count=$fscanf(file,"%d %d %d %d %d %d %d %d %d %d\n",
+      // Wanted and mask are packed unsigned 64-bit values; decimal scanf may
+      // saturate them at INT64_MAX. Hex preserves every independently checked bit.
+      count=$fscanf(file,"%d %d %d %d %d %d %d %d %h %h\n",
                     clock_level,reset_level,v0,p0,t0,v1,p1,t1,wanted,mask);
       if(count==10)begin
         pyc_7079635f727374=1'(reset_level);

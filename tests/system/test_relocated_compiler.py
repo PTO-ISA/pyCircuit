@@ -12,6 +12,7 @@ import sysconfig
 from pathlib import Path
 
 import pytest
+from test_public_emit import _assert_counter_trace
 
 pytestmark = pytest.mark.system
 
@@ -284,37 +285,12 @@ def _compile_and_link(
 
 
 def _assert_events(payload: bytes) -> None:
-    records = [json.loads(line) for line in payload.decode("utf-8").splitlines()]
-    result = records.pop()
-    assert result["kind"] == "result"
-    assert result["status"] == "TERMINATED"
-    assert result["epoch_time"] == "3"
-    assert result["error"] is None
-
-    actual = [
-        (
-            event["kind"],
-            event["instance"],
-            event["evaluation_epoch"],
-            event["commit_epoch"],
-            event["spec"].get("event", event["spec"].get("name")),
-            tuple(int(value["value"]) for value in event["values"]),
-        )
-        for event in records
-    ]
-    expected = [
-        ("log", "root.counter", "0", "1", "relocation_tick", (99,)),
-        ("report", "root.counter", "0", "1", "relocation_count", (0,)),
-        ("log", "root.counter", "1", "2", "relocation_tick", (0,)),
-        ("report", "root.counter", "1", "2", "relocation_count", (7,)),
-        ("log", "root.counter", "2", "3", "relocation_tick", (7,)),
-        ("report", "root.counter", "2", "3", "relocation_count", (7,)),
-    ]
-    assert actual == expected
-    gauges = [row for row in result["statistics"] if row["name"] == "relocation_count"]
-    assert [(row["object_path"], row["value"]) for row in gauges] == [
-        ("root.counter", 7)
-    ]
+    _assert_counter_trace(
+        payload,
+        children={"root/__pyc_call_0": (7, 99)},
+        event="relocation_tick",
+        report="relocation_count",
+    )
 
 
 def test_compiler_sdk_compiles_links_emits_and_runs_after_prefix_move(
@@ -365,6 +341,8 @@ def test_compiler_sdk_compiles_links_emits_and_runs_after_prefix_move(
         "git": shutil.which("git"),
         "otool": shutil.which("otool"),
         "file": shutil.which("file"),
+        "verilator": shutil.which("verilator"),
+        "make": shutil.which("make"),
     }
     for tool in ("clang", "clang++", "cc", "c++", "xcrun"):
         host_tool_paths[tool] = shutil.which(tool)
@@ -412,7 +390,7 @@ def test_compiler_sdk_compiles_links_emits_and_runs_after_prefix_move(
         )
         assert (output / "CMakeLists.txt").is_file()
 
-    runners: list[Path] = []
+    runners: list[tuple[str, Path]] = []
     for target, output in (("cpp", cpp), ("verilog", verilog)):
         build = tmp_path / f"runtime-only-{target}-build"
         _checked(
@@ -452,26 +430,42 @@ def test_compiler_sdk_compiles_links_emits_and_runs_after_prefix_move(
         assert Path(package_dir).resolve().is_relative_to(moved_prefix.resolve())
         generated_graph = (build / "build.ninja").read_text(encoding="utf-8")
         assert str(moved_prefix) in generated_graph
-        assert "libpyc6_runtime" in generated_graph
+        if target == "cpp":
+            assert "libpyc6_runtime" in generated_graph
+        else:
+            assert "include/verilog" in generated_graph
+            assert "verify_example.py" in generated_graph
         assert str(original_prefix) not in generated_graph
         assert str(_native_build()) not in generated_graph
         _checked(
-            [cmake, "--build", str(build), "--parallel", "4"], cwd=tmp_path, env=env
+            [
+                cmake,
+                "--build",
+                str(build),
+                "--target",
+                "pycircuit_sim",
+                "--parallel",
+                "4",
+            ],
+            cwd=tmp_path,
+            env=env,
         )
-        runner = build / "pycircuit_system"
+        runner = build / "bin/pycircuit_sim"
         if os.name == "nt":
             runner = runner.with_suffix(".exe")
         assert runner.is_file()
-        runners.append(runner)
+        runners.append((target, runner))
 
     config = tmp_path / "three-ticks.json"
     shutil.copyfile(FIXTURE / "three-ticks.json", config)
-    for index, runner in enumerate(runners):
+    for index, (target, runner) in enumerate(runners):
         events = tmp_path / f"events-{index}.jsonl"
-        _checked(
-            [str(runner), "--config", str(config), "--events", str(events)],
+        arguments = ["--cycles", "3"] if target == "cpp" else ["+cycles=3"]
+        run = _checked(
+            [str(runner), *arguments],
             cwd=tmp_path,
             env=env,
             timeout=120,
         )
+        events.write_text(run.stdout, encoding="utf-8")
         _assert_events(events.read_bytes())

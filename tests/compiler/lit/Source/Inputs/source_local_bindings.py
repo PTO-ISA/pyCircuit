@@ -412,29 +412,34 @@ if not args.four_state:
             instrument_final,
         )
         for target in ("cpp", "verilog"):
-            absent = root / ("instrument-" + entrance + "-" + target)
-            rejected = cli(
+            published = root / ("instrument-" + entrance + "-" + target)
+            emitted = cli(
                 "emit",
                 instrument_final,
                 "--target",
                 target,
                 "-o",
-                absent,
-                accepted=False,
+                published,
+                accepted=target == "cpp",
             )
-            assert any(
-                word in rejected.stderr.lower()
-                for word in (
-                    "instrument",
-                    "observation",
-                    "observe",
-                    "event",
-                    "report",
-                    "unsupported",
+            if target == "cpp":
+                receipt = json.loads((published / "generated.json").read_text())
+                assert receipt["entry"] == {
+                    "definition": '@"locals.local_binding_instrument_'
+                    + entrance
+                    + '.Instrument"',
+                    "arguments": [],
+                }
+                assert "pycircuit_system.hpp" in {
+                    row["path"] for row in receipt["files"]
+                }
+            else:
+                assert (
+                    "hardware instrumentation emission is not implemented"
+                    in emitted.stderr
                 )
-            ), rejected.stderr
-            assert not absent.exists()
-            cli(
+                assert not published.exists()
+            rejected = cli(
                 "emit",
                 instrument_final,
                 "--target",
@@ -444,14 +449,74 @@ if not args.four_state:
                 "--replace",
                 accepted=False,
             )
+            diagnostic = (
+                "generated.json entry does not match its owner"
+                if target == "cpp"
+                else "hardware instrumentation emission is not implemented"
+            )
+            assert diagnostic in rejected.stderr
             assert snapshot(products / target) == emitted_before[target]
         instrument_stages.append(
             {
                 "entrance": entrance,
                 "compile_link": "accepted",
-                "emission": "rejected/protected",
+                "emission": {
+                    "cpp": "accepted; cross-owner replacement protected",
+                    "verilog": "ordinary-root observations unsupported; fresh/replacement protected",
+                },
             }
         )
+    # Keep semantic publication refusals independent of instrumentation admission.
+    checked_unit = root / "checked-unit"
+    compile_unit("local_binding_required.py", checked_unit)
+    checked_final = root / "checked.ac"
+    cli(
+        "link",
+        checked_unit,
+        "--top",
+        "locals.local_binding_required.Checked",
+        "-o",
+        checked_final,
+    )
+    text = checked_final.read_text()
+    expects = [
+        line for line in text.splitlines(keepends=True) if '"ac.expect"(' in line
+    ]
+    assert len(expects) == 1 and "ac.required_checks" in text
+    invalid = root / "missing-expect.ac"
+    invalid.write_text(text.replace(expects[0], "", 1))
+    assert invalid.read_text() != text and "ac.required_checks" in invalid.read_text()
+    for target in ("cpp", "verilog"):
+        existing = root / ("checked-" + target)
+        cli("emit", checked_final, "--target", target, "-o", existing)
+        receipt = json.loads((existing / "generated.json").read_text())
+        assert receipt["entry"] == {
+            "definition": '@"locals.local_binding_required.Checked"',
+            "arguments": [],
+        }
+        preserved = snapshot(existing)
+        assert preserved
+        rejected = cli(
+            "emit",
+            checked_final,
+            "--target",
+            target,
+            "-o",
+            products / target,
+            "--replace",
+            accepted=False,
+        )
+        assert "generated.json entry does not match its owner" in rejected.stderr
+        assert snapshot(products / target) == emitted_before[target]
+        for replace in (False, True):
+            output = existing if replace else root / ("missing-expect-" + target)
+            options = ["emit", invalid, "--target", target, "-o", output]
+            if replace:
+                options.append("--replace")
+            rejected = cli(*options, accepted=False)
+            assert "RequiredCheck has no matching expect" in rejected.stderr
+            assert snapshot(existing) == preserved
+            assert replace or not output.exists()
     (scratch / "admission.json").write_text(
         json.dumps(
             {
@@ -459,6 +524,9 @@ if not args.four_state:
                 "compile_protected_rejections": 2 * len(cases),
                 "cycle_owner": cycle_stage,
                 "instrumentation": instrument_stages,
+                "checked_fresh_cpp_and_rtl_admission": True,
+                "checked_cross_owner_rejections": 2,
+                "missing_expect_fresh_and_same_owner_rejections": 4,
             },
             indent=2,
         )
@@ -487,7 +555,7 @@ sys.stdout.write(
     + (
         "11 complete X/Z/old-Q C++ workers1/2 + full typed-DFF Icarus frames"
         if args.four_state
-        else "14 known C++ workers1/2 + Verilator frames, protected lexical/semantic/cycle rejections and2 compile-only capture entrances with refused emission"
+        else "14 known C++ workers1/2 + Verilator frames, protected lexical/semantic/cycle rejections,2 instrumented CPP admissions with retained RTL refusal, checked CPP/RTL admissions with cross-owner protection and4 genuine missing-expect publication rejections"
     )
     + "\n"
 )

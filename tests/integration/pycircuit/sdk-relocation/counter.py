@@ -1,19 +1,17 @@
-# ruff: noqa: N802,F841
-from pycircuit import log, module, report, rule
+from measurement_relocated.types import CounterResult
+from pycircuit import bits, log, module, report, rule
 
-from .types import Word
+
+@rule
+def tick(count, incoming, outgoing) -> CounterResult:
+    log("info", "relocation_tick", outgoing)
+    report("relocation_count", count)
+    result = CounterResult(count=count)
+    count = incoming
+    return result
 
 
 @module
-def Counter(incoming: Word, outgoing: Word):
-    count: Word = 0
-
-    @rule
-    def tick():
-        nonlocal count, outgoing
-        log("info", "relocation_tick", outgoing)
-        report("relocation_count", count)
-        outgoing = count
-        count = incoming
-
-    tick()
+def Counter(incoming: bits[8], outgoing: bits[8]) -> CounterResult:  # noqa: N802
+    count: bits[8] = 0
+    return tick(count, incoming, outgoing)

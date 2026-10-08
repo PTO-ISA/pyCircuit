@@ -80,8 +80,9 @@ Runtime/source diagnostic coverage remains in gate.
 
 Long coverage, differential/reference-model and mutation matrices run when
 nightly is requested or scheduled. Ordinary authoring/review does not require
-running them immediately. The current review explicitly defers their execution;
-record NOT-RUN rather than advancing acceptance from syntax or file moves.
+running them immediately. This migration review requests preservation and
+execution of the stronger original oracles. Record each actual result and
+remaining NOT-RUN case; focused passes do not establish a full nightly result.
 
 ## Contract under validation
 

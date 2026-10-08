@@ -5,8 +5,8 @@
 #include "llvm/ADT/SmallString.h"
 #include "llvm/ADT/StringSet.h"
 #include "llvm/ADT/StringSwitch.h"
-#include "llvm/Support/Path.h"
 #include "llvm/Support/JSON.h"
+#include "llvm/Support/Path.h"
 #include <algorithm>
 #include <array>
 #include <cassert>
@@ -305,6 +305,12 @@ FailureOr<ac::ModuleOp> observationRoot(HardwareEmitContext &context) {
 FailureOr<ObservationEmissionPlan>
 buildObservationPlan(HardwareEmitContext &context) {
   ObservationEmissionPlan plan;
+  // Full hardware validation is performed by prepareImpl before emission.
+  // Without observations, no descriptor geometry needs to be instantiated.
+  bool hasObservations = false;
+  context.package.walk([&](ac::SourceObserveOp) { hasObservations = true; });
+  if (!hasObservations)
+    return plan;
   auto root = observationRoot(context);
   if (failed(root))
     return failure();
@@ -342,11 +348,11 @@ buildObservationPlan(HardwareEmitContext &context) {
                          index < observe.getValues().size(), gauge,
                          registrationKey, siteKey});
     }
-    llvm::stable_sort(
-        sites, [](const ObservationEmissionSite &a, const ObservationEmissionSite &b) {
-          return std::tie(a.registrationKey, a.siteKey, a.valueIndex) <
-                 std::tie(b.registrationKey, b.siteKey, b.valueIndex);
-        });
+    llvm::stable_sort(sites, [](const ObservationEmissionSite &a,
+                                const ObservationEmissionSite &b) {
+      return std::tie(a.registrationKey, a.siteKey, a.valueIndex) <
+             std::tie(b.registrationKey, b.siteKey, b.valueIndex);
+    });
     plan.definitions[definition] = std::move(sites);
     ac::HardwareBindings parent;
     parent.owner = definition;
@@ -426,7 +432,8 @@ buildObservationPlan(HardwareEmitContext &context) {
   uint64_t ownerKey = 0;
   using InstancePath = SmallVector<std::pair<Operation *, uint64_t>>;
   std::function<LogicalResult(ac::ModuleOp, ArrayRef<InstancePath>)> layout =
-      [&](ac::ModuleOp definition, ArrayRef<InstancePath> paths) -> LogicalResult {
+      [&](ac::ModuleOp definition,
+          ArrayRef<InstancePath> paths) -> LogicalResult {
     uint64_t lanes = paths.size();
     auto sites = plan.definitions.find(definition);
     uint64_t units = sites == plan.definitions.end() ? 0 : sites->second.size();
@@ -486,9 +493,7 @@ buildObservationPlan(HardwareEmitContext &context) {
 HardwareEmitContext::HardwareEmitContext(ModuleOp package,
                                          ac::HardwareAnalysis &analysis)
     : package(package), analysis(analysis) {}
-LogicalResult HardwareEmitContext::prepare() {
-  return prepareImpl(false);
-}
+LogicalResult HardwareEmitContext::prepare() { return prepareImpl(false); }
 LogicalResult HardwareEmitContext::prepareNativeChecks() {
   return prepareImpl(true);
 }
@@ -1680,7 +1685,8 @@ cppObservationStaging(HardwareEmitContext &context, ac::ModuleOp definition,
         << ".element(pyc_lane).packed();\n"
         << "      const auto pyc_observed_path = " << *path
         << ".element(pyc_lane).packed();\n"
-        << "      " << object << "__pyc_stage_observation<"
+        << "      " << object << (object.empty() ? "" : "template ")
+        << "__pyc_stage_observation<"
         << (site.gauge
                 ? "false"
                 : "(gfsim::hardware_traits<" + *payload + ">::width == 1)")
@@ -1699,9 +1705,11 @@ bool HardwareEmitContext::isSystem() {
   auto entries = package.getOps<ac::SystemOp>();
   if (!llvm::hasSingleElement(entries))
     return false;
-  auto callee = (*entries.begin()).getEntry().getAs<FlatSymbolRefAttr>("callee");
+  auto callee =
+      (*entries.begin()).getEntry().getAs<FlatSymbolRefAttr>("callee");
   auto *root = callee ? analysis.lookupDefinition(callee.getValue()) : nullptr;
-  auto kind = root ? root->getAttrOfType<StringAttr>("ac.root_kind") : StringAttr();
+  auto kind =
+      root ? root->getAttrOfType<StringAttr>("ac.root_kind") : StringAttr();
   return kind && kind.getValue() == "system";
 }
 FailureOr<ObservationEmissionPlan>
@@ -1727,7 +1735,8 @@ FailureOr<llvm::json::Value> metadataValue(Attribute value, Operation *site) {
     llvm::json::Array result;
     for (Attribute item : items) {
       auto converted = metadataValue(item, site);
-      if (failed(converted)) return failure();
+      if (failed(converted))
+        return failure();
       result.push_back(std::move(*converted));
     }
     return llvm::json::Value(std::move(result));
@@ -1736,7 +1745,8 @@ FailureOr<llvm::json::Value> metadataValue(Attribute value, Operation *site) {
     llvm::json::Object result;
     for (auto item : items) {
       auto converted = metadataValue(item.getValue(), site);
-      if (failed(converted)) return failure();
+      if (failed(converted))
+        return failure();
       result[item.getName().strref()] = std::move(*converted);
     }
     return llvm::json::Value(std::move(result));
@@ -1746,25 +1756,31 @@ FailureOr<llvm::json::Value> metadataValue(Attribute value, Operation *site) {
 std::string cppMetadataString(StringRef value) {
   std::string text;
   llvm::raw_string_ostream out(text);
-  out << '"'; out.write_escaped(value, false); out << '"';
+  out << '"';
+  out.write_escaped(value, false);
+  out << '"';
   return text;
 }
-}
+} // namespace
 FailureOr<std::string> emissionMetadataJson(Attribute value, Operation *site) {
   auto converted = metadataValue(value, site);
-  if (failed(converted)) return failure();
+  if (failed(converted))
+    return failure();
   std::string text;
   llvm::raw_string_ostream out(text);
   out << *converted;
   return text;
 }
-FailureOr<std::string> cppObservationRunnerMetadata(HardwareEmitContext &context) {
+FailureOr<std::string>
+cppObservationRunnerMetadata(HardwareEmitContext &context) {
   auto plan = buildObservationPlan(context);
   auto root = observationRoot(context);
-  if (failed(plan) || failed(root)) return failure();
+  if (failed(plan) || failed(root))
+    return failure();
   std::string text;
   llvm::raw_string_ostream out(text);
-  out << "inline std::span<const gfsim::RunnerObservation> pyc_observation_metadata() {\n";
+  out << "inline std::span<const gfsim::RunnerObservation> "
+         "pyc_observation_metadata() {\n";
   if (plan->occurrences.empty()) {
     out << "  return {};\n}\n";
     return text;
@@ -1773,24 +1789,33 @@ FailureOr<std::string> cppObservationRunnerMetadata(HardwareEmitContext &context
   for (const auto &entry : plan->occurrences) {
     auto observe = cast<ac::SourceObserveOp>(entry.site.op);
     auto identity = observe->getAttrOfType<DictionaryAttr>("ac.observation_id");
-    if (!identity) return observe.emitOpError() << "observation identity is missing";
-    auto registration = emissionMetadataJson(identity.get("registration"), observe);
+    if (!identity)
+      return observe.emitOpError() << "observation identity is missing";
+    auto registration =
+        emissionMetadataJson(identity.get("registration"), observe);
     auto site = emissionMetadataJson(identity.get("site"), observe);
     auto spec = emissionMetadataJson(observe.getSpec(), observe);
-    if (failed(registration) || failed(site) || failed(spec)) return failure();
+    if (failed(registration) || failed(site) || failed(spec))
+      return failure();
     std::string instance = "root";
     for (auto [operation, lane] : entry.path) {
       auto name = operation->getAttrOfType<StringAttr>("instance_name");
-      if (!name) return operation->emitOpError() << "instance has no name";
+      if (!name)
+        return operation->emitOpError() << "instance has no name";
       instance += "/" + name.getValue().str();
-      if (isa<ac::CollectionOp>(operation)) instance += "[" + std::to_string(lane) + "]";
+      if (isa<ac::CollectionOp>(operation))
+        instance += "[" + std::to_string(lane) + "]";
     }
     auto report = observe.getSpec().getAs<StringAttr>("name");
-    out << "    {" << entry.ordinal << ", " << cppMetadataString(observe.getKind())
-        << ", " << cppMetadataString(instance) << ", " << cppMetadataString(*registration)
-        << ", " << cppMetadataString(*site) << ", " << cppMetadataString(*spec)
-        << ", " << (entry.site.carriesValue ? "true" : "false") << ", "
-        << cppMetadataString(report ? report.getValue() : StringRef()) << "},\n";
+    out << "    {" << entry.ordinal << ", "
+        << cppMetadataString(observe.getKind()) << ", "
+        << cppMetadataString(instance) << ", "
+        << cppMetadataString(*registration) << ", " << cppMetadataString(*site)
+        << ", " << cppMetadataString(*spec) << ", "
+        << (entry.site.carriesValue ? "true" : "false") << ", "
+        << cppMetadataString(report ? report.getValue() : StringRef()) << ", "
+        << entry.site.valueIndex << ", "
+        << std::max<std::size_t>(1, observe.getValues().size()) << "},\n";
   }
   out << "  };\n  return entries;\n}\n";
   return text;

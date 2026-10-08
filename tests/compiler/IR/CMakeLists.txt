@@ -56,6 +56,7 @@ add_acir_api_test(ACIRHardwareSourceChecksTests
   FILTER "-HardwareSourceChecksExecution.*"
   HardwareSourceChecksTest.cpp HardwareSourceCheckOccurrencesTest.cpp
   HardwareSourceCheckCapacityTest.cpp HardwareSourceCheckValidationBudgetTest.cpp
+  HardwareDependencyModeReuseTest.cpp
   HardwareSourceChecksExecutionTest.cpp)
 set_tests_properties(ACIRHardwareSourceChecksTests PROPERTIES TIMEOUT 90)
 target_link_libraries(ACIRHardwareSourceChecksTests PRIVATE ACIRCodegen)
@@ -122,6 +123,7 @@ add_gfsim_test(ACIRWorkExecutorTests "${_runtime_tests}/WorkExecutorTest.cpp")
 add_gfsim_test(ACIRObservationTests "${_runtime_tests}/ObservationTest.cpp")
 add_gfsim_test(ACIRSimExecutorTests "${_runtime_tests}/SimExecutorTest.cpp"
   "${_runtime_tests}/RunnerCallbacksTest.cpp"
+  "${_runtime_tests}/RunnerObservationGroupsTest.cpp"
   "${PYCIRCUIT_REPO_ROOT}/simulator/gfsim/system_runner.cpp"
   "${PYCIRCUIT_REPO_ROOT}/simulator/gfsim/model_input.cpp"
   "${PYCIRCUIT_REPO_ROOT}/simulator/gfsim/sim_executor.cpp")

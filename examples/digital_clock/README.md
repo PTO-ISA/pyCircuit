@@ -67,10 +67,11 @@ Verilator checks64known values. The main short Icarus test checks332known epochs
 and10X/Z cases. Native checks include discard/retry, failure without sample and
 clock/reset recovery. The historical design has no debug state injection.
 
-Build Runtime/toolchain and this DUT in Release. The shared verifier budget626s
-comes from conservative100K/1M-edge pilots with margin; no full run actually hit
-the former180s limit. The generic TIMEOUT_SECONDS option preserves180s by default
-for other examples and retains failure logs if a command times out.
+Build Runtime/toolchain and this DUT in Release. The original module verifier
+retains its 626-second command budget. The closed system uses
+`SYSTEM_TIMEOUT_SECONDS 1800`, because its five checks execute at every epoch;
+the full worker-2 run exceeds the module budget. The shared helper defaults the
+system budget to `TIMEOUT_SECONDS` when no separate budget is supplied.
 
 ```sh
 cmake -S examples/digital_clock -B /absolute/build/digital_clock -G Ninja \
@@ -108,6 +109,13 @@ The selected long system checks all 100,000,000 edges in two complete 50 MHz
 divider periods plus a final observation cycle (`--cycles 100000001`). Its
 closed-form calendar checks initial 23:59:59 entry, midnight rollover, a tick
 held while setting, mode return and colon blink. This is full-duration authored
-coverage; full-duration execution belongs to nightly. The additional settings root needs 160 cycles
-when selected as the explicit link top. Long execution remains in nightly;
-a short generated run must not be reported as this full-duration result.
+coverage. Full native runs with workers 1 and 2 both completed
+200,000,002 epochs with identical executable, runtime and generated-input
+hashes before and after execution. Their receipts are recorded in
+`docs/gates/logs/20261008-pr271-digital-clock-full/receipt.json`.
+The full Verilator system run also completed 200,000,002 epochs with all five
+source checks and 12 unchanged execution inputs, in 50.567 seconds of simulation.
+The original module RTL result above remains separate physical-scenario evidence.
+The additional settings root
+needs 160 cycles when selected as the explicit link top. Long execution remains
+in nightly; a short generated run must not be reported as this full-duration result.

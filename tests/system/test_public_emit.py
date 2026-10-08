@@ -67,6 +67,12 @@ def _cli(*args: str, expected: int = 0) -> subprocess.CompletedProcess[str]:
 
 
 def _compile_link(source: Path, output: Path, package: str) -> Path:
+    for name in ("counter.py", "design_top.py"):
+        path = source / name
+        path.write_text(
+            path.read_text(encoding="utf-8").replace("source_public.", package + "."),
+            encoding="utf-8",
+        )
     units = output / "units"
     units.mkdir(parents=True, exist_ok=True)
     by_name = {
@@ -174,37 +180,90 @@ def _emit(
     return _cli(*args, expected=expected)
 
 
-def _exported_dut_symbols(library: Path) -> set[str]:
-    if sys.platform == "darwin":
-        command = ["nm", "-gU", str(library)]
-    elif sys.platform == "win32":
-        dumpbin = shutil.which("dumpbin")
-        if dumpbin is None:
-            pytest.fail(
-                "Windows DUT export check requires dumpbin from a developer shell"
-            )
-        command = [dumpbin, "/nologo", "/exports", str(library)]
-    else:
-        command = ["nm", "-D", "--defined-only", str(library)]
-    result = subprocess.run(
-        command, text=True, capture_output=True, check=False, timeout=30
+def _assert_counter_trace(
+    payload: bytes,
+    *,
+    children: dict[str, tuple[int, int]],
+    event: str,
+    report: str,
+) -> None:
+    """Independent old-Q oracle: child captures input; parent captures old count."""
+    assert payload.endswith(b"\n"), "incomplete JSONL trace"
+    lines = payload.decode("utf-8").splitlines()
+    trailer = next(
+        (i for i, line in enumerate(lines) if not line.startswith("{")), len(lines)
     )
-    assert result.returncode == 0, f"{command!r}\n{result.stdout}\n{result.stderr}"
-    symbols: set[str] = set()
-    for line in result.stdout.splitlines():
-        fields = line.split()
-        if not fields:
-            continue
-        if sys.platform == "win32":
-            if len(fields) < 4 or not fields[0].isdigit() or not fields[1].isdigit():
-                continue
-            name = fields[3]
+    if trailer != len(lines):
+        # Verilator writes its simulator report after the complete JSON result.
+        assert lines[trailer].startswith("- ")
+        assert lines[trailer].endswith(": Verilog $finish")
+        assert all(
+            line.startswith(("- Verilator: ", "- S i m u l a t i o n   R e p o r t: "))
+            for line in lines[trailer + 1 :]
+        )
+    records, result = preview._oracle().parse_jsonl(
+        ("\n".join(lines[:trailer]) + "\n").encode("utf-8")
+    )
+    assert result["kind"] == "result"
+    assert result["status"] == "TERMINATED" and result["error"] is None
+    assert result["epoch_time"] == "6"
+    views: dict[int, dict[tuple[str, str], int]] = {}
+    last_epoch = -1
+    for row in records:
+        assert row["kind"] in {"log", "report"}
+        epoch = int(row["evaluation_epoch"])
+        assert last_epoch <= epoch < 6
+        last_epoch = epoch
+        assert row["commit_epoch"] == str(epoch + 1)
+        assert row["instance"] in children
+        assert len(row["values"]) == 1
+        value = row["values"][0]
+        assert value["kind"] == "integer"
+        assert type(value["value"]) is str and value["value"].isdecimal()
+        number = int(value["value"])
+        assert 0 <= number < 256
+        if row["kind"] == "log":
+            assert row["spec"] == {
+                "event": event,
+                "items": [{"kind": "value", "ordinal": 0}],
+                "level": "info",
+            }
         else:
-            name = fields[-1]
-        name = name.lstrip("_").split("@", 1)[0]
-        if name:
-            symbols.add(name)
-    return symbols
+            assert row["spec"] == {"name": report}
+        key = (row["instance"], row["kind"])
+        bucket = views.setdefault(epoch, {})
+        assert key not in bucket
+        bucket[key] = number
+    assert list(views) == list(range(6))
+    for epoch, actual in views.items():
+        cycle = epoch // 2
+        expected = {}
+        for child, (incoming, outgoing) in children.items():
+            expected[(child, "log")] = (outgoing, 0, incoming)[cycle]
+            expected[(child, "report")] = (0, incoming, incoming)[cycle]
+        assert actual == expected
+    gauges = [row for row in result["statistics"] if row["name"] == report]
+    assert sorted((row["object_path"], row["value"]) for row in gauges) == sorted(
+        (child, values[0]) for child, values in children.items()
+    )
+    runtime_rows = [
+        row for row in result["statistics"] if row["object_path"] == "@runtime"
+    ]
+    assert len(runtime_rows) == 2
+    runtime = {row["name"]: row for row in runtime_rows}
+    assert runtime["cycles"]["kind"] == "counter"
+    assert runtime["cycles"]["value"] == 6
+    assert runtime["stop_reason"]["kind"] == "gauge"
+    assert runtime["stop_reason"]["value"] == 0
+
+
+def _assert_design_top_events(payload: bytes) -> None:
+    _assert_counter_trace(
+        payload,
+        children={"root/__pyc_call_0": (3, 100), "root/__pyc_call_1": (10, 200)},
+        event="counter_tick",
+        report="count",
+    )
 
 
 def test_public_emit_uses_saved_final_for_both_targets_and_runs_installed_runtime(
@@ -248,42 +307,37 @@ def test_public_emit_uses_saved_final_for_both_targets_and_runs_installed_runtim
         )
         assert configured.returncode == 0, f"{configured.stdout}\n{configured.stderr}"
         built = subprocess.run(
-            ["cmake", "--build", str(build), "--parallel", "4"],
+            [
+                "cmake",
+                "--build",
+                str(build),
+                "--target",
+                "pycircuit_sim",
+                "--parallel",
+                "4",
+            ],
             text=True,
             capture_output=True,
             check=False,
             timeout=900,
         )
         assert built.returncode == 0, f"{built.stdout}\n{built.stderr}"
-        runner = build / "pycircuit_system"
+        runner = build / "bin/pycircuit_sim"
         if os.name == "nt":
             runner = runner.with_suffix(".exe")
         assert runner.is_file()
         runners[target] = runner
         if target == "cpp":
-            library_names = (
-                "pycircuit_dut.dll",
-                "libpycircuit_dut.dylib",
-                "libpycircuit_dut.so",
+            library = build / (
+                "pycircuit_modules.lib" if os.name == "nt" else "libpycircuit_modules.a"
             )
-            libraries = [
-                build / name for name in library_names if (build / name).is_file()
-            ]
-            assert (
-                len(libraries) == 1
-            ), f"generated CPP DUT library is missing or ambiguous: {libraries}"
-            assert _exported_dut_symbols(libraries[0]) == {"pycircuit_model_query_v1"}
+            assert library.is_file()
 
     for target, runner in runners.items():
         events = tmp_path / f"{target}-events.jsonl"
+        arguments = ["--cycles", "3"] if target == "cpp" else ["+cycles=3"]
         run = subprocess.run(
-            [
-                str(runner),
-                "--config",
-                str(FIXTURE / "configs/three-ticks.json"),
-                "--events",
-                str(events),
-            ],
+            [str(runner), *arguments],
             text=True,
             capture_output=True,
             check=False,
@@ -292,7 +346,8 @@ def test_public_emit_uses_saved_final_for_both_targets_and_runs_installed_runtim
         assert run.returncode == 0, f"{target}: {run.stdout}\n{run.stderr}"
         # This oracle contains explicit expected event values and epochs; it
         # does not infer correctness from cross-backend agreement.
-        preview._oracle().assert_design_top_run(events.read_bytes())
+        events.write_text(run.stdout, encoding="utf-8")
+        _assert_design_top_events(events.read_bytes())
 
 
 def test_emit_rejections_preserve_managed_and_unmanaged_outputs(tmp_path: Path) -> None:

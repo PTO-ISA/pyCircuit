@@ -1,18 +1,12 @@
-# ruff: noqa: N802,F841
-from typing import Annotated
-
-from pycircuit import module, rule
-
-Word = Annotated[int, range(256)]
+from pycircuit import bits, rule, system
 
 
-@module
-def Root():
-    value: Word = 3
+@rule
+def tick(value):
+    value = (value + 1) & 255
 
-    @rule
-    def tick():
-        nonlocal value
-        value = (value + 1) & 255
 
-    tick()
+@system
+def Root():  # noqa: N802
+    value: bits[8] = 3
+    tick(value)

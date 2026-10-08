@@ -1,0 +1,4 @@
+# Full independent queue/slot/table histories; source-only historical algorithm restoration.
+# REQUIRES: verilator
+# RUN: %python %S/Inputs/history-slot-issue/run.py --repo %src --source-compiler %pycircuit_source_unit --linker %pycircuit_link --emitter %pycircuit_emit --cxx %cxx --verilator %verilator --scratch %t.dir
+# RUN: %python %S/Inputs/history-slot-issue/audit.py --repo %src --scratch %t.dir

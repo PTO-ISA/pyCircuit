@@ -808,6 +808,18 @@ LogicalResult verifySourceCheckDependencies(
     const HardwareAnalysis &analysis,
     ArrayRef<std::pair<ModuleOp, HardwareBindings>> scopes,
     const std::function<LogicalResult(uint64_t, Operation *)> &debit) {
+  // The verified primitive catalog is complete before this preflight. Only
+  // byte_mem adds sampled-input edges in operational mode; without it the
+  // complete combinational proof also establishes operational acyclicity.
+  // Charge discovery even when the package needs both analyses.
+  bool needsOperational = false;
+  for (Operation &operation : analysis.getPackage().getBody()->getOperations()) {
+    if (debit && failed(debit(1, &operation)))
+      return failure();
+    if (isa<ModuleImportOp>(operation) &&
+        analysis.getPrimitiveKind(&operation) == "byte_mem")
+      needsOperational = true;
+  }
   Engine combinational{analysis, {}};
   Engine operational{analysis, {}, true};
   combinational.validationOnly = true;
@@ -816,7 +828,7 @@ LogicalResult verifySourceCheckDependencies(
   operational.debit = debit;
   for (const auto &[module, bindings] : scopes)
     if (failed(combinational.analyze(module, bindings)) ||
-        failed(operational.analyze(module, bindings)))
+        (needsOperational && failed(operational.analyze(module, bindings))))
       return failure();
   return success();
 }

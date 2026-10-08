@@ -1,4 +1,5 @@
 """pyc_route_merge_pipeline: hardware fixture; migration notes in tests/compiler/oracles/queue_source/MIGRATION-NOTES.md."""
+
 # ruff: noqa: F821, N802 -- ordinary forward hardware queue-result wires.
 import pycircuit as ac
 

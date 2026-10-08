@@ -1481,12 +1481,12 @@ LogicalResult emitHardwareCppDefinition(HardwareEmitContext &ctx,
         return failure();
       out << child.name << "(std::make_shared<" << child.type
           << ">(instanceName + \"." << child.name << "\", executor";
-      if (*observedChild != 0) {
+      if (observes && *observedChild != 0) {
         auto units =
             cppObservationChildBase(ctx, definition, child.observationIndex);
         if (failed(units))
           return failure();
-        out << ", pyc_sink, pyc_observation_base_ + pyc_count * (" << *units
+        out << ", pyc_sink, pyc_observation_base + pyc_count * (" << *units
             << ")";
       }
       out << "))";

@@ -1197,7 +1197,9 @@ def contract_checks(rows, traces, driven) -> dict:
     # --- OUT-01 / OUT-03 / OUT-04 -----------------------------
     emitted = {}
     for event in events:
-        for index in event["admit_at"]:  # noqa: B007 - preserve the extracted reference algorithm
+        for index in event[
+            "admit_at"
+        ]:  # noqa: B007 - preserve the extracted reference algorithm
             emitted[event["head"]] = event["epoch"]
         if event["sink"] is not None:
             assert event["sink"] in emitted, event
@@ -1596,9 +1598,9 @@ def self_test(verbose: bool = True) -> dict:
         if data["must_differ"]:
             assert data["differing_rows"] > 0, f"vector set cannot separate {label}"
         else:
-            assert data["differing_rows"] == 0, (
-                f"probe {label} was expected to be indistinguishable"
-            )
+            assert (
+                data["differing_rows"] == 0
+            ), f"probe {label} was expected to be indistinguishable"
     assert rival_rows(driven, knobs()) == expected, "frozen model replay mismatch"
 
     counts = classify()

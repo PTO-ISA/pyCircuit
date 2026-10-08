@@ -163,11 +163,31 @@ def main():
         )
         if path.is_file()
     )
+
+    def digest(path):
+        return hashlib.sha256(path.read_bytes()).hexdigest()
+
+    inputs = [
+        Path(args.source_compiler),
+        Path(args.linker),
+        Path(args.emitter),
+        runtime,
+        Path(__file__),
+        fixtures / "source-historical-features.cpp",
+        fixtures / "source-historical-features.sv",
+        repo / "cmake/verify_example.py",
+        *[path for path in owned.rglob("*") if path.is_file()],
+    ]
+    input_hashes = {str(path): digest(path) for path in inputs}
+    (work / "input-hashes.json").write_text(json.dumps(input_hashes, indent=2) + "\n")
+
     leaf = compile_unit("trace_leaf")
     results = []
+    feature_units = {}
     for name, symbol, port, kind in CASES:
         providers = (leaf,) if kind == 1 else ()
         unit = compile_unit(name, providers)
+        feature_units[name] = unit
         output = work / name
         output.mkdir()
         rows = original_rows(owned / "oracles", name, port)
@@ -264,29 +284,154 @@ def main():
             }
         )
 
-    def digest(path):
-        return hashlib.sha256(path.read_bytes()).hexdigest()
+    providers = (leaf, *feature_units.values())
+    bench = compile_unit("bench", providers)
+    closed_results = []
+    for name, symbol, event, check_count in (
+        ("reset_invalidate_order_smoke", "ResetInvalidateOrderSystem", "counter", 1),
+        ("trace_dsl_smoke", "TraceDslSystem", "trace", 2),
+        ("xz_value_model_smoke", "XzValueModelSystem", "capture", 1),
+    ):
+        port = "y0" if event == "trace" else "y"
+        rows = original_rows(owned / "oracles", name, port)
+        # A held-input drain cycle exposes the final original post edge through
+        # the closed system's old-Q Work observations.
+        cycles = len(rows) + 1
+        expected = [[row[1]] + ([row[3]] if event == "trace" else []) for row in rows]
+        expected.append([rows[-1][2]] + ([rows[-1][4]] if event == "trace" else []))
+        expected = [values for values in expected for _ in range(2)]
+        output = work / symbol
+        output.mkdir()
+        final = output / "system.ac"
+        entry = f"history_features.bench.{symbol}"
+        cli("link", *providers, bench, "--top", entry, "-o", final)
+        transcripts = []
+        for target in ("cpp", "verilog"):
+            generated = output / target
+            cli("emit", final, "--target", target, "-o", generated)
+            metadata = json.loads(
+                (generated / "simulation_verification.json").read_text()
+            )
+            assert metadata == {
+                "entry": {"definition": f'@"{entry}"', "arguments": []},
+                "entry_source": {"package": "history_features", "path": "bench.py"},
+                "source_checks": check_count,
+            }
+            executable = output / ("simulation-" + target)
+            if target == "cpp":
+                manifest = json.loads((generated / "generated.json").read_text())
+                sources = [
+                    generated / item["path"]
+                    for item in manifest["files"]
+                    if item["path"].endswith(".cpp")
+                ]
+                run(
+                    [
+                        args.cxx,
+                        "-std=c++20",
+                        "-pthread",
+                        "-I" + str(repo / "include"),
+                        "-I" + str(generated),
+                        *sources,
+                        runtime,
+                        "-o",
+                        executable,
+                    ]
+                )
+            else:
+                run(
+                    [
+                        sys.executable,
+                        repo / "cmake/verify_example.py",
+                        "--compile-system",
+                        generated,
+                        "--output",
+                        executable,
+                        "--include",
+                        repo / "include",
+                        "--verilator",
+                        args.verilator,
+                    ]
+                )
+            for workers in (1, 2) if target == "cpp" else (1,):
+                arguments = (
+                    ["--cycles", str(cycles), "--workers", str(workers)]
+                    if target == "cpp"
+                    else [f"+cycles={cycles}"]
+                )
+                stdout = run([executable, *arguments])
+                (output / f"{target}-{workers}.stdout").write_text(stdout)
+                records = [
+                    json.loads(line)
+                    for line in stdout.splitlines()
+                    if line.startswith("{")
+                ]
+                observations = [record for record in records if record["kind"] == "log"]
+                assert len(observations) == cycles * 2
+                assert [record["spec"]["event"] for record in observations] == [
+                    event
+                ] * (cycles * 2)
+                assert all(
+                    record["spec"]["items"]
+                    == [
+                        {"kind": "value", "ordinal": index}
+                        for index in range(len(expected[0]))
+                    ]
+                    for record in observations
+                )
+                assert [
+                    int(record["evaluation_epoch"]) for record in observations
+                ] == list(range(cycles * 2))
+                assert [int(record["commit_epoch"]) for record in observations] == list(
+                    range(1, cycles * 2 + 1)
+                )
+                assert [
+                    [int(value["value"]) for value in record["values"]]
+                    for record in observations
+                ] == expected
+                results_record = [
+                    record for record in records if record["kind"] == "result"
+                ]
+                assert (
+                    len(results_record) == 1
+                    and results_record[0]["status"] == "TERMINATED"
+                )
+                assert int(results_record[0]["epoch_time"]) == cycles * 2
+                transcripts.append(observations)
+        assert transcripts[0] == transcripts[1] == transcripts[2]
+        closed_results.append(
+            {
+                "entry": entry,
+                "original_cycles": len(rows),
+                "drain_cycles": 1,
+                "run_cycles": cycles,
+                "source_checks": check_count,
+                "native_workers": [1, 2],
+                "rtl": "pass",
+                "complete_observations_equal": True,
+            }
+        )
 
-    inputs = [
-        Path(args.source_compiler),
-        Path(args.linker),
-        Path(args.emitter),
-        runtime,
-        Path(__file__),
-        fixtures / "source-historical-features.cpp",
-        fixtures / "source-historical-features.sv",
-        *[path for path in owned.rglob("*") if path.is_file()],
-    ]
     products = [
         path
         for path in work.rglob("*")
         if path.is_file()
         and (
-            path.suffix == ".ac"
+            path.suffix in {".ac", ".cpp", ".hpp", ".v", ".sv"}
             or path.name
-            in {"unit.json", "generated.json", "native", "Vtb", "original-rows.txt"}
+            in {
+                "unit.json",
+                "generated.json",
+                "native",
+                "Vtb",
+                "original-rows.txt",
+                "simulation-cpp",
+                "simulation-verilog",
+                "simulation_verification.json",
+            }
         )
     ]
+    assert input_hashes == {str(path): digest(path) for path in inputs}
     (work / "evidence.json").write_text(
         json.dumps(
             {
@@ -295,12 +440,14 @@ def main():
                 "model": "gpt-6.1-sol",
                 "effort": "high",
                 "cases": results,
-                "input_sha256": {str(path): digest(path) for path in inputs},
+                "closed_systems": closed_results,
+                "input_sha256": input_hashes,
                 "artifact_sha256": {str(path): digest(path) for path in products},
                 "remaining_scope": [
                     "Legacy ProbeBuilder/ProbeView tagged probe DSL and trace selector/window JSON are retained historical assets, not established by these numerical tests.",
                     "Known physical clock/reset levels and two asserted reset cycles are covered; unknown clocks/resets and automatic domain scheduling are not asserted here.",
                     "Historical XZ driver uses only known values; additional X/Z/mixed masks test native host I/O and capture, not source-level four-state constructors or Verilator four-state behavior.",
+                    "The original trace driver feeds both leaf instances identical inputs. Distinct generated allocations are retained; dynamic instance isolation is covered by tests/system/test_source_system_execution.py::test_closed_system_generated_cpp_and_verilator_observations with independently enabled left/right accumulators, not inferred from identical trace outputs.",
                 ],
             },
             indent=2,
@@ -308,7 +455,7 @@ def main():
         + "\n"
     )
     print(
-        "PASS: three historical roots, complete original pre/post drivers, native workers1/2 and RTL; native host X/Z capture"
+        "PASS: three historical module roots and closed systems; complete original pre/post drivers, native workers1/2 and RTL, native host X/Z capture"
     )  # noqa: T201 - standalone gate receipt
 
 

@@ -52,6 +52,11 @@ def _expected_origins(filename):
             )
         )
         if isinstance(node, ast.FunctionDef):
+            rules = {
+                statement.name: statement
+                for statement in node.body
+                if isinstance(statement, ast.FunctionDef)
+            }
             for ordinal, statement in enumerate(node.body):
                 nested = path + [("field", "body"), ("index", ordinal)]
                 if isinstance(statement, ast.Assign) and isinstance(
@@ -65,12 +70,20 @@ def _expected_origins(filename):
                             f'loc("{filename}":{site.lineno}:{site.col_offset + 1})',
                         )
                     )
-                elif isinstance(statement, ast.FunctionDef):
+                elif (
+                    isinstance(statement, ast.Expr)
+                    and isinstance(statement.value, ast.Call)
+                    and isinstance(statement.value.func, ast.Name)
+                    and statement.value.func.id in rules
+                ):
+                    # A rule's occurrence identifies its explicit registration;
+                    # its diagnostic location still names the declaration.
+                    declaration = rules[statement.value.func.id]
                     expected.append(
                         (
                             "ac.rule",
-                            _origin(symbol, nested),
-                            f'loc("{filename}":{statement.lineno}:{statement.col_offset + 1})',
+                            _origin(symbol, nested + [("field", "value")]),
+                            f'loc("{filename}":{declaration.lineno}:{declaration.col_offset + 1})',
                         )
                     )
     return sorted(expected)

@@ -1,6 +1,6 @@
 # Known limitations and follow-up work
 
-This records pyCircuit 6.1 limitations and follow-up work as of 2026-10-07.
+This records pyCircuit 6.1 limitations and follow-up work as of 2026-10-08.
 Closed `@system` source compilation, generated C++/Verilator simulation, source
 checks, observation publication and failure-atomic state/clock handling now have
 focused independent verification. Full example adaptation and broader language
@@ -9,8 +9,8 @@ retains the original independent verification assets.
 
 Removing unfinished examples does not mean their functionality is implemented.
 Items below are grounded in the current source reference, compiler admission
-checks and existing test ownership; full nightly validation was not run for
-this cleanup.
+checks and existing test ownership. Focused migration gates have passed; the
+complete nightly and platform matrices still require final candidate verification.
 
 ## Language and compiler
 
@@ -30,8 +30,8 @@ this cleanup.
 | Area | Current limitation | Follow-up acceptance |
 | --- | --- | --- |
 | System authoring | Closed default-domain systems work; the full example inventory and broader source forms have not been adapted and validated. | Adapt each original scenario without weakening its hardware behavior or independent oracle. |
-| Queue protocols | Basic finite queues and explicit ready/latency policies are supported. General credit/dependency/rate/reorder protocols and historical same-epoch reuse semantics are not all covered. | Preserve token conservation, timing, capacity and backpressure with independent protocol tests. |
-| Source checks | Closed-system assertions execute through both backends. Asserted standalone module emission currently refuses instrumentation, which blocks the original full queue vector harnesses. RTL failures do not yet include the native structured check location/ID. | Restore a reviewed managed caller boundary for module verification; retain full original vectors and independent failure/zero-commit tests. |
+| Queue protocols | Original route/credit/reorder histories and source faults now execute through managed module verification, with independent protocol checkers. Historical direct batch preloads and exceptional host partial commits are not generally expressible by closed default-clock systems. | Preserve token conservation, timing, capacity and backpressure; distinguish supported system trajectories from historical host-only actions. |
+| Source checks | Closed systems and checked ordinary modules execute assertions through both backends. Checked module RTL requires the documented managed phase/commit/error caller boundary. RTL failures do not yet include the native structured check location/ID. | Retain full original vectors, sticky failure and independent failure/zero-commit tests; improve diagnostics without changing hardware semantics. |
 | Observations | Closed-system C++/RTL observations share a deterministic layout, but scalar slots remain capped at 64 bits. Wide and complete four-state observation transport is incomplete. | Verify equivalent events, identity, reset/discard behavior and value/known/Z transport from the same final IR. |
 | Clocks and memory | Explicit physical clocks and standard memory leaves do not provide automatic scheduling, CDC or every historical disabled-read lifetime policy. | Test independent domains and memory timing explicitly; add no implicit scheduling semantics. |
 | Host integration | Generated models use typed C++ DUT access and explicit clock/reset stimulation. A shared-library port C ABI and a turnkey interactive Python simulator are not provided. | Extend the existing runtime boundary only with an explicit, independently tested contract. |
@@ -41,8 +41,8 @@ this cleanup.
 
 | Area | Current limitation | Follow-up acceptance |
 | --- | --- | --- |
-| Removed historical scenarios | Aggregate/array/configuration, slot/transaction, dependency/credit/rate, checks/trace/XZ drafts and three unfinished complete designs were removed. | Add each capability back only with a supported source, independent oracle and registered test. |
-| Complete designs | The unfinished circular ROB, oldest-ready issue queue and routed dependency pipeline are outside the delivered example set. The smaller retained ROB is not equivalent coverage. | Implement and verify each full algorithm, timing and recovery contract in a later PR. |
+| Historical scenarios | Expectation and credit pipelines, persistent schedulers, reset/trace/XZ module contracts have restored source fixtures and owning tests. Aggregate/array/configuration and remaining slot/rate/full-design contracts are incomplete. | Reconcile all 93 original roots against supported source, independent oracles and registered tests; a catalog mapping is not execution acceptance. |
+| Complete designs | Circular ROB and oldest-ready issue queue restoration is in progress with independent full-state histories. Routed dependency pipeline remains unmapped. The smaller retained ROB does not establish their coverage. | Complete source admission, original algorithms and timing/recovery verification through the existing API/IR/backend path. |
 | Candidate coverage | Historical accepted examples do not prove all source-import IR, transformed IR and backend outputs were regenerated from this PR candidate. | Run the existing nightly matrices and retain candidate-bound stage artifacts. |
 | Portability and packaging | This cleanup does not establish a new full Linux/macOS/Windows release validation or performance baseline. | Run the existing platform/package acceptance workflows before publication. |
 | Authoring experience | Generated systems use Python benches and the existing CMake source-unit flow. The original authored module verification remains registered alongside migrated system scenarios. Observation-only nested structural rules still reject without a binding or assertion. | Finish system adaptation and repair existing import/diagnostic inconsistencies without a new frontend or weakened oracle. |

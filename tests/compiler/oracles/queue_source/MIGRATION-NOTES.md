@@ -140,3 +140,21 @@ Full acceptance requires actual runs of these complete vectors on native
 workers 1 and 2 and managed RTL, including native/Icarus four-state scenarios,
 plus the independent checkers. Consult the candidate's recorded commands and
 receipts; fixture registration or dual emission is not a passing nightly gate.
+
+The 2026-10-08 candidate passed the complete existing public gate: 25 vector
+cases on native workers 1 and 2 and Icarus 13, 23 known-value Verilator runs,
+the three independent checker commands, and 57 protected source rejections.
+The separate eight-system fault gate also passed both native worker counts and
+managed Verilator, including the pending-update and committed-state probes.
+Raw commands, per-case artifact hashes, unchanged before/after input hashes,
+full oracle records and checker logs are retained under
+`docs/gates/logs/20261008-pr271-queue-full/` and
+`docs/gates/logs/20261008-pr271-queue-final-faults/`.
+
+The full gate's exit recorder overwrote its rich candidate aggregate; complete
+per-case receipts, command traces and candidate-stability hashes remain, with
+this limitation recorded in `verified-summary.json`. The recorder now uses a
+separate stability file. Subsequent Black formatting preserved each affected
+file's attribute-free Python AST. Its snapshots and hash comparison are in
+`docs/gates/logs/20261008-pr271-queue-format/format-audit.json`; execution receipts
+bind the earlier source snapshots, rather than the formatted bytes.

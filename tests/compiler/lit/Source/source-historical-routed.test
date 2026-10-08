@@ -1,0 +1,3 @@
+# Full four-route graph, complete independent state/transactions and two real-queue systems.
+# REQUIRES: verilator
+# RUN: %python %S/Inputs/history-routed/run.py --repo %src --source-compiler %pycircuit_source_unit --linker %pycircuit_link --emitter %pycircuit_emit --cxx %cxx --verilator %verilator --scratch %t.dir

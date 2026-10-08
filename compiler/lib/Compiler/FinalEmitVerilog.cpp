@@ -83,7 +83,8 @@ FailureOr<std::string> managedReset(ac::ModuleOp root) {
   auto names = root.getInputNames();
   if (!reset || reset.getValue().getActiveBits() > 64 ||
       reset.getValue().getZExtValue() >= names.size())
-    return root.emitOpError() << "managed module requires verified reset context";
+    return root.emitOpError()
+           << "managed module requires verified reset context";
   return legalizeIdentifier(
       cast<StringAttr>(names[reset.getValue().getZExtValue()]).getValue(),
       [&] { return root.emitOpError(); });
@@ -308,8 +309,54 @@ FailureOr<std::string> systemSimulationTop(HardwareEmitContext &context,
          "    end\n"
          "  endfunction\n"
          "  task automatic pyc_publish_observations;\n    begin\n";
-  std::string rootInstance = "root";
-  for (const auto &occurrence : plan->occurrences) {
+  struct ObservationGroup {
+    size_t begin, size;
+    SmallVector<ObservationAddress> addresses;
+    SmallVector<uint64_t> widths;
+  };
+  SmallVector<ObservationGroup> groups;
+  for (size_t begin = 0; begin < plan->occurrences.size();) {
+    const auto &first = plan->occurrences[begin];
+    auto observe = cast<ac::SourceObserveOp>(first.site.op);
+    const size_t size = std::max<size_t>(1, observe.getValues().size());
+    if (first.site.valueIndex != 0 || size > plan->occurrences.size() - begin ||
+        (first.site.gauge && size != 1))
+      return observe.emitOpError() << "observation group layout is incomplete";
+    ObservationGroup group{begin, size, {}, {}};
+    for (size_t index = 0; index < size; ++index) {
+      const auto &lane = plan->occurrences[begin + index];
+      if (lane.site.op != first.site.op || lane.path != first.path ||
+          lane.site.valueIndex != index ||
+          lane.site.carriesValue != !observe.getValues().empty() ||
+          lane.site.gauge != first.site.gauge)
+        return observe.emitOpError()
+               << "observation group layout is inconsistent";
+      auto hierarchy = observationHierarchy(*plan, lane);
+      auto width = observationWidth(context, lane);
+      if (failed(hierarchy) || failed(width))
+        return failure();
+      group.addresses.push_back(std::move(*hierarchy));
+      group.widths.push_back(*width);
+    }
+    groups.push_back(std::move(group));
+    begin += size;
+  }
+  auto signal = [](const ObservationAddress &address, StringRef field) {
+    return address.object + ".pyc_observation_" + field.str() + "_" +
+           std::to_string(address.localIndex);
+  };
+  // Check every group before emitting any record from this epoch. A partially
+  // active later group must not publish an earlier complete group's prefix.
+  for (const auto &group : groups)
+    for (size_t index = 1; index < group.size; ++index)
+      out << "      if ((" << signal(group.addresses[index], "valid")
+          << " !== " << signal(group.addresses[0], "valid") << ") || ("
+          << signal(group.addresses[index], "path")
+          << " !== " << signal(group.addresses[0], "path") << "))\n"
+          << "        $fatal(1, \"pycircuit_sim: inconsistent observation "
+             "group\");\n";
+  for (const auto &group : groups) {
+    const auto &occurrence = plan->occurrences[group.begin];
     auto observe = cast<ac::SourceObserveOp>(occurrence.site.op);
     auto identity = observe->getAttrOfType<DictionaryAttr>("ac.observation_id");
     if (!identity)
@@ -318,59 +365,50 @@ FailureOr<std::string> systemSimulationTop(HardwareEmitContext &context,
         emissionMetadataJson(identity.get("registration"), observe);
     auto site = emissionMetadataJson(identity.get("site"), observe);
     auto spec = emissionMetadataJson(observe.getSpec(), observe);
-    auto hierarchy = observationHierarchy(*plan, occurrence);
-    auto width = observationWidth(context, occurrence);
-    if (failed(registration) || failed(site) || failed(spec) ||
-        failed(hierarchy) || failed(width))
+    if (failed(registration) || failed(site) || failed(spec))
       return failure();
-    std::string instance = rootInstance;
+    std::string instance = "root";
     for (auto [operation, lane] : occurrence.path) {
       auto name = operation->getAttrOfType<StringAttr>("instance_name");
       instance += "/" + name.getValue().str();
       if (isa<ac::CollectionOp>(operation))
         instance += "[" + std::to_string(lane) + "]";
     }
-    std::string prefix = "{\"kind\":" + jsonString(observe.getKind()) +
+    std::string record = "{\"kind\":" + jsonString(observe.getKind()) +
                          ",\"instance\":" + jsonString(instance) +
                          ",\"registration\":" + jsonString(*registration) +
                          ",\"site\":" + jsonString(*site) +
                          ",\"evaluation_epoch\":\"@pyc_decimal@\",\"commit_"
                          "epoch\":\"@pyc_decimal@\",\"spec\":" +
                          *spec + ",\"values\":[";
-    auto signal = [&](StringRef field) {
-      return hierarchy->object + ".pyc_observation_" + field.str() + "_" +
-             std::to_string(hierarchy->localIndex);
-    };
-    const std::string valid = signal("valid"), path = signal("path"),
-                      value = signal("value");
-    out << "      if (" << valid << " && " << path << ") begin\n";
-    if (!occurrence.site.carriesValue) {
-      out << "        $display(\"" << displayFormat(prefix + "]}")
-          << "\", pyc_epoch, pyc_epoch + 1);\n";
-    } else if (occurrence.site.gauge) {
+    std::string arguments;
+    for (size_t index = 0; index < group.size; ++index) {
+      if (!occurrence.site.carriesValue)
+        continue;
+      if (index)
+        record += ',';
+      const std::string value = signal(group.addresses[index], "value");
+      if (group.widths[index] == 1 && !occurrence.site.gauge) {
+        record += "{\"kind\":\"bool\",\"value\":@pyc_string@}";
+        arguments += ", " + value + " ? \"true\" : \"false\"";
+      } else {
+        record += "{\"kind\":\"integer\",\"value\":\"@pyc_decimal@\"}";
+        arguments += ", $unsigned(" + value + ")";
+      }
+    }
+    record += "]}";
+    out << "      if (" << signal(group.addresses[0], "valid") << " && "
+        << signal(group.addresses[0], "path") << ") begin\n";
+    if (occurrence.site.gauge) {
+      const std::string value = signal(group.addresses[0], "value");
       out << "        pyc_report_value_" << occurrence.ordinal
           << " = $unsigned(" << value << ");\n"
           << "        pyc_report_update_" << occurrence.ordinal
-          << " = pyc_epoch + 1;\n"
-          << "        $display(\""
-          << displayFormat(
-                 prefix +
-                 "{\"kind\":\"integer\",\"value\":\"@pyc_decimal@\"}]}")
-          << "\", pyc_epoch, pyc_epoch + 1, $unsigned(" << value << "));\n";
-    } else if (*width == 1) {
-      out << "        $display(\""
-          << displayFormat(prefix +
-                           "{\"kind\":\"bool\",\"value\":@pyc_string@}]}")
-          << "\", pyc_epoch, pyc_epoch + 1, " << value
-          << " ? \"true\" : \"false\");\n";
-    } else {
-      out << "        $display(\""
-          << displayFormat(
-                 prefix +
-                 "{\"kind\":\"integer\",\"value\":\"@pyc_decimal@\"}]}")
-          << "\", pyc_epoch, pyc_epoch + 1, $unsigned(" << value << "));\n";
+          << " = pyc_epoch + 1;\n";
     }
-    out << "      end\n";
+    out << "        $display(\"" << displayFormat(record)
+        << "\", pyc_epoch, pyc_epoch + 1" << arguments << ");\n"
+        << "      end\n";
   }
   out << "    end\n  endtask\n"
          "  task automatic pyc_step(input logic level);\n"

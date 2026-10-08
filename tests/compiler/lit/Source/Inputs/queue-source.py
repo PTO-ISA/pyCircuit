@@ -59,19 +59,32 @@ candidate_paths = [
     Path(args.source_compiler),
     Path(args.linker),
     Path(args.emitter),
+    Path(args.source_compiler).resolve().parent / "pycircuit-opt",
     Path(__file__).resolve(),
     fixtures / "queue-source.cpp",
     fixtures / "queue-source.sv",
     fixtures / "queue-source-vectors.py",
     *sorted(designs.glob("*.py")),
     *sorted(oracle_dir.glob("*.py")),
+    *sorted((repo / "python/pycircuit/src/pycircuit").rglob("*.py")),
+    *sorted((repo / "include/gfsim").rglob("*.h")),
+    *sorted((repo / "include/verilog").glob("*.v")),
 ]
+candidate_paths.extend(
+    path
+    for path in (
+        Path(args.source_compiler).resolve().parent.parent / "lib/libpyc6_runtime.a",
+        Path(args.source_compiler).resolve().parent.parent
+        / "simulator/gfsim/libpyc6_runtime.a",
+    )
+    if path.is_file()
+)
 candidate_before = {str(path): digest(path) for path in candidate_paths}
 
 
 def record_candidate():
     after = {str(path): digest(path) for path in candidate_paths}
-    (evidence / "candidate.json").write_text(
+    (evidence / "candidate-stability.json").write_text(
         json.dumps(
             {
                 "before": candidate_before,
@@ -1526,10 +1539,19 @@ cli(
     provider,
     explicit_constructor,
     "--top",
-    "q4_queue.consumer.Top",
+    "q4_queue.boundary.Top",
     "-o",
     build / "imported-struct-constructor-explicit.ac",
 )
+for target in ("cpp", "verilog"):
+    cli(
+        "emit",
+        build / "imported-struct-constructor-explicit.ac",
+        "--target",
+        target,
+        "-o",
+        build / ("imported-struct-constructor-explicit-" + target),
+    )
 
 for name, text in {
     "imported-struct-constructor-omitted": (

@@ -249,8 +249,8 @@ for name, (before, after, diagnostic) in return_rejections.items():
     assert re.search(diagnostic, rejected.stderr, re.I), rejected.stderr
     assert not absent.exists()
 
-# Shared marker resolution must retain the unsupported-system boundary in
-# either decorator order and through an actual imported marker alias.
+# Closed systems reject authored ports in either decorator order and through
+# an actual imported marker alias. Ordinary authored ports belong to modules.
 system_rejections = {
     "module-then-system": "@ac.module\n@ac.system",
     "system-then-module": "@ac.system\n@ac.module",
@@ -266,7 +266,10 @@ for name, decorators in system_rejections.items():
     )
     absent = scratch / ("invalid-" + name)
     rejected = compile_source(path, absent, success=False)
-    assert "@system is not implemented" in rejected.stderr, rejected.stderr
+    assert (
+        "@system is closed and cannot declare authored inputs or static parameters"
+        in rejected.stderr
+    ), rejected.stderr
     assert not absent.exists()
 
 # A stateless mapping return does not itself select behavioral lowering. The
@@ -376,9 +379,9 @@ checked.write_text(
 analyze(checked)
 compile_source(checked, scratch / "checked-grants-unit")
 
-# The checked-result layout admits and links, while both public emitters continue
-# to reject checked hardware atomically. Prepared native execution is owned by
-# the existing seven-case HardwareSourceChecksExecution GTest, not this route.
+# Checked roots publish with the managed source-check lifecycle. Native fault
+# execution remains owned by the existing seven-case HardwareSourceChecksExecution
+# GTest; this gate keeps publication acceptance and cross-owner protection.
 address_checked = source / "address_grants.py"
 address_checked.write_text(
     (fixtures / "source_check_execution/address_grants.py").read_text()
@@ -404,22 +407,38 @@ cli(
     mapping_final,
 )
 for target in ("cpp", "verilog"):
+    checked_output = scratch / ("checked-fresh-" + target)
+    cli("emit", address_checked_final, "--target", target, "-o", checked_output)
+    checked_receipt = json.loads((checked_output / "generated.json").read_text())
+    assert checked_receipt["entry"] == {
+        "definition": '@"multi_rule.address_grants.Top"',
+        "arguments": [],
+    }
+    boundary = checked_output / (
+        "pycircuit_system.hpp" if target == "cpp" else "design_top.sv"
+    )
+    boundary_text = boundary.read_text()
+    if target == "cpp":
+        assert "bool Precheck() noexcept override" in boundary_text
+        assert "root_.__pyc_validate_checks(source_failure_)" in boundary_text
+    else:
+        assert "module pyc_root" in boundary_text
+        assert "pyc_phase" in boundary_text and "pyc_root_commit_ok" in boundary_text
     protected = scratch / ("checked-protected-" + target)
     cli("emit", mapping_final, "--target", target, "-o", protected)
     before = snapshot(protected)
     for replace in (False, True):
-        output = protected if replace else scratch / ("checked-fresh-" + target)
-        options = ["emit", address_checked_final, "--target", target, "-o", output]
+        options = ["emit", address_checked_final, "--target", target, "-o", protected]
         if replace:
             options.append("--replace")
         rejected = cli(*options, success=False)
-        assert "hardware instrumentation emission is not implemented" in rejected.stderr
+        assert re.search(
+            r"exist|replace|generated.json entry does not match its owner",
+            rejected.stderr,
+        ), rejected.stderr
         if replace:
-            assert (
-                snapshot(protected) == before
-            ), "failed checked emission changed protected output"
-        else:
-            assert not output.exists(), "unsupported checked emission published output"
+            assert "generated.json entry does not match its owner" in rejected.stderr
+        assert snapshot(protected) == before, "failed emission changed protected output"
 
 
 proof_rejects = {
@@ -1457,6 +1476,7 @@ for top, defines, masks in cases:
         [
             args.cxx,
             "-std=c++20",
+            "-O0",
             "-pthread",
             *defines,
             "-I" + str(repo / "include"),
@@ -1490,6 +1510,8 @@ for top, defines, masks in cases:
     run(
         [
             args.verilator,
+            "-CFLAGS",
+            "-O0",
             "--binary",
             "--timing",
             "--top-module",

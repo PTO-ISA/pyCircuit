@@ -36,10 +36,71 @@ def test_pull_request_ci_is_python_only_and_deduplicates_api_hygiene() -> None:
     for forbidden in (
         "llvm.sh",
         "setup-verilator",
+        "setup-native-test-tools",
         "flows/scripts/pyc build",
         *FULL_CLOSURE_SCRIPTS,
     ):
         assert forbidden not in ci
+
+
+def test_native_tool_bootstrap_is_confined_to_existing_linux_closure_jobs() -> None:
+    action = "./.github/actions/setup-native-test-tools"
+    observed = set()
+    for path in sorted((ROOT / ".github/workflows").glob("*.yml")):
+        workflow = yaml.safe_load(path.read_text())
+        for name, job in workflow.get("jobs", {}).items():
+            steps = job.get("steps", [])
+            installs = [
+                index for index, step in enumerate(steps) if step.get("uses") == action
+            ]
+            if not installs:
+                continue
+            observed.add((path.name, name))
+            assert len(installs) == 1
+            assert job["runs-on"].startswith("ubuntu-")
+            python = next(
+                index
+                for index, step in enumerate(steps)
+                if step.get("uses", "").startswith("actions/setup-python@")
+            )
+            build = next(
+                index
+                for index, step in enumerate(steps)
+                if "flows/scripts/pyc build" in step.get("run", "")
+            )
+            assert python < installs[0] < build
+            assert steps[python]["with"]["python-version"] == "3.14.6"
+    assert observed == {
+        ("gates-nightly.yml", "nightly-linux"),
+        ("closure-probe.yml", "closure"),
+        ("release.yml", "full-validation"),
+    }
+    ci = yaml.safe_load(_read(".github/workflows/ci.yml"))
+    assert {
+        step["with"]["python-version"]
+        for job in ci["jobs"].values()
+        for step in job["steps"]
+        if step.get("uses", "").startswith("actions/setup-python@")
+    } == {"3.11"}
+
+
+def test_native_tool_bootstrap_checks_exact_source_identity_before_install() -> None:
+    action = yaml.safe_load(_read(".github/actions/setup-native-test-tools/action.yml"))
+    assert action["runs"]["using"] == "composite"
+    lit, icarus = action["runs"]["steps"]
+    assert lit["shell"] == icarus["shell"] == "bash"
+    assert "--branch llvmorg-22.1.8" in lit["run"]
+    identity = "ca7933e47d3a3451d81e72ac174dcb5aa28b59d1"
+    assert lit["run"].index(identity) < lit["run"].index("python -m pip install")
+    assert "git -C" in lit["run"] and "rev-parse HEAD" in lit["run"]
+    assert (
+        "https://github.com/steveicarus/iverilog/archive/refs/tags/v13_0.tar.gz"
+        in icarus["run"]
+    )
+    digest = "c897bbfa9848688982c6d5c30529fc29d68df0b9ff22ffa73bad89db73a7ce49"
+    assert icarus["run"].index(digest) < icarus["run"].index("tar -xzf")
+    assert "sha256sum --check" in icarus["run"]
+    assert '"${prefix}/bin" >> "${GITHUB_PATH}"' in icarus["run"]
 
 
 def test_release_runs_each_closure_lane_and_repository_gate_once() -> None:

@@ -1,0 +1,100 @@
+{
+  "scope": "Exact pre-migration assets. Historical Annotated aliases, nonlocal state proposals, portless @module bodies and DUT C ABI runner are retained inert; no current support is claimed.",
+  "files": {
+    "tests/integration/pycircuit/public-driver/src/counter.md": {
+      "original_sha256": "9ccc64b9d7df14dcaee1dc87e6e034dcf2ffb4e34b0d4d0795996a74535ba355",
+      "original_bytes": 342,
+      "inert_copy": "tests/integration/pycircuit/public-driver/src/counter.md.txt"
+    },
+    "tests/integration/pycircuit/public-driver/src/counter.py": {
+      "original_sha256": "1504c97d9d3b9fbef2fdab3d531fc94519ce5b93f08f725bda6c7c83e3115be0",
+      "original_bytes": 371,
+      "inert_copy": "tests/integration/pycircuit/public-driver/src/counter.py.txt"
+    },
+    "tests/integration/pycircuit/public-driver/src/design_top.md": {
+      "original_sha256": "cd407e9ce454adb8cb421594b81a7c7d88e1ffcd56883948ea20d160cb58d622",
+      "original_bytes": 398,
+      "inert_copy": "tests/integration/pycircuit/public-driver/src/design_top.md.txt"
+    },
+    "tests/integration/pycircuit/public-driver/src/design_top.py": {
+      "original_sha256": "cbd60fb4225bfedf67d931ca18c8c591bdb2220f7c7c389cb5abf1a08435d163",
+      "original_bytes": 335,
+      "inert_copy": "tests/integration/pycircuit/public-driver/src/design_top.py.txt"
+    },
+    "tests/integration/pycircuit/public-driver/src/empty.py": {
+      "original_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "original_bytes": 0,
+      "inert_copy": "tests/integration/pycircuit/public-driver/src/empty.py.txt"
+    },
+    "tests/integration/pycircuit/public-driver/src/facade/__init__.py": {
+      "original_sha256": "cb1ed0c1461d9000757f323fcd39596a26f38c24c9202a509672d2b771943d4b",
+      "original_bytes": 63,
+      "inert_copy": "tests/integration/pycircuit/public-driver/src/facade/__init__.py.txt"
+    },
+    "tests/integration/pycircuit/public-driver/src/types.md": {
+      "original_sha256": "0e24f93d2bce17498da22407728bfc788194112880eb1a1b94ca9f4fb714a69f",
+      "original_bytes": 159,
+      "inert_copy": "tests/integration/pycircuit/public-driver/src/types.md.txt"
+    },
+    "tests/integration/pycircuit/public-driver/src/types.py": {
+      "original_sha256": "d9b530308eb96d7b662aaa367ba24d1019dd8a883fc1e04417b00be250dde08d",
+      "original_bytes": 144,
+      "inert_copy": "tests/integration/pycircuit/public-driver/src/types.py.txt"
+    },
+    "tests/integration/pycircuit/public-driver/src/\u5b50.py": {
+      "original_sha256": "f5ce3a540278d2c236b7b6f3ddd341a6f57b8aafbb2ca6cc50d5917f709e553f",
+      "original_bytes": 63,
+      "inert_copy": "tests/integration/pycircuit/public-driver/src/\u5b50.py.txt"
+    },
+    "tests/integration/pycircuit/sdk-relocation/counter.py": {
+      "original_sha256": "ab414caf7cbe80f9358ce7b7b8ad25f908d768d9963ae52cd29b3257ab2716e2",
+      "original_bytes": 385,
+      "inert_copy": "tests/integration/pycircuit/sdk-relocation/counter.py.txt"
+    },
+    "tests/integration/pycircuit/sdk-relocation/design_top.py": {
+      "original_sha256": "9221b3a64793454fd73cd60894fbea8d21a9341030a1e358a981702df93827e5",
+      "original_bytes": 223,
+      "inert_copy": "tests/integration/pycircuit/sdk-relocation/design_top.py.txt"
+    },
+    "tests/integration/pycircuit/sdk-relocation/three-ticks.json": {
+      "original_sha256": "9e5ef70b5e43422c2ae2b478967197b5f7b28f5e7bd4dffa261ca0248f0898e7",
+      "original_bytes": 110,
+      "inert_copy": "tests/integration/pycircuit/sdk-relocation/three-ticks.json.txt"
+    },
+    "tests/integration/pycircuit/sdk-relocation/types.py": {
+      "original_sha256": "da471e7509385a78790bebd4f8c80320b1e55bd5345938ea2f9d2c57120e8e8e",
+      "original_bytes": 64,
+      "inert_copy": "tests/integration/pycircuit/sdk-relocation/types.py.txt"
+    },
+    "tests/integration/pycircuit/publication-recovery/old/root.py": {
+      "original_sha256": "4539a657d4da2c511e4f477e3bddff21a4cea4f6564f9fb1d5f469a1375345e6",
+      "original_bytes": 262,
+      "inert_copy": "tests/integration/pycircuit/publication-recovery/old/root.py.txt"
+    },
+    "tests/integration/pycircuit/publication-recovery/new/root.py": {
+      "original_sha256": "1fcdd65e008a412653442d28d4dd511fd65b5f686472488f330a9a9286369f53",
+      "original_bytes": 263,
+      "inert_copy": "tests/integration/pycircuit/publication-recovery/new/root.py.txt"
+    },
+    "tests/system/test_public_emit.py": {
+      "original_sha256": "628f209620adcc07883f9ccf78ca5ff87259aaa22c2d380c34e56d786747d85c",
+      "original_bytes": 13180,
+      "inert_copy": "tests/system/test_public_emit.py.txt"
+    },
+    "tests/system/test_relocated_compiler.py": {
+      "original_sha256": "34bd4a5048bd78ad7236a145559be5b47e3f716a5990c9202dd377aca5563c0d",
+      "original_bytes": 17342,
+      "inert_copy": "tests/system/test_relocated_compiler.py.txt"
+    },
+    "tests/system/test_publication_process_recovery.py": {
+      "original_sha256": "9284ba5b8337b76e30b5000e00b8330742177bc4a68e98c0d938d4656925e702",
+      "original_bytes": 30997,
+      "inert_copy": "tests/system/test_publication_process_recovery.py.txt"
+    },
+    "tests/system/test_source_preview_workflow.py": {
+      "original_sha256": "ad952c3a9658414e663a8efecdeb6e865ffdf2cc4dc7e59692855423897b062a",
+      "original_bytes": 42398,
+      "inert_copy": "tests/system/test_source_preview_workflow.py.txt"
+    }
+  }
+}

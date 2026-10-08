@@ -1,0 +1,41 @@
+{
+  "purpose": "Inert exact hardware algorithms and original strong tests; never execute retired compilation routes.",
+  "assets": [
+    {
+      "revision": "8887e6dec7b4cc530a9967c860dc6a224d79a4ab",
+      "path": "examples/agentic-circuit/state/slot_rule_mailbox.py",
+      "asset": "slot_rule_mailbox.py.txt",
+      "sha256": "e6c6cb76c15312169f9d0242c38965afaf73e54991d7f377a33c3d2c7fecdbc0"
+    },
+    {
+      "revision": "8887e6dec7b4cc530a9967c860dc6a224d79a4ab",
+      "path": "examples/agentic-circuit/state/issue.py",
+      "asset": "issue.py.txt",
+      "sha256": "3eb395614fab0e1ec54ad6ecc0c817221de13a7b5e679b014f8804c4f23a0ad3"
+    },
+    {
+      "revision": "b3e52fb22061350d61b23089c8bed36913650245",
+      "path": "tests/integration/agentic-circuit/e2e/test_slot_rule_transaction.py",
+      "asset": "test_slot_rule_transaction.py.txt",
+      "sha256": "42ef2a27f766d4fdf43f4a9dbf26ce8e00fb8066c7bc4c7e5319b712b0d70c55"
+    },
+    {
+      "revision": "b3e52fb22061350d61b23089c8bed36913650245",
+      "path": "tests/integration/agentic-circuit/e2e/test_table_backend.py",
+      "asset": "test_table_backend.py.txt",
+      "sha256": "4bed544cfd9c705a9e204a1333cf0ff3960ef2210bb04608194b163143508099"
+    },
+    {
+      "revision": "b3e52fb22061350d61b23089c8bed36913650245",
+      "path": "tests/integration/agentic-circuit/e2e/fixtures/slot_rule_transaction/architecture.py",
+      "asset": "slot_rule_transaction.py.txt",
+      "sha256": "3f8c07dbf3d666aaced3d515f8d191ae65ffb547d27d85c099e5a2fa51d4c444"
+    },
+    {
+      "revision": "b3e52fb22061350d61b23089c8bed36913650245",
+      "path": "tests/integration/agentic-circuit/e2e/fixtures/slot_rule_transaction_nested/architecture.py",
+      "asset": "slot_rule_transaction_nested.py.txt",
+      "sha256": "1fc5f1348bea7026358c22df290478aba7432f408f14afc929bb2062aa22739c"
+    }
+  ]
+}
