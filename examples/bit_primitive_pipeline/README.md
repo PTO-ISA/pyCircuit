@@ -64,3 +64,9 @@ Three direct-owner probes verify explicit discard, failed acceptance and failed
 retirement without partial commit. Isolated native terminal cases require Reset
 before recovery; isolated RTL negative cases diagnose uncertain effective
 transfers. The finite runner bound is 45,000 sampling epochs per history.
+The separate `bench.py` system checks a finite regular-clock known-state scenario with exact old-state output checks. This is partial system migration: the original independent drivers retain their full physical-clock, midstream-reset and four-state scenarios.
+
+```bash
+pycircuit run examples/bit_primitive_pipeline --target cpp --cycles 344 --build-dir .pycircuit_out/bit_primitive_pipeline/system-cpp
+pycircuit run examples/bit_primitive_pipeline --target verilog --cycles 344 --build-dir .pycircuit_out/bit_primitive_pipeline/system-verilog
+```

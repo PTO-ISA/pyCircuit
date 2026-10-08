@@ -35,3 +35,24 @@ ctest --test-dir /absolute/build/pipeline-builder --output-on-failure --no-tests
 Acceptance requires the generated C++ model with one and two workers and the
 RTL model to agree with independent latency, hold and wraparound oracles. Source
 presence alone is not execution evidence.
+
+## Generated system usage
+
+`bench.py` exports `example_pipeline_builder.bench.ExercisePipelineBuilder`. The explicit source
+closure is `pipeline_builder.py`, then `bench.py`; link the system root and emit either
+backend with the public `pycircuit compile`, `link`, and `emit` flow. Run
+`pycircuit run examples/pipeline_builder --target cpp --cycles 72` or select
+`--target verilog`. Each managed cycle uses the same stimulus in its low/high
+sampling pair and advances fixture state on the generated edge.
+
+This bench runs all 71 original rising-edge data/valid inputs plus a
+final observation cycle. Literal expectations are derived from the retained
+independent C++ scoreboard along the regular-clock, resetless trajectory; they
+never drive DUT results. Original reset edges are ordinary data cycles here.
+All original deterministic traffic and arithmetic boundaries remain represented.
+
+The original `driver.cpp`, `rtl_tb.sv`, `config.json`, and independent oracle
+models remain unchanged. Known held-level and physical-reset scenarios remain
+with those module-boundary drivers. Where present, their four-state and
+failure/discard matrices remain separate coverage. This regular-clock system
+does not claim complete equivalence to those physical scenarios.

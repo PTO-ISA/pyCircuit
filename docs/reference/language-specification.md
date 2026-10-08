@@ -90,13 +90,16 @@ Struct 字段有序、名义化，当前字段可为 bits、Enum 或嵌套 struc
 对相应 formal 的重绑定/字段赋值形成该声明的状态更新意图。
 普通别名副本、字段投影和表达式实参不会自动变为可写状态引用。
 
-导入 struct 的注解、值传输和名义类型核对已有支持；导入构造/默认值尚未统一。
+导入 struct 的注解、值传输和名义类型核对已有支持。普通表达式和带返回注解的
+rule 可按已发布的名义字段显式构造导入 struct，所有字段必须完整提供；
+provider 默认值不作为导入权威。导入类型的静态初始化和 Table 查询构造回调
+仍采用原有的较窄准入边界。
 Struct 内一般数组/Table、任意递归布局仍未实现。此处必须诊断，不能复制类型、
 改成不透明 packed bits 或读取 provider 源码来冒充完整支持。
 
 ## Table 与 collection 的不同含义
 
-`ac.table[Current limitations](../development/known-limitations.md)` 是当前 Python 的一维固定状态表分配形式。
+`ac.table[N, Entry](init=0)` 是当前 Python 的一维固定状态表分配形式。
 `init=0` 对每个叶字段递归置零，忽略 struct 的非零默认值；`init=Entry()`
 使用该构造值初始化各个独立元素。索引须有0≤lower<upper≤depth的半开区间
 证明，或已有完整物理位宽证明。字面量及固定bits对正静态Integer取余可提供范围；
@@ -260,7 +263,7 @@ writer 不能遮蔽另一个 writer 的 X/Z 使能。其控制失败必须经现
 
 ## Queue 与内存
 
-`ac.queue[Current limitations](../development/known-limitations.md)` 分配完整 token FIFO，
+`ac.queue[T](valid, data, take, depth=N)` 分配完整 token FIFO，
 返回 ready、valid、data。默认 ready 仅依赖本地容量；显式
 `ready_policy="downstream_pop"` 才允许满队列同边沿取出并替换。没有空队列直通。
 latency 是静态正整数；等待中的 token 也占声明容量，不能偷偷增加槽位。

@@ -23,8 +23,19 @@ BUILD_HELPERS = {
     "share/pycircuit/cmake/verify_example.py",
 }
 ACTIVE_EXPORTS = {
-    "module", "rule", "system", "dff", "dffe", "sync_mem", "sync_mem_dp",
-    "byte_mem", "log", "report", "struct", "bits", "table",
+    "module",
+    "rule",
+    "system",
+    "dff",
+    "dffe",
+    "sync_mem",
+    "sync_mem_dp",
+    "byte_mem",
+    "log",
+    "report",
+    "struct",
+    "bits",
+    "table",
 } | {f"u{width}" for width in range(1, 65)}
 RETIRED_MODULES = (
     "agentic_circuit",
@@ -46,7 +57,9 @@ def _wheel() -> Path:
     configured = os.environ.get("PYCIRCUIT_SOURCE_COMPILER_WHEEL")
     if configured:
         wheel = Path(configured).expanduser().resolve()
-        assert wheel.is_file(), f"PYCIRCUIT_SOURCE_COMPILER_WHEEL does not name a file: {wheel}"
+        assert (
+            wheel.is_file()
+        ), f"PYCIRCUIT_SOURCE_COMPILER_WHEEL does not name a file: {wheel}"
         return wheel
     wheels = sorted(DEFAULT_WHEEL_DIR.glob("pycircuit_hisi-*.whl"))
     assert (
@@ -80,8 +93,12 @@ def _clean_environment() -> dict[str, str]:
     environment.pop("PYTHONHOME", None)
     environment.pop("VIRTUAL_ENV", None)
     for variable in (
-        "PYCIRCUIT_SOURCE_COMPILER", "PYCIRCUIT_LINKER", "PYCIRCUIT_EMITTER",
-        "PYCIRCUIT_OPT", "PYCIRCUIT_TOOLCHAIN_ROOT", "PYCIRCUIT_PYTHON_DIR",
+        "PYCIRCUIT_SOURCE_COMPILER",
+        "PYCIRCUIT_LINKER",
+        "PYCIRCUIT_EMITTER",
+        "PYCIRCUIT_OPT",
+        "PYCIRCUIT_TOOLCHAIN_ROOT",
+        "PYCIRCUIT_PYTHON_DIR",
     ):
         environment.pop(variable, None)
     return environment
@@ -223,5 +240,6 @@ def test_wheel_compiler_prefix_runs_outside_venv_and_builds_module_loop(
     assert (build / "module_loop.ac").is_file()
     _checked(
         [ctest, "--test-dir", str(build), "--output-on-failure", "--no-tests=error"],
-        cwd=tmp_path, env=host_environment,
+        cwd=tmp_path,
+        env=host_environment,
     )

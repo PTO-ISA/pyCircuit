@@ -18,7 +18,9 @@ pytestmark = pytest.mark.system
 ROOT = Path(__file__).resolve().parents[2]
 MEASURER = ROOT / "flows/tools/measure_build_resources.py"
 INSTALL = Path(
-    os.environ.get("PYCIRCUIT_TEST_PREFIX", ROOT / ".pycircuit_out/measurement-04-install")
+    os.environ.get(
+        "PYCIRCUIT_TEST_PREFIX", ROOT / ".pycircuit_out/measurement-04-install"
+    )
 ).resolve()
 
 
@@ -43,9 +45,7 @@ def _assert_rss_record(rss: dict[str, Any]) -> None:
 def _run_report(output: Path) -> dict[str, Any]:
     metadata_path = INSTALL / "share/pycircuit/toolchain-metadata.json"
     if not (INSTALL / "bin/pycircuit").is_file() or not metadata_path.is_file():
-        pytest.fail(
-            f"build and install this checkout before resource test: {INSTALL}"
-        )
+        pytest.fail(f"build and install this checkout before resource test: {INSTALL}")
 
     head = subprocess.run(
         ["git", "rev-parse", "HEAD"],

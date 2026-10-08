@@ -66,3 +66,25 @@ object collection, source system, recursive elaboration or VGA display adapter.
 The full public flow passed 8005 Work frames with native workers 1 and 2 and Verilator. The test checks all 50 output bits over 4000 active edges, including button/FSM priority, player movement limits, object and divider timing, the inclusive h-counter wrap and next-line output. Collision/game-over and the full vertical raster are retained in source but are not exhaustively exercised.
 
 See [actual generated excerpts](GENERATED.md) and [verification inputs](GENERATED.json).
+
+## Generated system usage
+
+`bench.py` exports `example_dodgeball_game.bench.ExerciseDodgeballGame`. The explicit source
+closure is `dodgeball_game.py`, then `bench.py`; link the system root and emit either
+backend with the public `pycircuit compile`, `link`, and `emit` flow. Run
+`pycircuit run examples/dodgeball_game --target cpp --cycles 4001` or select
+`--target verilog`. Each managed cycle uses the same stimulus in its low/high
+sampling pair and advances fixture state on the generated edge.
+
+All 4000 original active data edges plus the final committed-state observation
+run for 4001 cycles. Every VGA and debug field is checked, using the original
+independent pixel-count formula and closed-form object-history oracle. The
+initial generated Reset supplies the original initial state. The two later
+physical reset assertions were at held clock levels and remain verified by
+the original driver; their absence creates no extra data/reset edge here.
+
+The original `driver.cpp`, `rtl_tb.sv`, `config.json`, and independent oracle
+models remain unchanged. Known held-level and physical-reset scenarios remain
+with those module-boundary drivers. Where present, their four-state and
+failure/discard matrices remain separate coverage. This regular-clock system
+does not claim complete equivalence to those physical scenarios.

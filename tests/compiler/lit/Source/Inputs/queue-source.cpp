@@ -1,7 +1,5 @@
 #include "gfsim/SystemRunner.h"
-#ifdef Q6_DEAD
 #include "gfsim/SimExecutor.h"
-#endif
 #include "pycircuit_system.hpp"
 #include "queue_source_vectors.hpp"
 
@@ -78,25 +76,75 @@ struct Context {
   static void sample(void *opaque, std::uint64_t epoch) {
     auto &context = *static_cast<Context *>(opaque);
     require(epoch == context.sampled + 1);
+    context.compare(context.sampled);
+    std::cout << "WORK " << context.sampled << '\n';
+    ++context.sampled;
+  }
+
+  void compare(unsigned index) {
+    auto &context = *this;
     auto output = context.dut.sample();
 #ifdef Q4_MAPPING
     require(output.ready.isFullyKnown() && output.available.isFullyKnown());
     require(output.ready.packed().value().bit(0) ==
-            (rows[context.sampled].expected[0] == '1'));
+            (rows[index].expected[0] == '1'));
     require(output.available.packed().value().bit(0) ==
-            (rows[context.sampled].expected[1] == '1'));
-    same(output.head, rows[context.sampled].expected.substr(2),
-         rows[context.sampled].expected_known.substr(2),
-         rows[context.sampled].expected_z.substr(2));
+            (rows[index].expected[1] == '1'));
+    same(output.head, rows[index].expected.substr(2),
+         rows[index].expected_known.substr(2),
+         rows[index].expected_z.substr(2));
 #else
-    same(output.result, rows[context.sampled].expected,
-         rows[context.sampled].expected_known,
-         rows[context.sampled].expected_z);
+    same(output.result, rows[index].execution_expected,
+         rows[index].execution_expected_known,
+         rows[index].execution_expected_z);
 #endif
-    std::cout << "WORK " << context.sampled << '\n';
-    ++context.sampled;
   }
 };
+
+#ifdef Q4_CHECKS
+void checkedRows(pyc_dut &dut, Context &context) {
+  gfsim::SimExecutor executor(dut.system(), dut.observations(), {});
+  require(executor.ConfigureJson(
+              reinterpret_cast<const std::uint8_t *>(configuration.data()),
+              configuration.size()) == PYCIRCUIT_MODEL_STATUS_V1_OK);
+  require(Context::drive(&context, 0));
+  require(executor.Reset() == PYCIRCUIT_MODEL_STATUS_V1_OK);
+  for (unsigned index = 0; index < std::size(rows); ++index) {
+    require(Context::drive(&context, index));
+    if (rows[index].host_reset) {
+      // Recovery is a separately labeled host operation. The physical row and
+      // its original pre-reset oracle value are retained in the vector record.
+      require(executor.Reset() == PYCIRCUIT_MODEL_STATUS_V1_OK);
+      std::cout << "HOST_RESET " << index << '\n';
+    }
+    const auto before = executor.cycles();
+    PycircuitModelStepResultV1 result{sizeof(result)};
+    const auto status = executor.Step(&result);
+    if (rows[index].execution_failure) {
+      require(status == PYCIRCUIT_MODEL_STATUS_V1_RUNTIME_FAILURE);
+      require(executor.cycles() == before && dut.system().cycle() == before);
+      const auto info = dut.system().failureInfo();
+      require(info.phase == gfsim::SimFailurePhase::Check);
+      require(info.code == "source_check_failed");
+      require(!info.message.empty() && !info.instance.empty() &&
+              !info.sourceJson.empty() && !info.checkIdJson.empty());
+      bool unavailable = false;
+      try {
+        (void)dut.sample();
+      } catch (const std::logic_error &) {
+        unavailable = true;
+      }
+      require(unavailable);
+      std::cout << "FAILED " << index << '\n';
+    } else {
+      require(status == PYCIRCUIT_MODEL_STATUS_V1_OK);
+      context.compare(index);
+      std::cout << "WORK " << index << '\n';
+    }
+    require(dut.observations().Events().empty());
+  }
+}
+#endif
 
 #ifdef Q6_DEAD
 void deadQueueMustAge(unsigned workers) {
@@ -157,6 +205,10 @@ int main(int argc, char **argv) {
     return 2;
   pyc_dut dut(runner.workers());
   Context context{dut};
+#ifdef Q4_CHECKS
+  checkedRows(dut, context);
+  return 0;
+#else
   gfsim::RunnerCallbacks callbacks{&context, &Context::initialize,
                                    &Context::drive, &Context::sample};
   int status = runner.Run(dut.system(), dut.observations(), {}, callbacks);
@@ -165,4 +217,5 @@ int main(int argc, char **argv) {
   deadQueueMustAge(runner.workers());
 #endif
   return status;
+#endif
 }

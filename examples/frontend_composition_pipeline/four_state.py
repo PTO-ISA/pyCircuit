@@ -92,8 +92,11 @@ namespace = "example_frontend_composition_pipeline.frontend_composition_pipeline
 
 
 def fields(name):
-    line = next(line for line in final_text.splitlines()
-                if line.lstrip().startswith('ac.struct "' + namespace + name + '" fields '))
+    line = next(
+        line
+        for line in final_text.splitlines()
+        if line.lstrip().startswith('ac.struct "' + namespace + name + '" fields ')
+    )
     return re.findall(
         r'\{name = "([^"]+)", type = (!ac\.(?:bits<<.*?>>|(?:struct|enum)<"[^"]+">))}',
         line,
@@ -104,7 +107,7 @@ def signature(name):
     result = []
     for field, kind in fields(name):
         if kind.startswith("!ac.bits<<"):
-            width = re.search(r'value = #ac.math_int<([0-9]+)>}}>>$', kind)
+            width = re.search(r"value = #ac.math_int<([0-9]+)>}}>>$", kind)
             assert width, (name, field, kind)
             result.append((field, int(width.group(1))))
         else:
@@ -120,23 +123,37 @@ assert item_fields == [
     ("header", '!ac.struct<"' + namespace + 'Header">'),
     ("patch", '!ac.struct<"' + namespace + 'Patch">'),
     ("opcode", '!ac.enum<"' + namespace + 'Opcode">'),
-    ("flags", 4), ("result_tag", 4), ("result_valid", 1),
+    ("flags", 4),
+    ("result_tag", 4),
+    ("result_valid", 1),
     ("result_opcode", '!ac.enum<"' + namespace + 'Opcode">'),
-    ("onehot_index", 2), ("onehot_valid", 1), ("onehot_conflict", 1),
+    ("onehot_index", 2),
+    ("onehot_valid", 1),
+    ("onehot_conflict", 1),
 ], item_fields
 assert signature("Result") == [
-    ("ready", 1), ("valid", 1), ("data", '!ac.struct<"' + namespace + 'Item">')]
-enum_line = next(line for line in final_text.splitlines()
-                 if '"ac.enum"()' in line and
-                 'sym_name = "' + namespace + 'Opcode"' in line)
-assert 'width = #ac.math_int<4>' in enum_line and 'encoding = "explicit"' in enum_line
+    ("ready", 1),
+    ("valid", 1),
+    ("data", '!ac.struct<"' + namespace + 'Item">'),
+]
+enum_line = next(
+    line
+    for line in final_text.splitlines()
+    if '"ac.enum"()' in line and 'sym_name = "' + namespace + 'Opcode"' in line
+)
+assert "width = #ac.math_int<4>" in enum_line and 'encoding = "explicit"' in enum_line
 assert re.findall(r'code = #ac.math_int<([0-9]+)>, name = "([^\"]+)"', enum_line) == [
-    ("0", "NONE"), ("3", "READ"), ("9", "WRITE")], enum_line
+    ("0", "NONE"),
+    ("3", "READ"),
+    ("9", "WRITE"),
+], enum_line
 assert 8 + 5 + 4 + 4 + 4 + 1 + 4 + 2 + 1 + 1 == 34
 assert '"ac.reg"(' not in final_text, "unexpected additional register owner"
 for line in final_text.splitlines():
     if '"ac.queue"(' in line:
-        assert line.count('!ac.struct<"' + namespace + 'Item">') >= 2, "queue did not retain complete nominal Item"
+        assert (
+            line.count('!ac.struct<"' + namespace + 'Item">') >= 2
+        ), "queue did not retain complete nominal Item"
 
 rtl = [
     main_build / "verilog" / row["path"]
@@ -260,7 +277,8 @@ assert inputs == {path: digest(Path(path)) for path in inputs}
             "directed_onehot_literal_latent_cases": 24,
             "dense_latent_cases": 8,
             "histories": [line.split()[1:] for line in rtl_histories],
-            "queue_owners": 2, "slots": 2,
+            "queue_owners": 2,
+            "slots": 2,
             "logical_payload_storage_bits": 68,
             "boolean_storage_policy": "historical Boolean fields are explicit fixed u1; no logical-kind roundtrip claim",
             "copied_value_planes": "all21 unchanged high bits and5 patch-derived bits exact in native",
@@ -269,9 +287,12 @@ assert inputs == {path: digest(Path(path)) for path in inputs}
             "known_control_cartesian_values": 8192,
             "old_derived_field_range_controls": 672,
             "independent_header_values": 256,
-            "known_tokens": 9120, "four_state_tokens": 596,
-            "tools_sha256": {str(Path(tool).resolve()): digest(Path(tool).resolve())
-                             for tool in (args.iverilog, args.vvp)},
+            "known_tokens": 9120,
+            "four_state_tokens": 596,
+            "tools_sha256": {
+                str(Path(tool).resolve()): digest(Path(tool).resolve())
+                for tool in (args.iverilog, args.vvp)
+            },
             "terminal_failure_scope": "isolated process; native requires Reset before further execution",
             "token_width": 34,
             "result_width": 36,

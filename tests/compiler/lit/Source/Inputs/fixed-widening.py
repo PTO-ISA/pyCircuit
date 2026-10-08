@@ -11,7 +11,15 @@ import tempfile
 from pathlib import Path
 
 parser = argparse.ArgumentParser()
-for name in ("repo", "source-compiler", "linker", "emitter", "cxx", "verilator", "scratch"):
+for name in (
+    "repo",
+    "source-compiler",
+    "linker",
+    "emitter",
+    "cxx",
+    "verilator",
+    "scratch",
+):
     parser.add_argument("--" + name, required=True)
 for name in ("iverilog", "vvp"):
     parser.add_argument("--" + name, default=shutil.which(name))
@@ -20,21 +28,35 @@ args = parser.parse_args()
 repo = Path(args.repo).resolve()
 scratch = Path(args.scratch).resolve()
 scratch.mkdir(parents=True, exist_ok=True)
-env = dict(os.environ, PYTHONPATH=str(repo / "python/pycircuit/src"),
-           PYTHONDONTWRITEBYTECODE="1", PYCIRCUIT_SOURCE_COMPILER=args.source_compiler,
-           PYCIRCUIT_LINKER=args.linker, PYCIRCUIT_EMITTER=args.emitter)
+env = dict(
+    os.environ,
+    PYTHONPATH=str(repo / "python/pycircuit/src"),
+    PYTHONDONTWRITEBYTECODE="1",
+    PYCIRCUIT_SOURCE_COMPILER=args.source_compiler,
+    PYCIRCUIT_LINKER=args.linker,
+    PYCIRCUIT_EMITTER=args.emitter,
+)
 commands = []
 
 
 def run(command, accepted=True):
     command = list(map(str, command))
-    result = subprocess.run(command, env=env, cwd=repo, capture_output=True,
-                            text=True, timeout=180)
-    commands.append({"command": command, "exit_status": result.returncode,
-                     "stdout": result.stdout, "stderr": result.stderr})
+    result = subprocess.run(
+        command, env=env, cwd=repo, capture_output=True, text=True, timeout=180
+    )
+    commands.append(
+        {
+            "command": command,
+            "exit_status": result.returncode,
+            "stdout": result.stdout,
+            "stderr": result.stderr,
+        }
+    )
     (scratch / "commands.json").write_text(json.dumps(commands, indent=2) + "\n")
     assert result.returncode == (0 if accepted else 1), commands[-1]
-    assert "Assertion failed" not in result.stderr and "Traceback" not in result.stderr, commands[-1]
+    assert (
+        "Assertion failed" not in result.stderr and "Traceback" not in result.stderr
+    ), commands[-1]
     return result
 
 
@@ -43,8 +65,11 @@ def cli(*arguments, accepted=True):
 
 
 def snapshot(directory):
-    return {path.relative_to(directory).as_posix(): path.read_bytes()
-            for path in directory.rglob("*") if path.is_file()}
+    return {
+        path.relative_to(directory).as_posix(): path.read_bytes()
+        for path in directory.rglob("*")
+        if path.is_file()
+    }
 
 
 DESIGN = """import pycircuit as ac
@@ -98,7 +123,7 @@ def NamedFixed(value: ac.u3) -> {"out": ac.bits[9]}:
     return mapped_return(value)
 """
 
-CPP = r'''#include "gfsim/SimExecutor.h"
+CPP = r"""#include "gfsim/SimExecutor.h"
 #include "pycircuit_system.hpp"
 #include <cstdlib>
 #include <iostream>
@@ -211,9 +236,9 @@ int main(int argc, char **argv) {
   }
 #endif
 }
-'''
+"""
 
-RTL = '''module tb;
+RTL = """module tb;
 `ifdef NAMED_FIXED
   logic [2:0] value;
   wire [8:0] out;
@@ -271,18 +296,20 @@ RTL = '''module tb;
   end
 `endif
 endmodule
-'''
+"""
 
 PREFIX = "import pycircuit as ac\n"
 CASES = {
-    "shrinking-small-mask": PREFIX + """@ac.struct
+    "shrinking-small-mask": PREFIX
+    + """@ac.struct
 class Result:
     value: ac.u4
 @ac.module
 def Top(value: ac.u9) -> Result:
     return Result(value=value & 1)
 """,
-    "shrinking-rule-local": PREFIX + """@ac.struct
+    "shrinking-rule-local": PREFIX
+    + """@ac.struct
 class Result:
     value: ac.u4
 @ac.rule
@@ -293,32 +320,38 @@ def evaluate(value) -> Result:
 def Top(value: ac.u9) -> Result:
     return evaluate(value)
 """,
-    "mixed-arithmetic": PREFIX + """@ac.struct
+    "mixed-arithmetic": PREFIX
+    + """@ac.struct
 class Result:
     value: ac.u9
 @ac.module
 def Top(left: ac.u3, right: ac.u9) -> Result:
     return Result(value=left + right)
 """,
-    "boolean-to-wide": PREFIX + """@ac.struct
+    "boolean-to-wide": PREFIX
+    + """@ac.struct
 class Result:
     value: ac.u9
 @ac.module
 def Top(left: ac.u3, right: ac.u3) -> Result:
     return Result(value=left == right)
 """,
-    "fixed-to-math": "from typing import Annotated\n" + PREFIX + """@ac.rule
+    "fixed-to-math": "from typing import Annotated\n"
+    + PREFIX
+    + """@ac.rule
 def mapped_return(value):
     return {"out": value}
 @ac.module
 def Top(value: ac.u3) -> {"out": Annotated[int, range(1 << 9)]}:
     return mapped_return(value)
 """,
-    "structural-named": PREFIX + """@ac.module
+    "structural-named": PREFIX
+    + """@ac.module
 def Top(value: ac.u3) -> {"out": ac.bits[9]}:
     return {"out": value}
 """,
-    "rule-formal-width": PREFIX + """@ac.struct
+    "rule-formal-width": PREFIX
+    + """@ac.struct
 class Result:
     value: ac.u9
 @ac.rule
@@ -328,7 +361,8 @@ def evaluate(value: ac.u9) -> Result:
 def Top(value: ac.u3) -> Result:
     return evaluate(value)
 """,
-    "nominal-mismatch": PREFIX + """@ac.struct
+    "nominal-mismatch": PREFIX
+    + """@ac.struct
 class Left:
     value: ac.u4
 @ac.struct
@@ -341,7 +375,8 @@ class Result:
 def Top(value: ac.u4) -> Result:
     return Result(nested=Right(value=value))
 """,
-    "runtime-boolean-fixed-peer": PREFIX + """@ac.struct
+    "runtime-boolean-fixed-peer": PREFIX
+    + """@ac.struct
 class Result:
     value: ac.u9
 @ac.module
@@ -358,12 +393,23 @@ with tempfile.TemporaryDirectory(prefix="fixed-widening-", dir=scratch) as tempo
     design = source / "design.py"
     design.write_text(DESIGN)
     (scratch / "design.py").write_text(DESIGN)
-    (scratch / "fixture.sha256").write_text(hashlib.sha256(Path(__file__).read_bytes()).hexdigest() + "\n")
+    (scratch / "fixture.sha256").write_text(
+        hashlib.sha256(Path(__file__).read_bytes()).hexdigest() + "\n"
+    )
     unit = build / "unit"
 
     def compile_source(path, output, accepted=True, replace=False, interfaces=()):
-        arguments = ["compile", "-c", path, "--source-root", source,
-                     "--package-prefix", "widening", "-o", output]
+        arguments = [
+            "compile",
+            "-c",
+            path,
+            "--source-root",
+            source,
+            "--package-prefix",
+            "widening",
+            "-o",
+            output,
+        ]
         if replace:
             arguments.append("--replace")
         for interface in interfaces:
@@ -372,18 +418,34 @@ with tempfile.TemporaryDirectory(prefix="fixed-widening-", dir=scratch) as tempo
 
     if args.baseline_rejection:
         rejected = compile_source(design, unit, accepted=False)
-        assert "unsigned boundary hardware type mismatch" in rejected.stderr, rejected.stderr
+        assert (
+            "unsigned boundary hardware type mismatch" in rejected.stderr
+        ), rejected.stderr
         assert not unit.exists()
-        sys.stdout.write("fixed widening pre-fix baseline rejected positive destination widening\n")
+        sys.stdout.write(
+            "fixed widening pre-fix baseline rejected positive destination widening\n"
+        )
         sys.exit(0)
     compile_source(design, unit)
     toolroot = Path(args.source_compiler).resolve().parent.parent
-    runtime = next((path for path in (toolroot / "simulator/gfsim/libpyc6_runtime.a",
-                                     toolroot / "lib/libpyc6_runtime.a") if path.is_file()), None)
+    runtime = next(
+        (
+            path
+            for path in (
+                toolroot / "simulator/gfsim/libpyc6_runtime.a",
+                toolroot / "lib/libpyc6_runtime.a",
+            )
+            if path.is_file()
+        ),
+        None,
+    )
     assert runtime is not None, "Runtime archive missing from this build/install"
 
     products = []
-    for top, named, frames, masks in (("Top", False, 16, 4), ("NamedFixed", True, 8, 2)):
+    for top, named, frames, masks in (
+        ("Top", False, 16, 4),
+        ("NamedFixed", True, 8, 2),
+    ):
         output = build / top
         output.mkdir()
         final = output / "design_top.ac"
@@ -391,63 +453,146 @@ with tempfile.TemporaryDirectory(prefix="fixed-widening-", dir=scratch) as tempo
         for target in ("cpp", "verilog"):
             cli("emit", final, "--target", target, "-o", output / target)
         receipt = json.loads((output / "cpp/generated.json").read_text())
-        cpp = [output / "cpp" / row["path"] for row in receipt["files"]
-               if row["path"].endswith(".cpp")]
+        cpp = [
+            output / "cpp" / row["path"]
+            for row in receipt["files"]
+            if row["path"].endswith(".cpp")
+        ]
         assert cpp, "Generated source-owned C++ translation unit missing"
         runner_source = output / "runner.cpp"
         runner_source.write_text(CPP)
         runner = output / "runner"
         defines = ["-DNAMED_FIXED"] if named else []
-        run([args.cxx, "-std=c++20", "-pthread", *defines, "-I" + str(repo / "include"),
-             "-I" + str(output / "cpp"), runner_source, *cpp, runtime, "-o", runner])
+        run(
+            [
+                args.cxx,
+                "-std=c++20",
+                "-pthread",
+                *defines,
+                "-I" + str(repo / "include"),
+                "-I" + str(output / "cpp"),
+                runner_source,
+                *cpp,
+                runtime,
+                "-o",
+                runner,
+            ]
+        )
         traces = []
         mask_traces = []
         for workers in (1, 2):
             trace = run([runner, str(workers)]).stdout
             (scratch / f"{top}-workers-{workers}.stdout").write_text(trace)
-            traces.append([row for row in trace.splitlines() if row.startswith("WORK ")])
-            mask_traces.append([row for row in trace.splitlines() if row.startswith("MASK ")])
+            traces.append(
+                [row for row in trace.splitlines() if row.startswith("WORK ")]
+            )
+            mask_traces.append(
+                [row for row in trace.splitlines() if row.startswith("MASK ")]
+            )
         assert len(traces[0]) == frames and traces[0] == traces[1]
         assert len(mask_traces[0]) == masks and mask_traces[0] == mask_traces[1]
         receipt = json.loads((output / "verilog/generated.json").read_text())
-        rtl = [output / "verilog" / row["path"] for row in receipt["files"] if row["role"] == "rtl"]
+        rtl = [
+            output / "verilog" / row["path"]
+            for row in receipt["files"]
+            if row["role"] == "rtl"
+        ]
         rtl.sort(key=lambda path: (path.name != "design_top.sv", str(path)))
         bench = output / "tb.sv"
         bench.write_text(RTL)
         rtl_build = output / "rtl-build"
-        run([args.verilator, "--binary", "--timing", "--top-module", "tb", "--prefix", "Vwidening",
-             "--Mdir", rtl_build, "-j", "2", "-Wno-fatal", *defines, *rtl, bench])
+        run(
+            [
+                args.verilator,
+                "--binary",
+                "--timing",
+                "--top-module",
+                "tb",
+                "--prefix",
+                "Vwidening",
+                "--Mdir",
+                rtl_build,
+                "-j",
+                "2",
+                "-Wno-fatal",
+                *defines,
+                *rtl,
+                bench,
+            ]
+        )
         rtl_trace = run([rtl_build / "Vwidening"]).stdout
         (scratch / f"{top}-rtl.stdout").write_text(rtl_trace)
-        assert [row for row in rtl_trace.splitlines() if row.startswith("WORK ")] == traces[0]
+        assert [
+            row for row in rtl_trace.splitlines() if row.startswith("WORK ")
+        ] == traces[0]
         if args.iverilog and args.vvp:
             rtl_runner = output / "rtl-four-state"
-            run([args.iverilog, "-g2012", "-DWIDENING_FOUR_STATE", *defines, "-s", "tb",
-                 "-o", rtl_runner, *rtl, bench])
+            run(
+                [
+                    args.iverilog,
+                    "-g2012",
+                    "-DWIDENING_FOUR_STATE",
+                    *defines,
+                    "-s",
+                    "tb",
+                    "-o",
+                    rtl_runner,
+                    *rtl,
+                    bench,
+                ]
+            )
             four_state_trace = run([args.vvp, rtl_runner]).stdout
             (scratch / f"{top}-rtl-four-state.stdout").write_text(four_state_trace)
-            assert [row for row in four_state_trace.splitlines() if row.startswith("WORK ")] == traces[0]
-            assert [row for row in four_state_trace.splitlines() if row.startswith("MASK ")] == mask_traces[0]
+            assert [
+                row for row in four_state_trace.splitlines() if row.startswith("WORK ")
+            ] == traces[0]
+            assert [
+                row for row in four_state_trace.splitlines() if row.startswith("MASK ")
+            ] == mask_traces[0]
         products.extend([final, output / "cpp", output / "verilog"])
 
     protected_unit = snapshot(unit)
-    protected_products = {path: snapshot(path) if path.is_dir() else path.read_bytes()
-                          for path in products}
+    protected_products = {
+        path: snapshot(path) if path.is_dir() else path.read_bytes()
+        for path in products
+    }
     for name, text in CASES.items():
         design.write_text(text)
         (scratch / (name + ".py")).write_text(text)
         absent = build / ("bad-" + name)
         rejected = compile_source(design, absent, accepted=False)
-        assert any(word in rejected.stderr.lower() for word in
-                   ("width", "narrow", "type", "fixed", "provenance", "boolean", "integer", "kind")), rejected.stderr
+        assert any(
+            word in rejected.stderr.lower()
+            for word in (
+                "width",
+                "narrow",
+                "type",
+                "fixed",
+                "provenance",
+                "boolean",
+                "integer",
+                "kind",
+            )
+        ), rejected.stderr
         if name == "runtime-boolean-fixed-peer":
-            assert "fixed branch peer requires a closed source Integer or Boolean constant" in rejected.stderr, rejected.stderr
+            assert (
+                "fixed branch peer requires a closed source Integer or Boolean constant"
+                in rejected.stderr
+            ), rejected.stderr
         assert not absent.exists()
         compile_source(design, unit, accepted=False, replace=True)
         assert snapshot(unit) == protected_unit
-        assert all((snapshot(path) if path.is_dir() else path.read_bytes()) == before
-                   for path, before in protected_products.items())
+        assert all(
+            (snapshot(path) if path.is_dir() else path.read_bytes()) == before
+            for path, before in protected_products.items()
+        )
 
-sys.stdout.write("fixed widening gate passed: 24 C++ worker-1/2 and RTL frames; "
-                 "6 native X/Z frames; 18 protected rejections; " +
-                 ("6 Icarus X/Z frames\n" if args.iverilog and args.vvp else "Icarus X/Z unavailable\n"))
+sys.stdout.write(
+    "fixed widening gate passed: 24 C++ worker-1/2 and RTL frames; "
+    "6 native X/Z frames; 18 protected rejections; "
+    + (
+        "6 Icarus X/Z frames\n"
+        if args.iverilog and args.vvp
+        else "Icarus X/Z unavailable\n"
+    )
+)

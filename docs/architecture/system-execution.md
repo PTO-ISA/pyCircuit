@@ -64,6 +64,22 @@ use the standard managed lifecycle, and normal design RTL retains its physical
 clock semantics. Checks cannot be replaced by a fatal message after state has
 already committed.
 
+An ordinary module with reachable source assertions also requires the managed
+lifecycle. Its original data, clock and reset ports remain present; emitted RTL
+adds `pyc_phase`, `pyc_root_commit_ok` and `pyc_local_error`. The caller must
+prepare the original input row, sample old-state outputs, freeze permission
+only when the complete error signal is exactly zero, and then commit or discard.
+Reset context comes from verified physical domain ordinals. Modules without
+reachable assertions retain their physical clock interface. An ordinary module
+does not gain a generated simulation main or the closed `@system` signature.
+Ordinary-module RTL observations remain unsupported and diagnose explicitly.
+
+Runtime failure is sticky until host `Reset()`. A physical reset input cannot
+recover a failed execution. Host Reset clears state before the next sample;
+synchronous hardware reset instead samples old state before committing reset.
+Recovery tests therefore identify host-Reset segments and their independent
+expectations separately from the original physical-reset history.
+
 Observations use a shared occurrence layout for both backends. The system
 publishes them only after a successful epoch, in deterministic instance/rule/
 site order. C++ worker count must not change that order. Unsupported payloads

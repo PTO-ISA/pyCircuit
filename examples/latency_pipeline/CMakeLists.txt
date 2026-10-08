@@ -6,7 +6,11 @@ pycircuit_add_example(latency_pipeline
   PACKAGE example_latency_pipeline
   TOP example_latency_pipeline.latency_pipeline.LatencyPipeline
   ENTRY_SOURCE latency_pipeline
-  SOURCES latency_pipeline.py)
+  SOURCES latency_pipeline.py
+  SYSTEM_TOP example_latency_pipeline.bench.LatencyPipelineSystem
+  SYSTEM_ENTRY_SOURCE bench
+  SYSTEM_CYCLES 158
+  SYSTEM_SOURCES latency_pipeline.py bench.py)
 if(PYC_EXAMPLE_VERIFY)
 
 find_package(Python3 REQUIRED COMPONENTS Interpreter)

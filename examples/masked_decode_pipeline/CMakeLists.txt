@@ -6,7 +6,11 @@ pycircuit_add_example(masked_decode_pipeline
   PACKAGE example_masked_decode_pipeline
   TOP example_masked_decode_pipeline.masked_decode_pipeline.MaskedDecodePipeline
   ENTRY_SOURCE masked_decode_pipeline
-  SOURCES masked_decode_pipeline.py)
+  SOURCES masked_decode_pipeline.py
+  SYSTEM_TOP example_masked_decode_pipeline.bench.MaskedDecodePipelineSystem
+  SYSTEM_ENTRY_SOURCE bench
+  SYSTEM_CYCLES 184
+  SYSTEM_SOURCES masked_decode_pipeline.py bench.py)
 if(PYC_EXAMPLE_VERIFY)
 
 find_package(Python3 REQUIRED COMPONENTS Interpreter)

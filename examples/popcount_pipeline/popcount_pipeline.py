@@ -24,9 +24,7 @@ def count_item(item: Item) -> Item:
 
 
 @ac.module
-def PopcountPipeline(  # noqa: N802
-    valid: ac.u1, data: Item, take: ac.u1
-) -> Result:
+def PopcountPipeline(valid: ac.u1, data: Item, take: ac.u1) -> Result:  # noqa: N802
     ready, available, item = ac.queue[Item](
         valid,
         data,

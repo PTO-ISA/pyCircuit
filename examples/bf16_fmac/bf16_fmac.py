@@ -120,8 +120,12 @@ def partial_products(a_in, b_in, acc_in, valid_in) -> PartialProducts:
     metadata = Metadata(
         prod_sign=a_in[15:16] ^ b_in[15:16],
         prod_exp=(a_exp_wide | 0) + (b_exp_wide | 0) - 127,
-        acc_sign=acc_in[31:32], acc_exp=acc_exp, acc_mant=acc_mant,
-        prod_zero=a_zero | b_zero, acc_zero=acc_zero, valid=valid_in,
+        acc_sign=acc_in[31:32],
+        acc_exp=acc_exp,
+        acc_mant=acc_mant,
+        prod_zero=a_zero | b_zero,
+        acc_zero=acc_zero,
+        valid=valid_in,
     )
     # AND before widening/shifting preserves the original X/Z gate network.
     mask0: ac.u8 = 255 if a_mant[0:1] else 0
@@ -141,9 +145,15 @@ def partial_products(a_in, b_in, acc_in, valid_in) -> PartialProducts:
     pp6: ac.u16 = b_mant & mask6
     pp7: ac.u16 = b_mant & mask7
     return PartialProducts(
-        metadata=metadata, pp0=pp0 << 0, pp1=pp1 << 1,
-        pp2=pp2 << 2, pp3=pp3 << 3, pp4=pp4 << 4,
-        pp5=pp5 << 5, pp6=pp6 << 6, pp7=pp7 << 7,
+        metadata=metadata,
+        pp0=pp0 << 0,
+        pp1=pp1 << 1,
+        pp2=pp2 << 2,
+        pp3=pp3 << 3,
+        pp4=pp4 << 4,
+        pp5=pp5 << 5,
+        pp6=pp6 << 6,
+        pp7=pp7 << 7,
     )
 
 
@@ -195,12 +205,17 @@ def prepare_alignment(stage) -> Alignment:
     acc_wide: ac.u26 = stage.metadata.acc_mant
     prod_exp8 = prod_exp[:8]
     prod_bigger = prod_exp8 > stage.metadata.acc_exp
-    diff = (prod_exp8 - stage.metadata.acc_exp if prod_bigger
-            else stage.metadata.acc_exp - prod_exp8)
+    diff = (
+        prod_exp8 - stage.metadata.acc_exp
+        if prod_bigger
+        else stage.metadata.acc_exp - prod_exp8
+    )
     shift: ac.u5 = 26 if diff > 26 else diff[:5]
     return Alignment(
-        prod_mant=(prod_wide | 0) << 9, acc_mant=acc_wide | 0,
-        shift=shift, prod_bigger=prod_bigger,
+        prod_mant=(prod_wide | 0) << 9,
+        acc_mant=acc_wide | 0,
+        shift=shift,
+        prod_bigger=prod_bigger,
         exp=prod_exp8 if prod_bigger else stage.metadata.acc_exp,
     )
 
@@ -226,8 +241,11 @@ def combine(stage, alignment, prod_shift, acc_shift) -> Stage3:
     prod_ge = prod >= acc
     diff_mant = prod - acc if prod_ge else acc - prod
     mant = sum_mant if same_sign else diff_mant
-    sign = (stage.metadata.prod_sign if same_sign else
-            (stage.metadata.prod_sign if prod_ge else stage.metadata.acc_sign))
+    sign = (
+        stage.metadata.prod_sign
+        if same_sign
+        else (stage.metadata.prod_sign if prod_ge else stage.metadata.acc_sign)
+    )
     exp: ac.u10 = stage.metadata.acc_exp if stage.metadata.prod_zero else alignment.exp
     return Stage3(
         sign=stage.metadata.acc_sign if stage.metadata.prod_zero else sign,
@@ -270,8 +288,11 @@ def priority_normalization(mant) -> Normalization:
     lzc5 = lzc[:5]
     two: ac.u5 = 2
     return Normalization(
-        lzc=lzc, left_amt=lzc5 - 2, right_amt=two - lzc5,
-        need_left=lzc5 > 2, need_right=lzc5 < 2,
+        lzc=lzc,
+        left_amt=lzc5 - 2,
+        right_amt=two - lzc5,
+        need_left=lzc5 > 2,
+        need_right=lzc5 < 2,
     )
 
 
@@ -287,21 +308,26 @@ def left_barrel26(value, amount) -> Mantissa:
 
 @ac.rule
 def pack_result(stage, normalization, left, right) -> PackedResult:
-    mant = (left.value if normalization.need_left else
-            (right.value if normalization.need_right else stage.mant))
+    mant = (
+        left.value
+        if normalization.need_left
+        else (right.value if normalization.need_right else stage.mant)
+    )
     lzc_wide: ac.u10 = normalization.lzc
     exp = stage.exp + 2 - (lzc_wide | 0)
     sign_packed: ac.u32 = stage.sign
     exp_packed: ac.u32 = exp[:8]
     fraction_packed: ac.u32 = mant[:23]
-    packed = (((sign_packed | 0) << 31) | ((exp_packed | 0) << 23)
-              | (fraction_packed | 0))
+    packed = (
+        ((sign_packed | 0) << 31) | ((exp_packed | 0) << 23) | (fraction_packed | 0)
+    )
     return PackedResult(value=0 if stage.mant == 0 else packed)
 
 
 @ac.rule
-def advance_fmac(s1, s2, s3, result_r, valid_r, stage1_data, stage2_data, stage3_data,
-                 packed) -> FmacResult:
+def advance_fmac(
+    s1, s2, s3, result_r, valid_r, stage1_data, stage2_data, stage3_data, packed
+) -> FmacResult:
     result = FmacResult(result=result_r, result_valid=valid_r)
     output_enable = s3.valid
     s1 = stage1_data
@@ -329,8 +355,14 @@ def BF16Fmac(  # noqa: N802
     r1b = carry_save(pp.pp3, pp.pp4, pp.pp5)
     r2a = carry_save(r1a.sum, r1a.carry, r1b.sum)
     r2b = carry_save(r1b.carry, pp.pp6, pp.pp7)
-    stage1_data = Stage1(metadata=pp.metadata, row0=r2a.sum, row1=r2a.carry,
-                     row2=r2b.sum, row3=r2b.carry, nrows=4)
+    stage1_data = Stage1(
+        metadata=pp.metadata,
+        row0=r2a.sum,
+        row1=r2a.carry,
+        row2=r2b.sum,
+        row3=r2b.carry,
+        nrows=4,
+    )
 
     # S2: old S1 only; 4 -> 3 -> 2 and three shared eight-bit ripple chains.
     r3 = carry_save(s1.row0, s1.row1, s1.row2)
@@ -352,5 +384,6 @@ def BF16Fmac(  # noqa: N802
     left = left_barrel26(s3.mant, normalization.left_amt)
     right = right_barrel26(s3.mant, normalization.right_amt)
     packed = pack_result(s3, normalization, left, right)
-    return advance_fmac(s1, s2, s3, result_r, valid_r,
-                        stage1_data, stage2_data, stage3_data, packed)
+    return advance_fmac(
+        s1, s2, s3, result_r, valid_r, stage1_data, stage2_data, stage3_data, packed
+    )

@@ -37,3 +37,9 @@ and preservation of the original opcode planes. Tests include full replacement,
 stalls, changing rejected offers, held high/low levels, bubbles, reset and drain.
 The commit-qualified ledger is 38 accepted, 36 retired, 2 reset-dropped, zero
 outstanding, peak two slots; all runners have finite limits.
+The separate `bench.py` system checks a finite regular-clock known-state scenario with exact old-state output checks. This is partial system migration: the original independent drivers retain their full physical-clock, midstream-reset and four-state scenarios.
+
+```bash
+pycircuit run examples/masked_decode_pipeline --target cpp --cycles 184 --build-dir .pycircuit_out/masked_decode_pipeline/system-cpp
+pycircuit run examples/masked_decode_pipeline --target verilog --cycles 184 --build-dir .pycircuit_out/masked_decode_pipeline/system-verilog
+```

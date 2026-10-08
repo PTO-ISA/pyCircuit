@@ -4,7 +4,11 @@ find_package(pycircuit CONFIG REQUIRED COMPONENTS Runtime)
 include("${PYCIRCUIT_CMAKE_DIR}/PycircuitExamples.cmake")
 pycircuit_add_example(traffic_lights_ce_pyc PACKAGE example_traffic_lights_ce_pyc
   TOP example_traffic_lights_ce_pyc.traffic_lights_ce_pyc.TopTrafficLights
-  ENTRY_SOURCE traffic_lights_ce_pyc SOURCES traffic_lights_ce_pyc.py)
+  ENTRY_SOURCE traffic_lights_ce_pyc SOURCES traffic_lights_ce_pyc.py
+  SYSTEM_TOP example_traffic_lights_ce_pyc.bench.ExerciseTopTrafficLights
+  SYSTEM_ENTRY_SOURCE bench
+  SYSTEM_CYCLES 209
+  SYSTEM_SOURCES traffic_lights_ce_pyc.py bench.py)
 if(PYC_EXAMPLE_VERIFY)
 
 find_package(Python3 REQUIRED COMPONENTS Interpreter)

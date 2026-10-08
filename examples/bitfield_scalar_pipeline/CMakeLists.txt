@@ -6,7 +6,11 @@ pycircuit_add_example(bitfield_scalar_pipeline
   PACKAGE example_bitfield_scalar_pipeline
   TOP example_bitfield_scalar_pipeline.bitfield_scalar_pipeline.BitfieldScalarPipeline
   ENTRY_SOURCE bitfield_scalar_pipeline
-  SOURCES bitfield_scalar_pipeline.py)
+  SOURCES bitfield_scalar_pipeline.py
+  SYSTEM_TOP example_bitfield_scalar_pipeline.bench.BitfieldScalarPipelineSystem
+  SYSTEM_ENTRY_SOURCE bench
+  SYSTEM_CYCLES 158
+  SYSTEM_SOURCES bitfield_scalar_pipeline.py bench.py)
 if(PYC_EXAMPLE_VERIFY)
 
 find_package(Python3 REQUIRED COMPONENTS Interpreter)

@@ -123,7 +123,9 @@ class State(Enum):
     ONE = 1
 @ac.struct
 class ProbeResult:
-""" + "".join(f"    {name}: ac.bits[{width}]\n" for name, width in FIELDS)
+""" + "".join(
+    f"    {name}: ac.bits[{width}]\n" for name, width in FIELDS
+)
 DESIGN += (
     "@ac.rule\ndef evaluate("
     + ", ".join(f"w{w}" for w in WIDTHS)

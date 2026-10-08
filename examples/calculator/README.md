@@ -106,3 +106,24 @@ verification receipt, and `GENERATED.md` for actual generated artifacts.
 The original no-division variant is historical diagnostic evidence, not acceptance
 of this source. Four-state and failure/zero-commit example coverage remain
 unverified; the generic arithmetic/runtime tests cover those contracts separately.
+
+## Generated system usage
+
+`bench.py` exports `example_calculator.bench.ExerciseCalculator`. The explicit source
+closure is `calculator.py`, then `bench.py`; link the system root and emit either
+backend with the public `pycircuit compile`, `link`, and `emit` flow. Run
+`pycircuit run examples/calculator --target cpp --cycles 237` or select
+`--target verilog`. Each managed cycle uses the same stimulus in its low/high
+sampling pair and advances fixture state on the generated edge.
+
+All 237 original keypad cycles are represented, including 64 idle cycles,
+decimal entry, all four operations, equals, clear, zero-divisor behavior and
+the complete u64 overflow sequence. Fixed display/pending vectors come from
+the original independent host model. The initial reset-window inputs are idle;
+initial generated host Reset supplies the same starting state.
+
+The original `driver.cpp`, `rtl_tb.sv`, `config.json`, and independent oracle
+models remain unchanged. Known held-level and physical-reset scenarios remain
+with those module-boundary drivers. Where present, their four-state and
+failure/discard matrices remain separate coverage. This regular-clock system
+does not claim complete equivalence to those physical scenarios.

@@ -9,14 +9,14 @@ Enum declarations and nominal type transport use this same route, including
 independently compiled type-only and reexport providers. See the
 [Enum reference](../reference/spec-enums.md) for members, equality/selection,
 defaults and exact-width bit conversions. `decoded, valid =
-ac.enum_from_bits[Current limitations](known-limitations.md)` creates a nominal carrier and separate Boolean
+ac.enum_from_bits[State](raw)` creates a nominal carrier and separate Boolean
 membership. Decode into ordinary locals before assigning a persistent owner;
 source variables still use the existing proposal/commit flow.
 
 ## Behavioral source profile
 
 The [ROB example](https://github.com/PTO-ISA/pyCircuit/blob/main/examples/rob/rob.py) uses ordinary annotated
-variables, nominal `@ac.struct` values, `ac.table[Current limitations](known-limitations.md)` allocation and a
+variables, nominal `@ac.struct` values, `ac.table[4, Entry](init=0)` allocation and a
 same-source top-level `@ac.rule`. It returns a typed `RobResult`, using default
 construction and field assignments, through the direct `Rob` → `RobStorage`
 module call. Source capture remains syntax-only. The owning
@@ -62,7 +62,7 @@ ordering, unknown-index caveats and unsupported callback forms. The compiler
 stages existing scalar SSA into compact Table operations; cross-Table reads may
 still cost N×M logical work/storage and are charged to source-wide budgets.
 
-Use `ready, valid, data = ac.queue[Current limitations](known-limitations.md)`
+Use `ready, valid, data = ac.queue[T](valid, data, take, depth=N)`
 for a complete-token FIFO. Allocation is module-scoped, with three fresh immutable
 result names; Python does not expose clocks, reset or proposal wires. The default
 ready policy uses local occupancy; full replacement requires explicit

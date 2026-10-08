@@ -67,9 +67,7 @@ def _environment() -> tuple[dict[str, str], dict[str, str]]:
         "PYCIRCUIT_SOURCE_COMPILER": _required_tool(
             "PYCIRCUIT_SOURCE_COMPILER", "pycircuit-source-unit"
         ),
-        "PYCIRCUIT_LINKER": _required_tool(
-            "PYCIRCUIT_LINKER", "pycircuit-link"
-        ),
+        "PYCIRCUIT_LINKER": _required_tool("PYCIRCUIT_LINKER", "pycircuit-link"),
     }
     environment = dict(os.environ)
     environment.update(native)

@@ -14,8 +14,9 @@ class BoundaryValuePortsResult:
 
 
 @ac.module
-def Lane(x: ac.u32, gain: ac.u32, bias: ac.u32,  # noqa: N802
-         enable: ac.u1) -> LaneResult:
+def Lane(  # noqa: N802 - hardware module definition
+    x: ac.u32, gain: ac.u32, bias: ac.u32, enable: ac.u1  # noqa: N802
+) -> LaneResult:
     return LaneResult(y=(x + gain + bias) if enable else x)
 
 

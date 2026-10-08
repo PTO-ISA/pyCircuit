@@ -1,4 +1,5 @@
 """Independent source/case data and bit-symbol query oracles; no runner logic."""
+
 import itertools
 import random
 
@@ -47,8 +48,10 @@ def first(predicates):
 def argmin(predicates, keys):
     # Ascending leaves, adjacent pairs, exact odd-tail carry at every level.
     width = max(1, (len(predicates) - 1).bit_length())
-    nodes = [(bit_or("0", p), k, word(i, width))
-             for i, (p, k) in enumerate(zip(predicates, keys, strict=True))]
+    nodes = [
+        (bit_or("0", p), k, word(i, width))
+        for i, (p, k) in enumerate(zip(predicates, keys, strict=True))
+    ]
     while len(nodes) > 1:
         next_level = []
         for position in range(0, len(nodes), 2):
@@ -58,9 +61,13 @@ def argmin(predicates, keys):
                 continue
             right = nodes[position + 1]
             take = bit_and(right[0], bit_or(invert(left[0]), less(right[1], left[1])))
-            next_level.append((bit_or(left[0], right[0]),
-                               select(take, right[1], left[1]),
-                               select(take, right[2], left[2])))
+            next_level.append(
+                (
+                    bit_or(left[0], right[0]),
+                    select(take, right[1], left[1]),
+                    select(take, right[2], left[2]),
+                )
+            )
         nodes = next_level
     return nodes[0][2], nodes[0][0]
 
@@ -76,13 +83,17 @@ def raw_get(values, index):
 
 def entry_rows(depth, width):
     zero, maximum = word(0, width), word((1 << width) - 1, width)
-    rows = [[("0", zero)] * depth,
-            [("0", "x" * width)] * depth,
-            [("1", maximum)] * depth,
-            [("1", word(depth - i - 1, width)) for i in range(depth)]]
+    rows = [
+        [("0", zero)] * depth,
+        [("0", "x" * width)] * depth,
+        [("1", maximum)] * depth,
+        [("1", word(depth - i - 1, width)) for i in range(depth)],
+    ]
     for winner in sorted({0, depth // 2, depth - 1}):
         for key in (zero, maximum, "x" * width, "z" * width):
-            entries = [("0", "z" * width if i % 2 else "x" * width) for i in range(depth)]
+            entries = [
+                ("0", "z" * width if i % 2 else "x" * width) for i in range(depth)
+            ]
             entries[winner] = "1", key
             rows.append(entries)
     for symbol in "xz":
@@ -104,10 +115,20 @@ def entry_rows(depth, width):
     if depth == 3:
         for sequence, predicates in enumerate(itertools.product("01xz", repeat=depth)):
             keys = (zero, maximum, "x" * width, "z" * width)
-            rows.append([(p, keys[(sequence + i) % len(keys)]) for i, p in enumerate(predicates)])
+            rows.append(
+                [
+                    (p, keys[(sequence + i) % len(keys)])
+                    for i, p in enumerate(predicates)
+                ]
+            )
     rng = random.Random(20261007 + depth + width)
     for _ in range(12):
-        rows.append([(str(rng.randrange(2)), word(rng.getrandbits(width), width)) for _ in range(depth)])
+        rows.append(
+            [
+                (str(rng.randrange(2)), word(rng.getrandbits(width), width))
+                for _ in range(depth)
+            ]
+        )
     return rows
 
 
@@ -115,19 +136,33 @@ def packed_entries(entries):
     return "".join(valid + key for valid, key in reversed(entries))
 
 
-def base_source(depth, width, predicate_name="row", key_name="row", alias=False, enum_shadow=False):
+def base_source(
+    depth, width, predicate_name="row", key_name="row", alias=False, enum_shadow=False
+):
     index_width = max(1, (depth - 1).bit_length())
     packed_width = depth * (width + 1)
-    enum = "from enum import Enum\n@ac.encoding(width=1)\nclass State(Enum):\n    ZERO = 0\n    ONE = 1\n" if enum_shadow else ""
+    enum = (
+        "from enum import Enum\n@ac.encoding(width=1)\nclass State(Enum):\n    ZERO = 0\n    ONE = 1\n"
+        if enum_shadow
+        else ""
+    )
     imports = "from pycircuit import concat as cat\n" if alias else ""
-    fields = {"first_index": index_width, "first_valid": 1,
-              "minimum_index": index_width, "minimum_valid": 1,
-              "first_read": width, "minimum_read": width, "raw": packed_width}
+    fields = {
+        "first_index": index_width,
+        "first_valid": 1,
+        "minimum_index": index_width,
+        "minimum_valid": 1,
+        "first_read": width,
+        "minimum_read": width,
+        "raw": packed_width,
+    }
     if enum_shadow:
         fields["outside"] = 1
     source = "import pycircuit as ac\n" + imports + enum
     source += f"@ac.struct\nclass Entry:\n    valid: ac.u1\n    key: ac.bits[{width}]\n"
-    source += "@ac.struct\nclass Result:\n" + "".join(f"    {name}: ac.bits[{size}]\n" for name, size in fields.items())
+    source += "@ac.struct\nclass Result:\n" + "".join(
+        f"    {name}: ac.bits[{size}]\n" for name, size in fields.items()
+    )
     source += "@ac.rule\ndef evaluate(entries, entry_bits) -> Result:\n"
     for i in range(depth):
         offset = i * (width + 1)
@@ -137,13 +172,27 @@ def base_source(depth, width, predicate_name="row", key_name="row", alias=False,
     source += f"    b, bv = entries.argmin(where=lambda {predicate_name}: {predicate_name}.valid, key=lambda {key_name}: {key})\n"
     source += "    return Result(first_index=a, first_valid=av, minimum_index=b, minimum_valid=bv, first_read=entries[a].key, minimum_read=entries[b].key, raw=entry_bits"
     source += ", outside=ac.enum_to_bits(State.ONE)" if enum_shadow else ""
-    source += ")\n@ac.module\ndef Top(entry_bits: ac.bits[" + str(packed_width) + "]) -> Result:\n"
+    source += (
+        ")\n@ac.module\ndef Top(entry_bits: ac.bits["
+        + str(packed_width)
+        + "]) -> Result:\n"
+    )
     source += f"    entries = ac.table[{depth}, Entry](init=0)\n    return evaluate(entries, entry_bits)\n"
     return source, fields
 
 
-def basic_case(depth, width, name, predicate_name="row", key_name="row", alias=False, enum_shadow=False):
-    source, fields = base_source(depth, width, predicate_name, key_name, alias, enum_shadow)
+def basic_case(
+    depth,
+    width,
+    name,
+    predicate_name="row",
+    key_name="row",
+    alias=False,
+    enum_shadow=False,
+):
+    source, fields = base_source(
+        depth, width, predicate_name, key_name, alias, enum_shadow
+    )
     rows, gold = [], []
     for entries in entry_rows(depth, width):
         entry_bits = packed_entries(entries)
@@ -151,33 +200,64 @@ def basic_case(depth, width, name, predicate_name="row", key_name="row", alias=F
         a, av = first(predicates)
         b, bv = argmin(predicates, keys)
         rows.append({"entry_bits": entry_bits, CLOCK: "0", RESET: "0"})
-        expected = {"first_index": a, "first_valid": av, "minimum_index": b,
-                    "minimum_valid": bv, "first_read": raw_get(keys, a),
-                    "minimum_read": raw_get(keys, b), "raw": entry_bits}
+        expected = {
+            "first_index": a,
+            "first_valid": av,
+            "minimum_index": b,
+            "minimum_valid": bv,
+            "first_read": raw_get(keys, a),
+            "minimum_read": raw_get(keys, b),
+            "raw": entry_bits,
+        }
         if enum_shadow:
             expected["outside"] = "1"
         gold.append(expected)
-    return {"name": name, "text": source, "top": "Top",
-            "inputs": {"entry_bits": depth * (width + 1), CLOCK: 1, RESET: 1},
-            "fields": fields, "rows": rows, "gold": gold,
-            "plane_inputs": {"raw": "entry_bits"}}
+    return {
+        "name": name,
+        "text": source,
+        "top": "Top",
+        "inputs": {"entry_bits": depth * (width + 1), CLOCK: 1, RESET: 1},
+        "fields": fields,
+        "rows": rows,
+        "gold": gold,
+        "plane_inputs": {"raw": "entry_bits"},
+    }
 
 
 def sole_transport_case(depth, width, winner):
     case = basic_case(depth, width, f"query_transport_{depth}_{width}_{winner}")
     rows, gold = [], []
-    for key in (word(0, width), word((1 << width) - 1, width), "x" * width, "z" * width):
+    for key in (
+        word(0, width),
+        word((1 << width) - 1, width),
+        "x" * width,
+        "z" * width,
+    ):
         inactive = word(0, width) if all(c in "01" for c in key) else "x" * width
         entries = [("0", inactive)] * depth
         entries[winner] = "1", key
         entry_bits = packed_entries(entries)
         rows.append({"entry_bits": entry_bits, CLOCK: "0", RESET: "0"})
-        gold.append({"first_index": word(winner, max(1, (depth - 1).bit_length())),
-                     "first_valid": "1", "minimum_index": word(winner, max(1, (depth - 1).bit_length())),
-                     "minimum_valid": "1", "first_read": key, "minimum_read": key, "raw": entry_bits})
-    case.update(rows=rows, gold=gold, plane_inputs={"raw": "entry_bits",
-        "first_read": ("entry_bits", winner * (width + 1)),
-        "minimum_read": ("entry_bits", winner * (width + 1))})
+        gold.append(
+            {
+                "first_index": word(winner, max(1, (depth - 1).bit_length())),
+                "first_valid": "1",
+                "minimum_index": word(winner, max(1, (depth - 1).bit_length())),
+                "minimum_valid": "1",
+                "first_read": key,
+                "minimum_read": key,
+                "raw": entry_bits,
+            }
+        )
+    case.update(
+        rows=rows,
+        gold=gold,
+        plane_inputs={
+            "raw": "entry_bits",
+            "first_read": ("entry_bits", winner * (width + 1)),
+            "minimum_read": ("entry_bits", winner * (width + 1)),
+        },
+    )
     return case
 
 
@@ -214,24 +294,51 @@ def Top(key: ac.u4, threshold: ac.u4) -> Result:
     entries = ac.table[3, Entry](init=0)
     return evaluate(entries, key, threshold)
 """
-    fields = {"saved_index": 2, "saved_valid": 1, "current_index": 2,
-              "current_valid": 1, "captured_index": 2, "captured_valid": 1}
+    fields = {
+        "saved_index": 2,
+        "saved_valid": 1,
+        "current_index": 2,
+        "current_valid": 1,
+        "captured_index": 2,
+        "captured_valid": 1,
+    }
     rows, gold = [], []
-    for key, threshold in itertools.product(("0000", "0011", "1111", "xxxx", "zzzz"),
-                                            ("0000", "0100", "1111", "xxxx", "zzzz")):
+    for key, threshold in itertools.product(
+        ("0000", "0011", "1111", "xxxx", "zzzz"),
+        ("0000", "0100", "1111", "xxxx", "zzzz"),
+    ):
         keys = (key, "0011", "0111")
         b, bv = argmin("111", keys)
         c, cv = first([less(item, threshold) for item in keys])
         rows.append({"key": key, "threshold": threshold, CLOCK: "0", RESET: "0"})
-        gold.append({"saved_index": "01", "saved_valid": "1", "current_index": b,
-                     "current_valid": bv, "captured_index": c, "captured_valid": cv})
-    return {"name": "query_snapshots", "text": text, "top": "Top", "inputs": {"key": 4, "threshold": 4, CLOCK: 1, RESET: 1},
-            "fields": fields, "rows": rows, "gold": gold, "plane_inputs": {}}
-
+        gold.append(
+            {
+                "saved_index": "01",
+                "saved_valid": "1",
+                "current_index": b,
+                "current_valid": bv,
+                "captured_index": c,
+                "captured_valid": cv,
+            }
+        )
+    return {
+        "name": "query_snapshots",
+        "text": text,
+        "top": "Top",
+        "inputs": {"key": 4, "threshold": 4, CLOCK: 1, RESET: 1},
+        "fields": fields,
+        "rows": rows,
+        "gold": gold,
+        "plane_inputs": {},
+    }
 
 
 def bounded_modulo(bits, extent):
-    return "x" * len(bits) if any(c in bits for c in "xz") else word(int(bits, 2) % extent, len(bits))
+    return (
+        "x" * len(bits)
+        if any(c in bits for c in "xz")
+        else word(int(bits, 2) % extent, len(bits))
+    )
 
 
 def gather_case(depth, extent, enum_key=False, independent=False, chained=False):
@@ -239,10 +346,16 @@ def gather_case(depth, extent, enum_key=False, independent=False, chained=False)
     index_width = max(1, (depth - 1).bit_length())
     entry_width, ready_width = 1 + key_width + tag_width, 7
     ordered_width = 2 if enum_key else key_width
-    fields = {"first_index": index_width, "first_valid": 1,
-              "minimum_index": index_width, "minimum_valid": 1,
-              "first_read": ordered_width, "minimum_read": ordered_width,
-              "raw_entries": depth * entry_width, "raw_ready": extent * ready_width}
+    fields = {
+        "first_index": index_width,
+        "first_valid": 1,
+        "minimum_index": index_width,
+        "minimum_valid": 1,
+        "first_read": ordered_width,
+        "minimum_read": ordered_width,
+        "raw_entries": depth * entry_width,
+        "raw_ready": extent * ready_width,
+    }
     source = """import pycircuit as ac
 from enum import Enum
 @ac.encoding(width=2)
@@ -265,7 +378,9 @@ class Entry:
     key: ac.u4
     tag: ac.u8
 """
-    source += "@ac.struct\nclass Result:\n" + "".join(f"    {name}: ac.bits[{width}]\n" for name, width in fields.items())
+    source += "@ac.struct\nclass Result:\n" + "".join(
+        f"    {name}: ac.bits[{width}]\n" for name, width in fields.items()
+    )
     source += "@ac.rule\ndef evaluate(entries, ready, entries_bits, ready_bits"
     source += ", tags, tags_bits" if chained else ""
     source += ") -> Result:\n"
@@ -277,30 +392,58 @@ class Entry:
         source += f"    decoded_{ordinal}, member_{ordinal} = ac.enum_from_bits[Mark](ready_bits[{offset}:{offset + 2}])\n"
         source += f"    ready[{ordinal}] = Ready(eligible=ready_bits[{offset + 6}:{offset + 7}], payload=Payload(key=ready_bits[{offset + 2}:{offset + 6}], mark=decoded_{ordinal}))\n"
         if chained:
-            source += f"    tags[{ordinal}] = tags_bits[{ordinal * 8}:{ordinal * 8 + 8}]\n"
-    address = f"tags[row.tag % {extent}] % {extent}" if chained else f"row.tag % {extent}"
+            source += (
+                f"    tags[{ordinal}] = tags_bits[{ordinal * 8}:{ordinal * 8 + 8}]\n"
+            )
+    address = (
+        f"tags[row.tag % {extent}] % {extent}" if chained else f"row.tag % {extent}"
+    )
     access = f"ready[{address}]"
     predicate = f"row.valid and {access}.eligible"
     if independent:
         predicate += " and ready[0].eligible"
-    key = f"ac.enum_to_bits({access}.payload.mark)" if enum_key else f"{access}.payload.key"
+    key = (
+        f"ac.enum_to_bits({access}.payload.mark)"
+        if enum_key
+        else f"{access}.payload.key"
+    )
     source += f"    a, av = entries.first(where=lambda row: {predicate})\n"
     source += f"    b, bv = entries.argmin(where=lambda row: {predicate}, key=lambda row: {key})\n"
+
     def read(index):
-        address = f"tags[entries[{index}].tag % {extent}] % {extent}" if chained else f"entries[{index}].tag % {extent}"
-        raw = f"ready[{address}].payload.mark" if enum_key else f"ready[{address}].payload.key"
+        address = (
+            f"tags[entries[{index}].tag % {extent}] % {extent}"
+            if chained
+            else f"entries[{index}].tag % {extent}"
+        )
+        raw = (
+            f"ready[{address}].payload.mark"
+            if enum_key
+            else f"ready[{address}].payload.key"
+        )
         return f"ac.enum_to_bits({raw})" if enum_key else raw
+
     source += f"    return Result(first_index=a, first_valid=av, minimum_index=b, minimum_valid=bv, first_read={read('a')}, minimum_read={read('b')}, raw_entries=entries_bits, raw_ready=ready_bits)\n"
     source += f"@ac.module\ndef Top(entries_bits: ac.bits[{depth * entry_width}], ready_bits: ac.bits[{extent * ready_width}]"
     source += f", tags_bits: ac.bits[{extent * 8}]" if chained else ""
     source += ") -> Result:\n"
     source += f"    entries = ac.table[{depth}, Entry](init=0)\n    ready = ac.table[{extent}, Ready](init=0)\n"
     source += f"    tags = ac.table[{extent}, ac.u8](init=0)\n" if chained else ""
-    source += "    return evaluate(entries, ready, entries_bits, ready_bits" + (", tags, tags_bits" if chained else "") + ")\n"
+    source += (
+        "    return evaluate(entries, ready, entries_bits, ready_bits"
+        + (", tags, tags_bits" if chained else "")
+        + ")\n"
+    )
     rows, gold = [], []
     for sample in range(16):
-        entries = [("1" if i % 2 == sample % 2 else "0", word(i, 4), word(i + sample, 8)) for i in range(depth)]
-        ready = [("1", word((extent - i + sample) % 16, 4), word(i + sample, 2)) for i in range(extent)]
+        entries = [
+            ("1" if i % 2 == sample % 2 else "0", word(i, 4), word(i + sample, 8))
+            for i in range(depth)
+        ]
+        ready = [
+            ("1", word((extent - i + sample) % 16, 4), word(i + sample, 2))
+            for i in range(extent)
+        ]
         tags = [word((i * 3 + sample) % 256, 8) for i in range(extent)]
         if sample == 1:
             ready = [("1", "1111", "11")] * extent
@@ -321,11 +464,13 @@ class Entry:
             entries[-1] = "1", "1111", word(extent - 1, 8)
         if chained and sample in (12, 13):
             tags = ["x" * 8 if sample == 12 else "z" * 8] * extent
+
         def read_ready(tag, tags=tags, ready=ready):
             address = bounded_modulo(tag, extent)
             if chained:
                 address = bounded_modulo(raw_get(tags, address), extent)
             return raw_get([valid + key + mark for valid, key, mark in ready], address)
+
         predicates, keys = [], []
         for valid, _, tag in entries:
             selected = read_ready(tag)
@@ -336,25 +481,60 @@ class Entry:
             keys.append(selected[-2:] if enum_key else selected[1:5])
         a, av = first(predicates)
         b, bv = argmin(predicates, keys)
+
         def observed(index, entries=entries):
             entry = raw_get([valid + key + tag for valid, key, tag in entries], index)
             selected = read_ready(entry[-8:])
             return selected[-2:] if enum_key else selected[1:5]
+
         entry_bits = "".join(valid + key + tag for valid, key, tag in reversed(entries))
-        packed_ready = "".join(valid + key + mark for valid, key, mark in reversed(ready))
-        row = {"entries_bits": entry_bits, "ready_bits": packed_ready, CLOCK: "0", RESET: "0"}
+        packed_ready = "".join(
+            valid + key + mark for valid, key, mark in reversed(ready)
+        )
+        row = {
+            "entries_bits": entry_bits,
+            "ready_bits": packed_ready,
+            CLOCK: "0",
+            RESET: "0",
+        }
         if chained:
             row["tags_bits"] = "".join(reversed(tags))
         rows.append(row)
-        gold.append({"first_index": a, "first_valid": av, "minimum_index": b, "minimum_valid": bv,
-                     "first_read": observed(a), "minimum_read": observed(b), "raw_entries": entry_bits,
-                     "raw_ready": packed_ready})
-    inputs = {"entries_bits": depth * entry_width, "ready_bits": extent * ready_width, CLOCK: 1, RESET: 1}
+        gold.append(
+            {
+                "first_index": a,
+                "first_valid": av,
+                "minimum_index": b,
+                "minimum_valid": bv,
+                "first_read": observed(a),
+                "minimum_read": observed(b),
+                "raw_entries": entry_bits,
+                "raw_ready": packed_ready,
+            }
+        )
+    inputs = {
+        "entries_bits": depth * entry_width,
+        "ready_bits": extent * ready_width,
+        CLOCK: 1,
+        RESET: 1,
+    }
     if chained:
         inputs["tags_bits"] = extent * 8
-    name = f"query_gather_{depth}_{extent}" + ("_enum" if enum_key else "_independent" if independent else "_chained" if chained else "")
-    return {"name": name, "text": source, "top": "Top", "inputs": inputs, "fields": fields,
-            "rows": rows, "gold": gold, "plane_inputs": {"raw_entries": "entries_bits", "raw_ready": "ready_bits"}}
+    name = f"query_gather_{depth}_{extent}" + (
+        "_enum"
+        if enum_key
+        else "_independent" if independent else "_chained" if chained else ""
+    )
+    return {
+        "name": name,
+        "text": source,
+        "top": "Top",
+        "inputs": inputs,
+        "fields": fields,
+        "rows": rows,
+        "gold": gold,
+        "plane_inputs": {"raw_entries": "entries_bits", "raw_ready": "ready_bits"},
+    }
 
 
 def instance_shadow_case():
@@ -386,8 +566,15 @@ def Top(entries: ac.table[3, Entry], fake: bool) -> {"result": Result}:
     b, bv = entries.argmin(where=lambda child: child.valid, key=lambda child: child.key)
     return {"result": Result(first_index=a, first_valid=av, minimum_index=b, minimum_valid=bv, first_read=entries[a].key, minimum_read=entries[b].key, outside=child.valid)}
 """
-    fields = {"first_index": 2, "first_valid": 1, "minimum_index": 2,
-              "minimum_valid": 1, "first_read": 4, "minimum_read": 4, "outside": 1}
+    fields = {
+        "first_index": 2,
+        "first_valid": 1,
+        "minimum_index": 2,
+        "minimum_valid": 1,
+        "first_read": 4,
+        "minimum_read": 4,
+        "outside": 1,
+    }
     rows, gold = [], []
     for fake in "01xz":
         for entries in entry_rows(3, 4):
@@ -395,23 +582,53 @@ def Top(entries: ac.table[3, Entry], fake: bool) -> {"result": Result}:
             a, av = first(predicates)
             b, bv = argmin(predicates, keys)
             # A genuine Table input follows existing row-major packed order.
-            rows.append({"entries": "".join(valid + key for valid, key in entries), "fake": fake})
-            gold.append({"first_index": a, "first_valid": av, "minimum_index": b,
-                         "minimum_valid": bv, "first_read": raw_get(keys, a),
-                         "minimum_read": raw_get(keys, b), "outside": fake})
-    return {"name": "query_instance_shadow", "text": text, "top": "Top",
-            "inputs": {"entries": 15, "fake": 1}, "fields": fields,
-            "rows": rows, "gold": gold, "plane_inputs": {"outside": "fake"}}
+            rows.append(
+                {
+                    "entries": "".join(valid + key for valid, key in entries),
+                    "fake": fake,
+                }
+            )
+            gold.append(
+                {
+                    "first_index": a,
+                    "first_valid": av,
+                    "minimum_index": b,
+                    "minimum_valid": bv,
+                    "first_read": raw_get(keys, a),
+                    "minimum_read": raw_get(keys, b),
+                    "outside": fake,
+                }
+            )
+    return {
+        "name": "query_instance_shadow",
+        "text": text,
+        "top": "Top",
+        "inputs": {"entries": 15, "fake": 1},
+        "fields": fields,
+        "rows": rows,
+        "gold": gold,
+        "plane_inputs": {"outside": "fake"},
+    }
+
 
 def execution_cases():
-    cases = [basic_case(n, w, f"query_basic_{n}_{w}")
-             for n, w in ((1, 1), (3, 4), (5, 5), (65, 5), (3, 65), (5, 130))]
-    cases += [basic_case(3, 4, "query_namespace_shadow", "ac", "ac"),
-              basic_case(5, 5, "query_intrinsic_alias", alias=True),
-              basic_case(3, 4, "query_enum_shadow", "State", "State", enum_shadow=True),
-              sole_transport_case(3, 4, 1), sole_transport_case(5, 65, 4), snapshot_case(),
-              instance_shadow_case()]
+    cases = [
+        basic_case(n, w, f"query_basic_{n}_{w}")
+        for n, w in ((1, 1), (3, 4), (5, 5), (65, 5), (3, 65), (5, 130))
+    ]
+    cases += [
+        basic_case(3, 4, "query_namespace_shadow", "ac", "ac"),
+        basic_case(5, 5, "query_intrinsic_alias", alias=True),
+        basic_case(3, 4, "query_enum_shadow", "State", "State", enum_shadow=True),
+        sole_transport_case(3, 4, 1),
+        sole_transport_case(5, 65, 4),
+        snapshot_case(),
+        instance_shadow_case(),
+    ]
     cases += [gather_case(n, m) for n, m in ((3, 1), (3, 3), (5, 5), (3, 65))]
-    cases += [gather_case(5, 3, enum_key=True), gather_case(3, 5, independent=True),
-              gather_case(5, 3, chained=True)]
+    cases += [
+        gather_case(5, 3, enum_key=True),
+        gather_case(3, 5, independent=True),
+        gather_case(5, 3, chained=True),
+    ]
     return cases

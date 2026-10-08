@@ -1,0 +1,13 @@
+{
+  "version": 1,
+  "rules": [
+    {
+      "instances": [
+        "**"
+      ],
+      "ports": [
+        "*"
+      ]
+    }
+  ]
+}

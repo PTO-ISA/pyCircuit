@@ -6,7 +6,11 @@ pycircuit_add_example(select_pipeline
   PACKAGE example_select_pipeline
   TOP example_select_pipeline.select_pipeline.SelectPipeline
   ENTRY_SOURCE select_pipeline
-  SOURCES select_pipeline.py)
+  SOURCES select_pipeline.py
+  SYSTEM_TOP example_select_pipeline.bench.ExerciseSelectPipeline
+  SYSTEM_ENTRY_SOURCE bench
+  SYSTEM_CYCLES 1829
+  SYSTEM_SOURCES select_pipeline.py bench.py)
 if(PYC_EXAMPLE_VERIFY)
 
 find_package(Python3 REQUIRED COMPONENTS Interpreter)

@@ -9,6 +9,17 @@ using namespace mlir;
 
 namespace acir::compiler::detail {
 
+std::optional<unsigned> fixedBitsAliasWidth(StringRef module,
+                                           StringRef remoteName) {
+  if (module != "pycircuit" || !remoteName.consume_front("u"))
+    return std::nullopt;
+  unsigned width = 0;
+  if (remoteName.getAsInteger(10, width) || !width || width > 64 ||
+      remoteName != Twine(width).str())
+    return std::nullopt;
+  return width;
+}
+
 MarkerKind classifyImportedMarker(StringRef module, StringRef remoteName) {
   if (module == "enum")
     return llvm::StringSwitch<MarkerKind>(remoteName)

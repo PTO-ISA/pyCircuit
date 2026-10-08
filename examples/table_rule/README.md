@@ -37,3 +37,20 @@ Independent table/queue scoreboards check generated native workers one/two and
 RTL, including old-value lifetime, backpressure, reset, discard/retry and X/Z
 transport. Generated excerpts and bound execution receipts are published in
 `GENERATED.md` and `GENERATED.json` after successful verification.
+
+## Generated system usage
+
+`bench.py` exports `example_table_rule.bench.ExerciseTableRule`. Compile
+`table_rule.py`, then `bench.py`, import the published DUT interface, and link
+that explicit system root through the public compile/link/emit flow. Run
+`pycircuit run examples/table_rule --target cpp --cycles 1343` or select
+`--target verilog`. Imported records use their original nominal declarations
+and supply every field explicitly.
+
+All original known-stream data edges are represented in this regular-clock
+scenario, with fixed independent expectations from the retained native oracle
+along a resetless trajectory. The 1343 cycles include a final observation.
+The original DUT, native/RTL drivers, finite configuration, and any four-state,
+reset/discard, latency and token-ledger matrices remain unchanged. Physical
+held-level and midstream-reset scenarios still require those original module
+oracles; this system does not claim complete physical-scenario equivalence.

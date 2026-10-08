@@ -6,7 +6,11 @@ pycircuit_add_example(nested_payload_pipeline
   PACKAGE example_nested_payload_pipeline
   TOP example_nested_payload_pipeline.nested_payload_pipeline.NestedPayloadPipeline
   ENTRY_SOURCE nested_payload_pipeline
-  SOURCES nested_payload_pipeline.py)
+  SOURCES nested_payload_pipeline.py
+  SYSTEM_TOP example_nested_payload_pipeline.bench.NestedPayloadPipelineSystem
+  SYSTEM_ENTRY_SOURCE bench
+  SYSTEM_CYCLES 184
+  SYSTEM_SOURCES nested_payload_pipeline.py bench.py)
 if(PYC_EXAMPLE_VERIFY)
 
 find_package(Python3 REQUIRED COMPONENTS Interpreter)

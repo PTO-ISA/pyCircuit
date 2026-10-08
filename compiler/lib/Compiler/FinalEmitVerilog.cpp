@@ -75,6 +75,19 @@ FailureOr<ac::ModuleOp> rootModule(HardwareEmitContext &context) {
 struct SystemControls {
   std::string clock, reset;
 };
+FailureOr<std::string> managedReset(ac::ModuleOp root) {
+  auto domain = root->getAttrOfType<DictionaryAttr>("ac.domain_inputs");
+  if (!domain || domain.empty())
+    return std::string("1'b0");
+  auto reset = domain.getAs<IntegerAttr>("reset");
+  auto names = root.getInputNames();
+  if (!reset || reset.getValue().getActiveBits() > 64 ||
+      reset.getValue().getZExtValue() >= names.size())
+    return root.emitOpError() << "managed module requires verified reset context";
+  return legalizeIdentifier(
+      cast<StringAttr>(names[reset.getValue().getZExtValue()]).getValue(),
+      [&] { return root.emitOpError(); });
+}
 FailureOr<SystemControls> systemControls(ac::ModuleOp root) {
   auto domain = root->getAttrOfType<DictionaryAttr>("ac.domain_inputs");
   auto clock = domain ? domain.getAs<IntegerAttr>("clock") : IntegerAttr();
@@ -454,7 +467,7 @@ LogicalResult emitWrapper(HardwareEmitContext &context, ac::ModuleOp root,
     if (failed(port("output", type,
                     cast<StringAttr>(root.getOutputNames()[i]).getValue())))
       return failure();
-  if (context.isSystem()) {
+  if (context.managesChecks()) {
     out << (first ? "\n" : ",\n")
         << "  input wire [2:0] pyc_phase,\n"
            "  input wire pyc_root_commit_ok,\n"
@@ -483,15 +496,15 @@ LogicalResult emitWrapper(HardwareEmitContext &context, ac::ModuleOp root,
   for (auto raw : root.getOutputNames())
     if (failed(connection(cast<StringAttr>(raw).getValue())))
       return failure();
-  if (context.isSystem()) {
-    auto controls = systemControls(root);
-    if (failed(controls))
+  if (context.managesChecks()) {
+    auto reset = managedReset(root);
+    if (failed(reset))
       return failure();
     out << (first ? "\n" : ",\n")
         << "    .pyc_phase(pyc_phase),\n"
            "    .pyc_root_commit_ok(pyc_root_commit_ok),\n"
            "    .pyc_reset_active("
-        << controls->reset << "),\n"
+        << *reset << "),\n"
         << "    .pyc_local_error(pyc_local_error)";
     first = false;
   }
@@ -503,14 +516,24 @@ FailureOr<FinalVerilogSourceParts>
 emitVerilogSourceParts(ModuleOp package, ac::HardwareAnalysis &analysis) {
   HardwareEmitContext context(package, analysis);
   const bool system = context.isSystem();
-  if (failed(system ? context.prepareNativeChecks() : context.prepare()))
+  if (failed(context.prepareNativeChecks()))
     return failure();
-  if (system && failed(analysis.verifySourceCheckPlan(context.sourceChecks())))
+  if (failed(analysis.verifySourceCheckPlan(context.sourceChecks())))
+    return failure();
+  auto unsupported = package.walk([&](Operation *op) {
+    if ((!isa<ac::SourceObserveOp>(op) || system) &&
+        (!isa<ac::SourceExpectOp>(op) || context.managesChecks()))
+      return WalkResult::advance();
+    op->emitOpError() << "hardware instrumentation emission is not implemented";
+    return WalkResult::interrupt();
+  });
+  if (unsupported.wasInterrupted())
     return failure();
   auto root = rootModule(context);
   if (failed(root))
     return failure();
   FinalVerilogSourceParts parts;
+  parts.sourceCheckCount = context.sourceChecks().checks.size();
   parts.rootRtlName = "pyc_root";
   llvm::StringSet<> standard;
   package.walk([&](ac::QueueOp) {

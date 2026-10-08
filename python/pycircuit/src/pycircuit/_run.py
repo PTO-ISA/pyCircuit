@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 import subprocess
@@ -56,7 +57,7 @@ def run_command(
     build = (
         Path(build_dir).resolve()
         if build_dir
-        else (Path.cwd() / ".pycircuit_out/run" / directory.name).resolve()
+        else (Path.cwd() / ".pycircuit_out/run" / directory.name / target).resolve()
     )
     if build == directory or build in directory.parents or directory in build.parents:
         raise _DriverError("run requires a build directory outside the example sources")
@@ -69,6 +70,18 @@ def run_command(
         ]
         if owners != [str(directory)]:
             raise _DriverError("build directory belongs to a different CMake source")
+        selections = [
+            line.partition("=")[2]
+            for line in cache.read_text().splitlines()
+            if line.startswith("PYC_EXAMPLE_RUN_TARGET:")
+        ]
+        if selections != [target]:
+            raise _DriverError(
+                "build directory is not an isolated run for this backend; "
+                "choose a separate build directory"
+            )
+    execution = build / "run-execution.json"
+    execution.unlink(missing_ok=True)
     env = dict(os.environ, PYC_TOOLCHAIN_ROOT=str(installed))
     # Resolve all subprocesses through the selected installed compiler, not an
     # unrelated developer override inherited from an interactive shell.
@@ -137,4 +150,66 @@ def run_command(
         if target == "cpp"
         else [f"+cycles={cycles}"]
     )
-    _invoke([str(executable), *arguments], timeout=timeout, env=env)
+    candidates = [executable]
+    candidates.extend(sorted(installed.glob("lib*/*pyc6_runtime*")))
+    candidates.append(generated / "generated.json")
+    for item in receipt["files"]:
+        relative = Path(item["path"])
+        if relative.is_absolute() or ".." in relative.parts:
+            raise _DriverError("generated receipt contains an unsafe path")
+        candidates.append(generated / relative)
+    metadata = installed / "share/pycircuit/toolchain-metadata.json"
+    if metadata.is_file():
+        candidates.append(metadata)
+
+    def execution_inputs():
+        return {
+            str(path): hashlib.sha256(path.read_bytes()).hexdigest()
+            for path in candidates
+        }
+
+    before = execution_inputs()
+    command = [str(executable), *arguments]
+    try:
+        _invoke(command, timeout=timeout, env=env)
+    except Exception as error:
+        execution.write_text(
+            json.dumps(
+                {
+                    "command": command,
+                    "status": "failed",
+                    "error": str(error),
+                    "inputs": before,
+                },
+                indent=2,
+            )
+            + "\n"
+        )
+        raise
+    after = execution_inputs()
+    if after != before:
+        execution.write_text(
+            json.dumps(
+                {
+                    "command": command,
+                    "status": "changed",
+                    "inputs": before,
+                    "inputs_after": after,
+                },
+                indent=2,
+            )
+            + "\n"
+        )
+        raise _DriverError("simulation execution inputs changed during the run")
+    execution.write_text(
+        json.dumps(
+            {
+                "command": command,
+                "status": "success",
+                "inputs": before,
+                "inputs_after": after,
+            },
+            indent=2,
+        )
+        + "\n"
+    )

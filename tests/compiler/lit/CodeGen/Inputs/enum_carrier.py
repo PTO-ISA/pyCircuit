@@ -41,7 +41,9 @@ env = dict(
 
 def run(command, code=0):
     command = list(map(str, command))
-    result = subprocess.run(command, env=env, cwd=repo, text=True, capture_output=True, timeout=240)
+    result = subprocess.run(
+        command, env=env, cwd=repo, text=True, capture_output=True, timeout=240
+    )
     commands.append(
         {
             "command": command,
@@ -86,7 +88,9 @@ def membership(raw, codes):
             equalities.append("1")
         else:
             equalities.append("x")
-    return "1" if "1" in equalities else "0" if all(x == "0" for x in equalities) else "x"
+    return (
+        "1" if "1" in equalities else "0" if all(x == "0" for x in equalities) else "x"
+    )
 
 
 ENUMS = {
@@ -110,18 +114,30 @@ def occurrence(owner):
 def static(value):
     return (
         '#ac.static_expr<{kind = "literal", location = {path = "fixture.py", line = 1 : i64, column = 1 : i64, end_line = 1 : i64, end_column = 2 : i64}, '
-        f'origin = {occurrence("top")}, value = {{kind = "integer", value = #ac.math_int<{value}>}}' + "}>"
+        f'origin = {occurrence("top")}, value = {{kind = "integer", value = #ac.math_int<{value}>}}'
+        + "}>"
     )
 
 
 WIDTHS = (0, 1, 2, 3, 11, 13, 65, 130)
-PREAMBLE = "\n".join(f"#w{w} = {static(w)}\n!b{w} = !ac.bits<#w{w}>" if w else f"#w0 = {static(0)}" for w in WIDTHS) + "\n"
+PREAMBLE = (
+    "\n".join(
+        f"#w{w} = {static(w)}\n!b{w} = !ac.bits<#w{w}>" if w else f"#w0 = {static(0)}"
+        for w in WIDTHS
+    )
+    + "\n"
+)
 for key, (name, _, _, _) in ENUMS.items():
     PREAMBLE += f'!e_{key} = !ac.enum<"{name}">\n'
 DECLS = []
 for _, (name, width, codes, encoding) in ENUMS.items():
-    members = ", ".join(f'{{name = "M{i}", code = #ac.math_int<{code}>}}' for i, code in enumerate(codes))
-    DECLS.append(f'"ac.enum"() {{sym_name = "{name}", width = #ac.math_int<{width}>, encoding = "{encoding}", members = [{members}]}} : () -> ()')
+    members = ", ".join(
+        f'{{name = "M{i}", code = #ac.math_int<{code}>}}'
+        for i, code in enumerate(codes)
+    )
+    DECLS.append(
+        f'"ac.enum"() {{sym_name = "{name}", width = #ac.math_int<{width}>, encoding = "{encoding}", members = [{members}]}} : () -> ()'
+    )
 DECLS += [
     'ac.struct "Inner" fields [{name = "state", type = !e_left}, {name = "token", type = !e_wide}, {name = "guard", type = !b1}]',
     'ac.struct "Outer" fields [{name = "inner", type = !ac.struct<"Inner">}, {name = "large", type = !e_huge}, {name = "tag", type = !b3}]',
@@ -130,16 +146,25 @@ DECLS += [
 
 def module(name, inputs, outputs, body, type_parameters=()):
     args = ", ".join(f"%{n}: {t}" for n, t in inputs)
-    sig = "(" + ", ".join(t for _, t in inputs) + ") -> (" + ", ".join(t for _, t in outputs) + ")"
+    sig = (
+        "("
+        + ", ".join(t for _, t in inputs)
+        + ") -> ("
+        + ", ".join(t for _, t in outputs)
+        + ")"
+    )
 
     def names(rows):
         return ", ".join('"' + n + '"' for n, _ in rows)
 
     # Distinct allocation sites belong to this module's actual body positions.
-    body = [line.replace(
-        "occurrence = " + occurrence("top"),
-        f'occurrence = {{site = {{definition = @{name}, ast_path = [{{kind = "field", name = "body"}}, {{kind = "index", value = {index} : i64}}]}}, expansion = []}}',
-    ) for index, line in enumerate(body)]
+    body = [
+        line.replace(
+            "occurrence = " + occurrence("top"),
+            f'occurrence = {{site = {{definition = @{name}, ast_path = [{{kind = "field", name = "body"}}, {{kind = "index", value = {index} : i64}}]}}, expansion = []}}',
+        )
+        for index, line in enumerate(body)
+    ]
     types = ", ".join('"' + t + '"' for t in type_parameters)
     return (
         '"ac.module"() ({\n^bb0('
@@ -151,20 +176,43 @@ def module(name, inputs, outputs, body, type_parameters=()):
         + '", source_owner = {package = "", path = "'
         + name
         + '.py"}, parameters = [], '
-        f"type_parameters = [{types}], function_type = {sig}, input_names = [{names(inputs)}], output_names = [{names(outputs)}]" + "} : () -> ()"
+        f"type_parameters = [{types}], function_type = {sig}, input_names = [{names(inputs)}], output_names = [{names(outputs)}]"
+        + "} : () -> ()"
     )
 
 
 def yield_values(rows):
-    return '"ac.yield"(' + ", ".join(v for v, _ in rows) + ") : (" + ", ".join(t for _, t in rows) + ") -> ()"
+    return (
+        '"ac.yield"('
+        + ", ".join(v for v, _ in rows)
+        + ") : ("
+        + ", ".join(t for _, t in rows)
+        + ") -> ()"
+    )
 
 
 def instance(name, callee, args, types, results, actuals=(), collection=False):
-    attr = f'instance_name = "{name}", callee = @{callee}, parameters = [], type_arguments = [' + ", ".join(actuals) + "]"
+    attr = (
+        f'instance_name = "{name}", callee = @{callee}, parameters = [], type_arguments = ['
+        + ", ".join(actuals)
+        + "]"
+    )
     if collection:
         attr += ", shape = [#w2]"
     attr += ", occurrence = " + occurrence("top")
-    return '"ac.' + ("collection" if collection else "instance") + '"(' + ", ".join(args) + ") {" + attr + "} : (" + ", ".join(types) + ") -> (" + ", ".join(results) + ")"
+    return (
+        '"ac.'
+        + ("collection" if collection else "instance")
+        + '"('
+        + ", ".join(args)
+        + ") {"
+        + attr
+        + "} : ("
+        + ", ".join(types)
+        + ") -> ("
+        + ", ".join(results)
+        + ")"
+    )
 
 
 T = '!ac.type_param<@identity, "T">'
@@ -237,7 +285,9 @@ CELL = module(
 
 def enum_from(body, stem, raw, key):
     width = ENUMS[key][1]
-    body.append(f'%{stem}, %{stem}_member = "ac.enum.from_bits"({raw}) : (!b{width}) -> (!e_{key}, !b1)')
+    body.append(
+        f'%{stem}, %{stem}_member = "ac.enum.from_bits"({raw}) : (!b{width}) -> (!e_{key}, !b1)'
+    )
     return "%" + stem, "%" + stem + "_member"
 
 
@@ -248,7 +298,9 @@ def enum_bits(body, stem, value, key):
 
 
 def enum_create(body, stem, key, index):
-    body.append(f'%{stem} = "ac.enum.create"() {{member = "M{index}"}} : () -> !e_{key}')
+    body.append(
+        f'%{stem} = "ac.enum.create"() {{member = "M{index}"}} : () -> !e_{key}'
+    )
     return "%" + stem
 
 
@@ -273,7 +325,11 @@ def build_com():
 
     for key in ENUMS:
         width = ENUMS[key][1]
-        raw = "%r2" if key == "left" else "%r2b" if key == "right" else "%r3" if width == 3 else f"%r{width}"
+        raw = (
+            "%r2"
+            if key == "left"
+            else "%r2b" if key == "right" else "%r3" if width == 3 else f"%r{width}"
+        )
         value, member = enum_from(body, "decoded_" + key, raw, key)
         roundtrip = enum_bits(body, "round_" + key, value, key)
         input_name = raw[1:]
@@ -300,8 +356,15 @@ def build_com():
         )
     other, _ = enum_from(body, "other_left", "%r2b", "left")
     array_type = "!ac.table<[#w2], !e_left>"
-    body.append(f'%pair = "ac.table.create"(%decoded_left, {other}) : (!e_left, !e_left) -> {array_type}')
-    body.append("%family = " + instance("generic", "family", ["%pair"], [array_type], [array_type], ["!e_left"]))
+    body.append(
+        f'%pair = "ac.table.create"(%decoded_left, {other}) : (!e_left, !e_left) -> {array_type}'
+    )
+    body.append(
+        "%family = "
+        + instance(
+            "generic", "family", ["%pair"], [array_type], [array_type], ["!e_left"]
+        )
+    )
     output("family", "%family", array_type, 4, lambda row: row["r2"] + row["r2b"])
     body.append(
         "%forwarded = "
@@ -331,8 +394,12 @@ def build_com():
     raw_left = enum_bits(body, "bridge_bits", "%decoded_left", "left")
     bridged, _ = enum_from(body, "bridged", raw_left, "right")
     output("bridged", bridged, "!e_right", 2, lambda row: row["r2"])
-    body.append('%inner = "ac.struct.create"(%decoded_left, %decoded_wide, %select) : (!e_left, !e_wide, !b1) -> !ac.struct<"Inner">')
-    body.append('%outer = "ac.struct.create"(%inner, %decoded_huge, %r3) : (!ac.struct<"Inner">, !e_huge, !b3) -> !ac.struct<"Outer">')
+    body.append(
+        '%inner = "ac.struct.create"(%decoded_left, %decoded_wide, %select) : (!e_left, !e_wide, !b1) -> !ac.struct<"Inner">'
+    )
+    body.append(
+        '%outer = "ac.struct.create"(%inner, %decoded_huge, %r3) : (!ac.struct<"Inner">, !e_huge, !b3) -> !ac.struct<"Outer">'
+    )
 
     def nested(row):
         return row["r2"] + row["r65"] + row["select"] + row["r130"] + row["r3"]
@@ -341,10 +408,16 @@ def build_com():
         return row["r2b"] + row["r65"] + row["select"] + row["r130"] + row["r3"]
 
     output("nested", "%outer", '!ac.struct<"Outer">', 201, nested)
-    body.append(f'%inner_other = "ac.struct.create"({other}, %decoded_wide, %select) : (!e_left, !e_wide, !b1) -> !ac.struct<"Inner">')
-    body.append('%outer_other = "ac.struct.create"(%inner_other, %decoded_huge, %r3) : (!ac.struct<"Inner">, !e_huge, !b3) -> !ac.struct<"Outer">')
+    body.append(
+        f'%inner_other = "ac.struct.create"({other}, %decoded_wide, %select) : (!e_left, !e_wide, !b1) -> !ac.struct<"Inner">'
+    )
+    body.append(
+        '%outer_other = "ac.struct.create"(%inner_other, %decoded_huge, %r3) : (!ac.struct<"Inner">, !e_huge, !b3) -> !ac.struct<"Outer">'
+    )
     records_type = '!ac.table<[#w2], !ac.struct<"Outer">>'
-    body.append(f'%records = "ac.table.create"(%outer, %outer_other) : (!ac.struct<"Outer">, !ac.struct<"Outer">) -> {records_type}')
+    body.append(
+        f'%records = "ac.table.create"(%outer, %outer_other) : (!ac.struct<"Outer">, !ac.struct<"Outer">) -> {records_type}'
+    )
     body.append(
         "%forward_records = "
         + instance(
@@ -365,7 +438,9 @@ def build_com():
     )
     max65 = enum_create(body, "max65", "wide", 3)
     max65bits = enum_bits(body, "max65_bits", max65, "wide")
-    body.append(f'%selected_bits = "ac.bits.select"(%select, %round_wide, {max65bits}) : (!b1, !b65, !b65) -> !b65')
+    body.append(
+        f'%selected_bits = "ac.bits.select"(%select, %round_wide, {max65bits}) : (!b1, !b65, !b65) -> !b65'
+    )
     selected65, _ = enum_from(body, "selected", "%selected_bits", "wide")
     output(
         "selected",
@@ -417,7 +492,9 @@ def build_com():
     ir = (
         PREAMBLE
         + "module {\n"
-        + "\n".join(DECLS + GENERIC + [module("top", inputs, [(n, t) for n, _, t in out], body)])
+        + "\n".join(
+            DECLS + GENERIC + [module("top", inputs, [(n, t) for n, _, t in out], body)]
+        )
         + '\n"ac.system"() {entry = {callee = @top, parameters = [], type_arguments = []}, domain = "default"} : () -> ()\n}\n'
     )
     return ir, {n: int(t[2:]) for n, t in inputs}, spec
@@ -485,10 +562,16 @@ def build_storage():
     et = "!ac.table<[#w2], !e_left>"
     gt = "!ac.table<[#w2], !b1>"
     for stem, value in (("clocks", "%clk"), ("resets", "%rst")):
-        body.append(f'%{stem} = "ac.table.splat"({value}) {{shape = [#w2]}} : (!b1) -> {gt}')
+        body.append(
+            f'%{stem} = "ac.table.splat"({value}) {{shape = [#w2]}} : (!b1) -> {gt}'
+        )
     body.append(f'%enables = "ac.table.create"(%en0, %en1) : (!b1, !b1) -> {gt}')
-    body.append(f'%data_pair = "ac.table.create"({e0}, {e1}) : (!e_left, !e_left) -> {et}')
-    body.append(f'%init_pair = "ac.table.create"({iz}, {io}) : (!e_left, !e_left) -> {et}')
+    body.append(
+        f'%data_pair = "ac.table.create"({e0}, {e1}) : (!e_left, !e_left) -> {et}'
+    )
+    body.append(
+        f'%init_pair = "ac.table.create"({iz}, {io}) : (!e_left, !e_left) -> {et}'
+    )
     body.append(
         "%lanes = "
         + instance(
@@ -517,7 +600,10 @@ def build_storage():
     ir = (
         PREAMBLE
         + "module {\n"
-        + "\n".join(DECLS + [STORAGE, CELL, module("top", inputs, [(n, t) for n, _, t in out], body)])
+        + "\n".join(
+            DECLS
+            + [STORAGE, CELL, module("top", inputs, [(n, t) for n, _, t in out], body)]
+        )
         + '\n"ac.system"() {entry = {callee = @top, parameters = [], type_arguments = []}, domain = "default"} : () -> ()\n}\n'
     )
     return (
@@ -537,7 +623,9 @@ def wide_pattern(index, width, codes):
         return "z" * width
     raw = list(bits((1 << (width - 1)) + 7, width))
     for position, symbol in ((0, "x"), (width - 1, "z"), (63, "z"), (64, "x")):
-        raw[width - position - 1] = symbol if index % 2 else ("z" if symbol == "x" else "x")
+        raw[width - position - 1] = (
+            symbol if index % 2 else ("z" if symbol == "x" else "x")
+        )
     return "".join(raw)
 
 
@@ -627,7 +715,16 @@ class StorageOracle:
             "mb": membership(self.qb, ENUMS["huge"][2]),
         }
         rising = self.clock == "0" and row["clk"] == "1"
-        failure = row["clk"] in "xz" or (rising and (row["rst"] in "xz" or (row["rst"] == "0" and any(row[e] in "xz" for e in ("ena", "enb", "enc", "en0", "en1")))))
+        failure = row["clk"] in "xz" or (
+            rising
+            and (
+                row["rst"] in "xz"
+                or (
+                    row["rst"] == "0"
+                    and any(row[e] in "xz" for e in ("ena", "enb", "enc", "en0", "en1"))
+                )
+            )
+        )
         assert failure == (action == 2)
         if action == 0:
             if rising:
@@ -645,7 +742,9 @@ class StorageOracle:
                         self.qb = row["r130"]
                     if row["enc"] == "1":
                         self.sibling = row["data"]
-                    self.lanes = (row["r2"] if row["en0"] == "1" else self.lanes[:2]) + (row["r2b"] if row["en1"] == "1" else self.lanes[2:])
+                    self.lanes = (
+                        row["r2"] if row["en0"] == "1" else self.lanes[:2]
+                    ) + (row["r2b"] if row["en1"] == "1" else self.lanes[2:])
             self.clock = row["clk"]
         return golden
 
@@ -750,21 +849,39 @@ def vectors(directory, inputs, spec, rows, gold, storage=False):
             out += ["pyc_dut::Inputs p;drive(p,row);"]
             for key in ENUMS:
                 width = ENUMS[key][1]
-                raw = "r2" if key == "left" else "r2b" if key == "right" else "r3" if width == 3 else f"r{width}"
+                raw = (
+                    "r2"
+                    if key == "left"
+                    else (
+                        "r2b" if key == "right" else "r3" if width == 3 else f"r{width}"
+                    )
+                )
                 out += [
                     f"samePlanes(o.carrier_{key},p.{raw});",
                     f"samePlanes(o.round_{key},p.{raw});",
                 ]
         return out + ["}"]
 
-    cpp += input_arrays("normal", rows) + drive_cpp("drive", "normal") + check_cpp("check", "gold", gold)
+    cpp += (
+        input_arrays("normal", rows)
+        + drive_cpp("drive", "normal")
+        + check_cpp("check", "gold", gold)
+    )
     if storage:
         cpp += [
             f"constexpr unsigned probe_count={len(probe_rows)},failure_count={len(failure_rows)};",
-            "const unsigned probe_action[]={" + ",".join(str(a) for _, a in probe_rows) + "};",
+            "const unsigned probe_action[]={"
+            + ",".join(str(a) for _, a in probe_rows)
+            + "};",
         ]
-        cpp += input_arrays("probe", [r for r, _ in probe_rows]) + drive_cpp("driveProbe", "probe") + check_cpp("checkProbe", "probe_expected", probe_gold, True)
-        cpp += input_arrays("failure", failure_rows) + drive_cpp("driveFailure", "failure")
+        cpp += (
+            input_arrays("probe", [r for r, _ in probe_rows])
+            + drive_cpp("driveProbe", "probe")
+            + check_cpp("checkProbe", "probe_expected", probe_gold, True)
+        )
+        cpp += input_arrays("failure", failure_rows) + drive_cpp(
+            "driveFailure", "failure"
+        )
         cpp += [
             "void driveRoot(pyc_root &root,const pyc_dut::Inputs &p){",
             *[f"root.{n}=p.{n};" for n in inputs],
@@ -790,14 +907,20 @@ def vectors(directory, inputs, spec, rows, gold, storage=False):
     for i, row in enumerate(rows):
         sv += [
             f"{i}:begin",
-            *[f"{'next_clock' if storage and n == 'clk' else n}={inputs[n]}'b{v};" for n, v in row.items()],
+            *[
+                f"{'next_clock' if storage and n == 'clk' else n}={inputs[n]}'b{v};"
+                for n, v in row.items()
+            ],
             "end",
         ]
     sv += ["endcase endtask", "task check(input integer row);case(row)"]
     for i, g in enumerate(gold):
         sv += [
             f"{i}:begin",
-            *[f'if({n} !== {types[n]}\'b{value})$fatal(1,"enum carrier/membership/storage {n} row{i}");' for n, value in g.items()],
+            *[
+                f'if({n} !== {types[n]}\'b{value})$fatal(1,"enum carrier/membership/storage {n} row{i}");'
+                for n, value in g.items()
+            ],
             "end",
         ]
     sv += [
@@ -809,10 +932,21 @@ def vectors(directory, inputs, spec, rows, gold, storage=False):
         'default:golden_trace="invalid";endcase endfunction',
         "function automatic bit known_row(input integer row);case(row)",
     ]
-    known = [i < state_known_prefix if storage else all(c in "01" for s in r.values() for c in s) for i, r in enumerate(rows)]
-    sv += [f"{i}:known_row={int(k)};" for i, k in enumerate(known)] + ["default:known_row=0;endcase endfunction"]
+    known = [
+        (
+            i < state_known_prefix
+            if storage
+            else all(c in "01" for s in r.values() for c in s)
+        )
+        for i, r in enumerate(rows)
+    ]
+    sv += [f"{i}:known_row={int(k)};" for i, k in enumerate(known)] + [
+        "default:known_row=0;endcase endfunction"
+    ]
     if storage:
-        sv += ["task drive_failure;clk=0;rst=0;ena=1;enb=1'bx;enc=1;en0=1;en1=1;endtask"]
+        sv += [
+            "task drive_failure;clk=0;rst=0;ena=1;enb=1'bx;enc=1;en0=1;en1=1;endtask"
+        ]
     (directory / "enum_vectors.svh").write_text("\n".join(sv) + "\n")
     return known
 
@@ -871,7 +1005,9 @@ for name, ir, inputs, spec, rows, gold, storage in (
         ]
     )
     config = output / "config.json"
-    config.write_text('{"deadlock_window":null,"max_domain_cycles":{},"max_ticks":256,"schema":"pycircuit-model-config","version":"1"}\n')
+    config.write_text(
+        '{"deadlock_window":null,"max_domain_cycles":{},"max_ticks":256,"schema":"pycircuit-model-config","version":"1"}\n'
+    )
     traces = []
     for workers in (1, 2):
         trace = run([runner, "--workers", workers, "--config", config]).stdout
@@ -880,7 +1016,10 @@ for name, ir, inputs, spec, rows, gold, storage in (
     assert traces[0] == traces[1] and len(traces[0]) == len(rows)
     rtl = [
         output / "verilog/design_top.sv",
-        *[output / "verilog" / g["path"] for g in payloads["verilog"]["rtl_source_groups"]],
+        *[
+            output / "verilog" / g["path"]
+            for g in payloads["verilog"]["rtl_source_groups"]
+        ],
     ]
     primitives = [repo / path for path in payloads["verilog"]["rtl_standard_sources"]]
     run(
@@ -905,7 +1044,9 @@ for name, ir, inputs, spec, rows, gold, storage in (
         ]
     )
     observed = run([output / "rtl-build/Venum"]).stdout
-    assert [s for s in observed.splitlines() if s.startswith("WORK ")] == [s for s, k in zip(traces[0], known, strict=True) if k]
+    assert [s for s in observed.splitlines() if s.startswith("WORK ")] == [
+        s for s, k in zip(traces[0], known, strict=True) if k
+    ]
     run(
         [
             args.iverilog,
@@ -945,7 +1086,12 @@ for name, ir, inputs, spec, rows, gold, storage in (
         failed = run([args.vvp, output / "failure.vvp"], 1)
         assert "enable must be known" in failed.stdout + failed.stderr
     # Native bad-IR rejection cannot publish JSON; public source-unit --replace is F3.
-    previous = {str(p): p.read_bytes() for target in ("cpp", "verilog") for p in (output / target).rglob("*") if p.is_file()}
+    previous = {
+        str(p): p.read_bytes()
+        for target in ("cpp", "verilog")
+        for p in (output / target).rglob("*")
+        if p.is_file()
+    }
     bad = output / "bad-width.mlir"
     changed = ir.replace(
         'sym_name = "suite.Wide", width = #ac.math_int<65>',
@@ -957,7 +1103,12 @@ for name, ir, inputs, spec, rows, gold, storage in (
     for target in ("cpp", "verilog"):
         rejected = run([args.emitter, bad, "--target", target], 1)
         assert not rejected.stdout.strip()
-        assert previous == {str(p): p.read_bytes() for target in ("cpp", "verilog") for p in (output / target).rglob("*") if p.is_file()}
+        assert previous == {
+            str(p): p.read_bytes()
+            for target in ("cpp", "verilog")
+            for p in (output / target).rglob("*")
+            if p.is_file()
+        }
     receipts.append(
         {
             "variant": name,
@@ -987,7 +1138,12 @@ def guard_package(declarations):
         f"#guard_w1 = {static(1)}\n!guard_b1 = !ac.bits<#guard_w1>\nmodule {{\n"
         + "\n".join(declarations)
         + "\n"
-        + module("top", [("a", "!guard_b1")], [("y", "!guard_b1")], [yield_values([("%a", "!guard_b1")])])
+        + module(
+            "top",
+            [("a", "!guard_b1")],
+            [("y", "!guard_b1")],
+            [yield_values([("%a", "!guard_b1")])],
+        )
         + '\n"ac.system"() {entry = {callee = @top, parameters = [], type_arguments = []}, domain = "default"} : () -> ()\n}\n'
     )
 
@@ -995,20 +1151,76 @@ def guard_package(declarations):
 collision_diagnostic = "emitted hardware name collision"
 capacity_diagnostic = "hardware payload plane including enclosing collections exceeds the current Runtime bit-width capacity"
 guard_cases = [
-    ("enum-enum-flat-collision", [guard_enum("a_b.State"), guard_enum("a.b_State")], "ac.enum", collision_diagnostic),
-    ("enum-struct-flat-collision", [guard_enum("a_b.State"), guard_struct("a.b_State")], "ac.struct", collision_diagnostic),
-    ("struct-struct-flat-collision", [guard_struct("a_b.State"), guard_struct("a.b_State")], "ac.struct", collision_diagnostic),
-    ("enum-class-namespace-collision", [guard_enum("ns.Value"), guard_enum("ns.Value.Child")], "ac.enum", collision_diagnostic),
-    ("unused-enum-capacity", [guard_enum("wide.Unused", 4294967296)], "ac.enum", capacity_diagnostic),
-    ("unused-struct-capacity", [guard_struct("wide.Unused", 4294967296)], "ac.struct", capacity_diagnostic),
-    ("enum-enum-flat-nearby", [guard_enum("a_b.State"), guard_enum("a.b_Other")], None, None),
-    ("enum-struct-flat-nearby", [guard_enum("a_b.State", 65), guard_struct("a.b_Other", 130)], None, None),
-    ("struct-struct-flat-nearby", [guard_struct("a_b.State"), guard_struct("a.b_Other")], None, None),
-    ("enum-class-namespace-nearby", [guard_enum("ns.Value"), guard_enum("ns.Other.Child")], None, None),
+    (
+        "enum-enum-flat-collision",
+        [guard_enum("a_b.State"), guard_enum("a.b_State")],
+        "ac.enum",
+        collision_diagnostic,
+    ),
+    (
+        "enum-struct-flat-collision",
+        [guard_enum("a_b.State"), guard_struct("a.b_State")],
+        "ac.struct",
+        collision_diagnostic,
+    ),
+    (
+        "struct-struct-flat-collision",
+        [guard_struct("a_b.State"), guard_struct("a.b_State")],
+        "ac.struct",
+        collision_diagnostic,
+    ),
+    (
+        "enum-class-namespace-collision",
+        [guard_enum("ns.Value"), guard_enum("ns.Value.Child")],
+        "ac.enum",
+        collision_diagnostic,
+    ),
+    (
+        "unused-enum-capacity",
+        [guard_enum("wide.Unused", 4294967296)],
+        "ac.enum",
+        capacity_diagnostic,
+    ),
+    (
+        "unused-struct-capacity",
+        [guard_struct("wide.Unused", 4294967296)],
+        "ac.struct",
+        capacity_diagnostic,
+    ),
+    (
+        "enum-enum-flat-nearby",
+        [guard_enum("a_b.State"), guard_enum("a.b_Other")],
+        None,
+        None,
+    ),
+    (
+        "enum-struct-flat-nearby",
+        [guard_enum("a_b.State", 65), guard_struct("a.b_Other", 130)],
+        None,
+        None,
+    ),
+    (
+        "struct-struct-flat-nearby",
+        [guard_struct("a_b.State"), guard_struct("a.b_Other")],
+        None,
+        None,
+    ),
+    (
+        "enum-class-namespace-nearby",
+        [guard_enum("ns.Value"), guard_enum("ns.Other.Child")],
+        None,
+        None,
+    ),
 ]
 # Snapshot actual good artifacts once; rejected native emission must publish zero
 # bytes and leave those earlier unpacked products unchanged.
-published = {str(p): p.read_bytes() for product in ("carrier", "storage") for target in ("cpp", "verilog") for p in (build / product / target).rglob("*") if p.is_file()}
+published = {
+    str(p): p.read_bytes()
+    for product in ("carrier", "storage")
+    for target in ("cpp", "verilog")
+    for p in (build / product / target).rglob("*")
+    if p.is_file()
+}
 guard_receipts = []
 for name, declarations, owner, diagnostic in guard_cases:
     output = build / name
@@ -1019,8 +1231,13 @@ for name, declarations, owner, diagnostic in guard_cases:
     run([args.opt, original, "--ac-verify-hardware", "-o", verified])
     targets = {}
     for target in ("cpp", "verilog"):
-        result = run([args.emitter, verified, "--target", target], 1 if diagnostic else 0)
-        targets[target] = {"exit_status": result.returncode, "stdout_bytes": len(result.stdout.encode())}
+        result = run(
+            [args.emitter, verified, "--target", target], 1 if diagnostic else 0
+        )
+        targets[target] = {
+            "exit_status": result.returncode,
+            "stdout_bytes": len(result.stdout.encode()),
+        }
         if diagnostic:
             assert result.stdout == "", commands[-1]
             assert f"'{owner}' op {diagnostic}" in result.stderr, commands[-1]
@@ -1035,7 +1252,14 @@ for name, declarations, owner, diagnostic in guard_cases:
         payload = output / (target + ".json")
         payload.write_text(result.stdout)
         bundle = json.loads(result.stdout)
-        run([sys.executable, repo / "tests/compiler/lit/CodeGen/Inputs/unpack_bundle.py", payload, output / target])
+        run(
+            [
+                sys.executable,
+                repo / "tests/compiler/lit/CodeGen/Inputs/unpack_bundle.py",
+                payload,
+                output / target,
+            ]
+        )
         if target == "cpp":
             driver = output / "driver.cpp"
             driver.write_text(
@@ -1059,9 +1283,26 @@ for name, declarations, owner, diagnostic in guard_cases:
             )
             run([runner])
         else:
-            rtl = [output / target / "design_top.sv", *[output / target / group["path"] for group in bundle["rtl_source_groups"]]]
+            rtl = [
+                output / target / "design_top.sv",
+                *[
+                    output / target / group["path"]
+                    for group in bundle["rtl_source_groups"]
+                ],
+            ]
             primitives = [repo / path for path in bundle["rtl_standard_sources"]]
-            run([args.iverilog, "-g2012", "-s", bundle["root_rtl_name"], "-o", output / "control.vvp", *primitives, *rtl])
+            run(
+                [
+                    args.iverilog,
+                    "-g2012",
+                    "-s",
+                    bundle["root_rtl_name"],
+                    "-o",
+                    output / "control.vvp",
+                    *primitives,
+                    *rtl,
+                ]
+            )
     guard_receipts.append(
         {
             "case": name,
@@ -1074,18 +1315,36 @@ for name, declarations, owner, diagnostic in guard_cases:
     )
 
 
-fixture_paths = [fixtures / ("enum_carrier" + extension) for extension in (".py", ".cpp", ".sv")]
-fixture_paths.append((fixtures / "enum-carrier.test") if (fixtures / "enum-carrier.test").is_file() else fixtures.parent / "enum-carrier.test")
+fixture_paths = [
+    fixtures / ("enum_carrier" + extension) for extension in (".py", ".cpp", ".sv")
+]
+fixture_paths.append(
+    (fixtures / "enum-carrier.test")
+    if (fixtures / "enum-carrier.test").is_file()
+    else fixtures.parent / "enum-carrier.test"
+)
 (evidence / "candidate.json").write_text(
     json.dumps(
         {
             "scope": "common-IR verified native/RTL execution; no F3 Python enum or source-unit publication claim",
             "artifact_directory": str(build),
-            "fixtures": {str(p): hashlib.sha256(p.read_bytes()).hexdigest() for p in fixture_paths},
+            "fixtures": {
+                str(p): hashlib.sha256(p.read_bytes()).hexdigest()
+                for p in fixture_paths
+            },
             "products": receipts,
             "tools": {
-                str(Path(tool).resolve()): hashlib.sha256(Path(tool).read_bytes()).hexdigest()
-                for tool in (args.opt, args.emitter, args.cxx, args.verilator, args.iverilog, args.vvp)
+                str(Path(tool).resolve()): hashlib.sha256(
+                    Path(tool).read_bytes()
+                ).hexdigest()
+                for tool in (
+                    args.opt,
+                    args.emitter,
+                    args.cxx,
+                    args.verilator,
+                    args.iverilog,
+                    args.vvp,
+                )
             },
             "runtime": {str(runtime): hashlib.sha256(runtime.read_bytes()).hexdigest()},
             "emission_preflight": guard_receipts,

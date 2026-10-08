@@ -39,6 +39,8 @@ def Advance(  # noqa: N802
     retire1,
     active0,
     active1,
+    available,
+    free,
     cost,
     token,
 ):
@@ -51,6 +53,8 @@ def Advance(  # noqa: N802
     retirement clears ``valid`` only (ST-05: the credit is returned on the edge
     where the push into ``completed`` actually commits).
     """
+    if available and free:
+        assert cost != 0, "credit_nonpositive_cost"
     if admit0:
         state.slot0.valid = 1
         state.slot0.remaining = cost
@@ -80,8 +84,8 @@ def CreditPipeline(  # noqa: N802
     done0 = state.slot0.valid & (state.slot0.remaining == 0)
     done1 = state.slot1.valid & (state.slot1.remaining == 0)
     # `ready` below is the QUEUE CAPACITY (Q-D1(a)).  The third argument is the
-    # credit-side admission condition (Q-D1(b), demoted): a free slot AND a
-    # non-zero head cost.  Do not collapse the two -- see the T-03 note above.
+    # credit-side admission condition is a free slot and a non-zero head cost.
+    # The rule rejects an effective zero-cost head before any proposal commits.
     ready, available, head = ac.queue[CreditToken](
         valid,
         data,
@@ -114,6 +118,8 @@ def CreditPipeline(  # noqa: N802
         retire1,
         active0,
         active1,
+        available,
+        free0 | free1,
         head.cycles,
         head,
     )

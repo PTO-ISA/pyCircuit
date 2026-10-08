@@ -19,8 +19,7 @@ class PickerResult:
 
 
 @ac.rule
-def transact(s0, s1, s2, s3, in_valid, in_data,
-             out0_ready, out1_ready) -> PickerResult:
+def transact(s0, s1, s2, s3, in_valid, in_data, out0_ready, out1_ready) -> PickerResult:
     pop0 = s0.valid & out0_ready
     pop1 = s1.valid & out1_ready & pop0
     in_ready = ~s3.valid | pop0
@@ -56,23 +55,19 @@ def transact(s0, s1, s2, s3, in_valid, in_data,
     en3 = pref3 & ~a2_3.valid
 
     # Unconditional proposals preserve value merging under unknown controls.
-    s0 = Slot(valid=a2_0.valid | en0,
-              data=in_data if en0 else a2_0.data)
-    s1 = Slot(valid=a2_1.valid | en1,
-              data=in_data if en1 else a2_1.data)
-    s2 = Slot(valid=a2_2.valid | en2,
-              data=in_data if en2 else a2_2.data)
-    s3 = Slot(valid=a2_3.valid | en3,
-              data=in_data if en3 else a2_3.data)
+    s0 = Slot(valid=a2_0.valid | en0, data=in_data if en0 else a2_0.data)
+    s1 = Slot(valid=a2_1.valid | en1, data=in_data if en1 else a2_1.data)
+    s2 = Slot(valid=a2_2.valid | en2, data=in_data if en2 else a2_2.data)
+    s3 = Slot(valid=a2_3.valid | en3, data=in_data if en3 else a2_3.data)
     return result
 
 
 @ac.module
-def IssueQueue2Picker(in_valid: ac.u1, in_data: ac.u8,  # noqa: N802
-                     out0_ready: ac.u1, out1_ready: ac.u1) -> PickerResult:
+def IssueQueue2Picker(  # noqa: N802 - hardware module definition
+    in_valid: ac.u1, in_data: ac.u8, out0_ready: ac.u1, out1_ready: ac.u1  # noqa: N802
+) -> PickerResult:
     s0: Slot = Slot()
     s1: Slot = Slot()
     s2: Slot = Slot()
     s3: Slot = Slot()
-    return transact(s0, s1, s2, s3, in_valid, in_data,
-                    out0_ready, out1_ready)
+    return transact(s0, s1, s2, s3, in_valid, in_data, out0_ready, out1_ready)

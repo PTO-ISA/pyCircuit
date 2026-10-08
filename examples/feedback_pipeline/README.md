@@ -70,3 +70,20 @@ and protocol controls; queued unknown data waits safely behind resident feedback
 until it becomes the selected control. Two owner probes verify whole-system
 discard/reprepare and actual retained-token retirement after a discarded Reset.
 The finite runner limit is12,000 epochs per successful history.
+
+## Generated system usage
+
+`bench.py` exports `example_feedback_pipeline.bench.ExerciseFeedbackPipeline`. Compile
+`feedback_pipeline.py`, then `bench.py`, import the published DUT interface, and link
+that explicit system root through the public compile/link/emit flow. Run
+`pycircuit run examples/feedback_pipeline --target cpp --cycles 3763` or select
+`--target verilog`. Imported records use their original nominal declarations
+and supply every field explicitly.
+
+All original known-stream data edges are represented in this regular-clock
+scenario, with fixed independent expectations from the retained native oracle
+along a resetless trajectory. The 3763 cycles include a final observation.
+The original DUT, native/RTL drivers, finite configuration, and any four-state,
+reset/discard, latency and token-ledger matrices remain unchanged. Physical
+held-level and midstream-reset scenarios still require those original module
+oracles; this system does not claim complete physical-scenario equivalence.

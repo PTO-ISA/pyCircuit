@@ -72,3 +72,20 @@ were repaired without changing DUT or expected values; explicit per-bit guards
 were separately shown to reject injected X/Z. The final recovery-probe repair
 was followed by complete standalone and targeted two-test reruns. Failed and
 superseded records remain retained, and all original Work traces are unchanged.
+
+## Generated system usage
+
+`bench.py` exports `example_loop_control_pipeline.bench.ExerciseLoopControlPipeline`. Compile
+`loop_control_pipeline.py`, then `bench.py`, import the published DUT interface, and link
+that explicit system root through the public compile/link/emit flow. Run
+`pycircuit run examples/loop_control_pipeline --target cpp --cycles 635` or select
+`--target verilog`. Imported records use their original nominal declarations
+and supply every field explicitly.
+
+All original known-stream data edges are represented in this regular-clock
+scenario, with fixed independent expectations from the retained native oracle
+along a resetless trajectory. The 635 cycles include a final observation.
+The original DUT, native/RTL drivers, finite configuration, and any four-state,
+reset/discard, latency and token-ledger matrices remain unchanged. Physical
+held-level and midstream-reset scenarios still require those original module
+oracles; this system does not claim complete physical-scenario equivalence.

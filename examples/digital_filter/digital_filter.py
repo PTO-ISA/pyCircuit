@@ -10,8 +10,9 @@ class FilterResult:
 
 
 @ac.rule
-def filter_sample(delay1, delay2, delay3, y_out, y_valid,
-                  x_in, x_valid) -> FilterResult:
+def filter_sample(
+    delay1, delay2, delay3, y_out, y_valid, x_in, x_valid
+) -> FilterResult:
     result = FilterResult(y_out=y_out, y_valid=y_valid)
 
     # Form 34-bit two's-complement samples before the modular FIR arithmetic.
@@ -23,10 +24,12 @@ def filter_sample(delay1, delay2, delay3, y_out, y_valid,
     tap2_sign: ac.u34 = 0x3FFFF0000 if delay2[15:16] else 0
     tap3: ac.u34 = delay3
     tap3_sign: ac.u34 = 0x3FFFF0000 if delay3[15:16] else 0
-    total = ((sample | sample_sign) * 1
-             + (tap1 | tap1_sign) * 2
-             + (tap2 | tap2_sign) * 3
-             + (tap3 | tap3_sign) * 4)
+    total = (
+        (sample | sample_sign) * 1
+        + (tap1 | tap1_sign) * 2
+        + (tap2 | tap2_sign) * 3
+        + (tap3 | tap3_sign) * 4
+    )
 
     # Descending assignment order preserves the old history values.
     # Conditional data selection also preserves the original X/Z-valid merges.

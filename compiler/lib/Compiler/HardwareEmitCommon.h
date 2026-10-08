@@ -26,8 +26,9 @@ public:
   HardwareEmitContext(mlir::ModuleOp package, ac::HardwareAnalysis &analysis);
   mlir::LogicalResult prepare();
   bool isSystem();
-  // Internal staged native gate; public emission remains closed until both
-  // backends implement the verified source-check lifecycle.
+  bool managesChecks();
+  // Prepare the verified check lifecycle shared by generated systems and
+  // checked module callers; each emitter retains its observation boundary.
   mlir::LogicalResult prepareNativeChecks();
   const ac::HardwareSourceCheckPlan &sourceChecks() const;
   const EmitNames &names(mlir::Operation *definition) const;

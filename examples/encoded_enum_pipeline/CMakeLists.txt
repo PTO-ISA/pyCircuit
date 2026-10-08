@@ -6,7 +6,11 @@ pycircuit_add_example(encoded_enum_pipeline
   PACKAGE example_encoded_enum_pipeline
   TOP example_encoded_enum_pipeline.encoded_enum_pipeline.EncodedEnumPipeline
   ENTRY_SOURCE encoded_enum_pipeline
-  SOURCES encoded_enum_pipeline.py)
+  SOURCES encoded_enum_pipeline.py
+  SYSTEM_TOP example_encoded_enum_pipeline.bench.EncodedEnumPipelineSystem
+  SYSTEM_ENTRY_SOURCE bench
+  SYSTEM_CYCLES 184
+  SYSTEM_SOURCES encoded_enum_pipeline.py bench.py)
 if(PYC_EXAMPLE_VERIFY)
 
 find_package(Python3 REQUIRED COMPONENTS Interpreter)

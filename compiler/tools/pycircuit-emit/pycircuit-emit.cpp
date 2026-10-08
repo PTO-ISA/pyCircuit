@@ -139,6 +139,7 @@ int main(int argc, char **argv) {
     result["system_header"] = parts->systemHeader;
     result["simulation_main"] = parts->simulationMain;
     result["simulation_config"] = parts->simulationConfig;
+    result["source_check_count"] = parts->sourceCheckCount;
     result["root_cpp_name"] = parts->rootCppName;
     result["source_groups"] = std::move(groups);
   } else {
@@ -164,6 +165,7 @@ int main(int argc, char **argv) {
     result["rtl_standard_sources"] = std::move(standard);
     result["rtl_core"] = parts->core;
     result["simulation_top"] = parts->simulationTop;
+    result["source_check_count"] = parts->sourceCheckCount;
     result["root_rtl_name"] = parts->rootRtlName;
   }
   auto maps =

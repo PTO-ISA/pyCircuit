@@ -54,3 +54,9 @@ The four-state history is 14 accepted, 10 retired, 4 reset-dropped, zero
 outstanding, peak two. The computed unknown comparison bit has no asserted
 value plane; copied wire fields retain exact value/known/Z planes. All runs
 have finite limits, and test vectors are generated procedurally.
+The separate `bench.py` system checks a finite regular-clock known-state scenario with exact old-state output checks. This is partial system migration: the original independent drivers retain their full physical-clock, midstream-reset and four-state scenarios.
+
+```bash
+pycircuit run examples/enum_payload_pipeline --target cpp --cycles 184 --build-dir .pycircuit_out/enum_payload_pipeline/system-cpp
+pycircuit run examples/enum_payload_pipeline --target verilog --cycles 184 --build-dir .pycircuit_out/enum_payload_pipeline/system-verilog
+```

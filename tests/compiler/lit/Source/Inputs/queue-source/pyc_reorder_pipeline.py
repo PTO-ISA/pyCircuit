@@ -59,6 +59,9 @@ def ReorderStep(  # noqa: N802
         where=lambda entry: entry.occupied and entry.key == incoming_key
     )
     stale = incoming_key < next_key
+    if in_valid and free_valid:
+        assert not stale, "reorder_stale_key"
+        assert not duplicate_valid, "reorder_duplicate_key"
     # `fault` is observation only; `admit` and `retire` below never read it.
     invalid = in_valid and free_valid and (stale or duplicate_valid)
     admit = in_valid and free_valid and not (stale or duplicate_valid)

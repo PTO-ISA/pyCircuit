@@ -342,7 +342,9 @@ def main() -> int:
         "docs/development/testing-and-gates.md",
     ):
         require(
-            (ROOT / path).is_file(), f"missing current product documentation: {path}", errors
+            (ROOT / path).is_file(),
+            f"missing current product documentation: {path}",
+            errors,
         )
 
     security = read("SECURITY.md")

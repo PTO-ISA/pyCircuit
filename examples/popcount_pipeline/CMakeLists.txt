@@ -6,7 +6,11 @@ pycircuit_add_example(popcount_pipeline
   PACKAGE example_popcount_pipeline
   TOP example_popcount_pipeline.popcount_pipeline.PopcountPipeline
   ENTRY_SOURCE popcount_pipeline
-  SOURCES popcount_pipeline.py)
+  SOURCES popcount_pipeline.py
+  SYSTEM_TOP example_popcount_pipeline.bench.PopcountPipelineSystem
+  SYSTEM_ENTRY_SOURCE bench
+  SYSTEM_CYCLES 184
+  SYSTEM_SOURCES popcount_pipeline.py bench.py)
 if(PYC_EXAMPLE_VERIFY)
 
 find_package(Python3 REQUIRED COMPONENTS Interpreter)

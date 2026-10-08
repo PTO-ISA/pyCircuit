@@ -55,3 +55,9 @@ Known history is68 accepted/63 retired/5 reset-dropped; four-state history is
 and a rising reset dropping3 unknown tokens are exercised. All runners have
 finite limits. IR checks confirm exactly two owners with depths2/1 and the
 reviewed availability/head-read/ready policies.
+The separate `bench.py` system checks a finite regular-clock known-state scenario with exact old-state output checks. This is partial system migration: the original independent drivers retain their full physical-clock, midstream-reset and four-state scenarios.
+
+```bash
+pycircuit run examples/rule_pipeline --target cpp --cycles 184 --build-dir .pycircuit_out/rule_pipeline/system-cpp
+pycircuit run examples/rule_pipeline --target verilog --cycles 184 --build-dir .pycircuit_out/rule_pipeline/system-verilog
+```

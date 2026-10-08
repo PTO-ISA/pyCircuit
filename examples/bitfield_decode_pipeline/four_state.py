@@ -62,9 +62,7 @@ receipt_path = main_build / "verilog/generated.json"
 receipt = json.loads(receipt_path.read_text())
 final_path = main_build / "bitfield_decode_pipeline.ac"
 final_text = final_path.read_text()
-assert (
-    final_text.count('"ac.queue"(') == 2
-), "design requires exactly two queues"
+assert final_text.count('"ac.queue"(') == 2, "design requires exactly two queues"
 for operation in ('"ac.instance"(', '"ac.reg"(', '"ac.variable"(', '"ac.table"('):
     assert operation not in final_text, "unexpected additional state/module instance"
 queue_lines = [line for line in final_text.splitlines() if '"ac.queue"(' in line]

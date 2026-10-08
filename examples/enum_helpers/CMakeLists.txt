@@ -6,7 +6,11 @@ pycircuit_add_example(enum_helpers
   PACKAGE example_enum_helpers
   TOP example_enum_helpers.enum_helpers.EnumHelpers
   ENTRY_SOURCE enum_helpers
-  SOURCES enum_helpers.py)
+  SOURCES enum_helpers.py
+  SYSTEM_TOP example_enum_helpers.bench.EnumHelpersSystem
+  SYSTEM_ENTRY_SOURCE bench
+  SYSTEM_CYCLES 184
+  SYSTEM_SOURCES enum_helpers.py bench.py)
 if(PYC_EXAMPLE_VERIFY)
 
 find_package(Python3 REQUIRED COMPONENTS Interpreter)

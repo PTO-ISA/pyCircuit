@@ -6,7 +6,11 @@ pycircuit_add_example(feedback_pipeline
   PACKAGE example_feedback_pipeline
   TOP example_feedback_pipeline.feedback_pipeline.FeedbackPipeline
   ENTRY_SOURCE feedback_pipeline
-  SOURCES feedback_pipeline.py)
+  SOURCES feedback_pipeline.py
+  SYSTEM_TOP example_feedback_pipeline.bench.ExerciseFeedbackPipeline
+  SYSTEM_ENTRY_SOURCE bench
+  SYSTEM_CYCLES 3763
+  SYSTEM_SOURCES feedback_pipeline.py bench.py)
 if(PYC_EXAMPLE_VERIFY)
 
 find_package(Python3 REQUIRED COMPONENTS Interpreter)

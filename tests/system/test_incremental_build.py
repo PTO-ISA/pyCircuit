@@ -343,9 +343,7 @@ def test_distinct_leaf_invalidation_and_header_receipt_edges_are_independent(
     # root is rebuilt because a producer republished its interface and receipt,
     # never because it read another unit's body.
     independent = source_by_name["leaf_0"]
-    unaffected_outputs = tuple(
-        units[name] for name in sorted(leaf_names - {"leaf_0"})
-    )
+    unaffected_outputs = tuple(units[name] for name in sorted(leaf_names - {"leaf_0"}))
     before_unaffected = _owned_snapshot(unaffected_outputs)
     independent.write_text(
         independent.read_text(encoding="utf-8") + "\n# implementation-only change\n",
@@ -375,9 +373,7 @@ def test_distinct_leaf_invalidation_and_header_receipt_edges_are_independent(
     interface_leaf = source_by_name["leaf_1"]
     interface_unit = units["leaf_1"]
     interface_before = (interface_unit / "leaf_1.interface.ac").read_bytes()
-    header_watchers = tuple(
-        units[name] for name in sorted(leaf_names - {"leaf_1"})
-    )
+    header_watchers = tuple(units[name] for name in sorted(leaf_names - {"leaf_1"}))
     before_headers = _owned_snapshot(header_watchers)
     interface_leaf.write_text(
         interface_leaf.read_text(encoding="utf-8")
@@ -441,13 +437,16 @@ def test_cpp_source_groups_are_compiled_as_independent_translation_units(
         assert expected_sources == {
             source.name for source in (project / "src").glob("*.py")
         }
-        assert len(
-            [
-                group
-                for group in manifest["source_groups"]
-                if any(path.endswith(".cpp") for path in group["files"])
-            ]
-        ) == expected_units
+        assert (
+            len(
+                [
+                    group
+                    for group in manifest["source_groups"]
+                    if any(path.endswith(".cpp") for path in group["files"])
+                ]
+            )
+            == expected_units
+        )
 
         rtl_bundle = source_build / "verilog"
         rtl_manifest = json.loads(

@@ -6,7 +6,11 @@ pycircuit_add_example(queue_pipeline
   PACKAGE example_queue_pipeline
   TOP example_queue_pipeline.queue_pipeline.QueuePipeline
   ENTRY_SOURCE queue_pipeline
-  SOURCES queue_pipeline.py)
+  SOURCES queue_pipeline.py
+  SYSTEM_TOP example_queue_pipeline.bench.QueuePipelineSystem
+  SYSTEM_ENTRY_SOURCE bench
+  SYSTEM_CYCLES 158
+  SYSTEM_SOURCES queue_pipeline.py bench.py)
 if(PYC_EXAMPLE_VERIFY)
 
 find_package(Python3 REQUIRED COMPONENTS Interpreter)

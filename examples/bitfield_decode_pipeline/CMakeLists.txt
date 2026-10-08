@@ -6,7 +6,11 @@ pycircuit_add_example(bitfield_decode_pipeline
   PACKAGE example_bitfield_decode_pipeline
   TOP example_bitfield_decode_pipeline.bitfield_decode_pipeline.BitfieldDecodePipeline
   ENTRY_SOURCE bitfield_decode_pipeline
-  SOURCES bitfield_decode_pipeline.py)
+  SOURCES bitfield_decode_pipeline.py
+  SYSTEM_TOP example_bitfield_decode_pipeline.bench.BitfieldDecodePipelineSystem
+  SYSTEM_ENTRY_SOURCE bench
+  SYSTEM_CYCLES 184
+  SYSTEM_SOURCES bitfield_decode_pipeline.py bench.py)
 if(PYC_EXAMPLE_VERIFY)
 
 find_package(Python3 REQUIRED COMPONENTS Interpreter)

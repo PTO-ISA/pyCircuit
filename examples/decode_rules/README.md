@@ -27,3 +27,17 @@ masked away. Uncertain high matches use ordinary four-state equality and mux
 merging, without inferring correlations between separate predicates.
 See [the generated-output guide](GENERATED.md) for the captured source-owned
 IR and actual generated C++ and RTL.
+
+## Generated system usage
+
+`bench.py` exports `example_decode_rules.bench.ExerciseDecodeRules`. Compile sources in
+order `decode_rules.py`, `bench.py`, then link that system root and emit C++ or
+Verilog through the public `pycircuit compile`, `link`, and `emit` commands.
+Run `pycircuit run examples/decode_rules --target cpp --cycles 257` or select
+`--target verilog`. Each managed cycle checks one original known-input row
+in both sampling epochs; all 257 original rows are represented.
+
+The original `driver.cpp`, `rtl_tb.sv`, configuration, and their independent
+oracles remain intact. This source bench covers the complete known-input table;
+host X/Z construction and recovery checks, where present, remain in those
+retained native/RTL oracles and are not claimed by the generated system run.

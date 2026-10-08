@@ -6,7 +6,11 @@ pycircuit_add_example(multi_input_rule_pipeline
   PACKAGE example_multi_input_rule_pipeline
   TOP example_multi_input_rule_pipeline.multi_input_rule_pipeline.MultiInputRulePipeline
   ENTRY_SOURCE multi_input_rule_pipeline
-  SOURCES multi_input_rule_pipeline.py)
+  SOURCES multi_input_rule_pipeline.py
+  SYSTEM_TOP example_multi_input_rule_pipeline.bench.MultiInputRulePipelineSystem
+  SYSTEM_ENTRY_SOURCE bench
+  SYSTEM_CYCLES 158
+  SYSTEM_SOURCES multi_input_rule_pipeline.py bench.py)
 if(PYC_EXAMPLE_VERIFY)
 
 find_package(Python3 REQUIRED COMPONENTS Interpreter)

@@ -18,7 +18,9 @@ RETIRED_OPTIONS = ("PYC_BUILD_MLIR_TOOLS", "PYC_BUILD_AGENTIC_CIRCUIT_TESTS")
 
 
 def _gate():
-    spec = importlib.util.spec_from_file_location("release_preview_retirement_gate", RETIREMENT_GATE)
+    spec = importlib.util.spec_from_file_location(
+        "release_preview_retirement_gate", RETIREMENT_GATE
+    )
     if spec is None or spec.loader is None:
         raise RuntimeError(f"cannot load retirement gate: {RETIREMENT_GATE}")
     module = importlib.util.module_from_spec(spec)

@@ -43,3 +43,9 @@ changed offers, active held high/low clocks, reset and drain. Scalar cases cover
 all256 byte values; nested cases cover all64 opcode values and all8 modes plus
 walking input bits. Per-bit and dense X/Z patterns distinguish computed unknown
 arithmetic from exact copied value/known/Z planes. All runners are finite.
+The separate `bench.py` system checks a finite regular-clock known-state scenario with exact old-state output checks. This is partial system migration: the original independent drivers retain their full physical-clock, midstream-reset and four-state scenarios.
+
+```bash
+pycircuit run examples/nested_payload_pipeline --target cpp --cycles 184 --build-dir .pycircuit_out/nested_payload_pipeline/system-cpp
+pycircuit run examples/nested_payload_pipeline --target verilog --cycles 184 --build-dir .pycircuit_out/nested_payload_pipeline/system-verilog
+```

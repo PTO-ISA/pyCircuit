@@ -88,7 +88,7 @@ def step(lhs, rhs, op, in_rhs, shown, key, key_press) -> CalcResult:
 
 
 @ac.module
-def Calculator(key: ac.u5, key_press: ac.u1) -> CalcResult:
+def Calculator(key: ac.u5, key_press: ac.u1) -> CalcResult:  # noqa: N802
     lhs: ac.u64 = 0
     rhs: ac.u64 = 0
     op: ac.u2 = 0

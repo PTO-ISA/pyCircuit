@@ -88,21 +88,42 @@ for line in final_text.splitlines():
 
 # Four complete original D2 owners: nominal control1 and three scalar64.
 namespace = "example_select_pipeline.select_pipeline."
-control_line = next(line for line in final_text.splitlines()
-                    if line.lstrip().startswith('ac.struct "' + namespace + 'SelectControl" fields '))
-assert re.findall(r'\{name = "([^"]+)", type = !ac.bits<<.*?value = #ac.math_int<([0-9]+)>}}>>}', control_line) == [("route", "1")]
-result_line = next(line for line in final_text.splitlines()
-                   if line.lstrip().startswith('ac.struct "' + namespace + 'SelectResult" fields '))
-assert re.findall(r'\{name = "([^"]+)", type = !ac.bits<<.*?value = #ac.math_int<([0-9]+)>}}>>}', result_line) == [
-    ("control_ready", "1"), ("lane0_ready", "1"), ("lane1_ready", "1"),
-    ("valid", "1"), ("data", "64")]
-queues = [line for line in final_text.splitlines() if '\"ac.queue\"(' in line]
+control_line = next(
+    line
+    for line in final_text.splitlines()
+    if line.lstrip().startswith('ac.struct "' + namespace + 'SelectControl" fields ')
+)
+assert re.findall(
+    r'\{name = "([^"]+)", type = !ac.bits<<.*?value = #ac.math_int<([0-9]+)>}}>>}',
+    control_line,
+) == [("route", "1")]
+result_line = next(
+    line
+    for line in final_text.splitlines()
+    if line.lstrip().startswith('ac.struct "' + namespace + 'SelectResult" fields ')
+)
+assert re.findall(
+    r'\{name = "([^"]+)", type = !ac.bits<<.*?value = #ac.math_int<([0-9]+)>}}>>}',
+    result_line,
+) == [
+    ("control_ready", "1"),
+    ("lane0_ready", "1"),
+    ("lane1_ready", "1"),
+    ("valid", "1"),
+    ("data", "64"),
+]
+queues = [line for line in final_text.splitlines() if '"ac.queue"(' in line]
 assert len(queues) == 4
-nominal = [line for line in queues if '!ac.struct<"' + namespace + 'SelectControl">' in line]
-assert len(nominal) == 1 and nominal[0].count('!ac.struct<"' + namespace + 'SelectControl">') >= 2
+nominal = [
+    line for line in queues if '!ac.struct<"' + namespace + 'SelectControl">' in line
+]
+assert (
+    len(nominal) == 1
+    and nominal[0].count('!ac.struct<"' + namespace + 'SelectControl">') >= 2
+)
 scalar = [line for line in queues if line not in nominal]
-assert len(scalar) == 3 and all(line.count('#ac.math_int<64>') >= 2 for line in scalar)
-assert '\"ac.reg\"(' not in final_text, "unexpected additional register owner"
+assert len(scalar) == 3 and all(line.count("#ac.math_int<64>") >= 2 for line in scalar)
+assert '"ac.reg"(' not in final_text, "unexpected additional register owner"
 
 rtl = [
     main_build / "verilog" / row["path"]
@@ -187,17 +208,34 @@ for workers in (1, 2):
 for lanes in range(1, 5):
     for symbol in ("x", "z"):
         binary = scratch / f"select-terminal-{lanes}-{symbol}.vvp"
-        run([args.iverilog, "-g2012", "-DPYC_SELECT_NEGATIVE",
-             f"-DPYC_SELECT_LANES={lanes}", f"-DPYC_SELECT_ROUTE=1'b{symbol}",
-             "-s", "tb", "-o", binary, *primitives, *rtl, source / "rtl_tb.sv"],
-            f"terminal-{lanes}-{symbol}-build")
-        run([args.vvp, binary], f"terminal-{lanes}-{symbol}-run",
-            rejection="fifo: effective transfers must be known")
+        run(
+            [
+                args.iverilog,
+                "-g2012",
+                "-DPYC_SELECT_NEGATIVE",
+                f"-DPYC_SELECT_LANES={lanes}",
+                f"-DPYC_SELECT_ROUTE=1'b{symbol}",
+                "-s",
+                "tb",
+                "-o",
+                binary,
+                *primitives,
+                *rtl,
+                source / "rtl_tb.sv",
+            ],
+            f"terminal-{lanes}-{symbol}-build",
+        )
+        run(
+            [args.vvp, binary],
+            f"terminal-{lanes}-{symbol}-run",
+            rejection="fifo: effective transfers must be known",
+        )
 for label in ("serial", "parallel"):
     native = (main_build / (label + ".stdout")).read_text().splitlines()
     assert sum(line.startswith("OWNER ") for line in native) == 2
     assert [line for line in native if line.startswith("SAFE ")] == [
-        line for line in trace if line.startswith("SAFE ")]
+        line for line in trace if line.startswith("SAFE ")
+    ]
 assert inputs == {path: digest(Path(path)) for path in inputs}
 (scratch / "verification.json").write_text(
     json.dumps(
@@ -207,18 +245,24 @@ assert inputs == {path: digest(Path(path)) for path in inputs}
             "execution_sha256": digest(scratch / "execution.json"),
             "known_work_rows": len(work),
             "four_state_work_rows": len(four),
-            "known_u64_patterns": 218, "known_routed_cases": 436,
+            "known_u64_patterns": 218,
+            "known_routed_cases": 436,
             "per_bit_xz_latent_routed_cases": 512,
             "dense_latent_routed_cases": 16,
             "histories": [line.split()[1:] for line in rtl_histories],
-            "queue_owners": 4, "slots": 8, "logical_payload_storage_bits": 386,
+            "queue_owners": 4,
+            "slots": 8,
+            "logical_payload_storage_bits": 386,
             "payload_planes": "all64 copied value/known/Z exact in native; visible X/Z exact in Icarus",
             "observable_ledger": "actual public accept/retire/drop; internal joins inferred by independent old-slot model and crosschecked through outputs/latency/capacity",
             "unknown_selector_scope": "current queue effective-transfer policy; no legacy X/Z parity claim",
-            "safe_selector_cases": 8, "native_terminal_cases_per_worker": 16,
+            "safe_selector_cases": 8,
+            "native_terminal_cases_per_worker": 16,
             "rtl_terminal_cases": 8,
-            "tools_sha256": {str(Path(tool).resolve()): digest(Path(tool).resolve())
-                             for tool in (args.iverilog, args.vvp)},
+            "tools_sha256": {
+                str(Path(tool).resolve()): digest(Path(tool).resolve())
+                for tool in (args.iverilog, args.vvp)
+            },
             "terminal_failure_scope": "isolated process; native requires Reset before further execution",
             "token_widths": [1, 64, 64, 64],
             "result_width": 68,

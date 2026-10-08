@@ -99,10 +99,12 @@ if (node.kind() == "Attribute" &&
   }
   return error() << "unknown struct field";
 }
-if (node.kind() == "Call" && node.child("func").kind() == "Name" &&
-    structs.contains(node.child("func").string("id")))
-  return constructStruct(node, at, ownerSymbol, values, instances, expected,
-                         captures);
+if (node.kind() == "Call") {
+  auto constructor = lookupBinding(node.child("func"));
+  if (constructor && constructor->category == BindingCategory::Struct)
+    return constructStruct(node, at, ownerSymbol, values, instances, expected,
+                           captures);
+}
 if (node.kind() == "Call" && node.child("func").kind() == "Name" &&
     behavioralRules.contains(node.child("func").string("id"))) {
   if (!activeBehavioralDecl || !activeStates ||

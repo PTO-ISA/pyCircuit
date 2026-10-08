@@ -26,3 +26,10 @@ independent RTL oracle. `PYC_FASTFWD_FOUR_STATE` enables genuine Icarus X/Z
 checks; native checks also verify all value/known/Z planes and immediate known
 recovery. The original public scalar port meanings map one-to-one to the fields
 above; typed inputs/results group them for Python authoring.
+
+The separate `bench.py` system checks a finite regular-clock known-state scenario with exact old-state output checks. This is partial system migration: the original independent drivers retain their full physical-clock, midstream-reset and four-state scenarios.
+
+```bash
+pycircuit run examples/fastfwd --target cpp --cycles 24 --build-dir .pycircuit_out/fastfwd/system-cpp
+pycircuit run examples/fastfwd --target verilog --cycles 24 --build-dir .pycircuit_out/fastfwd/system-verilog
+```

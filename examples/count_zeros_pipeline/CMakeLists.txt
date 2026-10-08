@@ -6,7 +6,11 @@ pycircuit_add_example(count_zeros_pipeline
   PACKAGE example_count_zeros_pipeline
   TOP example_count_zeros_pipeline.count_zeros_pipeline.CountZerosPipeline
   ENTRY_SOURCE count_zeros_pipeline
-  SOURCES count_zeros_pipeline.py)
+  SOURCES count_zeros_pipeline.py
+  SYSTEM_TOP example_count_zeros_pipeline.bench.CountZerosPipelineSystem
+  SYSTEM_ENTRY_SOURCE bench
+  SYSTEM_CYCLES 184
+  SYSTEM_SOURCES count_zeros_pipeline.py bench.py)
 if(PYC_EXAMPLE_VERIFY)
 
 find_package(Python3 REQUIRED COMPONENTS Interpreter)

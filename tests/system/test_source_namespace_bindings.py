@@ -32,7 +32,9 @@ def _harness() -> Path:
     for candidate in candidates:
         if candidate and Path(candidate).is_file():
             return Path(candidate).resolve()
-    raise AssertionError("set PYCIRCUIT_SOURCE_COMPILER for source namespace system tests")
+    raise AssertionError(
+        "set PYCIRCUIT_SOURCE_COMPILER for source namespace system tests"
+    )
 
 
 def _compile(

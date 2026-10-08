@@ -1,4 +1,5 @@
 """Encode every flags token, including zero and multi-hot values."""
+
 # ruff: noqa: F821, N802 -- immutable forward queue wires, hardware root name.
 import pycircuit as ac
 
@@ -33,12 +34,20 @@ def encode_flags(value: EncodedFlags) -> EncodedFlags:
 @ac.module
 def OnehotEncode(valid: ac.u1, data: EncodedFlags, take: ac.u1) -> Result:
     ready, available, value = ac.queue[EncodedFlags](
-        valid, data, result_ready, depth=1, latency=1,
+        valid,
+        data,
+        result_ready,
+        depth=1,
+        latency=1,
         ready_policy="downstream_pop",
     )
     result = encode_flags(value)
     result_ready, out_valid, out_data = ac.queue[EncodedFlags](
-        available, result, take, depth=1, latency=1,
+        available,
+        result,
+        take,
+        depth=1,
+        latency=1,
         ready_policy="downstream_pop",
     )
     return Result(ready=ready, valid=out_valid, data=out_data)

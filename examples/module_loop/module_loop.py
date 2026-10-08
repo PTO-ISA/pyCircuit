@@ -3,9 +3,16 @@ from example_loop.child import Child
 
 
 @module
-def Top(clk: bool, rst: bool, en_left: bool, en_right: bool,  # noqa: N802
-        data_left: bool, data_right: bool, init_left: bool, init_right: bool
-        ) -> {"left": bool, "right": bool}:  # noqa: F821 - named hardware ports
+def Top(  # noqa: N802 - hardware module definition
+    clk: bool,
+    rst: bool,
+    en_left: bool,
+    en_right: bool,  # noqa: N802
+    data_left: bool,
+    data_right: bool,
+    init_left: bool,
+    init_right: bool,
+) -> {"left": bool, "right": bool}:  # noqa: F821 - named hardware ports
     left_cell = Child()
     right_cell = Child()
 

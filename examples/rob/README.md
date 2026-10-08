@@ -53,3 +53,23 @@ bounded indices. It does not establish general dynamic index checks, multiwriter
 arbitration, cross-domain transactions or complete diagnostics for every masked
 unknown/no-write control path. Unknown enables reaching standard storage obey
 its existing failure and whole-system discard contract.
+
+## Generated system usage
+
+`bench.py` exports `example_rob.bench.ExerciseRob`. The explicit source
+closure is `rob.py`, then `bench.py`; link the system root and emit either
+backend with the public `pycircuit compile`, `link`, and `emit` flow. Run
+`pycircuit run examples/rob --target cpp --cycles 284` or select
+`--target verilog`. Each managed cycle uses the same stimulus in its low/high
+sampling pair and advances fixture state on the generated edge.
+
+All 284 original transactions, including the complete 256-event deterministic
+random stream, run for 284 cycles. Every acceptance, index, retired payload and
+occupancy is checked against fixed vectors derived independently from the
+retained C++ scoreboard. The authored flush input retains its original meaning.
+
+The original `driver.cpp`, `rtl_tb.sv`, `config.json`, and independent oracle
+models remain unchanged. Known held-level and physical-reset scenarios remain
+with those module-boundary drivers. Where present, their four-state and
+failure/discard matrices remain separate coverage. This regular-clock system
+does not claim complete equivalence to those physical scenarios.

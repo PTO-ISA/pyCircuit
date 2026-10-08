@@ -215,7 +215,9 @@ def _require_preview_tools() -> Path:
             "source preview preview needs PYCIRCUIT_NATIVE_BUILD with the three current-checkout helpers"
         )
     if shutil.which("cmake") is None or shutil.which("ninja") is None:
-        pytest.fail("source preview preview requires CMake and Ninja on the current platform")
+        pytest.fail(
+            "source preview preview requires CMake and Ninja on the current platform"
+        )
     if shutil.which("verilator") is None:
         pytest.fail("source preview dual-backend preview requires Verilator")
     return native
@@ -553,7 +555,11 @@ def test_from_source_compile_link_emit_and_both_runners_share_one_final(
         assert (
             cpp_compiled_files.count(source) == 3
         ), f"the source-owned TU should compile once into each consumer: {source}"
-        for target in ("pycircuit_system", "source_preview_reset_replay", "pycircuit_dut"):
+        for target in (
+            "pycircuit_system",
+            "source_preview_reset_replay",
+            "pycircuit_dut",
+        ):
             assert (
                 sum(
                     Path(entry["file"]).name == source

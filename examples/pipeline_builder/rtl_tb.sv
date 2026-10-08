@@ -1,14 +1,14 @@
 // Independent old-Q scoreboard; samples precede the driven clock transition.
 module tb;
   logic pyc_7079635f636c6b=0,pyc_7079635f727374=1;
-  
+
   logic [31:0] word=0;
   logic valid=0;
   wire [32:0] result;
   pyc_root dut(.*);
   logic [31:0] first_word=0,second_word=0;
   logic first_valid=0,second_valid=0;
-  
+
   bit last_clock=0;
   logic [31:0] random_state=32'h83a7d529;
   task row(input bit clock_level,reset,input int op_value,dst_value,input logic [31:0] word_value,input bit valid_value);

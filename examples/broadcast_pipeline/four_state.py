@@ -62,9 +62,9 @@ receipt = json.loads(receipt_path.read_text())
 final_path = main_build / "broadcast_pipeline.ac"
 final_text = final_path.read_text()
 assert final_text.count('"ac.queue"(') == 6
-assert '"ac.instance"(' not in final_text, (
-    "atomic broadcast adds no delivered-state owner"
-)
+assert (
+    '"ac.instance"(' not in final_text
+), "atomic broadcast adds no delivered-state owner"
 geometries = []
 for line in final_text.splitlines():
     if '"ac.queue"(' in line:

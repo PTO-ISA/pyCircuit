@@ -107,9 +107,7 @@ def _compile_cli_replace(
     environment["PYCIRCUIT_SOURCE_COMPILER"] = _tool(
         "PYCIRCUIT_SOURCE_COMPILER", "pycircuit-source-unit"
     )
-    environment["PYCIRCUIT_LINKER"] = _tool(
-        "PYCIRCUIT_LINKER", "pycircuit-link"
-    )
+    environment["PYCIRCUIT_LINKER"] = _tool("PYCIRCUIT_LINKER", "pycircuit-link")
     argv = [
         sys.executable,
         "-c",

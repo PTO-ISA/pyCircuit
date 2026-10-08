@@ -63,3 +63,9 @@ Public-owner probes check discard/reprepare and failed proposals with exactly
 one retained result; terminal executor failure preserves the epoch, invalidates
 sampling and requires Reset before recovery. The finite runner limit is 20,000
 sampling epochs per successful history.
+The separate `bench.py` system checks a finite regular-clock known-state scenario with exact old-state output checks. This is partial system migration: the original independent drivers retain their full physical-clock, midstream-reset and four-state scenarios.
+
+```bash
+pycircuit run examples/onehot_encode --target cpp --cycles 344 --build-dir .pycircuit_out/onehot_encode/system-cpp
+pycircuit run examples/onehot_encode --target verilog --cycles 344 --build-dir .pycircuit_out/onehot_encode/system-verilog
+```

@@ -67,3 +67,24 @@ worker-1/worker-2 and RTL execution. The verified controller has 431 matching
 Work samples and six genuine Icarus X/Z scenarios; all 64 encoder patterns and
 immediate known-value recovery pass. The generated excerpts above come from
 these actual successful runs.
+
+## Generated system usage
+
+`bench.py` exports `example_traffic_lights_ce_pyc.bench.ExerciseTopTrafficLights`. The explicit source
+closure is `traffic_lights_ce_pyc.py`, then `bench.py`; link the system root and emit either
+backend with the public `pycircuit compile`, `link`, and `emit` flow. Run
+`pycircuit run examples/traffic_lights_ce_pyc --target cpp --cycles 209` or select
+`--target verilog`. Each managed cycle uses the same stimulus in its low/high
+sampling pair and advances fixture state on the generated edge.
+
+All 208 original rising-edge go/emergency pairs plus a final hold are
+represented. This includes two full 44-edge phase periods, stopped intervals,
+emergency override and release. Fixed expectations use the independent
+eleven-tick display/light table along the regular, resetless trajectory.
+The separate encoder native/RTL exhaustive oracle also remains unchanged.
+
+The original `driver.cpp`, `rtl_tb.sv`, `config.json`, and independent oracle
+models remain unchanged. Known held-level and physical-reset scenarios remain
+with those module-boundary drivers. Where present, their four-state and
+failure/discard matrices remain separate coverage. This regular-clock system
+does not claim complete equivalence to those physical scenarios.

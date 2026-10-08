@@ -11,7 +11,7 @@ contract and complete example are documented in the
 
 Python Enum declarations with explicit encoding widths, nominal annotations,
 imports/reexports, members, equality, selection, defaults and explicit bit
-conversions are supported. `decoded, valid = ac.enum_from_bits[Current limitations](../development/known-limitations.md)` binds
+conversions are supported. `decoded, valid = ac.enum_from_bits[State](raw)` binds
 the raw nominal carrier and separate Boolean membership to two ordinary local
 names. Declaration-only, empty and facade files use the ordinary independent
 compile/link flow. See [nominal enums](spec-enums.md) for exact boundaries.
@@ -28,8 +28,17 @@ into Inner's declared defaults. Every declared default must be valid even if
 unused or overridden. Defaults cannot depend on a caller's runtime bindings.
 Unknown/duplicate fields and invalid types or ranges diagnose.
 
+Canonical direct imports such as `from pycircuit import u1, u8` retain the same
+fixed-bit authority as `ac.u1` and `ac.bits[N]`; aliases and namespace imports
+also resolve through their actual provider. Unrelated or shadowed names reject.
+Imported Struct constructors in ordinary expressions and annotated rule results
+use their published nominal fields and require every field explicitly, including
+nested constructors. Provider defaults are not published and cannot supply
+omitted fields. Imported static initializers and Table-query constructor
+callbacks retain their existing narrower admission.
+
 Module-scope annotated variables allocate persistent storage.
-`entries = ac.table[Current limitations](../development/known-limitations.md)` allocates a fixed one-dimensional table
+`entries = ac.table[N, Entry](init=0)` allocates a fixed one-dimensional table
 of persistent entries. Contextual zero initializes each field recursively,
 ignoring nonzero constructor defaults. `init=Entry()` instead constructs an
 element using its defaults and broadcasts that value to independent owners.
@@ -386,12 +395,21 @@ lambda values or tuple results are not introduced.
 
 For extent N, index has fixed type `bits[max(1, ceil(log2(N)))]`, and valid has
 fixed type `bits[1]`. No match returns index zero and valid zero. Index's known-value
-range is `[Current limitations](../development/known-limitations.md)
-    return BufferResult(input_ready=ready, output_valid=available,
-                        output_data=value)
+range is `[0, N)`. Selection observes the call-time snapshot and does not reserve
+or consume an entry. `first` chooses the lowest matching index; `argmin` chooses
+the lowest unsigned key, with the lowest index breaking ties. Four-state
+predicates and keys retain the existing conditional-merge semantics; a logical
+range proof does not establish that a physical value is known.
+
+## Queues
+
+```python
+ready, available, value = ac.queue[ac.u8](
+    valid, data, take, depth=2, ready_policy="downstream_pop"
+)
 ```
 
-The signature is `ac.queue[Current limitations](../development/known-limitations.md)`. The three inputs may be positional
+The signature is `ac.queue[T](valid, data, take, *, depth, latency=1, ready_policy="local_occupancy")`. The three inputs may be positional
 or named. Configuration is static and keyword-only. Controls accept Boolean
 or authoritative fixed one-bit values through the existing predicate rules;
 mathematical Integer `0/1` does not become a predicate. Payloads use existing

@@ -1,6 +1,7 @@
 """Independent Q4/Q6 Python queue source/publication/native/RTL gate."""
 
 import argparse
+import atexit
 import hashlib
 import importlib.util
 import json
@@ -26,9 +27,11 @@ for name in (
 ):
     parser.add_argument("--" + name, required=True)
 parser.add_argument(
-    "--oracle-checks", action="store_true",
+    "--oracle-checks",
+    action="store_true",
     help="run the separated independent checkers on this flow's artifacts (nightly)",
 )
+parser.add_argument("--fault-checks-only", action="store_true")
 args = parser.parse_args()
 repo = Path(args.repo).resolve()
 fixtures = Path(__file__).resolve().parent
@@ -50,6 +53,38 @@ commands = []
 
 def digest(path):
     return hashlib.sha256(path.read_bytes()).hexdigest()
+
+
+candidate_paths = [
+    Path(args.source_compiler),
+    Path(args.linker),
+    Path(args.emitter),
+    Path(__file__).resolve(),
+    fixtures / "queue-source.cpp",
+    fixtures / "queue-source.sv",
+    fixtures / "queue-source-vectors.py",
+    *sorted(designs.glob("*.py")),
+    *sorted(oracle_dir.glob("*.py")),
+]
+candidate_before = {str(path): digest(path) for path in candidate_paths}
+
+
+def record_candidate():
+    after = {str(path): digest(path) for path in candidate_paths}
+    (evidence / "candidate.json").write_text(
+        json.dumps(
+            {
+                "before": candidate_before,
+                "after": after,
+                "unchanged": candidate_before == after,
+            },
+            indent=2,
+        )
+        + "\n"
+    )
+
+
+atexit.register(record_candidate)
 
 
 def run(command, code=0, diagnostic=None, *, timeout=240):
@@ -164,6 +199,354 @@ vectors = importlib.util.module_from_spec(vector_spec)
 vector_spec.loader.exec_module(vectors)
 
 
+def fault_checks():
+    """Use genuine system finals and inspect emitted committed leaf state."""
+    source_root = build / "fault-input"
+    source_root.mkdir()
+    providers = []
+    for name in (
+        "pyc_route_merge_pipeline",
+        "pyc_credit_pipeline",
+        "pyc_reorder_pipeline",
+    ):
+        source = source_root / (name + ".py")
+        shutil.copyfile(designs / source.name, source)
+        provider = build / (name + "-fault-unit")
+        compile_source(source, source_root, provider)
+        providers.append(provider)
+    source = source_root / "fault_systems.py"
+    shutil.copyfile(designs / source.name, source)
+    unit = build / "fault-unit"
+    compile_source(source, source_root, unit, providers)
+    source_stages = {
+        compiled.name: {
+            kind: digest(unit_payload(compiled, kind)) for kind in ("body", "interface")
+        }
+        for compiled in (*providers, unit)
+    }
+    input_digests = {
+        str(path.relative_to(repo)): digest(path)
+        for path in (
+            Path(__file__).resolve(),
+            fixtures / "queue-source-vectors.py",
+            designs / "fault_systems.py",
+            designs / "pyc_credit_pipeline.py",
+            designs / "pyc_route_merge_pipeline.py",
+            designs / "pyc_reorder_pipeline.py",
+            fixtures / "queue-source-faults.cpp",
+            fixtures / "queue-source-faults.sv",
+            oracle_dir / "models.py",
+            oracle_dir / "credit_independent_check.py",
+            repo / "include/verilog/dffe.v",
+            repo / "include/verilog/fifo.v",
+            repo / "include/gfsim/collection.h",
+        )
+    }
+    runtime_root = Path(args.source_compiler).resolve().parent.parent
+    runtime = next(
+        path
+        for path in (
+            runtime_root / "simulator/gfsim/libpyc6_runtime.a",
+            runtime_root / "lib/libpyc6_runtime.a",
+        )
+        if path.is_file()
+    )
+    cases = (
+        ("RouteFault", 1, "route_selector_out_of_range"),
+        ("RouteBlockedFault", 8, "route_selector_out_of_range"),
+        ("CreditFault", 1, "credit_nonpositive_cost"),
+        ("CreditDeferredFault", 18, "credit_nonpositive_cost"),
+        ("ReorderStaleFault", 5, "reorder_stale_key"),
+        ("ReorderDuplicateFault", 2, "reorder_duplicate_key"),
+        ("ReorderFullDefersFault", 32, ""),
+        ("AtomicSiblingFault", 0, "queue_atomic_rejection"),
+    )
+    contracts = vectors.failure_contracts()
+    receipts = []
+    for name, edge, message in cases:
+        contract = contracts[name]
+        assert contract["first_failure"] == (edge if message else None)
+        output = build / name
+        output.mkdir()
+        final = output / "design.ac"
+        cli(
+            "link",
+            *providers,
+            unit,
+            "--top",
+            f"q4_queue.fault_systems.{name}",
+            "-o",
+            final,
+        )
+        for target in ("cpp", "verilog"):
+            cli("emit", final, "--target", target, "-o", output / target)
+        cpp = output / "cpp"
+        # Test-owned instrumentation grants read access only on a copy. It does
+        # not change the emitted calculation, source check, or storage kernel.
+        probe = output / "cpp-probe"
+        shutil.copytree(cpp, probe)
+        visibility = {}
+
+        def grant_visibility(
+            original, destination, *, visibility=visibility, probe=probe
+        ):
+            before = original.read_text()
+            after = before.replace("private:", "public:")
+            for left, right in zip(
+                before.splitlines(), after.splitlines(), strict=True
+            ):
+                assert left == right or (
+                    left.strip() == "private:" and right.strip() == "public:"
+                )
+            destination.write_text(after)
+            visibility[str(destination.relative_to(probe))] = {
+                "original_sha256": digest(original),
+                "instrumented_sha256": digest(destination),
+            }
+
+        for header in probe.rglob("*.hpp"):
+            grant_visibility(cpp / header.relative_to(probe), header)
+        # Read-only pending-state visibility is test instrumentation on a
+        # disposable header copy; the collection/kernel calculations stay exact.
+        collection = probe / "gfsim/collection.h"
+        collection.parent.mkdir()
+        grant_visibility(repo / "include/gfsim/collection.h", collection)
+        header = "\n".join(
+            path.read_text() for path in (probe / "sources").rglob("*.hpp")
+        )
+        families = dict(
+            re.findall(r"class pyc_family_(\w+) final \{(.*?)\n\};", header, re.S)
+        )
+        owners = []
+
+        def visit(family, path=(), families=families, owners=owners):
+            body = families[family]
+            for line in body.splitlines():
+                child = re.search(
+                    r"std::shared_ptr<[^;]*::pyc_family_(\w+)<pyc_count>> (\w+);",
+                    line,
+                )
+                if child:
+                    visit(child[1], path + (child[2],))
+                state = re.search(
+                    r"std::shared_ptr<gfsim::collection_storage<(.*?)>> (\w+);",
+                    line,
+                )
+                if state:
+                    owners.append((path, state[2], state[1]))
+
+        visit(name)
+        assert len(owners) >= 5, (name, owners)
+        pipeline = next(
+            member
+            for family, member in re.findall(
+                r"std::shared_ptr<[^;]*::pyc_family_(\w+)<pyc_count>> (\w+);",
+                families[name],
+            )
+            if family.endswith("Pipeline")
+        )
+        sibling = next(
+            member
+            for family, member in re.findall(
+                r"std::shared_ptr<[^;]*::pyc_family_(\w+)<pyc_count>> (\w+);",
+                families[name],
+            )
+            if family == "Sibling"
+        )
+        sibling_queue = re.search(
+            r"std::shared_ptr<gfsim::collection_storage<gfsim::fifo_kernel<[^;]+>> (\w+);",
+            families["Sibling"],
+        )[1]
+        output_bits = (
+            66 if name.startswith("Route") else 26 if name.startswith("Credit") else 131
+        )
+        expected = [
+            format(row["expected"], f"0{output_bits}b")
+            for row in contract["rows"][: edge * 2]
+        ]
+        positive_cpp = (
+            "constexpr std::string_view expected[]={"
+            + ",".join(json.dumps(word + "|") for word in expected or [""])
+            + "};"
+        )
+        result_cpp = f"dut.root_->pyc_implementation->{pipeline}->result.element(0)"
+        positive_rtl = "\n".join(
+            f'{index}: if (dut.dut.{pipeline}.result !== {output_bits}\'b{word}) $fatal(1,"positive prefix row {index}");'
+            for index, word in enumerate(expected)
+        )
+        cpp_snapshot = []
+        rtl_snapshot = []
+        for path, member, kernel in owners:
+            expression = "dut.root_->pyc_implementation->" + "->".join((*path, member))
+            cpp_snapshot.append(f"save(out, *({expression}));")
+            rtl_path = "dut.dut." + ".".join(
+                (
+                    *path,
+                    member.removesuffix("_state").replace(
+                        "pyc_queue_", "pyc_instance_", 1
+                    ),
+                )
+            )
+            if "fifo_kernel" in kernel:
+                params = re.search(
+                    r", (\d+), gfsim::QueueReadyPolicy::\w+, (\d+)ULL", kernel
+                )
+                assert params, kernel
+                depth, latency = map(int, params.groups())
+                rtl_snapshot.extend(
+                    rtl_path + "." + field
+                    for field in ("rd", "wr", "count", "initialized")
+                )
+                rtl_snapshot.extend(
+                    f"{rtl_path}.storage[{lane}]" for lane in range(depth)
+                )
+                timing = "latency_one" if latency == 1 else "latency_delayed"
+                rtl_snapshot.append(f"{rtl_path}.{timing}.managed.clock_current")
+                if latency > 1:
+                    rtl_snapshot.extend(
+                        f"{rtl_path}.{timing}.{field}"
+                        for field in ("tick", "mature_ptr", "eligible_count")
+                    )
+                    rtl_snapshot.extend(
+                        f"{rtl_path}.{timing}.deadline[{lane}]" for lane in range(depth)
+                    )
+            else:
+                count = 16 if "Entry" in kernel else 1
+                for lane in range(count):
+                    leaf = rtl_path
+                    if count > 1:
+                        parent, leaf_name = rtl_path.rsplit(".", 1)
+                        raw = leaf_name.removeprefix("pyc_instance_")
+                        leaf = f"{parent}.pyc_instances_{raw}[{lane}].{leaf_name}"
+                    rtl_snapshot.extend(
+                        (leaf + ".q_current", leaf + ".managed.clock_current")
+                    )
+        driver = probe / "fault_probe.cpp"
+        driver.write_text(
+            (fixtures / "queue-source-faults.cpp")
+            .read_text()
+            .replace("@SNAPSHOT@", "\n".join(cpp_snapshot))
+            .replace("@EDGE@", str(edge))
+            .replace("@MESSAGE@", message)
+            .replace("@EXPECTED@", positive_cpp)
+            .replace("@RESULT@", result_cpp)
+            .replace("@SIBLING@", "dut.root_->pyc_implementation->" + sibling)
+            .replace("@SIBLING_QUEUE@", sibling_queue)
+        )
+        receipt = json.loads((probe / "generated.json").read_text())
+        sources = [
+            probe / row["path"]
+            for row in receipt["files"]
+            if row["path"].endswith(".cpp") and row["role"] == "source"
+        ]
+        native = output / "native-probe"
+        run(
+            [
+                args.cxx,
+                "-O0",
+                "-std=c++20",
+                "-pthread",
+                "-I" + str(probe),
+                "-I" + str(repo / "include"),
+                driver,
+                *sources,
+                runtime,
+                "-o",
+                native,
+            ]
+        )
+        native_trace = run([native]).stdout
+        assert native_trace.splitlines() == [
+            "QUEUE_FAULT_ATOMIC_OK workers=1",
+            "QUEUE_FAULT_ATOMIC_OK workers=2",
+        ], native_trace
+        rtl = output / "verilog"
+        bench = output / "fault_probe.sv"
+        bench.write_text(
+            (fixtures / "queue-source-faults.sv")
+            .read_text()
+            .replace(
+                "@SNAPSHOT@",
+                '$sformatf("'
+                + "|".join(["%h"] * len(rtl_snapshot))
+                + '", '
+                + ",".join(rtl_snapshot)
+                + ")",
+            )
+            .replace("@EDGE@", str(edge))
+            .replace("@FAIL@", "1" if message else "0")
+            .replace("@EXPECTED@", positive_rtl)
+            .replace("@SIBLING@", "dut.dut." + sibling)
+            .replace(
+                "@SIBLING_QUEUE@",
+                sibling_queue.removesuffix("_state").replace(
+                    "pyc_queue_", "pyc_instance_", 1
+                ),
+            )
+        )
+        receipt = json.loads((rtl / "generated.json").read_text())
+        sources = [
+            rtl / row["path"] for row in receipt["files"] if row["role"] == "rtl"
+        ]
+        sources.sort(key=lambda path: (path.name != "design_top.sv", str(path)))
+        rtl_build = output / "verilated"
+        run(
+            [
+                args.verilator,
+                "--binary",
+                "--timing",
+                "--top-module",
+                "fault_probe",
+                "--Mdir",
+                rtl_build,
+                "-j",
+                "2",
+                "-Wno-fatal",
+                "-CFLAGS",
+                "-std=c++20",
+                "-MAKEFLAGS",
+                "CFG_CXXFLAGS_PCH_I=-include",
+                repo / "include/verilog/dffe.v",
+                repo / "include/verilog/fifo.v",
+                *sources,
+                bench,
+            ]
+        )
+        rtl_trace = run([rtl_build / "Vfault_probe"]).stdout
+        assert "QUEUE_FAULT_ATOMIC_OK" in rtl_trace, rtl_trace
+        receipts.append(
+            {
+                "root": name,
+                "first_effective_view": edge if message else None,
+                "failure_clock": contract.get("failure_clock", 0) if message else None,
+                "bounded_edges": edge,
+                "message": message,
+                "native_code": "source_check_failed" if message else None,
+                "native_workers": [1, 2],
+                "verilator": True,
+                "observations": 0,
+                "candidate_inputs": input_digests,
+                "source_stages": source_stages,
+                "internal_visibility_instrumentation": visibility,
+                "compiler_sha256": digest(Path(args.source_compiler)),
+                "emitter_sha256": digest(Path(args.emitter)),
+                "native_probe_sha256": digest(native),
+                "rtl_probe_sha256": digest(rtl_build / "Vfault_probe"),
+                "final_sha256": digest(final),
+                "cpp": snapshot_digests(cpp),
+                "verilog": snapshot_digests(rtl),
+            }
+        )
+        (evidence / "queue-faults.json").write_text(
+            json.dumps(receipts, indent=2) + "\n"
+        )
+
+
+if args.fault_checks_only:
+    fault_checks()
+    raise SystemExit(0)
+
+
 provider_root = build / "provider-input"
 consumer_root = build / "consumer-input"
 provider_root.mkdir()
@@ -263,24 +646,21 @@ for name in standalone:
     elif name == "pyc_route_merge_pipeline":
         # Route + priority merge: six queues, all owned by the one root.
         assert (
-            set(owners) == {f"q4_queue.{name}.RouteMergePipeline"}
-            and len(owners) == 6
+            set(owners) == {f"q4_queue.{name}.RouteMergePipeline"} and len(owners) == 6
         ), owners
     elif name == "pyc_credit_pipeline":
         # Credit window: the two queues (`issued`, `completed`),
         # both owned by the one root; the credit slots are module state, not
         # queues.
         assert (
-            set(owners) == {f"q4_queue.{name}.CreditPipeline"}
-            and len(owners) == 2
+            set(owners) == {f"q4_queue.{name}.CreditPipeline"} and len(owners) == 2
         ), owners
     elif name == "pyc_reorder_pipeline":
         # Reorder: the source queue plus the reorder's own output
         # queue, both owned by the one root; the 16-entry key-addressed table is
         # module state (`ac.table`), not a queue.
         assert (
-            set(owners) == {f"q4_queue.{name}.ReorderPipeline"}
-            and len(owners) == 2
+            set(owners) == {f"q4_queue.{name}.ReorderPipeline"} and len(owners) == 2
         ), owners
     else:
         assert owners == [f"q4_queue.{name}.Top", f"q4_queue.{name}.Top"], owners
@@ -322,13 +702,18 @@ positives = [
         (standalone["pyc_route_merge_pipeline"],),
     ),
     # Two-slot credit window over two depth-4 local-occupancy queues, one
-    # `@ac.rule`, one 58-bit state register. A zero-cost head is a fail-closed
-    # permanent stall with no failure report, so the stimulus never expects a
-    # run-terminating failure code.
+    # `@ac.rule`, one 58-bit state register. The complete historical oracle
+    # uses the checked-module execution boundary.
     (
         "pyc_credit_pipeline",
         "CreditPipeline",
         "credit",
+        (standalone["pyc_credit_pipeline"],),
+    ),
+    (
+        "pyc_credit_pipeline",
+        "CreditPipeline",
+        "credit_independent",
         (standalone["pyc_credit_pipeline"],),
     ),
     # Monotone key release over `ac.table[16]` + one `@ac.rule` + the two
@@ -408,6 +793,8 @@ for source_name, root_name, oracle_name, closure in positives:
     )
     if oracle_name == "latency_dead":
         defines.append("-DQ6_DEAD")
+    if oracle_name.startswith(("route_merge", "credit", "reorder")):
+        defines.append("-DQ4_CHECKS")
     run(
         [
             args.cxx,
@@ -431,7 +818,11 @@ for source_name, root_name, oracle_name, closure in positives:
         trace = run(
             [runner, "--workers", workers, "--config", vector_dir / "config.json"]
         ).stdout
-        observed = [line for line in trace.splitlines() if line.startswith("WORK ")]
+        observed = [
+            line
+            for line in trace.splitlines()
+            if line.startswith(("WORK ", "FAILED ", "HOST_RESET "))
+        ]
         assert observed == expected
         native.append(observed)
     assert native[0] == native[1]
@@ -461,7 +852,7 @@ for source_name, root_name, oracle_name, closure in positives:
     observed = [
         line
         for line in run([args.vvp, icarus]).stdout.splitlines()
-        if line.startswith("WORK ")
+        if line.startswith(("WORK ", "FAILED ", "HOST_RESET "))
     ]
     assert observed == expected
     if oracle_name == "latency_dead":
@@ -503,6 +894,10 @@ for source_name, root_name, oracle_name, closure in positives:
                 "-j",
                 "2",
                 "-Wno-fatal",
+                "-CFLAGS",
+                "-std=c++20",
+                "-MAKEFLAGS",
+                "CFG_CXXFLAGS_PCH_I=-include",
                 *defines,
                 "-I" + str(vector_dir),
                 *primitives,
@@ -513,57 +908,91 @@ for source_name, root_name, oracle_name, closure in positives:
         observed = [
             line
             for line in run([verilator_build / "Vqueue_source"]).stdout.splitlines()
-            if line.startswith("WORK ")
+            if line.startswith(("WORK ", "FAILED ", "HOST_RESET "))
         ]
         assert observed == expected
     if args.oracle_checks and oracle_name in (
-        "route_merge_independent", "reorder_independent", "credit"
+        "route_merge_independent",
+        "reorder_independent",
+        "credit_independent",
     ):
         checker = {
             "route_merge_independent": "route_merge_independent_check.py",
             "reorder_independent": "reorder_independent_check.py",
-            "credit": "credit_independent_check.py",
+            "credit_independent": "credit_independent_check.py",
         }[oracle_name]
         command = [sys.executable, oracle_dir / checker]
-        if oracle_name != "credit":
-            command += ["--design-ac", final, "--cpp-dir", output / "cpp",
-                        "--rtl-dir", output / "verilog",
-                        "--vectors", oracle_dir / "models.py"]
+        if oracle_name != "credit_independent":
+            command += [
+                "--design-ac",
+                final,
+                "--cpp-dir",
+                output / "cpp",
+                "--rtl-dir",
+                output / "verilog",
+                "--vectors",
+                oracle_dir / "models.py",
+            ]
         if oracle_name == "reorder_independent":
-            command += ["--iverilog", args.iverilog, "--vvp", args.vvp,
-                        "--source", designs / "pyc_reorder_pipeline.py",
-                        "--primitives", repo / "include/verilog",
-                        "--scratch", output / "oracle-checks"]
+            command += [
+                "--iverilog",
+                args.iverilog,
+                "--vvp",
+                args.vvp,
+                "--source",
+                designs / "pyc_reorder_pipeline.py",
+                "--primitives",
+                repo / "include/verilog",
+                "--scratch",
+                output / "oracle-checks",
+            ]
         # This checker contains several individually bounded compile/run probes.
         # Use the existing nightly owner ceiling for the aggregate invocation;
         # retain the short per-command limit for ordinary driver steps.
         checked = run(command, timeout=3600)
         (output / "oracle-checks.stdout").write_text(checked.stdout)
-        oracle_checks.append({
-            "oracle": oracle_name, "checker": str(oracle_dir / checker),
-            "exit_status": checked.returncode,
-            "scope": "reference-model self-check" if oracle_name == "credit"
-                     else "independent model and emitted-artifact checks",
-            "log": str(output / "oracle-checks.stdout"),
-        })
+        oracle_checks.append(
+            {
+                "oracle": oracle_name,
+                "checker": str(oracle_dir / checker),
+                "exit_status": checked.returncode,
+                "scope": (
+                    "reference-model self-check"
+                    if oracle_name == "credit_independent"
+                    else "independent model and emitted-artifact checks"
+                ),
+                "log": str(output / "oracle-checks.stdout"),
+            }
+        )
     protected_products.extend((final, output / "cpp", output / "verilog"))
+    serialized = json.loads((vector_dir / "oracle.json").read_text())
     executions.append(
         {
             "root": f"q4_queue.{source_name}.{root_name}",
             "oracle": oracle_name,
-            "samples": len(expected),
+            "rows": len(serialized["rows"]),
+            "samples": sum(not row["execution_failure"] for row in serialized["rows"]),
+            "rejected_rows": sum(
+                row["execution_failure"] for row in serialized["rows"]
+            ),
+            "host_reset_segments": serialized["execution_segments"],
             "native_workers": [1, 2],
             "icarus": True,
             "verilator": not four_state,
             "four_state_native_and_icarus": four_state,
             "final_sha256": digest(final),
             "runner_sha256": digest(runner),
+            "oracle_record_sha256": digest(vector_dir / "oracle.json"),
+            "native_driver_sha256": digest(fixtures / "queue-source.cpp"),
+            "rtl_driver_sha256": digest(fixtures / "queue-source.sv"),
+            "serialization_sha256": digest(fixtures / "queue-source-vectors.py"),
             "generated": {
                 "cpp": snapshot_digests(output / "cpp"),
                 "verilog": snapshot_digests(output / "verilog"),
             },
         }
     )
+    (evidence / "executions.json").write_text(json.dumps(executions, indent=2) + "\n")
 
 
 # Both observed and dead bypass/bypass cycles reject replacement of a genuine
@@ -1081,14 +1510,28 @@ for name, annotation, callee, result in (
         }
     )
 
+# Published nominal fields admit explicit constructors without consulting the
+# provider's Python AST or inventing authority for its unpublished defaults.
+boundary_path.write_text(
+    "import pycircuit as ac\n"
+    "from q4_queue.provider import One\n"
+    "@ac.module\n"
+    "def Top(value: ac.u1) -> One:\n"
+    "    return One(value=value)\n"
+)
+explicit_constructor = build / "imported-struct-constructor-explicit"
+compile_source(boundary_path, boundary_root, explicit_constructor, (provider,))
+cli(
+    "link",
+    provider,
+    explicit_constructor,
+    "--top",
+    "q4_queue.consumer.Top",
+    "-o",
+    build / "imported-struct-constructor-explicit.ac",
+)
+
 for name, text in {
-    "imported-struct-constructor-explicit": (
-        "import pycircuit as ac\n"
-        "from q4_queue.provider import One\n"
-        "@ac.module\n"
-        "def Top(value: ac.u1) -> One:\n"
-        "    return One(value=value)\n"
-    ),
     "imported-struct-constructor-omitted": (
         "import pycircuit as ac\n"
         "from q4_queue.provider import One\n"

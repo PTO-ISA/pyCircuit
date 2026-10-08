@@ -66,3 +66,20 @@ The existing shared verifier runs native workers1/2 and RTL from one final IR,
 comparing settled precommit Work observations. Finite SystemRunner configuration
 and testbench time bounds prevent an unbounded run. Local verification is not a
 claim of full-nightly or cross-platform acceptance.
+
+## Generated system usage
+
+`bench.py` exports `example_memory_banks.bench.ExerciseMemoryBanks`. Compile
+`memory_banks.py`, then `bench.py`, import the published DUT interface, and link
+that explicit system root through the public compile/link/emit flow. Run
+`pycircuit run examples/memory_banks --target cpp --cycles 440` or select
+`--target verilog`. Imported records use their original nominal declarations
+and supply every field explicitly.
+
+All original known-stream data edges are represented in this regular-clock
+scenario, with fixed independent expectations from the retained native oracle
+along a resetless trajectory. The 440 cycles include a final observation.
+The original DUT, native/RTL drivers, finite configuration, and any four-state,
+reset/discard, latency and token-ledger matrices remain unchanged. Physical
+held-level and midstream-reset scenarios still require those original module
+oracles; this system does not claim complete physical-scenario equivalence.

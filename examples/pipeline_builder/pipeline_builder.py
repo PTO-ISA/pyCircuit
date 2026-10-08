@@ -19,15 +19,13 @@ def advance(stage0, stage1, word, valid) -> PipelinePacket:
 
 
 @ac.module
-def PipelineStorage(word: ac.u32,  # noqa: N802
-                    valid: ac.u1) -> PipelinePacket:
+def PipelineStorage(word: ac.u32, valid: ac.u1) -> PipelinePacket:  # noqa: N802
     stage0: PipelinePacket = PipelinePacket()
     stage1: PipelinePacket = PipelinePacket()
     return advance(stage0, stage1, word, valid)
 
 
 @ac.module
-def PipelineBuilder(word: ac.u32,  # noqa: N802
-                    valid: ac.u1) -> PipelinePacket:
+def PipelineBuilder(word: ac.u32, valid: ac.u1) -> PipelinePacket:  # noqa: N802
     result = PipelineStorage(word, valid)
     return result

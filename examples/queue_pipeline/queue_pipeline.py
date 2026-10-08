@@ -11,9 +11,7 @@ class QueueResult:
 
 
 @ac.module
-def QueuePipeline(  # noqa: N802
-    valid: ac.u1, data: ac.u64, take: ac.u1
-) -> QueueResult:
+def QueuePipeline(valid: ac.u1, data: ac.u64, take: ac.u1) -> QueueResult:  # noqa: N802
     ready, available, value = ac.queue[ac.u64](
         valid,
         data,

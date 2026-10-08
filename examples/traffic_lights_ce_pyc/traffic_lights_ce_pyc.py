@@ -29,11 +29,17 @@ def encode_countdown(count) -> BcdResult:
     threshold20: ac.u3 = 20 & 7
     threshold10: ac.u3 = 10 & 7
     tens: ac.u4 = (
-        5 if count >= threshold50 else
-        4 if count >= threshold40 else
-        3 if count >= threshold30 else
-        2 if count >= threshold20 else
-        1 if count >= threshold10 else 0
+        5
+        if count >= threshold50
+        else (
+            4
+            if count >= threshold40
+            else (
+                3
+                if count >= threshold30
+                else 2 if count >= threshold20 else 1 if count >= threshold10 else 0
+            )
+        )
     )
     zero3: ac.u3 = 0
     zero4: ac.u4 = zero3
@@ -52,8 +58,9 @@ def EncodeCountdown(count: ac.u3) -> BcdResult:  # noqa: N802
 
 
 @ac.rule
-def advance_traffic(prescaler, phase, ew_count, ns_count, blink,
-                    go, emergency, ew_encoded, ns_encoded) -> TrafficResult:
+def advance_traffic(
+    prescaler, phase, ew_count, ns_count, blink, go, emergency, ew_encoded, ns_encoded
+) -> TrafficResult:
     enable = go & ~emergency
     tick_raw: ac.u1 = prescaler == 3
     tick_1hz = tick_raw & enable
@@ -124,5 +131,14 @@ def TopTrafficLights(go: ac.u1, emergency: ac.u1) -> TrafficResult:  # noqa: N80
     blink: ac.u1 = 0
     ew_encoded = EncodeCountdown(ew_count)
     ns_encoded = EncodeCountdown(ns_count)
-    return advance_traffic(prescaler, phase, ew_count, ns_count, blink,
-                           go, emergency, ew_encoded, ns_encoded)
+    return advance_traffic(
+        prescaler,
+        phase,
+        ew_count,
+        ns_count,
+        blink,
+        go,
+        emergency,
+        ew_encoded,
+        ns_encoded,
+    )

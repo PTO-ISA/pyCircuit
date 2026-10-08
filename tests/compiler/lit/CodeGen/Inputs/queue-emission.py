@@ -436,12 +436,12 @@ if args.only in ("all", "capacity"):
                 control = work / ("." + seed.name + ".pycircuit-publication")
                 control_prior = snapshot(control)
                 emit(path, target, seed, name + "-" + target + "-replacement", reject)
-                assert snapshot(seed) == prior, (
-                    "failed replacement altered prior generated bundle"
-                )
-                assert snapshot(control) == control_prior, (
-                    "failed replacement altered publication controls"
-                )
+                assert (
+                    snapshot(seed) == prior
+                ), "failed replacement altered prior generated bundle"
+                assert (
+                    snapshot(control) == control_prior
+                ), "failed replacement altered publication controls"
                 checks.append(
                     {
                         "name": name + "-" + target,
@@ -545,9 +545,7 @@ class Oracle:
             else (
                 plane(1, 0)
                 if not self.bypass or not available
-                else plane(1, int(take))
-                if take in "01"
-                else plane(1, 1, 0)
+                else plane(1, int(take)) if take in "01" else plane(1, 1, 0)
             )
         )
         result = (
@@ -839,9 +837,7 @@ def token_gate(label, final_contents, latencies, independent=False, huge=False):
                     target = (
                         f"{name}[{lane // 3}][{lane % 3}]"
                         if len(parts) == 6
-                        else f"{name}[{lane}]"
-                        if isinstance(value[0], tuple)
-                        else name
+                        else f"{name}[{lane}]" if isinstance(value[0], tuple) else name
                     )
                     body.append(f"{target}={p[0]}'b{symbols(p)};")
             body.append("#1;")
@@ -1062,9 +1058,9 @@ huge = dict.fromkeys(
     (name for name in latencies if name != "bit13_default"), (1 << 64) - 1
 )
 token_gate("huge", delayed_fixture(huge, huge=True), huge, huge=True)
-assert {str(p): digest(p) for p in bound_inputs} == initial_hashes, (
-    "test/product input changed during gate"
-)
+assert {
+    str(p): digest(p) for p in bound_inputs
+} == initial_hashes, "test/product input changed during gate"
 (evidence / "receipt.json").write_text(
     json.dumps(
         {

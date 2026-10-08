@@ -160,6 +160,22 @@ def _target_files(payload: dict, target: str):
         else payload.get("simulation_top")
     )
     if simulation:
+        count = payload.get("source_check_count")
+        if type(count) is not int or count < 0:
+            raise _DriverError("system emission requires a verified source-check count")
+        add(
+            "simulation_verification.json",
+            json.dumps(
+                {
+                    "entry": payload["entry"],
+                    "entry_source": payload["entry_source"],
+                    "source_checks": count,
+                },
+                separators=(",", ":"),
+            )
+            + "\n",
+            "runtime-glue",
+        )
         if target == "cpp":
             add("simulation_main.cpp", payload["simulation_main"], "runtime-glue")
             add("simulation_config.json", payload["simulation_config"], "runtime-glue")

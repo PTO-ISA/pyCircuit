@@ -496,6 +496,9 @@ const ac::HardwareSourceCheckPlan &HardwareEmitContext::sourceChecks() const {
   assert(sourceChecks_ && "emission context must be prepared");
   return *sourceChecks_;
 }
+bool HardwareEmitContext::managesChecks() {
+  return isSystem() || (sourceChecks_ && !sourceChecks_->checks.empty());
+}
 LogicalResult HardwareEmitContext::prepareImpl(bool allowSourceChecks) {
   sourceChecks_.reset();
   names_.clear();

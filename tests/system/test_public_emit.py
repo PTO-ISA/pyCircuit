@@ -38,9 +38,7 @@ def _environment() -> dict[str, str]:
             "PYCIRCUIT_NATIVE_BUILD": str(native),
             "PYCIRCUIT_SOURCE_COMPILER": str(native / "bin/pycircuit-source-unit"),
             "PYCIRCUIT_LINKER": str(native / "bin/pycircuit-link"),
-            "PYCIRCUIT_EMITTER": str(
-                native / "bin/pycircuit-emit"
-            ),
+            "PYCIRCUIT_EMITTER": str(native / "bin/pycircuit-emit"),
         }
     )
     package_root = str(ROOT / "python/pycircuit/src")

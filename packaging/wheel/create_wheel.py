@@ -49,10 +49,12 @@ RUNTIME_CMAKE_FILES = (
     "pycircuitRuntimeTargets.cmake",
 )
 RETIRED_PYTHON_TREES = ("_pycircuit_semantics", "agentic_circuit")
-BUILD_HELPER_SCRIPTS = frozenset({
-    "share/pycircuit/cmake/prepare_output.py",
-    "share/pycircuit/cmake/verify_example.py",
-})
+BUILD_HELPER_SCRIPTS = frozenset(
+    {
+        "share/pycircuit/cmake/prepare_output.py",
+        "share/pycircuit/cmake/verify_example.py",
+    }
+)
 
 # The wheel is relocated for the platform it is built on, so its bundled
 # libraries are found relative to the installed tree instead of at the builder's
@@ -159,7 +161,8 @@ def _drop_bundled_python_copy(package_dir: Path) -> None:
     # These installed build utilities are separate from the sole public
     # pycircuit package. All other Python payloads remain forbidden here.
     extra_python = [
-        path for path in bundle.rglob("*.py")
+        path
+        for path in bundle.rglob("*.py")
         if path.relative_to(bundle).as_posix() not in BUILD_HELPER_SCRIPTS
     ]
     if extra_python:

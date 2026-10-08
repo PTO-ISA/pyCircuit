@@ -50,3 +50,9 @@ full replacement, changed offers under held clocks and occupied reset are
 checked. Runner limits are finite at 20,000 ticks. Final IR checks exactly two
 D1/L1 queues with 17-bit payloads and the reviewed policies; no extra instances
 or collections are introduced.
+The separate `bench.py` system checks a finite regular-clock known-state scenario with exact old-state output checks. This is partial system migration: the original independent drivers retain their full physical-clock, midstream-reset and four-state scenarios.
+
+```bash
+pycircuit run examples/popcount_pipeline --target cpp --cycles 184 --build-dir .pycircuit_out/popcount_pipeline/system-cpp
+pycircuit run examples/popcount_pipeline --target verilog --cycles 184 --build-dir .pycircuit_out/popcount_pipeline/system-verilog
+```

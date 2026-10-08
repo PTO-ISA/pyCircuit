@@ -53,3 +53,20 @@ blocked-output stalls in both directions, full replacements and two full resets.
 Public-owner probes exercise explicit and late-sibling discard/reprepare.
 Separate failed-system tests check terminal failure and mandatory Reset recovery;
 an isolated RTL process checks the effective-unknown-transfer diagnostic.
+
+## Generated system usage
+
+`bench.py` exports `example_barrier_pipeline.bench.ExerciseBarrierPipeline`. Compile
+`barrier_pipeline.py`, then `bench.py`, import the published DUT interface, and link
+that explicit system root through the public compile/link/emit flow. Run
+`pycircuit run examples/barrier_pipeline --target cpp --cycles 347` or select
+`--target verilog`. Imported records use their original nominal declarations
+and supply every field explicitly.
+
+All original known-stream data edges are represented in this regular-clock
+scenario, with fixed independent expectations from the retained native oracle
+along a resetless trajectory. The 347 cycles include a final observation.
+The original DUT, native/RTL drivers, finite configuration, and any four-state,
+reset/discard, latency and token-ledger matrices remain unchanged. Physical
+held-level and midstream-reset scenarios still require those original module
+oracles; this system does not claim complete physical-scenario equivalence.

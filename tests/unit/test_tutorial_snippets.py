@@ -64,7 +64,8 @@ def test_quickstart_commands_compile_link_and_emit_the_same_final() -> None:
         for node in tree.body
         if isinstance(node, ast.FunctionDef)
         and any(
-            isinstance(item, ast.Attribute) and item.attr in {"module", "system"}
+            (isinstance(item, ast.Name) and item.id in {"module", "system"})
+            or (isinstance(item, ast.Attribute) and item.attr in {"module", "system"})
             for item in node.decorator_list
         )
     }

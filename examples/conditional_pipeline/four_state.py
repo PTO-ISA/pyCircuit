@@ -77,10 +77,12 @@ for line in final_text.splitlines():
         for attribute, value in (
             (
                 "depth",
-                2
-                if line
-                == next(x for x in final_text.splitlines() if '"ac.queue"(' in x)
-                else 1,
+                (
+                    2
+                    if line
+                    == next(x for x in final_text.splitlines() if '"ac.queue"(' in x)
+                    else 1
+                ),
             ),
             ("availability_latency", 1),
             ("head_read_latency", 0),

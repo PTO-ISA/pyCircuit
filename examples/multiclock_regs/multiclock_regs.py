@@ -5,7 +5,10 @@ from pycircuit import dff, module, rule
 
 @module
 def MulticlockRegs(  # noqa: N802
-    clk_a: bool, rst_a: bool, clk_b: bool, rst_b: bool,
+    clk_a: bool,
+    rst_a: bool,
+    clk_b: bool,
+    rst_b: bool,
 ) -> {
     "a_count": Annotated[int, range(1 << 8)],  # noqa: F821
     "b_count": Annotated[int, range(1 << 8)],  # noqa: F821

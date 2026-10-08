@@ -46,3 +46,9 @@ A separate edge-qualified history ledger records 40 accepted tokens, 38 retired,
 2 discarded by reset, zero outstanding, and peak occupancy 2. Only rising edges
 count transfers; repeated Work samples do not duplicate tokens. Main runner
 and four-state helper runs both have finite limits.
+The separate `bench.py` system checks a finite regular-clock known-state scenario with exact old-state output checks. This is partial system migration: the original independent drivers retain their full physical-clock, midstream-reset and four-state scenarios.
+
+```bash
+pycircuit run examples/record_projection_update --target cpp --cycles 184 --build-dir .pycircuit_out/record_projection_update/system-cpp
+pycircuit run examples/record_projection_update --target verilog --cycles 184 --build-dir .pycircuit_out/record_projection_update/system-verilog
+```

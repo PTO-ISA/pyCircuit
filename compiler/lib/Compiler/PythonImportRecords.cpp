@@ -1667,6 +1667,7 @@ LogicalResult Importer::scanImports() {
       }
       if (classifyImportedMarker(module.getValue(), remote) !=
               MarkerKind::None ||
+          fixedBitsAliasWidth(module.getValue(), remote) ||
           (module.getValue() == "pycircuit" &&
            llvm::is_contained(ArrayRef<StringRef>{"system", "log", "report"},
                               remote))) {
@@ -1955,14 +1956,10 @@ FailureOr<Type> Importer::portType(const AstNode &node,
                ? Type(ac::EnumType::get(b.getContext(), name))
                : Type(ac::StructType::get(b.getContext(), name));
   }
-  if (node.kind() == "Attribute" && binding &&
-      binding->category == BindingCategory::Marker &&
-      binding->importedModule == "pycircuit") {
-    StringRef name = binding->remote;
-    unsigned width = 0;
-    if (name.consume_front("u") && !name.getAsInteger(10, width) && width &&
-        width <= 64 && name == Twine(width).str())
-      return bits(width, node, ownerSymbol);
+  if (binding && binding->category == BindingCategory::Marker) {
+    if (auto width =
+            fixedBitsAliasWidth(binding->importedModule, binding->remote))
+      return bits(*width, node, ownerSymbol);
   }
   if (node.kind() == "Subscript" && intrinsic(node.child("value"), "bits")) {
     auto width = staticExpr(node.child("slice"), ownerSymbol);
@@ -4061,12 +4058,14 @@ LogicalResult Importer::emitModule(ModuleDecl &decl) {
                   "report statements";
       AstNode candidate = stmt.child("value");
       if (candidate.kind() == "Call" &&
+          (intrinsic(candidate.child("func"), "log") ||
+           intrinsic(candidate.child("func"), "report"))) {
+        ++observationCount;
+        continue;
+      }
+      if (candidate.kind() == "Call" &&
           candidate.child("func").kind() == "Name") {
         StringRef callee = candidate.child("func").string("id");
-        if (callee == "log" || callee == "report") {
-          ++observationCount;
-          continue;
-        }
         auto found = instances.find(callee);
         if (found != instances.end()) {
           if (target)
@@ -4176,15 +4175,13 @@ LogicalResult Importer::emitModule(ModuleDecl &decl) {
       AstNode statement = rule.item("body", i);
       AstNode value =
           statement.kind() == "Expr" ? statement.child("value") : AstNode();
-      StringRef callee =
-          value.kind() == "Call" && value.child("func").kind() == "Name"
-              ? value.child("func").string("id")
-              : StringRef();
       if (statement.kind() == "Assert") {
         ++instrumentationOrdinal;
         continue;
       }
-      if (callee != "log" && callee != "report")
+      if (value.kind() != "Call" ||
+          (!intrinsic(value.child("func"), "log") &&
+           !intrinsic(value.child("func"), "report")))
         continue;
       if (failed(emitInstrumentation(decl, rule, statement,
                                      instrumentationOrdinal++, at, values,

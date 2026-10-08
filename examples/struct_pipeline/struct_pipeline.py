@@ -26,9 +26,7 @@ def update_item(item: Item) -> Item:
 
 
 @module
-def StructPipeline(  # noqa: N802
-    valid: ac.u1, data: Item, take: ac.u1
-) -> StructResult:
+def StructPipeline(valid: ac.u1, data: Item, take: ac.u1) -> StructResult:  # noqa: N802
     ready, available, item = ac.queue[Item](
         valid,
         data,

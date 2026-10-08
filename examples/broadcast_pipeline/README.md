@@ -52,3 +52,9 @@ A terminal unknown sink-pop test checks failed-system discipline and mandatory
 Reset. Internal source/fan payload copying follows the unchanged Q6 FIFO and
 the verified same-width emitted connections. The public observations directly
 check transformed results; they do not expose latent internal copy bits.
+The separate `bench.py` system checks a finite regular-clock known-state scenario, including queue saturation, stalls, replacement, boundary values and final drain. This is partial system migration: the original independent drivers retain their full physical-clock, midstream-reset and four-state scenarios.
+
+```bash
+pycircuit run examples/broadcast_pipeline --target cpp --cycles 158 --build-dir .pycircuit_out/broadcast_pipeline/system-cpp
+pycircuit run examples/broadcast_pipeline --target verilog --cycles 158 --build-dir .pycircuit_out/broadcast_pipeline/system-verilog
+```

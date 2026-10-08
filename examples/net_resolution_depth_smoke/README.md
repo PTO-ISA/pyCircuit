@@ -30,3 +30,24 @@ and inferred standard DFFE under Icarus for sparse/all X/Z data, capture,
 hold, next-edge recovery and reset priority. These current direct commands
 supersede the earlier parser-limit claim. The DFFE enable is always one, retaining
 the original register behavior and reset preamble.
+
+## Generated system usage
+
+`bench.py` exports `example_net_resolution_depth_smoke.bench.ExerciseNetResolutionDepthSmoke`. The explicit source
+closure is `net_resolution_depth_smoke.py`, then `bench.py`; link the system root and emit either
+backend with the public `pycircuit compile`, `link`, and `emit` flow. Run
+`pycircuit run examples/net_resolution_depth_smoke --target cpp --cycles 264` or select
+`--target verilog`. Each managed cycle uses the same stimulus in its low/high
+sampling pair and advances fixture state on the generated edge.
+
+Every original rising-edge input, including the complete 256-byte sweep, is
+represented in 264 regular cycles with a final registered-state observation.
+Fixed independent expectations distinguish the immediate combinational result
+(where present) from the previous registered result. Original reset cycles
+are data cycles along this regular-clock trajectory.
+
+The original `driver.cpp`, `rtl_tb.sv`, `config.json`, and independent oracle
+models remain unchanged. Known held-level and physical-reset scenarios remain
+with those module-boundary drivers. Where present, their four-state and
+failure/discard matrices remain separate coverage. This regular-clock system
+does not claim complete equivalence to those physical scenarios.

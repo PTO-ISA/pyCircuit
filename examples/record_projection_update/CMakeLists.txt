@@ -6,7 +6,11 @@ pycircuit_add_example(record_projection_update
   PACKAGE example_record_projection_update
   TOP example_record_projection_update.record_projection_update.RecordProjectionUpdate
   ENTRY_SOURCE record_projection_update
-  SOURCES record_projection_update.py)
+  SOURCES record_projection_update.py
+  SYSTEM_TOP example_record_projection_update.bench.RecordProjectionUpdateSystem
+  SYSTEM_ENTRY_SOURCE bench
+  SYSTEM_CYCLES 184
+  SYSTEM_SOURCES record_projection_update.py bench.py)
 if(PYC_EXAMPLE_VERIFY)
 
 find_package(Python3 REQUIRED COMPONENTS Interpreter)

@@ -31,7 +31,9 @@ def update(packet: Packet) -> Packet:
 
 
 @ac.module
-def RecordProjectionUpdate(valid: ac.u1, data: Packet, take: ac.u1) -> Result:  # noqa: N802
+def RecordProjectionUpdate(  # noqa: N802 - hardware module definition
+    valid: ac.u1, data: Packet, take: ac.u1
+) -> Result:  # noqa: N802
     ready, available, packet = ac.queue[Packet](
         valid, data, stage_ready, depth=1, ready_policy="downstream_pop"  # noqa: F821
     )

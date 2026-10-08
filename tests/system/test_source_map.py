@@ -25,9 +25,11 @@ SOURCES = {
 
 def _origin(symbol, components):
     path = ", ".join(
-        '{kind = "field", name = "' + value + '"}'
-        if kind == "field"
-        else f'{{kind = "index", value = {value} : i64}}'
+        (
+            '{kind = "field", name = "' + value + '"}'
+            if kind == "field"
+            else f'{{kind = "index", value = {value} : i64}}'
+        )
         for kind, value in components
     )
     return f"{{expansion = [], site = {{ast_path = [{path}], definition = @{symbol}}}}}"
@@ -37,7 +39,7 @@ def _expected_origins(filename):
     # Positions, names and paths come from source AST only, never emitted IR.
     expected = []
     for index, node in enumerate(ast.parse(SOURCES[filename]).body):
-        if not isinstance(node, (ast.FunctionDef, ast.ClassDef)):
+        if not isinstance(node, ast.FunctionDef | ast.ClassDef):
             continue
         symbol = f"source_public.{Path(filename).stem}.{node.name}"
         path = [("field", "body"), ("index", index)]

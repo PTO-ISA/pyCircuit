@@ -6,7 +6,11 @@ pycircuit_add_example(onehot_encode
   PACKAGE example_onehot_encode
   TOP example_onehot_encode.onehot_encode.OnehotEncode
   ENTRY_SOURCE onehot_encode
-  SOURCES onehot_encode.py)
+  SOURCES onehot_encode.py
+  SYSTEM_TOP example_onehot_encode.bench.OnehotEncodeSystem
+  SYSTEM_ENTRY_SOURCE bench
+  SYSTEM_CYCLES 344
+  SYSTEM_SOURCES onehot_encode.py bench.py)
 if(PYC_EXAMPLE_VERIFY)
 
 find_package(Python3 REQUIRED COMPONENTS Interpreter)

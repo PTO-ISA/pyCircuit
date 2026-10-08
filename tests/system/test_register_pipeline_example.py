@@ -30,7 +30,9 @@ HISTORY = [
 
 def _prefix() -> Path:
     prefix = Path(
-        os.environ.get("PYCIRCUIT_TEST_PREFIX", ROOT / ".pycircuit_out/record-verifier-install")
+        os.environ.get(
+            "PYCIRCUIT_TEST_PREFIX", ROOT / ".pycircuit_out/record-verifier-install"
+        )
     ).resolve()
     required = (
         prefix / "bin/pycircuit",
@@ -223,9 +225,9 @@ def test_register_pipeline_public_build_and_both_backends(tmp_path: Path) -> Non
             emit_targets.update(
                 target for target in ("cpp", "verilog") if target in args
             )
-    assert compile_sources == Counter({f"{stem}.py": 1 for stem in SOURCES}), (
-        build_result.stdout
-    )
+    assert compile_sources == Counter(
+        {f"{stem}.py": 1 for stem in SOURCES}
+    ), build_result.stdout
     if build_result.returncode != 0:
         pytest.fail(
             "public example source compilation/link failed after all three independent "

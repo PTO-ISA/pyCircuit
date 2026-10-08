@@ -6,7 +6,11 @@ pycircuit_add_example(frontend_composition_pipeline
   PACKAGE example_frontend_composition_pipeline
   TOP example_frontend_composition_pipeline.frontend_composition_pipeline.FrontendCompositionPipeline
   ENTRY_SOURCE frontend_composition_pipeline
-  SOURCES frontend_composition_pipeline.py)
+  SOURCES frontend_composition_pipeline.py
+  SYSTEM_TOP example_frontend_composition_pipeline.bench.FrontendCompositionPipelineSystem
+  SYSTEM_ENTRY_SOURCE bench
+  SYSTEM_CYCLES 184
+  SYSTEM_SOURCES frontend_composition_pipeline.py bench.py)
 if(PYC_EXAMPLE_VERIFY)
 
 find_package(Python3 REQUIRED COMPONENTS Interpreter)

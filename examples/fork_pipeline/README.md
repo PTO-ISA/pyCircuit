@@ -62,3 +62,9 @@ proof combines this lifecycle test, the direct-owner test that prepares and
 discards all three queues plus two flag owners, the emitted common discard
 path, and unchanged accepted Q6 late-parent/sibling failure tests. It does not
 resume a failed system to inspect state or claim a new late-sibling execution.
+The separate `bench.py` system checks a finite regular-clock known-state scenario, including queue saturation, stalls, replacement, boundary values and final drain. This is partial system migration: the original independent drivers retain their full physical-clock, midstream-reset and four-state scenarios.
+
+```bash
+pycircuit run examples/fork_pipeline --target cpp --cycles 158 --build-dir .pycircuit_out/fork_pipeline/system-cpp
+pycircuit run examples/fork_pipeline --target verilog --cycles 158 --build-dir .pycircuit_out/fork_pipeline/system-verilog
+```

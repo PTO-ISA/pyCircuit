@@ -4,7 +4,11 @@ find_package(pycircuit CONFIG REQUIRED COMPONENTS Runtime)
 include("${PYCIRCUIT_CMAKE_DIR}/PycircuitExamples.cmake")
 pycircuit_add_example(digital_clock PACKAGE example_digital_clock
   TOP example_digital_clock.digital_clock.DigitalClock
-  ENTRY_SOURCE digital_clock TIMEOUT_SECONDS 626 SOURCES digital_clock.py)
+  ENTRY_SOURCE digital_clock TIMEOUT_SECONDS 626 SOURCES digital_clock.py
+  SYSTEM_TOP example_digital_clock.bench.ExerciseDigitalClock
+  SYSTEM_ENTRY_SOURCE bench
+  SYSTEM_CYCLES 100000001
+  SYSTEM_SOURCES digital_clock.py bench.py)
 if(PYC_EXAMPLE_VERIFY)
 
 find_package(Python3 REQUIRED COMPONENTS Interpreter)

@@ -10,10 +10,17 @@ class RouteMergeResult:
     head: ac.u64
 
 
+@ac.rule
+def CheckRoute(available, head):  # noqa: N802
+    if available:
+        assert head == 0 or head == 1, "route_selector_out_of_range"
+
+
 @ac.module
 def RouteMergePipeline(  # noqa: N802
     valid: ac.u1, data: ac.u64, take: ac.u1
 ) -> RouteMergeResult:
+    CheckRoute(available, head)
     ready, available, head = ac.queue[ac.u64](
         valid,
         data,

@@ -5,4 +5,8 @@ include("${PYCIRCUIT_CMAKE_DIR}/PycircuitExamples.cmake")
 # Consumer example executable; not part of the framework or SDK exports.
 pycircuit_add_example(dma PACKAGE example_dma
   TOP example_dma.dma.Dma
-  ENTRY_SOURCE dma SOURCES dma.py)
+  ENTRY_SOURCE dma SOURCES dma.py
+  SYSTEM_TOP example_dma.bench.ExerciseDma
+  SYSTEM_ENTRY_SOURCE bench
+  SYSTEM_CYCLES 582
+  SYSTEM_SOURCES dma.py bench.py)

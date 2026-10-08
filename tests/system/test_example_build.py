@@ -139,7 +139,9 @@ def test_module_loop_clean_rebuild_tracks_all_public_inputs_and_outputs(
     ninja = shutil.which("ninja")
     ctest = shutil.which("ctest")
     cxx = shutil.which(os.environ.get("CXX", "c++"))
-    assert cmake and ninja and ctest and cxx, "example system test requires CMake, Ninja, CTest and C++"
+    assert (
+        cmake and ninja and ctest and cxx
+    ), "example system test requires CMake, Ninja, CTest and C++"
 
     source = tmp_path / "copied module loop example"
     shutil.copytree(EXAMPLE, source)
@@ -269,7 +271,10 @@ def test_module_loop_clean_rebuild_tracks_all_public_inputs_and_outputs(
     )
     controls_before = _publication_controls(all_destinations)
 
-    _run([ctest, "--test-dir", str(build), "--output-on-failure", "--no-tests=error"], cwd=tmp_path)
+    _run(
+        [ctest, "--test-dir", str(build), "--output-on-failure", "--no-tests=error"],
+        cwd=tmp_path,
+    )
     assert _owned_files((source,)) == source_before
     _run([ninja, "-C", str(build), "-t", "clean"], cwd=tmp_path)
     assert all(not path.exists() for path in declared_artifacts)

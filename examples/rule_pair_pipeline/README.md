@@ -61,3 +61,9 @@ Independent stalls, missing peers, full replacements, occupied resets, held
 clocks with changed offers and E0/E1/E2 are checked. Limits are finite at
 12,000 ticks. Final IR contains exactly four D1/L1 queues and no extra instances
 or collections.
+The separate `bench.py` system checks a finite regular-clock known-state scenario, including queue saturation, stalls, replacement, boundary values and final drain. This is partial system migration: the original independent drivers retain their full physical-clock, midstream-reset and four-state scenarios.
+
+```bash
+pycircuit run examples/rule_pair_pipeline --target cpp --cycles 158 --build-dir .pycircuit_out/rule_pair_pipeline/system-cpp
+pycircuit run examples/rule_pair_pipeline --target verilog --cycles 158 --build-dir .pycircuit_out/rule_pair_pipeline/system-verilog
+```

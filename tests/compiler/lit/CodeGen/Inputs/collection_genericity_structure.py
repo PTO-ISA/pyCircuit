@@ -1,8 +1,9 @@
 """Generic instances retain one source-owned definition per module."""
+
 import json
-from pathlib import Path
 import re
 import sys
+from pathlib import Path
 
 bundle = json.loads(Path(sys.argv[1]).read_text())
 groups = bundle["source_groups"]

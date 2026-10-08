@@ -1,4 +1,5 @@
 """Measure each byte while preserving two complete-token queue stages."""
+
 # ruff: noqa: F821, N802 -- immutable forward queue wires, hardware root name.
 import pycircuit as ac
 
@@ -42,12 +43,20 @@ def measure(item: Item) -> Item:
 @ac.module
 def BitPrimitivePipeline(valid: ac.u1, data: Item, take: ac.u1) -> Result:
     ready, available, incoming = ac.queue[Item](
-        valid, data, measured_ready, depth=1, latency=1,
+        valid,
+        data,
+        measured_ready,
+        depth=1,
+        latency=1,
         ready_policy="downstream_pop",
     )
     measured = measure(incoming)
     measured_ready, out_valid, out_data = ac.queue[Item](
-        available, measured, take, depth=1, latency=1,
+        available,
+        measured,
+        take,
+        depth=1,
+        latency=1,
         ready_policy="downstream_pop",
     )
     return Result(ready=ready, valid=out_valid, data=out_data)

@@ -66,11 +66,17 @@ def _backend_files(target: str, stems: list[str]) -> tuple[list[dict], list[dict
         for stem in stems:
             paths = [f"sources/measurement/{stem}.source-map.json"]
             if stem != "types":
-                paths += [f"sources/measurement/{stem}.cpp", f"sources/measurement/{stem}.hpp"]
+                paths += [
+                    f"sources/measurement/{stem}.cpp",
+                    f"sources/measurement/{stem}.hpp",
+                ]
             else:
                 paths += [f"sources/measurement/{stem}.hpp"]
             groups.append(
-                {"source": {"package": "measurement", "path": f"{stem}.py"}, "files": paths}
+                {
+                    "source": {"package": "measurement", "path": f"{stem}.py"},
+                    "files": paths,
+                }
             )
     else:
         common = [
@@ -87,7 +93,10 @@ def _backend_files(target: str, stems: list[str]) -> tuple[list[dict], list[dict
             if stem != "types":
                 paths += [f"sources/measurement/{stem}.sv"]
             groups.append(
-                {"source": {"package": "measurement", "path": f"{stem}.py"}, "files": paths}
+                {
+                    "source": {"package": "measurement", "path": f"{stem}.py"},
+                    "files": paths,
+                }
             )
     files = [{"path": path, "role": role} for path, role in common]
     for group in groups:
@@ -484,6 +493,15 @@ def test_timeout_kills_term_ignoring_child_after_parent_exits(tmp_path: Path) ->
         assert len(owned_pids) == 2
 
         def exists(pid: int) -> bool:
+            # Container PID 1 may leave killed orphan children unreaped. A
+            # zombie cannot execute or retain the timed-out workload.
+            if sys.platform.startswith("linux"):
+                try:
+                    stat = Path(f"/proc/{pid}/stat").read_text()
+                except FileNotFoundError:
+                    return False
+                if stat.rsplit(")", 1)[1].split()[0] == "Z":
+                    return False
             try:
                 os.kill(pid, 0)
             except ProcessLookupError:

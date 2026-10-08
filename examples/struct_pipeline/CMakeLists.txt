@@ -6,7 +6,11 @@ pycircuit_add_example(struct_pipeline
   PACKAGE example_struct_pipeline
   TOP example_struct_pipeline.struct_pipeline.StructPipeline
   ENTRY_SOURCE struct_pipeline
-  SOURCES struct_pipeline.py)
+  SOURCES struct_pipeline.py
+  SYSTEM_TOP example_struct_pipeline.bench.StructPipelineSystem
+  SYSTEM_ENTRY_SOURCE bench
+  SYSTEM_CYCLES 184
+  SYSTEM_SOURCES struct_pipeline.py bench.py)
 if(PYC_EXAMPLE_VERIFY)
 
 find_package(Python3 REQUIRED COMPONENTS Interpreter)

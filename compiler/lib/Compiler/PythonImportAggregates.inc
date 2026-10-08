@@ -139,15 +139,8 @@ bool Importer::fixedAnnotation(const AstNode &node) const {
   if (node.kind() == "Subscript" && intrinsic(node.child("value"), "bits"))
     return true;
   auto binding = lookupBinding(node);
-  if (node.kind() == "Attribute" && binding &&
-      binding->category == BindingCategory::Marker &&
-      binding->importedModule == "pycircuit") {
-    StringRef name = binding->remote;
-    unsigned width;
-    return name.consume_front("u") && !name.getAsInteger(10, width) && width &&
-           width <= 64 && name == Twine(width).str();
-  }
-  return false;
+  return binding && binding->category == BindingCategory::Marker &&
+         fixedBitsAliasWidth(binding->importedModule, binding->remote).has_value();
 }
 bool Importer::hasDecorator(const AstNode &node, StringRef name) const {
   return ruleWrites.hasDecorator(node, name);

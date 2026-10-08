@@ -27,12 +27,20 @@ FailureOr<Value> Importer::constructStruct(
     std::optional<Type> expected,
     llvm::StringMap<SmallVector<Value>> *captures) {
   StringRef name = node.child("func").string("id");
-  auto type =
-      ac::StructType::get(b.getContext(), b.getStringAttr(qualify(name)));
+  auto binding = lookupBinding(node.child("func"));
+  if (!binding || binding->category != BindingCategory::Struct || !binding->symbol)
+    return error() << "struct construction requires a bound nominal declaration";
+  auto type = ac::StructType::get(
+      b.getContext(), b.getStringAttr(binding->symbol.getValue()));
   if (expected && !ac::areEquivalentHardwareTypes(type, *expected))
     return error()
            << "struct constructor nominal type disagrees with destination";
-  auto fields = structFields[name];
+  bool localDefaults = structs.contains(name);
+  auto declaration = dyn_cast_or_null<ac::StructOp>(binding->declaration);
+  auto fields = localDefaults ? structFields[name]
+                             : (declaration ? declaration.getFields() : ArrayAttr());
+  if (!fields)
+    return error() << "struct constructor lacks its published field declaration";
   if (!node.array("args").empty())
     return error() << "struct construction requires named fields";
   llvm::StringMap<AstNode> actuals;
@@ -58,6 +66,9 @@ FailureOr<Value> Importer::constructStruct(
       valueSite = actuals[key];
       value = expression(valueSite, at, symbol, values, instances, fieldType,
                          captures);
+    } else if (!localDefaults) {
+      return error() << "imported struct construction requires every field explicitly; "
+                        "provider defaults are not published";
     } else if (AstNode defaultNode = structDefaults[name][index]) {
       if (!staticInitializer(defaultNode))
         return error()

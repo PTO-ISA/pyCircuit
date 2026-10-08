@@ -6,7 +6,11 @@ pycircuit_add_example(rule_pair_pipeline
   PACKAGE example_rule_pair_pipeline
   TOP example_rule_pair_pipeline.rule_pair_pipeline.RulePairPipeline
   ENTRY_SOURCE rule_pair_pipeline
-  SOURCES rule_pair_pipeline.py)
+  SOURCES rule_pair_pipeline.py
+  SYSTEM_TOP example_rule_pair_pipeline.bench.RulePairPipelineSystem
+  SYSTEM_ENTRY_SOURCE bench
+  SYSTEM_CYCLES 158
+  SYSTEM_SOURCES rule_pair_pipeline.py bench.py)
 if(PYC_EXAMPLE_VERIFY)
 
 find_package(Python3 REQUIRED COMPONENTS Interpreter)

@@ -1,4 +1,5 @@
 """Two read-first memories connected by complete-packet DMA queues."""
+
 # ruff: noqa: N802 -- hardware definition names.
 
 import pycircuit as ac
@@ -71,9 +72,14 @@ def Advance(state, accepted, request, reader, raw_data, release, initial_delay):
 
 
 @ac.module
-def Dram(copy_valid: ac.u1, copy: DmaRequest,
-         seed_valid: ac.u1, seed: DmaRequest,
-         take_copy: ac.u1, take_seed: ac.u1) -> MemoryResult:
+def Dram(
+    copy_valid: ac.u1,
+    copy: DmaRequest,
+    seed_valid: ac.u1,
+    seed: DmaRequest,
+    take_copy: ac.u1,
+    take_seed: ac.u1,
+) -> MemoryResult:
     state: MemoryState = MemoryState()
     idle = ~state.busy
     reader_ready = idle & copy_valid
@@ -82,9 +88,15 @@ def Dram(copy_valid: ac.u1, copy: DmaRequest,
     accepted_writer = seed_valid & writer_ready
     accepted = accepted_reader | accepted_writer
     selected = copy if copy_valid else seed
-    raw = ac.sync_mem[ac.u16](accepted, selected.dram_address,
-                            accepted_writer, selected.dram_address,
-                            selected.data, 3, depth=16)
+    raw = ac.sync_mem[ac.u16](
+        accepted,
+        selected.dram_address,
+        accepted_writer,
+        selected.dram_address,
+        selected.data,
+        3,
+        depth=16,
+    )
     eligible = state.busy & (state.remaining == 1)
     old_data = raw if state.capture_old else state.request.data
     response = state.request
@@ -92,24 +104,36 @@ def Dram(copy_valid: ac.u1, copy: DmaRequest,
     eligible_reader = eligible & state.reader
     eligible_writer = eligible & ~state.reader
     reader_space, reader_valid, reader_head = ac.queue[DmaRequest](
-        eligible_reader, response, take_copy, depth=2)
+        eligible_reader, response, take_copy, depth=2
+    )
     writer_space, writer_valid, writer_head = ac.queue[DmaRequest](
-        eligible_writer, response, take_seed, depth=2)
+        eligible_writer, response, take_seed, depth=2
+    )
     enqueued_reader = eligible_reader & reader_space
     enqueued_writer = eligible_writer & writer_space
     release = enqueued_reader | enqueued_writer
     Advance(state, accepted, selected, copy_valid, raw, release, 3)
-    return MemoryResult(reader_ready=reader_ready, writer_ready=writer_ready,
-                        reader_valid=reader_valid, writer_valid=writer_valid,
-                        accepted=ac.concat(accepted_writer, accepted_reader),
-                        enqueued=ac.concat(enqueued_writer, enqueued_reader),
-                        reader_response=reader_head, writer_response=writer_head)
+    return MemoryResult(
+        reader_ready=reader_ready,
+        writer_ready=writer_ready,
+        reader_valid=reader_valid,
+        writer_valid=writer_valid,
+        accepted=ac.concat(accepted_writer, accepted_reader),
+        enqueued=ac.concat(enqueued_writer, enqueued_reader),
+        reader_response=reader_head,
+        writer_response=writer_head,
+    )
 
 
 @ac.module
-def Sram(check_valid: ac.u1, check: DmaRequest,
-         copy_valid: ac.u1, copy: DmaRequest,
-         take_check: ac.u1, take_copy: ac.u1) -> MemoryResult:
+def Sram(
+    check_valid: ac.u1,
+    check: DmaRequest,
+    copy_valid: ac.u1,
+    copy: DmaRequest,
+    take_check: ac.u1,
+    take_copy: ac.u1,
+) -> MemoryResult:
     state: MemoryState = MemoryState()
     idle = ~state.busy
     reader_ready = idle & check_valid
@@ -118,9 +142,15 @@ def Sram(check_valid: ac.u1, check: DmaRequest,
     accepted_writer = copy_valid & writer_ready
     accepted = accepted_reader | accepted_writer
     selected = check if check_valid else copy
-    raw = ac.sync_mem[ac.u16](accepted, selected.sram_address,
-                            accepted_writer, selected.sram_address,
-                            selected.data, 3, depth=16)
+    raw = ac.sync_mem[ac.u16](
+        accepted,
+        selected.sram_address,
+        accepted_writer,
+        selected.sram_address,
+        selected.data,
+        3,
+        depth=16,
+    )
     eligible = state.busy & (state.remaining == 1)
     old_data = raw if state.capture_old else state.request.data
     response = state.request
@@ -128,40 +158,85 @@ def Sram(check_valid: ac.u1, check: DmaRequest,
     eligible_reader = eligible & state.reader
     eligible_writer = eligible & ~state.reader
     reader_space, reader_valid, reader_head = ac.queue[DmaRequest](
-        eligible_reader, response, take_check, depth=2)
+        eligible_reader, response, take_check, depth=2
+    )
     writer_space, writer_valid, writer_head = ac.queue[DmaRequest](
-        eligible_writer, response, take_copy, depth=2)
+        eligible_writer, response, take_copy, depth=2
+    )
     enqueued_reader = eligible_reader & reader_space
     enqueued_writer = eligible_writer & writer_space
     release = enqueued_reader | enqueued_writer
     Advance(state, accepted, selected, check_valid, raw, release, 2)
-    return MemoryResult(reader_ready=reader_ready, writer_ready=writer_ready,
-                        reader_valid=reader_valid, writer_valid=writer_valid,
-                        accepted=ac.concat(accepted_writer, accepted_reader),
-                        enqueued=ac.concat(enqueued_writer, enqueued_reader),
-                        reader_response=reader_head, writer_response=writer_head)
+    return MemoryResult(
+        reader_ready=reader_ready,
+        writer_ready=writer_ready,
+        reader_valid=reader_valid,
+        writer_valid=writer_valid,
+        accepted=ac.concat(accepted_writer, accepted_reader),
+        enqueued=ac.concat(enqueued_writer, enqueued_reader),
+        reader_response=reader_head,
+        writer_response=writer_head,
+    )
 
 
 @ac.module
-def Dma(seed_valid: ac.u1, seed: DmaRequest,
-        copy_valid: ac.u1, copy: DmaRequest,
-        check_valid: ac.u1, check: DmaRequest,
-        take_seed: ac.u1, take_copy: ac.u1, take_check: ac.u1) -> DmaResult:
+def Dma(
+    seed_valid: ac.u1,
+    seed: DmaRequest,
+    copy_valid: ac.u1,
+    copy: DmaRequest,
+    check_valid: ac.u1,
+    check: DmaRequest,
+    take_seed: ac.u1,
+    take_copy: ac.u1,
+    take_check: ac.u1,
+) -> DmaResult:
     seed_ready, seed_pending, seed_head = ac.queue[DmaRequest](
-        seed_valid, seed, dram.writer_ready, depth=2)  # noqa: F821 -- forward module connection
+        seed_valid,
+        seed,
+        dram.writer_ready,  # noqa: F821 - forward module connection
+        depth=2,
+    )  # noqa: F821 -- forward module connection
     copy_ready, copy_pending, copy_head = ac.queue[DmaRequest](
-        copy_valid, copy, dram.reader_ready, depth=4)  # noqa: F821 -- forward module connection
+        copy_valid,
+        copy,
+        dram.reader_ready,  # noqa: F821 - forward module connection
+        depth=4,
+    )  # noqa: F821 -- forward module connection
     check_ready, check_pending, check_head = ac.queue[DmaRequest](
-        check_valid, check, sram.reader_ready, depth=2)  # noqa: F821 -- forward module connection
-    dram = Dram(copy_pending, copy_head, seed_pending, seed_head,
-                sram.writer_ready, take_seed)  # noqa: F821 -- forward module connection
-    sram = Sram(check_pending, check_head,
-                dram.reader_valid, dram.reader_response, take_check, take_copy)
-    return DmaResult(seed_ready=seed_ready, copy_ready=copy_ready,
-                     check_ready=check_ready, seed_valid=dram.writer_valid,
-                     copy_valid=sram.writer_valid, check_valid=sram.reader_valid,
-                     dram_accepted=dram.accepted, dram_enqueued=dram.enqueued,
-                     sram_accepted=sram.accepted, sram_enqueued=sram.enqueued,
-                     seed_response=dram.writer_response,
-                     copy_response=sram.writer_response,
-                     check_response=sram.reader_response)
+        check_valid,
+        check,
+        sram.reader_ready,  # noqa: F821 - forward module connection
+        depth=2,
+    )  # noqa: F821 -- forward module connection
+    dram = Dram(
+        copy_pending,
+        copy_head,
+        seed_pending,
+        seed_head,
+        sram.writer_ready,  # noqa: F821 - forward module connection
+        take_seed,
+    )  # noqa: F821 -- forward module connection
+    sram = Sram(
+        check_pending,
+        check_head,
+        dram.reader_valid,
+        dram.reader_response,
+        take_check,
+        take_copy,
+    )
+    return DmaResult(
+        seed_ready=seed_ready,
+        copy_ready=copy_ready,
+        check_ready=check_ready,
+        seed_valid=dram.writer_valid,
+        copy_valid=sram.writer_valid,
+        check_valid=sram.reader_valid,
+        dram_accepted=dram.accepted,
+        dram_enqueued=dram.enqueued,
+        sram_accepted=sram.accepted,
+        sram_enqueued=sram.enqueued,
+        seed_response=dram.writer_response,
+        copy_response=sram.writer_response,
+        check_response=sram.reader_response,
+    )

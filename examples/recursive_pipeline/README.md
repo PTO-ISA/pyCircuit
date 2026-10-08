@@ -50,3 +50,10 @@ E4 first retirement, eight-token capacity, backpressure, full replacement,
 bounded; no exhaustive or four-state claim is made.
 
 See [actual generated excerpts](GENERATED.md) and [verification inputs](GENERATED.json).
+
+The separate `bench.py` system checks a finite regular-clock known-state scenario, including queue saturation, stalls, replacement, boundary values and final drain. This is partial system migration: the original independent drivers retain their full physical-clock, midstream-reset and four-state scenarios.
+
+```bash
+pycircuit run examples/recursive_pipeline --target cpp --cycles 158 --build-dir .pycircuit_out/recursive_pipeline/system-cpp
+pycircuit run examples/recursive_pipeline --target verilog --cycles 158 --build-dir .pycircuit_out/recursive_pipeline/system-verilog
+```

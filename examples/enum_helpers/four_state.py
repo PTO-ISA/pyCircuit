@@ -16,9 +16,7 @@ for name in ("iverilog", "vvp"):
     parser.add_argument("--" + name, default=shutil.which(name))
 args = parser.parse_args()
 if not args.iverilog or not args.vvp:
-    parser.error(
-        "enum_helpers full-DUT X/Z evidence requires genuine iverilog and vvp"
-    )
+    parser.error("enum_helpers full-DUT X/Z evidence requires genuine iverilog and vvp")
 source = Path(args.source).resolve()
 main_build = Path(args.build).resolve()
 include = Path(args.include).resolve()
@@ -91,12 +89,18 @@ namespace = "example_enum_helpers.enum_helpers."
 
 
 def fields(name):
-    line = next(line for line in final_text.splitlines()
-                if line.lstrip().startswith('ac.struct "' + namespace + name + '" fields '))
+    line = next(
+        line
+        for line in final_text.splitlines()
+        if line.lstrip().startswith('ac.struct "' + namespace + name + '" fields ')
+    )
     result = []
-    for field, kind in re.findall(r'\{name = "([^"]+)", type = (!ac\.(?:bits<<.*?>>|(?:struct|enum)<"[^"]+">))}', line):
+    for field, kind in re.findall(
+        r'\{name = "([^"]+)", type = (!ac\.(?:bits<<.*?>>|(?:struct|enum)<"[^"]+">))}',
+        line,
+    ):
         if kind.startswith("!ac.bits<<"):
-            width = re.search(r'value = #ac.math_int<([0-9]+)>}}>>$', kind)
+            width = re.search(r"value = #ac.math_int<([0-9]+)>}}>>$", kind)
             assert width, (field, kind)
             kind = int(width.group(1))
         result.append((field, kind))
@@ -104,22 +108,47 @@ def fields(name):
 
 
 enum_type = '!ac.enum<"' + namespace + 'Opcode">'
-assert fields("Command") == [("raw_opcode", 4), ("onehot_mask", 2), ("selector", enum_type)]
-assert fields("EnumResult") == [("decoded", enum_type), ("decoded_valid", 1),
-    ("onehot", enum_type), ("onehot_present", 1), ("onehot_conflict", 1),
-    ("selected", 1), ("classification", 8)]
-assert fields("Result") == [("ready", 1), ("valid", 1),
-    ("data", '!ac.struct<"' + namespace + 'EnumResult">')]
-enum_line = next(line for line in final_text.splitlines()
-                 if '\"ac.enum\"()' in line and 'sym_name = "' + namespace + 'Opcode"' in line)
-assert 'width = #ac.math_int<4>' in enum_line and 'encoding = "explicit"' in enum_line
+assert fields("Command") == [
+    ("raw_opcode", 4),
+    ("onehot_mask", 2),
+    ("selector", enum_type),
+]
+assert fields("EnumResult") == [
+    ("decoded", enum_type),
+    ("decoded_valid", 1),
+    ("onehot", enum_type),
+    ("onehot_present", 1),
+    ("onehot_conflict", 1),
+    ("selected", 1),
+    ("classification", 8),
+]
+assert fields("Result") == [
+    ("ready", 1),
+    ("valid", 1),
+    ("data", '!ac.struct<"' + namespace + 'EnumResult">'),
+]
+enum_line = next(
+    line
+    for line in final_text.splitlines()
+    if '"ac.enum"()' in line and 'sym_name = "' + namespace + 'Opcode"' in line
+)
+assert "width = #ac.math_int<4>" in enum_line and 'encoding = "explicit"' in enum_line
 assert re.findall(r'code = #ac.math_int<([0-9]+)>, name = "([^"]+)"', enum_line) == [
-    ("1", "NONE"), ("3", "READ"), ("9", "WRITE"), ("15", "ERROR")]
-queues = [line for line in final_text.splitlines() if '\"ac.queue\"(' in line]
+    ("1", "NONE"),
+    ("3", "READ"),
+    ("9", "WRITE"),
+    ("15", "ERROR"),
+]
+queues = [line for line in final_text.splitlines() if '"ac.queue"(' in line]
 for name in ("Command", "EnumResult"):
-    owners = [line for line in queues if '!ac.struct<"' + namespace + name + '">' in line]
-    assert len(owners) == 1 and owners[0].count('!ac.struct<"' + namespace + name + '">') >= 2
-assert '\"ac.reg\"(' not in final_text, "unexpected additional register owner"
+    owners = [
+        line for line in queues if '!ac.struct<"' + namespace + name + '">' in line
+    ]
+    assert (
+        len(owners) == 1
+        and owners[0].count('!ac.struct<"' + namespace + name + '">') >= 2
+    )
+assert '"ac.reg"(' not in final_text, "unexpected additional register owner"
 
 rtl = [
     main_build / "verilog" / row["path"]
@@ -249,12 +278,16 @@ assert inputs == {path: digest(Path(path)) for path in inputs}
             "explicit_original_tree_witness_latent_cases": 16,
             "four_state_tokens": 1584,
             "histories": [line.split()[1:] for line in rtl_histories],
-            "queue_owners": 2, "slots": 2, "logical_payload_storage_bits": 30,
+            "queue_owners": 2,
+            "slots": 2,
+            "logical_payload_storage_bits": 30,
             "boolean_storage_policy": "historical Boolean result fields are explicit u1; no logical-kind roundtrip claim",
             "result_planes": "known/Z exact and known values exact; no output Z; computed-X latent value unspecified",
             "invalid_input_codes": "ordinary tokens; decoded fallback and classification255 are payload values",
-            "tools_sha256": {str(Path(tool).resolve()): digest(Path(tool).resolve())
-                             for tool in (args.iverilog, args.vvp)},
+            "tools_sha256": {
+                str(Path(tool).resolve()): digest(Path(tool).resolve())
+                for tool in (args.iverilog, args.vvp)
+            },
             "terminal_failure_scope": "isolated process; native requires Reset before further execution",
             "token_widths": [10, 20],
             "result_width": 22,

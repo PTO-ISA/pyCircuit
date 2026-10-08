@@ -531,9 +531,9 @@ def run(command, label):
 def test(name, source, expected=None, metadata=None):
     path = BASE / (name + ".sv")
     path.write_text(source)
-    assert sha(HELPER) == INITIAL_HELPER_HASH, (
-        "helper changed during independent validation"
-    )
+    assert (
+        sha(HELPER) == INITIAL_HELPER_HASH
+    ), "helper changed during independent validation"
     compiled = run(
         [
             IVERILOG,
@@ -637,9 +637,9 @@ for name in (
 ):
     source, expected = negative(name)
     results.append(test(name, source, expected))
-assert sha(HELPER) == INITIAL_HELPER_HASH, (
-    "helper changed during independent validation"
-)
+assert (
+    sha(HELPER) == INITIAL_HELPER_HASH
+), "helper changed during independent validation"
 receipt = {
     "role": "independent Q6-TH RTL helper tests",
     "configured_model": "gpt-6.1-sol",

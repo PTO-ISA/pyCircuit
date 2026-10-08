@@ -12,7 +12,18 @@ import tempfile
 from pathlib import Path
 
 parser = argparse.ArgumentParser()
-for name in ("repo", "source-compiler", "linker", "optimizer", "emitter", "cxx", "verilator", "iverilog", "vvp", "scratch"):
+for name in (
+    "repo",
+    "source-compiler",
+    "linker",
+    "optimizer",
+    "emitter",
+    "cxx",
+    "verilator",
+    "iverilog",
+    "vvp",
+    "scratch",
+):
     parser.add_argument("--" + name, required=True)
 parser.add_argument("--prepare-only", action="store_true")
 args = parser.parse_args()
@@ -40,12 +51,21 @@ def digest(path):
 
 def run(command, code=0, diagnostic=None):
     command = list(map(str, command))
-    result = subprocess.run(command, env=env, cwd=repo, text=True, capture_output=True, timeout=240)
-    row = {"command": command, "exit_status": result.returncode, "stdout": result.stdout, "stderr": result.stderr}
+    result = subprocess.run(
+        command, env=env, cwd=repo, text=True, capture_output=True, timeout=240
+    )
+    row = {
+        "command": command,
+        "exit_status": result.returncode,
+        "stdout": result.stdout,
+        "stderr": result.stderr,
+    }
     commands.append(row)
     (evidence / "commands.json").write_text(json.dumps(commands, indent=2) + "\n")
     assert result.returncode == code, row
-    assert "Traceback" not in result.stderr and "Assertion failed" not in result.stderr, row
+    assert (
+        "Traceback" not in result.stderr and "Assertion failed" not in result.stderr
+    ), row
     if diagnostic:
         assert diagnostic in result.stderr, row
     return result
@@ -56,7 +76,17 @@ def cli(*arguments, code=0, diagnostic=None):
 
 
 def compile_unit(filename, output, imports=(), replace=False, code=0, diagnostic=None):
-    command = ["compile", "-c", source / filename, "--source-root", source, "--package-prefix", "cases", "-o", output]
+    command = [
+        "compile",
+        "-c",
+        source / filename,
+        "--source-root",
+        source,
+        "--package-prefix",
+        "cases",
+        "-o",
+        output,
+    ]
     for unit in imports:
         command.extend(("-I", unit))
     if replace:
@@ -69,16 +99,34 @@ def unit_payload_path(unit, kind):
 
 
 def snapshot(path):
-    return {p.relative_to(path).as_posix(): p.read_bytes() for p in path.rglob("*") if p.is_file()}
+    return {
+        p.relative_to(path).as_posix(): p.read_bytes()
+        for p in path.rglob("*")
+        if p.is_file()
+    }
 
 
 def managed_snapshot(path):
-    return {"payload": snapshot(path) if path.is_dir() else path.read_bytes(), "control": snapshot(path.parent / ("." + path.name + ".pycircuit-publication"))}
+    return {
+        "payload": snapshot(path) if path.is_dir() else path.read_bytes(),
+        "control": snapshot(path.parent / ("." + path.name + ".pycircuit-publication")),
+    }
 
 
 CLOCK, RESET = "pyc_7079635f636c6b", "pyc_7079635f727374"
 runtime_root = Path(args.source_compiler).resolve().parent.parent
-runtime = next(p for p in (runtime_root / "simulator/gfsim/libpyc6_runtime.a", runtime_root / "lib/libpyc6_runtime.a") if p.is_file()) if not args.prepare_only else None
+runtime = (
+    next(
+        p
+        for p in (
+            runtime_root / "simulator/gfsim/libpyc6_runtime.a",
+            runtime_root / "lib/libpyc6_runtime.a",
+        )
+        if p.is_file()
+    )
+    if not args.prepare_only
+    else None
+)
 
 COM_SOURCE = "import pycircuit as ac\nfrom typing import Annotated\nfrom cases.facade import State as State\n\n@ac.struct\nclass Packet:\n    head: ac.u2\n    tail: ac.bits[65]\n\n@ac.struct\nclass Result:\n    selected_pass: ac.u4\n    repeated_pass: ac.u1\n    no_default: ac.u4\n    boolean: ac.u2\n    integer_or: ac.u3\n    enum_fallback: ac.u4\n    subject_once: ac.u2\n    wide_key: ac.u2\n    huge_key: ac.u2\n    packet: Packet\n\n@ac.rule\ndef evaluate(selector,boolean,integer_value,enum_value,raw3,wide,huge,payload) -> Result:\n    x: ac.u4 = 7\n    match selector:\n        case 0:\n            x = 1\n        case 1:\n            pass\n        case _:\n            x = 9\n    repeated: ac.u1 = 0\n    match selector:\n        case 0:\n            pass\n        case -0:\n            repeated = 1\n        case _:\n            pass\n    fallthrough: ac.u4 = 7\n    match selector:\n        case 0:\n            fallthrough = 1\n    boolean_result: ac.u2 = 0\n    match boolean:\n        case True:\n            boolean_result = 1\n        case False:\n            pass\n        case _:\n            boolean_result = 3\n    integer_result: ac.u3 = 0\n    match integer_value:\n        case 0 | 2:\n            integer_result = 5\n        case 1:\n            pass\n        case _:\n            integer_result = 2\n    enum_result: ac.u4 = 7\n    match enum_value:\n        case State.ZERO:\n            enum_result = 2\n        case State.ONE:\n            pass\n        case _:\n            enum_result = 9\n    once: ac.u2 = 0\n    match raw3[1:3]:\n        case 0:\n            once = 1\n        case 1 | 2:\n            once = 2\n        case _:\n            once = 3\n    wide_result: ac.u2 = 0\n    match wide:\n        case 0:\n            wide_result = 1\n        case 18446744073709551619:\n            wide_result = 2\n        case _:\n            wide_result = 3\n    huge_result: ac.u2 = 0\n    match huge:\n        case 0:\n            huge_result = 1\n        case 680564733841876926926749214863536422919:\n            huge_result = 2\n        case _:\n            huge_result = 3\n    packet = Packet(head=payload,tail=wide)\n    match selector:\n        case 0:\n            packet.head = 3\n        case 1:\n            pass\n        case _:\n            packet.tail = wide\n    return Result(selected_pass=x,repeated_pass=repeated,no_default=fallthrough,\n        boolean=boolean_result,integer_or=integer_result,enum_fallback=enum_result,\n        subject_once=once,wide_key=wide_result,huge_key=huge_result,packet=packet)\n\n@ac.module\ndef Top(selector: ac.u1,boolean: bool,integer_value: Annotated[int,range(1 << 2)],\n        enum_value: State,raw3: ac.bits[3],wide: ac.bits[65],huge: ac.bits[130],payload: ac.u2) -> Result:\n    return evaluate(selector,boolean,integer_value,enum_value,raw3,wide,huge,payload)\n"
 
@@ -115,7 +163,12 @@ def invert(value):
 
 
 def wide_patterns(width):
-    patterns = [word(0, width), word(1, width), word((1 << width) - 1, width), word((1 << (width - 1)) + 7, width)]
+    patterns = [
+        word(0, width),
+        word(1, width),
+        word((1 << width) - 1, width),
+        word((1 << (width - 1)) + 7, width),
+    ]
     for bit in sorted({0, 1, 63, 64, width - 1}):
         for symbol in "xz":
             value = list(word(0, width))
@@ -141,86 +194,180 @@ def make_vectors(
     latent=False,
 ):
     result_width = sum(fields.values())
-    (directory / "case-statements-width.hpp").write_text(f"constexpr unsigned result_width={result_width};\n")
-    offsets = {name: sum(list(fields.values())[index + 1 :]) for index, name in enumerate(fields)}
+    (directory / "case-statements-width.hpp").write_text(
+        f"constexpr unsigned result_width={result_width};\n"
+    )
+    offsets = {
+        name: sum(list(fields.values())[index + 1 :])
+        for index, name in enumerate(fields)
+    }
     cpp = [f"constexpr unsigned row_count={len(rows)};"]
 
     def arrays(label, frames):
-        return [f"const std::string_view {label}_{name}[]={{" + ",".join(json.dumps(row[name]) for row in frames) + "};" for name in inputs]
+        return [
+            f"const std::string_view {label}_{name}[]={{"
+            + ",".join(json.dumps(row[name]) for row in frames)
+            + "};"
+            for name in inputs
+        ]
 
     def drive_cpp(function, label):
         return (
             [f"void {function}(pyc_dut::Inputs &p,unsigned row){{"]
-            + [f"p.{name}=decltype(p.{name})::fromPacked(input<{width}>({label}_{name}[row]).packed());" for name, width in inputs.items()]
+            + [
+                f"p.{name}=decltype(p.{name})::fromPacked(input<{width}>({label}_{name}[row]).packed());"
+                for name, width in inputs.items()
+            ]
             + ["}"]
         )
 
     cpp += arrays("normal", rows) + drive_cpp("drive", "normal")
-    cpp += ["const std::string_view expected[]={" + ",".join(json.dumps("".join(g.values())) for g in gold) + "};"]
+    cpp += [
+        "const std::string_view expected[]={"
+        + ",".join(json.dumps("".join(g.values())) for g in gold)
+        + "};"
+    ]
 
     def plane_cpp(function, label, expected_rows, masks=()):
-        code = [f"template<class Output> void {function}(const Output &o,unsigned row){{"]
+        code = [
+            f"template<class Output> void {function}(const Output &o,unsigned row){{"
+        ]
         if state:
             for name, width in fields.items():
                 condition = f"plane_{label}_{name}[row]" if masks else "true"
-                code.append(f"if({condition})planes(o.result,{offsets[name]},input<{width}>({label}_{name}[row]));")
+                code.append(
+                    f"if({condition})planes(o.result,{offsets[name]},input<{width}>({label}_{name}[row]));"
+                )
         elif plane_inputs is not None:
             for field, specification in plane_inputs.items():
                 if isinstance(specification, dict):
-                    control, yes, no = specification["control"], specification["yes"], specification["no"]
+                    control, yes, no = (
+                        specification["control"],
+                        specification["yes"],
+                        specification["no"],
+                    )
                     code.append(
                         f'if(normal_{control}[row]=="0"||normal_{control}[row]=="1")planes(o.result,{offsets[field]},input<{fields[field]}>(normal_{control}[row]=="1"?normal_{yes}[row]:normal_{no}[row]));'
                     )
                 else:
-                    input_name, source_offset = specification if isinstance(specification, tuple) else (specification, 0)
-                    code.append(f"planes(o.result,{offsets[field]},input<{inputs[input_name]}>(normal_{input_name}[row]),{source_offset},{fields[field]});")
+                    input_name, source_offset = (
+                        specification
+                        if isinstance(specification, tuple)
+                        else (specification, 0)
+                    )
+                    code.append(
+                        f"planes(o.result,{offsets[field]},input<{inputs[input_name]}>(normal_{input_name}[row]),{source_offset},{fields[field]});"
+                    )
         else:
             pass
         return code + ["}"]
 
     if state:
         for label, frames in (("normal_gold", gold), ("probe_gold", probe_gold)):
-            cpp += [f"const std::string_view {label}_{name}[]={{" + ",".join(json.dumps(g[name]) for g in frames) + "};" for name in fields]
+            cpp += [
+                f"const std::string_view {label}_{name}[]={{"
+                + ",".join(json.dumps(g[name]) for g in frames)
+                + "};"
+                for name in fields
+            ]
     if state:
         for label, masks in (("normal_gold", plane_rows), ("probe_gold", probe_planes)):
             if masks:
-                cpp += [f"const bool plane_{label}_{name}[]={{" + ",".join("true" if name in mask else "false" for mask in masks) + "};" for name in fields]
+                cpp += [
+                    f"const bool plane_{label}_{name}[]={{"
+                    + ",".join("true" if name in mask else "false" for mask in masks)
+                    + "};"
+                    for name in fields
+                ]
     cpp += plane_cpp("checkPlanes", "normal_gold", gold, plane_rows)
     if state:
         cpp += [
             f"constexpr unsigned probe_count={len(probes)},failure_count={len(failures)};",
-            "const unsigned probe_action[]={" + ",".join(str(action) for _, action in probes) + "};",
+            "const unsigned probe_action[]={"
+            + ",".join(str(action) for _, action in probes)
+            + "};",
         ]
-        cpp += arrays("probe", [row for row, _ in probes]) + drive_cpp("driveProbe", "probe")
-        cpp += ["const std::string_view probe_expected[]={" + ",".join(json.dumps("".join(g.values())) for g in probe_gold) + "};"]
+        cpp += arrays("probe", [row for row, _ in probes]) + drive_cpp(
+            "driveProbe", "probe"
+        )
+        cpp += [
+            "const std::string_view probe_expected[]={"
+            + ",".join(json.dumps("".join(g.values())) for g in probe_gold)
+            + "};"
+        ]
         cpp += plane_cpp("checkProbePlanes", "probe_gold", probe_gold, probe_planes)
         cpp += arrays("failure", failures) + drive_cpp("driveFailure", "failure")
-        cpp += ["void driveRoot(pyc_root &root,const pyc_dut::Inputs &p){", *[f"root.{name}=p.{name};" for name in inputs], "}"]
+        cpp += [
+            "void driveRoot(pyc_root &root,const pyc_dut::Inputs &p){",
+            *[f"root.{name}=p.{name};" for name in inputs],
+            "}",
+        ]
     if latent:
         cpp += [
             'void replayLatentTuples(unsigned workers){gfsim::WorkExecutor pool(workers);pyc_root root("latent",&pool);',
             "for(unsigned row=0;row<row_count;++row)for(unsigned pattern=0;pattern<4;++pattern){",
         ]
         cpp += [
-            f"const auto {name}=latentInput<{width}>(normal_{name}[row],pattern);root.{name}=decltype(root.{name})::fromPacked({name}.packed());" for name, width in inputs.items()
+            f"const auto {name}=latentInput<{width}>(normal_{name}[row],pattern);root.{name}=decltype(root.{name})::fromPacked({name}.packed());"
+            for name, width in inputs.items()
         ]
         cpp += ["root.Work();check(root,expected[row]);"]
-        cpp += [f"planes(root.result,{offsets[field]},{input_name});" for field, input_name in plane_inputs.items()]
+        cpp += [
+            f"planes(root.result,{offsets[field]},{input_name});"
+            for field, input_name in plane_inputs.items()
+        ]
         cpp += ["root.DiscardNext();root.Xfer();}}"]
     (directory / "case-statements-vectors.hpp").write_text("\n".join(cpp) + "\n")
-    known = [index < known_prefix if known_prefix is not None else all(c in "01" for value in row.values() for c in value) for index, row in enumerate(rows)]
-    sv = [f"localparam integer row_count={len(rows)};", *[f"logic[{width - 1}:0] {name}=0;" for name, width in inputs.items()], f"wire[{result_width - 1}:0] result;"]
+    known = [
+        (
+            index < known_prefix
+            if known_prefix is not None
+            else all(c in "01" for value in row.values() for c in value)
+        )
+        for index, row in enumerate(rows)
+    ]
+    sv = [
+        f"localparam integer row_count={len(rows)};",
+        *[f"logic[{width - 1}:0] {name}=0;" for name, width in inputs.items()],
+        f"wire[{result_width - 1}:0] result;",
+    ]
     if state:
         sv += ["logic next_clock;"]
     sv += ["task drive(input integer row);case(row)"]
     for index, row in enumerate(rows):
-        sv += [f"{index}:begin", *[f"{'next_clock' if state and name == CLOCK else name}={inputs[name]}'b{value};" for name, value in row.items()], "end"]
-    sv += ["endcase endtask", f"function automatic logic[{result_width - 1}:0] golden(input integer row);case(row)"]
-    sv += [f"{index}:golden={result_width}'b{''.join(g.values())};" for index, g in enumerate(gold)]
-    sv += ["default:golden='x;endcase endfunction", "function automatic bit known_row(input integer row);case(row)"]
-    sv += [f"{index}:known_row={int(value)};" for index, value in enumerate(known)] + ["default:known_row=0;endcase endfunction"]
+        sv += [
+            f"{index}:begin",
+            *[
+                f"{'next_clock' if state and name == CLOCK else name}={inputs[name]}'b{value};"
+                for name, value in row.items()
+            ],
+            "end",
+        ]
+    sv += [
+        "endcase endtask",
+        f"function automatic logic[{result_width - 1}:0] golden(input integer row);case(row)",
+    ]
+    sv += [
+        f"{index}:golden={result_width}'b{''.join(g.values())};"
+        for index, g in enumerate(gold)
+    ]
+    sv += [
+        "default:golden='x;endcase endfunction",
+        "function automatic bit known_row(input integer row);case(row)",
+    ]
+    sv += [f"{index}:known_row={int(value)};" for index, value in enumerate(known)] + [
+        "default:known_row=0;endcase endfunction"
+    ]
     if state and failures:
-        sv += [f"task drive_failure;{CLOCK}=0;" + "".join(f"{name}={inputs[name]}'b{value};" for name, value in failures[0].items() if name != CLOCK) + "endtask"]
+        sv += [
+            f"task drive_failure;{CLOCK}=0;"
+            + "".join(
+                f"{name}={inputs[name]}'b{value};"
+                for name, value in failures[0].items()
+                if name != CLOCK
+            )
+            + "endtask"
+        ]
     (directory / "case-statements-vectors.svh").write_text("\n".join(sv) + "\n")
     return known
 
@@ -251,14 +398,21 @@ def execute(
     compiled = compile_unit(filename, unit, list(units.values()))
     if name == "com":
         assert compiled.stdout == "", commands[-1]
-        assert "warning: match arm is shadowed for known keys" in compiled.stderr and "remark: match covers" in compiled.stderr, commands[-1]
+        assert (
+            "warning: match arm is shadowed for known keys" in compiled.stderr
+            and "remark: match covers" in compiled.stderr
+        ), commands[-1]
         # Capture is the existing syntax-only product transport, never source execution.
         sys.path.insert(0, str(repo / "python/pycircuit/src"))
         from pycircuit._source_capture import _capture_source_file
         from pycircuit._source_transport import _emit_source_transport
 
         transport = output / "native.capture.mlir"
-        transport.write_text(_emit_source_transport(_capture_source_file(source / filename, source_root=source)))
+        transport.write_text(
+            _emit_source_transport(
+                _capture_source_file(source / filename, source_root=source)
+            )
+        )
         command = [
             args.source_compiler,
             "--capture",
@@ -277,17 +431,52 @@ def execute(
         for header in units.values():
             command += ["--header", unit_payload_path(header, "interface")]
         native = run(command)
-        assert native.stdout == "" and "warning: match arm is shadowed for known keys" in native.stderr and "remark: match covers" in native.stderr, commands[-1]
-        assert (output / "native.body.ac").read_bytes() == unit_payload_path(unit, "body").read_bytes()
-        assert (output / "native.header.ac").read_bytes() == unit_payload_path(unit, "interface").read_bytes()
+        assert (
+            native.stdout == ""
+            and "warning: match arm is shadowed for known keys" in native.stderr
+            and "remark: match covers" in native.stderr
+        ), commands[-1]
+        assert (output / "native.body.ac").read_bytes() == unit_payload_path(
+            unit, "body"
+        ).read_bytes()
+        assert (output / "native.header.ac").read_bytes() == unit_payload_path(
+            unit, "interface"
+        ).read_bytes()
     final = output / "design.ac"
-    cli("link", *[units[n] for n in declaration_sources], unit, "--top", "cases." + name + "." + top, "-o", final)
+    cli(
+        "link",
+        *[units[n] for n in declaration_sources],
+        unit,
+        "--top",
+        "cases." + name + "." + top,
+        "-o",
+        final,
+    )
     run([args.optimizer, final, "--ac-verify-hardware", "-o", output / "verified.ac"])
     for target in ("cpp", "verilog"):
         cli("emit", final, "--target", target, "-o", output / target)
-    known = make_vectors(output, inputs, fields, rows, gold, state, probes, probe_gold, failures, known_prefix, plane_rows, probe_planes, plane_inputs, latent)
+    known = make_vectors(
+        output,
+        inputs,
+        fields,
+        rows,
+        gold,
+        state,
+        probes,
+        probe_gold,
+        failures,
+        known_prefix,
+        plane_rows,
+        probe_planes,
+        plane_inputs,
+        latent,
+    )
     cpp_receipt = json.loads((output / "cpp/generated.json").read_text())
-    cpp = [output / "cpp" / item["path"] for item in cpp_receipt["files"] if item["path"].endswith(".cpp")]
+    cpp = [
+        output / "cpp" / item["path"]
+        for item in cpp_receipt["files"]
+        if item["path"].endswith(".cpp")
+    ]
     defines = ["-DCASE_STATEMENTS_STATE"] if state else []
     if latent:
         defines.append("-DCASE_STATEMENTS_LATENT")
@@ -312,7 +501,13 @@ def execute(
     config = output / "config.json"
     config.write_text(
         json.dumps(
-            {"schema": "pycircuit-model-config", "version": "1", "max_ticks": len(rows) + 16, "max_domain_cycles": {}, "deadlock_window": None},
+            {
+                "schema": "pycircuit-model-config",
+                "version": "1",
+                "max_ticks": len(rows) + 16,
+                "max_domain_cycles": {},
+                "deadlock_window": None,
+            },
             separators=(",", ":"),
             sort_keys=True,
         )
@@ -322,10 +517,16 @@ def execute(
     for workers in (1, 2):
         result = run([runner, "--workers", workers, "--config", config])
         (output / f"workers-{workers}.stdout").write_text(result.stdout)
-        traces.append([line for line in result.stdout.splitlines() if line.startswith("WORK ")])
+        traces.append(
+            [line for line in result.stdout.splitlines() if line.startswith("WORK ")]
+        )
     assert traces[0] == traces[1] and len(traces[0]) == len(rows)
     rtl_receipt = json.loads((output / "verilog/generated.json").read_text())
-    rtl = [output / "verilog" / item["path"] for item in rtl_receipt["files"] if item["role"] == "rtl"]
+    rtl = [
+        output / "verilog" / item["path"]
+        for item in rtl_receipt["files"]
+        if item["role"] == "rtl"
+    ]
     rtl.sort(key=lambda p: (p.name != "design_top.sv", str(p)))
     primitives = [repo / "include/verilog/dff.v", repo / "include/verilog/dffe.v"]
     run(
@@ -345,7 +546,9 @@ def execute(
         ]
     )
     observed = run([args.vvp, output / "four.vvp"]).stdout
-    assert [line for line in observed.splitlines() if line.startswith("WORK ")] == traces[0]
+    assert [
+        line for line in observed.splitlines() if line.startswith("WORK ")
+    ] == traces[0]
     run(
         [
             args.verilator,
@@ -368,7 +571,9 @@ def execute(
         ]
     )
     observed = run([output / "rtl-build/Venumsource"]).stdout
-    assert [line for line in observed.splitlines() if line.startswith("WORK ")] == [line for line, included in zip(traces[0], known, strict=True) if included]
+    assert [line for line in observed.splitlines() if line.startswith("WORK ")] == [
+        line for line, included in zip(traces[0], known, strict=True) if included
+    ]
     if state and failures:
         run(
             [
@@ -404,7 +609,11 @@ def execute(
     }
 
 
-for name, text in (("provider.py", PROVIDER_SOURCE), ("facade.py", FACADE_SOURCE), ("com.py", COM_SOURCE)):
+for name, text in (
+    ("provider.py", PROVIDER_SOURCE),
+    ("facade.py", FACADE_SOURCE),
+    ("com.py", COM_SOURCE),
+):
     ast.parse(text)
     (source / name).write_text(text)
 if args.prepare_only:
@@ -417,7 +626,16 @@ for name in ("provider.py", "facade.py"):
     units[name] = output
     (source / name).unlink()
 declaration_sources = ("provider.py", "facade.py")
-com_inputs = {"selector": 1, "boolean": 1, "integer_value": 2, "enum_value": 2, "raw3": 3, "wide": 65, "huge": 130, "payload": 2}
+com_inputs = {
+    "selector": 1,
+    "boolean": 1,
+    "integer_value": 2,
+    "enum_value": 2,
+    "raw3": 3,
+    "wide": 65,
+    "huge": 130,
+    "payload": 2,
+}
 com_fields = {
     "selected_pass": 4,
     "repeated_pass": 1,
@@ -430,7 +648,16 @@ com_fields = {
     "huge_key": 2,
     "packet": 67,
 }
-receipt = execute("com", COM_SOURCE, "Top", com_inputs, com_fields, COM_ROWS, COM_GOLD, plane_inputs={})
+receipt = execute(
+    "com",
+    COM_SOURCE,
+    "Top",
+    com_inputs,
+    com_fields,
+    COM_ROWS,
+    COM_GOLD,
+    plane_inputs={},
+)
 
 ENUM_PAYLOAD_SOURCE = """import pycircuit as ac
 from cases.facade import State
@@ -475,11 +702,23 @@ enum_vectors = [
     ("10", "01", "x", "xx", "x", "xx"),
     ("00", "01", "x", "0x", "1", "xx"),
 ]
-enum_rows = [{"raw": raw, "alternate": alternate, "selector": selector} for raw, alternate, selector, *_ in enum_vectors]
-enum_gold = [{"value": carrier, "raw": carrier, "member": member, "fallback": fallback} for *_, carrier, member, fallback in enum_vectors]
+enum_rows = [
+    {"raw": raw, "alternate": alternate, "selector": selector}
+    for raw, alternate, selector, *_ in enum_vectors
+]
+enum_gold = [
+    {"value": carrier, "raw": carrier, "member": member, "fallback": fallback}
+    for *_, carrier, member, fallback in enum_vectors
+]
 enum_receipt = execute(
-    "enum_payload", ENUM_PAYLOAD_SOURCE, "Top", {"raw": 2, "alternate": 2, "selector": 1},
-    {"value": 2, "raw": 2, "member": 1, "fallback": 2}, enum_rows, enum_gold, plane_inputs={},
+    "enum_payload",
+    ENUM_PAYLOAD_SOURCE,
+    "Top",
+    {"raw": 2, "alternate": 2, "selector": 1},
+    {"value": 2, "raw": 2, "member": 1, "fallback": 2},
+    enum_rows,
+    enum_gold,
+    plane_inputs={},
 )
 
 
@@ -494,11 +733,27 @@ def match_values(subject, incoming, arms, default=None):
 
 
 state_inputs = {"selector": 1, "prior": 1, "payload": 1, CLOCK: 1, RESET: 1}
-state_fields = {"prior": 1, "proposed": 1, "only_prior": 1, "only_proposed": 1, "sibling_prior": 1, "sibling_proposed": 1, "packet": 2, "table0": 1, "table1": 1}
+state_fields = {
+    "prior": 1,
+    "proposed": 1,
+    "only_prior": 1,
+    "only_proposed": 1,
+    "sibling_prior": 1,
+    "sibling_proposed": 1,
+    "packet": 2,
+    "table0": 1,
+    "table1": 1,
+}
 
 
 def state_row(clock="0", reset="0", selector="1", prior="0", payload="1"):
-    return {"selector": selector, "prior": prior, "payload": payload, CLOCK: clock, RESET: reset}
+    return {
+        "selector": selector,
+        "prior": prior,
+        "payload": payload,
+        CLOCK: clock,
+        RESET: reset,
+    }
 
 
 class StateOracle:
@@ -507,7 +762,15 @@ class StateOracle:
         self.initialize()
 
     def initialize(self):
-        self.q = {"owner": "0", "only": "0", "sibling": "0", "left": "0", "right": "0", "table0": "0", "table1": "0"}
+        self.q = {
+            "owner": "0",
+            "only": "0",
+            "sibling": "0",
+            "left": "0",
+            "right": "0",
+            "table0": "0",
+            "table1": "0",
+        }
 
     def sample(self, row, action=0):
         selector, prior, payload = row["selector"], row["prior"], row["payload"]
@@ -520,7 +783,12 @@ class StateOracle:
         repeated = dict(incoming)
         repeated["owner"] = "1"
         repeated["owner_en"] = "1"
-        env = match_values(selector, incoming, [((0,), dict(incoming)), ((0,), repeated)], dict(incoming))
+        env = match_values(
+            selector,
+            incoming,
+            [((0,), dict(incoming)), ((0,), repeated)],
+            dict(incoming),
+        )
         only = dict(env)
         only["only"] = payload
         only["only_en"] = "1"
@@ -553,7 +821,16 @@ class StateOracle:
             "table1": env["table1"],
         }
         rising = self.clock == "0" and row[CLOCK] == "1"
-        failure = row[CLOCK] in "xz" or (rising and (row[RESET] in "xz" or (row[RESET] == "0" and any(env[key + "_en"] in "xz" for key in self.q))))
+        failure = row[CLOCK] in "xz" or (
+            rising
+            and (
+                row[RESET] in "xz"
+                or (
+                    row[RESET] == "0"
+                    and any(env[key + "_en"] in "xz" for key in self.q)
+                )
+            )
+        )
         assert failure == (action == 2), (row, action, env)
         if action == 0:
             if rising:
@@ -574,17 +851,30 @@ for selector, prior, data_word in itertools.product("01", "01", "01"):
 state_rows += [state_row("1", "1"), state_row()]
 state_known_prefix = len(state_rows)
 for selector in "xz":
-    state_rows += [state_row(selector=selector), state_row("1", "1", selector), state_row()]
+    state_rows += [
+        state_row(selector=selector),
+        state_row("1", "1", selector),
+        state_row(),
+    ]
 state_oracle = StateOracle()
 state_gold = [state_oracle.sample(row) for row in state_rows]
-probe_rows = [(state_row(), 0), (state_row("1", selector="0", prior="1", payload="1"), 1), (state_row("1", selector="0", prior="1", payload="1"), 0), (state_row(), 0)]
+probe_rows = [
+    (state_row(), 0),
+    (state_row("1", selector="0", prior="1", payload="1"), 1),
+    (state_row("1", selector="0", prior="1", payload="1"), 0),
+    (state_row(), 0),
+]
 failure_rows = []
 for control in ("selector", "prior", CLOCK, RESET):
     for symbol in "xz":
         failed = state_row("1", selector="1", prior="0")
         failed[control] = symbol
         failure_rows.append(failed)
-        probe_rows += [(failed, 2), (state_row("1", selector="1", prior="1"), 0), (state_row(), 0)]
+        probe_rows += [
+            (failed, 2),
+            (state_row("1", selector="1", prior="1"), 0),
+            (state_row(), 0),
+        ]
 probe_rows += [(state_row("1", "1", "x", "x", "x"), 0), (state_row(), 0)]
 probe_oracle = StateOracle()
 probe_gold = [probe_oracle.sample(row, action) for row, action in probe_rows]
@@ -637,8 +927,12 @@ controls = {
     "integer": scalar("0", "Annotated[int,range(1 << 2)]"),
     "enum": scalar("State.ZERO", "State"),
     "wide": scalar("18446744073709551619", "ac.bits[65]"),
-    "sparse-large": scalar("0", "ac.bits[65536]").replace("        case _:\n            pass", "        case 17:\n            value = 2"),
-    "capacity": scalar(subject="ac.bits[4294967296]").replace("        case 0:\n            value = 1\n        case _:", "        case _:"),
+    "sparse-large": scalar("0", "ac.bits[65536]").replace(
+        "        case _:\n            pass", "        case 17:\n            value = 2"
+    ),
+    "capacity": scalar(subject="ac.bits[4294967296]").replace(
+        "        case 0:\n            value = 1\n        case _:", "        case _:"
+    ),
 }
 cases = {}
 
@@ -646,9 +940,29 @@ cases = {}
 def add(name, text, control, intention):
     cases[name] = {"source": text, "control": control, "intention": intention}
 
-add("mathematical-selector", scalar(subject="Annotated[int,range(1 << 2)]").replace("match subject:", "match subject + 1:"), "integer", "arithmetic Integer selector is outside admitted profile")
-add("signed-selector", scalar(subject="Annotated[int,range(1 << 2)]").replace("match subject:", "match subject - 2:"), "integer", "selector interval crosses zero and is signed")
-add("unresolved-selector", scalar(subject="ac.bits[W]"), "scalar", "undeclared annotation width rejects at source signature scope")
+
+add(
+    "mathematical-selector",
+    scalar(subject="Annotated[int,range(1 << 2)]").replace(
+        "match subject:", "match subject + 1:"
+    ),
+    "integer",
+    "arithmetic Integer selector is outside admitted profile",
+)
+add(
+    "signed-selector",
+    scalar(subject="Annotated[int,range(1 << 2)]").replace(
+        "match subject:", "match subject - 2:"
+    ),
+    "integer",
+    "selector interval crosses zero and is signed",
+)
+add(
+    "unresolved-selector",
+    scalar(subject="ac.bits[W]"),
+    "scalar",
+    "undeclared annotation width rejects at source signature scope",
+)
 
 for name, pattern in [
     ("guard", "0 if payload"),
@@ -669,21 +983,64 @@ for name, pattern in [
     ("attribute", "ac.missing"),
     ("or-catchall", "0 | _"),
 ]:
-    add(name, scalar(pattern), "scalar", "excluded pattern/guard or exact canonical unsigned key guard")
-add("catchall-not-last", scalar().replace("case 0:", "case _:").replace("case _:", "case _:", 1), "scalar", "catch-all is unique/final")
-add("two-catchalls", scalar().replace("case 0:", "case _:"), "scalar", "catch-all is unique/final")
-add("bool-integer-key", scalar("0", "bool"), "boolean", "Boolean selector rejects Integer key")
+    add(
+        name,
+        scalar(pattern),
+        "scalar",
+        "excluded pattern/guard or exact canonical unsigned key guard",
+    )
+add(
+    "catchall-not-last",
+    scalar().replace("case 0:", "case _:").replace("case _:", "case _:", 1),
+    "scalar",
+    "catch-all is unique/final",
+)
+add(
+    "two-catchalls",
+    scalar().replace("case 0:", "case _:"),
+    "scalar",
+    "catch-all is unique/final",
+)
+add(
+    "bool-integer-key",
+    scalar("0", "bool"),
+    "boolean",
+    "Boolean selector rejects Integer key",
+)
 add("u1-bool-key", scalar("True"), "scalar", "bits selector rejects Boolean key")
-add("integer-bool-key", scalar("True", "Annotated[int,range(1 << 2)]"), "integer", "Integer selector rejects Boolean key")
-add("enum-integer-key", scalar("0", "State"), "enum", "Enum selector requires canonical same-Enum member")
+add(
+    "integer-bool-key",
+    scalar("True", "Annotated[int,range(1 << 2)]"),
+    "integer",
+    "Integer selector rejects Boolean key",
+)
+add(
+    "enum-integer-key",
+    scalar("0", "State"),
+    "enum",
+    "Enum selector requires canonical same-Enum member",
+)
 add(
     "enum-other-member",
-    scalar("Peer.ONE", "State").replace("from cases.facade import State", "from cases.facade import State\nfrom cases.peer import State as Peer"),
+    scalar("Peer.ONE", "State").replace(
+        "from cases.facade import State",
+        "from cases.facade import State\nfrom cases.peer import State as Peer",
+    ),
     "enum",
     "distinct nominal key rejected even equal width/codes",
 )
-add("wide-overflow", scalar(str(1 << 65), "ac.bits[65]"), "wide", "exact arbitrary-precision key checked before narrowing")
-add("huge-overflow", scalar(str(1 << 130), "ac.bits[130]"), "wide", "exact arbitrary-precision key checked before narrowing")
+add(
+    "wide-overflow",
+    scalar(str(1 << 65), "ac.bits[65]"),
+    "wide",
+    "exact arbitrary-precision key checked before narrowing",
+)
+add(
+    "huge-overflow",
+    scalar(str(1 << 130), "ac.bits[130]"),
+    "wide",
+    "exact arbitrary-precision key checked before narrowing",
+)
 for name, body in [
     ("return", "            return Result(value=1)"),
     ("allocation", "            local: ac.u2 = 0"),
@@ -693,16 +1050,47 @@ for name, body in [
 ]:
     text = scalar(body=body)
     if name == "module-call":
-        text = text.replace("@ac.rule\ndef evaluate", "@ac.module\ndef Child(payload: ac.u2) -> Result:\n    return Result(value=payload)\n@ac.rule\ndef evaluate")
+        text = text.replace(
+            "@ac.rule\ndef evaluate",
+            "@ac.module\ndef Child(payload: ac.u2) -> Result:\n    return Result(value=payload)\n@ac.rule\ndef evaluate",
+        )
     if name == "rule-call":
-        text = text.replace("@ac.rule\ndef evaluate", "@ac.rule\ndef other(payload) -> Result:\n    return Result(value=payload)\n@ac.rule\ndef evaluate")
-    add("arm-" + name, text, "scalar", "existing branch statement subset remains bounded")
+        text = text.replace(
+            "@ac.rule\ndef evaluate",
+            "@ac.rule\ndef other(payload) -> Result:\n    return Result(value=payload)\n@ac.rule\ndef evaluate",
+        )
+    add(
+        "arm-" + name,
+        text,
+        "scalar",
+        "existing branch statement subset remains bounded",
+    )
 # Exhaustive known coverage cannot create a fresh name under X/Z.
-partial = scalar().replace("    value: ac.u2 = 0\n", "").replace("        case _:\n            pass", "        case 1:\n            value = 2")
-add("partial-known-exhaustive", partial, "scalar", "no incoming and no catch-all leaves physical unknown fallback unbound")
-add("partial-arm", scalar().replace("    value: ac.u2 = 0\n", ""), "scalar", "partial local later read rejected")
-controls["partial-recovered"] = partial.replace("    return Result(value=value)", "    value = 3\n    return Result(value=value)")
-controls["partial-unused"] = partial.replace("    return Result(value=value)", "    return Result(value=3)")
+partial = (
+    scalar()
+    .replace("    value: ac.u2 = 0\n", "")
+    .replace(
+        "        case _:\n            pass", "        case 1:\n            value = 2"
+    )
+)
+add(
+    "partial-known-exhaustive",
+    partial,
+    "scalar",
+    "no incoming and no catch-all leaves physical unknown fallback unbound",
+)
+add(
+    "partial-arm",
+    scalar().replace("    value: ac.u2 = 0\n", ""),
+    "scalar",
+    "partial local later read rejected",
+)
+controls["partial-recovered"] = partial.replace(
+    "    return Result(value=value)", "    value = 3\n    return Result(value=value)"
+)
+controls["partial-unused"] = partial.replace(
+    "    return Result(value=value)", "    return Result(value=3)"
+)
 # Ordinary assignment only inside Match must classify a real writable owner.
 writer = """import pycircuit as ac
 @ac.struct
@@ -724,27 +1112,53 @@ def Top(selector: ac.u1,payload: ac.u1) -> Result:
 controls["match-writer"] = writer
 add(
     "overlapping_writers",
-    writer.replace("    return write(state,selector,payload)", "    first = write(state,selector,payload)\n    return write(state,selector,payload)"),
+    writer.replace(
+        "    return write(state,selector,payload)",
+        "    first = write(state,selector,payload)\n    return write(state,selector,payload)",
+    ),
     "match-writer",
     "overlapping writes rejected through Match-only effect",
 )
 alias = (
-    writer.replace("def write(owner,selector,payload)", "def write(owner,alias,selector,payload)")
-    .replace("            owner = payload", "            owner = payload\n            alias = payload")
+    writer.replace(
+        "def write(owner,selector,payload)", "def write(owner,alias,selector,payload)"
+    )
+    .replace(
+        "            owner = payload",
+        "            owner = payload\n            alias = payload",
+    )
     .replace("write(state,selector,payload)", "write(state,state,selector,payload)")
 )
-add("writable-alias", alias, "match-writer", "alias guard sees writable owner formals whose writes occur only in Match")
+add(
+    "writable-alias",
+    alias,
+    "match-writer",
+    "alias guard sees writable owner formals whose writes occur only in Match",
+)
 add(
     "enum-shadow-in-arm",
-    scalar("State.ZERO", "State", body="            State = payload\n            value = ac.enum_to_bits(State.ZERO)").replace("value: ac.u2 = 0", "value: ac.u2 = 0"),
+    scalar(
+        "State.ZERO",
+        "State",
+        body="            State = payload\n            value = ac.enum_to_bits(State.ZERO)",
+    ).replace("value: ac.u2 = 0", "value: ac.u2 = 0"),
     "enum",
     "lexical shadow walk traverses match arm body",
 )
-add("marker-shadow-in-arm", scalar(body="            ac = payload\n            value = ac.enum_to_bits(State.ZERO)"), "scalar", "namespace shadow walk traverses match arm body")
+add(
+    "marker-shadow-in-arm",
+    scalar(
+        body="            ac = payload\n            value = ac.enum_to_bits(State.ZERO)"
+    ),
+    "scalar",
+    "namespace shadow walk traverses match arm body",
+)
 
 allocation = cases["arm-allocation"]
 controls["arm-local-annotation"] = allocation["source"]
-allocation["source"] = allocation["source"].replace("local: ac.u2 = 0", "local = ac.table[2,ac.u1](init=0)")
+allocation["source"] = allocation["source"].replace(
+    "local: ac.u2 = 0", "local = ac.table[2,ac.u1](init=0)"
+)
 for name, message in [
     ("enum-shadow-in-arm", "Enum member declaration is shadowed in its lexical scope"),
     ("marker-shadow-in-arm", "source binding is shadowed in its lexical scope: 'ac'"),
@@ -755,23 +1169,44 @@ scalar = controls["scalar"]
 ordered = (
     scalar.replace("    value: ac.u2 = 0\n", "")
     .replace("            value = 1", "            value = payload")
-    .replace("        case _:\n            pass", "        case 1:\n            value = 1\n        case _:\n            value = 2")
+    .replace(
+        "        case _:\n            pass",
+        "        case 1:\n            value = 1\n        case _:\n            value = 2",
+    )
 )
-cases["ordered-join-proof"] = {"source": ordered, "control": "ordered-typed", "intention": "retain ordered binary F1 joins; inner integer merge loses closed-source proof"}
-controls["ordered-typed"] = ordered.replace("    match subject:", "    value: ac.u2 = 0\n    match subject:")
+cases["ordered-join-proof"] = {
+    "source": ordered,
+    "control": "ordered-typed",
+    "intention": "retain ordered binary F1 joins; inner integer merge loses closed-source proof",
+}
+controls["ordered-typed"] = ordered.replace(
+    "    match subject:", "    value: ac.u2 = 0\n    match subject:"
+)
 cases["arm-reannotation"] = {
     "source": scalar.replace("            value = 1", "            value: ac.u3 = 1"),
     "control": "scalar",
     "intention": "existing annotation cannot be replaced inside Match",
 }
 # Whole aggregates are payloads only; selector forms are deferred.
-record = scalar.replace("@ac.struct\nclass Result:", "@ac.struct\nclass Packet:\n    code: ac.u1\n@ac.struct\nclass Result:").replace("subject: ac.u1", "subject: Packet")
-cases["struct-selector"] = {"source": record, "control": "struct-projection", "intention": "whole struct selector is outside ordinary closed-selector profile"}
+record = scalar.replace(
+    "@ac.struct\nclass Result:",
+    "@ac.struct\nclass Packet:\n    code: ac.u1\n@ac.struct\nclass Result:",
+).replace("subject: ac.u1", "subject: Packet")
+cases["struct-selector"] = {
+    "source": record,
+    "control": "struct-projection",
+    "intention": "whole struct selector is outside ordinary closed-selector profile",
+}
 controls["struct-projection"] = record.replace("match subject:", "match subject.code:")
 table = scalar.replace("subject: ac.u1, payload: ac.u2", "payload: ac.u2").replace(
-    "    return evaluate(subject,payload)", "    subject = ac.table[2,ac.u1](init=0)\n    return evaluate(subject,payload)"
+    "    return evaluate(subject,payload)",
+    "    subject = ac.table[2,ac.u1](init=0)\n    return evaluate(subject,payload)",
 )
-cases["table-selector"] = {"source": table, "control": "table-projection", "intention": "whole table selector is deferred; scalar projection remains admitted"}
+cases["table-selector"] = {
+    "source": table,
+    "control": "table-projection",
+    "intention": "whole table selector is deferred; scalar projection remains admitted",
+}
 controls["table-projection"] = table.replace("match subject:", "match subject[0]:")
 
 SOURCE_GUARDS = {
@@ -839,27 +1274,81 @@ for name, text in controls.items():
     unit = directory / "unit"
     compiled = compile_unit(filename, unit, source_imports)
     if name == "sparse-large":
-        assert "remark: match covers" not in compiled.stderr and compiled.stdout == "", commands[-1]
+        assert (
+            "remark: match covers" not in compiled.stderr and compiled.stdout == ""
+        ), commands[-1]
     final = directory / "control.ac"
-    cli("link", *source_imports, unit, "--top", "cases." + filename.removesuffix(".py") + ".Top", "-o", final)
+    cli(
+        "link",
+        *source_imports,
+        unit,
+        "--top",
+        "cases." + filename.removesuffix(".py") + ".Top",
+        "-o",
+        final,
+    )
     control_units[name] = {"unit": unit, "final": final, "filename": filename}
-    source_control_receipts.append({"name": name, "body_sha256": digest(unit_payload_path(unit, "body")), "final_sha256": digest(final)})
-protected_paths = [Path(item[key]) for item in (receipt, state_receipt, enum_receipt) for key in ("unit", "final")] + [
-    Path(item["output"]) / target for item in (receipt, state_receipt, enum_receipt) for target in ("cpp", "verilog")
+    source_control_receipts.append(
+        {
+            "name": name,
+            "body_sha256": digest(unit_payload_path(unit, "body")),
+            "final_sha256": digest(final),
+        }
+    )
+protected_paths = [
+    Path(item[key])
+    for item in (receipt, state_receipt, enum_receipt)
+    for key in ("unit", "final")
+] + [
+    Path(item["output"]) / target
+    for item in (receipt, state_receipt, enum_receipt)
+    for target in ("cpp", "verilog")
 ]
-protected_paths += [item[key] for item in control_units.values() for key in ("unit", "final")]
+protected_paths += [
+    item[key] for item in control_units.values() for key in ("unit", "final")
+]
 protected_paths += list(units.values()) + [peer_unit]
 protected = {str(path): managed_snapshot(path) for path in protected_paths}
 capacity_receipts = []
 capacity_diagnostic = "hardware payload plane including enclosing collections exceeds the current Runtime bit-width capacity"
 for target in ("cpp", "verilog"):
     absent = build / ("capacity-absent-" + target)
-    failed = cli("emit", control_units["capacity"]["final"], "--target", target, "-o", absent, code=1, diagnostic=capacity_diagnostic)
+    failed = cli(
+        "emit",
+        control_units["capacity"]["final"],
+        "--target",
+        target,
+        "-o",
+        absent,
+        code=1,
+        diagnostic=capacity_diagnostic,
+    )
     assert failed.stdout == "" and not absent.exists(), target
     replacement = Path(receipt["output"]) / target
-    failed = cli("emit", control_units["capacity"]["final"], "--target", target, "-o", replacement, "--replace", code=1, diagnostic=capacity_diagnostic)
-    assert failed.stdout == "" and {str(path): managed_snapshot(path) for path in protected_paths} == protected, target
-    capacity_receipts.append({"target": target, "selector_width": 4294967296, "diagnostic": capacity_diagnostic, "fresh_exit_status": 1, "replacement_exit_status": 1})
+    failed = cli(
+        "emit",
+        control_units["capacity"]["final"],
+        "--target",
+        target,
+        "-o",
+        replacement,
+        "--replace",
+        code=1,
+        diagnostic=capacity_diagnostic,
+    )
+    assert (
+        failed.stdout == ""
+        and {str(path): managed_snapshot(path) for path in protected_paths} == protected
+    ), target
+    capacity_receipts.append(
+        {
+            "target": target,
+            "selector_width": 4294967296,
+            "diagnostic": capacity_diagnostic,
+            "fresh_exit_status": 1,
+            "replacement_exit_status": 1,
+        }
+    )
 source_guard_receipts = []
 for name, case in cases.items():
     control = control_units[case["control"]]
@@ -867,18 +1356,61 @@ for name, case in cases.items():
     archived = source_case_archive / ("bad-" + name + ".py")
     archived.write_text(case["source"])
     absent = build / ("guard-absent-" + name)
-    fresh = compile_unit(control["filename"], absent, source_imports, code=1, diagnostic=SOURCE_GUARDS[name])
+    fresh = compile_unit(
+        control["filename"],
+        absent,
+        source_imports,
+        code=1,
+        diagnostic=SOURCE_GUARDS[name],
+    )
     assert fresh.stdout == "" and not absent.exists(), name
-    replaced = compile_unit(control["filename"], control["unit"], source_imports, replace=True, code=1, diagnostic=SOURCE_GUARDS[name])
-    assert replaced.stdout == "" and {str(path): managed_snapshot(path) for path in protected_paths} == protected, name
+    replaced = compile_unit(
+        control["filename"],
+        control["unit"],
+        source_imports,
+        replace=True,
+        code=1,
+        diagnostic=SOURCE_GUARDS[name],
+    )
+    assert (
+        replaced.stdout == ""
+        and {str(path): managed_snapshot(path) for path in protected_paths} == protected
+    ), name
     source_guard_receipts.append(
-        {"case": name, "control": case["control"], "diagnostic": SOURCE_GUARDS[name], "fresh_exit_status": 1, "replacement_exit_status": 1, "source_sha256": digest(archived)}
+        {
+            "case": name,
+            "control": case["control"],
+            "diagnostic": SOURCE_GUARDS[name],
+            "fresh_exit_status": 1,
+            "replacement_exit_status": 1,
+            "source_sha256": digest(archived),
+        }
     )
 capture_directory = build / "capture-guards"
-run([sys.executable, fixtures / "case_capture_guards.py", "--repo", repo, "--source-compiler", args.source_compiler, "--optimizer", args.optimizer, "--scratch", capture_directory])
+run(
+    [
+        sys.executable,
+        fixtures / "case_capture_guards.py",
+        "--repo",
+        repo,
+        "--source-compiler",
+        args.source_compiler,
+        "--optimizer",
+        args.optimizer,
+        "--scratch",
+        capture_directory,
+    ]
+)
 capture_result = json.loads((capture_directory / "results.json").read_text())
-assert len(capture_result["cases"]) == 12 and capture_result["base_compile_exit_status"] == capture_result["base_lowered_body_interface_extraction_exit_status"] == 0
-paths = [fixtures / ("case-statements" + suffix) for suffix in (".py", ".cpp", ".sv")] + [
+assert (
+    len(capture_result["cases"]) == 12
+    and capture_result["base_compile_exit_status"]
+    == capture_result["base_lowered_body_interface_extraction_exit_status"]
+    == 0
+)
+paths = [
+    fixtures / ("case-statements" + suffix) for suffix in (".py", ".cpp", ".sv")
+] + [
     fixtures.parent / "case-statements.test",
     fixtures / "case-vectors.json",
     fixtures / "case_capture_guards.py",
@@ -891,17 +1423,36 @@ paths = [fixtures / ("case-statements" + suffix) for suffix in (".py", ".cpp", "
             "fixtures": {str(p): digest(p) for p in paths},
             "tools": {
                 str(Path(p).resolve()): digest(Path(p))
-                for p in (args.source_compiler, args.linker, args.optimizer, args.emitter, args.cxx, args.verilator, args.iverilog, args.vvp)
+                for p in (
+                    args.source_compiler,
+                    args.linker,
+                    args.optimizer,
+                    args.emitter,
+                    args.cxx,
+                    args.verilator,
+                    args.iverilog,
+                    args.vvp,
+                )
             },
             "runtime": {str(runtime): digest(runtime)},
             "products": [receipt, state_receipt, enum_receipt],
-            "compiler_only_boundaries": {"sparse_selector_width": 65536, "sparse_keys": [0, 17], "capacity_rejections": capacity_receipts},
+            "compiler_only_boundaries": {
+                "sparse_selector_width": 65536,
+                "sparse_keys": [0, 17],
+                "capacity_rejections": capacity_receipts,
+            },
             "source_guards": source_guard_receipts,
             "source_controls": source_control_receipts,
-            "capture_guard_result": {"path": str(capture_directory / "results.json"), "sha256": digest(capture_directory / "results.json"), "cases": 12},
+            "capture_guard_result": {
+                "path": str(capture_directory / "results.json"),
+                "sha256": digest(capture_directory / "results.json"),
+                "cases": 12,
+            },
         },
         indent=2,
     )
     + "\n"
 )
-print("case-statement gate passed: complete arms/pass/fallback/repeated keys, native1/2 and genuine RTL")  # noqa: T201
+print(
+    "case-statement gate passed: complete arms/pass/fallback/repeated keys, native1/2 and genuine RTL"
+)  # noqa: T201

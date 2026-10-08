@@ -81,3 +81,9 @@ without partial commit. The discarded host-Reset probe must actually retire its
 retained command's classified result exactly once before a real Reset. Separate
 terminal native/RTL probes check unknown-control failure and native Reset recovery.
 The finite runner bound is4,000 sampling epochs per successful history.
+The separate `bench.py` system checks a finite regular-clock known-state scenario with exact old-state output checks. This is partial system migration: the original independent drivers retain their full physical-clock, midstream-reset and four-state scenarios.
+
+```bash
+pycircuit run examples/enum_helpers --target cpp --cycles 184 --build-dir .pycircuit_out/enum_helpers/system-cpp
+pycircuit run examples/enum_helpers --target verilog --cycles 184 --build-dir .pycircuit_out/enum_helpers/system-verilog
+```

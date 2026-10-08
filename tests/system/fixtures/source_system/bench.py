@@ -1,5 +1,5 @@
-from pycircuit import bits, log, report, rule, system
 from checks.dut import Accumulator
+from pycircuit import bits, log, report, rule, system
 
 
 @rule

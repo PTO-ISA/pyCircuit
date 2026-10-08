@@ -38,13 +38,20 @@ def _hash(path: Path) -> str:
 @pytest.fixture
 def catalog_repo(tmp_path: Path):
     rows = [
-        {"name": name, "folder": f"examples/{name}", "source": f"{name}.py",
-         **({"generated": "GENERATED.json"} if generated else {})}
+        {
+            "name": name,
+            "folder": f"examples/{name}",
+            "source": f"{name}.py",
+            **({"generated": "GENERATED.json"} if generated else {}),
+        }
         for name, generated in (("alpha", False), ("beta", True))
     ]
     api_rows = [{"name": "memory_case", "owner": "tests/compiler/lit/memory.py"}]
-    data = {"schema": "pycircuit-example-catalog", "examples": rows,
-            "api_coverage": api_rows}
+    data = {
+        "schema": "pycircuit-example-catalog",
+        "examples": rows,
+        "api_coverage": api_rows,
+    }
     _write_json(tmp_path / "examples/catalog.json", data)
     for row in rows:
         folder = tmp_path / row["folder"]
@@ -100,8 +107,11 @@ def test_catalog_rejects_duplicate_names(tool, catalog_repo):
 def test_checked_out_catalog_matches_registered_examples(tool):
     data = tool.catalog(ROOT)
     cmake = (ROOT / "examples/CMakeLists.txt").read_text()
-    registered = [line.removeprefix("add_selected_example(").removesuffix(")")
-                  for line in cmake.splitlines() if line.startswith("add_selected_example(")]
+    registered = [
+        line.removeprefix("add_selected_example(").removesuffix(")")
+        for line in cmake.splitlines()
+        if line.startswith("add_selected_example(")
+    ]
     assert [row["name"] for row in data["examples"]] == registered
     navigation = tool.navigation(ROOT)
     assert "docs/gates/logs" not in navigation
@@ -131,20 +141,36 @@ def documented_build(tmp_path: Path):
     for relative, (marker, label) in payloads.items():
         path = build / relative
         path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text("preamble\n" + marker + "\n" + "\n".join(f"{label}_literal_{i}" for i in range(20)) + "\n")
-    _write_json(build / "cpp/generated.json", {
-        "entry": "fixture.Root", "entry_source": {"path": "fixture.py"},
-        "files": [{"path": "fixture.hpp", "role": "header"}],
-    })
-    _write_json(build / "verilog/generated.json", {
-        "files": [{"path": "fixture.v", "role": "rtl"}],
-    })
-    _write_json(build / "execution.json", [
-        {"command": [str(runner), "--workers", "1"], "exit_status": 0},
-        {"command": [str(runner), "--workers", "2"], "exit_status": 0},
-        {"command": ["verilator", "--binary"], "exit_status": 0},
-        {"command": ["compiled-rtl-fixture"], "exit_status": 0},
-    ])
+        path.write_text(
+            "preamble\n"
+            + marker
+            + "\n"
+            + "\n".join(f"{label}_literal_{i}" for i in range(20))
+            + "\n"
+        )
+    _write_json(
+        build / "cpp/generated.json",
+        {
+            "entry": "fixture.Root",
+            "entry_source": {"path": "fixture.py"},
+            "files": [{"path": "fixture.hpp", "role": "header"}],
+        },
+    )
+    _write_json(
+        build / "verilog/generated.json",
+        {
+            "files": [{"path": "fixture.v", "role": "rtl"}],
+        },
+    )
+    _write_json(
+        build / "execution.json",
+        [
+            {"command": [str(runner), "--workers", "1"], "exit_status": 0},
+            {"command": [str(runner), "--workers", "2"], "exit_status": 0},
+            {"command": ["verilator", "--binary"], "exit_status": 0},
+            {"command": ["compiled-rtl-fixture"], "exit_status": 0},
+        ],
+    )
     trace = "WORK fixture 0\nWORK fixture 1\n"
     for filename in ("serial.stdout", "parallel.stdout", "rtl-run.stdout"):
         (build / filename).write_text("non-Work output\n" + trace)
@@ -155,9 +181,12 @@ def documented_build(tmp_path: Path):
         inputs[f"build/{relative}"] = _hash(build / relative)
     inputs["runtime-rtl/primitive.v"] = _hash(include / "verilog/primitive.v")
     proof = {
-        "schema": "pycircuit-example-verification-v1", "inputs": inputs,
+        "schema": "pycircuit-example-verification-v1",
+        "inputs": inputs,
         "execution_sha256": _hash(build / "execution.json"),
-        "work_samples": 2, "workers": [1, 2], "rtl": "verilator",
+        "work_samples": 2,
+        "workers": [1, 2],
+        "rtl": "verilator",
         "trace_sha256": hashlib.sha256(trace.encode()).hexdigest(),
         "runtime_include": str(include),
     }
@@ -176,13 +205,17 @@ def test_generated_guide_copies_literal_artifact_excerpts(tool, documented_build
     }
     assert "runtime_include" not in metadata["verification"]
     assert {row["path"] for row in metadata["excerpts"]} == {
-        "fixture.ac", "cpp/fixture.hpp", "verilog/fixture.v",
+        "fixture.ac",
+        "cpp/fixture.hpp",
+        "verilog/fixture.v",
     }
     for row in metadata["excerpts"]:
         path = build / row["path"]
         assert row["line"] == 2
         assert row["sha256"] == _hash(path)
-        literal = "\n".join(path.read_text().splitlines()[row["line"] - 1:row["line"] + 13])
+        literal = "\n".join(
+            path.read_text().splitlines()[row["line"] - 1 : row["line"] + 13]
+        )
         assert literal in text
     assert "mlir_literal_19" not in text
 
@@ -200,10 +233,14 @@ def test_generated_guide_refuses_stale_verified_inputs(tool, documented_build, c
         tool.generated(repo, "fixture", build)
 
 
-def test_generated_guide_refuses_source_added_after_verification(tool, documented_build):
+def test_generated_guide_refuses_source_added_after_verification(
+    tool, documented_build
+):
     repo, build, source, _ = documented_build
     (source / "another_module.py").write_text("# new source after the recorded run\n")
-    with pytest.raises(ValueError, match="(source|input).*(changed|membership|inventory|set)"):
+    with pytest.raises(
+        ValueError, match="(source|input).*(changed|membership|inventory|set)"
+    ):
         tool.generated(repo, "fixture", build)
 
 
@@ -214,12 +251,18 @@ def test_generated_guide_refuses_changed_runtime_rtl(tool, documented_build, cha
     runtime = Path(proof["runtime_include"]) / "verilog"
     path = runtime / ("primitive.v" if change == "changed" else "new_primitive.v")
     path.write_text("module altered; endmodule\n")
-    gate = "runtime-rtl/primitive.v" if change == "changed" else "(input|runtime).*(set|changed|membership|inventory)"
+    gate = (
+        "runtime-rtl/primitive.v"
+        if change == "changed"
+        else "(input|runtime).*(set|changed|membership|inventory)"
+    )
     with pytest.raises(ValueError, match=gate):
         tool.generated(repo, "fixture", build)
 
 
-def test_generated_guide_refuses_failed_execution_even_with_matching_digest(tool, documented_build):
+def test_generated_guide_refuses_failed_execution_even_with_matching_digest(
+    tool, documented_build
+):
     repo, build, _, _ = documented_build
     commands = json.loads((build / "execution.json").read_text())
     commands[1]["exit_status"] = 17
@@ -243,12 +286,26 @@ def test_generated_guide_refuses_changed_execution_receipt(tool, documented_buil
 @pytest.mark.parametrize("change", ["disagree", "all_changed", "all_empty"])
 def test_generated_guide_refuses_invalid_work_traces(tool, documented_build, change):
     repo, build, _, _ = documented_build
-    filenames = ("parallel.stdout",) if change == "disagree" else (
-        "serial.stdout", "parallel.stdout", "rtl-run.stdout",
+    filenames = (
+        ("parallel.stdout",)
+        if change == "disagree"
+        else (
+            "serial.stdout",
+            "parallel.stdout",
+            "rtl-run.stdout",
+        )
     )
     for filename in filenames:
-        (build / filename).write_text("noise\n" if change == "all_empty" else "WORK different 0\nWORK different 1\n")
-    gate = "Work trace changed after verification" if change == "all_changed" else "verified Work traces are missing or disagree"
+        (build / filename).write_text(
+            "noise\n"
+            if change == "all_empty"
+            else "WORK different 0\nWORK different 1\n"
+        )
+    gate = (
+        "Work trace changed after verification"
+        if change == "all_changed"
+        else "verified Work traces are missing or disagree"
+    )
     with pytest.raises(ValueError, match=gate):
         tool.generated(repo, "fixture", build)
 
@@ -265,12 +322,25 @@ def test_generated_guide_requires_current_successful_receipt(tool, documented_bu
 def test_verifier_removes_previous_success_before_real_failed_process(documented_build):
     """Exercise subprocess failure bookkeeping, not a DUT or RTL oracle."""
     _, build, source, _ = documented_build
-    result = subprocess.run([
-        sys.executable, str(ROOT / "cmake/verify_example.py"),
-        "--runner", sys.executable, "--build", str(build),
-        "--include", str(source), "--verilator", "not-reached",
-        "--source", str(source),
-    ], capture_output=True, text=True, check=False)
+    result = subprocess.run(
+        [
+            sys.executable,
+            str(ROOT / "cmake/verify_example.py"),
+            "--runner",
+            sys.executable,
+            "--build",
+            str(build),
+            "--include",
+            str(source),
+            "--verilator",
+            "not-reached",
+            "--source",
+            str(source),
+        ],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
     # Python rejects runner-only --config, so the actually launched process fails.
     assert result.returncode != 0
     assert "serial:" in result.stderr

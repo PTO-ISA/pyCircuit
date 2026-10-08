@@ -10,7 +10,15 @@ import tempfile
 from pathlib import Path
 
 parser = argparse.ArgumentParser()
-for name in ("repo", "source-compiler", "linker", "emitter", "cxx", "verilator", "scratch"):
+for name in (
+    "repo",
+    "source-compiler",
+    "linker",
+    "emitter",
+    "cxx",
+    "verilator",
+    "scratch",
+):
     parser.add_argument("--" + name, required=True)
 for name in ("iverilog", "vvp"):
     parser.add_argument("--" + name, default=shutil.which(name))
@@ -18,21 +26,35 @@ args = parser.parse_args()
 repo = Path(args.repo).resolve()
 scratch = Path(args.scratch).resolve()
 scratch.mkdir(parents=True, exist_ok=True)
-env = dict(os.environ, PYTHONPATH=str(repo / "python/pycircuit/src"),
-           PYTHONDONTWRITEBYTECODE="1", PYCIRCUIT_SOURCE_COMPILER=args.source_compiler,
-           PYCIRCUIT_LINKER=args.linker, PYCIRCUIT_EMITTER=args.emitter)
+env = dict(
+    os.environ,
+    PYTHONPATH=str(repo / "python/pycircuit/src"),
+    PYTHONDONTWRITEBYTECODE="1",
+    PYCIRCUIT_SOURCE_COMPILER=args.source_compiler,
+    PYCIRCUIT_LINKER=args.linker,
+    PYCIRCUIT_EMITTER=args.emitter,
+)
 commands = []
 
 
 def run(command, accepted=True):
     command = list(map(str, command))
-    result = subprocess.run(command, env=env, cwd=repo, capture_output=True,
-                            text=True, timeout=180)
-    commands.append({"command": command, "exit_status": result.returncode,
-                     "stdout": result.stdout, "stderr": result.stderr})
+    result = subprocess.run(
+        command, env=env, cwd=repo, capture_output=True, text=True, timeout=180
+    )
+    commands.append(
+        {
+            "command": command,
+            "exit_status": result.returncode,
+            "stdout": result.stdout,
+            "stderr": result.stderr,
+        }
+    )
     (scratch / "commands.json").write_text(json.dumps(commands, indent=2) + "\n")
     assert result.returncode == (0 if accepted else 1), commands[-1]
-    assert "Assertion failed" not in result.stderr and "Traceback" not in result.stderr, commands[-1]
+    assert (
+        "Assertion failed" not in result.stderr and "Traceback" not in result.stderr
+    ), commands[-1]
     return result
 
 
@@ -41,8 +63,11 @@ def cli(*arguments, accepted=True):
 
 
 def snapshot(directory):
-    return {path.relative_to(directory).as_posix(): path.read_bytes()
-            for path in directory.rglob("*") if path.is_file()}
+    return {
+        path.relative_to(directory).as_posix(): path.read_bytes()
+        for path in directory.rglob("*")
+        if path.is_file()
+    }
 
 
 DESIGN = """import pycircuit as ac
@@ -96,7 +121,7 @@ def Top(x: ac.u2, y: ac.u2, condition: ac.u1) -> ProbeResult:
         xor_next_left=xor_left + 1, xor_next_right=xor_right + 1)
 """
 
-CPP = r'''#include "gfsim/SimExecutor.h"
+CPP = r"""#include "gfsim/SimExecutor.h"
 #include "pycircuit_system.hpp"
 #include <cstdlib>
 #include <iostream>
@@ -209,9 +234,9 @@ int main(int argc, char **argv) {
     std::cout << "MASK " << row.x << ' ' << row.y << ' ' << row.condition << ' ' << actual << '\n';
   }
 }
-'''
+"""
 
-RTL = '''module tb;
+RTL = """module tb;
   logic [1:0] x, y;
   logic condition;
   wire [24:0] result;
@@ -260,11 +285,20 @@ RTL = '''module tb;
     $finish;
   end
 endmodule
-'''
+"""
 
 toolroot = Path(args.source_compiler).resolve().parent.parent
-runtime = next((path for path in (toolroot / "simulator/gfsim/libpyc6_runtime.a",
-                                 toolroot / "lib/libpyc6_runtime.a") if path.is_file()), None)
+runtime = next(
+    (
+        path
+        for path in (
+            toolroot / "simulator/gfsim/libpyc6_runtime.a",
+            toolroot / "lib/libpyc6_runtime.a",
+        )
+        if path.is_file()
+    ),
+    None,
+)
 assert runtime is not None, "Runtime archive missing from this build/install"
 with tempfile.TemporaryDirectory(prefix="fixed-predicates-", dir=scratch) as temporary:
     build = Path(temporary)
@@ -275,8 +309,17 @@ with tempfile.TemporaryDirectory(prefix="fixed-predicates-", dir=scratch) as tem
     unit = build / "unit"
 
     def compile_source(output, accepted=True, replace=False):
-        arguments = ["compile", "-c", design, "--source-root", source,
-                     "--package-prefix", "fixed_predicates", "-o", output]
+        arguments = [
+            "compile",
+            "-c",
+            design,
+            "--source-root",
+            source,
+            "--package-prefix",
+            "fixed_predicates",
+            "-o",
+            output,
+        ]
         if replace:
             arguments.append("--replace")
         return cli(*arguments, accepted=accepted)
@@ -287,78 +330,153 @@ with tempfile.TemporaryDirectory(prefix="fixed-predicates-", dir=scratch) as tem
     for target in ("cpp", "verilog"):
         cli("emit", final, "--target", target, "-o", build / target)
     receipt = json.loads((build / "cpp/generated.json").read_text())
-    cpp = [build / "cpp" / row["path"] for row in receipt["files"]
-           if row["path"].endswith(".cpp")]
+    cpp = [
+        build / "cpp" / row["path"]
+        for row in receipt["files"]
+        if row["path"].endswith(".cpp")
+    ]
     assert cpp, "Generated source-owned C++ translation unit missing"
     runner_source = build / "runner.cpp"
     runner_source.write_text(CPP)
     runner = build / "runner"
-    run([args.cxx, "-std=c++20", "-pthread", "-I" + str(repo / "include"),
-         "-I" + str(build / "cpp"), runner_source, *cpp, runtime, "-o", runner])
+    run(
+        [
+            args.cxx,
+            "-std=c++20",
+            "-pthread",
+            "-I" + str(repo / "include"),
+            "-I" + str(build / "cpp"),
+            runner_source,
+            *cpp,
+            runtime,
+            "-o",
+            runner,
+        ]
+    )
     traces = []
     mask_traces = []
     for workers in (1, 2):
         trace = run([runner, str(workers)]).stdout
         (scratch / f"workers-{workers}.stdout").write_text(trace)
         traces.append([row for row in trace.splitlines() if row.startswith("WORK ")])
-        mask_traces.append([row for row in trace.splitlines() if row.startswith("MASK ")])
+        mask_traces.append(
+            [row for row in trace.splitlines() if row.startswith("MASK ")]
+        )
     assert len(traces[0]) == 32 and traces[0] == traces[1]
     assert len(mask_traces[0]) == 10 and mask_traces[0] == mask_traces[1]
     receipt = json.loads((build / "verilog/generated.json").read_text())
-    rtl = [build / "verilog" / row["path"] for row in receipt["files"] if row["role"] == "rtl"]
+    rtl = [
+        build / "verilog" / row["path"]
+        for row in receipt["files"]
+        if row["role"] == "rtl"
+    ]
     rtl.sort(key=lambda path: (path.name != "design_top.sv", str(path)))
     bench = build / "tb.sv"
     bench.write_text(RTL)
     rtl_build = build / "rtl-build"
-    run([args.verilator, "--binary", "--timing", "--top-module", "tb", "--prefix", "Vpredicates",
-         "--Mdir", rtl_build, "-j", "2", "-Wno-fatal", *rtl, bench])
+    run(
+        [
+            args.verilator,
+            "--binary",
+            "--timing",
+            "--top-module",
+            "tb",
+            "--prefix",
+            "Vpredicates",
+            "--Mdir",
+            rtl_build,
+            "-j",
+            "2",
+            "-Wno-fatal",
+            *rtl,
+            bench,
+        ]
+    )
     rtl_trace = run([rtl_build / "Vpredicates"]).stdout
     (scratch / "rtl.stdout").write_text(rtl_trace)
-    assert [row for row in rtl_trace.splitlines() if row.startswith("WORK ")] == traces[0]
+    assert [row for row in rtl_trace.splitlines() if row.startswith("WORK ")] == traces[
+        0
+    ]
 
     if args.iverilog and args.vvp:
         rtl_runner = build / "rtl-four-state"
-        run([args.iverilog, "-g2012", "-DPREDICATES_FOUR_STATE", "-s", "tb",
-             "-o", rtl_runner, *rtl, bench])
+        run(
+            [
+                args.iverilog,
+                "-g2012",
+                "-DPREDICATES_FOUR_STATE",
+                "-s",
+                "tb",
+                "-o",
+                rtl_runner,
+                *rtl,
+                bench,
+            ]
+        )
         four_state_trace = run([args.vvp, rtl_runner]).stdout
         (scratch / "rtl-four-state.stdout").write_text(four_state_trace)
-        assert [row for row in four_state_trace.splitlines() if row.startswith("WORK ")] == traces[0]
-        assert [row for row in four_state_trace.splitlines() if row.startswith("MASK ")] == mask_traces[0]
+        assert [
+            row for row in four_state_trace.splitlines() if row.startswith("WORK ")
+        ] == traces[0]
+        assert [
+            row for row in four_state_trace.splitlines() if row.startswith("MASK ")
+        ] == mask_traces[0]
 
     before = snapshot(unit)
     final_before = final.read_bytes()
     emitted_before = {target: snapshot(build / target) for target in ("cpp", "verilog")}
     cases = {
-        "boolean-arithmetic": (DESIGN.replace("selected: ac.u2", "selected: ac.u1")
-                               .replace("selected = 1 if equal else 3",
-                                        "selected = (x == y) + 1"),
-                               ("boolean", "kind", "arithmetic")),
-        "boolean-and-arithmetic": (DESIGN.replace("selected: ac.u2", "selected: ac.u1")
-                                   .replace("selected = 1 if equal else 3",
-                                            "selected = ((x == y) & (x == 1)) + 1"),
-                                   ("boolean", "kind", "arithmetic")),
-        "boolean-or-arithmetic": (DESIGN.replace("selected: ac.u2", "selected: ac.u1")
-                                  .replace("selected = 1 if equal else 3",
-                                           "selected = ((x == y) | (x == 1)) + 1"),
-                                  ("boolean", "kind", "arithmetic")),
-        "boolean-xor-arithmetic": (DESIGN.replace("selected: ac.u2", "selected: ac.u1")
-                                   .replace("selected = 1 if equal else 3",
-                                            "selected = ((x == y) ^ (x == 1)) + 1"),
-                                   ("boolean", "kind", "arithmetic")),
-        "wide-condition": (DESIGN.replace("condition: ac.u1", "condition: ac.u2"),
-                           ("boolean", "condition", "one-bit", "kind")),
+        "boolean-arithmetic": (
+            DESIGN.replace("selected: ac.u2", "selected: ac.u1").replace(
+                "selected = 1 if equal else 3", "selected = (x == y) + 1"
+            ),
+            ("boolean", "kind", "arithmetic"),
+        ),
+        "boolean-and-arithmetic": (
+            DESIGN.replace("selected: ac.u2", "selected: ac.u1").replace(
+                "selected = 1 if equal else 3", "selected = ((x == y) & (x == 1)) + 1"
+            ),
+            ("boolean", "kind", "arithmetic"),
+        ),
+        "boolean-or-arithmetic": (
+            DESIGN.replace("selected: ac.u2", "selected: ac.u1").replace(
+                "selected = 1 if equal else 3", "selected = ((x == y) | (x == 1)) + 1"
+            ),
+            ("boolean", "kind", "arithmetic"),
+        ),
+        "boolean-xor-arithmetic": (
+            DESIGN.replace("selected: ac.u2", "selected: ac.u1").replace(
+                "selected = 1 if equal else 3", "selected = ((x == y) ^ (x == 1)) + 1"
+            ),
+            ("boolean", "kind", "arithmetic"),
+        ),
+        "wide-condition": (
+            DESIGN.replace("condition: ac.u1", "condition: ac.u2"),
+            ("boolean", "condition", "one-bit", "kind"),
+        ),
     }
     for name, (text, diagnostics) in cases.items():
         design.write_text(text)
         absent = build / ("bad-" + name)
         rejected = compile_source(absent, accepted=False)
-        assert any(word in rejected.stderr.lower() for word in diagnostics), rejected.stderr
+        assert any(
+            word in rejected.stderr.lower() for word in diagnostics
+        ), rejected.stderr
         assert not absent.exists()
         compile_source(unit, accepted=False, replace=True)
         assert snapshot(unit) == before
         assert final.read_bytes() == final_before
-        assert all(snapshot(build / target) == emitted_before[target] for target in emitted_before)
+        assert all(
+            snapshot(build / target) == emitted_before[target]
+            for target in emitted_before
+        )
 
-sys.stdout.write("fixed predicates gate passed: 32 C++ worker-1/2 and RTL frames; "
-                 "10 native X/Z frames; 10 protected rejections; " +
-                 ("10 Icarus X/Z frames\n" if args.iverilog and args.vvp else "Icarus X/Z unavailable\n"))
+sys.stdout.write(
+    "fixed predicates gate passed: 32 C++ worker-1/2 and RTL frames; "
+    "10 native X/Z frames; 10 protected rejections; "
+    + (
+        "10 Icarus X/Z frames\n"
+        if args.iverilog and args.vvp
+        else "Icarus X/Z unavailable\n"
+    )
+)

@@ -21,7 +21,9 @@ def _measurement_tool():
         "measurement_build_measurement", MEASUREMENT_TOOL
     )
     if spec is None or spec.loader is None:
-        raise RuntimeError(f"cannot load build reliability measurement helper: {MEASUREMENT_TOOL}")
+        raise RuntimeError(
+            f"cannot load build reliability measurement helper: {MEASUREMENT_TOOL}"
+        )
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
     return module

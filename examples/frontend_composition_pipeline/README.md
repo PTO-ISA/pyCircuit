@@ -81,3 +81,9 @@ Three owner probes check explicit discard, unknown acceptance and unknown
 retirement without partial commit. Separate terminal processes check failure,
 unavailable sampling and Reset recovery. The finite runner bound is 20,000
 sampling epochs per successful history.
+The separate `bench.py` system checks a finite regular-clock known-state scenario with exact old-state output checks. This is partial system migration: the original independent drivers retain their full physical-clock, midstream-reset and four-state scenarios.
+
+```bash
+pycircuit run examples/frontend_composition_pipeline --target cpp --cycles 184 --build-dir .pycircuit_out/frontend_composition_pipeline/system-cpp
+pycircuit run examples/frontend_composition_pipeline --target verilog --cycles 184 --build-dir .pycircuit_out/frontend_composition_pipeline/system-verilog
+```

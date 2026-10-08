@@ -32,6 +32,15 @@ add_definitions(${LLVM_DEFINITIONS})
 
 add_library(pycircuit_project_options INTERFACE)
 target_compile_features(pycircuit_project_options INTERFACE cxx_std_20)
+# Compiler consumers must match LLVM's RTTI configuration. Keep this on the
+# compiler interface so standalone Runtime targets retain their own policy.
+if(NOT LLVM_ENABLE_RTTI)
+  if(MSVC)
+    target_compile_options(pycircuit_project_options INTERFACE "$<$<COMPILE_LANGUAGE:CXX>:/GR->")
+  else()
+    target_compile_options(pycircuit_project_options INTERFACE "$<$<COMPILE_LANGUAGE:CXX>:-fno-rtti>")
+  endif()
+endif()
 
 option(PYCIRCUIT_BUILD_TESTING "Build isolated source-unit tests" OFF)
 if(PYCIRCUIT_BUILD_TESTING)

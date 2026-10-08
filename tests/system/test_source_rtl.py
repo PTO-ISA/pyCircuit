@@ -55,7 +55,8 @@ def _build_and_run_generated_target(
 ) -> bytes:
     install = Path(
         os.environ.get(
-            "PYCIRCUIT_COMPILER_INSTALL", ROOT / ".pycircuit_out/source-candidate-install"
+            "PYCIRCUIT_COMPILER_INSTALL",
+            ROOT / ".pycircuit_out/source-candidate-install",
         )
     ).resolve()
     assert (install / "share/pycircuit/cmake/pycircuitConfig.cmake").is_file(), install

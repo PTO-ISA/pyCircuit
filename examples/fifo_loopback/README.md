@@ -58,3 +58,9 @@ are exact. Three terminal unknown-control cases require Reset before further
 Step, while RTL negatives use isolated processes. Cold X is labelled as the
 current/RTL contract separately from the reset-first historical smoke. All
 runners are bounded; the main config allows4000 ticks.
+The separate `bench.py` system checks a finite regular-clock known-state scenario, including queue saturation, stalls, replacement, boundary values and final drain. This is partial system migration: the original independent drivers retain their full physical-clock, midstream-reset and four-state scenarios.
+
+```bash
+pycircuit run examples/fifo_loopback --target cpp --cycles 344 --build-dir .pycircuit_out/fifo_loopback/system-cpp
+pycircuit run examples/fifo_loopback --target verilog --cycles 344 --build-dir .pycircuit_out/fifo_loopback/system-verilog
+```

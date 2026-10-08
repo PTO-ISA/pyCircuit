@@ -25,3 +25,17 @@ helper compares the Work samples from workers 1/2 and RTL. Execution results
 are recorded in the implementation inventory; this source's presence alone does
 not establish acceptance. See [the generated-output guide](GENERATED.md) for
 the source-owned IR, C++ and RTL produced by the public flow.
+
+## Generated system usage
+
+`bench.py` exports `example_arith.bench.ExerciseArith`. Compile sources in
+order `arith.py`, `bench.py`, then link that system root and emit C++ or
+Verilog through the public `pycircuit compile`, `link`, and `emit` commands.
+Run `pycircuit run examples/arith --target cpp --cycles 10` or select
+`--target verilog`. Each managed cycle checks one original known-input row
+in both sampling epochs; all 10 original rows are represented.
+
+The original `driver.cpp`, `rtl_tb.sv`, configuration, and their independent
+oracles remain intact. This source bench covers the complete known-input table;
+host X/Z construction and recovery checks, where present, remain in those
+retained native/RTL oracles and are not claimed by the generated system run.

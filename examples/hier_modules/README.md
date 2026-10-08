@@ -27,3 +27,17 @@ frontend operation, pass or backend special case is required. Execution and
 the native and RTL tests bind the behavior to the generated artifacts.
 See [the generated-output guide](GENERATED.md) for actual source-owned IR,
 C++ and RTL from the public flow.
+
+## Generated system usage
+
+`bench.py` exports `example_hier_modules.bench.ExerciseHierModules`. Compile sources in
+order `hier_modules.py`, `bench.py`, then link that system root and emit C++ or
+Verilog through the public `pycircuit compile`, `link`, and `emit` commands.
+Run `pycircuit run examples/hier_modules --target cpp --cycles 12` or select
+`--target verilog`. Each managed cycle checks one original known-input row
+in both sampling epochs; all 12 original rows are represented.
+
+The original `driver.cpp`, `rtl_tb.sv`, configuration, and their independent
+oracles remain intact. This source bench covers the complete known-input table;
+host X/Z construction and recovery checks, where present, remain in those
+retained native/RTL oracles and are not claimed by the generated system run.

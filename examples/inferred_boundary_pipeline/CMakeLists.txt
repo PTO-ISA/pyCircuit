@@ -6,7 +6,11 @@ pycircuit_add_example(inferred_boundary_pipeline
   PACKAGE example_inferred_boundary_pipeline
   TOP example_inferred_boundary_pipeline.inferred_boundary_pipeline.InferredBoundaryPipeline
   ENTRY_SOURCE inferred_boundary_pipeline
-  SOURCES inferred_boundary_pipeline.py)
+  SOURCES inferred_boundary_pipeline.py
+  SYSTEM_TOP example_inferred_boundary_pipeline.bench.InferredBoundaryPipelineSystem
+  SYSTEM_ENTRY_SOURCE bench
+  SYSTEM_CYCLES 344
+  SYSTEM_SOURCES inferred_boundary_pipeline.py bench.py)
 if(PYC_EXAMPLE_VERIFY)
 
 find_package(Python3 REQUIRED COMPONENTS Interpreter)

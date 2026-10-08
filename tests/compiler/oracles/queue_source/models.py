@@ -1,5 +1,9 @@
 """Test-only queue reference models; never imported by the compiler or DUT."""
 
+# Preserve the extracted reference algorithms' intentional unused fields and
+# adjacent-pair zip operations after formatter line wrapping.
+# ruff: noqa: B007, B905
+
 from collections import deque
 
 
@@ -389,13 +393,15 @@ def _route_merge_trace(payload_bits, depths, adds, arbiter):
                 (payload_bits, merged.value(edge)),
             )
         )
+        failure = bool(iq_eligible and not (is_left or is_right))
+        row["expected_failure"] = failure and not bool(row["rst"])
         rows.append(row)
         if row["clk"] and not previous_clock:
             if row["rst"]:
                 for queue in queues:
                     queue.tokens.clear()
                 cursor = 0
-            else:
+            elif not failure:
                 edge += 1
                 both = left_done_valid and right_done_valid
                 # The merge stage spends at most one input per edge, and only when
@@ -540,8 +546,9 @@ class _IndQueue:
         assert len(self.tokens) <= self.depth, (len(self.tokens), self.depth)
 
 
-def _route_merge_independent_model(rows, arbiter="priority",
-                                   policy="local_occupancy"):
+def _route_merge_independent_model(
+    rows, arbiter="priority", policy="local_occupancy", reject_invalid=True
+):
     """Committed-state model of the six-queue chain.
 
     Every decision for one rising edge reads a single pre-edge snapshot and all
@@ -559,6 +566,11 @@ def _route_merge_independent_model(rows, arbiter="priority",
         rising = bool(row["clk"]) and not previous_clock
         previous_clock = row["clk"]
 
+        before_state = (
+            tuple(tuple(q.tokens) for q in (iq, left, right, ld, rd, mg)),
+            cursor,
+        )
+        next_cursor = cursor
         # -- observable ports, from committed state only --
         mg_available = mg.available(edges)
         mg_head = mg.head(edges)
@@ -582,7 +594,7 @@ def _route_merge_independent_model(rows, arbiter="priority",
             elif ld_available or rd_available:
                 order = (cursor, 1 - cursor)
                 winner = next(i for i in order if (ld_available, rd_available)[i])
-                cursor = (winner + 1) % 2
+                next_cursor = (winner + 1) % 2
         ld_pop, rd_pop = winner == 0, winner == 1
         ld_ready = ld.ready(policy, ld_pop)
         rd_ready = rd.ready(policy, rd_pop)
@@ -599,9 +611,7 @@ def _route_merge_independent_model(rows, arbiter="priority",
         left_push = iq_available and is_left and left_ready
         right_push = iq_available and is_right and right_ready
 
-        row["expected"] = (
-            (int(iq_ready) << 65) | (int(mg_available) << 64) | mg_head
-        )
+        row["expected"] = (int(iq_ready) << 65) | (int(mg_available) << 64) | mg_head
         trace.append(
             {
                 "row": len(trace),
@@ -617,11 +627,23 @@ def _route_merge_independent_model(rows, arbiter="priority",
                 "mg_pop": mg_pop,
                 "mg_push": winner is not None,
                 "mg_head": mg_head,
-                "occupancy": (len(iq.tokens), len(left.tokens), len(right.tokens),
-                              len(ld.tokens), len(rd.tokens), len(mg.tokens)),
+                "state_before": before_state,
+                "occupancy": (
+                    len(iq.tokens),
+                    len(left.tokens),
+                    len(right.tokens),
+                    len(ld.tokens),
+                    len(rd.tokens),
+                    len(mg.tokens),
+                ),
             }
         )
 
+        row["expected_failure"] = bool(
+            reject_invalid and iq_available and not (is_left or is_right)
+        ) and not bool(row["rst"])
+        trace[-1]["expected_failure"] = row["expected_failure"]
+        trace[-1]["committed"] = not row["expected_failure"]
         if not rising:
             continue
         if row["rst"]:
@@ -630,14 +652,29 @@ def _route_merge_independent_model(rows, arbiter="priority",
             cursor = 0
             edges += 1
             continue
+        if row["expected_failure"]:
+            trace[-1]["state_after"] = (
+                tuple(tuple(q.tokens) for q in (iq, left, right, ld, rd, mg)),
+                cursor,
+            )
+            assert trace[-1]["state_after"] == before_state
+            continue
         iq.transfer(edges, iq_push, row["data"] & _IND_MASK, route_pop)
         left.transfer(edges, left_push, iq_head, ld_push)
         right.transfer(edges, right_push, iq_head, rd_push)
         ld.transfer(edges, ld_push, (left_head + _IND_ADDS[0]) & _IND_MASK, ld_pop)
         rd.transfer(edges, rd_push, (right_head + _IND_ADDS[1]) & _IND_MASK, rd_pop)
-        mg.transfer(edges, winner is not None,
-                    ld_head if winner == 0 else (rd_head if winner == 1 else 0),
-                    mg_pop)
+        mg.transfer(
+            edges,
+            winner is not None,
+            ld_head if winner == 0 else (rd_head if winner == 1 else 0),
+            mg_pop,
+        )
+        cursor = next_cursor
+        trace[-1]["state_after"] = (
+            tuple(tuple(q.tokens) for q in (iq, left, right, ld, rd, mg)),
+            cursor,
+        )
         edges += 1
     return trace, (iq, left, right, ld, rd, mg)
 
@@ -658,16 +695,24 @@ def _route_merge_independent_stimulus():
       chain: the tokens it discards are exactly what a reset-ignoring DUT would
       instead expose after the reset (C2 -> MG-09 / TM-14 / UT-11).
 
-    Every driven payload is 0 or 1.  Out-of-range payloads would wedge the DUT
-    permanently (C-1 / T8) and are therefore excluded from the pass set.
+    This positive stream retains selectors 0/1. Real invalid selectors are
+    exercised separately by queue_failure_contracts, including full downstream
+    capacity; their required outcome is failure before any Xfer.
     """
     rows = []
 
     def row(clk, rst=0, valid=0, take=0, data=0):
         # `int(...)` matters here: this generator writes `valid`/`take` straight
         # into a C++ brace initialiser, where Python's True/False would not compile.
-        rows.append({"clk": int(clk), "rst": int(rst), "valid": int(valid),
-                     "take": int(take), "data": int(data)})
+        rows.append(
+            {
+                "clk": int(clk),
+                "rst": int(rst),
+                "valid": int(valid),
+                "take": int(take),
+                "data": int(data),
+            }
+        )
 
     def edge(rst=0, valid=0, take=0, data=0):
         row(0, rst, valid, take, data)
@@ -680,9 +725,11 @@ def _route_merge_independent_stimulus():
     for _ in range(3):
         edge()
     for serial in range(40):
-        edge(valid=(serial // 5) % 2 == 0,
-             take=(1, 1, 0, 1, 0)[serial % 5],
-             data=serial % 2)
+        edge(
+            valid=(serial // 5) % 2 == 0,
+            take=(1, 1, 0, 1, 0)[serial % 5],
+            data=serial % 2,
+        )
     for _ in range(8):
         edge(take=1)
     # C2: the drain above is proven to empty the chain (assertion (v-a)); the
@@ -717,12 +764,22 @@ def _route_merge_independent():
 
     # (iii) arbitration is only meaningful where BOTH inputs are valid AND the
     #       merge output can actually take a token (T6).
-    arbitrated = [entry for entry in trace
-                  if entry["edge"] and entry["ld_available"]
-                  and entry["rd_available"] and entry["mg_ready"]]
-    vacuous = [entry for entry in trace
-               if entry["edge"] and entry["ld_available"] and entry["rd_available"]
-               and not entry["mg_ready"]]
+    arbitrated = [
+        entry
+        for entry in trace
+        if entry["edge"]
+        and entry["ld_available"]
+        and entry["rd_available"]
+        and entry["mg_ready"]
+    ]
+    vacuous = [
+        entry
+        for entry in trace
+        if entry["edge"]
+        and entry["ld_available"]
+        and entry["rd_available"]
+        and not entry["mg_ready"]
+    ]
     assert arbitrated, "T6: no edge has both inputs valid with merge capacity"
     assert all(entry["winner"] == 0 for entry in arbitrated), (
         "priority must always serve inputs[0] = left_done on an arbitrated edge"
@@ -731,8 +788,11 @@ def _route_merge_independent():
 
     # (iv) a single branch is half rate: depth-one local-occupancy result queues
     #      cannot be refilled on the edge that consumed them (T5 / F4 / Q-D7).
-    served = [(entry["edge"], entry["winner"]) for entry in trace
-              if entry["edge"] and entry["winner"] is not None]
+    served = [
+        (entry["edge"], entry["winner"])
+        for entry in trace
+        if entry["edge"] and entry["winner"] is not None
+    ]
     left_served = [edge for edge, side in served if side == 0]
     right_served = [edge for edge, side in served if side == 1]
     assert right_served, "T7: the right branch was never served"
@@ -750,8 +810,9 @@ def _route_merge_independent():
     # drain identity is therefore evaluated on the PRE-RESET window, and the
     # trailing reset is required to strike a NON-EMPTY chain, so the end-to-end
     # identity has to carry the discarded tokens explicitly.
-    reset_rows = [entry for entry in trace
-                  if entry["edge"] and rows[entry["row"]]["rst"]]
+    reset_rows = [
+        entry for entry in trace if entry["edge"] and rows[entry["row"]]["rst"]
+    ]
     assert reset_rows, "stimulus has no reset edge"
     last_reset = max(entry["edge"] for entry in reset_rows)
     reset_occupancy = {entry["edge"]: entry["occupancy"] for entry in reset_rows}
@@ -759,17 +820,23 @@ def _route_merge_independent():
     # (v-a) PRE-RESET window: the chain provably drains to empty, and up to that
     #       drain every token that entered `merged` was consumed -- the original
     #       conservation statement, bound to the window before the reset.
-    drained = [entry["edge"] for entry in trace
-               if entry["edge"] and entry["edge"] < last_reset
-               and not any(entry["occupancy"])]
+    drained = [
+        entry["edge"]
+        for entry in trace
+        if entry["edge"] and entry["edge"] < last_reset and not any(entry["occupancy"])
+    ]
     assert drained, "the chain never drained to empty before the reset edge"
     drain_edge = max(drained)
-    drain_pushes = sum(1 for entry in trace
-                       if entry["edge"] and entry["edge"] <= drain_edge
-                       and entry["mg_push"])
-    drain_pops = sum(1 for entry in trace
-                     if entry["edge"] and entry["edge"] <= drain_edge
-                     and entry["mg_pop"])
+    drain_pushes = sum(
+        1
+        for entry in trace
+        if entry["edge"] and entry["edge"] <= drain_edge and entry["mg_push"]
+    )
+    drain_pops = sum(
+        1
+        for entry in trace
+        if entry["edge"] and entry["edge"] <= drain_edge and entry["mg_pop"]
+    )
     assert drain_pushes == drain_pops, (drain_edge, drain_pushes, drain_pops)
 
     # (v-b) the trailing reset must be NON-VACUOUS: it strikes a chain that still
@@ -789,18 +856,21 @@ def _route_merge_independent():
     popped_total = sum(1 for entry in trace if entry["edge"] and entry["mg_pop"])
     final_occupancy = tuple(len(queue.tokens) for queue in queues)
     assert accepted_total == popped_total + discarded + sum(final_occupancy), (
-        accepted_total, popped_total, discarded, final_occupancy,
+        accepted_total,
+        popped_total,
+        discarded,
+        final_occupancy,
     )
     del queues
-    popped = {entry["mg_head"] for entry in trace
-              if entry["edge"] and entry["mg_pop"]}
+    popped = {entry["mg_head"] for entry in trace if entry["edge"] and entry["mg_pop"]}
     assert popped <= {10, 21}, popped
     assert {10, 21} <= {entry["mg_head"] for entry in trace if entry["mg_available"]}
 
     # (vi) boundary coverage: an empty merge reads packed zero, and both branches
     #      are individually observable.
-    assert any(not entry["mg_available"] and entry["mg_head"] == 0
-               for entry in trace), "no both-inputs-invalid row"
+    assert any(
+        not entry["mg_available"] and entry["mg_head"] == 0 for entry in trace
+    ), "no both-inputs-invalid row"
     assert any(entry["mg_available"] and entry["mg_head"] == 10 for entry in trace)
     assert any(entry["mg_available"] and entry["mg_head"] == 21 for entry in trace)
 
@@ -829,7 +899,8 @@ def _route_merge_independent():
                 rival_row["rst"] = 0
         _route_merge_independent_model(rival_rows, **kwargs)
         differing = sum(
-            1 for ours, theirs in zip(rows, rival_rows)  # noqa: B905 - preserve the extracted reference algorithm
+            1
+            for ours, theirs in zip(rows, rival_rows)  # noqa: B905 - preserve the extracted reference algorithm
             if ours["expected"] != theirs["expected"]
         )
         assert differing, (
@@ -853,8 +924,9 @@ def _route_merge_independent():
         "rival_differing_rows": rivals,
         "per_branch_fifo_observable": False,
         "reset_edges": [entry["edge"] for entry in reset_rows],
-        "reset_occupancy": {edge: list(occupancy)
-                            for edge, occupancy in reset_occupancy.items()},
+        "reset_occupancy": {
+            edge: list(occupancy) for edge, occupancy in reset_occupancy.items()
+        },
         "reset_discarded_tokens": discarded,
         "pre_reset_drained_edge": drain_edge,
         "final_occupancy": list(final_occupancy),
@@ -1125,6 +1197,7 @@ def _a25_read(in_q, out_q, table, next_key, edge, take, knobs):
         "head": out_token,
         "next_key": next_key,
         "fault": invalid,
+        "failure": invalid and not knobs["dup_overwrites"] and not knobs["stale_ok"],
         "in_valid": bool(in_valid),
         "in_token": in_token,
         "incoming_key": incoming_key,
@@ -1155,6 +1228,8 @@ def _a25_read(in_q, out_q, table, next_key, edge, take, knobs):
 
 def _a25_commit(state, edge, read, knobs, valid, data, take, arrival):
     """Commit one rising edge from the combinational result ``read``."""
+    if read["failure"]:
+        return arrival
     in_q, out_q, table = state["in_q"], state["out_q"], state["table"]
     in_q.transfer(edge + 1, bool(valid) and read["ready"], data, read["admit"])
     out_q.transfer(
@@ -1205,21 +1280,44 @@ def _a25_run(knobs):
     for section in _a25_program():
         name = section["name"]
         seen = {
-            "sink": {}, "sink_order": [], "fault": [], "ready_low": [],
-            "rejected": [], "offered": 0, "accepted": 0, "accepted_trace": [],
-            "next_key": [], "max_occupancy": 0, "pre_reset_occupancy": None,
+            "sink": {},
+            "sink_order": [],
+            "fault": [],
+            "ready_low": [],
+            "rejected": [],
+            "offered": 0,
+            "accepted": 0,
+            "accepted_trace": [],
+            "next_key": [],
+            "max_occupancy": 0,
+            "pre_reset_occupancy": None,
             "occupancy": [],
         }
         witness[name] = seen
         # Every section opens with a synchronous reset pair: the sampled result is
         # still the pre-reset state, which is what the harness samples on the edge
         # that clears the chain.
-        read = _a25_read(state["in_q"], state["out_q"], state["table"],
-                         state["next_key"], edge, 0, knobs)
+        read = _a25_read(
+            state["in_q"],
+            state["out_q"],
+            state["table"],
+            state["next_key"],
+            edge,
+            0,
+            knobs,
+        )
         seen["pre_reset_occupancy"] = _a25_occupancy(state)
         for clk in (0, 1):
-            rows.append({"clk": clk, "rst": 1, "valid": 0, "take": 0, "data": 0,
-                         "expected": read["expected"]})
+            rows.append(
+                {
+                    "clk": clk,
+                    "rst": 1,
+                    "valid": 0,
+                    "take": 0,
+                    "data": 0,
+                    "expected": read["expected"],
+                }
+            )
         state = _a25_state()
         cursor = 0
         arrival = 0
@@ -1229,13 +1327,28 @@ def _a25_run(knobs):
             offered = bool(held and (section["drive"] == "always" or ready_pre))
             sequence, value = section["tokens"][cursor] if held else (0, 0)
             data = _a25_token(sequence, value) if offered else 0
-            read = _a25_read(state["in_q"], state["out_q"], state["table"],
-                             state["next_key"], edge, take, knobs)
+            read = _a25_read(
+                state["in_q"],
+                state["out_q"],
+                state["table"],
+                state["next_key"],
+                edge,
+                take,
+                knobs,
+            )
             for clk in (0, 1):
-                rows.append({"clk": clk, "rst": 0, "valid": int(offered),
-                             "take": int(bool(take)), "data": data,
-                             "expected": read["expected"]})
-            if read["out_valid"] and take:
+                rows.append(
+                    {
+                        "clk": clk,
+                        "rst": 0,
+                        "valid": int(offered),
+                        "take": int(bool(take)),
+                        "data": data,
+                        "expected": read["expected"],
+                        "expected_failure": read["failure"],
+                    }
+                )
+            if read["out_valid"] and take and not read["failure"]:
                 seen["sink"][epoch] = _a25_sequence(read["out_token"])
                 seen["sink_order"].append(
                     (_a25_sequence(read["out_token"]), _a25_value(read["out_token"]))
@@ -1250,14 +1363,15 @@ def _a25_run(knobs):
             seen["max_occupancy"] = max(seen["max_occupancy"], sum(occupancy))
             if offered:
                 seen["offered"] += 1
-                if read["ready"]:
+                if read["ready"] and not read["failure"]:
                     seen["accepted"] += 1
                     cursor += 1
                 else:
                     seen["rejected"].append(epoch)
             seen["accepted_trace"].append(seen["accepted"])
-            arrival = _a25_commit(state, edge, read, knobs, offered, data, take,
-                                  arrival)
+            arrival = _a25_commit(
+                state, edge, read, knobs, offered, data, take, arrival
+            )
             edge += 1
         seen["final"] = (state["next_key"], _a25_occupancy(state))
     return rows, witness
@@ -1272,14 +1386,29 @@ def _a25_replay(rows, knobs):
     previous = 0
     for row in rows:
         rising = bool(row["clk"]) and not previous
-        read = _a25_read(state["in_q"], state["out_q"], state["table"],
-                         state["next_key"], edge, row["take"], knobs)
+        read = _a25_read(
+            state["in_q"],
+            state["out_q"],
+            state["table"],
+            state["next_key"],
+            edge,
+            row["take"],
+            knobs,
+        )
         expected.append(read["expected"])
         if rising and row["rst"]:
             state = _a25_state()
         elif rising:
-            arrival = _a25_commit(state, edge, read, knobs, row["valid"],
-                                  row["data"], row["take"], arrival)
+            arrival = _a25_commit(
+                state,
+                edge,
+                read,
+                knobs,
+                row["valid"],
+                row["data"],
+                row["take"],
+                arrival,
+            )
             edge += 1
         previous = row["clk"]
     return expected
@@ -1301,87 +1430,119 @@ def _a25():
         # (i) the hand-computed absolute cadence tables, where the program states
         #     one: accept@E -> admit@E+1 -> retire@E+2 -> sink@E+3.
         if section["sink"]:
-            _a25_check(f"{name} sink table (epoch -> sequence)",
-                       seen["sink"], section["sink"])
+            _a25_check(
+                f"{name} sink table (epoch -> sequence)", seen["sink"], section["sink"]
+            )
         # (ii) every section but S7 offers tokens by handshake, so no offered
         #      token is silently rejected and exactly the offered ones are taken.
         if section["drive"] == "handshake":
             _a25_check(f"{name} silent rejections", seen["rejected"], [])
-            _a25_check(f"{name} offered / accepted tokens",
-                       (seen["offered"], seen["accepted"]),
-                       (len(section["tokens"]), len(section["tokens"])))
+            _a25_check(
+                f"{name} offered / accepted tokens",
+                (seen["offered"], seen["accepted"]),
+                (len(section["tokens"]), len(section["tokens"])),
+            )
 
     # S1: RT-04/TM-01 -- in-order release, both payload fields untouched.
-    _a25_check("S1 release sequence", witness["S1_in_order"]["sink_order"],
-               [(0, 0xDEAD0000), (1, 0xBEEF0001), (2, 0x0F0F0002),
-                (3, 0xFFFF0003)])
+    _a25_check(
+        "S1 release sequence",
+        witness["S1_in_order"]["sink_order"],
+        [(0, 0xDEAD0000), (1, 0xBEEF0001), (2, 0x0F0F0002), (3, 0xFFFF0003)],
+    )
 
     # S2: A-FC-1/A-FC-2 -- arrival order is 3,1,0,2 and release order is 0,1,2,3,
     # each sequence keeping its own value (BD-07).  A passthrough FIFO, an
     # arrival-order release and a "keep only the last value" model all differ.
     s2 = witness["S2_out_of_order"]
-    _a25_check("S2 release sequence", s2["sink_order"],
-               [(0, 0x00000000), (1, 0x11110001), (2, 0x22220002),
-                (3, 0x33330003)])
+    _a25_check(
+        "S2 release sequence",
+        s2["sink_order"],
+        [(0, 0x00000000), (1, 0x11110001), (2, 0x22220002), (3, 0x33330003)],
+    )
     _a25_check("S2 release epochs", sorted(s2["sink"]), [6, 7, 8, 9])
 
     # S3: A-FC-5/RT-06 -- keys 2 and 3 arrive with no 0/1: zero output, and the
     # pointer never moves.  A "hole means skip" model releases both.
     s3 = witness["S3_hole_waits"]
-    _a25_check("S3 zero output and frozen pointer",
-               (s3["sink"], set(s3["next_key"])), ({}, {0}))
+    _a25_check(
+        "S3 zero output and frozen pointer",
+        (s3["sink"], set(s3["next_key"])),
+        ({}, {0}),
+    )
 
     # S4: A-FC-3/A-FC-4 and appendix correction 2 -- key 1000 is accepted and
     # occupies one of the 16 entries, and the whole 0..15 stream still leaves in
     # order, so "capacity is a key window" is refuted by the delivered stream.
     s4 = witness["S4_capacity_and_far_key"]
-    _a25_check("S4 release sequence",
-               [sequence for sequence, _ in s4["sink_order"]],
-               list(range(_A25_CAPACITY)))
-    _a25_check("S4 far key admitted but never released",
-               (_A25_FAR_KEY in s4["sink"],
-                s4["fault"], _A25_FAR_KEY >= _A25_CAPACITY),
-               (False, [], True))
-    _a25_check("S4 pointer after the in-window stream",
-               (s4["next_key"][-1], s4["final"]),
-               (_A25_CAPACITY, (_A25_CAPACITY, (1, 0, 0))))
+    _a25_check(
+        "S4 release sequence",
+        [sequence for sequence, _ in s4["sink_order"]],
+        list(range(_A25_CAPACITY)),
+    )
+    _a25_check(
+        "S4 far key admitted but never released",
+        (_A25_FAR_KEY in s4["sink"], s4["fault"], _A25_FAR_KEY >= _A25_CAPACITY),
+        (False, [], True),
+    )
+    _a25_check(
+        "S4 pointer after the in-window stream",
+        (s4["next_key"][-1], s4["final"]),
+        (_A25_CAPACITY, (_A25_CAPACITY, (1, 0, 0))),
+    )
 
     # S5: NG-01/A-FC-6/A-FC-10/T13 -- the second key 5 is a duplicate.  From the
     # epoch it reaches the head the chain is fail-closed: no output, no pointer
     # movement, no overwrite, and `ready` KEEPS reporting pure queue capacity.
     s5 = witness["S5_duplicate_stalls"]
     _a25_check("S5 first fault epoch", s5["fault"][:1], [3])
-    _a25_check("S5 fault held to the end of the section",
-               len(s5["fault"]), len(program[4]["takes"]) - 2)
-    _a25_check("S5 stalled window (pointer, output, ready)",
-               (set(s5["next_key"][2:]), s5["sink"], set(s5["ready_low"])),
-               ({0}, {}, set()))
-    _a25_check("S5 first key never released and never overwritten",
-               s5["sink_order"], [])
+    _a25_check(
+        "S5 fault held to the end of the section",
+        len(s5["fault"]),
+        len(program[4]["takes"]) - 2,
+    )
+    _a25_check(
+        "S5 stalled window (pointer, output, ready)",
+        (set(s5["next_key"][2:]), s5["sink"], set(s5["ready_low"])),
+        ({0}, {}, set()),
+    )
+    _a25_check(
+        "S5 first key never released and never overwritten", s5["sink_order"], []
+    )
 
     # S6: NG-03 -- 0 and 1 retire and leave, then a second key 0 is stale:
-    # fail-closed from that epoch on, pointer frozen at 2, no new output.
+    # failure precedes same-edge retirement/pop: pointer stays 1, no sink.
     s6 = witness["S6_stale_stalls"]
-    _a25_check("S6 release before the stall", s6["sink_order"],
-               [(0, 0x60000000), (1, 0x60000001)])
+    _a25_check(
+        "S6 release before the stall",
+        s6["sink_order"],
+        [],
+    )
     _a25_check("S6 stale fault epochs", s6["fault"][:1], [4])
-    _a25_check("S6 pointer frozen / ready never lowered",
-               (set(s6["next_key"][4:]), set(s6["ready_low"])), ({2}, set()))
+    _a25_check(
+        "S6 pointer frozen / ready never lowered",
+        (set(s6["next_key"][4:]), set(s6["ready_low"])),
+        ({1}, set()),
+    )
 
     # S7: RT-10/TM-02/TM-03/BD-04/A-FC-8 -- 32 tokens offered with `take` low:
     # every storage fills (4 output + 16 table + 8 input = 28 in flight), which is
     # the only way `ready` can fall (T4), later offers are refused by the
     # handshake, and once `take` rises the whole stream leaves in order.
     s7 = witness["S7_backpressure_drain"]
-    _a25_check("S7 accepted at the end of the blocked window",
-               s7["accepted_trace"][39], 28)
+    _a25_check(
+        "S7 accepted at the end of the blocked window", s7["accepted_trace"][39], 28
+    )
     _a25_check("S7 peak in-flight occupancy", s7["max_occupancy"], 28)
-    _a25_check("S7 handshake refusals",
-               (len(s7["rejected"]) > 0, set(s7["rejected"]) <= set(s7["ready_low"])),
-               (True, True))
-    _a25_check("S7 in-order lossless drain",
-               [sequence for sequence, _ in s7["sink_order"]],
-               list(range(32)))
+    _a25_check(
+        "S7 handshake refusals",
+        (len(s7["rejected"]) > 0, set(s7["rejected"]) <= set(s7["ready_low"])),
+        (True, True),
+    )
+    _a25_check(
+        "S7 in-order lossless drain",
+        [sequence for sequence, _ in s7["sink_order"]],
+        list(range(32)),
+    )
     _a25_check("S7 drained to empty", s7["final"], (32, (0, 0, 0)))
     assert s7["ready_low"], "T4: ready never fell, the backpressure claim is vacuous"
 
@@ -1390,27 +1551,36 @@ def _a25():
     # AND next_key back to start -- lets an in-order stream leave at all.
     s8 = witness["S8_fill_far_keys"]
     s9 = witness["S9_reset_then_in_order"]
-    _a25_check("S8 full table at the reset",
-               (s8["final"], s8["fault"], s8["ready_low"]),
-               ((0, (16, 0, 0)), [], []))
-    _a25_check("S9 reset strikes a non-empty chain",
-               (sum(s9["pre_reset_occupancy"]) > 0, s9["pre_reset_occupancy"]),
-               (True, (16, 0, 0)))
-    _a25_check("S9 post-reset release sequence",
-               [sequence for sequence, _ in s9["sink_order"]], list(range(8)))
+    _a25_check(
+        "S8 full table at the reset",
+        (s8["final"], s8["fault"], s8["ready_low"]),
+        ((0, (16, 0, 0)), [], []),
+    )
+    _a25_check(
+        "S9 reset strikes a non-empty chain",
+        (sum(s9["pre_reset_occupancy"]) > 0, s9["pre_reset_occupancy"]),
+        (True, (16, 0, 0)),
+    )
+    _a25_check(
+        "S9 post-reset release sequence",
+        [sequence for sequence, _ in s9["sink_order"]],
+        list(range(8)),
+    )
     _a25_check("S9 post-reset fault free", s9["fault"], [])
 
     # (iii) global invariants: release is strictly increasing inside every
     #       section (RT-04), and only the two illegal-key sections ever fault.
     for section in program:
-        sequences = [sequence for sequence, _ in
-                     witness[section["name"]]["sink_order"]]
+        sequences = [sequence for sequence, _ in witness[section["name"]]["sink_order"]]
         assert all(a < b for a, b in zip(sequences, sequences[1:])), (  # noqa: B905 - preserve the extracted reference algorithm
             f"{section['name']}: release is not strictly increasing"
         )
     faults = [name for name in witness if witness[name]["fault"]]
-    _a25_check("sections that raise fault", sorted(faults),
-               ["S5_duplicate_stalls", "S6_stale_stalls"])
+    _a25_check(
+        "sections that raise fault",
+        sorted(faults),
+        ["S5_duplicate_stalls", "S6_stale_stalls"],
+    )
 
     # (iv) negative controls: the same stimulus must tell the frozen contract from
     #      each rival it exists to exclude, evaluated before any DUT runs.
@@ -1430,26 +1600,31 @@ def _a25():
             for rival_row in rival_rows:
                 rival_row["rst"] = 0
         rival = _a25_replay(rival_rows, _a25_knobs(**overrides))
-        differing = sum(1 for ours, theirs in zip(rows, rival, strict=True)
-                        if ours["expected"] != theirs)
+        differing = sum(
+            1
+            for ours, theirs in zip(rows, rival, strict=True)
+            if ours["expected"] != theirs
+        )
         assert differing, f"vector set cannot distinguish {label}"
         rivals[label] = differing
-    _a25_check("frozen model replay reproduces its own vectors",
-               _a25_replay([dict(row) for row in rows], knobs),
-               [row["expected"] for row in rows])
+    _a25_check(
+        "frozen model replay reproduces its own vectors",
+        _a25_replay([dict(row) for row in rows], knobs),
+        [row["expected"] for row in rows],
+    )
 
     return {
         "input_bits": _A25_TOKEN_BITS,
         "output_bits": _A25_RESULT_BITS,
         "rows": rows,
         "sink_order": {
-            section["name"]: [sequence for sequence, _ in
-                              witness[section["name"]]["sink_order"]]
+            section["name"]: [
+                sequence for sequence, _ in witness[section["name"]]["sink_order"]
+            ]
             for section in program
         },
         "fault_epochs": {name: witness[name]["fault"] for name in witness},
-        "ready_low_epochs": {name: witness[name]["ready_low"]
-                             for name in witness},
+        "ready_low_epochs": {name: witness[name]["ready_low"] for name in witness},
         "accepted": {name: witness[name]["accepted"] for name in witness},
         "rival_differing_rows": rivals,
     }
@@ -1486,8 +1661,9 @@ def _a25():
 #   token whose key equals the committed next key is released, (7) negative,
 #   duplicate and already-retired keys are invalid;
 # * the PM dispatch appendix ``A25/PRE-S-APPENDIX.md`` sect. 5, which fixes the
-#   SHAPE of "invalid": missing key WAITS, duplicate / stale is a fail-closed
-#   permanent stall that never lowers ``in_ready``, ``key >= start + capacity`` is
+#   old migration reading of "invalid". Restored historical authority requires
+#   effective duplicate/stale heads to fail before every Xfer; ``in_ready`` stays
+#   pure queue capacity. ``key >= start + capacity`` is
 #   LEGAL (correction 2: ``capacity`` counts occupied entries), and ``next_key`` /
 #   ``fault`` are pure observations (``C-R1``);
 # * the two queue contracts (input depth 8 latency 1, output depth 4 latency 1,
@@ -1595,8 +1771,7 @@ def _a25i_stimulus(four_state=False):
             # The hpp still carries `data`, which is the value a two-state
             # simulator folds the literal to.
             row["data_known"] = 0
-            row["data_z"] = ((1 << _A25I_TOKEN_BITS) - 1
-                             if unknown == "z" else 0)
+            row["data_z"] = (1 << _A25I_TOKEN_BITS) - 1 if unknown == "z" else 0
         rows.append(row)
         rows.append(dict(row, clk=1))
 
@@ -1694,12 +1869,10 @@ def _a25i_stimulus(four_state=False):
         offer()
     end("T4c_high_key_field_full_width")
 
-    # ---- T5: key 1 is stored and then offered again.  For one edge it is a
-    #      DUPLICATE and then, because it retires on that same edge, a STALE copy
-    #      of it is left at the input head for the rest of the section.  Either
-    #      way the block is fail-closed, so the second half of the section is a
-    #      permanent stall with a frozen pointer, an untouched `ready` and no
-    #      bypass for the later key 7.
+    # ---- T5: key 1 is stored and offered again. Its duplicate check rejects
+    #      the same Work that proposes retirement; key 1 remains stored, the
+    #      pointer remains 1, and no queued output is popped. The entire original
+    #      duration remains as discarded-state witnesses, including later key7.
     open_section("T5_duplicate_then_stale_stall")
     offer(valid=1, take=1, token=_a25i_token(0, 0xA5000000))
     offer(valid=1, take=1, token=_a25i_token(1, 0xA5000001))
@@ -1753,8 +1926,9 @@ def _a25i_stimulus(four_state=False):
     open_section("T9_masked_unknown")
     for index, key in enumerate((0, 1, 2, 3, 4, 5)):
         offer(valid=1, take=1, token=_a25i_token(key, 0xA9000000 | key))
-        offer(take=1, unknown=(("x" if index % 2 == 0 else "z")
-                               if four_state else None))
+        offer(
+            take=1, unknown=(("x" if index % 2 == 0 else "z") if four_state else None)
+        )
     for _ in range(4):
         offer(take=1)
     end("T9_masked_unknown")
@@ -1771,14 +1945,15 @@ def _a25i_knobs(**overrides):
     base = {
         "capacity": _A25I_CAPACITY,
         "key_bits": _A25I_KEY_BITS,  # store/compare width of the key field
-        "release": "by_key",       # by_key | arrival | lowest | passthrough
-        "key_window": False,       # capacity as a key window instead of occupancy
+        "release": "by_key",  # by_key | arrival | lowest | passthrough
+        "key_window": False,  # capacity as a key window instead of occupancy
         "out_of_window_dropped": False,  # key >= capacity consumed but not stored
-        "dup_overwrites": False,   # a duplicate silently replaces the stored one
+        "dup_overwrites": False,  # a duplicate silently replaces the stored one
         "drop_on_blocked": False,  # release even when the output queue is full
-        "ready_on_fault": False,   # lower in_ready on an illegal head
-        "stale_ok": False,         # already-retired keys are accepted
-        "latency_zero": False,     # latency=1 implemented as pure combinational
+        "ready_on_fault": False,  # lower in_ready on an illegal head
+        "stale_ok": False,  # already-retired keys are accepted
+        "latency_zero": False,  # latency=1 implemented as pure combinational
+        "commit_on_failure": False,  # rival: a check does not discard Xfer
         "fault_ignores_free": False,  # fault without the `free` conjunct
     }
     return dict(base, **overrides)
@@ -1808,8 +1983,9 @@ def _a25i_read(state, edge, take, knobs):
     if knobs["key_window"] and in_valid and incoming_key >= knobs["capacity"]:
         illegal = True
 
-    fault = bool(in_valid) and (illegal if knobs["fault_ignores_free"]
-                                else (free and illegal))
+    fault = bool(in_valid) and (
+        illegal if knobs["fault_ignores_free"] else (free and illegal)
+    )
     if knobs["dup_overwrites"]:
         admit = bool(in_valid) and free and not stale
     else:
@@ -1836,8 +2012,12 @@ def _a25i_read(state, edge, take, knobs):
         same_edge = False
     else:
         held = next_key in store
-        same_edge = bool(admit) and knobs["latency_zero"] and not held \
+        same_edge = (
+            bool(admit)
+            and knobs["latency_zero"]
+            and not held
             and incoming_key == next_key
+        )
         match_valid = held or same_edge
         release_token = store[next_key][0] if held else (in_token if same_edge else 0)
 
@@ -1859,6 +2039,9 @@ def _a25i_read(state, edge, take, knobs):
         "head": head,
         "next_key": next_key,
         "fault": fault,
+        "failure": bool(fault)
+        and not knobs["dup_overwrites"]
+        and not knobs["stale_ok"],
         "in_valid": bool(in_valid),
         "in_token": in_token,
         "incoming_key": incoming_key,
@@ -1889,16 +2072,20 @@ def _a25i_read(state, edge, take, knobs):
 
 
 def _a25i_commit(state, edge, read, knobs, valid, data, take, arrival):
-    """Commit one rising edge from the combinational result ``read``."""
+    """Commit only after successful whole-system checking."""
+    if read["failure"] and not knobs["commit_on_failure"]:
+        return arrival
     in_q, out_q, store = state["in_q"], state["out_q"], state["store"]
     in_q.transfer(edge, bool(valid) and read["ready"], data, read["admit"])
     # `local_occupancy` output queue: a slot freed on this edge is never refilled
     # on this edge, and a token the zero-latency rival exposed (and the consumer
     # took) on this edge never enters the queue at all.
-    out_q.transfer(edge,
-                   read["push"] and not (read["exposed"] and take),
-                   read["release_token"],
-                   read["out_valid"] and take)
+    out_q.transfer(
+        edge,
+        read["push"] and not (read["exposed"] and take),
+        read["release_token"],
+        read["out_valid"] and take,
+    )
     if read["retire"]:
         if knobs["release"] == "passthrough":
             pass
@@ -1956,6 +2143,15 @@ def _a25i_occupancy(state):
     return (len(state["store"]), state["in_q"].count(), state["out_q"].count())
 
 
+def _a25i_snapshot(state):
+    return (
+        tuple(state["in_q"].tokens),
+        tuple(state["out_q"].tokens),
+        tuple(sorted(state["store"].items())),
+        state["next_key"],
+    )
+
+
 def _a25i_run(rows, knobs):
     """Recompute ``expected`` for fixed stimulus rows; return it with the trace.
 
@@ -1973,6 +2169,7 @@ def _a25i_run(rows, knobs):
     for index, row in enumerate(rows):
         rising = bool(row["clk"]) and not previous
         read = _a25i_read(state, edge, row["take"], knobs)
+        before_state = _a25i_snapshot(state)
         expected.append(read["expected"])
         trace.append(
             {
@@ -1984,10 +2181,13 @@ def _a25i_run(rows, knobs):
                 "take": bool(row["take"]),
                 "driven": bool(row["valid"]),
                 "driven_token": row["data"],
-                "take_rule": read["admit"],
-                "push": read["push"],
-                "retire": read["retire"],
-                "sink": bool(read["out_valid"] and row["take"]),
+                "state_before": before_state,
+                "expected_failure": read["failure"] and not bool(row["rst"]),
+                "committed": not read["failure"] or bool(row["rst"]),
+                "take_rule": read["admit"] and not read["failure"],
+                "push": read["push"] and not read["failure"],
+                "retire": read["retire"] and not read["failure"],
+                "sink": bool(read["out_valid"] and row["take"] and not read["failure"]),
                 "sink_sequence": _a25i_sequence(read["out_token"]),
                 "sink_value": _a25i_value(read["out_token"]),
                 "sink_key_expected": read["next_key"],
@@ -2008,9 +2208,26 @@ def _a25i_run(rows, knobs):
             edge = 0
             arrival = 0
         elif rising:
-            arrival = _a25i_commit(state, edge, read, knobs, row["valid"],
-                                   row["data"], row["take"], arrival)
-            edge += 1
+            arrival = _a25i_commit(
+                state,
+                edge,
+                read,
+                knobs,
+                row["valid"],
+                row["data"],
+                row["take"],
+                arrival,
+            )
+            if not read["failure"] or knobs["commit_on_failure"]:
+                edge += 1
+        trace[-1]["state_after"] = _a25i_snapshot(state)
+        if (
+            rising
+            and read["failure"]
+            and not knobs["commit_on_failure"]
+            and not row["rst"]
+        ):
+            assert trace[-1]["state_after"] == before_state
         previous = row["clk"]
     return expected, trace
 
@@ -2031,8 +2248,9 @@ def _a25i_epochs(trace, span):
 
 
 def _a25i_sinks(entries):
-    return {entry["local"]: entry["sink_sequence"]
-            for entry in entries if entry["sink"]}
+    return {
+        entry["local"]: entry["sink_sequence"] for entry in entries if entry["sink"]
+    }
 
 
 def _a25i_peaks(entries):
@@ -2044,11 +2262,12 @@ def _a25i_independent(four_state=False):
     stimulus, spans = _a25i_stimulus(four_state)
     knobs = _a25i_knobs()
     expected, trace = _a25i_run(stimulus, knobs)
-    rows = [dict(row, expected=value)
-            for row, value in zip(stimulus, expected, strict=True)]
+    rows = [
+        dict(row, expected=value, expected_failure=entry["expected_failure"])
+        for row, value, entry in zip(stimulus, expected, trace, strict=True)
+    ]
     sections = {name: _a25i_epochs(trace, span) for name, span in spans.items()}
-    sink_tables = {name: _a25i_sinks(entries)
-                   for name, entries in sections.items()}
+    sink_tables = {name: _a25i_sinks(entries) for name, entries in sections.items()}
 
     # (i) HAND-COMPUTED ABSOLUTE EPOCH TABLES.  Written from the four contract
     #     clauses plus "a token handed over on edge E is visible on E+1" and
@@ -2068,7 +2287,7 @@ def _a25i_independent(four_state=False):
     _a25_check(
         "T6 sink table (epoch -> sequence), hand-computed",
         sink_tables["T6_stale_on_arrival"],
-        {4: 0, 5: 1, 6: 2},
+        {4: 0},
     )
     _a25_check(
         "T9 masked-unknown sink table (epoch -> sequence), hand-computed",
@@ -2079,14 +2298,26 @@ def _a25i_independent(four_state=False):
     # (ii) T1/T2: the payload pair travels untouched and the release order is the
     #      key order, not the arrival order (RT-01/RT-04/RT-05/BD-07/TM-01).
     for name in ("T1_permutation", "T2_hole_then_fill"):
-        pairs = [(entry["sink_sequence"], entry["sink_value"])
-                 for entry in sections[name] if entry["sink"]]
-        assert all(sequence < following for (sequence, _), (following, _)
-                   in zip(pairs, pairs[1:])), (name, pairs)  # noqa: B905 - preserve the extracted reference algorithm
-        assert all((0xA0000000 | sequence) == value
-                   or (value >> 24) in (0xA1, 0xA2) for sequence, value in pairs)
-        assert [sequence for sequence, _ in pairs] == list(
-            range(len(pairs))), (name, pairs)
+        pairs = [
+            (entry["sink_sequence"], entry["sink_value"])
+            for entry in sections[name]
+            if entry["sink"]
+        ]
+        assert all(
+            sequence < following
+            for (sequence, _), (following, _) in zip(pairs, pairs[1:])
+        ), (
+            name,
+            pairs,
+        )  # noqa: B905 - preserve the extracted reference algorithm
+        assert all(
+            (0xA0000000 | sequence) == value or (value >> 24) in (0xA1, 0xA2)
+            for sequence, value in pairs
+        )
+        assert [sequence for sequence, _ in pairs] == list(range(len(pairs))), (
+            name,
+            pairs,
+        )
 
     # (iii) T3: every far key is ACCEPTED.  The proof is not a value but an
     #       epoch: the store holds all sixteen by `local` 18, so the input queue
@@ -2094,49 +2325,84 @@ def _a25i_independent(four_state=False):
     #       DUT that treated `capacity` as a key window would refuse all sixteen,
     #       never pop its input queue and fall already at `local` 9.
     t3 = sections["T3_far_fill_occupancy"]
-    _a25_check("T3 the store reaches all sixteen far keys at local 18",
-               [(e["local"], e["occupied"]) for e in t3 if e["occupied"] == 16][:1],
-               [(18, 16)])
-    _a25_check("T3 first `ready`-low epoch", [e["local"] for e in t3
-                                              if not e["ready"]][:1], [25])
-    _a25_check("T3 ready is high at local 9 (a key-window DUT is already low)",
-               t3[8]["ready"], True)
-    _a25_check("T3 zero output, zero fault, pointer frozen at start",
-               (sink_tables["T3_far_fill_occupancy"],
-                [e["local"] for e in t3 if e["fault"]],
-                {e["next_key"] for e in t3}), ({}, [], {0}))
-    _a25_check("T3 final occupancy (store, input, output)",
-               t3[-1]["occupancy"], (16, 8, 0))
+    _a25_check(
+        "T3 the store reaches all sixteen far keys at local 18",
+        [(e["local"], e["occupied"]) for e in t3 if e["occupied"] == 16][:1],
+        [(18, 16)],
+    )
+    _a25_check(
+        "T3 first `ready`-low epoch",
+        [e["local"] for e in t3 if not e["ready"]][:1],
+        [25],
+    )
+    _a25_check(
+        "T3 ready is high at local 9 (a key-window DUT is already low)",
+        t3[8]["ready"],
+        True,
+    )
+    _a25_check(
+        "T3 zero output, zero fault, pointer frozen at start",
+        (
+            sink_tables["T3_far_fill_occupancy"],
+            [e["local"] for e in t3 if e["fault"]],
+            {e["next_key"] for e in t3},
+        ),
+        ({}, [], {0}),
+    )
+    _a25_check(
+        "T3 final occupancy (store, input, output)", t3[-1]["occupancy"], (16, 8, 0)
+    )
 
     # (iv) T4: the far key occupies ONE of the sixteen slots, so the sixteenth
     #      in-window key is blocked until a slot is freed.  `ready` falls at the
     #      same relative epoch as in T3 because the store -- not the key domain --
     #      is what ran out.
     t4 = sections["T4_far_slot_blocks_in_window"]
-    _a25_check("T4 the store reaches all sixteen entries at local 18",
-               [(e["local"], e["occupied"]) for e in t4 if e["occupied"] == 16][:1],
-               [(18, 16)])
-    _a25_check("T4 first `ready`-low epoch",
-               [e["local"] for e in t4 if not e["ready"]][:1], [25])
-    _a25_check("T4 zero output and zero fault", (sink_tables[
-        "T4_far_slot_blocks_in_window"], [e["local"] for e in t4 if e["fault"]]),
-        ({}, []))
+    _a25_check(
+        "T4 the store reaches all sixteen entries at local 18",
+        [(e["local"], e["occupied"]) for e in t4 if e["occupied"] == 16][:1],
+        [(18, 16)],
+    )
+    _a25_check(
+        "T4 first `ready`-low epoch",
+        [e["local"] for e in t4 if not e["ready"]][:1],
+        [25],
+    )
+    _a25_check(
+        "T4 zero output and zero fault",
+        (
+            sink_tables["T4_far_slot_blocks_in_window"],
+            [e["local"] for e in t4 if e["fault"]],
+        ),
+        ({}, []),
+    )
 
     # (iv-b) T4b: a duplicate at the head of a FULL store is NOT a fault.  The
     #        store short-circuits before the key comparison, so `fault` carries
     #        the `free` conjunct; a DUT that dropped it would raise `fault` on
     #        every epoch from local 18 to the end of the section.
     t4b = sections["T4b_full_store_duplicate_head"]
-    _a25_check("T4b the head is a duplicate of a stored key while full",
-               (t4b[17]["occupied"], t4b[17]["duplicate"], t4b[17]["free"]),
-               (16, True, False))
-    _a25_check("T4b `fault` stays low on the full-store duplicate",
-               [e["local"] for e in t4b if e["fault"]], [])
-    _a25_check("T4b first `ready`-low epoch and zero output",
-               ([e["local"] for e in t4b if not e["ready"]][:1],
-                sink_tables["T4b_full_store_duplicate_head"]), ([25], {}))
-    _a25_check("T4b final occupancy (store, input, output)",
-               t4b[-1]["occupancy"], (16, 8, 0))
+    _a25_check(
+        "T4b the head is a duplicate of a stored key while full",
+        (t4b[17]["occupied"], t4b[17]["duplicate"], t4b[17]["free"]),
+        (16, True, False),
+    )
+    _a25_check(
+        "T4b `fault` stays low on the full-store duplicate",
+        [e["local"] for e in t4b if e["fault"]],
+        [],
+    )
+    _a25_check(
+        "T4b first `ready`-low epoch and zero output",
+        (
+            [e["local"] for e in t4b if not e["ready"]][:1],
+            sink_tables["T4b_full_store_duplicate_head"],
+        ),
+        ([25], {}),
+    )
+    _a25_check(
+        "T4b final occupancy (store, input, output)", t4b[-1]["occupancy"], (16, 8, 0)
+    )
 
     # (iv-c) T4c: the key is compared at FULL WIDTH.  Eight keys 0x100..0x107 and
     #        eight keys 0xFFFFFF00..0xFFFFFF07 have identical low bytes; a DUT that
@@ -2144,129 +2410,204 @@ def _a25i_independent(four_state=False):
     #        raise `fault` from local 10 on.  The delivered bits instead fill the
     #        store with sixteen DISTINCT entries and never fault.
     t4c = sections["T4c_high_key_field_full_width"]
-    _a25_check("T4c the store reaches all sixteen distinct keys at local 18",
-               [(e["local"], e["occupied"]) for e in t4c if e["occupied"] == 16][:1],
-               [(18, 16)])
-    _a25_check("T4c first `ready`-low epoch, zero fault and zero output",
-               ([e["local"] for e in t4c if not e["ready"]][:1],
-                [e["local"] for e in t4c if e["fault"]],
-                sink_tables["T4c_high_key_field_full_width"]), ([25], [], {}))
-    _a25_check("T4c the pointer never leaves start",
-               {e["next_key"] for e in t4c}, {0})
+    _a25_check(
+        "T4c the store reaches all sixteen distinct keys at local 18",
+        [(e["local"], e["occupied"]) for e in t4c if e["occupied"] == 16][:1],
+        [(18, 16)],
+    )
+    _a25_check(
+        "T4c first `ready`-low epoch, zero fault and zero output",
+        (
+            [e["local"] for e in t4c if not e["ready"]][:1],
+            [e["local"] for e in t4c if e["fault"]],
+            sink_tables["T4c_high_key_field_full_width"],
+        ),
+        ([25], [], {}),
+    )
+    _a25_check("T4c the pointer never leaves start", {e["next_key"] for e in t4c}, {0})
 
-    # (v) T5: duplicate -> stale is fail-closed and PERMANENT.  `fault` is high on
-    #     every epoch from the first duplicate to the end of the section, the
-    #     pointer freezes, nothing is overwritten, nothing is dropped, the later
-    #     key 7 never bypasses the stuck head, and `ready` -- pure input-queue
-    #     capacity -- is never lowered (C-R1).
+    # Illegal available heads with free capacity fail before *every* Xfer.
+    # Full durations below describe frozen discarded state after first failure,
+    # not successful execution beyond that edge.
     t5 = sections["T5_duplicate_then_stale_stall"]
-    _a25_check("T5 fault starts at local 4 and never clears",
-               [e["local"] for e in t5 if e["fault"]],
-               list(range(4, len(t5) + 1)))
-    _a25_check("T5 duplicate on the first fault edge, stale afterwards",
-               (t5[3]["duplicate"], t5[4]["duplicate"], t5[4]["stale"]),
-               (True, False, True))
-    _a25_check("T5 release before the stall and nothing after",
-               sink_tables["T5_duplicate_then_stale_stall"], {4: 0, 5: 1})
-    _a25_check("T5 pointer frozen at 2 and never lowered `ready`",
-               ({e["next_key"] for e in t5[4:]}, {e["ready"] for e in t5}),
-               ({2}, {True}))
-    _a25_check("T5 the later key 7 never bypasses the stuck head",
-               (t5[-1]["occupancy"][1] >= 1,
-                all(entry["sink_sequence"] < 2 for entry in t5 if entry["sink"])),
-               (True, True))
-
-    # (vi) T6: an already-retired key on arrival is stale, not a duplicate, and is
-    #      fail-closed by the same rule.
     t6 = sections["T6_stale_on_arrival"]
-    _a25_check("T6 fault starts at local 5 and never clears",
-               [e["local"] for e in t6 if e["fault"]],
-               list(range(5, len(t6) + 1)))
-    _a25_check("T6 stale but never duplicate, pointer frozen at 3",
-               ({e["stale"] for e in t6[4:]}, {e["duplicate"] for e in t6},
-                {e["next_key"] for e in t6[5:]}),
-               ({True}, {False}, {3}))
-    _a25_check("T6 `ready` is never lowered", {e["ready"] for e in t6}, {True})
+    for name, entries, first, pointer in (
+        ("T5_duplicate_then_stale_stall", t5, 4, 1),
+        ("T6_stale_on_arrival", t6, 5, 2),
+    ):
+        _a25_check(
+            f"{name} first effective failure",
+            next(e["local"] for e in entries if e["expected_failure"]),
+            first,
+        )
+        _a25_check(
+            f"{name} fault retained in discarded state",
+            [e["local"] for e in entries if e["fault"]],
+            list(range(first, len(entries) + 1)),
+        )
+        _a25_check(
+            f"{name} pointer has zero commit on failure",
+            {e["next_key"] for e in entries[first - 1 :]},
+            {pointer},
+        )
+        assert all(
+            not e["committed"]
+            and not e["sink"]
+            and not e["retire"]
+            and not e["take_rule"]
+            for e in entries[first - 1 :]
+        )
+        assert len({e["occupancy"] for e in entries[first - 1 :]}) == 1
+    _a25_check(
+        "T5 duplicate remains duplicate after discarded retirement",
+        (t5[3]["duplicate"], t5[-1]["duplicate"], t5[-1]["stale"]),
+        (True, True, False),
+    )
+    _a25_check(
+        "T5 no sink on the failure edge",
+        sink_tables["T5_duplicate_then_stale_stall"],
+        {},
+    )
+    _a25_check(
+        "T6 stale and no duplicate",
+        ({e["stale"] for e in t6[4:]}, {e["duplicate"] for e in t6}),
+        ({True}, {False}),
+    )
 
     # (vii) T7: the reset edge strikes a NON-EMPTY store and input queue, and only
     #       a real reset lets 0..7 leave at all (the A27 C2 lesson: a reset that
     #       struck an empty chain would be unfalsifiable).
     t7 = sections["T7_reset_clears_full_store"]
-    _a25_check("T7 reset strikes a non-empty chain",
-               (t7[16]["rst"], t7[16]["occupancy"], sum(t7[16]["occupancy"]) > 0),
-               (True, (15, 1, 0), True))
-    _a25_check("T7 post-reset release table (epoch -> sequence)",
-               sink_tables["T7_reset_clears_full_store"],
-               {21: 0, 22: 1, 23: 2, 24: 3, 25: 4, 26: 5, 27: 6, 28: 7})
-    _a25_check("T7 post-reset pointer and fault-free drain",
-               (t7[-1]["next_key"], [e["local"] for e in t7[17:] if e["fault"]]),
-               (8, []))
+    _a25_check(
+        "T7 reset strikes a non-empty chain",
+        (t7[16]["rst"], t7[16]["occupancy"], sum(t7[16]["occupancy"]) > 0),
+        (True, (15, 1, 0), True),
+    )
+    _a25_check(
+        "T7 post-reset release table (epoch -> sequence)",
+        sink_tables["T7_reset_clears_full_store"],
+        {21: 0, 22: 1, 23: 2, 24: 3, 25: 4, 26: 5, 27: 6, 28: 7},
+    )
+    _a25_check(
+        "T7 post-reset pointer and fault-free drain",
+        (t7[-1]["next_key"], [e["local"] for e in t7[17:] if e["fault"]]),
+        (8, []),
+    )
 
     # (viii) T8: the backpressure chain bottoms out at exactly 4 + 16 + 8 = 28
     #        tokens in flight, `ready` falls at the 29th edge, only 28 are ever
     #        accepted, and the drain is in order and lossless.
     t8 = sections["T8_backpressure_then_drain"]
-    _a25_check("T8 first `ready`-low epoch",
-               [e["local"] for e in t8 if not e["ready"]][:1], [29])
-    _a25_check("T8 peak in-flight occupancy (4 out + 16 store + 8 in)",
-               _a25i_peaks(t8), 28)
-    _a25_check("T8 accepted tokens under backpressure",
-               sum(1 for e in t8 if e["take_rule"]), 28)
-    _a25_check("T8 lossless in-order drain",
-               sink_tables["T8_backpressure_then_drain"],
-               {41 + index: index for index in range(28)})
-    _a25_check("T8 drained to empty at pointer 28",
-               (t8[-1]["next_key"], t8[-1]["occupancy"]), (28, (0, 0, 0)))
-    _a25_check("T8 fault free throughout", [e["local"] for e in t8 if e["fault"]],
-               [])
+    _a25_check(
+        "T8 first `ready`-low epoch",
+        [e["local"] for e in t8 if not e["ready"]][:1],
+        [29],
+    )
+    _a25_check(
+        "T8 peak in-flight occupancy (4 out + 16 store + 8 in)", _a25i_peaks(t8), 28
+    )
+    _a25_check(
+        "T8 accepted tokens under backpressure",
+        sum(1 for e in t8 if e["take_rule"]),
+        28,
+    )
+    _a25_check(
+        "T8 lossless in-order drain",
+        sink_tables["T8_backpressure_then_drain"],
+        {41 + index: index for index in range(28)},
+    )
+    _a25_check(
+        "T8 drained to empty at pointer 28",
+        (t8[-1]["next_key"], t8[-1]["occupancy"]),
+        (28, (0, 0, 0)),
+    )
+    _a25_check("T8 fault free throughout", [e["local"] for e in t8 if e["fault"]], [])
 
     # (ix) T9 four-state bookkeeping.  In the `_raw` variant the unknown rows
     #      really carry an unknown payload bus and are never effective transfers,
     #      so every expected bit of BOTH modes is still fully two-state; in the
     #      plain mode there is no unknown row at all (it also runs Verilator).
-    unknown_rows = [row for row in rows
-                    if row.get("data_known", (1 << _A25I_TOKEN_BITS) - 1) == 0]
-    _a25_check("T9 unknown-payload rows", len(unknown_rows),
-               12 if four_state else 0)
+    unknown_rows = [
+        row for row in rows if row.get("data_known", (1 << _A25I_TOKEN_BITS) - 1) == 0
+    ]
+    _a25_check("T9 unknown-payload rows", len(unknown_rows), 12 if four_state else 0)
     if four_state:
-        _a25_check("T9 no unknown payload is ever offered with `valid` high",
-                   {row["valid"] for row in unknown_rows}, {0})
-        _a25_check("T9 unknown rows carry both x and z",
-                   sorted({row["data_z"] for row in unknown_rows}),
-                   [0, (1 << _A25I_TOKEN_BITS) - 1])
-    _a25_check("T9 every expected value is fully two-state",
-               all(0 <= row["expected"] < (1 << _A25I_RESULT_BITS) for row in rows),
-               True)
+        _a25_check(
+            "T9 no unknown payload is ever offered with `valid` high",
+            {row["valid"] for row in unknown_rows},
+            {0},
+        )
+        _a25_check(
+            "T9 unknown rows carry both x and z",
+            sorted({row["data_z"] for row in unknown_rows}),
+            [0, (1 << _A25I_TOKEN_BITS) - 1],
+        )
+    _a25_check(
+        "T9 every expected value is fully two-state",
+        all(0 <= row["expected"] < (1 << _A25I_RESULT_BITS) for row in rows),
+        True,
+    )
 
     # (x) global invariants over every section at once.
-    releases = [(entry["epoch"], entry["sink_sequence"])
-                for entry in trace if entry["sink"]]
+    releases = [
+        (entry["epoch"], entry["sink_sequence"]) for entry in trace if entry["sink"]
+    ]
     by_section = {}
-    for name, (first, last) in spans.items():  # noqa: B007 - preserve the extracted reference algorithm
-        sequences = [entry["sink_sequence"] for entry in sections[name]
-                     if entry["sink"]]
-        assert all(a < b for a, b in zip(sequences, sequences[1:])), (name, sequences)  # noqa: B905 - preserve the extracted reference algorithm
+    for name, (
+        first,
+        last,
+    ) in spans.items():  # noqa: B007 - preserve the extracted reference algorithm
+        sequences = [
+            entry["sink_sequence"] for entry in sections[name] if entry["sink"]
+        ]
+        assert all(a < b for a, b in zip(sequences, sequences[1:])), (
+            name,
+            sequences,
+        )  # noqa: B905 - preserve the extracted reference algorithm
         by_section[name] = sequences
-    _a25_check("T1/T2/T6/T8/T9 release the exact contiguous run from start",
-               {name: by_section[name] for name in
-                ("T1_permutation", "T2_hole_then_fill", "T6_stale_on_arrival",
-                 "T7_reset_clears_full_store", "T8_backpressure_then_drain",
-                 "T9_masked_unknown")},
-               {"T1_permutation": list(range(10)),
-                "T2_hole_then_fill": list(range(6)),
-                "T6_stale_on_arrival": list(range(3)),
-                "T7_reset_clears_full_store": list(range(8)),
-                "T8_backpressure_then_drain": list(range(28)),
-                "T9_masked_unknown": list(range(6))})
-    _a25_check("far-key sections release nothing at all",
-               (by_section["T3_far_fill_occupancy"],
-                by_section["T4_far_slot_blocks_in_window"],
-                by_section["T4b_full_store_duplicate_head"],
-                by_section["T4c_high_key_field_full_width"]), ([], [], [], []))
-    _a25_check("sections that ever fault",
-               sorted({name for name, entries in sections.items()
-                       if any(entry["fault"] for entry in entries)}),
-               ["T5_duplicate_then_stale_stall", "T6_stale_on_arrival"])
+    _a25_check(
+        "T1/T2/T6/T8/T9 release the exact contiguous run from start",
+        {
+            name: by_section[name]
+            for name in (
+                "T1_permutation",
+                "T2_hole_then_fill",
+                "T6_stale_on_arrival",
+                "T7_reset_clears_full_store",
+                "T8_backpressure_then_drain",
+                "T9_masked_unknown",
+            )
+        },
+        {
+            "T1_permutation": list(range(10)),
+            "T2_hole_then_fill": list(range(6)),
+            "T6_stale_on_arrival": [0],
+            "T7_reset_clears_full_store": list(range(8)),
+            "T8_backpressure_then_drain": list(range(28)),
+            "T9_masked_unknown": list(range(6)),
+        },
+    )
+    _a25_check(
+        "far-key sections release nothing at all",
+        (
+            by_section["T3_far_fill_occupancy"],
+            by_section["T4_far_slot_blocks_in_window"],
+            by_section["T4b_full_store_duplicate_head"],
+            by_section["T4c_high_key_field_full_width"],
+        ),
+        ([], [], [], []),
+    )
+    _a25_check(
+        "sections that ever fault",
+        sorted(
+            {
+                name
+                for name, entries in sections.items()
+                if any(entry["fault"] for entry in entries)
+            }
+        ),
+        ["T5_duplicate_then_stale_stall", "T6_stale_on_arrival"],
+    )
     del releases
 
     # (xi) NEGATIVE CONTROLS.  Each rival is the same stimulus replayed through
@@ -2287,6 +2628,7 @@ def _a25i_independent(four_state=False):
         ("key_truncated_8", {"key_bits": 8}, False),
         ("combinational_latency", {"latency_zero": True}, False),
         ("fault_without_free", {"fault_ignores_free": True}, False),
+        ("commit_on_failure", {"commit_on_failure": True}, False),
         ("reset_ignored", {}, True),
     ):
         rival_rows = [dict(row) for row in stimulus]
@@ -2294,9 +2636,11 @@ def _a25i_independent(four_state=False):
             for rival_row in rival_rows:
                 rival_row["rst"] = 0
         rival_expected, _ = _a25i_run(rival_rows, _a25i_knobs(**overrides))
-        differing = sum(1 for ours, theirs in zip(expected, rival_expected,
-                                                  strict=True)
-                        if ours != theirs)
+        differing = sum(
+            1
+            for ours, theirs in zip(expected, rival_expected, strict=True)
+            if ours != theirs
+        )
         assert differing, f"vector set cannot distinguish {label}"
         rivals[label] = differing
 
@@ -2313,15 +2657,27 @@ def _a25i_independent(four_state=False):
         assert targeted_rows[index]["rst"] == 1, index
         targeted_rows[index]["rst"] = 0
     targeted_expected, _ = _a25i_run(targeted_rows, knobs)
-    targeted = sum(1 for ours, theirs in zip(expected, targeted_expected,
-                                             strict=True) if ours != theirs)
+    targeted = sum(
+        1
+        for ours, theirs in zip(expected, targeted_expected, strict=True)
+        if ours != theirs
+    )
     assert targeted, "T7's own reset edge is unfalsifiable"
     rivals["reset_ignored_at_T7_only"] = targeted
-    _a25_check("T7 without its own reset edge releases nothing",
-               _a25i_sinks(_a25i_epochs(_a25i_run(targeted_rows, knobs)[1],
-                                        spans["T7_reset_clears_full_store"])), {})
-    _a25_check("frozen model replay reproduces its own vectors",
-               _a25i_run([dict(row) for row in stimulus], knobs)[0], expected)
+    _a25_check(
+        "T7 without its own reset edge releases nothing",
+        _a25i_sinks(
+            _a25i_epochs(
+                _a25i_run(targeted_rows, knobs)[1], spans["T7_reset_clears_full_store"]
+            )
+        ),
+        {},
+    )
+    _a25_check(
+        "frozen model replay reproduces its own vectors",
+        _a25i_run([dict(row) for row in stimulus], knobs)[0],
+        expected,
+    )
 
     return {
         "input_bits": _A25I_TOKEN_BITS,
@@ -2332,6 +2688,10 @@ def _a25i_independent(four_state=False):
         "sink_tables": sink_tables,
         "sink_order": {
             name: [entry["sink_sequence"] for entry in entries if entry["sink"]]
+            for name, entries in sections.items()
+        },
+        "first_failures": {
+            name: next((e["local"] for e in entries if e["expected_failure"]), None)
             for name, entries in sections.items()
         },
         "fault_epochs": {
@@ -2346,8 +2706,9 @@ def _a25i_independent(four_state=False):
             name: sum(1 for entry in entries if entry["take_rule"])
             for name, entries in sections.items()
         },
-        "peak_in_flight": {name: _a25i_peaks(entries)
-                           for name, entries in sections.items()},
+        "peak_in_flight": {
+            name: _a25i_peaks(entries) for name, entries in sections.items()
+        },
         "section_final": {
             name: (entries[-1]["next_key"], entries[-1]["occupancy"])
             for name, entries in sections.items()
@@ -2464,45 +2825,121 @@ def _credit_program():
     ``admit``/``release``/``sink`` entries are the A06-O golden tables, keyed by
     epoch and by push index respectively.
     """
-    s1 = [(0, 8, 0x0111), (1, 1, 0x0222), (2, 2, 0x0333),
-          (3, 1, 0x0444), (4, 3, 0x0555), (5, 1, 0x0666)]
+    s1 = [
+        (0, 8, 0x0111),
+        (1, 1, 0x0222),
+        (2, 2, 0x0333),
+        (3, 1, 0x0444),
+        (4, 3, 0x0555),
+        (5, 1, 0x0666),
+    ]
     s4 = [(i, 1, 0x0100 + i) for i in range(6)]
     s5 = [(i, cycles, 0x0100 + i) for i, cycles in enumerate((6, 0, 1))]
-    s6 = [(15 if i == 1 else i, 8, 0xFFFF if i == 1 else 0x0100 + i)
-          for i in range(12)]
+    s6 = [(15 if i == 1 else i, 8, 0xFFFF if i == 1 else 0x0100 + i) for i in range(12)]
     return [
-        {"name": "S1", "tokens": s1, "low": (), "epochs": 20,
-         "admit": {2: (0, 0), 3: (1, 1), 6: (1, 2), 10: (1, 3), 12: (0, 4),
-                   13: (1, 5)},
-         "release": {0: 11, 1: 5, 2: 9, 3: 12, 4: 16, 5: 15},
-         "sink": {6: 1, 10: 2, 12: 0, 13: 3, 16: 5, 17: 4}},
+        {
+            "name": "S1",
+            "tokens": s1,
+            "low": (),
+            "epochs": 20,
+            "admit": {
+                2: (0, 0),
+                3: (1, 1),
+                6: (1, 2),
+                10: (1, 3),
+                12: (0, 4),
+                13: (1, 5),
+            },
+            "release": {0: 11, 1: 5, 2: 9, 3: 12, 4: 16, 5: 15},
+            "sink": {6: 1, 10: 2, 12: 0, 13: 3, 16: 5, 17: 4},
+        },
         # S2 backs the consumer off only; A06-O-OUT-08 states that the admission
         # and completion order of the two credits is unchanged (BP-05), and the
         # output queue never fills enough for `space` to block a retirement, so
         # the admission/release tables are S1's.
-        {"name": "S2", "tokens": s1, "low": tuple(range(9, 15)), "epochs": 22,
-         "admit": {2: (0, 0), 3: (1, 1), 6: (1, 2), 10: (1, 3), 12: (0, 4),
-                   13: (1, 5)},
-         "release": {0: 11, 1: 5, 2: 9, 3: 12, 4: 16, 5: 15},
-         "sink": {6: 1, 15: 2, 16: 0, 17: 3, 18: 5, 19: 4}},
-        {"name": "S4", "tokens": s4, "low": tuple(range(5, 21)), "epochs": 32,
-         "admit": {2: (0, 0), 3: (1, 1), 5: (0, 2), 6: (1, 3), 8: (0, 4),
-                   9: (1, 5)},
-         "release": {0: 4, 1: 5, 2: 7, 3: 8, 4: 22, 5: 23},
-         "sink": {21: 0, 22: 1, 23: 2, 24: 3, 25: 4, 26: 5}},
-        {"name": "S5", "tokens": s5, "low": (), "epochs": 16,
-         "admit": {2: (0, 0)},
-         "release": {0: 9},
-         "sink": {10: 0}},
-        {"name": "S6", "tokens": s6, "low": (), "epochs": 72,
-         "admit": {2: (0, 0), 3: (1, 1), 12: (0, 2), 13: (1, 3), 22: (0, 4),
-                   23: (1, 5), 32: (0, 6), 33: (1, 7), 42: (0, 8), 43: (1, 9),
-                   52: (0, 10), 53: (1, 11)},
-         "release": {0: 11, 1: 12, 2: 21, 3: 22, 4: 31, 5: 32, 6: 41, 7: 42,
-                     8: 51, 9: 52, 10: 61, 11: 62},
-         "sink": {12: 0, 13: 1, 22: 2, 23: 3, 32: 4, 33: 5, 42: 6, 43: 7,
-                  52: 8, 53: 9, 62: 10, 63: 11},
-         "first_ready_low": 7},
+        {
+            "name": "S2",
+            "tokens": s1,
+            "low": tuple(range(9, 15)),
+            "epochs": 22,
+            "admit": {
+                2: (0, 0),
+                3: (1, 1),
+                6: (1, 2),
+                10: (1, 3),
+                12: (0, 4),
+                13: (1, 5),
+            },
+            "release": {0: 11, 1: 5, 2: 9, 3: 12, 4: 16, 5: 15},
+            "sink": {6: 1, 15: 2, 16: 0, 17: 3, 18: 5, 19: 4},
+        },
+        {
+            "name": "S4",
+            "tokens": s4,
+            "low": tuple(range(5, 21)),
+            "epochs": 32,
+            "admit": {2: (0, 0), 3: (1, 1), 5: (0, 2), 6: (1, 3), 8: (0, 4), 9: (1, 5)},
+            "release": {0: 4, 1: 5, 2: 7, 3: 8, 4: 22, 5: 23},
+            "sink": {21: 0, 22: 1, 23: 2, 24: 3, 25: 4, 26: 5},
+        },
+        {
+            "name": "S5",
+            "tokens": s5,
+            "low": (),
+            "epochs": 16,
+            "admit": {2: (0, 0)},
+            "release": {0: 9},
+            "sink": {10: 0},
+        },
+        {
+            "name": "S6",
+            "tokens": s6,
+            "low": (),
+            "epochs": 72,
+            "admit": {
+                2: (0, 0),
+                3: (1, 1),
+                12: (0, 2),
+                13: (1, 3),
+                22: (0, 4),
+                23: (1, 5),
+                32: (0, 6),
+                33: (1, 7),
+                42: (0, 8),
+                43: (1, 9),
+                52: (0, 10),
+                53: (1, 11),
+            },
+            "release": {
+                0: 11,
+                1: 12,
+                2: 21,
+                3: 22,
+                4: 31,
+                5: 32,
+                6: 41,
+                7: 42,
+                8: 51,
+                9: 52,
+                10: 61,
+                11: 62,
+            },
+            "sink": {
+                12: 0,
+                13: 1,
+                22: 2,
+                23: 3,
+                32: 4,
+                33: 5,
+                42: 6,
+                43: 7,
+                52: 8,
+                53: 9,
+                62: 10,
+                63: 11,
+            },
+            "first_ready_low": 7,
+        },
     ]
 
 
@@ -2517,8 +2954,7 @@ def _credit_read(issue, done, credit, edge, take, knobs):
     cost = (head >> _CR_VALUE_BITS) & 0xF
     free = [slot is None for slot in credit]
     at_zero = [slot is not None and slot[2] == 0 for slot in credit]
-    index_order = (range(slots - 1, -1, -1) if knobs["high_index"]
-                   else range(slots))
+    index_order = range(slots - 1, -1, -1) if knobs["high_index"] else range(slots)
     space = done.ready(done.eligible(edge))
     retire_at = [False] * slots
     if space:
@@ -2536,33 +2972,61 @@ def _credit_read(issue, done, credit, edge, take, knobs):
         target = next(index for index in index_order if free[index])
         admit_at[target] = True
     done_valid = any(at_zero)
-    done_data = next((credit[index][1] for index in range(slots)
-                      if at_zero[index]), 0)
-    done_tag = next((credit[index][0] for index in range(slots)
-                     if at_zero[index]), None)
+    done_data = next((credit[index][1] for index in range(slots) if at_zero[index]), 0)
+    done_tag = next(
+        (credit[index][0] for index in range(slots) if at_zero[index]), None
+    )
     available = done.eligible(edge)
     head_out = done.value(edge)
     return {
-        "ready": ready, "available": available, "head_out": head_out,
-        "out_valid": out_valid, "head": head, "head_tag": head_tag, "cost": cost,
-        "at_zero": at_zero, "take_issue": take_issue, "admit_at": admit_at,
-        "space": space, "retire_at": retire_at, "done_valid": done_valid,
-        "done_data": done_data, "done_tag": done_tag, "sink_tag": done.tag(edge),
-        "active": [credit[index] is not None and not at_zero[index]
-                   for index in range(slots)],
-        "expected": _pack(((1, int(ready)), (1, int(available)),
-                           (_CR_TOKEN_BITS, head_out))),
+        "ready": ready,
+        "available": available,
+        "head_out": head_out,
+        "out_valid": out_valid,
+        "head": head,
+        "head_tag": head_tag,
+        "cost": cost,
+        "failure": bool(
+            out_valid and any(free) and cost == 0 and not knobs["accept_zero_cost"]
+        ),
+        "at_zero": at_zero,
+        "take_issue": take_issue,
+        "admit_at": admit_at,
+        "space": space,
+        "retire_at": retire_at,
+        "done_valid": done_valid,
+        "done_data": done_data,
+        "done_tag": done_tag,
+        "sink_tag": done.tag(edge),
+        "active": [
+            credit[index] is not None and not at_zero[index] for index in range(slots)
+        ],
+        "expected": _pack(
+            ((1, int(ready)), (1, int(available)), (_CR_TOKEN_BITS, head_out))
+        ),
     }
 
 
-def _credit_commit(issue, done, credit, edge, valid, data, tag, take, read,
-                   knobs, witness, epoch):
+def _credit_commit(
+    issue, done, credit, edge, valid, data, tag, take, read, knobs, witness, epoch
+):
     """Commit one rising edge from the combinational result ``read``."""
-    issue.transfer(edge + 1, bool(valid) and read["ready"], tag, data,
-                   read["out_valid"] and read["take_issue"])
-    done.transfer(edge + 1, read["done_valid"] and read["space"],
-                  read["done_tag"], read["done_data"],
-                  read["available"] and bool(take))
+    if read["failure"]:
+        return
+    issue.transfer(
+        edge + 1,
+        bool(valid) and read["ready"],
+        tag,
+        data,
+        read["out_valid"] and read["take_issue"],
+    )
+    done.transfer(
+        edge + 1,
+        read["done_valid"] and read["space"],
+        read["done_tag"],
+        read["done_data"],
+        read["available"] and bool(take),
+    )
     for index in range(knobs["slots"]):
         if read["admit_at"][index]:
             credit[index] = (read["head_tag"], read["head"], read["cost"])
@@ -2573,8 +3037,7 @@ def _credit_commit(issue, done, credit, edge, valid, data, tag, take, read,
                 witness["released"][credit[index][0]] = epoch
             credit[index] = None
         elif read["active"][index]:
-            credit[index] = (credit[index][0], credit[index][1],
-                             credit[index][2] - 1)
+            credit[index] = (credit[index][0], credit[index][1], credit[index][2] - 1)
     if witness is not None:
         if not read["ready"]:
             witness["ready_low"].append(epoch)
@@ -2582,14 +3045,18 @@ def _credit_commit(issue, done, credit, edge, valid, data, tag, take, read,
             witness["stall"].append(epoch)
         if read["available"] and take:
             witness["sink"][epoch] = read["sink_tag"]
-        witness["frozen"].append(
-            (epoch, tuple(credit), done.count(), read["head_out"]))
+        witness["frozen"].append((epoch, tuple(credit), done.count(), read["head_out"]))
 
 
 def _credit_knobs(**overrides):
-    base = {"slots": _CR_SLOTS, "depth": _CR_DEPTH,
-            "policy": "local_occupancy", "reuse_released": False,
-            "high_index": False, "accept_zero_cost": False}
+    base = {
+        "slots": _CR_SLOTS,
+        "depth": _CR_DEPTH,
+        "policy": "local_occupancy",
+        "reuse_released": False,
+        "high_index": False,
+        "accept_zero_cost": False,
+    }
     return dict(base, **overrides)
 
 
@@ -2602,14 +3069,38 @@ def _credit_run(knobs):
     witness = {}
     for section in _credit_program():
         name = section["name"]
-        witness[name] = {"admit": {}, "sink": {}, "released": {}, "ready_low": [],
-                         "stall": [], "frozen": [], "accepted": 0}
+        witness[name] = {
+            "admit": {},
+            "sink": {},
+            "released": {},
+            "ready_low": [],
+            "stall": [],
+            "frozen": [],
+            "accepted": 0,
+            "first_failure": None,
+        }
         # Synchronous reset: the sampled result is still the pre-reset state.
         read = _credit_read(issue, done, credit, 0, 0, knobs)
-        rows.append({"clk": 0, "rst": 1, "valid": 0, "take": 0, "data": 0,
-                     "expected": read["expected"]})
-        rows.append({"clk": 1, "rst": 1, "valid": 0, "take": 0, "data": 0,
-                     "expected": read["expected"]})
+        rows.append(
+            {
+                "clk": 0,
+                "rst": 1,
+                "valid": 0,
+                "take": 0,
+                "data": 0,
+                "expected": read["expected"],
+            }
+        )
+        rows.append(
+            {
+                "clk": 1,
+                "rst": 1,
+                "valid": 0,
+                "take": 0,
+                "data": 0,
+                "expected": read["expected"],
+            }
+        )
         issue.tokens.clear()
         done.tokens.clear()
         credit = [None] * knobs["slots"]
@@ -2625,12 +3116,34 @@ def _credit_run(knobs):
             data = _credit_token(*section["tokens"][cursor]) if held else 0
             read = _credit_read(issue, done, credit, epoch - 1, take, knobs)
             for clk in (0, 1):
-                rows.append({"clk": clk, "rst": 0, "valid": valid, "take": take,
-                             "data": data, "expected": read["expected"]})
-            _credit_commit(issue, done, credit, epoch - 1, valid, data,
-                           cursor if held else None, take, read, knobs,
-                           witness[name], epoch)
-            if valid:
+                rows.append(
+                    {
+                        "clk": clk,
+                        "rst": 0,
+                        "valid": valid,
+                        "take": take,
+                        "data": data,
+                        "expected": read["expected"],
+                        "expected_failure": read["failure"],
+                    }
+                )
+            if read["failure"] and witness[name]["first_failure"] is None:
+                witness[name]["first_failure"] = epoch
+            _credit_commit(
+                issue,
+                done,
+                credit,
+                epoch - 1,
+                valid,
+                data,
+                cursor if held else None,
+                take,
+                read,
+                knobs,
+                witness[name],
+                epoch,
+            )
+            if valid and not read["failure"]:
                 witness[name]["accepted"] += 1
                 cursor += 1
         witness[name]["final"] = (tuple(credit), done.count(), issue.count())
@@ -2659,8 +3172,20 @@ def _credit_replay(rows, knobs):
             credit = [None] * knobs["slots"]
             edge = 0
         elif rising:
-            _credit_commit(issue, done, credit, edge, row["valid"], row["data"],
-                           None, row["take"], read, knobs, None, None)
+            _credit_commit(
+                issue,
+                done,
+                credit,
+                edge,
+                row["valid"],
+                row["data"],
+                None,
+                row["take"],
+                read,
+                knobs,
+                None,
+                None,
+            )
             edge += 1
         previous = row["clk"]
     return expected
@@ -2680,49 +3205,83 @@ def _credit():
         seen = witness[name]
         # (i) the frozen absolute epoch tables of A06-O OUT-07..OUT-11.
         if "admit" in section:
-            _credit_check(f"{name} admission table (epoch -> slot, token)",
-                          seen["admit"], section["admit"])
-        _credit_check(f"{name} release table (token -> epoch)",
-                      seen["released"], section["release"])
-        _credit_check(f"{name} sink table (epoch -> token)",
-                      seen["sink"], section["sink"])
+            _credit_check(
+                f"{name} admission table (epoch -> slot, token)",
+                seen["admit"],
+                section["admit"],
+            )
+        _credit_check(
+            f"{name} release table (token -> epoch)",
+            seen["released"],
+            {} if name == "S5" else section["release"],
+        )
+        _credit_check(
+            f"{name} sink table (epoch -> token)",
+            seen["sink"],
+            {} if name == "S5" else section["sink"],
+        )
         # (ii) the stimulus is a handshake: nothing is driven into a full queue,
         #      so every driven token is accepted and none is silently dropped.
         _credit_check(f"{name} silent rejections", seen["stall"], [])
-        _credit_check(f"{name} accepted pushes", seen["accepted"],
-                      len(section["tokens"]))
-        delivered = len(section["sink"])
-        _credit_check(f"{name} tokens delivered",
-                      delivered, 1 if name == "S5" else len(section["tokens"]))
+        _credit_check(
+            f"{name} accepted pushes",
+            seen["accepted"],
+            2 if name == "S5" else len(section["tokens"]),
+        )
+        delivered = len(seen["sink"])
+        _credit_check(
+            f"{name} tokens delivered",
+            delivered,
+            0 if name == "S5" else len(section["tokens"]),
+        )
         # (iii) the credit window really is returned: S1/S2/S4/S6 end drained.
         if name != "S5":
-            _credit_check(f"{name} final slots / completed / issued",
-                          seen["final"], (tuple([None] * _CR_SLOTS), 0, 0))
+            _credit_check(
+                f"{name} final slots / completed / issued",
+                seen["final"],
+                (tuple([None] * _CR_SLOTS), 0, 0),
+            )
 
     # (iv) S1: completion order is not input order, the deep token is overtaken
     #      by later cheaper ones, and one edge both retires and admits.
-    _credit_check("S1 completion sequence",
-                  [program[0]["tokens"][index][0]
-                   for _, index in sorted(witness["S1"]["sink"].items())],
-                  [1, 2, 0, 3, 5, 4])
-    _credit_check("S1 same-edge admit + retire on different slots",
-                  (12 in witness["S1"]["admit"],
-                   witness["S1"]["released"][3], witness["S1"]["released"][4]),
-                  (True, 12, 16))
+    _credit_check(
+        "S1 completion sequence",
+        [
+            program[0]["tokens"][index][0]
+            for _, index in sorted(witness["S1"]["sink"].items())
+        ],
+        [1, 2, 0, 3, 5, 4],
+    )
+    _credit_check(
+        "S1 same-edge admit + retire on different slots",
+        (
+            12 in witness["S1"]["admit"],
+            witness["S1"]["released"][3],
+            witness["S1"]["released"][4],
+        ),
+        (True, 12, 16),
+    )
     _credit_check("S1 deep-token cost", program[0]["tokens"][0][1], 8)
 
     # (v) S6: the input queue saturates (BD-08) and the module `ready` -- queue
     #     capacity, Q-D1(a) -- first drops on epoch 7; admission then runs at
     #     the frozen 2 tokens / 10 epochs, far below a FIFO's 1 token / epoch.
-    _credit_check("S6 first ready-low epoch", witness["S6"]["ready_low"][0],
-                  program[-1]["first_ready_low"])
+    _credit_check(
+        "S6 first ready-low epoch",
+        witness["S6"]["ready_low"][0],
+        program[-1]["first_ready_low"],
+    )
     admits = sorted(witness["S6"]["admit"])
-    _credit_check("S6 admitted pair period",
-                  [admits[i + 2] - admits[i] for i in range(0, 10, 2)],
-                  [10, 10, 10, 10, 10])
-    _credit_check("S6 width boundary token preserved",
-                  (program[-1]["tokens"][1][0], program[-1]["tokens"][1][2]),
-                  (15, 0xFFFF))
+    _credit_check(
+        "S6 admitted pair period",
+        [admits[i + 2] - admits[i] for i in range(0, 10, 2)],
+        [10, 10, 10, 10, 10],
+    )
+    _credit_check(
+        "S6 width boundary token preserved",
+        (program[-1]["tokens"][1][0], program[-1]["tokens"][1][2]),
+        (15, 0xFFFF),
+    )
 
     # (vi) S4: a completed token keeps its credit while the output is blocked
     #      (BP-01/BD-07): both slots stay (occupied, remaining 0) and the output
@@ -2730,25 +3289,38 @@ def _credit():
     frozen = {entry[0]: entry[1:] for entry in witness["S4"]["frozen"]}
     for epoch in range(11, 21):
         slots, count, _ = frozen[epoch]
-        _credit_check(f"S4 epoch {epoch} frozen remaining",
-                      [None if slot is None else slot[2] for slot in slots],
-                      [0, 0])
+        _credit_check(
+            f"S4 epoch {epoch} frozen remaining",
+            [None if slot is None else slot[2] for slot in slots],
+            [0, 0],
+        )
         _credit_check(f"S4 epoch {epoch} completed occupancy", count, _CR_DEPTH)
-    _credit_check("S4 drain epochs", sorted(witness["S4"]["sink"]),
-                  [21, 22, 23, 24, 25, 26])
+    _credit_check(
+        "S4 drain epochs", sorted(witness["S4"]["sink"]), [21, 22, 23, 24, 25, 26]
+    )
 
-    # (vii) S5/C-2: the cost-0 head is never admitted and never reported, the
-    #       in-flight token still drains, and `ready` stays high throughout the
-    #       stall because it is queue capacity and not a credit predicate.
-    _credit_check("S5 admitted tokens", sorted(witness["S5"]["admit"]), [2])
-    _credit_check("S5 sink", sorted(witness["S5"]["sink"]), [10])
-    _credit_check("S5 ready low during the stall",
-                  [epoch for epoch in range(5, 17)
-                   if epoch in witness["S5"]["ready_low"]], [])
-    _credit_check("S5 blocked tokens still queued at the head",
-                  witness["S5"]["final"][2], 2)
-    _credit_check("S5 zero-cost token never leaves the input queue",
-                  witness["S5"]["final"][0], (None, None))
+    # S5: a free slot makes the zero-cost head effective on epoch 3.
+    # The active slot and every queue retain their pre-failure contents.
+    _credit_check("S5 first effective failure", witness["S5"]["first_failure"], 3)
+    _credit_check("S5 admissions before failure", sorted(witness["S5"]["admit"]), [2])
+    _credit_check("S5 zero committed sinks", witness["S5"]["sink"], {})
+    _credit_check("S5 issued head retained", witness["S5"]["final"][2], 1)
+    _credit_check(
+        "S5 active slot countdown discarded",
+        witness["S5"]["final"][0],
+        (
+            (
+                0,
+                _credit_token(
+                    *next(section for section in program if section["name"] == "S5")[
+                        "tokens"
+                    ][0]
+                ),
+                6,
+            ),
+            None,
+        ),
+    )
 
     # (viii) negative controls: the vector set must be able to tell the frozen
     #        contract from each rival it exists to exclude, evaluated on the
@@ -2761,25 +3333,318 @@ def _credit():
         ("accept_cost_zero", {"accept_zero_cost": True}),
     ):
         rival = _credit_replay(rows, _credit_knobs(**overrides))
-        differing = sum(1 for ours, theirs in zip(rows, rival, strict=True)
-                        if ours["expected"] != theirs)
+        differing = sum(
+            1
+            for ours, theirs in zip(rows, rival, strict=True)
+            if ours["expected"] != theirs
+        )
         assert differing, f"vector set cannot distinguish {label}"
         rivals[label] = differing
-    _credit_check("frozen model replay reproduces its own vectors",
-                  _credit_replay(rows, knobs),
-                  [row["expected"] for row in rows])
+    _credit_check(
+        "frozen model replay reproduces its own vectors",
+        _credit_replay(rows, knobs),
+        [row["expected"] for row in rows],
+    )
 
     return {
         "input_bits": _CR_TOKEN_BITS,
         "output_bits": _CR_RESULT_BITS,
         "rows": rows,
-        "sink_epochs": {name: sorted(witness[name]["sink"])
-                        for name in witness},
-        "ready_low_epochs": {name: witness[name]["ready_low"]
-                             for name in witness},
+        "first_failures": {name: witness[name]["first_failure"] for name in witness},
+        "sink_epochs": {name: sorted(witness[name]["sink"]) for name in witness},
+        "ready_low_epochs": {name: witness[name]["ready_low"] for name in witness},
         "rival_differing_rows": rivals,
         "frozen_window": [10, 20],
     }
+
+
+def historical_expect_contracts():
+    """Independent public observations for the restored finite expect systems.
+
+    The predicate checks a committed available u16 head without consuming it or
+    depending on the sink. Queue capacity uses pre-edge occupancy; no pop-freed
+    slot is reused on that edge. The positive stimulus deliberately overdrives
+    seven full epochs, so 64 offers do not mean 64 accepted tokens.
+    """
+    cases = {}
+    for mode, edges in (("positive", 70), ("idle", 8), ("fault", 8)):
+        queue = deque()
+        rows = []
+        accepted = rejected = consumed = 0
+        first_failure = None
+        ready_low = []
+        for edge in range(edges):
+            valid = edge < 64 if mode == "positive" else mode == "fault" and edge == 0
+            value = (1 if edge % 2 == 0 else 65535) if mode == "positive" else 0
+            take = (edge == 0 or edge >= 8) if mode == "positive" else mode == "idle"
+            ready = len(queue) < 2
+            available = bool(queue)
+            head = queue[0] if available else 0
+            # A failed Work publishes no observations and commits no pop/push.
+            if available and head == 0:
+                first_failure = 2 * edge
+                break
+            observation = {
+                "epoch": edge,
+                "ready": int(ready),
+                "available": int(available),
+                "value": head,
+            }
+            rows.extend((dict(observation), dict(observation)))
+            if not ready:
+                ready_low.append(edge)
+            if available and take:
+                queue.popleft()
+                consumed += 1
+            if valid and ready:
+                queue.append(value)
+                accepted += 1
+            elif valid:
+                rejected += 1
+        if mode == "positive":
+            assert (accepted, rejected, consumed, ready_low, tuple(queue)) == (
+                57,
+                7,
+                57,
+                list(range(2, 9)),
+                (),
+            )
+        elif mode == "idle":
+            assert (accepted, rejected, consumed, tuple(queue)) == (0, 0, 0, ())
+        else:
+            assert first_failure == 2 and tuple(queue) == (0,)
+        cases[mode] = {
+            "rows": rows,
+            "first_failure": first_failure,
+            "first_failure_edge": first_failure // 2
+            if first_failure is not None
+            else None,
+            "accepted": accepted,
+            "rejected": rejected,
+            "consumed": consumed,
+            "state_at_failure": tuple(queue) if first_failure is not None else None,
+            "historical_failure_code": "expectation_failed",
+            "current_failure_code": "source_check_failed",
+            "message": "value must be positive",
+        }
+    return cases
+
+
+def execution_record(record):
+    """Label full-row execution and explicit host recovery independently.
+
+    Original stimulus, packed expectations and value/known/Z planes are retained
+    unchanged. A failed public execution cannot sample later physical rows until
+    a separately labeled host Reset starts a new segment. For that recovery
+    segment only, the physical reset rows observe the independently known empty
+    state, rather than the historical pre-physical-reset state.
+    """
+    original = record["rows"]
+    assert original
+    rows = []
+    failed = False
+    recovery_reset = False
+    empty_expected = record.get("empty_expected", original[0]["expected"])
+    known = (1 << record["output_bits"]) - 1
+    segments = []
+    explicit = set(record.get("host_reset_rows", ()))
+    for index, source_row in enumerate(original):
+        row = dict(source_row)
+        physical_reset = bool(row["rst"])
+        host_reset = index in explicit or (failed and physical_reset)
+        if host_reset:
+            # Recovery starts before this row through the existing host Reset
+            # operation. It does not claim the failed executor sampled the old
+            # pre-physical-reset state or recovered from a physical pin alone.
+            failed = False
+            recovery_reset = physical_reset
+            segments.append(
+                {
+                    "row": index,
+                    "operation": "HOST_RESET",
+                    "reason": "explicit independent section"
+                    if index in explicit
+                    else "recover failed execution",
+                }
+            )
+        elif not physical_reset:
+            recovery_reset = False
+        failed = failed or bool(row.get("expected_failure", False))
+        row["expected_failure"] = bool(row.get("expected_failure", False))
+        row["execution_failure"] = failed
+        row["host_reset"] = host_reset
+        if recovery_reset:
+            row["execution_expected"] = empty_expected
+            row["execution_expected_known"] = known
+            row["execution_expected_z"] = 0
+        else:
+            row["execution_expected"] = row["expected"]
+            row["execution_expected_known"] = row.get("expected_known", known)
+            row["execution_expected_z"] = row.get("expected_z", 0)
+        rows.append(row)
+    # No original row or oracle field is replaced by execution scheduling.
+    assert len(rows) == len(original)
+    for before, after in zip(original, rows, strict=True):
+        assert all(after[key] == value for key, value in before.items())
+    return dict(record, rows=rows, execution_segments=segments)
+
+
+def queue_failure_contracts():
+    """Independent expected first failures for the regular-clock system probes.
+
+    No DUT source, emitted artifact or simulation result supplies these values.
+    All schedules retain 32 edges; failed edges leave complete queue/table/slot
+    state unchanged. Rows after failure are discarded-state witnesses, not an
+    assertion that a terminated hardware simulation resumes.
+    """
+    import importlib.util
+    from pathlib import Path
+
+    spec = importlib.util.spec_from_file_location(
+        "queue_credit_failure_oracle",
+        Path(__file__).with_name("credit_independent_check.py"),
+    )
+    credit_model = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(credit_model)
+
+    def rows_for(schedule, take=0):
+        return [
+            {
+                "clk": clk,
+                "rst": 0,
+                "valid": int(edge in schedule),
+                "take": take,
+                "data": schedule.get(edge, 0),
+            }
+            for edge in range(32)
+            for clk in (0, 1)
+        ]
+
+    cases = {}
+    for label, schedule, first in (
+        ("RouteFault", {0: 2}, 1),
+        ("RouteBlockedFault", {**dict.fromkeys(range(6), 0), 6: 2}, 8),
+    ):
+        rows = rows_for(schedule, take=int(label == "RouteFault"))
+        trace, _ = _route_merge_independent_model(rows)
+        rising = [e for e in trace if e["edge"]]
+        failing = [e for e in rising if e["expected_failure"]]
+        observed_first = failing[0]["row"] // 2
+        assert observed_first == first, (label, observed_first)
+        assert all(e["state_before"] == e["state_after"] for e in failing)
+        cases[label] = {
+            "first_failure": first,
+            "rows": rows,
+            "state_before_failure": failing[0]["state_before"],
+        }
+        if label == "RouteBlockedFault":
+            assert failing[0]["occupancy"][1] == _IND_DEPTHS[1]
+
+    for label, tokens, first in (
+        ("CreditFault", [(1, 0, 71)], 1),
+        ("CreditDeferredFault", [(1, 15, 71), (1, 15, 71), (1, 0, 71)], 18),
+    ):
+        section = {
+            "name": label,
+            "tokens": tokens,
+            "low": tuple(range(1, 33)),
+            "drive": "overdrive",
+            "epochs": 32,
+        }
+        driven = [
+            {
+                "section": label,
+                "epoch": e + 1,
+                "rst": 0,
+                "take": 1,
+                "valid": int(e < len(tokens)),
+                "data": credit_model.pack_token(*tokens[min(e, len(tokens) - 1)]),
+            }
+            for e in range(32)
+        ]
+        rows, trace, _ = credit_model.run_section(
+            section, credit_model.knobs(), driven_program=driven
+        )
+        failing = [e for e in trace["events"] if e["failure_raised"]]
+        observed_first = failing[0]["epoch"] - 1
+        assert observed_first == first, (label, observed_first)
+        assert all(e["state_before"] == e["state_after"] for e in failing)
+        deferred = [
+            e["epoch"] - 1
+            for e in trace["events"]
+            if e["failure"] and not e["failure_raised"]
+        ]
+        if label == "CreditDeferredFault":
+            assert deferred == list(range(3, 18)), deferred
+        cases[label] = {
+            "first_failure": first,
+            "rows": rows,
+            "deferred_edges": deferred,
+            "state_before_failure": failing[0]["state_before"],
+        }
+
+    for label, schedule, first in (
+        ("ReorderDuplicateFault", {0: _a25i_token(2, 71), 1: _a25i_token(2, 71)}, 2),
+        ("ReorderStaleFault", {0: _a25i_token(0, 71), 4: _a25i_token(0, 71)}, 5),
+        (
+            "ReorderFullDefersFault",
+            {
+                **{e: _a25i_token(e + 16, 71) for e in range(16)},
+                16: _a25i_token(16, 71),
+            },
+            None,
+        ),
+    ):
+        rows = rows_for(schedule, take=1)
+        words, trace = _a25i_run(rows, _a25i_knobs())
+        rows = [
+            dict(row, expected=word, expected_failure=entry["expected_failure"])
+            for row, word, entry in zip(rows, words, trace, strict=True)
+        ]
+        failing = [e for e in trace if e["rising"] and e["expected_failure"]]
+        observed_first = failing[0]["row"] // 2 if failing else None
+        assert observed_first == first, (label, observed_first)
+        assert all(e["state_before"] == e["state_after"] for e in failing)
+        deferred = [
+            e["row"] // 2
+            for e in trace
+            if e["rising"] and e["duplicate"] and not e["free"]
+        ]
+        if first is None:
+            assert deferred == list(range(17, 32)), deferred
+        cases[label] = {
+            "first_failure": first,
+            "rows": rows,
+            "deferred_edges": deferred,
+            "state_before_failure": failing[0]["state_before"] if failing else None,
+        }
+    # This framework probe starts with a high-clock Work immediately after
+    # Reset. Its ordinary false assertion fails before any successful view:
+    # all proposed epoch, sibling-counter, queue-push and timing updates discard.
+    # There is no output prefix, maturity-edge assertion or resumed execution.
+    cases["AtomicSiblingFault"] = {
+        "first_failure": 0,
+        "failure_clock": 1,
+        "rows": [],
+        "successful_prefix": [],
+        "state_before_failure": {
+            "epoch": 0,
+            "sibling_counter": 0,
+            "sibling_queue_tokens": (),
+            "sibling_tick": 0,
+            "sibling_clock": False,
+        },
+        "proposed_updates": {
+            "epoch": 1,
+            "sibling_counter": 1,
+            "sibling_queue_push": 0,
+            "sibling_tick": 1,
+            "sibling_clock": True,
+        },
+        "expected_commit": False,
+    }
+    return cases
+
 
 def oracle(name):
     delayed = {
@@ -2842,5 +3707,3 @@ def oracle(name):
         assert (packed >> 13) & 8191 == 0
         assert packed & 8191 == 2
     return result
-
-

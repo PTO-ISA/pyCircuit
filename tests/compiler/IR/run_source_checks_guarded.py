@@ -110,14 +110,18 @@ def main():
                     reason = f"guard reap failure: {type(error).__name__}: {error}"
         output.seek(0)
         shutil.copyfileobj(output, sys.stdout)
-    print(json.dumps({  # noqa: T201 - machine-readable guard JSON receipt
-        "guard_reason": reason,
-        "command_exit": status,
-        "elapsed_seconds": round(time.monotonic() - started, 3),
-        "peak_tree_rss_kib": peak,
-        "rss_limit_mib": args.rss_mib,
-        "timeout_seconds": args.timeout,
-    }))
+    print(  # noqa: T201 - machine-readable guard JSON receipt
+        json.dumps(
+            {
+                "guard_reason": reason,
+                "command_exit": status,
+                "elapsed_seconds": round(time.monotonic() - started, 3),
+                "peak_tree_rss_kib": peak,
+                "rss_limit_mib": args.rss_mib,
+                "timeout_seconds": args.timeout,
+            }
+        )
+    )
     if reason:
         return 124 if reason in {"wall timeout", "process-tree RSS bound"} else 125
     if status is None:

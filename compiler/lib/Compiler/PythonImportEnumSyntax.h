@@ -32,6 +32,11 @@ enum class MarkerKind {
 MarkerKind classifyImportedMarker(llvm::StringRef module,
                                   llvm::StringRef remoteName);
 
+/// Fixed-width aliases are admitted by their imported identity, including
+/// renamed direct imports; local spellings never establish type authority.
+std::optional<unsigned> fixedBitsAliasWidth(llvm::StringRef module,
+                                           llvm::StringRef remoteName);
+
 struct ResolvedSourceBinding {
   MarkerKind marker = MarkerKind::None;
   mlir::FlatSymbolRefAttr nominalSymbol;

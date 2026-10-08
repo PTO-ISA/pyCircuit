@@ -68,3 +68,20 @@ ctest --test-dir /absolute/build/dma --output-on-failure --no-tests=error
 The shared example verifier runs the generated native DUT with workers 1 and 2,
 then compares equivalent settled precommit RTL observations. Testbench inputs and
 oracles are separate from the Python design.
+
+## Generated system usage
+
+`bench.py` exports `example_dma.bench.ExerciseDma`. Compile
+`dma.py`, then `bench.py`, import the published DUT interface, and link
+that explicit system root through the public compile/link/emit flow. Run
+`pycircuit run examples/dma --target cpp --cycles 582` or select
+`--target verilog`. Imported records use their original nominal declarations
+and supply every field explicitly.
+
+All original known-stream data edges are represented in this regular-clock
+scenario, with fixed independent expectations from the retained native oracle
+along a resetless trajectory. The 582 cycles include a final observation.
+The original DUT, native/RTL drivers, finite configuration, and any four-state,
+reset/discard, latency and token-ledger matrices remain unchanged. Physical
+held-level and midstream-reset scenarios still require those original module
+oracles; this system does not claim complete physical-scenario equivalence.

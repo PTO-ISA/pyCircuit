@@ -1,5 +1,5 @@
-from pycircuit import log, rule, system
 from checks.dut import Accumulator
+from pycircuit import log, rule, system
 
 
 @system

@@ -98,7 +98,12 @@ def _runtime_prefix(tmp_path: Path) -> Path:
     prefix = tmp_path / "compiler-prefix"
     (prefix / "bin").mkdir(parents=True)
     suffix = ".exe" if os.name == "nt" else ""
-    for name in ("pycircuit-source-unit", "pycircuit-link", "pycircuit-emit", "pycircuit-opt"):
+    for name in (
+        "pycircuit-source-unit",
+        "pycircuit-link",
+        "pycircuit-emit",
+        "pycircuit-opt",
+    ):
         helper = prefix / "bin" / (name + suffix)
         helper.write_bytes(b"executable fixture\n")
         helper.chmod(0o755)
@@ -109,8 +114,10 @@ def _runtime_prefix(tmp_path: Path) -> Path:
     cmake = prefix / "share/pycircuit/cmake"
     cmake.mkdir(parents=True)
     for name in (
-        "pycircuitConfig.cmake", "pycircuitConfigVersion.cmake",
-        "pycircuitRuntimeTargets.cmake", "pycircuitRuntimeTargets-release.cmake",
+        "pycircuitConfig.cmake",
+        "pycircuitConfigVersion.cmake",
+        "pycircuitRuntimeTargets.cmake",
+        "pycircuitRuntimeTargets-release.cmake",
     ):
         (cmake / name).write_text("# package fixture\n", encoding="utf-8")
     return prefix
@@ -123,6 +130,8 @@ def test_wheel_requires_active_dff_header_and_never_its_retired_predecessor(
     assert (prefix / "include/gfsim/dff.h").is_file()
     packager._validate_toolchain_files(prefix)
     (prefix / "include/gfsim/dff.h").unlink()
-    (prefix / "include/gfsim/SimDFF.h").write_text("retired replacement\n", encoding="utf-8")
+    (prefix / "include/gfsim/SimDFF.h").write_text(
+        "retired replacement\n", encoding="utf-8"
+    )
     with pytest.raises(SystemExit, match=r"missing runtime header: .*gfsim[/\\]dff\.h"):
         packager._validate_toolchain_files(prefix)

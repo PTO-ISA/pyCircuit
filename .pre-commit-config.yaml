@@ -20,6 +20,7 @@ repos:
     rev: 24.10.0
     hooks:
       - id: black
+        # pyproject.toml force-excludes source-span-sensitive compiler fixtures.
         exclude: ^(docs/gates/logs/|python/agentic-circuit/|compiler/|simulator/gfsim/|schemas/pycircuit/|examples/agentic-circuit/|tests/(python|mlir|cpp|integration|goldens)/agentic-circuit/|tools/agentic-circuit/|toolchains/pycircuit/|third_party/references/)
 
   - repo: https://github.com/DavidAnson/markdownlint-cli2

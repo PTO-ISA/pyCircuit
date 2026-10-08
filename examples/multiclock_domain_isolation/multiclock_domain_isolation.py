@@ -15,7 +15,8 @@ class DomainPins:
 
 @module
 def MulticlockDomainIsolation(  # noqa: N802
-    d_a: DomainPins, d_b: DomainPins,
+    d_a: DomainPins,
+    d_b: DomainPins,
 ) -> {
     "a_count": Annotated[int, range(1 << 8)],  # noqa: F821
     "b_count": Annotated[int, range(1 << 8)],  # noqa: F821

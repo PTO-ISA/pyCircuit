@@ -23,8 +23,8 @@ Importer::behavioralCall(ModuleDecl &decl, const AstNode &call, OpBuilder &at,
     if (!statementCall)
       return error() << "void rule call cannot be used as a value";
   } else if (annotation) {
-    if (annotation.kind() == "Name" &&
-        structs.contains(annotation.string("id"))) {
+    auto resultBinding = lookupBinding(annotation);
+    if (resultBinding && resultBinding->category == BindingCategory::Struct) {
       auto type = portType(annotation, decl.symbol);
       if (failed(type))
         return failure();

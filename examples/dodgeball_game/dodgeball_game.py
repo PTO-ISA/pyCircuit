@@ -22,10 +22,26 @@ class GameResult:
 
 
 @ac.rule
-def advance_game(pix_cnt, pix_stb, main_clk, player_x, j,
-                 ob1_x, ob2_x, ob3_x, ob1_y, ob2_y, ob3_y,
-                 fsm_state, vga_h_count, vga_v_count,
-                 RST_BTN, START, left, right) -> GameResult:  # noqa: N803
+def advance_game(
+    pix_cnt,
+    pix_stb,
+    main_clk,
+    player_x,
+    j,
+    ob1_x,
+    ob2_x,
+    ob3_x,
+    ob1_y,
+    ob2_y,
+    ob3_y,
+    fsm_state,
+    vga_h_count,
+    vga_v_count,
+    RST_BTN,
+    START,
+    left,
+    right,
+) -> GameResult:  # noqa: N803
     # Explicit snapshots retain old-Q RHS values after later owner assignments.
     cnt = pix_cnt
     old_pix_stb = pix_stb
@@ -107,21 +123,24 @@ def advance_game(pix_cnt, pix_stb, main_clk, player_x, j,
     o3y_wide: ac.u10 = o3y
     o3y_plus_wide: ac.u10 = o3y_plus
 
-    sq_player = (
-        (x > px_wide * 40) & (y > 400)
-        & (x < px_plus_wide * 40) & (y < 440)
-    )
+    sq_player = (x > px_wide * 40) & (y > 400) & (x < px_plus_wide * 40) & (y < 440)
     sq_object1 = (
-        (x > o1x_wide * 40) & (y > o1y_wide * 40)
-        & (x < o1x_plus_wide * 40) & (y < o1y_plus_wide * 40)
+        (x > o1x_wide * 40)
+        & (y > o1y_wide * 40)
+        & (x < o1x_plus_wide * 40)
+        & (y < o1y_plus_wide * 40)
     )
     sq_object2 = (
-        (x > o2x_wide * 40) & (y > o2y_wide * 40)
-        & (x < o2x_plus_wide * 40) & (y < o2y_plus_wide * 40)
+        (x > o2x_wide * 40)
+        & (y > o2y_wide * 40)
+        & (x < o2x_plus_wide * 40)
+        & (y < o2y_plus_wide * 40)
     )
     sq_object3 = (
-        (x > o3x_wide * 40) & (y > o3y_wide * 40)
-        & (x < o3x_plus_wide * 40) & (y < o3y_plus_wide * 40)
+        (x > o3x_wide * 40)
+        & (y > o3y_wide * 40)
+        & (x < o3x_plus_wide * 40)
+        & (y < o3y_plus_wide * 40)
     )
     over_wire = (x > 0) & (y > 0) & (x < 640) & (y < 480)
     down = (x > 0) & (y > 440) & (x < 640) & (y < 480)
@@ -227,7 +246,23 @@ def DodgeballGame(  # noqa: N802
     fsm_state: ac.u3 = 0
     vga_h_count: ac.u10 = 0
     vga_v_count: ac.u10 = 0
-    return advance_game(pix_cnt, pix_stb, main_clk, player_x, j,
-                        ob1_x, ob2_x, ob3_x, ob1_y, ob2_y, ob3_y,
-                        fsm_state, vga_h_count, vga_v_count,
-                        RST_BTN, START, left, right)
+    return advance_game(
+        pix_cnt,
+        pix_stb,
+        main_clk,
+        player_x,
+        j,
+        ob1_x,
+        ob2_x,
+        ob3_x,
+        ob1_y,
+        ob2_y,
+        ob3_y,
+        fsm_state,
+        vga_h_count,
+        vga_v_count,
+        RST_BTN,
+        START,
+        left,
+        right,
+    )

@@ -66,6 +66,22 @@ pycircuit = ["**/*.py", "**/*.md"]
 [tool.black]
 line-length = 88
 target-version = ["py310", "py311", "py312", "py313"]
+# Static compiler sources are byte/line-sensitive diagnostic fixtures. Keep
+# executable fixture generators and verification helpers formatted.
+force-exclude = '''
+tests/compiler/lit/Source/Inputs/(?!(?:
+bits-(?:concat|count-zeros|popcount|priority-encoding)|
+case-statements|case_capture_guards|defaults-composition|
+dependent-width-binding|direct-call-graph|enum-source|enum_source_execution|
+fixed-(?:predicates|slices|unsigned-shifts|widening)|frontend-branches|
+literal-normalization-adversarial|multi-rule-writes|pythonic-memory|
+queue-source(?:-vectors)?|record-projection-simplification|rob-behavioral|
+source-check(?:-execution|s)|source_computed_outputs|
+source_exact_(?:integers|select|shift)|source_interface_public|
+source_local_bindings|source_module_bindings|source_observation_behavioral|
+static-divrem|table-queries/table_query_(?:admission|cases)
+)\.py$).*\.py$
+'''
 
 [tool.ruff]
 line-length = 88
@@ -81,6 +97,17 @@ ignore = ["E501"]
 "python/pycircuit/src/pycircuit/__init__.py" = ["A004"]
 "python/pycircuit/src/pycircuit/cli.py" = ["A004", "T201"]
 "tests/integration/pycircuit/fixtures/**/*.py" = ["I001", "T201"]
+# Source grammar permits uppercase definitions, symbolic output annotations,
+# and deliberately ordered imports; negative fixtures exercise invalid bindings.
+"tests/compiler/lit/Source/Inputs/**/*.py" = ["I001", "N802", "N803", "N806", "F821", "T201"]
+"tests/compiler/lit/Source/Inputs/local_binding_bad*.py" = ["F401", "F811", "F823", "F841", "A001", "N813"]
+"tests/compiler/lit/Source/Inputs/numeric_bad*.py" = ["F401"]
+"tests/compiler/lit/lit.cfg.py" = ["F821"] # lit injects config.
+"tests/compiler/lit/CodeGen/Inputs/*.py" = ["T201"] # Standalone lit helpers.
+"tests/integration/pycircuit/source-unit-build/src/*.py" = ["N802", "F841"]
+"tests/integration/pycircuit/source-unit-build/prepare_unit_output.py" = ["T201"]
+"tests/system/fixtures/source_system/*.py" = ["N802", "F821"]
+"tests/system/fixtures/source_system/atomic_bench.py" = ["B011"] # Hardware assertion.
 "examples/**/*.py" = ["F401", "F841", "I001", "N803", "N806", "N999", "T201"]
 "flows/tools/*.py" = ["T201"]
 "cmake/prepare_output.py" = ["T201"]

@@ -232,7 +232,9 @@ int main() {
     subprocess.run([str(executable)], check=True)
 
 
-def test_deferred_acir_primitive_registry_stays_out_of_the_source_sdk_contract() -> None:
+def test_deferred_acir_primitive_registry_stays_out_of_the_source_sdk_contract() -> (
+    None
+):
     """The retained capability inventory is schema data, not a shipped capability."""
     root = Path(__file__).resolve().parents[2]
     registry_path = root / "schemas" / "primitives" / "acir_semantic_registry.json"

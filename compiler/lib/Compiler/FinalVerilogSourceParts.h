@@ -1,6 +1,7 @@
 #ifndef PYCIRCUIT_FINAL_VERILOG_SOURCE_PARTS_H
 #define PYCIRCUIT_FINAL_VERILOG_SOURCE_PARTS_H
 #include "pycircuit/Dialect/ACIR/HardwareAnalysis.h"
+#include <cstdint>
 #include <string>
 #include <vector>
 namespace acir::compiler {
@@ -14,6 +15,7 @@ struct FinalVerilogSourceParts {
   llvm::SmallVector<std::string> standardSources;
   std::string core, runtimeGlue, rootRtlName;
   std::string simulationTop;
+  uint64_t sourceCheckCount = 0;
 };
 mlir::FailureOr<FinalVerilogSourceParts> emitVerilogSourceParts(
     mlir::ModuleOp package, ac::HardwareAnalysis &analysis);

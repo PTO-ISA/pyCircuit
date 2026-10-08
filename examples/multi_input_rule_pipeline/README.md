@@ -71,3 +71,9 @@ slots and six contributors, and checks independent per-stream conservation.
 Limits are finite at 12,000 ticks. Final IR checks exactly the original
 D2/D2/D1 owners and complete 64/67-bit interfaces, without extra instances or
 collections. No framework change was needed.
+The separate `bench.py` system checks a finite regular-clock known-state scenario, including queue saturation, stalls, replacement, boundary values and final drain. This is partial system migration: the original independent drivers retain their full physical-clock, midstream-reset and four-state scenarios.
+
+```bash
+pycircuit run examples/multi_input_rule_pipeline --target cpp --cycles 158 --build-dir .pycircuit_out/multi_input_rule_pipeline/system-cpp
+pycircuit run examples/multi_input_rule_pipeline --target verilog --cycles 158 --build-dir .pycircuit_out/multi_input_rule_pipeline/system-verilog
+```

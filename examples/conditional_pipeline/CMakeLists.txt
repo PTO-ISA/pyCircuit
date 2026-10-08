@@ -6,7 +6,11 @@ pycircuit_add_example(conditional_pipeline
   PACKAGE example_conditional_pipeline
   TOP example_conditional_pipeline.conditional_pipeline.ConditionalPipeline
   ENTRY_SOURCE conditional_pipeline
-  SOURCES conditional_pipeline.py)
+  SOURCES conditional_pipeline.py
+  SYSTEM_TOP example_conditional_pipeline.bench.ConditionalPipelineSystem
+  SYSTEM_ENTRY_SOURCE bench
+  SYSTEM_CYCLES 184
+  SYSTEM_SOURCES conditional_pipeline.py bench.py)
 if(PYC_EXAMPLE_VERIFY)
 
 find_package(Python3 REQUIRED COMPONENTS Interpreter)

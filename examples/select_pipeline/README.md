@@ -91,3 +91,26 @@ Sixteen isolated native terminal cases per worker and eight RTL negative cases
 cover effective unknown transfers, including equal lane data. Native failure
 requires Reset before recovery. The finite runner bound is6,000 sampling epochs
 per successful history.
+
+## Generated system usage
+
+`bench.py` exports `example_select_pipeline.bench.ExerciseSelectPipeline`. Compile
+`select_pipeline.py`, then `bench.py`, import the published DUT interface, and link
+that explicit system root through the public compile/link/emit flow. Run
+`pycircuit run examples/select_pipeline --target cpp --cycles 1829` or select
+`--target verilog`. Imported records use their original nominal declarations
+and supply every field explicitly.
+
+All original known-stream data edges are represented in this regular-clock
+scenario, with fixed independent expectations from the retained native oracle
+along a resetless trajectory. The 1829 cycles include a final observation.
+The original DUT, native/RTL drivers, finite configuration, and any four-state,
+reset/discard, latency and token-ledger matrices remain unchanged. Physical
+held-level and midstream-reset scenarios still require those original module
+oracles; this system does not claim complete physical-scenario equivalence.
+
+The full 1,829-cycle source fixture currently compiles, but selected-root linking
+exceeds the compiler's source-check dependency analysis work budget. Sharing
+typed zero values and using an 11-bit fixture counter preserve every stimulus
+and expected value without resolving that analysis limit. The existing module
+oracles remain available while this compiler limitation is addressed.

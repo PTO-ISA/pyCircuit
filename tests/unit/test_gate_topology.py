@@ -108,7 +108,11 @@ def test_api_and_example_entrypoints_are_separate_and_tiered() -> None:
             if nested != owner:
                 assert nested not in content
         assert "pycircuit-backend-test" not in content
-    for retired in ("run_sims.sh", "run_sims_nightly.sh", "run_semantic_regressions_v6.sh"):
+    for retired in (
+        "run_sims.sh",
+        "run_sims_nightly.sh",
+        "run_semantic_regressions_v6.sh",
+    ):
         assert not (ROOT / "flows/scripts" / retired).exists()
     for workflow in ("release.yml", "gates-nightly.yml"):
         text = _read(f".github/workflows/{workflow}")
@@ -117,12 +121,16 @@ def test_api_and_example_entrypoints_are_separate_and_tiered() -> None:
 
 
 @pytest.mark.parametrize("script", FULL_CLOSURE_SCRIPTS)
-def test_entrypoints_reject_invalid_selection_before_toolchain_access(script: str) -> None:
+def test_entrypoints_reject_invalid_selection_before_toolchain_access(
+    script: str,
+) -> None:
     import subprocess
 
     result = subprocess.run(
         ["bash", str(ROOT / "flows/scripts" / script), "--tier", "typo"],
-        capture_output=True, text=True, timeout=5,
+        capture_output=True,
+        text=True,
+        timeout=5,
     )
     assert result.returncode != 0
     assert "tier must be gate or nightly" in result.stderr
@@ -144,7 +152,9 @@ def _configure_ctest_project(tmp_path: Path, body: str) -> Path:
     )
     result = subprocess.run(
         ["cmake", "-S", str(source), "-B", str(build)],
-        capture_output=True, text=True, timeout=30,
+        capture_output=True,
+        text=True,
+        timeout=30,
     )
     assert result.returncode == 0, result.stdout + result.stderr
     return build
@@ -152,20 +162,25 @@ def _configure_ctest_project(tmp_path: Path, body: str) -> Path:
 
 @pytest.mark.parametrize("explicit_tiers", [True, False], ids=["gate", "standalone"])
 def test_deferred_example_labels_include_later_auxiliary_tests(
-    tmp_path: Path, explicit_tiers: bool,
+    tmp_path: Path,
+    explicit_tiers: bool,
 ) -> None:
-    labels = 'set(PYC_EXAMPLE_LABELS "examples;gate;nightly")\n' if explicit_tiers else ""
+    labels = (
+        'set(PYC_EXAMPLE_LABELS "examples;gate;nightly")\n' if explicit_tiers else ""
+    )
     build = _configure_ctest_project(
         tmp_path,
         f'include("{(ROOT / "cmake/PycircuitExamples.cmake").as_posix()}")\n'
         + labels
         + 'add_test(NAME main COMMAND "${CMAKE_COMMAND}" -E true)\n'
-        'cmake_language(DEFER CALL pycircuit_label_example_tests)\n'
+        "cmake_language(DEFER CALL pycircuit_label_example_tests)\n"
         'add_test(NAME later_auxiliary COMMAND "${CMAKE_COMMAND}" -E true)\n',
     )
     result = subprocess.run(
         ["ctest", "--test-dir", str(build), "--show-only=json-v1"],
-        capture_output=True, text=True, timeout=10,
+        capture_output=True,
+        text=True,
+        timeout=10,
     )
     assert result.returncode == 0, result.stdout + result.stderr
     tests = json.loads(result.stdout)["tests"]
@@ -183,19 +198,30 @@ def test_list_tests_rejects_empty_real_ctest_selection(tmp_path: Path) -> None:
         'set_tests_properties(api_gate PROPERTIES LABELS "api;gate")\n',
     )
     command = [
-        "bash", "-c", 'source "$1"; pyc_list_tests api "$2" "$3"',
-        "gate-topology", str(ROOT / "flows/scripts/lib.sh"),
+        "bash",
+        "-c",
+        'source "$1"; pyc_list_tests api "$2" "$3"',
+        "gate-topology",
+        str(ROOT / "flows/scripts/lib.sh"),
     ]
     env = {**os.environ, "PYC_PYTHON_EXECUTABLE": sys.executable}
     selected = subprocess.run(
-        [*command, "gate", str(build)], env=env,
-        capture_output=True, text=True, timeout=10,
+        [*command, "gate", str(build)],
+        env=env,
+        capture_output=True,
+        text=True,
+        timeout=10,
     )
     assert selected.returncode == 0, selected.stdout + selected.stderr
-    assert [test["name"] for test in json.loads(selected.stdout)["tests"]] == ["api_gate"]
+    assert [test["name"] for test in json.loads(selected.stdout)["tests"]] == [
+        "api_gate"
+    ]
     empty = subprocess.run(
-        [*command, "nightly", str(build)], env=env,
-        capture_output=True, text=True, timeout=10,
+        [*command, "nightly", str(build)],
+        env=env,
+        capture_output=True,
+        text=True,
+        timeout=10,
     )
     assert empty.returncode != 0
     assert "empty CTest selection" in empty.stderr
@@ -207,15 +233,25 @@ def test_api_nightly_keeps_all_current_public_flow_oracles() -> None:
     assert declaration is not None
     listed = re.findall(r"tests/system/test_[a-z_]+\.py", declaration.group(1))
     expected = {
-        f"tests/system/test_{name}.py" for name in (
-            "source_map", "public_emit", "incremental_build", "relocated_compiler",
-            "publication_process_recovery", "runtime_install", "cmake_presets",
+        f"tests/system/test_{name}.py"
+        for name in (
+            "source_map",
+            "public_emit",
+            "incremental_build",
+            "relocated_compiler",
+            "publication_process_recovery",
+            "runtime_install",
+            "cmake_presets",
         )
     }
     assert expected <= set(listed)
     assert all(listed.count(path) == 1 for path in expected)
-    branches = re.findall(r'if \[\[ "\$tier" == nightly \]\]; then(.*?)\nfi', api, re.DOTALL)
-    assert any('-m pytest -q "${nightly_python_tests[@]}"' in branch for branch in branches)
+    branches = re.findall(
+        r'if \[\[ "\$tier" == nightly \]\]; then(.*?)\nfi', api, re.DOTALL
+    )
+    assert any(
+        '-m pytest -q "${nightly_python_tests[@]}"' in branch for branch in branches
+    )
 
 
 def _workflow_env(text: str, name: str) -> str:

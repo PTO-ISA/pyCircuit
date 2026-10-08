@@ -6,7 +6,11 @@ pycircuit_add_example(broadcast_pipeline
   PACKAGE example_broadcast_pipeline
   TOP example_broadcast_pipeline.broadcast_pipeline.BroadcastPipeline
   ENTRY_SOURCE broadcast_pipeline
-  SOURCES broadcast_pipeline.py)
+  SOURCES broadcast_pipeline.py
+  SYSTEM_TOP example_broadcast_pipeline.bench.BroadcastPipelineSystem
+  SYSTEM_ENTRY_SOURCE bench
+  SYSTEM_CYCLES 158
+  SYSTEM_SOURCES broadcast_pipeline.py bench.py)
 if(PYC_EXAMPLE_VERIFY)
 
 find_package(Python3 REQUIRED COMPONENTS Interpreter)

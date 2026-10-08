@@ -1,0 +1,39 @@
+{
+  "version": 1,
+  "rules": [
+    {
+      "instances": [
+        "u0"
+      ],
+      "ports": [
+        "out_y"
+      ]
+    },
+    {
+      "instances": [
+        "u0"
+      ],
+      "probes": {
+        "families": [
+          "pv"
+        ],
+        "stages": [
+          "leaf"
+        ],
+        "lanes": [
+          0
+        ],
+        "at": [
+          "tick"
+        ]
+      }
+    }
+  ],
+  "window": {
+    "trigger": {
+      "cycle": 2
+    },
+    "pre": 1,
+    "post": 1
+  }
+}

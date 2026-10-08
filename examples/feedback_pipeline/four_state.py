@@ -70,7 +70,7 @@ final_path = main_build / "feedback_pipeline.ac"
 final_text = final_path.read_text()
 assert final_text.count('"ac.queue"(') == 3
 assert final_text.count('"ac.instance"(') == 1, "expected one stateless Step instance"
-assert 'callee = @example_feedback_pipeline.feedback_pipeline.Step' in final_text
+assert "callee = @example_feedback_pipeline.feedback_pipeline.Step" in final_text
 for line in final_text.splitlines():
     if '"ac.queue"(' in line:
         assert 'ready_policy = "downstream_pop"' in line
@@ -88,19 +88,40 @@ for line in final_text.splitlines():
 
 # Exact sourceD2 / internalD1 / resultD1 payload owners, plus storage-free Step.
 namespace = "example_feedback_pipeline.feedback_pipeline."
-item_line = next(line for line in final_text.splitlines()
-                 if line.lstrip().startswith('ac.struct "' + namespace + 'Item" fields '))
-assert re.findall(r'\{name = "([^"]+)", type = !ac.bits<<.*?value = #ac.math_int<([0-9]+)>}}>>}', item_line) == [("value", "32"), ("remaining", "4")]
-result_line = next(line for line in final_text.splitlines()
-                   if line.lstrip().startswith('ac.struct "' + namespace + 'Result" fields '))
-assert re.findall(r'\{name = "([^"]+)", type = !ac.bits<<.*?value = #ac.math_int<([0-9]+)>}}>>}', result_line) == [("ready", "1"), ("valid", "1")]
+item_line = next(
+    line
+    for line in final_text.splitlines()
+    if line.lstrip().startswith('ac.struct "' + namespace + 'Item" fields ')
+)
+assert re.findall(
+    r'\{name = "([^"]+)", type = !ac.bits<<.*?value = #ac.math_int<([0-9]+)>}}>>}',
+    item_line,
+) == [("value", "32"), ("remaining", "4")]
+result_line = next(
+    line
+    for line in final_text.splitlines()
+    if line.lstrip().startswith('ac.struct "' + namespace + 'Result" fields ')
+)
+assert re.findall(
+    r'\{name = "([^"]+)", type = !ac.bits<<.*?value = #ac.math_int<([0-9]+)>}}>>}',
+    result_line,
+) == [("ready", "1"), ("valid", "1")]
 assert '{name = "data", type = !ac.struct<"' + namespace + 'Item">}' in result_line
-queues = [line for line in final_text.splitlines() if '\"ac.queue\"(' in line]
-assert len(queues) == 3 and all(line.count('!ac.struct<"' + namespace + 'Item">') >= 2 for line in queues)
-depths = [int(re.search(r'depth = #ac.static_expr<.*?value = #ac.math_int<([0-9]+)>', line).group(1)) for line in queues]
+queues = [line for line in final_text.splitlines() if '"ac.queue"(' in line]
+assert len(queues) == 3 and all(
+    line.count('!ac.struct<"' + namespace + 'Item">') >= 2 for line in queues
+)
+depths = [
+    int(
+        re.search(
+            r"depth = #ac.static_expr<.*?value = #ac.math_int<([0-9]+)>", line
+        ).group(1)
+    )
+    for line in queues
+]
 assert sorted(depths) == [1, 1, 2]
-assert '\"ac.reg\"(' not in final_text, "unexpected additional register owner"
-assert '\"ac.feedback\"(' not in final_text, "retired feedback operation"
+assert '"ac.reg"(' not in final_text, "unexpected additional register owner"
+assert '"ac.feedback"(' not in final_text, "retired feedback operation"
 
 rtl = [
     main_build / "verilog" / row["path"]
@@ -192,14 +213,39 @@ negative_defines = [
 for base in (0, 15):
     for bit in range(4):
         for symbol in ("x", "z"):
-            negative_defines.append((f"remaining-{base}-{bit}-{symbol}", [
-                "-DPYC_FEEDBACK_NEGATIVE_REMAINING", f"-DPYC_FEEDBACK_BASE={base}",
-                f"-DPYC_FEEDBACK_BIT={bit}", f"-DPYC_FEEDBACK_SYMBOL=1'b{symbol}"]))
+            negative_defines.append(
+                (
+                    f"remaining-{base}-{bit}-{symbol}",
+                    [
+                        "-DPYC_FEEDBACK_NEGATIVE_REMAINING",
+                        f"-DPYC_FEEDBACK_BASE={base}",
+                        f"-DPYC_FEEDBACK_BIT={bit}",
+                        f"-DPYC_FEEDBACK_SYMBOL=1'b{symbol}",
+                    ],
+                )
+            )
 for label, defines in negative_defines:
     binary = scratch / (label + ".vvp")
-    run([args.iverilog, "-g2012", *defines, "-s", "tb", "-o", binary,
-         *primitives, *rtl, source / "rtl_tb.sv"], label + "-build")
-    run([args.vvp, binary], label + "-run", rejection="fifo: effective transfers must be known")
+    run(
+        [
+            args.iverilog,
+            "-g2012",
+            *defines,
+            "-s",
+            "tb",
+            "-o",
+            binary,
+            *primitives,
+            *rtl,
+            source / "rtl_tb.sv",
+        ],
+        label + "-build",
+    )
+    run(
+        [args.vvp, binary],
+        label + "-run",
+        rejection="fifo: effective transfers must be known",
+    )
 for label in ("serial", "parallel"):
     native = (main_build / (label + ".stdout")).read_text().splitlines()
     assert sum(line.startswith("OWNER ") for line in native) == 2
@@ -212,21 +258,27 @@ assert inputs == {path: digest(Path(path)) for path in inputs}
             "execution_sha256": digest(scratch / "execution.json"),
             "known_work_rows": len(work),
             "four_state_work_rows": len(four),
-            "known_tokens": 320, "four_state_tokens": 408,
+            "known_tokens": 320,
+            "four_state_tokens": 408,
             "remaining_values": list(range(16)),
             "known_boundary_remaining_cartesian": 192,
             "walking_bit_remaining_0_15_cases": 128,
             "per_bit_value_xz_latent_remaining_0_1_15_cases": 384,
             "dense_value_latent_remaining_0_1_15_cases": 24,
             "histories": [line.split()[1:] for line in rtl_histories],
-            "queue_owners": 3, "slots": 4, "logical_payload_storage_bits": 144,
+            "queue_owners": 3,
+            "slots": 4,
+            "logical_payload_storage_bits": 144,
             "stateless_step_instances": 1,
             "payload_planes": "n0 exact raw value/known/Z; n>0 arithmetic-X known/Z and known bits exact, computed-X latent unspecified",
             "internal_steps": "inferred independent old-slot model, checked every Work and by observed admission/retirement timing",
             "iteration_limit_scope": "exact original count0..15 proof only; no 1024 failure capability claim",
-            "native_terminal_cases_per_worker": 34, "rtl_terminal_cases": 18,
-            "tools_sha256": {str(Path(tool).resolve()): digest(Path(tool).resolve())
-                             for tool in (args.iverilog, args.vvp)},
+            "native_terminal_cases_per_worker": 34,
+            "rtl_terminal_cases": 18,
+            "tools_sha256": {
+                str(Path(tool).resolve()): digest(Path(tool).resolve())
+                for tool in (args.iverilog, args.vvp)
+            },
             "terminal_failure_scope": "isolated process; native requires Reset before further execution",
             "token_widths": [36, 36, 36],
             "result_width": 38,

@@ -148,7 +148,7 @@ if args.query_checks:
     )
 
     receipts = []
-    archive = scratch / ("query-" + args.query_checks)
+    archive = root / ("query-" + args.query_checks)
     archive.mkdir(exist_ok=True)
     if args.query_checks == "syntax":
         positives, negatives = syntax_cases()
@@ -158,18 +158,34 @@ if args.query_checks:
                 path = source / filename
                 path.write_text(text)
                 capture = archive / (name + ".capture.mlir")
-                capture.write_text(_emit_source_transport(_capture_source_file(path, source_root=source)))
+                capture.write_text(
+                    _emit_source_transport(
+                        _capture_source_file(path, source_root=source)
+                    )
+                )
                 before = capture.read_bytes()
                 output = archive / (name + ".analyzed.mlir")
-                result = run([args.optimizer, capture, "--ac-analyze-rule-writes", "-o", output], accepted)
+                result = run(
+                    [args.optimizer, capture, "--ac-analyze-rule-writes", "-o", output],
+                    accepted,
+                )
                 assert capture.read_bytes() == before
                 if accepted:
-                    assert "overlapping writer pairs" not in result.stderr, result.stderr
+                    assert (
+                        "overlapping writer pairs" not in result.stderr
+                    ), result.stderr
                 else:
-                    assert "Lambda" in result.stderr or "captured" in result.stderr, result.stderr
+                    assert (
+                        "Lambda" in result.stderr or "captured" in result.stderr
+                    ), result.stderr
                     assert not output.exists()
-                receipts.append({"case": name, "accepted": accepted,
-                                 "capture_sha256": hashlib.sha256(before).hexdigest()})
+                receipts.append(
+                    {
+                        "case": name,
+                        "accepted": accepted,
+                        "capture_sha256": hashlib.sha256(before).hexdigest(),
+                    }
+                )
     else:
         path = source / "query_control.py"
         path.write_text(CONTROL)
@@ -183,7 +199,9 @@ if args.query_checks:
             cli("emit", final, "--target", target, "-o", output)
             protected_outputs[target] = snapshot(output)
         before_unit, before_final = snapshot(unit), final.read_bytes()
-        cases = admission_cases() if args.query_checks == "admission" else resource_cases()
+        cases = (
+            admission_cases() if args.query_checks == "admission" else resource_cases()
+        )
         for name, text in cases.items():
             path.write_text(text)
             (archive / (name + ".py")).write_text(text)
@@ -194,39 +212,103 @@ if args.query_checks:
                 assert "budget" in result.stderr.lower(), result.stderr
             compile_unit(path.name, unit, replace=True, accepted=False)
             assert snapshot(unit) == before_unit and final.read_bytes() == before_final
-            assert all(snapshot(archive / target) == expected
-                       for target, expected in protected_outputs.items())
-            receipts.append({"case": name, "fresh_exit_status": 1,
-                             "replacement_exit_status": 1, "publication_unchanged": True,
-                             "source_sha256": hashlib.sha256(text.encode()).hexdigest()})
+            assert all(
+                snapshot(archive / target) == expected
+                for target, expected in protected_outputs.items()
+            )
+            receipts.append(
+                {
+                    "case": name,
+                    "fresh_exit_status": 1,
+                    "replacement_exit_status": 1,
+                    "publication_unchanged": True,
+                    "source_sha256": hashlib.sha256(text.encode()).hexdigest(),
+                }
+            )
         if args.query_checks == "resources":
             for name, text in structure_cases().items():
                 path.write_text(text)
                 output = archive / ("structure-" + name)
                 compile_unit(path.name, output)
                 body = payload(output, "body").read_text()
-                locations = {alias: (int(line), int(column)) for alias, line, column in
-                             re.findall(r'(#loc\d+) = loc\("[^\"]+":(\d+):(\d+)\)', body)}
-                callbacks = [node for node in ast.walk(ast.parse(text)) if isinstance(node, ast.Lambda)]
+                locations = {
+                    alias: (int(line), int(column))
+                    for alias, line, column in re.findall(
+                        r'(#loc\d+) = loc\("[^\"]+":(\d+):(\d+)\)', body
+                    )
+                }
+                callbacks = [
+                    node
+                    for node in ast.walk(ast.parse(text))
+                    if isinstance(node, ast.Lambda)
+                ]
                 witness = []
                 for callback in callbacks:
-                    for attribute in (node for node in ast.walk(callback.body) if isinstance(node, ast.Attribute)):
+                    for attribute in (
+                        node
+                        for node in ast.walk(callback.body)
+                        if isinstance(node, ast.Attribute)
+                    ):
                         site = attribute.lineno, attribute.col_offset + 1
-                        actual = sum("ac.struct.get" in line and
-                                     any(f"loc({alias})" in line for alias, location in locations.items() if location == site)
-                                     for line in body.splitlines())
-                        assert actual == 1, (name, site, actual, "callback projection was cloned or lost")
-                        witness.append({"line": site[0], "column": site[1], "logical_copies": actual})
-                receipts.append({"case": name, "structure": "one actual callback projection per source expression",
-                                 "callback_witnesses": witness,
-                                 "body_sha256": hashlib.sha256(body.encode()).hexdigest()})
-    (archive / "receipt.json").write_text(json.dumps({
-        "scope": args.query_checks, "cases": receipts,
-        "source_profile": "AST/scope only" if args.query_checks == "syntax" else "public compile/link/emit protected query publication",
-        "tools": {str(Path(tool).resolve()): hashlib.sha256(Path(tool).read_bytes()).hexdigest()
-                  for tool in (args.source_compiler, args.linker, args.emitter, args.optimizer)},
-    }, indent=2) + "\n")
-    print("Table query " + args.query_checks + " checks passed")  # noqa: T201 - standalone gate evidence
+                        actual = sum(
+                            "ac.struct.get" in line
+                            and any(
+                                f"loc({alias})" in line
+                                for alias, location in locations.items()
+                                if location == site
+                            )
+                            for line in body.splitlines()
+                        )
+                        assert actual == 1, (
+                            name,
+                            site,
+                            actual,
+                            "callback projection was cloned or lost",
+                        )
+                        witness.append(
+                            {
+                                "line": site[0],
+                                "column": site[1],
+                                "logical_copies": actual,
+                            }
+                        )
+                receipts.append(
+                    {
+                        "case": name,
+                        "structure": "one actual callback projection per source expression",
+                        "callback_witnesses": witness,
+                        "body_sha256": hashlib.sha256(body.encode()).hexdigest(),
+                    }
+                )
+    (archive / "receipt.json").write_text(
+        json.dumps(
+            {
+                "scope": args.query_checks,
+                "cases": receipts,
+                "source_profile": (
+                    "AST/scope only"
+                    if args.query_checks == "syntax"
+                    else "public compile/link/emit protected query publication"
+                ),
+                "tools": {
+                    str(Path(tool).resolve()): hashlib.sha256(
+                        Path(tool).read_bytes()
+                    ).hexdigest()
+                    for tool in (
+                        args.source_compiler,
+                        args.linker,
+                        args.emitter,
+                        args.optimizer,
+                    )
+                },
+            },
+            indent=2,
+        )
+        + "\n"
+    )
+    print(
+        "Table query " + args.query_checks + " checks passed"
+    )  # noqa: T201 - standalone gate evidence
     sys.exit(0)
 
 if args.invalid:
@@ -271,16 +353,16 @@ if args.invalid:
     fresh = compile_unit(
         "source_interface_parent.py", root / "absent-unit", [child], accepted=False
     )
-    assert any(word in fresh.stderr.lower() for word in ("cycle", "cyclic")), (
-        fresh.stderr
-    )
+    assert any(
+        word in fresh.stderr.lower() for word in ("cycle", "cyclic")
+    ), fresh.stderr
     assert not (root / "absent-unit").exists()
     replaced = compile_unit(
         "source_interface_parent.py", parent, [child], replace=True, accepted=False
     )
-    assert any(word in replaced.stderr.lower() for word in ("cycle", "cyclic")), (
-        replaced.stderr
-    )
+    assert any(
+        word in replaced.stderr.lower() for word in ("cycle", "cyclic")
+    ), replaced.stderr
     assert snapshot(parent) == before_unit and final.read_bytes() == before_final
     for target in outputs:
         assert snapshot(root / target) == outputs[target]

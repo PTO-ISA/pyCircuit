@@ -53,3 +53,9 @@ packed-zero data are checked. Normal and raw runners have finite2000-tick limits
 A separate public-owner probe discards E3 maturity and retries the same edge;
 a distinct SimExecutor failure probe checks unchanged epoch, invalid resumption,
 and mandatory Reset before recovery. It does not claim failed-system retry.
+The separate `bench.py` system checks a finite regular-clock known-state scenario, including queue saturation, stalls, replacement, boundary values and final drain. This is partial system migration: the original independent drivers retain their full physical-clock, midstream-reset and four-state scenarios.
+
+```bash
+pycircuit run examples/latency_pipeline --target cpp --cycles 158 --build-dir .pycircuit_out/latency_pipeline/system-cpp
+pycircuit run examples/latency_pipeline --target verilog --cycles 158 --build-dir .pycircuit_out/latency_pipeline/system-verilog
+```

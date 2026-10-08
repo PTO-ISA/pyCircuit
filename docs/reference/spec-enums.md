@@ -75,7 +75,7 @@ constructor-default execution remains unsupported.
 Inside a supported module or rule body:
 
 ```python
-decoded, valid = ac.enum_from_bits[Current limitations](../development/known-limitations.md)
+decoded, valid = ac.enum_from_bits[State](raw)
 ```
 
 The raw input must be authoritative fixed bits of exactly the Enum width. There

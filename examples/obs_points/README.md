@@ -27,3 +27,24 @@ outputs across 532 samples, wrap, hold and reset. Native and full-DUT Icarus
 four-state checks preserve each field's separate known/Z mask: y may become X
 while q remains known. The standard DFFE uses a constant-one enable and the RTL
 test retains its original reset preamble.
+
+## Generated system usage
+
+`bench.py` exports `example_obs_points.bench.ExerciseObsPoints`. The explicit source
+closure is `obs_points.py`, then `bench.py`; link the system root and emit either
+backend with the public `pycircuit compile`, `link`, and `emit` flow. Run
+`pycircuit run examples/obs_points --target cpp --cycles 264` or select
+`--target verilog`. Each managed cycle uses the same stimulus in its low/high
+sampling pair and advances fixture state on the generated edge.
+
+Every original rising-edge input, including the complete 256-byte sweep, is
+represented in 264 regular cycles with a final registered-state observation.
+Fixed independent expectations distinguish the immediate combinational result
+(where present) from the previous registered result. Original reset cycles
+are data cycles along this regular-clock trajectory.
+
+The original `driver.cpp`, `rtl_tb.sv`, `config.json`, and independent oracle
+models remain unchanged. Known held-level and physical-reset scenarios remain
+with those module-boundary drivers. Where present, their four-state and
+failure/discard matrices remain separate coverage. This regular-clock system
+does not claim complete equivalence to those physical scenarios.

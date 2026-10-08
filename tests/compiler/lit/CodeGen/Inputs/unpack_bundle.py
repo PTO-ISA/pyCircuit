@@ -1,4 +1,5 @@
 """Unpack emitter artifacts; expected DUT values stay in independent harnesses."""
+
 import json
 import pathlib
 import shlex
@@ -7,6 +8,7 @@ import sys
 bundle = json.loads(pathlib.Path(sys.argv[1]).read_text())
 root = pathlib.Path(sys.argv[2])
 root.mkdir(parents=True, exist_ok=True)
+
 
 def write(name, text):
     if text is None:
@@ -18,8 +20,11 @@ def write(name, text):
     dest.parent.mkdir(parents=True, exist_ok=True)
     dest.write_text(text)
 
-for key, name in (("support_header", "pycircuit_support.hpp"),
-                  ("system_header", "pycircuit_system.hpp")):
+
+for key, name in (
+    ("support_header", "pycircuit_support.hpp"),
+    ("system_header", "pycircuit_system.hpp"),
+):
     if key in bundle:
         write(name, bundle[key])
 if "rtl_core" in bundle:
@@ -33,4 +38,6 @@ for group in bundle.get("source_groups", []):
 for group in bundle.get("rtl_source_groups", []):
     write(group["path"], group["text"])
 
-(root / "sources.rsp").write_text("\n".join(shlex.quote(path) for path in sources) + "\n")
+(root / "sources.rsp").write_text(
+    "\n".join(shlex.quote(path) for path in sources) + "\n"
+)

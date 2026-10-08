@@ -49,13 +49,23 @@ def ForwardEngine(packet: Channel) -> EngineResult:  # noqa: N802
 
 
 @ac.module
-def Fastfwd(lane0: LaneInput, lane1: LaneInput,  # noqa: N802
-            lane2: LaneInput, lane3: LaneInput,
-            engine0: Channel, engine1: Channel,
-            engine2: Channel, engine3: Channel) -> FastResult:
+def Fastfwd(  # noqa: N802 - hardware module definition
+    lane0: LaneInput,
+    lane1: LaneInput,  # noqa: N802
+    lane2: LaneInput,
+    lane3: LaneInput,
+    engine0: Channel,
+    engine1: Channel,
+    engine2: Channel,
+    engine3: Channel,
+) -> FastResult:
     return FastResult(
-        lane0=ForwardLane(lane0), lane1=ForwardLane(lane1),
-        lane2=ForwardLane(lane2), lane3=ForwardLane(lane3),
-        engine0=ForwardEngine(engine0), engine1=ForwardEngine(engine1),
-        engine2=ForwardEngine(engine2), engine3=ForwardEngine(engine3),
+        lane0=ForwardLane(lane0),
+        lane1=ForwardLane(lane1),
+        lane2=ForwardLane(lane2),
+        lane3=ForwardLane(lane3),
+        engine0=ForwardEngine(engine0),
+        engine1=ForwardEngine(engine1),
+        engine2=ForwardEngine(engine2),
+        engine3=ForwardEngine(engine3),
     )

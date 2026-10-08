@@ -1,4 +1,5 @@
 from pycircuit import module
+
 from .child import Child
 from .types import Word
 

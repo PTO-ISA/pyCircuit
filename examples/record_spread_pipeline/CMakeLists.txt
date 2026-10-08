@@ -6,7 +6,11 @@ pycircuit_add_example(record_spread_pipeline
   PACKAGE example_record_spread_pipeline
   TOP example_record_spread_pipeline.record_spread_pipeline.RecordSpreadPipeline
   ENTRY_SOURCE record_spread_pipeline
-  SOURCES record_spread_pipeline.py)
+  SOURCES record_spread_pipeline.py
+  SYSTEM_TOP example_record_spread_pipeline.bench.ExerciseRecordSpreadPipeline
+  SYSTEM_ENTRY_SOURCE bench
+  SYSTEM_CYCLES 158
+  SYSTEM_SOURCES record_spread_pipeline.py bench.py)
 if(PYC_EXAMPLE_VERIFY)
 
 find_package(Python3 REQUIRED COMPONENTS Interpreter)

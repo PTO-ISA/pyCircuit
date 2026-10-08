@@ -16,9 +16,7 @@ for name in ("iverilog", "vvp"):
     parser.add_argument("--" + name, default=shutil.which(name))
 args = parser.parse_args()
 if not args.iverilog or not args.vvp:
-    parser.error(
-        "table_rule full-DUT X/Z evidence requires genuine iverilog and vvp"
-    )
+    parser.error("table_rule full-DUT X/Z evidence requires genuine iverilog and vvp")
 source = Path(args.source).resolve()
 main_build = Path(args.build).resolve()
 include = Path(args.include).resolve()
@@ -87,23 +85,46 @@ for line in final_text.splitlines():
 
 # Direct root: two Entry8 queues and one two-element DFFE collection.
 namespace = "example_table_rule.table_rule."
-entry_line = next(line for line in final_text.splitlines()
-                  if line.lstrip().startswith('ac.struct "' + namespace + 'Entry" fields '))
-assert re.findall(r'\{name = "([^"]+)", type = !ac.bits<<.*?value = #ac.math_int<([0-9]+)>}}>>}', entry_line) == [("index", "1"), ("value", "7")]
-result_line = next(line for line in final_text.splitlines()
-                   if line.lstrip().startswith('ac.struct "' + namespace + 'Result" fields '))
-assert re.findall(r'\{name = "([^"]+)", type = !ac.bits<<.*?value = #ac.math_int<([0-9]+)>}}>>}', result_line) == [("ready", "1"), ("valid", "1")]
+entry_line = next(
+    line
+    for line in final_text.splitlines()
+    if line.lstrip().startswith('ac.struct "' + namespace + 'Entry" fields ')
+)
+assert re.findall(
+    r'\{name = "([^"]+)", type = !ac.bits<<.*?value = #ac.math_int<([0-9]+)>}}>>}',
+    entry_line,
+) == [("index", "1"), ("value", "7")]
+result_line = next(
+    line
+    for line in final_text.splitlines()
+    if line.lstrip().startswith('ac.struct "' + namespace + 'Result" fields ')
+)
+assert re.findall(
+    r'\{name = "([^"]+)", type = !ac.bits<<.*?value = #ac.math_int<([0-9]+)>}}>>}',
+    result_line,
+) == [("ready", "1"), ("valid", "1")]
 assert '{name = "data", type = !ac.struct<"' + namespace + 'Entry">}' in result_line
-queues = [line for line in final_text.splitlines() if '\"ac.queue\"(' in line]
-assert len(queues) == 2 and all(line.count('!ac.struct<"' + namespace + 'Entry">') >= 2 for line in queues)
-depths = [int(re.search(r'depth = #ac.static_expr<.*?value = #ac.math_int<([0-9]+)>', line).group(1)) for line in queues]
+queues = [line for line in final_text.splitlines() if '"ac.queue"(' in line]
+assert len(queues) == 2 and all(
+    line.count('!ac.struct<"' + namespace + 'Entry">') >= 2 for line in queues
+)
+depths = [
+    int(
+        re.search(
+            r"depth = #ac.static_expr<.*?value = #ac.math_int<([0-9]+)>", line
+        ).group(1)
+    )
+    for line in queues
+]
 assert sorted(depths) == [1, 2]
-collections = [line for line in final_text.splitlines() if '\"ac.collection\"(' in line]
+collections = [line for line in final_text.splitlines() if '"ac.collection"(' in line]
 assert len(collections) == 1
-assert 'callee = @pycircuit.__builtins__.dffe' in collections[0]
+assert "callee = @pycircuit.__builtins__.dffe" in collections[0]
 assert 'type_arguments = [!ac.struct<"' + namespace + 'Entry">]' in collections[0]
-assert re.search(r'shape = \[#ac.static_expr<.*?value = #ac.math_int<2>', collections[0])
-assert '\"ac.reg\"(' not in final_text, "unexpected additional register owner"
+assert re.search(
+    r"shape = \[#ac.static_expr<.*?value = #ac.math_int<2>", collections[0]
+)
+assert '"ac.reg"(' not in final_text, "unexpected additional register owner"
 rtl = [
     main_build / "verilog" / row["path"]
     for row in receipt["files"]
@@ -193,9 +214,26 @@ negative_defines = [
 ]
 for label, defines in negative_defines:
     binary = scratch / (label + ".vvp")
-    run([args.iverilog, "-g2012", *defines, "-s", "tb", "-o", binary,
-         *primitives, *rtl, source / "rtl_tb.sv"], label + "-build")
-    run([args.vvp, binary], label + "-run", rejection="fifo: effective transfers must be known")
+    run(
+        [
+            args.iverilog,
+            "-g2012",
+            *defines,
+            "-s",
+            "tb",
+            "-o",
+            binary,
+            *primitives,
+            *rtl,
+            source / "rtl_tb.sv",
+        ],
+        label + "-build",
+    )
+    run(
+        [args.vvp, binary],
+        label + "-run",
+        rejection="fifo: effective transfers must be known",
+    )
 for label in ("serial", "parallel"):
     native = (main_build / (label + ".stdout")).read_text().splitlines()
     assert sum(line.startswith("OWNER ") for line in native) == 2
@@ -214,16 +252,22 @@ assert inputs == {path: digest(Path(path)) for path in inputs}
             "common_Z_unknown_merge_cases": 4,
             "post_install_known_index_queries": "both rows after each case",
             "histories": [line.split()[1:] for line in rtl_histories],
-            "queue_owners": 2, "queue_slots": 3, "persistent_table_rows": 2,
-            "logical_payload_storage_bits": 40, "table_dffe_collections": 1,
+            "queue_owners": 2,
+            "queue_slots": 3,
+            "persistent_table_rows": 2,
+            "logical_payload_storage_bits": 40,
+            "table_dffe_collections": 1,
             "payload_planes": "known-index raw copies exact value/known/Z; computed unknown-get/conditional-merge known/Z and known values exact",
             "unknown_index_policy": "active unknown get allX and merges both rows; accepted current table qualification, not legacy rejection parity",
             "install_observability": "actual input accept/output retire; internal installs inferred by old slots and checked through snapshots and later public row queries",
             "unknown_blocked_timeline_limit": "premature unknown merge is idempotent and not directly observable without debug ports; known-index blocked snapshots and independently reviewed linked write guard corroborate the shared guard",
             "dedicated_blocked_unknown_indices": ["x", "z"],
-            "native_terminal_cases_per_worker": 2, "rtl_terminal_cases": 2,
-            "tools_sha256": {str(Path(tool).resolve()): digest(Path(tool).resolve())
-                             for tool in (args.iverilog, args.vvp)},
+            "native_terminal_cases_per_worker": 2,
+            "rtl_terminal_cases": 2,
+            "tools_sha256": {
+                str(Path(tool).resolve()): digest(Path(tool).resolve())
+                for tool in (args.iverilog, args.vvp)
+            },
             "terminal_failure_scope": "isolated process; native requires Reset before further execution",
             "token_widths": [8, 8],
             "result_width": 10,

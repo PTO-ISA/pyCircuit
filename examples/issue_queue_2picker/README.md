@@ -43,3 +43,10 @@ and eight reset-dropped tokens. Invalid payloads are normalized in the trace;
 this bounded run does not claim exhaustive or four-state coverage.
 
 See [actual generated excerpts](GENERATED.md) and [verification inputs](GENERATED.json).
+
+The separate `bench.py` system checks a finite regular-clock known-state scenario, including queue saturation, stalls, replacement, boundary values and final drain. This is partial system migration: the original independent drivers retain their full physical-clock, midstream-reset and four-state scenarios.
+
+```bash
+pycircuit run examples/issue_queue_2picker --target cpp --cycles 344 --build-dir .pycircuit_out/issue_queue_2picker/system-cpp
+pycircuit run examples/issue_queue_2picker --target verilog --cycles 344 --build-dir .pycircuit_out/issue_queue_2picker/system-verilog
+```

@@ -46,3 +46,9 @@ Known accepted/retired/reset-dropped counts are 42/38/4; four-state counts are
 78/74/4. Both histories finish empty, with peak occupancy two. Final IR checks
 confirm two D1 queues, availability latency1, combinational head-read latency0,
 explicit downstream replacement, no empty flow and no additional state owners.
+The separate `bench.py` system checks a finite regular-clock known-state scenario, including queue saturation, stalls, replacement, boundary values and final drain. This is partial system migration: the original independent drivers retain their full physical-clock, midstream-reset and four-state scenarios.
+
+```bash
+pycircuit run examples/bitfield_scalar_pipeline --target cpp --cycles 158 --build-dir .pycircuit_out/bitfield_scalar_pipeline/system-cpp
+pycircuit run examples/bitfield_scalar_pipeline --target verilog --cycles 158 --build-dir .pycircuit_out/bitfield_scalar_pipeline/system-verilog
+```

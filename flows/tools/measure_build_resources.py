@@ -342,7 +342,11 @@ def _validate_backend_inventory(
                 if target == "verilog" and stem == "types"
                 else {
                     f"sources/measurement/{stem}.source-map.json": "source-map",
-                    **({f"sources/measurement/{stem}.hpp": "header"} if target == "cpp" else {}),
+                    **(
+                        {f"sources/measurement/{stem}.hpp": "header"}
+                        if target == "cpp"
+                        else {}
+                    ),
                     **(
                         {f"sources/measurement/{stem}.cpp": "source"}
                         if target == "cpp" and stem != "types"
@@ -1066,7 +1070,9 @@ def main() -> int:
         capture_output=True,
         check=True,
     ).stdout.strip()
-    build_measurer = _load_module(BUILD_MEASURER, "measurement_existing_build_measurement")
+    build_measurer = _load_module(
+        BUILD_MEASURER, "measurement_existing_build_measurement"
+    )
     toolchain_metadata_hash = _sha256(metadata_path)
     measurement_inputs = [
         REPO / "flows/tools/process_usage.py",

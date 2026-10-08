@@ -403,7 +403,9 @@ def verify_only_export(plugin: Path) -> None:
             if fields[0].isdigit():
                 exported.append(fields[-1])
         if len(exported) != 1 or not exported[0].endswith("pycircuit_model_query_v1"):
-            raise ValueError("generated model must export only pycircuit_model_query_v1")
+            raise ValueError(
+                "generated model must export only pycircuit_model_query_v1"
+            )
         return
     command = (
         ["nm", "-gU", plugin]

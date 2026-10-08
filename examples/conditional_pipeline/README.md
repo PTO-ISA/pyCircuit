@@ -52,3 +52,9 @@ recovery and isolated RTL failure processes. The RTL fixture uses explicit
 four-state case comparisons for memory-bit knownness: Icarus returned a spurious
 unknown result for `$isunknown` on that expression. The original failure and
 equivalent predicate repair are retained in the evidence.
+The separate `bench.py` system checks a finite regular-clock known-state scenario with exact old-state output checks. This is partial system migration: the original independent drivers retain their full physical-clock, midstream-reset and four-state scenarios.
+
+```bash
+pycircuit run examples/conditional_pipeline --target cpp --cycles 184 --build-dir .pycircuit_out/conditional_pipeline/system-cpp
+pycircuit run examples/conditional_pipeline --target verilog --cycles 184 --build-dir .pycircuit_out/conditional_pipeline/system-verilog
+```

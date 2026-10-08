@@ -31,3 +31,17 @@ Independent native and RTL oracles cover the
 original result, intermediate and total wrap, high bits, consecutive samples,
 and four-state arithmetic followed by known-input recovery. See the
 [generated-output guide](GENERATED.md) for actual public-flow IR, C++ and RTL.
+
+## Generated system usage
+
+`bench.py` exports `example_boundary_value_ports.bench.ExerciseBoundaryValuePorts`. Compile sources in
+order `boundary_value_ports.py`, `bench.py`, then link that system root and emit C++ or
+Verilog through the public `pycircuit compile`, `link`, and `emit` commands.
+Run `pycircuit run examples/boundary_value_ports --target cpp --cycles 16` or select
+`--target verilog`. Each managed cycle checks one original known-input row
+in both sampling epochs; all 16 original rows are represented.
+
+The original `driver.cpp`, `rtl_tb.sv`, configuration, and their independent
+oracles remain intact. This source bench covers the complete known-input table;
+host X/Z construction and recovery checks, where present, remain in those
+retained native/RTL oracles and are not claimed by the generated system run.

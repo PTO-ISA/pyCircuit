@@ -42,9 +42,7 @@ def _environment() -> dict[str, str]:
             "PYCIRCUIT_NATIVE_BUILD": str(native),
             "PYCIRCUIT_SOURCE_COMPILER": str(native / "bin/pycircuit-source-unit"),
             "PYCIRCUIT_LINKER": str(native / "bin/pycircuit-link"),
-            "PYCIRCUIT_EMITTER": str(
-                native / "bin/pycircuit-emit"
-            ),
+            "PYCIRCUIT_EMITTER": str(native / "bin/pycircuit-emit"),
         }
     )
     package_root = str(ROOT / "python/pycircuit/src")
@@ -664,7 +662,9 @@ def test_first_final_and_generated_publications_recover_five_reachable_crashes(
 
             committed = point == "after_journal_committed"
             if artifact == "program":
-                assert first_journal["owner"]["definition"] == '@"measurement.root.Root"'
+                assert (
+                    first_journal["owner"]["definition"] == '@"measurement.root.Root"'
+                )
                 assert first_journal["owner"]["source"] == {
                     "package": "measurement",
                     "path": "root.py",
@@ -701,7 +701,9 @@ def test_first_final_and_generated_publications_recover_five_reachable_crashes(
                 _assert_control_clean(destination, lock_identity)
             else:
                 assert target is not None
-                assert first_journal["owner"]["definition"] == '@"measurement.root.Root"'
+                assert (
+                    first_journal["owner"]["definition"] == '@"measurement.root.Root"'
+                )
 
                 # A public emit to this same managed bundle both recovers and
                 # starts a new publish. Pause at its existing preparing hook so

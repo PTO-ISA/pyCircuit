@@ -240,9 +240,9 @@ emitCppSourceParts(ModuleOp package, ac::HardwareAnalysis &analysis) {
   auto root = rootModule(context);
   if (failed(root))
     return failure();
-  const bool systemRoot = isSystemRoot(*root);
+  const bool managedRoot = context.managesChecks();
   auto unsupported = package.walk([&](Operation *op) {
-    if (!isa<ac::SourceExpectOp>(op) || systemRoot)
+    if (!isa<ac::SourceExpectOp>(op) || managedRoot)
       return WalkResult::advance();
     op->emitOpError() << "hardware instrumentation emission is not implemented";
     return WalkResult::interrupt();
@@ -263,6 +263,7 @@ emitPreparedCppSourceParts(HardwareEmitContext &context) {
   if (failed(root))
     return failure();
   FinalCppSourceParts parts;
+  parts.sourceCheckCount = context.sourceChecks().checks.size();
   auto rootType = context.rootCppType();
   if (failed(rootType))
     return failure();

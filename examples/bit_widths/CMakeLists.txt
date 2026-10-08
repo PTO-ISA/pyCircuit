@@ -6,7 +6,11 @@ pycircuit_add_example(bit_widths
   PACKAGE example_bit_widths
   TOP example_bit_widths.bit_widths.BitWidths
   ENTRY_SOURCE bit_widths
-  SOURCES bit_widths.py)
+  SOURCES bit_widths.py
+  SYSTEM_TOP example_bit_widths.bench.BitWidthsSystem
+  SYSTEM_ENTRY_SOURCE bench
+  SYSTEM_CYCLES 184
+  SYSTEM_SOURCES bit_widths.py bench.py)
 if(PYC_EXAMPLE_VERIFY)
 
 find_package(Python3 REQUIRED COMPONENTS Interpreter)

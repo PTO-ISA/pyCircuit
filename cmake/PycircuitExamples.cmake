@@ -15,9 +15,26 @@ function(pycircuit_label_example_tests)
   endif()
 endfunction()
 
+function(pycircuit_add_system_verification name cycles timeout)
+  if(NOT cycles MATCHES "^[1-9][0-9]*$")
+    message(FATAL_ERROR "System verification requires an explicit positive cycle count")
+  endif()
+  find_program(VERILATOR_EXECUTABLE verilator REQUIRED)
+  add_test(NAME ${name}_system COMMAND "${Python3_EXECUTABLE}"
+    "${CMAKE_CURRENT_FUNCTION_LIST_DIR}/verify_example.py"
+    --system --source "${CMAKE_CURRENT_SOURCE_DIR}"
+    --runner "${PYC_DRIVER}" --toolchain "${PYCIRCUIT_TOOLCHAIN_ROOT}"
+    --build "${CMAKE_CURRENT_BINARY_DIR}/system-verification"
+    --include "${PYCIRCUIT_RUNTIME_INCLUDE_DIR}"
+    --cycles "${cycles}" --timeout "${timeout}")
+  math(EXPR _system_timeout "3 * ${timeout} + 30")
+  set_tests_properties(${name}_system PROPERTIES
+    LABELS "${PYC_EXAMPLE_LABELS}" TIMEOUT "${_system_timeout}")
+endfunction()
+
 function(pycircuit_add_example name)
   cmake_language(DEFER CALL pycircuit_label_example_tests)
-  cmake_parse_arguments(EX "" "TOP;PACKAGE;ENTRY_SOURCE;DRIVER;RUNNER;TIMEOUT_SECONDS" "SOURCES" ${ARGN})
+  cmake_parse_arguments(EX "" "TOP;PACKAGE;ENTRY_SOURCE;DRIVER;RUNNER;TIMEOUT_SECONDS;CYCLES;SYSTEM_TOP;SYSTEM_ENTRY_SOURCE;SYSTEM_CYCLES" "SOURCES;SYSTEM_SOURCES" ${ARGN})
   foreach(_required TOP PACKAGE ENTRY_SOURCE SOURCES)
     if(NOT EX_${_required})
       message(FATAL_ERROR "pycircuit_add_example requires ${_required}")
@@ -25,6 +42,23 @@ function(pycircuit_add_example name)
   endforeach()
   if(EX_UNPARSED_ARGUMENTS)
     message(FATAL_ERROR "Unknown example arguments: ${EX_UNPARSED_ARGUMENTS}")
+  endif()
+  if(EX_SYSTEM_TOP OR EX_SYSTEM_ENTRY_SOURCE OR EX_SYSTEM_SOURCES OR EX_SYSTEM_CYCLES)
+    foreach(_required SYSTEM_TOP SYSTEM_ENTRY_SOURCE SYSTEM_SOURCES SYSTEM_CYCLES)
+      if(NOT EX_${_required})
+        message(FATAL_ERROR "System selection requires ${_required}")
+      endif()
+    endforeach()
+    if(NOT EX_SYSTEM_CYCLES MATCHES "^[1-9][0-9]*$")
+      message(FATAL_ERROR "SYSTEM_CYCLES requires a positive integer number of cycles")
+    endif()
+    # Ordinary aggregate builds retain the reusable module and its independent
+    # oracle. Public run selects the separately authored closed system root.
+    if(PYC_EXAMPLE_RUN_TARGET)
+      set(EX_TOP "${EX_SYSTEM_TOP}")
+      set(EX_ENTRY_SOURCE "${EX_SYSTEM_ENTRY_SOURCE}")
+      set(EX_SOURCES "${EX_SYSTEM_SOURCES}")
+    endif()
   endif()
   if("TIMEOUT_SECONDS" IN_LIST EX_KEYWORDS_MISSING_VALUES)
     message(FATAL_ERROR "TIMEOUT_SECONDS requires a positive integer number of seconds")
@@ -160,14 +194,7 @@ function(pycircuit_add_example name)
     return()
   endif()
   if(NOT _authored_driver)
-    foreach(_backend cpp verilog)
-      add_test(NAME ${name}_${_backend} COMMAND "${PYC_DRIVER}" run
-        "${CMAKE_CURRENT_SOURCE_DIR}" --target ${_backend}
-        --toolchain "${PYCIRCUIT_TOOLCHAIN_ROOT}"
-        --build-dir "${CMAKE_CURRENT_BINARY_DIR}/simulation" --cycles 5)
-      set_tests_properties(${name}_${_backend} PROPERTIES
-        LABELS "${PYC_EXAMPLE_LABELS}" TIMEOUT ${EX_TIMEOUT_SECONDS})
-    endforeach()
+    pycircuit_add_system_verification(${name} "${EX_CYCLES}" "${EX_TIMEOUT_SECONDS}")
     return()
   endif()
   find_program(VERILATOR_EXECUTABLE verilator REQUIRED)
@@ -182,4 +209,7 @@ function(pycircuit_add_example name)
   math(EXPR _test_timeout "4 * ${EX_TIMEOUT_SECONDS} + 30")
   set_tests_properties(${name} PROPERTIES
     LABELS "${PYC_EXAMPLE_LABELS}" TIMEOUT "${_test_timeout}")
+  if(EX_SYSTEM_TOP)
+    pycircuit_add_system_verification(${name} "${EX_SYSTEM_CYCLES}" "${EX_TIMEOUT_SECONDS}")
+  endif()
 endfunction()

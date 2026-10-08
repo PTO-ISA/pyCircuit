@@ -6,7 +6,11 @@ pycircuit_add_example(table_rule
   PACKAGE example_table_rule
   TOP example_table_rule.table_rule.TableRule
   ENTRY_SOURCE table_rule
-  SOURCES table_rule.py)
+  SOURCES table_rule.py
+  SYSTEM_TOP example_table_rule.bench.ExerciseTableRule
+  SYSTEM_ENTRY_SOURCE bench
+  SYSTEM_CYCLES 1343
+  SYSTEM_SOURCES table_rule.py bench.py)
 if(PYC_EXAMPLE_VERIFY)
 
 find_package(Python3 REQUIRED COMPONENTS Interpreter)

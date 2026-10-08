@@ -102,3 +102,25 @@ five runs, with matching checksums. That is approximately 34.4% less time for
 this workload, not a general simulator performance guarantee. Final installed
 DUT code and wrappers are byte-identical to the measured refactor artifacts.
 Compilation-speed or hardware area/timing improvements are not claimed.
+
+## Generated system usage
+
+`bench.py` exports `example_bf16_fmac.bench.ExerciseBF16Fmac`. The explicit source
+closure is `bf16_fmac.py`, then `bench.py`; link the system root and emit either
+backend with the public `pycircuit compile`, `link`, and `emit` flow. Run
+`pycircuit run examples/bf16_fmac --target cpp --cycles 86` or select
+`--target verilog`. Each managed cycle uses the same stimulus in its low/high
+sampling pair and advances fixture state on the generated edge.
+
+The complete 52-operand corpus and all original rising-edge valid/bubble
+inputs run for 86 regular cycles, including four final drain observations.
+Literal goldens use the retained independent highest-set-bit arithmetic oracle
+and a three-token scoreboard, preserving all finite-bit anchors and result
+holds. The original midstream reset/drop, held-level and four-state oracle
+matrices remain separate; regular-clock reset inputs are data cycles here.
+
+The original `driver.cpp`, `rtl_tb.sv`, `config.json`, and independent oracle
+models remain unchanged. Known held-level and physical-reset scenarios remain
+with those module-boundary drivers. Where present, their four-state and
+failure/discard matrices remain separate coverage. This regular-clock system
+does not claim complete equivalence to those physical scenarios.

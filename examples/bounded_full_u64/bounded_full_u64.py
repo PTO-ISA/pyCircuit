@@ -1,4 +1,5 @@
 """Atomic full-u64 conversion results with four independent output queues."""
+
 # ruff: noqa: F821, N802 -- forward hardware queue-result wires.
 
 import pycircuit as ac
@@ -36,8 +37,11 @@ def BoundedFullU64(
     )
     wrapped_ready, wrapped_valid, wrapped = ac.queue[ac.u64](
         (
-            source_valid & wrapped_ready & saturated_ready
-            & checked_value_ready & checked_flag_ready
+            source_valid
+            & wrapped_ready
+            & saturated_ready
+            & checked_value_ready
+            & checked_flag_ready
         ),
         source_value,
         take_wrapped,
@@ -47,8 +51,11 @@ def BoundedFullU64(
     )
     saturated_ready, saturated_valid, saturated = ac.queue[ac.u64](
         (
-            source_valid & wrapped_ready & saturated_ready
-            & checked_value_ready & checked_flag_ready
+            source_valid
+            & wrapped_ready
+            & saturated_ready
+            & checked_value_ready
+            & checked_flag_ready
         ),
         source_value,
         take_saturated,
@@ -58,8 +65,11 @@ def BoundedFullU64(
     )
     checked_value_ready, checked_value_valid, checked_value = ac.queue[ac.u64](
         (
-            source_valid & wrapped_ready & saturated_ready
-            & checked_value_ready & checked_flag_ready
+            source_valid
+            & wrapped_ready
+            & saturated_ready
+            & checked_value_ready
+            & checked_flag_ready
         ),
         source_value,
         take_checked_value,
@@ -69,8 +79,11 @@ def BoundedFullU64(
     )
     checked_flag_ready, checked_flag_valid, checked_flag = ac.queue[ac.u1](
         (
-            source_valid & wrapped_ready & saturated_ready
-            & checked_value_ready & checked_flag_ready
+            source_valid
+            & wrapped_ready
+            & saturated_ready
+            & checked_value_ready
+            & checked_flag_ready
         ),
         1,
         take_checked_flag,

@@ -62,3 +62,9 @@ multiple wraps of both queue pointers, active held clocks with changed offers
 and reset, two rising resets dropping four tokens each, drain and recovery.
 Known history is 223 accepted / 215 retired / 8 reset-dropped; four-state 285 / 277 / 8. Every run ends empty, reaches peak occupancy four
 and conserves all accepted tokens. Runner limits are 12,000 ticks.
+The separate `bench.py` system checks a finite regular-clock known-state scenario, including queue saturation, stalls, replacement, boundary values and final drain. This is partial system migration: the original independent drivers retain their full physical-clock, midstream-reset and four-state scenarios.
+
+```bash
+pycircuit run examples/queue_pipeline --target cpp --cycles 158 --build-dir .pycircuit_out/queue_pipeline/system-cpp
+pycircuit run examples/queue_pipeline --target verilog --cycles 158 --build-dir .pycircuit_out/queue_pipeline/system-verilog
+```

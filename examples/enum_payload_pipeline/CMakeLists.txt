@@ -6,7 +6,11 @@ pycircuit_add_example(enum_payload_pipeline
   PACKAGE example_enum_payload_pipeline
   TOP example_enum_payload_pipeline.enum_payload_pipeline.EnumPayloadPipeline
   ENTRY_SOURCE enum_payload_pipeline
-  SOURCES enum_payload_pipeline.py)
+  SOURCES enum_payload_pipeline.py
+  SYSTEM_TOP example_enum_payload_pipeline.bench.EnumPayloadPipelineSystem
+  SYSTEM_ENTRY_SOURCE bench
+  SYSTEM_CYCLES 184
+  SYSTEM_SOURCES enum_payload_pipeline.py bench.py)
 if(PYC_EXAMPLE_VERIFY)
 
 find_package(Python3 REQUIRED COMPONENTS Interpreter)

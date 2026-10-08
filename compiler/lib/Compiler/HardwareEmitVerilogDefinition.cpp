@@ -12,7 +12,7 @@ public:
              raw_ostream &out)
       : context(context), definition(definition), out(out) {}
   LogicalResult emitSourceChecks() {
-    if (!context.isSystem())
+    if (!context.managesChecks())
       return success();
     std::string reset = "pyc_reset_active";
     if (auto domain =
@@ -640,7 +640,7 @@ public:
         else
           return queue.emitOpError() << "unsupported queue ready policy";
         std::string error;
-        if (context.isSystem()) {
+        if (context.managesChecks()) {
           error = "pyc_child_error_" + std::to_string(localErrors.size());
           out << "  wire " << error << ";\n";
           localErrors.push_back(error);
@@ -648,7 +648,7 @@ public:
         out << "  fifo #(.T(" << *payload << "), .DEPTH(" << *depth
             << "), .READY_POLICY(" << policy << "), .AVAILABILITY_LATENCY("
             << *latency;
-        if (context.isSystem())
+        if (context.managesChecks())
           out << "), .pyc_managed(1'b1";
         out << ")) pyc_instance_" << *name << " (\n";
         const StringRef ports[] = {"clk",       "rst",       "in_valid",
@@ -656,9 +656,9 @@ public:
                                    "out_valid", "out_data"};
         for (auto [index, port] : llvm::enumerate(ports))
           out << "    ." << port << "(" << pins[index] << ")"
-              << (index + 1 == std::size(ports) && !context.isSystem() ? "\n"
+              << (index + 1 == std::size(ports) && !context.managesChecks() ? "\n"
                                                                        : ",\n");
-        if (context.isSystem())
+        if (context.managesChecks())
           out << "    .pyc_phase(pyc_phase),\n"
                  "    .pyc_root_commit_ok(pyc_root_commit_ok),\n"
                  "    .pyc_local_error("
@@ -684,7 +684,7 @@ public:
         return failure();
       auto kind = context.analysis.getPrimitiveKind(callee);
       bool managedPrimitive = false;
-      if (context.isSystem() && !kind.empty())
+      if (context.managesChecks() && !kind.empty())
         managedPrimitive =
             llvm::any_of(context.sourceChecks().commits,
                          [&](const ac::HardwareCheckCommitEndpoint &endpoint) {
@@ -733,7 +733,7 @@ public:
         i = "pyc_instance_lane_" + std::to_string(next++);
       }
       std::string childError;
-      if (context.isSystem()) {
+      if (context.managesChecks()) {
         childError = "pyc_child_error_" + std::to_string(localErrors.size());
         if (collection)
           out << "  wire [(" << count << ")-1:0] " << childError << ";\n";
@@ -779,7 +779,7 @@ public:
            llvm::zip(outputNames, outputs, signature.getResults()))
         if (failed(connect(cast<StringAttr>(raw).getValue(), signal, type)))
           return failure();
-      if (context.isSystem()) {
+      if (context.managesChecks()) {
         auto managedConnection = [&](StringRef port, StringRef signal) {
           out << (first ? "\n" : ",\n") << "    ." << port << "(" << signal
               << ")";
@@ -800,7 +800,7 @@ public:
   }
 
   void emitAggregateError() {
-    if (!context.isSystem())
+    if (!context.managesChecks())
       return;
     out << "  assign pyc_local_error = ";
     if (localErrors.empty())
@@ -878,7 +878,7 @@ LogicalResult emitHardwareVerilogDefinition(HardwareEmitContext &context,
             "output", type,
             cast<StringAttr>(definition.getOutputNames()[i]).getValue())))
       return failure();
-  if (context.isSystem()) {
+  if (context.managesChecks()) {
     out << (first ? "\n" : ",\n")
         << "  input wire [2:0] pyc_phase,\n"
            "  input wire pyc_root_commit_ok,\n"

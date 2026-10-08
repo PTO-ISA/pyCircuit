@@ -17,43 +17,71 @@
       "name": "wire_ops",
       "folder": "examples/wire_ops",
       "source": "wire_ops.py",
-      "generated": "GENERATED.json"
+      "generated": "GENERATED.json",
+      "system": "ExerciseWireOps",
+      "system_source": "bench.py",
+      "system_cycles": 7,
+      "system_scope": "regular-clock"
     },
     {
       "name": "arith",
       "folder": "examples/arith",
       "source": "arith.py",
-      "generated": "GENERATED.json"
+      "generated": "GENERATED.json",
+      "system": "ExerciseArith",
+      "system_source": "bench.py",
+      "system_cycles": 10,
+      "system_scope": "regular-clock"
     },
     {
       "name": "counter",
       "folder": "examples/counter",
       "source": "counter.py",
-      "generated": "GENERATED.json"
+      "generated": "GENERATED.json",
+      "system": "ExerciseCounter",
+      "system_source": "bench.py",
+      "system_cycles": 263,
+      "system_scope": "regular-clock"
     },
     {
       "name": "hier_modules",
       "folder": "examples/hier_modules",
       "source": "hier_modules.py",
-      "generated": "GENERATED.json"
+      "generated": "GENERATED.json",
+      "system": "ExerciseHierModules",
+      "system_source": "bench.py",
+      "system_cycles": 12,
+      "system_scope": "regular-clock"
     },
     {
       "name": "boundary_value_ports",
       "folder": "examples/boundary_value_ports",
       "source": "boundary_value_ports.py",
-      "generated": "GENERATED.json"
+      "generated": "GENERATED.json",
+      "system": "ExerciseBoundaryValuePorts",
+      "system_source": "bench.py",
+      "system_cycles": 16,
+      "system_scope": "regular-clock"
     },
     {
       "name": "net_resolution_depth_smoke",
       "folder": "examples/net_resolution_depth_smoke",
       "source": "net_resolution_depth_smoke.py",
-      "generated": "GENERATED.json"
+      "generated": "GENERATED.json",
+      "system": "ExerciseNetResolutionDepthSmoke",
+      "system_source": "bench.py",
+      "system_cycles": 264,
+      "system_scope": "regular-clock"
     },
     {
       "name": "cache_params",
       "folder": "examples/cache_params",
       "source": "cache_params.py",
-      "generated": "GENERATED.json"
+      "generated": "GENERATED.json",
+      "system": "ExerciseCacheParams",
+      "system_source": "bench.py",
+      "system_cycles": 14,
+      "system_scope": "regular-clock"
     },
     {
       "name": "multiclock_regs",
@@ -70,295 +98,499 @@
       "name": "obs_points",
       "folder": "examples/obs_points",
       "source": "obs_points.py",
-      "generated": "GENERATED.json"
+      "generated": "GENERATED.json",
+      "system": "ExerciseObsPoints",
+      "system_source": "bench.py",
+      "system_cycles": 264,
+      "system_scope": "regular-clock"
     },
     {
       "name": "decode_rules",
       "folder": "examples/decode_rules",
       "source": "decode_rules.py",
-      "generated": "GENERATED.json"
+      "generated": "GENERATED.json",
+      "system": "ExerciseDecodeRules",
+      "system_source": "bench.py",
+      "system_cycles": 257,
+      "system_scope": "regular-clock"
     },
     {
       "name": "jit_control_flow",
       "folder": "examples/jit_control_flow",
       "source": "jit_control_flow.py",
-      "generated": "GENERATED.json"
+      "generated": "GENERATED.json",
+      "system": "ExerciseJitControlFlow",
+      "system_source": "bench.py",
+      "system_cycles": 65,
+      "system_scope": "regular-clock"
     },
     {
       "name": "rob",
       "folder": "examples/rob",
       "source": "rob.py",
-      "generated": "GENERATED.json"
+      "generated": "GENERATED.json",
+      "system": "ExerciseRob",
+      "system_source": "bench.py",
+      "system_cycles": 284,
+      "system_scope": "regular-clock"
     },
     {
       "name": "struct_transform",
       "folder": "examples/struct_transform",
       "source": "struct_transform.py",
-      "generated": "GENERATED.json"
+      "generated": "GENERATED.json",
+      "system": "ExerciseStructTransform",
+      "system_source": "bench.py",
+      "system_cycles": 72,
+      "system_scope": "regular-clock"
     },
     {
       "name": "pipeline_builder",
       "folder": "examples/pipeline_builder",
       "source": "pipeline_builder.py",
-      "generated": "GENERATED.json"
+      "generated": "GENERATED.json",
+      "system": "ExercisePipelineBuilder",
+      "system_source": "bench.py",
+      "system_cycles": 72,
+      "system_scope": "regular-clock"
     },
     {
       "name": "jit_pipeline_vec",
       "folder": "examples/jit_pipeline_vec",
       "source": "jit_pipeline_vec.py",
-      "generated": "GENERATED.json"
+      "generated": "GENERATED.json",
+      "system": "ExerciseJitPipelineVec",
+      "system_source": "bench.py",
+      "system_cycles": 75,
+      "system_scope": "regular-clock"
     },
     {
       "name": "fastfwd",
       "folder": "examples/fastfwd",
       "source": "fastfwd.py",
-      "generated": "GENERATED.json"
+      "generated": "GENERATED.json",
+      "system": "FastfwdSystem",
+      "system_source": "bench.py",
+      "system_cycles": 24,
+      "system_scope": "regular-clock"
     },
     {
       "name": "digital_filter",
       "folder": "examples/digital_filter",
       "source": "digital_filter.py",
-      "generated": "GENERATED.json"
+      "generated": "GENERATED.json",
+      "system": "ExerciseDigitalFilter",
+      "system_source": "bench.py",
+      "system_cycles": 177,
+      "system_scope": "regular-clock"
     },
     {
       "name": "traffic_lights_ce_pyc",
       "folder": "examples/traffic_lights_ce_pyc",
       "source": "traffic_lights_ce_pyc.py",
-      "generated": "GENERATED.json"
+      "generated": "GENERATED.json",
+      "system": "ExerciseTopTrafficLights",
+      "system_source": "bench.py",
+      "system_cycles": 209,
+      "system_scope": "regular-clock"
     },
     {
       "name": "digital_clock",
       "folder": "examples/digital_clock",
       "source": "digital_clock.py",
-      "generated": "GENERATED.json"
+      "generated": "GENERATED.json",
+      "system": "ExerciseDigitalClock",
+      "system_source": "bench.py",
+      "system_cycles": 100000001,
+      "system_scope": "regular-clock"
     },
     {
       "name": "bit_widths",
       "folder": "examples/bit_widths",
       "source": "bit_widths.py",
-      "generated": "GENERATED.json"
+      "generated": "GENERATED.json",
+      "system": "BitWidthsSystem",
+      "system_source": "bench.py",
+      "system_cycles": 184,
+      "system_scope": "regular-clock"
     },
     {
       "name": "record_projection",
       "folder": "examples/record_projection",
       "source": "record_projection.py",
-      "generated": "GENERATED.json"
+      "generated": "GENERATED.json",
+      "system": "RecordProjectionSystem",
+      "system_source": "bench.py",
+      "system_cycles": 184,
+      "system_scope": "regular-clock"
     },
     {
       "name": "record_projection_update",
       "folder": "examples/record_projection_update",
       "source": "record_projection_update.py",
-      "generated": "GENERATED.json"
+      "generated": "GENERATED.json",
+      "system": "RecordProjectionUpdateSystem",
+      "system_source": "bench.py",
+      "system_cycles": 184,
+      "system_scope": "regular-clock"
     },
     {
       "name": "record_spread_pipeline",
       "folder": "examples/record_spread_pipeline",
       "source": "record_spread_pipeline.py",
-      "generated": "GENERATED.json"
+      "generated": "GENERATED.json",
+      "system": "ExerciseRecordSpreadPipeline",
+      "system_source": "bench.py",
+      "system_cycles": 158,
+      "system_scope": "regular-clock"
     },
     {
       "name": "encoded_enum_pipeline",
       "folder": "examples/encoded_enum_pipeline",
       "source": "encoded_enum_pipeline.py",
-      "generated": "GENERATED.json"
+      "generated": "GENERATED.json",
+      "system": "EncodedEnumPipelineSystem",
+      "system_source": "bench.py",
+      "system_cycles": 184,
+      "system_scope": "regular-clock"
     },
     {
       "name": "enum_payload_pipeline",
       "folder": "examples/enum_payload_pipeline",
       "source": "enum_payload_pipeline.py",
-      "generated": "GENERATED.json"
+      "generated": "GENERATED.json",
+      "system": "EnumPayloadPipelineSystem",
+      "system_source": "bench.py",
+      "system_cycles": 184,
+      "system_scope": "regular-clock"
     },
     {
       "name": "masked_decode_pipeline",
       "folder": "examples/masked_decode_pipeline",
       "source": "masked_decode_pipeline.py",
-      "generated": "GENERATED.json"
+      "generated": "GENERATED.json",
+      "system": "MaskedDecodePipelineSystem",
+      "system_source": "bench.py",
+      "system_cycles": 184,
+      "system_scope": "regular-clock"
     },
     {
       "name": "bitfield_scalar_pipeline",
       "folder": "examples/bitfield_scalar_pipeline",
-      "source": "bitfield_scalar_pipeline.py"
+      "source": "bitfield_scalar_pipeline.py",
+      "system": "BitfieldScalarPipelineSystem",
+      "system_source": "bench.py",
+      "system_cycles": 158,
+      "system_scope": "regular-clock"
     },
     {
       "name": "bitfield_decode_pipeline",
       "folder": "examples/bitfield_decode_pipeline",
-      "source": "bitfield_decode_pipeline.py"
+      "source": "bitfield_decode_pipeline.py",
+      "system": "BitfieldDecodePipelineSystem",
+      "system_source": "bench.py",
+      "system_cycles": 184,
+      "system_scope": "regular-clock"
     },
     {
       "name": "inferred_boundary_pipeline",
       "folder": "examples/inferred_boundary_pipeline",
-      "source": "inferred_boundary_pipeline.py"
+      "source": "inferred_boundary_pipeline.py",
+      "system": "InferredBoundaryPipelineSystem",
+      "system_source": "bench.py",
+      "system_cycles": 344,
+      "system_scope": "regular-clock"
     },
     {
       "name": "nested_payload_pipeline",
       "folder": "examples/nested_payload_pipeline",
       "source": "nested_payload_pipeline.py",
-      "generated": "GENERATED.json"
+      "generated": "GENERATED.json",
+      "system": "NestedPayloadPipelineSystem",
+      "system_source": "bench.py",
+      "system_cycles": 184,
+      "system_scope": "regular-clock"
     },
     {
       "name": "rule_pipeline",
       "folder": "examples/rule_pipeline",
       "source": "rule_pipeline.py",
-      "generated": "GENERATED.json"
+      "generated": "GENERATED.json",
+      "system": "RulePipelineSystem",
+      "system_source": "bench.py",
+      "system_cycles": 184,
+      "system_scope": "regular-clock"
     },
     {
       "name": "popcount_pipeline",
       "folder": "examples/popcount_pipeline",
       "source": "popcount_pipeline.py",
-      "generated": "GENERATED.json"
+      "generated": "GENERATED.json",
+      "system": "PopcountPipelineSystem",
+      "system_source": "bench.py",
+      "system_cycles": 184,
+      "system_scope": "regular-clock"
     },
     {
       "name": "queue_pipeline",
       "folder": "examples/queue_pipeline",
       "source": "queue_pipeline.py",
-      "generated": "GENERATED.json"
+      "generated": "GENERATED.json",
+      "system": "QueuePipelineSystem",
+      "system_source": "bench.py",
+      "system_cycles": 158,
+      "system_scope": "regular-clock"
     },
     {
       "name": "struct_pipeline",
       "folder": "examples/struct_pipeline",
-      "source": "struct_pipeline.py"
+      "source": "struct_pipeline.py",
+      "system": "StructPipelineSystem",
+      "system_source": "bench.py",
+      "system_cycles": 184,
+      "system_scope": "regular-clock"
     },
     {
       "name": "rule_pair_pipeline",
       "folder": "examples/rule_pair_pipeline",
       "source": "rule_pair_pipeline.py",
-      "generated": "GENERATED.json"
+      "generated": "GENERATED.json",
+      "system": "RulePairPipelineSystem",
+      "system_source": "bench.py",
+      "system_cycles": 158,
+      "system_scope": "regular-clock"
     },
     {
       "name": "multi_input_rule_pipeline",
       "folder": "examples/multi_input_rule_pipeline",
       "source": "multi_input_rule_pipeline.py",
-      "generated": "GENERATED.json"
+      "generated": "GENERATED.json",
+      "system": "MultiInputRulePipelineSystem",
+      "system_source": "bench.py",
+      "system_cycles": 158,
+      "system_scope": "regular-clock"
     },
     {
       "name": "latency_pipeline",
       "folder": "examples/latency_pipeline",
       "source": "latency_pipeline.py",
-      "generated": "GENERATED.json"
+      "generated": "GENERATED.json",
+      "system": "LatencyPipelineSystem",
+      "system_source": "bench.py",
+      "system_cycles": 158,
+      "system_scope": "regular-clock"
     },
     {
       "name": "fifo_loopback",
       "folder": "examples/fifo_loopback",
       "source": "fifo_loopback.py",
-      "generated": "GENERATED.json"
+      "generated": "GENERATED.json",
+      "system": "FifoLoopbackSystem",
+      "system_source": "bench.py",
+      "system_cycles": 344,
+      "system_scope": "regular-clock"
     },
     {
       "name": "fork_pipeline",
       "folder": "examples/fork_pipeline",
       "source": "fork_pipeline.py",
-      "generated": "GENERATED.json"
+      "generated": "GENERATED.json",
+      "system": "ForkPipelineSystem",
+      "system_source": "bench.py",
+      "system_cycles": 158,
+      "system_scope": "regular-clock"
     },
     {
       "name": "barrier_pipeline",
       "folder": "examples/barrier_pipeline",
       "source": "barrier_pipeline.py",
-      "generated": "GENERATED.json"
+      "generated": "GENERATED.json",
+      "system": "ExerciseBarrierPipeline",
+      "system_source": "bench.py",
+      "system_cycles": 347,
+      "system_scope": "regular-clock"
     },
     {
       "name": "broadcast_pipeline",
       "folder": "examples/broadcast_pipeline",
       "source": "broadcast_pipeline.py",
-      "generated": "GENERATED.json"
+      "generated": "GENERATED.json",
+      "system": "BroadcastPipelineSystem",
+      "system_source": "bench.py",
+      "system_cycles": 158,
+      "system_scope": "regular-clock"
     },
     {
       "name": "conditional_pipeline",
       "folder": "examples/conditional_pipeline",
       "source": "conditional_pipeline.py",
-      "generated": "GENERATED.json"
+      "generated": "GENERATED.json",
+      "system": "ConditionalPipelineSystem",
+      "system_source": "bench.py",
+      "system_cycles": 184,
+      "system_scope": "regular-clock"
     },
     {
       "name": "count_zeros_pipeline",
       "folder": "examples/count_zeros_pipeline",
       "source": "count_zeros_pipeline.py",
-      "generated": "GENERATED.json"
+      "generated": "GENERATED.json",
+      "system": "CountZerosPipelineSystem",
+      "system_source": "bench.py",
+      "system_cycles": 184,
+      "system_scope": "regular-clock"
     },
     {
       "name": "bit_primitive_pipeline",
       "folder": "examples/bit_primitive_pipeline",
-      "source": "bit_primitive_pipeline.py"
+      "source": "bit_primitive_pipeline.py",
+      "system": "BitPrimitivePipelineSystem",
+      "system_source": "bench.py",
+      "system_cycles": 344,
+      "system_scope": "regular-clock"
     },
     {
       "name": "onehot_encode",
       "folder": "examples/onehot_encode",
       "source": "onehot_encode.py",
-      "generated": "GENERATED.json"
+      "generated": "GENERATED.json",
+      "system": "OnehotEncodeSystem",
+      "system_source": "bench.py",
+      "system_cycles": 344,
+      "system_scope": "regular-clock"
     },
     {
       "name": "frontend_composition_pipeline",
       "folder": "examples/frontend_composition_pipeline",
-      "source": "frontend_composition_pipeline.py"
+      "source": "frontend_composition_pipeline.py",
+      "system": "FrontendCompositionPipelineSystem",
+      "system_source": "bench.py",
+      "system_cycles": 184,
+      "system_scope": "regular-clock"
     },
     {
       "name": "select_pipeline",
       "folder": "examples/select_pipeline",
-      "source": "select_pipeline.py"
+      "source": "select_pipeline.py",
+      "system": "ExerciseSelectPipeline",
+      "system_source": "bench.py",
+      "system_cycles": 1829,
+      "system_scope": "regular-clock"
     },
     {
       "name": "enum_helpers",
       "folder": "examples/enum_helpers",
-      "source": "enum_helpers.py"
+      "source": "enum_helpers.py",
+      "system": "EnumHelpersSystem",
+      "system_source": "bench.py",
+      "system_cycles": 184,
+      "system_scope": "regular-clock"
     },
     {
       "name": "feedback_pipeline",
       "folder": "examples/feedback_pipeline",
-      "source": "feedback_pipeline.py"
+      "source": "feedback_pipeline.py",
+      "system": "ExerciseFeedbackPipeline",
+      "system_source": "bench.py",
+      "system_cycles": 3763,
+      "system_scope": "regular-clock"
     },
     {
       "name": "loop_control_pipeline",
       "folder": "examples/loop_control_pipeline",
-      "source": "loop_control_pipeline.py"
+      "source": "loop_control_pipeline.py",
+      "system": "ExerciseLoopControlPipeline",
+      "system_source": "bench.py",
+      "system_cycles": 635,
+      "system_scope": "regular-clock"
     },
     {
       "name": "table_rule",
       "folder": "examples/table_rule",
-      "source": "table_rule.py"
+      "source": "table_rule.py",
+      "system": "ExerciseTableRule",
+      "system_source": "bench.py",
+      "system_cycles": 1343,
+      "system_scope": "regular-clock"
     },
     {
       "name": "issue_queue_2picker",
       "folder": "examples/issue_queue_2picker",
       "source": "issue_queue_2picker.py",
-      "generated": "GENERATED.json"
+      "generated": "GENERATED.json",
+      "system": "IssueQueue2PickerSystem",
+      "system_source": "bench.py",
+      "system_cycles": 344,
+      "system_scope": "regular-clock"
     },
     {
       "name": "recursive_pipeline",
       "folder": "examples/recursive_pipeline",
       "source": "recursive_pipeline.py",
-      "generated": "GENERATED.json"
+      "generated": "GENERATED.json",
+      "system": "RecursivePipelineSystem",
+      "system_source": "bench.py",
+      "system_cycles": 158,
+      "system_scope": "regular-clock"
     },
     {
       "name": "bounded_full_u64",
       "folder": "examples/bounded_full_u64",
       "source": "bounded_full_u64.py",
-      "generated": "GENERATED.json"
+      "generated": "GENERATED.json",
+      "system": "BoundedFullU64System",
+      "system_source": "bench.py",
+      "system_cycles": 158,
+      "system_scope": "regular-clock"
     },
     {
       "name": "dodgeball_game",
       "folder": "examples/dodgeball_game",
       "source": "dodgeball_game.py",
-      "generated": "GENERATED.json"
+      "generated": "GENERATED.json",
+      "system": "ExerciseDodgeballGame",
+      "system_source": "bench.py",
+      "system_cycles": 4001,
+      "system_scope": "regular-clock"
     },
     {
       "name": "bf16_fmac",
       "folder": "examples/bf16_fmac",
       "source": "bf16_fmac.py",
-      "generated": "GENERATED.json"
+      "generated": "GENERATED.json",
+      "system": "ExerciseBF16Fmac",
+      "system_source": "bench.py",
+      "system_cycles": 86,
+      "system_scope": "regular-clock"
     },
     {
       "name": "calculator",
       "folder": "examples/calculator",
-      "source": "calculator.py"
+      "source": "calculator.py",
+      "system": "ExerciseCalculator",
+      "system_source": "bench.py",
+      "system_cycles": 237,
+      "system_scope": "regular-clock"
     },
     {
       "name": "dma",
       "folder": "examples/dma",
       "source": "dma.py",
-      "generated": "GENERATED.json"
+      "generated": "GENERATED.json",
+      "system": "ExerciseDma",
+      "system_source": "bench.py",
+      "system_cycles": 582,
+      "system_scope": "regular-clock"
     },
     {
       "name": "memory_banks",
       "folder": "examples/memory_banks",
       "source": "memory_banks.py",
-      "generated": "GENERATED.json"
+      "generated": "GENERATED.json",
+      "system": "ExerciseMemoryBanks",
+      "system_source": "bench.py",
+      "system_cycles": 440,
+      "system_scope": "regular-clock"
     }
   ],
   "api_coverage": [
@@ -409,6 +641,27 @@
     {
       "name": "typed_integer_operations",
       "owner": "tests/compiler/lit/Source/Inputs/static-divrem.py"
+    },
+    {
+      "name": "reset_invalidate_order_smoke",
+      "owner": "tests/compiler/lit/Source/source-historical-features.test",
+      "system": "history_features.reset_invalidate_order_smoke.ResetInvalidateOrder",
+      "system_source": "tests/compiler/lit/Source/Inputs/history-features/reset_invalidate_order_smoke.py",
+      "system_scope": "original-numerical-oracle-and-native-four-state; legacy-probe-window-unverified"
+    },
+    {
+      "name": "trace_dsl_smoke",
+      "owner": "tests/compiler/lit/Source/source-historical-features.test",
+      "system": "history_features.trace_dsl_smoke.TraceDsl",
+      "system_source": "tests/compiler/lit/Source/Inputs/history-features/trace_dsl_smoke.py",
+      "system_scope": "original-numerical-oracle-and-native-four-state; legacy-probe-window-unverified"
+    },
+    {
+      "name": "xz_value_model_smoke",
+      "owner": "tests/compiler/lit/Source/source-historical-features.test",
+      "system": "history_features.xz_value_model_smoke.XzValueModel",
+      "system_source": "tests/compiler/lit/Source/Inputs/history-features/xz_value_model_smoke.py",
+      "system_scope": "original-numerical-oracle-and-native-four-state; legacy-probe-window-unverified"
     }
   ]
 }

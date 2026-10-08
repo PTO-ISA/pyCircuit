@@ -55,3 +55,9 @@ The driver checks E0/E1/E2, full replacement, holds, reset and public-owner
 discard/reprepare. A separate terminal unknown-handshake case requires Reset
 before reuse. Copied value bits retain all planes; count-X latent bits remain
 unasserted. The finite runner limit is 20,000 ticks per successful history.
+The separate `bench.py` system checks a finite regular-clock known-state scenario with exact old-state output checks. This is partial system migration: the original independent drivers retain their full physical-clock, midstream-reset and four-state scenarios.
+
+```bash
+pycircuit run examples/count_zeros_pipeline --target cpp --cycles 184 --build-dir .pycircuit_out/count_zeros_pipeline/system-cpp
+pycircuit run examples/count_zeros_pipeline --target verilog --cycles 184 --build-dir .pycircuit_out/count_zeros_pipeline/system-verilog
+```

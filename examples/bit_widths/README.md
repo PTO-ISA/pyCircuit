@@ -69,3 +69,10 @@ and the complete generated RTL in Icarus. They check masked unknowns, rotation
 across the packed word boundary and unchanged mask/sequence planes. CTest runs
 both the shared known-data gate and the explicit Icarus gate; their receipts
 bind the source, runtime assets, generated model and test inputs.
+
+The separate `bench.py` system checks a finite regular-clock known-state scenario with exact old-state output checks. This is partial system migration: the original independent drivers retain their full physical-clock, midstream-reset and four-state scenarios.
+
+```bash
+pycircuit run examples/bit_widths --target cpp --cycles 184 --build-dir .pycircuit_out/bit_widths/system-cpp
+pycircuit run examples/bit_widths --target verilog --cycles 184 --build-dir .pycircuit_out/bit_widths/system-verilog
+```

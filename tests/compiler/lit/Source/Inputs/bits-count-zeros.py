@@ -142,7 +142,9 @@ class State(Enum):
     ONE = 1
 @ac.struct
 class ProbeResult:
-""" + "".join(f"    {name}: ac.bits[{width}]\n" for name, width in FIELDS)
+""" + "".join(
+    f"    {name}: ac.bits[{width}]\n" for name, width in FIELDS
+)
 DESIGN += (
     "@ac.rule\ndef evaluate("
     + ", ".join(f"w{w}" for w in WIDTHS)
@@ -310,7 +312,9 @@ cases = {
 
 # Each direction independently rejects the same malformed shapes and source kinds.
 cases = {
-    direction + "-" + name: (
+    direction
+    + "-"
+    + name: (
         text.replace("count_leading_zeros", helper),
         diagnostic.replace("count_leading_zeros", helper),
     )
@@ -467,28 +471,36 @@ with tempfile.TemporaryDirectory(prefix="count-zeros-", dir=scratch) as temporar
         call = "ac." + helper
         controls.update(
             {
-                direction + "-typed-boundary": scalar(
+                direction
+                + "-typed-boundary": scalar(
                     f"{call}(converted)",
                     statements="    converted: ac.u5 = 7\n",
                     width=3,
                 ),
-                direction + "-structural-wire": PREFIX
+                direction
+                + "-structural-wire": PREFIX
                 + f"""@ac.module
  def Top(value: ac.u5) -> {{"out": ac.u3}}:
      local = {call}(value)
      return {{"out": local}}
-""".replace("\n ", "\n"),
-                direction + "-natural-widening": scalar(
+""".replace(
+                    "\n ", "\n"
+                ),
+                direction
+                + "-natural-widening": scalar(
                     f"{call}(value)", base="ac.bits[65]", width=13
                 ),
-                direction + "-explicit-narrowing": scalar(
+                direction
+                + "-explicit-narrowing": scalar(
                     f"{call}(value)[:2]", base="ac.u8", width=2
                 ),
-                direction + "-fixed-singleton-kind": scalar(
+                direction
+                + "-fixed-singleton-kind": scalar(
                     f"{call}({call}(value))", base="ac.u1", width=1
                 ),
                 direction + "-evaluate-once": scalar(f"{call}(value + 1)", width=3),
-                direction + "-captured-rule": PREFIX
+                direction
+                + "-captured-rule": PREFIX
                 + f"""@ac.module
  def Child(value: ac.u3) -> {{"out": ac.u3}}:
      return {{"out": value}}
@@ -501,7 +513,9 @@ with tempfile.TemporaryDirectory(prefix="count-zeros-", dir=scratch) as temporar
          child(value={call}(alias))
      bind()
      return {{"out": child.out}}
-""".replace("\n ", "\n"),
+""".replace(
+                    "\n ", "\n"
+                ),
             }
         )
     control_paths = []
@@ -607,9 +621,9 @@ with tempfile.TemporaryDirectory(prefix="count-zeros-", dir=scratch) as temporar
         )
         for field in result_fields
     ] == FIELDS
-    assert 'opcode = "sub"' in body, (
-        "four-state endpoint poison must survive source lowering"
-    )
+    assert (
+        'opcode = "sub"' in body
+    ), "four-state endpoint poison must survive source lowering"
     (scratch / "source-body.ac").write_text(body)
     output = build / "products"
     output.mkdir()

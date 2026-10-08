@@ -80,3 +80,34 @@ ctest --test-dir /absolute/build/digital_clock --output-on-failure --no-tests=er
 ```
 
 See [generated output](GENERATED.md) for excerpts from the generated artifacts.
+
+## Generated system usage
+
+`bench.py` exports the long root `example_digital_clock.bench.ExerciseDigitalClock`
+and the button-editing root `example_digital_clock.bench.ExerciseDigitalClockSettings`. The explicit source
+closure is `digital_clock.py`, then `bench.py`; link the system root and emit either
+backend with the public `pycircuit compile`, `link`, and `emit` flow. Run
+`pycircuit run examples/digital_clock --target cpp --cycles 100000001` or select
+`--target verilog`. Each managed cycle uses the same stimulus in its low/high
+sampling pair and advances fixture state on the generated edge.
+
+`ExerciseDigitalClockSettings` retains all 159 original short-stream data
+rising-edge button triples and checks 160 regular cycles, including a
+final observation. Fixed expectations come from the independent calendar oracle
+along the resetless trajectory; this covers all hour/minute/second editing
+values and simultaneous-button priority. The separate exhaustive BCD encoder
+oracle remains intact.
+
+The original `driver.cpp`, `rtl_tb.sv`, `config.json`, and independent oracle
+models remain unchanged. Known held-level and physical-reset scenarios remain
+with those module-boundary drivers. Where present, their four-state and
+failure/discard matrices remain separate coverage. This regular-clock system
+does not claim complete equivalence to those physical scenarios.
+
+The selected long system checks all 100,000,000 edges in two complete 50 MHz
+divider periods plus a final observation cycle (`--cycles 100000001`). Its
+closed-form calendar checks initial 23:59:59 entry, midnight rollover, a tick
+held while setting, mode return and colon blink. This is full-duration authored
+coverage; full-duration execution belongs to nightly. The additional settings root needs 160 cycles
+when selected as the explicit link top. Long execution remains in nightly;
+a short generated run must not be reported as this full-duration result.

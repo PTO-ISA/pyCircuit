@@ -32,9 +32,20 @@ def EncodeBcd(value: ac.u6) -> BcdResult:  # noqa: N802
 
 
 @ac.rule
-def advance_clock(prescaler, sec, minute, hour, mode, blink,
-                  btn_set, btn_plus, btn_minus,
-                  hours_encoded, minutes_encoded, seconds_encoded) -> ClockResult:
+def advance_clock(
+    prescaler,
+    sec,
+    minute,
+    hour,
+    mode,
+    blink,
+    btn_set,
+    btn_plus,
+    btn_minus,
+    hours_encoded,
+    minutes_encoded,
+    seconds_encoded,
+) -> ClockResult:
     result = ClockResult(
         hours_bcd=hours_encoded.value,
         minutes_bcd=minutes_encoded.value,
@@ -106,6 +117,17 @@ def DigitalClock(  # noqa: N802
     hours_encoded = EncodeBcd(hour)
     minutes_encoded = EncodeBcd(minute)
     seconds_encoded = EncodeBcd(sec)
-    return advance_clock(prescaler, sec, minute, hour, mode, blink,
-                         btn_set, btn_plus, btn_minus,
-                         hours_encoded, minutes_encoded, seconds_encoded)
+    return advance_clock(
+        prescaler,
+        sec,
+        minute,
+        hour,
+        mode,
+        blink,
+        btn_set,
+        btn_plus,
+        btn_minus,
+        hours_encoded,
+        minutes_encoded,
+        seconds_encoded,
+    )

@@ -6,7 +6,11 @@ pycircuit_add_example(loop_control_pipeline
   PACKAGE example_loop_control_pipeline
   TOP example_loop_control_pipeline.loop_control_pipeline.LoopControlPipeline
   ENTRY_SOURCE loop_control_pipeline
-  SOURCES loop_control_pipeline.py)
+  SOURCES loop_control_pipeline.py
+  SYSTEM_TOP example_loop_control_pipeline.bench.ExerciseLoopControlPipeline
+  SYSTEM_ENTRY_SOURCE bench
+  SYSTEM_CYCLES 635
+  SYSTEM_SOURCES loop_control_pipeline.py bench.py)
 if(PYC_EXAMPLE_VERIFY)
 
 find_package(Python3 REQUIRED COMPONENTS Interpreter)

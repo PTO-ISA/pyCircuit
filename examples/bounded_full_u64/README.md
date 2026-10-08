@@ -46,9 +46,15 @@ The shared example helper builds the actual generated models, with separate
 host testbenches and finite runner limits. Keep generated artifacts outside
 the source tree.
 
-
 ## Verified implementation
 
 The full public flow passed 299 Work frames with native workers 1 and 2 and Verilator. Independent queues and per-output histories check full-width boundary values, atomic publication, independent stalls, replacement, reset and drain. This is focused known-value validation, without an exhaustive or four-state claim.
 
 See [actual generated excerpts](GENERATED.md) and [verification inputs](GENERATED.json).
+
+The separate `bench.py` system checks a finite regular-clock known-state scenario, including queue saturation, stalls, replacement, boundary values and final drain. This is partial system migration: the original independent drivers retain their full physical-clock, midstream-reset and four-state scenarios.
+
+```bash
+pycircuit run examples/bounded_full_u64 --target cpp --cycles 158 --build-dir .pycircuit_out/bounded_full_u64/system-cpp
+pycircuit run examples/bounded_full_u64 --target verilog --cycles 158 --build-dir .pycircuit_out/bounded_full_u64/system-verilog
+```

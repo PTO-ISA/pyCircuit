@@ -6,7 +6,11 @@ pycircuit_add_example(fork_pipeline
   PACKAGE example_fork_pipeline
   TOP example_fork_pipeline.fork_pipeline.ForkPipeline
   ENTRY_SOURCE fork_pipeline
-  SOURCES fork_pipeline.py)
+  SOURCES fork_pipeline.py
+  SYSTEM_TOP example_fork_pipeline.bench.ForkPipelineSystem
+  SYSTEM_ENTRY_SOURCE bench
+  SYSTEM_CYCLES 158
+  SYSTEM_SOURCES fork_pipeline.py bench.py)
 if(PYC_EXAMPLE_VERIFY)
 
 find_package(Python3 REQUIRED COMPONENTS Interpreter)

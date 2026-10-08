@@ -51,3 +51,20 @@ token contains three inputs and an output token contains four, conservation is
 `accepted = 4 * retired + reset_dropped + outstanding_components`, rather than
 counting the six differently placed tokens as interchangeable packet capacity.
 Main and auxiliary runners have finite limits.
+
+## Generated system usage
+
+`bench.py` exports `example_record_spread_pipeline.bench.ExerciseRecordSpreadPipeline`. Compile
+`record_spread_pipeline.py`, then `bench.py`, import the published DUT interface, and link
+that explicit system root through the public compile/link/emit flow. Run
+`pycircuit run examples/record_spread_pipeline --target cpp --cycles 158` or select
+`--target verilog`. Imported records use their original nominal declarations
+and supply every field explicitly.
+
+All original known-stream data edges are represented in this regular-clock
+scenario, with fixed independent expectations from the retained native oracle
+along a resetless trajectory. The 158 cycles include a final observation.
+The original DUT, native/RTL drivers, finite configuration, and any four-state,
+reset/discard, latency and token-ledger matrices remain unchanged. Physical
+held-level and midstream-reset scenarios still require those original module
+oracles; this system does not claim complete physical-scenario equivalence.

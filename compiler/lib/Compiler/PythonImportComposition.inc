@@ -23,9 +23,7 @@ LogicalResult Importer::inferModuleGraph() {
         StringRef name =
             function.kind() == "Name" ? function.string("id") : StringRef();
         auto binding = lookupBinding(function);
-        if (binding && (binding->category == BindingCategory::Enum ||
-                        (binding->category == BindingCategory::Struct &&
-                         !structs.contains(name))))
+        if (binding && binding->category == BindingCategory::Enum)
           return error() << "nominal declaration is not a module constructor";
         if (behavioralRules.contains(name)) {
           if (controlled)
@@ -36,7 +34,7 @@ LogicalResult Importer::inferModuleGraph() {
         if (!local.contains(name) && binding &&
             binding->category == BindingCategory::Module) {
           auto view = headers.lookupModule(binding->symbol);
-          if (view)
+          if (view && view.domainInputs)
             decl.queueDomain |= !view.domainInputs.empty();
           if (view && view.hasSourceCallContract()) {
             if (controlled)

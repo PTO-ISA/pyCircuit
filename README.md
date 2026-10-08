@@ -81,7 +81,7 @@ Source-owned units → explicit link closure → final hardware IR
                                   GFSIM C++ executable   System Verilog
 ```
 
-`pycircuit compile`, `link` and `emit` remain available for explicit build graphs.
+`pycircuit compile`, `pycircuit link` and `pycircuit emit` remain available for explicit build graphs.
 `pycircuit run` composes those same operations and builds the selected generated
 simulation. Each source is compiled independently; C++ and Verilog consume the
 same final IR.

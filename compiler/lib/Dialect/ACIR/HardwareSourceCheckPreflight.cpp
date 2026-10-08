@@ -66,8 +66,12 @@ public:
               return budget.debit(units, site);
             })))
       return failure();
-    // No hypothetical occurrence counts or path costs are computed here.
-    if (!nodes[*rootIndex]->hasChecks)
+    // A closed system needs the complete managed commit tree even without
+    // source assertions: generated reset/prepare/commit must reach every leaf.
+    // Reusable modules without checks still avoid hypothetical expansion.
+    auto role = root->owner->getAttrOfType<StringAttr>("ac.root_kind");
+    if (!nodes[*rootIndex]->hasChecks &&
+        (!role || role.getValue() != "system"))
       return std::move(plan);
     budget.setPhase("occurrence summary");
     auto expansion = summarize(*rootIndex);

@@ -30,7 +30,7 @@ module {
 !b1 = !ac.bits<#w1>
 module {
   ac.struct "Result" fields [{name = "value", type = !b1}]
-  // expected-error @+1 {{source module call contract requires all four attributes}}
+  // expected-error @+1 {{source module call contract requires complete physical signature metadata}}
   "ac.module"() ({^bb0(%flag: !b1): %result = "ac.struct.create"(%flag) : (!b1) -> !ac.struct<"Result"> "ac.yield"(%result) : (!ac.struct<"Result">) -> ()}) {sym_name = "Provider", source_owner = {package = "", path = "provider.py"}, parameters = [], type_parameters = [], function_type = (!b1) -> !ac.struct<"Result">, input_names = ["flag"], output_names = ["result"], ac.return_form = "single"} : () -> ()
 }
 
@@ -163,6 +163,6 @@ module {
 !b1 = !ac.bits<#w1>
 module {
   ac.struct "Result" fields [{name = "value", type = !b1}]
-  // expected-error @+1 {{source module call contract requires a concrete single struct result and complete physical signature}}
+  // expected-error @+1 {{source module call contract requires a concrete single struct result and all four attributes}}
   "ac.module"() ({^bb0(%flag: !b1): %result = "ac.struct.create"(%flag) : (!b1) -> !ac.struct<"Result"> "ac.yield"(%result) : (!ac.struct<"Result">) -> ()}) {sym_name = "Provider", source_owner = {package = "", path = "provider.py"}, parameters = [{name = "N", type = !ac.math_int}], type_parameters = [], function_type = (!b1) -> !ac.struct<"Result">, input_names = ["flag"], output_names = ["result"], ac.return_form = "single", ac.parameters = [], ac.result_constraints = [{kind = "hardware", type = !ac.struct<"Result">, source_kind = "nominal"}], ac.domain_inputs = {}} : () -> ()
 }
