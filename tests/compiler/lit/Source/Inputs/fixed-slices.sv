@@ -1,6 +1,46 @@
 // Oracle uses independently written Verilog bit positions, before clock transitions.
 module tb;
-`ifdef TABLE_SLICES
+`ifdef FACT_SLICES
+  logic [7:0] value,raw;
+  logic choose;
+  wire [64:0] result;
+  logic [2:0] original;
+  logic [3:0] old_alias;
+  logic [7:0] widened;
+  logic [64:0] expected;
+  pyc_root dut(.*);
+  task row(input logic [7:0] v,r,input logic c,input bit unknown_case);
+    value=v;raw=r;choose=c;#1;
+    // Explicit bit-symbol oracle: high value bits are masked away; an unknown
+    // retained bit poisons each addition. Widening inserts five known zeros.
+    if ((^value[1:0]) === 1'bx) begin original=3'bxxx;old_alias=4'bxxxx;end
+    else begin original={1'b0,value[1:0]}+3'd1;old_alias={1'b0,original}+4'd1;end
+    widened={5'b0,original};
+    expected={original,widened,original,original,original[2:1],old_alias,8'd2,
+              choose ? 8'd2 : raw,choose ? raw : 8'd2,
+              choose ? 8'd2 : 8'd3,choose ? 8'd3 : 8'd2,
+              choose ? 1'b1 : 1'b0,choose ? 1'b0 : 1'b1};
+    if(result !== expected)$fatal(1,"facts boundary/slice/alias/branch planes differ");
+    if(unknown_case)$display("MASK %b",result);else $display("WORK %b",result);
+  endtask
+  function logic [7:0] input_value(input integer i);
+    case(i)
+      0:input_value=0;1:input_value=1;2:input_value=2;3:input_value=3;
+      4:input_value=4;5:input_value=7;6:input_value=8;7:input_value=31;
+      8:input_value=127;9:input_value=128;10:input_value=254;11:input_value=255;
+    endcase
+  endfunction
+  initial begin
+    for(integer i=0;i<12;++i)row(input_value(i),8'((i*17)^90),i[0],0);
+`ifdef SLICES_FOUR_STATE
+    row(8'bxz000010,8'b1xz00010,1'b1,1);
+    row(8'b000000xz,8'bzzzzzzzz,1'b0,1);
+    row(8'b00000011,8'b00000010,1'bx,1);
+    row(8'b00000000,8'bzz000010,1'bz,1);
+`endif
+    $finish;
+  end
+`elsif TABLE_SLICES
   logic pyc_7079635f636c6b=0,pyc_7079635f727374=1;
   logic index=0,write=0;
   logic [12:0] value=0;

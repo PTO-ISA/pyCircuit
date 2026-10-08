@@ -1307,8 +1307,11 @@ FailureOr<NumericValue> Importer::predicateView(Value value,
 
 FailureOr<SourceChoice> Importer::sourceChoice(Value value,
                                                const AstNode &node) {
-  auto info = valueInfo(value);
   SourceChoice choice{value, std::nullopt};
+  // Private facts on a fixed wire do not grant logical source-constant authority.
+  if (fixedValues.contains(value))
+    return choice;
+  auto info = valueInfo(value);
   if (!info.closedSourceConstant)
     return choice;
   using ac::detail::ValueKind;

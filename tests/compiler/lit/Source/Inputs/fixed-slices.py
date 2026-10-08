@@ -142,6 +142,126 @@ def TableTop(index: ac.u1, value: ac.u13, write: ac.u1) -> TableResult:
 
 PREFIX = "import pycircuit as ac\n@ac.struct\nclass Result:\n    value: ac.u5\n"
 
+FACT_DESIGN = """from typing import Annotated
+@ac.struct
+class FactResult:
+    identity: ac.u3
+    widened: ac.u8
+    low: ac.u3
+    full: ac.u3
+    high: ac.u2
+    old_alias: ac.u4
+    closed: ac.u8
+    fixed_left: ac.u8
+    fixed_right: ac.u8
+    literal_left: ac.u8
+    literal_right: ac.u8
+    boolean_left: ac.u1
+    boolean_right: ac.u1
+@ac.rule
+def transport_facts(value, raw, choose) -> FactResult:
+    original = (value & 3) + 1
+    old_alias = original
+    identity: ac.u3 = original
+    widened: ac.u8 = identity
+    closed: ac.u3 = 2
+    closed_wide: ac.u8 = closed
+    one: ac.u1 = 1
+    return FactResult(identity=identity, widened=widened,
+                      low=widened[:3], full=identity[:], high=widened[1:3],
+                      old_alias=old_alias + 1, closed=closed_wide,
+                      fixed_left=closed_wide if choose else raw,
+                      fixed_right=raw if choose else closed_wide,
+                      literal_left=closed_wide if choose else 3,
+                      literal_right=3 if choose else closed_wide,
+                      boolean_left=one if choose else False,
+                      boolean_right=False if choose else one)
+@ac.module
+def FactTop(value: Annotated[int, range(1 << 8)], raw: ac.u8,
+            choose: ac.u1) -> FactResult:
+    return transport_facts(value, raw, choose)
+"""
+DESIGN += FACT_DESIGN
+
+
+def fact_index(body, index, extent=5, inputs="value: ac.u8"):
+    return (
+        PREFIX
+        + "from typing import Annotated\n@ac.rule\ndef evaluate(entries, value) -> Result:\n"
+        + body
+        + f"    return Result(value=entries[{index}])\n"
+        + f"@ac.module\ndef Top({inputs}) -> Result:\n"
+        + f"    entries = ac.table[{extent}, ac.u5](init=0)\n"
+        + "    return evaluate(entries, value)\n"
+    )
+
+
+logical_input = "value: Annotated[int, range(1 << 8)]"
+fact_body = "    original = (value & 3) + 1\n    converted: ac.u3 = original\n"
+fact_controls = {
+    "integer-fixed-identity": fact_index(fact_body, "converted", inputs=logical_input),
+    "integer-fixed-zext": fact_index(
+        fact_body + "    widened: ac.u8 = converted\n", "widened", inputs=logical_input
+    ),
+    "low-fitting": fact_index(
+        fact_body + "    widened: ac.u8 = converted\n",
+        "widened[:3]",
+        inputs=logical_input,
+    ),
+    "full-low-zero": fact_index(fact_body, "converted[:]", inputs=logical_input),
+    "fixed-remainder-zext": fact_index(
+        "    original = value[:3] % 5\n    widened: ac.u8 = original\n", "widened"
+    ),
+    "closed-fixed-index": fact_index(
+        "    closed: ac.u3 = 2\n    widened: ac.u8 = closed\n", "widened", extent=3
+    ),
+    "high-carrier": fact_index("    original = value % 3\n", "original[1:2]", extent=2),
+    "nonfitting-carrier": fact_index(
+        "    original = value % 5\n", "original[:2]", extent=4
+    ),
+}
+fact_negatives = {
+    "low-nonfitting-no-narrow-proof": fact_index(
+        "    original = value % 5\n", "original[:2]", extent=3
+    ),
+    "wrapping-add-no-inheritance": fact_index(
+        "    original = value % 5\n", "original + 1"
+    ),
+    "wrapping-sub-no-inheritance": fact_index(
+        "    original = value % 5\n", "original - 1"
+    ),
+    "wrapping-mul-no-inheritance": fact_index(
+        "    original = value % 5\n", "original * 2"
+    ),
+    "negative-integer-boundary": fact_index(
+        "    original = 0 - 1\n    converted: ac.u3 = original\n", "converted"
+    ),
+    "fixed-not-integer-boundary": fact_index(
+        "    converted: ac.u3 = 2\n    logical: Annotated[int, range(1 << 3)] = converted\n",
+        "logical",
+    ),
+    "old-integer-alias-not-fixed": fact_index(
+        "    original = (value & 3) + 1\n    old_alias = original\n    converted: ac.u3 = original\n",
+        "old_alias[:3]",
+        inputs=logical_input,
+    ),
+    "old-boolean-alias-not-fixed": fact_index(
+        "    original = True\n    old_alias = original\n    converted: ac.u1 = original\n",
+        "old_alias[:1]",
+    ),
+}
+for arm, expression in (
+    ("left", "closed if value[:1] else False"),
+    ("right", "False if value[:1] else closed"),
+):
+    fact_negatives["wide-fixed-boolean-peer-" + arm] = fact_index(
+        "    closed: ac.u3 = 2\n", expression
+    )
+fact_negatives["fixed-proof-not-integer-formal"] = fact_index("", "value").replace(
+    "def evaluate(entries, value)",
+    "def evaluate(entries, value: Annotated[int, range(1 << 8)])",
+)
+
 
 def scalar(expression, base="ac.u13", extra=""):
     return (
@@ -252,6 +372,22 @@ diagnostics.update(
     }
 )
 assert set(diagnostics) == set(cases)
+cases.update(fact_negatives)
+diagnostics.update(
+    dict.fromkeys(fact_negatives, "table index complete width is not proven in range")
+)
+diagnostics.update(
+    {
+        "negative-integer-boundary": "integer interval is not proven within destination bounds",
+        "fixed-not-integer-boundary": "binding boundary requires declared Integer source kind",
+        "old-integer-alias-not-fixed": "slice requires explicitly unsigned fixed bits",
+        "old-boolean-alias-not-fixed": "slice requires explicitly unsigned fixed bits",
+        "wide-fixed-boolean-peer-left": "closed Boolean branch requires a bits[1] peer",
+        "wide-fixed-boolean-peer-right": "closed Boolean branch requires a bits[1] peer",
+        "fixed-proof-not-integer-formal": "rule parameter annotation disagrees with binding source kind",
+    }
+)
+assert set(diagnostics) == set(cases)
 
 with tempfile.TemporaryDirectory(prefix="fixed-slices-", dir=scratch) as temporary:
     build = Path(temporary)
@@ -288,6 +424,10 @@ with tempfile.TemporaryDirectory(prefix="fixed-slices-", dir=scratch) as tempora
         sys.stdout.write("fixed slices pre-fix baseline rejects unsigned slicing\n")
         sys.exit(0)
     compile_source(unit)
+    retained = scratch / "retained"
+    retained.mkdir()
+    shutil.copyfile(design, retained / "design.py")
+    shutil.copytree(unit, retained / "unit")
     toolroot = Path(args.source_compiler).resolve().parent.parent
     runtime = next(
         (
@@ -302,7 +442,11 @@ with tempfile.TemporaryDirectory(prefix="fixed-slices-", dir=scratch) as tempora
     )
     assert runtime is not None, "Runtime archive missing from this build/install"
     products = []
-    for top, table, frames, masks in (("Top", False, 10, 4), ("TableTop", True, 16, 4)):
+    for top, defines, frames, masks in (
+        ("Top", [], 10, 4),
+        ("TableTop", ["-DTABLE_SLICES"], 16, 4),
+        ("FactTop", ["-DFACT_SLICES"], 12, 4),
+    ):
         output = build / top
         output.mkdir()
         final = output / "design_top.ac"
@@ -316,7 +460,6 @@ with tempfile.TemporaryDirectory(prefix="fixed-slices-", dir=scratch) as tempora
             if row["path"].endswith(".cpp")
         ]
         assert cpp, "Generated source-owned C++ translation unit missing"
-        defines = ["-DTABLE_SLICES"] if table else []
         runner = output / "runner"
         run(
             [
@@ -403,9 +546,29 @@ with tempfile.TemporaryDirectory(prefix="fixed-slices-", dir=scratch) as tempora
             assert [
                 row for row in four_state_trace.splitlines() if row.startswith("MASK ")
             ] == mask_traces[0]
+        root_stages = retained / top
+        root_stages.mkdir()
+        shutil.copyfile(final, root_stages / "design_top.ac")
+        for target in ("cpp", "verilog"):
+            shutil.copytree(output / target, root_stages / target)
         products.extend([final, output / "cpp", output / "verilog"])
 
+    for name, content in fact_controls.items():
+        design.write_text(content)
+        (scratch / (name + ".py")).write_text(content)
+        control = build / ("fact-control-" + name)
+        compile_source(control)
+        final = build / ("fact-control-" + name + ".ac")
+        cli("link", control, "--top", "slices.design.Top", "-o", final)
+        control_stages = retained / "fact-controls" / name
+        control_stages.mkdir(parents=True)
+        shutil.copyfile(design, control_stages / "design.py")
+        shutil.copytree(control, control_stages / "unit")
+        shutil.copyfile(final, control_stages / "design_top.ac")
+        products.extend([control, final])
     before = snapshot(unit)
+    publication_control = unit.parent / ("." + unit.name + ".pycircuit-publication")
+    before_publication = snapshot(publication_control)
     protected = {
         path: snapshot(path) if path.is_dir() else path.read_bytes()
         for path in products
@@ -420,6 +583,7 @@ with tempfile.TemporaryDirectory(prefix="fixed-slices-", dir=scratch) as tempora
         replacement = compile_source(unit, accepted=False, replace=True)
         assert diagnostics[name] in replacement.stderr, replacement.stderr
         assert snapshot(unit) == before
+        assert snapshot(publication_control) == before_publication
         assert all(
             (snapshot(path) if path.is_dir() else path.read_bytes()) == value
             for path, value in protected.items()
@@ -436,13 +600,23 @@ with tempfile.TemporaryDirectory(prefix="fixed-slices-", dir=scratch) as tempora
                     ).hexdigest()
                     for path in inputs
                 },
-                "known_frames": 26,
-                "four_state_frames": 8,
+                "known_frames": 38,
+                "four_state_frames": 12,
                 "workers": [1, 2],
                 "rejected_cases": sorted(cases),
+                "fact_controls": sorted(fact_controls),
+                "fact_rejections": sorted(fact_negatives),
+                "singleton_runtime_boundary": "existing ExactIntegerLoweringTest.SingletonDynamicValueIsNotAKnownConstantMask covers a nonconstant singleton directly",
                 "missing_origin_guard_gap": "mixed Boolean/fixed conditional rejects at shared join; no missing-origin slice guard coverage claimed",
                 "protected_rejections": len(cases) * 2,
                 "icarus_four_state": bool(args.iverilog and args.vvp),
+                "retained_artifacts_sha256": {
+                    str(path.relative_to(retained)): hashlib.sha256(
+                        path.read_bytes()
+                    ).hexdigest()
+                    for path in sorted(retained.rglob("*"))
+                    if path.is_file()
+                },
             },
             indent=2,
         )
@@ -450,9 +624,9 @@ with tempfile.TemporaryDirectory(prefix="fixed-slices-", dir=scratch) as tempora
     )
 
 sys.stdout.write(
-    f"fixed slices gate passed: 26 CPP worker-1/2 and RTL frames; 8 native X/Z frames; {len(cases) * 2} protected rejections; "
+    f"fixed slices gate passed: 38 CPP worker-1/2 and RTL frames; 12 native X/Z frames; {len(cases) * 2} protected rejections; "
     + (
-        "8 Icarus X/Z frames\n"
+        "12 Icarus X/Z frames\n"
         if args.iverilog and args.vvp
         else "Icarus X/Z unavailable\n"
     )

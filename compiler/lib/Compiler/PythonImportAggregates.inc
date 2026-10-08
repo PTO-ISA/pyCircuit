@@ -998,6 +998,22 @@ FailureOr<Value> Importer::unsignedBoundary(Value value, Type target,
                                             FlatSymbolRefAttr symbol,
                                             bool allowFixedWidening) {
   auto info = valueInfo(value);
+  auto fixedResult = [&](Value result) {
+    auto interval = info.interval;
+    if (interval && interval->lower.isNegative())
+      interval.reset();
+    Attribute closed = info.closedSourceConstant;
+    if (auto integer = dyn_cast_or_null<ac::MathIntAttr>(closed)) {
+      if (llvm::APSInt(integer.getCanonicalValue()).isNegative())
+        closed = {};
+    } else if (!isa_and_nonnull<BoolAttr>(closed))
+      closed = {};
+    // These admitted conversions preserve nonnegative mathematical values,
+    // but destination authority is fixed bits, independent of producer aliases.
+    remember(result, std::nullopt, std::move(interval), closed);
+    fixedValues.insert(result);
+    return result;
+  };
   auto targetBits = dyn_cast<ac::BitsType>(target);
   auto equivalent = equivalentBoundaryTypes(value.getType(), target,
                                             at.getBlock()->getParentOp());
@@ -1050,8 +1066,7 @@ FailureOr<Value> Importer::unsignedBoundary(Value value, Type target,
                        TypeRange{target},
                        {at.getNamedAttr("mode", at.getStringAttr("zext"))})
                   ->getResult(0);
-    fixedValues.insert(result);
-    return result;
+    return fixedResult(result);
   } else if (!*equivalent)
     return mlir::emitError(node.location(b.getContext(), source.path))
            << "unsigned boundary hardware type mismatch";
@@ -1064,6 +1079,5 @@ FailureOr<Value> Importer::unsignedBoundary(Value value, Type target,
                          TypeRange{target},
                          {at.getNamedAttr("low", literal(0, node, symbol))})
                     ->getResult(0);
-  fixedValues.insert(result);
-  return result;
+  return fixedResult(result);
 }

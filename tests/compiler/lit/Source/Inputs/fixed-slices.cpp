@@ -57,7 +57,60 @@ int main(int argc, char **argv) {
   require(executor.ConfigureJson(reinterpret_cast<const std::uint8_t *>(config.data()),
                                 config.size()) == PYCIRCUIT_MODEL_STATUS_V1_OK);
   require(executor.Reset() == PYCIRCUIT_MODEL_STATUS_V1_OK);
-#ifdef TABLE_SLICES
+#ifdef FACT_SLICES
+  auto binary = [](unsigned value, unsigned width) {
+    std::string result(width, '0');
+    for (unsigned bit = 0; bit != width; ++bit)
+      result[width - bit - 1] = (value >> bit) & 1 ? '1' : '0';
+    return result;
+  };
+  auto choose = [](char guard, std::string_view yes, std::string_view no) {
+    require(yes.size() == no.size());
+    if (guard == '1') return std::string(yes);
+    if (guard == '0') return std::string(no);
+    std::string result;
+    for (unsigned bit = 0; bit != yes.size(); ++bit)
+      result += yes[bit] == no[bit] ? yes[bit] : 'x';
+    return result;
+  };
+  auto row = [&](std::string_view value, std::string_view raw, char guard,
+                 const char *prefix) {
+    pyc_dut::Inputs inputs;
+    inputs.value = fromText<8>(value); inputs.raw = fromText<8>(raw);
+    inputs.choose = fromText<1>(std::string(1, guard));
+    dut.drive(inputs);
+    PycircuitModelStepResultV1 status{sizeof(status)};
+    require(executor.Step(&status) == PYCIRCUIT_MODEL_STATUS_V1_OK);
+    require(status.state == PYCIRCUIT_MODEL_STEP_V1_RUNNING);
+    // The mask discards high X/Z. Addition poisons its physical result when
+    // either retained low bit is unknown. These scalar symbols are independent
+    // of the compiler's inferred bounds and Runtime arithmetic/select helpers.
+    const bool lowKnown = value[6] <= '1' && value[7] <= '1';
+    const unsigned original = lowKnown ?
+        1 + 2 * (value[6] == '1') + (value[7] == '1') : 0;
+    const std::string narrow = lowKnown ? binary(original, 3) : "xxx";
+    const std::string wide = "00000" + narrow;
+    const std::string high = narrow.substr(0, 2);
+    const std::string alias = lowKnown ? binary(original + 1, 4) : "xxxx";
+    const std::string closed = "00000010", literal = "00000011";
+    const std::string expected = narrow + wide + narrow + narrow + high + alias + closed
+        + choose(guard, closed, raw) + choose(guard, raw, closed)
+        + choose(guard, closed, literal) + choose(guard, literal, closed)
+        + choose(guard, "1", "0") + choose(guard, "0", "1");
+    const auto actual = text<65>(dut.sample().result);
+    if (actual != expected)
+      std::cerr << "facts expected " << expected << " actual " << actual << '\n';
+    require(actual == expected);
+    std::cout << prefix << ' ' << actual << '\n';
+  };
+  constexpr unsigned values[] = {0,1,2,3,4,7,8,31,127,128,254,255};
+  for (unsigned index = 0; index != std::size(values); ++index)
+    row(binary(values[index],8),binary((index*17)^0x5a,8),index%2?'1':'0',"WORK");
+  row("xz000010","1xz00010",'1',"MASK");
+  row("000000xz","zzzzzzzz",'0',"MASK");
+  row("00000011","00000010",'x',"MASK");
+  row("00000000","zz000010",'z',"MASK");
+#elif defined(TABLE_SLICES)
   auto cells = std::array{known<13>(0), known<13>(0)};
   bool lastClock = false;
   auto row = [&](unsigned clock, unsigned reset, unsigned index,

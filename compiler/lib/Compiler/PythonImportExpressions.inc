@@ -175,6 +175,33 @@ if (node.kind() == "Subscript") {
                  ac::BitsExtractOp::getOperationName(), {*base},
                  TypeRange{shape->type}, {at.getNamedAttr("low", shape->low)})
             ->getResult(0);
+    ac::HardwareAnalysis analysis(*body);
+    auto low = analysis.evaluateStatic(shape->low, {}, result.getDefiningOp());
+    auto width = analysis.getPackedWidth(shape->type, {}, result.getDefiningOp());
+    if (failed(low) || failed(width))
+      return failure();
+    auto info = valueInfo(*base);
+    std::optional<IntegerInterval> interval;
+    Attribute closed;
+    if (llvm::APSInt(cast<ac::MathIntAttr>(*low).getCanonicalValue()).isZero()) {
+      // A low slice preserves a bound only when every possible value fits.
+      if (info.interval && !info.interval->lower.isNegative() &&
+          !info.interval->upper.isNegative()) {
+        const auto &upper = info.interval->upper;
+        // U <= 2**width, without allocating an integer of the carrier's width.
+        if (upper.getActiveBits() <= *width ||
+            (upper.isPowerOf2() && upper.getActiveBits() - 1 <= *width))
+          interval = info.interval;
+      }
+      if (auto integer =
+              dyn_cast_or_null<ac::MathIntAttr>(info.closedSourceConstant)) {
+        llvm::APSInt value(integer.getCanonicalValue());
+        if (!value.isNegative() && value.getActiveBits() <= *width)
+          closed = integer;
+      } else if (isa_and_nonnull<BoolAttr>(info.closedSourceConstant))
+        closed = info.closedSourceConstant;
+    }
+    remember(result, std::nullopt, std::move(interval), closed);
     fixedValues.insert(result);
     return result;
   }

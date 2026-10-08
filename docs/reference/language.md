@@ -104,6 +104,11 @@ fixed-bit semantics through slicing. Table indexing accepts a proven nonnegative
 half-open value interval within the declared depth, or the existing complete-width
 proof. Closed Integer literals and fixed-bit remainder by a positive static
 Integer carry bounded intervals; aliases and rule captures preserve those facts.
+Admitted Integer-to-fixed conversions and fixed-bit zero extension preserve
+nonnegative intervals without changing the original value's source kind. A slice
+starting at bit zero preserves an interval only when every value in that interval
+fits its result width; other slices use the result carrier's range. These private
+facts do not turn a fixed-bit value into a logical Integer or Boolean constant.
 Wrapping arithmetic does not inherit an earlier remainder bound. This is not
 constant or known-bit authority: high X/Z index bits are retained, and runtime
 divisors do not gain a remainder bound. Table slicing is unsupported. A narrower declaration still cannot
