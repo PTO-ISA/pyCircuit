@@ -119,6 +119,11 @@ struct BindingBoundary {
   bool declared = false;
   IntegerBoundaryMode integerMode = IntegerBoundaryMode::Range;
 };
+struct BoundRuleFormal {
+  std::string name;
+  Value value;
+  BindingBoundary boundary;
+};
 // Slots are planned before lowering and never resized during assignments.
 struct AddressWitness {
   size_t ownerIndex, pathIndex;
@@ -854,6 +859,14 @@ private:
   lowerReturn(const ModuleDecl &decl, const AstNode &node, OpBuilder &at,
               llvm::StringMap<Value> &values,
               llvm::StringMap<Instance *> &instances);
+  LogicalResult validateRuleParameters(const AstNode &rule);
+  LogicalResult validateRuleFormalName(const AstNode &formal,
+                                       ArrayRef<std::string> boundNames);
+  FailureOr<BoundRuleFormal> bindRuleFormal(const AstNode &formal,
+                                            const AstNode &actual, Value value,
+                                            BindingBoundary binding,
+                                            bool ownerActual, OpBuilder &at,
+                                            FlatSymbolRefAttr symbol);
   FailureOr<SmallVector<Value>>
   behavioralCall(ModuleDecl &decl, const AstNode &call, OpBuilder &at,
                  llvm::StringMap<Value> &values, ArrayRef<StateOwner> states,
@@ -4158,36 +4171,39 @@ LogicalResult Importer::emitModule(ModuleDecl &decl) {
       evaluation.outputs = &capturedOutputs;
       evaluation.target = target;
       evaluation.binding = call;
-      activeRule = &evaluation;
-      if (checkCount) {
-        auto one =
-            constant(bits(1, rule, decl.symbol), 1, rule, inRule, decl.symbol);
-        if (failed(one))
+      {
+        auto previousRule = std::exchange(activeRule, &evaluation);
+        auto restoreRule = llvm::scope_exit([&] { activeRule = previousRule; });
+        if (checkCount) {
+          auto one = constant(bits(1, rule, decl.symbol), 1, rule, inRule,
+                              decl.symbol);
+          if (failed(one))
+            return failure();
+          environment.ambient = environment.continuation = *one;
+        }
+        llvm::StringSet<> noOwners;
+        AstNode ruleReturn;
+        if (failed(statements(rule, "body", inRule, decl.symbol, environment,
+                              noOwners, ruleReturn)))
           return failure();
-        environment.ambient = environment.continuation = *one;
+        SmallVector<Value> yields = evaluation.bindingValues;
+        // The declared dependent width may still be a closed expression while
+        // the bound value carries the concrete instantiated type. Republish the
+        // resolved binding prefix on the rule results so the yield signature
+        // matches, leaving the source-check suffix positions and types
+        // untouched.
+        for (size_t i = 0; i < yields.size(); ++i)
+          ruleOp->getResult(i).setType(yields[i].getType());
+        for (const auto &check : evaluation.checks) {
+          yields.push_back(check.condition);
+          yields.push_back(check.path);
+        }
+        if (evaluation.checks.size() != checkCount)
+          return error()
+                 << "source assertion capture count differs from rule suffix";
+        createOp(inRule, rule.location(b.getContext(), source.path),
+                 ac::YieldOp::getOperationName(), yields, {}, {});
       }
-      llvm::StringSet<> noOwners;
-      AstNode ruleReturn;
-      if (failed(statements(rule, "body", inRule, decl.symbol, environment,
-                            noOwners, ruleReturn)))
-        return failure();
-      SmallVector<Value> yields = evaluation.bindingValues;
-      // The declared dependent width may still be a closed expression while the
-      // bound value carries the concrete instantiated type. Republish the
-      // resolved binding prefix on the rule results so the yield signature
-      // matches, leaving the source-check suffix positions and types untouched.
-      for (size_t i = 0; i < yields.size(); ++i)
-        ruleOp->getResult(i).setType(yields[i].getType());
-      for (const auto &check : evaluation.checks) {
-        yields.push_back(check.condition);
-        yields.push_back(check.path);
-      }
-      if (evaluation.checks.size() != checkCount)
-        return error()
-               << "source assertion capture count differs from rule suffix";
-      createOp(inRule, rule.location(b.getContext(), source.path),
-               ac::YieldOp::getOperationName(), yields, {}, {});
-      activeRule = nullptr;
       if (failed(publishSourceChecks(ruleOp, evaluation, at, decl.symbol)))
         return failure();
       if (target) {

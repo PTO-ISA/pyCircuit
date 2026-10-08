@@ -1,3 +1,57 @@
+LogicalResult Importer::validateRuleParameters(const AstNode &rule) {
+  auto args = rule.child("args");
+  if (!args.array("posonlyargs").empty() || !args.array("kwonlyargs").empty() ||
+      !args.array("defaults").empty() || args.child("vararg") ||
+      args.child("kwarg"))
+    return error() << "behavioral rule requires ordinary required parameters";
+  return success();
+}
+
+LogicalResult
+Importer::validateRuleFormalName(const AstNode &formal,
+                                 ArrayRef<std::string> boundNames) {
+  StringRef name = formal.string("arg");
+  if (name == "pyc_clk" || name == "pyc_rst")
+    return error() << "reserved physical domain pin '" << name
+                   << "' cannot be a rule parameter";
+  if (names.contains(name) || structs.contains(name) ||
+      behavioralRules.contains(name))
+    return error()
+           << "rule parameter shadows a source declaration or namespace";
+  if (llvm::is_contained(boundNames, name.str()))
+    return error() << "duplicate rule parameter";
+  return success();
+}
+
+FailureOr<BoundRuleFormal>
+Importer::bindRuleFormal(const AstNode &formal, const AstNode &actual,
+                         Value value, BindingBoundary binding, bool ownerActual,
+                         OpBuilder &at, FlatSymbolRefAttr symbol) {
+  StringRef name = formal.string("arg");
+  if (formal.child("annotation")) {
+    auto annotation = formal.child("annotation");
+    auto type = portType(annotation, symbol);
+    if (failed(type))
+      return failure();
+    BindingBoundary declared{{name.str(), *type, annotation,
+                              annotationKind(annotation),
+                              fixedAnnotation(annotation)},
+                             true};
+    if (binding.contract.sourceKind != declared.contract.sourceKind ||
+        binding.contract.fixedBits != declared.contract.fixedBits)
+      return error() << "rule parameter annotation disagrees with binding "
+                        "source kind";
+    if (!sameBindingContract(binding, declared))
+      return error() << "rule parameter type mismatch";
+    if (!ownerActual)
+      binding = declared;
+  }
+  auto converted = applyBindingBoundary(value, binding, actual, at, symbol);
+  if (failed(converted))
+    return failure();
+  return BoundRuleFormal{name.str(), *converted, binding};
+}
+
 FailureOr<SmallVector<Value>>
 Importer::behavioralCall(ModuleDecl &decl, const AstNode &call, OpBuilder &at,
                          llvm::StringMap<Value> &values,
@@ -49,10 +103,8 @@ Importer::behavioralCall(ModuleDecl &decl, const AstNode &call, OpBuilder &at,
     }
   }
   auto args = rule.child("args");
-  if (!args.array("posonlyargs").empty() || !args.array("kwonlyargs").empty() ||
-      !args.array("defaults").empty() || args.child("vararg") ||
-      args.child("kwarg"))
-    return error() << "behavioral rule requires ordinary required parameters";
+  if (failed(validateRuleParameters(rule)))
+    return failure();
   if (call.array("args").size() != args.array("args").size() ||
       !call.array("keywords").empty())
     return error() << "behavioral rule call argument arity mismatch";
@@ -120,15 +172,8 @@ Importer::behavioralCall(ModuleDecl &decl, const AstNode &call, OpBuilder &at,
     auto formal = args.item("args", i);
     auto actual = call.item("args", i);
     StringRef name = formal.string("arg");
-    if (name == "pyc_clk" || name == "pyc_rst")
-      return error() << "reserved physical domain pin '" << name
-                     << "' cannot be a rule parameter";
-    if (names.contains(name) || structs.contains(name) ||
-        behavioralRules.contains(name))
-      return error()
-             << "rule parameter shadows a source declaration or namespace";
-    if (llvm::is_contained(formals, name.str()))
-      return error() << "duplicate rule parameter";
+    if (failed(validateRuleFormalName(formal, formals)))
+      return failure();
     auto value = expression(actual, at, decl.symbol, values, noInstances);
     if (failed(value))
       return failure();
@@ -145,32 +190,13 @@ Importer::behavioralCall(ModuleDecl &decl, const AstNode &call, OpBuilder &at,
         binding.contract.name = name.str();
         ownerActual = true;
       }
-    if (formal.child("annotation")) {
-      auto annotation = formal.child("annotation");
-      auto type = portType(annotation, decl.symbol);
-      if (failed(type))
-        return failure();
-      BindingBoundary declared{{name.str(), *type, annotation,
-                                annotationKind(annotation),
-                                fixedAnnotation(annotation)},
-                               true};
-      if (binding.contract.sourceKind != declared.contract.sourceKind ||
-          binding.contract.fixedBits != declared.contract.fixedBits)
-        return error() << "rule parameter annotation disagrees with binding "
-                          "source kind";
-      if (!sameBindingContract(binding, declared))
-        return error() << "rule parameter type mismatch";
-      if (!ownerActual)
-        binding = declared;
-    }
-    auto converted =
-        applyBindingBoundary(*value, binding, actual, at, decl.symbol);
-    if (failed(converted))
+    auto bound = bindRuleFormal(formal, actual, *value, binding, ownerActual,
+                                at, decl.symbol);
+    if (failed(bound))
       return failure();
-    value = *converted;
-    formals.push_back(name.str());
-    formalBoundaries.push_back(binding);
-    captures.push_back(*value);
+    formals.push_back(bound->name);
+    formalBoundaries.push_back(bound->boundary);
+    captures.push_back(bound->value);
   }
   SmallVector<Type> resultTypes;
   for (auto &port : contract.outputs)
@@ -232,67 +258,72 @@ Importer::behavioralCall(ModuleDecl &decl, const AstNode &call, OpBuilder &at,
     environment.boundaries[name] = formalBoundaries[index];
   }
   auto nested = OpBuilder::atBlockEnd(block);
-  activeRule = &evaluation;
-  if (checkCount) {
-    auto one =
-        constant(bits(1, rule, decl.symbol), 1, rule, nested, decl.symbol);
-    if (failed(one))
+  {
+    auto previousRule = std::exchange(activeRule, &evaluation);
+    auto restoreRule = llvm::scope_exit([&] { activeRule = previousRule; });
+    if (checkCount) {
+      auto one =
+          constant(bits(1, rule, decl.symbol), 1, rule, nested, decl.symbol);
+      if (failed(one))
+        return failure();
+      environment.ambient = environment.continuation = *one;
+    }
+    for (auto &item : stateForFormal) {
+      owners.insert(item.first());
+      auto zero =
+          constant(bits(1, rule, decl.symbol), 0, rule, nested, decl.symbol);
+      if (failed(zero))
+        return failure();
+      writes[item.first()] = *zero;
+    }
+    AstNode ruleReturn;
+    if (failed(statements(rule, "body", nested, decl.symbol, environment,
+                          owners, ruleReturn)))
       return failure();
-    environment.ambient = environment.continuation = *one;
+    SmallVector<Value> yields;
+    if (voidResult) {
+      if (!noValue(ruleReturn.child("value")))
+        return error() << "void rule must return no value";
+    } else {
+      auto outputs = lowerReturn(contract, ruleReturn.child("value"), nested,
+                                 localValues, noInstances);
+      if (failed(outputs))
+        return failure();
+      yields = std::move(*outputs);
+    }
+    for (const auto &item : writtenOwners) {
+      const auto &state = states[item.first];
+      const auto &formal = item.second->formal;
+      Value next = localValues[formal];
+      Value en = writes[formal];
+      auto checkedNext = applyBindingBoundary(next, ownerBoundary(state),
+                                              state.node, nested, decl.symbol);
+      BindingBoundary enableBoundary{
+          {"", bits(1, rule, decl.symbol), rule, {}, true}, true};
+      auto checkedEnable =
+          applyBindingBoundary(en, enableBoundary, rule, nested, decl.symbol);
+      if (failed(checkedNext) || failed(checkedEnable))
+        return failure();
+      yields.push_back(*checkedNext);
+      yields.push_back(*checkedEnable);
+    }
+    for (const auto &witness : evaluation.domains) {
+      if (!witness.index || !witness.mask ||
+          witness.mask.getType() != witness.maskType)
+        return error() << "missing or incorrectly typed assignment-time "
+                          "address witness";
+      yields.push_back(witness.mask);
+    }
+    for (const auto &check : evaluation.checks) {
+      yields.push_back(check.condition);
+      yields.push_back(check.path);
+    }
+    if (evaluation.checks.size() != checkCount)
+      return error()
+             << "source assertion capture count differs from rule suffix";
+    createOp(nested, ruleOp->getLoc(), ac::YieldOp::getOperationName(), yields,
+             {}, {});
   }
-  for (auto &item : stateForFormal) {
-    owners.insert(item.first());
-    auto zero =
-        constant(bits(1, rule, decl.symbol), 0, rule, nested, decl.symbol);
-    if (failed(zero))
-      return failure();
-    writes[item.first()] = *zero;
-  }
-  AstNode ruleReturn;
-  if (failed(statements(rule, "body", nested, decl.symbol, environment, owners,
-                        ruleReturn)))
-    return failure();
-  SmallVector<Value> yields;
-  if (voidResult) {
-    if (!noValue(ruleReturn.child("value")))
-      return error() << "void rule must return no value";
-  } else {
-    auto outputs = lowerReturn(contract, ruleReturn.child("value"), nested,
-                               localValues, noInstances);
-    if (failed(outputs))
-      return failure();
-    yields = std::move(*outputs);
-  }
-  for (const auto &item : writtenOwners) {
-    const auto &state = states[item.first];
-    const auto &formal = item.second->formal;
-    Value next = localValues[formal];
-    Value en = writes[formal];
-    auto checkedNext = applyBindingBoundary(next, ownerBoundary(state),
-                                            state.node, nested, decl.symbol);
-    BindingBoundary enableBoundary{
-        {"", bits(1, rule, decl.symbol), rule, {}, true}, true};
-    auto checkedEnable =
-        applyBindingBoundary(en, enableBoundary, rule, nested, decl.symbol);
-    if (failed(checkedNext) || failed(checkedEnable))
-      return failure();
-    yields.push_back(*checkedNext);
-    yields.push_back(*checkedEnable);
-  }
-  for (const auto &witness : evaluation.domains) {
-    if (!witness.index || !witness.mask || witness.mask.getType() != witness.maskType)
-      return error() << "missing or incorrectly typed assignment-time address witness";
-    yields.push_back(witness.mask);
-  }
-  for (const auto &check : evaluation.checks) {
-    yields.push_back(check.condition);
-    yields.push_back(check.path);
-  }
-  if (evaluation.checks.size() != checkCount)
-    return error() << "source assertion capture count differs from rule suffix";
-  createOp(nested, ruleOp->getLoc(), ac::YieldOp::getOperationName(), yields,
-           {}, {});
-  activeRule = nullptr;
   if (failed(publishSourceChecks(ruleOp, evaluation, at, decl.symbol)))
     return failure();
   size_t domainBase = contract.outputs.size() + writtenOwners.size() * 2;
