@@ -53,6 +53,8 @@ struct Golden {
   unsigned owner[2]{};
   unsigned table[2][2]{{7, 7}, {7, 7}};
   unsigned ready[2][2]{{1, 1}, {1, 1}};
+  unsigned boxWords[2]{0x192a3c, 0x192a3c};
+  unsigned boxFlags[2]{1, 1};
   unsigned clock = 0;
   std::array<unsigned, 25> evaluate(Row r) const {
     std::array<unsigned, 25> out{};
@@ -88,13 +90,20 @@ struct Golden {
         for (auto &side : ready)
           for (auto &v : side)
             v = 1;
-      } else
+        boxWords[0] = boxWords[1] = 0x192a3c;
+        boxFlags[0] = boxFlags[1] = 1;
+      } else {
         for (unsigned side = 0; side < 2; ++side)
           if (side ? r.right : r.left) {
             owner[side] = r.value;
             table[side][r.index] = r.value;
             ready[side][r.index] = 0;
           }
+        if (r.left) {
+          boxWords[r.index] = ((r.value * 8 + 6) << 16) | (73u << 8) | 171u;
+          boxFlags[r.index] = 0;
+        }
+      }
     }
     clock = r.clock;
   }
@@ -130,6 +139,32 @@ void check(const Output &output, const Golden &golden, Row r,
   actual[23] = value.sequential.value();
   actual[24] = value.nested.value();
   require(actual == golden.evaluate(r));
+  // Independent MSB-first packing: each Word is value:u5 then mark:u3,
+  // Table element zero is highest, and Box.flag is the least significant bit.
+  auto box = [](const auto &b) {
+    unsigned packed = 0;
+    for (unsigned i = 0; i != 3; ++i)
+      packed = (packed << 8) | (unsigned(b.items[i].value.value()) << 3) |
+               unsigned(b.items[i].mark.value());
+    return (packed << 1) | unsigned(b.flag.value());
+  };
+  constexpr unsigned defaultWords = (25u << 16) | (42u << 8) | 60u;
+  const unsigned replacedWords = ((r.value * 8 + 6) << 16) | (73u << 8) | 171u;
+  const auto &probe = value.table_probe;
+  require(box(probe.saved) == (defaultWords << 1 | 1u));
+  require(box(probe.flagged) == (defaultWords << 1 | r.left));
+  require(box(probe.replaced) == (replacedWords << 1 | r.left));
+  require(box(probe.selected) ==
+          (r.left ? (replacedWords << 1 | 1u) : (defaultWords << 1 | 1u)));
+  require(box(probe.zero) == 0);
+  require(box(probe.defaulted) == (defaultWords << 1 | 1u));
+  require(box(probe.old_entry) ==
+          (golden.boxWords[r.index] << 1 | golden.boxFlags[r.index]));
+  require(box(probe.proposed_entry) ==
+          (r.left ? replacedWords << 1 :
+                    (golden.boxWords[r.index] << 1 | golden.boxFlags[r.index])));
+  require(box(probe.peer_entry) ==
+          (golden.boxWords[r.index ^ 1] << 1 | golden.boxFlags[r.index ^ 1]));
   if (print) {
     std::cout << "WORK";
     for (unsigned field : actual)
@@ -260,6 +295,19 @@ void dataPlanes(unsigned workers) {
   samePlanes(field<7>(first), known<5>(0));
   samePlanes(field<8>(first), mixed);
   samePlanes(field<10>(first), known<5>(0));
+  const auto probe = field<5>(dut.sample().result);
+  const auto replaced = field<2>(probe);
+  const auto expected = gfsim::FourState<25>::fromMasks(
+      gfsim::Bits<25>{((174u << 16 | 73u << 8 | 171u) << 1) | 1u},
+      gfsim::Bits<25>{((207u << 16 | 0xffffu) << 1) | 1u},
+      gfsim::Bits<25>{16u << 17});
+  require(replaced.packed().value() == expected.value());
+  require(replaced.packed().knownMask() == expected.knownMask());
+  require(replaced.packed().zMask() == expected.zMask());
+  const auto proposed = field<7>(probe);
+  require(proposed.packed().value() == (expected.value() & gfsim::Bits<25>{0x1fffffe}));
+  require(proposed.packed().knownMask() == expected.knownMask());
+  require(proposed.packed().zMask() == expected.zMask());
   dut.drive(inputs({0, 0, 0, 0, 0, 0}));
   require(executor.Step(&result) == PYCIRCUIT_MODEL_STATUS_V1_OK);
   const auto held = field<0>(dut.sample().result);
@@ -270,6 +318,11 @@ void dataPlanes(unsigned workers) {
   samePlanes(field<7>(held), known<5>(0));
   samePlanes(field<8>(held), known<5>(0));
   samePlanes(field<10>(held), mixed);
+  const auto heldProbe = field<5>(dut.sample().result);
+  const auto oldBox = field<6>(heldProbe);
+  require(oldBox.packed().value() == (expected.value() & gfsim::Bits<25>{0x1fffffe}));
+  require(oldBox.packed().knownMask() == expected.knownMask());
+  require(oldBox.packed().zMask() == expected.zMask());
 }
 void scalarImages(unsigned workers) {
   gfsim::WorkExecutor pool(workers);

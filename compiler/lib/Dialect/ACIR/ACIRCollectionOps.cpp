@@ -93,7 +93,9 @@ LogicalResult scalarRegion(Operation *op, TypeRange args, TypeRange results) {
     if (!isa<BitsConstantOp, BitsUnaryOp, BitsBinaryOp, BitsCompareOp,
              BitsSelectOp, BitsConcatOp, BitsExtractOp, BitsResizeOp,
              StructCreateOp, StructGetOp, EnumCreateOp, EnumToBitsOp,
-             EnumFromBitsOp, ValueMergeOp>(nested))
+             EnumFromBitsOp, ValueMergeOp>(nested) &&
+        !(isa<TableMapOp>(op) &&
+          isa<TableCreateOp, TableSplatOp, TableGetOp, TableMapOp>(nested)))
       return nested.emitOpError()
              << "table region accepts only closed pure scalar operations";
   return success();

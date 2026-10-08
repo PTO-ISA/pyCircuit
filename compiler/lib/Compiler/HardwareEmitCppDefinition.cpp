@@ -44,6 +44,9 @@ struct Scope {
   Scope *parent = nullptr;
   Operation *occurrence = nullptr;
   std::string object, count;
+  // Pure map regions reuse the same plane emitter with additional lanes.
+  Scope *regionParent = nullptr;
+  ac::TableMapOp regionMap;
 };
 struct Node {
   Scope *scope;
@@ -179,70 +182,100 @@ private:
       return failure();
     return "gfsim::hardware_traits<" + *p + ">::width";
   }
-  FailureOr<Type> element(Type t, Scope &s, Operation *site) {
-    auto r = type(t, s, site);
-    if (failed(r))
-      return failure();
-    if (auto table = dyn_cast<ac::TableType>(*r))
-      return table.getElementType();
-    return *r;
-  }
-  FailureOr<Type> fieldType(Type t, ArrayRef<StringAttr> path, Scope &s,
-                            Operation *site) {
-    auto r = element(t, s, site);
-    if (failed(r))
-      return failure();
-    t = *r;
-    for (auto name : path) {
-      auto record = dyn_cast<ac::StructType>(t);
-      if (!record)
-        return site->emitOpError() << "field plan projects non-struct payload";
-      bool found = false;
-      for (auto raw : ctx.analysis.lookupStruct(record).getFields()) {
-        auto field = cast<DictionaryAttr>(raw);
-        if (field.getAs<StringAttr>("name") == name) {
-          t = field.getAs<TypeAttr>("type").getValue();
-          found = true;
-          break;
-        }
+  // Field planes follow the runtime's contiguous Table axes. Tables crossed
+  // after a Struct field contribute lane multiplicity and packed strides.
+  struct FieldPlane {
+    Type element;
+    std::string count = "1", innerCount = "1", baseOffset = "0";
+    SmallVector<std::pair<std::string, std::string>> tables;
+    std::string low(StringRef ordinal) const {
+      std::string result = baseOffset;
+      for (size_t i = 0; i < tables.size(); ++i) {
+        std::string suffix = "1";
+        for (size_t j = i + 1; j < tables.size(); ++j)
+          suffix += " * (" + tables[j].first + ")";
+        result += " + ((" + tables[i].first + ") - 1 - ((" +
+                  ordinal.str() + " / (" + suffix + ")) % (" +
+                  tables[i].first + "))) * (" + tables[i].second + ")";
       }
-      if (!found)
-        return site->emitOpError() << "unknown field in C++ work plan";
+      return result;
     }
-    return t;
-  }
-  FailureOr<std::string> offset(Type t, ArrayRef<StringAttr> path, Scope &s,
-                                Operation *site) {
-    auto r = element(t, s, site);
-    if (failed(r))
+    std::string source(StringRef ordinal) const {
+      return "(" + ordinal.str() + " / (" + innerCount + "))";
+    }
+  };
+  FailureOr<FieldPlane> fieldPlane(Type t, ArrayRef<StringAttr> path, Scope &s,
+                                   Operation *site) {
+    auto resolved = type(t, s, site);
+    if (failed(resolved))
       return failure();
-    t = *r;
-    std::string result = "0";
+    t = *resolved;
+    FieldPlane result;
+    // Runtime Tables flatten every contiguous Table axis into physical lanes.
+    // A Table reached after a Struct field instead lives in that packed pin.
+    while (auto table = dyn_cast<ac::TableType>(t)) {
+      auto n = ctx.shapeSize(table.getShape(), site, false, s.bindings);
+      if (failed(n))
+        return failure();
+      result.count += " * (" + *n + ")";
+      t = table.getElementType();
+    }
+    auto unwrap = [&]() -> LogicalResult {
+      auto r = type(t, s, site);
+      if (failed(r))
+        return failure();
+      t = *r;
+      while (auto table = dyn_cast<ac::TableType>(t)) {
+        auto n = ctx.shapeSize(table.getShape(), site, false, s.bindings);
+        auto w = width(table.getElementType(), s, site);
+        if (failed(n) || failed(w))
+          return failure();
+        result.count += " * (" + *n + ")";
+        result.innerCount += " * (" + *n + ")";
+        result.tables.push_back({*n, *w});
+        t = table.getElementType();
+      }
+      return success();
+    };
     for (auto name : path) {
+      if (failed(unwrap()))
+        return failure();
       auto record = dyn_cast<ac::StructType>(t);
-      if (!record)
-        return site->emitOpError() << "packed projection requires struct";
-      bool after = false, found = false;
+      auto declaration = record ? ctx.analysis.lookupStruct(record)
+                                : ac::StructOp();
+      if (!declaration)
+        return site->emitOpError() << "field plan projects non-struct payload";
+      bool after = false;
       Type selected;
-      for (auto raw : ctx.analysis.lookupStruct(record).getFields()) {
-        auto f = cast<DictionaryAttr>(raw);
-        auto ft = f.getAs<TypeAttr>("type").getValue();
+      for (auto raw : declaration.getFields()) {
+        auto field = cast<DictionaryAttr>(raw);
+        auto ft = field.getAs<TypeAttr>("type").getValue();
         if (after) {
           auto w = width(ft, s, site);
           if (failed(w))
             return failure();
-          result += " + " + *w;
+          result.baseOffset += " + (" + *w + ")";
         }
-        if (f.getAs<StringAttr>("name") == name) {
+        if (field.getAs<StringAttr>("name") == name) {
           selected = ft;
-          found = after = true;
+          after = true;
         }
       }
-      if (!found)
-        return site->emitOpError() << "unknown packed projection field";
+      if (!selected)
+        return site->emitOpError() << "unknown field in C++ work plan";
       t = selected;
     }
+    if (failed(unwrap()))
+      return failure();
+    result.element = t;
     return result;
+  }
+  FailureOr<Type> fieldType(Type t, ArrayRef<StringAttr> path, Scope &s,
+                            Operation *site) {
+    auto plan = fieldPlane(t, path, s, site);
+    if (failed(plan))
+      return failure();
+    return plan->element;
   }
   FailureOr<std::string> cardinality(Type t, Scope &s, Operation *site) {
     auto r = type(t, s, site);
@@ -252,16 +285,17 @@ private:
       return ctx.shapeSize(table.getShape(), site, false, s.bindings);
     return std::string("1");
   }
-  FailureOr<std::string> planeCount(Type t, Scope &s, Operation *site) {
-    auto n = cardinality(t, s, site);
-    if (failed(n))
+  FailureOr<std::string> planeCount(Type t, Scope &s, Operation *site,
+                                     Path path = {}) {
+    auto plan = fieldPlane(t, path, s, site);
+    if (failed(plan))
       return failure();
-    return "(" + s.count + " * (" + *n + "))";
+    return "(" + s.count + " * (" + plan->count + "))";
   }
   FailureOr<std::string> planeType(Type t, Scope &s, Path path,
                                    Operation *site) {
     auto e = fieldType(t, path, s, site);
-    auto n = planeCount(t, s, site);
+    auto n = planeCount(t, s, site, path);
     if (failed(e) || failed(n))
       return failure();
     auto p = payload(*e, s, site);
@@ -350,24 +384,20 @@ private:
     auto target = pinObject(s, op, port, false);
     if (failed(target))
       return failure();
-    auto count = planeCount(op->getOperand(port).getType(), s, op);
-    if (failed(count))
+    auto plan = fieldPlane(op->getOperand(port).getType(), path, s, op);
+    auto count = planeCount(op->getOperand(port).getType(), s, op, path);
+    if (failed(plan) || failed(count))
       return failure();
-    if (path.empty())
+    if (path.empty() && plan->tables.empty())
       out << "    for (std::size_t pyc_pin = 0; pyc_pin < " << *count
           << "; ++pyc_pin) " << *target << ".element(pyc_pin) = " << value
           << ".element(pyc_pin);\n";
-    else {
-      auto e = element(op->getOperand(port).getType(), s, op);
-      auto p =
-          failed(e) ? FailureOr<std::string>(failure()) : payload(*e, s, op);
-      auto low = offset(op->getOperand(port).getType(), path, s, op);
-      if (failed(p) || failed(low))
-        return failure();
+    else
       out << "    for (std::size_t pyc_pin = 0; pyc_pin < " << *count
-          << "; ++pyc_pin) " << *target << ".element(pyc_pin).assignSlice("
-          << *low << ", " << value << ".element(pyc_pin).packed());\n";
-    }
+          << "; ++pyc_pin) " << *target << ".element("
+          << plan->source("pyc_pin") << ").assignSlice("
+          << plan->low("pyc_pin") << ", " << value
+          << ".element(pyc_pin).packed());\n";
     return success();
   }
   FailureOr<std::string> kernelInputs(Leaf &leaf, StringRef lane) {
@@ -435,8 +465,9 @@ private:
   LogicalResult queueTokenCopy(Leaf &leaf, bool gather) {
     auto queue = cast<ac::QueueOp>(leaf.op);
     auto t = type(queue.getInData().getType(), *leaf.scope, leaf.op);
-    auto n = cardinality(queue.getInData().getType(), *leaf.scope, leaf.op);
-    if (failed(t) || failed(n))
+    auto plan = fieldPlane(queue.getInData().getType(), {}, *leaf.scope,
+                           leaf.op);
+    if (failed(t) || failed(plan))
       return failure();
     std::string token =
         leaf.prefix + (gather ? "input_tokens" : "output_tokens");
@@ -446,9 +477,10 @@ private:
     if (isa<ac::TableType>(*t)) {
       out << "      for (std::size_t pyc_token_element = 0; pyc_token_element "
              "< ("
-          << *n << "); ++pyc_token_element) ";
+          << plan->count << "); ++pyc_token_element) ";
       token += "[pyc_queue_lane].element(pyc_token_element)";
-      plane += ".element(pyc_queue_lane * (" + *n + ") + pyc_token_element)";
+      plane += ".element(pyc_queue_lane * (" + plan->count +
+               ") + pyc_token_element)";
     } else {
       out << "      ";
       token += "[pyc_queue_lane]";
@@ -506,25 +538,24 @@ private:
       auto leaves =
           ctx.analysis.getFieldPaths(*selected, s.bindings, s.definition);
       auto temp = declarePlane(s, v, path);
-      auto count = planeCount(v.getType(), s, s.definition);
-      auto p = payload(*selected, s, s.definition);
-      if (failed(leaves) || failed(temp) || failed(count) || failed(p))
+      auto count = planeCount(v.getType(), s, s.definition, path);
+      if (failed(leaves) || failed(temp) || failed(count))
         return failure();
-      std::string packed;
       for (auto suffix : *leaves) {
         Path full = path;
         llvm::append_range(full, suffix);
         auto field = emit(s, v, full);
-        if (failed(field))
+        auto relative = fieldPlane(*selected, suffix, s, s.definition);
+        if (failed(field) || failed(relative))
           return failure();
-        auto expression = *field + ".element(pyc_lane).packed()";
-        packed = packed.empty()
-                     ? expression
-                     : "gfsim::concat(" + packed + ", " + expression + ")";
+        out << "    for (std::size_t pyc_lane = 0; pyc_lane < " << *count
+            << "; ++pyc_lane) for (std::size_t pyc_field = 0; pyc_field < ("
+            << relative->count << "); ++pyc_field) " << *temp
+            << ".element(pyc_lane).assignSlice("
+            << relative->low("pyc_field") << ", " << *field
+            << ".element(pyc_lane * (" << relative->count
+            << ") + pyc_field).packed());\n";
       }
-      out << "    for (std::size_t pyc_lane = 0; pyc_lane < " << *count
-          << "; ++pyc_lane) " << *temp << ".element(pyc_lane) = gfsim::wire<"
-          << *p << ">::fromPacked(" << packed << ");\n";
       result = *temp;
     } else
       result = build(s, v, path);
@@ -535,28 +566,25 @@ private:
   }
   FailureOr<std::string> projectPlane(Scope &s, Value v, Path path,
                                       StringRef source) {
-    if (path.empty())
+    auto plan = fieldPlane(v.getType(), path, s, s.definition);
+    if (failed(plan))
+      return failure();
+    if (path.empty() && plan->tables.empty())
       return source.str();
     auto t = planeType(v.getType(), s, path,
                        v.getDefiningOp() ? v.getDefiningOp() : s.definition);
-    auto e = fieldType(v.getType(), path, s, s.definition);
-    auto w = failed(e) ? FailureOr<std::string>(failure())
-                       : width(*e, s, s.definition);
-    auto low = offset(v.getType(), path, s, s.definition);
-    auto count = planeCount(v.getType(), s, s.definition);
-    if (failed(t) || failed(w) || failed(low) || failed(count))
+    auto w = width(plan->element, s, s.definition);
+    auto count = planeCount(v.getType(), s, s.definition, path);
+    auto p = payload(plan->element, s, s.definition);
+    if (failed(t) || failed(w) || failed(count) || failed(p))
       return failure();
     auto result = name();
     out << "    " << *t << " " << result << ";\n";
-    // element_type is a payload type, while element() is a wire. Use its
-    // known wire type explicitly for all four-state planes.
-    auto p = payload(*e, s, s.definition);
-    if (failed(p))
-      return failure();
     out << "    for (std::size_t pyc_lane = 0; pyc_lane < " << *count
         << "; ++pyc_lane) " << result << ".element(pyc_lane) = gfsim::wire<"
         << *p << ">::fromPacked(gfsim::extract<" << *w << ">(" << source
-        << ".element(pyc_lane).packed(), " << *low << "));\n";
+        << ".element(" << plan->source("pyc_lane") << ").packed(), "
+        << plan->low("pyc_lane") << "));\n";
     return result;
   }
   std::string knownInteger(ac::MathIntAttr integer, StringRef width) {
@@ -680,7 +708,8 @@ private:
       if (merge.getValues().empty())
         return operand(merge.getBase(), path);
       if (!path.empty() ||
-          isa<ac::BitsType, ac::EnumType, ac::TypeParamType>(*baseType)) {
+          isa<ac::BitsType, ac::EnumType, ac::TypeParamType,
+              ac::TableType>(*baseType)) {
         auto base = operand(merge.getBase(), path);
         if (failed(base))
           return failure();
@@ -776,17 +805,6 @@ private:
     }
     return op->emitOpError() << "operation lacks scalar C++ hardware emission";
   }
-  FailureOr<std::string> scalarProjection(Scope &s, Type original, Path path,
-                                          StringRef packed, Operation *site) {
-    if (path.empty())
-      return packed.str();
-    auto t = fieldType(original, path, s, site);
-    auto w = failed(t) ? FailureOr<std::string>(failure()) : width(*t, s, site);
-    auto low = offset(original, path, s, site);
-    if (failed(w) || failed(low))
-      return failure();
-    return "gfsim::extract<" + *w + ">(" + packed.str() + ", " + *low + ")";
-  }
   FailureOr<std::string> regionExpression(
       Scope &s, Region &region, Value result, Path path,
       function_ref<FailureOr<std::string>(BlockArgument, Path)> argument) {
@@ -832,16 +850,26 @@ private:
     if (failed(result))
       return failure();
     Operation *op = v.getDefiningOp();
+    auto resultPlan = fieldPlane(v.getType(), path, s, op);
+    auto count = planeCount(v.getType(), s, op, path);
+    if (failed(resultPlan) || failed(count))
+      return failure();
     SmallVector<std::tuple<Value, Path, std::string>> inputs;
     auto gather = [&](Value input, Path p) -> FailureOr<std::string> {
+      auto inputPlan = fieldPlane(input.getType(), p, s, op);
+      if (failed(inputPlan))
+        return failure();
+      auto lane = "((pyc_lane / (" + resultPlan->count + ")) * (" +
+                  inputPlan->count + ") + pyc_lane % (" +
+                  inputPlan->count + "))";
       for (auto &entry : inputs)
         if (std::get<0>(entry) == input && std::get<1>(entry) == p)
-          return std::get<2>(entry) + ".element(pyc_lane).packed()";
+          return std::get<2>(entry) + ".element(" + lane + ").packed()";
       auto text = emit(s, input, p);
       if (failed(text))
         return failure();
       inputs.push_back({input, p, *text});
-      return *text + ".element(pyc_lane).packed()";
+      return *text + ".element(" + lane + ").packed()";
     };
     auto expr = scalarExpression(s, v, path, gather);
     if (failed(expr))
@@ -850,13 +878,47 @@ private:
     auto p = failed(e) ? FailureOr<std::string>(failure()) : payload(*e, s, op);
     if (failed(p))
       return failure();
-    out << "    for (std::size_t pyc_lane = 0; pyc_lane < " << s.count
+    out << "    for (std::size_t pyc_lane = 0; pyc_lane < " << *count
         << "; ++pyc_lane) " << *result << ".element(pyc_lane) = gfsim::wire<"
         << *p << ">::fromPacked(" << *expr << ");\n";
     return *result;
   }
   FailureOr<std::string> build(Scope &s, Value v, Path path) {
     if (auto arg = dyn_cast<BlockArgument>(v)) {
+      if (s.regionMap && arg.getOwner() == &s.regionMap.getBody().front()) {
+        auto map = s.regionMap;
+        auto n = ctx.shapeSize(map.getShape(), map, false, s.bindings);
+        if (failed(n))
+          return failure();
+        if (!arg.getArgNumber()) {
+          auto result = declarePlane(s, v, path);
+          auto p = payload(arg.getType(), s, map);
+          if (failed(result) || failed(p))
+            return failure();
+          out << "    for (std::size_t pyc_lane = 0; pyc_lane < " << s.count
+              << "; ++pyc_lane) " << *result
+              << ".element(pyc_lane) = gfsim::wire<" << *p
+              << ">::known(" << *p << "{pyc_lane % (" << *n << ")});\n";
+          return *result;
+        }
+        unsigned operand = arg.getArgNumber() - 1;
+        auto source = emit(*s.regionParent, map->getOperand(operand), path);
+        if (failed(source))
+          return failure();
+        if (operand < map.getTables().size())
+          return *source;
+        auto result = declarePlane(s, v, path);
+        auto plan = fieldPlane(v.getType(), path, s, map);
+        auto count = planeCount(v.getType(), s, map, path);
+        if (failed(result) || failed(plan) || failed(count))
+          return failure();
+        out << "    for (std::size_t pyc_lane = 0; pyc_lane < " << *count
+            << "; ++pyc_lane) " << *result << ".element(pyc_lane) = "
+            << *source << ".element((pyc_lane / ((" << *n << ") * ("
+            << plan->count << "))) * (" << plan->count
+            << ") + pyc_lane % (" << plan->count << "));\n";
+        return *result;
+      }
       if (auto rule = dyn_cast<ac::RuleOp>(arg.getOwner()->getParentOp()))
         return emit(s, rule.getCaptures()[arg.getArgNumber()], path);
       unsigned port = arg.getArgNumber();
@@ -1028,82 +1090,76 @@ private:
     auto p = failed(e) ? FailureOr<std::string>(failure()) : payload(*e, s, op);
     if (failed(p))
       return failure();
-    auto resultCount = planeCount(v.getType(), s, op);
+    auto resultCount = planeCount(v.getType(), s, op, path);
     if (failed(resultCount))
+      return failure();
+    auto resultPlan = fieldPlane(v.getType(), path, s, op);
+    if (failed(resultPlan))
       return failure();
     if (auto create = dyn_cast<ac::TableCreateOp>(op)) {
       for (auto [i, input] : llvm::enumerate(create.getInputs())) {
         auto text = emit(s, input, path);
-        if (failed(text))
+        auto inputPlan = fieldPlane(input.getType(), path, s, op);
+        if (failed(text) || failed(inputPlan))
           return failure();
         out << "    for (std::size_t pyc_lane = 0; pyc_lane < " << s.count
-            << "; ++pyc_lane) " << *result << ".element(pyc_lane * "
-            << create.getInputs().size() << " + " << i << ") = " << *text
-            << ".element(pyc_lane);\n";
+            << "; ++pyc_lane) for (std::size_t pyc_field = 0; pyc_field < ("
+            << inputPlan->count << "); ++pyc_field) " << *result
+            << ".element((pyc_lane * " << create.getInputs().size() << " + "
+            << i << ") * (" << inputPlan->count << ") + pyc_field) = "
+            << *text << ".element(pyc_lane * (" << inputPlan->count
+            << ") + pyc_field);\n";
       }
       return *result;
     }
     if (auto splat = dyn_cast<ac::TableSplatOp>(op)) {
       auto input = emit(s, splat.getInput(), path);
-      auto in = cardinality(splat.getInput().getType(), s, op),
-           n = cardinality(v.getType(), s, op);
-      if (failed(input) || failed(in) || failed(n))
+      auto in = fieldPlane(splat.getInput().getType(), path, s, op);
+      if (failed(input) || failed(in))
         return failure();
       out << "    for (std::size_t pyc_lane = 0; pyc_lane < " << *resultCount
           << "; ++pyc_lane) " << *result << ".element(pyc_lane) = " << *input
-          << ".element((pyc_lane / (" << *n << ")) * (" << *in
-          << ") + pyc_lane % (" << *in << "));\n";
+          << ".element((pyc_lane / (" << resultPlan->count << ")) * ("
+          << in->count << ") + pyc_lane % (" << in->count << "));\n";
       return *result;
     }
     if (auto view = dyn_cast<ac::TableViewOp>(op)) {
       auto input = emit(s, view.getInput(), path);
-      auto in = cardinality(view.getInput().getType(), s, op),
-           n = cardinality(v.getType(), s, op);
+      auto in = fieldPlane(view.getInput().getType(), path, s, op);
+      auto n = cardinality(v.getType(), s, op);
       if (failed(input) || failed(in) || failed(n))
         return failure();
-      auto index =
-          ctx.viewIndex(view, "(pyc_lane % (" + *n + "))", false, s.bindings);
+      auto suffix = "(" + resultPlan->count + ") / (" + *n + ")";
+      auto index = ctx.viewIndex(
+          view, "((pyc_lane / (" + suffix + ")) % (" + *n + "))",
+          false, s.bindings);
       if (failed(index))
         return failure();
       out << "    for (std::size_t pyc_lane = 0; pyc_lane < " << *resultCount
           << "; ++pyc_lane) " << *result << ".element(pyc_lane) = " << *input
-          << ".element((pyc_lane / (" << *n << ")) * (" << *in << ") + ("
-          << *index << "));\n";
+          << ".element((pyc_lane / (" << resultPlan->count << ")) * ("
+          << in->count << ") + (" << *index << ") * ("
+          << suffix << ") + pyc_lane % (" << suffix << "));\n";
       return *result;
     }
     if (auto map = dyn_cast<ac::TableMapOp>(op)) {
-      unsigned output = cast<OpResult>(v).getResultNumber();
-      auto yielded =
-          cast<ac::YieldOp>(map.getBody().front().back()).getValues()[output];
-      auto inputs = regionInputs(s, map.getBody(), yielded, path,
-                                 map.getOperands(), true);
       auto n = ctx.shapeSize(map.getShape(), op, false, s.bindings);
-      auto ordinalWidth =
-          width(map.getBody().front().getArgument(0).getType(), s, op);
-      if (failed(inputs) || failed(n) || failed(ordinalWidth))
+      if (failed(n))
         return failure();
-      out << "    for (std::size_t pyc_element = 0; pyc_element < "
-          << *resultCount << "; ++pyc_element) {\n";
-      auto expr = regionExpression(
-          s, map.getBody(), yielded, path,
-          [&](BlockArgument a, Path q) -> FailureOr<std::string> {
-            if (!a.getArgNumber())
-              return "gfsim::FourState<" + *ordinalWidth +
-                     ">::known(gfsim::Bits<" + *ordinalWidth +
-                     ">{pyc_element % (" + *n + ")})";
-            for (auto &input : *inputs)
-              if (input.argument == a.getArgNumber() && input.path == q) {
-                auto i = input.argument <= map.getTables().size()
-                             ? "pyc_element"
-                             : "(pyc_element / (" + *n + "))";
-                return input.plane + ".element(" + i + ").packed()";
-              }
-            return failure();
-          });
-      if (failed(expr))
+      // Keep region SSA, captures and nested Table operations on the existing
+      // field-sensitive schedule. Only requested argument paths are gathered.
+      regionScopes.push_back({s.definition, s.bindings, nullptr, nullptr,
+                              s.object, "(" + s.count + " * (" + *n + "))",
+                              &s, map});
+      auto &region = regionScopes.back();
+      auto yielded = cast<ac::YieldOp>(map.getBody().front().back())
+                         .getValues()[cast<OpResult>(v).getResultNumber()];
+      auto source = emit(region, yielded, path);
+      if (failed(source))
         return failure();
-      out << "      " << *result << ".element(pyc_element) = gfsim::wire<" << *p
-          << ">::fromPacked(" << *expr << ");\n    }\n";
+      out << "    for (std::size_t pyc_lane = 0; pyc_lane < " << *resultCount
+          << "; ++pyc_lane) " << *result << ".element(pyc_lane) = " << *source
+          << ".element(pyc_lane);\n";
       return *result;
     }
     if (auto match = dyn_cast<ac::TableMatchOp>(op)) {
@@ -1163,13 +1219,18 @@ private:
       if (failed(input))
         return failure();
       out << "    for (std::size_t pyc_lane = 0; pyc_lane < " << s.count
-          << "; ++pyc_lane) {\n      auto pyc_range = " << range << ";\n      "
-          << *result << ".element(pyc_lane) = gfsim::wire<" << *p
-          << ">::unknown();\n      if (pyc_range.isFullyKnown() && "
+          << "; ++pyc_lane) {\n      auto pyc_range = " << range
+          << ";\n      for (std::size_t pyc_field = 0; pyc_field < ("
+          << resultPlan->count << "); ++pyc_field) {\n        " << *result
+          << ".element(pyc_lane * (" << resultPlan->count
+          << ") + pyc_field) = gfsim::wire<" << *p
+          << ">::unknown();\n        if (pyc_range.isFullyKnown() && "
              "pyc_range.value().toBool()) "
-          << *result << ".element(pyc_lane) = " << *input
-          << ".element(pyc_lane * (" << *n << ") + " << *index
-          << ".element(pyc_lane).packed().value().value());\n    }\n";
+          << *result << ".element(pyc_lane * (" << resultPlan->count
+          << ") + pyc_field) = " << *input
+          << ".element((pyc_lane * (" << *n << ") + " << *index
+          << ".element(pyc_lane).packed().value().value()) * ("
+          << resultPlan->count << ") + pyc_field);\n      }\n    }\n";
       return *result;
     }
     if (auto index = dyn_cast<ac::TableIndexOp>(op)) {
@@ -1363,7 +1424,7 @@ private:
   bool resetting;
   bool tasksFinished = false;
   SmallVector<Operation *> delegated;
-  std::deque<Scope> scopes;
+  std::deque<Scope> scopes, regionScopes;
   SmallVector<Leaf> storage;
   SmallVector<Node> memo, active;
   unsigned nextName = 0;

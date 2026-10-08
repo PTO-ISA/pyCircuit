@@ -5,6 +5,37 @@ hardware semantics in MLIR, and emits C++ and Verilog from the same verified
 final artifact. There is one public compile/link/emit route. Capture never
 executes design functions.
 
+## Ownership through the compiler
+
+The public commands separate source publication, linking and emission. Each
+stage checks its input before publishing outputs; neither backend recaptures
+Python or infers a different hardware meaning.
+
+| Stage | Existing owner | Responsibility |
+| --- | --- | --- |
+| Capture | `_source_capture.py`, `_source_transport.py` | Read a stable source snapshot, parse Python syntax and serialize the existing private AST transport. Design functions are never executed. |
+| Compile and publish | `_source_compile.py`, `SourceUnit.cpp` | Invoke native source lowering, verify the resulting body/interface pair and atomically publish the unit, interfaces and dependency metadata. |
+| Resolve and lower | `AnalyzeRuleWrites`, `InferSourceBindings`, `LowerPythonSource` | Resolve actual providers and bindings; infer hardware types, storage ownership, effects and rule dependencies; lower to existing common operations. |
+| Simplify and describe | `SimplifyRecordWires`, `ExtractSourceInterface` | Simplify immutable record wiring and derive the public interface from verified hardware. Preserve nominal identity, dependencies and source ownership. |
+| Verify published authority | `SourceHeaderRegistry`, `SourceBodySnapshots` | Check provider declarations, imports and body/interface agreement. An imported declaration does not acquire a caller's defaults or type authority. |
+| Link | `_driver.py`, `SourceLink.cpp` | Consume the complete explicit unit closure, resolve imports to definitions, construct the selected root and verify the final hardware package. |
+| Common analysis | `HardwareAnalysis` and its dependency, source-check and Work-partition owners | Share packed widths, nominal field layouts, dependency/effect checks and scheduling facts between targets. |
+| Emit | `_emit.py`, `pycircuit-emit.cpp`, existing target definition emitters | Consume the same verified final snapshot and realize C++ field planes or packed Verilog values. Retain source-owned output inventories and generated CMake metadata. |
+| Execute | `pyc6_runtime`, `SystemRunner`, `SimSystem` | Work observes old state. Complete whole-system Precheck/Precommit before any root Xfer; failure discards proposals. |
+
+The C++ and Verilog representations differ, but element order, field identity,
+four-state value/known/Z information and clock/commit behavior must agree. For
+example, admitting a Table-valued Struct field requires a matching declaration,
+shared packed-layout analysis, source construction and projection, and transport
+through both emitters. A verifier change alone does not establish support.
+
+Likewise, a pure region's admitted operations must be supported by both target
+emitters. Nested Table construction and mapping inside an existing TableMap
+use that operation's checked region and field-sensitive emission. TableMatch
+retains its scalar predicate boundary until equivalent target support is
+implemented and independently verified. Backend failures must not become a
+fallback implementation or a second semantic path.
+
 ## Compile and link
 
 Compile each source independently. Consumers use published interfaces through

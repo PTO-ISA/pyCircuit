@@ -1,3 +1,4 @@
+#include "mlir/AsmParser/AsmParser.h"
 #include "mlir/IR/Builders.h"
 #include "mlir/IR/Diagnostics.h"
 #include "mlir/IR/SymbolTable.h"
@@ -51,10 +52,10 @@ protected:
   MLIRContext context;
   std::string diagnostics;
   void SetUp() override { context.loadDialect<ac::ACIRDialect>(); }
-  OwningOpRef<mlir::ModuleOp> parse(StringRef body) {
+  OwningOpRef<mlir::ModuleOp> parse(StringRef body, bool verify = true) {
     return parseSourceString<mlir::ModuleOp>(
         std::string(preamble) + "module {" + records + body.str() + "}",
-        &context);
+        ParserConfig(&context, verify));
   }
   std::string declaration(StringRef signature,
                           StringRef typeParameters = "[]") {
@@ -69,6 +70,15 @@ protected:
   ac::ModuleImportOp imported(mlir::ModuleOp unit) {
     return cast<ac::ModuleImportOp>(
         SymbolTable::lookupSymbolIn(unit, "unit.Declared"));
+  }
+  ac::StructType record(StringRef name) {
+    return ac::StructType::get(&context, StringAttr::get(&context, name));
+  }
+  ac::StaticExprAttr integer(StringRef value) {
+    return cast<ac::StaticExprAttr>(parseAttribute(
+        R"mlir(#ac.static_expr<{kind = "literal", location = {path = "unit.py", line = 1 : i64, column = 1 : i64, end_line = 1 : i64, end_column = 2 : i64}, origin = {site = {definition = @unit.Declared, ast_path = []}, expansion = []}, value = {kind = "integer", value = #ac.math_int<)mlir" +
+            value.str() + ">}}>",
+        &context));
   }
   ArrayAttr path(const std::vector<std::string> &names) {
     Builder b(&context);
@@ -314,5 +324,140 @@ TEST_F(TableDependencySummaryTest,
     }) {sym_name = "unit.BadView", source_owner = {package = "", path = "unit.py"}, parameters = [], type_parameters = [], function_type = (!t3) -> !t2, input_names = ["input"], output_names = ["out"]} : () -> ()
   )mlir");
   EXPECT_FALSE(malformed);
+}
+
+TEST_F(TableDependencySummaryTest,
+       NestedTablesKeepCompactLeavesAndMostSignificantFieldOrder) {
+  auto unit = parse(R"mlir(
+    "ac.enum"() {sym_name = "types.Mode", width = #ac.math_int<3>, encoding = "explicit", members = [{name = "IDLE", code = #ac.math_int<0>}, {name = "RUN", code = #ac.math_int<5>}]} : () -> ()
+    ac.struct "types.Cell" fields [{name = "header", type = !b1}, {name = "lanes", type = !t3}]
+    ac.struct "types.Envelope" fields [{name = "prefix", type = !b8}, {name = "cells", type = !ac.table<[#w3], !ac.struct<"types.Cell">>}, {name = "suffix", type = !b1}]
+    ac.struct "types.Shared" fields [{name = "first", type = !ac.struct<"types.Cell">}, {name = "second", type = !ac.struct<"types.Cell">}]
+    ac.struct "types.Modes" fields [{name = "modes", type = !ac.table<[#w3], !ac.enum<"types.Mode">>}]
+  )mlir");
+  ASSERT_TRUE(unit);
+  ASSERT_TRUE(succeeded(mlir::verify(*unit)));
+  ac::HardwareAnalysis analysis(*unit);
+  auto envelope = record("types.Envelope");
+  auto leaves = analysis.getLeaves(envelope, {}, *unit);
+  ASSERT_TRUE(succeeded(leaves));
+  ASSERT_EQ(leaves->size(), 3u);
+  const std::vector<std::string> names{"prefix", "cells", "suffix"};
+  const uint64_t lows[]{76, 1, 0}, widths[]{8, 75, 1};
+  for (unsigned i = 0; i != 3; ++i) {
+    ASSERT_EQ((*leaves)[i].path.size(), 1u);
+    EXPECT_EQ((*leaves)[i].path.front().getValue(), names[i]);
+    EXPECT_EQ((*leaves)[i].low, lows[i]);
+    EXPECT_EQ((*leaves)[i].width, widths[i]);
+  }
+  EXPECT_TRUE(isa<ac::TableType>((*leaves)[1].type));
+  auto width = analysis.getPackedWidth(envelope, {}, *unit);
+  ASSERT_TRUE(succeeded(width));
+  EXPECT_EQ(*width, 84u); // 8 + 3 * (1 + 3 * 8) + 1, crossing 64 bits.
+  auto shared = analysis.getPackedWidth(
+      record("types.Shared"), {}, *unit);
+  ASSERT_TRUE(succeeded(shared));
+  EXPECT_EQ(*shared, 50u); // Repeated acyclic children are not recursion.
+  auto modes = analysis.getPackedWidth(
+      record("types.Modes"), {}, *unit);
+  ASSERT_TRUE(succeeded(modes));
+  EXPECT_EQ(*modes, 9u);
+}
+
+TEST_F(TableDependencySummaryTest,
+       AlternatingStructTablePathsRetainExactDependencyLeaves) {
+  auto unit = parse(R"mlir(
+    ac.struct "types.Cell" fields [{name = "header", type = !b1}, {name = "lanes", type = !t3}]
+    ac.struct "types.Envelope" fields [{name = "prefix", type = !b8}, {name = "cells", type = !ac.table<[#w3], !ac.struct<"types.Cell">>}, {name = "suffix", type = !b1}]
+  )mlir" + declaration("(!ac.table<[#w2], !ac.struct<\"types.Envelope\">>) -> !ac.struct<\"types.Envelope\">"));
+  ASSERT_TRUE(unit);
+  setSummary(imported(*unit), {{{0, {}}, {{0, {}}}}});
+  ASSERT_TRUE(succeeded(mlir::verify(*unit)));
+  expectRows(*unit, imported(*unit),
+             {{{0, {"prefix"}}, {{0, {"prefix"}}}},
+              {{0, {"cells", "header"}}, {{0, {"cells", "header"}}}},
+              {{0, {"cells", "lanes"}}, {{0, {"cells", "lanes"}}}},
+              {{0, {"suffix"}}, {{0, {"suffix"}}}}});
+  ac::HardwareAnalysis analysis(*unit);
+  auto table = imported(*unit).getFunctionType().getInput(0);
+  auto width = analysis.getPackedWidth(table, {}, *unit);
+  ASSERT_TRUE(succeeded(width));
+  EXPECT_EQ(*width, 168u); // Enclosing multiplicity two, field extent three.
+  auto leaves = analysis.getLeaves(table, {}, *unit);
+  ASSERT_TRUE(succeeded(leaves));
+  ASSERT_EQ(leaves->size(), 1u);
+  EXPECT_TRUE(leaves->front().path.empty());
+  EXPECT_EQ(leaves->front().width, 168u);
+}
+
+TEST_F(TableDependencySummaryTest,
+       CyclesThroughTablesAndUnresolvedNominalsFailLayout) {
+  for (StringRef fields : {
+           "ac.struct \"types.Cycle\" fields [{name = \"entries\", type = !ac.table<[#w3], !ac.struct<\"types.Cycle\">>}]",
+           "ac.struct \"types.Cycle\" fields [{name = \"entries\", type = !ac.table<[#w3], !ac.struct<\"types.Child\">>}]\nac.struct \"types.Child\" fields [{name = \"parent\", type = !ac.struct<\"types.Cycle\">}]",
+           "ac.struct \"types.Cycle\" fields [{name = \"entries\", type = !ac.table<[#w3], !ac.struct<\"types.Missing\">>}]"}) {
+    SCOPED_TRACE(fields.str());
+    auto unit = parse(fields, false);
+    ASSERT_TRUE(unit);
+    diagnostics.clear();
+    ScopedDiagnosticHandler handler(&context, [&](Diagnostic &d) {
+      llvm::raw_string_ostream out(diagnostics);
+      d.print(out);
+      return success();
+    });
+    ac::HardwareAnalysis analysis(*unit);
+    EXPECT_TRUE(failed(mlir::verify(*unit)));
+    EXPECT_TRUE(failed(analysis.getPackedWidth(
+        record("types.Cycle"), {}, *unit)));
+    EXPECT_TRUE(failed(analysis.getLeaves(
+        record("types.Cycle"), {}, *unit)));
+    EXPECT_TRUE(diagnostics.find("recursive packed struct layout") !=
+                    std::string::npos ||
+                diagnostics.find("unresolved nominal hardware struct") !=
+                    std::string::npos)
+        << diagnostics;
+  }
+}
+
+TEST_F(TableDependencySummaryTest,
+       InvalidNestedExtentsAndCheckedLayoutArithmeticRejectBeforeEmission) {
+  Builder b(&context);
+  auto byte = ac::BitsType::get(&context, integer("8"));
+  auto huge = ac::BitsType::get(&context, integer("18446744073709551615"));
+  const std::vector<std::vector<Type>> cases{
+      {ac::TableType::get(&context, b.getArrayAttr({integer("0")}), byte)},
+      {ac::TableType::get(&context, b.getArrayAttr({integer("-1")}), byte)},
+      {ac::TableType::get(&context,
+                         b.getArrayAttr({integer("9223372036854775807"),
+                                         integer("3")}), byte)},
+      {ac::TableType::get(&context, b.getArrayAttr({integer("3")}), huge)},
+      {huge, byte}};
+  for (auto [i, types] : llvm::enumerate(cases)) {
+    SCOPED_TRACE(i);
+    auto unit = parse("");
+    ASSERT_TRUE(unit);
+    auto declaration = cast<ac::StructOp>(
+        SymbolTable::lookupSymbolIn(*unit, "types.Pair"));
+    SmallVector<Attribute> fields;
+    for (auto [j, type] : llvm::enumerate(types))
+      fields.push_back(b.getDictionaryAttr(
+          {b.getNamedAttr("name", b.getStringAttr("field" + std::to_string(j))),
+           b.getNamedAttr("type", TypeAttr::get(type))}));
+    declaration->setAttr("fields", b.getArrayAttr(fields));
+    diagnostics.clear();
+    ScopedDiagnosticHandler handler(&context, [&](Diagnostic &d) {
+      llvm::raw_string_ostream out(diagnostics);
+      d.print(out);
+      return success();
+    });
+    EXPECT_TRUE(failed(mlir::verify(*unit)));
+    ac::HardwareAnalysis analysis(*unit);
+    EXPECT_TRUE(failed(analysis.getPackedWidth(record("types.Pair"), {}, *unit)));
+    EXPECT_TRUE(failed(analysis.getLeaves(record("types.Pair"), {}, *unit)));
+    EXPECT_TRUE(diagnostics.find("positive") != std::string::npos ||
+                diagnostics.find("exceeds signed 64 bits") != std::string::npos ||
+                diagnostics.find("overflow") != std::string::npos)
+        << diagnostics;
+  }
 }
 } // namespace

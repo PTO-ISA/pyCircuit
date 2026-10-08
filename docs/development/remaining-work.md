@@ -26,22 +26,26 @@ verification. This list records acceptance gaps and is not a completion claim.
   constructors now have independent positive and rejection coverage.
 
 The baseline `8887e6de` inventory contains 93 historical roots. The current
-catalog maps 83 and leaves 10 unmapped; 70 historical roots have a registered
+catalog maps 85 and leaves 8 unmapped; 72 historical roots have a registered
 `@system`. These are source mapping counts, not a claim that all mapped roots
-have completed acceptance. The catalog has 62 examples and 25 API-owned cases;
-59 examples and 13 API-owned cases have registered systems.
+have completed acceptance. The catalog has 64 examples and 25 API-owned cases;
+61 examples and 13 API-owned cases have registered systems.
 
-The exact ten unmapped baseline roots are:
+The exact eight unmapped baseline roots are:
 
 | Baseline source under `examples/agentic-circuit/` | Root |
 | --- | --- |
 | `blocks/array_combinators.py` | `array_combinators`, `array_reductions`, `array_scans` |
 | `blocks/bounded_integer_operations.py` | `bounded_integer_operations`, `recursive_array_updates` |
 | `blocks/multirate_compute.py` | `multirate_compute` |
-| `pipelines/aggregate_payload_pipeline.py` | `aggregate_payload_pipeline` |
-| `pipelines/recursive_aggregate_payload_pipeline.py` | `recursive_aggregate_payload_pipeline` |
 | `types/nested_config_types.py` | `nested_config_types` |
 | `types/parameterized_types.py` | `parameterized_types` |
+
+The two restored aggregate payload pipelines retain their original token
+transformations and independent module oracles. Their owning tests additionally
+exercise complete native/RTL histories, reset, held clocks and four-state
+payloads, alongside 48-epoch generated systems. Source mapping and focused
+checks do not replace final candidate acceptance for the complete catalog.
 
 The slot/mailbox and issue owning gate checks nine complete generated literal
 histories on native workers 1/2 and RTL, including reset-reachable extensions

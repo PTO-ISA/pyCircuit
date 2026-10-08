@@ -312,6 +312,26 @@
       "system_scope": "regular-clock"
     },
     {
+      "name": "aggregate_payload_pipeline",
+      "folder": "examples/aggregate_payload_pipeline",
+      "source": "aggregate_payload_pipeline.py",
+      "generated": "GENERATED.json",
+      "system": "AggregatePayloadPipelineSystem",
+      "system_source": "bench.py",
+      "system_cycles": 48,
+      "system_scope": "regular-clock; original module oracle plus native/RTL reset, held-clock and four-state coverage"
+    },
+    {
+      "name": "recursive_aggregate_payload_pipeline",
+      "folder": "examples/recursive_aggregate_payload_pipeline",
+      "source": "recursive_aggregate_payload_pipeline.py",
+      "generated": "GENERATED.json",
+      "system": "RecursiveAggregatePayloadPipelineSystem",
+      "system_source": "bench.py",
+      "system_cycles": 48,
+      "system_scope": "regular-clock; original module oracle plus native/RTL reset, held-clock and four-state coverage"
+    },
+    {
       "name": "rule_pipeline",
       "folder": "examples/rule_pipeline",
       "source": "rule_pipeline.py",

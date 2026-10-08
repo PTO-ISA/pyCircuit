@@ -119,6 +119,7 @@ module {
 #w4611686018427387904 = #ac.static_expr<{kind = "literal", location = {path = "top.py", line = 1 : i64, column = 1 : i64, end_line = 1 : i64, end_column = 2 : i64}, origin = {site = {definition = @top, ast_path = []}, expansion = []}, value = {kind = "integer", value = #ac.math_int<4611686018427387904>}}>
 #w9223372036854775808 = #ac.static_expr<{kind = "literal", location = {path = "top.py", line = 1 : i64, column = 1 : i64, end_line = 1 : i64, end_column = 2 : i64}, origin = {site = {definition = @top, ast_path = []}, expansion = []}, value = {kind = "integer", value = #ac.math_int<9223372036854775808>}}>
 module {
-  // expected-error @+1 {{fields require unique names and finite bits/struct/enum types}}
-  ac.struct "Invalid" fields [{name = "embedded", type = !a}]
+  // A finite Table is legal; arbitrary MLIR integer fields remain unsupported.
+  // expected-error @+1 {{fields require unique names and finite}}
+  ac.struct "Invalid" fields [{name = "embedded", type = i8}]
 }

@@ -1,0 +1,179 @@
+#include "pycircuit_system.hpp"
+#include "gfsim/WorkExecutor.h"
+#include <cstdlib>
+#include <iostream>
+#include <source_location>
+#include <type_traits>
+
+template <unsigned W> struct Plane { gfsim::Bits<W> value, known, z; };
+void require(bool ok, std::source_location at = std::source_location::current()) {
+  if (!ok) { std::cerr << "aggregate transport oracle at " << at.line() << '\n'; std::abort(); }
+}
+// Literal full value/known/Z planes, including latent values under X/Z.
+// Packed layout: marker[91:87], three 29-bit groups; each group is tag4/sample5x5.
+const Plane<92> inputs[] = {
+  {gfsim::Bits<92>{0xe6c687dbcbf03224ULL, 0x000000000a904ed9ULL}, gfsim::Bits<92>{0xffffffffffffffffULL, 0x000000000fffffffULL}, gfsim::Bits<92>{0x0000000000000000ULL, 0x0000000000000000ULL}},
+  {gfsim::Bits<92>{0xe87b792450453a9cULL, 0x000000000371970aULL}, gfsim::Bits<92>{0xffffffffffffffffULL, 0x000000000fffffffULL}, gfsim::Bits<92>{0x0000000000000000ULL, 0x0000000000000000ULL}},
+  {gfsim::Bits<92>{0x4119817cfe88e476ULL, 0x000000000dcecb30ULL}, gfsim::Bits<92>{0xffffffffffffffffULL, 0x000000000fffffffULL}, gfsim::Bits<92>{0x0000000000000000ULL, 0x0000000000000000ULL}},
+  {gfsim::Bits<92>{0xe2c683cbcbf032acULL, 0x000000000a806eb9ULL}, gfsim::Bits<92>{0x7afd7be7eddfbf76ULL, 0x0000000007eedf9fULL}, gfsim::Bits<92>{0x0400801002004008ULL, 0x0000000008010020ULL}},
+  {gfsim::Bits<92>{0xe86b79a4c0473a9cULL, 0x0000000003f8960aULL}, gfsim::Bits<92>{0xd7ebdf3f6efdfbb7ULL, 0x000000000f76fcfbULL}, gfsim::Bits<92>{0x2004008010020040ULL, 0x0000000000080100ULL}},
+  {gfsim::Bits<92>{0x01b88378fe88e636ULL, 0x00000000098ecb30ULL}, gfsim::Bits<92>{0xbf5ef9fb77efddbfULL, 0x000000000bb7e7deULL}, gfsim::Bits<92>{0x0020040080100200ULL, 0x0000000000400801ULL}},
+};
+const Plane<29> replacement[] = {
+  {gfsim::Bits<29>{0x000000001e88e476ULL, 0x0000000000000000ULL}, gfsim::Bits<29>{0x000000001fffffffULL, 0x0000000000000000ULL}, gfsim::Bits<29>{0x0000000000000000ULL, 0x0000000000000000ULL}},
+  {gfsim::Bits<29>{0x000000001c65c2baULL, 0x0000000000000000ULL}, gfsim::Bits<29>{0x000000001fffffffULL, 0x0000000000000000ULL}, gfsim::Bits<29>{0x0000000000000000ULL, 0x0000000000000000ULL}},
+  {gfsim::Bits<29>{0x0000000016343edeULL, 0x0000000000000000ULL}, gfsim::Bits<29>{0x000000001fffffffULL, 0x0000000000000000ULL}, gfsim::Bits<29>{0x0000000000000000ULL, 0x0000000000000000ULL}},
+  {gfsim::Bits<29>{0x000000000bf03224ULL, 0x0000000000000000ULL}, gfsim::Bits<29>{0x000000001fffffffULL, 0x0000000000000000ULL}, gfsim::Bits<29>{0x0000000000000000ULL, 0x0000000000000000ULL}},
+  {gfsim::Bits<29>{0x0000000013b2cc10ULL, 0x0000000000000000ULL}, gfsim::Bits<29>{0x000000001fffffffULL, 0x0000000000000000ULL}, gfsim::Bits<29>{0x0000000000000000ULL, 0x0000000000000000ULL}},
+  {gfsim::Bits<29>{0x0000000003dbc922ULL, 0x0000000000000000ULL}, gfsim::Bits<29>{0x000000001fffffffULL, 0x0000000000000000ULL}, gfsim::Bits<29>{0x0000000000000000ULL, 0x0000000000000000ULL}},
+  {gfsim::Bits<29>{0x0000000010453a9cULL, 0x0000000000000000ULL}, gfsim::Bits<29>{0x000000001fffffffULL, 0x0000000000000000ULL}, gfsim::Bits<29>{0x0000000000000000ULL, 0x0000000000000000ULL}},
+  {gfsim::Bits<29>{0x000000000413b679ULL, 0x0000000000000000ULL}, gfsim::Bits<29>{0x000000001fffffffULL, 0x0000000000000000ULL}, gfsim::Bits<29>{0x0000000000000000ULL, 0x0000000000000000ULL}},
+  {gfsim::Bits<29>{0x0000000008cc0be7ULL, 0x0000000000000000ULL}, gfsim::Bits<29>{0x000000001fffffffULL, 0x0000000000000000ULL}, gfsim::Bits<29>{0x0000000000000000ULL, 0x0000000000000000ULL}},
+  {gfsim::Bits<29>{0x000000001ecc6574ULL, 0x0000000000000000ULL}, gfsim::Bits<29>{0x000000001fbb7e7dULL, 0x0000000000000000ULL}, gfsim::Bits<29>{0x0000000000040080ULL, 0x0000000000000000ULL}},
+  {gfsim::Bits<29>{0x000000001d75c4b2ULL, 0x0000000000000000ULL}, gfsim::Bits<29>{0x000000001eedf9f7ULL, 0x0000000000000000ULL}, gfsim::Bits<29>{0x0000000000100200ULL, 0x0000000000000000ULL}},
+  {gfsim::Bits<29>{0x00000000167436dfULL, 0x0000000000000000ULL}, gfsim::Bits<29>{0x000000001bb7e7deULL, 0x0000000000000000ULL}, gfsim::Bits<29>{0x0000000000400801ULL, 0x0000000000000000ULL}},
+  {gfsim::Bits<29>{0x000000001bd05225ULL, 0x0000000000000000ULL}, gfsim::Bits<29>{0x000000000edf9f7aULL, 0x0000000000000000ULL}, gfsim::Bits<29>{0x0000000001002004ULL, 0x0000000000000000ULL}},
+  {gfsim::Bits<29>{0x0000000017334c14ULL, 0x0000000000000000ULL}, gfsim::Bits<29>{0x000000001b7e7debULL, 0x0000000000000000ULL}, gfsim::Bits<29>{0x0000000004008010ULL, 0x0000000000000000ULL}},
+  {gfsim::Bits<29>{0x0000000011ddc172ULL, 0x0000000000000000ULL}, gfsim::Bits<29>{0x000000000df9f7afULL, 0x0000000000000000ULL}, gfsim::Bits<29>{0x0000000010020040ULL, 0x0000000000000000ULL}},
+  {gfsim::Bits<29>{0x0000000010551bdcULL, 0x0000000000000000ULL}, gfsim::Bits<29>{0x0000000017e7debfULL, 0x0000000000000000ULL}, gfsim::Bits<29>{0x0000000000080100ULL, 0x0000000000000000ULL}},
+  {gfsim::Bits<29>{0x0000000004533779ULL, 0x0000000000000000ULL}, gfsim::Bits<29>{0x000000001f9f7afdULL, 0x0000000000000000ULL}, gfsim::Bits<29>{0x0000000000200400ULL, 0x0000000000000000ULL}},
+  {gfsim::Bits<29>{0x00000000094c1fe5ULL, 0x0000000000000000ULL}, gfsim::Bits<29>{0x000000001e7debf5ULL, 0x0000000000000000ULL}, gfsim::Bits<29>{0x0000000000801002ULL, 0x0000000000000000ULL}},
+};
+const Plane<92> rebuilt[] = {
+  {gfsim::Bits<92>{0xe6fc343ecbf03224ULL, 0x000000000a904ed9ULL}, gfsim::Bits<92>{0xffffffffffffffffULL, 0x000000000fffffffULL}, gfsim::Bits<92>{0x0000000000000000ULL, 0x0000000000000000ULL}},
+  {gfsim::Bits<92>{0xe845dbc930453a9cULL, 0x000000000371970aULL}, gfsim::Bits<92>{0xffffffffffffffffULL, 0x000000000fffffffULL}, gfsim::Bits<92>{0x0000000000000000ULL, 0x0000000000000000ULL}},
+  {gfsim::Bits<92>{0x410ecc0bfe88e476ULL, 0x000000000dcecb30ULL}, gfsim::Bits<92>{0xffffffffffffffffULL, 0x000000000fffffffULL}, gfsim::Bits<92>{0x0000000000000000ULL, 0x0000000000000000ULL}},
+  {gfsim::Bits<92>{0xe2fc341e4bf032acULL, 0x000000000a806eb9ULL}, gfsim::Bits<92>{0x7affebdf2ddfbf76ULL, 0x0000000007eedf9fULL}, gfsim::Bits<92>{0x0400040082004008ULL, 0x0000000008010020ULL}},
+  {gfsim::Bits<92>{0xe84d5bcd20473a9cULL, 0x0000000003f8960aULL}, gfsim::Bits<92>{0xd7f75ef9eefdfbb7ULL, 0x000000000f76fcfbULL}, gfsim::Bits<92>{0x2000200410020040ULL, 0x0000000000080100ULL}},
+  {gfsim::Bits<92>{0x018fc41bde88e636ULL, 0x00000000098ecb30ULL}, gfsim::Bits<92>{0xbf76f7cfd7efddbfULL, 0x000000000bb7e7deULL}, gfsim::Bits<92>{0x0009002000100200ULL, 0x0000000000400801ULL}},
+};
+const Plane<92> changed[] = {
+  {gfsim::Bits<92>{0xdb8cb85756343edeULL, 0x000000000afa2391ULL}, gfsim::Bits<92>{0xffffffffffffffffULL, 0x000000000fffffffULL}, gfsim::Bits<92>{0x0000000000000000ULL, 0x0000000000000000ULL}},
+  {gfsim::Bits<92>{0x9276598203dbc922ULL, 0x00000000032fc0c8ULL}, gfsim::Bits<92>{0xffffffffffffffffULL, 0x000000000fffffffULL}, gfsim::Bits<92>{0x0000000000000000ULL, 0x0000000000000000ULL}},
+  {gfsim::Bits<92>{0x708276cf28cc0be7ULL, 0x000000000dc114eaULL}, gfsim::Bits<92>{0xffffffffffffffffULL, 0x000000000fffffffULL}, gfsim::Bits<92>{0x0000000000000000ULL, 0x0000000000000000ULL}},
+  {gfsim::Bits<92>{0xd3aeb896567436dfULL, 0x000000000afb3195ULL}, gfsim::Bits<92>{0xf7ddbf3efbb7e7deULL, 0x0000000007feedf9ULL}, gfsim::Bits<92>{0x0002004000400801ULL, 0x0000000008001002ULL}},
+  {gfsim::Bits<92>{0x96e6698291ddc172ULL, 0x0000000003ef4148ULL}, gfsim::Bits<92>{0xeb6fcfbd6df9f7afULL, 0x000000000f3b7e7dULL}, gfsim::Bits<92>{0x1080100210020040ULL, 0x0000000000040080ULL}},
+  {gfsim::Bits<92>{0x708a66ef294c1fe5ULL, 0x0000000009c1546fULL}, gfsim::Bits<92>{0xfff3ef5fbe7debf5ULL, 0x000000000bdf9f7aULL}, gfsim::Bits<92>{0x0004008000801002ULL, 0x0000000000002004ULL}},
+};
+const Plane<29> projected[] = {
+  {gfsim::Bits<29>{0x000000000413b679ULL, 0x0000000000000000ULL}, gfsim::Bits<29>{0x000000001fffffffULL, 0x0000000000000000ULL}, gfsim::Bits<29>{0x0000000000000000ULL, 0x0000000000000000ULL}},
+  {gfsim::Bits<29>{0x0000000016343edeULL, 0x0000000000000000ULL}, gfsim::Bits<29>{0x000000001fffffffULL, 0x0000000000000000ULL}, gfsim::Bits<29>{0x0000000000000000ULL, 0x0000000000000000ULL}},
+  {gfsim::Bits<29>{0x000000000bf03224ULL, 0x0000000000000000ULL}, gfsim::Bits<29>{0x000000001fffffffULL, 0x0000000000000000ULL}, gfsim::Bits<29>{0x0000000000000000ULL, 0x0000000000000000ULL}},
+  {gfsim::Bits<29>{0x000000001c65c2baULL, 0x0000000000000000ULL}, gfsim::Bits<29>{0x000000001fffffffULL, 0x0000000000000000ULL}, gfsim::Bits<29>{0x0000000000000000ULL, 0x0000000000000000ULL}},
+  {gfsim::Bits<29>{0x0000000003dbc922ULL, 0x0000000000000000ULL}, gfsim::Bits<29>{0x000000001fffffffULL, 0x0000000000000000ULL}, gfsim::Bits<29>{0x0000000000000000ULL, 0x0000000000000000ULL}},
+  {gfsim::Bits<29>{0x0000000010453a9cULL, 0x0000000000000000ULL}, gfsim::Bits<29>{0x000000001fffffffULL, 0x0000000000000000ULL}, gfsim::Bits<29>{0x0000000000000000ULL, 0x0000000000000000ULL}},
+  {gfsim::Bits<29>{0x0000000013b2cc10ULL, 0x0000000000000000ULL}, gfsim::Bits<29>{0x000000001fffffffULL, 0x0000000000000000ULL}, gfsim::Bits<29>{0x0000000000000000ULL, 0x0000000000000000ULL}},
+  {gfsim::Bits<29>{0x0000000008cc0be7ULL, 0x0000000000000000ULL}, gfsim::Bits<29>{0x000000001fffffffULL, 0x0000000000000000ULL}, gfsim::Bits<29>{0x0000000000000000ULL, 0x0000000000000000ULL}},
+  {gfsim::Bits<29>{0x000000001e88e476ULL, 0x0000000000000000ULL}, gfsim::Bits<29>{0x000000001fffffffULL, 0x0000000000000000ULL}, gfsim::Bits<29>{0x0000000000000000ULL, 0x0000000000000000ULL}},
+  {gfsim::Bits<29>{0x00000000001bae78ULL, 0x0000000000000000ULL}, gfsim::Bits<29>{0x000000001bb7e7deULL, 0x0000000000000000ULL}, gfsim::Bits<29>{0x0000000000400801ULL, 0x0000000000000000ULL}},
+  {gfsim::Bits<29>{0x0000000016341e5eULL, 0x0000000000000000ULL}, gfsim::Bits<29>{0x0000000017ebdf3fULL, 0x0000000000000000ULL}, gfsim::Bits<29>{0x0000000000040080ULL, 0x0000000000000000ULL}},
+  {gfsim::Bits<29>{0x000000000bf032acULL, 0x0000000000000000ULL}, gfsim::Bits<29>{0x000000000ddfbf76ULL, 0x0000000000000000ULL}, gfsim::Bits<29>{0x0000000002004008ULL, 0x0000000000000000ULL}},
+  {gfsim::Bits<29>{0x000000001e2582baULL, 0x0000000000000000ULL}, gfsim::Bits<29>{0x000000001dbf3ef5ULL, 0x0000000000000000ULL}, gfsim::Bits<29>{0x0000000002004008ULL, 0x0000000000000000ULL}},
+  {gfsim::Bits<29>{0x00000000035bcd26ULL, 0x0000000000000000ULL}, gfsim::Bits<29>{0x000000001f5ef9fbULL, 0x0000000000000000ULL}, gfsim::Bits<29>{0x0000000000200400ULL, 0x0000000000000000ULL}},
+  {gfsim::Bits<29>{0x0000000000473a9cULL, 0x0000000000000000ULL}, gfsim::Bits<29>{0x000000000efdfbb7ULL, 0x0000000000000000ULL}, gfsim::Bits<29>{0x0000000010020040ULL, 0x0000000000000000ULL}},
+  {gfsim::Bits<29>{0x0000000003b2cc00ULL, 0x0000000000000000ULL}, gfsim::Bits<29>{0x000000000df9f7afULL, 0x0000000000000000ULL}, gfsim::Bits<29>{0x0000000010020040ULL, 0x0000000000000000ULL}},
+  {gfsim::Bits<29>{0x000000000dc41bc7ULL, 0x0000000000000000ULL}, gfsim::Bits<29>{0x000000001af7cfdbULL, 0x0000000000000000ULL}, gfsim::Bits<29>{0x0000000001002004ULL, 0x0000000000000000ULL}},
+  {gfsim::Bits<29>{0x000000001e88e636ULL, 0x0000000000000000ULL}, gfsim::Bits<29>{0x0000000017efddbfULL, 0x0000000000000000ULL}, gfsim::Bits<29>{0x0000000000100200ULL, 0x0000000000000000ULL}},
+};
+const Plane<5> samples[] = {
+  {gfsim::Bits<5>{0x0000000000000003ULL, 0x0000000000000000ULL}, gfsim::Bits<5>{0x000000000000001fULL, 0x0000000000000000ULL}, gfsim::Bits<5>{0x0000000000000000ULL, 0x0000000000000000ULL}},
+  {gfsim::Bits<5>{0x0000000000000008ULL, 0x0000000000000000ULL}, gfsim::Bits<5>{0x000000000000001fULL, 0x0000000000000000ULL}, gfsim::Bits<5>{0x0000000000000000ULL, 0x0000000000000000ULL}},
+  {gfsim::Bits<5>{0x000000000000000fULL, 0x0000000000000000ULL}, gfsim::Bits<5>{0x000000000000001fULL, 0x0000000000000000ULL}, gfsim::Bits<5>{0x0000000000000000ULL, 0x0000000000000000ULL}},
+  {gfsim::Bits<5>{0x0000000000000016ULL, 0x0000000000000000ULL}, gfsim::Bits<5>{0x000000000000001fULL, 0x0000000000000000ULL}, gfsim::Bits<5>{0x0000000000000000ULL, 0x0000000000000000ULL}},
+  {gfsim::Bits<5>{0x000000000000001eULL, 0x0000000000000000ULL}, gfsim::Bits<5>{0x000000000000001fULL, 0x0000000000000000ULL}, gfsim::Bits<5>{0x0000000000000000ULL, 0x0000000000000000ULL}},
+  {gfsim::Bits<5>{0x000000000000001dULL, 0x0000000000000000ULL}, gfsim::Bits<5>{0x000000000000001fULL, 0x0000000000000000ULL}, gfsim::Bits<5>{0x0000000000000000ULL, 0x0000000000000000ULL}},
+  {gfsim::Bits<5>{0x0000000000000017ULL, 0x0000000000000000ULL}, gfsim::Bits<5>{0x000000000000001fULL, 0x0000000000000000ULL}, gfsim::Bits<5>{0x0000000000000000ULL, 0x0000000000000000ULL}},
+  {gfsim::Bits<5>{0x0000000000000012ULL, 0x0000000000000000ULL}, gfsim::Bits<5>{0x000000000000001fULL, 0x0000000000000000ULL}, gfsim::Bits<5>{0x0000000000000000ULL, 0x0000000000000000ULL}},
+  {gfsim::Bits<5>{0x0000000000000009ULL, 0x0000000000000000ULL}, gfsim::Bits<5>{0x000000000000001fULL, 0x0000000000000000ULL}, gfsim::Bits<5>{0x0000000000000000ULL, 0x0000000000000000ULL}},
+  {gfsim::Bits<5>{0x0000000000000002ULL, 0x0000000000000000ULL}, gfsim::Bits<5>{0x000000000000001fULL, 0x0000000000000000ULL}, gfsim::Bits<5>{0x0000000000000000ULL, 0x0000000000000000ULL}},
+  {gfsim::Bits<5>{0x000000000000000cULL, 0x0000000000000000ULL}, gfsim::Bits<5>{0x000000000000001fULL, 0x0000000000000000ULL}, gfsim::Bits<5>{0x0000000000000000ULL, 0x0000000000000000ULL}},
+  {gfsim::Bits<5>{0x0000000000000018ULL, 0x0000000000000000ULL}, gfsim::Bits<5>{0x000000000000001fULL, 0x0000000000000000ULL}, gfsim::Bits<5>{0x0000000000000000ULL, 0x0000000000000000ULL}},
+  {gfsim::Bits<5>{0x0000000000000002ULL, 0x0000000000000000ULL}, gfsim::Bits<5>{0x000000000000001fULL, 0x0000000000000000ULL}, gfsim::Bits<5>{0x0000000000000000ULL, 0x0000000000000000ULL}},
+  {gfsim::Bits<5>{0x000000000000001fULL, 0x0000000000000000ULL}, gfsim::Bits<5>{0x000000000000001fULL, 0x0000000000000000ULL}, gfsim::Bits<5>{0x0000000000000000ULL, 0x0000000000000000ULL}},
+  {gfsim::Bits<5>{0x0000000000000007ULL, 0x0000000000000000ULL}, gfsim::Bits<5>{0x000000000000001fULL, 0x0000000000000000ULL}, gfsim::Bits<5>{0x0000000000000000ULL, 0x0000000000000000ULL}},
+  {gfsim::Bits<5>{0x0000000000000003ULL, 0x0000000000000000ULL}, gfsim::Bits<5>{0x000000000000001eULL, 0x0000000000000000ULL}, gfsim::Bits<5>{0x0000000000000000ULL, 0x0000000000000000ULL}},
+  {gfsim::Bits<5>{0x0000000000000008ULL, 0x0000000000000000ULL}, gfsim::Bits<5>{0x0000000000000017ULL, 0x0000000000000000ULL}, gfsim::Bits<5>{0x0000000000000008ULL, 0x0000000000000000ULL}},
+  {gfsim::Bits<5>{0x0000000000000007ULL, 0x0000000000000000ULL}, gfsim::Bits<5>{0x0000000000000017ULL, 0x0000000000000000ULL}, gfsim::Bits<5>{0x0000000000000000ULL, 0x0000000000000000ULL}},
+  {gfsim::Bits<5>{0x0000000000000012ULL, 0x0000000000000000ULL}, gfsim::Bits<5>{0x0000000000000019ULL, 0x0000000000000000ULL}, gfsim::Bits<5>{0x0000000000000004ULL, 0x0000000000000000ULL}},
+  {gfsim::Bits<5>{0x000000000000001eULL, 0x0000000000000000ULL}, gfsim::Bits<5>{0x000000000000001fULL, 0x0000000000000000ULL}, gfsim::Bits<5>{0x0000000000000000ULL, 0x0000000000000000ULL}},
+  {gfsim::Bits<5>{0x0000000000000015ULL, 0x0000000000000000ULL}, gfsim::Bits<5>{0x0000000000000015ULL, 0x0000000000000000ULL}, gfsim::Bits<5>{0x0000000000000002ULL, 0x0000000000000000ULL}},
+  {gfsim::Bits<5>{0x0000000000000017ULL, 0x0000000000000000ULL}, gfsim::Bits<5>{0x000000000000001dULL, 0x0000000000000000ULL}, gfsim::Bits<5>{0x0000000000000000ULL, 0x0000000000000000ULL}},
+  {gfsim::Bits<5>{0x0000000000000013ULL, 0x0000000000000000ULL}, gfsim::Bits<5>{0x000000000000001eULL, 0x0000000000000000ULL}, gfsim::Bits<5>{0x0000000000000001ULL, 0x0000000000000000ULL}},
+  {gfsim::Bits<5>{0x0000000000000009ULL, 0x0000000000000000ULL}, gfsim::Bits<5>{0x000000000000000fULL, 0x0000000000000000ULL}, gfsim::Bits<5>{0x0000000000000000ULL, 0x0000000000000000ULL}},
+  {gfsim::Bits<5>{0x0000000000000006ULL, 0x0000000000000000ULL}, gfsim::Bits<5>{0x000000000000001bULL, 0x0000000000000000ULL}, gfsim::Bits<5>{0x0000000000000000ULL, 0x0000000000000000ULL}},
+  {gfsim::Bits<5>{0x000000000000001cULL, 0x0000000000000000ULL}, gfsim::Bits<5>{0x000000000000000fULL, 0x0000000000000000ULL}, gfsim::Bits<5>{0x0000000000000010ULL, 0x0000000000000000ULL}},
+  {gfsim::Bits<5>{0x0000000000000008ULL, 0x0000000000000000ULL}, gfsim::Bits<5>{0x000000000000000fULL, 0x0000000000000000ULL}, gfsim::Bits<5>{0x0000000000000000ULL, 0x0000000000000000ULL}},
+  {gfsim::Bits<5>{0x0000000000000006ULL, 0x0000000000000000ULL}, gfsim::Bits<5>{0x0000000000000013ULL, 0x0000000000000000ULL}, gfsim::Bits<5>{0x0000000000000008ULL, 0x0000000000000000ULL}},
+  {gfsim::Bits<5>{0x000000000000001eULL, 0x0000000000000000ULL}, gfsim::Bits<5>{0x000000000000001eULL, 0x0000000000000000ULL}, gfsim::Bits<5>{0x0000000000000000ULL, 0x0000000000000000ULL}},
+  {gfsim::Bits<5>{0x0000000000000007ULL, 0x0000000000000000ULL}, gfsim::Bits<5>{0x000000000000001bULL, 0x0000000000000000ULL}, gfsim::Bits<5>{0x0000000000000004ULL, 0x0000000000000000ULL}},
+};
+// Root nested Tables flatten to six contiguous byte lanes, never two 24-bit pins.
+const Plane<8> nested[] = {
+  {gfsim::Bits<8>{0x12}, gfsim::Bits<8>{0xff}, gfsim::Bits<8>{0x00}},
+  {gfsim::Bits<8>{0x34}, gfsim::Bits<8>{0xff}, gfsim::Bits<8>{0x00}},
+  {gfsim::Bits<8>{0x56}, gfsim::Bits<8>{0xff}, gfsim::Bits<8>{0x00}},
+  {gfsim::Bits<8>{0x78}, gfsim::Bits<8>{0xff}, gfsim::Bits<8>{0x00}},
+  {gfsim::Bits<8>{0x9a}, gfsim::Bits<8>{0xff}, gfsim::Bits<8>{0x00}},
+  {gfsim::Bits<8>{0xbc}, gfsim::Bits<8>{0xff}, gfsim::Bits<8>{0x00}},
+  {gfsim::Bits<8>{0xe1}, gfsim::Bits<8>{0xf0}, gfsim::Bits<8>{0x02}},
+  {gfsim::Bits<8>{0x5a}, gfsim::Bits<8>{0x0f}, gfsim::Bits<8>{0x80}},
+  {gfsim::Bits<8>{0x9c}, gfsim::Bits<8>{0xcc}, gfsim::Bits<8>{0x21}},
+  {gfsim::Bits<8>{0x37}, gfsim::Bits<8>{0xaa}, gfsim::Bits<8>{0x44}},
+  {gfsim::Bits<8>{0xb5}, gfsim::Bits<8>{0x55}, gfsim::Bits<8>{0x0a}},
+  {gfsim::Bits<8>{0xc6}, gfsim::Bits<8>{0x33}, gfsim::Bits<8>{0x88}},
+};
+// Only marker[91:87] changes; every group/sample value, known and Z bit remains.
+const Plane<92> retagged[] = {
+  {gfsim::Bits<92>{0xe6c687dbcbf03224ULL, 0x0000000008904ed9ULL}, gfsim::Bits<92>{0xffffffffffffffffULL, 0x000000000fffffffULL}, gfsim::Bits<92>{0x0000000000000000ULL, 0x0000000000000000ULL}},
+  {gfsim::Bits<92>{0xe87b792450453a9cULL, 0x0000000008f1970aULL}, gfsim::Bits<92>{0xffffffffffffffffULL, 0x000000000fffffffULL}, gfsim::Bits<92>{0x0000000000000000ULL, 0x0000000000000000ULL}},
+  {gfsim::Bits<92>{0x4119817cfe88e476ULL, 0x0000000008cecb30ULL}, gfsim::Bits<92>{0xffffffffffffffffULL, 0x000000000fffffffULL}, gfsim::Bits<92>{0x0000000000000000ULL, 0x0000000000000000ULL}},
+  {gfsim::Bits<92>{0xe2c683cbcbf032acULL, 0x0000000008806eb9ULL}, gfsim::Bits<92>{0x7afd7be7eddfbf76ULL, 0x000000000feedf9fULL}, gfsim::Bits<92>{0x0400801002004008ULL, 0x0000000000010020ULL}},
+  {gfsim::Bits<92>{0xe86b79a4c0473a9cULL, 0x0000000008f8960aULL}, gfsim::Bits<92>{0xd7ebdf3f6efdfbb7ULL, 0x000000000ff6fcfbULL}, gfsim::Bits<92>{0x2004008010020040ULL, 0x0000000000080100ULL}},
+  {gfsim::Bits<92>{0x01b88378fe88e636ULL, 0x00000000088ecb30ULL}, gfsim::Bits<92>{0xbf5ef9fb77efddbfULL, 0x000000000fb7e7deULL}, gfsim::Bits<92>{0x0020040080100200ULL, 0x0000000000400801ULL}},
+};
+template <typename T, unsigned W> auto input(const Plane<W> &p) {
+  static_assert(gfsim::hardware_traits<T>::width == W);
+  return gfsim::wire<T>::fromPacked(gfsim::FourState<W>::fromMasks(p.value, p.known, p.z));
+}
+template <typename T, unsigned W> void expect(const T &actual, const Plane<W> &p) {
+  const auto packed = actual.packed();
+  require(packed.value() == p.value);
+  require(packed.knownMask() == p.known);
+  require(packed.zMask() == p.z);
+}
+int main() {
+  for (unsigned workers : {1u, 2u}) {
+    gfsim::WorkExecutor pool(workers);
+    top dut("aggregate-transport", &pool); dut.Build();
+    using Packet = std::remove_cvref_t<decltype(dut.source.element(0))>::value_type;
+    using Group = std::remove_cvref_t<decltype(dut.replacement.element(0))>::value_type;
+    static_assert(gfsim::hardware_traits<Packet>::width == 92);
+    static_assert(gfsim::hardware_traits<Group>::width == 29);
+    static_assert(std::remove_cvref_t<decltype(dut.nested_input)>::size == 6);
+    for (unsigned phase = 0; phase < 2; ++phase) {
+      for (unsigned lane = 0; lane < 6; ++lane)
+        dut.nested_input.element(lane) = input<gfsim::Bits<8>>(nested[phase * 6 + lane]);
+      for (unsigned lane = 0; lane < 3; ++lane) {
+        dut.source.element(lane) = input<Packet>(inputs[phase * 3 + lane]);
+        for (unsigned group = 0; group < 3; ++group)
+          dut.replacement.element(lane * 3 + group) = input<Group>(replacement[phase * 9 + lane * 3 + group]);
+      }
+      dut.Work();
+      for (unsigned lane = 0; lane < 6; ++lane)
+        expect(dut.nested_saved.element(lane), nested[phase * 6 + lane]);
+      for (unsigned lane = 0; lane < 3; ++lane) {
+        const unsigned row = phase * 3 + lane;
+        expect(dut.saved.element(lane), inputs[row]);
+        expect(dut.rebuilt.element(lane), rebuilt[row]);
+        expect(dut.changed.element(lane), changed[row]);
+        expect(dut.retagged.element(lane), retagged[row]);
+        for (unsigned group = 0; group < 3; ++group)
+          expect(dut.groups.element(lane * 3 + group), projected[row * 3 + group]);
+        for (unsigned sample = 0; sample < 5; ++sample)
+          expect(dut.samples.element(lane * 5 + sample), samples[row * 5 + sample]);
+      }
+      dut.Xfer();
+    }
+    std::cout << "aggregate transport workers=" << workers << " passed\n";
+  }
+}

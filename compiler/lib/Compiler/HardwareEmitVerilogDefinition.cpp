@@ -574,6 +574,35 @@ public:
                                                    bindings, op);
       if (failed(leaves))
         return failure();
+      // Dependency paths descend Table element records, but RTL Tables are
+      // packed vectors. Preserve such a field as one complete packed value.
+      SmallVector<ac::FieldPath> packedPaths;
+      for (auto path : *leaves) {
+        Type type = merge.getBase().getType();
+        for (size_t i = 0; i < path.size(); ++i) {
+          auto resolved = context.analysis.resolveType(type, bindings, op);
+          if (failed(resolved))
+            return failure();
+          if (isa<ac::TableType>(*resolved)) {
+            path.resize(i);
+            break;
+          }
+          auto record = dyn_cast<ac::StructType>(*resolved);
+          auto declaration = record ? context.analysis.lookupStruct(record)
+                                    : ac::StructOp();
+          if (!declaration)
+            return op->emitOpError() << "RTL merge has unresolved field path";
+          auto fields = declaration.getFields();
+          auto found = llvm::find_if(fields, [&](Attribute raw) {
+            return cast<DictionaryAttr>(raw).getAs<StringAttr>("name") == path[i];
+          });
+          if (found == fields.end())
+            return op->emitOpError() << "RTL merge has unknown field path";
+          type = cast<DictionaryAttr>(*found).getAs<TypeAttr>("type").getValue();
+        }
+        if (!llvm::is_contained(packedPaths, path))
+          packedPaths.push_back(std::move(path));
+      }
       std::string enables = "1'b0";
       for (auto [j, raw] : llvm::enumerate(merge.getPaths())) {
         auto attr = cast<ArrayAttr>(raw);
@@ -589,7 +618,7 @@ public:
             << *old << ";\n";
         enables += " | " + guard;
       }
-      for (auto &path : *leaves) {
+      for (auto &path : packedPaths) {
         bool written = llvm::any_of(merge.getPaths(), [&](Attribute raw) {
           auto p = cast<ArrayAttr>(raw);
           return p.size() <= path.size() &&

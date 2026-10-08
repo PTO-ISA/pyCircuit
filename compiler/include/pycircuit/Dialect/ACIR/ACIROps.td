@@ -414,7 +414,7 @@ def ACIR_ValueMergeOp : ACIR_Op<"value.merge", [Pure,
     AttrSizedOperandSegments]> {
   let arguments = (ins ACIR_ScalarHardwareType:$base,
       Variadic<ACIR_BitsType>:$guards,
-      Variadic<ACIR_ScalarHardwareType>:$values, ArrayAttr:$paths);
+      Variadic<ACIR_HardwareType>:$values, ArrayAttr:$paths);
   let results = (outs ACIR_ScalarHardwareType:$next, ACIR_BitsType:$en);
   let hasVerifier = 1;
 }
@@ -487,7 +487,7 @@ def ACIR_StructCreateOp : ACIR_Op<"struct.create", [Pure]> {
     constructor call, allocation or register write. Missing fields do not
     imply initialization, a previous value or storage hold.
   }];
-  let arguments = (ins Variadic<ACIR_ScalarHardwareType>:$values);
+  let arguments = (ins Variadic<ACIR_HardwareType>:$values);
   let results = (outs ACIR_StructType:$result);
   let hasVerifier = 1;
   let assemblyFormat =
@@ -503,7 +503,7 @@ def ACIR_StructGetOp : ACIR_Op<"struct.get", [Pure]> {
     one field creates no dependency on the other fields of the struct.
   }];
   let arguments = (ins ACIR_StructType:$value, StrAttr:$field);
-  let results = (outs ACIR_ScalarHardwareType:$result);
+  let results = (outs ACIR_HardwareType:$result);
   let hasVerifier = 1;
   let assemblyFormat =
       "$value `[` $field `]` attr-dict `:` functional-type(operands, results)";

@@ -28,6 +28,16 @@ into Inner's declared defaults. Every declared default must be valid even if
 unused or overridden. Defaults cannot depend on a caller's runtime bindings.
 Unknown/duplicate fields and invalid types or ranges diagnose.
 
+Struct fields may contain positive, closed one-dimensional `Table[N, T]`
+values, where `T` is Bits, Enum or a finite, acyclic nominal Struct. A tuple or
+list literal constructs such a field only when its expected Table type is
+known; its length and every element must match that type. Static defaults,
+recursive zero initialization, whole-value copies, projection, selection and
+whole-field replacement preserve the declared element order and all four-state
+bits. This does not introduce general tuple values, dynamic Table shapes or
+Table-of-Table source indexing. Indexed partial writes within a Table-valued
+Struct field remain unsupported.
+
 Canonical direct imports such as `from pycircuit import u1, u8` retain the same
 fixed-bit authority as `ac.u1` and `ac.bits[N]`; aliases and namespace imports
 also resolve through their actual provider. Unrelated or shadowed names reject.
@@ -267,7 +277,7 @@ assignments, if/else, struct defaults/construction/projection and proven table
 indices retain their existing semantics. Overlapping writable parameter aliases
 reject; read-only duplicate bindings are permitted. Unproved index ranges,
 general loops, automatic arbitration between overlapping writers, cross-source
-behavioral rules, Table-in-Struct and cross-domain transactions remain unsupported.
+behavioral rules and cross-domain transactions remain unsupported.
 
 The registered MLIR pass `ac-analyze-rule-writes` analyzes source capture
 before lowering. It retains declaration/registration identity and assignment
@@ -285,8 +295,9 @@ arithmetic and aliases; a spelling or range annotation alone is not a proof.
 Thus `entries[0].a` and `entries[2].a` may compose, while writes to
 `entries[i].a` and `entries[j].a` still reject when their separation is unproved.
 Dynamic `entries[i].a` and `entries[j].b` can compose because their fields differ.
-Whole-element/field, identity and alias conflicts remain checked. Table-of-Table,
-Table-in-Struct and a second index level remain unsupported. Overlapping writers
+Whole-element/field, identity and alias conflicts remain checked. Table-of-Table
+source indexing, indexed partial writes within Table-valued Struct fields and a
+second index level remain unsupported. Overlapping writers
 may use mutually exclusive whole-owner grants or the explicit address-separation
 proof described below. Neither supplies implicit arbitration.
 
@@ -437,8 +448,8 @@ introduce writes to unrelated source variable owners.
 
 Clock/reset and transaction proposals remain compiler-owned. Queue presence
 propagates a hidden physical domain through ordinary module calls, including
-imported stateless parents. This does not add behavioral static parameters,
-Table-in-Struct or general source collection allocation.
+imported stateless parents. This does not add behavioral static parameters or
+general source collection allocation.
 
 ## Branches and binding boundaries
 

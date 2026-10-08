@@ -138,7 +138,8 @@ with tempfile.TemporaryDirectory(
     final = build / "defaults.ac"
     cli("link", unit, "--top", "defaults_probe.design.Top", "-o", final)
     # Each syntactic call remains an instance; the shared local value is fanout.
-    # Top owns two Middle calls and four Add occurrences, Middle owns one Cell.
+    # Top owns two Middle calls, four Add occurrences and one TableProbe;
+    # Middle owns one Cell.
     final_text = final.read_text()
 
     def source_calls(text, owner):
@@ -153,7 +154,7 @@ with tempfile.TemporaryDirectory(
         return calls
 
     calls = source_calls(final_text, "Top")
-    assert sorted(calls) == ["Add"] * 4 + ["Middle", "Middle"], calls
+    assert sorted(calls) == ["Add"] * 4 + ["Middle", "Middle", "TableProbe"], calls
     assert source_calls(final_text, "Middle") == ["Cell"]
     assert '"pyc_clk"' in final_text and '"pyc_rst"' in final_text
     twins = build / "twins.ac"
@@ -286,6 +287,77 @@ def Explicit(value: ac.u5) -> Record:
     )
     compile_source(kind_valid, build / "mapping-valid-unit")
     cases = {
+        "table-default-short": (
+            text.replace("Word(value=5, mark=2),\n                              ", ""),
+            ("table", "length", "count", "extent", "element"),
+        ),
+        "table-default-overridden": (
+            text.replace("Word(value=7, mark=4)", "Word(value=32, mark=4)").replace(
+                "local = Box()", "local = Box(items=0)"
+            ),
+            ("default", "range", "represent", "unsigned", "field"),
+        ),
+        "table-default-runtime": (
+            text.replace("Word(value=7, mark=4)", "Word(value=value, mark=4)"),
+            ("default", "static", "name", "resolve"),
+        ),
+        "table-construction-short": (
+            text.replace("Word(value=9, mark=1),\n                   ", ""),
+            ("table", "length", "count", "extent", "element"),
+        ),
+        "table-construction-long": (
+            text.replace(
+                "Word(value=21, mark=3)]",
+                "Word(value=21, mark=3), Word(value=1, mark=2)]",
+            ),
+            ("table", "length", "count", "extent", "element"),
+        ),
+        "table-construction-wrong-element": (
+            text.replace("Word(value=9, mark=1)", "9"),
+            (
+                "table",
+                "struct",
+                "type",
+                "element",
+                "boundary",
+                "aggregate literal requires contextual zero",
+            ),
+        ),
+        "table-construction-wrong-nominal": (
+            text.replace(
+                "@ac.struct\nclass Box:",
+                "@ac.struct\nclass OtherWord:\n    value: ac.u5\n    mark: ac.u3\n\n@ac.struct\nclass Box:",
+            ).replace("Word(value=9, mark=1)", "OtherWord(value=9, mark=1)"),
+            ("nominal", "struct", "type", "element", "boundary"),
+        ),
+        "table-zero-extent": (
+            text.replace("items: ac.table[3, Word]", "items: ac.table[0, Word]"),
+            ("table", "extent", "positive", "shape"),
+        ),
+        "table-negative-extent": (
+            text.replace("items: ac.table[3, Word]", "items: ac.table[(0 - 3), Word]"),
+            ("table", "extent", "positive", "shape"),
+        ),
+        "table-recursive-field": (
+            text.replace("items: ac.table[3, Word]", "items: ac.table[3, Box]"),
+            ("cycle", "recursive", "struct", "nominal"),
+        ),
+        "table-partial-field-writer": (
+            text.replace("    local.flag = 0", "    local.items[0].value = value"),
+            ("table", "index", "target", "field", "writ", "assign"),
+        ),
+        "tuple-without-context": (
+            text.replace(
+                "    local = Box()", "    untyped = (1, 2, 3)\n    local = Box()"
+            ),
+            ("tuple", "literal", "context", "expression", "unsupported"),
+        ),
+        "list-without-context": (
+            text.replace(
+                "    local = Box()", "    untyped = [1, 2, 3]\n    local = Box()"
+            ),
+            ("list", "literal", "context", "expression", "unsupported"),
+        ),
         "invalid-default-overridden": (
             overridden,
             ("default", "range", "represent", "unsigned", "field"),
@@ -460,9 +532,173 @@ def Caller(value: ac.u5) -> {"out": ac.u5}:
         absent = build / ("invalid-" + name)
         compile_source(caller, absent, accepted=False, interfaces=(provider_unit,))
         assert not absent.exists(), name
+    # Compile consumer with the provider Python removed: only the header may
+    # authorize Frame -> Table[3,Cell] -> Cell's nominal fields.
+    table_provider_source = source / "table_provider.py"
+    table_caller_source = source / "table_caller.py"
+    shutil.copyfile(
+        fixtures / "defaults-composition-table-provider.py", table_provider_source
+    )
+    shutil.copyfile(
+        fixtures / "defaults-composition-table-caller.py", table_caller_source
+    )
+    table_provider = build / "table-provider-unit"
+    table_caller = build / "table-caller-unit"
+    compile_source(table_provider_source, table_provider)
+    table_provider_source.unlink()
+    compile_source(table_caller_source, table_caller, interfaces=(table_provider,))
+    table_final = build / "table-closure.ac"
+    cli(
+        "link",
+        table_provider,
+        table_caller,
+        "--top",
+        "defaults_probe.table_caller.Caller",
+        "-o",
+        table_final,
+    )
+    for target in ("cpp", "verilog"):
+        cli("emit", table_final, "--target", target, "-o", build / ("table-" + target))
+    protected_final = table_final.read_bytes()
+    protected_targets = {
+        target: snapshot(build / ("table-" + target)) for target in ("cpp", "verilog")
+    }
+    protected_caller = snapshot(table_caller)
+
+    def table_protected():
+        assert table_final.read_bytes() == protected_final
+        assert snapshot(table_caller) == protected_caller
+        assert all(
+            snapshot(build / ("table-" + target)) == saved
+            for target, saved in protected_targets.items()
+        )
+
+    caller_text = table_caller_source.read_text()
+    wrong_nominal = caller_text.replace(
+        "@ac.module",
+        "@ac.struct\nclass Shadow:\n    lead: ac.u3\n    cells: ac.table[3, ac.u9]\n    trail: ac.u1\n\n@ac.module",
+        1,
+    ).replace("-> Frame:", "-> Shadow:")
+    table_caller_source.write_text(wrong_nominal)
+    compile_source(
+        table_caller_source,
+        table_caller,
+        accepted=False,
+        replace=True,
+        interfaces=(table_provider,),
+    )
+    table_protected()
+    absent_caller = build / "wrong-table-nominal-unit"
+    compile_source(
+        table_caller_source, absent_caller, accepted=False, interfaces=(table_provider,)
+    )
+    assert not absent_caller.exists()
+    table_caller_source.write_text(caller_text)
+
+    # Missing provider closure must preserve the final IR and both targets.
+    cli(
+        "link",
+        table_caller,
+        "--top",
+        "defaults_probe.table_caller.Caller",
+        "-o",
+        table_final,
+        "--replace",
+        accepted=False,
+    )
+    table_protected()
+    missing_table_final = build / "missing-table-closure.ac"
+    cli(
+        "link",
+        table_caller,
+        "--top",
+        "defaults_probe.table_caller.Caller",
+        "-o",
+        missing_table_final,
+        accepted=False,
+    )
+    assert not missing_table_final.exists()
+
+    for kind in ("interface", "body"):
+        substituted = build / ("table-substituted-" + kind)
+        shutil.copytree(table_provider, substituted)
+        metadata = json.loads((substituted / "unit.json").read_text())
+        payload = substituted / metadata["files"][kind]
+        original = payload.read_text()
+        changed = original.replace('name = "stamp"', 'name = "different_stamp"', 1)
+        assert (
+            changed != original
+        ), "nominal field mutation did not reach provider declaration"
+        payload.write_text(changed)
+        # Each schema still has the same packed width; name authority differs.
+        cli(
+            "link",
+            substituted,
+            table_caller,
+            "--top",
+            "defaults_probe.table_caller.Caller",
+            "-o",
+            table_final,
+            "--replace",
+            accepted=False,
+        )
+        table_protected()
+        absent = build / ("substituted-" + kind + ".ac")
+        cli(
+            "link",
+            substituted,
+            table_caller,
+            "--top",
+            "defaults_probe.table_caller.Caller",
+            "-o",
+            absent,
+            accepted=False,
+        )
+        assert not absent.exists()
+
+    invalid_table_final = build / "invalid-table-final.ac"
+    table_final_text = table_final.read_text()
+    invalid_text = table_final_text.replace(
+        "defaults_probe.table_provider.Cell",
+        "defaults_probe.table_provider.MissingCell",
+        1,
+    )
+    assert invalid_text != table_final_text
+    invalid_table_final.write_text(invalid_text)
+    for target in ("cpp", "verilog"):
+        cli(
+            "emit",
+            invalid_table_final,
+            "--target",
+            target,
+            "-o",
+            build / ("table-" + target),
+            "--replace",
+            accepted=False,
+        )
+        table_protected()
+        absent = build / ("invalid-table-" + target)
+        cli(
+            "emit",
+            invalid_table_final,
+            "--target",
+            target,
+            "-o",
+            absent,
+            accepted=False,
+        )
+        assert not absent.exists()
+
     inputs = [
         fixtures / ("defaults-composition" + suffix)
-        for suffix in ("-design.py", ".py", ".cpp", ".sv")
+        for suffix in (
+            "-design.py",
+            "-table-provider.py",
+            "-table-caller.py",
+            ".py",
+            ".cpp",
+            ".sv",
+        )
     ]
     (scratch / "candidate.json").write_text(
         json.dumps(
@@ -485,6 +721,10 @@ def Caller(value: ac.u5) -> {"out": ac.u5}:
                 "generated_child_failure_and_discard_retry": True,
                 "native_data_value_known_z_planes_preserved": True,
                 "scalar_table_literal_and_expression_images": 7,
+                "table_field_saved_flagged_replaced_selected_zero_defaults": True,
+                "table_field_nominal_header_only_consumer": True,
+                "table_field_body_header_substitutions_rejected": True,
+                "table_field_failed_link_emit_preserved_products": True,
             },
             indent=2,
         )

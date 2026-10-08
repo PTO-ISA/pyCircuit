@@ -1880,7 +1880,7 @@ S3C_GUARDS = {
     "raw-nominal": "enum_from_bits requires authoritative fixed bits",
     "marker-shadow-formal": "module input shadows a source declaration or namespace",
     "chained-tuple": "enum_from_bits requires one two-name Tuple target",
-    "arbitrary-tuple-producer": "unsupported hardware expression 'Tuple'",
+    "arbitrary-tuple-producer": "tuple/list literal requires an expected Table type",
     "untyped-producer": "enum_from_bits[Enum] requires exactly one positional bits value",
 }
 

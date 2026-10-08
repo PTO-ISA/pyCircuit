@@ -37,8 +37,10 @@ LogicalResult emitRecord(HardwareEmitContext &context, ac::StructOp record,
     return success();
   for (auto raw : record.getFields()) {
     auto field = cast<DictionaryAttr>(raw);
-    if (auto nested = dyn_cast<ac::StructType>(
-            field.getAs<TypeAttr>("type").getValue())) {
+    Type dependency = field.getAs<TypeAttr>("type").getValue();
+    while (auto table = dyn_cast<ac::TableType>(dependency))
+      dependency = table.getElementType();
+    if (auto nested = dyn_cast<ac::StructType>(dependency)) {
       auto declaration = context.analysis.lookupStruct(nested);
       if (!declaration || failed(emitRecord(context, declaration, out, done)))
         return failure();

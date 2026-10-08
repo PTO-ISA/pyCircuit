@@ -63,6 +63,38 @@ if (node.kind() == "Constant" && expected && isa<ac::EnumType>(*expected))
   return error() << "source Integer/Boolean literals cannot be implicitly "
                     "converted to Enum";
 // Aggregate and unsigned expressions use the same expression recursion.
+if (node.kind() == "Tuple" || node.kind() == "List") {
+  auto table = expected ? dyn_cast<ac::TableType>(*expected) : ac::TableType();
+  if (!table)
+    return error() << "tuple/list literal requires an expected Table type";
+  ac::HardwareAnalysis analysis(*body);
+  auto shape = analysis.getTableShape(table, {}, body->getOperation());
+  if (failed(shape))
+    return failure();
+  if (shape->size() != 1 ||
+      !isa<ac::BitsType, ac::EnumType, ac::StructType>(table.getElementType()))
+    return error() << "Table literal requires a positive closed "
+                      "one-dimensional Table of bits, enum or struct";
+  if (node.array("elts").size() != shape->front())
+    return error() << "Table literal element count disagrees with extent";
+  SmallVector<Value> elements;
+  for (size_t i = 0; i < node.array("elts").size(); ++i) {
+    auto element = node.item("elts", i);
+    auto value = expression(element, at, ownerSymbol, values, instances,
+                            table.getElementType(), captures);
+    if (failed(value))
+      return failure();
+    auto converted = unsignedBoundary(*value, table.getElementType(), element,
+                                      at, ownerSymbol);
+    if (failed(converted))
+      return failure();
+    elements.push_back(*converted);
+  }
+  return createOp(at, node.location(b.getContext(), source.path),
+                  ac::TableCreateOp::getOperationName(), elements,
+                  TypeRange{table}, {})
+      ->getResult(0);
+}
 if (node.kind() == "Constant" && expected && !isa<ac::BitsType>(*expected)) {
   auto encoded = dyn_cast_or_null<DictionaryAttr>(node.get("value"));
   auto spelling = encoded ? encoded.getAs<StringAttr>("integer") : StringAttr();

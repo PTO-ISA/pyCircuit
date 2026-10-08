@@ -681,15 +681,28 @@ LogicalResult Importer::scanStructs() {
       auto name = field.child("target").string("id");
       if (!seen.insert(name).second)
         return error() << "duplicate struct field";
-      if (!fixedAnnotation(field.child("annotation")) &&
-          !nominalAnnotation(field.child("annotation")))
+      auto annotation = field.child("annotation");
+      bool tableAnnotation = annotation.kind() == "Subscript" &&
+                             intrinsic(annotation.child("value"), "table");
+      if (!fixedAnnotation(annotation) && !nominalAnnotation(annotation) &&
+          !tableAnnotation)
         return error() << "struct fields require explicitly unsigned bits or "
-                          "nominal structs/enums";
-      auto type = portType(field.child("annotation"), symbol);
+                          "nominal structs/enums or finite tables";
+      auto type = portType(annotation, symbol);
       if (failed(type))
         return failure();
-      if (!isa<ac::BitsType, ac::StructType, ac::EnumType>(*type))
-        return error() << "struct field requires bits, struct or enum";
+      if (!isa<ac::BitsType, ac::StructType, ac::EnumType, ac::TableType>(*type))
+        return error() << "struct field requires bits, struct, enum or table";
+      if (auto table = dyn_cast<ac::TableType>(*type)) {
+        auto shape = ac::HardwareAnalysis(*body).resolveShape(
+            table.getShape(), {}, body->getOperation());
+        if (failed(shape))
+          return failure();
+        if (shape->size() != 1)
+          return error()
+                 << "struct Table field requires a positive closed "
+                    "one-dimensional shape";
+      }
       defaults.push_back(field.child("value"));
       fields.push_back(
           b.getDictionaryAttr({b.getNamedAttr("name", b.getStringAttr(name)),

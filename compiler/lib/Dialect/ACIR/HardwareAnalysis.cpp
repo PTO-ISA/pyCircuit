@@ -4,7 +4,6 @@
 #include "llvm/ADT/ScopeExit.h"
 #include "llvm/ADT/StringSet.h"
 #include <algorithm>
-#include <functional>
 #include <limits>
 #include <optional>
 #include <thread>
@@ -199,6 +198,76 @@ FailureOr<uint64_t> natural(Attribute attr, Operation *site, bool positive) {
            << "hardware static value must be "
            << (positive ? "positive" : "nonnegative") << " and fit u64";
   return value.getZExtValue();
+}
+
+// Tables occupy one compact leaf. Their element traversal checks finite width
+// with the same active stack as surrounding records, without expanding lanes.
+LogicalResult visitPackedLayout(const HardwareAnalysis &analysis, Type type,
+                                const HardwareBindings &bindings,
+                                Operation *site, llvm::DenseSet<Type> &active,
+                                SmallVector<PackedLeaf> *leaves, FieldPath path,
+                                uint64_t &low) {
+  auto resolved = analysis.resolveType(type, bindings, site);
+  if (failed(resolved))
+    return failure();
+  type = *resolved;
+  if (!active.insert(type).second)
+    return site->emitOpError() << "recursive packed struct layout";
+  llvm::scope_exit cleanup([&] { active.erase(type); });
+
+  uint64_t width;
+  if (auto bits = dyn_cast<BitsType>(type)) {
+    auto value = analysis.evaluateStatic(bits.getWidth(), bindings, site);
+    if (failed(value))
+      return failure();
+    auto naturalWidth = natural(*value, site, true);
+    if (failed(naturalWidth))
+      return failure();
+    width = *naturalWidth;
+  } else if (auto enumeration = dyn_cast<EnumType>(type)) {
+    auto definition = analysis.resolveEnum(enumeration, site);
+    if (failed(definition))
+      return failure();
+    width = definition->width;
+  } else if (auto table = dyn_cast<TableType>(type)) {
+    auto count = analysis.getTableSize(table, bindings, site);
+    if (failed(count))
+      return failure();
+    uint64_t elementWidth = 0;
+    if (failed(visitPackedLayout(analysis, table.getElementType(), bindings,
+                               site, active, nullptr, {}, elementWidth)))
+      return failure();
+    if (elementWidth > std::numeric_limits<uint64_t>::max() / *count)
+      return site->emitOpError() << "table packed width overflow";
+    width = *count * elementWidth;
+  } else if (auto record = dyn_cast<StructType>(type)) {
+    auto declaration = analysis.lookupStruct(record);
+    if (!declaration)
+      return failure();
+    // Walking backward gives field zero the most significant packed position.
+    for (Attribute raw : llvm::reverse(declaration.getFields())) {
+      auto field = dyn_cast<DictionaryAttr>(raw);
+      if (!field || !field.getAs<TypeAttr>("type") ||
+          !field.getAs<StringAttr>("name"))
+        return site->emitOpError() << "invalid struct field";
+      auto next = path;
+      next.push_back(field.getAs<StringAttr>("name"));
+      if (failed(visitPackedLayout(analysis,
+                                 field.getAs<TypeAttr>("type").getValue(),
+                                 bindings, site, active, leaves, next, low)))
+        return failure();
+    }
+    return success();
+  } else {
+    return site->emitOpError()
+           << "unresolved type parameter in finite hardware layout";
+  }
+  if (low > std::numeric_limits<uint64_t>::max() - width)
+    return site->emitOpError() << "packed width overflow";
+  if (leaves)
+    leaves->push_back({path, type, low, width});
+  low += width;
+  return success();
 }
 } // namespace
 
@@ -446,97 +515,38 @@ HardwareAnalysis::getLeaves(Type type, const HardwareBindings &bindings,
   if (failed(rootType))
     return failure();
   type = *rootType;
-  if (auto table = dyn_cast<TableType>(type)) {
-    auto width = getPackedWidth(table, bindings, site);
-    if (failed(width))
-      return failure();
-    // Keep table layout compact; element leaves belong to the element layout.
-    return SmallVector<PackedLeaf>{{{}, type, 0, *width}};
+  // Nominal fields may depend on occurrence bindings despite a resolved root.
+  // Cache only layouts established without an occurrence-dependent context.
+  bool cacheable = !bindings.owner && bindings.integers.empty() &&
+                   bindings.types.empty();
+  if (cacheable) {
+    auto cached = layouts.find(type);
+    if (cached != layouts.end())
+      return cached->second;
   }
-  auto cached = layouts.find(type);
-  if (cached != layouts.end())
-    return cached->second;
   SmallVector<PackedLeaf> leaves;
   llvm::DenseSet<Type> active;
-  std::function<LogicalResult(Type, FieldPath, uint64_t &)> visit;
-  visit = [&](Type current, FieldPath path, uint64_t &low) -> LogicalResult {
-    auto resolved = resolveType(current, bindings, site);
-    if (failed(resolved))
-      return failure();
-    current = *resolved;
-    if (!active.insert(current).second)
-      return site->emitOpError() << "recursive packed struct layout";
-    llvm::scope_exit cleanup([&] { active.erase(current); });
-    if (auto bits = dyn_cast<BitsType>(current)) {
-      auto value = evaluateStatic(bits.getWidth(), bindings, site);
-      if (failed(value))
-        return failure();
-      auto width = natural(*value, site, true);
-      if (failed(width))
-        return failure();
-      if (low > std::numeric_limits<uint64_t>::max() - *width)
-        return site->emitOpError() << "packed width overflow";
-      leaves.push_back({path, current, low, *width});
-      low += *width;
-      return success();
-    }
-    if (auto enumeration = dyn_cast<EnumType>(current)) {
-      auto definition = resolveEnum(enumeration, site);
-      if (failed(definition))
-        return failure();
-      if (low > std::numeric_limits<uint64_t>::max() - definition->width)
-        return site->emitOpError() << "packed width overflow";
-      leaves.push_back({path, current, low, definition->width});
-      low += definition->width;
-      return success();
-    }
-    auto record = dyn_cast<StructType>(current);
-    if (!record)
-      return site->emitOpError()
-             << "unresolved type parameter in finite hardware layout";
-    auto decl = lookupStruct(record);
-    if (!decl)
-      return failure();
-    for (Attribute raw : llvm::reverse(decl.getFields())) {
-      auto field = dyn_cast<DictionaryAttr>(raw);
-      if (!field || !field.getAs<TypeAttr>("type") ||
-          !field.getAs<StringAttr>("name"))
-        return site->emitOpError() << "invalid struct field";
-      auto next = path;
-      next.push_back(field.getAs<StringAttr>("name"));
-      if (failed(visit(field.getAs<TypeAttr>("type").getValue(), next, low)))
-        return failure();
-    }
-    return success();
-  };
   uint64_t width = 0;
-  if (failed(visit(type, {}, width)))
+  if (failed(visitPackedLayout(*this, type, bindings, site, active, &leaves, {},
+                             width)))
     return failure();
   std::reverse(leaves.begin(), leaves.end());
-  layouts.try_emplace(type, leaves);
+  if (cacheable)
+    layouts.try_emplace(type, leaves);
   return leaves;
 }
 FailureOr<uint64_t>
 HardwareAnalysis::getPackedWidth(Type type, const HardwareBindings &bindings,
                                  Operation *site) const {
-  auto resolved = resolveType(type, bindings, site);
-  if (failed(resolved))
-    return failure();
-  if (auto table = dyn_cast<TableType>(*resolved)) {
-    auto count = getTableSize(table, bindings, site);
-    auto width = getPackedWidth(table.getElementType(), bindings, site);
-    if (failed(count) || failed(width))
-      return failure();
-    if (*width > std::numeric_limits<uint64_t>::max() / *count)
-      return site->emitOpError() << "table packed width overflow";
-    return *count * *width;
-  }
   auto leaves = getLeaves(type, bindings, site);
   if (failed(leaves))
     return failure();
   uint64_t width = 0;
-  for (auto leaf : *leaves)
+  for (const auto &leaf : *leaves) {
+    if (width > std::numeric_limits<uint64_t>::max() - leaf.width)
+      return site->emitOpError() << "packed width overflow";
     width += leaf.width;
+  }
   return width;
 }
 FailureOr<HardwareBindings>

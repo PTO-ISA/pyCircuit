@@ -32,7 +32,12 @@ The slice uses fixed-width unsigned bit payloads, exact local Integer values,
 statically proven indices and multiple state-writing rules with disjoint owner
 or nested Struct-field write sets, and one-dimensional Table writers on distinct
 direct-literal elements or disjoint element fields. Table element payloads may be
-Bits, Enum or recursively nested Struct. Dynamic same-field indices require
+Bits, Enum or recursively nested Struct. Struct fields may contain positive,
+closed one-dimensional Tables. Contextual tuple/list literals construct their
+elements under the declared type; static defaults, zero initialization and
+whole-field replacement use the existing Struct/Table flow. Indexed partial
+writes within these fields and a second source index level remain unsupported.
+Dynamic same-field indices require
 explicit address-separating grants proved against assignment-time SSA, or proven
 mutually exclusive whole-owner grants. Range facts alone do not separate addresses.
 Rules may register through ordinary statement

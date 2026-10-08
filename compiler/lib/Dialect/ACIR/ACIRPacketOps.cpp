@@ -22,9 +22,10 @@ LogicalResult StructOp::verify() {
     auto type = field ? field.getAs<TypeAttr>("type") : TypeAttr();
     if (!field || field.size() != 2 || !name || name.getValue().empty() ||
         !names.insert(name.getValue()).second || !type ||
-        !isa<BitsType, StructType, EnumType>(type.getValue()))
+        !isa<BitsType, StructType, EnumType, TableType>(type.getValue()))
       return emitOpError()
-             << "fields require unique names and finite bits/struct/enum types";
+             << "fields require unique names and finite "
+                "bits/struct/enum/table types";
   }
   HardwareAnalysis analysis((*this)->getParentOfType<mlir::ModuleOp>());
   return success(succeeded(analysis.getPackedWidth(

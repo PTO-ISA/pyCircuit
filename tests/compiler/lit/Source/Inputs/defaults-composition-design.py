@@ -31,12 +31,68 @@ class ChildResult:
 
 
 @ac.struct
+class Word:
+    value: ac.u5
+    mark: ac.u3
+
+
+@ac.struct
+class Box:
+    items: ac.table[3, Word] = (Word(value=3, mark=1),
+                              Word(value=5, mark=2),
+                              Word(value=7, mark=4))
+    flag: ac.u1 = 1
+
+
+@ac.struct
+class TableSnapshot:
+    saved: Box
+    flagged: Box
+    replaced: Box
+    selected: Box
+    zero: Box
+    defaulted: Box
+    old_entry: Box
+    proposed_entry: Box
+    peer_entry: Box
+
+
+@ac.struct
 class Result:
     left: ChildResult
     right: ChildResult
     fanout: ac.u5
     sequential: ac.u5
     nested: ac.u5
+    table_probe: TableSnapshot
+
+
+@ac.rule
+def table_snapshots(boxes, value, enable, index):
+    local = Box()
+    saved = local
+    local.flag = enable
+    flagged = local
+    local.items = [Word(value=value, mark=6), Word(value=9, mark=1),
+                   Word(value=21, mark=3)]
+    replaced = local
+    local.flag = 0
+    selected = replaced if enable else saved
+    old_entry = boxes[index]
+    if enable:
+        boxes[index] = Box(items=(Word(value=value, mark=6),
+                                  Word(value=9, mark=1),
+                                  Word(value=21, mark=3)), flag=0)
+    return TableSnapshot(saved=saved, flagged=flagged, replaced=replaced,
+                         selected=selected, zero=0, defaulted=Box(),
+                         old_entry=old_entry, proposed_entry=boxes[index],
+                         peer_entry=boxes[index ^ 1])
+
+
+@ac.module
+def TableProbe(value: ac.u5, enable: ac.u1, index: ac.u1) -> TableSnapshot:  # noqa: N802
+    boxes = ac.table[2, Box](init=Box())
+    return table_snapshots(boxes, value, enable, index)
 
 
 @ac.rule
@@ -97,8 +153,10 @@ def Top(left_enable: ac.u1, right_enable: ac.u1, index: ac.u1,  # noqa: N802
     fanout = shared
     following = Add(shared.value)
     nested = Add(Add(right.proposed).value)
+    table_probe = TableProbe(value, left_enable, index)
     return Result(left=left, right=right, fanout=fanout.value,
-                  sequential=following.value, nested=nested.value)
+                  sequential=following.value, nested=nested.value,
+                  table_probe=table_probe)
 
 
 @ac.struct

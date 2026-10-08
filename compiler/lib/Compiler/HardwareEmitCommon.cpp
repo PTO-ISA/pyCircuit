@@ -1324,6 +1324,14 @@ HardwareEmitContext::payloadWidth(Type type, Operation *site, bool rtl,
   }
   if (auto bits = dyn_cast<ac::BitsType>(type))
     return staticTree(*this, bits.getWidth().getTree(), site, rtl, &bindings);
+  if (rtl && isa<ac::StructType, ac::EnumType>(type)) {
+    // Nominal layouts are verified by common analysis. Render their finite
+    // width directly: $bits(package::type) is not portable in packed ranges.
+    auto width = analysis.getPackedWidth(type, bindings, site);
+    if (failed(width))
+      return failure();
+    return std::to_string(*width);
+  }
   auto text = rtl ? rtlType(type, site) : cppType(type, bindings, site);
   if (failed(text))
     return failure();

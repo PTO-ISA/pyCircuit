@@ -1,7 +1,7 @@
 # Examples navigation
 
 Examples use the single Python → MLIR → C++/Verilog → runner flow.
-The current catalog contains **62** runnable examples and **25** API-owned coverage cases.
+The current catalog contains **64** runnable examples and **25** API-owned coverage cases.
 
 - [Writing and verification standard](STANDARD.md)
 - [System execution](../docs/architecture/system-execution.md)
@@ -45,6 +45,8 @@ The current catalog contains **62** runnable examples and **25** API-owned cover
 | [bitfield_decode_pipeline](bitfield_decode_pipeline/README.md) | [Python](bitfield_decode_pipeline/bitfield_decode_pipeline.py) | [BitfieldDecodePipelineSystem](bitfield_decode_pipeline/bench.py) | [driver](bitfield_decode_pipeline/driver.cpp) | [testbench](bitfield_decode_pipeline/rtl_tb.sv) | — |
 | [inferred_boundary_pipeline](inferred_boundary_pipeline/README.md) | [Python](inferred_boundary_pipeline/inferred_boundary_pipeline.py) | [InferredBoundaryPipelineSystem](inferred_boundary_pipeline/bench.py) | [driver](inferred_boundary_pipeline/driver.cpp) | [testbench](inferred_boundary_pipeline/rtl_tb.sv) | — |
 | [nested_payload_pipeline](nested_payload_pipeline/README.md) | [Python](nested_payload_pipeline/nested_payload_pipeline.py) | [NestedPayloadPipelineSystem](nested_payload_pipeline/bench.py) | [driver](nested_payload_pipeline/driver.cpp) | [testbench](nested_payload_pipeline/rtl_tb.sv) | [artifacts](nested_payload_pipeline/GENERATED.md) |
+| [aggregate_payload_pipeline](aggregate_payload_pipeline/README.md) | [Python](aggregate_payload_pipeline/aggregate_payload_pipeline.py) | [AggregatePayloadPipelineSystem](aggregate_payload_pipeline/bench.py) | [driver](aggregate_payload_pipeline/driver.cpp) | [testbench](aggregate_payload_pipeline/rtl_tb.sv) | [artifacts](aggregate_payload_pipeline/GENERATED.md) |
+| [recursive_aggregate_payload_pipeline](recursive_aggregate_payload_pipeline/README.md) | [Python](recursive_aggregate_payload_pipeline/recursive_aggregate_payload_pipeline.py) | [RecursiveAggregatePayloadPipelineSystem](recursive_aggregate_payload_pipeline/bench.py) | [driver](recursive_aggregate_payload_pipeline/driver.cpp) | [testbench](recursive_aggregate_payload_pipeline/rtl_tb.sv) | [artifacts](recursive_aggregate_payload_pipeline/GENERATED.md) |
 | [rule_pipeline](rule_pipeline/README.md) | [Python](rule_pipeline/rule_pipeline.py) | [RulePipelineSystem](rule_pipeline/bench.py) | [driver](rule_pipeline/driver.cpp) | [testbench](rule_pipeline/rtl_tb.sv) | [artifacts](rule_pipeline/GENERATED.md) |
 | [popcount_pipeline](popcount_pipeline/README.md) | [Python](popcount_pipeline/popcount_pipeline.py) | [PopcountPipelineSystem](popcount_pipeline/bench.py) | [driver](popcount_pipeline/driver.cpp) | [testbench](popcount_pipeline/rtl_tb.sv) | [artifacts](popcount_pipeline/GENERATED.md) |
 | [queue_pipeline](queue_pipeline/README.md) | [Python](queue_pipeline/queue_pipeline.py) | [QueuePipelineSystem](queue_pipeline/bench.py) | [driver](queue_pipeline/driver.cpp) | [testbench](queue_pipeline/rtl_tb.sv) | [artifacts](queue_pipeline/GENERATED.md) |
