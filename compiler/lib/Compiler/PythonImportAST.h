@@ -4,7 +4,9 @@
 #include "Dialect/ACIR/ACIRSourceContracts.h"
 
 #include "mlir/IR/BuiltinOps.h"
+#include "llvm/ADT/DenseMap.h"
 #include "llvm/ADT/SmallVector.h"
+#include "llvm/ADT/StringMap.h"
 
 #include <cstddef>
 #include <cstdint>
@@ -37,6 +39,9 @@ struct AstNode {
 struct CapturedSource {
   std::string path;
   AstNode module;
+  // Scope-local scans depend only on the immutable AST and an owned name key.
+  mutable llvm::DenseMap<mlir::DictionaryAttr, llvm::StringMap<bool>>
+      scopeBindingCache{};
 };
 
 bool sourceBindingShadowed(const CapturedSource &source, const AstNode &node,

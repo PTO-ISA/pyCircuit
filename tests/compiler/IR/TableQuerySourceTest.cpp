@@ -157,17 +157,179 @@ TEST_F(TableQuerySourceBoundary, RejectsMalformedArgumentsBeforeNullableArrayAcc
 
 TEST_F(TableQuerySourceBoundary, LambdaArgumentShadowsOnlyInsideItsBody) {
   auto callback = lambda(arguments({argument("ac")}), attribute("ac", "concat"));
+  auto positionalOnly = lambda(
+      change(arguments(), "posonlyargs", b.getArrayAttr({argument("ac")})),
+      attribute("ac", "concat"));
   auto imported = node("Import", {field("names", b.getArrayAttr({node("alias", {
       field("name", b.getStringAttr("pycircuit")), field("asname", b.getStringAttr("ac"))})}))});
   auto input = transport({imported, node("Expr", {field("value", callback)}),
-                          node("Expr", {field("value", attribute("ac", "concat"))})});
+                          node("Expr", {field("value", attribute("ac", "concat"))}),
+                          node("Expr", {field("value", positionalOnly)})});
   auto source = capture(*input);
   ASSERT_TRUE(succeeded(source));
   auto inside = source->module.item("body", 1).child("value").child("body").child("value");
   auto outside = source->module.item("body", 2).child("value").child("value");
-  EXPECT_TRUE(detail::sourceBindingShadowed(*source, inside, "ac"));
-  EXPECT_FALSE(detail::sourceBindingShadowed(*source, outside, "ac"));
-  EXPECT_FALSE(detail::sourceBindingShadowed(*source, inside, "other"));
+  auto onlyInside = source->module.item("body", 3).child("value").child("body").child("value");
+  auto declaration = source->module.item("body", 1).child("value").child("args").item("args", 0);
+  for (unsigned repeat = 0; repeat < 4; ++repeat) {
+    EXPECT_TRUE(detail::sourceBindingShadowed(*source, inside, "ac"));
+    EXPECT_FALSE(detail::sourceBindingShadowed(*source, outside, "ac"));
+    EXPECT_TRUE(detail::sourceBindingShadowed(*source, onlyInside, "ac"));
+    EXPECT_FALSE(detail::sourceBindingShadowed(*source, declaration, "ac"));
+    EXPECT_FALSE(detail::sourceBindingShadowed(*source, inside, "other"));
+  }
+}
+
+TEST_F(TableQuerySourceBoundary, LateLexicalBindingSurvivesRepeatedTemporaryNameQueries) {
+  const StringRef bound = "late_binding_with_owned_query_name";
+  auto scope = function("Top", arguments(), {
+      node("Expr", {field("value", name(bound))}),
+      node("Assign", {field("targets", b.getArrayAttr({name(bound)})),
+                       field("value", integer("1"))})}, "module");
+  auto input = transport({scope});
+  std::string before, after;
+  { llvm::raw_string_ostream out(before); input->print(out); }
+  auto source = capture(*input);
+  ASSERT_TRUE(succeeded(source));
+  auto reference = source->module.item("body", 0).item("body", 0).child("value");
+  auto originalSpan = reference.value.getAs<DictionaryAttr>("span");
+  for (unsigned repeat = 0; repeat < 8; ++repeat) {
+    // Each query's allocated name storage dies before the following query.
+    EXPECT_TRUE(detail::sourceBindingShadowed(
+        *source, reference, std::string("late_binding_") + "with_owned_query_name"));
+    EXPECT_FALSE(detail::sourceBindingShadowed(
+        *source, reference, std::string("missing_binding_") + "with_owned_query_name"));
+    EXPECT_FALSE(detail::sourceBindingShadowed(*source, reference, "ac"));
+    EXPECT_TRUE(detail::sourceBindingShadowed(*source, reference, bound));
+  }
+  EXPECT_EQ(source->path, "query.py");
+  EXPECT_EQ(source->module.item("body", 0).value, scope);
+  EXPECT_EQ(reference.value.getAs<DictionaryAttr>("span"), originalSpan);
+  ASSERT_EQ(reference.path.size(), 5u);
+  EXPECT_EQ(reference.path[0].field, "body");
+  EXPECT_EQ(reference.path[1].index, 0u);
+  EXPECT_EQ(reference.path[2].field, "body");
+  EXPECT_EQ(reference.path[3].index, 0u);
+  EXPECT_EQ(reference.path[4].field, "value");
+  { llvm::raw_string_ostream out(after); input->print(out); }
+  EXPECT_EQ(before, after);
+}
+
+TEST_F(TableQuerySourceBoundary, NestedDefinitionBodiesKeepTheirBindingsLocal) {
+  auto nested = function("Nested", arguments(), {
+      node("Expr", {field("value", name("function_local"))}),
+      node("Assign", {field("targets", b.getArrayAttr({name("function_local")})),
+                       field("value", integer("1"))})}, "rule");
+  auto nestedClass = node("ClassDef", {
+      field("name", b.getStringAttr("NestedClass")),
+      field("bases", b.getArrayAttr({})), field("keywords", b.getArrayAttr({})),
+      field("decorator_list", b.getArrayAttr({})),
+      field("body", b.getArrayAttr({
+          node("Expr", {field("value", name("class_local"))}),
+          node("Assign", {field("targets", b.getArrayAttr({name("class_local")})),
+                           field("value", integer("1"))})}))});
+  auto input = transport({function("Top", arguments(), {
+      node("Expr", {field("value", name("function_local"))}), nested, nestedClass}, "module")});
+  auto source = capture(*input);
+  ASSERT_TRUE(succeeded(source));
+  auto outer = source->module.item("body", 0);
+  auto outside = outer.item("body", 0).child("value");
+  auto inFunction = outer.item("body", 1).item("body", 0).child("value");
+  auto inClass = outer.item("body", 2).item("body", 0).child("value");
+  for (unsigned repeat = 0; repeat < 4; ++repeat) {
+    EXPECT_TRUE(detail::sourceBindingShadowed(*source, inFunction, "function_local"));
+    EXPECT_FALSE(detail::sourceBindingShadowed(*source, outside, "function_local"));
+    EXPECT_TRUE(detail::sourceBindingShadowed(*source, inClass, "class_local"));
+    EXPECT_FALSE(detail::sourceBindingShadowed(*source, outside, "class_local"));
+    EXPECT_FALSE(detail::sourceBindingShadowed(*source, inFunction, "class_local"));
+    EXPECT_FALSE(detail::sourceBindingShadowed(*source, inClass, "function_local"));
+    EXPECT_TRUE(detail::sourceBindingShadowed(*source, outside, "Nested"));
+    EXPECT_TRUE(detail::sourceBindingShadowed(*source, outside, "NestedClass"));
+  }
+}
+
+TEST_F(TableQuerySourceBoundary, SharedInnerScopeRetainsOccurrenceSpecificOuterBindings) {
+  auto shared = function("Inner", arguments(), {
+      node("Expr", {field("value", name("ac"))})}, "rule");
+  auto shadowed = function("Shadowed", arguments(), {
+      shared, node("Assign", {field("targets", b.getArrayAttr({name("ac")})),
+                               field("value", integer("1"))})}, "module");
+  auto clear = function("Clear", arguments(), {shared}, "module");
+  auto input = transport({shadowed, clear});
+  auto source = capture(*input);
+  ASSERT_TRUE(succeeded(source));
+  auto shadowedInner = source->module.item("body", 0).item("body", 0);
+  auto clearInner = source->module.item("body", 1).item("body", 0);
+  ASSERT_EQ(shadowedInner.value, clearInner.value);
+  auto inShadowed = shadowedInner.item("body", 0).child("value");
+  auto inClear = clearInner.item("body", 0).child("value");
+  for (unsigned repeat = 0; repeat < 4; ++repeat) {
+    EXPECT_TRUE(detail::sourceBindingShadowed(*source, inShadowed, "ac"));
+    EXPECT_FALSE(detail::sourceBindingShadowed(*source, inClear, "ac"));
+    EXPECT_FALSE(detail::sourceBindingShadowed(*source, inClear, "absent"));
+    EXPECT_FALSE(detail::sourceBindingShadowed(*source, inShadowed, "absent"));
+  }
+}
+
+TEST_F(TableQuerySourceBoundary, FunctionArgumentsBindOnlyInsideBody) {
+  auto args = arguments({change(argument("positional"), "annotation", name("positional"))});
+  args = change(args, "posonlyargs", b.getArrayAttr({argument("posonly")}));
+  args = change(args, "kwonlyargs", b.getArrayAttr({argument("keyword")}));
+  args = change(args, "vararg", argument("variadic"));
+  args = change(args, "kwarg", argument("keywords"));
+  args = change(args, "defaults", b.getArrayAttr({name("positional")}));
+  args = change(args, "kw_defaults", b.getArrayAttr({name("keyword")}));
+  auto scope = function("Top", args, {
+      node("Expr", {field("value", name("positional"))})}, "module");
+  scope = change(scope, "decorator_list", b.getArrayAttr({attribute("positional", "module")}));
+  scope = change(scope, "returns", name("positional"));
+  auto input = transport({scope});
+  auto source = capture(*input);
+  ASSERT_TRUE(succeeded(source));
+  auto capturedScope = source->module.item("body", 0);
+  auto inside = capturedScope.item("body", 0).child("value");
+  std::array<detail::AstNode, 5> headers{
+      capturedScope.child("args").item("args", 0).child("annotation"),
+      capturedScope.child("args").item("defaults", 0),
+      capturedScope.child("args").item("kw_defaults", 0),
+      capturedScope.item("decorator_list", 0).child("value"),
+      capturedScope.child("returns")};
+  for (unsigned repeat = 0; repeat < 4; ++repeat) {
+    for (StringRef binding : {"positional", "posonly", "keyword", "variadic", "keywords"}) {
+      EXPECT_TRUE(detail::sourceBindingShadowed(*source, inside, binding));
+      for (const auto &header : headers)
+        EXPECT_FALSE(detail::sourceBindingShadowed(*source, header, binding));
+    }
+    EXPECT_FALSE(detail::sourceBindingShadowed(*source, inside, "absent"));
+  }
+}
+
+TEST_F(TableQuerySourceBoundary, CaptureReplacementKeepsBindingAnswersIndependent) {
+  auto makeScope = [&](StringRef binding) {
+    return function("Top", arguments(), {
+        node("Expr", {field("value", name("ac"))}),
+        node("Assign", {field("targets", b.getArrayAttr({name(binding)})),
+                         field("value", integer("1"))})}, "module");
+  };
+  auto input = transport({makeScope("ac")});
+  auto original = capture(*input);
+  ASSERT_TRUE(succeeded(original));
+  auto originalReference = original->module.item("body", 0).item("body", 0).child("value");
+  EXPECT_TRUE(detail::sourceBindingShadowed(*original, originalReference, "ac"));
+  EXPECT_FALSE(detail::sourceBindingShadowed(*original, originalReference, "other"));
+
+  auto replacementInput = transport({makeScope("other")});
+  (*input)->setAttr("ac.python_capture", (*replacementInput)->getAttr("ac.python_capture"));
+  auto replacement = capture(*input);
+  ASSERT_TRUE(succeeded(replacement));
+  auto replacementReference = replacement->module.item("body", 0).item("body", 0).child("value");
+  ASSERT_EQ(originalReference.value, replacementReference.value);
+  for (unsigned repeat = 0; repeat < 4; ++repeat) {
+    EXPECT_FALSE(detail::sourceBindingShadowed(*replacement, replacementReference, "ac"));
+    EXPECT_TRUE(detail::sourceBindingShadowed(*original, originalReference, "ac"));
+    EXPECT_TRUE(detail::sourceBindingShadowed(*replacement, replacementReference, "other"));
+    EXPECT_FALSE(detail::sourceBindingShadowed(*original, originalReference, "other"));
+  }
 }
 
 TEST_F(TableQuerySourceBoundary, CallbackRuleCallIsNotASurroundingRegistration) {

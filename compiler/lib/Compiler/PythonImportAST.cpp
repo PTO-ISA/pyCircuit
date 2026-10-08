@@ -403,6 +403,32 @@ bool sourceBindingShadowed(const CapturedSource &source, const AstNode &node,
     }
     return false;
   };
+  auto bindsLocally = [&](const AstNode &scope) -> bool {
+    auto args = scope.child("args");
+    for (StringRef field : {"args", "posonlyargs", "kwonlyargs"}) {
+      auto arguments = args.array(field);
+      for (size_t j = 0; arguments && j < arguments.size(); ++j)
+        if (args.item(field, j).string("arg") == name)
+          return true;
+    }
+    for (StringRef field : {"vararg", "kwarg"})
+      if (args.child(field).string("arg") == name)
+        return true;
+    auto statements = scope.array("body");
+    for (size_t j = 0; statements && j < statements.size(); ++j)
+      if (binds(binds, scope.item("body", j)))
+        return true;
+    return false;
+  };
+  auto scopeBinds = [&](const AstNode &scope) -> bool {
+    auto &bindings = source.scopeBindingCache[scope.value];
+    auto cached = bindings.find(name);
+    if (cached != bindings.end())
+      return cached->second;
+    bool result = bindsLocally(scope);
+    bindings.try_emplace(name, result);
+    return result;
+  };
   AstNode ancestor = source.module;
   for (size_t i = 0; i < node.path.size(); ++i) {
     const AstStep &step = node.path[i];
@@ -410,20 +436,8 @@ bool sourceBindingShadowed(const CapturedSource &source, const AstNode &node,
       return false;
     if ((ancestor.kind() == "FunctionDef" || ancestor.kind() == "ClassDef" ||
          ancestor.kind() == "Lambda") && step.field == "body") {
-      auto args = ancestor.child("args");
-      for (StringRef field : {"args", "posonlyargs", "kwonlyargs"}) {
-        auto arguments = args.array(field);
-        for (size_t j = 0; arguments && j < arguments.size(); ++j)
-          if (args.item(field, j).string("arg") == name)
-            return true;
-      }
-      for (StringRef field : {"vararg", "kwarg"})
-        if (args.child(field).string("arg") == name)
-          return true;
-      auto statements = ancestor.array("body");
-      for (size_t j = 0; statements && j < statements.size(); ++j)
-        if (binds(binds, ancestor.item("body", j)))
-          return true;
+      if (scopeBinds(ancestor))
+        return true;
     }
     if (i + 1 < node.path.size() && node.path[i + 1].index) {
       ancestor = ancestor.item(step.field, *node.path[++i].index);
