@@ -103,7 +103,7 @@ def compile_unit(filename, output, imports=(), replace=False, code=0, diagnostic
 def retain_source_stages(filename, unit):
     # Reproduce the same successful source owner with the existing capture and
     # native compiler. This diagnostic is not a published-unit sidecar.
-    sys.path.insert(0, str(repo / "python/pycircuit/src"))
+    sys.path.insert(0, str(repo / "python"))
     from pycircuit._source_capture import _capture_source_file
     from pycircuit._source_transport import _emit_source_transport
 

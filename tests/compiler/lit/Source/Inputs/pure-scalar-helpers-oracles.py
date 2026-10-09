@@ -111,7 +111,7 @@ def Top(flags: table[3, u1]) -> Result:
         repeated=pair(flags.count(), flags.count()))
 """
 
-NAMED_MAP_DESIGN = """from pycircuit import module, rule, struct, u8, bits, table
+NAMED_MAP_DESIGN = """from pycircuit import module, rule, struct, u1, u8, bits, table
 @rule
 def bump(value: u8) -> u8:
     return value + 1
@@ -125,6 +125,12 @@ def decrement(value: u8) -> u8:
 def mix(left: u8, right: u8) -> u8:
     return bump(left) ^ decrement(right)
 @rule
+def equal_rows(left: u8, right: u8) -> u1:
+    return left == right
+@rule
+def minimum_rows(left: u8, right: u8) -> u8:
+    return left if left < right else right
+@rule
 def identity(value: u8) -> u8:
     return value
 @rule
@@ -137,6 +143,8 @@ def wide_step(value: bits[65]) -> bits[65]:
 class Result:
     named: table[3, u8]
     lambda_value: table[3, u8]
+    equality: table[3, u1]
+    minimum: table[3, u8]
     direct0: u8
     direct1: u8
     direct2: u8
@@ -151,6 +159,8 @@ class Result:
 def Top(left: table[3, u8], right: table[3, u8], wide: table[3, bits[65]]) -> Result:
     named = left.map(mix, right)
     equivalent = left.map(lambda a, b: (a + 1) ^ (b - 1), right)
+    equality = left.map(equal_rows, right)
+    minimum = left.map(minimum_rows, right)
     first = mix(left[0], right[0])
     second = mix(left[1], right[1])
     third = mix(left[2], right[2])
@@ -161,8 +171,9 @@ def Top(left: table[3, u8], right: table[3, u8], wide: table[3, bits[65]]) -> Re
     finite = left.map(identity).map(identity)
     finite_helper = left.map(bump_twice)
     ordered = left.map(lambda a: a + 1).map(mix, right.map(lambda b: b - 1))
-    return Result(named=named, lambda_value=equivalent, direct0=first,
-        direct1=second, direct2=third, identity_value=same, splat=constant,
+    return Result(named=named, lambda_value=equivalent, equality=equality,
+        minimum=minimum, direct0=first, direct1=second, direct2=third,
+        identity_value=same, splat=constant,
         wide=stepped, after=after, finite=finite, finite_helper=finite_helper,
         ordered=ordered)
 """
@@ -399,6 +410,13 @@ def named_map_case():
             {
                 "named": "".join(lanes),
                 "lambda_value": "".join(lanes),
+                "equality": "".join(
+                    equal(a, b) for a, b in zip(left, right, strict=True)
+                ),
+                "minimum": "".join(
+                    select(below(a, b), a, b)
+                    for a, b in zip(left, right, strict=True)
+                ),
                 "direct0": lanes[0],
                 "direct1": lanes[1],
                 "direct2": lanes[2],
