@@ -1,0 +1,2 @@
+# REQUIRES: verilator, iverilog, vvp
+# RUN: %python %S/Inputs/pure-scalar-helpers.py --repo %src --source-compiler %pycircuit_source_unit --linker %pycircuit_link --optimizer %pycircuit_opt --emitter %pycircuit_emit --cxx %cxx --verilator %verilator --iverilog %iverilog --vvp %vvp --scratch %t.dir

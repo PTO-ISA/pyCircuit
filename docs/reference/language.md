@@ -435,9 +435,9 @@ N-element Table with a possible count of N.
 
 These methods lower to existing TableMap/Fold and scalar operations. The
 source-wide budget includes replicated capture planes, Table-valued scalar
-temporaries and fold-tree storage before publishing IR. Ordered scans and pure
-named helper calls remain separate migration work; balanced reduction does not
-implement nonassociative prefix scans.
+temporaries and fold-tree storage before publishing IR. Ordered scans and named
+helper calls inside callbacks remain separate migration work; balanced reduction
+does not implement nonassociative prefix scans.
 
 ## Table queries
 
@@ -746,6 +746,41 @@ The current source tests cover `bool`, inline
 arguments for standard leaves. Source location differences do not change
 hardware type meaning. Bool literals become known width-appropriate bits;
 width/range mismatches remain errors.
+
+## Scalar rule expressions
+
+A same-source top-level bare `@rule` may also be called as a scalar expression
+when every parameter and the result declares unsigned fixed Bits and its body
+contains one final expression return. Optional docstrings and `pass` statements
+may precede that return. For example:
+
+```python
+from pycircuit import rule, u8
+
+@rule
+def bump(value: u8) -> u8:
+    return value + 1
+```
+
+Signatures use existing fixed aliases or `bits[positive_integer_literal]`.
+Arguments must already have the exact declared fixed-bit type and authority;
+plain Integer literals and implicit widening are not admitted at this boundary.
+The expression body supports fixed addition, subtraction, multiplication,
+inversion, bitwise `&`, `|` and `^`, single comparisons and conditional
+expressions, using their existing width and four-state semantics. A direct
+nonnegative Integer literal may pair with a fixed operand. Literal-only
+arithmetic, shifts, indexing/slices and Table methods inside helper bodies
+remain unsupported. Conditions must be Boolean comparisons,
+Boolean literals or fixed one-bit values. Acyclic calls to helpers in this same
+subset are permitted, including finite nested arguments such as `bump(bump(x))`.
+Actual arguments are evaluated and bound once in source order.
+
+These calls allocate no state and lower through the existing scalar operations.
+They share the source-wide resource budget with Table operations. Both branches
+are checked even when a condition is a literal. Recursion, effects, assignments,
+aggregate parameters/results, imported bodies, defaults/keywords, and calls inside
+Table callbacks remain unsupported. Existing registered-rule calls retain their
+storage ownership, binding and source-check behavior.
 
 ## Immutable local wires
 

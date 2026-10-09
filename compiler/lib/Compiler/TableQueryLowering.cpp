@@ -88,9 +88,11 @@ ArrayAttr TableQueryLowering::shape(ArrayRef<uint64_t> sizes) {
     values.push_back(hooks.literal(size));
   return at.getArrayAttr(values);
 }
-FailureOr<uint64_t> TableQueryLowering::words(Type type, unsigned depth) {
+FailureOr<uint64_t> TableQueryLowering::words(Type type, unsigned depth,
+                                              bool debitWork) {
   std::string reason;
-  if (!budget.reserveProduct(TableQueryResource::Work, 1, 1, reason))
+  if (debitWork &&
+      !budget.reserveProduct(TableQueryResource::Work, 1, 1, reason))
     return emitError(loc) << reason;
   if (depth >= TableQueryBudget::limit(TableQueryResource::Nesting))
     return emitError(loc) << "Table query type nesting budget exhausted";
@@ -98,7 +100,7 @@ FailureOr<uint64_t> TableQueryLowering::words(Type type, unsigned depth) {
     auto size = analysis.getTableSize(table, {}, package);
     if (failed(size))
       return failure();
-    auto element = words(table.getElementType(), depth + 1);
+    auto element = words(table.getElementType(), depth + 1, debitWork);
     if (failed(element) ||
         (*element &&
          *size > TableQueryBudget::limit(TableQueryResource::PayloadWords) /
@@ -114,7 +116,7 @@ FailureOr<uint64_t> TableQueryLowering::words(Type type, unsigned depth) {
     for (Attribute raw : declaration.getFields()) {
       auto field =
           words(cast<DictionaryAttr>(raw).getAs<TypeAttr>("type").getValue(),
-                depth + 1);
+                depth + 1, debitWork);
       if (failed(field) ||
           *field > TableQueryBudget::limit(TableQueryResource::PayloadWords) -
                        weight)
@@ -147,7 +149,9 @@ LogicalResult TableQueryLowering::capture(Value value) {
   return success();
 }
 bool TableQueryLowering::describe(Operation *operation, uint64_t rows,
-                                  TableQueryCharge &charge) {
+                                  TableQueryCharge &charge, bool debitWork) {
+  if (!rows)
+    return false;
   bool fits =
       TableQueryBudget::add(charge, TableQueryResource::Operations, 1) &&
       TableQueryBudget::add(charge, TableQueryResource::Slots,
@@ -155,7 +159,7 @@ bool TableQueryLowering::describe(Operation *operation, uint64_t rows,
                                 operation->getNumResults()) &&
       TableQueryBudget::addProduct(charge, TableQueryResource::Work, rows, 1);
   for (Type type : operation->getResultTypes()) {
-    auto weight = words(type);
+    auto weight = words(type, 0, debitWork);
     fits &= succeeded(weight) && TableQueryBudget::addProduct(
                                      charge, TableQueryResource::PayloadWords,
                                      succeeded(weight) ? *weight : 0, 3);
@@ -172,6 +176,44 @@ bool TableQueryLowering::describe(Operation *operation, uint64_t rows,
                                            succeeded(weight) ? *weight : 0, 8);
   }
   return fits;
+}
+bool TableQueryLowering::describeWithoutReservation(Operation *operation,
+                                                    uint64_t rows,
+                                                    TableQueryCharge &charge) {
+  if (!operation || !rows ||
+      rows > TableQueryBudget::limit(TableQueryResource::Work) ||
+      operation->getNumRegions() || operation->getNumSuccessors() ||
+      operation->getNumResults() != 1 || operation->getNumOperands() > 3 ||
+      !isa<ac::BitsConstantOp, ac::BitsUnaryOp, ac::BitsBinaryOp,
+           ac::BitsCompareOp, ac::BitsSelectOp, ac::BitsExtractOp,
+           ac::BitsResizeOp>(operation))
+    return false;
+  // This descriptor is for the importer's precharged flat scalar template.
+  // Do not introduce another aggregate or static-expression type walk here.
+  auto fixedLiteral = [](Type type) {
+    auto bits = dyn_cast<ac::BitsType>(type);
+    auto tree = bits ? bits.getWidth().getTree() : DictionaryAttr();
+    auto tag = tree ? tree.getAs<StringAttr>("kind") : StringAttr();
+    auto raw = tree ? tree.getAs<DictionaryAttr>("value") : DictionaryAttr();
+    auto width = raw ? raw.getAs<ac::MathIntAttr>("value") : ac::MathIntAttr();
+    if (!tag || tag.getValue() != "literal" || !width)
+      return false;
+    StringRef spelling = width.getCanonicalValue();
+    uint64_t ceiling =
+        64 * TableQueryBudget::limit(TableQueryResource::PayloadWords);
+    std::string maximum = std::to_string(ceiling);
+    if (spelling.empty() || spelling.front() == '0' ||
+        llvm::any_of(spelling, [](char c) { return c < '0' || c > '9'; }) ||
+        spelling.size() > maximum.size() ||
+        (spelling.size() == maximum.size() && spelling.compare(maximum) > 0))
+      return false;
+    uint64_t integer = 0;
+    return !spelling.getAsInteger(10, integer) && integer && integer <= ceiling;
+  };
+  if (!llvm::all_of(operation->getOperandTypes(), fixedLiteral) ||
+      !llvm::all_of(operation->getResultTypes(), fixedLiteral))
+    return false;
+  return describe(operation, rows, charge, false);
 }
 LogicalResult TableQueryLowering::charge(Operation *operation, uint64_t rows) {
   TableQueryCharge charge;

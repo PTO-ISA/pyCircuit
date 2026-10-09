@@ -10,6 +10,7 @@
 #include "TableQueryLowering.h"
 #include "mlir/IR/Builders.h"
 #include "mlir/IR/Diagnostics.h"
+#include "mlir/IR/IRMapping.h"
 #include "mlir/IR/SymbolTable.h"
 #include "mlir/IR/Verifier.h"
 #include "mlir/Pass/Pass.h"
@@ -124,6 +125,70 @@ struct BoundRuleFormal {
   Value value;
   BindingBoundary boundary;
 };
+enum class PureScalarShape { Fixed, Literal, Predicate, BooleanGuard };
+// Counts occurrences in a depth-first source walk, never an expanded AST or a
+// second expression/type evaluator. All storage is reserved before typing.
+struct PureScalarSummary {
+  uint64_t arity = 0, formals = 0, nodes = 0, calls = 0;
+  uint64_t constants = 0, inversions = 0, binaries = 0;
+  uint64_t comparisons = 0, choices = 0;
+  uint64_t width = 0, digits = 0, depth = 0;
+  uint64_t operations = 0, height = 0, words = 0, values = 0;
+  std::array<uint64_t, 8> slots{};
+  std::array<uint64_t, 3> payload{};
+  std::array<uint64_t, 2> constantBytes{};
+  TableQueryCharge charge;
+};
+struct PureScalarContext {
+  const PureScalarSummary &summary;
+  SmallVector<AstNode> bodies;
+  uint64_t calls = 0, formals = 0, nodes = 0;
+  uint64_t peakBodies = 0;
+  uint64_t frameSlots = 0, peakFrameSlots = 0;
+  uint64_t expressionSlots = 0, peakExpressionSlots = 0;
+};
+bool samePureDeclaration(const AstNode &a, const AstNode &c) {
+  return a.value == c.value && a.path.size() == c.path.size() &&
+         llvm::all_of(llvm::zip(a.path, c.path), [](const auto &steps) {
+           return std::get<0>(steps).field == std::get<1>(steps).field &&
+                  std::get<0>(steps).index == std::get<1>(steps).index;
+         });
+}
+bool pureCheckedAdd(uint64_t &value, uint64_t amount) {
+  if (amount > std::numeric_limits<uint64_t>::max() - value)
+    return false;
+  value += amount;
+  return true;
+}
+bool pureCheckedProduct(uint64_t a, uint64_t c, uint64_t &result) {
+  if (c && a > std::numeric_limits<uint64_t>::max() / c)
+    return false;
+  result = a * c;
+  return true;
+}
+std::optional<llvm::APSInt> pureAuditInteger(ac::MathIntAttr value,
+                                             const PureScalarSummary &summary) {
+  if (!value)
+    return std::nullopt;
+  StringRef text = value.getCanonicalValue();
+  if (text.empty() || text.size() > summary.height + 2)
+    return std::nullopt;
+  StringRef digits = text;
+  digits.consume_front("-");
+  if (digits.empty() ||
+      llvm::any_of(digits, [](char c) { return c < '0' || c > '9'; }))
+    return std::nullopt;
+  // These post-reservation audits hold no NumericValue copies. Bound the
+  // decimal decoder and its handoff copies inside the existing 16h leaf
+  // scratch, before invoking the same APSInt decoder used by the lowerers.
+  uint64_t precision = 0, scratch = 0, available = 0;
+  if (!pureCheckedProduct(4, digits.size(), precision) ||
+      !pureCheckedAdd(precision, 4) ||
+      !pureCheckedProduct(3, precision / 64 + (precision % 64 != 0), scratch) ||
+      !pureCheckedProduct(16, summary.words, available) || scratch > available)
+    return std::nullopt;
+  return llvm::APSInt(text);
+}
 // Slots are planned before lowering and never resized during assignments.
 struct AddressWitness {
   size_t ownerIndex, pathIndex;
@@ -867,6 +932,40 @@ private:
                                             BindingBoundary binding,
                                             bool ownerActual, OpBuilder &at,
                                             FlatSymbolRefAttr symbol);
+  FailureOr<AstNode> pureRuleDeclaration(const AstNode &call);
+  FailureOr<AstNode> pureRuleReturn(const AstNode &rule,
+                                    PureScalarSummary &summary);
+  LogicalResult chargePureSource(const AstNode &node,
+                                 PureScalarSummary &summary,
+                                 bool expressionNode = false);
+  FailureOr<uint64_t> pureSignatureWidth(const AstNode &annotation,
+                                         PureScalarSummary &summary);
+  LogicalResult preflightPureCall(const AstNode &call, const AstNode &caller,
+                                  PureScalarSummary &summary,
+                                  SmallVectorImpl<AstNode> &bodies,
+                                  bool bodyActuals);
+  FailureOr<PureScalarShape>
+  preflightPureExpression(const AstNode &node, const AstNode &rule,
+                          PureScalarSummary &summary,
+                          SmallVectorImpl<AstNode> &bodies);
+  LogicalResult reservePureScalar(PureScalarSummary &summary,
+                                  const AstNode &call);
+  FailureOr<SmallVector<BoundRuleFormal>>
+  bindPureActuals(const AstNode &rule, const AstNode &call, OpBuilder &at,
+                  FlatSymbolRefAttr symbol, llvm::StringMap<Value> &values,
+                  llvm::StringMap<Instance *> &instances);
+  FailureOr<Value> lowerPureBody(const AstNode &rule,
+                                 ArrayRef<BoundRuleFormal> formals,
+                                 OpBuilder &at, FlatSymbolRefAttr symbol);
+  LogicalResult auditPureScalar(Block &block, PureScalarContext &context,
+                                const AstNode &call, FlatSymbolRefAttr symbol,
+                                uint64_t mappingEntries = 0,
+                                Block *clones = nullptr,
+                                Operation *cloneBegin = nullptr);
+  FailureOr<Value> pureRuleCall(const AstNode &call, OpBuilder &at,
+                                FlatSymbolRefAttr symbol,
+                                llvm::StringMap<Value> &values,
+                                llvm::StringMap<Instance *> &instances);
   FailureOr<SmallVector<Value>>
   behavioralCall(ModuleDecl &decl, const AstNode &call, OpBuilder &at,
                  llvm::StringMap<Value> &values, ArrayRef<StateOwner> states,
@@ -1099,6 +1198,7 @@ private:
   SmallVector<OwnerProposal> ownerProposals;
   std::unique_ptr<OwnerEnableProof> grantProof;
   TableQueryBudget queryBudget;
+  PureScalarContext *activePureScalar = nullptr;
   SmallVector<SmallVector<StringRef>> queryArguments;
   bool queryBound(StringRef name) const {
     return llvm::any_of(queryArguments, [&](const auto &frame) {
@@ -2416,11 +2516,643 @@ Importer::fixedUnsignedShift(Value input, const llvm::APSInt &count,
   return result;
 }
 
+FailureOr<AstNode> Importer::pureRuleDeclaration(const AstNode &call) {
+  auto function = call.child("func");
+  auto found = behavioralRules.find(function.string("id"));
+  if (function.kind() != "Name" || found == behavioralRules.end())
+    return mlir::emitError(call.location(b.getContext(), source.path))
+           << "scalar helper requires a same-source rule declaration";
+  if (lexicallyShadowed(function, function.string("id")))
+    return mlir::emitError(function.location(b.getContext(), source.path))
+           << "scalar helper binding is shadowed in its lexical scope";
+  return found->second;
+}
+
+FailureOr<AstNode> Importer::pureRuleReturn(const AstNode &rule,
+                                            PureScalarSummary &summary) {
+  auto diagnostic = [&] {
+    return mlir::emitError(rule.location(b.getContext(), source.path));
+  };
+  if (failed(chargePureSource(rule, summary)))
+    return failure();
+  if (rule.array("decorator_list").size() != 1)
+    return diagnostic() << "scalar helper requires one bare @rule decorator";
+  auto decorator = rule.item("decorator_list", 0);
+  if (failed(chargePureSource(decorator, summary)))
+    return failure();
+  if (decorator.kind() != "Name" || !intrinsic(decorator, "rule"))
+    return diagnostic() << "scalar helper requires one bare @rule decorator";
+  auto args = rule.child("args");
+  if (failed(chargePureSource(args, summary)))
+    return failure();
+  if (failed(validateRuleParameters(rule)))
+    return failure();
+  for (size_t i = 0; i < args.array("args").size(); ++i) {
+    auto formal = args.item("args", i);
+    if (failed(chargePureSource(formal, summary)))
+      return failure();
+    auto annotation = formal.child("annotation");
+    if (failed(chargePureSource(annotation, summary)))
+      return failure();
+    if (annotation.kind() == "Subscript" &&
+        failed(chargePureSource(annotation.child("value"), summary)))
+      return failure();
+    if (!fixedAnnotation(annotation))
+      return diagnostic()
+             << "scalar helper requires annotated fixed Bits parameters";
+    if (failed(validateRuleFormalName(formal, {})))
+      return failure();
+    for (size_t j = 0; j < i; ++j) {
+      auto prior = args.item("args", j);
+      if (failed(chargePureSource(prior, summary)))
+        return failure();
+      if (prior.string("arg") == formal.string("arg"))
+        return diagnostic() << "duplicate rule parameter";
+    }
+    auto width = pureSignatureWidth(annotation, summary);
+    if (failed(width))
+      return failure();
+    summary.width = std::max(summary.width, *width);
+  }
+  auto annotation = rule.child("returns");
+  if (failed(chargePureSource(annotation, summary)))
+    return failure();
+  if (annotation.kind() == "Subscript" &&
+      failed(chargePureSource(annotation.child("value"), summary)))
+    return failure();
+  if (!fixedAnnotation(annotation))
+    return diagnostic()
+           << "scalar helper requires an annotated fixed Bits result";
+  auto width = pureSignatureWidth(annotation, summary);
+  if (failed(width))
+    return failure();
+  summary.width = std::max(summary.width, *width);
+  AstNode returned;
+  for (size_t i = 0; i < rule.array("body").size(); ++i) {
+    auto statement = rule.item("body", i);
+    if (failed(chargePureSource(statement, summary)))
+      return failure();
+    if (statement.kind() == "Expr" &&
+        failed(chargePureSource(statement.child("value"), summary)))
+      return failure();
+    if (!returned && (docstring(statement) || statement.kind() == "Pass"))
+      continue;
+    if (returned || statement.kind() != "Return" || !statement.child("value") ||
+        i + 1 != rule.array("body").size())
+      return diagnostic()
+             << "scalar helper requires one final expression return";
+    returned = statement;
+  }
+  if (!returned)
+    return diagnostic() << "scalar helper requires one final expression return";
+  return returned;
+}
+
+LogicalResult Importer::chargePureSource(const AstNode &node,
+                                         PureScalarSummary &summary,
+                                         bool expressionNode) {
+  TableQueryCharge charge;
+  std::string reason;
+  bool fits = TableQueryBudget::add(charge, TableQueryResource::Work, 1);
+  if (node.kind() == "Constant") {
+    auto raw = dyn_cast_or_null<DictionaryAttr>(node.get("value"));
+    auto spelling = raw ? raw.getAs<StringAttr>("integer") : StringAttr();
+    if (spelling)
+      fits &= TableQueryBudget::add(charge, TableQueryResource::ConstantBytes,
+                                    spelling.getValue().size());
+  }
+  if (!fits || !queryBudget.reserve(charge, reason))
+    return mlir::emitError(node.location(b.getContext(), source.path))
+           << (fits ? reason : "scalar helper source budget exhausted");
+  if (expressionNode && !pureCheckedAdd(summary.nodes, 1))
+    return failure();
+  summary.depth =
+      std::max(summary.depth, queryBudget.used(TableQueryResource::Nesting));
+  return success();
+}
+
+FailureOr<uint64_t> Importer::pureSignatureWidth(const AstNode &annotation,
+                                                 PureScalarSummary &summary) {
+  // The shape walk charged this annotation before inspecting it.
+  auto binding = lookupBinding(annotation);
+  if (binding && binding->category == BindingCategory::Marker)
+    if (auto width =
+            fixedBitsAliasWidth(binding->importedModule, binding->remote))
+      return static_cast<uint64_t>(*width);
+  auto base = annotation.child("value");
+  auto widthSite = annotation.child("slice");
+  // fixedAnnotation inspected the base only after the shape walk charged it.
+  if (failed(chargePureSource(widthSite, summary)))
+    return failure();
+  if (annotation.kind() != "Subscript" || !intrinsic(base, "bits") ||
+      widthSite.kind() != "Constant")
+    return mlir::emitError(annotation.location(b.getContext(), source.path))
+           << "scalar helper width requires a fixed alias or positive literal";
+  auto raw = dyn_cast_or_null<DictionaryAttr>(widthSite.get("value"));
+  auto integer = raw ? raw.getAs<StringAttr>("integer") : StringAttr();
+  StringRef spelling = integer ? integer.getValue() : StringRef();
+  uint64_t ceiling;
+  if (!pureCheckedProduct(
+          64, TableQueryBudget::limit(TableQueryResource::PayloadWords),
+          ceiling))
+    return failure();
+  std::string maximum = std::to_string(ceiling);
+  if (spelling.empty() || spelling.front() == '0' ||
+      llvm::any_of(spelling, [](char c) { return c < '0' || c > '9'; }) ||
+      spelling.size() > maximum.size() ||
+      (spelling.size() == maximum.size() && spelling.compare(maximum) > 0))
+    return mlir::emitError(widthSite.location(b.getContext(), source.path))
+           << "scalar helper width literal exceeds its bounded signature";
+  uint64_t width;
+  if (spelling.getAsInteger(10, width) || !width)
+    return failure();
+  // This is the cheap bounded spelling check. portType remains the type owner
+  // and is called only after the complete envelope has been reserved.
+  return width;
+}
+
+LogicalResult Importer::preflightPureCall(const AstNode &call,
+                                          const AstNode &caller,
+                                          PureScalarSummary &summary,
+                                          SmallVectorImpl<AstNode> &bodies,
+                                          bool bodyActuals) {
+  std::string reason;
+  if (!queryBudget.enter(reason))
+    return mlir::emitError(call.location(b.getContext(), source.path))
+           << reason;
+  auto leave = llvm::scope_exit([&] { queryBudget.leave(); });
+  summary.depth =
+      std::max(summary.depth, queryBudget.used(TableQueryResource::Nesting));
+  TableQueryCharge occurrence;
+  if (!TableQueryBudget::add(occurrence, TableQueryResource::Occurrences, 1) ||
+      !queryBudget.reserve(occurrence, reason))
+    return mlir::emitError(call.location(b.getContext(), source.path))
+           << reason;
+  auto declaration = pureRuleDeclaration(call);
+  if (failed(declaration))
+    return failure();
+  auto rule = *declaration;
+  auto returned = pureRuleReturn(rule, summary);
+  if (failed(returned))
+    return failure();
+  auto args = rule.child("args");
+  if (!call.array("keywords").empty() ||
+      call.array("args").size() != args.array("args").size())
+    return mlir::emitError(call.location(b.getContext(), source.path))
+           << "scalar helper requires its exact positional argument list";
+  if (!pureCheckedAdd(summary.calls, 1) ||
+      !pureCheckedAdd(summary.formals, args.array("args").size()))
+    return failure();
+  // Actuals belong to the lexical caller. In particular f(f(x)) completes its
+  // inner body before the outer f body becomes a recursion ancestor.
+  if (bodyActuals)
+    for (size_t i = 0; i < call.array("args").size(); ++i)
+      if (failed(preflightPureExpression(call.item("args", i), caller, summary,
+                                         bodies)))
+        return failure();
+  if (llvm::any_of(bodies, [&](const AstNode &ancestor) {
+        return samePureDeclaration(ancestor, rule);
+      }))
+    return mlir::emitError(call.location(b.getContext(), source.path))
+           << "scalar helper body recursion is unsupported";
+  bodies.push_back(rule);
+  auto pop = llvm::scope_exit([&] { bodies.pop_back(); });
+  auto result =
+      preflightPureExpression(returned->child("value"), rule, summary, bodies);
+  if (failed(result))
+    return failure();
+  if (*result == PureScalarShape::BooleanGuard)
+    return mlir::emitError(returned->location(b.getContext(), source.path))
+           << "scalar helper Boolean literals are admitted only as guards";
+  return success();
+}
+
+FailureOr<PureScalarShape>
+Importer::preflightPureExpression(const AstNode &node, const AstNode &rule,
+                                  PureScalarSummary &summary,
+                                  SmallVectorImpl<AstNode> &bodies) {
+  std::string reason;
+  if (!queryBudget.enter(reason))
+    return mlir::emitError(node.location(b.getContext(), source.path))
+           << reason;
+  auto leave = llvm::scope_exit([&] { queryBudget.leave(); });
+  if (failed(chargePureSource(node, summary, true)))
+    return failure();
+  auto diagnostic = [&] {
+    return mlir::emitError(node.location(b.getContext(), source.path));
+  };
+  if (node.kind() == "Name") {
+    auto args = rule.child("args");
+    for (size_t i = 0; i < args.array("args").size(); ++i) {
+      auto formal = args.item("args", i);
+      if (failed(chargePureSource(formal, summary)))
+        return failure();
+      if (formal.string("arg") == node.string("id"))
+        return PureScalarShape::Fixed;
+    }
+    return diagnostic() << "scalar helper values must be declared formals";
+  }
+  if (node.kind() == "Constant") {
+    ++summary.constants;
+    if (isa<BoolAttr>(node.get("value")))
+      return PureScalarShape::BooleanGuard;
+    auto raw = dyn_cast_or_null<DictionaryAttr>(node.get("value"));
+    auto integer = raw ? raw.getAs<StringAttr>("integer") : StringAttr();
+    StringRef spelling = integer ? integer.getValue() : StringRef();
+    if (spelling.empty() ||
+        llvm::any_of(spelling, [](char c) { return c < '0' || c > '9'; }))
+      return diagnostic()
+             << "scalar helper literal must be nonnegative Integer";
+    summary.digits =
+        std::max(summary.digits, static_cast<uint64_t>(spelling.size()));
+    return PureScalarShape::Literal;
+  }
+  if (node.kind() == "Call") {
+    if (failed(chargePureSource(node.child("func"), summary)) ||
+        failed(preflightPureCall(node, rule, summary, bodies, true)))
+      return failure();
+    return PureScalarShape::Fixed;
+  }
+  auto visit = [&](const AstNode &child) {
+    return preflightPureExpression(child, rule, summary, bodies);
+  };
+  if (node.kind() == "UnaryOp") {
+    if (failed(chargePureSource(node.child("op"), summary)))
+      return failure();
+    if (node.child("op").kind() != "Invert")
+      return diagnostic()
+             << "scalar helper unary operation requires fixed inversion";
+    auto operand = visit(node.child("operand"));
+    if (failed(operand))
+      return failure();
+    if (*operand != PureScalarShape::Fixed)
+      return diagnostic()
+             << "scalar helper inversion requires a fixed expression";
+    ++summary.inversions;
+    return PureScalarShape::Fixed;
+  }
+  auto pair = [](PureScalarShape a, PureScalarShape c) {
+    return (a == PureScalarShape::Fixed && c == PureScalarShape::Fixed) ||
+           (a == PureScalarShape::Fixed && c == PureScalarShape::Literal) ||
+           (a == PureScalarShape::Literal && c == PureScalarShape::Fixed);
+  };
+  if (node.kind() == "BinOp" || node.kind() == "Compare") {
+    bool comparison = node.kind() == "Compare";
+    if (comparison && (node.array("ops").size() != 1 ||
+                       node.array("comparators").size() != 1))
+      return diagnostic() << "scalar helper comparison must be single";
+    auto op = comparison ? node.item("ops", 0) : node.child("op");
+    if (failed(chargePureSource(op, summary)))
+      return failure();
+    if (!(comparison
+              ? llvm::is_contained(ArrayRef<StringRef>{"Eq", "NotEq", "Lt",
+                                                       "LtE", "Gt", "GtE"},
+                                   op.kind())
+              : llvm::is_contained(ArrayRef<StringRef>{"Add", "Sub", "Mult",
+                                                       "BitAnd", "BitOr",
+                                                       "BitXor"},
+                                   op.kind())))
+      return diagnostic() << "unsupported scalar helper operation";
+    auto left = visit(node.child("left"));
+    if (failed(left))
+      return failure();
+    auto right =
+        visit(comparison ? node.item("comparators", 0) : node.child("right"));
+    if (failed(right))
+      return failure();
+    if (!pair(*left, *right))
+      return diagnostic()
+             << "scalar helper operands require fixed/fixed or fixed/literal";
+    if (comparison)
+      ++summary.comparisons;
+    else
+      ++summary.binaries;
+    return comparison ? PureScalarShape::Predicate : PureScalarShape::Fixed;
+  }
+  if (node.kind() == "IfExp") {
+    auto guard = visit(node.child("test"));
+    if (failed(guard))
+      return failure();
+    auto yes = visit(node.child("body"));
+    if (failed(yes))
+      return failure();
+    auto no = visit(node.child("orelse"));
+    if (failed(no))
+      return failure();
+    if ((*guard != PureScalarShape::Fixed &&
+         *guard != PureScalarShape::Predicate &&
+         *guard != PureScalarShape::BooleanGuard) ||
+        !pair(*yes, *no))
+      return diagnostic()
+             << "scalar helper choice requires a predicate and fixed branches";
+    ++summary.choices;
+    return PureScalarShape::Fixed;
+  }
+  return diagnostic() << "unsupported scalar helper expression '" << node.kind()
+                      << "'";
+}
+
+LogicalResult Importer::reservePureScalar(PureScalarSummary &s,
+                                          const AstNode &call) {
+  auto diagnostic = [&] {
+    return mlir::emitError(call.location(b.getContext(), source.path));
+  };
+  TableQueryCharge semantic;
+  bool fits = TableQueryBudget::add(semantic, TableQueryResource::Operations,
+                                    s.constants) &&
+              TableQueryBudget::add(semantic, TableQueryResource::Operations,
+                                    s.inversions) &&
+              TableQueryBudget::add(semantic, TableQueryResource::Operations,
+                                    s.binaries) &&
+              TableQueryBudget::add(semantic, TableQueryResource::Operations,
+                                    s.comparisons) &&
+              TableQueryBudget::addProduct(
+                  semantic, TableQueryResource::Operations, 3, s.choices) &&
+              TableQueryBudget::addProduct(
+                  semantic, TableQueryResource::Operations, 2, s.calls);
+  s.operations =
+      semantic.amounts[static_cast<unsigned>(TableQueryResource::Operations)];
+  uint64_t literalHeight;
+  fits &= pureCheckedProduct(4, s.digits, literalHeight);
+  if (!fits)
+    return diagnostic() << "scalar helper resource envelope exhausted";
+  s.height = std::max({s.width, literalHeight, uint64_t(1)});
+  fits &= pureCheckedAdd(s.height, 4);
+  s.words = s.height / 64 + (s.height % 64 != 0);
+  fits &= pureCheckedProduct(2, s.operations, s.values) &&
+          pureCheckedAdd(s.values, s.arity);
+  auto product = [&](uint64_t a, uint64_t c, uint64_t &value) {
+    fits &= pureCheckedProduct(a, c, value);
+  };
+  product(8, s.operations, s.slots[0]);
+  fits &= pureCheckedAdd(s.slots[0], 1);
+  s.slots[1] = s.arity;
+  s.slots[2] = s.arity;
+  fits &= pureCheckedAdd(s.slots[2], s.operations);
+  uint64_t mapping = s.slots[2];
+  product(2, mapping, s.slots[2]);
+  product(3, s.values, s.slots[3]);
+  product(6, s.formals, s.slots[4]);
+  product(2, s.calls, s.slots[5]);
+  product(2, s.nodes, s.slots[6]);
+  s.slots[7] = s.values;
+  uint64_t planes = 0, endpoints = 0, scratch = 0;
+  product(3, s.values, planes);
+  product(2, s.values, endpoints);
+  product(2, s.depth, scratch);
+  fits &= pureCheckedAdd(scratch, 16);
+  product(planes, s.words, s.payload[0]);
+  product(endpoints, s.words, s.payload[1]);
+  product(scratch, s.words, s.payload[2]);
+  uint64_t carriers = 0, text = 0;
+  product(16, s.constants, carriers);
+  product(carriers, s.words, s.constantBytes[0]);
+  text = s.height;
+  fits &= pureCheckedAdd(text, 2);
+  product(planes, text, s.constantBytes[1]);
+  fits &= TableQueryBudget::addProduct(s.charge, TableQueryResource::Operations,
+                                       2, s.operations) &&
+          TableQueryBudget::add(s.charge, TableQueryResource::Operations, 2);
+  for (uint64_t value : s.slots)
+    fits &= TableQueryBudget::add(s.charge, TableQueryResource::Slots, value);
+  for (uint64_t value : s.payload)
+    fits &= TableQueryBudget::add(s.charge, TableQueryResource::PayloadWords,
+                                  value);
+  for (uint64_t value : s.constantBytes)
+    fits &= TableQueryBudget::add(s.charge, TableQueryResource::ConstantBytes,
+                                  value);
+  fits &=
+      TableQueryBudget::add(s.charge, TableQueryResource::Work, s.nodes) &&
+      TableQueryBudget::add(s.charge, TableQueryResource::Work, s.formals) &&
+      TableQueryBudget::add(s.charge, TableQueryResource::Work, s.calls) &&
+      TableQueryBudget::addProduct(s.charge, TableQueryResource::Work, 4,
+                                   s.operations) &&
+      TableQueryBudget::add(s.charge, TableQueryResource::Work, s.arity);
+  std::string reason;
+  if (!fits || !queryBudget.reserve(s.charge, reason))
+    return diagnostic() << (fits ? reason
+                                 : "scalar helper resource envelope exhausted");
+  return success();
+}
+
+LogicalResult Importer::auditPureScalar(Block &block,
+                                        PureScalarContext &context,
+                                        const AstNode &call,
+                                        FlatSymbolRefAttr symbol,
+                                        uint64_t mappingEntries, Block *clones,
+                                        Operation *cloneBegin) {
+  const auto &s = context.summary;
+  auto diagnostic = [&] {
+    return mlir::emitError(call.location(b.getContext(), source.path));
+  };
+  if (block.getNumArguments() != s.arity || block.empty() ||
+      !isa<ac::YieldOp>(block.back()) || block.back().getNumOperands() != 1 ||
+      context.calls != s.calls || context.formals != s.formals ||
+      context.nodes != s.nodes || context.frameSlots != 6 * s.arity ||
+      context.expressionSlots || !context.bodies.empty() ||
+      context.peakFrameSlots > s.slots[4] ||
+      2 * context.peakBodies > s.slots[5] ||
+      context.peakExpressionSlots > s.slots[6] || mappingEntries < s.arity ||
+      2 * mappingEntries > s.slots[2])
+    return diagnostic()
+           << "scalar helper containers exceed their reserved envelope";
+  ac::HardwareAnalysis analysis(*body);
+  TableQueryLowering descriptor(b, call.location(b.getContext(), source.path),
+                                *body, queryBudget, {});
+  TableQueryCharge observed;
+  uint64_t liveValues = 0, facts = 0, planes = 0, endpoints = 0, text = 0;
+  uint64_t operationSlots = 1, templateOps = 0, cloneOps = 0;
+  auto describeValue = [&](Value value) -> LogicalResult {
+    auto type = dyn_cast<ac::BitsType>(value.getType());
+    if (!type)
+      return diagnostic() << "scalar helper template contains a non-Bits value";
+    auto width = analysis.getPackedWidth(type, {},
+                                         value.getParentBlock()->getParentOp());
+    if (failed(width) || !*width || *width > s.height)
+      return diagnostic() << "scalar helper value exceeds its reserved width";
+    uint64_t words = *width / 64 + (*width % 64 != 0);
+    ++liveValues;
+    planes += 3 * words;
+    facts += numericValues.count(value) + fixedValues.count(value) +
+             arithmeticValues.count(value);
+    auto found = numericValues.find(value);
+    if (found == numericValues.end())
+      return success();
+    const auto &info = found->second;
+    if (info.value != value)
+      return diagnostic() << "scalar helper fact key disagrees with its value";
+    auto integer = [&](const llvm::APSInt &value) -> LogicalResult {
+      uint64_t words =
+          value.getBitWidth() / 64 + (value.getBitWidth() % 64 != 0);
+      if (words > s.words ||
+          (value.isSigned() ? value.getSignificantBits()
+                            : value.getActiveBits()) > s.height)
+        return diagnostic()
+               << "scalar helper fact exceeds its reserved precision";
+      endpoints += words;
+      text += s.height + 2;
+      return success();
+    };
+    if (info.interval && (failed(integer(info.interval->lower)) ||
+                          failed(integer(info.interval->upper))))
+      return failure();
+    if (auto closed =
+            dyn_cast_or_null<ac::MathIntAttr>(info.closedSourceConstant)) {
+      uint64_t before = endpoints;
+      auto decoded = pureAuditInteger(closed, s);
+      if (!decoded)
+        return diagnostic()
+               << "scalar helper fact exceeds its reserved precision";
+      if (failed(integer(*decoded)))
+        return failure();
+      // The decoded closed value is leaf scratch, not another retained
+      // NumericValue interval endpoint plane.
+      endpoints = before;
+    } else if (info.closedSourceConstant) {
+      if (!isa<BoolAttr>(info.closedSourceConstant))
+        return diagnostic()
+               << "scalar helper fact has an unexpected closed value";
+      text += s.height + 2;
+    }
+    return success();
+  };
+  for (Value value : block.getArguments())
+    if (failed(describeValue(value)))
+      return failure();
+  auto describeOperation = [&](Operation &operation,
+                               bool original) -> LogicalResult {
+    if (!descriptor.describeWithoutReservation(&operation, 1, observed))
+      return diagnostic()
+             << "scalar helper contains an unreserved scalar operation";
+    operationSlots += operation.getNumOperands() + operation.getNumResults();
+    if (operation.getNumOperands() > s.slots[6])
+      return diagnostic()
+             << "scalar helper clone operand scratch exceeds its reservation";
+    if (auto binary = dyn_cast<ac::BitsBinaryOp>(operation))
+      if (!llvm::is_contained(
+              ArrayRef<StringRef>{"add", "sub", "mul", "and", "or", "xor"},
+              binary.getOpcode()))
+        return diagnostic()
+               << "scalar helper contains an unexpected binary opcode";
+    if (auto compare = dyn_cast<ac::BitsCompareOp>(operation))
+      if (!llvm::is_contained(
+              ArrayRef<StringRef>{"eq", "ne", "ult", "ule", "ugt", "uge"},
+              compare.getPredicate()))
+        return diagnostic()
+               << "scalar helper contains an unexpected comparison";
+    if (auto extract = dyn_cast<ac::BitsExtractOp>(operation)) {
+      auto low = analysis.evaluateStatic(extract.getLow(), {}, &operation);
+      auto integer =
+          succeeded(low) ? dyn_cast<ac::MathIntAttr>(*low) : ac::MathIntAttr();
+      if (!integer || integer.getCanonicalValue() != "0")
+        return diagnostic() << "scalar helper contains a non-boundary extract";
+    }
+    if (auto resize = dyn_cast<ac::BitsResizeOp>(operation))
+      if (resize.getMode() != "zext")
+        return diagnostic() << "scalar helper contains a non-boundary resize";
+    for (Value input : operation.getOperands()) {
+      if (original && input.getParentBlock() != &block)
+        return diagnostic() << "scalar helper template contains a free capture";
+      auto width = analysis.getPackedWidth(input.getType(), {}, &operation);
+      if (failed(width) || !*width || *width > s.height)
+        return diagnostic()
+               << "scalar helper operand exceeds its width envelope";
+    }
+    if (failed(describeValue(operation.getResult(0))))
+      return failure();
+    if (auto constant = dyn_cast<ac::BitsConstantOp>(operation)) {
+      auto raw = constant.getValue().getTree().getAs<DictionaryAttr>("value");
+      auto value =
+          raw ? raw.getAs<ac::MathIntAttr>("value") : ac::MathIntAttr();
+      auto decoded = pureAuditInteger(value, s);
+      if (!decoded || decoded->isNegative() ||
+          decoded->getActiveBits() > s.height ||
+          decoded->getBitWidth() / 64 + (decoded->getBitWidth() % 64 != 0) >
+              s.words)
+        return diagnostic()
+               << "scalar helper constant exceeds its precision envelope";
+    }
+    ac::HardwareBindings bindings;
+    bindings.owner = operation.getParentOfType<ac::ModuleOp>();
+    if (failed(verify(&operation)) ||
+        failed(analysis.verifyResolvedOperation(&operation, bindings)))
+      return failure();
+    return success();
+  };
+  for (Operation &operation : block) {
+    if (isa<ac::YieldOp>(operation)) {
+      if (&operation != &block.back() || operation.getNumResults() ||
+          operation.getNumRegions() ||
+          operation.getOperand(0).getParentBlock() != &block)
+        return diagnostic() << "scalar helper template has an unexpected yield";
+      continue;
+    }
+    if (++templateOps > s.operations ||
+        failed(describeOperation(operation, true)))
+      return diagnostic()
+             << "scalar helper template exceeds its operation envelope";
+  }
+  if (clones) {
+    cloneOps = mappingEntries - s.arity;
+    if (cloneOps != templateOps || (cloneOps && !cloneBegin))
+      return diagnostic()
+             << "scalar helper clone mapping exceeds its reserved envelope";
+    Operation *operation = cloneBegin;
+    for (uint64_t i = 0; i < cloneOps; ++i) {
+      if (!operation || operation->getBlock() != clones ||
+          failed(describeOperation(*operation, false)))
+        return diagnostic()
+               << "scalar helper clone differs from its reserved template";
+      operation = operation->getNextNode();
+    }
+  } else if (mappingEntries != s.arity)
+    return diagnostic() << "scalar helper template has an unexpected Value map";
+  if (templateOps + cloneOps > 2 * s.operations ||
+      operationSlots > s.slots[0] || liveValues > s.values ||
+      facts > s.slots[3] || planes > s.payload[0] || endpoints > s.payload[1] ||
+      text > s.constantBytes[1] ||
+      observed.amounts[static_cast<unsigned>(
+          TableQueryResource::ConstantBytes)] > s.constantBytes[0])
+    return diagnostic()
+           << "scalar helper typed peak exceeds its reserved envelope";
+  (void)symbol;
+  // Accumulation and verification above never reserve, refund or reset the
+  // authoritative source-wide TableQueryBudget.
+  return success();
+}
+
 FailureOr<Value> Importer::expression(
     const AstNode &node, OpBuilder &at, FlatSymbolRefAttr ownerSymbol,
     llvm::StringMap<Value> &values, llvm::StringMap<Instance *> &instances,
     std::optional<Type> expected,
     llvm::StringMap<SmallVector<Value>> *captures) {
+  // Expanded helper bodies share their outer reserved envelope and the same
+  // active nesting ledger used by source preflight. Caller actuals retain their
+  // existing owners until the pure body context is installed.
+  bool pure = activePureScalar != nullptr;
+  if (pure) {
+    std::string reason;
+    if (!queryBudget.enter(reason))
+      return mlir::emitError(node.location(b.getContext(), source.path))
+             << reason;
+    if (queryBudget.used(TableQueryResource::Nesting) >
+            activePureScalar->summary.depth ||
+        ++activePureScalar->nodes > activePureScalar->summary.nodes) {
+      queryBudget.leave();
+      return mlir::emitError(node.location(b.getContext(), source.path))
+             << "scalar helper expression exceeds its source envelope";
+    }
+    activePureScalar->expressionSlots += 2;
+    activePureScalar->peakExpressionSlots =
+        std::max(activePureScalar->peakExpressionSlots,
+                 activePureScalar->expressionSlots);
+  }
+  auto leavePureExpression = llvm::scope_exit([&] {
+    if (pure) {
+      activePureScalar->expressionSlots -= 2;
+      queryBudget.leave();
+    }
+  });
   if (!captures && activeRule && activeRule->outputs)
     captures = activeRule->outputs;
   using ac::detail::ValueKind;
@@ -2433,6 +3165,10 @@ FailureOr<Value> Importer::expression(
       return static_cast<bool>(
           dyn_cast_or_null<DictionaryAttr>(candidate.get("value")));
     if (candidate.kind() == "Name") {
+      // A helper's names are its fixed formals. A coincidentally equal caller
+      // parameter spelling must not become a static capture from that module.
+      if (activePureScalar)
+        return false;
       for (const ModuleDecl &module : modules)
         if (module.symbol == ownerSymbol)
           return llvm::any_of(module.parameters,

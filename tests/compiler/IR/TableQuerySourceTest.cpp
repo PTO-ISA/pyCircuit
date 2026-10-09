@@ -6,6 +6,7 @@
 #include "mlir/IR/Builders.h"
 #include "mlir/IR/Diagnostics.h"
 #include "pycircuit/Dialect/ACIR/ACIRDialect.h"
+#include "pycircuit/Dialect/ACIR/ACIROps.h"
 #include "llvm/Support/raw_ostream.h"
 #include "gtest/gtest.h"
 #include <array>
@@ -465,5 +466,114 @@ TEST(TableQueryBudget, NestingIsAnActiveDepthAndWorkRemainsCumulative) {
   ASSERT_TRUE(budget.reserveProduct(Resource::Occurrences, 2048, 1, reason));
   EXPECT_FALSE(budget.reserveProduct(Resource::Occurrences, 1, 1, reason));
   EXPECT_EQ(budget.used(Resource::Occurrences), 4096u);
+}
+// The descriptor observes already reserved storage. Its result may be used
+// for an audit without a second ledger debit, even at exhausted Work capacity.
+class TableQueryDescriptor : public ::testing::Test {
+protected:
+  MLIRContext context;
+  OpBuilder builder{&context};
+  OwningOpRef<ModuleOp> module;
+  Budget budget;
+  DictionaryAttr origin, span;
+  void SetUp() override {
+    context.loadDialect<acir::ac::ACIRDialect>();
+    module = ModuleOp::create(builder.getUnknownLoc());
+    builder.setInsertionPointToEnd(module->getBody());
+    auto site = builder.getDictionaryAttr(
+        {builder.getNamedAttr(
+             "definition", FlatSymbolRefAttr::get(&context, "descriptor.Test")),
+         builder.getNamedAttr("ast_path", builder.getArrayAttr({}))});
+    origin = builder.getDictionaryAttr(
+        {builder.getNamedAttr("site", site),
+         builder.getNamedAttr("expansion", builder.getArrayAttr({}))});
+    span = builder.getDictionaryAttr(
+        {builder.getNamedAttr("path", builder.getStringAttr("descriptor.py")),
+         builder.getNamedAttr("line", builder.getI64IntegerAttr(1)),
+         builder.getNamedAttr("column", builder.getI64IntegerAttr(1)),
+         builder.getNamedAttr("end_line", builder.getI64IntegerAttr(1)),
+         builder.getNamedAttr("end_column", builder.getI64IntegerAttr(2))});
+  }
+  acir::ac::StaticExprAttr literal(uint64_t value) {
+    auto number = builder.getDictionaryAttr(
+        {builder.getNamedAttr("kind", builder.getStringAttr("integer")),
+         builder.getNamedAttr(
+             "value",
+             acir::ac::MathIntAttr::get(
+                 &context, llvm::APSInt(llvm::APInt(65, value), false)))});
+    return acir::ac::StaticExprAttr::get(
+        &context,
+        builder.getDictionaryAttr(
+            {builder.getNamedAttr("kind", builder.getStringAttr("literal")),
+             builder.getNamedAttr("value", number),
+             builder.getNamedAttr("origin", origin),
+             builder.getNamedAttr("location", span)}));
+  }
+  Type bits(uint64_t width) {
+    return acir::ac::BitsType::get(&context, literal(width));
+  }
+  Operation *constant(uint64_t width) {
+    OperationState state(builder.getUnknownLoc(),
+                         acir::ac::BitsConstantOp::getOperationName());
+    state.addTypes(bits(width));
+    state.addAttribute("value", literal(0));
+    return builder.create(state);
+  }
+  detail::TableQueryLowering lowering() {
+    return detail::TableQueryLowering(builder, builder.getUnknownLoc(), *module,
+                                      budget, {});
+  }
+};
+
+TEST_F(TableQueryDescriptor, ReservedWideConstantAuditDoesNotDebitAnyCounter) {
+  // Cross a physical word boundary and retain all three value/known/Z planes.
+  auto *operation = constant(65);
+  auto observer = lowering();
+  Charge description;
+  const auto empty = counters(budget);
+  ASSERT_TRUE(observer.describeWithoutReservation(operation, 3, description));
+  EXPECT_EQ(counters(budget), empty);
+  EXPECT_EQ(description.amounts[static_cast<unsigned>(Resource::PayloadWords)],
+            3u * 3u * 2u);
+  EXPECT_EQ(description.amounts[static_cast<unsigned>(Resource::ConstantBytes)],
+            2u * sizeof(uint64_t));
+  std::string reason;
+  ASSERT_TRUE(budget.reserve(description, reason));
+  ASSERT_TRUE(budget.reserveProduct(
+      Resource::Work,
+      Budget::limit(Resource::Work) - budget.used(Resource::Work), 1, reason));
+  const auto reserved = counters(budget);
+  for (unsigned repeat = 0; repeat < 3; ++repeat) {
+    Charge observed;
+    ASSERT_TRUE(observer.describeWithoutReservation(operation, 3, observed));
+    EXPECT_EQ(observed.amounts, description.amounts);
+    EXPECT_EQ(counters(budget), reserved);
+  }
+}
+
+TEST_F(TableQueryDescriptor, FailedDescriptionAndReservationKeepLedgerAtomic) {
+  auto observer = lowering();
+  std::string reason;
+  ASSERT_TRUE(budget.reserveProduct(Resource::Occurrences, 7, 1, reason));
+  const auto before = counters(budget);
+  Charge zeroRows;
+  EXPECT_FALSE(observer.describeWithoutReservation(constant(65), 0, zeroRows));
+  EXPECT_EQ(counters(budget), before);
+  // A type larger than the payload contract fails width observation without
+  // materializing a payload or resetting prior source work.
+  Charge oversized;
+  EXPECT_FALSE(observer.describeWithoutReservation(
+      constant(64 * (Budget::limit(Resource::PayloadWords) + 1)), 1,
+      oversized));
+  EXPECT_EQ(counters(budget), before);
+  Charge valid;
+  ASSERT_TRUE(observer.describeWithoutReservation(constant(129), 1, valid));
+  ASSERT_TRUE(budget.reserveProduct(Resource::ConstantBytes,
+                                    Budget::limit(Resource::ConstantBytes), 1,
+                                    reason));
+  const auto full = counters(budget);
+  EXPECT_FALSE(budget.reserve(valid, reason));
+  EXPECT_EQ(counters(budget), full);
+  EXPECT_FALSE(reason.empty());
 }
 } // namespace

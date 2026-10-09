@@ -73,11 +73,16 @@ public:
   mlir::FailureOr<mlir::Value> count(mlir::Value table, mlir::Type result);
   mlir::FailureOr<llvm::SmallVector<mlir::Value>> choose(mlir::Value predicates,
                                                          mlir::Value keys = {});
+  // Describe already reserved scalar storage without spending the ledger a
+  // second time. The importer owns the reservation and consistency audit.
+  bool describeWithoutReservation(mlir::Operation *operation, uint64_t rows,
+                                  TableQueryCharge &charge);
 
 private:
-  mlir::FailureOr<uint64_t> words(mlir::Type type, unsigned depth = 0);
+  mlir::FailureOr<uint64_t> words(mlir::Type type, unsigned depth = 0,
+                                  bool debitWork = true);
   bool describe(mlir::Operation *operation, uint64_t rows,
-                TableQueryCharge &charge);
+                TableQueryCharge &charge, bool debitWork = true);
   mlir::LogicalResult charge(mlir::Operation *operation, uint64_t rows = 1);
   mlir::FailureOr<mlir::Value> gather(mlir::Value table, mlir::Value indices);
   mlir::FailureOr<llvm::SmallVector<mlir::Value>>

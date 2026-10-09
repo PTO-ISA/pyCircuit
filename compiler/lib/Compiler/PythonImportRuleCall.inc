@@ -52,6 +52,276 @@ Importer::bindRuleFormal(const AstNode &formal, const AstNode &actual,
   return BoundRuleFormal{name.str(), *converted, binding};
 }
 
+FailureOr<SmallVector<BoundRuleFormal>>
+Importer::bindPureActuals(const AstNode &rule, const AstNode &call,
+                          OpBuilder &at, FlatSymbolRefAttr symbol,
+                          llvm::StringMap<Value> &values,
+                          llvm::StringMap<Instance *> &instances) {
+  auto args = rule.child("args");
+  if (failed(validateRuleParameters(rule)))
+    return failure();
+  if (!call.array("keywords").empty() ||
+      call.array("args").size() != args.array("args").size())
+    return mlir::emitError(call.location(b.getContext(), source.path))
+           << "scalar helper requires its exact positional argument list";
+  SmallVector<Value> actuals;
+  SmallVector<std::string> names;
+  SmallVector<BoundRuleFormal> bound;
+  for (size_t i = 0; i < args.array("args").size(); ++i) {
+    auto formal = args.item("args", i);
+    if (failed(validateRuleFormalName(formal, names)))
+      return failure();
+    names.push_back(formal.string("arg").str());
+    // The list, rather than a binary operator's internal operand order, owns
+    // once-only source-order actual evaluation. No formal width hint is given.
+    auto value =
+        expression(call.item("args", i), at, symbol, values, instances);
+    if (failed(value))
+      return failure();
+    actuals.push_back(*value);
+    auto actual = call.item("args", i);
+    auto binding = inferredBoundary(names[i], actuals[i], actual, true);
+    auto checked =
+        bindRuleFormal(formal, actual, actuals[i], binding, false, at, symbol);
+    if (failed(checked))
+      return failure();
+    bound.push_back(std::move(*checked));
+  }
+  return bound;
+}
+
+FailureOr<Value> Importer::lowerPureBody(const AstNode &rule,
+                                         ArrayRef<BoundRuleFormal> formals,
+                                         OpBuilder &at,
+                                         FlatSymbolRefAttr symbol) {
+  auto &context = *activePureScalar;
+  auto diagnostic = [&] {
+    return mlir::emitError(rule.location(b.getContext(), source.path));
+  };
+  if (++context.calls > context.summary.calls ||
+      !pureCheckedAdd(context.formals, formals.size()) ||
+      context.formals > context.summary.formals)
+    return diagnostic() << "scalar helper binding exceeds its source envelope";
+  if (llvm::any_of(context.bodies, [&](const AstNode &ancestor) {
+        return samePureDeclaration(ancestor, rule);
+      }))
+    return diagnostic() << "scalar helper body recursion is unsupported";
+  // Actuals are already evaluated and exactly bound. Declaration identity
+  // tracks only active bodies, independently of the shared nesting guards.
+  context.bodies.push_back(rule);
+  context.peakBodies = std::max(context.peakBodies,
+                                static_cast<uint64_t>(context.bodies.size()));
+  auto pop = llvm::scope_exit([&] { context.bodies.pop_back(); });
+  // Preflight established the final Return on this immutable declaration.
+  // Do not rescan its potentially long Pass/docstring prefix while typing.
+  auto bodyStatements = rule.array("body");
+  if (bodyStatements.empty())
+    return diagnostic() << "scalar helper is missing its preflighted return";
+  auto returned = rule.item("body", bodyStatements.size() - 1);
+  if (returned.kind() != "Return" || !returned.child("value"))
+    return diagnostic() << "scalar helper is missing its preflighted return";
+  auto type = portType(rule.child("returns"), symbol);
+  if (failed(type))
+    return failure();
+  llvm::StringMap<Value> values;
+  llvm::StringMap<Instance *> noInstances;
+  for (const auto &formal : formals)
+    values[formal.name] = formal.value;
+  if (values.size() != formals.size() ||
+      context.peakFrameSlots > context.summary.slots[4])
+    return diagnostic() << "scalar helper formal frame exceeds its reservation";
+  auto value = expression(returned.child("value"), at, symbol, values,
+                          noInstances, *type);
+  if (failed(value))
+    return failure();
+  // The existing unsigned boundary owns fit, widening and fresh fixed facts.
+  return unsignedBoundary(*value, *type, returned.child("value"), at, symbol);
+}
+
+FailureOr<Value>
+Importer::pureRuleCall(const AstNode &call, OpBuilder &at,
+                       FlatSymbolRefAttr symbol, llvm::StringMap<Value> &values,
+                       llvm::StringMap<Instance *> &instances) {
+  auto diagnostic = [&] {
+    return mlir::emitError(call.location(b.getContext(), source.path));
+  };
+  if (!queryArguments.empty())
+    return diagnostic() << "scalar helpers are unsupported in Table callbacks";
+  // This guard owns the entire call, including root actuals and all cleanup.
+  // Inside an expanded body it is the single measured call-descent guard;
+  // there is no second reservation or temporary wrapper for that call.
+  std::string reason;
+  if (!queryBudget.enter(reason))
+    return diagnostic() << reason;
+  auto leave = llvm::scope_exit([&] { queryBudget.leave(); });
+  auto declaration = pureRuleDeclaration(call);
+  if (failed(declaration))
+    return failure();
+  if (activePureScalar) {
+    auto &context = *activePureScalar;
+    if (queryBudget.used(TableQueryResource::Nesting) > context.summary.depth)
+      return diagnostic() << "scalar helper call exceeds its source envelope";
+    uint64_t slots = 6 * declaration->child("args").array("args").size();
+    context.frameSlots += slots;
+    context.peakFrameSlots =
+        std::max(context.peakFrameSlots, context.frameSlots);
+    auto frame = llvm::scope_exit([&] { context.frameSlots -= slots; });
+    if (context.peakFrameSlots > context.summary.slots[4])
+      return diagnostic()
+             << "scalar helper actual frame exceeds its reservation";
+    auto formals =
+        bindPureActuals(*declaration, call, at, symbol, values, instances);
+    if (failed(formals))
+      return failure();
+    return lowerPureBody(*declaration, *formals, at, symbol);
+  }
+  PureScalarSummary summary;
+  summary.arity = call.array("args").size();
+  {
+    SmallVector<AstNode> bodies;
+    if (failed(preflightPureCall(call, {}, summary, bodies, false)))
+      return failure();
+  }
+  if (failed(reservePureScalar(summary, call)))
+    return failure();
+  // Keep the caller's lexical/effect context until every actual has been
+  // evaluated and exact B0 binding has succeeded. Root-actual helpers each
+  // own their independent envelope while this lifecycle guard remains active.
+  auto formals =
+      bindPureActuals(*declaration, call, at, symbol, values, instances);
+  if (failed(formals))
+    return failure();
+  ac::HardwareAnalysis analysis(*body);
+  for (const auto &formal : *formals) {
+    auto width = analysis.getPackedWidth(formal.value.getType(), {},
+                                         at.getInsertionBlock()->getParentOp());
+    auto fact = numericValues.find(formal.value);
+    auto bounded = [&](const llvm::APSInt &integer) {
+      return integer.getBitWidth() / 64 + (integer.getBitWidth() % 64 != 0) <=
+                 summary.words &&
+             (integer.isSigned() ? integer.getSignificantBits()
+                                 : integer.getActiveBits()) <= summary.height;
+    };
+    if (failed(width) || *width > summary.width)
+      return diagnostic() << "scalar helper capture exceeds its fact envelope";
+    if (fact == numericValues.end())
+      continue;
+    const auto &info = fact->second;
+    if (info.interval &&
+        (!bounded(info.interval->lower) || !bounded(info.interval->upper)))
+      return diagnostic() << "scalar helper capture exceeds its fact envelope";
+    if (auto closed =
+            dyn_cast_or_null<ac::MathIntAttr>(info.closedSourceConstant)) {
+      auto decoded = pureAuditInteger(closed, summary);
+      if (!decoded || !bounded(*decoded))
+        return diagnostic()
+               << "scalar helper capture exceeds its fact envelope";
+    }
+  }
+  auto loc = call.location(b.getContext(), source.path);
+  // Existing ac.rule staging pattern: this holder is type-only, with no
+  // registered rule contract, occurrence plan, writes, instances or effects.
+  auto temporary =
+      createOp(at, loc, ac::RuleOp::getOperationName(), {}, {}, {}, 1);
+  auto block = new Block();
+  temporary->getRegion(0).push_back(block);
+  Operation *firstClone = nullptr;
+  uint64_t cloneCount = 0;
+  bool publishClone = false;
+  auto cleanup = llvm::scope_exit([&] {
+    if (!publishClone) {
+      Operation *operation = firstClone;
+      for (uint64_t i = 1; i < cloneCount; ++i)
+        operation = operation->getNextNode();
+      for (uint64_t i = 0; i < cloneCount; ++i) {
+        Operation *previous = operation->getPrevNode();
+        for (Value value : operation->getResults()) {
+          numericValues.erase(value);
+          fixedValues.erase(value);
+          arithmeticValues.erase(value);
+        }
+        operation->erase();
+        operation = previous;
+      }
+    }
+    for (Value value : block->getArguments()) {
+      numericValues.erase(value);
+      fixedValues.erase(value);
+      arithmeticValues.erase(value);
+    }
+    for (Operation &operation : *block)
+      for (Value value : operation.getResults()) {
+        numericValues.erase(value);
+        fixedValues.erase(value);
+        arithmeticValues.erase(value);
+      }
+    temporary->erase();
+  });
+  // Map capture arguments directly to the accepted original Values; the formal
+  // records then hold the captured Values used by the formal-only body frame.
+  IRMapping mapping;
+  for (auto &formal : *formals) {
+    Value original = formal.value;
+    formal.value = captureValue(block, original, loc);
+    mapping.map(formal.value, original);
+  }
+  PureScalarContext context{summary};
+  context.frameSlots = context.peakFrameSlots = 6 * summary.arity;
+  auto previousPure = std::exchange(activePureScalar, &context);
+  auto previousRule = std::exchange(activeRule, nullptr);
+  auto previousDecl = std::exchange(activeBehavioralDecl, nullptr);
+  auto previousStates = std::exchange(activeStates, nullptr);
+  auto restore = llvm::scope_exit([&] {
+    activeStates = previousStates;
+    activeBehavioralDecl = previousDecl;
+    activeRule = previousRule;
+    activePureScalar = previousPure;
+  });
+  auto inside = OpBuilder::atBlockEnd(block);
+  auto result = lowerPureBody(*declaration, *formals, inside, symbol);
+  if (failed(result))
+    return failure();
+  createOp(inside, loc, ac::YieldOp::getOperationName(), {*result}, {}, {});
+  if (failed(auditPureScalar(*block, context, call, symbol,
+                             mapping.getValueMap().size())))
+    return failure();
+  for (Operation &operation : *block) {
+    if (isa<ac::YieldOp>(operation))
+      break;
+    SmallVector<Value, 3> operands;
+    for (Value value : operation.getOperands()) {
+      if (!mapping.contains(value))
+        return diagnostic() << "scalar helper clone has an unmapped input";
+      operands.push_back(mapping.lookup(value));
+    }
+    // Flat scalar cloning uses only the Value map. Generic recursive clone
+    // would also retain operation/block maps that are outside this envelope.
+    auto copy =
+        createOp(at, operation.getLoc(), operation.getName().getStringRef(),
+                 operands, operation.getResultTypes(), operation.getAttrs());
+    if (!firstClone)
+      firstClone = copy;
+    ++cloneCount;
+    Value old = operation.getResult(0), value = copy->getResult(0);
+    mapping.map(old, value);
+    auto info = valueInfo(old);
+    info.value = value;
+    numericValues[value] = std::move(info);
+    if (fixedValues.contains(old))
+      fixedValues.insert(value);
+    if (arithmeticValues.contains(old))
+      arithmeticValues.insert(value);
+  }
+  if (failed(auditPureScalar(*block, context, call, symbol,
+                             mapping.getValueMap().size(),
+                             at.getInsertionBlock(), firstClone)))
+    return failure();
+  if (!mapping.contains(*result))
+    return diagnostic() << "scalar helper result is missing its scalar clone";
+  publishClone = true;
+  return mapping.lookup(*result);
+}
+
 FailureOr<SmallVector<Value>>
 Importer::behavioralCall(ModuleDecl &decl, const AstNode &call, OpBuilder &at,
                          llvm::StringMap<Value> &values,

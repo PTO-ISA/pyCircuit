@@ -144,6 +144,9 @@ if (node.kind() == "Call") {
 }
 if (node.kind() == "Call" && node.child("func").kind() == "Name" &&
     behavioralRules.contains(node.child("func").string("id"))) {
+  auto rule = behavioralRules.lookup(node.child("func").string("id"));
+  if (activePureScalar || fixedAnnotation(rule.child("returns")))
+    return pureRuleCall(node, at, ownerSymbol, values, instances);
   if (!activeBehavioralDecl || !activeStates ||
       !isa<ac::ModuleOp>(at.getInsertionBlock()->getParentOp()))
     return error() << "behavioral rule calls are only admitted at module scope";
