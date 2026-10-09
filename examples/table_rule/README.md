@@ -47,6 +47,12 @@ that explicit system root through the public compile/link/emit flow. Run
 `--target verilog`. Imported records use their original nominal declarations
 and supply every field explicitly.
 
+The system bench stores the complete trajectory as an immutable 1,343-row
+`Scenario` table. Each row names the four stimulus fields and four independent
+expected fields. A clamped phase selects the row, so phases after the checked
+trajectory retain the final idle stimulus without widening the phase counter or
+changing the 1,343-cycle assertion boundary.
+
 All original known-stream data edges are represented in this regular-clock
 scenario, with fixed independent expectations from the retained native oracle
 along a resetless trajectory. The 1343 cycles include a final observation.
@@ -54,3 +60,29 @@ The original DUT, native/RTL drivers, finite configuration, and any four-state,
 reset/discard, latency and token-ledger matrices remain unchanged. Physical
 held-level and midstream-reset scenarios still require those original module
 oracles; this system does not claim complete physical-scenario equivalence.
+
+## Measured frontend simplification
+
+The scenario data replaces the former nested conditional expressions without
+changing any of the 1,343 rows. An independent unit oracle reconstructs the
+input schedule and old-value queue/table model, then checks all eight fields.
+Both backends retain 10,744 observations over 2,686 sampling epochs; source
+locations change with the rewrite, while event names, values and epochs agree.
+
+| Artifact | Previous conditional tree | Scenario table |
+| --- | ---: | ---: |
+| Python source bytes | 823,402 | 188,920 |
+| Python lines | 16,871 | 1,403 |
+| Python AST nodes | 76,123 | 25,799 |
+| Linked common IR bytes | 79,341,868 | 38,976,988 |
+| Emitted C++ `.hpp` + `.cpp` bytes | 13,831,843 | 10,904,110 |
+| Emitted RTL `.v` + `.sv` bytes | 3,011,034 | 2,170,002 |
+
+In a local macOS arm64 run with the same compiler and default generated-build
+options, capture took 21.33 → 1.76 seconds and native source lowering with
+source-import retention took 3.65 → 1.70 seconds. Separate public link and emit
+measurements also decreased. Two alternating full-length executions measured
+C++ median time of 14.31 → 9.58 seconds, including observation output. Verilator
+execution was about 0.02 seconds in both cases, too close to startup cost to
+claim a runtime speedup. These are observed local measurements, not performance
+thresholds, hardware synthesis results or cross-platform guarantees.
