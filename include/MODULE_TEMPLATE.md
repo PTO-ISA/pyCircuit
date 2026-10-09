@@ -63,5 +63,6 @@ development process and are not an installed API. This document defines the gene
 organization; the owning examples of storage behavior are dff.h, sync_mem.h,
 byte_mem.h and their corresponding RTL sources.
 
-The component interfaces and ACIR descriptions are edited, with no tests,
-TableGen generation, build or frontend/backend integration in this step.
+This page is an organization guide, not executable module source or candidate
+evidence. Its illustrative structure does not by itself establish TableGen
+generation, build, frontend/backend integration or test coverage.

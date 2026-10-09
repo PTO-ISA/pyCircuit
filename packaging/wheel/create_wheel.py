@@ -24,8 +24,6 @@ except ModuleNotFoundError:  # pragma: no cover - Python 3.11+ in CI; 3.10 needs
         ) from exc
 
 
-WHEEL_TOOL_SOURCES = ()
-
 PRIVATE_HELPERS = (
     "pycircuit-source-unit",
     "pycircuit-link",
@@ -263,9 +261,6 @@ def main(argv: list[str] | None = None) -> int:
         _copytree(install_dir, package_dir / "_toolchain")
         _drop_bundled_python_copy(package_dir)
         _validate_toolchain_files(package_dir / "_toolchain")
-        tools_dir = package_dir / "_tools"
-        for tool_source in WHEEL_TOOL_SOURCES:
-            _copy_file(repo_root / tool_source, tools_dir / tool_source.name)
         _copy_file(repo_root / "LICENSE", stage / "LICENSE")
         _copy_file(repo_root / "README.md", stage / "README.md")
         _copy_file(repo_root / "packaging" / "wheel" / "setup.py", stage / "setup.py")

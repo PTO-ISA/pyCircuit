@@ -1,7 +1,7 @@
 # Language reference
 
 The public Python package is `pycircuit`. All designs use the same source-unit
-compiler and the `pycircuit compile`, `link` and `emit` commands. Import aliases
+compiler and the `pycircuit compile`, `link`, `emit` and `run` commands. Import aliases
 such as `pyc` and `ac` do not select a different frontend.
 
 - [Python source language](language.md)

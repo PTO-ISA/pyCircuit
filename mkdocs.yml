@@ -21,6 +21,7 @@ exclude_docs: |
 # Theme
 theme:
   name: material
+  logo: figures/pycircuit-logo.png
   palette:
     - scheme: default
       primary: blue
@@ -105,6 +106,7 @@ nav:
       - Repository Management: development/repository-management.md
       - Repository Layout: development/repository-layout.md
       - Verification Evidence: gates/README.md
+      - License History: legal/AC-RELICENSE-BSD-3-CLAUSE.md
 # Plugins
 plugins:
   - search:

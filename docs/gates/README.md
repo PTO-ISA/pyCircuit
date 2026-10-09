@@ -1,9 +1,24 @@
 # Verification evidence
 
-Raw gate and migration logs live under `docs/gates/logs/<run-id>/` and are
-ignored by Git. CI uploads the current run as an artifact; PR descriptions
-record the candidate, exact commands, exit status, results and omitted checks.
-Do not force-add generated logs or require them in runnable tests.
+## Local work, review and evidence
+
+Work packets, independent reviews and raw gate logs are local ignored records.
+They must not become clean-checkout, build, documentation or test dependencies.
+Keep new packets, reviews and command evidence together under
+`docs/gates/logs/<run-id>/`; do not force-add them. Historical records under
+`docs/work-items/` and `docs/reviews/` remain ignored and need not be moved.
+
+A bounded work packet records its scope, ownership, dependencies, expected
+behavior, removal boundary and minimum gates. An independent review records the
+exact candidate identity, reviewer role/model/effort, findings, disposition and
+any omitted checks. The implementer and independent reviewer remain separate
+responsibilities. A planned role, review request or historical disposition is
+not evidence that review occurred for the current candidate.
+
+Each evidence run records the exact candidate, commands, exit status, results,
+skipped checks and remaining callers. CI uploads the current run as an artifact;
+the PR description carries the durable summary and artifact references. A test
+name, retained artifact or historical log is not a current passing result.
 
 Historical decision and migration registers are archived with local logs and
 remain recoverable from Git history. They are not clean-checkout dependencies

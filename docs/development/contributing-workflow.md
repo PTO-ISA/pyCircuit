@@ -55,3 +55,13 @@ boundaries, and build/install references before style. Do not claim full source-
 acceptance until its cutover candidate has independent tests, reviews, and
 acceptance evidence. No compatibility aliases or forwarding targets should be
 added to ease migration.
+
+## External reference assets
+
+Keep an imported comparison model or source snapshot with its owning test,
+not in an empty repository-wide placeholder. Record its upstream repository,
+exact commit, selected files and license in the fixture's README or manifest.
+Reference code must remain independent of DUT lowering and generated results.
+An external snapshot is not installed product code unless its actual build and
+package owner explicitly includes it. Preserve that distinction when reviewing
+new dependencies or moving test assets.

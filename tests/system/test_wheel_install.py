@@ -36,6 +36,16 @@ ACTIVE_EXPORTS = {
     "struct",
     "bits",
     "table",
+    "queue",
+    "encoding",
+    "enum_to_bits",
+    "enum_from_bits",
+    "concat",
+    "popcount",
+    "count_leading_zeros",
+    "count_trailing_zeros",
+    "priority_encode",
+    "onehot_encode",
 } | {f"u{width}" for width in range(1, 65)}
 RETIRED_MODULES = (
     "agentic_circuit",

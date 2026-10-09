@@ -59,8 +59,7 @@ setup(
         exclude=["pycircuit._toolchain*"],
     ),
     package_data={
-        "pycircuit": package_files(PACKAGE_ROOT / "_toolchain", PACKAGE_ROOT)
-        + package_files(PACKAGE_ROOT / "_tools", PACKAGE_ROOT),
+        "pycircuit": package_files(PACKAGE_ROOT / "_toolchain", PACKAGE_ROOT),
     },
     # Toolchain files are enumerated explicitly in package_data above.
     include_package_data=False,

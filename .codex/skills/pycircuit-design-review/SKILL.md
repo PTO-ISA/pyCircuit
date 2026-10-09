@@ -34,8 +34,8 @@ reviewed content hash, actual role/model/effort, and applicable existing authori
 acceptance. Already-authorized local work proceeds within that scope; genuinely
 unresolved interfaces are identified for a concrete decision rather than a
 redundant permission handoff. Material design changes require independent
-review of the changed content. Record the review under
-[`docs/reviews/README.md`](../../../docs/reviews/README.md).
+review of the changed content. Record the review with the candidate evidence
+following [the local evidence policy](../../../docs/gates/README.md).
 
 ## Specialization and example acceptance
 

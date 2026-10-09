@@ -109,10 +109,12 @@ identify the language as pyCircuit 6.
 
 ## Agentic Circuit retirement
 
-Agentic Circuit source, ACIR/ACC, gfsim, tests, schemas and frontend are owned
-by the pyCircuit repository under the module roots defined by Decision 0157.
-Do not land new source changes in the standalone repository after the migration
-freeze.
+The standalone Agentic Circuit repository is a historical archive. Its original
+commits and the earlier consolidation into pyCircuit remain provenance records.
+The active source-unit compiler, common hardware IR and Runtime now live in the
+[current repository layout](repository-layout.md); retired ACC/QueueGraph/PYC
+frontends are not active module roots or compatibility paths. Do not land new
+source changes in the standalone repository.
 
 Retirement completed on 2026-09-05 after pyCircuit PR #30 merged as
 `cba1d938ddcfaadf021bbff5a91553869028e124`. The standalone repository:

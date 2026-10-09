@@ -820,19 +820,39 @@ TEST(FifoRuntimeTest,
   EXPECT_EQ(allocationCount.load(std::memory_order_relaxed), before);
 }
 
-// The oracle uses absolute 128-bit committed-edge numbers, not wrapped
+using Edge = std::array<std::uint64_t, 2>; // {high, low}
+
+constexpr Edge addEdge(Edge edge, std::uint64_t increment) {
+  const auto oldLow = edge[1];
+  edge[1] += increment;
+  edge[0] += edge[1] < oldLow;
+  return edge;
+}
+
+TEST(FifoRuntimeTest, PortableAbsoluteEdgeArithmeticCarryOrderingAndReset) {
+  constexpr auto max = std::numeric_limits<std::uint64_t>::max();
+  EXPECT_EQ(addEdge(Edge{0, max}, 1), (Edge{1, 0}));
+  EXPECT_EQ(addEdge(Edge{0, max}, max - 1), (Edge{1, max - 2}));
+  EXPECT_LT((Edge{0, max}), (Edge{1, 0}));
+  EXPECT_EQ((Edge{1, max - 2}), (Edge{1, max - 2}));
+
+  Edge edge{1, 7};
+  edge = Edge{0, 0};
+  EXPECT_EQ(edge, (Edge{0, 0}));
+}
+
+// The oracle uses absolute two-word committed-edge numbers, not wrapped
 // timestamps or implementation pointers. Runs assert the bounded epoch domain;
 // adding any u64 latency therefore remains exact, including UINT64_MAX.
 template <class T, std::size_t D, Policy P, std::uint64_t L>
 struct AvailabilityOracle {
-  using Edge = unsigned __int128;
   struct Birth {
     gfsim::wire<T> value;
     Edge maturity;
   };
   QueueFixture<T, D, P, L> queue;
   std::deque<Birth> births;
-  Edge edges = 0;
+  Edge edges{0, 0};
   bool previousClock = false;
   unsigned pushes = 0, pops = 0, replacements = 0, popMaturePush = 0;
 
@@ -873,7 +893,7 @@ struct AvailabilityOracle {
     bool matures = false;
     if (edge && !reset)
       for (const auto &birth : births)
-        matures |= birth.maturity == edges + 1;
+        matures |= birth.maturity == addEdge(edges, 1);
     Kernel::work(queue.current, queue.inputs(), queue.pending, queue.outputs());
     expectCurrent<Kernel>(queue.current, current);
     if (abandon)
@@ -888,16 +908,17 @@ struct AvailabilityOracle {
       previousClock = clock;
       if (edge && reset) {
         births.clear();
-        edges = 0;
+        edges = Edge{0, 0};
       } else if (edge) {
-        ASSERT_TRUE(edges < Edge(std::numeric_limits<std::uint64_t>::max()));
-        ++edges;
+        ASSERT_TRUE(edges <
+                    (Edge{0, std::numeric_limits<std::uint64_t>::max()}));
+        edges = addEdge(edges, 1);
         if (pop) {
           births.pop_front();
           ++pops;
         }
         if (push) {
-          births.push_back({queue.data, edges + Edge(L - 1)});
+          births.push_back({queue.data, addEdge(edges, L - 1)});
           ++pushes;
         }
         replacements += pop && push && full;

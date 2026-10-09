@@ -8,6 +8,10 @@ coverage remain incomplete. Unfinished example migration is deferred to
 [issue #272](https://github.com/PTO-ISA/pyCircuit/issues/272); the original
 independent verification assets remain.
 
+The [pre-cleanup inventory](https://github.com/PTO-ISA/pyCircuit/blob/8959cc7e62c75f6dea1b88624d90a40b5dd47b5e/docs/development/remaining-work.md)
+preserves the original root mappings and scenario qualifications. Its backlog
+is consolidated in issue #272; archiving the duplicate page does not close it.
+
 Removing unfinished examples does not mean their functionality is implemented.
 Items below are grounded in the current source reference, compiler admission
 checks and existing test ownership. Focused migration gates have passed; the
