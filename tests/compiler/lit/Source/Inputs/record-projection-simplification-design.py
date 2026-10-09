@@ -21,6 +21,16 @@ class Flag:
 
 
 @ac.struct
+class ProjectionCell:
+    value: ac.u5
+
+
+@ac.struct
+class ProjectionTable:
+    cells: ac.table[4, ProjectionCell]
+
+
+@ac.struct
 class Result:
     initial: Envelope
     first: Envelope
@@ -29,6 +39,7 @@ class Result:
     fixed: ac.u1
     arithmetic: ac.u1
     helper: ac.u1
+    mapped: ac.u5
 
 
 @ac.rule
@@ -36,6 +47,9 @@ def snapshots(a, b, c, d, e, f, g, h, flag) -> Result:
     original_alias = flag  # noqa: F841  # Retained for original-Boolean negative controls.
     converted: ac.u1 = flag
     box = Flag(bit=converted)
+    zero = ProjectionTable()
+    mapped = zero.cells.map(lambda item: ProjectionCell(value=a))
+    rebuilt = ProjectionTable(cells=mapped)
     local = Envelope(prefix=a, inner=Inner(payload=b, tag=c), suffix=d)
     initial = local
     local.inner.payload = e
@@ -48,7 +62,7 @@ def snapshots(a, b, c, d, e, f, g, h, flag) -> Result:
     local.inner.payload = e
     return Result(initial=initial, first=first, second=second, final=local,
                   fixed=box.bit, arithmetic=box.bit + 1,
-                  helper=ac.popcount(box.bit))
+                  helper=ac.popcount(box.bit), mapped=rebuilt.cells[2].value)
 
 
 @ac.module

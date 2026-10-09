@@ -35,7 +35,9 @@ std::string preamble() {
     if (width)
       text += "!b" + std::to_string(width) + " = !ac.bits<#w" + std::to_string(width) + ">\n";
   }
-  return text + "#alternate = " + literal(8, 17) + "\n!other = !ac.bits<#alternate>\n";
+  return text + "#alternate = " + literal(8, 17) +
+         "\n#alternate3 = " + literal(3, 18) +
+         "\n!other = !ac.bits<#alternate>\n";
 }
 std::string parcel() {
   return R"mlir(
@@ -282,6 +284,66 @@ TEST_F(RecordProjectionSimplificationTest, EquivalentProvenancePreservesProducer
   EXPECT_TRUE(extract.getLoc() == FileLineColLoc::get(&context, "unit.py", 31, 9) ||
               extract.getLoc() == FileLineColLoc::get(&context, "unit.py", 32, 9));
   preservedAndIdempotent(*unit, before);
+}
+
+TEST_F(RecordProjectionSimplificationTest,
+       EquivalentTableProvenanceRetainsProjectionAndDependencies) {
+  auto unit = parse(R"mlir(
+  ac.struct "unit.TableParcel" fields [{name = "values", type = !ac.table<[#w3], !b8>}, {name = "tag", type = !b1}] {ac.source_owner = {package = "", path = "unit.py"}}
+  )mlir" + module("TableProvenance", R"mlir(^bb0(%values: !ac.table<[#alternate3], !b8>, %tag: !b1):
+    %record = ac.struct.create(%values, %tag) : (!ac.table<[#alternate3], !b8>, !b1) -> !ac.struct<"unit.TableParcel">
+    %get = ac.struct.get %record["values"] : (!ac.struct<"unit.TableParcel">) -> !ac.table<[#w3], !b8>
+    "ac.yield"(%get) : (!ac.table<[#w3], !b8>) -> ()
+  )mlir", "(!ac.table<[#alternate3], !b8>, !b1) -> !ac.table<[#w3], !b8>",
+                    "[\"values\", \"tag\"]", "[\"projected\"]"));
+  ASSERT_TRUE(unit);
+  auto op = definition(*unit, "unit.TableProvenance");
+  auto create = cast<ac::StructCreateOp>(op.getBody().front().front());
+  auto get = *op.getBody().front().getOps<ac::StructGetOp>().begin();
+  auto selectedType = create.getValues()[0].getType();
+  auto resultType = get.getResult().getType();
+  EXPECT_NE(selectedType, resultType);
+  ASSERT_TRUE(ac::areEquivalentHardwareTypes(selectedType, resultType));
+  auto before = dependencies(*unit);
+
+  ASSERT_TRUE(succeeded(simplify(*unit))) << diagnostics;
+  auto yield = cast<ac::YieldOp>(op.getBody().front().back());
+  EXPECT_EQ(yield.getValues()[0], get.getResult());
+  EXPECT_EQ(get.getValue(), create.getResult());
+  EXPECT_EQ(create.getValues()[0].getType(), selectedType);
+  EXPECT_EQ(get.getResult().getType(), resultType);
+  EXPECT_EQ(dependencies(*unit), before);
+
+  auto once = print(*unit);
+  ASSERT_TRUE(succeeded(simplify(*unit))) << diagnostics;
+  EXPECT_EQ(print(*unit), once);
+  EXPECT_EQ(dependencies(*unit), before);
+}
+
+TEST_F(RecordProjectionSimplificationTest,
+       MismatchedTableExtentAndElementWidthRejectWithoutMutation) {
+  for (unsigned mutation = 0; mutation < 2; ++mutation) {
+    SCOPED_TRACE(mutation);
+    auto unit = parse(R"mlir(
+    ac.struct "unit.TableParcel" fields [{name = "values", type = !ac.table<[#w3], !b8>}, {name = "tag", type = !b1}] {ac.source_owner = {package = "", path = "unit.py"}}
+    )mlir" + module("TableMismatch", R"mlir(^bb0(%matching: !ac.table<[#w3], !b8>, %extent: !ac.table<[#w2], !b8>, %element: !ac.table<[#w3], !b5>, %tag: !b1):
+      %record = ac.struct.create(%matching, %tag) : (!ac.table<[#w3], !b8>, !b1) -> !ac.struct<"unit.TableParcel">
+      %get = ac.struct.get %record["values"] : (!ac.struct<"unit.TableParcel">) -> !ac.table<[#w3], !b8>
+      "ac.yield"(%get) : (!ac.table<[#w3], !b8>) -> ()
+    )mlir", "(!ac.table<[#w3], !b8>, !ac.table<[#w2], !b8>, !ac.table<[#w3], !b5>, !b1) -> !ac.table<[#w3], !b8>",
+                      "[\"matching\", \"extent\", \"element\", \"tag\"]",
+                      "[\"projected\"]"));
+    ASSERT_TRUE(unit);
+    auto op = definition(*unit, "unit.TableMismatch");
+    auto create = cast<ac::StructCreateOp>(op.getBody().front().front());
+    auto replacement = op.getBody().front().getArgument(mutation + 1);
+    EXPECT_FALSE(ac::areEquivalentHardwareTypes(create.getValues()[0].getType(),
+                                                 replacement.getType()));
+    create->setOperand(0, replacement);
+    auto before = print(*unit);
+    EXPECT_TRUE(failed(simplify(*unit)));
+    EXPECT_EQ(print(*unit), before);
+  }
 }
 
 TEST_F(RecordProjectionSimplificationTest, InvalidSourceEnvelopesRejectBeforeRewriting) {
