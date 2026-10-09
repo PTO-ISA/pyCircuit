@@ -57,7 +57,45 @@ int main(int argc, char **argv) {
   require(executor.ConfigureJson(reinterpret_cast<const std::uint8_t *>(config.data()),
                                 config.size()) == PYCIRCUIT_MODEL_STATUS_V1_OK);
   require(executor.Reset() == PYCIRCUIT_MODEL_STATUS_V1_OK);
-#ifdef FACT_SLICES
+#ifdef SELECT_FACTS
+  auto binary = [](unsigned value) {
+    std::string result(8, '0');
+    for (unsigned bit=0;bit!=8;++bit) result[7-bit]=(value>>bit)&1?'1':'0';
+    return result;
+  };
+  auto merge = [](char guard, std::string_view yes, std::string_view no) {
+    if (guard=='1') return std::string(yes);
+    if (guard=='0') return std::string(no);
+    std::string result;
+    for (unsigned bit=0;bit!=8;++bit) result += yes[bit]==no[bit]?yes[bit]:'x';
+    return result;
+  };
+  auto row = [&](std::string_view value, const char *prefix) {
+    pyc_dut::Inputs inputs; inputs.value=fromText<8>(value); dut.drive(inputs);
+    PycircuitModelStepResultV1 status{sizeof(status)};
+    require(executor.Step(&status)==PYCIRCUIT_MODEL_STATUS_V1_OK);
+    require(status.state==PYCIRCUIT_MODEL_STEP_V1_RUNNING);
+    const bool fullyKnown=value.find_first_of("xz")==std::string_view::npos;
+    unsigned number=0; if(fullyKnown) for(char bit:value)number=number*2+(bit=='1');
+    const char less=fullyKnown?(number<5?'1':'0'):'x';
+    bool knownDifference=false;
+    const std::string constant="00000010";
+    for(unsigned bit=0;bit!=8;++bit)
+      knownDifference |= (value[bit]=='0'||value[bit]=='1') && value[bit]!=constant[bit];
+    const char equality=knownDifference?'0':fullyKnown?'1':'x';
+    const auto bounded=merge(less,value,"00000000");
+    const auto equal=merge(equality,value,constant);
+    const std::string expected=bounded+bounded+bounded+bounded+equal+bounded.substr(5)+std::string(value);
+    const auto output=dut.sample().result;
+    const auto actual=text<51>(output);
+    if(actual!=expected)std::cerr<<"select expected "<<expected<<" actual "<<actual<<'\n';
+    require(actual==expected);
+    slice<8>(output,0,inputs.value,0);
+    std::cout<<prefix<<' '<<actual<<'\n';
+  };
+  for(unsigned value:{0,1,2,4,5,7,8,255})row(binary(value),"WORK");
+  for(std::string_view value:{"x0000010","z0000010","x0000100","zzzzzzzz","00000x10","00000z10"})row(value,"MASK");
+#elif defined(FACT_SLICES)
   auto binary = [](unsigned value, unsigned width) {
     std::string result(width, '0');
     for (unsigned bit = 0; bit != width; ++bit)

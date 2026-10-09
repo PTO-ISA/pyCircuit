@@ -795,9 +795,10 @@ FailureOr<Value> Importer::select(Value guard, Value yes, Value no,
     auto result = createOp(at, loc, ac::BitsSelectOp::getOperationName(),
                            {guard, yes, no}, TypeRange{yes.getType()}, {})
                       ->getResult(0);
-    if (fixedValues.contains(yes) && fixedValues.contains(no))
+    if (fixedValues.contains(yes) && fixedValues.contains(no)) {
       fixedValues.insert(result);
-    else if (valueInfo(yes).sourceKind == ac::detail::ValueKind::Boolean &&
+      refineSelectFacts(result, guard, yes, no, node, symbol);
+    } else if (valueInfo(yes).sourceKind == ac::detail::ValueKind::Boolean &&
              valueInfo(no).sourceKind == ac::detail::ValueKind::Boolean)
       remember(result, ac::detail::ValueKind::Boolean);
     return result;

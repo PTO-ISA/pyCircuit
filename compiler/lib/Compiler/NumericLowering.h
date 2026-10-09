@@ -5,7 +5,9 @@
 #include "mlir/IR/Builders.h"
 #include "pycircuit/Dialect/ACIR/ACIROps.h"
 #include "llvm/ADT/APSInt.h"
+#include "llvm/ADT/StringRef.h"
 
+#include <cstdint>
 #include <optional>
 
 namespace acir::compiler {
@@ -23,6 +25,12 @@ struct NumericLoweringSite {
   mlir::Location location;
   mlir::DictionaryAttr origin, sourceSpan;
 };
+
+// Optional result facts only; this never changes a physical select or its inputs.
+std::optional<IntegerInterval> refineUnsignedSelectInterval(
+    const NumericLoweringSite &, llvm::StringRef predicate, bool selectedWhenTrue,
+    const std::optional<IntegerInterval> &original, uint64_t literalWidth,
+    const llvm::APSInt &comparisonConstant, const llvm::APSInt &fallbackConstant);
 
 mlir::FailureOr<NumericValue>
 lowerExactIntegerBinary(mlir::OpBuilder &, const NumericLoweringSite &,

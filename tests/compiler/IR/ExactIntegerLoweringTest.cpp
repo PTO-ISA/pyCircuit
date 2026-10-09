@@ -16,6 +16,7 @@
 
 #include <algorithm>
 #include <optional>
+#include <limits>
 #include <string>
 
 namespace {
@@ -830,5 +831,104 @@ TEST_F(ExactIntegerLoweringTest, RightShiftInvalidProofsFailBeforeMutation) {
   }
   EXPECT_EQ(argument.value, original);
   EXPECT_EQ(argument.value.getType(), originalType);
+}
+TEST_F(ExactIntegerLoweringTest,
+       UnsignedSelectCarrierProofHasBoundedEndpoints) {
+  NumericValue fixed{block.addArgument(type(8), builder.getUnknownLoc()),
+                     std::nullopt, std::nullopt};
+  const auto before = snapshot();
+  struct Restriction {
+    const char *predicate;
+    bool trueArm;
+    const char *constant;
+  };
+  for (auto test : {Restriction{"ult", true, "5"},
+                    {"ule", true, "4"},
+                    {"uge", false, "5"},
+                    {"ugt", false, "4"}}) {
+    auto proof = refineUnsignedSelectInterval(
+        site(), test.predicate, test.trueArm, fixed.interval, 8,
+        integer(test.constant), integer("0"));
+    ASSERT_TRUE(proof.has_value());
+    EXPECT_EQ(decimal(proof->lower), "0");
+    EXPECT_EQ(decimal(proof->upper), "5");
+  }
+  auto intersection = refineUnsignedSelectInterval(
+      site(), "ule", true, IntegerInterval{integer("2"), integer("7")}, 8,
+      integer("4"), integer("3"));
+  ASSERT_TRUE(intersection.has_value());
+  EXPECT_EQ(decimal(intersection->lower), "2");
+  EXPECT_EQ(decimal(intersection->upper), "5");
+  auto singleton = refineUnsignedSelectInterval(
+      site(), "eq", true, fixed.interval, 8, integer("2"), integer("2"));
+  ASSERT_TRUE(singleton.has_value());
+  EXPECT_EQ(decimal(singleton->lower), "2");
+  EXPECT_EQ(decimal(singleton->upper), "3");
+  EXPECT_FALSE(fixed.interval.has_value());
+  EXPECT_FALSE(fixed.sourceKind.has_value());
+  EXPECT_FALSE(fixed.closedSourceConstant);
+  EXPECT_EQ(snapshot(), before);
+}
+
+TEST_F(ExactIntegerLoweringTest,
+       UnsignedSelectProofDoesNotAllocateCarrierEndpoint) {
+  // W is intentionally far beyond practical payload size. Only C/K endpoint
+  // precision is materialized, and the proof owner never constructs 2**W.
+  const uint64_t hugeWidth = std::numeric_limits<uint64_t>::max();
+  auto proof = refineUnsignedSelectInterval(
+      site(), "ule", true, std::nullopt, hugeWidth, integer("4"), integer("0"));
+  ASSERT_TRUE(proof.has_value());
+  EXPECT_EQ(decimal(proof->lower), "0");
+  EXPECT_EQ(decimal(proof->upper), "5");
+  auto maximum = refineUnsignedSelectInterval(
+      site(), "ule", true, std::nullopt, 8, integer("255"), integer("255"));
+  ASSERT_TRUE(maximum.has_value());
+  EXPECT_EQ(decimal(maximum->upper), "256");
+  auto zero = refineUnsignedSelectInterval(
+      site(), "eq", true, std::nullopt, hugeWidth, integer("0"), integer("0"));
+  ASSERT_TRUE(zero.has_value());
+  EXPECT_EQ(decimal(zero->lower), "0");
+  EXPECT_EQ(decimal(zero->upper), "1");
+}
+
+TEST_F(ExactIntegerLoweringTest,
+       OptionalUnsignedSelectMissPreservesPhysicalAdmission) {
+  auto x = input(8, "0", "256"), fallback = constant(8, "0");
+  NumericValue guard{block.addArgument(type(1), builder.getUnknownLoc()),
+                     ValueKind::Boolean, std::nullopt};
+  auto selected = lowerExactIntegerSelect(builder, site(), guard, x, fallback);
+  ASSERT_TRUE(mlir::succeeded(selected));
+  auto operation = selected->value.getDefiningOp<ac::BitsSelectOp>();
+  ASSERT_TRUE(operation);
+  const auto before = snapshot();
+  // Lower-only restrictions without an interval, equality exclusions and
+  // signed predicates cannot synthesize a finite unsigned interval.
+  for (auto predicate : {"uge", "ugt", "slt", "ne"})
+    EXPECT_FALSE(refineUnsignedSelectInterval(
+        site(), predicate, true, std::nullopt, 8, integer("5"), integer("0")));
+  EXPECT_FALSE(refineUnsignedSelectInterval(site(), "eq", false, std::nullopt,
+                                            8, integer("2"), integer("0")));
+  EXPECT_FALSE(refineUnsignedSelectInterval(site(), "ult", true, std::nullopt,
+                                            8, integer("0"), integer("0")));
+  EXPECT_FALSE(refineUnsignedSelectInterval(site(), "ult", true, std::nullopt,
+                                            0, integer("5"), integer("0")));
+  EXPECT_FALSE(refineUnsignedSelectInterval(site(), "ult", true, std::nullopt,
+                                            8, integer("256"), integer("0")));
+  EXPECT_FALSE(refineUnsignedSelectInterval(site(), "ult", true, std::nullopt,
+                                            8, integer("5"), integer("-1")));
+  EXPECT_FALSE(refineUnsignedSelectInterval(
+      site(), "ult", true, IntegerInterval{integer("-1"), integer("5")}, 8,
+      integer("5"), integer("0")));
+  EXPECT_FALSE(refineUnsignedSelectInterval(
+      site(), "ult", true, IntegerInterval{integer("7"), integer("8")}, 8,
+      integer("5"), integer("0")));
+  interval(*selected, "0", "256");
+  EXPECT_EQ(width(selected->value), 8u);
+  EXPECT_EQ(operation.getCondition(), guard.value);
+  EXPECT_EQ(operation.getTrueValue(), x.value);
+  EXPECT_EQ(operation.getFalseValue(), fallback.value);
+  EXPECT_FALSE(selected->closedSourceConstant);
+  EXPECT_EQ(snapshot(), before);
+  verifyOperations();
 }
 } // namespace

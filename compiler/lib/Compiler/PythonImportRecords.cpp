@@ -987,6 +987,8 @@ private:
   FailureOr<NumericValue> predicateView(Value value, const AstNode &node,
                                         FlatSymbolRefAttr owner);
   FailureOr<SourceChoice> sourceChoice(Value value, const AstNode &node);
+  void refineSelectFacts(Value result, Value condition, Value yes, Value no,
+                         const AstNode &node, FlatSymbolRefAttr owner);
   FailureOr<Value> joinSourceValues(const NumericValue &condition,
                                     SourceChoice yes, SourceChoice no,
                                     const AstNode &node, OpBuilder &at,
@@ -1494,6 +1496,83 @@ LogicalResult Importer::recordClosed(Value result, Attribute constant,
   return success();
 }
 
+void Importer::refineSelectFacts(Value result, Value condition, Value yes,
+                                  Value no, const AstNode &node,
+                                  FlatSymbolRefAttr owner) {
+  auto compare = condition.getDefiningOp<ac::BitsCompareOp>();
+  if (!compare || result == yes || result == no)
+    return;
+  auto unsignedValue = [&](Value value, const NumericValue &info) {
+    return isa<ac::BitsType>(value.getType()) &&
+           info.sourceKind != ac::detail::ValueKind::Boolean &&
+           (!info.interval || !info.interval->lower.isNegative()) &&
+           (fixedValues.contains(value) ||
+            (info.sourceKind == ac::detail::ValueKind::Integer && info.interval));
+  };
+  auto literalWidth = [](Value value) -> std::optional<uint64_t> {
+    auto type = dyn_cast<ac::BitsType>(value.getType());
+    auto tree = type ? type.getWidth().getTree() : DictionaryAttr();
+    auto kind = tree ? tree.getAs<StringAttr>("kind") : StringAttr();
+    if (!kind || kind.getValue() != "literal")
+      return std::nullopt;
+    auto literal = tree.getAs<DictionaryAttr>("value");
+    auto integer = literal ? literal.getAs<ac::MathIntAttr>("value")
+                           : ac::MathIntAttr();
+    if (!integer)
+      return std::nullopt;
+    llvm::APSInt width(integer.getCanonicalValue());
+    if (width.isNegative() || width.isZero() || width.getActiveBits() > 64)
+      return std::nullopt;
+    return width.getZExtValue();
+  };
+  auto refine = [&](Value selected, Value fallback, bool whenTrue)
+      -> std::optional<IntegerInterval> {
+    Value constant;
+    StringRef predicate = compare.getPredicate();
+    if (selected == compare.getLhs())
+      constant = compare.getRhs();
+    else if (selected == compare.getRhs()) {
+      constant = compare.getLhs();
+      predicate = predicate == "ult"   ? "ugt"
+                  : predicate == "ule" ? "uge"
+                  : predicate == "ugt" ? "ult"
+                  : predicate == "uge" ? "ule"
+                                       : predicate;
+    } else
+      return std::nullopt;
+    const NumericValue empty{};
+    auto facts = [&](Value value) -> const NumericValue & {
+      auto found = numericValues.find(value);
+      return found == numericValues.end() ? empty : found->second;
+    };
+    const auto &selectedInfo = facts(selected), &constantInfo = facts(constant),
+               &fallbackInfo = facts(fallback);
+    if (!unsignedValue(selected, selectedInfo) ||
+        !unsignedValue(constant, constantInfo) ||
+        !unsignedValue(fallback, fallbackInfo))
+      return std::nullopt;
+    auto c = dyn_cast_or_null<ac::MathIntAttr>(constantInfo.closedSourceConstant);
+    auto k = dyn_cast_or_null<ac::MathIntAttr>(fallbackInfo.closedSourceConstant);
+    auto width = literalWidth(selected);
+    if (!c || !k || !width)
+      return std::nullopt;
+    return refineUnsignedSelectInterval(
+        numericSite(node, owner), predicate, whenTrue, selectedInfo.interval,
+        *width, llvm::APSInt(c.getCanonicalValue()),
+        llvm::APSInt(k.getCanonicalValue()));
+  };
+  auto interval = refine(yes, no, true);
+  if (!interval)
+    interval = refine(no, yes, false);
+  if (!interval)
+    return;
+  // The original graph and authority are already established. Only the fresh
+  // result interval changes; singleton facts do not establish a constant/known bit.
+  auto info = valueInfo(result);
+  info.interval = std::move(interval);
+  numericValues[result] = std::move(info);
+}
+
 FailureOr<Value> Importer::joinSourceValues(const NumericValue &condition,
                                             SourceChoice yes, SourceChoice no,
                                             const AstNode &node, OpBuilder &at,
@@ -1537,6 +1616,8 @@ FailureOr<Value> Importer::joinSourceValues(const NumericValue &condition,
                       (a.interval && a.interval->lower.isNegative()) ||
                       (c.interval && c.interval->lower.isNegative());
   auto closeSelection = [&](Value result) -> FailureOr<Value> {
+    refineSelectFacts(result, condition.value, yes.value, no.value, node,
+                      ownerSymbol);
     auto guard = dyn_cast_or_null<BoolAttr>(condition.closedSourceConstant);
     if (guard && yes.constant && no.constant &&
         failed(recordClosed(

@@ -114,6 +114,19 @@ constant or known-bit authority: high X/Z index bits are retained, and runtime
 divisors do not gain a remainder bound. Table slicing is unsupported. A narrower declaration still cannot
 silently truncate: use an explicit slice at that boundary.
 
+A conditional may refine a private value interval from one unsigned comparison
+of the exact selected SSA value against a closed nonnegative constant, when
+the other selected arm is also a closed nonnegative constant. For example, `x if x < 5 else 0` has known-value range `[0, 5)`, including when
+`x` is an ordinary fixed-bit input. The supported comparison forms are
+`<`, `<=`, `>`, `>=` and `==`, including reversed operands. Ordering
+comparisons may refine either selected branch; equality refines only its true
+branch. A missing input interval permits only a finite upper restriction. Unsupported guards,
+nonclosed constants or an empty inferred branch leave existing facts unchanged.
+This analysis does not change the comparison or selection hardware, declare
+unknown bits known, or turn a singleton result range into a source constant.
+It does not recursively analyze compound guards or imply an implicit narrowing
+conversion.
+
 `ac.concat(first, second, ...)` joins one or more unsigned fixed-bit values,
 with the first operand in the most significant positions. A singleton preserves
 its operand. Each operand retains its own width; the result width is their sum.

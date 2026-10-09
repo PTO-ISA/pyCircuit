@@ -1,6 +1,31 @@
 // Oracle uses independently written Verilog bit positions, before clock transitions.
 module tb;
-`ifdef FACT_SLICES
+`ifdef SELECT_FACTS
+  logic [7 : 0] value;
+  wire [50 : 0] result;
+  logic [7 : 0] bounded,atmost,reversed_value,false_branch,equal_value;
+  logic [50 : 0] expected;
+  pyc_root dut(.*);
+  task row(input logic [7 : 0] v,input bit unknown_case);
+    value=v;#1;
+    bounded=value<8'd5 ? value : 8'd0;
+    atmost=value<=8'd4 ? value : 8'd0;
+    reversed_value=8'd5>value ? value : 8'd0;
+    false_branch=value>=8'd5 ? 8'd0 : value;
+    equal_value=value==8'd2 ? value : 8'd2;
+    expected={bounded,atmost,reversed_value,false_branch,equal_value,bounded[2 : 0],value};
+    if(result !== expected)$fatal(1,"full-width compare/select source facts changed planes");
+    if(unknown_case)$display("MASK %b",result);else $display("WORK %b",result);
+  endtask
+  initial begin
+    row(0,0);row(1,0);row(2,0);row(4,0);row(5,0);row(7,0);row(8,0);row(255,0);
+`ifdef SLICES_FOUR_STATE
+    row(8'bx0000010,1);row(8'bz0000010,1);row(8'bx0000100,1);
+    row(8'bzzzzzzzz,1);row(8'b00000x10,1);row(8'b00000z10,1);
+`endif
+    $finish;
+  end
+`elsif FACT_SLICES
   logic [7:0] value,raw;
   logic choose;
   wire [64:0] result;

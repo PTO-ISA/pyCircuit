@@ -5,6 +5,7 @@
 
 #include <algorithm>
 #include <limits>
+#include <thread>
 
 using namespace mlir;
 namespace acir::compiler {
@@ -173,6 +174,80 @@ std::optional<APSInt> literalMask(const NumericValue &value,
   return *integer;
 }
 } // namespace
+
+std::optional<IntegerInterval> refineUnsignedSelectInterval(
+    const NumericLoweringSite &site, StringRef predicate, bool selectedWhenTrue,
+    const std::optional<IntegerInterval> &original, uint64_t literalWidth,
+    const APSInt &comparisonConstant, const APSInt &fallbackConstant) {
+  if (!literalWidth || comparisonConstant.isNegative() ||
+      fallbackConstant.isNegative() ||
+      comparisonConstant.getActiveBits() > literalWidth ||
+      fallbackConstant.getActiveBits() > literalWidth)
+    return std::nullopt;
+  if (original &&
+      (original->lower.isNegative() || original->upper.isNegative() ||
+       APSInt::compareValues(original->lower, original->upper) >= 0 ||
+       !(original->upper.getActiveBits() <= literalWidth ||
+         (original->upper.isPowerOf2() &&
+          original->upper.getActiveBits() - 1 <= literalWidth))))
+    return std::nullopt;
+  if (predicate != "ult" && predicate != "ule" && predicate != "ugt" &&
+      predicate != "uge" && predicate != "eq")
+    return std::nullopt;
+  if (!selectedWhenTrue) {
+    if (predicate == "eq")
+      return std::nullopt;
+    predicate = predicate == "ult"   ? "uge"
+                : predicate == "ule" ? "ugt"
+                : predicate == "ugt" ? "ule"
+                                     : "ult";
+  }
+  auto increment = [&](const APSInt &value) -> std::optional<APSInt> {
+    // Match evaluateValue(Add)'s signed precision plus carry, without a
+    // carrier-sized extension. Only this speculative calculation is silenced.
+    uint64_t precision =
+        std::max(uint64_t(value.getActiveBits()) + 1, uint64_t(2));
+    if (precision >= std::numeric_limits<unsigned>::max())
+      return std::nullopt;
+    const auto probingThread = std::this_thread::get_id();
+    ScopedDiagnosticHandler suppress(site.location.getContext(), [&](Diagnostic &) {
+      return success(std::this_thread::get_id() == probingThread);
+    });
+    auto result = calculate(ValueOpcode::Add, value, APSInt::getUnsigned(1), site);
+    return succeeded(result) ? std::optional<APSInt>(*result) : std::nullopt;
+  };
+  APSInt lower = original ? original->lower : APSInt::getUnsigned(0);
+  std::optional<APSInt> upper =
+      original ? std::optional<APSInt>(original->upper) : std::nullopt;
+  if (predicate == "ule" || predicate == "ugt" || predicate == "eq") {
+    auto next = increment(comparisonConstant);
+    if (!next)
+      return std::nullopt;
+    if (predicate == "ugt") {
+      if (APSInt::compareValues(lower, *next) < 0)
+        lower = *next;
+    } else if (!upper || APSInt::compareValues(*next, *upper) < 0)
+      upper = *next;
+  }
+  if (predicate == "ult") {
+    if (!upper || APSInt::compareValues(comparisonConstant, *upper) < 0)
+      upper = comparisonConstant;
+  } else if (predicate == "uge" || predicate == "eq") {
+    if (APSInt::compareValues(lower, comparisonConstant) < 0)
+      lower = comparisonConstant;
+  }
+  // A lower-only restriction cannot represent an otherwise implicit carrier.
+  // An empty abstract arm never permits changing four-state branch behavior.
+  if (!upper || APSInt::compareValues(lower, *upper) >= 0)
+    return std::nullopt;
+  auto fallbackUpper = increment(fallbackConstant);
+  if (!fallbackUpper)
+    return std::nullopt;
+  return IntegerInterval{
+      APSInt::compareValues(lower, fallbackConstant) < 0 ? lower
+                                                       : fallbackConstant,
+      APSInt::compareValues(*upper, *fallbackUpper) > 0 ? *upper : *fallbackUpper};
+}
 
 FailureOr<NumericValue> lowerExactIntegerBinary(OpBuilder &builder,
                                                 const NumericLoweringSite &site,

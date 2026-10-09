@@ -183,6 +183,32 @@ def FactTop(value: Annotated[int, range(1 << 8)], raw: ac.u8,
 """
 DESIGN += FACT_DESIGN
 
+SELECT_DESIGN = """@ac.struct
+class SelectResult:
+    below: ac.u8
+    atmost: ac.u8
+    reversed: ac.u8
+    false_branch: ac.u8
+    equal: ac.u8
+    low: ac.u3
+    original: ac.u8
+@ac.rule
+def select_facts(value) -> SelectResult:
+    alias = value
+    below = value if value < 5 else 0
+    atmost = value if value <= 4 else 0
+    reversed_value = value if 5 > value else 0
+    false_branch = 0 if value >= 5 else alias
+    equal = value if value == 2 else 2
+    return SelectResult(below=below, atmost=atmost, reversed=reversed_value,
+                        false_branch=false_branch, equal=equal,
+                        low=below[:3], original=value)
+@ac.module
+def SelectTop(value: ac.u8) -> SelectResult:
+    return select_facts(value)
+"""
+DESIGN += SELECT_DESIGN
+
 
 def fact_index(body, index, extent=5, inputs="value: ac.u8"):
     return (
@@ -220,6 +246,20 @@ fact_controls = {
         "    original = value % 5\n", "original[:2]", extent=4
     ),
 }
+for name, expression, extent in (
+    ("select-less", "value if value < 5 else 0", 5),
+    ("select-atmost", "value if value <= 4 else 0", 5),
+    ("select-reversed", "value if 5 > value else 0", 5),
+    ("select-false-arm", "0 if value >= 5 else value", 5),
+    ("select-equality-singleton", "value if value == 2 else 2", 3),
+    ("select-alias-identity", "alias if value < 5 else 0", 5),
+):
+    fact_controls[name] = fact_index(
+        "    alias = value\n    selected = " + expression + "\n",
+        "selected",
+        extent=extent,
+    )
+
 fact_negatives = {
     "low-nonfitting-no-narrow-proof": fact_index(
         "    original = value % 5\n", "original[:2]", extent=3
@@ -260,6 +300,37 @@ for arm, expression in (
 fact_negatives["fixed-proof-not-integer-formal"] = fact_index("", "value").replace(
     "def evaluate(entries, value)",
     "def evaluate(entries, value: Annotated[int, range(1 << 8)])",
+)
+
+
+for name, expression in (
+    ("select-lower-bound-only", "value if value >= 5 else 0"),
+    ("select-unrelated-ssa", "other if value < 5 else 0"),
+    ("select-nonclosed-comparison", "value if value < other else 0"),
+    ("select-nonclosed-fallback", "value if value < 5 else other"),
+    ("select-empty-restriction", "value if value < 0 else 0"),
+    ("select-equality-false-arm", "value if value != 2 else 2"),
+):
+    fact_negatives[name] = fact_index(
+        "    other = value ^ 0\n    selected = " + expression + "\n", "selected"
+    )
+fact_negatives["select-boolean-constant-conservative"] = fact_index(
+    "    selected = value if value == False else False\n",
+    "selected",
+    extent=1,
+    inputs="value: ac.u1",
+)
+fact_negatives["select-computed-width-conservative"] = fact_index(
+    "    selected = value if value < 5 else 0\n",
+    "selected",
+    inputs="value: ac.bits[4 + 4]",
+)
+fact_negatives["select-no-implicit-narrowing"] = fact_index(
+    "    selected: ac.u3 = value if value < 5 else 0\n", "selected"
+)
+fact_negatives["select-no-logical-authority"] = fact_index(
+    "    selected = value if value < 5 else 0\n    logical: Annotated[int, range(1 << 8)] = selected\n",
+    "logical",
 )
 
 
@@ -385,6 +456,8 @@ diagnostics.update(
         "wide-fixed-boolean-peer-left": "closed Boolean branch requires a bits[1] peer",
         "wide-fixed-boolean-peer-right": "closed Boolean branch requires a bits[1] peer",
         "fixed-proof-not-integer-formal": "rule parameter annotation disagrees with binding source kind",
+        "select-no-implicit-narrowing": "unsigned boundary implicit narrowing is unsupported",
+        "select-no-logical-authority": "binding boundary requires declared Integer source kind",
     }
 )
 assert set(diagnostics) == set(cases)
@@ -428,6 +501,36 @@ with tempfile.TemporaryDirectory(prefix="fixed-slices-", dir=scratch) as tempora
     retained.mkdir()
     shutil.copyfile(design, retained / "design.py")
     shutil.copytree(unit, retained / "unit")
+    sys.path.insert(0, str(repo / "python/pycircuit/src"))
+    from pycircuit._source_capture import _capture_source_file
+    from pycircuit._source_transport import _emit_source_transport
+
+    captured = _capture_source_file(design, source_root=source)
+    transport = retained / "design.transport.mlir"
+    transport.write_text(_emit_source_transport(captured), encoding="utf-8")
+    reproduced = retained / "native-reproduction"
+    reproduced.mkdir()
+    run(
+        [
+            args.source_compiler,
+            "--capture",
+            transport,
+            "--package",
+            "slices",
+            "--path",
+            "design.py",
+            "--body-out",
+            reproduced / "design.ac",
+            "--interface-out",
+            reproduced / "design.interface.ac",
+            "--deps-out",
+            reproduced / "consumed.json",
+        ]
+    )
+    for filename in ("design.ac", "design.interface.ac"):
+        assert (reproduced / filename).read_bytes() == (
+            unit / filename
+        ).read_bytes(), filename
     toolroot = Path(args.source_compiler).resolve().parent.parent
     runtime = next(
         (
@@ -446,6 +549,7 @@ with tempfile.TemporaryDirectory(prefix="fixed-slices-", dir=scratch) as tempora
         ("Top", [], 10, 4),
         ("TableTop", ["-DTABLE_SLICES"], 16, 4),
         ("FactTop", ["-DFACT_SLICES"], 12, 4),
+        ("SelectTop", ["-DSELECT_FACTS"], 8, 6),
     ):
         output = build / top
         output.mkdir()
@@ -600,8 +704,8 @@ with tempfile.TemporaryDirectory(prefix="fixed-slices-", dir=scratch) as tempora
                     ).hexdigest()
                     for path in inputs
                 },
-                "known_frames": 38,
-                "four_state_frames": 12,
+                "known_frames": 46,
+                "four_state_frames": 18,
                 "workers": [1, 2],
                 "rejected_cases": sorted(cases),
                 "fact_controls": sorted(fact_controls),
@@ -610,6 +714,8 @@ with tempfile.TemporaryDirectory(prefix="fixed-slices-", dir=scratch) as tempora
                 "missing_origin_guard_gap": "mixed Boolean/fixed conditional rejects at shared join; no missing-origin slice guard coverage claimed",
                 "protected_rejections": len(cases) * 2,
                 "icarus_four_state": bool(args.iverilog and args.vvp),
+                "main_capture_transport_native_reproduction": "existing capture/transport API, identical source/package/path/no headers; published body/interface byte equal",
+                "transient_source_import_stage": "native compiler consumes retained transport; no separate intermediate source-import IR exported",
                 "retained_artifacts_sha256": {
                     str(path.relative_to(retained)): hashlib.sha256(
                         path.read_bytes()
@@ -624,9 +730,9 @@ with tempfile.TemporaryDirectory(prefix="fixed-slices-", dir=scratch) as tempora
     )
 
 sys.stdout.write(
-    f"fixed slices gate passed: 38 CPP worker-1/2 and RTL frames; 12 native X/Z frames; {len(cases) * 2} protected rejections; "
+    f"fixed slices gate passed: 46 CPP worker-1/2 and RTL frames; 18 native X/Z frames; {len(cases) * 2} protected rejections; "
     + (
-        "12 Icarus X/Z frames\n"
+        "18 Icarus X/Z frames\n"
         if args.iverilog and args.vvp
         else "Icarus X/Z unavailable\n"
     )
