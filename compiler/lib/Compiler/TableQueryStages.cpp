@@ -9,11 +9,49 @@
 
 using namespace mlir;
 namespace acir::compiler::detail {
+namespace {
+bool observeStageValues(TableQueryStageEnvelope *envelope, uint64_t amount) {
+  if (!envelope)
+    return true;
+  TableQueryCharge charge;
+  if (!TableQueryBudget::add(charge, TableQueryResource::Slots,
+                             envelope->observedValues) ||
+      !TableQueryBudget::add(charge, TableQueryResource::Slots, amount) ||
+      charge.amounts[static_cast<unsigned>(TableQueryResource::Slots)] >
+          envelope->factValues)
+    return false;
+  envelope->observedValues =
+      charge.amounts[static_cast<unsigned>(TableQueryResource::Slots)];
+  return true;
+}
+
+bool observeStageMapping(TableQueryStageEnvelope *envelope,
+                         const IRMapping &mapping) {
+  if (!envelope)
+    return true;
+  TableQueryCharge charge;
+  if (!mapping.getBlockMap().empty() ||
+      !TableQueryBudget::add(charge, TableQueryResource::Slots,
+                             envelope->mappingEntries) ||
+      !TableQueryBudget::add(charge, TableQueryResource::Slots,
+                             mapping.getValueMap().size()) ||
+      !TableQueryBudget::add(charge, TableQueryResource::Slots,
+                             mapping.getOperationMap().size()) ||
+      charge.amounts[static_cast<unsigned>(TableQueryResource::Slots)] >
+          envelope->mappingSlots)
+    return false;
+  envelope->mappingEntries =
+      charge.amounts[static_cast<unsigned>(TableQueryResource::Slots)];
+  return true;
+}
+} // namespace
+
 FailureOr<SmallVector<Value>> TableQueryLowering::map(
     ValueRange tables, ValueRange captures, ArrayRef<uint64_t> sizes,
     TypeRange elements,
     const std::function<FailureOr<SmallVector<Value>>(OpBuilder &, ValueRange)>
-        &body) {
+        &body,
+    TableQueryStageEnvelope *envelope) {
   uint64_t rows = 1;
   for (uint64_t size : sizes) {
     if (!size ||
@@ -27,6 +65,11 @@ FailureOr<SmallVector<Value>> TableQueryLowering::map(
     results.push_back(ac::TableType::get(at.getContext(), domain, type));
   SmallVector<Value> operands(tables);
   llvm::append_range(operands, captures);
+  if (envelope &&
+      (operands.size() + 1 != envelope->arguments || elements.size() != 1 ||
+       !observeStageValues(envelope,
+                           envelope->arguments + envelope->pending)))
+    return emitError(loc) << "named callback temporary exceeds its envelope";
   // Type one scalar description in existing module/rule lookup scope. It is
   // discarded; only the fully reserved map is published in the source graph.
   auto temporary = createSourceOperation(
@@ -99,6 +142,10 @@ FailureOr<SmallVector<Value>> TableQueryLowering::map(
     return emitError(loc)
            << (fits ? reason
                     : "Table query replicated scalar/storage budget exhausted");
+  if (envelope &&
+      !observeStageValues(envelope,
+                          envelope->arguments + envelope->pending))
+    return emitError(loc) << "named callback publication exceeds its envelope";
   // All work, scalar intermediates, table planes, slots and constants are
   // reserved before any row-domain operation or scalar-template clone.
   auto operation = createSourceOperation(
@@ -123,6 +170,8 @@ FailureOr<SmallVector<Value>> TableQueryLowering::map(
          llvm::zip(instruction.getResults(), copy->getResults()))
       hooks.copyFacts(original, result);
   }
+  if (!observeStageMapping(envelope, mapping))
+    return emitError(loc) << "named callback clone maps exceed their envelope";
   return SmallVector<Value>(operation->getResults());
 }
 FailureOr<SmallVector<Value>> TableQueryLowering::stage(Block &scalar,
@@ -133,12 +182,23 @@ FailureOr<SmallVector<Value>> TableQueryLowering::stage(Block &scalar,
 }
 FailureOr<SmallVector<Value>>
 TableQueryLowering::stage(Block &scalar, ValueRange rows, ValueRange receivers,
-                          ValueRange outputs, bool mapAggregates) {
+                          ValueRange outputs, bool mapAggregates,
+                          TableQueryStageEnvelope *envelope) {
   auto size = analysis.getTableSize(
       cast<ac::TableType>(receivers.front().getType()), {}, package);
   if (failed(size))
     return failure();
-  for (Operation &operation : scalar)
+  if (envelope &&
+      (mapAggregates || rows.size() != envelope->rowArguments ||
+       rows.size() != receivers.size() || outputs.size() != 1 ||
+       !observeStageValues(envelope, rows.size())))
+    return emitError(loc) << "named callback rows exceed their envelope";
+  for (Operation &operation : scalar) {
+    if (envelope &&
+        (operation.getNumResults() != 1 || operation.getNumRegions() ||
+         operation.getNumSuccessors() || operation.getNumOperands() > 3 ||
+         !observeStageValues(envelope, 1)))
+      return emitError(loc) << "named callback scalar exceeds its envelope";
     if (!(mapAggregates &&
           isa<ac::TableCreateOp, ac::TableSplatOp>(operation)) &&
         !isa<ac::TableGetOp, ac::BitsConstantOp, ac::BitsUnaryOp,
@@ -148,6 +208,7 @@ TableQueryLowering::stage(Block &scalar, ValueRange rows, ValueRange receivers,
              ac::EnumToBitsOp, ac::EnumFromBitsOp, ac::ValueMergeOp>(operation))
       return operation.emitError()
              << "Table query scalar template is unsupported";
+  }
   llvm::DenseMap<Value, Value> tables, scalars;
   llvm::DenseSet<Value> dependent;
   for (auto [row, receiver] : llvm::zip(rows, receivers)) {
@@ -199,6 +260,35 @@ TableQueryLowering::stage(Block &scalar, ValueRange rows, ValueRange receivers,
       pending.clear();
       return success();
     }
+    if (envelope) {
+      envelope->inputs = tableInputs.size();
+      envelope->captures = captures.size();
+      TableQueryCharge projection;
+      bool fits =
+          TableQueryBudget::add(projection, TableQueryResource::Slots, 1) &&
+          TableQueryBudget::add(projection, TableQueryResource::Slots,
+                                originals.size());
+      envelope->arguments =
+          projection.amounts[static_cast<unsigned>(TableQueryResource::Slots)];
+      projection = {};
+      fits &= TableQueryBudget::addProduct(
+                  projection, TableQueryResource::Slots, 5, envelope->hoists) &&
+              TableQueryBudget::add(projection, TableQueryResource::Slots,
+                                    originals.size()) &&
+              TableQueryBudget::add(projection, TableQueryResource::Slots,
+                                    envelope->arguments) &&
+              TableQueryBudget::addProduct(
+                  projection, TableQueryResource::Slots, 4,
+                  envelope->pending) &&
+              TableQueryBudget::add(projection, TableQueryResource::Slots, 1);
+      if (!fits || results.size() != 1 ||
+          envelope->inputs > envelope->rowArguments ||
+          envelope->captures > envelope->hoists ||
+          envelope->arguments > envelope->mapArguments ||
+          projection.amounts[static_cast<unsigned>(TableQueryResource::Slots)] >
+              envelope->mappingSlots)
+        return emitError(loc) << "named callback map phase exceeds its envelope";
+    }
     auto mapped =
         map(tableInputs, captures, {*size}, types,
             [&](OpBuilder &nested,
@@ -218,11 +308,14 @@ TableQueryLowering::stage(Block &scalar, ValueRange rows, ValueRange receivers,
                      llvm::zip(operation->getResults(), copy->getResults()))
                   hooks.copyFacts(original, result);
               }
+              if (!observeStageMapping(envelope, mapping))
+                return emitError(loc)
+                       << "named callback temporary maps exceed their envelope";
               SmallVector<Value> yielded;
               for (Value result : results)
                 yielded.push_back(mapping.lookup(result));
               return yielded;
-            });
+            }, envelope);
     if (failed(mapped))
       return failure();
     for (auto [original, result] : llvm::zip(results, *mapped))
@@ -242,6 +335,19 @@ TableQueryLowering::stage(Block &scalar, ValueRange rows, ValueRange receivers,
         laneTable || llvm::any_of(operation.getOperands(), [&](Value value) {
           return dependent.contains(value);
         });
+    if (envelope) {
+      TableQueryCharge count;
+      uint64_t &observed = depends ? envelope->pending : envelope->hoists;
+      if (!TableQueryBudget::add(count, TableQueryResource::Operations,
+                                 envelope->pending) ||
+          !TableQueryBudget::add(count, TableQueryResource::Operations,
+                                 envelope->hoists) ||
+          !TableQueryBudget::add(count, TableQueryResource::Operations, 1) ||
+          count.amounts[static_cast<unsigned>(TableQueryResource::Operations)] >
+              envelope->scalarOperations)
+        return emitError(loc) << "named callback stage exceeds its envelope";
+      ++observed;
+    }
     if (auto get = dyn_cast<ac::TableGetOp>(operation);
         get && depends &&
         !(mapAggregates && dependent.contains(get.getInput()))) {
@@ -275,11 +381,15 @@ TableQueryLowering::stage(Block &scalar, ValueRange rows, ValueRange receivers,
     } else {
       if (failed(charge(&operation)))
         return failure();
+      if (!observeStageValues(envelope, 1))
+        return emitError(loc) << "named callback hoist exceeds its envelope";
       IRMapping mapping;
       for (Value input : operation.getOperands())
         mapping.map(input,
                     scalars.lookup(input) ? scalars.lookup(input) : input);
       auto copy = at.clone(operation, mapping);
+      if (!observeStageMapping(envelope, mapping))
+        return emitError(loc) << "named callback hoist maps exceed their envelope";
       for (auto [original, result] :
            llvm::zip(operation.getResults(), copy->getResults())) {
         scalars[original] = result;

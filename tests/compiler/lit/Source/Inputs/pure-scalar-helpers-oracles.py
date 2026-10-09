@@ -111,6 +111,62 @@ def Top(flags: table[3, u1]) -> Result:
         repeated=pair(flags.count(), flags.count()))
 """
 
+NAMED_MAP_DESIGN = """from pycircuit import module, rule, struct, u8, bits, table
+@rule
+def bump(value: u8) -> u8:
+    return value + 1
+@rule
+def bump_twice(value: u8) -> u8:
+    return bump(bump(value))
+@rule
+def decrement(value: u8) -> u8:
+    return value - 1
+@rule
+def mix(left: u8, right: u8) -> u8:
+    return bump(left) ^ decrement(right)
+@rule
+def identity(value: u8) -> u8:
+    return value
+@rule
+def fixed(value: u8) -> u8:
+    return 23
+@rule
+def wide_step(value: bits[65]) -> bits[65]:
+    return value + 1
+@struct
+class Result:
+    named: table[3, u8]
+    lambda_value: table[3, u8]
+    direct0: u8
+    direct1: u8
+    direct2: u8
+    identity_value: table[3, u8]
+    splat: table[3, u8]
+    wide: table[3, bits[65]]
+    after: u8
+    finite: table[3, u8]
+    finite_helper: table[3, u8]
+    ordered: table[3, u8]
+@module
+def Top(left: table[3, u8], right: table[3, u8], wide: table[3, bits[65]]) -> Result:
+    named = left.map(mix, right)
+    equivalent = left.map(lambda a, b: (a + 1) ^ (b - 1), right)
+    first = mix(left[0], right[0])
+    second = mix(left[1], right[1])
+    third = mix(left[2], right[2])
+    same = left.map(identity)
+    constant = left.map(fixed)
+    stepped = wide.map(wide_step)
+    after = mix(left[0], right[0])
+    finite = left.map(identity).map(identity)
+    finite_helper = left.map(bump_twice)
+    ordered = left.map(lambda a: a + 1).map(mix, right.map(lambda b: b - 1))
+    return Result(named=named, lambda_value=equivalent, direct0=first,
+        direct1=second, direct2=third, identity_value=same, splat=constant,
+        wide=stepped, after=after, finite=finite, finite_helper=finite_helper,
+        ordered=ordered)
+"""
+
 
 def word(value, width):
     return format(value % (1 << width), f"0{width}b")
@@ -284,6 +340,89 @@ def count_case():
         "inputs": {"flags": 3},
         "plane_inputs": {},
         "fields": {"count": 2, "stepped": 2, "nested": 2, "repeated": 2},
+        "rows": rows,
+        "gold": gold,
+    }
+
+
+def named_map_case():
+    # One finite three-lane domain, with distinct lanes and both sides of each
+    # arithmetic wrap boundary. Unknown lanes remain full symbol strings.
+    rows = []
+    for a, b, w in (
+        (0, 0, 0),
+        (255, 1, (1 << 65) - 1),
+        (1, 255, 1 << 64),
+        (127, 128, (1 << 64) - 1),
+        (128, 127, 17),
+        (17, 17, 37),
+    ):
+        rows.append(
+            {
+                "left": "".join(word(v, 8) for v in (a, b, a + 5)),
+                "right": "".join(word(v, 8) for v in (b, a, b + 9)),
+                "wide": "".join(word(v, 65) for v in (w, w ^ 1, w + 2)),
+            }
+        )
+    for symbol in "xz":
+        rows.extend(
+            (
+                {
+                    "left": symbol * 8 + "00000000" + "11111111",
+                    "right": "00000001" + symbol * 8 + "11111111",
+                    "wide": symbol * 65 + "1" * 65 + "0" * 65,
+                },
+                {
+                    "left": "101z0x11" + "0000000" + symbol + "11111111",
+                    "right": "101z0x11" + "1111111" + symbol + "00000000",
+                    "wide": "1" + symbol * 64 + "01" * 32 + symbol + "0" * 65,
+                },
+                {
+                    "left": "00000000" + "11111111" + symbol * 8,
+                    "right": "11111111" + "00000000" + symbol * 8,
+                    "wide": "10" * 32 + symbol + "0" * 64 + symbol + "1" * 65,
+                },
+            )
+        )
+    gold = []
+    one = word(1, 8)
+    for row in rows:
+        left = [row["left"][i : i + 8] for i in range(0, 24, 8)]
+        right = [row["right"][i : i + 8] for i in range(0, 24, 8)]
+        wide = [row["wide"][i : i + 65] for i in range(0, 195, 65)]
+
+        def mix(a, b):
+            return binary("xor", binary("add", a, one), binary("sub", b, one))
+
+        lanes = [mix(a, b) for a, b in zip(left, right, strict=True)]
+        gold.append(
+            {
+                "named": "".join(lanes),
+                "lambda_value": "".join(lanes),
+                "direct0": lanes[0],
+                "direct1": lanes[1],
+                "direct2": lanes[2],
+                "identity_value": row["left"],
+                "splat": word(23, 8) * 3,
+                "wide": "".join(binary("add", w, word(1, 65)) for w in wide),
+                "after": lanes[0],
+                "finite": row["left"],
+                "finite_helper": "".join(
+                    binary("add", binary("add", a, one), one) for a in left
+                ),
+                "ordered": "".join(
+                    mix(binary("add", a, one), binary("sub", b, one))
+                    for a, b in zip(left, right, strict=True)
+                ),
+            }
+        )
+    return {
+        "name": "named_fixed_map",
+        "text": NAMED_MAP_DESIGN,
+        "top": "Top",
+        "inputs": {"left": 24, "right": 24, "wide": 195},
+        "plane_inputs": {"identity_value": "left", "finite": "left"},
+        "fields": {name: len(value) for name, value in gold[0].items()},
         "rows": rows,
         "gold": gold,
     }

@@ -74,8 +74,11 @@ the existing Table operations; it does not execute Python per element. Count
 widens before summing and retains its `[0, N+1)` range proof. Captures preserve
 call-time values, including nominal Structs containing Tables. See
 [Table transformations](../reference/language.md#table-transformations-and-reductions)
-for exact result, callback, four-state and resource boundaries. Named helpers
-and ordered scans remain unsupported.
+for exact result, callback, four-state and resource boundaries. Map also accepts
+same-source named `@rule` callbacks from the fixed scalar expression subset.
+Generic row types must exactly match their formal annotations; individual lane
+values do not supply range or constant authority. Helper calls inside expression
+lambdas and ordered scans remain unsupported.
 
 Use `ready, valid, data = ac.queue[T](valid, data, take, depth=N)`
 for a complete-token FIFO. Allocation is module-scoped, with three fresh immutable

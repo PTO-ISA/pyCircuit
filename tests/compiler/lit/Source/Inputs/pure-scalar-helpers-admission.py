@@ -286,6 +286,175 @@ def admission_cases():
         design(large_literal),
         ("budget", "envelope", "storage"),
     )
+    cases.extend(named_map_admission_cases())
+    return cases
+
+
+def named_map_admission_cases():
+    cases = []
+    identity = "@rule\ndef helper(value: u8) -> u8:\n    return value\n"
+
+    def mapped(
+        helper=identity,
+        expression="value.map(helper)",
+        value_type="table[3, u8]",
+        statements="",
+    ):
+        return (
+            PRELUDE
+            + helper
+            + f"""\n@struct
+class Result:
+    value: table[3, u8]
+@module
+def Top(value: {value_type}, other: table[3, u8]) -> Result:
+{statements}    return Result(value={expression})
+"""
+        )
+
+    def add(name, text, categories):
+        cases.append(
+            {"name": "named_map_" + name, "text": text, "categories": categories}
+        )
+
+    add(
+        "receiver_width",
+        mapped(value_type="table[3, u2]"),
+        ("rule parameter type mismatch",),
+    )
+    pair = "@rule\ndef helper(left: u8, right: u8) -> u8:\n    return left ^ right\n"
+    add(
+        "additional_width",
+        mapped(pair.replace("right: u8", "right: u2"), "value.map(helper, other)"),
+        ("rule parameter type mismatch",),
+    )
+    add("missing_actual", mapped(pair), ("arity", "argument", "formal"))
+    add(
+        "extra_actual",
+        mapped(expression="value.map(helper, other)"),
+        ("arity", "argument", "formal"),
+    )
+    add(
+        "shape",
+        mapped(pair, "other.map(helper, value)", value_type="table[2, u8]"),
+        ("shape", "extent", "arity", "argument"),
+    )
+    add(
+        "scalar_actual",
+        mapped(pair, "value.map(helper, other[0])"),
+        ("table", "shape", "argument"),
+    )
+    add(
+        "actual_order",
+        mapped(pair, "value.map(helper, left_missing)"),
+        ("left_missing",),
+    )
+    add(
+        "actual_before_body_recursion",
+        mapped(
+            identity.replace("return value", "return helper(value)"),
+            "value.map(helper, missing_actual)",
+        ),
+        ("missing_actual",),
+    )
+    add(
+        "shadowed_callback",
+        mapped(statements="    helper = other[0]\n"),
+        ("shadow", "call", "helper", "callback"),
+    )
+    add(
+        "free_name",
+        mapped(
+            identity.replace("return value", "return value ^ captured"),
+            statements="    captured = other[0]\n",
+        ),
+        ("pure", "scalar", "helper", "captur", "expression"),
+    )
+    for name, body, categories in (
+        ("recursion", "helper(value)", ("recurs", "cycle", "acyclic")),
+        (
+            "dead_recursion",
+            "value if True else helper(value)",
+            ("recurs", "cycle", "acyclic"),
+        ),
+        (
+            "dead_effect",
+            "value if True else print(value)",
+            ("pure", "scalar", "helper", "expression", "unsupported"),
+        ),
+        ("overflow_literal", "256", ("fit", "width", "range", "literal", "bound")),
+    ):
+        add(
+            name, mapped(identity.replace("return value", "return " + body)), categories
+        )
+    indirect = identity.replace("return value", "return other_helper(value)")
+    indirect += "@rule\ndef other_helper(value: u8) -> u8:\n    return helper(value)\n"
+    add("indirect_recursion", mapped(indirect), ("recurs", "cycle", "acyclic"))
+    add(
+        "default",
+        mapped(identity.replace("value: u8", "value: u8 = 1")),
+        ("signature", "formal", "parameter", "default"),
+    )
+    add(
+        "computed_annotation",
+        mapped(identity.replace("value: u8", "value: bits[4 + 4]")),
+        ("signature", "formal", "annotat", "width", "fixed"),
+    )
+    add(
+        "formal_collision",
+        mapped(identity.replace("value: u8", "Result: u8")),
+        ("collision", "formal", "declaration", "binding"),
+    )
+    add(
+        "lambda_helper",
+        mapped(expression="value.map(lambda row: helper(row))"),
+        ("callback", "helper", "lambda", "expression", "call"),
+    )
+    # A fitting lane constant cannot grant a narrower generic callback formal.
+    add(
+        "closed_lane_authority",
+        mapped(
+            identity.replace("value: u8", "value: u2")
+            + "@rule\ndef zero(value: u8) -> u8:\n    return 0\n",
+            statements="    zeros = value.map(zero)\n",
+            expression="zeros.map(helper)",
+        ),
+        ("rule parameter type mismatch",),
+    )
+    add(
+        "first_template_width_budget",
+        mapped(identity.replace("u8", "bits[67108865]")),
+        ("budget", "width", "storage"),
+    )
+    dag = identity.replace("helper", "level0")
+    for i in range(1, 14):
+        dag += f"@rule\ndef level{i}(value: u8) -> u8:\n    return level{i - 1}(value) ^ level{i - 1}(value)\n"
+    add(
+        "first_template_occurrence_budget",
+        mapped(dag, "value.map(level13)"),
+        ("budget", "occurrence", "work", "storage"),
+    )
+    # Each independent map fits; row work and retained planes share one ledger.
+    bump = identity.replace("return value", "return value + 1")
+    add(
+        "shared_row_budget",
+        mapped(
+            bump,
+            value_type="table[65536, u8]",
+            statements="".join(
+                f"    mapped{i} = value.map(helper)\n" for i in range(32)
+            ),
+        ),
+        ("budget", "work", "storage", "payload", "envelope"),
+    )
+    for case in cases:
+        actual = {
+            "named_map_receiver_width": 0,
+            "named_map_additional_width": 1,
+            "named_map_closed_lane_authority": 0,
+        }.get(case["name"])
+        if actual is not None:
+            case["diagnostic_actual"] = actual
     return cases
 
 

@@ -56,6 +56,15 @@ struct TableQueryHooks {
   std::function<void(mlir::Value)> forgetFacts;
 };
 
+// Logical bounds prepaid by the named fixed callback's first reservation.
+// Observation is integrated with the existing stage/clone loops, not a replay.
+struct TableQueryStageEnvelope {
+  uint64_t scalarOperations, rowArguments, mapArguments, factValues;
+  uint64_t mappingSlots;
+  uint64_t hoists = 0, pending = 0, inputs = 0, captures = 0, arguments = 0;
+  uint64_t observedValues = 0, mappingEntries = 0;
+};
+
 // Consumes already typed SSA. The owning importer is the only syntax lowerer.
 class TableQueryLowering {
 public:
@@ -68,7 +77,8 @@ public:
         mlir::ValueRange outputs);
   mlir::FailureOr<llvm::SmallVector<mlir::Value>>
   stage(mlir::Block &scalar, mlir::ValueRange rows, mlir::ValueRange receivers,
-        mlir::ValueRange outputs, bool mapAggregates = false);
+        mlir::ValueRange outputs, bool mapAggregates = false,
+        TableQueryStageEnvelope *envelope = nullptr);
   mlir::FailureOr<mlir::Value> fold(mlir::Value table, llvm::StringRef kind);
   mlir::FailureOr<mlir::Value> count(mlir::Value table, mlir::Type result);
   mlir::FailureOr<llvm::SmallVector<mlir::Value>> choose(mlir::Value predicates,
@@ -93,7 +103,8 @@ private:
   map(mlir::ValueRange tables, mlir::ValueRange captures,
       llvm::ArrayRef<uint64_t> shape, mlir::TypeRange elements,
       const std::function<mlir::FailureOr<llvm::SmallVector<mlir::Value>>(
-          mlir::OpBuilder &, mlir::ValueRange)> &body);
+          mlir::OpBuilder &, mlir::ValueRange)> &body,
+      TableQueryStageEnvelope *envelope = nullptr);
   mlir::FailureOr<mlir::Value>
   view(mlir::Value input, llvm::StringRef kind, llvm::ArrayRef<uint64_t> shape,
        llvm::ArrayRef<mlir::NamedAttribute> parameters);
