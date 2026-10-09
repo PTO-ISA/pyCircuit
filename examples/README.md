@@ -1,7 +1,7 @@
 # Examples navigation
 
 Examples use the single Python → MLIR → C++/Verilog → runner flow.
-The current catalog contains **65** runnable examples and **25** API-owned coverage cases.
+The current catalog contains **66** runnable examples and **25** API-owned coverage cases.
 
 - [Writing and verification standard](STANDARD.md)
 - [System execution](../docs/architecture/system-execution.md)
@@ -77,6 +77,7 @@ The current catalog contains **65** runnable examples and **25** API-owned cover
 | [dma](dma/README.md) | [Python](dma/dma.py) | [ExerciseDma](dma/bench.py) | [driver](dma/driver.cpp) | [testbench](dma/rtl_tb.sv) | [artifacts](dma/GENERATED.md) |
 | [memory_banks](memory_banks/README.md) | [Python](memory_banks/memory_banks.py) | [ExerciseMemoryBanks](memory_banks/bench.py) | [driver](memory_banks/driver.cpp) | [testbench](memory_banks/rtl_tb.sv) | [artifacts](memory_banks/GENERATED.md) |
 | [array_reductions](array_reductions/README.md) | [Python](array_reductions/array_reductions.py) | [ArrayReductionsSystem](array_reductions/bench.py) | [driver](array_reductions/driver.cpp) | [testbench](array_reductions/rtl_tb.sv) | [artifacts](array_reductions/GENERATED.md) |
+| [array_combinators](array_combinators/README.md) | [Python](array_combinators/array_combinators.py) | [ArrayCombinatorsSystem](array_combinators/bench.py) | [driver](array_combinators/driver.cpp) | [testbench](array_combinators/rtl_tb.sv) | [artifacts](array_combinators/GENERATED.md) |
 
 ## API-owned coverage
 

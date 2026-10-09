@@ -621,6 +621,16 @@
       "system_source": "bench.py",
       "system_cycles": 16,
       "system_scope": "original-five-vector-reductions; independent module histories cover stall, held-clock and reset; general index/range and named Table helper admission not claimed"
+    },
+    {
+      "name": "array_combinators",
+      "folder": "examples/array_combinators",
+      "source": "array_combinators.py",
+      "generated": "GENERATED.json",
+      "system": "ArrayCombinatorsSystem",
+      "system_source": "bench.py",
+      "system_cycles": 12,
+      "system_scope": "original-three-vector-combinators; independent module histories cover 76 vectors, stalls, held clocks and reset; flat row-major Tables preserve nested pure operations without general nested callback admission"
     }
   ],
   "api_coverage": [

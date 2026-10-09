@@ -1,0 +1,71 @@
+{
+  "schema": "pycircuit-generated-example-v1",
+  "example": "array_combinators",
+  "entry": {
+    "arguments": [],
+    "definition": "@\"example_array_combinators.array_combinators.ArrayCombinators\""
+  },
+  "verification": {
+    "schema": "pycircuit-example-verification-v1",
+    "inputs": {
+      "source/CMakeLists.txt": "1d854b24aabea83ac88c839f9a65df59e951ce19c6cd85db0d7d5eb2be17b89d",
+      "source/array_combinators.py": "bf8b14331da621a230e4c1818162f4998f13377a153656446e4a42a87778c016",
+      "source/bench.py": "8d528b05f77bea574511c0bd274ad0d028cd365250e3839534beb74b6e2eb932",
+      "source/config.json": "e61d29ab4da7172fa46611d729c78b9fe440df6ff3e1363c46b932dbddceaffe",
+      "source/driver.cpp": "4310d9a4785bb9e0bdb3158394732a4d895f2bc4c6feb2846e2cfbfe7e2be652",
+      "source/rtl_tb.sv": "7e36eb0f75d0fffed5330e42701e4baa7c8c44e8959c396fba7b9d1bbad66955",
+      "build/cpp/generated.json": "6274d04dbed35aee94f7b8d9de9d7cee6649312a87e4611e6bce1a7b0275e1c7",
+      "build/cpp/CMakeLists.txt": "7a4767d2c59132f595f2b47170f236b772a433c74fb6218e1f4d953f80915839",
+      "build/cpp/pycircuit_support.hpp": "cc1d378913dae53900f34d39a4a0ce0d78a8f11cbd3ceb22caff7d3e61c35101",
+      "build/cpp/pycircuit_system.hpp": "f7987a2c362adef8644e8ae3816df57f47428e38f0c1bc841d9a2b3617f32897",
+      "build/cpp/sources/example_array_combinators/array_combinators.cpp": "ad72a801ea4dbf2ff842ad67123af055cb32ede39fb7c58f52da7565d7f20638",
+      "build/cpp/sources/example_array_combinators/array_combinators.hpp": "ff8a3ec6a2477443e05e6ece61d38e9f0a044559de1e252f52d05456186045d4",
+      "build/cpp/sources/example_array_combinators/array_combinators.source-map.json": "9ef1e867082dbfdb99f4c2315d79e04b320abb821ad0805d2adedc209fb786b1",
+      "build/verilog/generated.json": "9e3c3905493b9989bdddc12e96db28eaeb0ea111ab10e661e7fc242c52997d50",
+      "build/verilog/CMakeLists.txt": "64b0844b6c8b4301747cb38b629d3abd1d6876c828b434d4b69628e434a33875",
+      "build/verilog/design_top.sv": "a6e47bd7cade0ea89a72f8c15b458c2b7910182e06cf510055cb6ae2c823e92f",
+      "build/verilog/sources/example_array_combinators/array_combinators.source-map.json": "f7a5d7e6aaf28f6041b5f5f71f5e86f2f9b488e6983d3c3cf443053fb5e07b10",
+      "build/verilog/sources/example_array_combinators/array_combinators.v": "32e87f410c6ec883bb7c72688dbeb8508b362bdf35f0df43279de788f0491218",
+      "build/array_combinators.ac": "5e0ebe2a413936bd21dbea186121e32433134acca11895e06030389d5ed64556",
+      "build/units/.array_combinators.pycircuit-publication/owner.json": "4bf5c4548ff3a96afdc51be71c456e3f0ff7655f9d70173ce94cd282cb4682b5",
+      "build/units/array_combinators/array_combinators.ac": "02fb38c091d35344ffee680411d37d51603f13bd301d6038b9a71725f2f8bfb1",
+      "build/units/array_combinators/array_combinators.d": "06e7c25afcf3167f9f18943bf4347252a485b8db39ca08f0b0ddd4101c9539e1",
+      "build/units/array_combinators/array_combinators.interface.ac": "2c664f32324ad648420a823c5a6584eb4ffb51a4cbac552fca9f5115b20dfe1f",
+      "build/units/array_combinators/unit.json": "7ca3293325a57d19624d4649f1ff4a0595bbb9ca866542182a77c1f7ac766ea2",
+      "runtime-rtl/byte_mem.v": "dfc3f0fa362196fcfaa7bd771d4f85f26acade0e1dfeb0bc00a24d4161987cd2",
+      "runtime-rtl/dff.v": "325fb9039af507df3c94a26515dfcd8bb73f3812c1264df7b72bfe1af918bbb8",
+      "runtime-rtl/dffe.v": "1fc0bdac0c411ea87c00fc93127ebfba8ca12684a8fecee012a23362e0f8b89c",
+      "runtime-rtl/fifo.v": "8b2f0796fdd7c0f4aee3f20bd52226ccb532c827c8618afd9fbef99e2713f97f",
+      "runtime-rtl/sync_mem.v": "75731fcc0df8a01891e53589e75debc4cda9ec384262937047f21b11de7d7637",
+      "runtime-rtl/sync_mem_dp.v": "16ad11aa53d5f60291136b82a47bef9e21b312cd46ee8b8dfb338bb01c6bc3cc",
+      "runner": "8cf45a05865a26402f6aa37038f42c37beb88eaae49f7042e7a3252aca383ef9"
+    },
+    "execution_sha256": "af4aa242f357aa9768666bb4621d6c39edd7d86790b38020013cdb0d880b51be",
+    "work_samples": 191,
+    "native_check_records": 0,
+    "native_check_sha256": "01ba4719c80b6fe911b091a7c05124b64eeece964e09c058ef8f9805daca546b",
+    "workers": [
+      1,
+      2
+    ],
+    "rtl": "verilator",
+    "trace_sha256": "9a5794cc12c2f34ed7ca4a91bfe9b99c4a368c56230ea7785ab9d65bc938d2f4"
+  },
+  "excerpts": [
+    {
+      "path": "array_combinators.ac",
+      "line": 19,
+      "sha256": "5e0ebe2a413936bd21dbea186121e32433134acca11895e06030389d5ed64556"
+    },
+    {
+      "path": "cpp/sources/example_array_combinators/array_combinators.hpp",
+      "line": 40,
+      "sha256": "ff8a3ec6a2477443e05e6ece61d38e9f0a044559de1e252f52d05456186045d4"
+    },
+    {
+      "path": "verilog/sources/example_array_combinators/array_combinators.v",
+      "line": 1,
+      "sha256": "32e87f410c6ec883bb7c72688dbeb8508b362bdf35f0df43279de788f0491218"
+    }
+  ]
+}
