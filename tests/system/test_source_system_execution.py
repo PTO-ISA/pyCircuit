@@ -283,6 +283,201 @@ def test_hello_counter_preserves_original_five_cycle_logs(tmp_path):
             assert int(terminal[0]["epoch_time"]) == 10
 
 
+def test_observation_marker_text_is_literal_in_cpp_and_verilator(tmp_path):
+    event = 'event @pyc_decimal@ @pyc_string@ 50% "quoted"'
+    literal = 'literal @pyc_decimal@ @pyc_string@ 75% "quoted"'
+    report = 'report @pyc_decimal@ @pyc_string@ 100% "quoted"'
+    source = tmp_path / "marker source"
+    source.mkdir()
+    (source / "markers.py").write_text(
+        "from pycircuit import log, report, rule, system, u8\n"
+        "\n"
+        "@rule\n"
+        "def observe(count):\n"
+        f"    log('info', {event!r}, {literal!r}, count)\n"
+        f"    report({report!r}, count)\n"
+        "    count = count + 1\n"
+        "\n"
+        "@system\n"
+        "def MarkerText():\n"
+        "    count: u8 = 0\n"
+        "    observe(count)\n"
+    )
+    unit = tmp_path / "marker unit"
+    _ok(_compile(source, "markers.py", unit))
+    final = tmp_path / "markers.ac"
+    _ok(
+        _cli(
+            "link",
+            str(unit),
+            "--top",
+            "checks.markers.MarkerText",
+            "-o",
+            str(final),
+        )
+    )
+
+    transcripts = []
+    report_statistics = []
+    for target in ("cpp", "verilog"):
+        binary = _bundle(final, tmp_path, target)
+        arguments = ["--cycles", "2"] if target == "cpp" else ["+cycles=2"]
+        rows = _records(_ok(_run([str(binary), *arguments], timeout=20)))
+        observations = [row for row in rows if row["kind"] != "result"]
+        logs = [row for row in observations if row["kind"] == "log"]
+        reports = [row for row in observations if row["kind"] == "report"]
+        assert len(logs) == len(reports) == 4
+        assert all(
+            row["spec"]
+            == {
+                "event": event,
+                "items": [
+                    {"kind": "literal", "text": literal},
+                    {"kind": "value", "ordinal": 0},
+                ],
+                "level": "info",
+            }
+            for row in logs
+        )
+        assert all(row["spec"] == {"name": report} for row in reports)
+        assert [int(row["values"][0]["value"]) for row in logs] == [0, 0, 1, 1]
+        assert [int(row["values"][0]["value"]) for row in reports] == [0, 0, 1, 1]
+        results = [row for row in rows if row["kind"] == "result"]
+        assert len(results) == 1 and results[0]["status"] == "TERMINATED"
+        statistics = [row for row in results[0]["statistics"] if row["name"] == report]
+        assert len(statistics) == 1
+        assert int(statistics[0]["last_update"]["time"]) == 4
+        assert int(statistics[0]["value"]) == 1
+        transcripts.append(observations)
+        report_statistics.append(statistics)
+    assert transcripts[0] == transcripts[1]
+    assert report_statistics[0] == report_statistics[1]
+
+
+def test_duplicate_report_names_in_one_module_reject_and_preserve_unit(tmp_path):
+    source = tmp_path / "duplicate report source"
+    source.mkdir()
+    design = source / "duplicate_reports.py"
+    valid = (
+        "from pycircuit import report, rule, system, u8\n"
+        "\n"
+        "@rule\n"
+        "def observe_left(value):\n"
+        "    report('left', value)\n"
+        "\n"
+        "@rule\n"
+        "def observe_right(value):\n"
+        "    report('right', value)\n"
+        "\n"
+        "@system\n"
+        "def DistinctReports():\n"
+        "    value: u8 = 0\n"
+        "    observe_left(value)\n"
+        "    observe_right(value)\n"
+    )
+    design.write_text(valid)
+    output = tmp_path / "duplicate report unit"
+    _ok(_compile(source, design.name, output))
+    before = {
+        path.name: path.read_bytes() for path in output.iterdir() if path.is_file()
+    }
+    design.write_text(valid.replace("report('right', value)", "report('left', value)"))
+    rejected = _cli(
+        "compile",
+        "-c",
+        str(design),
+        "--source-root",
+        str(source),
+        "--package-prefix",
+        "checks",
+        "-o",
+        str(output),
+        "--replace",
+    )
+    assert rejected.returncode != 0
+    assert "report name must be unique within module: left" in rejected.stderr
+    assert {
+        path.name: path.read_bytes() for path in output.iterdir() if path.is_file()
+    } == before
+
+
+def test_duplicate_report_names_across_instances_execute_in_both_backends(tmp_path):
+    source = tmp_path / "instance report source"
+    source.mkdir()
+    (source / "probe.py").write_text(
+        "from pycircuit import module, report, rule, u8\n"
+        "\n"
+        "@rule\n"
+        "def observe(value):\n"
+        "    report('shared', value)\n"
+        "\n"
+        "@module\n"
+        "def Probe(value: u8) -> {}:\n"
+        "    observe(value)\n"
+        "    return {}\n"
+    )
+    (source / "bench.py").write_text(
+        "from checks.probe import Probe\n"
+        "from pycircuit import rule, system, u8\n"
+        "\n"
+        "@rule\n"
+        "def advance(value):\n"
+        "    value = value + 1\n"
+        "\n"
+        "@system\n"
+        "def TwoProbes():\n"
+        "    value: u8 = 0\n"
+        "    left = Probe()\n"
+        "    right = Probe()\n"
+        "\n"
+        "    @rule\n"
+        "    def drive():\n"
+        "        left(value=value)\n"
+        "        right(value=value)\n"
+        "\n"
+        "    advance(value)\n"
+        "    drive()\n"
+    )
+    probe = tmp_path / "probe unit"
+    bench = tmp_path / "probe bench unit"
+    _ok(_compile(source, "probe.py", probe))
+    _ok(_compile(source, "bench.py", bench, [probe]))
+    final = tmp_path / "two-probes.ac"
+    _ok(
+        _cli(
+            "link",
+            str(probe),
+            str(bench),
+            "--top",
+            "checks.bench.TwoProbes",
+            "-o",
+            str(final),
+        )
+    )
+
+    transcripts = []
+    statistics = []
+    for target in ("cpp", "verilog"):
+        binary = _bundle(final, tmp_path, target)
+        arguments = ["--cycles", "1"] if target == "cpp" else ["+cycles=1"]
+        rows = _records(_ok(_run([str(binary), *arguments], timeout=20)))
+        reports = [row for row in rows if row["kind"] == "report"]
+        assert len(reports) == 4
+        assert {row["instance"] for row in reports} == {"root/left", "root/right"}
+        assert all(row["spec"] == {"name": "shared"} for row in reports)
+        results = [row for row in rows if row["kind"] == "result"]
+        assert len(results) == 1 and results[0]["status"] == "TERMINATED"
+        gauges = [row for row in results[0]["statistics"] if row["name"] == "shared"]
+        assert len(gauges) == 2
+        assert {row["object_path"] for row in gauges} == {"root/left", "root/right"}
+        assert all(int(row["last_update"]["time"]) == 2 for row in gauges)
+        assert all(int(row["value"]) == 0 for row in gauges)
+        transcripts.append(reports)
+        statistics.append(gauges)
+    assert transcripts[0] == transcripts[1]
+    assert statistics[0] == statistics[1]
+
+
 def test_system_without_assertions_still_commits_child_storage(tmp_path):
     _source_root, _dut, _bench, final = _program(tmp_path, assertions=False)
     for target in ("cpp", "verilog"):

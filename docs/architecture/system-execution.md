@@ -87,6 +87,11 @@ or independently driven domains fail explicitly rather than losing effects.
 One authored log with several supported scalar operands produces one event
 whose `values` array retains their order. A literal-only log has an empty array;
 a report retains its scalar statistic. An entire inactive log emits nothing.
+Event names, report names and literal log items are preserved as authored text
+in both backends, including percent signs and format-like marker strings.
+Each report name identifies one observation site within its owning module;
+duplicate names across rule registrations reject during common-IR verification.
+Separate instances may use the same report name.
 Partially active, incomplete or inconsistent operand groups reject before any
 observations from that epoch are published. This grouping does not extend the
 supported scalar widths or introduce four-state observation transport.
@@ -100,9 +105,11 @@ system-as-child rejection, reset/retry, source observations and failure while
 multiple modules propose writes. Both state and clock history must remain
 unchanged after failure.
 
-The user's adaptation scope is the original 93 design roots, including cases
-previously moved to API tests. Each must be mapped to a current system closure;
-deleting an uncovered row or wrapping one counter repeatedly is not adaptation.
+The original 93-root inventory, including API-owned cases, remains the
+reference for future restoration. User direction on 2026-10-09 defers unfinished
+example migration to [issue #272](https://github.com/PTO-ISA/pyCircuit/issues/272).
+Completing that inventory is not a merge requirement for this refactor; deleting
+or deferring an uncovered row is not verified adaptation.
 Keep independent hardware oracles outside product lowering and generated default
 drivers. Full coverage and long reference/mutation matrices remain in the
 existing nightly entrypoints; a generated smoke run is not their replacement.

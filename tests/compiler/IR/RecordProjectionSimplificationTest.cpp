@@ -442,6 +442,32 @@ TEST_F(RecordProjectionSimplificationTest, OriginalUnusedScalarsExtractsRulesAnd
   preservedAndIdempotent(*unit, before);
 }
 
+TEST_F(RecordProjectionSimplificationTest,
+       DuplicateReportNamesRejectInCommonIR) {
+  const std::string body = R"mlir(^bb0(%on: !b1, %value: !b8):
+    "ac.observe"(%on, %value) {kind = "report", spec = {name = "shared"}} : (!b1, !b8) -> ()
+    "ac.observe"(%on, %value) {kind = "report", spec = {name = "shared"}} : (!b1, !b8) -> ()
+    "ac.yield"() : () -> ()
+  )mlir";
+  const std::string text = preamble() + "module {\n" +
+                           module("DuplicateReports", body, "(!b1, !b8) -> ()",
+                                  "[\"on\", \"value\"]", "[]") +
+                           "\n}";
+  auto unit = parseSourceString<mlir::ModuleOp>(
+      text, mlir::ParserConfig(&context, /*verifyAfterParse=*/false));
+  ASSERT_TRUE(unit) << "negative must reach common-IR verification";
+  ScopedDiagnosticHandler handler(&context, [&](Diagnostic &diagnostic) {
+    llvm::raw_string_ostream out(diagnostics);
+    diagnostic.print(out);
+    return success();
+  });
+  EXPECT_TRUE(failed(mlir::verify(*unit)));
+  EXPECT_NE(
+      diagnostics.find("report name must be unique within module: shared"),
+      std::string::npos)
+      << diagnostics;
+}
+
 TEST_F(RecordProjectionSimplificationTest, OldQFeedbackIsATemporalCutAndInstanceIsRetained) {
   const char *storage = R"mlir(
   "ac.module.import"() {sym_name = "gfsim.dff.Dff", source_owner = {package = "gfsim", path = "dff.py"}, parameters = [], type_parameters = ["T"], function_type = (!b1, !b1, !ac.type_param<@gfsim.dff.Dff, "T">, !ac.type_param<@gfsim.dff.Dff, "T">) -> !ac.type_param<@gfsim.dff.Dff, "T">, input_names = ["clk", "rst", "d", "init"], output_names = ["q"], primitive_kind = "dff", dependency_summary = [{output = {port = 0 : i64, path = []}, inputs = []}]} : () -> ()

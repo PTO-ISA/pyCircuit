@@ -154,19 +154,6 @@ std::string displayLiteral(StringRef value) {
   }
   return text;
 }
-std::string displayFormat(StringRef value) {
-  std::string text = displayLiteral(value);
-  auto replaceAll = [&](StringRef token, StringRef replacement) {
-    size_t position = 0;
-    while ((position = text.find(token.str(), position)) != std::string::npos) {
-      text.replace(position, token.size(), replacement.str());
-      position += replacement.size();
-    }
-  };
-  replaceAll("@pyc_decimal@", "%0d");
-  replaceAll("@pyc_string@", "%s");
-  return text;
-}
 struct ObservationAddress {
   std::string object;
   size_t localIndex = 0;
@@ -377,13 +364,16 @@ FailureOr<std::string> systemSimulationTop(HardwareEmitContext &context,
       if (isa<ac::CollectionOp>(operation))
         instance += "[" + std::to_string(lane) + "]";
     }
-    std::string record = "{\"kind\":" + jsonString(observe.getKind()) +
-                         ",\"instance\":" + jsonString(instance) +
-                         ",\"registration\":" + jsonString(*registration) +
-                         ",\"site\":" + jsonString(*site) +
-                         ",\"evaluation_epoch\":\"@pyc_decimal@\",\"commit_"
-                         "epoch\":\"@pyc_decimal@\",\"spec\":" +
-                         *spec + ",\"values\":[";
+    // Escape authored metadata before inserting format slots. No source text
+    // is reserved as a placeholder: event names and literals may contain it.
+    std::string record =
+        displayLiteral("{\"kind\":" + jsonString(observe.getKind()) +
+                       ",\"instance\":" + jsonString(instance) +
+                       ",\"registration\":" + jsonString(*registration) +
+                       ",\"site\":" + jsonString(*site) +
+                       ",\"evaluation_epoch\":\"") +
+        "%0d" + displayLiteral("\",\"commit_epoch\":\"") + "%0d" +
+        displayLiteral("\",\"spec\":" + *spec + ",\"values\":[");
     std::string arguments;
     for (size_t index = 0; index < group.size; ++index) {
       if (!occurrence.site.carriesValue)
@@ -392,10 +382,11 @@ FailureOr<std::string> systemSimulationTop(HardwareEmitContext &context,
         record += ',';
       const std::string value = signal(group.addresses[index], "value");
       if (group.widths[index] == 1 && !occurrence.site.gauge) {
-        record += "{\"kind\":\"bool\",\"value\":@pyc_string@}";
+        record += displayLiteral("{\"kind\":\"bool\",\"value\":") + "%s}";
         arguments += ", " + value + " ? \"true\" : \"false\"";
       } else {
-        record += "{\"kind\":\"integer\",\"value\":\"@pyc_decimal@\"}";
+        record += displayLiteral("{\"kind\":\"integer\",\"value\":\"") + "%0d" +
+                  displayLiteral("\"}");
         arguments += ", $unsigned(" + value + ")";
       }
     }
@@ -409,8 +400,8 @@ FailureOr<std::string> systemSimulationTop(HardwareEmitContext &context,
           << "        pyc_report_update_" << occurrence.ordinal
           << " = pyc_epoch + 1;\n";
     }
-    out << "        $display(\"" << displayFormat(record)
-        << "\", pyc_epoch, pyc_epoch + 1" << arguments << ");\n"
+    out << "        $display(\"" << record << "\", pyc_epoch, pyc_epoch + 1"
+        << arguments << ");\n"
         << "      end\n";
   }
   out << "    end\n  endtask\n"
@@ -463,14 +454,16 @@ FailureOr<std::string> systemSimulationTop(HardwareEmitContext &context,
          "\\\"object_path\\\":\\\"@runtime\\\",\\\"sum\\\":0,\\\"value\\\":0}"
          "\");\n";
   for (const auto &report : reports) {
-    std::string row = ",{\"buckets\":[],\"count\":0,\"kind\":\"gauge\",\"last_"
-                      "update\":{\"delta\":0,\"time\":@pyc_decimal@},"
-                      "\"maximum\":0,\"minimum\":0,\"name\":" +
-                      jsonString(report.name) +
-                      ",\"object_path\":" + jsonString(report.instance) +
-                      ",\"sum\":0,\"value\":@pyc_decimal@}";
-    out << "    $write(\"" << displayFormat(row) << "\", pyc_report_update_"
-        << report.ordinal << ", pyc_report_value_" << report.ordinal << ");\n";
+    std::string row =
+        displayLiteral(",{\"buckets\":[],\"count\":0,\"kind\":\"gauge\",\"last_"
+                       "update\":{\"delta\":0,\"time\":") +
+        "%0d" +
+        displayLiteral("},\"maximum\":0,\"minimum\":0,\"name\":" +
+                       jsonString(report.name) + ",\"object_path\":" +
+                       jsonString(report.instance) + ",\"sum\":0,\"value\":") +
+        "%0d}";
+    out << "    $write(\"" << row << "\", pyc_report_update_" << report.ordinal
+        << ", pyc_report_value_" << report.ordinal << ");\n";
   }
   out << "    $display(\"],\\\"error\\\":null}\");\n"
          "    $finish;\n  end\nendmodule\n";

@@ -1,7 +1,10 @@
-# Remaining work before merge
+# Deferred migration and validation
 
-The current task prioritizes example migration, API repairs and independent
-verification. This list records acceptance gaps and is not a completion claim.
+User direction on 2026-10-09 ends example migration in PR #271. Unfinished
+example migration and full-catalog acceptance are tracked in
+[issue #272](https://github.com/PTO-ISA/pyCircuit/issues/272), separately from
+the refactor merge. Existing supported tests and independent oracles remain.
+This inventory records gaps; removal or deferral is not a passing result.
 
 - Complete system migration and full verification for the retained examples.
   Regular-clock benches retain their original module drivers and independent
@@ -11,8 +14,9 @@ verification. This list records acceptance gaps and is not a completion claim.
   the independent 93-root inventory. Removed rows and source catalog entries
   do not count as verified execution.
 - Finish bare `@system`, `@rule`, `@module` spelling across examples and docs.
-- Finish API/system test registration and run final clean-checkout CI, formatting,
-  documentation and packaging checks before merge.
+- Complete broader API/system registration and platform/package acceptance.
+  The refactor still requires its bounded API, system, example and CI checks;
+  results must identify the exact tested candidate.
 - Verify source-import IR, transformed IR and both backend artifacts per root.
 - Run deferred nightly coverage, reference/mutation matrices and platform/release
   checks through the existing entrypoints.

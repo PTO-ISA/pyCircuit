@@ -26,8 +26,9 @@ outputs under tests, examples, docs, or disposable `.pycircuit_out/` paths.
 
 The current module profile uses typed ports, nested stateless `@rule`, explicit
 standard storage leaves and Work/Xfer. See the language reference for supported
-source expressions and the typed C++ DUT. Complete `@system`, source collection
-authoring, general arithmetic and multi-clock driving remain unfinished.
+source expressions and the typed C++ DUT. Closed default-domain `@system`
+simulation is supported through generated C++/Verilator closures. Broader system forms, source collection authoring,
+general arithmetic and automatic multi-clock scheduling remain unfinished.
 Unsupported uses must fail clearly; retired frontends are not fallback
 implementations. Existing user authorization remains valid for its scope.
 

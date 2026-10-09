@@ -189,6 +189,15 @@ LogicalResult ModuleOp::verifyRegions() {
   if (failed(body(*this, getFunctionType().getInputs(),
                   getFunctionType().getResults())))
     return failure();
+  llvm::StringSet<> reportNames;
+  for (auto observe : getBody().front().getOps<SourceObserveOp>()) {
+    if (observe.getKind() != "report")
+      continue;
+    auto name = observe.getSpec().getAs<StringAttr>("name");
+    if (name && !reportNames.insert(name.getValue()).second)
+      return observe.emitOpError()
+             << "report name must be unique within module: " << name.getValue();
+  }
   auto result = walk([&](Operation *op) {
     for (Type type : op->getOperandTypes())
       if (failed(detail::verifyHardwareTypeScope(type, *this)))

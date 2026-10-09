@@ -1,11 +1,12 @@
 # Known limitations and follow-up work
 
-This records pyCircuit 6.1 limitations and follow-up work as of 2026-10-08.
+This records pyCircuit 6.1 limitations and follow-up work as of 2026-10-09.
 Closed `@system` source compilation, generated C++/Verilator simulation, source
 checks, observation publication and failure-atomic state/clock handling now have
 focused independent verification. Full example adaptation and broader language
-coverage remain incomplete. The current work prioritizes example migration and
-retains the original independent verification assets.
+coverage remain incomplete. Unfinished example migration is deferred to
+[issue #272](https://github.com/PTO-ISA/pyCircuit/issues/272); the original
+independent verification assets remain.
 
 Removing unfinished examples does not mean their functionality is implemented.
 Items below are grounded in the current source reference, compiler admission
@@ -42,7 +43,7 @@ complete nightly and platform matrices still require final candidate verificatio
 | Area | Current limitation | Follow-up acceptance |
 | --- | --- | --- |
 | Historical scenarios | Expectation and credit pipelines, persistent schedulers, reset/trace/XZ module contracts have restored source fixtures and owning tests. Aggregate/array/configuration and remaining slot/rate/full-design contracts are incomplete. | Reconcile all 93 original roots against supported source, independent oracles and registered tests; a catalog mapping is not execution acceptance. |
-| Complete designs | Circular ROB and oldest-ready issue queue restoration is in progress with independent full-state histories. Routed dependency pipeline remains unmapped. The smaller retained ROB does not establish their coverage. | Complete source admission, original algorithms and timing/recovery verification through the existing API/IR/backend path. |
+| Complete designs | Circular ROB, oldest-ready issue queue and routed dependency pipeline have mapped source fixtures and independent histories. Historical host-only, clock-control and four-state gaps remain; mapping does not establish full-candidate acceptance. | Complete source admission, original algorithms and timing/recovery verification through the existing API/IR/backend path. |
 | Candidate coverage | Historical accepted examples do not prove all source-import IR, transformed IR and backend outputs were regenerated from this PR candidate. | Run the existing nightly matrices and retain candidate-bound stage artifacts. |
 | Portability and packaging | This cleanup does not establish a new full Linux/macOS/Windows release validation or performance baseline. | Run the existing platform/package acceptance workflows before publication. |
 | Authoring experience | Generated systems use Python benches and the existing CMake source-unit flow. The original authored module verification remains registered alongside migrated system scenarios. Supported unconditional observation-only nested rules in a closed system use the same validation and publication path as rules with bindings or assertions; conditional observations remain unsupported. | Finish system adaptation and repair existing import/diagnostic inconsistencies without a new frontend or weakened oracle. |
