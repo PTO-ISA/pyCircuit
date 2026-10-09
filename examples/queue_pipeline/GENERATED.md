@@ -16,7 +16,7 @@ cmake -S examples/queue_pipeline -B /absolute/build/queue_pipeline -G Ninja \
   -DCMAKE_BUILD_TYPE=Release -DCMAKE_PREFIX_PATH=/absolute/pycircuit/install
 cmake --build /absolute/build/queue_pipeline --parallel 4
 ctest --test-dir /absolute/build/queue_pipeline --output-on-failure --no-tests=error
-python3 tools/pycircuit/example_catalog.py generated --example queue_pipeline \
+python3 tools/example_catalog.py generated --example queue_pipeline \
   --build /absolute/build/queue_pipeline
 ```
 

@@ -16,7 +16,7 @@ cmake -S examples/rule_pipeline -B /absolute/build/rule_pipeline -G Ninja \
   -DCMAKE_BUILD_TYPE=Release -DCMAKE_PREFIX_PATH=/absolute/pycircuit/install
 cmake --build /absolute/build/rule_pipeline --parallel 4
 ctest --test-dir /absolute/build/rule_pipeline --output-on-failure --no-tests=error
-python3 tools/pycircuit/example_catalog.py generated --example rule_pipeline \
+python3 tools/example_catalog.py generated --example rule_pipeline \
   --build /absolute/build/rule_pipeline
 ```
 

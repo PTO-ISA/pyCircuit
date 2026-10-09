@@ -30,7 +30,7 @@ def _environment() -> dict[str, str]:
         filter(
             None,
             [
-                str(ROOT / "python/pycircuit/src"),
+                str(ROOT / "python"),
                 env.get("PYTHONPATH"),
             ],
         )
@@ -489,6 +489,177 @@ def test_system_without_assertions_still_commits_child_storage(tmp_path):
                 else ["+cycles=4"]
             )
             _assert_success(_records(_ok(_run([str(binary), *arguments], timeout=20))))
+
+
+def test_assertion_before_conditional_owner_write_preserves_provenance_and_commit(
+    tmp_path,
+):
+    source = tmp_path / "assertion owner source"
+    source.mkdir()
+    design = source / "owner_after_assert.py"
+    valid = """from pycircuit import log, rule, struct, system, table, u1, u2, u4, u7
+
+@struct
+class Pair:
+    west: u7
+    east: u7
+
+@struct
+class Event:
+    pair: Pair
+    fire: u1
+
+@struct
+class Fixtures:
+    passing: table[4, Event] = (
+        Event(pair=Pair(west=9, east=9), fire=1),
+        Event(pair=Pair(west=14, east=3), fire=0),
+        Event(pair=Pair(west=65, east=65), fire=1),
+        Event(pair=Pair(west=2, east=2), fire=1),
+    )
+    failing: table[4, Event] = (
+        Event(pair=Pair(west=9, east=9), fire=1),
+        Event(pair=Pair(west=14, east=3), fire=0),
+        Event(pair=Pair(west=65, east=64), fire=1),
+        Event(pair=Pair(west=2, east=2), fire=1),
+    )
+
+@rule
+def verify_and_advance(cursor: u4, sibling: u7, phase: u4, pair: Pair, fire: u1):
+    log("info", "cursor", cursor)
+    log("info", "sibling", sibling)
+    log("info", "phase", phase)
+    if fire:
+        sibling = sibling + 1
+        if pair.west == 127:
+            assert pair.east == 127, "maximum pair fields must agree"
+        else:
+            assert pair.west == pair.east, "pair fields must agree"
+        cursor = cursor + 1
+    phase = phase + 1
+
+@system
+def PassingOwner():
+    cursor: u4 = 0
+    sibling: u7 = 0
+    phase: u4 = 0
+    fixtures = Fixtures()
+    event = fixtures.passing[phase % 4]
+    verify_and_advance(cursor, sibling, phase, event.pair, event.fire)
+
+@system
+def FailingOwner():
+    cursor: u4 = 0
+    sibling: u7 = 0
+    phase: u4 = 0
+    fixtures = Fixtures()
+    event = fixtures.failing[phase % 4]
+    verify_and_advance(cursor, sibling, phase, event.pair, event.fire)
+"""
+    design.write_text(valid)
+    unit = tmp_path / "assertion owner unit"
+    _ok(_compile(source, design.name, unit))
+
+    before = {path.name: path.read_bytes() for path in unit.iterdir() if path.is_file()}
+    invalid = valid.replace("cursor = cursor + 1", "cursor = pair.west")
+    assert invalid != valid
+    design.write_text(invalid)
+    fresh = tmp_path / "invalid assertion owner unit"
+    rejected = _compile(source, design.name, fresh)
+    assert rejected.returncode != 0
+    assert not fresh.exists()
+    rejected = _cli(
+        "compile",
+        "-c",
+        str(design),
+        "--source-root",
+        str(source),
+        "--package-prefix",
+        "checks",
+        "-o",
+        str(unit),
+        "--replace",
+    )
+    assert rejected.returncode != 0
+    assert {
+        path.name: path.read_bytes() for path in unit.iterdir() if path.is_file()
+    } == before
+    design.write_text(valid)
+
+    passing = tmp_path / "passing-owner.ac"
+    _ok(
+        _cli(
+            "link",
+            str(unit),
+            "--top",
+            "checks.owner_after_assert.PassingOwner",
+            "-o",
+            str(passing),
+        )
+    )
+    failing = tmp_path / "failing-owner.ac"
+    _ok(
+        _cli(
+            "link",
+            str(unit),
+            "--top",
+            "checks.owner_after_assert.FailingOwner",
+            "-o",
+            str(failing),
+        )
+    )
+
+    passing_transcripts = []
+    failing_transcripts = []
+    for target in ("cpp", "verilog"):
+        passing_build = tmp_path / ("passing-" + target)
+        passing_build.mkdir()
+        passing_binary = _bundle(passing, passing_build, target)
+        workers = (1, 2) if target == "cpp" else (1,)
+        for count in workers:
+            arguments = (
+                ["--cycles", "4", "--workers", str(count)]
+                if target == "cpp"
+                else ["+cycles=4"]
+            )
+            rows = _records(_ok(_run([str(passing_binary), *arguments], timeout=20)))
+            assert _observations(rows, "log", "cursor") == [
+                (epoch, epoch + 1, value)
+                for epoch, value in enumerate([0, 0, 1, 1, 1, 1, 2, 2])
+            ]
+            assert _observations(rows, "log", "sibling") == [
+                (epoch, epoch + 1, value)
+                for epoch, value in enumerate([0, 0, 1, 1, 1, 1, 2, 2])
+            ]
+            assert _observations(rows, "log", "phase") == [
+                (epoch, epoch + 1, epoch // 2) for epoch in range(8)
+            ]
+            passing_transcripts.append([row for row in rows if row["kind"] != "result"])
+
+        failing_build = tmp_path / ("failing-" + target)
+        failing_build.mkdir()
+        failing_binary = _bundle(failing, failing_build, target)
+        arguments = ["--cycles", "4"] if target == "cpp" else ["+cycles=4"]
+        result = _run([str(failing_binary), *arguments], timeout=20)
+        assert result.returncode != 0, result.stdout + result.stderr
+        rows = _records(result.stdout)
+        terminal = [row for row in rows if row["kind"] == "result"]
+        if terminal:
+            assert len(terminal) == 1 and terminal[0]["status"] == "FAILED"
+            assert terminal[0]["error"]["code"] == "source_check_failed"
+        assert _observations(rows, "log", "cursor") == [
+            (epoch, epoch + 1, value) for epoch, value in enumerate([0, 0, 1, 1])
+        ]
+        assert _observations(rows, "log", "sibling") == [
+            (epoch, epoch + 1, value) for epoch, value in enumerate([0, 0, 1, 1])
+        ]
+        assert _observations(rows, "log", "phase") == [
+            (epoch, epoch + 1, epoch // 2) for epoch in range(4)
+        ]
+        failing_transcripts.append([row for row in rows if row["kind"] != "result"])
+
+    assert passing_transcripts[0] == passing_transcripts[1] == passing_transcripts[2]
+    assert failing_transcripts[0] == failing_transcripts[1]
 
 
 @pytest.mark.parametrize(

@@ -16,7 +16,7 @@ cmake -S examples/digital_filter -B /absolute/build/digital_filter -G Ninja \
   -DCMAKE_BUILD_TYPE=Release -DCMAKE_PREFIX_PATH=/absolute/pycircuit/install
 cmake --build /absolute/build/digital_filter --parallel 4
 ctest --test-dir /absolute/build/digital_filter --output-on-failure --no-tests=error
-python3 tools/pycircuit/example_catalog.py generated --example digital_filter \
+python3 tools/example_catalog.py generated --example digital_filter \
   --build /absolute/build/digital_filter
 ```
 

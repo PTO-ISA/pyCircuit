@@ -181,8 +181,9 @@ use shared_ptr at construction and borrow data during Work. Structural instance
 names and logical indices identify state independently of source occurrence
 metadata or template reuse.
 
-The Runtime CMake component installs these headers and does not require LLVM.
-Current candidate gates cover scalar/collection execution, packed X/Z, memory
-lifetime, rollback, source generation and standalone Runtime consumers; see
-[the collection implementation packet](../../docs/work-items/collection-implementation.md).
-Python collection authoring and the standalone runner/DUT ABI are separate work.
+The installed `Runtime` CMake component exports
+`pycircuit::pyc6_runtime`, these gfsim headers and the standard Verilog leaves.
+Runtime-only package discovery does not require LLVM or MLIR. The target owns
+the compiled model-input, execution and runner support; the remaining gfsim
+components are header-defined hardware/runtime interfaces. Candidate-specific
+coverage and acceptance evidence remains outside the installed include tree.

@@ -21,5 +21,5 @@ a bundle. Type identity is not silently merged and names are not renamed ad hoc.
 
 The older family/case naming and QueueGraph source-map contracts are retired.
 See [Current limitations](../development/known-limitations.md),
-[C3 source maps](../rfcs/contracts/approvals/c3-source-map.md), and the
+[C3 source maps](https://github.com/PTO-ISA/pyCircuit/blob/main/docs/rfcs/contracts/approvals/c3-source-map.md), and the
 [source-unit workflow](../development/source-unit-workflow.md) for current limits.

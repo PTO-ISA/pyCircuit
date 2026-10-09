@@ -26,7 +26,7 @@ pyc_pythonpath() {
   elif [[ -n "${PYC_PYTHONPATH:-}" ]]; then
     echo "${PYC_PYTHONPATH}"
   else
-    echo "${PYC_ROOT_DIR}/python/pycircuit/src${PYTHONPATH:+:${PYTHONPATH}}"
+    echo "${PYC_ROOT_DIR}/python${PYTHONPATH:+:${PYTHONPATH}}"
   fi
 }
 

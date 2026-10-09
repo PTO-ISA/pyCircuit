@@ -70,9 +70,9 @@ Cold outputs are unknown. Reset establishes empty metadata without clearing
 payload slots; an initialized empty queue returns packed known-zero data.
 Payload X/Z is retained. Rising-edge reset dominates handshakes; otherwise only
 unknown effective transfers fail. Held clock levels do not change queue state.
-Native whole-system discard/retry is verified separately from RTL fatal checks.
-See the [queue contract](../../docs/reference/spec-queues.md) for the shared
-Runtime and common-IR semantics and current acceptance boundaries.
+Native whole-system discard/retry and RTL fatal checks have separate validation
+responsibilities. The source checkout's language reference owns the shared
+Runtime and common-IR queue contract and its current acceptance boundaries.
 
 ## Preserved memory semantics
 
@@ -101,4 +101,5 @@ to a generated `pyc_root` wrapper, which is also the generated CMake top.
 Current gates build and execute generated RTL against independent known-value
 and four-state oracles, using an actual typed-struct X/Z capability probe.
 RAM inference and physical synthesis are not established by these simulation
-results. See the [implementation packet](../../docs/work-items/collection-implementation.md).
+results. Candidate-specific work packets and evidence are not dependencies of
+these installed standard leaves.

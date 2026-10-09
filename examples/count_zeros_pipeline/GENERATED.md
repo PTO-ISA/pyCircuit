@@ -16,7 +16,7 @@ cmake -S examples/count_zeros_pipeline -B /absolute/build/count_zeros_pipeline -
   -DCMAKE_BUILD_TYPE=Release -DCMAKE_PREFIX_PATH=/absolute/pycircuit/install
 cmake --build /absolute/build/count_zeros_pipeline --parallel 4
 ctest --test-dir /absolute/build/count_zeros_pipeline --output-on-failure --no-tests=error
-python3 tools/pycircuit/example_catalog.py generated --example count_zeros_pipeline \
+python3 tools/example_catalog.py generated --example count_zeros_pipeline \
   --build /absolute/build/count_zeros_pipeline
 ```
 

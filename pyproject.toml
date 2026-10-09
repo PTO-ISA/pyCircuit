@@ -58,7 +58,9 @@ docs = [
 pycircuit = "pycircuit.cli:main"
 
 [tool.setuptools.packages.find]
-where = ["python/pycircuit/src"]
+where = ["python"]
+include = ["pycircuit", "pycircuit.*"]
+namespaces = false
 
 [tool.setuptools.package-data]
 pycircuit = ["**/*.py", "**/*.md"]
@@ -93,10 +95,10 @@ select = ["E", "F", "W", "I", "N", "UP", "B", "A", "C4", "T20"]
 ignore = ["E501"]
 
 [tool.ruff.lint.per-file-ignores]
-"tools/pycircuit/generate_source_identifier_unicode.py" = ["T201"]
-"python/pycircuit/src/pycircuit/__init__.py" = ["A004"]
-"python/pycircuit/src/pycircuit/cli.py" = ["A004", "T201"]
-"tests/integration/pycircuit/fixtures/**/*.py" = ["I001", "T201"]
+"tools/generate_source_identifier_unicode.py" = ["T201"]
+"python/pycircuit/__init__.py" = ["A004"]
+"python/pycircuit/cli.py" = ["A004", "T201"]
+"tests/integration/fixtures/**/*.py" = ["I001", "T201"]
 # Source grammar permits uppercase definitions, symbolic output annotations,
 # and deliberately ordered imports; negative fixtures exercise invalid bindings.
 "tests/compiler/lit/Source/Inputs/**/*.py" = ["I001", "N802", "N803", "N806", "F821", "T201"]
@@ -104,8 +106,8 @@ ignore = ["E501"]
 "tests/compiler/lit/Source/Inputs/numeric_bad*.py" = ["F401"]
 "tests/compiler/lit/lit.cfg.py" = ["F821"] # lit injects config.
 "tests/compiler/lit/CodeGen/Inputs/*.py" = ["T201"] # Standalone lit helpers.
-"tests/integration/pycircuit/source-unit-build/src/*.py" = ["N802", "F841"]
-"tests/integration/pycircuit/source-unit-build/prepare_unit_output.py" = ["T201"]
+"tests/integration/source-unit-build/src/*.py" = ["N802", "F841"]
+"tests/integration/source-unit-build/prepare_unit_output.py" = ["T201"]
 "tests/system/fixtures/source_system/*.py" = ["N802", "F821"]
 "tests/system/fixtures/source_system/atomic_bench.py" = ["B011"] # Hardware assertion.
 "examples/**/*.py" = ["F401", "F841", "I001", "N803", "N806", "N999", "T201"]
@@ -123,7 +125,7 @@ disallow_untyped_defs = false
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 pythonpath = [
-    "python/pycircuit/src",
+    "python",
     ".",
 ]
 python_files = ["test_*.py"]

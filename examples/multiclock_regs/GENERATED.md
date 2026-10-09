@@ -16,7 +16,7 @@ cmake -S examples/multiclock_regs -B /absolute/build/multiclock_regs -G Ninja \
   -DCMAKE_BUILD_TYPE=Release -DCMAKE_PREFIX_PATH=/absolute/pycircuit/install
 cmake --build /absolute/build/multiclock_regs --parallel 4
 ctest --test-dir /absolute/build/multiclock_regs --output-on-failure --no-tests=error
-python3 tools/pycircuit/example_catalog.py generated --example multiclock_regs \
+python3 tools/example_catalog.py generated --example multiclock_regs \
   --build /absolute/build/multiclock_regs
 ```
 

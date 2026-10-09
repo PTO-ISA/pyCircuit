@@ -16,7 +16,7 @@ cmake -S examples/fifo_loopback -B /absolute/build/fifo_loopback -G Ninja \
   -DCMAKE_BUILD_TYPE=Release -DCMAKE_PREFIX_PATH=/absolute/pycircuit/install
 cmake --build /absolute/build/fifo_loopback --parallel 4
 ctest --test-dir /absolute/build/fifo_loopback --output-on-failure --no-tests=error
-python3 tools/pycircuit/example_catalog.py generated --example fifo_loopback \
+python3 tools/example_catalog.py generated --example fifo_loopback \
   --build /absolute/build/fifo_loopback
 ```
 

@@ -97,7 +97,7 @@ def _compile_cli_replace(
 ) -> subprocess.CompletedProcess[str]:
     environment = dict(os.environ)
     source_roots = [
-        ROOT / "python" / "pycircuit" / "src",
+        ROOT / "python",
         ROOT / "python" / "semantic-core" / "src",
     ]
     inherited = environment.get("PYTHONPATH")

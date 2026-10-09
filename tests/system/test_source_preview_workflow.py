@@ -19,7 +19,7 @@ import pytest
 pytestmark = pytest.mark.system
 
 ROOT = Path(__file__).resolve().parents[2]
-FIXTURE = ROOT / "tests/integration/pycircuit/source-preview"
+FIXTURE = ROOT / "tests/integration/source-preview"
 MATERIALIZER = ROOT / "flows/tools/materialize_source_preview.py"
 _ORACLE: ModuleType | None = None
 _RESET_REPLAY_SOURCE = r"""#include "gfsim/SimExecutor.h"

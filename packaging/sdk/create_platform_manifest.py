@@ -580,7 +580,7 @@ def main() -> int:
         schema_root = stage / "share/pycircuit/schemas"
         schema_root.mkdir(parents=True, exist_ok=True)
         for name in SDK_SCHEMA_NAMES:
-            shutil.copyfile(ROOT / "schemas/pycircuit" / name, schema_root / name)
+            shutil.copyfile(ROOT / "schemas" / name, schema_root / name)
         license_path = stage / "share/pycircuit/licenses/LICENSE"
         license_path.parent.mkdir(parents=True, exist_ok=True)
         shutil.copyfile(ROOT / "LICENSE", license_path)

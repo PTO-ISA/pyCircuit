@@ -16,7 +16,7 @@ cmake -S examples/jit_control_flow -B /absolute/build/jit_control_flow -G Ninja 
   -DCMAKE_BUILD_TYPE=Release -DCMAKE_PREFIX_PATH=/absolute/pycircuit/install
 cmake --build /absolute/build/jit_control_flow --parallel 4
 ctest --test-dir /absolute/build/jit_control_flow --output-on-failure --no-tests=error
-python3 tools/pycircuit/example_catalog.py generated --example jit_control_flow \
+python3 tools/example_catalog.py generated --example jit_control_flow \
   --build /absolute/build/jit_control_flow
 ```
 

@@ -71,7 +71,7 @@ if(PYC_BUILD_COMPILER_DEV)
     DESTINATION "${CMAKE_INSTALL_INCLUDEDIR}/Compiler")
 endif()
 if(PYC_INSTALL_PYTHON)
-  install(DIRECTORY python/pycircuit/src/pycircuit
+  install(DIRECTORY python/pycircuit
     DESTINATION "${CMAKE_INSTALL_DATADIR}/pycircuit/python"
     PATTERN "__pycache__" EXCLUDE PATTERN "*.pyc" EXCLUDE)
   configure_file(cmake/pycircuit-driver.in "${CMAKE_CURRENT_BINARY_DIR}/pycircuit" @ONLY)

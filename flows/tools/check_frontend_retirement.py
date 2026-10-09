@@ -13,7 +13,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
 PRODUCTION_ROOTS = (
-    ROOT / "python/pycircuit/src/pycircuit",
+    ROOT / "python/pycircuit",
     ROOT / "compiler",
     ROOT / "CMakeLists.txt",
     ROOT / "CMakePresets.json",
@@ -201,8 +201,8 @@ def scan_production() -> list[str]:
 
 def scan_public_surface() -> list[str]:
     failures: list[str] = []
-    package_init = ROOT / "python/pycircuit/src/pycircuit/__init__.py"
-    cli = ROOT / "python/pycircuit/src/pycircuit/cli.py"
+    package_init = ROOT / "python/pycircuit/__init__.py"
+    cli = ROOT / "python/pycircuit/cli.py"
     if package_init.is_file():
         tree = ast.parse(
             package_init.read_text(encoding="utf-8"), filename=str(package_init)

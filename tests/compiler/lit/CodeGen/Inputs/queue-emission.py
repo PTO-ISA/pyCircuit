@@ -35,7 +35,7 @@ evidence.mkdir(parents=True, exist_ok=True)
 work = Path(tempfile.mkdtemp(prefix="run-", dir=evidence))
 env = dict(
     os.environ,
-    PYTHONPATH=str(repo / "python/pycircuit/src"),
+    PYTHONPATH=str(repo / "python"),
     PYCIRCUIT_EMITTER=args.emitter,
     PYTHONDONTWRITEBYTECODE="1",
 )

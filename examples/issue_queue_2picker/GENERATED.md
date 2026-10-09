@@ -16,7 +16,7 @@ cmake -S examples/issue_queue_2picker -B /absolute/build/issue_queue_2picker -G 
   -DCMAKE_BUILD_TYPE=Release -DCMAKE_PREFIX_PATH=/absolute/pycircuit/install
 cmake --build /absolute/build/issue_queue_2picker --parallel 4
 ctest --test-dir /absolute/build/issue_queue_2picker --output-on-failure --no-tests=error
-python3 tools/pycircuit/example_catalog.py generated --example issue_queue_2picker \
+python3 tools/example_catalog.py generated --example issue_queue_2picker \
   --build /absolute/build/issue_queue_2picker
 ```
 

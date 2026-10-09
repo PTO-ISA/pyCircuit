@@ -567,8 +567,13 @@ LogicalResult Importer::statements(const AstNode &parent, StringRef field,
       auto enabled = constant(bits(1, stmt, symbol), 1, stmt, at, symbol);
       if (failed(enabled))
         return failure();
-      writes[name] =
+      auto writeEnable =
           environment.continuation ? environment.continuation : *enabled;
+      auto normalized = unsignedBoundary(
+          writeEnable, bits(1, stmt, symbol), stmt, at, symbol);
+      if (failed(normalized))
+        return failure();
+      writes[name] = *normalized;
     }
   }
   return success();

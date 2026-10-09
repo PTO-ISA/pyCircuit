@@ -16,7 +16,7 @@ cmake -S examples/decode_rules -B /absolute/build/decode_rules -G Ninja \
   -DCMAKE_BUILD_TYPE=Release -DCMAKE_PREFIX_PATH=/absolute/pycircuit/install
 cmake --build /absolute/build/decode_rules --parallel 4
 ctest --test-dir /absolute/build/decode_rules --output-on-failure --no-tests=error
-python3 tools/pycircuit/example_catalog.py generated --example decode_rules \
+python3 tools/example_catalog.py generated --example decode_rules \
   --build /absolute/build/decode_rules
 ```
 

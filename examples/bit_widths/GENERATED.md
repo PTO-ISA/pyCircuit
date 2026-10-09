@@ -16,7 +16,7 @@ cmake -S examples/bit_widths -B /absolute/build/bit_widths -G Ninja \
   -DCMAKE_BUILD_TYPE=Release -DCMAKE_PREFIX_PATH=/absolute/pycircuit/install
 cmake --build /absolute/build/bit_widths --parallel 4
 ctest --test-dir /absolute/build/bit_widths --output-on-failure --no-tests=error
-python3 tools/pycircuit/example_catalog.py generated --example bit_widths \
+python3 tools/example_catalog.py generated --example bit_widths \
   --build /absolute/build/bit_widths
 ```
 

@@ -108,7 +108,7 @@ def main():
         shutil.copy2(path, source)
     env = dict(
         os.environ,
-        PYTHONPATH=str(repo / "python/pycircuit/src"),
+        PYTHONPATH=str(repo / "python"),
         PYTHONDONTWRITEBYTECODE="1",
         PYCIRCUIT_SOURCE_COMPILER=args.source_compiler,
         PYCIRCUIT_LINKER=args.linker,

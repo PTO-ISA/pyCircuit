@@ -17,9 +17,9 @@
 # RUN: cp %S/Inputs/source-observation-native.py %t.dir/observation_native.py
 # RUN: cp %S/../../oracles/source_observation_native.cpp %t.dir/observation_native_driver.cpp
 
-# RUN: env PYTHONPATH=%src/python/pycircuit/src PYCIRCUIT_SOURCE_COMPILER=%pycircuit_source_unit PYCIRCUIT_LINKER=%pycircuit_link PYCIRCUIT_EMITTER=%pycircuit_emit %python -m pycircuit.cli compile -c %t.dir/observation_native.py --source-root %t.dir --package-prefix native -o %t.dir/unit
-# RUN: env PYTHONPATH=%src/python/pycircuit/src PYCIRCUIT_SOURCE_COMPILER=%pycircuit_source_unit PYCIRCUIT_LINKER=%pycircuit_link PYCIRCUIT_EMITTER=%pycircuit_emit %python -m pycircuit.cli link %t.dir/unit --top native.observation_native.Top -o %t.dir/design.ac
-# RUN: env PYTHONPATH=%src/python/pycircuit/src PYCIRCUIT_SOURCE_COMPILER=%pycircuit_source_unit PYCIRCUIT_LINKER=%pycircuit_link PYCIRCUIT_EMITTER=%pycircuit_emit %python -m pycircuit.cli emit %t.dir/design.ac --target cpp -o %t.dir/cpp
+# RUN: env PYTHONPATH=%src/python PYCIRCUIT_SOURCE_COMPILER=%pycircuit_source_unit PYCIRCUIT_LINKER=%pycircuit_link PYCIRCUIT_EMITTER=%pycircuit_emit %python -m pycircuit.cli compile -c %t.dir/observation_native.py --source-root %t.dir --package-prefix native -o %t.dir/unit
+# RUN: env PYTHONPATH=%src/python PYCIRCUIT_SOURCE_COMPILER=%pycircuit_source_unit PYCIRCUIT_LINKER=%pycircuit_link PYCIRCUIT_EMITTER=%pycircuit_emit %python -m pycircuit.cli link %t.dir/unit --top native.observation_native.Top -o %t.dir/design.ac
+# RUN: env PYTHONPATH=%src/python PYCIRCUIT_SOURCE_COMPILER=%pycircuit_source_unit PYCIRCUIT_LINKER=%pycircuit_link PYCIRCUIT_EMITTER=%pycircuit_emit %python -m pycircuit.cli emit %t.dir/design.ac --target cpp -o %t.dir/cpp
 
 # These properties hold textually as well as at run time: the emitted DUT configures the
 # generated table, and the table maps `report` to Gauge and `log` to Event.
@@ -57,7 +57,7 @@
 
 # The RTL target still has no observation channel, so it must keep naming the op
 # instead of silently dropping the site.
-# RUN: if env PYTHONPATH=%src/python/pycircuit/src PYCIRCUIT_SOURCE_COMPILER=%pycircuit_source_unit PYCIRCUIT_LINKER=%pycircuit_link PYCIRCUIT_EMITTER=%pycircuit_emit %python -m pycircuit.cli emit %t.dir/design.ac --target verilog -o %t.dir/sv > %t.dir/verilog.log 2>&1; then echo "unexpected verilog success"; exit 1; fi
+# RUN: if env PYTHONPATH=%src/python PYCIRCUIT_SOURCE_COMPILER=%pycircuit_source_unit PYCIRCUIT_LINKER=%pycircuit_link PYCIRCUIT_EMITTER=%pycircuit_emit %python -m pycircuit.cli emit %t.dir/design.ac --target verilog -o %t.dir/sv > %t.dir/verilog.log 2>&1; then echo "unexpected verilog success"; exit 1; fi
 # RUN: %FileCheck %s --check-prefix=VERILOG-CLOSED < %t.dir/verilog.log
 # VERILOG-CLOSED: ac.observe
 # VERILOG-CLOSED: hardware instrumentation emission is not implemented

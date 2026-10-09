@@ -32,9 +32,7 @@ def validate(path: Path) -> None:
     if not isinstance(document, dict) or document.get("schema") not in SCHEMAS:
         raise ValueError(f"unknown SDK document kind: {path}")
     schema = json.loads(
-        (ROOT / "schemas/pycircuit" / SCHEMAS[document["schema"]]).read_text(
-            encoding="utf-8"
-        )
+        (ROOT / "schemas" / SCHEMAS[document["schema"]]).read_text(encoding="utf-8")
     )
     reject_content_identity(schema, document)
     from jsonschema import Draft202012Validator

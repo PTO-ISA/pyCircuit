@@ -166,6 +166,29 @@ TEST(RegRuntimeArithmeticTest, UnsignedDivRemExhaustiveEightBitValues) {
   EXPECT_EQ(gfsim::urem(B{17}, B{0}), B{0});
 }
 
+template <unsigned W> void signedDivRemEdgeVectors() {
+  using B = gfsim::Bits<W>;
+  const B negativeTen = B{0} - B{10};
+  const B negativeThree = B{0} - B{3};
+  const B negativeOne = B::ones();
+  const B minimum = gfsim::shl(B{1}, W - 1);
+
+  EXPECT_EQ(gfsim::sdiv(negativeTen, B{3}), negativeThree);
+  EXPECT_EQ(gfsim::srem(negativeTen, B{3}), negativeOne);
+  EXPECT_EQ(gfsim::sdiv(minimum, negativeOne), minimum);
+  EXPECT_EQ(gfsim::srem(minimum, negativeOne), B{0});
+  // Low-level two-state Bits use zero/zero for a zero divisor. Source
+  // four-state division deliberately has a separate all-X contract.
+  EXPECT_EQ(gfsim::sdiv(negativeTen, B{0}), B{0});
+  EXPECT_EQ(gfsim::srem(negativeTen, B{0}), B{0});
+}
+
+TEST(RegRuntimeArithmeticTest, SignedDivRemTwoStateEdgesAcrossWordBoundary) {
+  // Exercise both single-word and multiword signed arithmetic paths.
+  signedDivRemEdgeVectors<64>();
+  signedDivRemEdgeVectors<65>();
+}
+
 template <unsigned W> void unknownDivRemInputs() {
   using B = gfsim::Bits<W>;
   using F = gfsim::FourState<W>;

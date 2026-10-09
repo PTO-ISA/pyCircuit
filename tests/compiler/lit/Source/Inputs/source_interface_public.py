@@ -30,7 +30,7 @@ for name in ("source_interface_child.py", "source_interface_parent.py"):
     shutil.copyfile(fixtures / name, source / name)
 env = dict(
     os.environ,
-    PYTHONPATH=str(repo / "python/pycircuit/src"),
+    PYTHONPATH=str(repo / "python"),
     PYTHONDONTWRITEBYTECODE="1",
     PYCIRCUIT_SOURCE_COMPILER=args.source_compiler,
     PYCIRCUIT_LINKER=args.linker,
@@ -135,7 +135,7 @@ for unit in (child, parent):
     assert 'ac.unit_kind = "interface"' in actual
 
 if args.query_checks:
-    sys.path.insert(0, str(repo / "python/pycircuit/src"))
+    sys.path.insert(0, str(repo / "python"))
     sys.path.insert(0, str(fixtures / "table-queries"))
     from pycircuit._source_capture import _capture_source_file
     from pycircuit._source_transport import _emit_source_transport

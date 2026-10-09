@@ -17,7 +17,7 @@ import test_source_preview_workflow as preview
 pytestmark = pytest.mark.system
 
 ROOT = Path(__file__).resolve().parents[2]
-FIXTURE = ROOT / "tests/integration/pycircuit/public-driver"
+FIXTURE = ROOT / "tests/integration/public-driver"
 NATIVE_DEFAULT = ROOT / ".pycircuit_out/source-root"
 INSTALL_DEFAULT = ROOT / ".pycircuit_out/source-candidate-install"
 
@@ -41,7 +41,7 @@ def _environment() -> dict[str, str]:
             "PYCIRCUIT_EMITTER": str(native / "bin/pycircuit-emit"),
         }
     )
-    package_root = str(ROOT / "python/pycircuit/src")
+    package_root = str(ROOT / "python")
     environment["PYTHONPATH"] = os.pathsep.join(
         item for item in (package_root, environment.get("PYTHONPATH", "")) if item
     )

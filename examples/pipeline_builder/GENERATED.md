@@ -16,7 +16,7 @@ cmake -S examples/pipeline_builder -B /absolute/build/pipeline_builder -G Ninja 
   -DCMAKE_BUILD_TYPE=Release -DCMAKE_PREFIX_PATH=/absolute/pycircuit/install
 cmake --build /absolute/build/pipeline_builder --parallel 4
 ctest --test-dir /absolute/build/pipeline_builder --output-on-failure --no-tests=error
-python3 tools/pycircuit/example_catalog.py generated --example pipeline_builder \
+python3 tools/example_catalog.py generated --example pipeline_builder \
   --build /absolute/build/pipeline_builder
 ```
 

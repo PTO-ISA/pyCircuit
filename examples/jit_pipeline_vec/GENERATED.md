@@ -16,7 +16,7 @@ cmake -S examples/jit_pipeline_vec -B /absolute/build/jit_pipeline_vec -G Ninja 
   -DCMAKE_BUILD_TYPE=Release -DCMAKE_PREFIX_PATH=/absolute/pycircuit/install
 cmake --build /absolute/build/jit_pipeline_vec --parallel 4
 ctest --test-dir /absolute/build/jit_pipeline_vec --output-on-failure --no-tests=error
-python3 tools/pycircuit/example_catalog.py generated --example jit_pipeline_vec \
+python3 tools/example_catalog.py generated --example jit_pipeline_vec \
   --build /absolute/build/jit_pipeline_vec
 ```
 

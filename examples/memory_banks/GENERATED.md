@@ -16,7 +16,7 @@ cmake -S examples/memory_banks -B /absolute/build/memory_banks -G Ninja \
   -DCMAKE_BUILD_TYPE=Release -DCMAKE_PREFIX_PATH=/absolute/pycircuit/install
 cmake --build /absolute/build/memory_banks --parallel 4
 ctest --test-dir /absolute/build/memory_banks --output-on-failure --no-tests=error
-python3 tools/pycircuit/example_catalog.py generated --example memory_banks \
+python3 tools/example_catalog.py generated --example memory_banks \
   --build /absolute/build/memory_banks
 ```
 

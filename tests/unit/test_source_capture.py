@@ -13,7 +13,7 @@ from pycircuit._source_capture import _capture_source_file
 pytestmark = pytest.mark.unit
 
 ROOT = Path(__file__).resolve().parents[2]
-SOURCE_FIXTURES = ROOT / "tests/integration/pycircuit/fixtures/source_language"
+SOURCE_FIXTURES = ROOT / "tests/integration/fixtures/source_language"
 
 
 def _write_source(root: Path, source: str, name: str = "model.py") -> Path:

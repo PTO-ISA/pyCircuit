@@ -16,7 +16,7 @@ cmake -S examples/bounded_full_u64 -B /absolute/build/bounded_full_u64 -G Ninja 
   -DCMAKE_BUILD_TYPE=Release -DCMAKE_PREFIX_PATH=/absolute/pycircuit/install
 cmake --build /absolute/build/bounded_full_u64 --parallel 4
 ctest --test-dir /absolute/build/bounded_full_u64 --output-on-failure --no-tests=error
-python3 tools/pycircuit/example_catalog.py generated --example bounded_full_u64 \
+python3 tools/example_catalog.py generated --example bounded_full_u64 \
   --build /absolute/build/bounded_full_u64
 ```
 

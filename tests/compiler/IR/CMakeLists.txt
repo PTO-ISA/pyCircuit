@@ -88,7 +88,7 @@ target_link_libraries(ACIRTableDependencySummaryTests PRIVATE
 add_acir_api_test(ACIRSourceStaticEvaluationTests SourceStaticEvaluationTest.cpp)
 add_acir_api_test(ACIRSourceIdentifierTests SourceIdentifierTest.cpp SourceIdentifierOracleTest.cpp)
 set(_module_loop_ir "${CMAKE_BINARY_DIR}/tests/compiler/module_loop.ac")
-file(GLOB _source_driver_files CONFIGURE_DEPENDS "${PYCIRCUIT_REPO_ROOT}/python/pycircuit/src/pycircuit/*.py")
+file(GLOB _source_driver_files CONFIGURE_DEPENDS "${PYCIRCUIT_REPO_ROOT}/python/pycircuit/*.py")
 add_custom_command(OUTPUT "${_module_loop_ir}"
   COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/prepare_module_loop.py"
     --repo "${PYCIRCUIT_REPO_ROOT}"

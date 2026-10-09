@@ -87,7 +87,7 @@ import sys
 from pathlib import Path
 repo = Path(sys.argv[1])
 sys.path[:0] = [str(repo / "python/semantic-core/src"),
-                str(repo / "python/pycircuit/src"), str(repo)]
+                str(repo / "python"), str(repo)]
 from pycircuit._source_capture import _capture_source_file
 from pycircuit._source_transport import _emit_source_transport
 source = Path(sys.argv[2])
