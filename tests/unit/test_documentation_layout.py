@@ -49,6 +49,16 @@ def test_every_current_document_is_reachable_from_navigation() -> None:
     existing = _current_markdown_pages()
     missing = sorted(nav_pages - existing)
     assert not missing, f"navigation links to missing documents: {missing}"
+    excluded = tuple(
+        line.strip().rstrip("/") + "/"
+        for line in config.get("exclude_docs", "").splitlines()
+        if line.strip()
+    )
+    current = {path for path in existing if not path.startswith(excluded)}
+    assert (
+        current <= nav_pages
+    ), f"documents missing from navigation: {sorted(current - nav_pages)}"
+    assert (ROOT / "docs" / config["theme"]["logo"]).is_file()
     required = {
         "index.md",
         "getting-started/installation.md",
@@ -81,6 +91,27 @@ def test_source_onboarding_names_the_public_driver_and_example_build() -> None:
         "agentic_circuit frontend -> acc.py -> verified ACIR -> acc"
         not in content[ROOT / "README.md"]
     )
+
+
+def test_readme_preserves_logo_and_project_status_badges() -> None:
+    text = (ROOT / "README.md").read_text(encoding="utf-8")
+    images = re.findall(r'<img\b[^>]*\bsrc="([^"]+)"', text)
+    images += re.findall(r"!\[[^\]]*\]\(([^)]+)\)", text)
+    logo = "docs/figures/pycircuit-logo.png"
+    assert logo in images
+    assert (ROOT / logo).is_file()
+    for badge in (
+        "actions/workflows/ci.yml/badge.svg",
+        "actions/workflows/release.yml/badge.svg",
+        "img.shields.io/github/v/release/PTO-ISA/pyCircuit",
+        "img.shields.io/github/license/PTO-ISA/pyCircuit",
+        "img.shields.io/badge/Python-",
+        "img.shields.io/badge/LLVM%2FMLIR-",
+    ):
+        assert any(badge in image for image in images), f"missing badge: {badge}"
+    for target in re.findall(r'<a\b[^>]*\bhref="([^"]+)"', text):
+        if not target.startswith(("https://", "http://", "#")):
+            assert (ROOT / target).exists(), f"broken branding link: {target}"
 
 
 def test_agent_frontend_guide_describes_only_the_current_source_profile() -> None:

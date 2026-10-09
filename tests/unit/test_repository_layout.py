@@ -17,13 +17,11 @@ FLOW_TOOLS = {
     "process_usage.py",
     "measure_build_resources.py",
     "materialize_source_preview.py",
-    "report_primitive_ppa.py",
     "summarize_gate_run.py",
 }
 
 PYCIRCUIT_TOOLS = {
     "example_catalog.py",
-    "generate-semantic-primitive-registry.py",
     "generate_source_identifier_unicode.py",
 }
 
@@ -124,11 +122,11 @@ def test_host_sources_avoid_unprotected_int128() -> None:
     """
     offenders: list[str] = []
     for directory in (
-        "library/cpp",
-        "compiler/mlir",
+        "include/gfsim",
         "compiler",
         "simulator/gfsim",
-        "tests/cpp",
+        "tests/runtime",
+        "tests/compiler",
     ):
         for path in sorted((ROOT / directory).rglob("*")):
             if path.suffix not in {".hpp", ".h", ".cpp", ".cc"} or not path.is_file():

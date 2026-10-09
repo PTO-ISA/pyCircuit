@@ -6,8 +6,9 @@ incremental compilation and parallel scheduling benchmarks belong to build relia
 must invoke the public compile/link/emit driver against a pinned candidate.
 Historical benchmark implementations remain in Git, outside the active route.
 
-The [build reliability-02 packet](../docs/work-items/measurement-incremental-scale.md) measures shared
-definitions at 1/16/64 instances and distinct leaves at 1/8/32 sources. Generate
+The source-unit workload measures shared definitions at 1/16/64 instances and
+distinct leaves at 1/8/32 sources. Its generator and driver are owned here and
+in `flows/tools/`, respectively; see the [repository map](../docs/development/repository-layout.md). Generate
 fixtures with `benchmarks/pycircuit/source-units/generate.py`, or run the full
 public-driver measurement from the checkout:
 

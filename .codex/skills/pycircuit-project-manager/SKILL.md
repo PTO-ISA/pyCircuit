@@ -41,9 +41,9 @@ current/next, hold/discard/reset, zero-commit-on-failure, source-unit, and outpu
 protection oracles. Acceptance matches exact tested scope; missing capability
 cannot be supplied through a retired route.
 
-Use [`docs/work-items/`](../../../docs/work-items/README.md) for task packets,
-[`docs/reviews/`](../../../docs/reviews/README.md) for independent reviews, and
-`docs/gates/logs/<run-id>/` for candidate-bound evidence. Report commands, status,
+Follow the [local evidence policy](../../../docs/gates/README.md). Keep task
+packets, independent reviews and candidate-bound evidence together under
+`docs/gates/logs/<run-id>/`. Historical local work/review directories remain ignored. Report commands, status,
 evidence, skips, and remaining callers. Keep this project skill local; do not
 modify OMX state as part of ordinary project management.
 

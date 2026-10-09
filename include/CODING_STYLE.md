@@ -6,9 +6,9 @@ They do not restore CycleAwareSignal, Structural, Agentic Circuit, PYC or pycc
 compilation routes. New concepts or public interfaces require user approval.
 The component contracts and C++/RTL mapping are recorded in
 [gfsim/README.md](gfsim/README.md) and
-[verilog/README.md](verilog/README.md). Verification requirements below apply
-when verification is authorized. The current typed component changes have not
-been compiled or simulated; earlier template evidence does not cover them.
+[verilog/README.md](verilog/README.md). Verification status belongs to the exact
+candidate's gate results; this style guide does not establish compilation,
+simulation or acceptance by itself.
 
 ## Standard module organization
 

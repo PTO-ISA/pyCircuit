@@ -15,6 +15,7 @@ the design without executing it; MLIR owns hardware analysis and lowering.
 - [Write a hello counter](getting-started/quickstart.md)
 - [Build and run it](getting-started/tutorial.md)
 - [Browse examples](https://github.com/PTO-ISA/pyCircuit/blob/main/examples/README.md)
+- [Find the right source folder](development/repository-layout.md)
 
 ## Reference
 

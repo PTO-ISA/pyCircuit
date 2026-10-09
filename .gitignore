@@ -240,9 +240,7 @@ examples/generated/**/verilator/
 .claude/settings.local.json
 # Local verification and migration records (published as CI artifacts)
 /docs/gates/logs/
-/docs/work-items/*
-!/docs/work-items/README.md
-/docs/reviews/*
-!/docs/reviews/README.md
+/docs/work-items/
+/docs/reviews/
 /.omx/
 /.omx-state-locks*

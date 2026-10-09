@@ -13,7 +13,7 @@ from types import ModuleType
 import pytest
 
 pytestmark = pytest.mark.unit
-ROOT = Path(__file__).resolve().parents[1]
+ROOT = Path(__file__).resolve().parents[2]
 VERIFIER = ROOT / "cmake/verify_example.py"
 
 

@@ -1,13 +1,24 @@
+<p align="center">
+  <img src="docs/figures/pycircuit-logo.png" alt="pyCircuit" width="380">
+</p>
+
 # pyCircuit
 
 **Describe hardware in Python. Compile once. Simulate in C++ or Verilog.**
 
-[![CI](https://github.com/PTO-ISA/pyCircuit/actions/workflows/ci.yml/badge.svg)](https://github.com/PTO-ISA/pyCircuit/actions/workflows/ci.yml)
-[![License: BSD-3-Clause](https://img.shields.io/badge/license-BSD--3--Clause-blue.svg)](LICENSE)
+<p align="center">
+  <a href="https://github.com/PTO-ISA/pyCircuit/actions/workflows/ci.yml"><img src="https://github.com/PTO-ISA/pyCircuit/actions/workflows/ci.yml/badge.svg?branch=main" alt="CI"></a>
+  <a href="https://github.com/PTO-ISA/pyCircuit/actions/workflows/release.yml"><img src="https://github.com/PTO-ISA/pyCircuit/actions/workflows/release.yml/badge.svg" alt="Release"></a>
+  <a href="https://github.com/PTO-ISA/pyCircuit/releases/latest"><img src="https://img.shields.io/github/v/release/PTO-ISA/pyCircuit?display_name=tag&amp;sort=semver" alt="Latest release"></a>
+  <a href="LICENSE"><img src="https://img.shields.io/github/license/PTO-ISA/pyCircuit" alt="BSD 3-Clause license"></a>
+  <a href="docs/getting-started/installation.md"><img src="https://img.shields.io/badge/Python-3.11%2B-3776AB?logo=python&amp;logoColor=white" alt="Python 3.11 or later"></a>
+  <a href="toolchains/pycircuit/llvm.lock.json"><img src="https://img.shields.io/badge/LLVM%2FMLIR-22.1.8-5C2D91" alt="LLVM and MLIR 22.1.8"></a>
+</p>
 
 [Get started](docs/getting-started/quickstart.md) ·
 [Language reference](docs/reference/language.md) ·
 [Examples](examples/README.md) ·
+[Repository map](docs/development/repository-layout.md) ·
 [Contribute](CONTRIBUTING.md)
 
 pyCircuit is a hardware programming language and compiler built on Python syntax
@@ -141,6 +152,7 @@ for sampling, reset, observation and failure semantics.
 
 | Start with | For |
 | --- | --- |
+| [Repository map](docs/development/repository-layout.md) | Folder responsibilities, source boundaries and the right place for a change. |
 | [Example catalog](examples/README.md) | Counters, pipelines, queues, tables and larger designs, with their verification owners. |
 | [Python language](docs/reference/language.md) | Types, source constructs, composition and rejection boundaries. |
 | [Compiler architecture](docs/architecture/compiler-pipeline.md) | Capture, MLIR analyses, source publication and code generation. |
