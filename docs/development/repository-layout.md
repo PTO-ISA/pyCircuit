@@ -54,7 +54,7 @@ compiler/
   lib/Dialect/ACIR/              common hardware types, operations and verification
   lib/Transforms/               MLIR transformations
   tools/                        native compiler entrypoints
-  cmake/                        compiler-private build support
+  cmake/AddACIR.cmake            compiler-private library helper
 include/
   gfsim/                        installed Runtime headers and templates
   verilog/                      installed managed storage leaves

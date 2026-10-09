@@ -14,7 +14,7 @@ if(NOT TARGET MLIRIR)
 endif()
 
 list(APPEND CMAKE_MODULE_PATH "${LLVM_DIR}" "${MLIR_DIR}"
-     "${PYCIRCUIT_SOURCE_DIR}/cmake/modules")
+     "${PYCIRCUIT_SOURCE_DIR}/cmake")
 include(TableGen)
 include(AddLLVM)
 include(AddMLIR)
