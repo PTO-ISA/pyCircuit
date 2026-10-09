@@ -42,7 +42,7 @@ evidence.mkdir(parents=True, exist_ok=True)
 build = Path(tempfile.mkdtemp(prefix="queue-source-", dir=evidence))
 env = dict(
     os.environ,
-    PYTHONPATH=str(repo / "python/pycircuit/src"),
+    PYTHONPATH=str(repo / "python"),
     PYTHONDONTWRITEBYTECODE="1",
     PYCIRCUIT_SOURCE_COMPILER=args.source_compiler,
     PYCIRCUIT_LINKER=args.linker,
@@ -66,7 +66,7 @@ candidate_paths = [
     fixtures / "queue-source-vectors.py",
     *sorted(designs.glob("*.py")),
     *sorted(oracle_dir.glob("*.py")),
-    *sorted((repo / "python/pycircuit/src/pycircuit").rglob("*.py")),
+    *sorted((repo / "python/pycircuit").rglob("*.py")),
     *sorted((repo / "include/gfsim").rglob("*.h")),
     *sorted((repo / "include/verilog").glob("*.v")),
 ]

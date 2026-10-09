@@ -11,7 +11,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
 sys.path[:0] = [
-    str(ROOT / "python/pycircuit/src"),
+    str(ROOT / "python"),
 ]
 
 from pycircuit._driver import _validate_published_program  # noqa: E402

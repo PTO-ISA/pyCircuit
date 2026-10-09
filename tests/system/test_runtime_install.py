@@ -15,7 +15,7 @@ import pytest
 pytestmark = pytest.mark.system
 
 ROOT = Path(__file__).resolve().parents[2]
-FIXTURES = ROOT / "tests/integration/pycircuit/sdk-install"
+FIXTURES = ROOT / "tests/integration/sdk-install"
 _COMPILER_INSTALL_ENV = "PYCIRCUIT_COMPILER_INSTALL"
 
 

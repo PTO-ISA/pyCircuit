@@ -91,9 +91,9 @@ still requires review and the root-specific original oracle.
 After building and running an example, generate its guide from actual output:
 
 ```sh
-python3 tools/pycircuit/example_catalog.py generated --example rob \
+python3 tools/example_catalog.py generated --example rob \
   --build /absolute/build/examples/rob
-python3 tools/pycircuit/example_catalog.py navigation
+python3 tools/example_catalog.py navigation
 ```
 
 Add a catalog row only after its generated DUT runs the intended behavior, all

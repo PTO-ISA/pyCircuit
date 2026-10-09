@@ -16,7 +16,7 @@ cmake -S examples/record_projection -B /absolute/build/record_projection -G Ninj
   -DCMAKE_BUILD_TYPE=Release -DCMAKE_PREFIX_PATH=/absolute/pycircuit/install
 cmake --build /absolute/build/record_projection --parallel 4
 ctest --test-dir /absolute/build/record_projection --output-on-failure --no-tests=error
-python3 tools/pycircuit/example_catalog.py generated --example record_projection \
+python3 tools/example_catalog.py generated --example record_projection \
   --build /absolute/build/record_projection
 ```
 

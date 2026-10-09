@@ -31,7 +31,7 @@ scratch = Path(args.scratch).resolve()
 scratch.mkdir(parents=True, exist_ok=True)
 env = dict(
     os.environ,
-    PYTHONPATH=str(repo / "python/pycircuit/src"),
+    PYTHONPATH=str(repo / "python"),
     PYTHONDONTWRITEBYTECODE="1",
     PYCIRCUIT_SOURCE_COMPILER=args.source_compiler,
     PYCIRCUIT_LINKER=args.linker,
@@ -501,7 +501,7 @@ with tempfile.TemporaryDirectory(prefix="fixed-slices-", dir=scratch) as tempora
     retained.mkdir()
     shutil.copyfile(design, retained / "design.py")
     shutil.copytree(unit, retained / "unit")
-    sys.path.insert(0, str(repo / "python/pycircuit/src"))
+    sys.path.insert(0, str(repo / "python"))
     from pycircuit._source_capture import _capture_source_file
     from pycircuit._source_transport import _emit_source_transport
 

@@ -19,7 +19,7 @@ ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / "flows" / "tools"))
 from check_frontend_retirement import scan_production  # noqa: E402
 
-DEFAULT_TARGETS = ("python/pycircuit/src/pycircuit",)
+DEFAULT_TARGETS = ("python/pycircuit",)
 
 
 def python_sources(path: Path):

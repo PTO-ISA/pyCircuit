@@ -84,7 +84,7 @@ protected:
 import sys
 from pathlib import Path
 repo, source, root, output = map(Path, sys.argv[1:])
-sys.path.insert(0, str(repo / "python/pycircuit/src"))
+sys.path.insert(0, str(repo / "python"))
 from pycircuit._source_capture import _capture_source_file
 from pycircuit._source_transport import _emit_source_transport
 capture = _capture_source_file(source, source_root=root)

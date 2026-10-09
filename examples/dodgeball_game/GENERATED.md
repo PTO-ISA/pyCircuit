@@ -16,7 +16,7 @@ cmake -S examples/dodgeball_game -B /absolute/build/dodgeball_game -G Ninja \
   -DCMAKE_BUILD_TYPE=Release -DCMAKE_PREFIX_PATH=/absolute/pycircuit/install
 cmake --build /absolute/build/dodgeball_game --parallel 4
 ctest --test-dir /absolute/build/dodgeball_game --output-on-failure --no-tests=error
-python3 tools/pycircuit/example_catalog.py generated --example dodgeball_game \
+python3 tools/example_catalog.py generated --example dodgeball_game \
   --build /absolute/build/dodgeball_game
 ```
 

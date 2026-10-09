@@ -51,7 +51,7 @@ def main():
     runtime_hash = digest(runtime)
     env = dict(
         os.environ,
-        PYTHONPATH=str(repo / "python/pycircuit/src"),
+        PYTHONPATH=str(repo / "python"),
         PYCIRCUIT_SOURCE_COMPILER=args.source_compiler,
         PYCIRCUIT_LINKER=args.linker,
         PYCIRCUIT_EMITTER=args.emitter,

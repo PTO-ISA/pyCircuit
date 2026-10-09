@@ -16,7 +16,7 @@ cmake -S examples/fastfwd -B /absolute/build/fastfwd -G Ninja \
   -DCMAKE_BUILD_TYPE=Release -DCMAKE_PREFIX_PATH=/absolute/pycircuit/install
 cmake --build /absolute/build/fastfwd --parallel 4
 ctest --test-dir /absolute/build/fastfwd --output-on-failure --no-tests=error
-python3 tools/pycircuit/example_catalog.py generated --example fastfwd \
+python3 tools/example_catalog.py generated --example fastfwd \
   --build /absolute/build/fastfwd
 ```
 

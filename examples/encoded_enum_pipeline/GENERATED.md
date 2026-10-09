@@ -16,7 +16,7 @@ cmake -S examples/encoded_enum_pipeline -B /absolute/build/encoded_enum_pipeline
   -DCMAKE_BUILD_TYPE=Release -DCMAKE_PREFIX_PATH=/absolute/pycircuit/install
 cmake --build /absolute/build/encoded_enum_pipeline --parallel 4
 ctest --test-dir /absolute/build/encoded_enum_pipeline --output-on-failure --no-tests=error
-python3 tools/pycircuit/example_catalog.py generated --example encoded_enum_pipeline \
+python3 tools/example_catalog.py generated --example encoded_enum_pipeline \
   --build /absolute/build/encoded_enum_pipeline
 ```
 

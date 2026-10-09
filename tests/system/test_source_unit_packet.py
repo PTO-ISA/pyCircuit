@@ -17,9 +17,7 @@ pytestmark = pytest.mark.system
 
 ROOT = Path(__file__).resolve().parents[2]
 FIXTURES = ROOT / "tests/system/fixtures/record_source_units"
-CANONICAL_PACKET = (
-    ROOT / "tests/integration/pycircuit/fixtures/source_language/packet.py"
-)
+CANONICAL_PACKET = ROOT / "tests/integration/fixtures/source_language/packet.py"
 
 
 @dataclass(frozen=True)

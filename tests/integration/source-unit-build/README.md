@@ -40,14 +40,14 @@ fixture. Configure and build paths may contain spaces:
 
 ```sh
 REPO="/path/to/pyCircuit"
-FIXTURE="$REPO/tests/integration/pycircuit/source-unit-build"
+FIXTURE="$REPO/tests/integration/source-unit-build"
 BUILD_DIR="$REPO/.pycircuit_out/source unit fixture build"
 TOOLCHAIN="$REPO/.pycircuit_out/w10-pm/build"
 
 cmake -S "$FIXTURE" -B "$BUILD_DIR" -G Ninja \
   -DPYCIRCUIT_REPOSITORY_ROOT="$REPO" \
   -DPYCIRCUIT_PYTHON_EXECUTABLE="$(command -v python3)" \
-  "-DPYCIRCUIT_IMPORT_ROOTS=$REPO/python/pycircuit/src" \
+  "-DPYCIRCUIT_IMPORT_ROOTS=$REPO/python" \
   -DPYCIRCUIT_SOURCE_UNIT_HARNESS="$TOOLCHAIN/bin/pycircuit-source-unit" \
   -DPYCIRCUIT_DESIGN_HARNESS="$TOOLCHAIN/bin/pycircuit-link" \
   -DPYCIRCUIT_OUTPUT_ROOT="$BUILD_DIR/generated units" \
@@ -89,7 +89,7 @@ The custom commands above run these same public commands. They always pass
 same owner on a later build.
 
 ```sh
-export PYTHONPATH="$REPO/python/pycircuit/src"
+export PYTHONPATH="$REPO/python"
 export PYCIRCUIT_SOURCE_COMPILER="$TOOLCHAIN/bin/pycircuit-source-unit"
 export PYCIRCUIT_LINKER="$TOOLCHAIN/bin/pycircuit-link"
 

@@ -14,7 +14,7 @@ root = Path(private_run.name)
 output = root / "published"
 env = dict(
     os.environ,
-    PYTHONPATH=str(Path(source_root) / "python/pycircuit/src"),
+    PYTHONPATH=str(Path(source_root) / "python"),
     PYCIRCUIT_EMITTER=emitter,
 )
 

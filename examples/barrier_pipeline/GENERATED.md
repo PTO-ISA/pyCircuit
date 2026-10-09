@@ -16,7 +16,7 @@ cmake -S examples/barrier_pipeline -B /absolute/build/barrier_pipeline -G Ninja 
   -DCMAKE_BUILD_TYPE=Release -DCMAKE_PREFIX_PATH=/absolute/pycircuit/install
 cmake --build /absolute/build/barrier_pipeline --parallel 4
 ctest --test-dir /absolute/build/barrier_pipeline --output-on-failure --no-tests=error
-python3 tools/pycircuit/example_catalog.py generated --example barrier_pipeline \
+python3 tools/example_catalog.py generated --example barrier_pipeline \
   --build /absolute/build/barrier_pipeline
 ```
 

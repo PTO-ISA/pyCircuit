@@ -16,11 +16,7 @@ import pytest
 pytestmark = pytest.mark.unit
 
 _ORACLE_PATH = (
-    Path(__file__).parents[1]
-    / "integration"
-    / "pycircuit"
-    / "source-preview"
-    / "oracle.py"
+    Path(__file__).parents[1] / "integration" / "source-preview" / "oracle.py"
 )
 _SPEC = importlib.util.spec_from_file_location("source_preview_oracle", _ORACLE_PATH)
 assert _SPEC is not None and _SPEC.loader is not None

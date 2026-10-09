@@ -26,7 +26,7 @@ from pathlib import Path
 from typing import Any
 
 REPO = Path(__file__).resolve().parents[2]
-GENERATOR = REPO / "benchmarks/pycircuit/source-units/generate.py"
+GENERATOR = REPO / "benchmarks/source-units/generate.py"
 SIZES = {"shared": (1, 16, 64), "distinct": (1, 8, 32)}
 PARALLEL_JOBS = 4
 

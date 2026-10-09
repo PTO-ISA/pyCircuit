@@ -34,7 +34,7 @@ published through the repository's release workflow.
   design docs, remove name-based ACIR-to-ACSim device inference, rename the
   active generated dispatch ABI, and refresh README/getting-started content.
 - Consolidate FastFwd performance harnesses and design-space exploration under
-  `benchmarks/pycircuit/fastfwd`, remove the ambiguous `contrib/fastfwd` root,
+  `benchmarks/fastfwd`, remove the ambiguous `contrib/fastfwd` root,
   and tighten repository layout checks for public examples and benchmarks
   (Decision 0157).
 - Preserve rule, state, port, local, and project-relative source provenance in

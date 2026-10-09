@@ -16,7 +16,7 @@ cmake -S examples/counter -B /absolute/build/counter -G Ninja \
   -DCMAKE_BUILD_TYPE=Release -DCMAKE_PREFIX_PATH=/absolute/pycircuit/install
 cmake --build /absolute/build/counter --parallel 4
 ctest --test-dir /absolute/build/counter --output-on-failure --no-tests=error
-python3 tools/pycircuit/example_catalog.py generated --example counter \
+python3 tools/example_catalog.py generated --example counter \
   --build /absolute/build/counter
 ```
 

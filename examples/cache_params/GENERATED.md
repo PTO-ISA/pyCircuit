@@ -16,7 +16,7 @@ cmake -S examples/cache_params -B /absolute/build/cache_params -G Ninja \
   -DCMAKE_BUILD_TYPE=Release -DCMAKE_PREFIX_PATH=/absolute/pycircuit/install
 cmake --build /absolute/build/cache_params --parallel 4
 ctest --test-dir /absolute/build/cache_params --output-on-failure --no-tests=error
-python3 tools/pycircuit/example_catalog.py generated --example cache_params \
+python3 tools/example_catalog.py generated --example cache_params \
   --build /absolute/build/cache_params
 ```
 

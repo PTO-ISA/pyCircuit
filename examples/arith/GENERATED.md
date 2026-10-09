@@ -16,7 +16,7 @@ cmake -S examples/arith -B /absolute/build/arith -G Ninja \
   -DCMAKE_BUILD_TYPE=Release -DCMAKE_PREFIX_PATH=/absolute/pycircuit/install
 cmake --build /absolute/build/arith --parallel 4
 ctest --test-dir /absolute/build/arith --output-on-failure --no-tests=error
-python3 tools/pycircuit/example_catalog.py generated --example arith \
+python3 tools/example_catalog.py generated --example arith \
   --build /absolute/build/arith
 ```
 

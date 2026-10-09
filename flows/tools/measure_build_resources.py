@@ -28,7 +28,7 @@ from process_usage import run_sampled
 
 REPO = Path(__file__).resolve().parents[2]
 BUILD_MEASURER = REPO / "flows/tools/measure_source_build.py"
-GENERATOR = REPO / "benchmarks/pycircuit/source-units/generate.py"
+GENERATOR = REPO / "benchmarks/source-units/generate.py"
 PARALLEL_JOBS = 4
 SELECTED_SIZES = {"shared": (1, 16), "distinct": (1, 8)}
 SMALL_SIZES = {"shared": (1,), "distinct": (1,)}

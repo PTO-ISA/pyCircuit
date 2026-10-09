@@ -16,7 +16,7 @@ cmake -S examples/rob -B /absolute/build/rob -G Ninja \
   -DCMAKE_BUILD_TYPE=Release -DCMAKE_PREFIX_PATH=/absolute/pycircuit/install
 cmake --build /absolute/build/rob --parallel 4
 ctest --test-dir /absolute/build/rob --output-on-failure --no-tests=error
-python3 tools/pycircuit/example_catalog.py generated --example rob \
+python3 tools/example_catalog.py generated --example rob \
   --build /absolute/build/rob
 ```
 

@@ -19,7 +19,7 @@ import test_source_preview_workflow as source_preview
 pytestmark = pytest.mark.system
 
 ROOT = Path(__file__).resolve().parents[2]
-CONSUMER_C = ROOT / "tests/integration/pycircuit/model-abi/consumer.c"
+CONSUMER_C = ROOT / "tests/integration/model-abi/consumer.c"
 _STATUS_OK = 0
 _STATUS_INVALID_ARGUMENT = 1
 _STATUS_ABI_MISMATCH = 2

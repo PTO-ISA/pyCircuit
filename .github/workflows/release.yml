@@ -90,7 +90,7 @@ jobs:
           SKIP=pyc-api-hygiene pre-commit run --all-files
           python3 .github/scripts/validate_repo_management.py
           pytest tests/unit -m unit
-          python3 flows/tools/check_api_hygiene.py python/pycircuit/src/pycircuit examples docs README.md
+          python3 flows/tools/check_api_hygiene.py python/pycircuit examples docs README.md
           mkdocs build --strict
       - name: Run full pyCircuit closure
         run: |

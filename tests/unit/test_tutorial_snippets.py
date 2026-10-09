@@ -95,7 +95,7 @@ def test_quickstart_python_source_compiles_links_and_emits_both_targets(
             "PYCIRCUIT_EMITTER": str(native / "bin/pycircuit-emit"),
         }
     )
-    package_root = str(ROOT / "python/pycircuit/src")
+    package_root = str(ROOT / "python")
     env["PYTHONPATH"] = os.pathsep.join(
         item for item in (package_root, env.get("PYTHONPATH", "")) if item
     )
