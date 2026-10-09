@@ -86,8 +86,8 @@ forwarding target, or fallback compiler is provided.
 
 From a checkout, `python -m pip install -e .` installs the `pycircuit` package
 and its driver. The public commands are `pycircuit compile`, `pycircuit link`,
-and `pycircuit emit`. Historical commands including `acc.py`, `acc`, `pycc`,
-and `agentic-circuit` are retired and are not compatibility aliases.
+`pycircuit emit`, and `pycircuit run`. Historical commands including `acc.py`,
+`acc`, `pycc` and `agentic-circuit` are retired and are not compatibility aliases.
 
 For a released wheel, use the project release page and install the wheel matching
 your platform. Release availability and platform support are properties of the
