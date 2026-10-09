@@ -37,9 +37,9 @@ package tests and receipts. No new native executable is needed for this split.
 | Entry point | Gate | Additional nightly coverage |
 | --- | --- | --- |
 | API/framework | Native API/runtime GTests; IR/pass lit; source interface/check diagnostics and output protection | Remaining source/codegen matrices, native source-check execution, Runtime/CompilerDev install, public emit/source maps, incremental builds, relocation, publication recovery and presets |
-| Examples | `module_loop`, `counter`, `arith`, `wire_ops`, `rob`, `table_rule`, each compile/link/dual emit and workers 1/2/RTL | Every registered example, including full-duration `digital_clock` and BF16 checks |
+| Examples | `hello_counter`, `module_loop`, `counter`, `arith`, `wire_ops`, `rob`, `table_rule`, each compile/link/dual emit and workers 1/2/RTL | Every registered example, including full-duration `digital_clock` and BF16 checks |
 
-The example registry is explicit. Gate configures only its six smoke designs,
+The example registry is explicit. Gate configures only its seven smoke designs,
 so it does not compile the full nightly set first. Direct aggregate CMake builds
 default to the full `nightly` registry. Standalone example builds remain supported.
 Examples demonstrate complete designs; API fixtures test compiler/runtime

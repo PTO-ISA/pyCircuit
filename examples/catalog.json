@@ -611,6 +611,16 @@
       "system_source": "bench.py",
       "system_cycles": 440,
       "system_scope": "regular-clock"
+    },
+    {
+      "name": "array_reductions",
+      "folder": "examples/array_reductions",
+      "source": "array_reductions.py",
+      "generated": "GENERATED.json",
+      "system": "ArrayReductionsSystem",
+      "system_source": "bench.py",
+      "system_cycles": 16,
+      "system_scope": "original-five-vector-reductions; independent module histories cover stall, held-clock and reset; general index/range and named Table helper admission not claimed"
     }
   ],
   "api_coverage": [

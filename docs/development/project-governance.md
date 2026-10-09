@@ -11,7 +11,10 @@ semantic interfaces; they do not establish implementation or passing tests.
 Follow the user's latest direction and existing authorization. On 2026-10-07
 the user ended migration expansion and requested delivery of the retained
 supported subset. Uncovered historical examples and API drafts are removed;
-removal is not counted as verification. Keep meaningful supported behavior,
+removal is not counted as verification. On 2026-10-09 the user reopened example
+migration with simple, efficient source authoring and no new APIs. Continue
+against the original behavior and independent oracles; repair concrete common-IR
+or backend defects without introducing alternate compiler paths. Keep meaningful supported behavior,
 rejection, ownership, timing, reset and zero-commit-on-failure tests.
 
 Use descriptive responsibility names instead of migration task or milestone
