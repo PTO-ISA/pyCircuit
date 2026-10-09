@@ -134,6 +134,8 @@ struct PureScalarSummary {
   uint64_t comparisons = 0, choices = 0;
   uint64_t width = 0, digits = 0, depth = 0;
   uint64_t operations = 0, height = 0, words = 0, values = 0;
+  uint64_t mapArguments = 0;
+  bool namedCallback = false;
   std::array<uint64_t, 8> slots{};
   std::array<uint64_t, 3> payload{};
   std::array<uint64_t, 2> constantBytes{};
@@ -944,12 +946,17 @@ private:
                                   PureScalarSummary &summary,
                                   SmallVectorImpl<AstNode> &bodies,
                                   bool bodyActuals);
+  LogicalResult preflightPureDeclaration(
+      const AstNode &site, const AstNode &rule, uint64_t arity,
+      PureScalarSummary &summary, SmallVectorImpl<AstNode> &bodies,
+      const AstNode &actualCall = {}, const AstNode &caller = {});
   FailureOr<PureScalarShape>
   preflightPureExpression(const AstNode &node, const AstNode &rule,
                           PureScalarSummary &summary,
                           SmallVectorImpl<AstNode> &bodies);
   LogicalResult reservePureScalar(PureScalarSummary &summary,
-                                  const AstNode &call);
+                                  const AstNode &call,
+                                  bool namedCallback = false);
   FailureOr<SmallVector<BoundRuleFormal>>
   bindPureActuals(const AstNode &rule, const AstNode &call, OpBuilder &at,
                   FlatSymbolRefAttr symbol, llvm::StringMap<Value> &values,
@@ -961,7 +968,12 @@ private:
                                 const AstNode &call, FlatSymbolRefAttr symbol,
                                 uint64_t mappingEntries = 0,
                                 Block *clones = nullptr,
-                                Operation *cloneBegin = nullptr);
+                                Operation *cloneBegin = nullptr,
+                                Value callbackResult = {});
+  FailureOr<Value> namedPureMap(const AstNode &call, const AstNode &name,
+                                ValueRange tables, TableQueryLowering &lowering,
+                                const TableQueryHooks &hooks, OpBuilder &at,
+                                FlatSymbolRefAttr symbol);
   FailureOr<Value> pureRuleCall(const AstNode &call, OpBuilder &at,
                                 FlatSymbolRefAttr symbol,
                                 llvm::StringMap<Value> &values,
@@ -2598,7 +2610,7 @@ Importer::fixedUnsignedShift(Value input, const llvm::APSInt &count,
 }
 
 FailureOr<AstNode> Importer::pureRuleDeclaration(const AstNode &call) {
-  auto function = call.child("func");
+  auto function = call.kind() == "Name" ? call : call.child("func");
   auto found = behavioralRules.find(function.string("id"));
   if (function.kind() != "Name" || found == behavioralRules.end())
     return mlir::emitError(call.location(b.getContext(), source.path))
@@ -2757,44 +2769,53 @@ LogicalResult Importer::preflightPureCall(const AstNode &call,
                                           PureScalarSummary &summary,
                                           SmallVectorImpl<AstNode> &bodies,
                                           bool bodyActuals) {
+  auto declaration = pureRuleDeclaration(call);
+  if (failed(declaration))
+    return failure();
+  if (!call.array("keywords").empty())
+    return mlir::emitError(call.location(b.getContext(), source.path))
+           << "scalar helper requires its exact positional argument list";
+  return preflightPureDeclaration(call, *declaration, call.array("args").size(),
+                                   summary, bodies, bodyActuals ? call : AstNode(),
+                                   caller);
+}
+
+LogicalResult Importer::preflightPureDeclaration(
+    const AstNode &site, const AstNode &rule, uint64_t arity,
+    PureScalarSummary &summary, SmallVectorImpl<AstNode> &bodies,
+    const AstNode &actualCall, const AstNode &caller) {
   std::string reason;
   if (!queryBudget.enter(reason))
-    return mlir::emitError(call.location(b.getContext(), source.path))
-           << reason;
+    return mlir::emitError(site.location(b.getContext(), source.path)) << reason;
   auto leave = llvm::scope_exit([&] { queryBudget.leave(); });
   summary.depth =
       std::max(summary.depth, queryBudget.used(TableQueryResource::Nesting));
   TableQueryCharge occurrence;
   if (!TableQueryBudget::add(occurrence, TableQueryResource::Occurrences, 1) ||
       !queryBudget.reserve(occurrence, reason))
-    return mlir::emitError(call.location(b.getContext(), source.path))
-           << reason;
-  auto declaration = pureRuleDeclaration(call);
-  if (failed(declaration))
-    return failure();
-  auto rule = *declaration;
+    return mlir::emitError(site.location(b.getContext(), source.path)) << reason;
   auto returned = pureRuleReturn(rule, summary);
   if (failed(returned))
     return failure();
   auto args = rule.child("args");
-  if (!call.array("keywords").empty() ||
-      call.array("args").size() != args.array("args").size())
-    return mlir::emitError(call.location(b.getContext(), source.path))
+  if (arity != args.array("args").size())
+    return mlir::emitError(site.location(b.getContext(), source.path))
            << "scalar helper requires its exact positional argument list";
   if (!pureCheckedAdd(summary.calls, 1) ||
       !pureCheckedAdd(summary.formals, args.array("args").size()))
     return failure();
   // Actuals belong to the lexical caller. In particular f(f(x)) completes its
-  // inner body before the outer f body becomes a recursion ancestor.
-  if (bodyActuals)
-    for (size_t i = 0; i < call.array("args").size(); ++i)
-      if (failed(preflightPureExpression(call.item("args", i), caller, summary,
-                                         bodies)))
+  // inner body before the outer f body becomes a recursion ancestor. Named
+  // callback entry has already evaluated Tables and supplies no source Call.
+  if (actualCall)
+    for (size_t i = 0; i < actualCall.array("args").size(); ++i)
+      if (failed(preflightPureExpression(actualCall.item("args", i), caller,
+                                         summary, bodies)))
         return failure();
   if (llvm::any_of(bodies, [&](const AstNode &ancestor) {
         return samePureDeclaration(ancestor, rule);
       }))
-    return mlir::emitError(call.location(b.getContext(), source.path))
+    return mlir::emitError(site.location(b.getContext(), source.path))
            << "scalar helper body recursion is unsupported";
   bodies.push_back(rule);
   auto pop = llvm::scope_exit([&] { bodies.pop_back(); });
@@ -2934,7 +2955,8 @@ Importer::preflightPureExpression(const AstNode &node, const AstNode &rule,
 }
 
 LogicalResult Importer::reservePureScalar(PureScalarSummary &s,
-                                          const AstNode &call) {
+                                          const AstNode &call,
+                                          bool namedCallback) {
   auto diagnostic = [&] {
     return mlir::emitError(call.location(b.getContext(), source.path));
   };
@@ -2960,25 +2982,51 @@ LogicalResult Importer::reservePureScalar(PureScalarSummary &s,
   s.height = std::max({s.width, literalHeight, uint64_t(1)});
   fits &= pureCheckedAdd(s.height, 4);
   s.words = s.height / 64 + (s.height % 64 != 0);
-  fits &= pureCheckedProduct(2, s.operations, s.values) &&
+  s.namedCallback = namedCallback;
+  s.mapArguments = 1;
+  if (namedCallback)
+    fits &= pureCheckedAdd(s.mapArguments, s.arity) &&
+            pureCheckedAdd(s.mapArguments, s.operations);
+  fits &= pureCheckedProduct(namedCallback ? 3 : 2, s.operations, s.values) &&
           pureCheckedAdd(s.values, s.arity);
+  uint64_t mapRows = 0;
+  if (namedCallback)
+    fits &= pureCheckedProduct(2, s.mapArguments, mapRows) &&
+            pureCheckedAdd(s.values, mapRows);
   auto product = [&](uint64_t a, uint64_t c, uint64_t &value) {
     fits &= pureCheckedProduct(a, c, value);
   };
   product(8, s.operations, s.slots[0]);
   fits &= pureCheckedAdd(s.slots[0], 1);
   s.slots[1] = s.arity;
-  s.slots[2] = s.arity;
-  fits &= pureCheckedAdd(s.slots[2], s.operations);
-  uint64_t mapping = s.slots[2];
-  product(2, mapping, s.slots[2]);
+  if (namedCallback) {
+    fits &= pureCheckedAdd(s.slots[1], mapRows);
+    product(7, s.operations, s.slots[2]);
+    uint64_t actuals = 0;
+    product(2, s.arity, actuals);
+    fits &= pureCheckedAdd(s.slots[2], actuals) &&
+            pureCheckedAdd(s.slots[2], 2);
+  } else {
+    s.slots[2] = s.arity;
+    fits &= pureCheckedAdd(s.slots[2], s.operations);
+    uint64_t mapping = s.slots[2];
+    product(2, mapping, s.slots[2]);
+  }
   product(3, s.values, s.slots[3]);
   product(6, s.formals, s.slots[4]);
   product(2, s.calls, s.slots[5]);
   product(2, s.nodes, s.slots[6]);
   s.slots[7] = s.values;
-  uint64_t planes = 0, endpoints = 0, scratch = 0;
-  product(3, s.values, planes);
+  uint64_t planes = 0, factText = 0, endpoints = 0, scratch = 0;
+  product(3, s.values, factText);
+  if (namedCallback) {
+    uint64_t nonpublished = s.arity;
+    product(2, s.operations, planes);
+    fits &= pureCheckedAdd(nonpublished, planes) &&
+            pureCheckedAdd(nonpublished, mapRows);
+    product(3, nonpublished, planes);
+  } else
+    planes = factText;
   product(2, s.values, endpoints);
   product(2, s.depth, scratch);
   fits &= pureCheckedAdd(scratch, 16);
@@ -2990,10 +3038,11 @@ LogicalResult Importer::reservePureScalar(PureScalarSummary &s,
   product(carriers, s.words, s.constantBytes[0]);
   text = s.height;
   fits &= pureCheckedAdd(text, 2);
-  product(planes, text, s.constantBytes[1]);
+  product(factText, text, s.constantBytes[1]);
   fits &= TableQueryBudget::addProduct(s.charge, TableQueryResource::Operations,
                                        2, s.operations) &&
-          TableQueryBudget::add(s.charge, TableQueryResource::Operations, 2);
+          TableQueryBudget::add(s.charge, TableQueryResource::Operations,
+                                namedCallback ? 3 : 2);
   for (uint64_t value : s.slots)
     fits &= TableQueryBudget::add(s.charge, TableQueryResource::Slots, value);
   for (uint64_t value : s.payload)
@@ -3009,6 +3058,12 @@ LogicalResult Importer::reservePureScalar(PureScalarSummary &s,
       TableQueryBudget::addProduct(s.charge, TableQueryResource::Work, 4,
                                    s.operations) &&
       TableQueryBudget::add(s.charge, TableQueryResource::Work, s.arity);
+  if (namedCallback)
+    fits &= TableQueryBudget::addProduct(s.charge, TableQueryResource::Work, 12,
+                                         s.operations) &&
+            TableQueryBudget::addProduct(s.charge, TableQueryResource::Work, 2,
+                                         s.arity) &&
+            TableQueryBudget::add(s.charge, TableQueryResource::Work, 4);
   std::string reason;
   if (!fits || !queryBudget.reserve(s.charge, reason))
     return diagnostic() << (fits ? reason
@@ -3021,20 +3076,26 @@ LogicalResult Importer::auditPureScalar(Block &block,
                                         const AstNode &call,
                                         FlatSymbolRefAttr symbol,
                                         uint64_t mappingEntries, Block *clones,
-                                        Operation *cloneBegin) {
+                                        Operation *cloneBegin,
+                                        Value callbackResult) {
   const auto &s = context.summary;
+  bool callback = static_cast<bool>(callbackResult);
   auto diagnostic = [&] {
     return mlir::emitError(call.location(b.getContext(), source.path));
   };
-  if (block.getNumArguments() != s.arity || block.empty() ||
-      !isa<ac::YieldOp>(block.back()) || block.back().getNumOperands() != 1 ||
+  if (block.getNumArguments() != s.arity || callback != s.namedCallback ||
+      (callback ? callbackResult.getParentBlock() != &block || clones ||
+                      mappingEntries
+                : block.empty() || !isa<ac::YieldOp>(block.back()) ||
+                      block.back().getNumOperands() != 1) ||
       context.calls != s.calls || context.formals != s.formals ||
       context.nodes != s.nodes || context.frameSlots != 6 * s.arity ||
       context.expressionSlots || !context.bodies.empty() ||
       context.peakFrameSlots > s.slots[4] ||
       2 * context.peakBodies > s.slots[5] ||
-      context.peakExpressionSlots > s.slots[6] || mappingEntries < s.arity ||
-      2 * mappingEntries > s.slots[2])
+      context.peakExpressionSlots > s.slots[6] ||
+      (!callback && (mappingEntries < s.arity ||
+                     2 * mappingEntries > s.slots[2])))
     return diagnostic()
            << "scalar helper containers exceed their reserved envelope";
   ac::HardwareAnalysis analysis(*body);
@@ -3042,8 +3103,12 @@ LogicalResult Importer::auditPureScalar(Block &block,
                                 *body, queryBudget, {});
   TableQueryCharge observed;
   uint64_t liveValues = 0, facts = 0, planes = 0, endpoints = 0, text = 0;
-  uint64_t operationSlots = 1, templateOps = 0, cloneOps = 0;
+  uint64_t operationSlots = callback ? 0 : 1, templateOps = 0, cloneOps = 0;
   auto describeValue = [&](Value value) -> LogicalResult {
+    if (callback && llvm::any_of(value.getUsers(), [&](Operation *user) {
+          return user->getBlock() != &block;
+        }))
+      return diagnostic() << "scalar callback template has an external use";
     auto type = dyn_cast<ac::BitsType>(value.getType());
     if (!type)
       return diagnostic() << "scalar helper template contains a non-Bits value";
@@ -3097,9 +3162,18 @@ LogicalResult Importer::auditPureScalar(Block &block,
     }
     return success();
   };
-  for (Value value : block.getArguments())
+  for (Value value : block.getArguments()) {
+    if (callback) {
+      auto found = numericValues.find(value);
+      if (!fixedValues.contains(value) || arithmeticValues.contains(value) ||
+          (found != numericValues.end() &&
+           (found->second.sourceKind || found->second.interval ||
+            found->second.closedSourceConstant)))
+        return diagnostic() << "scalar callback row facts must be generic bits";
+    }
     if (failed(describeValue(value)))
       return failure();
+  }
   auto describeOperation = [&](Operation &operation,
                                bool original) -> LogicalResult {
     if (!descriptor.describeWithoutReservation(&operation, 1, observed))
@@ -3162,7 +3236,7 @@ LogicalResult Importer::auditPureScalar(Block &block,
   };
   for (Operation &operation : block) {
     if (isa<ac::YieldOp>(operation)) {
-      if (&operation != &block.back() || operation.getNumResults() ||
+      if (callback || &operation != &block.back() || operation.getNumResults() ||
           operation.getNumRegions() ||
           operation.getOperand(0).getParentBlock() != &block)
         return diagnostic() << "scalar helper template has an unexpected yield";
@@ -3186,7 +3260,7 @@ LogicalResult Importer::auditPureScalar(Block &block,
                << "scalar helper clone differs from its reserved template";
       operation = operation->getNextNode();
     }
-  } else if (mappingEntries != s.arity)
+  } else if (!callback && mappingEntries != s.arity)
     return diagnostic() << "scalar helper template has an unexpected Value map";
   if (templateOps + cloneOps > 2 * s.operations ||
       operationSlots > s.slots[0] || liveValues > s.values ||
@@ -5388,8 +5462,8 @@ FailureOr<Value> Importer::tableValueCall(
   if (method == "map") {
     if (call.array("args").empty() || !call.array("keywords").empty())
       return diagnostic()
-             << "Table map requires a positional expression Lambda "
-                "and positional same-shape Tables";
+             << "Table map requires a positional expression Lambda or fixed "
+                "scalar helper and positional same-shape Tables";
   } else if (method == "fold") {
     if (!call.array("args").empty() || call.array("keywords").size() != 1 ||
         call.item("keywords", 0).string("arg") != "kind")
@@ -5408,8 +5482,22 @@ FailureOr<Value> Importer::tableValueCall(
     kind = spelling.getValue();
   } else if (!call.array("args").empty() || !call.array("keywords").empty())
     return diagnostic() << "Table " << method << " does not accept arguments";
-  TableQueryCharge occurrence;
+  bool namedCallback =
+      method == "map" && call.item("args", 0).kind() == "Name";
   std::string reason;
+  if (namedCallback) {
+    if (!queryArguments.empty())
+      return diagnostic() << "scalar helpers are unsupported in Table callbacks";
+    // Own actual evaluation, typing, staging and temporary cleanup with one
+    // shared invocation guard. Callback bodies get no Lambda argument frame.
+    if (!queryBudget.enter(reason))
+      return diagnostic() << reason;
+  }
+  auto leaveNamedCallback = llvm::scope_exit([&] {
+    if (namedCallback)
+      queryBudget.leave();
+  });
+  TableQueryCharge occurrence;
   bool fits =
       TableQueryBudget::add(occurrence, TableQueryResource::Occurrences, 1) &&
       TableQueryBudget::add(occurrence, TableQueryResource::Slots,
@@ -5503,6 +5591,8 @@ FailureOr<Value> Importer::tableValueCall(
     tables.push_back(*other);
   }
   auto lambda = call.item("args", 0);
+  if (namedCallback)
+    return namedPureMap(call, lambda, tables, lowering, hooks, at, symbol);
   SmallVector<StringRef> captures;
   if (failed(preflightQueryCallback(lambda, values, captures, tables.size(),
                                     true)))

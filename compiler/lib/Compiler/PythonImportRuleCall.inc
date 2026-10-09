@@ -39,10 +39,11 @@ Importer::bindRuleFormal(const AstNode &formal, const AstNode &actual,
                              true};
     if (binding.contract.sourceKind != declared.contract.sourceKind ||
         binding.contract.fixedBits != declared.contract.fixedBits)
-      return error() << "rule parameter annotation disagrees with binding "
-                        "source kind";
+      return mlir::emitError(actual.location(b.getContext(), source.path))
+             << "rule parameter annotation disagrees with binding source kind";
     if (!sameBindingContract(binding, declared))
-      return error() << "rule parameter type mismatch";
+      return mlir::emitError(actual.location(b.getContext(), source.path))
+             << "rule parameter type mismatch";
     if (!ownerActual)
       binding = declared;
   }
@@ -136,6 +137,95 @@ FailureOr<Value> Importer::lowerPureBody(const AstNode &rule,
     return failure();
   // The existing unsigned boundary owns fit, widening and fresh fixed facts.
   return unsignedBoundary(*value, *type, returned.child("value"), at, symbol);
+}
+
+FailureOr<Value>
+Importer::namedPureMap(const AstNode &call, const AstNode &name,
+                       ValueRange tables, TableQueryLowering &lowering,
+                       const TableQueryHooks &hooks, OpBuilder &at,
+                       FlatSymbolRefAttr symbol) {
+  auto declaration = pureRuleDeclaration(name);
+  if (failed(declaration))
+    return failure();
+  PureScalarSummary summary;
+  summary.arity = tables.size();
+  {
+    SmallVector<AstNode> bodies;
+    if (failed(chargePureSource(name, summary)) ||
+        failed(preflightPureDeclaration(name, *declaration, tables.size(),
+                                         summary, bodies)))
+      return failure();
+  }
+  if (failed(reservePureScalar(summary, call, true)))
+    return failure();
+  auto loc = name.location(b.getContext(), source.path);
+  auto temporary =
+      createOp(at, loc, ac::RuleOp::getOperationName(), {}, {}, {}, 1);
+  auto block = new Block();
+  temporary->getRegion(0).push_back(block);
+  auto cleanup = llvm::scope_exit([&] {
+    for (Value value : block->getArguments())
+      hooks.forgetFacts(value);
+    for (Operation &operation : *block)
+      for (Value value : operation.getResults())
+        hooks.forgetFacts(value);
+    temporary->erase();
+  });
+  SmallVector<Value> rows;
+  Value result;
+  {
+    // Generic rows carry only fixed Bits authority, never a selected lane's
+    // interval, closed value or source kind. All Tables were evaluated already.
+    SmallVector<BoundRuleFormal> formals;
+    auto inside = OpBuilder::atBlockEnd(block);
+    auto args = declaration->child("args");
+    for (size_t i = 0; i < tables.size(); ++i) {
+      auto formal = args.item("args", i);
+      auto actual = i ? call.item("args", i)
+                      : call.child("func").child("value");
+      auto row = block->addArgument(
+          cast<ac::TableType>(tables[i].getType()).getElementType(), loc);
+      if (!isa<ac::BitsType>(row.getType()))
+        return mlir::emitError(actual.location(b.getContext(), source.path))
+               << "named Table map requires fixed Bits elements";
+      fixedValues.insert(row);
+      rows.push_back(row);
+      auto binding = inferredBoundary(formal.string("arg"), row, actual, true);
+      auto bound =
+          bindRuleFormal(formal, actual, row, binding, false, inside, symbol);
+      if (failed(bound))
+        return failure();
+      formals.push_back(std::move(*bound));
+    }
+    PureScalarContext context{summary};
+    context.frameSlots = context.peakFrameSlots = 6 * summary.arity;
+    auto previousPure = std::exchange(activePureScalar, &context);
+    auto previousRule = std::exchange(activeRule, nullptr);
+    auto previousDecl = std::exchange(activeBehavioralDecl, nullptr);
+    auto previousStates = std::exchange(activeStates, nullptr);
+    auto restore = llvm::scope_exit([&] {
+      activeStates = previousStates;
+      activeBehavioralDecl = previousDecl;
+      activeRule = previousRule;
+      activePureScalar = previousPure;
+    });
+    auto lowered = lowerPureBody(*declaration, formals, inside, symbol);
+    if (failed(lowered) ||
+        failed(auditPureScalar(*block, context, call, symbol, 0, nullptr,
+                                nullptr, succeeded(lowered) ? *lowered
+                                                           : Value())))
+      return failure();
+    result = *lowered;
+  }
+  // Root formals and every active B1/behavioral context have left scope before
+  // the one existing Table stage clones anything. The block and facts remain.
+  TableQueryStageEnvelope envelope{summary.operations, summary.arity,
+                                   summary.mapArguments, summary.values,
+                                   summary.slots[2]};
+  auto staged = lowering.stage(*block, rows, tables, {result}, false, &envelope);
+  if (failed(staged))
+    return failure();
+  return staged->front();
 }
 
 FailureOr<Value>

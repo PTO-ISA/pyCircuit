@@ -72,8 +72,8 @@ def admission_cases():
         "map-shape": "values.map(lambda lane, tag: lane, different)",
         "map-scalar-input": "values.map(lambda lane, tag: lane, scalar)",
         "map-scalar-receiver": "scalar.map(lambda lane: lane)",
-        "map-named-callback": "values.map(identity)",
-        "map-dynamic-callback": "values.map(scalar)",
+        "map-qualified-callback-decorator": "values.map(identity)",
+        "map-non-rule-callback": "values.map(scalar)",
         "map-tuple-result": "values.map(lambda lane: (lane, lane))",
         "map-list-result": "values.map(lambda lane: [lane])",
         "map-bare-table-result": "values.map(lambda lane: values)",
@@ -91,15 +91,17 @@ def admission_cases():
             text = text.replace(
                 "value: ac.table[3, ac.bits[9]]", "value: ac.table[3, Box]"
             )
-        if name == "map-named-callback":
+        if name == "map-qualified-callback-decorator":
             text = text.replace(
                 "@ac.module",
                 "@ac.rule\ndef identity(lane: ac.bits[9]) -> ac.bits[9]:\n    return lane\n@ac.module",
             )
-        add(
-            name,
-            text,
-            (
+        if name == "map-qualified-callback-decorator":
+            categories = ("bare @rule",)
+        elif name == "map-non-rule-callback":
+            categories = ("same-source rule declaration",)
+        else:
+            categories = (
                 "map",
                 "lambda",
                 "callback",
@@ -107,8 +109,8 @@ def admission_cases():
                 "pure",
                 "unsupported",
                 "captured ast",
-            ),
-        )
+            )
+        add(name, text, categories)
 
     for name, replacement in {
         "fold-missing-kind": "values.fold()",

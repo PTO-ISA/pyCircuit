@@ -424,13 +424,21 @@ contextual tuple/list fields, static defaults and recursive zero initialization.
 Imported nominal values retain their published identity; map does not broaden
 imported constructor/default admission inside callbacks.
 
+Map also accepts a same-source named `@rule` from the fixed scalar expression
+subset described below. Each Table element type must exactly match its formal
+annotation, and the result is fixed Bits. The helper is typed once with generic
+row arguments and lowered through the existing map staging. Individual lane
+values do not supply range or constant authority for typing its body. These
+named callbacks may call other helpers in the same scalar subset.
+
 Captures are immutable call-time Bits/Enum/Struct snapshots. A captured Struct
 may contain Tables; explicitly indexed reads of captured Tables use the existing
 index proofs and query staging. A bare Table cannot become an implicit scalar
-capture or a callback result. Named helpers, nested method/lambda callbacks,
-allocation, effects and general tuple/list results remain unsupported, including
-in dead branches. Capture validates ordinary lambda syntax; each method checks
-its own parameter count during source lowering.
+capture or a callback result. Calls to helpers inside expression lambdas,
+nested method/lambda callbacks, allocation, effects and general tuple/list
+results remain unsupported, including in dead branches. Named callbacks have
+no free-value captures. Capture validates ordinary lambda syntax; each method
+checks its own parameter count during source lowering.
 
 `fold` requires one literal `kind`: `add`, `mul`, `and`, `or`, `xor`, `min` or
 `max`. Elements are unsigned fixed bits and the result keeps their width.
@@ -449,7 +457,7 @@ N-element Table with a possible count of N.
 These methods lower to existing TableMap/Fold and scalar operations. The
 source-wide budget includes replicated capture planes, Table-valued scalar
 temporaries and fold-tree storage before publishing IR. Ordered scans and named
-helper calls inside callbacks remain separate migration work; balanced reduction
+helper calls inside expression lambdas remain separate migration work; balanced reduction
 does not implement nonassociative prefix scans.
 
 ## Table queries
@@ -791,9 +799,11 @@ Actual arguments are evaluated and bound once in source order.
 These calls allocate no state and lower through the existing scalar operations.
 They share the source-wide resource budget with Table operations. Both branches
 are checked even when a condition is a literal. Recursion, effects, assignments,
-aggregate parameters/results, imported bodies, defaults/keywords, and calls inside
-Table callbacks remain unsupported. Existing registered-rule calls retain their
-storage ownership, binding and source-check behavior.
+aggregate parameters/results, imported bodies and defaults/keywords remain
+unsupported. A helper can be supplied directly to a Table's `map` method;
+calls inside Table expression lambdas remain unsupported. Existing
+registered-rule calls retain their storage ownership, binding and source-check
+behavior.
 
 ## Immutable local wires
 

@@ -8,6 +8,7 @@
 #include "pycircuit/Dialect/ACIR/ACIRDialect.h"
 #include "pycircuit/Dialect/ACIR/ACIROps.h"
 #include "llvm/Support/raw_ostream.h"
+#include "llvm/ADT/DenseSet.h"
 #include "gtest/gtest.h"
 #include <array>
 #include <limits>
@@ -575,5 +576,182 @@ TEST_F(TableQueryDescriptor, FailedDescriptionAndReservationKeepLedgerAtomic) {
   EXPECT_FALSE(budget.reserve(valid, reason));
   EXPECT_EQ(counters(budget), full);
   EXPECT_FALSE(reason.empty());
+}
+// Exercise the existing typed-stage owner. These hooks model fact-key lifetime;
+// public source tests separately exercise importer authority/publication.
+class NamedFixedStage : public TableQueryDescriptor {
+protected:
+  llvm::DenseSet<Value> facts, temporaryFacts;
+  SmallVector<Value> forgotten;
+  Operation *holder = nullptr;
+  Block *scalar = nullptr;
+  Value receiver, row, result;
+  void makeTemplate(bool identity = false, bool splat = false) {
+    auto table = acir::ac::TableType::get(
+        &context, builder.getArrayAttr({literal(3)}), bits(8));
+    receiver = module->getBody()->addArgument(table, builder.getUnknownLoc());
+    facts.insert(receiver);
+    OperationState state(builder.getUnknownLoc(), acir::ac::RuleOp::getOperationName());
+    state.addRegion();
+    holder = builder.create(state);
+    scalar = new Block();
+    holder->getRegion(0).push_back(scalar);
+    row = scalar->addArgument(bits(8), builder.getUnknownLoc());
+    facts.insert(row);
+    auto insertion = builder.saveInsertionPoint();
+    builder.setInsertionPointToEnd(scalar);
+    if (identity) {
+      result = row;
+    } else {
+      auto value = constant(8)->getResult(0);
+      facts.insert(value);
+      result = value;
+      if (!splat) {
+        OperationState binary(builder.getUnknownLoc(), acir::ac::BitsBinaryOp::getOperationName());
+        binary.addOperands({row, value});
+        binary.addTypes(bits(8));
+        binary.addAttribute("opcode", builder.getStringAttr("add"));
+        result = builder.create(binary)->getResult(0);
+        facts.insert(result);
+      }
+    }
+    builder.restoreInsertionPoint(insertion);
+  }
+  detail::TableQueryLowering stageOwner() {
+    detail::TableQueryHooks hooks;
+    hooks.literal = [&](uint64_t value) { return literal(value); };
+    hooks.bits = [&](uint64_t width) { return bits(width); };
+    hooks.copyFacts = [&](Value original, Value copied) {
+      if (facts.contains(original)) facts.insert(copied);
+      if (copied.getParentBlock() != scalar &&
+          copied.getParentBlock()->getParentOp()->getName().getStringRef() ==
+              acir::ac::RuleOp::getOperationName())
+        temporaryFacts.insert(copied);
+    };
+    hooks.forgetFacts = [&](Value value) {
+      forgotten.push_back(value);
+      facts.erase(value);
+      temporaryFacts.erase(value);
+    };
+    return detail::TableQueryLowering(builder, builder.getUnknownLoc(), *module,
+                                      budget, std::move(hooks));
+  }
+  unsigned publishedMaps() {
+    unsigned maps = 0;
+    for (Operation &operation : *module->getBody())
+      maps += isa<acir::ac::TableMapOp>(operation);
+    return maps;
+  }
+  void expectCallerFacts() {
+    EXPECT_TRUE(facts.contains(receiver));
+    EXPECT_TRUE(facts.contains(row));
+    for (Operation &operation : *scalar)
+      for (Value value : operation.getResults()) EXPECT_TRUE(facts.contains(value));
+    EXPECT_TRUE(temporaryFacts.empty());
+  }
+};
+
+TEST_F(NamedFixedStage, PendingHoistCountsCopiesMappingsAndTemporaryCleanup) {
+  makeTemplate();
+  // T=2,a=1,R=4,V=15 and mapping bound 7T+2a+2=18.
+  detail::TableQueryStageEnvelope envelope{2, 1, 4, 15, 18};
+  auto owner = stageOwner();
+  auto output = owner.stage(*scalar, ValueRange{row}, ValueRange{receiver},
+                            ValueRange{result}, false, &envelope);
+  ASSERT_TRUE(succeeded(output));
+  ASSERT_EQ(output->size(), 1u);
+  EXPECT_EQ(publishedMaps(), 1u);
+  EXPECT_EQ(envelope.hoists, 1u);
+  EXPECT_EQ(envelope.pending, 1u);
+  EXPECT_EQ(envelope.inputs, 1u);
+  EXPECT_EQ(envelope.captures, 1u);
+  EXPECT_EQ(envelope.arguments, 3u);
+  EXPECT_EQ(envelope.observedValues, 12u);
+  EXPECT_EQ(envelope.mappingEntries, 12u);
+  EXPECT_EQ(forgotten.size(), 4u); // ordinal, row, capture and scalar result
+  expectCallerFacts();
+  auto map = cast<acir::ac::TableMapOp>(output->front().getDefiningOp());
+  for (Value value : map->getRegion(0).front().getArguments())
+    EXPECT_FALSE(llvm::is_contained(forgotten, value));
+  for (Operation &operation : map->getRegion(0).front())
+    for (Value value : operation.getResults()) {
+      EXPECT_TRUE(facts.contains(value));
+      EXPECT_FALSE(llvm::is_contained(forgotten, value));
+    }
+}
+
+TEST_F(NamedFixedStage, EmptyIdentityPublishesNoMapOrClone) {
+  makeTemplate(true);
+  detail::TableQueryStageEnvelope envelope{0, 1, 2, 5, 4};
+  auto owner = stageOwner();
+  auto output = owner.stage(*scalar, ValueRange{row}, ValueRange{receiver},
+                            ValueRange{result}, false, &envelope);
+  ASSERT_TRUE(succeeded(output));
+  ASSERT_EQ(output->size(), 1u);
+  EXPECT_EQ(output->front(), receiver);
+  EXPECT_EQ(publishedMaps(), 0u);
+  EXPECT_EQ(envelope.observedValues, 1u);
+  EXPECT_EQ(envelope.mappingEntries, 0u);
+  EXPECT_TRUE(forgotten.empty());
+  expectCallerFacts();
+}
+
+TEST_F(NamedFixedStage, ConstantSplatHasOnlyOneHoist) {
+  makeTemplate(false, true);
+  detail::TableQueryStageEnvelope envelope{1, 1, 3, 10, 11};
+  auto owner = stageOwner();
+  auto output = owner.stage(*scalar, ValueRange{row}, ValueRange{receiver},
+                            ValueRange{result}, false, &envelope);
+  ASSERT_TRUE(succeeded(output));
+  EXPECT_TRUE(isa<acir::ac::TableSplatOp>(output->front().getDefiningOp()));
+  EXPECT_EQ(publishedMaps(), 0u);
+  EXPECT_EQ(envelope.hoists, 1u);
+  EXPECT_EQ(envelope.pending, 0u);
+  EXPECT_EQ(envelope.observedValues, 3u);
+  EXPECT_EQ(envelope.mappingEntries, 2u);
+  expectCallerFacts();
+}
+
+TEST_F(NamedFixedStage, ExhaustedPublishedOperationReservationCleansTemporary) {
+  makeTemplate();
+  std::string reason;
+  ASSERT_TRUE(budget.reserveProduct(Resource::Operations,
+                                    Budget::limit(Resource::Operations) - 1,
+                                    1, reason));
+  detail::TableQueryStageEnvelope envelope{2, 1, 4, 15, 18};
+  auto owner = stageOwner();
+  auto output = owner.stage(*scalar, ValueRange{row}, ValueRange{receiver},
+                            ValueRange{result}, false, &envelope);
+  EXPECT_TRUE(failed(output));
+  EXPECT_EQ(publishedMaps(), 0u);
+  EXPECT_EQ(forgotten.size(), 4u);
+  EXPECT_EQ(budget.used(Resource::Operations), Budget::limit(Resource::Operations));
+  expectCallerFacts();
+}
+
+TEST_F(NamedFixedStage, FactEnvelopeFailureBeforePublicationCleansTemporary) {
+  makeTemplate();
+  detail::TableQueryStageEnvelope envelope{2, 1, 4, 8, 18};
+  auto owner = stageOwner();
+  auto output = owner.stage(*scalar, ValueRange{row}, ValueRange{receiver},
+                            ValueRange{result}, false, &envelope);
+  EXPECT_TRUE(failed(output));
+  EXPECT_EQ(publishedMaps(), 0u);
+  EXPECT_EQ(envelope.observedValues, 8u);
+  EXPECT_EQ(forgotten.size(), 4u);
+  expectCallerFacts();
+}
+
+TEST_F(NamedFixedStage, ScalarEnvelopeFailureCreatesNoStagedCopy) {
+  makeTemplate();
+  detail::TableQueryStageEnvelope envelope{0, 1, 4, 15, 18};
+  auto owner = stageOwner();
+  auto output = owner.stage(*scalar, ValueRange{row}, ValueRange{receiver},
+                            ValueRange{result}, false, &envelope);
+  EXPECT_TRUE(failed(output));
+  EXPECT_EQ(publishedMaps(), 0u);
+  EXPECT_EQ(envelope.mappingEntries, 0u);
+  EXPECT_TRUE(forgotten.empty());
+  expectCallerFacts();
 }
 } // namespace
