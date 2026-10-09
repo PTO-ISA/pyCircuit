@@ -641,6 +641,16 @@
       "system_source": "bench.py",
       "system_cycles": 96,
       "system_scope": "original-seven-vector/96-cycle common-readiness history; independent module oracle covers all 256 raw indices and all 23 independently consumed output channels, asymmetric stalls, held clocks and reset; no general range/index API or four-state claim"
+    },
+    {
+      "name": "recursive_array_updates",
+      "folder": "examples/recursive_array_updates",
+      "source": "recursive_array_updates.py",
+      "generated": "GENERATED.json",
+      "system": "RecursiveArrayUpdatesSystem",
+      "system_source": "bench.py",
+      "system_cycles": 16,
+      "system_scope": "original-four-vector recursive array updates; independent module oracle covers 2048 raw/replacement pairs plus identity cases, 65-lane boundaries, stalls, held clocks and reset; no Table-of-Table or root-specific four-state claim"
     }
   ],
   "api_coverage": [

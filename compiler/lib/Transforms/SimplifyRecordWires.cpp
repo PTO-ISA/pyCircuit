@@ -50,9 +50,10 @@ public:
     if (selected.getType() != resultType) {
       auto inputBits = dyn_cast<ac::BitsType>(selected.getType());
       auto outputBits = dyn_cast<ac::BitsType>(resultType);
+      // Equivalent aggregate types can retain distinct source provenance.
+      // Without an exactly typed replacement, keep the verified projection.
       if (!inputBits || !outputBits)
-        return reject(get,
-                      "record forwarding requires exact nominal field types");
+        return failure();
       replacement = findExtract(selected, resultType, get);
       if (!replacement) {
         auto width = outputBits.getWidth().getTree();

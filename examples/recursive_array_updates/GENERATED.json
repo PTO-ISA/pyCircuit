@@ -1,0 +1,71 @@
+{
+  "schema": "pycircuit-generated-example-v1",
+  "example": "recursive_array_updates",
+  "entry": {
+    "arguments": [],
+    "definition": "@\"example_recursive_array_updates.recursive_array_updates.RecursiveArrayUpdates\""
+  },
+  "verification": {
+    "schema": "pycircuit-example-verification-v1",
+    "inputs": {
+      "source/CMakeLists.txt": "ba103394988f522672b0804bcfd56d339ce5f36a43074ee93835718661eb99f7",
+      "source/bench.py": "935ee2fd15cfa7f709c583135c37ae1e2bb037fa4839e7d540298b1e6d3c4927",
+      "source/config.json": "1d3c48736bbf264ed9af74a1cdeeb3fccc3b42533b94b804a7a55dde78e438a5",
+      "source/driver.cpp": "406e23dcb8dfdc177a96fe77c9e0ef71535892e9bdf9bb8afee299d88bb83ed4",
+      "source/recursive_array_updates.py": "411340d50a809dfc16f9b4508ce4cfef041cdc8a0d283daad42b2cb7d280d239",
+      "source/rtl_tb.sv": "4457e4220e1e3578e85c9568b1226f1dd69828eff2257e29f0193961f17a9205",
+      "build/cpp/generated.json": "bdabe93e53d87fc7c439be5f93746a778124c0caccc12f96c7f4d2628eb70216",
+      "build/cpp/CMakeLists.txt": "6a4c51492e800936e3718e8d6179cd64636f754ecde96dbf23e061ead59b51cc",
+      "build/cpp/pycircuit_support.hpp": "e31a4567e8629b121c29abcdcdcd8c5b26f434afd4bfb3ac99d312dc46ad0a16",
+      "build/cpp/pycircuit_system.hpp": "c1d988e16042e907e816d5576942e179a61bbb6326ba185cec4cd5365ec087c4",
+      "build/cpp/sources/example_recursive_array_updates/recursive_array_updates.cpp": "52b6e969f1aa6bcc683ab2108444eda57d1908386ea9df7c464f8d5438d57ec4",
+      "build/cpp/sources/example_recursive_array_updates/recursive_array_updates.hpp": "2de29f6508ed9302a30582d42d5a5f329bcba3fbdeaf2aefa223aacea6626f69",
+      "build/cpp/sources/example_recursive_array_updates/recursive_array_updates.source-map.json": "7a99fe306c279571fd65a5077ddfff8998b7dcd1a74147629b8720babec34f10",
+      "build/verilog/generated.json": "07fd5f9c9694497bc5d3d870c929414b584aebdebef0d43fc528f96726fb2b0a",
+      "build/verilog/CMakeLists.txt": "0d59065b026154b2029bbfa764e48402241f2c04e7f622738012f1be6b8da277",
+      "build/verilog/design_top.sv": "3417969686bb9ccc88b6f45bab838598dab895813126a4e1490e2cef448a1039",
+      "build/verilog/sources/example_recursive_array_updates/recursive_array_updates.source-map.json": "e1bb3392aba166f62ca5afbc0a2b82ccb0eb44017c349616b08239aa0be3db3d",
+      "build/verilog/sources/example_recursive_array_updates/recursive_array_updates.v": "f324910ebc1f4415669792d6abebbbe151e138e0af3d1c92903fa88b62762d36",
+      "build/recursive_array_updates.ac": "e02a6d7794b652a61f96e8cb71b2d25fa241e6bad67d26bb9e1c5d5e6fb04ffb",
+      "build/units/.recursive_array_updates.pycircuit-publication/owner.json": "3a4ed34a03da004fe55fb907704c348a60152cc5f4dafef18361bea52b2de285",
+      "build/units/recursive_array_updates/recursive_array_updates.ac": "a79bdeeac8b60c255b84d6ed10f2dc5ed8c17677a6ca9180b61654418f3e47a1",
+      "build/units/recursive_array_updates/recursive_array_updates.d": "03fa3742e8d701240ffa00d49babfee4892158e23a7791716520a7a89bdb7d53",
+      "build/units/recursive_array_updates/recursive_array_updates.interface.ac": "0d9dcb9ddfb3b81c6c8dedb808818791f7c0ac43af0364480c6127d56d8efca6",
+      "build/units/recursive_array_updates/unit.json": "009dcc0ab11fcbaf3de1b6eb4682e068b32618f7a7bd1004a5d8675077906ab8",
+      "runtime-rtl/byte_mem.v": "dfc3f0fa362196fcfaa7bd771d4f85f26acade0e1dfeb0bc00a24d4161987cd2",
+      "runtime-rtl/dff.v": "325fb9039af507df3c94a26515dfcd8bb73f3812c1264df7b72bfe1af918bbb8",
+      "runtime-rtl/dffe.v": "1fc0bdac0c411ea87c00fc93127ebfba8ca12684a8fecee012a23362e0f8b89c",
+      "runtime-rtl/fifo.v": "8b2f0796fdd7c0f4aee3f20bd52226ccb532c827c8618afd9fbef99e2713f97f",
+      "runtime-rtl/sync_mem.v": "75731fcc0df8a01891e53589e75debc4cda9ec384262937047f21b11de7d7637",
+      "runtime-rtl/sync_mem_dp.v": "16ad11aa53d5f60291136b82a47bef9e21b312cd46ee8b8dfb338bb01c6bc3cc",
+      "runner": "6cf611c365cb1d57bd989def2cca0af02cf0a5fe1d063021ad935d56a8bd9bea"
+    },
+    "execution_sha256": "a15f59b47bcebe4e1f7a6ed3931aa6f0eb39047ca184a74f03d8b47aee83dcb6",
+    "work_samples": 4669,
+    "native_check_records": 0,
+    "native_check_sha256": "01ba4719c80b6fe911b091a7c05124b64eeece964e09c058ef8f9805daca546b",
+    "workers": [
+      1,
+      2
+    ],
+    "rtl": "verilator",
+    "trace_sha256": "311e15b082f7594fe7677185345f49fdfc021580f6c89b555d4233d6fa6f1df0"
+  },
+  "excerpts": [
+    {
+      "path": "recursive_array_updates.ac",
+      "line": 15,
+      "sha256": "e02a6d7794b652a61f96e8cb71b2d25fa241e6bad67d26bb9e1c5d5e6fb04ffb"
+    },
+    {
+      "path": "cpp/sources/example_recursive_array_updates/recursive_array_updates.hpp",
+      "line": 40,
+      "sha256": "2de29f6508ed9302a30582d42d5a5f329bcba3fbdeaf2aefa223aacea6626f69"
+    },
+    {
+      "path": "verilog/sources/example_recursive_array_updates/recursive_array_updates.v",
+      "line": 1,
+      "sha256": "f324910ebc1f4415669792d6abebbbe151e138e0af3d1c92903fa88b62762d36"
+    }
+  ]
+}

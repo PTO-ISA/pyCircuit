@@ -36,6 +36,12 @@ retains its scalar predicate boundary until equivalent target support is
 implemented and independently verified. Backend failures must not become a
 fallback implementation or a second semantic path.
 
+Record simplification preserves the declared result type of every projection.
+If an equivalent aggregate carries different source provenance and no exactly
+typed replacement exists, the pass retains the verified projection. Fixed-bit
+identity extracts keep their existing provenance handling; aggregate types are
+not rewritten merely to enable an optimization.
+
 ## Compile and link
 
 Compile each source independently. Consumers use published interfaces through

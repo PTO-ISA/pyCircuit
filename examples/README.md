@@ -1,7 +1,7 @@
 # Examples navigation
 
 Examples use the single Python → MLIR → C++/Verilog → runner flow.
-The current catalog contains **67** runnable examples and **25** API-owned coverage cases.
+The current catalog contains **68** runnable examples and **25** API-owned coverage cases.
 
 - [Writing and verification standard](STANDARD.md)
 - [System execution](../docs/architecture/system-execution.md)
@@ -79,6 +79,7 @@ The current catalog contains **67** runnable examples and **25** API-owned cover
 | [array_reductions](array_reductions/README.md) | [Python](array_reductions/array_reductions.py) | [ArrayReductionsSystem](array_reductions/bench.py) | [driver](array_reductions/driver.cpp) | [testbench](array_reductions/rtl_tb.sv) | [artifacts](array_reductions/GENERATED.md) |
 | [array_combinators](array_combinators/README.md) | [Python](array_combinators/array_combinators.py) | [ArrayCombinatorsSystem](array_combinators/bench.py) | [driver](array_combinators/driver.cpp) | [testbench](array_combinators/rtl_tb.sv) | [artifacts](array_combinators/GENERATED.md) |
 | [bounded_integer_operations](bounded_integer_operations/README.md) | [Python](bounded_integer_operations/bounded_integer_operations.py) | [BoundedIntegerOperationsSystem](bounded_integer_operations/bench.py) | [driver](bounded_integer_operations/driver.cpp) | [testbench](bounded_integer_operations/rtl_tb.sv) | [artifacts](bounded_integer_operations/GENERATED.md) |
+| [recursive_array_updates](recursive_array_updates/README.md) | [Python](recursive_array_updates/recursive_array_updates.py) | [RecursiveArrayUpdatesSystem](recursive_array_updates/bench.py) | [driver](recursive_array_updates/driver.cpp) | [testbench](recursive_array_updates/rtl_tb.sv) | [artifacts](recursive_array_updates/GENERATED.md) |
 
 ## API-owned coverage
 
