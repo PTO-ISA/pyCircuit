@@ -68,7 +68,7 @@ import sys
 from pathlib import Path
 root = Path(sys.argv[1])
 sys.path[:0] = [str(root / "python/semantic-core/src"),
-                str(root / "python/pycircuit/src"), str(root)]
+                str(root / "python"), str(root)]
 from pycircuit._source_capture import _capture_source_file
 from pycircuit._source_transport import _emit_source_transport
 source = Path(sys.argv[2])
@@ -136,7 +136,7 @@ protected:
         packetSource,
         readFile(
             ACIR_TEST_REPO_ROOT
-            "/tests/integration/pycircuit/fixtures/source_language/packet.py"));
+            "/tests/integration/fixtures/source_language/packet.py"));
     writeFile(probeSource, R"py(from pycircuit import module, rule
 from .packet import Request, Word
 

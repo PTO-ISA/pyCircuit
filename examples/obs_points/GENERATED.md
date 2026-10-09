@@ -16,7 +16,7 @@ cmake -S examples/obs_points -B /absolute/build/obs_points -G Ninja \
   -DCMAKE_BUILD_TYPE=Release -DCMAKE_PREFIX_PATH=/absolute/pycircuit/install
 cmake --build /absolute/build/obs_points --parallel 4
 ctest --test-dir /absolute/build/obs_points --output-on-failure --no-tests=error
-python3 tools/pycircuit/example_catalog.py generated --example obs_points \
+python3 tools/example_catalog.py generated --example obs_points \
   --build /absolute/build/obs_points
 ```
 

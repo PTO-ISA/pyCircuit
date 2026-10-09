@@ -22,7 +22,7 @@ import json
 import shutil
 from pathlib import Path
 
-ROOT = Path(__file__).resolve().parents[3]
+ROOT = Path(__file__).resolve().parents[2]
 # `prepare_output.py` moved from `examples/counter/` to the shared
 # `cmake/` directory (it is installed to `share/pycircuit/cmake/prepare_output.py`
 # and consumed by `cmake/PycircuitExamples.cmake`). The file content is unchanged

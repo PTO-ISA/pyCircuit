@@ -108,7 +108,7 @@ def main():
     )
     env = dict(
         os.environ,
-        PYTHONPATH=str(repo / "python/pycircuit/src"),
+        PYTHONPATH=str(repo / "python"),
         PYCIRCUIT_SOURCE_COMPILER=args.source_compiler,
         PYCIRCUIT_LINKER=args.linker,
         PYCIRCUIT_EMITTER=args.emitter,
@@ -118,7 +118,7 @@ def main():
     inputs = [*fixtures.rglob("*"), *oracle.glob("*")]
     inputs = [p for p in inputs if p.is_file() and "__pycache__" not in p.parts]
     product_sources = [
-        *(repo / "python/pycircuit/src/pycircuit").glob("*.py"),
+        *(repo / "python/pycircuit").glob("*.py"),
         *(repo / "include/gfsim").glob("*.h"),
         *(repo / "include/verilog").glob("*.v"),
     ]

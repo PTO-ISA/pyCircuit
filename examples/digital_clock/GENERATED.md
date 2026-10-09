@@ -16,7 +16,7 @@ cmake -S examples/digital_clock -B /absolute/build/digital_clock -G Ninja \
   -DCMAKE_BUILD_TYPE=Release -DCMAKE_PREFIX_PATH=/absolute/pycircuit/install
 cmake --build /absolute/build/digital_clock --parallel 4
 ctest --test-dir /absolute/build/digital_clock --output-on-failure --no-tests=error
-python3 tools/pycircuit/example_catalog.py generated --example digital_clock \
+python3 tools/example_catalog.py generated --example digital_clock \
   --build /absolute/build/digital_clock
 ```
 

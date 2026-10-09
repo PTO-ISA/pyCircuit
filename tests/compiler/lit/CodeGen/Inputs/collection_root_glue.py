@@ -15,7 +15,7 @@ work = tempfile.TemporaryDirectory(prefix=f"collection-{mode}-", dir=scratch)
 root = Path(work.name)
 env = dict(
     os.environ,
-    PYTHONPATH=str(source_root / "python/pycircuit/src"),
+    PYTHONPATH=str(source_root / "python"),
     PYCIRCUIT_EMITTER=emitter,
     PYTHONDONTWRITEBYTECODE="1",
 )

@@ -35,14 +35,14 @@ work = scratch / "dependent-width-binding"
 shutil.rmtree(work, ignore_errors=True)
 source = work / "source"
 source.mkdir(parents=True)
-sys.path.insert(0, str(repo / "python/pycircuit/src"))
+sys.path.insert(0, str(repo / "python"))
 # Load the requested checkout after argument parsing, never an installed copy.
 from pycircuit._source_capture import _capture_source_file  # noqa: E402
 from pycircuit._source_transport import _emit_source_transport  # noqa: E402
 
 env = dict(
     os.environ,
-    PYTHONPATH=str(repo / "python/pycircuit/src"),
+    PYTHONPATH=str(repo / "python"),
     PYTHONDONTWRITEBYTECODE="1",
     PYCIRCUIT_SOURCE_COMPILER=args.source_compiler,
     PYCIRCUIT_LINKER=args.linker,

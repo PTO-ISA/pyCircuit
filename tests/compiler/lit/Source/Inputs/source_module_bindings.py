@@ -27,7 +27,7 @@ for name in ("child.py", "parent.py", "bad_width.py"):
     shutil.copyfile(fixtures / name, source / name)
 env = dict(
     os.environ,
-    PYTHONPATH=str(repo / "python/pycircuit/src"),
+    PYTHONPATH=str(repo / "python"),
     PYTHONDONTWRITEBYTECODE="1",
     PYCIRCUIT_SOURCE_COMPILER=args.source_compiler,
     PYCIRCUIT_LINKER=args.linker,

@@ -12,7 +12,7 @@
   <a href="https://github.com/PTO-ISA/pyCircuit/releases/latest"><img src="https://img.shields.io/github/v/release/PTO-ISA/pyCircuit?display_name=tag&amp;sort=semver" alt="Latest release"></a>
   <a href="LICENSE"><img src="https://img.shields.io/github/license/PTO-ISA/pyCircuit" alt="BSD 3-Clause license"></a>
   <a href="docs/getting-started/installation.md"><img src="https://img.shields.io/badge/Python-3.11%2B-3776AB?logo=python&amp;logoColor=white" alt="Python 3.11 or later"></a>
-  <a href="toolchains/pycircuit/llvm.lock.json"><img src="https://img.shields.io/badge/LLVM%2FMLIR-22.1.8-5C2D91" alt="LLVM and MLIR 22.1.8"></a>
+  <a href="toolchains/llvm.lock.json"><img src="https://img.shields.io/badge/LLVM%2FMLIR-22.1.8-5C2D91" alt="LLVM and MLIR 22.1.8"></a>
 </p>
 
 [Get started](docs/getting-started/quickstart.md) ·

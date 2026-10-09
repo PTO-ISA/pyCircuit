@@ -56,12 +56,39 @@ def test_flow_and_product_tools_have_distinct_roots() -> None:
         path.name for path in (ROOT / "flows/tools").glob("*.py") if path.is_file()
     }
     pycircuit_tools = {
-        path.name for path in (ROOT / "tools/pycircuit").glob("*.py") if path.is_file()
+        path.name for path in (ROOT / "tools").glob("*.py") if path.is_file()
     }
 
     assert flow_tools == FLOW_TOOLS
     assert pycircuit_tools == PYCIRCUIT_TOOLS
-    assert not list((ROOT / "tools").glob("*.py"))
+
+
+def test_package_discovery_excludes_retired_siblings_and_namespace_debris(
+    tmp_path: Path,
+) -> None:
+    tomllib = pytest.importorskip("tomllib")
+    setuptools = pytest.importorskip("setuptools")
+    config = tomllib.loads((ROOT / "pyproject.toml").read_text(encoding="utf-8"))
+    discovery = config["tool"]["setuptools"]["packages"]["find"]
+    source = tmp_path / discovery["where"][0]
+    for name in ("pycircuit", "agentic_circuit", "semantic_core"):
+        package = source / name
+        package.mkdir(parents=True)
+        (package / "__init__.py").write_text("", encoding="utf-8")
+    debris = source / "pycircuit/src/stale"
+    debris.mkdir(parents=True)
+    (debris / "old.py").write_text("", encoding="utf-8")
+    finder = (
+        setuptools.find_namespace_packages
+        if discovery.get("namespaces", True)
+        else setuptools.find_packages
+    )
+    packages = finder(
+        where=str(source),
+        include=discovery.get("include", ["*"]),
+        exclude=discovery.get("exclude", []),
+    )
+    assert packages == ["pycircuit"]
 
 
 def test_ruff_per_file_ignores_match_existing_python_sources() -> None:
@@ -174,7 +201,7 @@ POSIX_ONLY_MODULES = frozenset(
     }
 )
 
-PRODUCT_PYTHON_ROOTS = ("python/pycircuit/src",)
+PRODUCT_PYTHON_ROOTS = ("python/pycircuit",)
 
 
 def _platform_guarded(node: object, parents: dict[object, object]) -> bool:
@@ -253,12 +280,10 @@ def test_product_python_spells_compiled_tools_with_a_platform_suffix() -> None:
                 ):
                     offenders.append(f"{path.relative_to(ROOT)}:{node.lineno}")
     assert offenders == []
-    resolver = (
-        ROOT / "python/pycircuit/src/pycircuit/packaged_toolchain.py"
-    ).read_text(encoding="utf-8")
-    assert 'suffixes.insert(0, ".exe")' in resolver
-    verifier = (ROOT / "python/pycircuit/src/pycircuit/_native_verify.py").read_text(
+    resolver = (ROOT / "python/pycircuit/packaged_toolchain.py").read_text(
         encoding="utf-8"
     )
+    assert 'suffixes.insert(0, ".exe")' in resolver
+    verifier = (ROOT / "python/pycircuit/_native_verify.py").read_text(encoding="utf-8")
     for helper in COMPILED_TOOL_NAMES:
         assert helper in verifier

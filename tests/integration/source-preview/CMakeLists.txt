@@ -2,7 +2,7 @@ cmake_minimum_required(VERSION 3.25)
 project(PycircuitMigrationPreview NONE)
 find_package(Python3 REQUIRED COMPONENTS Interpreter)
 
-get_filename_component(_repo "${CMAKE_CURRENT_LIST_DIR}/../../../.." ABSOLUTE)
+get_filename_component(_repo "${CMAKE_CURRENT_LIST_DIR}/../../.." ABSOLUTE)
 set(PYCIRCUIT_REPOSITORY_ROOT "${_repo}" CACHE PATH "Current pyCircuit checkout")
 set(PYCIRCUIT_NATIVE_BUILD
     "${PYCIRCUIT_REPOSITORY_ROOT}/.pycircuit_out/w10-pm/build"
@@ -30,7 +30,7 @@ foreach(_helper _unit_helper _design_helper _parts_helper)
   endif()
 endforeach()
 set(_roots
-  "${PYCIRCUIT_REPOSITORY_ROOT}/python/pycircuit/src")
+  "${PYCIRCUIT_REPOSITORY_ROOT}/python")
 if(WIN32)
   set(_sep ";")
 else()
@@ -45,7 +45,7 @@ foreach(_root IN LISTS _roots)
   file(GLOB_RECURSE _files CONFIGURE_DEPENDS "${_root}/*.py")
   list(APPEND _python_sources ${_files})
 endforeach()
-set(_prepare "${PYCIRCUIT_REPOSITORY_ROOT}/tests/integration/pycircuit/source-unit-build/prepare_unit_output.py")
+set(_prepare "${PYCIRCUIT_REPOSITORY_ROOT}/tests/integration/source-unit-build/prepare_unit_output.py")
 set(_src "${CMAKE_CURRENT_LIST_DIR}/src")
 set(_units "${CMAKE_BINARY_DIR}/units")
 

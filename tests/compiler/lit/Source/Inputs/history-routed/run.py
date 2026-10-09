@@ -103,7 +103,7 @@ def main():
         *fixture.glob("baseline/*"),
         *oracle.parent.glob("*.py"),
         oracle,
-        *repo.glob("python/pycircuit/src/pycircuit/**/*.py"),
+        *repo.glob("python/pycircuit/**/*.py"),
         repo / "include/verilog/fifo.v",
         repo / "include/verilog/dffe.v",
         repo / "cmake/verify_example.py",
@@ -132,7 +132,7 @@ def main():
         assert digest(fixture / "baseline" / asset["asset"]) == asset["sha256"]
     env = dict(
         os.environ,
-        PYTHONPATH=str(repo / "python/pycircuit/src"),
+        PYTHONPATH=str(repo / "python"),
         PYCIRCUIT_SOURCE_COMPILER=args.source_compiler,
         PYCIRCUIT_LINKER=args.linker,
         PYCIRCUIT_EMITTER=args.emitter,

@@ -161,7 +161,7 @@ def main():
     source.mkdir(exist_ok=True)
     path = source / "control.py"
     path.write_text(BASE)
-    sys.path.insert(0, str(repo / "python/pycircuit/src"))
+    sys.path.insert(0, str(repo / "python"))
     from pycircuit._source_capture import _capture_source_file
     from pycircuit._source_transport import _emit_source_transport
 
@@ -173,7 +173,7 @@ def main():
 
     env = dict(
         os.environ,
-        PYTHONPATH=str(repo / "python/pycircuit/src"),
+        PYTHONPATH=str(repo / "python"),
         PYTHONDONTWRITEBYTECODE="1",
     )
 

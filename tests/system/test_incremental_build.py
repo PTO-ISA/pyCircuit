@@ -31,7 +31,7 @@ import pytest
 pytestmark = pytest.mark.system
 
 ROOT = Path(__file__).resolve().parents[2]
-GENERATOR = ROOT / "benchmarks/pycircuit/source-units/generate.py"
+GENERATOR = ROOT / "benchmarks/source-units/generate.py"
 DEFAULT_PREFIX = ROOT / ".pycircuit_out/measurement-02-install"
 
 

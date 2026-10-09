@@ -18,7 +18,7 @@ ROOT = Path(__file__).resolve().parents[2]
 @pytest.fixture
 def tool():
     spec = importlib.util.spec_from_file_location(
-        "example_catalog_under_test", ROOT / "tools/pycircuit/example_catalog.py"
+        "example_catalog_under_test", ROOT / "tools/example_catalog.py"
     )
     assert spec is not None and spec.loader is not None
     module = importlib.util.module_from_spec(spec)

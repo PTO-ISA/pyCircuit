@@ -26,7 +26,7 @@ assert mutated != text and "ac.required_checks" in mutated
 invalid.write_text(mutated)
 env = dict(
     os.environ,
-    PYTHONPATH=str(repo / "python/pycircuit/src"),
+    PYTHONPATH=str(repo / "python"),
     PYCIRCUIT_EMITTER=args.emitter,
 )
 commands = []

@@ -64,12 +64,12 @@ jobs:
             packaging/wheel/create_wheel.py \
             packaging/wheel/get_wheel_plat_name.py \
             packaging/wheel/platform_tags.py \
-            python/pycircuit/src/pycircuit/packaged_toolchain.py \
-            python/pycircuit/src/pycircuit/cli.py \
+            python/pycircuit/packaged_toolchain.py \
+            python/pycircuit/cli.py \
             flows/tools/summarize_gate_run.py
 
       - name: Run API hygiene gate
-        run: python flows/tools/check_api_hygiene.py python/pycircuit/src/pycircuit examples docs README.md
+        run: python flows/tools/check_api_hygiene.py python/pycircuit examples docs README.md
 
   capture-publication-gates:
     name: "G0: Capture and Publication Unit Gates"

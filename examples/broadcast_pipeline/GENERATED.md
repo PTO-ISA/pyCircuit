@@ -16,7 +16,7 @@ cmake -S examples/broadcast_pipeline -B /absolute/build/broadcast_pipeline -G Ni
   -DCMAKE_BUILD_TYPE=Release -DCMAKE_PREFIX_PATH=/absolute/pycircuit/install
 cmake --build /absolute/build/broadcast_pipeline --parallel 4
 ctest --test-dir /absolute/build/broadcast_pipeline --output-on-failure --no-tests=error
-python3 tools/pycircuit/example_catalog.py generated --example broadcast_pipeline \
+python3 tools/example_catalog.py generated --example broadcast_pipeline \
   --build /absolute/build/broadcast_pipeline
 ```
 

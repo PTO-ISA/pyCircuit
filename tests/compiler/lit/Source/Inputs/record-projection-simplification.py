@@ -32,7 +32,7 @@ scratch.mkdir(parents=True, exist_ok=True)
 build = Path(tempfile.mkdtemp(prefix="execution-", dir=scratch))
 env = dict(
     os.environ,
-    PYTHONPATH=str(repo / "python/pycircuit/src"),
+    PYTHONPATH=str(repo / "python"),
     PYTHONDONTWRITEBYTECODE="1",
     PYCIRCUIT_SOURCE_COMPILER=args.source_compiler,
     PYCIRCUIT_LINKER=args.linker,
@@ -270,7 +270,7 @@ def compile_source(output, accepted=True, replace=False):
 compile_source(unit)
 # Use the same capture and native source-unit route to retain the real imported
 # module. Ordinary published outputs remain the authority for linking below.
-sys.path.insert(0, str(repo / "python/pycircuit/src"))
+sys.path.insert(0, str(repo / "python"))
 
 
 def capture_source_transport(path):

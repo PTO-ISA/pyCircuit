@@ -546,7 +546,7 @@ def test_public_compile_link_publishes_final_declarations_and_emit_fails_closed(
         "PYCIRCUIT_LINKER", "pycircuit-link"
     )
     roots = (
-        cpp.ROOT / "python/pycircuit/src",
+        cpp.ROOT / "python",
         cpp.ROOT / "python/semantic-core/src",
     )
     inherited = cli_environment.get("PYTHONPATH")

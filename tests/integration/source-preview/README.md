@@ -16,5 +16,5 @@ installed SDK, or production-compatible generated C++ class ABI.
 
 ## Reproduce the workflow
 
-See the [complete build, run and validation recipe](../../../../docs/development/migration-preview.md).
+See the [complete build, run and validation recipe](../../../docs/development/source-unit-workflow.md).
 It builds this checked-in project without pytest generating any model or runner.

@@ -16,7 +16,7 @@ cmake -S examples/wire_ops -B /absolute/build/wire_ops -G Ninja \
   -DCMAKE_BUILD_TYPE=Release -DCMAKE_PREFIX_PATH=/absolute/pycircuit/install
 cmake --build /absolute/build/wire_ops --parallel 4
 ctest --test-dir /absolute/build/wire_ops --output-on-failure --no-tests=error
-python3 tools/pycircuit/example_catalog.py generated --example wire_ops \
+python3 tools/example_catalog.py generated --example wire_ops \
   --build /absolute/build/wire_ops
 ```
 

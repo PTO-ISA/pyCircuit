@@ -1,6 +1,6 @@
 # Repository map
 
-Start with the owner of the behavior you want to change. Folder boundaries
+Start with the owner of the behavior you want to change. The repeated repository-name wrappers are removed. Folder boundaries
 separate the compiler, installed Runtime, repository tooling and independent
 verification; similar names do not imply duplicate implementations.
 
@@ -8,7 +8,7 @@ verification; similar names do not imply duplicate implementations.
 
 | Change | Start here |
 | --- | --- |
-| Python syntax capture, CLI or publication | `python/pycircuit/src/pycircuit/` |
+| Python syntax capture, CLI or publication | `python/pycircuit/` |
 | Types, hardware semantics or source lowering | `compiler/lib/Compiler/` and `compiler/lib/Dialect/ACIR/` |
 | Common IR transformations | `compiler/lib/Transforms/` |
 | Generated C++ or Verilog | Existing emitters in `compiler/lib/Compiler/` |
@@ -18,7 +18,7 @@ verification; similar names do not imply duplicate implementations.
 | Reproduce a compiler or Runtime defect | The owning suite under `tests/` |
 | Add or document a complete example | `examples/<design>/` and `examples/catalog.json` |
 | Run a gate or measure a build | `flows/scripts/` and `flows/tools/` |
-| Regenerate maintained source data | `tools/pycircuit/` |
+| Regenerate maintained source data | `tools/` |
 
 ## Tracked top-level folders
 
@@ -37,17 +37,17 @@ and retired compiler paths are absent from the active tree.
 | `flows/` | Repository build, gate, preview and measurement orchestration. | [Testing and gates](testing-and-gates.md) |
 | `include/` | Installed C++ Runtime interfaces/templates and standard Verilog storage leaves. | [Runtime semantics](../architecture/simulation.md) |
 | `packaging/` | SDK identity, relocation, platform/release validation and wheel assembly. | [Build profiles](../getting-started/installation.md) |
-| `python/` | The single `pycircuit` package in its standard `src` layout. | [Source-unit workflow](source-unit-workflow.md) |
-| `schemas/` | Current SDK, consumer-lock, release-index and version-map JSON formats. | [SDK contracts](https://github.com/PTO-ISA/pyCircuit/tree/main/schemas/pycircuit) |
+| `python/` | The single importable `pycircuit` package, directly under `python/`. | [Source-unit workflow](source-unit-workflow.md) |
+| `schemas/` | Current SDK, consumer-lock, release-index and version-map JSON formats. | [SDK contracts](https://github.com/PTO-ISA/pyCircuit/tree/main/schemas) |
 | `simulator/` | Compiled implementation of the shared Runtime library. | [System execution](../architecture/system-execution.md) |
 | `tests/` | Compiler, Runtime, public-flow, packaging and unit verification. | [Test ownership below](#test-ownership) |
-| `toolchains/` | Pinned LLVM source/version provenance. This is a reference record; build entrypoints perform their own exact version checks. | [LLVM pin](https://github.com/PTO-ISA/pyCircuit/blob/main/toolchains/pycircuit/llvm.lock.json) |
+| `toolchains/` | Pinned LLVM source/version provenance. This is a reference record; build entrypoints perform their own exact version checks. | [LLVM pin](https://github.com/PTO-ISA/pyCircuit/blob/main/toolchains/llvm.lock.json) |
 | `tools/` | Source-table generation and example-catalog maintenance. | [Tool guide](https://github.com/PTO-ISA/pyCircuit/blob/main/tools/README.md) |
 
 ## Compiler and Runtime boundaries
 
 ```text
-python/pycircuit/src/pycircuit/   syntax capture and public driver
+python/pycircuit/   syntax capture and public driver
 compiler/
   include/pycircuit/             public compiler headers and TableGen definitions
   lib/Compiler/                 source resolution, lowering, link and emit
@@ -61,8 +61,8 @@ include/
 simulator/gfsim/                 compiled Runtime implementation
 ```
 
-`python/pycircuit/` contains the single package and its `src` tree; there are
-no sibling frontend packages.
+`python/pycircuit/` is the importable Python package. Package discovery starts
+at `python/`; redundant project and `src` wrapper layers are removed.
 
 `include/gfsim/` and `simulator/gfsim/` jointly implement the Runtime component:
 one contains public headers/templates, the other compiled sources. Moving them
@@ -72,7 +72,7 @@ root `include/` serves generated-model consumers.
 
 `cmake/` is installed for downstream builds; `compiler/cmake/` is private to the
 native compiler build. `flows/tools/` runs repository operations;
-`tools/pycircuit/` regenerates maintained source data. These are separate owners,
+`tools/` regenerates maintained source data. These are separate owners,
 not alternate public compilation routes.
 
 The retired primitive-selection catalog, its standalone RTL variants and its
@@ -91,7 +91,7 @@ there is no second `library/` selection path.
 | `tests/compiler/lit/` | Public compile/link/emit, diagnostics and backend execution scenarios; `Inputs/` contains their source, driver and expected-data fixtures. |
 | `tests/compiler/oracles/` | Independent reference models, checkers and immutable historical provenance. |
 | `tests/system/` | End-to-end Python tests of installed tools, publication, simulation and packaging. |
-| `tests/integration/pycircuit/` | Source trees and consumer projects used by those public-flow/package tests. |
+| `tests/integration/` | Source trees and consumer projects used by those public-flow/package tests. |
 
 The `history_*` oracle folders and `package-fixture-originals/` snapshots are
 intentional verification assets. Their manifests preserve original behavior and

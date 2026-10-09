@@ -48,9 +48,7 @@ def test_sdk_identity_pins_the_current_distribution_and_contract_versions() -> N
         (ROOT / "packaging/sdk/version-map.json").read_text(encoding="utf-8")
     )
     schema = json.loads(
-        (ROOT / "schemas/pycircuit/sdk-manifest.schema.json").read_text(
-            encoding="utf-8"
-        )
+        (ROOT / "schemas/sdk-manifest.schema.json").read_text(encoding="utf-8")
     )
 
     assert version_map["schema"] == "pycircuit-sdk-version-map"

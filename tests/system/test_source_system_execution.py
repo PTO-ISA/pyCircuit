@@ -30,7 +30,7 @@ def _environment() -> dict[str, str]:
         filter(
             None,
             [
-                str(ROOT / "python/pycircuit/src"),
+                str(ROOT / "python"),
                 env.get("PYTHONPATH"),
             ],
         )

@@ -16,7 +16,7 @@ cmake -S examples/struct_transform -B /absolute/build/struct_transform -G Ninja 
   -DCMAKE_BUILD_TYPE=Release -DCMAKE_PREFIX_PATH=/absolute/pycircuit/install
 cmake --build /absolute/build/struct_transform --parallel 4
 ctest --test-dir /absolute/build/struct_transform --output-on-failure --no-tests=error
-python3 tools/pycircuit/example_catalog.py generated --example struct_transform \
+python3 tools/example_catalog.py generated --example struct_transform \
   --build /absolute/build/struct_transform
 ```
 

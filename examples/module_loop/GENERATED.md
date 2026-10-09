@@ -16,7 +16,7 @@ cmake -S examples/module_loop -B /absolute/build/module_loop -G Ninja \
   -DCMAKE_BUILD_TYPE=Release -DCMAKE_PREFIX_PATH=/absolute/pycircuit/install
 cmake --build /absolute/build/module_loop --parallel 4
 ctest --test-dir /absolute/build/module_loop --output-on-failure --no-tests=error
-python3 tools/pycircuit/example_catalog.py generated --example module_loop \
+python3 tools/example_catalog.py generated --example module_loop \
   --build /absolute/build/module_loop
 ```
 

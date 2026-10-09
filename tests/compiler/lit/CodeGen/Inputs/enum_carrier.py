@@ -33,7 +33,7 @@ build = Path(tempfile.mkdtemp(prefix="run-", dir=evidence))
 commands = []
 env = dict(
     os.environ,
-    PYTHONPATH=str(repo / "python/pycircuit/src"),
+    PYTHONPATH=str(repo / "python"),
     PYCIRCUIT_EMITTER=args.emitter,
     PYTHONDONTWRITEBYTECODE="1",
 )

@@ -15,7 +15,7 @@ from pycircuit._source_transport import _emit_source_transport
 pytestmark = pytest.mark.system
 
 ROOT = Path(__file__).resolve().parents[2]
-FIXTURES = ROOT / "tests/integration/pycircuit/fixtures/source_language"
+FIXTURES = ROOT / "tests/integration/fixtures/source_language"
 
 ACCUMULATOR_PROBE = """\
 from pycircuit import module, rule

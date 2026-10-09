@@ -16,7 +16,7 @@ cmake -S examples/bf16_fmac -B /absolute/build/bf16_fmac -G Ninja \
   -DCMAKE_BUILD_TYPE=Release -DCMAKE_PREFIX_PATH=/absolute/pycircuit/install
 cmake --build /absolute/build/bf16_fmac --parallel 4
 ctest --test-dir /absolute/build/bf16_fmac --output-on-failure --no-tests=error
-python3 tools/pycircuit/example_catalog.py generated --example bf16_fmac \
+python3 tools/example_catalog.py generated --example bf16_fmac \
   --build /absolute/build/bf16_fmac
 ```
 

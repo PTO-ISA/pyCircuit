@@ -5,7 +5,7 @@ from pathlib import Path
 
 # Make the in-tree frontend package importable without requiring callers to set
 # PYTHONPATH, so gates run under a plain ``pytest`` invocation.
-_FRONTEND = Path(__file__).resolve().parents[1] / "python" / "pycircuit" / "src"
+_FRONTEND = Path(__file__).resolve().parents[1] / "python"
 if _FRONTEND.is_dir():
     p = str(_FRONTEND)
     if p not in sys.path:

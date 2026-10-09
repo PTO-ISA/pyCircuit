@@ -6,7 +6,7 @@ find_package(Python3 REQUIRED COMPONENTS Interpreter)
 
 get_filename_component(
   _default_repository_root
-  "${CMAKE_CURRENT_LIST_DIR}/../../../../"
+  "${CMAKE_CURRENT_LIST_DIR}/../../../"
   ABSOLUTE
 )
 set(PYCIRCUIT_REPOSITORY_ROOT "${_default_repository_root}" CACHE PATH
@@ -14,7 +14,7 @@ set(PYCIRCUIT_REPOSITORY_ROOT "${_default_repository_root}" CACHE PATH
 set(PYCIRCUIT_PYTHON_EXECUTABLE "${Python3_EXECUTABLE}" CACHE FILEPATH
     "Python interpreter used for pycircuit compile/link")
 set(PYCIRCUIT_IMPORT_ROOTS
-    "${PYCIRCUIT_REPOSITORY_ROOT}/python/pycircuit/src"
+    "${PYCIRCUIT_REPOSITORY_ROOT}/python"
     CACHE STRING "Python import roots passed to the public driver")
 set(PYCIRCUIT_SOURCE_UNIT_HARNESS "" CACHE FILEPATH
     "Path to pycircuit-source-unit")

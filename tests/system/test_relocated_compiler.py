@@ -17,7 +17,7 @@ from test_public_emit import _assert_counter_trace
 pytestmark = pytest.mark.system
 
 ROOT = Path(__file__).resolve().parents[2]
-FIXTURE = ROOT / "tests/integration/pycircuit/sdk-relocation"
+FIXTURE = ROOT / "tests/integration/sdk-relocation"
 DEFAULT_NATIVE_BUILD = ROOT / ".pycircuit_out/source-root"
 SOURCES = ("types.py", "counter.py", "design_top.py")
 

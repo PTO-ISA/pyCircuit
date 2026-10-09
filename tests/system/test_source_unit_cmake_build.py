@@ -1,6 +1,6 @@
 """Exercise the public source-unit driver through an explicit CMake/Ninja DAG.
 
-The project under ``tests/integration/pycircuit/source-unit-build`` is
+The project under ``tests/integration/source-unit-build`` is
 copied to a path containing spaces and configured against the current checkout
 and native helpers. The test observes real Ninja commands, depfiles, published
 units, and the linker's refusal boundary; it does not replace the compiler or
@@ -23,8 +23,8 @@ import pytest
 pytestmark = pytest.mark.system
 
 _REPO = Path(__file__).resolve().parents[2]
-_FIXTURE = _REPO / "tests" / "integration" / "pycircuit" / "source-unit-build"
-_IMPORT_ROOTS = (_REPO / "python" / "pycircuit" / "src",)
+_FIXTURE = _REPO / "tests" / "integration" / "source-unit-build"
+_IMPORT_ROOTS = (_REPO / "python",)
 _CLI = "import sys; from pycircuit.cli import main; sys.exit(main(sys.argv[1:]))"
 _SOURCE_NAMES = ("types", "child", "parent", "independent")
 
@@ -315,7 +315,7 @@ def test_explicit_source_unit_dag_builds_and_tracks_real_dependencies(
     assert str(output_preparer) in query
     assert str(native["PYCIRCUIT_SOURCE_COMPILER"]) in query
     assert str(toolchain_config) in query
-    cli_source = _REPO / "python" / "pycircuit" / "src" / "pycircuit" / "cli.py"
+    cli_source = _REPO / "python" / "pycircuit" / "cli.py"
     assert str(cli_source) in query
 
     first = _cmake_build(cmake, build, "source-unit-all", environment)

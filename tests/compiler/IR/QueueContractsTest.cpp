@@ -497,7 +497,7 @@ module {
     constexpr StringLiteral script = R"py(
 import os,sys
 repo,linker,*args=sys.argv[1:]
-sys.path.insert(0,repo+'/python/pycircuit/src')
+sys.path.insert(0,repo+'/python')
 os.environ['PYCIRCUIT_LINKER']=linker
 from pycircuit.cli import main
 raise SystemExit(main(args))

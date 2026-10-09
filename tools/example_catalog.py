@@ -8,7 +8,7 @@ import importlib.util
 import json
 from pathlib import Path
 
-ROOT = Path(__file__).resolve().parents[2]
+ROOT = Path(__file__).resolve().parents[1]
 CATALOG = Path("examples/catalog.json")
 
 
@@ -267,7 +267,7 @@ def generated(repo: Path, name: str, build: Path) -> tuple[str, dict]:
         "  -DCMAKE_BUILD_TYPE=Release -DCMAKE_PREFIX_PATH=/absolute/pycircuit/install",
         f"cmake --build /absolute/build/{name} --parallel 4",
         f"ctest --test-dir /absolute/build/{name} --output-on-failure --no-tests=error",
-        f"python3 tools/pycircuit/example_catalog.py generated --example {name} \\",
+        f"python3 tools/example_catalog.py generated --example {name} \\",
         f"  --build /absolute/build/{name}",
         "```",
         "",
