@@ -525,6 +525,8 @@ with tempfile.TemporaryDirectory(prefix="fixed-slices-", dir=scratch) as tempora
             reproduced / "design.interface.ac",
             "--deps-out",
             reproduced / "consumed.json",
+            "--source-import-out",
+            reproduced / "design.source-import.ac",
         ]
     )
     for filename in ("design.ac", "design.interface.ac"):
@@ -715,7 +717,7 @@ with tempfile.TemporaryDirectory(prefix="fixed-slices-", dir=scratch) as tempora
                 "protected_rejections": len(cases) * 2,
                 "icarus_four_state": bool(args.iverilog and args.vvp),
                 "main_capture_transport_native_reproduction": "existing capture/transport API, identical source/package/path/no headers; published body/interface byte equal",
-                "transient_source_import_stage": "native compiler consumes retained transport; no separate intermediate source-import IR exported",
+                "transient_source_import_stage": "full post-Lower/pre-Simplify source-import ACIR retained by matching native reproduction; not a sidecar from the original public compile invocation",
                 "retained_artifacts_sha256": {
                     str(path.relative_to(retained)): hashlib.sha256(
                         path.read_bytes()

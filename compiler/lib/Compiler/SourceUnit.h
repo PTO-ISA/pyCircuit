@@ -11,11 +11,16 @@
 #include "llvm/ADT/SmallVector.h"
 #include "llvm/ADT/StringMap.h"
 
+#include <optional>
+#include <string>
+
 namespace acir::compiler {
 
 struct SourceUnitArtifacts {
   mlir::OwningOpRef<mlir::ModuleOp> body;
   mlir::OwningOpRef<mlir::ModuleOp> interface;
+  // Diagnostic text from this run's post-Lower, pre-Simplify boundary.
+  std::optional<std::string> sourceImport;
 };
 
 // One immutable module declaration admitted by the source interface registry.
@@ -103,7 +108,8 @@ private:
 
 mlir::FailureOr<SourceUnitArtifacts> compilePythonSourceUnit(
     mlir::ModuleOp transport, mlir::DictionaryAttr sourceOwner,
-    const SourceHeaderRegistry &headers, ac::detail::EmitError emitError);
+    const SourceHeaderRegistry &headers, ac::detail::EmitError emitError,
+    bool retainSourceImport = false);
 
 mlir::LogicalResult
 verifyPublishedDependencies(ac::ModuleOp definition,

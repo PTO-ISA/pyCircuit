@@ -41,12 +41,30 @@ env = dict(
 commands = []
 
 
-def run(command, accepted=True):
+def run(command, accepted=True, file_size_limit=None):
     command = list(map(str, command))
     started = time.monotonic()
+    options = {}
+    if file_size_limit is not None:
+        import resource
+        import signal
+
+        def limit_child_file_size():
+            signal.signal(signal.SIGXFSZ, signal.SIG_IGN)
+            resource.setrlimit(
+                resource.RLIMIT_FSIZE, (file_size_limit, file_size_limit)
+            )
+
+        options["preexec_fn"] = limit_child_file_size
     try:
         result = subprocess.run(
-            command, env=env, cwd=repo, capture_output=True, text=True, timeout=240
+            command,
+            env=env,
+            cwd=repo,
+            capture_output=True,
+            text=True,
+            timeout=240,
+            **options,
         )
     except subprocess.TimeoutExpired:
         commands.append(
@@ -61,6 +79,7 @@ def run(command, accepted=True):
             "elapsed_seconds": time.monotonic() - started,
             "stdout": result.stdout,
             "stderr": result.stderr,
+            "child_file_size_limit": file_size_limit,
         }
     )
     (build / "commands.json").write_text(json.dumps(commands, indent=2) + "\n")
@@ -249,6 +268,260 @@ def compile_source(output, accepted=True, replace=False):
 
 
 compile_source(unit)
+# Use the same capture and native source-unit route to retain the real imported
+# module. Ordinary published outputs remain the authority for linking below.
+sys.path.insert(0, str(repo / "python/pycircuit/src"))
+
+
+def capture_source_transport(path):
+    from pycircuit._source_capture import _capture_source_file
+    from pycircuit._source_transport import _emit_source_transport
+
+    return _emit_source_transport(_capture_source_file(path, source_root=source))
+
+
+native = build / "native-reproduction"
+native.mkdir()
+
+
+def capture_file(path):
+    transport = native / (path.stem + ".transport.mlir")
+    transport.write_text(
+        capture_source_transport(path),
+        encoding="utf-8",
+    )
+    return transport
+
+
+transport = capture_file(design)
+
+
+def native_compile(
+    captured,
+    owner_path,
+    outputs,
+    diagnostic=None,
+    headers=(),
+    accepted=True,
+    file_size_limit=None,
+):
+    command = [
+        args.source_compiler,
+        "--capture",
+        captured,
+        "--package",
+        "record_probe",
+        "--path",
+        owner_path,
+        "--body-out",
+        outputs[0],
+        "--interface-out",
+        outputs[1],
+        "--deps-out",
+        outputs[2],
+    ]
+    for header_path in headers:
+        command.extend(["--header", header_path])
+    if diagnostic is not None:
+        command.append("--source-import-out=" + str(diagnostic))
+    return run(command, accepted, file_size_limit)
+
+
+ordinary_names = ("design.ac", "design.interface.ac", "consumed.json")
+default = native / "default"
+enabled = native / "enabled"
+for directory in (default, enabled):
+    directory.mkdir()
+off_outputs = [default / name for name in ordinary_names]
+on_outputs = [enabled / name for name in ordinary_names]
+native_compile(transport, "design.py", off_outputs)
+assert sorted(path.name for path in default.iterdir()) == sorted(ordinary_names)
+source_import = enabled / "source-import.ac"
+native_compile(transport, "design.py", on_outputs, source_import)
+for before, after in zip(off_outputs, on_outputs, strict=True):
+    assert before.read_bytes() == after.read_bytes(), before.name
+for name in ordinary_names[:2]:
+    assert (enabled / name).read_bytes() == (unit / name).read_bytes(), name
+imported_text = source_import.read_text()
+assert imported_text.endswith("\n")
+assert "ac.struct.create" in imported_text and "ac.struct.get" in imported_text
+assert "ac.struct.get" not in (enabled / "design.ac").read_text()
+# The existing optimizer parser/verifier consumes the complete diagnostic; no
+# alternate lowering pipeline supplies it. Typed API checks own the relation.
+run(
+    [
+        Path(args.source_compiler).resolve().parent / "pycircuit-opt",
+        source_import,
+        "-o",
+        enabled / "parsed-source-import.ac",
+    ]
+)
+stdout_import = native / "stdout-source-import.ac"
+stdout_result = native_compile(transport, "design.py", ["-", "-", "-"], stdout_import)
+assert stdout_result.stdout == "".join(
+    (enabled / name).read_text() for name in (ordinary_names[2], *ordinary_names[:2])
+)
+
+# Supply a real independently compiled header for input-alias protection.
+provider = source / "provider.py"
+provider.write_text(
+    "import pycircuit as ac\n@ac.struct\n" "class HeaderPayload:\n    value: ac.u1\n"
+)
+provider_capture = capture_file(provider)
+provider_outputs = [native / ("provider-" + name) for name in ordinary_names]
+native_compile(provider_capture, "provider.py", provider_outputs)
+provider_header = provider_outputs[1]
+
+diagnostic_rejections = []
+for name in (
+    "existing-file",
+    "existing-directory",
+    "existing-symlink",
+    "dangling-diagnostic-symlink",
+    "capture-alias",
+    "header-alias",
+    "body-alias",
+    "interface-alias",
+    "deps-alias",
+    "symlink-parent-alias",
+    "dangling-output-alias",
+    "missing-parent",
+    "empty",
+    "stdout",
+    "late-body-open-error",
+    "late-deps-open-error",
+    "invalid-source",
+):
+    directory = native / name
+    directory.mkdir()
+    outputs = [directory / filename for filename in ordinary_names]
+    for path in outputs:
+        path.write_bytes(b"ordinary output sentinel\n")
+    protected = {path: path.read_bytes() for path in outputs}
+    protected.update(
+        {
+            transport: transport.read_bytes(),
+            provider_header: provider_header.read_bytes(),
+        }
+    )
+    destination = directory / "source-import.ac"
+    captured, owner_path, headers = transport, "design.py", ()
+    existing_link = None
+    if name == "existing-file":
+        destination.write_bytes(b"diagnostic sentinel\n")
+        protected[destination] = destination.read_bytes()
+    elif name == "existing-directory":
+        destination.mkdir()
+        marker = destination / "sentinel"
+        marker.write_bytes(b"directory sentinel\n")
+        protected[marker] = marker.read_bytes()
+    elif name in ("existing-symlink", "dangling-diagnostic-symlink"):
+        target = directory / "target"
+        if name == "existing-symlink":
+            target.write_bytes(b"symlink target sentinel\n")
+            protected[target] = target.read_bytes()
+        destination.symlink_to(target)
+        existing_link = (destination, target)
+    elif name == "capture-alias":
+        destination = transport
+    elif name == "header-alias":
+        destination, headers = provider_header, (provider_header,)
+    elif name in ("body-alias", "interface-alias", "deps-alias"):
+        index = {"body-alias": 0, "interface-alias": 1, "deps-alias": 2}[name]
+        outputs[index].unlink()
+        protected.pop(outputs[index])
+        destination = outputs[index]
+    elif name == "symlink-parent-alias":
+        real = directory / "real"
+        real.mkdir()
+        alias = directory / "alias"
+        alias.symlink_to(real, target_is_directory=True)
+        protected.pop(outputs[0])
+        outputs[0].unlink()
+        destination, outputs[0] = real / "fresh.ac", alias / "fresh.ac"
+    elif name == "dangling-output-alias":
+        protected.pop(outputs[0])
+        outputs[0].unlink()
+        outputs[0].symlink_to(destination)
+        existing_link = (outputs[0], destination)
+    elif name == "missing-parent":
+        destination = directory / "missing" / "source-import.ac"
+    elif name == "empty":
+        destination = ""
+    elif name == "stdout":
+        destination = "-"
+    elif name in ("late-body-open-error", "late-deps-open-error"):
+        index = 0 if name == "late-body-open-error" else 2
+        protected.pop(outputs[index])
+        outputs[index].unlink()
+        outputs[index].mkdir()
+        if index == 0:
+            # Dependencies precede the body in the existing sequential writer;
+            # this is deliberately not a cross-file atomicity assertion.
+            protected.pop(outputs[2])
+    elif name == "invalid-source":
+        invalid = source / "invalid.py"
+        invalid.write_text(
+            "import pycircuit as ac\n@ac.struct\nclass Payload:\n    value: ac.u1\n"
+            "@ac.module\ndef Invalid(value: ac.u1) -> Payload:\n    return Payload(value=missing)\n"
+        )
+        captured, owner_path = capture_file(invalid), "invalid.py"
+    rejected = native_compile(
+        captured, owner_path, outputs, destination, headers, accepted=False
+    )
+    assert all(path.read_bytes() == value for path, value in protected.items()), name
+    if existing_link is not None:
+        link, target = existing_link
+        assert link.is_symlink() and link.readlink() == target, name
+        if name in ("dangling-diagnostic-symlink", "dangling-output-alias"):
+            assert not target.exists(), name
+    elif (
+        isinstance(destination, Path)
+        and destination not in protected
+        and name != "existing-directory"
+    ):
+        assert not destination.exists(), name
+    if name == "invalid-source":
+        assert "unknown hardware value 'missing'" in rejected.stderr
+    diagnostic_rejections.append(name)
+
+# A child-only POSIX limit induces a real regular-file stream error, without
+# changing product behavior or writing to a special device. The bound derives
+# from the complete successful diagnostic rather than a compiler magic limit.
+try:
+    import resource
+    import signal
+except ImportError:
+    stream_failure = "skipped: POSIX resource/signal modules unavailable"
+else:
+    if not hasattr(resource, "RLIMIT_FSIZE") or not hasattr(signal, "SIGXFSZ"):
+        stream_failure = "skipped: POSIX file-size limit or signal unavailable"
+    else:
+        directory = native / "diagnostic-stream-error"
+        directory.mkdir()
+        outputs = [directory / filename for filename in ordinary_names]
+        for path in outputs:
+            path.write_bytes(b"ordinary stream-error sentinel\n")
+        protected = {path: path.read_bytes() for path in outputs}
+        destination = directory / "source-import.ac"
+        limit = max(1, len(source_import.read_bytes()) // 2)
+        native_compile(
+            transport,
+            "design.py",
+            outputs,
+            destination,
+            accepted=False,
+            file_size_limit=limit,
+        )
+        assert not destination.exists()
+        assert all(path.read_bytes() == value for path, value in protected.items())
+        diagnostic_rejections.append("diagnostic-stream-error")
+        stream_failure = {
+            "child_file_size_limit": limit,
+            "fresh_diagnostic_removed": True,
+            "ordinary_sentinels_unchanged": True,
+        }
+
 final = build / "design.ac"
 cli("link", unit, "--top", "record_probe.design.Top", "-o", final)
 for target in ("cpp", "verilog"):
@@ -414,6 +687,21 @@ paths = [
             "rejected_cases": sorted(cases),
             "failed_compile_preserved_unit_and_products": True,
             "state_defaults_branches_authority": "existing focused regression gates",
+            "source_import_retention": {
+                "default_and_enabled_ordinary_bytes_equal": True,
+                "enabled_body_interface_match_public_compile": True,
+                "complete_pre_simplify_parsed_verified": True,
+                "ordinary_stdout_bytes_unchanged": True,
+                "protected_diagnostic_rejections": diagnostic_rejections,
+                "late_output_failure_removes_fresh_diagnostic": True,
+                "diagnostic_stream_failure": stream_failure,
+                "later_semantic_pipeline_failure": "no genuine post-Lower rejection fixture found; not executed",
+                "artifacts_sha256": {
+                    str(path.relative_to(native)): digest(path)
+                    for path in sorted(native.rglob("*"))
+                    if path.is_file() and not path.is_symlink()
+                },
+            },
         },
         indent=2,
     )

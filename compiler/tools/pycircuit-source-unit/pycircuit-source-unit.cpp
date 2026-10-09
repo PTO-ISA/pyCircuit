@@ -7,9 +7,11 @@
 #include "mlir/IR/Verifier.h"
 #include "mlir/Parser/Parser.h"
 #include "mlir/Support/FileUtilities.h"
+#include "llvm/ADT/SmallString.h"
 #include "llvm/Support/CommandLine.h"
 #include "llvm/Support/FileSystem.h"
 #include "llvm/Support/MemoryBuffer.h"
+#include "llvm/Support/Path.h"
 #include "llvm/Support/ToolOutputFile.h"
 
 #include <algorithm>
@@ -28,6 +30,9 @@ llvm::cl::list<std::string> headerPaths("header", llvm::cl::ZeroOrMore);
 llvm::cl::opt<std::string> bodyOutput("body-out", llvm::cl::Required);
 llvm::cl::opt<std::string> interfaceOutput("interface-out", llvm::cl::Required);
 llvm::cl::opt<std::string> depsOutput("deps-out", llvm::cl::init(""));
+llvm::cl::opt<std::string> sourceImportOutput(
+    "source-import-out", llvm::cl::init(""),
+    llvm::cl::desc("Retain reproduction post-Lower, pre-Simplify IR text"));
 
 void printNonfatalDiagnostic(const mlir::Diagnostic &diagnostic) {
   llvm::errs() << diagnostic.getLocation() << ": ";
@@ -53,6 +58,19 @@ mlir::OwningOpRef<mlir::ModuleOp> parseModule(llvm::StringRef path,
   return mlir::parseSourceFile<mlir::ModuleOp>(path, &context);
 }
 
+bool closeOutput(llvm::ToolOutputFile &output) {
+  output.os().flush();
+  // Existing ordinary outputs may use stdout; it is not owned by this file.
+  if (output.getFilename() != "-")
+    output.os().close();
+  if (!output.os().has_error())
+    return true;
+  llvm::errs() << output.getFilename() << ": " << output.os().error().message()
+               << '\n';
+  output.os().clear_error();
+  return false;
+}
+
 bool writeModule(mlir::ModuleOp module, llvm::StringRef path) {
   std::error_code error;
   llvm::ToolOutputFile output(path, error, llvm::sys::fs::OF_Text);
@@ -62,6 +80,8 @@ bool writeModule(mlir::ModuleOp module, llvm::StringRef path) {
   }
   module.print(output.os(), mlir::OpPrintingFlags().enableDebugInfo());
   output.os() << '\n';
+  if (!closeOutput(output))
+    return false;
   output.keep();
   return true;
 }
@@ -141,8 +161,77 @@ bool writeConsumedDependencies(mlir::ModuleOp body,
     return false;
   }
   output.os() << text;
+  if (!closeOutput(output))
+    return false;
   output.keep();
   return true;
+}
+
+std::unique_ptr<llvm::ToolOutputFile>
+openSourceImport(llvm::ArrayRef<llvm::StringRef> otherPaths) {
+  if (sourceImportOutput.empty() || sourceImportOutput == "-") {
+    llvm::errs() << "source-import-out requires a fresh ordinary file path\n";
+    return nullptr;
+  }
+  auto normalized = [](llvm::StringRef path,
+                       llvm::SmallVectorImpl<char> &absolute) {
+    absolute.assign(path.begin(), path.end());
+    if (auto error = llvm::sys::fs::make_absolute(absolute)) {
+      llvm::errs() << path << ": " << error.message() << '\n';
+      return false;
+    }
+    llvm::sys::path::remove_dots(absolute, true);
+    return true;
+  };
+  llvm::SmallString<256> destination;
+  if (!normalized(sourceImportOutput, destination))
+    return nullptr;
+  for (llvm::StringRef path : otherPaths) {
+    llvm::SmallString<256> other;
+    if (!normalized(path, other))
+      return nullptr;
+    if (destination == other) {
+      llvm::errs() << "source-import-out collides with " << path << '\n';
+      return nullptr;
+    }
+  }
+  int descriptor = -1;
+  if (auto error = llvm::sys::fs::openFileForWrite(
+          sourceImportOutput, descriptor, llvm::sys::fs::CD_CreateNew,
+          llvm::sys::fs::OF_Text)) {
+    llvm::errs() << sourceImportOutput << ": " << error.message() << '\n';
+    return nullptr;
+  }
+  auto output =
+      std::make_unique<llvm::ToolOutputFile>(sourceImportOutput, descriptor);
+  llvm::sys::fs::file_status destinationStatus;
+  if (auto error = llvm::sys::fs::status(descriptor, destinationStatus)) {
+    llvm::errs() << sourceImportOutput << ": " << error.message() << '\n';
+    return nullptr;
+  }
+  if (!llvm::sys::fs::is_regular_file(destinationStatus)) {
+    llvm::errs() << "source-import-out requires an ordinary file\n";
+    return nullptr;
+  }
+  // Creation can make a formerly dangling output symlink resolve. Check real
+  // identities now, before any ordinary output can truncate this diagnostic.
+  for (llvm::StringRef path : otherPaths) {
+    llvm::sys::fs::file_status otherStatus;
+    auto error = llvm::sys::fs::status(path, otherStatus);
+    if (error == std::errc::no_such_file_or_directory)
+      continue;
+    if (error) {
+      llvm::errs() << path << ": " << error.message() << '\n';
+      return nullptr;
+    }
+    if (otherStatus.type() == llvm::sys::fs::file_type::file_not_found)
+      continue;
+    if (llvm::sys::fs::equivalent(destinationStatus, otherStatus)) {
+      llvm::errs() << "source-import-out aliases " << path << '\n';
+      return nullptr;
+    }
+  }
+  return output;
 }
 
 } // namespace
@@ -187,8 +276,9 @@ int main(int argc, char **argv) {
       builder.getNamedAttr("package", builder.getStringAttr(packageName)),
       builder.getNamedAttr("path", builder.getStringAttr(sourcePath)),
   });
-  auto result = acir::compiler::compilePythonSourceUnit(*capture, owner,
-                                                        *registry, emitError);
+  bool retainSourceImport = sourceImportOutput.getNumOccurrences() != 0;
+  auto result = acir::compiler::compilePythonSourceUnit(
+      *capture, owner, *registry, emitError, retainSourceImport);
   if (mlir::failed(result) || mlir::failed(mlir::verify(*result->body)) ||
       mlir::failed(mlir::verify(*result->interface)))
     return 1;
@@ -197,11 +287,32 @@ int main(int argc, char **argv) {
     llvm::errs() << "compiled source unit does not carry the requested owner\n";
     return 1;
   }
+  std::unique_ptr<llvm::ToolOutputFile> sourceImportFile;
+  if (retainSourceImport) {
+    if (!result->sourceImport) {
+      llvm::errs() << "compiled source unit is missing source-import text\n";
+      return 1;
+    }
+    llvm::SmallVector<llvm::StringRef> otherPaths{capturePath, bodyOutput,
+                                                  interfaceOutput};
+    for (const std::string &path : headerPaths)
+      otherPaths.push_back(path);
+    if (!depsOutput.empty())
+      otherPaths.push_back(depsOutput);
+    sourceImportFile = openSourceImport(otherPaths);
+    if (!sourceImportFile)
+      return 1;
+    sourceImportFile->os() << *result->sourceImport;
+    if (!closeOutput(*sourceImportFile))
+      return 1;
+  }
   if (!depsOutput.empty() &&
       !writeConsumedDependencies(*result->body, owner, depsOutput))
     return 1;
   if (!writeModule(*result->body, bodyOutput) ||
       !writeModule(*result->interface, interfaceOutput))
     return 1;
+  if (sourceImportFile)
+    sourceImportFile->keep();
   return 0;
 }

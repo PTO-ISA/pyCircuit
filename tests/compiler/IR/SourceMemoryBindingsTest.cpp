@@ -455,6 +455,87 @@ def Top(data: ac.u8) -> Out:
   EXPECT_NE(diagnostics.find("combinational cycle"), std::string::npos) << diagnostics;
 }
 
+TEST_F(SourceMemoryBindingsTest, OptionalSourceImportIsTheVerifiedUnsimplifiedBody) {
+  auto captured = capture("projection.py", R"py(import pycircuit as ac
+@ac.struct
+class Payload:
+    value: ac.u13
+@ac.module
+def Projection(value: ac.u13) -> Payload:
+    local = Payload(value=value)
+    return Payload(value=local.value)
+)py");
+  ASSERT_TRUE(captured);
+  auto headers = compiler::SourceHeaderRegistry::create(&context, {}, error());
+  ASSERT_TRUE(succeeded(headers));
+  auto print = [](ModuleOp module) {
+    std::string text;
+    llvm::raw_string_ostream out(text);
+    module.print(out, OpPrintingFlags().enableDebugInfo());
+    out << '\n';
+    return text;
+  };
+  const auto before = print(*captured);
+  auto ordinary = compiler::compilePythonSourceUnit(
+      *captured, owner("projection.py"), *headers, error());
+  ASSERT_TRUE(succeeded(ordinary)) << diagnostics;
+  EXPECT_FALSE(ordinary->sourceImport.has_value());
+  auto retained = compiler::compilePythonSourceUnit(
+      *captured, owner("projection.py"), *headers, error(), true);
+  ASSERT_TRUE(succeeded(retained)) << diagnostics;
+  ASSERT_TRUE(retained->sourceImport.has_value());
+  EXPECT_EQ(print(*ordinary->body), print(*retained->body));
+  EXPECT_EQ(print(*ordinary->interface), print(*retained->interface));
+  EXPECT_EQ(print(*captured), before);
+
+  // Parsing one complete ModuleOp rejects concatenated boundary dumps. The
+  // create/projection relation identifies the actual pre-Simplify stage.
+  const auto &text = *retained->sourceImport;
+  ASSERT_FALSE(text.empty());
+  EXPECT_EQ(text.back(), '\n');
+  auto imported = parseSourceString<ModuleOp>(text, &context);
+  ASSERT_TRUE(imported) << diagnostics;
+  EXPECT_TRUE(succeeded(verify(*imported))) << diagnostics;
+  EXPECT_EQ((*imported)->getAttr("ac.source_owner"), owner("projection.py"));
+  unsigned forwardingRelations = 0, importedModules = 0, importedCreates = 0;
+  imported->walk([&](ac::StructGetOp get) {
+    forwardingRelations +=
+        static_cast<bool>(get.getValue().getDefiningOp<ac::StructCreateOp>());
+  });
+  imported->walk([&](ModuleOp) { ++importedModules; });
+  imported->walk([&](ac::StructCreateOp) { ++importedCreates; });
+  EXPECT_GT(forwardingRelations, 0u);
+  EXPECT_EQ(importedModules, 1u);
+  unsigned remainingCreates = 0, remainingGets = 0;
+  retained->body->walk([&](ac::StructCreateOp) { ++remainingCreates; });
+  retained->body->walk([&](ac::StructGetOp) { ++remainingGets; });
+  EXPECT_LT(remainingCreates, importedCreates);
+  EXPECT_GT(remainingCreates, 0u);
+  EXPECT_EQ(remainingGets, 0u);
+  EXPECT_TRUE(succeeded(verify(*retained->body))) << diagnostics;
+  EXPECT_TRUE(succeeded(verify(*retained->interface))) << diagnostics;
+}
+
+TEST_F(SourceMemoryBindingsTest,
+       RequestedSourceImportDoesNotAdmitInvalidSource) {
+  auto captured = capture("invalid.py", R"py(import pycircuit as ac
+@ac.struct
+class Payload:
+    value: ac.u13
+@ac.module
+def Invalid(value: ac.u13) -> Payload:
+    return Payload(value=missing)
+)py");
+  ASSERT_TRUE(captured);
+  auto headers = compiler::SourceHeaderRegistry::create(&context, {}, error());
+  ASSERT_TRUE(succeeded(headers));
+  EXPECT_TRUE(failed(compiler::compilePythonSourceUnit(
+      *captured, owner("invalid.py"), *headers, error(), true)));
+  EXPECT_NE(diagnostics.find("unknown hardware value 'missing'"),
+            std::string::npos)
+      << diagnostics;
+}
+
 // --- General dependent-width and type-authority regressions -------------
 // Resolving a declared dependent width before comparison must not be specific
 // to the memory strobe, and it must not merge distinct logical or nominal

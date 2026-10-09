@@ -81,6 +81,20 @@ through existing manifests when running compiler validation. Long oracle,
 coverage and platform matrices are scheduled separately; omitted runs must be
 reported as not run.
 
+For retained gate evidence, the native source-unit harness accepts an optional
+`--source-import-out PATH`. It saves the complete hardware IR after source
+lowering and before record-wire simplification from that same successful
+pipeline run. The destination must be fresh; existing files and aliases to
+inputs or other outputs are rejected. A failed compilation or output write does
+not keep this invocation's diagnostic file. Ordinary native outputs retain
+their sequential write behavior; this is not a multi-file transaction.
+
+Keep this diagnostic file outside the published source-unit directory. It
+carries no interface or provider authority. When generated through a native reproduction
+for evidence, bind its capture, headers, owner, tool and command, and compare
+the reproduced body/interface with the public compilation before associating
+its stages. The public compile/link/emit route is unchanged.
+
 ## Retired routes
 
 CycleAwareSignal/JIT, structural builders, Agentic Circuit/QueueGraph, `acc.py`,
