@@ -1,17 +1,45 @@
-# pyCircuit 6.1
+# pyCircuit
 
-**Write hardware in Python. Simulate it in C++ or Verilog.**
+**Describe hardware in Python. Compile once. Simulate in C++ or Verilog.**
 
-pyCircuit compiles typed Python modules, state variables and rules through MLIR
-into one verified hardware representation. The same system produces a GFSIM
-simulation executable and Verilog that runs with Verilator.
+[![CI](https://github.com/PTO-ISA/pyCircuit/actions/workflows/ci.yml/badge.svg)](https://github.com/PTO-ISA/pyCircuit/actions/workflows/ci.yml)
+[![License: BSD-3-Clause](https://img.shields.io/badge/license-BSD--3--Clause-blue.svg)](LICENSE)
 
-There is one frontend: `pycircuit`. Names such as `ac` and `pyc` are ordinary
-Python import aliases, not different languages or compilation modes.
+[Get started](docs/getting-started/quickstart.md) ·
+[Language reference](docs/reference/language.md) ·
+[Examples](examples/README.md) ·
+[Contribute](CONTRIBUTING.md)
 
-## Hello counter
+pyCircuit is a hardware programming language and compiler built on Python syntax
+and MLIR. Typed modules, persistent state and stateless rules describe the design.
+The compiler checks types, dependencies and effects, then emits C++ simulation
+models and Verilog from the same verified hardware IR.
 
-A complete source system needs only Python:
+Use it to build reusable hardware modules, compose stateful designs, and run
+closed simulation systems with compiler-generated drivers. Python supplies the
+authoring syntax; capture parses the source without executing the design.
+
+## What you get
+
+- **Hardware semantics in familiar syntax.** Fixed-width values, records, Tables,
+  rules and module composition, with explicit admission and diagnostics.
+- **Two backends, one verified design.** GFSIM C++ models and Verilog consume the
+  same final artifact, with source ownership preserved across compilation units.
+- **Executable systems.** A closed `@system` describes the DUT, stimulus and
+  checks. The compiler generates native and Verilator simulation harnesses.
+- **Atomic simulation steps.** Rules read the old state. Whole-system checks
+  precede commit; a failed epoch commits neither state nor clock history and
+  publishes no source observations.
+- **A separate Runtime package.** Generated C++ consumers use the Runtime CMake
+  component without installing LLVM or the compiler development package.
+
+The checkout identifies itself as **pyCircuit 6.1**. The language is under active
+development: general parameter-dependent elaboration, broader clock scheduling,
+wide/four-state observation transport and some collection forms remain limited.
+The [language reference](docs/reference/language.md) defines supported constructs;
+[known limitations](docs/development/known-limitations.md) records the boundaries.
+
+## A complete counter
 
 ```python
 from pycircuit import bits, log, rule, system
@@ -29,78 +57,115 @@ def HelloCounter():
     increment(count)
 ```
 
-The compiler infers storage, clock/reset connections and write enables. It also
-generates the simulation driver, RTL testbench, build files and runtime limits.
-No handwritten C++ or SystemVerilog is needed for this example.
+`count` is eight-bit persistent storage. The rule observes its current value and
+proposes an increment modulo 256. The compiler infers storage, clock/reset
+connections and write enables, and generates the simulation harness.
 
-With an installed toolchain:
+From a checkout with an installed toolchain:
 
 ```sh
-pycircuit run examples/hello_counter --cycles 5
+pycircuit run examples/hello_counter --target cpp --cycles 5
 pycircuit run examples/hello_counter --target verilog --cycles 5
 ```
 
-Use `--toolchain /path/to/install` when the compiler is not bundled with the
-Python package. Each cycle has low and high sampling epochs; the counter logs
-`0, 0, 1, 1, 2, 2, 3, 3, 4, 4`. Build outputs remain under
-`.pycircuit_out/run/hello_counter/`, including independently buildable C++ and
-Verilog directories and their `pycircuit_sim` binaries.
+Each cycle contains low and high sampling epochs, so both runs log
+`0, 0, 1, 1, 2, 2, 3, 3, 4, 4`. Generated files and simulator builds stay under
+`.pycircuit_out/run/hello_counter/`. Verilog execution requires Verilator.
+Use `--toolchain /absolute/path/to/install` when selecting an external toolchain.
 
-See the [quickstart](docs/getting-started/quickstart.md),
-[system execution design](docs/architecture/system-execution.md), and
-[examples](examples/README.md).
+See the [quickstart](docs/getting-started/quickstart.md) for explicit compile/link/
+emit commands and the [tutorial](docs/getting-started/tutorial.md) for inspecting
+and running the generated artifacts.
 
 ## Build from source
 
-The compiler requires Python 3.11+, CMake 3.25+, Ninja, a C++20 compiler and
-LLVM/MLIR **22.1.8**. Verilog simulation additionally needs Verilator. Generated
-C++ models can use the Runtime package without LLVM.
+| Task | Requirements |
+| --- | --- |
+| Build the compiler | Python 3.11+, CMake 3.25+, Ninja, a C++20 compiler, LLVM and MLIR **22.1.8** |
+| Run generated C++ | C++20 toolchain, CMake/Ninja and pyCircuit Runtime |
+| Run generated Verilog systems | Installed pyCircuit compiler, Verilator, CMake/Ninja and a C++20 toolchain |
+
+Install LLVM/MLIR first. The build helper discovers `llvm-config-22` or a matching
+`llvm-config`; alternatively set `LLVM_CONFIG`, or both `LLVM_DIR` and `MLIR_DIR`,
+to that installation. Installing the Python package alone does not install the
+native compiler.
 
 ```sh
+git clone https://github.com/PTO-ISA/pyCircuit.git
+cd pyCircuit
 python3 -m venv .venv
 source .venv/bin/activate
 python -m pip install -e .
-bash flows/scripts/pyc build
+PYC_BUILD_TESTING=OFF bash flows/scripts/pyc build
+
 export PYC_TOOLCHAIN_ROOT="$PWD/.pycircuit_out/toolchain/install"
 export PATH="$PYC_TOOLCHAIN_ROOT/bin:$PATH"
-pycircuit run examples/hello_counter --cycles 5
+pycircuit run examples/hello_counter --target cpp --cycles 5
 ```
 
-The [installation guide](docs/getting-started/installation.md) covers compiler
-and Runtime-only builds.
+These commands use a POSIX shell. The [installation guide](docs/getting-started/installation.md)
+covers CMake build options, Runtime-only installations and package consumers.
+For prebuilt wheels, check the assets and platform support of the specific
+[release](https://github.com/PTO-ISA/pyCircuit/releases).
 
-## How it works
+## One compiler flow
 
 ```text
 Python modules and systems
-        ↓ syntax capture
+          │ syntax capture
+          ▼
 MLIR type, dependency and effect analysis
-        ↓ lowering and verification
-Source-owned units → explicit link closure → final hardware IR
-                                               ↙           ↘
-                                  GFSIM C++ executable   System Verilog
+          │ hardware lowering and verification
+          ▼
+Independent source units ── explicit link closure ── verified final IR
+                                                        │
+                                               ┌────────┴────────┐
+                                               ▼                 ▼
+                                          GFSIM C++           Verilog
 ```
 
-`pycircuit compile`, `pycircuit link` and `pycircuit emit` remain available for explicit build graphs.
-`pycircuit run` composes those same operations and builds the selected generated
-simulation. Each source is compiled independently; C++ and Verilog consume the
-same final IR.
+| Command | Purpose |
+| --- | --- |
+| `pycircuit compile` | Compile one source and publish its body, interface and dependencies. |
+| `pycircuit link` | Check the complete explicit source-unit closure and select the design root. |
+| `pycircuit emit` | Emit C++ or Verilog from the verified final artifact. |
+| `pycircuit run` | Build and execute a closed system through those same public stages. |
 
-Work reads the old state. Whole-system checks precede Xfer. A failed epoch
-commits neither state nor clock history and publishes no source observations.
-Independent verification models belong in framework tests, outside the DUT and
-compiler.
+`@module` defines reusable hardware, `@rule` defines stateless computations, and
+`@system` defines a closed simulation composition. The current system path owns
+its generated clock/reset scaffolding; ordinary module drivers can provide
+explicit physical inputs. See [system execution](docs/architecture/system-execution.md)
+for sampling, reset, observation and failure semantics.
 
-## Documentation and development
+## Explore and contribute
 
-- [Python language](docs/reference/language.md)
-- [Modules, systems and execution](docs/reference/language-specification.md)
-- [Known limitations and follow-up work](docs/development/known-limitations.md)
-- [Contributing](CONTRIBUTING.md)
-- [Testing and nightly coverage](docs/development/testing-and-gates.md)
+| Start with | For |
+| --- | --- |
+| [Example catalog](examples/README.md) | Counters, pipelines, queues, tables and larger designs, with their verification owners. |
+| [Python language](docs/reference/language.md) | Types, source constructs, composition and rejection boundaries. |
+| [Compiler architecture](docs/architecture/compiler-pipeline.md) | Capture, MLIR analyses, source publication and code generation. |
+| [Build and test workflow](docs/development/testing-and-gates.md) | Bounded gates, native tests and nightly coverage. |
+| [Contribution guide](CONTRIBUTING.md) | Scope, contracts, review and reproducible changes. |
 
-Unsupported constructs fail explicitly. Retired frontends and compiler aliases
-are not fallback paths. Long coverage, reference-model and platform matrices
-run through the existing nightly and release workflows.
+For compiler development, enable `PYC_BUILD_TESTING=ON` and install the native
+test dependencies, including GoogleTest and lit. With that testing build
+installed, run the bounded checks from the repository root:
+
+```sh
+bash flows/scripts/run_api_tests.sh --tier gate
+bash flows/scripts/run_examples.sh --tier gate
+```
+
+For a nondefault build, set `PYC_BUILD_DIR` and `PYC_TOOLCHAIN_ROOT` as described
+in the testing guide. PR CI checks Python, publication, repository hygiene and
+documentation; native, example and release evidence have their own documented
+entrypoints. A green CI badge does not imply full backend or platform coverage.
+
+Unfinished historical example migration and full-catalog validation are tracked
+in [issue #272](https://github.com/PTO-ISA/pyCircuit/issues/272). A catalog entry
+or a removed example is not a claim of completed verification. Retired frontends
+and compiler aliases are not compatibility paths.
+
+## License
 
 pyCircuit is licensed under [BSD-3-Clause](LICENSE).
