@@ -1,0 +1,71 @@
+{
+  "schema": "pycircuit-generated-example-v1",
+  "example": "bounded_integer_operations",
+  "entry": {
+    "arguments": [],
+    "definition": "@\"example_bounded_integer_operations.bounded_integer_operations.BoundedIntegerOperations\""
+  },
+  "verification": {
+    "schema": "pycircuit-example-verification-v1",
+    "inputs": {
+      "source/CMakeLists.txt": "6271eb235398787c5429f4fb60c23aef9cc23fec3fe016e62da824585c5e6c1a",
+      "source/bench.py": "65f82dca14780efba3247c07464b082d92e0c6a52ea0ab8b6bc39e1c4a5fdb3a",
+      "source/bounded_integer_operations.py": "66a107c898f8a1facf452864bcb03cf42b8d1484da7d7ac3de5e0a4cc7321aab",
+      "source/config.json": "2c83cf4c931dcd103a18a690763d485d39012eaac121873450c7ae77e107d553",
+      "source/driver.cpp": "9591ecf822b2efe72e26ffd9d7584290a43b69327b417b9e054938f73179dbc1",
+      "source/rtl_tb.sv": "96d22580a3dc23e9195b20328a581d0a8d5176db9c5f0ae0286b4d2f9792c3ed",
+      "build/cpp/generated.json": "7a7171018f91b3317b8324b9424f0437a0ae9bf87d1d64d1a2fe5c416c245e2e",
+      "build/cpp/CMakeLists.txt": "34cdc611444f8fc16c285e853e8b00d61e282f809e4848f0fc047373df433bd6",
+      "build/cpp/pycircuit_support.hpp": "97dda98bcf16de38dac5c1ee9f5a4d973c62d75c8b471d0951f579a3289ccd78",
+      "build/cpp/pycircuit_system.hpp": "4d03d8eec9a02e26000d499afd608064c062079cca07aef7c88103a7bb99a51e",
+      "build/cpp/sources/example_bounded_integer_operations/bounded_integer_operations.cpp": "31a6c19f998f5b487fa71baf10a109072684644c1ae2ab88569101bd3f72517c",
+      "build/cpp/sources/example_bounded_integer_operations/bounded_integer_operations.hpp": "759e527c7fdd082e2f3a060a4b2069946bbffb7cbbbab8fffdd1e8ec3a37798d",
+      "build/cpp/sources/example_bounded_integer_operations/bounded_integer_operations.source-map.json": "1b899e22070723eb51ea69810ec04dc4b2d40ca05e50fe485da00ea873acca87",
+      "build/verilog/generated.json": "0dd1265c6a1f6a54440e2d15afbb679674a92cdf75aba2e3dc58de84ffe0c3da",
+      "build/verilog/CMakeLists.txt": "240181d72b9138ba5745d4a1e94d912c98564056bf4c757bef08afb0b438389d",
+      "build/verilog/design_top.sv": "ea7f6103bb9c84b03e4e16367c95367271b17f96acb6e4aae9cb3f3e8b123f7e",
+      "build/verilog/sources/example_bounded_integer_operations/bounded_integer_operations.source-map.json": "3295a41447a883b941a7e9538a30e57c73ee8a8923338b0bdc6cb40286337cd2",
+      "build/verilog/sources/example_bounded_integer_operations/bounded_integer_operations.v": "a525ade4f8633640e1696504efacd98a11426e68b3b5d6c44054079ccb008f50",
+      "build/bounded_integer_operations.ac": "269dd3d68a8281016000d42f2841292e96969ce544a8f90a92f249fa7d590cfe",
+      "build/units/.bounded_integer_operations.pycircuit-publication/owner.json": "032ae2b177bbbe95c26bc53a965f01fc9db49a1248e357682e68d474f58c9205",
+      "build/units/bounded_integer_operations/bounded_integer_operations.ac": "402994da320b07a990cc6848e85d7886460677556fc449848814f3ee681648ef",
+      "build/units/bounded_integer_operations/bounded_integer_operations.d": "7e35bcb69d7635f852f11c98e68fc39651133ea99c411eb6c1792c758396caf3",
+      "build/units/bounded_integer_operations/bounded_integer_operations.interface.ac": "30838ac2225256ed51362e6b9600f33c50dcadc9fcd17f3bcc6ee343c1ce4267",
+      "build/units/bounded_integer_operations/unit.json": "3601c97c3b1c358abc31ffeabec7d07b02938bd48716fc804603f1c3e0e2f72b",
+      "runtime-rtl/byte_mem.v": "dfc3f0fa362196fcfaa7bd771d4f85f26acade0e1dfeb0bc00a24d4161987cd2",
+      "runtime-rtl/dff.v": "325fb9039af507df3c94a26515dfcd8bb73f3812c1264df7b72bfe1af918bbb8",
+      "runtime-rtl/dffe.v": "1fc0bdac0c411ea87c00fc93127ebfba8ca12684a8fecee012a23362e0f8b89c",
+      "runtime-rtl/fifo.v": "8b2f0796fdd7c0f4aee3f20bd52226ccb532c827c8618afd9fbef99e2713f97f",
+      "runtime-rtl/sync_mem.v": "75731fcc0df8a01891e53589e75debc4cda9ec384262937047f21b11de7d7637",
+      "runtime-rtl/sync_mem_dp.v": "16ad11aa53d5f60291136b82a47bef9e21b312cd46ee8b8dfb338bb01c6bc3cc",
+      "runner": "9563cfdb10713e2d0546dfdc982c3fa344159ec0e37b42198cb2197d12c742c5"
+    },
+    "execution_sha256": "5926dbb4bdcddda6e14002d4b840e79797dac588e7d734f320d0a39c74d90909",
+    "work_samples": 1071,
+    "native_check_records": 0,
+    "native_check_sha256": "01ba4719c80b6fe911b091a7c05124b64eeece964e09c058ef8f9805daca546b",
+    "workers": [
+      1,
+      2
+    ],
+    "rtl": "verilator",
+    "trace_sha256": "8503914ba670852e36edf0282a729b8c6f2ff7b927a648e798de2fd5f88a4b5a"
+  },
+  "excerpts": [
+    {
+      "path": "bounded_integer_operations.ac",
+      "line": 10,
+      "sha256": "269dd3d68a8281016000d42f2841292e96969ce544a8f90a92f249fa7d590cfe"
+    },
+    {
+      "path": "cpp/sources/example_bounded_integer_operations/bounded_integer_operations.hpp",
+      "line": 282,
+      "sha256": "759e527c7fdd082e2f3a060a4b2069946bbffb7cbbbab8fffdd1e8ec3a37798d"
+    },
+    {
+      "path": "verilog/sources/example_bounded_integer_operations/bounded_integer_operations.v",
+      "line": 1,
+      "sha256": "a525ade4f8633640e1696504efacd98a11426e68b3b5d6c44054079ccb008f50"
+    }
+  ]
+}
