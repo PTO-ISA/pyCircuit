@@ -4,7 +4,8 @@ This records pyCircuit 6.1 limitations and follow-up work as of 2026-10-09.
 Closed `@system` source compilation, generated C++/Verilator simulation, source
 checks, observation publication and failure-atomic state/clock handling now have
 focused independent verification. Full example adaptation and broader language
-coverage remain incomplete. Unfinished example migration is deferred to
+coverage remain incomplete. Example migration has resumed under the user’s
+2026-10-09 goal; its remaining inventory is tracked in
 [issue #272](https://github.com/PTO-ISA/pyCircuit/issues/272); the original
 independent verification assets remain.
 

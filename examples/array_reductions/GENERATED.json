@@ -1,0 +1,71 @@
+{
+  "schema": "pycircuit-generated-example-v1",
+  "example": "array_reductions",
+  "entry": {
+    "arguments": [],
+    "definition": "@\"example_array_reductions.array_reductions.ArrayReductions\""
+  },
+  "verification": {
+    "schema": "pycircuit-example-verification-v1",
+    "inputs": {
+      "source/CMakeLists.txt": "864c82a530914976cfbd81f9b72e007d7cf985cfc62952b0131d3ef1d36ba9a2",
+      "source/array_reductions.py": "0dd1a28119df25d143b1b28cefe0883f1d0c7250c1bf36b0c9c92fe4d06d5c22",
+      "source/bench.py": "10e56d71f9b9ebb9490e463981bbccb0abf3f26655c3066f8db582886e04084d",
+      "source/config.json": "62056ac8404f41502c5f7b13205b2eadf25a84d8554fb07a9cde3e1c6f9f96c1",
+      "source/driver.cpp": "cb813742d822584b6ebb51299ca9e19ec161b94b20147f24300df4b7577ef08b",
+      "source/rtl_tb.sv": "42fa889841e0b7cde72786a20979218b04bdd5f69587d21cc4a6a9f666044f3f",
+      "build/cpp/generated.json": "0ec3f4a798967e16454f5bb306420ff6caba21f303924adc8649a100371e9b61",
+      "build/cpp/CMakeLists.txt": "d802a7ccfdef7d8a2aaf507cd211566023a94f1de753d0d0719ee60fd915fc57",
+      "build/cpp/pycircuit_support.hpp": "53374158480cef9eee1a4b39a576323f8b50f0ebf91baec975e230143768b46f",
+      "build/cpp/pycircuit_system.hpp": "e556844547124b85c1d4c4750d9f75cabdfc7d7d3193bb4fbe34e7cb92ff4b77",
+      "build/cpp/sources/example_array_reductions/array_reductions.cpp": "65b345f28d8cf4241670d74e017e4224f640dc8e745dc7e2168f0fa84b3f10b7",
+      "build/cpp/sources/example_array_reductions/array_reductions.hpp": "91355e874fb44611f07e1499381b9fb5610e8f416585edc026f2ba1f34bb2f30",
+      "build/cpp/sources/example_array_reductions/array_reductions.source-map.json": "b0067ce569abf68aac61a328e86509cc682b43d84c9bdc7c224baf4cbf897395",
+      "build/verilog/generated.json": "65fed92e884b33f31095cb85f9fb6731b3b27cbba8269c7da62fa19a0336d2d4",
+      "build/verilog/CMakeLists.txt": "abf02ded6adeace5f45a6c8a6a40697086da158b69ce01558ce314bc13e3c932",
+      "build/verilog/design_top.sv": "d721d887f2c24aac2a30b8c33eaf9701ed7ad055be7eb031dea2c6f987bc5c0d",
+      "build/verilog/sources/example_array_reductions/array_reductions.source-map.json": "eb1e939d0ecbaa22537474aa5fe05d8d7f8ede85aebae0573bfdd57d61f44d62",
+      "build/verilog/sources/example_array_reductions/array_reductions.v": "877640e2a0022b28b120723721229350da9d623977635c1161feaaa4ab3b94b0",
+      "build/array_reductions.ac": "fd7e791f0c4778de635bd22e67170a4f124a391e3bbad1906ddf133f6321165c",
+      "build/units/.array_reductions.pycircuit-publication/owner.json": "840f27165598d9405db6a19dce734829685dcfff42d6591dc4be2d79fd61922a",
+      "build/units/array_reductions/array_reductions.ac": "96f0daf1a7cc7833ac74fadb729e3fc38d184c8e920225838a76f5dbf27b991e",
+      "build/units/array_reductions/array_reductions.d": "391c445ea3479f2344ea75b97770c8fadc5a570a8d325956d053a7366be44169",
+      "build/units/array_reductions/array_reductions.interface.ac": "32ad9746bd89bfba996952068fa20494a31fa1498d959e5529a4655b41323dc0",
+      "build/units/array_reductions/unit.json": "2695c74540cb3a1c51b249258c521b91484a7351586d51f654c545c16aa507e3",
+      "runtime-rtl/byte_mem.v": "dfc3f0fa362196fcfaa7bd771d4f85f26acade0e1dfeb0bc00a24d4161987cd2",
+      "runtime-rtl/dff.v": "325fb9039af507df3c94a26515dfcd8bb73f3812c1264df7b72bfe1af918bbb8",
+      "runtime-rtl/dffe.v": "1fc0bdac0c411ea87c00fc93127ebfba8ca12684a8fecee012a23362e0f8b89c",
+      "runtime-rtl/fifo.v": "8b2f0796fdd7c0f4aee3f20bd52226ccb532c827c8618afd9fbef99e2713f97f",
+      "runtime-rtl/sync_mem.v": "75731fcc0df8a01891e53589e75debc4cda9ec384262937047f21b11de7d7637",
+      "runtime-rtl/sync_mem_dp.v": "16ad11aa53d5f60291136b82a47bef9e21b312cd46ee8b8dfb338bb01c6bc3cc",
+      "runner": "da34dcb4c35b302eb8feb99d1ad512a28d67ed212f9fefe7b6c2f51eafbdf215"
+    },
+    "execution_sha256": "05ced8d5771bbd87573f66143edfb3876697f3ad1dce950a6149131912ba1bfc",
+    "work_samples": 187,
+    "native_check_records": 0,
+    "native_check_sha256": "01ba4719c80b6fe911b091a7c05124b64eeece964e09c058ef8f9805daca546b",
+    "workers": [
+      1,
+      2
+    ],
+    "rtl": "verilator",
+    "trace_sha256": "37c5e20850d844fe8591e0bd9f0400cae8171ce4c4ded46186432f649e68b9fa"
+  },
+  "excerpts": [
+    {
+      "path": "array_reductions.ac",
+      "line": 16,
+      "sha256": "fd7e791f0c4778de635bd22e67170a4f124a391e3bbad1906ddf133f6321165c"
+    },
+    {
+      "path": "cpp/sources/example_array_reductions/array_reductions.hpp",
+      "line": 40,
+      "sha256": "91355e874fb44611f07e1499381b9fb5610e8f416585edc026f2ba1f34bb2f30"
+    },
+    {
+      "path": "verilog/sources/example_array_reductions/array_reductions.v",
+      "line": 1,
+      "sha256": "877640e2a0022b28b120723721229350da9d623977635c1161feaaa4ab3b94b0"
+    }
+  ]
+}
