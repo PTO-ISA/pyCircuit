@@ -1,0 +1,2 @@
+# Required simulators are checked by the harness; a missing tool fails acceptance.
+# RUN: %python %S/Inputs/bits-priority-encoding.py --repo %src --source-compiler %pycircuit_source_unit --linker %pycircuit_link --emitter %pycircuit_emit --optimizer %pycircuit_opt --cxx %cxx --verilator %verilator --iverilog %iverilog --vvp %vvp --scratch %t.dir

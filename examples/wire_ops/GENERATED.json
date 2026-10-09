@@ -1,0 +1,63 @@
+{
+  "schema": "pycircuit-generated-example-v1",
+  "example": "wire_ops",
+  "entry": {
+    "arguments": [],
+    "definition": "@\"example_wire_ops.wire_ops.WireOps\""
+  },
+  "verification": {
+    "schema": "pycircuit-example-verification-v1",
+    "inputs": {
+      "source/CMakeLists.txt": "ebad83e4e44d292e2b82d95da41f615014f950549edafe2e3f35c62bdb9a4569",
+      "source/config.json": "38e5d2da344eb7f507a1e944caa3116e6e3919df4377719dccbf5f5e0dd96aa6",
+      "source/driver.cpp": "fbb7c07e52655f1fc4e62957aeb09d07301c7df0368fbddfbfd3f8c010613c71",
+      "source/rtl_tb.sv": "f7242fc738639757edde69e590d069df1bde6c8722bfa18c0a5418a0bc97a4d8",
+      "source/wire_ops.py": "bf0812bf740d5527d15d415183800d82a27e42c4a2bf9d4419420acbc47dfdf6",
+      "build/cpp/generated.json": "6b71d03e0cbcbd5354512210b7b1b990d11c3b3fc2b897a51a949907e0431e57",
+      "build/cpp/CMakeLists.txt": "f2809aef1ea2c1c1a76dd3949283d236db95543bad8e0318d779ada6f9abf77b",
+      "build/cpp/pycircuit_support.hpp": "aef1585bb4d8bd48cc76a25773d8fb4764956b70b6b2a9e4a632ee070a3fe363",
+      "build/cpp/pycircuit_system.hpp": "fc7a4e8668e7e41a1b60e88aeaad37b67338b36dbb57b93cbff4532c5db6bc3b",
+      "build/cpp/sources/example_wire_ops/wire_ops.cpp": "012d44508bd73f6c9d346c00ceda4598f6a26de280ed191d8b74a8e6a3a6367d",
+      "build/cpp/sources/example_wire_ops/wire_ops.hpp": "8ede96c771b1b788d13bf22c681f8a295405143099c21690cf42714a3c934da7",
+      "build/cpp/sources/example_wire_ops/wire_ops.source-map.json": "e9ee0156051cee31f137b4d649391b2d1eb5cb7fe35cc120ecfe9f69fa3bb728",
+      "build/verilog/generated.json": "34b99d6e3d1f7fd73057a4c7755430b6171fb2b51b8f89cb324560b85da6713b",
+      "build/verilog/CMakeLists.txt": "936987f81d9aab60b748f51495a3c76e19867ab5ae72631b2c6faf1a5e40d57f",
+      "build/verilog/design_top.sv": "46c192b767e2c324e57058bcb18e3a8ccbe7ffac80e991dd283dbeaab8d7f360",
+      "build/verilog/sources/example_wire_ops/wire_ops.source-map.json": "5c342fc5eee858297f7a9b248f844800b5460ded89ba61760ad4dcb56b148a09",
+      "build/verilog/sources/example_wire_ops/wire_ops.v": "cc5fc33669d7bb00f778f81b6219bc7bf6fac0c44b8478da7a1099d09694414c",
+      "build/wire_ops.ac": "47a22e9ed0070aaeacb6d7f51938d0659ce91de319959815e5beeef339b4cd33",
+      "runtime-rtl/byte_mem.v": "33bd9f73dd7cd17f3531cfd8c321762c214ad5df23b5376add212dadd38c47c2",
+      "runtime-rtl/dff.v": "e4f604bd03b9f1651ddbcd71e9ebb1cd8af45018caeab341728b35c14ec0f553",
+      "runtime-rtl/dffe.v": "9ae323530b72d152d10628de94923eaefa411b29e13c647de21bed8b0d73833b",
+      "runtime-rtl/fifo.v": "2dc4086ad3085bd67504caaac0565a3e676f87ce5411cc019fe8ef3a3bc43b23",
+      "runtime-rtl/sync_mem.v": "207b0fe22f029828ac90b50d2ce0aabbb01763231cd153883f31b581d03d68b7",
+      "runtime-rtl/sync_mem_dp.v": "44672a092661f3c218f71534d0d656a2d7d0bfdb03bc6b7a3394e2f13eea86d4",
+      "runner": "22ef94f95dc7366b99e5ace6bbc49f2639a5b2a162b8581554595f77c353d90e"
+    },
+    "execution_sha256": "42c5317ef87c31f9aee16bfb9418f0e8154e108a9c82934a9389c518514f3789",
+    "work_samples": 14,
+    "workers": [
+      1,
+      2
+    ],
+    "rtl": "verilator",
+    "trace_sha256": "5a20c953f055f604d0c58c6696481f23339653cbcb5470f38eb99de9b86e1ae4"
+  },
+  "excerpts": [
+    {
+      "path": "wire_ops.ac",
+      "line": 6,
+      "sha256": "47a22e9ed0070aaeacb6d7f51938d0659ce91de319959815e5beeef339b4cd33"
+    },
+    {
+      "path": "cpp/sources/example_wire_ops/wire_ops.hpp",
+      "line": 23,
+      "sha256": "8ede96c771b1b788d13bf22c681f8a295405143099c21690cf42714a3c934da7"
+    },
+    {
+      "path": "verilog/sources/example_wire_ops/wire_ops.v",
+      "line": 1,
+      "sha256": "cc5fc33669d7bb00f778f81b6219bc7bf6fac0c44b8478da7a1099d09694414c"
+    }
+  ]
+}

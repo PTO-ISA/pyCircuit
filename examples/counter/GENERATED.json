@@ -1,0 +1,63 @@
+{
+  "schema": "pycircuit-generated-example-v1",
+  "example": "counter",
+  "entry": {
+    "arguments": [],
+    "definition": "@\"example_counter.counter.Counter\""
+  },
+  "verification": {
+    "schema": "pycircuit-example-verification-v1",
+    "inputs": {
+      "source/CMakeLists.txt": "dcf72b6eb4934d3615d9305e409bc24ac3c9725dd645ef5b7a613afc37a89bf7",
+      "source/config.json": "2c83cf4c931dcd103a18a690763d485d39012eaac121873450c7ae77e107d553",
+      "source/counter.py": "72c75c4303a9233ac6ea6a74fba18309baa85c6eb80a9282d873413eaf9ae299",
+      "source/driver.cpp": "bd5c42c6cf2316d3548f9f26551e1b1420361de98c355c46e076bc5a61fc374c",
+      "source/rtl_tb.sv": "611313649bbc04bc778d1a7a10937b683d07bb7e6456900c266d9bb84b8d6824",
+      "build/cpp/generated.json": "700dc855912ccada54bb2e04be614b2e0b0e391b240a84097a7db6c670844b90",
+      "build/cpp/CMakeLists.txt": "0d322daaf80646833aa79e21f6018fdc120b262a5de881826ce7c9d0d766fa96",
+      "build/cpp/pycircuit_support.hpp": "4611e24421e1d8b1d025adfc98beb672b61f9cb513a4ce2fa901eac21adf5ce3",
+      "build/cpp/pycircuit_system.hpp": "c1a032d53c22d6b8dbfa29d11c3379f9389a7855057125658cae23bf9bba9f6b",
+      "build/cpp/sources/example_counter/counter.cpp": "6cf12a480f55340836fc7d8f9f102f8222153d4fd01214543145cffea5aa6041",
+      "build/cpp/sources/example_counter/counter.hpp": "7bc25bb99283aed9c58534564d1d4e1b9544a2a5f830a116011d90c13c240073",
+      "build/cpp/sources/example_counter/counter.source-map.json": "a955ee08e2f8eb9c539240d96c22b4b1ae27c0fec113a718a92cf7ffe30afa43",
+      "build/verilog/generated.json": "52cfa3fe9fccfad2fe88e720a235747a63c6203a41f2c95df9f6d8be557599cb",
+      "build/verilog/CMakeLists.txt": "385b8cb049a924d475fc7a9e526b6aba6fd99cc0c2f51fd74670b69cdc42ad10",
+      "build/verilog/design_top.sv": "40aece487cefb6741098dfeecd0f876e95f5efcaf09488b04f04a2efe07d150c",
+      "build/verilog/sources/example_counter/counter.source-map.json": "435b14abce6c3d1a4cc13c1441e518d11aba8982a79d5a608034d3ea938b9004",
+      "build/verilog/sources/example_counter/counter.v": "0456fc96773941bad2b0eb64d231c1437c4e240ce58745e1c4d7ddc98d92133b",
+      "build/counter.ac": "0f348ce6dff51935f126af52d972d44d7366d7c7e2e6c8acf50f44c3cf63970b",
+      "runtime-rtl/byte_mem.v": "33bd9f73dd7cd17f3531cfd8c321762c214ad5df23b5376add212dadd38c47c2",
+      "runtime-rtl/dff.v": "e4f604bd03b9f1651ddbcd71e9ebb1cd8af45018caeab341728b35c14ec0f553",
+      "runtime-rtl/dffe.v": "9ae323530b72d152d10628de94923eaefa411b29e13c647de21bed8b0d73833b",
+      "runtime-rtl/fifo.v": "2dc4086ad3085bd67504caaac0565a3e676f87ce5411cc019fe8ef3a3bc43b23",
+      "runtime-rtl/sync_mem.v": "207b0fe22f029828ac90b50d2ce0aabbb01763231cd153883f31b581d03d68b7",
+      "runtime-rtl/sync_mem_dp.v": "44672a092661f3c218f71534d0d656a2d7d0bfdb03bc6b7a3394e2f13eea86d4",
+      "runner": "0f0ffbaa147201afc61b7e319e3c36f2dc0e97d1d283919a4a61020a43f6acc5"
+    },
+    "execution_sha256": "56ab57beb856b52f47c6f6f9d8077b4429af3f94d6a2a42f0ae5414565f532a3",
+    "work_samples": 529,
+    "workers": [
+      1,
+      2
+    ],
+    "rtl": "verilator",
+    "trace_sha256": "a3dfbce42919e101491c08ab30b4254c90d98989eefd2113bc92b1a704b2e0c9"
+  },
+  "excerpts": [
+    {
+      "path": "counter.ac",
+      "line": 6,
+      "sha256": "0f348ce6dff51935f126af52d972d44d7366d7c7e2e6c8acf50f44c3cf63970b"
+    },
+    {
+      "path": "cpp/sources/example_counter/counter.hpp",
+      "line": 21,
+      "sha256": "7bc25bb99283aed9c58534564d1d4e1b9544a2a5f830a116011d90c13c240073"
+    },
+    {
+      "path": "verilog/sources/example_counter/counter.v",
+      "line": 1,
+      "sha256": "0456fc96773941bad2b0eb64d231c1437c4e240ce58745e1c4d7ddc98d92133b"
+    }
+  ]
+}

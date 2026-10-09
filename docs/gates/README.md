@@ -1,76 +1,31 @@
-# Gate Evidence Framework
+# Verification evidence
 
-This directory standardizes pyCircuit 6 gate evidence and decision-status
-tracking. Historical run directories retain the names they had when generated.
+Raw gate and migration logs live under `docs/gates/logs/<run-id>/` and are
+ignored by Git. CI uploads the current run as an artifact; PR descriptions
+record the candidate, exact commands, exit status, results and omitted checks.
+Do not force-add generated logs or require them in runnable tests.
 
-## Log Root Contract
+Historical decision and migration registers are archived with local logs and
+remain recoverable from Git history. They are not clean-checkout dependencies
+or current release evidence. [Known limitations](../development/known-limitations.md)
+records the active follow-up work.
 
-- Required root: `docs/gates/logs/<run-id>/`
-- `<run-id>` format recommendation: `YYYYMMDD-HHMMSS` (override via env if needed)
+## Current execution
 
-## Evidence profiles
+PR CI runs bounded Python, repository and documentation checks. Full API and
+example coverage runs through the existing nightly entrypoints:
 
-Evidence is proportional to the lane that ran. New curated evidence directories
-use one of these profiles:
+```bash
+bash flows/scripts/run_api_tests.sh --tier nightly
+bash flows/scripts/run_examples.sh --tier nightly
+```
 
-| Profile | Required artifacts |
-| --- | --- |
-| Focused PR evidence | `commands.txt` plus `summary.json` or `summary.md` |
-| Decision-bearing evidence | Focused PR evidence plus `decision_status_report.json` |
-| Scripted gate lane | The command file and summary produced by that script, plus bounded stdout/stderr or per-case logs when the script emits them |
-| Full release closure | Decision report, Agentic G0/G1/G2 summaries, examples, semantic regressions, normal/nightly simulation summaries, and platform/package attestations |
+Nightly and release upload the run directory with `actions/upload-artifact`.
+Release publication remains dependent on live validation, platform candidate
+verification and accepted artifact bytes. Historical status never substitutes
+for these release barriers. See [testing and gates](../development/testing-and-gates.md).
 
-`cases/run_sims/` exists only when `run_sims.sh` ran;
-`cases/run_sims_nightly/` exists only when the nightly simulation lane ran.
-Likewise, a focused documentation or Python contract run does not manufacture
-empty simulation directories or unrelated native logs.
-
-Historical directories are immutable evidence. Many predate these profiles or
-represent one focused lane, so they are not required to contain the complete
-release artifact set.
-
-## Decision Status Source
-
-- Status file: `docs/gates/decision_status_v6.md`
-- Contract source: `docs/rfcs/pyc6-decisions.md`
-
-`check_decision_status.py` enforces:
-
-1. Every decision ID in the RFC appears exactly once in the status table.
-2. Status values are in the allowed set:
-   - `implemented-verified`
-   - `implemented-unverified`
-   - `gap-in-scope`
-   - `deferred`
-3. No row remains `gap-in-scope`.
-
-For decision-complete closure, run strict mode:
-
-- `python3 flows/tools/check_decision_status.py --rfc docs/rfcs/pyc6-decisions.md --status docs/gates/decision_status_v6.md --out .pycircuit_out/gates/<run-id>/decision_status_report.json --require-no-deferred --require-all-verified --require-concrete-evidence --require-existing-evidence`
-
-## CI mapping (GitHub Actions)
-
-| Level | When | Workflow / job | Commands |
-|-------|------|----------------|----------|
-| Required G0 | Every PR / main push | `ci.yml` → `G0: Python Checks`, `G0: Agentic Python Checks` | Python contracts, repository checks, changed-file hooks, documentation |
-| Targeted author evidence | Native or semantic changes | Local current-checkout commands | Narrow ACIR lit, C++, gfsim or PYC parity case for the changed contract |
-| Release closure | Before package publication | Release workflow | Integrated toolchain, AC G0/G1/G2, examples, semantic regressions, simulations and packages |
-| G3 diagnostic | Nightly + `workflow_dispatch` | `gates-nightly.yml` | `run_sims_nightly.sh` |
-
-- Nightly sets `PYC_GATE_RUN_ID=nightly-${{ github.run_id }}-${{ github.run_attempt }}`
-  and uploads `gate-logs-g3-*` artifacts for 14 days.
-- The nightly Job Summary uses `flows/tools/summarize_gate_run.py`.
-- `.github/workflows/ci-macos.yml` runs on `workflow_dispatch` as an optional
-  platform diagnostic. It is not an ordinary PR merge gate.
-- See [Testing And Gates](../development/testing-and-gates.md) for the
-  authoritative change-to-evidence matrix. Consumer compatibility tests run in
-  their owning repositories against a pinned framework revision.
-
-## Notes
-
-- Deep semantic items intentionally deferred in this phase remain marked
-  `deferred` with explicit next actions.
-- Gate outputs under `.pycircuit_out/` are transient; curated evidence for review
-  should be mirrored into `docs/gates/logs/<run-id>/`.
-- For decision-complete closure runs, include semantic lane evidence from
-  `flows/scripts/run_semantic_regressions_v6.sh`.
+Source import, transformed common IR and C++/Verilog outputs belong to the
+candidate's existing manifests. Retaining or inspecting an artifact is not
+execution evidence. Long oracle and coverage matrices are not run during the
+2026-10-07 cleanup; their selection and results must be reported separately.

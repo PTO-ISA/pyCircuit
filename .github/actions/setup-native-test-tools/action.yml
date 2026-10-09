@@ -1,0 +1,40 @@
+name: Setup native test tools
+description: Install the LLVM-matched lit runner and Icarus with parameter-type support.
+
+runs:
+  using: composite
+  steps:
+    - name: Install LLVM 22 lit
+      shell: bash
+      run: |
+        set -euo pipefail
+        source_dir="${RUNNER_TEMP}/pycircuit-lit-22.1.8"
+        git clone --filter=blob:none --depth 1 --sparse --branch llvmorg-22.1.8 \
+          https://github.com/llvm/llvm-project.git "${source_dir}"
+        test "$(git -C "${source_dir}" rev-parse HEAD)" = ca7933e47d3a3451d81e72ac174dcb5aa28b59d1
+        git -C "${source_dir}" sparse-checkout set llvm/utils/lit
+        python -m pip install "${source_dir}/llvm/utils/lit"
+        lit --version
+
+    - name: Install Icarus 13
+      shell: bash
+      run: |
+        set -euo pipefail
+        sudo apt-get update
+        sudo apt-get install -y autoconf bison flex gperf libfl-dev make g++
+        archive="${RUNNER_TEMP}/iverilog-v13_0.tar.gz"
+        curl --proto '=https' --tlsv1.2 -fsSL \
+          https://github.com/steveicarus/iverilog/archive/refs/tags/v13_0.tar.gz \
+          -o "${archive}"
+        echo "c897bbfa9848688982c6d5c30529fc29d68df0b9ff22ffa73bad89db73a7ce49  ${archive}" | sha256sum --check
+        source_dir="${RUNNER_TEMP}/pycircuit-iverilog-source"
+        prefix="${RUNNER_TEMP}/pycircuit-iverilog-13"
+        mkdir -p "${source_dir}"
+        tar -xzf "${archive}" -C "${source_dir}" --strip-components=1
+        cd "${source_dir}"
+        sh autoconf.sh
+        ./configure --prefix="${prefix}"
+        make -j2
+        make install
+        "${prefix}/bin/iverilog" -V
+        echo "${prefix}/bin" >> "${GITHUB_PATH}"

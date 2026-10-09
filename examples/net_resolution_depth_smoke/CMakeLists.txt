@@ -1,0 +1,11 @@
+cmake_minimum_required(VERSION 3.25)
+project(PycircuitNetResolutionDepthSmoke LANGUAGES CXX)
+find_package(pycircuit CONFIG REQUIRED COMPONENTS Runtime)
+include("${PYCIRCUIT_CMAKE_DIR}/PycircuitExamples.cmake")
+pycircuit_add_example(net_resolution_depth_smoke
+  PACKAGE example_net_resolution_depth_smoke TOP example_net_resolution_depth_smoke.net_resolution_depth_smoke.NetResolutionDepthSmoke
+  ENTRY_SOURCE net_resolution_depth_smoke SOURCES net_resolution_depth_smoke.py
+  SYSTEM_TOP example_net_resolution_depth_smoke.bench.ExerciseNetResolutionDepthSmoke
+  SYSTEM_ENTRY_SOURCE bench
+  SYSTEM_CYCLES 264
+  SYSTEM_SOURCES net_resolution_depth_smoke.py bench.py)

@@ -29,18 +29,18 @@ jobs:
           python-version: "3.11"
 
       - name: Install wheel build deps
-        run: python -m pip install setuptools wheel
+        run: python -m pip install setuptools wheel lit pytest
 
       - name: Install Homebrew packages
         run: |
           brew update
-          brew install ninja cmake "llvm@${LLVM_VERSION}" python@3
+          brew install ninja cmake "llvm@${LLVM_VERSION}" python@3 googletest verilator
           echo "$(brew --prefix "llvm@${LLVM_VERSION}")/bin" >> "$GITHUB_PATH"
 
       - name: Build staged toolchain
         run: |
+          LLVM_CONFIG="$(brew --prefix "llvm@${LLVM_VERSION}")/bin/llvm-config" \
           bash flows/scripts/pyc build \
-            --llvm-config "$(brew --prefix "llvm@${LLVM_VERSION}")/bin/llvm-config" \
             --build-dir "$PWD/.pycircuit_out/toolchain/build" \
             --install-prefix "$PWD/.pycircuit_out/toolchain/install"
 
@@ -58,7 +58,7 @@ jobs:
           wheel="$(basename dist/pycircuit_hisi-*.whl)"
           [[ "${wheel}" == pycircuit_hisi-*-py3-none-*.whl ]]
 
-      - name: Check the single wheel carries both compilers and both frontends
+      - name: Check the wheel carries one source compiler and one runtime
         run: |
           python - <<'PY'
           import pathlib, zipfile
@@ -73,25 +73,29 @@ jobs:
 
           required = {
               "pycircuit/__init__.py",
-              "_pycircuit_semantics/__init__.py",
-              "agentic_circuit/__init__.py",
-              "pycircuit/_toolchain/bin/pycc",
-              "pycircuit/_toolchain/bin/acc",
+              "pycircuit/_toolchain/bin/pycircuit-source-unit",
+              "pycircuit/_toolchain/bin/pycircuit-link",
+              "pycircuit/_toolchain/bin/pycircuit-emit",
           }
           missing = sorted(name for name in required if name not in names)
           if missing:
               raise SystemExit(f"single wheel is missing {missing}")
-          for script in ("pyc-opt", "pycircuit", "pycc", "acc", "acc.py", "agentic-circuit"):
-              if f"\n{script} = " not in f"\n{entry_points}":
-                  raise SystemExit(f"single wheel does not provide the {script} console script")
+          if "\npycircuit = " not in f"\n{entry_points}":
+              raise SystemExit("wheel does not provide the pycircuit driver")
+          retired = ("pyc-opt", "pycc", "acc", "acc.py", "agentic-circuit")
+          if any(f"\n{name} = " in f"\n{entry_points}" for name in retired):
+              raise SystemExit("wheel provides a retired compiler entry point")
+          for name in ("agentic_circuit/", "_pycircuit_semantics/"):
+              if any(path.startswith(name) for path in names):
+                  raise SystemExit(f"wheel contains a retired Python package: {name}")
           PY
 
-      - name: Run example compile gate
+      - name: Run example gate (compile and simulation)
         run: |
           export PYC_TOOLCHAIN_ROOT="$PWD/.pycircuit_out/toolchain/install"
           export PATH="$PYC_TOOLCHAIN_ROOT/bin:$PATH"
           unset PYCC
-          bash flows/scripts/run_examples.sh
+          bash flows/scripts/run_examples.sh --tier gate
 
       - name: Smoke test installed wheel
         shell: bash
@@ -103,7 +107,10 @@ jobs:
           export PYC_TOOLCHAIN_ROOT="$(python -c 'import pycircuit, pathlib; print((pathlib.Path(pycircuit.__file__).resolve().parent / "_toolchain").as_posix())')"
           export PYC_USE_INSTALLED_PYTHON_PACKAGE=1
           unset PYCC
-          bash flows/scripts/run_examples.sh
+          bash flows/scripts/run_examples.sh --tier gate
+
+      - name: Check installed toolchain retirement inventory
+        run: python flows/tools/check_frontend_retirement.py --install-root "$PWD/.pycircuit_out/toolchain/install"
 
       - name: Upload wheel
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7

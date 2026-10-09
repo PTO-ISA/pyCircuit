@@ -1,0 +1,149 @@
+{
+  "purpose": "Private independent oracle inputs for compiler/backend gates; not a public schema or runtime ABI",
+  "core": {
+    "after_reset": {
+      "left_result": 7,
+      "right_result": 19
+    },
+    "after_first_work_before_xfer": {
+      "left_result": 7,
+      "right_result": 19
+    },
+    "after_edges": [
+      {
+        "edge": 1,
+        "left_result": 1,
+        "right_result": 2
+      },
+      {
+        "edge": 2,
+        "left_result": 1,
+        "right_result": 4
+      },
+      {
+        "edge": 3,
+        "left_result": 2,
+        "right_result": 6
+      }
+    ],
+    "reset_then_rerun": "must repeat the same reset and edge vectors"
+  },
+  "bank_core": {
+    "after_reset": [
+      0,
+      0
+    ],
+    "after_edges": [
+      [
+        0,
+        5
+      ],
+      [
+        9,
+        13
+      ]
+    ],
+    "independent_private_sizes": [
+      2,
+      4
+    ],
+    "independent_private_reset": [
+      0,
+      5
+    ]
+  },
+  "integer_vectors": [
+    {
+      "expression": "-7 // 3",
+      "expected": -3
+    },
+    {
+      "expression": "-7 % 3",
+      "expected": 2
+    },
+    {
+      "expression": "-1 & 255",
+      "expected": 255
+    },
+    {
+      "expression": "(255 + 1) & 255",
+      "expected": 0
+    },
+    {
+      "expression": "255 + 1 -> range(256)",
+      "expected_failure": "dynamic range failure before DriveNext"
+    },
+    {
+      "expression": "7 // 0",
+      "expected_failure": "division failure only on evaluated path"
+    },
+    {
+      "expression": "False and (7 // 0 < 1)",
+      "expected": false
+    },
+    {
+      "expression": "full u64 x + 1",
+      "expected_failure": "unproven i65 runtime temporary rejected"
+    }
+  ],
+  "conflict_vectors": [
+    {
+      "writers": "unconditional 1 and conditional 2",
+      "enabled": false,
+      "initial_q": 7,
+      "next_q": 1
+    },
+    {
+      "writers": "unconditional 1 and conditional 2",
+      "enabled": true,
+      "initial_q": 7,
+      "expected_failure": "precommit conflict",
+      "q_after_failure": 7,
+      "requires_reset": true
+    },
+    {
+      "writers": "two statically unconditional same-target writers",
+      "expected_failure": "static rejection"
+    }
+  ],
+  "alias_vectors": [
+    {
+      "ordinal_effects": [
+        "R",
+        "R"
+      ],
+      "same_state": true,
+      "accepted": true
+    },
+    {
+      "ordinal_effects": [
+        "R",
+        "W"
+      ],
+      "same_state": true,
+      "accepted": true
+    },
+    {
+      "ordinal_effects": [
+        "W",
+        "RW"
+      ],
+      "same_state": true,
+      "accepted": false
+    }
+  ],
+  "index_vectors": [
+    {
+      "index": -1,
+      "expected_failure": "bounds; not tail indexing"
+    },
+    {
+      "index": true,
+      "expected_failure": "bool is not an index"
+    },
+    {
+      "length": 0,
+      "expected_failure": "positive static length required"
+    }
+  ]
+}

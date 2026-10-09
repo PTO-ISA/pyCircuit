@@ -1,60 +1,28 @@
-# Pipeline
+# Compiler pipeline
 
-pyCircuit uses a two-stage compile pipeline:
+The active compiler processes source one unit at a time, links an explicit
+closure, verifies a common final design, then selects a backend:
 
-1. Frontend (Python): source scan + JIT elaboration + `.pyc` emission
-2. Backend (`pycc`): MLIR passes + emit C++ and/or Verilog
+1. `pycircuit compile -c source.py` captures exactly one Python source and
+   publishes its body, interface, dependency file, and unit receipt.
+2. Parent sources import compiler-published interfaces through explicit `-I`
+   unit directories. The compiler does not fall back to child Python bodies.
+3. `pycircuit link <units...> --top ...` validates the complete unit closure,
+   resolves instances, and publishes one verified final design.
+4. `pycircuit emit <design_top.ac> --target cpp|verilog` verifies the final
+   input and emits the chosen target.
 
-## Frontend
+The same saved final design is input to both backends. No whole-system capture
+followed by source splitting is allowed. C++ output keeps one implementation
+source group per source unit, plus generated core/runtime glue. Generated CMake
+compiles those units separately as `pycircuit_modules`; the host driver links
+them with the shared Runtime.
 
-Frontend responsibilities:
+Runtime-only CMake exports `pycircuit::pyc6_runtime` without LLVM discovery.
+CompilerDev includes native compiler development targets and requires exact
+LLVM/MLIR 22.1.8.
 
-- strict API contract scan (entry file + local imports)
-- JIT elaboration of `@module` / `@function` / `@const`
-- materialize `@module(value_params=...)` as runtime boundary input ports
-- emit one `.pyc` per specialized module
-- emit a deterministic `project_manifest.json`
-- emit a testbench `.pyc` payload from `@testbench`
-
-All emitted modules are stamped with:
-
-- `pyc.frontend.contract = "pycircuit"`
-
-## Backend (`pycc`)
-
-Backend responsibilities:
-
-- verify required frontend contract attrs (`pyc-check-frontend-contract`)
-- verify value-param metadata arity/alignment (`pyc.value_params` + `pyc.value_param_types`)
-- inline helper functions and run cleanup/verification passes
-- preserve `@module` hierarchy boundaries in strict mode (default: `--hierarchy-policy=strict`)
-- emit:
-  - C++ model (`--emit=cpp`)
-  - Verilog netlist (`--emit=verilog`)
-  - testbench text (for `.pyc` files containing `pyc.tb.payload`)
-
-Default backend hierarchy policy:
-
-- `--hierarchy-policy=strict`
-- `--inline-policy=off` for hierarchy-preserving module builds
-- strict mode fails compilation if frontend module symbol set changes after lowering passes
-
-## CLI entrypoints
-
-Emit a single `.pyc`:
-
-```bash
-python3 -m pycircuit.cli emit <design.py> -o out.pyc
-```
-
-Build a project (multi-module + testbench):
-
-```bash
-python3 -m pycircuit.cli build <tb_or_top.py> --out-dir <dir> --target cpp|verilator|both --jobs <N>
-```
-
-Simulation (Verilator):
-
-```bash
-python3 -m pycircuit.cli build <tb.py> --out-dir <dir> --target verilator --run-verilator
-```
+The common source and final hardware representation is ACIR. Its `ac` dialect
+name is an IR identifier, not another Python frontend. Unsupported source or
+backend capabilities fail before output publication; see
+[known limitations](../development/known-limitations.md).

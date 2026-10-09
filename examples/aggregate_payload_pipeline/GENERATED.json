@@ -1,0 +1,72 @@
+{
+  "schema": "pycircuit-generated-example-v1",
+  "example": "aggregate_payload_pipeline",
+  "entry": {
+    "arguments": [],
+    "definition": "@\"example_aggregate_payload_pipeline.aggregate_payload_pipeline.AggregatePayloadPipeline\""
+  },
+  "verification": {
+    "schema": "pycircuit-example-verification-v1",
+    "inputs": {
+      "source/CMakeLists.txt": "32f8f2a3cacc230449244aafed487a690d89a5d6b17afb52628d8c85fec40ca9",
+      "source/aggregate_payload_pipeline.py": "8d9e8ceaff28d3b7ef48883bef122c489189035ada8908cd33ed57ab64ac6d29",
+      "source/bench.py": "fe98a735db342b336ed16e8bc622cec7f36c4b9682f88cdd426e2677335d048e",
+      "source/config.json": "2c83cf4c931dcd103a18a690763d485d39012eaac121873450c7ae77e107d553",
+      "source/driver.cpp": "503e0e2479fc12f1a975396a414475d0b61b9c0d6e09cffa5ef965ef9ea1118d",
+      "source/four_state.py": "26a298aa35f30dc19a6b73f317038007bc1bc72f0dee032d4831a7b081abfae5",
+      "source/rtl_tb.sv": "872d437ad89aee5dc34824fc2633905ff55336589458de07c08b2b2d5b7ec34a",
+      "build/cpp/generated.json": "4a2b09df19b383dc2b7c131c6bc5034d15557062dfd498e8c3435ca1058d3b83",
+      "build/cpp/CMakeLists.txt": "52d5d4f3298e64db1d5959996ec6d2ca4b9789fa87f3216ca44f593f76b39e0d",
+      "build/cpp/pycircuit_support.hpp": "9d0c64db83aad07e06afe7317b16b0e0633bd1751cc176af68418bf8e106a5d0",
+      "build/cpp/pycircuit_system.hpp": "5afd40706cba0ed04346c2245aeec342a0fb2013724724e88ee013f33db111d7",
+      "build/cpp/sources/example_aggregate_payload_pipeline/aggregate_payload_pipeline.cpp": "21ffbb96bb4df2c6c15c8cc19bcd1e58695d5811f44b620666b47790f02ff834",
+      "build/cpp/sources/example_aggregate_payload_pipeline/aggregate_payload_pipeline.hpp": "29be0bccf3096d3bfaf4799d917b6594060e98f010b7459e21a78de2d1f89dcb",
+      "build/cpp/sources/example_aggregate_payload_pipeline/aggregate_payload_pipeline.source-map.json": "e1e734fbadd06d012a402a7da66250d2160197963854c882f4ae5d2a9f4a2bc5",
+      "build/verilog/generated.json": "4594a18bf6ca35988156a58e0dceab67dba9dc12ab6c2994715f5632b3a33ffc",
+      "build/verilog/CMakeLists.txt": "cf8bb39c5feba4789a44ff1d007922915d7efeac2b9f61db5b1c322e9029798d",
+      "build/verilog/design_top.sv": "63b302eac4f2c96db1a7a00312aff21d5e33600d8884b0f2c50b66ec6e5ac603",
+      "build/verilog/sources/example_aggregate_payload_pipeline/aggregate_payload_pipeline.source-map.json": "02f42a34fa4a7bb7ce62da45d0d95ee88ff8c7086767381f879128468090dc99",
+      "build/verilog/sources/example_aggregate_payload_pipeline/aggregate_payload_pipeline.v": "49f48650df02ba364895f6a473224502c0e406528cd2d9b711c843a1a14ecbb7",
+      "build/aggregate_payload_pipeline.ac": "aa5c160a54687ef0cb55d154fb71eed2ee4ee941677e561957f1ed1296826839",
+      "build/units/.aggregate_payload_pipeline.pycircuit-publication/owner.json": "ed483fb349a1757ccfb574eab3f4843921aad502e110f9468cb9acce199030a9",
+      "build/units/aggregate_payload_pipeline/aggregate_payload_pipeline.ac": "daa662512f09145b6a8b7946ed6ca4920bc687785a02d9a3ef628419fcc2cca1",
+      "build/units/aggregate_payload_pipeline/aggregate_payload_pipeline.d": "83c80dc11e666c5667a160722ace49c89661095749112206c5220a3cffbc14c0",
+      "build/units/aggregate_payload_pipeline/aggregate_payload_pipeline.interface.ac": "67d4aeaaf599e86dcb7695b4eb41e08b2f1b1c06d5cc8e579a3dd9b2d40ff3e3",
+      "build/units/aggregate_payload_pipeline/unit.json": "5983460604987401ad058a9d0bb4c36c6613589598ce9954a8bc402d806787a3",
+      "runtime-rtl/byte_mem.v": "dfc3f0fa362196fcfaa7bd771d4f85f26acade0e1dfeb0bc00a24d4161987cd2",
+      "runtime-rtl/dff.v": "325fb9039af507df3c94a26515dfcd8bb73f3812c1264df7b72bfe1af918bbb8",
+      "runtime-rtl/dffe.v": "1fc0bdac0c411ea87c00fc93127ebfba8ca12684a8fecee012a23362e0f8b89c",
+      "runtime-rtl/fifo.v": "8b2f0796fdd7c0f4aee3f20bd52226ccb532c827c8618afd9fbef99e2713f97f",
+      "runtime-rtl/sync_mem.v": "75731fcc0df8a01891e53589e75debc4cda9ec384262937047f21b11de7d7637",
+      "runtime-rtl/sync_mem_dp.v": "16ad11aa53d5f60291136b82a47bef9e21b312cd46ee8b8dfb338bb01c6bc3cc",
+      "runner": "77480dfd29c61781bdb51cc84bf114e91c06342e8f7e66772abf2cd1de55a989"
+    },
+    "execution_sha256": "74decd809ae3a27165638858631c370ab7d01583b731ba423aa239b54b106024",
+    "work_samples": 645,
+    "native_check_records": 0,
+    "native_check_sha256": "01ba4719c80b6fe911b091a7c05124b64eeece964e09c058ef8f9805daca546b",
+    "workers": [
+      1,
+      2
+    ],
+    "rtl": "verilator",
+    "trace_sha256": "225922ea03c8656c682b10e701a66cf1b3c0c568bf64f31c68fc83dbccf419b5"
+  },
+  "excerpts": [
+    {
+      "path": "aggregate_payload_pipeline.ac",
+      "line": 7,
+      "sha256": "aa5c160a54687ef0cb55d154fb71eed2ee4ee941677e561957f1ed1296826839"
+    },
+    {
+      "path": "cpp/sources/example_aggregate_payload_pipeline/aggregate_payload_pipeline.hpp",
+      "line": 40,
+      "sha256": "29be0bccf3096d3bfaf4799d917b6594060e98f010b7459e21a78de2d1f89dcb"
+    },
+    {
+      "path": "verilog/sources/example_aggregate_payload_pipeline/aggregate_payload_pipeline.v",
+      "line": 1,
+      "sha256": "49f48650df02ba364895f6a473224502c0e406528cd2d9b711c843a1a14ecbb7"
+    }
+  ]
+}

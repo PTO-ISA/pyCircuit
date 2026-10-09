@@ -1,0 +1,3 @@
+# REQUIRES: verilator, iverilog, vvp
+# Genuine four-state RTL is mandatory alongside native raw-plane identity.
+# RUN: %python %S/Inputs/bits-popcount.py --repo %src --source-compiler %pycircuit_source_unit --linker %pycircuit_link --emitter %pycircuit_emit --optimizer %pycircuit_opt --cxx %cxx --verilator %verilator --iverilog %iverilog --vvp %vvp --scratch %t.dir

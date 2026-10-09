@@ -6,9 +6,9 @@ name: Publish accepted wheels to PyPI
 # release or its attestation, and an already cut release can be published to
 # PyPI later without rebuilding, re-tagging, or moving the source revision pin.
 #
-# The workflow uploads exactly the wheels that carry the release version: the
-# platform wheel for each supported platform. That wheel carries both frontends
-# and both compilers, so nothing else belongs on the package host.
+# The workflow uploads exactly one `pycircuit_hisi` wheel for each supported
+# platform. Each wheel carries the pycircuit Python driver and its bundled
+# platform toolchain prefix; nothing else is published to the package host.
 on:
   workflow_dispatch:
     inputs:

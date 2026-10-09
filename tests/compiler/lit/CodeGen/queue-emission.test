@@ -1,0 +1,2 @@
+# REQUIRES: verilator, iverilog, vvp
+# RUN: %python %inputs/queue-emission.py --repo %src --emitter %pycircuit_emit --optimizer %pycircuit_opt --cxx %cxx --iverilog %iverilog --vvp %vvp --verilator %verilator --scratch %t.dir

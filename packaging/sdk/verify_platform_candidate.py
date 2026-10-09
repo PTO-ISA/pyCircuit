@@ -338,45 +338,12 @@ def validate_tree(
 
 def write_model_source(source: Path) -> None:
     source.mkdir(parents=True)
-    (source / "architecture.py").write_text(
-        "import agentic_circuit as ac\n\n"
-        "@ac.struct\n"
-        "class Entry:\n"
-        "    sequence: ac.u4\n"
-        "    value: ac.u16\n"
-        "    done: bool\n\n"
-        "@ac.rule\n"
-        "def complete(entry):\n"
-        "    return entry.with_fields(done=True)\n\n"
-        "@ac.system\n"
-        "def pipeline() -> None:\n"
-        "    source = ac.source(Entry, depth=4, latency=1)\n"
-        "    completed = complete(source)\n"
-        "    ordered = ac.reorder(completed, by=Entry.sequence, entries=8, start=0)\n"
-        "    ac.sink(ordered)\n",
-        encoding="utf-8",
-    )
-    (source / "agentic-circuit.toml").write_text(
-        "[project]\n"
-        'name = "sdk-acc-smoke"\n'
-        'version = "0.1.0"\n'
-        'architecture = "architecture.py"\n'
-        'system = "pipeline"\n\n'
-        "[providers]\n"
-        'standard_library = ["ac"]\n\n'
-        "[build]\n"
-        'profile = "fast"\n'
-        'compiler = "c++"\n'
-        'standard_library = "libc++"\n'
-        "component_roots = []\n"
-        "protocol_roots = []\n"
-        'build_root = "build"\n'
-        "instrumentation_layers = []\n\n"
-        "[run]\n"
-        "trace_roots = []\n"
-        "inputs = {}\n\n"
-        "[diagnostics]\n"
-        'format = "text"\n',
+    (source / "design_top.py").write_text(
+        "from typing import Annotated\nfrom pycircuit import module, rule, report\n"
+        "Word = Annotated[int, range(8)]\n@module\ndef DesignTop():\n"
+        "    count: Word = 0\n    @rule\n    def advance():\n"
+        "        nonlocal count\n        if count < 3:\n            count = count + 1\n"
+        "        report('count', count)\n    advance()\n",
         encoding="utf-8",
     )
 
@@ -435,8 +402,10 @@ def verify_only_export(plugin: Path) -> None:
                 break
             if fields[0].isdigit():
                 exported.append(fields[-1])
-        if len(exported) != 1 or not exported[0].endswith("agentic_model_query_v1"):
-            raise ValueError("generated model must export only agentic_model_query_v1")
+        if len(exported) != 1 or not exported[0].endswith("pycircuit_model_query_v1"):
+            raise ValueError(
+                "generated model must export only pycircuit_model_query_v1"
+            )
         return
     command = (
         ["nm", "-gU", plugin]
@@ -448,9 +417,9 @@ def verify_only_export(plugin: Path) -> None:
     if (
         completed.returncode
         or len(defined) != 1
-        or not defined[0].endswith("agentic_model_query_v1")
+        or not defined[0].endswith("pycircuit_model_query_v1")
     ):
-        raise ValueError("generated model must export only agentic_model_query_v1")
+        raise ValueError("generated model must export only pycircuit_model_query_v1")
 
 
 def tree_snapshot(root: Path) -> tuple[tuple[str, bytes], ...]:
@@ -480,26 +449,11 @@ def canonical_path(path: Path) -> Path:
     return Path(real)
 
 
-def bundled_toolchain_site_packages(sdk_root: Path) -> Path | None:
-    """Return the SDK's bundled Python environment, when it ships one.
-
-    The extracted SDK tree keeps it at `lib/python<X>/site-packages`; the same
-    environment appears under `pycircuit/_toolchain/lib` inside the wheel.
-    """
-    for root in (sdk_root / "lib", sdk_root / "pycircuit/_toolchain/lib"):
-        for candidate in sorted(
-            root.glob("python*/site-packages"), key=lambda path: path.as_posix()
-        ):
-            if (candidate / "agentic_circuit").is_dir():
-                return candidate
-    return None
-
-
 def installed_console_script(commands: Path, name: str) -> Path | None:
     """Locate an installed console script, tolerating launcher naming.
 
     A Windows launcher for an entry point whose name already carries a suffix
-    (`acc.py`) is not guaranteed to appear as `acc.py.exe`, so the caller falls
+    (`pycircuit`) is not guaranteed to appear as `pycircuit.exe`, so the caller falls
     back to running the module through the venv interpreter.
     """
     candidates = [commands / name]
@@ -511,64 +465,9 @@ def installed_console_script(commands: Path, name: str) -> Path | None:
     return None
 
 
-def installed_toolchain_tool(environment: Path, name: str) -> Path | None:
-    """Locate the compiler the installed wheel bundles inside its toolchain."""
-    matches = sorted(
-        (
-            path
-            for path in environment.rglob(f"pycircuit/_toolchain/bin/{name}*")
-            if path.is_file()
-        ),
-        key=lambda path: path.as_posix(),
-    )
-    return matches[0] if matches else None
-
-
-def _try_run(command: list[os.PathLike[str] | str], *, cwd: Path) -> str:
-    try:
-        run(command, cwd=cwd)
-    except ValueError as error:
-        return f"fails ({error})".replace("\n", " ")
-    return "runs"
-
-
-def compiler_failure_report(
-    name: str,
-    wheel_error: ValueError,
-    sdk_root: Path,
-    environment: Path,
-    workspace: Path,
-    suffix: str,
-) -> str:
-    """Explain which copy of a compiler failed.
-
-    The same binary exists in three places once a wheel is installed: the venv
-    console script, the copy the wheel bundles, and the SDK tree. A relocation
-    defect, a broken console-script launcher, and a broken compiler each fail in
-    a different one of them, so name all three outcomes.
-    """
-    report = [
-        f"{name} failed from the installed wheel console script:",
-        str(wheel_error),
-    ]
-    tree_compiler = sdk_root / f"bin/{name}{suffix}"
-    report.append(
-        f"SDK tree binary: {_try_run([tree_compiler, '--help'], cwd=workspace)}"
-    )
-    bundled = installed_toolchain_tool(environment, name)
-    if bundled is None:
-        report.append("installed wheel binary: missing from the wheel")
-    else:
-        report.append(
-            f"installed wheel binary ({bundled.stat().st_size} bytes): "
-            f"{_try_run([bundled, '--help'], cwd=workspace)}"
-        )
-    if tree_compiler.is_file():
-        report.append(f"SDK tree binary size: {tree_compiler.stat().st_size} bytes")
-    return "\n".join(report)
-
-
 def installed_smoke(sdk_root: Path, wheels: list[Path], workspace: Path) -> None:
+    workspace = canonical_path(workspace)
+    sdk_root = canonical_path(sdk_root)
     windows = sys.platform == "win32"
     suffix = ".exe" if windows else ""
     environment = workspace / "venv"
@@ -580,181 +479,127 @@ def installed_smoke(sdk_root: Path, wheels: list[Path], workspace: Path) -> None
         cwd=workspace,
     )
     run(
-        [python, "-c", "import _pycircuit_semantics, agentic_circuit, pycircuit"],
+        [
+            python,
+            "-c",
+            "import pycircuit; assert set(pycircuit.__all__) == {'module','rule','system','log','report'}",
+        ],
         cwd=workspace,
     )
-    pycircuit_script = installed_console_script(commands, f"pycircuit{suffix}")
-    if pycircuit_script is None:
-        raise ValueError("installed wheel did not provide the pycircuit console script")
-    run([pycircuit_script, "--help"], cwd=workspace)
-    # One wheel carries both compilers: the pyCircuit compiler and the Agentic
-    # Circuit compiler must both run from the installed environment alone. When
-    # one fails, say whether the same binary still runs from the SDK tree, so a
-    # relocation defect is distinguishable from a broken compiler.
-    for name in ("pycc", "acc"):
-        compiler = installed_console_script(commands, f"{name}{suffix}")
-        if compiler is None:
-            raise ValueError(
-                f"installed wheel did not provide the {name} console script"
-            )
-        try:
-            run([compiler, "--help"], cwd=workspace)
-        except ValueError as wheel_error:
-            raise ValueError(
-                compiler_failure_report(
-                    name, wheel_error, sdk_root, environment, workspace, suffix
-                )
-            ) from wheel_error
-    acc_script = installed_console_script(commands, f"acc.py{suffix}")
-    acc_py: list[os.PathLike[str] | str] = (
-        [acc_script]
-        if acc_script is not None
-        else [python, "-m", "agentic_circuit._acc_py"]
+    run(
+        [
+            python,
+            "-c",
+            "import importlib.util; assert all(importlib.util.find_spec(n) is None for n in ['agentic_circuit','_pycircuit_semantics','pycircuit.jit','pycircuit.v6'])",
+        ],
+        cwd=workspace,
     )
-    # The installed wheel is self-contained: it carries the ACC driver, the
-    # native bridge it loads, and the shared semantic descriptors. The SDK tree
-    # additionally bundles its own Python environment, so expose that the way the
-    # SDK launcher does when it is present.
-    bundled_site_packages = bundled_toolchain_site_packages(sdk_root)
-    acc_environment = os.environ.copy()
-    if bundled_site_packages is not None:
-        acc_environment["PYTHONPATH"] = os.fspath(bundled_site_packages)
-    run([*acc_py, "--help"], cwd=workspace, env=acc_environment)
-
-    # Python launchers remain extensionless in the SDK root on every platform;
-    # compiled tools use the platform suffix.
-    cli = sdk_root / "bin/agentic-circuit"
-    launcher = [python, cli] if windows else [cli]
-    acc = sdk_root / f"bin/acc{suffix}"
-    for required in (
-        cli,
-        acc,
-        sdk_root / f"bin/pycc{suffix}",
-        sdk_root / f"bin/acir-opt{suffix}",
-        sdk_root / "lib/cmake/AgenticCircuit/AgenticCircuitConfig.cmake",
-    ):
-        if not required.is_file():
-            raise ValueError(f"relocated SDK is missing required file: {required}")
-    run([*launcher, "--help"], cwd=workspace)
-    run([acc, "--help"], cwd=workspace)
-
+    driver = commands / f"pycircuit{suffix}"
+    if not driver.is_file():
+        raise ValueError("installed wheel is missing pycircuit")
+    for name in ("pycc", "pyc-opt", "acc", "acc.py", "agentic-circuit"):
+        if (commands / f"{name}{suffix}").exists() or (
+            sdk_root / "bin" / f"{name}{suffix}"
+        ).exists():
+            raise ValueError(f"retired tool remains installed: {name}")
+    run([driver, "--help"], cwd=workspace)
     source = workspace / "source"
-    generated = workspace / "generated"
-    build = workspace / "consumer-build"
     write_model_source(source)
-    generated.mkdir()
-    architecture = source / "architecture.py"
-    project = source / "agentic-circuit.toml"
-    acir = generated / "pipeline.ac"
-    acir_second = generated / "pipeline-second.ac"
-    cpp = generated / "pipeline.cpp"
-    cpp_second = generated / "pipeline-second.cpp"
-    bundle = generated / "pipeline"
-    verilog = generated / "pipeline.v"
-
-    clean_environment = os.environ.copy()
-    clean_environment.pop("PYTHONPATH", None)
-    if bundled_site_packages is not None:
-        clean_environment["PYTHONPATH"] = os.fspath(bundled_site_packages)
-    tool_directories = {
-        os.fspath(Path(tool).resolve().parent)
-        for name in ("cmake", "ninja", "c++")
-        if (tool := shutil.which(name)) is not None
-    }
-    path_tail = (
-        clean_environment.get("PATH", "").split(os.pathsep)
-        if windows
-        else ["/usr/bin", "/bin", "/usr/sbin", "/sbin"]
-    )
-    clean_environment["PATH"] = os.pathsep.join(
-        [os.fspath(commands), *sorted(tool_directories), *path_tail]
-    )
-
-    compile_command = [
-        *acc_py,
-        "--project",
-        project,
-        "-c",
-        architecture,
-        "-o",
-        acir,
-        "--quiet",
-    ]
-    run(compile_command, cwd=source, env=clean_environment)
-    acir_bytes = acir.read_bytes()
-    # The driver refuses to clobber an existing artifact, so regenerate into a
-    # second path and compare bytes, exactly as the C++ step below does.
-    compile_second = [*compile_command]
-    compile_second[compile_second.index(acir)] = acir_second
-    run(compile_second, cwd=source, env=clean_environment)
-    if acir_second.read_bytes() != acir_bytes:
-        raise ValueError("ACC Python regeneration is not byte-identical")
-
-    run([acc, "-c", acir, "-emit-cpp", "-o", cpp], cwd=workspace)
-    run([acc, "-c", acir, "-emit-cpp", "-o", cpp_second], cwd=workspace)
-    if cpp.read_bytes() != cpp_second.read_bytes():
-        raise ValueError("ACC C++ regeneration is not byte-identical")
-    run([acc, "-c", acir, "-emit-cpp-bundle", "-o", bundle], cwd=workspace)
-    if not (bundle / "include/generated/model.h").is_file():
-        raise ValueError("ACC bundle is missing its public model header")
-    run([acc, "-c", acir, "-emit-verilog", "-o", verilog], cwd=workspace)
-
-    before = cpp.read_bytes()
-    refused = subprocess.run(
-        [os.fspath(acc), "-c", os.fspath(acir), "-emit-cpp", "-o", os.fspath(cpp)],
+    unit = workspace / "unit"
+    final = workspace / "design_top.ac"
+    run(
+        [
+            driver,
+            "compile",
+            "-c",
+            source / "design_top.py",
+            "--source-root",
+            source,
+            "--package-prefix",
+            "sdk",
+            "-o",
+            unit,
+        ],
         cwd=workspace,
-        env=clean_environment,
-        text=True,
+    )
+    run(
+        [driver, "link", unit, "--top", "sdk.design_top.DesignTop", "-o", final],
+        cwd=workspace,
+    )
+    for target in ("cpp", "verilog"):
+        destination = workspace / target
+        command = [driver, "emit", final, "--target", target, "-o", destination]
+        run(command, cwd=workspace)
+        before = tree_snapshot(destination)
+        run([*command, "--replace"], cwd=workspace)
+        if tree_snapshot(destination) != before:
+            raise ValueError("target regeneration is nondeterministic")
+        invalid = workspace / "invalid.ac"
+        invalid.write_text("invalid final", encoding="utf-8")
+        rejected = subprocess.run(
+            [
+                driver,
+                "emit",
+                invalid,
+                "--target",
+                target,
+                "-o",
+                destination,
+                "--replace",
+            ],
+            cwd=workspace,
+            capture_output=True,
+        )
+        if rejected.returncode == 0 or tree_snapshot(destination) != before:
+            raise ValueError("invalid final changed published output")
+    wheel_prefix_result = subprocess.run(
+        [
+            python,
+            "-c",
+            "from pycircuit.packaged_toolchain import bundled_toolchain_root; print(bundled_toolchain_root())",
+        ],
+        cwd=workspace,
         capture_output=True,
-        check=False,
+        text=True,
+        check=True,
     )
-    if refused.returncode == 0 or cpp.read_bytes() != before:
-        raise ValueError("ACC replaced an existing generated C++ output")
-
-    consumer = workspace / "consumer"
-    consumer.mkdir()
-    (consumer / "main.cpp").write_text(
-        '#include "pipeline.cpp"\n'
-        "int main() {\n"
-        "  ac_generated::Pipeline dut;\n"
-        "  dut.reset();\n"
-        "  return 0;\n"
-        "}\n",
-        encoding="utf-8",
-    )
-    (consumer / "CMakeLists.txt").write_text(
-        "cmake_minimum_required(VERSION 3.20)\n"
-        "project(AccGeneratedDut LANGUAGES CXX)\n"
-        "add_executable(acc-generated-dut main.cpp)\n"
-        "target_compile_features(acc-generated-dut PRIVATE cxx_std_20)\n"
-        "target_include_directories(acc-generated-dut PRIVATE "
-        '"${ACC_GENERATED_ROOT}" "${PYC_SDK_ROOT}/include")\n',
-        encoding="utf-8",
-    )
+    wheel_prefix = Path(wheel_prefix_result.stdout.strip()).resolve()
+    if not (wheel_prefix / "share/pycircuit/cmake/pycircuitConfig.cmake").is_file():
+        raise ValueError("installed wheel has no standalone Runtime package")
+    build = workspace / "consumer-build"
     run(
         [
             "cmake",
             "-S",
-            consumer,
+            workspace / "cpp",
             "-B",
             build,
-            f"-DACC_GENERATED_ROOT={generated}",
-            f"-DPYC_SDK_ROOT={sdk_root}",
-            "-DCMAKE_BUILD_TYPE=Release",
+            "-G",
+            "Ninja",
+            "-DCMAKE_PREFIX_PATH=" + str(wheel_prefix),
+            "-DCMAKE_DISABLE_FIND_PACKAGE_LLVM=TRUE",
+            "-DCMAKE_DISABLE_FIND_PACKAGE_MLIR=TRUE",
         ],
         cwd=workspace,
-        env=clean_environment,
     )
-    run(
-        ["cmake", "--build", build, "--config", "Release"],
-        cwd=workspace,
-        env=clean_environment,
+    run(["cmake", "--build", build, "--parallel", "4"], cwd=workspace)
+    config = workspace / "config.json"
+    config.write_text(
+        '{"deadlock_window":null,"max_domain_cycles":{},"max_ticks":3,"schema":"pycircuit-model-config","version":"1"}',
+        encoding="utf-8",
     )
-    run(
-        [find_build_artifact(build, (f"acc-generated-dut{suffix}",))],
-        cwd=workspace,
-        env=clean_environment,
+    runner = find_build_artifact(build, ("pycircuit_system", "pycircuit_system.exe"))
+    events = workspace / "events.jsonl"
+    run([runner, "--config", config, "--events", events], cwd=workspace)
+    records = [
+        json.loads(line) for line in events.read_text(encoding="utf-8").splitlines()
+    ]
+    if not records or records[-1].get("kind") != "result":
+        raise ValueError("installed design did not produce a final result")
+    plugin = find_build_artifact(
+        build, ("libpycircuit_dut.dylib", "libpycircuit_dut.so", "pycircuit_dut.dll")
     )
+    verify_only_export(plugin)
 
 
 def main() -> int:
@@ -816,7 +661,7 @@ def main() -> int:
         )
     checks = "exact closure and native dependency relocation"
     if not args.skip_install:
-        checks += ", ACC compile/C++/bundle/Verilog and generated DUT execution"
+        checks += ", compile/link/emit and generated DUT execution"
     sys.stdout.write(f"platform SDK candidate: OK ({checks})\n")
     return 0
 

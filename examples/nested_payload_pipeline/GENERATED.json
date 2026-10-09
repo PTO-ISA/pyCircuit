@@ -1,0 +1,64 @@
+{
+  "schema": "pycircuit-generated-example-v1",
+  "example": "nested_payload_pipeline",
+  "entry": {
+    "arguments": [],
+    "definition": "@\"example_nested_payload_pipeline.nested_payload_pipeline.NestedPayloadPipeline\""
+  },
+  "verification": {
+    "schema": "pycircuit-example-verification-v1",
+    "inputs": {
+      "source/CMakeLists.txt": "1b78db165d4a98b0630c86731614b6e041b2b983d9a1710fc6aeab623062e305",
+      "source/config.json": "2c83cf4c931dcd103a18a690763d485d39012eaac121873450c7ae77e107d553",
+      "source/driver.cpp": "8d686a0f2af6eede2032f8800b7a9844f40545f88e4d77908903f18d05f65fff",
+      "source/four_state.py": "a180f3a42fc5cb44255198adc58349f006597996ef4d7454ee60c6f50e016ad4",
+      "source/nested_payload_pipeline.py": "661b1411db1bdf2ce5777f4f0756d8455bdd4cc32a458c3e9b21a4c74beadacf",
+      "source/rtl_tb.sv": "c6b38a56e55d6b3a163bde57d17ade80b202ff77249f922d777e82809aae77ff",
+      "build/cpp/generated.json": "97fd56ff54c3c3a30e3f67719e968a265c5067190a1f3b4536b7428e941c0eb2",
+      "build/cpp/CMakeLists.txt": "1cf9e86a3d7164a9c3c3b2b1df22e6b6e78d24605a9ee120dc98d0ba29525cb3",
+      "build/cpp/pycircuit_support.hpp": "cc927ca8b77426a6fd66939cf2530a5bda656c1449f713c08ead34ccf2dea7f8",
+      "build/cpp/pycircuit_system.hpp": "1a5e5d852a2a3c67267af6339ba478341e53f0cfd85912980534cfcb2b3e1796",
+      "build/cpp/sources/example_nested_payload_pipeline/nested_payload_pipeline.cpp": "9b0c2d561611646075d4817ec85c7840415dcef86fa3e43e863742b71dc032af",
+      "build/cpp/sources/example_nested_payload_pipeline/nested_payload_pipeline.hpp": "171df46e26d03739c1eea50cc5957e04da7a8e03db35f2eac6c62b7bcd1e9e76",
+      "build/cpp/sources/example_nested_payload_pipeline/nested_payload_pipeline.source-map.json": "18bb7bef761ca0d85d3635beadbeb0cf8a5f0454cbb12c8aac374e982bca46a0",
+      "build/verilog/generated.json": "948160cda38443702cb49f1ef72da9c3d7ad45faa32a18812a8d7de911339393",
+      "build/verilog/CMakeLists.txt": "92b92dc885c118a26140c165d6c7cd3a49803ef42847fbccf9135193cd2b5d49",
+      "build/verilog/design_top.sv": "5823e452d629423b49b61f6f40f5cb3627e2e5dd0353df1faccf47eafa20ae8b",
+      "build/verilog/sources/example_nested_payload_pipeline/nested_payload_pipeline.source-map.json": "8adfa7a9ec334b5382aaf9298dd08909b1ce004ebd0ad0e6c027d09bbaf4c7a6",
+      "build/verilog/sources/example_nested_payload_pipeline/nested_payload_pipeline.v": "f47b2705decf68df8bd2ad656f2e386a787d6b16bcceccfd9b1169db93aa5de8",
+      "build/nested_payload_pipeline.ac": "523c523cd11fe9859ca659e71806d4f5e6e7128fe7744a43b3ba0616929ce769",
+      "runtime-rtl/byte_mem.v": "33bd9f73dd7cd17f3531cfd8c321762c214ad5df23b5376add212dadd38c47c2",
+      "runtime-rtl/dff.v": "e4f604bd03b9f1651ddbcd71e9ebb1cd8af45018caeab341728b35c14ec0f553",
+      "runtime-rtl/dffe.v": "9ae323530b72d152d10628de94923eaefa411b29e13c647de21bed8b0d73833b",
+      "runtime-rtl/fifo.v": "2dc4086ad3085bd67504caaac0565a3e676f87ce5411cc019fe8ef3a3bc43b23",
+      "runtime-rtl/sync_mem.v": "207b0fe22f029828ac90b50d2ce0aabbb01763231cd153883f31b581d03d68b7",
+      "runtime-rtl/sync_mem_dp.v": "44672a092661f3c218f71534d0d656a2d7d0bfdb03bc6b7a3394e2f13eea86d4",
+      "runner": "07b7ef13f8cd890d5f924645144a7af46656a7ea6670883f4786a98ab6050a53"
+    },
+    "execution_sha256": "9843bd309dd6f3259c0f657457ec5b1bd8fb71ab768e42947caa9d7a70f176d2",
+    "work_samples": 1121,
+    "workers": [
+      1,
+      2
+    ],
+    "rtl": "verilator",
+    "trace_sha256": "c1e7066668408b7f8f6111c28613c96cc3f7d894c2f4f4f20a908e0293e9d3e7"
+  },
+  "excerpts": [
+    {
+      "path": "nested_payload_pipeline.ac",
+      "line": 7,
+      "sha256": "523c523cd11fe9859ca659e71806d4f5e6e7128fe7744a43b3ba0616929ce769"
+    },
+    {
+      "path": "cpp/sources/example_nested_payload_pipeline/nested_payload_pipeline.hpp",
+      "line": 38,
+      "sha256": "171df46e26d03739c1eea50cc5957e04da7a8e03db35f2eac6c62b7bcd1e9e76"
+    },
+    {
+      "path": "verilog/sources/example_nested_payload_pipeline/nested_payload_pipeline.v",
+      "line": 1,
+      "sha256": "f47b2705decf68df8bd2ad656f2e386a787d6b16bcceccfd9b1169db93aa5de8"
+    }
+  ]
+}

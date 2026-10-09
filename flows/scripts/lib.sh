@@ -3,144 +3,93 @@ set -euo pipefail
 
 PYC_ROOT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/../.." && pwd)"
 
-pyc_log() {
-  echo "[pyc] $*"
-}
-
-pyc_warn() {
-  echo "[pyc][warn] $*" >&2
-}
-
-pyc_die() {
-  echo "[pyc][error] $*" >&2
-  exit 1
-}
+pyc_log() { echo "[pyc] $*"; }
+pyc_warn() { echo "[pyc][warn] $*" >&2; }
+pyc_die() { echo "[pyc][error] $*" >&2; exit 1; }
 
 pyc_toolchain_root() {
   if [[ -n "${PYC_TOOLCHAIN_ROOT:-}" && -d "${PYC_TOOLCHAIN_ROOT}" ]]; then
     echo "${PYC_TOOLCHAIN_ROOT}"
     return 0
   fi
-
-  if [[ -n "${PYCC:-}" && -x "${PYCC}" ]]; then
-    local pycc_dir
-    pycc_dir="$(cd -- "$(dirname -- "${PYCC}")" && pwd)"
-    if [[ "$(basename -- "${pycc_dir}")" == "bin" ]]; then
-      echo "$(cd -- "${pycc_dir}/.." && pwd)"
-      return 0
-    fi
+  local candidate="${PYC_ROOT_DIR}/.pycircuit_out/toolchain/install"
+  if [[ -x "${candidate}/bin/pycircuit" ]]; then
+    echo "${candidate}"
+    return 0
   fi
-
-  local candidates=("${PYC_ROOT_DIR}/.pycircuit_out/toolchain/install")
-  local c=""
-  for c in "${candidates[@]}"; do
-    if [[ -x "${c}/bin/pycc" || -x "${c}/bin/pycc.exe" ]]; then
-      echo "${c}"
-      return 0
-    fi
-  done
-
   return 1
-}
-
-pyc_find_pycc() {
-  if [[ -n "${PYCC:-}" && -x "${PYCC}" ]]; then
-    if root="$(pyc_toolchain_root 2>/dev/null)"; then
-      export PYC_TOOLCHAIN_ROOT="${root}"
-    fi
-    return 0
-  fi
-
-  local exe_suffix=""
-  case "$(uname -s 2>/dev/null || true)" in
-    MINGW*|MSYS*|CYGWIN*) exe_suffix=".exe";;
-  esac
-
-  local toolchain_root=""
-  if toolchain_root="$(pyc_toolchain_root 2>/dev/null)"; then
-    if [[ -x "${toolchain_root}/bin/pycc${exe_suffix}" ]]; then
-      export PYC_TOOLCHAIN_ROOT="${toolchain_root}"
-      export PYCC="${toolchain_root}/bin/pycc${exe_suffix}"
-      return 0
-    fi
-    if [[ -x "${toolchain_root}/bin/pycc" ]]; then
-      export PYC_TOOLCHAIN_ROOT="${toolchain_root}"
-      export PYCC="${toolchain_root}/bin/pycc"
-      return 0
-    fi
-  fi
-
-  local candidates=(
-    # Canonical repository-local install tree.
-    "${PYC_ROOT_DIR}/.pycircuit_out/toolchain/install/bin/pycc${exe_suffix}"
-    "${PYC_ROOT_DIR}/.pycircuit_out/toolchain/install/bin/pycc"
-  )
-
-  # Pick the newest executable among the common build locations. This avoids
-  # accidentally grabbing an older `pycc` from a stale build directory.
-  local best=""
-  local best_mtime=0
-  for c in "${candidates[@]}"; do
-    if [[ -x "${c}" ]]; then
-      local mtime=0
-      if mtime="$(stat -f %m "${c}" 2>/dev/null)"; then
-        :
-      elif mtime="$(stat -c %Y "${c}" 2>/dev/null)"; then
-        :
-      else
-        mtime=0
-      fi
-      if (( mtime > best_mtime )); then
-        best="${c}"
-        best_mtime="${mtime}"
-      fi
-    fi
-  done
-  if [[ -n "${best}" ]]; then
-    export PYCC="${best}"
-    if root="$(pyc_toolchain_root 2>/dev/null)"; then
-      export PYC_TOOLCHAIN_ROOT="${root}"
-    fi
-    return 0
-  fi
-
-  if command -v pycc >/dev/null 2>&1; then
-    export PYCC
-    PYCC="$(command -v pycc)"
-    if root="$(pyc_toolchain_root 2>/dev/null)"; then
-      export PYC_TOOLCHAIN_ROOT="${root}"
-    fi
-    return 0
-  fi
-
-  if command -v pycc.exe >/dev/null 2>&1; then
-    export PYCC
-    PYCC="$(command -v pycc.exe)"
-    if root="$(pyc_toolchain_root 2>/dev/null)"; then
-      export PYC_TOOLCHAIN_ROOT="${root}"
-    fi
-    return 0
-  fi
-
-  pyc_die "missing pycc (set PYCC=... or build it with: flows/scripts/pyc build)"
 }
 
 pyc_pythonpath() {
   if [[ "${PYC_USE_INSTALLED_PYTHON_PACKAGE:-0}" == "1" ]]; then
     echo "${PYC_PYTHONPATH:-}"
-    return 0
-  fi
-
-  if [[ -n "${PYC_PYTHONPATH:-}" ]]; then
+  elif [[ -n "${PYC_PYTHONPATH:-}" ]]; then
     echo "${PYC_PYTHONPATH}"
-    return 0
+  else
+    echo "${PYC_ROOT_DIR}/python/pycircuit/src${PYTHONPATH:+:${PYTHONPATH}}"
   fi
-
-  # Prefer editable install, but use the canonical in-tree package for
-  # repository-local runs.
-  echo "${PYC_ROOT_DIR}/python/semantic-core/src:${PYC_ROOT_DIR}/python/pycircuit/src:${PYC_ROOT_DIR}"
 }
 
-pyc_out_root() {
-  echo "${PYC_ROOT_DIR}/.pycircuit_out"
+pyc_set_public_helpers() {
+  local root
+  root="$(pyc_toolchain_root)" || pyc_die "set PYC_TOOLCHAIN_ROOT to the installed pyCircuit toolchain"
+  local build="${PYC_BUILD_DIR:-$(pyc_out_root)/toolchain/build}"
+  export PYC_BUILD_DIR="${build}"
+  export PYC_TOOLCHAIN_ROOT="${root}"
+  export PYCIRCUIT_SOURCE_COMPILER="${PYCIRCUIT_SOURCE_COMPILER:-${root}/bin/pycircuit-source-unit}"
+  export PYCIRCUIT_LINKER="${PYCIRCUIT_LINKER:-${root}/bin/pycircuit-link}"
+  export PYCIRCUIT_EMITTER="${PYCIRCUIT_EMITTER:-${root}/bin/pycircuit-emit}"
+  export PYCIRCUIT_NATIVE_BUILD="${PYCIRCUIT_NATIVE_BUILD:-${build}}"
+  export PYCIRCUIT_COMPILER_INSTALL="${PYCIRCUIT_COMPILER_INSTALL:-${root}}"
+  export PYCIRCUIT_TEST_PREFIX="${PYCIRCUIT_TEST_PREFIX:-${root}}"
+  export PYCIRCUIT_TEST_OUTPUT="${PYCIRCUIT_TEST_OUTPUT:-$(pyc_out_root)/source-gate-consumers}"
+  export PATH="${root}/bin:${build}/bin:${PATH}"
+  for helper in "${PYCIRCUIT_SOURCE_COMPILER}" "${PYCIRCUIT_LINKER}" "${PYCIRCUIT_EMITTER}"; do
+    [[ -x "${helper}" ]] || pyc_die "required native helper is missing or not executable: ${helper}"
+  done
+}
+
+pyc_out_root() { echo "${PYC_ROOT_DIR}/.pycircuit_out"; }
+
+# Both test entry points retain the actual CTest selection and discard stale
+# success before building/running. --list never publishes a passing receipt.
+pyc_begin_test_run() {
+  local suite="$1" tier="$2"
+  gate_run_id="${PYC_GATE_RUN_ID:-$(date +%Y%m%d-%H%M%S)}"
+  docs_gate_dir="${PYC_ROOT_DIR}/docs/gates/logs/${gate_run_id}"
+  mkdir -p "${docs_gate_dir}"
+  rm -f "${docs_gate_dir}/${suite}-${tier}-summary.json"
+
+}
+
+pyc_finish_test_run() {
+  local suite="$1" tier="$2" scope="$3"
+  "${PYC_PYTHON_EXECUTABLE:-python3}" - "$docs_gate_dir" "$suite" "$tier" "$scope" <<'PYTHON'
+import json
+import sys
+from pathlib import Path
+folder, suite, tier, scope = sys.argv[1:]
+folder = Path(folder)
+selection = json.loads((folder / f"{suite}-{tier}-selection.json").read_text())
+names = [test["name"] for test in selection["tests"]]
+if not names:
+    raise SystemExit("empty CTest selection cannot pass")
+(folder / f"{suite}-{tier}-summary.json").write_text(json.dumps({
+    "run_id": folder.name, "suite": suite, "tier": tier, "status": "pass",
+    "scope": scope, "ctest_count": len(names), "tests": names,
+    "package_tests": suite == "api" and tier == "nightly",
+}, indent=2) + "\n")
+PYTHON
+  pyc_log "${suite} ${tier} passed; selection and results: ${docs_gate_dir}"
+}
+
+pyc_list_tests() {
+  # CTest's --no-tests=error does not reject an empty --show-only result.
+  ctest --test-dir "$3" -L "^$1$" -L "^$2$" --show-only=json-v1 --no-tests=error |
+    "${PYC_PYTHON_EXECUTABLE:-python3}" -c '
+import json, sys
+selection = json.load(sys.stdin)
+if not selection["tests"]:
+    raise SystemExit("empty CTest selection")
+print(json.dumps(selection, indent=2))'
 }

@@ -1,0 +1,2 @@
+# REQUIRES: iverilog, vvp
+# RUN: %python %inputs/queue-helper.py --helper %include/verilog/fifo.v --iverilog %iverilog --vvp %vvp --scratch %t.dir

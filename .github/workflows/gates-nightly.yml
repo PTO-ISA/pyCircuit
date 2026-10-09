@@ -1,4 +1,4 @@
-name: Nightly Heavy Simulation Diagnostics (G3)
+name: Nightly API and Example Tests
 
 on:
   workflow_dispatch:
@@ -16,8 +16,8 @@ env:
   PYC_GATE_RUN_ID: nightly-${{ github.run_id }}-${{ github.run_attempt }}
 
 jobs:
-  gate-g3-linux:
-    name: "G3: Heavy Simulation Diagnostics (Linux)"
+  nightly-linux:
+    name: "API and Examples (Linux)"
     runs-on: ubuntu-latest
     timeout-minutes: 240
     steps:
@@ -27,18 +27,24 @@ jobs:
       - name: Set up Python
         uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7
         with:
-          python-version: "3.11"
+          python-version: "3.14.6"
 
       - name: Install LLVM 22 + build/sim deps
         run: |
           set -euxo pipefail
           sudo apt-get update
-          sudo apt-get install -y wget gnupg software-properties-common cmake ninja-build clang iverilog
+          sudo apt-get install -y wget gnupg software-properties-common cmake ninja-build clang iverilog libgtest-dev
           wget --https-only https://apt.llvm.org/llvm.sh
           chmod +x llvm.sh
           sudo ./llvm.sh ${LLVM_VERSION}
           sudo apt-get install -y llvm-${LLVM_VERSION}-dev mlir-${LLVM_VERSION}-tools libmlir-${LLVM_VERSION}-dev
           echo "/usr/lib/llvm-${LLVM_VERSION}/bin" >> "$GITHUB_PATH"
+
+      - name: Install test tools
+        run: python -m pip install pytest
+
+      - name: Setup native test tools
+        uses: ./.github/actions/setup-native-test-tools
 
       - name: Setup Verilator
         uses: ./.github/actions/setup-verilator
@@ -47,13 +53,13 @@ jobs:
 
       - name: Build staged toolchain
         run: |
+          LLVM_CONFIG=/usr/lib/llvm-${LLVM_VERSION}/bin/llvm-config \
           bash flows/scripts/pyc build \
-            --llvm-config /usr/lib/llvm-${LLVM_VERSION}/bin/llvm-config \
             --build-dir "$PWD/.pycircuit_out/toolchain/build" \
             --install-prefix "$PWD/.pycircuit_out/toolchain/install"
 
-      - name: Run heavy simulation diagnostics (G3)
-        id: sims_nightly
+      - name: Run API tests (nightly)
+        id: api_nightly
         shell: bash
         run: |
           set -euxo pipefail
@@ -61,7 +67,14 @@ jobs:
           export PATH="$PYC_TOOLCHAIN_ROOT/bin:$PATH"
           export PYC_GATE_RUN_ID="${PYC_GATE_RUN_ID}"
           unset PYCC || true
-          bash flows/scripts/run_sims_nightly.sh
+          bash flows/scripts/run_api_tests.sh --tier nightly
+
+      - name: Run examples (nightly)
+        id: examples_nightly
+        if: ${{ !cancelled() && steps.api_nightly.outcome != 'skipped' }}
+        run: |
+          export PYC_TOOLCHAIN_ROOT="$PWD/.pycircuit_out/toolchain/install"
+          bash flows/scripts/run_examples.sh --tier nightly
 
       - name: Write gate summary
         if: always()
@@ -76,10 +89,12 @@ jobs:
               *) echo unknown ;;
             esac
           }
-          sims_status="$(map_outcome "${{ steps.sims_nightly.outcome }}")"
+          api_status="$(map_outcome "${{ steps.api_nightly.outcome }}")"
+          examples_status="$(map_outcome "${{ steps.examples_nightly.outcome }}")"
           python3 flows/tools/summarize_gate_run.py \
             --run-id "${PYC_GATE_RUN_ID}" \
-            --row "run_sims_nightly:G3:${sims_status}" \
+            --row "api-nightly:nightly:${api_status}" \
+            --row "examples-nightly:nightly:${examples_status}" \
             --append-to "${GITHUB_STEP_SUMMARY}"
 
       - name: Upload gate logs

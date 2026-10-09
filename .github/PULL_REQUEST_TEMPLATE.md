@@ -1,31 +1,17 @@
 ## Summary
 
--
-
-## pyc6 Decision / Contract Impact
-
-- Decision IDs:
-- Contract areas touched:
+Describe the problem and resulting behavior.
 
 ## Validation
 
-- Required PR checks:
-  - [ ] `G0: Python Checks`
-  - [ ] `G0: Agentic Python Checks`
-- Focused command for changed native/semantic behavior:
-- Evidence paths:
-- Release-only full lanes intentionally not run in the PR:
+- Commands and results:
+- Skipped checks and reason:
+- CI artifacts or local evidence:
 
-## Documentation
+## Scope and risks
 
-- Docs updated:
-- Docs intentionally unchanged because:
+- Affected source/IR/runtime contracts:
+- Documentation changes:
+- Remaining limitations or follow-up work:
 
-## Risk / Compatibility
-
-- User-visible impact:
-- Remaining risk:
-
-## Related Issues
-
-- Fixes #
+## Related issues

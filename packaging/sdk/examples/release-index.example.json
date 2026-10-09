@@ -1,21 +1,18 @@
 {
   "abi": {
     "consumer_lock": "1",
-    "generator_abi": "1",
+    "generator_abi": "2",
     "release_index": "1",
     "runtime_abi": "1",
     "sdk_manifest": "1"
   },
   "candidate_tag": "v6.1.0",
   "capabilities": [
-    "cycle-aware-signal",
-    "pyc-cpp",
-    "pyc-verilog",
-    "acc-source-to-ac",
-    "acc-cpp",
-    "acc-cpp-bundle",
-    "acc-verilog",
-    "gfsim-runtime-v1"
+    "pycircuit-pythonic-source",
+    "pycircuit-source-units",
+    "pycircuit-cpp",
+    "pycircuit-verilog",
+    "pyc6-runtime-v1"
   ],
   "distributions": {
     "pycircuit-hisi": "6.1.0"

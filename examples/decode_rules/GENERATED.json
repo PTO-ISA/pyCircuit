@@ -1,0 +1,63 @@
+{
+  "schema": "pycircuit-generated-example-v1",
+  "example": "decode_rules",
+  "entry": {
+    "arguments": [],
+    "definition": "@\"example_decode_rules.decode_rules.DecodeRules\""
+  },
+  "verification": {
+    "schema": "pycircuit-example-verification-v1",
+    "inputs": {
+      "source/CMakeLists.txt": "6958c0c2f56f46d1b69b0cc289cd589b633c54ca080703c390b152e31fa41949",
+      "source/config.json": "e3f9c7dd813e920f0f9988bccf6d6a8cbc71226b3f475a09f5338b93176c9aa3",
+      "source/decode_rules.py": "acb67f245ff9b7ff4a6641f95c9b5f8d51e615a2d8af0de6d85f0e0274369f5f",
+      "source/driver.cpp": "1a8345ad4e239f1c25c287fe6c47d68b78d23238dd4bc9e781ea3eb549651f26",
+      "source/rtl_tb.sv": "cc48dfe0256c133a2a4bde964e93e882fb182fa8fca94c93a26f1ed11b624acd",
+      "build/cpp/generated.json": "90de805e759ba27a77354bde2bf74ea0191f8c345303acc0a170ecab8bab8deb",
+      "build/cpp/CMakeLists.txt": "9670f11d207c59699fc69f052ee71e8393d2936f71791351279a83f378f69c0e",
+      "build/cpp/pycircuit_support.hpp": "08ef3e351629dfc0608204d006dc9a232d3e0887c75db8398442261ebd5bcf69",
+      "build/cpp/pycircuit_system.hpp": "75672c7f13527deb5b3987a30fe8c97fb53019a5e2b815d8e27950a3c1e6a1fb",
+      "build/cpp/sources/example_decode_rules/decode_rules.cpp": "30dc8e5df4f5756a7982f750dd6105ed7f069fcd609c500296a80c408045cb5f",
+      "build/cpp/sources/example_decode_rules/decode_rules.hpp": "0e8af133734cbecd0ac196198668eff5d1fbc579b06fe8f9f6d2d3b71b570e55",
+      "build/cpp/sources/example_decode_rules/decode_rules.source-map.json": "ad3fda0a1b7ace29e895642f4c4228ca1dbefea9f8fbe904b00dc2450c8202a1",
+      "build/verilog/generated.json": "a4bcc405f38f9cf7fa362c927c0af9e09e52aed8de72ee867b0315a8493b0e86",
+      "build/verilog/CMakeLists.txt": "a40cf52ba2b1b39835a1b1bc9d9080d6896f6110693595651a18b42625d95a73",
+      "build/verilog/design_top.sv": "73ffdae03735d4bb7ed5138e51bb65d53fbef14985c9a365f9a292e6f2e96796",
+      "build/verilog/sources/example_decode_rules/decode_rules.source-map.json": "6d83a16d6860c4fbd6ee8f194e284382e8efa0df8d4b195ca985dd133b5ca8eb",
+      "build/verilog/sources/example_decode_rules/decode_rules.v": "1d1ccefc3d75a49d4e72425f92add23e4285d26ca50904c31fda20066b599a24",
+      "build/decode_rules.ac": "d010038975c399d82b3bcbf09a5d2e24467c95f2fa55aa660c63541817b449c6",
+      "runtime-rtl/byte_mem.v": "33bd9f73dd7cd17f3531cfd8c321762c214ad5df23b5376add212dadd38c47c2",
+      "runtime-rtl/dff.v": "e4f604bd03b9f1651ddbcd71e9ebb1cd8af45018caeab341728b35c14ec0f553",
+      "runtime-rtl/dffe.v": "9ae323530b72d152d10628de94923eaefa411b29e13c647de21bed8b0d73833b",
+      "runtime-rtl/fifo.v": "2dc4086ad3085bd67504caaac0565a3e676f87ce5411cc019fe8ef3a3bc43b23",
+      "runtime-rtl/sync_mem.v": "207b0fe22f029828ac90b50d2ce0aabbb01763231cd153883f31b581d03d68b7",
+      "runtime-rtl/sync_mem_dp.v": "44672a092661f3c218f71534d0d656a2d7d0bfdb03bc6b7a3394e2f13eea86d4",
+      "runner": "8db9055d864fa3095c115e8d03e8ed8a1fa24bc2ef22436880d044ba3cdf5f52"
+    },
+    "execution_sha256": "c14aad8d2c887169e3ee21accd7ab668518fc455c939433cbcd974068ddc540f",
+    "work_samples": 257,
+    "workers": [
+      1,
+      2
+    ],
+    "rtl": "verilator",
+    "trace_sha256": "7fbbd641e565a15ddcc6c9282f78e49621c62103f1207e62a0830c816dbb9593"
+  },
+  "excerpts": [
+    {
+      "path": "decode_rules.ac",
+      "line": 4,
+      "sha256": "d010038975c399d82b3bcbf09a5d2e24467c95f2fa55aa660c63541817b449c6"
+    },
+    {
+      "path": "cpp/sources/example_decode_rules/decode_rules.hpp",
+      "line": 12,
+      "sha256": "0e8af133734cbecd0ac196198668eff5d1fbc579b06fe8f9f6d2d3b71b570e55"
+    },
+    {
+      "path": "verilog/sources/example_decode_rules/decode_rules.v",
+      "line": 1,
+      "sha256": "1d1ccefc3d75a49d4e72425f92add23e4285d26ca50904c31fda20066b599a24"
+    }
+  ]
+}

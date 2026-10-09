@@ -1,0 +1,63 @@
+{
+  "schema": "pycircuit-generated-example-v1",
+  "example": "struct_transform",
+  "entry": {
+    "arguments": [],
+    "definition": "@\"example_struct_transform.struct_transform.StructTransform\""
+  },
+  "verification": {
+    "schema": "pycircuit-example-verification-v1",
+    "inputs": {
+      "source/CMakeLists.txt": "ba02ee4607a210f6010baf9dbf05ff9e7f2bc1ff21e180dc00de84a47dac5de2",
+      "source/config.json": "9cf1afc7e50b138013304e2857f407acfb08b62643d945c52794a43e8e7a9027",
+      "source/driver.cpp": "d05bc9e90f161636757fbf331d06cc93fbd36ee439766441d3ca76fafd1607f5",
+      "source/rtl_tb.sv": "8a1b0b82a63109fbbc1b54e04b9babdcba5c64e73edc0850d238a8581c95fe9f",
+      "source/struct_transform.py": "35063d1930ec81292ea95d398ce02bad142f0d45de2755f67b72836f4948367e",
+      "build/cpp/generated.json": "aff00bf26ef504a1b7e9cdb0f676b54486edbf8ce3e49cd308281be26db41220",
+      "build/cpp/CMakeLists.txt": "53619ad43eebf9626a5223b229ea1f99ba84073611e740a0905c2237ffba6fa9",
+      "build/cpp/pycircuit_support.hpp": "b10cc662dc38ba9f26c257bb962fce8e09f7412e430f900885c2269a3fabb159",
+      "build/cpp/pycircuit_system.hpp": "5db20cd8f611b4b04235a540783850fc065b1c64c39e54cde30eae8f1e1c378a",
+      "build/cpp/sources/example_struct_transform/struct_transform.cpp": "6b2d63b98395e15778cdc8d2f86629f8a96668a8eca6c8d69e9705aa08592285",
+      "build/cpp/sources/example_struct_transform/struct_transform.hpp": "8316b4560f7b9b131a95583c7e5df677b4b210681da5d31240264d078c424433",
+      "build/cpp/sources/example_struct_transform/struct_transform.source-map.json": "efcc894e732a0d962f6e6d93c43ed9a1ceadc0f4f35921c927218e8e1c15217a",
+      "build/verilog/generated.json": "a267b1d2b5d5dcd45e8b5c6fcb655c9e4e66403c6a756634104b6956f6583f62",
+      "build/verilog/CMakeLists.txt": "e0355fa24061b101b9601a629b373ddbcd39295c3b20500f2c636473d5f7ab15",
+      "build/verilog/design_top.sv": "f801e696940e2a226591f695818e7f215645656b5d37b0ee89bd472bbc58b59c",
+      "build/verilog/sources/example_struct_transform/struct_transform.source-map.json": "acf539e33a2c5dde01c9bfe133160d32bf792b692aff4331e240b1b631098a4e",
+      "build/verilog/sources/example_struct_transform/struct_transform.v": "f2776eacbee7421f7b8716627e361cc90706b0fabd185a4859d26d5b73833ca5",
+      "build/struct_transform.ac": "ef78fbe3de854f42e632f065a398a1f3840e6d137591d91203427f972c6757b8",
+      "runtime-rtl/byte_mem.v": "33bd9f73dd7cd17f3531cfd8c321762c214ad5df23b5376add212dadd38c47c2",
+      "runtime-rtl/dff.v": "e4f604bd03b9f1651ddbcd71e9ebb1cd8af45018caeab341728b35c14ec0f553",
+      "runtime-rtl/dffe.v": "9ae323530b72d152d10628de94923eaefa411b29e13c647de21bed8b0d73833b",
+      "runtime-rtl/fifo.v": "2dc4086ad3085bd67504caaac0565a3e676f87ce5411cc019fe8ef3a3bc43b23",
+      "runtime-rtl/sync_mem.v": "207b0fe22f029828ac90b50d2ce0aabbb01763231cd153883f31b581d03d68b7",
+      "runtime-rtl/sync_mem_dp.v": "44672a092661f3c218f71534d0d656a2d7d0bfdb03bc6b7a3394e2f13eea86d4",
+      "runner": "7f4965085f08db9f53f148ced88fca70e1685d1010814dc3d7e387127fdb01ad"
+    },
+    "execution_sha256": "a00861bf90330c8054dad75722a48f8bb23dfd1783f61806ee714d8a9a1d04ed",
+    "work_samples": 149,
+    "workers": [
+      1,
+      2
+    ],
+    "rtl": "verilator",
+    "trace_sha256": "0d2ef3bc9fd803a8e2074a03b805aae8bc1e14bf05aea31565205f07d9c2e100"
+  },
+  "excerpts": [
+    {
+      "path": "struct_transform.ac",
+      "line": 7,
+      "sha256": "ef78fbe3de854f42e632f065a398a1f3840e6d137591d91203427f972c6757b8"
+    },
+    {
+      "path": "cpp/sources/example_struct_transform/struct_transform.hpp",
+      "line": 24,
+      "sha256": "8316b4560f7b9b131a95583c7e5df677b4b210681da5d31240264d078c424433"
+    },
+    {
+      "path": "verilog/sources/example_struct_transform/struct_transform.v",
+      "line": 1,
+      "sha256": "f2776eacbee7421f7b8716627e361cc90706b0fabd185a4859d26d5b73833ca5"
+    }
+  ]
+}

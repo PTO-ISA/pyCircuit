@@ -1,0 +1,128 @@
+{
+  "$id": "https://pto-isa.org/schemas/pycircuit/release-index-v1.schema.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "pyCircuit SDK release inventory v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema",
+    "version",
+    "candidate_tag",
+    "product_version",
+    "source_revision",
+    "distributions",
+    "abi",
+    "capabilities",
+    "platforms",
+    "wheels",
+    "licenses",
+    "release_notes"
+  ],
+  "properties": {
+    "schema": {
+      "const": "pycircuit-sdk-release-index"
+    },
+    "version": {
+      "const": "1"
+    },
+    "candidate_tag": {
+      "type": "string",
+      "pattern": "^v[0-9]+\\.[0-9]+\\.[0-9]+$"
+    },
+    "product_version": {
+      "type": "string",
+      "minLength": 1
+    },
+    "source_revision": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{40}$"
+    },
+    "distributions": {
+      "type": "object"
+    },
+    "abi": {
+      "type": "object"
+    },
+    "capabilities": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      },
+      "uniqueItems": true
+    },
+    "platforms": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "linux-x86_64",
+        "macos-arm64",
+        "windows-x86_64"
+      ],
+      "properties": {
+        "linux-x86_64": {
+          "$ref": "#/$defs/platform"
+        },
+        "macos-arm64": {
+          "$ref": "#/$defs/platform"
+        },
+        "windows-x86_64": {
+          "$ref": "#/$defs/platform"
+        }
+      }
+    },
+    "wheels": {
+      "type": "object",
+      "minProperties": 3,
+      "additionalProperties": {
+        "$ref": "#/$defs/asset"
+      }
+    },
+    "licenses": {
+      "$ref": "#/$defs/asset"
+    },
+    "release_notes": {
+      "$ref": "#/$defs/asset"
+    }
+  },
+  "$defs": {
+    "asset": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "name",
+        "size",
+        "url"
+      ],
+      "properties": {
+        "name": {
+          "type": "string",
+          "minLength": 1
+        },
+        "size": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "url": {
+          "type": "string",
+          "format": "uri"
+        }
+      }
+    },
+    "platform": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "archive",
+        "manifest"
+      ],
+      "properties": {
+        "archive": {
+          "$ref": "#/$defs/asset"
+        },
+        "manifest": {
+          "$ref": "#/$defs/asset"
+        }
+      }
+    }
+  }
+}

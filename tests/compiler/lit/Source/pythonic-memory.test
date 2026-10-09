@@ -1,0 +1,3 @@
+# REQUIRES: verilator
+# Native four-state checks are mandatory; Icarus additionally checks RTL known windows.
+# RUN: %python %S/Inputs/pythonic-memory.py --repo %src --source-compiler %pycircuit_source_unit --linker %pycircuit_link --emitter %pycircuit_emit --opt %pycircuit_opt --cxx %cxx --verilator %verilator --scratch %t.dir

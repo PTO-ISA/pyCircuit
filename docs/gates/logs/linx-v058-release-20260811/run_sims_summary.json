@@ -1,7 +1,0 @@
-{
-  "run_id": "linx-v058-release-20260811",
-  "script": "run_sims.sh",
-  "status": "pass",
-  "case_timeout_sec": 3600,
-  "retry_on_timeout": 1
-}

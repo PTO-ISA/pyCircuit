@@ -1,0 +1,3 @@
+# API-owned historical expectation/credit systems; independent full fault/reset gates stay separate.
+# REQUIRES: verilator
+# RUN: %python %S/Inputs/history-pipeline/run.py --repo %src --source-compiler %pycircuit_source_unit --linker %pycircuit_link --emitter %pycircuit_emit --cxx %cxx --verilator %verilator --scratch %t.dir

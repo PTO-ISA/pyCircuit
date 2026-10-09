@@ -1,9 +1,0 @@
-{
-  "run_id": "20260831-agentic-consolidation-r2",
-  "script": "run_agentic_circuit.sh",
-  "status": "pass",
-  "lanes": ["AC G0", "AC G1", "AC G2"],
-  "contract_epoch": "0.3",
-  "pyc_interface": "pyc6",
-  "cases": ["arbiter", "atomic-transform", "popcount"]
-}

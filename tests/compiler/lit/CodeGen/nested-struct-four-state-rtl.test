@@ -1,0 +1,4 @@
+# REQUIRES: rtl-four-state-parameter-types
+# RUN: %pycircuit_emit %inputs/nested-struct.mlir --target verilog --format source > %t.sv
+# RUN: %iverilog -g2012 -s tb -o %t.exe %t.sv %include/verilog/dff.v %inputs/nested_struct_four_state.sv
+# RUN: %vvp %t.exe

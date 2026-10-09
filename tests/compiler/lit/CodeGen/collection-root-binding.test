@@ -1,0 +1,2 @@
+# REQUIRES: verilator
+# RUN: %python %inputs/collection_root_glue.py %src %pycircuit_emit binding %t.dir

@@ -1,0 +1,64 @@
+{
+  "schema": "pycircuit-generated-example-v1",
+  "example": "count_zeros_pipeline",
+  "entry": {
+    "arguments": [],
+    "definition": "@\"example_count_zeros_pipeline.count_zeros_pipeline.CountZerosPipeline\""
+  },
+  "verification": {
+    "schema": "pycircuit-example-verification-v1",
+    "inputs": {
+      "source/CMakeLists.txt": "c61d66b182cf9dcda859da32ad491e8daf4db72ba9027df1d1ac7682d718d76a",
+      "source/config.json": "4236b13287aa69791ceec9bd072100dc425dcdabd4ebb450b6185026bd65ae2f",
+      "source/count_zeros_pipeline.py": "f027d295c661dbb0727a00ede8ac4397042c8889b8858fb6615ec12eb75639a6",
+      "source/driver.cpp": "4e662ad458c8a204961fcf650cab480c0e4f5e1b9fe9268fa4b3aacfa26551ba",
+      "source/four_state.py": "c01a858c041611d78b46f3fa0874ac38f928c786402688d3f8ef722a4995e2ae",
+      "source/rtl_tb.sv": "7455ca0b556cd192fa27178e27f3192d340eb63ab6e6a3895b1610674c1549ea",
+      "build/cpp/generated.json": "c1bcaf3f8acc830da35cb39ad12304a4a852a2b3f8307a97d6f69ff96672b8ec",
+      "build/cpp/CMakeLists.txt": "25a915acd5fa447eb923fc07002ee3fb623f6f764668b5da889048d4d13f1278",
+      "build/cpp/pycircuit_support.hpp": "fcf81d646ce161f25b6763fdb03545e8d81191e828c1b2bbcbc425cfaae6864a",
+      "build/cpp/pycircuit_system.hpp": "c925869717b1e9225d9bd753f66b0c4f5749929cfa5651f651662722fe36462f",
+      "build/cpp/sources/example_count_zeros_pipeline/count_zeros_pipeline.cpp": "0d7e199b0f6bbf09e8d42110a3538ddb3af20729adb80a9cbe8e677362bb3538",
+      "build/cpp/sources/example_count_zeros_pipeline/count_zeros_pipeline.hpp": "965c20ccc58070074feff732fac471bca756642c07cef745e362fe7d9051fe20",
+      "build/cpp/sources/example_count_zeros_pipeline/count_zeros_pipeline.source-map.json": "476a8923ad28853146605cc5d5d12b3dff162f99d84f8618c4de5d2ae84c2289",
+      "build/verilog/generated.json": "c36accc2c188c7beefbc40e3fca70d6bf85a2de9068b7428fccc2767c7632e85",
+      "build/verilog/CMakeLists.txt": "b922c28a27032e9034f7baa41daca7a025dfff9d3c176d0ffd3156fc09706442",
+      "build/verilog/design_top.sv": "e9844242e98849a7677ff8c62ad3ed731a4d32a6cbff14b4b853d6e35d62f9f9",
+      "build/verilog/sources/example_count_zeros_pipeline/count_zeros_pipeline.source-map.json": "4c3550efc84d84d4cd6a572319f79332f4e7fd4da9bbdce42c76bd17ffeb9901",
+      "build/verilog/sources/example_count_zeros_pipeline/count_zeros_pipeline.v": "d365eb9f0db4fe9988a589dcfdef87addccadedd008094130f61a653e310b0e9",
+      "build/count_zeros_pipeline.ac": "a4c3ab2a8b26fd586ba938ed22cd95ec4d545d0f1983ffcd83432f594686b421",
+      "runtime-rtl/byte_mem.v": "33bd9f73dd7cd17f3531cfd8c321762c214ad5df23b5376add212dadd38c47c2",
+      "runtime-rtl/dff.v": "e4f604bd03b9f1651ddbcd71e9ebb1cd8af45018caeab341728b35c14ec0f553",
+      "runtime-rtl/dffe.v": "9ae323530b72d152d10628de94923eaefa411b29e13c647de21bed8b0d73833b",
+      "runtime-rtl/fifo.v": "2dc4086ad3085bd67504caaac0565a3e676f87ce5411cc019fe8ef3a3bc43b23",
+      "runtime-rtl/sync_mem.v": "207b0fe22f029828ac90b50d2ce0aabbb01763231cd153883f31b581d03d68b7",
+      "runtime-rtl/sync_mem_dp.v": "44672a092661f3c218f71534d0d656a2d7d0bfdb03bc6b7a3394e2f13eea86d4",
+      "runner": "4df199212a3e0790523aaa4b625b81f7f11b766edf53b5c744cadadebdfa2c64"
+    },
+    "execution_sha256": "24838539282e340dff8e2e3c4cad7cee3f18f7a35770ffdd63def6665f2a1db8",
+    "work_samples": 18985,
+    "workers": [
+      1,
+      2
+    ],
+    "rtl": "verilator",
+    "trace_sha256": "35be217a365e1f25965620d10cb793aa3cf46f4c00b4fc80e649a57120220b84"
+  },
+  "excerpts": [
+    {
+      "path": "count_zeros_pipeline.ac",
+      "line": 5,
+      "sha256": "a4c3ab2a8b26fd586ba938ed22cd95ec4d545d0f1983ffcd83432f594686b421"
+    },
+    {
+      "path": "cpp/sources/example_count_zeros_pipeline/count_zeros_pipeline.hpp",
+      "line": 38,
+      "sha256": "965c20ccc58070074feff732fac471bca756642c07cef745e362fe7d9051fe20"
+    },
+    {
+      "path": "verilog/sources/example_count_zeros_pipeline/count_zeros_pipeline.v",
+      "line": 1,
+      "sha256": "d365eb9f0db4fe9988a589dcfdef87addccadedd008094130f61a653e310b0e9"
+    }
+  ]
+}

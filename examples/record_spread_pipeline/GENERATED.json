@@ -1,0 +1,64 @@
+{
+  "schema": "pycircuit-generated-example-v1",
+  "example": "record_spread_pipeline",
+  "entry": {
+    "arguments": [],
+    "definition": "@\"example_record_spread_pipeline.record_spread_pipeline.RecordSpreadPipeline\""
+  },
+  "verification": {
+    "schema": "pycircuit-example-verification-v1",
+    "inputs": {
+      "source/CMakeLists.txt": "45da7fdc977c0c3bc7856380cb37b0fc9f76e41d7c2b029e9078679775438032",
+      "source/config.json": "b88f5ae88412b1a644cf75dbcaa20c6b9244c28fddb64065ad8f0f1e634db2a5",
+      "source/driver.cpp": "9f9170f73eff4e0e23868016c24056c6aaf692e1e29af1628625c128b71f77c7",
+      "source/four_state.py": "4f16129c3953b76459d784acd42dc1cba2388886500485bb1fdf0ff527ba3ef3",
+      "source/record_spread_pipeline.py": "2dfe2d2d2fc39945843f128080f7044d6c96b45b27916a288cbba682a192724f",
+      "source/rtl_tb.sv": "8ebf4075dcd1d40d9f73086070971f253118b47141ab8234ad7039a88fae3e5d",
+      "build/cpp/generated.json": "64a9a109c1e5b18bcda70afe089a2d87faeadd731f606706230363ec4eff6b22",
+      "build/cpp/CMakeLists.txt": "0e757cc7b88e2e9cd404c6a9227e61ae93f1f1d85a94b01857cbf343ecb7d82f",
+      "build/cpp/pycircuit_support.hpp": "ee250bd32111b0d4ca170624f9b82d7f64f89025d77c96db9c3c5f51fd0e80ad",
+      "build/cpp/pycircuit_system.hpp": "ea13b77969fbd687ce0ea8087b22787f3021cef2cac0047098da66b18a827775",
+      "build/cpp/sources/example_record_spread_pipeline/record_spread_pipeline.cpp": "d85fdbbe7d3cfd8de6f5ffd765ab1952b39ce5695a7b79bad1bc91b48ad31bd1",
+      "build/cpp/sources/example_record_spread_pipeline/record_spread_pipeline.hpp": "99f4e0ff3299dbf4428c39936fedff64375706a841008d0551a2cd279af25057",
+      "build/cpp/sources/example_record_spread_pipeline/record_spread_pipeline.source-map.json": "583ad0fc23e800686f664b4d0500525dd8e9a67d7502e1c72088dc7a8fdb0c61",
+      "build/verilog/generated.json": "d549f2701e5d01abd8486f437eb389a85f89fab0f72c1b6865c766d099b63122",
+      "build/verilog/CMakeLists.txt": "10014adcc4bfdde0d74b74ea020ca7b353133137d9813207dcb784275aa08b0a",
+      "build/verilog/design_top.sv": "e7b9e0a177f45ef4eb2f5b0bc90e5cc59b5df33bd607831240e55fdf616fa177",
+      "build/verilog/sources/example_record_spread_pipeline/record_spread_pipeline.source-map.json": "ec2de161378abf500b9ec4d79ea417aeac2ec76c05fc1d98109c15ab38b073f3",
+      "build/verilog/sources/example_record_spread_pipeline/record_spread_pipeline.v": "d0055088818822040335957136d418cf310ed3752bd322f788372b73092a07b0",
+      "build/record_spread_pipeline.ac": "e8baa137341b21177c730d93581078f51e2e2def7cb3637d724d5535ae09d7ed",
+      "runtime-rtl/byte_mem.v": "33bd9f73dd7cd17f3531cfd8c321762c214ad5df23b5376add212dadd38c47c2",
+      "runtime-rtl/dff.v": "e4f604bd03b9f1651ddbcd71e9ebb1cd8af45018caeab341728b35c14ec0f553",
+      "runtime-rtl/dffe.v": "9ae323530b72d152d10628de94923eaefa411b29e13c647de21bed8b0d73833b",
+      "runtime-rtl/fifo.v": "2dc4086ad3085bd67504caaac0565a3e676f87ce5411cc019fe8ef3a3bc43b23",
+      "runtime-rtl/sync_mem.v": "207b0fe22f029828ac90b50d2ce0aabbb01763231cd153883f31b581d03d68b7",
+      "runtime-rtl/sync_mem_dp.v": "44672a092661f3c218f71534d0d656a2d7d0bfdb03bc6b7a3394e2f13eea86d4",
+      "runner": "a950f9fbf60109f0f28d5f696f4e9ce0d7265e9a477d4cc77cbb3a693c4ba16b"
+    },
+    "execution_sha256": "7b273fef8de5c87bacc63f714cae2b12da3f7d9022c18fd4070fbb220305f99e",
+    "work_samples": 317,
+    "workers": [
+      1,
+      2
+    ],
+    "rtl": "verilator",
+    "trace_sha256": "ef50846fe1b4df016a013652ec83696ca92a8fb028bd05c67b57ef23e0f2ef98"
+  },
+  "excerpts": [
+    {
+      "path": "record_spread_pipeline.ac",
+      "line": 10,
+      "sha256": "e8baa137341b21177c730d93581078f51e2e2def7cb3637d724d5535ae09d7ed"
+    },
+    {
+      "path": "cpp/sources/example_record_spread_pipeline/record_spread_pipeline.hpp",
+      "line": 88,
+      "sha256": "99f4e0ff3299dbf4428c39936fedff64375706a841008d0551a2cd279af25057"
+    },
+    {
+      "path": "verilog/sources/example_record_spread_pipeline/record_spread_pipeline.v",
+      "line": 1,
+      "sha256": "d0055088818822040335957136d418cf310ed3752bd322f788372b73092a07b0"
+    }
+  ]
+}

@@ -1,0 +1,58 @@
+add_acir_library(ACIRDialect SOURCES
+  ACIRConstantOps.cpp
+  ACIRDialect.cpp
+  ACIREnumOps.cpp
+  ACIRIdentityContracts.cpp
+  ACIRMathOps.cpp
+  ACIRNumericProofOps.cpp
+  ACIRModuleContracts.cpp
+  ACIRModuleOps.cpp
+  ACIRBitsOps.cpp
+  ACIRCollectionOps.cpp
+  ACIRQueueOps.cpp
+  ACIRPacketOps.cpp
+  ACIRPacketTypes.cpp
+  ACIRSystemOps.cpp
+  ACIRRegistration.cpp
+  ACIRSourceContracts.cpp
+  ACIRStaticContracts.cpp
+  ACIRStaticEvaluation.cpp
+  SourceStaticRecordConstructors.cpp
+  SourceStaticDomains.cpp
+  SourceStaticValueContracts.cpp
+  SourceAttributeContracts.cpp
+  SourceValueSemantics.cpp
+  SourceEffects.cpp
+  SourceSyntaxSiteContracts.cpp
+  SourceUnitValidation.cpp
+  FinalSourceUnitValidation.cpp
+  SourceNamespaceValidation.cpp
+  HardwareAnalysis.cpp
+  HardwareAnalysisDependencies.cpp
+  HardwareAnalysisValidation.cpp
+  HardwareSourceChecks.cpp
+  HardwareSourceCheckPreflight.cpp
+  HardwareDependencySerialization.cpp
+  HardwareWorkPartition.cpp
+  "${PYCIRCUIT_SOURCE_DIR}/lib/Compiler/SourceIdentifier.cpp"
+)
+add_dependencies(ACIRDialect
+  ACIRDialectIncGen
+  ACIRAttributesIncGen
+  ACIRTypesIncGen
+  ACIROpsIncGen
+)
+target_link_libraries(ACIRDialect PUBLIC
+  MLIRArithDialect
+  MLIRFuncDialect
+  MLIRSCFDialect
+  MLIRSideEffectInterfaces
+)
+target_include_directories(ACIRDialect PUBLIC
+  "$<BUILD_INTERFACE:${PYCIRCUIT_SOURCE_DIR}/include>"
+  "$<BUILD_INTERFACE:${PYCIRCUIT_BINARY_DIR}/include>"
+  "$<INSTALL_INTERFACE:include>"
+)
+target_include_directories(ACIRDialect PRIVATE
+  "${PYCIRCUIT_SOURCE_DIR}/lib"
+)

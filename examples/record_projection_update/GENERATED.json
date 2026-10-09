@@ -1,0 +1,64 @@
+{
+  "schema": "pycircuit-generated-example-v1",
+  "example": "record_projection_update",
+  "entry": {
+    "arguments": [],
+    "definition": "@\"example_record_projection_update.record_projection_update.RecordProjectionUpdate\""
+  },
+  "verification": {
+    "schema": "pycircuit-example-verification-v1",
+    "inputs": {
+      "source/CMakeLists.txt": "f25646a619e634b21ad5dbd0692bc3c0120be2b568549df3a56068f8fd11da5e",
+      "source/config.json": "0310a5734bfce94c7b1e7781b62d02f3c33ce2f817a375a6257a0aaa8e450006",
+      "source/driver.cpp": "62e95557e069ce481604b13feaee5e2e9662117f5ba18edc66ce53f0d860833e",
+      "source/four_state.py": "a173097aba552763fe0bebd5ff79b67c102b56cb4ecbf86ab3faa9fb848dc057",
+      "source/record_projection_update.py": "1ae0ef64f449eada4bdc31fc62d48729f350cbdca3010aa3bb0c0f42d3caf307",
+      "source/rtl_tb.sv": "97fcc40b7518d376c93c603e7a990a8cdec1b973a30d72a31a6fcd63e3bd051d",
+      "build/cpp/generated.json": "ac11446e32e4e489a2e2281d0569827cc239c2dadd2d7c4c638085a27d299a1b",
+      "build/cpp/CMakeLists.txt": "b8123568331b4dc810417dc8383db06e461f9ab41d97e94c71f4b7786569207e",
+      "build/cpp/pycircuit_support.hpp": "62ce5d4f39d52d58de5a4fad5eee139c4eb9681b8f49930f2a0b58bec119a460",
+      "build/cpp/pycircuit_system.hpp": "7ea338f107d4b5ff039646b973450b5ae65ae950a87ae02accb1a691190b5763",
+      "build/cpp/sources/example_record_projection_update/record_projection_update.cpp": "3973865fb2e61ebaad014b94aba0e57bfbe68d0ededee065e100a5cfc66141a4",
+      "build/cpp/sources/example_record_projection_update/record_projection_update.hpp": "a890bd0d068b2ad7d37a66b194c135bc8c6ff47f185da64d3dff55901ec69c13",
+      "build/cpp/sources/example_record_projection_update/record_projection_update.source-map.json": "4dd34f4553021db74ce62b84feafe435c6fdf9b04d18d591fffcf7e98e2e50ac",
+      "build/verilog/generated.json": "d392cfa77c480bcabafcfe5cdba80ba166e8470afb17924a22e246728110f557",
+      "build/verilog/CMakeLists.txt": "262c8e2ab2200fa071a6053635ad65eb6c574d54f5a4d847d67b7f0d606de1f3",
+      "build/verilog/design_top.sv": "2064db11857dbcf6ff61b3c7de085153212d2044221c2a3b11142a67e9de28c7",
+      "build/verilog/sources/example_record_projection_update/record_projection_update.source-map.json": "f97318a02208ebb272ae4741cb55336b27a0f26982c537902c905e3145d9bb0e",
+      "build/verilog/sources/example_record_projection_update/record_projection_update.v": "4a819599945292b8e99e4e9ade8bda968dd5b4e07cbf69c38a18e6fb1bd15632",
+      "build/record_projection_update.ac": "33c8123ee6dc94de4798d36ea68b1b372d49b446aa699d873fbf141115b1410b",
+      "runtime-rtl/byte_mem.v": "33bd9f73dd7cd17f3531cfd8c321762c214ad5df23b5376add212dadd38c47c2",
+      "runtime-rtl/dff.v": "e4f604bd03b9f1651ddbcd71e9ebb1cd8af45018caeab341728b35c14ec0f553",
+      "runtime-rtl/dffe.v": "9ae323530b72d152d10628de94923eaefa411b29e13c647de21bed8b0d73833b",
+      "runtime-rtl/fifo.v": "2dc4086ad3085bd67504caaac0565a3e676f87ce5411cc019fe8ef3a3bc43b23",
+      "runtime-rtl/sync_mem.v": "207b0fe22f029828ac90b50d2ce0aabbb01763231cd153883f31b581d03d68b7",
+      "runtime-rtl/sync_mem_dp.v": "44672a092661f3c218f71534d0d656a2d7d0bfdb03bc6b7a3394e2f13eea86d4",
+      "runner": "d8bc9903e2fc7b9236f9191669630d8b93dd305f5cc0fb12936743434b231b39"
+    },
+    "execution_sha256": "84f2eccfcf62c9bbd39f227e4a760267f6b5f8abfd82aaf3df297ed6ce70cee0",
+    "work_samples": 101,
+    "workers": [
+      1,
+      2
+    ],
+    "rtl": "verilator",
+    "trace_sha256": "add4e7de4879d8c917a06439c32856f5fcd7ac9bfca75d987583ecb8707237b0"
+  },
+  "excerpts": [
+    {
+      "path": "record_projection_update.ac",
+      "line": 7,
+      "sha256": "33c8123ee6dc94de4798d36ea68b1b372d49b446aa699d873fbf141115b1410b"
+    },
+    {
+      "path": "cpp/sources/example_record_projection_update/record_projection_update.hpp",
+      "line": 38,
+      "sha256": "a890bd0d068b2ad7d37a66b194c135bc8c6ff47f185da64d3dff55901ec69c13"
+    },
+    {
+      "path": "verilog/sources/example_record_projection_update/record_projection_update.v",
+      "line": 1,
+      "sha256": "4a819599945292b8e99e4e9ade8bda968dd5b4e07cbf69c38a18e6fb1bd15632"
+    }
+  ]
+}

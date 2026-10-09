@@ -1,4 +1,0 @@
-design compile failed: <pycircuit_v5_strip_domain>:30:18: [PYC430] removed API `zext` is not supported
-stage=jit
-  |         ra_ext = ra.zext(cmp_w)
-hint: remove explicit cast and rely on width inference

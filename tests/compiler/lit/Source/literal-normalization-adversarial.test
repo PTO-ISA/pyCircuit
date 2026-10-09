@@ -1,0 +1,13 @@
+# Independent adversarial review of dependent-width literal normalization.
+#
+# The harness drives the real `pycircuit compile` front door once per case in a
+# private scratch directory.  It asserts that a matching computed/dependent
+# width still binds, that every real width, kind and nominal disagreement is
+# still rejected, that an unclosed width never compares equal to a concrete one,
+# and - by reading the emitted ac.rule operation - that a rule which binds an
+# instance and carries source checks keeps the condition/path suffix positions,
+# counts and carrier types.
+#
+# Defaults on unbound generic definitions do not prove fixed width equality.
+# Those two controls are strict negative tests, not xfails or acceptance gaps.
+# RUN: %python %S/Inputs/literal-normalization-adversarial.py --repo %src --source-compiler %pycircuit_source_unit --linker %pycircuit_link --emitter %pycircuit_emit --scratch %t.dir

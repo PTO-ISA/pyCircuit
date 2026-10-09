@@ -1,0 +1,3 @@
+# Two-instance resident algorithms; exact original host histories and real-queue systems.
+# REQUIRES: verilator
+# RUN: %python %S/Inputs/history-resident/run.py --repo %src --source-compiler %pycircuit_source_unit --linker %pycircuit_link --emitter %pycircuit_emit --cxx %cxx --verilator %verilator --scratch %t.dir

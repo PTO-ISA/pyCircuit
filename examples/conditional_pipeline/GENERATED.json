@@ -1,0 +1,64 @@
+{
+  "schema": "pycircuit-generated-example-v1",
+  "example": "conditional_pipeline",
+  "entry": {
+    "arguments": [],
+    "definition": "@\"example_conditional_pipeline.conditional_pipeline.ConditionalPipeline\""
+  },
+  "verification": {
+    "schema": "pycircuit-example-verification-v1",
+    "inputs": {
+      "source/CMakeLists.txt": "215608dbfaf03c503e32e8318be541e6e1a44608d5b10daf43cbe82534c6a562",
+      "source/conditional_pipeline.py": "77c46b307f999e77200568dd5b9330220857e3e8c1fabb7b5751a7cbbe491de9",
+      "source/config.json": "5130e736467addf0df6ad8d4b8490cf6afbf299828702897e132d8df266349d8",
+      "source/driver.cpp": "5fd1bfa1164bdd37c5f0e4036ab546ce65c8e05f8957071c3a7651aa99a5c5e7",
+      "source/four_state.py": "6de83394c485ae154c02fbdd7866e0902bc9b7fe754e747c1bcb6e7902b619db",
+      "source/rtl_tb.sv": "e02c6ef5c3b30703450e849016e95ed82ede785ad05dd502d792ddb528ccf3c3",
+      "build/cpp/generated.json": "415af70993e848af154e0879d6db93c2a48f6442f5a0706cefd29602e356cda1",
+      "build/cpp/CMakeLists.txt": "6fdc42034652f4fed91821d68c8ea28bddd7122479a0ab7130c31ba485ee6f33",
+      "build/cpp/pycircuit_support.hpp": "c4de222769394fc9a1c2785dd2af6fe810a999404e8d1f6fb68145f2f66832ab",
+      "build/cpp/pycircuit_system.hpp": "72ff2b63f8264c9d6ca663c8e655ecbfe314f2a01110631521077762b0af25e6",
+      "build/cpp/sources/example_conditional_pipeline/conditional_pipeline.cpp": "9cfe35de06234d23601a3ba2021e4f47bcc97c5e945ba26a6b983521d9d290b4",
+      "build/cpp/sources/example_conditional_pipeline/conditional_pipeline.hpp": "75869e56104749e898f2bf5b13917bb2334bbf9ec2fd338a6848e7b7c125418b",
+      "build/cpp/sources/example_conditional_pipeline/conditional_pipeline.source-map.json": "9dabfb8367840487a5c64b62bd796a888350bc7cfb32ce15601636f7c3c4d003",
+      "build/verilog/generated.json": "6f86f18dda7679ef5e23a9b11f5c0dd8d9d646f7942aa78cb52744ad6ed544cf",
+      "build/verilog/CMakeLists.txt": "a35bf8074ed68d2b186e51ed7dcc23a032ffffaaa1942c1362de843b9f87e618",
+      "build/verilog/design_top.sv": "7496cb124a79be6dd686c129402f21023e0b54949a06d498990d47e57fe98d74",
+      "build/verilog/sources/example_conditional_pipeline/conditional_pipeline.source-map.json": "fb69c6f8b7a46e7b36af506838b0d2c1b5274c8dc00bb1af2ef8152a25830ce3",
+      "build/verilog/sources/example_conditional_pipeline/conditional_pipeline.v": "a1716e62aa2098edc85e1da80c6bb7a6c502de4c32facece78ccd1f856861b83",
+      "build/conditional_pipeline.ac": "800b71c2899facfe73505a2cd233f4f1a170b18c902f1627b695ea42b3f44b76",
+      "runtime-rtl/byte_mem.v": "33bd9f73dd7cd17f3531cfd8c321762c214ad5df23b5376add212dadd38c47c2",
+      "runtime-rtl/dff.v": "e4f604bd03b9f1651ddbcd71e9ebb1cd8af45018caeab341728b35c14ec0f553",
+      "runtime-rtl/dffe.v": "9ae323530b72d152d10628de94923eaefa411b29e13c647de21bed8b0d73833b",
+      "runtime-rtl/fifo.v": "2dc4086ad3085bd67504caaac0565a3e676f87ce5411cc019fe8ef3a3bc43b23",
+      "runtime-rtl/sync_mem.v": "207b0fe22f029828ac90b50d2ce0aabbb01763231cd153883f31b581d03d68b7",
+      "runtime-rtl/sync_mem_dp.v": "44672a092661f3c218f71534d0d656a2d7d0bfdb03bc6b7a3394e2f13eea86d4",
+      "runner": "5d1a9dc65ae18469010496b940c334a77b46cdaec9eac7f7e8bbdfdae2d26f4e"
+    },
+    "execution_sha256": "1a3718fa83ca71e12350ba25889c9f5bbf361bf19c969c8fcd6cefeed77f29c3",
+    "work_samples": 403,
+    "workers": [
+      1,
+      2
+    ],
+    "rtl": "verilator",
+    "trace_sha256": "adfa23196754f07ea0378055d39ac7e9a12092b4d00aacb3aa9a8e7fc9758f02"
+  },
+  "excerpts": [
+    {
+      "path": "conditional_pipeline.ac",
+      "line": 5,
+      "sha256": "800b71c2899facfe73505a2cd233f4f1a170b18c902f1627b695ea42b3f44b76"
+    },
+    {
+      "path": "cpp/sources/example_conditional_pipeline/conditional_pipeline.hpp",
+      "line": 82,
+      "sha256": "75869e56104749e898f2bf5b13917bb2334bbf9ec2fd338a6848e7b7c125418b"
+    },
+    {
+      "path": "verilog/sources/example_conditional_pipeline/conditional_pipeline.v",
+      "line": 1,
+      "sha256": "a1716e62aa2098edc85e1da80c6bb7a6c502de4c32facece78ccd1f856861b83"
+    }
+  ]
+}

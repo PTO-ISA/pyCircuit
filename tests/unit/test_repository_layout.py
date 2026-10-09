@@ -9,43 +9,22 @@ import pytest
 ROOT = Path(__file__).resolve().parents[2]
 pytestmark = pytest.mark.unit
 
-TOP_LEVEL_ROOTS = {
-    ".github",
-    "benchmarks",
-    "cmake",
-    "compiler",
-    "docs",
-    "examples",
-    "flows",
-    "library",
-    "packaging",
-    "python",
-    "schemas",
-    "simulator",
-    "tests",
-    "third_party",
-    "toolchains",
-    "tools",
-}
-
 FLOW_TOOLS = {
-    "build_cpp_manifest.py",
     "check_api_hygiene.py",
-    "check_decision_status.py",
     "check_generated_rtl.py",
-    "discover_examples.py",
-    "gen_cmake_from_manifest.py",
+    "check_frontend_retirement.py",
+    "measure_source_build.py",
+    "process_usage.py",
+    "measure_build_resources.py",
+    "materialize_source_preview.py",
     "report_primitive_ppa.py",
     "summarize_gate_run.py",
 }
 
 PYCIRCUIT_TOOLS = {
-    "check-pyc-inventory.py",
-    "dump_pyctrace.py",
+    "example_catalog.py",
     "generate-semantic-primitive-registry.py",
-    "pyc_module_graph.py",
-    "schematic_view.py",
-    "visualize_cpp.py",
+    "generate_source_identifier_unicode.py",
 }
 
 
@@ -59,15 +38,19 @@ def _tracked_paths() -> list[str]:
     ).stdout.splitlines()
 
 
-def test_every_tracked_top_level_root_is_documented() -> None:
-    roots = {path.split("/", 1)[0] for path in _tracked_paths() if "/" in path}
-    assert roots == TOP_LEVEL_ROOTS
-
+def test_active_product_roots_are_documented() -> None:
     layout = (ROOT / "docs/development/repository-layout.md").read_text(
         encoding="utf-8"
     )
-    for root in sorted(TOP_LEVEL_ROOTS):
-        assert f"`{root}/`" in layout
+    for root in (
+        "python/pycircuit/",
+        "compiler/",
+        "simulator/gfsim/",
+        "examples/counter/",
+        "tests/",
+        "flows/",
+    ):
+        assert f"`{root}`" in layout
 
 
 def test_flow_and_product_tools_have_distinct_roots() -> None:
@@ -83,44 +66,53 @@ def test_flow_and_product_tools_have_distinct_roots() -> None:
     assert not list((ROOT / "tools").glob("*.py"))
 
 
-def test_completed_migration_pages_are_not_active_documents() -> None:
-    assert not (ROOT / "docs/acir/migration.md").exists()
-    assert not (ROOT / "docs/acir/agentic-circuit-collaboration.md").exists()
+def test_ruff_per_file_ignores_match_existing_python_sources() -> None:
+    lines = (ROOT / "pyproject.toml").read_text(encoding="utf-8").splitlines()
+    section = "[tool.ruff.lint.per-file-ignores]"
+    start = lines.index(section) + 1
+    ignores: dict[str, list[str]] = {}
+    for line in lines[start:]:
+        stripped = line.strip()
+        if stripped.startswith("["):
+            break
+        if not stripped or stripped.startswith("#"):
+            continue
+        key, separator, value = stripped.partition("=")
+        assert separator, f"invalid Ruff per-file ignore entry: {line}"
+        pattern = ast.literal_eval(key.strip())
+        codes = ast.literal_eval(value.strip())
+        assert isinstance(pattern, str)
+        assert isinstance(codes, list) and codes
+        ignores[pattern] = codes
 
-    history = (ROOT / "docs/acir/spec/refs/history.md").read_text(encoding="utf-8")
-    assert "PTO-ISA/agentic-circuit" in history
-    assert "archived" in history
+    assert ignores, "Ruff per-file ignore section has no entries"
+    for pattern in ignores:
+        matches = [path for path in ROOT.glob(pattern) if path.is_file()]
+        assert (
+            matches
+        ), f"Ruff per-file ignore pattern has no surviving source: {pattern}"
+        assert all(path.suffix == ".py" for path in matches), pattern
 
 
-def test_wheel_staging_tool_sources_exist() -> None:
-    tree = ast.parse(
-        (ROOT / "packaging/wheel/create_wheel.py").read_text(encoding="utf-8")
+def test_retired_documentation_is_not_part_of_the_product_tree() -> None:
+    for relative in ("docs/acir", "docs/development/acir", "docs/pyc6-plan.md"):
+        assert not (ROOT / relative).exists()
+    assert (ROOT / "docs/development/known-limitations.md").is_file()
+
+
+def test_wheel_exposes_only_the_py_circuit_distribution_and_driver() -> None:
+    setup = (ROOT / "packaging/wheel/setup.py").read_text(encoding="utf-8")
+
+    assert 'name="pycircuit-hisi"' in setup
+    assert (
+        'include=[\n            "pycircuit",\n            "pycircuit.*",\n        ]'
+        in setup
     )
-    assignment = next(
-        node
-        for node in tree.body
-        if isinstance(node, ast.Assign)
-        and any(
-            getattr(target, "id", None) == "WHEEL_TOOL_SOURCES"
-            for target in node.targets
-        )
-    )
-    relative_paths = [
-        "/".join(
-            node.value
-            for node in sorted(
-                (node for node in ast.walk(element) if isinstance(node, ast.Constant)),
-                key=lambda node: (node.lineno, node.col_offset),
-            )
-        )
-        for element in assignment.value.elts
-    ]
-    assert relative_paths == [
-        "flows/tools/gen_cmake_from_manifest.py",
-        "tools/pycircuit/pyc_module_graph.py",
-    ]
-    for relative in relative_paths:
-        assert (ROOT / relative).is_file(), relative
+    assert '"pycircuit=pycircuit.cli:main"' in setup
+    assert '"acc=' not in setup
+    assert '"pycc=' not in setup
+    assert '"agentic-circuit=' not in setup
+    assert '"agentic_circuit"' not in setup
 
 
 def test_host_sources_avoid_unprotected_int128() -> None:
@@ -134,7 +126,7 @@ def test_host_sources_avoid_unprotected_int128() -> None:
     for directory in (
         "library/cpp",
         "compiler/mlir",
-        "compiler/acir",
+        "compiler",
         "simulator/gfsim",
         "tests/cpp",
     ):
@@ -151,33 +143,20 @@ def test_host_sources_avoid_unprotected_int128() -> None:
     assert offenders == []
 
 
-def test_python_binding_links_the_windows_import_library_by_name() -> None:
-    """The Windows extension must resolve CPython's auto-link directive.
+def test_cmake_package_exports_only_the_approved_runtime_and_compiler_components() -> (
+    None
+):
+    config = (ROOT / "cmake/pycircuitConfig.cmake.in").read_text(encoding="utf-8")
+    runtime = (ROOT / "simulator/gfsim/CMakeLists.txt").read_text(encoding="utf-8")
+    root_cmake = (ROOT / "CMakeLists.txt").read_text(encoding="utf-8")
 
-    CPython's PC/pyconfig.h records a pragma-based auto-link directive for an
-    import library: ``python3.lib`` under Py_LIMITED_API, otherwise
-    ``python<major><minor>.lib``. Up to Python 3.13 that directive is
-    unconditional and Python3::Module deliberately links no library, so the
-    bindings have to supply the directory and the versioned import library
-    themselves. Without it the Windows link fails with
-    ``could not open 'python3.lib'``.
-    """
-    cmake = (ROOT / "compiler/acir/bindings/python/CMakeLists.txt").read_text(
-        encoding="utf-8"
-    )
-
-    assert "if(WIN32)" in cmake
-    assert "python${Python3_VERSION_MAJOR}${Python3_VERSION_MINOR}.lib" in cmake
-    assert (
-        'target_link_directories(agentic_circuit_native PRIVATE "${_acir_python_libs}")'
-        in cmake
-    )
-    # The limited-API name is staged when the interpreter does not ship it,
-    # because PC/pyconfig.h asks for python3.lib unconditionally.
-    assert 'configure_file("${_acir_python_import_lib}"' in cmake
-    assert '"${_acir_python_abi_dir}/python3.lib" COPYONLY)' in cmake
-    # A missing import library must fail at configure time, not at link time.
-    assert "Python import library for ${Python3_VERSION} is missing" in cmake
+    assert "pycircuit::pyc6_runtime" in runtime
+    assert "install(TARGETS ACIRDialect ACIRSourceCompiler" in root_cmake
+    assert "EXPORT pycircuitCompilerTargets" in root_cmake
+    assert 'component STREQUAL "CompilerDev"' in config
+    assert 'component STREQUAL "Runtime"' in config
+    assert "pycircuit::AgenticCircuit" not in config
+    assert "pycircuit::PYC" not in config
 
 
 POSIX_ONLY_MODULES = frozenset(
@@ -197,11 +176,7 @@ POSIX_ONLY_MODULES = frozenset(
     }
 )
 
-PRODUCT_PYTHON_ROOTS = (
-    "python/pycircuit/src",
-    "python/agentic-circuit/src",
-    "python/semantic-core/src",
-)
+PRODUCT_PYTHON_ROOTS = ("python/pycircuit/src",)
 
 
 def _platform_guarded(node: object, parents: dict[object, object]) -> bool:
@@ -244,21 +219,15 @@ def test_product_python_imports_posix_only_modules_conditionally() -> None:
 
 COMPILED_TOOL_NAMES = frozenset(
     {
-        "acc",
-        "acir-opcode-catalog",
-        "acir-opt",
-        "pyc-opt",
-        "pycc",
+        "pycircuit-source-unit",
+        "pycircuit-link",
+        "pycircuit-emit",
     }
 )
 
 
 def test_product_python_spells_compiled_tools_with_a_platform_suffix() -> None:
-    """Compiled tools are ``<name>.exe`` on Windows, so a bare name is a bug.
-
-    The manifest and install tree spell native tools with ``.exe`` on Windows;
-    every product lookup must use the platform suffix.
-    """
+    """Private driver helpers are looked up through the platform-aware installer."""
     offenders: list[str] = []
     for root in PRODUCT_PYTHON_ROOTS:
         for path in sorted((ROOT / root).rglob("*.py")):
@@ -286,3 +255,12 @@ def test_product_python_spells_compiled_tools_with_a_platform_suffix() -> None:
                 ):
                     offenders.append(f"{path.relative_to(ROOT)}:{node.lineno}")
     assert offenders == []
+    resolver = (
+        ROOT / "python/pycircuit/src/pycircuit/packaged_toolchain.py"
+    ).read_text(encoding="utf-8")
+    assert 'suffixes.insert(0, ".exe")' in resolver
+    verifier = (ROOT / "python/pycircuit/src/pycircuit/_native_verify.py").read_text(
+        encoding="utf-8"
+    )
+    for helper in COMPILED_TOOL_NAMES:
+        assert helper in verifier

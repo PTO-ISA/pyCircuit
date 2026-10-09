@@ -1,0 +1,12 @@
+# RUN: %pycircuit_emit %inputs/two-leaves.mlir --target cpp --format source | %FileCheck %s --check-prefix=CPP --implicit-check-not=Eval --implicit-check-not=SimDFFE
+# RUN: %pycircuit_emit %inputs/two-leaves.mlir --target verilog --format source | %FileCheck %s --check-prefix=RTL
+# CPP-DAG: collection_storage<::gfsim::dffe_kernel<gfsim::Bits<8>>>
+# CPP-DAG: collection_storage<::gfsim::dffe_kernel<gfsim::Bits<8>>>
+# CPP: gfsim::wire<gfsim::Bits<8>>
+# CPP: Work()
+# CPP: Xfer()
+# RTL: module ac_top
+# RTL: dffe #(
+# RTL: left
+# RTL: dffe #(
+# RTL: right

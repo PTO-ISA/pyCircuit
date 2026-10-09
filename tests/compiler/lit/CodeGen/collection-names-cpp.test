@@ -1,0 +1,4 @@
+# RUN: %pycircuit_emit %inputs/collection_names.mlir --target cpp > %t.json
+# RUN: %python %inputs/unpack_bundle.py %t.json %t.dir
+# RUN: %cxx -std=c++20 -I%include -I%t.dir %inputs/collection_names.cpp @%t.dir/sources.rsp -o %t.exe
+# RUN: %t.exe

@@ -1,0 +1,64 @@
+{
+  "schema": "pycircuit-generated-example-v1",
+  "example": "encoded_enum_pipeline",
+  "entry": {
+    "arguments": [],
+    "definition": "@\"example_encoded_enum_pipeline.encoded_enum_pipeline.EncodedEnumPipeline\""
+  },
+  "verification": {
+    "schema": "pycircuit-example-verification-v1",
+    "inputs": {
+      "source/CMakeLists.txt": "0ab757c774e7329e4f84bc207d1117a55415aa8d3e1385ed9f83e58e43af0b13",
+      "source/config.json": "7051cd73fc08665440033abf93b7d42718a0dbc466617f2732028e144ed9727c",
+      "source/driver.cpp": "cb69f29f4ccaf1c743d1252f31f320629af6669fb1a7ff64816fe177501d5be5",
+      "source/encoded_enum_pipeline.py": "af4f4e03132c231e43b28b4a7a2e5dba7cc32c956e500862e568c9d6dcabc013",
+      "source/four_state.py": "19ba6fd9086910337e355068c2b99553d31ea3de054a43ad0a3978f278f038d9",
+      "source/rtl_tb.sv": "0445e7e24dd54f48067ef01e15bd7062df506e5a34bf79e6041fb07f9e6e6838",
+      "build/cpp/generated.json": "0d608f7a18966da232fcb61611ce90188f04324089b9bbe6802668c30b940d6b",
+      "build/cpp/CMakeLists.txt": "d7946bd4bbecd269b23c2b2ae385c0c550e1c868de2d0e5774d63283f7188560",
+      "build/cpp/pycircuit_support.hpp": "c4821750f3eb69740e5ac8a409183c0e1cd6a94d626abc3b916a829f18390562",
+      "build/cpp/pycircuit_system.hpp": "beda23ef4902acbf542548397e4ec34f5ccbebcf5dc7ea301a1cfa12b0dd4479",
+      "build/cpp/sources/example_encoded_enum_pipeline/encoded_enum_pipeline.cpp": "d91951f41af87b1a8334be9f94437d597a77318af190d8d0678ddff6bef8d248",
+      "build/cpp/sources/example_encoded_enum_pipeline/encoded_enum_pipeline.hpp": "c90c2084afc54684205cd41fe95934d92026e19932f15e6cbc0229d6d31019f7",
+      "build/cpp/sources/example_encoded_enum_pipeline/encoded_enum_pipeline.source-map.json": "cb60bd52682dab5f2ba7c87a074aab826797466fa72606da4b1fb08d1e0400a4",
+      "build/verilog/generated.json": "c8de85c1fcd6edeea88a00f7eb9acfa82d321e0648d72ab11071088d3d0dd7b7",
+      "build/verilog/CMakeLists.txt": "c225047d9a8c072482eeb3049af3e8e1bb14488f9deb73b6e05599894b7c000a",
+      "build/verilog/design_top.sv": "53fa968c071cebd8ba47aa583ac29ea4dadb4e5083dea766ef52f1e356e9e084",
+      "build/verilog/sources/example_encoded_enum_pipeline/encoded_enum_pipeline.source-map.json": "b1e3742db7c8b2aca8bb1a7b16060a8fc482344f9182966f22bcdbe7c3a6df62",
+      "build/verilog/sources/example_encoded_enum_pipeline/encoded_enum_pipeline.v": "ee8ab04f199dea999409e35468ada3f28f0c2e95dce6065e81bbda47b248e6b6",
+      "build/encoded_enum_pipeline.ac": "df5b3caffe14264ff505ccca19ed11b262458f27e1da54a6063977d55546c5bb",
+      "runtime-rtl/byte_mem.v": "33bd9f73dd7cd17f3531cfd8c321762c214ad5df23b5376add212dadd38c47c2",
+      "runtime-rtl/dff.v": "e4f604bd03b9f1651ddbcd71e9ebb1cd8af45018caeab341728b35c14ec0f553",
+      "runtime-rtl/dffe.v": "9ae323530b72d152d10628de94923eaefa411b29e13c647de21bed8b0d73833b",
+      "runtime-rtl/fifo.v": "2dc4086ad3085bd67504caaac0565a3e676f87ce5411cc019fe8ef3a3bc43b23",
+      "runtime-rtl/sync_mem.v": "207b0fe22f029828ac90b50d2ce0aabbb01763231cd153883f31b581d03d68b7",
+      "runtime-rtl/sync_mem_dp.v": "44672a092661f3c218f71534d0d656a2d7d0bfdb03bc6b7a3394e2f13eea86d4",
+      "runner": "6b92ba01bb7193eea413313a77c912681bffa841eca113413ffaf53851dac688"
+    },
+    "execution_sha256": "82228a7888f59dce985c91144713cc9405737da0d5f3e0e1f721d830315de628",
+    "work_samples": 281,
+    "workers": [
+      1,
+      2
+    ],
+    "rtl": "verilator",
+    "trace_sha256": "e88e193ba7a7271d3e94d1bcba44046e88a911c7b53ead8bdc2d101c2425389f"
+  },
+  "excerpts": [
+    {
+      "path": "encoded_enum_pipeline.ac",
+      "line": 8,
+      "sha256": "df5b3caffe14264ff505ccca19ed11b262458f27e1da54a6063977d55546c5bb"
+    },
+    {
+      "path": "cpp/sources/example_encoded_enum_pipeline/encoded_enum_pipeline.hpp",
+      "line": 38,
+      "sha256": "c90c2084afc54684205cd41fe95934d92026e19932f15e6cbc0229d6d31019f7"
+    },
+    {
+      "path": "verilog/sources/example_encoded_enum_pipeline/encoded_enum_pipeline.v",
+      "line": 1,
+      "sha256": "ee8ab04f199dea999409e35468ada3f28f0c2e95dce6065e81bbda47b248e6b6"
+    }
+  ]
+}

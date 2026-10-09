@@ -1,0 +1,1 @@
+These complete historical sources and strong tests are inert evidence. The active source fixtures and independent test owners preserve their algorithms and compare separately labeled reset-reachable scenarios. In particular, the original heterogeneous host initializeEntry setup is preserved here; no hidden compiled state is mutated to reproduce it.

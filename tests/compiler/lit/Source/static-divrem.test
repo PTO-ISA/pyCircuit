@@ -1,0 +1,8 @@
+# REQUIRES: verilator
+# Host divmod goldens; genuine Icarus additionally checks whole-word X/Z.
+# RUN: %python %S/Inputs/static-divrem.py --repo %src --source-compiler %pycircuit_source_unit --linker %pycircuit_link --emitter %pycircuit_emit --cxx %cxx --verilator %verilator --scratch %t.dir
+
+# RUN: %python %S/Inputs/static-divrem.py --repo %src --source-compiler %pycircuit_source_unit --linker %pycircuit_link --emitter %pycircuit_emit --cxx %cxx --verilator %verilator --runtime --scratch %t.runtime.dir
+
+# Original result packing under the current generic zero/X/Z arithmetic contract.
+# RUN: %python %S/Inputs/static-divrem.py --repo %src --source-compiler %pycircuit_source_unit --linker %pycircuit_link --emitter %pycircuit_emit --cxx %cxx --verilator %verilator --historical --scratch %t.historical.dir

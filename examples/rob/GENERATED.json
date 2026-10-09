@@ -1,0 +1,63 @@
+{
+  "schema": "pycircuit-generated-example-v1",
+  "example": "rob",
+  "entry": {
+    "arguments": [],
+    "definition": "@\"example_rob.rob.Rob\""
+  },
+  "verification": {
+    "schema": "pycircuit-example-verification-v1",
+    "inputs": {
+      "source/CMakeLists.txt": "bdf6da10262f36ec1cc8b3a619ef5a621eae92fd5c238a4377a8eb85ec1c75bd",
+      "source/config.json": "2c83cf4c931dcd103a18a690763d485d39012eaac121873450c7ae77e107d553",
+      "source/driver.cpp": "a08929bd3d35d5b8b8cee0cca0474f7b7e3fea44b5243eaf6ff3d9d53c89f4f4",
+      "source/rob.py": "991299146e58e4524aca994407329f9d5694018dc308217913bc733453f3ca90",
+      "source/rtl_tb.sv": "101f44d39ae6e8a9c54116fd5593922e8446bb4897b7709fe79c3872cc87d9ef",
+      "build/cpp/generated.json": "9d01f8957254e98d05a69d454f19fab81ad71f5dc5379c096db847d7fa0b3505",
+      "build/cpp/CMakeLists.txt": "1db0f0c970f621609b544570e574967a1ac55bbff5d13b250b1eb4b85799af5d",
+      "build/cpp/pycircuit_support.hpp": "c387b1a7648b21d00bd03ed585b72c4ec9a6a919f018031bd83b6100beeb72d8",
+      "build/cpp/pycircuit_system.hpp": "564394b9cb5ea502ec266791359bbac134faeb1ec146a4e092c9c1b58a3c0ca6",
+      "build/cpp/sources/example_rob/rob.cpp": "72b7a1765b622891070ab2f4f1899614151be25f3ba5b70a9a966a94aa5819c2",
+      "build/cpp/sources/example_rob/rob.hpp": "c2b676d505d1fce7bed422ca770cb81af9a68ee2a070033deb5ddb71474f11d5",
+      "build/cpp/sources/example_rob/rob.source-map.json": "c090b2dc7b43cc689b5169256b4a9f0e6f725259e942c9f73fb3eeadc2488e48",
+      "build/verilog/generated.json": "756133cfcdc19a507b6a08ebe81dc3d13d91d52c130631d31ef4425a24bc4e2e",
+      "build/verilog/CMakeLists.txt": "b1f5b58e6077421aef0233d1f7a57e074c707ff5099616ff680d112082a6efda",
+      "build/verilog/design_top.sv": "5fcc26cde2e95d8b14b4e7e2a92f11aed1efd08b79dac0c29e2bef632bed1587",
+      "build/verilog/sources/example_rob/rob.source-map.json": "2034c0b9e5df0177577bb0cc3ea5e1c54bb107381a02f2b5dc2a4d6df724ca02",
+      "build/verilog/sources/example_rob/rob.v": "a9d2aa7e83fba7dc866142cc55a8509d1ff87ce554f4f60ef1b0244539b5b2e0",
+      "build/rob.ac": "ec146d2ce8cd147670ec80b1c55ac1ea7c9ccef06266d0f53d1df96843cb4312",
+      "runtime-rtl/byte_mem.v": "33bd9f73dd7cd17f3531cfd8c321762c214ad5df23b5376add212dadd38c47c2",
+      "runtime-rtl/dff.v": "e4f604bd03b9f1651ddbcd71e9ebb1cd8af45018caeab341728b35c14ec0f553",
+      "runtime-rtl/dffe.v": "9ae323530b72d152d10628de94923eaefa411b29e13c647de21bed8b0d73833b",
+      "runtime-rtl/fifo.v": "2dc4086ad3085bd67504caaac0565a3e676f87ce5411cc019fe8ef3a3bc43b23",
+      "runtime-rtl/sync_mem.v": "207b0fe22f029828ac90b50d2ce0aabbb01763231cd153883f31b581d03d68b7",
+      "runtime-rtl/sync_mem_dp.v": "44672a092661f3c218f71534d0d656a2d7d0bfdb03bc6b7a3394e2f13eea86d4",
+      "runner": "e6f0d2a6294b07f42c8f19b5fc59f9a85ee3dc62b88623450cbc42c3c93294ee"
+    },
+    "execution_sha256": "9140852e30dd8151d884b237ca780d551a951e93bbf7ad65279485305c12c09f",
+    "work_samples": 569,
+    "workers": [
+      1,
+      2
+    ],
+    "rtl": "verilator",
+    "trace_sha256": "3bfd9d3fe6afdde7edf49a2b9477abda88e980fbecb85d9876ce35f894523d33"
+  },
+  "excerpts": [
+    {
+      "path": "rob.ac",
+      "line": 15,
+      "sha256": "ec146d2ce8cd147670ec80b1c55ac1ea7c9ccef06266d0f53d1df96843cb4312"
+    },
+    {
+      "path": "cpp/sources/example_rob/rob.hpp",
+      "line": 49,
+      "sha256": "c2b676d505d1fce7bed422ca770cb81af9a68ee2a070033deb5ddb71474f11d5"
+    },
+    {
+      "path": "verilog/sources/example_rob/rob.v",
+      "line": 1,
+      "sha256": "a9d2aa7e83fba7dc866142cc55a8509d1ff87ce554f4f60ef1b0244539b5b2e0"
+    }
+  ]
+}

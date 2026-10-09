@@ -1,0 +1,99 @@
+{
+  "$id": "https://pto-isa.org/schemas/pycircuit/sdk-version-map-v1.schema.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "candidate_tag": {
+      "pattern": "^v[0-9]+\\.[0-9]+\\.[0-9]+$",
+      "type": "string"
+    },
+    "compatibility": {
+      "const": "exact_identity_tuple"
+    },
+    "contracts": {
+      "const": {
+        "consumer_lock": "1",
+        "generator_abi": "2",
+        "release_index": "1",
+        "runtime_abi": "1",
+        "sdk_manifest": "1"
+      }
+    },
+    "distributions": {
+      "additionalProperties": false,
+      "properties": {
+        "pycircuit-hisi": {
+          "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+(?:[.a-zA-Z0-9+-]*)?$",
+          "type": "string"
+        }
+      },
+      "required": [
+        "pycircuit-hisi"
+      ],
+      "type": "object"
+    },
+    "platforms": {
+      "const": [
+        {
+          "architecture": "x86_64",
+          "cxx_abi": "libstdc++ CXX11 ABI",
+          "cxx_standard": "20",
+          "host_triple": "x86_64-linux-gnu",
+          "id": "linux-x86_64",
+          "minimum_libc": "glibc 2.39",
+          "minimum_os": "Ubuntu 24.04",
+          "python": "3.11",
+          "runner": "ubuntu-24.04"
+        },
+        {
+          "architecture": "arm64",
+          "cxx_abi": "Apple libc++",
+          "cxx_standard": "20",
+          "host_triple": "arm64-apple-darwin",
+          "id": "macos-arm64",
+          "minimum_libc": null,
+          "minimum_os": "macOS 15",
+          "python": "3.11",
+          "runner": "macos-15"
+        },
+        {
+          "architecture": "x86_64",
+          "cxx_abi": "MSVC v143",
+          "cxx_standard": "20",
+          "host_triple": "x86_64-pc-windows-msvc",
+          "id": "windows-x86_64",
+          "minimum_libc": null,
+          "minimum_os": "Windows Server 2022",
+          "python": "3.11",
+          "runner": "windows-2022"
+        }
+      ]
+    },
+    "product_version": {
+      "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+(?:[.a-zA-Z0-9+-]*)?$",
+      "type": "string"
+    },
+    "schema": {
+      "const": "pycircuit-sdk-version-map"
+    },
+    "source_revision_policy": {
+      "const": "annotated_tag_peeled_commit"
+    },
+    "version": {
+      "const": "1"
+    }
+  },
+  "required": [
+    "schema",
+    "version",
+    "candidate_tag",
+    "product_version",
+    "source_revision_policy",
+    "compatibility",
+    "distributions",
+    "contracts",
+    "platforms"
+  ],
+  "title": "pyCircuit SDK version map v1",
+  "type": "object"
+}

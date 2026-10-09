@@ -1,7 +1,0 @@
-%Warning-BLKSEQ: /Users/zhoubot/linx-isa/tools/pyCircuit/.pycircuit_out/sim/example_sync_mem_init_zero/device/verilog/sync_mem_init_zero/pyc_primitives.v:295:19: Blocking assignment '=' in sequential logic process
-                                                                                                                                                                : ... note: In instance 'tb_sync_mem_init_zero.dut.mem0'
-                                                                                                                                                                : ... Suggest using delayed assignment '<='
-  295 |           rd_word = mem[ra];
-      |                   ^
-                 ... For warning description see https://verilator.org/warn/BLKSEQ?v=5.044
-                 ... Use "/* verilator lint_off BLKSEQ */" and lint_on around source to disable this message.

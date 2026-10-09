@@ -1,0 +1,9 @@
+# REQUIRES: iverilog, vvp
+# RUN: %pycircuit_opt %inputs/aggregate-table-field-transport.mlir -o %t.final.mlir
+# RUN: %pycircuit_emit %t.final.mlir --target cpp > %t.json
+# RUN: %python %inputs/unpack_bundle.py %t.json %t.dir
+# RUN: %cxx -std=c++20 -pthread -I%include -I%t.dir %inputs/aggregate-table-field-transport.cpp @%t.dir/sources.rsp -o %t.native
+# RUN: %t.native
+# RUN: %pycircuit_emit %t.final.mlir --target verilog --format source > %t.sv
+# RUN: %iverilog -g2012 -s tb -o %t.exe %t.sv %inputs/aggregate-table-field-transport.sv
+# RUN: %vvp %t.exe

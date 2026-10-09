@@ -1,5 +1,0 @@
-INFO    -  Cleaning site directory
-INFO    -  Building documentation to directory: /Users/zhoubot/pyCircuit/_build/html
-INFO    -  The following pages exist in the docs directory, but are not included in the "nav" configuration:
-  - gates/logs/20260303-093808/matrix_summary.md
-INFO    -  Documentation built in 1.04 seconds

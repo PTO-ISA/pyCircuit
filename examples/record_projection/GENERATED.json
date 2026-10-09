@@ -1,0 +1,64 @@
+{
+  "schema": "pycircuit-generated-example-v1",
+  "example": "record_projection",
+  "entry": {
+    "arguments": [],
+    "definition": "@\"example_record_projection.record_projection.RecordProjection\""
+  },
+  "verification": {
+    "schema": "pycircuit-example-verification-v1",
+    "inputs": {
+      "source/CMakeLists.txt": "ba81ad609d3e45a58d1530c5d289f13022c995e9e88d760cf23bda9e524df9a8",
+      "source/config.json": "0310a5734bfce94c7b1e7781b62d02f3c33ce2f817a375a6257a0aaa8e450006",
+      "source/driver.cpp": "18e4336b8b2c05b49253d32ab927eb60c3c1642623f0d89dbfca5aa01cce499c",
+      "source/four_state.py": "7b342c12f199fcabe3ff134cb02711ecb19a6e08dda2546a8d1ee26e3e713bbe",
+      "source/record_projection.py": "1139f8d5731607b7fe626bd6c826815603998551f4487ea767b0682de633b047",
+      "source/rtl_tb.sv": "27840633b9e4d2848a16af78c2ba3aa58a3d55c7feee0c71656f48c6323540ee",
+      "build/cpp/generated.json": "918494ccf3ea26a2a8010fa7ca2d253c9ad07e84fe00e3be504b6a764dbe256f",
+      "build/cpp/CMakeLists.txt": "f20d05efe27b2f05003137b8f0d4a1d6ff5f7b867a78e307a6a8bb26e35fdb1f",
+      "build/cpp/pycircuit_support.hpp": "999bc212599e1063321fc4744720cea4a9f3728098e76c0a4acdbde03e90c02e",
+      "build/cpp/pycircuit_system.hpp": "255fd2b6d624ac73ac658253a460bc4f35b15d82a0e2d94c4c1ab0d2147b994e",
+      "build/cpp/sources/example_record_projection/record_projection.cpp": "f8a0db9607f81b6af51937dd6da77628ce62e91402b78215649a6ee9c9a8b1a7",
+      "build/cpp/sources/example_record_projection/record_projection.hpp": "88ff46d65b559f4e9846df8e523796462a852d4c6a7c7fcbb547f81c984c6bc3",
+      "build/cpp/sources/example_record_projection/record_projection.source-map.json": "b7bba464f86e02b8a6dbc21f7c8bf80bd1c95d64c1edef87864bcddee96790ba",
+      "build/verilog/generated.json": "ec0420734e76538683b3cc19f8fb2c22a4f15bd6bae542ce577d4a6f84278665",
+      "build/verilog/CMakeLists.txt": "773b50bacd7d1c4e9b5ee7753ddf5700c0bb447ea73958ca8835204c2215183e",
+      "build/verilog/design_top.sv": "d3cf87a46e3c26c8c07c853a31f7d508afbdb90a31bc41506b2c387c436a7573",
+      "build/verilog/sources/example_record_projection/record_projection.source-map.json": "3f1d7250cac3940bc751c6408b99a50949f2f9f4cc980d4b82ad50a738ed9f7e",
+      "build/verilog/sources/example_record_projection/record_projection.v": "962adcbee02215f8d8e7576efc7b0ce2a22949358043b059c7a5a5580eaeeaea",
+      "build/record_projection.ac": "9e1ffef649b307ece2850a66f5c078d556f3c329c8c6fbb73275301a4669741b",
+      "runtime-rtl/byte_mem.v": "33bd9f73dd7cd17f3531cfd8c321762c214ad5df23b5376add212dadd38c47c2",
+      "runtime-rtl/dff.v": "e4f604bd03b9f1651ddbcd71e9ebb1cd8af45018caeab341728b35c14ec0f553",
+      "runtime-rtl/dffe.v": "9ae323530b72d152d10628de94923eaefa411b29e13c647de21bed8b0d73833b",
+      "runtime-rtl/fifo.v": "2dc4086ad3085bd67504caaac0565a3e676f87ce5411cc019fe8ef3a3bc43b23",
+      "runtime-rtl/sync_mem.v": "207b0fe22f029828ac90b50d2ce0aabbb01763231cd153883f31b581d03d68b7",
+      "runtime-rtl/sync_mem_dp.v": "44672a092661f3c218f71534d0d656a2d7d0bfdb03bc6b7a3394e2f13eea86d4",
+      "runner": "d18c90a3302fe5035f2bf0fc6595948865b43a09df37d07a6a2e865dddc10f9a"
+    },
+    "execution_sha256": "92e4cb56b308c5172cfe78baec4e907a6af7fbcd0196a4c2d4b71db407d36ac1",
+    "work_samples": 101,
+    "workers": [
+      1,
+      2
+    ],
+    "rtl": "verilator",
+    "trace_sha256": "4484dc1748908861754ae7f965fec50bb351902ae2f710a89059f6e8f9f042c7"
+  },
+  "excerpts": [
+    {
+      "path": "record_projection.ac",
+      "line": 8,
+      "sha256": "9e1ffef649b307ece2850a66f5c078d556f3c329c8c6fbb73275301a4669741b"
+    },
+    {
+      "path": "cpp/sources/example_record_projection/record_projection.hpp",
+      "line": 38,
+      "sha256": "88ff46d65b559f4e9846df8e523796462a852d4c6a7c7fcbb547f81c984c6bc3"
+    },
+    {
+      "path": "verilog/sources/example_record_projection/record_projection.v",
+      "line": 1,
+      "sha256": "962adcbee02215f8d8e7576efc7b0ce2a22949358043b059c7a5a5580eaeeaea"
+    }
+  ]
+}

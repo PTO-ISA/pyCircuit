@@ -1,0 +1,6 @@
+# Behavioral/structural source observation acceptance.
+# Compile and link only. Native emission of `ac.observe` is not
+# part of this owner, so this gate asserts that an accepted observation is
+# published in the final design and that a rejected one is named -- never that
+# emission succeeds.
+# RUN: %python %S/Inputs/source_observation_behavioral.py --repo %src --source-compiler %pycircuit_source_unit --linker %pycircuit_link --emitter %pycircuit_emit --scratch %t.dir

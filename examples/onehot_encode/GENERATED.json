@@ -1,0 +1,64 @@
+{
+  "schema": "pycircuit-generated-example-v1",
+  "example": "onehot_encode",
+  "entry": {
+    "arguments": [],
+    "definition": "@\"example_onehot_encode.onehot_encode.OnehotEncode\""
+  },
+  "verification": {
+    "schema": "pycircuit-example-verification-v1",
+    "inputs": {
+      "source/CMakeLists.txt": "445198340e68b0dd02e3ab65df9404155ec53343018182baa9bea73dcc843a9f",
+      "source/config.json": "4236b13287aa69791ceec9bd072100dc425dcdabd4ebb450b6185026bd65ae2f",
+      "source/driver.cpp": "09981037d0cfd4d9d7ae773594246e89936fbea0b307123ea9961f0f77c9c6f4",
+      "source/four_state.py": "8eb0834ab10c2555d7b2d10d73c252349a986a23cce4135ff1f26a65a7842dfc",
+      "source/onehot_encode.py": "fa94be878e7cb422ad50385d4b19b34044f9847c560f496b5c71edbdca1d2d99",
+      "source/rtl_tb.sv": "c7e6d4cde14b27fcffa574961eb3cf1e13987a7ef8f0cbc4ee60996d8117149f",
+      "build/cpp/generated.json": "14b9c7b993f274884ddf45d870c7d5f0f08ee8fee3df2f94b8f84aa109c18916",
+      "build/cpp/CMakeLists.txt": "1d43ad524006ac8504f68494f5804affbd57b6d327ea941444fd36477ad2854f",
+      "build/cpp/pycircuit_support.hpp": "c378a90f77219510a78bbcc4ce668c691e92630451cf5527cbe9a071b07f0d37",
+      "build/cpp/pycircuit_system.hpp": "68abd84411fa60c3ac4c57b38e758770774df81a862aaf9a57261111404821a5",
+      "build/cpp/sources/example_onehot_encode/onehot_encode.cpp": "8993d65d97266fb8da811dcc8f2038dfefc48f28678d13605bebc75a0da84fb5",
+      "build/cpp/sources/example_onehot_encode/onehot_encode.hpp": "d11d3301abce2eba2a9cfc24aad1859c48a4b4723642866d7e1f4ff495860c0a",
+      "build/cpp/sources/example_onehot_encode/onehot_encode.source-map.json": "3f1576ac19f1b0fb4ea9906f47939ef42aa32e0aa5c948a44c84b3ae15946c33",
+      "build/verilog/generated.json": "8dceb2241caa8eaac2a4a22543a81f81d7aebd78c28ed2268732e1e9681d45e5",
+      "build/verilog/CMakeLists.txt": "fac89d11a2472b5fb2f07bfc3073619b455673be2699c6d2be7f1f6ad3c128e9",
+      "build/verilog/design_top.sv": "b031e0b409880e30bb5c0bac19283ac0bfcd14213b9cb680ac4bb13e309cabfe",
+      "build/verilog/sources/example_onehot_encode/onehot_encode.source-map.json": "2278e0d74ffd97534825c713e42e43caee4654524e710644e41b911bd79ced45",
+      "build/verilog/sources/example_onehot_encode/onehot_encode.v": "8f6dcfd54780c7e1e34ee7069f335288f79604e7a7849de6a38057f7cc210b9a",
+      "build/onehot_encode.ac": "9616cd85f829cb3abaae2985723f1b73c4a83045ecf3bd54e1363a5dd6c48381",
+      "runtime-rtl/byte_mem.v": "33bd9f73dd7cd17f3531cfd8c321762c214ad5df23b5376add212dadd38c47c2",
+      "runtime-rtl/dff.v": "e4f604bd03b9f1651ddbcd71e9ebb1cd8af45018caeab341728b35c14ec0f553",
+      "runtime-rtl/dffe.v": "9ae323530b72d152d10628de94923eaefa411b29e13c647de21bed8b0d73833b",
+      "runtime-rtl/fifo.v": "2dc4086ad3085bd67504caaac0565a3e676f87ce5411cc019fe8ef3a3bc43b23",
+      "runtime-rtl/sync_mem.v": "207b0fe22f029828ac90b50d2ce0aabbb01763231cd153883f31b581d03d68b7",
+      "runtime-rtl/sync_mem_dp.v": "44672a092661f3c218f71534d0d656a2d7d0bfdb03bc6b7a3394e2f13eea86d4",
+      "runner": "7183b22a4dddd0500d89657a74db40b5f1928b59473f3b04320c39c87ebfd1ad"
+    },
+    "execution_sha256": "918856d1dd0a0f86bff77f21a7cbdfa5f80230b788589f9450ca89c6545a8ec9",
+    "work_samples": 16425,
+    "workers": [
+      1,
+      2
+    ],
+    "rtl": "verilator",
+    "trace_sha256": "9dbe0b8995fbacb06d0c1bca6da76d4cb2b11877ab379c53b2a94353b2dcf5e1"
+  },
+  "excerpts": [
+    {
+      "path": "onehot_encode.ac",
+      "line": 6,
+      "sha256": "9616cd85f829cb3abaae2985723f1b73c4a83045ecf3bd54e1363a5dd6c48381"
+    },
+    {
+      "path": "cpp/sources/example_onehot_encode/onehot_encode.hpp",
+      "line": 38,
+      "sha256": "d11d3301abce2eba2a9cfc24aad1859c48a4b4723642866d7e1f4ff495860c0a"
+    },
+    {
+      "path": "verilog/sources/example_onehot_encode/onehot_encode.v",
+      "line": 1,
+      "sha256": "8f6dcfd54780c7e1e34ee7069f335288f79604e7a7849de6a38057f7cc210b9a"
+    }
+  ]
+}

@@ -1,3 +1,0 @@
-bash flows/scripts/run_examples.sh
-python3 flows/tools/check_api_hygiene.py compiler/frontend/pycircuit designs/examples docs README.md
-python3 flows/tools/check_decision_status.py --status docs/gates/decision_status_v40.md --out .pycircuit_out/gates/20260303-093808/decision_status_report.json

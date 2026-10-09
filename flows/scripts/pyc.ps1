@@ -8,10 +8,8 @@ semantics as the bash wrapper:
 
   * configure the repository root with the Ninja generator, Release build,
     LLVM_DIR/MLIR_DIR, and the PYC_BUILD_* options;
-  * build pycc and the pyc6 runtime (and everything when the Agentic Circuit
-    build is enabled);
-  * install into <root>/.pycircuit_out/toolchain/install and report the
-    installed pycc.exe path.
+  * build the source compiler helpers and pyc6 runtime;
+  * install into <root>/.pycircuit_out/toolchain/install.
 
 Environment parity with the bash wrapper:
   LLVM_DIR, MLIR_DIR         Optional explicit LLVM/MLIR CMake package dirs.
@@ -20,9 +18,8 @@ Environment parity with the bash wrapper:
   LLVM_CONFIG                Optional explicit llvm-config executable.
   PYC_BUILD_DIR              Optional build directory override.
   PYC_INSTALL_PREFIX         Optional install prefix override.
-  PYC_BUILD_AGENTIC_CIRCUIT_TESTS  Build integrated tests (OFF).
+  PYC_BUILD_TESTING         Build native compiler tests (ON by default).
   PYC_PYTHON_EXECUTABLE      Optional exact Python interpreter for the SDK.
-  PYCC                       Path to pycc (used by unsupported subcommands).
 
 The bash wrapper supports `build` and `smoke`. Only `build` has a supported
 Windows implementation here; every other subcommand fails explicitly instead
@@ -66,7 +63,7 @@ function Get-PycUsage {
 Usage: flows/scripts/pyc.ps1 <command>
 
 Commands:
-  build        Configure+build+install pycc/pyc-opt into a staged toolchain
+  build        Configure+build+install source compiler/runtime into a staged toolchain
 
 Env:
   LLVM_DIR, MLIR_DIR        Optional. If unset, they are inferred from
@@ -75,9 +72,8 @@ Env:
   LLVM_CONFIG               Optional explicit llvm-config executable.
   PYC_BUILD_DIR             Optional build directory override.
   PYC_INSTALL_PREFIX        Optional install prefix override.
-  PYC_BUILD_AGENTIC_CIRCUIT_TESTS Build integrated ACIR tests (OFF).
+  PYC_BUILD_TESTING         Build native compiler tests (ON by default).
   PYC_PYTHON_EXECUTABLE     Optional exact Python interpreter for the SDK.
-  PYCC                      Path to pycc (overrides auto-detect).
 
 Unsupported on Windows:
   smoke                     The bash-only simulation and example flows are not
@@ -155,13 +151,13 @@ function Get-LlvmConfigPath {
     return $null
 }
 
-function Get-LlvmMajorVersion {
+function Get-LlvmVersion {
     param([string]$LlvmConfig)
     $reported = & $LlvmConfig --version 2>$null
     if ($LASTEXITCODE -ne 0 -or [string]::IsNullOrWhiteSpace($reported)) {
         return $null
     }
-    return ($reported.Trim() -split "\.")[0]
+    return $reported.Trim()
 }
 
 function Resolve-LlvmDirectories {
@@ -197,10 +193,10 @@ function Resolve-LlvmDirectories {
         $LlvmConfig = Get-LlvmConfigPath
     }
     if ($LlvmConfig) {
-        $major = Get-LlvmMajorVersion $LlvmConfig
-        if ($major -ne "$script:PycircuitRequiredLlvmMajor") {
-            $reported = if ($major) { $major } else { "unknown" }
-            Exit-PycDie "LLVM $script:PycircuitRequiredLlvmMajor is required, but $LlvmConfig reports version $reported"
+        $version = Get-LlvmVersion $LlvmConfig
+        if ($version -ne "22.1.8") {
+            $reported = if ($version) { $version } else { "unknown" }
+            Exit-PycDie "LLVM/MLIR 22.1.8 is required, but $LlvmConfig reports version $reported"
         }
         Write-PycLog "inferring LLVM_DIR/MLIR_DIR via $LlvmConfig"
         $cmakeDir = (& $LlvmConfig --cmakedir 2>$null | Select-Object -First 1)
@@ -291,7 +287,7 @@ function Invoke-BuildCommand {
         Exit-PycDie "ninja is required (install Ninja and ensure it is on PATH)"
     }
 
-    $agenticCircuitTests = Get-EnvironmentValueOrDefault "PYC_BUILD_AGENTIC_CIRCUIT_TESTS" "OFF"
+    $nativeTests = Get-EnvironmentValueOrDefault "PYC_BUILD_TESTING" "ON"
 
     Write-PycLog "configure ($buildDir)"
     $cmakeCommand = "cmake -G Ninja -S " + (Quote-NativeValue $script:RootDir) +
@@ -300,7 +296,9 @@ function Invoke-BuildCommand {
         " -DCMAKE_INSTALL_PREFIX=" + (Quote-NativeValue $installPrefix) +
         " -DLLVM_DIR=" + (Quote-NativeValue $llvmDirectories.LlvmDir) +
         " -DMLIR_DIR=" + (Quote-NativeValue $llvmDirectories.MlirDir) +
-        " -DPYC_BUILD_AGENTIC_CIRCUIT_TESTS=" + (Quote-NativeValue $agenticCircuitTests)
+        " -DPYC_BUILD_COMPILER_DEV=ON" +
+        " -DPYC_BUILD_RUNTIME_LIB=ON" +
+        " -DPYC_BUILD_TESTING=" + (Quote-NativeValue $nativeTests)
     $pythonExecutable = Get-EnvironmentValue "PYC_PYTHON_EXECUTABLE"
     if ($pythonExecutable) {
         $cmakeCommand += " -DPython3_EXECUTABLE=" + (Quote-NativeValue $pythonExecutable)
@@ -311,23 +309,10 @@ function Invoke-BuildCommand {
         Exit-PycDie "cmake configure failed"
     }
 
-    Write-PycLog "build pycc + runtime ($buildDir)"
-    Invoke-Expression ("ninja -C " + (Quote-NativeValue $buildDir) + " pycc pyc6_runtime")
+    Write-PycLog "build source compiler helpers and runtime ($buildDir)"
+    Invoke-Expression ("cmake --build " + (Quote-NativeValue $buildDir) + " --parallel")
     if ($LASTEXITCODE -ne 0) {
-        Exit-PycDie "ninja failed for pycc and pyc6_runtime"
-    }
-
-    Write-PycLog "build integrated ACIR/ACC/gfsim toolchain"
-    Invoke-Expression ("ninja -C " + (Quote-NativeValue $buildDir) + " all")
-    if ($LASTEXITCODE -ne 0) {
-        Exit-PycDie "ninja failed for the integrated toolchain"
-    }
-
-    # pyc-opt is optional in the bash wrapper and may be declared only on some
-    # configurations; do not fail the build when the target is absent.
-    Invoke-Expression ("ninja -C " + (Quote-NativeValue $buildDir) + " pyc-opt 2>`$null")
-    if ($LASTEXITCODE -ne 0) {
-        Write-PycWarn "pyc-opt target was not built"
+        Exit-PycDie "native toolchain build failed"
     }
 
     Invoke-Expression ("cmake --install " + (Quote-NativeValue $buildDir) + " --prefix " + (Quote-NativeValue $installPrefix))
@@ -336,8 +321,7 @@ function Invoke-BuildCommand {
     }
 
     $env:PYC_TOOLCHAIN_ROOT = $installPrefix
-    $env:PYCC = Join-Path $installPrefix "bin\pycc.exe"
-    Write-PycLog "ok: $($env:PYCC)"
+    Write-PycLog "installed source compiler tools and runtime"
     Write-PycLog "PYC_TOOLCHAIN_ROOT=$installPrefix"
 }
 
@@ -346,7 +330,7 @@ switch ($Command) {
         Invoke-BuildCommand -BuildArguments $Arguments
     }
     "smoke" {
-        Exit-PycDie "smoke is not supported on Windows: flows/scripts/run_examples.sh and run_sims.sh are bash-only flows. Run them on the Linux or macOS lane."
+        Exit-PycDie "smoke is not supported on Windows: flows/scripts/run_examples.sh are bash-only flows. Run them on the Linux or macOS lane."
     }
     { $_ -in @("-h", "--help", "help") } {
         Get-PycUsage | Write-Host

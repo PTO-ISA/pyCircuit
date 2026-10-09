@@ -1,0 +1,5 @@
+# REQUIRES: verilator
+# RUN: %pycircuit_emit %inputs/two-leaves.mlir --target verilog --format source > %t.sv
+# RUN: %verilator --binary --timing -Wno-fatal --top-module tb --Mdir %t.dir -I%include/verilog %t.sv %include/verilog/dffe.v %inputs/two_leaves.sv > %t.build.log 2>&1
+# RUN: %t.dir/Vtb
+# The oracle uses known values. This run establishes no X/Z evidence.

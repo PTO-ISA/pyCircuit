@@ -1,0 +1,210 @@
+{
+  "mailbox_output_replace": {
+    "case": "mailbox_backpressure",
+    "epoch": 9,
+    "label": "take-right_output",
+    "reference_packed_after": "10187423478631424",
+    "rival_packed_after": "10187423478500710",
+    "snapshot_bits": 54
+  },
+  "mailbox_release_without_output": {
+    "case": "mailbox_backpressure",
+    "epoch": 4,
+    "label": "fill-last-boundary-capacity",
+    "reference_packed_after": "10187423478631781",
+    "rival_packed_after": "10169831292456293",
+    "snapshot_bits": 54
+  },
+  "mailbox_release_refill": {
+    "case": "mailbox_backpressure",
+    "epoch": 10,
+    "label": "right-publish-102-left-still-held",
+    "reference_packed_after": "10187423478500710",
+    "rival_packed_after": "10187423384522598",
+    "snapshot_bits": 54
+  },
+  "mailbox_capture_forward": {
+    "case": "mailbox_original_body",
+    "epoch": 1,
+    "label": "reset-reachable-flat-and-nested-cycle-1",
+    "reference_packed_after": "18073222516224",
+    "rival_packed_after": "516335603463",
+    "snapshot_bits": 54
+  },
+  "mailbox_clear_payload": {
+    "case": "mailbox_original_body",
+    "epoch": 2,
+    "label": "reset-reachable-flat-and-nested-cycle-2",
+    "reference_packed_after": "516335603463",
+    "rival_packed_after": "35299262727",
+    "snapshot_bits": 54
+  },
+  "mailbox_shared_state": {
+    "case": "mailbox_backpressure",
+    "epoch": 1,
+    "label": "capture-both-old-boundary-heads",
+    "reference_packed_after": "18348100471296",
+    "rival_packed_after": "18348100425216",
+    "snapshot_bits": 54
+  },
+  "issue_payload_valid_guard": {
+    "case": "issue_wakeup_flags",
+    "epoch": 5,
+    "label": "wait-wakeup-7",
+    "reference_packed_after": "333428522838950065945526701298083063798014494638080",
+    "rival_packed_after": "333428522838949733638527755069114837846249424551936",
+    "snapshot_bits": 250
+  },
+  "issue_capture_requires_free": {
+    "case": "issue_original_body",
+    "epoch": 13,
+    "label": "reset-reachable-original-body-tick-1",
+    "reference_packed_after": "19800612443712454723054410109785244253630519836672",
+    "rival_packed_after": "730513658896634622663567166744966971516045455912983162327480794087424",
+    "snapshot_bits": 250
+  },
+  "issue_capture_forward": {
+    "case": "issue_original_body",
+    "epoch": 1,
+    "label": "wait-install-age-0",
+    "reference_packed_after": "17538645288408396920535634045441623425450627825664",
+    "rival_packed_after": "5846632233321977925291028348526822272549055889408",
+    "snapshot_bits": 250
+  },
+  "issue_wakeup_whole_entry_last_writer": {
+    "case": "issue_original_body",
+    "epoch": 20,
+    "label": "reset-reachable-original-body-tick-8",
+    "reference_packed_after": "370561005403129488047974823507514848489131441389568",
+    "rival_packed_after": "370561005403129155740975877278546622537366371303424",
+    "snapshot_bits": 250
+  },
+  "issue_forward_wakeup": {
+    "case": "issue_original_body",
+    "epoch": 20,
+    "label": "reset-reachable-original-body-tick-8",
+    "reference_packed_after": "370561005403129488047974823507514848489131441389568",
+    "rival_packed_after": "370561005359573345082094700184202898737865311656974",
+    "snapshot_bits": 250
+  },
+  "issue_src0_only_ready": {
+    "case": "issue_wakeup_flags",
+    "epoch": 6,
+    "label": "offer-wakeups",
+    "reference_packed_after": "466447625101493463009990873624653327128521694301864703027167835155746258944",
+    "rival_packed_after": "466447625101493463009990873624653283572378728421741379715218083889618886160",
+    "snapshot_bits": 250
+  },
+  "issue_first_instead_of_oldest": {
+    "case": "issue_oldest_ties",
+    "epoch": 10,
+    "label": "oldest-ready-first-stable-index1",
+    "reference_packed_after": "333291506886055580104767200987058478599853417700879",
+    "rival_packed_after": "333291506842499437463405631322173255631743108521487",
+    "snapshot_bits": 250
+  },
+  "issue_reverse_ties": {
+    "case": "issue_oldest_ties",
+    "epoch": 10,
+    "label": "oldest-ready-first-stable-index1",
+    "reference_packed_after": "333291506886055580104767200987058478599853417700879",
+    "rival_packed_after": "333291506886055580429285752227633566153751088864783",
+    "snapshot_bits": 250
+  },
+  "issue_serialize_wakeup": {
+    "case": "issue_independent_fields",
+    "epoch": 6,
+    "label": "wakeup-other-entry-and-old-ready-issue-cofire",
+    "reference_packed_after": "532674356415237157735961195710301821355357274133035",
+    "rival_packed_after": "532674356415237158060479749368728548138513093099520",
+    "snapshot_bits": 250
+  },
+  "issue_serialize_allocation": {
+    "case": "issue_original_body",
+    "epoch": 21,
+    "label": "reset-reachable-original-body-tick-9",
+    "reference_packed_after": "370561005359573345082094700184202898737865311657487",
+    "rival_packed_after": "370561005403129488047974823507514848489131441389568",
+    "snapshot_bits": 250
+  },
+  "issue_output_replace_for_take": {
+    "case": "issue_oldest_ties",
+    "epoch": 11,
+    "label": "physical-pop-does-not-give-future-space-to-read",
+    "reference_packed_after": "333291506886055580104767198569206839370594866167808",
+    "rival_packed_after": "333291506886055580104767198569206839370595068288527",
+    "snapshot_bits": 250
+  },
+  "issue_read_new_candidate": {
+    "case": "issue_original_body",
+    "epoch": 21,
+    "label": "reset-reachable-original-body-tick-9",
+    "reference_packed_after": "370561005359573345082094700184202898737865311657487",
+    "rival_packed_after": "370561005359573345082094700184202898737865244548623",
+    "snapshot_bits": 250
+  },
+  "issue_clear_requires_output_space": {
+    "case": "issue_full_slots_and_output",
+    "epoch": 25,
+    "label": "output-full-still-clears-selected99-and-captures100",
+    "reference_packed_after": "732210196592365406060177070381871710467008452123409725966515217374735",
+    "rival_packed_after": "732210196592365406060177070425427853432888575446721675717781548441103",
+    "snapshot_bits": 250
+  },
+  "issue_refill_cleared_slot": {
+    "case": "issue_original_body",
+    "epoch": 21,
+    "label": "reset-reachable-original-body-tick-9",
+    "reference_packed_after": "370561005359573345082094700184202898737865311657487",
+    "rival_packed_after": "358868992321334900019943405612292202002385683357199",
+    "snapshot_bits": 250
+  },
+  "issue_force_allocated_valid": {
+    "case": "issue_full_replacement",
+    "epoch": 7,
+    "label": "wait-install-age-33",
+    "reference_packed_after": "758145373320178996927168408901107097957182734336",
+    "rival_packed_after": "758145416876321962807291732213056849223513800704",
+    "snapshot_bits": 250
+  },
+  "issue_partial_allocation": {
+    "case": "issue_original_body",
+    "epoch": 2,
+    "label": "wait-install-age-0",
+    "reference_packed_after": "5846632233321977925291028348526822272549055889408",
+    "rival_packed_after": "5846632233317316540786278707023309019469498548224",
+    "snapshot_bits": 250
+  },
+  "issue_forward_wakeup_to_allocation": {
+    "case": "issue_allocation_no_forward",
+    "epoch": 2,
+    "label": "install-and-wakeup-old-empty-table",
+    "reference_packed_after": "333611210370752652809392261600103165515744082395136",
+    "rival_packed_after": "333611210370752985765428315145924845033821193633792",
+    "snapshot_bits": 250
+  },
+  "issue_drop_full_allocation": {
+    "case": "issue_original_body",
+    "epoch": 14,
+    "label": "reset-reachable-original-body-tick-2",
+    "reference_packed_after": "19800612443712454723054410109785244253630519836672",
+    "rival_packed_after": "8108599345065231377424931448054980096383059492864",
+    "snapshot_bits": 250
+  },
+  "issue_slot_release_refill": {
+    "case": "issue_full_slots_and_output",
+    "epoch": 24,
+    "label": "install-slot99-on-following-old-free-edge",
+    "reference_packed_after": "1162720252301208541456338995742964066740642564385757359102930171469327",
+    "rival_packed_after": "732210196592365406060177070425427853432888575446721675717781548441103",
+    "snapshot_bits": 250
+  },
+  "issue_slot_clear_payload": {
+    "case": "issue_original_body",
+    "epoch": 2,
+    "label": "wait-install-age-0",
+    "reference_packed_after": "5846632233321977925291028348526822272549055889408",
+    "rival_packed_after": "43560804350384872964815463004345888407552",
+    "snapshot_bits": 250
+  }
+}

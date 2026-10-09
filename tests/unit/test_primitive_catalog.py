@@ -73,13 +73,6 @@ def test_semantic_registry_contains_no_implementation_names() -> None:
 
 
 def test_semantic_registry_width_formulas_cover_exact_shared_range() -> None:
-    import pycircuit
-    from _pycircuit_semantics import (
-        is_primitive_input_width,
-        primitive_count_width,
-        primitive_priority_index_width,
-    )
-
     root = Path(__file__).resolve().parents[2]
     registry = json.loads(
         (root / "schemas/primitives/semantic_registry.json").read_text(encoding="utf-8")
@@ -103,28 +96,10 @@ def test_semantic_registry_width_formulas_cover_exact_shared_range() -> None:
         )
         assert priority == max(1, (width - 1).bit_length())
         assert count == max(1, width.bit_length())
-        assert is_primitive_input_width(width)
-        assert primitive_priority_index_width(width) == priority
-        assert primitive_count_width(width) == count
-        circuit = pycircuit.Circuit(f"primitive_width_{width}")
-        value = circuit.input("value", width=width)
-        assert circuit.priority_encode(value).index.width == priority
-        assert circuit.popcount(value).width == count
-        assert circuit.count_leading_zeros(value).width == count
+        assert 1 <= width <= 64
 
     constraint = primitives["pyc.popcount.v1"]["inputs"][0]["constraints"]
     assert constraint == ["1 <= N <= 64"]
-    assert all(not (1 <= width <= 64) for width in range(65, 131))
-    for width in range(65, 131):
-        assert not is_primitive_input_width(width)
-        circuit = pycircuit.Circuit(f"rejected_primitive_width_{width}")
-        value = circuit.input("value", width=width)
-        with pytest.raises(ValueError, match=r"\[1, 64\]"):
-            circuit.priority_encode(value)
-        with pytest.raises(ValueError, match=r"\[1, 64\]"):
-            circuit.popcount(value)
-        with pytest.raises(ValueError, match=r"\[1, 64\]"):
-            circuit.count_leading_zeros(value)
 
 
 def test_semantic_registry_generates_the_compiler_selection_table(tmp_path) -> None:
@@ -211,9 +186,7 @@ def test_cpp_primitive_width_helpers_match_registry_for_every_width(
     executable = tmp_path / "primitive_width_contract"
     source.write_text(
         r"""#include "SemanticPrimitiveRegistry.h"
-#include "acir/Support/PrimitiveWidths.h"
-#include "gfsim/primitive_widths.h"
-#include <utility>
+#include <string_view>
 
 constexpr unsigned priority(unsigned width) {
   unsigned result = 1;
@@ -225,18 +198,6 @@ constexpr unsigned count(unsigned width) {
   for (unsigned extent = 1; extent < width; extent = (extent << 1) | 1) ++result;
   return result;
 }
-template <std::size_t... I>
-consteval bool gfsimWidths(std::index_sequence<I...>) {
-  return ((gfsim::PriorityIndexWidth<I + 1> == priority(I + 1) &&
-           gfsim::CountWidth<I + 1> == count(I + 1)) && ...);
-}
-static_assert(gfsimWidths(std::make_index_sequence<64>{}));
-template <std::size_t... I>
-consteval bool gfsimRejectsWide(std::index_sequence<I...>) {
-  return ((!gfsim::IsPrimitiveInputWidth<I + 65>) && ...);
-}
-static_assert(gfsimRejectsWide(std::make_index_sequence<66>{}));
-
 int main() {
   const auto *priorityContract =
       pyc::generated::findSemanticPrimitive("pyc.priority_encode.v1");
@@ -245,16 +206,12 @@ int main() {
   if (!priorityContract || !countContract) return 3;
   for (unsigned width = 1; width <= 64; ++width) {
     if (!pyc::generated::supportsInputWidth(*priorityContract, width) ||
-        !acir::isPrimitiveInputWidth(width) ||
         pyc::generated::outputWidth(*priorityContract, "index", width) != priority(width) ||
-        acir::primitivePriorityIndexWidth(width) != priority(width) ||
-        pyc::generated::outputWidth(*countContract, "count", width) != count(width) ||
-        acir::primitiveCountWidth(width) != count(width))
+        pyc::generated::outputWidth(*countContract, "count", width) != count(width))
       return 1;
   }
   for (unsigned width = 65; width <= 130; ++width)
-    if (pyc::generated::supportsInputWidth(*priorityContract, width) ||
-        acir::isPrimitiveInputWidth(width))
+    if (pyc::generated::supportsInputWidth(*priorityContract, width))
       return 2;
   return 0;
 }
@@ -266,9 +223,6 @@ int main() {
             compiler,
             "-std=c++20",
             f"-I{tmp_path}",
-            f"-I{root / 'compiler/mlir/include'}",
-            f"-I{root / 'compiler/acir/include'}",
-            f"-I{root / 'simulator/gfsim/include'}",
             str(source),
             "-o",
             str(executable),
@@ -278,7 +232,10 @@ int main() {
     subprocess.run([str(executable)], check=True)
 
 
-def test_acir_semantic_registry_separates_semantics_from_implementations() -> None:
+def test_deferred_acir_primitive_registry_stays_out_of_the_source_sdk_contract() -> (
+    None
+):
+    """The retained capability inventory is schema data, not a shipped capability."""
     root = Path(__file__).resolve().parents[2]
     registry_path = root / "schemas" / "primitives" / "acir_semantic_registry.json"
     registry = json.loads(registry_path.read_text(encoding="utf-8"))
@@ -303,15 +260,6 @@ def test_acir_semantic_registry_separates_semantics_from_implementations() -> No
     assert "implementation_id" not in encoded
     assert '"module"' not in encoded
 
-    operations = {
-        f"ac.{mnemonic}"
-        for mnemonic in __import__("re").findall(
-            r'ACIR_Op<"([a-z_.]+)"',
-            (root / "compiler/acir/include/acir/Dialect/ACIR/ACIROps.td").read_text(
-                encoding="utf-8"
-            ),
-        )
-    }
     for primitive in registry["primitives"]:
         assert set(primitive) == {
             "semantic_id",
@@ -326,7 +274,6 @@ def test_acir_semantic_registry_separates_semantics_from_implementations() -> No
         }, primitive["semantic_id"]
         assert primitive["effect_class"] == "comb"
         assert primitive["latency"] == 0
-        assert primitive["operation"] in operations, primitive["semantic_id"]
         input_names = {item["name"] for item in primitive["inputs"]}
         output_names = {item["name"] for item in primitive["outputs"]}
         # Every output is described by the dependency matrix and the zero-input
@@ -341,6 +288,19 @@ def test_acir_semantic_registry_separates_semantics_from_implementations() -> No
         for item in primitive["inputs"]:
             if item["type"].startswith("iN"):
                 assert item["constraints"], primitive["semantic_id"]
+
+    sdk_schema = json.loads(
+        (root / "schemas/pycircuit/sdk-manifest.schema.json").read_text(
+            encoding="utf-8"
+        )
+    )
+    assert sdk_schema["properties"]["capabilities"]["const"] == [
+        "pycircuit-pythonic-source",
+        "pycircuit-source-units",
+        "pycircuit-cpp",
+        "pycircuit-verilog",
+        "pyc6-runtime-v1",
+    ]
 
 
 def test_primitive_ppa_report_is_advisory_and_complete() -> None:

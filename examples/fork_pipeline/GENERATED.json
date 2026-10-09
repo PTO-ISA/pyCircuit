@@ -1,0 +1,64 @@
+{
+  "schema": "pycircuit-generated-example-v1",
+  "example": "fork_pipeline",
+  "entry": {
+    "arguments": [],
+    "definition": "@\"example_fork_pipeline.fork_pipeline.ForkPipeline\""
+  },
+  "verification": {
+    "schema": "pycircuit-example-verification-v1",
+    "inputs": {
+      "source/CMakeLists.txt": "c8238046acf623f4e18b839770bb52a1d8575167bd2329a9785616a4e683dcde",
+      "source/config.json": "e12c7c04c0ff7db6e0641b52783076954fec63d87eda1b9569dadc5d99a42383",
+      "source/driver.cpp": "f5b8166c319d1b6b826307c66cc67e5bd9e066a4290d9c449928284cb94e8cec",
+      "source/fork_pipeline.py": "fc4bf68900dab23d62368f0e285570ed1e5688a8abd4792f4e68eaec70f029f4",
+      "source/four_state.py": "e3dac474780d48495327c690585ff392ceeaa0a63cd1381988a562e6d1f7a7e5",
+      "source/rtl_tb.sv": "96516809b6b9d2e2a1e33130bdb35ebbbee9c03a233326eadab03faa0d2a8a00",
+      "build/cpp/generated.json": "98313c5e65ef6e5c76268290087c19b6a7643ff7724f0a5d3f2d298ba257e1a2",
+      "build/cpp/CMakeLists.txt": "6e1eeff18038afaa60f9c40267fd57008743780af4b27ec3a64687ed57895fff",
+      "build/cpp/pycircuit_support.hpp": "59fa17d9c963bb6647cb37b4a85ea298bf7cbd7125ae5316c117abd743b81a53",
+      "build/cpp/pycircuit_system.hpp": "823c4af286c26dcab2f21f903863a2cbfc4a1658aa12fe1526589cf583165f03",
+      "build/cpp/sources/example_fork_pipeline/fork_pipeline.cpp": "433988f07e5606d83770498329d50ebfb243ae2bd39dd251b1a26e7ac6e6f752",
+      "build/cpp/sources/example_fork_pipeline/fork_pipeline.hpp": "98b000164ddd10dc30a9973bd20baa906d19a0252fca98e5c2c6d1218aa22282",
+      "build/cpp/sources/example_fork_pipeline/fork_pipeline.source-map.json": "d967ef505d737979b18842e6697ae965bdb0b1ec2b4856505f4638ba944fd5a4",
+      "build/verilog/generated.json": "e82062b944ef7333366c073cafb0465b6d649530e2112bf859e9a92346375cb2",
+      "build/verilog/CMakeLists.txt": "8b4aa56b93da918735c07f72bab1701092edabab5016c89ba23507b38654edff",
+      "build/verilog/design_top.sv": "7d415e7bb9f581f23dcbc5714bc48409688339fd9da73bf96afc99808ed3563d",
+      "build/verilog/sources/example_fork_pipeline/fork_pipeline.source-map.json": "ee708a59fb0dc15ecc9efb0c97d8a35e0cad2dccfbb063d4c0a72c5680746510",
+      "build/verilog/sources/example_fork_pipeline/fork_pipeline.v": "4830c84b1ae06defd478e5d765213908e5776c0d2380374809e9389dd05faabd",
+      "build/fork_pipeline.ac": "114945e3342f0025f9db71fa51ac8b9a07b0caf115fc2126b1487dd993dbe248",
+      "runtime-rtl/byte_mem.v": "33bd9f73dd7cd17f3531cfd8c321762c214ad5df23b5376add212dadd38c47c2",
+      "runtime-rtl/dff.v": "e4f604bd03b9f1651ddbcd71e9ebb1cd8af45018caeab341728b35c14ec0f553",
+      "runtime-rtl/dffe.v": "9ae323530b72d152d10628de94923eaefa411b29e13c647de21bed8b0d73833b",
+      "runtime-rtl/fifo.v": "2dc4086ad3085bd67504caaac0565a3e676f87ce5411cc019fe8ef3a3bc43b23",
+      "runtime-rtl/sync_mem.v": "207b0fe22f029828ac90b50d2ce0aabbb01763231cd153883f31b581d03d68b7",
+      "runtime-rtl/sync_mem_dp.v": "44672a092661f3c218f71534d0d656a2d7d0bfdb03bc6b7a3394e2f13eea86d4",
+      "runner": "97f2ee272cd0dba542ceafb4f6073271c5f680d57a137d35795347c2efb7823a"
+    },
+    "execution_sha256": "da3ec6735d44fe57df2069c46952e5571a7d6187f8afb266878bb6c02d96c2ce",
+    "work_samples": 395,
+    "workers": [
+      1,
+      2
+    ],
+    "rtl": "verilator",
+    "trace_sha256": "af889fa71189103bd9e1e48cdb29284f8a21e799e7a27c6e8d74e2428894a2c0"
+  },
+  "excerpts": [
+    {
+      "path": "fork_pipeline.ac",
+      "line": 6,
+      "sha256": "114945e3342f0025f9db71fa51ac8b9a07b0caf115fc2126b1487dd993dbe248"
+    },
+    {
+      "path": "cpp/sources/example_fork_pipeline/fork_pipeline.hpp",
+      "line": 64,
+      "sha256": "98b000164ddd10dc30a9973bd20baa906d19a0252fca98e5c2c6d1218aa22282"
+    },
+    {
+      "path": "verilog/sources/example_fork_pipeline/fork_pipeline.v",
+      "line": 1,
+      "sha256": "4830c84b1ae06defd478e5d765213908e5776c0d2380374809e9389dd05faabd"
+    }
+  ]
+}

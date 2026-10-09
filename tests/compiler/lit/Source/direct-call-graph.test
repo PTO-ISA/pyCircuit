@@ -1,0 +1,3 @@
+# REQUIRES: verilator
+# Native X/Z runs unconditionally; Icarus genuine X/Z also runs when available.
+# RUN: %python %S/Inputs/direct-call-graph.py --repo %src --source-compiler %pycircuit_source_unit --linker %pycircuit_link --emitter %pycircuit_emit --cxx %cxx --verilator %verilator --scratch %t.dir

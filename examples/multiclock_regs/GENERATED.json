@@ -1,0 +1,63 @@
+{
+  "schema": "pycircuit-generated-example-v1",
+  "example": "multiclock_regs",
+  "entry": {
+    "arguments": [],
+    "definition": "@\"example_multiclock_regs.multiclock_regs.MulticlockRegs\""
+  },
+  "verification": {
+    "schema": "pycircuit-example-verification-v1",
+    "inputs": {
+      "source/CMakeLists.txt": "c24f2d31851a7c424943f3183b7cfa883f2f47bb49563a8acbc2bb5b450e0751",
+      "source/config.json": "3926419054e3547db55c695b04d0bf32ac2e9709755567d1a14b45609a2394e3",
+      "source/driver.cpp": "4d213611bfc95e1fd81f47c0a0302371df517385067a3d4aec5b713e1ab5e6d4",
+      "source/multiclock_regs.py": "4070f49f705037d8004d0d549fdf45d01cce497dd4e826a7dc4284b908885f5f",
+      "source/rtl_tb.sv": "8b78ffe010472a604319026f5334bba889861759779c94494ce937fc349b5c0b",
+      "build/cpp/generated.json": "a64ab0553d2176251841eb4cd591b384c2c4304a376a40b8683dc2b95416ba49",
+      "build/cpp/CMakeLists.txt": "ccd6f38ea6f6a006933db8dcf0ccddea0892ae8a10c983f9130300d24a5b1c5f",
+      "build/cpp/pycircuit_support.hpp": "a0566293ad328a5931c1a911d5b5f4c8d876a6fd78c34dce9d4ee97102fb1a63",
+      "build/cpp/pycircuit_system.hpp": "5ba4c8eadad8758769799143afd98c1605ee6b9c7ace5df708959f7301754700",
+      "build/cpp/sources/example_multiclock_regs/multiclock_regs.cpp": "127baf0b565ca18aa155ee5405c9178d222398f016433f6f3786fb5d7b999e9c",
+      "build/cpp/sources/example_multiclock_regs/multiclock_regs.hpp": "9a4e1e00946392a26725ddc5f69bf8d626166e3feedd98c9a8241165458cd250",
+      "build/cpp/sources/example_multiclock_regs/multiclock_regs.source-map.json": "8cf07933deea9c6a3066644285cd6dff40b5728b9553e7e236aeec9c4608f65f",
+      "build/verilog/generated.json": "21045252cf621ea2eb56358a8cd329d6f80121031aee83467f4a624eb8ad9883",
+      "build/verilog/CMakeLists.txt": "3b3370d7e9a6531c691340c0bca7968aee1c17fa51b83011321ed96472280643",
+      "build/verilog/design_top.sv": "54e426464d77c36e59b053f892b7da6c7d22e08788415e3bea55128f1540ae6f",
+      "build/verilog/sources/example_multiclock_regs/multiclock_regs.source-map.json": "9ab5f9ec81f2b9a6a437a84ae0e6aec49450d77bd96efe4a0f99976a65afa5ec",
+      "build/verilog/sources/example_multiclock_regs/multiclock_regs.v": "625bfab534f81427c1631513e15b1add7b02dd1931d6c20c1464a159d7225c42",
+      "build/multiclock_regs.ac": "c7ef0c5b8d27ba6be969c8ffc8dbfeee428d30ec1c2542d341b989adf93c65d4",
+      "runtime-rtl/byte_mem.v": "33bd9f73dd7cd17f3531cfd8c321762c214ad5df23b5376add212dadd38c47c2",
+      "runtime-rtl/dff.v": "e4f604bd03b9f1651ddbcd71e9ebb1cd8af45018caeab341728b35c14ec0f553",
+      "runtime-rtl/dffe.v": "9ae323530b72d152d10628de94923eaefa411b29e13c647de21bed8b0d73833b",
+      "runtime-rtl/fifo.v": "2dc4086ad3085bd67504caaac0565a3e676f87ce5411cc019fe8ef3a3bc43b23",
+      "runtime-rtl/sync_mem.v": "207b0fe22f029828ac90b50d2ce0aabbb01763231cd153883f31b581d03d68b7",
+      "runtime-rtl/sync_mem_dp.v": "44672a092661f3c218f71534d0d656a2d7d0bfdb03bc6b7a3394e2f13eea86d4",
+      "runner": "5d1508d21e108bac6460f6f47a880dbd9056a1cab50354a90a6b340abcfaf7ea"
+    },
+    "execution_sha256": "03c0690d4545b260ff099aa09dff730541dbea001a765dc6cedd9d3ed3a265d9",
+    "work_samples": 1558,
+    "workers": [
+      1,
+      2
+    ],
+    "rtl": "verilator",
+    "trace_sha256": "29544e7560b2c3093eeeabbaee3787559538c9c6d36076d30a1a62defe55ddc0"
+  },
+  "excerpts": [
+    {
+      "path": "multiclock_regs.ac",
+      "line": 6,
+      "sha256": "c7ef0c5b8d27ba6be969c8ffc8dbfeee428d30ec1c2542d341b989adf93c65d4"
+    },
+    {
+      "path": "cpp/sources/example_multiclock_regs/multiclock_regs.hpp",
+      "line": 28,
+      "sha256": "9a4e1e00946392a26725ddc5f69bf8d626166e3feedd98c9a8241165458cd250"
+    },
+    {
+      "path": "verilog/sources/example_multiclock_regs/multiclock_regs.v",
+      "line": 1,
+      "sha256": "625bfab534f81427c1631513e15b1add7b02dd1931d6c20c1464a159d7225c42"
+    }
+  ]
+}

@@ -1,101 +1,173 @@
-# pyCircuit 6 agent instructions
+# pyCircuit agent instructions
 
-This repository follows the pyCircuit 6 frontend contract. CycleAwareSignal is
-the primary authoring model, and the V6 documents are the current product source
-of truth.
+pyCircuit is a hardware design language. The source-unit cutover retired the old compilation routes;
+that bounded cutover does not mean the intended hardware language is complete.
+Active product behavior is governed by the approved migration contracts and
+the accepted implementation. Do not treat this file or any migration proposal as evidence that
+implementation or tests have passed.
 
 ## Read first
 
 - `docs/development/agent-frontend-guide.md`
 - `docs/reference/language.md`
-- `docs/rfcs/pyc6-decisions.md`
-- `docs/pyc6-plan.md`
 - `docs/development/contributing-workflow.md`
 - `docs/development/testing-and-gates.md`
 - `docs/development/review-and-merge.md`
+- `docs/development/source-unit-workflow.md`
+- `docs/rfcs/contracts/approvals/` for exact approved migration contracts
+- `docs/development/project-governance.md` for bounded ownership and review expectations
 
-## Codex skills
+## Hardware semantics and implementation coverage
 
-- Apply `$pyc6` first for hard contracts and evidence expectations.
-- Use `$pyc-build-v60` when running builds or gate lanes.
-- Consumer-specific compatibility and design work runs in the owning consumer
-  repository, never in this framework tree (Decisions 0158 and 0235).
+Source modules are ordinary typed `@module` functions with nested stateless
+`@rule` functions and explicit registrations. Structural calls create separate
+instances; standard storage leaves own state. The current route supports typed
+root ports, finite Integer/Boolean values, proven arithmetic and immutable local
+SSA wires. Drivers supply explicit clock/reset levels, including independently
+driven clock pins. Existing keyword-only defaults and standard-leaf type arguments
+do not establish arbitrary parameter-dependent elaboration. Each source compiles
+independently to a published unit; link takes the complete explicit closure.
+C++ and Verilog emit from the same verified final artifact. Read the language
+reference for exact current admission and limitations; the earlier portless
+profile remains historical evidence.
 
-## Task mapping
+Python capture does not execute the design. MLIR owns source resolution,
+semantic checks, interface/effect derivation, and hardware lowering. Work reads
+old Q; successful whole-system checking precedes Xfer. Pure local names share
+combinational values without storage or an assignment-time sample. Source
+`nonlocal` proposal syntax belongs to the retired source model.
 
-- Complex circuit authoring: choose the frontend and decomposition pattern in
-  `docs/development/agent-frontend-guide.md` before writing implementation.
-- Issue fix or feature work: identify affected decision IDs, then map the change
-  to the required gates in `docs/development/testing-and-gates.md`.
-- Code review: prioritize semantic regressions, missing gate coverage,
-  incorrect evidence paths, and documentation drift before style issues.
-- PR preparation: include decision IDs, gate commands, evidence paths, doc
-  updates, and compatibility or risk notes.
-- Documentation updates: keep the V6 specification, contributor docs, README,
-  and actual repository workflow aligned.
+Unsupported uses must fail closed with a diagnostic. Broader system authoring, source
+collection coverage, additional FIFO/backpressure policies, wide instrumentation,
+automatic domain scheduling/CDC, general arithmetic runtime checks and a DUT
+shared-library port C ABI remain unfinished. Standard memory leaves do not close
+historical disabled-read lifetime requirements. Host four-state I/O evidence
+does not establish every source four-state constructor. Do not fill gaps through
+retired routes or claim missing multiwriter/MayOverlap coverage from typed leaves.
 
-## Hard rules
+## Hard break and build contract
 
-- Author product behavior through the supported Python frontends. Handwritten
-  PYC or ACIR is valid as focused compiler test input, not as the implementation
-  of a user-facing circuit.
-- Keep CycleAwareSignal, CycleAwareDomain, and automatic cycle balancing as
-  first-class pyCircuit 6 design contracts (Decision 0148).
-- Add or tighten MLIR verifiers or passes before changing semantics.
-- Do not implement semantic fixes in only one backend. Semantics live in the
-  dialect, passes, and verifiers.
-- Build and test from the current checkout. Never copy staged toolchains,
-  shared libraries, or generated artifacts from another worktree.
-- Do not place temporary tests, scripts, examples, or design notes in the repo
-  root. Use the existing test, example, documentation, or disposable output
-  directories.
-- Treat public examples as product surface. New examples must provide
-  user-facing design coverage, compile-flow coverage, or semantic evidence.
-- Reference affected decision IDs and attach semantic or decision-bearing gate
-  evidence under `docs/gates/logs/<run-id>/`.
-- Keep the repository hard-break only. Do not restore removed compatibility
-  modes or label the current CycleAwareSignal API with a prior product version.
-- Structured Agentic Circuit output is a source-linked AC package. Every
-  executable H1/H2/H3 Python source must be compiled by its own CMake custom
-  command and direct `acc.py -c <source>.py -o <source>.ac` invocation before backend
-  codegen; the root is compiled separately from composition source. A
-  whole-core compile followed by either AC or C++ splitting is forbidden.
-- Preserve the AC unit boundary through C++: one generated source group per Python source
-  `.ac`, plus core/interface glue, compiled independently and linked by parallel
-  CMake/Ninja. Gate the AC tree, definition-to-file map, instance links, C++
-  tree, build graph, and executable DUT together.
-- Keep the active runtime and semantic-gate names on the pyCircuit 6 contract:
-  `libpyc6_runtime` and `run_semantic_regressions_v6.sh`. Serialized trace
-  formats are tooling artifacts, not public model or runtime ABIs.
-- Keep complete CPU/NPU/SoC/board designs, consumer testbenches, ISA decoders,
-  model-comparison scripts, consumer payload/trace schemas, and
-  consumer-specific runtime adapters out of this repository (Decisions 0158
-  and 0235). Framework semantics remain design-neutral.
-- Do not add AI co-author lines to commits or pull request text.
+The active product route is `pycircuit compile`, `pycircuit link`, and
+`pycircuit emit --target cpp|verilog`. There is no fallback or compatibility
+mode for CycleAwareSignal/JIT, structural builders, Agentic Circuit/QueueGraph,
+`acc.py`, `acc`, or `pycc`.
 
-## Repository authority
+The CMake build options are `PYC_BUILD_COMPILER_DEV`, `PYC_BUILD_TESTING`, and
+`PYC_BUILD_RUNTIME_LIB`. Runtime-only consumers use
+`find_package(pycircuit CONFIG REQUIRED COMPONENTS Runtime)` and
+`pycircuit::pyc6_runtime`; that component must not require LLVM. CompilerDev
+requires exact LLVM/MLIR 22.1.8. Generated module CMake builds `pycircuit_modules`
+against Runtime. Host drivers use typed `pyc_dut` and the shared SystemRunner,
+own inputs and explicit clock/reset levels, and supply a finite runner limit.
+The former generated `pycircuit_system`/`libpycircuit_dut` profile is historical;
+it does not establish a current port C ABI.
 
-- `PTO-ISA/pyCircuit` is the upstream source of truth and release authority.
-- Product decisions and reusable framework fixes land upstream. Consumer
-  compatibility gates run from the consumer checkout against a pinned
-  revision. Product design, source comparison, and reference-model validation
-  stay in the owning consumer checkout.
-- See `docs/development/repository-management.md` for branch, release, and fork
-  synchronization policy.
+Keep complete consumer designs, consumer testbenches, ISA decoders,
+model-comparison scripts, consumer schemas, and adapters in their owning
+repositories. Framework semantics stay design-neutral.
 
-## When to stop and ask
+## Development work
 
-- The requested change conflicts with an accepted pyc6 decision.
-- The work would change documented semantics without a clear decision update.
-- Unrelated user changes overlap the same files and the merge strategy is
-  ambiguous.
-- Required credentials or external tooling block required validation or
-  publishing.
+Follow `docs/development/project-governance.md` and the source-unit workflow for
+bounded ownership, approved contracts, independent tests/reviews, candidate
+identity, and evidence. Do not modify frozen approval proposals or milestone
+status as part of implementation/documentation work unless that file is
+explicitly assigned.
 
-## Working expectations
+For any feature or bug fix, identify affected decisions/contracts and the
+smallest evidence needed. Build from this checkout; do not copy toolchains,
+shared libraries, or generated outputs from another worktree. Keep generated
+files and temporary artifacts out of the source tree. Update active behavior
+docs with behavior changes.
 
-- Start with the smallest reproducer and narrowest gate lane that proves the
-  change; widen only as required by risk.
-- Keep generated logs bounded and archive only reviewable evidence.
-- Update behavior documentation in the same change as the behavior.
-- Report non-critical local validation gaps explicitly instead of hiding them.
+## Hardware design and task boundaries
+
+### Authoring and verification boundary (user direction, 2026-10-07)
+
+- Keep one Python capture -> MLIR analysis/lowering -> verified common IR ->
+  C++/Verilog flow. Improve existing owners; do not add another authoring
+  profile, concept layer, compiler, runner or protocol to work around migration
+  difficulty. pyCircuit remains a hardware programming language and compiler,
+  not an arbitrary Python interpreter or a migration-management product.
+- Keep capture/frontend thin. Put type, dependency, effect and hardware
+  semantic inference in the existing MLIR analyses and passes. Remove reviewed
+  shims, fixture-specific product rules and redundant concepts by repairing
+  their existing frontend/IR/codegen owners; do not replace them with a wrapper.
+  Real hardware regression fixtures remain test assets, never compiler rules.
+- Keep hardware design sources focused on their algorithm, state and connections.
+  Place migration bookkeeping, framework coverage and independent oracle models
+  outside DUT sources in their existing documentation/test ownership. Oracle code
+  must never supply DUT results or enter product lowering/codegen.
+- Reuse existing API/example gate and nightly entrypoints. Put long coverage,
+  reference-model and mutation matrices in nightly without shrinking scenarios.
+  Separate validation scheduling from ordinary implementation/review work; when
+  the user defers coverage/oracle runs, do not launch them or claim them passed.
+- Preserve compiler-stage deliverables for retained supported roots, including
+  API-owned roots: source-import ACIR, transformed ACIR, and C++/Verilog from
+  the same final IR. Bind retained artifacts to the exact candidate through
+  existing manifests. Excerpts and accepted counts are not stage verification.
+- Keep repairs bounded. Review and fix concrete defects in the existing flow;
+  a proposal for a new surface is not authorization to implement it. Preserve
+  hardware timing, ownership, type authority and whole-system atomicity.
+
+- pyCircuit is a hardware design language. Designs, modules, register references,
+  stateless rules and test systems are the product concepts. A selected test
+  fixture or an unfinished implementation slice is not the language definition.
+- **NO HARDCODE:** do not use an example's name, width, initial value, increment,
+  mask, node count, statement layout or number of ports to decide product
+  semantics or admission. Derive behavior from declared types, actual SSA,
+  effects, register ownership and approved operation semantics. Hardware source
+  constants, independently derived oracle values and fixed primitive contracts
+  are legitimate; scenario recognition as a compiler rule is not.
+- **NO SHIM:** no compatibility aliases, old-route fallback, parallel semantic
+  compiler, backend-only semantic patch, or adapter that bypasses common IR
+  inference/verification. Rename or replace the owning implementation and its
+  callers together. A temporary workaround needs removal before acceptance;
+  calling it internal does not exempt it.
+- For a complex change, a real `architect` agent establishes the design and an
+  independent decomposition agent splits it into small tasks before execution.
+  Each task fixes its inputs, exclusive files, dependencies, expected hardware
+  behavior, minimal gates and removal scope. Executors implement those tasks;
+  they do not redesign the framework while chasing a failing test.
+- PM integrates shared registries and CMake. Implementation, independent tests
+  and review use separate instances. Default implementation and code-review
+  model is `gpt-6.1-sol`; record the actual role/model/effort. Use the real
+  architect preset for architecture, not another role described as architect.
+- Remove tests that freeze incidental recipes or duplicate another gate.
+  Preserve meaningful ownership, type/range, old-Q, Xfer/hold/discard/reset,
+  zero-commit-on-failure, source-unit and output-protection oracles. Never weaken
+  hardware semantics to make an example pass, or claim broad migration from
+  one or two small examples.
+
+## Verification and reporting
+
+Use the narrowest relevant gate, then the applicable candidate acceptance
+checks. Bind semantic or decision-bearing evidence under
+`docs/gates/logs/<run-id>/` to exact candidate content and commands. Report
+commands, exit status, evidence paths, skipped checks, and remaining callers.
+A fixture or named test is not a passing result. A documentation-only update
+must not claim implementation or verification from documentation alone.
+
+### Delivery cutoff (user direction, 2026-10-07)
+
+The migration expansion is closed. Remove uncovered historical examples and API
+test drafts instead of extending the refactor to complete them. Keep supported
+semantic tests and independent oracles, with long coverage in the existing
+nightly entrypoints. The current catalog is `examples/catalog.json`. Removed
+coverage is not a passing result. Use descriptive names, not migration milestone
+or task codes, in active code and documentation. Logs, migration work packets
+and review transcripts are local ignored artifacts; tests must not read them.
+Frozen semantic approvals and stable decision identifiers remain historical
+authority and are not renamed or rewritten as evidence of new verification.
+
+`@system` is a required current language feature, never a retired source API.
+The user explicitly requires its verified C++/Verilog simulation closure before
+this delivery can merge. Do not replace it with a module-only convenience path
+or transfer compiler-generated clocks, resets, enables or testbench scaffolding
+to the author. Preserve its semantic and independent-test responsibilities.
+
+The current canonical source decorators are bare `@system`, `@rule`, and
+`@module`, imported from `pycircuit`. Do not introduce another prefixed or
+versioned frontend. On the final 2026-10-07 time cutoff, the user explicitly
+stopped further test/example adaptation and requested a PR with remaining work
+listed honestly. No full 93-root adaptation or nightly pass may be claimed.

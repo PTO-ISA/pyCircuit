@@ -1,0 +1,65 @@
+{
+  "schema": "pycircuit-generated-example-v1",
+  "example": "dma",
+  "entry": {
+    "arguments": [],
+    "definition": "@\"example_dma.dma.Dma\""
+  },
+  "verification": {
+    "schema": "pycircuit-example-verification-v1",
+    "inputs": {
+      "source/CMakeLists.txt": "1b5d9d68d94b5583e61bbe9861e576805c4eb5d76d1e6af727e533919c5b8a55",
+      "source/config.json": "82b121d6ac01f49ed85fa0b5b6c5e584a43721ded154c457417dad82d4c37145",
+      "source/dma.py": "ea984a81d30c1f452cc67c81399d61cc29cd7d20d06501bfebaa205091158896",
+      "source/driver.cpp": "8b1f46a735299273e0a652157d006fe22e4171ab07dd23f406e96be4f2c942c9",
+      "source/rtl_tb.sv": "f3aed130c38e290c498a528cce9bc47f9db661e51c8d0cbfd57114649a885edf",
+      "build/cpp/generated.json": "7f56aafac38812ea33e186c4b21e4f7e4892d5a09ac331da6a76d007602a8982",
+      "build/cpp/CMakeLists.txt": "2e5b9283648d4cc24f92e89ffbe7b5968d6a863d04c4170cec127f51acce8337",
+      "build/cpp/pycircuit_support.hpp": "46fb734501076fc1438f5a9d6aaa96e58b90f3ac47a03edc79fa81e2a561896d",
+      "build/cpp/pycircuit_system.hpp": "477deed2c93a82e014749e175b748ea60d602ef818cc7da0a9384778100b3aed",
+      "build/cpp/sources/example_dma/dma.cpp": "4b2d8909636dd22089e8e97d6eaa31d1172e23dd0fee9da7f053d0988f240c0d",
+      "build/cpp/sources/example_dma/dma.hpp": "dd6fc3f579be4dbceda3770d3d965dc6d15b85b07753225f5f8a2325e1b2e096",
+      "build/cpp/sources/example_dma/dma.source-map.json": "fafa1b25453d7c394132d230c8c803cc782a5173f316666eddee20fb0245e0ac",
+      "build/verilog/generated.json": "31564e23f44de0630b4b0e3e167f589ae26389eaf3af733fbc5f876693295817",
+      "build/verilog/CMakeLists.txt": "fa51e5a6d3133facb9336ed03334864195f287ea1911a754a679994ce6aa6e71",
+      "build/verilog/design_top.sv": "8520e06b23eee4f5031179b51ec64bd8c78d49767fe18ae66d54356e2aa28bf2",
+      "build/verilog/sources/example_dma/dma.source-map.json": "a33c8ec58dd5153d0902f8fe3ad4bc793b163c8b25f5eb5a95b2a5236e962fd5",
+      "build/verilog/sources/example_dma/dma.v": "d16523d22c7aa6f4353d0e7e03c06a53ac4dbed70093d569c141635095ebaf6e",
+      "build/dma.ac": "40302163bdf63e15f7a1036c4137210c4ef488e48000fa4ebdb041dd27551feb",
+      "runtime-rtl/byte_mem.v": "dfc3f0fa362196fcfaa7bd771d4f85f26acade0e1dfeb0bc00a24d4161987cd2",
+      "runtime-rtl/dff.v": "325fb9039af507df3c94a26515dfcd8bb73f3812c1264df7b72bfe1af918bbb8",
+      "runtime-rtl/dffe.v": "1fc0bdac0c411ea87c00fc93127ebfba8ca12684a8fecee012a23362e0f8b89c",
+      "runtime-rtl/fifo.v": "8b2f0796fdd7c0f4aee3f20bd52226ccb532c827c8618afd9fbef99e2713f97f",
+      "runtime-rtl/sync_mem.v": "75731fcc0df8a01891e53589e75debc4cda9ec384262937047f21b11de7d7637",
+      "runtime-rtl/sync_mem_dp.v": "16ad11aa53d5f60291136b82a47bef9e21b312cd46ee8b8dfb338bb01c6bc3cc",
+      "runner": "6f3508239f8abb32d6dbc640c87486cc20d7cfdc5e97e1f219a124f5211f8090"
+    },
+    "execution_sha256": "72f8a8e22c4a6f875ec65b65af21e8a925054b003f9a0f0bead56b9eac7a0b8d",
+    "work_samples": 1167,
+    "native_check_records": 2,
+    "native_check_sha256": "175aa894ab9db4a40c67ee355329fadd2344d94d729bed03c9a5844f2ce3eb65",
+    "workers": [
+      1,
+      2
+    ],
+    "rtl": "verilator",
+    "trace_sha256": "b12edaa2f969359e7904d6437800b7332700e9896030234a6108ac4a4c92d31a"
+  },
+  "excerpts": [
+    {
+      "path": "dma.ac",
+      "line": 12,
+      "sha256": "40302163bdf63e15f7a1036c4137210c4ef488e48000fa4ebdb041dd27551feb"
+    },
+    {
+      "path": "cpp/sources/example_dma/dma.hpp",
+      "line": 60,
+      "sha256": "dd6fc3f579be4dbceda3770d3d965dc6d15b85b07753225f5f8a2325e1b2e096"
+    },
+    {
+      "path": "verilog/sources/example_dma/dma.v",
+      "line": 1,
+      "sha256": "d16523d22c7aa6f4353d0e7e03c06a53ac4dbed70093d569c141635095ebaf6e"
+    }
+  ]
+}
