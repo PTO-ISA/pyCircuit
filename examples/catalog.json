@@ -495,7 +495,8 @@
       "system": "ExerciseSelectPipeline",
       "system_source": "bench.py",
       "system_cycles": 1829,
-      "system_scope": "regular-clock"
+      "system_scope": "regular-clock",
+      "generated": "GENERATED.json"
     },
     {
       "name": "enum_helpers",
