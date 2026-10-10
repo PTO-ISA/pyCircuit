@@ -8,7 +8,8 @@
   "verification": {
     "schema": "pycircuit-example-verification-v1",
     "inputs": {
-      "source/CMakeLists.txt": "fc83f76c77d7c3f3be03ab99f49a83fda43ed1de6021b44affc70eda175d0975",
+      "source/CMakeLists.txt": "20402f0b5b211af6e4fcfce88a6e9ea42350c7d73cf057b6dfda04e2d6fee143",
+      "source/bench.py": "bc108078fcfda166922bbf5a0b6a44fdf84069618d741faa14832bdb69be8424",
       "source/config.json": "78d96aa5a68e7ce4860169859195e3f82d6ac0d97f2587c2851dd63d6058f37d",
       "source/driver.cpp": "9431615c76f1d7729fc3511dfb3e01366a05679329f0f3f24ddad06b2b835e0a",
       "source/fifo_loopback.py": "4b59e7a48395230671883adfe0522bb978a1b4c0b261377375c2549845f55848",
@@ -16,10 +17,10 @@
       "source/rtl_tb.sv": "2bd3481c41f316d6fb726288d04e527f9a0787824b6472530c5a1933668f4dd5",
       "build/cpp/generated.json": "d64b8387f107e41c727f36a16da58a2d97801706f1f8d81838af5eb8e2d119af",
       "build/cpp/CMakeLists.txt": "4d508ce908a081450bd7dda73487c3db46d1cc6d6c0aa539dd73e6f9eee3dc5d",
-      "build/cpp/pycircuit_support.hpp": "f41a75fc12d7781a23899c6ba659c3c4b27a844ec0c9384aa9964f67757ba490",
+      "build/cpp/pycircuit_support.hpp": "9606813f0dddcea8f160fdc9455a6d594d6e69d0494d0fce54970c8d678b73af",
       "build/cpp/pycircuit_system.hpp": "1bc430dbdfb73286e80784f67dad40caebe7873ccc4913f7429b544b48a73d9f",
       "build/cpp/sources/example_fifo_loopback/fifo_loopback.cpp": "dc399d34068be688e68c534e192de04e1afb7afa947db655ab7e60f0b2aea829",
-      "build/cpp/sources/example_fifo_loopback/fifo_loopback.hpp": "cbe9caee4f06666652835686df45913ecb0648b91376408449e1cd75010f230f",
+      "build/cpp/sources/example_fifo_loopback/fifo_loopback.hpp": "3d6c5464a37a0e88e9f46b0056834a554fcfde6d81d81c03dbb3c9113a80c3dc",
       "build/cpp/sources/example_fifo_loopback/fifo_loopback.source-map.json": "dd24f266ceefe396b962dc7a4ac2603eba375bab335608c402ec213fb82eaa38",
       "build/verilog/generated.json": "aa2abecd8a8442f3adba3458c3a82918f88a1daf3dac664928a7b26bc6e311c8",
       "build/verilog/CMakeLists.txt": "e5c49100e34f7b19bdeec4eb5c3e1db0c3e33ff562c0de52ce0508540106d256",
@@ -27,16 +28,23 @@
       "build/verilog/sources/example_fifo_loopback/fifo_loopback.source-map.json": "9d50cf707fdc63027ff56f747c0ee5a6dddb3c45f510c0371f6204e3a3801edc",
       "build/verilog/sources/example_fifo_loopback/fifo_loopback.v": "f326bace31e842a46f41bc56c766629f0c578ac28fe41c61260936f702bf1dac",
       "build/fifo_loopback.ac": "6d5ca3eb3d837acb00345fa77c352fe7149855c7aaffae00e7557330760caf01",
-      "runtime-rtl/byte_mem.v": "33bd9f73dd7cd17f3531cfd8c321762c214ad5df23b5376add212dadd38c47c2",
-      "runtime-rtl/dff.v": "e4f604bd03b9f1651ddbcd71e9ebb1cd8af45018caeab341728b35c14ec0f553",
-      "runtime-rtl/dffe.v": "9ae323530b72d152d10628de94923eaefa411b29e13c647de21bed8b0d73833b",
-      "runtime-rtl/fifo.v": "2dc4086ad3085bd67504caaac0565a3e676f87ce5411cc019fe8ef3a3bc43b23",
-      "runtime-rtl/sync_mem.v": "207b0fe22f029828ac90b50d2ce0aabbb01763231cd153883f31b581d03d68b7",
-      "runtime-rtl/sync_mem_dp.v": "44672a092661f3c218f71534d0d656a2d7d0bfdb03bc6b7a3394e2f13eea86d4",
-      "runner": "2e81d0513870496c814c87c48f15d85696a23882552c1e00f1bedfc8707a1075"
+      "build/units/.fifo_loopback.pycircuit-publication/owner.json": "d69b554a1710b43618d04dab2cd2ae8e4e947e53d2383dce30086d000f08a165",
+      "build/units/fifo_loopback/fifo_loopback.ac": "d3ca56503f7612f31b0e24dd0815c2f79ad84e1504800684006c5e5d8444f417",
+      "build/units/fifo_loopback/fifo_loopback.d": "fc4b3268e3b57e69d8858d2ff1a7a19128c2799a2067fa50563406fd863930a8",
+      "build/units/fifo_loopback/fifo_loopback.interface.ac": "5e19f055fc8f5216baa1ea6e71226736913724022297f5e15c6498623a9aed2e",
+      "build/units/fifo_loopback/unit.json": "81122b502e8a4db37a01a02b8ac938ef42606098914b8e22c62f4786b74d90a5",
+      "runtime-rtl/byte_mem.v": "dfc3f0fa362196fcfaa7bd771d4f85f26acade0e1dfeb0bc00a24d4161987cd2",
+      "runtime-rtl/dff.v": "325fb9039af507df3c94a26515dfcd8bb73f3812c1264df7b72bfe1af918bbb8",
+      "runtime-rtl/dffe.v": "1fc0bdac0c411ea87c00fc93127ebfba8ca12684a8fecee012a23362e0f8b89c",
+      "runtime-rtl/fifo.v": "8b2f0796fdd7c0f4aee3f20bd52226ccb532c827c8618afd9fbef99e2713f97f",
+      "runtime-rtl/sync_mem.v": "75731fcc0df8a01891e53589e75debc4cda9ec384262937047f21b11de7d7637",
+      "runtime-rtl/sync_mem_dp.v": "16ad11aa53d5f60291136b82a47bef9e21b312cd46ee8b8dfb338bb01c6bc3cc",
+      "runner": "babd34aef216306c67fee8c6a2b70dc58d2eda8fd1cb2d717c32dae4f494c382"
     },
-    "execution_sha256": "7177b56e7a7d5d6ffee0a231e2c416adcc708ee40fccba000f212cbfffc119ed",
+    "execution_sha256": "24e7db28fd5b8c8be3bcba84870fc5d75f42587cf39593998b11b8cb5415412f",
     "work_samples": 658,
+    "native_check_records": 0,
+    "native_check_sha256": "01ba4719c80b6fe911b091a7c05124b64eeece964e09c058ef8f9805daca546b",
     "workers": [
       1,
       2
@@ -52,8 +60,8 @@
     },
     {
       "path": "cpp/sources/example_fifo_loopback/fifo_loopback.hpp",
-      "line": 27,
-      "sha256": "cbe9caee4f06666652835686df45913ecb0648b91376408449e1cd75010f230f"
+      "line": 29,
+      "sha256": "3d6c5464a37a0e88e9f46b0056834a554fcfde6d81d81c03dbb3c9113a80c3dc"
     },
     {
       "path": "verilog/sources/example_fifo_loopback/fifo_loopback.v",
