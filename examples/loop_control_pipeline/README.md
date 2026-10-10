@@ -52,7 +52,7 @@ combinations with native latent alternatives, current masking/failure rules,
 four-slot saturation, feedback priority, blocked continuation/exit, exact timing,
 holds/reset/discard and actual accept/retire/drop ledgers. Internal iterations
 are modeled independently and checked through visible timing and output values.
-Standalone gates pass2/2 and the paired targeted aggregate passes4/4. Native
+Prior standalone gates passed2/2 and the paired targeted aggregate passed4/4. Native
 workers1/2 and Verilator match1,272 known Work rows; native and genuine Icarus
 match19,458 four-state rows. All64 known inputs execute. Of4,096 symbolic tokens,
 1,096 are safe and3,000 have an effective unknown continuation: both native
@@ -82,10 +82,79 @@ that explicit system root through the public compile/link/emit flow. Run
 `--target verilog`. Imported records use their original nominal declarations
 and supply every field explicitly.
 
-All original known-stream data edges are represented in this regular-clock
-scenario, with fixed independent expectations from the retained native oracle
-along a resetless trajectory. The 635 cycles include a final observation.
+The bench stores all 635 immutable `Scenario` rows in one typed Table,
+including the repeated final rows. Its ten ordered fields retain 16 bits in
+total; zero-valued fields use existing implicit-zero Struct initialization.
+The author extracted these records from the frozen original AST without
+importing or executing design code, separately from independent preservation
+of all 6,350 active values.
+
+The full `bits[64]` phase starts at zero and selects its corresponding row below
+635, then row 634. From phase 630 through 2**64-1, only take is one; every other
+field is zero, including expected-ready. The source retains that exact tail
+rather than replacing it with a guessed drained-ready value. The original
+increment wraps to row zero without introducing a DUT reset.
+
+Direct projections supply all three explicit `LoopToken` fields and the
+original DUT arguments. Five assertions retain their `phase < 635` guard,
+empty else, messages and order. Five logs remain unconditional, and registration
+still calls `check()` then `advance(phase)`. All original known-stream data edges
+and fixed expectations remain on the resetless trajectory; the complete
+635-cycle run includes its final observation.
 The original DUT, native/RTL drivers, finite configuration, and any four-state,
 reset/discard, latency and token-ledger matrices remain unchanged. Physical
 held-level and midstream-reset scenarios still require those original module
 oracles; this system does not claim complete physical-scenario equivalence.
+
+## Verification and measured costs
+
+The current standalone module, system and four-state tests pass 3/3. Original
+independent oracles retain 1,272 known and 19,458 four-state Work rows, including native
+workers 1/2, Verilator, genuine Icarus and original masking/recovery/token-ledger
+probes. The system completes 635 cycles / 1,270 epochs, five source-check definitions
+and 6,350 observations.
+
+The independent source proof preserves all 6,350 field values and 373 intervals over the
+complete known-u64 domain, including repeated terminal rows, expected_ready=0 and modulo
+wrap. Twelve mutated candidates are rejected. Complete normalized AST comparison
+preserves all assertion messages/operators/targets, logs, guards and registrations.
+
+Complete original and candidate observations agree across native workers 1/2 and RTL.
+The physical-driver and four-state responsibilities remain separate from the known-phase
+source proof. Neither a finite run nor this source proof claims simulated u64 rollover
+or arbitrary injected X/Z phase equivalence. See the current [verified module excerpts
+and receipt](GENERATED.md).
+
+The bench shrinks from 4,520 lines / 178,136 bytes to 706 lines / 42,705 bytes.
+Measurements use the same machine, installed compiler and LLVM 22 C++ toolchain with
+`-O0`. Build/emission phases are single observations from sequential baseline/candidate
+pipelines. Runtime medians use three additional paired warm runs in alternating order
+and the complete registered cycle count. These limited observations are not cross-platform guarantees.
+
+| Phase | Original | Scenario table |
+| --- | ---: | ---: |
+| Compile bench | 4.42 s | 2.07 s |
+| Link system | 5.03 s | 3.66 s |
+| Emit C++ | 5.85 s | 3.57 s |
+| Build C++ simulator | 3.06 s | 2.20 s |
+| Emit Verilog | 3.59 s | 2.64 s |
+| Build Verilog simulator | 1.89 s | 1.64 s |
+| Run C++, one worker (warm median) | 1.760 s | 1.902 s |
+| Run Verilog (warm median) | 0.061 s | 0.061 s |
+
+Native runtime median increases by 8.1% (about 0.142 seconds). Generated C++ grows 26.6%
+and generated RTL 8.3%. These are authoring/frontend improvements with backend costs,
+not an overall performance improvement.
+
+Final IR decreases from 20,444,754 to 15,089,318 bytes. Generated C++ files total
+3,841,156 → 4,864,736 bytes; generated Verilog files total 818,463 → 886,053 bytes.
+
+The generated C++ currently rebuilds constant table field planes during Work. One-time
+materialization of proven constant planes is a separate generic emitter optimization
+tracked in [issue #265](https://github.com/PTO-ISA/pyCircuit/issues/265); no such
+compiler change is part of this example rewrite.
+
+Complete source-import and transformed artifacts are retained locally and reproduce both
+published units byte-for-byte. Public execution and measured builds share identical
+final IR and generated outputs. DUTs, drivers, configurations, cycle limits and timeouts
+remain unchanged.

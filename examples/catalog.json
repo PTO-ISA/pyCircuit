@@ -525,7 +525,8 @@
       "system": "ExerciseLoopControlPipeline",
       "system_source": "bench.py",
       "system_cycles": 635,
-      "system_scope": "regular-clock"
+      "system_scope": "regular-clock",
+      "generated": "GENERATED.md"
     },
     {
       "name": "table_rule",
@@ -609,7 +610,7 @@
       "name": "memory_banks",
       "folder": "examples/memory_banks",
       "source": "memory_banks.py",
-      "generated": "GENERATED.json",
+      "generated": "GENERATED.md",
       "system": "ExerciseMemoryBanks",
       "system_source": "bench.py",
       "system_cycles": 440,
