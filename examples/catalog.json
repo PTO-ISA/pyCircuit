@@ -514,7 +514,8 @@
       "system": "ExerciseFeedbackPipeline",
       "system_source": "bench.py",
       "system_cycles": 3763,
-      "system_scope": "regular-clock"
+      "system_scope": "regular-clock",
+      "generated": "GENERATED.md"
     },
     {
       "name": "loop_control_pipeline",
