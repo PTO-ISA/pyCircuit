@@ -36,7 +36,7 @@ cmake --build /absolute/build/record_spread_pipeline --parallel 4
 ctest --test-dir /absolute/build/record_spread_pipeline --output-on-failure --no-tests=error
 ```
 
-The two CTest gates run the generated native DUT with workers 1/2, Verilator,
+The module and four-state CTest gates run the generated native DUT with workers 1/2, Verilator,
 and genuine Icarus. Each compares 317 old-state Work samples, including separate
 missing-base/header/payload/patch sequences, full six-slot replacement,
 changing rejected inputs, repeated high/low clocks, reset, and drain. Thirty
@@ -52,19 +52,68 @@ token contains three inputs and an output token contains four, conservation is
 counting the six differently placed tokens as interchangeable packet capacity.
 Main and auxiliary runners have finite limits.
 
-## Generated system usage
+## Scenario bench
 
-`bench.py` exports `example_record_spread_pipeline.bench.ExerciseRecordSpreadPipeline`. Compile
-`record_spread_pipeline.py`, then `bench.py`, import the published DUT interface, and link
-that explicit system root through the public compile/link/emit flow. Run
-`pycircuit run examples/record_spread_pipeline --target cpp --cycles 158` or select
-`--target verilog`. Imported records use their original nominal declarations
-and supply every field explicitly.
+`bench.py` stores 158 regular-clock scenarios in an immutable typed Table. Its
+23 fields retain the original 89-bit stimulus and expectation tuple. The
+64-bit phase selects its own row below 158 and row 157 thereafter; rows 155–157
+are deliberately repeated. From phase 155 through the largest known u64 value,
+only `take` and the four expected-ready fields are one. The existing counter
+increment wraps modulo 2⁶⁴.
 
-All original known-stream data edges are represented in this regular-clock
-scenario, with fixed independent expectations from the retained native oracle
-along a resetless trajectory. The 158 cycles include a final observation.
-The original DUT, native/RTL drivers, finite configuration, and any four-state,
-reset/discard, latency and token-ledger matrices remain unchanged. Physical
-held-level and midstream-reset scenarios still require those original module
-oracles; this system does not claim complete physical-scenario equivalence.
+Protocol `base_valid` and `patch_valid` remain separate from the payload bits
+`base_present` and `patch_present`. Every Packet/Header/Payload/Patch constructor
+retains its explicit fields, including base payload that composition overwrites.
+All nine assertions remain unmasked under `phase < 158`; all nine observations
+remain unconditional, and `check()` still precedes `advance(phase)`.
+
+The original and compact sources agree on all 3,634 active field values and the
+complete known-u64 phase domain, including the tail and wrap transition. This is
+a source-level proof, not a simulation through 2⁶⁴ cycles. Twenty complete
+158-cycle C++/Verilog traces match after removing only changed source-position
+metadata, including native workers 1 and 2. Each has 2,844 observations and its
+terminal result. The module, system and four-state gates pass 3/3 for both
+versions. See the module [excerpts and receipt](GENERATED.md).
+
+The closed system follows a resetless regular-clock trajectory. Original module
+drivers still own the 317-sample physical clock/reset, six-slot conservation and
+X/Z oracles described above. The compact helper does not claim arbitrary
+X/Z-phase equivalence or complete physical-scenario coverage.
+
+## Local cost comparison
+
+The source shrinks from 3,583 lines / 127,524 bytes to
+280 lines / 32,840 bytes. Measurements use the same checkout-built
+compiler, LLVM 22 C++ toolchain and `-O0` on one machine. Compile, emit, build
+and first-run times are single serial observations; warm medians use three
+alternating full-length pairs. Every fresh process includes initialization.
+These measurements do not guarantee results on other platforms or optimization
+levels.
+
+| Measurement | Expanded cases | Typed Table |
+| --- | ---: | ---: |
+| Compile bench | 3.214 s | 1.216 s |
+| Emit C++ | 4.263 s | 2.541 s |
+| Emit Verilog | 2.991 s | 1.741 s |
+| Build C++ | 1.749 s | 1.354 s |
+| Build Verilog | 1.653 s | 1.575 s |
+| First measured full C++ run | 0.960 s | 0.604 s |
+| First measured full Verilog run | 0.483 s | 0.329 s |
+| Warm C++ median, one worker | 0.404 s | 0.034 s |
+| Warm Verilog median | 0.029 s | 0.028 s |
+| Warm native peak RSS median | 5.39 MiB | 3.61 MiB |
+
+| Artifact size | Expanded cases | Typed Table |
+| --- | ---: | ---: |
+| Final IR | 17,846,352 bytes | 9,570,280 bytes |
+| Generated C++ total | 3,495,631 bytes | 2,977,713 bytes |
+| Generated Verilog total | 748,639 bytes | 517,905 bytes |
+
+Complete source-import/transformed artifacts reproduce the published units, and
+the public and measured builds share identical final IR and generated outputs.
+DUTs, drivers, configuration, cycle limits and timeouts remain unchanged.
+
+```sh
+pycircuit run examples/record_spread_pipeline --target cpp --cycles 158
+pycircuit run examples/record_spread_pipeline --target verilog --cycles 158
+```

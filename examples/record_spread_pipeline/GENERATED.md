@@ -43,10 +43,11 @@ python3 tools/example_catalog.py generated --example record_spread_pipeline \
 
 ## Source-owned C++ Work
 
-`cpp/sources/example_record_spread_pipeline/record_spread_pipeline.hpp`, from line 88:
+`cpp/sources/example_record_spread_pipeline/record_spread_pipeline.hpp`, from line 90:
 
 ```cpp
   void Work() {
+    __pyc_clear_check_snapshots();
     try {
     gfsim::wire<gfsim::table<::example_record_spread_pipeline::record_spread_pipeline::Result, (pyc_count * (1))>> pyc_value_0;
     gfsim::wire<gfsim::table<gfsim::Bits<1>, (pyc_count * (1))>> pyc_value_1;
@@ -55,11 +56,10 @@ python3 tools/example_catalog.py generated --example record_spread_pipeline \
     for (std::size_t pyc_pin = 0; pyc_pin < (pyc_count * (1)); ++pyc_pin) this->pyc_queue_pyc_5f5f7079635f71756575655f35_out_ready.element(pyc_pin) = this->take.element(pyc_pin);
     for (std::size_t pyc_lane = 0; pyc_lane < pyc_count; ++pyc_lane) this->pyc_queue_pyc_5f5f7079635f71756575655f35_in_ready.element(pyc_lane) = gfsim::fifo_kernel<::example_record_spread_pipeline::record_spread_pipeline::Packet, 1, gfsim::QueueReadyPolicy::DownstreamPop, 1ULL>::readReady(this->pyc_queue_pyc_5f5f7079635f71756575655f35_state->current(pyc_lane), this->pyc_queue_pyc_5f5f7079635f71756575655f35_out_ready.element(pyc_lane));
     for (std::size_t pyc_lane = 0; pyc_lane < pyc_count; ++pyc_lane) this->pyc_queue_pyc_5f5f7079635f71756575655f33_out_valid.element(pyc_lane) = gfsim::fifo_kernel<::example_record_spread_pipeline::record_spread_pipeline::Patch, 1, gfsim::QueueReadyPolicy::DownstreamPop, 1ULL>::readValid(this->pyc_queue_pyc_5f5f7079635f71756575655f33_state->current(pyc_lane));
-    for (std::size_t pyc_lane = 0; pyc_lane < pyc_count; ++pyc_lane) pyc_value_3.element(pyc_lane) = gfsim::wire<gfsim::Bits<1>>::fromPacked(gfsim::bit_and(this->pyc_queue_pyc_5f5f7079635f71756575655f35_in_ready.element(pyc_lane).packed(), this->pyc_queue_pyc_5f5f7079635f71756575655f33_out_valid.element(pyc_lane).packed()));
+    for (std::size_t pyc_lane = 0; pyc_lane < (pyc_count * (1)); ++pyc_lane) pyc_value_3.element(pyc_lane) = gfsim::wire<gfsim::Bits<1>>::fromPacked(gfsim::bit_and(this->pyc_queue_pyc_5f5f7079635f71756575655f35_in_ready.element(((pyc_lane / (1)) * (1) + pyc_lane % (1))).packed(), this->pyc_queue_pyc_5f5f7079635f71756575655f33_out_valid.element(((pyc_lane / (1)) * (1) + pyc_lane % (1))).packed()));
     for (std::size_t pyc_pin = 0; pyc_pin < (pyc_count * (1)); ++pyc_pin) this->pyc_queue_pyc_5f5f7079635f71756575655f34_out_ready.element(pyc_pin) = pyc_value_3.element(pyc_pin);
     for (std::size_t pyc_lane = 0; pyc_lane < pyc_count; ++pyc_lane) this->pyc_queue_pyc_5f5f7079635f71756575655f34_in_ready.element(pyc_lane) = gfsim::fifo_kernel<::example_record_spread_pipeline::record_spread_pipeline::Packet, 1, gfsim::QueueReadyPolicy::DownstreamPop, 1ULL>::readReady(this->pyc_queue_pyc_5f5f7079635f71756575655f34_state->current(pyc_lane), this->pyc_queue_pyc_5f5f7079635f71756575655f34_out_ready.element(pyc_lane));
     for (std::size_t pyc_lane = 0; pyc_lane < pyc_count; ++pyc_lane) this->pyc_queue_pyc_5f5f7079635f71756575655f31_out_valid.element(pyc_lane) = gfsim::fifo_kernel<::example_record_spread_pipeline::record_spread_pipeline::Header, 1, gfsim::QueueReadyPolicy::DownstreamPop, 1ULL>::readValid(this->pyc_queue_pyc_5f5f7079635f71756575655f31_state->current(pyc_lane));
-    for (std::size_t pyc_lane = 0; pyc_lane < pyc_count; ++pyc_lane) pyc_value_2.element(pyc_lane) = gfsim::wire<gfsim::Bits<1>>::fromPacked(gfsim::bit_and(this->pyc_queue_pyc_5f5f7079635f71756575655f34_in_ready.element(pyc_lane).packed(), this->pyc_queue_pyc_5f5f7079635f71756575655f31_out_valid.element(pyc_lane).packed()));
 ```
 
 ## Source-owned Verilog
