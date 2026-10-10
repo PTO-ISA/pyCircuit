@@ -1,0 +1,72 @@
+{
+  "schema": "pycircuit-generated-example-v1",
+  "example": "bit_primitive_pipeline",
+  "entry": {
+    "arguments": [],
+    "definition": "@\"example_bit_primitive_pipeline.bit_primitive_pipeline.BitPrimitivePipeline\""
+  },
+  "verification": {
+    "schema": "pycircuit-example-verification-v1",
+    "inputs": {
+      "source/CMakeLists.txt": "fb1062d9a3e5594089e2d8c10314193443e519a917cde88ed9da26e0aab97cd2",
+      "source/bench.py": "51cbfe6a38f52f1799be30ce3c4bcfb8854d07b1e91f0e98217228e40abeeefc",
+      "source/bit_primitive_pipeline.py": "f6904da00d4362c6c08b54190711f7a82dbba2227e765cf4a18f767595f9e3ea",
+      "source/config.json": "1170470b72d79b8a846b6713d5492a980eb1bf86a1a4f66cdf111f3895fabd4f",
+      "source/driver.cpp": "9a0359cccb6c5455c479c03869b9d6b54e3a49e52fd7299f40eb6b138c272320",
+      "source/four_state.py": "56672a959eb1a234f3f272d6113ace4f92286a4bda3252a9b2083e3089ce3b2b",
+      "source/rtl_tb.sv": "acccc9e0121785c885f9b98044276621099dba06275c17e95486aff60353f5e0",
+      "build/cpp/generated.json": "e486b2b1cfaced9632e40ba32455e5605ac549e4d84c0f58482ee9d1f3c89493",
+      "build/cpp/CMakeLists.txt": "dda10970c00b4fb3b4e22c3f29befba304df8a86b44f28baea17168daf316ade",
+      "build/cpp/pycircuit_support.hpp": "265c84d5b42e8309383415732b46ed6342c8933ad3382563d46992bb4f84bd09",
+      "build/cpp/pycircuit_system.hpp": "6ef071fc0a634ff5197725cf91442fc9a6a2cb21fa5e9f5fac4b9b989b471f93",
+      "build/cpp/sources/example_bit_primitive_pipeline/bit_primitive_pipeline.cpp": "ba49ef7b3b315f07f4b7314e0f36be0b96d5af015d2f7b40aa2ff736c2320ce8",
+      "build/cpp/sources/example_bit_primitive_pipeline/bit_primitive_pipeline.hpp": "399a48403c0a847ace77081c066581e0bbf2567aef7fe6469a4d0c088cc3933b",
+      "build/cpp/sources/example_bit_primitive_pipeline/bit_primitive_pipeline.source-map.json": "73f65aace02553f1d7655d5f42f9f756c10c7d8c2c1bd759ec92c6eae9abf421",
+      "build/verilog/generated.json": "d270e89548b1468d1171a6d58ed7f4853209a964be2b7fbdc23438a7ab24d842",
+      "build/verilog/CMakeLists.txt": "32c73ada66ffcbcc4dc9c3942e8747bc45983a248bd7a813edb23733804be982",
+      "build/verilog/design_top.sv": "dc7f3d30f55acf147e156fa7fe7c154c41e0e2c4be7affec01258352372b480d",
+      "build/verilog/sources/example_bit_primitive_pipeline/bit_primitive_pipeline.source-map.json": "6e065553eb3d75f38d637a2417c11ed0eaa56677596021e663659ac6ccc1e71e",
+      "build/verilog/sources/example_bit_primitive_pipeline/bit_primitive_pipeline.v": "884984509d9da606af201f68302758265551cfff5561329e0fafd07dba7532b7",
+      "build/bit_primitive_pipeline.ac": "b754ddf02eb4ef348ab98acef9c40c573d435402a291aea5b2aba9c396304fb5",
+      "build/units/.bit_primitive_pipeline.pycircuit-publication/owner.json": "3178f7f565cffd1c0adbdeb4b18d3079a8e407edbc704b26a1291df48bf6b7aa",
+      "build/units/bit_primitive_pipeline/bit_primitive_pipeline.ac": "a556a511a275a858d32126c2203de8fb36b9a19170afddcef0ac22c9a0f46498",
+      "build/units/bit_primitive_pipeline/bit_primitive_pipeline.d": "fa150a04e854dce9f73030f005c6e81c5268103f7bc53d4ba8ade924c1d26c05",
+      "build/units/bit_primitive_pipeline/bit_primitive_pipeline.interface.ac": "611109df0ea87304e96a4cb10a183585bc22a88c6c18d908e83c247b2b342a27",
+      "build/units/bit_primitive_pipeline/unit.json": "22dc1e22bef7b85bf6ec130e32c7e55fc7dc3e94aa67ae93380cff47b7002b04",
+      "runtime-rtl/byte_mem.v": "dfc3f0fa362196fcfaa7bd771d4f85f26acade0e1dfeb0bc00a24d4161987cd2",
+      "runtime-rtl/dff.v": "325fb9039af507df3c94a26515dfcd8bb73f3812c1264df7b72bfe1af918bbb8",
+      "runtime-rtl/dffe.v": "1fc0bdac0c411ea87c00fc93127ebfba8ca12684a8fecee012a23362e0f8b89c",
+      "runtime-rtl/fifo.v": "8b2f0796fdd7c0f4aee3f20bd52226ccb532c827c8618afd9fbef99e2713f97f",
+      "runtime-rtl/sync_mem.v": "75731fcc0df8a01891e53589e75debc4cda9ec384262937047f21b11de7d7637",
+      "runtime-rtl/sync_mem_dp.v": "16ad11aa53d5f60291136b82a47bef9e21b312cd46ee8b8dfb338bb01c6bc3cc",
+      "runner": "0be90617677fbe5b9ec7acbe1fee508a138ddb804f9621b4ccce1e19eb75a4fd"
+    },
+    "execution_sha256": "54947f3d1500cfa4432ce9ad39c1c86f3b612000f1ee9c63a8fa9c408d31c0da",
+    "work_samples": 42153,
+    "native_check_records": 0,
+    "native_check_sha256": "01ba4719c80b6fe911b091a7c05124b64eeece964e09c058ef8f9805daca546b",
+    "workers": [
+      1,
+      2
+    ],
+    "rtl": "verilator",
+    "trace_sha256": "d70dd945f9a34c2983c14bde234e6febb0679b997e79eacc69fbf1db39b519d9"
+  },
+  "excerpts": [
+    {
+      "path": "bit_primitive_pipeline.ac",
+      "line": 6,
+      "sha256": "b754ddf02eb4ef348ab98acef9c40c573d435402a291aea5b2aba9c396304fb5"
+    },
+    {
+      "path": "cpp/sources/example_bit_primitive_pipeline/bit_primitive_pipeline.hpp",
+      "line": 40,
+      "sha256": "399a48403c0a847ace77081c066581e0bbf2567aef7fe6469a4d0c088cc3933b"
+    },
+    {
+      "path": "verilog/sources/example_bit_primitive_pipeline/bit_primitive_pipeline.v",
+      "line": 1,
+      "sha256": "884984509d9da606af201f68302758265551cfff5561329e0fafd07dba7532b7"
+    }
+  ]
+}

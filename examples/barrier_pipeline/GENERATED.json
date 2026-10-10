@@ -8,18 +8,19 @@
   "verification": {
     "schema": "pycircuit-example-verification-v1",
     "inputs": {
-      "source/CMakeLists.txt": "e7a0d424a13290cefe4b8eba187199a9cee1b763d56996499d588b2b06861e06",
+      "source/CMakeLists.txt": "14500e4a01a19dd1474d1ca0d75a98b63f3e30c5f654f9991e2c9319c6042c9a",
       "source/barrier_pipeline.py": "bbe162190fbf43afb7677f38bb124c5388796332c9ea77bcbb65dc6e0d9c0b2a",
+      "source/bench.py": "d21451fe013d730283626d19632423b7f62768e840647128bc6bf4b37a070df1",
       "source/config.json": "5130e736467addf0df6ad8d4b8490cf6afbf299828702897e132d8df266349d8",
       "source/driver.cpp": "b1eb5218f8c457745542649c8572d864429dc0abd651e62b15f3be7618e14ff6",
       "source/four_state.py": "ae03ceb6f7f57251a67d0e2eb6b4f7fc847007e3f3d4445a0d885c8e2e0f520c",
       "source/rtl_tb.sv": "48c8d3d805545c8eea29e9675a7bcedae746ed5e592eb0f773680969ab5a9022",
       "build/cpp/generated.json": "64912909376431a977cd9c13e26efb972431de1d92d0bf8051de566e71dbb5c6",
       "build/cpp/CMakeLists.txt": "fc28fff102d6271469dde123418346b94784a1a0be3c6106d9219d396f126b45",
-      "build/cpp/pycircuit_support.hpp": "380a5b6f304e57d031734f56271c5278fe45b0979beede4be6a0a8d7733c0f7e",
+      "build/cpp/pycircuit_support.hpp": "864a7ee6a3290bcbe84cfd2a2ceadcbe90ace13eb551a2edbe173c4a2b45f68d",
       "build/cpp/pycircuit_system.hpp": "96c0a9c9b116da1f882d9b671c839bbba0c40d46dc35943fcdae17d1d31c9712",
       "build/cpp/sources/example_barrier_pipeline/barrier_pipeline.cpp": "82ff6171de8b19ffe38c56e0434ad5b7aed53ddf30f63af29d631043abf418c6",
-      "build/cpp/sources/example_barrier_pipeline/barrier_pipeline.hpp": "6f3fe983f18e631e3feaf4769c618ecd0afe1cede74aac1ebea358cb7ca6c74d",
+      "build/cpp/sources/example_barrier_pipeline/barrier_pipeline.hpp": "946fe9ab9faeccaa13d703928fd374fde15f108724abde95ade74f208da290f4",
       "build/cpp/sources/example_barrier_pipeline/barrier_pipeline.source-map.json": "dc58c4b8223bb422f4d84239d3c729a4c90f4b3dbb82e7bfb03ce4bf2f1f759e",
       "build/verilog/generated.json": "19fe508006c420ddfefeb6ddefb5a81385f15e78af53065dcecd02f21af14fea",
       "build/verilog/CMakeLists.txt": "09b094e657a047d54a40b42883fc8c96c1fe11f003abc12e10ef888f94a24aa3",
@@ -27,16 +28,23 @@
       "build/verilog/sources/example_barrier_pipeline/barrier_pipeline.source-map.json": "7b3803612f7bedbe24326cfe481f4b3de14f539809a8f3d67cefb1b8fefd1619",
       "build/verilog/sources/example_barrier_pipeline/barrier_pipeline.v": "dd560463b06d5ffe2b3865c489135f64b27435194ef5095f407def313323d1a7",
       "build/barrier_pipeline.ac": "093d020c403cabe4b5541586c27b62dfb6c6e92baebb9c7a498e48cfcb7f6322",
-      "runtime-rtl/byte_mem.v": "33bd9f73dd7cd17f3531cfd8c321762c214ad5df23b5376add212dadd38c47c2",
-      "runtime-rtl/dff.v": "e4f604bd03b9f1651ddbcd71e9ebb1cd8af45018caeab341728b35c14ec0f553",
-      "runtime-rtl/dffe.v": "9ae323530b72d152d10628de94923eaefa411b29e13c647de21bed8b0d73833b",
-      "runtime-rtl/fifo.v": "2dc4086ad3085bd67504caaac0565a3e676f87ce5411cc019fe8ef3a3bc43b23",
-      "runtime-rtl/sync_mem.v": "207b0fe22f029828ac90b50d2ce0aabbb01763231cd153883f31b581d03d68b7",
-      "runtime-rtl/sync_mem_dp.v": "44672a092661f3c218f71534d0d656a2d7d0bfdb03bc6b7a3394e2f13eea86d4",
-      "runner": "202ef3347f140814173b31ec6ab901bcacc332c67fb5f38aa2efd9ff46fa5fd6"
+      "build/units/.barrier_pipeline.pycircuit-publication/owner.json": "e00514578411380fa71efd20419cfa5853fe1a040a8505e0eebae69ef0a1469e",
+      "build/units/barrier_pipeline/barrier_pipeline.ac": "a610c03e4ff0ee4dca9ee1da570200370385e0f71481f8f8b716be95431e3a93",
+      "build/units/barrier_pipeline/barrier_pipeline.d": "890209ec9e38248296e6eb0eb6cf26c16e2268644d392b04b37304ee41470ad4",
+      "build/units/barrier_pipeline/barrier_pipeline.interface.ac": "ab9c0615c6d786aa53c4c7b8808366ad56ffec54e151164561b964eef098b357",
+      "build/units/barrier_pipeline/unit.json": "6ff5aa3a8d44760595289b508d94532cf6f38d24afaf822d7981b96a6242c46a",
+      "runtime-rtl/byte_mem.v": "dfc3f0fa362196fcfaa7bd771d4f85f26acade0e1dfeb0bc00a24d4161987cd2",
+      "runtime-rtl/dff.v": "325fb9039af507df3c94a26515dfcd8bb73f3812c1264df7b72bfe1af918bbb8",
+      "runtime-rtl/dffe.v": "1fc0bdac0c411ea87c00fc93127ebfba8ca12684a8fecee012a23362e0f8b89c",
+      "runtime-rtl/fifo.v": "8b2f0796fdd7c0f4aee3f20bd52226ccb532c827c8618afd9fbef99e2713f97f",
+      "runtime-rtl/sync_mem.v": "75731fcc0df8a01891e53589e75debc4cda9ec384262937047f21b11de7d7637",
+      "runtime-rtl/sync_mem_dp.v": "16ad11aa53d5f60291136b82a47bef9e21b312cd46ee8b8dfb338bb01c6bc3cc",
+      "runner": "ada919080213966c15191f93585f1b71556bc1dbae4679e374dcca0d54fa710d"
     },
-    "execution_sha256": "3353059a19816c2132b61751e4816ff3e303092d458bfa78fcd3d97fcc0ff674",
+    "execution_sha256": "742dbcdf24602a06b0ea2be9860c519c7e5bd2159abb53b689b42406f968dd10",
     "work_samples": 699,
+    "native_check_records": 0,
+    "native_check_sha256": "01ba4719c80b6fe911b091a7c05124b64eeece964e09c058ef8f9805daca546b",
     "workers": [
       1,
       2
@@ -52,8 +60,8 @@
     },
     {
       "path": "cpp/sources/example_barrier_pipeline/barrier_pipeline.hpp",
-      "line": 63,
-      "sha256": "6f3fe983f18e631e3feaf4769c618ecd0afe1cede74aac1ebea358cb7ca6c74d"
+      "line": 65,
+      "sha256": "946fe9ab9faeccaa13d703928fd374fde15f108724abde95ade74f208da290f4"
     },
     {
       "path": "verilog/sources/example_barrier_pipeline/barrier_pipeline.v",

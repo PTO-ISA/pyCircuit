@@ -424,7 +424,7 @@
       "name": "barrier_pipeline",
       "folder": "examples/barrier_pipeline",
       "source": "barrier_pipeline.py",
-      "generated": "GENERATED.json",
+      "generated": "GENERATED.md",
       "system": "ExerciseBarrierPipeline",
       "system_source": "bench.py",
       "system_cycles": 347,
@@ -467,7 +467,8 @@
       "system": "BitPrimitivePipelineSystem",
       "system_source": "bench.py",
       "system_cycles": 344,
-      "system_scope": "regular-clock"
+      "system_scope": "regular-clock",
+      "generated": "GENERATED.md"
     },
     {
       "name": "onehot_encode",
