@@ -40,7 +40,7 @@ retirement, per-stream token conservation, capacity, wrap, raw four-state
 transport, reset, held clocks and whole-system failure/discard. Native workers
 1 and 2, Verilator and genuine Icarus use the actual generated DUT.
 
-Standalone generated-DUT gates pass: native workers 1/2, Verilator and Icarus
+Prior standalone generated-DUT gates passed: native workers 1/2, Verilator and Icarus
 agree on 699 known Work samples; native and genuine Icarus agree on another
 619 four-state samples. Native checks all copied value/known/Z planes, including
 latent values. Known histories accept 313, retire 305 and reset-drop eight tokens
@@ -63,10 +63,52 @@ that explicit system root through the public compile/link/emit flow. Run
 `--target verilog`. Imported records use their original nominal declarations
 and supply every field explicitly.
 
-All original known-stream data edges are represented in this regular-clock
-scenario, with fixed independent expectations from the retained native oracle
-along a resetless trajectory. The 347 cycles include a final observation.
+The bench stores 347 immutable `Scenario` rows in one same-source Table. Its
+12 original fields retain their declared widths, totaling 104 bits. Zero-valued
+fields use existing implicit-zero Struct initialization. The author extracted
+the literal rows from the frozen original AST without executing or importing
+design code; that extraction is separate from independent preservation.
+
+The full `bits[64]` phase starts at zero and selects its corresponding row below
+347, then row 346. Both final rows are retained. From phase 345 through
+2**64-1, only the two take and two expected-ready fields are one; all other
+fields remain zero. The original phase increment wraps to zero without a new
+DUT reset. Selection does not narrow or saturate phase.
+
+Direct projections supply both imported token constructors and the six ordered
+DUT arguments. Six assertions keep their `phase < 347` guard, empty else and
+messages, while six logs remain unconditional. Registration still calls `check()`
+then `advance(phase)`. All original known-stream data edges and fixed expectations
+remain on the resetless trajectory; the complete 347-cycle run includes its
+final observation.
 The original DUT, native/RTL drivers, finite configuration, and any four-state,
 reset/discard, latency and token-ledger matrices remain unchanged. Physical
 held-level and midstream-reset scenarios still require those original module
 oracles; this system does not claim complete physical-scenario equivalence.
+
+## Verification and measured costs
+
+The current module, system and four-state tests pass 3/3. Native workers 1/2, Verilator and Icarus retain 699 known Work samples; native and Icarus retain 619 four-state samples. The system completes 347 cycles / 694 epochs, six source-check definitions and 4,164 observations.
+
+An independent source check preserves all 4,164 active field values, all 340 intervals over the complete known-u64 domain, the constant tail and modulo wrap. Twelve mutated candidates are rejected. A finite run does not execute 64-bit rollover.
+
+Complete original and candidate observations agree across native workers 1/2 and RTL. The physical-control, reset/discard, token-ledger and four-state oracles remain separate from this known-phase source proof; arbitrary injected X/Z phase equivalence is not claimed. See the current [verified module excerpts and receipt](GENERATED.md).
+
+The bench shrinks from 5,318 lines / 242,153 bytes to 435 lines / 95,080 bytes. Measurements use the same machine, installed compiler and LLVM 22 C++ toolchain with `-O0`. Build/emission entries are single observations from serial baseline and candidate pipelines; runtime entries are medians of three additional paired warm runs in alternating order, using the complete registered cycle count. These are example-specific observations, not a cross-platform guarantee.
+
+| Phase | Original | Scenario table |
+| --- | ---: | ---: |
+| Compile bench | 5.37 s | 2.21 s |
+| Link system | 6.19 s | 3.43 s |
+| Emit C++ | 5.45 s | 3.22 s |
+| Build C++ simulator | 2.15 s | 1.87 s |
+| Emit Verilog | 4.26 s | 2.50 s |
+| Build Verilog simulator | 1.76 s | 1.82 s |
+| Run C++, one worker (warm median) | 2.362 s | 1.853 s |
+| Run Verilog (warm median) | 0.080 s | 0.080 s |
+
+The observed native warm median decreases by about 22%; RTL runtime is approximately unchanged. First-run timing variation is retained in the raw evidence; runtime comparisons use the paired warm samples.
+
+Final IR falls from 24,824,279 to 14,925,041 bytes. Generated C++ files total 4,535,036 → 4,229,225 bytes; generated Verilog files total 986,863 → 815,199 bytes.
+
+Complete source-import and transformed artifacts are retained locally and reproduce both published source units byte-for-byte. Public execution and measured builds share identical final IR and generated outputs. No compiler API, DUT storage, scenario count, cycle limit or timeout changes are required.
