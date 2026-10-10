@@ -1,0 +1,72 @@
+{
+  "schema": "pycircuit-generated-example-v1",
+  "example": "bitfield_decode_pipeline",
+  "entry": {
+    "arguments": [],
+    "definition": "@\"example_bitfield_decode_pipeline.bitfield_decode_pipeline.BitfieldDecodePipeline\""
+  },
+  "verification": {
+    "schema": "pycircuit-example-verification-v1",
+    "inputs": {
+      "source/CMakeLists.txt": "f5e9df586c36abccec5b525ed85122499e58b92f420e425e437719337769d86c",
+      "source/bench.py": "c2cb96f271cbf7dc599306fe2290a1f3853032583952f2a911648e1816ffff07",
+      "source/bitfield_decode_pipeline.py": "3818fceb586d128ff8fa4bf05b7d0cc837775ba7576a080388994077e93dae3f",
+      "source/config.json": "e3f9c7dd813e920f0f9988bccf6d6a8cbc71226b3f475a09f5338b93176c9aa3",
+      "source/driver.cpp": "344a12a25447206a1a3c70893ef27c4f9e5d2fa790d4b48293aab5a7b84fb2ef",
+      "source/four_state.py": "91b4fc6a3e2a940b5a475087cb7d0e29bdc6baf6a1fd9394595fe81d2d6914f3",
+      "source/rtl_tb.sv": "3980e3a6c8a76996beee0178a2cc963aa91459efd309a0fc3de648d4ca78d571",
+      "build/cpp/generated.json": "b8367d1503d0bc030197ac8e1ed580a807254b0403c86b6e6d373ae7e9c7662b",
+      "build/cpp/CMakeLists.txt": "f7aa3b45fa3d08d4b355cafacca11135764994a3062ae967012db66da04b2e79",
+      "build/cpp/pycircuit_support.hpp": "20813314cfcb1832266b6d4b472321e3150c72b49f212129beb9f57dcb398396",
+      "build/cpp/pycircuit_system.hpp": "92c86c3f40b86ff92644ad74686d6c580085276f9d116baae11e69a9d948b119",
+      "build/cpp/sources/example_bitfield_decode_pipeline/bitfield_decode_pipeline.cpp": "3e305195e867aaa49eac58a6772c2a2c5156c8ea75681686bd73930352418b09",
+      "build/cpp/sources/example_bitfield_decode_pipeline/bitfield_decode_pipeline.hpp": "8779aa7083a5c3070b240848e12beb43d80465668790181e5f371f6e164e1d25",
+      "build/cpp/sources/example_bitfield_decode_pipeline/bitfield_decode_pipeline.source-map.json": "57229ddf227ba89961d516156e4e52499f8f2598398b1cff03e322bc66c3aeb1",
+      "build/verilog/generated.json": "76f1ae97aad8afb52e0c97d4be7364da54df875d3b091cb6802566530c5c41a7",
+      "build/verilog/CMakeLists.txt": "1ab9674aa466ee5260cda044fe6508fac8c3dae91748066835571760ec7b8869",
+      "build/verilog/design_top.sv": "7e75932972b1ff5382edb1b3890c29026a410c88590dd459b965899079ca9a9e",
+      "build/verilog/sources/example_bitfield_decode_pipeline/bitfield_decode_pipeline.source-map.json": "995f644b1ffc7422614a17eee91b6cbeda007624be7d3de8213310ecb8388aa9",
+      "build/verilog/sources/example_bitfield_decode_pipeline/bitfield_decode_pipeline.v": "dd3f50167337353e312316203af1fe6e2c9d7f58d3d9eaf79541cfd85a2230dd",
+      "build/bitfield_decode_pipeline.ac": "4a4a4cb42a8dee1b6f02e3b1d08109d97b1f628f450fabd7e10b2a9eff8e33b3",
+      "build/units/.bitfield_decode_pipeline.pycircuit-publication/owner.json": "c98d777218076460acae5ea95a204a63815a005290362b81243852b42df53f04",
+      "build/units/bitfield_decode_pipeline/bitfield_decode_pipeline.ac": "06611390cbfff359a4ba08863f2a8b89cb7033d259f0de469c24f6889cfc1010",
+      "build/units/bitfield_decode_pipeline/bitfield_decode_pipeline.d": "4a529fe01f6f449de4c731c3542c78d906494281106cb72ed34dc37b47d76faa",
+      "build/units/bitfield_decode_pipeline/bitfield_decode_pipeline.interface.ac": "fd72ddd5518ebcc94a8a7a544b6e08a7a9ceccf98aaa935fd7b892653b90065e",
+      "build/units/bitfield_decode_pipeline/unit.json": "91fcac77daf651c6e611f8b34489de3f2dc56418505410a60c64405cbfa5f901",
+      "runtime-rtl/byte_mem.v": "dfc3f0fa362196fcfaa7bd771d4f85f26acade0e1dfeb0bc00a24d4161987cd2",
+      "runtime-rtl/dff.v": "325fb9039af507df3c94a26515dfcd8bb73f3812c1264df7b72bfe1af918bbb8",
+      "runtime-rtl/dffe.v": "1fc0bdac0c411ea87c00fc93127ebfba8ca12684a8fecee012a23362e0f8b89c",
+      "runtime-rtl/fifo.v": "8b2f0796fdd7c0f4aee3f20bd52226ccb532c827c8618afd9fbef99e2713f97f",
+      "runtime-rtl/sync_mem.v": "75731fcc0df8a01891e53589e75debc4cda9ec384262937047f21b11de7d7637",
+      "runtime-rtl/sync_mem_dp.v": "16ad11aa53d5f60291136b82a47bef9e21b312cd46ee8b8dfb338bb01c6bc3cc",
+      "runner": "f1c6e691f874582230e3f5c232a40e507af5f1e71a38be5f5fbcae363e0ffdbf"
+    },
+    "execution_sha256": "6bdfe34ca57416015e8fb6a77abe9f8427e9efc74652bef1b0e927e77b528aa5",
+    "work_samples": 305,
+    "native_check_records": 0,
+    "native_check_sha256": "01ba4719c80b6fe911b091a7c05124b64eeece964e09c058ef8f9805daca546b",
+    "workers": [
+      1,
+      2
+    ],
+    "rtl": "verilator",
+    "trace_sha256": "9cd407d7914a6c0376d7f920ef499eb3a7b2e9d8ba446c06958a3fce77479b0b"
+  },
+  "excerpts": [
+    {
+      "path": "bitfield_decode_pipeline.ac",
+      "line": 6,
+      "sha256": "4a4a4cb42a8dee1b6f02e3b1d08109d97b1f628f450fabd7e10b2a9eff8e33b3"
+    },
+    {
+      "path": "cpp/sources/example_bitfield_decode_pipeline/bitfield_decode_pipeline.hpp",
+      "line": 40,
+      "sha256": "8779aa7083a5c3070b240848e12beb43d80465668790181e5f371f6e164e1d25"
+    },
+    {
+      "path": "verilog/sources/example_bitfield_decode_pipeline/bitfield_decode_pipeline.v",
+      "line": 1,
+      "sha256": "dd3f50167337353e312316203af1fe6e2c9d7f58d3d9eaf79541cfd85a2230dd"
+    }
+  ]
+}

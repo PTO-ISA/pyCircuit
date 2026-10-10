@@ -28,23 +28,77 @@ four-state checks preserve each field's separate known/Z mask: y may become X
 while q remains known. The standard DFFE uses a constant-one enable and the RTL
 test retains its original reset preamble.
 
-## Generated system usage
+## Scenario bench
 
-`bench.py` exports `example_obs_points.bench.ExerciseObsPoints`. The explicit source
-closure is `obs_points.py`, then `bench.py`; link the system root and emit either
-backend with the public `pycircuit compile`, `link`, and `emit` flow. Run
-`pycircuit run examples/obs_points --target cpp --cycles 264` or select
-`--target verilog`. Each managed cycle uses the same stimulus in its low/high
-sampling pair and advances fixture state on the generated edge.
+`bench.py` expresses the original byte sweep as three short piecewise
+expressions. The input and both expectations are independently derived from
+phase. During the sweep, eight-bit subtraction wraps modulo 256; full 64-bit
+phase comparisons keep high counter values from aliasing the sweep. Startup
+and final exceptions remain explicit, including expected q=21 at phase 4 and
+y=0 at phase 259. From phase 263 through the largest known u64 value, the
+helper tuple `(x, expected_y, expected_q)` stays `(0, 1, 8)`.
 
-Every original rising-edge input, including the complete 256-byte sweep, is
-represented in 264 regular cycles with a final registered-state observation.
-Fixed independent expectations distinguish the immediate combinational result
-(where present) from the previous registered result. Original reset cycles
-are data cycles along this regular-clock trajectory.
+The original phase counter increments modulo 2⁶⁴. The two assertions remain
+under `phase < 264`, the two observations remain unconditional, and
+`check_and_advance()` still registers before `advance(phase)`. Expected values
+never read DUT outputs or derive from the input expression. The frozen tail is
+scenario data, not a promise of DUT steady state after the assertion window.
 
-The original `driver.cpp`, `rtl_tb.sv`, `config.json`, and independent oracle
-models remain unchanged. Known held-level and physical-reset scenarios remain
-with those module-boundary drivers. Where present, their four-state and
-failure/discard matrices remain separate coverage. This regular-clock system
-does not claim complete equivalence to those physical scenarios.
+All original rising-edge inputs, including the complete 256-byte sweep, remain
+in the 264-cycle regular-clock run with its final registered-state observation.
+Original reset cycles are data cycles along this resetless system trajectory.
+Independent source checks compare all 792 active field values and prove the
+complete known-u64 tail and wrap transition. They model eight-bit arithmetic
+explicitly; this is not a simulation through 2⁶⁴ cycles.
+
+Twenty complete native and RTL traces match all 1,056 observations and the
+terminal result after excluding only changed source-position metadata; native
+workers 1 and 2 are included. Baseline and compact versions each pass the
+standalone module and system gates, 2/2. See the module
+[excerpts and receipt](GENERATED.md).
+
+The original 532-sample physical-clock, reset/hold and separate four-state
+module oracles remain unchanged. This compact system does not claim arbitrary
+X/Z-phase equivalence or complete physical-scenario migration.
+
+## Local cost comparison
+
+The source shrinks from 3,175 lines / 136,319 bytes to
+119 lines / 3,465 bytes. Measurements use the same checkout-built
+compiler, LLVM 22 C++ toolchain and `-O0` on one machine. Compile, emit, build
+and first-run times are single serial observations; warm medians use three
+alternating full-length pairs. Every fresh process includes initialization.
+These measurements do not guarantee results on other platforms or optimization
+levels.
+
+| Measurement | Expanded cases | Compact source |
+| --- | ---: | ---: |
+| Compile bench | 2.527 s | 0.146 s |
+| Emit C++ | 2.956 s | 0.224 s |
+| Emit Verilog | 2.382 s | 0.209 s |
+| Build C++ | 1.293 s | 0.606 s |
+| Build Verilog | 1.619 s | 1.301 s |
+| First measured full C++ run | 1.019 s | 0.313 s |
+| First measured full Verilog run | 0.293 s | 0.268 s |
+| Warm C++ median, one worker | 0.500688 s | 0.027709 s |
+| Warm Verilog median | 0.012424 s | 0.012543 s |
+| Warm native peak RSS median | 4.36 MiB | 1.86 MiB |
+
+| Artifact size | Expanded cases | Compact source |
+| --- | ---: | ---: |
+| Final IR | 14,126,432 bytes | 476,052 bytes |
+| Generated C++ total | 2,598,398 bytes | 126,740 bytes |
+| Generated Verilog total | 559,461 bytes | 32,486 bytes |
+
+The Verilog warm median increases by about 1% (0.012424 to 0.012543 s), despite
+large reductions in source and generated-code size. Three pairs do not establish
+a statistically significant difference; no RTL runtime speedup is claimed.
+
+Complete source-import/transformed artifacts reproduce the published units, and
+the public and measured builds share identical final IR and generated outputs.
+DUTs, drivers, configuration, cycle limits and timeouts remain unchanged.
+
+```sh
+pycircuit run examples/obs_points --target cpp --cycles 264
+pycircuit run examples/obs_points --target verilog --cycles 264
+```
