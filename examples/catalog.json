@@ -506,6 +506,7 @@
       "name": "enum_helpers",
       "folder": "examples/enum_helpers",
       "source": "enum_helpers.py",
+      "generated": "GENERATED.json",
       "system": "EnumHelpersSystem",
       "system_source": "bench.py",
       "system_cycles": 184,
