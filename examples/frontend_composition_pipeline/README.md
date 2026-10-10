@@ -68,7 +68,7 @@ latent alternatives. Separate old-slot and actual-DUT ledgers check two-slot
 conservation, full replacement, stalls, changed held offers, busy reset, finite
 drain, failed transfers without partial commit, discard and Reset recovery.
 Native workers1/2, known Verilator and genuine full-DUT Icarus execute the same
-generated design. Standalone and targeted aggregate gates each pass 2/2.
+generated design. The standalone module, system and four-state gates pass 3/3.
 There are 18,281 known Work samples and 1,253 four-state samples. The 9,120 known
 offers include 8,192 complete control combinations with every old thirteen-bit
 metadata value, 672 explicit old-field range cases and all 256 header values.
@@ -81,9 +81,50 @@ Three owner probes check explicit discard, unknown acceptance and unknown
 retirement without partial commit. Separate terminal processes check failure,
 unavailable sampling and Reset recovery. The finite runner bound is 20,000
 sampling epochs per successful history.
-The separate `bench.py` system checks a finite regular-clock known-state scenario with exact old-state output checks. This is partial system migration: the original independent drivers retain their full physical-clock, midstream-reset and four-state scenarios.
 
-```bash
+## Scenario bench
+
+`bench.py` stores 184 regular-clock scenarios in an immutable typed Table. The
+16-bit phase counter holds at 183; an additional all-zero row preserves the
+helper's result for every known phase from 184 through 65,535. The run retains
+its 184-cycle limit. The complete advance and system bodies,
+including assertions, logs and registration order, are unchanged.
+
+An independent source check covers all 1,835,008 known-u16 field values,
+including the zero fallback. Original and compact systems have identical complete
+C++ workers 1/2 and RTL observations after removing only changed source-position
+metadata. The original module drivers retain physical clocks, midstream reset,
+failure and four-state histories; this does not claim arbitrary X/Z-phase
+equivalence for the closed system helper. See the verified module
+[excerpts and receipt](GENERATED.md).
+
+The source shrinks from 4,093 lines / 122,818 bytes to
+344 lines / 87,729 bytes. Measurements below use the same
+checkout-built compiler (with constant-plane materialization), LLVM 22 C++
+toolchain and `-O0` on one machine. Compile/build/emission and first-run values
+are single serial observations; warm medians use three alternating full-length
+pairs. Every fresh process includes initialization. These local measurements
+do not guarantee improvements on other platforms or optimization levels.
+
+| Measurement | Expanded cases | Typed Table |
+| --- | ---: | ---: |
+| Compile bench | 3.356 s | 2.278 s |
+| Emit C++ | 4.356 s | 4.375 s |
+| Build C++ | 2.077 s | 1.668 s |
+| First measured full C++ run | 1.102 s | 0.993 s |
+| Warm C++ median, one worker | 0.555 s | 0.062 s |
+| Warm Verilog median | 0.054 s | 0.052 s |
+| Warm native peak RSS median | 6.81 MiB | 4.67 MiB |
+
+Final IR decreases from 20,575,146 to
+17,645,346 bytes. Generated C++ totals
+5,026,898 → 4,919,622 bytes; Verilog
+totals 1,103,383 → 890,104 bytes.
+Complete source-import/transformed artifacts reproduce the published units, and
+the public and measured builds share identical final IR and generated outputs.
+DUTs, drivers, configuration, cycle limits and timeouts remain unchanged.
+
+```sh
 pycircuit run examples/frontend_composition_pipeline --target cpp --cycles 184 --build-dir .pycircuit_out/frontend_composition_pipeline/system-cpp
 pycircuit run examples/frontend_composition_pipeline --target verilog --cycles 184 --build-dir .pycircuit_out/frontend_composition_pipeline/system-verilog
 ```

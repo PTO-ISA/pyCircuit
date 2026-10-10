@@ -487,7 +487,8 @@
       "system": "FrontendCompositionPipelineSystem",
       "system_source": "bench.py",
       "system_cycles": 184,
-      "system_scope": "regular-clock"
+      "system_scope": "regular-clock",
+      "generated": "GENERATED.json"
     },
     {
       "name": "select_pipeline",
