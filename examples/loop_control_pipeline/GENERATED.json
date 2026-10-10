@@ -1,0 +1,72 @@
+{
+  "schema": "pycircuit-generated-example-v1",
+  "example": "loop_control_pipeline",
+  "entry": {
+    "arguments": [],
+    "definition": "@\"example_loop_control_pipeline.loop_control_pipeline.LoopControlPipeline\""
+  },
+  "verification": {
+    "schema": "pycircuit-example-verification-v1",
+    "inputs": {
+      "source/CMakeLists.txt": "e3c0de2a9ac4406d04f207198d091f17803beea72731f7693016bd5572b9ff72",
+      "source/bench.py": "8dc44bda314876ce5dd7b01d8b34a71d18f4fa397d806ec63653fae11921ad9c",
+      "source/config.json": "ff7fc08cb3a22e9cd52c146264677da4eba45e67083222a9fe3ad520f8c0bb24",
+      "source/driver.cpp": "5863b05c8a0c5e4caec673951345858dc00de338a0ff743e03768f04ea51b74e",
+      "source/four_state.py": "b3dec1f61bee2dd040fa65eb9a03c84c615a82785f09dab88f747831ee2a193a",
+      "source/loop_control_pipeline.py": "cec91e05e9fc93de3534d2b9a9d1fe129395b62c1c6fdf4ce496e7dfd76f9bbb",
+      "source/rtl_tb.sv": "bef8832aaf802966a56850299296bd2b9619c3d9e7038d6a81ed24b173aeb8e2",
+      "build/cpp/generated.json": "c97fb0bed6700a60acab750c9835362ddc0adf77d0d142973bf30936b283f819",
+      "build/cpp/CMakeLists.txt": "f377a4d13082eddae815b9a1395b606937d6841f86efc7688ad65fd7bcc79674",
+      "build/cpp/pycircuit_support.hpp": "a4dfaff9b28b203a61cd7042647e787ffd473926ddf0906fd616abee79fa4468",
+      "build/cpp/pycircuit_system.hpp": "4b1762391f53e84d27de92bf95c0630e4b980f3be975173b429b8ece25baea63",
+      "build/cpp/sources/example_loop_control_pipeline/loop_control_pipeline.cpp": "bea93f6b21ef8f05053b3f3ea277a02fa1bcf02e97d23ba5e7fac5041b778212",
+      "build/cpp/sources/example_loop_control_pipeline/loop_control_pipeline.hpp": "38b6c653efe85f33a9e966f0453f73b8a3daf71399f1ed2d5f8fb3f5e3132aae",
+      "build/cpp/sources/example_loop_control_pipeline/loop_control_pipeline.source-map.json": "ff42110bfee229c7157dcb3c7f5fdb1f064d9639bd8919850065bb1484135dc1",
+      "build/verilog/generated.json": "a186190e25f86ddfa384719bbdd945fe57a2e9c9d9ab776fd6eb100a64b25bd9",
+      "build/verilog/CMakeLists.txt": "c1f2fae871cf6a2ae462f6ec2813d9eb385f85e9f3b951e7b6f057dff2c244c8",
+      "build/verilog/design_top.sv": "03c0ee7474c60f3332f4bc37da2b9c243d2be6030e52a14e9d12aae5155c7b17",
+      "build/verilog/sources/example_loop_control_pipeline/loop_control_pipeline.source-map.json": "0a5fe8adeab884209f211f63e53a63d2c4332f8b9059669a508585467ccf3838",
+      "build/verilog/sources/example_loop_control_pipeline/loop_control_pipeline.v": "7db116ab4b07d78897ad54a599129fb513dca6f7df850058666874006c6ab07b",
+      "build/loop_control_pipeline.ac": "84bc8fbba50bd434281dd773591ac02941cf59fbe6c09b2d990535a1cbd6fa30",
+      "build/units/.loop_control_pipeline.pycircuit-publication/owner.json": "e2e2ddf6110fecb6af529ac43c34a5be07458621c18605018f0972747ad4e522",
+      "build/units/loop_control_pipeline/loop_control_pipeline.ac": "8928c71cf06f97191d48c5d687df3154abc3988085cfe57428bf96aec049a75e",
+      "build/units/loop_control_pipeline/loop_control_pipeline.d": "dc5787c3ec88a30faf25f536d9981cdcee85b4235735d8b9a8a74c6cebe5ea51",
+      "build/units/loop_control_pipeline/loop_control_pipeline.interface.ac": "cf620c79284f907037044e3e50b7af0da37d62c3837d9eba1f21d6740d6e5461",
+      "build/units/loop_control_pipeline/unit.json": "82d03a87b72084da1529f1b8e3d85f7e83c7b7b613a57235fecc57d93a727b4f",
+      "runtime-rtl/byte_mem.v": "dfc3f0fa362196fcfaa7bd771d4f85f26acade0e1dfeb0bc00a24d4161987cd2",
+      "runtime-rtl/dff.v": "325fb9039af507df3c94a26515dfcd8bb73f3812c1264df7b72bfe1af918bbb8",
+      "runtime-rtl/dffe.v": "1fc0bdac0c411ea87c00fc93127ebfba8ca12684a8fecee012a23362e0f8b89c",
+      "runtime-rtl/fifo.v": "8b2f0796fdd7c0f4aee3f20bd52226ccb532c827c8618afd9fbef99e2713f97f",
+      "runtime-rtl/sync_mem.v": "75731fcc0df8a01891e53589e75debc4cda9ec384262937047f21b11de7d7637",
+      "runtime-rtl/sync_mem_dp.v": "16ad11aa53d5f60291136b82a47bef9e21b312cd46ee8b8dfb338bb01c6bc3cc",
+      "runner": "2abda68e3d620a4b78e3653d6ec074af4d55341ab5154a4b5bbf0c17122c2195"
+    },
+    "execution_sha256": "014994c2d87aa610185ba054abef5f4529a8067243c0e0a805e9377fd6b08985",
+    "work_samples": 1272,
+    "native_check_records": 0,
+    "native_check_sha256": "01ba4719c80b6fe911b091a7c05124b64eeece964e09c058ef8f9805daca546b",
+    "workers": [
+      1,
+      2
+    ],
+    "rtl": "verilator",
+    "trace_sha256": "44663b771b4434b620e7171d3a4767f5e30e9ac5857feeeb3bfebee58cd712ff"
+  },
+  "excerpts": [
+    {
+      "path": "loop_control_pipeline.ac",
+      "line": 7,
+      "sha256": "84bc8fbba50bd434281dd773591ac02941cf59fbe6c09b2d990535a1cbd6fa30"
+    },
+    {
+      "path": "cpp/sources/example_loop_control_pipeline/loop_control_pipeline.hpp",
+      "line": 18,
+      "sha256": "38b6c653efe85f33a9e966f0453f73b8a3daf71399f1ed2d5f8fb3f5e3132aae"
+    },
+    {
+      "path": "verilog/sources/example_loop_control_pipeline/loop_control_pipeline.v",
+      "line": 1,
+      "sha256": "7db116ab4b07d78897ad54a599129fb513dca6f7df850058666874006c6ab07b"
+    }
+  ]
+}
