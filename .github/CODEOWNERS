@@ -12,7 +12,7 @@
 # Current source compiler and Runtime ownership.
 /compiler/ @zhoubot @xiekunpeng
 /schemas/ @zhoubot @xiekunpeng
-/simulator/gfsim/ @zhoubot @xiekunpeng
+/runtime/ @zhoubot @xiekunpeng
 /tests/compiler/ @zhoubot @xiekunpeng
 /tests/runtime/ @zhoubot @xiekunpeng
 /tests/integration/ @zhoubot @xiekunpeng

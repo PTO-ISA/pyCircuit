@@ -124,9 +124,9 @@ add_gfsim_test(ACIRObservationTests "${_runtime_tests}/ObservationTest.cpp")
 add_gfsim_test(ACIRSimExecutorTests "${_runtime_tests}/SimExecutorTest.cpp"
   "${_runtime_tests}/RunnerCallbacksTest.cpp"
   "${_runtime_tests}/RunnerObservationGroupsTest.cpp"
-  "${PYCIRCUIT_REPO_ROOT}/simulator/gfsim/system_runner.cpp"
-  "${PYCIRCUIT_REPO_ROOT}/simulator/gfsim/model_input.cpp"
-  "${PYCIRCUIT_REPO_ROOT}/simulator/gfsim/sim_executor.cpp")
+  "${PYCIRCUIT_REPO_ROOT}/runtime/system_runner.cpp"
+  "${PYCIRCUIT_REPO_ROOT}/runtime/model_input.cpp"
+  "${PYCIRCUIT_REPO_ROOT}/runtime/sim_executor.cpp")
 
 set(LLVM_EXTERNAL_LIT "" CACHE FILEPATH "Path to the executable LLVM lit test runner")
 if(NOT LLVM_EXTERNAL_LIT)

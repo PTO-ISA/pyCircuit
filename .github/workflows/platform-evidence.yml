@@ -295,7 +295,7 @@ jobs:
           export CFLAGS="-ffile-prefix-map=$GITHUB_WORKSPACE=. -fdebug-prefix-map=$GITHUB_WORKSPACE=."
           export CXXFLAGS="$CFLAGS"
           export PYC_PYTHON_EXECUTABLE="$(command -v python3)"
-          LLVM_CONFIG="${llvm_config}" bash flows/scripts/pyc build --build-dir "$PWD/.pycircuit_out/toolchain/build" --install-prefix "$PWD/.pycircuit_out/toolchain/install"
+          LLVM_CONFIG="${llvm_config}" bash tools/pyc build --build-dir "$PWD/.pycircuit_out/toolchain/build" --install-prefix "$PWD/.pycircuit_out/toolchain/install"
           mkdir -p candidate
           python3 packaging/wheel/create_wheel.py --install-dir "$PWD/.pycircuit_out/toolchain/install" --out-dir candidate --wheel-version "${{ inputs.version }}" --platform "${{ matrix.platform }}"
           wheel="$(find candidate -maxdepth 1 -name 'pycircuit_hisi-*.whl' -print -quit)"
@@ -355,7 +355,7 @@ jobs:
           $env:CFLAGS = $prefixMaps
           $env:CXXFLAGS = $prefixMaps
           $env:PYC_PYTHON_EXECUTABLE = (Get-Command python3).Source
-          pwsh -NoProfile -File flows/scripts/pyc.ps1 build --llvm-config "$llvmConfig" --build-dir "$PWD/.pycircuit_out/toolchain/build" --install-prefix "$PWD/.pycircuit_out/toolchain/install"
+          pwsh -NoProfile -File tools/pyc.ps1 build --llvm-config "$llvmConfig" --build-dir "$PWD/.pycircuit_out/toolchain/build" --install-prefix "$PWD/.pycircuit_out/toolchain/install"
           if ($LASTEXITCODE -ne 0) { throw "the platform SDK build failed with exit code $LASTEXITCODE" }
           New-Item -ItemType Directory -Force -Path candidate | Out-Null
           python3 packaging/wheel/create_wheel.py --install-dir "$PWD/.pycircuit_out/toolchain/install" --out-dir candidate --wheel-version "${{ inputs.version }}" --platform "${{ matrix.platform }}"

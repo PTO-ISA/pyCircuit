@@ -29,7 +29,7 @@ def test_pull_request_ci_is_python_only_and_deduplicates_api_hygiene() -> None:
     ci = _read(".github/workflows/ci.yml")
 
     assert "SKIP=pyc-api-hygiene pre-commit run --files" in ci
-    assert ci.count("flows/tools/check_api_hygiene.py") == 1
+    assert ci.count("tools/check_api_hygiene.py") == 1
     assert "pytest" in ci
     assert ci.count("mkdocs build --strict") == 1
 
@@ -37,7 +37,7 @@ def test_pull_request_ci_is_python_only_and_deduplicates_api_hygiene() -> None:
         "llvm.sh",
         "setup-verilator",
         "setup-native-test-tools",
-        "flows/scripts/pyc build",
+        "tools/pyc build",
         *FULL_CLOSURE_SCRIPTS,
     ):
         assert forbidden not in ci
@@ -66,7 +66,7 @@ def test_native_tool_bootstrap_is_confined_to_existing_linux_closure_jobs() -> N
             build = next(
                 index
                 for index, step in enumerate(steps)
-                if "flows/scripts/pyc build" in step.get("run", "")
+                if "tools/pyc build" in step.get("run", "")
             )
             assert python < installs[0] < build
             assert steps[python]["with"]["python-version"] == "3.14.6"
@@ -107,19 +107,19 @@ def test_release_runs_each_closure_lane_and_repository_gate_once() -> None:
     release = _read(".github/workflows/release.yml")
 
     for script in FULL_CLOSURE_SCRIPTS:
-        assert release.count(f"bash flows/scripts/{script}") == 1, script
+        assert release.count(f"bash tools/{script}") == 1, script
 
     assert release.count("pytest tests/unit -m unit") == 1
-    assert release.count("flows/tools/check_api_hygiene.py") == 1
-    assert "flows/tools/check_decision_status.py" not in release
+    assert release.count("tools/check_api_hygiene.py") == 1
+    assert "tools/check_decision_status.py" not in release
     assert release.count("mkdocs build --strict") == 1
     assert release.count("pre-commit run --all-files") == 1
     assert "SKIP=pyc-api-hygiene pre-commit run --all-files" in release
 
-    assert "PYC_BUILD_TESTING=ON bash flows/scripts/pyc build" in release
+    assert "PYC_BUILD_TESTING=ON bash tools/pyc build" in release
     assert '--build-dir "$PWD/.pycircuit_out/toolchain/build"' in release
     assert '--install-prefix "$PWD/.pycircuit_out/toolchain/install"' in release
-    assert "-DPYC_BUILD_COMPILER_DEV=ON" in _read("flows/scripts/pyc")
+    assert "-DPYC_BUILD_COMPILER_DEV=ON" in _read("tools/pyc")
 
 
 def test_release_build_verify_accept_publish_barriers_and_permissions() -> None:
@@ -154,7 +154,7 @@ def test_release_build_verify_accept_publish_barriers_and_permissions() -> None:
 
 
 def test_api_and_example_entrypoints_are_separate_and_tiered() -> None:
-    scripts = {name: _read(f"flows/scripts/{name}") for name in FULL_CLOSURE_SCRIPTS}
+    scripts = {name: _read(f"tools/{name}") for name in FULL_CLOSURE_SCRIPTS}
     examples = scripts["run_examples.sh"]
     api = scripts["run_api_tests.sh"]
     assert "examples" in examples and "ctest" in examples
@@ -174,11 +174,11 @@ def test_api_and_example_entrypoints_are_separate_and_tiered() -> None:
         "run_sims_nightly.sh",
         "run_semantic_regressions_v6.sh",
     ):
-        assert not (ROOT / "flows/scripts" / retired).exists()
+        assert not (ROOT / "tools" / retired).exists()
     for workflow in ("release.yml", "gates-nightly.yml"):
         text = _read(f".github/workflows/{workflow}")
         for script in FULL_CLOSURE_SCRIPTS:
-            assert text.count(f"bash flows/scripts/{script} --tier nightly") == 1
+            assert text.count(f"bash tools/{script} --tier nightly") == 1
 
 
 @pytest.mark.parametrize("script", FULL_CLOSURE_SCRIPTS)
@@ -188,7 +188,7 @@ def test_entrypoints_reject_invalid_selection_before_toolchain_access(
     import subprocess
 
     result = subprocess.run(
-        ["bash", str(ROOT / "flows/scripts" / script), "--tier", "typo"],
+        ["bash", str(ROOT / "tools" / script), "--tier", "typo"],
         capture_output=True,
         text=True,
         timeout=5,
@@ -263,7 +263,7 @@ def test_list_tests_rejects_empty_real_ctest_selection(tmp_path: Path) -> None:
         "-c",
         'source "$1"; pyc_list_tests api "$2" "$3"',
         "gate-topology",
-        str(ROOT / "flows/scripts/lib.sh"),
+        str(ROOT / "tools/lib.sh"),
     ]
     env = {**os.environ, "PYC_PYTHON_EXECUTABLE": sys.executable}
     selected = subprocess.run(
@@ -289,7 +289,7 @@ def test_list_tests_rejects_empty_real_ctest_selection(tmp_path: Path) -> None:
 
 
 def test_api_nightly_keeps_all_current_public_flow_oracles() -> None:
-    api = _read("flows/scripts/run_api_tests.sh")
+    api = _read("tools/run_api_tests.sh")
     declaration = re.search(r"nightly_python_tests=\((.*?)\)", api, re.DOTALL)
     assert declaration is not None
     listed = re.findall(r"tests/system/test_[a-z_]+\.py", declaration.group(1))
@@ -402,7 +402,7 @@ def test_windows_manifest_steps_check_native_exit_codes() -> None:
 def test_lanes_running_check_acir_install_ripgrep() -> None:
     """The release closure calls the current source compiler retirement gate."""
     release = _read(".github/workflows/release.yml")
-    assert "flows/tools/check_frontend_retirement.py" in release
+    assert "tools/check_frontend_retirement.py" in release
     assert "run_agentic_circuit.sh" not in release
 
 
@@ -431,7 +431,7 @@ def test_closure_scripts_do_not_pipe_python_into_an_early_exit_consumer() -> Non
     """
 
     offenders: list[str] = []
-    for script in sorted((ROOT / "flows/scripts").glob("*.sh")):
+    for script in sorted((ROOT / "tools").glob("*.sh")):
         for number, line in enumerate(
             script.read_text(encoding="utf-8").splitlines(), 1
         ):

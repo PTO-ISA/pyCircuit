@@ -177,7 +177,7 @@ def main():
     runtime = next(
         p
         for p in (
-            prefix / "simulator/gfsim/libpyc6_runtime.a",
+            prefix / "runtime/libpyc6_runtime.a",
             prefix / "lib/libpyc6_runtime.a",
         )
         if p.is_file()

@@ -26,8 +26,8 @@ from typing import Any
 
 from process_usage import run_sampled
 
-REPO = Path(__file__).resolve().parents[2]
-BUILD_MEASURER = REPO / "flows/tools/measure_source_build.py"
+REPO = Path(__file__).resolve().parents[1]
+BUILD_MEASURER = REPO / "tools/measure_source_build.py"
 GENERATOR = REPO / "benchmarks/source-units/generate.py"
 PARALLEL_JOBS = 4
 SELECTED_SIZES = {"shared": (1, 16), "distinct": (1, 8)}
@@ -1075,8 +1075,8 @@ def main() -> int:
     )
     toolchain_metadata_hash = _sha256(metadata_path)
     measurement_inputs = [
-        REPO / "flows/tools/process_usage.py",
-        REPO / "flows/tools/measure_build_resources.py",
+        REPO / "tools/process_usage.py",
+        REPO / "tools/measure_build_resources.py",
         REPO / "tests/unit/test_process_usage.py",
         REPO / "tests/system/test_resource_runtime.py",
         GENERATOR,

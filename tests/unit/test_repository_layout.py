@@ -9,22 +9,6 @@ import pytest
 ROOT = Path(__file__).resolve().parents[2]
 pytestmark = pytest.mark.unit
 
-FLOW_TOOLS = {
-    "check_api_hygiene.py",
-    "check_generated_rtl.py",
-    "check_frontend_retirement.py",
-    "measure_source_build.py",
-    "process_usage.py",
-    "measure_build_resources.py",
-    "materialize_source_preview.py",
-    "summarize_gate_run.py",
-}
-
-PYCIRCUIT_TOOLS = {
-    "example_catalog.py",
-    "generate_source_identifier_unicode.py",
-}
-
 
 def _tracked_paths() -> list[str]:
     return subprocess.run(
@@ -43,24 +27,12 @@ def test_active_product_roots_are_documented() -> None:
     for root in (
         "python/pycircuit/",
         "compiler/",
-        "simulator/gfsim/",
+        "runtime/",
         "examples/counter/",
         "tests/",
-        "flows/",
+        "tools/",
     ):
         assert f"`{root}`" in layout
-
-
-def test_flow_and_product_tools_have_distinct_roots() -> None:
-    flow_tools = {
-        path.name for path in (ROOT / "flows/tools").glob("*.py") if path.is_file()
-    }
-    pycircuit_tools = {
-        path.name for path in (ROOT / "tools").glob("*.py") if path.is_file()
-    }
-
-    assert flow_tools == FLOW_TOOLS
-    assert pycircuit_tools == PYCIRCUIT_TOOLS
 
 
 def test_package_discovery_excludes_retired_siblings_and_namespace_debris(
@@ -151,7 +123,7 @@ def test_host_sources_avoid_unprotected_int128() -> None:
     for directory in (
         "include/gfsim",
         "compiler",
-        "simulator/gfsim",
+        "runtime",
         "tests/runtime",
         "tests/compiler",
     ):
@@ -172,7 +144,7 @@ def test_cmake_package_exports_only_the_approved_runtime_and_compiler_components
     None
 ):
     config = (ROOT / "cmake/pycircuitConfig.cmake.in").read_text(encoding="utf-8")
-    runtime = (ROOT / "simulator/gfsim/CMakeLists.txt").read_text(encoding="utf-8")
+    runtime = (ROOT / "runtime/CMakeLists.txt").read_text(encoding="utf-8")
     root_cmake = (ROOT / "CMakeLists.txt").read_text(encoding="utf-8")
 
     assert "pycircuit::pyc6_runtime" in runtime

@@ -39,7 +39,7 @@
 # STAGE: pyc_sink_->slots->Stage(
 
 # Build the generated DUT and run the native driver against it.
-# RUN: RTLIB=$(dirname %pycircuit_source_unit)/../simulator/gfsim/libpyc6_runtime.a; test -f "$RTLIB" || RTLIB=$(dirname %pycircuit_source_unit)/../lib/libpyc6_runtime.a; %cxx -std=c++20 -O1 -I%src/include -I%t.dir/cpp %t.dir/observation_native_driver.cpp %t.dir/cpp/sources/native/observation_native.cpp "$RTLIB" -o %t.dir/observation_native_driver
+# RUN: RTLIB=$(dirname %pycircuit_source_unit)/../runtime/libpyc6_runtime.a; test -f "$RTLIB" || RTLIB=$(dirname %pycircuit_source_unit)/../lib/libpyc6_runtime.a; %cxx -std=c++20 -O1 -I%src/include -I%t.dir/cpp %t.dir/observation_native_driver.cpp %t.dir/cpp/sources/native/observation_native.cpp "$RTLIB" -o %t.dir/observation_native_driver
 # RUN: %t.dir/observation_native_driver | %FileCheck %s --check-prefix=NATIVE
 # NATIVE: ok   five descriptors configured
 # NATIVE: ok   descriptors strictly increase by key

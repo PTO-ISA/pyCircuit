@@ -113,12 +113,12 @@ prefix does not accept a historical design or replace its full timing test.
 
 ## Test ownership and tiers
 
-`flows/scripts/run_examples.sh --tier gate|nightly` owns example build and
+`tools/run_examples.sh --tier gate|nightly` owns example build and
 behavior acceptance through the shared CMake helper and verifier. Gate runs the
 six smoke designs listed in `examples/CMakeLists.txt`; nightly runs
 the complete registered set. Long stimuli stay intact in nightly. API contract,
 negative-admission and compiler analysis fixtures belong under `tests/` and run
-through `flows/scripts/run_api_tests.sh`, independently of example acceptance.
+through `tools/run_api_tests.sh`, independently of example acceptance.
 
 ## Sampling and runner configuration
 

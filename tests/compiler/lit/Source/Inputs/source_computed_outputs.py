@@ -144,7 +144,7 @@ cpp = [
 # Both supported layouts belong to the same checkout's compiler build/install.
 toolroot = Path(args.source_compiler).resolve().parent.parent
 candidates = [
-    toolroot / "simulator/gfsim/libpyc6_runtime.a",
+    toolroot / "runtime/libpyc6_runtime.a",
     toolroot / "lib/libpyc6_runtime.a",
 ]
 runtime = next((p for p in candidates if p.is_file()), None)

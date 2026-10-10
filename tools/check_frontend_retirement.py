@@ -11,7 +11,7 @@ import re
 import sys
 from pathlib import Path
 
-ROOT = Path(__file__).resolve().parents[2]
+ROOT = Path(__file__).resolve().parents[1]
 PRODUCTION_ROOTS = (
     ROOT / "python/pycircuit",
     ROOT / "compiler",
@@ -24,10 +24,6 @@ PRODUCTION_ROOTS = (
     ROOT / "tools",
     ROOT / ".github/workflows",
     ROOT / "pyproject.toml",
-    ROOT / "flows/scripts/pyc",
-    ROOT / "flows/scripts/pyc.ps1",
-    ROOT / "flows/scripts/lib.sh",
-    ROOT / "flows/scripts/install_llvm_and_build.sh",
 )
 RETIRED_TEXT = (
     (re.compile(r"AgenticCircuit::"), "retired CMake target alias"),
@@ -145,7 +141,9 @@ def production_files() -> list[Path]:
                     for part in path.parts
                 )
             )
-    return sorted(set(files))
+    # The checker contains the retired spellings as rejection data. All other
+    # maintenance tools remain production scan inputs, including new helpers.
+    return sorted(set(files) - {Path(__file__).resolve()})
 
 
 def scan_production() -> list[str]:
@@ -217,7 +215,31 @@ def scan_public_surface() -> list[str]:
                     exported = set(ast.literal_eval(statement.value))
                 except (ValueError, TypeError):
                     exported = set()
-        expected = {"module", "rule", "system", "log", "report"}
+        expected = {
+            "module",
+            "rule",
+            "struct",
+            "bits",
+            "table",
+            "queue",
+            "encoding",
+            "enum_to_bits",
+            "enum_from_bits",
+            "concat",
+            "popcount",
+            "count_leading_zeros",
+            "count_trailing_zeros",
+            "priority_encode",
+            "onehot_encode",
+            "system",
+            "dff",
+            "dffe",
+            "sync_mem",
+            "sync_mem_dp",
+            "byte_mem",
+            "log",
+            "report",
+        }
         if exported != expected:
             failures.append(
                 f"public Python exports differ from the approved source surface: {sorted(exported or ())}"

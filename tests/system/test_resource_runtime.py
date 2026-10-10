@@ -16,7 +16,7 @@ import pytest
 
 pytestmark = pytest.mark.system
 ROOT = Path(__file__).resolve().parents[2]
-MEASURER = ROOT / "flows/tools/measure_build_resources.py"
+MEASURER = ROOT / "tools/measure_build_resources.py"
 INSTALL = Path(
     os.environ.get(
         "PYCIRCUIT_TEST_PREFIX", ROOT / ".pycircuit_out/measurement-04-install"

@@ -64,7 +64,7 @@ def _build_dut(build: Path, design: str, native: Path) -> tuple[Path, Path]:
             str(model_build),
             "-G",
             "Ninja",
-            "-DPYCIRCUIT_RUNTIME_ROOT=" + str(ROOT / "simulator/gfsim"),
+            "-DPYCIRCUIT_RUNTIME_ROOT=" + str(ROOT / "runtime"),
         ]
     )
     source_preview._checked(
@@ -311,7 +311,7 @@ def _build_host_fault_library(
             str(model_build),
             "-G",
             "Ninja",
-            "-DPYCIRCUIT_RUNTIME_ROOT=" + str(ROOT / "simulator/gfsim"),
+            "-DPYCIRCUIT_RUNTIME_ROOT=" + str(ROOT / "runtime"),
         ]
     )
     source_preview._checked(

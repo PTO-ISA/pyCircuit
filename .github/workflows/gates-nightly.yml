@@ -54,7 +54,7 @@ jobs:
       - name: Build staged toolchain
         run: |
           LLVM_CONFIG=/usr/lib/llvm-${LLVM_VERSION}/bin/llvm-config \
-          bash flows/scripts/pyc build \
+          bash tools/pyc build \
             --build-dir "$PWD/.pycircuit_out/toolchain/build" \
             --install-prefix "$PWD/.pycircuit_out/toolchain/install"
 
@@ -67,14 +67,14 @@ jobs:
           export PATH="$PYC_TOOLCHAIN_ROOT/bin:$PATH"
           export PYC_GATE_RUN_ID="${PYC_GATE_RUN_ID}"
           unset PYCC || true
-          bash flows/scripts/run_api_tests.sh --tier nightly
+          bash tools/run_api_tests.sh --tier nightly
 
       - name: Run examples (nightly)
         id: examples_nightly
         if: ${{ !cancelled() && steps.api_nightly.outcome != 'skipped' }}
         run: |
           export PYC_TOOLCHAIN_ROOT="$PWD/.pycircuit_out/toolchain/install"
-          bash flows/scripts/run_examples.sh --tier nightly
+          bash tools/run_examples.sh --tier nightly
 
       - name: Write gate summary
         if: always()
@@ -91,7 +91,7 @@ jobs:
           }
           api_status="$(map_outcome "${{ steps.api_nightly.outcome }}")"
           examples_status="$(map_outcome "${{ steps.examples_nightly.outcome }}")"
-          python3 flows/tools/summarize_gate_run.py \
+          python3 tools/summarize_gate_run.py \
             --run-id "${PYC_GATE_RUN_ID}" \
             --row "api-nightly:nightly:${api_status}" \
             --row "examples-nightly:nightly:${examples_status}" \

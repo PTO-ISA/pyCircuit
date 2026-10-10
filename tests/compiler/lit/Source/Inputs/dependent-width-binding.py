@@ -448,7 +448,7 @@ runtime = next(
         path
         for path in (
             Path(args.source_compiler).resolve().parent.parent
-            / "simulator/gfsim/libpyc6_runtime.a",
+            / "runtime/libpyc6_runtime.a",
             Path(args.source_compiler).resolve().parent.parent
             / "lib/libpyc6_runtime.a",
         )

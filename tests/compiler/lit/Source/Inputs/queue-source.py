@@ -75,7 +75,7 @@ candidate_paths.extend(
     for path in (
         Path(args.source_compiler).resolve().parent.parent / "lib/libpyc6_runtime.a",
         Path(args.source_compiler).resolve().parent.parent
-        / "simulator/gfsim/libpyc6_runtime.a",
+        / "runtime/libpyc6_runtime.a",
     )
     if path.is_file()
 )
@@ -259,7 +259,7 @@ def fault_checks():
     runtime = next(
         path
         for path in (
-            runtime_root / "simulator/gfsim/libpyc6_runtime.a",
+            runtime_root / "runtime/libpyc6_runtime.a",
             runtime_root / "lib/libpyc6_runtime.a",
         )
         if path.is_file()
@@ -683,7 +683,7 @@ runtime_root = Path(args.source_compiler).resolve().parent.parent
 runtime = next(
     path
     for path in (
-        runtime_root / "simulator/gfsim/libpyc6_runtime.a",
+        runtime_root / "runtime/libpyc6_runtime.a",
         runtime_root / "lib/libpyc6_runtime.a",
     )
     if path.is_file()

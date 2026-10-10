@@ -72,7 +72,7 @@ def validate_release_graph(document: object) -> list[str]:
             errors.append(f"release publication job {name} bypasses accept-candidate")
 
     rebuild_markers = (
-        "flows/scripts/pyc build",
+        "tools/pyc build",
         "cmake --build",
         "python3 -m build",
         "create_wheel.py",
@@ -213,7 +213,7 @@ def main() -> int:
         require(command in ci, f"CI is missing required gate: {command}", errors)
     for forbidden in (
         "llvm.sh",
-        "flows/scripts/pyc build",
+        "tools/pyc build",
         "setup-verilator",
         "run_examples.sh",
         "run_api_tests.sh",
@@ -249,7 +249,7 @@ def main() -> int:
         "run_examples.sh",
         "run_api_tests.sh",
         "pytest tests/unit -m unit",
-        "flows/tools/check_api_hygiene.py",
+        "tools/check_api_hygiene.py",
         "mkdocs build --strict",
     ):
         require(

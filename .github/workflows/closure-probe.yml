@@ -59,7 +59,7 @@ jobs:
       - name: Build integrated toolchain
         run: |
           export PYC_PYTHON_EXECUTABLE="$(command -v python3)"
-          PYC_BUILD_TESTING=ON bash flows/scripts/pyc build --build-dir "$PWD/.pycircuit_out/toolchain/build" --install-prefix "$PWD/.pycircuit_out/toolchain/install"
+          PYC_BUILD_TESTING=ON bash tools/pyc build --build-dir "$PWD/.pycircuit_out/toolchain/build" --install-prefix "$PWD/.pycircuit_out/toolchain/install"
 
       - name: Repository contract closure
         id: contracts
@@ -68,7 +68,7 @@ jobs:
           SKIP=pyc-api-hygiene pre-commit run --all-files
           python3 .github/scripts/validate_repo_management.py
           pytest tests/unit -m unit
-          python3 flows/tools/check_api_hygiene.py python/pycircuit examples docs README.md
+          python3 tools/check_api_hygiene.py python/pycircuit examples docs README.md
           mkdocs build --strict
 
       - name: pyCircuit closure (examples)
@@ -77,7 +77,7 @@ jobs:
         run: |
           export PYC_TOOLCHAIN_ROOT="$PWD/.pycircuit_out/toolchain/install"
           export PATH="$PYC_TOOLCHAIN_ROOT/bin:$PATH"
-          bash flows/scripts/run_examples.sh --tier nightly
+          bash tools/run_examples.sh --tier nightly
 
       - name: pyCircuit closure (API nightly)
         id: api
@@ -85,7 +85,7 @@ jobs:
         run: |
           export PYC_TOOLCHAIN_ROOT="$PWD/.pycircuit_out/toolchain/install"
           export PATH="$PYC_TOOLCHAIN_ROOT/bin:$PATH"
-          bash flows/scripts/run_api_tests.sh --tier nightly
+          bash tools/run_api_tests.sh --tier nightly
 
       - name: Upload probe gate logs
         if: always()

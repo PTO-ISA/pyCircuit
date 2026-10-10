@@ -8,7 +8,7 @@ import pytest
 
 pytestmark = pytest.mark.unit
 ROOT = Path(__file__).resolve().parents[2]
-CHECKER = ROOT / "flows/tools/check_generated_rtl.py"
+CHECKER = ROOT / "tools/check_generated_rtl.py"
 
 
 def run_checker(

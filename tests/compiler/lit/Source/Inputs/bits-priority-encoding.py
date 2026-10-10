@@ -1055,7 +1055,7 @@ runtime = next(
     (
         p
         for p in (
-            root / "simulator/gfsim/libpyc6_runtime.a",
+            root / "runtime/libpyc6_runtime.a",
             root / "lib/libpyc6_runtime.a",
         )
         if p.is_file()

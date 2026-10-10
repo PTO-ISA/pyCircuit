@@ -13,7 +13,7 @@ import pytest
 
 pytestmark = pytest.mark.unit
 ROOT = Path(__file__).resolve().parents[2]
-MEASUREMENT_TOOL = ROOT / "flows/tools/measure_source_build.py"
+MEASUREMENT_TOOL = ROOT / "tools/measure_source_build.py"
 
 
 def _measurement_tool():

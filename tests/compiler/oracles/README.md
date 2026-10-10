@@ -23,7 +23,7 @@ The queue migration docstrings were preserved in
 moving the text. Large model files are inherited code, not a new oracle framework;
 this extraction deliberately does not redesign or duplicate their algorithms.
 
-Run through `flows/scripts/run_api_tests.sh --tier nightly` when validation is
+Run through `tools/run_api_tests.sh --tier nightly` when validation is
 scheduled. The 2026-10-07 user-directed review/extraction does **not** run these
 oracles, generated DUT coverage or nightly. Syntax/AST checks do not establish
 behavioral acceptance of the moved files or changed checker assertions.

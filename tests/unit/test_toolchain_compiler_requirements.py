@@ -34,7 +34,7 @@ def test_runtime_only_configuration_does_not_find_compiler_dependencies() -> Non
         0
     ]
 
-    assert "add_subdirectory(simulator/gfsim)" in runtime_block
+    assert "add_subdirectory(runtime)" in runtime_block
     assert "find_package(LLVM" not in runtime_block
     assert "find_package(MLIR" not in runtime_block
 
