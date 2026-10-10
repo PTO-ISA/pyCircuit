@@ -61,14 +61,19 @@ LogicalResult emitRecord(HardwareEmitContext &context, ac::StructOp record,
   SmallVector<std::string> pointers;
   for (auto raw : record.getFields()) {
     auto field = cast<DictionaryAttr>(raw);
-    auto type =
-        context.cppType(field.getAs<TypeAttr>("type").getValue(), record);
+    Type fieldType = field.getAs<TypeAttr>("type").getValue();
+    auto type = context.cppType(fieldType, record);
     auto source = field.getAs<StringAttr>("name");
     auto member = legalizeIdentifier(source.getValue(),
                                      [&] { return record.emitOpError(); });
     if (failed(type) || failed(member))
       return failure();
-    out << "  " << *type << " " << *member << "{};\n";
+    out << "  " << *type << " " << *member;
+    // Nested records default-construct their initialized leaves. Repeating an
+    // empty member initializer at every record level is unnecessary.
+    if (!isa<ac::StructType>(fieldType))
+      out << "{}";
+    out << ";\n";
     pointers.push_back("&" + *name + "::" + *member);
   }
   out << "};\n";

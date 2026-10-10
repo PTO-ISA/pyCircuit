@@ -4,6 +4,7 @@
 #include "Compiler/SourceUnit.h"
 #include "pycircuit/Dialect/ACIR/ACIRDialect.h"
 #include "pycircuit/Dialect/ACIR/HardwareAnalysis.h"
+#include "pycircuit/Dialect/ACIR/SourceUnitValidation.h"
 #include "mlir/IR/Builders.h"
 #include "mlir/IR/Verifier.h"
 #include "mlir/IR/Diagnostics.h"
@@ -453,6 +454,423 @@ def Top(data: ac.u8) -> Out:
   EXPECT_TRUE(failed(compiler::compilePythonSourceUnit(
       *captured, owner("cycle.py"), *headers, error())));
   EXPECT_NE(diagnostics.find("combinational cycle"), std::string::npos) << diagnostics;
+}
+
+TEST_F(SourceMemoryBindingsTest,
+       LaterLoopIterationFailureRestoresTransportAndContextRemainsReusable) {
+  constexpr llvm::StringLiteral invalid = R"py(from pycircuit import module, rule, struct, table, u8
+@struct
+class Out:
+    value: u8
+@rule
+def increment(value: u8) -> u8:
+    return value + 1
+@struct
+class Pair:
+    left: u8
+    right: u8
+@rule
+def select(entries: table[2, u8]) -> Out:
+    logical = 1 + 2
+    fixed: u8 = increment(entries[0])
+    pair = Pair(left=fixed, right=entries[1])
+    if fixed == 0:
+        pair = Pair(left=entries[0], right=pair.right)
+    else:
+        pair = Pair(left=fixed, right=pair.right)
+    assert pair.right == entries[1], "preloop_pair_preserved"
+    logical_fixed: u8 = logical
+    value: u8 = pair.left + logical_fixed
+    for index in range(3):
+        value = entries[index]
+    return Out(value=value + pair.left + logical_fixed)
+@module
+def Top(entries: table[2, u8]) -> Out:
+    return select(entries)
+)py";
+  auto captured = capture("loop.py", invalid);
+  ASSERT_TRUE(captured);
+  auto serialize = [](Operation *operation) {
+    std::string text;
+    llvm::raw_string_ostream out(text);
+    operation->print(out);
+    return text;
+  };
+  const auto before = serialize(captured->getOperation());
+  ASSERT_TRUE(succeeded(mlir::verify(*captured)));
+  source::SourceRuleWritesAnalysis writes(captured->getOperation());
+  ASSERT_TRUE(writes.isPlanValid()) << diagnostics;
+  auto headers = compiler::SourceHeaderRegistry::create(&context, {}, error());
+  ASSERT_TRUE(succeeded(headers));
+  source::SourceMemoryBindingsAnalysis bindings(captured->getOperation());
+  ASSERT_TRUE(succeeded(bindings.initialize(owner("loop.py"), *headers, writes)))
+      << diagnostics;
+  diagnostics.clear();
+  EXPECT_TRUE(failed(bindings.lower(owner("loop.py"), *headers)));
+  EXPECT_NE(diagnostics.find("bounded for reachable iteration 2 failed"),
+            std::string::npos)
+      << diagnostics;
+  EXPECT_NE(diagnostics.find("table index complete width is not proven in range"),
+            std::string::npos)
+      << diagnostics;
+  EXPECT_EQ(serialize(captured->getOperation()), before);
+  EXPECT_TRUE(captured->getBody()->empty());
+  EXPECT_TRUE(succeeded(mlir::verify(*captured)));
+
+  auto sibling = capture("sibling.py", R"py(from pycircuit import module, rule, struct, table, u8
+@struct
+class Out:
+    value: u8
+@rule
+def increment(value: u8) -> u8:
+    return value + 1
+@struct
+class Pair:
+    left: u8
+    right: u8
+@rule
+def select(entries: table[2, u8]) -> Out:
+    logical = 1 + 2
+    fixed: u8 = increment(entries[0])
+    pair = Pair(left=fixed, right=entries[1])
+    if fixed == 0:
+        pair = Pair(left=entries[0], right=pair.right)
+    else:
+        pair = Pair(left=fixed, right=pair.right)
+    assert pair.right == entries[1], "preloop_pair_preserved"
+    logical_fixed: u8 = logical
+    value: u8 = pair.left + logical_fixed
+    for index in range(2):
+        value = entries[index]
+    return Out(value=value + pair.left + logical_fixed)
+@module
+def Top(entries: table[2, u8]) -> Out:
+    return select(entries)
+)py");
+  ASSERT_TRUE(sibling);
+  auto siblingHeaders =
+      compiler::SourceHeaderRegistry::create(&context, {}, error());
+  ASSERT_TRUE(succeeded(siblingHeaders));
+  EXPECT_TRUE(succeeded(compiler::compilePythonSourceUnit(
+      *sibling, owner("sibling.py"), *siblingHeaders, error())))
+      << diagnostics;
+}
+
+TEST_F(
+    SourceMemoryBindingsTest,
+    LoopOriginsRetainIterationAndNestedHelperStackAndVerifierRejectsMutation) {
+  auto captured = capture(
+      "provenance.py", R"py(from pycircuit import module, rule, struct, u8, u13
+@struct
+class Out:
+    value: u13
+    outside: u13
+@rule
+def helper(value: u8) -> u8:
+    return value + 1
+@rule
+def nested(value: u8) -> u8:
+    return helper(value) + 2
+@rule
+def loop(value: u8) -> Out:
+    carried: u13 = 0
+    for index in range(2):
+        actual: u8 = value + 1
+        carried = nested(actual)
+    outside: u13 = value + 3
+    return Out(value=carried, outside=outside)
+@module
+def Top(value: u8) -> Out:
+    return loop(value)
+)py");
+  ASSERT_TRUE(captured);
+  source::SourceRuleWritesAnalysis writes(captured->getOperation());
+  ASSERT_TRUE(writes.isPlanValid()) << diagnostics;
+  auto headers = compiler::SourceHeaderRegistry::create(&context, {}, error());
+  ASSERT_TRUE(succeeded(headers));
+  auto captureTree = source::readSingleCapture(*captured, error());
+  ASSERT_TRUE(succeeded(captureTree));
+  auto findFunctionDef = [&](StringRef name) {
+    auto body = captureTree->module.array("body");
+    for (size_t index = 0; index < body.size(); ++index) {
+      auto node = captureTree->module.item("body", index);
+      if (node.kind() == "FunctionDef" && node.string("name") == name)
+        return node;
+    }
+    return source::AstNode{};
+  };
+  auto loopDef = findFunctionDef("loop");
+  auto nestedDef = findFunctionDef("nested");
+  auto helperDef = findFunctionDef("helper");
+  ASSERT_TRUE(loopDef && nestedDef && helperDef);
+  auto actualFor = loopDef.item("body", 1);
+  ASSERT_EQ(actualFor.kind(), "For");
+  auto callerActualNode = actualFor.item("body", 0).child("value");
+  auto nestedCall = actualFor.item("body", 1).child("value");
+  auto nestedExpression = nestedDef.item("body", 0).child("value");
+  auto helperExpression = helperDef.item("body", 0).child("value");
+  auto outsideExpression = loopDef.item("body", 2).child("value");
+  ASSERT_EQ(callerActualNode.kind(), "BinOp");
+  ASSERT_EQ(nestedCall.kind(), "Call");
+  ASSERT_EQ(nestedExpression.kind(), "BinOp");
+  ASSERT_EQ(helperExpression.kind(), "BinOp");
+  ASSERT_EQ(outsideExpression.kind(), "BinOp");
+  OpBuilder expectedBuilder(&context);
+  auto topSymbol =
+      FlatSymbolRefAttr::get(&context, "memory_cache.provenance.Top");
+  auto expectedSite = [&](const source::AstNode &node) {
+    return source::occurrence(expectedBuilder, topSymbol, node)
+        .getAs<DictionaryAttr>("site");
+  };
+  auto expectedForSite = expectedSite(actualFor);
+  auto expectedInductionSite = expectedSite(actualFor.child("target"));
+  auto expectedNestedCallSite = expectedSite(nestedCall);
+  auto expectedHelperCallSite = expectedSite(nestedExpression.child("left"));
+  auto expectedCallerProducerSite =
+      expectedSite(callerActualNode.child("right"));
+  auto expectedNestedProducerSite =
+      expectedSite(nestedExpression.child("right"));
+  auto expectedHelperProducerSite =
+      expectedSite(helperExpression.child("right"));
+  auto expectedOutsideProducerSite =
+      expectedSite(outsideExpression.child("right"));
+  source::SourceMemoryBindingsAnalysis bindings(captured->getOperation());
+  ASSERT_TRUE(
+      succeeded(bindings.initialize(owner("provenance.py"), *headers, writes)))
+      << diagnostics;
+  auto lowered = bindings.lower(owner("provenance.py"), *headers);
+  ASSERT_TRUE(succeeded(lowered)) << diagnostics;
+  ASSERT_TRUE(succeeded(mlir::verify(**lowered)));
+
+  auto originOf = [](Operation *operation) {
+    auto origin = operation->getAttrOfType<DictionaryAttr>("ac.origin");
+    if (!origin)
+      origin = operation->getAttrOfType<DictionaryAttr>("origin");
+    if (!origin)
+      if (auto expression =
+              operation->getAttrOfType<ac::StaticExprAttr>("value"))
+        origin = expression.getTree().getAs<DictionaryAttr>("origin");
+    if (!origin && operation->getNumResults())
+      if (auto bits = dyn_cast<ac::BitsType>(operation->getResult(0).getType()))
+        origin = bits.getWidth().getTree().getAs<DictionaryAttr>("origin");
+    return origin;
+  };
+  auto lineOf = [](Operation *operation) -> unsigned {
+    if (auto location = dyn_cast<FileLineColLoc>(operation->getLoc()))
+      return location.getLine();
+    return 0;
+  };
+  auto iteration = [&](DictionaryAttr frame, uint64_t ordinal) {
+    if (!frame || frame.getAs<StringAttr>("kind").getValue() != "iteration")
+      return false;
+    auto actualOrdinal = frame.getAs<IntegerAttr>("ordinal");
+    auto value = frame.getAs<DictionaryAttr>("value");
+    auto integer =
+        value ? value.getAs<ac::MathIntAttr>("value") : ac::MathIntAttr{};
+    return frame.getAs<DictionaryAttr>("site") == expectedForSite &&
+           actualOrdinal && actualOrdinal.getUInt() == ordinal && integer &&
+           integer.getCanonicalValue() == std::to_string(ordinal);
+  };
+  auto call = [](DictionaryAttr frame, StringRef symbol,
+                 DictionaryAttr expectedCallSite) {
+    if (!frame || frame.getAs<StringAttr>("kind").getValue() != "call")
+      return false;
+    auto callee = frame.getAs<FlatSymbolRefAttr>("callee");
+    return callee && callee.getValue() == symbol &&
+           frame.getAs<DictionaryAttr>("site") == expectedCallSite;
+  };
+
+  std::array<bool, 2> induction{}, callerActual{}, nestedBody{}, helperBody{};
+  bool outside = false;
+  Operation *malformed = nullptr;
+  DictionaryAttr savedOrigin;
+  ac::StaticExprAttr savedExpression;
+  (*lowered)->walk([&](Operation *operation) {
+    auto origin = originOf(operation);
+    if (!origin)
+      return;
+    auto expansion = origin.getAs<ArrayAttr>("expansion");
+    if (!expansion)
+      return;
+    const unsigned line = lineOf(operation);
+    if (line == 18 && expansion.empty() &&
+        origin.getAs<DictionaryAttr>("site") == expectedOutsideProducerSite)
+      outside = true;
+    for (uint64_t ordinal = 0; ordinal < 2; ++ordinal) {
+      if (expansion.size() == 1 &&
+          iteration(cast<DictionaryAttr>(expansion[0]), ordinal)) {
+        if (line == 15 &&
+            origin.getAs<DictionaryAttr>("site") == expectedInductionSite)
+          induction[ordinal] = true;
+        if (line == 16 && origin.getAs<DictionaryAttr>("site") ==
+                              expectedCallerProducerSite) {
+          callerActual[ordinal] = true;
+          if (!malformed) {
+            malformed = operation;
+            savedOrigin = origin;
+            savedExpression =
+                operation->getAttrOfType<ac::StaticExprAttr>("value");
+          }
+        }
+      }
+      if (expansion.size() == 2 &&
+          iteration(cast<DictionaryAttr>(expansion[0]), ordinal) &&
+          call(cast<DictionaryAttr>(expansion[1]),
+               "memory_cache.provenance.nested", expectedNestedCallSite)) {
+        nestedBody[ordinal] |=
+            line == 11 &&
+            origin.getAs<DictionaryAttr>("site") == expectedNestedProducerSite;
+      }
+      if (expansion.size() == 3 &&
+          iteration(cast<DictionaryAttr>(expansion[0]), ordinal) &&
+          call(cast<DictionaryAttr>(expansion[1]),
+               "memory_cache.provenance.nested", expectedNestedCallSite) &&
+          call(cast<DictionaryAttr>(expansion[2]),
+               "memory_cache.provenance.helper", expectedHelperCallSite) &&
+          line == 8 &&
+          origin.getAs<DictionaryAttr>("site") == expectedHelperProducerSite) {
+        helperBody[ordinal] = true;
+      }
+    }
+  });
+  for (uint64_t ordinal = 0; ordinal < 2; ++ordinal) {
+    EXPECT_TRUE(induction[ordinal]) << ordinal;
+    EXPECT_TRUE(callerActual[ordinal]) << ordinal;
+    EXPECT_TRUE(nestedBody[ordinal]) << ordinal;
+    EXPECT_TRUE(helperBody[ordinal]) << ordinal;
+  }
+  EXPECT_TRUE(outside);
+  ASSERT_TRUE(malformed && savedOrigin && savedExpression);
+
+  Builder builder(&context);
+  auto expansion = savedOrigin.getAs<ArrayAttr>("expansion");
+  auto frame = cast<DictionaryAttr>(expansion[0]);
+  SmallVector<NamedAttribute> fields(frame.begin(), frame.end());
+  for (auto &field : fields)
+    if (field.getName() == "ordinal")
+      field = builder.getNamedAttr("ordinal", builder.getBoolAttr(true));
+  auto malformedFrame = builder.getDictionaryAttr(fields);
+  auto malformedOrigin = builder.getDictionaryAttr(
+      {builder.getNamedAttr("site", savedOrigin.get("site")),
+       builder.getNamedAttr("expansion",
+                            builder.getArrayAttr({malformedFrame}))});
+  SmallVector<NamedAttribute> treeFields(savedExpression.getTree().begin(),
+                                         savedExpression.getTree().end());
+  for (auto &field : treeFields)
+    if (field.getName() == "origin")
+      field = builder.getNamedAttr("origin", malformedOrigin);
+  malformed->setAttr(
+      "value",
+      ac::StaticExprAttr::get(&context, builder.getDictionaryAttr(treeFields)));
+  diagnostics.clear();
+  EXPECT_TRUE(failed(ac::verifySourceBodyStructure(**lowered, error())));
+  EXPECT_NE(diagnostics.find("ordinal"), std::string::npos) << diagnostics;
+  malformed->setAttr("value", savedExpression);
+  EXPECT_TRUE(succeeded(ac::verifySourceBodyStructure(**lowered, error())));
+}
+
+TEST_F(SourceMemoryBindingsTest,
+       LoopCapturePayloadBudgetIsSourceWideAndFailureRestoresTransport) {
+  auto source = [](unsigned extent, bool loop, bool second, bool assignment) {
+    std::string text =
+        "from pycircuit import module, rule, struct, table, u1, u64\n"
+        "@struct\nclass Capture:\n    lanes: table[" +
+        std::to_string(extent) +
+        ", u64]\n@struct\nclass Out:\n    value: u1\n";
+    auto append = [&](StringRef suffix) {
+      text += "@rule\ndef probe" + suffix.str() +
+              "(capture: Capture) -> Out:\n";
+      if (loop) {
+        text += "    for index in range(1):\n";
+        text += assignment ? "        saved = capture\n"
+                           : "        pass\n";
+      }
+      text += "    return Out(value=capture.lanes[0][:1])\n";
+      text += "@module\ndef Top" + suffix.str() +
+              "(capture: Capture) -> Out:\n"
+              "    return probe" + suffix.str() + "(capture)\n";
+    };
+    append("A");
+    if (second)
+      append("B");
+    return text;
+  };
+  auto compile = [&](StringRef filename, StringRef text,
+                     bool accepted,
+                     StringRef expectedDiagnostic = {}) -> OwningOpRef<ModuleOp> {
+    SCOPED_TRACE(filename.str());
+    diagnostics.clear();
+    auto captured = capture(filename, text);
+    EXPECT_TRUE(captured);
+    if (!captured)
+      return {};
+    auto headers = compiler::SourceHeaderRegistry::create(&context, {}, error());
+    EXPECT_TRUE(succeeded(headers));
+    if (failed(headers))
+      return {};
+    const auto before = [&] {
+      std::string value;
+      llvm::raw_string_ostream out(value);
+      captured->getOperation()->print(out);
+      return value;
+    }();
+    auto result = compiler::compilePythonSourceUnit(
+        *captured, owner(filename), *headers, error());
+    EXPECT_EQ(succeeded(result), accepted) << diagnostics;
+    if (!accepted) {
+      std::string after;
+      llvm::raw_string_ostream out(after);
+      captured->getOperation()->print(out);
+      EXPECT_EQ(after, before);
+      EXPECT_TRUE(captured->getBody()->empty());
+      EXPECT_TRUE(succeeded(mlir::verify(*captured)));
+      if (!expectedDiagnostic.empty())
+        EXPECT_NE(diagnostics.find(expectedDiagnostic), std::string::npos)
+            << diagnostics;
+    }
+    return captured;
+  };
+
+  // A large interface is legal without loop staging, and a small recursive
+  // capture is legal with it. The same large capture exceeds the three-plane
+  // loop snapshot budget before lowering any body operation.
+  compile("no_loop.py", source(350000, false, false, false), true);
+  compile("small.py", source(3, true, false, false), true);
+  compile("large.py", source(350000, true, false, false), false,
+          "bounded for snapshot/header: resource counter exhausted");
+
+  // Each heavy loop fits independently. Their combined source-wide charge
+  // exceeds the shared three-plane payload ledger and leaves the full
+  // transport unchanged.
+  compile("one_heavy.py", source(180000, true, false, false), true);
+  compile("two_heavy.py", source(180000, true, true, false), false,
+          "bounded for snapshot/header: Table query payload words budget exhausted");
+
+  // Assignment reconstruction has a separate cumulative constant-byte owner.
+  compile("one_assignment.py", source(20000, true, false, true), true);
+  compile("two_assignments.py", source(20000, true, true, true), false,
+          "Table query constant bytes budget exhausted");
+
+  auto packageWork = [](unsigned tripCount) {
+    std::string text =
+        "from pycircuit import module, rule, struct, u1\n";
+    for (unsigned index = 0; index < 1000; ++index)
+      text += "@struct\nclass Unused" + std::to_string(index) +
+              ":\n    value: u1\n";
+    text += "@struct\nclass Out:\n    value: u1\n"
+            "@rule\ndef probe(value: u1) -> Out:\n"
+            "    alias = value\n"
+            "    for index in range(" +
+            std::to_string(tripCount) +
+            "):\n"
+            "        alias = value\n"
+            "    return Out(value=alias)\n"
+            "@module\ndef Top(value: u1) -> Out:\n"
+            "    return probe(value)\n";
+    return text;
+  };
+  compile("package_work_control.py", packageWork(1), true);
+  compile("package_work.py", packageWork(600), false, "work");
 }
 
 TEST_F(SourceMemoryBindingsTest, OptionalSourceImportIsTheVerifiedUnsimplifiedBody) {

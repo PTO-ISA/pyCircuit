@@ -140,7 +140,8 @@ bool Importer::fixedAnnotation(const AstNode &node) const {
     return true;
   auto binding = lookupBinding(node);
   return binding && binding->category == BindingCategory::Marker &&
-         fixedBitsAliasWidth(binding->importedModule, binding->remote).has_value();
+         fixedBitsAliasWidth(binding->importedModule, binding->remote)
+             .has_value();
 }
 bool Importer::hasDecorator(const AstNode &node, StringRef name) const {
   return ruleWrites.hasDecorator(node, name);
@@ -160,7 +161,7 @@ ac::StaticExprAttr Importer::literal(uint64_t value, const AstNode &node,
                                    ac::MathIntAttr::get(
                                        b.getContext(),
                                        llvm::APSInt::getUnsigned(value)))})),
-           b.getNamedAttr("origin", occurrence(b, symbol, node)),
+           b.getNamedAttr("origin", sourceOccurrence(b, symbol, node)),
            b.getNamedAttr("location", sourceSpan(b, source.path, node))}));
 }
 Type Importer::bits(unsigned width, const AstNode &node,
@@ -449,8 +450,8 @@ StringRef Importer::fixedResultCall(const AstNode &node) const {
   // This only recognizes a potential fixed-result syntax producer. The query
   // dispatcher resolves the actual receiver and Table contract before typing
   // callbacks or constructing any row-domain operation.
-  if (function.kind() == "Attribute" &&
-      (function.string("attr") == "first" || function.string("attr") == "argmin"))
+  if (function.kind() == "Attribute" && (function.string("attr") == "first" ||
+                                         function.string("attr") == "argmin"))
     return function.string("attr");
   if (function.kind() == "Subscript")
     function = function.child("value");
@@ -691,7 +692,8 @@ LogicalResult Importer::scanStructs() {
       auto type = portType(annotation, symbol);
       if (failed(type))
         return failure();
-      if (!isa<ac::BitsType, ac::StructType, ac::EnumType, ac::TableType>(*type))
+      if (!isa<ac::BitsType, ac::StructType, ac::EnumType, ac::TableType>(
+              *type))
         return error() << "struct field requires bits, struct, enum or table";
       if (auto table = dyn_cast<ac::TableType>(*type)) {
         auto shape = ac::HardwareAnalysis(*body).resolveShape(
@@ -699,9 +701,8 @@ LogicalResult Importer::scanStructs() {
         if (failed(shape))
           return failure();
         if (shape->size() != 1)
-          return error()
-                 << "struct Table field requires a positive closed "
-                    "one-dimensional shape";
+          return error() << "struct Table field requires a positive closed "
+                            "one-dimensional shape";
       }
       defaults.push_back(field.child("value"));
       fields.push_back(
@@ -799,7 +800,7 @@ FailureOr<Value> Importer::select(Value guard, Value yes, Value no,
       fixedValues.insert(result);
       refineSelectFacts(result, guard, yes, no, node, symbol);
     } else if (valueInfo(yes).sourceKind == ac::detail::ValueKind::Boolean &&
-             valueInfo(no).sourceKind == ac::detail::ValueKind::Boolean)
+               valueInfo(no).sourceKind == ac::detail::ValueKind::Boolean)
       remember(result, ac::detail::ValueKind::Boolean);
     return result;
   }
@@ -880,9 +881,10 @@ LogicalResult Importer::proveIndex(Value table, Value index,
   if (failed(size) || failed(width))
     return failure();
   if (info.interval && !info.interval->lower.isNegative() &&
-      llvm::APSInt::compareValues(info.interval->lower, info.interval->upper) < 0 &&
+      llvm::APSInt::compareValues(info.interval->lower, info.interval->upper) <
+          0 &&
       llvm::APSInt::compareValues(info.interval->upper,
-                                 llvm::APSInt::getUnsigned(*size)) <= 0)
+                                  llvm::APSInt::getUnsigned(*size)) <= 0)
     return success();
   if (*width >= 64 || (uint64_t(1) << *width) > *size)
     return mlir::emitError(node.location(b.getContext(), source.path))
@@ -892,8 +894,7 @@ LogicalResult Importer::proveIndex(Value table, Value index,
 FailureOr<Value> Importer::tableUpdate(Value table, Value index,
                                        Value replacement,
                                        ArrayRef<Attribute> fieldPath,
-                                       const AstNode &node,
-                                       OpBuilder &at,
+                                       const AstNode &node, OpBuilder &at,
                                        FlatSymbolRefAttr symbol,
                                        std::optional<size_t> domainSlot) {
   if (failed(proveIndex(table, index, node)))
@@ -948,7 +949,8 @@ FailureOr<Value> Importer::tableUpdate(Value table, Value index,
     if (failed(equivalent))
       return failure();
     if (!*equivalent)
-      return error() << "table index comparison requires equivalent equal-width types";
+      return error()
+             << "table index comparison requires equivalent equal-width types";
     idx = boundaryBitsIdentity(idx, ordinalType, node, nested, symbol);
   } else if (*width < ordinalWidth) {
     idx = createOp(nested, loc, ac::BitsResizeOp::getOperationName(), {idx},
@@ -956,10 +958,11 @@ FailureOr<Value> Importer::tableUpdate(Value table, Value index,
                    {nested.getNamedAttr("mode", nested.getStringAttr("zext"))})
               ->getResult(0);
   } else if (*width > ordinalWidth) {
-    ordinal = createOp(nested, loc, ac::BitsResizeOp::getOperationName(), {ordinal},
-                       TypeRange{idx.getType()},
-                       {nested.getNamedAttr("mode", nested.getStringAttr("zext"))})
-                  ->getResult(0);
+    ordinal =
+        createOp(nested, loc, ac::BitsResizeOp::getOperationName(), {ordinal},
+                 TypeRange{idx.getType()},
+                 {nested.getNamedAttr("mode", nested.getStringAttr("zext"))})
+            ->getResult(0);
   }
   auto equal =
       createOp(nested, loc, ac::BitsCompareOp::getOperationName(),
@@ -976,14 +979,15 @@ FailureOr<Value> Importer::tableUpdate(Value table, Value index,
     // The index equality masks data only; the source owner enable is separate.
     // Use each current element as the base so untouched fields never read
     // through the possibly unknown index.
-    value = createOp(
-                nested, loc, ac::ValueMergeOp::getOperationName(),
-                {old, equal, next}, TypeRange{old.getType(), equal.getType()},
-                {nested.getNamedAttr(
-                     "paths", nested.getArrayAttr({nested.getArrayAttr(fieldPath)})),
-                 nested.getNamedAttr("operandSegmentSizes",
-                                     nested.getDenseI32ArrayAttr({1, 1, 1}))})
-                ->getResult(0);
+    value =
+        createOp(nested, loc, ac::ValueMergeOp::getOperationName(),
+                 {old, equal, next}, TypeRange{old.getType(), equal.getType()},
+                 {nested.getNamedAttr(
+                      "paths",
+                      nested.getArrayAttr({nested.getArrayAttr(fieldPath)})),
+                  nested.getNamedAttr("operandSegmentSizes",
+                                      nested.getDenseI32ArrayAttr({1, 1, 1}))})
+            ->getResult(0);
   }
   SmallVector<Value> yields{value};
   if (domainSlot) {
@@ -1036,8 +1040,7 @@ FailureOr<Value> Importer::unsignedBoundary(Value value, Type target,
     if (failed(converted))
       return failure();
     value = *converted;
-  } else if (*equivalent && targetBits &&
-             isa<ac::BitsType>(value.getType()) &&
+  } else if (*equivalent && targetBits && isa<ac::BitsType>(value.getType()) &&
              fixedValues.contains(value) &&
              !ac::areEquivalentHardwareTypes(value.getType(), target)) {
     // Only the width spelling changes. Keep the producer's kind and value facts
@@ -1045,8 +1048,7 @@ FailureOr<Value> Importer::unsignedBoundary(Value value, Type target,
     return boundaryBitsIdentity(value, target, node, at, symbol);
   } else if (allowFixedWidening && targetBits &&
              isa<ac::BitsType>(value.getType()) &&
-             fixedValues.contains(value) &&
-             !*equivalent) {
+             fixedValues.contains(value) && !*equivalent) {
     ac::HardwareAnalysis analysis(*body);
     auto *owner = at.getBlock()->getParentOp();
     auto sourceWidth = analysis.getPackedWidth(value.getType(), {}, owner);

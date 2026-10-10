@@ -44,6 +44,13 @@ private:
   TableQueryCharge spent;
 };
 
+// Private non-debiting storage measurement shared by importer envelopes. The
+// optional visit hook preserves the existing Table-query type-walk charges.
+mlir::FailureOr<uint64_t> measureTableStorageWords(
+    mlir::Type type, ac::HardwareAnalysis &analysis, mlir::ModuleOp package,
+    mlir::Location location, unsigned depth = 0,
+    const std::function<mlir::LogicalResult()> &visit = {});
+
 struct TableQueryHooks {
   std::function<ac::StaticExprAttr(uint64_t)> literal;
   std::function<mlir::Type(uint64_t)> bits;

@@ -88,19 +88,20 @@ ArrayAttr TableQueryLowering::shape(ArrayRef<uint64_t> sizes) {
     values.push_back(hooks.literal(size));
   return at.getArrayAttr(values);
 }
-FailureOr<uint64_t> TableQueryLowering::words(Type type, unsigned depth,
-                                              bool debitWork) {
-  std::string reason;
-  if (debitWork &&
-      !budget.reserveProduct(TableQueryResource::Work, 1, 1, reason))
-    return emitError(loc) << reason;
+FailureOr<uint64_t>
+measureTableStorageWords(Type type, ac::HardwareAnalysis &analysis,
+                         ModuleOp package, Location location, unsigned depth,
+                         const std::function<LogicalResult()> &visit) {
+  if (visit && failed(visit()))
+    return failure();
   if (depth >= TableQueryBudget::limit(TableQueryResource::Nesting))
-    return emitError(loc) << "Table query type nesting budget exhausted";
+    return emitError(location) << "Table query type nesting budget exhausted";
   if (auto table = dyn_cast<ac::TableType>(type)) {
     auto size = analysis.getTableSize(table, {}, package);
     if (failed(size))
       return failure();
-    auto element = words(table.getElementType(), depth + 1, debitWork);
+    auto element = measureTableStorageWords(
+        table.getElementType(), analysis, package, location, depth + 1, visit);
     if (failed(element) ||
         (*element &&
          *size > TableQueryBudget::limit(TableQueryResource::PayloadWords) /
@@ -114,9 +115,9 @@ FailureOr<uint64_t> TableQueryLowering::words(Type type, unsigned depth,
     if (!declaration)
       return failure();
     for (Attribute raw : declaration.getFields()) {
-      auto field =
-          words(cast<DictionaryAttr>(raw).getAs<TypeAttr>("type").getValue(),
-                depth + 1, debitWork);
+      auto field = measureTableStorageWords(
+          cast<DictionaryAttr>(raw).getAs<TypeAttr>("type").getValue(),
+          analysis, package, location, depth + 1, visit);
       if (failed(field) ||
           *field > TableQueryBudget::limit(TableQueryResource::PayloadWords) -
                        weight)
@@ -132,6 +133,17 @@ FailureOr<uint64_t> TableQueryLowering::words(Type type, unsigned depth,
   if (weight > TableQueryBudget::limit(TableQueryResource::PayloadWords))
     return failure();
   return weight;
+}
+FailureOr<uint64_t> TableQueryLowering::words(Type type, unsigned depth,
+                                              bool debitWork) {
+  auto visit = [&]() -> LogicalResult {
+    std::string reason;
+    if (debitWork &&
+        !budget.reserveProduct(TableQueryResource::Work, 1, 1, reason))
+      return emitError(loc) << reason;
+    return success();
+  };
+  return measureTableStorageWords(type, analysis, package, loc, depth, visit);
 }
 LogicalResult TableQueryLowering::capture(Value value) {
   auto weight = words(value.getType());

@@ -201,11 +201,14 @@ LogicalResult verifyCapturedNode(Attribute raw,
     auto body = fields.getAs<DictionaryAttr>("body");
     StringRef bodyKind = body.getAs<StringAttr>("kind").getValue();
     if (!llvm::is_contained(
-            ArrayRef<StringRef>{"BoolOp", "NamedExpr", "BinOp", "UnaryOp",
-                "Lambda", "IfExp", "Dict", "Set", "ListComp", "SetComp",
-                "DictComp", "GeneratorExp", "Await", "Yield", "YieldFrom",
-                "Compare", "Call", "FormattedValue", "JoinedStr", "Constant",
-                "Attribute", "Subscript", "Starred", "Name", "List", "Tuple"},
+            ArrayRef<StringRef>{
+                "BoolOp",    "NamedExpr",      "BinOp",     "UnaryOp",
+                "Lambda",    "IfExp",          "Dict",      "Set",
+                "ListComp",  "SetComp",        "DictComp",  "GeneratorExp",
+                "Await",     "Yield",          "YieldFrom", "Compare",
+                "Call",      "FormattedValue", "JoinedStr", "Constant",
+                "Attribute", "Subscript",      "Starred",   "Name",
+                "List",      "Tuple"},
             bodyKind))
       return emitError() << "captured Lambda body must be an expression";
     if (failed(validateTableQueryLambda(AstNode{node, {}}, emitError,
@@ -272,6 +275,12 @@ LogicalResult verifyCapturedNode(Attribute raw,
     if (failed(verifyRequiredNode(fields, "test", form, emitError)) ||
         failed(verifyRequiredArray(fields, "body", form, emitError)) ||
         failed(verifyRequiredArray(fields, "orelse", form, emitError)))
+      return failure();
+  } else if (form == "For") {
+    if (failed(verifyRequiredNode(fields, "target", form, emitError)) ||
+        failed(verifyRequiredNode(fields, "iter", form, emitError)) ||
+        failed(verifyNodeArray(fields, "body", form, {}, true, emitError)) ||
+        failed(verifyNodeArray(fields, "orelse", form, {}, false, emitError)))
       return failure();
   } else if (form == "UnaryOp") {
     if (failed(verifyRequiredNode(fields, "op", form, emitError)) ||
@@ -437,7 +446,8 @@ bool sourceBindingShadowed(const CapturedSource &source, const AstNode &node,
     if (step.index)
       return false;
     if ((ancestor.kind() == "FunctionDef" || ancestor.kind() == "ClassDef" ||
-         ancestor.kind() == "Lambda") && step.field == "body") {
+         ancestor.kind() == "Lambda") &&
+        step.field == "body") {
       if (scopeBinds(ancestor))
         return true;
     }
@@ -525,8 +535,35 @@ DictionaryAttr sourceSpan(OpBuilder &builder, StringRef sourcePath,
   });
 }
 
+FailureOr<LiteralForSyntax>
+readLiteralForSyntax(const AstNode &node, ac::detail::EmitError emitError) {
+  auto target = node.child("target");
+  auto iterable = node.child("iter");
+  auto function = iterable.child("func");
+  if (node.kind() != "For" || target.kind() != "Name" ||
+      target.string("id").empty() || iterable.kind() != "Call" ||
+      function.kind() != "Name" || function.string("id") != "range" ||
+      !iterable.array("args") || iterable.array("args").size() != 1 ||
+      !iterable.array("keywords") || !iterable.array("keywords").empty() ||
+      !node.array("orelse") || !node.array("orelse").empty())
+    return emitError() << "bounded for requires a Name target and exact "
+                          "range(Integer literal), without loop else";
+  auto bound = iterable.item("args", 0);
+  auto encoded = bound.kind() == "Constant"
+                     ? dyn_cast_or_null<DictionaryAttr>(bound.get("value"))
+                     : DictionaryAttr();
+  auto integer = encoded ? encoded.getAs<StringAttr>("integer") : StringAttr();
+  if (!integer || integer.getValue().empty() ||
+      llvm::any_of(integer.getValue(),
+                   [](char digit) { return digit < '0' || digit > '9'; }))
+    return emitError() << "bounded for stop requires a nonnegative "
+                          "non-Boolean Integer literal";
+  return LiteralForSyntax{target, bound, integer.getValue()};
+}
+
 DictionaryAttr occurrence(OpBuilder &builder, FlatSymbolRefAttr definition,
-                          const AstNode &node) {
+                          const AstNode &node,
+                          ArrayRef<DictionaryAttr> expansion) {
   SmallVector<Attribute> components;
   for (const AstStep &step : node.path) {
     if (step.index) {
@@ -545,9 +582,10 @@ DictionaryAttr occurrence(OpBuilder &builder, FlatSymbolRefAttr definition,
       builder.getNamedAttr("definition", definition),
       builder.getNamedAttr("ast_path", builder.getArrayAttr(components)),
   });
+  SmallVector<Attribute> frames(expansion.begin(), expansion.end());
   return builder.getDictionaryAttr({
       builder.getNamedAttr("site", site),
-      builder.getNamedAttr("expansion", builder.getArrayAttr({})),
+      builder.getNamedAttr("expansion", builder.getArrayAttr(frames)),
   });
 }
 

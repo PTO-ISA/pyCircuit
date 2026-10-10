@@ -213,8 +213,7 @@ LogicalResult SourceRuleWritesAnalysis::analyze() {
       return failure();
     auto module = source.module.item("body", i);
     if (module.kind() != "FunctionDef" ||
-        (!hasDecorator(module, "module") &&
-         !hasDecorator(module, "system")))
+        (!hasDecorator(module, "module") && !hasDecorator(module, "system")))
       continue;
     llvm::StringMap<AstNode> owners;
     size_t firstCall = calls.size();
@@ -261,7 +260,8 @@ LogicalResult SourceRuleWritesAnalysis::analyze() {
           auto stmt = parent.item(field, j);
           if (!charge())
             return failure();
-          if (stmt.kind() == "Assign" || stmt.kind() == "AnnAssign") {
+          if (stmt.kind() == "Assign" || stmt.kind() == "AnnAssign" ||
+              stmt.kind() == "For") {
             size_t count =
                 stmt.kind() == "Assign" ? stmt.array("targets").size() : 1;
             for (size_t k = 0; k < count; ++k) {
@@ -281,7 +281,10 @@ LogicalResult SourceRuleWritesAnalysis::analyze() {
                 return failure();
             }
           }
-          if (stmt.kind() == "If") {
+          if (stmt.kind() == "For") {
+            if (failed(self(self, stmt, "body")))
+              return failure();
+          } else if (stmt.kind() == "If") {
             if (failed(self(self, stmt, "body")) ||
                 failed(self(self, stmt, "orelse")))
               return failure();

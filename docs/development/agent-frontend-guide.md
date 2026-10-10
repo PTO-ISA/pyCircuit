@@ -78,7 +78,10 @@ for exact result, callback, four-state and resource boundaries. Map also accepts
 same-source named `@rule` callbacks from the fixed scalar expression subset.
 Generic row types must exactly match their formal annotations; individual lane
 values do not supply range or constant authority. Helper calls inside expression
-lambdas and ordered scans remain unsupported.
+lambdas remain unsupported. Ordered prefixes can use the
+[bounded literal-range loop profile](../reference/language.md#bounded-source-loops)
+in pure behavioral rules; it adds no scan API or clock cycle. Preserve its exact
+range grammar, binder behavior, effect exclusions and resource bounds.
 
 Use `ready, valid, data = ac.queue[T](valid, data, take, depth=N)`
 for a complete-token FIFO. Allocation is module-scoped, with three fresh immutable

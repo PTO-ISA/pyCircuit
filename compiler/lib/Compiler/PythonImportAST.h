@@ -54,12 +54,21 @@ mlir::LogicalResult validateTableQueryLambda(const AstNode &node,
 mlir::FailureOr<CapturedSource>
 readSingleCapture(mlir::ModuleOp transport, ac::detail::EmitError emitError);
 
+struct LiteralForSyntax {
+  AstNode target;
+  AstNode bound;
+  llvm::StringRef spelling;
+};
+mlir::FailureOr<LiteralForSyntax>
+readLiteralForSyntax(const AstNode &node, ac::detail::EmitError emitError);
+
 mlir::DictionaryAttr sourceSpan(mlir::OpBuilder &builder,
                                 llvm::StringRef sourcePath,
                                 const AstNode &node);
-mlir::DictionaryAttr occurrence(mlir::OpBuilder &builder,
-                                mlir::FlatSymbolRefAttr definition,
-                                const AstNode &node);
+mlir::DictionaryAttr
+occurrence(mlir::OpBuilder &builder, mlir::FlatSymbolRefAttr definition,
+           const AstNode &node,
+           llvm::ArrayRef<mlir::DictionaryAttr> expansion = {});
 
 } // namespace acir::compiler::detail
 

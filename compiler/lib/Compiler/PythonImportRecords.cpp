@@ -804,6 +804,32 @@ private:
   llvm::DenseSet<QueryKey> visiting;
 };
 
+struct CachedLoopHelper {
+  PureScalarSummary summary;
+  uint64_t relativeDepth = 0;
+  uint64_t applications = 0;
+};
+struct LoopAdmissionSummary {
+  uint64_t nodes = 0;
+  llvm::DenseMap<DictionaryAttr, CachedLoopHelper> helpers;
+};
+struct LoopStatementEnvelope {
+  TableQueryCharge reservation;
+  uint64_t operations = 0, arguments = 0, values = 0, operands = 4;
+  uint64_t precision = 1, words = 1, factWords = 1;
+  uint64_t nodes = 0, declarations = 0, maps = 0;
+};
+struct LoopResourceShape {
+  Type type;
+  uint64_t precision = 1, words = 1, declarations = 0, fields = 0;
+};
+struct LoopLoweringContext {
+  AstNode statement;
+  LoopAdmissionSummary *admission = nullptr;
+  uint64_t iteration = 0;
+  llvm::DenseSet<Operation *> helperOwned;
+};
+
 class Importer final : public SourceDeclarationContext::Implementation {
 public:
   Importer(const CapturedSource &source, DictionaryAttr owner,
@@ -824,6 +850,52 @@ public:
   }
 
 private:
+  DictionaryAttr sourceOccurrence(OpBuilder &at, FlatSymbolRefAttr symbol,
+                                  const AstNode &node) {
+    return occurrence(at, symbol, node, activeSourceExpansion);
+  }
+  LogicalResult preflightForCapabilities(const AstNode &statement,
+                                         LoopAdmissionSummary &summary);
+  LogicalResult chargeLoopDescriptorWork(const AstNode &site, StringRef phase,
+                                         uint64_t amount = 1);
+  LogicalResult prepayLoopAnalysis(const AstNode &site);
+  FailureOr<uint64_t> loopStorageWords(Type type,
+                                       ac::HardwareAnalysis &analysis,
+                                       const AstNode &site);
+  FailureOr<LoopResourceShape>
+  loopTypeShape(Type type, const AstNode &site,
+                ac::HardwareAnalysis *sharedAnalysis = nullptr);
+  FailureOr<LoopResourceShape> describeLoopExpression(
+      const AstNode &node, const BranchEnvironment &environment,
+      FlatSymbolRefAttr symbol, LoopStatementEnvelope &envelope,
+      std::optional<Type> expected = std::nullopt);
+  FailureOr<LoopStatementEnvelope>
+  reserveLoopStatement(const AstNode &statement,
+                       const BranchEnvironment &environment,
+                       FlatSymbolRefAttr symbol, StringRef phase);
+  FailureOr<LoopStatementEnvelope>
+  reserveLoopJoin(const AstNode &statement, const BranchEnvironment &incoming,
+                  const BranchEnvironment &yes, const BranchEnvironment &no);
+  LogicalResult
+  reserveLoopEnvironmentCopies(const AstNode &site,
+                               const BranchEnvironment &incoming,
+                               const BranchEnvironment *yes = nullptr,
+                               const BranchEnvironment *no = nullptr);
+  LogicalResult payLoopEnvelope(LoopStatementEnvelope &envelope,
+                                const AstNode &site, StringRef phase);
+  LogicalResult auditLoopStatement(Block &block, Operation *previous,
+                                   const LoopStatementEnvelope &envelope,
+                                   const AstNode &site, StringRef phase);
+  LogicalResult lowerLiteralFor(const AstNode &statement, OpBuilder &at,
+                                FlatSymbolRefAttr symbol,
+                                BranchEnvironment &environment,
+                                llvm::StringSet<> &owners);
+  LogicalResult loopStatements(const AstNode &parent, StringRef field,
+                               OpBuilder &at, FlatSymbolRefAttr symbol,
+                               BranchEnvironment &environment,
+                               llvm::StringSet<> &owners);
+  LogicalResult pushHelperFrame(const AstNode &call, const AstNode &declaration,
+                                FlatSymbolRefAttr symbol);
   LogicalResult scanImports();
   LogicalResult scanNominals();
   LogicalResult stageImports();
@@ -946,10 +1018,12 @@ private:
                                   PureScalarSummary &summary,
                                   SmallVectorImpl<AstNode> &bodies,
                                   bool bodyActuals);
-  LogicalResult preflightPureDeclaration(
-      const AstNode &site, const AstNode &rule, uint64_t arity,
-      PureScalarSummary &summary, SmallVectorImpl<AstNode> &bodies,
-      const AstNode &actualCall = {}, const AstNode &caller = {});
+  LogicalResult preflightPureDeclaration(const AstNode &site,
+                                         const AstNode &rule, uint64_t arity,
+                                         PureScalarSummary &summary,
+                                         SmallVectorImpl<AstNode> &bodies,
+                                         const AstNode &actualCall = {},
+                                         const AstNode &caller = {});
   FailureOr<PureScalarShape>
   preflightPureExpression(const AstNode &node, const AstNode &rule,
                           PureScalarSummary &summary,
@@ -1005,6 +1079,10 @@ private:
                                     SourceChoice yes, SourceChoice no,
                                     const AstNode &node, OpBuilder &at,
                                     FlatSymbolRefAttr owner);
+  bool hasUnchangedIncomingBinding(StringRef name,
+                                   const BranchEnvironment &incoming,
+                                   const BranchEnvironment &yes,
+                                   const BranchEnvironment &no);
   FailureOr<BranchEnvironment>
   joinBranches(const NumericValue &condition, const BranchEnvironment &incoming,
                const BranchEnvironment &yes, const BranchEnvironment &no,
@@ -1055,7 +1133,9 @@ private:
   LogicalResult statements(const AstNode &parent, StringRef field,
                            OpBuilder &at, FlatSymbolRefAttr owner,
                            BranchEnvironment &environment,
-                           llvm::StringSet<> &owners, AstNode &returned);
+                           llvm::StringSet<> &owners, AstNode &returned,
+                           size_t begin = 0,
+                           size_t end = std::numeric_limits<size_t>::max());
   // Source assertion sites only. A structural rule publishes its observations
   // through the module-level instrumentation pass, so the rule result suffix it
   // reserves must not include them.
@@ -1213,6 +1293,8 @@ private:
   std::unique_ptr<OwnerEnableProof> grantProof;
   TableQueryBudget queryBudget;
   PureScalarContext *activePureScalar = nullptr;
+  SmallVector<DictionaryAttr> activeSourceExpansion;
+  LoopLoweringContext *activeLoop = nullptr;
   SmallVector<SmallVector<StringRef>> queryArguments;
   bool queryBound(StringRef name) const {
     return llvm::any_of(queryArguments, [&](const auto &frame) {
@@ -1265,7 +1347,8 @@ Importer::annotationKind(const AstNode &node) {
 NumericLoweringSite Importer::numericSite(const AstNode &node,
                                           FlatSymbolRefAttr ownerSymbol) {
   return {node.location(b.getContext(), source.path),
-          occurrence(b, ownerSymbol, node), sourceSpan(b, source.path, node)};
+          sourceOccurrence(b, ownerSymbol, node),
+          sourceSpan(b, source.path, node)};
 }
 NumericValue Importer::valueInfo(Value value) {
   auto found = numericValues.find(value);
@@ -1422,7 +1505,8 @@ FailureOr<NumericValue> Importer::predicateView(Value value,
 FailureOr<SourceChoice> Importer::sourceChoice(Value value,
                                                const AstNode &node) {
   SourceChoice choice{value, std::nullopt};
-  // Private facts on a fixed wire do not grant logical source-constant authority.
+  // Private facts on a fixed wire do not grant logical source-constant
+  // authority.
   if (fixedValues.contains(value))
     return choice;
   auto info = valueInfo(value);
@@ -1509,8 +1593,8 @@ LogicalResult Importer::recordClosed(Value result, Attribute constant,
 }
 
 void Importer::refineSelectFacts(Value result, Value condition, Value yes,
-                                  Value no, const AstNode &node,
-                                  FlatSymbolRefAttr owner) {
+                                 Value no, const AstNode &node,
+                                 FlatSymbolRefAttr owner) {
   auto compare = condition.getDefiningOp<ac::BitsCompareOp>();
   if (!compare || result == yes || result == no)
     return;
@@ -1519,7 +1603,8 @@ void Importer::refineSelectFacts(Value result, Value condition, Value yes,
            info.sourceKind != ac::detail::ValueKind::Boolean &&
            (!info.interval || !info.interval->lower.isNegative()) &&
            (fixedValues.contains(value) ||
-            (info.sourceKind == ac::detail::ValueKind::Integer && info.interval));
+            (info.sourceKind == ac::detail::ValueKind::Integer &&
+             info.interval));
   };
   auto literalWidth = [](Value value) -> std::optional<uint64_t> {
     auto type = dyn_cast<ac::BitsType>(value.getType());
@@ -1528,8 +1613,8 @@ void Importer::refineSelectFacts(Value result, Value condition, Value yes,
     if (!kind || kind.getValue() != "literal")
       return std::nullopt;
     auto literal = tree.getAs<DictionaryAttr>("value");
-    auto integer = literal ? literal.getAs<ac::MathIntAttr>("value")
-                           : ac::MathIntAttr();
+    auto integer =
+        literal ? literal.getAs<ac::MathIntAttr>("value") : ac::MathIntAttr();
     if (!integer)
       return std::nullopt;
     llvm::APSInt width(integer.getCanonicalValue());
@@ -1537,8 +1622,8 @@ void Importer::refineSelectFacts(Value result, Value condition, Value yes,
       return std::nullopt;
     return width.getZExtValue();
   };
-  auto refine = [&](Value selected, Value fallback, bool whenTrue)
-      -> std::optional<IntegerInterval> {
+  auto refine = [&](Value selected, Value fallback,
+                    bool whenTrue) -> std::optional<IntegerInterval> {
     Value constant;
     StringRef predicate = compare.getPredicate();
     if (selected == compare.getLhs())
@@ -1563,15 +1648,17 @@ void Importer::refineSelectFacts(Value result, Value condition, Value yes,
         !unsignedValue(constant, constantInfo) ||
         !unsignedValue(fallback, fallbackInfo))
       return std::nullopt;
-    auto c = dyn_cast_or_null<ac::MathIntAttr>(constantInfo.closedSourceConstant);
-    auto k = dyn_cast_or_null<ac::MathIntAttr>(fallbackInfo.closedSourceConstant);
+    auto c =
+        dyn_cast_or_null<ac::MathIntAttr>(constantInfo.closedSourceConstant);
+    auto k =
+        dyn_cast_or_null<ac::MathIntAttr>(fallbackInfo.closedSourceConstant);
     auto width = literalWidth(selected);
     if (!c || !k || !width)
       return std::nullopt;
-    return refineUnsignedSelectInterval(
-        numericSite(node, owner), predicate, whenTrue, selectedInfo.interval,
-        *width, llvm::APSInt(c.getCanonicalValue()),
-        llvm::APSInt(k.getCanonicalValue()));
+    return refineUnsignedSelectInterval(numericSite(node, owner), predicate,
+                                        whenTrue, selectedInfo.interval, *width,
+                                        llvm::APSInt(c.getCanonicalValue()),
+                                        llvm::APSInt(k.getCanonicalValue()));
   };
   auto interval = refine(yes, no, true);
   if (!interval)
@@ -1579,7 +1666,8 @@ void Importer::refineSelectFacts(Value result, Value condition, Value yes,
   if (!interval)
     return;
   // The original graph and authority are already established. Only the fresh
-  // result interval changes; singleton facts do not establish a constant/known bit.
+  // result interval changes; singleton facts do not establish a constant/known
+  // bit.
   auto info = valueInfo(result);
   info.interval = std::move(interval);
   numericValues[result] = std::move(info);
@@ -1755,6 +1843,28 @@ FailureOr<Value> Importer::applyBindingBoundary(Value value,
   return value;
 }
 
+bool Importer::hasUnchangedIncomingBinding(StringRef name,
+                                           const BranchEnvironment &incoming,
+                                           const BranchEnvironment &yes,
+                                           const BranchEnvironment &no) {
+  auto original = incoming.values.find(name);
+  auto a = yes.values.find(name), c = no.values.find(name);
+  if (original == incoming.values.end() || a == yes.values.end() ||
+      c == no.values.end() || a->second != original->second ||
+      c->second != original->second)
+    return false;
+  auto originalBoundary = incoming.boundaries.find(name);
+  auto aBoundary = yes.boundaries.find(name),
+       cBoundary = no.boundaries.find(name);
+  return originalBoundary != incoming.boundaries.end() &&
+         aBoundary != yes.boundaries.end() &&
+         cBoundary != no.boundaries.end() &&
+         aBoundary->second.declared == originalBoundary->second.declared &&
+         cBoundary->second.declared == originalBoundary->second.declared &&
+         sameBindingBoundary(aBoundary->second, originalBoundary->second) &&
+         sameBindingBoundary(cBoundary->second, originalBoundary->second);
+}
+
 FailureOr<BranchEnvironment> Importer::joinBranches(
     const NumericValue &condition, const BranchEnvironment &incoming,
     const BranchEnvironment &yes, const BranchEnvironment &no,
@@ -1790,6 +1900,10 @@ FailureOr<BranchEnvironment> Importer::joinBranches(
     auto opposite = no.values.find(item.first());
     if (opposite == no.values.end())
       continue;
+    if (hasUnchangedIncomingBinding(item.first(), incoming, yes, no)) {
+      joined.values[item.first()] = incoming.values.lookup(item.first());
+      continue;
+    }
     Value yesValue = item.second, noValue = opposite->second;
     auto binding = joined.boundaries.find(item.first());
     if (binding != joined.boundaries.end()) {
@@ -2119,7 +2233,7 @@ LogicalResult Importer::stageEnums() {
          b.getNamedAttr("encoding", b.getStringAttr(syntax.encoding)),
          b.getNamedAttr("members", b.getArrayAttr(members)),
          b.getNamedAttr("ac.source_owner", owner),
-         b.getNamedAttr("ac.origin", occurrence(b, symbol, node)),
+         b.getNamedAttr("ac.origin", sourceOccurrence(b, symbol, node)),
          b.getNamedAttr("ac.declaration_role", b.getStringAttr("definition"))});
     if (failed(verify(declaration)))
       return failure();
@@ -2135,7 +2249,7 @@ Importer::staticExpr(const AstNode &node, FlatSymbolRefAttr ownerSymbol) {
         b.getNamedAttr("kind", b.getStringAttr(kind))};
     llvm::append_range(fields, payload);
     fields.push_back(
-        b.getNamedAttr("origin", occurrence(b, ownerSymbol, node)));
+        b.getNamedAttr("origin", sourceOccurrence(b, ownerSymbol, node)));
     fields.push_back(
         b.getNamedAttr("location", sourceSpan(b, source.path, node)));
     return ac::StaticExprAttr::get(b.getContext(), b.getDictionaryAttr(fields));
@@ -2234,7 +2348,7 @@ FailureOr<Type> Importer::portType(const AstNode &node,
         b.getDictionaryAttr(
             {b.getNamedAttr("kind", b.getStringAttr("literal")),
              b.getNamedAttr("value", value),
-             b.getNamedAttr("origin", occurrence(b, ownerSymbol, node)),
+             b.getNamedAttr("origin", sourceOccurrence(b, ownerSymbol, node)),
              b.getNamedAttr("location", sourceSpan(b, source.path, node))}));
     return Type(ac::BitsType::get(b.getContext(), width));
   }
@@ -2776,8 +2890,8 @@ LogicalResult Importer::preflightPureCall(const AstNode &call,
     return mlir::emitError(call.location(b.getContext(), source.path))
            << "scalar helper requires its exact positional argument list";
   return preflightPureDeclaration(call, *declaration, call.array("args").size(),
-                                   summary, bodies, bodyActuals ? call : AstNode(),
-                                   caller);
+                                  summary, bodies,
+                                  bodyActuals ? call : AstNode(), caller);
 }
 
 LogicalResult Importer::preflightPureDeclaration(
@@ -2786,14 +2900,16 @@ LogicalResult Importer::preflightPureDeclaration(
     const AstNode &actualCall, const AstNode &caller) {
   std::string reason;
   if (!queryBudget.enter(reason))
-    return mlir::emitError(site.location(b.getContext(), source.path)) << reason;
+    return mlir::emitError(site.location(b.getContext(), source.path))
+           << reason;
   auto leave = llvm::scope_exit([&] { queryBudget.leave(); });
   summary.depth =
       std::max(summary.depth, queryBudget.used(TableQueryResource::Nesting));
   TableQueryCharge occurrence;
   if (!TableQueryBudget::add(occurrence, TableQueryResource::Occurrences, 1) ||
       !queryBudget.reserve(occurrence, reason))
-    return mlir::emitError(site.location(b.getContext(), source.path)) << reason;
+    return mlir::emitError(site.location(b.getContext(), source.path))
+           << reason;
   auto returned = pureRuleReturn(rule, summary);
   if (failed(returned))
     return failure();
@@ -3004,8 +3120,8 @@ LogicalResult Importer::reservePureScalar(PureScalarSummary &s,
     product(7, s.operations, s.slots[2]);
     uint64_t actuals = 0;
     product(2, s.arity, actuals);
-    fits &= pureCheckedAdd(s.slots[2], actuals) &&
-            pureCheckedAdd(s.slots[2], 2);
+    fits &=
+        pureCheckedAdd(s.slots[2], actuals) && pureCheckedAdd(s.slots[2], 2);
   } else {
     s.slots[2] = s.arity;
     fits &= pureCheckedAdd(s.slots[2], s.operations);
@@ -3071,13 +3187,11 @@ LogicalResult Importer::reservePureScalar(PureScalarSummary &s,
   return success();
 }
 
-LogicalResult Importer::auditPureScalar(Block &block,
-                                        PureScalarContext &context,
-                                        const AstNode &call,
-                                        FlatSymbolRefAttr symbol,
-                                        uint64_t mappingEntries, Block *clones,
-                                        Operation *cloneBegin,
-                                        Value callbackResult) {
+LogicalResult
+Importer::auditPureScalar(Block &block, PureScalarContext &context,
+                          const AstNode &call, FlatSymbolRefAttr symbol,
+                          uint64_t mappingEntries, Block *clones,
+                          Operation *cloneBegin, Value callbackResult) {
   const auto &s = context.summary;
   bool callback = static_cast<bool>(callbackResult);
   auto diagnostic = [&] {
@@ -3094,8 +3208,8 @@ LogicalResult Importer::auditPureScalar(Block &block,
       context.peakFrameSlots > s.slots[4] ||
       2 * context.peakBodies > s.slots[5] ||
       context.peakExpressionSlots > s.slots[6] ||
-      (!callback && (mappingEntries < s.arity ||
-                     2 * mappingEntries > s.slots[2])))
+      (!callback &&
+       (mappingEntries < s.arity || 2 * mappingEntries > s.slots[2])))
     return diagnostic()
            << "scalar helper containers exceed their reserved envelope";
   ac::HardwareAnalysis analysis(*body);
@@ -3236,8 +3350,8 @@ LogicalResult Importer::auditPureScalar(Block &block,
   };
   for (Operation &operation : block) {
     if (isa<ac::YieldOp>(operation)) {
-      if (callback || &operation != &block.back() || operation.getNumResults() ||
-          operation.getNumRegions() ||
+      if (callback || &operation != &block.back() ||
+          operation.getNumResults() || operation.getNumRegions() ||
           operation.getOperand(0).getParentBlock() != &block)
         return diagnostic() << "scalar helper template has an unexpected yield";
       continue;
@@ -4007,7 +4121,7 @@ FailureOr<Type> Importer::expressionType(const AstNode &node,
         b.getDictionaryAttr(
             {b.getNamedAttr("kind", b.getStringAttr("literal")),
              b.getNamedAttr("value", literal),
-             b.getNamedAttr("origin", occurrence(b, ownerSymbol, node)),
+             b.getNamedAttr("origin", sourceOccurrence(b, ownerSymbol, node)),
              b.getNamedAttr("location", sourceSpan(b, source.path, node))}));
     return ac::BitsType::get(b.getContext(), expression);
   };
@@ -4167,7 +4281,7 @@ FailureOr<Value> Importer::trueValue(const AstNode &node, OpBuilder &at,
       b.getDictionaryAttr(
           {b.getNamedAttr("kind", b.getStringAttr("literal")),
            b.getNamedAttr("value", integer),
-           b.getNamedAttr("origin", occurrence(b, ownerSymbol, node)),
+           b.getNamedAttr("origin", sourceOccurrence(b, ownerSymbol, node)),
            b.getNamedAttr("location", sourceSpan(b, source.path, node))}));
   Type type = ac::BitsType::get(b.getContext(), expression);
   return createOp(at, node.location(b.getContext(), source.path),
@@ -4381,7 +4495,8 @@ LogicalResult Importer::publishSourceChecks(Operation *rule,
     if (!check.observationKind) {
       auto identity = at.getDictionaryAttr(
           {at.getNamedAttr("registration", rule->getAttr("occurrence")),
-           at.getNamedAttr("check", occurrence(at, symbol, check.statement)),
+           at.getNamedAttr("check",
+                           sourceOccurrence(at, symbol, check.statement)),
            at.getNamedAttr("obligation", at.getI64IntegerAttr(0))});
       auto kind = at.getStringAttr("assert");
       auto location = sourceSpan(at, source.path, check.statement);
@@ -4418,8 +4533,8 @@ LogicalResult Importer::publishSourceChecks(Operation *rule,
     }
     auto identity = at.getDictionaryAttr(
         {at.getNamedAttr("registration",
-                         occurrence(at, symbol, check.observationRule)),
-         at.getNamedAttr("site", occurrence(at, symbol, check.statement)),
+                         sourceOccurrence(at, symbol, check.observationRule)),
+         at.getNamedAttr("site", sourceOccurrence(at, symbol, check.statement)),
          at.getNamedAttr("ordinal",
                          at.getI64IntegerAttr(observationOrdinal++))});
     createOp(at, check.statement.location(b.getContext(), source.path),
@@ -4598,7 +4713,8 @@ LogicalResult Importer::emitInstrumentation(
       at, statement.location(b.getContext(), source.path),
       ac::RuleOp::getOperationName(), captures, resultTypes,
       {at.getNamedAttr("name", at.getStringAttr(name)),
-       at.getNamedAttr("occurrence", occurrence(at, module.symbol, statement))},
+       at.getNamedAttr("occurrence",
+                       sourceOccurrence(at, module.symbol, statement))},
       1);
   Block *block = new Block();
   ruleOp->getRegion(0).push_back(block);
@@ -4640,8 +4756,8 @@ LogicalResult Importer::emitInstrumentation(
            ac::YieldOp::getOperationName(), yields, {}, {});
 
   DictionaryAttr identity = b.getDictionaryAttr(
-      {b.getNamedAttr("registration", occurrence(b, module.symbol, rule)),
-       b.getNamedAttr("site", occurrence(b, module.symbol, statement)),
+      {b.getNamedAttr("registration", sourceOccurrence(b, module.symbol, rule)),
+       b.getNamedAttr("site", sourceOccurrence(b, module.symbol, statement)),
        b.getNamedAttr("ordinal", b.getI64IntegerAttr(ordinal))});
   {
     SmallVector<Value> operands{ruleOp->getResult(0)};
@@ -4685,7 +4801,8 @@ LogicalResult Importer::emitModule(ModuleDecl &decl) {
        b.getNamedAttr("input_names", portNames(b, decl.inputs)),
        b.getNamedAttr("output_names", portNames(b, decl.outputs)),
        b.getNamedAttr("ac.declaration_role", b.getStringAttr("definition")),
-       b.getNamedAttr("ac.origin", occurrence(b, decl.symbol, decl.node))},
+       b.getNamedAttr("ac.origin",
+                      sourceOccurrence(b, decl.symbol, decl.node))},
       1);
   if (decl.system)
     module->setAttr("ac.root_kind", b.getStringAttr("system"));
@@ -4940,7 +5057,8 @@ LogicalResult Importer::emitModule(ModuleDecl &decl) {
            at.getNamedAttr("parameters", at.getArrayAttr(instance.parameters)),
            at.getNamedAttr("type_arguments",
                            at.getArrayAttr(instance.typeArguments)),
-           at.getNamedAttr("occurrence", occurrence(at, decl.symbol, stmt))});
+           at.getNamedAttr("occurrence",
+                           sourceOccurrence(at, decl.symbol, stmt))});
       for (auto [output, port] :
            llvm::zip(instance.op->getResults(), instance.outputs))
         remember(output, port.sourceKind);
@@ -5037,13 +5155,13 @@ LogicalResult Importer::emitModule(ModuleDecl &decl) {
           resultTypes.push_back(port.type);
       for (size_t i = 0; i < 2 * checkCount; ++i)
         resultTypes.push_back(bits(1, rule, decl.symbol));
-      Operation *ruleOp =
-          createOp(at, rule.location(b.getContext(), source.path),
-                   ac::RuleOp::getOperationName(), captures, resultTypes,
-                   {at.getNamedAttr("name", at.getStringAttr(ruleName)),
-                    at.getNamedAttr("occurrence",
-                                    occurrence(at, decl.symbol, registration))},
-                   1);
+      Operation *ruleOp = createOp(
+          at, rule.location(b.getContext(), source.path),
+          ac::RuleOp::getOperationName(), captures, resultTypes,
+          {at.getNamedAttr("name", at.getStringAttr(ruleName)),
+           at.getNamedAttr("occurrence",
+                           sourceOccurrence(at, decl.symbol, registration))},
+          1);
       Block *block = new Block();
       ruleOp->getRegion(0).push_back(block);
       BranchEnvironment environment;
@@ -5183,7 +5301,7 @@ LogicalResult Importer::preflightProposals(const AstNode &module) {
   auto site = [&](const AstNode &node) -> DictionaryAttr {
     if (!grantProof->charge(1 + node.path.size()))
       return {};
-    return occurrence(b, activeBehavioralDecl->symbol, node);
+    return sourceOccurrence(b, activeBehavioralDecl->symbol, node);
   };
   auto witnessFor = [&](const OwnerProposal &proposal,
                         size_t pathIndex) -> const AddressWitness * {
@@ -5482,12 +5600,12 @@ FailureOr<Value> Importer::tableValueCall(
     kind = spelling.getValue();
   } else if (!call.array("args").empty() || !call.array("keywords").empty())
     return diagnostic() << "Table " << method << " does not accept arguments";
-  bool namedCallback =
-      method == "map" && call.item("args", 0).kind() == "Name";
+  bool namedCallback = method == "map" && call.item("args", 0).kind() == "Name";
   std::string reason;
   if (namedCallback) {
     if (!queryArguments.empty())
-      return diagnostic() << "scalar helpers are unsupported in Table callbacks";
+      return diagnostic()
+             << "scalar helpers are unsupported in Table callbacks";
     // Own actual evaluation, typing, staging and temporary cleanup with one
     // shared invocation guard. Callback bodies get no Lambda argument frame.
     if (!queryBudget.enter(reason))
@@ -5843,11 +5961,12 @@ LogicalResult Importer::prepare() {
         {b.getNamedAttr("sym_name", b.getStringAttr(qualify(item.first()))),
          b.getNamedAttr("fields", structFields[item.first()]),
          b.getNamedAttr("ac.source_owner", owner),
-         b.getNamedAttr("ac.origin",
-                        occurrence(b,
-                                   FlatSymbolRefAttr::get(
-                                       b.getContext(), qualify(item.first())),
-                                   item.second)),
+         b.getNamedAttr(
+             "ac.origin",
+             sourceOccurrence(
+                 b,
+                 FlatSymbolRefAttr::get(b.getContext(), qualify(item.first())),
+                 item.second)),
          b.getNamedAttr("ac.declaration_role", b.getStringAttr("definition"))});
   }
   if (failed(scanModules()) || failed(prepareMemoryBindings()) ||

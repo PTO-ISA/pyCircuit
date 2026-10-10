@@ -135,7 +135,8 @@ LogicalResult Importer::predeclareDirectCalls(ModuleDecl &decl, OpBuilder &at) {
   for (const Port &port : decl.inputs)
     shadows.insert(port.name);
   auto classify = [&](auto &&self, const AstNode &node) -> void {
-    if (node.kind() == "Lambda") return;
+    if (node.kind() == "Lambda")
+      return;
     if (node.kind() == "FunctionDef" || node.kind() == "ClassDef") {
       shadows.insert(node.string("name"));
       return;
@@ -170,7 +171,7 @@ LogicalResult Importer::predeclareDirectCalls(ModuleDecl &decl, OpBuilder &at) {
       queueResultNames.insert(name);
     }
     queueAssignments.try_emplace(
-        occurrence(at, decl.symbol, statement.child("value")), statement);
+        sourceOccurrence(at, decl.symbol, statement.child("value")), statement);
   }
   auto declare = [&](auto &&self, const AstNode &node) -> LogicalResult {
     if (node.kind() == "FunctionDef" || node.kind() == "ClassDef" ||
@@ -187,24 +188,31 @@ LogicalResult Importer::predeclareDirectCalls(ModuleDecl &decl, OpBuilder &at) {
     };
     if (!memoryKind(node).empty()) {
       auto plan = memoryPlan(node, decl.symbol);
-      if (!plan) return error() << "memory call is missing its inferred binding plan";
-      auto op = createOp(at, node.location(b.getContext(), source.path),
+      if (!plan)
+        return error() << "memory call is missing its inferred binding plan";
+      auto op = createOp(
+          at, node.location(b.getContext(), source.path),
           ac::InstanceOp::getOperationName(), {}, plan->resultTypes,
-          {at.getNamedAttr("instance_name", at.getStringAttr(nextName("__pyc_memory_"))),
+          {at.getNamedAttr("instance_name",
+                           at.getStringAttr(nextName("__pyc_memory_"))),
            at.getNamedAttr("callee", plan->callee),
            at.getNamedAttr("parameters", at.getArrayAttr(plan->parameters)),
-           at.getNamedAttr("type_arguments", at.getArrayAttr(plan->typeArguments)),
+           at.getNamedAttr("type_arguments",
+                           at.getArrayAttr(plan->typeArguments)),
            at.getNamedAttr("occurrence", plan->occurrence)});
       directCallSites.try_emplace(plan->occurrence, DirectCallSite{op});
       for (auto [ordinal, name] : llvm::enumerate(plan->resultNames)) {
         memoryResultNames.insert(name);
-        forwardCallBindings[name] = {plan->occurrence, true, static_cast<unsigned>(ordinal)};
-        if (plan->resultFixedBits[ordinal]) fixedValues.insert(op->getResult(ordinal));
+        forwardCallBindings[name] = {plan->occurrence, true,
+                                     static_cast<unsigned>(ordinal)};
+        if (plan->resultFixedBits[ordinal])
+          fixedValues.insert(op->getResult(ordinal));
       }
       return success();
     }
     if (queueCall(node)) {
-      auto found = queueAssignments.find(occurrence(at, decl.symbol, node));
+      auto found =
+          queueAssignments.find(sourceOccurrence(at, decl.symbol, node));
       if (found == queueAssignments.end())
         return error() << "queue allocation requires a direct module-body "
                           "three-name Tuple assignment";
@@ -212,11 +220,12 @@ LogicalResult Importer::predeclareDirectCalls(ModuleDecl &decl, OpBuilder &at) {
               declareQueue(found->second, decl, at, nextName("__pyc_queue_"))))
         return failure();
     } else if (moduleCall(node) &&
-               !structuralCallSites.contains(occurrence(at, decl.symbol, node))) {
+               !structuralCallSites.contains(
+                   sourceOccurrence(at, decl.symbol, node))) {
       auto callee = callable(node.child("func"));
       if (failed(callee))
         return failure();
-      auto site = occurrence(at, decl.symbol, node);
+      auto site = sourceOccurrence(at, decl.symbol, node);
       auto op =
           createOp(at, node.location(b.getContext(), source.path),
                    ac::InstanceOp::getOperationName(), {},
@@ -256,7 +265,7 @@ LogicalResult Importer::predeclareDirectCalls(ModuleDecl &decl, OpBuilder &at) {
       auto targets = queueTargets(stmt);
       if (failed(targets))
         return failure();
-      auto site = occurrence(at, decl.symbol, stmt.child("value"));
+      auto site = sourceOccurrence(at, decl.symbol, stmt.child("value"));
       for (auto [ordinal, name] : llvm::enumerate(*targets))
         forwardCallBindings[name] = {site, true,
                                      static_cast<unsigned>(ordinal)};
@@ -268,7 +277,7 @@ LogicalResult Importer::predeclareDirectCalls(ModuleDecl &decl, OpBuilder &at) {
         stmt.item("targets", 0).kind() != "Name")
       continue;
     auto rhs = stmt.child("value");
-    auto site = occurrence(at, decl.symbol, rhs);
+    auto site = sourceOccurrence(at, decl.symbol, rhs);
     if (!directCallSites.contains(site))
       continue;
     StringRef name = stmt.item("targets", 0).string("id");
@@ -297,7 +306,7 @@ FailureOr<Value> Importer::directModuleCall(
     llvm::StringMap<Value> &values, llvm::StringMap<Instance *> &instances) {
   if (!isa<ac::ModuleOp>(at.getInsertionBlock()->getParentOp()))
     return error() << "direct module calls are only admitted at module scope";
-  auto found = directCallSites.find(occurrence(at, symbol, call));
+  auto found = directCallSites.find(sourceOccurrence(at, symbol, call));
   if (found == directCallSites.end())
     return error() << "direct module call requires a static module site";
   if (found->second.bound)
@@ -361,8 +370,8 @@ Importer::lowerReturn(const ModuleDecl &decl, const AstNode &node,
                             decl.outputs.front().type);
     if (failed(value))
       return failure();
-    auto converted = unsignedBoundary(*value, decl.outputs.front().type, node, at,
-                                      decl.symbol);
+    auto converted = unsignedBoundary(*value, decl.outputs.front().type, node,
+                                      at, decl.symbol);
     if (failed(converted))
       return failure();
     outputs.push_back(*converted);
@@ -384,8 +393,8 @@ Importer::lowerReturn(const ModuleDecl &decl, const AstNode &node,
       return error() << "source Boolean and Integer kinds cannot be implicitly "
                         "converted";
     auto converted =
-        unsignedBoundary(*value, decl.outputs[i].type, node.item("values", i), at,
-                         decl.symbol, decl.outputs[i].fixedBits);
+        unsignedBoundary(*value, decl.outputs[i].type, node.item("values", i),
+                         at, decl.symbol, decl.outputs[i].fixedBits);
     if (failed(converted))
       return failure();
     outputs.push_back(*converted);
@@ -423,24 +432,26 @@ LogicalResult Importer::bindProposals(ArrayRef<StateOwner> states,
     if (proposals.empty())
       continue;
     if (proposals.size() == 1) {
-      bindState(state, proposals.front()->next, proposals.front()->enable,
-                at, values);
+      bindState(state, proposals.front()->next, proposals.front()->enable, at,
+                values);
       continue;
     }
     ac::HardwareAnalysis analysis(*body);
     auto loc = state.op->getLoc();
     auto predicateType = bits(1, state.node, symbol);
     auto gate = [&](OpBuilder &builder, StringRef opcode, Value a, Value c) {
-      return createOp(builder, loc, ac::BitsBinaryOp::getOperationName(), {a, c},
-                      TypeRange{predicateType},
-                      {builder.getNamedAttr("opcode", builder.getStringAttr(opcode))})
+      return createOp(builder, loc, ac::BitsBinaryOp::getOperationName(),
+                      {a, c}, TypeRange{predicateType},
+                      {builder.getNamedAttr("opcode",
+                                            builder.getStringAttr(opcode))})
           ->getResult(0);
     };
     auto project = [&](Value value, ArrayRef<StringAttr> path,
                        OpBuilder &builder) -> FailureOr<Value> {
       for (auto name : path) {
         auto record = dyn_cast<ac::StructType>(value.getType());
-        auto declaration = record ? analysis.lookupStruct(record) : ac::StructOp();
+        auto declaration =
+            record ? analysis.lookupStruct(record) : ac::StructOp();
         Type selected;
         if (declaration)
           for (Attribute raw : declaration.getFields()) {
@@ -451,10 +462,12 @@ LogicalResult Importer::bindProposals(ArrayRef<StateOwner> states,
             }
           }
         if (!selected)
-          return error() << "analyzed writer path requires a declared Struct field";
-        value = createOp(builder, loc, ac::StructGetOp::getOperationName(), {value},
-                         TypeRange{selected}, {builder.getNamedAttr("field", name)})
-                    ->getResult(0);
+          return error()
+                 << "analyzed writer path requires a declared Struct field";
+        value =
+            createOp(builder, loc, ac::StructGetOp::getOperationName(), {value},
+                     TypeRange{selected}, {builder.getNamedAttr("field", name)})
+                ->getResult(0);
       }
       return value;
     };
@@ -471,7 +484,8 @@ LogicalResult Importer::bindProposals(ArrayRef<StateOwner> states,
     // contain the rule's sequential updates and old-Q for untouched elements.
     auto compose = [&](Value old, ArrayRef<Value> candidates,
                        ArrayRef<Value> enables, Value ordinal,
-                       ArrayRef<Value> masks, OpBuilder &builder) -> FailureOr<Value> {
+                       ArrayRef<Value> masks,
+                       OpBuilder &builder) -> FailureOr<Value> {
       auto leaves = analysis.getFieldPaths(old.getType(), {}, state.op);
       if (failed(leaves))
         return failure();
@@ -486,13 +500,15 @@ LogicalResult Importer::bindProposals(ArrayRef<StateOwner> states,
         if (failed(current))
           return failure();
         if (!isa<ac::BitsType, ac::EnumType>(current->getType()))
-          return error() << "multiwriter composition requires scalar Bits or Enum leaves";
+          return error() << "multiwriter composition requires scalar Bits or "
+                            "Enum leaves";
         Value guard = *zero;
         bool written = false;
         for (auto [p, proposal] : llvm::enumerate(proposals)) {
           Value domain = *zero;
           bool selected = false;
-          for (auto [pathIndex, path] : llvm::enumerate(proposal->write->paths)) {
+          for (auto [pathIndex, path] :
+               llvm::enumerate(proposal->write->paths)) {
             if (!grantProof->charge(1 + path.selectors.size()))
               return error() << grantProof->failureReason();
             size_t firstField = 0;
@@ -500,13 +516,16 @@ LogicalResult Importer::bindProposals(ArrayRef<StateOwner> states,
             if (ordinal && !path.selectors.empty()) {
               selector = &path.selectors.front();
               if (selector->kind != SourceWriteSelector::Kind::Index)
-                return error() << "Table writer path requires one leading index";
+                return error()
+                       << "Table writer path requires one leading index";
               firstField = 1;
             }
-            auto fields = ArrayRef<SourceWriteSelector>(path.selectors).drop_front(firstField);
+            auto fields = ArrayRef<SourceWriteSelector>(path.selectors)
+                              .drop_front(firstField);
             for (const auto &field : fields)
               if (field.kind != SourceWriteSelector::Kind::Field)
-                return error() << "multiwriter composition admits only one Table index";
+                return error()
+                       << "multiwriter composition admits only one Table index";
             if (fields.size() > leaf.size() ||
                 !llvm::all_of(llvm::enumerate(fields), [&](auto entry) {
                   return leaf[entry.index()].getValue() == entry.value().field;
@@ -527,7 +546,8 @@ LogicalResult Importer::bindProposals(ArrayRef<StateOwner> states,
                 found = true;
               }
               if (!found)
-                return error() << "missing composition assignment-time address mask";
+                return error()
+                       << "missing composition assignment-time address mask";
             }
             domain = gate(builder, "or", domain, mask);
             selected = true;
@@ -538,7 +558,8 @@ LogicalResult Importer::bindProposals(ArrayRef<StateOwner> states,
           if (failed(candidate))
             return failure();
           Value effective = gate(builder, "and", domain, enables[p]);
-          auto chosen = select(effective, *candidate, *current, state.node, builder, symbol);
+          auto chosen = select(effective, *candidate, *current, state.node,
+                               builder, symbol);
           if (failed(chosen))
             return failure();
           current = *chosen;
@@ -548,7 +569,8 @@ LogicalResult Importer::bindProposals(ArrayRef<StateOwner> states,
         if (written) {
           guards.push_back(guard);
           leafValues.push_back(*current);
-          paths.push_back(builder.getArrayAttr(SmallVector<Attribute>(leaf.begin(), leaf.end())));
+          paths.push_back(builder.getArrayAttr(
+              SmallVector<Attribute>(leaf.begin(), leaf.end())));
         }
       }
       SmallVector<Value> operands{old};
@@ -573,42 +595,54 @@ LogicalResult Importer::bindProposals(ArrayRef<StateOwner> states,
     Value next;
     if (auto table = dyn_cast<ac::TableType>(state.type)) {
       if (table.getShape().size() != 1)
-        return error() << "multiwriter Table composition requires one dimension";
+        return error()
+               << "multiwriter Table composition requires one dimension";
       auto size = analysis.getTableSize(table, {}, state.op);
       if (failed(size))
         return failure();
       if (!grantProof->chargeProduct(*size, addressMasks.size()) ||
-          !grantProof->charge(1 + candidates.size() + addressMasks.size() + enables.size()))
+          !grantProof->charge(1 + candidates.size() + addressMasks.size() +
+                              enables.size()))
         return error() << grantProof->failureReason();
       SmallVector<Value> operands{state.op->getResult(0)};
       llvm::append_range(operands, candidates);
       llvm::append_range(operands, addressMasks);
       llvm::append_range(operands, enables);
-      auto map = createOp(at, loc, ac::TableMapOp::getOperationName(), operands,
-                          TypeRange{state.type},
-                          {at.getNamedAttr("shape", table.getShape()),
-                           at.getNamedAttr("operandSegmentSizes", at.getDenseI32ArrayAttr(
-                               {static_cast<int32_t>(1 + candidates.size() + addressMasks.size()), static_cast<int32_t>(enables.size())}))}, 1);
+      auto map = createOp(
+          at, loc, ac::TableMapOp::getOperationName(), operands,
+          TypeRange{state.type},
+          {at.getNamedAttr("shape", table.getShape()),
+           at.getNamedAttr("operandSegmentSizes",
+                           at.getDenseI32ArrayAttr(
+                               {static_cast<int32_t>(1 + candidates.size() +
+                                                     addressMasks.size()),
+                                static_cast<int32_t>(enables.size())}))},
+          1);
       auto block = new Block();
       map->getRegion(0).push_back(block);
-      auto ordinal = block->addArgument(bits(std::max(1u, llvm::Log2_64_Ceil(*size)), state.node, symbol), loc);
+      auto ordinal = block->addArgument(
+          bits(std::max(1u, llvm::Log2_64_Ceil(*size)), state.node, symbol),
+          loc);
       auto old = block->addArgument(table.getElementType(), loc);
       SmallVector<Value> elementCandidates, elementEnables, elementMasks;
       for (size_t p = 0; p < proposals.size(); ++p)
-        elementCandidates.push_back(block->addArgument(table.getElementType(), loc));
+        elementCandidates.push_back(
+            block->addArgument(table.getElementType(), loc));
       for (Value mask : addressMasks)
         elementMasks.push_back(block->addArgument(
             cast<ac::TableType>(mask.getType()).getElementType(), loc));
       for (Value enable : enables)
         elementEnables.push_back(block->addArgument(enable.getType(), loc));
       auto nested = OpBuilder::atBlockEnd(block);
-      auto merged = compose(old, elementCandidates, elementEnables, ordinal, elementMasks, nested);
+      auto merged = compose(old, elementCandidates, elementEnables, ordinal,
+                            elementMasks, nested);
       if (failed(merged))
         return failure();
       createOp(nested, loc, ac::YieldOp::getOperationName(), {*merged}, {}, {});
       next = map->getResult(0);
     } else {
-      auto merged = compose(state.op->getResult(0), candidates, enables, {}, {}, at);
+      auto merged =
+          compose(state.op->getResult(0), candidates, enables, {}, {}, at);
       if (failed(merged))
         return failure();
       next = *merged;

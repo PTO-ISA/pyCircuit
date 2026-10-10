@@ -83,7 +83,7 @@ LogicalResult Importer::declareQueue(const AstNode &assignment,
       return error() << "unknown queue argument '" << key.getValue() << "'";
   }
   Type control = bits(1, call, decl.symbol);
-  auto site = occurrence(at, decl.symbol, call);
+  auto site = sourceOccurrence(at, decl.symbol, call);
   auto op = createOp(
       at, call.location(b.getContext(), source.path),
       ac::QueueOp::getOperationName(), {},
@@ -116,7 +116,7 @@ FailureOr<bool> Importer::bindQueueResults(
   auto targets = queueTargets(assignment);
   if (failed(targets))
     return failure();
-  auto found = directCallSites.find(occurrence(at, symbol, call));
+  auto found = directCallSites.find(sourceOccurrence(at, symbol, call));
   if (found == directCallSites.end() || !isa<ac::QueueOp>(found->second.op) ||
       found->second.bound)
     return error()
