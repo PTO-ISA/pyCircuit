@@ -673,7 +673,7 @@ if args.case_family == "table-query":
     runtime = next(
         p
         for p in (
-            runtime_root / "simulator/gfsim/libpyc6_runtime.a",
+            runtime_root / "runtime/libpyc6_runtime.a",
             runtime_root / "lib/libpyc6_runtime.a",
         )
         if p.is_file()
@@ -3836,7 +3836,7 @@ if args.semantics:
     runtime = next(
         p
         for p in (
-            runtime_root / "simulator/gfsim/libpyc6_runtime.a",
+            runtime_root / "runtime/libpyc6_runtime.a",
             runtime_root / "lib/libpyc6_runtime.a",
         )
         if p.is_file()

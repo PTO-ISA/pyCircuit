@@ -15,8 +15,8 @@ import ast
 import sys
 from pathlib import Path
 
-ROOT = Path(__file__).resolve().parents[2]
-sys.path.insert(0, str(ROOT / "flows" / "tools"))
+ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(ROOT / "tools"))
 from check_frontend_retirement import scan_production  # noqa: E402
 
 DEFAULT_TARGETS = ("python/pycircuit",)

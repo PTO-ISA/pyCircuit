@@ -84,21 +84,21 @@ jobs:
       - name: Build integrated toolchain
         run: |
           export PYC_PYTHON_EXECUTABLE="$(command -v python3)"
-          PYC_BUILD_TESTING=ON bash flows/scripts/pyc build --build-dir "$PWD/.pycircuit_out/toolchain/build" --install-prefix "$PWD/.pycircuit_out/toolchain/install"
+          PYC_BUILD_TESTING=ON bash tools/pyc build --build-dir "$PWD/.pycircuit_out/toolchain/build" --install-prefix "$PWD/.pycircuit_out/toolchain/install"
       - name: Run repository contract closure
         run: |
           SKIP=pyc-api-hygiene pre-commit run --all-files
           python3 .github/scripts/validate_repo_management.py
           pytest tests/unit -m unit
-          python3 flows/tools/check_api_hygiene.py python/pycircuit examples docs README.md
+          python3 tools/check_api_hygiene.py python/pycircuit examples docs README.md
           mkdocs build --strict
       - name: Run full pyCircuit closure
         run: |
           export PYC_TOOLCHAIN_ROOT="$PWD/.pycircuit_out/toolchain/install"
           export PATH="$PYC_TOOLCHAIN_ROOT/bin:$PATH"
-          bash flows/scripts/run_api_tests.sh --tier nightly
-          bash flows/scripts/run_examples.sh --tier nightly
-          python3 flows/tools/check_frontend_retirement.py --install-root "$PYC_TOOLCHAIN_ROOT"
+          bash tools/run_api_tests.sh --tier nightly
+          bash tools/run_examples.sh --tier nightly
+          python3 tools/check_frontend_retirement.py --install-root "$PYC_TOOLCHAIN_ROOT"
       - name: Upload release gate logs
         if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
@@ -323,7 +323,7 @@ jobs:
           export CFLAGS="-ffile-prefix-map=$GITHUB_WORKSPACE=. -fdebug-prefix-map=$GITHUB_WORKSPACE=."
           export CXXFLAGS="$CFLAGS"
           export PYC_PYTHON_EXECUTABLE="$(command -v python3)"
-          LLVM_CONFIG="${llvm_config}" bash flows/scripts/pyc build --build-dir "$PWD/.pycircuit_out/toolchain/build" --install-prefix "$PWD/.pycircuit_out/toolchain/install"
+          LLVM_CONFIG="${llvm_config}" bash tools/pyc build --build-dir "$PWD/.pycircuit_out/toolchain/build" --install-prefix "$PWD/.pycircuit_out/toolchain/install"
           mkdir candidate
           python3 packaging/wheel/create_wheel.py --install-dir "$PWD/.pycircuit_out/toolchain/install" --out-dir candidate --wheel-version "${{ inputs.version }}" --platform "${{ matrix.platform }}"
           wheel="$(find candidate -maxdepth 1 -name 'pycircuit_hisi-*.whl' -print -quit)"
@@ -383,7 +383,7 @@ jobs:
           $env:CFLAGS = $prefixMaps
           $env:CXXFLAGS = $prefixMaps
           $env:PYC_PYTHON_EXECUTABLE = (Get-Command python3).Source
-          pwsh -NoProfile -File flows/scripts/pyc.ps1 build --llvm-config "$llvmConfig" --build-dir "$PWD/.pycircuit_out/toolchain/build" --install-prefix "$PWD/.pycircuit_out/toolchain/install"
+          pwsh -NoProfile -File tools/pyc.ps1 build --llvm-config "$llvmConfig" --build-dir "$PWD/.pycircuit_out/toolchain/build" --install-prefix "$PWD/.pycircuit_out/toolchain/install"
           if ($LASTEXITCODE -ne 0) { throw "the platform SDK build failed with exit code $LASTEXITCODE" }
           New-Item -ItemType Directory -Force -Path candidate | Out-Null
           python3 packaging/wheel/create_wheel.py --install-dir "$PWD/.pycircuit_out/toolchain/install" --out-dir candidate --wheel-version "${{ inputs.version }}" --platform "${{ matrix.platform }}"
@@ -677,7 +677,7 @@ jobs:
           arch: x64
           toolset: "14.4"
       - name: Redownload stable assets and verify exact bytes before execution
-        # flows/scripts and this step are POSIX shell; Git Bash ships with the
+        # tools and this step are POSIX shell; Git Bash ships with the
         # windows-2022 image, so the same script runs on all three lanes.
         shell: bash
         env:

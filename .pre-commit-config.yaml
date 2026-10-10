@@ -14,14 +14,14 @@ repos:
     rev: v0.11.8
     hooks:
       - id: ruff
-        exclude: ^(docs/gates/logs/|python/agentic-circuit/|compiler/|simulator/gfsim/|schemas/|examples/agentic-circuit/|tests/(python|mlir|cpp|integration|goldens)/agentic-circuit/|tools/agentic-circuit/|toolchains/|designs/blocks/BypassUnit/|designs/blocks/RegisterFile/)
+        exclude: ^(docs/gates/logs/|python/agentic-circuit/|compiler/|runtime/|schemas/|examples/agentic-circuit/|tests/(python|mlir|cpp|integration|goldens)/agentic-circuit/|tools/agentic-circuit/|toolchains/|designs/blocks/BypassUnit/|designs/blocks/RegisterFile/)
 
   - repo: https://github.com/psf/black
     rev: 24.10.0
     hooks:
       - id: black
         # pyproject.toml force-excludes source-span-sensitive compiler fixtures.
-        exclude: ^(docs/gates/logs/|python/agentic-circuit/|compiler/|simulator/gfsim/|schemas/|examples/agentic-circuit/|tests/(python|mlir|cpp|integration|goldens)/agentic-circuit/|tools/agentic-circuit/|toolchains/)
+        exclude: ^(docs/gates/logs/|python/agentic-circuit/|compiler/|runtime/|schemas/|examples/agentic-circuit/|tests/(python|mlir|cpp|integration|goldens)/agentic-circuit/|tools/agentic-circuit/|toolchains/)
 
   - repo: https://github.com/DavidAnson/markdownlint-cli2
     rev: v0.18.1
@@ -35,7 +35,7 @@ repos:
     hooks:
       - id: pyc-api-hygiene
         name: pyCircuit API hygiene gate
-        entry: python3 flows/tools/check_api_hygiene.py
+        entry: python3 tools/check_api_hygiene.py
         language: system
         files: ^(python/pycircuit/|examples/|docs/|README\.md$|CONTRIBUTING\.md$)
         exclude: ^(docs/gates/logs/|python/pycircuit/api_contract\.py$)

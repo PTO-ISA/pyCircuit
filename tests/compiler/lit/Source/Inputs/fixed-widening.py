@@ -432,7 +432,7 @@ with tempfile.TemporaryDirectory(prefix="fixed-widening-", dir=scratch) as tempo
         (
             path
             for path in (
-                toolroot / "simulator/gfsim/libpyc6_runtime.a",
+                toolroot / "runtime/libpyc6_runtime.a",
                 toolroot / "lib/libpyc6_runtime.a",
             )
             if path.is_file()

@@ -25,7 +25,7 @@ also use Icarus where supported.
 python3 -m venv .venv
 source .venv/bin/activate
 python -m pip install -e ".[dev,docs]"
-bash flows/scripts/pyc build
+bash tools/pyc build
 ```
 
 Build from this checkout and keep generated files in `.pycircuit_out/`. Do not
@@ -37,8 +37,8 @@ Start with the smallest test proving the change. PR CI runs bounded Python,
 repository, formatting and documentation checks. API and example tests use:
 
 ```bash
-bash flows/scripts/run_api_tests.sh --tier gate
-bash flows/scripts/run_examples.sh --tier gate
+bash tools/run_api_tests.sh --tier gate
+bash tools/run_examples.sh --tier gate
 ```
 
 Use `--tier nightly` for full registered coverage. Long oracle, mutation,

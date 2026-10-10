@@ -107,7 +107,7 @@ cd pyCircuit
 python3 -m venv .venv
 source .venv/bin/activate
 python -m pip install -e .
-PYC_BUILD_TESTING=OFF bash flows/scripts/pyc build
+PYC_BUILD_TESTING=OFF bash tools/pyc build
 
 export PYC_TOOLCHAIN_ROOT="$PWD/.pycircuit_out/toolchain/install"
 export PATH="$PYC_TOOLCHAIN_ROOT/bin:$PATH"
@@ -164,8 +164,8 @@ test dependencies, including GoogleTest and lit. With that testing build
 installed, run the bounded checks from the repository root:
 
 ```sh
-bash flows/scripts/run_api_tests.sh --tier gate
-bash flows/scripts/run_examples.sh --tier gate
+bash tools/run_api_tests.sh --tier gate
+bash tools/run_examples.sh --tier gate
 ```
 
 For a nondefault build, set `PYC_BUILD_DIR` and `PYC_TOOLCHAIN_ROOT` as described

@@ -2,13 +2,13 @@
 set -euo pipefail
 
 SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
-ROOT_DIR="$(cd -- "${SCRIPT_DIR}/../.." && pwd)"
+ROOT_DIR="$(cd -- "${SCRIPT_DIR}/.." && pwd)"
 # shellcheck source=lib.sh
 source "${SCRIPT_DIR}/lib.sh"
 
 usage() {
   cat <<'EOF'
-Usage: flows/scripts/pyc <build|smoke>
+Usage: tools/pyc <build|smoke>
 
 build configures and installs the pyCircuit source compiler and pyc6 runtime.
 The compiler requires LLVM/MLIR 22.1.8 exactly. Set LLVM_DIR and MLIR_DIR, or
@@ -79,7 +79,7 @@ case "${cmd}" in
     fi
     [[ -x "${PYC_TOOLCHAIN_ROOT}/bin/pycircuit" ]] || pyc_die "missing installed pycircuit driver under ${PYC_TOOLCHAIN_ROOT}"
     export PYC_TOOLCHAIN_ROOT
-    bash "${ROOT_DIR}/flows/scripts/run_examples.sh" --tier gate
+    bash "${ROOT_DIR}/tools/run_examples.sh" --tier gate
     ;;
-  *) pyc_die "unknown command: ${cmd} (run: flows/scripts/pyc help)" ;;
+  *) pyc_die "unknown command: ${cmd} (run: tools/pyc help)" ;;
 esac

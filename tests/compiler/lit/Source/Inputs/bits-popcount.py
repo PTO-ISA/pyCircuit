@@ -561,7 +561,7 @@ def Top(value: ac.u5) -> {"out": ac.u3}:
         (
             path
             for path in (
-                toolroot / "simulator/gfsim/libpyc6_runtime.a",
+                toolroot / "runtime/libpyc6_runtime.a",
                 toolroot / "lib/libpyc6_runtime.a",
             )
             if path.is_file()

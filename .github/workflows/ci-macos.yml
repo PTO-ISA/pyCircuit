@@ -40,7 +40,7 @@ jobs:
       - name: Build staged toolchain
         run: |
           LLVM_CONFIG="$(brew --prefix "llvm@${LLVM_VERSION}")/bin/llvm-config" \
-          bash flows/scripts/pyc build \
+          bash tools/pyc build \
             --build-dir "$PWD/.pycircuit_out/toolchain/build" \
             --install-prefix "$PWD/.pycircuit_out/toolchain/install"
 
@@ -95,7 +95,7 @@ jobs:
           export PYC_TOOLCHAIN_ROOT="$PWD/.pycircuit_out/toolchain/install"
           export PATH="$PYC_TOOLCHAIN_ROOT/bin:$PATH"
           unset PYCC
-          bash flows/scripts/run_examples.sh --tier gate
+          bash tools/run_examples.sh --tier gate
 
       - name: Smoke test installed wheel
         shell: bash
@@ -107,10 +107,10 @@ jobs:
           export PYC_TOOLCHAIN_ROOT="$(python -c 'import pycircuit, pathlib; print((pathlib.Path(pycircuit.__file__).resolve().parent / "_toolchain").as_posix())')"
           export PYC_USE_INSTALLED_PYTHON_PACKAGE=1
           unset PYCC
-          bash flows/scripts/run_examples.sh --tier gate
+          bash tools/run_examples.sh --tier gate
 
       - name: Check installed toolchain retirement inventory
-        run: python flows/tools/check_frontend_retirement.py --install-root "$PWD/.pycircuit_out/toolchain/install"
+        run: python tools/check_frontend_retirement.py --install-root "$PWD/.pycircuit_out/toolchain/install"
 
       - name: Upload wheel
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7

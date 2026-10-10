@@ -48,7 +48,7 @@ bound_inputs += [
     repo / "include/verilog/fifo.v",
     Path(args.emitter).resolve(),
     Path(args.optimizer).resolve(),
-    Path(args.emitter).resolve().parent.parent / "simulator/gfsim/libpyc6_runtime.a",
+    Path(args.emitter).resolve().parent.parent / "runtime/libpyc6_runtime.a",
 ]
 initial_hashes = {
     str(p): hashlib.sha256(p.read_bytes()).hexdigest() for p in bound_inputs
@@ -124,9 +124,7 @@ def native(name, define):
     sources = [
         bundle / x["path"] for x in receipt["files"] if x["path"].endswith(".cpp")
     ]
-    runtime = (
-        Path(args.emitter).resolve().parent.parent / "simulator/gfsim/libpyc6_runtime.a"
-    )
+    runtime = Path(args.emitter).resolve().parent.parent / "runtime/libpyc6_runtime.a"
     runner = work / (name + "-runner")
     run(
         [
@@ -779,9 +777,7 @@ def token_gate(label, final_contents, latencies, independent=False, huge=False):
     sources = [
         work / "cpp" / x["path"] for x in receipt["files"] if x["path"].endswith(".cpp")
     ]
-    runtime = (
-        Path(args.emitter).resolve().parent.parent / "simulator/gfsim/libpyc6_runtime.a"
-    )
+    runtime = Path(args.emitter).resolve().parent.parent / "runtime/libpyc6_runtime.a"
     runner = work / "runner"
     run(
         [

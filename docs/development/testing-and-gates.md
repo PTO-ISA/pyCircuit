@@ -10,11 +10,11 @@ A command, test file or historical acceptance entry is not a passing result.
 Use two entry points over the existing CTest, lit, pytest and example verifier:
 
 ```bash
-bash flows/scripts/run_api_tests.sh --tier gate
-bash flows/scripts/run_examples.sh --tier gate
+bash tools/run_api_tests.sh --tier gate
+bash tools/run_examples.sh --tier gate
 # Full registered coverage, including the gate subset:
-bash flows/scripts/run_api_tests.sh --tier nightly
-bash flows/scripts/run_examples.sh --tier nightly
+bash tools/run_api_tests.sh --tier nightly
+bash tools/run_examples.sh --tier nightly
 ```
 
 For an existing nondefault build/install pair, export both paths before running
@@ -25,7 +25,7 @@ export PYC_BUILD_DIR=/absolute/path/to/build
 export PYC_TOOLCHAIN_ROOT=/absolute/path/to/install
 cmake --build "$PYC_BUILD_DIR" --parallel 4
 cmake --install "$PYC_BUILD_DIR" --prefix "$PYC_TOOLCHAIN_ROOT"
-bash flows/scripts/run_api_tests.sh --tier gate
+bash tools/run_api_tests.sh --tier gate
 ```
 
 Both default to `gate`; `--list` reports the CTest selection without building or

@@ -16,9 +16,9 @@ import pytest
 
 pytestmark = pytest.mark.unit
 ROOT = Path(__file__).resolve().parents[2]
-USAGE_TOOL = ROOT / "flows/tools/process_usage.py"
-RESOURCE_TOOL = ROOT / "flows/tools/measure_build_resources.py"
-RESOURCE_TOOLS = ROOT / "flows/tools"
+USAGE_TOOL = ROOT / "tools/process_usage.py"
+RESOURCE_TOOL = ROOT / "tools/measure_build_resources.py"
+RESOURCE_TOOLS = ROOT / "tools"
 STEMS = ["types", "leaf", "design_top"]
 
 

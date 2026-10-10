@@ -102,7 +102,7 @@ def main():
         p
         for p in (
             prefix / "lib/libpyc6_runtime.a",
-            prefix / "simulator/gfsim/libpyc6_runtime.a",
+            prefix / "runtime/libpyc6_runtime.a",
         )
         if p.is_file()
     )

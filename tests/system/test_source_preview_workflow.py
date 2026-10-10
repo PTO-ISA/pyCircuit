@@ -20,7 +20,7 @@ pytestmark = pytest.mark.system
 
 ROOT = Path(__file__).resolve().parents[2]
 FIXTURE = ROOT / "tests/integration/source-preview"
-MATERIALIZER = ROOT / "flows/tools/materialize_source_preview.py"
+MATERIALIZER = ROOT / "tools/materialize_source_preview.py"
 _ORACLE: ModuleType | None = None
 _RESET_REPLAY_SOURCE = r"""#include "gfsim/SimExecutor.h"
 #include "runner_metadata.hpp"
@@ -332,7 +332,7 @@ def _build_materialized_models(artifacts: Path, build_root: Path) -> dict[str, P
                 str(model_build),
                 "-G",
                 "Ninja",
-                "-DPYCIRCUIT_RUNTIME_ROOT=" + str(ROOT / "simulator/gfsim"),
+                "-DPYCIRCUIT_RUNTIME_ROOT=" + str(ROOT / "runtime"),
                 "-DCMAKE_EXPORT_COMPILE_COMMANDS=ON",
             ]
         )

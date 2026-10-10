@@ -103,7 +103,7 @@ add_custom_command(OUTPUT "${_final}"
     -o "${_final}" --replace
   DEPENDS ${_link_dependencies} ${_python_sources} "${_design_helper}"
   VERBATIM)
-set(_materializer "${PYCIRCUIT_REPOSITORY_ROOT}/flows/tools/materialize_source_preview.py")
+set(_materializer "${PYCIRCUIT_REPOSITORY_ROOT}/tools/materialize_source_preview.py")
 set(_artifacts "${CMAKE_BINARY_DIR}/artifacts")
 set(_stamp "${CMAKE_BINARY_DIR}/preview-artifacts.stamp")
 add_custom_command(OUTPUT "${_stamp}"
@@ -123,13 +123,13 @@ add_custom_target(preview-artifacts DEPENDS "${_stamp}")
 add_custom_target(preview-build
   COMMAND "${CMAKE_COMMAND}" -S "${_artifacts}/cpp"
     -B "${CMAKE_BINARY_DIR}/model-cpp" -G Ninja
-    "-DPYCIRCUIT_RUNTIME_ROOT=${PYCIRCUIT_REPOSITORY_ROOT}/simulator/gfsim"
+    "-DPYCIRCUIT_RUNTIME_ROOT=${PYCIRCUIT_REPOSITORY_ROOT}/runtime"
     "-DPYCIRCUIT_TEST_CONSUMER=${PYCIRCUIT_TEST_CONSUMER}"
     -DCMAKE_EXPORT_COMPILE_COMMANDS=ON
   COMMAND "${CMAKE_COMMAND}" --build "${CMAKE_BINARY_DIR}/model-cpp" --parallel 4
   COMMAND "${CMAKE_COMMAND}" -S "${_artifacts}/verilog"
     -B "${CMAKE_BINARY_DIR}/model-verilog" -G Ninja
-    "-DPYCIRCUIT_RUNTIME_ROOT=${PYCIRCUIT_REPOSITORY_ROOT}/simulator/gfsim"
+    "-DPYCIRCUIT_RUNTIME_ROOT=${PYCIRCUIT_REPOSITORY_ROOT}/runtime"
     "-DPYCIRCUIT_TEST_CONSUMER=${PYCIRCUIT_TEST_CONSUMER}"
     -DCMAKE_EXPORT_COMPILE_COMMANDS=ON
   COMMAND "${CMAKE_COMMAND}" --build "${CMAKE_BINARY_DIR}/model-verilog" --parallel 4

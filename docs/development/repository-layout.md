@@ -12,12 +12,12 @@ verification; similar names do not imply duplicate implementations.
 | Types, hardware semantics or source lowering | `compiler/lib/Compiler/` and `compiler/lib/Dialect/ACIR/` |
 | Common IR transformations | `compiler/lib/Transforms/` |
 | Generated C++ or Verilog | Existing emitters in `compiler/lib/Compiler/` |
-| Runtime lifecycle, scheduling or observations | `include/gfsim/` and `simulator/gfsim/` |
+| Runtime lifecycle, scheduling or observations | `include/gfsim/` and `runtime/` |
 | Standard RTL storage leaves | `include/verilog/` |
 | Public build/install integration | Root `CMakeLists.txt`, `cmake/` and `packaging/` |
 | Reproduce a compiler or Runtime defect | The owning suite under `tests/` |
 | Add or document a complete example | `examples/<design>/` and `examples/catalog.json` |
-| Run a gate or measure a build | `flows/scripts/` and `flows/tools/` |
+| Run a gate or measure a build | `tools/` |
 | Regenerate maintained source data | `tools/` |
 
 ## Tracked top-level folders
@@ -29,25 +29,24 @@ and retired compiler paths are absent from the active tree.
 | --- | --- | --- |
 | `.codex/` | Project-local management and independent-review skills; no product code. | [Governance](project-governance.md) |
 | `.github/` | CI, issue/PR templates, repository policy and release automation. Actions share setup; workflows retain their distinct trigger and permission boundaries. | [Repository management](repository-management.md) |
-| `benchmarks/` | Source-unit workload generation. Measurement drivers remain in `flows/tools/`. | [Benchmark guide](https://github.com/PTO-ISA/pyCircuit/blob/main/benchmarks/README.md) |
+| `benchmarks/` | Source-unit workload generation. Measurement drivers remain in `tools/`. | [Benchmark guide](https://github.com/PTO-ISA/pyCircuit/blob/main/benchmarks/README.md) |
 | `cmake/` | Installed package configuration and generated-module/example build helpers. | [Installation](../getting-started/installation.md) |
 | `compiler/` | Native MLIR compiler, common hardware IR and both emitters. | [Compiler pipeline](../architecture/compiler-pipeline.md) |
 | `docs/` | Current guides, language reference, branding and preserved contract history. | [Documentation home](../index.md) |
 | `examples/` | Flat, independently buildable hardware designs and their verification assets. | [Example catalog](https://github.com/PTO-ISA/pyCircuit/blob/main/examples/README.md) |
-| `flows/` | Repository build, gate, preview and measurement orchestration. | [Testing and gates](testing-and-gates.md) |
 | `include/` | Installed C++ Runtime interfaces/templates and standard Verilog storage leaves. | [Runtime semantics](../architecture/simulation.md) |
 | `packaging/` | SDK identity, relocation, platform/release validation and wheel assembly. | [Build profiles](../getting-started/installation.md) |
 | `python/` | The single importable `pycircuit` package, directly under `python/`. | [Source-unit workflow](source-unit-workflow.md) |
 | `schemas/` | Current SDK, consumer-lock, release-index and version-map JSON formats. | [SDK contracts](https://github.com/PTO-ISA/pyCircuit/tree/main/schemas) |
-| `simulator/` | Compiled implementation of the shared Runtime library. | [System execution](../architecture/system-execution.md) |
+| `runtime/` | Compiled implementation of the shared Runtime library. | [System execution](../architecture/system-execution.md) |
 | `tests/` | Compiler, Runtime, public-flow, packaging and unit verification. | [Test ownership below](#test-ownership) |
 | `toolchains/` | Pinned LLVM source/version provenance. This is a reference record; build entrypoints perform their own exact version checks. | [LLVM pin](https://github.com/PTO-ISA/pyCircuit/blob/main/toolchains/llvm.lock.json) |
-| `tools/` | Source-table generation and example-catalog maintenance. | [Tool guide](https://github.com/PTO-ISA/pyCircuit/blob/main/tools/README.md) |
+| `tools/` | Build, gates, previews, measurements, source-data generation and example-catalog maintenance. | [Tool guide](https://github.com/PTO-ISA/pyCircuit/blob/main/tools/README.md) |
 
 ## Compiler and Runtime boundaries
 
 ```text
-python/pycircuit/   syntax capture and public driver
+python/pycircuit/                syntax capture and public driver
 compiler/
   include/pycircuit/             public compiler headers and TableGen definitions
   lib/Compiler/                 source resolution, lowering, link and emit
@@ -58,22 +57,24 @@ compiler/
 include/
   gfsim/                        installed Runtime headers and templates
   verilog/                      installed managed storage leaves
-simulator/gfsim/                 compiled Runtime implementation
+runtime/                        compiled Runtime implementation
 ```
 
 `python/pycircuit/` is the importable Python package. Package discovery starts
 at `python/`; redundant project and `src` wrapper layers are removed.
 
-`include/gfsim/` and `simulator/gfsim/` jointly implement the Runtime component:
+`include/gfsim/` and `runtime/` jointly implement the Runtime component:
 one contains public headers/templates, the other compiled sources. Moving them
 into one flat folder would change include and install paths without removing a
 responsibility. Likewise, `compiler/include/` serves compiler developers while
 root `include/` serves generated-model consumers.
 
 `cmake/` is installed for downstream builds; `compiler/cmake/` is private to the
-native compiler build. `flows/tools/` runs repository operations;
-`tools/` regenerates maintained source data. These are separate owners,
-not alternate public compilation routes.
+native compiler build. `tools/` groups repository maintenance commands in one
+place, including build, verification, measurement and source-data generation.
+Its [tool guide](https://github.com/PTO-ISA/pyCircuit/blob/main/tools/README.md)
+lists each entrypoint. SDK and wheel assembly retain separate owners under
+`packaging/`.
 
 The retired primitive-selection catalog, its standalone RTL variants and its
 private generator/report tests have been removed together. Current count-zero,
@@ -130,7 +131,7 @@ performance work have separate trackers linked there.
 
 - Root `CMakeLists.txt` owns build, install and package targets.
 - Root `CMakePresets.json` provides current native build presets.
-- `flows/scripts/pyc` and `flows/scripts/pyc.ps1` configure/build/install through
+- `tools/pyc` and `tools/pyc.ps1` configure/build/install through
   that same graph. The API and example scripts select existing test tiers.
 - `pyproject.toml` owns the Python package, CLI and Python development checks.
 

@@ -114,7 +114,7 @@ def main():
     runtime = next(
         path
         for path in (
-            native_root / "simulator/gfsim/libpyc6_runtime.a",
+            native_root / "runtime/libpyc6_runtime.a",
             native_root / "lib/libpyc6_runtime.a",
         )
         if path.is_file()

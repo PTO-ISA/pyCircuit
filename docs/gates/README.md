@@ -31,8 +31,8 @@ PR CI runs bounded Python, repository and documentation checks. Full API and
 example coverage runs through the existing nightly entrypoints:
 
 ```bash
-bash flows/scripts/run_api_tests.sh --tier nightly
-bash flows/scripts/run_examples.sh --tier nightly
+bash tools/run_api_tests.sh --tier nightly
+bash tools/run_examples.sh --tier nightly
 ```
 
 Nightly and release upload the run directory with `actions/upload-artifact`.

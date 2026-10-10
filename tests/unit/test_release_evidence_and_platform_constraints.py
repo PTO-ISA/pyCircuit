@@ -41,9 +41,7 @@ def test_release_uses_live_validation_and_uploads_untracked_logs() -> None:
 
 
 def test_release_retirement_gate_checks_the_single_public_driver_contract() -> None:
-    source = (ROOT / "flows/tools/check_frontend_retirement.py").read_text(
-        encoding="utf-8"
-    )
+    source = (ROOT / "tools/check_frontend_retirement.py").read_text(encoding="utf-8")
     wheel_builder = (ROOT / "packaging/wheel/create_wheel.py").read_text(
         encoding="utf-8"
     )

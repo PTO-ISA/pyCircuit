@@ -2,8 +2,8 @@
 <#
 pyCircuit 6 Windows build wrapper.
 
-PowerShell counterpart of flows/scripts/pyc plus the toolchain discovery in
-flows/scripts/lib.sh. It provides the `build` subcommand with the same
+PowerShell counterpart of tools/pyc plus the toolchain discovery in
+tools/lib.sh. It provides the `build` subcommand with the same
 semantics as the bash wrapper:
 
   * configure the repository root with the Ninja generator, Release build,
@@ -40,7 +40,7 @@ $ErrorActionPreference = "Stop"
 
 $script:PycircuitRequiredLlvmMajor = 22
 $script:ScriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
-$script:RootDir = (Resolve-Path (Join-Path $script:ScriptDir "..\..")).Path
+$script:RootDir = (Resolve-Path (Join-Path $script:ScriptDir "..")).Path
 
 function Write-PycLog {
     param([string]$Message)
@@ -60,7 +60,7 @@ function Exit-PycDie {
 
 function Get-PycUsage {
     @"
-Usage: flows/scripts/pyc.ps1 <command>
+Usage: tools/pyc.ps1 <command>
 
 Commands:
   build        Configure+build+install source compiler/runtime into a staged toolchain
@@ -330,12 +330,12 @@ switch ($Command) {
         Invoke-BuildCommand -BuildArguments $Arguments
     }
     "smoke" {
-        Exit-PycDie "smoke is not supported on Windows: flows/scripts/run_examples.sh are bash-only flows. Run them on the Linux or macOS lane."
+        Exit-PycDie "smoke is not supported on Windows: tools/run_examples.sh are bash-only flows. Run them on the Linux or macOS lane."
     }
     { $_ -in @("-h", "--help", "help") } {
         Get-PycUsage | Write-Host
     }
     default {
-        Exit-PycDie "unknown command: $Command (run: flows/scripts/pyc.ps1 help)"
+        Exit-PycDie "unknown command: $Command (run: tools/pyc.ps1 help)"
     }
 }
