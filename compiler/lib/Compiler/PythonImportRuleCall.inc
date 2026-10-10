@@ -68,25 +68,69 @@ Importer::bindPureActuals(const AstNode &rule, const AstNode &call,
   SmallVector<Value> actuals;
   SmallVector<std::string> names;
   SmallVector<BoundRuleFormal> bound;
-  for (size_t i = 0; i < args.array("args").size(); ++i) {
-    auto formal = args.item("args", i);
-    if (failed(validateRuleFormalName(formal, names)))
+  if (activeLoop) {
+    // Caller expressions remain in the caller's expansion frame and are owned
+    // by its loop statement. Only boundaries and the callee enter the call
+    // frame.
+    for (size_t i = 0; i < args.array("args").size(); ++i) {
+      auto formal = args.item("args", i);
+      if (failed(validateRuleFormalName(formal, names)))
+        return failure();
+      names.push_back(formal.string("arg").str());
+      auto value =
+          expression(call.item("args", i), at, symbol, values, instances);
+      if (failed(value))
+        return failure();
+      actuals.push_back(*value);
+    }
+    size_t frameDepth = activeSourceExpansion.size();
+    if (failed(pushHelperFrame(call, rule, symbol)))
       return failure();
-    names.push_back(formal.string("arg").str());
-    // The list, rather than a binary operator's internal operand order, owns
-    // once-only source-order actual evaluation. No formal width hint is given.
-    auto value =
-        expression(call.item("args", i), at, symbol, values, instances);
-    if (failed(value))
-      return failure();
-    actuals.push_back(*value);
-    auto actual = call.item("args", i);
-    auto binding = inferredBoundary(names[i], actuals[i], actual, true);
-    auto checked =
-        bindRuleFormal(formal, actual, actuals[i], binding, false, at, symbol);
-    if (failed(checked))
-      return failure();
-    bound.push_back(std::move(*checked));
+    auto restore =
+        llvm::scope_exit([&] { activeSourceExpansion.resize(frameDepth); });
+    Operation *previous = at.getInsertionBlock()->empty()
+                              ? nullptr
+                              : &at.getInsertionBlock()->back();
+    for (size_t i = 0; i < args.array("args").size(); ++i) {
+      auto actual = call.item("args", i);
+      auto binding = inferredBoundary(names[i], actuals[i], actual, true);
+      auto checked = bindRuleFormal(args.item("args", i), actual, actuals[i],
+                                    binding, false, at, symbol);
+      if (failed(checked))
+        return failure();
+      bound.push_back(std::move(*checked));
+    }
+    if (!activePureScalar) {
+      Operation *operation = previous
+                                 ? previous->getNextNode()
+                                 : (at.getInsertionBlock()->empty()
+                                        ? nullptr
+                                        : &at.getInsertionBlock()->front());
+      for (; operation; operation = operation->getNextNode())
+        activeLoop->helperOwned.insert(operation);
+    }
+  } else {
+    for (size_t i = 0; i < args.array("args").size(); ++i) {
+      auto formal = args.item("args", i);
+      if (failed(validateRuleFormalName(formal, names)))
+        return failure();
+      names.push_back(formal.string("arg").str());
+      // The list, rather than a binary operator's internal operand order, owns
+      // once-only source-order actual evaluation. No formal width hint is
+      // given.
+      auto value =
+          expression(call.item("args", i), at, symbol, values, instances);
+      if (failed(value))
+        return failure();
+      actuals.push_back(*value);
+      auto actual = call.item("args", i);
+      auto binding = inferredBoundary(names[i], actuals[i], actual, true);
+      auto checked = bindRuleFormal(formal, actual, actuals[i], binding, false,
+                                    at, symbol);
+      if (failed(checked))
+        return failure();
+      bound.push_back(std::move(*checked));
+    }
   }
   return bound;
 }
@@ -139,11 +183,12 @@ FailureOr<Value> Importer::lowerPureBody(const AstNode &rule,
   return unsignedBoundary(*value, *type, returned.child("value"), at, symbol);
 }
 
-FailureOr<Value>
-Importer::namedPureMap(const AstNode &call, const AstNode &name,
-                       ValueRange tables, TableQueryLowering &lowering,
-                       const TableQueryHooks &hooks, OpBuilder &at,
-                       FlatSymbolRefAttr symbol) {
+FailureOr<Value> Importer::namedPureMap(const AstNode &call,
+                                        const AstNode &name, ValueRange tables,
+                                        TableQueryLowering &lowering,
+                                        const TableQueryHooks &hooks,
+                                        OpBuilder &at,
+                                        FlatSymbolRefAttr symbol) {
   auto declaration = pureRuleDeclaration(name);
   if (failed(declaration))
     return failure();
@@ -153,7 +198,7 @@ Importer::namedPureMap(const AstNode &call, const AstNode &name,
     SmallVector<AstNode> bodies;
     if (failed(chargePureSource(name, summary)) ||
         failed(preflightPureDeclaration(name, *declaration, tables.size(),
-                                         summary, bodies)))
+                                        summary, bodies)))
       return failure();
   }
   if (failed(reservePureScalar(summary, call, true)))
@@ -181,8 +226,8 @@ Importer::namedPureMap(const AstNode &call, const AstNode &name,
     auto args = declaration->child("args");
     for (size_t i = 0; i < tables.size(); ++i) {
       auto formal = args.item("args", i);
-      auto actual = i ? call.item("args", i)
-                      : call.child("func").child("value");
+      auto actual =
+          i ? call.item("args", i) : call.child("func").child("value");
       auto row = block->addArgument(
           cast<ac::TableType>(tables[i].getType()).getElementType(), loc);
       if (!isa<ac::BitsType>(row.getType()))
@@ -212,8 +257,8 @@ Importer::namedPureMap(const AstNode &call, const AstNode &name,
     auto lowered = lowerPureBody(*declaration, formals, inside, symbol);
     if (failed(lowered) ||
         failed(auditPureScalar(*block, context, call, symbol, 0, nullptr,
-                                nullptr, succeeded(lowered) ? *lowered
-                                                           : Value())))
+                               nullptr,
+                               succeeded(lowered) ? *lowered : Value())))
       return failure();
     result = *lowered;
   }
@@ -222,7 +267,8 @@ Importer::namedPureMap(const AstNode &call, const AstNode &name,
   TableQueryStageEnvelope envelope{summary.operations, summary.arity,
                                    summary.mapArguments, summary.values,
                                    summary.slots[2]};
-  auto staged = lowering.stage(*block, rows, tables, {result}, false, &envelope);
+  auto staged =
+      lowering.stage(*block, rows, tables, {result}, false, &envelope);
   if (failed(staged))
     return failure();
   return staged->front();
@@ -263,11 +309,38 @@ Importer::pureRuleCall(const AstNode &call, OpBuilder &at,
         bindPureActuals(*declaration, call, at, symbol, values, instances);
     if (failed(formals))
       return failure();
+    size_t expansionDepth = activeSourceExpansion.size();
+    if (failed(pushHelperFrame(call, *declaration, symbol)))
+      return failure();
+    auto restoreExpansion =
+        llvm::scope_exit([&] { activeSourceExpansion.resize(expansionDepth); });
     return lowerPureBody(*declaration, *formals, at, symbol);
   }
   PureScalarSummary summary;
   summary.arity = call.array("args").size();
-  {
+  if (activeLoop) {
+    auto found = activeLoop->admission->helpers.find(call.value);
+    if (found == activeLoop->admission->helpers.end())
+      return diagnostic() << "bounded for helper has no capability preflight";
+    auto &cached = found->second;
+    summary = cached.summary;
+    summary.depth =
+        queryBudget.used(TableQueryResource::Nesting) + cached.relativeDepth;
+    if (cached.applications++) {
+      TableQueryCharge occurrence;
+      if (!TableQueryBudget::add(occurrence, TableQueryResource::Occurrences,
+                                 summary.calls) ||
+          !queryBudget.reserve(occurrence, reason))
+        return diagnostic() << "bounded for helper applications: " << reason;
+    }
+    TableQueryCharge metadata;
+    if (!TableQueryBudget::addProduct(metadata, TableQueryResource::Slots,
+                                      activeSourceExpansion.size() +
+                                          summary.calls,
+                                      summary.nodes + summary.formals) ||
+        !queryBudget.reserve(metadata, reason))
+      return diagnostic() << "bounded for helper provenance: " << reason;
+  } else {
     SmallVector<AstNode> bodies;
     if (failed(preflightPureCall(call, {}, summary, bodies, false)))
       return failure();
@@ -368,6 +441,11 @@ Importer::pureRuleCall(const AstNode &call, OpBuilder &at,
     activePureScalar = previousPure;
   });
   auto inside = OpBuilder::atBlockEnd(block);
+  size_t expansionDepth = activeSourceExpansion.size();
+  if (failed(pushHelperFrame(call, *declaration, symbol)))
+    return failure();
+  auto restoreExpansion =
+      llvm::scope_exit([&] { activeSourceExpansion.resize(expansionDepth); });
   auto result = lowerPureBody(*declaration, *formals, inside, symbol);
   if (failed(result))
     return failure();
@@ -408,6 +486,13 @@ Importer::pureRuleCall(const AstNode &call, OpBuilder &at,
     return failure();
   if (!mapping.contains(*result))
     return diagnostic() << "scalar helper result is missing its scalar clone";
+  if (activeLoop) {
+    Operation *operation = firstClone;
+    for (uint64_t i = 0; i < cloneCount; ++i) {
+      activeLoop->helperOwned.insert(operation);
+      operation = operation->getNextNode();
+    }
+  }
   publishClone = true;
   return mapping.lookup(*result);
 }
@@ -470,7 +555,8 @@ Importer::behavioralCall(ModuleDecl &decl, const AstNode &call, OpBuilder &at,
     return error() << "behavioral rule call argument arity mismatch";
   const auto *plan = ruleWrites.lookup(decl.node, call);
   if (!plan)
-    return error() << "registered rule call is missing its source write analysis";
+    return error()
+           << "registered rule call is missing its source write analysis";
   llvm::StringMap<StringRef> fixedAssigned;
   auto classify = [&](auto &&self, AstNode node,
                       StringRef field) -> LogicalResult {
@@ -579,10 +665,11 @@ Importer::behavioralCall(ModuleDecl &decl, const AstNode &call, OpBuilder &at,
       auto table = dyn_cast<ac::TableType>(state.type);
       if (!table || table.getShape().size() != 1)
         return error() << "address witness requires a one-dimensional Table";
-      if (llvm::any_of(ArrayRef<SourceWriteSelector>(path.selectors).drop_front(),
-                       [](const auto &selector) {
-                         return selector.kind != SourceWriteSelector::Kind::Field;
-                       }))
+      if (llvm::any_of(
+              ArrayRef<SourceWriteSelector>(path.selectors).drop_front(),
+              [](const auto &selector) {
+                return selector.kind != SourceWriteSelector::Kind::Field;
+              }))
         return error() << "address witness admits only one Table index";
       auto size = addressAnalysis.getTableSize(table, {}, state.op);
       if (failed(size))
@@ -590,11 +677,16 @@ Importer::behavioralCall(ModuleDecl &decl, const AstNode &call, OpBuilder &at,
       // Precharge the mask's complete scalar storage and private result slots.
       if (!grantProof->charge(*size) || !grantProof->charge(4))
         return error() << grantProof->failureReason();
-      auto maskType = ac::TableType::get(
-          b.getContext(), table.getShape(), bits(1, rule, decl.symbol));
-      evaluation.domains.push_back(
-          {item.first, pathIndex, item.second->formal, path.assignment,
-           path.selectors.front().occurrence, maskType, {}, {}});
+      auto maskType = ac::TableType::get(b.getContext(), table.getShape(),
+                                         bits(1, rule, decl.symbol));
+      evaluation.domains.push_back({item.first,
+                                    pathIndex,
+                                    item.second->formal,
+                                    path.assignment,
+                                    path.selectors.front().occurrence,
+                                    maskType,
+                                    {},
+                                    {}});
       resultTypes.push_back(maskType);
     }
   }
@@ -605,7 +697,7 @@ Importer::behavioralCall(ModuleDecl &decl, const AstNode &call, OpBuilder &at,
       at, rule.location(b.getContext(), source.path),
       ac::RuleOp::getOperationName(), captures, resultTypes,
       {at.getNamedAttr("name", at.getStringAttr(rule.string("name"))),
-       at.getNamedAttr("occurrence", occurrence(at, decl.symbol, call))},
+       at.getNamedAttr("occurrence", sourceOccurrence(at, decl.symbol, call))},
       1);
   auto block = new Block();
   ruleOp->getRegion(0).push_back(block);
@@ -687,13 +779,17 @@ Importer::behavioralCall(ModuleDecl &decl, const AstNode &call, OpBuilder &at,
   if (failed(publishSourceChecks(ruleOp, evaluation, at, decl.symbol)))
     return failure();
   size_t domainBase = contract.outputs.size() + writtenOwners.size() * 2;
-  if (!grantProof->chargeProduct(writtenOwners.size(), evaluation.domains.size()))
+  if (!grantProof->chargeProduct(writtenOwners.size(),
+                                 evaluation.domains.size()))
     return error() << grantProof->failureReason();
   for (auto [ordinal, item] : llvm::enumerate(writtenOwners)) {
     OwnerProposal proposal{
-        item.first, ruleOp->getResult(contract.outputs.size() + ordinal * 2),
+        item.first,
+        ruleOp->getResult(contract.outputs.size() + ordinal * 2),
         ruleOp->getResult(contract.outputs.size() + ordinal * 2 + 1),
-        item.second, plan, {}};
+        item.second,
+        plan,
+        {}};
     for (auto [slot, witness] : llvm::enumerate(evaluation.domains))
       if (witness.ownerIndex == item.first) {
         if (!grantProof->charge())

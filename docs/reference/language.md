@@ -294,7 +294,7 @@ order does not introduce state forwarding or write priority. Ordinary local
 assignments, if/else, struct defaults/construction/projection and proven table
 indices retain their existing semantics. Overlapping writable parameter aliases
 reject; read-only duplicate bindings are permitted. Unproved index ranges,
-general loops, automatic arbitration between overlapping writers, cross-source
+loop forms outside the bounded literal-range profile below, automatic arbitration between overlapping writers, cross-source
 behavioral rules and cross-domain transactions remain unsupported.
 
 The registered MLIR pass `ac-analyze-rule-writes` analyzes source capture
@@ -456,9 +456,69 @@ N-element Table with a possible count of N.
 
 These methods lower to existing TableMap/Fold and scalar operations. The
 source-wide budget includes replicated capture planes, Table-valued scalar
-temporaries and fold-tree storage before publishing IR. Ordered scans and named
-helper calls inside expression lambdas remain separate migration work; balanced reduction
-does not implement nonassociative prefix scans.
+temporaries and fold-tree storage before publishing IR. Ordered prefix computations
+can use the bounded source loops below; no Table `scan` method is introduced.
+Named helper calls inside expression lambdas remain unsupported. A balanced
+reduction does not implement a nonassociative prefix scan.
+
+## Bounded source loops
+
+A pure behavioral rule can use an ordinary `for` with a single local name and
+an unshadowed builtin `range` call whose sole argument is an integer literal:
+
+```python
+accumulator: u8 = 0
+for index in range(3):
+    accumulator = accumulator + values[index]
+    prefixes[index] = accumulator
+```
+
+MLIR expands the iterations into sequential SSA within the same Work evaluation;
+the loop adds no clock, register or cycle. Python capture only records syntax.
+Fixed-bit accumulators retain modular arithmetic. Integer values retain their
+existing exact-value and source-kind rules.
+
+This initial profile admits only `range(N)` with a non-Boolean captured Integer
+Constant. Bound names, aliases, arithmetic expressions, negative spellings such
+as `range(-1)`, keyword arguments, and start/stop/step forms are unsupported.
+A local, formal, module binding or loop target that shadows `range` cannot gain
+builtin authority. Nested loops, `while`, loop `else`, `break`, `continue` and
+returns from loop bodies are unsupported.
+
+The hidden induction ordinal is an Integer. Assignment to the visible binder
+uses the existing binding boundary: a fresh name is an inferred Integer, while
+an existing typed binding keeps its declared kind and width. Reassigning the
+binder in the body does not change the next induction ordinal. Its final body
+value remains visible after the loop. `range(0)` leaves incoming bindings intact
+and does not bind names introduced only inside the body.
+
+A zero-trip body still undergoes syntax, callee, effect and writer validation,
+but its expressions are not evaluated or lowered. It emits no body operations,
+checks or iteration origins. Forbidden effects cannot hide in a zero-trip loop.
+
+The loop-containing invocation must have no persistent-owner writes; read-only
+state snapshots and immutable local Struct/Table updates are permitted. This is
+a current coverage boundary, not a permanent restriction on hardware language
+loops. The body supports ordinary assignments, annotations, `pass`, existing
+`if`/conditional expressions, projections, proven Table indexing, fixed slices,
+`+`, `-`, `*`, `&`, `|`, `^`, supported unary/comparison/Boolean expressions,
+nominal Struct construction and contextual Table literals. Calls are limited to
+`concat`, `enum_to_bits` and existing same-source fixed scalar helpers. This does
+not broaden the fixed scalar helper or named Table callback expression subsets.
+Unary `not` and fixed-bit `~` retain their existing rules. Unary `+` and `-`
+are not implemented in this profile, including zero-trip bodies; binary
+subtraction such as `0 - 1` can produce a negative Integer.
+Shifts, division/remainder, Table methods, other intrinsics, allocations, rule
+registration, assertions and observations inside loops remain unsupported.
+
+Expansion uses the existing source-wide resource limits. The compiler checks
+trip counts, work, operations, storage and constant sizes before expanding paid
+work; an unbounded or over-budget request fails before publishing a source unit.
+Source occurrences created during expansion carry iteration frames while
+retaining their source locations. Existing declared-type origins remain attached
+to their declarations. A failed iteration leaves previous published artifacts
+unchanged. Ordinary source assertions outside the loop retain whole-system
+failure and discard semantics.
 
 ## Table queries
 

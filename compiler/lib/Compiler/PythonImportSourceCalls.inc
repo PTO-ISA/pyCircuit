@@ -75,7 +75,7 @@ LogicalResult Importer::serializeSourceCall(ModuleDecl &decl) {
          b.getNamedAttr("binding", b.getStringAttr("positional_or_keyword")),
          b.getNamedAttr("constraint", *constraint),
          b.getNamedAttr("default", absentDefault(b)),
-         b.getNamedAttr("origin", occurrence(b, decl.symbol, port.node)),
+         b.getNamedAttr("origin", sourceOccurrence(b, decl.symbol, port.node)),
          b.getNamedAttr("location", sourceSpan(b, source.path, port.node))}));
   }
   DictionaryAttr result;
@@ -108,8 +108,7 @@ LogicalResult Importer::serializeSourceCall(ModuleDecl &decl) {
       b.getNamedAttr("input_names", portNames(b, decl.inputs)),
       b.getNamedAttr("output_names", portNames(b, decl.outputs))};
   if (decl.system)
-    attrs.push_back(
-        b.getNamedAttr("ac.root_kind", b.getStringAttr("system")));
+    attrs.push_back(b.getNamedAttr("ac.root_kind", b.getStringAttr("system")));
   llvm::append_range(attrs, decl.sourceCallAttrs);
   auto signature =
       createOp(b, decl.node.location(b.getContext(), source.path),

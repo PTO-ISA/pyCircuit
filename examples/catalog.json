@@ -652,6 +652,16 @@
       "system_source": "bench.py",
       "system_cycles": 16,
       "system_scope": "original-four-vector recursive array updates; independent module oracle covers 2048 raw/replacement pairs plus identity cases, 65-lane boundaries, stalls, held clocks and reset; no Table-of-Table or root-specific four-state claim"
+    },
+    {
+      "name": "array_scans",
+      "folder": "examples/array_scans",
+      "source": "array_scans.py",
+      "generated": "GENERATED.json",
+      "system": "ArrayScansSystem",
+      "system_source": "bench.py",
+      "system_cycles": 16,
+      "system_scope": "original-four-vector ordered scalar and aggregate prefixes; independent module oracle covers 495 accepted tokens, stalls, held clocks and reset; generic loop tests own complete intermediate snapshots and four-state carriers"
     }
   ],
   "api_coverage": [
