@@ -42,23 +42,23 @@ python3 tools/example_catalog.py generated --example fifo_loopback \
 
 ## Source-owned C++ Work
 
-`cpp/sources/example_fifo_loopback/fifo_loopback.hpp`, from line 27:
+`cpp/sources/example_fifo_loopback/fifo_loopback.hpp`, from line 29:
 
 ```cpp
   void Work() {
+    __pyc_clear_check_snapshots();
     try {
     gfsim::wire<gfsim::table<::example_fifo_loopback::fifo_loopback::FifoResult, (pyc_count * (1))>> pyc_value_0;
     for (std::size_t pyc_pin = 0; pyc_pin < (pyc_count * (1)); ++pyc_pin) this->pyc_queue_pyc_5f5f7079635f71756575655f30_out_ready.element(pyc_pin) = this->out_ready.element(pyc_pin);
     for (std::size_t pyc_lane = 0; pyc_lane < pyc_count; ++pyc_lane) this->pyc_queue_pyc_5f5f7079635f71756575655f30_in_ready.element(pyc_lane) = gfsim::fifo_kernel<gfsim::Bits<8>, 2, gfsim::QueueReadyPolicy::DownstreamPop, 1ULL>::readReady(this->pyc_queue_pyc_5f5f7079635f71756575655f30_state->current(pyc_lane), this->pyc_queue_pyc_5f5f7079635f71756575655f30_out_ready.element(pyc_lane));
+    for (std::size_t pyc_lane = 0; pyc_lane < (pyc_count * (1)); ++pyc_lane) for (std::size_t pyc_field = 0; pyc_field < (1); ++pyc_field) pyc_value_0.element(pyc_lane).assignSlice(0 + (gfsim::hardware_traits<gfsim::Bits<1>>::width) + (gfsim::hardware_traits<gfsim::Bits<8>>::width), this->pyc_queue_pyc_5f5f7079635f71756575655f30_in_ready.element(pyc_lane * (1) + pyc_field).packed());
     for (std::size_t pyc_lane = 0; pyc_lane < pyc_count; ++pyc_lane) this->pyc_queue_pyc_5f5f7079635f71756575655f30_out_valid.element(pyc_lane) = gfsim::fifo_kernel<gfsim::Bits<8>, 2, gfsim::QueueReadyPolicy::DownstreamPop, 1ULL>::readValid(this->pyc_queue_pyc_5f5f7079635f71756575655f30_state->current(pyc_lane));
+    for (std::size_t pyc_lane = 0; pyc_lane < (pyc_count * (1)); ++pyc_lane) for (std::size_t pyc_field = 0; pyc_field < (1); ++pyc_field) pyc_value_0.element(pyc_lane).assignSlice(0 + (gfsim::hardware_traits<gfsim::Bits<8>>::width), this->pyc_queue_pyc_5f5f7079635f71756575655f30_out_valid.element(pyc_lane * (1) + pyc_field).packed());
     for (std::size_t pyc_lane = 0; pyc_lane < pyc_count; ++pyc_lane) this->pyc_queue_pyc_5f5f7079635f71756575655f30_output_tokens[pyc_lane] = gfsim::fifo_kernel<gfsim::Bits<8>, 2, gfsim::QueueReadyPolicy::DownstreamPop, 1ULL>::readData(this->pyc_queue_pyc_5f5f7079635f71756575655f30_state->current(pyc_lane));
     for (std::size_t pyc_queue_lane = 0; pyc_queue_lane < pyc_count; ++pyc_queue_lane) {
       this->pyc_queue_pyc_5f5f7079635f71756575655f30_out_data.element(pyc_queue_lane) = this->pyc_queue_pyc_5f5f7079635f71756575655f30_output_tokens[pyc_queue_lane];
     }
-    for (std::size_t pyc_lane = 0; pyc_lane < (pyc_count * (1)); ++pyc_lane) pyc_value_0.element(pyc_lane) = gfsim::wire<::example_fifo_loopback::fifo_loopback::FifoResult>::fromPacked(gfsim::concat(gfsim::concat(this->pyc_queue_pyc_5f5f7079635f71756575655f30_in_ready.element(pyc_lane).packed(), this->pyc_queue_pyc_5f5f7079635f71756575655f30_out_valid.element(pyc_lane).packed()), this->pyc_queue_pyc_5f5f7079635f71756575655f30_out_data.element(pyc_lane).packed()));
-    for (std::size_t pyc_pin = 0; pyc_pin < (pyc_count * (1)); ++pyc_pin) this->result.element(pyc_pin) = pyc_value_0.element(pyc_pin);
-    for (std::size_t pyc_pin = 0; pyc_pin < (pyc_count * (1)); ++pyc_pin) this->pyc_queue_pyc_5f5f7079635f71756575655f30_clk.element(pyc_pin) = this->pyc_7079635f636c6b.element(pyc_pin);
-    for (std::size_t pyc_pin = 0; pyc_pin < (pyc_count * (1)); ++pyc_pin) this->pyc_queue_pyc_5f5f7079635f71756575655f30_rst.element(pyc_pin) = this->pyc_7079635f727374.element(pyc_pin);
+    for (std::size_t pyc_lane = 0; pyc_lane < (pyc_count * (1)); ++pyc_lane) for (std::size_t pyc_field = 0; pyc_field < (1); ++pyc_field) pyc_value_0.element(pyc_lane).assignSlice(0, this->pyc_queue_pyc_5f5f7079635f71756575655f30_out_data.element(pyc_lane * (1) + pyc_field).packed());
 ```
 
 ## Source-owned Verilog

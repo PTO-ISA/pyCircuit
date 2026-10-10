@@ -1,0 +1,72 @@
+{
+  "schema": "pycircuit-generated-example-v1",
+  "example": "inferred_boundary_pipeline",
+  "entry": {
+    "arguments": [],
+    "definition": "@\"example_inferred_boundary_pipeline.inferred_boundary_pipeline.InferredBoundaryPipeline\""
+  },
+  "verification": {
+    "schema": "pycircuit-example-verification-v1",
+    "inputs": {
+      "source/CMakeLists.txt": "a0f430d90f7e012107454ef28026c93ea3d17be45586af01919959401587a9f6",
+      "source/bench.py": "a05bb77a152206a4c586cc106994dfbfdda7290ef54ce2301ae86d03679cedb7",
+      "source/config.json": "2c83cf4c931dcd103a18a690763d485d39012eaac121873450c7ae77e107d553",
+      "source/driver.cpp": "38ad059d51fc41cadeabc3e6900714a83532cc97766219fbde592aff1e6033a5",
+      "source/four_state.py": "1f4219f14adf495ac974b400c3c4760bb187fe255ee67781d24c9943f82795b6",
+      "source/inferred_boundary_pipeline.py": "a447c9ca0ead5df886bef079089e8e0df5a4fd8e166df3aa80bdcd1ce4904b9b",
+      "source/rtl_tb.sv": "1023d96933da6d9afc21a9c9021a930b23b496d288f13a468f222d43f0bf5c2e",
+      "build/cpp/generated.json": "b9a0ecc133220df1aad006136ed173a057c9b2f865de37f56b11d593627d3909",
+      "build/cpp/CMakeLists.txt": "4cc3923a47aa7735f8925290e5c3f90bd13c5db0b42a533e833ba0d5a087f906",
+      "build/cpp/pycircuit_support.hpp": "9dd6ed1199d0007d762a8df97db221b0a08341ec274de93e55d859320989f5a4",
+      "build/cpp/pycircuit_system.hpp": "5c9db5d0be8722e010284685f85ec97fa8b5101bbe88015fb9ac3ab79996921a",
+      "build/cpp/sources/example_inferred_boundary_pipeline/inferred_boundary_pipeline.cpp": "edb027cb92ff2c3451939469506880ab14266e66448b1fdfd1a5fe12ca8bfdb3",
+      "build/cpp/sources/example_inferred_boundary_pipeline/inferred_boundary_pipeline.hpp": "073373aac2bae0a1c596e003cbc352d6a6186c5efa04c87955e7a84576084a68",
+      "build/cpp/sources/example_inferred_boundary_pipeline/inferred_boundary_pipeline.source-map.json": "068cfb6dff0240b689535f1c009e49253e1960dabd11805563ca449ba464e49b",
+      "build/verilog/generated.json": "d7fbd91bae8a86b1ebf06aa9c4fffff5f5e7428e7f42a4697401bf61ec2e705e",
+      "build/verilog/CMakeLists.txt": "c2252381ce4f574f8bc4e1a4009a1b6f639205e7cea992e8738c3c74d48de0c6",
+      "build/verilog/design_top.sv": "139f664eab1212478866068d7b4a0a0856cfbb867f9884d6a81e3e3f3f01d5e9",
+      "build/verilog/sources/example_inferred_boundary_pipeline/inferred_boundary_pipeline.source-map.json": "09997a9f6cd7277c87b35b4faff548d965b1c5b7f233a91f99f7df37e77db92f",
+      "build/verilog/sources/example_inferred_boundary_pipeline/inferred_boundary_pipeline.v": "75f1be24cd59495cf66d0fd4651c1ab0e50acce1a89ec44885b899427b0e0c7a",
+      "build/inferred_boundary_pipeline.ac": "c28e7ea77b19f691204ad3cc513daf8bba6143b070638e10925c314c5bdc9af0",
+      "build/units/.inferred_boundary_pipeline.pycircuit-publication/owner.json": "f78d658f8ca951861db02347467ee9050a222fee78b1ba192b717191e9a20025",
+      "build/units/inferred_boundary_pipeline/inferred_boundary_pipeline.ac": "9887c4f7097d4278c65d84304c2fcb68827a68b9d08a087026ddd724346970c3",
+      "build/units/inferred_boundary_pipeline/inferred_boundary_pipeline.d": "927d7be393fb431e6b34c2436609f4022c286a2bcdfbceef1606ba884e1e69a7",
+      "build/units/inferred_boundary_pipeline/inferred_boundary_pipeline.interface.ac": "5ecaab908a5ad38009df726f8c0600906a20c75c87379b8e801843feaf0480f8",
+      "build/units/inferred_boundary_pipeline/unit.json": "6094310138c0f76787c0f949b1e38eb258628d8d8771afbd2becfc0066345fe7",
+      "runtime-rtl/byte_mem.v": "dfc3f0fa362196fcfaa7bd771d4f85f26acade0e1dfeb0bc00a24d4161987cd2",
+      "runtime-rtl/dff.v": "325fb9039af507df3c94a26515dfcd8bb73f3812c1264df7b72bfe1af918bbb8",
+      "runtime-rtl/dffe.v": "1fc0bdac0c411ea87c00fc93127ebfba8ca12684a8fecee012a23362e0f8b89c",
+      "runtime-rtl/fifo.v": "8b2f0796fdd7c0f4aee3f20bd52226ccb532c827c8618afd9fbef99e2713f97f",
+      "runtime-rtl/sync_mem.v": "75731fcc0df8a01891e53589e75debc4cda9ec384262937047f21b11de7d7637",
+      "runtime-rtl/sync_mem_dp.v": "16ad11aa53d5f60291136b82a47bef9e21b312cd46ee8b8dfb338bb01c6bc3cc",
+      "runner": "9b9bc08642ccd3ed3e0796c608f22c332869eb347005f7e6505eb54be39ababe"
+    },
+    "execution_sha256": "35ef8ed6939d18b0f59dacb020007972b2c350f757864f111902a792ad2a2aa3",
+    "work_samples": 573,
+    "native_check_records": 0,
+    "native_check_sha256": "01ba4719c80b6fe911b091a7c05124b64eeece964e09c058ef8f9805daca546b",
+    "workers": [
+      1,
+      2
+    ],
+    "rtl": "verilator",
+    "trace_sha256": "b2328240407b74b729d0d6359ea653036929c83ab23d9b116f2d33e04bda9c68"
+  },
+  "excerpts": [
+    {
+      "path": "inferred_boundary_pipeline.ac",
+      "line": 4,
+      "sha256": "c28e7ea77b19f691204ad3cc513daf8bba6143b070638e10925c314c5bdc9af0"
+    },
+    {
+      "path": "cpp/sources/example_inferred_boundary_pipeline/inferred_boundary_pipeline.hpp",
+      "line": 40,
+      "sha256": "073373aac2bae0a1c596e003cbc352d6a6186c5efa04c87955e7a84576084a68"
+    },
+    {
+      "path": "verilog/sources/example_inferred_boundary_pipeline/inferred_boundary_pipeline.v",
+      "line": 1,
+      "sha256": "75f1be24cd59495cf66d0fd4651c1ab0e50acce1a89ec44885b899427b0e0c7a"
+    }
+  ]
+}

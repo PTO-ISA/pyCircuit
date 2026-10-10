@@ -297,6 +297,7 @@
       "name": "inferred_boundary_pipeline",
       "folder": "examples/inferred_boundary_pipeline",
       "source": "inferred_boundary_pipeline.py",
+      "generated": "GENERATED.json",
       "system": "InferredBoundaryPipelineSystem",
       "system_source": "bench.py",
       "system_cycles": 344,
