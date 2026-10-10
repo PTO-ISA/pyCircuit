@@ -149,10 +149,14 @@ not an overall performance improvement.
 Final IR decreases from 20,444,754 to 15,089,318 bytes. Generated C++ files total
 3,841,156 → 4,864,736 bytes; generated Verilog files total 818,463 → 886,053 bytes.
 
-The generated C++ currently rebuilds constant table field planes during Work. One-time
-materialization of proven constant planes is a separate generic emitter optimization
-tracked in [issue #265](https://github.com/PTO-ISA/pyCircuit/issues/265); no such
-compiler change is part of this example rewrite.
+The measurements above predate constant-plane materialization in the C++ emitter.
+The current emitter constructs proven immutable Table field planes once, using
+its existing layout and operation emission. Five alternating fresh-process runs
+of this unchanged final IR at `-O0` reduced native median time from 1.903 s to
+0.075 s, including initialization in every run. Complete C++/RTL observations
+agree; Verilog output is unchanged. These are local measurements, not a guarantee
+for other workloads or optimization levels. Further scaling work remains in
+[issue #265](https://github.com/PTO-ISA/pyCircuit/issues/265).
 
 Complete source-import and transformed artifacts are retained locally and reproduce both
 published units byte-for-byte. Public execution and measured builds share identical
