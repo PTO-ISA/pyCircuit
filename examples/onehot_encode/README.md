@@ -63,9 +63,52 @@ Public-owner probes check discard/reprepare and failed proposals with exactly
 one retained result; terminal executor failure preserves the epoch, invalidates
 sampling and requires Reset before recovery. The finite runner limit is 20,000
 sampling epochs per successful history.
-The separate `bench.py` system checks a finite regular-clock known-state scenario with exact old-state output checks. This is partial system migration: the original independent drivers retain their full physical-clock, midstream-reset and four-state scenarios.
 
-```bash
+## Scenario bench
+
+`bench.py` stores 344 regular-clock scenarios in an immutable typed Table. The
+16-bit phase counter holds at 343; an additional all-zero row preserves the
+helper's result for every known phase from 344 through 65,535. The run retains
+its 344-cycle limit. The complete advance and system bodies,
+including assertions, logs and registration order, are unchanged.
+
+An independent source check covers all 786,432 known-u16 field values,
+including the zero fallback. Original and compact systems have identical complete
+C++ workers 1/2 and RTL observations after removing only changed source-position
+metadata. The original module drivers retain physical clocks, midstream reset,
+failure and four-state histories; this does not claim arbitrary X/Z-phase
+equivalence for the closed system helper. See the verified module
+[excerpts and receipt](GENERATED.md).
+
+The two events named `valid` report protocol and payload validity, in that order.
+
+The source shrinks from 3,733 lines / 97,776 bytes to
+428 lines / 67,979 bytes. Measurements below use the same
+checkout-built compiler (with constant-plane materialization), LLVM 22 C++
+toolchain and `-O0` on one machine. Compile/build/emission and first-run values
+are single serial observations; warm medians use three alternating full-length
+pairs. Every fresh process includes initialization. These local measurements
+do not guarantee improvements on other platforms or optimization levels.
+
+| Measurement | Expanded cases | Typed Table |
+| --- | ---: | ---: |
+| Compile bench | 2.934 s | 1.858 s |
+| Emit C++ | 3.495 s | 3.129 s |
+| Build C++ | 1.869 s | 1.520 s |
+| First measured full C++ run | 1.603 s | 0.562 s |
+| Warm C++ median, one worker | 0.913 s | 0.063 s |
+| Warm Verilog median | 0.049 s | 0.045 s |
+| Warm native peak RSS median | 6.30 MiB | 4.28 MiB |
+
+Final IR decreases from 17,659,993 to
+14,248,133 bytes. Generated C++ totals
+4,527,908 → 3,997,786 bytes; Verilog
+totals 982,373 → 754,424 bytes.
+Complete source-import/transformed artifacts reproduce the published units, and
+the public and measured builds share identical final IR and generated outputs.
+DUTs, drivers, configuration, cycle limits and timeouts remain unchanged.
+
+```sh
 pycircuit run examples/onehot_encode --target cpp --cycles 344 --build-dir .pycircuit_out/onehot_encode/system-cpp
 pycircuit run examples/onehot_encode --target verilog --cycles 344 --build-dir .pycircuit_out/onehot_encode/system-verilog
 ```

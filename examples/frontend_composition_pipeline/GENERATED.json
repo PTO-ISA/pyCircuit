@@ -1,0 +1,72 @@
+{
+  "schema": "pycircuit-generated-example-v1",
+  "example": "frontend_composition_pipeline",
+  "entry": {
+    "arguments": [],
+    "definition": "@\"example_frontend_composition_pipeline.frontend_composition_pipeline.FrontendCompositionPipeline\""
+  },
+  "verification": {
+    "schema": "pycircuit-example-verification-v1",
+    "inputs": {
+      "source/CMakeLists.txt": "b82e68d433f0913b65419c95643cf79fac47b475d65f1b57bbe8ff4f415e92bc",
+      "source/bench.py": "f513658acb0d132df6a32929b084d46926126b00ca4ee7abae420a22de0d2164",
+      "source/config.json": "4236b13287aa69791ceec9bd072100dc425dcdabd4ebb450b6185026bd65ae2f",
+      "source/driver.cpp": "38fb3b0eca8b87563afbb7498927b098a3e39151d4fd771ba0f41c90ca407507",
+      "source/four_state.py": "bfbf2d2021bf734c6aeeb28990e8ca994fb026b5b9679e16e546b382f82a8090",
+      "source/frontend_composition_pipeline.py": "e773936537e227453425fb018d4345a9adb3d799b9b1d540f064244202dc3796",
+      "source/rtl_tb.sv": "4008c0fdfb4a6efec5a46ade94837502647b21f939df451b5d669465dbcbc2b9",
+      "build/cpp/generated.json": "581881683fc85ee995cc4444d21e3e7cf7503e1324c40cd82097df52bb5fc26a",
+      "build/cpp/CMakeLists.txt": "e7c8d2caa1f6b8947c2aedf5b66b51585f6e25168c4a6592645eb09983ced5e2",
+      "build/cpp/pycircuit_support.hpp": "83c1f1d122b78eafaab5dd5a768c339a73fb16f046c85d632e621d3e56d27ffc",
+      "build/cpp/pycircuit_system.hpp": "e8ec0c8092fbe60f0e05d1f6d51d89e6de93571598e2999ac654e1e9a7417887",
+      "build/cpp/sources/example_frontend_composition_pipeline/frontend_composition_pipeline.cpp": "7fc8882438d51d77fcba1a586252e3f07a49a4ef223aa06455abb8b1b6c18819",
+      "build/cpp/sources/example_frontend_composition_pipeline/frontend_composition_pipeline.hpp": "3f03367adbfbba2e39ddebb786b6e44614a715718878d193d730f82e58f71cf0",
+      "build/cpp/sources/example_frontend_composition_pipeline/frontend_composition_pipeline.source-map.json": "c0442aff7cf8d29b5b09c7c5ba491ccdc1f9a9919a0787f985721614f5df2d64",
+      "build/verilog/generated.json": "c1b3e71885c764a1e69d7f417ac16c72a0456500d8683f3c5fa4a64be65f4855",
+      "build/verilog/CMakeLists.txt": "e7632a00ca0596a1634fcea70fdc69525ea6288cb7a5e6ec926adb7359f7b459",
+      "build/verilog/design_top.sv": "c4a836762436a6d022370c8caca4e1180fbb1ada348c9b37172907769680640b",
+      "build/verilog/sources/example_frontend_composition_pipeline/frontend_composition_pipeline.source-map.json": "04d0434dd365a01b8bfc1879642a94f04fe89b593644760d38936a78576abac8",
+      "build/verilog/sources/example_frontend_composition_pipeline/frontend_composition_pipeline.v": "5f809c4024d1a459efdfde9d2ae92d21dd75c8d9c8820c66e259b21ce7d72307",
+      "build/frontend_composition_pipeline.ac": "f8d077a68cb058c4c8d0d901a46029503000787eeeba6aab9000761e45c6e7fb",
+      "build/units/.frontend_composition_pipeline.pycircuit-publication/owner.json": "466254741b9ccad5c5ca90bc4bc779616234e63d9599e188073bae75b44826c6",
+      "build/units/frontend_composition_pipeline/frontend_composition_pipeline.ac": "b4703570aee9f4c0bf21074d8a175cc4a4d27d8cb12f2e0778a63ebb5f9ba263",
+      "build/units/frontend_composition_pipeline/frontend_composition_pipeline.d": "e84d6fb514200af927d197be417fac7a61a318ccd75a4a22d8c8d874a338187b",
+      "build/units/frontend_composition_pipeline/frontend_composition_pipeline.interface.ac": "9d675d0380064a94421909acfbd035af4751d544d7b03f842d6cd64634267163",
+      "build/units/frontend_composition_pipeline/unit.json": "65ab6e281370af94d64dc634af7eac6b92c355babafce9a30f74470bf5c63f4d",
+      "runtime-rtl/byte_mem.v": "dfc3f0fa362196fcfaa7bd771d4f85f26acade0e1dfeb0bc00a24d4161987cd2",
+      "runtime-rtl/dff.v": "325fb9039af507df3c94a26515dfcd8bb73f3812c1264df7b72bfe1af918bbb8",
+      "runtime-rtl/dffe.v": "1fc0bdac0c411ea87c00fc93127ebfba8ca12684a8fecee012a23362e0f8b89c",
+      "runtime-rtl/fifo.v": "8b2f0796fdd7c0f4aee3f20bd52226ccb532c827c8618afd9fbef99e2713f97f",
+      "runtime-rtl/sync_mem.v": "75731fcc0df8a01891e53589e75debc4cda9ec384262937047f21b11de7d7637",
+      "runtime-rtl/sync_mem_dp.v": "16ad11aa53d5f60291136b82a47bef9e21b312cd46ee8b8dfb338bb01c6bc3cc",
+      "runner": "9ac1cd88c147add9eb37e400b38948226adaf9e24ad42c4fdbf39e7f8b1927b1"
+    },
+    "execution_sha256": "1266e8ad6623ff5ab851cc224916cb54fd25a84885c3e75124ae92088c7bfde0",
+    "work_samples": 18281,
+    "native_check_records": 0,
+    "native_check_sha256": "01ba4719c80b6fe911b091a7c05124b64eeece964e09c058ef8f9805daca546b",
+    "workers": [
+      1,
+      2
+    ],
+    "rtl": "verilator",
+    "trace_sha256": "c1f1dac7dc51a8266e273a14e1d0020e04a09da48889fb210eeb935c32cfc529"
+  },
+  "excerpts": [
+    {
+      "path": "frontend_composition_pipeline.ac",
+      "line": 10,
+      "sha256": "f8d077a68cb058c4c8d0d901a46029503000787eeeba6aab9000761e45c6e7fb"
+    },
+    {
+      "path": "cpp/sources/example_frontend_composition_pipeline/frontend_composition_pipeline.hpp",
+      "line": 40,
+      "sha256": "3f03367adbfbba2e39ddebb786b6e44614a715718878d193d730f82e58f71cf0"
+    },
+    {
+      "path": "verilog/sources/example_frontend_composition_pipeline/frontend_composition_pipeline.v",
+      "line": 1,
+      "sha256": "5f809c4024d1a459efdfde9d2ae92d21dd75c8d9c8820c66e259b21ce7d72307"
+    }
+  ]
+}
