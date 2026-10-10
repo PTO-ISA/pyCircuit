@@ -1,0 +1,72 @@
+{
+  "schema": "pycircuit-generated-example-v1",
+  "example": "enum_helpers",
+  "entry": {
+    "arguments": [],
+    "definition": "@\"example_enum_helpers.enum_helpers.EnumHelpers\""
+  },
+  "verification": {
+    "schema": "pycircuit-example-verification-v1",
+    "inputs": {
+      "source/CMakeLists.txt": "88d06fe96551fea8d0373c3a31c1df91bed92b7bd2d6f4d76f295afc6f00cff2",
+      "source/bench.py": "9371e5f6c6c2389252e1b8cb779827dcaec1bbb8ce87451bba6436060e7c617e",
+      "source/config.json": "78d96aa5a68e7ce4860169859195e3f82d6ac0d97f2587c2851dd63d6058f37d",
+      "source/driver.cpp": "3e60372745b90cdd5f1fea3c887b0f0e06c757e81f5a4d5ee3c505a2dd213fea",
+      "source/enum_helpers.py": "5d3eb2feea8d79a762519479b43e972b115c535032b750c629a30ef7ab943ced",
+      "source/four_state.py": "d0d1ae4f724d8a3d090648a8d50cf517bc0397ec772196cc24a6cf6388375e58",
+      "source/rtl_tb.sv": "e24a33a46b7ff80034f688d4b2f1fa992eb85593ce6a8548b1ad04f8b53cd4b4",
+      "build/cpp/generated.json": "cbb110c9d6eeb61318cbf05a54f46355b2cc6760d3ce352a1ec734ea60cf19c9",
+      "build/cpp/CMakeLists.txt": "e274c601f13d23212746bf437755b465a1f39b71a5c7d924264dad4896cb9fcd",
+      "build/cpp/pycircuit_support.hpp": "301a3c335ff8859b85258af78239c39a28b7c17df56b4b63f2c0815a3ecfa362",
+      "build/cpp/pycircuit_system.hpp": "cec17019e8896eb32657a99deb9bf562bec6fe239bb443a4b60a20e7af783dd0",
+      "build/cpp/sources/example_enum_helpers/enum_helpers.cpp": "2a67aeeca61907662468a0a7f1c697951d9c3643da52dec816e2b574e5a3752c",
+      "build/cpp/sources/example_enum_helpers/enum_helpers.hpp": "0577209ca88af631fc9058238d9382d10266ca8b1b87313a410d3d1bf07b9b2d",
+      "build/cpp/sources/example_enum_helpers/enum_helpers.source-map.json": "7280d8ad6e0946365e1d0ddde3350ec10d018992d0e8610c0e9561e1e5ff95d4",
+      "build/verilog/generated.json": "f7fd8396c1a56ce235b851e76429a9ffe8e9f9bac91cfca42714eddcd5bd5935",
+      "build/verilog/CMakeLists.txt": "786581fb0c10ae599a768ff39949c77bcff17add4b5d100b35cc85f045b902e5",
+      "build/verilog/design_top.sv": "c09804a0bf64df2bf08de0b7f4846bbbfb020cc04e8f4921b37c3ca8ccd9de1b",
+      "build/verilog/sources/example_enum_helpers/enum_helpers.source-map.json": "3d2dd29610dfa6ca4d38cc10d0bdb35c5dbe49b46ce4aa45442d0b2f9e735d61",
+      "build/verilog/sources/example_enum_helpers/enum_helpers.v": "34c32c180c3b8b01ae8a67f6671083ca71e95a711de2cbe031f1582976090cdb",
+      "build/enum_helpers.ac": "4f3835a51fa8ec34eb23f8c6411dc84739a3ed99889439ebb6d544142c8f595e",
+      "build/units/.enum_helpers.pycircuit-publication/owner.json": "7145a82e4ae658850ffd11e96bb9c9023c963d4afbbfd250fa6aad8ae14c2b1a",
+      "build/units/enum_helpers/enum_helpers.ac": "23ce80da62141a7cd780d24d92a24a2c81be357b3ccfc4f85b2d3c713176c393",
+      "build/units/enum_helpers/enum_helpers.d": "5084bfae472b68e53a2fc6a9f95b5c5c9573eb057c2640cc46a929be55e25ab2",
+      "build/units/enum_helpers/enum_helpers.interface.ac": "3a8e4c34c4d60900a41d3ecfc4a65b3ea5d8a585cc663d06b2b6ac605f6b2325",
+      "build/units/enum_helpers/unit.json": "0d85afdd2da50acccb5a3ef9f47d3ad2e19ef7b85d1f8955c995f2e002046974",
+      "runtime-rtl/byte_mem.v": "dfc3f0fa362196fcfaa7bd771d4f85f26acade0e1dfeb0bc00a24d4161987cd2",
+      "runtime-rtl/dff.v": "325fb9039af507df3c94a26515dfcd8bb73f3812c1264df7b72bfe1af918bbb8",
+      "runtime-rtl/dffe.v": "1fc0bdac0c411ea87c00fc93127ebfba8ca12684a8fecee012a23362e0f8b89c",
+      "runtime-rtl/fifo.v": "8b2f0796fdd7c0f4aee3f20bd52226ccb532c827c8618afd9fbef99e2713f97f",
+      "runtime-rtl/sync_mem.v": "75731fcc0df8a01891e53589e75debc4cda9ec384262937047f21b11de7d7637",
+      "runtime-rtl/sync_mem_dp.v": "16ad11aa53d5f60291136b82a47bef9e21b312cd46ee8b8dfb338bb01c6bc3cc",
+      "runner": "a01673697bc3c5eeaf7dd3e5ac92794a26cb0120982f1cc322d1d774cbc590d0"
+    },
+    "execution_sha256": "e2b70c92a3c07903de91b4514df7f7a6671fa1a572db59915210c542cc90235b",
+    "work_samples": 2089,
+    "native_check_records": 0,
+    "native_check_sha256": "01ba4719c80b6fe911b091a7c05124b64eeece964e09c058ef8f9805daca546b",
+    "workers": [
+      1,
+      2
+    ],
+    "rtl": "verilator",
+    "trace_sha256": "94ed8842cf362ed5cd29ab20420d4be6ec59b7c35921b1ee3ac7041a220f584c"
+  },
+  "excerpts": [
+    {
+      "path": "enum_helpers.ac",
+      "line": 8,
+      "sha256": "4f3835a51fa8ec34eb23f8c6411dc84739a3ed99889439ebb6d544142c8f595e"
+    },
+    {
+      "path": "cpp/sources/example_enum_helpers/enum_helpers.hpp",
+      "line": 40,
+      "sha256": "0577209ca88af631fc9058238d9382d10266ca8b1b87313a410d3d1bf07b9b2d"
+    },
+    {
+      "path": "verilog/sources/example_enum_helpers/enum_helpers.v",
+      "line": 1,
+      "sha256": "34c32c180c3b8b01ae8a67f6671083ca71e95a711de2cbe031f1582976090cdb"
+    }
+  ]
+}

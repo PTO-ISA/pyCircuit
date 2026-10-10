@@ -8,7 +8,8 @@
   "verification": {
     "schema": "pycircuit-example-verification-v1",
     "inputs": {
-      "source/CMakeLists.txt": "b1955a008c619fa2fda18ab384045ddf3a9a20473ccaa99af9dca6e5745cd3bd",
+      "source/CMakeLists.txt": "8d7c92f8293541604dc1ac5aeb6b05514148dc5aadc1681baf9124d676f70053",
+      "source/bench.py": "538ecbe19cf998783544bc9d557dd14bb913d7a53df208ae311dd25a62dba0b6",
       "source/bit_widths.py": "e6da3dc7de28e7e400d490177c457f4e70475c3620157db704d8034c4f3d01be",
       "source/config.json": "62056ac8404f41502c5f7b13205b2eadf25a84d8554fb07a9cde3e1c6f9f96c1",
       "source/driver.cpp": "931507226d906e4c137b60dc1acb72f84d734ba84906d84d1fe012d33965ce18",
@@ -16,10 +17,10 @@
       "source/rtl_tb.sv": "b83e2f1830ff5bc63989a59bcaf64569ecdcdea67f6755423565973a150b5c71",
       "build/cpp/generated.json": "ef4a930d0709d6360ef71cbbd02a5100bca0dc61a897a704459025f60c3d2ad0",
       "build/cpp/CMakeLists.txt": "98d5458838005b051ce9afe54c6fe92d1f02d19bdfc7b41c679cd53f73d5ffb7",
-      "build/cpp/pycircuit_support.hpp": "6570fb6981d17caa8af1494550ecca2ebf2140067259dc4bf320a8fee378f1ad",
+      "build/cpp/pycircuit_support.hpp": "52b232e417d093632bfeeabe821666bb52fb450c53a12d889d0baf90ac9f23e8",
       "build/cpp/pycircuit_system.hpp": "abf1a1eb442316ed43284adb9b7a107bcfd66c45a79c5ca34ba09aba30a9dfe9",
       "build/cpp/sources/example_bit_widths/bit_widths.cpp": "fa82a79a13b3334b68eebe675dd7c9b64898c7cfb662b4d3d66d0e9fda5c2d06",
-      "build/cpp/sources/example_bit_widths/bit_widths.hpp": "b5731217c460c085b066e827cb8151c13567a68f9d557fa4c8e504496c8f799e",
+      "build/cpp/sources/example_bit_widths/bit_widths.hpp": "fb8cc95d5eb81fae35ea50ba30e890791ba4610c21491efacc75066b5740d803",
       "build/cpp/sources/example_bit_widths/bit_widths.source-map.json": "97896e784362ad68b2f2eb62c7a29a3c552b33bca5ab56c5e69f977e1c71881d",
       "build/verilog/generated.json": "704fe97a465f1c7d051467ea2add5ceed422a44440cbbad4015f5b68249a44de",
       "build/verilog/CMakeLists.txt": "b30674a52d1bdd4ff8d9161380db829c0304f8a6c78d3606644fb3b7008cd53f",
@@ -27,16 +28,23 @@
       "build/verilog/sources/example_bit_widths/bit_widths.source-map.json": "a19594ec11eed84cfe16d866d1d27a8c65dcc6d99ab0b38498be03caf8c3281c",
       "build/verilog/sources/example_bit_widths/bit_widths.v": "4529af7ca7b10b18b2fc27d7a11e608edcccc2cda679103a5afc912a905de2ce",
       "build/bit_widths.ac": "ec21b78eb1df8025455c8e521b2e78efba87a561fc5b4a612829b4e09fffa69c",
-      "runtime-rtl/byte_mem.v": "33bd9f73dd7cd17f3531cfd8c321762c214ad5df23b5376add212dadd38c47c2",
-      "runtime-rtl/dff.v": "e4f604bd03b9f1651ddbcd71e9ebb1cd8af45018caeab341728b35c14ec0f553",
-      "runtime-rtl/dffe.v": "9ae323530b72d152d10628de94923eaefa411b29e13c647de21bed8b0d73833b",
-      "runtime-rtl/fifo.v": "2dc4086ad3085bd67504caaac0565a3e676f87ce5411cc019fe8ef3a3bc43b23",
-      "runtime-rtl/sync_mem.v": "207b0fe22f029828ac90b50d2ce0aabbb01763231cd153883f31b581d03d68b7",
-      "runtime-rtl/sync_mem_dp.v": "44672a092661f3c218f71534d0d656a2d7d0bfdb03bc6b7a3394e2f13eea86d4",
-      "runner": "02e762b8ec1653447f2d128757f34c45cfc2233c3f0ed7f4a45aaaaf696c619e"
+      "build/units/.bit_widths.pycircuit-publication/owner.json": "bc6d2593e5d2f69f91c11fc3f66a525968e6174c5f2a2d7a2163a55012ca80f4",
+      "build/units/bit_widths/bit_widths.ac": "69ca6401442edc08315c886a5b6fa859b42f6114d8e5005789f118347b2bdc19",
+      "build/units/bit_widths/bit_widths.d": "5bc285271f470c4bf652178fb9d3ade24e8db3140f62579d3a87510ef110a945",
+      "build/units/bit_widths/bit_widths.interface.ac": "e10a0b89bff85dd29f59298dce71294cb1a684db8f3235649c5a6df1b85d7a1c",
+      "build/units/bit_widths/unit.json": "99f7c5f95fc05332a5d12c1a6faac56a0786e23ec089c3c346519a2b95914771",
+      "runtime-rtl/byte_mem.v": "dfc3f0fa362196fcfaa7bd771d4f85f26acade0e1dfeb0bc00a24d4161987cd2",
+      "runtime-rtl/dff.v": "325fb9039af507df3c94a26515dfcd8bb73f3812c1264df7b72bfe1af918bbb8",
+      "runtime-rtl/dffe.v": "1fc0bdac0c411ea87c00fc93127ebfba8ca12684a8fecee012a23362e0f8b89c",
+      "runtime-rtl/fifo.v": "8b2f0796fdd7c0f4aee3f20bd52226ccb532c827c8618afd9fbef99e2713f97f",
+      "runtime-rtl/sync_mem.v": "75731fcc0df8a01891e53589e75debc4cda9ec384262937047f21b11de7d7637",
+      "runtime-rtl/sync_mem_dp.v": "16ad11aa53d5f60291136b82a47bef9e21b312cd46ee8b8dfb338bb01c6bc3cc",
+      "runner": "ccdfb4d6415b43d606207ab8665c932ccc2d45cfae1fbbd063a0809e34b7b39c"
     },
-    "execution_sha256": "50e3245da255346a42437136dae007a646692996e9dd96193ad6f80e093f1e15",
+    "execution_sha256": "221c8329b256ace84eb7ba51b4e17ad226d6409fa2c160c44160b75fd867d256",
     "work_samples": 195,
+    "native_check_records": 0,
+    "native_check_sha256": "01ba4719c80b6fe911b091a7c05124b64eeece964e09c058ef8f9805daca546b",
     "workers": [
       1,
       2
@@ -52,8 +60,8 @@
     },
     {
       "path": "cpp/sources/example_bit_widths/bit_widths.hpp",
-      "line": 38,
-      "sha256": "b5731217c460c085b066e827cb8151c13567a68f9d557fa4c8e504496c8f799e"
+      "line": 40,
+      "sha256": "fb8cc95d5eb81fae35ea50ba30e890791ba4610c21491efacc75066b5740d803"
     },
     {
       "path": "verilog/sources/example_bit_widths/bit_widths.v",
