@@ -1,6 +1,7 @@
 #include "FinalCppNames.h"
 #include "HardwareEmitCommon.h"
 #include "HardwareEmitCppChecks.h"
+#include "llvm/ADT/DenseMap.h"
 #include "llvm/ADT/ScopeExit.h"
 #include "llvm/ADT/StringSwitch.h"
 #include <array>
@@ -836,6 +837,207 @@ private:
     };
     return visit(result, path);
   }
+  using ConstantKey = std::tuple<Scope *, Value, ArrayAttr>;
+  enum class ConstantState { Visiting, Constant, Dynamic };
+  struct ConstantFrame {
+    ConstantKey key;
+    SmallVector<ConstantKey> dependencies;
+    size_t next = 0;
+    bool constant = true;
+  };
+  ConstantKey constantKey(Scope &s, Value value, ArrayRef<StringAttr> path) {
+    SmallVector<Attribute> fields(path.begin(), path.end());
+    return {&s, value, ArrayAttr::get(ctx.package.getContext(), fields)};
+  }
+  FailureOr<bool> constantLayoutClosed(Scope &s, Type current,
+                                       ArrayRef<StringAttr> path,
+                                       Operation *site) {
+    size_t field = 0;
+    while (true) {
+      auto resolved = type(current, s, site);
+      if (failed(resolved))
+        return failure();
+      current = *resolved;
+      if (auto table = dyn_cast<ac::TableType>(current)) {
+        for (Attribute raw : table.getShape())
+          if (!ctx.isClosedStatic(cast<ac::StaticExprAttr>(raw), s.bindings))
+            return false;
+        current = table.getElementType();
+        continue;
+      }
+      if (field == path.size()) {
+        if (auto bits = dyn_cast<ac::BitsType>(current))
+          return ctx.isClosedStatic(bits.getWidth(), s.bindings);
+        // Nominal identity has been resolved above. Aggregate dependencies are
+        // proved field-sensitively by the existing constructor operand graph.
+        return isa<ac::StructType, ac::EnumType>(current);
+      }
+      auto record = dyn_cast<ac::StructType>(current);
+      auto declaration =
+          record ? ctx.analysis.lookupStruct(record) : ac::StructOp();
+      if (!declaration)
+        return site->emitOpError() << "constant field path requires a struct";
+      Type selected;
+      for (Attribute raw : declaration.getFields()) {
+        auto candidate = cast<DictionaryAttr>(raw);
+        if (candidate.getAs<StringAttr>("name") == path[field]) {
+          selected = candidate.getAs<TypeAttr>("type").getValue();
+          break;
+        }
+      }
+      if (!selected)
+        return site->emitOpError() << "unknown constant field path";
+      current = selected;
+      ++field;
+    }
+  }
+  FailureOr<bool>
+  constantDependencies(const ConstantKey &key,
+                       SmallVectorImpl<ConstantKey> &dependencies) {
+    auto &[scope, value, fields] = key;
+    if (isa<BlockArgument>(value))
+      return false;
+    Operation *op = value.getDefiningOp();
+    if (!op || scope->regionParent)
+      return false;
+    Path path;
+    for (Attribute field : fields)
+      path.push_back(cast<StringAttr>(field));
+    auto closed = constantLayoutClosed(*scope, value.getType(), path, op);
+    if (failed(closed) || !*closed)
+      return closed;
+    auto add = [&](Value input, Path requested) {
+      dependencies.push_back(constantKey(*scope, input, requested));
+    };
+    if (auto literal = dyn_cast<ac::BitsConstantOp>(op))
+      return path.empty() &&
+             ctx.isClosedStatic(literal.getValue(), scope->bindings);
+    if (auto enumeration = dyn_cast<ac::EnumCreateOp>(op)) {
+      if (!path.empty())
+        return false;
+      auto definition =
+          ctx.analysis.resolveEnum(enumeration.getResult().getType(), op);
+      if (failed(definition))
+        return failure();
+      return llvm::any_of(definition->members, [&](const auto &member) {
+        return member.name == enumeration.getMemberAttr();
+      });
+    }
+    if (auto toBits = dyn_cast<ac::EnumToBitsOp>(op)) {
+      if (!path.empty())
+        return false;
+      add(toBits.getInput(), {});
+      return true;
+    }
+    if (auto extract = dyn_cast<ac::BitsExtractOp>(op)) {
+      if (!path.empty() ||
+          !ctx.isClosedStatic(extract.getLow(), scope->bindings))
+        return false;
+      add(op->getOperand(0), {});
+      return true;
+    }
+    if (isa<ac::BitsResizeOp>(op)) {
+      if (!path.empty())
+        return false;
+      add(op->getOperand(0), {});
+      return true;
+    }
+    if (auto create = dyn_cast<ac::StructCreateOp>(op)) {
+      auto declaration =
+          ctx.analysis.lookupStruct(create.getResult().getType());
+      if (!declaration)
+        return op->emitOpError() << "unresolved constant-plane struct";
+      if (path.empty()) {
+        for (Value input : create.getValues())
+          add(input, {});
+        return true;
+      }
+      for (auto [index, raw] : llvm::enumerate(declaration.getFields()))
+        if (cast<DictionaryAttr>(raw).getAs<StringAttr>("name") ==
+            path.front()) {
+          add(create.getValues()[index], Path(path.begin() + 1, path.end()));
+          return true;
+        }
+      return op->emitOpError() << "unknown constant-plane struct field";
+    }
+    if (auto get = dyn_cast<ac::StructGetOp>(op)) {
+      Path requested{get.getFieldAttr()};
+      llvm::append_range(requested, path);
+      add(get.getValue(), std::move(requested));
+      return true;
+    }
+    if (auto create = dyn_cast<ac::TableCreateOp>(op)) {
+      for (Value input : create.getInputs())
+        add(input, path);
+      return true;
+    }
+    if (auto splat = dyn_cast<ac::TableSplatOp>(op)) {
+      add(splat.getInput(), path);
+      return true;
+    }
+    return false;
+  }
+  FailureOr<bool> constantPlaneEligible(Scope &s, Value value, Path path) {
+    ConstantKey root = constantKey(s, value, path);
+    if (auto found = constantMemo.find(root); found != constantMemo.end())
+      return found->second == ConstantState::Constant;
+    SmallVector<ConstantFrame, 8> stack;
+    auto push = [&](ConstantKey key) -> LogicalResult {
+      ConstantFrame frame{key, {}};
+      auto admitted = constantDependencies(key, frame.dependencies);
+      if (failed(admitted))
+        return failure();
+      frame.constant = *admitted;
+      constantMemo[key] = ConstantState::Visiting;
+      stack.push_back(std::move(frame));
+      return success();
+    };
+    if (failed(push(root)))
+      return failure();
+    while (!stack.empty()) {
+      auto &frame = stack.back();
+      if (!frame.constant || frame.next == frame.dependencies.size()) {
+        constantMemo[frame.key] =
+            frame.constant ? ConstantState::Constant : ConstantState::Dynamic;
+        stack.pop_back();
+        continue;
+      }
+      ConstantKey dependency = frame.dependencies[frame.next];
+      auto found = constantMemo.find(dependency);
+      if (found == constantMemo.end()) {
+        if (failed(push(dependency)))
+          return failure();
+        continue;
+      }
+      // Cycles and excluded dependencies retain the ordinary emitter's
+      // diagnostics; they never receive static storage through this proof.
+      frame.constant = found->second == ConstantState::Constant;
+      ++frame.next;
+    }
+    return constantMemo.lookup(root) == ConstantState::Constant;
+  }
+  FailureOr<std::string> constantPlane(Scope &s, Value value, Path path) {
+    auto exactType = planeType(value.getType(), s, path, value.getDefiningOp());
+    if (failed(exactType))
+      return failure();
+    std::string initializerText;
+    llvm::raw_string_ostream initializerStream(initializerText);
+    WorkEmitter initializer(ctx, s.definition, initializerStream);
+    initializer.promoteConstantPlanes = false;
+    initializer.scopes.front() = s;
+    auto constructed =
+        initializer.emit(initializer.scopes.front(), value, path);
+    if (failed(constructed))
+      return failure();
+    initializerStream.flush();
+    auto result = name();
+    // Only the completed static name enters the outer memo through emit().
+    // Initializer temporaries belong solely to this capture-free lambda.
+    out << "    static const " << *exactType << " " << result << " = [] {\n"
+        << initializerText << "      return " << *constructed
+        << ";\n    }();\n";
+    return result;
+  }
   FailureOr<std::string> declarePlane(Scope &s, Value v, Path path = {}) {
     auto p = planeType(v.getType(), s, path,
                        v.getDefiningOp() ? v.getDefiningOp() : s.definition);
@@ -1083,6 +1285,19 @@ private:
   }
   FailureOr<std::string> tableOperation(Scope &s, Value v, Path path) {
     auto *op = v.getDefiningOp();
+    if (promoteConstantPlanes && !resetting && !s.regionParent &&
+        isa<ac::TableCreateOp>(op)) {
+      auto selected = fieldType(v.getType(), path, s, op);
+      if (failed(selected))
+        return failure();
+      if (isa<ac::BitsType, ac::EnumType>(*selected)) {
+        auto eligible = constantPlaneEligible(s, v, path);
+        if (failed(eligible))
+          return failure();
+        if (*eligible)
+          return constantPlane(s, v, path);
+      }
+    }
     auto result = declarePlane(s, v, path);
     if (failed(result))
       return failure();
@@ -1422,6 +1637,8 @@ private:
   HardwareEmitContext &ctx;
   raw_ostream &out;
   bool resetting;
+  bool promoteConstantPlanes = true;
+  llvm::DenseMap<ConstantKey, ConstantState> constantMemo;
   bool tasksFinished = false;
   SmallVector<Operation *> delegated;
   std::deque<Scope> scopes, regionScopes;

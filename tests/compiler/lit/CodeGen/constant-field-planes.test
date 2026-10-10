@@ -1,0 +1,11 @@
+# RUN: %pycircuit_opt %inputs/constant-field-planes.mlir -o %t.final.mlir
+# RUN: %pycircuit_emit %t.final.mlir --target cpp > %t.json
+# RUN: %python %inputs/unpack_bundle.py %t.json %t.dir
+# RUN: RTLIB="$(dirname %pycircuit_emit)/../runtime/libpyc6_runtime.a"; if test ! -f "$RTLIB"; then RTLIB="$(dirname %pycircuit_emit)/../lib/libpyc6_runtime.a"; fi; test -f "$RTLIB"; %cxx -std=c++20 -pthread -I%include -I%t.dir %inputs/constant-field-planes.cpp @%t.dir/sources.rsp "$RTLIB" -o %t.exe
+# RUN: %t.exe 1
+# RUN: %t.exe 2
+# RUN: %python %inputs/check-constant-field-planes.py --self-test
+# RUN: %python %inputs/check-constant-field-planes.py %t.dir
+# RUN: %pycircuit_emit %t.final.mlir --target verilog --format source > %t.sv
+# RUN: iverilog -g2012 -s tb -o %t.vvp %t.sv %include/verilog/dffe.v %inputs/constant-field-planes.sv
+# RUN: vvp %t.vvp

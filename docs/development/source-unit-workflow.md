@@ -42,6 +42,21 @@ typed replacement exists, the pass retains the verified projection. Fixed-bit
 identity extracts keep their existing provenance handling; aggregate types are
 not rewritten merely to enable an optimization.
 
+C++ Work emission can materialize a proven constant Table field plane once in
+a capture-free, function-local `static const` initializer. The existing emitter
+constructs its exact type and layout; it does not introduce another constant
+interpreter or change the final IR. Eligibility follows individual fields through
+literal construction, projection and supported fixed conversions. Inputs, state,
+region arguments and other computations retain ordinary emission. A dynamic row
+keeps the entire selected field plane dynamic. Reset and Verilog use their
+existing paths, and unknown indices retain their four-state behavior.
+
+The immutable object is shared only within its generated static site and C++
+template specialization. Its host lifetime extends to process exit; generated
+code measurements must include first-use initialization and resident memory,
+as well as repeated simulation time. This representation adds no hardware state
+or source API.
+
 ## Compile and link
 
 Compile each source independently. Consumers use published interfaces through

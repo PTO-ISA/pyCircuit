@@ -57,6 +57,11 @@ without duplicating cases. Source-check capacity limits stay separate from the
 long execution test. Python-only unit/hygiene/docs gates remain independent CI
 checks and do not require the compiler toolchain.
 
+The constant Table field-plane CodeGen regression is part of the API gate. It
+checks native execution and four-state RTL, and requires Icarus Verilog
+(`iverilog` and `vvp`) in addition to the native test tools. CI provides the
+existing pinned Icarus toolchain through `setup-native-test-tools`.
+
 Each executed entry point records its selected CTest names and count under
 `docs/gates/logs/<run-id>/`, with distinct category/tier summary filenames.
 A failed or empty run cannot publish a pass; `--list` publishes no pass summary.
