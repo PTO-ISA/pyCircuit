@@ -1,0 +1,72 @@
+{
+  "schema": "pycircuit-generated-example-v1",
+  "example": "struct_pipeline",
+  "entry": {
+    "arguments": [],
+    "definition": "@\"example_struct_pipeline.struct_pipeline.StructPipeline\""
+  },
+  "verification": {
+    "schema": "pycircuit-example-verification-v1",
+    "inputs": {
+      "source/CMakeLists.txt": "b92037234cab427534ac5db3e21bd7760126d53f7590d18fa9a162cf888ea522",
+      "source/bench.py": "9e9d38a4bf3c27a43dd6160d20162d89706a2e9162f9745a5b6374c9bc4fd44f",
+      "source/config.json": "82b121d6ac01f49ed85fa0b5b6c5e584a43721ded154c457417dad82d4c37145",
+      "source/driver.cpp": "b99c3a8050d0b7eea61a0a41803458372748097d019af0a5fe1d35588c495457",
+      "source/four_state.py": "223b8fe1da075b1e541cf1bd0e0a71aaa998f8a59dc618fe9d5152faf2e46b82",
+      "source/rtl_tb.sv": "06e398fb97f1e428732c5d9d337b70b733b70acf15d27a17d64e76d3135feebf",
+      "source/struct_pipeline.py": "46543384d3ccde4c0c853eadc699eebaa2421ed576d5cab2b366149e6adc6669",
+      "build/cpp/generated.json": "b3813a77f68b1edeaf225ed007ec464a1f975ec553a02514d2ff2b88b76367e2",
+      "build/cpp/CMakeLists.txt": "1a6d00a9310909cce8cc38080173396bce6aa2645fc7ef5cc06567ec5261f0ef",
+      "build/cpp/pycircuit_support.hpp": "bd5951e849351127ea7d349f0e7511a24b5c34949349a713b658ea7ba2237033",
+      "build/cpp/pycircuit_system.hpp": "21b9475f4cee11db28992c99e42e70420fa272d46f4ecf8e5e35ad16f725c8ce",
+      "build/cpp/sources/example_struct_pipeline/struct_pipeline.cpp": "22c3fda8219312f2a5536e87a3712db39c41cfa8c1131fabe0b43f7723d6f7cd",
+      "build/cpp/sources/example_struct_pipeline/struct_pipeline.hpp": "baac8dffed4130e8781d620ea75cdc087042a2d14685fd045a9b581425f6d61a",
+      "build/cpp/sources/example_struct_pipeline/struct_pipeline.source-map.json": "f7c25be9edc37d55a257970703c815e0ace8dab6f3d62ae0eac20dc89810ccf4",
+      "build/verilog/generated.json": "27ac072547a82ed9b7f9049e4106ca3c0a388926a790a82b52793b1f09e99b36",
+      "build/verilog/CMakeLists.txt": "95748b2ac15c65ee62f75a9b896a99da8778ef0f7dc63bbb4e8fe6674862f74a",
+      "build/verilog/design_top.sv": "14befbef46e9b814dc7a054282836648f2a9854f42188e798b8706726719301a",
+      "build/verilog/sources/example_struct_pipeline/struct_pipeline.source-map.json": "fb450fa6584e096716d0552572e2edfe1dc1ef88a25b53394e113a5569beedc2",
+      "build/verilog/sources/example_struct_pipeline/struct_pipeline.v": "3a3a94c4cd129fe35ca90da7219a36bbb287294e996c11702a8700af0e9863ce",
+      "build/struct_pipeline.ac": "a7298d63d3963b2a4af7c253aecd6b58fed75a532ee8ae92adb7f6af1cf2ea82",
+      "build/units/.struct_pipeline.pycircuit-publication/owner.json": "8e3f817ec928c56fa52cbcd9fe5687331a2f5852d56a0d4aaad4785feed4358a",
+      "build/units/struct_pipeline/struct_pipeline.ac": "e3f836c2e5f5cb370657e6aaa14a7c5a81a2ba3e0b6e10bceed4c89e8d51a48d",
+      "build/units/struct_pipeline/struct_pipeline.d": "ca6cc4db76d47e084ccec6a1605b5ce65fd56e7f86effa7bb59d2d8bbee2c12c",
+      "build/units/struct_pipeline/struct_pipeline.interface.ac": "edfb76c6e408dadd83cacb34e5632f8db51252b5b6318c32be50c2f54eeb634e",
+      "build/units/struct_pipeline/unit.json": "0b259051de20acc53275719f7b2ee884b9ba534fffb06a6601237ef74373f901",
+      "runtime-rtl/byte_mem.v": "dfc3f0fa362196fcfaa7bd771d4f85f26acade0e1dfeb0bc00a24d4161987cd2",
+      "runtime-rtl/dff.v": "325fb9039af507df3c94a26515dfcd8bb73f3812c1264df7b72bfe1af918bbb8",
+      "runtime-rtl/dffe.v": "1fc0bdac0c411ea87c00fc93127ebfba8ca12684a8fecee012a23362e0f8b89c",
+      "runtime-rtl/fifo.v": "8b2f0796fdd7c0f4aee3f20bd52226ccb532c827c8618afd9fbef99e2713f97f",
+      "runtime-rtl/sync_mem.v": "75731fcc0df8a01891e53589e75debc4cda9ec384262937047f21b11de7d7637",
+      "runtime-rtl/sync_mem_dp.v": "16ad11aa53d5f60291136b82a47bef9e21b312cd46ee8b8dfb338bb01c6bc3cc",
+      "runner": "0b9465a49a79dbcec8bf16ce39f86d5633bd792e5e6162db1b81e96e10010744"
+    },
+    "execution_sha256": "abe09b5fbc1b69b84516661bf77da2e93ceafcdf612d4d390e66efbce628910c",
+    "work_samples": 8989,
+    "native_check_records": 0,
+    "native_check_sha256": "01ba4719c80b6fe911b091a7c05124b64eeece964e09c058ef8f9805daca546b",
+    "workers": [
+      1,
+      2
+    ],
+    "rtl": "verilator",
+    "trace_sha256": "bf89cd88a2b628c1da566a47ed4925fc18ee0613343a97388732b5b45cb0a25f"
+  },
+  "excerpts": [
+    {
+      "path": "struct_pipeline.ac",
+      "line": 6,
+      "sha256": "a7298d63d3963b2a4af7c253aecd6b58fed75a532ee8ae92adb7f6af1cf2ea82"
+    },
+    {
+      "path": "cpp/sources/example_struct_pipeline/struct_pipeline.hpp",
+      "line": 40,
+      "sha256": "baac8dffed4130e8781d620ea75cdc087042a2d14685fd045a9b581425f6d61a"
+    },
+    {
+      "path": "verilog/sources/example_struct_pipeline/struct_pipeline.v",
+      "line": 1,
+      "sha256": "3a3a94c4cd129fe35ca90da7219a36bbb287294e996c11702a8700af0e9863ce"
+    }
+  ]
+}

@@ -9,7 +9,7 @@
     "schema": "pycircuit-example-verification-v1",
     "inputs": {
       "source/CMakeLists.txt": "edd820bfdd6bf443da454c3122801c25a4b3cefa782a95b59dd500482cb8a304",
-      "source/bench.py": "ab17bde0be6c7dd3a8bb18dec89565d6ebbab5b3c6afa7c343b513988362f6f6",
+      "source/bench.py": "77150727bfa2989c862badb062c29593b3a23882c703e45d31f050270bbe0582",
       "source/config.json": "2c83cf4c931dcd103a18a690763d485d39012eaac121873450c7ae77e107d553",
       "source/driver.cpp": "48f21046988e5377be8b417dd1089179e5793eafc8820c475aba0f9f5b0ddd9d",
       "source/four_state.py": "a01202c7eb95c7a45a377b7fdd229ea583abeceae07ef479309538fac65d17bc",
@@ -17,7 +17,7 @@
       "source/rtl_tb.sv": "9b04213d27e4962c67005c6e061f0720767733d160b59c37f56b33639af09bc7",
       "build/cpp/generated.json": "d2745d1ee5c9ac99395c5bb010eb878b4493c48af0b84c0409c239ed1d2e235f",
       "build/cpp/CMakeLists.txt": "588940f66edda405ae38eb793b5fb9330b3d2f95360fbd9400c6cca6ecb5ea69",
-      "build/cpp/pycircuit_support.hpp": "544def15815e0701107c3886a43cddeabcd4d435fca950df5df1dac7e9a2dcff",
+      "build/cpp/pycircuit_support.hpp": "c410298212a29faefae6783e7ec96ca58fc5b5146fed6ee0e0208cc0e4a34d1f",
       "build/cpp/pycircuit_system.hpp": "3f38c585c6d4902f2e2a44b44b5b6a8193521299645582de12b0c68908e2cfd1",
       "build/cpp/sources/example_recursive_aggregate_payload_pipeline/recursive_aggregate_payload_pipeline.cpp": "4b75a939a85dfdfdb0fe4b6242fa742605bbe3958798c40fbb88656a2e0df33f",
       "build/cpp/sources/example_recursive_aggregate_payload_pipeline/recursive_aggregate_payload_pipeline.hpp": "2ee6073828f271e3a8690f91be4c3ab542bb073fd2285272c4f4cde4297d1844",
@@ -30,7 +30,7 @@
       "build/recursive_aggregate_payload_pipeline.ac": "edd85d81ab4587aabfabe24bac3651aea2967e8f9cc88322e41341470814cf35",
       "build/units/.recursive_aggregate_payload_pipeline.pycircuit-publication/owner.json": "39a12c340c6a623b228f882a0bdb63eaaf48be5c882ded56a5bf49cb53d8a75e",
       "build/units/recursive_aggregate_payload_pipeline/recursive_aggregate_payload_pipeline.ac": "05946fcb755f9f1869581a38f56451f91ec7d17626f8ed89d3edd90512c21f3c",
-      "build/units/recursive_aggregate_payload_pipeline/recursive_aggregate_payload_pipeline.d": "01680e17f1918ca9613e6a10843ed1b2ce916730baef5f28c1b876b4a3142b8b",
+      "build/units/recursive_aggregate_payload_pipeline/recursive_aggregate_payload_pipeline.d": "d618940ff56f4ff905d2f663eef5d337775ed13d05a754caa81e76d5c9c972cd",
       "build/units/recursive_aggregate_payload_pipeline/recursive_aggregate_payload_pipeline.interface.ac": "3d4e56a1f52cc50d3a67445fe142a5d52d2c94f7bcc7636f0dcf8c64772d5365",
       "build/units/recursive_aggregate_payload_pipeline/unit.json": "d247ebe7a154ac68fb36d0d8a99d22526a33bb7db99729337fe0dfd40e2175ee",
       "runtime-rtl/byte_mem.v": "dfc3f0fa362196fcfaa7bd771d4f85f26acade0e1dfeb0bc00a24d4161987cd2",
@@ -39,9 +39,9 @@
       "runtime-rtl/fifo.v": "8b2f0796fdd7c0f4aee3f20bd52226ccb532c827c8618afd9fbef99e2713f97f",
       "runtime-rtl/sync_mem.v": "75731fcc0df8a01891e53589e75debc4cda9ec384262937047f21b11de7d7637",
       "runtime-rtl/sync_mem_dp.v": "16ad11aa53d5f60291136b82a47bef9e21b312cd46ee8b8dfb338bb01c6bc3cc",
-      "runner": "3dcc344bdca5ac7384d3306553a00e3440fda06064f831a9c2cd26b67d692bf7"
+      "runner": "47c88d20d0c134b53f95bf38efba3e9153a0cfd7e6d22aa8b0f341312fe36a03"
     },
-    "execution_sha256": "f651d6d0565a27b9a21fb4a3c1b680020f41ffeb41c847429acda09147e97e25",
+    "execution_sha256": "8a7229e365dfc67e2f5c3a4876ad5a8d27dd32bac11dde29d0c9439441fcbd5f",
     "work_samples": 615,
     "native_check_records": 0,
     "native_check_sha256": "01ba4719c80b6fe911b091a7c05124b64eeece964e09c058ef8f9805daca546b",

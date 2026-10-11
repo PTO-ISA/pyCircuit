@@ -8,7 +8,8 @@
   "verification": {
     "schema": "pycircuit-example-verification-v1",
     "inputs": {
-      "source/CMakeLists.txt": "b333e5e1a5a79a252f64e9bc917913cd426c098a958b926c0a84480732c1a9e4",
+      "source/CMakeLists.txt": "d30c2421cc3d3e93462a2717669a3bf07bc0e952d1cd1767b8fdcd8f3e7bb54f",
+      "source/bench.py": "5c2c2ef9c3390800cf8598049e3819888982f52a4fb6e1ed44677ef027ab718e",
       "source/config.json": "b31a83dbb4bd3ada5c57757904a58b9b9710544f1fb78fa80eb4ee2a82d2a840",
       "source/driver.cpp": "12b094b78c81fe30f9a99959736d2211acf65d9a32d2cfcab69f8f0d35516b38",
       "source/enum_payload_pipeline.py": "9b84f02f13c5b7cc275ca1bb0ae197b212083567a2c0c79b7568b7eaefffd03a",
@@ -16,10 +17,10 @@
       "source/rtl_tb.sv": "545ef21a3a6cd57e59d50febb65ed99b0a1228721d20a2c09c45826fd65de212",
       "build/cpp/generated.json": "fa7f5081f688619e84c2052679432e13dc99c553ea1ffd2ff81846aa1276dc7c",
       "build/cpp/CMakeLists.txt": "2088a0c1a541aa449c38a226e29a94af08efdca82decfa71c6fc9fdf70bc6655",
-      "build/cpp/pycircuit_support.hpp": "e983a564830f44216ef3e0bfdc8b6e3063c0de9bd048d1e60fd787f8d954a2c5",
+      "build/cpp/pycircuit_support.hpp": "c0803027b418b353418fca31b0484697bb7d82e3b9c9974b1360bdc370c9d85f",
       "build/cpp/pycircuit_system.hpp": "2dbaa72262634a1da5f829617e834968e03422777ff004537c7954bac838201c",
       "build/cpp/sources/example_enum_payload_pipeline/enum_payload_pipeline.cpp": "4a5434e86f9cca7345d8d1dcc5d47823dffd4f7a767f6dd3e70b3df01145c173",
-      "build/cpp/sources/example_enum_payload_pipeline/enum_payload_pipeline.hpp": "fdcea586776197911ef3657ca1a995e0042530c1d1be8c93ce09eb2bf6d2cf7b",
+      "build/cpp/sources/example_enum_payload_pipeline/enum_payload_pipeline.hpp": "e2fc0d22dd1c793cf080996166c107613961a34ed351bb6d79dfe347ebdc3844",
       "build/cpp/sources/example_enum_payload_pipeline/enum_payload_pipeline.source-map.json": "513e03076dd3357f6654e6e5bf345ad45efa44e9f2ac99d309c6d20ebd9d4b7d",
       "build/verilog/generated.json": "3ae03a71a1a048feb22998ed6cc3b605e32634473466a4b77b183a32b2191bed",
       "build/verilog/CMakeLists.txt": "5853aa0b512a8e879e6de134dbe8d20298971bb8e03cac8b6fca935f1d955014",
@@ -27,16 +28,23 @@
       "build/verilog/sources/example_enum_payload_pipeline/enum_payload_pipeline.source-map.json": "d77a4c9e0f6ee86e43f3b06ee9d285739121977a23678bc65822fe43abed2a8e",
       "build/verilog/sources/example_enum_payload_pipeline/enum_payload_pipeline.v": "f3a90bb18ce8706d09d73b9466cabba39a4080a67b45d5d7ebbc90ab6124cf16",
       "build/enum_payload_pipeline.ac": "457d8d345e22527e327df5b4b7f15d9337af9bfde4a4d079f2d1202287f16adc",
-      "runtime-rtl/byte_mem.v": "33bd9f73dd7cd17f3531cfd8c321762c214ad5df23b5376add212dadd38c47c2",
-      "runtime-rtl/dff.v": "e4f604bd03b9f1651ddbcd71e9ebb1cd8af45018caeab341728b35c14ec0f553",
-      "runtime-rtl/dffe.v": "9ae323530b72d152d10628de94923eaefa411b29e13c647de21bed8b0d73833b",
-      "runtime-rtl/fifo.v": "2dc4086ad3085bd67504caaac0565a3e676f87ce5411cc019fe8ef3a3bc43b23",
-      "runtime-rtl/sync_mem.v": "207b0fe22f029828ac90b50d2ce0aabbb01763231cd153883f31b581d03d68b7",
-      "runtime-rtl/sync_mem_dp.v": "44672a092661f3c218f71534d0d656a2d7d0bfdb03bc6b7a3394e2f13eea86d4",
-      "runner": "d981430b767516aac276e42cf647eb97b5c136ce0d064568283221a6b5d7b200"
+      "build/units/.enum_payload_pipeline.pycircuit-publication/owner.json": "4d636df2fedd06fa87572ba31426d65a2fb7c7f6dfb6a8e1be246b35778600a1",
+      "build/units/enum_payload_pipeline/enum_payload_pipeline.ac": "5a630ca31ee1cd7c6207c8c44f8ff161c9dc175e01322c14697759faeda993f5",
+      "build/units/enum_payload_pipeline/enum_payload_pipeline.d": "3a24c94ce8f337fbacfeb621bc6e8da8aa97d4c22a06270e268e234f4b826206",
+      "build/units/enum_payload_pipeline/enum_payload_pipeline.interface.ac": "c190f897d8d20e916182492d22d883001477460faa75fbd96018c29c811d9d3c",
+      "build/units/enum_payload_pipeline/unit.json": "fe2a17c1c2720f9eb35d06d55605050fd80f85c4e9c80e47fc80c90734dc8287",
+      "runtime-rtl/byte_mem.v": "dfc3f0fa362196fcfaa7bd771d4f85f26acade0e1dfeb0bc00a24d4161987cd2",
+      "runtime-rtl/dff.v": "325fb9039af507df3c94a26515dfcd8bb73f3812c1264df7b72bfe1af918bbb8",
+      "runtime-rtl/dffe.v": "1fc0bdac0c411ea87c00fc93127ebfba8ca12684a8fecee012a23362e0f8b89c",
+      "runtime-rtl/fifo.v": "8b2f0796fdd7c0f4aee3f20bd52226ccb532c827c8618afd9fbef99e2713f97f",
+      "runtime-rtl/sync_mem.v": "75731fcc0df8a01891e53589e75debc4cda9ec384262937047f21b11de7d7637",
+      "runtime-rtl/sync_mem_dp.v": "16ad11aa53d5f60291136b82a47bef9e21b312cd46ee8b8dfb338bb01c6bc3cc",
+      "runner": "d0893278c00cfe5547320e5fce5ffb8ecda99be4effdb6212031a64dc65ed33f"
     },
-    "execution_sha256": "4bd61b0e81fd3eeacdd27c92bfa8d499fb3a10c43af5e99811ef27c154c5f890",
+    "execution_sha256": "becae1e42788894b65411b8f2800b03c45678debfd37e57056a434d72053e042",
     "work_samples": 603,
+    "native_check_records": 0,
+    "native_check_sha256": "01ba4719c80b6fe911b091a7c05124b64eeece964e09c058ef8f9805daca546b",
     "workers": [
       1,
       2
@@ -52,8 +60,8 @@
     },
     {
       "path": "cpp/sources/example_enum_payload_pipeline/enum_payload_pipeline.hpp",
-      "line": 38,
-      "sha256": "fdcea586776197911ef3657ca1a995e0042530c1d1be8c93ce09eb2bf6d2cf7b"
+      "line": 40,
+      "sha256": "e2fc0d22dd1c793cf080996166c107613961a34ed351bb6d79dfe347ebdc3844"
     },
     {
       "path": "verilog/sources/example_enum_payload_pipeline/enum_payload_pipeline.v",

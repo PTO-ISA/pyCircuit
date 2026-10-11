@@ -32,11 +32,6 @@ lanes and selected; each arithmetic field becomes all X if that field contains
 X/Z. Tests leave only the latent value of computed unknown arithmetic unconstrained.
 Copied X/Z bits retain their latent value planes exactly.
 
-The separate bench.py system contains 48 literal stimulus/expected phases derived
-from an independent two-slot model. It retains both original payload values and
-adds regular-clock wrap/stall/drain checks. Physical clock/reset and four-state
-scenarios remain in the independent host and RTL assets.
-
 Build and run through the shared example framework:
 
 ```sh
@@ -46,4 +41,74 @@ cmake --build /absolute/build/aggregate_payload_pipeline --parallel 4
 ctest --test-dir /absolute/build/aggregate_payload_pipeline --output-on-failure --no-tests=error
 ```
 
-These assets describe required checks; their presence is not execution evidence.
+Run these commands to reproduce the module, system and four-state checks.
+
+## Scenario bench
+
+`bench.py` stores all 48 original scenarios in an immutable typed Table. Its
+18-field, 60-bit `Stimulus` retains the original schema, field order and complete
+input/expected payloads. Row 48 is all zero, preserving the helper fallback
+for every known u16 phase from 48 through 65,535. This is distinct from the
+system counter, which holds at 47. The run still lasts 48 cycles.
+
+The constructor preserves Pair first3/second5, input lane order 0/1/2/3 and the
+independent incoming selected field. Lane rotation and selection happen only in
+the DUT; inputs are not pre-rotated or replaced by expected results. Each output
+lane retains its own indexed assertion. The original execution histories above
+remain separate verification assets.
+
+The complete advance and system bodies are unchanged, including unconditional
+assertions, log order and advance-before-check registration. Independent source
+checks compare all 1,179,648 field values across the known-u16 helper domain.
+Twenty complete native and RTL traces match all 960 observations and the
+terminal result after excluding only changed source-position metadata, including
+native workers 1 and 2. Baseline and compact versions each pass all three
+standalone tests. See the module [excerpts and receipt](GENERATED.md).
+
+Original physical drivers retain 645 known and 329 four-state Work samples,
+with their reset, held-clock, conservation and original-history checks. The
+existing four-state CTest executes Icarus; no supplemental test path is needed.
+The regular-clock system does not replace those scenarios, and known-u16 source
+proof does not establish arbitrary X/Z-phase equivalence.
+
+## Local cost comparison
+
+The source shrinks from 845 lines / 23,076 bytes to
+162 lines / 16,205 bytes. Measurements use the same checkout-built
+compiler, LLVM 22 C++ toolchain and `-O0` on one machine. Compile, link, emit,
+build and first-run values are single serial observations; warm medians use
+three alternating full-length pairs. Every fresh process includes initialization.
+These local results do not guarantee performance on other platforms or
+optimization levels.
+
+| Measurement | Expanded cases | Typed Table |
+| --- | ---: | ---: |
+| Compile bench | 0.616 s | 0.508 s |
+| Link system | 1.067 s | 0.973 s |
+| Emit C++ | 0.956 s | 0.996 s |
+| Emit Verilog | 0.817 s | 0.756 s |
+| Build C++ | 0.891 s | 0.906 s |
+| Build Verilog | 1.456 s | 1.539 s |
+| First measured full C++ run | 0.170 s | 0.279 s |
+| First measured full Verilog run | 0.124 s | 0.262 s |
+| Warm C++ median, one worker | 0.038469 s | 0.014390 s |
+| Warm Verilog median | 0.012745 s | 0.012549 s |
+| Warm native peak RSS median | 2.69 MiB | 2.41 MiB |
+
+| Artifact size | Expanded cases | Typed Table |
+| --- | ---: | ---: |
+| Final IR | 3,985,778 bytes | 3,339,472 bytes |
+| Generated C++ total | 1,033,884 bytes | 987,215 bytes |
+| Generated Verilog total | 240,356 bytes | 199,340 bytes |
+
+Single C++ emission/build and first native/RTL run costs increase despite the lower native warm median and smaller artifacts. The table retains these regressions; this is not an across-the-board improvement.
+
+Three warm pairs do not establish statistical significance for small RTL changes.
+Complete source-import/transformed artifacts reproduce the published units, and
+the public and measured builds share identical final IR and generated outputs.
+DUTs, drivers, configuration, cycle limits and timeouts remain unchanged.
+
+```sh
+pycircuit run examples/aggregate_payload_pipeline --target cpp --cycles 48
+pycircuit run examples/aggregate_payload_pipeline --target verilog --cycles 48
+```

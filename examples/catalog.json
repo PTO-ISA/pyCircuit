@@ -367,6 +367,7 @@
       "name": "struct_pipeline",
       "folder": "examples/struct_pipeline",
       "source": "struct_pipeline.py",
+      "generated": "GENERATED.json",
       "system": "StructPipelineSystem",
       "system_source": "bench.py",
       "system_cycles": 184,
