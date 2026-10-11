@@ -1,6 +1,6 @@
 # ACPy 前端语义
 
-本阶段的完整语义以 [rule 图设计](../rule-graph-spec.md) 为准，编译命令和支持边界见 [编译器 README](../pycircuit/README.md)。Python 只作为静态 AST 输入，不执行任意宿主代码。
+本文描述当前已经实现的前端写法，编译命令和支持边界见 [编译器 README](../pycircuit/README.md)。后续重构目标见 [ACIR 基础设计](../acir/basic-design.md)；其中删除 Queue revise 和原生结构操作等变更尚未全部落实。Python 只作为静态 AST 输入，不执行任意宿主代码。
 
 `@ac.module def` 的函数体声明资源、实例、组合值并选择 rule。构造调用绑定具体实例，`m.state` 和 `m.method(...)` 分别访问状态和公开 method，`m.outputs` 访问固定返回结构。声明的实例通过本地 import/from-import/别名共享；重新构造获得独立身份。资源身份与读取所得 SSA 值分开。层次路径用点分隔，保留名字中的下划线，例如 `a.b.state` 与 `a_b.state` 身份不同。helper/guard 捕获定义所属组件的环境，不捕获调用者的同名参数。
 
@@ -92,4 +92,4 @@ Module 的条件、参数和共享表达式保留 SSA/CFG，状态读取不移�
 
 固定一维 Queue 阵列沿用 `ac.array(ac.queue[T], shape=(N,), ...)` 或固定 Queue 列表。常量下标精确识别，动态下标保守覆盖可能元素。普通 `for ... in range(...)` 保存 CFG；构造资源的常量循环在静态阶段展开。定宽类型、结构体和 payload 数组保持原有表达能力。
 
-不实现运行时 Signal 激活生命周期、运行时仲裁、Xfer 或 GFSim lowering。历史 CPU 源码可作为后续移植参考，不定义当前编译语义。
+当前仅实现静态编译和依赖分析，不提供运行时激活、仲裁或执行后端。

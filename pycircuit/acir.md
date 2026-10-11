@@ -1,5 +1,7 @@
 # ACIR MLIR v6
 
+本文描述当前已经实现的保存格式。后续原生结构与组件 primitive 的目标见 [ACIR 基础设计](../acir/basic-design.md)，尚未全部实现。
+
 MLIR 是唯一可独立重载的程序表示，不保存 Python AST，也不依赖 JSON 图恢复计算。注册 dialect 使用 `func`、`arith`、`cf` 保存计算、函数调用、SSA 块参数、分支和循环。v3/v4/v5 产物必须从 Python 源码重新编译，编译器拒绝继续使用旧格式语义。
 
 `module` 的 `acir.model` 保存版本、top、配置、payload 类型、导出连接、实例层次和源组件契约表 `contracts`。契约有稳定 `id`、公开 `methods`、`relations`；每条关系保存 `before`、`after`、`relation="SB"`、`source` 和来源。关系表没有 `when`、ready、guard 或路径条件。未声明且未推导出必要顺序的接口对默认 CF。
