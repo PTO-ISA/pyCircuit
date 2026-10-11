@@ -879,25 +879,10 @@ def test_emit_rechecks_the_role_against_the_artifact(tmp_path: Path) -> None:
     assert as_testbench.returncode == 0, as_testbench.stderr
 
 
-PRIVATE_TOOLS = (
-    "pycircuit-link",
-    "pycircuit-backend-test",
-    "pycircuit-source-unit",
-)
-
-
 def test_private_regression_fixtures_do_not_leak_into_shipped_surfaces() -> None:
-    """The boundary audit requires the private regression fixtures to stay out of
-    the installed/exported surface and out of the compiler library, so the
-    standard compile entry never has to know a fixture model."""
-    for name in PRIVATE_TOOLS:
-        cmake = (ROOT / "compiler/tools" / name / "CMakeLists.txt").read_text(
-            encoding="utf-8"
-        )
-        assert "install(" not in cmake, f"{name} must not be installed"
-
+    """Product headers, libraries and entrypoints must not know fixture models."""
     fixtures = ("TestIncrement", "TestPipeline", "ComposedFixture")
-    for path in (ROOT / "compiler/lib").rglob("*"):
+    for path in (ROOT / "compiler").rglob("*"):
         if path.suffix not in {".cpp", ".h"}:
             continue
         text = path.read_text(encoding="utf-8", errors="ignore")

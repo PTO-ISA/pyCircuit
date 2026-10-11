@@ -5,6 +5,10 @@ owning tests before the current API migration. Each inert `.txt` file retains
 its original SHA-256 and byte count. Tests do not load these original sources
 or use the manifest to derive hardware results.
 
+Copies are grouped by fixture family: `public-driver/`, `publication-recovery/`,
+`sdk-relocation/` and `system/`. Manifest keys preserve the original repository
+paths; `inert_copy` paths are relative to this directory.
+
 The active three-unit public-driver and SDK closures use a published nominal
 `CounterResult`, an ordinary typed `Counter` module and a genuine parent
 `@system`. Every original old-Q output and count expectation remains checked;

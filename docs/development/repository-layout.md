@@ -52,7 +52,7 @@ compiler/
   lib/Compiler/                 source resolution, lowering, link and emit
   lib/Dialect/ACIR/              common hardware types, operations and verification
   lib/Transforms/               MLIR transformations
-  tools/                        native compiler entrypoints
+  tools/                        source-unit.cpp, link.cpp, emit.cpp, opt.cpp
   cmake/AddACIR.cmake            compiler-private library helper
 include/
   gfsim/                        installed Runtime headers and templates
@@ -62,6 +62,13 @@ runtime/                        compiled Runtime implementation
 
 `python/pycircuit/` is the importable Python package. Package discovery starts
 at `python/`; redundant project and `src` wrapper layers are removed.
+The remaining `pycircuit` directory supplies the `import pycircuit` namespace.
+Likewise, `compiler/include/pycircuit/` supplies the installed C++/TableGen
+include namespace. These names are public interfaces.
+
+Native command sources live directly in `compiler/tools/`, with one CMake file
+declaring the four executables. Their installed `pycircuit-*` command names
+remain stable; source directories do not repeat those names.
 
 `include/gfsim/` and `runtime/` jointly implement the Runtime component:
 one contains public headers/templates, the other compiled sources. Moving them
@@ -98,6 +105,9 @@ The `history_*` oracle folders and `package-fixture-originals/` snapshots are
 intentional verification assets. Their manifests preserve original behavior and
 provenance; they are not alternate product implementations. Do not combine an
 independent expected model with the DUT merely because the files look similar.
+The inert package snapshots are grouped directly by fixture family under
+`package-fixture-originals/`. Their manifest retains original repository paths
+and content hashes without reproducing the old repository hierarchy on disk.
 
 Examples stay flat under `examples/<design>/`. Each folder owns its source,
 standalone build, stimulus and oracle. Repeated small `config.json` files support
